@@ -1,0 +1,32 @@
+name: seforim_library_updater
+description: >-
+  חבילת Flutter לצריכת הפצות הדלתא של Otzaria/SeforimLibrary — גילוי, תכנון
+  מסלול, הורדה, אימות hash לוגי, והחלה אטומית של הפרשי DB.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.2.6 <4.0.0"
+  flutter: ">=3.19.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  equatable: ^2.0.8
+  crypto: ^3.0.7
+  path: ^1.9.1
+  http: ^1.6.0
+  sqlite3: ^3.3.3
+  # מספק את ספריות ה-native של sqlite3 עבור Android/iOS/macOS/Windows/Linux,
+  # כך שלא צריך להסתמך על ספריית מערכת מותקנת מראש (נדרש בהקשר של Flutter).
+  sqlite3_flutter_libs: ^0.5.24
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  test: ^1.30.1
+  flutter_lints: ^4.0.0
+
+flutter:
+  # אין assets/פונטים משלה — זו חבילת לוגיקה טהורה (ללא widgets).
+  # הסעיף קיים כדי לסמן את החבילה כ-Flutter package לכלי ה-pub/IDE.

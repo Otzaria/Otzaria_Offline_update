@@ -1,0 +1,95 @@
+Personal Use License
+Version 1.0
+
+Copyright (c) 2026 Otzaria Project (אוצריא)
+All rights reserved.
+
+
+SCOPE
+-----
+This license applies ONLY to the ORIGINAL software created by the Otzaria
+Project for this repository — including its source code, build scripts,
+assets, configuration, and any other content not stated to be otherwise
+licensed.
+
+This license does NOT apply to third-party components used by or bundled
+with this software (libraries, packages, fonts, images, and other
+dependencies). Those components remain subject to their own respective
+licenses. It likewise does NOT apply to the texts (books) and library
+data, which are distributed separately and remain subject to their own
+respective licenses and permissions. Nothing in this license grants,
+restricts, or modifies any rights in those third-party components or
+texts.
+
+
+1. Personal Use Permission
+Permission is granted to an individual natural person to download, run,
+study, and modify the original software covered by this license solely
+for that person's own private, personal, and non-commercial use.
+
+2. No Public Use
+Without prior express written permission from the copyright holder, you
+may not use the covered software, or any modified or derivative version
+of it, in any product, project, service, platform, website, application,
+plugin, library, API, bot, database, or other system that is made
+available to, distributed to, or used for the benefit of any third party
+or members of the public.
+
+This restriction applies whether the public use is commercial,
+non-commercial, charitable, educational, open-source, freeware, paid, or
+provided without charge.
+
+3. No Distribution
+You may not copy, publish, redistribute, sublicense, sell, lend,
+transfer, upload, mirror, or otherwise make the covered software, its
+source code, compiled versions, modified versions, or derivative works
+available to any other person or entity.
+
+4. No Organizational Use
+No company, organization, association, institution, nonprofit, charity,
+educational institution, government body, community, or other legal
+entity may use the covered software — including for internal purposes —
+without prior express written permission from the copyright holder.
+
+5. Private Modifications
+You may create modifications solely for your own permitted personal use.
+You may not publish, distribute, contribute, submit, or make those
+modifications available to others without prior express written
+permission.
+
+6. Attribution
+Any permitted use, copy, modification, or derivative work of the covered
+software — including ingestion, training, processing, or reuse by
+language models (LLMs) or any other automated system — requires clear
+credit to the Otzaria Project (otzaria.org).
+
+This attribution is an integral part of the license terms, and the
+obligation to give credit remains in force even after a separate
+permission to use the software has been granted.
+
+7. Permission for Other Uses
+Any use not expressly permitted by this license requires prior express
+written permission from the copyright holder.
+Permission may be requested by contacting: otzaria.1@gmail.com
+
+8. Third-Party Components
+Third-party components included in or used by this software remain
+subject to their respective licenses, as described in the SCOPE section
+above.
+
+9. No Warranty
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES,
+OR OTHER LIABILITY ARISING FROM THE SOFTWARE OR ITS USE.
+
+
+PRIOR VERSIONS
+--------------
+Versions of the original software released before this license took
+effect were licensed under the GNU General Public License version 3.0
+(GPL-3.0). Copies obtained under that license remain available to their
+recipients under GPL-3.0; those previously granted rights are not
+revoked. This Personal Use License applies to the current and all later
+versions of the original software.
