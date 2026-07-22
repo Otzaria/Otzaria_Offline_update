@@ -1,5 +1,10 @@
 # seforim_library_updater
 
+> **מבנה הרפו:** ה‑package הראשי (`seforim_library_updater`) יושב ב‑root, כמו קודם. בתיקיית
+> [`otzaria_manager/`](otzaria_manager) יושב package נוסף, נפרד, לניהול עדכון/התקנה/הפעלה של
+> **אפליקציית אוצריא עצמה** (לא ה‑DB) — חלק ממיזם לאנצ'ר מאוחד. לשני ה‑packages יש `pubspec.yaml`
+> משלהם; אין תלות בין השניים.
+
 חבילת **Flutter** לצריכת הפצות הדלתא של [`Otzaria/SeforimLibrary`](https://github.com/Otzaria/SeforimLibrary).
 
 החבילה היא צד‑הלקוח של פורמט ההפצה: היא מגלה גרסאות ב‑GitHub Releases, בוחרת מסלול עדכון
