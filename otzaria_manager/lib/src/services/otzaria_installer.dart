@@ -5,36 +5,45 @@ import 'package:path/path.dart' as p;
 
 import '../models/otzaria_install_state.dart';
 import '../models/otzaria_release.dart';
+import 'otzaria_exe_locator.dart';
 
 /// מוריד את ה-installer של אוצריא (Inno Setup, נבדק ידנית מול גרסה
-/// אמיתית מה-releases) ומתקין אותו בשקט לתוך תיקייה מנוהלת קבועה, כדי
-/// שנדע תמיד בוודאות איפה התוכנה יושבת.
+/// אמיתית מה-releases) ומתקין אותו בשקט לתוך תיקייה נתונה.
 ///
-/// חשוב: מבוסס על הנחה מאומתת (strings על installer אמיתי) ש-Inno Setup
-/// הוא ה-framework, ולכן דגלי השקט (/VERYSILENT וכו') ונתיב ההתקנה
-/// (/DIR=) הם דגלי Inno Setup הסטנדרטיים. אם המפתח (Sivan22) יחליף
-/// framework בעתיד, הדגלים האלה יפסיקו לעבוד ויהיה צריך לעדכן.
+/// חשוב: מבוסס על הנחה מאומתת (strings + innoextract על installer אמיתי)
+/// ש-Inno Setup הוא ה-framework, ולכן דגלי השקט (/VERYSILENT וכו') ונתיב
+/// ההתקנה (/DIR=) הם דגלי Inno Setup הסטנדרטיים. אם המפתח (Sivan22)
+/// יחליף framework בעתיד, הדגלים האלה יפסיקו לעבוד ויהיה צריך לעדכן.
 class OtzariaInstaller {
   OtzariaInstaller({
-    required this.managedInstallDir,
+    required this.defaultInstallDir,
     http.Client? httpClient,
-  }) : _httpClient = httpClient ?? http.Client();
+    OtzariaExeLocator? exeLocator,
+  })  : _httpClient = httpClient ?? http.Client(),
+        _exeLocator = exeLocator ?? const OtzariaExeLocator();
 
-  /// התיקייה הקבועה שבה אנחנו מנהלים את התקנת אוצריא (למשל
-  /// `<data>/otzaria-app`). תמיד אותה תיקייה, כדי שגילוי ה-exe אחרי
-  /// עדכון יהיה פשוט וצפוי.
-  final String managedInstallDir;
+  /// התיקייה שאליה מתקינים כשלא נבחרה תיקייה אחרת במפורש (למשל
+  /// `<data>/otzaria-app`) — ה"מיקום ברירת המחדל" של הלאנצ'ר עצמו.
+  final String defaultInstallDir;
 
   final http.Client _httpClient;
+  final OtzariaExeLocator _exeLocator;
 
   /// מוריד ומתקין release נתון. מחזיר את מצב ההתקנה החדש (לשמירה על ידי
   /// הקורא, דרך [OtzariaStateStore]).
   ///
+  /// [targetInstallDir] מאפשר להתקין לתיקייה שאינה [defaultInstallDir] —
+  /// למשל כשהמשתמש כבר הצביע בעבר על תיקיית התקנה קיימת משלו
+  /// ([OtzariaManager.adoptExistingInstall]), ורוצים לעדכן אותה במקום,
+  /// לא ליצור התקנה שנייה בתיקייה המנוהלת.
+  ///
   /// [onDownloadProgress] מדווח (received, total) בזמן ההורדה.
   Future<OtzariaInstallState> downloadAndInstall({
     required OtzariaRelease release,
+    String? targetInstallDir,
     void Function(int received, int total)? onDownloadProgress,
   }) async {
+    final installDir = targetInstallDir ?? defaultInstallDir;
     final tempDir = await Directory.systemTemp.createTemp('otzaria-installer-');
     final installerPath = p.join(tempDir.path, release.windowsInstallerAssetName);
 
@@ -46,16 +55,17 @@ class OtzariaInstaller {
         onProgress: onDownloadProgress,
       );
 
-      await Directory(managedInstallDir).create(recursive: true);
-      await _runSilentInstall(installerPath);
+      await Directory(installDir).create(recursive: true);
+      await _runSilentInstall(installerPath, installDir);
 
       final exePath = await _waitForInstalledExe(
+        installDir: installDir,
         timeout: const Duration(minutes: 3),
       );
 
       return OtzariaInstallState(
         installedTagName: release.tagName,
-        installDir: managedInstallDir,
+        installDir: installDir,
         exePath: exePath,
       );
     } finally {
@@ -101,15 +111,15 @@ class OtzariaInstaller {
     }
   }
 
-  Future<void> _runSilentInstall(String installerPath) async {
+  Future<void> _runSilentInstall(String installerPath, String installDir) async {
     // /VERYSILENT + /SUPPRESSMSGBOXES: אין UI בכלל, כולל תיבות שגיאה.
     // /NORESTART: לא להפעיל מחדש את המחשב גם אם ה-installer "רוצה".
-    // /DIR=: נתיב התקנה קבוע, כדי שנדע איפה לחפש את ה-exe אחר כך.
+    // /DIR=: נתיב התקנה מפורש, כדי שנדע איפה לחפש את ה-exe אחר כך.
     final args = [
       '/VERYSILENT',
       '/SUPPRESSMSGBOXES',
       '/NORESTART',
-      '/DIR=$managedInstallDir',
+      '/DIR=$installDir',
     ];
 
     final result = await Process.run(installerPath, args);
@@ -127,37 +137,23 @@ class OtzariaInstaller {
     // סיום התהליך.
   }
 
-  Future<String> _waitForInstalledExe({required Duration timeout}) async {
+  Future<String> _waitForInstalledExe({
+    required String installDir,
+    required Duration timeout,
+  }) async {
     final deadline = DateTime.now().add(timeout);
 
     while (DateTime.now().isBefore(deadline)) {
-      final found = await _findInstalledExe();
+      final found = await _exeLocator.findExeIn(installDir);
       if (found != null) return found;
       await Future<void>.delayed(const Duration(seconds: 2));
     }
 
     throw StateError(
-      'לא נמצא קובץ הפעלה (.exe) בתוך $managedInstallDir תוך '
+      'לא נמצא קובץ הפעלה (.exe) בתוך $installDir תוך '
       '${timeout.inSeconds} שניות מסיום ה-installer. ייתכן שההתקנה עדיין '
       'רצה ברקע, או שנתיב ההתקנה השתנה בגרסה חדשה של ה-installer.',
     );
-  }
-
-  /// סורק את תיקיית ההתקנה המנוהלת ומחפש את קובץ ה-exe הראשי. לא מניחים
-  /// שם קבוע (otzaria.exe) כדי להישאר עמידים אם זה ישתנה — פוסלים רק את
-  /// uninstall-*.exe/unins*.exe שה-installer עצמו יוצר.
-  Future<String?> _findInstalledExe() async {
-    final dir = Directory(managedInstallDir);
-    if (!await dir.exists()) return null;
-
-    await for (final entity in dir.list(recursive: true, followLinks: false)) {
-      if (entity is! File) continue;
-      final name = p.basename(entity.path).toLowerCase();
-      if (!name.endsWith('.exe')) continue;
-      if (name.startsWith('unins')) continue;
-      return entity.path;
-    }
-    return null;
   }
 
   void close() => _httpClient.close();
