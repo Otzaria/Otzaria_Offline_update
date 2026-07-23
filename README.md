@@ -3,7 +3,9 @@
 > **מבנה הרפו:** ה‑package הראשי (`seforim_library_updater`) יושב ב‑root, כמו קודם. בתיקיות
 > [`otzaria_manager/`](otzaria_manager) ו-[`library_manager/`](library_manager) יושבים packages נוספים,
 > נפרדים, לניהול עדכון/התקנה/הפעלה של **אפליקציית אוצריא עצמה** ולחיווט המסד לתוך לאנצ'ר מאוחד,
-> בהתאמה — חלק ממיזם לאנצ'ר מאוחד. לכל package יש `pubspec.yaml` משלו.
+> בהתאמה — חלק ממיזם לאנצ'ר מאוחד. [`launcher_app/`](launcher_app) הוא אפליקציית ה-Flutter
+> (Windows desktop) שמחווטת את שני המודולים האלה לדשבורד אחד (חנות התוספים עדיין placeholder).
+> לכל package יש `pubspec.yaml` משלו.
 
 חבילת **Flutter** לצריכת הפצות הדלתא של [`Otzaria/SeforimLibrary`](https://github.com/Otzaria/SeforimLibrary).
 
