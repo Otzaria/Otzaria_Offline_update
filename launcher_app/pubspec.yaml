@@ -12,6 +12,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  seforim_library_updater:
+    path: ../
   otzaria_manager:
     path: ../otzaria_manager
   library_manager:

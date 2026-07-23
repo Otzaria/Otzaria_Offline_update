@@ -30,14 +30,17 @@
 - `services/library_db_locator.dart` — איתור נתיב ה-DB (custom → ברירת מחדל → null).
 - `services/library_state_store.dart` — שמירת נתיב מותאם אישית.
 - `services/otzaria_process_guard.dart` — בדיקת "האם אוצריא רצה" דרך `tasklist`.
-- `services/zstd_decompressor.dart` — מימוש `decompress` הנדרש על ידי `PatchDownloader`, דרך `package:archive`.
+- `services/zstd_decompressor.dart` — מימוש `decompress` הנדרש על ידי `PatchDownloader`, דרך `package:zstandard` (אותה חבילה שאוצריא עצמה כבר משתמשת בה).
 - `library_manager.dart` — האורקסטרטור: `checkForUpdate()` / `applyUpdate()`.
 
 ## ⚠️ מה עדיין לא מאומת / סיכונים ידועים
 
-1. **חילוץ zstd לא נבדק בפועל** — `package:archive`'s `ZstdDecoder` לא
-   הורץ כאן (אין Windows/Flutter בסביבה הזו). אם החילוץ נכשל/מתנהג
-   אחרת, כל מסלול ה-delta (ואילך fullDownload) לא יעבוד.
+1. **חילוץ zstd לא נבדק עדיין בפועל בהקשר הזה** — הוחלף מ-`package:archive`
+   (שגיאת סבב קודם: `ZstdDecoder` כלל לא קיים ב-`archive` — היא תומכת רק
+   ב-zip/tar/bzip2/gzip/zlib) ל-`package:zstandard`, **אותה חבילה
+   שאוצריא עצמה כבר משתמשת בה בפועל** ב-`main.dart:1112` (binding native
+   אמיתי ל-libzstd, כולל Windows). סיכוי גבוה שזה יעבוד נכון, אבל טרם
+   הורץ end-to-end מתוך `library_manager` על patch אמיתי.
 2. **מסלול ה-DB המלא (fullDownload) מחלץ zstd בזיכרון, על כל הבייטים
    בבת אחת** (`File.readAsBytes` + `ZstdDecoder().decodeBytes`) — ה-DB
    המלא מתועד כ-~1.1GB דחוס (ראו התיעוד המקורי של `PatchDownloader`
@@ -45,7 +48,8 @@
    `downloadToFile` עצמו סטרימינג לדיסק (בסדר), אבל שלב החילוץ
    שאחריו **אינו** streaming כרגע. אם זה מתברר כבעייתי, יש להחליף
    לחילוץ streaming (למשל דרך קריאה ל-`zstd.exe` חיצוני, או binding
-   native ל-libzstd) — לא ל-`package:archive` כמו שכתוב כרגע.
+   native ישיר ל-libzstd עם ממשק streaming) — לא ה-API הנוכחי של
+   `package:zstandard` (בזיכרון בלבד, לא streaming).
 3. **`_allowPrerelease = true` כברירת מחדל** עבור releases של
    `Otzaria/SeforimLibrary` (המסד) — זו **לא** אותה החלטה שהתקבלה עם
    המשתמש לגבי `otzaria_manager` (שם ההחלטה הייתה מפורשת, כי ריפו

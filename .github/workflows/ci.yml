@@ -65,4 +65,5 @@ jobs:
       - run: flutter create --platforms=windows .
       - run: flutter pub get
       - run: flutter analyze
+      - run: flutter test
       - run: flutter build windows --release

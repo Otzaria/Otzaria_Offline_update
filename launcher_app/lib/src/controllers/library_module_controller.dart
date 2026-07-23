@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:library_manager/library_manager.dart';
+import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 enum LibraryModuleStatus {
   idle,
