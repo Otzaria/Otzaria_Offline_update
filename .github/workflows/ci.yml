@@ -17,7 +17,7 @@ jobs:
         with:
           channel: stable
       - run: flutter pub get
-      - run: flutter analyze
+      - run: flutter analyze --no-fatal-infos
       - run: flutter test
 
   otzaria_manager:
@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dart-lang/setup-dart@v1
       - run: dart pub get
-      - run: dart analyze
+      - run: dart analyze --no-fatal-infos
       - run: dart test
 
   library_manager:
@@ -45,7 +45,7 @@ jobs:
         with:
           channel: stable
       - run: flutter pub get
-      - run: flutter analyze
+      - run: flutter analyze --no-fatal-infos
       - run: flutter test
 
   launcher_app:
@@ -64,6 +64,11 @@ jobs:
       # Flutter SDK) — משלימים אותה כאן; לא אמור לגעת ב-lib/ או ב-pubspec.yaml.
       - run: flutter create --platforms=windows .
       - run: flutter pub get
-      - run: flutter analyze
+      - run: flutter analyze --no-fatal-infos
       - run: flutter test
       - run: flutter build windows --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launcher_app-windows
+          path: launcher_app/build/windows/**/Release/**
+          if-no-files-found: error

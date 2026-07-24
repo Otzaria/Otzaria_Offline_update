@@ -173,7 +173,7 @@ class PatchApplier {
           onProgress: verifyProgress,
         );
         if (localHash != manifest.fromContentHash) {
-          throw PatchApplyException(
+          throw const PatchApplyException(
             'ה-DB המקומי שונה מהצפוי — hash לא תואם ל-fromContentHash. '
             'נדרשת הורדה מלאה.',
           );

@@ -4,7 +4,7 @@ import 'package:test/test.dart';
 void main() {
   group('ReleaseAsset.fromJson', () {
     test('מפרסר id/updated_at/digest כשקיימים', () {
-      final asset = ReleaseAsset.fromJson({
+      final asset = ReleaseAsset.fromJson(const {
         'name': 'seforim.db.zst',
         'browser_download_url': 'https://x/seforim.db.zst',
         'size': 1197000000,
@@ -21,7 +21,7 @@ void main() {
     });
 
     test('סובל היעדר של id/updated_at/digest (null)', () {
-      final asset = ReleaseAsset.fromJson({
+      final asset = ReleaseAsset.fromJson(const {
         'name': 'seforim.db.zst',
         'browser_download_url': 'https://x/seforim.db.zst',
         'size': 100,

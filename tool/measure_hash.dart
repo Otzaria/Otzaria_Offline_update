@@ -1,5 +1,6 @@
 // כלי אבחון זמני: מודד לכל טבלה ב-hash את תוכנית השאילתה (מיון?), מספר השורות,
 // הבתים והזמן — לזיהוי הטבלה שתוקעת את verifyToHash. אינו חלק מה-API.
+// ignore_for_file: avoid_print — כלי CLI אבחוני; ההדפסה היא הפלט המיועד שלו.
 import 'dart:io';
 import 'dart:typed_data';
 

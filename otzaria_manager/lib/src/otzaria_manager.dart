@@ -55,10 +55,7 @@ class OtzariaManager {
   Future<OtzariaUpdateCheckResult> checkForUpdate() async {
     final latest = await _releaseClient.fetchLatestRelease();
     var current = await _stateStore.load();
-
-    if (current == null) {
-      current = await detectExistingInstall(customDir: _defaultInstallDir);
-    }
+    current ??= await detectExistingInstall(customDir: _defaultInstallDir);
 
     return OtzariaUpdateCheckResult(latestRelease: latest, currentState: current);
   }
