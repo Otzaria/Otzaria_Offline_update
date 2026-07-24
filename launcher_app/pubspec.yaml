@@ -28,6 +28,17 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  inno_bundle: any
 
 flutter:
   uses-material-design: true
+
+# הגדרות ל-inno_bundle (https://pub.dev/packages/inno_bundle): עוטף את
+# תיקיית build/windows/.../Release כולה (exe + DLLs + נתונים) לתוך קובץ
+# EXE יחיד להתקנה/הפצה, דרך Inno Setup.
+# ⚠️ id הוא GUID קבוע — נוצר פעם אחת כאן ואסור לשנות אותו בעתיד (אחרת
+# מנגנון העדכון של המתקין יתייחס לזה כאפליקציה אחרת).
+inno_bundle:
+  id: efe99035-e4db-465a-926d-ac0b80fa4db1
+  publisher: Yehuda-Zakesh
+  name: "לאנצ'ר אוצריא"

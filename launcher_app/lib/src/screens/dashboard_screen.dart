@@ -25,11 +25,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     _otzaria = OtzariaModuleController(dataDir: widget.dataDir)..addListener(_onChange);
     _library = LibraryModuleController(dataDir: widget.dataDir)..addListener(_onChange);
-    _otzaria.checkForUpdate();
-    _library.checkForUpdate();
+    _syncOtzaria();
+    _syncLibrary();
   }
 
   void _onChange() => setState(() {});
+
+  /// בודק עדכון ל-אוצריא, ואם יש — מוריד ומתקין אותו **מיד, אוטומטית**
+  /// (לא מחכה ללחיצה על "עדכן"). המטרה: שבסוף הריצה הראשונה המשתמש כבר
+  /// מסונכרן עם הגרסה העדכנית ביותר, ויכול לעבוד לגמרי אופליין מכאן.
+  Future<void> _syncOtzaria() async {
+    await _otzaria.checkForUpdate();
+    if (_otzaria.status == OtzariaModuleStatus.updateAvailable) {
+      await _otzaria.update();
+    }
+  }
+
+  /// אותו דבר עבור מסד הספרייה.
+  Future<void> _syncLibrary() async {
+    await _library.checkForUpdate();
+    if (_library.status == LibraryModuleStatus.updateAvailable) {
+      await _library.update();
+    }
+  }
 
   @override
   void dispose() {
@@ -59,7 +77,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       body: RefreshIndicator(
         color: AppColors.ink,
         onRefresh: () async {
-          await Future.wait([_otzaria.checkForUpdate(), _library.checkForUpdate()]);
+          await Future.wait([_syncOtzaria(), _syncLibrary()]);
         },
         child: ListView(
           padding: const EdgeInsets.all(24),
@@ -70,7 +88,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              'כל מה שצריך כדי לשמור על אוצריא, הספרייה והתוספים מעודכנים — במקום אחד.',
+              'בפתיחה, הלאנצ׳ר בודק ומוריד אוטומטית את הגרסאות העדכניות ביותר '
+              'של אוצריא והספרייה — כדי שתוכל/י להמשיך לעבוד לגמרי אופליין.',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 24),
@@ -128,7 +147,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       onPrimaryAction: switch (c.status) {
         OtzariaModuleStatus.updateAvailable => c.update,
         OtzariaModuleStatus.upToDate => c.launch,
-        OtzariaModuleStatus.error => c.checkForUpdate,
+        OtzariaModuleStatus.error => _syncOtzaria,
         _ => null,
       },
     );
@@ -186,7 +205,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       },
       onPrimaryAction: switch (c.status) {
         LibraryModuleStatus.updateAvailable => c.update,
-        LibraryModuleStatus.error => c.checkForUpdate,
+        LibraryModuleStatus.error => _syncLibrary,
         _ => null,
       },
     );

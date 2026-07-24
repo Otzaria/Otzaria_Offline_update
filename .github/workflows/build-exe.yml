@@ -24,9 +24,10 @@ jobs:
       # כאן; לא אמור לגעת ב-lib/ או ב-pubspec.yaml.
       - run: flutter create --platforms=windows .
       - run: flutter pub get
-      - run: flutter build windows --release
+      - run: choco install innosetup -y
+      - run: dart run inno_bundle:build --release
       - uses: actions/upload-artifact@v4
         with:
-          name: launcher_app-windows
-          path: launcher_app/build/windows/**/Release/**
+          name: launcher_app-windows-installer
+          path: launcher_app/installer/**
           if-no-files-found: error

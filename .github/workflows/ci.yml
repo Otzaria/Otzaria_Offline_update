@@ -66,9 +66,14 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos
       - run: flutter test
-      - run: flutter build windows --release
+      # Inno Setup דרוש עבור inno_bundle; מותקן מראש ב-Chocolatey על
+      # ה-runner הזה, לא אמור לדרוש הורדה נוספת.
+      - run: choco install innosetup -y
+      # בונה את האפליקציה (flutter build windows) ועוטף אותה מיד לקובץ
+      # EXE יחיד להתקנה, כולל כל ה-DLLs והנתונים הנדרשים.
+      - run: dart run inno_bundle:build --release
       - uses: actions/upload-artifact@v4
         with:
-          name: launcher_app-windows
-          path: launcher_app/build/windows/**/Release/**
+          name: launcher_app-windows-installer
+          path: launcher_app/installer/**
           if-no-files-found: error
