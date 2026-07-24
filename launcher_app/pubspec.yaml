@@ -47,9 +47,3 @@ inno_bundle:
   id: efe99035-e4db-465a-926d-ac0b80fa4db1
   publisher: Yehuda-Zakesh
   name: "Otzaria Launcher"
-  # מוגדר מפורשות ל-English בלבד: ברירת המחדל של inno_bundle כוללת רשימת
-  # שפות רחבה (כולל איסלנדית וכו') שקובצי ה-.isl שלהן לא בהכרח מותקנים
-  # עם Inno Setup ב-CI (רק ההתקנה הבסיסית), מה שגורם ל-
-  # "Couldn't open include file ...Icelandic.isl" בזמן קימפול הסקריפט.
-  languages:
-    - English

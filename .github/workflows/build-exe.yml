@@ -24,7 +24,14 @@ jobs:
       # כאן; לא אמור לגעת ב-lib/ או ב-pubspec.yaml.
       - run: flutter create --platforms=windows .
       - run: flutter pub get
-      - run: choco install innosetup -y
+      # Chocolatey's innosetup package לפעמים מגיע חסר קבצי שפה (למשל
+      # Icelandic.isl) או נופל באמצע ההתקנה — במקום זה מתקינים את
+      # המתקין הרשמי מ-jrsoftware, שתמיד כולל את כל קובצי השפה.
+      - name: Install Inno Setup (official)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://jrsoftware.org/download.php/is.exe" -OutFile "$env:TEMP\innosetup.exe"
+          Start-Process -FilePath "$env:TEMP\innosetup.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-" -Wait
       - run: dart run inno_bundle:build --release
       - uses: actions/upload-artifact@v4
         with:
