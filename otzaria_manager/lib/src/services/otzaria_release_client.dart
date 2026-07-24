@@ -4,13 +4,17 @@ import 'package:http/http.dart' as http;
 
 import '../models/otzaria_release.dart';
 
-/// שולף מידע על releases של github.com/Sivan22/otzaria (אפליקציית אוצריא
+/// שולף מידע על releases של github.com/Otzaria/otzaria (אפליקציית אוצריא
 /// עצמה — לא SeforimLibrary/ה-DB).
 class OtzariaReleaseClient {
   OtzariaReleaseClient({http.Client? httpClient})
       : _httpClient = httpClient ?? http.Client();
 
-  static const _owner = 'Sivan22';
+  // ⚠️ Otzaria/otzaria (ה-fork, לא Sivan22/otzaria המקורי) — זה הריפו
+  // שממנו בפועל מפיצים releases ושהמשתמשים מורידים ממנו. תוקן אחרי
+  // דיווח משתמש: הקוד דיווח 0.9.93 כשגרסה 0.9.95 כבר הייתה קיימת
+  // ב-Otzaria/otzaria.
+  static const _owner = 'Otzaria';
   static const _repo = 'otzaria';
   static const _apiBase = 'https://api.github.com';
 

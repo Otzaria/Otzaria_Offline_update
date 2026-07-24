@@ -7,7 +7,7 @@ import 'package:test/test.dart';
 
 http.Client _mockReleasesResponse(List<Map<String, dynamic>> releases) {
   return MockClient((request) async {
-    expect(request.url.path, '/repos/Sivan22/otzaria/releases');
+    expect(request.url.path, '/repos/Otzaria/otzaria/releases');
     return http.Response(jsonEncode(releases), 200);
   });
 }

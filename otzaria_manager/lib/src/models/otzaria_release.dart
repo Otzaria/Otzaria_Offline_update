@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-/// Release אחד מתוך github.com/Sivan22/otzaria/releases, מצומצם לשדות
+/// Release אחד מתוך github.com/Otzaria/otzaria/releases, מצומצם לשדות
 /// שרלוונטיים להתקנה: תג הגרסה וקובץ ה-installer לווינדוס.
 ///
 /// שים לב: הריפו הזה כרגע (יולי 2026) כמעט ואינו מפרסם releases "יציבים"
