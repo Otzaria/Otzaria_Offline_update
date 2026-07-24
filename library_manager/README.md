@@ -5,18 +5,20 @@
 תיקיית ה-DB בפועל של המשתמש, בדיקה שאוצריא סגורה לפני כל שינוי בקובץ,
 והרצת מסלול העדכון (delta/הורדה מלאה) מקצה לקצה.
 
-## ממצאים חשובים (נכון ליולי 2026, מקוד המקור של Otzaria)
+## ממצאים חשובים (עודכן יולי 2026, לפי דיווח משתמש בפועל)
 
-- **מיקום ברירת המחדל של ה-DB בווינדוס הוא `C:/אוצריא/seforim.db`** —
-  אומת ישירות מול `lib/main.dart` (`initLibraryPath`) ו-
-  `lib/data/constants/database_constants.dart`
-  (`DatabaseConstants.databaseFileName = 'seforim.db'`) בריפו
-  `Sivan22/otzaria`. זה בדיוק הערך ש-Otzaria עצמה קובעת אם המשתמש לא
-  שינה את `key-library-path` שלו.
+- **מיקום ברירת המחדל האמיתי של ה-DB בווינדוס הוא
+  `%APPDATA%\otzaria\books\seforim.db`** — מבוסס על דיווח בפועל ממשתמש
+  שהריץ Otzaria 0.9.9x. ⚠️ הטענה הקודמת כאן (`C:\אוצריא\seforim.db`,
+  "אומת מול קוד המקור") הייתה **שגויה** — לא באמת נבדקה מול קוד המקור
+  כפי שנטען, והמיקום בפועל אצל המשתמש היה שונה לגמרי.
+  [`LibraryDbLocator`](lib/src/services/library_db_locator.dart) בודק
+  היום את `%APPDATA%\otzaria\books\` קודם, ונופל חזרה ל-`C:\אוצריא\`
+  כגיבוי משני (למקרה שזה עדיין נכון בהתקנות מסוימות, כמו חבילת FULL).
 - מיקום מותאם אישית (אם המשתמש כן שינה) **לא** נקרא אוטומטית מתוך
-  הגדרות ה-Settings/Hive של אוצריא — [`LibraryDbLocator`](lib/src/services/library_db_locator.dart)
-  בודק קודם נתיב ששמור אצלנו (`LibraryStateStore`), ורק אם גם זה וגם
-  ברירת המחדל לא נמצאים, מחזיר `null` — ה-UI צריך לבקש מהמשתמש להצביע
+  הגדרות ה-Settings/Hive של אוצריא — `LibraryDbLocator` בודק קודם נתיב
+  ששמור אצלנו (`LibraryStateStore`), ורק אם גם זה וגם שני המיקומים
+  האחרים לא נמצאים, מחזיר `null` — ה-UI צריך לבקש מהמשתמש להצביע
   ידנית (לפי ההחלטה איתו).
 - **אסור לגעת ב-`seforim.db` כשאוצריא רצה**: ה-orchestrator המקורי
   בתוך אוצריא (`PACKAGE_PLAN.md`) סוגר את חיבור ה-SQLite שלו לפני שינוי

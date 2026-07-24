@@ -1,0 +1,32 @@
+name: Build EXE (launcher_app only)
+
+# ריצה מהירה: רק build windows ל-launcher_app, בלי analyze/test על שאר
+# החבילות. ה-CI המלא (ci.yml) עדיין רץ בנפרד על כל push/PR.
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  build-exe:
+    name: launcher_app (windows build only)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: launcher_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter config --enable-windows-desktop
+      # תיקיית windows/ (ה-runner) עדיין לא הופקה מקומית — משלימים אותה
+      # כאן; לא אמור לגעת ב-lib/ או ב-pubspec.yaml.
+      - run: flutter create --platforms=windows .
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launcher_app-windows
+          path: launcher_app/build/windows/**/Release/**
+          if-no-files-found: error
