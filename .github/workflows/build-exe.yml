@@ -24,17 +24,15 @@ jobs:
       # כאן; לא אמור לגעת ב-lib/ או ב-pubspec.yaml.
       - run: flutter create --platforms=windows .
       - run: flutter pub get
-      # Chocolatey's innosetup package לפעמים מגיע חסר קבצי שפה (למשל
-      # Icelandic.isl) או נופל באמצע ההתקנה — במקום זה מתקינים את
-      # המתקין הרשמי מ-jrsoftware, שתמיד כולל את כל קובצי השפה.
-      - name: Install Inno Setup (official)
+      - run: flutter build windows --release
+      # אין מתקין — פשוט אורזים (zip) את תיקיית ה-Release כמו שהיא.
+      # זו אפליקציית "portable": מוציאים מה-zip ומריצים launcher_app.exe
+      # ישירות, בלי התקנה, בלי Program Files, בלי רישום ב-Windows.
+      - name: Zip portable build
         shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://jrsoftware.org/download.php/is.exe" -OutFile "$env:TEMP\innosetup.exe"
-          Start-Process -FilePath "$env:TEMP\innosetup.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-" -Wait
-      - run: dart run inno_bundle:build --release
+        run: Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "launcher_app-windows-portable.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: launcher_app-windows-installer
-          path: launcher_app/installer/**
+          name: launcher_app-windows-portable
+          path: launcher_app/launcher_app-windows-portable.zip
           if-no-files-found: error
