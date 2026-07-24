@@ -1,8 +1,10 @@
 name: launcher_app
 description: >-
-  לאנצ'ר אוצריא מאוחד — דשבורד Flutter אחד שמחווט יחד את otzaria_manager
-  (עדכון/התקנה/הפעלה של אוצריא עצמה) ו-library_manager (עדכון המסד), עם
-  מקום שמור למודול plugins_manager שעדיין לא נבנה.
+  Unified dashboard launcher for Otzaria: wires together otzaria_manager
+  (Otzaria app itself) and library_manager (the seforim DB), with a slot
+  reserved for the not-yet-built plugins_manager module. (Hebrew details
+  in README.md — kept ASCII here because inno_bundle feeds this string
+  into the Inno Setup script, which chokes on non-ASCII text.)
 version: 0.1.0
 publish_to: none
 
@@ -38,7 +40,10 @@ flutter:
 # EXE יחיד להתקנה/הפצה, דרך Inno Setup.
 # ⚠️ id הוא GUID קבוע — נוצר פעם אחת כאן ואסור לשנות אותו בעתיד (אחרת
 # מנגנון העדכון של המתקין יתייחס לזה כאפליקציה אחרת).
+# ⚠️ name נשאר ASCII בכוונה: ניסיון קודם עם "לאנצ'ר אוצריא" (עברית)
+# גרם ל-Inno Setup Compiler לזרוק "Illegal character in input file" —
+# ה-.iss script שנוצר לא תומך (או שinno_bundle לא כתב אותו) בעברית.
 inno_bundle:
   id: efe99035-e4db-465a-926d-ac0b80fa4db1
   publisher: Yehuda-Zakesh
-  name: "לאנצ'ר אוצריא"
+  name: "Otzaria Launcher"
