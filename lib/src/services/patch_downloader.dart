@@ -155,6 +155,18 @@ class PatchDownloader {
     // בקשת רשת — נזרק לפני ה-try כדי שניקוי ה-catch לא ימחק קובץ קיים.
     _throwIfCancelled(isCancelled);
 
+    if (!_isRemote(url)) {
+      await _copyLocalFile(
+        url: url,
+        destPath: destPath,
+        expectedSize: expectedSize,
+        expectedSha256: expectedSha256,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      );
+      return;
+    }
+
     final file = File(destPath);
     final sidecarPath = resumeSidecarPath(destPath);
 
@@ -797,6 +809,14 @@ class PatchDownloader {
     void Function(int downloaded, int? total)? onProgress,
     bool Function()? isCancelled,
   }) async {
+    if (!_isRemote(url)) {
+      return _readLocalFile(
+        url,
+        maxBytes: maxBytes,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      );
+    }
     final request = http.Request('GET', Uri.parse(url))
       ..headers['Accept'] = 'application/octet-stream';
     final response = await _httpClient.send(request).timeout(connectTimeout);
@@ -874,6 +894,83 @@ class PatchDownloader {
 
   void dispose() {
     if (_ownsClient) _httpClient.close();
+  }
+
+  /// `true` אם [url] הוא כתובת HTTP/HTTPS אמיתית; `false` אם זהו נתיב קובץ
+  /// מקומי (למשל בזמן עדכון ממראה offline — ראו [LocalMirrorLibraryReleaseClient]).
+  static bool _isRemote(String url) =>
+      url.startsWith('http://') || url.startsWith('https://');
+
+  /// קורא קובץ מקומי במקום להוריד — משמש כשה-`url` הוא בעצם נתיב על הדיסק
+  /// (מקור offline). נכשל אם הקובץ חסר או חורג מ-[maxBytes].
+  Future<Uint8List> _readLocalFile(
+    String path, {
+    required int maxBytes,
+    void Function(int downloaded, int? total)? onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    final file = File(path);
+    if (!await file.exists()) {
+      throw PatchDownloadException('קובץ מקומי לא נמצא: $path');
+    }
+    _throwIfCancelled(isCancelled);
+    final bytes = await file.readAsBytes();
+    if (bytes.length > maxBytes) {
+      throw PatchDownloadException(
+        'הקובץ המקומי חורג מהגודל הצפוי ($maxBytes בייטים): $path',
+      );
+    }
+    onProgress?.call(bytes.length, bytes.length);
+    return bytes;
+  }
+
+  /// מעתיק קובץ גדול (ה-DB המלא) מנתיב מקומי אל [destPath] בזרימה, עם אימות
+  /// גודל/sha256 זהה למסלול ה-HTTP. משמש בעדכון ממראה offline — ללא resume
+  /// (העתקה מקומית מהירה מספיק שלא נדרש), ומוחק את [destPath] בכל כשל/ביטול.
+  Future<void> _copyLocalFile({
+    required String url,
+    required String destPath,
+    int? expectedSize,
+    String? expectedSha256,
+    void Function(int downloaded, int? total)? onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    final source = File(url);
+    if (!await source.exists()) {
+      throw PatchDownloadException('קובץ מקור מקומי לא נמצא: $url');
+    }
+    final size = await source.length();
+    if (expectedSize != null && size != expectedSize) {
+      throw PatchDownloadException(
+        'גודל הקובץ המקומי אינו תואם: צפוי $expectedSize, בפועל $size ($url)',
+      );
+    }
+    try {
+      _deleteQuietly(destPath);
+      final sink = File(destPath).openWrite();
+      final digestSink = expectedSha256 != null ? _ChunkedDigestSink() : null;
+      final input = digestSink != null
+          ? sha256.startChunkedConversion(digestSink)
+          : null;
+      var copied = 0;
+      await for (final chunk in source.openRead()) {
+        _throwIfCancelled(isCancelled);
+        sink.add(chunk);
+        input?.add(chunk);
+        copied += chunk.length;
+        onProgress?.call(copied, size);
+      }
+      await sink.flush();
+      await sink.close();
+      input?.close();
+      if (expectedSha256 != null &&
+          digestSink!.value.toString() != expectedSha256.toLowerCase()) {
+        throw PatchDownloadException('sha256 של הקובץ המקומי אינו תואם: $url');
+      }
+    } catch (_) {
+      _deleteQuietly(destPath);
+      rethrow;
+    }
   }
 }
 

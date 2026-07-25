@@ -1,6 +1,6 @@
 import '../models/library_release.dart';
 import '../models/library_update_plan.dart';
-import 'github_library_release_client.dart';
+import 'library_release_source.dart';
 
 /// תוצאת סריקת ה-releases: הגרסה האחרונה, ה-edges הזמינים, וה-DB המלא
 /// ל-fallback.
@@ -21,7 +21,7 @@ class LibraryDiscoveryResult {
 /// סורק את ה-releases של GitHub, בונה את גרף ה-patches ומזהה את הגרסה
 /// האחרונה. ה-edges וה-DB המלא מוזנים אחר כך ל-[LibraryUpdatePlanner].
 class LibraryUpdateDiscovery {
-  final GithubLibraryReleaseClient client;
+  final LibraryReleaseSource client;
 
   const LibraryUpdateDiscovery({required this.client});
 

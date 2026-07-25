@@ -35,6 +35,28 @@ class ReleaseAsset extends Equatable {
     );
   }
 
+  /// סריאליזציה לפורמט המראה המקומית (offline) — לא זהה ל-JSON של GitHub
+  /// (משתמש במפתחות פשוטים), ולכן יש [fromMirrorJson] תואם בצד השני.
+  Map<String, dynamic> toMirrorJson() => {
+        'name': name,
+        'downloadUrl': downloadUrl,
+        'size': size,
+        if (id != null) 'id': id,
+        if (updatedAt != null) 'updatedAt': updatedAt,
+        if (digest != null) 'digest': digest,
+      };
+
+  factory ReleaseAsset.fromMirrorJson(Map<String, dynamic> json) {
+    return ReleaseAsset(
+      name: (json['name'] as String?) ?? '',
+      downloadUrl: (json['downloadUrl'] as String?) ?? '',
+      size: (json['size'] as num?)?.toInt() ?? 0,
+      id: (json['id'] as num?)?.toInt(),
+      updatedAt: json['updatedAt'] as String?,
+      digest: json['digest'] as String?,
+    );
+  }
+
   /// `true` אם זהו manifest של patch דלתאי
   /// (`patch-vX-vY.db.zst.manifest.json`).
   bool get isDeltaManifest =>
@@ -73,6 +95,32 @@ class LibraryRelease extends Equatable {
       assets: assetsRaw is List
           ? assetsRaw
               .map((e) => ReleaseAsset.fromJson(e as Map<String, dynamic>))
+              .toList(growable: false)
+          : const [],
+    );
+  }
+
+  /// סריאליזציה לפורמט המראה המקומית (offline) — ראו
+  /// [ReleaseAsset.toMirrorJson] להסבר על ההבדל מ-[fromJson]/JSON של GitHub.
+  Map<String, dynamic> toMirrorJson() => {
+        'tag': tag,
+        'isPrerelease': isPrerelease,
+        'isDraft': isDraft,
+        if (publishedAt != null) 'publishedAt': publishedAt!.toIso8601String(),
+        'assets': assets.map((a) => a.toMirrorJson()).toList(),
+      };
+
+  factory LibraryRelease.fromMirrorJson(Map<String, dynamic> json) {
+    final assetsRaw = json['assets'];
+    return LibraryRelease(
+      tag: (json['tag'] as String?) ?? '',
+      isPrerelease: (json['isPrerelease'] as bool?) ?? false,
+      isDraft: (json['isDraft'] as bool?) ?? false,
+      publishedAt: DateTime.tryParse((json['publishedAt'] as String?) ?? ''),
+      assets: assetsRaw is List
+          ? assetsRaw
+              .map((e) =>
+                  ReleaseAsset.fromMirrorJson(e as Map<String, dynamic>))
               .toList(growable: false)
           : const [],
     );

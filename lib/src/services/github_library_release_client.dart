@@ -4,12 +4,13 @@ import 'package:http/http.dart' as http;
 
 import '../models/delta_manifest.dart';
 import '../models/library_release.dart';
+import 'library_release_source.dart';
 
 /// לקוח לקריאת ה-releases וה-assets של ספריית הספרים מ-GitHub.
 ///
 /// משתמש ב-`GET /releases` (ולא ב-`/releases/latest`), כי ה-latest אינו
 /// מספיק כאשר הספרייה מפורסמת כ-prerelease.
-class GithubLibraryReleaseClient {
+class GithubLibraryReleaseClient implements LibraryReleaseSource {
   final String owner;
   final String repository;
   final http.Client _httpClient;

@@ -16,6 +16,10 @@ export 'src/models/patch_table_spec.dart'
     show PatchTableSpec, kPatchTablesInFkOrder, kHashTableOrder;
 export 'src/services/github_library_release_client.dart'
     show GithubLibraryReleaseClient;
+export 'src/services/library_release_source.dart' show LibraryReleaseSource;
+export 'src/services/local_mirror_library_release_client.dart'
+    show LocalMirrorLibraryReleaseClient, LocalMirrorException;
+export 'src/services/library_mirror_exporter.dart' show LibraryMirrorExporter;
 export 'src/services/library_db_recovery_service.dart'
     show
         LibraryDbRecoveryService,
