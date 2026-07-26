@@ -28,7 +28,19 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  inno_bundle: ^0.11.2
 
 flutter:
   uses-material-design: true
+
+# תצורת inno_bundle (dart run inno_bundle --release) — בונה installer
+# EXE יחיד עם Inno Setup. id הוא GUID קבוע (AppId) שנוצר פעם אחת כאן -
+# **אסור לשנות אותו אחרי שמישהו כבר התקין גרסה**, אחרת מנגנון העדכון של
+# Windows יראה בזה אפליקציה אחרת לגמרי. שאר השדות אופציונליים ואפשר
+# לשנות אותם בחופשיות; ראו תיעוד:
+# https://github.com/hahouari/inno_bundle/wiki/Configuration-Options
+inno_bundle:
+  id: f05c729e-3e7d-420e-9e1f-741f4d1ccbb2
+  name: Otzaria Launcher
+  publisher: Otzaria
 

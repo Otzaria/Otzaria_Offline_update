@@ -71,7 +71,9 @@ jobs:
       - run: choco install innosetup -y
       # בונה את האפליקציה (flutter build windows) ועוטף אותה מיד לקובץ
       # EXE יחיד להתקנה, כולל כל ה-DLLs והנתונים הנדרשים.
-      - run: dart run inno_bundle:build --release
+      # (dart run inno_bundle:build הוצא משימוש - build הוא כבר ברירת
+      # המחדל של inno_bundle גרסה 0.11.x ומעלה.)
+      - run: dart run inno_bundle --release
       - uses: actions/upload-artifact@v4
         with:
           name: launcher_app-windows-installer
