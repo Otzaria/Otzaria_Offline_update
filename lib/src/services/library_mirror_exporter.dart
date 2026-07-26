@@ -105,14 +105,20 @@ class LibraryMirrorExporter {
       final mirroredAssets = <ReleaseAsset>[];
       for (final asset in entry.value) {
         _throwIfCancelled(isCancelled);
-        onStage?.call('מוריד ${release.tag} / ${asset.name}');
         final destFile = File(p.join(tagDir.path, asset.name));
-        await _downloadToFile(
-          asset.downloadUrl,
-          destFile,
-          onProgress: onBytesProgress,
-          isCancelled: isCancelled,
-        );
+        final cacheHit = await destFile.exists() &&
+            await destFile.length() == asset.size;
+        if (cacheHit) {
+          onStage?.call('נמצא ב-cache: ${release.tag} / ${asset.name}');
+        } else {
+          onStage?.call('מוריד ${release.tag} / ${asset.name}');
+          await _downloadToFile(
+            asset.downloadUrl,
+            destFile,
+            onProgress: onBytesProgress,
+            isCancelled: isCancelled,
+          );
+        }
         final relativePath = p.relative(destFile.path, from: destDir);
         mirroredAssets.add(ReleaseAsset(
           name: asset.name,

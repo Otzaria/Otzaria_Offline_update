@@ -1,11 +1,13 @@
 import 'dart:io';
 
+import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import 'models/library_update_check_result.dart';
 import 'services/library_db_locator.dart';
 import 'services/library_state_store.dart';
+import 'services/zstd_decompressor.dart';
 
 /// נקודת הכניסה היחידה שמודול ה-UI אמור להשתמש בה כדי **לבדוק** גרסת מסד
 /// (ה-DB) של אוצריא ול**הוריד** את הקבצים העדכניים לתיקייה מקומית — מחווט
@@ -13,9 +15,11 @@ import 'services/library_state_store.dart';
 ///
 /// **חשוב:** ה-manager הזה **לא** מחיל (patch/apply) שום דבר על ה-DB
 /// החי בפועל, ולא ניגש אליו לכתיבה. תפקידו היחיד מול הענן הוא לבדוק אילו
-/// גרסאות קיימות ([checkForUpdate]) ולהוריד קבצים לתיקייה מקומית
-/// ([exportOfflineMirror]/[refreshOfflineMirrorCache]). התקנה/עדכון בפועל
-/// של קובץ ה-DB עצמו היא צעד נפרד ומכוון-ידית מחוץ למחלקה הזו.
+/// גרסאות קיימות ([checkForUpdate]) ולהוריד קבצים לתיקייה מקומית —
+/// [downloadLatestDbToFolder] (קל, רק הגרסה העדכנית — זה מה ש-UI רגיל
+/// אמור להשתמש בו) או [exportOfflineMirror] (כבד, כל ההיסטוריה — למי
+/// שבאמת בונה מראה offline להעברה למחשב אחר). התקנה/עדכון בפועל של קובץ
+/// ה-DB עצמו היא צעד נפרד ומכוון-ידית מחוץ למחלקה הזו.
 ///
 /// **מקור הבדיקה** ניתן להחלפה בזמן ריצה בין הענן (GitHub, ברירת מחדל)
 /// לבין מראה מקומית (offline) — ראו [useLocalMirror]/[useCloud]. המראה
@@ -27,11 +31,11 @@ import 'services/library_state_store.dart';
 ///
 /// final check = await manager.checkForUpdate();
 /// if (check.updateAvailable) {
-///   await manager.refreshOfflineMirrorCache(
+///   await manager.downloadLatestDbToFolder(
 ///     onStage: (stage) => print(stage),
 ///   );
-///   // הקבצים המעודכנים נמצאים עכשיו ב-manager.offlineMirrorCacheDir —
-///   // התקנתם בפועל היא צעד נפרד ומכוון-ידית.
+///   // הקובץ המעודכן נמצא עכשיו ב-manager.latestDbDownloadDir/seforim.db —
+///   // התקנתו בפועל היא צעד נפרד ומכוון-ידית.
 /// }
 /// ```
 ///
@@ -230,6 +234,109 @@ class LibraryManager {
       plan: plan,
       isFreshInstall: isFreshInstall,
     );
+  }
+
+  /// תיקייה קלה למי מיועדת רק להורדת ה-DB המלא **העדכני ביותר** (לא כל
+  /// ההיסטוריה) — זו התיקייה שכפתור "עדכן" הרגיל ב-UI מוריד אליה. שונה
+  /// מ-[offlineMirrorCacheDir] (שמיועדת למראה offline **מלאה**, לצורך
+  /// העברה למחשב אחר בלי אינטרנט בכלל — הרבה יותר כבדה).
+  String get latestDbDownloadDir => p.join(dataDir, 'latest-db-download');
+
+  /// מוריד את ה-DB המלא **העדכני ביותר בלבד** (לא deltas, לא היסטוריה)
+  /// לתיקייה מקומית — בשם `seforim.db`, מוכן לשימוש (כבר מחולץ). זו
+  /// הדרך ה"קלה" לוודא שיש עותק עדכני על הדיסק, בלי להוריד גיגה-בייטים
+  /// של גרסאות ישנות (בניגוד ל-[exportOfflineMirror]). כמו כל שאר
+  /// המחלקה הזו — **לא נוגע** ב-DB החי בפועל.
+  ///
+  /// שומר cache לפי גודל קובץ: קריאה חוזרת שכבר מצאה עותק תקין בדיסק
+  /// (מהקריאה הקודמת) לא מורידה שוב.
+  Future<void> downloadLatestDbToFolder({
+    String? destDir,
+    void Function(String stage)? onStage,
+    void Function(int downloaded, int? total)? onDownloadProgress,
+  }) async {
+    final dir = destDir ?? latestDbDownloadDir;
+    await Directory(dir).create(recursive: true);
+
+    onStage?.call('בודק גרסה עדכנית');
+    final source = await _resolveSource();
+    final discoverer = LibraryUpdateDiscovery(client: source);
+    final discoveryResult =
+        await discoverer.discover(allowPrerelease: _allowPrerelease);
+    final asset = discoveryResult.latestFullDbAsset;
+    if (asset == null) {
+      throw StateError('לא נמצא DB מלא זמין להורדה.');
+    }
+
+    final compressedPath = p.join(dir, asset.name);
+    final outPath = p.join(dir, 'seforim.db');
+    final cachedFile = File(compressedPath);
+    final cacheHit =
+        await cachedFile.exists() && await cachedFile.length() == asset.size;
+
+    if (cacheHit) {
+      onStage?.call('נמצא ב-cache: DB מלא (${discoveryResult.latestReleaseTag})');
+    } else {
+      onStage?.call('מוריד DB מלא (${discoveryResult.latestReleaseTag})');
+      final httpClient = http.Client();
+      try {
+        await _downloadRaw(
+          httpClient: httpClient,
+          url: asset.downloadUrl,
+          destPath: compressedPath,
+          onProgress: onDownloadProgress,
+        );
+      } finally {
+        httpClient.close();
+      }
+    }
+
+    final outFile = File(outPath);
+    final alreadyExtracted =
+        await outFile.exists() && _versionReader.read(outPath).hasVersionMeta;
+    if (!alreadyExtracted) {
+      onStage?.call('מחלץ DB מלא');
+      final compressedBytes = await cachedFile.readAsBytes();
+      final decompressed = await const ZstdDecompressor().call(compressedBytes);
+      if (decompressed == null) {
+        throw StateError('חילוץ ה-DB המלא נכשל.');
+      }
+      await outFile.writeAsBytes(decompressed, flush: true);
+    }
+    onStage?.call('הושלם');
+  }
+
+  Future<void> _downloadRaw({
+    required http.Client httpClient,
+    required String url,
+    required String destPath,
+    void Function(int downloaded, int? total)? onProgress,
+  }) async {
+    // asset.downloadUrl יכול להיות גם נתיב מקומי (מצב מראה offline) —
+    // מעתיקים מהדיסק במקום הורדה, שקוף לחלוטין לקוד הקורא.
+    final isLocalPath = !url.startsWith('http://') && !url.startsWith('https://');
+    if (isLocalPath) {
+      await File(url).copy(destPath);
+      return;
+    }
+    final request = http.Request('GET', Uri.parse(url));
+    final response = await httpClient.send(request);
+    if (response.statusCode != 200) {
+      throw StateError('שגיאה בהורדת $url: ${response.statusCode}');
+    }
+    final total = response.contentLength;
+    var downloaded = 0;
+    final sink = File(destPath).openWrite();
+    try {
+      await for (final chunk in response.stream) {
+        sink.add(chunk);
+        downloaded += chunk.length;
+        onProgress?.call(downloaded, total);
+      }
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
   }
 
   /// סוגר את חיבורי ה-HTTP הפנימיים. יש לקרוא כשמסיימים להשתמש

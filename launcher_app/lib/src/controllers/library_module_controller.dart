@@ -177,12 +177,10 @@ class LibraryModuleController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// **לא מחיל שום דבר על ה-DB החי.** תפקידו היחיד הוא לוודא ש
-  /// [offlineMirrorCacheDir] מעודכן — כלומר להוריד את הקבצים העדכניים
-  /// לתיקייה המקומית (בדיוק כמו [refreshOfflineMirrorCacheInBackground],
-  /// רק לא ברקע: קוראים לזה במפורש בתגובה לכפתור "עדכן" ומחכים לסיום).
-  /// התקנת הקבצים בפועל היא צעד נפרד ומכוון-ידית של המשתמש (למשל דרך
-  /// תיקיית ההעברה שנפתחת ב-dashboard).
+  /// **לא מחיל שום דבר על ה-DB החי.** מוריד רק את ה-DB המלא העדכני ביותר
+  /// (לא כל ההיסטוריה — לזה יש את [exportOfflineMirror] הנפרד, היקר
+  /// יותר) לתיקייה מקומית קלה ([LibraryManager.latestDbDownloadDir]).
+  /// התקנת הקובץ בפועל היא צעד נפרד ומכוון-ידית של המשתמש.
   Future<void> update() async {
     if (_lastCheck == null) return;
 
@@ -191,14 +189,12 @@ class LibraryModuleController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _manager.refreshOfflineMirrorCache(
+      await _manager.downloadLatestDbToFolder(
         onStage: (stage) {
           stageText = stage;
           notifyListeners();
         },
       );
-      autoCacheStatus = MirrorExportStatus.done;
-      autoCacheLastRefreshedAt = DateTime.now();
       status = LibraryModuleStatus.upToDate;
     } catch (e) {
       status = LibraryModuleStatus.error;
