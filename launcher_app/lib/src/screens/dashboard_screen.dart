@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -45,12 +44,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   /// אותו דבר עבור מסד הספרייה. **`c.update()` כאן לא נוגע ב-DB החי בכלל** —
-  /// הוא רק מוודא שהקבצים העדכניים ירדו לתיקייה המקומית (offline-mirror),
-  /// בדיוק כמו [LibraryModuleController.refreshOfflineMirrorCacheInBackground]
-  /// למטה, רק ממתינים לסיום שלו כדי לעדכן את הסטטוס המוצג. התקנה בפועל של
-  /// ה-DB היא צעד נפרד ומכוון-ידית של המשתמש דרך תיקיית ההעברה.
+  /// הוא רק מוודא שהגרסה העדכנית ירדה לתיקייה מקומית קלה
+  /// ([library_manager.LibraryManager.downloadLatestDbToFolder]). **לא**
+  /// מפעילים כאן יותר אוטומטית את בניית "מראה ההעברה המלאה" (כל
+  /// ההיסטוריה, כמה ג'יגה-בייט) — זו הייתה רצה ברקע בכל פתיחה ותופסת
+  /// אינטרנט מההורדה הקלה הזו; עכשיו זו פעולה מפורשת בלבד (ראו הכפתור
+  /// "הכן תיקיית העברה מלאה" למטה).
   Future<void> _syncLibrary() async {
-    unawaited(_library.refreshOfflineMirrorCacheInBackground());
     await _library.checkForUpdate();
     if (_library.status == LibraryModuleStatus.updateAvailable) {
       await _library.update();
@@ -59,20 +59,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   /// פותח את [LibraryModuleController.offlineMirrorCacheDir] בסייר הקבצים
   /// של Windows — כדי שהמשתמש יוכל להעתיק אותה כמות שהיא ל-USB / תיקייה
-  /// משותפת. התיקייה נבנית ומתעדכנת אוטומטית לגמרי ברקע (ראו למעלה), אז
-  /// אין כאן שום פעולת ייצוא לחכות לה — רק פתיחת הסייר.
+  /// משותפת. **לא בונה** את התיקייה בעצמה — יש ללחוץ קודם על "הכן תיקיית
+  /// העברה מלאה" (ראו [_buildLibrarySourceRow]) אם היא עוד לא קיימת.
   Future<void> _openOfflineMirrorCacheFolder() async {
     final dir = Directory(_library.offlineMirrorCacheDir);
     if (!await dir.exists()) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('העדכון להעברה עדיין לא מוכן — נסה/י שוב בעוד רגע.'),
+          content: Text(
+            'תיקיית ההעברה עוד לא הוכנה — לחצ/י קודם על "הכן תיקיית העברה מלאה".',
+          ),
         ),
       );
       return;
     }
     await Process.run('explorer.exe', [dir.path]);
+  }
+
+  /// בונה/מרעננת במפורש (בלחיצת כפתור בלבד — לא אוטומטית) את מראה
+  /// ההעברה המלאה (כל ההיסטוריה, כמה ג'יגה-בייט) — פעולה כבדה ויזומה,
+  /// לא חלק מהסנכרון הרגיל בפתיחת האפליקציה.
+  Future<void> _prepareOfflineMirrorCacheFolder() async {
+    await _library.refreshOfflineMirrorCacheInBackground();
   }
 
   @override
@@ -265,10 +274,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   /// שורת פעולות קטנה מתחת לכרטיס הספרייה: מעבר בין מקור ה-cloud למראה
-  /// מקומית (offline), ופתיחת תיקיית העדכון להעברה למחשב אחר — שנבנית
-  /// ומתעדכנת אוטומטית ברקע בכל פתיחה (ראו [_syncLibrary]), בלי צורך
-  /// בבחירת יעד או לחיצה על "ייצוא". מוצג תמיד (לא רק כשיש בעיה) כי אלה
-  /// בחירות יזומות של המשתמש, לא תגובה למצב שגיאה.
+  /// מקומית (offline), הכנה מפורשת של מראה העברה מלאה למחשב אחר (כל
+  /// ההיסטוריה — כבד, **לא** רץ אוטומטית יותר), ופתיחת התיקייה הזו
+  /// לאחר שהיא כבר מוכנה.
   Widget _buildLibrarySourceRow() {
     final c = _library;
     final isRefreshingCache = c.autoCacheStatus == MirrorExportStatus.exporting;
@@ -294,9 +302,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   label: const Text('חזור לעדכון מהענן'),
                 ),
               TextButton.icon(
-                onPressed: _openOfflineMirrorCacheFolder,
+                onPressed: isRefreshingCache ? null : _prepareOfflineMirrorCacheFolder,
                 icon: const Icon(Icons.sd_storage_outlined, size: 16),
-                label: const Text('פתח תיקיית עדכון להעברה למחשב אחר'),
+                label: const Text('הכן תיקיית העברה מלאה (כל ההיסטוריה)'),
+              ),
+              TextButton.icon(
+                onPressed: _openOfflineMirrorCacheFolder,
+                icon: const Icon(Icons.folder_open_outlined, size: 16),
+                label: const Text('פתח תיקיית העברה'),
               ),
             ],
           ),
@@ -307,7 +320,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    c.autoCacheStage ?? 'מעדכן ברקע את תיקיית ההעברה...',
+                    c.autoCacheStage ?? 'מכין תיקיית העברה...',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 4),
@@ -333,7 +346,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Text(
-                'הרענון האוטומטי של תיקיית ההעברה נכשל הפעם '
+                'הכנת תיקיית ההעברה נכשלה הפעם '
                 '(${c.autoCacheError}) — אפשר עדיין להעביר את הגרסה '
                 'הקודמת שכבר שמורה בתיקייה, אם קיימת.',
                 style: Theme.of(context)
