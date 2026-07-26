@@ -30,7 +30,13 @@ class OtzariaReleaseClient {
     final uri = Uri.parse('$_apiBase/repos/$_owner/$_repo/releases?per_page=1');
     final response = await _httpClient.get(
       uri,
-      headers: const {'Accept': 'application/vnd.github+json'},
+      headers: const {
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        // ⚠️ חובה: GitHub API מחזיר 403 "forbidden by administrative
+        // rules" לכל בקשה בלי User-Agent — ללא קשר ל-rate limit.
+        'User-Agent': 'otzaria-launcher',
+      },
     );
 
     if (response.statusCode != 200) {

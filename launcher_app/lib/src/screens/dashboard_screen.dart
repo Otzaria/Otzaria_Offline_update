@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
@@ -41,12 +44,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  /// אותו דבר עבור מסד הספרייה.
+  /// אותו דבר עבור מסד הספרייה. בנוסף: מרענן ברקע (לא ממתינים!) את
+  /// ה-cache הקבוע (offline-mirror) שמוכן תמיד להעברה למחשב אחר — ראו
+  /// [LibraryModuleController.refreshOfflineMirrorCacheInBackground].
+  /// checkForUpdate למטה קורא תמיד מה-cache **הקיים כרגע** (או מהענן
+  /// ישירות אם עוד אין cache בכלל בהתקנה הזו), בלי תלות בהצלחת/סיום
+  /// הרענון הזה — כך שהבדיקה עצמה לעולם לא מחכה לרשת.
   Future<void> _syncLibrary() async {
+    unawaited(_library.refreshOfflineMirrorCacheInBackground());
     await _library.checkForUpdate();
     if (_library.status == LibraryModuleStatus.updateAvailable) {
       await _library.update();
     }
+  }
+
+  /// פותח את [LibraryModuleController.offlineMirrorCacheDir] בסייר הקבצים
+  /// של Windows — כדי שהמשתמש יוכל להעתיק אותה כמות שהיא ל-USB / תיקייה
+  /// משותפת. התיקייה נבנית ומתעדכנת אוטומטית לגמרי ברקע (ראו למעלה), אז
+  /// אין כאן שום פעולת ייצוא לחכות לה — רק פתיחת הסייר.
+  Future<void> _openOfflineMirrorCacheFolder() async {
+    final dir = Directory(_library.offlineMirrorCacheDir);
+    if (!await dir.exists()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('העדכון להעברה עדיין לא מוכן — נסה/י שוב בעוד רגע.'),
+        ),
+      );
+      return;
+    }
+    await Process.run('explorer.exe', [dir.path]);
   }
 
   @override
@@ -78,17 +105,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
     if (path != null) {
       await _library.useLocalMirror(path);
-    }
-  }
-
-  /// בוחר תיקיית יעד ומייצא אליה מראה מקומית מלאה מה-cloud — להעברה
-  /// למחשב בלי אינטרנט בכלל. דורש אינטרנט בעצמו.
-  Future<void> _pickExportDestinationAndRun() async {
-    final path = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'בחר/י תיקיית יעד לייצוא (USB / תיקייה משותפת)',
-    );
-    if (path != null) {
-      await _library.exportOfflineMirror(path);
     }
   }
 
@@ -252,11 +268,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   /// שורת פעולות קטנה מתחת לכרטיס הספרייה: מעבר בין מקור ה-cloud למראה
-  /// מקומית (offline), והכנת מראה כזו להעברה למחשב אחר. מוצג תמיד (לא רק
-  /// כשיש בעיה) כי אלה בחירות יזומות של המשתמש, לא תגובה למצב שגיאה.
+  /// מקומית (offline), ופתיחת תיקיית העדכון להעברה למחשב אחר — שנבנית
+  /// ומתעדכנת אוטומטית ברקע בכל פתיחה (ראו [_syncLibrary]), בלי צורך
+  /// בבחירת יעד או לחיצה על "ייצוא". מוצג תמיד (לא רק כשיש בעיה) כי אלה
+  /// בחירות יזומות של המשתמש, לא תגובה למצב שגיאה.
   Widget _buildLibrarySourceRow() {
     final c = _library;
-    final isExporting = c.mirrorExportStatus == MirrorExportStatus.exporting;
+    final isRefreshingCache = c.autoCacheStatus == MirrorExportStatus.exporting;
 
     return Padding(
       padding: const EdgeInsets.only(top: 4, right: 8, left: 8),
@@ -268,64 +286,59 @@ class _DashboardScreenState extends State<DashboardScreen> {
             children: [
               if (c.activeMirrorPath == null)
                 TextButton.icon(
-                  onPressed: isExporting ? null : _pickLocalMirrorFolder,
+                  onPressed: _pickLocalMirrorFolder,
                   icon: const Icon(Icons.usb_outlined, size: 16),
                   label: const Text('עדכן מתיקייה מקומית (USB)'),
                 )
               else
                 TextButton.icon(
-                  onPressed: isExporting ? null : _library.useCloud,
+                  onPressed: _library.useCloud,
                   icon: const Icon(Icons.cloud_outlined, size: 16),
                   label: const Text('חזור לעדכון מהענן'),
                 ),
               TextButton.icon(
-                onPressed: isExporting ? null : _pickExportDestinationAndRun,
+                onPressed: _openOfflineMirrorCacheFolder,
                 icon: const Icon(Icons.sd_storage_outlined, size: 16),
-                label: const Text('הכן עדכון להעברה למחשב אחר'),
+                label: const Text('פתח תיקיית עדכון להעברה למחשב אחר'),
               ),
             ],
           ),
-          if (isExporting)
+          if (isRefreshingCache)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    c.mirrorExportStage ?? 'מייצא מראה מקומית...',
+                    c.autoCacheStage ?? 'מעדכן ברקע את תיקיית ההעברה...',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 4),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: LinearProgressIndicator(
-                      value: (c.mirrorExportDoneAssets != null &&
-                              c.mirrorExportTotalAssets != null &&
-                              c.mirrorExportTotalAssets! > 0)
-                          ? c.mirrorExportDoneAssets! / c.mirrorExportTotalAssets!
-                          : null,
-                      minHeight: 4,
-                    ),
+                  const ClipRRect(
+                    borderRadius: BorderRadius.all(Radius.circular(6)),
+                    child: LinearProgressIndicator(minHeight: 4),
                   ),
                 ],
               ),
             )
-          else if (c.mirrorExportStatus == MirrorExportStatus.done)
+          else if (c.autoCacheStatus == MirrorExportStatus.done)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Text(
-                'הייצוא הושלם — אפשר להעביר את התיקייה למחשב היעד.',
+                'תיקיית ההעברה מעודכנת ומוכנה — אפשר להעתיק אותה למחשב היעד.',
                 style: Theme.of(context)
                     .textTheme
                     .bodySmall
                     ?.copyWith(color: AppColors.success),
               ),
             )
-          else if (c.mirrorExportStatus == MirrorExportStatus.error)
+          else if (c.autoCacheStatus == MirrorExportStatus.error)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Text(
-                'הייצוא נכשל: ${c.mirrorExportError}',
+                'הרענון האוטומטי של תיקיית ההעברה נכשל הפעם '
+                '(${c.autoCacheError}) — אפשר עדיין להעביר את הגרסה '
+                'הקודמת שכבר שמורה בתיקייה, אם קיימת.',
                 style: Theme.of(context)
                     .textTheme
                     .bodySmall

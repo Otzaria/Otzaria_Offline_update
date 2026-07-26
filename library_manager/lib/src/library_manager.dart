@@ -101,6 +101,33 @@ class LibraryManager {
   /// נתיב המראה המקומית הפעילה כרגע, או `null` אם מצב ה-cloud פעיל.
   Future<String?> currentLocalMirrorPath() => _stateStore.loadLocalMirrorPath();
 
+  /// תיקיית ה"מראה המקומית האוטומטית" — קבועה, בתוך [dataDir], ומתוחזקת
+  /// לבד על ידי [refreshOfflineMirrorCache] (נקרא ברקע בכל פתיחת האפליקציה
+  /// — ראו הקורא ב-launcher_app). שני תפקידים בו-זמנית:
+  ///  1. מקור ברירת המחדל ש-[checkForUpdate]/[applyUpdate] קוראים ממנו
+  ///     בפועל (ראו [_resolveSource]) — כך שבדיקת/החלת עדכון תמיד עובדת
+  ///     מול נתונים מקומיים בלבד, בלי תלות ברשת בזמן הבדיקה עצמה.
+  ///  2. תוכן מוכן-מראש להעברה למחשב אחר (USB / תיקייה משותפת): פשוט
+  ///     מעתיקים את התיקייה הזו כמות שהיא.
+  String get offlineMirrorCacheDir => p.join(dataDir, 'offline-mirror');
+
+  /// מרענן את [offlineMirrorCacheDir] מהענן. best-effort ומיועד לרוץ ברקע
+  /// בלי לחסום את הבדיקה/החלה בפועל של עדכון — אם הוא נכשל (למשל אין
+  /// אינטרנט) ה-cache פשוט נשאר כפי שהיה מהרענון הקודם, וזה תקין לגמרי.
+  Future<void> refreshOfflineMirrorCache({
+    void Function(String stage)? onStage,
+    void Function(int doneAssets, int totalAssets)? onAssetProgress,
+    void Function(int downloaded, int? total)? onBytesProgress,
+    bool Function()? isCancelled,
+  }) =>
+      exportOfflineMirror(
+        destDir: offlineMirrorCacheDir,
+        onStage: onStage,
+        onAssetProgress: onAssetProgress,
+        onBytesProgress: onBytesProgress,
+        isCancelled: isCancelled,
+      );
+
   /// בונה מראה מקומית מלאה (כל עדכוני ה-DB, כולל היסטוריה) מהענן לתיקייה
   /// [destDir] — כדי להעביר למחשב בלי אינטרנט (USB / תיקייה משותפת). תמיד
   /// פונה ל-GitHub בפועל (דורש אינטרנט), ללא קשר למצב המקור הפעיל כרגע.
@@ -122,13 +149,33 @@ class LibraryManager {
     );
   }
 
-  /// מקור ה-releases הפעיל כרגע: מראה מקומית אם המשתמש בחר כזו (ותקינה),
-  /// אחרת הענן. נבדק מחדש בכל [checkForUpdate] כדי שמעבר cloud↔mirror
-  /// ייכנס לתוקף מיד, בלי לדרוש הפעלה מחדש של האפליקציה.
+  /// מקור ה-releases הפעיל כרגע, בסדר עדיפות:
+  ///  1. מראה מקומית שהמשתמש בחר במפורש (דרך [useLocalMirror]) — למשל
+  ///     כונן USB חיצוני. גוברת על הכול כל עוד היא פעילה.
+  ///  2. [offlineMirrorCacheDir] האוטומטי, אם כבר נבנה פעם אחת (על ידי
+  ///     [refreshOfflineMirrorCache]) — כך שבדיקה/החלה של עדכון עובדת מול
+  ///     נתונים מקומיים בלבד, בלי תלות ברשת בזמן הבדיקה עצמה, וללא קשר
+  ///     לחיבור אינטרנט הנוכחי של המחשב.
+  ///  3. הענן, כ-fallback יחיד למקרה שעדיין אין שום cache מקומי בכלל
+  ///     (למשל הרצה ראשונה אי-פעם, לפני שהרענון האוטומטי הראשון הספיק
+  ///     לרוץ) — בדיוק כמו ההתנהגות המקורית לפני שנוסף ה-cache.
+  ///
+  /// נבדק מחדש בכל [checkForUpdate] כדי שמעבר בין המקורות ייכנס לתוקף
+  /// מיד, בלי לדרוש הפעלה מחדש של האפליקציה.
   Future<LibraryReleaseSource> _resolveSource() async {
     final mirrorPath = await _stateStore.loadLocalMirrorPath();
     if (mirrorPath != null && mirrorPath.isNotEmpty) {
       return LocalMirrorLibraryReleaseClient(mirrorDir: mirrorPath);
+    }
+    // בודקים ספציפית את releases.json (לא רק שהתיקייה קיימת) — היא נוצרת
+    // רק בסוף export מוצלח; התיקייה עצמה נוצרת מיד בתחילתו, אז אם רענון
+    // ראשון-אי-פעם רץ ברקע ממש עכשיו, הדבר הזה מונע קריאה מ-cache חלקי.
+    final cachedManifest = File(p.join(
+      offlineMirrorCacheDir,
+      LocalMirrorLibraryReleaseClient.manifestFileName,
+    ));
+    if (await cachedManifest.exists()) {
+      return LocalMirrorLibraryReleaseClient(mirrorDir: offlineMirrorCacheDir);
     }
     return _cloudClient;
   }

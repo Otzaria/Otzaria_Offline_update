@@ -43,12 +43,52 @@ class LibraryModuleController extends ChangeNotifier {
   /// מתעדכן דרך [refreshSourceMode], שנקרא גם מ-[checkForUpdate].
   String? activeMirrorPath;
 
-  /// מצב ייצוא מראה offline — נפרד מ-[status] (ראו [MirrorExportStatus]).
+  /// מצב ייצוא מראה offline **ידני** (יעד שהמשתמש בחר בעצמו) — נפרד
+  /// מ-[status] (ראו [MirrorExportStatus]).
   MirrorExportStatus mirrorExportStatus = MirrorExportStatus.idle;
   String? mirrorExportStage;
   int? mirrorExportDoneAssets;
   int? mirrorExportTotalAssets;
   String? mirrorExportError;
+
+  /// נתיב ה-cache הקבוע (`<dataDir>/offline-mirror`) — מתעדכן אוטומטית
+  /// ברקע בכל פתיחת האפליקציה (ראו [refreshOfflineMirrorCacheInBackground],
+  /// שנקרא מה-dashboard) ומוכן תמיד להעברה למחשב אחר (USB / תיקייה
+  /// משותפת) בלי צורך לבחור יעד או ללחוץ על כלום.
+  String get offlineMirrorCacheDir => _manager.offlineMirrorCacheDir;
+
+  /// מצב הרענון **האוטומטי** של [offlineMirrorCacheDir] — נפרד מ-
+  /// [mirrorExportStatus] כדי לא להתנגש עם ייצוא ידני יזום.
+  MirrorExportStatus autoCacheStatus = MirrorExportStatus.idle;
+  String? autoCacheStage;
+  String? autoCacheError;
+  DateTime? autoCacheLastRefreshedAt;
+
+  /// מרענן ברקע את [offlineMirrorCacheDir] מהענן. best-effort ולא זורק:
+  /// כישלון (בעיקר אין אינטרנט) פשוט משאיר את ה-cache כפי שהיה מהרענון
+  /// הקודם — לא אמור להפריע לשום דבר אחר. נקרא אוטומטית בכל פתיחת
+  /// האפליקציה מה-dashboard, במקביל ל-[checkForUpdate] (לא לפניו/אחריו).
+  Future<void> refreshOfflineMirrorCacheInBackground() async {
+    autoCacheStatus = MirrorExportStatus.exporting;
+    autoCacheStage = null;
+    autoCacheError = null;
+    notifyListeners();
+
+    try {
+      await _manager.refreshOfflineMirrorCache(
+        onStage: (stage) {
+          autoCacheStage = stage;
+          notifyListeners();
+        },
+      );
+      autoCacheStatus = MirrorExportStatus.done;
+      autoCacheLastRefreshedAt = DateTime.now();
+    } catch (e) {
+      autoCacheStatus = MirrorExportStatus.error;
+      autoCacheError = e.toString();
+    }
+    notifyListeners();
+  }
 
   Future<void> refreshSourceMode() async {
     activeMirrorPath = await _manager.currentLocalMirrorPath();

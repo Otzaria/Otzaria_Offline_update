@@ -28,6 +28,9 @@ class GithubLibraryReleaseClient implements LibraryReleaseSource {
   static const Map<String, String> _apiHeaders = {
     'Accept': 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
+    // ⚠️ חובה: GitHub API מחזיר 403 "forbidden by administrative rules"
+    // לכל בקשה בלי User-Agent — ללא קשר ל-rate limit.
+    'User-Agent': 'otzaria-launcher',
   };
 
   static const int _perPage = 100;
@@ -66,7 +69,10 @@ class GithubLibraryReleaseClient implements LibraryReleaseSource {
   Future<DeltaManifest> fetchManifest(String url) async {
     final response = await _httpClient.get(
       Uri.parse(url),
-      headers: const {'Accept': 'application/json'},
+      headers: const {
+        'Accept': 'application/json',
+        'User-Agent': 'otzaria-launcher',
+      },
     ).timeout(timeout);
     if (response.statusCode != 200) {
       throw Exception('שגיאה בהורדת manifest ($url): ${response.statusCode}');
