@@ -156,12 +156,20 @@ class LibraryUpdateApplier {
       ));
 
       try {
-        // קריאה דרך פונקציית top-level נפרדת (לא סוגר inline כאן) — ראו
-        // doc-comment של [_runApplyPatchInIsolate] להסבר המלא: לא מספיק
-        // שהסוגר עצמו לא ניגש ל-`this`, כי דארט חולק אובייקט Context אחד
-        // בין כל הסוגרים שנוצרים באותו scope לקסיקלי (כולל ה-for הזה,
-        // שגם `onProgress` נקרא בו) — ולכן חובה לצאת ל-scope נפרד לגמרי.
-        await _runApplyPatchInIsolate(dbPath, patchPath, manifest);
+        // חשוב: הקריאה ל-Isolate.run **חייבת** לקרות בתוך מתודה נפרדת
+        // (`_isolateApplyPatch`, סטטית), לא כאן inline בתוך הלולאה. הסיבה
+        // אינה טריוויאלית: גם אם הסוגר referenced רק dbPath/patchPath/
+        // manifest (משתנים מקומיים, לא שדות מופע), ה-compiler של Dart
+        // ארוז את כל המשתנים שנתפסים ע"י **כל** הסגורים שמוגדרים באותו
+        // בלוק לקסיקלי (כאן: גם הסוגר של `onProgress` בקריאת
+        // downloadAndExtract למעלה) לתוך אותו אובייקט Context משותף —
+        // ו-Isolate.send מנסה לשלוח את כל ה-Context, כולל שדות שלא
+        // בשימוש בפועל ע"י הסוגר הזה עצמו. זה בדיוק מה שגרם לקריסה
+        // "object is unsendable" גם אחרי התיקון הקודם: השרשרת בקריסה
+        // עברה דרך `onProgress` של הבקר (`LibraryModuleController`), עד
+        // לעץ ה-widgets כולו. מתודה נפרדת = frame לקסיקלי נפרד = אין
+        // Context משותף עם onProgress.
+        await _isolateApplyPatch(dbPath, patchPath, manifest);
         _recovery.finishSuccess(dbPath);
       } catch (_) {
         // apply אטומי: אם זרק, ה-DB כלל לא השתנה. רק מנקים את הסימון.
@@ -243,9 +251,10 @@ class LibraryUpdateApplier {
     onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.writingFullDb));
     final newFilePath = '$dbPath.new';
     try {
-      // ראו הערה המקבילה ב-applyDelta: קריאה דרך פונקציית top-level נפרדת,
-      // לא סוגר inline כאן, כי onProgress נקרא באותו scope לקסיקלי.
-      await _runWriteBytesInIsolate(newFilePath, extracted);
+      // ראו doc-comment ב-`_isolateApplyPatch` למעלה: חייב להיות במתודה
+      // סטטית נפרדת, לא Isolate.run inline כאן — כדי לא לחלוק Context
+      // לקסיקלי עם `onProgress`.
+      await _isolateWriteBytes(newFilePath, extracted);
       _deleteQuietly('$dbPath-wal');
       _deleteQuietly('$dbPath-shm');
       if (File(dbPath).existsSync()) File(dbPath).deleteSync();
@@ -269,6 +278,25 @@ class LibraryUpdateApplier {
     if (dbAlreadyExists) _recovery.finishSuccess(dbPath);
     _deleteQuietly(compressedPath);
     onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.done));
+  }
+
+  /// עוטף את `Isolate.run` במתודה **סטטית** נפרדת — קריטי, ראו הסבר
+  /// ב-doc-comment בנקודת הקריאה ב-[applyDelta]. סטטית = אין `this`
+  /// בכלל, ומתודה נפרדת = frame לקסיקלי נפרד שלא חולק Context עם
+  /// סגורי `onProgress` של הקוד הקורא.
+  static Future<PatchApplyResult> _isolateApplyPatch(
+    String dbPath,
+    String patchPath,
+    DeltaManifest manifest,
+  ) {
+    return Isolate.run(
+      () => _applyPatchInIsolate((dbPath, patchPath, manifest)),
+    );
+  }
+
+  /// כנ"ל, עבור כתיבת ה-DB המלא המחולץ.
+  static Future<void> _isolateWriteBytes(String path, Uint8List bytes) {
+    return Isolate.run(() => _writeBytesInIsolate((path, bytes)));
   }
 
   Future<void> _guardOtzariaNotRunning() async {

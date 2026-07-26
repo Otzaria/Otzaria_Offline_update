@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../controllers/library_module_controller.dart';
 import '../controllers/otzaria_module_controller.dart';
+import '../services/app_logger.dart';
 import '../theme/app_theme.dart';
 import '../widgets/coming_soon_card.dart';
 import '../widgets/module_card.dart';
@@ -74,6 +75,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
     await Process.run('explorer.exe', [dir.path]);
   }
 
+  /// פותח את תיקיית הלוגים (`AppLogger.instance.logDir`) בסייר הקבצים —
+  /// כדי לראות מה קרה בפועל בלי דיבאגר. אם `explorer.exe` לא זמין
+  /// (למשל בסביבת פיתוח שאינה Windows), מציג את הנתיב כטקסט להעתקה.
+  Future<void> _openLogFolder() async {
+    final path = AppLogger.instance.logDir;
+    try {
+      await Process.run('explorer.exe', [path]);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('קובץ הלוג נמצא ב: ${AppLogger.instance.filePath}')),
+      );
+    }
+  }
+
   @override
   void dispose() {
     _otzaria.removeListener(_onChange);
@@ -109,7 +125,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("לאנצ'ר אוצריא")),
+      appBar: AppBar(
+        title: const Text("לאנצ'ר אוצריא"),
+        actions: [
+          IconButton(
+            tooltip: 'פתח יומן שגיאות',
+            icon: const Icon(Icons.description_outlined),
+            onPressed: _openLogFolder,
+          ),
+        ],
+      ),
       body: RefreshIndicator(
         color: AppColors.ink,
         onRefresh: () async {

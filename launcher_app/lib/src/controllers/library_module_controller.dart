@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
+import '../services/app_logger.dart';
+
 enum LibraryModuleStatus {
   idle,
   checking,
@@ -88,9 +90,10 @@ class LibraryModuleController extends ChangeNotifier {
       );
       autoCacheStatus = MirrorExportStatus.done;
       autoCacheLastRefreshedAt = DateTime.now();
-    } catch (e) {
+    } catch (e, st) {
       autoCacheStatus = MirrorExportStatus.error;
       autoCacheError = e.toString();
+      AppLogger.instance.error('refreshOfflineMirrorCacheInBackground נכשל', e, st);
     }
     notifyListeners();
   }
@@ -126,9 +129,10 @@ class LibraryModuleController extends ChangeNotifier {
               : LibraryModuleStatus.upToDate;
         }
       }
-    } catch (e) {
+    } catch (e, st) {
       status = LibraryModuleStatus.error;
       errorMessage = e.toString();
+      AppLogger.instance.error('checkForUpdate נכשל', e, st);
     }
     notifyListeners();
   }
@@ -176,9 +180,10 @@ class LibraryModuleController extends ChangeNotifier {
         },
       );
       mirrorExportStatus = MirrorExportStatus.done;
-    } catch (e) {
+    } catch (e, st) {
       mirrorExportStatus = MirrorExportStatus.error;
       mirrorExportError = e.toString();
+      AppLogger.instance.error('exportOfflineMirror נכשל', e, st);
     }
     notifyListeners();
   }
@@ -200,6 +205,11 @@ class LibraryModuleController extends ChangeNotifier {
     errorMessage = null;
     notifyListeners();
 
+    final plan = _lastCheck!.plan;
+    AppLogger.instance.info(
+      'update() מתחיל: kind=${plan?.kind} local=${plan?.localVersion} target=${plan?.targetVersion}',
+    );
+
     try {
       await _manager.applyUpdate(
         _lastCheck!,
@@ -213,6 +223,7 @@ class LibraryModuleController extends ChangeNotifier {
           notifyListeners();
         },
       );
+      AppLogger.instance.info('update() הסתיים בהצלחה');
       // best-effort: מרעננים גם את תיקיית ההעברה (USB) ברקע כדי שתישאר
       // עדכנית, בלי לחסום את הצגת ההצלחה למשתמש.
       unawaited(refreshOfflineMirrorCacheInBackground());
@@ -220,9 +231,10 @@ class LibraryModuleController extends ChangeNotifier {
       // עדיף על קביעה ידנית של upToDate, כי זה קורא בפועל את הגרסה
       // שנכתבה ל-DB במקום להניח שהיא תואמת ליעד.
       await checkForUpdate();
-    } catch (e) {
+    } catch (e, st) {
       status = LibraryModuleStatus.error;
       errorMessage = e.toString();
+      AppLogger.instance.error('update() נכשל', e, st);
     }
     notifyListeners();
   }
