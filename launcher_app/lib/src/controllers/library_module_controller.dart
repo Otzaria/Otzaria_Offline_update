@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:seforim_library_updater/seforim_library_updater.dart';
@@ -18,9 +20,9 @@ enum LibraryModuleStatus {
 enum MirrorExportStatus { idle, exporting, done, error }
 
 /// עוטף את [LibraryManager] כמצב הניתן לצפייה עבור מסך הדשבורד — בדיקת
-/// גרסת מסד, בקשת נתיב ידני כשלא נמצא DB, **הורדה לתיקייה מקומית בלבד**
-/// (ללא patch/apply על ה-DB החי), והחלפה בין מקור ה-cloud למראה מקומית
-/// (offline) לצד ייצוא מראה כזו.
+/// גרסת מסד, בקשת נתיב ידני כשלא נמצא DB, **החלה בפועל על ה-DB החי**
+/// (delta patch-אחר-patch, או הורדת DB מלא — דרך [update]), והחלפה בין
+/// מקור ה-cloud למראה מקומית (offline) לצד ייצוא מראה כזו.
 class LibraryModuleController extends ChangeNotifier {
   LibraryModuleController({required String dataDir})
       : _manager = LibraryManager(dataDir: dataDir);
@@ -32,6 +34,10 @@ class LibraryModuleController extends ChangeNotifier {
   int? localVersion;
   int? targetVersion;
   String? stageText;
+
+  /// 0..1 כשיש יעד ידוע (בייטים שהורדו/סה"כ), אחרת null (מד לא-קבוע).
+  /// מתעדכן במהלך [update] בלבד.
+  double? applyProgress;
   String? errorMessage;
 
   /// `true` אם checkForUpdate האחרון זיהה שאין DB בכלל עדיין (התקנה
@@ -177,34 +183,70 @@ class LibraryModuleController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// **לא מחיל שום דבר על ה-DB החי.** תפקידו היחיד הוא לוודא ש
-  /// [offlineMirrorCacheDir] מעודכן — כלומר להוריד את הקבצים העדכניים
-  /// לתיקייה המקומית (בדיוק כמו [refreshOfflineMirrorCacheInBackground],
-  /// רק לא ברקע: קוראים לזה במפורש בתגובה לכפתור "עדכן" ומחכים לסיום).
-  /// התקנת הקבצים בפועל היא צעד נפרד ומכוון-ידית של המשתמש (למשל דרך
-  /// תיקיית ההעברה שנפתחת ב-dashboard).
+  /// מחיל בפועל את העדכון על ה-DB **החי** — delta patch-אחר-patch, או
+  /// הורדת DB מלא, דרך [LibraryManager.applyUpdate]. בהצלחה, ה-DB של
+  /// אוצריא כבר מעודכן בפועל ואין שום פעולה נוספת שהמשתמש צריך לעשות.
+  ///
+  /// זורק (ונתפס כאן כ-[LibraryModuleStatus.error]) בעיקר: `OtzariaIsRunningException`
+  /// אם אוצריא פתוחה כרגע (בווינדוס), או `LibraryApplyException`
+  /// על כשל הורדה/אימות/כתיבה — בשני המקרים ה-`toString()` של החריג
+  /// כבר מנוסח כהודעה קריאה למשתמש, ומוצג ישירות ב-[errorMessage].
   Future<void> update() async {
     if (_lastCheck == null) return;
 
     status = LibraryModuleStatus.updating;
     stageText = null;
+    applyProgress = null;
+    errorMessage = null;
     notifyListeners();
 
     try {
-      await _manager.refreshOfflineMirrorCache(
-        onStage: (stage) {
-          stageText = stage;
+      await _manager.applyUpdate(
+        _lastCheck!,
+        onProgress: (p) {
+          stageText = _describeApplyStage(p);
+          applyProgress = (p.bytesDownloaded != null &&
+                  p.bytesTotal != null &&
+                  p.bytesTotal! > 0)
+              ? p.bytesDownloaded! / p.bytesTotal!
+              : null;
           notifyListeners();
         },
       );
-      autoCacheStatus = MirrorExportStatus.done;
-      autoCacheLastRefreshedAt = DateTime.now();
-      status = LibraryModuleStatus.upToDate;
+      // best-effort: מרעננים גם את תיקיית ההעברה (USB) ברקע כדי שתישאר
+      // עדכנית, בלי לחסום את הצגת ההצלחה למשתמש.
+      unawaited(refreshOfflineMirrorCacheInBackground());
+      // מרעננים את מצב הבדיקה עצמו (localVersion/targetVersion/status) —
+      // עדיף על קביעה ידנית של upToDate, כי זה קורא בפועל את הגרסה
+      // שנכתבה ל-DB במקום להניח שהיא תואמת ליעד.
+      await checkForUpdate();
     } catch (e) {
       status = LibraryModuleStatus.error;
       errorMessage = e.toString();
     }
     notifyListeners();
+  }
+
+  String _describeApplyStage(LibraryApplyProgress p) {
+    final step = (p.stepIndex != null && p.stepCount != null)
+        ? ' (${p.stepIndex}/${p.stepCount})'
+        : '';
+    switch (p.stage) {
+      case LibraryApplyStage.downloadingPatch:
+        return 'מוריד עדכון$step...';
+      case LibraryApplyStage.applyingPatch:
+        return 'מחיל עדכון על המסד$step...';
+      case LibraryApplyStage.downloadingFullDb:
+        return 'מוריד מסד מלא...';
+      case LibraryApplyStage.decompressingFullDb:
+        return 'מחלץ את המסד...';
+      case LibraryApplyStage.writingFullDb:
+        return 'כותב את המסד...';
+      case LibraryApplyStage.verifying:
+        return 'מוודא תקינות...';
+      case LibraryApplyStage.done:
+        return 'הושלם.';
+    }
   }
 
   @override

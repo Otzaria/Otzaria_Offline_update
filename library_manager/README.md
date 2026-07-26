@@ -2,8 +2,9 @@
 
 חבילת Flutter שמחווטת (wiring) את
 [`seforim_library_updater`](../README.md) אל תוך הלאנצ'ר המאוחד: איתור
-תיקיית ה-DB בפועל של המשתמש, בדיקת גרסה מול הענן, והורדת קבצים עדכניים
-לתיקייה מקומית בלבד (**ללא** patch/apply על ה-DB החי — ראו הערה למטה).
+תיקיית ה-DB בפועל של המשתמש, בדיקת גרסה מול הענן, והחלה בפועל (patch
+דלתאי או החלפת DB מלא) על ה-DB **החי** דרך [`LibraryUpdateApplier`](lib/src/services/library_update_applier.dart) —
+נבנה מחדש אחרי שהוסר עקב באג, ראו "היסטוריית התיקון" למטה.
 
 ## ממצאים חשובים (עודכן יולי 2026, לפי דיווח משתמש בפועל)
 
@@ -20,30 +21,49 @@
   ששמור אצלנו (`LibraryStateStore`), ורק אם גם זה וגם שני המיקומים
   האחרים לא נמצאים, מחזיר `null` — ה-UI צריך לבקש מהמשתמש להצביע
   ידנית (לפי ההחלטה איתו).
-- **בדיקת "האם אוצריא רצה" הוסרה** יחד עם מנגנון ה-apply כולו (ראו
-  הערה למטה) — היא הייתה רלוונטית רק כשה-manager כתב בפועל ל-
-  `seforim.db` החי. כיום ה-manager הזה לא נוגע בקובץ ה-DB בכלל, אז אין
-  יותר צורך לבדוק אם אוצריא רצה מתוכו.
+- **בדיקת "האם אוצריא רצה"** (`OtzariaProcessGuard`) פעילה שוב דרך
+  `LibraryUpdateApplier.applyUpdate` — רלוונטית כי ה-manager כן כותב
+  בפועל ל-`seforim.db` החי. פעילה רק בווינדוס (על פלטפורמות אחרות
+  `tasklist` לא קיים, אז הבדיקה מדולגת).
 
 ## מבנה
 
 - `services/library_db_locator.dart` — איתור נתיב ה-DB (custom → ברירת מחדל → null).
 - `services/library_state_store.dart` — שמירת נתיב מותאם אישית.
-- `library_manager.dart` — האורקסטרטור: `checkForUpdate()` (בדיקה בלבד) +
-  `exportOfflineMirror()`/`refreshOfflineMirrorCache()` (**הורדה לתיקייה
-  מקומית בלבד** — אין כאן שום patch/apply על ה-DB החי, ואין תלות ב-Isolate).
+- `services/library_update_applier.dart` — **`LibraryUpdateApplier`**: ההחלה
+  בפועל של delta/fullDownload על ה-DB החי (patch/apply דרך `Isolate.run` נכון,
+  גיבוי/שחזור, בדיקת "אוצריא רצה").
+- `services/otzaria_process_guard.dart` — בדיקת תהליך `otzaria.exe` פעיל (Windows).
+- `services/zstd_decompressor.dart` — מוזרק ל-`PatchDownloader` וגם לחילוץ ה-DB המלא.
+- `library_manager.dart` — האורקסטרטור: `checkForUpdate()` (בדיקה+תכנון) +
+  `applyUpdate()` (**ההחלה בפועל על ה-DB החי**) + `exportOfflineMirror()`/
+  `refreshOfflineMirrorCache()` (הכנת מראה offline להעברה למחשב אחר).
 
-> **הערה (עודכן):** מנגנון ה-`applyUpdate` הקודם (delta patch דרך
-> `Isolate.run` + `PatchApplier`, כולל `OtzariaProcessGuard`/
-> `zstd_decompressor.dart`) **הוסר לגמרי** מה-manager ומה-UI, לפי החלטה
-> מפורשת: החיבור לענן משמש רק לבדיקה ולהורדת קבצים לתיקייה מקומית, ולא
-> לעדכון ה-DB החי בפועל. הסיבה המקורית: קריסת
+> **היסטוריית התיקון:** מנגנון ה-apply המקורי הוסר בעבר עקב קריסת
 > `Illegal argument in isolate message: object is unsendable` — הסוגר
-> שנשלח ל-`Isolate.run` גישה לשדה פרטי (`_applier`) וכך תפס בטעות את כל
-> `this` (כולל `_cloudClient`/`HttpClient` חי, שאינו ניתן לשליחה בין
-> isolates). הקבצים `services/otzaria_process_guard.dart` ו-
-> `services/zstd_decompressor.dart` נשארו בריפו (עדיין מיוצאים דרך
-> `library_manager.dart`) אך אינם בשימוש עוד על ידי `LibraryManager`.
+> שנשלח ל-`Isolate.run` ניגש לשדה **מופע** (`_applier.apply(...)`), וכך
+> תפס implicitly את כל `this` (כולל `_cloudClient`/`HttpClient` חי, שאינו
+> ניתן לשליחה בין isolates). לזמן מה `LibraryManager` רק בדק והוריד
+> לתיקייה מקומית, בלי לגעת ב-DB החי בכלל.
+>
+> **המנגנון נבנה מחדש** ב-[`LibraryUpdateApplier`](lib/src/services/library_update_applier.dart):
+> כל קריאת `Isolate.run` עוברת דרך פונקציית **top-level** שמקבלת רק
+> ארגומנטים פרימיטיביים/מבני-דאטה (records, `String`, `Uint8List`,
+> `DeltaManifest`) — אותו דפוס שכבר עבד נכון ב-
+> `LibraryDbRecoveryService.cloneOrCopyFile`. `LibraryManager.applyUpdate(check)`
+> הוא נקודת הכניסה: מפעיל `OtzariaProcessGuard` (חוסם אם אוצריא פתוחה,
+> בווינדוס בלבד), מוריד ומחיל מסלול delta (patch-אחר-patch, כל אחד
+> אטומי) או fullDownload (הורדה + חילוץ zstd + כתיבה אטומית עם
+> גיבוי/שחזור דרך `LibraryDbRecoveryService`), ומאמת את הגרסה הסופית מול
+> `LocalDbVersionReader`.
+>
+> **מגבלה ידועה (MVP) במסלול fullDownload:** החילוץ הוא בזיכרון (לא
+> streaming) — כל ה-DB המלא (עד כ-1.1GB) נטען ל-RAM. עובד, אך צורך יותר
+> זיכרון משיא אפשרי על מחשבים חלשים; שדרוג ל-streaming extractor (כמו
+> ה-onboarding של אוצריא עצמה) הוא צעד המשך סביר אם זה יתברר כבעיה.
+> `services/zstd_decompressor.dart` נשאר בשימוש (מוזרק ל-`PatchDownloader`
+> ולחילוץ ה-DB המלא כאחד); `services/otzaria_process_guard.dart` נשאר
+> בשימוש דרך `LibraryUpdateApplier`.
 
 ## ⚠️ מה עדיין לא מאומת / סיכונים ידועים
 
@@ -53,11 +73,12 @@
    אוצריא עצמו כמעט ולא מפרסם יציבים). כאן זו ברירת מחדל סבירה שנבחרה
    בנפרד, לא אושרה במפורש — כדאי לבדוק אם SeforimLibrary כן מפרסם
    יציבים סדירים, ואם כן לשקול `false`.
-2. **אין עוד מסלול שמעדכן את ה-`seforim.db` החי אוטומטית.** כל שה-UI
-   עושה כרגע הוא להוריד את הגרסה העדכנית לתיקיית `offlineMirrorCacheDir`
-   ולתת למשתמש לפתוח אותה (USB / תיקייה משותפת). אם בעתיד כן ירצו מסלול
-   התקנה אוטומטי של ה-DB עצמו, יהיה צריך לתכנן אותו מחדש (ולא פשוט
-   להחזיר את קוד ה-`applyUpdate` הישן, בגלל הבאג שתואר למעלה).
+2. **`LibraryUpdateApplier` לא נבדק בפועל על ווינדוס אמיתי** (הסביבה כאן
+   היא Linux) — הלוגיקה נכתבה לפי ה-API המתועד של `seforim_library_updater`
+   ועברה `dart analyze`, אך לא `flutter run` על DB אמיתי בגודל מלא. יש
+   לבדוק בפועל: מסלול delta על שרשרת patches אמיתית, מסלול fullDownload
+   על קובץ ~1GB (כולל צריכת הזיכרון בפועל של החילוץ בזיכרון), והתנהגות
+   `OtzariaProcessGuard`/`tasklist` כשאוצריא פתוחה.
 
 ## שימוש
 
@@ -72,12 +93,22 @@ if (check.needsManualDbPath) {
 }
 
 if (check.updateAvailable) {
-  // מוריד את הגרסה העדכנית לתיקייה מקומית בלבד — לא נוגע ב-DB החי.
-  await manager.refreshOfflineMirrorCache(
-    onStage: (stage) => print(stage),
-  );
-  print('הקבצים המעודכנים נמצאים ב-${manager.offlineMirrorCacheDir}');
+  try {
+    // מוריד ומחיל בפועל (delta או full) על ה-DB החי.
+    await manager.applyUpdate(
+      check,
+      onProgress: (p) => print('${p.stage} ${p.bytesDownloaded}/${p.bytesTotal}'),
+    );
+    print('ה-DB עודכן בהצלחה ל-${check.plan?.targetVersion}');
+  } on OtzariaIsRunningException {
+    print('סגור קודם את אוצריא ונסה שוב');
+  } on LibraryApplyException catch (e) {
+    print('העדכון נכשל: $e');
+  }
 }
+
+// לחלופין (או בנוסף), עדיין אפשר להכין מראה offline להעברה למחשב אחר:
+// await manager.exportOfflineMirror(destDir: r'D:\seforim-mirror');
 
 manager.dispose();
 ```

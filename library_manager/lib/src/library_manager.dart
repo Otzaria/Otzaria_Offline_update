@@ -6,32 +6,40 @@ import 'package:seforim_library_updater/seforim_library_updater.dart';
 import 'models/library_update_check_result.dart';
 import 'services/library_db_locator.dart';
 import 'services/library_state_store.dart';
+import 'services/library_update_applier.dart';
+
+export 'services/library_update_applier.dart'
+    show
+        LibraryUpdateApplier,
+        LibraryApplyStage,
+        LibraryApplyProgress,
+        LibraryApplyException;
 
 /// נקודת הכניסה היחידה שמודול ה-UI אמור להשתמש בה כדי **לבדוק** גרסת מסד
-/// (ה-DB) של אוצריא ול**הוריד** את הקבצים העדכניים לתיקייה מקומית — מחווט
-/// את שרשרת ה-discovery/planner/downloader של `seforim_library_updater`.
+/// (ה-DB) של אוצריא ו**להחיל** בפועל את העדכון (דלתא או DB מלא) על ה-DB
+/// החי — מחווט את שרשרת ה-discovery/planner/downloader/applier של
+/// `seforim_library_updater`.
 ///
-/// **חשוב:** ה-manager הזה **לא** מחיל (patch/apply) שום דבר על ה-DB
-/// החי בפועל, ולא ניגש אליו לכתיבה. תפקידו היחיד מול הענן הוא לבדוק אילו
-/// גרסאות קיימות ([checkForUpdate]) ולהוריד קבצים לתיקייה מקומית
-/// ([exportOfflineMirror]/[refreshOfflineMirrorCache]). התקנה/עדכון בפועל
-/// של קובץ ה-DB עצמו היא צעד נפרד ומכוון-ידית מחוץ למחלקה הזו.
+/// **הערה היסטורית:** בעבר המחלקה הזו רק בדקה והורידה לתיקייה מקומית
+/// (`offlineMirrorCacheDir`), בלי לגעת ב-DB החי בכלל — בעקבות קריסת
+/// `Isolate.run` (ראו doc-comment של [LibraryUpdateApplier]). מאז נבנה
+/// [applyUpdate] מחדש, נכון, והוא כן מחיל בפועל.
 ///
 /// **מקור הבדיקה** ניתן להחלפה בזמן ריצה בין הענן (GitHub, ברירת מחדל)
 /// לבין מראה מקומית (offline) — ראו [useLocalMirror]/[useCloud]. המראה
 /// המקומית עצמה נבנית פעם אחת, במחשב עם אינטרנט, דרך [exportOfflineMirror].
 ///
-/// דוגמת שימוש (בדיקה + הורדה לתיקייה מקומית):
+/// דוגמת שימוש (בדיקה + החלה בפועל על ה-DB החי):
 /// ```dart
 /// final manager = LibraryManager(dataDir: r'C:\Users\me\AppData\Roaming\OurLauncher');
 ///
 /// final check = await manager.checkForUpdate();
 /// if (check.updateAvailable) {
-///   await manager.refreshOfflineMirrorCache(
-///     onStage: (stage) => print(stage),
+///   await manager.applyUpdate(
+///     check,
+///     onProgress: (p) => print('${p.stage} ${p.bytesDownloaded}/${p.bytesTotal}'),
 ///   );
-///   // הקבצים המעודכנים נמצאים עכשיו ב-manager.offlineMirrorCacheDir —
-///   // התקנתם בפועל היא צעד נפרד ומכוון-ידית.
+///   // ה-DB עודכן בפועל — אין צעד נוסף.
 /// }
 /// ```
 ///
@@ -54,7 +62,8 @@ class LibraryManager {
         _planner = const LibraryUpdatePlanner(),
         _versionReader = const LocalDbVersionReader(),
         _recovery = const LibraryDbRecoveryService(),
-        _cloudClient = GithubLibraryReleaseClient() {
+        _cloudClient = GithubLibraryReleaseClient(),
+        _applier = LibraryUpdateApplier() {
     _locator = LibraryDbLocator(stateStore: _stateStore);
   }
 
@@ -80,6 +89,10 @@ class LibraryManager {
   /// אחד) בין אם מצב ה-cloud פעיל ובין אם לא, כי [exportOfflineMirror]
   /// תמיד צריך אותו גם כשהמשתמש כרגע במצב מראה מקומית.
   final GithubLibraryReleaseClient _cloudClient;
+
+  /// מבצע את ההחלה בפועל של תוכנית עדכון (delta/fullDownload) על ה-DB החי —
+  /// ראו [applyUpdate].
+  final LibraryUpdateApplier _applier;
 
   Future<void> setCustomDbPath(String dbPath) => _stateStore.saveCustomDbPath(dbPath);
 
@@ -232,9 +245,61 @@ class LibraryManager {
     );
   }
 
+  /// מחיל בפועל את [check.plan] על ה-DB **החי** — זה הצעד שחסר עד עכשיו:
+  /// [checkForUpdate] רק בודק ותכנן, הפונקציה הזו בפועל מורידה ומתקינה.
+  ///
+  /// זורק [OtzariaIsRunningException] אם אוצריא פתוחה (בווינדוס בלבד —
+  /// הבדיקה מדולגת בפלטפורמות אחרות). זורק [LibraryApplyException] על
+  /// כשלים אחרים (חיבור/אימות/גרסה לא תואמת) — במקרה כזה ה-DB משוחזר
+  /// אוטומטית לגרסה הקודמת כשהתוכנית לא הייתה delta.
+  ///
+  /// לא עושה כלום אם `check.updateAvailable == false`.
+  Future<void> applyUpdate(
+    LibraryUpdateCheckResult check, {
+    void Function(LibraryApplyProgress progress)? onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    final plan = check.plan;
+    final dbPath = check.dbPath;
+    if (plan == null || dbPath == null || !check.updateAvailable) return;
+
+    switch (plan.kind) {
+      case LibraryUpdatePlanKind.delta:
+        await _applier.applyDelta(
+          plan: plan,
+          dbPath: dbPath,
+          onProgress: onProgress,
+          isCancelled: isCancelled,
+        );
+        break;
+      case LibraryUpdatePlanKind.fullDownload:
+        await _applier.applyFullDownload(
+          plan: plan,
+          dbPath: dbPath,
+          onProgress: onProgress,
+          isCancelled: isCancelled,
+        );
+        break;
+      case LibraryUpdatePlanKind.none:
+        return;
+      case LibraryUpdatePlanKind.blocked:
+        throw LibraryApplyException(
+          plan.reason ?? 'מצב חסום — נדרשת פעולה ידנית',
+        );
+    }
+
+    // התקנה טרייה: ה-dbPath שכתבנו אליו הופך מעכשיו לנתיב הקבוע שנבדוק
+    // מולו (כמו בחירה ידנית של המשתמש) — כדי ש-checkForUpdate הבא ימצא
+    // אותו במקום לחשוב שוב שזו התקנה טרייה.
+    if (check.isFreshInstall) {
+      await _stateStore.saveCustomDbPath(dbPath);
+    }
+  }
+
   /// סוגר את חיבורי ה-HTTP הפנימיים. יש לקרוא כשמסיימים להשתמש
   /// ב-[LibraryManager] (לא הכרחי בין קריאות בודדות — רק בסגירת האפליקציה).
   void dispose() {
     _cloudClient.dispose();
+    _applier.dispose();
   }
 }
