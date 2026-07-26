@@ -18,8 +18,9 @@ enum LibraryModuleStatus {
 enum MirrorExportStatus { idle, exporting, done, error }
 
 /// עוטף את [LibraryManager] כמצב הניתן לצפייה עבור מסך הדשבורד — בדיקת
-/// עדכון למסד, בקשת נתיב ידני כשלא נמצא DB, החלת העדכון עם התקדמות,
-/// והחלפה בין מקור ה-cloud למראה מקומית (offline) לצד ייצוא מראה כזו.
+/// גרסת מסד, בקשת נתיב ידני כשלא נמצא DB, **הורדה לתיקייה מקומית בלבד**
+/// (ללא patch/apply על ה-DB החי), והחלפה בין מקור ה-cloud למראה מקומית
+/// (offline) לצד ייצוא מראה כזו.
 class LibraryModuleController extends ChangeNotifier {
   LibraryModuleController({required String dataDir})
       : _manager = LibraryManager(dataDir: dataDir);
@@ -31,8 +32,6 @@ class LibraryModuleController extends ChangeNotifier {
   int? localVersion;
   int? targetVersion;
   String? stageText;
-  int? downloadReceived;
-  int? downloadTotal;
   String? errorMessage;
 
   /// `true` אם checkForUpdate האחרון זיהה שאין DB בכלל עדיין (התקנה
@@ -178,33 +177,29 @@ class LibraryModuleController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// **לא מחיל שום דבר על ה-DB החי.** תפקידו היחיד הוא לוודא ש
+  /// [offlineMirrorCacheDir] מעודכן — כלומר להוריד את הקבצים העדכניים
+  /// לתיקייה המקומית (בדיוק כמו [refreshOfflineMirrorCacheInBackground],
+  /// רק לא ברקע: קוראים לזה במפורש בתגובה לכפתור "עדכן" ומחכים לסיום).
+  /// התקנת הקבצים בפועל היא צעד נפרד ומכוון-ידית של המשתמש (למשל דרך
+  /// תיקיית ההעברה שנפתחת ב-dashboard).
   Future<void> update() async {
-    final check = _lastCheck;
-    if (check == null) return;
+    if (_lastCheck == null) return;
 
     status = LibraryModuleStatus.updating;
-    downloadReceived = null;
-    downloadTotal = null;
     stageText = null;
     notifyListeners();
 
     try {
-      await _manager.applyUpdate(
-        check,
+      await _manager.refreshOfflineMirrorCache(
         onStage: (stage) {
           stageText = stage;
           notifyListeners();
         },
-        onDownloadProgress: (received, total) {
-          downloadReceived = received;
-          downloadTotal = total;
-          notifyListeners();
-        },
       );
+      autoCacheStatus = MirrorExportStatus.done;
+      autoCacheLastRefreshedAt = DateTime.now();
       status = LibraryModuleStatus.upToDate;
-    } on OtzariaIsRunningException catch (e) {
-      status = LibraryModuleStatus.error;
-      errorMessage = e.toString();
     } catch (e) {
       status = LibraryModuleStatus.error;
       errorMessage = e.toString();
