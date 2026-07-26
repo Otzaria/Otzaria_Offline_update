@@ -392,7 +392,8 @@ class LibraryManager {
   /// מוחק תתי-תיקיות cache של DB מלא מגרסאות ישנות אחרי החלה מוצלחת —
   /// משאיר רק את הגרסה הנוכחית, כדי שה-cache לא יצטבר בלי גבול. לא נוגע
   /// בתיקיית ה-`patches` (מנוקה כבר בנפרד, פר-patch, ב-[_applyDeltaSteps]).
-  Future<void> _pruneOldLibraryCacheEntries({required String keepTagName}) async {
+  Future<void> _pruneOldLibraryCacheEntries({required String? keepTagName}) async {
+    if (keepTagName == null) return;
     final dir = Directory(_cacheDir);
     if (!await dir.exists()) return;
     try {
