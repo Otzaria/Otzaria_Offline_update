@@ -61,6 +61,20 @@ class LibraryApplyException implements Exception {
 /// טהורים (records, `String`, `Uint8List`, `DeltaManifest`) — בדיוק כמו
 /// שכבר עובד נכון ב-`LibraryDbRecoveryService.cloneOrCopyFile`. אין כאן שום
 /// גישה לשדה מופע בתוך סוגר שמועבר ל-Isolate.
+///
+/// **תוספת חשובה (הבאג שחזר):** לא מספיק שהסוגר עצמו לא ניגש ל-`this` —
+/// דארט חולק אובייקט `Context` *אחד* בין כל הסוגרים שנוצרים באותו scope
+/// לקסיקלי, לא רק בין הסוגרים שבפועל *משתמשים* במשתנה מסוים. ב-`applyDelta`/
+/// `applyFullDownload`, הפרמטר `onProgress` (סוגר שמגיע מהצרכן וסוגר-שרשרת
+/// על `LibraryModuleController` כולו — עד לעץ ה-widgets) נקרא **באותו בלוק**
+/// שבו נוצר סוגר ה-`Isolate.run`. כתוצאה מכך, גם אם קוד הסוגר של ה-Isolate
+/// לא נוגע ב-`onProgress` בכלל, ה-Context המשותף שלו כן מכיל את `onProgress`
+/// — וניסיון השליחה ל-isolate נכשל כי הוא "גורר" איתו את כל השרשרת. ראו
+/// dart-lang/sdk#52661 ("Closures over-capture, cannot be sent to other
+/// isolate"). הפתרון: קריאת `Isolate.run` חייבת להיות בתוך פונקציית
+/// top-level **נפרדת לגמרי** (לא רק סוגר נפרד), כדי שה-Context שלה לא
+/// ישותף בשום צורה עם ה-scope של `applyDelta`/`applyFullDownload` — ראו
+/// [_runApplyPatchInIsolate] ו-[_runWriteBytesInIsolate].
 class LibraryUpdateApplier {
   LibraryUpdateApplier({
     OtzariaProcessGuard processGuard = const OtzariaProcessGuard(),
@@ -142,11 +156,12 @@ class LibraryUpdateApplier {
       ));
 
       try {
-        // dbPath/patchPath/manifest הם משתנים מקומיים בפריים הזה — הסוגר
-        // הבא לא נוגע ב-`this` בשום צורה, ולכן ניתן לשליחה ל-Isolate.
-        await Isolate.run(
-          () => _applyPatchInIsolate((dbPath, patchPath, manifest)),
-        );
+        // קריאה דרך פונקציית top-level נפרדת (לא סוגר inline כאן) — ראו
+        // doc-comment של [_runApplyPatchInIsolate] להסבר המלא: לא מספיק
+        // שהסוגר עצמו לא ניגש ל-`this`, כי דארט חולק אובייקט Context אחד
+        // בין כל הסוגרים שנוצרים באותו scope לקסיקלי (כולל ה-for הזה,
+        // שגם `onProgress` נקרא בו) — ולכן חובה לצאת ל-scope נפרד לגמרי.
+        await _runApplyPatchInIsolate(dbPath, patchPath, manifest);
         _recovery.finishSuccess(dbPath);
       } catch (_) {
         // apply אטומי: אם זרק, ה-DB כלל לא השתנה. רק מנקים את הסימון.
@@ -228,7 +243,9 @@ class LibraryUpdateApplier {
     onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.writingFullDb));
     final newFilePath = '$dbPath.new';
     try {
-      await Isolate.run(() => _writeBytesInIsolate((newFilePath, extracted)));
+      // ראו הערה המקבילה ב-applyDelta: קריאה דרך פונקציית top-level נפרדת,
+      // לא סוגר inline כאן, כי onProgress נקרא באותו scope לקסיקלי.
+      await _runWriteBytesInIsolate(newFilePath, extracted);
       _deleteQuietly('$dbPath-wal');
       _deleteQuietly('$dbPath-shm');
       if (File(dbPath).existsSync()) File(dbPath).deleteSync();
@@ -303,4 +320,24 @@ PatchApplyResult _applyPatchInIsolate(
 /// [args]: `($1: נתיב יעד, $2: bytes לכתיבה)`.
 void _writeBytesInIsolate((String, Uint8List) args) {
   File(args.$1).writeAsBytesSync(args.$2, flush: true);
+}
+
+/// עוטפת את קריאת ה-`Isolate.run` עצמה בפונקציית top-level **נפרדת**
+/// (ולא רק בסוגר נפרד בתוך `applyDelta`). זה קריטי: אם הקריאה הייתה
+/// inline בתוך ה-for loop של `applyDelta`, ה-Context הלקסיקלי שלה היה
+/// משותף עם הבלוק שבו נקרא `onProgress` — ראו ההסבר המלא ב-doc-comment
+/// של [LibraryUpdateApplier]. כאן, בפונקציה נפרדת עם הפרמטרים שלה בלבד
+/// (`String`, `String`, `DeltaManifest`), אין שום דרך שה-Context יכיל
+/// משהו מלבד שלושת אלה.
+Future<PatchApplyResult> _runApplyPatchInIsolate(
+  String dbPath,
+  String patchPath,
+  DeltaManifest manifest,
+) {
+  return Isolate.run(() => _applyPatchInIsolate((dbPath, patchPath, manifest)));
+}
+
+/// כנ"ל עבור כתיבת ה-DB המלא — ראו [_runApplyPatchInIsolate].
+Future<void> _runWriteBytesInIsolate(String path, Uint8List bytes) {
+  return Isolate.run(() => _writeBytesInIsolate((path, bytes)));
 }
