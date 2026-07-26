@@ -61,6 +61,20 @@ class LibraryApplyException implements Exception {
 /// טהורים (records, `String`, `Uint8List`, `DeltaManifest`) — בדיוק כמו
 /// שכבר עובד נכון ב-`LibraryDbRecoveryService.cloneOrCopyFile`. אין כאן שום
 /// גישה לשדה מופע בתוך סוגר שמועבר ל-Isolate.
+///
+/// **תוספת חשובה (הבאג שחזר):** לא מספיק שהסוגר עצמו לא ניגש ל-`this` —
+/// דארט חולק אובייקט `Context` *אחד* בין כל הסוגרים שנוצרים באותו scope
+/// לקסיקלי, לא רק בין הסוגרים שבפועל *משתמשים* במשתנה מסוים. ב-`applyDelta`/
+/// `applyFullDownload`, הפרמטר `onProgress` (סוגר שמגיע מהצרכן וסוגר-שרשרת
+/// על `LibraryModuleController` כולו — עד לעץ ה-widgets) נקרא **באותו בלוק**
+/// שבו נוצר סוגר ה-`Isolate.run`. כתוצאה מכך, גם אם קוד הסוגר של ה-Isolate
+/// לא נוגע ב-`onProgress` בכלל, ה-Context המשותף שלו כן מכיל את `onProgress`
+/// — וניסיון השליחה ל-isolate נכשל כי הוא "גורר" איתו את כל השרשרת. ראו
+/// dart-lang/sdk#52661 ("Closures over-capture, cannot be sent to other
+/// isolate"). הפתרון: קריאת `Isolate.run` חייבת להיות בתוך פונקציית
+/// top-level **נפרדת לגמרי** (לא רק סוגר נפרד), כדי שה-Context שלה לא
+/// ישותף בשום צורה עם ה-scope של `applyDelta`/`applyFullDownload` — ראו
+/// [_runApplyPatchInIsolate] ו-[_runWriteBytesInIsolate].
 class LibraryUpdateApplier {
   LibraryUpdateApplier({
     OtzariaProcessGuard processGuard = const OtzariaProcessGuard(),
@@ -334,4 +348,24 @@ PatchApplyResult _applyPatchInIsolate(
 /// [args]: `($1: נתיב יעד, $2: bytes לכתיבה)`.
 void _writeBytesInIsolate((String, Uint8List) args) {
   File(args.$1).writeAsBytesSync(args.$2, flush: true);
+}
+
+/// עוטפת את קריאת ה-`Isolate.run` עצמה בפונקציית top-level **נפרדת**
+/// (ולא רק בסוגר נפרד בתוך `applyDelta`). זה קריטי: אם הקריאה הייתה
+/// inline בתוך ה-for loop של `applyDelta`, ה-Context הלקסיקלי שלה היה
+/// משותף עם הבלוק שבו נקרא `onProgress` — ראו ההסבר המלא ב-doc-comment
+/// של [LibraryUpdateApplier]. כאן, בפונקציה נפרדת עם הפרמטרים שלה בלבד
+/// (`String`, `String`, `DeltaManifest`), אין שום דרך שה-Context יכיל
+/// משהו מלבד שלושת אלה.
+Future<PatchApplyResult> _runApplyPatchInIsolate(
+  String dbPath,
+  String patchPath,
+  DeltaManifest manifest,
+) {
+  return Isolate.run(() => _applyPatchInIsolate((dbPath, patchPath, manifest)));
+}
+
+/// כנ"ל עבור כתיבת ה-DB המלא — ראו [_runApplyPatchInIsolate].
+Future<void> _runWriteBytesInIsolate(String path, Uint8List bytes) {
+  return Isolate.run(() => _writeBytesInIsolate((path, bytes)));
 }
