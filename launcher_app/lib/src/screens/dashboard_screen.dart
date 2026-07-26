@@ -44,12 +44,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  /// אותו דבר עבור מסד הספרייה. בנוסף: מרענן ברקע (לא ממתינים!) את
-  /// ה-cache הקבוע (offline-mirror) שמוכן תמיד להעברה למחשב אחר — ראו
-  /// [LibraryModuleController.refreshOfflineMirrorCacheInBackground].
-  /// checkForUpdate למטה קורא תמיד מה-cache **הקיים כרגע** (או מהענן
-  /// ישירות אם עוד אין cache בכלל בהתקנה הזו), בלי תלות בהצלחת/סיום
-  /// הרענון הזה — כך שהבדיקה עצמה לעולם לא מחכה לרשת.
+  /// אותו דבר עבור מסד הספרייה. **`c.update()` כאן לא נוגע ב-DB החי בכלל** —
+  /// הוא רק מוודא שהקבצים העדכניים ירדו לתיקייה המקומית (offline-mirror),
+  /// בדיוק כמו [LibraryModuleController.refreshOfflineMirrorCacheInBackground]
+  /// למטה, רק ממתינים לסיום שלו כדי לעדכן את הסטטוס המוצג. התקנה בפועל של
+  /// ה-DB היא צעד נפרד ומכוון-ידית של המשתמש דרך תיקיית ההעברה.
   Future<void> _syncLibrary() async {
     unawaited(_library.refreshOfflineMirrorCacheInBackground());
     await _library.checkForUpdate();
@@ -246,9 +245,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             LibraryModuleStatus.error => 'שגיאה',
             _ => null,
           },
-          progress: (c.downloadReceived != null && c.downloadTotal != null && c.downloadTotal! > 0)
-              ? c.downloadReceived! / c.downloadTotal!
-              : null,
+          progress: null,
           stageText: c.stageText,
           errorMessage: c.errorMessage,
           primaryActionLabel: switch (c.status) {
