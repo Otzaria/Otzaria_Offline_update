@@ -34,7 +34,10 @@ class OtzariaManager {
   OtzariaManager({required String dataDir})
       : _stateStore = OtzariaStateStore(p.join(dataDir, 'otzaria_install_state.json')),
         _releaseClient = OtzariaReleaseClient(),
-        _installer = OtzariaInstaller(defaultInstallDir: p.join(dataDir, 'otzaria-app')),
+        _installer = OtzariaInstaller(
+          defaultInstallDir: p.join(dataDir, 'otzaria-app'),
+          cacheDir: p.join(dataDir, 'cache', 'otzaria'),
+        ),
         _launcher = const OtzariaLauncher(),
         _exeLocator = const OtzariaExeLocator(),
         _versionReader = const WindowsExeVersionReader(),

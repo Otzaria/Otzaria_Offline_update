@@ -231,47 +231,71 @@ class LibraryManager {
     }
   }
 
+  /// תיקיית ה-cache הקבועה של מודול הספרייה — קבצים שהורדו נשמרים כאן
+  /// (לא ב-temp), כדי לתמוך בסדר העבודה: קודם לוודא שה-cache מעודכן,
+  /// ורק אז להחיל על ה-DB בפועל. זה גם נותן חוסן-אופליין: אם ההורדה
+  /// נכשלת, עדיין אפשר להחיל מהעותק השמור; ואפשר להעתיק את התיקייה
+  /// הזו למחשב אחר כדי לשכפל שם את אותו עדכון בלי אינטרנט.
+  String get _cacheDir => p.join(dataDir, 'cache', 'library');
+
   Future<void> _applyDeltaSteps(
     String dbPath,
     LibraryUpdatePlan plan, {
     void Function(String stage)? onStage,
     void Function(int downloaded, int? total)? onDownloadProgress,
   }) async {
-    final tempDir = await Directory.systemTemp.createTemp('library-patch-');
-    try {
-      for (final step in plan.deltaSteps) {
-        // כרגע manifest.patchFiles הוא תמיד קובץ אחד (ראו התיעוד ב-
-        // seforim_library_updater/lib/src/models/delta_manifest.dart) —
-        // PatchApplier.apply גם מקבל patchPath יחיד, לא רשימה.
-        final patchFile = step.manifest.patchFiles.single;
-        final url = step.patchFileUrls[patchFile.file];
-        if (url == null) {
-          throw StateError('לא נמצא URL הורדה עבור ${patchFile.file}');
-        }
+    final patchCacheDir = Directory(p.join(_cacheDir, 'patches'));
+    await patchCacheDir.create(recursive: true);
 
+    for (final step in plan.deltaSteps) {
+      // כרגע manifest.patchFiles הוא תמיד קובץ אחד (ראו התיעוד ב-
+      // seforim_library_updater/lib/src/models/delta_manifest.dart) —
+      // PatchApplier.apply גם מקבל patchPath יחיד, לא רשימה.
+      final patchFile = step.manifest.patchFiles.single;
+      final url = step.patchFileUrls[patchFile.file];
+      if (url == null) {
+        throw StateError('לא נמצא URL הורדה עבור ${patchFile.file}');
+      }
+
+      // אותו חישוב שם שקיים בתוך PatchDownloader.downloadAndExtract —
+      // כדי לדעת אם כבר יש עותק תקף ב-cache לפני שמתחילים הורדה.
+      final extractedName = patchFile.file.endsWith('.zst')
+          ? patchFile.file.substring(0, patchFile.file.length - 4)
+          : '${patchFile.file}.db';
+      final cachedExtractedPath = p.join(patchCacheDir.path, extractedName);
+      final cachedFile = File(cachedExtractedPath);
+      final cacheHit = await cachedFile.exists() &&
+          await cachedFile.length() == patchFile.uncompressedSize;
+
+      final String extractedPath;
+      if (cacheHit) {
+        onStage?.call('נמצא ב-cache: עדכון ${step.fromVersion} → ${step.toVersion}');
+        extractedPath = cachedExtractedPath;
+      } else {
         onStage?.call('מוריד עדכון ${step.fromVersion} → ${step.toVersion}');
-        final extractedPath = await _downloader.downloadAndExtract(
+        extractedPath = await _downloader.downloadAndExtract(
           patchFile: patchFile,
           downloadUrl: url,
-          destDir: tempDir,
+          destDir: patchCacheDir,
           onProgress: onDownloadProgress,
         );
+      }
 
-        onStage?.call('מחיל עדכון ${step.fromVersion} → ${step.toVersion}');
-        // apply() סינכרוני וכבד (hash + SQL על כל ה-DB) — ב-Isolate נפרד
-        // כדי לא לחסום, בדיוק כמו שמתועד ב-README של seforim_library_updater.
-        await Isolate.run(
-          () => _applier.apply(
-            dbPath: dbPath,
-            patchPath: extractedPath,
-            manifest: step.manifest,
-          ),
-        );
-      }
-    } finally {
-      if (await tempDir.exists()) {
-        await tempDir.delete(recursive: true);
-      }
+      onStage?.call('מחיל עדכון ${step.fromVersion} → ${step.toVersion}');
+      // apply() סינכרוני וכבד (hash + SQL על כל ה-DB) — ב-Isolate נפרד
+      // כדי לא לחסום, בדיוק כמו שמתועד ב-README של seforim_library_updater.
+      await Isolate.run(
+        () => _applier.apply(
+          dbPath: dbPath,
+          patchPath: extractedPath,
+          manifest: step.manifest,
+        ),
+      );
+
+      // ה-patch הוחל בהצלחה — ה-DB המקומי כבר מעבר לגרסה הזו, אז אין
+      // טעם לשמור אותו ב-cache יותר (בניגוד ל-DB המלא/ה-installer של
+      // אוצריא, שנשארים רלוונטיים כל עוד הם "הגרסה האחרונה").
+      _deleteQuietly(cachedExtractedPath);
     }
   }
 
@@ -294,7 +318,12 @@ class LibraryManager {
       await Directory(p.dirname(dbPath)).create(recursive: true);
     }
 
-    final compressedPath = '$dbPath.download.zst';
+    // ה-DB המלא הדחוס נשמר לצמיתות ב-cache (לא נמחק בסוף) — לפי סדר
+    // העבודה המבוקש: קודם לוודא שיש עותק מעודכן ב-cache (מדלגים על הורדה
+    // אם כבר קיים ותקין), ורק אז מחליפים את ה-DB בפועל על הדיסק ממנו.
+    final fullDbCacheDir = Directory(p.join(_cacheDir, plan.fullDbReleaseTag));
+    await fullDbCacheDir.create(recursive: true);
+    final compressedPath = p.join(fullDbCacheDir.path, asset.name);
     final newDbPath = '$dbPath.new';
     final timestamp = DateTime.now().toIso8601String();
 
@@ -309,17 +338,25 @@ class LibraryManager {
     );
 
     try {
-      onStage?.call('מוריד DB מלא (${plan.fullDbReleaseTag})');
-      // downloadToFile מוריד את הבייטים הגולמיים (עדיין דחוסים) לדיסק —
-      // לא מחלץ בעצמו (ראו PatchDownloader). החילוץ קורה בשלב נפרד למטה.
-      // אם asset.downloadUrl הוא נתיב מקומי (מצב מראה offline) — מועתק
-      // מהדיסק במקום הורדה, שקוף לחלוטין לקוד כאן.
-      await _downloader.downloadToFile(
-        url: asset.downloadUrl,
-        destPath: compressedPath,
-        expectedSize: asset.size,
-        onProgress: onDownloadProgress,
-      );
+      final cachedFile = File(compressedPath);
+      final cacheHit =
+          await cachedFile.exists() && await cachedFile.length() == asset.size;
+
+      if (cacheHit) {
+        onStage?.call('נמצא ב-cache: DB מלא (${plan.fullDbReleaseTag})');
+      } else {
+        onStage?.call('מוריד DB מלא (${plan.fullDbReleaseTag})');
+        // downloadToFile מוריד את הבייטים הגולמיים (עדיין דחוסים) לדיסק —
+        // לא מחלץ בעצמו (ראו PatchDownloader). החילוץ קורה בשלב נפרד למטה.
+        // אם asset.downloadUrl הוא נתיב מקומי (מצב מראה offline) — מועתק
+        // מהדיסק במקום הורדה, שקוף לחלוטין לקוד כאן.
+        await _downloader.downloadToFile(
+          url: asset.downloadUrl,
+          destPath: compressedPath,
+          expectedSize: asset.size,
+          onProgress: onDownloadProgress,
+        );
+      }
 
       onStage?.call('מחלץ DB מלא');
       final compressedBytes = await File(compressedPath).readAsBytes();
@@ -341,12 +378,32 @@ class LibraryManager {
       if (dbExistsAlready) File(dbPath).deleteSync();
       File(newDbPath).renameSync(dbPath);
       _recovery.finishSuccess(dbPath);
+      await _pruneOldLibraryCacheEntries(keepTagName: plan.fullDbReleaseTag);
     } catch (_) {
       await _recovery.rollback(dbPath);
       rethrow;
     } finally {
-      _deleteQuietly(compressedPath);
+      // compressedPath **לא** נמחק — הוא נשאר ב-cache לצמיתות (ראו
+      // fullDbCacheDir למעלה). רק newDbPath הוא קובץ עבודה זמני אמיתי.
       _deleteQuietly(newDbPath);
+    }
+  }
+
+  /// מוחק תתי-תיקיות cache של DB מלא מגרסאות ישנות אחרי החלה מוצלחת —
+  /// משאיר רק את הגרסה הנוכחית, כדי שה-cache לא יצטבר בלי גבול. לא נוגע
+  /// בתיקיית ה-`patches` (מנוקה כבר בנפרד, פר-patch, ב-[_applyDeltaSteps]).
+  Future<void> _pruneOldLibraryCacheEntries({required String keepTagName}) async {
+    final dir = Directory(_cacheDir);
+    if (!await dir.exists()) return;
+    try {
+      await for (final entry in dir.list()) {
+        final name = p.basename(entry.path);
+        if (entry is Directory && name != keepTagName && name != 'patches') {
+          await entry.delete(recursive: true);
+        }
+      }
+    } catch (_) {
+      // ניקוי best-effort — כישלון כאן לא אמור לחסום עדכון שכבר הצליח.
     }
   }
 
