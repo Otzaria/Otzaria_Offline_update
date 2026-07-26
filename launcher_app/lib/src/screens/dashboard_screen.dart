@@ -44,11 +44,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  /// אותו דבר עבור מסד הספרייה. **`c.update()` כאן לא נוגע ב-DB החי בכלל** —
-  /// הוא רק מוודא שהקבצים העדכניים ירדו לתיקייה המקומית (offline-mirror),
-  /// בדיוק כמו [LibraryModuleController.refreshOfflineMirrorCacheInBackground]
-  /// למטה, רק ממתינים לסיום שלו כדי לעדכן את הסטטוס המוצג. התקנה בפועל של
-  /// ה-DB היא צעד נפרד ומכוון-ידית של המשתמש דרך תיקיית ההעברה.
+  /// אותו דבר עבור מסד הספרייה. **`c.update()` כאן כן מחיל בפועל על ה-DB
+  /// החי** (delta patch-אחר-patch, או הורדת DB מלא) — זה בדיוק המנגנון
+  /// שהיה חסר קודם. `refreshOfflineMirrorCacheInBackground` רץ במקביל,
+  /// בנפרד, כדי לשמור גם על תיקיית ההעברה (USB) עדכנית להעברה למחשב אחר.
   Future<void> _syncLibrary() async {
     unawaited(_library.refreshOfflineMirrorCacheInBackground());
     await _library.checkForUpdate();
@@ -245,7 +244,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             LibraryModuleStatus.error => 'שגיאה',
             _ => null,
           },
-          progress: null,
+          progress: c.applyProgress,
           stageText: c.stageText,
           errorMessage: c.errorMessage,
           primaryActionLabel: switch (c.status) {
