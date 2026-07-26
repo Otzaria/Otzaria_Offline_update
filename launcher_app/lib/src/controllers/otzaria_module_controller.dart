@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 
+import '../services/app_logger.dart';
+
 enum OtzariaModuleStatus { idle, checking, upToDate, updateAvailable, updating, error }
 
 /// עוטף את [OtzariaManager] כמצב הניתן לצפייה עבור מסך הדשבורד — בדיקת
@@ -34,9 +36,10 @@ class OtzariaModuleController extends ChangeNotifier {
       status = check.updateAvailable
           ? OtzariaModuleStatus.updateAvailable
           : OtzariaModuleStatus.upToDate;
-    } catch (e) {
+    } catch (e, st) {
       status = OtzariaModuleStatus.error;
       errorMessage = e.toString();
+      AppLogger.instance.error('OtzariaModuleController.checkForUpdate נכשל', e, st);
     }
     notifyListeners();
   }
@@ -49,6 +52,9 @@ class OtzariaModuleController extends ChangeNotifier {
     downloadReceived = null;
     downloadTotal = null;
     notifyListeners();
+    AppLogger.instance.info(
+      'OtzariaModuleController.update() מתחיל: ${check.currentState?.installedTagName} -> ${check.latestRelease.tagName}',
+    );
 
     try {
       final state = await _manager.update(
@@ -61,9 +67,11 @@ class OtzariaModuleController extends ChangeNotifier {
       );
       currentVersion = state.installedTagName;
       status = OtzariaModuleStatus.upToDate;
-    } catch (e) {
+      AppLogger.instance.info('OtzariaModuleController.update() הסתיים בהצלחה');
+    } catch (e, st) {
       status = OtzariaModuleStatus.error;
       errorMessage = e.toString();
+      AppLogger.instance.error('OtzariaModuleController.update() נכשל', e, st);
     }
     notifyListeners();
   }
@@ -71,8 +79,9 @@ class OtzariaModuleController extends ChangeNotifier {
   Future<void> launch() async {
     try {
       await _manager.launch();
-    } catch (e) {
+    } catch (e, st) {
       errorMessage = e.toString();
+      AppLogger.instance.error('OtzariaModuleController.launch() נכשל', e, st);
       notifyListeners();
     }
   }
