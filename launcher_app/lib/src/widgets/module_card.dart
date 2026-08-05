@@ -3,7 +3,14 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
 /// מצב תצוגה של כרטיס מודול בדשבורד.
-enum ModuleStatus { loading, upToDate, updateAvailable, updating, error, needsAction }
+enum ModuleStatus {
+  loading,
+  upToDate,
+  updateAvailable,
+  updating,
+  error,
+  needsAction
+}
 
 /// כרטיס אחיד להצגת מודול בדשבורד (אוצריא עצמה / מסד הספרייה): שם,
 /// תת-כותרת (גרסה נוכחית/זמינה), "פס כריכה" צבעוני בצד לפי סטטוס, ופעולה
@@ -107,7 +114,8 @@ class ModuleCard extends StatelessWidget {
                             height: 18,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation(AppColors.textSecondary),
+                              valueColor: AlwaysStoppedAnimation(
+                                  AppColors.textSecondary),
                             ),
                           )
                         else if (statusLabel != null)
@@ -127,18 +135,22 @@ class ModuleCard extends StatelessWidget {
                           value: progress,
                           minHeight: 6,
                           backgroundColor: AppColors.parchmentAlt,
-                          valueColor: const AlwaysStoppedAnimation(AppColors.ink),
+                          valueColor:
+                              const AlwaysStoppedAnimation(AppColors.ink),
                         ),
                       ),
                     ],
-                    if (status == ModuleStatus.error && errorMessage != null) ...[
+                    if (status == ModuleStatus.error &&
+                        errorMessage != null) ...[
                       const SizedBox(height: 12),
                       Text(
                         errorMessage!,
-                        style: textTheme.bodySmall?.copyWith(color: AppColors.danger),
+                        style: textTheme.bodySmall
+                            ?.copyWith(color: AppColors.danger),
                       ),
                     ],
-                    if (onPrimaryAction != null || onSecondaryAction != null) ...[
+                    if (onPrimaryAction != null ||
+                        onSecondaryAction != null) ...[
                       const SizedBox(height: 16),
                       Row(
                         children: [

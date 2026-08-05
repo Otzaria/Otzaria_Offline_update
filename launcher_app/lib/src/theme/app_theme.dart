@@ -76,7 +76,8 @@ class AppTheme {
           disabledBackgroundColor: AppColors.parchmentAlt,
           disabledForegroundColor: AppColors.textSecondary,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           textStyle: textTheme.labelLarge,
         ),
       ),

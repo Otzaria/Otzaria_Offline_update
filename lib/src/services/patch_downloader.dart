@@ -949,9 +949,8 @@ class PatchDownloader {
       _deleteQuietly(destPath);
       final sink = File(destPath).openWrite();
       final digestSink = expectedSha256 != null ? _ChunkedDigestSink() : null;
-      final input = digestSink != null
-          ? sha256.startChunkedConversion(digestSink)
-          : null;
+      final input =
+          digestSink != null ? sha256.startChunkedConversion(digestSink) : null;
       var copied = 0;
       await for (final chunk in source.openRead()) {
         _throwIfCancelled(isCancelled);

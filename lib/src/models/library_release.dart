@@ -119,8 +119,8 @@ class LibraryRelease extends Equatable {
       publishedAt: DateTime.tryParse((json['publishedAt'] as String?) ?? ''),
       assets: assetsRaw is List
           ? assetsRaw
-              .map((e) =>
-                  ReleaseAsset.fromMirrorJson(e as Map<String, dynamic>))
+              .map(
+                  (e) => ReleaseAsset.fromMirrorJson(e as Map<String, dynamic>))
               .toList(growable: false)
           : const [],
     );

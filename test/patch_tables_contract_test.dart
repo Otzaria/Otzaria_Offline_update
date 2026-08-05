@@ -69,7 +69,8 @@ void main() {
       }
       final local = File(fixturePath).readAsBytesSync();
       final remote = kotlinFixture.readAsBytesSync();
-      expect(remote, local, reason: 'שני עותקי ה-fixture חייבים להיות זהים בתים');
+      expect(remote, local,
+          reason: 'שני עותקי ה-fixture חייבים להיות זהים בתים');
     });
   });
 }

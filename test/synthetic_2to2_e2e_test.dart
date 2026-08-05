@@ -19,7 +19,8 @@ import 'package:sqlite3/sqlite3.dart' as sqlite3;
 ///   synth-next/patch-synth-2to2.db.zst.manifest.json ← build/patch-synth-2to2.db.zst.manifest.json
 /// בהיעדר אחד מהקבצים הבדיקה מדולגת (אותה תבנית כמו שאר בדיקות ה-E2E).
 void main() {
-  group('PatchApplier synthetic 2->2 (real E2E via SEFORIM_LIBRARY_RELEASES_DIR)',
+  group(
+      'PatchApplier synthetic 2->2 (real E2E via SEFORIM_LIBRARY_RELEASES_DIR)',
       () {
     final dir =
         Platform.environment['SEFORIM_LIBRARY_RELEASES_DIR'] ?? '/nonexistent';
@@ -30,7 +31,8 @@ void main() {
       if (tmp.existsSync()) tmp.deleteSync(recursive: true);
     });
 
-    test('apply synthetic 2->2 מגיע ל-toContentHash, מקפיץ db_version ומחיל את השינויים',
+    test(
+        'apply synthetic 2->2 מגיע ל-toContentHash, מקפיץ db_version ומחיל את השינויים',
         () {
       final prevSrc = '$dir/synth-prev/seforim.db';
       final patchPath = '$dir/synth-next/patch-synth-2to2.db';
@@ -39,7 +41,8 @@ void main() {
       if (!File(prevSrc).existsSync() ||
           !File(patchPath).existsSync() ||
           !File(manifestPath).existsSync()) {
-        markTestSkipped('הגדר SEFORIM_LIBRARY_RELEASES_DIR עם ארטיפקטי synth-*');
+        markTestSkipped(
+            'הגדר SEFORIM_LIBRARY_RELEASES_DIR עם ארטיפקטי synth-*');
         return;
       }
 
@@ -67,9 +70,9 @@ void main() {
       expect(result.booksTouched, containsAll(<int>[1, 2, 242, 255]));
 
       final db = sqlite3.sqlite3.open(dbPath, mode: sqlite3.OpenMode.readOnly);
-      String meta(String k) => db
-          .select("SELECT value FROM schema_meta WHERE key=?", [k])
-          .first['value'] as String;
+      String meta(String k) => db.select(
+              "SELECT value FROM schema_meta WHERE key=?", [k]).first['value']
+          as String;
       int scalar(String sql) => db.select(sql).first.values.first as int;
       try {
         expect(meta('db_version'), '2');

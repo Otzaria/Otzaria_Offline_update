@@ -3,7 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/widgets/coming_soon_card.dart';
 
 void main() {
-  testWidgets('ComingSoonCard מציג כותרת, תת-כותרת ותג "בקרוב"', (tester) async {
+  testWidgets('ComingSoonCard מציג כותרת, תת-כותרת ותג "בקרוב"',
+      (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(

@@ -93,7 +93,8 @@ class LibraryModuleController extends ChangeNotifier {
     } catch (e, st) {
       autoCacheStatus = MirrorExportStatus.error;
       autoCacheError = e.toString();
-      AppLogger.instance.error('refreshOfflineMirrorCacheInBackground נכשל', e, st);
+      AppLogger.instance
+          .error('refreshOfflineMirrorCacheInBackground נכשל', e, st);
     }
     notifyListeners();
   }

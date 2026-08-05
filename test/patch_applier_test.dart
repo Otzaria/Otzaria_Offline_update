@@ -580,7 +580,8 @@ void main() {
       expect(result.resultHash, manifest.toContentHash);
     }, timeout: const Timeout(Duration(minutes: 10)));
 
-    test('apply v14→v15r (patch חלופי, סכמה-1) מצליח ומגיע ל-toContentHash', () {
+    test('apply v14→v15r (patch חלופי, סכמה-1) מצליח ומגיע ל-toContentHash',
+        () {
       final dbPath = cloneDb('$dir/v14/seforim.db');
       final patchPath = '$dir/v15/patch-v14-v15r.db';
       if (dbPath == null || !File(patchPath).existsSync()) {

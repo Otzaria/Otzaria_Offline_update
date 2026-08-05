@@ -46,7 +46,8 @@ class ComingSoonCard extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: textTheme.titleLarge?.copyWith(color: AppColors.textSecondary),
+                    style: textTheme.titleLarge
+                        ?.copyWith(color: AppColors.textSecondary),
                   ),
                   const SizedBox(height: 2),
                   Text(subtitle, style: textTheme.bodySmall),
@@ -61,8 +62,9 @@ class ComingSoonCard extends StatelessWidget {
               ),
               child: Text(
                 'בקרוב',
-                style: textTheme.bodySmall
-                    ?.copyWith(color: AppColors.textSecondary, fontWeight: FontWeight.w600),
+                style: textTheme.bodySmall?.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600),
               ),
             ),
           ],

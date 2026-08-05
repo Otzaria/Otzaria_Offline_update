@@ -3,7 +3,14 @@ import 'package:otzaria_manager/otzaria_manager.dart';
 
 import '../services/app_logger.dart';
 
-enum OtzariaModuleStatus { idle, checking, upToDate, updateAvailable, updating, error }
+enum OtzariaModuleStatus {
+  idle,
+  checking,
+  upToDate,
+  updateAvailable,
+  updating,
+  error
+}
 
 /// עוטף את [OtzariaManager] כמצב הניתן לצפייה עבור מסך הדשבורד — בדיקת
 /// עדכון, התקנה/עדכון עם התקדמות, והפעלת אוצריא.
@@ -39,7 +46,8 @@ class OtzariaModuleController extends ChangeNotifier {
     } catch (e, st) {
       status = OtzariaModuleStatus.error;
       errorMessage = e.toString();
-      AppLogger.instance.error('OtzariaModuleController.checkForUpdate נכשל', e, st);
+      AppLogger.instance
+          .error('OtzariaModuleController.checkForUpdate נכשל', e, st);
     }
     notifyListeners();
   }

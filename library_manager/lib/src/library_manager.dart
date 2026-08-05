@@ -94,7 +94,8 @@ class LibraryManager {
   /// ראו [applyUpdate].
   final LibraryUpdateApplier _applier;
 
-  Future<void> setCustomDbPath(String dbPath) => _stateStore.saveCustomDbPath(dbPath);
+  Future<void> setCustomDbPath(String dbPath) =>
+      _stateStore.saveCustomDbPath(dbPath);
 
   /// עובר לעדכון ממראה מקומית (offline) בתיקייה [mirrorDir] — במקום
   /// מהענן. התיקייה חייבת להיבנות מראש דרך [exportOfflineMirror] (או
@@ -205,7 +206,8 @@ class LibraryManager {
       // אין DB בכלל עדיין — אין מה לקרוא ואין מה לשחזר. localVersion=0 +
       // hasVersionMeta=false גורמים ל-planner לבחור fullDownload, בדיוק
       // כמו DB ישן-מדי-לפאץ' (ראו LibraryUpdatePlanner._fullOrBlocked).
-      local = const LocalDbVersion(dbVersion: 0, schemaVersion: null, hasVersionMeta: false);
+      local = const LocalDbVersion(
+          dbVersion: 0, schemaVersion: null, hasVersionMeta: false);
     } else {
       // התאוששות מעדכון שנקטע באמצע, לפני שקוראים גרסה מקומית או פותחים
       // DB בכל דרך אחרת.
@@ -226,7 +228,8 @@ class LibraryManager {
 
     final source = await _resolveSource();
     final discoverer = LibraryUpdateDiscovery(client: source);
-    final discoveryResult = await discoverer.discover(allowPrerelease: _allowPrerelease);
+    final discoveryResult =
+        await discoverer.discover(allowPrerelease: _allowPrerelease);
 
     final plan = _planner.plan(
       localVersion: local.dbVersion,
