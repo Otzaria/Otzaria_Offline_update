@@ -12,6 +12,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   seforim_library_updater:
     path: ../
   otzaria_manager:
@@ -21,7 +23,8 @@ dependencies:
   path: ^1.9.1
   path_provider: ^2.1.4
   file_picker: ^8.1.2
-  google_fonts: ^6.2.1
+  # אותה ספריית אייקונים כמו באוצריא — האייקונים היחידים שמותר להשתמש בהם.
+  fluentui_system_icons: ^1.1.249
   cupertino_icons: ^1.0.8
 
 dev_dependencies:

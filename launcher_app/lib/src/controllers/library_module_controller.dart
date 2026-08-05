@@ -50,6 +50,9 @@ class LibraryModuleController extends ChangeNotifier {
   /// מתעדכן דרך [refreshSourceMode], שנקרא גם מ-[checkForUpdate].
   String? activeMirrorPath;
 
+  /// נתיב ה-`seforim.db` שזוהה בפועל — מתעדכן בכל [checkForUpdate].
+  String? dbPath;
+
   /// מצב ייצוא מראה offline **ידני** (יעד שהמשתמש בחר בעצמו) — נפרד
   /// מ-[status] (ראו [MirrorExportStatus]).
   MirrorExportStatus mirrorExportStatus = MirrorExportStatus.idle;
@@ -111,6 +114,7 @@ class LibraryModuleController extends ChangeNotifier {
 
     try {
       activeMirrorPath = await _manager.currentLocalMirrorPath();
+      dbPath = await _manager.currentDbPath();
       final check = await _manager.checkForUpdate();
       _lastCheck = check;
       isFreshInstall = check.isFreshInstall;

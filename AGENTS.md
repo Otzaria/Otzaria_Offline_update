@@ -59,7 +59,7 @@ package sits at the repo root (historical, do not move it).
 | `otzaria_manager/` | `otzaria_manager` | Pure Dart (no Flutter). Manages the **Otzaria app itself**: check latest release, download, silent install, launch. Windows + macOS. |
 | `library_manager/` | `library_manager` | Flutter package. Wires `seforim_library_updater` into the launcher: locate the user's real `seforim.db`, check versions, apply updates to the **live** DB, export/consume the offline mirror. |
 | `launcher_app/` | `launcher_app` | The Flutter desktop app (Windows + macOS) that wires the modules into one dashboard. Depends on the other three via relative `path:`, so it must stay a sibling of them. |
-| `plugins_manager` | — | **Not built yet.** The dashboard shows a disabled "coming soon" card in its place. |
+| `plugins_manager` | — | **Not built yet.** The launcher's plugins screen shows layout plus an honest empty state in its place. |
 
 Producer vs. consumer: the Kotlin repo `Otzaria/SeforimLibrary` *produces* the DB
 and the patches; this repo only *consumes* them.
@@ -102,6 +102,17 @@ Notes:
 - Keep the module boundaries: `otzaria_manager` must not depend on Flutter;
   the root package must not depend on Otzaria app code or on the launcher.
 - Do not silently widen scope. Fix what was asked, then say what you left out.
+
+**UI code in `launcher_app` follows Otzaria's design system, not its own.**
+`launcher_app/lib/src/theme/` and `lib/src/widgets/` are ports of
+`otzaria/lib/theme/` and `otzaria/lib/widgets/`. Use the ported components
+(`ActionButton`, `SettingsCard`/`SettingsActionTile`, `AppCard`, `UiSnack`,
+the `show*Dialog` helpers, `AppSegmentedControl`, `RtlIcon`, `RtlTextField`,
+`StatusChip`) instead of raw Material widgets, and keep alpha/hover overrides
+inside `lib/src/theme/`. The full rule table — including what deliberately was
+*not* ported — is in `launcher_app/README.md`; the upstream contract is
+`otzaria/AGENTS.md` § "MANDATORY UI Components". When touching UI, read the
+Otzaria original before inventing something new.
 
 ---
 

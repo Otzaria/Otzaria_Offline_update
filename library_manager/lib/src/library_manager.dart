@@ -109,6 +109,10 @@ class LibraryManager {
   /// נתיב המראה המקומית הפעילה כרגע, או `null` אם מצב ה-cloud פעיל.
   Future<String?> currentLocalMirrorPath() => _stateStore.loadLocalMirrorPath();
 
+  /// נתיב ה-`seforim.db` שזוהה בפועל, או `null` אם לא נמצא — לתצוגה בממשק.
+  /// המיקום מתגלה בכל קריאה מחדש; אין להניח נתיב קבוע.
+  Future<String?> currentDbPath() => _locator.resolveDbPath();
+
   /// תיקיית ה"מראה המקומית האוטומטית" — קבועה, בתוך [dataDir], ומתוחזקת
   /// לבד על ידי [refreshOfflineMirrorCache] (נקרא ברקע בכל פתיחת האפליקציה
   /// — ראו הקורא ב-launcher_app). שני תפקידים בו-זמנית:

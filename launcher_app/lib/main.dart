@@ -1,12 +1,16 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-import 'src/screens/dashboard_screen.dart';
+import 'src/screens/app_shell.dart';
 import 'src/services/app_logger.dart';
-import 'src/theme/app_theme.dart';
+import 'src/settings/app_settings.dart';
+import 'src/settings/settings_controller.dart';
+import 'src/theme/theme_exports.dart';
+import 'src/widgets/widgets_exports.dart';
 
 void main() {
   // ה-logger נוצר בתוך ה-zone אבל נדרש גם למטפל השגיאות שלו — ולכן מוחזק
@@ -40,6 +44,9 @@ void main() {
       final dataDir = p.join(supportDir.path, 'otzaria-launcher');
       logger = await AppLogger.init(dataDir);
 
+      final settings = SettingsController(dataDir: dataDir);
+      await settings.load();
+
       // תופס שגיאות שה-widgets framework עצמו זורק (למשל בתוך build/layout).
       FlutterError.onError = (details) {
         report(
@@ -50,7 +57,7 @@ void main() {
         FlutterError.presentError(details);
       };
 
-      runApp(LauncherApp(dataDir: dataDir));
+      runApp(LauncherApp(dataDir: dataDir, settings: settings));
     },
     // תופס שגיאות אסינכרוניות שלא נתפסו ע"י שום try/catch — רשת חיצונית
     // (defense in depth): גם אם ניצור בעתיד בטעות עוד קריסת isolate/async
@@ -60,20 +67,58 @@ void main() {
 }
 
 class LauncherApp extends StatelessWidget {
-  const LauncherApp({super.key, required this.dataDir});
+  const LauncherApp({
+    super.key,
+    required this.dataDir,
+    required this.settings,
+  });
 
   final String dataDir;
+  final SettingsController settings;
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: "לאנצ'ר אוצריא",
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(),
-      home: Directionality(
-        textDirection: TextDirection.rtl,
-        child: DashboardScreen(dataDir: dataDir),
-      ),
+    return ListenableBuilder(
+      listenable: settings,
+      builder: (context, _) {
+        final s = settings.settings;
+
+        return MaterialApp(
+          navigatorKey: navigatorKey,
+          title: 'אוצריא — מנהל עדכונים',
+          debugShowCheckedModeBanner: false,
+          localizationsDelegates: const [
+            GlobalCupertinoLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+          ],
+          supportedLocales: const [Locale('he', 'IL')],
+          locale: const Locale('he', 'IL'),
+          theme: AppThemeData.light(
+            AppThemeData.createColorScheme(
+              AppSeedColors.defaultLight,
+              Brightness.light,
+            ),
+          ),
+          darkTheme: AppThemeData.dark(
+            AppThemeData.createColorScheme(
+              AppSeedColors.defaultDark,
+              Brightness.dark,
+            ),
+          ),
+          themeMode: switch (s.themeMode) {
+            AppThemeMode.system => ThemeMode.system,
+            AppThemeMode.light => ThemeMode.light,
+            AppThemeMode.dark => ThemeMode.dark,
+          },
+          builder: (context, child) => MediaQuery.withClampedTextScaling(
+            minScaleFactor: s.textScale,
+            maxScaleFactor: s.textScale,
+            child: child ?? const SizedBox.shrink(),
+          ),
+          home: AppShell(dataDir: dataDir, settings: settings),
+        );
+      },
     );
   }
 }
