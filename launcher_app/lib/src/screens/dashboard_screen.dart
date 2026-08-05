@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../controllers/library_module_controller.dart';
 import '../controllers/otzaria_module_controller.dart';
 import '../services/app_logger.dart';
+import '../services/file_reveal.dart';
 import '../theme/app_theme.dart';
 import '../widgets/coming_soon_card.dart';
 import '../widgets/module_card.dart';
@@ -27,8 +28,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _otzaria = OtzariaModuleController(dataDir: widget.dataDir)..addListener(_onChange);
-    _library = LibraryModuleController(dataDir: widget.dataDir)..addListener(_onChange);
+    _otzaria = OtzariaModuleController(dataDir: widget.dataDir)
+      ..addListener(_onChange);
+    _library = LibraryModuleController(dataDir: widget.dataDir)
+      ..addListener(_onChange);
     _syncOtzaria();
     _syncLibrary();
   }
@@ -57,10 +60,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  /// פותח את [LibraryModuleController.offlineMirrorCacheDir] בסייר הקבצים
-  /// של Windows — כדי שהמשתמש יוכל להעתיק אותה כמות שהיא ל-USB / תיקייה
-  /// משותפת. התיקייה נבנית ומתעדכנת אוטומטית לגמרי ברקע (ראו למעלה), אז
-  /// אין כאן שום פעולת ייצוא לחכות לה — רק פתיחת הסייר.
+  /// פותח את [LibraryModuleController.offlineMirrorCacheDir] במנהל הקבצים
+  /// (Explorer/Finder) — כדי שהמשתמש יוכל להעתיק אותה כמות שהיא ל-USB /
+  /// תיקייה משותפת. התיקייה נבנית ומתעדכנת אוטומטית לגמרי ברקע (ראו
+  /// למעלה), אז אין כאן שום פעולת ייצוא לחכות לה — רק פתיחת החלון.
   Future<void> _openOfflineMirrorCacheFolder() async {
     final dir = Directory(_library.offlineMirrorCacheDir);
     if (!await dir.exists()) {
@@ -72,22 +75,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
       return;
     }
-    await Process.run('explorer.exe', [dir.path]);
+    await _revealOrShowPath(dir.path);
   }
 
-  /// פותח את תיקיית הלוגים (`AppLogger.instance.logDir`) בסייר הקבצים —
-  /// כדי לראות מה קרה בפועל בלי דיבאגר. אם `explorer.exe` לא זמין
-  /// (למשל בסביבת פיתוח שאינה Windows), מציג את הנתיב כטקסט להעתקה.
-  Future<void> _openLogFolder() async {
-    final path = AppLogger.instance.logDir;
-    try {
-      await Process.run('explorer.exe', [path]);
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('קובץ הלוג נמצא ב: ${AppLogger.instance.filePath}')),
-      );
-    }
+  /// פותח את תיקיית הלוגים (`AppLogger.instance.logDir`) במנהל הקבצים —
+  /// כדי לראות מה קרה בפועל בלי דיבאגר.
+  Future<void> _openLogFolder() => _revealOrShowPath(AppLogger.instance.logDir,
+      hintPath: AppLogger.instance.filePath);
+
+  /// אם פתיחת מנהל הקבצים נכשלה (או שאנחנו בפלטפורמה שאין בה כזה), מציג את
+  /// הנתיב כטקסט — שימושי יותר מהודעת שגיאה, כי המשתמש יכול פשוט להעתיק
+  /// אותו.
+  Future<void> _revealOrShowPath(String path, {String? hintPath}) async {
+    if (await FileReveal.revealDirectory(path)) return;
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('הנתיב: ${hintPath ?? path}')),
+    );
   }
 
   @override
@@ -172,7 +176,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildOtzariaCard() {
     final c = _otzaria;
     final subtitle = switch (c.status) {
-      OtzariaModuleStatus.idle || OtzariaModuleStatus.checking => 'בודק גרסה מותקנת...',
+      OtzariaModuleStatus.idle ||
+      OtzariaModuleStatus.checking =>
+        'בודק גרסה מותקנת...',
       _ when c.currentVersion == null => 'טרם הותקנה על ידי הלאנצ׳ר הזה',
       _ => 'גרסה מותקנת: ${c.currentVersion}',
     };
@@ -182,7 +188,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       title: 'אוצריא',
       subtitle: subtitle,
       status: switch (c.status) {
-        OtzariaModuleStatus.idle || OtzariaModuleStatus.checking => ModuleStatus.loading,
+        OtzariaModuleStatus.idle ||
+        OtzariaModuleStatus.checking =>
+          ModuleStatus.loading,
         OtzariaModuleStatus.upToDate => ModuleStatus.upToDate,
         OtzariaModuleStatus.updateAvailable => ModuleStatus.updateAvailable,
         OtzariaModuleStatus.updating => ModuleStatus.updating,
@@ -195,7 +203,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         OtzariaModuleStatus.error => 'שגיאה',
         _ => null,
       },
-      progress: (c.downloadReceived != null && c.downloadTotal != null && c.downloadTotal! > 0)
+      progress: (c.downloadReceived != null &&
+              c.downloadTotal != null &&
+              c.downloadTotal! > 0)
           ? c.downloadReceived! / c.downloadTotal!
           : null,
       errorMessage: c.errorMessage,
@@ -236,10 +246,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     final mirrorPath = c.activeMirrorPath;
-    final sourceNote = mirrorPath != null ? ' (מקור: מראה מקומית — $mirrorPath)' : '';
+    final sourceNote =
+        mirrorPath != null ? ' (מקור: מראה מקומית — $mirrorPath)' : '';
 
     final subtitle = switch (c.status) {
-      LibraryModuleStatus.idle || LibraryModuleStatus.checking =>
+      LibraryModuleStatus.idle ||
+      LibraryModuleStatus.checking =>
         'בודק גרסת מסד...$sourceNote',
       _ when c.localVersion == null || c.isFreshInstall =>
         'מוריד ספרייה בפעם הראשונה...$sourceNote',
@@ -254,7 +266,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           title: 'ספריית הספרים (DB)',
           subtitle: subtitle,
           status: switch (c.status) {
-            LibraryModuleStatus.idle || LibraryModuleStatus.checking => ModuleStatus.loading,
+            LibraryModuleStatus.idle ||
+            LibraryModuleStatus.checking =>
+              ModuleStatus.loading,
             LibraryModuleStatus.upToDate => ModuleStatus.upToDate,
             LibraryModuleStatus.updateAvailable => ModuleStatus.updateAvailable,
             LibraryModuleStatus.updating => ModuleStatus.updating,
@@ -263,8 +277,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           },
           statusLabel: switch (c.status) {
             LibraryModuleStatus.upToDate => 'מעודכן',
-            LibraryModuleStatus.updateAvailable =>
-              c.isFreshInstall ? 'מוריד ספרייה...' : 'עדכון זמין: גרסה ${c.targetVersion}',
+            LibraryModuleStatus.updateAvailable => c.isFreshInstall
+                ? 'מוריד ספרייה...'
+                : 'עדכון זמין: גרסה ${c.targetVersion}',
             LibraryModuleStatus.updating => 'מעדכן...',
             LibraryModuleStatus.error => 'שגיאה',
             _ => null,

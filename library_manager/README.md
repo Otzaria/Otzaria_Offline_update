@@ -16,15 +16,28 @@
   [`LibraryDbLocator`](lib/src/services/library_db_locator.dart) בודק
   היום את `%APPDATA%\otzaria\books\` קודם, ונופל חזרה ל-`C:\אוצריא\`
   כגיבוי משני (למקרה שזה עדיין נכון בהתקנות מסוימות, כמו חבילת FULL).
+- **ב-macOS ברירת המחדל היא
+  `~/Library/Application Support/otzaria/books/seforim.db`**, ובהתקנה
+  מערכתית `/Library/Application Support/otzaria/books/`. הפעם זה **כן**
+  נגזר מקוד המקור של אוצריא — `AppPaths.getDataRootPath()` +
+  `getDefaultLibraryPath()` ב-`lib/core/app_paths.dart` — ולא מניחוש. באותה
+  הזדמנות נוסף גם `%ProgramData%\otzaria\books` לווינדוס, שהוא מה שאוצריא
+  משתמשת בו בהתקנה מערכתית.
 - מיקום מותאם אישית (אם המשתמש כן שינה) **לא** נקרא אוטומטית מתוך
   הגדרות ה-Settings/Hive של אוצריא — `LibraryDbLocator` בודק קודם נתיב
-  ששמור אצלנו (`LibraryStateStore`), ורק אם גם זה וגם שני המיקומים
+  ששמור אצלנו (`LibraryStateStore`), ורק אם גם זה וגם המיקומים
   האחרים לא נמצאים, מחזיר `null` — ה-UI צריך לבקש מהמשתמש להצביע
   ידנית (לפי ההחלטה איתו).
-- **בדיקת "האם אוצריא רצה"** (`OtzariaProcessGuard`) פעילה שוב דרך
+- **בדיקת "האם אוצריא רצה"** (`OtzariaProcessGuard`) פעילה דרך
   `LibraryUpdateApplier.applyUpdate` — רלוונטית כי ה-manager כן כותב
-  בפועל ל-`seforim.db` החי. פעילה רק בווינדוס (על פלטפורמות אחרות
-  `tasklist` לא קיים, אז הבדיקה מדולגת).
+  בפועל ל-`seforim.db` החי. פעילה בשתי הפלטפורמות: `tasklist` בווינדוס,
+  `pgrep -x` ב-macOS/לינוקס.
+- **שם התהליך של אוצריא ב-macOS הוא `אוצריא`** — בעברית, כי זה
+  ה-`CFBundleExecutable` של החבילה (אומת מול `otzaria-macos.zip` אמיתי;
+  `pgrep` מטפל ב-UTF-8 בשם התהליך). ההתאמה היא ב-`pgrep -x` (שם מלא,
+  לא תת-מחרוזת) **בכוונה**: התאמה חלקית או `pgrep -f` על שורת הפקודה
+  הייתה תופסת גם את הלאנצ'ר עצמו — הנתיב שלו מכיל את המילה otzaria —
+  והיינו חוסמים כל עדכון בגלל התהליך שמריץ אותו.
 
 ## מבנה
 
@@ -33,7 +46,7 @@
 - `services/library_update_applier.dart` — **`LibraryUpdateApplier`**: ההחלה
   בפועל של delta/fullDownload על ה-DB החי (patch/apply דרך `Isolate.run` נכון,
   גיבוי/שחזור, בדיקת "אוצריא רצה").
-- `services/otzaria_process_guard.dart` — בדיקת תהליך `otzaria.exe` פעיל (Windows).
+- `services/otzaria_process_guard.dart` — בדיקת תהליך אוצריא פעיל: `otzaria.exe` דרך `tasklist` בווינדוס, `אוצריא` דרך `pgrep -x` ב-macOS.
 - `services/zstd_decompressor.dart` — מוזרק ל-`PatchDownloader` וגם לחילוץ ה-DB המלא.
 - `library_manager.dart` — האורקסטרטור: `checkForUpdate()` (בדיקה+תכנון) +
   `applyUpdate()` (**ההחלה בפועל על ה-DB החי**) + `exportOfflineMirror()`/
@@ -51,8 +64,8 @@
 > ארגומנטים פרימיטיביים/מבני-דאטה (records, `String`, `Uint8List`,
 > `DeltaManifest`) — אותו דפוס שכבר עבד נכון ב-
 > `LibraryDbRecoveryService.cloneOrCopyFile`. `LibraryManager.applyUpdate(check)`
-> הוא נקודת הכניסה: מפעיל `OtzariaProcessGuard` (חוסם אם אוצריא פתוחה,
-> בווינדוס בלבד), מוריד ומחיל מסלול delta (patch-אחר-patch, כל אחד
+> הוא נקודת הכניסה: מפעיל `OtzariaProcessGuard` (חוסם אם אוצריא פתוחה),
+> מוריד ומחיל מסלול delta (patch-אחר-patch, כל אחד
 > אטומי) או fullDownload (הורדה + חילוץ zstd + כתיבה אטומית עם
 > גיבוי/שחזור דרך `LibraryDbRecoveryService`), ומאמת את הגרסה הסופית מול
 > `LocalDbVersionReader`.

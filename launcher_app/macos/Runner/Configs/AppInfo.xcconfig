@@ -1,0 +1,16 @@
+// Application-level settings for the Runner target.
+
+// שם האפליקציה — גם שם ה-.app שנבנה וגם שם קובץ ההפעלה שבתוכו.
+//
+// ⚠️ **חייב להישאר שונה מ-"אוצריא"**, שהוא שם התהליך של אוצריא עצמה ב-macOS
+// (ה-CFBundleExecutable שלה). `OtzariaProcessGuard` בודק "האם אוצריא רצה"
+// עם `pgrep -x אוצריא`; אם הלאנצ'ר היה נקרא כך, הוא היה מזהה את **עצמו**
+// כאוצריא פתוחה וחוסם כל עדכון של המסד. השם שמוצג למשתמש בעברית מוגדר
+// בנפרד, ב-CFBundleDisplayName שב-Info.plist.
+PRODUCT_NAME = Otzaria Launcher
+
+// The application's bundle identifier
+PRODUCT_BUNDLE_IDENTIFIER = org.otzaria.launcher
+
+// The copyright displayed in application information
+PRODUCT_COPYRIGHT = Copyright © 2026 Otzaria. All rights reserved.

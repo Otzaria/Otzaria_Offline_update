@@ -5,66 +5,82 @@ import 'package:path/path.dart' as p;
 
 import '../models/otzaria_install_state.dart';
 import '../models/otzaria_release.dart';
-import 'otzaria_exe_locator.dart';
+import 'otzaria_app_locator.dart';
 
-/// מוריד את ה-installer של אוצריא (Inno Setup, נבדק ידנית מול גרסה
-/// אמיתית מה-releases) ומתקין אותו בשקט לתוך תיקייה נתונה.
+/// מוריד את חבילת ההתקנה של אוצריא ומתקין אותה לתוך תיקייה נתונה, בשקט,
+/// לפי הפלטפורמה:
 ///
-/// **קובץ ה-installer עצמו נשמר לצמיתות** תחת [cacheDir] (לא ב-temp, ולא
-/// נמחק אחרי ההתקנה) — לפי סדר העבודה המבוקש: בכל כניסה, קודם בודקים אם
-/// יש כבר עותק מעודכן בתיקיית ה-cache (ומורידים רק אם אין/ישן), ורק אז
-/// בודקים אם המחשב עצמו (ההתקנה בפועל) מעודכן מול מה שב-cache. זה גם
-/// נותן חוסן-אופליין חינם: אם ההורדה מ-GitHub נכשלת (או שאין רשת), עדיין
-/// אפשר להתקין/לשחזר מהעותק השמור, ואפשר גם להעתיק את תיקיית ה-cache
-/// למחשב אחר כדי לשכפל שם את אותה גרסה בלי אינטרנט.
+/// * **Windows** — installer של Inno Setup (נבדק ידנית מול גרסה אמיתית
+///   מה-releases), מורץ עם דגלי שקט ו-`/DIR=`.
+/// * **macOS** — ארכיון `otzaria-macos.zip` (או `.dmg` כגיבוי) שבתוכו חבילת
+///   `.app`; מחולץ/מועתק לתיקיית ההתקנה ומחליף שם התקנה קודמת. אין ב-macOS
+///   "installer שרץ" בכלל — התקנה היא העתקת bundle, וזה בדיוק מה שנעשה כאן.
 ///
-/// חשוב: מבוסס על הנחה מאומתת (strings + innoextract על installer אמיתי)
-/// ש-Inno Setup הוא ה-framework, ולכן דגלי השקט (/VERYSILENT וכו') ונתיב
-/// ההתקנה (/DIR=) הם דגלי Inno Setup הסטנדרטיים. אם המפתח (Sivan22)
+/// **קובץ ההתקנה עצמו נשמר לצמיתות** תחת [cacheDir] (לא ב-temp, ולא נמחק
+/// אחרי ההתקנה) — לפי סדר העבודה המבוקש: בכל כניסה, קודם בודקים אם יש כבר
+/// עותק מעודכן בתיקיית ה-cache (ומורידים רק אם אין/ישן), ורק אז בודקים אם
+/// המחשב עצמו (ההתקנה בפועל) מעודכן מול מה שב-cache. זה גם נותן
+/// חוסן-אופליין חינם: אם ההורדה מ-GitHub נכשלת (או שאין רשת), עדיין אפשר
+/// להתקין/לשחזר מהעותק השמור, ואפשר גם להעתיק את תיקיית ה-cache למחשב אחר
+/// כדי לשכפל שם את אותה גרסה בלי אינטרנט.
+///
+/// חשוב (Windows): מבוסס על הנחה מאומתת (strings + innoextract על installer
+/// אמיתי) ש-Inno Setup הוא ה-framework, ולכן דגלי השקט (/VERYSILENT וכו')
+/// ונתיב ההתקנה (/DIR=) הם דגלי Inno Setup הסטנדרטיים. אם המפתח (Sivan22)
 /// יחליף framework בעתיד, הדגלים האלה יפסיקו לעבוד ויהיה צריך לעדכן.
 class OtzariaInstaller {
   OtzariaInstaller({
     required this.defaultInstallDir,
     required this.cacheDir,
     http.Client? httpClient,
-    OtzariaExeLocator? exeLocator,
+    OtzariaAppLocator? appLocator,
   })  : _httpClient = httpClient ?? http.Client(),
-        _exeLocator = exeLocator ?? const OtzariaExeLocator();
+        _appLocator = appLocator ?? const OtzariaAppLocator();
 
   /// התיקייה שאליה מתקינים כשלא נבחרה תיקייה אחרת במפורש (למשל
   /// `<data>/otzaria-app`) — ה"מיקום ברירת המחדל" של הלאנצ'ר עצמו.
   final String defaultInstallDir;
 
-  /// התיקייה שבה נשמר קובץ ה-installer עצמו לצמיתות, תחת תת-תיקייה לפי
-  /// tag (למשל `<cacheDir>/v1.2.3/OtzariaSetup.exe`) — לא temp, לא נמחק.
+  /// התיקייה שבה נשמר קובץ ההתקנה עצמו לצמיתות, תחת תת-תיקייה לפי tag
+  /// (למשל `<cacheDir>/v1.2.3/OtzariaSetup.exe`) — לא temp, לא נמחק.
   final String cacheDir;
 
   final http.Client _httpClient;
-  final OtzariaExeLocator _exeLocator;
+  final OtzariaAppLocator _appLocator;
 
-  /// מוודא שה-installer של [release] קיים ב-[cacheDir] (מוריד אם חסר, או
+  /// שם תיקיית ה-staging שנוצרת **בתוך** תיקיית ההתקנה בזמן התקנה ב-macOS.
+  /// בתוך תיקיית ההתקנה בכוונה — כדי שההעברה של ה-`.app` הגמור למקומו תהיה
+  /// `rename` באותו volume (אטומי ומיידי) ולא העתקה של 70MB+ בין דיסקים.
+  static const String _macStagingDirName = '.otzaria-install-staging';
+
+  /// שם תיקיית הגיבוי של ההתקנה הקודמת, בזמן ההחלפה בלבד. מאפשרת לשחזר את
+  /// ההתקנה הקודמת אם הכנסת החדשה נכשלה באמצע — במקום להישאר בלי כלום.
+  static const String _macPreviousDirName = '.otzaria-previous';
+
+  /// מוודא שקובץ ההתקנה של [release] קיים ב-[cacheDir] (מוריד אם חסר, או
   /// אם קובץ קיים אך בגודל שגוי — ככל הנראה הורדה קודמת שנקטעה), בלי
   /// לגעת בהתקנה בפועל. שימושי כדי להפריד "לוודא שיש עותק עדכני מקומי"
   /// מ"להתקין את מה שיש מקומית", כמו שהתבקש.
   ///
-  /// מחזיר את הנתיב לקובץ ה-installer המקומי (מה-cache).
+  /// מחזיר את הנתיב לקובץ ההתקנה המקומי (מה-cache).
   Future<String> ensureCached({
     required OtzariaRelease release,
     void Function(int received, int total)? onDownloadProgress,
   }) async {
     final releaseCacheDir = p.join(cacheDir, release.tagName);
-    final cachedInstallerPath = p.join(releaseCacheDir, release.windowsInstallerAssetName);
+    final cachedInstallerPath =
+        p.join(releaseCacheDir, release.installerAssetName);
     final cachedFile = File(cachedInstallerPath);
 
     final alreadyCached = await cachedFile.exists() &&
-        await cachedFile.length() == release.windowsInstallerSizeBytes;
+        await cachedFile.length() == release.installerSizeBytes;
 
     if (!alreadyCached) {
       await Directory(releaseCacheDir).create(recursive: true);
       await _download(
-        url: release.windowsInstallerDownloadUrl,
+        url: release.installerDownloadUrl,
         destinationPath: cachedInstallerPath,
-        expectedSizeBytes: release.windowsInstallerSizeBytes,
+        expectedSizeBytes: release.installerSizeBytes,
         onProgress: onDownloadProgress,
       );
     }
@@ -95,19 +111,33 @@ class OtzariaInstaller {
     );
 
     await Directory(installDir).create(recursive: true);
-    await _runSilentInstall(installerPath, installDir);
 
-    final exePath = await _waitForInstalledExe(
-      installDir: installDir,
-      timeout: const Duration(minutes: 3),
-    );
+    final String launchPath;
+    switch (release.installerKind) {
+      case OtzariaInstallerKind.windowsSetupExe:
+        await _runSilentInstall(installerPath, installDir);
+        launchPath = await _waitForInstalledApp(
+          installDir: installDir,
+          timeout: const Duration(minutes: 3),
+        );
+      case OtzariaInstallerKind.macAppZip:
+        launchPath = await _installMacApp(
+          installDir: installDir,
+          stageApp: (stagingDir) => _extractZipTo(installerPath, stagingDir),
+        );
+      case OtzariaInstallerKind.macAppDmg:
+        launchPath = await _installMacApp(
+          installDir: installDir,
+          stageApp: (stagingDir) => _copyAppFromDmg(installerPath, stagingDir),
+        );
+    }
 
     await _pruneOldCacheEntries(keepTagName: release.tagName);
 
     return OtzariaInstallState(
       installedTagName: release.tagName,
       installDir: installDir,
-      exePath: exePath,
+      launchPath: launchPath,
     );
   }
 
@@ -137,7 +167,7 @@ class OtzariaInstaller {
     final response = await _httpClient.send(request);
 
     if (response.statusCode != 200) {
-      throw StateError('הורדת ה-installer נכשלה: סטטוס ${response.statusCode}');
+      throw StateError('הורדת קובץ ההתקנה נכשלה: סטטוס ${response.statusCode}');
     }
 
     final sink = File(destinationPath).openWrite();
@@ -158,14 +188,17 @@ class OtzariaInstaller {
         await File(destinationPath).delete();
       } catch (_) {}
       throw StateError(
-        'קובץ ה-installer שהורד לא בגודל הצפוי '
+        'קובץ ההתקנה שהורד לא בגודל הצפוי '
         '(התקבלו $received בתים, צפוי $expectedSizeBytes) — כנראה שהורדה '
         'נקטעה.',
       );
     }
   }
 
-  Future<void> _runSilentInstall(String installerPath, String installDir) async {
+  // ---------------------------------------------------------------- Windows
+
+  Future<void> _runSilentInstall(
+      String installerPath, String installDir) async {
     // /VERYSILENT + /SUPPRESSMSGBOXES: אין UI בכלל, כולל תיבות שגיאה.
     // /NORESTART: לא להפעיל מחדש את המחשב גם אם ה-installer "רוצה".
     // /DIR=: נתיב התקנה מפורש, כדי שנדע איפה לחפש את ה-exe אחר כך.
@@ -193,24 +226,198 @@ class OtzariaInstaller {
     // הערה: ל-installer-ים מבוססי Inno Setup יש לפעמים תהליך "עוטף"
     // (SetupLdr) שמשגר תהליך-בן ומסתיים מיד, עוד לפני שההתקנה בפועל
     // הסתיימה — ולכן exitCode==0 כאן לא מבטיח שהקבצים כבר על הדיסק.
-    // בגלל זה יש polling נפרד ב-_waitForInstalledExe במקום להסתמך רק על
+    // בגלל זה יש polling נפרד ב-_waitForInstalledApp במקום להסתמך רק על
     // סיום התהליך.
   }
 
-  Future<String> _waitForInstalledExe({
+  // ------------------------------------------------------------------ macOS
+
+  /// המסלול המשותף לכל התקנה ב-macOS: מכינים את ה-`.app` בתיקיית staging
+  /// (דרך [stageApp] — חילוץ zip או העתקה מ-dmg), ואז מחליפים בו את
+  /// ההתקנה הקיימת בתיקיית ההתקנה.
+  ///
+  /// **למה staging ולא חילוץ ישר לתיקיית ההתקנה:** אם החילוץ ייכשל באמצע
+  /// (רשת/דיסק/הפסקת חשמל), ההתקנה הקיימת של המשתמש עדיין שלמה ותקינה —
+  /// היא מוחלפת רק ברגע אחד, אחרי שה-`.app` החדשה כבר מוכנה במלואה.
+  Future<String> _installMacApp({
+    required String installDir,
+    required Future<void> Function(String stagingDir) stageApp,
+  }) async {
+    final stagingDir = p.join(installDir, _macStagingDirName);
+    final previousDir = p.join(installDir, _macPreviousDirName);
+
+    await _deleteDirQuietly(stagingDir);
+    await Directory(stagingDir).create(recursive: true);
+
+    try {
+      await stageApp(stagingDir);
+
+      final stagedApp = await _appLocator.findIn(stagingDir);
+      if (stagedApp == null) {
+        throw StateError(
+          'לא נמצאה חבילת .app בתוך חבילת ההתקנה שחולצה — ייתכן שמבנה '
+          'האסט של אוצריא ל-macOS השתנה.',
+        );
+      }
+
+      // ה-app נכנס לתיקיית ההתקנה תחת אותו שם שיש לו בחבילה (למשל
+      // "אוצריא.app"), כדי שנחליף בפועל התקנה קודמת ולא ניצור שנייה לידה.
+      final appName = p.basename(stagedApp);
+      final targetApp = p.join(installDir, appName);
+
+      await _swapInApp(
+        stagedApp: stagedApp,
+        targetApp: targetApp,
+        previousDir: previousDir,
+      );
+
+      // ה-app של אוצריא חתום ad-hoc (בלי Developer ID ובלי notarization).
+      // אנחנו מורידים את הארכיון ישירות דרך dart:io ולכן macOS לא מסמן
+      // אותו ב-quarantine, ו-Gatekeeper לא חוסם — אבל אם המשתמש הביא את
+      // הארכיון בעצמו (דפדפן, AirDrop) הסימון כן יהיה שם ויחסום. הסרה
+      // best-effort מכסה גם את המקרה הזה.
+      await _stripQuarantineQuietly(targetApp);
+
+      return targetApp;
+    } finally {
+      await _deleteDirQuietly(stagingDir);
+    }
+  }
+
+  /// מחליף את [targetApp] ב-[stagedApp] דרך שתי פעולות `rename` באותו
+  /// volume, עם שחזור אם השנייה נכשלה.
+  Future<void> _swapInApp({
+    required String stagedApp,
+    required String targetApp,
+    required String previousDir,
+  }) async {
+    final existing = Directory(targetApp);
+    final hasExisting = await existing.exists();
+
+    String? backupPath;
+    if (hasExisting) {
+      await _deleteDirQuietly(previousDir);
+      await Directory(previousDir).create(recursive: true);
+      backupPath = p.join(previousDir, p.basename(targetApp));
+      await existing.rename(backupPath);
+    }
+
+    try {
+      await Directory(stagedApp).rename(targetApp);
+    } catch (e) {
+      // ההכנסה נכשלה — מחזירים את ההתקנה הקודמת למקומה כדי לא להשאיר את
+      // המשתמש בלי אוצריא בכלל.
+      if (backupPath != null) {
+        try {
+          await Directory(backupPath).rename(targetApp);
+        } catch (_) {}
+      }
+      throw StateError('החלפת חבילת ה-.app בתיקיית ההתקנה נכשלה: $e');
+    }
+
+    await _deleteDirQuietly(previousDir);
+  }
+
+  /// חילוץ עם `ditto` ולא עם unzip/package:archive — `ditto` הוא הכלי
+  /// היחיד ב-macOS ששומר על symlinks, resource forks ו-extended attributes
+  /// של ה-bundle כמו שהם. חילוץ "רגיל" שובר את החתימה הדיגיטלית של
+  /// ה-`.app` (וגם את ה-frameworks שבתוכו), ואז macOS מסרב להריץ אותו.
+  Future<void> _extractZipTo(String zipPath, String destinationDir) async {
+    final result = await Process.run('/usr/bin/ditto', [
+      '-x',
+      '-k',
+      zipPath,
+      destinationDir,
+    ]);
+    if (result.exitCode != 0) {
+      throw StateError(
+        'חילוץ חבילת ההתקנה (ditto) נכשל בקוד ${result.exitCode}.\n'
+        'stderr: ${result.stderr}',
+      );
+    }
+  }
+
+  /// מרכיב את ה-dmg על נקודת עגינה מפורשת בתוך [destinationDir] (כדי לא
+  /// להיאלץ לפענח את פלט ה-plist של `hdiutil`), מעתיק ממנה את ה-`.app`
+  /// ומנתק — גם אם ההעתקה נכשלה.
+  Future<void> _copyAppFromDmg(String dmgPath, String destinationDir) async {
+    final mountPoint = p.join(destinationDir, '.mnt');
+    await Directory(mountPoint).create(recursive: true);
+
+    final attach = await Process.run('/usr/bin/hdiutil', [
+      'attach',
+      dmgPath,
+      '-nobrowse',
+      '-readonly',
+      '-noverify',
+      '-mountpoint',
+      mountPoint,
+    ]);
+    if (attach.exitCode != 0) {
+      throw StateError(
+        'הרכבת דמות הדיסק (hdiutil attach) נכשלה בקוד ${attach.exitCode}.\n'
+        'stderr: ${attach.stderr}',
+      );
+    }
+
+    try {
+      final appInDmg = await _appLocator.findIn(mountPoint);
+      if (appInDmg == null) {
+        throw StateError('לא נמצאה חבילת .app בתוך דמות הדיסק שהורכבה.');
+      }
+
+      // גם כאן ditto ולא cp -R, מאותה סיבה שב-[_extractZipTo].
+      final copy = await Process.run('/usr/bin/ditto', [
+        appInDmg,
+        p.join(destinationDir, p.basename(appInDmg)),
+      ]);
+      if (copy.exitCode != 0) {
+        throw StateError(
+          'העתקת ה-.app מדמות הדיסק (ditto) נכשלה בקוד ${copy.exitCode}.\n'
+          'stderr: ${copy.stderr}',
+        );
+      }
+    } finally {
+      await Process.run('/usr/bin/hdiutil', ['detach', mountPoint, '-quiet']);
+      await _deleteDirQuietly(mountPoint);
+    }
+  }
+
+  Future<void> _stripQuarantineQuietly(String path) async {
+    try {
+      await Process.run('/usr/bin/xattr', [
+        '-dr',
+        'com.apple.quarantine',
+        path,
+      ]);
+    } catch (_) {
+      // best-effort בלבד.
+    }
+  }
+
+  Future<void> _deleteDirQuietly(String path) async {
+    try {
+      final dir = Directory(path);
+      if (await dir.exists()) await dir.delete(recursive: true);
+    } catch (_) {}
+  }
+
+  // ----------------------------------------------------------------- משותף
+
+  Future<String> _waitForInstalledApp({
     required String installDir,
     required Duration timeout,
   }) async {
     final deadline = DateTime.now().add(timeout);
 
     while (DateTime.now().isBefore(deadline)) {
-      final found = await _exeLocator.findExeIn(installDir);
+      final found = await _appLocator.findIn(installDir);
       if (found != null) return found;
       await Future<void>.delayed(const Duration(seconds: 2));
     }
 
     throw StateError(
-      'לא נמצא קובץ הפעלה (.exe) בתוך $installDir תוך '
+      'לא נמצאה התקנה של אוצריא בתוך $installDir תוך '
       '${timeout.inSeconds} שניות מסיום ה-installer. ייתכן שההתקנה עדיין '
       'רצה ברקע, או שנתיב ההתקנה השתנה בגרסה חדשה של ה-installer.',
     );

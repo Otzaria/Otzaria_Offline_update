@@ -1,14 +1,19 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:http/http.dart' as http;
 
 import '../models/otzaria_release.dart';
+import 'otzaria_asset_selector.dart';
 
 /// שולף מידע על releases של github.com/Otzaria/otzaria (אפליקציית אוצריא
 /// עצמה — לא SeforimLibrary/ה-DB).
 class OtzariaReleaseClient {
-  OtzariaReleaseClient({http.Client? httpClient})
-      : _httpClient = httpClient ?? http.Client();
+  OtzariaReleaseClient(
+      {http.Client? httpClient, OtzariaTargetPlatform? platform})
+      : _httpClient = httpClient ?? http.Client(),
+        _platform =
+            platform ?? OtzariaTargetPlatform.detect(Platform.operatingSystem);
 
   // ⚠️ Otzaria/otzaria (ה-fork, לא Sivan22/otzaria המקורי) — זה הריפו
   // שממנו בפועל מפיצים releases ושהמשתמשים מורידים ממנו. תוקן אחרי
@@ -20,12 +25,18 @@ class OtzariaReleaseClient {
 
   final http.Client _httpClient;
 
+  /// פלטפורמת היעד שעבורה בוחרים אסט. ברירת המחדל היא הפלטפורמה שהלאנצ'ר
+  /// רץ עליה; ניתן לדרוס אותה בבדיקות.
+  final OtzariaTargetPlatform _platform;
+
+  static const _assetSelector = OtzariaAssetSelector();
+
   /// מחזיר את ה-release העדכני ביותר כרונולוגית (GitHub ממיין את
   /// /releases כך כברירת מחדל) — כולל prerelease, בכוונה. ראו הערה ב-
   /// [OtzariaRelease] לגבי הסיבה.
   ///
-  /// זורק [NoWindowsAssetException] אם ל-release שנמצא אין אסט
-  /// windows.exe מתאים.
+  /// זורק [NoInstallerAssetException] אם ל-release שנמצא אין אסט התקנה
+  /// מתאים לפלטפורמה הנוכחית.
   Future<OtzariaRelease> fetchLatestRelease() async {
     final uri = Uri.parse('$_apiBase/repos/$_owner/$_repo/releases?per_page=1');
     final response = await _httpClient.get(
@@ -55,23 +66,26 @@ class OtzariaReleaseClient {
 
   OtzariaRelease _parseRelease(Map<String, dynamic> json) {
     final tagName = json['tag_name'] as String;
-    final assets = (json['assets'] as List<dynamic>).cast<Map<String, dynamic>>();
+    final assets =
+        (json['assets'] as List<dynamic>).cast<Map<String, dynamic>>();
 
-    // מוצאים את אסט ה-installer לווינדוס: בכל הדגימות שנבדקו השם מסתיים
-    // תמיד ב-"windows.exe" (למשל otzaria-0.9.53-windows.exe). לא בוחרים
-    // לפי שם קבוע מלא כי מספר הגרסה משובץ בתוך השם.
-    Map<String, dynamic>? windowsAsset;
-    for (final asset in assets) {
-      final name = asset['name'] as String;
-      if (name.toLowerCase().endsWith('windows.exe')) {
-        windowsAsset = asset;
-        break;
-      }
+    // בחירת האסט לפי פלטפורמת היעד — ראו [OtzariaAssetSelector] להסבר על
+    // כללי ההתאמה (ולמה חבילות ה-FULL של 2GB נפסלות מעצמן).
+    final selected = _assetSelector.select(
+      platform: _platform,
+      assets: assets,
+      nameOf: (asset) => asset['name'] as String,
+    );
+
+    if (selected == null) {
+      throw NoInstallerAssetException(
+        tagName: tagName,
+        platform: _platform,
+        expectedSuffixes: OtzariaAssetSelector.expectedSuffixesFor(_platform),
+      );
     }
 
-    if (windowsAsset == null) {
-      throw NoWindowsAssetException(tagName);
-    }
+    final (asset, installerKind) = selected;
 
     return OtzariaRelease(
       tagName: tagName,
@@ -81,9 +95,10 @@ class OtzariaReleaseClient {
       publishedAt: json['published_at'] == null
           ? null
           : DateTime.tryParse(json['published_at'] as String),
-      windowsInstallerAssetName: windowsAsset['name'] as String,
-      windowsInstallerDownloadUrl: windowsAsset['browser_download_url'] as String,
-      windowsInstallerSizeBytes: windowsAsset['size'] as int,
+      installerKind: installerKind,
+      installerAssetName: asset['name'] as String,
+      installerDownloadUrl: asset['browser_download_url'] as String,
+      installerSizeBytes: asset['size'] as int,
     );
   }
 

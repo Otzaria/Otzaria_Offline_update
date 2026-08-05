@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	App Sandbox כבוי בכוונה, וזה **הכרחי** ללאנצ'ר הזה — לא קיצור דרך:
+
+	  • ההתקנה כותבת חבילת .app שלמה לתיקיית ההתקנה (ואולי /Applications).
+	  • עדכון המסד קורא וכותב את seforim.db שיושב בתיקייה של אוצריא
+	    (~/Library/Application Support/otzaria/books) — מחוץ לכל container.
+	  • הלאנצ'ר מריץ כלי מערכת (ditto, hdiutil, xattr, pgrep, open) ומפעיל
+	    אפליקציה אחרת.
+
+	כל אחד מאלה חסום ב-sandbox. ההפצה היא דרך GitHub Releases ולא דרך
+	App Store, ולכן אין דרישת sandbox. אוצריא עצמה, לשם השוואה, בנויה
+	באותה צורה (app-sandbox=false ב-entitlements שלה).
+	-->
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+	<!-- הורדת releases מ-GitHub ומהמראה המקומית. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- file_picker: בחירת seforim.db או תיקיית מראה (USB) ידנית. -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+</dict>
+</plist>

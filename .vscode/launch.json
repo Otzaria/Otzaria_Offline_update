@@ -1,0 +1,39 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "לאנצ'ר אוצריא (macOS)",
+            "request": "launch",
+            "type": "dart",
+            "cwd": "${workspaceFolder}/launcher_app",
+            "program": "lib/main.dart",
+            "deviceId": "macos"
+        },
+        {
+            "name": "לאנצ'ר אוצריא (macOS, profile)",
+            "request": "launch",
+            "type": "dart",
+            "cwd": "${workspaceFolder}/launcher_app",
+            "program": "lib/main.dart",
+            "deviceId": "macos",
+            "flutterMode": "profile"
+        },
+        {
+            "name": "לאנצ'ר אוצריא (macOS, release)",
+            "request": "launch",
+            "type": "dart",
+            "cwd": "${workspaceFolder}/launcher_app",
+            "program": "lib/main.dart",
+            "deviceId": "macos",
+            "flutterMode": "release"
+        },
+        {
+            "name": "לאנצ'ר אוצריא (Windows)",
+            "request": "launch",
+            "type": "dart",
+            "cwd": "${workspaceFolder}/launcher_app",
+            "program": "lib/main.dart",
+            "deviceId": "windows"
+        }
+    ]
+}

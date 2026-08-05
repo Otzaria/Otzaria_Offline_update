@@ -4,8 +4,14 @@
 > [`otzaria_manager/`](otzaria_manager) ו-[`library_manager/`](library_manager) יושבים packages נוספים,
 > נפרדים, לניהול עדכון/התקנה/הפעלה של **אפליקציית אוצריא עצמה** ולחיווט המסד לתוך לאנצ'ר מאוחד,
 > בהתאמה — חלק ממיזם לאנצ'ר מאוחד. [`launcher_app/`](launcher_app) הוא אפליקציית ה-Flutter
-> (Windows desktop) שמחווטת את שני המודולים האלה לדשבורד אחד (חנות התוספים עדיין placeholder).
-> לכל package יש `pubspec.yaml` משלו.
+> (**Windows ו-macOS**) שמחווטת את שני המודולים האלה לדשבורד אחד (חנות התוספים עדיין
+> placeholder). לכל package יש `pubspec.yaml` משלו.
+>
+> **תמיכת macOS:** הלאנצ'ר בונה ורץ ב-macOS 10.15+, ומנהל שם את אוצריא דרך
+> `otzaria-macos.zip` (חבילת `.app`) במקום ה-installer של Windows. הפירוט —
+> מה נבחר, איך מותקן ואיפה יושבים הנתיבים — ב-README של
+> [`otzaria_manager`](otzaria_manager/README.md#שני-מסלולים-אותו-api),
+> [`library_manager`](library_manager/README.md) ו-[`launcher_app`](launcher_app/README.md#macos).
 
 חבילת **Flutter** לצריכת הפצות הדלתא של [`Otzaria/SeforimLibrary`](https://github.com/Otzaria/SeforimLibrary).
 

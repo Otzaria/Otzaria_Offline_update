@@ -1,7 +1,7 @@
 # launcher_app
 
-הדשבורד המאוחד של לאנצ'ר אוצריא — אפליקציית Flutter (Windows desktop)
-שמחווטת יחד בממשק אחד את:
+הדשבורד המאוחד של לאנצ'ר אוצריא — אפליקציית Flutter דסקטופ
+(**Windows ו-macOS**) שמחווטת יחד בממשק אחד את:
 
 - **`otzaria_manager`** — עדכון/התקנה/הפעלה של אפליקציית אוצריא עצמה.
 - **`library_manager`** — עדכון מסד הספרים (`seforim.db`), כולל חיווט
@@ -30,7 +30,39 @@
 אינטרנט, המשתמש מסונכרן עם הגרסה העדכנית ביותר ויכול להמשיך לעבוד לגמרי
 אופליין. לוגיקה ב-`DashboardScreen._syncOtzaria`/`_syncLibrary`.
 
-## אריזה ל-EXE יחיד (inno_bundle)
+## macOS
+
+```bash
+cd launcher_app
+flutter pub get
+flutter run -d macos          # פיתוח
+flutter build macos --release # הפלט: build/macos/Build/Products/Release/Otzaria Launcher.app
+```
+
+תיקיית `macos/` **נשמרת בגיט** (בשונה מ-`windows/`, שנוצרת ב-CI) — היא
+מכילה התאמות שאינן ברירת המחדל של `flutter create`, ולכן הרצה של
+`flutter create --platforms=macos .` תדרוס אותן. ההתאמות:
+
+| מה | איפה | למה |
+| --- | --- | --- |
+| `PRODUCT_NAME = Otzaria Launcher` | `macos/Runner/Configs/AppInfo.xcconfig` | קובע גם את שם **התהליך**. חייב להיות שונה מ-`אוצריא` — אחרת `OtzariaProcessGuard` (`pgrep -x אוצריא`) היה מזהה את הלאנצ'ר עצמו כאוצריא פתוחה וחוסם כל עדכון מסד. |
+| `CFBundleDisplayName = לאנצ'ר אוצריא` | `macos/Runner/Info.plist` | השם שהמשתמש רואה, בעברית — מופרד משם קובץ ההפעלה. |
+| `org.otzaria.launcher` | `AppInfo.xcconfig` | ה-bundle id; קובע גם את `getApplicationSupportDirectory()`, כלומר את מקום ה-data dir. |
+| `app-sandbox = false` | `Release.entitlements`, `DebugProfile.entitlements` | הכרחי: הלאנצ'ר כותב חבילות `.app`, נוגע ב-`seforim.db` שמחוץ לכל container, ומריץ כלי מערכת (`ditto`, `open`, `pgrep`). ההפצה היא דרך GitHub Releases ולא App Store. אוצריא עצמה בנויה כך גם היא. |
+
+### אריזה והפצה
+
+אין מתקין ל-macOS — ההפצה היא ה-`.app` עצמו, שהמשתמש גורר ל-`Applications`.
+האריזה נעשית עם `ditto` (ראו `.github/workflows/build-macos.yml`) ולא עם
+`zip` רגיל, כי רק `ditto` שומר על ה-symlinks וה-extended attributes של
+ה-bundle — אריזה רגילה שוברת את החתימה, ואז macOS מסרב להריץ.
+
+הבנייה חתומה ad-hoc (בלי Developer ID ובלי notarization), בדיוק כמו
+ההפצה של אוצריא עצמה. משמעות מעשית: מי שמוריד את ה-zip דרך דפדפן יקבל
+סימון quarantine ויצטרך לאשר פתיחה דרך *System Settings → Privacy &
+Security*, או להסיר את הסימון: `xattr -dr com.apple.quarantine "Otzaria Launcher.app"`.
+
+## אריזה ל-EXE יחיד (inno_bundle) — Windows
 
 הבנייה הרגילה (`flutter build windows`) מייצרת תיקייה שלמה (exe + DLLs +
 נתונים), לא קובץ יחיד. לכן נוסף [`inno_bundle`](https://pub.dev/packages/inno_bundle)
@@ -53,34 +85,32 @@ Setup בסביבה הזו), אז אם הנתיב בפועל שונה, זה יב�
 ב-CI, Inno Setup מותקן דרך Chocolatey (`choco install innosetup -y`)
 לפני ההרצה — לא אומת שזה עובד ב-runner בפועל, רק שזו הדרך המתועדת.
 
-## ⚠️ הגדרה נדרשת לפני הרצה — לא בוצעה כאן
+## ⚠️ מה אומת בפועל ומה לא
 
-הסביבה שבה זה נכתב **אינה כוללת Flutter SDK**, ולכן לא הורצו הפקודות
-הבאות. יש להריץ אותן מקומית לפני הבנייה הראשונה:
+**macOS — אומת.** האפליקציה נבנתה (`flutter build macos --release`) והורצה
+בפועל: היא שלפה את ה-release העדכני מ-GitHub, הורידה את
+`otzaria-macos.zip`, התקינה את `אוצריא.app` לתיקייה המנוהלת, ושמרה
+`launchPath` שמצביע עליה. `OtzariaProcessGuard` זוהה נכון אוצריא שרצה
+בפועל על אותה מכונה וחסם את עדכון המסד כמתוכנן.
+
+**Windows — לא אומת בסביבה הזו.** תיקיית `windows/` עדיין לא הופקה
+מקומית; ה-CI משלים אותה עם `flutter create --platforms=windows .` לפני
+הבנייה. להרצה מקומית:
 
 ```bash
 cd launcher_app
-flutter create --platforms=windows .   # משלים את תיקיות windows/ (וכו') החסרות
+flutter create --platforms=windows .   # משלים את תיקיית windows/ החסרה
 flutter pub get
 flutter run -d windows
 ```
 
-`flutter create .` על תיקייה קיימת **לא** אמור לדרוס את `lib/`
-או את ה-`pubspec.yaml` הקיימים (הוא רק ממלא קבצי scaffolding
-platform-specific חסרים) — אבל מומלץ לבדוק ב-`git diff` אחרי ההרצה
-לפני commit, ליתר ביטחון.
+`flutter create .` על תיקייה קיימת **לא** אמור לדרוס את `lib/` או את
+ה-`pubspec.yaml` — אבל **כן** ידרוס את ההתאמות ב-`macos/` אם יורץ עם
+`--platforms=macos`. מומלץ לבדוק `git diff` אחרי ההרצה לפני commit.
 
-### דברים שלא נבדקו כי לא היה כאן טולצ'יין Flutter
-
-1. **קוד לא הורץ/קומפל** — נכתב לפי ה-API הציבורי המתועד של
-   `otzaria_manager` ו-`library_manager` (barrel files + doc-comments),
-   אך לא עבר `flutter analyze`/`flutter run` בפועל.
-2. **גרסאות חבילות** (`file_picker`, `google_fonts`, `path_provider`) —
-   נבחרו לפי מה שידוע כתואם ל-Flutter/Dart עדכניים; אם `pub get` ייכשל
-   על conflict, ייתכן שצריך ליישר גרסה מדויקת מול שאר החבילות בריפו.
-3. **בחירת קובץ ה-DB** (`file_picker`) — משתמש ב-
-   `FileType.custom, allowedExtensions: ['db']`. יש לוודא בפועל שדיאלוג
-   הבחירה של Windows אכן מסנן לפי `.db` כצפוי.
+נותר לא-מאומת גם: **בחירת קובץ ה-DB** ב-Windows (`file_picker` עם
+`FileType.custom, allowedExtensions: ['db']`) — יש לוודא בפועל שדיאלוג
+הבחירה של Windows אכן מסנן לפי `.db` כצפוי.
 
 ## מבנה
 
@@ -92,6 +122,9 @@ lib/
     ├── controllers/
     │   ├── otzaria_module_controller.dart   — עוטף OtzariaManager כ-ChangeNotifier
     │   └── library_module_controller.dart   — עוטף LibraryManager כ-ChangeNotifier
+    ├── services/
+    │   ├── app_logger.dart            — לוג לקובץ תחת <dataDir>/logs
+    │   └── file_reveal.dart           — פתיחת תיקייה ב-Explorer/Finder
     ├── widgets/
     │   ├── module_card.dart           — כרטיס מודול אחיד (סטטוס/התקדמות/פעולה)
     │   └── coming_soon_card.dart       — כרטיס מנוטרל למודול עתידי

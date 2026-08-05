@@ -22,7 +22,14 @@ jobs:
 
   otzaria_manager:
     name: otzaria_manager (analyze + test)
-    runs-on: ubuntu-latest
+    # רץ גם על macOS: המסלול של macOS ב-otzaria_manager מריץ כלי מערכת
+    # אמיתיים (plutil, ditto, open), ולכן חלק מהבדיקות משמעותיות רק שם.
+    # אלה שדורשות macOS מסומנות ב-@TestOn/testOn ומדולגות בשקט בלינוקס.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     defaults:
       run:
         working-directory: otzaria_manager
@@ -76,4 +83,35 @@ jobs:
         with:
           name: launcher_app-windows-installer
           path: launcher_app/installer/**
+          if-no-files-found: error
+
+  launcher_app_macos:
+    name: launcher_app (analyze + macos build)
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: launcher_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter config --enable-macos-desktop
+      # אין כאן `flutter create` בכוונה — תיקיית macos/ נשמרת בגיט (ראו
+      # ההערה ב-build-macos.yml), ויצירה מחדש הייתה דורסת את ההתאמות שבה.
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test
+      # ה-.app הוא ההפצה עצמה — אין מתקין ל-macOS (גוררים ל-Applications).
+      - run: flutter build macos --release
+      - name: Zip the .app bundle
+        run: |
+          cd build/macos/Build/Products/Release
+          ditto -c -k --sequesterRsrc --keepParent \
+            "Otzaria Launcher.app" \
+            "$GITHUB_WORKSPACE/launcher_app/launcher_app-macos.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launcher_app-macos
+          path: launcher_app/launcher_app-macos.zip
           if-no-files-found: error

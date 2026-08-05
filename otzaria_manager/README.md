@@ -3,6 +3,51 @@
 חבילת Dart טהורה (ללא תלות ב-Flutter) לניהול **אפליקציית אוצריא עצמה**
 (לא ה-DB — לזה יש את [`seforim_library_updater`](https://github.com/Yehuda-Zakesh/Otzariya_update))
 בתוך לאנצ'ר חיצוני: בדיקת גרסה עדכנית, הורדה, התקנה שקטה, והפעלה.
+תומכת ב-**Windows וב-macOS**.
+
+## שני מסלולים, אותו API
+
+הצרכן (הדשבורד) קורא ל-[`OtzariaManager`](lib/src/otzaria_manager.dart)
+בלי לדעת על איזו פלטפורמה הוא רץ. הבחירה מרוכזת ב-
+[`OtzariaTargetPlatform`](lib/src/models/otzaria_release.dart), שאפשר גם
+לדרוס בבדיקות — וכך שני המסלולים נבדקים מאותה מכונה:
+
+| שלב | Windows | macOS |
+| --- | --- | --- |
+| האסט שנבחר | `otzaria-<ver>-windows.exe` | `otzaria-macos.zip`, ובהיעדרו `otzaria-macos.dmg` |
+| התקנה | הרצת Inno Setup בשקט (`/VERYSILENT /DIR=`) | חילוץ עם `ditto` והחלפת ה-`.app` בתיקיית ההתקנה |
+| מה מאתרים | `*.exe` (למעט `unins*`) | חבילת `.app` (הרדודה ביותר, בלי להיכנס לתוכה) |
+| קריאת גרסה | `ProductVersion` מה-version resource (FFI, `package:win32`) | `CFBundleShortVersionString` מ-`Info.plist` (דרך `plutil`) |
+| הפעלה | `Process.start` מנותק | `open <bundle>` (דרך Launch Services) |
+| זיהוי אוטומטי של התקנה קיימת | התיקייה המנוהלת | התיקייה המנוהלת, ואחריה `/Applications` |
+
+**חבילות ה-FULL של ~2GB** (`otzaria-<ver>-windows-full.exe`,
+`otzaria-macos-full.zip`) נפסלות בשתי הפלטפורמות — הן מכילות את הספרייה
+בתוכן, והלאנצ'ר מוריד אותה בנפרד דרך `library_manager`. ההתאמה לפי סיומת
+(`windows.exe`/`macos.zip`) פוסלת אותן מעצמה, כי הן מסתיימות ב-`full.exe`/
+`full.zip`.
+
+### ממצאים שאומתו מול חבילת macOS אמיתית (`otzaria-macos.zip`, 0.9.96+736)
+
+- ה-bundle נקרא **`אוצריא.app`** — בעברית, וכך גם קובץ ההפעלה שבתוכו
+  (`CFBundleExecutable = אוצריא`). לכן זה גם **שם התהליך**, ו-
+  `OtzariaProcessGuard` ב-`library_manager` מחפש אותו כך.
+- `CFBundleIdentifier = com.example.otzaria` (ברירת מחדל של תבנית Flutter
+  שלא הוחלפה). הזיהוי ב-`/Applications` מסתמך על **סיומת** `.otzaria`,
+  כדי שתיקון עתידי של המזהה לא ישבור אותו.
+- `CFBundleShortVersionString = 0.9.96` — כלומר תג ה-release **בלי**
+  סיומת ה-build (`+736`). בגלל זה
+  [`OtzariaUpdateCheckResult`](lib/src/models/otzaria_update_check_result.dart)
+  מנרמל את שתי המחרוזות לפני ההשוואה; בלי זה כל זיהוי של התקנה קיימת
+  היה נראה כמו "יש עדכון" ומוריד 73MB לחינם, בכל פתיחה.
+- ה-`.app` חתום **ad-hoc** (בלי Developer ID, בלי notarization). לכן
+  החילוץ הוא ב-`ditto` דווקא: `unzip`/`package:archive` שוברים את
+  ה-symlinks וה-xattrs של ה-bundle ואיתם את החתימה, ואז macOS מסרב
+  להריץ. יש בדיקה שמאמתת בפועל ש-`codesign --verify --deep` עובר אחרי
+  ההתקנה (ראו למטה).
+- הורדה דרך `dart:io` אינה מסמנת quarantine, ולכן Gatekeeper לא חוסם.
+  בכל זאת יש הסרה best-effort של `com.apple.quarantine` אחרי ההתקנה,
+  למקרה שהמשתמש הביא את הארכיון בעצמו (דפדפן/AirDrop).
 
 ## ממצאים חשובים (נכון ליולי 2026)
 
@@ -61,14 +106,32 @@ manager.close();
 
 ## מבנה
 
-- `models/` — `OtzariaRelease`, `OtzariaInstallState`, `OtzariaUpdateCheckResult`.
+- `models/` — `OtzariaRelease` (+`OtzariaTargetPlatform`, `OtzariaInstallerKind`), `OtzariaInstallState`, `OtzariaUpdateCheckResult`.
 - `services/otzaria_release_client.dart` — שליפת release אחרון מ-GitHub API.
-- `services/otzaria_installer.dart` — הורדה + התקנה שקטה + גילוי ה-exe שהותקן; מקבל תיקיית יעד (ברירת מחדל, או תיקייה קיימת שאומצה).
-- `services/otzaria_exe_locator.dart` — סריקת תיקייה ואיתור ה-exe הראשי (משותף בין installer לזיהוי התקנה קיימת).
+- `services/otzaria_asset_selector.dart` — בחירת האסט לפי פלטפורמה; פונקציה טהורה (בלי רשת ובלי `Platform`), ולכן ניתנת לבדיקה עבור שתי הפלטפורמות.
+- `services/otzaria_installer.dart` — הורדה + התקנה + גילוי מה שהותקן; מסלול לכל `OtzariaInstallerKind`, ותיקיית יעד לבחירה (ברירת מחדל, או תיקייה קיימת שאומצה).
+- `services/otzaria_app_locator.dart` — סריקת תיקייה ואיתור ה-exe/`.app` הראשי (משותף בין installer לזיהוי התקנה קיימת), עם סינון אופציונלי לתיקיות משותפות כמו `/Applications`.
+- `services/installed_version_reader.dart` — הממשק המשותף + בחירת המימוש לפי פלטפורמה.
 - `services/windows_exe_version_reader.dart` — קריאת `ProductVersion` מתוך Windows version resource, דרך FFI (`package:win32`).
+- `services/mac_app_version_reader.dart` — קריאת `CFBundleShortVersionString`/`CFBundleIdentifier` מ-`Info.plist` (binary plist, ולכן דרך `plutil`).
 - `services/otzaria_state_store.dart` — שמירה/טעינה של קובץ ה-state המקומי.
-- `services/otzaria_launcher.dart` — הפעלת אוצריא כתהליך עצמאי.
+- `services/otzaria_launcher.dart` — הפעלת אוצריא כתהליך עצמאי / דרך `open`.
 - `otzaria_manager.dart` — האורקסטרטור המאחד את כולם; נקודת הכניסה ל-UI.
+
+## בדיקות
+
+`dart test` מריץ הכול; הבדיקות התלויות ב-macOS מדולגות אוטומטית במקום אחר.
+
+בנוסף יש **בדיקת קצה-לקצה מול חבילה אמיתית**, אופציונלית (כמו הבדיקות מול
+הפצות אמיתיות ב-`seforim_library_updater`) — מתקינה בפועל `.app` שהורד
+מ-releases, ומאמתת שהחתימה שרדה את החילוץ ושהתקנה חוזרת מחליפה את
+ה-bundle במקום להוסיף עותק שני:
+
+```bash
+curl -L -o /tmp/otzaria-macos.zip \
+  'https://github.com/Otzaria/otzaria/releases/download/0.9.96%2B736/otzaria-macos.zip'
+OTZARIA_MACOS_ZIP=/tmp/otzaria-macos.zip dart test test/otzaria_installer_macos_test.dart
+```
 
 ## מה עדיין לא מטופל כאן (בכוונה, לשלב הבא)
 
@@ -80,9 +143,16 @@ manager.close();
 - מנגנון resume/retry להורדת ה-installer אם הרשת נופלת (כרגע: כישלון
   → זריקת שגיאה, בלי retry אוטומטי — installer הוא הורדה חד-פעמית
   יחסית קטנה, בניגוד ל-DB המלא).
-- **`WindowsExeVersionReader` לא נבדק בפועל על ווינדוס** (הסביבה כאן
-  היא Linux) — צריך לבדוק קומפילציה/ריצה אצלך. חשודים סבירים: שמות/
-  חתימות פונקציות ב-`package:win32` בין גרסאות, ו-casting של מצביעים.
+- **`WindowsExeVersionReader` לא נבדק בפועל על ווינדוס** — צריך לבדוק
+  קומפילציה/ריצה אצלך. חשודים סבירים: שמות/חתימות פונקציות ב-
+  `package:win32` בין גרסאות, ו-casting של מצביעים. (המסלול המקביל
+  ב-macOS, `MacAppVersionReader`, כן אומת מול חבילה אמיתית.)
+- **הסרת גרסה קודמת ב-macOS**: ההתקנה מחליפה את חבילת ה-`.app` במלואה,
+  ולכן שם דווקא *כן* אין בעיית "קבצים שהוסרו בין גרסאות" — היא קיימת רק
+  במסלול Inno Setup של Windows.
+- **`/Applications` שאינה בבעלות המשתמש**: אם אומצה התקנה משם ואין
+  הרשאת כתיבה, העדכון ייכשל עם שגיאה (אין fallback אוטומטי להתקנה
+  לתיקייה המנוהלת).
 - אין עדיין UI/הגדרה למשתמש להזין ידנית "תיקיית התקנה קיימת שלי" —
   `detectExistingInstall`/`adoptExistingInstall` מוכנים ברמת הלוגיקה,
   אבל חיבור לשדה קלט במסך אמיתי יגיע עם הדשבורד המאוחד.

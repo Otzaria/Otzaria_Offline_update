@@ -1,0 +1,15 @@
+# ארטיפקטים של Dart/Flutter — נוצרים מ-`pub get`/`build` בכל אחת מארבע
+# החבילות שברפו, ולכן מוגדרים כאן פעם אחת ולא בכל תיקייה בנפרד.
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# ה-CI מריץ `pub get` טרי בכל ג'וב, ואין ברפו הזה אף pubspec.lock מנוהל —
+# שומרים על אותה מדיניות.
+pubspec.lock
+
+# macOS / IDE
+.DS_Store
+.idea/
+*.iml

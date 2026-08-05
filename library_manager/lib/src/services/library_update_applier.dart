@@ -83,7 +83,8 @@ class LibraryUpdateApplier {
   })  : _processGuard = processGuard,
         _recovery = recovery,
         _versionReader = versionReader,
-        _downloader = PatchDownloader(decompress: const ZstdDecompressor().call),
+        _downloader =
+            PatchDownloader(decompress: const ZstdDecompressor().call),
         _decompress = const ZstdDecompressor().call;
 
   final OtzariaProcessGuard _processGuard;
@@ -92,7 +93,10 @@ class LibraryUpdateApplier {
   final PatchDownloader _downloader;
   final Future<Uint8List?> Function(Uint8List) _decompress;
 
-  static const String _otzariaProcessImageName = 'otzaria.exe';
+  /// שמות התהליך שנחשבים "אוצריא פתוחה", לפי הפלטפורמה הנוכחית — ראו
+  /// [OtzariaProcessGuard.processNamesFor] (ב-macOS השם בעברית).
+  static final List<String> _otzariaProcessNames =
+      OtzariaProcessGuard.processNamesFor(Platform.operatingSystem);
 
   /// מחיל שרשרת patches דלתאיים ברצף, אחד־אחד, על [dbPath].
   ///
@@ -107,7 +111,8 @@ class LibraryUpdateApplier {
     bool Function()? isCancelled,
   }) async {
     if (plan.kind != LibraryUpdatePlanKind.delta) {
-      throw const LibraryApplyException('applyDelta נקרא על תוכנית שאינה delta');
+      throw const LibraryApplyException(
+          'applyDelta נקרא על תוכנית שאינה delta');
     }
     await _guardOtzariaNotRunning();
 
@@ -226,7 +231,8 @@ class LibraryUpdateApplier {
     );
 
     _throwIfCancelled(isCancelled);
-    onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.decompressingFullDb));
+    onProgress?.call(const LibraryApplyProgress(
+        stage: LibraryApplyStage.decompressingFullDb));
 
     final compressedBytes = await File(compressedPath).readAsBytes();
     final extracted = await _decompress(compressedBytes);
@@ -248,7 +254,8 @@ class LibraryUpdateApplier {
       );
     }
 
-    onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.writingFullDb));
+    onProgress?.call(
+        const LibraryApplyProgress(stage: LibraryApplyStage.writingFullDb));
     final newFilePath = '$dbPath.new';
     try {
       // ראו doc-comment ב-`_isolateApplyPatch` למעלה: חייב להיות במתודה
@@ -265,9 +272,11 @@ class LibraryUpdateApplier {
       rethrow;
     }
 
-    onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.verifying));
+    onProgress
+        ?.call(const LibraryApplyProgress(stage: LibraryApplyStage.verifying));
     final resultVersion = _versionReader.read(dbPath);
-    if (plan.targetVersion != null && resultVersion.dbVersion != plan.targetVersion) {
+    if (plan.targetVersion != null &&
+        resultVersion.dbVersion != plan.targetVersion) {
       if (dbAlreadyExists) await _recovery.rollback(dbPath);
       throw LibraryApplyException(
         'אחרי כתיבת ה-DB המלא, הגרסה שנקראה (${resultVersion.dbVersion}) '
@@ -300,10 +309,11 @@ class LibraryUpdateApplier {
   }
 
   Future<void> _guardOtzariaNotRunning() async {
-    // tasklist הוא פקודת Windows בלבד — בפלטפורמות אחרות (כולל בדיקות
-    // אוטומטיות שרצות על Linux/macOS) אין מה לבדוק ופשוט ממשיכים.
-    if (!Platform.isWindows) return;
-    if (await _processGuard.isRunning(_otzariaProcessImageName)) {
+    // הבדיקה עצמה תלויית-פלטפורמה (tasklist/pgrep) ומטופלת בתוך ה-guard;
+    // כאן רק מחליטים מה לעשות עם התשובה. שים לב שבלינוקס אין מסלול התקנה
+    // של הלאנצ'ר, אבל ה-guard בכל זאת עונה שם — כדי שבדיקות אוטומטיות
+    // שרצות על לינוקס יעברו באותו מסלול קוד ולא ב-shortcut.
+    if (await _processGuard.isAnyRunning(_otzariaProcessNames)) {
       throw const OtzariaIsRunningException();
     }
   }

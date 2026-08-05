@@ -18,28 +18,91 @@ void main() {
       if (await tempDir.exists()) await tempDir.delete(recursive: true);
     });
 
+    /// ברירות המחדל מוצבעות לתוך ה-tempDir בכוונה: כך הבדיקות לא תלויות
+    /// בשאלה אם למפתח שמריץ אותן מותקנת אוצריא אמיתית במיקום ברירת המחדל.
+    LibraryDbLocator locatorWithIsolatedDefaults() => LibraryDbLocator(
+          stateStore: stateStore,
+          operatingSystem: 'macos',
+          environment: {'HOME': p.join(tempDir.path, 'home')},
+        );
+
     test('returns null when neither custom nor default DB exists', () async {
-      final locator = LibraryDbLocator(stateStore: stateStore);
-      expect(await locator.resolveDbPath(), isNull);
+      expect(await locatorWithIsolatedDefaults().resolveDbPath(), isNull);
     });
 
-    test('prefers a saved custom path over the default when both could exist', () async {
+    test('finds the DB in the macOS default location', () async {
+      final defaultPath = p.join(
+        tempDir.path,
+        'home',
+        'Library',
+        'Application Support',
+        'otzaria',
+        'books',
+        'seforim.db',
+      );
+      await Directory(p.dirname(defaultPath)).create(recursive: true);
+      await File(defaultPath).writeAsString('fake db');
+
+      expect(await locatorWithIsolatedDefaults().resolveDbPath(), defaultPath);
+    });
+
+    test('prefers a saved custom path over the default when both could exist',
+        () async {
       final customDbPath = p.join(tempDir.path, 'my-library', 'seforim.db');
       await Directory(p.dirname(customDbPath)).create(recursive: true);
       await File(customDbPath).writeAsString('fake db');
       await stateStore.saveCustomDbPath(customDbPath);
 
-      final locator = LibraryDbLocator(stateStore: stateStore);
-      expect(await locator.resolveDbPath(), customDbPath);
+      expect(await locatorWithIsolatedDefaults().resolveDbPath(), customDbPath);
     });
 
     test('ignores a saved custom path that no longer exists on disk', () async {
-      await stateStore.saveCustomDbPath(p.join(tempDir.path, 'missing', 'seforim.db'));
+      await stateStore
+          .saveCustomDbPath(p.join(tempDir.path, 'missing', 'seforim.db'));
 
-      final locator = LibraryDbLocator(stateStore: stateStore);
-      // אין גם default (לא בודקים אמיתית את C:\אוצריא בסביבת הטסט) —
-      // אז התוצאה הצפויה היא null, לא הנתיב הישן.
-      expect(await locator.resolveDbPath(), isNull);
+      // אין גם default — אז התוצאה הצפויה היא null, לא הנתיב הישן.
+      expect(await locatorWithIsolatedDefaults().resolveDbPath(), isNull);
+    });
+  });
+
+  group('LibraryDbLocator.defaultDbDirs', () {
+    // ברירות המחדל נגזרות מ-`lib/core/app_paths.dart` של אוצריא עצמה. הבדיקה
+    // הזאת היא מה שיתפוס אם מישהו ישנה אותן כאן בלי לבדוק מול הקוד שם.
+    test('macOS: per-user Application Support first, then system-wide', () {
+      final dirs = LibraryDbLocator.defaultDbDirs(
+        operatingSystem: 'macos',
+        environment: const {'HOME': '/Users/dov'},
+      );
+
+      expect(dirs, [
+        '/Users/dov/Library/Application Support/otzaria/books',
+        '/Library/Application Support/otzaria/books',
+      ]);
+    });
+
+    test('macOS: system-wide location is still offered without HOME', () {
+      final dirs = LibraryDbLocator.defaultDbDirs(
+        operatingSystem: 'macos',
+        environment: const {},
+      );
+
+      expect(dirs, ['/Library/Application Support/otzaria/books']);
+    });
+
+    test('Windows: APPDATA first, then ProgramData for a system-wide install',
+        () {
+      final dirs = LibraryDbLocator.defaultDbDirs(
+        operatingSystem: 'windows',
+        environment: const {
+          'APPDATA': r'C:\Users\dov\AppData\Roaming',
+          'ProgramData': r'C:\ProgramData',
+        },
+      );
+
+      expect(dirs, [
+        p.join(r'C:\Users\dov\AppData\Roaming', 'otzaria', 'books'),
+        p.join(r'C:\ProgramData', 'otzaria', 'books'),
+      ]);
     });
   });
 }

@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:ffi/ffi.dart';
 import 'package:win32/win32.dart';
 
+import 'installed_version_reader.dart';
+
 /// קורא את שדה ה-ProductVersion המוטבע ב-Windows version resource של קובץ
 /// exe נתון, דרך Win32 API (`GetFileVersionInfoSize`/`GetFileVersionInfo`/
 /// `VerQueryValue`, package:win32).
@@ -16,7 +18,14 @@ import 'package:win32/win32.dart';
 /// ריצה. חשודים סבירים: שמות/חתימות הפונקציות ב-package:win32 עשויים
 /// להשתנות בין גרסאות; טיפול במצביעים (Pointer casting) בין
 /// Uint16/Utf16/Void.
-class WindowsExeVersionReader {
+///
+/// **הערה לגבי מקביליות ל-macOS:** הקובץ הזה מיובא (דרך
+/// [installedVersionReaderFor]) גם בבנייה ל-macOS, ולכן גם `package:win32`
+/// נכנס לקומפילציה שם. זה בטוח: כל ה-bindings ב-`package:win32` הם
+/// `DynamicLibrary.open` בתוך משתני `final` ברמת הקובץ — כלומר lazy, נטענים
+/// רק בקריאה הראשונה בפועל, שלעולם לא מתרחשת ב-macOS (ראו ה-guard בתחילת
+/// [readVersion]).
+class WindowsExeVersionReader implements InstalledVersionReader {
   const WindowsExeVersionReader();
 
   /// מחזיר את ה-ProductVersion (למשל "0.9.53"), או null אם הקובץ לא
@@ -24,7 +33,8 @@ class WindowsExeVersionReader {
   ///
   /// זורק [UnsupportedError] אם מופעל שלא בווינדוס (אין טעם לנסות FFI
   /// של Win32 API בפלטפורמה אחרת).
-  String? readProductVersion(String exePath) {
+  @override
+  String? readVersion(String exePath) {
     if (!Platform.isWindows) {
       throw UnsupportedError('WindowsExeVersionReader עובד רק בווינדוס.');
     }
@@ -59,7 +69,9 @@ class WindowsExeVersionReader {
         calloc.free(translationKey);
       }
 
-      if (translationOk == 0 || lenPtr.value < 4 || blockPtrPtr.value == nullptr) {
+      if (translationOk == 0 ||
+          lenPtr.value < 4 ||
+          blockPtrPtr.value == nullptr) {
         return null;
       }
 
@@ -71,7 +83,8 @@ class WindowsExeVersionReader {
 
       // שלב 2: לקרוא את ProductVersion מתוך תת-הבלוק הספציפי הזה.
       final versionKey =
-          '\\StringFileInfo\\$langHex$codePageHex\\ProductVersion'.toNativeUtf16();
+          '\\StringFileInfo\\$langHex$codePageHex\\ProductVersion'
+              .toNativeUtf16();
       int versionOk;
       try {
         versionOk = VerQueryValue(
