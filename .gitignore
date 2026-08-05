@@ -9,7 +9,27 @@ build/
 # שומרים על אותה מדיניות.
 pubspec.lock
 
+# רשומות התוספים נוצרות מחדש בכל `pub get`, ולכן מייצרות רק רעש בדיפים.
+**/flutter/ephemeral/
+**/Flutter/ephemeral/
+**/flutter/generated_plugin_registrant.cc
+**/flutter/generated_plugin_registrant.h
+**/flutter/generated_plugins.cmake
+**/Flutter/GeneratedPluginRegistrant.swift
+**/GeneratedPluginRegistrant.java
+**/GeneratedPluginRegistrant.m
+**/GeneratedPluginRegistrant.h
+
+# פלט Visual Studio / MSBuild מהרצה מקומית של `flutter run -d windows`
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.vcxproj.filters
+.vs/
+
 # macOS / IDE
 .DS_Store
 .idea/
 *.iml
+*.log
