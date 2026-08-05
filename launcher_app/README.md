@@ -103,28 +103,23 @@ flutter build macos --release # הפלט: build/macos/Build/Products/Release/Otz
 סימון quarantine ויצטרך לאשר פתיחה דרך *System Settings → Privacy &
 Security*, או להסיר את הסימון: `xattr -dr com.apple.quarantine "Otzaria Launcher.app"`.
 
-## אריזה ל-EXE יחיד (inno_bundle) — Windows
+## אריזה ל-Windows — portable ZIP, בלי מתקין
 
-הבנייה הרגילה (`flutter build windows`) מייצרת תיקייה שלמה (exe + DLLs +
-נתונים), לא קובץ יחיד. לכן נוסף [`inno_bundle`](https://pub.dev/packages/inno_bundle)
-כ-dev dependency, שעוטף הכול לקובץ התקנה EXE יחיד דרך Inno Setup:
+`flutter build windows` מייצר תיקייה שלמה (exe + DLLs + `data/`) ולא קובץ
+יחיד — וזו מגבלה של Flutter, לא של האריזה. לכן אין מתקין: ההפצה היא
+תיקיית ה-Release ארוזה ב-zip, שמוציאים ומריצים ממנה את ה-exe ישירות, בלי
+התקנה ובלי רישום ב-Windows. `inno_bundle` הוסר ב-`748accf`.
 
 ```bash
 cd launcher_app
-dart run inno_bundle:build --release
+flutter build windows --release
+# הפלט: build/windows/x64/runner/Release/
 ```
 
-הפלט (installer יחיד) אמור לנחות תחת `launcher_app/installer/` (למשל
-`installer/Output/*.exe`) — **לא אומת בפועל** כאן (אין Windows/Inno
-Setup בסביבה הזו), אז אם הנתיב בפועל שונה, זה יבלוט מיד ב-CI (הצעד
-`upload-artifact` יכשל עם "no files found" אם הglob לא תפס כלום).
-
-⚠️ ה-`id` (GUID) בסקשן `inno_bundle:` ב-`pubspec.yaml` הוא קבוע —
-**אסור** לשנות אותו בעתיד, אחרת מנגנון הזיהוי-כעדכון-לא-כאפליקציה-חדשה
-של Inno Setup יישבר עבור מי שכבר התקין.
-
-ב-CI, Inno Setup מותקן דרך Chocolatey (`choco install innosetup -y`)
-לפני ההרצה — לא אומת שזה עובד ב-runner בפועל, רק שזו הדרך המתועדת.
+שני ה-workflows שבונים ל-Windows (`ci.yml` ו-`build-exe.yml`) עושים בדיוק
+את זה ואז `Compress-Archive` על התיקייה. ⚠️ אם מחזירים בעתיד מתקין, יש
+להחזיר קודם את התלות ל-`pubspec.yaml` — חוסר ההתאמה הזה בין ה-workflow
+ל-pubspec הוא מה שהחזיק את ה-CI אדום בין 24 ביולי ל-6 באוגוסט 2026.
 
 ## ⚠️ מה אומת בפועל ומה לא
 

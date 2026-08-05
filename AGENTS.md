@@ -153,9 +153,13 @@ every DB update.
 `flutter create --platforms=macos .` — it overwrites them. `windows/` is the
 opposite: it is generated in CI.
 
-**The `inno_bundle:` GUID in `launcher_app/pubspec.yaml` is frozen.** Changing it
-makes Inno Setup treat new builds as a different application for everyone who
-already installed.
+**There is no Windows installer — the distribution is a portable ZIP.**
+`inno_bundle` and its config were removed in `748accf`; Flutter for Windows
+cannot produce a true single-file exe anyway. Both `ci.yml` and
+`build-exe.yml` run `flutter build windows --release` and zip the Release
+folder. Do not reintroduce an installer step without adding the dependency
+back first — that mismatch is exactly what kept CI red from July 24 to
+August 6, 2026.
 
 **Version strings need normalizing before comparison.** An installed build
 reports `0.9.96` while the release tag is `0.9.96+736`. `OtzariaUpdateCheckResult`
@@ -184,8 +188,8 @@ those over assumptions, and update them when you verify something new.
 
 Currently **not** verified on real hardware: the Windows path of
 `LibraryUpdateApplier` (full ~1GB download, delta chains, `tasklist` behaviour),
-`WindowsExeVersionReader` (FFI via `package:win32`), the Windows `.db` file
-picker filter, and the `inno_bundle` output path. The macOS path of
+`WindowsExeVersionReader` (FFI via `package:win32`), and the Windows `.db` file
+picker filter. The macOS path of
 `otzaria_manager` and the launcher build/run on macOS **were** verified against a
 real `otzaria-macos.zip`.
 
