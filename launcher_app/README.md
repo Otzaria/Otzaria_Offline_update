@@ -15,22 +15,24 @@
 (`../otzaria_manager`, `../library_manager`, `../plugins_manager`), כך
 שהוא צריך לשבת **באותה רמה** בריפו — לצדם, לא בתוכם.
 
-## ארבעת המסכים
+## חמשת המסכים
 
-הניווט הוא סרגל צד קבוע (`NavRailItem`) עם ארבעה מסכים, לפי
-[OFFLINE_UPDATE_APP_PLAN.md](../OFFLINE_UPDATE_APP_PLAN.md) §2.1:
+הניווט הוא סרגל צד קבוע (`NavRailItem`) עם חמישה מסכים. דף הבית מכוון
+למשתמש הקצה הפשוט — שני אריחים בלבד ("יש עדכון? לחצו"); הפרטים המלאים
+(גרסאות, נתיבים, "מה התחדש") יושבים במסכי "תוכנה"/"ספרייה" הנפרדים:
 
 | מסך | קובץ | תפקיד |
 | --- | --- | --- |
-| דף הבית | `screens/home_screen.dart` | כרטיס ההורדה (בחירת רכיבים) + מצב שלושת הרכיבים |
+| דף הבית | `screens/home_screen.dart` | שני אריחים (תוכנה/ספרייה) + בדיקת עדכונים צדדית ברשת |
+| תוכנה | `screens/otzaria_screen.dart` | מצב ההתקנה, "מה התחדש" (release notes מ-GitHub), בחירת מיקום ידנית |
 | ספרייה | `screens/library_screen.dart` | מצב ה-DB והחלת העדכון מהתיקייה המקומית |
 | תוספים | `screens/plugins/` | חנות התוספים: רשת כרטיסים, עמוד פרטים, הורדה |
-| הגדרות | `screens/settings_screen.dart` | אוטומציה, ערוצים, אחסון, רשת, ממשק |
+| הגדרות | `screens/settings_screen.dart` | אוטומציה, מה לסנכרן, ערוצים, אחסון, רשת, ממשק |
 
 מעליהם סרגל מצב קבוע (`AppShell._TopBar`): מצב רשת, תיקיית הנתונים,
 אזהרה כשאוצריא פתוחה, בדיקה מחדש ופתיחת יומן הפעילות.
 
-יש גם מסך חמישי שאינו בניווט: `screens/setup_error_screen.dart`, שמוצג
+יש גם מסך שישי שאינו בניווט: `screens/setup_error_screen.dart`, שמוצג
 במקום האפליקציה כשלא ניתן לכתוב לתיקייה שלצד קובץ ההרצה.
 
 ## מלכודת בנייה ב-Windows: `ZSTD_ROOT`
@@ -258,7 +260,7 @@ lib/
     │   └── hebrew_date.dart           — המרה לתאריך עברי + גימטריה
     └── screens/
         ├── app_shell.dart             — סרגל ניווט, סרגל מצב, IndexedStack
-        ├── home_screen.dart, library_screen.dart, settings_screen.dart
+        ├── home_screen.dart, otzaria_screen.dart, library_screen.dart, settings_screen.dart
         └── plugins/                   — חנות התוספים
             ├── plugins_screen.dart          — רשימה ↔ פרטים, סנכרון
             ├── plugin_store_card.dart       — כרטיס ברשת

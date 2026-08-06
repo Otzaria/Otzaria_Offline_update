@@ -73,6 +73,41 @@ class LibraryModuleController extends ChangeNotifier {
   String? downloadError;
   DateTime? lastDownloadedAt;
 
+  /// מצב הבדיקה הקלה ("יש עדכון ברשת?") — נפרד לגמרי מ-[downloadStatus]:
+  /// היא לא מורידה כלום, רק שואלת. `null` = טרם נבדק בהרצה הזו.
+  int? onlineLatestVersion;
+  String? onlineCheckError;
+  DateTime? onlineCheckedAt;
+
+  /// `true` אם הבדיקה הקלה מצאה ברשת גרסה גבוהה מזו שיושבת במראה
+  /// המקומית כרגע — אינדיקציה בלבד; ההשוואה הקובעת היא [checkForUpdate]
+  /// אחרי הורדה בפועל.
+  bool get hasOnlineUpdate {
+    final online = onlineLatestVersion;
+    if (online == null) return false;
+    final known = targetVersion ?? localVersion ?? 0;
+    return online > known;
+  }
+
+  /// בודק ברשת מה הגרסה העדכנית ביותר — **פעולת רשת קלה**, בלי הורדת
+  /// המסד/patches. כשל (בעיקר "אין חיבור") הוא מצב תקין: נשמר ב-
+  /// [onlineCheckError] ולא נזרק, כדי שבדיקה אוטומטית לא תציג שגיאה
+  /// מפחידה כשפשוט אין רשת כרגע.
+  Future<void> checkOnline() async {
+    onlineCheckError = null;
+    notifyListeners();
+
+    try {
+      onlineLatestVersion = await _manager.peekLatestOnlineVersion();
+    } catch (e, st) {
+      onlineLatestVersion = null;
+      onlineCheckError = e.toString();
+      AppLogger.instance.info('בדיקת עדכונים ברשת (ספרייה) לא הצליחה: $e\n$st');
+    }
+    onlineCheckedAt = DateTime.now();
+    notifyListeners();
+  }
+
   /// מוריד עדכוני ספרייה מהרשת אל [mirrorDir]. **הפעולה היחידה כאן שדורשת
   /// אינטרנט.** לא נוגעת ב-DB. לא זורקת — כשל נשמר ב-[downloadError].
   Future<void> download() async {

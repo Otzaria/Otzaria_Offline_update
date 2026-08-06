@@ -33,12 +33,19 @@ touched by *one* thing only: the download step that fills that folder.
 
 | Step | API | Needs network |
 | --- | --- | --- |
-| Download library updates | `LibraryManager.downloadToMirror()` | **yes** |
-| Download the Otzaria installer | `OtzariaManager.downloadToMirror()` | **yes** |
-| Download the plugin store | `PluginsManager.sync()` | **yes** |
+| Download library updates | `LibraryManager.downloadToMirror()` | **yes** (heavy — full DB/patches) |
+| Download the Otzaria installer | `OtzariaManager.downloadToMirror()` | **yes** (heavy — installer file) |
+| Download the plugin store | `PluginsManager.sync()` | **yes** (heavy — images/`.otzplugin` files) |
+| Peek the latest library version online | `LibraryManager.peekLatestOnlineVersion()` | **yes** (light — one API call, no asset) |
+| Peek the latest Otzaria release online | `OtzariaManager.peekLatestOnlineRelease()` | **yes** (light — one API call, no asset) |
 | Check / apply a library update | `LibraryManager.checkForUpdate()` / `.applyUpdate()` | no |
 | Check / install the Otzaria app | `OtzariaManager.checkForUpdate()` / `.update()` | no |
 | Read the store / install a plugin | `PluginsManager.load()` / `.directInstall()` | no |
+
+The two "peek" methods exist only to power the launcher's optional, one-shot,
+auto-on-launch "is there anything new online?" nudge (`AppShell.checkOnline()`,
+`AppSettings.autoCheckOnlineUpdates`) — metadata only, never an asset, and a
+failure (no network) is a normal, silently-handled outcome, not an error.
 
 `AppPaths.resolve()` (in `launcher_app`) puts the data folder at
 `<dir of the executable>/OtzariaData`, and there is **no setting to change it** —

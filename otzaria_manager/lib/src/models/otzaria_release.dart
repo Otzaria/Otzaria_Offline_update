@@ -68,6 +68,7 @@ class OtzariaRelease extends Equatable {
     required this.installerAssetName,
     required this.installerDownloadUrl,
     required this.installerSizeBytes,
+    this.releaseNotes,
   });
 
   final String tagName;
@@ -75,6 +76,11 @@ class OtzariaRelease extends Equatable {
   final bool isPrerelease;
   final bool isDraft;
   final DateTime? publishedAt;
+
+  /// תיאור ה-release כפי שנכתב ב-GitHub ("מה התחדש") — טקסט חופשי
+  /// (Markdown גולמי, לא מרונדר), או `null` אם ה-release לא כלל תיאור.
+  /// נשמר לצד שאר המטא-דאטה במראה המקומית כדי שיהיה קריא גם בלי רשת.
+  final String? releaseNotes;
 
   /// איך להתקין את [installerAssetName] — ראו [OtzariaInstallerKind].
   final OtzariaInstallerKind installerKind;
@@ -95,6 +101,7 @@ class OtzariaRelease extends Equatable {
         'installerAssetName': installerAssetName,
         'installerDownloadUrl': installerDownloadUrl,
         'installerSizeBytes': installerSizeBytes,
+        'releaseNotes': releaseNotes,
       };
 
   /// זורק [FormatException] על JSON חסר/פגום — הקורא מתייחס לזה כ"אין מראה
@@ -123,6 +130,7 @@ class OtzariaRelease extends Equatable {
       installerAssetName: json['installerAssetName'] as String,
       installerDownloadUrl: (json['installerDownloadUrl'] as String?) ?? '',
       installerSizeBytes: json['installerSizeBytes'] as int,
+      releaseNotes: json['releaseNotes'] as String?,
     );
   }
 
@@ -137,6 +145,7 @@ class OtzariaRelease extends Equatable {
         installerAssetName,
         installerDownloadUrl,
         installerSizeBytes,
+        releaseNotes,
       ];
 }
 

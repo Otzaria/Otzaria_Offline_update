@@ -119,6 +119,7 @@ class OtzariaReleaseClient {
       installerAssetName: asset['name'] as String,
       installerDownloadUrl: asset['browser_download_url'] as String,
       installerSizeBytes: asset['size'] as int,
+      releaseNotes: json['body'] as String?,
     );
   }
 

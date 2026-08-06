@@ -36,6 +36,7 @@ class SettingsScreen extends StatelessWidget {
           'הדבר היחיד שניתן להפוך לאוטומטי, והיא דורשת אישור חד־פעמי.',
       children: [
         _automationCard(context),
+        _downloadCard(context),
         _channelsCard(context),
         _storageCard(context),
         _networkCard(context),
@@ -57,6 +58,14 @@ class SettingsScreen extends StatelessWidget {
           subtitle: 'משווה את המותקן למה שיש בתיקייה המקומית — בלי רשת',
           value: _s.autoMetadataCheck,
           onChanged: (v) => _set(_s.copyWith(autoMetadataCheck: v)),
+        ),
+        SettingsActionTile.switchTile(
+          icon: FluentIcons.cloud_24_regular,
+          title: 'בדיקת עדכונים אוטומטית כשיש רשת',
+          subtitle: 'בדיקה קלה בפתיחה מול GitHub — בלי הורדה. כשל (אין רשת) '
+              'נבלע בשקט; הכפתור הידני בדף הבית עובד בכל מקרה',
+          value: _s.autoCheckOnlineUpdates,
+          onChanged: (v) => _set(_s.copyWith(autoCheckOnlineUpdates: v)),
         ),
         SettingsActionTile.switchTile(
           icon: FluentIcons.desktop_arrow_right_24_regular,
@@ -118,6 +127,39 @@ class SettingsScreen extends StatelessWidget {
     );
     if (!approved) return;
     await apply(true);
+  }
+
+  // ── הורדה ─────────────────────────────────────────────────────────────────
+
+  Widget _downloadCard(BuildContext context) {
+    return SettingsCard(
+      title: 'הורדה',
+      subtitle: 'אילו רכיבים כפתור "הורד עכשיו" בדף הבית מביא לתיקייה '
+          'המקומית. ההורדה עצמה תמיד יזומה בלחיצה.',
+      children: [
+        SettingsActionTile.switchTile(
+          icon: FluentIcons.desktop_24_regular,
+          title: 'תוכנת אוצריא',
+          subtitle: 'קובץ ההתקנה של הגרסה האחרונה',
+          value: _s.syncApp,
+          onChanged: (v) => _set(_s.copyWith(syncApp: v)),
+        ),
+        SettingsActionTile.switchTile(
+          icon: FluentIcons.library_24_regular,
+          title: 'ספריית הספרים',
+          subtitle: 'הרכיב הכבד — המסד המלא הוא כ-1GB',
+          value: _s.syncLibrary,
+          onChanged: (v) => _set(_s.copyWith(syncLibrary: v)),
+        ),
+        SettingsActionTile.switchTile(
+          icon: FluentIcons.puzzle_piece_24_regular,
+          title: 'חנות התוספים',
+          subtitle: 'הקטלוג וקובצי ההתקנה של כל התוספים',
+          value: _s.syncPlugins,
+          onChanged: (v) => _set(_s.copyWith(syncPlugins: v)),
+        ),
+      ],
+    );
   }
 
   // ── ערוצים ────────────────────────────────────────────────────────────────

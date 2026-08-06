@@ -112,9 +112,9 @@ class LibraryManager {
         LocalMirrorLibraryReleaseClient.manifestFileName,
       )).exists();
 
-  /// מוריד את עדכוני הספרייה מ-GitHub אל [mirrorDir] — **הפעולה היחידה
-  /// בכל המודול שנוגעת ברשת**. מביא את ה-release האחרון בערוץ הנבחר: את
-  /// ה-DB המלא ואת קובצי העדכון (patches) שלו.
+  /// מוריד את עדכוני הספרייה מ-GitHub אל [mirrorDir] — **הפעולה הכבדה**
+  /// שנוגעת ברשת (המסד המלא ~1GB + קובצי העדכון). מביא את ה-release
+  /// האחרון בערוץ הנבחר.
   Future<void> downloadToMirror({
     void Function(String stage)? onStage,
     void Function(int doneAssets, int totalAssets)? onAssetProgress,
@@ -130,6 +130,28 @@ class LibraryManager {
       onBytesProgress: onBytesProgress,
       isCancelled: isCancelled,
     );
+  }
+
+  /// בודק מה הגרסה העדכנית ביותר הזמינה ב-GitHub — **פעולת רשת קלה**:
+  /// קריאת API יחידה ל-`/releases`, בלי הורדת manifest או asset כלשהו
+  /// (בשונה מ-[LibraryUpdateDiscovery.discover], שמוריד גם manifest לכל
+  /// release כדי לבנות את גרף ה-patches — יקר יותר ממה שצריך כאן).
+  /// מחזיר `null` אם אין release כשיר בערוץ הנבחר. מיועדת לבדיקה צדדית
+  /// ("יש עדכון חדש ברשת?"); זורקת חריג רשת/HTTP רגיל בכשל — הקורא אמור
+  /// להתייחס לכשל כ"אין חיבור כרגע", לא כשגיאה חוסמת.
+  Future<int?> peekLatestOnlineVersion() async {
+    final releases = LibraryUpdateDiscovery.eligibleReleases(
+      await _cloudClient.fetchReleases(),
+      allowPrerelease: allowPrerelease,
+    );
+    if (releases.isEmpty) return null;
+
+    var latest = 0;
+    for (final release in releases) {
+      final version = LibraryUpdateDiscovery.releaseVersionOf(release);
+      if (version > latest) latest = version;
+    }
+    return latest;
   }
 
   /// המראה המקומית כמקור releases. זורק [LibraryMirrorMissingException] אם

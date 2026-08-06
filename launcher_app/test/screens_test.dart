@@ -1,4 +1,4 @@
-// בדיקות רינדור לארבעת המסכים. המסכים נבדקים ישירות (ולא דרך AppShell),
+// בדיקות רינדור למסכי הדשבורד. המסכים נבדקים ישירות (ולא דרך AppShell),
 // כדי שהבדיקה לא תיגע ברשת: הבנייה של הקונטרולרים אינה פונה לרשת, רק
 // checkForUpdate/update — שלא נקראים כאן.
 
@@ -9,9 +9,9 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/library_module_controller.dart';
 import 'package:launcher_app/src/controllers/otzaria_module_controller.dart';
-import 'package:launcher_app/src/screens/app_shell.dart';
 import 'package:launcher_app/src/screens/home_screen.dart';
 import 'package:launcher_app/src/screens/library_screen.dart';
+import 'package:launcher_app/src/screens/otzaria_screen.dart';
 import 'package:launcher_app/src/controllers/plugins_module_controller.dart';
 import 'package:launcher_app/src/screens/plugins/plugins_screen.dart';
 import 'package:launcher_app/src/screens/settings_screen.dart';
@@ -69,23 +69,21 @@ void main() {
   /// דף הבית עם כל התלויות — נבנה כאן כדי שהוספת פרמטר לא תדרוש לגעת
   /// בכל בדיקה בנפרד.
   HomeScreen home({
-    NetworkState network = NetworkState.unknown,
     bool otzariaIsRunning = false,
     bool isDownloading = false,
+    bool isCheckingOnline = false,
   }) =>
       HomeScreen(
         otzaria: otzaria,
         library: library,
-        plugins: plugins,
         settings: settings,
-        dataDir: tempDir.path,
-        network: network,
         otzariaIsRunning: otzariaIsRunning,
         isDownloading: isDownloading,
-        onRecheck: () async {},
+        isCheckingOnline: isCheckingOnline,
+        onCheckOnline: () async {},
         onDownloadAll: () async {},
+        onGoToOtzaria: () {},
         onGoToLibrary: () {},
-        onGoToPlugins: () {},
       );
 
   tearDown(() {
@@ -96,54 +94,81 @@ void main() {
     tempDir.deleteSync(recursive: true);
   });
 
-  testWidgets('דף הבית מציג את ארבעת הכרטיסים ואינו טוען שמצב נבדק',
+  testWidgets('דף הבית מציג שני אריחים ובדיקת עדכונים, ואינו טוען שמצב נבדק',
       (tester) async {
     await pumpScreen(tester, home());
 
-    expect(find.text('הורדת עדכונים'), findsOneWidget);
     expect(find.text('תוכנת אוצריא'), findsWidgets);
     expect(find.text('ספריית הספרים'), findsWidgets);
-    expect(find.text('תוספים'), findsWidgets);
+    // מופיע פעמיים: כותרת הכרטיס וטקסט הכפתור הידני.
+    expect(find.text('בדיקת עדכונים'), findsNWidgets(2));
     // המצב ההתחלתי אמור להיות "טרם נבדק", לא "מעודכן".
     expect(find.text('טרם נבדק'), findsWidgets);
+    // אין יותר כרטיס תוספים או מתגי סנכרון בדף הבית — עברו להגדרות.
+    expect(find.text('חנות התוספים'), findsNothing);
   });
 
-  testWidgets('כפתור ההורדה מושבת כשלא נבחר שום רכיב', (tester) async {
-    // runAsync כי update() כותב לדיסק — futures של dart:io לא נפתרים בתוך
-    // ה-fake-async של testWidgets (ראו AGENTS.md §3).
+  testWidgets('כפתור "הורד עכשיו" מופיע רק כשנמצא עדכון ברשת ומושבת בלי בחירה',
+      (tester) async {
     await tester.runAsync(() => settings.update(const AppSettings(
           syncApp: false,
           syncLibrary: false,
           syncPlugins: false,
         )));
     await pumpScreen(tester, home());
+    expect(find.text('הורד עכשיו'), findsNothing);
+
+    // מדמה בדיקה קלה שמצאה עדכון — בלי לגעת ברשת בפועל.
+    library.onlineLatestVersion = 99;
+    library.onlineCheckedAt = DateTime(2026, 1, 1);
+    await pumpScreen(tester, home());
 
     final button = tester.widget<ActionButton>(
-      find.widgetWithText(ActionButton, 'הורדת העדכונים'),
+      find.widgetWithText(ActionButton, 'הורד עכשיו'),
     );
     expect(button.onPressed, isNull);
   });
 
-  testWidgets('סימון רכיב להורדה נשמר בהגדרות', (tester) async {
-    await pumpScreen(tester, home());
+  testWidgets('דף הבית מציג אזהרה כשאוצריא פתוחה', (tester) async {
+    await pumpScreen(tester, home(otzariaIsRunning: true));
+
+    expect(find.text('אוצריא פתוחה'), findsOneWidget);
+    expect(find.text('עדכון הספרייה חסום עד לסגירתה.'), findsOneWidget);
+  });
+
+  testWidgets('מסך תוכנה מציג מצב ו"מה התחדש"', (tester) async {
+    await pumpScreen(
+      tester,
+      OtzariaScreen(
+        otzaria: otzaria,
+        otzariaIsRunning: false,
+        isDownloading: false,
+      ),
+    );
+
+    expect(find.text('מצב ההתקנה'), findsOneWidget);
+    expect(find.text('מה התחדש בגרסה האחרונה'), findsOneWidget);
+    expect(
+      find.text('אין תיאור לגרסה הזו, או שעדיין לא הורדה גרסה.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('מתגי הסנכרון עברו להגדרות ונשמרים', (tester) async {
+    await pumpScreen(
+      tester,
+      SettingsScreen(
+        controller: settings,
+        dataDir: tempDir.path,
+        onOpenLog: () {},
+      ),
+    );
 
     expect(settings.settings.syncLibrary, isTrue);
     await tester.tap(find.text('הרכיב הכבד — המסד המלא הוא כ-1GB'));
     await tester.pumpAndSettle();
 
     expect(settings.settings.syncLibrary, isFalse);
-  });
-
-  testWidgets('דף הבית מציג אזהרה כשאוצריא פתוחה', (tester) async {
-    await pumpScreen(
-      tester,
-      home(network: NetworkState.online, otzariaIsRunning: true),
-    );
-
-    expect(
-      find.text('פתוחה כרגע — עדכון מסד חסום עד לסגירתה'),
-      findsOneWidget,
-    );
   });
 
   testWidgets('מסך הספרייה מציג מצב ואת התיקייה שממנה מעדכנים', (tester) async {
