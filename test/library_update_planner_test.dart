@@ -47,6 +47,7 @@ void main() {
     bool hasMeta = true,
     ReleaseAsset? full = _fullAsset,
     String? tag = 'v3',
+    String? localTag,
   }) =>
       planner.plan(
         localVersion: local,
@@ -55,6 +56,7 @@ void main() {
         edges: edges,
         latestFullDbAsset: full,
         latestReleaseTag: tag,
+        localReleaseTag: localTag,
       );
 
   group('LibraryUpdatePlanner', () {
@@ -148,6 +150,28 @@ void main() {
       );
       expect(p.kind, LibraryUpdatePlanKind.blocked);
       expect(p.reason, isNotNull);
+    });
+
+    // SeforimLibrary מפרסם לפעמים מסד מתוקן באותו db_version. בלי השוואת
+    // ה-release tag העדכון הזה בלתי־נראה לגמרי.
+    test('אותה גרסה אבל release אחר → הורדה מלאה', () {
+      final p =
+          plan(local: 3, latest: 3, edges: [], localTag: 'v3', tag: 'v3b');
+      expect(p.kind, LibraryUpdatePlanKind.fullDownload);
+      expect(p.fullDbReleaseTag, 'v3b');
+      expect(p.reason, contains('ללא שינוי מספר הגרסה'));
+    });
+
+    test('אותה גרסה ואותו release → none', () {
+      final p = plan(local: 3, latest: 3, edges: [], localTag: 'v3', tag: 'v3');
+      expect(p.kind, LibraryUpdatePlanKind.none);
+    });
+
+    // DB שלא הותקן דרך הלאנצ'ר — אין tag להשוות מולו, ואסור להציע בגללו
+    // הורדה של ~1GB בכל פתיחה.
+    test('אותה גרסה ו-tag מקומי לא ידוע → none', () {
+      final p = plan(local: 3, latest: 3, edges: [], tag: 'v3b');
+      expect(p.kind, LibraryUpdatePlanKind.none);
     });
 
     test('מתעלם מ-edges אחורה ולא משתמש בהם', () {

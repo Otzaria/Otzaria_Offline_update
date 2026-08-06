@@ -14,20 +14,33 @@ enum LibraryModuleStatus {
   updating,
   error,
   needsManualPath,
+
+  /// עדיין לא הורדו עדכונים לתיקייה המקומית — אין מול מה להשוות. מצב תקין
+  /// בהרצה ראשונה, לא שגיאה.
+  needsDownload,
 }
 
-/// שלב נפרד לגמרי מ-[LibraryModuleStatus] — ייצוא מראה offline הוא פעולה
-/// יזומה בנפרד מבדיקת/החלת עדכון רגילה, ויכולה לרוץ גם כש-status הרגיל
-/// הוא upToDate (מייצאים "בשביל מישהו אחר", לא כי צריך עדכון בעצמנו).
-enum MirrorExportStatus { idle, exporting, done, error }
+/// מצב ההורדה מהרשת אל התיקייה המקומית. נפרד לגמרי מ-[LibraryModuleStatus]:
+/// הורדה יכולה לרוץ גם כשהמסד המקומי מעודכן (מורידים בשביל המחשב האחר).
+enum MirrorDownloadStatus { idle, downloading, done, error }
 
-/// עוטף את [LibraryManager] כמצב הניתן לצפייה עבור מסך הדשבורד — בדיקת
-/// גרסת מסד, בקשת נתיב ידני כשלא נמצא DB, **החלה בפועל על ה-DB החי**
-/// (delta patch-אחר-patch, או הורדת DB מלא — דרך [update]), והחלפה בין
-/// מקור ה-cloud למראה מקומית (offline) לצד ייצוא מראה כזו.
+/// עוטף את [LibraryManager] כמצב הניתן לצפייה עבור הדשבורד. שתי פעולות
+/// נפרדות לגמרי:
+///  - [download] — מביא עדכונים מהרשת אל התיקייה שלצד התוכנה. **הפעולה
+///    היחידה שדורשת אינטרנט.**
+///  - [checkForUpdate] / [update] — קוראות מהתיקייה המקומית בלבד ומחילות
+///    על ה-DB החי. עובדות במחשב בלי רשת בכלל.
 class LibraryModuleController extends ChangeNotifier {
-  LibraryModuleController({required String dataDir})
-      : _manager = LibraryManager(dataDir: dataDir);
+  LibraryModuleController({
+    required String dataDir,
+    bool allowPrerelease = false,
+  }) : _manager = LibraryManager(
+          dataDir: dataDir,
+          allowPrerelease: allowPrerelease,
+        );
+
+  /// מחליף ערוץ גרסאות — נכנס לתוקף בבדיקה/הורדה הבאה.
+  set allowPrerelease(bool value) => _manager.allowPrerelease = value;
 
   final LibraryManager _manager;
   LibraryUpdateCheckResult? _lastCheck;
@@ -46,64 +59,53 @@ class LibraryModuleController extends ChangeNotifier {
   /// טרייה) — ה-UI יכול להציג "מוריד ספרייה בפעם הראשונה" במקום "מעדכן".
   bool isFreshInstall = false;
 
-  /// נתיב המראה המקומית הפעילה כרגע, או null אם מצב ה-cloud פעיל.
-  /// מתעדכן דרך [refreshSourceMode], שנקרא גם מ-[checkForUpdate].
-  String? activeMirrorPath;
-
   /// נתיב ה-`seforim.db` שזוהה בפועל — מתעדכן בכל [checkForUpdate].
   String? dbPath;
 
-  /// מצב ייצוא מראה offline **ידני** (יעד שהמשתמש בחר בעצמו) — נפרד
-  /// מ-[status] (ראו [MirrorExportStatus]).
-  MirrorExportStatus mirrorExportStatus = MirrorExportStatus.idle;
-  String? mirrorExportStage;
-  int? mirrorExportDoneAssets;
-  int? mirrorExportTotalAssets;
-  String? mirrorExportError;
+  /// התיקייה שלצד התוכנה שממנה נקראים העדכונים — המקור היחיד.
+  String get mirrorDir => _manager.mirrorDir;
 
-  /// נתיב ה-cache הקבוע (`<dataDir>/offline-mirror`) — מתעדכן אוטומטית
-  /// ברקע בכל פתיחת האפליקציה (ראו [refreshOfflineMirrorCacheInBackground],
-  /// שנקרא מה-dashboard) ומוכן תמיד להעברה למחשב אחר (USB / תיקייה
-  /// משותפת) בלי צורך לבחור יעד או ללחוץ על כלום.
-  String get offlineMirrorCacheDir => _manager.offlineMirrorCacheDir;
+  /// מצב ההורדה מהרשת אל [mirrorDir].
+  MirrorDownloadStatus downloadStatus = MirrorDownloadStatus.idle;
+  String? downloadStage;
+  int? downloadDoneAssets;
+  int? downloadTotalAssets;
+  String? downloadError;
+  DateTime? lastDownloadedAt;
 
-  /// מצב הרענון **האוטומטי** של [offlineMirrorCacheDir] — נפרד מ-
-  /// [mirrorExportStatus] כדי לא להתנגש עם ייצוא ידני יזום.
-  MirrorExportStatus autoCacheStatus = MirrorExportStatus.idle;
-  String? autoCacheStage;
-  String? autoCacheError;
-  DateTime? autoCacheLastRefreshedAt;
-
-  /// מרענן ברקע את [offlineMirrorCacheDir] מהענן. best-effort ולא זורק:
-  /// כישלון (בעיקר אין אינטרנט) פשוט משאיר את ה-cache כפי שהיה מהרענון
-  /// הקודם — לא אמור להפריע לשום דבר אחר. נקרא אוטומטית בכל פתיחת
-  /// האפליקציה מה-dashboard, במקביל ל-[checkForUpdate] (לא לפניו/אחריו).
-  Future<void> refreshOfflineMirrorCacheInBackground() async {
-    autoCacheStatus = MirrorExportStatus.exporting;
-    autoCacheStage = null;
-    autoCacheError = null;
+  /// מוריד עדכוני ספרייה מהרשת אל [mirrorDir]. **הפעולה היחידה כאן שדורשת
+  /// אינטרנט.** לא נוגעת ב-DB. לא זורקת — כשל נשמר ב-[downloadError].
+  Future<void> download() async {
+    downloadStatus = MirrorDownloadStatus.downloading;
+    downloadStage = null;
+    downloadDoneAssets = null;
+    downloadTotalAssets = null;
+    downloadError = null;
     notifyListeners();
 
     try {
-      await _manager.refreshOfflineMirrorCache(
+      await _manager.downloadToMirror(
         onStage: (stage) {
-          autoCacheStage = stage;
+          downloadStage = stage;
+          notifyListeners();
+        },
+        onAssetProgress: (done, total) {
+          downloadDoneAssets = done;
+          downloadTotalAssets = total;
           notifyListeners();
         },
       );
-      autoCacheStatus = MirrorExportStatus.done;
-      autoCacheLastRefreshedAt = DateTime.now();
+      downloadStatus = MirrorDownloadStatus.done;
+      lastDownloadedAt = DateTime.now();
+      notifyListeners();
+      // עכשיו יש מול מה להשוות — מרעננים את מצב העדכון מהתיקייה החדשה.
+      await checkForUpdate();
+      return;
     } catch (e, st) {
-      autoCacheStatus = MirrorExportStatus.error;
-      autoCacheError = e.toString();
-      AppLogger.instance
-          .error('refreshOfflineMirrorCacheInBackground נכשל', e, st);
+      downloadStatus = MirrorDownloadStatus.error;
+      downloadError = e.toString();
+      AppLogger.instance.error('הורדת עדכוני ספרייה נכשלה', e, st);
     }
-    notifyListeners();
-  }
-
-  Future<void> refreshSourceMode() async {
-    activeMirrorPath = await _manager.currentLocalMirrorPath();
     notifyListeners();
   }
 
@@ -113,7 +115,6 @@ class LibraryModuleController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      activeMirrorPath = await _manager.currentLocalMirrorPath();
       dbPath = await _manager.currentDbPath();
       final check = await _manager.checkForUpdate();
       _lastCheck = check;
@@ -134,6 +135,12 @@ class LibraryModuleController extends ChangeNotifier {
               : LibraryModuleStatus.upToDate;
         }
       }
+    } on LibraryMirrorMissingException {
+      // אין מראה = טרם הורד דבר. מצב תקין, לא שגיאה — ולכן לא נרשם ללוג
+      // ולא מוצג כתקלה.
+      status = LibraryModuleStatus.needsDownload;
+      localVersion = null;
+      targetVersion = null;
     } catch (e, st) {
       status = LibraryModuleStatus.error;
       errorMessage = e.toString();
@@ -145,52 +152,6 @@ class LibraryModuleController extends ChangeNotifier {
   Future<void> setCustomDbPath(String dbPath) async {
     await _manager.setCustomDbPath(dbPath);
     await checkForUpdate();
-  }
-
-  /// עובר לעדכון ממראה מקומית (offline) בתיקייה [mirrorDir], ומריץ בדיקת
-  /// עדכון מיידית מהמקור החדש.
-  Future<void> useLocalMirror(String mirrorDir) async {
-    await _manager.useLocalMirror(mirrorDir);
-    await checkForUpdate();
-  }
-
-  /// חוזר לעדכון מהענן (GitHub), ומריץ בדיקת עדכון מיידית מהמקור החדש.
-  Future<void> useCloud() async {
-    await _manager.useCloud();
-    await checkForUpdate();
-  }
-
-  /// בונה מראה מקומית מלאה (מה-cloud) לתיקייה [destDir] — להעברה למחשב
-  /// בלי אינטרנט (USB / תיקייה משותפת). דורש אינטרנט בעצמו, ללא קשר
-  /// למקור הפעיל כרגע.
-  Future<void> exportOfflineMirror(String destDir) async {
-    mirrorExportStatus = MirrorExportStatus.exporting;
-    mirrorExportStage = null;
-    mirrorExportDoneAssets = null;
-    mirrorExportTotalAssets = null;
-    mirrorExportError = null;
-    notifyListeners();
-
-    try {
-      await _manager.exportOfflineMirror(
-        destDir: destDir,
-        onStage: (stage) {
-          mirrorExportStage = stage;
-          notifyListeners();
-        },
-        onAssetProgress: (done, total) {
-          mirrorExportDoneAssets = done;
-          mirrorExportTotalAssets = total;
-          notifyListeners();
-        },
-      );
-      mirrorExportStatus = MirrorExportStatus.done;
-    } catch (e, st) {
-      mirrorExportStatus = MirrorExportStatus.error;
-      mirrorExportError = e.toString();
-      AppLogger.instance.error('exportOfflineMirror נכשל', e, st);
-    }
-    notifyListeners();
   }
 
   /// מחיל בפועל את העדכון על ה-DB **החי** — delta patch-אחר-patch, או
@@ -229,9 +190,6 @@ class LibraryModuleController extends ChangeNotifier {
         },
       );
       AppLogger.instance.info('update() הסתיים בהצלחה');
-      // best-effort: מרעננים גם את תיקיית ההעברה (USB) ברקע כדי שתישאר
-      // עדכנית, בלי לחסום את הצגת ההצלחה למשתמש.
-      unawaited(refreshOfflineMirrorCacheInBackground());
       // מרעננים את מצב הבדיקה עצמו (localVersion/targetVersion/status) —
       // עדיף על קביעה ידנית של upToDate, כי זה קורא בפועל את הגרסה
       // שנכתבה ל-DB במקום להניח שהיא תואמת ליעד.

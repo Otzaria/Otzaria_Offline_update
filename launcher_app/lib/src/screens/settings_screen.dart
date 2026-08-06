@@ -1,22 +1,27 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 
+import '../services/app_paths.dart';
 import '../settings/app_settings.dart';
 import '../settings/settings_controller.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
 
-/// מסך ההגדרות — אוטומציה, ערוצים, נתיבים, רשת וממשק (תכנון §8).
-/// כל אפשרויות ההורדה וההתקנה האוטומטיות כבויות בברירת מחדל.
+/// מסך ההגדרות — אוטומציה, ערוצים, אחסון, רשת וממשק.
+///
+/// **אין כאן נתיבים בכוונה.** תיקיית הנתונים צמודה לקובץ ההרצה (ראו
+/// [AppPaths]) ומיקום אוצריא מתגלה לבד — שינוי נתיב היה שובר את הרעיון של
+/// כונן נייד שנוסע בין מחשבים.
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({
     super.key,
     required this.controller,
+    required this.dataDir,
     required this.onOpenLog,
   });
 
   final SettingsController controller;
+  final String dataDir;
   final VoidCallback onOpenLog;
 
   AppSettings get _s => controller.settings;
@@ -27,12 +32,12 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return ScreenBody(
       title: 'הגדרות',
-      description: 'הפרדה מלאה בין הורדה אוטומטית להתקנה אוטומטית. '
-          'התקנה אוטומטית דורשת אישור חד־פעמי.',
+      description: 'ההורדה תמיד יזומה בלחיצה. ההתקנה מהתיקייה המקומית היא '
+          'הדבר היחיד שניתן להפוך לאוטומטי, והיא דורשת אישור חד־פעמי.',
       children: [
         _automationCard(context),
         _channelsCard(context),
-        _pathsCard(context),
+        _storageCard(context),
         _networkCard(context),
         _uiCard(context),
       ],
@@ -44,103 +49,53 @@ class SettingsScreen extends StatelessWidget {
   Widget _automationCard(BuildContext context) {
     return SettingsCard(
       title: 'אוטומציה',
-      subtitle: 'ברירת המחדל: בדיקה קלה בלבד, בלי להוריד ובלי להתקין.',
+      subtitle: 'ברירת המחדל: בדיקה מקומית בלבד, בלי להתקין.',
       children: [
         SettingsActionTile.switchTile(
           icon: FluentIcons.search_info_24_regular,
-          title: 'בדיקת מטא־דאטה אוטומטית',
-          subtitle: 'בדיקת גרסאות בפתיחה, ללא הורדה',
+          title: 'בדיקת גרסאות בפתיחה',
+          subtitle: 'משווה את המותקן למה שיש בתיקייה המקומית — בלי רשת',
           value: _s.autoMetadataCheck,
           onChanged: (v) => _set(_s.copyWith(autoMetadataCheck: v)),
         ),
         SettingsActionTile.switchTile(
-          icon: FluentIcons.arrow_download_24_regular,
-          title: 'הורדת עדכון תוכנת אוצריא',
-          subtitle: 'מוריד גרסה חדשה למטמון, בלי להתקין',
-          value: _s.autoDownloadApp,
-          onChanged: (v) => _set(_s.copyWith(autoDownloadApp: v)),
-        ),
-        SettingsActionTile.switchTile(
           icon: FluentIcons.desktop_arrow_right_24_regular,
-          title: 'התקנת עדכון תוכנת אוצריא',
-          subtitle: 'מתקין לאחר הורדה; דורש שאוצריא תהיה סגורה',
+          title: 'התקנת תוכנת אוצריא אוטומטית',
+          subtitle: 'מתקין בפתיחה כשיש גרסה חדשה בתיקייה המקומית',
           value: _s.autoInstallApp,
           onChanged: (v) => _confirmAutoInstall(
             context,
             enabled: v,
             what: 'תוכנת אוצריא',
-            apply: (on) => _set(
-              _s.copyWith(
-                  autoInstallApp: on, autoDownloadApp: on ? true : null),
-            ),
+            apply: (on) => _set(_s.copyWith(autoInstallApp: on)),
           ),
         ),
         SettingsActionTile.switchTile(
-          icon: FluentIcons.arrow_download_24_regular,
-          title: 'הורדת עדכון ספרייה',
-          subtitle: 'מוריד דלתא או מסד מלא למטמון',
-          value: _s.autoDownloadLibrary,
-          onChanged: (v) => _set(_s.copyWith(autoDownloadLibrary: v)),
-        ),
-        SettingsActionTile.switchTile(
           icon: FluentIcons.database_arrow_right_24_regular,
-          title: 'התקנת עדכון ספרייה',
-          subtitle: 'מחיל את העדכון על המסד לאחר אימות',
+          title: 'התקנת עדכון ספרייה אוטומטית',
+          subtitle: 'מחיל על המסד בפתיחה; מדולג כשאוצריא פתוחה',
           value: _s.autoInstallLibrary,
           onChanged: (v) => _confirmAutoInstall(
             context,
             enabled: v,
             what: 'ספריית הספרים',
-            apply: (on) => _set(
-              _s.copyWith(
-                autoInstallLibrary: on,
-                autoDownloadLibrary: on ? true : null,
-              ),
-            ),
+            apply: (on) => _set(_s.copyWith(autoInstallLibrary: on)),
           ),
         ),
-        SettingsActionTile.switchTile(
-          icon: FluentIcons.box_24_regular,
-          title: 'סנכרון חנות התוספים בפתיחה',
-          subtitle: 'מוריד את הקטלוג וכל קובצי התוספים לתיקיית ההעברה',
-          value: _s.autoDownloadAllPlugins,
-          onChanged: (v) => _confirmAutoPluginSync(context, enabled: v),
-        ),
-        // שני המתגים הבאים מושבתים מסיבות אמיתיות, לא כי המודול חסר:
-        // סנכרון חלקי (רק המותקנים) אינו קיים — PluginMirrorSync מביא את כל
-        // הקטלוג; והתקנה עוברת דרך הפרוטוקול otzaria://, שפותח את אוצריא
-        // בכל תוסף בנפרד ולכן אינה מתאימה לרקע.
-        SettingsActionTile.switchTile(
+        // התקנת תוסף עוברת דרך הפרוטוקול otzaria://, שפותח את אוצריא בכל
+        // תוסף בנפרד — ולכן היא לא יכולה לרוץ ברקע ונשארת יזומה מהחנות.
+        SettingsActionTile.text(
           icon: FluentIcons.puzzle_piece_24_regular,
-          title: 'הורדת עדכוני תוספים מותקנים בלבד',
-          subtitle: 'לא זמין — הסנכרון מביא את כל הקטלוג, לא רק את המותקנים',
-          value: _s.autoDownloadInstalledPlugins,
-          enabled: false,
-          onChanged: (v) => _set(_s.copyWith(autoDownloadInstalledPlugins: v)),
-        ),
-        SettingsActionTile.switchTile(
-          icon: FluentIcons.puzzle_piece_24_regular,
-          title: 'התקנת עדכוני תוספים מותקנים',
-          subtitle: 'לא זמין — ההתקנה פותחת את אוצריא לכל תוסף, '
+          title: 'התקנת תוספים אוטומטית',
+          subtitle: 'לא זמין — ההתקנה פותחת את אוצריא לכל תוסף בנפרד, '
               'ולכן היא תמיד יזומה מהחנות',
-          value: _s.autoInstallInstalledPlugins,
-          enabled: false,
-          onChanged: (v) => _set(_s.copyWith(autoInstallInstalledPlugins: v)),
-        ),
-        SettingsActionTile.switchTile(
-          icon: FluentIcons.usb_stick_24_regular,
-          title: 'הכנת חבילת USB אוטומטית',
-          subtitle: 'מסנכרן ליעד הנבחר כשהוא מחובר',
-          value: _s.autoPrepareUsbBundle,
-          enabled: false,
-          onChanged: (v) => _set(_s.copyWith(autoPrepareUsbBundle: v)),
         ),
       ],
     );
   }
 
-  /// התקנה אוטומטית היא הסיכון האמיתי כאן — ולכן היא דורשת אישור מפורש
-  /// והסבר, ומדליקה גם את ההורדה האוטומטית שהיא תלויה בה (תכנון §8.1).
+  /// התקנה אוטומטית היא הסיכון האמיתי כאן — היא מחליפה קבצים בלי לשאול —
+  /// ולכן היא דורשת אישור מפורש והסבר.
   Future<void> _confirmAutoInstall(
     BuildContext context, {
     required bool enabled,
@@ -155,39 +110,14 @@ class SettingsScreen extends StatelessWidget {
     final approved = await showWarningDialog(
       context: context,
       title: 'התקנה אוטומטית של $what',
-      content: 'מעתה $what תותקן ללא אישור נוסף בכל פעם שיימצא עדכון. '
-          'ההורדה האוטומטית תודלק גם היא, כי ההתקנה תלויה בה.',
+      content: 'מעתה $what תותקן ללא אישור נוסף בכל פעם שתימצא גרסה חדשה '
+          'בתיקייה שלצד התוכנה. ההורדה עצמה תישאר יזומה.',
       subtitle: 'התקנה מחליפה קבצים במחשב שלך. אם אינך בטוח/ה — עדיף '
           'להשאיר את האפשרות כבויה ולאשר כל עדכון בנפרד.',
       confirmText: 'הפעל התקנה אוטומטית',
     );
     if (!approved) return;
     await apply(true);
-  }
-
-  /// סנכרון החנות בפתיחה הוא ההורדה האוטומטית היחידה שמחווטת בפועל, והוא
-  /// עלול להיות כבד ברשת — ולכן דורש אישור מפורש, כמו התקנה אוטומטית.
-  Future<void> _confirmAutoPluginSync(
-    BuildContext context, {
-    required bool enabled,
-  }) async {
-    if (!enabled) {
-      await _set(_s.copyWith(autoDownloadAllPlugins: false));
-      return;
-    }
-
-    final approved = await showWarningDialog(
-      context: context,
-      title: 'סנכרון חנות התוספים בפתיחה',
-      content: 'בכל פתיחה של הלאנצ׳ר תיטען רשימת התוספים מ-otzaria.org '
-          'ויירדו קובצי ההתקנה שהתעדכנו. שום תוסף לא יותקן — ההתקנה תמיד '
-          'נשארת יזומה.',
-      subtitle: 'זו הורדה ברשת בכל פתיחה. במחשב עם חיבור מוגבל או מדוד '
-          'עדיף להשאיר כבוי ולסנכרן ידנית מהחנות.',
-      confirmText: 'הפעל סנכרון בפתיחה',
-    );
-    if (!approved) return;
-    await _set(_s.copyWith(autoDownloadAllPlugins: true));
   }
 
   // ── ערוצים ────────────────────────────────────────────────────────────────
@@ -197,17 +127,20 @@ class SettingsScreen extends StatelessWidget {
       SegmentOption(value: UpdateChannel.stable, label: 'יציב בלבד'),
       SegmentOption(
         value: UpdateChannel.stableAndPreview,
-        label: 'כולל preview',
+        label: 'כולל pre-release',
       ),
     ];
 
     return SettingsCard(
       title: 'ערוצי גרסאות',
-      subtitle: 'בחירת preview לרכיב אחד אינה חלה על השאר.',
+      subtitle: 'release רגיל = יציב, pre-release = לא יציב. הבחירה משפיעה '
+          'על מה שההורדה מביאה, ובחירה לרכיב אחד אינה חלה על השאר.',
       children: [
         SettingsActionTile.segmentedTile<UpdateChannel>(
           icon: FluentIcons.desktop_24_regular,
           title: 'תוכנת אוצריא',
+          subtitle: 'הריפו של אוצריא מפרסם כמעט רק pre-release — בערוץ היציב '
+              'ייתכן שלא תימצא גרסה כלל',
           options: options,
           currentValue: _s.appChannel,
           onChanged: (v) => _set(_s.copyWith(appChannel: v)),
@@ -219,7 +152,7 @@ class SettingsScreen extends StatelessWidget {
           currentValue: _s.libraryChannel,
           onChanged: (v) => _set(_s.copyWith(libraryChannel: v)),
         ),
-        // לתוספים אין ערוץ prerelease — לכל תוסף יש `status` משלו
+        // לתוספים אין ערוץ pre-release — לכל תוסף יש `status` משלו
         // (יציב/בטא/ניסיוני). לכן הבחירה כאן קובעת את סינון ברירת המחדל
         // של החנות, והתוויות שונות משל שני הרכיבים האחרים.
         SettingsActionTile.segmentedTile<UpdateChannel>(
@@ -240,59 +173,19 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  // ── נתיבים ואחסון ─────────────────────────────────────────────────────────
+  // ── אחסון ─────────────────────────────────────────────────────────────────
 
-  Widget _pathsCard(BuildContext context) {
+  Widget _storageCard(BuildContext context) {
     return SettingsCard(
-      title: 'נתיבים ואחסון',
+      title: 'אחסון',
+      subtitle: 'תיקיית הנתונים קבועה ליד קובץ ההרצה, כדי שהכול ייסע יחד '
+          'על הכונן. אין דרך לשנות אותה — וזה בכוונה.',
       children: [
         SettingsActionTile.path(
-          icon: FluentIcons.desktop_24_regular,
-          title: 'נתיב התקנת אוצריא',
-          path: _s.otzariaInstallPath,
-          placeholder: 'זיהוי אוטומטי',
-          actions: [
-            ActionButton.neutral(
-              text: 'בחירת תיקייה',
-              icon: FluentIcons.folder_open_24_regular,
-              onPressed: () => _pickDir(
-                'בחירת תיקיית ההתקנה של אוצריא',
-                (path) => _set(_s.copyWith(otzariaInstallPath: path)),
-              ),
-            ),
-          ],
-        ),
-        SettingsActionTile.path(
-          icon: FluentIcons.puzzle_piece_24_regular,
-          title: 'תיקיית התוספים של אוצריא',
-          path: _s.pluginsPath,
-          placeholder: 'זיהוי אוטומטי — %APPDATA%\\otzaria\\plugins',
-          actions: [
-            ActionButton.neutral(
-              text: 'בחירת תיקייה',
-              icon: FluentIcons.folder_open_24_regular,
-              onPressed: () => _pickDir(
-                'בחירת תיקיית התוספים של אוצריא',
-                (path) => _set(_s.copyWith(pluginsPath: path)),
-              ),
-            ),
-          ],
-        ),
-        SettingsActionTile.path(
-          icon: FluentIcons.usb_stick_24_regular,
-          title: 'יעד USB מועדף',
-          path: _s.preferredUsbPath,
-          placeholder: 'לא נבחר',
-          actions: [
-            ActionButton.neutral(
-              text: 'בחירת יעד',
-              icon: FluentIcons.folder_open_24_regular,
-              onPressed: () => _pickDir(
-                'בחירת יעד ה-USB המועדף',
-                (path) => _set(_s.copyWith(preferredUsbPath: path)),
-              ),
-            ),
-          ],
+          icon: FluentIcons.folder_24_regular,
+          title: 'תיקיית הנתונים',
+          path: dataDir,
+          placeholder: '—',
         ),
         SettingsActionTile.segmentedTile<int>(
           icon: FluentIcons.history_24_regular,
@@ -310,31 +203,17 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _pickDir(
-      String title, Future<void> Function(String) apply) async {
-    final path = await FilePicker.platform.getDirectoryPath(dialogTitle: title);
-    if (path == null) return;
-    await apply(path);
-    UiSnack.showSuccess('הנתיב נשמר');
-  }
-
   // ── רשת ───────────────────────────────────────────────────────────────────
 
   Widget _networkCard(BuildContext context) {
     return SettingsCard(
       title: 'רשת',
+      subtitle: 'הרשת נדרשת רק בהורדה. בדיקה והתקנה עובדות בלעדיה תמיד.',
       children: [
-        SettingsActionTile.switchTile(
-          icon: FluentIcons.plug_disconnected_24_regular,
-          title: 'עבודה offline בלבד',
-          subtitle: 'לא תתבצע שום פנייה לרשת, גם לא בדיקת גרסאות',
-          value: _s.offlineOnly,
-          onChanged: (v) => _set(_s.copyWith(offlineOnly: v)),
-        ),
         SettingsActionTile.segmentedTile<int>(
           icon: FluentIcons.timer_24_regular,
-          title: 'timeout לבדיקת רשת',
-          subtitle: 'שניות עד שבדיקה נחשבת כשל',
+          title: 'timeout להורדה',
+          subtitle: 'שניות עד שפנייה לרשת נחשבת כשל',
           currentValue: _s.networkTimeoutSeconds,
           onChanged: (v) => _set(_s.copyWith(networkTimeoutSeconds: v)),
           options: const [
@@ -406,8 +285,8 @@ class SettingsScreen extends StatelessWidget {
     final approved = await showWarningDialog(
       context: context,
       title: 'איפוס ההגדרות',
-      content: 'כל ההגדרות יחזרו לברירת המחדל, כולל הנתיבים השמורים.',
-      subtitle: 'ההתקנות עצמן, המסד והתוספים לא יימחקו.',
+      content: 'כל ההגדרות יחזרו לברירת המחדל.',
+      subtitle: 'ההתקנות עצמן, המסד, התוספים והעדכונים שהורדו לא יימחקו.',
       confirmText: 'אפס הגדרות',
     );
     if (!approved) return;

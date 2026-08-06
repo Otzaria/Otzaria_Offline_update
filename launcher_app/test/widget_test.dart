@@ -5,18 +5,31 @@ import 'package:launcher_app/src/widgets/widgets_exports.dart';
 
 void main() {
   group('AppSettings', () {
-    test('ברירת המחדל: שום הורדה או התקנה אוטומטית, רק בדיקת מטא־דאטה', () {
+    test('ברירת המחדל: שום התקנה אוטומטית, רק בדיקה מקומית', () {
       const s = AppSettings();
 
       expect(s.autoMetadataCheck, isTrue);
-      expect(s.autoDownloadApp, isFalse);
       expect(s.autoInstallApp, isFalse);
-      expect(s.autoDownloadLibrary, isFalse);
       expect(s.autoInstallLibrary, isFalse);
-      expect(s.autoDownloadInstalledPlugins, isFalse);
-      expect(s.autoInstallInstalledPlugins, isFalse);
-      expect(s.autoDownloadAllPlugins, isFalse);
-      expect(s.autoPrepareUsbBundle, isFalse);
+    });
+
+    test('ברירת המחדל: ההורדה מסמנת את שלושת הרכיבים', () {
+      const s = AppSettings();
+
+      expect(s.syncApp, isTrue);
+      expect(s.syncLibrary, isTrue);
+      expect(s.syncPlugins, isTrue);
+      expect(s.hasSyncSelection, isTrue);
+    });
+
+    test('hasSyncSelection כבוי כשלא נבחר שום רכיב', () {
+      const s = AppSettings(
+        syncApp: false,
+        syncLibrary: false,
+        syncPlugins: false,
+      );
+
+      expect(s.hasSyncSelection, isFalse);
     });
 
     test('preview אינו ברירת מחדל באף רכיב', () {
@@ -30,10 +43,10 @@ void main() {
     test('סבב JSON שומר את הערכים', () {
       const original = AppSettings(
         autoMetadataCheck: false,
-        autoDownloadLibrary: true,
+        autoInstallLibrary: true,
+        syncLibrary: false,
         libraryChannel: UpdateChannel.stableAndPreview,
-        preferredUsbPath: r'E:\otzaria-update',
-        offlineOnly: true,
+        backupsToKeep: 3,
         themeMode: AppThemeMode.dark,
         textScale: 1.15,
       );
@@ -41,24 +54,45 @@ void main() {
       final restored = AppSettings.fromJson(original.toJson());
 
       expect(restored.autoMetadataCheck, isFalse);
-      expect(restored.autoDownloadLibrary, isTrue);
+      expect(restored.autoInstallLibrary, isTrue);
+      expect(restored.syncLibrary, isFalse);
       expect(restored.libraryChannel, UpdateChannel.stableAndPreview);
-      expect(restored.preferredUsbPath, r'E:\otzaria-update');
-      expect(restored.offlineOnly, isTrue);
+      expect(restored.backupsToKeep, 3);
       expect(restored.themeMode, AppThemeMode.dark);
       expect(restored.textScale, 1.15);
     });
 
     test('JSON פגום נופל לברירות המחדל ולא זורק', () {
       final restored = AppSettings.fromJson({
-        'schemaVersion': 1,
+        'schemaVersion': 2,
         'automation': 'לא אובייקט',
         'ui': {'themeMode': 'ערכה שלא קיימת'},
       });
 
       expect(restored.autoMetadataCheck, isTrue);
-      expect(restored.autoDownloadApp, isFalse);
+      expect(restored.autoInstallApp, isFalse);
       expect(restored.themeMode, AppThemeMode.system);
+    });
+
+    // קובץ מ-schemaVersion 1 מכיל נתיבים ומתגים שהוסרו. חשוב שהוא לא
+    // יזרוק — ושמה שנשאר רלוונטי ימשיך להיקרא.
+    test('קובץ הגדרות מ-schemaVersion 1 נקרא בלי לזרוק', () {
+      final restored = AppSettings.fromJson({
+        'schemaVersion': 1,
+        'automation': {'metadataCheck': false, 'downloadLibrary': true},
+        'channels': {'library': 'stableAndPreview'},
+        'paths': {'preferredUsb': r'E:\otzaria', 'backupsToKeep': 2},
+        'network': {'offlineOnly': true, 'timeoutSeconds': 45},
+        'ui': {'themeMode': 'dark', 'textScale': 1.15},
+      });
+
+      expect(restored.autoMetadataCheck, isFalse);
+      expect(restored.libraryChannel, UpdateChannel.stableAndPreview);
+      expect(restored.networkTimeoutSeconds, 45);
+      expect(restored.themeMode, AppThemeMode.dark);
+      // 'paths' כבר לא נקרא, ולכן backupsToKeep חוזר לברירת המחדל.
+      expect(restored.backupsToKeep, 1);
+      expect(restored.hasSyncSelection, isTrue);
     });
   });
 

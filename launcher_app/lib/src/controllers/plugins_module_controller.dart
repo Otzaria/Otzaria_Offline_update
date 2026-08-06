@@ -20,19 +20,19 @@ PluginStatusFilter pluginStatusFilterFor(UpdateChannel channel) =>
         : PluginStatusFilter.all;
 
 /// עוטף את [PluginsManager] כמצב הניתן לצפייה עבור מסך החנות — טעינת
-/// הקטלוג המקומי, סנכרון יזום מהאתר, סינון, שמירת קובץ והתקנה ישירה.
+/// הקטלוג המקומי, הורדה יזומה מהאתר, סינון, שמירת קובץ והתקנה ישירה.
 ///
-/// [load] בלבד נקרא בפתיחה: הוא קורא מהמראה וסורק את ההתקנה של אוצריא,
-/// ולא נוגע ברשת. [sync] תמיד יזום בלחיצה.
+/// [load] בלבד נקרא בפתיחה: הוא קורא מהתיקייה המקומית וסורק את ההתקנה של
+/// אוצריא, ולא נוגע ברשת. [sync] היא הפעולה היחידה שדורשת אינטרנט.
 class PluginsModuleController extends ChangeNotifier {
   PluginsModuleController({
-    required Future<String> Function() resolveMirrorDir,
-    Future<String?> Function()? resolvePluginsDir,
+    required String mirrorRootDir,
     PluginStatusFilter initialStatusFilter = PluginStatusFilter.all,
   })  : statusFilter = initialStatusFilter,
+        // תיקיית התוספים של אוצריא מזוהה אוטומטית ואינה ניתנת להגדרה —
+        // ראו AppPaths: אין נתיבים בהגדרות.
         _manager = PluginsManager(
-          resolveMirrorDir: resolveMirrorDir,
-          resolvePluginsDir: resolvePluginsDir,
+          resolveMirrorDir: () async => mirrorRootDir,
         );
 
   final PluginsManager _manager;

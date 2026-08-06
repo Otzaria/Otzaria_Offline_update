@@ -44,21 +44,18 @@ class LibraryStateStore {
     await _writeAll(json);
   }
 
-  /// נתיב תיקיית "מראה מקומית" (offline) שנבחרה על-ידי המשתמש, אם קיימת.
-  /// null = מצב ברירת מחדל, עדכון מהענן (GitHub) כרגיל.
-  Future<String?> loadLocalMirrorPath() async {
+  /// ה-release שממנו הגיע תוכן ה-DB המותקן כרגע, או null אם ה-DB לא הותקן
+  /// דרך הלאנצ'ר הזה. מאפשר לזהות מסד שפורסם מחדש באותו `db_version` —
+  /// ראו `LibraryUpdatePlanner`.
+  Future<String?> loadAppliedReleaseTag() async {
     final json = await _readAll();
-    return json['localMirrorPath'] as String?;
+    final tag = json['appliedReleaseTag'];
+    return tag is String && tag.isNotEmpty ? tag : null;
   }
 
-  /// שומר בחירת מראה מקומית. `null` מנקה את הבחירה וחוזר לעדכון מהענן.
-  Future<void> saveLocalMirrorPath(String? mirrorPath) async {
+  Future<void> saveAppliedReleaseTag(String tag) async {
     final json = await _readAll();
-    if (mirrorPath == null) {
-      json.remove('localMirrorPath');
-    } else {
-      json['localMirrorPath'] = mirrorPath;
-    }
+    json['appliedReleaseTag'] = tag;
     await _writeAll(json);
   }
 }

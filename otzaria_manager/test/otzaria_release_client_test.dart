@@ -104,6 +104,41 @@ void main() {
       expect(release.installerSizeBytes, 31);
     });
 
+    test('stable channel skips prereleases and takes the first plain release',
+        () async {
+      final client = OtzariaReleaseClient(
+        platform: OtzariaTargetPlatform.windows,
+        httpClient: _mockReleasesResponse([
+          _fakeRelease(tag: '0.9.97', prerelease: true),
+          _fakeRelease(tag: '0.9.96', prerelease: true),
+          _fakeRelease(tag: '0.9.90', prerelease: false),
+        ]),
+      );
+
+      final release = await client.fetchLatestRelease(allowPrerelease: false);
+
+      expect(release.tagName, '0.9.90');
+      expect(release.isPrerelease, isFalse);
+    });
+
+    // הריפו של אוצריא מפרסם כמעט רק pre-release, ולכן זה מצב מציאותי —
+    // וההתנהגות הנדרשת היא לומר זאת, לא ליפול בשקט ל-pre-release.
+    test('stable channel with no plain release throws instead of falling back',
+        () async {
+      final client = OtzariaReleaseClient(
+        platform: OtzariaTargetPlatform.windows,
+        httpClient: _mockReleasesResponse([
+          _fakeRelease(tag: '0.9.97', prerelease: true),
+          _fakeRelease(tag: '0.9.96', prerelease: true),
+        ]),
+      );
+
+      expect(
+        () => client.fetchLatestRelease(allowPrerelease: false),
+        throwsA(isA<NoStableReleaseException>()),
+      );
+    });
+
     test('selects the plain windows.exe, never the 2GB FULL installer',
         () async {
       final client = OtzariaReleaseClient(

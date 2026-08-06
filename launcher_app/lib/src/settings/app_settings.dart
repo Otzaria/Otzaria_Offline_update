@@ -1,42 +1,41 @@
-/// ערוץ הגרסאות שממנו נבחרות גרסאות לרכיב. preview דורש בחירה מפורשת
-/// (תכנון §2.2) ולכן אינו ברירת המחדל של שום רכיב.
+/// ערוץ הגרסאות שממנו נבחרות גרסאות לרכיב: `stable` לוקח רק release רגיל
+/// ב-GitHub, `stableAndPreview` לוקח גם pre-release. preview דורש בחירה
+/// מפורשת ולכן אינו ברירת המחדל של שום רכיב.
 enum UpdateChannel { stable, stableAndPreview }
 
 enum AppThemeMode { system, light, dark }
 
 /// כל ההגדרות של הלאנצ'ר, immutable ובעלות [schemaVersion] — נשמרות
-/// לקובץ JSON יחיד (ראו `SettingsStore`), כמפורט בתכנון §10.1.
+/// לקובץ JSON יחיד (ראו `SettingsController`).
 ///
-/// **כל אפשרויות האוטומציה כבויות בברירת מחדל** פרט לבדיקת המטא־דאטה,
-/// שהיא בדיקה קלה ללא הורדה (תכנון §8.1).
+/// **אין כאן נתיבים.** תיקיית הנתונים תמיד צמודה לקובץ ההרצה (ראו
+/// `AppPaths`), והמיקום של אוצריא עצמה מתגלה ואינו מוגדר.
 class AppSettings {
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
 
-  // ── אוטומציה ────────────────────────────────────────────────────────────
+  /// בדיקת גרסאות בפתיחה כשיש חיבור לרשת — בדיקה קלה, בלי הורדה.
   final bool autoMetadataCheck;
-  final bool autoDownloadApp;
+
+  // ── מה נכלל בהורדה ──────────────────────────────────────────────────────
+  /// אילו רכיבים פעולת ההורדה מביאה אל התיקייה המקומית. ההורדה עצמה תמיד
+  /// יזומה בלחיצה; הבחירה כאן רק זוכרת מה סומן בפעם הקודמת.
+  final bool syncApp;
+  final bool syncLibrary;
+  final bool syncPlugins;
+
+  // ── התקנה אוטומטית מהתיקייה המקומית ─────────────────────────────────────
   final bool autoInstallApp;
-  final bool autoDownloadLibrary;
   final bool autoInstallLibrary;
-  final bool autoDownloadInstalledPlugins;
-  final bool autoInstallInstalledPlugins;
-  final bool autoDownloadAllPlugins;
-  final bool autoPrepareUsbBundle;
 
   // ── ערוצים ──────────────────────────────────────────────────────────────
   final UpdateChannel appChannel;
   final UpdateChannel libraryChannel;
   final UpdateChannel pluginsChannel;
 
-  // ── נתיבים ואחסון ───────────────────────────────────────────────────────
-  final String? otzariaInstallPath;
-  final String? libraryPath;
-  final String? pluginsPath;
-  final String? preferredUsbPath;
+  // ── אחסון ───────────────────────────────────────────────────────────────
   final int backupsToKeep;
 
   // ── רשת ─────────────────────────────────────────────────────────────────
-  final bool offlineOnly;
   final int networkTimeoutSeconds;
 
   // ── ממשק ────────────────────────────────────────────────────────────────
@@ -45,73 +44,50 @@ class AppSettings {
 
   const AppSettings({
     this.autoMetadataCheck = true,
-    this.autoDownloadApp = false,
+    this.syncApp = true,
+    this.syncLibrary = true,
+    this.syncPlugins = true,
     this.autoInstallApp = false,
-    this.autoDownloadLibrary = false,
     this.autoInstallLibrary = false,
-    this.autoDownloadInstalledPlugins = false,
-    this.autoInstallInstalledPlugins = false,
-    this.autoDownloadAllPlugins = false,
-    this.autoPrepareUsbBundle = false,
     this.appChannel = UpdateChannel.stable,
     this.libraryChannel = UpdateChannel.stable,
     this.pluginsChannel = UpdateChannel.stable,
-    this.otzariaInstallPath,
-    this.libraryPath,
-    this.pluginsPath,
-    this.preferredUsbPath,
     this.backupsToKeep = 1,
-    this.offlineOnly = false,
     this.networkTimeoutSeconds = 20,
     this.themeMode = AppThemeMode.system,
     this.textScale = 1.0,
   });
 
+  /// `false` כשלא נבחר שום רכיב להורדה — ה-UI משתמש בזה כדי להשבית את
+  /// כפתור ההורדה במקום להריץ פעולה שלא תעשה כלום.
+  bool get hasSyncSelection => syncApp || syncLibrary || syncPlugins;
+
   AppSettings copyWith({
     bool? autoMetadataCheck,
-    bool? autoDownloadApp,
+    bool? syncApp,
+    bool? syncLibrary,
+    bool? syncPlugins,
     bool? autoInstallApp,
-    bool? autoDownloadLibrary,
     bool? autoInstallLibrary,
-    bool? autoDownloadInstalledPlugins,
-    bool? autoInstallInstalledPlugins,
-    bool? autoDownloadAllPlugins,
-    bool? autoPrepareUsbBundle,
     UpdateChannel? appChannel,
     UpdateChannel? libraryChannel,
     UpdateChannel? pluginsChannel,
-    String? otzariaInstallPath,
-    String? libraryPath,
-    String? pluginsPath,
-    String? preferredUsbPath,
     int? backupsToKeep,
-    bool? offlineOnly,
     int? networkTimeoutSeconds,
     AppThemeMode? themeMode,
     double? textScale,
   }) {
     return AppSettings(
       autoMetadataCheck: autoMetadataCheck ?? this.autoMetadataCheck,
-      autoDownloadApp: autoDownloadApp ?? this.autoDownloadApp,
+      syncApp: syncApp ?? this.syncApp,
+      syncLibrary: syncLibrary ?? this.syncLibrary,
+      syncPlugins: syncPlugins ?? this.syncPlugins,
       autoInstallApp: autoInstallApp ?? this.autoInstallApp,
-      autoDownloadLibrary: autoDownloadLibrary ?? this.autoDownloadLibrary,
       autoInstallLibrary: autoInstallLibrary ?? this.autoInstallLibrary,
-      autoDownloadInstalledPlugins:
-          autoDownloadInstalledPlugins ?? this.autoDownloadInstalledPlugins,
-      autoInstallInstalledPlugins:
-          autoInstallInstalledPlugins ?? this.autoInstallInstalledPlugins,
-      autoDownloadAllPlugins:
-          autoDownloadAllPlugins ?? this.autoDownloadAllPlugins,
-      autoPrepareUsbBundle: autoPrepareUsbBundle ?? this.autoPrepareUsbBundle,
       appChannel: appChannel ?? this.appChannel,
       libraryChannel: libraryChannel ?? this.libraryChannel,
       pluginsChannel: pluginsChannel ?? this.pluginsChannel,
-      otzariaInstallPath: otzariaInstallPath ?? this.otzariaInstallPath,
-      libraryPath: libraryPath ?? this.libraryPath,
-      pluginsPath: pluginsPath ?? this.pluginsPath,
-      preferredUsbPath: preferredUsbPath ?? this.preferredUsbPath,
       backupsToKeep: backupsToKeep ?? this.backupsToKeep,
-      offlineOnly: offlineOnly ?? this.offlineOnly,
       networkTimeoutSeconds:
           networkTimeoutSeconds ?? this.networkTimeoutSeconds,
       themeMode: themeMode ?? this.themeMode,
@@ -123,29 +99,23 @@ class AppSettings {
         'schemaVersion': schemaVersion,
         'automation': {
           'metadataCheck': autoMetadataCheck,
-          'downloadApp': autoDownloadApp,
           'installApp': autoInstallApp,
-          'downloadLibrary': autoDownloadLibrary,
           'installLibrary': autoInstallLibrary,
-          'downloadInstalledPlugins': autoDownloadInstalledPlugins,
-          'installInstalledPlugins': autoInstallInstalledPlugins,
-          'downloadAllPlugins': autoDownloadAllPlugins,
-          'prepareUsbBundle': autoPrepareUsbBundle,
+        },
+        'sync': {
+          'app': syncApp,
+          'library': syncLibrary,
+          'plugins': syncPlugins,
         },
         'channels': {
           'app': appChannel.name,
           'library': libraryChannel.name,
           'plugins': pluginsChannel.name,
         },
-        'paths': {
-          'otzariaInstall': otzariaInstallPath,
-          'library': libraryPath,
-          'plugins': pluginsPath,
-          'preferredUsb': preferredUsbPath,
+        'storage': {
           'backupsToKeep': backupsToKeep,
         },
         'network': {
-          'offlineOnly': offlineOnly,
           'timeoutSeconds': networkTimeoutSeconds,
         },
         'ui': {
@@ -155,7 +125,8 @@ class AppSettings {
       };
 
   /// קורא הגדרות מ-JSON. שדה חסר או פגום נופל לברירת המחדל שלו — קובץ
-  /// מקולקל חלקית לא מאבד את כל ההגדרות.
+  /// מקולקל חלקית, או קובץ מ-schemaVersion 1 (שבו היו נתיבים ומתגים
+  /// שהוסרו), לא מאבד את שאר ההגדרות.
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     Map<String, dynamic> section(String key) {
       final value = json[key];
@@ -163,8 +134,9 @@ class AppSettings {
     }
 
     final automation = section('automation');
+    final sync = section('sync');
     final channels = section('channels');
-    final paths = section('paths');
+    final storage = section('storage');
     final network = section('network');
     final ui = section('ui');
     const defaults = AppSettings();
@@ -172,6 +144,11 @@ class AppSettings {
     bool flag(Map<String, dynamic> from, String key, bool fallback) {
       final value = from[key];
       return value is bool ? value : fallback;
+    }
+
+    int number(Map<String, dynamic> from, String key, int fallback) {
+      final value = from[key];
+      return value is int ? value : fallback;
     }
 
     UpdateChannel channel(String key) {
@@ -182,41 +159,26 @@ class AppSettings {
       );
     }
 
-    String? path(String key) {
-      final value = paths[key];
-      return value is String && value.isNotEmpty ? value : null;
-    }
-
     return AppSettings(
       autoMetadataCheck: flag(
         automation,
         'metadataCheck',
         defaults.autoMetadataCheck,
       ),
-      autoDownloadApp: flag(automation, 'downloadApp', false),
+      syncApp: flag(sync, 'app', defaults.syncApp),
+      syncLibrary: flag(sync, 'library', defaults.syncLibrary),
+      syncPlugins: flag(sync, 'plugins', defaults.syncPlugins),
       autoInstallApp: flag(automation, 'installApp', false),
-      autoDownloadLibrary: flag(automation, 'downloadLibrary', false),
       autoInstallLibrary: flag(automation, 'installLibrary', false),
-      autoDownloadInstalledPlugins:
-          flag(automation, 'downloadInstalledPlugins', false),
-      autoInstallInstalledPlugins:
-          flag(automation, 'installInstalledPlugins', false),
-      autoDownloadAllPlugins: flag(automation, 'downloadAllPlugins', false),
-      autoPrepareUsbBundle: flag(automation, 'prepareUsbBundle', false),
       appChannel: channel('app'),
       libraryChannel: channel('library'),
       pluginsChannel: channel('plugins'),
-      otzariaInstallPath: path('otzariaInstall'),
-      libraryPath: path('library'),
-      pluginsPath: path('plugins'),
-      preferredUsbPath: path('preferredUsb'),
-      backupsToKeep: paths['backupsToKeep'] is int
-          ? paths['backupsToKeep'] as int
-          : defaults.backupsToKeep,
-      offlineOnly: flag(network, 'offlineOnly', false),
-      networkTimeoutSeconds: network['timeoutSeconds'] is int
-          ? network['timeoutSeconds'] as int
-          : defaults.networkTimeoutSeconds,
+      backupsToKeep: number(storage, 'backupsToKeep', defaults.backupsToKeep),
+      networkTimeoutSeconds: number(
+        network,
+        'timeoutSeconds',
+        defaults.networkTimeoutSeconds,
+      ),
       themeMode: AppThemeMode.values.firstWhere(
         (m) => m.name == ui['themeMode'],
         orElse: () => AppThemeMode.system,

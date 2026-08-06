@@ -21,8 +21,8 @@ import '../models/store_plugin.dart';
 class PluginMirrorStore {
   const PluginMirrorStore(this.mirrorDir);
 
-  /// שורש המראה — אותה תיקייה ש-`LibraryManager.offlineMirrorCacheDir`
-  /// מצביע עליה (או מראה מקומית שהמשתמש בחר, למשל כונן USB).
+  /// שורש המראה — `<dataDir>/mirror` בלאנצ'ר, כלומר שכנה של מראת הספרייה
+  /// ושל מראת התוכנה תחת אותה תיקייה שצמודה לקובץ ההרצה.
   final String mirrorDir;
 
   static const String catalogFileName = 'catalog.json';

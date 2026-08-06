@@ -54,10 +54,12 @@
 - **הריפו האמיתי**: `github.com/Sivan22/otzaria` (לא "Otzaria/otzaria").
 - ה-release ה**יציב** האחרון (`prerelease=false`) הוא `v0.2.7` מיולי 2025 —
   ישן משמעותית. כל הפעילות האמיתית מאז היא **PR-preview builds**
-  (`prerelease=true`), עם אזהרת "Use at your own risk". **בכוונה** —
-  ולפי בקשת המשתמש — [`OtzariaReleaseClient`](lib/src/services/otzaria_release_client.dart)
-  מתעלם משדה `prerelease` ולוקח את ה-release הראשון שמוחזר מה-API
-  (העדכני ביותר כרונולוגית), אחרת הלאנצ'ר יתקע משתמשים על גרסה ישנה.
+  (`prerelease=true`), עם אזהרת "Use at your own risk".
+  [`OtzariaReleaseClient`](lib/src/services/otzaria_release_client.dart) מסנן
+  לפי `prerelease` בהתאם לערוץ שנבחר (release = יציב, pre-release = לא יציב).
+  **המשמעות המעשית:** בערוץ "יציב בלבד" סביר שלא תימצא גרסה כלל, והלקוח
+  זורק `NoStableReleaseException` שמסביר למשתמש לעבור ערוץ. אין נפילה שקטה
+  ל-pre-release — זה היה מטשטש בדיוק את ההבחנה שהערוץ אמור לבטא.
 - שם קובץ ה-installer לווינדוס אינו קבוע (מספר הגרסה משובץ בשם, למשל
   `otzaria-0.9.53-windows.exe`) — הבחירה מתבססת על סיומת `windows.exe`.
   בחלק מה-releases קיימים גם `otzaria-windows.zip`/`otzaria.msix`, אבל
@@ -84,14 +86,20 @@
 ## שימוש
 
 ```dart
-final manager = OtzariaManager(dataDir: r'C:\Users\me\AppData\Roaming\OurLauncher');
+final manager = OtzariaManager(dataDir: appPaths.dataDir);
 
-// זרימה רגילה: בדיקה + עדכון + הפעלה
+// במחשב עם אינטרנט — הפעולה היחידה שנוגעת ברשת. ממלאת את
+// `<dataDir>/mirror/app` (מטא־דאטה + קובץ ההתקנה).
+await manager.downloadToMirror(onProgress: (received, total) {
+  print('$received / $total');
+});
+
+// בכל מחשב, כולל בלי רשת בכלל — בדיקה והתקנה קוראות מהמראה בלבד.
 final check = await manager.checkForUpdate();
-if (check.updateAvailable) {
-  await manager.update(check, onProgress: (received, total) {
-    print('$received / $total');
-  });
+if (check.needsDownload) {
+  print('עוד לא הורדה גרסה');
+} else if (check.updateAvailable) {
+  await manager.update(check);
 }
 await manager.launch();
 

@@ -8,6 +8,7 @@ import 'models/otzaria_update_check_result.dart';
 import 'services/installed_version_reader.dart';
 import 'services/mac_app_version_reader.dart';
 import 'services/otzaria_app_locator.dart';
+import 'services/otzaria_app_mirror.dart';
 import 'services/otzaria_installer.dart';
 import 'services/otzaria_launcher.dart';
 import 'services/otzaria_release_client.dart';
@@ -36,28 +37,48 @@ import 'services/otzaria_state_store.dart';
 /// }
 /// ```
 class OtzariaManager {
-  OtzariaManager({required String dataDir, OtzariaTargetPlatform? platform})
-      : _platform =
+  OtzariaManager({
+    required String dataDir,
+    OtzariaTargetPlatform? platform,
+    this.allowPrerelease = false,
+  })  : _platform =
             platform ?? OtzariaTargetPlatform.detect(Platform.operatingSystem),
         _stateStore =
             OtzariaStateStore(p.join(dataDir, 'otzaria_install_state.json')),
-        _releaseClient = OtzariaReleaseClient(platform: platform),
-        _installer = OtzariaInstaller(
-          defaultInstallDir: p.join(dataDir, 'otzaria-app'),
-          cacheDir: p.join(dataDir, 'cache', 'otzaria'),
-          appLocator: OtzariaAppLocator(platform: platform),
-        ),
         _launcher = const OtzariaLauncher(),
         _appLocator = OtzariaAppLocator(platform: platform),
         _versionReader = installedVersionReaderFor(
           platform ?? OtzariaTargetPlatform.detect(Platform.operatingSystem),
         ),
-        _defaultInstallDir = p.join(dataDir, 'otzaria-app');
+        _defaultInstallDir = p.join(dataDir, 'otzaria-app'),
+        mirrorDir = p.join(dataDir, 'mirror', 'app') {
+    _releaseClient = OtzariaReleaseClient(platform: platform);
+    _installer = OtzariaInstaller(
+      defaultInstallDir: _defaultInstallDir,
+      // קובצי ההתקנה יושבים **בתוך** המראה, כדי שהמטא־דאטה והקובץ ייסעו
+      // יחד על הכונן הנייד.
+      cacheDir: p.join(mirrorDir, 'installers'),
+      appLocator: OtzariaAppLocator(platform: platform),
+    );
+    _mirror = OtzariaAppMirror(
+      mirrorDir: mirrorDir,
+      releaseClient: _releaseClient,
+      installer: _installer,
+    );
+  }
+
+  /// `true` = הערוץ "כולל pre-release". ניתן לשינוי בזמן ריצה כדי שהחלפת
+  /// ערוץ בהגדרות תיכנס לתוקף בהורדה הבאה.
+  bool allowPrerelease;
+
+  /// תיקיית המראה של תוכנת אוצריא — ראו [OtzariaAppMirror].
+  final String mirrorDir;
 
   final OtzariaTargetPlatform _platform;
   final OtzariaStateStore _stateStore;
-  final OtzariaReleaseClient _releaseClient;
-  final OtzariaInstaller _installer;
+  late final OtzariaReleaseClient _releaseClient;
+  late final OtzariaInstaller _installer;
+  late final OtzariaAppMirror _mirror;
   final OtzariaLauncher _launcher;
   final OtzariaAppLocator _appLocator;
   final InstalledVersionReader _versionReader;
@@ -86,12 +107,25 @@ class OtzariaManager {
           ],
       };
 
-  /// בודק אם יש עדכון זמין. אם עדיין אין state שמור (אף פעם לא הותקן/
-  /// אומץ דרך הלאנצ'ר הזה), מנסה קודם לזהות התקנה קיימת במיקומים
-  /// המוכרים ([_autoDetectDirs]) — לא סורק את כל המחשב — כדי לא "לשכוח"
-  /// התקנה שכבר קיימת שם מסשן קודם.
+  /// מוריד את הגרסה האחרונה אל המראה המקומית — **הפעולה היחידה בכל המודול
+  /// שנוגעת ברשת**. לא מתקין כלום.
+  Future<void> downloadToMirror({
+    void Function(int received, int total)? onProgress,
+  }) =>
+      _mirror.sync(
+        allowPrerelease: allowPrerelease,
+        onDownloadProgress: onProgress,
+      );
+
+  /// בודק אם יש עדכון זמין — **מהמראה המקומית בלבד, בלי רשת**. אם עדיין אין
+  /// state שמור (אף פעם לא הותקן/אומץ דרך הלאנצ'ר הזה), מנסה קודם לזהות
+  /// התקנה קיימת במיקומים המוכרים ([_autoDetectDirs]) — לא סורק את כל
+  /// המחשב — כדי לא "לשכוח" התקנה שכבר קיימת שם מסשן קודם.
+  ///
+  /// [OtzariaUpdateCheckResult.latestRelease] הוא `null` כשעדיין לא הורדה
+  /// שום גרסה. זה לא כשל: זה אומר "יש להריץ הורדה במחשב עם אינטרנט".
   Future<OtzariaUpdateCheckResult> checkForUpdate() async {
-    final latest = await _releaseClient.fetchLatestRelease();
+    final mirrored = await _mirror.load();
     var current = await _stateStore.load();
 
     for (final candidate in _autoDetectDirs) {
@@ -103,20 +137,28 @@ class OtzariaManager {
     }
 
     return OtzariaUpdateCheckResult(
-        latestRelease: latest, currentState: current);
+      latestRelease: mirrored?.release,
+      currentState: current,
+    );
   }
 
-  /// מוריד ומתקין את ה-release שהתקבל מ-[checkForUpdate]. אם יש כבר מצב
-  /// מוכר (מותקן/מאומץ קודם), מעדכן **באותה תיקייה** — לא יוצר התקנה
-  /// שנייה בתיקייה המנוהלת. שומר את מצב ההתקנה החדש לשימוש עתידי.
-  Future<OtzariaInstallState> update(
-    OtzariaUpdateCheckResult check, {
-    void Function(int received, int total)? onProgress,
-  }) async {
-    final state = await _installer.downloadAndInstall(
-      release: check.latestRelease,
+  /// מתקין את הגרסה שיושבת במראה המקומית. אם יש כבר מצב מוכר (מותקן/מאומץ
+  /// קודם), מעדכן **באותה תיקייה** — לא יוצר התקנה שנייה בתיקייה המנוהלת.
+  /// שומר את מצב ההתקנה החדש לשימוש עתידי.
+  ///
+  /// לא נוגע ברשת. זורק [StateError] אם אין מראה — כלומר לא בוצעה הורדה.
+  Future<OtzariaInstallState> update(OtzariaUpdateCheckResult check) async {
+    final mirrored = await _mirror.load();
+    if (mirrored == null) {
+      throw StateError(
+        'אין גרסת אוצריא בתיקייה המקומית — יש להריץ הורדה במחשב עם אינטרנט.',
+      );
+    }
+
+    final state = await _installer.installFromFile(
+      release: mirrored.release,
+      installerPath: mirrored.installerPath,
       targetInstallDir: check.currentState?.installDir,
-      onDownloadProgress: onProgress,
     );
     await _stateStore.save(state);
     return state;

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:library_manager/library_manager.dart';
+import 'package:path/path.dart' as p;
 
 import '../controllers/library_module_controller.dart';
 import '../controllers/otzaria_module_controller.dart';
@@ -19,13 +20,10 @@ import 'library_screen.dart';
 import 'plugins/plugins_screen.dart';
 import 'settings_screen.dart';
 
-/// מצב הרשת כפי שהוא נגזר מהבדיקה האחרונה. עד שייבנה
-/// `NetworkStatusService` (תכנון §11.2) זו הערכה בלבד — הצלחה/כשל של
-/// בדיקת המטא־דאטה, ולא בדיקת זמינות מקורות בפני עצמה.
+/// מצב הרשת כפי שהוא נגזר מההורדה האחרונה שנוסתה. הבדיקה עצמה כבר לא
+/// נוגעת ברשת (היא קוראת מהתיקייה המקומית), ולכן זו הערכה שמתעדכנת רק
+/// כשבאמת ניסינו להוריד.
 enum NetworkState { unknown, checking, online, offline }
-
-/// מקור העדכונים הפעיל.
-enum UpdateSource { network, localMirror }
 
 /// המסך הפעיל בסרגל הניווט.
 enum LauncherScreen { home, library, plugins, settings }
@@ -55,6 +53,9 @@ class _AppShellState extends State<AppShell> {
   bool _otzariaIsRunning = false;
   DateTime? _lastCheckedAt;
 
+  /// הורדה אחת בכל רגע — [downloadAll] מריץ את הרכיבים בטור.
+  bool _isDownloading = false;
+
   /// ערוץ התוספים כפי שהוחל לאחרונה על סינון החנות — כדי להחיל שינוי
   /// בהגדרות מיד, אבל לא לדרוס את הסינון שהמשתמש בחר ידנית בחנות.
   late UpdateChannel _appliedPluginsChannel;
@@ -62,43 +63,31 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
-    _otzaria = OtzariaModuleController(dataDir: widget.dataDir)
-      ..addListener(_onChange);
-    _library = LibraryModuleController(dataDir: widget.dataDir)
-      ..addListener(_onChange);
-    // חנות התוספים יושבת בתוך אותה תיקיית מראה של הספרייה, כדי שהעתקה
-    // אחת ל-USB תעביר את שתיהן. הפתרון הוא callback ולא מחרוזת קבועה
-    // כדי שמעבר למראה מקומית ייכנס לתוקף מיד.
-    _appliedPluginsChannel = widget.settings.settings.pluginsChannel;
+    final s = widget.settings.settings;
+
+    _otzaria = OtzariaModuleController(
+      dataDir: widget.dataDir,
+      allowPrerelease: s.appChannel == UpdateChannel.stableAndPreview,
+    )..addListener(_onChange);
+    _library = LibraryModuleController(
+      dataDir: widget.dataDir,
+      allowPrerelease: s.libraryChannel == UpdateChannel.stableAndPreview,
+    )..addListener(_onChange);
+    _appliedPluginsChannel = s.pluginsChannel;
     _plugins = PluginsModuleController(
-      resolveMirrorDir: () async =>
-          _library.activeMirrorPath ?? _library.offlineMirrorCacheDir,
-      resolvePluginsDir: () async => widget.settings.settings.pluginsPath,
+      // כל המראות יושבות תחת אותו שורש שלצד התוכנה, כך שהכול נוסע יחד.
+      mirrorRootDir: p.join(widget.dataDir, 'mirror'),
       initialStatusFilter: pluginStatusFilterFor(_appliedPluginsChannel),
     )..addListener(_onChange);
     widget.settings.addListener(_onChange);
 
     unawaited(_refreshProcessState());
-    unawaited(_loadPlugins());
-    // בדיקת מטא־דאטה קלה בלבד, ורק אם המשתמש לא כיבה אותה. אין כאן שום
-    // הורדה או התקנה — אלו תמיד יזומות (תכנון §2.2).
-    if (widget.settings.settings.autoMetadataCheck) {
+    unawaited(_plugins.load());
+    // בדיקה מקומית בלבד — קוראת מהתיקייה שלצד התוכנה ולא נוגעת ברשת.
+    // הורדה תמיד יזומה בלחיצה.
+    if (s.autoMetadataCheck) {
       unawaited(checkAll());
     }
-  }
-
-  /// טוען את קטלוג התוספים מהמראה — קריאה מקומית בלבד, בלי רשת.
-  ///
-  /// אחר כך, **ורק אם המשתמש הדליק זאת במפורש**, מסנכרן מהאתר ברקע.
-  /// המתג כבוי בברירת מחדל, ולכן פתיחה רגילה של האפליקציה עדיין לא מורידה
-  /// דבר (תכנון §2.2).
-  Future<void> _loadPlugins() async {
-    await _plugins.load();
-    if (!mounted) return;
-
-    final settings = widget.settings.settings;
-    if (!settings.autoDownloadAllPlugins || settings.offlineOnly) return;
-    await _plugins.sync();
   }
 
   @override
@@ -115,17 +104,23 @@ class _AppShellState extends State<AppShell> {
 
   void _onChange() {
     if (!mounted) return;
-    _applyPluginsChannelIfChanged();
+    _applyChannels();
     setState(() {});
   }
 
-  /// שינוי ערוץ התוספים בהגדרות הוא פעולה מפורשת של המשתמש, ולכן מותר לו
-  /// לדרוס את סינון הסטטוס שנבחר בחנות — אבל רק כשהערוץ באמת השתנה.
-  void _applyPluginsChannelIfChanged() {
-    final channel = widget.settings.settings.pluginsChannel;
-    if (channel == _appliedPluginsChannel) return;
-    _appliedPluginsChannel = channel;
-    _plugins.setStatusFilter(pluginStatusFilterFor(channel));
+  /// מחיל את ערוצי הגרסאות מההגדרות על המודולים. לשני הראשונים זו פעולה
+  /// idempotent (רק מציבה דגל), ולכן אין צורך לעקוב אחרי שינוי.
+  void _applyChannels() {
+    final s = widget.settings.settings;
+    _otzaria.allowPrerelease = s.appChannel == UpdateChannel.stableAndPreview;
+    _library.allowPrerelease =
+        s.libraryChannel == UpdateChannel.stableAndPreview;
+
+    // בתוספים לעומת זאת הערוץ קובע את סינון החנות, ודריסת בחירה ידנית של
+    // המשתמש מותרת רק כשהוא באמת שינה את ההגדרה.
+    if (s.pluginsChannel == _appliedPluginsChannel) return;
+    _appliedPluginsChannel = s.pluginsChannel;
+    _plugins.setStatusFilter(pluginStatusFilterFor(s.pluginsChannel));
   }
 
   Future<void> _refreshProcessState() async {
@@ -137,29 +132,68 @@ class _AppShellState extends State<AppShell> {
     setState(() => _otzariaIsRunning = running);
   }
 
-  /// בודק גרסאות בשני המודולים. לא מוריד ולא מתקין דבר.
+  /// בודק גרסאות בשני המודולים **מהתיקייה המקומית בלבד**. לא נוגע ברשת,
+  /// לא מוריד ולא מתקין דבר.
   Future<void> checkAll() async {
-    if (widget.settings.settings.offlineOnly) {
-      setState(() => _network = NetworkState.offline);
-    } else {
-      setState(() => _network = NetworkState.checking);
-    }
-
     await Future.wait([_otzaria.checkForUpdate(), _library.checkForUpdate()]);
     await _refreshProcessState();
     if (!mounted) return;
-
-    final failed = _otzaria.status == OtzariaModuleStatus.error &&
-        _library.status == LibraryModuleStatus.error;
-    setState(() {
-      _network = failed ? NetworkState.offline : NetworkState.online;
-      _lastCheckedAt = DateTime.now();
-    });
+    setState(() => _lastCheckedAt = DateTime.now());
+    await _autoInstallIfEnabled();
   }
 
-  UpdateSource get _source => _library.activeMirrorPath != null
-      ? UpdateSource.localMirror
-      : UpdateSource.network;
+  /// מתקין מהתיקייה המקומית בלי לשאול — אך ורק למי שהדליק זאת במפורש
+  /// בהגדרות (ראו `SettingsScreen._confirmAutoInstall`). לא מוריד דבר.
+  Future<void> _autoInstallIfEnabled() async {
+    final s = widget.settings.settings;
+
+    if (s.autoInstallApp &&
+        _otzaria.status == OtzariaModuleStatus.updateAvailable) {
+      await _otzaria.install();
+      if (!mounted) return;
+    }
+
+    // עדכון מסד כותב לקובץ שאוצריא נועלת — מדלגים בשקט כשהיא פתוחה, במקום
+    // להיכשל ברקע על משהו שהמשתמש לא ביקש עכשיו.
+    if (s.autoInstallLibrary &&
+        !_otzariaIsRunning &&
+        _library.status == LibraryModuleStatus.updateAvailable) {
+      await _library.update();
+    }
+  }
+
+  /// מוריד מהרשת אל התיקייה שלצד התוכנה — רק את הרכיבים שסומנו בהגדרות.
+  /// זו הפעולה היחידה בכל האפליקציה שדורשת אינטרנט.
+  ///
+  /// הרכיבים מורדים בזה אחר זה ולא במקביל, כי הם חולקים את אותו רוחב פס
+  /// והמסד לבדו הוא ~1GB; במקביל זה רק היה מאט את כולם ומבלבל את התצוגה.
+  Future<void> downloadAll() async {
+    final s = widget.settings.settings;
+    if (!s.hasSyncSelection || _isDownloading) return;
+
+    setState(() {
+      _isDownloading = true;
+      _network = NetworkState.checking;
+    });
+
+    if (s.syncApp) await _otzaria.download();
+    if (s.syncLibrary) await _library.download();
+    if (s.syncPlugins) await _plugins.sync();
+    if (!mounted) return;
+
+    // "לא מחובר" רק אם *כל* מה שנבחר נכשל — כשל בודד הוא בעיה נקודתית
+    // ברכיב, לא עדות לכך שאין רשת.
+    final attempted = <bool>[
+      if (s.syncApp) _otzaria.downloadStatus == OtzariaDownloadStatus.done,
+      if (s.syncLibrary) _library.downloadStatus == MirrorDownloadStatus.done,
+      if (s.syncPlugins) _plugins.status != PluginsModuleStatus.error,
+    ];
+    setState(() {
+      _isDownloading = false;
+      _network =
+          attempted.contains(true) ? NetworkState.online : NetworkState.offline;
+    });
+  }
 
   Future<void> _openLogFolder() async {
     final logger = AppLogger.instance;
@@ -182,8 +216,7 @@ class _AppShellState extends State<AppShell> {
               children: [
                 _TopBar(
                   network: _network,
-                  source: _source,
-                  mirrorPath: _library.activeMirrorPath,
+                  dataDir: widget.dataDir,
                   otzariaIsRunning: _otzariaIsRunning,
                   lastCheckedAt: _lastCheckedAt,
                   onOpenLog: _openLogFolder,
@@ -198,9 +231,12 @@ class _AppShellState extends State<AppShell> {
                         library: _library,
                         plugins: _plugins,
                         settings: widget.settings,
+                        dataDir: widget.dataDir,
                         network: _network,
                         otzariaIsRunning: _otzariaIsRunning,
+                        isDownloading: _isDownloading,
                         onRecheck: checkAll,
+                        onDownloadAll: downloadAll,
                         onGoToLibrary: () =>
                             setState(() => _screen = LauncherScreen.library),
                         onGoToPlugins: () =>
@@ -209,11 +245,13 @@ class _AppShellState extends State<AppShell> {
                       LibraryScreen(
                         library: _library,
                         otzariaIsRunning: _otzariaIsRunning,
+                        isDownloading: _isDownloading,
                         onProcessStateChanged: _refreshProcessState,
                       ),
                       PluginsScreen(controller: _plugins),
                       SettingsScreen(
                         controller: widget.settings,
+                        dataDir: widget.dataDir,
                         onOpenLog: _openLogFolder,
                       ),
                     ],
@@ -283,8 +321,7 @@ class _NavRail extends StatelessWidget {
 
 class _TopBar extends StatelessWidget {
   final NetworkState network;
-  final UpdateSource source;
-  final String? mirrorPath;
+  final String dataDir;
   final bool otzariaIsRunning;
   final DateTime? lastCheckedAt;
   final VoidCallback onOpenLog;
@@ -292,8 +329,7 @@ class _TopBar extends StatelessWidget {
 
   const _TopBar({
     required this.network,
-    required this.source,
-    required this.mirrorPath,
+    required this.dataDir,
     required this.otzariaIsRunning,
     required this.lastCheckedAt,
     required this.onOpenLog,
@@ -336,19 +372,17 @@ class _TopBar extends StatelessWidget {
                     label: switch (network) {
                       NetworkState.online => 'מחובר',
                       NetworkState.offline => 'לא מחובר',
-                      NetworkState.checking => 'בודק...',
-                      NetworkState.unknown => 'מצב רשת לא נבדק',
+                      NetworkState.checking => 'מוריד...',
+                      NetworkState.unknown => 'הרשת לא נדרשה',
                     },
                   ),
                   const SizedBox(width: AppTokens.spaceSM),
+                  // מקור העדכונים תמיד זהה — התיקייה שלצד התוכנה. אין מה
+                  // להחליף, ולכן מוצג הנתיב עצמו ולא בחירה.
                   _Pill(
-                    icon: source == UpdateSource.localMirror
-                        ? FluentIcons.usb_stick_24_regular
-                        : FluentIcons.cloud_arrow_down_24_regular,
-                    label: source == UpdateSource.localMirror
-                        ? 'מקור: תיקייה מקומית / USB'
-                        : 'מקור: אינטרנט',
-                    tooltip: mirrorPath,
+                    icon: FluentIcons.folder_24_regular,
+                    label: 'העדכונים נקראים מהתיקייה שלצד התוכנה',
+                    tooltip: dataDir,
                   ),
                   if (otzariaIsRunning) ...[
                     const SizedBox(width: AppTokens.spaceSM),
