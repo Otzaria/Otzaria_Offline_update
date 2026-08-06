@@ -42,15 +42,19 @@
 ## מבנה
 
 - `services/library_db_locator.dart` — איתור נתיב ה-DB (custom → ברירת מחדל → null).
-- `services/library_state_store.dart` — שמירת נתיב מותאם אישית.
+- `services/library_state_store.dart` — שמירת נתיב מותאם אישית ושל
+  `appliedReleaseTag` (ה-release שממנו הגיע תוכן ה-DB — כך מזוהה מסד שפורסם
+  מחדש באותו `db_version`).
 - `services/library_update_applier.dart` — **`LibraryUpdateApplier`**: ההחלה
   בפועל של delta/fullDownload על ה-DB החי (patch/apply דרך `Isolate.run` נכון,
   גיבוי/שחזור, בדיקת "אוצריא רצה").
 - `services/otzaria_process_guard.dart` — בדיקת תהליך אוצריא פעיל: `otzaria.exe` דרך `tasklist` בווינדוס, `אוצריא` דרך `pgrep -x` ב-macOS.
 - `services/zstd_decompressor.dart` — מוזרק ל-`PatchDownloader` וגם לחילוץ ה-DB המלא.
-- `library_manager.dart` — האורקסטרטור: `checkForUpdate()` (בדיקה+תכנון) +
-  `applyUpdate()` (**ההחלה בפועל על ה-DB החי**) + `exportOfflineMirror()`/
-  `refreshOfflineMirrorCache()` (הכנת מראה offline להעברה למחשב אחר).
+- `library_manager.dart` — האורקסטרטור. **מקור אחד בלבד:** `mirrorDir`
+  (`<dataDir>/mirror/library`, לצד קובץ ההרצה). `downloadToMirror()` היא הפעולה
+  היחידה שנוגעת ברשת; `checkForUpdate()` ו-`applyUpdate()` קוראות מהתיקייה
+  המקומית תמיד, וזורקות `LibraryMirrorMissingException` אם היא עוד ריקה.
+  אין נפילה לענן — ראו ה-landmine ב-AGENTS.md.
 
 > **היסטוריית התיקון:** מנגנון ה-apply המקורי הוסר בעבר עקב קריסת
 > `Illegal argument in isolate message: object is unsendable` — הסוגר
@@ -120,8 +124,8 @@ if (check.updateAvailable) {
   }
 }
 
-// לחלופין (או בנוסף), עדיין אפשר להכין מראה offline להעברה למחשב אחר:
-// await manager.exportOfflineMirror(destDir: r'D:\seforim-mirror');
+// במחשב עם אינטרנט, לפני הכול — ממלא את התיקייה שלצד התוכנה:
+// await manager.downloadToMirror(onStage: print);
 
 manager.dispose();
 ```

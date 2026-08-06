@@ -17,41 +17,49 @@ This repository is the **updater/launcher for those offline users**. The intende
 real-world workflow is:
 
 1. The user copies this software onto a USB flash drive ("On-Key").
-2. They plug the drive into a computer **that does have internet**, run the
-   launcher from there, and it downloads:
-   - library (`seforim.db`) updates for Otzaria — full DB or delta patches,
-   - Otzaria app updates,
-   - Otzaria plugin updates (catalog + `.otzplugin` files).
-   Everything lands in a self-contained **offline mirror** folder on the drive.
+2. They plug the drive into a computer **that does have internet** and press
+   *download* once. It fetches, into a folder **right next to the executable**:
+   - library (`seforim.db`) updates for Otzaria — latest full DB + its patches,
+   - the Otzaria app installer + its release metadata,
+   - Otzaria plugins (catalog + `.otzplugin` files).
 3. They unplug the drive, plug it into **their own offline computer**, run the
-   launcher again, and it applies the update from the drive — no network needed.
+   launcher again, and it installs from that folder — no network needed.
 
-So the guiding principle for every change: **anything the update path needs must
-be able to come from a local folder, and the apply step must work with the
-network completely unavailable.** Downloading and applying are deliberately two
-separate phases that can happen on two different computers, days apart.
+**There is exactly one mode: offline.** Otzaria itself already knows how to
+update over the network, so this launcher deliberately does *not* offer a
+"just update from the internet" path. Every check and every install reads from
+the local folder, always — even when the machine is online. The network is
+touched by *one* thing only: the download step that fills that folder.
 
-The offline mirror is the mechanism that makes this work:
-
-| Step | API | Runs on |
+| Step | API | Needs network |
 | --- | --- | --- |
-| Build/refresh the mirror | `LibraryManager.exportOfflineMirror(destDir:)` / `refreshOfflineMirrorCache()` | the online computer |
-| Point the launcher at a mirror | `LibraryManager.useLocalMirror(mirrorDir)` | the offline computer |
-| Back to network mode | `LibraryManager.useCloud()` | either |
-| Fill the plugin store in the mirror | `PluginsManager.sync()` | the online computer |
-| Read the store / install a plugin | `PluginsManager.load()` / `.directInstall()` | the offline computer |
+| Download library updates | `LibraryManager.downloadToMirror()` | **yes** |
+| Download the Otzaria installer | `OtzariaManager.downloadToMirror()` | **yes** |
+| Download the plugin store | `PluginsManager.sync()` | **yes** |
+| Check / apply a library update | `LibraryManager.checkForUpdate()` / `.applyUpdate()` | no |
+| Check / install the Otzaria app | `OtzariaManager.checkForUpdate()` / `.update()` | no |
+| Read the store / install a plugin | `PluginsManager.load()` / `.directInstall()` | no |
 
-The plugin store lives **inside the same mirror folder** — `<mirrorDir>/plugins/`
-— on purpose: one copy to the USB drive carries both the library and the
-plugins. `LibraryMirrorExporter.export` only creates directories and never
-deletes the destination, so `plugins/` survives a library-mirror refresh.
+`AppPaths.resolve()` (in `launcher_app`) puts the data folder at
+`<dir of the executable>/OtzariaData`, and there is **no setting to change it** —
+that is what makes the drive self-contained. If that folder is not writable
+(e.g. the app was moved into `Program Files`), the launcher shows
+`SetupErrorScreen` and refuses to run rather than silently falling back to
+`%APPDATA%`, which would leave the data behind on the online machine.
 
-`refreshOfflineMirrorCache()` also runs in the background on every launch into
-`<dataDir>/offline-mirror`, so a machine that goes online once stays usable
-offline afterwards.
+Layout under `OtzariaData/`:
 
-Beyond the offline case, the launcher is also just a normal unified dashboard:
-check / install / launch Otzaria, and update its database.
+```
+mirror/library/   releases.json + assets/   ← LibraryManager.mirrorDir
+mirror/app/       latest-release.json + installers/  ← OtzariaAppMirror
+mirror/plugins/   catalog.json + files/     ← PluginMirrorStore
+otzaria-app/      the managed Otzaria install
+```
+
+The download step keeps only the **latest** release, not the whole patch
+history (`LibraryMirrorExporter._latestOnly`) — the full history reached several
+gigabytes, which does not belong on a flash drive. A machine several versions
+behind falls back to the full-DB route, which is always present in the mirror.
 
 ---
 
@@ -195,10 +203,37 @@ directory, and a manual unpack bypasses it. `install-local` reads the file from
 disk, so it needs no network at all; the older `install?url=` does need one and
 is deliberately unused here.
 
-**Release selection ignores `prerelease`.** `OtzariaReleaseClient` takes the
-newest release regardless of the prerelease flag, because the Otzaria repo
-(`github.com/Sivan22/otzaria`) has published almost nothing stable since 2025.
-This was an explicit product decision, not an oversight.
+**The data folder is not configurable, and that is load-bearing.** `AppPaths`
+resolves it next to the executable and `AppSettings` has **no path fields at
+all**. Adding one back (an "advanced" data-dir setting, a USB target picker, an
+`otzariaInstallPath`) breaks the premise that the drive carries everything.
+On macOS the folder goes next to the `.app` bundle, not inside
+`Contents/MacOS`, so the user can actually see it.
+
+**There is no network fallback in the check path.** `LibraryManager._resolveSource`
+returns the local mirror or throws `LibraryMirrorMissingException`; it must never
+fall back to `GithubLibraryReleaseClient`. An earlier version did fall back, and
+the result was a launcher that behaved differently depending on whether the
+machine happened to be online — the exact duality this design removes.
+`OtzariaManager.checkForUpdate` is the same: it reads `OtzariaAppMirror.load()`,
+never GitHub.
+
+**Channels map to GitHub's `prerelease` flag.** A plain release is "stable", a
+pre-release is "not stable" — for both the library and the app. Note the
+consequence for the app: `github.com/Otzaria/otzaria` publishes almost nothing
+with `prerelease=false`, so the stable channel legitimately finds nothing and
+`OtzariaReleaseClient` throws `NoStableReleaseException`. That is deliberate —
+do **not** "fix" it by silently falling back to a pre-release; the message tells
+the user to switch channels. (This reverses the older decision to ignore the
+flag entirely.)
+
+**A DB update can ship without a version bump.** SeforimLibrary sometimes
+re-publishes a corrected `seforim.db.zst` under the same `db_version`. The
+version comparison alone reports "up to date", so `LibraryUpdatePlanner` also
+compares the applied release tag (`LibraryStateStore.appliedReleaseTag`, written
+by `applyUpdate`). It only does so when that tag is *known* — a DB that was not
+installed by this launcher has no tag, and guessing there would offer a ~1GB
+download on every single launch.
 
 **DB location is discovered, not assumed.** `LibraryDbLocator` checks, in order:
 a path we saved ourselves, then `%APPDATA%\otzaria\books\`, `%ProgramData%\otzaria\books\`
@@ -216,9 +251,15 @@ The package READMEs each carry a "what was actually verified" section — trust
 those over assumptions, and update them when you verify something new.
 
 Also **not** verified end-to-end: the plugin store's real round trip — an actual
-`sync()` against `otzaria.org`, carrying `offline-mirror/` on a USB drive to an
+`sync()` against `otzaria.org`, carrying `OtzariaData/` on a USB drive to an
 offline machine, and `otzaria://plugin/install-local` against a real Otzaria
 install. Unit-tested logic only; see `plugins_manager/README.md`.
+
+The offline-only rework (single mode, exe-adjacent data folder, app mirror,
+`prerelease`-based channels) is **unit-tested and analyzer-clean only**. Not yet
+run on real hardware: `AppPaths` on a real removable drive, the refusal path in
+a genuinely read-only folder, `OtzariaAppMirror.sync()` against real GitHub, and
+whether the trimmed mirror is in fact enough for a real offline apply.
 
 Currently **not** verified on real hardware: the Windows path of
 `LibraryUpdateApplier` (full ~1GB download, delta chains, `tasklist` behaviour),

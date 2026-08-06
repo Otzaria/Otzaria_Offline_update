@@ -36,13 +36,12 @@ class PluginStoreView {
 /// אינטרנט וממלא את המראה, ואילו **טעינה והתקנה** ([load], [directInstall])
 /// עובדות מול המראה בלבד ולכן פועלות במחשב לא-מקוון.
 ///
-/// תיקיית המראה נמסרת כ-callback ולא כמחרוזת קבועה, כדי שהחלפה בין המראה
-/// האוטומטית לכונן USB שהמשתמש בחר תיכנס לתוקף מיד — בדיוק כמו
-/// `LibraryManager._resolveSource`.
+/// תיקיית המראה נמסרת כ-callback כדי שהחבילה לא תצטרך להכיר את מבנה
+/// התיקיות של הלאנצ'ר. בפועל הלאנצ'ר מחזיר נתיב קבוע לצד קובץ ההרצה.
 ///
 /// ```dart
 /// final manager = PluginsManager(
-///   resolveMirrorDir: () async => library.activeMirrorPath ?? library.offlineMirrorCacheDir,
+///   resolveMirrorDir: () async => p.join(appPaths.dataDir, 'mirror'),
 /// );
 /// final view = await manager.load();          // מקומי בלבד
 /// await manager.sync(onProgress: print);      // דורש אינטרנט
@@ -56,10 +55,11 @@ class PluginsManager {
     http.Client? httpClient,
   }) : _client = PluginStoreClient(baseUrl: baseUrl, client: httpClient);
 
-  /// תיקיית המראה הפעילה כרגע (`<dataDir>/offline-mirror` או כונן USB).
+  /// שורש המראה — הקטלוג יושב תחת `<mirrorDir>/plugins/`.
   final Future<String> Function() resolveMirrorDir;
 
-  /// תיקיית התוספים של אוצריא, אם המשתמש הגדיר אותה ידנית בהגדרות.
+  /// דריסה של תיקיית התוספים של אוצריא, לבדיקות. הלאנצ'ר אינו מעביר אותה:
+  /// המיקום מתגלה אוטומטית ואין הגדרת נתיבים בממשק.
   final Future<String?> Function()? resolvePluginsDir;
 
   final PluginStoreClient _client;

@@ -31,14 +31,24 @@ class OtzariaReleaseClient {
 
   static const _assetSelector = OtzariaAssetSelector();
 
+  /// כמה releases להביא כדי שיהיה מה לסנן. ערוץ "יציב בלבד" צריך לדלג על
+  /// שרשרת ארוכה של preview builds לפני שהוא מגיע ל-release רגיל.
+  static const int _pageSize = 50;
+
   /// מחזיר את ה-release העדכני ביותר כרונולוגית (GitHub ממיין את
-  /// /releases כך כברירת מחדל) — כולל prerelease, בכוונה. ראו הערה ב-
-  /// [OtzariaRelease] לגבי הסיבה.
+  /// /releases כך כברירת מחדל) **בערוץ המבוקש**: `allowPrerelease: false`
+  /// לוקח רק release רגיל, `true` לוקח גם pre-release. draft נפסל תמיד.
   ///
+  /// זורק [NoStableReleaseException] אם בערוץ היציב אין כלום — במקום ליפול
+  /// בשקט ל-pre-release, שזו בדיוק ההתנהגות שהמשתמש ביקש להפריד.
   /// זורק [NoInstallerAssetException] אם ל-release שנמצא אין אסט התקנה
   /// מתאים לפלטפורמה הנוכחית.
-  Future<OtzariaRelease> fetchLatestRelease() async {
-    final uri = Uri.parse('$_apiBase/repos/$_owner/$_repo/releases?per_page=1');
+  Future<OtzariaRelease> fetchLatestRelease({
+    bool allowPrerelease = true,
+  }) async {
+    final uri = Uri.parse(
+      '$_apiBase/repos/$_owner/$_repo/releases?per_page=$_pageSize',
+    );
     final response = await _httpClient.get(
       uri,
       headers: const {
@@ -61,7 +71,17 @@ class OtzariaReleaseClient {
       throw StateError('לא נמצאו releases בכלל ב-$_owner/$_repo.');
     }
 
-    return _parseRelease(decoded.first as Map<String, dynamic>);
+    final eligible = decoded
+        .cast<Map<String, dynamic>>()
+        .where((r) => !(r['draft'] as bool? ?? false))
+        .where((r) => allowPrerelease || !(r['prerelease'] as bool? ?? false))
+        .toList(growable: false);
+
+    if (eligible.isEmpty) {
+      throw NoStableReleaseException(checked: decoded.length);
+    }
+
+    return _parseRelease(eligible.first);
   }
 
   OtzariaRelease _parseRelease(Map<String, dynamic> json) {
@@ -103,6 +123,21 @@ class OtzariaReleaseClient {
   }
 
   void close() => _httpClient.close();
+}
+
+/// נזרקת כשערוץ "יציב בלבד" לא מצא אף release רגיל. הריפו של אוצריא מפרסם
+/// כמעט רק pre-release, ולכן זה מצב מציאותי — והמשתמש צריך לדעת שהפתרון
+/// הוא להחליף ערוץ, לא שמשהו נשבר.
+class NoStableReleaseException implements Exception {
+  const NoStableReleaseException({required this.checked});
+
+  final int checked;
+
+  @override
+  String toString() =>
+      'לא נמצאה גרסה יציבה של אוצריא ב-$checked ה-releases האחרונים — '
+      'כל הפרסומים שם מסומנים כ-pre-release. יש לעבור בהגדרות לערוץ '
+      '"כולל pre-release" כדי לעדכן.';
 }
 
 /// שגיאת תגובה לא תקינה מ-GitHub API. שם ייעודי (לא HttpException) כדי לא

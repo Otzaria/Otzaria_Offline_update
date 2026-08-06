@@ -20,9 +20,9 @@
 
 ```dart
 final manager = PluginsManager(
-  resolveMirrorDir: () async => library.activeMirrorPath
-      ?? library.offlineMirrorCacheDir,
-  resolvePluginsDir: () async => settings.pluginsPath, // אופציונלי
+  // התיקייה שלצד קובץ ההרצה — ראו AppPaths בלאנצ'ר. הקטלוג יושב תחת
+  // `<mirrorRoot>/plugins/`.
+  resolveMirrorDir: () async => p.join(appPaths.dataDir, 'mirror'),
 );
 
 // במחשב עם אינטרנט:
@@ -87,10 +87,11 @@ U+FEFF מוביל. אותו טיפול בדיוק כמו ב-`LogicalContentHashe
 סיבה שמתועדת ב-`FileReveal` בלאנצ'ר. הכישלון מוחזר כערך
 (`PluginInstallResult`), לא כחריג.
 
-**תיקיית התוספים מתגלה ולא מונחת.** קודם `AppSettings.pluginsPath` אם
-המשתמש הגדיר, אחרת `%APPDATA%\otzaria\plugins` /
+**תיקיית התוספים מתגלה ולא מונחת.** `%APPDATA%\otzaria\plugins` /
 `~/Library/Application Support/otzaria/plugins`. תיקייה שלא קיימת מחזירה
-מפה ריקה בשקט — אוצריא לא מותקנת, או שאין עדיין תוספים.
+מפה ריקה בשקט — אוצריא לא מותקנת, או שאין עדיין תוספים. `resolvePluginsDir`
+עדיין קיים ב-API לדריסה בבדיקות, אבל הלאנצ'ר אינו מעביר אותו: אין הגדרת
+נתיבים בממשק (ראו `AppPaths`).
 
 ## חוזה ה-API של האתר
 

@@ -50,11 +50,13 @@ enum OtzariaInstallerKind {
 /// Release אחד מתוך github.com/Otzaria/otzaria/releases, מצומצם לשדות
 /// שרלוונטיים להתקנה: תג הגרסה וקובץ ההתקנה לפלטפורמה הנוכחית.
 ///
-/// שים לב: הריפו הזה כרגע (יולי 2026) כמעט ואינו מפרסם releases "יציבים"
-/// (prerelease=false) — רוב הפעילות היא PR-preview builds עם
-/// prerelease=true. לפי החלטת המשתמש, [OtzariaReleaseClient] מחזיר את ה-
-/// release הראשון ברשימה (העדכני ביותר, כרונולוגית) בלי לסנן prerelease,
-/// כדי לא להיתקע על גרסה ישנה. isPrerelease נשמר כאן למידע/UI בלבד.
+/// **ערוצים:** release רגיל = יציב, pre-release = לא יציב. שים לב שהריפו
+/// הזה כמעט ואינו מפרסם releases יציבים — רוב הפעילות היא preview builds
+/// עם `prerelease=true`. לכן ערוץ "יציב בלבד" עלול לא למצוא כלום, ובמקרה
+/// כזה [OtzariaReleaseClient] אומר זאת במפורש ולא בוחר pre-release בשקט.
+///
+/// [toJson]/[fromJson] משמשים את `OtzariaAppMirror` כדי לשמור את המטא־דאטה
+/// לצד קובץ ההתקנה — כך שבדיקת גרסה עובדת גם בלי רשת בכלל.
 class OtzariaRelease extends Equatable {
   const OtzariaRelease({
     required this.tagName,
@@ -82,6 +84,47 @@ class OtzariaRelease extends Equatable {
   final String installerAssetName;
   final String installerDownloadUrl;
   final int installerSizeBytes;
+
+  Map<String, dynamic> toJson() => {
+        'tagName': tagName,
+        'name': name,
+        'isPrerelease': isPrerelease,
+        'isDraft': isDraft,
+        'publishedAt': publishedAt?.toIso8601String(),
+        'installerKind': installerKind.name,
+        'installerAssetName': installerAssetName,
+        'installerDownloadUrl': installerDownloadUrl,
+        'installerSizeBytes': installerSizeBytes,
+      };
+
+  /// זורק [FormatException] על JSON חסר/פגום — הקורא מתייחס לזה כ"אין מראה
+  /// תקינה" ומבקש הורדה מחדש.
+  factory OtzariaRelease.fromJson(Map<String, dynamic> json) {
+    final kindName = json['installerKind'];
+    final kind = OtzariaInstallerKind.values
+        .where((k) => k.name == kindName)
+        .firstOrNull;
+    if (json['tagName'] is! String ||
+        json['installerAssetName'] is! String ||
+        json['installerSizeBytes'] is! int ||
+        kind == null) {
+      throw const FormatException('מטא־דאטה פגומה של גרסת אוצריא');
+    }
+
+    final publishedAt = json['publishedAt'];
+    return OtzariaRelease(
+      tagName: json['tagName'] as String,
+      name: (json['name'] as String?) ?? json['tagName'] as String,
+      isPrerelease: json['isPrerelease'] as bool? ?? false,
+      isDraft: json['isDraft'] as bool? ?? false,
+      publishedAt:
+          publishedAt is String ? DateTime.tryParse(publishedAt) : null,
+      installerKind: kind,
+      installerAssetName: json['installerAssetName'] as String,
+      installerDownloadUrl: (json['installerDownloadUrl'] as String?) ?? '',
+      installerSizeBytes: json['installerSizeBytes'] as int,
+    );
+  }
 
   @override
   List<Object?> get props => [

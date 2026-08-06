@@ -15,12 +15,17 @@ class LibraryUpdateCheckResult {
     this.localVersion,
     this.plan,
     this.isFreshInstall = false,
+    this.latestReleaseTag,
   });
 
   final String? dbPath;
   final LocalDbVersion? localVersion;
   final LibraryUpdatePlan? plan;
   final bool isFreshInstall;
+
+  /// ה-release האחרון שנמצא במראה. נרשם אחרי החלה מוצלחת כ"התוכן שמותקן
+  /// אצלנו", וכך מזוהה בהמשך מסד שפורסם מחדש באותו `db_version`.
+  final String? latestReleaseTag;
 
   /// נשמר לצורך תאימות לאחור בלבד — כמעט ולא אמור להיות true יותר, כי
   /// [LibraryManager.checkForUpdate] תמיד מצביע על נתיב (קיים או ברירת

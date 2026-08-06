@@ -5,6 +5,7 @@ export 'src/otzaria_manager.dart';
 export 'src/services/installed_version_reader.dart';
 export 'src/services/mac_app_version_reader.dart';
 export 'src/services/otzaria_app_locator.dart';
+export 'src/services/otzaria_app_mirror.dart';
 export 'src/services/otzaria_asset_selector.dart';
 export 'src/services/otzaria_installer.dart';
 export 'src/services/otzaria_launcher.dart';

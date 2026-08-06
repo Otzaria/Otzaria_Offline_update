@@ -15,6 +15,8 @@ class LibraryUpdatePlanner {
   /// [latestVersion] — הגרסה הגבוהה ביותר הזמינה ב-releases.
   /// [edges] — כל ה-patches הזמינים.
   /// [latestFullDbAsset] / [latestReleaseTag] — ה-DB המלא ל-fallback.
+  /// [localReleaseTag] — ה-release שממנו הגיע ה-DB המקומי, אם ידוע. ראו
+  /// [_isContentRefresh].
   LibraryUpdatePlan plan({
     required int localVersion,
     required bool hasLocalVersionMeta,
@@ -22,6 +24,7 @@ class LibraryUpdatePlanner {
     required List<PatchEdge> edges,
     ReleaseAsset? latestFullDbAsset,
     String? latestReleaseTag,
+    String? localReleaseTag,
   }) {
     if (!hasLocalVersionMeta) {
       return _fullOrBlocked(
@@ -34,6 +37,16 @@ class LibraryUpdatePlanner {
     }
 
     if (localVersion >= latestVersion) {
+      if (latestFullDbAsset != null &&
+          _isContentRefresh(localReleaseTag, latestReleaseTag)) {
+        return LibraryUpdatePlan.fullDownload(
+          localVersion: localVersion,
+          targetVersion: latestVersion,
+          asset: latestFullDbAsset,
+          releaseTag: latestReleaseTag!,
+          reason: 'תוכן המסד עודכן ב-$latestReleaseTag ללא שינוי מספר הגרסה',
+        );
+      }
       return LibraryUpdatePlan.none(
         localVersion: localVersion,
         targetVersion: latestVersion,
@@ -57,6 +70,15 @@ class LibraryUpdatePlanner {
       reason: 'אין מסלול דלתא רציף מגרסה $localVersion לגרסה $latestVersion',
     );
   }
+
+  /// האם המסד המקומי בגרסה האחרונה אבל מ-release **אחר** — כלומר התוכן
+  /// עודכן בלי להעלות את `db_version`, מה שקורה בפועל ב-SeforimLibrary.
+  ///
+  /// דורש שנדע מאיזה release ה-DB המקומי הגיע: `null` פירושו DB שלא הותקן
+  /// דרך הלאנצ'ר הזה, ואז אין דרך להשוות — ומוטב לדווח "מעודכן" מלהציע
+  /// הורדה מלאה של ~1GB בכל פתיחה על סמך ניחוש.
+  bool _isContentRefresh(String? localTag, String? latestTag) =>
+      localTag != null && latestTag != null && localTag != latestTag;
 
   LibraryUpdatePlan _fullOrBlocked({
     required int localVersion,

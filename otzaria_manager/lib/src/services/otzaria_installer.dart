@@ -103,13 +103,26 @@ class OtzariaInstaller {
     String? targetInstallDir,
     void Function(int received, int total)? onDownloadProgress,
   }) async {
-    final installDir = targetInstallDir ?? defaultInstallDir;
-
     final installerPath = await ensureCached(
       release: release,
       onDownloadProgress: onDownloadProgress,
     );
+    return installFromFile(
+      release: release,
+      installerPath: installerPath,
+      targetInstallDir: targetInstallDir,
+    );
+  }
 
+  /// מתקין קובץ התקנה **שכבר נמצא בדיסק** — בלי לגעת ברשת בכלל. זה המסלול
+  /// שמשמש בפועל: ההורדה נעשית מראש אל המראה המקומית (`OtzariaAppMirror`),
+  /// וההתקנה קוראת משם, גם במחשב בלי אינטרנט.
+  Future<OtzariaInstallState> installFromFile({
+    required OtzariaRelease release,
+    required String installerPath,
+    String? targetInstallDir,
+  }) async {
+    final installDir = targetInstallDir ?? defaultInstallDir;
     await Directory(installDir).create(recursive: true);
 
     final String launchPath;

@@ -1,25 +1,33 @@
 import 'otzaria_install_state.dart';
 import 'otzaria_release.dart';
 
-/// תוצאת בדיקת עדכון: מה מותקן כרגע (אם בכלל) מול מה זמין ב-GitHub.
+/// תוצאת בדיקת עדכון: מה מותקן כרגע (אם בכלל) מול מה שיושב **במראה
+/// המקומית**. הבדיקה עצמה אינה נוגעת ברשת.
 class OtzariaUpdateCheckResult {
   const OtzariaUpdateCheckResult({
     required this.latestRelease,
     required this.currentState,
   });
 
-  final OtzariaRelease latestRelease;
+  /// null אם עדיין לא הורדה שום גרסה לתיקייה המקומית. ראו [needsDownload].
+  final OtzariaRelease? latestRelease;
 
   /// null אם עדיין לא בוצעה אף התקנה על ידי הלאנצ'ר הזה.
   final OtzariaInstallState? currentState;
 
+  /// אין מה להשוות מולו — צריך קודם להריץ הורדה במחשב עם אינטרנט.
+  bool get needsDownload => latestRelease == null;
+
   /// true גם כשאין התקנה קודמת בכלל (currentState == null) — אז "צריך
-  /// עדכון" פשוט אומר "צריך התקנה ראשונית".
+  /// עדכון" פשוט אומר "צריך התקנה ראשונית". false כשאין מראה: בלי גרסה
+  /// זמינה בדיסק אין שום דבר להתקין.
   bool get updateAvailable {
+    final latest = latestRelease;
+    if (latest == null) return false;
     final current = currentState;
     if (current == null) return true;
     return normalizeVersion(current.installedTagName) !=
-        normalizeVersion(latestRelease.tagName);
+        normalizeVersion(latest.tagName);
   }
 
   /// מנרמל תג/גרסה להשוואה: מוריד `v` מוביל ואת סיומת ה-build שאחרי `+`.

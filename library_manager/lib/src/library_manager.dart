@@ -15,50 +15,47 @@ export 'services/library_update_applier.dart'
         LibraryApplyProgress,
         LibraryApplyException;
 
+/// נזרק כשאין עדיין מראה מקומית להיבדק מולה — כלומר עוד לא בוצעה הורדה
+/// אף פעם. זה מצב תקין לחלוטין בהרצה ראשונה, ולא שגיאה אמיתית: ה-UI אמור
+/// לתרגם אותו ל"יש להוריד עדכונים קודם".
+class LibraryMirrorMissingException implements Exception {
+  const LibraryMirrorMissingException(this.mirrorDir);
+
+  final String mirrorDir;
+
+  @override
+  String toString() =>
+      'עדיין לא הורדו עדכוני ספרייה לתיקייה המקומית — יש להריץ הורדה '
+      'במחשב עם חיבור לאינטרנט.';
+}
+
 /// נקודת הכניסה היחידה שמודול ה-UI אמור להשתמש בה כדי **לבדוק** גרסת מסד
 /// (ה-DB) של אוצריא ו**להחיל** בפועל את העדכון (דלתא או DB מלא) על ה-DB
 /// החי — מחווט את שרשרת ה-discovery/planner/downloader/applier של
 /// `seforim_library_updater`.
 ///
-/// **הערה היסטורית:** בעבר המחלקה הזו רק בדקה והורידה לתיקייה מקומית
-/// (`offlineMirrorCacheDir`), בלי לגעת ב-DB החי בכלל — בעקבות קריסת
-/// `Isolate.run` (ראו doc-comment של [LibraryUpdateApplier]). מאז נבנה
-/// [applyUpdate] מחדש, נכון, והוא כן מחיל בפועל.
+/// **מקור אחד בלבד: המראה המקומית** ([mirrorDir]) שיושבת לצד התוכנה.
+/// בדיקה והחלה *תמיד* קוראות משם ולעולם לא מהרשת — גם כשיש חיבור. הרשת
+/// נוגעת בדבר יחיד: [downloadToMirror], שממלא את התיקייה הזו.
 ///
-/// **מקור הבדיקה** ניתן להחלפה בזמן ריצה בין הענן (GitHub, ברירת מחדל)
-/// לבין מראה מקומית (offline) — ראו [useLocalMirror]/[useCloud]. המראה
-/// המקומית עצמה נבנית פעם אחת, במחשב עם אינטרנט, דרך [exportOfflineMirror].
-///
-/// דוגמת שימוש (בדיקה + החלה בפועל על ה-DB החי):
+/// דוגמת שימוש:
 /// ```dart
-/// final manager = LibraryManager(dataDir: r'C:\Users\me\AppData\Roaming\OurLauncher');
+/// final manager = LibraryManager(dataDir: appPaths.dataDir);
 ///
+/// // במחשב עם אינטרנט — פעם אחת, ממלא את התיקייה שלצד התוכנה:
+/// await manager.downloadToMirror(onStage: print);
+///
+/// // בכל מחשב, כולל בלי רשת בכלל:
 /// final check = await manager.checkForUpdate();
 /// if (check.updateAvailable) {
-///   await manager.applyUpdate(
-///     check,
-///     onProgress: (p) => print('${p.stage} ${p.bytesDownloaded}/${p.bytesTotal}'),
-///   );
-///   // ה-DB עודכן בפועל — אין צעד נוסף.
+///   await manager.applyUpdate(check, onProgress: (p) => print(p.stage));
 /// }
-/// ```
-///
-/// דוגמת שימוש (הכנת מראה offline למחשב אחר, ואז בדיקה מולה):
-/// ```dart
-/// // במחשב עם אינטרנט:
-/// await manager.exportOfflineMirror(destDir: r'D:\seforim-mirror');
-/// // מעתיקים את D:\seforim-mirror\ ל-USB, פותחים במחשב היעד:
-///
-/// // במחשב היעד (בלי אינטרנט):
-/// await manager.useLocalMirror(r'E:\seforim-mirror'); // E: = כונן ה-USB שם
-/// final check = await manager.checkForUpdate(); // קורא מהתיקייה המקומית בלבד
 /// ```
 class LibraryManager {
   LibraryManager({
     required this.dataDir,
-    bool allowPrerelease = true,
-  })  : _allowPrerelease = allowPrerelease,
-        _stateStore = LibraryStateStore(p.join(dataDir, 'library_state.json')),
+    this.allowPrerelease = false,
+  })  : _stateStore = LibraryStateStore(p.join(dataDir, 'library_state.json')),
         _planner = const LibraryUpdatePlanner(),
         _versionReader = const LocalDbVersionReader(),
         _recovery = const LibraryDbRecoveryService(),
@@ -71,9 +68,10 @@ class LibraryManager {
   /// ה-DB תחת `<dataDir>/library/seforim.db`).
   final String dataDir;
 
-  /// אם `true` (ברירת מחדל), בדיקת עדכון עוקבת אחר releases prerelease של
-  /// SeforimLibrary גם כן.
-  final bool _allowPrerelease;
+  /// `true` = הערוץ "כולל pre-release". ברירת המחדל `false` — release רגיל
+  /// ב-GitHub נחשב יציב, pre-release נחשב לא יציב. ניתן לשינוי בזמן ריצה
+  /// כדי שהחלפת ערוץ בהגדרות תיכנס לתוקף בבדיקה/הורדה הבאה.
+  bool allowPrerelease;
 
   final LibraryStateStore _stateStore;
   late final LibraryDbLocator _locator;
@@ -85,9 +83,8 @@ class LibraryManager {
   /// כותב/מחיל דבר בעצמו.
   final LibraryDbRecoveryService _recovery;
 
-  /// לקוח ה-cloud (GitHub) — נשמר לאורך חיי ה-manager (מחזיק חיבור HTTP
-  /// אחד) בין אם מצב ה-cloud פעיל ובין אם לא, כי [exportOfflineMirror]
-  /// תמיד צריך אותו גם כשהמשתמש כרגע במצב מראה מקומית.
+  /// לקוח ה-cloud (GitHub) — משמש **רק** את [downloadToMirror]. בדיקה והחלה
+  /// לא נוגעות בו לעולם; ראו [_resolveSource].
   final GithubLibraryReleaseClient _cloudClient;
 
   /// מבצע את ההחלה בפועל של תוכנית עדכון (delta/fullDownload) על ה-DB החי —
@@ -97,54 +94,28 @@ class LibraryManager {
   Future<void> setCustomDbPath(String dbPath) =>
       _stateStore.saveCustomDbPath(dbPath);
 
-  /// עובר לעדכון ממראה מקומית (offline) בתיקייה [mirrorDir] — במקום
-  /// מהענן. התיקייה חייבת להיבנות מראש דרך [exportOfflineMirror] (או
-  /// שהועתקה מתיקייה כזו, למשל מ-USB). הבחירה נשמרת בין הרצות.
-  Future<void> useLocalMirror(String mirrorDir) =>
-      _stateStore.saveLocalMirrorPath(mirrorDir);
-
-  /// חוזר לעדכון מהענן (GitHub) — ברירת המחדל.
-  Future<void> useCloud() => _stateStore.saveLocalMirrorPath(null);
-
-  /// נתיב המראה המקומית הפעילה כרגע, או `null` אם מצב ה-cloud פעיל.
-  Future<String?> currentLocalMirrorPath() => _stateStore.loadLocalMirrorPath();
-
   /// נתיב ה-`seforim.db` שזוהה בפועל, או `null` אם לא נמצא — לתצוגה בממשק.
   /// המיקום מתגלה בכל קריאה מחדש; אין להניח נתיב קבוע.
   Future<String?> currentDbPath() => _locator.resolveDbPath();
 
-  /// תיקיית ה"מראה המקומית האוטומטית" — קבועה, בתוך [dataDir], ומתוחזקת
-  /// לבד על ידי [refreshOfflineMirrorCache] (נקרא ברקע בכל פתיחת האפליקציה
-  /// — ראו הקורא ב-launcher_app). שני תפקידים בו-זמנית:
-  ///  1. מקור ברירת המחדל ש-[checkForUpdate] קורא ממנו בפועל (ראו
-  ///     [_resolveSource]) — כך שהבדיקה תמיד עובדת מול נתונים מקומיים
-  ///     בלבד, בלי תלות ברשת בזמן הבדיקה עצמה.
-  ///  2. תוכן מוכן-מראש להעברה למחשב אחר (USB / תיקייה משותפת): פשוט
-  ///     מעתיקים את התיקייה הזו כמות שהיא.
-  String get offlineMirrorCacheDir => p.join(dataDir, 'offline-mirror');
+  /// תיקיית המראה המקומית — קבועה, לצד התוכנה (בתוך [dataDir]). זה **המקור
+  /// היחיד** שממנו [checkForUpdate] ו-[applyUpdate] קוראים, תמיד; היא נמלאת
+  /// אך ורק על ידי [downloadToMirror], וכשהתוכנה על כונן נייד היא נוסעת
+  /// יחד איתה למחשב הלא־מקוון בלי שום צעד העתקה נוסף.
+  String get mirrorDir => p.join(dataDir, 'mirror', 'library');
 
-  /// מרענן את [offlineMirrorCacheDir] מהענן. best-effort ומיועד לרוץ ברקע
-  /// בלי לחסום את הבדיקה/החלה בפועל של עדכון — אם הוא נכשל (למשל אין
-  /// אינטרנט) ה-cache פשוט נשאר כפי שהיה מהרענון הקודם, וזה תקין לגמרי.
-  Future<void> refreshOfflineMirrorCache({
-    void Function(String stage)? onStage,
-    void Function(int doneAssets, int totalAssets)? onAssetProgress,
-    void Function(int downloaded, int? total)? onBytesProgress,
-    bool Function()? isCancelled,
-  }) =>
-      exportOfflineMirror(
-        destDir: offlineMirrorCacheDir,
-        onStage: onStage,
-        onAssetProgress: onAssetProgress,
-        onBytesProgress: onBytesProgress,
-        isCancelled: isCancelled,
-      );
+  /// `true` אם כבר בוצעה הורדה מוצלחת אחת לפחות. בודק ספציפית את
+  /// `releases.json`, שנכתב רק בסוף הורדה מוצלחת — התיקייה עצמה נוצרת מיד
+  /// בתחילתה, ולכן קיומה לבדו לא מבטיח תוכן שלם.
+  Future<bool> get hasMirror => File(p.join(
+        mirrorDir,
+        LocalMirrorLibraryReleaseClient.manifestFileName,
+      )).exists();
 
-  /// בונה מראה מקומית מלאה (כל עדכוני ה-DB, כולל היסטוריה) מהענן לתיקייה
-  /// [destDir] — כדי להעביר למחשב בלי אינטרנט (USB / תיקייה משותפת). תמיד
-  /// פונה ל-GitHub בפועל (דורש אינטרנט), ללא קשר למצב המקור הפעיל כרגע.
-  Future<void> exportOfflineMirror({
-    required String destDir,
+  /// מוריד את עדכוני הספרייה מ-GitHub אל [mirrorDir] — **הפעולה היחידה
+  /// בכל המודול שנוגעת ברשת**. מביא את ה-release האחרון בערוץ הנבחר: את
+  /// ה-DB המלא ואת קובצי העדכון (patches) שלו.
+  Future<void> downloadToMirror({
     void Function(String stage)? onStage,
     void Function(int doneAssets, int totalAssets)? onAssetProgress,
     void Function(int downloaded, int? total)? onBytesProgress,
@@ -152,8 +123,8 @@ class LibraryManager {
   }) async {
     final exporter = LibraryMirrorExporter(client: _cloudClient);
     await exporter.export(
-      destDir: destDir,
-      allowPrerelease: _allowPrerelease,
+      destDir: mirrorDir,
+      allowPrerelease: allowPrerelease,
       onStage: onStage,
       onAssetProgress: onAssetProgress,
       onBytesProgress: onBytesProgress,
@@ -161,35 +132,11 @@ class LibraryManager {
     );
   }
 
-  /// מקור ה-releases הפעיל כרגע, בסדר עדיפות:
-  ///  1. מראה מקומית שהמשתמש בחר במפורש (דרך [useLocalMirror]) — למשל
-  ///     כונן USB חיצוני. גוברת על הכול כל עוד היא פעילה.
-  ///  2. [offlineMirrorCacheDir] האוטומטי, אם כבר נבנה פעם אחת (על ידי
-  ///     [refreshOfflineMirrorCache]) — כך שבדיקה/החלה של עדכון עובדת מול
-  ///     נתונים מקומיים בלבד, בלי תלות ברשת בזמן הבדיקה עצמה, וללא קשר
-  ///     לחיבור אינטרנט הנוכחי של המחשב.
-  ///  3. הענן, כ-fallback יחיד למקרה שעדיין אין שום cache מקומי בכלל
-  ///     (למשל הרצה ראשונה אי-פעם, לפני שהרענון האוטומטי הראשון הספיק
-  ///     לרוץ) — בדיוק כמו ההתנהגות המקורית לפני שנוסף ה-cache.
-  ///
-  /// נבדק מחדש בכל [checkForUpdate] כדי שמעבר בין המקורות ייכנס לתוקף
-  /// מיד, בלי לדרוש הפעלה מחדש של האפליקציה.
+  /// המראה המקומית כמקור releases. זורק [LibraryMirrorMissingException] אם
+  /// עדיין לא הורד דבר — במקום ליפול לרשת בשקט, כפי שהיה בעבר.
   Future<LibraryReleaseSource> _resolveSource() async {
-    final mirrorPath = await _stateStore.loadLocalMirrorPath();
-    if (mirrorPath != null && mirrorPath.isNotEmpty) {
-      return LocalMirrorLibraryReleaseClient(mirrorDir: mirrorPath);
-    }
-    // בודקים ספציפית את releases.json (לא רק שהתיקייה קיימת) — היא נוצרת
-    // רק בסוף export מוצלח; התיקייה עצמה נוצרת מיד בתחילתו, אז אם רענון
-    // ראשון-אי-פעם רץ ברקע ממש עכשיו, הדבר הזה מונע קריאה מ-cache חלקי.
-    final cachedManifest = File(p.join(
-      offlineMirrorCacheDir,
-      LocalMirrorLibraryReleaseClient.manifestFileName,
-    ));
-    if (await cachedManifest.exists()) {
-      return LocalMirrorLibraryReleaseClient(mirrorDir: offlineMirrorCacheDir);
-    }
-    return _cloudClient;
+    if (!await hasMirror) throw LibraryMirrorMissingException(mirrorDir);
+    return LocalMirrorLibraryReleaseClient(mirrorDir: mirrorDir);
   }
 
   /// בודק אם יש עדכון זמין.
@@ -233,7 +180,7 @@ class LibraryManager {
     final source = await _resolveSource();
     final discoverer = LibraryUpdateDiscovery(client: source);
     final discoveryResult =
-        await discoverer.discover(allowPrerelease: _allowPrerelease);
+        await discoverer.discover(allowPrerelease: allowPrerelease);
 
     final plan = _planner.plan(
       localVersion: local.dbVersion,
@@ -242,6 +189,8 @@ class LibraryManager {
       edges: discoveryResult.edges,
       latestFullDbAsset: discoveryResult.latestFullDbAsset,
       latestReleaseTag: discoveryResult.latestReleaseTag,
+      // בלי זה, release שמפרסם מסד מתוקן באותו db_version נראה כ"מעודכן".
+      localReleaseTag: await _stateStore.loadAppliedReleaseTag(),
     );
 
     return LibraryUpdateCheckResult(
@@ -249,6 +198,7 @@ class LibraryManager {
       localVersion: local,
       plan: plan,
       isFreshInstall: isFreshInstall,
+      latestReleaseTag: discoveryResult.latestReleaseTag,
     );
   }
 
@@ -300,6 +250,13 @@ class LibraryManager {
     // אותו במקום לחשוב שוב שזו התקנה טרייה.
     if (check.isFreshInstall) {
       await _stateStore.saveCustomDbPath(dbPath);
+    }
+
+    // רושמים מאיזה release התוכן הנוכחי הגיע — זה מה שמאפשר לזהות בהמשך
+    // מסד מתוקן שפורסם באותו db_version (ראו LibraryUpdatePlanner).
+    final appliedTag = plan.fullDbReleaseTag ?? check.latestReleaseTag;
+    if (appliedTag != null) {
+      await _stateStore.saveAppliedReleaseTag(appliedTag);
     }
   }
 

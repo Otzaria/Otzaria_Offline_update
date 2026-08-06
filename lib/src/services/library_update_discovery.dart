@@ -76,7 +76,7 @@ class LibraryUpdateDiscovery {
     for (final release in releases) {
       final full = release.fullDbAsset;
       if (full == null) continue;
-      final version = _releaseVersion(release);
+      final version = releaseVersionOf(release);
       if (version > bestFullVersion) {
         bestFullVersion = version;
         latestFull = full;
@@ -122,7 +122,9 @@ class LibraryUpdateDiscovery {
   }
 
   /// גרסת ה-release לפי שמות ה-manifest assets, או לפי ה-tag כ-fallback.
-  int _releaseVersion(LibraryRelease release) {
+  /// static כדי ש-[LibraryMirrorExporter] יבחר את ה-release האחרון לפי
+  /// אותו כלל בדיוק שהתכנון משתמש בו.
+  static int releaseVersionOf(LibraryRelease release) {
     var version = 0;
     for (final asset in release.deltaManifestAssets) {
       final match = _manifestVersionPattern.firstMatch(asset.name);

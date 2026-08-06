@@ -57,9 +57,7 @@ class LibraryMirrorExporter {
       all,
       allowPrerelease: allowPrerelease,
     );
-    final relevant = eligible
-        .where((r) => r.deltaManifestAssets.isNotEmpty || r.fullDbAsset != null)
-        .toList(growable: false);
+    final relevant = _latestOnly(eligible);
 
     if (relevant.isEmpty) {
       throw StateError('לא נמצאו releases עם עדכוני DB להורדה.');
@@ -146,6 +144,39 @@ class LibraryMirrorExporter {
     }));
 
     onStage?.call('הושלם');
+  }
+
+  /// ה-release האחרון בלבד, ואיתו — אם הוא עצמו לא נושא `seforim.db.zst` —
+  /// ה-release האחרון שכן נושא כזה, כדי שתמיד יהיה מסלול הורדה מלאה במראה.
+  ///
+  /// היסטוריית ה-patches הישנה **לא** נכללת: היעד הוא כונן נייד, והמראה
+  /// המלאה הגיעה לכמה ג'יגה-בייט. מחשב שנמצא כמה גרסאות מאחור ייפול
+  /// למסלול ההורדה המלאה, שקיים במראה תמיד.
+  List<LibraryRelease> _latestOnly(List<LibraryRelease> eligible) {
+    final withDbContent = eligible
+        .where((r) => r.deltaManifestAssets.isNotEmpty || r.fullDbAsset != null)
+        .toList(growable: false);
+    if (withDbContent.isEmpty) return const [];
+
+    LibraryRelease? latest;
+    LibraryRelease? latestWithFullDb;
+    for (final release in withDbContent) {
+      final version = LibraryUpdateDiscovery.releaseVersionOf(release);
+      if (latest == null ||
+          version > LibraryUpdateDiscovery.releaseVersionOf(latest)) {
+        latest = release;
+      }
+      if (release.fullDbAsset == null) continue;
+      if (latestWithFullDb == null ||
+          version > LibraryUpdateDiscovery.releaseVersionOf(latestWithFullDb)) {
+        latestWithFullDb = release;
+      }
+    }
+
+    return <LibraryRelease>{
+      if (latest != null) latest,
+      if (latestWithFullDb != null) latestWithFullDb,
+    }.toList(growable: false);
   }
 
   String _safeDirName(String tag) =>

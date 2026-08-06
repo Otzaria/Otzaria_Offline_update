@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 import 'src/screens/app_shell.dart';
+import 'src/screens/setup_error_screen.dart';
 import 'src/services/app_logger.dart';
+import 'src/services/app_paths.dart';
 import 'src/settings/app_settings.dart';
 import 'src/settings/settings_controller.dart';
 import 'src/theme/theme_exports.dart';
@@ -40,12 +40,6 @@ void main() {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
-      final supportDir = await getApplicationSupportDirectory();
-      final dataDir = p.join(supportDir.path, 'otzaria-launcher');
-      logger = await AppLogger.init(dataDir);
-
-      final settings = SettingsController(dataDir: dataDir);
-      await settings.load();
 
       // תופס שגיאות שה-widgets framework עצמו זורק (למשל בתוך build/layout).
       FlutterError.onError = (details) {
@@ -57,7 +51,24 @@ void main() {
         FlutterError.presentError(details);
       };
 
-      runApp(LauncherApp(dataDir: dataDir, settings: settings));
+      // תיקיית הנתונים צמודה לתוכנה ואינה ניתנת לשינוי. אם אי אפשר לכתוב
+      // בה — אין לאן לשמור *כלום*, כולל הלוג עצמו, ולכן זו לא שגיאה שאפשר
+      // לרשום ולהמשיך: מציגים מסך הסבר ועוצרים.
+      final AppPaths paths;
+      try {
+        paths = await AppPaths.resolve();
+      } on AppPathsException catch (e) {
+        debugPrint('$e');
+        runApp(SetupErrorApp(error: e));
+        return;
+      }
+
+      logger = await AppLogger.init(paths.dataDir);
+
+      final settings = SettingsController(dataDir: paths.dataDir);
+      await settings.load();
+
+      runApp(LauncherApp(dataDir: paths.dataDir, settings: settings));
     },
     // תופס שגיאות אסינכרוניות שלא נתפסו ע"י שום try/catch — רשת חיצונית
     // (defense in depth): גם אם ניצור בעתיד בטעות עוד קריסת isolate/async
@@ -83,42 +94,67 @@ class LauncherApp extends StatelessWidget {
       builder: (context, _) {
         final s = settings.settings;
 
-        return MaterialApp(
-          navigatorKey: navigatorKey,
-          title: 'אוצריא — מנהל עדכונים',
-          debugShowCheckedModeBanner: false,
-          localizationsDelegates: const [
-            GlobalCupertinoLocalizations.delegate,
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-          ],
-          supportedLocales: const [Locale('he', 'IL')],
-          locale: const Locale('he', 'IL'),
-          theme: AppThemeData.light(
-            AppThemeData.createColorScheme(
-              AppSeedColors.defaultLight,
-              Brightness.light,
-            ),
-          ),
-          darkTheme: AppThemeData.dark(
-            AppThemeData.createColorScheme(
-              AppSeedColors.defaultDark,
-              Brightness.dark,
-            ),
-          ),
+        return _materialApp(
           themeMode: switch (s.themeMode) {
             AppThemeMode.system => ThemeMode.system,
             AppThemeMode.light => ThemeMode.light,
             AppThemeMode.dark => ThemeMode.dark,
           },
-          builder: (context, child) => MediaQuery.withClampedTextScaling(
-            minScaleFactor: s.textScale,
-            maxScaleFactor: s.textScale,
-            child: child ?? const SizedBox.shrink(),
-          ),
+          textScale: s.textScale,
           home: AppShell(dataDir: dataDir, settings: settings),
         );
       },
     );
   }
+}
+
+/// עוטף את [SetupErrorScreen] ב-MaterialApp משלו — ההגדרות עוד לא נטענו
+/// (ואי אפשר לטעון אותן), ולכן ערכת הנושא היא לפי המערכת.
+class SetupErrorApp extends StatelessWidget {
+  const SetupErrorApp({super.key, required this.error});
+
+  final AppPathsException error;
+
+  @override
+  Widget build(BuildContext context) =>
+      _materialApp(home: SetupErrorScreen(error: error));
+}
+
+/// הקונפיגורציה המשותפת לשני ה-MaterialApp — עברית, RTL וערכת הנושא.
+Widget _materialApp({
+  required Widget home,
+  ThemeMode themeMode = ThemeMode.system,
+  double textScale = 1.0,
+}) {
+  return MaterialApp(
+    navigatorKey: navigatorKey,
+    title: 'אוצריא — מנהל עדכונים',
+    debugShowCheckedModeBanner: false,
+    localizationsDelegates: const [
+      GlobalCupertinoLocalizations.delegate,
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+    ],
+    supportedLocales: const [Locale('he', 'IL')],
+    locale: const Locale('he', 'IL'),
+    theme: AppThemeData.light(
+      AppThemeData.createColorScheme(
+        AppSeedColors.defaultLight,
+        Brightness.light,
+      ),
+    ),
+    darkTheme: AppThemeData.dark(
+      AppThemeData.createColorScheme(
+        AppSeedColors.defaultDark,
+        Brightness.dark,
+      ),
+    ),
+    themeMode: themeMode,
+    builder: (context, child) => MediaQuery.withClampedTextScaling(
+      minScaleFactor: textScale,
+      maxScaleFactor: textScale,
+      child: child ?? const SizedBox.shrink(),
+    ),
+    home: home,
+  );
 }

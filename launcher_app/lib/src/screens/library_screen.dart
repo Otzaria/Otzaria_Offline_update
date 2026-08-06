@@ -1,41 +1,40 @@
-import 'dart:io';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 
 import '../controllers/library_module_controller.dart';
-import '../services/file_reveal.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
 import 'home_screen.dart';
 
-/// מסך עדכון הספרייה — מציג את ה-DB שזוהה בפועל ומאפשר החלת עדכון,
-/// החלפת מקור (רשת / תיקייה מקומית) והכנת תוכן להעברה (תכנון §6).
+/// מסך עדכון הספרייה — מציג את ה-DB שזוהה בפועל ומחיל עליו עדכון מהתיקייה
+/// שלצד התוכנה. אין כאן בחירת מקור: המקור תמיד אותה תיקייה.
 class LibraryScreen extends StatelessWidget {
   const LibraryScreen({
     super.key,
     required this.library,
     required this.otzariaIsRunning,
+    required this.isDownloading,
     required this.onProcessStateChanged,
   });
 
   final LibraryModuleController library;
   final bool otzariaIsRunning;
+  final bool isDownloading;
   final Future<void> Function() onProcessStateChanged;
 
-  bool get _isBusy => library.status == LibraryModuleStatus.updating;
+  bool get _isBusy =>
+      library.status == LibraryModuleStatus.updating || isDownloading;
 
   @override
   Widget build(BuildContext context) {
     return ScreenBody(
       title: 'עדכון ספרייה',
-      description: 'המסד לא ייגע בו עד שתאשר/י. בזמן שאוצריא פתוחה '
-          'העדכון חסום, כדי לא לכתוב לקובץ שנעול על ידה.',
+      description: 'העדכון מוחל מהתיקייה שלצד התוכנה, בלי צורך באינטרנט. '
+          'המסד לא ייגע בו עד שתאשר/י, ובזמן שאוצריא פתוחה העדכון חסום.',
       children: [
         _stateCard(context),
         _sourceCard(context),
-        _transferCard(context),
       ],
     );
   }
@@ -74,9 +73,12 @@ class LibraryScreen extends StatelessWidget {
           subtitleLtr: c.localVersion != null,
         ),
         SettingsActionTile.text(
-          icon: FluentIcons.cloud_arrow_down_24_regular,
-          title: 'גרסת היעד במקור הפעיל',
-          subtitle: c.targetVersion?.toString() ?? 'לא ידועה — יש לבצע בדיקה',
+          icon: FluentIcons.folder_24_regular,
+          title: 'גרסת היעד בתיקייה המקומית',
+          subtitle: c.targetVersion?.toString() ??
+              (c.status == LibraryModuleStatus.needsDownload
+                  ? 'טרם הורדו עדכונים'
+                  : 'לא ידועה — יש לבצע בדיקה'),
           subtitleLtr: c.targetVersion != null,
         ),
         if (otzariaIsRunning)
@@ -87,7 +89,7 @@ class LibraryScreen extends StatelessWidget {
           ),
         if (c.errorMessage != null)
           InfoErrorRow(message: c.errorMessage!, onRetry: c.checkForUpdate),
-        if (_isBusy)
+        if (c.status == LibraryModuleStatus.updating)
           InfoProgressRow(
             stage: c.stageText ?? 'מעדכן את המסד...',
             progress: c.applyProgress,
@@ -95,14 +97,14 @@ class LibraryScreen extends StatelessWidget {
         CardActionsRow(
           actions: [
             ActionButton.neutral(
-              text: 'בדיקת עדכונים',
+              text: 'בדיקה מחדש',
               icon: FluentIcons.arrow_sync_24_regular,
               onPressed: _isBusy ? null : c.checkForUpdate,
             ),
             ActionButton.recommended(
-              text: 'הורדה והתקנה',
-              icon: FluentIcons.arrow_download_24_regular,
-              isLoading: _isBusy,
+              text: 'התקנת העדכון',
+              icon: FluentIcons.database_arrow_right_24_regular,
+              isLoading: c.status == LibraryModuleStatus.updating,
               onPressed: c.status == LibraryModuleStatus.updateAvailable
                   ? () => _confirmUpdate(context)
                   : null,
@@ -138,8 +140,8 @@ class LibraryScreen extends StatelessWidget {
       context: context,
       title: 'עדכון ספריית הספרים',
       content: c.isFreshInstall
-          ? 'הספרייה תותקן בפעם הראשונה (גרסה ${c.targetVersion}). '
-              'המסד גדול, וההורדה עשויה להימשך זמן רב.'
+          ? 'הספרייה תותקן בפעם הראשונה (גרסה ${c.targetVersion}) '
+              'מהתיקייה שלצד התוכנה. המסד גדול, וההתקנה עשויה להימשך זמן רב.'
           : 'המסד יעודכן מגרסה ${c.localVersion} לגרסה ${c.targetVersion}. '
               'גיבוי יישמר עד שהגרסה החדשה תיבדק בהצלחה.',
       confirmText: 'עדכן עכשיו',
@@ -152,116 +154,46 @@ class LibraryScreen extends StatelessWidget {
     }
   }
 
-  // ── מקור העדכון ───────────────────────────────────────────────────────────
+  // ── התיקייה שממנה מעדכנים ─────────────────────────────────────────────────
 
   Widget _sourceCard(BuildContext context) {
     final c = library;
-    final isLocal = c.activeMirrorPath != null;
 
     return SettingsCard(
-      title: 'מקור העדכון',
-      subtitle: 'המקור לא מוחלף מאחורי הגב — הבחירה כאן היא זו שתקפה.',
-      children: [
-        SettingsActionTile.path(
-          icon: isLocal
-              ? FluentIcons.usb_stick_24_regular
-              : FluentIcons.cloud_24_regular,
-          title: isLocal ? 'תיקייה מקומית / USB' : 'אינטרנט (GitHub)',
-          path: c.activeMirrorPath,
-          placeholder: 'העדכונים נבדקים ומורדים מהרשת',
-        ),
-        CardActionsRow(
-          actions: [
-            ActionButton.neutral(
-              text: 'עדכון מתיקייה מקומית',
-              icon: FluentIcons.folder_open_24_regular,
-              onPressed: _isBusy ? null : () => _pickMirrorFolder(context),
-            ),
-            if (isLocal)
-              ActionButton.ghost(
-                text: 'חזרה לעדכון מהרשת',
-                icon: FluentIcons.cloud_24_regular,
-                onPressed: _isBusy ? null : c.useCloud,
-              ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Future<void> _pickMirrorFolder(BuildContext context) async {
-    final path = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'בחירת תיקיית עדכון (כונן USB / תיקייה משותפת)',
-    );
-    if (path == null) return;
-    await library.useLocalMirror(path);
-    UiSnack.showSuccess('המקור הפעיל הוא כעת התיקייה שנבחרה');
-  }
-
-  // ── תוכן להעברה ───────────────────────────────────────────────────────────
-
-  Widget _transferCard(BuildContext context) {
-    final c = library;
-    final isRefreshing = c.autoCacheStatus == MirrorExportStatus.exporting;
-
-    return SettingsCard(
-      title: 'תוכן להעברה למחשב אחר',
-      subtitle: 'התיקייה הזו נבנית ברקע במחשב מקוון, ומועתקת כמות שהיא '
-          'לכונן שיחובר למחשב הלא־מקוון.',
+      title: 'התיקייה שממנה מעדכנים',
+      subtitle: 'קבועה, לצד קובץ ההרצה. כשהתוכנה על כונן נייד היא נוסעת '
+          'איתו, וההחלה במחשב הלא־מקוון קוראת ממנה ישירות.',
       children: [
         SettingsActionTile.path(
           icon: FluentIcons.folder_24_regular,
-          title: 'תיקיית ההעברה',
-          path: c.offlineMirrorCacheDir,
-          placeholder: 'לא נבנתה',
+          title: 'תיקיית עדכוני הספרייה',
+          path: c.mirrorDir,
+          placeholder: '—',
         ),
         InfoStatusRow(
-          icon: FluentIcons.arrow_sync_24_regular,
-          title: 'מצב הרענון',
-          kind: switch (c.autoCacheStatus) {
-            MirrorExportStatus.idle => StatusKind.unknown,
-            MirrorExportStatus.exporting => StatusKind.working,
-            MirrorExportStatus.done => StatusKind.ok,
-            MirrorExportStatus.error => StatusKind.error,
+          icon: FluentIcons.arrow_download_24_regular,
+          title: 'תוכן התיקייה',
+          kind: switch (c.status) {
+            LibraryModuleStatus.needsDownload => StatusKind.needsAction,
+            LibraryModuleStatus.error => StatusKind.error,
+            _ => StatusKind.ok,
           },
-          label: switch (c.autoCacheStatus) {
-            MirrorExportStatus.idle => 'לא רוענן בהרצה הזו',
-            MirrorExportStatus.exporting => 'מרענן...',
-            MirrorExportStatus.done => 'מוכן להעתקה',
-            MirrorExportStatus.error => 'הרענון נכשל',
+          label: switch (c.status) {
+            LibraryModuleStatus.needsDownload =>
+              'ריקה — יש להריץ הורדה בדף הבית',
+            LibraryModuleStatus.error => 'לא ניתן לקרוא',
+            _ => c.targetVersion != null
+                ? 'מכילה גרסה ${c.targetVersion}'
+                : 'קיימת',
           },
         ),
-        if (isRefreshing)
-          InfoProgressRow(stage: c.autoCacheStage ?? 'מרענן ברקע...'),
-        if (c.autoCacheStatus == MirrorExportStatus.error &&
-            c.autoCacheError != null)
-          InfoErrorRow(message: c.autoCacheError!),
-        CardActionsRow(
-          actions: [
-            ActionButton.neutral(
-              text: 'רענון התיקייה',
-              icon: FluentIcons.arrow_download_24_regular,
-              isLoading: isRefreshing,
-              onPressed:
-                  isRefreshing ? null : c.refreshOfflineMirrorCacheInBackground,
-            ),
-            ActionButton.ghost(
-              text: 'פתיחת התיקייה',
-              icon: FluentIcons.folder_open_24_regular,
-              onPressed: () => _openTransferFolder(c.offlineMirrorCacheDir),
-            ),
-          ],
-        ),
+        if (c.lastDownloadedAt != null)
+          SettingsActionTile.text(
+            icon: FluentIcons.history_24_regular,
+            title: 'הורד לאחרונה',
+            subtitle: c.lastDownloadedAt!.toLocal().toString().split('.').first,
+          ),
       ],
     );
-  }
-
-  Future<void> _openTransferFolder(String path) async {
-    if (!await Directory(path).exists()) {
-      UiSnack.show('התיקייה עדיין לא נבנתה — יש לרענן אותה קודם.');
-      return;
-    }
-    if (await FileReveal.revealDirectory(path)) return;
-    UiSnack.show('הנתיב: $path');
   }
 }

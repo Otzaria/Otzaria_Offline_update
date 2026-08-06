@@ -18,6 +18,7 @@ import 'package:launcher_app/src/screens/settings_screen.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
 import 'package:launcher_app/src/theme/theme_exports.dart';
+import 'package:launcher_app/src/widgets/widgets_exports.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
 /// משטח בדיקה גבוה — ה-ListView של [ScreenBody] בונה רק את מה שנראה,
@@ -61,12 +62,31 @@ void main() {
     library = LibraryModuleController(dataDir: tempDir.path);
     // מראה בתיקייה זמנית ריקה: הקטלוג לא קיים ולכן [load] מחזיר קטלוג ריק
     // בלי לגעת ברשת — בדיוק המצב שלפני הסנכרון הראשון.
-    plugins = PluginsModuleController(
-      resolveMirrorDir: () async => tempDir.path,
-      resolvePluginsDir: () async => tempDir.path,
-    );
+    plugins = PluginsModuleController(mirrorRootDir: tempDir.path);
     settings = SettingsController(dataDir: tempDir.path);
   });
+
+  /// דף הבית עם כל התלויות — נבנה כאן כדי שהוספת פרמטר לא תדרוש לגעת
+  /// בכל בדיקה בנפרד.
+  HomeScreen home({
+    NetworkState network = NetworkState.unknown,
+    bool otzariaIsRunning = false,
+    bool isDownloading = false,
+  }) =>
+      HomeScreen(
+        otzaria: otzaria,
+        library: library,
+        plugins: plugins,
+        settings: settings,
+        dataDir: tempDir.path,
+        network: network,
+        otzariaIsRunning: otzariaIsRunning,
+        isDownloading: isDownloading,
+        onRecheck: () async {},
+        onDownloadAll: () async {},
+        onGoToLibrary: () {},
+        onGoToPlugins: () {},
+      );
 
   tearDown(() {
     otzaria.dispose();
@@ -78,43 +98,46 @@ void main() {
 
   testWidgets('דף הבית מציג את ארבעת הכרטיסים ואינו טוען שמצב נבדק',
       (tester) async {
-    await pumpScreen(
-      tester,
-      HomeScreen(
-        otzaria: otzaria,
-        library: library,
-        plugins: plugins,
-        settings: settings,
-        network: NetworkState.unknown,
-        otzariaIsRunning: false,
-        onRecheck: () async {},
-        onGoToLibrary: () {},
-        onGoToPlugins: () {},
-      ),
-    );
+    await pumpScreen(tester, home());
 
-    expect(find.text('תוכנת אוצריא'), findsOneWidget);
-    expect(find.text('ספריית הספרים'), findsOneWidget);
-    expect(find.text('תוספים'), findsOneWidget);
-    expect(find.text('העברה למחשב לא־מקוון'), findsOneWidget);
+    expect(find.text('הורדת עדכונים'), findsOneWidget);
+    expect(find.text('תוכנת אוצריא'), findsWidgets);
+    expect(find.text('ספריית הספרים'), findsWidgets);
+    expect(find.text('תוספים'), findsWidgets);
     // המצב ההתחלתי אמור להיות "טרם נבדק", לא "מעודכן".
     expect(find.text('טרם נבדק'), findsWidgets);
+  });
+
+  testWidgets('כפתור ההורדה מושבת כשלא נבחר שום רכיב', (tester) async {
+    // runAsync כי update() כותב לדיסק — futures של dart:io לא נפתרים בתוך
+    // ה-fake-async של testWidgets (ראו AGENTS.md §3).
+    await tester.runAsync(() => settings.update(const AppSettings(
+          syncApp: false,
+          syncLibrary: false,
+          syncPlugins: false,
+        )));
+    await pumpScreen(tester, home());
+
+    final button = tester.widget<ActionButton>(
+      find.widgetWithText(ActionButton, 'הורדת העדכונים'),
+    );
+    expect(button.onPressed, isNull);
+  });
+
+  testWidgets('סימון רכיב להורדה נשמר בהגדרות', (tester) async {
+    await pumpScreen(tester, home());
+
+    expect(settings.settings.syncLibrary, isTrue);
+    await tester.tap(find.text('הרכיב הכבד — המסד המלא הוא כ-1GB'));
+    await tester.pumpAndSettle();
+
+    expect(settings.settings.syncLibrary, isFalse);
   });
 
   testWidgets('דף הבית מציג אזהרה כשאוצריא פתוחה', (tester) async {
     await pumpScreen(
       tester,
-      HomeScreen(
-        otzaria: otzaria,
-        library: library,
-        plugins: plugins,
-        settings: settings,
-        network: NetworkState.online,
-        otzariaIsRunning: true,
-        onRecheck: () async {},
-        onGoToLibrary: () {},
-        onGoToPlugins: () {},
-      ),
+      home(network: NetworkState.online, otzariaIsRunning: true),
     );
 
     expect(
@@ -123,20 +146,21 @@ void main() {
     );
   });
 
-  testWidgets('מסך הספרייה מציג מצב, מקור ותוכן להעברה', (tester) async {
+  testWidgets('מסך הספרייה מציג מצב ואת התיקייה שממנה מעדכנים', (tester) async {
     await pumpScreen(
       tester,
       LibraryScreen(
         library: library,
         otzariaIsRunning: false,
+        isDownloading: false,
         onProcessStateChanged: () async {},
       ),
     );
 
     expect(find.text('מצב המסד'), findsOneWidget);
-    expect(find.text('מקור העדכון'), findsOneWidget);
-    expect(find.text('תוכן להעברה למחשב אחר'), findsOneWidget);
-    // ברירת המחדל היא הרשת, ולכן אין כפתור "חזרה לעדכון מהרשת".
+    expect(find.text('התיקייה שממנה מעדכנים'), findsOneWidget);
+    // אין יותר בחירת מקור — התיקייה קבועה ליד התוכנה.
+    expect(find.text('עדכון מתיקייה מקומית'), findsNothing);
     expect(find.text('חזרה לעדכון מהרשת'), findsNothing);
   });
 
@@ -190,23 +214,34 @@ void main() {
   testWidgets('מסך ההגדרות מציג את כל קטגוריות ההגדרה', (tester) async {
     await pumpScreen(
       tester,
-      SettingsScreen(controller: settings, onOpenLog: () {}),
+      SettingsScreen(
+        controller: settings,
+        dataDir: tempDir.path,
+        onOpenLog: () {},
+      ),
     );
 
     expect(find.text('אוטומציה'), findsOneWidget);
     expect(find.text('ערוצי גרסאות'), findsOneWidget);
-    expect(find.text('נתיבים ואחסון'), findsOneWidget);
+    expect(find.text('אחסון'), findsOneWidget);
     expect(find.text('רשת'), findsOneWidget);
     expect(find.text('ממשק ותמיכה'), findsOneWidget);
+    // אין יותר הגדרות נתיבים — התיקייה צמודה לתוכנה ואינה ניתנת לשינוי.
+    expect(find.text('נתיבים ואחסון'), findsNothing);
+    expect(find.text('בחירת תיקייה'), findsNothing);
   });
 
   testWidgets('הפעלת התקנה אוטומטית דורשת אישור באזהרה', (tester) async {
     await pumpScreen(
       tester,
-      SettingsScreen(controller: settings, onOpenLog: () {}),
+      SettingsScreen(
+        controller: settings,
+        dataDir: tempDir.path,
+        onOpenLog: () {},
+      ),
     );
 
-    await tester.tap(find.text('התקנת עדכון תוכנת אוצריא'));
+    await tester.tap(find.text('התקנת תוכנת אוצריא אוטומטית'));
     await tester.pumpAndSettle();
 
     expect(find.text('התקנה אוטומטית של תוכנת אוצריא'), findsOneWidget);
@@ -215,37 +250,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(settings.settings.autoInstallApp, isFalse);
 
-    await tester.tap(find.text('התקנת עדכון תוכנת אוצריא'));
+    await tester.tap(find.text('התקנת תוכנת אוצריא אוטומטית'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('הפעל התקנה אוטומטית'));
     await tester.pumpAndSettle();
 
     expect(settings.settings.autoInstallApp, isTrue);
-    // ההתקנה תלויה בהורדה, ולכן גם היא נדלקת.
-    expect(settings.settings.autoDownloadApp, isTrue);
-  });
-
-  testWidgets('הפעלת סנכרון תוספים בפתיחה דורשת אישור באזהרה', (tester) async {
-    await pumpScreen(
-      tester,
-      SettingsScreen(controller: settings, onOpenLog: () {}),
-    );
-
-    await tester.tap(find.text('סנכרון חנות התוספים בפתיחה'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('סנכרון חנות התוספים בפתיחה'), findsWidgets);
-    // ביטול משאיר את ההגדרה כבויה.
-    await tester.tap(find.text('ביטול'));
-    await tester.pumpAndSettle();
-    expect(settings.settings.autoDownloadAllPlugins, isFalse);
-
-    await tester.tap(find.text('סנכרון חנות התוספים בפתיחה').first);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('הפעל סנכרון בפתיחה'));
-    await tester.pumpAndSettle();
-
-    expect(settings.settings.autoDownloadAllPlugins, isTrue);
   });
 
   test('ערוץ התוספים נגזר לסינון ברירת המחדל של החנות', () {
@@ -262,7 +272,7 @@ void main() {
 
   test('סינון ההתחלה של החנות נקבע מהערוץ', () {
     final controller = PluginsModuleController(
-      resolveMirrorDir: () async => tempDir.path,
+      mirrorRootDir: tempDir.path,
       initialStatusFilter: PluginStatusFilter.stable,
     );
     expect(controller.statusFilter, PluginStatusFilter.stable);
@@ -270,12 +280,12 @@ void main() {
   });
 
   test('ברירות המחדל של ההגדרות נשמרות ונטענות מקובץ', () async {
-    await settings.update(const AppSettings(autoDownloadLibrary: true));
+    await settings.update(const AppSettings(syncLibrary: false));
 
     final reloaded = SettingsController(dataDir: tempDir.path);
     await reloaded.load();
 
-    expect(reloaded.settings.autoDownloadLibrary, isTrue);
+    expect(reloaded.settings.syncLibrary, isFalse);
     expect(reloaded.settings.autoInstallLibrary, isFalse);
     reloaded.dispose();
   });
