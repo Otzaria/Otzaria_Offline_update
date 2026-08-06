@@ -1,7 +1,7 @@
 import '../models/delta_manifest.dart';
 import '../models/library_release.dart';
 
-/// מקור נתונים למידע ה-releases של ספריית הספרים: או ה-cloud (GitHub, דרך
+/// מקור נתונים למידע ה-releases של הספרייה: או ה-cloud (GitHub, דרך
 /// [GithubLibraryReleaseClient]) או מראה מקומית (offline, דרך
 /// [LocalMirrorLibraryReleaseClient]). [LibraryUpdateDiscovery] תלוי רק
 /// בממשק הזה, כך שהוא אגנוסטי לחלוטין למקור בפועל.

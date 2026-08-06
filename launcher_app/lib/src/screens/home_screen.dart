@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../controllers/library_module_controller.dart';
 import '../controllers/otzaria_module_controller.dart';
+import '../controllers/plugins_module_controller.dart';
 import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/screen_body.dart';
@@ -16,6 +17,7 @@ class HomeScreen extends StatelessWidget {
     super.key,
     required this.otzaria,
     required this.library,
+    required this.plugins,
     required this.settings,
     required this.otzariaIsRunning,
     required this.isDownloading,
@@ -28,6 +30,7 @@ class HomeScreen extends StatelessWidget {
 
   final OtzariaModuleController otzaria;
   final LibraryModuleController library;
+  final PluginsModuleController plugins;
   final SettingsController settings;
   final bool otzariaIsRunning;
   final bool isDownloading;
@@ -157,7 +160,7 @@ class HomeScreen extends StatelessWidget {
 
     return _HomeTile(
       icon: FluentIcons.library_24_regular,
-      title: 'ספריית הספרים',
+      title: 'הספרייה',
       statusKind: libraryStatusKind(c.status),
       statusLabel: libraryStatusLabel(c),
       primaryActionText: c.status == LibraryModuleStatus.updateAvailable
@@ -181,7 +184,7 @@ class HomeScreen extends StatelessWidget {
     final c = library;
     final approved = await showTwoActionsDialog(
       context: context,
-      title: 'עדכון ספריית הספרים',
+      title: 'עדכון הספרייה',
       content: c.isFreshInstall
           ? 'הספרייה תותקן בפעם הראשונה (גרסה ${c.targetVersion}) '
               'מהתיקייה שלצד התוכנה. המסד גדול, וההתקנה עשויה להימשך זמן רב.'
@@ -261,6 +264,10 @@ class HomeScreen extends StatelessWidget {
                           : null,
                 ),
               ],
+              if (isDownloading) ...[
+                const SizedBox(height: AppTokens.spaceMD),
+                _downloadProgress(),
+              ],
               if (otzaria.onlineCheckedAt != null ||
                   library.onlineCheckedAt != null) ...[
                 const SizedBox(height: AppTokens.spaceSM),
@@ -276,6 +283,37 @@ class HomeScreen extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  /// שורת התקדמות אחת לרכיב שמוריד כרגע — ההורדות רצות בטור, ולכן לכל
+  /// היותר אחת מהן פעילה.
+  Widget _downloadProgress() {
+    if (otzaria.downloadStatus == OtzariaDownloadStatus.downloading) {
+      final received = otzaria.downloadReceived;
+      final total = otzaria.downloadTotal;
+      return InfoProgressRow(
+        stage: 'מוריד את תוכנת אוצריא...',
+        progress: (received != null && total != null && total > 0)
+            ? received / total
+            : null,
+      );
+    }
+    if (library.downloadStatus == MirrorDownloadStatus.downloading) {
+      final done = library.downloadDoneAssets;
+      final total = library.downloadTotalAssets;
+      return InfoProgressRow(
+        stage: library.downloadStage ?? 'מוריד את הספרייה...',
+        progress:
+            (done != null && total != null && total > 0) ? done / total : null,
+      );
+    }
+    if (plugins.status == PluginsModuleStatus.syncing) {
+      return InfoProgressRow(
+        stage: plugins.syncMessage ?? 'מוריד את התוספים...',
+        progress: plugins.syncProgress,
+      );
+    }
+    return const InfoProgressRow(stage: 'מתחיל הורדה...');
   }
 
   static String _formatTime(DateTime time) {

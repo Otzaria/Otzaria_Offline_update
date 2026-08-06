@@ -14,15 +14,14 @@ class OtzariaScreen extends StatelessWidget {
     super.key,
     required this.otzaria,
     required this.otzariaIsRunning,
-    required this.isDownloading,
   });
 
   final OtzariaModuleController otzaria;
   final bool otzariaIsRunning;
-  final bool isDownloading;
 
-  bool get _isBusy =>
-      otzaria.status == OtzariaModuleStatus.installing || isDownloading;
+  /// **לא** תלוי בהורדה גלובלית: הורדה של רכיב אחר (למשל הספרייה) לא
+  /// אמורה לחסום פעולות מקומיות כאן (בחירת מיקום, בדיקה מחדש).
+  bool get _isBusy => otzaria.status == OtzariaModuleStatus.installing;
 
   @override
   Widget build(BuildContext context) {

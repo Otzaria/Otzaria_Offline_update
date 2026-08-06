@@ -6,7 +6,7 @@ import '../models/delta_manifest.dart';
 import '../models/library_release.dart';
 import 'library_release_source.dart';
 
-/// לקוח לקריאת ה-releases וה-assets של ספריית הספרים מ-GitHub.
+/// לקוח לקריאת ה-releases וה-assets של הספרייה מ-GitHub.
 ///
 /// משתמש ב-`GET /releases` (ולא ב-`/releases/latest`), כי ה-latest אינו
 /// מספיק כאשר הספרייה מפורסמת כ-prerelease.

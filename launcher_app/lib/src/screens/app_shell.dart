@@ -248,6 +248,7 @@ class _AppShellState extends State<AppShell> {
                       HomeScreen(
                         otzaria: _otzaria,
                         library: _library,
+                        plugins: _plugins,
                         settings: widget.settings,
                         otzariaIsRunning: _otzariaIsRunning,
                         isDownloading: _isDownloading,
@@ -262,7 +263,6 @@ class _AppShellState extends State<AppShell> {
                       OtzariaScreen(
                         otzaria: _otzaria,
                         otzariaIsRunning: _otzariaIsRunning,
-                        isDownloading: _isDownloading,
                       ),
                       LibraryScreen(
                         library: _library,

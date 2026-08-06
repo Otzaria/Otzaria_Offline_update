@@ -41,9 +41,11 @@ class OtzariaManager {
   OtzariaManager({
     required String dataDir,
     OtzariaTargetPlatform? platform,
+    Map<String, String>? environment,
     this.allowPrerelease = false,
   })  : _platform =
             platform ?? OtzariaTargetPlatform.detect(Platform.operatingSystem),
+        _environment = environment ?? Platform.environment,
         _stateStore =
             OtzariaStateStore(p.join(dataDir, 'otzaria_install_state.json')),
         _launcher = const OtzariaLauncher(),
@@ -78,6 +80,7 @@ class OtzariaManager {
   final String mirrorDir;
 
   final OtzariaTargetPlatform _platform;
+  final Map<String, String> _environment;
   final OtzariaStateStore _stateStore;
   late final OtzariaReleaseClient _releaseClient;
   late final OtzariaChangelogClient _changelogClient;
@@ -94,9 +97,41 @@ class OtzariaManager {
   /// עותק שני בתיקייה המנוהלת של הלאנצ'ר.
   static const String _macApplicationsDir = '/Applications';
 
+  /// גיבוי משני בווינדוס — לא ברירת המחדל האמיתית. ייתכן שזה עדיין נכון
+  /// בהתקנות ישנות (אומת מול מפתחי אוצריא: "אם קיימת התקנה קודמת — המתקין
+  /// נשאר בנתיב שלה, למשל C:\אוצריא או {Program Files}\אוצריא").
+  static const String _legacyWindowsInstallDir = r'C:\אוצריא';
+
+  /// ברירת המחדל האמיתית של installer-ה-Inno Setup של אוצריא בווינדוס —
+  /// **אומת מול מפתחי אוצריא** (לא ניחוש): `{autopf}\Otzaria`, כלומר
+  /// `%LocalAppData%\Programs\Otzaria` בהתקנה למשתמש הנוכחי (ברירת המחדל),
+  /// או `%ProgramFiles%\Otzaria` בהתקנה לכל המשתמשים (כמנהל). שתיהן
+  /// תיקיות ייעודיות לאוצריא בלבד — לא "משותפות" כמו `/Applications`.
+  List<({String dir, bool sharedDir})> get _windowsRealDefaultDirs {
+    final dirs = <({String dir, bool sharedDir})>[];
+
+    final localAppData = _environment['LOCALAPPDATA'];
+    if (localAppData != null && localAppData.isNotEmpty) {
+      dirs.add((
+        dir: p.join(localAppData, 'Programs', 'Otzaria'),
+        sharedDir: false,
+      ));
+    }
+    final programFiles = _environment['ProgramFiles'];
+    if (programFiles != null && programFiles.isNotEmpty) {
+      dirs.add((dir: p.join(programFiles, 'Otzaria'), sharedDir: false));
+      dirs.add((dir: p.join(programFiles, 'אוצריא'), sharedDir: false));
+    }
+    dirs.add((dir: _legacyWindowsInstallDir, sharedDir: false));
+
+    return dirs;
+  }
+
   /// התיקיות שבהן מחפשים התקנה קיימת כשאין עדיין state שמור, לפי סדר
-  /// עדיפות. ב-macOS `/Applications` בא **אחרי** התיקייה המנוהלת, כדי
-  /// שהתקנה שהלאנצ'ר עשה בעצמו תמיד תנצח.
+  /// עדיפות. התיקייה המנוהלת של הלאנצ'ר תמיד ראשונה (אם הלאנצ'ר עצמו
+  /// התקין, זה המקור הסמכותי); אחריה מיקומי ברירת המחדל האמיתיים של
+  /// אוצריא בפלטפורמה. ב-macOS `/Applications` בא **אחרון**, כדי שהתקנה
+  /// שהלאנצ'ר עשה בעצמו תמיד תנצח.
   ///
   /// `sharedDir` מסמן תיקייה שיש בה גם אפליקציות אחרות — ראו
   /// [_verifyIsOtzaria].
@@ -104,6 +139,7 @@ class OtzariaManager {
       switch (_platform) {
         OtzariaTargetPlatform.windows => [
             (dir: _defaultInstallDir, sharedDir: false),
+            ..._windowsRealDefaultDirs,
           ],
         OtzariaTargetPlatform.macos => [
             (dir: _defaultInstallDir, sharedDir: false),

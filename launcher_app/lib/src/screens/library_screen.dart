@@ -138,7 +138,7 @@ class LibraryScreen extends StatelessWidget {
     final c = library;
     final approved = await showTwoActionsDialog(
       context: context,
-      title: 'עדכון ספריית הספרים',
+      title: 'עדכון הספרייה',
       content: c.isFreshInstall
           ? 'הספרייה תותקן בפעם הראשונה (גרסה ${c.targetVersion}) '
               'מהתיקייה שלצד התוכנה. המסד גדול, וההתקנה עשויה להימשך זמן רב.'

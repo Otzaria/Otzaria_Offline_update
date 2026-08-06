@@ -9,7 +9,7 @@ import 'github_library_release_client.dart';
 import 'library_update_discovery.dart';
 import 'local_mirror_library_release_client.dart';
 
-/// בונה "מראה" (mirror) מקומית מלאה של כל עדכוני ספריית הספרים מ-GitHub,
+/// בונה "מראה" (mirror) מקומית מלאה של כל עדכוני הספרייה מ-GitHub,
 /// לתיקייה על הדיסק (USB / תיקייה משותפת) — כדי שמחשבים **בלי אינטרנט
 /// בכלל** יוכלו לעדכן את ה-DB אחר-כך דרך [LocalMirrorLibraryReleaseClient],
 /// בלי לגעת ב-GitHub בכלל.

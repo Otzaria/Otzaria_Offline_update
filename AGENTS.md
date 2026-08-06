@@ -250,6 +250,22 @@ returns `null` and the UI must ask the user to point at the file. Do not
 hardcode a path here — a previous confident claim about the "real" location was
 simply wrong.
 
+**The Otzaria *app*'s real default install directory, verified against the
+Otzaria developers (2026-08-07) — not a guess:** the Windows Inno Setup
+installer's default is `{autopf}\Otzaria`, i.e. `%LocalAppData%\Programs\Otzaria`
+for a per-user install (the installer's default) or `%ProgramFiles%\Otzaria`
+for a per-machine install; older installs may sit at `C:\אוצריא` or
+`{Program Files}\אוצריא`. `OtzariaManager._windowsRealDefaultDirs` checks all
+of these, after the launcher's own managed folder. This is a *different*
+directory from where the library DB lives (`%APPDATA%\otzaria\`, see above) —
+don't conflate the two when debugging "Otzaria not detected" reports. Before
+this was added, `OtzariaManager._autoDetectDirs` on Windows checked **only**
+the launcher's own managed install folder, so any Otzaria installed
+independently (via the real installer, or before the "data folder next to the
+executable" rework moved that managed folder) was invisible to auto-detect —
+the manual "בחירת מיקום ידנית" picker (`OtzariaModuleController.adoptInstallDir`)
+is the fallback for anything these paths don't cover.
+
 ---
 
 ## 6. Verification status (read before claiming something works)
