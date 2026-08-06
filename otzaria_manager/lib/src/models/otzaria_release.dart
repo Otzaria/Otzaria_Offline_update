@@ -91,6 +91,21 @@ class OtzariaRelease extends Equatable {
   final String installerDownloadUrl;
   final int installerSizeBytes;
 
+  /// עותק עם [releaseNotes] מוחלף — משמש להעדיף פסקה מיומן השינויים
+  /// המרוכז (ראו `OtzariaChangelogClient`) על פני תיאור ה-release הגולמי.
+  OtzariaRelease copyWithReleaseNotes(String? releaseNotes) => OtzariaRelease(
+        tagName: tagName,
+        name: name,
+        isPrerelease: isPrerelease,
+        isDraft: isDraft,
+        publishedAt: publishedAt,
+        installerKind: installerKind,
+        installerAssetName: installerAssetName,
+        installerDownloadUrl: installerDownloadUrl,
+        installerSizeBytes: installerSizeBytes,
+        releaseNotes: releaseNotes,
+      );
+
   Map<String, dynamic> toJson() => {
         'tagName': tagName,
         'name': name,

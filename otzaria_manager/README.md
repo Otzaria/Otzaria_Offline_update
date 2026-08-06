@@ -116,6 +116,9 @@ manager.close();
 
 - `models/` — `OtzariaRelease` (+`OtzariaTargetPlatform`, `OtzariaInstallerKind`), `OtzariaInstallState`, `OtzariaUpdateCheckResult`.
 - `services/otzaria_release_client.dart` — שליפת release אחרון מ-GitHub API.
+- `services/otzaria_changelog_client.dart` — שליפת הפסקה המתאימה מיומן
+  השינויים המרוכז של אוצריא (`assets/יומן שינויים.md` בענף `dev`), כדי
+  להעדיף אותה על פני `release.body` שלא תמיד מלא.
 - `services/otzaria_asset_selector.dart` — בחירת האסט לפי פלטפורמה; פונקציה טהורה (בלי רשת ובלי `Platform`), ולכן ניתנת לבדיקה עבור שתי הפלטפורמות.
 - `services/otzaria_installer.dart` — הורדה + התקנה + גילוי מה שהותקן; מסלול לכל `OtzariaInstallerKind`, ותיקיית יעד לבחירה (ברירת מחדל, או תיקייה קיימת שאומצה).
 - `services/otzaria_app_locator.dart` — סריקת תיקייה ואיתור ה-exe/`.app` הראשי (משותף בין installer לזיהוי התקנה קיימת), עם סינון אופציונלי לתיקיות משותפות כמו `/Applications`.

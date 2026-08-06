@@ -1,0 +1,68 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
+import '../models/otzaria_update_check_result.dart';
+
+/// שולף את "יומן השינויים" המרוכז של אוצריא — קובץ Markdown יחיד עם כל
+/// הגרסאות ב-`Otzaria/otzaria` — ומחלץ ממנו את הפסקה של גרסה ספציפית.
+///
+/// זה מקור מלא ומתוחזק יותר מתיאור ה-release הבודד ב-GitHub, שלא תמיד
+/// נכתב. [OtzariaReleaseClient] וה-sync להתקנה משתמשים בזה כדי להעדיף את
+/// הפסקה מכאן על פני `release.body`, ונופלים חזרה לזה אם הגרסה לא נמצאה
+/// כאן או שאין רשת.
+class OtzariaChangelogClient {
+  OtzariaChangelogClient({http.Client? httpClient})
+      : _httpClient = httpClient ?? http.Client();
+
+  // הקובץ חי בענף dev ולא בתג ה-release — הוא ה"מקור האחד" שמתעדכן עם כל
+  // גרסה, בניגוד לתיאור ה-release שלעיתים נשאר ריק.
+  static const String url = 'https://raw.githubusercontent.com/Otzaria/'
+      'otzaria/dev/assets/%D7%99%D7%95%D7%9E%D7%9F%20%D7%A9%D7%99%D7%A0%D7%95'
+      '%D7%99%D7%99%D7%9D.md';
+
+  /// כותרת גרסה בקובץ, לדוגמה `* **0.9.96**`.
+  static final RegExp _versionHeader =
+      RegExp(r'^\*\s*\*\*([0-9][0-9.]*)\*\*\s*$');
+
+  final http.Client _httpClient;
+
+  /// מחזיר `null` בכל כשל — רשת, סטטוס לא תקין, או שהגרסה עדיין לא מופיעה
+  /// בקובץ. זה תמיד נתיב-רשת קל ואופציונלי; הקורא נופל אז חזרה לתיאור
+  /// ה-release הגולמי.
+  Future<String?> notesFor(String tagName) async {
+    try {
+      final response = await _httpClient.get(
+        Uri.parse(url),
+        headers: const {'User-Agent': 'otzaria-launcher'},
+      );
+      if (response.statusCode != 200) return null;
+      return _extract(response.body, tagName);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? _extract(String markdown, String tagName) {
+    final target = OtzariaUpdateCheckResult.normalizeVersion(tagName);
+    final lines = const LineSplitter().convert(markdown);
+    final buffer = StringBuffer();
+    var inSection = false;
+
+    for (final line in lines) {
+      final header = _versionHeader.firstMatch(line);
+      if (header != null) {
+        // כותרת הגרסה הבאה — אם כבר היינו בפסקה שלנו, זה הסוף שלה.
+        if (inSection) break;
+        inSection = header.group(1) == target;
+        continue;
+      }
+      if (inSection) buffer.writeln(line);
+    }
+
+    final text = buffer.toString().trim();
+    return text.isEmpty ? null : text;
+  }
+
+  void close() => _httpClient.close();
+}
