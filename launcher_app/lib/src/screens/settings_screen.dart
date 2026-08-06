@@ -87,7 +87,7 @@ class SettingsScreen extends StatelessWidget {
           onChanged: (v) => _confirmAutoInstall(
             context,
             enabled: v,
-            what: 'ספריית הספרים',
+            what: 'הספרייה',
             apply: (on) => _set(_s.copyWith(autoInstallLibrary: on)),
           ),
         ),
@@ -146,7 +146,7 @@ class SettingsScreen extends StatelessWidget {
         ),
         SettingsActionTile.switchTile(
           icon: FluentIcons.library_24_regular,
-          title: 'ספריית הספרים',
+          title: 'הספרייה',
           subtitle: 'הרכיב הכבד — המסד המלא הוא כ-1GB',
           value: _s.syncLibrary,
           onChanged: (v) => _set(_s.copyWith(syncLibrary: v)),
@@ -189,7 +189,7 @@ class SettingsScreen extends StatelessWidget {
         ),
         SettingsActionTile.segmentedTile<UpdateChannel>(
           icon: FluentIcons.library_24_regular,
-          title: 'ספריית הספרים',
+          title: 'הספרייה',
           options: options,
           currentValue: _s.libraryChannel,
           onChanged: (v) => _set(_s.copyWith(libraryChannel: v)),

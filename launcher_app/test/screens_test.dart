@@ -76,6 +76,7 @@ void main() {
       HomeScreen(
         otzaria: otzaria,
         library: library,
+        plugins: plugins,
         settings: settings,
         otzariaIsRunning: otzariaIsRunning,
         isDownloading: isDownloading,
@@ -99,7 +100,7 @@ void main() {
     await pumpScreen(tester, home());
 
     expect(find.text('תוכנת אוצריא'), findsWidgets);
-    expect(find.text('ספריית הספרים'), findsWidgets);
+    expect(find.text('הספרייה'), findsWidgets);
     // מופיע פעמיים: כותרת הכרטיס וטקסט הכפתור הידני.
     expect(find.text('בדיקת עדכונים'), findsNWidgets(2));
     // המצב ההתחלתי אמור להיות "טרם נבדק", לא "מעודכן".
@@ -142,7 +143,6 @@ void main() {
       OtzariaScreen(
         otzaria: otzaria,
         otzariaIsRunning: false,
-        isDownloading: false,
       ),
     );
 
@@ -152,6 +152,22 @@ void main() {
       find.text('אין תיאור לגרסה הזו, או שעדיין לא הורדה גרסה.'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('בחירת מיקום ידנית לאוצריא לא מושבתת בגלל הורדה של רכיב אחר',
+      (tester) async {
+    await pumpScreen(
+      tester,
+      OtzariaScreen(
+        otzaria: otzaria,
+        otzariaIsRunning: false,
+      ),
+    );
+
+    final button = tester.widget<ActionButton>(
+      find.widgetWithText(ActionButton, 'בחירת מיקום ידנית'),
+    );
+    expect(button.onPressed, isNotNull);
   });
 
   testWidgets('מתגי הסנכרון עברו להגדרות ונשמרים', (tester) async {

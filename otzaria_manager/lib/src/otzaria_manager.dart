@@ -9,6 +9,7 @@ import 'services/installed_version_reader.dart';
 import 'services/mac_app_version_reader.dart';
 import 'services/otzaria_app_locator.dart';
 import 'services/otzaria_app_mirror.dart';
+import 'services/otzaria_changelog_client.dart';
 import 'services/otzaria_installer.dart';
 import 'services/otzaria_launcher.dart';
 import 'services/otzaria_release_client.dart';
@@ -40,9 +41,11 @@ class OtzariaManager {
   OtzariaManager({
     required String dataDir,
     OtzariaTargetPlatform? platform,
+    Map<String, String>? environment,
     this.allowPrerelease = false,
   })  : _platform =
             platform ?? OtzariaTargetPlatform.detect(Platform.operatingSystem),
+        _environment = environment ?? Platform.environment,
         _stateStore =
             OtzariaStateStore(p.join(dataDir, 'otzaria_install_state.json')),
         _launcher = const OtzariaLauncher(),
@@ -53,6 +56,7 @@ class OtzariaManager {
         _defaultInstallDir = p.join(dataDir, 'otzaria-app'),
         mirrorDir = p.join(dataDir, 'mirror', 'app') {
     _releaseClient = OtzariaReleaseClient(platform: platform);
+    _changelogClient = OtzariaChangelogClient();
     _installer = OtzariaInstaller(
       defaultInstallDir: _defaultInstallDir,
       // קובצי ההתקנה יושבים **בתוך** המראה, כדי שהמטא־דאטה והקובץ ייסעו
@@ -64,6 +68,7 @@ class OtzariaManager {
       mirrorDir: mirrorDir,
       releaseClient: _releaseClient,
       installer: _installer,
+      changelogClient: _changelogClient,
     );
   }
 
@@ -75,8 +80,10 @@ class OtzariaManager {
   final String mirrorDir;
 
   final OtzariaTargetPlatform _platform;
+  final Map<String, String> _environment;
   final OtzariaStateStore _stateStore;
   late final OtzariaReleaseClient _releaseClient;
+  late final OtzariaChangelogClient _changelogClient;
   late final OtzariaInstaller _installer;
   late final OtzariaAppMirror _mirror;
   final OtzariaLauncher _launcher;
@@ -90,9 +97,41 @@ class OtzariaManager {
   /// עותק שני בתיקייה המנוהלת של הלאנצ'ר.
   static const String _macApplicationsDir = '/Applications';
 
+  /// גיבוי משני בווינדוס — לא ברירת המחדל האמיתית. ייתכן שזה עדיין נכון
+  /// בהתקנות ישנות (אומת מול מפתחי אוצריא: "אם קיימת התקנה קודמת — המתקין
+  /// נשאר בנתיב שלה, למשל C:\אוצריא או {Program Files}\אוצריא").
+  static const String _legacyWindowsInstallDir = r'C:\אוצריא';
+
+  /// ברירת המחדל האמיתית של installer-ה-Inno Setup של אוצריא בווינדוס —
+  /// **אומת מול מפתחי אוצריא** (לא ניחוש): `{autopf}\Otzaria`, כלומר
+  /// `%LocalAppData%\Programs\Otzaria` בהתקנה למשתמש הנוכחי (ברירת המחדל),
+  /// או `%ProgramFiles%\Otzaria` בהתקנה לכל המשתמשים (כמנהל). שתיהן
+  /// תיקיות ייעודיות לאוצריא בלבד — לא "משותפות" כמו `/Applications`.
+  List<({String dir, bool sharedDir})> get _windowsRealDefaultDirs {
+    final dirs = <({String dir, bool sharedDir})>[];
+
+    final localAppData = _environment['LOCALAPPDATA'];
+    if (localAppData != null && localAppData.isNotEmpty) {
+      dirs.add((
+        dir: p.join(localAppData, 'Programs', 'Otzaria'),
+        sharedDir: false,
+      ));
+    }
+    final programFiles = _environment['ProgramFiles'];
+    if (programFiles != null && programFiles.isNotEmpty) {
+      dirs.add((dir: p.join(programFiles, 'Otzaria'), sharedDir: false));
+      dirs.add((dir: p.join(programFiles, 'אוצריא'), sharedDir: false));
+    }
+    dirs.add((dir: _legacyWindowsInstallDir, sharedDir: false));
+
+    return dirs;
+  }
+
   /// התיקיות שבהן מחפשים התקנה קיימת כשאין עדיין state שמור, לפי סדר
-  /// עדיפות. ב-macOS `/Applications` בא **אחרי** התיקייה המנוהלת, כדי
-  /// שהתקנה שהלאנצ'ר עשה בעצמו תמיד תנצח.
+  /// עדיפות. התיקייה המנוהלת של הלאנצ'ר תמיד ראשונה (אם הלאנצ'ר עצמו
+  /// התקין, זה המקור הסמכותי); אחריה מיקומי ברירת המחדל האמיתיים של
+  /// אוצריא בפלטפורמה. ב-macOS `/Applications` בא **אחרון**, כדי שהתקנה
+  /// שהלאנצ'ר עשה בעצמו תמיד תנצח.
   ///
   /// `sharedDir` מסמן תיקייה שיש בה גם אפליקציות אחרות — ראו
   /// [_verifyIsOtzaria].
@@ -100,6 +139,7 @@ class OtzariaManager {
       switch (_platform) {
         OtzariaTargetPlatform.windows => [
             (dir: _defaultInstallDir, sharedDir: false),
+            ..._windowsRealDefaultDirs,
           ],
         OtzariaTargetPlatform.macos => [
             (dir: _defaultInstallDir, sharedDir: false),
@@ -121,8 +161,18 @@ class OtzariaManager {
   /// API יחידה, בלי הורדת קובץ ההתקנה. מיועדת לבדיקה צדדית ("יש עדכון?")
   /// בלי לחייב הורדה מלאה. זורקת חריג רשת/HTTP רגיל בכשל — הקורא אמור
   /// להתייחס לכשל כ"אין חיבור כרגע", לא כשגיאה חוסמת.
-  Future<OtzariaRelease> peekLatestOnlineRelease() =>
-      _releaseClient.fetchLatestRelease(allowPrerelease: allowPrerelease);
+  ///
+  /// המידע "מה התחדש" בתוצאה מגיע מיומן השינויים המרוכז של אוצריא
+  /// (`OtzariaChangelogClient`) כשהגרסה מופיעה בו, ונופל חזרה לתיאור
+  /// ה-release הגולמי מ-GitHub אם לא.
+  Future<OtzariaRelease> peekLatestOnlineRelease() async {
+    final release = await _releaseClient.fetchLatestRelease(
+        allowPrerelease: allowPrerelease);
+    final changelogNotes = await _changelogClient.notesFor(release.tagName);
+    return changelogNotes == null
+        ? release
+        : release.copyWithReleaseNotes(changelogNotes);
+  }
 
   /// בודק אם יש עדכון זמין — **מהמראה המקומית בלבד, בלי רשת**. אם עדיין אין
   /// state שמור (אף פעם לא הותקן/אומץ דרך הלאנצ'ר הזה), מנסה קודם לזהות
@@ -241,6 +291,7 @@ class OtzariaManager {
 
   void close() {
     _releaseClient.close();
+    _changelogClient.close();
     _installer.close();
   }
 }

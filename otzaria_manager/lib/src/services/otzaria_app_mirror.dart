@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../models/otzaria_release.dart';
+import 'otzaria_changelog_client.dart';
 import 'otzaria_installer.dart';
 import 'otzaria_release_client.dart';
 
@@ -32,14 +33,17 @@ class OtzariaAppMirror {
     required this.mirrorDir,
     required OtzariaReleaseClient releaseClient,
     required OtzariaInstaller installer,
+    OtzariaChangelogClient? changelogClient,
   })  : _releaseClient = releaseClient,
-        _installer = installer;
+        _installer = installer,
+        _changelogClient = changelogClient ?? OtzariaChangelogClient();
 
   /// `<dataDir>/mirror/app` — נוסע עם התוכנה על הכונן הנייד.
   final String mirrorDir;
 
   final OtzariaReleaseClient _releaseClient;
   final OtzariaInstaller _installer;
+  final OtzariaChangelogClient _changelogClient;
 
   static const String _metadataFileName = 'latest-release.json';
 
@@ -87,9 +91,13 @@ class OtzariaAppMirror {
     required bool allowPrerelease,
     void Function(int received, int total)? onDownloadProgress,
   }) async {
-    final release = await _releaseClient.fetchLatestRelease(
+    var release = await _releaseClient.fetchLatestRelease(
       allowPrerelease: allowPrerelease,
     );
+    final changelogNotes = await _changelogClient.notesFor(release.tagName);
+    if (changelogNotes != null) {
+      release = release.copyWithReleaseNotes(changelogNotes);
+    }
 
     final installerPath = await _installer.ensureCached(
       release: release,
