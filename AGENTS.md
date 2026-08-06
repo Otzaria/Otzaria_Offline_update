@@ -21,7 +21,7 @@ real-world workflow is:
    launcher from there, and it downloads:
    - library (`seforim.db`) updates for Otzaria — full DB or delta patches,
    - Otzaria app updates,
-   - (planned) Otzaria plugin updates.
+   - Otzaria plugin updates (catalog + `.otzplugin` files).
    Everything lands in a self-contained **offline mirror** folder on the drive.
 3. They unplug the drive, plug it into **their own offline computer**, run the
    launcher again, and it applies the update from the drive — no network needed.
@@ -38,6 +38,13 @@ The offline mirror is the mechanism that makes this work:
 | Build/refresh the mirror | `LibraryManager.exportOfflineMirror(destDir:)` / `refreshOfflineMirrorCache()` | the online computer |
 | Point the launcher at a mirror | `LibraryManager.useLocalMirror(mirrorDir)` | the offline computer |
 | Back to network mode | `LibraryManager.useCloud()` | either |
+| Fill the plugin store in the mirror | `PluginsManager.sync()` | the online computer |
+| Read the store / install a plugin | `PluginsManager.load()` / `.directInstall()` | the offline computer |
+
+The plugin store lives **inside the same mirror folder** — `<mirrorDir>/plugins/`
+— on purpose: one copy to the USB drive carries both the library and the
+plugins. `LibraryMirrorExporter.export` only creates directories and never
+deletes the destination, so `plugins/` survives a library-mirror refresh.
 
 `refreshOfflineMirrorCache()` also runs in the background on every launch into
 `<dataDir>/offline-mirror`, so a machine that goes online once stays usable
@@ -50,7 +57,7 @@ check / install / launch Otzaria, and update its database.
 
 ## 2. Repository layout
 
-Four separate Dart/Flutter packages, each with its own `pubspec.yaml`. The main
+Five separate Dart/Flutter packages, each with its own `pubspec.yaml`. The main
 package sits at the repo root (historical, do not move it).
 
 | Path | Package | Role |
@@ -58,8 +65,8 @@ package sits at the repo root (historical, do not move it).
 | `.` (root, `lib/`) | `seforim_library_updater` | Flutter package. The client side of the `Otzaria/SeforimLibrary` delta release format: discover releases, plan an update route (delta vs. full), download, verify the logical content hash, apply patches atomically. |
 | `otzaria_manager/` | `otzaria_manager` | Pure Dart (no Flutter). Manages the **Otzaria app itself**: check latest release, download, silent install, launch. Windows + macOS. |
 | `library_manager/` | `library_manager` | Flutter package. Wires `seforim_library_updater` into the launcher: locate the user's real `seforim.db`, check versions, apply updates to the **live** DB, export/consume the offline mirror. |
-| `launcher_app/` | `launcher_app` | The Flutter desktop app (Windows + macOS) that wires the modules into one dashboard. Depends on the other three via relative `path:`, so it must stay a sibling of them. |
-| `plugins_manager` | — | **Not built yet.** The launcher's plugins screen shows layout plus an honest empty state in its place. |
+| `plugins_manager/` | `plugins_manager` | Pure Dart (no Flutter). The **offline Otzaria plugin store**: syncs the `otzaria.org/api/plugins` catalog (metadata, images, `.otzplugin` files) into the mirror, detects which plugins Otzaria already has installed, and installs via the `otzaria://` protocol. A conversion of `Yehuda-Zakesh/Offline-repository-plugin-store` (itself derived from `Otzaria/Otzaria_Website`). |
+| `launcher_app/` | `launcher_app` | The Flutter desktop app (Windows + macOS) that wires the modules into one dashboard. Depends on the other four via relative `path:`, so it must stay a sibling of them. |
 
 Producer vs. consumer: the Kotlin repo `Otzaria/SeforimLibrary` *produces* the DB
 and the patches; this repo only *consumes* them.
@@ -77,7 +84,7 @@ dart format .
 
 # 2. Analyze
 flutter analyze --no-fatal-infos   # seforim_library_updater (root), library_manager, launcher_app
-dart analyze                      # otzaria_manager (pure Dart)
+dart analyze                      # otzaria_manager, plugins_manager (pure Dart)
 ```
 
 Notes:
@@ -86,7 +93,13 @@ Notes:
   from the root does *not* cover them. `cd` into each package you changed and
   analyze there.
 - Run the relevant tests too when logic changed: `flutter test` (root,
-  `library_manager`, `launcher_app`) or `dart test` (`otzaria_manager`).
+  `library_manager`, `launcher_app`) or `dart test` (`otzaria_manager`,
+  `plugins_manager`).
+- **Real file I/O does not complete inside `testWidgets`** (its fake-async zone
+  never resolves `dart:io` futures), so `pumpAndSettle` hangs forever on any
+  spinner that is waiting on disk. Drive such work with `tester.runAsync(...)`
+  *before* pumping the widget — see the store tests in
+  `launcher_app/test/screens_test.dart`.
 - Report honestly what you ran and what failed. Do not claim a change is
   verified if only the analyzer passed.
 
@@ -166,6 +179,22 @@ reports `0.9.96` while the release tag is `0.9.96+736`. `OtzariaUpdateCheckResul
 strips a leading `v` and everything after `+`; without that, every launch sees a
 phantom update and re-downloads ~73MB.
 
+**Plugin install-state matching uses `manifestId`, not the catalog `id`.** The
+`id` that `otzaria.org/api/plugins` returns is the website's database id;
+Otzaria installs under `plugins/installed/<manifest.id>/`. `manifestId` is
+extracted from the `manifest.json` inside the already-downloaded `.otzplugin`
+(`PluginManifestReader`, BOM-stripped like `LogicalContentHasher`). Compare by
+the catalog id and *nothing* is ever detected as installed. A plugin whose file
+has not been downloaded yet correctly reports
+`PluginInstallStatus.unknown` — that is not an error state.
+
+**Plugin installation is protocol-only:** `otzaria://plugin/install-local?path=`.
+Do **not** extract the `.otzplugin` ZIP into Otzaria's folders ourselves —
+Otzaria keeps an internal registry of installed plugins beyond the `installed/`
+directory, and a manual unpack bypasses it. `install-local` reads the file from
+disk, so it needs no network at all; the older `install?url=` does need one and
+is deliberately unused here.
+
 **Release selection ignores `prerelease`.** `OtzariaReleaseClient` takes the
 newest release regardless of the prerelease flag, because the Otzaria repo
 (`github.com/Sivan22/otzaria`) has published almost nothing stable since 2025.
@@ -185,6 +214,11 @@ simply wrong.
 
 The package READMEs each carry a "what was actually verified" section — trust
 those over assumptions, and update them when you verify something new.
+
+Also **not** verified end-to-end: the plugin store's real round trip — an actual
+`sync()` against `otzaria.org`, carrying `offline-mirror/` on a USB drive to an
+offline machine, and `otzaria://plugin/install-local` against a real Otzaria
+install. Unit-tested logic only; see `plugins_manager/README.md`.
 
 Currently **not** verified on real hardware: the Windows path of
 `LibraryUpdateApplier` (full ~1GB download, delta chains, `tasklist` behaviour),

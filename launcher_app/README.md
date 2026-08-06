@@ -6,13 +6,14 @@
 - **`otzaria_manager`** — עדכון/התקנה/הפעלה של אפליקציית אוצריא עצמה.
 - **`library_manager`** — עדכון מסד הספרים (`seforim.db`), כולל חיווט
   מלא של `seforim_library_updater`.
-- **מסך התוספים** — פריסה בלבד עם מצב ריק אמיתי (`plugins_manager`
-  עדיין לא נבנה).
+- **`plugins_manager`** — חנות התוספים האופליינית: סנכרון הקטלוג מ-
+  `otzaria.org` אל תיקיית המראה, זיהוי התוספים המותקנים באוצריא, והתקנה
+  דרך הפרוטוקול `otzaria://`.
 
 כל שלושת המודולים (וה-package הראשי `seforim_library_updater`) יושבים
 כ-packages נפרדים באותו ריפו; `launcher_app` תלוי בהם דרך `path:` יחסי
-(`../otzaria_manager`, `../library_manager`), כך שהוא צריך לשבת **באותה
-רמה** בריפו — לצד `otzaria_manager/` ו-`library_manager/`, לא בתוכם.
+(`../otzaria_manager`, `../library_manager`, `../plugins_manager`), כך
+שהוא צריך לשבת **באותה רמה** בריפו — לצדם, לא בתוכם.
 
 ## ארבעת המסכים
 
@@ -23,7 +24,7 @@
 | --- | --- | --- |
 | דף הבית | `screens/home_screen.dart` | תמונת מצב אחת + עדכון תוכנת אוצריא |
 | ספרייה | `screens/library_screen.dart` | מצב ה-DB, מקור העדכון, תוכן להעברה |
-| תוספים | `screens/plugins_screen.dart` | פריסה + מצב ריק (המודול טרם נבנה) |
+| תוספים | `screens/plugins/` | חנות התוספים: רשת כרטיסים, עמוד פרטים, סנכרון |
 | הגדרות | `screens/settings_screen.dart` | אוטומציה, ערוצים, נתיבים, רשת, ממשק |
 
 מעליהם סרגל מצב קבוע (`AppShell._TopBar`): מצב רשת, מקור העדכון הפעיל,
@@ -57,7 +58,48 @@
 
 מה שלא פורט (ומתועד במקום): `RtlTextField` כאן הוא עטיפה דקה — תיקוני
 מקשי החיצים של Flutter Desktop לא הועברו; ו-`UiSnack` בלי תור הודעות
-ובלי כפתורי פעולה.
+ובלי כפתורי פעולה. ⚠️ מאז שנוסף שדה החיפוש בחנות התוספים יש בלאנצ'ר
+קלט טקסט אמיתי ראשון, ולכן פורט מלא של
+`otzaria/lib/widgets/text/rtl_text_field.dart` הוא כעת חוב פתוח.
+
+### תוספת שאינה פורט — רכיבי חנות התוספים
+
+`screens/plugins/plugin_visuals.dart` מגדיר ארבעה רכיבים שאין להם מקבילה
+במערכת העיצוב של אוצריא: `PluginBadge` (גלולת מטא-דאטה), `PluginTagPill`,
+`PluginInstallChip` (עוטף `StatusChip`) ו-`PluginThumbnail`. אליהם מצטרף
+ה-lightbox ב-`plugin_screenshot_lightbox.dart`. הם נדרשו כי החנות היא
+המרה של ממשק אינטרנט עם רשת כרטיסים ותמונות, ולא מסך הגדרות.
+
+**מסך התוספים הוא היחיד שאינו משתמש ב-`ScreenBody`.** במקומו
+`plugin_store_body.dart`, שפורס לרוחב **מלא** ולא מגביל ל-860px
+וממרכז. הסיבה: רשת הכרטיסים נגזרת מרוחב מינימלי של 300px לכרטיס (כמו
+`minmax(300px, 1fr)` ב-CSS המקורי), ולכן הגבלת רוחב הייתה מקבעת אותה על
+שתי עמודות גם במסך רחב. הפריסה כאן מכוונת להיות זהה לחנות המקורית:
+שורת סנכרון קבועה בראש (בלי מיתוג — הלאנצ'ר כבר מציג סרגל עליון משלו),
+כרטיס חיפוש/סטטוס/מתג בשורה אחת, שורת תגיות מתקפלת עם "הצג עוד", שורת
+סיכום, ואז הרשת.
+
+חריגה מכוונת מהמקור: סינון הסטטוס הוא `AppSegmentedControl` ולא תפריט
+נפתח, כי מערכת העיצוב מחייבת אותו ל-2–4 אפשרויות.
+
+הכללים שנשמרו בהם: כל הצבעים מ-`ColorScheme` ומ-`AppTokens` (אין hex
+קשיח), הפעולות דרך `ActionButton`, ההודעות דרך `UiSnack`, הדיאלוגים דרך
+`showTwoActionsDialog`/`showSingleActionDialog`, הקלט דרך `RtlTextField`,
+סינון הסטטוס דרך `AppSegmentedControl`, וחיווי מותקן/עדכון דרך
+`StatusChip` — סמל וגם טקסט. הרכיבים נשארים **מקומיים** לתיקייה
+`screens/plugins/` ואינם מיוצאים ל-`widgets/`, כדי שלא ייחשבו בטעות
+לרכיבים מאושרים של מערכת העיצוב.
+
+`flutter_svg` לא נוסף כתלות, ולכן לוגו ה-SVG שהחנות המקורית הציגה כ-
+fallback הוחלף באייקון `puzzle_piece` על רקע `primaryContainer`.
+
+### תאריך עברי
+
+`services/hebrew_date.dart` — המרה גרגוריאני→עברי וגימטריה. הדרוש כאן
+מפני שהחנות המקורית קיבלה את זה מ-`Intl` בדפדפן
+(`he-u-ca-hebrew`), ול-`package:intl` ב-Dart אין לוח שנה עברי. מגובה
+בבדיקות מול עוגנים מוכרים (ה' באייר תש"ח, פורים תשפ"ד, ראש השנה תשפ"ו)
+ובבדיקה שראש השנה לא נופל בימים א׳/ד׳/ו׳ ב-70 שנים רצופות.
 
 ## אין הורדה או התקנה אוטומטית
 
@@ -67,6 +109,12 @@
 `autoMetadataCheck`, והדלקת **התקנה** אוטומטית דורשת אישור באזהרה
 (`_confirmAutoInstall`). ההגדרות נשמרות ל-`launcher_settings.json` עם
 `schemaVersion` וכתיבה אטומית (קובץ זמני + rename).
+
+המתג היחיד שכן מוריד בפועל בפתיחה הוא **"סנכרון חנות התוספים בפתיחה"**
+(`autoDownloadAllPlugins`) — כבוי בברירת מחדל, מכובד ב-
+`AppShell._loadPlugins`, נחסם כש-`offlineOnly` דלוק, ודורש אישור באזהרה
+(`_confirmAutoPluginSync`) כי זו הורדה ברשת בכל פתיחה. הוא מסנכרן בלבד;
+התקנה לעולם אינה אוטומטית.
 
 > שינוי התנהגות מהגרסה הקודמת: הדשבורד הישן הוריד והתקין אוטומטית בכל
 > פתיחה. זה בוטל בכוונה (תכנון §2.2).
@@ -124,9 +172,10 @@ flutter build windows --release
 ## ⚠️ מה אומת בפועל ומה לא
 
 **ארבעת המסכים — אומתו ברמת רינדור בלבד.** `flutter analyze` נקי,
-`flutter test` עובר (13 בדיקות, כולל pump של כל אחד מארבעת המסכים),
-והאפליקציה נבנית ונפתחת ב-macOS ללא שגיאות ריצה. **לא** נבדק בפועל מסלול
-עדכון אמיתי מהממשק החדש (הורדה/החלה/הכנת USB), ולא נבדק כלום ב-Windows.
+`flutter test` עובר (28 בדיקות, כולל pump של כל אחד מארבעת המסכים ושל
+חנות התוספים במצב ריק ועם תוסף בקטלוג), והאפליקציה נבנית ונפתחת ב-macOS
+ללא שגיאות ריצה. **לא** נבדק בפועל מסלול עדכון אמיתי מהממשק החדש
+(הורדה/החלה/הכנת USB/סנכרון תוספים), ולא נבדק כלום ב-Windows.
 
 **macOS — אומת.** האפליקציה נבנתה (`flutter build macos --release`) והורצה
 בפועל: היא שלפה את ה-release העדכני מ-GitHub, הורידה את
@@ -176,30 +225,53 @@ lib/
     │   └── settings_controller.dart   — טעינה ושמירה אטומית
     ├── controllers/
     │   ├── otzaria_module_controller.dart   — עוטף OtzariaManager כ-ChangeNotifier
-    │   └── library_module_controller.dart   — עוטף LibraryManager כ-ChangeNotifier
+    │   ├── library_module_controller.dart   — עוטף LibraryManager כ-ChangeNotifier
+    │   └── plugins_module_controller.dart   — עוטף PluginsManager כ-ChangeNotifier
     ├── services/
     │   ├── app_logger.dart            — לוג לקובץ תחת <dataDir>/logs
-    │   └── file_reveal.dart           — פתיחת תיקייה ב-Explorer/Finder
+    │   ├── file_reveal.dart           — פתיחת תיקייה ב-Explorer/Finder
+    │   └── hebrew_date.dart           — המרה לתאריך עברי + גימטריה
     └── screens/
         ├── app_shell.dart             — סרגל ניווט, סרגל מצב, IndexedStack
-        └── home_screen.dart, library_screen.dart, plugins_screen.dart,
-            settings_screen.dart
+        ├── home_screen.dart, library_screen.dart, settings_screen.dart
+        └── plugins/                   — חנות התוספים
+            ├── plugins_screen.dart          — רשימה ↔ פרטים, סנכרון
+            ├── plugin_store_card.dart       — כרטיס ברשת
+            ├── plugin_detail_view.dart      — עמוד פרטי תוסף
+            ├── plugin_filters_bar.dart      — חיפוש, סטטוס, תגיות
+            ├── plugin_screenshot_lightbox.dart
+            ├── plugin_sync_overlay.dart, plugin_updates_dialog.dart
+            └── plugin_visuals.dart          — רכיבים מקומיים (לא פורט)
 ```
 
 ## מה עדיין חסר (מעבר לבדיקה בפועל)
 
-- מודול **plugins_manager** עצמו — מסך התוספים הוא פריסה ומצב ריק בלבד.
+- **חנות התוספים לא נבדקה מקצה לקצה** — הבדיקות מכסות רינדור ולוגיקה,
+  אבל סנכרון אמיתי מ-`otzaria.org`, העברה ב-USB, ופתיחת
+  `otzaria://plugin/install-local` מול אוצריא אמיתית — טרם הורצו. ראו
+  `plugins_manager/README.md`.
+- **הורדת גרסה היסטורית של תוסף** — ה-API מחזיר `versions`, אבל המסלול
+  היחיד שמומש הוא לגרסה החיה.
+- פורט מלא של `RtlTextField` (ראו למעלה).
 - **הפרדה בין הורדה להתקנה** בפועל: `otzaria_manager.update()` ו-
   `LibraryManager.applyUpdate()` עדיין מורידים ומתקינים בקריאה אחת, ולכן
   הכפתור אחד ("הורדה והתקנה"). מתוכנן לשלב 2 בתכנון.
 - מתגי האוטומציה **נשמרים אך עדיין אינם מפעילים כלום** מלבד
-  `autoMetadataCheck` — מנוע המדיניות הוא שלב 5 בתכנון.
+  `autoMetadataCheck` ו-`autoDownloadAllPlugins` — מנוע המדיניות הוא שלב 5
+  בתכנון. שני מתגי "תוספים מותקנים" מושבתים בכוונה ומסבירים למה: סנכרון
+  חלקי אינו קיים (`PluginMirrorSync` מביא את כל הקטלוג), והתקנה עוברת דרך
+  הפרוטוקול `otzaria://` שפותח את אוצריא לכל תוסף בנפרד.
+- **ערוץ התוספים** בהגדרות אינו prerelease אלא סינון: לכל תוסף יש `status`
+  משלו, ולכן `pluginsChannel` קובע רק את סינון ברירת המחדל שהחנות נפתחת בו
+  (`pluginStatusFilterFor`), והמשתמש יכול לשנות אותו בחנות.
 - `NetworkStatusService` אמיתי — כרגע מצב הרשת נגזר מהצלחה/כשל של בדיקת
   המטא־דאטה, ולא מבדיקת זמינות מקורות (captive portal, rate limit).
 - חבילת ה-USB האחידה (`update-manifest.json` לתוכנה + ספרייה + תוספים)
   ואימות חתימות — שלבים 3 ו-6 בתכנון. כרגע קיימת רק המראה של הספרייה.
-- נתיב התקנת אוצריא ותיקיית התוספים מוצגים בהגדרות אך אינם מחווטים ל-
-  `OtzariaInstallationLocator` (שטרם נבנה).
-- בדיקות: יש בדיקות מודל ובדיקות רינדור לארבעת המסכים
-  (`test/widget_test.dart`, `test/screens_test.dart`). אין בדיקות
-  end-to-end של ניווט מקלדת, DPI גבוה או מצבי שגיאה אמיתיים.
+- נתיב התקנת אוצריא בהגדרות אינו מחווט ל-`OtzariaInstallationLocator`
+  (שטרם נבנה). תיקיית התוספים **כן** מחווטת — היא מוזנת ל-
+  `InstalledPluginsScanner`.
+- בדיקות: בדיקות מודל, בדיקות רינדור לארבעת המסכים ובדיקות התאריך העברי
+  (`test/widget_test.dart`, `test/screens_test.dart`,
+  `test/hebrew_date_test.dart`) — 28 עוברות. אין בדיקות end-to-end של
+  ניווט מקלדת, DPI גבוה או מצבי שגיאה אמיתיים.

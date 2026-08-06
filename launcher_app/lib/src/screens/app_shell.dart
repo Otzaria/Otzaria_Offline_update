@@ -7,14 +7,16 @@ import 'package:library_manager/library_manager.dart';
 
 import '../controllers/library_module_controller.dart';
 import '../controllers/otzaria_module_controller.dart';
+import '../controllers/plugins_module_controller.dart';
 import '../services/app_logger.dart';
 import '../services/file_reveal.dart';
+import '../settings/app_settings.dart';
 import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/widgets_exports.dart';
 import 'home_screen.dart';
 import 'library_screen.dart';
-import 'plugins_screen.dart';
+import 'plugins/plugins_screen.dart';
 import 'settings_screen.dart';
 
 /// מצב הרשת כפי שהוא נגזר מהבדיקה האחרונה. עד שייבנה
@@ -46,11 +48,16 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   late final OtzariaModuleController _otzaria;
   late final LibraryModuleController _library;
+  late final PluginsModuleController _plugins;
 
   LauncherScreen _screen = LauncherScreen.home;
   NetworkState _network = NetworkState.unknown;
   bool _otzariaIsRunning = false;
   DateTime? _lastCheckedAt;
+
+  /// ערוץ התוספים כפי שהוחל לאחרונה על סינון החנות — כדי להחיל שינוי
+  /// בהגדרות מיד, אבל לא לדרוס את הסינון שהמשתמש בחר ידנית בחנות.
+  late UpdateChannel _appliedPluginsChannel;
 
   @override
   void initState() {
@@ -59,9 +66,20 @@ class _AppShellState extends State<AppShell> {
       ..addListener(_onChange);
     _library = LibraryModuleController(dataDir: widget.dataDir)
       ..addListener(_onChange);
+    // חנות התוספים יושבת בתוך אותה תיקיית מראה של הספרייה, כדי שהעתקה
+    // אחת ל-USB תעביר את שתיהן. הפתרון הוא callback ולא מחרוזת קבועה
+    // כדי שמעבר למראה מקומית ייכנס לתוקף מיד.
+    _appliedPluginsChannel = widget.settings.settings.pluginsChannel;
+    _plugins = PluginsModuleController(
+      resolveMirrorDir: () async =>
+          _library.activeMirrorPath ?? _library.offlineMirrorCacheDir,
+      resolvePluginsDir: () async => widget.settings.settings.pluginsPath,
+      initialStatusFilter: pluginStatusFilterFor(_appliedPluginsChannel),
+    )..addListener(_onChange);
     widget.settings.addListener(_onChange);
 
     unawaited(_refreshProcessState());
+    unawaited(_loadPlugins());
     // בדיקת מטא־דאטה קלה בלבד, ורק אם המשתמש לא כיבה אותה. אין כאן שום
     // הורדה או התקנה — אלו תמיד יזומות (תכנון §2.2).
     if (widget.settings.settings.autoMetadataCheck) {
@@ -69,18 +87,45 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
+  /// טוען את קטלוג התוספים מהמראה — קריאה מקומית בלבד, בלי רשת.
+  ///
+  /// אחר כך, **ורק אם המשתמש הדליק זאת במפורש**, מסנכרן מהאתר ברקע.
+  /// המתג כבוי בברירת מחדל, ולכן פתיחה רגילה של האפליקציה עדיין לא מורידה
+  /// דבר (תכנון §2.2).
+  Future<void> _loadPlugins() async {
+    await _plugins.load();
+    if (!mounted) return;
+
+    final settings = widget.settings.settings;
+    if (!settings.autoDownloadAllPlugins || settings.offlineOnly) return;
+    await _plugins.sync();
+  }
+
   @override
   void dispose() {
     widget.settings.removeListener(_onChange);
     _otzaria.removeListener(_onChange);
     _library.removeListener(_onChange);
+    _plugins.removeListener(_onChange);
     _otzaria.dispose();
     _library.dispose();
+    _plugins.dispose();
     super.dispose();
   }
 
   void _onChange() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    _applyPluginsChannelIfChanged();
+    setState(() {});
+  }
+
+  /// שינוי ערוץ התוספים בהגדרות הוא פעולה מפורשת של המשתמש, ולכן מותר לו
+  /// לדרוס את סינון הסטטוס שנבחר בחנות — אבל רק כשהערוץ באמת השתנה.
+  void _applyPluginsChannelIfChanged() {
+    final channel = widget.settings.settings.pluginsChannel;
+    if (channel == _appliedPluginsChannel) return;
+    _appliedPluginsChannel = channel;
+    _plugins.setStatusFilter(pluginStatusFilterFor(channel));
   }
 
   Future<void> _refreshProcessState() async {
@@ -151,6 +196,7 @@ class _AppShellState extends State<AppShell> {
                       HomeScreen(
                         otzaria: _otzaria,
                         library: _library,
+                        plugins: _plugins,
                         settings: widget.settings,
                         network: _network,
                         otzariaIsRunning: _otzariaIsRunning,
@@ -165,7 +211,7 @@ class _AppShellState extends State<AppShell> {
                         otzariaIsRunning: _otzariaIsRunning,
                         onProcessStateChanged: _refreshProcessState,
                       ),
-                      const PluginsScreen(),
+                      PluginsScreen(controller: _plugins),
                       SettingsScreen(
                         controller: widget.settings,
                         onOpenLog: _openLogFolder,

@@ -40,6 +40,19 @@ jobs:
       - run: dart analyze
       - run: dart test
 
+  plugins_manager:
+    name: plugins_manager (analyze + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugins_manager
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+      - run: dart pub get
+      - run: dart analyze
+      - run: dart test
+
   library_manager:
     name: library_manager (analyze + test)
     runs-on: ubuntu-latest

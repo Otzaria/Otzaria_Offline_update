@@ -1,8 +1,8 @@
 name: launcher_app
 description: >-
   Unified dashboard launcher for Otzaria: wires together otzaria_manager
-  (Otzaria app itself) and library_manager (the seforim DB), with a slot
-  reserved for the not-yet-built plugins_manager module.
+  (Otzaria app itself), library_manager (the seforim DB) and plugins_manager
+  (the offline Otzaria plugin store).
 version: 0.1.0
 publish_to: none
 
@@ -20,6 +20,8 @@ dependencies:
     path: ../otzaria_manager
   library_manager:
     path: ../library_manager
+  plugins_manager:
+    path: ../plugins_manager
   path: ^1.9.1
   path_provider: ^2.1.4
   file_picker: ^8.1.2

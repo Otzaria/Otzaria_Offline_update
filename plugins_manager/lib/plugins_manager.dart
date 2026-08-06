@@ -1,0 +1,11 @@
+export 'src/models/plugin_catalog.dart';
+export 'src/models/plugin_install_status.dart';
+export 'src/models/plugin_sync_progress.dart';
+export 'src/models/store_plugin.dart';
+export 'src/plugins_manager.dart';
+export 'src/services/installed_plugins_scanner.dart';
+export 'src/services/plugin_direct_installer.dart';
+export 'src/services/plugin_manifest_reader.dart';
+export 'src/services/plugin_mirror_store.dart';
+export 'src/services/plugin_store_client.dart';
+export 'src/services/plugin_version_compare.dart';

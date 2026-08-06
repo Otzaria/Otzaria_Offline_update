@@ -1,4 +1,4 @@
-# ארטיפקטים של Dart/Flutter — נוצרים מ-`pub get`/`build` בכל אחת מארבע
+# ארטיפקטים של Dart/Flutter — נוצרים מ-`pub get`/`build` בכל אחת מחמש
 # החבילות שברפו, ולכן מוגדרים כאן פעם אחת ולא בכל תיקייה בנפרד.
 .dart_tool/
 build/
@@ -33,3 +33,7 @@ pubspec.lock
 .idea/
 *.iml
 *.log
+
+# מטמון מקומי של sentry-native — נוצר בכל הרצה של הלאנצ'ר בווינדוס
+# (מזהה התקנה, breadcrumbs, session). לא קוד ולא הגדרה.
+.sentry-native/

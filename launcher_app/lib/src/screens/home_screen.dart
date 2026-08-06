@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../controllers/library_module_controller.dart';
 import '../controllers/otzaria_module_controller.dart';
+import '../controllers/plugins_module_controller.dart';
 import '../settings/settings_controller.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
@@ -14,6 +15,7 @@ class HomeScreen extends StatelessWidget {
     super.key,
     required this.otzaria,
     required this.library,
+    required this.plugins,
     required this.settings,
     required this.network,
     required this.otzariaIsRunning,
@@ -24,6 +26,7 @@ class HomeScreen extends StatelessWidget {
 
   final OtzariaModuleController otzaria;
   final LibraryModuleController library;
+  final PluginsModuleController plugins;
   final SettingsController settings;
   final NetworkState network;
   final bool otzariaIsRunning;
@@ -194,20 +197,48 @@ class HomeScreen extends StatelessWidget {
   // ── תוספים ────────────────────────────────────────────────────────────────
 
   Widget _pluginsCard(BuildContext context) {
+    final c = plugins;
+    final updatable = c.updatablePlugins.length;
+
     return SettingsCard(
       title: 'תוספים',
+      subtitle: 'תקציר בלבד — החנות המלאה במסך "תוספים".',
       children: [
-        const InfoStatusRow(
+        InfoStatusRow(
           icon: FluentIcons.puzzle_piece_24_regular,
           title: 'מצב',
-          kind: StatusKind.unknown,
-          label: 'המודול בבנייה',
+          kind: switch (c.status) {
+            PluginsModuleStatus.idle => StatusKind.unknown,
+            PluginsModuleStatus.loading ||
+            PluginsModuleStatus.syncing =>
+              StatusKind.working,
+            PluginsModuleStatus.error => StatusKind.error,
+            PluginsModuleStatus.ready =>
+              updatable == 0 ? StatusKind.ok : StatusKind.updateAvailable,
+          },
+          label: switch (c.status) {
+            PluginsModuleStatus.idle => 'טרם נטען',
+            PluginsModuleStatus.loading => 'טוען...',
+            PluginsModuleStatus.syncing => 'מסנכרן...',
+            PluginsModuleStatus.error => 'שגיאה',
+            PluginsModuleStatus.ready => updatable == 0
+                ? 'אין עדכונים ממתינים'
+                : '$updatable עדכונים זמינים',
+          },
         ),
         SettingsActionTile.text(
-          icon: FluentIcons.info_24_regular,
-          title: 'תוספים מותקנים',
-          subtitle: 'זיהוי התוספים המותקנים ידרוש חוזה תוסף רשמי '
-              '(תכנון §7.1) — טרם מומש.',
+          icon: FluentIcons.apps_list_24_regular,
+          title: 'תוספים מותקנים באוצריא',
+          subtitle: c.status == PluginsModuleStatus.idle
+              ? 'טרם נסרקו'
+              : '${c.installedCount} זוהו',
+        ),
+        SettingsActionTile.text(
+          icon: FluentIcons.arrow_sync_24_regular,
+          title: 'הקטלוג סונכרן לאחרונה',
+          subtitle: c.lastSync == null
+              ? 'טרם בוצע סנכרון'
+              : c.lastSync!.toLocal().toString().split('.').first,
         ),
         CardActionsRow(
           actions: [

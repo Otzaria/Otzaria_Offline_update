@@ -100,9 +100,20 @@ class SettingsScreen extends StatelessWidget {
           ),
         ),
         SettingsActionTile.switchTile(
+          icon: FluentIcons.box_24_regular,
+          title: 'סנכרון חנות התוספים בפתיחה',
+          subtitle: 'מוריד את הקטלוג וכל קובצי התוספים לתיקיית ההעברה',
+          value: _s.autoDownloadAllPlugins,
+          onChanged: (v) => _confirmAutoPluginSync(context, enabled: v),
+        ),
+        // שני המתגים הבאים מושבתים מסיבות אמיתיות, לא כי המודול חסר:
+        // סנכרון חלקי (רק המותקנים) אינו קיים — PluginMirrorSync מביא את כל
+        // הקטלוג; והתקנה עוברת דרך הפרוטוקול otzaria://, שפותח את אוצריא
+        // בכל תוסף בנפרד ולכן אינה מתאימה לרקע.
+        SettingsActionTile.switchTile(
           icon: FluentIcons.puzzle_piece_24_regular,
-          title: 'הורדת עדכוני תוספים מותקנים',
-          subtitle: 'רק תוספים שזוהו במחשב הזה',
+          title: 'הורדת עדכוני תוספים מותקנים בלבד',
+          subtitle: 'לא זמין — הסנכרון מביא את כל הקטלוג, לא רק את המותקנים',
           value: _s.autoDownloadInstalledPlugins,
           enabled: false,
           onChanged: (v) => _set(_s.copyWith(autoDownloadInstalledPlugins: v)),
@@ -110,18 +121,11 @@ class SettingsScreen extends StatelessWidget {
         SettingsActionTile.switchTile(
           icon: FluentIcons.puzzle_piece_24_regular,
           title: 'התקנת עדכוני תוספים מותקנים',
-          subtitle: 'יתאפשר כשמודול התוספים ייבנה',
+          subtitle: 'לא זמין — ההתקנה פותחת את אוצריא לכל תוסף, '
+              'ולכן היא תמיד יזומה מהחנות',
           value: _s.autoInstallInstalledPlugins,
           enabled: false,
           onChanged: (v) => _set(_s.copyWith(autoInstallInstalledPlugins: v)),
-        ),
-        SettingsActionTile.switchTile(
-          icon: FluentIcons.box_24_regular,
-          title: 'הורדת כלל התוספים',
-          subtitle: 'מיועד להכנת חבילת USB מלאה',
-          value: _s.autoDownloadAllPlugins,
-          enabled: false,
-          onChanged: (v) => _set(_s.copyWith(autoDownloadAllPlugins: v)),
         ),
         SettingsActionTile.switchTile(
           icon: FluentIcons.usb_stick_24_regular,
@@ -161,6 +165,31 @@ class SettingsScreen extends StatelessWidget {
     await apply(true);
   }
 
+  /// סנכרון החנות בפתיחה הוא ההורדה האוטומטית היחידה שמחווטת בפועל, והוא
+  /// עלול להיות כבד ברשת — ולכן דורש אישור מפורש, כמו התקנה אוטומטית.
+  Future<void> _confirmAutoPluginSync(
+    BuildContext context, {
+    required bool enabled,
+  }) async {
+    if (!enabled) {
+      await _set(_s.copyWith(autoDownloadAllPlugins: false));
+      return;
+    }
+
+    final approved = await showWarningDialog(
+      context: context,
+      title: 'סנכרון חנות התוספים בפתיחה',
+      content: 'בכל פתיחה של הלאנצ׳ר תיטען רשימת התוספים מ-otzaria.org '
+          'ויירדו קובצי ההתקנה שהתעדכנו. שום תוסף לא יותקן — ההתקנה תמיד '
+          'נשארת יזומה.',
+      subtitle: 'זו הורדה ברשת בכל פתיחה. במחשב עם חיבור מוגבל או מדוד '
+          'עדיף להשאיר כבוי ולסנכרן ידנית מהחנות.',
+      confirmText: 'הפעל סנכרון בפתיחה',
+    );
+    if (!approved) return;
+    await _set(_s.copyWith(autoDownloadAllPlugins: true));
+  }
+
   // ── ערוצים ────────────────────────────────────────────────────────────────
 
   Widget _channelsCard(BuildContext context) {
@@ -190,12 +219,22 @@ class SettingsScreen extends StatelessWidget {
           currentValue: _s.libraryChannel,
           onChanged: (v) => _set(_s.copyWith(libraryChannel: v)),
         ),
+        // לתוספים אין ערוץ prerelease — לכל תוסף יש `status` משלו
+        // (יציב/בטא/ניסיוני). לכן הבחירה כאן קובעת את סינון ברירת המחדל
+        // של החנות, והתוויות שונות משל שני הרכיבים האחרים.
         SettingsActionTile.segmentedTile<UpdateChannel>(
           icon: FluentIcons.puzzle_piece_24_regular,
           title: 'תוספים',
-          options: options,
+          subtitle: 'קובע לפי מה החנות נפתחת מסוננת; ניתן לשנות בחנות עצמה',
           currentValue: _s.pluginsChannel,
           onChanged: (v) => _set(_s.copyWith(pluginsChannel: v)),
+          options: const [
+            SegmentOption(value: UpdateChannel.stable, label: 'יציב בלבד'),
+            SegmentOption(
+              value: UpdateChannel.stableAndPreview,
+              label: 'כולל בטא וניסיוני',
+            ),
+          ],
         ),
       ],
     );
@@ -225,9 +264,19 @@ class SettingsScreen extends StatelessWidget {
         ),
         SettingsActionTile.path(
           icon: FluentIcons.puzzle_piece_24_regular,
-          title: 'תיקיית התוספים',
+          title: 'תיקיית התוספים של אוצריא',
           path: _s.pluginsPath,
-          placeholder: 'תיקבע כשמודול התוספים ייבנה',
+          placeholder: 'זיהוי אוטומטי — %APPDATA%\\otzaria\\plugins',
+          actions: [
+            ActionButton.neutral(
+              text: 'בחירת תיקייה',
+              icon: FluentIcons.folder_open_24_regular,
+              onPressed: () => _pickDir(
+                'בחירת תיקיית התוספים של אוצריא',
+                (path) => _set(_s.copyWith(pluginsPath: path)),
+              ),
+            ),
+          ],
         ),
         SettingsActionTile.path(
           icon: FluentIcons.usb_stick_24_regular,

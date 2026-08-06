@@ -2,7 +2,7 @@ include: package:flutter_lints/flutter.yaml
 
 # https://dart.dev/guides/language/analysis-options
 
-# otzaria_manager/, library_manager/ ו-launcher_app/ הם packages נפרדים
+# otzaria_manager/, library_manager/, plugins_manager/ ו-launcher_app/ הם packages נפרדים
 # (כל אחד עם pubspec.yaml משלו, וב-CI נבדקים בג'וב נפרד עם pub get משלו).
 # בלי ה-exclude הזה, `flutter analyze` שרץ מכאן (root) סורק אותם רקורסיבית
 # בלי context resolution תקין (אין להם .dart_tool כאן) ומדפיס עשרות
@@ -11,4 +11,5 @@ analyzer:
   exclude:
     - otzaria_manager/**
     - library_manager/**
+    - plugins_manager/**
     - launcher_app/**
