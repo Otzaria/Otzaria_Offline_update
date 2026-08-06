@@ -17,6 +17,7 @@ import '../theme/theme_exports.dart';
 import '../widgets/widgets_exports.dart';
 import 'home_screen.dart';
 import 'library_screen.dart';
+import 'otzaria_screen.dart';
 import 'plugins/plugins_screen.dart';
 import 'settings_screen.dart';
 
@@ -25,10 +26,10 @@ import 'settings_screen.dart';
 /// כשבאמת ניסינו להוריד.
 enum NetworkState { unknown, checking, online, offline }
 
-/// המסך הפעיל בסרגל הניווט.
-enum LauncherScreen { home, library, plugins, settings }
+/// המסך הפעיל בסרגל הניווט. "תוכנה" קודם ל"ספרייה" — ראו [_NavRail].
+enum LauncherScreen { home, otzaria, library, plugins, settings }
 
-/// מסגרת האפליקציה: סרגל ניווט קבוע בצד, סרגל מצב עליון, וארבעת המסכים.
+/// מסגרת האפליקציה: סרגל ניווט קבוע בצד, סרגל מצב עליון, וחמשת המסכים.
 class AppShell extends StatefulWidget {
   const AppShell({
     super.key,
@@ -55,6 +56,9 @@ class _AppShellState extends State<AppShell> {
 
   /// הורדה אחת בכל רגע — [downloadAll] מריץ את הרכיבים בטור.
   bool _isDownloading = false;
+
+  /// הבדיקה הקלה ("יש עדכון ברשת?") — נפרדת לגמרי מ-[_isDownloading].
+  bool _isCheckingOnline = false;
 
   /// ערוץ התוספים כפי שהוחל לאחרונה על סינון החנות — כדי להחיל שינוי
   /// בהגדרות מיד, אבל לא לדרוס את הסינון שהמשתמש בחר ידנית בחנות.
@@ -87,6 +91,11 @@ class _AppShellState extends State<AppShell> {
     // הורדה תמיד יזומה בלחיצה.
     if (s.autoMetadataCheck) {
       unawaited(checkAll());
+    }
+    // בדיקה קלה ברשת (מטא-דאטה בלבד) — פעם אחת בהפעלה, לא טיימר מחזורי.
+    // כשל (אין רשת) נבלע בתוך הקונטרולרים ולא מוצג כשגיאה.
+    if (s.autoCheckOnlineUpdates) {
+      unawaited(checkOnline());
     }
   }
 
@@ -140,6 +149,16 @@ class _AppShellState extends State<AppShell> {
     if (!mounted) return;
     setState(() => _lastCheckedAt = DateTime.now());
     await _autoInstallIfEnabled();
+  }
+
+  /// בדיקה קלה ברשת ("יש עדכון חדש?") לשני הרכיבים — מטא-דאטה בלבד, בלי
+  /// הורדת installer/מסד. כשל (אין רשת) נבלע בתוך הקונטרולרים עצמם.
+  Future<void> checkOnline() async {
+    if (_isCheckingOnline) return;
+    setState(() => _isCheckingOnline = true);
+    await Future.wait([_otzaria.checkOnline(), _library.checkOnline()]);
+    if (!mounted) return;
+    setState(() => _isCheckingOnline = false);
   }
 
   /// מתקין מהתיקייה המקומית בלי לשאול — אך ורק למי שהדליק זאת במפורש
@@ -229,18 +248,21 @@ class _AppShellState extends State<AppShell> {
                       HomeScreen(
                         otzaria: _otzaria,
                         library: _library,
-                        plugins: _plugins,
                         settings: widget.settings,
-                        dataDir: widget.dataDir,
-                        network: _network,
                         otzariaIsRunning: _otzariaIsRunning,
                         isDownloading: _isDownloading,
-                        onRecheck: checkAll,
+                        isCheckingOnline: _isCheckingOnline,
+                        onCheckOnline: checkOnline,
                         onDownloadAll: downloadAll,
+                        onGoToOtzaria: () =>
+                            setState(() => _screen = LauncherScreen.otzaria),
                         onGoToLibrary: () =>
                             setState(() => _screen = LauncherScreen.library),
-                        onGoToPlugins: () =>
-                            setState(() => _screen = LauncherScreen.plugins),
+                      ),
+                      OtzariaScreen(
+                        otzaria: _otzaria,
+                        otzariaIsRunning: _otzariaIsRunning,
+                        isDownloading: _isDownloading,
                       ),
                       LibraryScreen(
                         library: _library,
@@ -288,6 +310,13 @@ class _NavRail extends StatelessWidget {
             label: 'דף הבית',
             isSelected: current == LauncherScreen.home,
             onTap: () => onSelect(LauncherScreen.home),
+          ),
+          NavRailItem(
+            icon: FluentIcons.desktop_24_regular,
+            iconFilled: FluentIcons.desktop_24_filled,
+            label: 'תוכנה',
+            isSelected: current == LauncherScreen.otzaria,
+            onTap: () => onSelect(LauncherScreen.otzaria),
           ),
           NavRailItem(
             icon: FluentIcons.library_24_regular,

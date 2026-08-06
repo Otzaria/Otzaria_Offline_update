@@ -107,8 +107,8 @@ class OtzariaManager {
           ],
       };
 
-  /// מוריד את הגרסה האחרונה אל המראה המקומית — **הפעולה היחידה בכל המודול
-  /// שנוגעת ברשת**. לא מתקין כלום.
+  /// מוריד את הגרסה האחרונה אל המראה המקומית — **הפעולה הכבדה** שנוגעת
+  /// ברשת (מוריד את קובץ ההתקנה עצמו). לא מתקין כלום.
   Future<void> downloadToMirror({
     void Function(int received, int total)? onProgress,
   }) =>
@@ -116,6 +116,13 @@ class OtzariaManager {
         allowPrerelease: allowPrerelease,
         onDownloadProgress: onProgress,
       );
+
+  /// בודק מה הגרסה העדכנית ביותר ב-GitHub — **פעולת רשת קלה**: קריאת
+  /// API יחידה, בלי הורדת קובץ ההתקנה. מיועדת לבדיקה צדדית ("יש עדכון?")
+  /// בלי לחייב הורדה מלאה. זורקת חריג רשת/HTTP רגיל בכשל — הקורא אמור
+  /// להתייחס לכשל כ"אין חיבור כרגע", לא כשגיאה חוסמת.
+  Future<OtzariaRelease> peekLatestOnlineRelease() =>
+      _releaseClient.fetchLatestRelease(allowPrerelease: allowPrerelease);
 
   /// בודק אם יש עדכון זמין — **מהמראה המקומית בלבד, בלי רשת**. אם עדיין אין
   /// state שמור (אף פעם לא הותקן/אומץ דרך הלאנצ'ר הזה), מנסה קודם לזהות

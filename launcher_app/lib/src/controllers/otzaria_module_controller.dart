@@ -50,7 +50,62 @@ class OtzariaModuleController extends ChangeNotifier {
   String? downloadError;
   DateTime? lastDownloadedAt;
 
+  /// מצב הבדיקה הקלה ("יש עדכון ברשת?") — נפרד לגמרי מ-[downloadStatus]:
+  /// היא לא מורידה כלום, רק שואלת. `null`/`null` = טרם נבדק בהרצה הזו.
+  OtzariaRelease? onlineLatestRelease;
+  String? onlineCheckError;
+  DateTime? onlineCheckedAt;
+
   bool get canLaunch => currentVersion != null;
+
+  /// התיקייה שלצד התוכנה שממנה מותקנת/מתעדכנת אוצריא — המקור היחיד.
+  String get mirrorDir => _manager.mirrorDir;
+
+  /// "מה התחדש" של הגרסה שיושבת במראה המקומית — מוצג אפילו בלי רשת, כי
+  /// זה נשמר לצד שאר המטא-דאטה של ה-release.
+  String? get latestReleaseNotes => _lastCheck?.latestRelease?.releaseNotes;
+
+  /// `true` אם הבדיקה הקלה מצאה ברשת תג שונה ממה שמותקן/יושב במראה
+  /// המקומית כרגע — אינדיקציה בלבד; ההשוואה הקובעת היא [checkForUpdate]
+  /// אחרי הורדה בפועל.
+  bool get hasOnlineUpdate {
+    final online = onlineLatestRelease;
+    if (online == null) return false;
+    final known = currentVersion ?? latestVersion;
+    if (known == null) return true;
+    return OtzariaUpdateCheckResult.normalizeVersion(online.tagName) !=
+        OtzariaUpdateCheckResult.normalizeVersion(known);
+  }
+
+  /// בודק ברשת מה הגרסה העדכנית ביותר — **פעולת רשת קלה**, בלי הורדת
+  /// installer. כשל (בעיקר "אין חיבור") הוא מצב תקין: נשמר ב-
+  /// [onlineCheckError] ולא נזרק, כדי שבדיקה אוטומטית לא תציג שגיאה
+  /// מפחידה כשפשוט אין רשת כרגע.
+  Future<void> checkOnline() async {
+    onlineCheckError = null;
+    notifyListeners();
+
+    try {
+      onlineLatestRelease = await _manager.peekLatestOnlineRelease();
+    } catch (e, st) {
+      onlineLatestRelease = null;
+      onlineCheckError = e.toString();
+      AppLogger.instance.info('בדיקת עדכונים ברשת (אוצריא) לא הצליחה: $e\n$st');
+    }
+    onlineCheckedAt = DateTime.now();
+    notifyListeners();
+  }
+
+  /// מאמץ התקנה קיימת של אוצריא בתיקייה [dir] שהמשתמש הצביע עליה ידנית
+  /// (למשל כשהזיהוי האוטומטי לא מצא אותה). מחזיר `false` בלי לזרוק אם
+  /// לא נמצאה שם התקנה תקינה — ה-UI מציג הודעה, לא שגיאה חוסמת.
+  Future<bool> adoptInstallDir(String dir) async {
+    final detected = await _manager.detectExistingInstall(customDir: dir);
+    if (detected == null) return false;
+    await _manager.adoptExistingInstall(detected);
+    await checkForUpdate();
+    return true;
+  }
 
   /// מוריד את הגרסה האחרונה מהרשת אל התיקייה המקומית. לא מתקין.
   Future<void> download() async {

@@ -16,6 +16,11 @@ class AppSettings {
   /// בדיקת גרסאות בפתיחה כשיש חיבור לרשת — בדיקה קלה, בלי הורדה.
   final bool autoMetadataCheck;
 
+  /// בדיקה חד-פעמית בפתיחה מול GitHub — "יש עדכון חדש ברשת?" — קלה
+  /// (מטא-דאטה בלבד, בלי הורדת המסד/ההתקנה). כשל (אין רשת) נבלע בשקט.
+  /// לא קשור ל-[autoMetadataCheck], שהוא בדיקה מקומית בלבד.
+  final bool autoCheckOnlineUpdates;
+
   // ── מה נכלל בהורדה ──────────────────────────────────────────────────────
   /// אילו רכיבים פעולת ההורדה מביאה אל התיקייה המקומית. ההורדה עצמה תמיד
   /// יזומה בלחיצה; הבחירה כאן רק זוכרת מה סומן בפעם הקודמת.
@@ -44,6 +49,7 @@ class AppSettings {
 
   const AppSettings({
     this.autoMetadataCheck = true,
+    this.autoCheckOnlineUpdates = true,
     this.syncApp = true,
     this.syncLibrary = true,
     this.syncPlugins = true,
@@ -64,6 +70,7 @@ class AppSettings {
 
   AppSettings copyWith({
     bool? autoMetadataCheck,
+    bool? autoCheckOnlineUpdates,
     bool? syncApp,
     bool? syncLibrary,
     bool? syncPlugins,
@@ -79,6 +86,8 @@ class AppSettings {
   }) {
     return AppSettings(
       autoMetadataCheck: autoMetadataCheck ?? this.autoMetadataCheck,
+      autoCheckOnlineUpdates:
+          autoCheckOnlineUpdates ?? this.autoCheckOnlineUpdates,
       syncApp: syncApp ?? this.syncApp,
       syncLibrary: syncLibrary ?? this.syncLibrary,
       syncPlugins: syncPlugins ?? this.syncPlugins,
@@ -99,6 +108,7 @@ class AppSettings {
         'schemaVersion': schemaVersion,
         'automation': {
           'metadataCheck': autoMetadataCheck,
+          'checkOnlineUpdates': autoCheckOnlineUpdates,
           'installApp': autoInstallApp,
           'installLibrary': autoInstallLibrary,
         },
@@ -164,6 +174,11 @@ class AppSettings {
         automation,
         'metadataCheck',
         defaults.autoMetadataCheck,
+      ),
+      autoCheckOnlineUpdates: flag(
+        automation,
+        'checkOnlineUpdates',
+        defaults.autoCheckOnlineUpdates,
       ),
       syncApp: flag(sync, 'app', defaults.syncApp),
       syncLibrary: flag(sync, 'library', defaults.syncLibrary),
