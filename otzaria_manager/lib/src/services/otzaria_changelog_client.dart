@@ -46,7 +46,7 @@ class OtzariaChangelogClient {
   String? _extract(String markdown, String tagName) {
     final target = OtzariaUpdateCheckResult.normalizeVersion(tagName);
     final lines = const LineSplitter().convert(markdown);
-    final buffer = StringBuffer();
+    final collected = <String>[];
     var inSection = false;
 
     for (final line in lines) {
@@ -57,12 +57,25 @@ class OtzariaChangelogClient {
         inSection = header.group(1) == target;
         continue;
       }
-      if (inSection) buffer.writeln(line);
+      // כל שורות הפסקה מוזחות באותם שני רווחים תחת כותרת הגרסה (רשימה
+      // שטוחה) — יורדים ברמת הזחה אחת כדי שהתוצאה תהיה רשימת Markdown
+      // תקנית ולא נראית כמו רשימה מקוננת.
+      if (inSection) collected.add(_dedent(line));
     }
 
-    final text = buffer.toString().trim();
-    return text.isEmpty ? null : text;
+    // מסירים שורות ריקות רק מהקצוות, לא מהאמצע — כדי לא לפרק את הרשימה.
+    while (collected.isNotEmpty && collected.first.trim().isEmpty) {
+      collected.removeAt(0);
+    }
+    while (collected.isNotEmpty && collected.last.trim().isEmpty) {
+      collected.removeLast();
+    }
+
+    return collected.isEmpty ? null : collected.join('\n');
   }
+
+  static String _dedent(String line) =>
+      line.startsWith('  ') ? line.substring(2) : line;
 
   void close() => _httpClient.close();
 }

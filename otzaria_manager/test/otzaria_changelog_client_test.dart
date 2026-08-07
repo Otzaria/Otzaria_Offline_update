@@ -38,6 +38,20 @@ void main() {
       expect(notes, isNot(contains('שורה ישנה')));
     });
 
+    test(
+        'מוריד רמת הזחה אחידה מכל שורות הפסקה, כדי שזו תהיה רשימת Markdown '
+        'שטוחה ולא שהשורה הראשונה (שנפגעת מ-trim) שונה מהשאר', () async {
+      final client =
+          OtzariaChangelogClient(httpClient: _mockChangelog(_fakeChangelog));
+
+      final notes = await client.notesFor('0.9.96');
+
+      expect(
+        notes,
+        '- שורה א של 0.9.96\n- שורה ב של 0.9.96',
+      );
+    });
+
     test('מנרמל תג עם v מוביל וסיומת build', () async {
       final client =
           OtzariaChangelogClient(httpClient: _mockChangelog(_fakeChangelog));
