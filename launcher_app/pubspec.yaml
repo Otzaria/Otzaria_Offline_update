@@ -28,6 +28,9 @@ dependencies:
   # אותה ספריית אייקונים כמו באוצריא — האייקונים היחידים שמותר להשתמש בהם.
   fluentui_system_icons: ^1.1.249
   cupertino_icons: ^1.0.8
+  # רינדור Markdown ל"מה התחדש" (יומן השינויים) — המשך-הדרך של flutter_markdown
+  # שהופסק על ידי צוות Flutter.
+  flutter_markdown_plus: ^1.0.12
 
 dev_dependencies:
   flutter_test:

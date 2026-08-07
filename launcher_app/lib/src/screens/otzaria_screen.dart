@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
 import '../controllers/otzaria_module_controller.dart';
 import '../theme/theme_exports.dart';
@@ -156,21 +157,62 @@ class OtzariaScreen extends StatelessWidget {
   // ── מה התחדש ──────────────────────────────────────────────────────────────
 
   Widget _whatsNewCard(BuildContext context) {
-    final notes = otzaria.latestReleaseNotes;
+    final notes = otzaria.latestReleaseNotes?.trim();
 
     return SettingsCard(
       title: 'מה התחדש בגרסה האחרונה',
       children: [
         Padding(
           padding: const EdgeInsets.all(AppTokens.spaceMD),
-          child: Text(
-            (notes == null || notes.trim().isEmpty)
-                ? 'אין תיאור לגרסה הזו, או שעדיין לא הורדה גרסה.'
-                : notes.trim(),
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
+          child: (notes == null || notes.isEmpty)
+              ? Text(
+                  'אין תיאור לגרסה הזו, או שעדיין לא הורדה גרסה.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                )
+              : MarkdownBody(
+                  data: notes,
+                  styleSheet: _whatsNewStyleSheet(context),
+                ),
         ),
       ],
+    );
+  }
+
+  /// גיליון סגנון ל"מה התחדש" — מבוסס על עיצוב הערכה (`fromTheme`) עם
+  /// דריסות לפי טוקני העיצוב של אוצריא (צבע/פונט כותרות כמו כותרת
+  /// [SettingsCard], והזחת בלט/מסגרת ציטוט מותאמות ל-RTL).
+  MarkdownStyleSheet _whatsNewStyleSheet(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final headingStyle =
+        TextStyle(color: cs.primary, fontWeight: FontWeight.bold);
+
+    return MarkdownStyleSheet.fromTheme(theme).copyWith(
+      a: TextStyle(color: cs.primary, decoration: TextDecoration.underline),
+      h1: theme.textTheme.headlineSmall?.merge(headingStyle),
+      h2: theme.textTheme.titleLarge?.merge(headingStyle),
+      h3: theme.textTheme.titleMedium?.merge(headingStyle),
+      blockSpacing: AppTokens.spaceSM,
+      listIndent: AppTokens.spaceLG,
+      // ה-bullet הוא הילד הראשון ב-Row של הפריט; ב-RTL הוא מוצג מימין,
+      // כך שהריווח לכיוון הטקסט צריך להיות בצד שמאל שלו, לא ימין.
+      listBulletPadding: const EdgeInsets.only(left: AppTokens.spaceXS),
+      blockquotePadding: const EdgeInsets.symmetric(
+        horizontal: AppTokens.spaceMD,
+        vertical: AppTokens.spaceXS,
+      ),
+      blockquoteDecoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        borderRadius: AppTokens.borderRadiusAll,
+        border: Border(right: BorderSide(color: cs.primary, width: 3)),
+      ),
+      codeblockDecoration: BoxDecoration(
+        color: cs.surfaceContainerHigh,
+        borderRadius: AppTokens.borderRadiusAll,
+      ),
+      horizontalRuleDecoration: BoxDecoration(
+        border: Border(top: BorderSide(color: theme.dividerColor)),
+      ),
     );
   }
 
