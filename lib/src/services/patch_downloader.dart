@@ -36,8 +36,11 @@ class PatchDownloader {
 
   /// פונקציית חילוץ zstd — מוזרקת על-ידי הצרכן (החבילה אגנוסטית לפלטפורמה).
   final Future<Uint8List?> Function(Uint8List compressed) _decompress;
-  final Duration connectTimeout;
-  final Duration stallTimeout;
+
+  /// שני ה-timeouts ניתנים לשינוי בזמן ריצה כדי שהגדרת "זמן קצוב לרשת"
+  /// בלאנצ'ר תיכנס לתוקף בהורדה הבאה בלי לבנות מחדש את המוריד.
+  Duration connectTimeout;
+  Duration stallTimeout;
 
   PatchDownloader({
     required Future<Uint8List?> Function(Uint8List compressed) decompress,

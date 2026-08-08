@@ -1,0 +1,6 @@
+# חבילת Dart טהורה — `lints` ולא `flutter_lints`, בדיוק כמו plugins_manager.
+#
+# בלי הקובץ הזה `dart analyze` כאן היה עולה למעלה עד ל-analysis_options.yaml
+# של שורש הריפו — שכולל `package:flutter_lints` (בלתי פתיר בחבילה בלי Flutter)
+# **וגם** מחריג `otzaria_manager/**`, כלומר הריצה לא בדקה כאן שום דבר בפועל.
+include: package:lints/recommended.yaml

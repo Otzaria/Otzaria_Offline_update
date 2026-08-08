@@ -64,6 +64,9 @@ class PluginsManager {
 
   final PluginStoreClient _client;
 
+  /// הזמן הקצוב לכל פעולת רשת של החנות — נכנס לתוקף בבקשה הבאה.
+  set networkTimeout(Duration value) => _client.timeout = value;
+
   Future<PluginMirrorStore> _store() async =>
       PluginMirrorStore(await resolveMirrorDir());
 

@@ -175,7 +175,6 @@ void main() {
       tester,
       SettingsScreen(
         controller: settings,
-        dataDir: tempDir.path,
         onOpenLog: () {},
       ),
     );
@@ -257,19 +256,20 @@ void main() {
       tester,
       SettingsScreen(
         controller: settings,
-        dataDir: tempDir.path,
         onOpenLog: () {},
       ),
     );
 
     expect(find.text('אוטומציה'), findsOneWidget);
-    expect(find.text('ערוצי גרסאות'), findsOneWidget);
     expect(find.text('אחסון'), findsOneWidget);
     expect(find.text('רשת'), findsOneWidget);
     expect(find.text('ממשק ותמיכה'), findsOneWidget);
     // אין יותר הגדרות נתיבים — התיקייה צמודה לתוכנה ואינה ניתנת לשינוי.
     expect(find.text('נתיבים ואחסון'), findsNothing);
     expect(find.text('בחירת תיקייה'), findsNothing);
+    // ערוץ הגרסאות קבוע ואינו הגדרה, וההתקנה האוטומטית של תוספים לא קיימת.
+    expect(find.text('ערוצי גרסאות'), findsNothing);
+    expect(find.text('התקנת תוספים אוטומטית'), findsNothing);
   });
 
   testWidgets('הפעלת התקנה אוטומטית דורשת אישור באזהרה', (tester) async {
@@ -277,7 +277,6 @@ void main() {
       tester,
       SettingsScreen(
         controller: settings,
-        dataDir: tempDir.path,
         onOpenLog: () {},
       ),
     );
@@ -299,24 +298,9 @@ void main() {
     expect(settings.settings.autoInstallApp, isTrue);
   });
 
-  test('ערוץ התוספים נגזר לסינון ברירת המחדל של החנות', () {
-    // לתוספים אין prerelease — "יציב בלבד" פירושו סינון ל-stable.
-    expect(
-      pluginStatusFilterFor(UpdateChannel.stable),
-      PluginStatusFilter.stable,
-    );
-    expect(
-      pluginStatusFilterFor(UpdateChannel.stableAndPreview),
-      PluginStatusFilter.all,
-    );
-  });
-
-  test('סינון ההתחלה של החנות נקבע מהערוץ', () {
-    final controller = PluginsModuleController(
-      mirrorRootDir: tempDir.path,
-      initialStatusFilter: PluginStatusFilter.stable,
-    );
-    expect(controller.statusFilter, PluginStatusFilter.stable);
+  test('החנות נפתחת מציגה את הכול, לא רק יציב', () {
+    final controller = PluginsModuleController(mirrorRootDir: tempDir.path);
+    expect(controller.statusFilter, PluginStatusFilter.all);
     controller.dispose();
   });
 

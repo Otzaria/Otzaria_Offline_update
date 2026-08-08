@@ -5,6 +5,7 @@ import 'package:library_manager/library_manager.dart';
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import '../services/app_logger.dart';
+import 'progress_notifier.dart';
 
 enum LibraryModuleStatus {
   idle,
@@ -30,7 +31,7 @@ enum MirrorDownloadStatus { idle, downloading, done, error }
 ///    היחידה שדורשת אינטרנט.**
 ///  - [checkForUpdate] / [update] — קוראות מהתיקייה המקומית בלבד ומחילות
 ///    על ה-DB החי. עובדות במחשב בלי רשת בכלל.
-class LibraryModuleController extends ChangeNotifier {
+class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   LibraryModuleController({
     required String dataDir,
     bool allowPrerelease = false,
@@ -41,6 +42,13 @@ class LibraryModuleController extends ChangeNotifier {
 
   /// מחליף ערוץ גרסאות — נכנס לתוקף בבדיקה/הורדה הבאה.
   set allowPrerelease(bool value) => _manager.allowPrerelease = value;
+
+  /// זמן קצוב לפעולות רשת (מהגדרות "רשת") — נכנס לתוקף בבקשה הבאה.
+  set networkTimeout(Duration value) => _manager.networkTimeout = value;
+
+  /// `false` = בלי גיבוי בטיחות לפני כתיבת מסד מלא (מהגדרות "אחסון").
+  /// נכנס לתוקף בהחלה הבאה.
+  bool keepSafetyBackup = true;
 
   final LibraryManager _manager;
   LibraryUpdateCheckResult? _lastCheck;
@@ -122,12 +130,12 @@ class LibraryModuleController extends ChangeNotifier {
       await _manager.downloadToMirror(
         onStage: (stage) {
           downloadStage = stage;
-          notifyListeners();
+          notifyProgress();
         },
         onAssetProgress: (done, total) {
           downloadDoneAssets = done;
           downloadTotalAssets = total;
-          notifyListeners();
+          notifyProgress();
         },
       );
       downloadStatus = MirrorDownloadStatus.done;
@@ -214,6 +222,7 @@ class LibraryModuleController extends ChangeNotifier {
     try {
       await _manager.applyUpdate(
         _lastCheck!,
+        createBackup: keepSafetyBackup,
         onProgress: (p) {
           stageText = _describeApplyStage(p);
           applyProgress = (p.bytesDownloaded != null &&
@@ -221,7 +230,7 @@ class LibraryModuleController extends ChangeNotifier {
                   p.bytesTotal! > 0)
               ? p.bytesDownloaded! / p.bytesTotal!
               : null;
-          notifyListeners();
+          notifyProgress();
         },
       );
       AppLogger.instance.info('update() הסתיים בהצלחה');

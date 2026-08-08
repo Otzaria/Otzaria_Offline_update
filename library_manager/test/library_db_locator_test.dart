@@ -20,10 +20,13 @@ void main() {
 
     /// ברירות המחדל מוצבעות לתוך ה-tempDir בכוונה: כך הבדיקות לא תלויות
     /// בשאלה אם למפתח שמריץ אותן מותקנת אוצריא אמיתית במיקום ברירת המחדל.
+    ///
+    /// ה-OS הנדרס הוא macos, ולכן הנתיבים שהמאתר בונה הם POSIX — גם כשהבדיקה
+    /// רצה ב-Windows. הציפיות למטה נבנות ב-[p.posix] מאותה סיבה.
     LibraryDbLocator locatorWithIsolatedDefaults() => LibraryDbLocator(
           stateStore: stateStore,
           operatingSystem: 'macos',
-          environment: {'HOME': p.join(tempDir.path, 'home')},
+          environment: {'HOME': p.posix.join(tempDir.path, 'home')},
         );
 
     test('returns null when neither custom nor default DB exists', () async {
@@ -31,7 +34,7 @@ void main() {
     });
 
     test('finds the DB in the macOS default location', () async {
-      final defaultPath = p.join(
+      final defaultPath = p.posix.join(
         tempDir.path,
         'home',
         'Library',
@@ -48,7 +51,8 @@ void main() {
 
     test('prefers a saved custom path over the default when both could exist',
         () async {
-      final customDbPath = p.join(tempDir.path, 'my-library', 'seforim.db');
+      final customDbPath =
+          p.posix.join(tempDir.path, 'my-library', 'seforim.db');
       await Directory(p.dirname(customDbPath)).create(recursive: true);
       await File(customDbPath).writeAsString('fake db');
       await stateStore.saveCustomDbPath(customDbPath);
@@ -57,8 +61,8 @@ void main() {
     });
 
     test('ignores a saved custom path that no longer exists on disk', () async {
-      await stateStore
-          .saveCustomDbPath(p.join(tempDir.path, 'missing', 'seforim.db'));
+      await stateStore.saveCustomDbPath(
+          p.posix.join(tempDir.path, 'missing', 'seforim.db'));
 
       // אין גם default — אז התוצאה הצפויה היא null, לא הנתיב הישן.
       expect(await locatorWithIsolatedDefaults().resolveDbPath(), isNull);
@@ -100,8 +104,8 @@ void main() {
       );
 
       expect(dirs, [
-        p.join(r'C:\Users\dov\AppData\Roaming', 'otzaria', 'books'),
-        p.join(r'C:\ProgramData', 'otzaria', 'books'),
+        r'C:\Users\dov\AppData\Roaming\otzaria\books',
+        r'C:\ProgramData\otzaria\books',
       ]);
     });
   });

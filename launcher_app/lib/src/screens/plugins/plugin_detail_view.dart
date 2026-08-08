@@ -36,6 +36,9 @@ class PluginDetailView extends StatelessWidget {
   /// מעל הרוחב הזה "מידע כללי" ו"תגיות" יושבים זה לצד זה.
   static const double _twoColumnWidth = 900;
 
+  /// רוחב אריח צילום מסך בגלריה — קבוע, ולכן גם רוחב הפענוח קבוע.
+  static const double _screenshotThumbWidth = 200;
+
   @override
   Widget build(BuildContext context) {
     return PluginStoreBody(
@@ -347,7 +350,7 @@ class PluginDetailView extends StatelessWidget {
         children: [
           for (var i = 0; i < paths.length; i++)
             SizedBox(
-              width: 200,
+              width: _screenshotThumbWidth,
               child: AppCard(
                 onTap: () => showPluginScreenshots(
                   context,
@@ -359,6 +362,9 @@ class PluginDetailView extends StatelessWidget {
                   child: Image.file(
                     File(paths[i]),
                     fit: BoxFit.cover,
+                    // תמונה מוקטנת נשארת מוקטנת גם בזיכרון — ה-lightbox
+                    // פותח את הקובץ במלוא הרזולוציה בנפרד.
+                    cacheWidth: decodeWidthFor(context, _screenshotThumbWidth),
                     errorBuilder: (context, _, __) => const Center(
                       child: Icon(FluentIcons.image_off_24_regular),
                     ),

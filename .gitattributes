@@ -1,0 +1,6 @@
+* text=auto
+
+# ה-fixture של חוזה טבלאות ה-patch מושווה **בית-אחר-בית** מול העותק של צד
+# ה-Kotlin (ראו test/patch_tables_contract_test.dart), ולכן חייב להישאר LF גם
+# ב-checkout על Windows — עם core.autocrlf=true הוא הפך ל-CRLF והבדיקה נכשלה.
+*.json text eol=lf

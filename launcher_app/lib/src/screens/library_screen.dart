@@ -30,8 +30,8 @@ class LibraryScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return ScreenBody(
       title: 'עדכון ספרייה',
-      description: 'העדכון מוחל מהתיקייה שלצד התוכנה, בלי צורך באינטרנט. '
-          'המסד לא ייגע בו עד שתאשר/י, ובזמן שאוצריא פתוחה העדכון חסום.',
+      description: 'העדכון מוחל מתיקיית התוכנה. '
+          'המסד לא ייגע בו עד שתאשר, ובזמן שאוצריא פתוחה העדכון חסום.',
       children: [
         _stateCard(context),
         _sourceCard(context),
@@ -138,7 +138,7 @@ class LibraryScreen extends StatelessWidget {
     final c = library;
     final approved = await showTwoActionsDialog(
       context: context,
-      title: 'עדכון הספרייה',
+      title: 'עדכון ספריית הספרים',
       content: c.isFreshInstall
           ? 'הספרייה תותקן בפעם הראשונה (גרסה ${c.targetVersion}) '
               'מהתיקייה שלצד התוכנה. המסד גדול, וההתקנה עשויה להימשך זמן רב.'

@@ -49,7 +49,13 @@
   בפועל של delta/fullDownload על ה-DB החי (patch/apply דרך `Isolate.run` נכון,
   גיבוי/שחזור, בדיקת "אוצריא רצה").
 - `services/otzaria_process_guard.dart` — בדיקת תהליך אוצריא פעיל: `otzaria.exe` דרך `tasklist` בווינדוס, `אוצריא` דרך `pgrep -x` ב-macOS.
-- `services/zstd_decompressor.dart` — מוזרק ל-`PatchDownloader` וגם לחילוץ ה-DB המלא.
+- `services/zstd_decompressor.dart` — חילוץ zstd **בזיכרון**. מוזרק
+  ל-`PatchDownloader` (קובצי patch, עשרות MB — סביר בזיכרון), וגם משמש כמסלול
+  גיבוי לחילוץ ה-DB המלא.
+- `services/zstd_file_decompressor.dart` — חילוץ zstd **בזרימה**, קובץ-לקובץ,
+  דרך `ZSTD_decompressStream` של libzstd (ה-bindings של `zstandard_native`).
+  זה המסלול הרגיל של ה-DB המלא: שיא הזיכרון הוא חוצצים בודדים ולא ~1.1GB.
+  מחזיר `false` כשאין ספריית zstd לטעינה, ואז נופלים לחילוץ בזיכרון.
 - `library_manager.dart` — האורקסטרטור. **מקור אחד בלבד:** `mirrorDir`
   (`<dataDir>/mirror/library`, לצד קובץ ההרצה). `downloadToMirror()` היא הפעולה
   היחידה שנוגעת ברשת; `checkForUpdate()` ו-`applyUpdate()` קוראות מהתיקייה
@@ -74,13 +80,20 @@
 > גיבוי/שחזור דרך `LibraryDbRecoveryService`), ומאמת את הגרסה הסופית מול
 > `LocalDbVersionReader`.
 >
-> **מגבלה ידועה (MVP) במסלול fullDownload:** החילוץ הוא בזיכרון (לא
-> streaming) — כל ה-DB המלא (עד כ-1.1GB) נטען ל-RAM. עובד, אך צורך יותר
-> זיכרון משיא אפשרי על מחשבים חלשים; שדרוג ל-streaming extractor (כמו
-> ה-onboarding של אוצריא עצמה) הוא צעד המשך סביר אם זה יתברר כבעיה.
-> `services/zstd_decompressor.dart` נשאר בשימוש (מוזרק ל-`PatchDownloader`
-> ולחילוץ ה-DB המלא כאחד); `services/otzaria_process_guard.dart` נשאר
-> בשימוש דרך `LibraryUpdateApplier`.
+> **מסלול fullDownload צורך זיכרון קבוע.** בעבר הוא היה בזיכרון: הקובץ
+> הדחוס נקרא במלואו, חולץ ל-`Uint8List` של ~1.1GB, וזה נשלח ל-`Isolate.run`
+> שכתב אותו — כלומר עוד העתק של אותו GB, כי שליחה ל-isolate מעתיקה. היום
+> ההורדה זורמת לדיסק (`PatchDownloader.downloadToFile`) והחילוץ זורם ממנו
+> לקובץ `<db>.new` (`ZstdFileDecompressor`), וההחלפה היא `rename` באותו
+> volume. `services/zstd_decompressor.dart` נשאר בשימוש לקובצי ה-patch
+> וכמסלול גיבוי; `services/otzaria_process_guard.dart` נשאר בשימוש דרך
+> `LibraryUpdateApplier`.
+>
+> `test/zstd_file_decompressor_test.dart` בודק את החילוץ בזרימה מול libzstd
+> אמיתי (סבב 8MB מרובה-צ׳אנקים, קובץ קטוע, קובץ ריק). הוא מדלג את עצמו
+> כשאין ספריית zstd לטעינה; ב-Windows יש להריץ עם התיקייה של
+> `zstandard_windows.dll` ב-`PATH`, למשל
+> `launcher_app/build/windows/x64/runner/Debug`.
 
 ## ⚠️ מה עדיין לא מאומת / סיכונים ידועים
 
@@ -94,8 +107,9 @@
    היא Linux) — הלוגיקה נכתבה לפי ה-API המתועד של `seforim_library_updater`
    ועברה `dart analyze`, אך לא `flutter run` על DB אמיתי בגודל מלא. יש
    לבדוק בפועל: מסלול delta על שרשרת patches אמיתית, מסלול fullDownload
-   על קובץ ~1GB (כולל צריכת הזיכרון בפועל של החילוץ בזיכרון), והתנהגות
-   `OtzariaProcessGuard`/`tasklist` כשאוצריא פתוחה.
+   על קובץ ~1GB, והתנהגות `OtzariaProcessGuard`/`tasklist` כשאוצריא פתוחה.
+   החילוץ בזרימה עצמו **כן** אומת מול libzstd אמיתי ב-Windows (ראו
+   `test/zstd_file_decompressor_test.dart`), אך לא על קובץ בסדר גודל של DB מלא.
 
 ## שימוש
 

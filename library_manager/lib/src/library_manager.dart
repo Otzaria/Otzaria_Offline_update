@@ -73,6 +73,12 @@ class LibraryManager {
   /// כדי שהחלפת ערוץ בהגדרות תיכנס לתוקף בבדיקה/הורדה הבאה.
   bool allowPrerelease;
 
+  /// הזמן הקצוב לפעולות הרשת של המודול — נכנס לתוקף בבקשה הבאה.
+  set networkTimeout(Duration value) {
+    _cloudClient.timeout = value;
+    _applier.connectTimeout = value;
+  }
+
   final LibraryStateStore _stateStore;
   late final LibraryDbLocator _locator;
   final LibraryUpdatePlanner _planner;
@@ -237,6 +243,7 @@ class LibraryManager {
     LibraryUpdateCheckResult check, {
     void Function(LibraryApplyProgress progress)? onProgress,
     bool Function()? isCancelled,
+    bool createBackup = true,
   }) async {
     final plan = check.plan;
     final dbPath = check.dbPath;
@@ -257,6 +264,7 @@ class LibraryManager {
           dbPath: dbPath,
           onProgress: onProgress,
           isCancelled: isCancelled,
+          createBackup: createBackup,
         );
         break;
       case LibraryUpdatePlanKind.none:
