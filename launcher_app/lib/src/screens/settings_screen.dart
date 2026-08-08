@@ -7,7 +7,7 @@ import '../settings/settings_controller.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
 
-/// מסך ההגדרות — אוטומציה, ערוצים, אחסון, רשת וממשק.
+/// מסך ההגדרות — אוטומציה, אחסון, רשת וממשק.
 ///
 /// **אין כאן נתיבים בכוונה.** תיקיית הנתונים צמודה לקובץ ההרצה (ראו
 /// [AppPaths]) ומיקום אוצריא מתגלה לבד — שינוי נתיב היה שובר את הרעיון של
@@ -16,12 +16,10 @@ class SettingsScreen extends StatelessWidget {
   const SettingsScreen({
     super.key,
     required this.controller,
-    required this.dataDir,
     required this.onOpenLog,
   });
 
   final SettingsController controller;
-  final String dataDir;
   final VoidCallback onOpenLog;
 
   AppSettings get _s => controller.settings;
@@ -37,7 +35,6 @@ class SettingsScreen extends StatelessWidget {
       children: [
         _automationCard(context),
         _downloadCard(context),
-        _channelsCard(context),
         _storageCard(context),
         _networkCard(context),
         _uiCard(context),
@@ -90,14 +87,6 @@ class SettingsScreen extends StatelessWidget {
             what: 'הספרייה',
             apply: (on) => _set(_s.copyWith(autoInstallLibrary: on)),
           ),
-        ),
-        // התקנת תוסף עוברת דרך הפרוטוקול otzaria://, שפותח את אוצריא בכל
-        // תוסף בנפרד — ולכן היא לא יכולה לרוץ ברקע ונשארת יזומה מהחנות.
-        SettingsActionTile.text(
-          icon: FluentIcons.puzzle_piece_24_regular,
-          title: 'התקנת תוספים אוטומטית',
-          subtitle: 'לא זמין — ההתקנה פותחת את אוצריא לכל תוסף בנפרד, '
-              'ולכן היא תמיד יזומה מהחנות',
         ),
       ],
     );
@@ -162,83 +151,24 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  // ── ערוצים ────────────────────────────────────────────────────────────────
-
-  Widget _channelsCard(BuildContext context) {
-    const options = [
-      SegmentOption(value: UpdateChannel.stable, label: 'יציב בלבד'),
-      SegmentOption(
-        value: UpdateChannel.stableAndPreview,
-        label: 'כולל pre-release',
-      ),
-    ];
-
-    return SettingsCard(
-      title: 'ערוצי גרסאות',
-      subtitle: 'release רגיל = יציב, pre-release = לא יציב. הבחירה משפיעה '
-          'על מה שההורדה מביאה, ובחירה לרכיב אחד אינה חלה על השאר.',
-      children: [
-        SettingsActionTile.segmentedTile<UpdateChannel>(
-          icon: FluentIcons.desktop_24_regular,
-          title: 'תוכנת אוצריא',
-          subtitle: 'הריפו של אוצריא מפרסם כמעט רק pre-release — בערוץ היציב '
-              'ייתכן שלא תימצא גרסה כלל',
-          options: options,
-          currentValue: _s.appChannel,
-          onChanged: (v) => _set(_s.copyWith(appChannel: v)),
-        ),
-        SettingsActionTile.segmentedTile<UpdateChannel>(
-          icon: FluentIcons.library_24_regular,
-          title: 'הספרייה',
-          options: options,
-          currentValue: _s.libraryChannel,
-          onChanged: (v) => _set(_s.copyWith(libraryChannel: v)),
-        ),
-        // לתוספים אין ערוץ pre-release — לכל תוסף יש `status` משלו
-        // (יציב/בטא/ניסיוני). לכן הבחירה כאן קובעת את סינון ברירת המחדל
-        // של החנות, והתוויות שונות משל שני הרכיבים האחרים.
-        SettingsActionTile.segmentedTile<UpdateChannel>(
-          icon: FluentIcons.puzzle_piece_24_regular,
-          title: 'תוספים',
-          subtitle: 'קובע לפי מה החנות נפתחת מסוננת; ניתן לשנות בחנות עצמה',
-          currentValue: _s.pluginsChannel,
-          onChanged: (v) => _set(_s.copyWith(pluginsChannel: v)),
-          options: const [
-            SegmentOption(value: UpdateChannel.stable, label: 'יציב בלבד'),
-            SegmentOption(
-              value: UpdateChannel.stableAndPreview,
-              label: 'כולל בטא וניסיוני',
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
   // ── אחסון ─────────────────────────────────────────────────────────────────
 
   Widget _storageCard(BuildContext context) {
     return SettingsCard(
       title: 'אחסון',
-      subtitle: 'תיקיית הנתונים קבועה ליד קובץ ההרצה, כדי שהכול ייסע יחד '
-          'על הכונן. אין דרך לשנות אותה — וזה בכוונה.',
+      subtitle: 'תיקיית הנתונים קבועה ליד קובץ ההרצה, ואין דרך לשנות אותה — '
+          'כדי שהכול ייסע יחד על הכונן.',
       children: [
-        SettingsActionTile.path(
-          icon: FluentIcons.folder_24_regular,
-          title: 'תיקיית הנתונים',
-          path: dataDir,
-          placeholder: '—',
-        ),
         SettingsActionTile.segmentedTile<int>(
           icon: FluentIcons.history_24_regular,
-          title: 'גיבויים לשמירה',
-          subtitle: 'כמה גיבויים של המסד יישמרו לפני מחיקת הישן',
+          title: 'גיבוי בטיחות של המסד',
+          subtitle: 'לפני כתיבת מסד מלא: "כבוי" מתקין רק את הגרסה שהורדה, '
+              'בלי רשת הצלה אם הכתיבה תיכשל באמצע',
           currentValue: _s.backupsToKeep,
           onChanged: (v) => _set(_s.copyWith(backupsToKeep: v)),
           options: const [
-            SegmentOption(value: 1, label: '1'),
-            SegmentOption(value: 2, label: '2'),
-            SegmentOption(value: 3, label: '3'),
+            SegmentOption(value: 0, label: 'כבוי'),
+            SegmentOption(value: 1, label: 'דלוק'),
           ],
         ),
       ],
@@ -270,6 +200,11 @@ class SettingsScreen extends StatelessWidget {
 
   // ── ממשק ותמיכה ───────────────────────────────────────────────────────────
 
+  /// רוחב קבוע לשתי השורות למטה — כך שתיבות ערכת הנושא, שהתווית הארוכה
+  /// ביניהן ("לפי המערכת") הייתה מגדילה אותן יותר מהשורה השנייה, יושבות
+  /// באותו גודל בדיוק כמו תיבות גודל הטקסט.
+  static const double _uiSegmentWidth = 300;
+
   Widget _uiCard(BuildContext context) {
     return SettingsCard(
       title: 'ממשק ותמיכה',
@@ -279,8 +214,9 @@ class SettingsScreen extends StatelessWidget {
           title: 'ערכת נושא',
           currentValue: _s.themeMode,
           onChanged: (v) => _set(_s.copyWith(themeMode: v)),
+          width: _uiSegmentWidth,
           options: const [
-            SegmentOption(value: AppThemeMode.system, label: 'לפי המערכת'),
+            SegmentOption(value: AppThemeMode.system, label: 'מערכת'),
             SegmentOption(value: AppThemeMode.light, label: 'בהיר'),
             SegmentOption(value: AppThemeMode.dark, label: 'כהה'),
           ],
@@ -290,6 +226,7 @@ class SettingsScreen extends StatelessWidget {
           title: 'גודל טקסט',
           currentValue: _s.textScale,
           onChanged: (v) => _set(_s.copyWith(textScale: v)),
+          width: _uiSegmentWidth,
           options: const [
             SegmentOption(value: 0.9, label: 'קטן'),
             SegmentOption(value: 1.0, label: 'רגיל'),

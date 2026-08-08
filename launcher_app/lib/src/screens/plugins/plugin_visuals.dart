@@ -14,6 +14,20 @@ import '../../widgets/widgets_exports.dart';
 /// (`AppTokens`, `ColorScheme`) ונשארים מקומיים לתיקייה הזו. ראו
 /// launcher_app/README.md.
 
+/// רוחב הפענוח שיש לבקש מ-`Image.file` עבור תמונה שתוצג ב-[logicalWidth].
+///
+/// **למה זה חובה כאן:** בלי `cacheWidth` פלאטר מפענח את התמונה בגודל המקור.
+/// תמונת חנות טיפוסית (1200×800) תופסת כ-3.8MB מפוענחת, וברשת של עשרות
+/// תוספים — כולן חיות בבת אחת — זה מאות MB של RAM עבור אריחים ברוחב 300px.
+/// עיגול ל-[_decodeStep] מונע פענוח מחדש בכל פיקסל של שינוי גודל החלון.
+int? decodeWidthFor(BuildContext context, double logicalWidth) {
+  if (!logicalWidth.isFinite || logicalWidth <= 0) return null;
+  final physical = logicalWidth * MediaQuery.devicePixelRatioOf(context);
+  return (physical / _decodeStep).ceil() * _decodeStep;
+}
+
+const int _decodeStep = 64;
+
 const Map<String, String> kPluginStatusLabels = {
   'stable': 'יציב',
   'beta': 'בטא',
@@ -177,10 +191,13 @@ class PluginThumbnail extends StatelessWidget {
     final path = imagePath;
     if (path == null || path.isEmpty) return _placeholder(context);
 
-    return Image.file(
-      File(path),
-      fit: BoxFit.cover,
-      errorBuilder: (context, _, __) => _placeholder(context),
+    return LayoutBuilder(
+      builder: (context, constraints) => Image.file(
+        File(path),
+        fit: BoxFit.cover,
+        cacheWidth: decodeWidthFor(context, constraints.maxWidth),
+        errorBuilder: (context, _, __) => _placeholder(context),
+      ),
     );
   }
 

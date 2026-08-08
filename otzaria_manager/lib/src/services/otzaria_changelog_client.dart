@@ -12,8 +12,14 @@ import '../models/otzaria_update_check_result.dart';
 /// הפסקה מכאן על פני `release.body`, ונופלים חזרה לזה אם הגרסה לא נמצאה
 /// כאן או שאין רשת.
 class OtzariaChangelogClient {
-  OtzariaChangelogClient({http.Client? httpClient})
-      : _httpClient = httpClient ?? http.Client();
+  OtzariaChangelogClient({
+    http.Client? httpClient,
+    this.timeout = const Duration(seconds: 20),
+  }) : _httpClient = httpClient ?? http.Client();
+
+  /// זמן קצוב לבקשה — ראו [OtzariaReleaseClient.timeout]. בלעדיו בדיקת
+  /// העדכונים בפתיחה הייתה יכולה להיתקע גם כשה-release עצמו כבר נקרא.
+  Duration timeout;
 
   // הקובץ חי בענף dev ולא בתג ה-release — הוא ה"מקור האחד" שמתעדכן עם כל
   // גרסה, בניגוד לתיאור ה-release שלעיתים נשאר ריק.
@@ -35,7 +41,7 @@ class OtzariaChangelogClient {
       final response = await _httpClient.get(
         Uri.parse(url),
         headers: const {'User-Agent': 'otzaria-launcher'},
-      );
+      ).timeout(timeout);
       if (response.statusCode != 200) return null;
       return _extract(response.body, tagName);
     } catch (_) {

@@ -106,7 +106,15 @@ Notes:
 
 - The root `analysis_options.yaml` **excludes** the sub-packages, so analyzing
   from the root does *not* cover them. `cd` into each package you changed and
-  analyze there.
+  analyze there. Every sub-package now carries its own `analysis_options.yaml`
+  for the same reason — without one, the analyzer walks up to the root file,
+  inherits its `exclude:` for that very package, and reports "No issues found"
+  while checking nothing. `library_manager` and `otzaria_manager` were both in
+  that state; do not delete those files.
+- `.gitattributes` pins `*.json` to `eol=lf`. `test/patch_tables_contract.json`
+  is compared byte-for-byte against the Kotlin side, and with
+  `core.autocrlf=true` (the Windows default) it was checked out as CRLF and the
+  contract test failed on every Windows machine.
 - Run the relevant tests too when logic changed: `flutter test` (root,
   `library_manager`, `launcher_app`) or `dart test` (`otzaria_manager`,
   `plugins_manager`).
@@ -217,6 +225,28 @@ all**. Adding one back (an "advanced" data-dir setting, a USB target picker, an
 On macOS the folder goes next to the `.app` bundle, not inside
 `Contents/MacOS`, so the user can actually see it.
 
+**Progress callbacks must not reach `setState` unthrottled.** `PatchDownloader`
+reports `onProgress` per chunk — tens of thousands of calls for a 1GB download.
+Each one used to become `notifyListeners()` → `setState` on `AppShell` → a
+rebuild of the whole widget tree, which cost more CPU than the download. The
+module controllers route progress through `ProgressNotifier.notifyProgress()`
+(coalesced to ~10/s, last value always delivered). Use plain `notifyListeners`
+for *state* changes only.
+
+**`AppShell` builds screens lazily.** `IndexedStack` builds every child, so the
+plugin store — a card grid with one `Image.file` per plugin — was built and had
+all its images decoded at launch, before the user ever opened that tab. Screens
+are now created on first visit (`_builtScreens`) and kept in the tree after.
+Consequence: the "plugin updates available" dialog fires on first visit to the
+plugins tab, not at launch.
+
+**Store images must pass `cacheWidth`.** Without it Flutter decodes at source
+resolution; a 1200×800 catalogue image is ~3.8MB of RAM, times every plugin.
+See `decodeWidthFor` in `screens/plugins/plugin_visuals.dart`. Related: the
+grid is a `SliverGrid` inside `PluginStoreBody`'s `CustomScrollView` — it was a
+`GridView(shrinkWrap: true)` inside a `ListView`, and `shrinkWrap` disables
+virtualisation, so every card was built regardless of the viewport.
+
 **There is no network fallback in the check path.** `LibraryManager._resolveSource`
 returns the local mirror or throws `LibraryMirrorMissingException`; it must never
 fall back to `GithubLibraryReleaseClient`. An earlier version did fall back, and
@@ -291,8 +321,12 @@ picker filter. The macOS path of
 `otzaria_manager` and the launcher build/run on macOS **were** verified against a
 real `otzaria-macos.zip`.
 
-Known MVP limitation: the fullDownload route decompresses in memory (up to
-~1.1GB of RAM). Streaming extraction is the natural follow-up if that hurts.
+The fullDownload route used to decompress in memory (~1.1GB, plus another copy
+when that `Uint8List` was sent to an isolate to be written). It now streams:
+download → file, `ZstdFileDecompressor` → `<db>.new`, then `rename`. The
+streaming decompressor is verified against real libzstd on Windows
+(`library_manager/test/zstd_file_decompressor_test.dart`, self-skipping when the
+library can't be loaded) but **not** yet on a full ~1GB DB.
 
 ---
 

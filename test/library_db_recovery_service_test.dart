@@ -79,12 +79,18 @@ void main() {
     test('מגלגל hot journal (קריסה באמצע apply) ומחזיר true', () {
       final crashed = _makeHotJournalDb(tmp.path);
       // רגרסיה: פתיחת readOnly על hot journal נכשלת ב-"readonly database".
-      expect(
-        () => sqlite3.sqlite3
-            .open(crashed, mode: sqlite3.OpenMode.readOnly)
-            .select('PRAGMA quick_check'),
-        throwsA(isA<sqlite3.SqliteException>()),
-      );
+      // ה-handle נסגר במפורש: ב-Windows חיבור שנשאר פתוח חוסם את מחיקת
+      // תיקיית ה-temp ב-tearDown (וגם את פתיחת ה-RW שאחריו).
+      final probe =
+          sqlite3.sqlite3.open(crashed, mode: sqlite3.OpenMode.readOnly);
+      try {
+        expect(
+          () => probe.select('PRAGMA quick_check'),
+          throwsA(isA<sqlite3.SqliteException>()),
+        );
+      } finally {
+        probe.close();
+      }
       // ה-RW של השירות מגלגל את ה-journal ומאמת תקינות.
       expect(service.checkDbHealthAfterCrash(crashed), isTrue);
       expect(File('$crashed-journal').existsSync(), isFalse);

@@ -1,0 +1,5 @@
+# חבילת Flutter — אותה ערכת lint כמו שורש הריפו ו-launcher_app. בלי הקובץ הזה
+# ל-library_manager לא הייתה ערכת lint בכלל (הוא לא יורש מהשורש, שמחריג את
+# תתי-החבילות), ולכן `flutter analyze` כאן היה שקט גם על קוד שהיה נופל בכל
+# חבילה אחרת בריפו.
+include: package:flutter_lints/flutter.yaml

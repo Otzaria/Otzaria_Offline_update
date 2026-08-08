@@ -15,10 +15,18 @@ dependencies:
   seforim_library_updater:
     path: ../
   zstandard: ^1.3.26
+  # ה-bindings של libzstd שחבילת zstandard מביאה איתה בכל מקרה. נדרשים
+  # ישירות בשביל ה-streaming API (ZSTD_decompressStream) — ראו
+  # ZstdFileDecompressor: החילוץ ה-one-shot של zstandard מחזיק את כל ה-DB
+  # (~1.1GB) ב-RAM, וזה מה שמאפשר לחלץ קובץ-לקובץ בלי זה.
+  zstandard_native: ^1.5.0
+  ffi: ^2.1.3
   path: ^1.9.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   test: ^1.30.1
-  lints: ^4.0.0
+  # flutter_lints ולא lints: זו חבילת Flutter, ואותה ערכה כמו בשורש הריפו
+  # וב-launcher_app (ראו analysis_options.yaml).
+  flutter_lints: ^4.0.0

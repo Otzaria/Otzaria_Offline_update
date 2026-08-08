@@ -34,8 +34,16 @@ class OtzariaInstaller {
     required this.cacheDir,
     http.Client? httpClient,
     OtzariaAppLocator? appLocator,
+    this.connectTimeout = const Duration(seconds: 20),
+    this.stallTimeout = const Duration(seconds: 30),
   })  : _httpClient = httpClient ?? http.Client(),
         _appLocator = appLocator ?? const OtzariaAppLocator();
+
+  /// זמן קצוב לפתיחת החיבור, ולשקט בין צ'אנקים. בלעדיהם הורדת ה-installer
+  /// (~70MB) הייתה יכולה להישאר תלויה לנצח על חיבור שנפל באמצע, והמשתמש היה
+  /// רואה מד התקדמות קפוא בלי שגיאה. ניתנים לשינוי מהגדרות הלאנצ'ר.
+  Duration connectTimeout;
+  Duration stallTimeout;
 
   /// התיקייה שאליה מתקינים כשלא נבחרה תיקייה אחרת במפורש (למשל
   /// `<data>/otzaria-app`) — ה"מיקום ברירת המחדל" של הלאנצ'ר עצמו.
@@ -177,7 +185,7 @@ class OtzariaInstaller {
     void Function(int received, int total)? onProgress,
   }) async {
     final request = http.Request('GET', Uri.parse(url));
-    final response = await _httpClient.send(request);
+    final response = await _httpClient.send(request).timeout(connectTimeout);
 
     if (response.statusCode != 200) {
       throw StateError('הורדת קובץ ההתקנה נכשלה: סטטוס ${response.statusCode}');
@@ -186,13 +194,26 @@ class OtzariaInstaller {
     final sink = File(destinationPath).openWrite();
     var received = 0;
     try {
-      await response.stream.listen((chunk) {
+      // `timeout` על הזרם ולא רק על ה-send: חיבור שנפתח ואז נשתק היה תוקע
+      // את ההורדה בלי גבול.
+      await for (final chunk in response.stream.timeout(stallTimeout)) {
         sink.add(chunk);
         received += chunk.length;
         onProgress?.call(received, expectedSizeBytes);
-      }).asFuture<void>();
-    } finally {
+      }
+      await sink.flush();
       await sink.close();
+    } catch (_) {
+      // קובץ חלקי חייב להיעלם: הריצה הבאה בודקת cache-hit לפי גודל, וקובץ
+      // שנקטע בדיוק בגודל הנכון היה נראה תקין. סוגרים לפני המחיקה — ב-Windows
+      // handle פתוח חוסם אותה.
+      try {
+        await sink.close();
+      } catch (_) {}
+      try {
+        await File(destinationPath).delete();
+      } catch (_) {}
+      rethrow;
     }
 
     if (expectedSizeBytes > 0 && received != expectedSizeBytes) {

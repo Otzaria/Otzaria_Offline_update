@@ -9,11 +9,18 @@ import 'otzaria_asset_selector.dart';
 /// שולף מידע על releases של github.com/Otzaria/otzaria (אפליקציית אוצריא
 /// עצמה — לא SeforimLibrary/ה-DB).
 class OtzariaReleaseClient {
-  OtzariaReleaseClient(
-      {http.Client? httpClient, OtzariaTargetPlatform? platform})
-      : _httpClient = httpClient ?? http.Client(),
+  OtzariaReleaseClient({
+    http.Client? httpClient,
+    OtzariaTargetPlatform? platform,
+    this.timeout = const Duration(seconds: 20),
+  })  : _httpClient = httpClient ?? http.Client(),
         _platform =
             platform ?? OtzariaTargetPlatform.detect(Platform.operatingSystem);
+
+  /// זמן קצוב לבקשה. חובה שיהיה כזה: בלעדיו, מחשב שמחובר לרשת אך בלי מסלול
+  /// לאינטרנט (למשל captive portal) היה תולה את בדיקת העדכונים ללא הגבלה.
+  /// ניתן לשינוי בזמן ריצה מהגדרות הלאנצ'ר.
+  Duration timeout;
 
   // ⚠️ Otzaria/otzaria (ה-fork, לא Sivan22/otzaria המקורי) — זה הריפו
   // שממנו בפועל מפיצים releases ושהמשתמשים מורידים ממנו. תוקן אחרי
@@ -58,7 +65,7 @@ class OtzariaReleaseClient {
         // rules" לכל בקשה בלי User-Agent — ללא קשר ל-rate limit.
         'User-Agent': 'otzaria-launcher',
       },
-    );
+    ).timeout(timeout);
 
     if (response.statusCode != 200) {
       throw GithubApiException(

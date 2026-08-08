@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 
 import '../services/app_logger.dart';
+import 'progress_notifier.dart';
 
 enum OtzariaModuleStatus {
   idle,
@@ -22,7 +23,7 @@ enum OtzariaDownloadStatus { idle, downloading, done, error }
 /// עוטף את [OtzariaManager] כמצב הניתן לצפייה עבור הדשבורד. שתי פעולות
 /// נפרדות: [download] מביא גרסה מהרשת אל התיקייה שלצד התוכנה (הפעולה
 /// היחידה שדורשת אינטרנט), ו-[install] מתקין ממנה — גם בלי רשת.
-class OtzariaModuleController extends ChangeNotifier {
+class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   OtzariaModuleController({
     required String dataDir,
     bool allowPrerelease = false,
@@ -36,6 +37,9 @@ class OtzariaModuleController extends ChangeNotifier {
 
   /// מחליף ערוץ גרסאות — נכנס לתוקף בהורדה הבאה.
   set allowPrerelease(bool value) => _manager.allowPrerelease = value;
+
+  /// זמן קצוב לפעולות רשת (מהגדרות "רשת") — נכנס לתוקף בבקשה הבאה.
+  set networkTimeout(Duration value) => _manager.networkTimeout = value;
 
   OtzariaModuleStatus status = OtzariaModuleStatus.idle;
   String? currentVersion;
@@ -120,7 +124,7 @@ class OtzariaModuleController extends ChangeNotifier {
         onProgress: (received, total) {
           downloadReceived = received;
           downloadTotal = total;
-          notifyListeners();
+          notifyProgress();
         },
       );
       downloadStatus = OtzariaDownloadStatus.done;

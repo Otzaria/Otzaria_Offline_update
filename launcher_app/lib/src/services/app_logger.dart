@@ -8,12 +8,23 @@ import 'package:path/path.dart' as p;
 /// עם timestamp ורמה, כדי שאפשר יהיה לראות מה קרה בפועל אחרי שהאפליקציה
 /// כבר נסגרה — בלי צורך בדיבאגר או בחיבור מסוף.
 ///
-/// כשל בכתיבה ללוג עצמו **לא** אמור להפיל את שאר האפליקציה (ה-`catchError`
-/// בולע שגיאות כתיבה בשקט) — הלוג הוא כלי עזר, לא חלק מהלוגיקה.
+/// כשל בכתיבה ללוג עצמו **לא** מפיל את שאר האפליקציה — הלוג הוא כלי עזר, לא
+/// חלק מהלוגיקה.
+///
+/// שתי תכונות שאינן מובנות מאליהן:
+/// * **הכתיבות מוסדרות בטור.** קודם כל קריאה שיגרה `writeAsString` נפרד ולא
+///   מחכה לו; כמה שורות שנכתבו באותו tick (למשל שגיאה עם stack trace ומיד
+///   אחריה עוד אחת) יכלו להיכנס לקובץ מעורבבות או לדרוס זו את זו, כי כל
+///   קריאה פותחת handle משלה. כאן יש תור: שרשרת Future אחת, שורה אחרי שורה.
+/// * **יש רוטציה.** הקובץ יושב על אותו כונן נייד שנוסע עם התוכנה, ובלי גבול
+///   הוא היה גדל לנצח.
 class AppLogger {
   AppLogger._(this._file);
 
   static AppLogger? _instance;
+
+  /// מעל הגודל הזה הקובץ מוזז ל-`launcher.log.1` ומתחיל חדש.
+  static const int maxBytes = 2 * 1024 * 1024;
 
   /// יש לקרוא פעם אחת, מוקדם ב-`main()`, לפני שנעשה שימוש ב-[instance].
   static Future<AppLogger> init(String dataDir) async {
@@ -38,7 +49,16 @@ class AppLogger {
     return i;
   }
 
+  /// כמו [instance] אך בלי לזרוק — לקוד שרץ בעלייה ועלול להקדים את [init]
+  /// (למשל טעינת הגדרות שנכשלת על קובץ פגום). קריאה שמגיעה מוקדם מדי מוטב
+  /// שתאבד שורת לוג מלהפיל את האתחול כולו.
+  static AppLogger? get maybeInstance => _instance;
+
   final File _file;
+
+  /// תור הכתיבה — ראו ה-doc של המחלקה.
+  Future<void> _queue = Future<void>.value();
+  int _pendingLines = 0;
 
   String get filePath => _file.path;
   String get logDir => p.dirname(_file.path);
@@ -58,18 +78,51 @@ class AppLogger {
     _write('ERROR', buffer.toString());
   }
 
+  /// חסם עליון על תור הכתיבה. דיסק שנתקע (כונן USB שנשלף) לא יגרום לצבירת
+  /// שורות בזיכרון בלי גבול — עדיף לאבד שורות לוג מלנפח את התהליך.
+  static const int _maxPendingLines = 512;
+
   void _write(String level, String message) {
     final line = '${DateTime.now().toIso8601String()} [$level] $message\n';
     if (kDebugMode) {
       // ignore: avoid_print
       print(line);
     }
-    // fire-and-forget בכוונה: לא רוצים לחכות לכתיבת דיסק בכל קריאת לוג
-    // בודדת, ולא רוצים שכשל כתיבה (למשל דיסק מלא) יזרוק לקורא.
-    unawaited(
-      _file.writeAsString(line, mode: FileMode.append).catchError((_) {
-        return _file;
-      }),
-    );
+    if (_pendingLines >= _maxPendingLines) return;
+    _pendingLines++;
+    // fire-and-forget בכוונה — הקורא לא מחכה לדיסק — אבל דרך תור, כדי
+    // שהשורות ייכתבו בסדר ולא יתנגשו על אותו קובץ.
+    _queue = _queue.then((_) => _append(line)).whenComplete(() {
+      _pendingLines--;
+    });
   }
+
+  Future<void> _append(String line) async {
+    try {
+      await _rotateIfNeeded();
+      await _file.writeAsString(line, mode: FileMode.append, flush: false);
+    } catch (_) {
+      // כשל כתיבה (דיסק מלא / כונן שנשלף) נבלע — הלוג לא יפיל את התוכנה.
+    }
+  }
+
+  Future<void> _rotateIfNeeded() async {
+    try {
+      if (!await _file.exists()) return;
+      if (await _file.length() < maxBytes) return;
+      final previous = File('${_file.path}.1');
+      if (await previous.exists()) await previous.delete();
+      await _file.rename(previous.path);
+    } catch (_) {
+      // אם הרוטציה נכשלה, ממשיכים לכתוב לקובץ הקיים — עדיף לוג גדול מבלי לוג.
+    }
+  }
+
+  /// מוודא שכל מה שנרשם עד כה כבר על הדיסק. נחוץ רק בבדיקות ובנקודות סגירה
+  /// מסודרת; הקוד הרגיל לא ממתין ללוג.
+  Future<void> flush() => _queue;
+
+  /// חשוף לבדיקות: מאפס את ה-singleton כדי שכל בדיקה תתחיל מקובץ נקי.
+  @visibleForTesting
+  static void resetForTest() => _instance = null;
 }

@@ -223,6 +223,7 @@ class SettingsActionTile extends StatelessWidget {
     required List<SegmentOption<T>> options,
     required T currentValue,
     required ValueChanged<T> onChanged,
+    double? width,
   }) =>
       _SegmentedTile<T>(
         key: key,
@@ -233,6 +234,7 @@ class SettingsActionTile extends StatelessWidget {
         options: options,
         currentValue: currentValue,
         onChanged: onChanged,
+        width: width,
       );
 
   // ── Internals ──────────────────────────────────────────────────────────────
@@ -435,6 +437,9 @@ class _SwitchTileState extends State<_SwitchTile> {
 
 // ── _SegmentedTile ────────────────────────────────────────────────────────────
 
+/// הגובה שבו הפקד נצבע בפועל — ראו ההערה ב-[_SegmentedTile.build].
+const _kSegBoxHeight = 32.0;
+
 const _kSegBaseNoIcon = 60.0;
 const _kSegBaseWithIcon = 80.0;
 const _kSegCharWidth = 8.0;
@@ -461,6 +466,10 @@ class _SegmentedTile<T> extends StatelessWidget {
   final T currentValue;
   final ValueChanged<T> onChanged;
 
+  /// עוקף את הרוחב המחושב מ-[_segGroupWidth] — לשורות שצריכות להשתוות
+  /// ברוחב לשורה אחרת בכרטיס, בלי קשר לאורך התוויות שלהן.
+  final double? width;
+
   const _SegmentedTile({
     super.key,
     this.icon,
@@ -470,6 +479,7 @@ class _SegmentedTile<T> extends StatelessWidget {
     required this.options,
     required this.currentValue,
     required this.onChanged,
+    this.width,
   });
 
   /// [subtitle], אם סופק, גובר על תת-הכותרת של האפשרות הנבחרת.
@@ -501,7 +511,14 @@ class _SegmentedTile<T> extends StatelessWidget {
             title: title,
             subtitle: _resolvedSubtitle,
             actions: [
-              SizedBox(width: _segGroupWidth(options), child: control),
+              // הגובה נכפה כאן ולא ב-AppSegmentedControl: ה-minimumSize שלו
+              // קובע את שטח הלחיצה בלבד, ותווית ארוכה עדיין מותחת את
+              // SegmentedButton לגובה כפול — כך שורות סמוכות יצאו שונות.
+              SizedBox(
+                width: width ?? _segGroupWidth(options),
+                height: _kSegBoxHeight,
+                child: control,
+              ),
             ],
           );
         }

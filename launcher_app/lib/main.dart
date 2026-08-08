@@ -63,10 +63,14 @@ void main() {
         return;
       }
 
-      logger = await AppLogger.init(paths.dataDir);
-
+      // שני אלה נוגעים בדיסק ואינם תלויים זה בזה. בטור, על כונן USB איטי,
+      // זה היה שני סבבי I/O לפני הפריים הראשון; במקביל — סבב אחד.
       final settings = SettingsController(dataDir: paths.dataDir);
-      await settings.load();
+      final initialized = await Future.wait([
+        AppLogger.init(paths.dataDir),
+        settings.load(),
+      ]);
+      logger = initialized.first as AppLogger;
 
       runApp(LauncherApp(dataDir: paths.dataDir, settings: settings));
     },

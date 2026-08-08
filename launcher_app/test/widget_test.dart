@@ -32,12 +32,8 @@ void main() {
       expect(s.hasSyncSelection, isFalse);
     });
 
-    test('preview אינו ברירת מחדל באף רכיב', () {
-      const s = AppSettings();
-
-      expect(s.appChannel, UpdateChannel.stable);
-      expect(s.libraryChannel, UpdateChannel.stable);
-      expect(s.pluginsChannel, UpdateChannel.stable);
+    test('גיבוי הבטיחות של המסד דלוק כברירת מחדל', () {
+      expect(const AppSettings().backupsToKeep, 1);
     });
 
     test('סבב JSON שומר את הערכים', () {
@@ -45,8 +41,7 @@ void main() {
         autoMetadataCheck: false,
         autoInstallLibrary: true,
         syncLibrary: false,
-        libraryChannel: UpdateChannel.stableAndPreview,
-        backupsToKeep: 3,
+        backupsToKeep: 0,
         themeMode: AppThemeMode.dark,
         textScale: 1.15,
       );
@@ -56,8 +51,7 @@ void main() {
       expect(restored.autoMetadataCheck, isFalse);
       expect(restored.autoInstallLibrary, isTrue);
       expect(restored.syncLibrary, isFalse);
-      expect(restored.libraryChannel, UpdateChannel.stableAndPreview);
-      expect(restored.backupsToKeep, 3);
+      expect(restored.backupsToKeep, 0);
       expect(restored.themeMode, AppThemeMode.dark);
       expect(restored.textScale, 1.15);
     });
@@ -74,9 +68,9 @@ void main() {
       expect(restored.themeMode, AppThemeMode.system);
     });
 
-    // קובץ מ-schemaVersion 1 מכיל נתיבים ומתגים שהוסרו. חשוב שהוא לא
+    // קובץ ישן מכיל נתיבים, ערוצי גרסאות ומתגים שהוסרו. חשוב שהוא לא
     // יזרוק — ושמה שנשאר רלוונטי ימשיך להיקרא.
-    test('קובץ הגדרות מ-schemaVersion 1 נקרא בלי לזרוק', () {
+    test('קובץ הגדרות מגרסה ישנה נקרא בלי לזרוק', () {
       final restored = AppSettings.fromJson({
         'schemaVersion': 1,
         'automation': {'metadataCheck': false, 'downloadLibrary': true},
@@ -87,7 +81,6 @@ void main() {
       });
 
       expect(restored.autoMetadataCheck, isFalse);
-      expect(restored.libraryChannel, UpdateChannel.stableAndPreview);
       expect(restored.networkTimeoutSeconds, 45);
       expect(restored.themeMode, AppThemeMode.dark);
       // 'paths' כבר לא נקרא, ולכן backupsToKeep חוזר לברירת המחדל.

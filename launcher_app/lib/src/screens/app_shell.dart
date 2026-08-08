@@ -54,15 +54,17 @@ class _AppShellState extends State<AppShell> {
   bool _otzariaIsRunning = false;
   DateTime? _lastCheckedAt;
 
+  /// המסכים שנבנו בפועל. ה-[IndexedStack] בונה את *כל* ילדיו, ולכן בעבר גם
+  /// חנות התוספים (רשת כרטיסים עם תמונה לכל תוסף) נבנתה ופענחה את כל
+  /// התמונות עוד לפני שהמשתמש נכנס אליה — עלות ישירה בזמן העלייה וב-RAM.
+  /// כאן כל מסך נבנה בכניסה הראשונה אליו, ומאותו רגע נשאר בעץ עם המצב שלו.
+  final Set<LauncherScreen> _builtScreens = {LauncherScreen.home};
+
   /// הורדה אחת בכל רגע — [downloadAll] מריץ את הרכיבים בטור.
   bool _isDownloading = false;
 
   /// הבדיקה הקלה ("יש עדכון ברשת?") — נפרדת לגמרי מ-[_isDownloading].
   bool _isCheckingOnline = false;
-
-  /// ערוץ התוספים כפי שהוחל לאחרונה על סינון החנות — כדי להחיל שינוי
-  /// בהגדרות מיד, אבל לא לדרוס את הסינון שהמשתמש בחר ידנית בחנות.
-  late UpdateChannel _appliedPluginsChannel;
 
   @override
   void initState() {
@@ -71,26 +73,29 @@ class _AppShellState extends State<AppShell> {
 
     _otzaria = OtzariaModuleController(
       dataDir: widget.dataDir,
-      allowPrerelease: s.appChannel == UpdateChannel.stableAndPreview,
+      // הריפו של אוצריא מפרסם כמעט רק pre-release — בערוץ "יציב בלבד"
+      // ייתכן שלא תימצא גרסה כלל, ולכן זה קבוע ולא הגדרה למשתמש.
+      allowPrerelease: true,
     )..addListener(_onChange);
     _library = LibraryModuleController(
       dataDir: widget.dataDir,
-      allowPrerelease: s.libraryChannel == UpdateChannel.stableAndPreview,
     )..addListener(_onChange);
-    _appliedPluginsChannel = s.pluginsChannel;
     _plugins = PluginsModuleController(
       // כל המראות יושבות תחת אותו שורש שלצד התוכנה, כך שהכול נוסע יחד.
       mirrorRootDir: p.join(widget.dataDir, 'mirror'),
-      initialStatusFilter: pluginStatusFilterFor(_appliedPluginsChannel),
     )..addListener(_onChange);
     widget.settings.addListener(_onChange);
+    _applySettings(s);
 
-    unawaited(_refreshProcessState());
     unawaited(_plugins.load());
     // בדיקה מקומית בלבד — קוראת מהתיקייה שלצד התוכנה ולא נוגעת ברשת.
     // הורדה תמיד יזומה בלחיצה.
     if (s.autoMetadataCheck) {
+      // `checkAll` כבר מרענן את מצב התהליך בעצמו — קריאה נפרדת כאן הייתה
+      // מריצה `tasklist` פעמיים בעלייה.
       unawaited(checkAll());
+    } else {
+      unawaited(_refreshProcessState());
     }
     // בדיקה קלה ברשת (מטא-דאטה בלבד) — פעם אחת בהפעלה, לא טיימר מחזורי.
     // כשל (אין רשת) נבלע בתוך הקונטרולרים ולא מוצג כשגיאה.
@@ -113,23 +118,18 @@ class _AppShellState extends State<AppShell> {
 
   void _onChange() {
     if (!mounted) return;
-    _applyChannels();
+    _applySettings(widget.settings.settings);
     setState(() {});
   }
 
-  /// מחיל את ערוצי הגרסאות מההגדרות על המודולים. לשני הראשונים זו פעולה
-  /// idempotent (רק מציבה דגל), ולכן אין צורך לעקוב אחרי שינוי.
-  void _applyChannels() {
-    final s = widget.settings.settings;
-    _otzaria.allowPrerelease = s.appChannel == UpdateChannel.stableAndPreview;
-    _library.allowPrerelease =
-        s.libraryChannel == UpdateChannel.stableAndPreview;
-
-    // בתוספים לעומת זאת הערוץ קובע את סינון החנות, ודריסת בחירה ידנית של
-    // המשתמש מותרת רק כשהוא באמת שינה את ההגדרה.
-    if (s.pluginsChannel == _appliedPluginsChannel) return;
-    _appliedPluginsChannel = s.pluginsChannel;
-    _plugins.setStatusFilter(pluginStatusFilterFor(s.pluginsChannel));
+  /// מזליג הגדרות שהקונטרולרים צריכים. הכול idempotent (הצבת ערך), ולכן אין
+  /// צורך לעקוב אחרי שינוי בפועל.
+  void _applySettings(AppSettings s) {
+    _library.keepSafetyBackup = s.backupsToKeep > 0;
+    final timeout = Duration(seconds: s.networkTimeoutSeconds);
+    _otzaria.networkTimeout = timeout;
+    _library.networkTimeout = timeout;
+    _plugins.networkTimeout = timeout;
   }
 
   Future<void> _refreshProcessState() async {
@@ -220,6 +220,44 @@ class _AppShellState extends State<AppShell> {
     UiSnack.show('נתיב יומן הפעילות: ${logger.filePath}');
   }
 
+  void _goTo(LauncherScreen screen) {
+    setState(() {
+      _screen = screen;
+      _builtScreens.add(screen);
+    });
+  }
+
+  Widget _screenWidget(LauncherScreen screen) => switch (screen) {
+        LauncherScreen.home => HomeScreen(
+            otzaria: _otzaria,
+            library: _library,
+            plugins: _plugins,
+            settings: widget.settings,
+            otzariaIsRunning: _otzariaIsRunning,
+            isDownloading: _isDownloading,
+            isCheckingOnline: _isCheckingOnline,
+            onCheckOnline: checkOnline,
+            onDownloadAll: downloadAll,
+            onGoToOtzaria: () => _goTo(LauncherScreen.otzaria),
+            onGoToLibrary: () => _goTo(LauncherScreen.library),
+          ),
+        LauncherScreen.otzaria => OtzariaScreen(
+            otzaria: _otzaria,
+            otzariaIsRunning: _otzariaIsRunning,
+          ),
+        LauncherScreen.library => LibraryScreen(
+            library: _library,
+            otzariaIsRunning: _otzariaIsRunning,
+            isDownloading: _isDownloading,
+            onProcessStateChanged: _refreshProcessState,
+          ),
+        LauncherScreen.plugins => PluginsScreen(controller: _plugins),
+        LauncherScreen.settings => SettingsScreen(
+            controller: widget.settings,
+            onOpenLog: _openLogFolder,
+          ),
+      };
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -228,7 +266,7 @@ class _AppShellState extends State<AppShell> {
         children: [
           _NavRail(
             current: _screen,
-            onSelect: (screen) => setState(() => _screen = screen),
+            onSelect: _goTo,
           ),
           Expanded(
             child: Column(
@@ -245,37 +283,10 @@ class _AppShellState extends State<AppShell> {
                   child: IndexedStack(
                     index: _screen.index,
                     children: [
-                      HomeScreen(
-                        otzaria: _otzaria,
-                        library: _library,
-                        plugins: _plugins,
-                        settings: widget.settings,
-                        otzariaIsRunning: _otzariaIsRunning,
-                        isDownloading: _isDownloading,
-                        isCheckingOnline: _isCheckingOnline,
-                        onCheckOnline: checkOnline,
-                        onDownloadAll: downloadAll,
-                        onGoToOtzaria: () =>
-                            setState(() => _screen = LauncherScreen.otzaria),
-                        onGoToLibrary: () =>
-                            setState(() => _screen = LauncherScreen.library),
-                      ),
-                      OtzariaScreen(
-                        otzaria: _otzaria,
-                        otzariaIsRunning: _otzariaIsRunning,
-                      ),
-                      LibraryScreen(
-                        library: _library,
-                        otzariaIsRunning: _otzariaIsRunning,
-                        isDownloading: _isDownloading,
-                        onProcessStateChanged: _refreshProcessState,
-                      ),
-                      PluginsScreen(controller: _plugins),
-                      SettingsScreen(
-                        controller: widget.settings,
-                        dataDir: widget.dataDir,
-                        onOpenLog: _openLogFolder,
-                      ),
+                      for (final screen in LauncherScreen.values)
+                        _builtScreens.contains(screen)
+                            ? _screenWidget(screen)
+                            : const SizedBox.shrink(),
                     ],
                   ),
                 ),

@@ -253,13 +253,14 @@ lib/
     ├── controllers/
     │   ├── otzaria_module_controller.dart   — עוטף OtzariaManager כ-ChangeNotifier
     │   ├── library_module_controller.dart   — עוטף LibraryManager כ-ChangeNotifier
-    │   └── plugins_module_controller.dart   — עוטף PluginsManager כ-ChangeNotifier
+    │   ├── plugins_module_controller.dart   — עוטף PluginsManager כ-ChangeNotifier
+    │   └── progress_notifier.dart           — דילול דיווחי התקדמות (ראו למטה)
     ├── services/
     │   ├── app_logger.dart            — לוג לקובץ תחת <dataDir>/logs
     │   ├── file_reveal.dart           — פתיחת תיקייה ב-Explorer/Finder
     │   └── hebrew_date.dart           — המרה לתאריך עברי + גימטריה
     └── screens/
-        ├── app_shell.dart             — סרגל ניווט, סרגל מצב, IndexedStack
+        ├── app_shell.dart             — סרגל ניווט, סרגל מצב, IndexedStack מדורג
         ├── home_screen.dart, otzaria_screen.dart, library_screen.dart, settings_screen.dart
         └── plugins/                   — חנות התוספים
             ├── plugins_screen.dart          — רשימה ↔ פרטים, סנכרון
@@ -270,6 +271,22 @@ lib/
             ├── plugin_sync_overlay.dart, plugin_updates_dialog.dart
             └── plugin_visuals.dart          — רכיבים מקומיים (לא פורט)
 ```
+
+## ביצועים — שלוש החלטות שאין לבטל בטעות
+
+- **`AppShell` בונה מסך רק בכניסה הראשונה אליו** (`_builtScreens`).
+  `IndexedStack` בונה את *כל* ילדיו, ולכן חנות התוספים — רשת כרטיסים עם
+  `Image.file` לכל תוסף — נבנתה ופענחה את כל התמונות בעלייה, לפני שהמשתמש פתח
+  את הלשונית. תוצאה נלווית מכוונת: הודעת "יש עדכונים לתוספים" מוצגת בכניסה
+  הראשונה ללשונית ולא בפתיחת התוכנה.
+- **דיווחי התקדמות עוברים דרך `ProgressNotifier.notifyProgress()`.**
+  `PatchDownloader` מדווח על כל צ׳אנק; בהורדת מסד של 1GB אלה עשרות אלפי
+  `setState` על `AppShell`, כלומר בנייה מחדש של כל עץ ה-widgets. `notifyListeners`
+  רגיל נשאר לשינויי **מצב** בלבד.
+- **תמונות החנות מפוענחות בגודל התצוגה** דרך `decodeWidthFor` ב-
+  `plugin_visuals.dart`, והרשת היא `SliverGrid` בתוך ה-`CustomScrollView` של
+  `PluginStoreBody`. הגרסה הקודמת (`GridView(shrinkWrap: true)` בתוך `ListView`)
+  ביטלה וירטואליזציה, ולכן החזיקה את כל הכרטיסים ואת כל התמונות בזיכרון בבת אחת.
 
 ## מה עדיין חסר (מעבר לבדיקה בפועל)
 
@@ -288,9 +305,9 @@ lib/
   בתכנון. שני מתגי "תוספים מותקנים" מושבתים בכוונה ומסבירים למה: סנכרון
   חלקי אינו קיים (`PluginMirrorSync` מביא את כל הקטלוג), והתקנה עוברת דרך
   הפרוטוקול `otzaria://` שפותח את אוצריא לכל תוסף בנפרד.
-- **ערוץ התוספים** בהגדרות אינו prerelease אלא סינון: לכל תוסף יש `status`
-  משלו, ולכן `pluginsChannel` קובע רק את סינון ברירת המחדל שהחנות נפתחת בו
-  (`pluginStatusFilterFor`), והמשתמש יכול לשנות אותו בחנות.
+- **אין ערוצי גרסאות בהגדרות.** תוכנת אוצריא תמיד כוללת pre-release (הריפו
+  שלה מפרסם כמעט רק כאלה, ובערוץ יציב בלבד לא הייתה נמצאת גרסה), הספרייה
+  תמיד יציבה בלבד, והחנות נפתחת מציגה את כל התוספים — כולל בטא וניסיוני.
 - `NetworkStatusService` אמיתי — כרגע מצב הרשת נגזר מהצלחה/כשל של בדיקת
   המטא־דאטה, ולא מבדיקת זמינות מקורות (captive portal, rate limit).
 - חבילת ה-USB האחידה (`update-manifest.json` לתוכנה + ספרייה + תוספים)

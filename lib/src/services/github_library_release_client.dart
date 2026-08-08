@@ -15,7 +15,10 @@ class GithubLibraryReleaseClient implements LibraryReleaseSource {
   final String repository;
   final http.Client _httpClient;
   final bool _ownsClient;
-  final Duration timeout;
+
+  /// ניתן לשינוי בזמן ריצה — הגדרת ה"זמן קצוב לרשת" של הלאנצ'ר נכנסת לתוקף
+  /// בבקשה הבאה, בלי לבנות מחדש את הלקוח.
+  Duration timeout;
 
   GithubLibraryReleaseClient({
     this.owner = 'Otzaria',
@@ -39,6 +42,7 @@ class GithubLibraryReleaseClient implements LibraryReleaseSource {
   /// שולף את כל ה-releases של המאגר עם pagination, כדי שמשתמשים בגרסאות
   /// ישנות לא יאבדו chains כשמספר ה-releases עולה על עמוד אחד. זורק
   /// [Exception] בכשל רשת/HTTP.
+  @override
   Future<List<LibraryRelease>> fetchReleases() async {
     final all = <LibraryRelease>[];
     for (var page = 1; page <= _maxPages; page++) {
@@ -66,6 +70,7 @@ class GithubLibraryReleaseClient implements LibraryReleaseSource {
   }
 
   /// מוריד ומפענח manifest דלתאי מכתובת [url]. זורק בכשל רשת או parse.
+  @override
   Future<DeltaManifest> fetchManifest(String url) async {
     final response = await _httpClient.get(
       Uri.parse(url),
@@ -85,6 +90,7 @@ class GithubLibraryReleaseClient implements LibraryReleaseSource {
   }
 
   /// סוגר את לקוח ה-HTTP אם הוא נוצר פנימית.
+  @override
   void dispose() {
     if (_ownsClient) _httpClient.close();
   }

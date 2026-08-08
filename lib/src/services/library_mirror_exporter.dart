@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
@@ -8,6 +9,7 @@ import '../models/library_release.dart';
 import 'github_library_release_client.dart';
 import 'library_update_discovery.dart';
 import 'local_mirror_library_release_client.dart';
+import 'patch_downloader.dart';
 
 /// בונה "מראה" (mirror) מקומית מלאה של כל עדכוני הספרייה מ-GitHub,
 /// לתיקייה על הדיסק (USB / תיקייה משותפת) — כדי שמחשבים **בלי אינטרנט
@@ -28,12 +30,26 @@ class LibraryMirrorExporter {
   })  : _client = client ?? GithubLibraryReleaseClient(),
         _ownsClient = client == null,
         _httpClient = httpClient ?? http.Client(),
-        _ownsHttpClient = httpClient == null;
+        _ownsHttpClient = httpClient == null {
+    _downloader = PatchDownloader(
+      httpClient: _httpClient,
+      // הייצוא רק מוריד לדיסק ואינו מחלץ דבר — `downloadAndExtract` לא נקרא
+      // כאן, ולכן אין למי לספק פונקציית חילוץ.
+      decompress: _neverDecompress,
+    );
+  }
 
   final GithubLibraryReleaseClient _client;
   final bool _ownsClient;
   final http.Client _httpClient;
   final bool _ownsHttpClient;
+
+  /// ההורדה עוברת דרך [PatchDownloader] ולא דרך `http` ישר. זה לא ניקיון קוד:
+  /// המוריד הזה כבר מביא זמן קצוב, אימות גודל ו-sha256, חידוש הורדה (Range +
+  /// If-Range) ומחיקה של קובץ חלקי שאינו ניתן לחידוש. בלעדיו הורדת ה-DB המלא
+  /// (~1GB) על חיבור שנפל התחילה מאפס בכל פעם, ושרת שנשתק תלה את הייצוא בלי
+  /// גבול — וזה בדיוק המסלול שהמשתמש מריץ פעם אחת על מחשב מקוון.
+  late final PatchDownloader _downloader;
 
   /// בונה מראה מלאה תחת [destDir] (נוצרת אם חסרה). מוריד את כל ה-releases
   /// הרלוונטיים (כאלה עם delta manifests ו/או DB מלא), כולל כל קובצי ה-patch
@@ -105,9 +121,16 @@ class LibraryMirrorExporter {
         _throwIfCancelled(isCancelled);
         onStage?.call('מוריד ${release.tag} / ${asset.name}');
         final destFile = File(p.join(tagDir.path, asset.name));
-        await _downloadToFile(
-          asset.downloadUrl,
-          destFile,
+        await _downloader.downloadToFile(
+          url: asset.downloadUrl,
+          destPath: destFile.path,
+          // ה-manifests נכתבים ע"י GitHub ללא `size` אמין בכל המקרים; `size`
+          // של asset אמיתי כן מדויק, ואי-התאמה שלו היא הורדה שנקטעה.
+          expectedSize: asset.size > 0 ? asset.size : null,
+          expectedSha256: _sha256FromDigest(asset.digest),
+          // מזהה ה-asset הוא הזהות היציבה שמאפשרת לחדש הורדה שנקטעה במקום
+          // להתחיל מאפס — ראו PatchDownloader.downloadToFile.
+          resumeToken: asset.id?.toString(),
           onProgress: onBytesProgress,
           isCancelled: isCancelled,
         );
@@ -182,31 +205,12 @@ class LibraryMirrorExporter {
   String _safeDirName(String tag) =>
       tag.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
 
-  Future<void> _downloadToFile(
-    String url,
-    File dest, {
-    void Function(int downloaded, int? total)? onProgress,
-    bool Function()? isCancelled,
-  }) async {
-    final request = http.Request('GET', Uri.parse(url));
-    final response = await _httpClient.send(request);
-    if (response.statusCode != 200) {
-      throw StateError('שגיאה בהורדת $url: ${response.statusCode}');
-    }
-    final total = response.contentLength;
-    var downloaded = 0;
-    final sink = dest.openWrite();
-    try {
-      await for (final chunk in response.stream) {
-        _throwIfCancelled(isCancelled);
-        sink.add(chunk);
-        downloaded += chunk.length;
-        onProgress?.call(downloaded, total);
-      }
-      await sink.flush();
-    } finally {
-      await sink.close();
-    }
+  /// ה-`digest` שמגיע מ-GitHub הוא בצורת `sha256:<hex>`; פורמט אחר (או היעדר
+  /// שדה) פירושו "אין hash לאמת מולו", ולא כשל.
+  String? _sha256FromDigest(String? digest) {
+    const prefix = 'sha256:';
+    if (digest == null || !digest.startsWith(prefix)) return null;
+    return digest.substring(prefix.length);
   }
 
   void _throwIfCancelled(bool Function()? isCancelled) {
@@ -215,9 +219,17 @@ class LibraryMirrorExporter {
     }
   }
 
-  /// סוגר משאבי HTTP פנימיים אם נוצרו על-ידי המחלקה עצמה.
+  /// סוגר משאבי HTTP פנימיים אם נוצרו על-ידי המחלקה עצמה. ה-[_downloader]
+  /// אינו הבעלים של ה-client (הוא הוזרק אליו), ולכן אין לסגור אותו כאן.
   void dispose() {
     if (_ownsClient) _client.dispose();
     if (_ownsHttpClient) _httpClient.close();
   }
 }
+
+/// ה-`decompress` ש-[PatchDownloader] דורש. הייצוא מוריד בלבד ואינו מחלץ,
+/// ולכן אם מישהו יקרא בעתיד ל-`downloadAndExtract` מכאן — מוטב שייכשל בקול
+/// מלהחזיר `null` שיתפרש כ"חילוץ נכשל".
+Future<Uint8List?> _neverDecompress(Uint8List _) => throw UnsupportedError(
+      'LibraryMirrorExporter מוריד קבצים בלבד ואינו מחלץ אותם',
+    );

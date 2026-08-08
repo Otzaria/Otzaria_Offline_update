@@ -47,9 +47,17 @@ class AppSegmentedControl<T> extends StatelessWidget {
         .map(
           (o) => ButtonSegment<T>(
             value: o.value,
-            label: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(o.label, style: AppTextStyles.settingTitle),
+            // FittedBox ולא Text חשוף: תווית ארוכה בסגמנט צר גלשה במקום
+            // להצטמצם, ובעברית זה קרה כבר בשלוש-ארבע מילים.
+            label: Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  o.label,
+                  style: AppTextStyles.settingTitle,
+                  textAlign: TextAlign.center,
+                ),
+              ),
             ),
             icon: hasIcons ? _buildOptionIcon(o) : null,
           ),

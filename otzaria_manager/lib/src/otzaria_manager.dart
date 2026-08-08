@@ -76,6 +76,14 @@ class OtzariaManager {
   /// ערוץ בהגדרות תיכנס לתוקף בהורדה הבאה.
   bool allowPrerelease;
 
+  /// הזמן הקצוב לכל פעולת רשת של המודול — נכנס לתוקף בבקשה הבאה, כדי
+  /// שההגדרה בלאנצ'ר לא תדרוש בנייה מחדש של הלקוחות.
+  set networkTimeout(Duration value) {
+    _releaseClient.timeout = value;
+    _changelogClient.timeout = value;
+    _installer.connectTimeout = value;
+  }
+
   /// תיקיית המראה של תוכנת אוצריא — ראו [OtzariaAppMirror].
   final String mirrorDir;
 

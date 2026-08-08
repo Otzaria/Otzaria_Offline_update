@@ -1,8 +1,3 @@
-/// ערוץ הגרסאות שממנו נבחרות גרסאות לרכיב: `stable` לוקח רק release רגיל
-/// ב-GitHub, `stableAndPreview` לוקח גם pre-release. preview דורש בחירה
-/// מפורשת ולכן אינו ברירת המחדל של שום רכיב.
-enum UpdateChannel { stable, stableAndPreview }
-
 enum AppThemeMode { system, light, dark }
 
 /// כל ההגדרות של הלאנצ'ר, immutable ובעלות [schemaVersion] — נשמרות
@@ -32,12 +27,10 @@ class AppSettings {
   final bool autoInstallApp;
   final bool autoInstallLibrary;
 
-  // ── ערוצים ──────────────────────────────────────────────────────────────
-  final UpdateChannel appChannel;
-  final UpdateChannel libraryChannel;
-  final UpdateChannel pluginsChannel;
-
   // ── אחסון ───────────────────────────────────────────────────────────────
+  /// `0` = בלי גיבוי בטיחות לפני כתיבת מסד מלא (ראו `LibraryUpdateApplier`),
+  /// `1` = עם גיבוי. אין כאן שמירת היסטוריה של גרסאות — המראה המקומית
+  /// שומרת רק את הגרסה האחרונה שהורדה בכל מקרה.
   final int backupsToKeep;
 
   // ── רשת ─────────────────────────────────────────────────────────────────
@@ -55,9 +48,6 @@ class AppSettings {
     this.syncPlugins = true,
     this.autoInstallApp = false,
     this.autoInstallLibrary = false,
-    this.appChannel = UpdateChannel.stable,
-    this.libraryChannel = UpdateChannel.stable,
-    this.pluginsChannel = UpdateChannel.stable,
     this.backupsToKeep = 1,
     this.networkTimeoutSeconds = 20,
     this.themeMode = AppThemeMode.system,
@@ -76,9 +66,6 @@ class AppSettings {
     bool? syncPlugins,
     bool? autoInstallApp,
     bool? autoInstallLibrary,
-    UpdateChannel? appChannel,
-    UpdateChannel? libraryChannel,
-    UpdateChannel? pluginsChannel,
     int? backupsToKeep,
     int? networkTimeoutSeconds,
     AppThemeMode? themeMode,
@@ -93,9 +80,6 @@ class AppSettings {
       syncPlugins: syncPlugins ?? this.syncPlugins,
       autoInstallApp: autoInstallApp ?? this.autoInstallApp,
       autoInstallLibrary: autoInstallLibrary ?? this.autoInstallLibrary,
-      appChannel: appChannel ?? this.appChannel,
-      libraryChannel: libraryChannel ?? this.libraryChannel,
-      pluginsChannel: pluginsChannel ?? this.pluginsChannel,
       backupsToKeep: backupsToKeep ?? this.backupsToKeep,
       networkTimeoutSeconds:
           networkTimeoutSeconds ?? this.networkTimeoutSeconds,
@@ -116,11 +100,6 @@ class AppSettings {
           'app': syncApp,
           'library': syncLibrary,
           'plugins': syncPlugins,
-        },
-        'channels': {
-          'app': appChannel.name,
-          'library': libraryChannel.name,
-          'plugins': pluginsChannel.name,
         },
         'storage': {
           'backupsToKeep': backupsToKeep,
@@ -145,7 +124,6 @@ class AppSettings {
 
     final automation = section('automation');
     final sync = section('sync');
-    final channels = section('channels');
     final storage = section('storage');
     final network = section('network');
     final ui = section('ui');
@@ -159,14 +137,6 @@ class AppSettings {
     int number(Map<String, dynamic> from, String key, int fallback) {
       final value = from[key];
       return value is int ? value : fallback;
-    }
-
-    UpdateChannel channel(String key) {
-      final name = channels[key];
-      return UpdateChannel.values.firstWhere(
-        (c) => c.name == name,
-        orElse: () => UpdateChannel.stable,
-      );
     }
 
     return AppSettings(
@@ -185,9 +155,6 @@ class AppSettings {
       syncPlugins: flag(sync, 'plugins', defaults.syncPlugins),
       autoInstallApp: flag(automation, 'installApp', false),
       autoInstallLibrary: flag(automation, 'installLibrary', false),
-      appChannel: channel('app'),
-      libraryChannel: channel('library'),
-      pluginsChannel: channel('plugins'),
       backupsToKeep: number(storage, 'backupsToKeep', defaults.backupsToKeep),
       networkTimeoutSeconds: number(
         network,

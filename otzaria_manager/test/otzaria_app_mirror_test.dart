@@ -132,7 +132,7 @@ void main() {
   group('OtzariaAppMirror.sync', () {
     const installerBytes = 'installer-bytes';
 
-    http.Client _mockReleaseWithBody(String body) => MockClient((_) async {
+    http.Client mockReleaseWithBody(String body) => MockClient((_) async {
           return http.Response(
             jsonEncode([
               {
@@ -156,10 +156,10 @@ void main() {
           );
         });
 
-    http.Client _mockInstallerDownload() =>
+    http.Client mockInstallerDownload() =>
         MockClient((_) async => http.Response(installerBytes, 200));
 
-    Future<OtzariaAppMirror> _mirrorFor({
+    Future<OtzariaAppMirror> mirrorFor({
       required String releaseBody,
       required http.Client changelogHttpClient,
       required Directory tempDir,
@@ -168,12 +168,12 @@ void main() {
         mirrorDir: tempDir.path,
         releaseClient: OtzariaReleaseClient(
           platform: OtzariaTargetPlatform.windows,
-          httpClient: _mockReleaseWithBody(releaseBody),
+          httpClient: mockReleaseWithBody(releaseBody),
         ),
         installer: OtzariaInstaller(
           defaultInstallDir: p.join(tempDir.path, 'install'),
           cacheDir: p.join(tempDir.path, 'installers'),
-          httpClient: _mockInstallerDownload(),
+          httpClient: mockInstallerDownload(),
           appLocator: const OtzariaAppLocator(
             platform: OtzariaTargetPlatform.windows,
           ),
@@ -189,7 +189,7 @@ void main() {
           await Directory.systemTemp.createTemp('otzaria-mirror-sync-test');
       addTearDown(() => tempDir.delete(recursive: true));
 
-      final mirror = await _mirrorFor(
+      final mirror = await mirrorFor(
         releaseBody: 'תיאור גולמי מ-GitHub',
         changelogHttpClient: MockClient(
           (_) async => http.Response(
@@ -213,7 +213,7 @@ void main() {
           await Directory.systemTemp.createTemp('otzaria-mirror-sync-test');
       addTearDown(() => tempDir.delete(recursive: true));
 
-      final mirror = await _mirrorFor(
+      final mirror = await mirrorFor(
         releaseBody: 'תיאור גולמי מ-GitHub',
         changelogHttpClient: MockClient(
           (_) async => http.Response(

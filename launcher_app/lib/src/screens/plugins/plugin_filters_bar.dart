@@ -31,9 +31,9 @@ class _PluginFiltersBarState extends State<PluginFiltersBar> {
   bool _allTagsShown = false;
 
   /// מעל הרוחב הזה שלושת הפקדים נכנסים לשורה אחת.
-  static const double _singleRowWidth = 1040;
+  static const double _singleRowWidth = 840;
 
-  static const double _statusWidth = 340;
+  static const double _statusWidth = 180;
 
   @override
   Widget build(BuildContext context) {
@@ -103,26 +103,35 @@ class _PluginFiltersBarState extends State<PluginFiltersBar> {
     );
   }
 
-  /// סינון הסטטוס הוא `AppSegmentedControl` ולא תפריט נפתח: מערכת העיצוב
-  /// של אוצריא מחייבת אותו ל-2–4 אפשרויות.
+  static const Map<PluginStatusFilter, String> _statusLabels = {
+    PluginStatusFilter.all: 'הכול',
+    PluginStatusFilter.stable: 'יציב',
+    PluginStatusFilter.beta: 'בטא',
+    PluginStatusFilter.experimental: 'ניסיוני',
+  };
+
+  /// תפריט נפתח, לא `AppSegmentedControl` — כדי לשבת בשורה אחת עם שדה
+  /// החיפוש בלי לתפוס יותר מקום ממנו.
   Widget _statusField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const PluginFieldLabel('סטטוס'),
-        AppSegmentedControl<PluginStatusFilter>(
-          currentValue: widget.controller.statusFilter,
-          onChanged: widget.controller.setStatusFilter,
-          expandToFillWidth: true,
-          height: 44,
-          options: const [
-            SegmentOption(value: PluginStatusFilter.all, label: 'הכול'),
-            SegmentOption(value: PluginStatusFilter.stable, label: 'יציב'),
-            SegmentOption(value: PluginStatusFilter.beta, label: 'בטא'),
-            SegmentOption(
-              value: PluginStatusFilter.experimental,
-              label: 'ניסיוני',
-            ),
+        DropdownButtonFormField<PluginStatusFilter>(
+          initialValue: widget.controller.statusFilter,
+          onChanged: (value) {
+            if (value != null) widget.controller.setStatusFilter(value);
+          },
+          isDense: true,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(borderRadius: AppTokens.borderRadiusAll),
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            isDense: true,
+          ),
+          items: [
+            for (final entry in _statusLabels.entries)
+              DropdownMenuItem(value: entry.key, child: Text(entry.value)),
           ],
         ),
       ],

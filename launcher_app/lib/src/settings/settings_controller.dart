@@ -26,8 +26,15 @@ class SettingsController extends ChangeNotifier {
       _settings = AppSettings.fromJson(raw);
       notifyListeners();
     } catch (e, st) {
-      // קובץ פגום לא ימנע הפעלה — נשארים על ברירות המחדל.
-      AppLogger.instance.error('טעינת ההגדרות נכשלה', e, st);
+      // קובץ פגום לא ימנע הפעלה — נשארים על ברירות המחדל. `maybeInstance`
+      // ולא `instance`: הטעינה רצה במקביל לאתחול הלוגר, וזריקה מתוך ה-catch
+      // הזה הייתה מפילה את העלייה כולה בגלל קובץ הגדרות פגום.
+      final logger = AppLogger.maybeInstance;
+      if (logger != null) {
+        logger.error('טעינת ההגדרות נכשלה', e, st);
+      } else {
+        debugPrint('טעינת ההגדרות נכשלה (לפני אתחול הלוג): $e\n$st');
+      }
     }
   }
 

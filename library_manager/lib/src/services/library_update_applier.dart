@@ -7,6 +7,7 @@ import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import 'otzaria_process_guard.dart';
 import 'zstd_decompressor.dart';
+import 'zstd_file_decompressor.dart';
 
 /// שלב עדכון נוכחי — לדיווח ל-UI בלבד, לא נבדק ע"י שום לוגיקה.
 enum LibraryApplyStage {
@@ -71,10 +72,10 @@ class LibraryApplyException implements Exception {
 /// לא נוגע ב-`onProgress` בכלל, ה-Context המשותף שלו כן מכיל את `onProgress`
 /// — וניסיון השליחה ל-isolate נכשל כי הוא "גורר" איתו את כל השרשרת. ראו
 /// dart-lang/sdk#52661 ("Closures over-capture, cannot be sent to other
-/// isolate"). הפתרון: קריאת `Isolate.run` חייבת להיות בתוך פונקציית
-/// top-level **נפרדת לגמרי** (לא רק סוגר נפרד), כדי שה-Context שלה לא
-/// ישותף בשום צורה עם ה-scope של `applyDelta`/`applyFullDownload` — ראו
-/// [_runApplyPatchInIsolate] ו-[_runWriteBytesInIsolate].
+/// isolate"). הפתרון: קריאת `Isolate.run` חייבת להיות בתוך מתודה/פונקציה
+/// **נפרדת לגמרי** (לא רק סוגר נפרד), כדי שה-Context שלה לא ישותף בשום צורה
+/// עם ה-scope של `applyDelta`/`applyFullDownload` — ראו [_isolateApplyPatch]
+/// ואת אותה תבנית ב-`ZstdFileDecompressor`.
 class LibraryUpdateApplier {
   LibraryUpdateApplier({
     OtzariaProcessGuard processGuard = const OtzariaProcessGuard(),
@@ -92,6 +93,12 @@ class LibraryUpdateApplier {
   final LocalDbVersionReader _versionReader;
   final PatchDownloader _downloader;
   final Future<Uint8List?> Function(Uint8List) _decompress;
+
+  /// הזמן הקצוב לפתיחת חיבור בהורדות של ההחלה — ראו
+  /// [PatchDownloader.connectTimeout]. ה-`stallTimeout` נשאר בברירת המחדל
+  /// בכוונה: הוא מודד שקט בין צ'אנקים של הורדה של ~1GB, לא זמן תגובה של
+  /// בקשת מטא-דאטה.
+  set connectTimeout(Duration value) => _downloader.connectTimeout = value;
 
   /// שמות התהליך שנחשבים "אוצריא פתוחה", לפי הפלטפורמה הנוכחית — ראו
   /// [OtzariaProcessGuard.processNamesFor] (ב-macOS השם בעברית).
@@ -191,16 +198,17 @@ class LibraryUpdateApplier {
   /// מוריד ומתקין DB מלא — עבור התקנה טרייה (אין DB קיים) או כש-planner
   /// קבע שאין מסלול דלתא בטוח.
   ///
-  /// **מגבלה ידועה (MVP):** החילוץ כרגע הוא **בזיכרון** (כל ה-DB, עד
-  /// כ-1.1GB לא דחוס, נטען ל-RAM פעמיים — דחוס ואז מחולץ) ולא streaming
-  /// כמו ב-onboarding של אוצריא עצמה. עובד, אבל צורך יותר זיכרון משיא
-  /// אפשרי. שדרוג ל-streaming extractor הוא צעד המשך מומלץ אם זה מתברר
-  /// כבעיה בפועל על מחשבים חלשים.
+  /// ההורדה והחילוץ שניהם **בזרימה**: הקובץ הדחוס יורד ישר לדיסק
+  /// ([PatchDownloader.downloadToFile]), ומשם מחולץ קובץ-לקובץ דרך
+  /// [ZstdFileDecompressor] — שיא הזיכרון הוא חוצצים בודדים, לא ~1.1GB של DB.
+  /// אם ה-streaming אינו זמין בפלטפורמה (אין ספריית zstd לטעינה) נופלים
+  /// למסלול הזיכרון הקודם, שנשאר כגיבוי ב-[_decompressInMemoryTo].
   Future<void> applyFullDownload({
     required LibraryUpdatePlan plan,
     required String dbPath,
     void Function(LibraryApplyProgress progress)? onProgress,
     bool Function()? isCancelled,
+    bool createBackup = true,
   }) async {
     if (plan.kind != LibraryUpdatePlanKind.fullDownload) {
       throw const LibraryApplyException(
@@ -234,34 +242,57 @@ class LibraryUpdateApplier {
     onProgress?.call(const LibraryApplyProgress(
         stage: LibraryApplyStage.decompressingFullDb));
 
-    final compressedBytes = await File(compressedPath).readAsBytes();
-    final extracted = await _decompress(compressedBytes);
-    if (extracted == null || extracted.isEmpty) {
+    // מחלצים לקובץ צדדי ורק בסוף מחליפים את ה-DB: כך ה-DB הקיים נשאר שלם
+    // עד שהחדש מוכן במלואו, בדיוק כמו במסלול ה-staging של התקנת האפליקציה.
+    final newFilePath = '$dbPath.new';
+    _deleteQuietly(newFilePath);
+    try {
+      if (!await ZstdFileDecompressor.decompressFileToFile(
+        compressedPath,
+        newFilePath,
+      )) {
+        // אין streaming בפלטפורמה הזו — מסלול הזיכרון, ראו doc-comment.
+        await _decompressInMemoryTo(compressedPath, newFilePath);
+      }
+    } catch (_) {
+      _deleteQuietly(newFilePath);
+      _deleteQuietly(compressedPath);
+      rethrow;
+    }
+    if (!File(newFilePath).existsSync() ||
+        File(newFilePath).lengthSync() == 0) {
+      _deleteQuietly(newFilePath);
       _deleteQuietly(compressedPath);
       throw const LibraryApplyException('חילוץ ה-DB המלא נכשל או החזיר ריק');
     }
 
     final dbAlreadyExists = File(dbPath).existsSync();
     if (dbAlreadyExists) {
-      // מסלול החלפת קובץ אינו אטומי כמו patch — כאן כן צריך גיבוי מלא
-      // לשחזור אם הכתיבה תיכשל באמצע.
-      await _recovery.beginApply(
-        dbPath: dbPath,
-        fromVersion: plan.localVersion,
-        toVersion: plan.targetVersion ?? 0,
-        timestamp: DateTime.now().toIso8601String(),
-        createBackup: true,
-      );
+      // מסלול החלפת קובץ אינו אטומי כמו patch — [createBackup] קובע אם יש
+      // רשת הצלה לשחזור אם הכתיבה תיכשל באמצע (נכבה מפורשות ע"י המשתמש
+      // דורש `false` כאן).
+      try {
+        await _recovery.beginApply(
+          dbPath: dbPath,
+          fromVersion: plan.localVersion,
+          toVersion: plan.targetVersion ?? 0,
+          timestamp: DateTime.now().toIso8601String(),
+          createBackup: createBackup,
+        );
+      } catch (_) {
+        // כשל כאן (בעיקר דיסק מלא בזמן הגיבוי) קרה **אחרי** שהמסד המחולץ כבר
+        // על הדיסק — בלי הניקוי הזה נשארים ~1.1GB תלויים על כונן שכבר צר.
+        _deleteQuietly(newFilePath);
+        _deleteQuietly(compressedPath);
+        rethrow;
+      }
     }
 
     onProgress?.call(
         const LibraryApplyProgress(stage: LibraryApplyStage.writingFullDb));
-    final newFilePath = '$dbPath.new';
     try {
-      // ראו doc-comment ב-`_isolateApplyPatch` למעלה: חייב להיות במתודה
-      // סטטית נפרדת, לא Isolate.run inline כאן — כדי לא לחלוק Context
-      // לקסיקלי עם `onProgress`.
-      await _isolateWriteBytes(newFilePath, extracted);
+      // הקובץ כבר כתוב במלואו (החילוץ כתב אליו ישירות) — נשאר רק להחליף.
+      // ה-rename הוא באותו volume, כלומר מיידי, ולא העתקה של ~1GB.
       _deleteQuietly('$dbPath-wal');
       _deleteQuietly('$dbPath-shm');
       if (File(dbPath).existsSync()) File(dbPath).deleteSync();
@@ -303,9 +334,23 @@ class LibraryUpdateApplier {
     );
   }
 
-  /// כנ"ל, עבור כתיבת ה-DB המלא המחולץ.
-  static Future<void> _isolateWriteBytes(String path, Uint8List bytes) {
-    return Isolate.run(() => _writeBytesInIsolate((path, bytes)));
+  /// מסלול הגיבוי לחילוץ, לפלטפורמה שאין בה ספריית zstd לטעינה ישירה: כל
+  /// ה-DB עובר דרך ה-RAM. נשמר בכוונה — עדיף חילוץ יקר בזיכרון מכשל מוחלט —
+  /// אבל **אינו** המסלול הרגיל, ראו [ZstdFileDecompressor].
+  ///
+  /// הכתיבה היא `writeAsBytes` אסינכרוני ולא `Isolate.run`: שליחת `Uint8List`
+  /// ל-isolate מעתיקה אותו, כלומר עוד ~1.1GB, בעוד ש-`writeAsBytes` כבר מבצע
+  /// את ה-I/O מחוץ ל-isolate הראשי.
+  Future<void> _decompressInMemoryTo(
+    String compressedPath,
+    String destPath,
+  ) async {
+    final extracted =
+        await _decompress(await File(compressedPath).readAsBytes());
+    if (extracted == null || extracted.isEmpty) {
+      throw const LibraryApplyException('חילוץ ה-DB המלא נכשל או החזיר ריק');
+    }
+    await File(destPath).writeAsBytes(extracted, flush: true);
   }
 
   Future<void> _guardOtzariaNotRunning() async {
@@ -352,30 +397,4 @@ PatchApplyResult _applyPatchInIsolate(
     patchPath: args.$2,
     manifest: args.$3,
   );
-}
-
-/// פונקציית top-level לכתיבת ה-DB המלא המחולץ — גם היא ללא כל גישה ל-`this`.
-/// [args]: `($1: נתיב יעד, $2: bytes לכתיבה)`.
-void _writeBytesInIsolate((String, Uint8List) args) {
-  File(args.$1).writeAsBytesSync(args.$2, flush: true);
-}
-
-/// עוטפת את קריאת ה-`Isolate.run` עצמה בפונקציית top-level **נפרדת**
-/// (ולא רק בסוגר נפרד בתוך `applyDelta`). זה קריטי: אם הקריאה הייתה
-/// inline בתוך ה-for loop של `applyDelta`, ה-Context הלקסיקלי שלה היה
-/// משותף עם הבלוק שבו נקרא `onProgress` — ראו ההסבר המלא ב-doc-comment
-/// של [LibraryUpdateApplier]. כאן, בפונקציה נפרדת עם הפרמטרים שלה בלבד
-/// (`String`, `String`, `DeltaManifest`), אין שום דרך שה-Context יכיל
-/// משהו מלבד שלושת אלה.
-Future<PatchApplyResult> _runApplyPatchInIsolate(
-  String dbPath,
-  String patchPath,
-  DeltaManifest manifest,
-) {
-  return Isolate.run(() => _applyPatchInIsolate((dbPath, patchPath, manifest)));
-}
-
-/// כנ"ל עבור כתיבת ה-DB המלא — ראו [_runApplyPatchInIsolate].
-Future<void> _runWriteBytesInIsolate(String path, Uint8List bytes) {
-  return Isolate.run(() => _writeBytesInIsolate((path, bytes)));
 }

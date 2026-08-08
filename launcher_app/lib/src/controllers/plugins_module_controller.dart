@@ -2,40 +2,30 @@ import 'package:flutter/foundation.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
 import '../services/app_logger.dart';
-import '../settings/app_settings.dart';
+import 'progress_notifier.dart';
 
 enum PluginsModuleStatus { idle, loading, ready, syncing, error }
 
 /// סינון לפי סטטוס התוסף בחנות (`stable` / `beta` / `experimental`).
 enum PluginStatusFilter { all, stable, beta, experimental }
 
-/// תרגום ערוץ הגרסאות של התוספים לסינון ברירת המחדל בחנות.
-///
-/// לתוספים אין ערוץ prerelease כמו לתוכנה ולספרייה — יש להם שדה `status`
-/// לכל תוסף (`stable`/`beta`/`experimental`). לכן "יציב בלבד" פירושו
-/// שהחנות נפתחת מסוננת ל-`stable`, ולא שמקור אחר נבחר.
-PluginStatusFilter pluginStatusFilterFor(UpdateChannel channel) =>
-    channel == UpdateChannel.stable
-        ? PluginStatusFilter.stable
-        : PluginStatusFilter.all;
-
 /// עוטף את [PluginsManager] כמצב הניתן לצפייה עבור מסך החנות — טעינת
 /// הקטלוג המקומי, הורדה יזומה מהאתר, סינון, שמירת קובץ והתקנה ישירה.
 ///
 /// [load] בלבד נקרא בפתיחה: הוא קורא מהתיקייה המקומית וסורק את ההתקנה של
 /// אוצריא, ולא נוגע ברשת. [sync] היא הפעולה היחידה שדורשת אינטרנט.
-class PluginsModuleController extends ChangeNotifier {
-  PluginsModuleController({
-    required String mirrorRootDir,
-    PluginStatusFilter initialStatusFilter = PluginStatusFilter.all,
-  })  : statusFilter = initialStatusFilter,
-        // תיקיית התוספים של אוצריא מזוהה אוטומטית ואינה ניתנת להגדרה —
-        // ראו AppPaths: אין נתיבים בהגדרות.
-        _manager = PluginsManager(
+class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
+  PluginsModuleController({required String mirrorRootDir})
+      // תיקיית התוספים של אוצריא מזוהה אוטומטית ואינה ניתנת להגדרה —
+      // ראו AppPaths: אין נתיבים בהגדרות.
+      : _manager = PluginsManager(
           resolveMirrorDir: () async => mirrorRootDir,
         );
 
   final PluginsManager _manager;
+
+  /// זמן קצוב לפעולות רשת (מהגדרות "רשת") — נכנס לתוקף בבקשה הבאה.
+  set networkTimeout(Duration value) => _manager.networkTimeout = value;
 
   PluginsModuleStatus status = PluginsModuleStatus.idle;
   String? errorMessage;
@@ -50,8 +40,8 @@ class PluginsModuleController extends ChangeNotifier {
   // ── סינון ─────────────────────────────────────────────────────────────────
   String search = '';
 
-  /// אתחול מ-`AppSettings.pluginsChannel` — ראו [pluginStatusFilterFor].
-  PluginStatusFilter statusFilter;
+  /// החנות נפתחת על "הכול" — המשתמש בא לראות מה קיים, לא רק את היציב.
+  PluginStatusFilter statusFilter = PluginStatusFilter.all;
   String? tagFilter;
 
   /// הצג רק מה שלא מותקן או שיש לו עדכון — דלוק כברירת מחדל, כמו בחנות
@@ -75,6 +65,7 @@ class PluginsModuleController extends ChangeNotifier {
       lastSync = view.catalog.lastSync;
       installed = view.installed;
       pluginsDir = view.pluginsDir;
+      _invalidateDerived();
       status = PluginsModuleStatus.ready;
     } catch (e, st) {
       status = PluginsModuleStatus.error;
@@ -101,7 +92,9 @@ class PluginsModuleController extends ChangeNotifier {
         } else if (progress.fraction != null) {
           syncProgress = progress.fraction;
         }
-        notifyListeners();
+        // הסנכרון מדווח פעמים רבות בשנייה (נכס אחר נכס) — מדולל, כמו
+        // שאר מדי ההתקדמות.
+        notifyProgress();
       });
       AppLogger.instance.info('סנכרון חנות התוספים הושלם');
       await load();
@@ -160,26 +153,49 @@ class PluginsModuleController extends ChangeNotifier {
   // ── סינון ─────────────────────────────────────────────────────────────────
 
   void setSearch(String value) {
+    if (search == value) return;
     search = value;
+    _invalidateDerived();
     notifyListeners();
   }
 
   void setStatusFilter(PluginStatusFilter value) {
+    if (statusFilter == value) return;
     statusFilter = value;
+    _invalidateDerived();
     notifyListeners();
   }
 
   void setTagFilter(String? value) {
+    if (tagFilter == value) return;
     tagFilter = value;
+    _invalidateDerived();
     notifyListeners();
   }
 
   void setHideInstalled(bool value) {
+    if (hideInstalled == value) return;
     hideInstalled = value;
+    _invalidateDerived();
     notifyListeners();
   }
 
-  List<StorePlugin> get filtered => plugins.where((plugin) {
+  // ── תוצרים מחושבים, ממוזנים ───────────────────────────────────────────────
+  // כל אלה נקראו ישירות מ-`build`, ולכן חושבו מחדש בכל בנייה של המסך — כולל
+  // בכל דיווח התקדמות של הורדה. `filtered` לבדו הוא `statusOf` לכל תוסף
+  // ו-`allTags` הוא מיון. הם משתנים רק כשהקטלוג או הסינון משתנים, ולכן
+  // נשמרים עד ל-[_invalidateDerived].
+  List<StorePlugin>? _filtered;
+  List<String>? _allTags;
+  List<StorePlugin>? _updatable;
+
+  void _invalidateDerived() {
+    _filtered = null;
+    _allTags = null;
+    _updatable = null;
+  }
+
+  List<StorePlugin> get filtered => _filtered ??= plugins.where((plugin) {
         if (!plugin.matchesQuery(search)) return false;
         if (statusFilter != PluginStatusFilter.all &&
             plugin.status != statusFilter.name) {
@@ -192,17 +208,16 @@ class PluginsModuleController extends ChangeNotifier {
         return true;
       }).toList(growable: false);
 
-  List<String> get allTags {
-    final tags = <String>{};
-    for (final plugin in plugins) {
-      tags.addAll(plugin.tags);
-    }
-    final sorted = tags.toList()..sort();
-    return sorted;
-  }
+  List<String> get allTags => _allTags ??= () {
+        final tags = <String>{};
+        for (final plugin in plugins) {
+          tags.addAll(plugin.tags);
+        }
+        return tags.toList()..sort();
+      }();
 
   /// תוספים שמותקנים אצל המשתמש בגרסה ישנה מזו שבחנות.
-  List<StorePlugin> get updatablePlugins => plugins
+  List<StorePlugin> get updatablePlugins => _updatable ??= plugins
       .where((p) => statusOf(p) == PluginInstallStatus.updateAvailable)
       .toList(growable: false);
 

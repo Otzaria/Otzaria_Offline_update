@@ -181,8 +181,14 @@ class _PluginsScreenState extends State<PluginsScreen> {
     final controller = widget.controller;
     final filtered = controller.filtered;
 
+    final isLoading = controller.status == PluginsModuleStatus.loading;
+
     return PluginStoreBody(
       header: _syncHeader(context),
+      // הרשת עוברת כ-sliver כדי שתיבנה מדורגת — ראו [PluginStoreBody].
+      trailingSliver: (isLoading || filtered.isEmpty)
+          ? null
+          : _gridSliver(context, filtered),
       children: [
         if (controller.errorMessage != null)
           Padding(
@@ -195,7 +201,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
             ),
           ),
         PluginFiltersBar(controller: controller, searchController: _search),
-        if (controller.status == PluginsModuleStatus.loading)
+        if (isLoading)
           const Padding(
             padding: EdgeInsets.only(top: AppTokens.spaceLG),
             child: AppCard(
@@ -204,10 +210,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
           )
         else ...[
           _summaryRow(context, filtered.length),
-          if (filtered.isEmpty)
-            _emptyState(context)
-          else
-            _grid(context, filtered),
+          if (filtered.isEmpty) _emptyState(context),
         ],
       ],
     );
@@ -354,29 +357,24 @@ class _PluginsScreenState extends State<PluginsScreen> {
     );
   }
 
-  Widget _grid(BuildContext context, List<StorePlugin> plugins) {
-    return LayoutBuilder(
+  Widget _gridSliver(BuildContext context, List<StorePlugin> plugins) {
+    return SliverLayoutBuilder(
       builder: (context, constraints) {
         // מספר העמודות נגזר מרוחב מינימלי לכרטיס, כמו auto-fill ב-CSS —
         // כך שמסך רחב מקבל יותר עמודות ולא כרטיסים מנופחים.
         const spacing = AppTokens.spaceLG;
+        final width = constraints.crossAxisExtent;
         final columns =
-            ((constraints.maxWidth + spacing) / (_minCardWidth + spacing))
-                .floor()
-                .clamp(1, 6);
+            ((width + spacing) / (_minCardWidth + spacing)).floor().clamp(1, 6);
 
         // גובה הכרטיס נגזר ולא קבוע: התמונה תופסת יחס 16/11 מרוחב הכרטיס,
         // ולכן כרטיס רחב הוא גם גבוה יותר. שאר התוכן מקבל גובה קבוע
         // שמוכפל בהגדלת הטקסט של המשתמש — אחרת טקסט מוגדל היה גולש.
-        final tileWidth =
-            (constraints.maxWidth - spacing * (columns - 1)) / columns;
+        final tileWidth = (width - spacing * (columns - 1)) / columns;
         final imageHeight = (tileWidth - AppTokens.spaceMD * 2) * 11 / 16;
         final textScale = MediaQuery.textScalerOf(context).scale(1);
 
-        return GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          padding: EdgeInsets.zero,
+        return SliverGrid.builder(
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
             crossAxisSpacing: spacing,

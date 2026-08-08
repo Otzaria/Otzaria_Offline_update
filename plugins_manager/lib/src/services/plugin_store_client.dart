@@ -21,8 +21,11 @@ class DownloadedAsset {
 
 /// לקוח ה-API הציבורי של חנות התוספים באתר אוצריא.
 class PluginStoreClient {
-  PluginStoreClient({String baseUrl = defaultBaseUrl, http.Client? client})
-      : baseUrl = _trimTrailingSlash(baseUrl),
+  PluginStoreClient({
+    String baseUrl = defaultBaseUrl,
+    http.Client? client,
+    this.timeout = const Duration(seconds: 20),
+  })  : baseUrl = _trimTrailingSlash(baseUrl),
         _client = client ?? http.Client();
 
   static const String defaultBaseUrl = 'https://otzaria.org';
@@ -30,13 +33,17 @@ class PluginStoreClient {
   final String baseUrl;
   final http.Client _client;
 
+  /// זמן קצוב לכל בקשה. בלעדיו סנכרון של עשרות נכסים היה יכול להיתקע לנצח
+  /// על נכס בודד. ניתן לשינוי בזמן ריצה מהגדרות הלאנצ'ר.
+  Duration timeout;
+
   /// שולף את רשימת התוספים המאושרים. זורק [PluginStoreException] על כל כשל
   /// — זה הכשל היחיד שכן צריך לעצור סנכרון (בלי רשימה אין מה לסנכרן).
   Future<List<Map<String, dynamic>>> fetchCatalog() async {
     final uri = Uri.parse('$baseUrl/api/plugins');
     late final http.Response response;
     try {
-      response = await _client.get(uri);
+      response = await _client.get(uri).timeout(timeout);
     } catch (e) {
       throw PluginStoreException('לא ניתן להתחבר לאתר אוצריא: $e');
     }
@@ -64,7 +71,8 @@ class PluginStoreClient {
     String destPathNoExt, {
     String? preferredExt,
   }) async {
-    final response = await _client.get(Uri.parse(absolute(url)));
+    final response =
+        await _client.get(Uri.parse(absolute(url))).timeout(timeout);
     if (response.statusCode != 200) {
       throw PluginStoreException('HTTP ${response.statusCode} עבור $url');
     }
