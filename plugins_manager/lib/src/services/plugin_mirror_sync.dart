@@ -76,23 +76,31 @@ class PluginMirrorSync {
       synced.add(plugin);
     }
 
+    final cancelled = isCancelled?.call() ?? false;
+
+    // ביטול אינו מוחק מהקטלוג תוספים שכבר היו במראה: הקבצים שלהם עדיין על
+    // הדיסק, ורשימה חלקית הייתה מעלימה אותם מהמחשב המנותק עד סנכרון מלא.
+    final syncedIds = {for (final plugin in synced) plugin.id};
+    final plugins = <StorePlugin>[
+      ...synced,
+      if (cancelled)
+        for (final plugin in previousCatalog.plugins)
+          if (!syncedIds.contains(plugin.id)) plugin,
+    ];
+
     // סנכרון שבוטל באמצע לא מושך מבנה חדש — המבנה הקודם נשאר תואם למה
     // שכבר במראה יותר מרשימה חלקית שנבנתה על חצי קטלוג.
-    final structure = (isCancelled?.call() ?? false)
+    final structure = cancelled
         ? _StoreStructure(
             home: previousCatalog.home,
             categories: previousCatalog.categories,
           )
-        : await _syncStructure(
-            {for (final plugin in synced) plugin.id},
-            previousCatalog,
-            report,
-          );
+        : await _syncStructure(syncedIds, previousCatalog, report);
 
     final catalog = PluginCatalog(
       lastSync: DateTime.now(),
       plugins: [
-        for (final plugin in synced)
+        for (final plugin in plugins)
           plugin.copyWith(categorySlugs: structure.slugsOf(plugin.id)),
       ],
       categories: structure.categories,

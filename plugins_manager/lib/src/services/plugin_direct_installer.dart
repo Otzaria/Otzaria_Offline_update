@@ -32,10 +32,13 @@ abstract final class PluginDirectInstaller {
       return PluginInstallResult.failure(strings.badPluginExtension);
     }
 
-    final url =
-        'otzaria://plugin/install-local?path=${Uri.encodeComponent(pluginFilePath)}';
-    return openProtocolUrl(url);
+    return openProtocolUrl(installLocalUrl(pluginFilePath));
   }
+
+  /// ה-URL שנמסר למערכת ההפעלה. חשוף בנפרד כדי שבדיקות יאמתו אותו בלי
+  /// להפעיל מטפל פרוטוקול אמיתי.
+  static String installLocalUrl(String pluginFilePath) =>
+      'otzaria://plugin/install-local?path=${Uri.encodeComponent(pluginFilePath)}';
 
   /// פותח כתובת דרך מטפל הפרוטוקול של מערכת ההפעלה. לא נעשה שימוש ב-
   /// `url_launcher` מאותה סיבה כמו ב-`FileReveal`: כאן רוצים בדיוק דבר

@@ -1,3 +1,4 @@
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:test/test.dart';
 import 'package:seforim_library_updater/src/models/delta_manifest.dart';
 import 'package:seforim_library_updater/src/models/library_release.dart';
@@ -159,7 +160,11 @@ void main() {
           plan(local: 3, latest: 3, edges: [], localTag: 'v3', tag: 'v3b');
       expect(p.kind, LibraryUpdatePlanKind.fullDownload);
       expect(p.fullDbReleaseTag, 'v3b');
-      expect(p.reason, contains('ללא שינוי מספר הגרסה'));
+      expect(
+        p.reason,
+        AppL10n.strings.libraryDomain
+            .planContentChangedWithoutVersionBump('v3b'),
+      );
     });
 
     test('אותה גרסה ואותו release → none', () {
@@ -183,6 +188,78 @@ void main() {
       expect(p.kind, LibraryUpdatePlanKind.delta);
       expect(p.deltaSteps, hasLength(1));
       expect(p.deltaSteps.single.toVersion, 2);
+    });
+
+    test('מתעלם מ-edge עצמי (from==to) ולא נתקע', () {
+      final p = plan(local: 1, latest: 2, edges: [_edge(1, 1), _edge(1, 2)]);
+      expect(p.kind, LibraryUpdatePlanKind.delta);
+      expect(p.deltaSteps, hasLength(1));
+    });
+
+    // ה-tag של ה-latest ידוע אבל אין נכס להוריד — אין מה להציע.
+    test('אותה גרסה, tag שונה, אך אין DB מלא → none', () {
+      final p = plan(
+        local: 3,
+        latest: 3,
+        edges: [],
+        full: null,
+        tag: 'v3b',
+        localTag: 'v3',
+      );
+      expect(p.kind, LibraryUpdatePlanKind.none);
+    });
+
+    test('אותה גרסה ו-tag של latest לא ידוע → none', () {
+      final p = plan(local: 3, latest: 3, edges: [], tag: null, localTag: 'v3');
+      expect(p.kind, LibraryUpdatePlanKind.none);
+    });
+
+    test('אין meta מקומי → הורדה מלאה גם כשקיים מסלול דלתא', () {
+      final p = plan(
+        local: 2,
+        latest: 3,
+        edges: [_edge(2, 3)],
+        hasMeta: false,
+      );
+      expect(p.kind, LibraryUpdatePlanKind.fullDownload);
+      expect(p.reason, AppL10n.strings.libraryDomain.planLocalVersionUnknown);
+    });
+
+    test('אין meta מקומי ואין DB מלא → blocked עם שתי הסיבות', () {
+      final p = plan(
+        local: 0,
+        latest: 3,
+        edges: [],
+        hasMeta: false,
+        full: null,
+        tag: null,
+      );
+      expect(p.kind, LibraryUpdatePlanKind.blocked);
+      expect(
+        p.reason,
+        AppL10n.strings.libraryDomain.planNoFullDbEither(
+            AppL10n.strings.libraryDomain.planLocalVersionUnknown),
+      );
+    });
+
+    test('אין מסלול דלתא → סיבת ההורדה המלאה מגיעה מ-otzaria_l10n', () {
+      final p = plan(local: 1, latest: 3, edges: []);
+      expect(p.kind, LibraryUpdatePlanKind.fullDownload);
+      expect(p.reason, AppL10n.strings.libraryDomain.planNoDeltaRoute(1, 3));
+    });
+
+    test('גודל ההורדה של מסלול דלתא הוא סכום הקשתות שנבחרו', () {
+      final p = plan(
+        local: 1,
+        latest: 3,
+        edges: [_edge(1, 2, size: 111), _edge(2, 3, size: 222)],
+      );
+      expect(p.totalDownloadSize, 333);
+    });
+
+    test('הורדה מלאה מדווחת את גודל הנכס', () {
+      final p = plan(local: 1, latest: 3, edges: []);
+      expect(p.totalDownloadSize, _fullAsset.size);
     });
   });
 }

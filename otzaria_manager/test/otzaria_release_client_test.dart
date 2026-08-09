@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:test/test.dart';
 
@@ -195,6 +196,135 @@ void main() {
 
       expect(client.fetchChannelReleases,
           throwsA(isA<NoInstallerAssetException>()));
+    });
+  });
+
+  group('OtzariaReleaseClient — הבקשה עצמה', () {
+    test('שולח User-Agent (בלעדיו GitHub מחזיר 403) ומבקש 50 releases',
+        () async {
+      late http.Request captured;
+      final client = OtzariaReleaseClient(
+        platform: OtzariaTargetPlatform.windows,
+        httpClient: MockClient((request) async {
+          captured = request;
+          return http.Response(
+            jsonEncode([_fakeRelease(tag: '0.9.96', prerelease: false)]),
+            200,
+          );
+        }),
+      );
+
+      await client.fetchChannelReleases();
+
+      expect(captured.headers['User-Agent'], isNotEmpty);
+      expect(captured.headers['Accept'], 'application/vnd.github+json');
+      expect(captured.headers['X-GitHub-Api-Version'], '2022-11-28');
+      expect(captured.url.queryParameters['per_page'], '50');
+    });
+
+    test('סטטוס לא תקין הופך ל-GithubApiException עם ההודעה מ-l10n', () async {
+      final client = OtzariaReleaseClient(
+        platform: OtzariaTargetPlatform.windows,
+        httpClient: MockClient((_) async => http.Response('nope', 403)),
+      );
+
+      expect(
+        client.fetchChannelReleases,
+        throwsA(
+          isA<GithubApiException>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('403'), contains('Otzaria/otzaria')),
+          ),
+        ),
+      );
+    });
+
+    test('רשימת releases ריקה — StateError מנוסח דרך l10n', () async {
+      final client = OtzariaReleaseClient(
+        platform: OtzariaTargetPlatform.windows,
+        httpClient: _mockReleasesResponse(const []),
+      );
+
+      expect(
+        client.fetchChannelReleases,
+        throwsA(
+          isA<StateError>().having((e) => e.message, 'message',
+              AppL10n.strings.appDomain.noReleasesAtAll('Otzaria/otzaria')),
+        ),
+      );
+    });
+
+    // draft הוא פרסום שטרם יצא — אסור להציע אותו למשתמש.
+    test('draft מסונן, גם כשהוא החדש ביותר', () async {
+      final client = OtzariaReleaseClient(
+        platform: OtzariaTargetPlatform.windows,
+        httpClient: _mockReleasesResponse([
+          {..._fakeRelease(tag: '0.9.99', prerelease: false), 'draft': true},
+          _fakeRelease(tag: '0.9.98', prerelease: false),
+        ]),
+      );
+
+      final releases = await client.fetchChannelReleases();
+
+      expect(releases.stable!.tagName, '0.9.98');
+    });
+
+    test('release בלי דגל prerelease נחשב יציב', () async {
+      final client = OtzariaReleaseClient(
+        platform: OtzariaTargetPlatform.windows,
+        httpClient: _mockReleasesResponse([
+          (_fakeRelease(tag: '0.9.98')..remove('prerelease')),
+        ]),
+      );
+
+      final releases = await client.fetchChannelReleases();
+
+      expect(releases.stable!.tagName, '0.9.98');
+      expect(releases.prerelease, isNull);
+    });
+
+    test('release בלי אסטים בכלל מדולג', () async {
+      final client = OtzariaReleaseClient(
+        platform: OtzariaTargetPlatform.windows,
+        httpClient: _mockReleasesResponse([
+          _fakeRelease(tag: '0.9.99', prerelease: false, assets: const []),
+          _fakeRelease(tag: '0.9.98', prerelease: false),
+        ]),
+      );
+
+      expect((await client.fetchChannelReleases()).stable!.tagName, '0.9.98');
+    });
+
+    // תיאור ה-release הוא עברית — ולכן גם ה-charset של התגובה חשוב.
+    test('שומר את תיאור ה-release הגולמי כשיש כזה', () async {
+      final client = OtzariaReleaseClient(
+        platform: OtzariaTargetPlatform.windows,
+        httpClient: MockClient(
+          (_) async => http.Response(
+            jsonEncode([
+              {
+                ..._fakeRelease(tag: '0.9.96', prerelease: false),
+                'body': 'מה חדש',
+              },
+            ]),
+            200,
+            headers: const {'content-type': 'application/json; charset=utf-8'},
+          ),
+        ),
+      );
+
+      expect(
+          (await client.fetchChannelReleases()).stable!.releaseNotes, 'מה חדש');
+    });
+
+    test('close לא זורק', () {
+      final client = OtzariaReleaseClient(
+        platform: OtzariaTargetPlatform.windows,
+        httpClient: _mockReleasesResponse(const []),
+      );
+
+      expect(client.close, returnsNormally);
     });
   });
 

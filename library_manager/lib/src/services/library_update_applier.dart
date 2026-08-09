@@ -311,6 +311,7 @@ class LibraryUpdateApplier {
       File(newFilePath).renameSync(dbPath);
     } catch (_) {
       _deleteQuietly(newFilePath);
+      _deleteQuietly(compressedPath);
       if (dbAlreadyExists) await _recovery.rollback(dbPath);
       rethrow;
     }
@@ -320,6 +321,9 @@ class LibraryUpdateApplier {
     final resultVersion = _versionReader.read(dbPath);
     if (plan.targetVersion != null &&
         resultVersion.dbVersion != plan.targetVersion) {
+      // גם כאן: הכשל מגיע אחרי שהמסד הדחוס כבר על הדיסק, ובלי המחיקה
+      // נשארים מאות MB תלויים על הכונן.
+      _deleteQuietly(compressedPath);
       if (dbAlreadyExists) await _recovery.rollback(dbPath);
       throw LibraryApplyException(
         AppL10n.strings.libraryDomain.versionMismatchAfterWrite(

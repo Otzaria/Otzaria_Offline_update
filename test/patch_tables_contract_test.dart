@@ -53,6 +53,17 @@ void main() {
           reason: 'הרשימות סטו מה-fixture — הרץ מחדש את מחולל החוזה');
     });
 
+    // ה-fixture מושווה בית-אחר-בית מול צד ה-Kotlin, ולכן חייב להישאר LF גם
+    // ב-checkout על Windows (`.gitattributes`: `*.json text eol=lf`). בדיקה
+    // ישירה על הבתים תופסת גם CRLF שנכנס בעריכה ידנית.
+    test('ה-fixture הוא LF בלבד ומסתיים בשורה חדשה אחת', () {
+      final bytes = File(fixturePath).readAsBytesSync();
+      expect(bytes, isNot(contains(0x0D)),
+          reason: 'נמצא CR — הקובץ הפך ל-CRLF');
+      expect(bytes.last, 0x0A);
+      expect(bytes[bytes.length - 2], isNot(0x0A));
+    });
+
     // גשר בין המאגרים: משווה בתים מול ה-fixture של Kotlin. מדולג ללא ה-env,
     // באותה תבנית של בדיקות ה-E2E שדורשות SEFORIM_LIBRARY_RELEASES_DIR.
     test('ה-fixture זהה בתים ל-fixture של SeforimLibrary', () {

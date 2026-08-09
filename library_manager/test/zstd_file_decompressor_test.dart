@@ -1,11 +1,11 @@
-import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:ffi/ffi.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:library_manager/src/services/zstd_file_decompressor.dart';
-import 'package:zstandard_native/zstandard_native_bindings.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
+
+import 'support/zstd_fixtures.dart';
 
 /// בודק את החילוץ בזרימה מול libzstd **אמיתי**.
 ///
@@ -23,6 +23,7 @@ void main() {
       tmp = await Directory.systemTemp.createTemp('zstd-stream-test-');
     });
     tearDown(() async {
+      AppL10n.use(AppLanguage.hebrew);
       if (await tmp.exists()) await tmp.delete(recursive: true);
     });
 
@@ -35,10 +36,11 @@ void main() {
       // 8MB — גדול בהרבה מ-ZSTD_DStreamOutSize (~128KB), ולכן מכריח את שתי
       // הלולאות (קלט וגם פלט) לרוץ הרבה סבבים. זה בדיוק מה שהמסלול
       // ה-one-shot לא בדק.
-      final original = _pseudoRandomBytes(8 * 1024 * 1024);
+      final original = pseudoRandomBytes(8 * 1024 * 1024);
       final compressedPath = '${tmp.path}/data.zst';
       final destPath = '${tmp.path}/data.bin';
-      File(compressedPath).writeAsBytesSync(_compress(bindings, original));
+      File(compressedPath)
+          .writeAsBytesSync(compressWithZstd(bindings, original));
 
       expect(
         await ZstdFileDecompressor.decompressFileToFile(
@@ -56,7 +58,7 @@ void main() {
         return;
       }
 
-      final compressed = _compress(bindings, _pseudoRandomBytes(1 << 20));
+      final compressed = compressWithZstd(bindings, pseudoRandomBytes(1 << 20));
       final truncatedPath = '${tmp.path}/truncated.zst';
       // חותכים את החצי השני: הצ׳אנקים הראשונים תקינים, אבל ה-frame לא נסגר.
       File(truncatedPath).writeAsBytesSync(
@@ -89,40 +91,88 @@ void main() {
         throwsA(isA<ZstdStreamException>()),
       );
     });
+
+    test('קובץ שאינו zstd כלל נדחה עם הודעת השגיאה של libzstd', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+
+      final junkPath = '${tmp.path}/junk.zst';
+      File(junkPath).writeAsBytesSync(pseudoRandomBytes(4096));
+
+      await expectLater(
+        ZstdFileDecompressor.decompressFileToFile(
+          junkPath,
+          '${tmp.path}/out.bin',
+        ),
+        throwsA(isA<ZstdStreamException>()),
+      );
+    });
+
+    test('frame תקין שתוכנו ריק מפיק קובץ באורך אפס — הקורא הוא שדוחה אותו',
+        () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+
+      // חשוב להבחנה: זה לא "קובץ ריק" (אין קלט) אלא frame תקין בלי תוכן.
+      // `LibraryUpdateApplier` הוא שבודק אורך-אפס וזורק fullDbExtractionFailed.
+      final compressedPath = '${tmp.path}/empty-frame.zst';
+      final destPath = '${tmp.path}/out.bin';
+      File(compressedPath)
+          .writeAsBytesSync(compressWithZstd(bindings, Uint8List(0)));
+
+      expect(
+        await ZstdFileDecompressor.decompressFileToFile(
+            compressedPath, destPath),
+        isTrue,
+      );
+      expect(File(destPath).lengthSync(), 0);
+    });
+
+    test('מקור שאינו קיים זורק ולא מחזיר false בשקט', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+
+      // `false` פירושו "אין streaming בפלטפורמה" ומפעיל את מסלול הזיכרון;
+      // קובץ חסר הוא שגיאה אמיתית וחייב להישאר כזו.
+      await expectLater(
+        ZstdFileDecompressor.decompressFileToFile(
+          '${tmp.path}/missing.zst',
+          '${tmp.path}/out.bin',
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+    });
+
+    test('הודעות השגיאה מגיעות מ-otzaria_l10n בשפה שהועברה ל-isolate',
+        () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+
+      // הבדיקה האמיתית של ה-landmine: `AppL10n` הוא סטטי פר-isolate, ולכן
+      // בלי העברת השפה פנימה ההודעה הייתה יוצאת בעברית גם בממשק באנגלית.
+      AppL10n.use(AppLanguage.english);
+      final emptyPath = '${tmp.path}/empty.zst';
+      File(emptyPath).writeAsBytesSync(Uint8List(0));
+
+      await expectLater(
+        ZstdFileDecompressor.decompressFileToFile(
+          emptyPath,
+          '${tmp.path}/out.bin',
+        ),
+        throwsA(isA<ZstdStreamException>().having(
+          (e) => e.message,
+          'message',
+          AppL10n.stringsFor(AppLanguage.english).libraryDomain.zstdEmptyInput,
+        )),
+      );
+    });
   });
-}
-
-/// נתונים שנדחסים אבל לא לאפס — LCG פשוט, דטרמיניסטי, בלי `Random` כדי
-/// שכשל יהיה משוחזר.
-Uint8List _pseudoRandomBytes(int length) {
-  final bytes = Uint8List(length);
-  var state = 0x2545F491;
-  for (var i = 0; i < length; i++) {
-    state = (state * 1103515245 + 12345) & 0x7FFFFFFF;
-    // מיזוג עם תבנית חוזרת — אחרת התוכן חסר-דחיסה לגמרי ו-zstd שומר אותו כ-raw.
-    bytes[i] = ((state >> 16) & 0xFF) & (i % 97 == 0 ? 0xFF : 0x3F);
-  }
-  return bytes;
-}
-
-Uint8List _compress(ZstandardNativeBindings zstd, Uint8List data) {
-  final srcSize = data.lengthInBytes;
-  final src = malloc.allocate<Uint8>(srcSize);
-  src.asTypedList(srcSize).setAll(0, data);
-  final dstCapacity = zstd.ZSTD_compressBound(srcSize);
-  final dst = malloc.allocate<Uint8>(dstCapacity);
-  try {
-    final size = zstd.ZSTD_compress(
-      dst.cast<Void>(),
-      dstCapacity,
-      src.cast<Void>(),
-      srcSize,
-      3,
-    );
-    expect(size, greaterThan(0), reason: 'הדחיסה עצמה נכשלה');
-    return Uint8List.fromList(dst.asTypedList(size));
-  } finally {
-    malloc.free(src);
-    malloc.free(dst);
-  }
 }
