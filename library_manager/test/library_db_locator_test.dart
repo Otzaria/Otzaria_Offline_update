@@ -67,6 +67,104 @@ void main() {
       // אין גם default — אז התוצאה הצפויה היא null, לא הנתיב הישן.
       expect(await locatorWithIsolatedDefaults().resolveDbPath(), isNull);
     });
+
+    test('falls back to the system-wide macOS location order, not the reverse',
+        () async {
+      // רק המיקום הפר-משתמשי קיים → הוא זה שנבחר, לפני המערכתי.
+      final userPath = p.posix.join(tempDir.path, 'home', 'Library',
+          'Application Support', 'otzaria', 'books', 'seforim.db');
+      await Directory(p.dirname(userPath)).create(recursive: true);
+      await File(userPath).writeAsString('fake db');
+
+      expect(await locatorWithIsolatedDefaults().resolveDbPath(), userPath);
+    });
+  });
+
+  /// סדר החיפוש בווינדוס — ברירות המחדל מוצבעות לתוך ה-tempDir דרך דריסת
+  /// הסביבה, כדי שהבדיקה לא תיגע ב-`%APPDATA%` האמיתי של המפתח.
+  group('LibraryDbLocator.resolveDbPath (Windows)', () {
+    late Directory tempDir;
+    late LibraryStateStore stateStore;
+    late String appDataDb;
+    late String programDataDb;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('db-locator-win-test-');
+      stateStore = LibraryStateStore(p.join(tempDir.path, 'state.json'));
+      appDataDb = p.windows
+          .join(tempDir.path, 'Roaming', 'otzaria', 'books', 'seforim.db');
+      programDataDb = p.windows
+          .join(tempDir.path, 'ProgramData', 'otzaria', 'books', 'seforim.db');
+    });
+
+    tearDown(() async {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+    });
+
+    LibraryDbLocator locator() => LibraryDbLocator(
+          stateStore: stateStore,
+          operatingSystem: 'windows',
+          environment: {
+            'APPDATA': p.windows.join(tempDir.path, 'Roaming'),
+            'ProgramData': p.windows.join(tempDir.path, 'ProgramData'),
+          },
+        );
+
+    Future<void> createDb(String path) async {
+      await Directory(p.dirname(path)).create(recursive: true);
+      await File(path).writeAsString('fake db');
+    }
+
+    test('APPDATA מנצח את ProgramData כששניהם קיימים', () async {
+      if (!Platform.isWindows) {
+        markTestSkipped('נתיבי Windows אמיתיים נדרשים לבדיקת קיום קובץ');
+        return;
+      }
+      await createDb(appDataDb);
+      await createDb(programDataDb);
+
+      expect(await locator().resolveDbPath(), appDataDb);
+    });
+
+    test('נופל ל-ProgramData (התקנה מערכתית) כשאין ב-APPDATA', () async {
+      if (!Platform.isWindows) {
+        markTestSkipped('נתיבי Windows אמיתיים נדרשים לבדיקת קיום קובץ');
+        return;
+      }
+      await createDb(programDataDb);
+
+      expect(await locator().resolveDbPath(), programDataDb);
+    });
+
+    test('נתיב מותאם אישית קודם לשתי ברירות המחדל', () async {
+      if (!Platform.isWindows) {
+        markTestSkipped('נתיבי Windows אמיתיים נדרשים לבדיקת קיום קובץ');
+        return;
+      }
+      final custom = p.windows.join(tempDir.path, 'my', 'seforim.db');
+      await createDb(custom);
+      await createDb(appDataDb);
+      await createDb(programDataDb);
+      await stateStore.saveCustomDbPath(custom);
+
+      expect(await locator().resolveDbPath(), custom);
+    });
+
+    test('כשאין כלום — null, כדי שה-UI יבקש מהמשתמש להצביע ידנית', () async {
+      if (!Platform.isWindows) {
+        markTestSkipped('נתיבי Windows אמיתיים נדרשים לבדיקת קיום קובץ');
+        return;
+      }
+      if (File(p.windows.join(
+        LibraryDbLocator.legacyFallbackLibraryPath,
+        LibraryDbLocator.databaseFileName,
+      )).existsSync()) {
+        markTestSkipped('קיימת התקנה ישנה ב-C:\\אוצריא במכונה הזו');
+        return;
+      }
+
+      expect(await locator().resolveDbPath(), isNull);
+    });
   });
 
   group('LibraryDbLocator.defaultDbDirs', () {
@@ -107,6 +205,61 @@ void main() {
         r'C:\Users\dov\AppData\Roaming\otzaria\books',
         r'C:\ProgramData\otzaria\books',
       ]);
+    });
+
+    test('Windows: משתני סביבה חסרים לא מייצרים נתיבים שבורים', () {
+      expect(
+        LibraryDbLocator.defaultDbDirs(
+          operatingSystem: 'windows',
+          environment: const {'APPDATA': '', 'ProgramData': ''},
+        ),
+        isEmpty,
+      );
+      expect(
+        LibraryDbLocator.defaultDbDirs(
+          operatingSystem: 'windows',
+          environment: const {},
+        ),
+        isEmpty,
+      );
+    });
+
+    test('הגיבוי C:\\אוצריא אינו חלק מברירות המחדל — הוא נבדק אחרון ובנפרד',
+        () {
+      // הוא מיקום גיבוי להתקנות ישנות בלבד; ערבובו בברירות המחדל היה מחזיר
+      // אותו לפני `%APPDATA%`, שהוא המיקום האמיתי.
+      expect(LibraryDbLocator.legacyFallbackLibraryPath, r'C:\אוצריא');
+      expect(
+        LibraryDbLocator.defaultDbDirs(
+          operatingSystem: 'windows',
+          environment: const {'APPDATA': r'C:\a', 'ProgramData': r'C:\b'},
+        ),
+        isNot(contains(LibraryDbLocator.legacyFallbackLibraryPath)),
+      );
+    });
+
+    test('linux: מיקום ה-XDG, כדי שבדיקות CI לא יקבלו רשימה ריקה', () {
+      expect(
+        LibraryDbLocator.defaultDbDirs(
+          operatingSystem: 'linux',
+          environment: const {'HOME': '/home/dov'},
+        ),
+        ['/home/dov/.local/share/otzaria/books'],
+      );
+    });
+
+    test('פלטפורמה לא מוכרת מחזירה רשימה ריקה במקום לנחש', () {
+      expect(
+        LibraryDbLocator.defaultDbDirs(
+          operatingSystem: 'fuchsia',
+          environment: const {'HOME': '/home/dov'},
+        ),
+        isEmpty,
+      );
+    });
+
+    test('שם קובץ המסד הוא seforim.db בכל הפלטפורמות', () {
+      expect(LibraryDbLocator.databaseFileName, 'seforim.db');
     });
   });
 }

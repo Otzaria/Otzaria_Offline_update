@@ -59,8 +59,31 @@ class OtzariaUpdateCheckResult {
     if (latest == null) return false;
     final current = currentState;
     if (current == null) return true;
-    return normalizeVersion(current.installedTagName) !=
-        normalizeVersion(latest.tagName);
+    return !sameVersion(current.installedTagName, latest.tagName);
+  }
+
+  /// האם המותקן והתג הם אותה גרסה בפועל.
+  ///
+  /// סיומת pre-release (`-pr-715-146`) מושמטת **רק כשהיא קיימת בצד אחד
+  /// בלבד** — הצד שבלעדיה נקרא מתוך ההתקנה עצמה, ושם היא לעולם לא מופיעה.
+  /// השמטה דו-צדדית הייתה משתקת את המעבר בין הערוצים: `1.0.0-beta` מותקן
+  /// מול `1.0.0` יציב היה נראה "מעודכן" ולא ניתן היה לחזור ליציב.
+  static bool sameVersion(String installedVersion, String tagName) {
+    final installed = normalizeVersion(installedVersion);
+    final tag = normalizeVersion(tagName);
+    if (installed == tag) return true;
+
+    final installedBase = _baseVersion(installed);
+    final tagBase = _baseVersion(tag);
+    if (installedBase != tagBase) return false;
+    // בסיס זהה נחשב לאותה גרסה רק כשבדיוק אחד מהם נושא סיומת.
+    return (installedBase == installed) != (tagBase == tag);
+  }
+
+  /// החלק שלפני סיומת ה-pre-release.
+  static String _baseVersion(String version) {
+    final separator = version.indexOf('-');
+    return separator >= 0 ? version.substring(0, separator) : version;
   }
 
   /// מנרמל תג/גרסה להשוואה: מוריד `v` מוביל ואת סיומת ה-build שאחרי `+`.

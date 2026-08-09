@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
@@ -145,6 +146,113 @@ void main() {
       expect(File('$dbPath.backup.tmp').existsSync(), isFalse);
       expect(File(dbPath).readAsStringSync(), 'ORIGINAL'); // ה-DB לא נגוע
     });
+
+    test('שארית restore.tmp (קריסה באמצע שחזור) נמחקת', () async {
+      File('$dbPath.restore.tmp').writeAsStringSync('PARTIAL');
+      final result = await service.recoverIfNeeded(dbPath);
+      expect(result.action, RecoveryAction.none);
+      expect(File('$dbPath.restore.tmp').existsSync(), isFalse);
+      expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
+    });
+
+    // ה-wal/shm שייכים ל-DB שהוחלף; השארתם אחרי rename מייצרת DB לא עקבי.
+    test('שחזור מוחק -wal/-shm ואינו משאיר restore.tmp', () async {
+      await service.beginApply(
+          dbPath: dbPath, fromVersion: 1, toVersion: 2, timestamp: 't');
+      File(dbPath).writeAsStringSync('HALF-APPLIED');
+      File('$dbPath-wal').writeAsStringSync('WAL');
+      File('$dbPath-shm').writeAsStringSync('SHM');
+
+      final result = await service.recoverIfNeeded(dbPath);
+      expect(result.action, RecoveryAction.restored);
+      expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
+      expect(File('$dbPath-wal').existsSync(), isFalse);
+      expect(File('$dbPath-shm').existsSync(), isFalse);
+      expect(File('$dbPath.restore.tmp').existsSync(), isFalse);
+    });
+
+    test('שחזור עובד גם כשה-DB נעלם לגמרי באמצע העדכון', () async {
+      await service.beginApply(
+          dbPath: dbPath, fromVersion: 1, toVersion: 2, timestamp: 't');
+      File(dbPath).deleteSync();
+      final result = await service.recoverIfNeeded(dbPath);
+      expect(result.action, RecoveryAction.restored);
+      expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
+    });
+
+    test('תוכן בינארי משוחזר בית-בית', () async {
+      final bytes = List.generate(20000, (i) => (i * 7) % 256);
+      File(dbPath).writeAsBytesSync(bytes);
+      await service.beginApply(
+          dbPath: dbPath, fromVersion: 1, toVersion: 2, timestamp: 't');
+      File(dbPath).writeAsBytesSync(const [1, 2, 3]);
+      await service.recoverIfNeeded(dbPath);
+      expect(File(dbPath).readAsBytesSync(), bytes);
+    });
+  });
+
+  group('סימון ה-apply', () {
+    test('הסימון מכיל את הגרסאות ואת חותמת הזמן', () async {
+      await service.beginApply(
+        dbPath: dbPath,
+        fromVersion: 14,
+        toVersion: 15,
+        timestamp: '2026-06-28T00:00:00Z',
+      );
+      final marker =
+          jsonDecode(File(service.markerPathFor(dbPath)).readAsStringSync())
+              as Map<String, dynamic>;
+      expect(marker['fromVersion'], 14);
+      expect(marker['toVersion'], 15);
+      expect(marker['timestamp'], '2026-06-28T00:00:00Z');
+    });
+
+    test('beginApply מנקה שאריות מריצה קודמת', () async {
+      File(service.backupPathFor(dbPath)).writeAsStringSync('OLD-BACKUP');
+      File(service.markerPathFor(dbPath)).writeAsStringSync('OLD-MARKER');
+      File('$dbPath.backup.tmp').writeAsStringSync('OLD-TMP');
+
+      await service.beginApply(
+          dbPath: dbPath, fromVersion: 1, toVersion: 2, timestamp: 't');
+      expect(
+          File(service.backupPathFor(dbPath)).readAsStringSync(), 'ORIGINAL');
+      expect(File('$dbPath.backup.tmp').existsSync(), isFalse);
+      expect(File(service.markerPathFor(dbPath)).readAsStringSync(),
+          contains('fromVersion'));
+    });
+
+    test('clearStaleArtifacts מוחק סימון וגיבוי ומשאיר את ה-DB', () async {
+      await service.beginApply(
+          dbPath: dbPath, fromVersion: 1, toVersion: 2, timestamp: 't');
+      service.clearStaleArtifacts(dbPath);
+      expect(File(service.markerPathFor(dbPath)).existsSync(), isFalse);
+      expect(File(service.backupPathFor(dbPath)).existsSync(), isFalse);
+      expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
+    });
+
+    test('finishSuccess/clearStaleArtifacts אינם זורקים כשאין מה למחוק', () {
+      expect(() => service.finishSuccess(dbPath), returnsNormally);
+      expect(() => service.clearStaleArtifacts(dbPath), returnsNormally);
+    });
+
+    test('rollback בלי סימון ובלי גיבוי אינו נוגע ב-DB', () async {
+      await service.rollback(dbPath);
+      expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
+    });
+  });
+
+  test('cloneOrCopyFile מעתיק בית-בית ודורס יעד קיים', () {
+    final src = '${tmp.path}/src.bin';
+    final dst = '${tmp.path}/dst.bin';
+    File(src).writeAsBytesSync(List.generate(5000, (i) => i % 256));
+    File(dst).writeAsBytesSync(List.filled(9, 0));
+    cloneOrCopyFile(src, dst);
+    expect(File(dst).readAsBytesSync(), File(src).readAsBytesSync());
+  });
+
+  test('BackupIntegrityException נושא את ההודעה שלו', () {
+    const error = BackupIntegrityException('חצי');
+    expect('$error', contains('חצי'));
   });
 }
 

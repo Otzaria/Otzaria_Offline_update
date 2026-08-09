@@ -76,12 +76,16 @@ class PluginBadge extends StatelessWidget {
             Icon(icon, size: 13, color: foreground),
             const SizedBox(width: 4),
           ],
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: AppTokens.fontSM,
-              fontWeight: FontWeight.w700,
-              color: foreground,
+          // ראו ההערה ב-StatusChip: שבב בודד רחב מהעמודה גלש במקום להתקצר.
+          Flexible(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: AppTokens.fontSM,
+                fontWeight: FontWeight.w700,
+                color: foreground,
+              ),
             ),
           ),
         ],
@@ -159,12 +163,15 @@ class PluginTagPill extends StatelessWidget {
                 Icon(icon, size: 14, color: foreground),
                 const SizedBox(width: 4),
               ],
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: AppTokens.fontSM,
-                  fontWeight: FontWeight.w600,
-                  color: foreground,
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: AppTokens.fontSM,
+                    fontWeight: FontWeight.w600,
+                    color: foreground,
+                  ),
                 ),
               ),
             ],

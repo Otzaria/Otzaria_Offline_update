@@ -7,6 +7,9 @@ import 'package:launcher_app/src/controllers/otzaria_module_controller.dart';
 import 'package:launcher_app/src/controllers/progress_notifier.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
+import 'package:path/path.dart' as p;
+
+import 'test_support.dart';
 
 /// בדיקות לשתי תשתיות שהתנהגותן אינה נראית במסך: דילול דיווחי ההתקדמות,
 /// וסדר/גודל הכתיבה ליומן הפעילות.
@@ -55,8 +58,11 @@ void main() {
       AppLogger.resetForTest();
     });
     tearDown(() async {
+      // קודם flush: בווינדוס כתיבה שעוד באוויר נועלת את הקובץ, והמחיקה
+      // נכשלת אחרי בדיקה שכבר עברה.
+      await AppLogger.maybeInstance?.flush();
       AppLogger.resetForTest();
-      if (await tmp.exists()) await tmp.delete(recursive: true);
+      await deleteTempDir(tmp);
     });
 
     File logFile() => File('${tmp.path}/logs/launcher.log');
@@ -100,6 +106,43 @@ void main() {
       expect(File('${logFile().path}.1').existsSync(), isTrue);
       expect(logFile().lengthSync(), lessThan(AppLogger.maxBytes));
       expect(logFile().readAsStringSync(), contains('אחרי הגלגול'));
+    });
+
+    test('גלגול שני דורס את הקובץ הישן — לא נצברים קבצים בלי גבול', () async {
+      final logger = await AppLogger.init(tmp.path);
+      File('${logFile().path}.1').writeAsStringSync('גלגול קודם');
+
+      logFile().writeAsStringSync(
+        'y' * (AppLogger.maxBytes + 1),
+        mode: FileMode.append,
+      );
+      logger.info('אחרי הגלגול השני');
+      await logger.flush();
+
+      final rolled = File('${logFile().path}.1').readAsStringSync();
+      expect(rolled, isNot(contains('גלגול קודם')));
+      expect(Directory(p.dirname(logFile().path)).listSync(), hasLength(2));
+    });
+
+    test('error רושם רמה, חריג ו-stack trace מלא', () async {
+      final logger = await AppLogger.init(tmp.path);
+
+      logger.error('נכשל', StateError('הסיבה'), StackTrace.current);
+      logger.warn('אזהרה');
+      await logger.flush();
+
+      final content = logFile().readAsStringSync();
+      expect(content, contains('[ERROR] נכשל'));
+      expect(content, contains('error: Bad state: הסיבה'));
+      expect(content, contains('infra_test.dart'));
+      expect(content, contains('[WARN] אזהרה'));
+    });
+
+    test('filePath ו-logDir מצביעים על <dataDir>/logs', () async {
+      final logger = await AppLogger.init(tmp.path);
+
+      expect(logger.logDir, p.join(tmp.path, 'logs'));
+      expect(logger.filePath, p.join(logger.logDir, 'launcher.log'));
     });
   });
 

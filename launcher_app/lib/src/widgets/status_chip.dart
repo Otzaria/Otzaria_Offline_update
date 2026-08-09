@@ -55,12 +55,18 @@ class StatusChip extends StatelessWidget {
                 )
               : Icon(_icon, size: 16, color: color),
           const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: AppTokens.fontMD,
-              color: color,
-              fontWeight: FontWeight.w600,
+          // Flexible ולא Text חשוף: השבב יושב גם בעמודה צרה בחנות ובתוך
+          // ListTile.trailing, ובלעדיו תווית ארוכה (אנגלית, טקסט מוגדל)
+          // גולשת במקום להתקצר.
+          Flexible(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: AppTokens.fontMD,
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],

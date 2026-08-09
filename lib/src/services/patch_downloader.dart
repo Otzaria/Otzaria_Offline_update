@@ -376,7 +376,8 @@ class PatchDownloader {
             if (file.existsSync()) {
               _deleteRequired(
                 file.path,
-                'מחיקת קובץ חלקי מייצוג קודם נכשלה — לא ניתן להמשיך בהורדה',
+                AppL10n.strings.libraryDomain
+                    .deletePartialFromPreviousRepresentationFailed,
               );
             }
             validator = _strongEtag(response.headers['etag']);
@@ -581,7 +582,7 @@ class PatchDownloader {
         if (file.existsSync()) {
           _deleteRequired(
             file.path,
-            'מחיקת קובץ חלקי לפני ניסיון חוזר נכשלה — לא ניתן להמשיך בהורדה',
+            AppL10n.strings.libraryDomain.deletePartialBeforeRetryFailed,
           );
         }
         currentOffset = 0;
@@ -1003,9 +1004,10 @@ class PatchDownloader {
             .localFileSizeMismatch(expectedSize, size, url),
       );
     }
+    IOSink? sink;
     try {
       _deleteQuietly(destPath);
-      final sink = File(destPath).openWrite();
+      sink = File(destPath).openWrite();
       final digestSink = expectedSha256 != null ? _ChunkedDigestSink() : null;
       final input =
           digestSink != null ? sha256.startChunkedConversion(digestSink) : null;
@@ -1027,6 +1029,7 @@ class PatchDownloader {
       }
       await sink.flush();
       await sink.close();
+      sink = null;
       input?.close();
       if (expectedSha256 != null &&
           digestSink!.value.toString() != expectedSha256.toLowerCase()) {
@@ -1035,6 +1038,13 @@ class PatchDownloader {
         );
       }
     } catch (_) {
+      // חובה לסגור לפני המחיקה: ב-Windows handle פתוח חוסם אותה, והחלקי
+      // (עד 1.1GB) היה נשאר על הכונן אחרי ביטול או כשל קריאה.
+      if (sink != null) {
+        try {
+          await sink.close();
+        } catch (_) {}
+      }
       _deleteQuietly(destPath);
       rethrow;
     }

@@ -35,7 +35,11 @@ class PluginsScreen extends StatefulWidget {
 }
 
 /// גובה כל מה שאינו התמונה בכרטיס — ראו החישוב ב-[_PluginGridDelegate].
-const double _cardContentHeight = 336;
+///
+/// 356 ולא 336: התקציב אינו תלוי שפה, ובאנגלית השם והתקציר מגיעים למספר
+/// השורות המרבי שלהם כבר בעמודה הצרה ביותר — שם 336 גלש. נמדד מול
+/// הבדיקה "כרטיס עמוס" ב-`screens_test.dart`.
+const double _cardContentHeight = 356;
 
 /// הרוחב המינימלי של כרטיס ברשת; ממנו נגזר מספר העמודות.
 ///
@@ -589,11 +593,15 @@ class _PluginsScreenState extends State<PluginsScreen> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final actions = [
-            ActionButton.recommended(
-              text: t.syncButton,
-              icon: FluentIcons.arrow_sync_24_regular,
-              isLoading: isSyncing,
-              onPressed: isSyncing ? null : _sync,
+            // `Flexible` רופף: הכפתור שומר על רוחבו הטבעי כשיש מקום, ומתקצר
+            // במקום להגליש בחלון צר עם טקסט מוגדל.
+            Flexible(
+              child: ActionButton.recommended(
+                text: t.syncButton,
+                icon: FluentIcons.arrow_sync_24_regular,
+                isLoading: isSyncing,
+                onPressed: isSyncing ? null : _sync,
+              ),
             ),
             const SizedBox(width: AppTokens.spaceSM),
             SecondaryIconButton(
@@ -631,6 +639,8 @@ class _PluginsScreenState extends State<PluginsScreen> {
 
           // בחלון צר הכול לא נכנס לשורה אחת; המתג נשאר בקצה השמאלי העליון
           // בשני המצבים, ומועד הסנכרון יורד לשורה שנייה.
+          // `Flexible` סביב מה שנושא טקסט: `status` בלבד אינו מספיק — הוא
+          // מתכווץ עד 0 ואז השבב והמתג, שרוחבם פנימי, המשיכו לגלוש.
           if (constraints.maxWidth < _wideHeaderWidth) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -639,14 +649,14 @@ class _PluginsScreenState extends State<PluginsScreen> {
                   children: [
                     ...actions,
                     const Spacer(),
-                    _installedFilterToggle(context),
+                    Flexible(child: _installedFilterToggle(context)),
                   ],
                 ),
                 const SizedBox(height: AppTokens.spaceSM),
                 Row(
                   children: [
                     status,
-                    if (updates != null) updates,
+                    if (updates != null) Flexible(child: updates),
                   ],
                 ),
               ],
@@ -659,10 +669,10 @@ class _PluginsScreenState extends State<PluginsScreen> {
               const SizedBox(width: AppTokens.spaceMD),
               status,
               if (updates != null) ...[
-                updates,
+                Flexible(child: updates),
                 const SizedBox(width: AppTokens.spaceSM),
               ],
-              _installedFilterToggle(context),
+              Flexible(child: _installedFilterToggle(context)),
             ],
           );
         },

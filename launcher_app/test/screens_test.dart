@@ -5,7 +5,6 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/library_module_controller.dart';
 import 'package:launcher_app/src/controllers/otzaria_module_controller.dart';
@@ -16,53 +15,15 @@ import 'package:launcher_app/src/controllers/plugins_module_controller.dart';
 import 'package:launcher_app/src/screens/plugins/plugin_store_card.dart';
 import 'package:launcher_app/src/screens/plugins/plugins_screen.dart';
 import 'package:launcher_app/src/screens/settings_screen.dart';
+import 'package:launcher_app/src/screens/setup_error_screen.dart';
+import 'package:launcher_app/src/services/app_paths.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
-import 'package:launcher_app/src/theme/theme_exports.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
-/// משטח בדיקה גבוה — ה-ListView של [ScreenBody] בונה רק את מה שנראה,
-/// ובחלון ברירת המחדל (800x600) הכרטיסים התחתונים לא היו נבנים בכלל.
-Future<void> pumpScreen(
-  WidgetTester tester,
-  Widget screen, {
-  AppLanguage language = AppLanguage.hebrew,
-}) async {
-  tester.view.physicalSize = const Size(1400, 2800);
-  tester.view.devicePixelRatio = 1.0;
-  addTearDown(tester.view.reset);
-  await tester.pumpWidget(wrap(screen, language: language));
-}
-
-/// עוטף מסך באותו MaterialApp שהאפליקציה בונה — כולל locale he-IL, שהוא
-/// מה שקובע RTL גלובלי לכל עץ ה-widgets, ו-[AppStringsScope] שממנו המסכים
-/// שואבים את המלל. שניהם חייבים להיות כאן כמו ב-`main.dart`, אחרת
-/// `context.strings` נופל.
-Widget wrap(Widget child, {AppLanguage language = AppLanguage.hebrew}) =>
-    MaterialApp(
-      localizationsDelegates: const [
-        GlobalCupertinoLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-      ],
-      supportedLocales: const [Locale('he', 'IL'), Locale('en')],
-      locale: language == AppLanguage.hebrew
-          ? const Locale('he', 'IL')
-          : const Locale('en'),
-      theme: AppThemeData.light(
-        AppThemeData.createColorScheme(
-          AppSeedColors.defaultLight,
-          Brightness.light,
-        ),
-      ),
-      builder: (context, navigator) => AppStringsScope(
-        strings: AppL10n.stringsFor(language),
-        child: navigator ?? const SizedBox.shrink(),
-      ),
-      home: child,
-    );
+import 'test_harness.dart';
 
 void main() {
   late Directory tempDir;
@@ -253,6 +214,9 @@ void main() {
     // הטעינה נעשית ב-runAsync: קריאות דיסק אמיתיות לא מסתיימות בתוך
     // ה-fake-async של testWidgets. באפליקציה עצמה AppShell קורא ל-load().
     await tester.runAsync(plugins.load);
+    // הסריקה שב-load קוראת מההתקנה האמיתית של אוצריא במחשב הזה; הבדיקה
+    // אינה נשענת עליה, ולכן המפה מאופסת מיד.
+    plugins.installed = const {};
     await pumpScreen(tester, PluginsScreen(controller: plugins));
     await tester.pumpAndSettle();
 
@@ -285,6 +249,9 @@ void main() {
         )));
 
     await tester.runAsync(plugins.load);
+    // הסריקה שב-load קוראת מההתקנה האמיתית של אוצריא במחשב הזה; הבדיקה
+    // אינה נשענת עליה, ולכן המפה מאופסת מיד.
+    plugins.installed = const {};
     await pumpScreen(tester, PluginsScreen(controller: plugins));
     await tester.pumpAndSettle();
 
@@ -300,14 +267,16 @@ void main() {
     expect(find.textContaining('ט"ו בניסן'), findsOneWidget);
   });
 
-  testWidgets('כרטיס עמוס בכרטיס הצר ביותר אינו גולש', (tester) async {
-    // המקרה הגרוע: שם ארוך, תקציר ארוך, ארבע תגיות, ושבב "עדכון זמין"
-    // (שמופיע רק כשמותקנת גרסה ישנה) — כל אלה מרחיבים את שורות הגלולות.
+  testWidgets('כרטיס עמוס בכרטיס הצר ביותר אינו גולש — בכל הגדלה ובשתי השפות',
+      (tester) async {
+    // המקרה הגרוע: שם ארוך, תקציר ארוך, ארבע תגיות עבריות ארוכות, מונה
+    // הורדות בן שש ספרות ושבב "עדכון זמין" (שמופיע רק כשמותקנת גרסה
+    // ישנה) — כל אלה מרחיבים את שתי שורות הגלולות שהכרטיס תוקצב עבורן.
     final store = PluginMirrorStore(tempDir.path);
     await tester.runAsync(() => store.save(PluginCatalog(
           lastSync: DateTime.utc(2026, 8, 6),
           plugins: [
-            for (var i = 0; i < 4; i++)
+            for (var i = 0; i < 5; i++)
               StorePlugin.fromApi({
                 'id': 'p$i',
                 'name': 'שם ארוך במיוחד לתוסף שנועד לתפוס שתי שורות שלמות',
@@ -317,39 +286,65 @@ void main() {
                 'version': '10.20.30',
                 'status': 'experimental',
                 'downloadCount': 123456,
-                'tags': const ['תגית ארוכה', 'עוד אחת', 'שלישית', 'רביעית'],
+                'isPinned': true,
+                'tags': const [
+                  'תגית ארוכה למדי',
+                  'עוד תגית',
+                  'שלישית',
+                  'רביעית',
+                ],
                 'supportsDirectInstall': true,
               }, 'https://otzaria.org')
-                  .copyWith(manifestId: 'id-$i'),
+                  // התוסף האחרון נשאר בלי manifestId: קובץ שטרם הורד מדווח
+                  // PluginInstallStatus.unknown, וזה מצב תקין ולא שגיאה.
+                  .copyWith(manifestId: i == 4 ? null : 'id-$i'),
           ],
         )));
-
-    // חלון צר → הכרטיס הצר ביותר שהרשת מייצרת.
-    tester.view.physicalSize = const Size(700, 1400);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.reset);
 
     await tester.runAsync(plugins.load);
     // סריקת ההתקנה האמיתית מגיעה מתיקיית אוצריא של המכונה; כאן מזריקים
     // גרסאות מותקנות ישנות ישירות, כדי שהשבב הארוך ביותר ייבנה.
     plugins.installed = {for (var i = 0; i < 4; i++) 'id-$i': '1.0.0'};
 
-    await tester.pumpWidget(wrap(PluginsScreen(controller: plugins)));
-    await tester.pumpAndSettle();
+    // 584/620 = שתי עמודות צרות, 700 = שתיים רחבות, 1160 = שלוש. שתי
+    // השפות וכל ההגדלות שהמשתמש יכול לבחור (0.9/1.0/1.15), ומעליהן 1.3
+    // ו-1.5 מהגדלת המערכת. אנגלית היא המקרה הצפוף — התקציב אינו תלוי שפה.
+    final cases = <({double width, AppLanguage language, double scale})>[
+      for (final width in [584.0, 620.0, 700.0, 1160.0])
+        for (final language in AppLanguage.values)
+          for (final scale in [0.9, 1.0, 1.15, 1.3, 1.5])
+            (width: width, language: language, scale: scale),
+    ];
 
-    // שבב "עדכון זמין" אכן מוצג — אחרת הבדיקה לא באמת בודקת את המקרה הגרוע.
-    expect(find.textContaining('עדכון זמין'), findsWidgets);
-    // גלישת RenderFlex נזרקת כחריג בבדיקות; אין צורך ב-expect נוסף.
-    expect(tester.takeException(), isNull);
+    for (final c in cases) {
+      final t = stringsOf(c.language).plugins;
+      useViewSize(tester, Size(c.width, 1400));
+      AppL10n.use(c.language);
+      addTearDown(() => AppL10n.use(AppLanguage.hebrew));
 
-    // גם בהגדלת טקסט — גובה הכרטיס מוכפל ב-textScaler, וזו הנקודה שבה
-    // ההכפלה הזו נבדקת בפועל.
-    await tester.pumpWidget(wrap(MediaQuery(
-      data: const MediaQueryData(textScaler: TextScaler.linear(1.3)),
-      child: PluginsScreen(controller: plugins),
-    )));
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
+      // עץ נקי בין שילוב לשילוב: `RenderFlex` מדווח על גלישה **פעם אחת**
+      // לכל render object, ובלי איפוס שילוב גולש היה נבלע בשקט.
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(
+        wrap(
+          MediaQuery(
+            data: MediaQueryData(textScaler: TextScaler.linear(c.scale)),
+            child: PluginsScreen(controller: plugins),
+          ),
+          language: c.language,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // השבב אכן מוצג — אחרת הבדיקה לא באמת בודקת את המקרה הגרוע.
+      expect(
+        find.text(t.installChipUpdateAvailable),
+        findsWidgets,
+        reason: 'שבב "עדכון זמין" חסר ב-$c',
+      );
+      // גלישת RenderFlex נזרקת כחריג; אין צורך ב-expect נוסף.
+      expect(tester.takeException(), isNull, reason: 'הכרטיס גלש ב-$c');
+    }
   });
 
   testWidgets('מתג "רק מה שלא מותקן" בשורה העליונה חל גם על דף הבית',
@@ -416,6 +411,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     await tester.runAsync(plugins.load);
+    plugins.installed = const {};
     await tester.pumpWidget(wrap(PluginsScreen(controller: plugins)));
     await tester.pumpAndSettle();
 
@@ -470,6 +466,9 @@ void main() {
         )));
 
     await tester.runAsync(plugins.load);
+    // הסריקה שב-load קוראת מההתקנה האמיתית של אוצריא במחשב הזה; הבדיקה
+    // אינה נשענת עליה, ולכן המפה מאופסת מיד.
+    plugins.installed = const {};
     await pumpScreen(tester, PluginsScreen(controller: plugins));
     await tester.pumpAndSettle();
 
@@ -585,6 +584,177 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(settings.settings.autoInstallApp, isTrue);
+  });
+
+  // ── מסך השגיאה שמחליף את האפליקציה ────────────────────────────────────────
+
+  testWidgets('מסך "התוכנה במקום הלא נכון" מוצג ואינו מציע דרך להמשיך',
+      (tester) async {
+    final t = stringsOf().setupError;
+    const error = AppPathsException(
+      message: 'Access is denied',
+      attemptedDir: r'C:\Program Files\Otzaria\OtzariaData',
+    );
+
+    await pumpScreen(tester, const SetupErrorScreen(error: error));
+
+    expect(find.text(t.title), findsOneWidget);
+    expect(find.text(t.explanation), findsOneWidget);
+    expect(find.text(t.whatToDo), findsOneWidget);
+    expect(find.text(error.message), findsOneWidget);
+    // `SettingsActionTile.path` משתיל LRM אחרי כל מפריד, ולכן ההשוואה על חלק.
+    expect(find.textContaining('OtzariaData'), findsOneWidget);
+
+    // הפעולה היחידה היא העתקת הנתיב — אין "המשך בכל זאת" ואין ניווט פנימה.
+    final buttons = tester.widgetList<ActionButton>(find.byType(ActionButton));
+    expect(buttons.length, 1);
+    expect(find.widgetWithText(ActionButton, t.copyPathButton), findsOneWidget);
+  });
+
+  testWidgets('מסך השגיאה מתורגם לאנגלית', (tester) async {
+    final t = stringsOf(AppLanguage.english).setupError;
+
+    await pumpScreen(
+      tester,
+      const SetupErrorScreen(
+        error: AppPathsException(message: 'denied', attemptedDir: '/ro/data'),
+      ),
+      language: AppLanguage.english,
+    );
+
+    expect(find.text(t.title), findsOneWidget);
+    expect(find.text(stringsOf().setupError.title), findsNothing);
+  });
+
+  // ── מסך התוכנה: ערוצים ────────────────────────────────────────────────────
+
+  testWidgets('pre-release כגרסה היחידה מוצג בלי פקד בחירת ערוץ',
+      (tester) async {
+    // אין יציבה בעמוד הראשון של ה-API — רק ה-pre-release ירד למראה.
+    final t = stringsOf().appScreen;
+    otzaria.hasChannelChoice = false;
+    otzaria.stableVersion = null;
+    otzaria.prereleaseVersion = '0.9.99';
+    otzaria.latestVersion = '0.9.99';
+
+    await pumpScreen(
+      tester,
+      OtzariaScreen(
+        otzaria: otzaria,
+        settings: settings,
+        otzariaIsRunning: false,
+      ),
+    );
+
+    expect(find.text(t.mirrorVersionTitle), findsOneWidget);
+    expect(find.text('0.9.99'), findsOneWidget);
+    // בלי שתי גרסאות אין מה לבחור, ולכן אין פקד ערוץ ואין זוג גרסאות.
+    expect(find.text(t.channelTileTitle), findsNothing);
+    expect(find.text(t.channelStable), findsNothing);
+    expect(find.text(t.channelPrerelease), findsNothing);
+  });
+
+  testWidgets('מסך התוכנה מציג את שלושת הכרטיסים באנגלית', (tester) async {
+    final t = stringsOf(AppLanguage.english).appScreen;
+
+    await pumpScreen(
+      tester,
+      OtzariaScreen(
+        otzaria: otzaria,
+        settings: settings,
+        otzariaIsRunning: false,
+      ),
+      language: AppLanguage.english,
+    );
+
+    expect(find.text(t.stateCardTitle), findsOneWidget);
+    expect(find.text(t.whatsNewTitle), findsOneWidget);
+    expect(find.text(t.sourceCardTitle), findsOneWidget);
+    expect(find.text(stringsOf().appScreen.stateCardTitle), findsNothing);
+  });
+
+  // ── דף הבית: מצבי הבדיקה ברשת ─────────────────────────────────────────────
+
+  testWidgets('כשל בבדיקה ברשת מוצג כ"אין חיבור" ולא כשגיאה', (tester) async {
+    // בדיקת המטא-דאטה נכשלה (אין רשת) — זה מצב תקין ומטופל בשקט.
+    final t = stringsOf().home;
+    library.onlineCheckError = 'SocketException: failed host lookup';
+    library.onlineCheckedAt = DateTime(2026, 8, 9, 10, 30);
+
+    await pumpScreen(tester, home());
+
+    expect(find.text(t.onlineOffline), findsOneWidget);
+    expect(find.text(stringsOf().common.error), findsNothing);
+    expect(find.byType(InfoErrorRow), findsNothing);
+    // בלי חיבור אין מה להוריד, ולכן גם אין כפתור הורדה.
+    expect(find.text(t.downloadNowButton), findsNothing);
+  });
+
+  testWidgets('בזמן בדיקה ברשת הכפתור הופך למחוון והמצב "בודק"',
+      (tester) async {
+    final t = stringsOf().home;
+
+    await pumpScreen(tester, home(isCheckingOnline: true));
+
+    expect(find.text(t.onlineChecking), findsOneWidget);
+    // ActionButton במצב טעינה מחליף את התווית במחוון, ולכן נשארת רק כותרת
+    // הכרטיס — שנוסחה זהה לתווית הכפתור.
+    expect(find.text(t.checkForUpdatesButton), findsOneWidget);
+    expect(find.text(t.onlineCardTitle), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsWidgets);
+  });
+
+  // ── מסך הספרייה: שגיאה והתקדמות ───────────────────────────────────────────
+
+  testWidgets('מסך הספרייה מציג שגיאה עם ניסיון חוזר', (tester) async {
+    library.status = LibraryModuleStatus.error;
+    library.errorMessage = 'המראה המקומית פגומה';
+
+    await pumpScreen(
+      tester,
+      LibraryScreen(
+        library: library,
+        otzariaIsRunning: false,
+        isDownloading: false,
+        onProcessStateChanged: () async {},
+      ),
+    );
+
+    expect(find.byType(InfoErrorRow), findsOneWidget);
+    expect(find.text('המראה המקומית פגומה'), findsOneWidget);
+    expect(
+      find.text(stringsOf().libraryScreen.mirrorUnreadable),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('מסך הספרייה מציג התקדמות בזמן עדכון וחוסם פעולות',
+      (tester) async {
+    library.status = LibraryModuleStatus.updating;
+    library.stageText = 'מחיל תיקון 3 מתוך 7';
+    library.applyProgress = 0.42;
+
+    await pumpScreen(
+      tester,
+      LibraryScreen(
+        library: library,
+        otzariaIsRunning: true,
+        isDownloading: false,
+        onProcessStateChanged: () async {},
+      ),
+    );
+
+    expect(find.byType(InfoProgressRow), findsOneWidget);
+    expect(find.text('מחיל תיקון 3 מתוך 7'), findsOneWidget);
+    // אוצריא פתוחה — האזהרה מוצגת כאן ולא רק בדף הבית.
+    expect(
+      find.text(stringsOf().libraryScreen.otzariaRunningTitle),
+      findsOneWidget,
+    );
+    final recheck = tester.widget<ActionButton>(
+      find.widgetWithText(ActionButton, stringsOf().common.recheck),
+    );
+    expect(recheck.onPressed, isNull);
   });
 
   test('החנות נפתחת מציגה את הכול, לא רק יציב', () {

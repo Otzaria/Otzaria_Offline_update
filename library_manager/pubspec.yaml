@@ -29,6 +29,9 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   test: ^1.30.1
+  # לבדיקות בלבד: יצירת `seforim.db` אמיתי (טבלת schema_meta) כדי שמסלול
+  # הבדיקה/ההחלה ייבדק מול LocalDbVersionReader האמיתי ולא מול קורא מזויף.
+  sqlite3: ^3.3.3
   # flutter_lints ולא lints: זו חבילת Flutter, ואותה ערכה כמו בשורש הריפו
   # וב-launcher_app (ראו analysis_options.yaml).
   flutter_lints: ^4.0.0

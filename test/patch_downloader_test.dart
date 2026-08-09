@@ -286,6 +286,33 @@ void main() {
       expect(verifyReports, isNotEmpty);
       expect(verifyReports.last, (compressed.length, compressed.length));
     });
+
+    // onProgress מדווח פר-צ'אנק (עשרות אלפי קריאות ב-1GB) — זה החוזה שבגללו
+    // הצרכן חייב לקהות אותו דרך ProgressNotifier ולא לקרוא ל-setState ישירות.
+    test('onProgress נקרא פעם אחת לכל צ׳אנק, מצטבר, עם total קבוע', () async {
+      final chunks = [
+        Uint8List.fromList(List.filled(10, 1)),
+        Uint8List.fromList(List.filled(20, 2)),
+        Uint8List.fromList(List.filled(5, 3)),
+      ];
+      final total = chunks.fold<int>(0, (n, c) => n + c.length);
+      final downloader = PatchDownloader(
+        httpClient: MockClient.streaming((request, _) async =>
+            http.StreamedResponse(Stream.fromIterable(chunks), 200,
+                contentLength: total)),
+        decompress: (c) async => uncompressed,
+      );
+
+      final reports = <(int, int?)>[];
+      await downloader.downloadToFile(
+        url: 'https://x/seforim.db.zst',
+        destPath: '${tmp.path}/seforim.db.zst',
+        expectedSize: total,
+        onProgress: (downloaded, t) => reports.add((downloaded, t)),
+      );
+
+      expect(reports, [(10, total), (30, total), (35, total)]);
+    });
   });
 
   group('downloadToFile — חידוש הורדה (resume)', () {

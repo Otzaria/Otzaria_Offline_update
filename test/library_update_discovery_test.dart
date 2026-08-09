@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:test/test.dart';
 import 'package:http/http.dart' as http;
@@ -6,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:seforim_library_updater/src/models/library_release.dart';
 import 'package:seforim_library_updater/src/services/github_library_release_client.dart';
 import 'package:seforim_library_updater/src/services/library_update_discovery.dart';
+import 'package:seforim_library_updater/src/services/local_mirror_library_release_client.dart';
 
 LibraryRelease _release({
   required String tag,
@@ -250,6 +252,233 @@ void main() {
       expect(
           result.latestFullDbAsset?.downloadUrl, 'https://x/v4/seforim.db.zst');
       expect(result.latestReleaseTag, 'v4');
+    });
+
+    test('ללא releases כלל → latestVersion=0, בלי edges ובלי DB מלא', () async {
+      final mock = MockClient((_) async => http.Response('[]', 200));
+      final discovery = LibraryUpdateDiscovery(
+          client: GithubLibraryReleaseClient(httpClient: mock));
+      final result = await discovery.discover(allowPrerelease: true);
+      expect(result.latestVersion, 0);
+      expect(result.edges, isEmpty);
+      expect(result.latestFullDbAsset, isNull);
+      expect(result.latestReleaseTag, isNull);
+    });
+
+    // manifest פגום/חסר מפיל רק את ה-edge שלו — שאר המסלולים חייבים לשרוד.
+    test('manifest פגום מדלג על ה-edge בלבד', () async {
+      final releases = jsonEncode([
+        {
+          'tag_name': 'v3',
+          'assets': [
+            {
+              'name': 'patch-v1-v3.db.zst',
+              'browser_download_url': 'https://x/v3/patch-v1-v3.db.zst',
+              'size': 10
+            },
+            {
+              'name': 'patch-v1-v3.db.zst.manifest.json',
+              'browser_download_url':
+                  'https://x/v3/patch-v1-v3.db.zst.manifest.json',
+              'size': 10
+            },
+            {
+              'name': 'patch-v2-v3.db.zst',
+              'browser_download_url': 'https://x/v3/patch-v2-v3.db.zst',
+              'size': 10
+            },
+            {
+              'name': 'patch-v2-v3.db.zst.manifest.json',
+              'browser_download_url':
+                  'https://x/v3/patch-v2-v3.db.zst.manifest.json',
+              'size': 10
+            },
+          ],
+        },
+      ]);
+      final mock = MockClient((request) async {
+        final url = request.url.toString();
+        if (url.contains('/releases')) return http.Response(releases, 200);
+        if (url.endsWith('patch-v1-v3.db.zst.manifest.json')) {
+          return http.Response('{{{ broken', 200);
+        }
+        return http.Response(_manifestJson(2, 3), 200);
+      });
+      final discovery = LibraryUpdateDiscovery(
+          client: GithubLibraryReleaseClient(httpClient: mock));
+      final result = await discovery.discover(allowPrerelease: true);
+      expect(
+          result.edges.map((e) => '${e.fromVersion}-${e.toVersion}'), ['2-3']);
+      expect(result.latestVersion, 3);
+    });
+
+    test('קובץ patch שה-manifest מצביע עליו חסר → ה-edge מדולג', () async {
+      final releases = jsonEncode([
+        {
+          'tag_name': 'v3',
+          'assets': [
+            // ה-manifest קיים אך patch-v2-v3.db.zst עצמו אינו ב-release.
+            {
+              'name': 'patch-v2-v3.db.zst.manifest.json',
+              'browser_download_url':
+                  'https://x/v3/patch-v2-v3.db.zst.manifest.json',
+              'size': 10
+            },
+            {
+              'name': 'seforim.db.zst',
+              'browser_download_url': 'https://x/v3/seforim.db.zst',
+              'size': 100
+            },
+          ],
+        },
+      ]);
+      final mock = MockClient((request) async {
+        final url = request.url.toString();
+        if (url.contains('/releases')) return http.Response(releases, 200);
+        return http.Response(_manifestJson(2, 3), 200);
+      });
+      final discovery = LibraryUpdateDiscovery(
+          client: GithubLibraryReleaseClient(httpClient: mock));
+      final result = await discovery.discover(allowPrerelease: true);
+      expect(result.edges, isEmpty);
+      // הגרסה עדיין נגזרת משם ה-manifest, וה-DB המלא זמין ל-fallback.
+      expect(result.latestVersion, 3);
+      expect(result.latestFullDbAsset, isNotNull);
+    });
+
+    test('כשל רשת ברשימת ה-releases מתפשט החוצה', () {
+      final mock = MockClient((_) async => http.Response('boom', 500));
+      final discovery = LibraryUpdateDiscovery(
+          client: GithubLibraryReleaseClient(httpClient: mock));
+      expect(() => discovery.discover(allowPrerelease: true),
+          throwsA(isA<Exception>()));
+    });
+  });
+
+  group('releaseVersionOf', () {
+    LibraryRelease withAssets(String tag, List<String> names) =>
+        _release(tag: tag, assetNames: names);
+
+    test('נגזר מה-toVersion הגבוה ביותר בשמות ה-manifests', () {
+      expect(
+        LibraryUpdateDiscovery.releaseVersionOf(withAssets('לא-מספרי', [
+          'patch-v1-v2.db.zst.manifest.json',
+          'patch-v2-v5.db.zst.manifest.json',
+        ])),
+        5,
+      );
+    });
+
+    test('נופל ל-tag כשאין manifests', () {
+      expect(
+        LibraryUpdateDiscovery.releaseVersionOf(
+            withAssets('v7', ['seforim.db.zst'])),
+        7,
+      );
+    });
+
+    test('0 כשאין manifests ואין מספר ב-tag', () {
+      expect(
+        LibraryUpdateDiscovery.releaseVersionOf(withAssets('latest', [])),
+        0,
+      );
+    });
+  });
+
+  // המראה המקומית היא המקור היחיד במסלול הבדיקה — הגילוי חייב לעבוד מולה
+  // בדיוק כמו מול GitHub, ולהיכשל בבירור כשהיא חסרה.
+  group('discover מעל מראה מקומית', () {
+    late Directory tmp;
+    setUp(() => tmp = Directory.systemTemp.createTempSync('discovery_mirror'));
+    tearDown(() {
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+
+    String write(String name, String content) {
+      final path = '${tmp.path}${Platform.pathSeparator}$name';
+      File(path).writeAsStringSync(content);
+      return name;
+    }
+
+    test('בונה edges מקבצים על הדיסק', () async {
+      write('patch-v2-v3.db.zst.manifest.json', _manifestJson(2, 3));
+      write('patch-v2-v3.db.zst', 'x');
+      write('seforim.db.zst', 'y');
+      write(
+        'releases.json',
+        jsonEncode({
+          'releases': [
+            {
+              'tag': 'v3',
+              'assets': [
+                {
+                  'name': 'patch-v2-v3.db.zst.manifest.json',
+                  'downloadUrl': 'patch-v2-v3.db.zst.manifest.json',
+                  'size': 10
+                },
+                {
+                  'name': 'patch-v2-v3.db.zst',
+                  'downloadUrl': 'patch-v2-v3.db.zst',
+                  'size': 1
+                },
+                {
+                  'name': 'seforim.db.zst',
+                  'downloadUrl': 'seforim.db.zst',
+                  'size': 1
+                },
+              ],
+            },
+          ],
+        }),
+      );
+
+      final discovery = LibraryUpdateDiscovery(
+          client: LocalMirrorLibraryReleaseClient(mirrorDir: tmp.path));
+      final result = await discovery.discover(allowPrerelease: true);
+      expect(result.latestVersion, 3);
+      expect(result.edges, hasLength(1));
+      expect(File(result.edges.single.patchFileUrls.values.single).existsSync(),
+          isTrue);
+      expect(result.latestReleaseTag, 'v3');
+    });
+
+    test('releases.json חסר → LocalMirrorException (בלי נפילה לרשת)', () {
+      final discovery = LibraryUpdateDiscovery(
+          client: LocalMirrorLibraryReleaseClient(mirrorDir: tmp.path));
+      expect(() => discovery.discover(allowPrerelease: true),
+          throwsA(isA<LocalMirrorException>()));
+    });
+
+    test('קובץ manifest חסר במראה → ה-edge מדולג, ה-DB המלא נשאר', () async {
+      write('seforim.db.zst', 'y');
+      write(
+        'releases.json',
+        jsonEncode({
+          'releases': [
+            {
+              'tag': 'v3',
+              'assets': [
+                {
+                  'name': 'patch-v2-v3.db.zst.manifest.json',
+                  'downloadUrl': 'patch-v2-v3.db.zst.manifest.json',
+                  'size': 10
+                },
+                {
+                  'name': 'seforim.db.zst',
+                  'downloadUrl': 'seforim.db.zst',
+                  'size': 1
+                },
+              ],
+            },
+          ],
+        }),
+      );
+      final discovery = LibraryUpdateDiscovery(
+          client: LocalMirrorLibraryReleaseClient(mirrorDir: tmp.path));
+      final result = await discovery.discover(allowPrerelease: true);
+      expect(result.edges, isEmpty);
+      expect(result.latestVersion, 3);
+      expect(result.latestFullDbAsset, isNotNull);
     });
   });
 }

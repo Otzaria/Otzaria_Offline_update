@@ -1,10 +1,12 @@
-/// השוואת גרסאות תוסף — semver בסיסי (`major.minor.patch`), פורט מדויק של
-/// `compareVersions` בחנות ה-Electron. מחזיר 1 / 0 / -1.
+/// השוואת גרסאות תוסף — semver בסיסי (`major.minor.patch`), מחזיר 1 / 0 / -1.
 ///
-/// מקטע לא-מספרי נחשב 0, ואורך שונה מרופד באפסים — כך ש-`1.2` ו-`1.2.0`
-/// שקולים. סיומות prerelease (`1.2.0-beta`) לא נתמכות בכוונה: זה בדיוק
-/// ההתנהגות של החנות המקורית, ושינוי כאן ישנה אילו תוספים מסומנים כ"עדכון
-/// זמין".
+/// אורך שונה מרופד באפסים, כך ש-`1.2` ו-`1.2.0` שקולים. קידומת `v` וסיומת
+/// prerelease/build (`-beta`, `+7`) מוסרות לפני ההשוואה — הן אינן משתתפות
+/// בדירוג, אבל **המספר שלפניהן כן**.
+///
+/// **למה לא לקרוא את המקטע כמו שהוא:** `int.tryParse('1-beta')` מחזיר null,
+/// והנפילה ל-0 בלעה את הספרה עצמה — `v2.0.0` יצא שווה ל-`v1.0.0`, ותוסף
+/// שהאתר מתייג עם קידומת `v` לא היה מסומן כ"עדכון זמין" לעולם.
 int comparePluginVersions(String? a, String? b) {
   final pa = _parts(a);
   final pb = _parts(b);
@@ -17,7 +19,15 @@ int comparePluginVersions(String? a, String? b) {
   return 0;
 }
 
-List<int> _parts(String? version) => (version ?? '0')
-    .split('.')
-    .map((segment) => int.tryParse(segment.trim()) ?? 0)
-    .toList();
+/// מקטע ראשון של ספרות בלבד; מה שאחריו (`-beta`, `+7`) אינו משתתף בדירוג.
+final _leadingDigits = RegExp(r'^\d+');
+
+List<int> _parts(String? version) {
+  var text = (version ?? '0').trim();
+  if (text.startsWith('v') || text.startsWith('V')) text = text.substring(1);
+
+  return text.split('.').map((segment) {
+    final digits = _leadingDigits.firstMatch(segment.trim());
+    return digits == null ? 0 : int.parse(digits.group(0)!);
+  }).toList();
+}

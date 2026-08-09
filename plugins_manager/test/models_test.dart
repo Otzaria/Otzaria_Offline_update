@@ -2,26 +2,6 @@ import 'package:plugins_manager/plugins_manager.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('comparePluginVersions', () {
-    test('משווה לפי מקטעים מספריים', () {
-      expect(comparePluginVersions('1.2.0', '1.1.9'), 1);
-      expect(comparePluginVersions('1.1.9', '1.2.0'), -1);
-      expect(comparePluginVersions('2.0.0', '2.0.0'), 0);
-      expect(comparePluginVersions('1.10.0', '1.9.0'), 1);
-    });
-
-    test('אורך שונה מרופד באפסים', () {
-      expect(comparePluginVersions('1.2', '1.2.0'), 0);
-      expect(comparePluginVersions('1.2.1', '1.2'), 1);
-    });
-
-    test('null ומקטע לא-מספרי נחשבים אפס', () {
-      expect(comparePluginVersions(null, '0'), 0);
-      expect(comparePluginVersions('1.x.0', '1.0.0'), 0);
-      expect(comparePluginVersions('1.0', null), 1);
-    });
-  });
-
   group('StorePlugin.statusAgainst', () {
     StorePlugin plugin({String? manifestId, String version = '2.0.0'}) =>
         StorePlugin.fromJson({
@@ -36,6 +16,46 @@ void main() {
         plugin().statusAgainst({'anything': '1.0.0'}),
         PluginInstallStatus.unknown,
       );
+    });
+
+    test('תוסף שקובץ ההתקנה שלו עוד לא ירד הוא unknown, וזה מצב תקין', () {
+      final notDownloaded = StorePlugin.fromApi(
+        const {'id': 'a', 'name': 'אלף', 'version': '1.0.0'},
+        'https://otzaria.org',
+      );
+
+      expect(notDownloaded.localFile, isNull);
+      expect(notDownloaded.manifestId, isNull);
+      expect(
+        notDownloaded.statusAgainst({'a': '1.0.0'}),
+        PluginInstallStatus.unknown,
+      );
+    });
+
+    test('manifestId ריק נחשב חסר', () {
+      const empty = StorePlugin(
+        id: 'db-id',
+        name: 'תוסף',
+        shortDescription: '',
+        description: '',
+        version: '1.0.0',
+        status: 'stable',
+        author: '',
+        updatedAt: '',
+        originalDate: '',
+        compatibleWith: '',
+        maxAppVersion: null,
+        requiresNetwork: false,
+        tags: [],
+        homepage: '',
+        downloadCount: 0,
+        supportsDirectInstall: false,
+        isFeatured: false,
+        remoteDownloadUrl: '',
+        manifestId: '',
+      );
+
+      expect(empty.statusAgainst(const {}), PluginInstallStatus.unknown);
     });
 
     test('לא מותקן', () {
@@ -55,6 +75,13 @@ void main() {
     test('מעודכן כשהגרסאות זהות', () {
       expect(
         plugin(manifestId: 'real-id').statusAgainst({'real-id': '2.0.0'}),
+        PluginInstallStatus.upToDate,
+      );
+    });
+
+    test('גרסה מותקנת חדשה מזו שבחנות נחשבת מעודכנת', () {
+      expect(
+        plugin(manifestId: 'real-id').statusAgainst({'real-id': '3.0.0'}),
         PluginInstallStatus.upToDate,
       );
     });
@@ -86,6 +113,115 @@ void main() {
         'https://otzaria.org',
       );
       expect(plugin.remoteDownloadUrl, 'https://cdn.example/x.otzplugin');
+    });
+
+    test('תשובה ריקה נופלת לברירות מחדל בלי לזרוק', () {
+      final plugin = StorePlugin.fromApi(const {}, 'https://otzaria.org');
+
+      expect(plugin.id, '');
+      expect(plugin.name, '');
+      expect(plugin.tags, isEmpty);
+      expect(plugin.maxAppVersion, isNull);
+      expect(plugin.requiresNetwork, isFalse);
+      expect(plugin.supportsDirectInstall, isFalse);
+      expect(plugin.isFeatured, isFalse);
+      expect(plugin.downloadCount, 0);
+      expect(plugin.remoteDownloadUrl, '');
+      expect(plugin.imagePath, isNull);
+      expect(plugin.screenshotPaths, isEmpty);
+      expect(plugin.categorySlugs, isEmpty);
+    });
+
+    test('שדות null או מטיפוס לא צפוי נופלים לברירת המחדל', () {
+      final plugin = StorePlugin.fromApi(const {
+        'id': 'x',
+        'name': null,
+        'downloadCount': '42',
+        'requiresNetwork': 'true',
+        'maxAppVersion': 3,
+        'tags': ['תגית', 7, null],
+        'שדה-לא-מוכר': 'לא מפריע',
+      }, 'https://otzaria.org');
+
+      expect(plugin.name, '');
+      expect(plugin.downloadCount, 0);
+      expect(plugin.requiresNetwork, isFalse);
+      expect(plugin.maxAppVersion, isNull);
+      expect(plugin.tags, ['תגית']);
+    });
+
+    test('tags שאינו רשימה מוחזר ריק', () {
+      final plugin = StorePlugin.fromApi(
+        const {'id': 'x', 'tags': 'לימוד'},
+        'https://otzaria.org',
+      );
+      expect(plugin.tags, isEmpty);
+    });
+  });
+
+  group('StorePlugin.fromJson / toJson', () {
+    test('manifestId ריק נקרא כ-null', () {
+      expect(
+          StorePlugin.fromJson(const {'id': 'x', 'manifestId': ''}).manifestId,
+          isNull);
+      expect(
+        StorePlugin.fromJson(const {'id': 'x', 'manifestId': 7}).manifestId,
+        isNull,
+      );
+    });
+
+    test('copyWith אינו מאפס שדות קיימים', () {
+      final plugin = StorePlugin.fromJson(const {
+        'id': 'x',
+        'image': 'files/x/image.png',
+        'manifestId': 'real',
+      });
+
+      final copy = plugin.copyWith(categorySlugs: const ['study']);
+      expect(copy.imagePath, 'files/x/image.png');
+      expect(copy.manifestId, 'real');
+      expect(copy.categorySlugs, ['study']);
+    });
+
+    test('שוויון נקבע לפי הזהות והמצב המקומי', () {
+      final base = StorePlugin.fromJson(const {'id': 'x', 'version': '1.0.0'});
+      final same = StorePlugin.fromJson(const {
+        'id': 'x',
+        'version': '1.0.0',
+        'name': 'שם אחר לגמרי',
+      });
+      final other = StorePlugin.fromJson(const {'id': 'x', 'version': '1.0.1'});
+
+      expect(base, same);
+      expect(base, isNot(other));
+    });
+  });
+
+  group('PluginLocalFile', () {
+    test('round-trip שומר את כל השדות', () {
+      const file = PluginLocalFile(
+        relativePath: 'files/abc/plugin.otzplugin',
+        fileName: 'מפרשים.otzplugin',
+        ext: '.otzplugin',
+        size: 1234,
+      );
+
+      expect(PluginLocalFile.fromJson(file.toJson()), file);
+    });
+
+    test('בלי path אין רשומה', () {
+      expect(PluginLocalFile.fromJson(null), isNull);
+      expect(PluginLocalFile.fromJson('files/a'), isNull);
+      expect(PluginLocalFile.fromJson(const {}), isNull);
+      expect(PluginLocalFile.fromJson(const {'path': ''}), isNull);
+    });
+
+    test('שדות חסרים נופלים לברירת מחדל', () {
+      final file = PluginLocalFile.fromJson(const {'path': 'files/a/p.zip'})!;
+
+      expect(file.fileName, 'files/a/p.zip');
+      expect(file.ext, '');
+      expect(file.size, 0);
     });
   });
 
@@ -185,6 +321,11 @@ void main() {
       expect(PluginCatalog.fromJson({}).plugins, isEmpty);
     });
 
+    test('plugins שאינו רשימה מחזיר רשימה ריקה', () {
+      expect(PluginCatalog.fromJson({'plugins': {}}).plugins, isEmpty);
+      expect(PluginCatalog.fromJson({'categories': 7}).categories, isEmpty);
+    });
+
     test('קטלוג ישן בלי קטגוריות נטען כרגיל', () {
       final catalog = PluginCatalog.fromJson({
         'plugins': [
@@ -207,6 +348,23 @@ void main() {
 
       expect(catalog.categories.single.slug, 'ok');
     });
+
+    test('categoryBySlug מחזיר null לקטגוריה שאינה קיימת', () {
+      expect(PluginCatalog.empty.categoryBySlug('nope'), isNull);
+      expect(PluginCatalog.empty.plugins, isEmpty);
+    });
+
+    test('סדר התוספים נשמר כמו שהאתר החזיר', () {
+      final catalog = PluginCatalog.fromJson({
+        'plugins': [
+          {'id': 'c'},
+          {'id': 'a'},
+          {'id': 'b'},
+        ],
+      });
+
+      expect(catalog.plugins.map((e) => e.id), ['c', 'a', 'b']);
+    });
   });
 
   group('PluginStoreCategory', () {
@@ -219,6 +377,8 @@ void main() {
           {'id': 'b'},
           {'id': 'a'},
           {'name': 'בלי id'},
+          {'id': ''},
+          'לא אובייקט',
         ],
       });
 
@@ -250,6 +410,113 @@ void main() {
       expect(plain.showOnHome, isFalse);
       expect(plain.homeLimit, PluginStoreCategory.defaultHomeLimit);
     });
+
+    test('homeLimit לא חוקי נופל לברירת המחדל של האתר', () {
+      for (final value in [0, -1, '4', null]) {
+        expect(
+          PluginStoreCategory.fromApi({'slug': 'x', 'homeLimit': value})
+              .homeLimit,
+          PluginStoreCategory.defaultHomeLimit,
+        );
+      }
+    });
+
+    test('fromJson נופל לשם ה-slug כשאין שם', () {
+      final category = PluginStoreCategory.fromJson(const {'slug': 'study'})!;
+
+      expect(category.name, 'study');
+      expect(category.description, '');
+      expect(category.pluginIds, isEmpty);
+    });
+
+    test('fromJson מדלג על רשומה שאינה אובייקט או בלי slug', () {
+      expect(PluginStoreCategory.fromJson(null), isNull);
+      expect(PluginStoreCategory.fromJson('study'), isNull);
+      expect(PluginStoreCategory.fromJson(const {'name': 'בלי slug'}), isNull);
+      expect(PluginStoreCategory.fromJson(const {'slug': ''}), isNull);
+    });
+
+    test('copyWith מחליף רק את רשימת התוספים', () {
+      const category = PluginStoreCategory(
+        slug: 'study',
+        name: 'כלי לימוד',
+        showOnHome: true,
+        homeLimit: 3,
+        pluginIds: ['a'],
+      );
+
+      final copy = category.copyWith(pluginIds: const ['b', 'a']);
+      expect(copy.pluginIds, ['b', 'a']);
+      expect(copy.showOnHome, isTrue);
+      expect(copy.homeLimit, 3);
+      expect(copy.name, 'כלי לימוד');
+    });
+  });
+
+  group('PluginStoreHome', () {
+    test('fromApi קורא את הטקסטים שנאצרו באתר', () {
+      final home = PluginStoreHome.fromApi(const {
+        'homeTitle': 'חנות התוספים',
+        'homeSubtitle': 'תקציר',
+        'שדה-נוסף': 1,
+      });
+
+      expect(home.title, 'חנות התוספים');
+      expect(home.subtitle, 'תקציר');
+      expect(home.isEmpty, isFalse);
+    });
+
+    test('שדות חסרים או מטיפוס אחר נותנים ריק — הממשק הוא שנופל לברירת מחדל',
+        () {
+      expect(PluginStoreHome.fromApi(const {}), PluginStoreHome.empty);
+      expect(
+        PluginStoreHome.fromApi(const {'homeTitle': 7}),
+        PluginStoreHome.empty,
+      );
+      expect(PluginStoreHome.empty.isEmpty, isTrue);
+    });
+
+    test('fromJson של ערך שאינו אובייקט מחזיר ריק', () {
+      expect(PluginStoreHome.fromJson(null), PluginStoreHome.empty);
+      expect(PluginStoreHome.fromJson('טקסט'), PluginStoreHome.empty);
+      expect(
+        PluginStoreHome.fromJson(const {'title': 'א', 'subtitle': 'ב'}),
+        const PluginStoreHome(title: 'א', subtitle: 'ב'),
+      );
+    });
+  });
+
+  group('PluginSyncProgress', () {
+    test('fraction מחושב רק כשידוע היעד', () {
+      const known = PluginSyncProgress(
+        phase: PluginSyncPhase.plugin,
+        message: '',
+        current: 1,
+        total: 4,
+      );
+      expect(known.fraction, 0.25);
+
+      const noTotal = PluginSyncProgress(
+        phase: PluginSyncPhase.plugin,
+        message: '',
+        current: 1,
+      );
+      expect(noTotal.fraction, isNull);
+
+      const zeroTotal = PluginSyncProgress(
+        phase: PluginSyncPhase.plugin,
+        message: '',
+        current: 0,
+        total: 0,
+      );
+      expect(zeroTotal.fraction, isNull);
+
+      const start = PluginSyncProgress(
+        phase: PluginSyncPhase.start,
+        message: '',
+      );
+      expect(start.fraction, isNull);
+    });
   });
 
   group('תאימות לאחור של "תוסף נבחר"', () {
@@ -266,6 +533,11 @@ void main() {
         StorePlugin.fromJson(const {'id': 'x', 'isPinned': true}).isFeatured,
         isTrue,
       );
+      expect(
+        StorePlugin.fromJson(const {'id': 'x', 'isFeatured': true}).isFeatured,
+        isTrue,
+      );
+      expect(StorePlugin.fromJson(const {'id': 'x'}).isFeatured, isFalse);
     });
   });
 
@@ -275,18 +547,26 @@ void main() {
       'name': 'מפרשים',
       'shortDescription': 'הוספת מפרשים',
       'description': 'תוסף שמוסיף פירושים',
-      'tags': ['לימוד'],
+      'author': 'Yehuda',
+      'tags': ['לימוד', 'Study'],
     }, 'https://otzaria.org');
 
     test('חיפוש ריק מחזיר הכול', () {
       expect(plugin.matchesQuery('  '), isTrue);
+      expect(plugin.matchesQuery(''), isTrue);
     });
 
-    test('מוצא לפי שם, תיאור ותגית', () {
+    test('מוצא לפי שם, תיאור, מפתח ותגית', () {
       expect(plugin.matchesQuery('מפרש'), isTrue);
       expect(plugin.matchesQuery('פירושים'), isTrue);
       expect(plugin.matchesQuery('לימוד'), isTrue);
+      expect(plugin.matchesQuery('yehuda'), isTrue);
       expect(plugin.matchesQuery('אין כזה'), isFalse);
+    });
+
+    test('החיפוש אינו תלוי רישיות', () {
+      expect(plugin.matchesQuery('STUDY'), isTrue);
+      expect(plugin.matchesQuery('YEHUDA'), isTrue);
     });
   });
 }

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:test/test.dart';
 import 'package:seforim_library_updater/src/models/delta_manifest.dart';
 import 'package:seforim_library_updater/src/models/patch_table_spec.dart';
@@ -483,6 +484,292 @@ void main() {
         throwsA(isA<PatchApplyException>()),
       );
       expect(File(base).readAsBytesSync(), bytesBefore);
+    });
+
+    test('patch_meta ללא schema_version → זריקה בהודעת ה-l10n', () {
+      final base = buildBaseDb(version: 1, sourceRows: []);
+      final beforeHash = _hashOf(base);
+      final patch = buildPatchDb(from: 1, to: 2);
+      final pdb = sqlite3.sqlite3.open(patch);
+      pdb.execute("DELETE FROM patch_meta WHERE key='schema_version'");
+      pdb.close();
+
+      expect(
+        () => _applier.apply(
+          dbPath: base,
+          patchPath: patch,
+          manifest:
+              _manifest(from: 1, to: 2, fromHash: beforeHash, toHash: 'x'),
+        ),
+        throwsA(isA<PatchApplyException>().having(
+          (e) => e.message,
+          'message',
+          AppL10n.strings.libraryDomain.patchMetaSchemaVersionMissing,
+        )),
+      );
+      expect(_hashOf(base), beforeHash);
+    });
+
+    // ה-patch שהורד חייב להיות בדיוק זה שה-manifest מתאר — קובץ שהוחלף
+    // (אותו שם, טווח אחר) נעצר כאן ולא מגיע לכתיבה.
+    test('טווח הגרסאות ב-patch_meta שונה מה-manifest → זריקה', () {
+      final base = buildBaseDb(version: 1, sourceRows: []);
+      final beforeHash = _hashOf(base);
+      final patch = buildPatchDb(from: 1, to: 3); // ה-manifest אומר 1→2
+      expect(
+        () => _applier.apply(
+          dbPath: base,
+          patchPath: patch,
+          manifest:
+              _manifest(from: 1, to: 2, fromHash: beforeHash, toHash: 'x'),
+        ),
+        throwsA(isA<PatchApplyException>().having(
+          (e) => e.message,
+          'message',
+          AppL10n.strings.libraryDomain.patchVersionRangeMismatch(1, 3, 1, 2),
+        )),
+      );
+      expect(_hashOf(base), beforeHash);
+    });
+
+    test('db_schema_version מקומי שונה מ-fromSchemaVersion → זריקה', () {
+      final base = buildBaseDb(version: 1, sourceRows: []);
+      final bdb = sqlite3.sqlite3.open(base);
+      bdb.execute("UPDATE schema_meta SET value='1' "
+          "WHERE key='db_schema_version'");
+      bdb.close();
+      final patch = buildPatchDb(from: 1, to: 2);
+      expect(
+        () => _applier.apply(
+          dbPath: base,
+          patchPath: patch,
+          manifest: _manifest(from: 1, to: 2, fromHash: 'x', toHash: 'y'),
+          verifyFromHash: false,
+        ),
+        throwsA(isA<PatchApplyException>().having(
+          (e) => e.message,
+          'message',
+          AppL10n.strings.libraryDomain.localSchemaMismatch(1, 2),
+        )),
+      );
+    });
+
+    test('שלבי ה-onStage מדווחים בסדר המתועד', () {
+      final base = buildBaseDb(version: 1, sourceRows: [
+        [1, 'a'],
+      ]);
+      final patch = buildPatchDb(from: 1, to: 2, upsertSource: [
+        [2, 'b'],
+      ]);
+      final expected = buildBaseDb(version: 2, sourceRows: [
+        [1, 'a'],
+        [2, 'b'],
+      ]);
+      final manifest = _manifest(
+        from: 1,
+        to: 2,
+        fromHash: _hashOf(base),
+        toHash: _hashOf(expected),
+      );
+      final stages = <String>[];
+      _applier.apply(
+        dbPath: base,
+        patchPath: patch,
+        manifest: manifest,
+        onStage: stages.add,
+      );
+      expect(stages, [
+        'preflight',
+        'verifyFromHash',
+        'attach',
+        'migrations',
+        'upserts',
+        'deletes',
+        'foreignKeyCheck',
+        'verifyToHash',
+        'commit',
+      ]);
+    });
+
+    // ה-hint הוא סך-הבתים מריצה קודמת; בלעדיו ה-total הוא גודל הקובץ (הערכת
+    // יתר). בשני המסלולים זה רק מד התקדמות, אך חייב להיות עקבי.
+    test('verifyTotalBytesHint נכנס כ-total ל-onVerifyProgress', () {
+      final base = buildBaseDb(version: 1, sourceRows: [
+        [1, 'a'],
+      ]);
+      final patch = buildPatchDb(from: 1, to: 2, upsertSource: [
+        [2, 'b'],
+      ]);
+      final expected = buildBaseDb(version: 2, sourceRows: [
+        [1, 'a'],
+        [2, 'b'],
+      ]);
+      final manifest = _manifest(
+        from: 1,
+        to: 2,
+        fromHash: _hashOf(base),
+        toHash: _hashOf(expected),
+      );
+      final reports = <(int, int)>[];
+      _applier.apply(
+        dbPath: base,
+        patchPath: patch,
+        manifest: manifest,
+        verifyTotalBytesHint: 4242,
+        onVerifyProgress: (hashed, total) => reports.add((hashed, total)),
+      );
+      expect(reports, isNotEmpty);
+      expect(reports.every((r) => r.$2 == 4242), isTrue);
+      expect(reports.every((r) => r.$1 > 0), isTrue);
+    });
+
+    test('מחיקה לפי מפתח מורכב (book_author) מוחקת רק את השורה שצוינה', () {
+      final base = buildBaseDb(version: 1, sourceRows: []);
+      final bdb = sqlite3.sqlite3.open(base);
+      bdb.execute('CREATE TABLE book (id INTEGER PRIMARY KEY, title TEXT)');
+      bdb.execute('CREATE TABLE book_author (bookId INTEGER, authorId INTEGER, '
+          'PRIMARY KEY (bookId, authorId))');
+      bdb.execute("INSERT INTO book VALUES (1,'א')");
+      bdb.execute('INSERT INTO book_author VALUES (1,5),(1,6)');
+      bdb.close();
+
+      final patch = buildPatchDb(from: 1, to: 2);
+      final pdb = sqlite3.sqlite3.open(patch);
+      pdb.execute('CREATE TABLE delete_book_author (bookId INTEGER, '
+          'authorId INTEGER, PRIMARY KEY (bookId, authorId))');
+      pdb.execute('INSERT INTO delete_book_author VALUES (1,5)');
+      pdb.close();
+
+      final expected = buildBaseDb(version: 2, sourceRows: []);
+      final edb = sqlite3.sqlite3.open(expected);
+      edb.execute('CREATE TABLE book (id INTEGER PRIMARY KEY, title TEXT)');
+      edb.execute('CREATE TABLE book_author (bookId INTEGER, authorId INTEGER, '
+          'PRIMARY KEY (bookId, authorId))');
+      edb.execute("INSERT INTO book VALUES (1,'א')");
+      edb.execute('INSERT INTO book_author VALUES (1,6)');
+      edb.close();
+
+      final result = _applier.apply(
+        dbPath: base,
+        patchPath: patch,
+        manifest: _manifest(
+          from: 1,
+          to: 2,
+          fromHash: _hashOf(base),
+          toHash: _hashOf(expected),
+        ),
+      );
+      expect(result.deletes['book_author'], 1);
+      expect(result.booksTouched, {1});
+    });
+
+    test('הפרת FK שנוצרה ב-patch → זריקה ו-rollback', () {
+      final base = buildBaseDb(version: 1, sourceRows: []);
+      final bdb = sqlite3.sqlite3.open(base);
+      bdb.execute('CREATE TABLE book (id INTEGER PRIMARY KEY, title TEXT)');
+      bdb.execute(
+          'CREATE TABLE book_author (bookId INTEGER REFERENCES book(id),'
+          ' authorId INTEGER, PRIMARY KEY (bookId, authorId))');
+      bdb.execute("INSERT INTO book VALUES (1,'א')");
+      bdb.close();
+      final beforeHash = _hashOf(base);
+
+      final patch = buildPatchDb(from: 1, to: 2);
+      final pdb = sqlite3.sqlite3.open(patch);
+      pdb.execute('CREATE TABLE upsert_book_author (bookId INTEGER, '
+          'authorId INTEGER, PRIMARY KEY (bookId, authorId))');
+      // ספר 99 אינו קיים — ההפרה מתגלה רק ב-foreign_key_check שאחרי ה-upserts.
+      pdb.execute('INSERT INTO upsert_book_author VALUES (99,5)');
+      pdb.close();
+
+      expect(
+        () => _applier.apply(
+          dbPath: base,
+          patchPath: patch,
+          manifest: _manifest(
+            from: 1,
+            to: 2,
+            fromHash: beforeHash,
+            toHash: 'irrelevant',
+          ),
+        ),
+        throwsA(isA<PatchApplyException>().having(
+          (e) => e.message,
+          'message',
+          AppL10n.strings.libraryDomain.foreignKeyViolationsGrew(0, 1),
+        )),
+      );
+      expect(_hashOf(base), beforeHash);
+    });
+
+    test('checkForeignKeys=false מדלג על הבדיקה (ונכשל רק על ה-hash)', () {
+      final base = buildBaseDb(version: 1, sourceRows: []);
+      final bdb = sqlite3.sqlite3.open(base);
+      bdb.execute('CREATE TABLE book (id INTEGER PRIMARY KEY, title TEXT)');
+      bdb.execute(
+          'CREATE TABLE book_author (bookId INTEGER REFERENCES book(id),'
+          ' authorId INTEGER, PRIMARY KEY (bookId, authorId))');
+      bdb.close();
+
+      final patch = buildPatchDb(from: 1, to: 2);
+      final pdb = sqlite3.sqlite3.open(patch);
+      pdb.execute('CREATE TABLE upsert_book_author (bookId INTEGER, '
+          'authorId INTEGER, PRIMARY KEY (bookId, authorId))');
+      pdb.execute('INSERT INTO upsert_book_author VALUES (99,5)');
+      pdb.close();
+
+      final stages = <String>[];
+      expect(
+        () => _applier.apply(
+          dbPath: base,
+          patchPath: patch,
+          manifest: _manifest(
+            from: 1,
+            to: 2,
+            fromHash: _hashOf(base),
+            toHash: 'deadbeef',
+          ),
+          checkForeignKeys: false,
+          onStage: stages.add,
+        ),
+        throwsA(isA<PatchApplyException>().having(
+          (e) => e.message,
+          'message',
+          // התחילית הקבועה של המחרוזת מ-otzaria_l10n; ה-hash בפועל משתנה.
+          startsWith(AppL10n.strings.libraryDomain
+              .resultHashMismatch('<A>', '<B>')
+              .split('<A>')
+              .first),
+        )),
+      );
+      expect(stages, isNot(contains('foreignKeyCheck')));
+    });
+
+    test('טבלאות patch שאינן קיימות מדולגות — הספירות מכילות רק את שהופיע', () {
+      final base = buildBaseDb(version: 1, sourceRows: [
+        [1, 'a'],
+      ]);
+      final patch = buildPatchDb(from: 1, to: 2, upsertSource: [
+        [2, 'b'],
+      ]);
+      final expected = buildBaseDb(version: 2, sourceRows: [
+        [1, 'a'],
+        [2, 'b'],
+      ]);
+      final result = _applier.apply(
+        dbPath: base,
+        patchPath: patch,
+        manifest: _manifest(
+          from: 1,
+          to: 2,
+          fromHash: _hashOf(base),
+          toHash: _hashOf(expected),
+        ),
+      );
+      expect(
+          result.upserts.keys, containsAll(<String>['source', 'schema_meta']));
+      expect(result.deletes, isEmpty);
+      expect(result.migrations, 0);
     });
   });
 
