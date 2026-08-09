@@ -227,10 +227,26 @@ opposite: it is generated in CI.
 **There is no Windows installer — the distribution is a portable ZIP.**
 `inno_bundle` and its config were removed in `748accf`; Flutter for Windows
 cannot produce a true single-file exe anyway. Both `ci.yml` and
-`build-exe.yml` run `flutter build windows --release` and zip the Release
-folder. Do not reintroduce an installer step without adding the dependency
-back first — that mismatch is exactly what kept CI red from July 24 to
-August 6, 2026.
+`build-exe.yml` run `flutter build windows --release` and then
+`launcher_app/windows_stub/package.ps1`. Do not reintroduce an installer step
+without adding the dependency back first — that mismatch is exactly what kept
+CI red from July 24 to August 6, 2026.
+
+**The Windows ZIP has the exe at the root and everything else one level down.**
+`package.ps1` produces `עדכוני אוצריא.exe` next to `app-files/`, where the real
+`launcher_app.exe`, the DLLs and `data/` live. `launcher_app.exe` cannot simply
+be moved up: `flutter_windows.dll` is a load-time import (resolved before any
+of our code runs) and `data/` is resolved relative to the exe's directory. What
+sits at the root is therefore a tiny C stub, `launcher_app/windows_stub/stub.c`,
+that `CreateProcessW`s the real one. Three things there are load-bearing: it
+lives **outside** `windows/` because CI runs `flutter create --platforms=windows .`
+and overwrites that directory; it is compiled with **`/MT`** because a stub
+outside `app-files` cannot see the `vcruntime140.dll` that Flutter copies into
+the Release folder; and its single error message is the **one** user-visible
+string in this repo that is not in `otzaria_l10n` — C cannot depend on a Dart
+package. `OtzariaData/` deliberately lands inside `app-files/` (that is what
+`Platform.resolvedExecutable` yields), so `app_paths.dart` needed no change.
+The full rationale table is in `launcher_app/README.md`.
 
 **Version strings need normalizing before comparison.** An installed build
 reports `0.9.96` while the release tag is `0.9.96+736`. `OtzariaUpdateCheckResult`

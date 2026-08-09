@@ -87,12 +87,12 @@ jobs:
       - run: flutter analyze --no-fatal-infos
       - run: flutter test
       - run: flutter build windows --release
-      # אין מתקין — אורזים את תיקיית ה-Release כמות שהיא (זהה ל-
-      # build-exe.yml). Flutter ל-Windows לא מייצר exe יחיד בלאו הכי,
-      # ומאז 748accf ההפצה היא portable zip.
-      - name: Zip portable build
+      # אין מתקין — portable zip (זהה ל-build-exe.yml): קובץ הרצה אחד
+      # בשורש ותיקיית app-files עם כל השאר. Flutter ל-Windows לא מייצר exe
+      # יחיד בלאו הכי, ומאז 748accf ההפצה היא portable zip.
+      - name: Package portable build
         shell: pwsh
-        run: Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "launcher_app-windows-portable.zip"
+        run: .\windows_stub\package.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: launcher_app-windows-portable-ci
