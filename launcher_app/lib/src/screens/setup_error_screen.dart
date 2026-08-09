@@ -17,6 +17,7 @@ class SetupErrorScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final t = context.strings.setupError;
 
     return Scaffold(
       backgroundColor: AppSurfaces.panelBackground(context),
@@ -39,7 +40,7 @@ class SetupErrorScreen extends StatelessWidget {
                       const SizedBox(width: AppTokens.spaceSM),
                       Expanded(
                         child: Text(
-                          'התוכנה נמצאת במקום שאינו מתאים',
+                          t.title,
                           style: theme.textTheme.titleMedium
                               ?.copyWith(fontWeight: FontWeight.bold),
                         ),
@@ -47,35 +48,25 @@ class SetupErrorScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: AppTokens.spaceMD),
-                  Text(
-                    'הלאנצ׳ר שומר את כל הנתונים — הספרייה, התוספים וגרסת '
-                    'אוצריא — בתיקייה שצמודה לו, כדי שהכול ייסע יחד על הכונן. '
-                    'בתיקייה הנוכחית אין הרשאת כתיבה, ולכן אין לאן לשמור.',
-                    style: theme.textTheme.bodyMedium,
-                  ),
+                  Text(t.explanation, style: theme.textTheme.bodyMedium),
                   const SizedBox(height: AppTokens.spaceMD),
-                  Text(
-                    'מה לעשות: להעביר את תיקיית התוכנה כולה לכונן הנייד '
-                    '(או לכל תיקייה בדיסק שאינה תחת Program Files), '
-                    'ולהפעיל אותה משם.',
-                    style: theme.textTheme.bodyMedium,
-                  ),
+                  Text(t.whatToDo, style: theme.textTheme.bodyMedium),
                   const SizedBox(height: AppTokens.spaceMD),
                   InfoErrorRow(message: error.message),
                   SettingsActionTile.path(
                     icon: FluentIcons.folder_24_regular,
-                    title: 'התיקייה שנוסתה',
+                    title: t.attemptedDirTitle,
                     path: error.attemptedDir,
-                    placeholder: '—',
+                    placeholder: context.strings.common.emptyValue,
                     actions: [
                       ActionButton.neutral(
-                        text: 'העתקת הנתיב',
+                        text: t.copyPathButton,
                         icon: FluentIcons.copy_24_regular,
                         onPressed: () async {
                           await Clipboard.setData(
                             ClipboardData(text: error.attemptedDir),
                           );
-                          UiSnack.showSuccess('הנתיב הועתק');
+                          UiSnack.showSuccess(t.pathCopiedSnack);
                         },
                       ),
                     ],

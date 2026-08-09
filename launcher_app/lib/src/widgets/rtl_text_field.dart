@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 
-/// שדה טקסט RTL — הרכיב היחיד שמותר להשתמש בו לקלט טקסט.
+/// שדה הטקסט היחיד שמותר להשתמש בו לקלט.
 ///
 /// זו גרסה מצומצמת של `RtlTextField` של אוצריא: תיקוני מקשי החיצים,
 /// ההבהוב ותפריט ההקשר של Flutter Desktop **לא** פורטו לכאן (עדיין אין
 /// בלאנצ'ר שדה קלט אמיתי). כשיתווסף כזה — יש לפורט את המקור המלא מ-
 /// `otzaria/lib/widgets/text/rtl_text_field.dart`.
+///
+/// הכיוון אינו נכפה יותר ל-RTL אלא נגזר מהשפה (ה-`Directionality` שסביב) —
+/// אחרת חיפוש באנגלית היה נכתב מימין לשמאל.
 class RtlTextField extends StatelessWidget {
   final TextEditingController? controller;
   final FocusNode? focusNode;
@@ -33,7 +36,7 @@ class RtlTextField extends StatelessWidget {
       onChanged: onChanged,
       onSubmitted: onSubmitted,
       enabled: enabled,
-      textDirection: TextDirection.rtl,
+      textDirection: Directionality.of(context),
       textAlign: TextAlign.start,
       maxLines: 1,
     );

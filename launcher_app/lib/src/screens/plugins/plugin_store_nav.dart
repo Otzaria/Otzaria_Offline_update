@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../controllers/plugins_module_controller.dart';
 import '../../theme/theme_exports.dart';
+import '../../widgets/widgets_exports.dart';
 import 'plugin_store_body.dart';
 import 'plugin_visuals.dart';
 
@@ -25,12 +26,15 @@ class PluginStoreSidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final t = context.strings.plugins;
 
     return Container(
       width: _sidebarWidth,
       decoration: BoxDecoration(
-        border: Border(
-          left: BorderSide(color: theme.colorScheme.outlineVariant),
+        // הסרגל יושב בצד ה-start של התוכן, ולכן הקו המפריד הוא בקצה ה-end
+        // שלו — ימין ב-LTR, שמאל ב-RTL.
+        border: BorderDirectional(
+          end: BorderSide(color: theme.colorScheme.outlineVariant),
         ),
       ),
       child: ListView(
@@ -40,12 +44,12 @@ class PluginStoreSidebar extends StatelessWidget {
         ),
         children: [
           Padding(
-            padding: const EdgeInsets.only(
-              right: AppTokens.spaceSM,
+            padding: const EdgeInsetsDirectional.only(
+              start: AppTokens.spaceSM,
               bottom: AppTokens.spaceSM,
             ),
             child: Text(
-              'קטגוריות',
+              t.categoriesTitle,
               style: TextStyle(
                 fontSize: AppTokens.fontSM,
                 fontWeight: FontWeight.bold,
@@ -54,7 +58,7 @@ class PluginStoreSidebar extends StatelessWidget {
             ),
           ),
           _SidebarItem(
-            label: 'דף הבית של החנות',
+            label: t.storeHomeItem,
             icon: FluentIcons.home_24_regular,
             active: controller.view == PluginStorePage.home,
             onTap: controller.showHome,
@@ -74,7 +78,7 @@ class PluginStoreSidebar extends StatelessWidget {
           ),
           // "כל התוספים" — מוצא אחרון, מוצנע בתחתית הסרגל, כמו באתר.
           _SidebarItem(
-            label: 'כל התוספים',
+            label: t.allPluginsPage,
             count: controller.plugins.length,
             icon: FluentIcons.apps_list_24_regular,
             active: controller.view == PluginStorePage.all,
@@ -173,6 +177,7 @@ class PluginStoreCategoryBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final t = context.strings.plugins;
 
     return Container(
       decoration: BoxDecoration(
@@ -191,7 +196,7 @@ class PluginStoreCategoryBar extends StatelessWidget {
           scrollDirection: Axis.horizontal,
           children: [
             _BarChip(
-              label: 'דף הבית',
+              label: t.storeHomeChip,
               active: controller.view == PluginStorePage.home,
               onTap: controller.showHome,
             ),
@@ -202,7 +207,7 @@ class PluginStoreCategoryBar extends StatelessWidget {
                 onTap: () => controller.showCategory(category.slug),
               ),
             _BarChip(
-              label: 'כל התוספים (${controller.plugins.length})',
+              label: t.allPluginsWithCount(controller.plugins.length),
               active: controller.view == PluginStorePage.all,
               onTap: controller.showAllPlugins,
             ),

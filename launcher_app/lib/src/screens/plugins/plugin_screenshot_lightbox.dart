@@ -5,11 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../theme/theme_exports.dart';
+import '../../widgets/widgets_exports.dart';
 
 /// גלריית צילומי המסך במסך מלא. ניווט בחצים, בלחיצה על הצדדים, וסגירה
 /// ב-Esc או בלחיצה על הרקע — כמו ה-lightbox בחנות המקורית.
 ///
-/// ב-RTL החץ "הבא" נמצא בצד שמאל, ולכן ← מקדם ו-→ מחזיר.
+/// הכיווניות נגזרת מהשפה: ב-RTL ← מקדם ו-→ מחזיר, וב-LTR להפך.
 Future<void> showPluginScreenshots(
   BuildContext context, {
   required List<String> paths,
@@ -44,15 +45,17 @@ class _LightboxState extends State<_Lightbox> {
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    // הכיוון "קדימה" הוא לכיוון שאליו זורם הטקסט: שמאלה ב-RTL, ימינה ב-LTR.
+    final forward = context.isRtl ? -1 : 1;
     switch (event.logicalKey) {
       case LogicalKeyboardKey.escape:
         Navigator.of(context).pop();
         return KeyEventResult.handled;
       case LogicalKeyboardKey.arrowLeft:
-        _step(1);
+        _step(-forward);
         return KeyEventResult.handled;
       case LogicalKeyboardKey.arrowRight:
-        _step(-1);
+        _step(forward);
         return KeyEventResult.handled;
       default:
         return KeyEventResult.ignored;
@@ -62,6 +65,8 @@ class _LightboxState extends State<_Lightbox> {
   @override
   Widget build(BuildContext context) {
     final hasMany = widget.paths.length > 1;
+    final t = context.strings.plugins;
+    final isRtl = context.isRtl;
 
     return Focus(
       autofocus: true,
@@ -93,16 +98,25 @@ class _LightboxState extends State<_Lightbox> {
               ),
             ),
             if (hasMany) ...[
+              // המיקום והחץ נשמרים כפי שהם בעברית, ומשתקפים ב-LTR.
               _NavButton(
-                alignment: AlignmentDirectional.centerEnd,
-                icon: FluentIcons.chevron_right_24_regular,
-                tooltip: 'הקודם',
+                alignment: isRtl
+                    ? AlignmentDirectional.centerEnd
+                    : AlignmentDirectional.centerStart,
+                icon: isRtl
+                    ? FluentIcons.chevron_right_24_regular
+                    : FluentIcons.chevron_left_24_regular,
+                tooltip: t.screenshotPrevious,
                 onPressed: () => _step(-1),
               ),
               _NavButton(
-                alignment: AlignmentDirectional.centerStart,
-                icon: FluentIcons.chevron_left_24_regular,
-                tooltip: 'הבא',
+                alignment: isRtl
+                    ? AlignmentDirectional.centerStart
+                    : AlignmentDirectional.centerEnd,
+                icon: isRtl
+                    ? FluentIcons.chevron_left_24_regular
+                    : FluentIcons.chevron_right_24_regular,
+                tooltip: t.screenshotNext,
                 onPressed: () => _step(1),
               ),
               Align(
@@ -123,7 +137,7 @@ class _LightboxState extends State<_Lightbox> {
                 child: IconButton(
                   icon: const Icon(FluentIcons.dismiss_24_regular),
                   color: Colors.white,
-                  tooltip: 'סגירה',
+                  tooltip: context.strings.common.close,
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ),

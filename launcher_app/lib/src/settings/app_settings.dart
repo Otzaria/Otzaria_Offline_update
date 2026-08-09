@@ -1,3 +1,5 @@
+import 'package:otzaria_l10n/otzaria_l10n.dart';
+
 enum AppThemeMode { system, light, dark }
 
 /// כל ההגדרות של הלאנצ'ר, immutable ובעלות [schemaVersion] — נשמרות
@@ -43,6 +45,8 @@ class AppSettings {
   final int networkTimeoutSeconds;
 
   // ── ממשק ────────────────────────────────────────────────────────────────
+  /// שפת הממשק. עברית היא ברירת המחדל ואינה נגזרת משפת המערכת.
+  final AppLanguage language;
   final AppThemeMode themeMode;
   final double textScale;
 
@@ -57,6 +61,7 @@ class AppSettings {
     this.preferAppPrerelease = false,
     this.backupsToKeep = 1,
     this.networkTimeoutSeconds = 20,
+    this.language = AppLanguage.hebrew,
     this.themeMode = AppThemeMode.system,
     this.textScale = 1.0,
   });
@@ -76,6 +81,7 @@ class AppSettings {
     bool? preferAppPrerelease,
     int? backupsToKeep,
     int? networkTimeoutSeconds,
+    AppLanguage? language,
     AppThemeMode? themeMode,
     double? textScale,
   }) {
@@ -92,6 +98,7 @@ class AppSettings {
       backupsToKeep: backupsToKeep ?? this.backupsToKeep,
       networkTimeoutSeconds:
           networkTimeoutSeconds ?? this.networkTimeoutSeconds,
+      language: language ?? this.language,
       themeMode: themeMode ?? this.themeMode,
       textScale: textScale ?? this.textScale,
     );
@@ -120,6 +127,7 @@ class AppSettings {
           'timeoutSeconds': networkTimeoutSeconds,
         },
         'ui': {
+          'language': language.code,
           'themeMode': themeMode.name,
           'textScale': textScale,
         },
@@ -175,6 +183,7 @@ class AppSettings {
         'timeoutSeconds',
         defaults.networkTimeoutSeconds,
       ),
+      language: AppLanguage.fromCode(ui['language']),
       themeMode: AppThemeMode.values.firstWhere(
         (m) => m.name == ui['themeMode'],
         orElse: () => AppThemeMode.system,

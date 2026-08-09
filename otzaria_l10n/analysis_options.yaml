@@ -1,0 +1,7 @@
+# חובה שיהיה כאן קובץ משלה: בלעדיו האנלייזר מטפס לשורש הריפו, יורש משם
+# `exclude:` שמחריג את תת-החבילות, ומדווח "No issues found" בלי לבדוק כלום.
+include: package:lints/recommended.yaml
+
+linter:
+  rules:
+    - prefer_single_quotes

@@ -1,3 +1,5 @@
+import 'package:otzaria_l10n/otzaria_l10n.dart';
+
 import '../models/library_release.dart';
 import '../models/library_update_plan.dart';
 
@@ -32,7 +34,7 @@ class LibraryUpdatePlanner {
         latestVersion: latestVersion,
         asset: latestFullDbAsset,
         tag: latestReleaseTag,
-        reason: 'גרסת ה-DB המקומי אינה ידועה (חסר schema_meta.db_version)',
+        reason: AppL10n.strings.libraryDomain.planLocalVersionUnknown,
       );
     }
 
@@ -44,7 +46,8 @@ class LibraryUpdatePlanner {
           targetVersion: latestVersion,
           asset: latestFullDbAsset,
           releaseTag: latestReleaseTag!,
-          reason: 'תוכן המסד עודכן ב-$latestReleaseTag ללא שינוי מספר הגרסה',
+          reason: AppL10n.strings.libraryDomain
+              .planContentChangedWithoutVersionBump(latestReleaseTag),
         );
       }
       return LibraryUpdatePlan.none(
@@ -67,7 +70,8 @@ class LibraryUpdatePlanner {
       latestVersion: latestVersion,
       asset: latestFullDbAsset,
       tag: latestReleaseTag,
-      reason: 'אין מסלול דלתא רציף מגרסה $localVersion לגרסה $latestVersion',
+      reason: AppL10n.strings.libraryDomain
+          .planNoDeltaRoute(localVersion, latestVersion),
     );
   }
 
@@ -99,7 +103,7 @@ class LibraryUpdatePlanner {
     return LibraryUpdatePlan.blocked(
       localVersion: localVersion,
       targetVersion: latestVersion,
-      reason: '$reason, ואין DB מלא זמין להורדה',
+      reason: AppL10n.strings.libraryDomain.planNoFullDbEither(reason),
     );
   }
 

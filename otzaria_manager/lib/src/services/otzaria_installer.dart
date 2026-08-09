@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/otzaria_install_state.dart';
@@ -55,6 +56,11 @@ class OtzariaInstaller {
 
   final http.Client _httpClient;
   final OtzariaAppLocator _appLocator;
+
+  /// כמה בייטים מותר לצבור ב-`IOSink` לפני שממתינים לכתיבתם בפועל. `IOSink.
+  /// add` אינו מפעיל לחץ-נגד: כשקובץ ההתקנה יורד מהר יותר משהכונן הנייד
+  /// מספיק לכתוב, ההפרש נערם ב-RAM והתוכנה נתקעת באמצע ההורדה.
+  static const int _writeBufferBytes = 4 << 20;
 
   /// שם תיקיית ה-staging שנוצרת **בתוך** תיקיית ההתקנה בזמן התקנה ב-macOS.
   /// בתוך תיקיית ההתקנה בכוונה — כדי שההעברה של ה-`.app` הגמור למקומו תהיה
@@ -197,18 +203,27 @@ class OtzariaInstaller {
     final response = await _httpClient.send(request).timeout(connectTimeout);
 
     if (response.statusCode != 200) {
-      throw StateError('הורדת קובץ ההתקנה נכשלה: סטטוס ${response.statusCode}');
+      throw StateError(
+        AppL10n.strings.appDomain.installerDownloadFailed(response.statusCode),
+      );
     }
 
     final sink = File(destinationPath).openWrite();
     var received = 0;
+    var buffered = 0;
     try {
       // `timeout` על הזרם ולא רק על ה-send: חיבור שנפתח ואז נשתק היה תוקע
       // את ההורדה בלי גבול.
       await for (final chunk in response.stream.timeout(stallTimeout)) {
         sink.add(chunk);
         received += chunk.length;
+        buffered += chunk.length;
         onProgress?.call(received, expectedSizeBytes);
+        // לחץ-נגד — ראו [_writeBufferBytes].
+        if (buffered >= _writeBufferBytes) {
+          buffered = 0;
+          await sink.flush();
+        }
       }
       await sink.flush();
       await sink.close();
@@ -231,9 +246,8 @@ class OtzariaInstaller {
         await File(destinationPath).delete();
       } catch (_) {}
       throw StateError(
-        'קובץ ההתקנה שהורד לא בגודל הצפוי '
-        '(התקבלו $received בתים, צפוי $expectedSizeBytes) — כנראה שהורדה '
-        'נקטעה.',
+        AppL10n.strings.appDomain
+            .installerSizeMismatch(received, expectedSizeBytes),
       );
     }
   }
@@ -261,8 +275,10 @@ class OtzariaInstaller {
     final result = await Process.run(installerPath, args);
     if (result.exitCode != 0) {
       throw StateError(
-        'ריצת ה-installer החזירה קוד יציאה ${result.exitCode}.\n'
-        'stdout: ${result.stdout}\nstderr: ${result.stderr}',
+        AppL10n.strings.appDomain.installerExitCode(
+          result.exitCode,
+          'stdout: ${result.stdout}\nstderr: ${result.stderr}',
+        ),
       );
     }
 
@@ -297,10 +313,7 @@ class OtzariaInstaller {
 
       final stagedApp = await _appLocator.findIn(stagingDir);
       if (stagedApp == null) {
-        throw StateError(
-          'לא נמצאה חבילת .app בתוך חבילת ההתקנה שחולצה — ייתכן שמבנה '
-          'האסט של אוצריא ל-macOS השתנה.',
-        );
+        throw StateError(AppL10n.strings.appDomain.macAppNotFoundInArchive);
       }
 
       // ה-app נכנס לתיקיית ההתקנה תחת אותו שם שיש לו בחבילה (למשל
@@ -355,7 +368,7 @@ class OtzariaInstaller {
           await Directory(backupPath).rename(targetApp);
         } catch (_) {}
       }
-      throw StateError('החלפת חבילת ה-.app בתיקיית ההתקנה נכשלה: $e');
+      throw StateError(AppL10n.strings.appDomain.macReplaceFailed('$e'));
     }
 
     await _deleteDirQuietly(previousDir);
@@ -374,8 +387,10 @@ class OtzariaInstaller {
     ]);
     if (result.exitCode != 0) {
       throw StateError(
-        'חילוץ חבילת ההתקנה (ditto) נכשל בקוד ${result.exitCode}.\n'
-        'stderr: ${result.stderr}',
+        AppL10n.strings.appDomain.dittoExtractFailed(
+          result.exitCode,
+          'stderr: ${result.stderr}',
+        ),
       );
     }
   }
@@ -398,15 +413,17 @@ class OtzariaInstaller {
     ]);
     if (attach.exitCode != 0) {
       throw StateError(
-        'הרכבת דמות הדיסק (hdiutil attach) נכשלה בקוד ${attach.exitCode}.\n'
-        'stderr: ${attach.stderr}',
+        AppL10n.strings.appDomain.hdiutilAttachFailed(
+          attach.exitCode,
+          'stderr: ${attach.stderr}',
+        ),
       );
     }
 
     try {
       final appInDmg = await _appLocator.findIn(mountPoint);
       if (appInDmg == null) {
-        throw StateError('לא נמצאה חבילת .app בתוך דמות הדיסק שהורכבה.');
+        throw StateError(AppL10n.strings.appDomain.macAppNotFoundInDmg);
       }
 
       // גם כאן ditto ולא cp -R, מאותה סיבה שב-[_extractZipTo].
@@ -416,8 +433,10 @@ class OtzariaInstaller {
       ]);
       if (copy.exitCode != 0) {
         throw StateError(
-          'העתקת ה-.app מדמות הדיסק (ditto) נכשלה בקוד ${copy.exitCode}.\n'
-          'stderr: ${copy.stderr}',
+          AppL10n.strings.appDomain.dittoCopyFailed(
+            copy.exitCode,
+            'stderr: ${copy.stderr}',
+          ),
         );
       }
     } finally {
@@ -460,9 +479,8 @@ class OtzariaInstaller {
     }
 
     throw StateError(
-      'לא נמצאה התקנה של אוצריא בתוך $installDir תוך '
-      '${timeout.inSeconds} שניות מסיום ה-installer. ייתכן שההתקנה עדיין '
-      'רצה ברקע, או שנתיב ההתקנה השתנה בגרסה חדשה של ה-installer.',
+      AppL10n.strings.appDomain
+          .installNotDetected(installDir, timeout.inSeconds),
     );
   }
 

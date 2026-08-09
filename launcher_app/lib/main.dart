@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import 'src/screens/app_shell.dart';
 import 'src/screens/setup_error_screen.dart';
@@ -99,6 +100,7 @@ class LauncherApp extends StatelessWidget {
         final s = settings.settings;
 
         return _materialApp(
+          language: s.language,
           themeMode: switch (s.themeMode) {
             AppThemeMode.system => ThemeMode.system,
             AppThemeMode.light => ThemeMode.light,
@@ -124,23 +126,32 @@ class SetupErrorApp extends StatelessWidget {
       _materialApp(home: SetupErrorScreen(error: error));
 }
 
-/// הקונפיגורציה המשותפת לשני ה-MaterialApp — עברית, RTL וערכת הנושא.
+/// הקונפיגורציה המשותפת לשני ה-MaterialApp — שפה, כיווניות וערכת הנושא.
+///
+/// ה-`locale` הוא שקובע גם את כיוון הכתיבה: עברית → RTL, אנגלית → LTR, דרך
+/// `GlobalWidgetsLocalizations`. אין כאן נגיעה ישירה ב-[Directionality].
 Widget _materialApp({
   required Widget home,
+  AppLanguage language = AppLanguage.hebrew,
   ThemeMode themeMode = ThemeMode.system,
   double textScale = 1.0,
 }) {
+  final strings = AppL10n.stringsFor(language);
+
   return MaterialApp(
     navigatorKey: navigatorKey,
-    title: 'עדכוני אוצריא',
+    title: strings.shell.appTitle,
     debugShowCheckedModeBanner: false,
     localizationsDelegates: const [
       GlobalCupertinoLocalizations.delegate,
       GlobalMaterialLocalizations.delegate,
       GlobalWidgetsLocalizations.delegate,
     ],
-    supportedLocales: const [Locale('he', 'IL')],
-    locale: const Locale('he', 'IL'),
+    supportedLocales: const [Locale('he', 'IL'), Locale('en')],
+    locale: switch (language) {
+      AppLanguage.hebrew => const Locale('he', 'IL'),
+      AppLanguage.english => const Locale('en'),
+    },
     theme: AppThemeData.light(
       AppThemeData.createColorScheme(
         AppSeedColors.defaultLight,
@@ -154,10 +165,15 @@ Widget _materialApp({
       ),
     ),
     themeMode: themeMode,
-    builder: (context, child) => MediaQuery.withClampedTextScaling(
-      minScaleFactor: textScale,
-      maxScaleFactor: textScale,
-      child: child ?? const SizedBox.shrink(),
+    // ב-`builder` ולא סביב `home`: כאן זה יושב **מעל** ה-Navigator, ולכן גם
+    // דיאלוגים ומסלולים שנפתחים מעליו מוצאים את המלל.
+    builder: (context, child) => AppStringsScope(
+      strings: strings,
+      child: MediaQuery.withClampedTextScaling(
+        minScaleFactor: textScale,
+        maxScaleFactor: textScale,
+        child: child ?? const SizedBox.shrink(),
+      ),
     ),
     home: home,
   );

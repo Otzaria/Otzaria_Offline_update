@@ -36,6 +36,7 @@ class PluginStoreCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final installStatus = controller.statusOf(plugin);
+    final t = context.strings.plugins;
 
     return AppCard(
       onTap: onOpenDetail,
@@ -49,11 +50,11 @@ class PluginStoreCard extends StatelessWidget {
                 PluginThumbnail(
                     imagePath: controller.assetPath(plugin.imagePath)),
                 if (plugin.isFeatured)
-                  const Positioned(
+                  Positioned(
                     top: AppTokens.spaceSM,
                     right: AppTokens.spaceSM,
                     child: PluginBadge(
-                      label: 'נבחר',
+                      label: t.badgeFeaturedShort,
                       icon: FluentIcons.star_24_regular,
                       emphasized: true,
                     ),
@@ -75,7 +76,7 @@ class PluginStoreCard extends StatelessWidget {
                     label: pluginStatusLabel(plugin.status),
                     emphasized: true,
                   ),
-                  PluginBadge(label: 'גרסה ${plugin.version}'),
+                  PluginBadge(label: t.pluginVersionBadge(plugin.version)),
                   PluginBadge(
                     label: '${plugin.downloadCount}',
                     icon: FluentIcons.arrow_download_24_regular,
@@ -122,7 +123,7 @@ class PluginStoreCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: ActionButton.neutral(
-                    text: 'שמירה',
+                    text: t.saveButton,
                     icon: FluentIcons.save_24_regular,
                     isLoading: busy,
                     onPressed: plugin.localFile == null ? null : onSave,
@@ -132,7 +133,7 @@ class PluginStoreCard extends StatelessWidget {
                   const SizedBox(width: AppTokens.spaceSM),
                   Expanded(
                     child: ActionButton.recommended(
-                      text: 'התקנה',
+                      text: t.installButton,
                       icon: FluentIcons.arrow_download_24_regular,
                       isLoading: busy,
                       onPressed: onInstall,
@@ -148,7 +149,7 @@ class PluginStoreCard extends StatelessWidget {
             Row(
               children: [
                 Text(
-                  'לפרטים מלאים',
+                  t.cardDetailsLink,
                   style: TextStyle(
                     fontSize: AppTokens.fontSM,
                     fontWeight: FontWeight.bold,
@@ -158,7 +159,11 @@ class PluginStoreCard extends StatelessWidget {
                 const Spacer(),
                 Flexible(
                   child: Text(
-                    'עודכן ב־${HebrewDate.format(plugin.originalDate.isNotEmpty ? plugin.originalDate : plugin.updatedAt)}',
+                    t.cardUpdatedOn(
+                      HebrewDate.format(plugin.originalDate.isNotEmpty
+                          ? plugin.originalDate
+                          : plugin.updatedAt),
+                    ),
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,

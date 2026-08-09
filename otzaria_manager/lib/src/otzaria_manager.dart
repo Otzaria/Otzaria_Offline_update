@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import 'models/otzaria_install_state.dart';
@@ -184,7 +185,9 @@ class OtzariaManager {
     final online = await _releaseClient.fetchChannelReleases();
     final release = online.select(preferPrerelease: preferPrerelease);
     if (release == null) {
-      throw StateError('לא נמצאה גרסת אוצריא שניתן להתקין בפלטפורמה הזו.');
+      throw StateError(
+        AppL10n.strings.appDomain.noInstallableReleaseForPlatform,
+      );
     }
     final changelogNotes = await _changelogClient.notesFor(release.tagName);
     return changelogNotes == null
@@ -229,9 +232,7 @@ class OtzariaManager {
     final mirrored = await _mirror.load();
     final selected = mirrored.select(preferPrerelease: preferPrerelease);
     if (selected == null) {
-      throw StateError(
-        'אין גרסת אוצריא בתיקייה המקומית — יש להריץ הורדה במחשב עם אינטרנט.',
-      );
+      throw StateError(AppL10n.strings.appDomain.mirrorEmptyRunDownload);
     }
 
     final state = await _installer.installFromFile(
@@ -253,7 +254,7 @@ class OtzariaManager {
   Future<void> launch() async {
     final state = await _stateStore.load();
     if (state == null) {
-      throw StateError('אוצריא עדיין לא הותקנה על ידי הלאנצ׳ר הזה.');
+      throw StateError(AppL10n.strings.appDomain.notInstalledByThisLauncher);
     }
     await _launcher.launch(state.launchPath);
   }

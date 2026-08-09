@@ -12,6 +12,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # כל המלל שמוצג למשתמש — כולל הודעות החריגים כאן — יושב שם, בשתי השפות.
+  otzaria_l10n:
+    path: otzaria_l10n
   equatable: ^2.0.8
   crypto: ^3.0.7
   path: ^1.9.1

@@ -20,32 +20,46 @@ import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
 import 'package:launcher_app/src/theme/theme_exports.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
 /// משטח בדיקה גבוה — ה-ListView של [ScreenBody] בונה רק את מה שנראה,
 /// ובחלון ברירת המחדל (800x600) הכרטיסים התחתונים לא היו נבנים בכלל.
-Future<void> pumpScreen(WidgetTester tester, Widget screen) async {
+Future<void> pumpScreen(
+  WidgetTester tester,
+  Widget screen, {
+  AppLanguage language = AppLanguage.hebrew,
+}) async {
   tester.view.physicalSize = const Size(1400, 2800);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(wrap(screen));
+  await tester.pumpWidget(wrap(screen, language: language));
 }
 
 /// עוטף מסך באותו MaterialApp שהאפליקציה בונה — כולל locale he-IL, שהוא
-/// מה שקובע RTL גלובלי לכל עץ ה-widgets.
-Widget wrap(Widget child) => MaterialApp(
+/// מה שקובע RTL גלובלי לכל עץ ה-widgets, ו-[AppStringsScope] שממנו המסכים
+/// שואבים את המלל. שניהם חייבים להיות כאן כמו ב-`main.dart`, אחרת
+/// `context.strings` נופל.
+Widget wrap(Widget child, {AppLanguage language = AppLanguage.hebrew}) =>
+    MaterialApp(
       localizationsDelegates: const [
         GlobalCupertinoLocalizations.delegate,
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
       ],
-      supportedLocales: const [Locale('he', 'IL')],
-      locale: const Locale('he', 'IL'),
+      supportedLocales: const [Locale('he', 'IL'), Locale('en')],
+      locale: language == AppLanguage.hebrew
+          ? const Locale('he', 'IL')
+          : const Locale('en'),
       theme: AppThemeData.light(
         AppThemeData.createColorScheme(
           AppSeedColors.defaultLight,
           Brightness.light,
         ),
+      ),
+      builder: (context, navigator) => AppStringsScope(
+        strings: AppL10n.stringsFor(language),
+        child: navigator ?? const SizedBox.shrink(),
       ),
       home: child,
     );
@@ -508,6 +522,43 @@ void main() {
     // ערוץ הגרסאות קבוע ואינו הגדרה, וההתקנה האוטומטית של תוספים לא קיימת.
     expect(find.text('ערוצי גרסאות'), findsNothing);
     expect(find.text('התקנת תוספים אוטומטית'), findsNothing);
+  });
+
+  testWidgets('מסך ההגדרות באנגלית — הכול מתורגם והכיוון מתהפך',
+      (tester) async {
+    await pumpScreen(
+      tester,
+      SettingsScreen(controller: settings, onOpenLog: () {}),
+      language: AppLanguage.english,
+    );
+
+    expect(find.text('Automation'), findsOneWidget);
+    expect(find.text('Storage'), findsOneWidget);
+    expect(find.text('Interface and support'), findsOneWidget);
+    expect(find.text('Interface language'), findsOneWidget);
+    expect(find.text('אוטומציה'), findsNothing);
+
+    final direction = Directionality.of(
+      tester.element(find.text('Automation')),
+    );
+    expect(direction, TextDirection.ltr);
+  });
+
+  testWidgets('בחירת שפה נשמרת בהגדרות ומחליפה את המלל', (tester) async {
+    await pumpScreen(
+      tester,
+      SettingsScreen(controller: settings, onOpenLog: () {}),
+    );
+
+    expect(settings.settings.language, AppLanguage.hebrew);
+    await tester.tap(find.text('English'));
+    await tester.pumpAndSettle();
+
+    expect(settings.settings.language, AppLanguage.english);
+    // ה-scope כאן קבוע לעברית (הוא נבנה פעם אחת ב-`wrap`), ולכן הבדיקה
+    // היא על ההגדרה עצמה ועל המצב הגלובלי שהיא מזליגה לחבילות התשתית.
+    expect(AppL10n.language, AppLanguage.english);
+    addTearDown(() => AppL10n.use(AppLanguage.hebrew));
   });
 
   testWidgets('הפעלת התקנה אוטומטית דורשת אישור באזהרה', (tester) async {

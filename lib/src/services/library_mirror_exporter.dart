@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/library_release.dart';
@@ -67,7 +68,9 @@ class LibraryMirrorExporter {
     final assetsRoot = Directory(p.join(destDir, 'assets'));
     await assetsRoot.create(recursive: true);
 
-    onStage?.call('טוען רשימת גרסאות מ-GitHub');
+    final strings = AppL10n.strings.libraryDomain;
+
+    onStage?.call(strings.exportLoadingReleases);
     final all = await _client.fetchReleases();
     final eligible = LibraryUpdateDiscovery.eligibleReleases(
       all,
@@ -76,7 +79,7 @@ class LibraryMirrorExporter {
     final relevant = _latestOnly(eligible);
 
     if (relevant.isEmpty) {
-      throw StateError('לא נמצאו releases עם עדכוני DB להורדה.');
+      throw StateError(strings.exportNoReleases);
     }
 
     // עבור כל release: אילו assets בפועל נדרשים — ה-manifests עצמם, קובצי
@@ -108,6 +111,9 @@ class LibraryMirrorExporter {
     final totalAssets =
         plannedByRelease.values.fold<int>(0, (n, l) => n + l.length);
     var doneAssets = 0;
+    // מדווחים את היעד עוד לפני הנכס הראשון: אחרת מד ההתקדמות אינו יודע לכמה
+    // נכסים לחכות עד שהראשון (המסד המלא, ~1GB) מסתיים.
+    onAssetProgress?.call(0, totalAssets);
 
     final mirroredReleases = <LibraryRelease>[];
     for (final entry in plannedByRelease.entries) {
@@ -119,8 +125,11 @@ class LibraryMirrorExporter {
       final mirroredAssets = <ReleaseAsset>[];
       for (final asset in entry.value) {
         _throwIfCancelled(isCancelled);
-        onStage?.call('מוריד ${release.tag} / ${asset.name}');
+        onStage?.call(strings.exportDownloading(release.tag, asset.name));
         final destFile = File(p.join(tagDir.path, asset.name));
+        // נכס שכבר יושב שלם על הדיסק מדלג על ההורדה ורק מאומת — אימות sha256
+        // של 1.1GB מכונן נייד לוקח דקה, וללא הכרזה הוא נראה כמו תקיעה.
+        var announcedVerify = false;
         await _downloader.downloadToFile(
           url: asset.downloadUrl,
           destPath: destFile.path,
@@ -132,6 +141,13 @@ class LibraryMirrorExporter {
           // להתחיל מאפס — ראו PatchDownloader.downloadToFile.
           resumeToken: asset.id?.toString(),
           onProgress: onBytesProgress,
+          onVerifyProgress: (verified, total) {
+            if (!announcedVerify) {
+              announcedVerify = true;
+              onStage?.call(strings.exportVerifying(release.tag, asset.name));
+            }
+            onBytesProgress?.call(verified, total);
+          },
           isCancelled: isCancelled,
         );
         final relativePath = p.relative(destFile.path, from: destDir);
@@ -156,7 +172,11 @@ class LibraryMirrorExporter {
       ));
     }
 
-    onStage?.call('כותב ${LocalMirrorLibraryReleaseClient.manifestFileName}');
+    onStage?.call(
+      strings.exportWritingManifest(
+        LocalMirrorLibraryReleaseClient.manifestFileName,
+      ),
+    );
     final manifestFile = File(
       p.join(destDir, LocalMirrorLibraryReleaseClient.manifestFileName),
     );
@@ -166,7 +186,7 @@ class LibraryMirrorExporter {
       'releases': mirroredReleases.map((r) => r.toMirrorJson()).toList(),
     }));
 
-    onStage?.call('הושלם');
+    onStage?.call(strings.exportDone);
   }
 
   /// ה-release האחרון בלבד, ואיתו — אם הוא עצמו לא נושא `seforim.db.zst` —
@@ -215,7 +235,7 @@ class LibraryMirrorExporter {
 
   void _throwIfCancelled(bool Function()? isCancelled) {
     if (isCancelled != null && isCancelled()) {
-      throw StateError('הייצוא בוטל');
+      throw StateError(AppL10n.strings.libraryDomain.exportCancelled);
     }
   }
 
@@ -231,5 +251,5 @@ class LibraryMirrorExporter {
 /// ולכן אם מישהו יקרא בעתיד ל-`downloadAndExtract` מכאן — מוטב שייכשל בקול
 /// מלהחזיר `null` שיתפרש כ"חילוץ נכשל".
 Future<Uint8List?> _neverDecompress(Uint8List _) => throw UnsupportedError(
-      'LibraryMirrorExporter מוריד קבצים בלבד ואינו מחלץ אותם',
+      AppL10n.strings.libraryDomain.exporterDoesNotExtract,
     );

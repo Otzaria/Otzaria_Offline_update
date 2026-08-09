@@ -2,6 +2,7 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:win32/win32.dart';
 
 import 'installed_version_reader.dart';
@@ -36,7 +37,7 @@ class WindowsExeVersionReader implements InstalledVersionReader {
   @override
   String? readVersion(String exePath) {
     if (!Platform.isWindows) {
-      throw UnsupportedError('WindowsExeVersionReader עובד רק בווינדוס.');
+      throw UnsupportedError(AppL10n.strings.appDomain.windowsOnlyReader);
     }
     if (!File(exePath).existsSync()) return null;
 

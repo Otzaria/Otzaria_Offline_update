@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 /// שם ותוסף שהוסקו לנכס שירד.
@@ -43,9 +44,10 @@ class PluginStoreClient {
   /// הרשימה מגיעה כשהיא כבר ממוינת: התוספים הנבחרים (`isPinned`) ראשונים
   /// בסדר האצירה של האתר, ואחריהם השאר מהחדש לישן. הסדר נשמר כמות שהוא.
   Future<List<Map<String, dynamic>>> fetchCatalog() async {
-    final decoded = await _getJson('/api/plugins', 'רשימת התוספים');
+    final strings = AppL10n.strings.pluginsDomain;
+    final decoded = await _getJson('/api/plugins', strings.whatPluginList);
     if (decoded is! List) {
-      throw const PluginStoreException('תשובת האתר אינה רשימת תוספים תקינה');
+      throw PluginStoreException(strings.responseNotPluginList);
     }
     return decoded
         .whereType<Map>()
@@ -55,41 +57,48 @@ class PluginStoreClient {
 
   /// שולף את דף הבית האצור של החנות — טקסטים, תוספים נבחרים וסיכומי
   /// הקטגוריות, הכול בקריאה אחת.
-  Future<Map<String, dynamic>> fetchStoreHome() async =>
-      _asMap(await _getJson('/api/plugins/store-home', 'מבנה החנות'));
+  Future<Map<String, dynamic>> fetchStoreHome() async => _asMap(
+        await _getJson(
+          '/api/plugins/store-home',
+          AppL10n.strings.pluginsDomain.whatStoreStructure,
+        ),
+      );
 
   /// שולף דף קטגוריה שלם — כל התוספים המשובצים בה, בסדר שנקבע באתר.
   /// בלי `limit` האתר מחזיר את כל הרשימה, וזה מה שנדרש למראה.
   Future<Map<String, dynamic>> fetchCategory(String slug) async => _asMap(
         await _getJson(
           '/api/plugins/categories/${Uri.encodeComponent(slug)}',
-          'הקטגוריה $slug',
+          AppL10n.strings.pluginsDomain.whatCategory(slug),
         ),
       );
 
-  /// GET + פענוח JSON עם הודעות שגיאה בעברית. [what] נכנס להודעה.
+  /// GET + פענוח JSON עם הודעות שגיאה למשתמש. [what] נכנס להודעה.
   Future<Object?> _getJson(String path, String what) async {
+    final strings = AppL10n.strings.pluginsDomain;
     late final http.Response response;
     try {
       response = await _client.get(Uri.parse('$baseUrl$path')).timeout(timeout);
     } catch (e) {
-      throw PluginStoreException('לא ניתן להתחבר לאתר אוצריא: $e');
+      throw PluginStoreException(strings.siteUnreachable('$e'));
     }
     if (response.statusCode != 200) {
       throw PluginStoreException(
-        'לא ניתן לטעון את $what (HTTP ${response.statusCode})',
+        strings.loadFailed(what, response.statusCode),
       );
     }
     try {
       return jsonDecode(utf8.decode(response.bodyBytes));
     } catch (_) {
-      throw PluginStoreException('תשובת האתר עבור $what אינה JSON תקין');
+      throw PluginStoreException(strings.responseNotJson(what));
     }
   }
 
   static Map<String, dynamic> _asMap(Object? decoded) => decoded is Map
       ? Map<String, dynamic>.from(decoded)
-      : throw const PluginStoreException('תשובת האתר אינה במבנה הצפוי');
+      : throw PluginStoreException(
+          AppL10n.strings.pluginsDomain.responseUnexpectedShape,
+        );
 
   /// מוריד נכס יחיד אל [destPathNoExt] + הסיומת שהוסקה. סדר ההסקה זהה
   /// למקור: `Content-Disposition`, אחר כך `Content-Type`, ולבסוף
@@ -102,7 +111,9 @@ class PluginStoreClient {
     final response =
         await _client.get(Uri.parse(absolute(url))).timeout(timeout);
     if (response.statusCode != 200) {
-      throw PluginStoreException('HTTP ${response.statusCode} עבור $url');
+      throw PluginStoreException(
+        AppL10n.strings.pluginsDomain.httpStatusFor(response.statusCode, url),
+      );
     }
 
     final fromDisposition =

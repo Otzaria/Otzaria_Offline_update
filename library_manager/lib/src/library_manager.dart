@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
@@ -24,9 +25,7 @@ class LibraryMirrorMissingException implements Exception {
   final String mirrorDir;
 
   @override
-  String toString() =>
-      'עדיין לא הורדו עדכוני ספרייה לתיקייה המקומית — יש להריץ הורדה '
-      'במחשב עם חיבור לאינטרנט.';
+  String toString() => AppL10n.strings.libraryDomain.mirrorMissing;
 }
 
 /// נקודת הכניסה היחידה שמודול ה-UI אמור להשתמש בה כדי **לבדוק** גרסת מסד
@@ -150,14 +149,18 @@ class LibraryManager {
       await _cloudClient.fetchReleases(),
       allowPrerelease: allowPrerelease,
     );
-    if (releases.isEmpty) return null;
-
     var latest = 0;
     for (final release in releases) {
+      // רק release שנושא תוכן מסד יורד בפועל למראה (ראו
+      // `LibraryMirrorExporter._latestOnly`), ורק הוא נספר גם ב-`discover`.
+      // ספירת release אחר כאן הציגה "יש עדכון ברשת" שאף הורדה לא מסלקת.
+      if (release.deltaManifestAssets.isEmpty && release.fullDbAsset == null) {
+        continue;
+      }
       final version = LibraryUpdateDiscovery.releaseVersionOf(release);
       if (version > latest) latest = version;
     }
-    return latest;
+    return latest == 0 ? null : latest;
   }
 
   /// המראה המקומית כמקור releases. זורק [LibraryMirrorMissingException] אם
@@ -195,9 +198,11 @@ class LibraryManager {
         // מסלול דלתא (ה-apply עצמו אטומי): בודקים תקינות בפועל, לא רק
         // מניחים תקלה בגלל שהסימון נשאר.
         if (!_recovery.checkDbHealthAfterCrash(dbPath)) {
+          final strings = AppL10n.strings.libraryDomain;
           throw StateError(
-            '${recovery.detail ?? "עדכון DB שנקטע"} — quick_check נכשל בפועל, '
-            'נדרשת התערבות ידנית (שחזור מגיבוי חיצוני).',
+            strings.interruptedUpdateNeedsManualFix(
+              recovery.detail ?? strings.interruptedUpdateDefaultDetail,
+            ),
           );
         }
         _recovery.clearStaleArtifacts(dbPath);
@@ -271,7 +276,7 @@ class LibraryManager {
         return;
       case LibraryUpdatePlanKind.blocked:
         throw LibraryApplyException(
-          plan.reason ?? 'מצב חסום — נדרשת פעולה ידנית',
+          plan.reason ?? AppL10n.strings.libraryDomain.blockedNeedsManualAction,
         );
     }
 

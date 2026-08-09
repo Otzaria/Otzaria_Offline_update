@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 /// מפעיל את ההתקנה שהתגלתה — קובץ `.exe` בווינדוס, חבילת `.app` ב-macOS.
@@ -20,7 +21,9 @@ class OtzariaLauncher {
         ? await Directory(launchPath).exists()
         : await File(launchPath).exists();
     if (!exists) {
-      throw StateError('קובץ ההפעלה לא נמצא בנתיב: $launchPath');
+      throw StateError(
+        AppL10n.strings.appDomain.launchFileMissing(launchPath),
+      );
     }
 
     if (isAppBundle) {
@@ -32,7 +35,8 @@ class OtzariaLauncher {
       final result = await Process.run('/usr/bin/open', [launchPath]);
       if (result.exitCode != 0) {
         throw StateError(
-          'הפעלת אוצריא נכשלה (open החזיר ${result.exitCode}): ${result.stderr}',
+          AppL10n.strings.appDomain
+              .launchFailed(result.exitCode, '${result.stderr}'),
         );
       }
       return;

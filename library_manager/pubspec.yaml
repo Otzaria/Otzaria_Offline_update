@@ -14,6 +14,8 @@ dependencies:
     sdk: flutter
   seforim_library_updater:
     path: ../
+  otzaria_l10n:
+    path: ../otzaria_l10n
   zstandard: ^1.3.26
   # ה-bindings של libzstd שחבילת zstandard מביאה איתה בכל מקרה. נדרשים
   # ישירות בשביל ה-streaming API (ZSTD_decompressStream) — ראו

@@ -7,6 +7,7 @@ import 'dart:ui';
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../theme/theme_exports.dart';
 
@@ -95,8 +96,11 @@ class _SnackView extends StatelessWidget {
       left: 0,
       right: 0,
       bottom: AppTokens.spaceXL,
+      // ההודעה יושבת ב-Overlay מעל ה-Navigator ולא יורשת ממנו כיווניות,
+      // ולכן היא נגזרת ישירות מהשפה הפעילה.
       child: Directionality(
-        textDirection: TextDirection.rtl,
+        textDirection:
+            AppL10n.language.isRtl ? TextDirection.rtl : TextDirection.ltr,
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: _ToastTokens.maxWidth),

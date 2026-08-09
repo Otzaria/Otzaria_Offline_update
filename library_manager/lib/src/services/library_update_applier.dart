@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
@@ -133,7 +134,9 @@ class LibraryUpdateApplier {
       final patchFile = manifest.patchFiles.first;
       final url = edge.patchFileUrls[patchFile.file];
       if (url == null) {
-        throw LibraryApplyException('לא נמצא URL להורדת ${patchFile.file}');
+        throw LibraryApplyException(
+          AppL10n.strings.libraryDomain.patchUrlMissing(patchFile.file),
+        );
       }
 
       final patchPath = await _downloader.downloadAndExtract(
@@ -181,7 +184,12 @@ class LibraryUpdateApplier {
         // עברה דרך `onProgress` של הבקר (`LibraryModuleController`), עד
         // לעץ ה-widgets כולו. מתודה נפרדת = frame לקסיקלי נפרד = אין
         // Context משותף עם onProgress.
-        await _isolateApplyPatch(dbPath, patchPath, manifest);
+        await _isolateApplyPatch(
+          dbPath,
+          patchPath,
+          manifest,
+          AppL10n.language,
+        );
         _recovery.finishSuccess(dbPath);
       } catch (_) {
         // apply אטומי: אם זרק, ה-DB כלל לא השתנה. רק מנקים את הסימון.
@@ -216,7 +224,9 @@ class LibraryUpdateApplier {
     }
     final asset = plan.fullDbAsset;
     if (asset == null) {
-      throw const LibraryApplyException('לא נמצא נכס DB מלא בתוכנית');
+      throw LibraryApplyException(
+        AppL10n.strings.libraryDomain.fullDbAssetMissingFromPlan,
+      );
     }
     await _guardOtzariaNotRunning();
 
@@ -263,7 +273,9 @@ class LibraryUpdateApplier {
         File(newFilePath).lengthSync() == 0) {
       _deleteQuietly(newFilePath);
       _deleteQuietly(compressedPath);
-      throw const LibraryApplyException('חילוץ ה-DB המלא נכשל או החזיר ריק');
+      throw LibraryApplyException(
+        AppL10n.strings.libraryDomain.fullDbExtractionFailed,
+      );
     }
 
     final dbAlreadyExists = File(dbPath).existsSync();
@@ -310,8 +322,10 @@ class LibraryUpdateApplier {
         resultVersion.dbVersion != plan.targetVersion) {
       if (dbAlreadyExists) await _recovery.rollback(dbPath);
       throw LibraryApplyException(
-        'אחרי כתיבת ה-DB המלא, הגרסה שנקראה (${resultVersion.dbVersion}) '
-        'לא תואמת ליעד (${plan.targetVersion}) — בוצע שחזור.',
+        AppL10n.strings.libraryDomain.versionMismatchAfterWrite(
+          resultVersion.dbVersion,
+          plan.targetVersion,
+        ),
       );
     }
 
@@ -324,13 +338,18 @@ class LibraryUpdateApplier {
   /// ב-doc-comment בנקודת הקריאה ב-[applyDelta]. סטטית = אין `this`
   /// בכלל, ומתודה נפרדת = frame לקסיקלי נפרד שלא חולק Context עם
   /// סגורי `onProgress` של הקוד הקורא.
+  ///
+  /// [language] מועברת במפורש: משתנים סטטיים אינם משותפים בין isolates, ולכן
+  /// `AppL10n` בתוך ה-isolate היה חוזר לברירת המחדל והודעות השגיאה משם היו
+  /// יוצאות בעברית גם כשהממשק באנגלית.
   static Future<PatchApplyResult> _isolateApplyPatch(
     String dbPath,
     String patchPath,
     DeltaManifest manifest,
+    AppLanguage language,
   ) {
     return Isolate.run(
-      () => _applyPatchInIsolate((dbPath, patchPath, manifest)),
+      () => _applyPatchInIsolate((dbPath, patchPath, manifest, language)),
     );
   }
 
@@ -348,7 +367,9 @@ class LibraryUpdateApplier {
     final extracted =
         await _decompress(await File(compressedPath).readAsBytes());
     if (extracted == null || extracted.isEmpty) {
-      throw const LibraryApplyException('חילוץ ה-DB המלא נכשל או החזיר ריק');
+      throw LibraryApplyException(
+        AppL10n.strings.libraryDomain.fullDbExtractionFailed,
+      );
     }
     await File(destPath).writeAsBytes(extracted, flush: true);
   }
@@ -365,7 +386,9 @@ class LibraryUpdateApplier {
 
   void _throwIfCancelled(bool Function()? isCancelled) {
     if (isCancelled?.call() ?? false) {
-      throw const LibraryApplyException('העדכון בוטל');
+      throw LibraryApplyException(
+        AppL10n.strings.libraryDomain.updateCancelled,
+      );
     }
   }
 
@@ -389,8 +412,9 @@ class LibraryUpdateApplier {
 /// פונקציית top-level — לעולם לא יכולה לתפוס `this` בטעות. זה בדיוק ההבדל
 /// מהבאג המקורי (ראו doc-comment של [LibraryUpdateApplier]).
 PatchApplyResult _applyPatchInIsolate(
-  (String, String, DeltaManifest) args,
+  (String, String, DeltaManifest, AppLanguage) args,
 ) {
+  AppL10n.use(args.$4);
   const applier = PatchApplier();
   return applier.apply(
     dbPath: args.$1,

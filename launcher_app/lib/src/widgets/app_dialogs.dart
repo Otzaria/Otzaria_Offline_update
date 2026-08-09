@@ -7,6 +7,7 @@
 //  • warning      — ביטול (recommended — הבחירה הבטוחה) + אישור (warning/error)
 
 import 'package:flutter/material.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../theme/theme_exports.dart';
 import 'action_buttons.dart';
@@ -24,35 +25,40 @@ class AppDialog extends StatelessWidget {
   final String? subtitle;
   final _DialogVariant _variant;
 
-  const AppDialog.singleAction({
+  AppDialog.singleAction({
     super.key,
     required this.title,
     this.content,
     this.customContent,
-    this.confirmText = 'אישור',
+    String? confirmText,
   })  : _variant = _DialogVariant.singleAction,
+        confirmText = confirmText ?? AppL10n.strings.common.confirm,
         cancelText = '',
         subtitle = null;
 
-  const AppDialog.twoActions({
+  AppDialog.twoActions({
     super.key,
     required this.title,
     this.content,
     this.customContent,
-    this.cancelText = 'ביטול',
-    this.confirmText = 'אישור',
+    String? cancelText,
+    String? confirmText,
   })  : _variant = _DialogVariant.twoActions,
+        cancelText = cancelText ?? AppL10n.strings.common.cancel,
+        confirmText = confirmText ?? AppL10n.strings.common.confirm,
         subtitle = null;
 
-  const AppDialog.warning({
+  AppDialog.warning({
     super.key,
     required this.title,
     this.content,
     this.customContent,
-    this.cancelText = 'ביטול',
-    this.confirmText = 'המשך',
+    String? cancelText,
+    String? confirmText,
     this.subtitle,
-  }) : _variant = _DialogVariant.warning;
+  })  : _variant = _DialogVariant.warning,
+        cancelText = cancelText ?? AppL10n.strings.common.cancel,
+        confirmText = confirmText ?? AppL10n.strings.common.continueAction;
 
   @override
   Widget build(BuildContext context) {
@@ -118,7 +124,7 @@ Future<void> showSingleActionDialog({
   required String title,
   String? content,
   Widget? customContent,
-  String confirmText = 'אישור',
+  String? confirmText,
 }) =>
     showDialog<bool>(
       context: context,
@@ -135,8 +141,8 @@ Future<bool> showTwoActionsDialog({
   required String title,
   String? content,
   Widget? customContent,
-  String cancelText = 'ביטול',
-  String confirmText = 'אישור',
+  String? cancelText,
+  String? confirmText,
 }) async =>
     await showDialog<bool>(
       context: context,
@@ -156,8 +162,8 @@ Future<bool> showWarningDialog({
   String? content,
   Widget? customContent,
   String? subtitle,
-  String cancelText = 'ביטול',
-  String confirmText = 'המשך',
+  String? cancelText,
+  String? confirmText,
 }) async =>
     await showDialog<bool>(
       context: context,

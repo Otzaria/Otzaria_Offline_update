@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:http/http.dart' as http;
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../models/otzaria_release.dart';
 import 'otzaria_asset_selector.dart';
@@ -102,13 +103,15 @@ class OtzariaReleaseClient {
 
     if (response.statusCode != 200) {
       throw GithubApiException(
-        'GitHub API החזיר סטטוס ${response.statusCode} עבור $uri',
+        AppL10n.strings.appDomain.githubStatus(response.statusCode, '$uri'),
       );
     }
 
     final decoded = jsonDecode(response.body) as List<dynamic>;
     if (decoded.isEmpty) {
-      throw StateError('לא נמצאו releases בכלל ב-$_owner/$_repo.');
+      throw StateError(
+        AppL10n.strings.appDomain.noReleasesAtAll('$_owner/$_repo'),
+      );
     }
 
     return decoded

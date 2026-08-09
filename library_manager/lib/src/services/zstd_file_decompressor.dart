@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:zstandard_native/zstandard_native_bindings.dart';
 
 /// מחלץ קובץ `.zst` **בזרימה**, קובץ-לקובץ, בלי להחזיק את התוכן בזיכרון.
@@ -30,11 +31,18 @@ abstract final class ZstdFileDecompressor {
   /// רץ ב-isolate נפרד: אלה קריאות native סינכרוניות על מאות MB, והן היו
   /// חוסמות את ה-UI. הפונקציה שנשלחת היא top-level ומקבלת מחרוזות בלבד —
   /// ראו האזהרה על closures ב-`LibraryUpdateApplier`.
+  ///
+  /// השפה מועברת במפורש כי משתנים סטטיים אינם משותפים בין isolates — בלעדיה
+  /// הודעות ה-[ZstdStreamException] היו יוצאות תמיד בברירת המחדל (עברית).
   static Future<bool> decompressFileToFile(
     String sourcePath,
     String destPath,
-  ) =>
-      Isolate.run(() => _decompressInIsolate((sourcePath, destPath)));
+  ) {
+    final language = AppL10n.language;
+    return Isolate.run(
+      () => _decompressInIsolate((sourcePath, destPath, language)),
+    );
+  }
 
   /// ה-bindings הטעונים, או `null` אם אין ספריית zstd לטעינה בסביבה הזו.
   ///
@@ -78,7 +86,9 @@ DynamicLibrary? _openLibrary() {
 
 /// גוף החילוץ. top-level ומקבל רק מחרוזות, כדי שלא ייתפס שום `this` בדרך
 /// ל-isolate. [args]: `($1: מקור, $2: יעד)`.
-bool _decompressInIsolate((String, String) args) {
+bool _decompressInIsolate((String, String, AppLanguage) args) {
+  AppL10n.use(args.$3);
+  final strings = AppL10n.strings.libraryDomain;
   final library = _openLibrary();
   if (library == null) return false;
   final zstd = ZstandardNativeBindings(library);
@@ -88,7 +98,7 @@ bool _decompressInIsolate((String, String) args) {
 
   final dctx = zstd.ZSTD_createDCtx();
   if (dctx == nullptr) {
-    throw const ZstdStreamException('יצירת הקשר החילוץ (DCtx) נכשלה');
+    throw ZstdStreamException(strings.zstdContextCreationFailed);
   }
   final inPtr = malloc.allocate<Uint8>(inCapacity);
   final outPtr = malloc.allocate<Uint8>(outCapacity);
@@ -124,7 +134,7 @@ bool _decompressInIsolate((String, String) args) {
         lastResult = zstd.ZSTD_decompressStream(dctx, outBuffer, inBuffer);
         if (zstd.ZSTD_isError(lastResult) != 0) {
           throw ZstdStreamException(
-            'חילוץ ה-zstd נכשל: ${_errorName(zstd, lastResult)}',
+            strings.zstdDecompressionFailed(_errorName(zstd, lastResult)),
           );
         }
         final produced = outBuffer.ref.pos;
@@ -135,14 +145,12 @@ bool _decompressInIsolate((String, String) args) {
     }
 
     if (!sawInput) {
-      throw const ZstdStreamException('הקובץ הדחוס ריק');
+      throw ZstdStreamException(strings.zstdEmptyInput);
     }
     // `0` = ה-frame נסגר כהלכה. כל ערך אחר אומר שהקלט נגמר באמצע frame,
     // כלומר קובץ קטוע — בדיוק המצב שאסור לכתוב ממנו DB.
     if (lastResult != 0) {
-      throw const ZstdStreamException(
-        'הקובץ הדחוס נקטע — ה-frame לא הושלם',
-      );
+      throw ZstdStreamException(strings.zstdTruncatedFrame);
     }
     dest.flushSync();
     return true;

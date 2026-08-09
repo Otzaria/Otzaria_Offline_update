@@ -53,8 +53,8 @@ class _PluginFiltersBarState extends State<PluginFiltersBar> {
             LayoutBuilder(
               builder: (context, constraints) =>
                   constraints.maxWidth >= _singleRowWidth
-                      ? _wideRow()
-                      : _narrowColumn(),
+                      ? _wideRow(context)
+                      : _narrowColumn(context),
             ),
             _tagsSection(context),
           ],
@@ -63,40 +63,44 @@ class _PluginFiltersBarState extends State<PluginFiltersBar> {
     );
   }
 
-  Widget _wideRow() {
+  Widget _wideRow(BuildContext context) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        Expanded(child: _searchField()),
+        Expanded(child: _searchField(context)),
         const SizedBox(width: AppTokens.spaceMD),
-        SizedBox(width: _statusWidth, child: _statusField()),
+        SizedBox(width: _statusWidth, child: _statusField(context)),
       ],
     );
   }
 
-  Widget _narrowColumn() {
+  Widget _narrowColumn(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _searchField(),
+        _searchField(context),
         const SizedBox(height: AppTokens.spaceMD),
-        _statusField(),
+        _statusField(context),
       ],
     );
   }
 
-  Widget _searchField() {
+  Widget _searchField(BuildContext context) {
+    final t = context.strings.plugins;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const PluginFieldLabel('חיפוש'),
+        PluginFieldLabel(t.filterSearchLabel),
         RtlTextField(
           controller: widget.searchController,
           onChanged: widget.controller.setSearch,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(borderRadius: AppTokens.borderRadiusAll),
-            prefixIcon: Icon(FluentIcons.search_24_regular),
-            hintText: 'שם, תיאור או תגית...',
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(
+              borderRadius: AppTokens.borderRadiusAll,
+            ),
+            prefixIcon: const Icon(FluentIcons.search_24_regular),
+            hintText: t.filterSearchHint,
             isDense: true,
           ),
         ),
@@ -104,20 +108,24 @@ class _PluginFiltersBarState extends State<PluginFiltersBar> {
     );
   }
 
-  static const Map<PluginStatusFilter, String> _statusLabels = {
-    PluginStatusFilter.all: 'הכול',
-    PluginStatusFilter.stable: 'יציב',
-    PluginStatusFilter.beta: 'בטא',
-    PluginStatusFilter.experimental: 'ניסיוני',
-  };
+  /// תוויות הסינון לפי סטטוס. המפתחות הם ערכי ה-API ואינם מתורגמים.
+  static Map<PluginStatusFilter, String> _statusLabels(BuildContext context) {
+    final t = context.strings.plugins;
+    return {
+      PluginStatusFilter.all: t.filterStatusAll,
+      PluginStatusFilter.stable: t.statusStable,
+      PluginStatusFilter.beta: t.statusBeta,
+      PluginStatusFilter.experimental: t.statusExperimental,
+    };
+  }
 
   /// תפריט נפתח, לא `AppSegmentedControl` — כדי לשבת בשורה אחת עם שדה
   /// החיפוש בלי לתפוס יותר מקום ממנו.
-  Widget _statusField() {
+  Widget _statusField(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const PluginFieldLabel('סטטוס'),
+        PluginFieldLabel(context.strings.plugins.filterStatusLabel),
         DropdownButtonFormField<PluginStatusFilter>(
           initialValue: widget.controller.statusFilter,
           onChanged: (value) {
@@ -131,7 +139,7 @@ class _PluginFiltersBarState extends State<PluginFiltersBar> {
             isDense: true,
           ),
           items: [
-            for (final entry in _statusLabels.entries)
+            for (final entry in _statusLabels(context).entries)
               DropdownMenuItem(value: entry.key, child: Text(entry.value)),
           ],
         ),
@@ -142,6 +150,7 @@ class _PluginFiltersBarState extends State<PluginFiltersBar> {
   Widget _tagsSection(BuildContext context) {
     final tags = widget.controller.allTags;
     if (tags.isEmpty) return const SizedBox.shrink();
+    final t = context.strings.plugins;
 
     final hasMore = tags.length > _collapsedTagCount;
     final shown =
@@ -152,13 +161,13 @@ class _PluginFiltersBarState extends State<PluginFiltersBar> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const PluginFieldLabel('תגיות'),
+          PluginFieldLabel(t.filterTagsLabel),
           Wrap(
             spacing: AppTokens.spaceSM,
             runSpacing: AppTokens.spaceSM,
             children: [
               PluginTagPill(
-                label: 'כל התגיות',
+                label: t.filterAllTags,
                 active: widget.controller.tagFilter == null,
                 onTap: () => widget.controller.setTagFilter(null),
               ),
@@ -174,7 +183,7 @@ class _PluginFiltersBarState extends State<PluginFiltersBar> {
             Align(
               alignment: AlignmentDirectional.centerStart,
               child: ActionButton.ghost(
-                text: _allTagsShown ? 'הצג פחות' : 'הצג עוד',
+                text: _allTagsShown ? t.showFewerTags : t.showMoreTags,
                 onPressed: () => setState(() => _allTagsShown = !_allTagsShown),
               ),
             ),

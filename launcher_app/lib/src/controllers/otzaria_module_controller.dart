@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 
 import '../services/app_logger.dart';
@@ -93,16 +94,17 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   /// זה נשמר לצד שאר המטא-דאטה של ה-release.
   String? get latestReleaseNotes => _lastCheck?.latestRelease?.releaseNotes;
 
-  /// `true` אם הבדיקה הקלה מצאה ברשת תג שונה ממה שמותקן/יושב במראה
-  /// המקומית כרגע — אינדיקציה בלבד; ההשוואה הקובעת היא [checkForUpdate]
-  /// אחרי הורדה בפועל.
+  /// `true` אם הבדיקה הקלה מצאה ברשת תג שונה מזה שכבר יושב **במראה
+  /// המקומית**. ההשוואה היא מול המראה ולא מול מה שמותקן, כי השאלה שהכרטיס
+  /// שואל היא "יש ברשת משהו שעוד לא הורדנו?" — התקנה היא צעד נפרד, ומדידה
+  /// מול המותקן השאירה את ההודעה דולקת מיד אחרי הורדה מוצלחת.
   bool get hasOnlineUpdate {
     final online = onlineLatestRelease;
     if (online == null) return false;
-    final known = currentVersion ?? latestVersion;
-    if (known == null) return true;
+    final mirrored = latestVersion;
+    if (mirrored == null) return true;
     return OtzariaUpdateCheckResult.normalizeVersion(online.tagName) !=
-        OtzariaUpdateCheckResult.normalizeVersion(known);
+        OtzariaUpdateCheckResult.normalizeVersion(mirrored);
   }
 
   /// בודק ברשת מה הגרסה העדכנית ביותר — **פעולת רשת קלה**, בלי הורדת
@@ -152,7 +154,8 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
           notifyProgress();
         },
         onChannel: (channel) {
-          downloadStage = 'מוריד את תוכנת אוצריא (גרסה ${channel.label})...';
+          downloadStage =
+              AppL10n.strings.appDomain.downloadingChannel(channel.label);
           downloadReceived = null;
           downloadTotal = null;
           notifyListeners();
