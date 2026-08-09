@@ -238,19 +238,50 @@ Security*, או להסיר את הסימון: `xattr -dr com.apple.quarantine "O
 
 `flutter build windows` מייצר תיקייה שלמה (exe + DLLs + `data/`) ולא קובץ
 יחיד — וזו מגבלה של Flutter, לא של האריזה. לכן אין מתקין: ההפצה היא
-תיקיית ה-Release ארוזה ב-zip, שמוציאים ומריצים ממנה את ה-exe ישירות, בלי
-התקנה ובלי רישום ב-Windows. `inno_bundle` הוסר ב-`748accf`.
+zip שמוציאים ומריצים ממנו ישירות, בלי התקנה ובלי רישום ב-Windows.
+`inno_bundle` הוסר ב-`748accf`.
 
 ```bash
 cd launcher_app
 flutter build windows --release
 # הפלט: build/windows/x64/runner/Release/
+pwsh ./windows_stub/package.ps1
+# הפלט: launcher_app-windows-portable.zip
 ```
 
-שני ה-workflows שבונים ל-Windows (`ci.yml` ו-`build-exe.yml`) עושים בדיוק
-את זה ואז `Compress-Archive` על התיקייה. ⚠️ אם מחזירים בעתיד מתקין, יש
-להחזיר קודם את התלות ל-`pubspec.yaml` — חוסר ההתאמה הזה בין ה-workflow
-ל-pubspec הוא מה שהחזיק את ה-CI אדום בין 24 ביולי ל-6 באוגוסט 2026.
+### קובץ ההרצה יושב בשורש, לא בתוך ערמת הקבצים
+
+מה שמתקבל אחרי חילוץ ה-zip לכונן:
+
+```
+עדכוני אוצריא.exe   ← ה-stub, זה מה שהמשתמש לוחץ
+app-files/          ← launcher_app.exe, ה-DLL, data/, ובזמן ריצה גם OtzariaData/
+```
+
+**אי אפשר פשוט להזיז את `launcher_app.exe` מעלה.** הוא תלוי ב-
+`flutter_windows.dll` שנטענת ב-load time (לפני שקוד שלנו רץ, ולכן אין דרך
+להפנות אותה לתיקייה אחרת), ובתיקיית `data/` שנפתרת יחסית לתיקיית ה-exe
+([`main.cpp`](windows/runner/main.cpp)). לכן מה שיושב בשורש הוא **stub**:
+קובץ C זעיר ב-[`windows_stub/`](windows_stub/) שכל תפקידו `CreateProcessW`
+על `app-files\launcher_app.exe`, עם אותו אייקון ועם `asInvoker` מפורש
+במניפסט.
+
+| החלטה | למה |
+| --- | --- |
+| ה-stub חי ב-`windows_stub/` ולא ב-`windows/` | ה-CI מריץ `flutter create --platforms=windows .`, שדורס את תיקיית הרנר |
+| מקומפל עם `/MT` (CRT סטטי) | ה-stub יושב **מחוץ** ל-`app-files`, ולכן לא רואה את `vcruntime140.dll` שהבנייה של Flutter מעתיקה לתיקיית ה-Release. עם `/MD` הוא לא היה עולה בלי VC++ Redist |
+| `OtzariaData/` נשארת בתוך `app-files` | `AppPaths` גוזרת אותה מ-`Platform.resolvedExecutable`, וזו הבחירה שנעשתה כאן — בשורש נשארים בדיוק שני פריטים. לא נדרש שינוי ב-`app_paths.dart` |
+| ה-stub לא ממתין לבן | אחרת שני תהליכים היו יושבים בזיכרון לכל אורך הריצה |
+| הודעת השגיאה היחידה שבו כתובה inline | קוד C לא יכול לתלות ב-`otzaria_l10n`. זהו החריג היחיד לכלל, והיא מוצגת רק כשה-zip חולץ חלקית |
+
+שני ה-workflows שבונים ל-Windows (`ci.yml` ו-`build-exe.yml`) קוראים
+ל-`windows_stub/package.ps1`, שמקמפל את ה-stub (`vswhere` → `vcvars64` →
+`rc` + `cl`), מרכיב את הפריסה ומריץ `Compress-Archive`. הסקריפטים הם UTF-8
+בלי BOM ומכילים עברית, ולכן חייבים `pwsh` (7+) ולא Windows PowerShell 5.1.
+
+⚠️ אם מחזירים בעתיד מתקין, יש להחזיר קודם את התלות ל-`pubspec.yaml` —
+חוסר ההתאמה הזה בין ה-workflow ל-pubspec הוא מה שהחזיק את ה-CI אדום בין
+24 ביולי ל-6 באוגוסט 2026.
 
 ## ⚠️ מה אומת בפועל ומה לא
 

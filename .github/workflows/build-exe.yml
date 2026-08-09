@@ -25,12 +25,12 @@ jobs:
       - run: flutter create --platforms=windows .
       - run: flutter pub get
       - run: flutter build windows --release
-      # אין מתקין — פשוט אורזים (zip) את תיקיית ה-Release כמו שהיא.
-      # זו אפליקציית "portable": מוציאים מה-zip ומריצים launcher_app.exe
-      # ישירות, בלי התקנה, בלי Program Files, בלי רישום ב-Windows.
-      - name: Zip portable build
+      # אין מתקין — אפליקציית "portable": מוציאים מה-zip ומריצים ישירות,
+      # בלי התקנה ובלי רישום ב-Windows. package.ps1 מקמפל את ה-stub ובונה
+      # את הפריסה של קובץ הרצה אחד בשורש + app-files (ראו windows_stub/).
+      - name: Package portable build
         shell: pwsh
-        run: Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "launcher_app-windows-portable.zip"
+        run: .\windows_stub\package.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: launcher_app-windows-portable
