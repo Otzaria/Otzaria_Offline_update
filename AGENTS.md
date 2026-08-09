@@ -20,7 +20,8 @@ real-world workflow is:
 2. They plug the drive into a computer **that does have internet** and press
    *download* once. It fetches, into a folder **right next to the executable**:
    - library (`seforim.db`) updates for Otzaria — latest full DB + its patches,
-   - the Otzaria app installer + its release metadata,
+   - the Otzaria app installers + their release metadata (the latest stable,
+     plus the latest pre-release when it is newer — the offline machine picks),
    - Otzaria plugins (catalog + `.otzplugin` files).
 3. They unplug the drive, plug it into **their own offline computer**, run the
    launcher again, and it installs from that folder — no network needed.
@@ -34,7 +35,7 @@ touched by *one* thing only: the download step that fills that folder.
 | Step | API | Needs network |
 | --- | --- | --- |
 | Download library updates | `LibraryManager.downloadToMirror()` | **yes** (heavy — full DB/patches) |
-| Download the Otzaria installer | `OtzariaManager.downloadToMirror()` | **yes** (heavy — installer file) |
+| Download the Otzaria installers (stable + newer pre-release) | `OtzariaManager.downloadToMirror()` | **yes** (heavy — installer files) |
 | Download the plugin store | `PluginsManager.sync()` | **yes** (heavy — images/`.otzplugin` files) |
 | Peek the latest library version online | `LibraryManager.peekLatestOnlineVersion()` | **yes** (light — one API call, no asset) |
 | Peek the latest Otzaria release online | `OtzariaManager.peekLatestOnlineRelease()` | **yes** (light — one API call, no asset) |
@@ -58,7 +59,7 @@ Layout under `OtzariaData/`:
 
 ```
 mirror/library/   releases.json + assets/   ← LibraryManager.mirrorDir
-mirror/app/       latest-release.json + installers/  ← OtzariaAppMirror
+mirror/app/       latest-release.json (up to 2 channels) + installers/<tag>/  ← OtzariaAppMirror
 mirror/plugins/   catalog.json + files/     ← PluginMirrorStore
 otzaria-app/      the managed Otzaria install
 ```
@@ -211,6 +212,14 @@ the catalog id and *nothing* is ever detected as installed. A plugin whose file
 has not been downloaded yet correctly reports
 `PluginInstallStatus.unknown` — that is not an error state.
 
+**The plugin store's *structure* sync must never be fatal.** Since the website's
+store redesign (managed categories, curated "featured" plugins, editable home
+texts), `PluginMirrorSync` also fetches `/api/plugins/store-home` and
+`/api/plugins/categories/<slug>`. Only `/api/plugins` itself is allowed to throw
+— if the structure calls fail (older site, flaky request), the sync emits a
+`warning` and keeps whatever categories the mirror already has. Wiping them
+would silently degrade an offline machine that had them.
+
 **Plugin installation is protocol-only:** `otzaria://plugin/install-local?path=`.
 Do **not** extract the `.otzplugin` ZIP into Otzaria's folders ourselves —
 Otzaria keeps an internal registry of installed plugins beyond the `installed/`
@@ -247,6 +256,24 @@ grid is a `SliverGrid` inside `PluginStoreBody`'s `CustomScrollView` — it was 
 `GridView(shrinkWrap: true)` inside a `ListView`, and `shrinkWrap` disables
 virtualisation, so every card was built regardless of the viewport.
 
+**Store cards live in a fixed-height grid, so nothing inside them may grow.**
+`SliverGrid`'s `mainAxisExtent` is computed from `_cardContentHeight`, and the
+card's two `Wrap` rows (metadata badges, tags) silently wrap to another line
+when a chip gets longer or the column narrows — which overflowed the card. Both
+rows now have a fixed height budget with `Clip.hardEdge`, the install chip is
+shortened inside cards (`PluginInstallChip(compact: true)`), and the
+"כרטיס עמוס" test in `screens_test.dart` renders the heaviest possible card in
+the narrowest column, at two text scales, to catch a regression.
+
+**`PluginStoreBody` takes slivers only, and nothing nests a scrollable inside
+it.** Same reason as above: a `SliverList` with a fixed child list builds every
+child up front, which re-creates the eager-image problem for any card grid put
+there. The category sidebar therefore lives *outside* the `CustomScrollView`
+(it also stays put while the content scrolls, like the site's sticky aside),
+and the mobile-style horizontal card rows the website uses were deliberately
+not ported — a nested horizontal scrollable swallows the mouse wheel and makes
+the page feel frozen.
+
 **There is no network fallback in the check path.** `LibraryManager._resolveSource`
 returns the local mirror or throws `LibraryMirrorMissingException`; it must never
 fall back to `GithubLibraryReleaseClient`. An earlier version did fall back, and
@@ -256,13 +283,27 @@ machine happened to be online — the exact duality this design removes.
 never GitHub.
 
 **Channels map to GitHub's `prerelease` flag.** A plain release is "stable", a
-pre-release is "not stable" — for both the library and the app. Note the
-consequence for the app: `github.com/Otzaria/otzaria` publishes almost nothing
-with `prerelease=false`, so the stable channel legitimately finds nothing and
-`OtzariaReleaseClient` throws `NoStableReleaseException`. That is deliberate —
-do **not** "fix" it by silently falling back to a pre-release; the message tells
-the user to switch channels. (This reverses the older decision to ignore the
-flag entirely.)
+pre-release is "not stable" — for both the library and the app.
+
+For the **app** this is not a setting that picks *what to download*: the
+download always fetches **both** — the latest stable, plus the latest
+pre-release *only when it is newer than that stable*
+(`OtzariaReleaseClient.fetchChannelReleases`, newest-first ordering from the
+API). Both installers travel on the drive, and the offline machine picks
+between them (`AppSettings.preferAppPrerelease` →
+`OtzariaManager.preferPrerelease`), with no network involved in switching.
+Do **not** turn this back into a single-release download: the whole point is
+that the offline machine can change its mind without going back online.
+
+Two consequences to preserve:
+- A pre-release *older* than the newest stable is never mirrored — there is no
+  real choice there, and it would waste space on the drive. The choice UI
+  (`OtzariaScreen`) therefore only appears when `hasChannelChoice` is true.
+- When the first page (50 releases) holds no plain release at all, only the
+  pre-release is mirrored and it is offered as the only version, labelled as
+  such. That is not a silent fallback — the label says which channel it is.
+  (This replaces the older `NoStableReleaseException`, which existed when a
+  channel was a download-time choice.)
 
 **A DB update can ship without a version bump.** SeforimLibrary sometimes
 re-publishes a corrected `seforim.db.zst` under the same `db_version`. The
@@ -313,6 +354,11 @@ The offline-only rework (single mode, exe-adjacent data folder, app mirror,
 run on real hardware: `AppPaths` on a real removable drive, the refusal path in
 a genuinely read-only folder, `OtzariaAppMirror.sync()` against real GitHub, and
 whether the trimmed mirror is in fact enough for a real offline apply.
+
+The two-channel download (stable + newer pre-release in one mirror, with the
+choice made offline) is likewise **unit-tested only**. Not verified against the
+real repo: what `fetchChannelReleases` actually returns there today, and whether
+both installers together fit comfortably on a typical drive.
 
 Currently **not** verified on real hardware: the Windows path of
 `LibraryUpdateApplier` (full ~1GB download, delta chains, `tasklist` behaviour),

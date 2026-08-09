@@ -1,5 +1,10 @@
 import 'package:equatable/equatable.dart';
 
+import 'otzaria_release_channel.dart';
+
+/// הגרסאות שנמצאו ברשת, לפי ערוץ — ראו [OtzariaChannelPair].
+typedef OtzariaChannelReleases = OtzariaChannelPair<OtzariaRelease>;
+
 /// הפלטפורמה שעבורה בוחרים אסט להתקנה. **לא** נגזר ישירות מ-`Platform`
 /// בכל מקום שצריך אותו, כדי שבחירת האסט תישאר פונקציה טהורה שאפשר לבדוק
 /// עבור שתי הפלטפורמות מאותה מכונה.
@@ -50,10 +55,10 @@ enum OtzariaInstallerKind {
 /// Release אחד מתוך github.com/Otzaria/otzaria/releases, מצומצם לשדות
 /// שרלוונטיים להתקנה: תג הגרסה וקובץ ההתקנה לפלטפורמה הנוכחית.
 ///
-/// **ערוצים:** release רגיל = יציב, pre-release = לא יציב. שים לב שהריפו
-/// הזה כמעט ואינו מפרסם releases יציבים — רוב הפעילות היא preview builds
-/// עם `prerelease=true`. לכן ערוץ "יציב בלבד" עלול לא למצוא כלום, ובמקרה
-/// כזה [OtzariaReleaseClient] אומר זאת במפורש ולא בוחר pre-release בשקט.
+/// **ערוצים:** release רגיל = יציב, pre-release = לא יציב. ההורדה מביאה את
+/// שניהם (ראו `OtzariaReleaseClient.fetchChannelReleases`), והמשתמש בוחר
+/// איזה מהם להתקין — אבל רק כשה-pre-release חדש מהיציב; אחרת אין בחירה
+/// אמיתית ומורידים את היציב בלבד.
 ///
 /// [toJson]/[fromJson] משמשים את `OtzariaAppMirror` כדי לשמור את המטא־דאטה
 /// לצד קובץ ההתקנה — כך שבדיקת גרסה עובדת גם בלי רשת בכלל.

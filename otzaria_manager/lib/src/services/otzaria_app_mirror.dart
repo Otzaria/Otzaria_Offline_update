@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../models/otzaria_release.dart';
+import '../models/otzaria_release_channel.dart';
 import 'otzaria_changelog_client.dart';
 import 'otzaria_installer.dart';
 import 'otzaria_release_client.dart';
@@ -22,8 +23,14 @@ class MirroredOtzariaRelease {
   final String installerPath;
 }
 
-/// המראה המקומית של **תוכנת אוצריא עצמה**: קובץ ההתקנה של הגרסה האחרונה
-/// יחד עם המטא־דאטה שלה, בתיקייה שלצד הלאנצ'ר.
+/// הגרסאות שיושבות במראה, לפי ערוץ — ראו [OtzariaChannelPair].
+typedef MirroredOtzariaReleases = OtzariaChannelPair<MirroredOtzariaRelease>;
+
+/// המראה המקומית של **תוכנת אוצריא עצמה**: קובצי ההתקנה של הגרסאות
+/// האחרונות יחד עם המטא־דאטה שלהן, בתיקייה שלצד הלאנצ'ר.
+///
+/// המראה מחזיקה **עד שתי גרסאות**: היציבה האחרונה, ובנוסף ה-pre-release
+/// האחרון כשהוא חדש ממנה — כדי שבמחשב המנותק יהיה מה לבחור בין השתיים.
 ///
 /// בלי המטא־דאטה המקומית, בדיקת גרסה הייתה חייבת לפנות ל-GitHub — ובמחשב
 /// בלי רשת מודול התוכנה היה פשוט נכשל. עם המראה, [load] עונה מהדיסק
@@ -47,22 +54,58 @@ class OtzariaAppMirror {
 
   static const String _metadataFileName = 'latest-release.json';
 
+  /// 2 = שתי גרסאות לפי ערוץ. גרסה 1 (רשומה בודדת בשורש) עדיין נקראת —
+  /// ראו [load].
+  static const int _schemaVersion = 2;
+
   String get _metadataPath => p.join(mirrorDir, _metadataFileName);
 
-  /// קורא את הגרסה שיושבת במראה, או `null` אם אין מראה תקינה: אין קובץ
-  /// מטא־דאטה, הוא פגום, או שקובץ ההתקנה שהוא מצביע עליו חסר/בגודל שגוי
-  /// (הורדה שנקטעה). בכל המקרים האלה התשובה הנכונה זהה — "צריך להוריד".
-  Future<MirroredOtzariaRelease?> load() async {
+  /// קורא את הגרסאות שיושבות במראה. ערוץ חוזר ריק כשאין לו רשומה תקינה:
+  /// אין קובץ מטא־דאטה, הוא פגום, או שקובץ ההתקנה שהוא מצביע עליו חסר/
+  /// בגודל שגוי (הורדה שנקטעה). בכל המקרים האלה התשובה הנכונה זהה —
+  /// "צריך להוריד". כל ערוץ נבדק בנפרד, כדי שרשומה פגומה באחד לא תפסול
+  /// את השני.
+  Future<MirroredOtzariaReleases> load() async {
     final file = File(_metadataPath);
-    if (!await file.exists()) return null;
+    if (!await file.exists()) return const MirroredOtzariaReleases();
+
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(await file.readAsString());
+    } catch (_) {
+      return const MirroredOtzariaReleases();
+    }
+    if (decoded is! Map<String, dynamic>) {
+      return const MirroredOtzariaReleases();
+    }
+
+    // פורמט ישן: רשומה בודדת בשורש הקובץ. משויכת לערוץ לפי הדגל שלה, כדי
+    // שכונן שנוצר בגרסה קודמת של הלאנצ'ר יישאר שמיש בלי הורדה מחדש.
+    if (decoded['tagName'] is String) {
+      final legacy = await _entryFrom(decoded);
+      if (legacy == null) return const MirroredOtzariaReleases();
+      return legacy.release.isPrerelease
+          ? MirroredOtzariaReleases(prerelease: legacy)
+          : MirroredOtzariaReleases(stable: legacy);
+    }
+
+    return MirroredOtzariaReleases(
+      stable: await _entryFrom(decoded[OtzariaReleaseChannel.stable.name]),
+      prerelease:
+          await _entryFrom(decoded[OtzariaReleaseChannel.prerelease.name]),
+    );
+  }
+
+  /// רשומת ערוץ בודדת מתוך המטא־דאטה, או `null` אם היא חסרה/פגומה/מצביעה
+  /// על קובץ התקנה שאינו שם.
+  Future<MirroredOtzariaRelease?> _entryFrom(Object? raw) async {
+    if (raw is! Map<String, dynamic>) return null;
 
     final OtzariaRelease release;
     final String installerPath;
     try {
-      final decoded = jsonDecode(await file.readAsString());
-      if (decoded is! Map<String, dynamic>) return null;
-      release = OtzariaRelease.fromJson(decoded);
-      final relative = decoded['installerPath'];
+      release = OtzariaRelease.fromJson(raw);
+      final relative = raw['installerPath'];
       if (relative is! String || relative.isEmpty) return null;
       // המראה נכתבת ב-POSIX ונקראת גם ב-Windows; `\` היסטורי מקובץ שנכתב
       // בווינדוס עדיין נתמך כדי לא לפסול מראה קיימת.
@@ -82,35 +125,85 @@ class OtzariaAppMirror {
     );
   }
 
-  /// מוריד את הגרסה האחרונה בערוץ המבוקש אל [mirrorDir] וכותב את
-  /// המטא־דאטה. **הפעולה היחידה כאן שדורשת אינטרנט.**
+  /// מוריד את שתי הגרסאות (יציבה, ו-pre-release כשהוא חדש ממנה) אל
+  /// [mirrorDir] וכותב את המטא־דאטה. **הפעולה היחידה כאן שדורשת אינטרנט.**
   ///
-  /// המטא־דאטה נכתבת רק אחרי שקובץ ההתקנה כבר בדיסק במלואו, כדי ש-[load]
-  /// לא תראה אף פעם מראה חצי-מוכנה.
-  Future<MirroredOtzariaRelease> sync({
-    required bool allowPrerelease,
+  /// היציבה יורדת ראשונה בכוונה: היא ברירת המחדל, וכך כישלון בהורדת
+  /// ה-pre-release לא משאיר את הכונן בלי גרסה להתקין. המטא־דאטה נכתבת
+  /// מחדש אחרי כל הורדה שהסתיימה, וכל פעם רק על מה שכבר בדיסק במלואו —
+  /// כדי ש-[load] לא תראה אף פעם מראה חצי-מוכנה.
+  ///
+  /// [onChannelStart] נקרא לפני כל הורדה, כדי שה-UI יוכל לומר איזו משתיהן
+  /// יורדת כרגע (מד ההתקדמות מתאפס בין השתיים).
+  Future<MirroredOtzariaReleases> sync({
     void Function(int received, int total)? onDownloadProgress,
+    void Function(OtzariaReleaseChannel channel)? onChannelStart,
   }) async {
-    var release = await _releaseClient.fetchLatestRelease(
-      allowPrerelease: allowPrerelease,
-    );
-    final changelogNotes = await _changelogClient.notesFor(release.tagName);
-    if (changelogNotes != null) {
-      release = release.copyWithReleaseNotes(changelogNotes);
+    final online = await _releaseClient.fetchChannelReleases();
+
+    MirroredOtzariaRelease? stable;
+    MirroredOtzariaRelease? prerelease;
+
+    for (final channel in OtzariaReleaseChannel.values) {
+      final release = online[channel];
+      if (release == null) continue;
+
+      onChannelStart?.call(channel);
+      final mirrored = await _downloadToMirror(release, onDownloadProgress);
+      if (channel == OtzariaReleaseChannel.stable) {
+        stable = mirrored;
+      } else {
+        prerelease = mirrored;
+      }
+      await _writeMetadata(stable: stable, prerelease: prerelease);
     }
 
+    final result =
+        MirroredOtzariaReleases(stable: stable, prerelease: prerelease);
+    // קובצי התקנה של גרסאות שכבר אינן במטא־דאטה אינם שווים את המקום על
+    // הכונן הנייד.
+    await _installer.pruneCacheExcept(
+      keepTagNames: {for (final e in result.all) e.release.tagName},
+    );
+    return result;
+  }
+
+  Future<MirroredOtzariaRelease> _downloadToMirror(
+    OtzariaRelease release,
+    void Function(int received, int total)? onDownloadProgress,
+  ) async {
+    final notes = await _changelogClient.notesFor(release.tagName);
+    final withNotes =
+        notes == null ? release : release.copyWithReleaseNotes(notes);
+
     final installerPath = await _installer.ensureCached(
-      release: release,
+      release: withNotes,
       onDownloadProgress: onDownloadProgress,
     );
+    return MirroredOtzariaRelease(
+      release: withNotes,
+      installerPath: installerPath,
+    );
+  }
 
-    await Directory(mirrorDir).create(recursive: true);
-    final json = release.toJson()
+  Future<void> _writeMetadata({
+    MirroredOtzariaRelease? stable,
+    MirroredOtzariaRelease? prerelease,
+  }) async {
+    Map<String, dynamic> entry(MirroredOtzariaRelease e) => e.release.toJson()
       // **תמיד עם `/`** — מראה שנבנתה בווינדוס נפתחת גם ב-macOS, בדיוק כמו
       // הנתיבים בקטלוג התוספים (`PluginMirrorStore.relativePath`).
       ..['installerPath'] =
-          p.relative(installerPath, from: mirrorDir).replaceAll(r'\', '/')
-      ..['syncedAt'] = DateTime.now().toIso8601String();
+          p.relative(e.installerPath, from: mirrorDir).replaceAll(r'\', '/');
+
+    await Directory(mirrorDir).create(recursive: true);
+    final json = <String, dynamic>{
+      'schemaVersion': _schemaVersion,
+      'syncedAt': DateTime.now().toIso8601String(),
+      if (stable != null) OtzariaReleaseChannel.stable.name: entry(stable),
+      if (prerelease != null)
+        OtzariaReleaseChannel.prerelease.name: entry(prerelease),
+    };
 
     // כתיבה אטומית — הפסקת חשמל לא תשאיר JSON חצי־כתוב שייקרא כמראה תקינה.
     final temp = File('$_metadataPath.tmp');
@@ -119,10 +212,5 @@ class OtzariaAppMirror {
       flush: true,
     );
     await temp.rename(_metadataPath);
-
-    return MirroredOtzariaRelease(
-      release: release,
-      installerPath: installerPath,
-    );
   }
 }

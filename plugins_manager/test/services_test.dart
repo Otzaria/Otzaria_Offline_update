@@ -2,12 +2,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:plugins_manager/plugins_manager.dart';
 import 'package:test/test.dart';
 
 /// בונה קובץ `.otzplugin` אמיתי (ZIP) עם התוכן שנמסר ל-`manifest.json`.
-String _writePluginFile(Directory dir, String name, String manifestText) {
+List<int> _pluginBytes(String manifestText) {
   final archive = Archive()
     ..addFile(ArchiveFile(
       'manifest.json',
@@ -15,9 +17,12 @@ String _writePluginFile(Directory dir, String name, String manifestText) {
       utf8.encode(manifestText),
     ))
     ..addFile(ArchiveFile('main.js', 3, utf8.encode('/**')));
+  return ZipEncoder().encode(archive)!;
+}
 
+String _writePluginFile(Directory dir, String name, String manifestText) {
   final path = p.join(dir.path, name);
-  File(path).writeAsBytesSync(ZipEncoder().encode(archive)!);
+  File(path).writeAsBytesSync(_pluginBytes(manifestText));
   return path;
 }
 
@@ -203,6 +208,147 @@ void main() {
       file.parent.createSync(recursive: true);
       file.writeAsStringSync('x');
       expect(await store.hasLocalFile(plugin), isTrue);
+    });
+  });
+
+  group('PluginsManager.sync מול אתר מדומה', () {
+    /// שני תוספים מאושרים; `a` נבחר (`isPinned` בשפת האתר).
+    const catalogJson = [
+      {
+        'id': 'a',
+        'name': 'אלף',
+        'version': '1.0.0',
+        'status': 'stable',
+        'isPinned': true,
+        'image': '/api/plugins/a/image',
+        'downloadUrl': '/api/plugins/a/download',
+      },
+      {
+        'id': 'b',
+        'name': 'בית',
+        'version': '2.0.0',
+        'status': 'beta',
+        'downloadUrl': '/api/plugins/b/download',
+      },
+    ];
+
+    const storeHomeJson = {
+      'settings': {
+        'homeTitle': 'חנות התוספים של אוצריא',
+        'homeSubtitle': 'תוספים שמרחיבים את הלימוד',
+      },
+      'featured': [
+        {'id': 'a'}
+      ],
+      'categories': [
+        {
+          'slug': 'study',
+          'name': 'כלי לימוד',
+          'description': 'תוספים שמסייעים בלימוד',
+          'showOnHome': true,
+          // דף הבית מחזיר רק את מה שנכנס לשורה שלו — לא את כל החברות.
+          'plugins': [
+            {'id': 'a'}
+          ],
+        },
+      ],
+      'totalPublicPlugins': 2,
+    };
+
+    /// דף הקטגוריה — הסדר הידני המלא, כולל מזהה "רפאים" שאינו בקטלוג.
+    const categoryJson = {
+      'slug': 'study',
+      'name': 'כלי לימוד',
+      'description': 'תוספים שמסייעים בלימוד',
+      'plugins': [
+        {'id': 'b'},
+        {'id': 'a'},
+        {'id': 'נמחק'},
+      ],
+      'total': 3,
+    };
+
+    http.Response json(Object body) => http.Response.bytes(
+          utf8.encode(jsonEncode(body)),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+
+    MockClient site({bool structureAvailable = true}) =>
+        MockClient((request) async {
+          final path = request.url.path;
+          if (path == '/api/plugins') return json(catalogJson);
+          if (path == '/api/plugins/store-home') {
+            return structureAvailable
+                ? json(storeHomeJson)
+                : http.Response('Not found', 404);
+          }
+          if (path == '/api/plugins/categories/study') {
+            return json(categoryJson);
+          }
+          if (path.endsWith('/image')) {
+            return http.Response.bytes(
+              const [137, 80, 78, 71],
+              200,
+              headers: {'content-type': 'image/png'},
+            );
+          }
+          if (path.endsWith('/download')) {
+            return http.Response.bytes(
+              _pluginBytes('{"id":"manifest-${path.split('/')[3]}"}'),
+              200,
+              headers: {
+                'content-disposition':
+                    "attachment; filename*=UTF-8''plugin.otzplugin",
+              },
+            );
+          }
+          return http.Response('Not found', 404);
+        });
+
+    PluginsManager manager(MockClient client) => PluginsManager(
+          resolveMirrorDir: () async => temp.path,
+          resolvePluginsDir: () async => p.join(temp.path, 'installed'),
+          baseUrl: 'https://otzaria.test',
+          httpClient: client,
+        );
+
+    test('מושך תוספים, קטגוריות וטקסטים של דף הבית', () async {
+      final catalog = await manager(site()).sync();
+
+      expect(catalog.plugins.map((p) => p.id), ['a', 'b']);
+      expect(catalog.home.title, 'חנות התוספים של אוצריא');
+      expect(catalog.home.subtitle, 'תוספים שמרחיבים את הלימוד');
+
+      final category = catalog.categories.single;
+      expect(category.slug, 'study');
+      // הסיכום (כולל שורת דף-הבית) מגיע מ-store-home...
+      expect(category.showOnHome, isTrue);
+      // הסדר הידני מדף הקטגוריה, ולא זה שבדף הבית; תוסף שאינו בקטלוג יורד.
+      expect(category.pluginIds, ['b', 'a']);
+
+      final featured = catalog.plugins.first;
+      expect(featured.isFeatured, isTrue);
+      expect(featured.categorySlugs, ['study']);
+      expect(featured.manifestId, 'manifest-a');
+      expect(featured.imagePath, 'files/a/image.png');
+    });
+
+    test('כשל בטעינת המבנה משאיר את הקטגוריות שכבר במראה', () async {
+      await manager(site()).sync();
+
+      final warnings = <String>[];
+      final catalog = await manager(site(structureAvailable: false)).sync(
+        onProgress: (progress) {
+          if (progress.phase == PluginSyncPhase.warning) {
+            warnings.add(progress.message);
+          }
+        },
+      );
+
+      expect(catalog.categories.single.pluginIds, ['b', 'a']);
+      expect(catalog.plugins.first.categorySlugs, ['study']);
+      expect(warnings.single, contains('מבנה החנות'));
     });
   });
 

@@ -86,6 +86,36 @@ class PluginBadge extends StatelessWidget {
   }
 }
 
+/// "עינית" מעל כותרת סעיף — קו קצר ואחריו טקסט קטן ומודגש. זה הפורמט
+/// של כותרות הסעיפים בחנות שבאתר ("מומלצי החנות", "רשימת תוספים").
+class PluginSectionEyebrow extends StatelessWidget {
+  const PluginSectionEyebrow(this.text, {super.key});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+            width: 28, height: 1, color: cs.primary.withValues(alpha: .4)),
+        const SizedBox(width: AppTokens.spaceSM),
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: AppTokens.fontSM,
+            fontWeight: FontWeight.bold,
+            color: cs.primary,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// גלולת תגית — לחיצה עליה מסננת את הרשימה.
 class PluginTagPill extends StatelessWidget {
   const PluginTagPill({
@@ -93,15 +123,20 @@ class PluginTagPill extends StatelessWidget {
     required this.label,
     this.active = false,
     this.onTap,
+    this.icon,
   });
 
   final String label;
   final bool active;
   final VoidCallback? onTap;
 
+  /// סמל קטן לפני התווית — לגלולות שהן פעולה ולא תגית (מתג הסינון).
+  final IconData? icon;
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final foreground = active ? cs.onPrimary : cs.onSurfaceVariant;
 
     return Material(
       color: active ? cs.primary : cs.surfaceContainerHighest,
@@ -113,13 +148,22 @@ class PluginTagPill extends StatelessWidget {
             onTap == null ? SystemMouseCursors.basic : SystemMouseCursors.click,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: AppTokens.fontSM,
-              fontWeight: FontWeight.w600,
-              color: active ? cs.onPrimary : cs.onSurfaceVariant,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 14, color: foreground),
+                const SizedBox(width: 4),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: AppTokens.fontSM,
+                  fontWeight: FontWeight.w600,
+                  color: foreground,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -134,10 +178,16 @@ class PluginInstallChip extends StatelessWidget {
     super.key,
     required this.status,
     this.installedVersion,
+    this.compact = false,
   });
 
   final PluginInstallStatus status;
   final String? installedVersion;
+
+  /// בלי הגרסה המותקנת בסוגריים. בכרטיס שברשת אין לשבב מקום להתארך —
+  /// `StatusChip` אינו מקצר את עצמו והוא היה גולש מהכרטיס. הפירוט המלא
+  /// מוצג בעמוד התוסף.
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -148,7 +198,7 @@ class PluginInstallChip extends StatelessWidget {
         ),
       PluginInstallStatus.updateAvailable => StatusChip(
           kind: StatusKind.updateAvailable,
-          label: installedVersion == null
+          label: installedVersion == null || compact
               ? 'עדכון זמין'
               : 'עדכון זמין (מותקן $installedVersion)',
         ),

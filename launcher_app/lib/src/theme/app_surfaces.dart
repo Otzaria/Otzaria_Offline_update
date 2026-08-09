@@ -50,8 +50,4 @@ class AppSurfaces {
 
   /// רקע שבב חיווי מצב — נגזר מצבע החיווי עצמו, בשקיפות אחידה
   static Color statusChip(Color base) => base.withValues(alpha: 0.12);
-
-  /// רקע גלולת חיווי בסרגל העליון
-  static Color topBarPill(ColorScheme cs) =>
-      cs.surfaceContainerHighest.withValues(alpha: 0.6);
 }

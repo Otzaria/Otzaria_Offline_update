@@ -21,15 +21,10 @@ import 'otzaria_screen.dart';
 import 'plugins/plugins_screen.dart';
 import 'settings_screen.dart';
 
-/// מצב הרשת כפי שהוא נגזר מההורדה האחרונה שנוסתה. הבדיקה עצמה כבר לא
-/// נוגעת ברשת (היא קוראת מהתיקייה המקומית), ולכן זו הערכה שמתעדכנת רק
-/// כשבאמת ניסינו להוריד.
-enum NetworkState { unknown, checking, online, offline }
-
 /// המסך הפעיל בסרגל הניווט. "תוכנה" קודם ל"ספרייה" — ראו [_NavRail].
 enum LauncherScreen { home, otzaria, library, plugins, settings }
 
-/// מסגרת האפליקציה: סרגל ניווט קבוע בצד, סרגל מצב עליון, וחמשת המסכים.
+/// מסגרת האפליקציה: סרגל ניווט קבוע בצד, סרגל זהות עליון, וחמשת המסכים.
 class AppShell extends StatefulWidget {
   const AppShell({
     super.key,
@@ -50,9 +45,7 @@ class _AppShellState extends State<AppShell> {
   late final PluginsModuleController _plugins;
 
   LauncherScreen _screen = LauncherScreen.home;
-  NetworkState _network = NetworkState.unknown;
   bool _otzariaIsRunning = false;
-  DateTime? _lastCheckedAt;
 
   /// המסכים שנבנו בפועל. ה-[IndexedStack] בונה את *כל* ילדיו, ולכן בעבר גם
   /// חנות התוספים (רשת כרטיסים עם תמונה לכל תוסף) נבנתה ופענחה את כל
@@ -73,9 +66,8 @@ class _AppShellState extends State<AppShell> {
 
     _otzaria = OtzariaModuleController(
       dataDir: widget.dataDir,
-      // הריפו של אוצריא מפרסם כמעט רק pre-release — בערוץ "יציב בלבד"
-      // ייתכן שלא תימצא גרסה כלל, ולכן זה קבוע ולא הגדרה למשתמש.
-      allowPrerelease: true,
+      // ההורדה מביאה תמיד את שתי הגרסאות; זו רק הבחירה איזו מהן מותקנת.
+      preferPrerelease: s.preferAppPrerelease,
     )..addListener(_onChange);
     _library = LibraryModuleController(
       dataDir: widget.dataDir,
@@ -126,6 +118,9 @@ class _AppShellState extends State<AppShell> {
   /// צורך לעקוב אחרי שינוי בפועל.
   void _applySettings(AppSettings s) {
     _library.keepSafetyBackup = s.backupsToKeep > 0;
+    // ה-setter מתעלם מהצבה חוזרת של אותו ערך, ולכן זה לא מריץ בדיקה בכל
+    // שינוי הגדרה אחר.
+    _otzaria.preferPrerelease = s.preferAppPrerelease;
     final timeout = Duration(seconds: s.networkTimeoutSeconds);
     _otzaria.networkTimeout = timeout;
     _library.networkTimeout = timeout;
@@ -147,7 +142,6 @@ class _AppShellState extends State<AppShell> {
     await Future.wait([_otzaria.checkForUpdate(), _library.checkForUpdate()]);
     await _refreshProcessState();
     if (!mounted) return;
-    setState(() => _lastCheckedAt = DateTime.now());
     await _autoInstallIfEnabled();
   }
 
@@ -190,28 +184,14 @@ class _AppShellState extends State<AppShell> {
     final s = widget.settings.settings;
     if (!s.hasSyncSelection || _isDownloading) return;
 
-    setState(() {
-      _isDownloading = true;
-      _network = NetworkState.checking;
-    });
+    setState(() => _isDownloading = true);
 
     if (s.syncApp) await _otzaria.download();
     if (s.syncLibrary) await _library.download();
     if (s.syncPlugins) await _plugins.sync();
     if (!mounted) return;
 
-    // "לא מחובר" רק אם *כל* מה שנבחר נכשל — כשל בודד הוא בעיה נקודתית
-    // ברכיב, לא עדות לכך שאין רשת.
-    final attempted = <bool>[
-      if (s.syncApp) _otzaria.downloadStatus == OtzariaDownloadStatus.done,
-      if (s.syncLibrary) _library.downloadStatus == MirrorDownloadStatus.done,
-      if (s.syncPlugins) _plugins.status != PluginsModuleStatus.error,
-    ];
-    setState(() {
-      _isDownloading = false;
-      _network =
-          attempted.contains(true) ? NetworkState.online : NetworkState.offline;
-    });
+    setState(() => _isDownloading = false);
   }
 
   Future<void> _openLogFolder() async {
@@ -243,6 +223,7 @@ class _AppShellState extends State<AppShell> {
           ),
         LauncherScreen.otzaria => OtzariaScreen(
             otzaria: _otzaria,
+            settings: widget.settings,
             otzariaIsRunning: _otzariaIsRunning,
           ),
         LauncherScreen.library => LibraryScreen(
@@ -271,14 +252,7 @@ class _AppShellState extends State<AppShell> {
           Expanded(
             child: Column(
               children: [
-                _TopBar(
-                  network: _network,
-                  dataDir: widget.dataDir,
-                  otzariaIsRunning: _otzariaIsRunning,
-                  lastCheckedAt: _lastCheckedAt,
-                  onOpenLog: _openLogFolder,
-                  onRecheck: checkAll,
-                ),
+                const _TopBar(),
                 Expanded(
                   child: IndexedStack(
                     index: _screen.index,
@@ -357,24 +331,12 @@ class _NavRail extends StatelessWidget {
   }
 }
 
-// ── סרגל המצב העליון ──────────────────────────────────────────────────────────
+// ── סרגל הזהות העליון ─────────────────────────────────────────────────────────
 
+/// סמל אוצריא והשם בלבד. מחווני המצב שהיו כאן (רשת, נתיב, "נבדק ב־") הוסרו —
+/// כולם מופיעים ממילא בדף הבית ובמסכי הרכיבים, סמוך לפעולה שהם מתארים.
 class _TopBar extends StatelessWidget {
-  final NetworkState network;
-  final String dataDir;
-  final bool otzariaIsRunning;
-  final DateTime? lastCheckedAt;
-  final VoidCallback onOpenLog;
-  final VoidCallback onRecheck;
-
-  const _TopBar({
-    required this.network,
-    required this.dataDir,
-    required this.otzariaIsRunning,
-    required this.lastCheckedAt,
-    required this.onOpenLog,
-    required this.onRecheck,
-  });
+  const _TopBar();
 
   @override
   Widget build(BuildContext context) {
@@ -388,119 +350,21 @@ class _TopBar extends StatelessWidget {
       ),
       child: Row(
         children: [
+          Image.asset(
+            'assets/images/otzaria_logo.png',
+            height: 28,
+            filterQuality: FilterQuality.medium,
+            semanticLabel: 'אוצריא',
+          ),
+          const SizedBox(width: AppTokens.spaceSM),
           Text(
-            'אוצריא — מנהל עדכונים',
+            'עדכוני אוצריא',
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(width: AppTokens.spaceMD),
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _Pill(
-                    icon: switch (network) {
-                      NetworkState.online => FluentIcons.cloud_24_regular,
-                      NetworkState.offline => FluentIcons.cloud_off_24_regular,
-                      NetworkState.checking =>
-                        FluentIcons.arrow_sync_24_regular,
-                      NetworkState.unknown =>
-                        FluentIcons.question_circle_24_regular,
-                    },
-                    label: switch (network) {
-                      NetworkState.online => 'מחובר',
-                      NetworkState.offline => 'לא מחובר',
-                      NetworkState.checking => 'מוריד...',
-                      NetworkState.unknown => 'הרשת לא נדרשה',
-                    },
-                  ),
-                  const SizedBox(width: AppTokens.spaceSM),
-                  // מקור העדכונים תמיד זהה — התיקייה שלצד התוכנה. אין מה
-                  // להחליף, ולכן מוצג הנתיב עצמו ולא בחירה.
-                  _Pill(
-                    icon: FluentIcons.folder_24_regular,
-                    label: 'העדכונים נקראים מהתיקייה שלצד התוכנה',
-                    tooltip: dataDir,
-                  ),
-                  if (otzariaIsRunning) ...[
-                    const SizedBox(width: AppTokens.spaceSM),
-                    const StatusChip(
-                      kind: StatusKind.needsAction,
-                      label: 'אוצריא פתוחה — עדכון מסד חסום',
-                    ),
-                  ],
-                  if (lastCheckedAt != null) ...[
-                    const SizedBox(width: AppTokens.spaceSM),
-                    Text(
-                      'נבדק ב-${_formatTime(lastCheckedAt!)}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          SecondaryIconButton(
-            icon: FluentIcons.arrow_sync_24_regular,
-            tooltip: 'בדיקה מחדש',
-            onPressed: onRecheck,
-          ),
-          const SizedBox(width: AppTokens.spaceSM),
-          SecondaryIconButton(
-            icon: FluentIcons.document_bullet_list_24_regular,
-            tooltip: 'פתיחת יומן הפעילות',
-            onPressed: onOpenLog,
-          ),
         ],
       ),
     );
-  }
-
-  static String _formatTime(DateTime time) {
-    final t = time.toLocal();
-    return '${t.hour.toString().padLeft(2, '0')}:'
-        '${t.minute.toString().padLeft(2, '0')}';
-  }
-}
-
-class _Pill extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String? tooltip;
-
-  const _Pill({required this.icon, required this.label, this.tooltip});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    final pill = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: AppSurfaces.topBarPill(cs),
-        borderRadius: AppTokens.borderRadiusAll,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: cs.onSurfaceVariant),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: AppTokens.fontMD,
-              color: cs.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (tooltip == null || tooltip!.isEmpty) return pill;
-    return Tooltip(message: tooltip!, child: pill);
   }
 }

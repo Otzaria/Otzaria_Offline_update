@@ -32,7 +32,7 @@ void main() {
       expect(s.hasSyncSelection, isFalse);
     });
 
-    test('גיבוי הבטיחות של המסד דלוק כברירת מחדל', () {
+    test('גיבוי הבטיחות של המסד פועל כברירת מחדל', () {
       expect(const AppSettings().backupsToKeep, 1);
     });
 
@@ -130,6 +130,43 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(value, isTrue);
+    });
+
+    // הכפתורים גלשו מגובה התיבה שלהם, והתוויות ישבו מתחת למרכזה.
+    testWidgets('תוויות הסגמנטד ממורכזות בגובה בתוך התיבה', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Directionality(
+            textDirection: TextDirection.rtl,
+            child: Scaffold(
+              body: SettingsCard(
+                children: [
+                  SettingsActionTile.segmentedTile<int>(
+                    title: 'ערכת נושא',
+                    currentValue: 1,
+                    onChanged: (_) {},
+                    width: 300,
+                    options: const [
+                      SegmentOption(value: 0, label: 'מערכת'),
+                      SegmentOption(value: 1, label: 'בהיר'),
+                      SegmentOption(value: 2, label: 'כהה'),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final box = tester.getRect(find.byType(SegmentedButton<int>));
+      for (final label in ['מערכת', 'בהיר', 'כהה']) {
+        expect(
+          (tester.getRect(find.text(label)).center.dy - box.center.dy).abs(),
+          lessThan(0.6),
+          reason: 'התווית "$label" אינה ממורכזת בגובה',
+        );
+      }
     });
   });
 }

@@ -132,7 +132,7 @@ Widget _materialApp({
 }) {
   return MaterialApp(
     navigatorKey: navigatorKey,
-    title: 'אוצריא — מנהל עדכונים',
+    title: 'עדכוני אוצריא',
     debugShowCheckedModeBanner: false,
     localizationsDelegates: const [
       GlobalCupertinoLocalizations.delegate,

@@ -8,52 +8,72 @@ import '../../theme/theme_exports.dart';
 /// למה שונה: החנות היא רשת כרטיסים עם תמונות, ולא רשימת שורות הגדרה.
 /// הגבלת רוחב הייתה מצמצמת אותה לשתי עמודות גם על מסך רחב, בעוד שהחנות
 /// המקורית פורסת כמה שיותר עמודות לרוחב.
+///
+/// **התוכן נמסר כ-slivers בלבד.** כל התוכן הגליל של החנות הוא רשתות
+/// כרטיסים עם תמונות, ולכן הוא חייב להיבנות מדורג. `SliverList` עם רשימת
+/// ילדים קבועה בונה את כולם מיד — מה שמחזיר בדיוק את הבעיה שבגללה הרשת
+/// הועברה מ-`GridView(shrinkWrap: true)` ל-`SliverGrid`.
 class PluginStoreBody extends StatelessWidget {
   const PluginStoreBody({
     super.key,
-    required this.children,
+    required this.slivers,
     this.header,
-    this.trailingSliver,
+    this.sidebar,
   });
 
   /// שורה קבועה בראש המסך שאינה נגללת (סנכרון ומועד הסנכרון האחרון).
   final Widget? header;
-  final List<Widget> children;
 
-  /// sliver שנוסף **אחרי** [children], לתוכן שחייב להיות מדורג (lazy).
-  ///
-  /// למה לא עוד widget ברשימה: רשת הכרטיסים של החנות הייתה
-  /// `GridView(shrinkWrap: true)` בתוך ה-`ListView` הזה, ו-shrinkWrap מבטל
-  /// את הווירטואליזציה — כל הכרטיסים נבנו, ועם כל תמונה שבהם, גם מה שמחוץ
-  /// למסך. כאן היא עוברת כ-`SliverGrid` ומקבלת גלילה מדורגת אמיתית.
-  final Widget? trailingSliver;
+  /// סרגל הצד הקבוע של הקטגוריות, כמו ה-`aside` הדביק שבאתר. הוא **מחוץ**
+  /// לאזור הגלילה כדי שגלילת התוכן לא תזיז אותו ולא תתחלק איתו.
+  final Widget? sidebar;
+
+  final List<Widget> slivers;
 
   /// המרווח האופקי מקצה המסך — זהה לשני צדי התוכן.
   static const double horizontalPadding = AppTokens.spaceLG;
 
+  /// עוטף sliver במרווח האופקי של החנות. נקרא מכל מקום שמרכיב תוכן גליל,
+  /// כדי שהמרווח יהיה במקום אחד.
+  static Widget padded(Widget sliver, {double top = 0, double bottom = 0}) =>
+      SliverPadding(
+        padding: EdgeInsets.fromLTRB(
+          horizontalPadding,
+          top,
+          horizontalPadding,
+          bottom,
+        ),
+        sliver: sliver,
+      );
+
+  /// עוטף widget רגיל כ-sliver ממורווח — לכותרות סעיף ולכרטיסי מצב.
+  static Widget block(Widget child, {double top = 0, double bottom = 0}) =>
+      padded(SliverToBoxAdapter(child: child), top: top, bottom: bottom);
+
   @override
   Widget build(BuildContext context) {
-    const horizontal = EdgeInsets.symmetric(horizontal: horizontalPadding);
+    final scroller = CustomScrollView(
+      slivers: [
+        ...slivers,
+        const SliverToBoxAdapter(
+          child: SizedBox(height: AppTokens.spaceXL + AppTokens.spaceMD),
+        ),
+      ],
+    );
 
     return Column(
       children: [
         if (header != null) header!,
         Expanded(
-          child: CustomScrollView(
-            slivers: [
-              SliverPadding(
-                padding: horizontal.copyWith(top: AppTokens.spaceMD),
-                sliver: SliverList(
-                  delegate: SliverChildListDelegate(children),
+          child: sidebar == null
+              ? scroller
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    sidebar!,
+                    Expanded(child: scroller),
+                  ],
                 ),
-              ),
-              if (trailingSliver != null)
-                SliverPadding(padding: horizontal, sliver: trailingSliver!),
-              const SliverToBoxAdapter(
-                child: SizedBox(height: AppTokens.spaceXL + AppTokens.spaceMD),
-              ),
-            ],
-          ),
         ),
       ],
     );

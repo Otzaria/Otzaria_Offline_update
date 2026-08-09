@@ -1,5 +1,7 @@
 export 'src/models/plugin_catalog.dart';
 export 'src/models/plugin_install_status.dart';
+export 'src/models/plugin_store_category.dart';
+export 'src/models/plugin_store_home.dart';
 export 'src/models/plugin_sync_progress.dart';
 export 'src/models/store_plugin.dart';
 export 'src/plugins_manager.dart';

@@ -119,8 +119,23 @@ void main() {
               size: 1234,
             ),
             manifestId: 'real-abc',
+            categorySlugs: ['study-tools'],
           ),
         ],
+        categories: const [
+          PluginStoreCategory(
+            slug: 'study-tools',
+            name: 'כלי לימוד',
+            description: 'תוספים שמסייעים בלימוד',
+            showOnHome: true,
+            homeLimit: 4,
+            pluginIds: ['abc'],
+          ),
+        ],
+        home: const PluginStoreHome(
+          title: 'חנות התוספים',
+          subtitle: 'תוספים שמרחיבים את אוצריא',
+        ),
       );
 
       final restored = PluginCatalog.fromJson(original.toJson());
@@ -132,7 +147,15 @@ void main() {
       expect(plugin.tags, ['תגית א', 'תגית ב']);
       expect(plugin.requiresNetwork, isTrue);
       expect(plugin.supportsDirectInstall, isTrue);
-      expect(plugin.isPinned, isTrue);
+      expect(plugin.isFeatured, isTrue);
+      expect(plugin.categorySlugs, ['study-tools']);
+      expect(restored.categories.single.name, 'כלי לימוד');
+      expect(restored.categories.single.showOnHome, isTrue);
+      expect(restored.categories.single.homeLimit, 4);
+      expect(restored.categories.single.pluginIds, ['abc']);
+      expect(restored.categoryBySlug('study-tools')?.pluginCount, 1);
+      expect(restored.home.title, 'חנות התוספים');
+      expect(restored.home.subtitle, 'תוספים שמרחיבים את אוצריא');
       expect(plugin.downloadCount, 42);
       expect(plugin.imagePath, 'files/abc/image.png');
       expect(plugin.screenshotPaths, ['files/abc/screenshot-0.png']);
@@ -160,6 +183,89 @@ void main() {
 
     test('קטלוג בלי שדה plugins מחזיר רשימה ריקה', () {
       expect(PluginCatalog.fromJson({}).plugins, isEmpty);
+    });
+
+    test('קטלוג ישן בלי קטגוריות נטען כרגיל', () {
+      final catalog = PluginCatalog.fromJson({
+        'plugins': [
+          {'id': 'ok', 'name': 'תקין'},
+        ],
+      });
+
+      expect(catalog.categories, isEmpty);
+      expect(catalog.home, PluginStoreHome.empty);
+      expect(catalog.plugins.single.categorySlugs, isEmpty);
+    });
+
+    test('קטגוריה בלי slug מדולגת — אין לפיה סינון', () {
+      final catalog = PluginCatalog.fromJson({
+        'categories': [
+          {'name': 'בלי slug'},
+          {'slug': 'ok', 'name': 'תקינה'},
+        ],
+      });
+
+      expect(catalog.categories.single.slug, 'ok');
+    });
+  });
+
+  group('PluginStoreCategory', () {
+    test('fromApi קורא את מזהי התוספים בסדר שהאתר החזיר', () {
+      final category = PluginStoreCategory.fromApi(const {
+        'slug': 'study-tools',
+        'name': 'כלי לימוד',
+        'description': 'תיאור',
+        'plugins': [
+          {'id': 'b'},
+          {'id': 'a'},
+          {'name': 'בלי id'},
+        ],
+      });
+
+      expect(category.pluginIds, ['b', 'a']);
+      expect(category.pluginCount, 2);
+    });
+
+    test('קטגוריה בלי רשימת תוספים (סיכום מדף הבית) יוצאת ריקה', () {
+      final category = PluginStoreCategory.fromApi(const {
+        'slug': 'x',
+        'name': 'קטגוריה',
+        'pluginCount': 7,
+      });
+
+      expect(category.pluginIds, isEmpty);
+    });
+
+    test('שדות שורת דף-הבית נקראים, עם ברירת מחדל ל-homeLimit', () {
+      final onHome = PluginStoreCategory.fromApi(const {
+        'slug': 'x',
+        'name': 'קטגוריה',
+        'showOnHome': true,
+        'homeLimit': 3,
+      });
+      expect(onHome.showOnHome, isTrue);
+      expect(onHome.homeLimit, 3);
+
+      final plain = PluginStoreCategory.fromApi(const {'slug': 'y'});
+      expect(plain.showOnHome, isFalse);
+      expect(plain.homeLimit, PluginStoreCategory.defaultHomeLimit);
+    });
+  });
+
+  group('תאימות לאחור של "תוסף נבחר"', () {
+    test('האתר עדיין שולח isPinned, ומשמעותו נבחר', () {
+      final plugin = StorePlugin.fromApi(
+        const {'id': 'x', 'isPinned': true},
+        'https://otzaria.org',
+      );
+      expect(plugin.isFeatured, isTrue);
+    });
+
+    test('קטלוג שנכתב בגרסה קודמת נקרא גם הוא כנבחר', () {
+      expect(
+        StorePlugin.fromJson(const {'id': 'x', 'isPinned': true}).isFeatured,
+        isTrue,
+      );
     });
   });
 

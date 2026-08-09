@@ -22,6 +22,7 @@ class PluginDetailView extends StatelessWidget {
     required this.onSave,
     required this.onInstall,
     required this.onTagSelected,
+    required this.onCategorySelected,
     this.busy = false,
   });
 
@@ -31,6 +32,11 @@ class PluginDetailView extends StatelessWidget {
   final VoidCallback onSave;
   final VoidCallback onInstall;
   final ValueChanged<String> onTagSelected;
+
+  /// בחירת קטגוריה מחזירה לרשימה כשהיא מסוננת לאותה קטגוריה, כמו הקישור
+  /// מדף התוסף אל דף הקטגוריה באתר.
+  final ValueChanged<String> onCategorySelected;
+
   final bool busy;
 
   /// מעל הרוחב הזה "מידע כללי" ו"תגיות" יושבים זה לצד זה.
@@ -43,40 +49,49 @@ class PluginDetailView extends StatelessWidget {
   Widget build(BuildContext context) {
     return PluginStoreBody(
       header: _backHeader(context),
-      children: [
-        _heroPanel(context),
-        const SizedBox(height: AppTokens.spaceLG),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final info = _infoPanel(context);
-            final tags = plugin.tags.isEmpty ? null : _tagsPanel(context);
-            if (tags == null) return info;
-
-            if (constraints.maxWidth < _twoColumnWidth) {
-              return Column(
-                children: [
-                  info,
-                  const SizedBox(height: AppTokens.spaceLG),
-                  tags,
-                ],
-              );
-            }
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(child: info),
-                const SizedBox(width: AppTokens.spaceLG),
-                Expanded(child: tags),
-              ],
-            );
-          },
+      slivers: [
+        PluginStoreBody.padded(
+          SliverList.list(children: _panels(context)),
+          top: AppTokens.spaceMD,
         ),
-        if (plugin.screenshotPaths.isNotEmpty) ...[
-          const SizedBox(height: AppTokens.spaceLG),
-          _screenshotsPanel(context),
-        ],
       ],
     );
+  }
+
+  List<Widget> _panels(BuildContext context) {
+    return [
+      _heroPanel(context),
+      const SizedBox(height: AppTokens.spaceLG),
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final info = _infoPanel(context);
+          final tags = plugin.tags.isEmpty ? null : _tagsPanel(context);
+          if (tags == null) return info;
+
+          if (constraints.maxWidth < _twoColumnWidth) {
+            return Column(
+              children: [
+                info,
+                const SizedBox(height: AppTokens.spaceLG),
+                tags,
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: info),
+              const SizedBox(width: AppTokens.spaceLG),
+              Expanded(child: tags),
+            ],
+          );
+        },
+      ),
+      if (plugin.screenshotPaths.isNotEmpty) ...[
+        const SizedBox(height: AppTokens.spaceLG),
+        _screenshotsPanel(context),
+      ],
+    ];
   }
 
   Widget _backHeader(BuildContext context) {
@@ -199,10 +214,10 @@ class PluginDetailView extends StatelessWidget {
               label: '${plugin.downloadCount} הורדות',
               icon: FluentIcons.arrow_download_24_regular,
             ),
-            if (plugin.isPinned)
+            if (plugin.isFeatured)
               const PluginBadge(
-                label: 'מומלץ',
-                icon: FluentIcons.pin_24_regular,
+                label: 'תוסף נבחר',
+                icon: FluentIcons.star_24_regular,
               ),
             PluginInstallChip(
               status: controller.statusOf(plugin),
@@ -210,6 +225,20 @@ class PluginDetailView extends StatelessWidget {
             ),
           ],
         ),
+        if (plugin.categorySlugs.isNotEmpty) ...[
+          const SizedBox(height: AppTokens.spaceSM),
+          Wrap(
+            spacing: AppTokens.spaceSM,
+            runSpacing: AppTokens.spaceSM,
+            children: [
+              for (final slug in plugin.categorySlugs)
+                PluginTagPill(
+                  label: controller.categoryName(slug),
+                  onTap: () => onCategorySelected(slug),
+                ),
+            ],
+          ),
+        ],
         const SizedBox(height: AppTokens.spaceMD),
         Wrap(
           spacing: AppTokens.spaceSM,

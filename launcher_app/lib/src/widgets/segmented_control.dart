@@ -1,4 +1,3 @@
-import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/theme_exports.dart';
@@ -72,6 +71,7 @@ class AppSegmentedControl<T> extends StatelessWidget {
   }
 
   static ButtonStyle _buttonStyle(ColorScheme cs) => ButtonStyle(
+        alignment: Alignment.center,
         foregroundColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
             return cs.onSecondaryContainer;
@@ -87,6 +87,29 @@ class AppSegmentedControl<T> extends StatelessWidget {
         shape: const WidgetStatePropertyAll(AppTokens.roundedShape),
       );
 
+  /// גובה הכפתור בברירת המחדל של M3 — ראו [_fixedHeightStyle].
+  static const double _defaultSegmentHeight = 40;
+
+  /// `SegmentedButton` מעתיק לסגמנטים רק חלק מהסגנון ומשמיט ממנו את
+  /// `minimumSize`/`maximumSize` (`segmentStyleFor` שלו), ולכן הדרך היחידה
+  /// לקבוע להם גובה אחר מ-40 היא צפיפות: כל יחידה שווה 4px.
+  static ButtonStyle _fixedHeightStyle(ColorScheme cs, double height) =>
+      _buttonStyle(cs).copyWith(
+        visualDensity: VisualDensity(
+          horizontal: -2,
+          vertical: ((height - _defaultSegmentHeight) / 4).clamp(
+            VisualDensity.minimumDensity,
+            VisualDensity.maximumDensity,
+          ),
+        ),
+        // בלי זה נוסף ריפוד שטח-מגע עד 48px, שגם הוא מגביה את הכפתור מעל
+        // התיבה ומוריד את התווית מתחת למרכזה.
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        padding: const WidgetStatePropertyAll(
+          EdgeInsets.symmetric(horizontal: 8),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -99,14 +122,12 @@ class AppSegmentedControl<T> extends StatelessWidget {
       onSelectionChanged: (selection) {
         if (selection.isNotEmpty) onChanged(selection.first);
       },
-      selectedIcon: const Icon(FluentIcons.checkmark_24_regular, size: 16),
+      // בלי סימן וי על הנבחר: הוא הכריח ריפוד אנכי משלו (16px) שהגובה הקבוע
+      // לא מכסה, כך שהכפתור יצא גבוה מהתיבה והתווית ירדה מתחת למרכזה. הרקע
+      // המלא כבר מסמן איזו אפשרות נבחרה.
+      showSelectedIcon: false,
       style: isFixed
-          ? _buttonStyle(cs).copyWith(
-              minimumSize: WidgetStateProperty.all(Size(0, height!)),
-              maximumSize: WidgetStateProperty.all(
-                Size(double.infinity, height!),
-              ),
-            )
+          ? _fixedHeightStyle(cs, height!)
           : _buttonStyle(cs).copyWith(visualDensity: VisualDensity.compact),
     );
   }

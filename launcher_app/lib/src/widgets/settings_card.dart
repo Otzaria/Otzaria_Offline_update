@@ -437,7 +437,8 @@ class _SwitchTileState extends State<_SwitchTile> {
 
 // ── _SegmentedTile ────────────────────────────────────────────────────────────
 
-/// הגובה שבו הפקד נצבע בפועל — ראו ההערה ב-[_SegmentedTile.build].
+/// גובה תיבת הפקד — נכפה גם על הכפתורים שבתוכה. כשהתיבה הייתה נמוכה מהם
+/// הם גלשו מטה, והתווית נראתה יושבת מתחת למרכז.
 const _kSegBoxHeight = 32.0;
 
 const _kSegBaseNoIcon = 60.0;
@@ -501,7 +502,7 @@ class _SegmentedTile<T> extends StatelessWidget {
           currentValue: currentValue,
           onChanged: onChanged,
           expandToFillWidth: isNarrow,
-          height: 40,
+          height: _kSegBoxHeight,
         );
 
         if (!isNarrow) {
@@ -511,9 +512,9 @@ class _SegmentedTile<T> extends StatelessWidget {
             title: title,
             subtitle: _resolvedSubtitle,
             actions: [
-              // הגובה נכפה כאן ולא ב-AppSegmentedControl: ה-minimumSize שלו
-              // קובע את שטח הלחיצה בלבד, ותווית ארוכה עדיין מותחת את
-              // SegmentedButton לגובה כפול — כך שורות סמוכות יצאו שונות.
+              // התיבה כאן והגובה שנכפה על הכפתורים חייבים להיות זהים: תווית
+              // ארוכה מותחת את SegmentedButton, ופער בין השניים מזיז את
+              // התוכן ביחס לתיבה במקום למרכז אותו.
               SizedBox(
                 width: width ?? _segGroupWidth(options),
                 height: _kSegBoxHeight,

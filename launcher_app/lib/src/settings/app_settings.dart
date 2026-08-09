@@ -27,6 +27,12 @@ class AppSettings {
   final bool autoInstallApp;
   final bool autoInstallLibrary;
 
+  // ── ערוץ הגרסה של תוכנת אוצריא ──────────────────────────────────────────
+  /// `true` = להתקין את הגרסה הלא-יציבה (pre-release). ההורדה מביאה תמיד
+  /// את שתי הגרסאות; זו רק הבחירה איזו מהן מותקנת, והיא רלוונטית רק כשיש
+  /// pre-release חדש מהיציבה.
+  final bool preferAppPrerelease;
+
   // ── אחסון ───────────────────────────────────────────────────────────────
   /// `0` = בלי גיבוי בטיחות לפני כתיבת מסד מלא (ראו `LibraryUpdateApplier`),
   /// `1` = עם גיבוי. אין כאן שמירת היסטוריה של גרסאות — המראה המקומית
@@ -48,6 +54,7 @@ class AppSettings {
     this.syncPlugins = true,
     this.autoInstallApp = false,
     this.autoInstallLibrary = false,
+    this.preferAppPrerelease = false,
     this.backupsToKeep = 1,
     this.networkTimeoutSeconds = 20,
     this.themeMode = AppThemeMode.system,
@@ -66,6 +73,7 @@ class AppSettings {
     bool? syncPlugins,
     bool? autoInstallApp,
     bool? autoInstallLibrary,
+    bool? preferAppPrerelease,
     int? backupsToKeep,
     int? networkTimeoutSeconds,
     AppThemeMode? themeMode,
@@ -80,6 +88,7 @@ class AppSettings {
       syncPlugins: syncPlugins ?? this.syncPlugins,
       autoInstallApp: autoInstallApp ?? this.autoInstallApp,
       autoInstallLibrary: autoInstallLibrary ?? this.autoInstallLibrary,
+      preferAppPrerelease: preferAppPrerelease ?? this.preferAppPrerelease,
       backupsToKeep: backupsToKeep ?? this.backupsToKeep,
       networkTimeoutSeconds:
           networkTimeoutSeconds ?? this.networkTimeoutSeconds,
@@ -95,6 +104,9 @@ class AppSettings {
           'checkOnlineUpdates': autoCheckOnlineUpdates,
           'installApp': autoInstallApp,
           'installLibrary': autoInstallLibrary,
+        },
+        'channels': {
+          'appPrerelease': preferAppPrerelease,
         },
         'sync': {
           'app': syncApp,
@@ -123,6 +135,7 @@ class AppSettings {
     }
 
     final automation = section('automation');
+    final channels = section('channels');
     final sync = section('sync');
     final storage = section('storage');
     final network = section('network');
@@ -155,6 +168,7 @@ class AppSettings {
       syncPlugins: flag(sync, 'plugins', defaults.syncPlugins),
       autoInstallApp: flag(automation, 'installApp', false),
       autoInstallLibrary: flag(automation, 'installLibrary', false),
+      preferAppPrerelease: flag(channels, 'appPrerelease', false),
       backupsToKeep: number(storage, 'backupsToKeep', defaults.backupsToKeep),
       networkTimeoutSeconds: number(
         network,

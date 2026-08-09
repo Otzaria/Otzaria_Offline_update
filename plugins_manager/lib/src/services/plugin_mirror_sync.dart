@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../models/plugin_catalog.dart';
+import '../models/plugin_store_category.dart';
+import '../models/plugin_store_home.dart';
 import '../models/plugin_sync_progress.dart';
 import '../models/store_plugin.dart';
 import 'plugin_manifest_reader.dart';
@@ -32,8 +34,9 @@ class PluginMirrorSync {
     ));
 
     final remote = await client.fetchCatalog();
+    final previousCatalog = await store.load();
     final existing = {
-      for (final plugin in (await store.load()).plugins) plugin.id: plugin,
+      for (final plugin in previousCatalog.plugins) plugin.id: plugin,
     };
 
     final synced = <StorePlugin>[];
@@ -70,7 +73,28 @@ class PluginMirrorSync {
       synced.add(plugin);
     }
 
-    final catalog = PluginCatalog(lastSync: DateTime.now(), plugins: synced);
+    // סנכרון שבוטל באמצע לא מושך מבנה חדש — המבנה הקודם נשאר תואם למה
+    // שכבר במראה יותר מרשימה חלקית שנבנתה על חצי קטלוג.
+    final structure = (isCancelled?.call() ?? false)
+        ? _StoreStructure(
+            home: previousCatalog.home,
+            categories: previousCatalog.categories,
+          )
+        : await _syncStructure(
+            {for (final plugin in synced) plugin.id},
+            previousCatalog,
+            report,
+          );
+
+    final catalog = PluginCatalog(
+      lastSync: DateTime.now(),
+      plugins: [
+        for (final plugin in synced)
+          plugin.copyWith(categorySlugs: structure.slugsOf(plugin.id)),
+      ],
+      categories: structure.categories,
+      home: structure.home,
+    );
     await store.save(catalog);
 
     report(PluginSyncProgress(
@@ -80,6 +104,88 @@ class PluginMirrorSync {
       total: total,
     ));
     return catalog;
+  }
+
+  /// מסנכרן את **מבנה** החנות — הקטגוריות המנוהלות והטקסטים של דף הבית.
+  ///
+  /// כשל כאן אינו מפיל את הסנכרון: המראה שומרת את המבנה הקודם (כך שגם אתר
+  /// ישן בלי הנתיבים האלה, או קריאה שנפלה, לא מוחקים קטגוריות שכבר ירדו).
+  Future<_StoreStructure> _syncStructure(
+    Set<String> syncedIds,
+    PluginCatalog previous,
+    void Function(PluginSyncProgress) report,
+  ) async {
+    report(const PluginSyncProgress(
+      phase: PluginSyncPhase.plugin,
+      message: 'מסנכרן את קטגוריות החנות...',
+    ));
+
+    late final Map<String, dynamic> home;
+    try {
+      home = await client.fetchStoreHome();
+    } catch (e) {
+      report(PluginSyncProgress(
+        phase: PluginSyncPhase.warning,
+        message: 'לא ניתן לטעון את מבנה החנות מהאתר ($e) — נשמר המבנה הקודם',
+      ));
+      return _StoreStructure(
+        home: previous.home,
+        categories: previous.categories,
+      );
+    }
+
+    final settings = home['settings'];
+    final rawCategories = home['categories'];
+    final categories = <PluginStoreCategory>[];
+    if (rawCategories is List) {
+      for (final raw in rawCategories) {
+        if (raw is! Map) continue;
+        final summary =
+            PluginStoreCategory.fromApi(Map<String, dynamic>.from(raw));
+        if (summary.slug.isEmpty) continue;
+        categories
+            .add(await _categoryMembers(summary, syncedIds, previous, report));
+      }
+    }
+
+    return _StoreStructure(
+      home: PluginStoreHome.fromApi(
+        settings is Map ? Map<String, dynamic>.from(settings) : const {},
+      ),
+      categories: categories,
+    );
+  }
+
+  /// דף הבית מחזיר תוספים רק לקטגוריות שמסומנות להצגה בו, ולכן החברות
+  /// המלאה נשלפת תמיד מדף הקטגוריה עצמו.
+  Future<PluginStoreCategory> _categoryMembers(
+    PluginStoreCategory summary,
+    Set<String> syncedIds,
+    PluginCatalog previous,
+    void Function(PluginSyncProgress) report,
+  ) async {
+    var ids = summary.pluginIds;
+    try {
+      ids = PluginStoreCategory.fromApi(
+        await client.fetchCategory(summary.slug),
+      ).pluginIds;
+    } catch (e) {
+      report(PluginSyncProgress(
+        phase: PluginSyncPhase.warning,
+        message: 'לא ניתן לטעון את הקטגוריה ${summary.name}: $e',
+      ));
+      final known = previous.categoryBySlug(summary.slug);
+      if (known != null) ids = known.pluginIds;
+    }
+
+    // תוסף שאינו בקטלוג שירד עכשיו (הוסר מהחנות, או שהסנכרון לא הגיע
+    // אליו) לא נספר ולא מוצג בקטגוריה.
+    return summary.copyWith(
+      pluginIds: [
+        for (final id in ids)
+          if (syncedIds.contains(id)) id,
+      ],
+    );
   }
 
   /// תמונת התוסף וצילומי המסך קטנים, ולכן יורדים בכל סנכרון.
@@ -179,4 +285,25 @@ class PluginMirrorSync {
       return plugin;
     }
   }
+}
+
+/// תוצאת סנכרון המבנה — הקטגוריות והטקסטים, ומהן נגזרת גם השיוך ההפוך
+/// (תוסף → ה-slugs שהוא משובץ בהם) שנשמר על כל תוסף בקטלוג.
+class _StoreStructure {
+  _StoreStructure({required this.home, required this.categories});
+
+  final PluginStoreHome home;
+  final List<PluginStoreCategory> categories;
+
+  late final Map<String, List<String>> _slugsByPlugin = () {
+    final map = <String, List<String>>{};
+    for (final category in categories) {
+      for (final id in category.pluginIds) {
+        (map[id] ??= <String>[]).add(category.slug);
+      }
+    }
+    return map;
+  }();
+
+  List<String> slugsOf(String pluginId) => _slugsByPlugin[pluginId] ?? const [];
 }
