@@ -38,21 +38,54 @@ class OtzariaReleaseClient {
 
   static const _assetSelector = OtzariaAssetSelector();
 
-  /// כמה releases להביא כדי שיהיה מה לסנן. ערוץ "יציב בלבד" צריך לדלג על
-  /// שרשרת ארוכה של preview builds לפני שהוא מגיע ל-release רגיל.
+  /// כמה releases להביא כדי שיהיה מה לסנן. חיפוש ה-release היציב צריך
+  /// לדלג על שרשרת ארוכה של preview builds לפני שהוא מגיע אליו.
   static const int _pageSize = 50;
 
-  /// מחזיר את ה-release העדכני ביותר כרונולוגית (GitHub ממיין את
-  /// /releases כך כברירת מחדל) **בערוץ המבוקש**: `allowPrerelease: false`
-  /// לוקח רק release רגיל, `true` לוקח גם pre-release. draft נפסל תמיד.
+  /// מחזיר את **שתי** הגרסאות שהלאנצ'ר מוריד: ה-release היציב האחרון
+  /// (`prerelease=false`), ובנוסף ה-pre-release האחרון — אך ורק כשהוא חדש
+  /// מהיציב. GitHub מחזיר את /releases מהחדש לישן, ולכן "חדש יותר" = מופיע
+  /// לפניו ברשימה. draft נפסל תמיד.
   ///
-  /// זורק [NoStableReleaseException] אם בערוץ היציב אין כלום — במקום ליפול
-  /// בשקט ל-pre-release, שזו בדיוק ההתנהגות שהמשתמש ביקש להפריד.
-  /// זורק [NoInstallerAssetException] אם ל-release שנמצא אין אסט התקנה
-  /// מתאים לפלטפורמה הנוכחית.
-  Future<OtzariaRelease> fetchLatestRelease({
-    bool allowPrerelease = true,
-  }) async {
+  /// release שאין לו אסט התקנה לפלטפורמה הנוכחית מדולג במקום להפיל את כל
+  /// הבדיקה — הערוץ ממשיך לגרסה הוותיקה יותר. אם אף גרסה לא ניתנת להתקנה,
+  /// נזרקת [NoInstallerAssetException] של החדשה ביותר שנפסלה.
+  Future<OtzariaChannelReleases> fetchChannelReleases() async {
+    final candidates = await _fetchReleasesJson();
+
+    OtzariaRelease? stable;
+    OtzariaRelease? prerelease;
+    NoInstallerAssetException? firstRejection;
+
+    for (final json in candidates) {
+      final isPrerelease = json['prerelease'] as bool? ?? false;
+      // כבר יש pre-release חדש יותר; ותיקים ממנו אינם מעניינים.
+      if (isPrerelease && prerelease != null) continue;
+
+      final OtzariaRelease release;
+      try {
+        release = _parseRelease(json);
+      } on NoInstallerAssetException catch (e) {
+        firstRejection ??= e;
+        continue;
+      }
+
+      if (!isPrerelease) {
+        // הגענו ליציב: כל מה שמתחתיו ברשימה ותיק ממנו.
+        stable = release;
+        break;
+      }
+      prerelease = release;
+    }
+
+    if (stable == null && prerelease == null && firstRejection != null) {
+      throw firstRejection;
+    }
+    return OtzariaChannelReleases(stable: stable, prerelease: prerelease);
+  }
+
+  /// ה-releases הגולמיים, מהחדש לישן, בלי draft.
+  Future<List<Map<String, dynamic>>> _fetchReleasesJson() async {
     final uri = Uri.parse(
       '$_apiBase/repos/$_owner/$_repo/releases?per_page=$_pageSize',
     );
@@ -78,17 +111,10 @@ class OtzariaReleaseClient {
       throw StateError('לא נמצאו releases בכלל ב-$_owner/$_repo.');
     }
 
-    final eligible = decoded
+    return decoded
         .cast<Map<String, dynamic>>()
         .where((r) => !(r['draft'] as bool? ?? false))
-        .where((r) => allowPrerelease || !(r['prerelease'] as bool? ?? false))
         .toList(growable: false);
-
-    if (eligible.isEmpty) {
-      throw NoStableReleaseException(checked: decoded.length);
-    }
-
-    return _parseRelease(eligible.first);
   }
 
   OtzariaRelease _parseRelease(Map<String, dynamic> json) {
@@ -131,21 +157,6 @@ class OtzariaReleaseClient {
   }
 
   void close() => _httpClient.close();
-}
-
-/// נזרקת כשערוץ "יציב בלבד" לא מצא אף release רגיל. הריפו של אוצריא מפרסם
-/// כמעט רק pre-release, ולכן זה מצב מציאותי — והמשתמש צריך לדעת שהפתרון
-/// הוא להחליף ערוץ, לא שמשהו נשבר.
-class NoStableReleaseException implements Exception {
-  const NoStableReleaseException({required this.checked});
-
-  final int checked;
-
-  @override
-  String toString() =>
-      'לא נמצאה גרסה יציבה של אוצריא ב-$checked ה-releases האחרונים — '
-      'כל הפרסומים שם מסומנים כ-pre-release. יש לעבור בהגדרות לערוץ '
-      '"כולל pre-release" כדי לעדכן.';
 }
 
 /// שגיאת תגובה לא תקינה מ-GitHub API. שם ייעודי (לא HttpException) כדי לא

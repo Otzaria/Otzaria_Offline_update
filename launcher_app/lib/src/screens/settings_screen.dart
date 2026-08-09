@@ -168,7 +168,7 @@ class SettingsScreen extends StatelessWidget {
           onChanged: (v) => _set(_s.copyWith(backupsToKeep: v)),
           options: const [
             SegmentOption(value: 0, label: 'כבוי'),
-            SegmentOption(value: 1, label: 'דלוק'),
+            SegmentOption(value: 1, label: 'פועל'),
           ],
         ),
       ],

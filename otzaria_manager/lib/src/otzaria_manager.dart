@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import 'models/otzaria_install_state.dart';
 import 'models/otzaria_release.dart';
+import 'models/otzaria_release_channel.dart';
 import 'models/otzaria_update_check_result.dart';
 import 'services/installed_version_reader.dart';
 import 'services/mac_app_version_reader.dart';
@@ -42,7 +43,7 @@ class OtzariaManager {
     required String dataDir,
     OtzariaTargetPlatform? platform,
     Map<String, String>? environment,
-    this.allowPrerelease = false,
+    this.preferPrerelease = false,
   })  : _platform =
             platform ?? OtzariaTargetPlatform.detect(Platform.operatingSystem),
         _environment = environment ?? Platform.environment,
@@ -72,9 +73,10 @@ class OtzariaManager {
     );
   }
 
-  /// `true` = הערוץ "כולל pre-release". ניתן לשינוי בזמן ריצה כדי שהחלפת
-  /// ערוץ בהגדרות תיכנס לתוקף בהורדה הבאה.
-  bool allowPrerelease;
+  /// בחירת המשתמש כשבמראה יושבות **שתי** גרסאות: `true` = הלא-יציבה
+  /// (pre-release), `false` = היציבה. ניתן לשינוי בזמן ריצה, ונכנס לתוקף
+  /// בבדיקה/התקנה הבאה. אינו משפיע על ההורדה — היא תמיד מביאה את שתיהן.
+  bool preferPrerelease;
 
   /// הזמן הקצוב לכל פעולת רשת של המודול — נכנס לתוקף בבקשה הבאה, כדי
   /// שההגדרה בלאנצ'ר לא תדרוש בנייה מחדש של הלקוחות.
@@ -155,27 +157,35 @@ class OtzariaManager {
           ],
       };
 
-  /// מוריד את הגרסה האחרונה אל המראה המקומית — **הפעולה הכבדה** שנוגעת
-  /// ברשת (מוריד את קובץ ההתקנה עצמו). לא מתקין כלום.
+  /// מוריד את הגרסאות האחרונות אל המראה המקומית — **הפעולה הכבדה** שנוגעת
+  /// ברשת (מוריד את קובצי ההתקנה עצמם). לא מתקין כלום.
+  ///
+  /// מוריד **את שתי הגרסאות**: היציבה, ובנוסף ה-pre-release כשהוא חדש
+  /// ממנה. כך במחשב המנותק אפשר לבחור ביניהן בלי לחזור לרשת.
   Future<void> downloadToMirror({
     void Function(int received, int total)? onProgress,
+    void Function(OtzariaReleaseChannel channel)? onChannel,
   }) =>
       _mirror.sync(
-        allowPrerelease: allowPrerelease,
         onDownloadProgress: onProgress,
+        onChannelStart: onChannel,
       );
 
-  /// בודק מה הגרסה העדכנית ביותר ב-GitHub — **פעולת רשת קלה**: קריאת
-  /// API יחידה, בלי הורדת קובץ ההתקנה. מיועדת לבדיקה צדדית ("יש עדכון?")
-  /// בלי לחייב הורדה מלאה. זורקת חריג רשת/HTTP רגיל בכשל — הקורא אמור
-  /// להתייחס לכשל כ"אין חיבור כרגע", לא כשגיאה חוסמת.
+  /// בודק מה הגרסה העדכנית ביותר ב-GitHub **בערוץ שהמשתמש בחר** —
+  /// **פעולת רשת קלה**: קריאת API יחידה, בלי הורדת קובץ ההתקנה. מיועדת
+  /// לבדיקה צדדית ("יש עדכון?") בלי לחייב הורדה מלאה. זורקת חריג רשת/HTTP
+  /// רגיל בכשל — הקורא אמור להתייחס לכשל כ"אין חיבור כרגע", לא כשגיאה
+  /// חוסמת.
   ///
   /// המידע "מה התחדש" בתוצאה מגיע מיומן השינויים המרוכז של אוצריא
   /// (`OtzariaChangelogClient`) כשהגרסה מופיעה בו, ונופל חזרה לתיאור
   /// ה-release הגולמי מ-GitHub אם לא.
   Future<OtzariaRelease> peekLatestOnlineRelease() async {
-    final release = await _releaseClient.fetchLatestRelease(
-        allowPrerelease: allowPrerelease);
+    final online = await _releaseClient.fetchChannelReleases();
+    final release = online.select(preferPrerelease: preferPrerelease);
+    if (release == null) {
+      throw StateError('לא נמצאה גרסת אוצריא שניתן להתקין בפלטפורמה הזו.');
+    }
     final changelogNotes = await _changelogClient.notesFor(release.tagName);
     return changelogNotes == null
         ? release
@@ -202,28 +212,37 @@ class OtzariaManager {
     }
 
     return OtzariaUpdateCheckResult(
-      latestRelease: mirrored?.release,
+      stableRelease: mirrored.stable?.release,
+      prereleaseRelease: mirrored.prerelease?.release,
+      preferPrerelease: preferPrerelease,
       currentState: current,
     );
   }
 
-  /// מתקין את הגרסה שיושבת במראה המקומית. אם יש כבר מצב מוכר (מותקן/מאומץ
-  /// קודם), מעדכן **באותה תיקייה** — לא יוצר התקנה שנייה בתיקייה המנוהלת.
-  /// שומר את מצב ההתקנה החדש לשימוש עתידי.
+  /// מתקין את הגרסה שיושבת במראה המקומית **בערוץ שנבחר**
+  /// ([preferPrerelease]). אם יש כבר מצב מוכר (מותקן/מאומץ קודם), מעדכן
+  /// **באותה תיקייה** — לא יוצר התקנה שנייה בתיקייה המנוהלת. שומר את מצב
+  /// ההתקנה החדש לשימוש עתידי.
   ///
   /// לא נוגע ברשת. זורק [StateError] אם אין מראה — כלומר לא בוצעה הורדה.
   Future<OtzariaInstallState> update(OtzariaUpdateCheckResult check) async {
     final mirrored = await _mirror.load();
-    if (mirrored == null) {
+    final selected = mirrored.select(preferPrerelease: preferPrerelease);
+    if (selected == null) {
       throw StateError(
         'אין גרסת אוצריא בתיקייה המקומית — יש להריץ הורדה במחשב עם אינטרנט.',
       );
     }
 
     final state = await _installer.installFromFile(
-      release: mirrored.release,
-      installerPath: mirrored.installerPath,
+      release: selected.release,
+      installerPath: selected.installerPath,
       targetInstallDir: check.currentState?.installDir,
+      // שתי הגרסאות נשארות בכונן: התקנת אחת מהן לא מוחקת את קובץ ההתקנה
+      // של השנייה, כדי שאפשר יהיה להחליף ערוץ בלי הורדה מחדש.
+      keepCachedTagNames: {
+        for (final entry in mirrored.all) entry.release.tagName,
+      },
     );
     await _stateStore.save(state);
     return state;

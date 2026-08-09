@@ -55,11 +55,13 @@
 - ה-release ה**יציב** האחרון (`prerelease=false`) הוא `v0.2.7` מיולי 2025 —
   ישן משמעותית. כל הפעילות האמיתית מאז היא **PR-preview builds**
   (`prerelease=true`), עם אזהרת "Use at your own risk".
-  [`OtzariaReleaseClient`](lib/src/services/otzaria_release_client.dart) מסנן
-  לפי `prerelease` בהתאם לערוץ שנבחר (release = יציב, pre-release = לא יציב).
-  **המשמעות המעשית:** בערוץ "יציב בלבד" סביר שלא תימצא גרסה כלל, והלקוח
-  זורק `NoStableReleaseException` שמסביר למשתמש לעבור ערוץ. אין נפילה שקטה
-  ל-pre-release — זה היה מטשטש בדיוק את ההבחנה שהערוץ אמור לבטא.
+  [`OtzariaReleaseClient.fetchChannelReleases`](lib/src/services/otzaria_release_client.dart)
+  מחזיר את **שניהם** (release = יציב, pre-release = לא יציב), וההורדה
+  מביאה את שניהם אל המראה — כך שבמחשב המנותק אפשר לבחור ביניהם בלי לחזור
+  לרשת. ה-pre-release נכלל **רק כשהוא חדש מהיציב**; אחרת אין בחירה אמיתית
+  ומורידים את היציב בלבד (זה המצב באתר נכון לאוגוסט 2026). כשאין release
+  יציב כלל בעמוד הראשון (50 האחרונים), נשאר רק ה-pre-release — ואז הוא
+  הגרסה היחידה שמוצעת, עם התווית שאומרת בדיוק את זה.
 - שם קובץ ה-installer לווינדוס אינו קבוע (מספר הגרסה משובץ בשם, למשל
   `otzaria-0.9.53-windows.exe`) — הבחירה מתבססת על סיומת `windows.exe`.
   בחלק מה-releases קיימים גם `otzaria-windows.zip`/`otzaria.msix`, אבל
@@ -86,19 +88,24 @@
 ## שימוש
 
 ```dart
+// preferPrerelease = מה יותקן כשבמראה יושבות שתיהן. ניתן לשינוי בזמן ריצה.
 final manager = OtzariaManager(dataDir: appPaths.dataDir);
 
 // במחשב עם אינטרנט — הפעולה היחידה שנוגעת ברשת. ממלאת את
-// `<dataDir>/mirror/app` (מטא־דאטה + קובץ ההתקנה).
-await manager.downloadToMirror(onProgress: (received, total) {
-  print('$received / $total');
-});
+// `<dataDir>/mirror/app` (מטא־דאטה + קובצי ההתקנה) ב**שתי** הגרסאות:
+// היציבה, ובנוסף ה-pre-release כשהוא חדש ממנה.
+await manager.downloadToMirror(
+  onProgress: (received, total) => print('$received / $total'),
+  onChannel: (channel) => print('מוריד גרסה ${channel.label}'),
+);
 
 // בכל מחשב, כולל בלי רשת בכלל — בדיקה והתקנה קוראות מהמראה בלבד.
 final check = await manager.checkForUpdate();
 if (check.needsDownload) {
   print('עוד לא הורדה גרסה');
 } else if (check.updateAvailable) {
+  // כשיש שתיים, `check.hasChannelChoice` הוא true — ו-`preferPrerelease`
+  // קובע איזו מהן `latestRelease`/`update` מתייחסים אליה.
   await manager.update(check);
 }
 await manager.launch();
@@ -114,8 +121,8 @@ manager.close();
 
 ## מבנה
 
-- `models/` — `OtzariaRelease` (+`OtzariaTargetPlatform`, `OtzariaInstallerKind`), `OtzariaInstallState`, `OtzariaUpdateCheckResult`.
-- `services/otzaria_release_client.dart` — שליפת release אחרון מ-GitHub API.
+- `models/` — `OtzariaRelease` (+`OtzariaTargetPlatform`, `OtzariaInstallerKind`), `OtzariaReleaseChannel` (+`OtzariaChannelPair`), `OtzariaInstallState`, `OtzariaUpdateCheckResult`.
+- `services/otzaria_release_client.dart` — שליפת שתי הגרסאות האחרונות (יציבה ולא-יציבה) מ-GitHub API.
 - `services/otzaria_changelog_client.dart` — שליפת הפסקה המתאימה מיומן
   השינויים המרוכז של אוצריא (`assets/יומן שינויים.md` בענף `dev`), כדי
   להעדיף אותה על פני `release.body` שלא תמיד מלא.

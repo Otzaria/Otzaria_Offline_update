@@ -13,6 +13,7 @@ import 'package:launcher_app/src/screens/home_screen.dart';
 import 'package:launcher_app/src/screens/library_screen.dart';
 import 'package:launcher_app/src/screens/otzaria_screen.dart';
 import 'package:launcher_app/src/controllers/plugins_module_controller.dart';
+import 'package:launcher_app/src/screens/plugins/plugin_store_card.dart';
 import 'package:launcher_app/src/screens/plugins/plugins_screen.dart';
 import 'package:launcher_app/src/screens/settings_screen.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
@@ -142,6 +143,7 @@ void main() {
       tester,
       OtzariaScreen(
         otzaria: otzaria,
+        settings: settings,
         otzariaIsRunning: false,
       ),
     );
@@ -152,6 +154,34 @@ void main() {
       find.text('אין תיאור לגרסה הזו, או שעדיין לא הורדה גרסה.'),
       findsOneWidget,
     );
+    // בלי שתי גרסאות בתיקייה אין מה לבחור, ולכן אין פקד ערוץ.
+    expect(find.text('הגרסה שתותקן'), findsNothing);
+  });
+
+  testWidgets('בחירת ערוץ מוצגת רק כשיש שתי גרסאות, ונשמרת בהגדרות',
+      (tester) async {
+    // מדמה מראה עם שתי גרסאות — בלי לגעת בדיסק או ברשת.
+    otzaria.hasChannelChoice = true;
+    otzaria.stableVersion = '0.9.90';
+    otzaria.prereleaseVersion = '0.9.97';
+    otzaria.latestVersion = '0.9.90';
+
+    await pumpScreen(
+      tester,
+      OtzariaScreen(
+        otzaria: otzaria,
+        settings: settings,
+        otzariaIsRunning: false,
+      ),
+    );
+
+    expect(find.text('הגרסה שתותקן'), findsOneWidget);
+    expect(find.textContaining('הגרסה היציבה (0.9.90)'), findsOneWidget);
+
+    await tester.tap(find.text('לא יציבה'));
+    await tester.pumpAndSettle();
+
+    expect(settings.settings.preferAppPrerelease, isTrue);
   });
 
   testWidgets('בחירת מיקום ידנית לאוצריא לא מושבתת בגלל הורדה של רכיב אחר',
@@ -160,6 +190,7 @@ void main() {
       tester,
       OtzariaScreen(
         otzaria: otzaria,
+        settings: settings,
         otzariaIsRunning: false,
       ),
     );
@@ -213,8 +244,9 @@ void main() {
 
     expect(find.text('סנכרון מהאתר'), findsOneWidget);
     expect(find.text('טרם בוצע סנכרון'), findsOneWidget);
-    expect(find.text('חיפוש'), findsOneWidget);
     expect(find.text('עדיין לא סונכרנו תוספים'), findsOneWidget);
+    // מראה ריקה — לא מציגים סינון על כלום.
+    expect(find.text('חיפוש'), findsNothing);
   });
 
   testWidgets('מסך החנות מציג כרטיס תוסף מהקטלוג המקומי', (tester) async {
@@ -245,10 +277,216 @@ void main() {
     expect(find.text('תוסף לבדיקה'), findsOneWidget);
     expect(find.text('גרסה 1.2.3'), findsOneWidget);
     expect(find.text('יציב'), findsWidgets);
+    // מראה בלי אצירה (לא נבחרים ולא קטגוריות בית) נופלת ל"כל התוספים",
+    // כמו דף הבית הריק באתר ששולח לרשימה המלאה.
     expect(find.text('בחרו את התוסף שמתאים לכם'), findsOneWidget);
     expect(find.text('כל התוספים מוצגים'), findsOneWidget);
+    expect(find.text('חיפוש'), findsOneWidget);
     // תאריך עברי, כמו בחנות המקורית.
     expect(find.textContaining('ט"ו בניסן'), findsOneWidget);
+  });
+
+  testWidgets('כרטיס עמוס בכרטיס הצר ביותר אינו גולש', (tester) async {
+    // המקרה הגרוע: שם ארוך, תקציר ארוך, ארבע תגיות, ושבב "עדכון זמין"
+    // (שמופיע רק כשמותקנת גרסה ישנה) — כל אלה מרחיבים את שורות הגלולות.
+    final store = PluginMirrorStore(tempDir.path);
+    await tester.runAsync(() => store.save(PluginCatalog(
+          lastSync: DateTime.utc(2026, 8, 6),
+          plugins: [
+            for (var i = 0; i < 4; i++)
+              StorePlugin.fromApi({
+                'id': 'p$i',
+                'name': 'שם ארוך במיוחד לתוסף שנועד לתפוס שתי שורות שלמות',
+                'shortDescription':
+                    'תקציר ארוך שנמשך על פני כמה שורות כדי לבדוק שהכרטיס '
+                        'אינו גולש גם כשהטקסט מגיע למקסימום השורות המותר בו',
+                'version': '10.20.30',
+                'status': 'experimental',
+                'downloadCount': 123456,
+                'tags': const ['תגית ארוכה', 'עוד אחת', 'שלישית', 'רביעית'],
+                'supportsDirectInstall': true,
+              }, 'https://otzaria.org')
+                  .copyWith(manifestId: 'id-$i'),
+          ],
+        )));
+
+    // חלון צר → הכרטיס הצר ביותר שהרשת מייצרת.
+    tester.view.physicalSize = const Size(700, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.runAsync(plugins.load);
+    // סריקת ההתקנה האמיתית מגיעה מתיקיית אוצריא של המכונה; כאן מזריקים
+    // גרסאות מותקנות ישנות ישירות, כדי שהשבב הארוך ביותר ייבנה.
+    plugins.installed = {for (var i = 0; i < 4; i++) 'id-$i': '1.0.0'};
+
+    await tester.pumpWidget(wrap(PluginsScreen(controller: plugins)));
+    await tester.pumpAndSettle();
+
+    // שבב "עדכון זמין" אכן מוצג — אחרת הבדיקה לא באמת בודקת את המקרה הגרוע.
+    expect(find.textContaining('עדכון זמין'), findsWidgets);
+    // גלישת RenderFlex נזרקת כחריג בבדיקות; אין צורך ב-expect נוסף.
+    expect(tester.takeException(), isNull);
+
+    // גם בהגדלת טקסט — גובה הכרטיס מוכפל ב-textScaler, וזו הנקודה שבה
+    // ההכפלה הזו נבדקת בפועל.
+    await tester.pumpWidget(wrap(MediaQuery(
+      data: const MediaQueryData(textScaler: TextScaler.linear(1.3)),
+      child: PluginsScreen(controller: plugins),
+    )));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('מתג "רק מה שלא מותקן" בשורה העליונה חל גם על דף הבית',
+      (tester) async {
+    final store = PluginMirrorStore(tempDir.path);
+    await tester.runAsync(() => store.save(PluginCatalog(
+          lastSync: DateTime.utc(2026, 8, 6),
+          plugins: [
+            StorePlugin.fromApi(const {
+              'id': 'a',
+              'name': 'תוסף שכבר מותקן',
+              'version': '1.0.0',
+              'status': 'stable',
+              'isPinned': true,
+            }, 'https://otzaria.org')
+                .copyWith(manifestId: 'id-a'),
+            StorePlugin.fromApi(const {
+              'id': 'b',
+              'name': 'תוסף שאינו מותקן',
+              'version': '1.0.0',
+              'status': 'stable',
+              'isPinned': true,
+            }, 'https://otzaria.org'),
+          ],
+        )));
+
+    await tester.runAsync(plugins.load);
+    plugins.installed = {'id-a': '1.0.0'};
+
+    await pumpScreen(tester, PluginsScreen(controller: plugins));
+    await tester.pumpAndSettle();
+
+    // המתג דלוק כברירת מחדל — המותקן והמעודכן מוסתר גם בסעיף הנבחרים.
+    expect(find.text('רק מה שלא מותקן'), findsOneWidget);
+    expect(find.text('תוסף שאינו מותקן'), findsOneWidget);
+    expect(find.text('תוסף שכבר מותקן'), findsNothing);
+
+    await tester.tap(find.text('רק מה שלא מותקן'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('תוסף שכבר מותקן'), findsOneWidget);
+  });
+
+  testWidgets('הרשת מציגה שלושה כרטיסים בשורה בחלון בינוני', (tester) async {
+    final store = PluginMirrorStore(tempDir.path);
+    await tester.runAsync(() => store.save(PluginCatalog(
+          lastSync: DateTime.utc(2026, 8, 6),
+          plugins: [
+            for (var i = 0; i < 6; i++)
+              StorePlugin.fromApi({
+                'id': 'p$i',
+                'name': 'תוסף מספר $i',
+                'shortDescription': 'תקציר',
+                'status': 'stable',
+                'tags': const ['לימוד', 'עיצוב'],
+                'supportsDirectInstall': true,
+              }, 'https://otzaria.org'),
+          ],
+        )));
+
+    // חלון בינוני — בדיוק המקרה שבו האתר כבר מציג שלוש עמודות.
+    tester.view.physicalSize = const Size(1000, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.runAsync(plugins.load);
+    await tester.pumpWidget(wrap(PluginsScreen(controller: plugins)));
+    await tester.pumpAndSettle();
+
+    // שלושה כרטיסים חולקים את אותה קואורדינטת y — כלומר שורה אחת.
+    final cards = tester
+        .widgetList<PluginStoreCard>(find.byType(PluginStoreCard))
+        .toList();
+    expect(cards.length, greaterThanOrEqualTo(3));
+    final firstRowTop =
+        tester.getTopLeft(find.byType(PluginStoreCard).first).dy;
+    final inFirstRow = [
+      for (var i = 0; i < cards.length; i++)
+        if (tester.getTopLeft(find.byType(PluginStoreCard).at(i)).dy ==
+            firstRowTop)
+          i,
+    ];
+    expect(inFirstRow.length, 3);
+  });
+
+  testWidgets('החנות נפתחת בדף הבית האצור, ומשם לדף קטגוריה ולכל התוספים',
+      (tester) async {
+    StorePlugin plugin(String id, String name,
+            {bool featured = false, List<String> categories = const []}) =>
+        StorePlugin.fromApi({
+          'id': id,
+          'name': name,
+          'status': 'stable',
+          'isPinned': featured,
+        }, 'https://otzaria.org')
+            .copyWith(categorySlugs: categories);
+
+    final store = PluginMirrorStore(tempDir.path);
+    await tester.runAsync(() => store.save(PluginCatalog(
+          lastSync: DateTime.utc(2026, 8, 6),
+          plugins: [
+            plugin('a', 'תוסף נבחר', featured: true, categories: ['study']),
+            plugin('b', 'תוסף אחר'),
+          ],
+          categories: const [
+            PluginStoreCategory(
+              slug: 'study',
+              name: 'כלי לימוד',
+              description: 'תוספים שמסייעים בלימוד',
+              showOnHome: true,
+              pluginIds: ['a'],
+            ),
+          ],
+          home: const PluginStoreHome(
+            title: 'החנות של אוצריא',
+            subtitle: 'תוספים שמרחיבים את הלימוד',
+          ),
+        )));
+
+    await tester.runAsync(plugins.load);
+    await pumpScreen(tester, PluginsScreen(controller: plugins));
+    await tester.pumpAndSettle();
+
+    // דף הבית: hero עם הטקסטים מהאתר, וסעיף "תוספים נבחרים".
+    expect(find.text('החנות של אוצריא'), findsOneWidget);
+    expect(find.text('תוספים שמרחיבים את הלימוד'), findsOneWidget);
+    expect(find.text('מומלצי החנות'), findsOneWidget);
+    expect(find.text('תוספים נבחרים'), findsOneWidget);
+    // דף הבית מציג אצירה בלבד — אין בו סינון (רק חיפוש ב-hero).
+    expect(find.text('סטטוס'), findsNothing);
+
+    // שורת הקטגוריה של דף הבית, ו"לכל הקטגוריה" שפותח את דף הקטגוריה.
+    expect(find.text('תוספים שמסייעים בלימוד'), findsWidgets);
+    await tester.tap(find.text('לכל הקטגוריה (1)'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('תוסף אחד בקטגוריה'), findsOneWidget);
+    expect(find.text('תוסף נבחר'), findsWidgets);
+    expect(find.text('תוסף אחר'), findsNothing);
+
+    // פירורי הלחם מחזירים לדף הבית, ומשם אל "כל התוספים".
+    await tester.tap(find.text('חנות התוספים'));
+    await tester.pumpAndSettle();
+    expect(find.text('תוספים נבחרים'), findsOneWidget);
+
+    await tester.tap(find.text('עיינו בכל התוספים (2)'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('בחרו את התוסף שמתאים לכם'), findsOneWidget);
+    expect(find.text('חיפוש'), findsOneWidget);
+    expect(find.text('תוסף אחר'), findsWidgets);
   });
 
   testWidgets('מסך ההגדרות מציג את כל קטגוריות ההגדרה', (tester) async {
@@ -305,13 +543,18 @@ void main() {
   });
 
   test('ברירות המחדל של ההגדרות נשמרות ונטענות מקובץ', () async {
-    await settings.update(const AppSettings(syncLibrary: false));
+    await settings.update(
+      const AppSettings(syncLibrary: false, preferAppPrerelease: true),
+    );
 
     final reloaded = SettingsController(dataDir: tempDir.path);
     await reloaded.load();
 
     expect(reloaded.settings.syncLibrary, isFalse);
     expect(reloaded.settings.autoInstallLibrary, isFalse);
+    // ברירת המחדל היא הגרסה היציבה, והבחירה שורדת הפעלה מחדש.
+    expect(const AppSettings().preferAppPrerelease, isFalse);
+    expect(reloaded.settings.preferAppPrerelease, isTrue);
     reloaded.dispose();
   });
 }

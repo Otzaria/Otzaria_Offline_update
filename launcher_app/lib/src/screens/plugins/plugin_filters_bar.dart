@@ -7,9 +7,16 @@ import '../../widgets/widgets_exports.dart';
 import 'plugin_store_body.dart';
 import 'plugin_visuals.dart';
 
-/// שורת החיפוש והסינון של החנות — חיפוש, סטטוס, מתג "רק לא-מותקן", ושורת
-/// תגיות מתקפלת. פריסה של שדות בשורה אחת, כמו בחנות המקורית, ולא שורות
+/// שורת החיפוש והסינון של "כל התוספים" — חיפוש, סטטוס ושורת תגיות מתקפלת.
+/// פריסה של שדות בשורה אחת, כמו בחנות המקורית, ולא שורות
 /// `SettingsActionTile`.
+///
+/// מוצגת **רק** במסך "כל התוספים", בדיוק כמו `/plugins/all` באתר: דף הבית
+/// ודף הקטגוריה מציגים אצירה ואין בהם סינון. הקטגוריות אינן כאן אלא בסרגל
+/// הצד — הן הניווט הראשי, והתגיות סינון משני בתוך הרשימה השטוחה.
+///
+/// מתג "רק מה שלא מותקן" גם הוא אינו כאן אלא בשורת הסנכרון שבראש המסך:
+/// הוא תוספת של הלאנצ'ר (אין לו מקבילה באתר) והוא חל על **כל** מסכי החנות.
 class PluginFiltersBar extends StatefulWidget {
   const PluginFiltersBar({
     super.key,
@@ -63,8 +70,6 @@ class _PluginFiltersBarState extends State<PluginFiltersBar> {
         Expanded(child: _searchField()),
         const SizedBox(width: AppTokens.spaceMD),
         SizedBox(width: _statusWidth, child: _statusField()),
-        const SizedBox(width: AppTokens.spaceMD),
-        _installedToggle(),
       ],
     );
   }
@@ -76,10 +81,6 @@ class _PluginFiltersBarState extends State<PluginFiltersBar> {
         _searchField(),
         const SizedBox(height: AppTokens.spaceMD),
         _statusField(),
-        const SizedBox(height: AppTokens.spaceMD),
-        Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: _installedToggle()),
       ],
     );
   }
@@ -138,59 +139,6 @@ class _PluginFiltersBarState extends State<PluginFiltersBar> {
     );
   }
 
-  Widget _installedToggle() {
-    final controller = widget.controller;
-    final cs = Theme.of(context).colorScheme;
-    final isOn = controller.hideInstalled;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Material(
-          color: isOn ? cs.primaryContainer : cs.surfaceContainerHighest,
-          borderRadius: AppTokens.borderRadiusAll,
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: () => controller.setHideInstalled(!isOn),
-            mouseCursor: SystemMouseCursors.click,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppTokens.spaceMD,
-                vertical: 9,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ExcludeFocus(
-                    child: CustomSwitch(
-                      value: isOn,
-                      onChanged: controller.setHideInstalled,
-                    ),
-                  ),
-                  const SizedBox(width: AppTokens.spaceSM),
-                  Text(
-                    'הצג רק מה שלא מותקן / יש לו עדכון',
-                    style: TextStyle(
-                      fontSize: AppTokens.fontSM,
-                      fontWeight: FontWeight.bold,
-                      color: isOn ? cs.onPrimaryContainer : cs.onSurface,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'זוהו ${controller.installedCount} תוספים מותקנים באוצריא',
-          style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
-        ),
-      ],
-    );
-  }
-
   Widget _tagsSection(BuildContext context) {
     final tags = widget.controller.allTags;
     if (tags.isEmpty) return const SizedBox.shrink();
@@ -204,6 +152,7 @@ class _PluginFiltersBarState extends State<PluginFiltersBar> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const PluginFieldLabel('תגיות'),
           Wrap(
             spacing: AppTokens.spaceSM,
             runSpacing: AppTokens.spaceSM,

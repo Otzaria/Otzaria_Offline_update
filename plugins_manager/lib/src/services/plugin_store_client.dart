@@ -39,21 +39,11 @@ class PluginStoreClient {
 
   /// שולף את רשימת התוספים המאושרים. זורק [PluginStoreException] על כל כשל
   /// — זה הכשל היחיד שכן צריך לעצור סנכרון (בלי רשימה אין מה לסנכרן).
+  ///
+  /// הרשימה מגיעה כשהיא כבר ממוינת: התוספים הנבחרים (`isPinned`) ראשונים
+  /// בסדר האצירה של האתר, ואחריהם השאר מהחדש לישן. הסדר נשמר כמות שהוא.
   Future<List<Map<String, dynamic>>> fetchCatalog() async {
-    final uri = Uri.parse('$baseUrl/api/plugins');
-    late final http.Response response;
-    try {
-      response = await _client.get(uri).timeout(timeout);
-    } catch (e) {
-      throw PluginStoreException('לא ניתן להתחבר לאתר אוצריא: $e');
-    }
-    if (response.statusCode != 200) {
-      throw PluginStoreException(
-        'לא ניתן לטעון את רשימת התוספים (HTTP ${response.statusCode})',
-      );
-    }
-
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    final decoded = await _getJson('/api/plugins', 'רשימת התוספים');
     if (decoded is! List) {
       throw const PluginStoreException('תשובת האתר אינה רשימת תוספים תקינה');
     }
@@ -62,6 +52,44 @@ class PluginStoreClient {
         .map((e) => Map<String, dynamic>.from(e))
         .toList(growable: false);
   }
+
+  /// שולף את דף הבית האצור של החנות — טקסטים, תוספים נבחרים וסיכומי
+  /// הקטגוריות, הכול בקריאה אחת.
+  Future<Map<String, dynamic>> fetchStoreHome() async =>
+      _asMap(await _getJson('/api/plugins/store-home', 'מבנה החנות'));
+
+  /// שולף דף קטגוריה שלם — כל התוספים המשובצים בה, בסדר שנקבע באתר.
+  /// בלי `limit` האתר מחזיר את כל הרשימה, וזה מה שנדרש למראה.
+  Future<Map<String, dynamic>> fetchCategory(String slug) async => _asMap(
+        await _getJson(
+          '/api/plugins/categories/${Uri.encodeComponent(slug)}',
+          'הקטגוריה $slug',
+        ),
+      );
+
+  /// GET + פענוח JSON עם הודעות שגיאה בעברית. [what] נכנס להודעה.
+  Future<Object?> _getJson(String path, String what) async {
+    late final http.Response response;
+    try {
+      response = await _client.get(Uri.parse('$baseUrl$path')).timeout(timeout);
+    } catch (e) {
+      throw PluginStoreException('לא ניתן להתחבר לאתר אוצריא: $e');
+    }
+    if (response.statusCode != 200) {
+      throw PluginStoreException(
+        'לא ניתן לטעון את $what (HTTP ${response.statusCode})',
+      );
+    }
+    try {
+      return jsonDecode(utf8.decode(response.bodyBytes));
+    } catch (_) {
+      throw PluginStoreException('תשובת האתר עבור $what אינה JSON תקין');
+    }
+  }
+
+  static Map<String, dynamic> _asMap(Object? decoded) => decoded is Map
+      ? Map<String, dynamic>.from(decoded)
+      : throw const PluginStoreException('תשובת האתר אינה במבנה הצפוי');
 
   /// מוריד נכס יחיד אל [destPathNoExt] + הסיומת שהוסקה. סדר ההסקה זהה
   /// למקור: `Content-Disposition`, אחר כך `Content-Type`, ולבסוף

@@ -8,6 +8,7 @@ import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
+import 'otzaria_screen.dart';
 
 /// דף הבית — שני אריחים בלבד: עדכון/התקנת תוכנת אוצריא, ועדכון הספרייה.
 /// כל פרט טכני נוסף (סנכרון, נתיבים, מספרי גרסה) נמצא במסכים המפורטים
@@ -140,9 +141,7 @@ class HomeScreen extends StatelessWidget {
     final approved = await showTwoActionsDialog(
       context: context,
       title: 'התקנת תוכנת אוצריא',
-      content: 'הגרסה ${otzaria.latestVersion} תותקן מהתיקייה המקומית '
-          'על גבי ${otzaria.currentVersion ?? 'ההתקנה הקיימת'}. '
-          'ההתקנה אינה דורשת אינטרנט. יש לוודא שאוצריא סגורה.',
+      content: appInstallPrompt(otzaria),
       confirmText: 'התקן',
     );
     if (!approved) return;
@@ -292,7 +291,7 @@ class HomeScreen extends StatelessWidget {
       final received = otzaria.downloadReceived;
       final total = otzaria.downloadTotal;
       return InfoProgressRow(
-        stage: 'מוריד את תוכנת אוצריא...',
+        stage: otzaria.downloadStage ?? 'מוריד את תוכנת אוצריא...',
         progress: (received != null && total != null && total > 0)
             ? received / total
             : null,

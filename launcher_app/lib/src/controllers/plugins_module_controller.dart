@@ -9,6 +9,10 @@ enum PluginsModuleStatus { idle, loading, ready, syncing, error }
 /// סינון לפי סטטוס התוסף בחנות (`stable` / `beta` / `experimental`).
 enum PluginStatusFilter { all, stable, beta, experimental }
 
+/// שלושת המסכים של החנות באתר, במקום שלושת ה-routes שלה:
+/// `/plugins` (דף בית אצור), `/plugins/all` ו-`/plugins/category/<slug>`.
+enum PluginStorePage { home, all, category }
+
 /// עוטף את [PluginsManager] כמצב הניתן לצפייה עבור מסך החנות — טעינת
 /// הקטלוג המקומי, הורדה יזומה מהאתר, סינון, שמירת קובץ והתקנה ישירה.
 ///
@@ -31,20 +35,36 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   String? errorMessage;
 
   List<StorePlugin> plugins = const [];
+
+  /// קטגוריות החנות כפי שנאצרו באתר, בסדר שלו. ריק במראה ישנה.
+  List<PluginStoreCategory> categories = const [];
+
+  /// הכותרת והתקציר של דף הבית של החנות, כפי שירדו מהאתר.
+  PluginStoreHome home = PluginStoreHome.empty;
+
   Map<String, String> installed = const {};
   DateTime? lastSync;
 
   /// שורש קובצי החנות במראה — ממנו נבנים נתיבי התמונות המוחלטים.
   String? pluginsDir;
 
-  // ── סינון ─────────────────────────────────────────────────────────────────
+  // ── ניווט ─────────────────────────────────────────────────────────────────
+
+  /// המסך המוצג. החנות נפתחת בדף הבית האצור, בדיוק כמו באתר; מראה בלי
+  /// קטגוריות (סנכרון ישן) נופלת ל"כל התוספים" — אין לה דף בית להציג.
+  PluginStorePage view = PluginStorePage.home;
+
+  /// ה-slug של הקטגוריה הפתוחה, כשה-[view] הוא [PluginStorePage.category].
+  String? openCategorySlug;
+
+  // ── סינון (מסך "כל התוספים" בלבד, כמו באתר) ───────────────────────────────
   String search = '';
 
   /// החנות נפתחת על "הכול" — המשתמש בא לראות מה קיים, לא רק את היציב.
   PluginStatusFilter statusFilter = PluginStatusFilter.all;
   String? tagFilter;
 
-  /// הצג רק מה שלא מותקן או שיש לו עדכון — דלוק כברירת מחדל, כמו בחנות
+  /// הצג רק מה שלא מותקן או שיש לו עדכון — פועל כברירת מחדל, כמו בחנות
   /// המקורית: המשתמש בא לעדכן, לא לגלול על מה שכבר מותקן.
   bool hideInstalled = true;
 
@@ -60,12 +80,15 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
 
     try {
-      final view = await _manager.load();
-      plugins = view.catalog.plugins;
-      lastSync = view.catalog.lastSync;
-      installed = view.installed;
-      pluginsDir = view.pluginsDir;
+      final snapshot = await _manager.load();
+      plugins = snapshot.catalog.plugins;
+      categories = snapshot.catalog.categories;
+      home = snapshot.catalog.home;
+      lastSync = snapshot.catalog.lastSync;
+      installed = snapshot.installed;
+      pluginsDir = snapshot.pluginsDir;
       _invalidateDerived();
+      _settleView();
       status = PluginsModuleStatus.ready;
     } catch (e, st) {
       status = PluginsModuleStatus.error;
@@ -166,6 +189,41 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
   }
 
+  // ── ניווט בין מסכי החנות ──────────────────────────────────────────────────
+
+  void showHome() => _goTo(PluginStorePage.home);
+
+  /// "כל התוספים" — הרשימה השטוחה עם הסינון. [query] מגיע מתיבת החיפוש
+  /// שבדף הבית: באתר היא מובילה לדף חיפוש צד-שרת, וכאן לסינון המקומי.
+  void showAllPlugins({String? query}) {
+    if (query != null) search = query;
+    _goTo(PluginStorePage.all);
+  }
+
+  void showCategory(String slug) {
+    openCategorySlug = slug;
+    _goTo(PluginStorePage.category);
+  }
+
+  void _goTo(PluginStorePage target) {
+    if (target != PluginStorePage.category) openCategorySlug = null;
+    view = target;
+    _invalidateDerived();
+    notifyListeners();
+  }
+
+  /// מיישר את המסך המוצג מול הקטלוג שנטען זה עתה: בלי קטגוריות אין דף בית,
+  /// וקטגוריה שנעלמה מהחנות לא נשארת פתוחה.
+  void _settleView() {
+    if (view == PluginStorePage.category && openCategory == null) {
+      openCategorySlug = null;
+      view = PluginStorePage.all;
+    }
+    if (view == PluginStorePage.home && !hasCuratedHome) {
+      view = PluginStorePage.all;
+    }
+  }
+
   void setTagFilter(String? value) {
     if (tagFilter == value) return;
     tagFilter = value;
@@ -188,13 +246,23 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   List<StorePlugin>? _filtered;
   List<String>? _allTags;
   List<StorePlugin>? _updatable;
+  List<StorePlugin>? _featured;
+  Map<String, StorePlugin>? _byId;
 
   void _invalidateDerived() {
     _filtered = null;
     _allTags = null;
     _updatable = null;
+    _featured = null;
+    _byId = null;
   }
 
+  /// האם התוסף עובר את מתג "רק מה שלא מותקן" שבשורה העליונה. המתג הוא
+  /// תוספת של הלאנצ'ר ולכן חל על **כל** המסכים, גם על האצירה.
+  bool _passesInstalledFilter(StorePlugin plugin) =>
+      !hideInstalled || statusOf(plugin) != PluginInstallStatus.upToDate;
+
+  /// "כל התוספים" — חיפוש, סטטוס ותגית, מעל מתג ההתקנה.
   List<StorePlugin> get filtered => _filtered ??= plugins.where((plugin) {
         if (!plugin.matchesQuery(search)) return false;
         if (statusFilter != PluginStatusFilter.all &&
@@ -202,11 +270,67 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
           return false;
         }
         if (tagFilter != null && !plugin.tags.contains(tagFilter)) return false;
-        if (hideInstalled && statusOf(plugin) == PluginInstallStatus.upToDate) {
-          return false;
-        }
-        return true;
+        return _passesInstalledFilter(plugin);
       }).toList(growable: false);
+
+  Map<String, StorePlugin> get _pluginsById =>
+      _byId ??= {for (final plugin in plugins) plugin.id: plugin};
+
+  /// התוספים הנבחרים, בסדר האצירה של האתר — `/api/plugins` מחזיר אותם
+  /// ראשונים, ולכן סדר הקטלוג הוא סדר האצירה.
+  List<StorePlugin> get featured => _featured ??= plugins
+      .where((p) => p.isFeatured && _passesInstalledFilter(p))
+      .toList(growable: false);
+
+  /// הקטגוריות שמקבלות שורה בדף הבית ונשאר בהן מה להציג אחרי מתג ההתקנה.
+  List<PluginStoreCategory> get homeCategories => [
+        for (final category in categories)
+          if (category.showOnHome && pluginsIn(category).isNotEmpty) category,
+      ];
+
+  /// האם **קיים** דף בית אצור. נמדד על המבנה עצמו ולא על מה שנשאר אחרי
+  /// הסינון — אחרת כיבוי כל הכרטיסים ע"י המתג היה נראה כמו חנות ריקה.
+  bool get hasCuratedHome =>
+      plugins.any((p) => p.isFeatured) ||
+      categories.any((c) => c.showOnHome && c.pluginIds.isNotEmpty);
+
+  PluginStoreCategory? get openCategory {
+    final slug = openCategorySlug;
+    if (slug == null) return null;
+    return categoryBySlug(slug);
+  }
+
+  PluginStoreCategory? categoryBySlug(String slug) {
+    for (final category in categories) {
+      if (category.slug == slug) return category;
+    }
+    return null;
+  }
+
+  /// תוספי הקטגוריה בסדר הידני שנקבע באתר, אחרי מתג ההתקנה. [limit] הוא
+  /// `homeLimit` של שורת דף-הבית. מזהה שאין לו תוסף בקטלוג מדולג.
+  List<StorePlugin> pluginsIn(PluginStoreCategory category, {int? limit}) {
+    final result = <StorePlugin>[];
+    for (final id in category.pluginIds) {
+      final plugin = _pluginsById[id];
+      if (plugin == null || !_passesInstalledFilter(plugin)) continue;
+      result.add(plugin);
+      if (limit != null && result.length >= limit) break;
+    }
+    return result;
+  }
+
+  /// שם התצוגה של קטגוריה לפי ה-slug שנשמר על התוסף.
+  String categoryName(String slug) => categoryBySlug(slug)?.name ?? slug;
+
+  /// כותרת החנות. ברירת המחדל זהה לזו שבאתר, למראה שסונכרנה לפני
+  /// שהטקסטים האלה נכנסו — או כשמנהלי האתר השאירו אותם ריקים.
+  String get homeTitle =>
+      home.title.isEmpty ? 'חנות התוספים של אוצריא' : home.title;
+
+  String get homeSubtitle => home.subtitle.isEmpty
+      ? 'תוספים שמרחיבים את חוויית הלימוד באוצריא'
+      : home.subtitle;
 
   List<String> get allTags => _allTags ??= () {
         final tags = <String>{};

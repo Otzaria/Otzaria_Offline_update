@@ -1,19 +1,49 @@
 import 'otzaria_install_state.dart';
 import 'otzaria_release.dart';
+import 'otzaria_release_channel.dart';
 
 /// תוצאת בדיקת עדכון: מה מותקן כרגע (אם בכלל) מול מה שיושב **במראה
 /// המקומית**. הבדיקה עצמה אינה נוגעת ברשת.
+///
+/// המראה מחזיקה עד שתי גרסאות — יציבה ולא-יציבה. [preferPrerelease] הוא
+/// מה שהמשתמש בחר בהגדרות, והוא זה שקובע איזו מהן [latestRelease] מחזיר.
 class OtzariaUpdateCheckResult {
   const OtzariaUpdateCheckResult({
-    required this.latestRelease,
     required this.currentState,
+    this.stableRelease,
+    this.prereleaseRelease,
+    this.preferPrerelease = false,
   });
 
-  /// null אם עדיין לא הורדה שום גרסה לתיקייה המקומית. ראו [needsDownload].
-  final OtzariaRelease? latestRelease;
+  /// הגרסה היציבה שבמראה, או null אם לא הורדה כזו.
+  final OtzariaRelease? stableRelease;
+
+  /// ה-pre-release שבמראה — קיים רק כשהוא חדש מהיציבה (ראו
+  /// `OtzariaReleaseClient.fetchChannelReleases`).
+  final OtzariaRelease? prereleaseRelease;
+
+  /// בחירת המשתמש בין השתיים. חסרת משמעות כשאין [hasChannelChoice].
+  final bool preferPrerelease;
 
   /// null אם עדיין לא בוצעה אף התקנה על ידי הלאנצ'ר הזה.
   final OtzariaInstallState? currentState;
+
+  /// הגרסה שתותקן בפועל — לפי הערוץ שנבחר, עם נפילה לערוץ השני כשהנבחר
+  /// ריק. null אם עדיין לא הורדה שום גרסה. ראו [needsDownload].
+  OtzariaRelease? get latestRelease =>
+      _mirrored.select(preferPrerelease: preferPrerelease);
+
+  /// הערוץ שאליו שייכת [latestRelease] בפועל.
+  OtzariaReleaseChannel? get selectedChannel =>
+      _mirrored.selectedChannel(preferPrerelease: preferPrerelease);
+
+  /// שתי הגרסאות יושבות במראה — רק אז יש למשתמש מה לבחור.
+  bool get hasChannelChoice => _mirrored.hasChoice;
+
+  OtzariaChannelReleases get _mirrored => OtzariaChannelReleases(
+        stable: stableRelease,
+        prerelease: prereleaseRelease,
+      );
 
   /// אין מה להשוות מולו — צריך קודם להריץ הורדה במחשב עם אינטרנט.
   bool get needsDownload => latestRelease == null;
@@ -21,6 +51,9 @@ class OtzariaUpdateCheckResult {
   /// true גם כשאין התקנה קודמת בכלל (currentState == null) — אז "צריך
   /// עדכון" פשוט אומר "צריך התקנה ראשונית". false כשאין מראה: בלי גרסה
   /// זמינה בדיסק אין שום דבר להתקין.
+  ///
+  /// מספיק שהתג שונה מהמותקן: מעבר מהערוץ הלא-יציב חזרה ליציב הוא בדרך
+  /// כלל *ירידה* בגרסה, וגם אותו צריך להציע כשהמשתמש ביקש אותו במפורש.
   bool get updateAvailable {
     final latest = latestRelease;
     if (latest == null) return false;

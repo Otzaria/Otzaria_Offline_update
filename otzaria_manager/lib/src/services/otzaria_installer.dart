@@ -125,10 +125,15 @@ class OtzariaInstaller {
   /// מתקין קובץ התקנה **שכבר נמצא בדיסק** — בלי לגעת ברשת בכלל. זה המסלול
   /// שמשמש בפועל: ההורדה נעשית מראש אל המראה המקומית (`OtzariaAppMirror`),
   /// וההתקנה קוראת משם, גם במחשב בלי אינטרנט.
+  /// [keepCachedTagNames] = התגים שקובצי ההתקנה שלהם יישארו ב-cache אחרי
+  /// ההתקנה. ברירת המחדל היא הגרסה שהותקנה בלבד; הקורא מעביר את **כל**
+  /// הגרסאות שבמראה, אחרת התקנה של ערוץ אחד הייתה מוחקת את קובץ ההתקנה
+  /// של השני.
   Future<OtzariaInstallState> installFromFile({
     required OtzariaRelease release,
     required String installerPath,
     String? targetInstallDir,
+    Set<String>? keepCachedTagNames,
   }) async {
     final installDir = targetInstallDir ?? defaultInstallDir;
     await Directory(installDir).create(recursive: true);
@@ -153,7 +158,9 @@ class OtzariaInstaller {
         );
     }
 
-    await _pruneOldCacheEntries(keepTagName: release.tagName);
+    await pruneCacheExcept(
+      keepTagNames: keepCachedTagNames ?? {release.tagName},
+    );
 
     return OtzariaInstallState(
       installedTagName: release.tagName,
@@ -162,14 +169,16 @@ class OtzariaInstaller {
     );
   }
 
-  /// מוחק תתי-תיקיות cache של גרסאות ישנות אחרי התקנה מוצלחת, כדי
-  /// שהתיקייה לא תצטבר בלי גבול — משאיר רק את הגרסה הנוכחית.
-  Future<void> _pruneOldCacheEntries({required String keepTagName}) async {
+  /// מוחק תתי-תיקיות cache של גרסאות שאינן ב-[keepTagNames], כדי שהתיקייה
+  /// לא תצטבר בלי גבול על הכונן הנייד. נקרא אחרי התקנה מוצלחת ואחרי סנכרון
+  /// המראה.
+  Future<void> pruneCacheExcept({required Set<String> keepTagNames}) async {
     final dir = Directory(cacheDir);
     if (!await dir.exists()) return;
     try {
       await for (final entry in dir.list()) {
-        if (entry is Directory && p.basename(entry.path) != keepTagName) {
+        if (entry is Directory &&
+            !keepTagNames.contains(p.basename(entry.path))) {
           await entry.delete(recursive: true);
         }
       }

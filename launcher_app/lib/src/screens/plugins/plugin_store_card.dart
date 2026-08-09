@@ -27,6 +27,11 @@ class PluginStoreCard extends StatelessWidget {
   final VoidCallback onInstall;
   final bool busy;
 
+  /// תקציבי הגובה של שתי שורות הגלולות. הם חלק מהחישוב של
+  /// `_cardContentHeight` ב-`plugins_screen.dart` — שינוי כאן דורש שינוי שם.
+  static const double _badgesHeight = 52;
+  static const double _tagsHeight = 26;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -43,37 +48,41 @@ class PluginStoreCard extends StatelessWidget {
               children: [
                 PluginThumbnail(
                     imagePath: controller.assetPath(plugin.imagePath)),
-                if (plugin.isPinned)
+                if (plugin.isFeatured)
                   const Positioned(
                     top: AppTokens.spaceSM,
                     right: AppTokens.spaceSM,
                     child: PluginBadge(
-                      label: 'מומלץ',
-                      icon: FluentIcons.pin_24_regular,
+                      label: 'נבחר',
+                      icon: FluentIcons.star_24_regular,
                       emphasized: true,
                     ),
                   ),
               ],
             ),
             const SizedBox(height: AppTokens.spaceMD),
-            Wrap(
-              spacing: AppTokens.spaceXS,
-              runSpacing: AppTokens.spaceXS,
-              children: [
-                PluginBadge(
-                  label: pluginStatusLabel(plugin.status),
-                  emphasized: true,
-                ),
-                PluginBadge(label: 'גרסה ${plugin.version}'),
-                PluginBadge(
-                  label: '${plugin.downloadCount}',
-                  icon: FluentIcons.arrow_download_24_regular,
-                ),
-                PluginInstallChip(
-                  status: installStatus,
-                  installedVersion: controller.installedVersionOf(plugin),
-                ),
-              ],
+            // תקציב גובה קבוע לשתי שורות גלולות. הכרטיס ברשת הוא בגובה
+            // קבוע (mainAxisExtent), ולכן `Wrap` שגולש לשורה שלישית — למשל
+            // עם שבב "עדכון זמין (מותקן …)" בכרטיס צר — היה מגלישׂ את הכרטיס.
+            SizedBox(
+              height: _badgesHeight,
+              child: Wrap(
+                spacing: AppTokens.spaceXS,
+                runSpacing: AppTokens.spaceXS,
+                clipBehavior: Clip.hardEdge,
+                children: [
+                  PluginBadge(
+                    label: pluginStatusLabel(plugin.status),
+                    emphasized: true,
+                  ),
+                  PluginBadge(label: 'גרסה ${plugin.version}'),
+                  PluginBadge(
+                    label: '${plugin.downloadCount}',
+                    icon: FluentIcons.arrow_download_24_regular,
+                  ),
+                  PluginInstallChip(status: installStatus, compact: true),
+                ],
+              ),
             ),
             const SizedBox(height: AppTokens.spaceSM),
             Text(
@@ -94,13 +103,17 @@ class PluginStoreCard extends StatelessWidget {
             ),
             if (plugin.tags.isNotEmpty) ...[
               const SizedBox(height: AppTokens.spaceSM),
-              Wrap(
-                spacing: AppTokens.spaceXS,
-                runSpacing: AppTokens.spaceXS,
-                children: [
-                  for (final tag in plugin.tags.take(4))
-                    PluginTagPill(label: tag),
-                ],
+              // שורת תגיות אחת, מאותה סיבה. התגיות המלאות בעמוד התוסף.
+              SizedBox(
+                height: _tagsHeight,
+                child: Wrap(
+                  spacing: AppTokens.spaceXS,
+                  clipBehavior: Clip.hardEdge,
+                  children: [
+                    for (final tag in plugin.tags.take(4))
+                      PluginTagPill(label: tag),
+                  ],
+                ),
               ),
             ],
             const Spacer(),
@@ -129,11 +142,30 @@ class PluginStoreCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: AppTokens.spaceSM),
-            Text(
-              'עודכן ב־${HebrewDate.format(plugin.originalDate.isNotEmpty ? plugin.originalDate : plugin.updatedAt)}',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+            Divider(height: 1, color: theme.colorScheme.outlineVariant),
+            const SizedBox(height: AppTokens.spaceSM),
+            // שורת התחתית של הכרטיס באתר: "לפרטים מלאים" מול תאריך העדכון.
+            Row(
+              children: [
+                Text(
+                  'לפרטים מלאים',
+                  style: TextStyle(
+                    fontSize: AppTokens.fontSM,
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+                const Spacer(),
+                Flexible(
+                  child: Text(
+                    'עודכן ב־${HebrewDate.format(plugin.originalDate.isNotEmpty ? plugin.originalDate : plugin.updatedAt)}',
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

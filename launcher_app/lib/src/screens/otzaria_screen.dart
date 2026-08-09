@@ -4,9 +4,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
 import '../controllers/otzaria_module_controller.dart';
+import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
+
+/// נוסח דיאלוג ההתקנה — משותף למסך הזה ולאריח בדף הבית, כדי שהאזהרה על
+/// גרסה לא-יציבה תופיע בשניהם.
+String appInstallPrompt(OtzariaModuleController c) {
+  final channelNote = c.hasChannelChoice && c.preferPrerelease
+      ? ' זו הגרסה הלא-יציבה (pre-release) שנבחרה בהגדרות מסך התוכנה.'
+      : '';
+  return 'הגרסה ${c.latestVersion} תותקן מהתיקייה המקומית על גבי '
+      '${c.currentVersion ?? 'ההתקנה הקיימת'}.$channelNote '
+      'ההתקנה אינה דורשת אינטרנט. יש לוודא שאוצריא סגורה.';
+}
 
 /// מסך עדכון תוכנת אוצריא — מקביל במבנה ל-[LibraryScreen]: מצב, מה
 /// התחדש בגרסה האחרונה, והתיקייה שממנה מותקנים.
@@ -14,10 +26,14 @@ class OtzariaScreen extends StatelessWidget {
   const OtzariaScreen({
     super.key,
     required this.otzaria,
+    required this.settings,
     required this.otzariaIsRunning,
   });
 
   final OtzariaModuleController otzaria;
+
+  /// בחירת ערוץ הגרסה נשמרת בהגדרות, כדי שתישאר בין הפעלות.
+  final SettingsController settings;
   final bool otzariaIsRunning;
 
   /// **לא** תלוי בהורדה גלובלית: הורדה של רכיב אחר (למשל הספרייה) לא
@@ -84,9 +100,29 @@ class OtzariaScreen extends StatelessWidget {
         SettingsActionTile.text(
           icon: FluentIcons.folder_24_regular,
           title: 'גרסה בתיקייה המקומית',
-          subtitle: c.latestVersion ?? 'אין — יש להריץ הורדה',
-          subtitleLtr: c.latestVersion != null,
+          // כששתיהן בתיקייה מוצגות שתיהן — הפקד שמתחת קובע איזו תותקן.
+          subtitle: c.hasChannelChoice
+              ? '${c.stableVersion} (יציבה) · ${c.prereleaseVersion} (לא יציבה)'
+              : c.latestVersion ?? 'אין — יש להריץ הורדה',
+          subtitleLtr: c.latestVersion != null && !c.hasChannelChoice,
         ),
+        // מוצג רק כשבתיקייה יושבות שתי גרסאות — כלומר כשה-pre-release חדש
+        // מהיציבה. אחרת אין בחירה אמיתית, ואין טעם להציג פקד.
+        if (c.hasChannelChoice)
+          SettingsActionTile.segmentedTile<bool>(
+            icon: FluentIcons.branch_24_regular,
+            title: 'הגרסה שתותקן',
+            subtitle: c.preferPrerelease
+                ? 'הגרסה הלא-יציבה (${c.prereleaseVersion}) — חדשה יותר, '
+                    'אך עלולה להכיל תקלות'
+                : 'הגרסה היציבה (${c.stableVersion}) — מומלץ',
+            options: const [
+              SegmentOption(value: false, label: 'יציבה'),
+              SegmentOption(value: true, label: 'לא יציבה'),
+            ],
+            currentValue: c.preferPrerelease,
+            onChanged: _setChannel,
+          ),
         SettingsActionTile.text(
           icon: FluentIcons.play_24_regular,
           title: 'תהליך אוצריא',
@@ -124,6 +160,14 @@ class OtzariaScreen extends StatelessWidget {
     );
   }
 
+  /// שומר את הבחירה בהגדרות; `AppShell` מזליג אותה לקונטרולר, שמריץ בדיקה
+  /// מחדש מהתיקייה המקומית. אין כאן רשת — שתי הגרסאות כבר בדיסק.
+  void _setChannel(bool preferPrerelease) {
+    settings.update(
+      settings.settings.copyWith(preferAppPrerelease: preferPrerelease),
+    );
+  }
+
   Future<void> _pickInstallDir(BuildContext context) async {
     final dir = await FilePicker.platform.getDirectoryPath(
       dialogTitle: 'בחירת תיקיית ההתקנה של אוצריא',
@@ -142,9 +186,7 @@ class OtzariaScreen extends StatelessWidget {
     final approved = await showTwoActionsDialog(
       context: context,
       title: 'התקנת תוכנת אוצריא',
-      content: 'הגרסה ${otzaria.latestVersion} תותקן מהתיקייה המקומית '
-          'על גבי ${otzaria.currentVersion ?? 'ההתקנה הקיימת'}. '
-          'ההתקנה אינה דורשת אינטרנט. יש לוודא שאוצריא סגורה.',
+      content: appInstallPrompt(otzaria),
       confirmText: 'התקן',
     );
     if (!approved) return;

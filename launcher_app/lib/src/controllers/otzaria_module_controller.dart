@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 
@@ -26,17 +28,27 @@ enum OtzariaDownloadStatus { idle, downloading, done, error }
 class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   OtzariaModuleController({
     required String dataDir,
-    bool allowPrerelease = false,
-  }) : _manager = OtzariaManager(
+    bool preferPrerelease = false,
+  })  : _preferPrerelease = preferPrerelease,
+        _manager = OtzariaManager(
           dataDir: dataDir,
-          allowPrerelease: allowPrerelease,
+          preferPrerelease: preferPrerelease,
         );
 
   final OtzariaManager _manager;
   OtzariaUpdateCheckResult? _lastCheck;
+  bool _preferPrerelease;
 
-  /// מחליף ערוץ גרסאות — נכנס לתוקף בהורדה הבאה.
-  set allowPrerelease(bool value) => _manager.allowPrerelease = value;
+  /// הערוץ שממנו מתקינים כשיושבות בתיקייה שתי גרסאות. ההורדה מביאה תמיד
+  /// את שתיהן, ולכן החלפה כאן אינה דורשת רשת — רק בדיקה מחדש מהדיסק.
+  bool get preferPrerelease => _preferPrerelease;
+
+  set preferPrerelease(bool value) {
+    if (_preferPrerelease == value) return;
+    _preferPrerelease = value;
+    _manager.preferPrerelease = value;
+    unawaited(checkForUpdate());
+  }
 
   /// זמן קצוב לפעולות רשת (מהגדרות "רשת") — נכנס לתוקף בבקשה הבאה.
   set networkTimeout(Duration value) => _manager.networkTimeout = value;
@@ -44,13 +56,25 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   OtzariaModuleStatus status = OtzariaModuleStatus.idle;
   String? currentVersion;
 
-  /// הגרסה שיושבת בתיקייה המקומית ומוכנה להתקנה, או null אם טרם הורדה.
+  /// הגרסה שיושבת בתיקייה המקומית ומוכנה להתקנה **בערוץ שנבחר**, או null
+  /// אם טרם הורדה.
   String? latestVersion;
   String? errorMessage;
+
+  /// הגרסאות שבתיקייה המקומית לפי ערוץ — `null` לערוץ שאין בו גרסה.
+  String? stableVersion;
+  String? prereleaseVersion;
+
+  /// שתי הגרסאות יושבות בתיקייה — רק אז מוצגת למשתמש בחירת ערוץ.
+  bool hasChannelChoice = false;
 
   OtzariaDownloadStatus downloadStatus = OtzariaDownloadStatus.idle;
   int? downloadReceived;
   int? downloadTotal;
+
+  /// מה יורד כרגע — ההורדה מביאה שתי גרסאות בזו אחר זו, ובלי זה מד
+  /// ההתקדמות היה מתאפס בלי הסבר.
+  String? downloadStage;
   String? downloadError;
   DateTime? lastDownloadedAt;
 
@@ -116,6 +140,7 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     downloadStatus = OtzariaDownloadStatus.downloading;
     downloadReceived = null;
     downloadTotal = null;
+    downloadStage = null;
     downloadError = null;
     notifyListeners();
 
@@ -126,13 +151,21 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
           downloadTotal = total;
           notifyProgress();
         },
+        onChannel: (channel) {
+          downloadStage = 'מוריד את תוכנת אוצריא (גרסה ${channel.label})...';
+          downloadReceived = null;
+          downloadTotal = null;
+          notifyListeners();
+        },
       );
+      downloadStage = null;
       downloadStatus = OtzariaDownloadStatus.done;
       lastDownloadedAt = DateTime.now();
       notifyListeners();
       await checkForUpdate();
       return;
     } catch (e, st) {
+      downloadStage = null;
       downloadStatus = OtzariaDownloadStatus.error;
       downloadError = e.toString();
       AppLogger.instance.error('הורדת גרסת אוצריא נכשלה', e, st);
@@ -151,6 +184,9 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
       _lastCheck = check;
       currentVersion = check.currentState?.installedTagName;
       latestVersion = check.latestRelease?.tagName;
+      stableVersion = check.stableRelease?.tagName;
+      prereleaseVersion = check.prereleaseRelease?.tagName;
+      hasChannelChoice = check.hasChannelChoice;
       status = switch (check) {
         _ when check.needsDownload => OtzariaModuleStatus.needsDownload,
         _ when check.updateAvailable => OtzariaModuleStatus.updateAvailable,

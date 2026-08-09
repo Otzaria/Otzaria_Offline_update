@@ -18,7 +18,7 @@
 	     בכוונה: PRODUCT_NAME קובע גם את שם קובץ ההפעלה, ושם חייב להישאר
 	     באנגלית ושונה מ-"אוצריא" — ראו ההסבר ב-AppInfo.xcconfig. -->
 	<key>CFBundleDisplayName</key>
-	<string>לאנצ'ר אוצריא</string>
+	<string>עדכוני אוצריא</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

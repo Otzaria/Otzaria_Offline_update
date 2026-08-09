@@ -27,7 +27,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
-  if (!window.Create(L"Otzaria Launcher", origin, size)) {
+  // Window title, Hebrew for "Otzaria Updates". Kept as escapes and not as
+  // literal text on purpose: this file is compiled with /WX, and non-ASCII
+  // bytes raise C4819 wherever the system code page is not UTF-8.
+  const wchar_t* window_title =
+      L"\u05E2\u05D3\u05DB\u05D5\u05E0\u05D9 \u05D0\u05D5\u05E6\u05E8\u05D9\u05D0";
+  if (!window.Create(window_title, origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

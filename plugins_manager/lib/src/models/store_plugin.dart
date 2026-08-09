@@ -62,10 +62,11 @@ class StorePlugin extends Equatable {
     required this.homepage,
     required this.downloadCount,
     required this.supportsDirectInstall,
-    required this.isPinned,
+    required this.isFeatured,
     required this.remoteDownloadUrl,
     this.imagePath,
     this.screenshotPaths = const [],
+    this.categorySlugs = const [],
     this.localFile,
     this.manifestId,
   });
@@ -88,7 +89,10 @@ class StorePlugin extends Equatable {
   final String homepage;
   final int downloadCount;
   final bool supportsDirectInstall;
-  final bool isPinned;
+
+  /// "תוסף נבחר" — האצירה הידנית של דף הבית בחנות. באתר השדה עדיין נקרא
+  /// `isPinned` (תאימות לאחור), ומשמעותו כיום featured.
+  final bool isFeatured;
 
   /// כתובת מוחלטת להורדת קובץ התוסף — נשמרת בקטלוג כדי שהתקנה ישירה תוכל
   /// להשלים קובץ חסר גם בלי סנכרון מלא מחדש.
@@ -96,6 +100,11 @@ class StorePlugin extends Equatable {
 
   final String? imagePath;
   final List<String> screenshotPaths;
+
+  /// ה-slug של כל קטגוריה שהתוסף משובץ בה. אינו מגיע מ-`/api/plugins`
+  /// אלא מחושב בסנכרון מתוך רשימות החברות של הקטגוריות.
+  final List<String> categorySlugs;
+
   final PluginLocalFile? localFile;
 
   /// ה-id האמיתי מתוך `manifest.json` שבקובץ ה-`.otzplugin`. זהו המפתח
@@ -113,19 +122,22 @@ class StorePlugin extends Equatable {
         : PluginInstallStatus.upToDate;
   }
 
-  /// האם התוסף תואם לטקסט חיפוש חופשי (שם / תיאור / תגית).
+  /// האם התוסף תואם לטקסט חיפוש חופשי. אותם שדות שהחיפוש החכם באתר מדרג
+  /// (שם, תגיות, תקציר, מפתח, תיאור) — כאן בלי דירוג, כי החיפוש מקומי.
   bool matchesQuery(String query) {
     if (query.trim().isEmpty) return true;
     final q = query.toLowerCase();
     return name.toLowerCase().contains(q) ||
         shortDescription.toLowerCase().contains(q) ||
         description.toLowerCase().contains(q) ||
+        author.toLowerCase().contains(q) ||
         tags.any((t) => t.toLowerCase().contains(q));
   }
 
   StorePlugin copyWith({
     String? imagePath,
     List<String>? screenshotPaths,
+    List<String>? categorySlugs,
     PluginLocalFile? localFile,
     String? manifestId,
   }) {
@@ -146,10 +158,11 @@ class StorePlugin extends Equatable {
       homepage: homepage,
       downloadCount: downloadCount,
       supportsDirectInstall: supportsDirectInstall,
-      isPinned: isPinned,
+      isFeatured: isFeatured,
       remoteDownloadUrl: remoteDownloadUrl,
       imagePath: imagePath ?? this.imagePath,
       screenshotPaths: screenshotPaths ?? this.screenshotPaths,
+      categorySlugs: categorySlugs ?? this.categorySlugs,
       localFile: localFile ?? this.localFile,
       manifestId: manifestId ?? this.manifestId,
     );
@@ -178,7 +191,7 @@ class StorePlugin extends Equatable {
       downloadCount:
           json['downloadCount'] is int ? json['downloadCount'] as int : 0,
       supportsDirectInstall: json['supportsDirectInstall'] == true,
-      isPinned: json['isPinned'] == true,
+      isFeatured: json['isPinned'] == true,
       remoteDownloadUrl: _absolute(_string(json['downloadUrl']), baseUrl),
     );
   }
@@ -200,10 +213,11 @@ class StorePlugin extends Equatable {
         'homepage': homepage,
         'downloadCount': downloadCount,
         'supportsDirectInstall': supportsDirectInstall,
-        'isPinned': isPinned,
+        'isFeatured': isFeatured,
         'remoteDownloadUrl': remoteDownloadUrl,
         'image': imagePath,
         'screenshots': screenshotPaths,
+        'categories': categorySlugs,
         'localFile': localFile?.toJson(),
         'manifestId': manifestId,
       };
@@ -231,10 +245,12 @@ class StorePlugin extends Equatable {
       downloadCount:
           json['downloadCount'] is int ? json['downloadCount'] as int : 0,
       supportsDirectInstall: json['supportsDirectInstall'] == true,
-      isPinned: json['isPinned'] == true,
+      // `isPinned` — קטלוג שנכתב לפני שהאתר שינה את המשמעות ל"נבחר".
+      isFeatured: json['isFeatured'] == true || json['isPinned'] == true,
       remoteDownloadUrl: _string(json['remoteDownloadUrl']),
       imagePath: json['image'] is String ? json['image'] as String : null,
       screenshotPaths: _stringList(json['screenshots']),
+      categorySlugs: _stringList(json['categories']),
       localFile: PluginLocalFile.fromJson(json['localFile']),
       manifestId: json['manifestId'] is String &&
               (json['manifestId'] as String).isNotEmpty
@@ -256,5 +272,6 @@ class StorePlugin extends Equatable {
   }
 
   @override
-  List<Object?> get props => [id, version, manifestId, localFile, imagePath];
+  List<Object?> get props =>
+      [id, version, manifestId, localFile, imagePath, categorySlugs];
 }

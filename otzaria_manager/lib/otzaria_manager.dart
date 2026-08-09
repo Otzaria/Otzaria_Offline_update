@@ -1,5 +1,6 @@
 export 'src/models/otzaria_install_state.dart';
 export 'src/models/otzaria_release.dart';
+export 'src/models/otzaria_release_channel.dart';
 export 'src/models/otzaria_update_check_result.dart';
 export 'src/otzaria_manager.dart';
 export 'src/services/installed_version_reader.dart';
