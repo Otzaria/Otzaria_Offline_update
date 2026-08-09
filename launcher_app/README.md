@@ -74,6 +74,7 @@ ZSTD_ROOT="C:/pub-cache/hosted/pub.dev/zstandard_native-1.5.0/src/zstd" \
 | 2–4 אפשרויות | `AppSegmentedControl` (לא RadioButton) |
 | קלט טקסט | `RtlTextField` (לא `TextField`) |
 | חיווי מצב | `StatusChip` — תמיד סמל **וגם** טקסט, לא צבע בלבד |
+| מלל למשתמש | `context.strings.<סעיף>.<שדה>` מ-`otzaria_l10n` — לעולם לא מחרוזת בקוד |
 
 **אסור** `ElevatedButton`/`TextButton`/`OutlinedButton` ישירות, אסור
 `ScaffoldMessenger.showSnackBar`, ואסור `.withValues(alpha:)` /
@@ -85,6 +86,21 @@ ZSTD_ROOT="C:/pub-cache/hosted/pub.dev/zstandard_native-1.5.0/src/zstd" \
 ובלי כפתורי פעולה. ⚠️ מאז שנוסף שדה החיפוש בחנות התוספים יש בלאנצ'ר
 קלט טקסט אמיתי ראשון, ולכן פורט מלא של
 `otzaria/lib/widgets/text/rtl_text_field.dart` הוא כעת חוב פתוח.
+
+### שפה וכיווניות
+
+הלאנצ'ר דו-לשוני (עברית כברירת מחדל, אנגלית). כל המלל יושב ב-`otzaria_l10n`
+— ראו `AGENTS.md` §4 "All user-visible text" לכללים המלאים. שלוש נקודות
+שנוגעות דווקא לרכיבים כאן:
+
+- `RtlTextField` **אינו** כופה עוד RTL. הוא יורש את כיוון השפה, אחרת
+  חיפוש באנגלית היה נכתב מימין לשמאל.
+- `UiSnack` יושב ב-`Overlay` ולכן אינו יורש כיווניות מה-Navigator; הוא
+  קורא את השפה ישירות מ-`AppL10n`. זה החריג היחיד המותר.
+- לחצי "חזרה"/"קדימה" יש להשתמש ב-`context.backArrowIcon` /
+  `context.forwardArrowIcon`. `RtlIcon` (שדרכו `ActionButton` מצייר כל
+  אייקון) מהפך חיצים ב-RTL, ולכן העוזרים האלה מוסרים לו את הסמל ההפוך —
+  והחץ שמוצג בפועל יוצא זהה בשתי השפות.
 
 ### תוספת שאינה פורט — רכיבי חנות התוספים
 

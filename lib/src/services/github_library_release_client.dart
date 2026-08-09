@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../models/delta_manifest.dart';
 import '../models/library_release.dart';
@@ -54,12 +55,15 @@ class GithubLibraryReleaseClient implements LibraryReleaseSource {
           await _httpClient.get(url, headers: _apiHeaders).timeout(timeout);
       if (response.statusCode != 200) {
         throw Exception(
-          'שגיאה בקבלת רשימת ה-releases: ${response.statusCode}',
+          AppL10n.strings.libraryDomain
+              .releasesRequestFailed(response.statusCode),
         );
       }
       final decoded = jsonDecode(utf8.decode(response.bodyBytes));
       if (decoded is! List) {
-        throw const FormatException('תשובת ה-releases מ-GitHub אינה רשימה');
+        throw FormatException(
+          AppL10n.strings.libraryDomain.releasesResponseNotList,
+        );
       }
       all.addAll(decoded
           .whereType<Map<String, dynamic>>()
@@ -80,11 +84,16 @@ class GithubLibraryReleaseClient implements LibraryReleaseSource {
       },
     ).timeout(timeout);
     if (response.statusCode != 200) {
-      throw Exception('שגיאה בהורדת manifest ($url): ${response.statusCode}');
+      throw Exception(
+        AppL10n.strings.libraryDomain
+            .manifestDownloadFailed(url, response.statusCode),
+      );
     }
     final decoded = jsonDecode(utf8.decode(response.bodyBytes));
     if (decoded is! Map<String, dynamic>) {
-      throw FormatException('manifest אינו אובייקט JSON תקין: $url');
+      throw FormatException(
+        AppL10n.strings.libraryDomain.manifestNotJsonObject(url),
+      );
     }
     return DeltaManifest.fromJson(decoded);
   }

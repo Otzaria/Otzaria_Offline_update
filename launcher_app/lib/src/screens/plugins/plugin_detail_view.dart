@@ -111,8 +111,8 @@ class PluginDetailView extends StatelessWidget {
       child: Row(
         children: [
           ActionButton.ghost(
-            text: 'חזרה לחנות',
-            icon: FluentIcons.arrow_right_24_regular,
+            text: context.strings.plugins.backToStore,
+            icon: context.backArrowIcon,
             onPressed: onBack,
           ),
           const SizedBox(width: AppTokens.spaceMD),
@@ -187,6 +187,7 @@ class PluginDetailView extends StatelessWidget {
 
   Widget _heroDetails(BuildContext context) {
     final theme = Theme.of(context);
+    final t = context.strings.plugins;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -209,14 +210,14 @@ class PluginDetailView extends StatelessWidget {
               label: pluginStatusLabel(plugin.status),
               emphasized: true,
             ),
-            PluginBadge(label: 'גרסה ${plugin.version}'),
+            PluginBadge(label: t.pluginVersionBadge(plugin.version)),
             PluginBadge(
-              label: '${plugin.downloadCount} הורדות',
+              label: t.downloadsBadge(plugin.downloadCount),
               icon: FluentIcons.arrow_download_24_regular,
             ),
             if (plugin.isFeatured)
-              const PluginBadge(
-                label: 'תוסף נבחר',
+              PluginBadge(
+                label: t.badgeFeatured,
                 icon: FluentIcons.star_24_regular,
               ),
             PluginInstallChip(
@@ -246,20 +247,20 @@ class PluginDetailView extends StatelessWidget {
           children: [
             if (plugin.supportsDirectInstall)
               ActionButton.recommended(
-                text: 'התקנה ישירה לאוצריא',
+                text: t.directInstallButton,
                 icon: FluentIcons.arrow_download_24_regular,
                 isLoading: busy,
                 onPressed: onInstall,
               ),
             ActionButton.neutral(
-              text: 'שמירת הקובץ',
+              text: t.saveButton,
               icon: FluentIcons.save_24_regular,
               isLoading: busy,
               onPressed: plugin.localFile == null ? null : onSave,
             ),
             if (plugin.homepage.isNotEmpty)
               ActionButton.ghost(
-                text: 'עמוד המקור',
+                text: t.sourcePageButton,
                 icon: FluentIcons.open_24_regular,
                 onPressed: () => controller.openHomepage(plugin.homepage),
               ),
@@ -271,30 +272,35 @@ class PluginDetailView extends StatelessWidget {
 
   Widget _infoPanel(BuildContext context) {
     final localFile = plugin.localFile;
+    final t = context.strings.plugins;
 
     return _panel(
       context,
-      'מידע כללי',
+      t.infoPanelTitle,
       LayoutBuilder(
         builder: (context, constraints) {
           final cells = <({String label, String value, bool wide})>[
             (
-              label: 'גרסה',
-              value: plugin.version.isEmpty ? 'לא צוינה' : plugin.version,
+              label: t.infoVersion,
+              value: plugin.version.isEmpty
+                  ? t.valueUnspecifiedFeminine
+                  : plugin.version,
               wide: false,
             ),
             (
-              label: 'סטטוס',
+              label: t.infoStatus,
               value: pluginStatusLabel(plugin.status),
               wide: false,
             ),
             (
-              label: 'מפתח',
-              value: plugin.author.isEmpty ? 'לא צוין' : plugin.author,
+              label: t.infoAuthor,
+              value: plugin.author.isEmpty
+                  ? t.valueUnspecifiedMasculine
+                  : plugin.author,
               wide: false,
             ),
             (
-              label: 'עודכן',
+              label: t.infoUpdated,
               value: HebrewDate.format(
                 plugin.originalDate.isNotEmpty
                     ? plugin.originalDate
@@ -303,24 +309,32 @@ class PluginDetailView extends StatelessWidget {
               wide: false,
             ),
             (
-              label: 'חיבור אינטרנט בזמן שימוש',
-              value: plugin.requiresNetwork ? 'נדרש' : 'לא נדרש',
+              label: t.infoNetwork,
+              value: plugin.requiresNetwork
+                  ? t.infoNetworkRequired
+                  : t.infoNetworkNotRequired,
               wide: false,
             ),
             (
-              label: 'תאימות',
+              label: t.infoCompatibility,
               value: plugin.compatibleWith.isEmpty
-                  ? 'לא צוינה'
+                  ? t.valueUnspecifiedFeminine
                   : plugin.maxAppVersion == null
                       ? plugin.compatibleWith
-                      : '${plugin.compatibleWith} — עד ${plugin.maxAppVersion}',
+                      : t.compatibilityRange(
+                          plugin.compatibleWith,
+                          plugin.maxAppVersion!,
+                        ),
               wide: true,
             ),
             (
-              label: 'קובץ התוסף במראה',
+              label: t.infoLocalFile,
               value: localFile == null
-                  ? 'טרם ירד — יש לבצע סנכרון'
-                  : '${localFile.fileName} (${_formatSize(localFile.size)})',
+                  ? t.infoLocalFileMissing
+                  : t.localFileDescription(
+                      localFile.fileName,
+                      _formatSize(context, localFile.size),
+                    ),
               wide: true,
             ),
           ];
@@ -351,7 +365,7 @@ class PluginDetailView extends StatelessWidget {
   Widget _tagsPanel(BuildContext context) {
     return _panel(
       context,
-      'תגיות',
+      context.strings.plugins.tagsPanelTitle,
       Wrap(
         spacing: AppTokens.spaceSM,
         runSpacing: AppTokens.spaceSM,
@@ -372,7 +386,7 @@ class PluginDetailView extends StatelessWidget {
 
     return _panel(
       context,
-      'צילומי מסך',
+      context.strings.plugins.screenshotsPanelTitle,
       Wrap(
         spacing: AppTokens.spaceSM,
         runSpacing: AppTokens.spaceSM,
@@ -406,9 +420,9 @@ class PluginDetailView extends StatelessWidget {
     );
   }
 
-  static String _formatSize(int bytes) {
-    if (bytes <= 0) return 'גודל לא ידוע';
-    if (bytes < 1024) return '$bytes בייט';
+  static String _formatSize(BuildContext context, int bytes) {
+    if (bytes <= 0) return context.strings.plugins.sizeUnknown;
+    if (bytes < 1024) return context.strings.units.bytes(bytes);
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }

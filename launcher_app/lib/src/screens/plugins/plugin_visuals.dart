@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
 import '../../theme/theme_exports.dart';
@@ -28,14 +29,17 @@ int? decodeWidthFor(BuildContext context, double logicalWidth) {
 
 const int _decodeStep = 64;
 
-const Map<String, String> kPluginStatusLabels = {
-  'stable': 'יציב',
-  'beta': 'בטא',
-  'experimental': 'ניסיוני',
-};
-
-String pluginStatusLabel(String status) =>
-    kPluginStatusLabels[status] ?? 'לא ידוע';
+/// תווית סטטוס התוסף כפי שהאתר מדווח אותו (`stable`/`beta`/`experimental`).
+/// המפתחות מגיעים מה-API ואינם מתורגמים — רק התוויות שמוצגות.
+String pluginStatusLabel(String status) {
+  final t = AppL10n.strings.plugins;
+  return switch (status) {
+    'stable' => t.statusStable,
+    'beta' => t.statusBeta,
+    'experimental' => t.statusExperimental,
+    _ => t.statusUnknown,
+  };
+}
 
 /// גלולת מטא-דאטה קטנה (גרסה, מספר הורדות, סטטוס).
 class PluginBadge extends StatelessWidget {
@@ -191,16 +195,18 @@ class PluginInstallChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.strings.plugins;
+
     return switch (status) {
-      PluginInstallStatus.upToDate => const StatusChip(
+      PluginInstallStatus.upToDate => StatusChip(
           kind: StatusKind.ok,
-          label: 'מותקן',
+          label: t.installChipInstalled,
         ),
       PluginInstallStatus.updateAvailable => StatusChip(
           kind: StatusKind.updateAvailable,
           label: installedVersion == null || compact
-              ? 'עדכון זמין'
-              : 'עדכון זמין (מותקן $installedVersion)',
+              ? t.installChipUpdateAvailable
+              : t.installChipUpdateFrom(installedVersion!),
         ),
       // "לא מותקן" ו-"טרם נבדק" אינם צריכים שבב — היעדר השבב הוא המצב
       // הרגיל בחנות, וכל תוסף שהיה מקבל אותו רק היה מוסיף רעש.

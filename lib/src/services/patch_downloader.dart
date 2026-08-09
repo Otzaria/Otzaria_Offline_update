@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/delta_manifest.dart';
@@ -30,6 +31,14 @@ class PatchDownloader {
   /// חסם עליון על סבבי-המשך (206 קצר) בניסיון בודד. שרת ששולח מעט בייטים בכל
   /// סבב היה גורם לאלפי בקשות על קובץ 1.1GB; מעבר לחסם = כשל הניסיון.
   static const int _maxContinuationRounds = 32;
+
+  /// כמה בייטים מותר לצבור ב-`IOSink` לפני שממתינים לכתיבתם בפועל.
+  ///
+  /// `IOSink.add` אינו מפעיל לחץ-נגד: הוא מכניס לתור ומחזיר מיד. כשהיעד איטי
+  /// מהרשת — וזה בדיוק המקרה כאן, כונן USB מול חיבור מהיר — ההפרש נערם ב-RAM
+  /// עד שהתוכנה נחנקת באמצע הורדת המסד (~1GB). ה-`flush` התקופתי גם עוצר את
+  /// הזרם בזמן ההמתנה וגם משחרר את לולאת האירועים לצייר מסך.
+  static const int _writeBufferBytes = 4 << 20;
 
   final http.Client _httpClient;
   final bool _ownsClient;
@@ -77,33 +86,34 @@ class PatchDownloader {
         isCancelled: isCancelled,
       );
 
+      final strings = AppL10n.strings.libraryDomain;
       _verify(
         actual: compressed.length,
         expected: patchFile.size,
-        label: 'גודל הקובץ הדחוס',
+        label: strings.compressedFileSizeLabel,
       );
       _verifyHash(
         bytes: compressed,
         expected: patchFile.sha256,
-        label: 'sha256 של הקובץ הדחוס',
+        label: strings.compressedFileHashLabel,
       );
 
       _throwIfCancelled(isCancelled);
 
       final extracted = await _decompress(compressed);
       if (extracted == null || extracted.isEmpty) {
-        throw const PatchDownloadException('חילוץ ה-patch נכשל או החזיר ריק');
+        throw PatchDownloadException(strings.patchExtractionFailed);
       }
 
       _verify(
         actual: extracted.length,
         expected: patchFile.uncompressedSize,
-        label: 'גודל הקובץ המחולץ',
+        label: strings.extractedFileSizeLabel,
       );
       _verifyHash(
         bytes: extracted,
         expected: patchFile.uncompressedSha256,
-        label: 'sha256 של הקובץ המחולץ',
+        label: strings.extractedFileHashLabel,
       );
 
       File(extractedPath).writeAsBytesSync(extracted, flush: true);
@@ -152,6 +162,7 @@ class PatchDownloader {
     String? expectedSha256,
     String? resumeToken,
     void Function(int downloaded, int? total)? onProgress,
+    void Function(int verified, int total)? onVerifyProgress,
     bool Function()? isCancelled,
   }) async {
     // ביטול בכניסה חייב לקדום לכל שינוי (מחיקת קובץ קיים, כתיבת קובץ צד) ולכל
@@ -180,7 +191,8 @@ class PatchDownloader {
       if (resumeToken == null) {
         _deleteRequired(
           destPath,
-          'מחיקת קובץ קיים ללא זהות resume נכשלה — לא ניתן להמשיך בהורדה',
+          AppL10n
+              .strings.libraryDomain.deleteExistingWithoutResumeIdentityFailed,
         );
         _deleteQuietly(sidecarPath);
       } else if (file.existsSync()) {
@@ -190,7 +202,8 @@ class PatchDownloader {
           // מחיקה היא תנאי תקינות: כשל שקט היה כובל תוכן ישן לטוקן החדש.
           _deleteRequired(
             destPath,
-            'מחיקת קובץ חלקי מגרסה קודמת נכשלה — לא ניתן להמשיך בהורדה',
+            AppL10n
+                .strings.libraryDomain.deletePartialFromPreviousVersionFailed,
           );
           _deleteQuietly(sidecarPath);
         } else {
@@ -208,7 +221,7 @@ class PatchDownloader {
       if (!alreadyComplete && offset > 0 && storedValidator == null) {
         _deleteRequired(
           destPath,
-          'מחיקת קובץ חלקי ללא validator נכשלה — לא ניתן להמשיך בהורדה',
+          AppL10n.strings.libraryDomain.deletePartialWithoutValidatorFailed,
         );
         offset = 0;
       }
@@ -234,8 +247,8 @@ class PatchDownloader {
         downloaded = outcome.downloaded;
         streamDigest = outcome.digest;
       } else {
-        // _streamToFile לא רץ ולא דיווח — מקדמים ל-100% כדי שהמד לא ייתקע בזמן
-        // אימות ה-hash הארוך (>1GB) על מסלול הקובץ-שכבר-שלם.
+        // _streamToFile לא רץ ולא דיווח — מקדמים ל-100%. האימות שאחרי זה
+        // מדווח בנפרד דרך [onVerifyProgress], אחרת המד נראה תקוע דקה שלמה.
         onProgress?.call(downloaded, downloaded);
       }
 
@@ -243,18 +256,22 @@ class PatchDownloader {
         _deleteQuietly(destPath);
         _deleteQuietly(sidecarPath);
         throw PatchDownloadException(
-            'גודל ה-DB שהורד ($downloaded) אינו תואם לצפוי ($expectedSize)');
+          AppL10n.strings.libraryDomain
+              .fullDbSizeMismatch(downloaded, expectedSize),
+        );
       }
       if (expectedSha256 != null) {
         // ה-hash חושב בזרימה תוך כדי ההורדה; רק במסלול alreadyComplete (אין
         // זרם) קוראים את הקובץ מהדיסק.
-        final actual =
-            (streamDigest ?? await _hashFileDigest(file, isCancelled))
-                .toString();
+        final actual = (streamDigest ??
+                await _hashFileDigest(file, isCancelled, onVerifyProgress))
+            .toString();
         if (actual != expectedSha256.toLowerCase()) {
           _deleteQuietly(destPath);
           _deleteQuietly(sidecarPath);
-          throw const PatchDownloadException('sha256 של ה-DB המלא אינו תואם');
+          throw PatchDownloadException(
+            AppL10n.strings.libraryDomain.fullDbHashMismatch,
+          );
         }
       }
       // ביטול שהתרחש אחרי שכל הבייטים הגיעו — הקובץ שלם ונשמר (עם resumeToken);
@@ -339,7 +356,8 @@ class PatchDownloader {
         if (rounds++ >= _maxContinuationRounds) {
           hashInput?.close();
           throw PatchDownloadException(
-            'חידוש ההורדה חרג ממספר הסבבים המרבי ($_maxContinuationRounds): $url',
+            AppL10n.strings.libraryDomain
+                .resumeRoundLimit(_maxContinuationRounds, url),
           );
         }
         final headers = <String, String>{'Accept': 'application/octet-stream'};
@@ -377,8 +395,8 @@ class PatchDownloader {
             _deleteQuietly(file.path);
             if (sidecarPath != null) _deleteQuietly(sidecarPath);
             throw PatchDownloadException(
-              'Content-Length של ההורדה ($responseLength) אינו תואם '
-              'לגודל הצפוי ($expectedSize)',
+              AppL10n.strings.libraryDomain
+                  .contentLengthMismatch(responseLength, expectedSize),
             );
           }
           if (computeHash) {
@@ -406,8 +424,8 @@ class PatchDownloader {
             _deleteQuietly(file.path);
             if (sidecarPath != null) _deleteQuietly(sidecarPath);
             throw PatchDownloadException(
-              'גוף ההורדה נקטע: Content-Length הצהיר $responseLength בייטים, '
-              'אך התקבלו $downloaded',
+              AppL10n.strings.libraryDomain
+                  .truncatedBody(responseLength, downloaded),
             );
           }
           _throwIfCancelled(isCancelled);
@@ -444,7 +462,8 @@ class PatchDownloader {
           await _abandonBody(response);
           hashInput?.close();
           throw PatchDownloadException(
-            'שגיאה בהורדה (${response.statusCode}): $url',
+            AppL10n.strings.libraryDomain
+                .downloadHttpError(response.statusCode, url),
           );
         }
 
@@ -548,7 +567,9 @@ class PatchDownloader {
         // 206 קצר חוקי — סבב המשך. חייב להתקדם, אחרת נעצור כדי לא להיתקע.
         if (downloaded <= roundOffset) {
           hashInput?.close();
-          throw PatchDownloadException('חידוש ההורדה לא התקדם: $url');
+          throw PatchDownloadException(
+            AppL10n.strings.libraryDomain.resumeMadeNoProgress(url),
+          );
         }
         roundOffset = downloaded;
       }
@@ -568,7 +589,9 @@ class PatchDownloader {
         continue;
       }
     }
-    throw PatchDownloadException('חידוש ההורדה נכשל לאחר ניסיון חוזר: $url');
+    throw PatchDownloadException(
+      AppL10n.strings.libraryDomain.resumeFailedAfterRetry(url),
+    );
   }
 
   /// נוטש מיד את גוף התגובה במסלולי שגיאה של הנכס (1.5GB): מבטל את המנוי לזרם
@@ -619,6 +642,7 @@ class PatchDownloader {
     }
 
     var overrun = false;
+    var buffered = 0;
     try {
       await for (final chunk in response.stream.timeout(stallTimeout)) {
         _throwIfCancelled(isCancelled);
@@ -628,7 +652,9 @@ class PatchDownloader {
           _deleteQuietly(file.path);
           _deleteQuietly(resumeSidecarPath(file.path));
           throw PatchDownloadException(
-              'ההורדה חורגת מהגודל הצפוי ($expectedSize בייטים)');
+            AppL10n.strings.libraryDomain
+                .downloadExceedsExpectedSize(expectedSize),
+          );
         }
         // גוף שחורג מהטווח שהוצהר ב-Content-Range נעצר לפני הכתיבה — בלי זה
         // שרת עוין/תקול היה כותב בלי גבול; ה-break מבטל את המנוי לזרם.
@@ -640,7 +666,13 @@ class PatchDownloader {
         sink.add(chunk);
         hashInput?.add(chunk);
         downloaded += chunk.length;
+        buffered += chunk.length;
         onProgress?.call(downloaded, total);
+        // לחץ-נגד — ראו [_writeBufferBytes].
+        if (buffered >= _writeBufferBytes) {
+          buffered = 0;
+          await sink.flush();
+        }
       }
       // ביטול שהתרחש ב-onProgress של הצ'אנק האחרון — הלולאה מסתיימת בלי בדיקה,
       // ולכן בודקים כאן כדי לא לחזור בהצלחה שקטה אחרי ביטול.
@@ -662,7 +694,9 @@ class PatchDownloader {
       await closeQuietly();
       _deleteQuietly(file.path);
       _deleteQuietly(resumeSidecarPath(file.path));
-      throw PatchDownloadException('שמירת הקובץ שהורד לדיסק נכשלה: $error');
+      throw PatchDownloadException(
+        AppL10n.strings.libraryDomain.saveDownloadedFileFailed('$error'),
+      );
     }
     return (downloaded: downloaded, overrun: overrun);
   }
@@ -690,7 +724,9 @@ class PatchDownloader {
       }
       return response;
     }
-    throw PatchDownloadException('יותר מדי הפניות (redirects): $url');
+    throw PatchDownloadException(
+      AppL10n.strings.libraryDomain.tooManyRedirects(url),
+    );
   }
 
   bool _isRedirect(int status) =>
@@ -731,15 +767,22 @@ class PatchDownloader {
   }
 
   /// מחשב sha256 על הקובץ השלם מהדיסק בזרימה (הקובץ >1GB — לא readAsBytes).
+  /// מדווח התקדמות כדי שהמסלול הזה (קובץ שכבר הורד במלואו) לא ייראה כתקיעה
+  /// של דקה ויותר על כונן נייד.
   Future<Digest> _hashFileDigest(
     File file,
     bool Function()? isCancelled,
+    void Function(int verified, int total)? onVerifyProgress,
   ) async {
+    final total = await file.length();
     final digestSink = _ChunkedDigestSink();
     final input = sha256.startChunkedConversion(digestSink);
+    var verified = 0;
     await for (final chunk in file.openRead()) {
       _throwIfCancelled(isCancelled);
       input.add(chunk);
+      verified += chunk.length;
+      onVerifyProgress?.call(verified, total);
     }
     input.close();
     return digestSink.value;
@@ -792,7 +835,8 @@ class PatchDownloader {
       File(sidecarPath).writeAsStringSync(content, flush: true);
     } catch (error) {
       throw PatchDownloadException(
-        'כתיבת קובץ הזהות להמשך ההורדה נכשלה ($sidecarPath): $error',
+        AppL10n.strings.libraryDomain
+            .writeResumeSidecarFailed(sidecarPath, '$error'),
       );
     }
   }
@@ -826,7 +870,8 @@ class PatchDownloader {
     if (response.statusCode != 200) {
       await _abandonBody(response);
       throw PatchDownloadException(
-        'שגיאה בהורדה (${response.statusCode}): $url',
+        AppL10n.strings.libraryDomain
+            .downloadHttpError(response.statusCode, url),
       );
     }
     final total = response.contentLength;
@@ -837,7 +882,8 @@ class PatchDownloader {
       // בדיקה לפני הצבירה — לא צוברים לזיכרון בייטים שחורגים מהגודל הצפוי.
       if (downloaded + chunk.length > maxBytes) {
         throw PatchDownloadException(
-            'ההורדה חורגת מהגודל הצפוי ($maxBytes בייטים)');
+          AppL10n.strings.libraryDomain.downloadExceedsExpectedSize(maxBytes),
+        );
       }
       builder.add(chunk);
       downloaded += chunk.length;
@@ -853,7 +899,9 @@ class PatchDownloader {
   }) {
     if (actual != expected) {
       throw PatchDownloadException(
-          '$label אינו תואם: צפוי $expected, התקבל $actual');
+        AppL10n.strings.libraryDomain
+            .checksumMismatchDetailed(label, '$expected', '$actual'),
+      );
     }
   }
 
@@ -864,7 +912,9 @@ class PatchDownloader {
   }) {
     final actual = sha256.convert(bytes).toString();
     if (actual != expected.toLowerCase()) {
-      throw PatchDownloadException('$label אינו תואם');
+      throw PatchDownloadException(
+        AppL10n.strings.libraryDomain.checksumMismatch(label),
+      );
     }
   }
 
@@ -914,13 +964,15 @@ class PatchDownloader {
   }) async {
     final file = File(path);
     if (!await file.exists()) {
-      throw PatchDownloadException('קובץ מקומי לא נמצא: $path');
+      throw PatchDownloadException(
+        AppL10n.strings.libraryDomain.localFileNotFound(path),
+      );
     }
     _throwIfCancelled(isCancelled);
     final bytes = await file.readAsBytes();
     if (bytes.length > maxBytes) {
       throw PatchDownloadException(
-        'הקובץ המקומי חורג מהגודל הצפוי ($maxBytes בייטים): $path',
+        AppL10n.strings.libraryDomain.localFileTooLarge(maxBytes, path),
       );
     }
     onProgress?.call(bytes.length, bytes.length);
@@ -940,12 +992,15 @@ class PatchDownloader {
   }) async {
     final source = File(url);
     if (!await source.exists()) {
-      throw PatchDownloadException('קובץ מקור מקומי לא נמצא: $url');
+      throw PatchDownloadException(
+        AppL10n.strings.libraryDomain.localSourceNotFound(url),
+      );
     }
     final size = await source.length();
     if (expectedSize != null && size != expectedSize) {
       throw PatchDownloadException(
-        'גודל הקובץ המקומי אינו תואם: צפוי $expectedSize, בפועל $size ($url)',
+        AppL10n.strings.libraryDomain
+            .localFileSizeMismatch(expectedSize, size, url),
       );
     }
     try {
@@ -955,19 +1010,29 @@ class PatchDownloader {
       final input =
           digestSink != null ? sha256.startChunkedConversion(digestSink) : null;
       var copied = 0;
+      var buffered = 0;
       await for (final chunk in source.openRead()) {
         _throwIfCancelled(isCancelled);
         sink.add(chunk);
         input?.add(chunk);
         copied += chunk.length;
+        buffered += chunk.length;
         onProgress?.call(copied, size);
+        // לחץ-נגד — ראו [_writeBufferBytes]. קריאה מכונן מהיר אל כונן איטי
+        // מציפה את התור בדיוק כמו הורדה מהרשת.
+        if (buffered >= _writeBufferBytes) {
+          buffered = 0;
+          await sink.flush();
+        }
       }
       await sink.flush();
       await sink.close();
       input?.close();
       if (expectedSha256 != null &&
           digestSink!.value.toString() != expectedSha256.toLowerCase()) {
-        throw PatchDownloadException('sha256 של הקובץ המקומי אינו תואם: $url');
+        throw PatchDownloadException(
+          AppL10n.strings.libraryDomain.localFileHashMismatch(url),
+        );
       }
     } catch (_) {
       _deleteQuietly(destPath);

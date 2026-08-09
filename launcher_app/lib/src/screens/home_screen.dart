@@ -1,9 +1,11 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/library_module_controller.dart';
 import '../controllers/otzaria_module_controller.dart';
 import '../controllers/plugins_module_controller.dart';
+import '../services/byte_size.dart';
 import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/screen_body.dart';
@@ -43,10 +45,11 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.strings.home;
+
     return ScreenBody(
-      title: 'דף הבית',
-      description: 'עדכון התוכנה והספרייה מהתיקייה שלצד התוכנה — בלי צורך '
-          'באינטרנט.',
+      title: t.title,
+      description: t.description,
       children: [
         if (otzariaIsRunning)
           Padding(
@@ -54,8 +57,8 @@ class HomeScreen extends StatelessWidget {
             child: AppCard(
               child: SettingsActionTile.text(
                 icon: FluentIcons.warning_24_regular,
-                title: 'אוצריא פתוחה',
-                subtitle: 'עדכון הספרייה חסום עד לסגירתה.',
+                title: t.otzariaRunningTitle,
+                subtitle: t.otzariaRunningSubtitle,
               ),
             ),
           ),
@@ -94,10 +97,12 @@ class HomeScreen extends StatelessWidget {
   Widget _otzariaTile(BuildContext context) {
     final c = otzaria;
     final isBusy = c.status == OtzariaModuleStatus.installing;
+    final t = context.strings.home;
+    final common = context.strings.common;
 
     return _HomeTile(
       icon: FluentIcons.desktop_24_regular,
-      title: 'תוכנת אוצריא',
+      title: t.appTileTitle,
       statusKind: switch (c.status) {
         OtzariaModuleStatus.idle => StatusKind.unknown,
         OtzariaModuleStatus.checking => StatusKind.working,
@@ -108,18 +113,19 @@ class HomeScreen extends StatelessWidget {
         OtzariaModuleStatus.error => StatusKind.error,
       },
       statusLabel: switch (c.status) {
-        OtzariaModuleStatus.idle => 'טרם נבדק',
-        OtzariaModuleStatus.checking => 'בודק...',
-        OtzariaModuleStatus.upToDate => 'מעודכן',
-        OtzariaModuleStatus.updateAvailable => 'יש עדכון חדש',
-        OtzariaModuleStatus.installing => 'מתקין...',
-        OtzariaModuleStatus.needsDownload =>
-          c.currentVersion == null ? 'לא נמצאה התקנה' : 'טרם הורד עדכון',
-        OtzariaModuleStatus.error => 'שגיאה',
+        OtzariaModuleStatus.idle => common.notCheckedYet,
+        OtzariaModuleStatus.checking => common.checking,
+        OtzariaModuleStatus.upToDate => common.upToDate,
+        OtzariaModuleStatus.updateAvailable => common.updateAvailable,
+        OtzariaModuleStatus.installing => common.installing,
+        OtzariaModuleStatus.needsDownload => c.currentVersion == null
+            ? t.appNoInstallFound
+            : t.appNothingDownloaded,
+        OtzariaModuleStatus.error => common.error,
       },
       primaryActionText: switch (c.status) {
-        OtzariaModuleStatus.updateAvailable => 'התקנה',
-        _ => c.canLaunch ? 'הפעלה' : null,
+        OtzariaModuleStatus.updateAvailable => common.install,
+        _ => c.canLaunch ? common.launch : null,
       },
       primaryActionIcon: switch (c.status) {
         OtzariaModuleStatus.updateAvailable =>
@@ -138,16 +144,19 @@ class HomeScreen extends StatelessWidget {
   }
 
   Future<void> _confirmAppInstall(BuildContext context) async {
+    final t = context.strings.home;
     final approved = await showTwoActionsDialog(
       context: context,
-      title: 'התקנת תוכנת אוצריא',
-      content: appInstallPrompt(otzaria),
-      confirmText: 'התקן',
+      title: t.appInstallDialogTitle,
+      content: appInstallPrompt(context, otzaria),
+      confirmText: t.appInstallConfirm,
     );
     if (!approved) return;
     await otzaria.install();
     if (otzaria.status == OtzariaModuleStatus.upToDate) {
-      UiSnack.showSuccess('אוצריא עודכנה לגרסה ${otzaria.currentVersion}');
+      UiSnack.showSuccess(
+        AppL10n.strings.home.appInstalledSnack('${otzaria.currentVersion}'),
+      );
     }
   }
 
@@ -156,14 +165,15 @@ class HomeScreen extends StatelessWidget {
   Widget _libraryTile(BuildContext context) {
     final c = library;
     final isBusy = c.status == LibraryModuleStatus.updating;
+    final common = context.strings.common;
 
     return _HomeTile(
       icon: FluentIcons.library_24_regular,
-      title: 'הספרייה',
+      title: context.strings.home.libraryTileTitle,
       statusKind: libraryStatusKind(c.status),
-      statusLabel: libraryStatusLabel(c),
+      statusLabel: libraryStatusLabel(context, c),
       primaryActionText: c.status == LibraryModuleStatus.updateAvailable
-          ? (c.isFreshInstall ? 'התקנה' : 'עדכון')
+          ? (c.isFreshInstall ? common.install : common.update)
           : null,
       primaryActionIcon: FluentIcons.database_arrow_right_24_regular,
       primaryActionLoading: isBusy,
@@ -175,27 +185,28 @@ class HomeScreen extends StatelessWidget {
   }
 
   Future<void> _confirmLibraryUpdate(BuildContext context) async {
+    final t = context.strings.home;
     if (otzariaIsRunning) {
-      UiSnack.showError('אוצריא פתוחה — יש לסגור אותה ואז לנסות שוב.');
+      UiSnack.showError(t.otzariaOpenSnack);
       return;
     }
 
     final c = library;
     final approved = await showTwoActionsDialog(
       context: context,
-      title: 'עדכון הספרייה',
+      title: t.libraryUpdateDialogTitle,
       content: c.isFreshInstall
-          ? 'הספרייה תותקן בפעם הראשונה (גרסה ${c.targetVersion}) '
-              'מהתיקייה שלצד התוכנה. המסד גדול, וההתקנה עשויה להימשך זמן רב.'
-          : 'המסד יעודכן מגרסה ${c.localVersion} לגרסה ${c.targetVersion}. '
-              'גיבוי יישמר עד שהגרסה החדשה תיבדק בהצלחה.',
-      confirmText: 'עדכן עכשיו',
+          ? t.libraryFreshInstallPrompt('${c.targetVersion}')
+          : t.libraryUpdatePrompt('${c.localVersion}', '${c.targetVersion}'),
+      confirmText: t.libraryUpdateConfirm,
     );
     if (!approved) return;
 
     await c.update();
     if (c.status == LibraryModuleStatus.upToDate) {
-      UiSnack.showSuccess('המסד עודכן לגרסה ${c.localVersion}');
+      UiSnack.showSuccess(
+        AppL10n.strings.home.libraryUpdatedSnack('${c.localVersion}'),
+      );
     }
   }
 
@@ -203,6 +214,7 @@ class HomeScreen extends StatelessWidget {
 
   Widget _onlineCheckCard(BuildContext context) {
     final theme = Theme.of(context);
+    final t = context.strings.home;
     final otzariaChecked = otzaria.onlineCheckedAt != null;
     final libraryChecked = library.onlineCheckedAt != null;
     final everChecked = otzariaChecked || libraryChecked;
@@ -215,24 +227,24 @@ class HomeScreen extends StatelessWidget {
     final String label;
     if (isCheckingOnline) {
       kind = StatusKind.working;
-      label = 'בודק אם יש עדכונים ברשת...';
+      label = t.onlineChecking;
     } else if (!everChecked) {
       kind = StatusKind.unknown;
-      label = 'טרם נבדק בהרצה הזו';
+      label = t.onlineNeverChecked;
     } else if (!isOnline) {
       kind = StatusKind.unknown;
-      label = 'אין חיבור לרשת כרגע';
+      label = t.onlineOffline;
     } else if (hasUpdate) {
       kind = StatusKind.updateAvailable;
-      label = 'נמצאו עדכונים חדשים ברשת';
+      label = t.onlineHasUpdates;
     } else {
       kind = StatusKind.ok;
-      label = 'אין עדכונים חדשים ברשת';
+      label = t.onlineNoUpdates;
     }
 
     return SettingsCard(
-      title: 'בדיקת עדכונים',
-      subtitle: 'רק במחשב שיש בו אינטרנט — לא נדרש בשביל ההתקנה עצמה.',
+      title: t.onlineCardTitle,
+      subtitle: t.onlineCardSubtitle,
       children: [
         Padding(
           padding: const EdgeInsets.all(AppTokens.spaceMD),
@@ -244,7 +256,7 @@ class HomeScreen extends StatelessWidget {
                   StatusChip(kind: kind, label: label),
                   const Spacer(),
                   ActionButton.neutral(
-                    text: 'בדיקת עדכונים',
+                    text: t.checkForUpdatesButton,
                     icon: FluentIcons.arrow_sync_24_regular,
                     isLoading: isCheckingOnline,
                     onPressed: isCheckingOnline ? null : () => onCheckOnline(),
@@ -254,7 +266,7 @@ class HomeScreen extends StatelessWidget {
               if (isOnline && hasUpdate) ...[
                 const SizedBox(height: AppTokens.spaceMD),
                 ActionButton.recommended(
-                  text: 'הורד עכשיו',
+                  text: t.downloadNowButton,
                   icon: FluentIcons.arrow_download_24_regular,
                   isLoading: isDownloading,
                   onPressed:
@@ -265,13 +277,17 @@ class HomeScreen extends StatelessWidget {
               ],
               if (isDownloading) ...[
                 const SizedBox(height: AppTokens.spaceMD),
-                _downloadProgress(),
+                _downloadProgress(context),
               ],
               if (otzaria.onlineCheckedAt != null ||
                   library.onlineCheckedAt != null) ...[
                 const SizedBox(height: AppTokens.spaceSM),
                 Text(
-                  'נבדק לאחרונה: ${_formatTime(otzaria.onlineCheckedAt ?? library.onlineCheckedAt!)}',
+                  t.lastCheckedAt(
+                    _formatTime(
+                      otzaria.onlineCheckedAt ?? library.onlineCheckedAt!,
+                    ),
+                  ),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -286,33 +302,37 @@ class HomeScreen extends StatelessWidget {
 
   /// שורת התקדמות אחת לרכיב שמוריד כרגע — ההורדות רצות בטור, ולכן לכל
   /// היותר אחת מהן פעילה.
-  Widget _downloadProgress() {
+  Widget _downloadProgress(BuildContext context) {
+    final t = context.strings.home;
+
     if (otzaria.downloadStatus == OtzariaDownloadStatus.downloading) {
       final received = otzaria.downloadReceived;
       final total = otzaria.downloadTotal;
       return InfoProgressRow(
-        stage: otzaria.downloadStage ?? 'מוריד את תוכנת אוצריא...',
+        stage: otzaria.downloadStage ?? t.downloadingApp,
         progress: (received != null && total != null && total > 0)
             ? received / total
             : null,
+        detail: formatBytesProgress(received, total),
       );
     }
     if (library.downloadStatus == MirrorDownloadStatus.downloading) {
-      final done = library.downloadDoneAssets;
-      final total = library.downloadTotalAssets;
       return InfoProgressRow(
-        stage: library.downloadStage ?? 'מוריד את הספרייה...',
-        progress:
-            (done != null && total != null && total > 0) ? done / total : null,
+        stage: library.downloadStage ?? t.downloadingLibrary,
+        progress: library.downloadProgress,
+        detail: formatBytesProgress(
+          library.downloadReceivedBytes,
+          library.downloadTotalBytes,
+        ),
       );
     }
     if (plugins.status == PluginsModuleStatus.syncing) {
       return InfoProgressRow(
-        stage: plugins.syncMessage ?? 'מוריד את התוספים...',
+        stage: plugins.syncMessage ?? t.downloadingPlugins,
         progress: plugins.syncProgress,
       );
     }
-    return const InfoProgressRow(stage: 'מתחיל הורדה...');
+    return InfoProgressRow(stage: t.downloadStarting);
   }
 
   static String _formatTime(DateTime time) {
@@ -335,17 +355,22 @@ StatusKind libraryStatusKind(LibraryModuleStatus status) => switch (status) {
       LibraryModuleStatus.needsManualPath => StatusKind.needsAction,
     };
 
-String libraryStatusLabel(LibraryModuleController c) => switch (c.status) {
-      LibraryModuleStatus.idle => 'טרם נבדק',
-      LibraryModuleStatus.checking => 'בודק...',
-      LibraryModuleStatus.upToDate => 'מעודכן',
-      LibraryModuleStatus.updateAvailable =>
-        c.isFreshInstall ? 'טרם הותקנה ספרייה' : 'יש עדכון חדש',
-      LibraryModuleStatus.updating => 'מעדכן...',
-      LibraryModuleStatus.error => 'שגיאה',
-      LibraryModuleStatus.needsDownload => 'טרם הורדו עדכונים',
-      LibraryModuleStatus.needsManualPath => 'נדרשת בחירת מיקום',
-    };
+String libraryStatusLabel(BuildContext context, LibraryModuleController c) {
+  final common = context.strings.common;
+  final t = context.strings.home;
+
+  return switch (c.status) {
+    LibraryModuleStatus.idle => common.notCheckedYet,
+    LibraryModuleStatus.checking => common.checking,
+    LibraryModuleStatus.upToDate => common.upToDate,
+    LibraryModuleStatus.updateAvailable =>
+      c.isFreshInstall ? t.libraryNotInstalledYet : common.updateAvailable,
+    LibraryModuleStatus.updating => t.libraryUpdating,
+    LibraryModuleStatus.error => common.error,
+    LibraryModuleStatus.needsDownload => t.libraryNothingDownloaded,
+    LibraryModuleStatus.needsManualPath => t.libraryNeedsManualPath,
+  };
+}
 
 // ── אריח בית — עיצוב אחיד לשני הרכיבים ────────────────────────────────────────
 
@@ -418,14 +443,14 @@ class _HomeTile extends StatelessWidget {
             )
           else
             Text(
-              'אין פעולה זמינה כרגע — לפרטים ולבחירה ידנית ראו למטה.',
+              context.strings.home.noActionAvailable,
               style: theme.textTheme.bodySmall
                   ?.copyWith(color: cs.onSurfaceVariant),
             ),
           const SizedBox(height: AppTokens.spaceSM),
           ActionButton.ghost(
-            text: 'פרטים נוספים',
-            icon: FluentIcons.arrow_left_24_regular,
+            text: context.strings.home.moreDetails,
+            icon: context.forwardArrowIcon,
             onPressed: onDetails,
           ),
         ],

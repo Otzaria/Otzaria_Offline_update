@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import 'installed_version_reader.dart';
@@ -36,7 +37,7 @@ class MacAppVersionReader implements InstalledVersionReader {
 
   String? _readKey(String launchPath, String key) {
     if (!Platform.isMacOS) {
-      throw UnsupportedError('MacAppVersionReader עובד רק ב-macOS.');
+      throw UnsupportedError(AppL10n.strings.appDomain.macOnlyReader);
     }
 
     final bundlePath = _bundleRootOf(launchPath);

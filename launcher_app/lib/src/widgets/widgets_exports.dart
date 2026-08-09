@@ -1,5 +1,7 @@
 // Barrel re-export — כל רכיבי הממשק המשותפים, פורט מאוצריא.
 // ראה launcher_app/README.md לכללי השימוש (איזה כפתור/דיאלוג/שורה מתי).
+// כולל `context.strings` — כל מסך שמייבא רכיבים ממילא צריך גם מלל.
+export '../l10n/app_strings_scope.dart';
 export 'action_buttons.dart';
 export 'app_card.dart';
 export 'app_dialogs.dart';

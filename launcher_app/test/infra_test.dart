@@ -2,8 +2,11 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:launcher_app/src/controllers/library_module_controller.dart';
+import 'package:launcher_app/src/controllers/otzaria_module_controller.dart';
 import 'package:launcher_app/src/controllers/progress_notifier.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
+import 'package:otzaria_manager/otzaria_manager.dart';
 
 /// בדיקות לשתי תשתיות שהתנהגותן אינה נראית במסך: דילול דיווחי ההתקדמות,
 /// וסדר/גודל הכתיבה ליומן הפעילות.
@@ -97,6 +100,57 @@ void main() {
       expect(File('${logFile().path}.1').existsSync(), isTrue);
       expect(logFile().lengthSync(), lessThan(AppLogger.maxBytes));
       expect(logFile().readAsStringSync(), contains('אחרי הגלגול'));
+    });
+  });
+
+  group('hasOnlineUpdate נמדד מול המראה, לא מול המותקן', () {
+    late Directory tempDir;
+
+    setUp(() => tempDir = Directory.systemTemp.createTempSync('otzaria-'));
+    tearDown(() => tempDir.deleteSync(recursive: true));
+
+    test('אוצריא: הורדה מכבה את ההודעה גם כשההתקנה עוד ישנה', () {
+      final c = OtzariaModuleController(dataDir: tempDir.path);
+      c.onlineLatestRelease = const OtzariaRelease(
+        tagName: '0.9.96+736',
+        name: 'אוצריא 0.9.96',
+        isPrerelease: false,
+        isDraft: false,
+        publishedAt: null,
+        installerKind: OtzariaInstallerKind.windowsSetupExe,
+        installerAssetName: 'setup.exe',
+        installerDownloadUrl: 'https://example.invalid/setup.exe',
+        installerSizeBytes: 1,
+      );
+
+      // לפני ההורדה אין במראה כלום — יש מה להביא מהרשת.
+      expect(c.hasOnlineUpdate, isTrue);
+
+      // אחרי ההורדה המראה מחזיקה את הגרסה שברשת, וההתקנה עדיין ישנה:
+      // אין מה להוריד יותר, גם אם יש עוד מה להתקין.
+      c.latestVersion = '0.9.96+736';
+      c.currentVersion = '0.9.90';
+      expect(c.hasOnlineUpdate, isFalse);
+
+      // גרסה חדשה יותר ברשת מדליקה את ההודעה מחדש.
+      c.latestVersion = '0.9.95';
+      expect(c.hasOnlineUpdate, isTrue);
+
+      c.dispose();
+    });
+
+    test('ספרייה: ההשוואה היא מול גרסת המראה ולא מול המסד החי', () {
+      final c = LibraryModuleController(dataDir: tempDir.path);
+      c.onlineLatestVersion = 20;
+
+      expect(c.hasOnlineUpdate, isTrue);
+
+      // המראה עודכנה ל-20 בעוד המסד החי נשאר על 17.
+      c.targetVersion = 20;
+      c.localVersion = 17;
+      expect(c.hasOnlineUpdate, isFalse);
+
+      c.dispose();
     });
   });
 }

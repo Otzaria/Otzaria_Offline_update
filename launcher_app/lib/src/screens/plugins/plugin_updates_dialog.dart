@@ -16,11 +16,12 @@ Future<String?> showPluginUpdatesDialog({
   required List<StorePlugin> updatable,
 }) async {
   String? selected;
+  final t = context.strings.plugins;
 
   await showSingleActionDialog(
     context: context,
-    title: 'יש עדכונים זמינים (${updatable.length})',
-    confirmText: 'סגירה',
+    title: t.updatesDialogTitle(updatable.length),
+    confirmText: context.strings.common.close,
     customContent: ConstrainedBox(
       constraints: const BoxConstraints(maxHeight: 320),
       child: SingleChildScrollView(
@@ -30,7 +31,7 @@ Future<String?> showPluginUpdatesDialog({
             Padding(
               padding: const EdgeInsets.only(bottom: AppTokens.spaceMD),
               child: Text(
-                'התוספים הבאים מותקנים אצלך באוצריא בגרסה ישנה מזו שבחנות:',
+                t.updatesDialogIntro,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
@@ -54,8 +55,10 @@ Future<String?> showPluginUpdatesDialog({
                       ),
                       const SizedBox(height: AppTokens.spaceXS),
                       Text(
-                        'מותקן ${controller.installedVersionOf(plugin) ?? '?'}'
-                        ' ← בחנות ${plugin.version}',
+                        t.updatesDialogRow(
+                          controller.installedVersionOf(plugin) ?? '?',
+                          plugin.version,
+                        ),
                         style: TextStyle(
                           fontSize: AppTokens.fontSM,
                           color: Theme.of(context).colorScheme.tertiary,

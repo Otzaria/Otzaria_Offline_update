@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../controllers/plugins_module_controller.dart';
 import '../../theme/theme_exports.dart';
+import '../../widgets/widgets_exports.dart';
 
 /// שכבת חסימה בזמן סנכרון — הודעת שלב, מד התקדמות ורשימת אזהרות.
 /// כשל בקובץ בודד אינו עוצר את הסנכרון, ולכן האזהרות נאספות לרשימה
@@ -16,6 +17,7 @@ class PluginSyncOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final t = context.strings.plugins;
 
     return ColoredBox(
       color: Colors.black54,
@@ -32,13 +34,13 @@ class PluginSyncOverlay extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'מסנכרן את חנות התוספים',
+                    t.syncingOverlayTitle,
                     style: theme.textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: AppTokens.spaceMD),
                   Text(
-                    controller.syncMessage ?? 'מתחיל...',
+                    controller.syncMessage ?? t.syncingOverlayStarting,
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodySmall
                         ?.copyWith(color: cs.onSurfaceVariant),
@@ -51,6 +53,14 @@ class PluginSyncOverlay extends StatelessWidget {
                       minHeight: 8,
                     ),
                   ),
+                  if (controller.syncProgress != null) ...[
+                    const SizedBox(height: AppTokens.spaceXS),
+                    Text(
+                      '${(controller.syncProgress!.clamp(0.0, 1.0) * 100).round()}%',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                  ],
                   if (controller.syncWarnings.isNotEmpty) ...[
                     const SizedBox(height: AppTokens.spaceMD),
                     ConstrainedBox(

@@ -73,16 +73,17 @@ behind falls back to the full-DB route, which is always present in the mirror.
 
 ## 2. Repository layout
 
-Five separate Dart/Flutter packages, each with its own `pubspec.yaml`. The main
+Six separate Dart/Flutter packages, each with its own `pubspec.yaml`. The main
 package sits at the repo root (historical, do not move it).
 
 | Path | Package | Role |
 | --- | --- | --- |
+| `otzaria_l10n/` | `otzaria_l10n` | Pure Dart, **no dependencies at all**. Every user-visible string, in Hebrew and English. Everything else depends on it — including the pure-Dart managers, which is why it cannot use Flutter. See §4 "All user-visible text". |
 | `.` (root, `lib/`) | `seforim_library_updater` | Flutter package. The client side of the `Otzaria/SeforimLibrary` delta release format: discover releases, plan an update route (delta vs. full), download, verify the logical content hash, apply patches atomically. |
 | `otzaria_manager/` | `otzaria_manager` | Pure Dart (no Flutter). Manages the **Otzaria app itself**: check latest release, download, silent install, launch. Windows + macOS. |
 | `library_manager/` | `library_manager` | Flutter package. Wires `seforim_library_updater` into the launcher: locate the user's real `seforim.db`, check versions, apply updates to the **live** DB, export/consume the offline mirror. |
 | `plugins_manager/` | `plugins_manager` | Pure Dart (no Flutter). The **offline Otzaria plugin store**: syncs the `otzaria.org/api/plugins` catalog (metadata, images, `.otzplugin` files) into the mirror, detects which plugins Otzaria already has installed, and installs via the `otzaria://` protocol. A conversion of `Yehuda-Zakesh/Offline-repository-plugin-store` (itself derived from `Otzaria/Otzaria_Website`). |
-| `launcher_app/` | `launcher_app` | The Flutter desktop app (Windows + macOS) that wires the modules into one dashboard. Depends on the other four via relative `path:`, so it must stay a sibling of them. |
+| `launcher_app/` | `launcher_app` | The Flutter desktop app (Windows + macOS) that wires the modules into one dashboard. Depends on the other five via relative `path:`, so it must stay a sibling of them. |
 
 Producer vs. consumer: the Kotlin repo `Otzaria/SeforimLibrary` *produces* the DB
 and the patches; this repo only *consumes* them.
@@ -100,7 +101,7 @@ dart format .
 
 # 2. Analyze
 flutter analyze --no-fatal-infos   # seforim_library_updater (root), library_manager, launcher_app
-dart analyze                      # otzaria_manager, plugins_manager (pure Dart)
+dart analyze                      # otzaria_l10n, otzaria_manager, plugins_manager (pure Dart)
 ```
 
 Notes:
@@ -138,6 +139,8 @@ Notes:
 - Match the surrounding code's naming and idiom. Follow `flutter_lints`.
 - Keep the module boundaries: `otzaria_manager` must not depend on Flutter;
   the root package must not depend on Otzaria app code or on the launcher.
+  `otzaria_l10n` is the one package everything may depend on — which is exactly
+  why it has no dependencies of its own.
 - Do not silently widen scope. Fix what was asked, then say what you left out.
 
 **UI code in `launcher_app` follows Otzaria's design system, not its own.**
@@ -150,6 +153,37 @@ inside `lib/src/theme/`. The full rule table — including what deliberately was
 *not* ported — is in `launcher_app/README.md`; the upstream contract is
 `otzaria/AGENTS.md` § "MANDATORY UI Components". When touching UI, read the
 Otzaria original before inventing something new.
+
+**All user-visible text lives in `otzaria_l10n`, never inline.** The launcher
+ships in Hebrew (the default) and English. Do not write a literal that a user
+can read — not in a widget, not in an exception message, not in a progress
+callback. Add a field to the right section of
+`otzaria_l10n/lib/src/app_strings.dart` and implement it in **both**
+`strings_he.dart` and `strings_en.dart`; the analyzer fails if you forget one.
+Hebrew is the source, English is a free translation of it — matching meaning
+and register, not word order.
+
+- In widgets: `context.strings.<section>.<field>` (`AppStringsScope`, exported
+  from `widgets_exports.dart`). It is an `InheritedWidget` on purpose — a
+  `const` widget would otherwise keep the previous language on screen until it
+  rebuilt for some other reason. It is installed in `MaterialApp.builder`, i.e.
+  *above* the Navigator, so dialogs and pushed routes find it too.
+- Outside widgets (controllers, and every one of the manager packages):
+  `AppL10n.strings.<section>.<field>`. `SettingsController` is what sets it.
+- **`Isolate.run` does not inherit it.** Statics are per-isolate, so a message
+  built inside an isolate falls back to Hebrew. Pass `AppL10n.language` in as
+  an argument and call `AppL10n.use(...)` first thing — see
+  `LibraryUpdateApplier._isolateApplyPatch` and `ZstdFileDecompressor`.
+- Content that comes from `otzaria.org` — plugin names, descriptions, tags,
+  category names, the store's home texts — is **never** translated. Only the
+  chrome around it is, plus the store-title fallback used when the site left
+  the field empty.
+- Direction is driven by the locale alone (`GlobalWidgetsLocalizations`); do
+  not set `Directionality` by hand. `UiSnack` is the one exception — it lives
+  in an `Overlay` and reads `AppL10n.language.isRtl` directly. For back/forward
+  arrows use `context.backArrowIcon` / `context.forwardArrowIcon`: `RtlIcon`
+  mirrors arrows under RTL, so those helpers hand it the *opposite* glyph and
+  the rendered arrow ends up identical in both languages.
 
 ---
 

@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import 'otzaria_release_channel.dart';
 
@@ -20,8 +21,7 @@ enum OtzariaTargetPlatform {
       'windows' => OtzariaTargetPlatform.windows,
       'macos' => OtzariaTargetPlatform.macos,
       _ => throw UnsupportedError(
-          "הלאנצ'ר תומך בהתקנת אוצריא ב-Windows וב-macOS בלבד "
-          '(זוהה: $operatingSystem).',
+          AppL10n.strings.appDomain.unsupportedPlatform(operatingSystem),
         ),
     };
   }
@@ -135,7 +135,7 @@ class OtzariaRelease extends Equatable {
         json['installerAssetName'] is! String ||
         json['installerSizeBytes'] is! int ||
         kind == null) {
-      throw const FormatException('מטא־דאטה פגומה של גרסת אוצריא');
+      throw FormatException(AppL10n.strings.appDomain.corruptReleaseMetadata);
     }
 
     final publishedAt = json['publishedAt'];
@@ -185,7 +185,9 @@ class NoInstallerAssetException implements Exception {
   final List<String> expectedSuffixes;
 
   @override
-  String toString() =>
-      'ל-release "$tagName" אין קובץ התקנה מתאים ל-${platform.label} '
-      '(מצפים לשם שמסתיים ב-${expectedSuffixes.map((s) => '"$s"').join(' או ')}).';
+  String toString() => AppL10n.strings.appDomain.noAssetForPlatform(
+        tagName,
+        platform.label,
+        expectedSuffixes,
+      );
 }

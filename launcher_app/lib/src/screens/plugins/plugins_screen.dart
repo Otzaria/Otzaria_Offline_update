@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
+// SliverConstraints ו-SliverGridLayout אינם מיוצאים מ-material.
+import 'package:flutter/rendering.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
 import '../../controllers/plugins_module_controller.dart';
@@ -32,7 +34,7 @@ class PluginsScreen extends StatefulWidget {
   State<PluginsScreen> createState() => _PluginsScreenState();
 }
 
-/// גובה כל מה שאינו התמונה בכרטיס — ראו החישוב ב-[_PluginsScreenState._grid].
+/// גובה כל מה שאינו התמונה בכרטיס — ראו החישוב ב-[_PluginGridDelegate].
 const double _cardContentHeight = 336;
 
 /// הרוחב המינימלי של כרטיס ברשת; ממנו נגזר מספר העמודות.
@@ -109,30 +111,30 @@ class _PluginsScreenState extends State<PluginsScreen> {
   // ── פעולות ────────────────────────────────────────────────────────────────
 
   Future<void> _sync() async {
+    final t = context.strings.plugins;
     final approved = await showTwoActionsDialog(
       context: context,
-      title: 'סנכרון חנות התוספים',
-      content: 'הפעולה תוריד מ-otzaria.org את רשימת התוספים, הקטגוריות, '
-          'התמונות וקובצי ההתקנה אל תיקיית ההעברה. דורשת אינטרנט, ומרגע '
-          'שהסתיימה החנות עובדת גם במחשב שאין בו אינטרנט.',
-      confirmText: 'סנכרן',
+      title: t.syncDialogTitle,
+      content: t.syncDialogContent,
+      confirmText: t.syncDialogConfirm,
     );
     if (!approved) return;
 
     await widget.controller.sync();
     if (!mounted) return;
     if (widget.controller.status == PluginsModuleStatus.error) {
-      UiSnack.showError(widget.controller.errorMessage ?? 'הסנכרון נכשל');
+      UiSnack.showError(widget.controller.errorMessage ?? t.syncFailedSnack);
     } else {
       UiSnack.showSuccess(
-        'הסנכרון הושלם — ${widget.controller.plugins.length} תוספים בחנות',
+        t.syncDoneSnack(widget.controller.plugins.length),
       );
     }
   }
 
   Future<void> _save(StorePlugin plugin) async {
+    final t = context.strings.plugins;
     final destPath = await FilePicker.platform.saveFile(
-      dialogTitle: 'שמירת התוסף',
+      dialogTitle: t.saveDialogTitle,
       fileName: widget.controller.suggestedFileName(plugin),
       type: FileType.custom,
       allowedExtensions: const ['otzplugin'],
@@ -145,22 +147,23 @@ class _PluginsScreenState extends State<PluginsScreen> {
     setState(() => _busyId = null);
 
     if (result.success) {
-      UiSnack.showSuccess('הקובץ נשמר');
+      UiSnack.showSuccess(t.saveDoneSnack);
     } else {
-      UiSnack.showError(result.error ?? 'שמירת הקובץ נכשלה');
+      UiSnack.showError(result.error ?? t.saveFailedSnack);
     }
   }
 
   Future<void> _install(StorePlugin plugin) async {
+    final t = context.strings.plugins;
     setState(() => _busyId = plugin.id);
     final result = await widget.controller.directInstall(plugin);
     if (!mounted) return;
     setState(() => _busyId = null);
 
     if (result.success) {
-      UiSnack.show('אוצריא נפתחה כדי להשלים את התקנת ${plugin.name}');
+      UiSnack.show(t.installOpenedSnack(plugin.name));
     } else {
-      UiSnack.showError(result.error ?? 'ההתקנה נכשלה');
+      UiSnack.showError(result.error ?? t.installFailedSnack);
     }
   }
 
@@ -250,8 +253,10 @@ class _PluginsScreenState extends State<PluginsScreen> {
         ),
       if (controller.status == PluginsModuleStatus.loading)
         PluginStoreBody.block(
-          const AppCard(
-            child: InfoProgressRow(stage: 'טוען את קטלוג התוספים...'),
+          AppCard(
+            child: InfoProgressRow(
+              stage: context.strings.plugins.loadingCatalog,
+            ),
           ),
           top: AppTokens.spaceLG,
         )
@@ -271,6 +276,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
 
   List<Widget> _homeSlivers(BuildContext context) {
     final controller = widget.controller;
+    final t = context.strings.plugins;
     final featured = controller.featured;
     final visibleFeatured = _allFeaturedShown
         ? featured
@@ -284,11 +290,10 @@ class _PluginsScreenState extends State<PluginsScreen> {
           _emptyCard(
             context,
             icon: FluentIcons.puzzle_piece_24_regular,
-            title: 'החנות בבנייה — אבל התוספים כבר כאן',
-            body: 'בקרוב יופיעו כאן תוספים נבחרים וקטגוריות מסודרות. בינתיים '
-                'אפשר לחפש למעלה או לעיין ברשימה המלאה של כל התוספים.',
+            title: t.emptyStoreTitle,
+            body: t.emptyStoreBody,
             action: ActionButton.recommended(
-              text: 'לכל התוספים (${controller.plugins.length})',
+              text: t.allPluginsWithCount(controller.plugins.length),
               icon: FluentIcons.apps_list_24_regular,
               onPressed: controller.showAllPlugins,
             ),
@@ -303,9 +308,9 @@ class _PluginsScreenState extends State<PluginsScreen> {
             top: AppTokens.spaceLG),
       if (featured.isNotEmpty) ...[
         PluginStoreBody.block(
-          const _SectionHeader(
-            eyebrow: 'מומלצי החנות',
-            title: 'תוספים נבחרים',
+          _SectionHeader(
+            eyebrow: t.featuredEyebrow,
+            title: t.featuredTitle,
           ),
           top: AppTokens.spaceXL,
           bottom: AppTokens.spaceMD,
@@ -315,7 +320,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
           PluginStoreBody.block(
             Center(
               child: ActionButton.neutral(
-                text: 'הצג עוד נבחרים',
+                text: t.showMoreFeatured,
                 icon: FluentIcons.chevron_down_24_regular,
                 onPressed: () => setState(() => _allFeaturedShown = true),
               ),
@@ -329,8 +334,8 @@ class _PluginsScreenState extends State<PluginsScreen> {
             title: category.name,
             description: category.description,
             action: ActionButton.ghost(
-              text: 'לכל הקטגוריה (${category.pluginCount})',
-              icon: FluentIcons.arrow_left_24_regular,
+              text: t.categoryLinkButton(category.pluginCount),
+              icon: context.forwardArrowIcon,
               onPressed: () => controller.showCategory(category.slug),
             ),
           ),
@@ -354,6 +359,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
   Widget _hero(BuildContext context) {
     final theme = Theme.of(context);
     final controller = widget.controller;
+    final t = context.strings.plugins;
 
     return AppCard(
       child: Padding(
@@ -387,19 +393,19 @@ class _PluginsScreenState extends State<PluginsScreen> {
                       child: RtlTextField(
                         controller: _search,
                         onSubmitted: _submitHeroSearch,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(
+                        decoration: InputDecoration(
+                          border: const OutlineInputBorder(
                             borderRadius: AppTokens.borderRadiusAll,
                           ),
-                          prefixIcon: Icon(FluentIcons.search_24_regular),
-                          hintText: 'חפשו תוסף לפי שם, תיאור או נושא...',
+                          prefixIcon: const Icon(FluentIcons.search_24_regular),
+                          hintText: t.heroSearchHint,
                           isDense: true,
                         ),
                       ),
                     ),
                     const SizedBox(width: AppTokens.spaceSM),
                     ActionButton.recommended(
-                      text: 'חיפוש',
+                      text: t.heroSearchButton,
                       icon: FluentIcons.search_24_regular,
                       onPressed: () => _submitHeroSearch(_search.text),
                     ),
@@ -420,6 +426,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
   Widget _discoveryStrip(BuildContext context) {
     final theme = Theme.of(context);
     final controller = widget.controller;
+    final t = context.strings.plugins;
 
     return AppCard(
       child: Padding(
@@ -429,7 +436,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
           children: [
             Flexible(
               child: Text(
-                'לא מצאתם את מה שחיפשתם?',
+                t.browseAllPrompt,
                 style: theme.textTheme.bodyLarge?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -437,7 +444,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
             ),
             const SizedBox(width: AppTokens.spaceMD),
             ActionButton.neutral(
-              text: 'עיינו בכל התוספים (${controller.plugins.length})',
+              text: t.browseAllButton(controller.plugins.length),
               icon: FluentIcons.apps_list_24_regular,
               onPressed: controller.showAllPlugins,
             ),
@@ -451,11 +458,12 @@ class _PluginsScreenState extends State<PluginsScreen> {
 
   List<Widget> _allSlivers(BuildContext context) {
     final controller = widget.controller;
+    final t = context.strings.plugins;
     final filtered = controller.filtered;
 
     return [
       PluginStoreBody.block(
-        _breadcrumb(context, 'כל התוספים'),
+        _breadcrumb(context, t.allPluginsPage),
         top: AppTokens.spaceMD,
         bottom: AppTokens.spaceSM,
       ),
@@ -467,10 +475,10 @@ class _PluginsScreenState extends State<PluginsScreen> {
       ),
       PluginStoreBody.block(
         _SectionHeader(
-          eyebrow: 'רשימת תוספים',
-          title: 'בחרו את התוסף שמתאים לכם',
+          eyebrow: t.listEyebrow,
+          title: t.listTitle,
           action: Text(
-            _summaryText(filtered.length, controller.plugins.length),
+            _summaryText(context, filtered.length, controller.plugins.length),
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
@@ -486,10 +494,11 @@ class _PluginsScreenState extends State<PluginsScreen> {
     ];
   }
 
-  static String _summaryText(int shown, int total) {
-    if (shown == 0) return 'לא נמצאו תוספים לפי הסינון שבחרתם';
-    if (shown == total) return 'כל התוספים מוצגים';
-    return 'מוצגים $shown מתוך $total תוספים';
+  static String _summaryText(BuildContext context, int shown, int total) {
+    final t = context.strings.plugins;
+    if (shown == 0) return t.summaryNoResults;
+    if (shown == total) return t.summaryAllShown;
+    return t.summaryPartial(shown, total);
   }
 
   // ── דף קטגוריה ────────────────────────────────────────────────────────────
@@ -512,8 +521,8 @@ class _PluginsScreenState extends State<PluginsScreen> {
           title: category.name,
           description: category.description,
           footnote: plugins.length == 1
-              ? 'תוסף אחד בקטגוריה'
-              : '${plugins.length} תוספים בקטגוריה',
+              ? context.strings.plugins.categoryOnePlugin
+              : context.strings.plugins.categoryPluginCount(plugins.length),
         ),
         bottom: AppTokens.spaceMD,
       ),
@@ -536,8 +545,8 @@ class _PluginsScreenState extends State<PluginsScreen> {
     return Row(
       children: [
         ActionButton.ghost(
-          text: 'חנות התוספים',
-          icon: FluentIcons.arrow_right_24_regular,
+          text: context.strings.plugins.breadcrumbRoot,
+          icon: context.backArrowIcon,
           onPressed: widget.controller.showHome,
         ),
         const SizedBox(width: AppTokens.spaceSM),
@@ -562,6 +571,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
   Widget _syncHeader(BuildContext context) {
     final controller = widget.controller;
     final theme = Theme.of(context);
+    final t = context.strings.plugins;
     final lastSync = controller.lastSync;
     final isSyncing = controller.status == PluginsModuleStatus.syncing;
 
@@ -580,7 +590,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
         builder: (context, constraints) {
           final actions = [
             ActionButton.recommended(
-              text: 'סנכרון מהאתר',
+              text: t.syncButton,
               icon: FluentIcons.arrow_sync_24_regular,
               isLoading: isSyncing,
               onPressed: isSyncing ? null : _sync,
@@ -588,7 +598,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
             const SizedBox(width: AppTokens.spaceSM),
             SecondaryIconButton(
               icon: FluentIcons.arrow_clockwise_24_regular,
-              tooltip: 'טעינה מחדש מהתיקייה המקומית',
+              tooltip: t.reloadTooltip,
               onPressed: isSyncing ? null : controller.load,
             ),
           ];
@@ -596,11 +606,11 @@ class _PluginsScreenState extends State<PluginsScreen> {
           // גמיש: הטקסט מתקצר לפני שהשורה גולשת.
           final status = Expanded(
             child: Tooltip(
-              message: controller.pluginsDir ?? 'התיקייה תיקבע בסנכרון הראשון',
+              message: controller.pluginsDir ?? t.syncDirUnknownTooltip,
               child: Text(
                 lastSync == null
-                    ? 'טרם בוצע סנכרון'
-                    : 'סונכרן לאחרונה: ${_formatDateTime(lastSync)}',
+                    ? t.syncNeverRan
+                    : t.syncedAt(_formatDateTime(lastSync)),
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
@@ -613,7 +623,9 @@ class _PluginsScreenState extends State<PluginsScreen> {
                   controller.updatablePlugins.isNotEmpty
               ? StatusChip(
                   kind: StatusKind.updateAvailable,
-                  label: '${controller.updatablePlugins.length} עדכונים זמינים',
+                  label: t.updatesAvailableChip(
+                    controller.updatablePlugins.length,
+                  ),
                 )
               : null;
 
@@ -663,15 +675,14 @@ class _PluginsScreenState extends State<PluginsScreen> {
   Widget _installedFilterToggle(BuildContext context) {
     final controller = widget.controller;
     final isOn = controller.hideInstalled;
+    final t = context.strings.plugins;
 
     return Tooltip(
       message: isOn
-          ? 'מוצגים רק תוספים שאינם מותקנים או שיש להם עדכון.\n'
-              'זוהו ${controller.installedCount} תוספים מותקנים באוצריא.'
-          : 'מוצגים כל התוספים, כולל המותקנים והמעודכנים.\n'
-              'זוהו ${controller.installedCount} תוספים מותקנים באוצריא.',
+          ? t.hideInstalledOnTooltip(controller.installedCount)
+          : t.hideInstalledOffTooltip(controller.installedCount),
       child: PluginTagPill(
-        label: 'רק מה שלא מותקן',
+        label: t.hideInstalledLabel,
         icon: FluentIcons.filter_24_regular,
         active: isOn,
         onTap: () => controller.setHideInstalled(!isOn),
@@ -684,28 +695,25 @@ class _PluginsScreenState extends State<PluginsScreen> {
   Widget _neverSyncedState(BuildContext context) => _emptyCard(
         context,
         icon: FluentIcons.puzzle_piece_24_regular,
-        title: 'עדיין לא סונכרנו תוספים',
-        body: 'לחצו על "סנכרון מהאתר" במחשב שיש בו אינטרנט כדי לטעון את '
-            'רשימת התוספים העדכנית מ-otzaria.org.',
+        title: context.strings.plugins.neverSyncedTitle,
+        body: context.strings.plugins.neverSyncedBody,
       );
 
   Widget _noResultsState(BuildContext context) => _emptyCard(
         context,
         icon: FluentIcons.search_24_regular,
-        title: 'לא נמצאו תוספים לפי הסינון שבחרתם',
-        body: 'נסו לחפש בשם אחר, להסיר תגית, לבחור סטטוס שונה, או לכבות את '
-            '"הצג רק מה שלא מותקן".',
+        title: context.strings.plugins.noResultsTitle,
+        body: context.strings.plugins.noResultsBody,
       );
 
   /// כל מה שהיה אמור להופיע כאן כבר מותקן ומעודכן — ולכן הוסתר במתג.
   Widget _allInstalledState(BuildContext context) => _emptyCard(
         context,
         icon: FluentIcons.checkmark_circle_24_regular,
-        title: 'הכול מותקן ומעודכן',
-        body: 'המתג "רק מה שלא מותקן" מסתיר תוספים שכבר מותקנים אצלכם '
-            'בגרסה העדכנית. כבו אותו כדי לראות גם אותם.',
+        title: context.strings.plugins.allInstalledTitle,
+        body: context.strings.plugins.allInstalledBody,
         action: ActionButton.neutral(
-          text: 'הצג גם את המותקנים',
+          text: context.strings.plugins.showInstalledButton,
           icon: FluentIcons.eye_24_regular,
           onPressed: () => widget.controller.setHideInstalled(false),
         ),
@@ -714,10 +722,10 @@ class _PluginsScreenState extends State<PluginsScreen> {
   Widget _emptyCategoryState(BuildContext context) => _emptyCard(
         context,
         icon: FluentIcons.puzzle_piece_24_regular,
-        title: 'בקרוב יתווספו תוספים לקטגוריה זו',
-        body: 'בינתיים אפשר לעיין ברשימה המלאה של כל התוספים בחנות.',
+        title: context.strings.plugins.emptyCategoryTitle,
+        body: context.strings.plugins.emptyCategoryBody,
         action: ActionButton.neutral(
-          text: 'לכל התוספים',
+          text: context.strings.plugins.allPluginsButton,
           icon: FluentIcons.apps_list_24_regular,
           onPressed: widget.controller.showAllPlugins,
         ),
@@ -771,41 +779,20 @@ class _PluginsScreenState extends State<PluginsScreen> {
   // ── הרשת ──────────────────────────────────────────────────────────────────
 
   Widget _gridSliver(BuildContext context, List<StorePlugin> plugins) {
-    return SliverLayoutBuilder(
-      builder: (context, constraints) {
-        // מספר העמודות נגזר מרוחב מינימלי לכרטיס, כמו auto-fill ב-CSS —
-        // כך שמסך רחב מקבל יותר עמודות ולא כרטיסים מנופחים.
-        const spacing = AppTokens.spaceLG;
-        final width = constraints.crossAxisExtent;
-        final columns =
-            ((width + spacing) / (_minCardWidth + spacing)).floor().clamp(1, 6);
-
-        // גובה הכרטיס נגזר ולא קבוע: התמונה תופסת יחס 16/11 מרוחב הכרטיס,
-        // ולכן כרטיס רחב הוא גם גבוה יותר. שאר התוכן מקבל גובה קבוע
-        // שמוכפל בהגדלת הטקסט של המשתמש — אחרת טקסט מוגדל היה גולש.
-        final tileWidth = (width - spacing * (columns - 1)) / columns;
-        final imageHeight = (tileWidth - AppTokens.spaceMD * 2) * 11 / 16;
-        final textScale = MediaQuery.textScalerOf(context).scale(1);
-
-        return SliverGrid.builder(
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            crossAxisSpacing: spacing,
-            mainAxisSpacing: spacing,
-            mainAxisExtent: imageHeight + _cardContentHeight * textScale,
-          ),
-          itemCount: plugins.length,
-          itemBuilder: (context, index) {
-            final plugin = plugins[index];
-            return PluginStoreCard(
-              plugin: plugin,
-              controller: widget.controller,
-              busy: _busyId == plugin.id,
-              onOpenDetail: () => setState(() => _selectedId = plugin.id),
-              onSave: () => _save(plugin),
-              onInstall: () => _install(plugin),
-            );
-          },
+    return SliverGrid.builder(
+      gridDelegate: _PluginGridDelegate(
+        textScale: MediaQuery.textScalerOf(context).scale(1),
+      ),
+      itemCount: plugins.length,
+      itemBuilder: (context, index) {
+        final plugin = plugins[index];
+        return PluginStoreCard(
+          plugin: plugin,
+          controller: widget.controller,
+          busy: _busyId == plugin.id,
+          onOpenDetail: () => setState(() => _selectedId = plugin.id),
+          onSave: () => _save(plugin),
+          onInstall: () => _install(plugin),
         );
       },
     );
@@ -817,6 +804,46 @@ class _PluginsScreenState extends State<PluginsScreen> {
     return '${two(t.day)}.${two(t.month)}.${t.year}, '
         '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
   }
+}
+
+/// פריסת רשת הכרטיסים — מספר העמודות וגובה האריח נגזרים מרוחב הרשת.
+///
+/// החישוב יושב ב-delegate ולא ב-`SliverLayoutBuilder`, כי ה-scrollOffset הוא
+/// חלק מ-`SliverConstraints`: שם הרשת נבנתה מחדש בכל פריים של גלילה — עם כל
+/// הכרטיסים הגלויים — ומכאן הגלילה התקועה.
+class _PluginGridDelegate extends SliverGridDelegate {
+  const _PluginGridDelegate({required this.textScale});
+
+  /// הגדלת הטקסט של המשתמש; תוכן הכרטיס גדל איתה, ולכן גם גובה האריח.
+  final double textScale;
+
+  static const double _spacing = AppTokens.spaceLG;
+
+  @override
+  SliverGridLayout getLayout(SliverConstraints constraints) {
+    // מספר העמודות נגזר מרוחב מינימלי לכרטיס, כמו auto-fill ב-CSS —
+    // כך שמסך רחב מקבל יותר עמודות ולא כרטיסים מנופחים.
+    final width = constraints.crossAxisExtent;
+    final columns =
+        ((width + _spacing) / (_minCardWidth + _spacing)).floor().clamp(1, 6);
+
+    // גובה הכרטיס נגזר ולא קבוע: התמונה תופסת יחס 16/11 מרוחב הכרטיס,
+    // ולכן כרטיס רחב הוא גם גבוה יותר. שאר התוכן מקבל גובה קבוע שמוכפל
+    // בהגדלת הטקסט של המשתמש — אחרת טקסט מוגדל היה גולש.
+    final tileWidth = (width - _spacing * (columns - 1)) / columns;
+    final imageHeight = (tileWidth - AppTokens.spaceMD * 2) * 11 / 16;
+
+    return SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: columns,
+      crossAxisSpacing: _spacing,
+      mainAxisSpacing: _spacing,
+      mainAxisExtent: imageHeight + _cardContentHeight * textScale,
+    ).getLayout(constraints);
+  }
+
+  @override
+  bool shouldRelayout(_PluginGridDelegate oldDelegate) =>
+      oldDelegate.textScale != textScale;
 }
 
 /// כותרת סעיף בחנות — "קו + עינית" מעל כותרת גדולה, תיאור אופציונלי,

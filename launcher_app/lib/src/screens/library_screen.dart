@@ -1,8 +1,10 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/library_module_controller.dart';
+import '../services/byte_size.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
 import 'home_screen.dart';
@@ -28,10 +30,11 @@ class LibraryScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.strings.libraryScreen;
+
     return ScreenBody(
-      title: 'עדכון ספרייה',
-      description: 'העדכון מוחל מתיקיית התוכנה. '
-          'המסד לא ייגע בו עד שתאשר, ובזמן שאוצריא פתוחה העדכון חסום.',
+      title: t.title,
+      description: t.description,
       children: [
         _stateCard(context),
         _sourceCard(context),
@@ -43,24 +46,25 @@ class LibraryScreen extends StatelessWidget {
 
   Widget _stateCard(BuildContext context) {
     final c = library;
+    final t = context.strings.libraryScreen;
 
     return SettingsCard(
-      title: 'מצב המסד',
+      title: t.stateCardTitle,
       children: [
         InfoStatusRow(
           icon: FluentIcons.database_24_regular,
-          title: 'מצב',
+          title: t.stateRowTitle,
           kind: libraryStatusKind(c.status),
-          label: libraryStatusLabel(c),
+          label: libraryStatusLabel(context, c),
         ),
         SettingsActionTile.path(
           icon: FluentIcons.document_24_regular,
-          title: 'קובץ seforim.db הפעיל',
+          title: t.dbFileTitle,
           path: c.dbPath,
-          placeholder: 'לא נמצא — יש להצביע על הקובץ',
+          placeholder: t.dbFileMissing,
           actions: [
             ActionButton.neutral(
-              text: 'בחירת קובץ מסד',
+              text: t.pickDbButton,
               icon: FluentIcons.folder_open_24_regular,
               onPressed: _isBusy ? null : () => _pickDbFile(context),
             ),
@@ -68,41 +72,46 @@ class LibraryScreen extends StatelessWidget {
         ),
         SettingsActionTile.text(
           icon: FluentIcons.number_symbol_24_regular,
-          title: 'גרסה מקומית',
-          subtitle: c.localVersion?.toString() ?? 'לא ידועה',
+          title: t.localVersionTitle,
+          subtitle:
+              c.localVersion?.toString() ?? context.strings.common.unknownValue,
           subtitleLtr: c.localVersion != null,
         ),
         SettingsActionTile.text(
           icon: FluentIcons.folder_24_regular,
-          title: 'גרסת היעד בתיקייה המקומית',
+          title: t.targetVersionTitle,
           subtitle: c.targetVersion?.toString() ??
               (c.status == LibraryModuleStatus.needsDownload
-                  ? 'טרם הורדו עדכונים'
-                  : 'לא ידועה — יש לבצע בדיקה'),
+                  ? t.targetVersionNothingDownloaded
+                  : t.targetVersionUnknown),
           subtitleLtr: c.targetVersion != null,
         ),
         if (otzariaIsRunning)
           SettingsActionTile.text(
             icon: FluentIcons.warning_24_regular,
-            title: 'אוצריא פתוחה',
-            subtitle: 'יש לסגור את אוצריא לפני החלת עדכון על המסד.',
+            title: t.otzariaRunningTitle,
+            subtitle: t.otzariaRunningSubtitle,
           ),
         if (c.errorMessage != null)
           InfoErrorRow(message: c.errorMessage!, onRetry: c.checkForUpdate),
         if (c.status == LibraryModuleStatus.updating)
           InfoProgressRow(
-            stage: c.stageText ?? 'מעדכן את המסד...',
+            stage: c.stageText ?? t.updatingProgress,
             progress: c.applyProgress,
+            detail: formatBytesProgress(
+              c.applyReceivedBytes,
+              c.applyTotalBytes,
+            ),
           ),
         CardActionsRow(
           actions: [
             ActionButton.neutral(
-              text: 'בדיקה מחדש',
+              text: context.strings.common.recheck,
               icon: FluentIcons.arrow_sync_24_regular,
               onPressed: _isBusy ? null : c.checkForUpdate,
             ),
             ActionButton.recommended(
-              text: 'התקנת העדכון',
+              text: t.installUpdateButton,
               icon: FluentIcons.database_arrow_right_24_regular,
               isLoading: c.status == LibraryModuleStatus.updating,
               onPressed: c.status == LibraryModuleStatus.updateAvailable
@@ -116,41 +125,43 @@ class LibraryScreen extends StatelessWidget {
   }
 
   Future<void> _pickDbFile(BuildContext context) async {
+    final t = context.strings.libraryScreen;
     final result = await FilePicker.platform.pickFiles(
-      dialogTitle: 'בחירת קובץ seforim.db',
+      dialogTitle: t.pickDbDialogTitle,
       type: FileType.custom,
       allowedExtensions: const ['db'],
     );
     final path = result?.files.single.path;
     if (path == null) return;
     await library.setCustomDbPath(path);
-    UiSnack.showSuccess('מיקום המסד עודכן');
+    UiSnack.showSuccess(t.dbPathUpdatedSnack);
   }
 
   Future<void> _confirmUpdate(BuildContext context) async {
     await onProcessStateChanged();
+    if (!context.mounted) return;
+    final home = context.strings.home;
     if (otzariaIsRunning) {
-      UiSnack.showError('אוצריא פתוחה — יש לסגור אותה ואז לנסות שוב.');
+      UiSnack.showError(home.otzariaOpenSnack);
       return;
     }
-    if (!context.mounted) return;
 
     final c = library;
     final approved = await showTwoActionsDialog(
       context: context,
-      title: 'עדכון ספריית הספרים',
+      title: context.strings.libraryScreen.updateDialogTitle,
       content: c.isFreshInstall
-          ? 'הספרייה תותקן בפעם הראשונה (גרסה ${c.targetVersion}) '
-              'מהתיקייה שלצד התוכנה. המסד גדול, וההתקנה עשויה להימשך זמן רב.'
-          : 'המסד יעודכן מגרסה ${c.localVersion} לגרסה ${c.targetVersion}. '
-              'גיבוי יישמר עד שהגרסה החדשה תיבדק בהצלחה.',
-      confirmText: 'עדכן עכשיו',
+          ? home.libraryFreshInstallPrompt('${c.targetVersion}')
+          : home.libraryUpdatePrompt('${c.localVersion}', '${c.targetVersion}'),
+      confirmText: home.libraryUpdateConfirm,
     );
     if (!approved) return;
 
     await c.update();
     if (c.status == LibraryModuleStatus.upToDate) {
-      UiSnack.showSuccess('המסד עודכן לגרסה ${c.localVersion}');
+      UiSnack.showSuccess(
+        AppL10n.strings.home.libraryUpdatedSnack('${c.localVersion}'),
+      );
     }
   }
 
@@ -158,39 +169,38 @@ class LibraryScreen extends StatelessWidget {
 
   Widget _sourceCard(BuildContext context) {
     final c = library;
+    final t = context.strings.libraryScreen;
 
     return SettingsCard(
-      title: 'התיקייה שממנה מעדכנים',
-      subtitle: 'קבועה, לצד קובץ ההרצה. כשהתוכנה על כונן נייד היא נוסעת '
-          'איתו, וההחלה במחשב הלא־מקוון קוראת ממנה ישירות.',
+      title: t.sourceCardTitle,
+      subtitle: t.sourceCardSubtitle,
       children: [
         SettingsActionTile.path(
           icon: FluentIcons.folder_24_regular,
-          title: 'תיקיית עדכוני הספרייה',
+          title: t.sourceDirTitle,
           path: c.mirrorDir,
-          placeholder: '—',
+          placeholder: context.strings.common.emptyValue,
         ),
         InfoStatusRow(
           icon: FluentIcons.arrow_download_24_regular,
-          title: 'תוכן התיקייה',
+          title: t.mirrorContentTitle,
           kind: switch (c.status) {
             LibraryModuleStatus.needsDownload => StatusKind.needsAction,
             LibraryModuleStatus.error => StatusKind.error,
             _ => StatusKind.ok,
           },
           label: switch (c.status) {
-            LibraryModuleStatus.needsDownload =>
-              'ריקה — יש להריץ הורדה בדף הבית',
-            LibraryModuleStatus.error => 'לא ניתן לקרוא',
+            LibraryModuleStatus.needsDownload => t.mirrorEmpty,
+            LibraryModuleStatus.error => t.mirrorUnreadable,
             _ => c.targetVersion != null
-                ? 'מכילה גרסה ${c.targetVersion}'
-                : 'קיימת',
+                ? t.mirrorHasVersion('${c.targetVersion}')
+                : t.mirrorPresent,
           },
         ),
         if (c.lastDownloadedAt != null)
           SettingsActionTile.text(
             icon: FluentIcons.history_24_regular,
-            title: 'הורד לאחרונה',
+            title: context.strings.common.lastDownloaded,
             subtitle: c.lastDownloadedAt!.toLocal().toString().split('.').first,
           ),
       ],

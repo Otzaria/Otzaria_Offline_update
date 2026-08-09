@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 void main() {
   group('AppSettings', () {
@@ -86,6 +87,23 @@ void main() {
       // 'paths' כבר לא נקרא, ולכן backupsToKeep חוזר לברירת המחדל.
       expect(restored.backupsToKeep, 1);
       expect(restored.hasSyncSelection, isTrue);
+      // קובץ מלפני שדה השפה נטען לעברית, לא לשפת המערכת.
+      expect(restored.language, AppLanguage.hebrew);
+    });
+
+    test('שפת הממשק עוברת הלוך-חזור דרך ה-JSON', () {
+      const settings = AppSettings(language: AppLanguage.english);
+      final restored = AppSettings.fromJson(settings.toJson());
+
+      expect(settings.toJson()['ui'], containsPair('language', 'en'));
+      expect(restored.language, AppLanguage.english);
+      // ערך לא מוכר נופל לעברית, כמו כל שדה אחר.
+      expect(
+        AppSettings.fromJson({
+          'ui': {'language': 'fr'}
+        }).language,
+        AppLanguage.hebrew,
+      );
     });
   });
 

@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 /// מתאר קובץ patch בודד בתוך manifest, כולל פרטי הדחיסה וה-hashes
 /// לאימות הקובץ הדחוס והמחולץ.
@@ -38,7 +39,9 @@ class PatchFileEntry extends Equatable {
   factory PatchFileEntry.fromJson(Map<String, dynamic> json) {
     final compression = _requireString(json, 'compression');
     if (!supportedCompressions.contains(compression)) {
-      throw FormatException('דחיסה לא נתמכת ב-patch: $compression');
+      throw FormatException(
+        AppL10n.strings.libraryDomain.unsupportedPatchCompression(compression),
+      );
     }
     return PatchFileEntry(
       file: _requireString(json, 'file'),
@@ -95,7 +98,9 @@ class DeltaManifest extends Equatable {
   factory DeltaManifest.fromJson(Map<String, dynamic> json) {
     final patchFilesRaw = json['patchFiles'];
     if (patchFilesRaw is! List || patchFilesRaw.isEmpty) {
-      throw const FormatException('שדה חובה חסר או ריק ב-manifest: patchFiles');
+      throw FormatException(
+        AppL10n.strings.libraryDomain.manifestMissingPatchFiles,
+      );
     }
     final booksTouchedRaw = json['booksTouched'];
     return DeltaManifest(
@@ -136,7 +141,9 @@ class DeltaManifest extends Equatable {
 String _requireString(Map<String, dynamic> json, String key) {
   final value = json[key];
   if (value is! String || value.isEmpty) {
-    throw FormatException('שדה חובה חסר או לא תקין ב-manifest: $key');
+    throw FormatException(
+      AppL10n.strings.libraryDomain.manifestMissingField(key),
+    );
   }
   return value;
 }
@@ -144,7 +151,9 @@ String _requireString(Map<String, dynamic> json, String key) {
 int _requireInt(Map<String, dynamic> json, String key) {
   final value = json[key];
   if (value is! num) {
-    throw FormatException('שדה חובה חסר או לא תקין ב-manifest: $key');
+    throw FormatException(
+      AppL10n.strings.libraryDomain.manifestMissingField(key),
+    );
   }
   return value.toInt();
 }

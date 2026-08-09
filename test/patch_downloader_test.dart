@@ -227,6 +227,65 @@ void main() {
       expect(File(dest).existsSync(), isFalse);
       expect(File('$dest.resume').existsSync(), isFalse);
     });
+
+    // הכתיבה לדיסק נעצרת לצורך flush כל כמה מגה־בייטים (לחץ-נגד מול כונן
+    // איטי). הבדיקה מוודאת שהחצייה של הגבול הזה אינה מאבדת או מערבבת בייטים.
+    test('גוף שחוצה את גבול ה-flush נכתב שלם ובסדר הנכון', () async {
+      final dest = '${tmp.path}/seforim.db.zst';
+      // 12MB בצ׳אנקים של 1MB — שלוש חציות של גבול ה-4MB.
+      const chunkSize = 1 << 20;
+      const chunkCount = 12;
+      final body = Uint8List(chunkSize * chunkCount);
+      for (var i = 0; i < body.length; i++) {
+        body[i] = i % 251;
+      }
+      final chunks = [
+        for (var i = 0; i < chunkCount; i++)
+          Uint8List.sublistView(body, i * chunkSize, (i + 1) * chunkSize),
+      ];
+
+      final downloader = PatchDownloader(
+        httpClient: MockClient.streaming(
+          (request, bodyStream) async => http.StreamedResponse(
+            Stream.fromIterable(chunks),
+            200,
+            contentLength: body.length,
+          ),
+        ),
+        decompress: (c) async => uncompressed,
+      );
+
+      await downloader.downloadToFile(
+        url: 'https://x/seforim.db.zst',
+        destPath: dest,
+        expectedSize: body.length,
+        expectedSha256: sha256.convert(body).toString(),
+      );
+      expect(File(dest).lengthSync(), body.length);
+      expect(File(dest).readAsBytesSync(), body);
+    });
+
+    // קובץ שכבר יושב שלם על הדיסק מדלג על ההורדה ורק מאומת. האימות של 1.1GB
+    // נמשך דקה, ובלי דיווח הוא נראה למשתמש כמו תקיעה.
+    test('נכס שכבר שלם: האימות מדווח התקדמות ולא רק קופץ ל-100%', () async {
+      final dest = '${tmp.path}/seforim.db.zst';
+      File(dest).writeAsBytesSync(compressed);
+      File('$dest.resume').writeAsStringSync('v-1\n"e1"');
+
+      final verifyReports = <(int, int)>[];
+      await fullDownloader().downloadToFile(
+        url: 'https://x/seforim.db.zst',
+        destPath: dest,
+        expectedSize: compressed.length,
+        expectedSha256: sha256.convert(compressed).toString(),
+        resumeToken: 'v-1',
+        onVerifyProgress: (verified, total) =>
+            verifyReports.add((verified, total)),
+      );
+
+      expect(verifyReports, isNotEmpty);
+      expect(verifyReports.last, (compressed.length, compressed.length));
+    });
   });
 
   group('downloadToFile — חידוש הורדה (resume)', () {

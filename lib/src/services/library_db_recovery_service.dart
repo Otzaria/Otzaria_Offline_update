@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 /// הפעולה שבוצעה (או נדרשת) בעת בדיקת התאוששות בעליית האפליקציה.
@@ -68,18 +69,18 @@ class LibraryDbRecoveryService {
     }
 
     if (!backup.existsSync()) {
-      return const RecoveryResult(
+      return RecoveryResult(
         RecoveryAction.blockedMissingBackup,
-        'נמצא סימון עדכון שלא הושלם ללא גיבוי — יש לוודא תקינות ה-DB',
+        AppL10n.strings.libraryDomain.interruptedUpdateNoBackup,
       );
     }
 
     await _restore(backup.path, dbPath);
     _deleteQuietly(marker.path);
     _deleteQuietly(backup.path);
-    return const RecoveryResult(
+    return RecoveryResult(
       RecoveryAction.restored,
-      'עדכון שנקטע זוהה — ה-DB שוחזר מהגיבוי',
+      AppL10n.strings.libraryDomain.interruptedUpdateRestored,
     );
   }
 
@@ -127,7 +128,7 @@ class LibraryDbRecoveryService {
     if (createBackup) {
       try {
         await Isolate.run(() => cloneOrCopyFile(dbPath, tmp));
-        _verifySameSize(tmp, dbPath, 'גיבוי');
+        _verifySameSize(tmp, dbPath, AppL10n.strings.libraryDomain.backupLabel);
         File(tmp).renameSync(backupPathFor(dbPath));
       } catch (_) {
         _deleteQuietly(tmp);
@@ -172,7 +173,11 @@ class LibraryDbRecoveryService {
     final tmp = _restoreTmpFor(dbPath);
     _deleteQuietly(tmp);
     await Isolate.run(() => cloneOrCopyFile(backupPath, tmp));
-    _verifySameSize(tmp, backupPath, 'שחזור');
+    _verifySameSize(
+      tmp,
+      backupPath,
+      AppL10n.strings.libraryDomain.restoreLabel,
+    );
     _deleteQuietly('$dbPath-wal');
     _deleteQuietly('$dbPath-shm');
     _deleteQuietly(dbPath);
@@ -184,7 +189,9 @@ class LibraryDbRecoveryService {
     final e = File(expected).lengthSync();
     if (a != e) {
       _deleteQuietly(actual);
-      throw BackupIntegrityException('$label חלקי: $a בייטים מתוך $e');
+      throw BackupIntegrityException(
+        AppL10n.strings.libraryDomain.partialCopy(label, a, e),
+      );
     }
   }
 

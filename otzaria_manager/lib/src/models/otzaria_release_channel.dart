@@ -1,3 +1,5 @@
+import 'package:otzaria_l10n/otzaria_l10n.dart';
+
 /// ערוץ גרסאות של תוכנת אוצריא — ממופה ישירות לדגל `prerelease` של GitHub.
 enum OtzariaReleaseChannel {
   /// release רגיל (`prerelease=false`).
@@ -11,8 +13,9 @@ enum OtzariaReleaseChannel {
 
   /// תווית לתצוגה למשתמש.
   String get label => switch (this) {
-        OtzariaReleaseChannel.stable => 'יציבה',
-        OtzariaReleaseChannel.prerelease => 'לא יציבה',
+        OtzariaReleaseChannel.stable => AppL10n.strings.appDomain.channelStable,
+        OtzariaReleaseChannel.prerelease =>
+          AppL10n.strings.appDomain.channelPrerelease,
       };
 }
 

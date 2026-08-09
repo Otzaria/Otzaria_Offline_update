@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:otzaria_l10n/otzaria_l10n.dart';
+
 /// בודק אם תהליך אוצריא רץ כרגע — כדי לא לגעת ב-`seforim.db` בזמן
 /// שאוצריא מחזיקה בו handle פתוח (ראו PACKAGE_PLAN.md של
 /// seforim_library_updater: ה-orchestrator המקורי בתוך אוצריא סוגר את
@@ -89,7 +91,5 @@ class OtzariaIsRunningException implements Exception {
   const OtzariaIsRunningException();
 
   @override
-  String toString() =>
-      'אוצריא פתוחה כרגע — יש לסגור אותה לפני עדכון המסד, כדי למנוע נעילת '
-      'קובץ.';
+  String toString() => AppL10n.strings.libraryDomain.otzariaIsRunning;
 }

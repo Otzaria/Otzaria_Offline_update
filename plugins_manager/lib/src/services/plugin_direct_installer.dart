@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:otzaria_l10n/otzaria_l10n.dart';
+
 /// תוצאת ניסיון פעולה מול מערכת ההפעלה — מוחזרת כערך ולא כחריג, בדיוק
 /// כמו ב-`FileReveal` בלאנצ'ר: ה-UI מציג הודעה, לא stack trace.
 class PluginInstallResult {
@@ -22,15 +24,12 @@ class PluginInstallResult {
 abstract final class PluginDirectInstaller {
   /// [pluginFilePath] חייב להיות נתיב **מוחלט** לקובץ `.otzplugin` קיים.
   static Future<PluginInstallResult> install(String pluginFilePath) async {
+    final strings = AppL10n.strings.pluginsDomain;
     if (!File(pluginFilePath).existsSync()) {
-      return const PluginInstallResult.failure(
-        'קובץ התוסף המקומי חסר. יש לבצע סנכרון מחדש.',
-      );
+      return PluginInstallResult.failure(strings.localPluginFileMissing);
     }
     if (!pluginFilePath.toLowerCase().endsWith('.otzplugin')) {
-      return const PluginInstallResult.failure(
-        'קובץ התוסף אינו בסיומת otzplugin תקינה.',
-      );
+      return PluginInstallResult.failure(strings.badPluginExtension);
     }
 
     final url =
@@ -42,6 +41,7 @@ abstract final class PluginDirectInstaller {
   /// `url_launcher` מאותה סיבה כמו ב-`FileReveal`: כאן רוצים בדיוק דבר
   /// אחד — למסור את ה-URL למערכת — וזה שונה בין הפלטפורמות.
   static Future<PluginInstallResult> openProtocolUrl(String url) async {
+    final strings = AppL10n.strings.pluginsDomain;
     try {
       if (Platform.isWindows) {
         // הארגומנט הריק הראשון הוא הכותרת של החלון עבור `start`; בלעדיו
@@ -49,8 +49,7 @@ abstract final class PluginDirectInstaller {
         final result = await Process.run('cmd', ['/c', 'start', '', url]);
         if (result.exitCode != 0) {
           return PluginInstallResult.failure(
-            'פתיחת אוצריא נכשלה. ודא שאוצריא מותקנת במחשב זה. '
-            '(${result.stderr})',
+            '${strings.otzariaOpenFailedHint}(${result.stderr})',
           );
         }
         return const PluginInstallResult.ok();
@@ -60,18 +59,17 @@ abstract final class PluginDirectInstaller {
         final result = await Process.run('/usr/bin/open', [url]);
         if (result.exitCode != 0) {
           return PluginInstallResult.failure(
-            'פתיחת אוצריא נכשלה. ודא שאוצריא מותקנת במחשב זה. '
-            '(${result.stderr})',
+            '${strings.otzariaOpenFailedHint}(${result.stderr})',
           );
         }
         return const PluginInstallResult.ok();
       }
 
-      return const PluginInstallResult.failure(
-        'התקנה ישירה נתמכת ב-Windows וב-macOS בלבד.',
+      return PluginInstallResult.failure(
+        strings.directInstallUnsupportedPlatform,
       );
     } catch (e) {
-      return PluginInstallResult.failure('פתיחת אוצריא נכשלה: $e');
+      return PluginInstallResult.failure(strings.otzariaOpenFailed('$e'));
     }
   }
 }

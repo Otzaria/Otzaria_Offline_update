@@ -1,0 +1,1226 @@
+import 'app_language.dart';
+import 'app_strings.dart';
+
+/// עברית — ברירת המחדל. הנוסח כאן הוא המקור; האנגלית היא תרגום חופשי שלו.
+class HebrewStrings extends AppStrings {
+  const HebrewStrings();
+
+  @override
+  AppLanguage get language => AppLanguage.hebrew;
+
+  @override
+  CommonStrings get common => const _Common();
+  @override
+  ShellStrings get shell => const _Shell();
+  @override
+  HomeStrings get home => const _Home();
+  @override
+  AppScreenStrings get appScreen => const _AppScreen();
+  @override
+  LibraryScreenStrings get libraryScreen => const _LibraryScreen();
+  @override
+  SettingsScreenStrings get settings => const _Settings();
+  @override
+  PluginsStrings get plugins => const _Plugins();
+  @override
+  SetupErrorStrings get setupError => const _SetupError();
+  @override
+  UnitStrings get units => const _Units();
+  @override
+  LibraryDomainStrings get libraryDomain => const _LibraryDomain();
+  @override
+  AppDomainStrings get appDomain => const _AppDomain();
+  @override
+  PluginsDomainStrings get pluginsDomain => const _PluginsDomain();
+}
+
+class _Common extends CommonStrings {
+  const _Common();
+
+  @override
+  String get confirm => 'אישור';
+  @override
+  String get cancel => 'ביטול';
+  @override
+  String get continueAction => 'המשך';
+  @override
+  String get close => 'סגירה';
+  @override
+  String get error => 'שגיאה';
+  @override
+  String get retry => 'נסה שוב';
+  @override
+  String get install => 'התקנה';
+  @override
+  String get update => 'עדכון';
+  @override
+  String get launch => 'הפעלה';
+  @override
+  String get recheck => 'בדיקה מחדש';
+  @override
+  String get notCheckedYet => 'טרם נבדק';
+  @override
+  String get checking => 'בודק...';
+  @override
+  String get upToDate => 'מעודכן';
+  @override
+  String get updateAvailable => 'יש עדכון חדש';
+  @override
+  String get installing => 'מתקין...';
+  @override
+  String get unknownValue => 'לא ידועה';
+  @override
+  String get lastDownloaded => 'הורד לאחרונה';
+  @override
+  String get emptyValue => '—';
+}
+
+class _Shell extends ShellStrings {
+  const _Shell();
+
+  @override
+  String get appTitle => 'עדכוני אוצריא';
+  @override
+  String get otzariaLogoLabel => 'אוצריא';
+  @override
+  String get navHome => 'דף הבית';
+  @override
+  String get navApp => 'תוכנה';
+  @override
+  String get navLibrary => 'ספרייה';
+  @override
+  String get navPlugins => 'תוספים';
+  @override
+  String get navSettings => 'הגדרות';
+  @override
+  String logPathFallback(String path) => 'נתיב יומן הפעילות: $path';
+}
+
+class _Home extends HomeStrings {
+  const _Home();
+
+  @override
+  String get title => 'דף הבית';
+  @override
+  String get description =>
+      'עדכון התוכנה והספרייה מהתיקייה שלצד התוכנה — בלי צורך באינטרנט.';
+
+  @override
+  String get otzariaRunningTitle => 'אוצריא פתוחה';
+  @override
+  String get otzariaRunningSubtitle => 'עדכון הספרייה חסום עד לסגירתה.';
+
+  @override
+  String get appTileTitle => 'תוכנת אוצריא';
+  @override
+  String get libraryTileTitle => 'הספרייה';
+
+  @override
+  String get appNoInstallFound => 'לא נמצאה התקנה';
+  @override
+  String get appNothingDownloaded => 'טרם הורד עדכון';
+
+  @override
+  String get noActionAvailable =>
+      'אין פעולה זמינה כרגע — לפרטים ולבחירה ידנית ראו למטה.';
+  @override
+  String get moreDetails => 'פרטים נוספים';
+
+  @override
+  String get appInstallDialogTitle => 'התקנת תוכנת אוצריא';
+  @override
+  String get appInstallConfirm => 'התקן';
+  @override
+  String appInstalledSnack(String version) => 'אוצריא עודכנה לגרסה $version';
+
+  @override
+  String get otzariaOpenSnack => 'אוצריא פתוחה — יש לסגור אותה ואז לנסות שוב.';
+  @override
+  String get libraryUpdateDialogTitle => 'עדכון הספרייה';
+  @override
+  String libraryFreshInstallPrompt(String targetVersion) =>
+      'הספרייה תותקן בפעם הראשונה (גרסה $targetVersion) מהתיקייה שלצד '
+      'התוכנה. המסד גדול, וההתקנה עשויה להימשך זמן רב.';
+  @override
+  String libraryUpdatePrompt(String localVersion, String targetVersion) =>
+      'המסד יעודכן מגרסה $localVersion לגרסה $targetVersion. גיבוי יישמר עד '
+      'שהגרסה החדשה תיבדק בהצלחה.';
+  @override
+  String get libraryUpdateConfirm => 'עדכן עכשיו';
+  @override
+  String libraryUpdatedSnack(String version) => 'המסד עודכן לגרסה $version';
+
+  @override
+  String get onlineCardTitle => 'בדיקת עדכונים';
+  @override
+  String get onlineCardSubtitle =>
+      'רק במחשב שיש בו אינטרנט — לא נדרש בשביל ההתקנה עצמה.';
+  @override
+  String get onlineChecking => 'בודק אם יש עדכונים ברשת...';
+  @override
+  String get onlineNeverChecked => 'טרם נבדק בהרצה הזו';
+  @override
+  String get onlineOffline => 'אין חיבור לרשת כרגע';
+  @override
+  String get onlineHasUpdates => 'נמצאו עדכונים חדשים ברשת';
+  @override
+  String get onlineNoUpdates => 'אין עדכונים חדשים ברשת';
+  @override
+  String get checkForUpdatesButton => 'בדיקת עדכונים';
+  @override
+  String get downloadNowButton => 'הורד עכשיו';
+  @override
+  String lastCheckedAt(String time) => 'נבדק לאחרונה: $time';
+
+  @override
+  String get downloadingApp => 'מוריד את תוכנת אוצריא...';
+  @override
+  String get downloadingLibrary => 'מוריד את הספרייה...';
+  @override
+  String get downloadingPlugins => 'מוריד את התוספים...';
+  @override
+  String get downloadStarting => 'מתחיל הורדה...';
+
+  @override
+  String get libraryNotInstalledYet => 'טרם הותקנה ספרייה';
+  @override
+  String get libraryUpdating => 'מעדכן...';
+  @override
+  String get libraryNothingDownloaded => 'טרם הורדו עדכונים';
+  @override
+  String get libraryNeedsManualPath => 'נדרשת בחירת מיקום';
+}
+
+class _AppScreen extends AppScreenStrings {
+  const _AppScreen();
+
+  @override
+  String get title => 'עדכון תוכנת אוצריא';
+  @override
+  String get description =>
+      'ההתקנה מוחלת מהתיקייה שלצד התוכנה, בלי צורך באינטרנט. יש לוודא '
+      'שאוצריא סגורה לפני התקנה.';
+
+  @override
+  String get stateCardTitle => 'מצב ההתקנה';
+  @override
+  String get stateRowTitle => 'מצב';
+  @override
+  String get readyToInstall => 'מוכן להתקנה';
+  @override
+  String get nothingDownloadedYet => 'טרם הורדה גרסה';
+
+  @override
+  String get installedVersion => 'גרסה מותקנת';
+  @override
+  String get noInstallDetected => 'לא זוהתה התקנה';
+  @override
+  String get pickInstallDirButton => 'בחירת מיקום ידנית';
+  @override
+  String get pickInstallDirDialogTitle => 'בחירת תיקיית ההתקנה של אוצריא';
+  @override
+  String get installAdoptedSnack => 'נמצאה התקנת אוצריא — הגרסה עודכנה';
+  @override
+  String get installNotFoundSnack => 'לא נמצאה התקנת אוצריא בתיקייה שנבחרה';
+
+  @override
+  String get mirrorVersionTitle => 'גרסה בתיקייה המקומית';
+  @override
+  String get mirrorEmpty => 'אין — יש להריץ הורדה';
+  @override
+  String channelPair(String stable, String prerelease) =>
+      '$stable (יציבה) · $prerelease (לא יציבה)';
+
+  @override
+  String get channelTileTitle => 'הגרסה שתותקן';
+  @override
+  String prereleaseSubtitle(String version) =>
+      'הגרסה הלא-יציבה ($version) — חדשה יותר, אך עלולה להכיל תקלות';
+  @override
+  String stableSubtitle(String version) => 'הגרסה היציבה ($version) — מומלץ';
+  @override
+  String get channelStable => 'יציבה';
+  @override
+  String get channelPrerelease => 'לא יציבה';
+
+  @override
+  String get processTitle => 'תהליך אוצריא';
+  @override
+  String get processRunning => 'פתוחה כרגע — עדכון מסד חסום עד לסגירתה';
+  @override
+  String get processStopped => 'סגורה';
+
+  @override
+  String get installingProgress => 'מתקין את אוצריא...';
+  @override
+  String get launchButton => 'הפעלת אוצריא';
+  @override
+  String get installUpdateButton => 'התקנת העדכון';
+
+  @override
+  String get whatsNewTitle => 'מה התחדש בגרסה האחרונה';
+  @override
+  String get whatsNewEmpty => 'אין תיאור לגרסה הזו, או שעדיין לא הורדה גרסה.';
+
+  @override
+  String get sourceCardTitle => 'התיקייה שממנה מתקינים';
+  @override
+  String get sourceCardSubtitle =>
+      'קבועה, לצד קובץ ההרצה — ראו "עדכון ספרייה" להסבר המלא.';
+  @override
+  String get sourceDirTitle => 'תיקיית עדכוני התוכנה';
+
+  @override
+  String installPrompt({
+    required String? latestVersion,
+    required String? currentVersion,
+    required bool prereleaseNote,
+  }) {
+    final channelNote = prereleaseNote
+        ? ' זו הגרסה הלא-יציבה (pre-release) שנבחרה בהגדרות מסך התוכנה.'
+        : '';
+    return 'הגרסה $latestVersion תותקן מהתיקייה המקומית על גבי '
+        '${currentVersion ?? 'ההתקנה הקיימת'}.$channelNote '
+        'ההתקנה אינה דורשת אינטרנט. יש לוודא שאוצריא סגורה.';
+  }
+}
+
+class _LibraryScreen extends LibraryScreenStrings {
+  const _LibraryScreen();
+
+  @override
+  String get title => 'עדכון ספרייה';
+  @override
+  String get description =>
+      'העדכון מוחל מתיקיית התוכנה. המסד לא ייגע בו עד שתאשר, ובזמן שאוצריא '
+      'פתוחה העדכון חסום.';
+
+  @override
+  String get stateCardTitle => 'מצב המסד';
+  @override
+  String get stateRowTitle => 'מצב';
+
+  @override
+  String get dbFileTitle => 'קובץ seforim.db הפעיל';
+  @override
+  String get dbFileMissing => 'לא נמצא — יש להצביע על הקובץ';
+  @override
+  String get pickDbButton => 'בחירת קובץ מסד';
+  @override
+  String get pickDbDialogTitle => 'בחירת קובץ seforim.db';
+  @override
+  String get dbPathUpdatedSnack => 'מיקום המסד עודכן';
+
+  @override
+  String get localVersionTitle => 'גרסה מקומית';
+  @override
+  String get targetVersionTitle => 'גרסת היעד בתיקייה המקומית';
+  @override
+  String get targetVersionNothingDownloaded => 'טרם הורדו עדכונים';
+  @override
+  String get targetVersionUnknown => 'לא ידועה — יש לבצע בדיקה';
+
+  @override
+  String get otzariaRunningTitle => 'אוצריא פתוחה';
+  @override
+  String get otzariaRunningSubtitle =>
+      'יש לסגור את אוצריא לפני החלת עדכון על המסד.';
+
+  @override
+  String get updatingProgress => 'מעדכן את המסד...';
+  @override
+  String get installUpdateButton => 'התקנת העדכון';
+  @override
+  String get updateDialogTitle => 'עדכון ספריית הספרים';
+
+  @override
+  String get sourceCardTitle => 'התיקייה שממנה מעדכנים';
+  @override
+  String get sourceCardSubtitle =>
+      'קבועה, לצד קובץ ההרצה. כשהתוכנה על כונן נייד היא נוסעת איתו, וההחלה '
+      'במחשב הלא־מקוון קוראת ממנה ישירות.';
+  @override
+  String get sourceDirTitle => 'תיקיית עדכוני הספרייה';
+  @override
+  String get mirrorContentTitle => 'תוכן התיקייה';
+  @override
+  String get mirrorEmpty => 'ריקה — יש להריץ הורדה בדף הבית';
+  @override
+  String get mirrorUnreadable => 'לא ניתן לקרוא';
+  @override
+  String mirrorHasVersion(String version) => 'מכילה גרסה $version';
+  @override
+  String get mirrorPresent => 'קיימת';
+}
+
+class _Settings extends SettingsScreenStrings {
+  const _Settings();
+
+  @override
+  String get title => 'הגדרות';
+  @override
+  String get description =>
+      'ההורדה תמיד יזומה בלחיצה. ההתקנה מהתיקייה המקומית היא הדבר היחיד '
+      'שניתן להפוך לאוטומטי, והיא דורשת אישור חד־פעמי.';
+
+  @override
+  String get automationCardTitle => 'אוטומציה';
+  @override
+  String get automationCardSubtitle =>
+      'ברירת המחדל: בדיקה מקומית בלבד, בלי להתקין.';
+  @override
+  String get autoCheckTitle => 'בדיקת גרסאות בפתיחה';
+  @override
+  String get autoCheckSubtitle =>
+      'משווה את המותקן למה שיש בתיקייה המקומית — בלי רשת';
+  @override
+  String get autoOnlineCheckTitle => 'בדיקת עדכונים אוטומטית כשיש רשת';
+  @override
+  String get autoOnlineCheckSubtitle =>
+      'בדיקה קלה בפתיחה מול GitHub — בלי הורדה. כשל (אין רשת) נבלע בשקט; '
+      'הכפתור הידני בדף הבית עובד בכל מקרה';
+  @override
+  String get autoInstallAppTitle => 'התקנת תוכנת אוצריא אוטומטית';
+  @override
+  String get autoInstallAppSubtitle =>
+      'מתקין בפתיחה כשיש גרסה חדשה בתיקייה המקומית';
+  @override
+  String get autoInstallLibraryTitle => 'התקנת עדכון ספרייה אוטומטית';
+  @override
+  String get autoInstallLibrarySubtitle =>
+      'מחיל על המסד בפתיחה; מדולג כשאוצריא פתוחה';
+
+  @override
+  String get autoInstallSubjectApp => 'תוכנת אוצריא';
+  @override
+  String get autoInstallSubjectLibrary => 'הספרייה';
+  @override
+  String autoInstallDialogTitle(String subject) => 'התקנה אוטומטית של $subject';
+  @override
+  String autoInstallDialogContent(String subject) =>
+      'מעתה $subject תותקן ללא אישור נוסף בכל פעם שתימצא גרסה חדשה בתיקייה '
+      'שלצד התוכנה. ההורדה עצמה תישאר יזומה.';
+  @override
+  String get autoInstallDialogWarning =>
+      'התקנה מחליפה קבצים במחשב שלך. אם אינך בטוח/ה — עדיף להשאיר את '
+      'האפשרות כבויה ולאשר כל עדכון בנפרד.';
+  @override
+  String get autoInstallDialogConfirm => 'הפעל התקנה אוטומטית';
+
+  @override
+  String get downloadCardTitle => 'הורדה';
+  @override
+  String get downloadCardSubtitle =>
+      'אילו רכיבים כפתור "הורד עכשיו" בדף הבית מביא לתיקייה המקומית. '
+      'ההורדה עצמה תמיד יזומה בלחיצה.';
+  @override
+  String get syncAppTitle => 'תוכנת אוצריא';
+  @override
+  String get syncAppSubtitle => 'קובץ ההתקנה של הגרסה האחרונה';
+  @override
+  String get syncLibraryTitle => 'הספרייה';
+  @override
+  String get syncLibrarySubtitle => 'הרכיב הכבד — המסד המלא הוא כ-1GB';
+  @override
+  String get syncPluginsTitle => 'חנות התוספים';
+  @override
+  String get syncPluginsSubtitle => 'הקטלוג וקובצי ההתקנה של כל התוספים';
+
+  @override
+  String get storageCardTitle => 'אחסון';
+  @override
+  String get storageCardSubtitle =>
+      'תיקיית הנתונים קבועה ליד קובץ ההרצה, ואין דרך לשנות אותה — כדי שהכול '
+      'ייסע יחד על הכונן.';
+  @override
+  String get backupTitle => 'גיבוי בטיחות של המסד';
+  @override
+  String get backupSubtitle =>
+      'לפני כתיבת מסד מלא: "כבוי" מתקין רק את הגרסה שהורדה, בלי רשת הצלה אם '
+      'הכתיבה תיכשל באמצע';
+  @override
+  String get backupOff => 'כבוי';
+  @override
+  String get backupOn => 'פועל';
+
+  @override
+  String get networkCardTitle => 'רשת';
+  @override
+  String get networkCardSubtitle =>
+      'הרשת נדרשת רק בהורדה. בדיקה והתקנה עובדות בלעדיה תמיד.';
+  @override
+  String get timeoutTitle => 'timeout להורדה';
+  @override
+  String get timeoutSubtitle => 'שניות עד שפנייה לרשת נחשבת כשל';
+
+  @override
+  String get uiCardTitle => 'ממשק ותמיכה';
+  @override
+  String get languageTitle => 'שפת הממשק';
+  @override
+  String get languageSubtitle => 'משנה את שפת כל המסכים וההודעות מיד';
+  @override
+  String get languageHebrew => 'עברית';
+  @override
+  String get languageEnglish => 'English';
+  @override
+  String get themeTitle => 'ערכת נושא';
+  @override
+  String get themeSystem => 'מערכת';
+  @override
+  String get themeLight => 'בהיר';
+  @override
+  String get themeDark => 'כהה';
+  @override
+  String get textSizeTitle => 'גודל טקסט';
+  @override
+  String get textSizeSmall => 'קטן';
+  @override
+  String get textSizeNormal => 'רגיל';
+  @override
+  String get textSizeLarge => 'גדול';
+
+  @override
+  String get logTitle => 'יומן הפעילות';
+  @override
+  String get logSubtitle => 'כל הבדיקות, ההורדות וההתקנות נרשמות מקומית בלבד';
+  @override
+  String get openLogFolderButton => 'פתיחת תיקיית הלוגים';
+
+  @override
+  String get resetTitle => 'איפוס ההגדרות';
+  @override
+  String get resetSubtitle =>
+      'מחזיר את כל ההגדרות לברירת המחדל, בלי למחוק התקנות';
+  @override
+  String get resetButton => 'איפוס';
+  @override
+  String get resetDialogTitle => 'איפוס ההגדרות';
+  @override
+  String get resetDialogContent => 'כל ההגדרות יחזרו לברירת המחדל.';
+  @override
+  String get resetDialogWarning =>
+      'ההתקנות עצמן, המסד, התוספים והעדכונים שהורדו לא יימחקו.';
+  @override
+  String get resetDialogConfirm => 'אפס הגדרות';
+  @override
+  String get resetDoneSnack => 'ההגדרות אופסו';
+}
+
+class _Plugins extends PluginsStrings {
+  const _Plugins();
+
+  @override
+  String get syncDialogTitle => 'סנכרון חנות התוספים';
+  @override
+  String get syncDialogContent =>
+      'הפעולה תוריד מ-otzaria.org את רשימת התוספים, הקטגוריות, התמונות '
+      'וקובצי ההתקנה אל תיקיית ההעברה. דורשת אינטרנט, ומרגע שהסתיימה החנות '
+      'עובדת גם במחשב שאין בו אינטרנט.';
+  @override
+  String get syncDialogConfirm => 'סנכרן';
+  @override
+  String get syncFailedSnack => 'הסנכרון נכשל';
+  @override
+  String syncDoneSnack(int count) => 'הסנכרון הושלם — $count תוספים בחנות';
+  @override
+  String get syncButton => 'סנכרון מהאתר';
+  @override
+  String get reloadTooltip => 'טעינה מחדש מהתיקייה המקומית';
+  @override
+  String get syncingOverlayTitle => 'מסנכרן את חנות התוספים';
+  @override
+  String get syncingOverlayStarting => 'מתחיל...';
+  @override
+  String get syncNeverRan => 'טרם בוצע סנכרון';
+  @override
+  String syncedAt(String time) => 'סונכרן לאחרונה: $time';
+  @override
+  String get syncDirUnknownTooltip => 'התיקייה תיקבע בסנכרון הראשון';
+  @override
+  String updatesAvailableChip(int count) => '$count עדכונים זמינים';
+
+  @override
+  String get saveDialogTitle => 'שמירת התוסף';
+  @override
+  String get saveDoneSnack => 'הקובץ נשמר';
+  @override
+  String get saveFailedSnack => 'שמירת הקובץ נכשלה';
+  @override
+  String installOpenedSnack(String pluginName) =>
+      'אוצריא נפתחה כדי להשלים את התקנת $pluginName';
+  @override
+  String get installFailedSnack => 'ההתקנה נכשלה';
+
+  @override
+  String get loadingCatalog => 'טוען את קטלוג התוספים...';
+  @override
+  String get catalogTitleFallback => 'חנות התוספים של אוצריא';
+  @override
+  String get catalogSubtitleFallback =>
+      'תוספים שמרחיבים את חוויית הלימוד באוצריא';
+  @override
+  String get heroSearchHint => 'חפשו תוסף לפי שם, תיאור או נושא...';
+  @override
+  String get heroSearchButton => 'חיפוש';
+
+  @override
+  String get emptyStoreTitle => 'החנות בבנייה — אבל התוספים כבר כאן';
+  @override
+  String get emptyStoreBody =>
+      'בקרוב יופיעו כאן תוספים נבחרים וקטגוריות מסודרות. בינתיים אפשר לחפש '
+      'למעלה או לעיין ברשימה המלאה של כל התוספים.';
+  @override
+  String allPluginsWithCount(int count) => 'לכל התוספים ($count)';
+  @override
+  String get browseAllPrompt => 'לא מצאתם את מה שחיפשתם?';
+  @override
+  String browseAllButton(int count) => 'עיינו בכל התוספים ($count)';
+
+  @override
+  String get featuredEyebrow => 'מומלצי החנות';
+  @override
+  String get featuredTitle => 'תוספים נבחרים';
+  @override
+  String get showMoreFeatured => 'הצג עוד נבחרים';
+  @override
+  String categoryLinkButton(int count) => 'לכל הקטגוריה ($count)';
+
+  @override
+  String get breadcrumbRoot => 'חנות התוספים';
+  @override
+  String get allPluginsPage => 'כל התוספים';
+  @override
+  String get listEyebrow => 'רשימת תוספים';
+  @override
+  String get listTitle => 'בחרו את התוסף שמתאים לכם';
+  @override
+  String get summaryNoResults => 'לא נמצאו תוספים לפי הסינון שבחרתם';
+  @override
+  String get summaryAllShown => 'כל התוספים מוצגים';
+  @override
+  String summaryPartial(int shown, int total) =>
+      'מוצגים $shown מתוך $total תוספים';
+  @override
+  String get categoryOnePlugin => 'תוסף אחד בקטגוריה';
+  @override
+  String categoryPluginCount(int count) => '$count תוספים בקטגוריה';
+
+  @override
+  String get hideInstalledLabel => 'רק מה שלא מותקן';
+  @override
+  String hideInstalledOnTooltip(int installedCount) =>
+      'מוצגים רק תוספים שאינם מותקנים או שיש להם עדכון.\n'
+      'זוהו $installedCount תוספים מותקנים באוצריא.';
+  @override
+  String hideInstalledOffTooltip(int installedCount) =>
+      'מוצגים כל התוספים, כולל המותקנים והמעודכנים.\n'
+      'זוהו $installedCount תוספים מותקנים באוצריא.';
+
+  @override
+  String get neverSyncedTitle => 'עדיין לא סונכרנו תוספים';
+  @override
+  String get neverSyncedBody =>
+      'לחצו על "סנכרון מהאתר" במחשב שיש בו אינטרנט כדי לטעון את רשימת '
+      'התוספים העדכנית מ-otzaria.org.';
+  @override
+  String get noResultsTitle => 'לא נמצאו תוספים לפי הסינון שבחרתם';
+  @override
+  String get noResultsBody =>
+      'נסו לחפש בשם אחר, להסיר תגית, לבחור סטטוס שונה, או לכבות את '
+      '"הצג רק מה שלא מותקן".';
+  @override
+  String get allInstalledTitle => 'הכול מותקן ומעודכן';
+  @override
+  String get allInstalledBody =>
+      'המתג "רק מה שלא מותקן" מסתיר תוספים שכבר מותקנים אצלכם בגרסה '
+      'העדכנית. כבו אותו כדי לראות גם אותם.';
+  @override
+  String get showInstalledButton => 'הצג גם את המותקנים';
+  @override
+  String get emptyCategoryTitle => 'בקרוב יתווספו תוספים לקטגוריה זו';
+  @override
+  String get emptyCategoryBody =>
+      'בינתיים אפשר לעיין ברשימה המלאה של כל התוספים בחנות.';
+  @override
+  String get allPluginsButton => 'לכל התוספים';
+
+  @override
+  String get filterSearchLabel => 'חיפוש';
+  @override
+  String get filterSearchHint => 'שם, תיאור או תגית...';
+  @override
+  String get filterStatusLabel => 'סטטוס';
+  @override
+  String get filterTagsLabel => 'תגיות';
+  @override
+  String get filterAllTags => 'כל התגיות';
+  @override
+  String get filterStatusAll => 'הכול';
+  @override
+  String get showMoreTags => 'הצג עוד';
+  @override
+  String get showFewerTags => 'הצג פחות';
+
+  @override
+  String get badgeFeaturedShort => 'נבחר';
+  @override
+  String get badgeFeatured => 'תוסף נבחר';
+  @override
+  String pluginVersionBadge(String version) => 'גרסה $version';
+  @override
+  String downloadsBadge(int count) => '$count הורדות';
+  @override
+  String get saveButton => 'שמירה';
+  @override
+  String get installButton => 'התקנה';
+  @override
+  String get directInstallButton => 'התקנה ישירה לאוצריא';
+  @override
+  String get sourcePageButton => 'עמוד המקור';
+  @override
+  String get cardDetailsLink => 'לפרטים מלאים';
+  @override
+  String cardUpdatedOn(String date) => 'עודכן ב־$date';
+  @override
+  String get backToStore => 'חזרה לחנות';
+
+  @override
+  String get statusStable => 'יציב';
+  @override
+  String get statusBeta => 'בטא';
+  @override
+  String get statusExperimental => 'ניסיוני';
+  @override
+  String get statusUnknown => 'לא ידוע';
+
+  @override
+  String get installChipInstalled => 'מותקן';
+  @override
+  String get installChipUpdateAvailable => 'עדכון זמין';
+  @override
+  String installChipUpdateFrom(String installedVersion) =>
+      'עדכון זמין (מותקן $installedVersion)';
+
+  @override
+  String get infoPanelTitle => 'מידע כללי';
+  @override
+  String get tagsPanelTitle => 'תגיות';
+  @override
+  String get screenshotsPanelTitle => 'צילומי מסך';
+  @override
+  String get infoVersion => 'גרסה';
+  @override
+  String get infoStatus => 'סטטוס';
+  @override
+  String get infoAuthor => 'מפתח';
+  @override
+  String get infoUpdated => 'עודכן';
+  @override
+  String get infoNetwork => 'חיבור אינטרנט בזמן שימוש';
+  @override
+  String get infoNetworkRequired => 'נדרש';
+  @override
+  String get infoNetworkNotRequired => 'לא נדרש';
+  @override
+  String get infoCompatibility => 'תאימות';
+  @override
+  String compatibilityRange(String from, String to) => '$from — עד $to';
+  @override
+  String get infoLocalFile => 'קובץ התוסף במראה';
+  @override
+  String get infoLocalFileMissing => 'טרם ירד — יש לבצע סנכרון';
+  @override
+  String localFileDescription(String fileName, String size) =>
+      '$fileName ($size)';
+  @override
+  String get valueUnspecifiedFeminine => 'לא צוינה';
+  @override
+  String get valueUnspecifiedMasculine => 'לא צוין';
+  @override
+  String get sizeUnknown => 'גודל לא ידוע';
+
+  @override
+  String get categoriesTitle => 'קטגוריות';
+  @override
+  String get storeHomeItem => 'דף הבית של החנות';
+  @override
+  String get storeHomeChip => 'דף הבית';
+
+  @override
+  String updatesDialogTitle(int count) => 'יש עדכונים זמינים ($count)';
+  @override
+  String get updatesDialogIntro =>
+      'התוספים הבאים מותקנים אצלך באוצריא בגרסה ישנה מזו שבחנות:';
+  @override
+  String updatesDialogRow(String installedVersion, String storeVersion) =>
+      'מותקן $installedVersion ← בחנות $storeVersion';
+
+  @override
+  String get screenshotPrevious => 'הקודם';
+  @override
+  String get screenshotNext => 'הבא';
+}
+
+class _SetupError extends SetupErrorStrings {
+  const _SetupError();
+
+  @override
+  String get title => 'התוכנה נמצאת במקום שאינו מתאים';
+  @override
+  String get explanation =>
+      'הלאנצ׳ר שומר את כל הנתונים — הספרייה, התוספים וגרסת אוצריא — בתיקייה '
+      'שצמודה לו, כדי שהכול ייסע יחד על הכונן. בתיקייה הנוכחית אין הרשאת '
+      'כתיבה, ולכן אין לאן לשמור.';
+  @override
+  String get whatToDo =>
+      'מה לעשות: להעביר את תיקיית התוכנה כולה לכונן הנייד (או לכל תיקייה '
+      'בדיסק שאינה תחת Program Files), ולהפעיל אותה משם.';
+  @override
+  String get attemptedDirTitle => 'התיקייה שנוסתה';
+  @override
+  String get copyPathButton => 'העתקת הנתיב';
+  @override
+  String get pathCopiedSnack => 'הנתיב הועתק';
+  @override
+  String cannotWriteToDataDir(String osMessage) =>
+      'לא ניתן לכתוב לתיקייה שלצד התוכנה: $osMessage';
+}
+
+class _Units extends UnitStrings {
+  const _Units();
+
+  @override
+  String bytes(int count) => '$count בייט';
+  @override
+  String progressOf(String received, String total) => '$received מתוך $total';
+}
+
+class _LibraryDomain extends LibraryDomainStrings {
+  const _LibraryDomain();
+
+  @override
+  String unsupportedPatchCompression(String compression) =>
+      'דחיסה לא נתמכת ב-patch: $compression';
+  @override
+  String get manifestMissingPatchFiles =>
+      'שדה חובה חסר או ריק ב-manifest: patchFiles';
+  @override
+  String manifestMissingField(String key) =>
+      'שדה חובה חסר או לא תקין ב-manifest: $key';
+  @override
+  String releasesRequestFailed(int statusCode) =>
+      'שגיאה בקבלת רשימת ה-releases: $statusCode';
+  @override
+  String get releasesResponseNotList => 'תשובת ה-releases מ-GitHub אינה רשימה';
+  @override
+  String manifestDownloadFailed(String url, int statusCode) =>
+      'שגיאה בהורדת manifest ($url): $statusCode';
+  @override
+  String manifestNotJsonObject(String url) =>
+      'manifest אינו אובייקט JSON תקין: $url';
+
+  @override
+  String get interruptedUpdateNoBackup =>
+      'נמצא סימון עדכון שלא הושלם ללא גיבוי — יש לוודא תקינות ה-DB';
+  @override
+  String get interruptedUpdateRestored =>
+      'עדכון שנקטע זוהה — ה-DB שוחזר מהגיבוי';
+  @override
+  String get backupLabel => 'גיבוי';
+  @override
+  String get restoreLabel => 'שחזור';
+  @override
+  String partialCopy(String label, int actual, int expected) =>
+      '$label חלקי: $actual בייטים מתוך $expected';
+
+  @override
+  String get exportLoadingReleases => 'טוען רשימת גרסאות מ-GitHub';
+  @override
+  String get exportNoReleases => 'לא נמצאו releases עם עדכוני DB להורדה.';
+  @override
+  String exportDownloading(String tag, String asset) => 'מוריד $tag / $asset';
+  @override
+  String exportVerifying(String tag, String asset) => 'מאמת $tag / $asset';
+  @override
+  String exportWritingManifest(String fileName) => 'כותב $fileName';
+  @override
+  String get exportDone => 'הושלם';
+  @override
+  String get exportCancelled => 'הייצוא בוטל';
+  @override
+  String get exporterDoesNotExtract =>
+      'LibraryMirrorExporter מוריד קבצים בלבד ואינו מחלץ אותם';
+
+  @override
+  String get planLocalVersionUnknown =>
+      'גרסת ה-DB המקומי אינה ידועה (חסר schema_meta.db_version)';
+  @override
+  String planContentChangedWithoutVersionBump(String releaseTag) =>
+      'תוכן המסד עודכן ב-$releaseTag ללא שינוי מספר הגרסה';
+  @override
+  String planNoDeltaRoute(int localVersion, int latestVersion) =>
+      'אין מסלול דלתא רציף מגרסה $localVersion לגרסה $latestVersion';
+  @override
+  String planNoFullDbEither(String reason) =>
+      '$reason, ואין DB מלא זמין להורדה';
+
+  @override
+  String mirrorManifestMissing(String fileName, String mirrorDir) =>
+      'לא נמצא קובץ $fileName בתיקייה: $mirrorDir — ודא/י שזו תיקיית מראה '
+      'תקינה שנוצרה דרך "הכנת עדכון להעברה".';
+  @override
+  String mirrorManifestCorrupt(
+    String fileName,
+    String mirrorDir,
+    String error,
+  ) =>
+      'קובץ $fileName בתיקייה $mirrorDir פגום: $error';
+  @override
+  String mirrorManifestUnexpectedShape(String fileName, String mirrorDir) =>
+      'קובץ $fileName בתיקייה $mirrorDir אינו בפורמט הצפוי.';
+  @override
+  String mirrorPatchManifestMissing(String url) =>
+      'קובץ manifest חסר במראה המקומית: $url';
+  @override
+  String mirrorPatchManifestCorrupt(String url, String error) =>
+      'קובץ manifest פגום ($url): $error';
+  @override
+  String mirrorPatchManifestNotJson(String url) =>
+      'manifest אינו אובייקט JSON תקין: $url';
+
+  @override
+  String unsupportedSchemaForHashOrder(int schemaVersion) =>
+      'גרסת סכמה $schemaVersion אינה נתמכת לבחירת סדר hash';
+  @override
+  String localVersionMismatch(int? localVersion, int expected) =>
+      'גרסת ה-DB המקומי ($localVersion) אינה תואמת ל-patch (מצפה ל-$expected)';
+  @override
+  String localSchemaMismatch(int localSchema, int expected) =>
+      'סכמת ה-DB המקומי ($localSchema) אינה תואמת ל-patch (מצפה ל-$expected)';
+  @override
+  String get contentHashMismatchNeedsFullDownload =>
+      'ה-DB המקומי שונה מהצפוי — hash לא תואם ל-fromContentHash. '
+      'נדרשת הורדה מלאה.';
+  @override
+  String foreignKeyViolationsGrew(int before, int after) =>
+      'מספר הפרות מפתח זר גדל ($before→$after) — ה-patch אינו תקין';
+  @override
+  String resultHashMismatch(String actual, String expected) =>
+      'ה-hash אחרי apply ($actual) אינו תואם ל-toContentHash ($expected)';
+  @override
+  String get patchMetaSchemaVersionMissing =>
+      'patch_meta.schema_version חסר ב-patch';
+  @override
+  String patchSchemaTooNew(int schemaVersion, int supported) =>
+      'גרסת סכמת ה-patch ($schemaVersion) חדשה מהנתמך ($supported) — '
+      'נדרש עדכון תוכנה';
+  @override
+  String patchVersionRangeMismatch(
+    int? from,
+    int? to,
+    int manifestFrom,
+    int manifestTo,
+  ) =>
+      'גרסאות ה-patch ($from→$to) אינן תואמות ל-manifest '
+      '($manifestFrom→$manifestTo)';
+
+  @override
+  String get compressedFileSizeLabel => 'גודל הקובץ הדחוס';
+  @override
+  String get compressedFileHashLabel => 'sha256 של הקובץ הדחוס';
+  @override
+  String get extractedFileSizeLabel => 'גודל הקובץ המחולץ';
+  @override
+  String get extractedFileHashLabel => 'sha256 של הקובץ המחולץ';
+  @override
+  String get patchExtractionFailed => 'חילוץ ה-patch נכשל או החזיר ריק';
+  @override
+  String get deleteExistingWithoutResumeIdentityFailed =>
+      'מחיקת קובץ קיים ללא זהות resume נכשלה — לא ניתן להמשיך בהורדה';
+  @override
+  String get deletePartialFromPreviousVersionFailed =>
+      'מחיקת קובץ חלקי מגרסה קודמת נכשלה — לא ניתן להמשיך בהורדה';
+  @override
+  String get deletePartialWithoutValidatorFailed =>
+      'מחיקת קובץ חלקי ללא validator נכשלה — לא ניתן להמשיך בהורדה';
+  @override
+  String get deletePartialFromPreviousRepresentationFailed =>
+      'מחיקת קובץ חלקי מייצוג קודם נכשלה — לא ניתן להמשיך בהורדה';
+  @override
+  String get deletePartialBeforeRetryFailed =>
+      'מחיקת קובץ חלקי לפני ניסיון חוזר נכשלה — לא ניתן להמשיך בהורדה';
+  @override
+  String fullDbSizeMismatch(int downloaded, int expected) =>
+      'גודל ה-DB שהורד ($downloaded) אינו תואם לצפוי ($expected)';
+  @override
+  String get fullDbHashMismatch => 'sha256 של ה-DB המלא אינו תואם';
+  @override
+  String resumeRoundLimit(int maxRounds, String url) =>
+      'חידוש ההורדה חרג ממספר הסבבים המרבי ($maxRounds): $url';
+  @override
+  String contentLengthMismatch(int responseLength, int expectedSize) =>
+      'Content-Length של ההורדה ($responseLength) אינו תואם לגודל הצפוי '
+      '($expectedSize)';
+  @override
+  String truncatedBody(int declared, int received) =>
+      'גוף ההורדה נקטע: Content-Length הצהיר $declared בייטים, '
+      'אך התקבלו $received';
+  @override
+  String downloadHttpError(int statusCode, String url) =>
+      'שגיאה בהורדה ($statusCode): $url';
+  @override
+  String resumeMadeNoProgress(String url) => 'חידוש ההורדה לא התקדם: $url';
+  @override
+  String resumeFailedAfterRetry(String url) =>
+      'חידוש ההורדה נכשל לאחר ניסיון חוזר: $url';
+  @override
+  String downloadExceedsExpectedSize(int expectedSize) =>
+      'ההורדה חורגת מהגודל הצפוי ($expectedSize בייטים)';
+  @override
+  String saveDownloadedFileFailed(String error) =>
+      'שמירת הקובץ שהורד לדיסק נכשלה: $error';
+  @override
+  String tooManyRedirects(String url) => 'יותר מדי הפניות (redirects): $url';
+  @override
+  String writeResumeSidecarFailed(String path, String error) =>
+      'כתיבת קובץ הזהות להמשך ההורדה נכשלה ($path): $error';
+  @override
+  String checksumMismatchDetailed(
+    String label,
+    String expected,
+    String actual,
+  ) =>
+      '$label אינו תואם: צפוי $expected, התקבל $actual';
+  @override
+  String checksumMismatch(String label) => '$label אינו תואם';
+  @override
+  String localFileNotFound(String path) => 'קובץ מקומי לא נמצא: $path';
+  @override
+  String localFileTooLarge(int maxBytes, String path) =>
+      'הקובץ המקומי חורג מהגודל הצפוי ($maxBytes בייטים): $path';
+  @override
+  String localSourceNotFound(String url) => 'קובץ מקור מקומי לא נמצא: $url';
+  @override
+  String localFileSizeMismatch(int expected, int actual, String url) =>
+      'גודל הקובץ המקומי אינו תואם: צפוי $expected, בפועל $actual ($url)';
+  @override
+  String localFileHashMismatch(String url) =>
+      'sha256 של הקובץ המקומי אינו תואם: $url';
+
+  @override
+  String get mirrorMissing =>
+      'עדיין לא הורדו עדכוני ספרייה לתיקייה המקומית — יש להריץ הורדה במחשב '
+      'עם חיבור לאינטרנט.';
+  @override
+  String interruptedUpdateNeedsManualFix(String detail) =>
+      '$detail — quick_check נכשל בפועל, נדרשת התערבות ידנית '
+      '(שחזור מגיבוי חיצוני).';
+  @override
+  String get interruptedUpdateDefaultDetail => 'עדכון DB שנקטע';
+  @override
+  String get blockedNeedsManualAction => 'מצב חסום — נדרשת פעולה ידנית';
+  @override
+  String get blockedNeedsManualActionWithPeriod =>
+      'מצב חסום — נדרשת פעולה ידנית.';
+  @override
+  String patchUrlMissing(String fileName) => 'לא נמצא URL להורדת $fileName';
+  @override
+  String get fullDbAssetMissingFromPlan => 'לא נמצא נכס DB מלא בתוכנית';
+  @override
+  String get fullDbExtractionFailed => 'חילוץ ה-DB המלא נכשל או החזיר ריק';
+  @override
+  String versionMismatchAfterWrite(int? actual, int? expected) =>
+      'אחרי כתיבת ה-DB המלא, הגרסה שנקראה ($actual) לא תואמת ליעד '
+      '($expected) — בוצע שחזור.';
+  @override
+  String get updateCancelled => 'העדכון בוטל';
+  @override
+  String get otzariaIsRunning =>
+      'אוצריא פתוחה כרגע — יש לסגור אותה לפני עדכון המסד, כדי למנוע נעילת '
+      'קובץ.';
+  @override
+  String get zstdContextCreationFailed => 'יצירת הקשר החילוץ (DCtx) נכשלה';
+  @override
+  String zstdDecompressionFailed(String errorName) =>
+      'חילוץ ה-zstd נכשל: $errorName';
+  @override
+  String get zstdEmptyInput => 'הקובץ הדחוס ריק';
+  @override
+  String get zstdTruncatedFrame => 'הקובץ הדחוס נקטע — ה-frame לא הושלם';
+
+  @override
+  String applyDownloadingPatch(String step) => 'מוריד עדכון$step...';
+  @override
+  String applyApplyingPatch(String step) => 'מחיל עדכון על המסד$step...';
+  @override
+  String get applyDownloadingFullDb => 'מוריד מסד מלא...';
+  @override
+  String get applyDecompressingFullDb => 'מחלץ את המסד...';
+  @override
+  String get applyWritingFullDb => 'כותב את המסד...';
+  @override
+  String get applyVerifying => 'מוודא תקינות...';
+  @override
+  String get applyDone => 'הושלם.';
+}
+
+class _AppDomain extends AppDomainStrings {
+  const _AppDomain();
+
+  @override
+  String get channelStable => 'יציבה';
+  @override
+  String get channelPrerelease => 'לא יציבה';
+  @override
+  String downloadingChannel(String channelLabel) =>
+      'מוריד את תוכנת אוצריא (גרסה $channelLabel)...';
+
+  @override
+  String get noInstallableReleaseForPlatform =>
+      'לא נמצאה גרסת אוצריא שניתן להתקין בפלטפורמה הזו.';
+  @override
+  String get mirrorEmptyRunDownload =>
+      'אין גרסת אוצריא בתיקייה המקומית — יש להריץ הורדה במחשב עם אינטרנט.';
+  @override
+  String get notInstalledByThisLauncher =>
+      'אוצריא עדיין לא הותקנה על ידי הלאנצ׳ר הזה.';
+  @override
+  String get corruptReleaseMetadata => 'מטא־דאטה פגומה של גרסת אוצריא';
+  @override
+  String unsupportedPlatform(String operatingSystem) =>
+      "הלאנצ'ר תומך בהתקנת אוצריא ב-Windows וב-macOS בלבד "
+      '(זוהה: $operatingSystem).';
+  @override
+  String noAssetForPlatform(
+    String tagName,
+    String platform,
+    List<String> expectedSuffixes,
+  ) {
+    final suffixes = expectedSuffixes.map((s) => '"$s"').join(' או ');
+    return 'ל-release "$tagName" אין קובץ התקנה מתאים ל-$platform '
+        '(מצפים לשם שמסתיים ב-$suffixes).';
+  }
+
+  @override
+  String installerDownloadFailed(int statusCode) =>
+      'הורדת קובץ ההתקנה נכשלה: סטטוס $statusCode';
+  @override
+  String installerSizeMismatch(int received, int expected) =>
+      'קובץ ההתקנה שהורד לא בגודל הצפוי (התקבלו $received בתים, '
+      'צפוי $expected) — כנראה שהורדה נקטעה.';
+  @override
+  String installerExitCode(int exitCode, String output) =>
+      'ריצת ה-installer החזירה קוד יציאה $exitCode.\n$output';
+  @override
+  String get macAppNotFoundInArchive =>
+      'לא נמצאה חבילת .app בתוך חבילת ההתקנה שחולצה — ייתכן שמבנה האסט של '
+      'אוצריא ל-macOS השתנה.';
+  @override
+  String macReplaceFailed(String error) =>
+      'החלפת חבילת ה-.app בתיקיית ההתקנה נכשלה: $error';
+  @override
+  String dittoExtractFailed(int exitCode, String output) =>
+      'חילוץ חבילת ההתקנה (ditto) נכשל בקוד $exitCode.\n$output';
+  @override
+  String hdiutilAttachFailed(int exitCode, String output) =>
+      'הרכבת דמות הדיסק (hdiutil attach) נכשלה בקוד $exitCode.\n$output';
+  @override
+  String get macAppNotFoundInDmg =>
+      'לא נמצאה חבילת .app בתוך דמות הדיסק שהורכבה.';
+  @override
+  String dittoCopyFailed(int exitCode, String output) =>
+      'העתקת ה-.app מדמות הדיסק (ditto) נכשלה בקוד $exitCode.\n$output';
+  @override
+  String installNotDetected(String installDir, int timeoutSeconds) =>
+      'לא נמצאה התקנה של אוצריא בתוך $installDir תוך $timeoutSeconds שניות '
+      'מסיום ה-installer. ייתכן שההתקנה עדיין רצה ברקע, או שנתיב ההתקנה '
+      'השתנה בגרסה חדשה של ה-installer.';
+  @override
+  String launchFileMissing(String launchPath) =>
+      'קובץ ההפעלה לא נמצא בנתיב: $launchPath';
+  @override
+  String launchFailed(int exitCode, String stderr) =>
+      'הפעלת אוצריא נכשלה (open החזיר $exitCode): $stderr';
+  @override
+  String githubStatus(int statusCode, String uri) =>
+      'GitHub API החזיר סטטוס $statusCode עבור $uri';
+  @override
+  String noReleasesAtAll(String repo) => 'לא נמצאו releases בכלל ב-$repo.';
+  @override
+  String get windowsOnlyReader => 'WindowsExeVersionReader עובד רק בווינדוס.';
+  @override
+  String get macOnlyReader => 'MacAppVersionReader עובד רק ב-macOS.';
+}
+
+class _PluginsDomain extends PluginsDomainStrings {
+  const _PluginsDomain();
+
+  @override
+  String get fileNotAvailableSyncFirst =>
+      'הקובץ אינו זמין באופן מקומי. יש לבצע סנכרון קודם.';
+  @override
+  String saveFailed(String error) => 'שמירת הקובץ נכשלה: $error';
+  @override
+  String get pluginFileNotAvailable =>
+      'קובץ התוסף אינו זמין. יש לבצע סנכרון קודם.';
+  @override
+  String get localPluginFileMissing =>
+      'קובץ התוסף המקומי חסר. יש לבצע סנכרון מחדש.';
+  @override
+  String get badPluginExtension => 'קובץ התוסף אינו בסיומת otzplugin תקינה.';
+  @override
+  String get otzariaOpenFailedHint =>
+      'פתיחת אוצריא נכשלה. ודא שאוצריא מותקנת במחשב זה. ';
+  @override
+  String otzariaOpenFailed(String error) => 'פתיחת אוצריא נכשלה: $error';
+  @override
+  String get directInstallUnsupportedPlatform =>
+      'התקנה ישירה נתמכת ב-Windows וב-macOS בלבד.';
+
+  @override
+  String get syncLoadingCatalog => 'טוען את רשימת התוספים מהאתר...';
+  @override
+  String syncPlugin(String name, int done, int total) =>
+      'מסנכרן: $name ($done/$total)';
+  @override
+  String get syncDone => 'הסנכרון הושלם';
+  @override
+  String get syncCategories => 'מסנכרן את קטגוריות החנות...';
+  @override
+  String syncStructureFailed(String error) =>
+      'לא ניתן לטעון את מבנה החנות מהאתר ($error) — נשמר המבנה הקודם';
+  @override
+  String syncCategoryFailed(String name, String error) =>
+      'לא ניתן לטעון את הקטגוריה $name: $error';
+  @override
+  String syncImageFailed(String name, String error) =>
+      'לא ניתן להוריד תמונה עבור $name: $error';
+  @override
+  String syncScreenshotFailed(String name, String error) =>
+      'לא ניתן להוריד צילום מסך עבור $name: $error';
+  @override
+  String syncPluginFileFailed(String name, String error) =>
+      'לא ניתן להוריד את קובץ התוסף $name: $error';
+
+  @override
+  String get whatPluginList => 'רשימת התוספים';
+  @override
+  String get whatStoreStructure => 'מבנה החנות';
+  @override
+  String whatCategory(String slug) => 'הקטגוריה $slug';
+  @override
+  String get responseNotPluginList => 'תשובת האתר אינה רשימת תוספים תקינה';
+  @override
+  String siteUnreachable(String error) => 'לא ניתן להתחבר לאתר אוצריא: $error';
+  @override
+  String loadFailed(String what, int statusCode) =>
+      'לא ניתן לטעון את $what (HTTP $statusCode)';
+  @override
+  String responseNotJson(String what) => 'תשובת האתר עבור $what אינה JSON תקין';
+  @override
+  String get responseUnexpectedShape => 'תשובת האתר אינה במבנה הצפוי';
+  @override
+  String httpStatusFor(int statusCode, String url) =>
+      'HTTP $statusCode עבור $url';
+}

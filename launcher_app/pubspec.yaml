@@ -16,6 +16,8 @@ dependencies:
     sdk: flutter
   seforim_library_updater:
     path: ../
+  otzaria_l10n:
+    path: ../otzaria_l10n
   otzaria_manager:
     path: ../otzaria_manager
   library_manager:

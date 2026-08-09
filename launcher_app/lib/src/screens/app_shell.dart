@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:library_manager/library_manager.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import '../controllers/library_module_controller.dart';
@@ -197,7 +198,7 @@ class _AppShellState extends State<AppShell> {
   Future<void> _openLogFolder() async {
     final logger = AppLogger.instance;
     if (await FileReveal.revealDirectory(logger.logDir)) return;
-    UiSnack.show('נתיב יומן הפעילות: ${logger.filePath}');
+    UiSnack.show(AppL10n.strings.shell.logPathFallback(logger.filePath));
   }
 
   void _goTo(LauncherScreen screen) {
@@ -283,6 +284,8 @@ class _NavRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings.shell;
+
     return Container(
       width: NavRailItem.width,
       color: AppSurfaces.navRailBackground(context),
@@ -292,28 +295,28 @@ class _NavRail extends StatelessWidget {
           NavRailItem(
             icon: FluentIcons.home_24_regular,
             iconFilled: FluentIcons.home_24_filled,
-            label: 'דף הבית',
+            label: s.navHome,
             isSelected: current == LauncherScreen.home,
             onTap: () => onSelect(LauncherScreen.home),
           ),
           NavRailItem(
             icon: FluentIcons.desktop_24_regular,
             iconFilled: FluentIcons.desktop_24_filled,
-            label: 'תוכנה',
+            label: s.navApp,
             isSelected: current == LauncherScreen.otzaria,
             onTap: () => onSelect(LauncherScreen.otzaria),
           ),
           NavRailItem(
             icon: FluentIcons.library_24_regular,
             iconFilled: FluentIcons.library_24_filled,
-            label: 'ספרייה',
+            label: s.navLibrary,
             isSelected: current == LauncherScreen.library,
             onTap: () => onSelect(LauncherScreen.library),
           ),
           NavRailItem(
             icon: FluentIcons.puzzle_piece_24_regular,
             iconFilled: FluentIcons.puzzle_piece_24_filled,
-            label: 'תוספים',
+            label: s.navPlugins,
             isSelected: current == LauncherScreen.plugins,
             onTap: () => onSelect(LauncherScreen.plugins),
           ),
@@ -321,7 +324,7 @@ class _NavRail extends StatelessWidget {
           NavRailItem(
             icon: FluentIcons.settings_24_regular,
             iconFilled: FluentIcons.settings_24_filled,
-            label: 'הגדרות',
+            label: s.navSettings,
             isSelected: current == LauncherScreen.settings,
             onTap: () => onSelect(LauncherScreen.settings),
           ),
@@ -341,6 +344,7 @@ class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final s = context.strings.shell;
 
     return Container(
       color: AppSurfaces.topBarBackground(context),
@@ -354,11 +358,11 @@ class _TopBar extends StatelessWidget {
             'assets/images/otzaria_logo.png',
             height: 28,
             filterQuality: FilterQuality.medium,
-            semanticLabel: 'אוצריא',
+            semanticLabel: s.otzariaLogoLabel,
           ),
           const SizedBox(width: AppTokens.spaceSM),
           Text(
-            'עדכוני אוצריא',
+            s.appTitle,
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.bold,
             ),

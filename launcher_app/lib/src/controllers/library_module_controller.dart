@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:library_manager/library_manager.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import '../services/app_logger.dart';
@@ -61,6 +62,11 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// 0..1 כשיש יעד ידוע (בייטים שהורדו/סה"כ), אחרת null (מד לא-קבוע).
   /// מתעדכן במהלך [update] בלבד.
   double? applyProgress;
+
+  /// הבייטים עצמם של השלב הנוכחי ב-[update] — לתצוגת "כמה מתוך כמה".
+  /// `null` בשלבים שאינם הורדה (החלת patch, אימות).
+  int? applyReceivedBytes;
+  int? applyTotalBytes;
   String? errorMessage;
 
   /// `true` אם checkForUpdate האחרון זיהה שאין DB בכלל עדיין (התקנה
@@ -78,8 +84,29 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   String? downloadStage;
   int? downloadDoneAssets;
   int? downloadTotalAssets;
+
+  /// בייטים שהורדו/סה"כ **בנכס שיורד כרגע**. בלי זה המד נשען על ספירת
+  /// הנכסים בלבד, והמסד המלא (~1GB בקובץ אחד) השאיר אותו תקוע על אותו
+  /// אחוז לאורך כל ההורדה.
+  int? downloadReceivedBytes;
+  int? downloadTotalBytes;
   String? downloadError;
   DateTime? lastDownloadedAt;
+
+  /// 0..1 להורדה כולה: הנכסים שכבר הושלמו ועוד החלק היחסי של הנוכחי.
+  /// כשעוד לא ידוע מספר הנכסים — מתקדם לפי הבייטים של הנכס הנוכחי בלבד.
+  double? get downloadProgress {
+    final received = downloadReceivedBytes;
+    final bytesTotal = downloadTotalBytes;
+    final inAsset = (received != null && bytesTotal != null && bytesTotal > 0)
+        ? (received / bytesTotal).clamp(0.0, 1.0)
+        : null;
+
+    final totalAssets = downloadTotalAssets;
+    if (totalAssets == null || totalAssets <= 0) return inAsset;
+    final done = downloadDoneAssets ?? 0;
+    return ((done + (inAsset ?? 0)) / totalAssets).clamp(0.0, 1.0);
+  }
 
   /// מצב הבדיקה הקלה ("יש עדכון ברשת?") — נפרד לגמרי מ-[downloadStatus]:
   /// היא לא מורידה כלום, רק שואלת. `null` = טרם נבדק בהרצה הזו.
@@ -87,14 +114,15 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   String? onlineCheckError;
   DateTime? onlineCheckedAt;
 
-  /// `true` אם הבדיקה הקלה מצאה ברשת גרסה גבוהה מזו שיושבת במראה
-  /// המקומית כרגע — אינדיקציה בלבד; ההשוואה הקובעת היא [checkForUpdate]
-  /// אחרי הורדה בפועל.
+  /// `true` אם הבדיקה הקלה מצאה ברשת גרסה גבוהה מזו שיושבת **במראה
+  /// המקומית**. [targetVersion] הוא הגרסה האחרונה שבמראה (התוכנית מחזירה
+  /// אותה גם כשאין מה לעדכן), ולכן הוא הבסיס להשוואה — לא גרסת המסד החי,
+  /// שההתקנה מעדכנת בשלב נפרד לגמרי מההורדה.
   bool get hasOnlineUpdate {
     final online = onlineLatestVersion;
     if (online == null) return false;
-    final known = targetVersion ?? localVersion ?? 0;
-    return online > known;
+    final mirrored = targetVersion ?? localVersion ?? 0;
+    return online > mirrored;
   }
 
   /// בודק ברשת מה הגרסה העדכנית ביותר — **פעולת רשת קלה**, בלי הורדת
@@ -123,6 +151,8 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     downloadStage = null;
     downloadDoneAssets = null;
     downloadTotalAssets = null;
+    downloadReceivedBytes = null;
+    downloadTotalBytes = null;
     downloadError = null;
     notifyListeners();
 
@@ -130,11 +160,20 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       await _manager.downloadToMirror(
         onStage: (stage) {
           downloadStage = stage;
+          // כל נכס מדווח את הבייטים שלו מאפס — בלי איפוס כאן המד היה קופץ
+          // אחורה עם הערכים של הנכס הקודם.
+          downloadReceivedBytes = null;
+          downloadTotalBytes = null;
           notifyProgress();
         },
         onAssetProgress: (done, total) {
           downloadDoneAssets = done;
           downloadTotalAssets = total;
+          notifyProgress();
+        },
+        onBytesProgress: (received, total) {
+          downloadReceivedBytes = received;
+          downloadTotalBytes = total;
           notifyProgress();
         },
       );
@@ -171,7 +210,8 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
 
         if (check.plan?.kind == LibraryUpdatePlanKind.blocked) {
           status = LibraryModuleStatus.error;
-          errorMessage = check.plan?.reason ?? 'מצב חסום — נדרשת פעולה ידנית.';
+          errorMessage = check.plan?.reason ??
+              AppL10n.strings.libraryDomain.blockedNeedsManualActionWithPeriod;
         } else {
           status = check.updateAvailable
               ? LibraryModuleStatus.updateAvailable
@@ -211,6 +251,8 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     status = LibraryModuleStatus.updating;
     stageText = null;
     applyProgress = null;
+    applyReceivedBytes = null;
+    applyTotalBytes = null;
     errorMessage = null;
     notifyListeners();
 
@@ -225,6 +267,8 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
         createBackup: keepSafetyBackup,
         onProgress: (p) {
           stageText = _describeApplyStage(p);
+          applyReceivedBytes = p.bytesDownloaded;
+          applyTotalBytes = p.bytesTotal;
           applyProgress = (p.bytesDownloaded != null &&
                   p.bytesTotal != null &&
                   p.bytesTotal! > 0)
@@ -247,24 +291,25 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   }
 
   String _describeApplyStage(LibraryApplyProgress p) {
+    final t = AppL10n.strings.libraryDomain;
     final step = (p.stepIndex != null && p.stepCount != null)
         ? ' (${p.stepIndex}/${p.stepCount})'
         : '';
     switch (p.stage) {
       case LibraryApplyStage.downloadingPatch:
-        return 'מוריד עדכון$step...';
+        return t.applyDownloadingPatch(step);
       case LibraryApplyStage.applyingPatch:
-        return 'מחיל עדכון על המסד$step...';
+        return t.applyApplyingPatch(step);
       case LibraryApplyStage.downloadingFullDb:
-        return 'מוריד מסד מלא...';
+        return t.applyDownloadingFullDb;
       case LibraryApplyStage.decompressingFullDb:
-        return 'מחלץ את המסד...';
+        return t.applyDecompressingFullDb;
       case LibraryApplyStage.writingFullDb:
-        return 'כותב את המסד...';
+        return t.applyWritingFullDb;
       case LibraryApplyStage.verifying:
-        return 'מוודא תקינות...';
+        return t.applyVerifying;
       case LibraryApplyStage.done:
-        return 'הושלם.';
+        return t.applyDone;
     }
   }
 

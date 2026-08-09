@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
 import '../services/app_logger.dart';
@@ -102,7 +103,7 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   Future<void> sync() async {
     status = PluginsModuleStatus.syncing;
     errorMessage = null;
-    syncMessage = 'מתחיל סנכרון...';
+    syncMessage = AppL10n.strings.plugins.syncingOverlayStarting;
     syncProgress = null;
     syncWarnings.clear();
     notifyListeners();
@@ -325,11 +326,12 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
 
   /// כותרת החנות. ברירת המחדל זהה לזו שבאתר, למראה שסונכרנה לפני
   /// שהטקסטים האלה נכנסו — או כשמנהלי האתר השאירו אותם ריקים.
-  String get homeTitle =>
-      home.title.isEmpty ? 'חנות התוספים של אוצריא' : home.title;
+  String get homeTitle => home.title.isEmpty
+      ? AppL10n.strings.plugins.catalogTitleFallback
+      : home.title;
 
   String get homeSubtitle => home.subtitle.isEmpty
-      ? 'תוספים שמרחיבים את חוויית הלימוד באוצריא'
+      ? AppL10n.strings.plugins.catalogSubtitleFallback
       : home.subtitle;
 
   List<String> get allTags => _allTags ??= () {

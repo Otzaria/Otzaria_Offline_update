@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import 'models/plugin_catalog.dart';
@@ -109,17 +110,16 @@ class PluginsManager {
   ) async {
     final store = await _store();
     final local = plugin.localFile;
+    final strings = AppL10n.strings.pluginsDomain;
     if (local == null || !await store.hasLocalFile(plugin)) {
-      return const PluginInstallResult.failure(
-        'הקובץ אינו זמין באופן מקומי. יש לבצע סנכרון קודם.',
-      );
+      return PluginInstallResult.failure(strings.fileNotAvailableSyncFirst);
     }
 
     try {
       await File(store.absolutePath(local.relativePath)).copy(destPath);
       return const PluginInstallResult.ok();
     } catch (e) {
-      return PluginInstallResult.failure('שמירת הקובץ נכשלה: $e');
+      return PluginInstallResult.failure(strings.saveFailed('$e'));
     }
   }
 
@@ -140,8 +140,8 @@ class PluginsManager {
     if (!await store.hasLocalFile(target)) {
       final fetched = await _fetchMissingFile(store, target);
       if (fetched == null) {
-        return const PluginInstallResult.failure(
-          'קובץ התוסף אינו זמין. יש לבצע סנכרון קודם.',
+        return PluginInstallResult.failure(
+          AppL10n.strings.pluginsDomain.pluginFileNotAvailable,
         );
       }
       target = fetched;

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:otzaria_l10n/otzaria_l10n.dart';
+
 import '../models/delta_manifest.dart';
 import '../models/library_release.dart';
 import 'library_release_source.dart';
@@ -37,11 +39,11 @@ class LocalMirrorLibraryReleaseClient implements LibraryReleaseSource {
 
   @override
   Future<List<LibraryRelease>> fetchReleases() async {
+    final strings = AppL10n.strings.libraryDomain;
     final file = File(_releasesJsonPath);
     if (!await file.exists()) {
       throw LocalMirrorException(
-        'לא נמצא קובץ $manifestFileName בתיקייה: $mirrorDir — '
-        'ודא/י שזו תיקיית מראה תקינה שנוצרה דרך "הכנת עדכון להעברה".',
+        strings.mirrorManifestMissing(manifestFileName, mirrorDir),
       );
     }
 
@@ -50,12 +52,12 @@ class LocalMirrorLibraryReleaseClient implements LibraryReleaseSource {
       decoded = jsonDecode(await file.readAsString());
     } catch (error) {
       throw LocalMirrorException(
-        'קובץ $manifestFileName בתיקייה $mirrorDir פגום: $error',
+        strings.mirrorManifestCorrupt(manifestFileName, mirrorDir, '$error'),
       );
     }
     if (decoded is! Map<String, dynamic> || decoded['releases'] is! List) {
       throw LocalMirrorException(
-        'קובץ $manifestFileName בתיקייה $mirrorDir אינו בפורמט הצפוי.',
+        strings.mirrorManifestUnexpectedShape(manifestFileName, mirrorDir),
       );
     }
 
@@ -95,18 +97,21 @@ class LocalMirrorLibraryReleaseClient implements LibraryReleaseSource {
   @override
   Future<DeltaManifest> fetchManifest(String url) async {
     // url כאן הוא כבר נתיב מוחלט (הומר ב-_resolveReleaseAssetPaths למעלה).
+    final strings = AppL10n.strings.libraryDomain;
     final file = File(url);
     if (!await file.exists()) {
-      throw LocalMirrorException('קובץ manifest חסר במראה המקומית: $url');
+      throw LocalMirrorException(strings.mirrorPatchManifestMissing(url));
     }
     final Object? decoded;
     try {
       decoded = jsonDecode(await file.readAsString());
     } catch (error) {
-      throw LocalMirrorException('קובץ manifest פגום ($url): $error');
+      throw LocalMirrorException(
+        strings.mirrorPatchManifestCorrupt(url, '$error'),
+      );
     }
     if (decoded is! Map<String, dynamic>) {
-      throw LocalMirrorException('manifest אינו אובייקט JSON תקין: $url');
+      throw LocalMirrorException(strings.mirrorPatchManifestNotJson(url));
     }
     return DeltaManifest.fromJson(decoded);
   }

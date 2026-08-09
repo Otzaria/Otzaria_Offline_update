@@ -1,5 +1,6 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../services/app_paths.dart';
 import '../settings/app_settings.dart';
@@ -28,10 +29,11 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.strings.settings;
+
     return ScreenBody(
-      title: 'הגדרות',
-      description: 'ההורדה תמיד יזומה בלחיצה. ההתקנה מהתיקייה המקומית היא '
-          'הדבר היחיד שניתן להפוך לאוטומטי, והיא דורשת אישור חד־פעמי.',
+      title: t.title,
+      description: t.description,
       children: [
         _automationCard(context),
         _downloadCard(context),
@@ -45,46 +47,47 @@ class SettingsScreen extends StatelessWidget {
   // ── אוטומציה ──────────────────────────────────────────────────────────────
 
   Widget _automationCard(BuildContext context) {
+    final t = context.strings.settings;
+
     return SettingsCard(
-      title: 'אוטומציה',
-      subtitle: 'ברירת המחדל: בדיקה מקומית בלבד, בלי להתקין.',
+      title: t.automationCardTitle,
+      subtitle: t.automationCardSubtitle,
       children: [
         SettingsActionTile.switchTile(
           icon: FluentIcons.search_info_24_regular,
-          title: 'בדיקת גרסאות בפתיחה',
-          subtitle: 'משווה את המותקן למה שיש בתיקייה המקומית — בלי רשת',
+          title: t.autoCheckTitle,
+          subtitle: t.autoCheckSubtitle,
           value: _s.autoMetadataCheck,
           onChanged: (v) => _set(_s.copyWith(autoMetadataCheck: v)),
         ),
         SettingsActionTile.switchTile(
           icon: FluentIcons.cloud_24_regular,
-          title: 'בדיקת עדכונים אוטומטית כשיש רשת',
-          subtitle: 'בדיקה קלה בפתיחה מול GitHub — בלי הורדה. כשל (אין רשת) '
-              'נבלע בשקט; הכפתור הידני בדף הבית עובד בכל מקרה',
+          title: t.autoOnlineCheckTitle,
+          subtitle: t.autoOnlineCheckSubtitle,
           value: _s.autoCheckOnlineUpdates,
           onChanged: (v) => _set(_s.copyWith(autoCheckOnlineUpdates: v)),
         ),
         SettingsActionTile.switchTile(
           icon: FluentIcons.desktop_arrow_right_24_regular,
-          title: 'התקנת תוכנת אוצריא אוטומטית',
-          subtitle: 'מתקין בפתיחה כשיש גרסה חדשה בתיקייה המקומית',
+          title: t.autoInstallAppTitle,
+          subtitle: t.autoInstallAppSubtitle,
           value: _s.autoInstallApp,
           onChanged: (v) => _confirmAutoInstall(
             context,
             enabled: v,
-            what: 'תוכנת אוצריא',
+            what: t.autoInstallSubjectApp,
             apply: (on) => _set(_s.copyWith(autoInstallApp: on)),
           ),
         ),
         SettingsActionTile.switchTile(
           icon: FluentIcons.database_arrow_right_24_regular,
-          title: 'התקנת עדכון ספרייה אוטומטית',
-          subtitle: 'מחיל על המסד בפתיחה; מדולג כשאוצריא פתוחה',
+          title: t.autoInstallLibraryTitle,
+          subtitle: t.autoInstallLibrarySubtitle,
           value: _s.autoInstallLibrary,
           onChanged: (v) => _confirmAutoInstall(
             context,
             enabled: v,
-            what: 'הספרייה',
+            what: t.autoInstallSubjectLibrary,
             apply: (on) => _set(_s.copyWith(autoInstallLibrary: on)),
           ),
         ),
@@ -105,14 +108,13 @@ class SettingsScreen extends StatelessWidget {
       return;
     }
 
+    final t = context.strings.settings;
     final approved = await showWarningDialog(
       context: context,
-      title: 'התקנה אוטומטית של $what',
-      content: 'מעתה $what תותקן ללא אישור נוסף בכל פעם שתימצא גרסה חדשה '
-          'בתיקייה שלצד התוכנה. ההורדה עצמה תישאר יזומה.',
-      subtitle: 'התקנה מחליפה קבצים במחשב שלך. אם אינך בטוח/ה — עדיף '
-          'להשאיר את האפשרות כבויה ולאשר כל עדכון בנפרד.',
-      confirmText: 'הפעל התקנה אוטומטית',
+      title: t.autoInstallDialogTitle(what),
+      content: t.autoInstallDialogContent(what),
+      subtitle: t.autoInstallDialogWarning,
+      confirmText: t.autoInstallDialogConfirm,
     );
     if (!approved) return;
     await apply(true);
@@ -121,29 +123,30 @@ class SettingsScreen extends StatelessWidget {
   // ── הורדה ─────────────────────────────────────────────────────────────────
 
   Widget _downloadCard(BuildContext context) {
+    final t = context.strings.settings;
+
     return SettingsCard(
-      title: 'הורדה',
-      subtitle: 'אילו רכיבים כפתור "הורד עכשיו" בדף הבית מביא לתיקייה '
-          'המקומית. ההורדה עצמה תמיד יזומה בלחיצה.',
+      title: t.downloadCardTitle,
+      subtitle: t.downloadCardSubtitle,
       children: [
         SettingsActionTile.switchTile(
           icon: FluentIcons.desktop_24_regular,
-          title: 'תוכנת אוצריא',
-          subtitle: 'קובץ ההתקנה של הגרסה האחרונה',
+          title: t.syncAppTitle,
+          subtitle: t.syncAppSubtitle,
           value: _s.syncApp,
           onChanged: (v) => _set(_s.copyWith(syncApp: v)),
         ),
         SettingsActionTile.switchTile(
           icon: FluentIcons.library_24_regular,
-          title: 'הספרייה',
-          subtitle: 'הרכיב הכבד — המסד המלא הוא כ-1GB',
+          title: t.syncLibraryTitle,
+          subtitle: t.syncLibrarySubtitle,
           value: _s.syncLibrary,
           onChanged: (v) => _set(_s.copyWith(syncLibrary: v)),
         ),
         SettingsActionTile.switchTile(
           icon: FluentIcons.puzzle_piece_24_regular,
-          title: 'חנות התוספים',
-          subtitle: 'הקטלוג וקובצי ההתקנה של כל התוספים',
+          title: t.syncPluginsTitle,
+          subtitle: t.syncPluginsSubtitle,
           value: _s.syncPlugins,
           onChanged: (v) => _set(_s.copyWith(syncPlugins: v)),
         ),
@@ -154,21 +157,21 @@ class SettingsScreen extends StatelessWidget {
   // ── אחסון ─────────────────────────────────────────────────────────────────
 
   Widget _storageCard(BuildContext context) {
+    final t = context.strings.settings;
+
     return SettingsCard(
-      title: 'אחסון',
-      subtitle: 'תיקיית הנתונים קבועה ליד קובץ ההרצה, ואין דרך לשנות אותה — '
-          'כדי שהכול ייסע יחד על הכונן.',
+      title: t.storageCardTitle,
+      subtitle: t.storageCardSubtitle,
       children: [
         SettingsActionTile.segmentedTile<int>(
           icon: FluentIcons.history_24_regular,
-          title: 'גיבוי בטיחות של המסד',
-          subtitle: 'לפני כתיבת מסד מלא: "כבוי" מתקין רק את הגרסה שהורדה, '
-              'בלי רשת הצלה אם הכתיבה תיכשל באמצע',
+          title: t.backupTitle,
+          subtitle: t.backupSubtitle,
           currentValue: _s.backupsToKeep,
           onChanged: (v) => _set(_s.copyWith(backupsToKeep: v)),
-          options: const [
-            SegmentOption(value: 0, label: 'כבוי'),
-            SegmentOption(value: 1, label: 'פועל'),
+          options: [
+            SegmentOption(value: 0, label: t.backupOff),
+            SegmentOption(value: 1, label: t.backupOn),
           ],
         ),
       ],
@@ -178,14 +181,16 @@ class SettingsScreen extends StatelessWidget {
   // ── רשת ───────────────────────────────────────────────────────────────────
 
   Widget _networkCard(BuildContext context) {
+    final t = context.strings.settings;
+
     return SettingsCard(
-      title: 'רשת',
-      subtitle: 'הרשת נדרשת רק בהורדה. בדיקה והתקנה עובדות בלעדיה תמיד.',
+      title: t.networkCardTitle,
+      subtitle: t.networkCardSubtitle,
       children: [
         SettingsActionTile.segmentedTile<int>(
           icon: FluentIcons.timer_24_regular,
-          title: 'timeout להורדה',
-          subtitle: 'שניות עד שפנייה לרשת נחשבת כשל',
+          title: t.timeoutTitle,
+          subtitle: t.timeoutSubtitle,
           currentValue: _s.networkTimeoutSeconds,
           onChanged: (v) => _set(_s.copyWith(networkTimeoutSeconds: v)),
           options: const [
@@ -200,46 +205,60 @@ class SettingsScreen extends StatelessWidget {
 
   // ── ממשק ותמיכה ───────────────────────────────────────────────────────────
 
-  /// רוחב קבוע לשתי השורות למטה — כך שתיבות ערכת הנושא, שהתווית הארוכה
+  /// רוחב קבוע לשלוש השורות למטה — כך שתיבות ערכת הנושא, שהתווית הארוכה
   /// ביניהן ("לפי המערכת") הייתה מגדילה אותן יותר מהשורה השנייה, יושבות
-  /// באותו גודל בדיוק כמו תיבות גודל הטקסט.
+  /// באותו גודל בדיוק כמו תיבות השפה וגודל הטקסט.
   static const double _uiSegmentWidth = 300;
 
   Widget _uiCard(BuildContext context) {
+    final t = context.strings.settings;
+
     return SettingsCard(
-      title: 'ממשק ותמיכה',
+      title: t.uiCardTitle,
       children: [
+        SettingsActionTile.segmentedTile<AppLanguage>(
+          icon: FluentIcons.local_language_24_regular,
+          title: t.languageTitle,
+          subtitle: t.languageSubtitle,
+          currentValue: _s.language,
+          onChanged: (v) => _set(_s.copyWith(language: v)),
+          width: _uiSegmentWidth,
+          options: [
+            SegmentOption(value: AppLanguage.hebrew, label: t.languageHebrew),
+            SegmentOption(value: AppLanguage.english, label: t.languageEnglish),
+          ],
+        ),
         SettingsActionTile.segmentedTile<AppThemeMode>(
           icon: FluentIcons.dark_theme_24_regular,
-          title: 'ערכת נושא',
+          title: t.themeTitle,
           currentValue: _s.themeMode,
           onChanged: (v) => _set(_s.copyWith(themeMode: v)),
           width: _uiSegmentWidth,
-          options: const [
-            SegmentOption(value: AppThemeMode.system, label: 'מערכת'),
-            SegmentOption(value: AppThemeMode.light, label: 'בהיר'),
-            SegmentOption(value: AppThemeMode.dark, label: 'כהה'),
+          options: [
+            SegmentOption(value: AppThemeMode.system, label: t.themeSystem),
+            SegmentOption(value: AppThemeMode.light, label: t.themeLight),
+            SegmentOption(value: AppThemeMode.dark, label: t.themeDark),
           ],
         ),
         SettingsActionTile.segmentedTile<double>(
           icon: FluentIcons.text_font_size_24_regular,
-          title: 'גודל טקסט',
+          title: t.textSizeTitle,
           currentValue: _s.textScale,
           onChanged: (v) => _set(_s.copyWith(textScale: v)),
           width: _uiSegmentWidth,
-          options: const [
-            SegmentOption(value: 0.9, label: 'קטן'),
-            SegmentOption(value: 1.0, label: 'רגיל'),
-            SegmentOption(value: 1.15, label: 'גדול'),
+          options: [
+            SegmentOption(value: 0.9, label: t.textSizeSmall),
+            SegmentOption(value: 1.0, label: t.textSizeNormal),
+            SegmentOption(value: 1.15, label: t.textSizeLarge),
           ],
         ),
         SettingsActionTile.text(
           icon: FluentIcons.document_bullet_list_24_regular,
-          title: 'יומן הפעילות',
-          subtitle: 'כל הבדיקות, ההורדות וההתקנות נרשמות מקומית בלבד',
+          title: t.logTitle,
+          subtitle: t.logSubtitle,
           actions: [
             ActionButton.neutral(
-              text: 'פתיחת תיקיית הלוגים',
+              text: t.openLogFolderButton,
               icon: FluentIcons.folder_open_24_regular,
               onPressed: onOpenLog,
             ),
@@ -247,11 +266,11 @@ class SettingsScreen extends StatelessWidget {
         ),
         SettingsActionTile.text(
           icon: FluentIcons.arrow_reset_24_regular,
-          title: 'איפוס ההגדרות',
-          subtitle: 'מחזיר את כל ההגדרות לברירת המחדל, בלי למחוק התקנות',
+          title: t.resetTitle,
+          subtitle: t.resetSubtitle,
           actions: [
             ActionButton.warning(
-              text: 'איפוס',
+              text: t.resetButton,
               onPressed: () => _confirmReset(context),
             ),
           ],
@@ -261,15 +280,17 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Future<void> _confirmReset(BuildContext context) async {
+    final t = context.strings.settings;
     final approved = await showWarningDialog(
       context: context,
-      title: 'איפוס ההגדרות',
-      content: 'כל ההגדרות יחזרו לברירת המחדל.',
-      subtitle: 'ההתקנות עצמן, המסד, התוספים והעדכונים שהורדו לא יימחקו.',
-      confirmText: 'אפס הגדרות',
+      title: t.resetDialogTitle,
+      content: t.resetDialogContent,
+      subtitle: t.resetDialogWarning,
+      confirmText: t.resetDialogConfirm,
     );
     if (!approved) return;
+    // איפוס מחזיר גם את השפה לעברית — ולכן ההודעה נקראת אחרי ההחלה.
     await _set(const AppSettings());
-    UiSnack.showSuccess('ההגדרות אופסו');
+    UiSnack.showSuccess(AppL10n.strings.settings.resetDoneSnack);
   }
 }

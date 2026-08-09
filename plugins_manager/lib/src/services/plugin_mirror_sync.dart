@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/plugin_catalog.dart';
@@ -27,10 +28,12 @@ class PluginMirrorSync {
   }) async {
     void report(PluginSyncProgress progress) => onProgress?.call(progress);
 
+    final strings = AppL10n.strings.pluginsDomain;
+
     await store.ensureDirs();
-    report(const PluginSyncProgress(
+    report(PluginSyncProgress(
       phase: PluginSyncPhase.start,
-      message: 'טוען את רשימת התוספים מהאתר...',
+      message: strings.syncLoadingCatalog,
     ));
 
     final remote = await client.fetchCatalog();
@@ -51,7 +54,7 @@ class PluginMirrorSync {
       final previous = existing[plugin.id];
       report(PluginSyncProgress(
         phase: PluginSyncPhase.plugin,
-        message: 'מסנכרן: ${plugin.name} ($done/$total)',
+        message: strings.syncPlugin(plugin.name, done, total),
         current: done,
         total: total,
       ));
@@ -99,7 +102,7 @@ class PluginMirrorSync {
 
     report(PluginSyncProgress(
       phase: PluginSyncPhase.done,
-      message: 'הסנכרון הושלם',
+      message: strings.syncDone,
       current: done,
       total: total,
     ));
@@ -115,9 +118,10 @@ class PluginMirrorSync {
     PluginCatalog previous,
     void Function(PluginSyncProgress) report,
   ) async {
-    report(const PluginSyncProgress(
+    final strings = AppL10n.strings.pluginsDomain;
+    report(PluginSyncProgress(
       phase: PluginSyncPhase.plugin,
-      message: 'מסנכרן את קטגוריות החנות...',
+      message: strings.syncCategories,
     ));
 
     late final Map<String, dynamic> home;
@@ -126,7 +130,7 @@ class PluginMirrorSync {
     } catch (e) {
       report(PluginSyncProgress(
         phase: PluginSyncPhase.warning,
-        message: 'לא ניתן לטעון את מבנה החנות מהאתר ($e) — נשמר המבנה הקודם',
+        message: strings.syncStructureFailed('$e'),
       ));
       return _StoreStructure(
         home: previous.home,
@@ -172,7 +176,8 @@ class PluginMirrorSync {
     } catch (e) {
       report(PluginSyncProgress(
         phase: PluginSyncPhase.warning,
-        message: 'לא ניתן לטעון את הקטגוריה ${summary.name}: $e',
+        message: AppL10n.strings.pluginsDomain
+            .syncCategoryFailed(summary.name, '$e'),
       ));
       final known = previous.categoryBySlug(summary.slug);
       if (known != null) ids = known.pluginIds;
@@ -205,7 +210,8 @@ class PluginMirrorSync {
       } catch (e) {
         report(PluginSyncProgress(
           phase: PluginSyncPhase.warning,
-          message: 'לא ניתן להוריד תמונה עבור ${plugin.name}: $e',
+          message:
+              AppL10n.strings.pluginsDomain.syncImageFailed(plugin.name, '$e'),
         ));
       }
     }
@@ -223,7 +229,8 @@ class PluginMirrorSync {
         } catch (e) {
           report(PluginSyncProgress(
             phase: PluginSyncPhase.warning,
-            message: 'לא ניתן להוריד צילום מסך עבור ${plugin.name}: $e',
+            message: AppL10n.strings.pluginsDomain
+                .syncScreenshotFailed(plugin.name, '$e'),
           ));
         }
       }
@@ -280,7 +287,8 @@ class PluginMirrorSync {
     } catch (e) {
       report(PluginSyncProgress(
         phase: PluginSyncPhase.warning,
-        message: 'לא ניתן להוריד את קובץ התוסף ${plugin.name}: $e',
+        message: AppL10n.strings.pluginsDomain
+            .syncPluginFileFailed(plugin.name, '$e'),
       ));
       return plugin;
     }

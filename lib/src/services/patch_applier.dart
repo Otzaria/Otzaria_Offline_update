@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 import '../models/delta_manifest.dart';
@@ -79,7 +80,8 @@ List<String> hashTableOrderForSchemaVersion(int schemaVersion) {
       return kHashTableOrder;
     default:
       throw PatchApplyException(
-        'גרסת סכמה $schemaVersion אינה נתמכת לבחירת סדר hash',
+        AppL10n.strings.libraryDomain
+            .unsupportedSchemaForHashOrder(schemaVersion),
       );
   }
 }
@@ -151,14 +153,14 @@ class PatchApplier {
           _readSchemaMetaInt(db, 'db_schema_version', schema: 'main');
       if (localVersion != manifest.fromVersion) {
         throw PatchApplyException(
-          'גרסת ה-DB המקומי ($localVersion) אינה תואמת ל-patch '
-          '(${manifest.fromVersion})',
+          AppL10n.strings.libraryDomain
+              .localVersionMismatch(localVersion, manifest.fromVersion),
         );
       }
       if (localSchema != null && localSchema != manifest.fromSchemaVersion) {
         throw PatchApplyException(
-          'סכמת ה-DB המקומי ($localSchema) אינה תואמת ל-patch '
-          '(${manifest.fromSchemaVersion})',
+          AppL10n.strings.libraryDomain
+              .localSchemaMismatch(localSchema, manifest.fromSchemaVersion),
         );
       }
 
@@ -173,9 +175,8 @@ class PatchApplier {
           onProgress: verifyProgress,
         );
         if (localHash != manifest.fromContentHash) {
-          throw const PatchApplyException(
-            'ה-DB המקומי שונה מהצפוי — hash לא תואם ל-fromContentHash. '
-            'נדרשת הורדה מלאה.',
+          throw PatchApplyException(
+            AppL10n.strings.libraryDomain.contentHashMismatchNeedsFullDownload,
           );
         }
       }
@@ -211,7 +212,8 @@ class PatchApplier {
         final postFk = _countFkViolations(db);
         if (postFk > preFk) {
           throw PatchApplyException(
-            'מספר הפרות מפתח זר גדל ($preFk→$postFk) — ה-patch אינו תקין',
+            AppL10n.strings.libraryDomain
+                .foreignKeyViolationsGrew(preFk, postFk),
           );
         }
       }
@@ -226,8 +228,8 @@ class PatchApplier {
       );
       if (resultHash != manifest.toContentHash) {
         throw PatchApplyException(
-          'ה-hash אחרי apply ($resultHash) אינו תואם ל-toContentHash '
-          '(${manifest.toContentHash})',
+          AppL10n.strings.libraryDomain
+              .resultHashMismatch(resultHash, manifest.toContentHash),
         );
       }
 
@@ -264,21 +266,25 @@ class PatchApplier {
 
   void _assertPatchCompatible(sqlite3.Database db, DeltaManifest manifest) {
     final schemaVersion = _readPatchMetaInt(db, 'schema_version');
+    final strings = AppL10n.strings.libraryDomain;
     if (schemaVersion == null) {
-      throw const PatchApplyException('patch_meta.schema_version חסר ב-patch');
+      throw PatchApplyException(strings.patchMetaSchemaVersionMissing);
     }
     if (schemaVersion > supportedSchemaVersion) {
       throw PatchApplyException(
-        'גרסת סכמת ה-patch ($schemaVersion) חדשה מהנתמך '
-        '($supportedSchemaVersion) — נדרש עדכון תוכנה',
+        strings.patchSchemaTooNew(schemaVersion, supportedSchemaVersion),
       );
     }
     final from = _readPatchMetaInt(db, 'from_version');
     final to = _readPatchMetaInt(db, 'to_version');
     if (from != manifest.fromVersion || to != manifest.toVersion) {
       throw PatchApplyException(
-        'גרסאות ה-patch ($from→$to) אינן תואמות ל-manifest '
-        '(${manifest.fromVersion}→${manifest.toVersion})',
+        strings.patchVersionRangeMismatch(
+          from,
+          to,
+          manifest.fromVersion,
+          manifest.toVersion,
+        ),
       );
     }
   }

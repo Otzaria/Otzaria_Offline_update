@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/otzaria_module_controller.dart';
 import '../settings/settings_controller.dart';
@@ -11,14 +12,12 @@ import '../widgets/widgets_exports.dart';
 
 /// נוסח דיאלוג ההתקנה — משותף למסך הזה ולאריח בדף הבית, כדי שהאזהרה על
 /// גרסה לא-יציבה תופיע בשניהם.
-String appInstallPrompt(OtzariaModuleController c) {
-  final channelNote = c.hasChannelChoice && c.preferPrerelease
-      ? ' זו הגרסה הלא-יציבה (pre-release) שנבחרה בהגדרות מסך התוכנה.'
-      : '';
-  return 'הגרסה ${c.latestVersion} תותקן מהתיקייה המקומית על גבי '
-      '${c.currentVersion ?? 'ההתקנה הקיימת'}.$channelNote '
-      'ההתקנה אינה דורשת אינטרנט. יש לוודא שאוצריא סגורה.';
-}
+String appInstallPrompt(BuildContext context, OtzariaModuleController c) =>
+    context.strings.appScreen.installPrompt(
+      latestVersion: c.latestVersion,
+      currentVersion: c.currentVersion,
+      prereleaseNote: c.hasChannelChoice && c.preferPrerelease,
+    );
 
 /// מסך עדכון תוכנת אוצריא — מקביל במבנה ל-[LibraryScreen]: מצב, מה
 /// התחדש בגרסה האחרונה, והתיקייה שממנה מותקנים.
@@ -42,10 +41,11 @@ class OtzariaScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.strings.appScreen;
+
     return ScreenBody(
-      title: 'עדכון תוכנת אוצריא',
-      description: 'ההתקנה מוחלת מהתיקייה שלצד התוכנה, בלי צורך באינטרנט. '
-          'יש לוודא שאוצריא סגורה לפני התקנה.',
+      title: t.title,
+      description: t.description,
       children: [
         _stateCard(context),
         _whatsNewCard(context),
@@ -58,13 +58,15 @@ class OtzariaScreen extends StatelessWidget {
 
   Widget _stateCard(BuildContext context) {
     final c = otzaria;
+    final t = context.strings.appScreen;
+    final common = context.strings.common;
 
     return SettingsCard(
-      title: 'מצב ההתקנה',
+      title: t.stateCardTitle,
       children: [
         InfoStatusRow(
           icon: FluentIcons.desktop_24_regular,
-          title: 'מצב',
+          title: t.stateRowTitle,
           kind: switch (c.status) {
             OtzariaModuleStatus.idle => StatusKind.unknown,
             OtzariaModuleStatus.checking => StatusKind.working,
@@ -75,23 +77,23 @@ class OtzariaScreen extends StatelessWidget {
             OtzariaModuleStatus.error => StatusKind.error,
           },
           label: switch (c.status) {
-            OtzariaModuleStatus.idle => 'טרם נבדק',
-            OtzariaModuleStatus.checking => 'בודק...',
-            OtzariaModuleStatus.upToDate => 'מעודכן',
-            OtzariaModuleStatus.updateAvailable => 'מוכן להתקנה',
-            OtzariaModuleStatus.installing => 'מתקין...',
-            OtzariaModuleStatus.needsDownload => 'טרם הורדה גרסה',
-            OtzariaModuleStatus.error => 'שגיאה',
+            OtzariaModuleStatus.idle => common.notCheckedYet,
+            OtzariaModuleStatus.checking => common.checking,
+            OtzariaModuleStatus.upToDate => common.upToDate,
+            OtzariaModuleStatus.updateAvailable => t.readyToInstall,
+            OtzariaModuleStatus.installing => common.installing,
+            OtzariaModuleStatus.needsDownload => t.nothingDownloadedYet,
+            OtzariaModuleStatus.error => common.error,
           },
         ),
         SettingsActionTile.text(
           icon: FluentIcons.tag_24_regular,
-          title: 'גרסה מותקנת',
-          subtitle: c.currentVersion ?? 'לא זוהתה התקנה',
+          title: t.installedVersion,
+          subtitle: c.currentVersion ?? t.noInstallDetected,
           subtitleLtr: c.currentVersion != null,
           actions: [
             ActionButton.ghost(
-              text: 'בחירת מיקום ידנית',
+              text: t.pickInstallDirButton,
               icon: FluentIcons.folder_open_24_regular,
               onPressed: _isBusy ? null : () => _pickInstallDir(context),
             ),
@@ -99,11 +101,11 @@ class OtzariaScreen extends StatelessWidget {
         ),
         SettingsActionTile.text(
           icon: FluentIcons.folder_24_regular,
-          title: 'גרסה בתיקייה המקומית',
+          title: t.mirrorVersionTitle,
           // כששתיהן בתיקייה מוצגות שתיהן — הפקד שמתחת קובע איזו תותקן.
           subtitle: c.hasChannelChoice
-              ? '${c.stableVersion} (יציבה) · ${c.prereleaseVersion} (לא יציבה)'
-              : c.latestVersion ?? 'אין — יש להריץ הורדה',
+              ? t.channelPair('${c.stableVersion}', '${c.prereleaseVersion}')
+              : c.latestVersion ?? t.mirrorEmpty,
           subtitleLtr: c.latestVersion != null && !c.hasChannelChoice,
         ),
         // מוצג רק כשבתיקייה יושבות שתי גרסאות — כלומר כשה-pre-release חדש
@@ -111,43 +113,40 @@ class OtzariaScreen extends StatelessWidget {
         if (c.hasChannelChoice)
           SettingsActionTile.segmentedTile<bool>(
             icon: FluentIcons.branch_24_regular,
-            title: 'הגרסה שתותקן',
+            title: t.channelTileTitle,
             subtitle: c.preferPrerelease
-                ? 'הגרסה הלא-יציבה (${c.prereleaseVersion}) — חדשה יותר, '
-                    'אך עלולה להכיל תקלות'
-                : 'הגרסה היציבה (${c.stableVersion}) — מומלץ',
-            options: const [
-              SegmentOption(value: false, label: 'יציבה'),
-              SegmentOption(value: true, label: 'לא יציבה'),
+                ? t.prereleaseSubtitle('${c.prereleaseVersion}')
+                : t.stableSubtitle('${c.stableVersion}'),
+            options: [
+              SegmentOption(value: false, label: t.channelStable),
+              SegmentOption(value: true, label: t.channelPrerelease),
             ],
             currentValue: c.preferPrerelease,
             onChanged: _setChannel,
           ),
         SettingsActionTile.text(
           icon: FluentIcons.play_24_regular,
-          title: 'תהליך אוצריא',
-          subtitle: otzariaIsRunning
-              ? 'פתוחה כרגע — עדכון מסד חסום עד לסגירתה'
-              : 'סגורה',
+          title: t.processTitle,
+          subtitle: otzariaIsRunning ? t.processRunning : t.processStopped,
         ),
         if (c.errorMessage != null)
           InfoErrorRow(message: c.errorMessage!, onRetry: c.checkForUpdate),
         if (c.status == OtzariaModuleStatus.installing)
-          const InfoProgressRow(stage: 'מתקין את אוצריא...'),
+          InfoProgressRow(stage: t.installingProgress),
         CardActionsRow(
           actions: [
             ActionButton.neutral(
-              text: 'בדיקה מחדש',
+              text: common.recheck,
               icon: FluentIcons.arrow_sync_24_regular,
               onPressed: _isBusy ? null : c.checkForUpdate,
             ),
             ActionButton.recommended(
-              text: 'הפעלת אוצריא',
+              text: t.launchButton,
               icon: FluentIcons.play_24_regular,
               onPressed: c.canLaunch ? c.launch : null,
             ),
             ActionButton.neutral(
-              text: 'התקנת העדכון',
+              text: t.installUpdateButton,
               icon: FluentIcons.desktop_arrow_right_24_regular,
               isLoading: c.status == OtzariaModuleStatus.installing,
               onPressed: c.status == OtzariaModuleStatus.updateAvailable
@@ -169,30 +168,33 @@ class OtzariaScreen extends StatelessWidget {
   }
 
   Future<void> _pickInstallDir(BuildContext context) async {
+    final t = context.strings.appScreen;
     final dir = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'בחירת תיקיית ההתקנה של אוצריא',
+      dialogTitle: t.pickInstallDirDialogTitle,
     );
     if (dir == null) return;
 
     final adopted = await otzaria.adoptInstallDir(dir);
     if (adopted) {
-      UiSnack.showSuccess('נמצאה התקנת אוצריא — הגרסה עודכנה');
+      UiSnack.showSuccess(t.installAdoptedSnack);
     } else {
-      UiSnack.showError('לא נמצאה התקנת אוצריא בתיקייה שנבחרה');
+      UiSnack.showError(t.installNotFoundSnack);
     }
   }
 
   Future<void> _confirmInstall(BuildContext context) async {
     final approved = await showTwoActionsDialog(
       context: context,
-      title: 'התקנת תוכנת אוצריא',
-      content: appInstallPrompt(otzaria),
-      confirmText: 'התקן',
+      title: context.strings.home.appInstallDialogTitle,
+      content: appInstallPrompt(context, otzaria),
+      confirmText: context.strings.home.appInstallConfirm,
     );
     if (!approved) return;
     await otzaria.install();
     if (otzaria.status == OtzariaModuleStatus.upToDate) {
-      UiSnack.showSuccess('אוצריא עודכנה לגרסה ${otzaria.currentVersion}');
+      UiSnack.showSuccess(
+        AppL10n.strings.home.appInstalledSnack('${otzaria.currentVersion}'),
+      );
     }
   }
 
@@ -200,15 +202,16 @@ class OtzariaScreen extends StatelessWidget {
 
   Widget _whatsNewCard(BuildContext context) {
     final notes = otzaria.latestReleaseNotes?.trim();
+    final t = context.strings.appScreen;
 
     return SettingsCard(
-      title: 'מה התחדש בגרסה האחרונה',
+      title: t.whatsNewTitle,
       children: [
         Padding(
           padding: const EdgeInsets.all(AppTokens.spaceMD),
           child: (notes == null || notes.isEmpty)
               ? Text(
-                  'אין תיאור לגרסה הזו, או שעדיין לא הורדה גרסה.',
+                  t.whatsNewEmpty,
                   style: Theme.of(context).textTheme.bodyMedium,
                 )
               : MarkdownBody(
@@ -222,10 +225,11 @@ class OtzariaScreen extends StatelessWidget {
 
   /// גיליון סגנון ל"מה התחדש" — מבוסס על עיצוב הערכה (`fromTheme`) עם
   /// דריסות לפי טוקני העיצוב של אוצריא (צבע/פונט כותרות כמו כותרת
-  /// [SettingsCard], והזחת בלט/מסגרת ציטוט מותאמות ל-RTL).
+  /// [SettingsCard], והזחת בלט/מסגרת ציטוט לפי כיוון הכתיבה).
   MarkdownStyleSheet _whatsNewStyleSheet(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final isRtl = context.isRtl;
     final headingStyle =
         TextStyle(color: cs.primary, fontWeight: FontWeight.bold);
 
@@ -236,9 +240,12 @@ class OtzariaScreen extends StatelessWidget {
       h3: theme.textTheme.titleMedium?.merge(headingStyle),
       blockSpacing: AppTokens.spaceSM,
       listIndent: AppTokens.spaceLG,
-      // ה-bullet הוא הילד הראשון ב-Row של הפריט; ב-RTL הוא מוצג מימין,
-      // כך שהריווח לכיוון הטקסט צריך להיות בצד שמאל שלו, לא ימין.
-      listBulletPadding: const EdgeInsets.only(left: AppTokens.spaceXS),
+      // ה-bullet הוא הילד הראשון ב-Row של הפריט; הריווח צריך להיות בצד
+      // שאליו זורם הטקסט — שמאל ב-RTL, ימין ב-LTR.
+      listBulletPadding: EdgeInsets.only(
+        left: isRtl ? AppTokens.spaceXS : 0,
+        right: isRtl ? 0 : AppTokens.spaceXS,
+      ),
       blockquotePadding: const EdgeInsets.symmetric(
         horizontal: AppTokens.spaceMD,
         vertical: AppTokens.spaceXS,
@@ -246,7 +253,9 @@ class OtzariaScreen extends StatelessWidget {
       blockquoteDecoration: BoxDecoration(
         color: cs.surfaceContainerHighest,
         borderRadius: AppTokens.borderRadiusAll,
-        border: Border(right: BorderSide(color: cs.primary, width: 3)),
+        border: BorderDirectional(
+          start: BorderSide(color: cs.primary, width: 3),
+        ),
       ),
       codeblockDecoration: BoxDecoration(
         color: cs.surfaceContainerHigh,
@@ -262,21 +271,22 @@ class OtzariaScreen extends StatelessWidget {
 
   Widget _sourceCard(BuildContext context) {
     final c = otzaria;
+    final t = context.strings.appScreen;
 
     return SettingsCard(
-      title: 'התיקייה שממנה מתקינים',
-      subtitle: 'קבועה, לצד קובץ ההרצה — ראו "עדכון ספרייה" להסבר המלא.',
+      title: t.sourceCardTitle,
+      subtitle: t.sourceCardSubtitle,
       children: [
         SettingsActionTile.path(
           icon: FluentIcons.folder_24_regular,
-          title: 'תיקיית עדכוני התוכנה',
+          title: t.sourceDirTitle,
           path: c.mirrorDir,
-          placeholder: '—',
+          placeholder: context.strings.common.emptyValue,
         ),
         if (c.lastDownloadedAt != null)
           SettingsActionTile.text(
             icon: FluentIcons.history_24_regular,
-            title: 'הורד לאחרונה',
+            title: context.strings.common.lastDownloaded,
             subtitle: c.lastDownloadedAt!.toLocal().toString().split('.').first,
           ),
       ],

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import '../services/app_logger.dart';
@@ -24,6 +25,7 @@ class SettingsController extends ChangeNotifier {
       final raw = jsonDecode(await _file.readAsString());
       if (raw is! Map<String, dynamic>) return;
       _settings = AppSettings.fromJson(raw);
+      _applyLanguage();
       notifyListeners();
     } catch (e, st) {
       // קובץ פגום לא ימנע הפעלה — נשארים על ברירות המחדל. `maybeInstance`
@@ -40,9 +42,14 @@ class SettingsController extends ChangeNotifier {
 
   Future<void> update(AppSettings next) async {
     _settings = next;
+    _applyLanguage();
     notifyListeners();
     await _save();
   }
+
+  /// מזליג את השפה למצב הגלובלי של `otzaria_l10n` — משם קוראות אותה חבילות
+  /// התשתית, שמנסחות הודעות שגיאה והתקדמות בלי `BuildContext`.
+  void _applyLanguage() => AppL10n.use(_settings.language);
 
   Future<void> _save() async {
     try {

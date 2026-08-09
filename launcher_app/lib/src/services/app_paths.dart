@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 /// נזרק כשלא ניתן להשתמש בתיקייה שצמודה לתוכנה — התוכנה מסרבת לרוץ במקרה
@@ -60,8 +61,8 @@ class AppPaths {
       await probe.delete();
     } on FileSystemException catch (e) {
       throw AppPathsException(
-        message:
-            'לא ניתן לכתוב לתיקייה שלצד התוכנה: ${e.osError?.message ?? e.message}',
+        message: AppL10n.strings.setupError
+            .cannotWriteToDataDir(e.osError?.message ?? e.message),
         attemptedDir: dataDir,
       );
     }
