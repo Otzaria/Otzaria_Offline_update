@@ -7,6 +7,12 @@ $sourceDir = $PSScriptRoot
 $outDir = Join-Path $sourceDir 'build'
 New-Item -ItemType Directory -Force $outDir | Out-Null
 
+# stub.rc מטמיע את ה-zip הזה, ולכן הוא חייב להיות קיים לפני rc.exe.
+$payloadZip = Join-Path $outDir 'payload.zip'
+if (-not (Test-Path $payloadZip)) {
+  throw "payload.zip not found at $payloadZip — run windows_stub\package.ps1 instead; it builds the payload and then calls this script."
+}
+
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 if (-not (Test-Path $vswhere)) {
   throw "vswhere.exe not found at $vswhere — Visual Studio with C++ tools is required."
