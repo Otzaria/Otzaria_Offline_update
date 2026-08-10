@@ -134,6 +134,25 @@ void main() {
     expect(screen(PluginsScreen), findsNothing);
   });
 
+  testWidgets('בקשת מיקוד מחנות התוספים מעבירה את התצוגה אליה', (tester) async {
+    await pumpShell(tester);
+
+    // כניסה ויציאה — המסך נשאר בעץ, ולכן הודעת העדכונים שלו יכולה לצוץ
+    // כשהמשתמש כבר בדף הבית. בחירת תוסף מתוכה מבקשת מיקוד, וזו הבקשה כאן.
+    await tapNav(tester, shell.navPlugins);
+    await tapNav(tester, shell.navHome);
+
+    int? shownScreen() => tester
+        .widget<IndexedStack>(find.byType(IndexedStack, skipOffstage: false))
+        .index;
+    expect(shownScreen(), LauncherScreen.home.index);
+
+    tester.widget<PluginsScreen>(screen(PluginsScreen)).onRequestFocus!();
+    await tester.pump();
+
+    expect(shownScreen(), LauncherScreen.plugins.index);
+  });
+
   testWidgets('סרגל הזהות מציג את שם התוכנה ואת הסמל', (tester) async {
     await pumpShell(tester);
 

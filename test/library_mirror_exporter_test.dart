@@ -248,6 +248,45 @@ void main() {
       expect(mirroredTags(destDir), ['v3']);
     });
 
+    // ⚠️ כל release ב-SeforimLibrary נושא `seforim.db.zst` משלו (~1.5GB), אבל
+    // באופליין נבחר רק זה של הגרסה הגבוהה ביותר — עותק לכל release בעומק 5
+    // היה הופך הורדה של ~1.6GB להורדה של ~7.5GB.
+    test('ה-DB המלא יורד רק מה-release הגבוה, לא מכל אחד בחלון', () async {
+      final built = buildExporter([
+        release('v3', assets: [
+          'seforim.db.zst',
+          'patch-v2-v3.db.zst',
+          'patch-v2-v3.db.zst.manifest.json',
+        ]),
+        release('v2', assets: [
+          'seforim.db.zst',
+          'patch-v1-v2.db.zst',
+          'patch-v1-v2.db.zst.manifest.json',
+        ]),
+        release('v1', assets: ['seforim.db.zst']),
+      ]);
+      await built.exporter.export(destDir: destDir);
+
+      // שלושתם במראה — בשביל ה-patches — אך ה-DB המלא ירד פעם אחת בדיוק.
+      expect(mirroredTags(destDir), containsAll(<String>['v3', 'v2', 'v1']));
+      expect(
+        built.fetched.where((n) => n == 'seforim.db.zst').length,
+        1,
+      );
+      expect(assetOnDisk(destDir, 'v3', 'seforim.db.zst'), isTrue);
+      expect(assetOnDisk(destDir, 'v2', 'seforim.db.zst'), isFalse);
+      expect(assetOnDisk(destDir, 'v1', 'seforim.db.zst'), isFalse);
+      // ה-patches עצמם כן נשמרו — זו כל מטרת חלון ההיסטוריה.
+      expect(assetOnDisk(destDir, 'v2', 'patch-v1-v2.db.zst'), isTrue);
+
+      // ומה שירד הוא הנכס שהמסלול המלא באופליין באמת יבחר.
+      final result = await LibraryUpdateDiscovery(
+        client: LocalMirrorLibraryReleaseClient(mirrorDir: destDir),
+      ).discover(allowPrerelease: false);
+      expect(result.latestReleaseTag, 'v3');
+      expect(File(result.latestFullDbAsset!.downloadUrl).existsSync(), isTrue);
+    });
+
     test('prerelease אינו נבחר כאחרון כשהערוץ יציב', () async {
       final built = buildExporter([
         release('v9', prerelease: true, assets: ['seforim.db.zst']),
@@ -345,6 +384,38 @@ void main() {
       expect(url, isNot(startsWith('http')));
       expect(url, isNot(contains(destDir)));
       expect(url, contains('seforim.db.zst'));
+    });
+
+    // חלון ההיסטוריה מסתובב: release שנפל ממנו השאיר עד עכשיו את נכסיו על
+    // הכונן לעד — כולל DB מלא של ~1.5GB מריצות של גרסאות קודמות.
+    test('נכסים שאינם במניפסט החדש נמחקים מהמראה', () async {
+      final stale =
+          Directory([destDir, 'assets', 'v1'].join(Platform.pathSeparator))
+            ..createSync(recursive: true);
+      File([stale.path, 'seforim.db.zst'].join(Platform.pathSeparator))
+          .writeAsStringSync('גרוטאה');
+
+      final built = buildExporter(
+        [
+          release('v3', assets: [
+            'seforim.db.zst',
+            'patch-v2-v3.db.zst',
+            'patch-v2-v3.db.zst.manifest.json',
+          ]),
+        ],
+        historyDepth: 1,
+      );
+      await built.exporter.export(destDir: destDir);
+      // נכס מיותר בתוך תיקייה שכן נשמרת — נמחק גם הוא.
+      final orphan = File([destDir, 'assets', 'v3', 'patch-v1-v2.db.zst']
+          .join(Platform.pathSeparator))
+        ..writeAsStringSync('גרוטאה');
+      await built.exporter.export(destDir: destDir);
+
+      expect(stale.existsSync(), isFalse);
+      expect(orphan.existsSync(), isFalse);
+      expect(assetOnDisk(destDir, 'v3', 'seforim.db.zst'), isTrue);
+      expect(assetOnDisk(destDir, 'v3', 'patch-v2-v3.db.zst'), isTrue);
     });
 
     test('manifest פגום אינו מפיל את הייצוא — הנכס עדיין נשמר', () async {

@@ -72,6 +72,14 @@ Online Otzaria walks the entire patch graph; five releases cover a machine that
 updates occasionally, and anything older falls back to the full-DB route, which
 is always present in the mirror.
 
+Within that window only the **patches** are per-release. `seforim.db.zst`
+(~1.5GB) is downloaded **once**, from the highest version that carries one —
+that is the only full-DB asset `LibraryUpdateDiscovery` ever selects offline, so
+a copy per release meant ~7.5GB of assets nothing would ever read. At the end of
+a successful download, anything under `assets/` that is not in the new manifest
+is deleted (`_pruneStaleAssets`); the `.resume` sidecars of assets that *are* in
+it survive, since they are what lets a re-run skip a completed download.
+
 ---
 
 ## 2. Repository layout
