@@ -284,7 +284,10 @@ class _AppShellState extends State<AppShell> {
             isDownloading: _isDownloading,
             onProcessStateChanged: refreshProcessState,
           ),
-        LauncherScreen.plugins => PluginsScreen(controller: _plugins),
+        LauncherScreen.plugins => PluginsScreen(
+            controller: _plugins,
+            onRequestFocus: () => _goTo(LauncherScreen.plugins),
+          ),
         LauncherScreen.settings => SettingsScreen(
             controller: widget.settings,
             onOpenLog: _openLogFolder,

@@ -21,8 +21,9 @@ import 'patch_downloader.dart';
 /// התיקייה שנוצרה (USB וכו') ופותחים אותה במחשבים האחרים דרך "עדכן מתיקייה
 /// מקומית" בלאנצ'ר.
 ///
-/// **הערה על גודל:** המראה נושאת את ה-DB המלא (~1.1GB דחוס) ואת ה-patches
-/// של [historyDepth] ה-releases האחרונים — לא את כל ההיסטוריה. ראו
+/// **הערה על גודל:** המראה נושאת **עותק אחד** של ה-DB המלא (~1.5GB דחוס) —
+/// של הגרסה הגבוהה ביותר שנושאת אותו — ואת ה-patches של [historyDepth]
+/// ה-releases האחרונים (עשרות MB כל אחד), לא את כל ההיסטוריה. ראו
 /// [recentReleases].
 class LibraryMirrorExporter {
   LibraryMirrorExporter({
@@ -90,9 +91,16 @@ class LibraryMirrorExporter {
       throw StateError(strings.exportNoReleases);
     }
 
+    // ה-DB המלא נדרש **פעם אחת** לכל המראה, לא לכל release: המסלול המלא
+    // באופליין בוחר תמיד את הנכס של הגרסה הגבוהה ביותר שנושאת אותו (ראו
+    // LibraryUpdateDiscovery.discover), ולכן עותק לכל release היה מוסיף כ-1.5GB
+    // מתים לכל אחד מהם — כמה ג'יגה-בייט של נכסים שלא ייקראו לעולם.
+    final fullDbCarrier = _fullDbCarrier(relevant);
+
     // עבור כל release: אילו assets בפועל נדרשים — ה-manifests עצמם, קובצי
-    // ה-patch שהם מצביעים עליהם, וה-DB המלא אם קיים. משתמשים ב-Map לפי שם
-    // כדי לא להוריד את אותו asset פעמיים אם כמה manifests מצביעים עליו.
+    // ה-patch שהם מצביעים עליהם, וה-DB המלא רק ב-[fullDbCarrier]. משתמשים
+    // ב-Map לפי שם כדי לא להוריד את אותו asset פעמיים אם כמה manifests
+    // מצביעים עליו.
     final plannedByRelease = <LibraryRelease, List<ReleaseAsset>>{};
     for (final release in relevant) {
       _throwIfCancelled(isCancelled);
@@ -111,8 +119,10 @@ class LibraryMirrorExporter {
           // LibraryUpdateDiscovery._buildEdge בזרימה הרגילה.
         }
       }
-      final full = release.fullDbAsset;
-      if (full != null) needed[full.name] = full;
+      if (release == fullDbCarrier) {
+        final full = release.fullDbAsset!;
+        needed[full.name] = full;
+      }
       plannedByRelease[release] = needed.values.toList(growable: false);
     }
 
@@ -201,7 +211,53 @@ class LibraryMirrorExporter {
     );
     await manifestTmp.rename(manifestPath);
 
+    // רק אחרי שהמניפסט החדש בתוקף: נכסים שאינם בו לא ייקראו לעולם ורק תופסים
+    // מקום. בלי הניקוי כל release שנפל מחלון ההיסטוריה נשאר על הכונן לעד.
+    await _pruneStaleAssets(assetsRoot, plannedByRelease);
+
     onStage?.call(strings.exportDone);
+  }
+
+  /// מוחק מתוך [assetsRoot] כל תיקיית tag ונכס שאינם בתוכנית — best-effort:
+  /// כשל מחיקה (קובץ נעול) אינו מפיל ייצוא שכבר הצליח.
+  Future<void> _pruneStaleAssets(
+    Directory assetsRoot,
+    Map<LibraryRelease, List<ReleaseAsset>> planned,
+  ) async {
+    final keepByDir = <String, Set<String>>{};
+    for (final entry in planned.entries) {
+      keepByDir[_safeDirName(entry.key.tag)] = {
+        for (final asset in entry.value) ...[
+          asset.name,
+          // קובץ הצד הוא חלק מזהות הנכס: בלעדיו הריצה הבאה מוחקת נכס שלם
+          // ומורידה 1.5GB מחדש. ראו PatchDownloader.resumeSidecarPath.
+          p.basename(PatchDownloader.resumeSidecarPath(asset.name)),
+        ],
+      };
+    }
+
+    await for (final entity in assetsRoot.list(followLinks: false)) {
+      try {
+        final name = p.basename(entity.path);
+        final keep = keepByDir[name];
+        if (entity is Directory) {
+          if (keep == null) {
+            await entity.delete(recursive: true);
+            continue;
+          }
+          await for (final file in entity.list(followLinks: false)) {
+            if (!keep.contains(p.basename(file.path))) {
+              await file.delete(recursive: true);
+            }
+          }
+        } else {
+          // קובץ ישר תחת assets/ — לא נוצר על ידי הייצוא הזה.
+          await entity.delete();
+        }
+      } catch (_) {
+        // מקום מבוזבז בלבד; לא סיבה להכשיל את ההורדה.
+      }
+    }
   }
 
   /// [historyDepth] ה-releases האחרונים שנושאים תוכן מסד, ואיתם — אם אף אחד
@@ -233,6 +289,26 @@ class LibraryMirrorExporter {
       }
     }
     return kept.toList(growable: false);
+  }
+
+  /// ה-release היחיד שממנו מורידים את ה-DB המלא: הגרסה הגבוהה ביותר מבין
+  /// [releases] שנושאת `seforim.db.zst`. `null` רק אם לאף אחד אין — מצב
+  /// ש-[recentReleases] מונע כל עוד קיים DB מלא בהיסטוריה.
+  ///
+  /// זהו בדיוק הנכס ש-`LibraryUpdateDiscovery` יבחר באופליין, ולכן כל עותק
+  /// נוסף הוא מקום מבוזבז על הכונן הנייד.
+  LibraryRelease? _fullDbCarrier(List<LibraryRelease> releases) {
+    LibraryRelease? best;
+    var bestVersion = -1;
+    for (final release in releases) {
+      if (release.fullDbAsset == null) continue;
+      final version = LibraryUpdateDiscovery.releaseVersionOf(release);
+      if (version > bestVersion) {
+        bestVersion = version;
+        best = release;
+      }
+    }
+    return best;
   }
 
   String _safeDirName(String tag) =>

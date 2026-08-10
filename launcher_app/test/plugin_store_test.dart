@@ -747,6 +747,37 @@ void main() {
     expect(find.text(t.updatesAvailableChip(1)), findsOneWidget);
   });
 
+  testWidgets('בחירת תוסף מהדיאלוג פותחת את פרטיו ומבקשת מיקוד למסך',
+      (tester) async {
+    // הדיאלוג נפתח מעל כל מסך (המסך נשאר בעץ גם כשיוצאים ממנו), ולכן פתיחת
+    // התוסף חייבת גם להחזיר את הניווט לכאן — אחרת הפרטים נפתחים מאחור.
+    await seed(tester, catalog: [
+      storePlugin('a', name: 'תוסף לעדכון', manifestId: 'id-a', version: '2.0'),
+    ]);
+    plugins.installed = {'id-a': '1.0'};
+
+    var focusRequests = 0;
+    await pumpScreen(
+      tester,
+      PluginsScreen(
+        controller: plugins,
+        onRequestFocus: () => focusRequests++,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // אותו שם מופיע גם בכרטיס שברשת מאחורי הדיאלוג — הלחיצה היא על השורה
+    // שבתוכו.
+    await tester.tap(find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.text('תוסף לעדכון'),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PluginDetailView), findsOneWidget);
+    expect(focusRequests, 1);
+  });
+
   // ── דף הבית האצור ────────────────────────────────────────────────────────
 
   testWidgets('"הצג עוד נבחרים" נפתח פעם אחת ונשאר פתוח', (tester) async {

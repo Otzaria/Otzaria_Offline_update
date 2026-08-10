@@ -26,9 +26,15 @@ import 'plugin_visuals.dart';
 /// המסך נטען מהמראה בלבד; "סנכרון מהאתר" הוא הפעולה היחידה שדורשת
 /// אינטרנט, והיא תמיד יזומה בלחיצה.
 class PluginsScreen extends StatefulWidget {
-  const PluginsScreen({super.key, required this.controller});
+  const PluginsScreen(
+      {super.key, required this.controller, this.onRequestFocus});
 
   final PluginsModuleController controller;
+
+  /// מבקש מהמסגרת להעביר את התצוגה למסך התוספים. הודעת העדכונים נפתחת מעל
+  /// כל מסך (המסך נשאר בעץ גם כשיוצאים ממנו), ולכן פתיחת תוסף מתוכה חייבת
+  /// גם להחזיר את הניווט לכאן — אחרת הפרטים נפתחים מאחורי מסך אחר.
+  final VoidCallback? onRequestFocus;
 
   @override
   State<PluginsScreen> createState() => _PluginsScreenState();
@@ -108,7 +114,9 @@ class _PluginsScreenState extends State<PluginsScreen> {
         controller: widget.controller,
         updatable: updatable,
       );
-      if (selected != null && mounted) setState(() => _selectedId = selected);
+      if (selected == null || !mounted) return;
+      setState(() => _selectedId = selected);
+      widget.onRequestFocus?.call();
     }));
   }
 
