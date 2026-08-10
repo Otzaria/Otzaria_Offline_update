@@ -272,29 +272,43 @@ directory — `seforim.db` lives under `%APPDATA%` regardless, and stays
 `flutter create --platforms=macos .` — it overwrites them. `windows/` is the
 opposite: it is generated in CI.
 
-**There is no Windows installer — the distribution is a portable ZIP.**
+**There is no Windows installer — the distribution is one self-extracting exe.**
 `inno_bundle` and its config were removed in `748accf`; Flutter for Windows
 cannot produce a true single-file exe anyway. Both `ci.yml` and
 `build-exe.yml` run `flutter build windows --release` and then
-`launcher_app/windows_stub/package.ps1`. Do not reintroduce an installer step
-without adding the dependency back first — that mismatch is exactly what kept
-CI red from July 24 to August 6, 2026.
+`launcher_app/windows_stub/package.ps1`, whose output is
+`launcher_app/build/עדכוני אוצריא.exe` (the workflows upload it via a
+`build/*.exe` glob, not by its Hebrew name). Do not reintroduce an installer
+step without adding the dependency back first — that mismatch is exactly what
+kept CI red from July 24 to August 6, 2026.
 
-**The Windows ZIP has the exe at the root and everything else one level down.**
-`package.ps1` produces `עדכוני אוצריא.exe` next to `app-files/`, where the real
-`launcher_app.exe`, the DLLs and `data/` live. `launcher_app.exe` cannot simply
-be moved up: `flutter_windows.dll` is a load-time import (resolved before any
-of our code runs) and `data/` is resolved relative to the exe's directory. What
-sits at the root is therefore a tiny C stub, `launcher_app/windows_stub/stub.c`,
-that `CreateProcessW`s the real one. Three things there are load-bearing: it
-lives **outside** `windows/` because CI runs `flutter create --platforms=windows .`
-and overwrites that directory; it is compiled with **`/MT`** because a stub
-outside `app-files` cannot see the `vcruntime140.dll` that Flutter copies into
-the Release folder; and its single error message is the **one** user-visible
-string in this repo that is not in `otzaria_l10n` — C cannot depend on a Dart
-package. `OtzariaData/` deliberately lands inside `app-files/` (that is what
-`Platform.resolvedExecutable` yields), so `app_paths.dart` needed no change.
-The full rationale table is in `launcher_app/README.md`.
+**The distributed exe carries the whole file pile inside it.**
+`launcher_app.exe` cannot simply be shipped alone: `flutter_windows.dll` is a
+load-time import (resolved before any of our code runs) and `data/` is resolved
+relative to the exe's directory. So what ships is a tiny C stub,
+`launcher_app/windows_stub/stub.c`, holding the entire Release folder as an
+`RCDATA` resource: on first run it extracts it to `app-files\` **beside itself**
+and then `CreateProcessW`s `app-files\launcher_app.exe`; on every later run the
+`app-files\.ready` marker is there and it just launches. Five things are
+load-bearing. It lives **outside** `windows/` because CI runs
+`flutter create --platforms=windows .` and overwrites that directory. It is
+compiled with **`/MT`** because a stub outside `app-files` cannot see the
+`vcruntime140.dll` that Flutter copies into the Release folder. Extraction goes
+next to the exe and **never to `%TEMP%`** — `OtzariaData/` lands inside
+`app-files/` (that is what `Platform.resolvedExecutable` yields, so
+`app_paths.dart` needed no change) and holds ~1GB of downloads, which a temp
+dir would discard on every run. The completion guard is the `.ready` marker
+rather than the presence of `launcher_app.exe`, so an interrupted extraction is
+never mistaken for a finished one. And its single error message is the **one**
+user-visible string in this repo that is not in `otzaria_l10n` — C cannot depend
+on a Dart package.
+
+**`package.ps1` must zip the payload before it compiles the stub.** `stub.rc`
+embeds `windows_stub/build/payload.zip`, so `rc.exe` needs that file to already
+exist; `build_stub.ps1` throws if it does not. Extraction itself uses Windows'
+built-in `tar.exe` (present since Windows 10 1803), which reads zip — that is
+why no compression library is linked into the stub. The full rationale table is
+in `launcher_app/README.md`.
 
 **Version strings need normalizing before comparison.** An installed build
 reports `0.9.96` while the release tag is `0.9.96+736`. `OtzariaUpdateCheckResult`

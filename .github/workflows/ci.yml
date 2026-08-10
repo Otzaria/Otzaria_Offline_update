@@ -92,16 +92,16 @@ jobs:
       - run: flutter analyze --no-fatal-infos
       - run: flutter test
       - run: flutter build windows --release
-      # אין מתקין — portable zip (זהה ל-build-exe.yml): קובץ הרצה אחד
-      # בשורש ותיקיית app-files עם כל השאר. Flutter ל-Windows לא מייצר exe
-      # יחיד בלאו הכי, ומאז 748accf ההפצה היא portable zip.
+      # אין מתקין — exe בודד ונייד (זהה ל-build-exe.yml): ה-stub נושא את
+      # ערמת הקבצים כ-resource ומחלץ אותה ל-app-files לידו בהרצה הראשונה,
+      # כי Flutter ל-Windows לא מייצר exe יחיד בלאו הכי.
       - name: Package portable build
         shell: pwsh
         run: .\windows_stub\package.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: launcher_app-windows-portable-ci
-          path: launcher_app/launcher_app-windows-portable.zip
+          path: launcher_app/build/*.exe
           if-no-files-found: error
 
   launcher_app_macos:

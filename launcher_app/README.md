@@ -244,50 +244,58 @@ flutter build macos --release # הפלט: build/macos/Build/Products/Release/Otz
 סימון quarantine ויצטרך לאשר פתיחה דרך *System Settings → Privacy &
 Security*, או להסיר את הסימון: `xattr -dr com.apple.quarantine "Otzaria Launcher.app"`.
 
-## אריזה ל-Windows — portable ZIP, בלי מתקין
+## אריזה ל-Windows — exe בודד, בלי מתקין
 
 `flutter build windows` מייצר תיקייה שלמה (exe + DLLs + `data/`) ולא קובץ
 יחיד — וזו מגבלה של Flutter, לא של האריזה. לכן אין מתקין: ההפצה היא
-zip שמוציאים ומריצים ממנו ישירות, בלי התקנה ובלי רישום ב-Windows.
-`inno_bundle` הוסר ב-`748accf`.
+**קובץ exe אחד שמחלץ את עצמו**, שמריצים מאיפה שהוא יושב, בלי התקנה ובלי
+רישום ב-Windows. `inno_bundle` הוסר ב-`748accf`.
 
 ```bash
 cd launcher_app
 flutter build windows --release
 # הפלט: build/windows/x64/runner/Release/
 pwsh ./windows_stub/package.ps1
-# הפלט: launcher_app-windows-portable.zip
+# הפלט: build/עדכוני אוצריא.exe — זה כל מה שמפיצים
 ```
 
-### קובץ ההרצה יושב בשורש, לא בתוך ערמת הקבצים
+### exe אחד, שמחלץ את ערמת הקבצים לידו בהרצה הראשונה
 
-מה שמתקבל אחרי חילוץ ה-zip לכונן:
+זה מה שמתקבל על הכונן אחרי ההרצה הראשונה:
 
 ```
-עדכוני אוצריא.exe   ← ה-stub, זה מה שהמשתמש לוחץ
+עדכוני אוצריא.exe   ← ה-stub, וזה מה שהמשתמש לוחץ תמיד
 app-files/          ← launcher_app.exe, ה-DLL, data/, ובזמן ריצה גם OtzariaData/
 ```
 
 **אי אפשר פשוט להזיז את `launcher_app.exe` מעלה.** הוא תלוי ב-
 `flutter_windows.dll` שנטענת ב-load time (לפני שקוד שלנו רץ, ולכן אין דרך
 להפנות אותה לתיקייה אחרת), ובתיקיית `data/` שנפתרת יחסית לתיקיית ה-exe
-([`main.cpp`](windows/runner/main.cpp)). לכן מה שיושב בשורש הוא **stub**:
-קובץ C זעיר ב-[`windows_stub/`](windows_stub/) שכל תפקידו `CreateProcessW`
-על `app-files\launcher_app.exe`, עם אותו אייקון ועם `asInvoker` מפורש
-במניפסט.
+([`main.cpp`](windows/runner/main.cpp)). לכן מה שמופץ הוא **stub**: קובץ C
+זעיר ב-[`windows_stub/`](windows_stub/) שנושא את כל ערמת הקבצים כ-resource
+מסוג `RCDATA`, מחלץ אותה ל-`app-files\` לידו, ואז `CreateProcessW` על
+`app-files\launcher_app.exe` — עם אותו אייקון ועם `asInvoker` מפורש במניפסט.
 
 | החלטה | למה |
 | --- | --- |
 | ה-stub חי ב-`windows_stub/` ולא ב-`windows/` | ה-CI מריץ `flutter create --platforms=windows .`, שדורס את תיקיית הרנר |
 | מקומפל עם `/MT` (CRT סטטי) | ה-stub יושב **מחוץ** ל-`app-files`, ולכן לא רואה את `vcruntime140.dll` שהבנייה של Flutter מעתיקה לתיקיית ה-Release. עם `/MD` הוא לא היה עולה בלי VC++ Redist |
+| החילוץ הוא ל-`app-files\` **ליד ה-exe**, לא ל-`%TEMP%` | `OtzariaData/` יורדת לתוך `app-files` וכוללת הורדות של ~1GB. חילוץ לזמני היה מוחק אותן בכל הרצה ושובר את כל מודל ה-USB |
+| החילוץ מתבצע ב-`tar.exe` של Windows | קורא zip, קיים מ-Windows 10 1803, וחוסך ספריית דחיסה בתוך ה-stub. חלון הקונסולה שלו נשאר גלוי בכוונה — בלעדיו ההרצה הראשונה נראית תקועה |
+| הסימון `app-files\.ready`, ולא בדיקת קיום ה-exe | נכתב רק אחרי חילוץ שהצליח, ולכן חילוץ שנקטע באמצע לא ייראה שלם בהרצה הבאה |
+| ה-payload נשאר מוטמע ב-exe לתמיד | ה-exe מגיע לגודל של הבנייה כולה, אבל בתמורה מחיקה בטעות של `app-files` מתקנת את עצמה בהרצה הבאה |
 | `OtzariaData/` נשארת בתוך `app-files` | `AppPaths` גוזרת אותה מ-`Platform.resolvedExecutable`, וזו הבחירה שנעשתה כאן — בשורש נשארים בדיוק שני פריטים. לא נדרש שינוי ב-`app_paths.dart` |
 | ה-stub לא ממתין לבן | אחרת שני תהליכים היו יושבים בזיכרון לכל אורך הריצה |
-| הודעת השגיאה היחידה שבו כתובה inline | קוד C לא יכול לתלות ב-`otzaria_l10n`. זהו החריג היחיד לכלל, והיא מוצגת רק כשה-zip חולץ חלקית |
+| הודעת השגיאה היחידה שבו כתובה inline | קוד C לא יכול לתלות ב-`otzaria_l10n`. זהו החריג היחיד לכלל, והיא מוצגת רק כשההכנה להרצה הראשונה נכשלה |
 
 שני ה-workflows שבונים ל-Windows (`ci.yml` ו-`build-exe.yml`) קוראים
-ל-`windows_stub/package.ps1`, שמקמפל את ה-stub (`vswhere` → `vcvars64` →
-`rc` + `cl`), מרכיב את הפריסה ומריץ `Compress-Archive`. הסקריפטים הם UTF-8
-בלי BOM ומכילים עברית, ולכן חייבים `pwsh` (7+) ולא Windows PowerShell 5.1.
+ל-`windows_stub/package.ps1`, שמרכיב את הפריסה, דוחס אותה ל-`payload.zip`,
+ואז מקמפל את ה-stub (`vswhere` → `vcvars64` → `rc` + `cl`) — בסדר הזה, כי
+`rc.exe` הוא זה שמטמיע את ה-zip. הסקריפטים הם UTF-8 בלי BOM ומכילים עברית,
+ולכן חייבים `pwsh` (7+) ולא Windows PowerShell 5.1.
+
+⚠️ **מ-GitHub Actions ההורדה תמיד תהיה zip.** `upload-artifact` עוטף כל
+ארטיפקט ב-zip, גם קובץ בודד; בתוכו יש כעת exe אחד ולא zip פנימי נוסף.
 
 ⚠️ אם מחזירים בעתיד מתקין, יש להחזיר קודם את התלות ל-`pubspec.yaml` —
 חוסר ההתאמה הזה בין ה-workflow ל-pubspec הוא מה שהחזיק את ה-CI אדום בין

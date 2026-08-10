@@ -25,14 +25,16 @@ jobs:
       - run: flutter create --platforms=windows .
       - run: flutter pub get
       - run: flutter build windows --release
-      # אין מתקין — אפליקציית "portable": מוציאים מה-zip ומריצים ישירות,
-      # בלי התקנה ובלי רישום ב-Windows. package.ps1 מקמפל את ה-stub ובונה
-      # את הפריסה של קובץ הרצה אחד בשורש + app-files (ראו windows_stub/).
+      # אין מתקין — אפליקציית "portable" בקובץ exe בודד: ה-stub נושא את
+      # ערמת הקבצים כ-resource ומחלץ אותה לידו בהרצה הראשונה
+      # (ראו windows_stub/).
       - name: Package portable build
         shell: pwsh
         run: .\windows_stub\package.ps1
+      # glob ולא השם המלא: הקובץ הוא "עדכוני אוצריא.exe", ואין טעם לתלות
+      # את ה-workflow בקידוד של שם עברי.
       - uses: actions/upload-artifact@v4
         with:
           name: launcher_app-windows-portable
-          path: launcher_app/launcher_app-windows-portable.zip
+          path: launcher_app/build/*.exe
           if-no-files-found: error
