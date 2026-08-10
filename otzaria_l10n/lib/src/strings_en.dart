@@ -1174,8 +1174,9 @@ class _AppDomain extends AppDomainStrings {
       'There is no Otzaria version in the local folder — run a download on a '
       'computer with internet.';
   @override
-  String get notInstalledByThisLauncher =>
-      'Otzaria has not been installed by this launcher yet.';
+  String get noOtzariaInstallFound =>
+      'No Otzaria installation was found on this computer — install it, or '
+      'choose the folder of an existing installation.';
   @override
   String get corruptReleaseMetadata => 'Corrupt Otzaria release metadata';
   @override

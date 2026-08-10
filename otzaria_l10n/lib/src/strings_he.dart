@@ -1113,8 +1113,9 @@ class _AppDomain extends AppDomainStrings {
   String get mirrorEmptyRunDownload =>
       'אין גרסת אוצריא בתיקייה המקומית — יש להריץ הורדה במחשב עם אינטרנט.';
   @override
-  String get notInstalledByThisLauncher =>
-      'אוצריא עדיין לא הותקנה על ידי הלאנצ׳ר הזה.';
+  String get noOtzariaInstallFound =>
+      'לא נמצאה התקנה של אוצריא במחשב — יש להתקין אותה, או לבחור את תיקיית '
+      'ההתקנה הקיימת.';
   @override
   String get corruptReleaseMetadata => 'מטא־דאטה פגומה של גרסת אוצריא';
   @override

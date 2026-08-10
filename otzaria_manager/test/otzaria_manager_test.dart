@@ -176,15 +176,46 @@ void main() {
       );
     });
 
-    test('launch זורק כשעדיין לא הותקן/אומץ כלום', () async {
+    test('launch זורק כשלא נמצאה שום התקנה', () async {
+      if (_legacyInstallExists) return; // C:\אוצריא במכונה = כן תימצא התקנה
       expect(
         managerFor().launch,
         throwsA(
           isA<StateError>().having((e) => e.message, 'message',
-              AppL10n.strings.appDomain.notInstalledByThisLauncher),
+              AppL10n.strings.appDomain.noOtzariaInstallFound),
         ),
       );
     });
+
+    // הבאג: הזיהוי לפי הרג'יסטרי אינו נשמר ב-state (בכוונה), ולכן launch
+    // שקרא מה-state בלבד סירב להפעיל התקנה שהוא עצמו הציג.
+    test(
+      'launch מפעיל התקנה שזוהתה ברג׳יסטרי, בלי שאומצה',
+      () async {
+        final dir = Directory(p.join(dataDir.path, 'registered'))
+          ..createSync(recursive: true);
+        final exe = p.join(dir.path, 'otzaria.exe');
+        File(_systemExe).copySync(exe);
+        final launcher = _RecordingLauncher();
+
+        final manager = OtzariaManager(
+          dataDir: dataDir.path,
+          platform: OtzariaTargetPlatform.windows,
+          environment: const {},
+          runningLocator: _FakeRunningLocator(null),
+          installRegistry: _FakeInstallRegistry([dir.path]),
+          launcher: launcher,
+        );
+        addTearDown(manager.close);
+
+        final check = await manager.checkForUpdate();
+        await manager.launch();
+
+        expect(check.currentState!.launchPath, exe);
+        expect(launcher.launched, [exe]);
+      },
+      testOn: 'windows',
+    );
   });
 
   group('detectExistingInstall', () {
@@ -504,6 +535,14 @@ class _FakeRunningLocator extends RunningOtzariaLocator {
   @override
   Future<RunningOtzariaProbe> probe() async =>
       (isRunning: launchPath != null, launchPath: launchPath);
+}
+
+/// קולט את נתיב ההפעלה במקום להריץ תהליך אמיתי.
+class _RecordingLauncher extends OtzariaLauncher {
+  final List<String> launched = [];
+
+  @override
+  Future<void> launch(String launchPath) async => launched.add(launchPath);
 }
 
 /// מנטרל את הרג'יסטרי האמיתי: בלעדיו הבדיקות במכונת פיתוח עם אוצריא
