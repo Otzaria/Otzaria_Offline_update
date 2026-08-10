@@ -30,10 +30,12 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   OtzariaModuleController({
     required String dataDir,
     bool preferPrerelease = false,
+    RunningOtzariaLocator runningLocator = const RunningOtzariaLocator(),
   })  : _preferPrerelease = preferPrerelease,
         _manager = OtzariaManager(
           dataDir: dataDir,
           preferPrerelease: preferPrerelease,
+          runningLocator: runningLocator,
         );
 
   final OtzariaManager _manager;
@@ -51,11 +53,13 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     unawaited(checkForUpdate());
   }
 
-  /// זמן קצוב לפעולות רשת (מהגדרות "רשת") — נכנס לתוקף בבקשה הבאה.
-  set networkTimeout(Duration value) => _manager.networkTimeout = value;
-
   OtzariaModuleStatus status = OtzariaModuleStatus.idle;
   String? currentVersion;
+
+  /// נתיב ההפעלה של אוצריא שזוהתה (`.exe` / חבילת `.app`), או `null` אם לא
+  /// זוהתה התקנה. מודול הספרייה משתמש בו כדי לזהות התקנה ניידת/ספרייה
+  /// מצורפת — ראו [LibraryDbLocator.otzariaLaunchPath].
+  String? launchPath;
 
   /// הגרסה שיושבת בתיקייה המקומית ומוכנה להתקנה **בערוץ שנבחר**, או null
   /// אם טרם הורדה.
@@ -68,6 +72,10 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
 
   /// שתי הגרסאות יושבות בתיקייה — רק אז מוצגת למשתמש בחירת ערוץ.
   bool hasChannelChoice = false;
+
+  /// האם אוצריא פתוחה, לפי בדיקת התהליך ש-[checkForUpdate] מבצעת ממילא.
+  /// כך הלאנצ'ר לא מריץ `tasklist` שני משלו בעלייה.
+  bool isRunning = false;
 
   OtzariaDownloadStatus downloadStatus = OtzariaDownloadStatus.idle;
   int? downloadReceived;
@@ -186,10 +194,12 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
       final check = await _manager.checkForUpdate();
       _lastCheck = check;
       currentVersion = check.currentState?.installedTagName;
+      launchPath = check.currentState?.launchPath;
       latestVersion = check.latestRelease?.tagName;
       stableVersion = check.stableRelease?.tagName;
       prereleaseVersion = check.prereleaseRelease?.tagName;
       hasChannelChoice = check.hasChannelChoice;
+      isRunning = check.isOtzariaRunning;
       status = switch (check) {
         _ when check.needsDownload => OtzariaModuleStatus.needsDownload,
         _ when check.updateAvailable => OtzariaModuleStatus.updateAvailable,

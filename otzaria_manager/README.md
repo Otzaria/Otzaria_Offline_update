@@ -19,7 +19,8 @@
 | מה מאתרים | `*.exe` (למעט `unins*`) | חבילת `.app` (הרדודה ביותר, בלי להיכנס לתוכה) |
 | קריאת גרסה | `ProductVersion` מה-version resource (FFI, `package:win32`) | `CFBundleShortVersionString` מ-`Info.plist` (דרך `plutil`) |
 | הפעלה | `Process.start` מנותק | `open <bundle>` (דרך Launch Services) |
-| זיהוי אוטומטי של התקנה קיימת | התיקייה המנוהלת | התיקייה המנוהלת, ואחריה `/Applications` |
+| זיהוי אוטומטי של התקנה קיימת | התהליך הרץ, ואחריו התיקייה המנוהלת | התהליך הרץ, התיקייה המנוהלת, ואחריהם `/Applications` |
+| נתיב התהליך הרץ | `tasklist` (PID) + `QueryFullProcessImageNameW` | `ps -A -o comm=` ועלייה לשורש ה-`.app` |
 
 **חבילות ה-FULL של ~2GB** (`otzaria-<ver>-windows-full.exe`,
 `otzaria-macos-full.zip`) נפסלות בשתי הפלטפורמות — הן מכילות את הספרייה
@@ -132,6 +133,14 @@ manager.close();
 - `services/installed_version_reader.dart` — הממשק המשותף + בחירת המימוש לפי פלטפורמה.
 - `services/windows_exe_version_reader.dart` — קריאת `ProductVersion` מתוך Windows version resource, דרך FFI (`package:win32`).
 - `services/mac_app_version_reader.dart` — קריאת `CFBundleShortVersionString`/`CFBundleIdentifier` מ-`Info.plist` (binary plist, ולכן דרך `plutil`).
+- `services/otzaria_app_mirror.dart` — מראת התוכנה שעל הכונן: מורידה את שתי
+  הגרסאות (יציבה + pre-release כשהוא חדש ממנה), כותבת `latest-release.json`
+  וקוראת ממנה במחשב הלא-מקוון.
+- `services/running_otzaria_locator.dart` — איתור ההתקנה לפי **התהליך הרץ**
+  (`tasklist` + `QueryFullProcessImageNameW` בווינדוס, `ps` ב-macOS). רשימת
+  שמות התהליך חייבת להישאר זהה ל-`OtzariaProcessGuard` שב-`library_manager`;
+  `launcher_app/test/process_names_test.dart` שומר על כך. **לא אומת מול
+  אוצריא אמיתית רצה על חומרה.**
 - `services/otzaria_state_store.dart` — שמירה/טעינה של קובץ ה-state המקומי.
 - `services/otzaria_launcher.dart` — הפעלת אוצריא כתהליך עצמאי / דרך `open`.
 - `otzaria_manager.dart` — האורקסטרטור המאחד את כולם; נקודת הכניסה ל-UI.
@@ -171,6 +180,6 @@ OTZARIA_MACOS_ZIP=/tmp/otzaria-macos.zip dart test test/otzaria_installer_macos_
 - **`/Applications` שאינה בבעלות המשתמש**: אם אומצה התקנה משם ואין
   הרשאת כתיבה, העדכון ייכשל עם שגיאה (אין fallback אוטומטי להתקנה
   לתיקייה המנוהלת).
-- אין עדיין UI/הגדרה למשתמש להזין ידנית "תיקיית התקנה קיימת שלי" —
-  `detectExistingInstall`/`adoptExistingInstall` מוכנים ברמת הלוגיקה,
-  אבל חיבור לשדה קלט במסך אמיתי יגיע עם הדשבורד המאוחד.
+- בחירה ידנית של "תיקיית התקנה קיימת שלי" **קיימת** במסך התוכנה
+  (`OtzariaModuleController.adoptInstallDir` → `adoptExistingInstall`),
+  והיא הגיבוי לכל מה שהזיהוי האוטומטי אינו מכסה.

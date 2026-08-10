@@ -61,10 +61,6 @@ void main() {
       expect(notifications, 0);
       expect(controller.status, LibraryModuleStatus.idle);
     });
-
-    test('גיבוי הבטיחות דלוק כברירת מחדל', () {
-      expect(controller.keepSafetyBackup, isTrue);
-    });
   });
 
   group('checkOnline — כשל רשת נבלע', () {

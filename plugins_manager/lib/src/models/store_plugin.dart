@@ -140,13 +140,16 @@ class StorePlugin extends Equatable {
     List<String>? categorySlugs,
     PluginLocalFile? localFile,
     String? manifestId,
+    // הגרסה נדרסת רק כשהורדת הקובץ נכשלה: הקטלוג מתאר את מה שבמראה בפועל,
+    // ראו `PluginMirrorSync._syncPluginFile`.
+    String? version,
   }) {
     return StorePlugin(
       id: id,
       name: name,
       shortDescription: shortDescription,
       description: description,
-      version: version,
+      version: version ?? this.version,
       status: status,
       author: author,
       updatedAt: updatedAt,

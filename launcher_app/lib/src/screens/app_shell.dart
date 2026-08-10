@@ -5,6 +5,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
 
 import '../controllers/library_module_controller.dart';
@@ -25,16 +26,26 @@ import 'settings_screen.dart';
 /// המסך הפעיל בסרגל הניווט. "תוכנה" קודם ל"ספרייה" — ראו [_NavRail].
 enum LauncherScreen { home, otzaria, library, plugins, settings }
 
-/// מסגרת האפליקציה: סרגל ניווט קבוע בצד, סרגל זהות עליון, וחמשת המסכים.
+/// מסגרת האפליקציה: שורת כותרת מותאמת למעלה, סרגל ניווט קבוע בצד, וחמשת
+/// המסכים. שלושתם נצבעים באותו רקע לוח — בלי תפר ביניהם.
 class AppShell extends StatefulWidget {
   const AppShell({
     super.key,
     required this.dataDir,
     required this.settings,
+    this.runningLocator = const RunningOtzariaLocator(),
+    this.showWindowButtons,
   });
 
   final String dataDir;
   final SettingsController settings;
+
+  /// בדיקת "אוצריא פתוחה?" — מוזרקת כדי שבדיקות widget לא יריצו `tasklist`
+  /// אמיתי: תהליך חיצוני משאיר טיימר תלוי ומפיל את הבדיקה.
+  final RunningOtzariaLocator runningLocator;
+
+  /// ראו [AppTitleBar.showWindowButtons] — מוזרק `false` בבדיקות widget.
+  final bool? showWindowButtons;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -69,9 +80,13 @@ class _AppShellState extends State<AppShell> {
       dataDir: widget.dataDir,
       // ההורדה מביאה תמיד את שתי הגרסאות; זו רק הבחירה איזו מהן מותקנת.
       preferPrerelease: s.preferAppPrerelease,
+      runningLocator: widget.runningLocator,
     )..addListener(_onChange);
     _library = LibraryModuleController(
       dataDir: widget.dataDir,
+      // נתיב ההתקנה של אוצריא מזהה התקנה ניידת/ספרייה מצורפת, ששם המסד לא
+      // יושב ב-`%APPDATA%`. `null` לפני הבדיקה הראשונה — ראו [checkAll].
+      otzariaLaunchPath: () async => _otzaria.launchPath,
     )..addListener(_onChange);
     _plugins = PluginsModuleController(
       // כל המראות יושבות תחת אותו שורש שלצד התוכנה, כך שהכול נוסע יחד.
@@ -118,16 +133,13 @@ class _AppShellState extends State<AppShell> {
   /// מזליג הגדרות שהקונטרולרים צריכים. הכול idempotent (הצבת ערך), ולכן אין
   /// צורך לעקוב אחרי שינוי בפועל.
   void _applySettings(AppSettings s) {
-    _library.keepSafetyBackup = s.backupsToKeep > 0;
     // ה-setter מתעלם מהצבה חוזרת של אותו ערך, ולכן זה לא מריץ בדיקה בכל
     // שינוי הגדרה אחר.
     _otzaria.preferPrerelease = s.preferAppPrerelease;
-    final timeout = Duration(seconds: s.networkTimeoutSeconds);
-    _otzaria.networkTimeout = timeout;
-    _library.networkTimeout = timeout;
-    _plugins.networkTimeout = timeout;
   }
 
+  /// בדיקת תהליך עצמאית — לרענון יזום מהמסך (כפתור "בדוק שוב"), כשלא רצה
+  /// בדיקה מלאה. בעלייה **לא** נקראת: ראו [checkAll].
   Future<void> _refreshProcessState() async {
     const guard = OtzariaProcessGuard();
     final running = await guard.isAnyRunning(
@@ -140,8 +152,15 @@ class _AppShellState extends State<AppShell> {
   /// בודק גרסאות בשני המודולים **מהתיקייה המקומית בלבד**. לא נוגע ברשת,
   /// לא מוריד ולא מתקין דבר.
   Future<void> checkAll() async {
-    await Future.wait([_otzaria.checkForUpdate(), _library.checkForUpdate()]);
-    await _refreshProcessState();
+    // בטור ולא במקביל: בדיקת הספרייה משתמשת בנתיב ההתקנה של אוצריא כדי לאתר
+    // את המסד (התקנה ניידת/ספרייה מצורפת), והוא ידוע רק אחרי הבדיקה שלה.
+    await _otzaria.checkForUpdate();
+    if (!mounted) return;
+    // בדיקת אוצריא כבר הריצה `tasklist` בדרך לזיהוי ההתקנה — קריאה נוספת
+    // ל-[_refreshProcessState] כאן הייתה מריצה אותו שוב, בטור, על לא דבר.
+    setState(() => _otzariaIsRunning = _otzaria.isRunning);
+
+    await _library.checkForUpdate();
     if (!mounted) return;
     await _autoInstallIfEnabled();
   }
@@ -208,6 +227,19 @@ class _AppShellState extends State<AppShell> {
     });
   }
 
+  /// שם המסך הפתוח, כפי שהוא מוצג בשורת הכותרת — אותן תוויות בדיוק כמו
+  /// בסרגל הניווט, כך שהשורה והסרגל מדברים באותה שפה.
+  String _screenTitle(BuildContext context, LauncherScreen screen) {
+    final s = context.strings.shell;
+    return switch (screen) {
+      LauncherScreen.home => s.navHome,
+      LauncherScreen.otzaria => s.navApp,
+      LauncherScreen.library => s.navLibrary,
+      LauncherScreen.plugins => s.navPlugins,
+      LauncherScreen.settings => s.navSettings,
+    };
+  }
+
   Widget _screenWidget(LauncherScreen screen) => switch (screen) {
         LauncherScreen.home => HomeScreen(
             otzaria: _otzaria,
@@ -244,16 +276,27 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppSurfaces.panelBackground(context),
-      body: Row(
+      // שורת הכותרת נפרסת על כל הרוחב — מעל סרגל הניווט ולא לצידו — כך שגרירת
+      // החלון אפשרית לכל רוחב החלון (כמו באוצריא).
+      body: Column(
         children: [
-          _NavRail(
-            current: _screen,
-            onSelect: _goTo,
+          AppTitleBar(
+            screenTitle: _screenTitle(context, _screen),
+            showWindowButtons: widget.showWindowButtons,
           ),
           Expanded(
-            child: Column(
+            child: Row(
               children: [
-                const _TopBar(),
+                _NavRail(
+                  current: _screen,
+                  onSelect: _goTo,
+                ),
+                // הסרגל והתוכן חולקים רקע — הקו הזה הוא ההפרדה היחידה ביניהם.
+                VerticalDivider(
+                  width: 1,
+                  thickness: 1,
+                  color: AppSurfaces.shellDivider(context),
+                ),
                 Expanded(
                   child: IndexedStack(
                     index: _screen.index,
@@ -327,45 +370,6 @@ class _NavRail extends StatelessWidget {
             label: s.navSettings,
             isSelected: current == LauncherScreen.settings,
             onTap: () => onSelect(LauncherScreen.settings),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── סרגל הזהות העליון ─────────────────────────────────────────────────────────
-
-/// סמל אוצריא והשם בלבד. מחווני המצב שהיו כאן (רשת, נתיב, "נבדק ב־") הוסרו —
-/// כולם מופיעים ממילא בדף הבית ובמסכי הרכיבים, סמוך לפעולה שהם מתארים.
-class _TopBar extends StatelessWidget {
-  const _TopBar();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final s = context.strings.shell;
-
-    return Container(
-      color: AppSurfaces.topBarBackground(context),
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppTokens.spaceMD,
-        vertical: AppTokens.spaceSM,
-      ),
-      child: Row(
-        children: [
-          Image.asset(
-            'assets/images/otzaria_logo.png',
-            height: 28,
-            filterQuality: FilterQuality.medium,
-            semanticLabel: s.otzariaLogoLabel,
-          ),
-          const SizedBox(width: AppTokens.spaceSM),
-          Text(
-            s.appTitle,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
           ),
         ],
       ),

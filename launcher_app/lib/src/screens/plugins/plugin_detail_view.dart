@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
 import '../../controllers/plugins_module_controller.dart';
+import '../../services/byte_size.dart';
 import '../../services/hebrew_date.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
@@ -420,12 +421,10 @@ class PluginDetailView extends StatelessWidget {
     );
   }
 
-  static String _formatSize(BuildContext context, int bytes) {
-    if (bytes <= 0) return context.strings.plugins.sizeUnknown;
-    if (bytes < 1024) return context.strings.units.bytes(bytes);
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
+  /// גודל ידוע מוצג דרך [formatBytes] המשותף — כפילות כאן החזירה יחידות
+  /// קבועות באנגלית בתוך משפט עברי.
+  static String _formatSize(BuildContext context, int bytes) =>
+      bytes <= 0 ? context.strings.plugins.sizeUnknown : formatBytes(bytes);
 }
 
 /// תא מידע — תווית קטנה מעל ערך מודגש, על רקע ניטרלי.

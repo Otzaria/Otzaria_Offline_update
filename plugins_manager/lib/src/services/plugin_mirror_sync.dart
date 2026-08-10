@@ -38,6 +38,12 @@ class PluginMirrorSync {
 
     final remote = await client.fetchCatalog();
     final previousCatalog = await store.load();
+    // רשימה ריקה היא JSON תקין, ולכן `fetchCatalog` לא זורק עליה — אבל
+    // לכתוב אותה על קטלוג קיים פירושו למחוק חנות שלמה ממחשב לא-מקוון בגלל
+    // תקלה זמנית באתר. נכשלים במקום, והמראה נשארת כפי שהיא.
+    if (remote.isEmpty && previousCatalog.plugins.isNotEmpty) {
+      throw StateError(strings.syncEmptyCatalogRejected);
+    }
     final existing = {
       for (final plugin in previousCatalog.plugins) plugin.id: plugin,
     };
@@ -158,6 +164,19 @@ class PluginMirrorSync {
         categories
             .add(await _categoryMembers(summary, syncedIds, previous, report));
       }
+    }
+
+    // תשובה תקינה אך חסרת מבנה (אתר ישן, שדה שהשתנה) אינה עילה למחוק את מה
+    // שכבר במראה — אותו כלל בדיוק כמו בכשל הבקשה עצמה, למעלה.
+    if (categories.isEmpty && previous.categories.isNotEmpty) {
+      report(PluginSyncProgress(
+        phase: PluginSyncPhase.warning,
+        message: strings.syncStructureFailed(strings.syncStructureEmpty),
+      ));
+      return _StoreStructure(
+        home: previous.home,
+        categories: previous.categories,
+      );
     }
 
     return _StoreStructure(
@@ -298,6 +317,12 @@ class PluginMirrorSync {
         message: AppL10n.strings.pluginsDomain
             .syncPluginFileFailed(plugin.name, '$e'),
       ));
+      // הקובץ שבמראה הוא עדיין הישן — הקטלוג חייב לומר את גרסתו. אחרת
+      // בדיקת ה-unchanged למעלה תתאים בסנכרון הבא, הקובץ החדש לא יירד לעולם,
+      // וההתקנה תגיש בשקט את הישן תחת מספר הגרסה החדש.
+      if (previous?.localFile != null && await store.hasLocalFile(previous!)) {
+        return plugin.copyWith(version: previous.version);
+      }
       return plugin;
     }
   }

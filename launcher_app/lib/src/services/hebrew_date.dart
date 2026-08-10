@@ -1,3 +1,5 @@
+import 'package:otzaria_l10n/otzaria_l10n.dart';
+
 /// המרת תאריך לועזי לתאריך עברי בגימטריה — למשל `ט"ו בשבט ה'תשפ"ו`.
 ///
 /// חנות התוספים המקורית קיבלה את זה חינם מ-`Intl` בדפדפן
@@ -48,10 +50,17 @@ class HebrewDate {
 
   /// מפרמט מחרוזת תאריך מה-API (`YYYY-MM-DD` או ISO-8601 מלא). מחזיר את
   /// המחרוזת המקורית אם אי אפשר לפרסר אותה — עדיף על שגיאה במסך.
+  /// באנגלית מוחזר תאריך לועזי: תאריך עברי בגימטריה בתוך משפט אנגלי אינו
+  /// קריא, וגם אין מה לתרגם בו — שמות החודשים הם התוכן עצמו.
   static String format(String? raw) {
     if (raw == null || raw.isEmpty) return '';
     final date = DateTime.tryParse(raw);
     if (date == null) return raw;
+    if (!AppL10n.language.isRtl) {
+      final month = date.month.toString().padLeft(2, '0');
+      final day = date.day.toString().padLeft(2, '0');
+      return '${date.year}-$month-$day';
+    }
     return HebrewDate.fromDateTime(date).toString();
   }
 

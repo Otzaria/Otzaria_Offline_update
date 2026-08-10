@@ -150,7 +150,8 @@ class _Home extends HomeStrings {
   @override
   String libraryUpdatePrompt(String localVersion, String targetVersion) =>
       'The database will be updated from version $localVersion to version '
-      '$targetVersion. A backup is kept until the new version checks out.';
+      '$targetVersion. The current database is replaced only once the new '
+      'version checks out.';
   @override
   String get libraryUpdateConfirm => 'Update now';
   @override
@@ -449,36 +450,11 @@ class _Settings extends SettingsScreenStrings {
       'The catalogue and the install files for every plugin';
 
   @override
-  String get storageCardTitle => 'Storage';
+  String get appearanceCardTitle => 'Language and appearance';
   @override
-  String get storageCardSubtitle =>
-      'The data folder always sits next to the executable and cannot be '
-      'moved — that is what lets everything travel on the drive together.';
-  @override
-  String get backupTitle => 'Safety backup of the database';
-  @override
-  String get backupSubtitle =>
-      'Before writing a full database: "Off" installs only the downloaded '
-      'version, with no safety net if the write fails midway';
-  @override
-  String get backupOff => 'Off';
-  @override
-  String get backupOn => 'On';
-
-  @override
-  String get networkCardTitle => 'Network';
-  @override
-  String get networkCardSubtitle =>
-      'The network is only needed for downloads. Checking and installing '
-      'always work without it.';
-  @override
-  String get timeoutTitle => 'Download timeout';
-  @override
-  String get timeoutSubtitle =>
-      'Seconds before a network request counts as failed';
-
-  @override
-  String get uiCardTitle => 'Interface and support';
+  String get appearanceCardSubtitle =>
+      'How the app looks and which language it speaks. Applies right away, and '
+      'is kept for next time.';
   @override
   String get languageTitle => 'Interface language';
   @override
@@ -504,6 +480,8 @@ class _Settings extends SettingsScreenStrings {
   @override
   String get textSizeLarge => 'Large';
 
+  @override
+  String get supportCardTitle => 'Support';
   @override
   String get logTitle => 'Activity log';
   @override
@@ -551,6 +529,9 @@ class _Plugins extends PluginsStrings {
   @override
   String syncDoneSnack(int count) =>
       'Sync complete — $count plugins in the store';
+  @override
+  String syncDoneWithWarningsSnack(int count) =>
+      'Sync finished, but $count items did not download. Details in the log.';
   @override
   String get syncButton => 'Sync from the site';
   @override
@@ -827,6 +808,12 @@ class _Units extends UnitStrings {
   String bytes(int count) => count == 1 ? '1 byte' : '$count bytes';
   @override
   String progressOf(String received, String total) => '$received of $total';
+  @override
+  String kilobytes(String amount) => '$amount KB';
+  @override
+  String megabytes(String amount) => '$amount MB';
+  @override
+  String gigabytes(String amount) => '$amount GB';
 }
 
 class _LibraryDomain extends LibraryDomainStrings {
@@ -855,20 +842,8 @@ class _LibraryDomain extends LibraryDomainStrings {
       'The manifest is not a valid JSON object: $url';
 
   @override
-  String get interruptedUpdateNoBackup =>
-      'An unfinished update was flagged with no backup — please verify the '
-      'database';
-  @override
-  String get interruptedUpdateRestored =>
-      'An interrupted update was detected — the database was restored from '
-      'the backup';
-  @override
-  String get backupLabel => 'Backup';
-  @override
-  String get restoreLabel => 'Restore';
-  @override
-  String partialCopy(String label, int actual, int expected) =>
-      '$label is incomplete: $actual of $expected bytes';
+  String get interruptedUpdateFound =>
+      'An unfinished update was flagged — please verify the database';
 
   @override
   String get exportLoadingReleases => 'Loading the version list from GitHub';
@@ -1111,10 +1086,61 @@ class _LibraryDomain extends LibraryDomainStrings {
       'The compressed file was cut short — the frame is incomplete';
 
   @override
+  String dbIntegrityCheckFailed(String result) =>
+      'The integrity check of the downloaded database failed: $result';
+
+  @override
+  String get companionTalmudName => 'Talmud Bavli';
+  @override
+  String get companionCatalogName => 'Otzar HaChochma & HebrewBooks catalog';
+  @override
+  String get companionDictionaryName => 'Fuzzy-search dictionary';
+  @override
+  String companionChecking(String name) => 'Checking $name…';
+  @override
+  String companionDownloading(String name) => 'Downloading $name…';
+  @override
+  String companionInstalling(String name) => 'Installing $name…';
+  @override
+  String companionAssetMissingInRelease(String name) =>
+      'No file for $name was found in the latest release';
+  @override
+  String companionExtractionFailed(String name) => 'Extracting $name failed';
+  @override
+  String get companionsMirrorMissing =>
+      'The companion files have not been downloaded to the local folder yet';
+
+  @override
   String applyDownloadingPatch(String step) => 'Downloading the update$step…';
   @override
   String applyApplyingPatch(String step) =>
       'Applying the update to the database$step…';
+  @override
+  String applyPatchStage(String stage, String step) {
+    switch (stage) {
+      case 'preflight':
+        return 'Checking compatibility$step…';
+      case 'verifyFromHash':
+        return 'Verifying the existing database$step…';
+      case 'attach':
+        return 'Opening the update file$step…';
+      case 'migrations':
+        return 'Updating the database structure$step…';
+      case 'upserts':
+        return 'Writing the changes$step…';
+      case 'deletes':
+        return 'Removing deleted records$step…';
+      case 'foreignKeyCheck':
+        return 'Checking link integrity$step…';
+      case 'verifyToHash':
+        return 'Verifying the update result$step…';
+      case 'commit':
+        return 'Saving the changes$step…';
+      default:
+        return applyApplyingPatch(step);
+    }
+  }
+
   @override
   String get applyDownloadingFullDb => 'Downloading the full database…';
   @override
@@ -1123,6 +1149,8 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get applyWritingFullDb => 'Writing the database…';
   @override
   String get applyVerifying => 'Verifying…';
+  @override
+  String get applyInstallingCompanions => 'Installing companion files…';
   @override
   String get applyDone => 'Done.';
 }
@@ -1261,6 +1289,12 @@ class _PluginsDomain extends PluginsDomainStrings {
   String syncStructureFailed(String error) =>
       'Could not load the store structure from the site ($error) — keeping '
       'the previous structure';
+  @override
+  String get syncStructureEmpty => 'the site returned no categories';
+  @override
+  String get syncEmptyCatalogRejected =>
+      'The site returned an empty plugin list — the store already downloaded '
+      'was left untouched. Worth trying again later.';
   @override
   String syncCategoryFailed(String name, String error) =>
       'Could not load the $name category: $error';

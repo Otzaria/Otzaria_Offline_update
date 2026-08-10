@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
+import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 import 'otzaria_process_guard.dart';
 import 'zstd_decompressor.dart';
@@ -18,6 +19,9 @@ enum LibraryApplyStage {
   decompressingFullDb,
   writingFullDb,
   verifying,
+
+  /// התקנת הקבצים הנלווים (תלמוד/קטלוג/מילון) — אחרי המסד, כמו באוצריא.
+  installingCompanions,
   done,
 }
 
@@ -31,12 +35,26 @@ class LibraryApplyProgress {
   final int? bytesDownloaded;
   final int? bytesTotal;
 
+  /// תת-השלב הגולמי בתוך ההחלה, כפי ש-`PatchApplier.onStage` מדווח אותו
+  /// (`upserts`, `verifyToHash`...). `null` בכל שלב שאינו החלת patch.
+  final String? patchStage;
+
+  /// יחס התקדמות 0..1 בתוך אימות ה-hash הארוך; `null` בשאר תת-השלבים.
+  final double? verifyProgress;
+
+  /// טקסט מוכן להצגה שהגיע מהשלב עצמו (הקבצים הנלווים מדווחים כך את שם
+  /// הפריט שבטיפול). כבר מתורגם — ה-UI מציג אותו כמו שהוא.
+  final String? statusText;
+
   const LibraryApplyProgress({
     required this.stage,
     this.stepIndex,
     this.stepCount,
     this.bytesDownloaded,
     this.bytesTotal,
+    this.patchStage,
+    this.verifyProgress,
+    this.statusText,
   });
 }
 
@@ -50,6 +68,13 @@ class LibraryApplyException implements Exception {
   String toString() => 'LibraryApplyException: $message';
 }
 
+/// אימות המסד המחולץ לפני שהוא מחליף את החי — `quick_check` וגרסה. מוזרק
+/// כדי שבדיקות יוכלו לרוץ על מטען שאינו מסד sqlite אמיתי.
+typedef ExtractedDbVerifier = Future<void> Function(
+  String newDbPath,
+  int? expectedVersion,
+);
+
 /// מחיל בפועל [LibraryUpdatePlan] (delta או fullDownload) על ה-DB **החי**.
 ///
 /// זהו בדיוק הרכיב שהוסר בעבר מ-[LibraryManager] בעקבות קריסת
@@ -61,8 +86,8 @@ class LibraryApplyException implements Exception {
 /// כאן זה נבנה מחדש נכון: כל קריאה ל-`Isolate.run` עוברת דרך פונקציית
 /// **top-level** (למטה בקובץ הזה) שמקבלת רק ארגומנטים פרימיטיביים/מבני-דאטה
 /// טהורים (records, `String`, `Uint8List`, `DeltaManifest`) — בדיוק כמו
-/// שכבר עובד נכון ב-`LibraryDbRecoveryService.cloneOrCopyFile`. אין כאן שום
-/// גישה לשדה מופע בתוך סוגר שמועבר ל-Isolate.
+/// שכבר עובד נכון ב-`ZstdFileDecompressor`. אין כאן שום גישה לשדה מופע בתוך
+/// סוגר שמועבר ל-Isolate.
 ///
 /// **תוספת חשובה (הבאג שחזר):** לא מספיק שהסוגר עצמו לא ניגש ל-`this` —
 /// דארט חולק אובייקט `Context` *אחד* בין כל הסוגרים שנוצרים באותו scope
@@ -81,19 +106,28 @@ class LibraryUpdateApplier {
   LibraryUpdateApplier({
     OtzariaProcessGuard processGuard = const OtzariaProcessGuard(),
     LibraryDbRecoveryService recovery = const LibraryDbRecoveryService(),
-    LocalDbVersionReader versionReader = const LocalDbVersionReader(),
+    ExtractedDbVerifier? verifyExtractedDb,
   })  : _processGuard = processGuard,
         _recovery = recovery,
-        _versionReader = versionReader,
+        _verifyExtractedDb = verifyExtractedDb ?? _defaultExtractedDbVerifier,
         _downloader =
             PatchDownloader(decompress: const ZstdDecompressor().call),
         _decompress = const ZstdDecompressor().call;
 
   final OtzariaProcessGuard _processGuard;
   final LibraryDbRecoveryService _recovery;
-  final LocalDbVersionReader _versionReader;
+  final ExtractedDbVerifier _verifyExtractedDb;
   final PatchDownloader _downloader;
   final Future<Uint8List?> Function(Uint8List) _decompress;
+
+  /// שם קובץ ה-hint לסך-הבתים של אימות ה-hash — ראו [applyDelta].
+  static const String _verifyHintFileName = 'verify_total_bytes.txt';
+
+  static Future<void> _defaultExtractedDbVerifier(
+    String newDbPath,
+    int? expectedVersion,
+  ) =>
+      _isolateVerifyExtractedDb(newDbPath, expectedVersion, AppL10n.language);
 
   /// הזמן הקצוב לפתיחת חיבור בהורדות של ההחלה — ראו
   /// [PatchDownloader.connectTimeout]. ה-`stallTimeout` נשאר בברירת המחדל
@@ -112,10 +146,16 @@ class LibraryUpdateApplier {
   /// ה-DB נשאר תקין בגרסה שלפני השלב הזה (השלבים 1..N-1 כבר הוחלו והצליחו).
   /// אין גיבוי מלא של הקובץ במסלול הזה — הוא לא נחוץ, ו-DB מלא יכול להיות
   /// גדול מדי לגיבוי חוזר על כל patch.
-  Future<void> applyDelta({
+  /// מחזיר את מזהי הספרים שתוכנם השתנה — כפי ש-`PatchApplier` מדווח אותם.
+  /// ראו [LibraryManager.applyUpdate] למה נעשה בהם.
+  ///
+  /// [onStepApplied] נקרא אחרי **כל** שלב שהוחל בהצלחה, עם הספרים שהשלב
+  /// הזה נגע בהם — כדי שהקורא יוכל לרשום גם שרשרת שנקטעה באמצע.
+  Future<Set<int>> applyDelta({
     required LibraryUpdatePlan plan,
     required String dbPath,
     void Function(LibraryApplyProgress progress)? onProgress,
+    void Function(Set<int> booksTouched)? onStepApplied,
     bool Function()? isCancelled,
   }) async {
     if (plan.kind != LibraryUpdatePlanKind.delta) {
@@ -126,6 +166,13 @@ class LibraryUpdateApplier {
 
     final tmpDir = Directory(p.join(p.dirname(dbPath), '.seforim-update-tmp'));
     final steps = plan.deltaSteps;
+
+    // סך-הבתים שנכנסו ל-hash בריצה הקודמת — total מדויק למד ההתקדמות. גודל
+    // הקובץ (ברירת המחדל בלעדיו) הוא הערכת-יתר של עשרות אחוזים.
+    final hintFile = File(p.join(tmpDir.path, _verifyHintFileName));
+    var verifyTotalHint = _readIntQuietly(hintFile);
+    var lastVerifyDone = 0;
+    final booksTouched = <int>{};
 
     for (var i = 0; i < steps.length; i++) {
       _throwIfCancelled(isCancelled);
@@ -155,13 +202,11 @@ class LibraryUpdateApplier {
         isCancelled: isCancelled,
       );
 
-      // אין גיבוי (createBackup: false) — ה-apply עצמו אטומי, ראו doc-comment.
       await _recovery.beginApply(
         dbPath: dbPath,
         fromVersion: manifest.fromVersion,
         toVersion: manifest.toVersion,
         timestamp: DateTime.now().toIso8601String(),
-        createBackup: false,
       );
 
       onProgress?.call(LibraryApplyProgress(
@@ -184,12 +229,36 @@ class LibraryUpdateApplier {
         // עברה דרך `onProgress` של הבקר (`LibraryModuleController`), עד
         // לעץ ה-widgets כולו. מתודה נפרדת = frame לקסיקלי נפרד = אין
         // Context משותף עם onProgress.
-        await _isolateApplyPatch(
-          dbPath,
-          patchPath,
-          manifest,
-          AppL10n.language,
+        final result = await _isolateApplyPatch(
+          dbPath: dbPath,
+          patchPath: patchPath,
+          manifest: manifest,
+          language: AppL10n.language,
+          verifyTotalBytesHint: verifyTotalHint,
+          onStage: (patchStage) => onProgress?.call(LibraryApplyProgress(
+            stage: LibraryApplyStage.applyingPatch,
+            stepIndex: i + 1,
+            stepCount: steps.length,
+            patchStage: patchStage,
+          )),
+          onVerifyProgress: (done, total) {
+            lastVerifyDone = done;
+            onProgress?.call(LibraryApplyProgress(
+              stage: LibraryApplyStage.applyingPatch,
+              stepIndex: i + 1,
+              stepCount: steps.length,
+              patchStage: 'verifyToHash',
+              verifyProgress: total > 0 ? (done / total).clamp(0.0, 1.0) : null,
+            ));
+          },
         );
+        booksTouched.addAll(result.booksTouched);
+        onStepApplied?.call(result.booksTouched);
+        // הדיווח האחרון הוא הסך המדויק — ה-total לריצות הבאות.
+        if (lastVerifyDone > 0) {
+          verifyTotalHint = lastVerifyDone;
+          _writeIntQuietly(hintFile, lastVerifyDone);
+        }
         _recovery.finishSuccess(dbPath);
       } catch (_) {
         // apply אטומי: אם זרק, ה-DB כלל לא השתנה. רק מנקים את הסימון.
@@ -201,6 +270,7 @@ class LibraryUpdateApplier {
     }
 
     onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.done));
+    return booksTouched;
   }
 
   /// מוריד ומתקין DB מלא — עבור התקנה טרייה (אין DB קיים) או כש-planner
@@ -216,7 +286,6 @@ class LibraryUpdateApplier {
     required String dbPath,
     void Function(LibraryApplyProgress progress)? onProgress,
     bool Function()? isCancelled,
-    bool createBackup = true,
   }) async {
     if (plan.kind != LibraryUpdatePlanKind.fullDownload) {
       throw const LibraryApplyException(
@@ -278,21 +347,31 @@ class LibraryUpdateApplier {
       );
     }
 
+    // אימות **לפני** ההחלפה, כמו באוצריא: מסד פגום או בגרסה לא נכונה נעצר
+    // כאן, בעוד ה-DB החי עדיין שלם — במקום להחליף ואז לשחזר מגיבוי.
+    onProgress
+        ?.call(const LibraryApplyProgress(stage: LibraryApplyStage.verifying));
+    try {
+      await _verifyExtractedDb(newFilePath, plan.targetVersion);
+    } catch (_) {
+      _deleteQuietly(newFilePath);
+      _deleteQuietly(compressedPath);
+      rethrow;
+    }
+    _throwIfCancelled(isCancelled);
+
     final dbAlreadyExists = File(dbPath).existsSync();
     if (dbAlreadyExists) {
-      // מסלול החלפת קובץ אינו אטומי כמו patch — [createBackup] קובע אם יש
-      // רשת הצלה לשחזור אם הכתיבה תיכשל באמצע (נכבה מפורשות ע"י המשתמש
-      // דורש `false` כאן).
+      // סימון בלבד — אין גיבוי של המסד, ראו [LibraryDbRecoveryService].
       try {
         await _recovery.beginApply(
           dbPath: dbPath,
           fromVersion: plan.localVersion,
           toVersion: plan.targetVersion ?? 0,
           timestamp: DateTime.now().toIso8601String(),
-          createBackup: createBackup,
         );
       } catch (_) {
-        // כשל כאן (בעיקר דיסק מלא בזמן הגיבוי) קרה **אחרי** שהמסד המחולץ כבר
+        // כשל כאן (תיקייה שאינה ניתנת לכתיבה) קרה **אחרי** שהמסד המחולץ כבר
         // על הדיסק — בלי הניקוי הזה נשארים ~1.1GB תלויים על כונן שכבר צר.
         _deleteQuietly(newFilePath);
         _deleteQuietly(compressedPath);
@@ -300,38 +379,47 @@ class LibraryUpdateApplier {
       }
     }
 
+    // ההורדה והחילוץ ארכו דקות רבות; אוצריא יכלה להיפתח בינתיים. הבדיקה
+    // החוזרת עולה כלום, ובלעדיה ב-macOS היינו מוחקים את המסד מתחת לאוצריא
+    // רצה (`unlink` על קובץ פתוח מצליח שם).
+    await _guardOtzariaNotRunning();
+
     onProgress?.call(
         const LibraryApplyProgress(stage: LibraryApplyStage.writingFullDb));
+    // מפנים את השם בשני שלבים במקום למחוק ואז להחליף: rename הוא מיידי ואינו
+    // עולה מקום, וכך אין רגע שבו אין מסד כלל. מחיקה-ואז-rename שנקטע באמצע
+    // (נעילה של אנטי-וירוס, הפסקת חשמל) הותירה את המשתמש בלי ספרייה.
+    final retiredPath = '$dbPath.old';
+    _deleteQuietly(retiredPath);
+    var retired = false;
     try {
-      // הקובץ כבר כתוב במלואו (החילוץ כתב אליו ישירות) — נשאר רק להחליף.
-      // ה-rename הוא באותו volume, כלומר מיידי, ולא העתקה של ~1GB.
-      _deleteQuietly('$dbPath-wal');
-      _deleteQuietly('$dbPath-shm');
-      if (File(dbPath).existsSync()) File(dbPath).deleteSync();
+      if (File(dbPath).existsSync()) {
+        File(dbPath).renameSync(retiredPath);
+        retired = true;
+      }
       File(newFilePath).renameSync(dbPath);
     } catch (_) {
-      _deleteQuietly(newFilePath);
       _deleteQuietly(compressedPath);
-      if (dbAlreadyExists) await _recovery.rollback(dbPath);
+      // גלגול אחור: המסד הישן חוזר לשמו, וה-`<db>.new` נשאר לניסיון הבא.
+      if (retired && !File(dbPath).existsSync()) {
+        try {
+          File(retiredPath).renameSync(dbPath);
+        } catch (_) {
+          // גם הגלגול נכשל — משאירים את שניהם, הם הקבצים התקינים היחידים,
+          // ואת הסימון שמעיד שכאן נקטע עדכון.
+          rethrow;
+        }
+      }
+      _deleteQuietly(retiredPath);
+      if (dbAlreadyExists) _recovery.clearStaleArtifacts(dbPath);
       rethrow;
     }
 
-    onProgress
-        ?.call(const LibraryApplyProgress(stage: LibraryApplyStage.verifying));
-    final resultVersion = _versionReader.read(dbPath);
-    if (plan.targetVersion != null &&
-        resultVersion.dbVersion != plan.targetVersion) {
-      // גם כאן: הכשל מגיע אחרי שהמסד הדחוס כבר על הדיסק, ובלי המחיקה
-      // נשארים מאות MB תלויים על הכונן.
-      _deleteQuietly(compressedPath);
-      if (dbAlreadyExists) await _recovery.rollback(dbPath);
-      throw LibraryApplyException(
-        AppL10n.strings.libraryDomain.versionMismatchAfterWrite(
-          resultVersion.dbVersion,
-          plan.targetVersion,
-        ),
-      );
-    }
+    // רק עכשיו, כשהמסד החדש במקומו: ה-WAL/SHM שייכים לישן ומחיקתם מוקדם
+    // יותר הייתה מאבדת טרנזקציות שכבר בוצעו אם ההחלפה נכשלה.
+    _deleteQuietly('$dbPath-wal');
+    _deleteQuietly('$dbPath-shm');
+    _deleteQuietly(retiredPath);
 
     if (dbAlreadyExists) _recovery.finishSuccess(dbPath);
     _deleteQuietly(compressedPath);
@@ -346,14 +434,76 @@ class LibraryUpdateApplier {
   /// [language] מועברת במפורש: משתנים סטטיים אינם משותפים בין isolates, ולכן
   /// `AppL10n` בתוך ה-isolate היה חוזר לברירת המחדל והודעות השגיאה משם היו
   /// יוצאות בעברית גם כשהממשק באנגלית.
-  static Future<PatchApplyResult> _isolateApplyPatch(
-    String dbPath,
-    String patchPath,
-    DeltaManifest manifest,
+  ///
+  /// דיווח תת-השלבים חוזר דרך [ReceivePort]: ה-callbacks עצמם נשארים כאן
+  /// ולא נכנסים ל-scope של ה-`Isolate.run` (ראו ההסבר על ה-Context המשותף).
+  static Future<PatchApplyResult> _isolateApplyPatch({
+    required String dbPath,
+    required String patchPath,
+    required DeltaManifest manifest,
+    required AppLanguage language,
+    int? verifyTotalBytesHint,
+    void Function(String stage)? onStage,
+    void Function(int done, int total)? onVerifyProgress,
+  }) async {
+    final port = ReceivePort();
+    final sub = port.listen((msg) {
+      // String = שם תת-שלב; record = (bytesHashed, total) של האימות.
+      if (msg is String) {
+        onStage?.call(msg);
+      } else if (msg is (int, int)) {
+        onVerifyProgress?.call(msg.$1, msg.$2);
+      }
+    });
+    try {
+      return await _runApplyIsolate(
+        dbPath: dbPath,
+        patchPath: patchPath,
+        manifest: manifest,
+        language: language,
+        verifyTotalBytesHint: verifyTotalBytesHint,
+        sendPort: port.sendPort,
+      );
+    } finally {
+      // ההודעות האחרונות עדיין בתור כש-`Isolate.run` חוזר; בלי המתנה לסבב
+      // אירועים אחד הן היו נזרקות עם הביטול, וה-hint לאימות היה יוצא נמוך.
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      port.close();
+    }
+  }
+
+  /// מתודה נפרדת נוספת: כאן נוצר סוגר ה-`Isolate.run`, ולכן היא מקבלת **רק**
+  /// ערכים ניתנים-לשליחה — ה-callbacks של [_isolateApplyPatch] נשארים מחוצה לה.
+  static Future<PatchApplyResult> _runApplyIsolate({
+    required String dbPath,
+    required String patchPath,
+    required DeltaManifest manifest,
+    required AppLanguage language,
+    required SendPort sendPort,
+    int? verifyTotalBytesHint,
+  }) {
+    return Isolate.run(
+      () => _applyPatchInIsolate((
+        dbPath,
+        patchPath,
+        manifest,
+        language,
+        verifyTotalBytesHint,
+        sendPort,
+      )),
+    );
+  }
+
+  /// מריץ את בדיקת התקינות של המסד המחולץ ב-isolate — `quick_check` על ~5.5GB
+  /// חוסם דקות. ראו [_verifyExtractedDb].
+  static Future<void> _isolateVerifyExtractedDb(
+    String newDbPath,
+    int? expectedVersion,
     AppLanguage language,
   ) {
     return Isolate.run(
-      () => _applyPatchInIsolate((dbPath, patchPath, manifest, language)),
+      () => _verifyExtractedDbInIsolate((newDbPath, expectedVersion, language)),
     );
   }
 
@@ -409,14 +559,36 @@ class LibraryUpdateApplier {
     } catch (_) {}
   }
 
+  static int? _readIntQuietly(File file) {
+    try {
+      if (!file.existsSync()) return null;
+      final value = int.tryParse(file.readAsStringSync().trim());
+      return (value != null && value > 0) ? value : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static void _writeIntQuietly(File file, int value) {
+    try {
+      file.parent.createSync(recursive: true);
+      file.writeAsStringSync('$value');
+    } catch (_) {}
+  }
+
   /// סוגר את חיבור ה-HTTP הפנימי של המוריד.
   void dispose() => _downloader.dispose();
 }
 
 /// פונקציית top-level — לעולם לא יכולה לתפוס `this` בטעות. זה בדיוק ההבדל
 /// מהבאג המקורי (ראו doc-comment של [LibraryUpdateApplier]).
+///
+/// שני הדגלים כבויים, בדיוק כמו ב-`LibraryUpdateRepository` של אוצריא:
+/// `verifyToHash` שאחרי ההחלה הוא הערובה האמיתית (מקור שונה ⇒ ה-hash לא
+/// יתאים וה-transaction יתגלגל אחורה), והוא גם מכסה את כל הטבלאות וה-FK
+/// שביניהן. הפעלתם מוסיפה קריאה מלאה נוספת של מסד ~5.5GB לכל patch.
 PatchApplyResult _applyPatchInIsolate(
-  (String, String, DeltaManifest, AppLanguage) args,
+  (String, String, DeltaManifest, AppLanguage, int?, SendPort) args,
 ) {
   AppL10n.use(args.$4);
   const applier = PatchApplier();
@@ -424,5 +596,38 @@ PatchApplyResult _applyPatchInIsolate(
     dbPath: args.$1,
     patchPath: args.$2,
     manifest: args.$3,
+    verifyFromHash: false,
+    checkForeignKeys: false,
+    verifyTotalBytesHint: args.$5,
+    onStage: (stage) => args.$6.send(stage),
+    onVerifyProgress: (done, total) => args.$6.send((done, total)),
   );
+}
+
+/// מוודא שהמסד שחולץ תקין (`quick_check`) ובגרסה הצפויה — **לפני** שהוא
+/// מחליף את המסד החי. top-level מאותה סיבה כמו [_applyPatchInIsolate].
+void _verifyExtractedDbInIsolate((String, int?, AppLanguage) args) {
+  AppL10n.use(args.$3);
+  final db = sqlite3.sqlite3.open(args.$1, mode: sqlite3.OpenMode.readOnly);
+  try {
+    final check = db.select('PRAGMA quick_check');
+    final result = check.isEmpty ? '' : check.first.values.first?.toString();
+    if (result != 'ok') {
+      throw LibraryApplyException(
+        AppL10n.strings.libraryDomain.dbIntegrityCheckFailed('$result'),
+      );
+    }
+  } finally {
+    db.close();
+  }
+  final expectedVersion = args.$2;
+  if (expectedVersion != null) {
+    final local = const LocalDbVersionReader().read(args.$1);
+    if (local.dbVersion != expectedVersion) {
+      throw LibraryApplyException(
+        AppL10n.strings.libraryDomain
+            .versionMismatchAfterWrite(local.dbVersion, expectedVersion),
+      );
+    }
+  }
 }

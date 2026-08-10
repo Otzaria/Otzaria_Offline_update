@@ -20,6 +20,7 @@ import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
+import 'package:otzaria_manager/otzaria_manager.dart';
 
 import 'test_harness.dart';
 import 'test_support.dart';
@@ -34,8 +35,8 @@ void main() {
     await AppLogger.init(tempDir.path);
     settings = SettingsController(dataDir: tempDir.path);
     // הבדיקה המקומית נשארת דלוקה דווקא: היא ממתינה לקריאות `dart:io` שלא
-    // מסתיימות ב-fake-async, ולכן `_refreshProcessState` (שמריץ `tasklist`
-    // בתהליך נפרד, ואיתו טיימר תלוי) כלל לא מגיע לרוץ.
+    // מסתיימות ב-fake-async. בדיקת התהליך היא היחידה שהייתה מריצה כאן
+    // `tasklist` אמיתי (ואיתו טיימר תלוי שמפיל את הבדיקה), ולכן היא מוזרקת.
     await settings.update(const AppSettings(autoCheckOnlineUpdates: false));
   });
 
@@ -48,7 +49,13 @@ void main() {
   Future<void> pumpShell(WidgetTester tester) async {
     useViewSize(tester, const Size(1400, 1000));
     await tester.pumpWidget(
-      wrap(AppShell(dataDir: tempDir.path, settings: settings)),
+      wrap(AppShell(
+        dataDir: tempDir.path,
+        settings: settings,
+        runningLocator: const _NeverRunningLocator(),
+        // כפתורי החלון מדברים עם ערוץ פלטפורמה שאינו קיים בבדיקות widget.
+        showWindowButtons: false,
+      )),
     );
     await tester.pump();
   }
@@ -180,4 +187,13 @@ void main() {
     expect(item(shell.navSettings).isSelected, isTrue);
     expect(screen(SettingsScreen), findsOneWidget);
   });
+}
+
+/// "אוצריא סגורה", בלי להריץ `tasklist` — ראו ה-setUp.
+class _NeverRunningLocator extends RunningOtzariaLocator {
+  const _NeverRunningLocator();
+
+  @override
+  Future<RunningOtzariaProbe> probe() async =>
+      (isRunning: false, launchPath: null);
 }

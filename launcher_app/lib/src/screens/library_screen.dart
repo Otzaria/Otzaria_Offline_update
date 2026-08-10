@@ -105,11 +105,7 @@ class LibraryScreen extends StatelessWidget {
           ),
         CardActionsRow(
           actions: [
-            ActionButton.neutral(
-              text: context.strings.common.recheck,
-              icon: FluentIcons.arrow_sync_24_regular,
-              onPressed: _isBusy ? null : c.checkForUpdate,
-            ),
+            RecheckButton(onPressed: _isBusy ? null : c.checkForUpdate),
             ActionButton.recommended(
               text: t.installUpdateButton,
               icon: FluentIcons.database_arrow_right_24_regular,

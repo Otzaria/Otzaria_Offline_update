@@ -33,16 +33,11 @@ void main() {
       expect(s.hasSyncSelection, isFalse);
     });
 
-    test('גיבוי הבטיחות של המסד פועל כברירת מחדל', () {
-      expect(const AppSettings().backupsToKeep, 1);
-    });
-
     test('סבב JSON שומר את הערכים', () {
       const original = AppSettings(
         autoMetadataCheck: false,
         autoInstallLibrary: true,
         syncLibrary: false,
-        backupsToKeep: 0,
         themeMode: AppThemeMode.dark,
         textScale: 1.15,
       );
@@ -52,7 +47,6 @@ void main() {
       expect(restored.autoMetadataCheck, isFalse);
       expect(restored.autoInstallLibrary, isTrue);
       expect(restored.syncLibrary, isFalse);
-      expect(restored.backupsToKeep, 0);
       expect(restored.themeMode, AppThemeMode.dark);
       expect(restored.textScale, 1.15);
     });
@@ -76,16 +70,16 @@ void main() {
         'schemaVersion': 1,
         'automation': {'metadataCheck': false, 'downloadLibrary': true},
         'channels': {'library': 'stableAndPreview'},
-        'paths': {'preferredUsb': r'E:\otzaria', 'backupsToKeep': 2},
+        'paths': {'preferredUsb': r'E:\otzaria'},
+        'storage': {'backupsToKeep': 2},
         'network': {'offlineOnly': true, 'timeoutSeconds': 45},
         'ui': {'themeMode': 'dark', 'textScale': 1.15},
       });
 
       expect(restored.autoMetadataCheck, isFalse);
-      expect(restored.networkTimeoutSeconds, 45);
       expect(restored.themeMode, AppThemeMode.dark);
-      // 'paths' כבר לא נקרא, ולכן backupsToKeep חוזר לברירת המחדל.
-      expect(restored.backupsToKeep, 1);
+      // הסעיפים שהוסרו ('paths', 'storage', 'network') נבלעים בשקט.
+      expect(restored.toJson().keys, isNot(contains('storage')));
       expect(restored.hasSyncSelection, isTrue);
       // קובץ מלפני שדה השפה נטען לעברית, לא לשפת המערכת.
       expect(restored.language, AppLanguage.hebrew);

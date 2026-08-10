@@ -36,20 +36,15 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   LibraryModuleController({
     required String dataDir,
     bool allowPrerelease = false,
+    Future<String?> Function()? otzariaLaunchPath,
   }) : _manager = LibraryManager(
           dataDir: dataDir,
           allowPrerelease: allowPrerelease,
+          otzariaLaunchPath: otzariaLaunchPath,
         );
 
   /// מחליף ערוץ גרסאות — נכנס לתוקף בבדיקה/הורדה הבאה.
   set allowPrerelease(bool value) => _manager.allowPrerelease = value;
-
-  /// זמן קצוב לפעולות רשת (מהגדרות "רשת") — נכנס לתוקף בבקשה הבאה.
-  set networkTimeout(Duration value) => _manager.networkTimeout = value;
-
-  /// `false` = בלי גיבוי בטיחות לפני כתיבת מסד מלא (מהגדרות "אחסון").
-  /// נכנס לתוקף בהחלה הבאה.
-  bool keepSafetyBackup = true;
 
   final LibraryManager _manager;
   LibraryUpdateCheckResult? _lastCheck;
@@ -176,6 +171,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
           downloadTotalBytes = total;
           notifyProgress();
         },
+        // כשל בקובץ נלווה אינו מפיל את ההורדה, אבל בלי הרישום הזה הוא היה
+        // מתגלה רק במחשב הלא-מקוון, כשכבר אין רשת לתקן בה.
+        onCompanionWarning: (name, error) =>
+            AppLogger.instance.info('הורדת הקובץ הנלווה "$name" נכשלה: $error'),
       );
       downloadStatus = MirrorDownloadStatus.done;
       lastDownloadedAt = DateTime.now();
@@ -197,7 +196,6 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
 
     try {
-      dbPath = await _manager.currentDbPath();
       final check = await _manager.checkForUpdate();
       _lastCheck = check;
       isFreshInstall = check.isFreshInstall;
@@ -229,6 +227,9 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       errorMessage = e.toString();
       AppLogger.instance.error('checkForUpdate נכשל', e, st);
     }
+    // הבדיקה עצמה כבר איתרה את הנתיב — גם כשהיא נכשלה אחר כך (למשל אין
+    // מראה). קריאה נפרדת ל-`currentDbPath()` הייתה חוזרת על כל האיתור.
+    dbPath = _manager.lastResolvedDbPath;
     notifyListeners();
   }
 
@@ -264,7 +265,6 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     try {
       await _manager.applyUpdate(
         _lastCheck!,
-        createBackup: keepSafetyBackup,
         onProgress: (p) {
           stageText = _describeApplyStage(p);
           applyReceivedBytes = p.bytesDownloaded;
@@ -273,9 +273,13 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
                   p.bytesTotal != null &&
                   p.bytesTotal! > 0)
               ? p.bytesDownloaded! / p.bytesTotal!
-              : null;
+              // אימות ה-hash אורך דקות בלי בייטים להציג — בלעדיו המד נראה
+              // תקוע לאורך כל השלב הארוך ביותר בהחלה.
+              : p.verifyProgress;
           notifyProgress();
         },
+        onCompanionWarning: (name, error) =>
+            AppLogger.instance.info('התקנת הקובץ הנלווה "$name" נכשלה: $error'),
       );
       AppLogger.instance.info('update() הסתיים בהצלחה');
       // מרעננים את מצב הבדיקה עצמו (localVersion/targetVersion/status) —
@@ -299,7 +303,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       case LibraryApplyStage.downloadingPatch:
         return t.applyDownloadingPatch(step);
       case LibraryApplyStage.applyingPatch:
-        return t.applyApplyingPatch(step);
+        final patchStage = p.patchStage;
+        return patchStage == null
+            ? t.applyApplyingPatch(step)
+            : t.applyPatchStage(patchStage, step);
       case LibraryApplyStage.downloadingFullDb:
         return t.applyDownloadingFullDb;
       case LibraryApplyStage.decompressingFullDb:
@@ -308,6 +315,9 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
         return t.applyWritingFullDb;
       case LibraryApplyStage.verifying:
         return t.applyVerifying;
+      case LibraryApplyStage.installingCompanions:
+        // ההתקנה מדווחת טקסט מוכן (שם הפריט שבטיפול); ה-fallback לשלב כולו.
+        return p.statusText ?? t.applyInstallingCompanions;
       case LibraryApplyStage.done:
         return t.applyDone;
     }

@@ -13,6 +13,7 @@ class OtzariaUpdateCheckResult {
     this.stableRelease,
     this.prereleaseRelease,
     this.preferPrerelease = false,
+    this.isOtzariaRunning = false,
   });
 
   /// הגרסה היציבה שבמראה, או null אם לא הורדה כזו.
@@ -27,6 +28,10 @@ class OtzariaUpdateCheckResult {
 
   /// null אם עדיין לא בוצעה אף התקנה על ידי הלאנצ'ר הזה.
   final OtzariaInstallState? currentState;
+
+  /// האם אוצריא פתוחה כרגע, כפי שנצפה **באותה בדיקת תהליך** ששימשה לזיהוי
+  /// ההתקנה. מוחזר כאן כדי שהממשק לא יריץ בדיקת תהליך שנייה משלו.
+  final bool isOtzariaRunning;
 
   /// הגרסה שתותקן בפועל — לפי הערוץ שנבחר, עם נפילה לערוץ השני כשהנבחר
   /// ריק. null אם עדיין לא הורדה שום גרסה. ראו [needsDownload].

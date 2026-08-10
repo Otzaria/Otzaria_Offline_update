@@ -143,8 +143,8 @@ class _Home extends HomeStrings {
       'התוכנה. המסד גדול, וההתקנה עשויה להימשך זמן רב.';
   @override
   String libraryUpdatePrompt(String localVersion, String targetVersion) =>
-      'המסד יעודכן מגרסה $localVersion לגרסה $targetVersion. גיבוי יישמר עד '
-      'שהגרסה החדשה תיבדק בהצלחה.';
+      'המסד יעודכן מגרסה $localVersion לגרסה $targetVersion. המסד הקיים יוחלף '
+      'רק אחרי שהגרסה החדשה תיבדק בהצלחה.';
   @override
   String get libraryUpdateConfirm => 'עדכן עכשיו';
   @override
@@ -420,41 +420,17 @@ class _Settings extends SettingsScreenStrings {
   @override
   String get syncLibraryTitle => 'הספרייה';
   @override
-  String get syncLibrarySubtitle => 'הרכיב הכבד — המסד המלא הוא כ-1GB';
+  String get syncLibrarySubtitle => 'הרכיב הכבד — המסד המלא הוא כ-1.5GB';
   @override
   String get syncPluginsTitle => 'חנות התוספים';
   @override
   String get syncPluginsSubtitle => 'הקטלוג וקובצי ההתקנה של כל התוספים';
 
   @override
-  String get storageCardTitle => 'אחסון';
+  String get appearanceCardTitle => 'שפה ומראה';
   @override
-  String get storageCardSubtitle =>
-      'תיקיית הנתונים קבועה ליד קובץ ההרצה, ואין דרך לשנות אותה — כדי שהכול '
-      'ייסע יחד על הכונן.';
-  @override
-  String get backupTitle => 'גיבוי בטיחות של המסד';
-  @override
-  String get backupSubtitle =>
-      'לפני כתיבת מסד מלא: "כבוי" מתקין רק את הגרסה שהורדה, בלי רשת הצלה אם '
-      'הכתיבה תיכשל באמצע';
-  @override
-  String get backupOff => 'כבוי';
-  @override
-  String get backupOn => 'פועל';
-
-  @override
-  String get networkCardTitle => 'רשת';
-  @override
-  String get networkCardSubtitle =>
-      'הרשת נדרשת רק בהורדה. בדיקה והתקנה עובדות בלעדיה תמיד.';
-  @override
-  String get timeoutTitle => 'timeout להורדה';
-  @override
-  String get timeoutSubtitle => 'שניות עד שפנייה לרשת נחשבת כשל';
-
-  @override
-  String get uiCardTitle => 'ממשק ותמיכה';
+  String get appearanceCardSubtitle =>
+      'איך התוכנה נראית ובאיזו שפה. משתנה מיד, ונשמר לפעם הבאה.';
   @override
   String get languageTitle => 'שפת הממשק';
   @override
@@ -480,6 +456,8 @@ class _Settings extends SettingsScreenStrings {
   @override
   String get textSizeLarge => 'גדול';
 
+  @override
+  String get supportCardTitle => 'תמיכה';
   @override
   String get logTitle => 'יומן הפעילות';
   @override
@@ -523,6 +501,9 @@ class _Plugins extends PluginsStrings {
   String get syncFailedSnack => 'הסנכרון נכשל';
   @override
   String syncDoneSnack(int count) => 'הסנכרון הושלם — $count תוספים בחנות';
+  @override
+  String syncDoneWithWarningsSnack(int count) =>
+      'הסנכרון הסתיים, אך $count פריטים לא ירדו. הפרטים ביומן.';
   @override
   String get syncButton => 'סנכרון מהאתר';
   @override
@@ -794,6 +775,12 @@ class _Units extends UnitStrings {
   String bytes(int count) => '$count בייט';
   @override
   String progressOf(String received, String total) => '$received מתוך $total';
+  @override
+  String kilobytes(String amount) => '$amount ק״ב';
+  @override
+  String megabytes(String amount) => '$amount מ״ב';
+  @override
+  String gigabytes(String amount) => '$amount ג״ב';
 }
 
 class _LibraryDomain extends LibraryDomainStrings {
@@ -821,18 +808,8 @@ class _LibraryDomain extends LibraryDomainStrings {
       'manifest אינו אובייקט JSON תקין: $url';
 
   @override
-  String get interruptedUpdateNoBackup =>
-      'נמצא סימון עדכון שלא הושלם ללא גיבוי — יש לוודא תקינות ה-DB';
-  @override
-  String get interruptedUpdateRestored =>
-      'עדכון שנקטע זוהה — ה-DB שוחזר מהגיבוי';
-  @override
-  String get backupLabel => 'גיבוי';
-  @override
-  String get restoreLabel => 'שחזור';
-  @override
-  String partialCopy(String label, int actual, int expected) =>
-      '$label חלקי: $actual בייטים מתוך $expected';
+  String get interruptedUpdateFound =>
+      'נמצא סימון עדכון שלא הושלם — יש לוודא תקינות ה-DB';
 
   @override
   String get exportLoadingReleases => 'טוען רשימת גרסאות מ-GitHub';
@@ -1050,9 +1027,60 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get zstdTruncatedFrame => 'הקובץ הדחוס נקטע — ה-frame לא הושלם';
 
   @override
+  String dbIntegrityCheckFailed(String result) =>
+      'בדיקת התקינות של המסד שהורד נכשלה: $result';
+
+  @override
+  String get companionTalmudName => 'תלמוד בבלי';
+  @override
+  String get companionCatalogName => 'קטלוג אוצר החכמה והיברובוקס';
+  @override
+  String get companionDictionaryName => 'מילון החיפוש המקורב';
+  @override
+  String companionChecking(String name) => 'בודק $name...';
+  @override
+  String companionDownloading(String name) => 'מוריד $name...';
+  @override
+  String companionInstalling(String name) => 'מתקין $name...';
+  @override
+  String companionAssetMissingInRelease(String name) =>
+      'לא נמצא קובץ של $name ב-release האחרון';
+  @override
+  String companionExtractionFailed(String name) => 'חילוץ $name נכשל';
+  @override
+  String get companionsMirrorMissing =>
+      'הקבצים הנלווים טרם הורדו לתיקייה המקומית';
+
+  @override
   String applyDownloadingPatch(String step) => 'מוריד עדכון$step...';
   @override
   String applyApplyingPatch(String step) => 'מחיל עדכון על המסד$step...';
+  @override
+  String applyPatchStage(String stage, String step) {
+    switch (stage) {
+      case 'preflight':
+        return 'בודק תאימות$step...';
+      case 'verifyFromHash':
+        return 'מאמת את המסד הקיים$step...';
+      case 'attach':
+        return 'פותח את קובץ העדכון$step...';
+      case 'migrations':
+        return 'מעדכן את מבנה המסד$step...';
+      case 'upserts':
+        return 'כותב את השינויים$step...';
+      case 'deletes':
+        return 'מסיר רשומות שנמחקו$step...';
+      case 'foreignKeyCheck':
+        return 'בודק תקינות קישורים$step...';
+      case 'verifyToHash':
+        return 'מאמת את תוצאת העדכון$step...';
+      case 'commit':
+        return 'שומר את השינויים$step...';
+      default:
+        return applyApplyingPatch(step);
+    }
+  }
+
   @override
   String get applyDownloadingFullDb => 'מוריד מסד מלא...';
   @override
@@ -1061,6 +1089,8 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get applyWritingFullDb => 'כותב את המסד...';
   @override
   String get applyVerifying => 'מוודא תקינות...';
+  @override
+  String get applyInstallingCompanions => 'מתקין קבצים נלווים...';
   @override
   String get applyDone => 'הושלם.';
 }
@@ -1190,6 +1220,12 @@ class _PluginsDomain extends PluginsDomainStrings {
   @override
   String syncStructureFailed(String error) =>
       'לא ניתן לטעון את מבנה החנות מהאתר ($error) — נשמר המבנה הקודם';
+  @override
+  String get syncStructureEmpty => 'האתר לא החזיר קטגוריות';
+  @override
+  String get syncEmptyCatalogRejected =>
+      'האתר החזיר רשימת תוספים ריקה — החנות שכבר ירדה נשמרה כמות שהיא. '
+      'כדאי לנסות שוב מאוחר יותר.';
   @override
   String syncCategoryFailed(String name, String error) =>
       'לא ניתן לטעון את הקטגוריה $name: $error';

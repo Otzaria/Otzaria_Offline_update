@@ -17,37 +17,49 @@ void main() {
     });
 
     test('כפולות מדויקות של 1024', () {
-      expect(formatBytes(1024), '1 KB');
-      expect(formatBytes(1024 * 512), '512 KB');
-      expect(formatBytes(1024 * 1024), '1.0 MB');
-      expect(formatBytes(1024 * 1024 * 1024), '1.00 GB');
+      final u = AppL10n.strings.units;
+      expect(formatBytes(1024), u.kilobytes('1'));
+      expect(formatBytes(1024 * 512), u.kilobytes('512'));
+      expect(formatBytes(1024 * 1024), u.megabytes('1.0'));
+      expect(formatBytes(1024 * 1024 * 1024), u.gigabytes('1.00'));
     });
 
     test('ספרה אחרי הנקודה רק מתחת ל-10MB', () {
-      expect(formatBytes(1024 * 1024 * 5 + 512 * 1024), '5.5 MB');
-      expect(formatBytes(1024 * 1024 * 73), '73 MB');
+      final u = AppL10n.strings.units;
+      expect(formatBytes(1024 * 1024 * 5 + 512 * 1024), u.megabytes('5.5'));
+      expect(formatBytes(1024 * 1024 * 73), u.megabytes('73'));
     });
 
     test('ג׳יגה בשתי ספרות — כמו במסד של ~1GB', () {
-      expect(formatBytes((1.1 * 1024 * 1024 * 1024).round()), '1.10 GB');
-      expect(formatBytes(3 * 1024 * 1024 * 1024), '3.00 GB');
+      final u = AppL10n.strings.units;
+      expect(
+        formatBytes((1.1 * 1024 * 1024 * 1024).round()),
+        u.gigabytes('1.10'),
+      );
+      expect(formatBytes(3 * 1024 * 1024 * 1024), u.gigabytes('3.00'));
     });
 
     test('ערך שלילי או אבסורדי אינו מפיל את המסך', () {
       expect(formatBytes(-1), AppL10n.strings.units.bytes(-1));
       expect(formatBytes(-1024 * 1024), AppL10n.strings.units.bytes(-1048576));
-      expect(formatBytes(1 << 50), endsWith('GB'));
+      expect(
+        formatBytes(1 << 50),
+        AppL10n.strings.units.gigabytes('1048576.00'),
+      );
     });
 
-    test('אנגלית: היחידה המילולית מתחלפת, המספרים לא', () {
-      AppL10n.use(AppLanguage.english);
+    test('גם יחידות הגודל מתורגמות — לא רק המילה "בייט"', () {
+      // עברית: היחידה בעברית, ובלי סימני האנגלית.
+      expect(formatBytes(1024 * 1024), '1.0 מ״ב');
+      expect(formatBytes(1024 * 1024), isNot(contains('MB')));
 
+      AppL10n.use(AppLanguage.english);
       expect(formatBytes(1), '1 byte');
       expect(formatBytes(0), '0 bytes');
       expect(formatBytes(1023), '1023 bytes');
-      // KB/MB/GB אינם מתורגמים — הם אותם סמלים בשתי השפות.
       expect(formatBytes(1024), '1 KB');
       expect(formatBytes(1024 * 1024), '1.0 MB');
+      expect(formatBytes(1024 * 1024 * 1024), '1.00 GB');
     });
   });
 
@@ -58,15 +70,17 @@ void main() {
     });
 
     test('בלי יעד ידוע — רק כמה ירד עד כה', () {
-      expect(formatBytesProgress(2048, null), '2 KB');
-      expect(formatBytesProgress(2048, 0), '2 KB');
-      expect(formatBytesProgress(2048, -1), '2 KB');
+      final kb2 = AppL10n.strings.units.kilobytes('2');
+      expect(formatBytesProgress(2048, null), kb2);
+      expect(formatBytesProgress(2048, 0), kb2);
+      expect(formatBytesProgress(2048, -1), kb2);
     });
 
     test('עם יעד — הניסוח מגיע מ-otzaria_l10n', () {
+      final u = AppL10n.strings.units;
       expect(
         formatBytesProgress(1024 * 1024 * 412, 1024 * 1024 * 1024),
-        AppL10n.strings.units.progressOf('412 MB', '1.00 GB'),
+        u.progressOf(u.megabytes('412'), u.gigabytes('1.00')),
       );
 
       AppL10n.use(AppLanguage.english);

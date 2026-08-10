@@ -23,13 +23,25 @@
   `getDefaultLibraryPath()` ב-`lib/core/app_paths.dart` — ולא מניחוש. באותה
   הזדמנות נוסף גם `%ProgramData%\otzaria\books` לווינדוס, שהוא מה שאוצריא
   משתמשת בו בהתקנה מערכתית.
-- מיקום מותאם אישית (אם המשתמש כן שינה) **לא** נקרא אוטומטית מתוך
-  הגדרות ה-Settings/Hive של אוצריא — `LibraryDbLocator` בודק קודם נתיב
-  ששמור אצלנו (`LibraryStateStore`), ורק אם גם זה וגם המיקומים
-  האחרים לא נמצאים, מחזיר `null` — ה-UI צריך לבקש מהמשתמש להצביע
-  ידנית (לפי ההחלטה איתו).
+- **מיקום מותאם אישית כן נקרא היום מההגדרות של אוצריא** (עודכן אוגוסט
+  2026). זו הייתה הסטייה החמורה ביותר מהעדכון המקוון: אוצריא לוקחת את
+  הנתיב מ-`DatabaseConstants.getDatabasePath()`, שקורא
+  `key-library-path` + `key-library-folder-name` מקופסת ה-Hive
+  `app_preferences` שבשורש הנתונים שלה. משתמש שהעביר את הספרייה לכונן
+  אחר עשה זאת **שם**, וללא קריאת ההגדרה עדכנו קובץ אחר או חשבנו שאין
+  מסד בכלל. [`OtzariaSettingsReader`](lib/src/services/otzaria_settings_reader.dart)
+  קורא את הקופסה **מעותק** בתיקייה זמנית, כדי שלא ניצור קובץ נעילה
+  בתיקייה של אוצריא ולא נתנגש איתה כשהיא פתוחה; כל כשל מוחזר כ-`null`
+  והאיתור ממשיך לברירות המחדל. סדר החיפוש המלא:
+  נתיב ששמור אצלנו → ההגדרה של אוצריא (בשורש נייד ואז בשורש הרגיל) →
+  ספרייה מצורפת (חבילת FULL ב-macOS) → ברירות המחדל → `C:\אוצריא`.
+- **התקנה ניידת של אוצריא** (`portable.marker` ליד ה-executable) מזיזה את
+  שורש הנתונים כולו אל `otzaria_data` שלידו. הלאנצ'ר מזהה זאת דרך נתיב
+  ההפעלה שמודול התוכנה מצא (`LibraryDbLocator.otzariaLaunchPath`), ולכן
+  `AppShell.checkAll()` בודק את מודול התוכנה **לפני** מודול הספרייה.
 - **בדיקת "האם אוצריא רצה"** (`OtzariaProcessGuard`) פעילה דרך
-  `LibraryUpdateApplier.applyUpdate` — רלוונטית כי ה-manager כן כותב
+  `LibraryUpdateApplier.applyDelta` / `.applyFullDownload` — רלוונטית כי
+  ה-manager כן כותב
   בפועל ל-`seforim.db` החי. פעילה בשתי הפלטפורמות: `tasklist` בווינדוס,
   `pgrep -x` ב-macOS/לינוקס.
 - **שם התהליך של אוצריא ב-macOS הוא `אוצריא`** — בעברית, כי זה
@@ -39,15 +51,89 @@
   הייתה תופסת גם את הלאנצ'ר עצמו — הנתיב שלו מכיל את המילה otzaria —
   והיינו חוסמים כל עדכון בגלל התהליך שמריץ אותו.
 
+## התאמה לעדכון המקוון של אוצריא
+
+הצד השני של אותו מנגנון חי ב-`Otzaria/otzaria`, ב-`lib/library_update/`
+(`LibraryUpdateRepository`, `LibraryUpdateBloc`, `CompanionAssetsService`),
+מעל אותה חבילת מנוע בדיוק — `seforim_library_updater`, שהיא השורש של המאגר
+הזה. המנוע זהה; מה שיושר כאן (אוגוסט 2026) הוא שכבת התזמור:
+
+- **דגלי ה-apply** — `verifyFromHash: false` ו-`checkForeignKeys: false`,
+  כמו `LibraryUpdateRepository._runApplyIsolate`. `verifyToHash` שאחרי
+  ההחלה הוא הערובה האמיתית וגם מכסה את ה-FK; הפעלת השניים הוסיפה קריאה
+  מלאה נוספת של מסד ~5.5GB לכל patch.
+- **דיווח תת-שלבים** — `onStage`/`onVerifyProgress` חוזרים דרך `ReceivePort`
+  ומגיעים ל-UI (`LibraryApplyProgress.patchStage` / `verifyProgress`), עם
+  קובץ hint (`verify_total_bytes.txt`) ל-total מדויק. בלי זה שלב ה-hash
+  נראה כתקיעה של דקות.
+- **`PRAGMA quick_check` לפני ההחלפה** — במסלול ההורדה המלאה, ב-isolate,
+  על הקובץ המחולץ, ורק אז ה-rename. קודם החלפנו ואז בדקנו גרסה בלבד.
+- **הקבצים הנלווים** — ראו הסעיף הבא.
+- **עומק שרשרת הדלתא** — המראה שומרת את חמשת ה-releases האחרונים
+  (`LibraryMirrorExporter.defaultHistoryDepth`) ולא רק את האחרון, כדי
+  שמכונה כמה גרסאות מאחור תקבל patches ולא הורדה של ~1.1GB. את **כל**
+  ההיסטוריה עדיין לא שומרים — היעד הוא כונן נייד.
+- **ערוץ הספרייה** — יציב בלבד, כמו `allowPrerelease: () => false` באוצריא.
+
+### הקבצים הנלווים
+
+אוצריא מריצה `CompanionAssetsService.verifyAndUpdate()` אחרי כל בדיקה וכל
+החלה, ומרעננת **מהרשת** שלושה דברים. במחשב לא-מקוון אין רשת, ולכן הם
+נוסעים במראה:
+
+| פריט | מקור | יעד (לצד `seforim.db`) | סימון גרסה |
+| --- | --- | --- | --- |
+| תלמוד בבלי | `Otzaria/otzaria-library`, `talmud_bavli_latest.tar.zst` | `תלמוד בבלי/` | `.version` = digest (או תג) |
+| קטלוג otzar-HB | `Otzaria/otzar-HB_catalog`, `otzar-HB_catalog.db.zst` + `version.txt` | `otzar-HB_catalog.db` | `db_meta.version` |
+| מילון החיפוש | `Otzaria/SeforimMagicIndexer`, הנכס שה-URL שלו מסתיים ב-`/lexical.db` | `lexical.db` | `lexical.db.version` = תג |
+
+הצד המוריד הוא [`CompanionAssetsMirror`](lib/src/services/companion_assets_mirror.dart)
+(רץ בסוף `downloadToMirror`, כותב `companions.json`), והצד המתקין הוא
+[`CompanionAssetsInstaller`](lib/src/services/companion_assets_installer.dart)
+(רץ בסוף `applyUpdate`, ומדווח גם ב-`checkForUpdate` דרך
+`LibraryUpdateCheckResult.companionsPending`). כמו באוצריא, **כל פריט הוא
+best-effort**: כשל באחד לא מפיל את השאר ולא מבטל עדכון מסד שכבר הצליח.
+סימון ה-`installing` נכתב לפני חילוץ התלמוד, כך שחילוץ שנקטע מסומן
+כהתקנה חלקית ואוצריא מתעלמת ממנה.
+
+### אינדקס החיפוש — פער שנשאר פתוח מול אוצריא
+
+כשאוצריא מעדכנת בעצמה היא מקבלת מ-`PatchApplier` את `booksTouched`
+ושולחת `RefreshLibrary(changedBookKeys:)` עם
+`IndexingRepository.officialBookKey(id)`; מיפוי המפתחות לספרים מזין את
+`changedBooksToIndex`, ומשם `ReindexChangedBooks` (ובמסלול ההורדה המלאה
+`StartIndexing` + `ReconcileIndex`, שמשווה טביעות-אצבע). עדכון שנעשה
+**מבחוץ** עוקף את כל זה: `isBookIndexed` בודק רק נוכחות מפתח ב-`booksDone`
+ולא תוכן, ולכן `StartIndexing` מדלג על ספר שתוכנו התחלף, ו-
+`requiresManualReindex` תלוי בסכמת ה-tantivy ולא בגרסת המסד. התוצאה:
+החיפוש בספרים ששונו מחזיר תוכן ישן עד אינדוקס מחדש ידני.
+
+מהצד שלנו זה נסגר עד הסוף האפשרי: `applyUpdate` כותב
+[`.otzaria-external-update.json`](lib/src/services/external_update_notice.dart)
+לצד המסד, עם `route` (`delta`/`full`), `dbVersion`, `releaseTag` ו-
+`booksTouched`. **הבקשה לצד אוצריא** היא לקרוא אותו בתוך
+`_resolveStartupIndexing`, לפני `decideStartupIndexing`, ולהזין את
+המסלולים שכבר קיימים שם — `ReindexChangedBooks` ל-`delta`,
+`StartIndexing` + `ReconcileIndex` ל-`full` — ולמחוק את הקובץ רק אחרי
+אינדוקס שהצליח. הבקשה המלאה, עם מפת קבצים ומספרי שורות בענף `dev` של
+`Otzaria/otzaria`, מנוסחת ב-
+[`OTZARIA_REINDEX_REQUEST.md`](../OTZARIA_REINDEX_REQUEST.md). עד שזה
+ייקלט שם, הקובץ נכתב ואיש אינו קורא אותו.
+
 ## מבנה
 
-- `services/library_db_locator.dart` — איתור נתיב ה-DB (custom → ברירת מחדל → null).
+- `services/library_db_locator.dart` — איתור נתיב ה-DB (custom → ההגדרה של
+  אוצריא → ספרייה מצורפת → ברירות מחדל → null).
+- `services/otzaria_settings_reader.dart` — קריאת `app_preferences.hive` של
+  אוצריא, מעותק.
+- `services/companion_assets*.dart` — המראה וההתקנה של הקבצים הנלווים.
+- `services/external_update_notice.dart` — סימון "המסד עודכן מבחוץ".
 - `services/library_state_store.dart` — שמירת נתיב מותאם אישית ושל
   `appliedReleaseTag` (ה-release שממנו הגיע תוכן ה-DB — כך מזוהה מסד שפורסם
   מחדש באותו `db_version`).
 - `services/library_update_applier.dart` — **`LibraryUpdateApplier`**: ההחלה
   בפועל של delta/fullDownload על ה-DB החי (patch/apply דרך `Isolate.run` נכון,
-  גיבוי/שחזור, בדיקת "אוצריא רצה").
+  סימון עדכון-שנקטע, בדיקת "אוצריא רצה").
 - `services/otzaria_process_guard.dart` — בדיקת תהליך אוצריא פעיל: `otzaria.exe` דרך `tasklist` בווינדוס, `אוצריא` דרך `pgrep -x` ב-macOS.
 - `services/zstd_decompressor.dart` — חילוץ zstd **בזיכרון**. מוזרק
   ל-`PatchDownloader` (קובצי patch, עשרות MB — סביר בזיכרון), וגם משמש כמסלול
@@ -72,13 +158,21 @@
 > **המנגנון נבנה מחדש** ב-[`LibraryUpdateApplier`](lib/src/services/library_update_applier.dart):
 > כל קריאת `Isolate.run` עוברת דרך פונקציית **top-level** שמקבלת רק
 > ארגומנטים פרימיטיביים/מבני-דאטה (records, `String`, `Uint8List`,
-> `DeltaManifest`) — אותו דפוס שכבר עבד נכון ב-
-> `LibraryDbRecoveryService.cloneOrCopyFile`. `LibraryManager.applyUpdate(check)`
+> `DeltaManifest`) — אותו דפוס שכבר עבד נכון ב-`ZstdFileDecompressor`.
+> `LibraryManager.applyUpdate(check)`
 > הוא נקודת הכניסה: מפעיל `OtzariaProcessGuard` (חוסם אם אוצריא פתוחה),
 > מוריד ומחיל מסלול delta (patch-אחר-patch, כל אחד
-> אטומי) או fullDownload (הורדה + חילוץ zstd + כתיבה אטומית עם
-> גיבוי/שחזור דרך `LibraryDbRecoveryService`), ומאמת את הגרסה הסופית מול
-> `LocalDbVersionReader`.
+> אטומי) או fullDownload (הורדה + חילוץ zstd + אימות + החלפה ב-rename),
+> ומאמת את הגרסה הסופית מול `LocalDbVersionReader`.
+>
+> **אין גיבוי של המסד, ואין הגדרה כזו.** `LibraryDbRecoveryService` כותב
+> סימון (`<db>.applying`) ולא יותר: מסלול patch עטוף ב-transaction יחיד
+> שמתגלגל אחורה מעצמו, ומסלול המסד המלא מחלץ ל-`<db>.new`, מאמת אותו
+> (`quick_check` + גרסה) ורק אז מחליף ב-rename — כלומר בשני המסלולים המסד
+> החי שלם עד הרגע האחרון. עותק שני של ~1GB היה מכפיל את הדרישה מהכונן בלי
+> להוסיף ביטחון. סימון שנשאר מריצה שקרסה נבדק בעלייה
+> (`checkDbHealthAfterCrash`) ומנוקה; שאריות `.backup` מגרסאות קודמות
+> נמחקות שם גם הן.
 >
 > **מסלול fullDownload צורך זיכרון קבוע.** בעבר הוא היה בזיכרון: הקובץ
 > הדחוס נקרא במלואו, חולץ ל-`Uint8List` של ~1.1GB, וזה נשלח ל-`Isolate.run`
@@ -97,13 +191,16 @@
 
 ## ⚠️ מה עדיין לא מאומת / סיכונים ידועים
 
-1. **`_allowPrerelease = true` כברירת מחדל** עבור releases של
-   `Otzaria/SeforimLibrary` (המסד) — זו **לא** אותה החלטה שהתקבלה עם
-   המשתמש לגבי `otzaria_manager` (שם ההחלטה הייתה מפורשת, כי ריפו
-   אוצריא עצמו כמעט ולא מפרסם יציבים). כאן זו ברירת מחדל סבירה שנבחרה
-   בנפרד, לא אושרה במפורש — כדאי לבדוק אם SeforimLibrary כן מפרסם
-   יציבים סדירים, ואם כן לשקול `false`.
-2. **`LibraryUpdateApplier` לא נבדק בפועל על ווינדוס אמיתי** (הסביבה כאן
+1. **הקריאה מקופסת ה-Hive של אוצריא נבדקה מול קופסה שנכתבה בבדיקות בלבד**
+   (`hive_ce`, אותה חבילה שאוצריא כותבת איתה) — לא מול `app_preferences.hive`
+   של התקנה אמיתית, ולא במקביל לאוצריא פתוחה.
+2. **הקבצים הנלווים לא נבדקו מקצה לקצה**: ההורדה נבדקה מול שרת מדומה בלבד
+   ולא מול ה-API האמיתי של שלושת המאגרים, וההתקנה נבדקה על ארכיון
+   `tar.zst` שנבנה בבדיקה — לא על `talmud_bavli_latest.tar.zst` אמיתי
+   (מאות MB), ולא מול אוצריא שקוראת את התוצאה בפועל.
+3. **הסימון `.otzaria-external-update.json` אינו נקרא היום ע"י אף אחד** —
+   ראו "אינדקס החיפוש" למעלה.
+4. **`LibraryUpdateApplier` לא נבדק בפועל על ווינדוס אמיתי** (הסביבה כאן
    היא Linux) — הלוגיקה נכתבה לפי ה-API המתועד של `seforim_library_updater`
    ועברה `dart analyze`, אך לא `flutter run` על DB אמיתי בגודל מלא. יש
    לבדוק בפועל: מסלול delta על שרשרת patches אמיתית, מסלול fullDownload

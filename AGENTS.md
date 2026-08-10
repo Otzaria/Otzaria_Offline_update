@@ -34,7 +34,7 @@ touched by *one* thing only: the download step that fills that folder.
 
 | Step | API | Needs network |
 | --- | --- | --- |
-| Download library updates | `LibraryManager.downloadToMirror()` | **yes** (heavy — full DB/patches) |
+| Download library updates + companion files | `LibraryManager.downloadToMirror()` | **yes** (heavy — full DB/patches, Talmud PDFs, catalog, dictionary) |
 | Download the Otzaria installers (stable + newer pre-release) | `OtzariaManager.downloadToMirror()` | **yes** (heavy — installer files) |
 | Download the plugin store | `PluginsManager.sync()` | **yes** (heavy — images/`.otzplugin` files) |
 | Peek the latest library version online | `LibraryManager.peekLatestOnlineVersion()` | **yes** (light — one API call, no asset) |
@@ -59,15 +59,18 @@ Layout under `OtzariaData/`:
 
 ```
 mirror/library/   releases.json + assets/   ← LibraryManager.mirrorDir
+mirror/companions/ companions.json + the Talmud archive, catalog and dictionary  ← LibraryManager.companionsMirrorDir
 mirror/app/       latest-release.json (up to 2 channels) + installers/<tag>/  ← OtzariaAppMirror
 mirror/plugins/   catalog.json + files/     ← PluginMirrorStore
 otzaria-app/      the managed Otzaria install
 ```
 
-The download step keeps only the **latest** release, not the whole patch
-history (`LibraryMirrorExporter._latestOnly`) — the full history reached several
-gigabytes, which does not belong on a flash drive. A machine several versions
-behind falls back to the full-DB route, which is always present in the mirror.
+The download step keeps the last **five** releases, not the whole patch history
+(`LibraryMirrorExporter.recentReleases` / `defaultHistoryDepth`) — the full
+history reached several gigabytes, which does not belong on a flash drive.
+Online Otzaria walks the entire patch graph; five releases cover a machine that
+updates occasionally, and anything older falls back to the full-DB route, which
+is always present in the mirror.
 
 ---
 
@@ -87,6 +90,16 @@ package sits at the repo root (historical, do not move it).
 
 Producer vs. consumer: the Kotlin repo `Otzaria/SeforimLibrary` *produces* the DB
 and the patches; this repo only *consumes* them.
+
+**The root package is a fork of `Otzaria/otzaria_library_updater`** — the very
+package Otzaria itself depends on (by git ref) for its online library update.
+Keep the engine (discovery, planner, hasher, `PatchApplier`, `PatchDownloader`)
+in step with upstream; our deliberate additions there are the l10n calls, the
+offline mirror source/exporter, and `LibraryUpdatePlanner.localReleaseTag`.
+Otzaria's consumer side lives in `Otzaria/otzaria` under `lib/library_update/`
+— read it before changing how the launcher orchestrates an update, and see
+`library_manager/README.md` § "התאמה לעדכון המקוון של אוצריא" for the
+point-by-point comparison.
 
 ---
 
@@ -215,6 +228,18 @@ therefore the signature, and macOS then refuses to run it.
 would also match the launcher itself (its path contains "otzaria") and block
 every DB update.
 
+**Two packages match that same process, and their name lists must agree.**
+`OtzariaProcessGuard` (`library_manager`) blocks DB updates while Otzaria is
+open; `RunningOtzariaLocator` (`otzaria_manager`) reads the *path* of that same
+process to learn where Otzaria is installed — the authoritative answer, tried
+before the guessed default directories in `OtzariaManager._autoDetectDirs`. The
+packages do not depend on each other, so `launcher_app/test/process_names_test.dart`
+asserts the two `processNamesFor` lists are identical. Drift there produces the
+exact bug this was built to fix: "we can see Otzaria is running, yet we cannot
+tell where it is installed". Note the locator answers only for the *app*
+directory — `seforim.db` lives under `%APPDATA%` regardless, and stays
+`LibraryDbLocator`'s job.
+
 **The launcher's macOS process name must not be `אוצריא`.** `PRODUCT_NAME` is
 `Otzaria Launcher` for exactly that reason — see the table in
 `launcher_app/README.md`.
@@ -283,6 +308,30 @@ all**. Adding one back (an "advanced" data-dir setting, a USB target picker, an
 `otzariaInstallPath`) breaks the premise that the drive carries everything.
 On macOS the folder goes next to the `.app` bundle, not inside
 `Contents/MacOS`, so the user can actually see it.
+
+**There is no backup of `seforim.db`, and no setting for one.**
+`LibraryDbRecoveryService` writes a marker (`<db>.applying`) and nothing else.
+A second ~1GB copy doubled what the drive must hold while adding no real
+safety: the delta route is one SQLite transaction that rolls itself back, and
+the full-download route extracts to `<db>.new`, verifies it (`quick_check` +
+version), and only then swaps. Do not reintroduce a copy-before-apply step or a
+`backupsToKeep`-style setting.
+
+**The swap itself is two renames, not delete-then-rename.** `<db>` is renamed
+aside to `<db>.old`, `<db>.new` is renamed into place, and only then is
+`<db>.old` removed. A rename costs nothing and needs no extra space (it is not
+a second copy), and it removes the window in which *no* database exists at all
+— an interrupted `deleteSync` + `renameSync` left the user with no library and
+an orphaned `<db>.new` that the locator could not find, because it only ever
+looks for `seforim.db`. If the second rename fails, the first is rolled back.
+For the same reason `-wal` / `-shm` are deleted only *after* the swap
+succeeded: they belong to the old DB, and deleting them earlier would discard
+committed transactions from a hot journal if the swap then failed.
+
+The process guard runs a second time immediately before the swap. The download
+and decompression take many minutes, and on macOS `unlink` on an open file
+succeeds — without the re-check the DB could be replaced underneath a running
+Otzaria.
 
 **Progress callbacks must not reach `setState` unthrottled.** `PatchDownloader`
 reports `onProgress` per chunk — tens of thousands of calls for a 1GB download.
@@ -363,13 +412,45 @@ by `applyUpdate`). It only does so when that tag is *known* — a DB that was no
 installed by this launcher has no tag, and guessing there would offer a ~1GB
 download on every single launch.
 
-**DB location is discovered, not assumed.** `LibraryDbLocator` checks, in order:
-a path we saved ourselves, then `%APPDATA%\otzaria\books\`, `%ProgramData%\otzaria\books\`
-(Windows) or `~/Library/Application Support/otzaria/books/` and the system-wide
-equivalent (macOS), then falls back to `C:\אוצריא\`. If nothing is found it
-returns `null` and the UI must ask the user to point at the file. Do not
-hardcode a path here — a previous confident claim about the "real" location was
-simply wrong.
+**DB location is discovered, not assumed — and Otzaria's own setting wins.**
+`LibraryDbLocator` checks, in order: a path we saved ourselves, then
+**Otzaria's settings** (`key-library-path` + `key-library-folder-name` read out
+of its `app_preferences` Hive box, exactly like `DatabaseConstants.getDatabasePath`),
+then a bundled FULL-package library, then `%APPDATA%\otzaria\books\`,
+`%ProgramData%\otzaria\books\` (Windows) or
+`~/Library/Application Support/otzaria/books/` and the system-wide equivalent
+(macOS), and finally `C:\אוצריא\`. If nothing is found it returns `null` and the
+UI must ask the user to point at the file. Do not hardcode a path here — a
+previous confident claim about the "real" location was simply wrong, and
+skipping Otzaria's setting silently updated the wrong file for anyone who had
+moved their library.
+
+The Hive box is read **from a copy** in a temp dir (`OtzariaSettingsReader`):
+opening it in place creates a lock file inside Otzaria's own folder and clashes
+with a running Otzaria. Any failure returns `null` and the search continues.
+
+**Portable Otzaria moves everything.** A `portable.marker` next to Otzaria's
+executable puts its whole data root in `otzaria_data` beside it. Detecting that
+needs Otzaria's launch path, which is why `AppShell.checkAll()` runs the app
+module's check **before** the library module's, sequentially.
+
+**The library update is not just `seforim.db`.** Otzaria refreshes three
+companion files from the network on every library update
+(`CompanionAssetsService`): the Talmud Bavli PDFs, the otzar-HB catalog and the
+fuzzy-search dictionary. An offline machine has no network, so they ride along
+in `mirror/companions/` and are installed by `CompanionAssetsInstaller` right
+after the DB — same targets, same version markers, same best-effort semantics
+(one failing item never fails the others or the DB update that already
+succeeded). The exact sources and markers are tabulated in
+`library_manager/README.md`.
+
+**A DB updated from outside leaves Otzaria's search index stale.** Otzaria
+re-indexes exactly the books `PatchApplier` reports in `booksTouched` (or runs
+`ReconcileIndex` after a full download); neither path runs when *we* write the
+DB, and startup indexing only adds *new* books. `applyUpdate` therefore writes
+`.otzaria-external-update.json` next to the DB with the route, version and book
+ids. Nothing reads it yet — it is the concrete proposal to the Otzaria
+developers, spelled out in `library_manager/README.md`.
 
 **The Otzaria *app*'s real default install directory, verified against the
 Otzaria developers (2026-08-07) — not a guess:** the Windows Inno Setup
@@ -412,10 +493,18 @@ both installers together fit comfortably on a typical drive.
 
 Currently **not** verified on real hardware: the Windows path of
 `LibraryUpdateApplier` (full ~1GB download, delta chains, `tasklist` behaviour),
-`WindowsExeVersionReader` (FFI via `package:win32`), and the Windows `.db` file
-picker filter. The macOS path of
+`WindowsExeVersionReader` and `RunningOtzariaLocator` (both FFI via
+`package:win32`), and the Windows `.db` file picker filter. The macOS path of
 `otzaria_manager` and the launcher build/run on macOS **were** verified against a
-real `otzaria-macos.zip`.
+real `otzaria-macos.zip` — but that predates the custom title bar and
+`RunningOtzariaLocator._probeMac`, neither of which has run on a Mac.
+
+Also unit-tested only, never on real hardware: the companion assets
+(`CompanionAssetsMirror` against the three real GitHub repos, and
+`CompanionAssetsInstaller` writing into a real Otzaria library folder),
+`OtzariaSettingsReader` against a real `app_preferences.hive` written by
+Otzaria, and the custom title bar (`window_manager` with the native frame
+hidden) on either platform.
 
 The fullDownload route used to decompress in memory (~1.1GB, plus another copy
 when that `Uint8List` was sent to an isolate to be written). It now streams:

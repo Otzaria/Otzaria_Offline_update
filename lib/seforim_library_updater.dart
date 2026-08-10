@@ -21,11 +21,7 @@ export 'src/services/local_mirror_library_release_client.dart'
     show LocalMirrorLibraryReleaseClient, LocalMirrorException;
 export 'src/services/library_mirror_exporter.dart' show LibraryMirrorExporter;
 export 'src/services/library_db_recovery_service.dart'
-    show
-        LibraryDbRecoveryService,
-        RecoveryResult,
-        RecoveryAction,
-        BackupIntegrityException;
+    show LibraryDbRecoveryService, RecoveryResult, RecoveryAction;
 export 'src/services/library_update_discovery.dart'
     show LibraryUpdateDiscovery, LibraryDiscoveryResult;
 export 'src/services/library_update_planner.dart' show LibraryUpdatePlanner;

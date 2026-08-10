@@ -8,7 +8,8 @@ enum AppThemeMode { system, light, dark }
 /// **אין כאן נתיבים.** תיקיית הנתונים תמיד צמודה לקובץ ההרצה (ראו
 /// `AppPaths`), והמיקום של אוצריא עצמה מתגלה ואינו מוגדר.
 class AppSettings {
-  static const int schemaVersion = 2;
+  /// 4: מקטע `storage` (גיבוי המסד) הוסר — ראו `LibraryDbRecoveryService`.
+  static const int schemaVersion = 4;
 
   /// בדיקת גרסאות בפתיחה כשיש חיבור לרשת — בדיקה קלה, בלי הורדה.
   final bool autoMetadataCheck;
@@ -35,15 +36,6 @@ class AppSettings {
   /// pre-release חדש מהיציבה.
   final bool preferAppPrerelease;
 
-  // ── אחסון ───────────────────────────────────────────────────────────────
-  /// `0` = בלי גיבוי בטיחות לפני כתיבת מסד מלא (ראו `LibraryUpdateApplier`),
-  /// `1` = עם גיבוי. אין כאן שמירת היסטוריה של גרסאות — המראה המקומית
-  /// שומרת רק את הגרסה האחרונה שהורדה בכל מקרה.
-  final int backupsToKeep;
-
-  // ── רשת ─────────────────────────────────────────────────────────────────
-  final int networkTimeoutSeconds;
-
   // ── ממשק ────────────────────────────────────────────────────────────────
   /// שפת הממשק. עברית היא ברירת המחדל ואינה נגזרת משפת המערכת.
   final AppLanguage language;
@@ -59,8 +51,6 @@ class AppSettings {
     this.autoInstallApp = false,
     this.autoInstallLibrary = false,
     this.preferAppPrerelease = false,
-    this.backupsToKeep = 1,
-    this.networkTimeoutSeconds = 20,
     this.language = AppLanguage.hebrew,
     this.themeMode = AppThemeMode.system,
     this.textScale = 1.0,
@@ -79,8 +69,6 @@ class AppSettings {
     bool? autoInstallApp,
     bool? autoInstallLibrary,
     bool? preferAppPrerelease,
-    int? backupsToKeep,
-    int? networkTimeoutSeconds,
     AppLanguage? language,
     AppThemeMode? themeMode,
     double? textScale,
@@ -95,9 +83,6 @@ class AppSettings {
       autoInstallApp: autoInstallApp ?? this.autoInstallApp,
       autoInstallLibrary: autoInstallLibrary ?? this.autoInstallLibrary,
       preferAppPrerelease: preferAppPrerelease ?? this.preferAppPrerelease,
-      backupsToKeep: backupsToKeep ?? this.backupsToKeep,
-      networkTimeoutSeconds:
-          networkTimeoutSeconds ?? this.networkTimeoutSeconds,
       language: language ?? this.language,
       themeMode: themeMode ?? this.themeMode,
       textScale: textScale ?? this.textScale,
@@ -120,12 +105,6 @@ class AppSettings {
           'library': syncLibrary,
           'plugins': syncPlugins,
         },
-        'storage': {
-          'backupsToKeep': backupsToKeep,
-        },
-        'network': {
-          'timeoutSeconds': networkTimeoutSeconds,
-        },
         'ui': {
           'language': language.code,
           'themeMode': themeMode.name,
@@ -134,8 +113,8 @@ class AppSettings {
       };
 
   /// קורא הגדרות מ-JSON. שדה חסר או פגום נופל לברירת המחדל שלו — קובץ
-  /// מקולקל חלקית, או קובץ מ-schemaVersion 1 (שבו היו נתיבים ומתגים
-  /// שהוסרו), לא מאבד את שאר ההגדרות.
+  /// מקולקל חלקית, או קובץ מגרסת schema ישנה (שבה היו נתיבים, זמן קצוב
+  /// לרשת, גיבוי המסד ומתגים שהוסרו), לא מאבד את שאר ההגדרות.
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     Map<String, dynamic> section(String key) {
       final value = json[key];
@@ -145,19 +124,12 @@ class AppSettings {
     final automation = section('automation');
     final channels = section('channels');
     final sync = section('sync');
-    final storage = section('storage');
-    final network = section('network');
     final ui = section('ui');
     const defaults = AppSettings();
 
     bool flag(Map<String, dynamic> from, String key, bool fallback) {
       final value = from[key];
       return value is bool ? value : fallback;
-    }
-
-    int number(Map<String, dynamic> from, String key, int fallback) {
-      final value = from[key];
-      return value is int ? value : fallback;
     }
 
     return AppSettings(
@@ -177,12 +149,6 @@ class AppSettings {
       autoInstallApp: flag(automation, 'installApp', false),
       autoInstallLibrary: flag(automation, 'installLibrary', false),
       preferAppPrerelease: flag(channels, 'appPrerelease', false),
-      backupsToKeep: number(storage, 'backupsToKeep', defaults.backupsToKeep),
-      networkTimeoutSeconds: number(
-        network,
-        'timeoutSeconds',
-        defaults.networkTimeoutSeconds,
-      ),
       language: AppLanguage.fromCode(ui['language']),
       themeMode: AppThemeMode.values.firstWhere(
         (m) => m.name == ui['themeMode'],

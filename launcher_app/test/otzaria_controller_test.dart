@@ -69,6 +69,10 @@ void main() {
     final controller = OtzariaModuleController(
       dataDir: tempDir.path,
       preferPrerelease: preferPrerelease,
+      // בלי ההזרקה הזו הבדיקות מריצות `tasklist` אמיתי ו-FFI על התהליכים של
+      // המכונה: אצל מי שאוצריא מותקנת אצלו הן עוברות מהסיבה הלא נכונה,
+      // וכשהיא פתוחה הן מאתרות התקנה אמיתית ונכשלות.
+      runningLocator: const _NeverRunningLocator(),
     );
     addTearDown(controller.dispose);
     return controller;
@@ -259,4 +263,13 @@ void main() {
       expect(errors.last, isNotNull);
     });
   });
+}
+
+/// "אוצריא סגורה", בלי לגעת בתהליכים של המכונה — ראו [controllerFor].
+class _NeverRunningLocator extends RunningOtzariaLocator {
+  const _NeverRunningLocator();
+
+  @override
+  Future<RunningOtzariaProbe> probe() async =>
+      (isRunning: false, launchPath: null);
 }

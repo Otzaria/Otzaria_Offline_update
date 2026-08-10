@@ -49,6 +49,7 @@ void main() {
     ReleaseAsset? full = _fullAsset,
     String? tag = 'v3',
     String? localTag,
+    int? fullVersion,
   }) =>
       planner.plan(
         localVersion: local,
@@ -57,6 +58,7 @@ void main() {
         edges: edges,
         latestFullDbAsset: full,
         latestReleaseTag: tag,
+        latestFullDbVersion: fullVersion,
         localReleaseTag: localTag,
       );
 
@@ -96,6 +98,25 @@ void main() {
       expect(p.kind, LibraryUpdatePlanKind.fullDownload);
       expect(p.fullDbAsset, _fullAsset);
       expect(p.fullDbReleaseTag, 'v3');
+    });
+
+    test('היעד של הורדה מלאה הוא הגרסה שהנכס מביא, לא ה-latest', () {
+      // ה-release האחרון (4) הוא patch-only, וה-DB המלא האחרון הוא של 3.
+      // בלי ההבחנה הזו האימות שאחרי החילוץ היה דוחה ~1.1GB שהורדו זה עתה.
+      final p = plan(
+        local: 1,
+        latest: 4,
+        edges: [_edge(2, 3), _edge(3, 4)],
+        fullVersion: 3,
+      );
+      expect(p.kind, LibraryUpdatePlanKind.fullDownload);
+      expect(p.targetVersion, 3);
+      expect(p.fullDbAsset, _fullAsset);
+    });
+
+    test('בלי גרסת נכס מפורשת נשמרת ההתנהגות הקודמת — היעד הוא ה-latest', () {
+      final p = plan(local: 1, latest: 3, edges: [_edge(1, 2)]);
+      expect(p.targetVersion, 3);
     });
 
     test('שני chains באותו אורך → בוחר את הזול', () {

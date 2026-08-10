@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
 
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
@@ -10,12 +9,9 @@ enum RecoveryAction {
   /// אין עדכון שנקטע — שום דבר לא נדרש.
   none,
 
-  /// נמצא עדכון שנקטע וה-DB שוחזר מהגיבוי.
-  restored,
-
-  /// נמצא סימון עדכון שנקטע אך ללא גיבוי. במסלול דלתא זה תקין (ה-apply אטומי,
-  /// אין גיבוי לשחזר) — הקורא צריך לוודא תקינות (quick_check) ולנקות את הסימון.
-  blockedMissingBackup,
+  /// נמצא סימון של עדכון שנקטע. אין מה לשחזר — הקורא צריך לוודא תקינות
+  /// (quick_check) ולנקות את הסימון.
+  interrupted,
 }
 
 class RecoveryResult {
@@ -24,68 +20,44 @@ class RecoveryResult {
   const RecoveryResult(this.action, [this.detail]);
 }
 
-/// נזרק כשגיבוי שנוצר חלקי/מושחת (גודל לא תואם).
-class BackupIntegrityException implements Exception {
-  final String message;
-  const BackupIntegrityException(this.message);
-  @override
-  String toString() => 'BackupIntegrityException: $message';
-}
-
-/// מנהל גיבוי, סימון (marker) ושחזור של `seforim.db` סביב החלת patch, כדי
-/// שקריסה באמצע apply תהיה ניתנת לשחזור.
+/// מנהל את הסימון (marker) של החלת עדכון על `seforim.db`, כדי שקריסה באמצע
+/// apply תזוהה בעלייה הבאה.
 ///
-/// קבצים ליד ה-DB:
-/// * `<db>.backup`     — עותק מאומת לפני העדכון.
-/// * `<db>.backup.tmp` — עותק זמני לפני אימות (rename אטומי ל-.backup).
-/// * `<db>.applying`   — סימון JSON (fromVersion/toVersion/timestamp).
-///
-/// אינווריאנט: `.backup` קיים ⟺ הוא שלם (נכתב ל-tmp, אומת, ועבר rename).
-/// כך `rollback` לעולם לא משחזר גיבוי חלקי על DB תקין.
+/// **אין כאן גיבוי של המסד, בכוונה.** שני מסלולי ההחלה בטוחים בלי עותק נוסף:
+/// מסלול patch עטוף ב-transaction יחיד שמתגלגל אחורה מעצמו, ומסלול המסד המלא
+/// מחלץ ל-`<db>.new`, מאמת אותו, ורק אז מחליף ב-rename. עותק שני של מסד ~1GB
+/// על כונן נייד היה מכפיל את הדרישה בלי להוסיף ביטחון אמיתי.
 class LibraryDbRecoveryService {
   const LibraryDbRecoveryService();
 
-  String backupPathFor(String dbPath) => '$dbPath.backup';
   String markerPathFor(String dbPath) => '$dbPath.applying';
-  String _backupTmpFor(String dbPath) => '$dbPath.backup.tmp';
-  String _restoreTmpFor(String dbPath) => '$dbPath.restore.tmp';
+
+  /// שאריות של מנגנון הגיבוי שהוסר — נמחקות בעלייה כדי לא להשאיר ~1GB תלוי
+  /// אצל מי שעדכן מגרסה שכן יצרה גיבוי.
+  static const List<String> _legacySuffixes = [
+    '.backup',
+    '.backup.tmp',
+    '.restore.tmp',
+  ];
 
   /// נקרא בעליית האפליקציה, **לפני** פתיחת ה-DB.
   ///
-  /// * marker + backup קיימים → שחזור מהגיבוי (הורדה מלאה שנקטעה).
-  /// * marker בלבד (ללא backup) → [RecoveryAction.blockedMissingBackup]; מסלול
-  ///   דלתא תקין — הקורא מריץ [checkDbHealthAfterCrash] ומנקה את הסימון.
-  /// * backup/tmp יתומים (ללא marker) → שאריות; מוחקים אותם.
+  /// סימון קיים → [RecoveryAction.interrupted]; הקורא מריץ
+  /// [checkDbHealthAfterCrash] ומנקה את הסימון. אין סימון → אין מה לעשות.
   Future<RecoveryResult> recoverIfNeeded(String dbPath) async {
-    _deleteQuietly(_backupTmpFor(dbPath));
-    _deleteQuietly(_restoreTmpFor(dbPath));
+    _deleteLegacyArtifacts(dbPath);
 
-    final marker = File(markerPathFor(dbPath));
-    final backup = File(backupPathFor(dbPath));
-
-    if (!marker.existsSync()) {
-      if (backup.existsSync()) _deleteQuietly(backup.path);
+    if (!File(markerPathFor(dbPath)).existsSync()) {
       return const RecoveryResult(RecoveryAction.none);
     }
-
-    if (!backup.existsSync()) {
-      return RecoveryResult(
-        RecoveryAction.blockedMissingBackup,
-        AppL10n.strings.libraryDomain.interruptedUpdateNoBackup,
-      );
-    }
-
-    await _restore(backup.path, dbPath);
-    _deleteQuietly(marker.path);
-    _deleteQuietly(backup.path);
     return RecoveryResult(
-      RecoveryAction.restored,
-      AppL10n.strings.libraryDomain.interruptedUpdateRestored,
+      RecoveryAction.interrupted,
+      AppL10n.strings.libraryDomain.interruptedUpdateFound,
     );
   }
 
-  /// בודק תקינות DB אחרי עדכון שנקטע ללא גיבוי (מסלול דלתא). מחזיר `true` אם
-  /// ה-DB תקין (עבר `quick_check`).
+  /// בודק תקינות DB אחרי עדכון שנקטע. מחזיר `true` אם ה-DB תקין (עבר
+  /// `quick_check`).
   ///
   /// חובה לפתוח RW: קריסה באמצע transaction משאירה hot journal, ו-SQLite חייב
   /// גישת כתיבה כדי לגלגלו אחורה. פתיחת readOnly על hot journal נכשלת ב-"attempt
@@ -106,36 +78,14 @@ class LibraryDbRecoveryService {
     }
   }
 
-  /// נקרא לפני apply: יוצר סימון, ואם [createBackup] — גם גיבוי מאומת. מנקה
-  /// שאריות קודמות תחילה. ה-copy הכבד רץ ב-Isolate כדי לא לחסום את ה-UI.
-  ///
-  /// [createBackup] — יש להשאירו `true` במסלול החלפת קובץ (הורדה מלאה), שאינו
-  /// אטומי. במסלול patch דלתאי אפשר `false`: ה-apply עטוף ב-transaction יחיד,
-  /// אז קריסה מתגלגלת אחורה מעצמה — והגיבוי המלא (העתקת ה-DB כולו) מיותר.
+  /// נקרא לפני apply: כותב את הסימון (ומנקה שאריות קודמות תחילה).
   Future<void> beginApply({
     required String dbPath,
     required int fromVersion,
     required int toVersion,
     required String timestamp,
-    bool createBackup = true,
   }) async {
-    _deleteQuietly(backupPathFor(dbPath));
-    _deleteQuietly(markerPathFor(dbPath));
-    final tmp = _backupTmpFor(dbPath);
-    _deleteQuietly(tmp);
-
-    // בכשל (disk full וכו') מנקים מיד את ה-tmp החלקי — לא משאירים לכלוך דיסק.
-    if (createBackup) {
-      try {
-        await Isolate.run(() => cloneOrCopyFile(dbPath, tmp));
-        _verifySameSize(tmp, dbPath, AppL10n.strings.libraryDomain.backupLabel);
-        File(tmp).renameSync(backupPathFor(dbPath));
-      } catch (_) {
-        _deleteQuietly(tmp);
-        rethrow;
-      }
-    }
-
+    _deleteLegacyArtifacts(dbPath);
     File(markerPathFor(dbPath)).writeAsStringSync(
       jsonEncode({
         'fromVersion': fromVersion,
@@ -146,52 +96,17 @@ class LibraryDbRecoveryService {
     );
   }
 
-  /// נקרא אחרי apply מוצלח — ה-DB תקין, מוחקים סימון וגיבוי.
-  void finishSuccess(String dbPath) {
-    _deleteQuietly(markerPathFor(dbPath));
-    _deleteQuietly(backupPathFor(dbPath));
-  }
+  /// נקרא אחרי apply מוצלח — ה-DB תקין, מוחקים את הסימון.
+  void finishSuccess(String dbPath) => _deleteQuietly(markerPathFor(dbPath));
 
-  /// מנקה סימון/גיבוי תקועים אחרי שזוהה מצב לא תקין ודווח (לא מחיקה שקטה).
-  void clearStaleArtifacts(String dbPath) {
-    _deleteQuietly(markerPathFor(dbPath));
-    _deleteQuietly(backupPathFor(dbPath));
-  }
+  /// מנקה סימון תקוע — גם אחרי apply שנכשל (וה-DB נשאר בגרסה שלפניו), וגם
+  /// אחרי שזוהה מצב לא תקין ודווח (לא מחיקה שקטה).
+  void clearStaleArtifacts(String dbPath) =>
+      _deleteQuietly(markerPathFor(dbPath));
 
-  /// נקרא אחרי apply כושל — משחזר את הגיבוי ומנקה.
-  Future<void> rollback(String dbPath) async {
-    if (File(backupPathFor(dbPath)).existsSync()) {
-      await _restore(backupPathFor(dbPath), dbPath);
-    }
-    _deleteQuietly(markerPathFor(dbPath));
-    _deleteQuietly(backupPathFor(dbPath));
-  }
-
-  /// משחזר [backupPath] אל [dbPath] דרך עותק זמני מאומת, ואז rename אטומי.
-  /// אינו מוחק את [backupPath] — כך האינווריאנט נשמר עד שהקורא מנקה.
-  Future<void> _restore(String backupPath, String dbPath) async {
-    final tmp = _restoreTmpFor(dbPath);
-    _deleteQuietly(tmp);
-    await Isolate.run(() => cloneOrCopyFile(backupPath, tmp));
-    _verifySameSize(
-      tmp,
-      backupPath,
-      AppL10n.strings.libraryDomain.restoreLabel,
-    );
-    _deleteQuietly('$dbPath-wal');
-    _deleteQuietly('$dbPath-shm');
-    _deleteQuietly(dbPath);
-    File(tmp).renameSync(dbPath);
-  }
-
-  void _verifySameSize(String actual, String expected, String label) {
-    final a = File(actual).lengthSync();
-    final e = File(expected).lengthSync();
-    if (a != e) {
-      _deleteQuietly(actual);
-      throw BackupIntegrityException(
-        AppL10n.strings.libraryDomain.partialCopy(label, a, e),
-      );
+  void _deleteLegacyArtifacts(String dbPath) {
+    for (final suffix in _legacySuffixes) {
+      _deleteQuietly('$dbPath$suffix');
     }
   }
 
@@ -201,23 +116,4 @@ class LibraryDbRecoveryService {
       if (file.existsSync()) file.deleteSync();
     } catch (_) {}
   }
-}
-
-/// מעתיק קובץ. מנסה reflink/clonefile (מיידי ב-APFS/Btrfs) לפני byte-copy
-/// יקר. פונקציה top-level כדי שתוכל לרוץ דרך `Isolate.run`.
-void cloneOrCopyFile(String src, String dst) {
-  try {
-    if (Platform.isMacOS) {
-      if (Process.runSync('cp', ['-c', src, dst]).exitCode == 0) return;
-    } else if (Platform.isLinux) {
-      if (Process.runSync('cp', ['--reflink=auto', src, dst]).exitCode == 0) {
-        return;
-      }
-    }
-  } catch (_) {
-    // נופלים ל-copy רגיל
-  }
-  final dstFile = File(dst);
-  if (dstFile.existsSync()) dstFile.deleteSync();
-  File(src).copySync(dst);
 }

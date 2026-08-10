@@ -3,30 +3,41 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import 'library_state_store.dart';
+import 'otzaria_settings_reader.dart';
 
 /// מוצא את נתיב `seforim.db` של המשתמש.
 ///
-/// **סדר החיפוש** (לפי בקשת המשתמש: קודם ברירת מחדל, ואז ידני):
-/// 1. נתיב מותאם אישית ששמור מ-[LibraryStateStore] (המשתמש כבר הצביע
-///    עליו בעבר).
-/// 2. ברירות המחדל של אוצריא בפלטפורמה הנוכחית — ראו [defaultDbDirs].
-/// 3. **גיבוי** בווינדוס: `C:\אוצריא\seforim.db`.
+/// **סדר החיפוש**:
+/// 1. נתיב מותאם אישית ששמור מ-[LibraryStateStore] (המשתמש כבר הצביע עליו).
+/// 2. **ההגדרות של אוצריא עצמה** — `key-library-path` +
+///    `key-library-folder-name` מתוך `app_preferences.hive`, בדיוק כמו
+///    `DatabaseConstants.getDatabasePath` שם. זה המקור האמיתי: משתמש שהעביר
+///    את הספרייה לכונן אחר עשה זאת *שם*, ובלי לקרוא את ההגדרה נעדכן קובץ אחר.
+/// 3. ספרייה מצורפת ליד ההתקנה (חבילת FULL ב-macOS) — ראו [bundledLibraryDir].
+/// 4. ברירות המחדל של אוצריא בפלטפורמה הנוכחית — ראו [defaultDbDirs].
+/// 5. **גיבוי** בווינדוס: `C:\אוצריא\seforim.db`.
 ///
-/// **לא** מפרסים את הגדרות ה-Hive/Settings של אוצריא כדי לקרוא נתיב
-/// מותאם אישית שהמשתמש הגדיר שם — אם אף אחד מהמיקומים לא נמצא, פשוט
-/// מבקשים מהמשתמש להצביע ידנית (per ההחלטה איתו).
-///
-/// מחזיר null אם אף מקור לא נמצא — הקורא (UI) צריך לבקש מהמשתמש
-/// להצביע על התיקייה, ואז לקרוא ל-[LibraryStateStore.saveCustomDbPath].
+/// מחזיר null אם אף מקור לא נמצא — הקורא (UI) צריך לבקש מהמשתמש להצביע על
+/// הקובץ, ואז לקרוא ל-[LibraryStateStore.saveCustomDbPath].
 class LibraryDbLocator {
   const LibraryDbLocator({
     required this.stateStore,
+    this.settingsReader = const OtzariaSettingsReader(),
+    this.otzariaLaunchPath,
     String? operatingSystem,
     Map<String, String>? environment,
   })  : _operatingSystemOverride = operatingSystem,
         _environmentOverride = environment;
 
   final LibraryStateStore stateStore;
+
+  /// קורא את קופסת ההגדרות של אוצריא. best-effort — ראו [OtzariaSettingsReader].
+  final OtzariaSettingsReader settingsReader;
+
+  /// נתיב ההפעלה של אוצריא (`.exe` בווינדוס, חבילת `.app` ב-macOS), אם ידוע.
+  /// דרוש כדי לזהות התקנה **ניידת** (שם שורש הנתונים יושב ליד התוכנה ולא
+  /// ב-`%APPDATA%`) וספרייה מצורפת. `null` = פשוט מדלגים על שתי האפשרויות.
+  final Future<String?> Function()? otzariaLaunchPath;
 
   /// דריסות לבדיקות בלבד. בלעדיהן בדיקה כמו "אין DB בשום מקום" הייתה
   /// נכשלת אצל מפתח שאוצריא אמיתית מותקנת אצלו במיקום ברירת המחדל.
@@ -43,6 +54,16 @@ class LibraryDbLocator {
   p.Context get _path => _operatingSystem == 'windows' ? p.windows : p.posix;
 
   static const String databaseFileName = 'seforim.db';
+
+  /// סימון ההתקנה הניידת של אוצריא, ליד ה-executable שלה
+  /// (`AppPaths.portableMarkerFileName`), ותיקיית הנתונים שהוא מפעיל.
+  static const String portableMarkerFileName = 'portable.marker';
+  static const String portableDataFolderName = 'otzaria_data';
+
+  /// ספרייה מצורפת בחבילת FULL: תיקיית `אוצריא` ליד ההתקנה, עם קובץ סימון
+  /// שה-CI של אוצריא יוצר (`AppPaths._bundledLibraryMarkerFileName`).
+  static const String bundledLibraryFolderName = 'אוצריא';
+  static const String bundledLibraryMarkerFileName = '.otzaria_bundled_library';
 
   /// גיבוי משני בווינדוס — לא ברירת המחדל האמיתית. ייתכן שזה עדיין נכון
   /// בהתקנות ישנות/מסוימות (למשל חבילת "FULL" שמתקינה במיקום קבוע).
@@ -99,16 +120,106 @@ class LibraryDbLocator {
     return dirs;
   }
 
+  /// התיקייה שבה יושב ה-executable של אוצריא, לפי נתיב ההפעלה: ב-macOS זהו
+  /// `Contents/MacOS` שבתוך חבילת ה-`.app`, ושם גם יושב סימון ההתקנה הניידת.
+  String? exeDirFor(String? launchPath) {
+    if (launchPath == null || launchPath.isEmpty) return null;
+    if (_operatingSystem == 'macos' &&
+        _path.basename(launchPath).toLowerCase().endsWith('.app')) {
+      return _path.join(launchPath, 'Contents', 'MacOS');
+    }
+    return _path.dirname(launchPath);
+  }
+
+  /// שורשי הנתונים של אוצריא לפי סדר עדיפות: התקנה ניידת קודמת לכול, בדיוק
+  /// כמו `AppPaths.getDataRootPath`.
+  Future<List<String>> otzariaDataRoots(String? launchPath) async {
+    final roots = <String>[];
+    final exeDir = exeDirFor(launchPath);
+    if (exeDir != null &&
+        await File(_path.join(exeDir, portableMarkerFileName)).exists()) {
+      roots.add(_path.join(exeDir, portableDataFolderName));
+    }
+
+    switch (_operatingSystem) {
+      case 'windows':
+        final appData = _environment['APPDATA'];
+        if (appData != null && appData.isNotEmpty) {
+          roots.add(_path.join(appData, 'otzaria'));
+        }
+        final programData = _environment['ProgramData'];
+        if (programData != null && programData.isNotEmpty) {
+          roots.add(_path.join(programData, 'otzaria'));
+        }
+      case 'macos':
+        final home = _environment['HOME'];
+        if (home != null && home.isNotEmpty) {
+          roots.add(
+              _path.join(home, 'Library', 'Application Support', 'otzaria'));
+        }
+        roots.add(_path.join('/Library', 'Application Support', 'otzaria'));
+      default:
+        final home = _environment['HOME'];
+        if (home != null && home.isNotEmpty) {
+          roots.add(_path.join(home, '.local', 'share', 'otzaria'));
+        }
+    }
+    return roots;
+  }
+
+  /// תיקיית הספרייה המצורפת (חבילת FULL) ליד ההתקנה, או `null`. הסימון הוא
+  /// תנאי — בלעדיו תיקייה בשם `אוצריא` שבמקרה נמצאת שם הייתה נחשבת ספרייה.
+  Future<String?> bundledLibraryDir(String? launchPath) async {
+    // באוצריא הזיהוי מדולג בווינדוס (שם ה-installer כותב את ההגדרה בעצמו).
+    if (_operatingSystem != 'macos') return null;
+    final exeDir = exeDirFor(launchPath);
+    if (exeDir == null) return null;
+
+    final dir = _path.normalize(
+      _path.join(exeDir, '..', '..', '..', bundledLibraryFolderName),
+    );
+    final marker = File(_path.join(dir, bundledLibraryMarkerFileName));
+    final db = File(_path.join(dir, databaseFileName));
+    if (await marker.exists() && await db.exists()) return dir;
+    return null;
+  }
+
   Future<String?> resolveDbPath() async {
     final custom = await stateStore.loadCustomDbPath();
     if (custom != null && await File(custom).exists()) {
       return custom;
     }
 
+    final launchPath = await otzariaLaunchPath?.call();
+
+    // ההגדרה של אוצריא עצמה — המקור המוסמך כשהיא כבר רצה פעם אחת.
+    for (final root in await otzariaDataRoots(launchPath)) {
+      final settings = await settingsReader.read(root);
+      final fromSettings = settings?.resolveDbPath(
+        path: _path,
+        fileName: databaseFileName,
+      );
+      if (fromSettings != null && await File(fromSettings).exists()) {
+        return fromSettings;
+      }
+    }
+
+    final bundled = await bundledLibraryDir(launchPath);
+    if (bundled != null) return _path.join(bundled, databaseFileName);
+
     final candidates = defaultDbDirs(
       operatingSystem: _operatingSystem,
       environment: _environment,
     );
+    // התקנה ניידת ששורש הנתונים שלה ליד התוכנה, כשאוצריא עוד לא רצה שם.
+    final exeDir = exeDirFor(launchPath);
+    if (exeDir != null &&
+        await File(_path.join(exeDir, portableMarkerFileName)).exists()) {
+      candidates.insert(
+        0,
+        _path.join(exeDir, portableDataFolderName, 'books'),
+      );
+    }
 
     for (final dir in candidates) {
       final candidate = _path.join(dir, databaseFileName);

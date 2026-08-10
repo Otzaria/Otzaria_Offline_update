@@ -16,6 +16,7 @@ import 'services/otzaria_installer.dart';
 import 'services/otzaria_launcher.dart';
 import 'services/otzaria_release_client.dart';
 import 'services/otzaria_state_store.dart';
+import 'services/running_otzaria_locator.dart';
 
 /// נקודת הכניסה היחידה שמודול ה-UI (הדשבורד ב-Flutter) אמור להשתמש בה.
 /// מרכיב יחד את בדיקת ה-release, ההתקנה, השמירה, הזיהוי וההפעלה, בלי
@@ -44,10 +45,12 @@ class OtzariaManager {
     required String dataDir,
     OtzariaTargetPlatform? platform,
     Map<String, String>? environment,
+    RunningOtzariaLocator runningLocator = const RunningOtzariaLocator(),
     this.preferPrerelease = false,
   })  : _platform =
             platform ?? OtzariaTargetPlatform.detect(Platform.operatingSystem),
         _environment = environment ?? Platform.environment,
+        _runningLocator = runningLocator,
         _stateStore =
             OtzariaStateStore(p.join(dataDir, 'otzaria_install_state.json')),
         _launcher = const OtzariaLauncher(),
@@ -99,6 +102,7 @@ class OtzariaManager {
   late final OtzariaAppMirror _mirror;
   final OtzariaLauncher _launcher;
   final OtzariaAppLocator _appLocator;
+  final RunningOtzariaLocator _runningLocator;
   final InstalledVersionReader _versionReader;
   final String _defaultInstallDir;
 
@@ -203,8 +207,28 @@ class OtzariaManager {
   /// [OtzariaUpdateCheckResult.latestRelease] הוא `null` כשעדיין לא הורדה
   /// שום גרסה. זה לא כשל: זה אומר "יש להריץ הורדה במחשב עם אינטרנט".
   Future<OtzariaUpdateCheckResult> checkForUpdate() async {
-    final mirrored = await _mirror.load();
-    var current = await _stateStore.load();
+    // שלושתם עצמאיים: שתי קריאות דיסק ובדיקת תהליך. בטור זה היה סכום
+    // הזמנים — ובדיקת התהליך לבדה היא ~300ms.
+    //
+    // בדיקת תהליך **אחת** משרתת את כל הבדיקה: היא גם מזהה התקנה וגם עונה
+    // על "אוצריא פתוחה?" שהממשק מציג. קודם היא רצה פעמיים — כאן ושוב
+    // בלאנצ'ר.
+    final mirrorLoad = _mirror.load();
+    final storedState = _stateStore.load();
+    final probe = _runningLocator.probe();
+
+    final mirrored = await mirrorLoad;
+    var current = await storedState;
+    final running = await probe;
+
+    // התהליך הרץ קודם לרשימת התיקיות: הוא אינו ניחוש אלא העותק שהמשתמש
+    // מפעיל בפועל — כולל התקנה במיקום שאינו ברשימה. זו גם תצפית **חולפת**,
+    // ולכן נשמרת: אחרת המידע היה נעלם בדיוק כשמבקשים מהמשתמש לסגור את
+    // אוצריא. זיהוי לפי תיקייה, לעומת זאת, חוזר על עצמו בכל בדיקה.
+    if (current == null) {
+      current = _installStateAt(running.launchPath);
+      if (current != null) await _stateStore.save(current);
+    }
 
     for (final candidate in _autoDetectDirs) {
       if (current != null) break;
@@ -219,6 +243,7 @@ class OtzariaManager {
       prereleaseRelease: mirrored.prerelease?.release,
       preferPrerelease: preferPrerelease,
       currentState: current,
+      isOtzariaRunning: running.isRunning,
     );
   }
 
@@ -290,6 +315,31 @@ class OtzariaManager {
     return OtzariaInstallState(
       installedTagName: version,
       installDir: customDir,
+      launchPath: launchPath,
+    );
+  }
+
+  /// מזהה התקנה קיימת לפי **תהליך אוצריא שרץ כרגע** — ראו
+  /// [RunningOtzariaLocator]. בשונה מ-[detectExistingInstall], לא סורקים
+  /// כאן את התיקייה: ידוע לנו בדיוק איזה קובץ רץ, ולסרוק היה עלול להחזיר
+  /// exe אחר שיושב לידו.
+  ///
+  /// מחזיר null כשאוצריא אינה רצה, כשאין הרשאה לקרוא את נתיב התהליך, או
+  /// כשלא ניתן לקרוא ממנו גרסה — בכל המקרים האלה פשוט ממשיכים לזיהוי
+  /// לפי תיקיות ברירת המחדל.
+  Future<OtzariaInstallState?> detectRunningInstall() async =>
+      _installStateAt(await _runningLocator.findLaunchPath());
+
+  /// מצב התקנה מנתיב הפעלה שכבר ידוע, בלי לחזור לבדיקת התהליך.
+  OtzariaInstallState? _installStateAt(String? launchPath) {
+    if (launchPath == null) return null;
+
+    final version = _versionReader.readVersion(launchPath);
+    if (version == null) return null;
+
+    return OtzariaInstallState(
+      installedTagName: version,
+      installDir: p.dirname(launchPath),
       launchPath: launchPath,
     );
   }

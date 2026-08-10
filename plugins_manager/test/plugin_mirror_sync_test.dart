@@ -393,6 +393,41 @@ void main() {
     });
   });
 
+  group('תשובה ריקה אינה מרוקנת מראה קיימת', () {
+    test('רשימת תוספים ריקה מול קטלוג קיים — נזרק, והמראה נשארת', () async {
+      await sync(_Site());
+
+      await expectLater(
+        sync(_Site(plugins: [])),
+        throwsA(isA<StateError>()),
+      );
+      final onDisk = await PluginMirrorStore(temp.path).load();
+      expect(onDisk.plugins.map((e) => e.id), ['a', 'b']);
+      expect(onDisk.categories, isNotEmpty);
+    });
+
+    test('רשימה ריקה בסנכרון ראשון תקינה — אין מה לאבד', () async {
+      final catalog = await sync(_Site(plugins: []));
+      expect(catalog.plugins, isEmpty);
+    });
+
+    test('דף בית בלי קטגוריות אינו מוחק את אלה שכבר במראה', () async {
+      await sync(_Site());
+
+      final site = _Site()..storeHome = {'settings': {}, 'categories': []};
+      final events = <PluginSyncProgress>[];
+      final catalog = await sync(site, events: events);
+
+      expect(catalog.categories, hasLength(1));
+      expect(catalog.categories.single.slug, 'study');
+      expect(catalog.home.title, 'חנות התוספים של אוצריא');
+      expect(
+        warningsOf(events),
+        contains(strings.syncStructureFailed(strings.syncStructureEmpty)),
+      );
+    });
+  });
+
   group('דילוג על הורדה חוזרת', () {
     test('גרסה שלא השתנתה — הקובץ לא יורד שוב, התמונות כן', () async {
       await sync(_Site());
@@ -402,6 +437,23 @@ void main() {
 
       expect(second.requestsMatching('/download'), isEmpty);
       expect(second.requestsMatching('/image'), hasLength(1));
+    });
+
+    test('הורדה שנכשלה — הגרסה בקטלוג נשארת של הקובץ שבמראה, ויורד בסבב הבא',
+        () async {
+      await sync(_Site());
+
+      // גרסה חדשה באתר, אבל ההורדה נופלת: הקטלוג חייב להמשיך לתאר את 1.0.0,
+      // אחרת בדיקת ה-unchanged תתאים לנצח והקובץ החדש לא יירד לעולם.
+      final failing = _Site(plugins: _Site.defaultPlugins(versionA: '1.1.0'))
+        ..failures['/api/plugins/a/download'] = 500;
+      final afterFailure = await sync(failing);
+      expect(afterFailure.plugins.first.version, '1.0.0');
+
+      final retry = _Site(plugins: _Site.defaultPlugins(versionA: '1.1.0'));
+      final catalog = await sync(retry);
+      expect(retry.requestsMatching('/download'), ['/api/plugins/a/download']);
+      expect(catalog.plugins.first.version, '1.1.0');
     });
 
     test('גרסה שהשתנתה מורידה מחדש', () async {

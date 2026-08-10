@@ -10,11 +10,18 @@ class LibraryDiscoveryResult {
   final ReleaseAsset? latestFullDbAsset;
   final String? latestReleaseTag;
 
+  /// גרסת ה-DB ש-[latestFullDbAsset] באמת מביא. **אינה בהכרח**
+  /// [latestVersion]: כש-release חדש מכיל patches בלבד, ה-DB המלא האחרון
+  /// הוא של גרסה קודמת. בלי ההבחנה הזו תוכנית ההורדה המלאה מכריזה על יעד
+  /// שהנכס אינו מגיע אליו, והאימות שאחרי החילוץ דוחה ~1.1GB שהורדו זה עתה.
+  final int? latestFullDbVersion;
+
   const LibraryDiscoveryResult({
     required this.latestVersion,
     required this.edges,
     required this.latestFullDbAsset,
     required this.latestReleaseTag,
+    this.latestFullDbVersion,
   });
 }
 
@@ -94,6 +101,7 @@ class LibraryUpdateDiscovery {
       edges: edges,
       latestFullDbAsset: latestFull,
       latestReleaseTag: latestTag,
+      latestFullDbVersion: latestFull == null ? null : bestFullVersion,
     );
   }
 

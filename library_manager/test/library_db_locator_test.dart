@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:hive_ce/hive.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -77,6 +78,117 @@ void main() {
       await File(userPath).writeAsString('fake db');
 
       expect(await locatorWithIsolatedDefaults().resolveDbPath(), userPath);
+    });
+  });
+
+  /// הפער שהיה כאן: אוצריא מחזיקה את נתיב הספרייה **בהגדרות שלה**, ומשתמש
+  /// שהעביר את הספרייה לכונן אחר עשה זאת שם. בלי לקרוא את הקופסה עדכנו קובץ
+  /// אחר לגמרי (או חשבנו שאין מסד בכלל).
+  group('LibraryDbLocator — ההגדרות של אוצריא', () {
+    late Directory tempDir;
+    late LibraryStateStore stateStore;
+    late String dataRoot;
+
+    // הבדיקה נוגעת בקבצים אמיתיים, ולכן היא רצה בפלטפורמה של המכונה ולא
+    // בדריסה — אחרת ה-context של הנתיבים לא תואם ל-`p.join` שכאן.
+    final os = Platform.isWindows ? 'windows' : 'macos';
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('db-locator-hive-');
+      stateStore = LibraryStateStore(p.join(tempDir.path, 'state.json'));
+      dataRoot = Platform.isWindows
+          ? p.join(tempDir.path, 'Roaming', 'otzaria')
+          : p.join(tempDir.path, 'home', 'Library', 'Application Support',
+              'otzaria');
+      await Directory(dataRoot).create(recursive: true);
+    });
+
+    tearDown(() async {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+    });
+
+    /// כותב קופסת `app_preferences` אמיתית — אותה חבילה ואותו שם קופסה
+    /// שאוצריא משתמשת בהם (`HiveCache.keyName`).
+    Future<void> writeSettings(Map<String, String> values) async {
+      Hive.init(dataRoot);
+      final box = await Hive.openBox<dynamic>(
+        OtzariaSettingsReader.boxName,
+        path: dataRoot,
+      );
+      await box.putAll(values);
+      await box.close();
+    }
+
+    LibraryDbLocator locator({String? launchPath}) => LibraryDbLocator(
+          stateStore: stateStore,
+          operatingSystem: os,
+          environment: Platform.isWindows
+              ? {'APPDATA': p.join(tempDir.path, 'Roaming')}
+              : {'HOME': p.join(tempDir.path, 'home')},
+          otzariaLaunchPath:
+              launchPath == null ? null : (() async => launchPath),
+        );
+
+    Future<String> createDb(String dir) async {
+      await Directory(dir).create(recursive: true);
+      final path = p.join(dir, 'seforim.db');
+      await File(path).writeAsString('fake db');
+      return path;
+    }
+
+    test('נתיב ספרייה מההגדרות מנצח את מיקום ברירת המחדל', () async {
+      final moved = await createDb(p.join(tempDir.path, 'external', 'books'));
+      // גם בברירת המחדל יש מסד — ובכל זאת זה שבהגדרות הוא הנכון.
+      await createDb(p.join(dataRoot, 'books'));
+      await writeSettings({
+        OtzariaSettingsReader.keyLibraryPath:
+            p.join(tempDir.path, 'external', 'books'),
+      });
+
+      expect(await locator().resolveDbPath(), moved);
+    });
+
+    test('key-library-folder-name נוסף כתת-תיקייה, כמו _buildDbPath', () async {
+      final nested = await createDb(p.join(tempDir.path, 'base', 'אוצריא'));
+      await writeSettings({
+        OtzariaSettingsReader.keyLibraryPath: p.join(tempDir.path, 'base'),
+        OtzariaSettingsReader.keyLibraryFolderName: 'אוצריא',
+      });
+
+      expect(await locator().resolveDbPath(), nested);
+    });
+
+    test('הגדרה שמצביעה על קובץ שאינו קיים נופלת לברירת המחדל', () async {
+      final fallback = await createDb(p.join(dataRoot, 'books'));
+      await writeSettings({
+        OtzariaSettingsReader.keyLibraryPath: p.join(tempDir.path, 'gone'),
+      });
+
+      expect(await locator().resolveDbPath(), fallback);
+    });
+
+    test('התקנה ניידת: הקופסה נקראת מתיקיית הנתונים שליד התוכנה', () async {
+      // אוצריא ניידת — `portable.marker` ליד ה-executable, וההגדרות יושבות
+      // ב-`otzaria_data` שלידו ולא ב-`%APPDATA%`/Application Support.
+      final installDir = p.join(tempDir.path, 'drive');
+      final launchPath = Platform.isWindows
+          ? p.join(installDir, 'otzaria.exe')
+          : p.join(installDir, 'אוצריא.app');
+      final exeDir = Platform.isWindows
+          ? installDir
+          : p.join(launchPath, 'Contents', 'MacOS');
+      await Directory(exeDir).create(recursive: true);
+      await File(p.join(exeDir, LibraryDbLocator.portableMarkerFileName))
+          .writeAsString('');
+      dataRoot = p.join(exeDir, LibraryDbLocator.portableDataFolderName);
+      await Directory(dataRoot).create(recursive: true);
+
+      final portableDb = await createDb(p.join(dataRoot, 'books'));
+      await writeSettings({
+        OtzariaSettingsReader.keyLibraryPath: p.join(dataRoot, 'books'),
+      });
+
+      expect(await locator(launchPath: launchPath).resolveDbPath(), portableDb);
     });
   });
 
