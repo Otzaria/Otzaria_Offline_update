@@ -46,13 +46,16 @@ void main() {
     await deleteTempDir(tempDir);
   });
 
-  Future<void> pumpShell(WidgetTester tester) async {
+  Future<void> pumpShell(
+    WidgetTester tester, {
+    RunningOtzariaLocator locator = const _NeverRunningLocator(),
+  }) async {
     useViewSize(tester, const Size(1400, 1000));
     await tester.pumpWidget(
       wrap(AppShell(
         dataDir: tempDir.path,
         settings: settings,
-        runningLocator: const _NeverRunningLocator(),
+        runningLocator: locator,
         // כפתורי החלון מדברים עם ערוץ פלטפורמה שאינו קיים בבדיקות widget.
         showWindowButtons: false,
       )),
@@ -171,6 +174,34 @@ void main() {
     expect(find.text(stringsOf().home.downloadNowButton), findsNothing);
   });
 
+  testWidgets('אוצריא שנסגרה מזוהה בזמן שהלאנצ\'ר פתוח — בלי הפעלה מחדש שלו',
+      (tester) async {
+    // הבדיקה המקומית כבויה כאן בכוונה: היא קוראת מהדיסק ולא מסתיימת בתוך
+    // ה-fake-async, ואז מצב התהליך היה נקבע רק אחרי סיום הבדיקה.
+    await tester.runAsync(() => settings.update(const AppSettings(
+          autoMetadataCheck: false,
+          autoCheckOnlineUpdates: false,
+        )));
+    final locator = _MutableLocator(isRunning: true);
+
+    await pumpShell(tester, locator: locator);
+    await tester.pump();
+    expect(find.text(stringsOf().home.otzariaRunningTitle), findsOneWidget);
+
+    // המשתמש סוגר את אוצריא. הרענון המחזורי אמור להבחין בזה מעצמו.
+    locator.isRunning = false;
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pump();
+
+    expect(find.text(stringsOf().home.otzariaRunningTitle), findsNothing);
+
+    // ומכאן הטיימר צריך להיכבות: אחרת `tasklist` (~300ms) היה רץ כל 3
+    // שניות לנצח, על אוצריא שכבר סגורה.
+    final probesWhenClosed = locator.probes;
+    await tester.pump(const Duration(seconds: 12));
+    expect(locator.probes, probesWhenClosed);
+  });
+
   testWidgets('הניווט מסמן את הפריט הנבחר ומחליף את המסך המוצג',
       (tester) async {
     await pumpShell(tester);
@@ -196,4 +227,19 @@ class _NeverRunningLocator extends RunningOtzariaLocator {
   @override
   Future<RunningOtzariaProbe> probe() async =>
       (isRunning: false, launchPath: null);
+}
+
+/// אוצריא שנסגרת באמצע הבדיקה: [isRunning] מוחלף בין בדיקה לבדיקה.
+/// [probes] סופר דגימות, כדי לאמת גם שהרענון המחזורי **נכבה**.
+class _MutableLocator extends RunningOtzariaLocator {
+  _MutableLocator({required this.isRunning});
+
+  bool isRunning;
+  int probes = 0;
+
+  @override
+  Future<RunningOtzariaProbe> probe() async {
+    probes++;
+    return (isRunning: isRunning, launchPath: null);
+  }
 }

@@ -248,6 +248,9 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// כבר מנוסח כהודעה קריאה למשתמש, ומוצג ישירות ב-[errorMessage].
   Future<void> update() async {
     if (_lastCheck == null) return;
+    // שמירה מפני כניסה חוזרת: בין הלחיצה לדיאלוג יש בדיקת תהליך אסינכרונית,
+    // והכפתור פעיל בזמנה — שתי החלות במקביל על ה-DB החי הן בדיוק מה שאסור.
+    if (status == LibraryModuleStatus.updating) return;
 
     status = LibraryModuleStatus.updating;
     stageText = null;

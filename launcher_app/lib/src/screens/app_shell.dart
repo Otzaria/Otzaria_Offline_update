@@ -1,9 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
-import 'package:library_manager/library_manager.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
@@ -57,7 +55,16 @@ class _AppShellState extends State<AppShell> {
   late final PluginsModuleController _plugins;
 
   LauncherScreen _screen = LauncherScreen.home;
-  bool _otzariaIsRunning = false;
+
+  /// **נגזר** מהקונטרולר ולא מועתק לשדה: העתק נשאר תקוע על "פתוחה" עד
+  /// להפעלה מחדש של הלאנצ'ר, גם אחרי שאוצריא נסגרה ובדיקה חדשה כבר ידעה זאת.
+  bool get _otzariaIsRunning => _otzaria.isRunning;
+
+  /// כל עוד אוצריא פתוחה בודקים שוב מדי [_runningPollInterval], כדי שסגירה
+  /// שלה תזוהה מעצמה. כשהיא סגורה אין טיימר בכלל — פתיחה מחדש נתפסת
+  /// בבדיקה שרצה לפני כל פעולה חוסמת (ראו [refreshProcessState]).
+  static const Duration _runningPollInterval = Duration(seconds: 3);
+  Timer? _runningPoll;
 
   /// המסכים שנבנו בפועל. ה-[IndexedStack] בונה את *כל* ילדיו, ולכן בעבר גם
   /// חנות התוספים (רשת כרטיסים עם תמונה לכל תוסף) נבנתה ופענחה את כל
@@ -103,7 +110,7 @@ class _AppShellState extends State<AppShell> {
       // מריצה `tasklist` פעמיים בעלייה.
       unawaited(checkAll());
     } else {
-      unawaited(_refreshProcessState());
+      unawaited(refreshProcessState());
     }
     // בדיקה קלה ברשת (מטא-דאטה בלבד) — פעם אחת בהפעלה, לא טיימר מחזורי.
     // כשל (אין רשת) נבלע בתוך הקונטרולרים ולא מוצג כשגיאה.
@@ -114,6 +121,7 @@ class _AppShellState extends State<AppShell> {
 
   @override
   void dispose() {
+    _runningPoll?.cancel();
     widget.settings.removeListener(_onChange);
     _otzaria.removeListener(_onChange);
     _library.removeListener(_onChange);
@@ -127,7 +135,21 @@ class _AppShellState extends State<AppShell> {
   void _onChange() {
     if (!mounted) return;
     _applySettings(widget.settings.settings);
+    _syncRunningPoll();
     setState(() {});
+  }
+
+  /// מדליק/מכבה את הרענון המחזורי לפי מצב התהליך שהתקבל כרגע.
+  void _syncRunningPoll() {
+    if (_otzariaIsRunning) {
+      _runningPoll ??= Timer.periodic(
+        _runningPollInterval,
+        (_) => unawaited(_otzaria.refreshRunningState()),
+      );
+    } else {
+      _runningPoll?.cancel();
+      _runningPoll = null;
+    }
   }
 
   /// מזליג הגדרות שהקונטרולרים צריכים. הכול idempotent (הצבת ערך), ולכן אין
@@ -138,27 +160,23 @@ class _AppShellState extends State<AppShell> {
     _otzaria.preferPrerelease = s.preferAppPrerelease;
   }
 
-  /// בדיקת תהליך עצמאית — לרענון יזום מהמסך (כפתור "בדוק שוב"), כשלא רצה
-  /// בדיקה מלאה. בעלייה **לא** נקראת: ראו [checkAll].
-  Future<void> _refreshProcessState() async {
-    const guard = OtzariaProcessGuard();
-    final running = await guard.isAnyRunning(
-      OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
-    );
-    if (!mounted) return;
-    setState(() => _otzariaIsRunning = running);
-  }
+  /// בדיקת תהליך עצמאית — לרענון יזום מהמסך, ובעיקר **מיד לפני** פעולה
+  /// שאוצריא הפתוחה חוסמת. מחזירה את התוצאה הטרייה, כי `otzariaIsRunning`
+  /// של המסכים הוא הערך שנלכד בבנייה — זה שבגללו נחסמו מלכתחילה.
+  ///
+  /// `force`: זו נקודת ההכרעה לפני פעולה חוסמת, ולכן אינה מסתפקת בתשובה של
+  /// בדיקה שכבר הייתה באוויר. הרענון המחזורי, לעומת זאת, כן מצטרף.
+  Future<bool> refreshProcessState() =>
+      _otzaria.refreshRunningState(force: true);
 
   /// בודק גרסאות בשני המודולים **מהתיקייה המקומית בלבד**. לא נוגע ברשת,
   /// לא מוריד ולא מתקין דבר.
   Future<void> checkAll() async {
     // בטור ולא במקביל: בדיקת הספרייה משתמשת בנתיב ההתקנה של אוצריא כדי לאתר
     // את המסד (התקנה ניידת/ספרייה מצורפת), והוא ידוע רק אחרי הבדיקה שלה.
+    // מצב התהליך מתעדכן בתוכה, ו-[_otzariaIsRunning] נגזר ממנו.
     await _otzaria.checkForUpdate();
     if (!mounted) return;
-    // בדיקת אוצריא כבר הריצה `tasklist` בדרך לזיהוי ההתקנה — קריאה נוספת
-    // ל-[_refreshProcessState] כאן הייתה מריצה אותו שוב, בטור, על לא דבר.
-    setState(() => _otzariaIsRunning = _otzaria.isRunning);
 
     await _library.checkForUpdate();
     if (!mounted) return;
@@ -249,6 +267,7 @@ class _AppShellState extends State<AppShell> {
             otzariaIsRunning: _otzariaIsRunning,
             isDownloading: _isDownloading,
             isCheckingOnline: _isCheckingOnline,
+            onProcessStateChanged: refreshProcessState,
             onCheckOnline: checkOnline,
             onDownloadAll: downloadAll,
             onGoToOtzaria: () => _goTo(LauncherScreen.otzaria),
@@ -263,7 +282,7 @@ class _AppShellState extends State<AppShell> {
             library: _library,
             otzariaIsRunning: _otzariaIsRunning,
             isDownloading: _isDownloading,
-            onProcessStateChanged: _refreshProcessState,
+            onProcessStateChanged: refreshProcessState,
           ),
         LauncherScreen.plugins => PluginsScreen(controller: _plugins),
         LauncherScreen.settings => SettingsScreen(

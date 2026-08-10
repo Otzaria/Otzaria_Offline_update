@@ -48,6 +48,7 @@ void main() {
     bool otzariaIsRunning = false,
     bool isDownloading = false,
     bool isCheckingOnline = false,
+    Future<bool> Function()? onProcessStateChanged,
   }) =>
       HomeScreen(
         otzaria: otzaria,
@@ -57,6 +58,7 @@ void main() {
         otzariaIsRunning: otzariaIsRunning,
         isDownloading: isDownloading,
         isCheckingOnline: isCheckingOnline,
+        onProcessStateChanged: onProcessStateChanged ?? () async => false,
         onCheckOnline: () async {},
         onDownloadAll: () async {},
         onGoToOtzaria: () {},
@@ -111,6 +113,64 @@ void main() {
 
     expect(find.text('אוצריא פתוחה'), findsOneWidget);
     expect(find.text('עדכון הספרייה חסום עד לסגירתה.'), findsOneWidget);
+  });
+
+  /// הכפתור בדף הבית קיים רק כשיש מה לעדכן — כאן זה מוצב ידנית, בלי דיסק.
+  void fakeLibraryUpdateAvailable() {
+    library.status = LibraryModuleStatus.updateAvailable;
+    library.localVersion = 1;
+    library.targetVersion = 2;
+  }
+
+  testWidgets('עדכון הספרייה נחסם לפי בדיקה טרייה — לא לפי מה שמוצג במסך',
+      (tester) async {
+    fakeLibraryUpdateAvailable();
+    var checks = 0;
+    // המסך עלה כשאוצריא הייתה פתוחה, ומאז היא נסגרה. קודם לחיצה על "עדכון"
+    // נחסמה לנצח לפי הערך שנלכד בבנייה — עד להפעלה מחדש של הלאנצ'ר.
+    await pumpScreen(
+      tester,
+      home(
+        otzariaIsRunning: true,
+        onProcessStateChanged: () async {
+          checks++;
+          return false;
+        },
+      ),
+    );
+
+    await tester.tap(find.widgetWithText(ActionButton, 'עדכון'));
+    await tester.pumpAndSettle();
+
+    expect(checks, 1);
+    expect(find.text('עדכון הספרייה'), findsOneWidget);
+    expect(find.text('עדכן עכשיו'), findsOneWidget);
+  });
+
+  testWidgets('אוצריא שנפתחה מאז הבנייה כן חוסמת — הבדיקה הטרייה קובעת',
+      (tester) async {
+    fakeLibraryUpdateAvailable();
+    var checks = 0;
+    await pumpScreen(
+      tester,
+      home(
+        otzariaIsRunning: false,
+        onProcessStateChanged: () async {
+          checks++;
+          return true;
+        },
+      ),
+    );
+
+    await tester.tap(find.widgetWithText(ActionButton, 'עדכון'));
+    await tester.pumpAndSettle();
+
+    // `checks` מוודא שהחסימה אכן קרתה, ולא שהלחיצה פשוט לא עשתה כלום.
+    expect(checks, 1);
+    // אין דיאלוג אישור: העדכון נחסם (ההודעה עצמה יוצאת ב-UiSnack, שדורש
+    // navigatorKey ולכן אינו נבנה בבדיקת מסך בודד).
+    expect(find.text('עדכון הספרייה'), findsNothing);
+    expect(find.text('עדכן עכשיו'), findsNothing);
   });
 
   testWidgets('מסך תוכנה מציג מצב ו"מה התחדש"', (tester) async {
@@ -199,7 +259,7 @@ void main() {
         library: library,
         otzariaIsRunning: false,
         isDownloading: false,
-        onProcessStateChanged: () async {},
+        onProcessStateChanged: () async => false,
       ),
     );
 
@@ -208,6 +268,81 @@ void main() {
     // אין יותר בחירת מקור — התיקייה קבועה ליד התוכנה.
     expect(find.text('עדכון מתיקייה מקומית'), findsNothing);
     expect(find.text('חזרה לעדכון מהרשת'), findsNothing);
+  });
+
+  testWidgets('מסך הספרייה חוסם לפי בדיקה טרייה — לא לפי מה שמוצג',
+      (tester) async {
+    fakeLibraryUpdateAvailable();
+    var checks = 0;
+    // אותו תיקון כמו בדף הבית, ובמסך אחר: המסך עלה כשאוצריא הייתה פתוחה,
+    // ומאז נסגרה — והעדכון היה נחסם עד להפעלה מחדש של הלאנצ'ר.
+    await pumpScreen(
+      tester,
+      LibraryScreen(
+        library: library,
+        otzariaIsRunning: true,
+        isDownloading: false,
+        onProcessStateChanged: () async {
+          checks++;
+          return false;
+        },
+      ),
+    );
+
+    await tester.tap(find.widgetWithText(ActionButton, 'התקנת העדכון'));
+    await tester.pumpAndSettle();
+
+    expect(checks, 1);
+    expect(find.text('עדכן עכשיו'), findsOneWidget);
+  });
+
+  testWidgets('מסך הספרייה: אוצריא שנפתחה מאז הבנייה כן חוסמת', (tester) async {
+    fakeLibraryUpdateAvailable();
+    var checks = 0;
+    await pumpScreen(
+      tester,
+      LibraryScreen(
+        library: library,
+        otzariaIsRunning: false,
+        isDownloading: false,
+        onProcessStateChanged: () async {
+          checks++;
+          return true;
+        },
+      ),
+    );
+
+    await tester.tap(find.widgetWithText(ActionButton, 'התקנת העדכון'));
+    await tester.pumpAndSettle();
+
+    expect(checks, 1);
+    expect(find.text('עדכן עכשיו'), findsNothing);
+  });
+
+  testWidgets('"בדוק שוב" במסך הספרייה מרענן גם את מצב התהליך', (tester) async {
+    // האזהרה "אוצריא פתוחה" יושבת באותו כרטיס, ולכן הכפתור שמתחתיה חייב
+    // לרענן גם אותה ולא רק את גרסת המסד.
+    var checks = 0;
+    await pumpScreen(
+      tester,
+      LibraryScreen(
+        library: library,
+        otzariaIsRunning: true,
+        isDownloading: false,
+        onProcessStateChanged: () async {
+          checks++;
+          return false;
+        },
+      ),
+    );
+
+    // בלי pumpAndSettle: בדיקת הספרייה שאחריה קוראת מהדיסק ואינה מסתיימת
+    // בתוך ה-fake-async. ה-pump הארוך רק מנקז את סיבוב-המינימום של הכפתור.
+    await tester.tap(find.widgetWithText(ActionButton, 'בדיקה מחדש'));
+    await tester.pump();
+
+    expect(checks, 1);
+    await tester.pump(const Duration(seconds: 1));
   });
 
   testWidgets('מסך החנות מציג מצב ריק אמיתי כשהמראה עוד ריקה', (tester) async {
@@ -733,7 +868,7 @@ void main() {
         library: library,
         otzariaIsRunning: false,
         isDownloading: false,
-        onProcessStateChanged: () async {},
+        onProcessStateChanged: () async => false,
       ),
     );
 
@@ -757,7 +892,7 @@ void main() {
         library: library,
         otzariaIsRunning: true,
         isDownloading: false,
-        onProcessStateChanged: () async {},
+        onProcessStateChanged: () async => false,
       ),
     );
 

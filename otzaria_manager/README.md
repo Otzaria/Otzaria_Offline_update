@@ -16,10 +16,11 @@
 | --- | --- | --- |
 | האסט שנבחר | `otzaria-<ver>-windows.exe` | `otzaria-macos.zip`, ובהיעדרו `otzaria-macos.dmg` |
 | התקנה | הרצת Inno Setup בשקט (`/VERYSILENT /DIR=`) | חילוץ עם `ditto` והחלפת ה-`.app` בתיקיית ההתקנה |
-| מה מאתרים | `*.exe` (למעט `unins*`) | חבילת `.app` (הרדודה ביותר, בלי להיכנס לתוכה) |
+| מה מאתרים | `*.exe` ששמו מזכיר אוצריא, ובהיעדרו exe אחר (למעט `unins*` ו-exe עזר של Flutter) | חבילת `.app` (הרדודה ביותר, בלי להיכנס לתוכה) |
 | קריאת גרסה | `ProductVersion` מה-version resource (FFI, `package:win32`) | `CFBundleShortVersionString` מ-`Info.plist` (דרך `plutil`) |
 | הפעלה | `Process.start` מנותק | `open <bundle>` (דרך Launch Services) |
-| זיהוי אוטומטי של התקנה קיימת | התהליך הרץ, ואחריו התיקייה המנוהלת | התהליך הרץ, התיקייה המנוהלת, ואחריהם `/Applications` |
+| זיהוי אוטומטי של התקנה קיימת | התהליך הרץ, התיקייה המנוהלת, הרג'יסטרי, ואחריהם מיקומי ברירת המחדל | התהליך הרץ, התיקייה המנוהלת, ואחריהם `/Applications` |
+| התקנה במיקום לא צפוי, כשאוצריא סגורה | `InstallLocation` ממפתחות ה-Uninstall (`WindowsInstallRegistry`) | אין מקבילה — נדרשת בחירה ידנית |
 | נתיב התהליך הרץ | `tasklist` (PID) + `QueryFullProcessImageNameW` | `ps -A -o comm=` ועלייה לשורש ה-`.app` |
 
 **חבילות ה-FULL של ~2GB** (`otzaria-<ver>-windows-full.exe`,
@@ -132,6 +133,10 @@ manager.close();
 - `services/otzaria_app_locator.dart` — סריקת תיקייה ואיתור ה-exe/`.app` הראשי (משותף בין installer לזיהוי התקנה קיימת), עם סינון אופציונלי לתיקיות משותפות כמו `/Applications`.
 - `services/installed_version_reader.dart` — הממשק המשותף + בחירת המימוש לפי פלטפורמה.
 - `services/windows_exe_version_reader.dart` — קריאת `ProductVersion` מתוך Windows version resource, דרך FFI (`package:win32`).
+- `services/windows_install_registry.dart` — `InstallLocation` ממפתחות
+  ה-Uninstall של Inno Setup (HKCU, ואחריו HKLM ב-64 וב-32 סיביות). מאתר
+  התקנה בתיקייה שאינה ברשימת ברירות המחדל **גם כשאוצריא סגורה**; התיקייה
+  בלבד נלקחת משם, הגרסה נקראת תמיד מה-exe.
 - `services/mac_app_version_reader.dart` — קריאת `CFBundleShortVersionString`/`CFBundleIdentifier` מ-`Info.plist` (binary plist, ולכן דרך `plutil`).
 - `services/otzaria_app_mirror.dart` — מראת התוכנה שעל הכונן: מורידה את שתי
   הגרסאות (יציבה + pre-release כשהוא חדש ממנה), כותבת `latest-release.json`
@@ -170,10 +175,9 @@ OTZARIA_MACOS_ZIP=/tmp/otzaria-macos.zip dart test test/otzaria_installer_macos_
 - מנגנון resume/retry להורדת ה-installer אם הרשת נופלת (כרגע: כישלון
   → זריקת שגיאה, בלי retry אוטומטי — installer הוא הורדה חד-פעמית
   יחסית קטנה, בניגוד ל-DB המלא).
-- **`WindowsExeVersionReader` לא נבדק בפועל על ווינדוס** — צריך לבדוק
-  קומפילציה/ריצה אצלך. חשודים סבירים: שמות/חתימות פונקציות ב-
-  `package:win32` בין גרסאות, ו-casting של מצביעים. (המסלול המקביל
-  ב-macOS, `MacAppVersionReader`, כן אומת מול חבילה אמיתית.)
+- ~~`WindowsExeVersionReader` לא נבדק בפועל על ווינדוס~~ — אומת
+  ב-2026-08-10 מול התקנה אמיתית (`otzaria.exe` 0.9.96+90960) על
+  Windows 11, יחד עם `WindowsInstallRegistry`.
 - **הסרת גרסה קודמת ב-macOS**: ההתקנה מחליפה את חבילת ה-`.app` במלואה,
   ולכן שם דווקא *כן* אין בעיית "קבצים שהוסרו בין גרסאות" — היא קיימת רק
   במסלול Inno Setup של Windows.

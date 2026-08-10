@@ -17,6 +17,7 @@ import 'services/otzaria_launcher.dart';
 import 'services/otzaria_release_client.dart';
 import 'services/otzaria_state_store.dart';
 import 'services/running_otzaria_locator.dart';
+import 'services/windows_install_registry.dart';
 
 /// נקודת הכניסה היחידה שמודול ה-UI (הדשבורד ב-Flutter) אמור להשתמש בה.
 /// מרכיב יחד את בדיקת ה-release, ההתקנה, השמירה, הזיהוי וההפעלה, בלי
@@ -46,11 +47,13 @@ class OtzariaManager {
     OtzariaTargetPlatform? platform,
     Map<String, String>? environment,
     RunningOtzariaLocator runningLocator = const RunningOtzariaLocator(),
+    WindowsInstallRegistry installRegistry = const WindowsInstallRegistry(),
     this.preferPrerelease = false,
   })  : _platform =
             platform ?? OtzariaTargetPlatform.detect(Platform.operatingSystem),
         _environment = environment ?? Platform.environment,
         _runningLocator = runningLocator,
+        _installRegistry = installRegistry,
         _stateStore =
             OtzariaStateStore(p.join(dataDir, 'otzaria_install_state.json')),
         _launcher = const OtzariaLauncher(),
@@ -103,6 +106,7 @@ class OtzariaManager {
   final OtzariaLauncher _launcher;
   final OtzariaAppLocator _appLocator;
   final RunningOtzariaLocator _runningLocator;
+  final WindowsInstallRegistry _installRegistry;
   final InstalledVersionReader _versionReader;
   final String _defaultInstallDir;
 
@@ -144,8 +148,9 @@ class OtzariaManager {
 
   /// התיקיות שבהן מחפשים התקנה קיימת כשאין עדיין state שמור, לפי סדר
   /// עדיפות. התיקייה המנוהלת של הלאנצ'ר תמיד ראשונה (אם הלאנצ'ר עצמו
-  /// התקין, זה המקור הסמכותי); אחריה מיקומי ברירת המחדל האמיתיים של
-  /// אוצריא בפלטפורמה. ב-macOS `/Applications` בא **אחרון**, כדי שהתקנה
+  /// התקין, זה המקור הסמכותי); אחריה, בווינדוס, מה שרשום ברג'יסטרי — זה
+  /// הנתיב האמיתי גם כשהמשתמש התקין במקום משלו, ולכן הוא קודם לניחוש לפי
+  /// מיקומי ברירת המחדל. ב-macOS `/Applications` בא **אחרון**, כדי שהתקנה
   /// שהלאנצ'ר עשה בעצמו תמיד תנצח.
   ///
   /// `sharedDir` מסמן תיקייה שיש בה גם אפליקציות אחרות — ראו
@@ -154,6 +159,8 @@ class OtzariaManager {
       switch (_platform) {
         OtzariaTargetPlatform.windows => [
             (dir: _defaultInstallDir, sharedDir: false),
+            for (final dir in _installRegistry.installDirs())
+              (dir: dir, sharedDir: false),
             ..._windowsRealDefaultDirs,
           ],
         OtzariaTargetPlatform.macos => [
@@ -230,12 +237,16 @@ class OtzariaManager {
       if (current != null) await _stateStore.save(current);
     }
 
-    for (final candidate in _autoDetectDirs) {
-      if (current != null) break;
-      current = await detectExistingInstall(
-        customDir: candidate.dir,
-        isSharedDir: candidate.sharedDir,
-      );
+    // רק כשעדיין לא ידוע כלום: בניית הרשימה עצמה סורקת את הרג'יסטרי
+    // (~200ms), ואין סיבה לשלם על זה בכל בדיקה כשההתקנה כבר מוכרת.
+    if (current == null) {
+      for (final candidate in _autoDetectDirs) {
+        current = await detectExistingInstall(
+          customDir: candidate.dir,
+          isSharedDir: candidate.sharedDir,
+        );
+        if (current != null) break;
+      }
     }
 
     return OtzariaUpdateCheckResult(
@@ -349,8 +360,7 @@ class OtzariaManager {
   /// הנוכחית; ההשוואה היא על הסיומת `.otzaria` כדי שגם תיקון עתידי של
   /// המזהה, למשל ל-`org.otzaria.otzaria`, ימשיך לעבוד).
   bool _verifyIsOtzaria(String candidatePath) {
-    final name = p.basenameWithoutExtension(candidatePath).toLowerCase();
-    if (name.contains('otzaria') || name.contains('אוצריא')) return true;
+    if (OtzariaAppLocator.nameLooksLikeOtzaria(candidatePath)) return true;
 
     if (_platform == OtzariaTargetPlatform.macos) {
       final id =

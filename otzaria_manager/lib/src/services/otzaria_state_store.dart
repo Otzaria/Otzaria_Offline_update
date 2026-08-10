@@ -4,8 +4,9 @@ import 'dart:io';
 import '../models/otzaria_install_state.dart';
 
 /// שומר/טוען את קובץ ה-state המקומי שמתעד מה הותקן ואיפה. הקובץ הזה הוא
-/// מקור האמת שלנו — אנחנו לא מנסים לגלות גרסה מותקנת דרך Windows registry
-/// או קבצי גרסה של אוצריא עצמה, כי אלה לא בטוחים/עקביים בין גרסאות.
+/// מקור האמת שלנו. הרג'יסטרי משמש לאיתור **התיקייה** בלבד
+/// ([WindowsInstallRegistry]) — הגרסה נקראת תמיד מקובץ ההרצה עצמו, כי
+/// `DisplayVersion` משקף את מה שהמתקין רשם ולא את מה שיושב על הדיסק.
 class OtzariaStateStore {
   const OtzariaStateStore(this.stateFilePath);
 
