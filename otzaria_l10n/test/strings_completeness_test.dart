@@ -122,6 +122,10 @@ const _sameInBothLanguages = {
   'plugins.localFileDescription', // מחרוזת פורמט טהורה: "קובץ (גודל)"
 };
 const _hebrewLettersInEnglish = {'settings.languageHebrew'};
+
+/// ארגומנטים שבוחרים ניסוח ואינם מוצגים — בדיוק כמו בוליאני. המפתח הוא
+/// `נתיב#אינדקס`, כדי שהפטור יחול על הפרמטר האחד ולא על השדה כולו.
+const _selectorArgs = {'libraryDomain.applyPatchStage#0'};
 const _noHebrewLettersInHebrew = {
   'common.emptyValue',
   'settings.languageEnglish',
@@ -182,12 +186,13 @@ void main() {
   test('כל ארגומנט מופיע בטקסט, בשתי השפות', () {
     // תרגום שבולע ערך משוקלל הוא באג שקט: המשתמש רואה משפט תקין בלי המספר.
     for (final sampled in [...he.values, ...en.values]) {
-      for (final arg in sampled.args) {
+      for (var i = 0; i < sampled.args.length; i++) {
+        final arg = sampled.args[i];
         if (arg is bool) continue; // בוליאני בוחר ניסוח, אינו מוצג
         final expected = arg is List ? arg.first as String : '$arg';
         expect(
-          sampled.value,
-          contains(expected),
+          sampled.value.contains(expected),
+          !_selectorArgs.contains('${sampled.path}#$i'),
           reason: '${sampled.path} = ${sampled.value}',
         );
       }

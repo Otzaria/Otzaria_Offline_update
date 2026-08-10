@@ -42,6 +42,83 @@ void main() {
 
       expect(await locator.findIn(tempDir.path), isNull);
     });
+
+    test('prefers otzaria.exe over helper exes that precede it alphabetically',
+        () async {
+      // תיקיית ההתקנה האמיתית: crashpad_handler.exe נסרק ראשון, ויש לו
+      // version resource משלו — כך שהזיהוי דיווח על גרסה שאינה של אוצריא.
+      File(p.join(tempDir.path, 'crashpad_handler.exe'))
+          .writeAsStringSync('fake');
+      File(p.join(tempDir.path, 'otzaria.exe')).writeAsStringSync('fake');
+      File(p.join(tempDir.path, 'unins000.exe')).writeAsStringSync('fake');
+
+      final result = await locator.findIn(tempDir.path);
+
+      expect(p.basename(result!), 'otzaria.exe');
+    });
+
+    test('helper exes alone are not an install', () async {
+      File(p.join(tempDir.path, 'crashpad_handler.exe'))
+          .writeAsStringSync('fake');
+
+      expect(await locator.findIn(tempDir.path), isNull);
+    });
+
+    test('falls back to an unknown exe name, in case the app is renamed',
+        () async {
+      File(p.join(tempDir.path, 'crashpad_handler.exe'))
+          .writeAsStringSync('fake');
+      File(p.join(tempDir.path, 'sefaria.exe')).writeAsStringSync('fake');
+
+      expect(p.basename((await locator.findIn(tempDir.path))!), 'sefaria.exe');
+    });
+
+    test('שם תואם מנצח מועמד גיבוי שנסרק לפניו', () async {
+      // `fallback ??=` חייב להמשיך לסרוק. `aaa` קודם ל-`otzaria` בכל מיון.
+      File(p.join(tempDir.path, 'aaa.exe')).writeAsStringSync('fake');
+      File(p.join(tempDir.path, 'otzaria.exe')).writeAsStringSync('fake');
+
+      expect(p.basename((await locator.findIn(tempDir.path))!), 'otzaria.exe');
+    });
+
+    test('הלאנצ׳ר עצמו אינו מזוהה כאוצריא — שמו מכיל "אוצריא"', () async {
+      // התרחיש: המשתמש העתיק את תיקיית העדכונים אל תוך C:\אוצריא.
+      File(p.join(tempDir.path, 'עדכוני אוצריא.exe')).writeAsStringSync('fake');
+      final appFiles = Directory(p.join(tempDir.path, 'app-files'))
+        ..createSync(recursive: true);
+      File(p.join(appFiles.path, 'launcher_app.exe')).writeAsStringSync('fake');
+
+      expect(await locator.findIn(tempDir.path), isNull);
+    });
+
+    test('אוצריא האמיתית מנצחת את ה-stub של הלאנצ׳ר באותה תיקייה', () async {
+      File(p.join(tempDir.path, 'עדכוני אוצריא.exe')).writeAsStringSync('fake');
+      File(p.join(tempDir.path, 'otzaria.exe')).writeAsStringSync('fake');
+
+      expect(p.basename((await locator.findIn(tempDir.path))!), 'otzaria.exe');
+    });
+
+    test('מועמד הגיבוי הרדוד מנצח מקונן — ולא סדר הסריקה', () async {
+      final nested = Directory(p.join(tempDir.path, 'aaa', 'bbb'))
+        ..createSync(recursive: true);
+      File(p.join(nested.path, 'deep.exe')).writeAsStringSync('fake');
+      File(p.join(tempDir.path, 'zzz.exe')).writeAsStringSync('fake');
+
+      expect(p.basename((await locator.findIn(tempDir.path))!), 'zzz.exe');
+    });
+
+    test('מעבר לעומק המרבי אין סריקה — ספריית ספרים אינה נסרקת לעומק',
+        () async {
+      final deep = Directory(p.join(tempDir.path, 'a', 'b', 'c', 'd'))
+        ..createSync(recursive: true);
+      File(p.join(deep.path, 'otzaria.exe')).writeAsStringSync('fake');
+
+      expect(await locator.findIn(tempDir.path), isNull);
+      expect(
+        await locator.findIn(tempDir.path, windowsMaxDepth: 5),
+        isNotNull,
+      );
+    });
   });
 
   group('OtzariaAppLocator (macOS)', () {

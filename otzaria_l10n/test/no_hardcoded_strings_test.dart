@@ -56,6 +56,18 @@ const _knownViolations = <String>{
       'applyFullDownload נקרא על תוכנית שאינה fullDownload',
 };
 
+/// מחרוזות שהן **שם** ולא מלל: שם האפליקציה, שם תהליך, שם תיקייה על הדיסק.
+/// תרגום שלהן היה שובר התאמה — הן נכתבות מול המערכת, לא מול המשתמש.
+///
+/// פרטני ולא ברמת קובץ (בשונה מ-[_exemptFiles]) כי `companion_assets_installer`
+/// כן פולט מלל מתורגם, ופטור גורף שם היה מסתיר הפרה אמיתית בעתיד.
+const _nameLiterals = <String>{
+  'otzaria_manager/lib/src/services/otzaria_app_locator.dart|אוצריא',
+  'otzaria_manager/lib/src/services/otzaria_app_locator.dart|עדכוני אוצריא',
+  'otzaria_manager/lib/src/services/running_otzaria_locator.dart|אוצריא',
+  'library_manager/lib/src/services/companion_assets_installer.dart|תלמוד בבלי',
+};
+
 bool _isIdentifierChar(String c) =>
     RegExp(r'[A-Za-z0-9_$]').hasMatch(c); // קידומת `r` נחשבת רק כמילה שלמה
 
@@ -212,8 +224,9 @@ void main() {
     // הגנה מפני בדיקה שעוברת כי לא קראה כלום.
     expect(result.filesScanned, greaterThan(80));
 
-    final unexpected =
-        result.offenders.where((l) => !_knownViolations.contains(_key(l)));
+    final unexpected = result.offenders.where((l) =>
+        !_knownViolations.contains(_key(l)) &&
+        !_nameLiterals.contains(_key(l)));
     expect(
       unexpected,
       isEmpty,
@@ -226,10 +239,16 @@ void main() {
     // כשהן יתוקנו הבדיקה תיפול, וזה בדיוק הרגע להוריד אותן מהרשימה.
     final result = _scan(_repoRoot());
     expect(
-      result.offenders.map(_key).toSet(),
+      result.offenders.map(_key).toSet().difference(_nameLiterals),
       _knownViolations,
       reason: 'עדכנו את _knownViolations',
     );
+  });
+
+  test('רשימת השמות הפטורים אינה מתיישנת בשקט', () {
+    // שם שהוסר מהקוד חייב לרדת גם מכאן, אחרת הפטור הבא יינתן על סמך שורה מתה.
+    final found = _scan(_repoRoot()).offenders.map(_key).toSet();
+    expect(found, containsAll(_nameLiterals));
   });
 
   test('רשימת הקבצים הפטורים אינה מתיישנת בשקט', () {

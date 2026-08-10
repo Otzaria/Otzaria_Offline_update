@@ -25,6 +25,7 @@ class HomeScreen extends StatelessWidget {
     required this.otzariaIsRunning,
     required this.isDownloading,
     required this.isCheckingOnline,
+    required this.onProcessStateChanged,
     required this.onCheckOnline,
     required this.onDownloadAll,
     required this.onGoToOtzaria,
@@ -38,6 +39,10 @@ class HomeScreen extends StatelessWidget {
   final bool otzariaIsRunning;
   final bool isDownloading;
   final bool isCheckingOnline;
+
+  /// בודקת מחדש אם אוצריא פתוחה ומחזירה את התוצאה הטרייה — [otzariaIsRunning]
+  /// כאן הוא הערך מרגע הבנייה, וייתכן שאוצריא נסגרה מאז.
+  final Future<bool> Function() onProcessStateChanged;
   final Future<void> Function() onCheckOnline;
   final Future<void> Function() onDownloadAll;
   final VoidCallback onGoToOtzaria;
@@ -185,11 +190,15 @@ class HomeScreen extends StatelessWidget {
   }
 
   Future<void> _confirmLibraryUpdate(BuildContext context) async {
-    final t = context.strings.home;
-    if (otzariaIsRunning) {
-      UiSnack.showError(t.otzariaOpenSnack);
+    // בודקים עכשיו ולא מסתמכים על [otzariaIsRunning]: אם אוצריא נסגרה מאז
+    // הבדיקה האחרונה, ההסתמכות על הערך הלכוד הייתה חוסמת את העדכון עד
+    // להפעלה מחדש של הלאנצ'ר.
+    if (await onProcessStateChanged()) {
+      UiSnack.showError(AppL10n.strings.home.otzariaOpenSnack);
       return;
     }
+    if (!context.mounted) return;
+    final t = context.strings.home;
 
     final c = library;
     final approved = await showTwoActionsDialog(

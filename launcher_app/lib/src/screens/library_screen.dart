@@ -23,7 +23,10 @@ class LibraryScreen extends StatelessWidget {
   final LibraryModuleController library;
   final bool otzariaIsRunning;
   final bool isDownloading;
-  final Future<void> Function() onProcessStateChanged;
+
+  /// בודקת מחדש אם אוצריא פתוחה ומחזירה את התוצאה הטרייה — ראו
+  /// [_confirmUpdate].
+  final Future<bool> Function() onProcessStateChanged;
 
   bool get _isBusy =>
       library.status == LibraryModuleStatus.updating || isDownloading;
@@ -105,7 +108,7 @@ class LibraryScreen extends StatelessWidget {
           ),
         CardActionsRow(
           actions: [
-            RecheckButton(onPressed: _isBusy ? null : c.checkForUpdate),
+            RecheckButton(onPressed: _isBusy ? null : _recheck),
             ActionButton.recommended(
               text: t.installUpdateButton,
               icon: FluentIcons.database_arrow_right_24_regular,
@@ -118,6 +121,13 @@ class LibraryScreen extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  /// "בדוק שוב" מרענן גם את מצב התהליך: האזהרה "אוצריא פתוחה" יושבת באותו
+  /// כרטיס, ולחיצה על הכפתור שמתחתיה אמורה לרענן גם אותה.
+  Future<void> _recheck() async {
+    await onProcessStateChanged();
+    await library.checkForUpdate();
   }
 
   Future<void> _pickDbFile(BuildContext context) async {
@@ -134,13 +144,15 @@ class LibraryScreen extends StatelessWidget {
   }
 
   Future<void> _confirmUpdate(BuildContext context) async {
-    await onProcessStateChanged();
-    if (!context.mounted) return;
-    final home = context.strings.home;
-    if (otzariaIsRunning) {
-      UiSnack.showError(home.otzariaOpenSnack);
+    // התוצאה **המוחזרת** ולא [otzariaIsRunning]: המסך הוא `StatelessWidget`,
+    // והשדה נלכד בבנייה — אחרי הרענון הוא עדיין "פתוחה", וכך העדכון נחסם
+    // לנצח גם אחרי שאוצריא נסגרה.
+    if (await onProcessStateChanged()) {
+      UiSnack.showError(AppL10n.strings.home.otzariaOpenSnack);
       return;
     }
+    if (!context.mounted) return;
+    final home = context.strings.home;
 
     final c = library;
     final approved = await showTwoActionsDialog(

@@ -232,6 +232,98 @@ void main() {
     });
   });
 
+  group('refreshRunningState — סגירה של אוצריא מזוהה בלי בדיקה מלאה', () {
+    test('הרענון מעדכן את isRunning, מודיע, ומחזיר את הערך הטרי', () async {
+      final locator = _ScriptedLocator([true, false]);
+      final c = OtzariaModuleController(
+        dataDir: tempDir.path,
+        runningLocator: locator,
+      );
+      addTearDown(c.dispose);
+      var notifications = 0;
+      c.addListener(() => notifications++);
+
+      expect(await c.refreshRunningState(), isTrue);
+      expect(c.isRunning, isTrue);
+
+      // בדיוק המסלול שנשבר: אוצריא נסגרה, והלאנצ'ר ממשיך לרוץ.
+      expect(await c.refreshRunningState(), isFalse);
+      expect(c.isRunning, isFalse);
+      expect(notifications, 2);
+    });
+
+    test('בדיקה חוזרת ללא שינוי אינה מודיעה — הרענון חוזר כל 3 שניות',
+        () async {
+      final locator = _ScriptedLocator([true, true, true]);
+      final c = OtzariaModuleController(
+        dataDir: tempDir.path,
+        runningLocator: locator,
+      );
+      addTearDown(c.dispose);
+      var notifications = 0;
+      c.addListener(() => notifications++);
+
+      for (var i = 0; i < 3; i++) {
+        expect(await c.refreshRunningState(), isTrue);
+      }
+
+      // רק המעבר false→true מודיע; שתי הדגימות הבאות זהות לו.
+      expect(notifications, 1);
+    });
+
+    test('שני קוראים בו-זמנית = בדיקת תהליך אחת, ושניהם מקבלים את שלה',
+        () async {
+      // התשובה `true` שונה מ-`isRunning` ההתחלתי, ולכן מימוש שמחזיר למצטרף
+      // את הערך הלכוד במקום את תוצאת הבדיקה — נופל כאן.
+      final locator = _ScriptedLocator([true]);
+      final c = OtzariaModuleController(
+        dataDir: tempDir.path,
+        runningLocator: locator,
+      );
+      addTearDown(c.dispose);
+
+      final both = await Future.wait([
+        c.refreshRunningState(),
+        c.refreshRunningState(),
+      ]);
+
+      expect(locator.probes, 1);
+      expect(both, [true, true]);
+    });
+
+    test('force מקבל בדיקה חדשה, ולא את זו שהייתה באוויר', () async {
+      // המסלול שלפני פעולה חוסמת: אוצריא נפתחה אחרי שהדגימה המחזורית יצאה,
+      // והצטרפות אליה הייתה מאשרת עדכון מסד תחת אוצריא פתוחה.
+      final locator = _ScriptedLocator([false, true]);
+      final c = OtzariaModuleController(
+        dataDir: tempDir.path,
+        runningLocator: locator,
+      );
+      addTearDown(c.dispose);
+
+      final joined = c.refreshRunningState();
+      final forced = c.refreshRunningState(force: true);
+
+      expect(await joined, isFalse);
+      expect(await forced, isTrue);
+      expect(locator.probes, 2);
+    });
+
+    test('שחרור באמצע בדיקה אינו זורק', () async {
+      final c = OtzariaModuleController(
+        dataDir: tempDir.path,
+        runningLocator: _ScriptedLocator([true]),
+      );
+
+      final probe = c.refreshRunningState();
+      c.dispose();
+
+      // `notifyListeners` אחרי dispose זורק — הבדיקה המחזורית יכולה בקלות
+      // להסתיים אחרי סגירת החלון.
+      await expectLater(probe, completes);
+    });
+  });
+
   group('checkOnline — כשל רשת הוא מצב תקין', () {
     test('אין רשת: הכשל נבלע, נשמר, ואינו נוגע במצב המודול', () async {
       writeAppMirror(stableTag: '1.0.0');
@@ -272,4 +364,22 @@ class _NeverRunningLocator extends RunningOtzariaLocator {
   @override
   Future<RunningOtzariaProbe> probe() async =>
       (isRunning: false, launchPath: null);
+}
+
+/// מחזיר תשובה שונה בכל בדיקה, לפי התסריט — כך אפשר לדמות "אוצריא הייתה
+/// פתוחה ואז נסגרה" בלי תהליך אמיתי.
+class _ScriptedLocator extends RunningOtzariaLocator {
+  _ScriptedLocator(this._answers);
+
+  final List<bool> _answers;
+  int probes = 0;
+
+  @override
+  Future<RunningOtzariaProbe> probe() async {
+    // בכוונה בלי clamp: שכפול שקט של התשובה האחרונה היה מסתיר בדיקה שהתחילה
+    // לדגום יותר פעמים מכפי שהתסריט מתאר.
+    final answer = _answers[probes];
+    probes++;
+    return (isRunning: answer, launchPath: null);
+  }
 }

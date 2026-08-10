@@ -32,6 +32,7 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     bool preferPrerelease = false,
     RunningOtzariaLocator runningLocator = const RunningOtzariaLocator(),
   })  : _preferPrerelease = preferPrerelease,
+        _runningLocator = runningLocator,
         _manager = OtzariaManager(
           dataDir: dataDir,
           preferPrerelease: preferPrerelease,
@@ -39,6 +40,10 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
         );
 
   final OtzariaManager _manager;
+
+  /// אותו locator שה-manager מקבל — נשמר גם כאן כדי ש-[refreshRunningState]
+  /// תוכל לבדוק "אוצריא פתוחה?" לבד, בלי בדיקת גרסאות שלמה.
+  final RunningOtzariaLocator _runningLocator;
   OtzariaUpdateCheckResult? _lastCheck;
   bool _preferPrerelease;
 
@@ -74,8 +79,12 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   bool hasChannelChoice = false;
 
   /// האם אוצריא פתוחה, לפי בדיקת התהליך ש-[checkForUpdate] מבצעת ממילא.
-  /// כך הלאנצ'ר לא מריץ `tasklist` שני משלו בעלייה.
+  /// כך הלאנצ'ר לא מריץ `tasklist` שני משלו בעלייה. [refreshRunningState]
+  /// מרעננת אותה לבדה.
   bool isRunning = false;
+
+  /// בדיקת התהליך שרצה כרגע, אם רצה — ראו [refreshRunningState].
+  Future<bool>? _runningProbe;
 
   OtzariaDownloadStatus downloadStatus = OtzariaDownloadStatus.idle;
   int? downloadReceived;
@@ -132,6 +141,36 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     }
     onlineCheckedAt = DateTime.now();
     notifyListeners();
+  }
+
+  /// מרענן **רק** את "אוצריא פתוחה?" — כדי שסגירה שלה תזוהה בזמן שהלאנצ'ר
+  /// פתוח, ולא רק בהפעלה מחדש שלו. קורא שמגיע בזמן בדיקה שרצה מצטרף אליה
+  /// במקום להריץ `tasklist` שני.
+  ///
+  /// [force] מחייב בדיקה שמתחילה **עכשיו**, וממתין לזו שבאוויר לפני כן.
+  /// נחוץ לפני פעולה שאוצריא הפתוחה חוסמת: הצטרפות מחזירה תמונה מלפני עד
+  /// ~300ms, ובחלון הזה אוצריא יכולה להיפתח — כלומר עדכון מסד שיירוץ תחת
+  /// אוצריא פתוחה, בדיוק מה שהבדיקה אמורה למנוע.
+  Future<bool> refreshRunningState({bool force = false}) {
+    final inFlight = _runningProbe;
+    if (inFlight == null) return _runningProbe = _probeRunning();
+    if (!force) return inFlight;
+    return inFlight.then((_) => _runningProbe ??= _probeRunning());
+  }
+
+  Future<bool> _probeRunning() async {
+    try {
+      final probe = await _runningLocator.probe();
+      if (_isDisposed) return probe.isRunning;
+      // מודיעים רק על שינוי אמיתי: הרענון חוזר כל 3 שניות כל עוד אוצריא
+      // פתוחה, וכל הודעה בונה מחדש את כל עץ הווידג'טים.
+      final changed = isRunning != probe.isRunning;
+      isRunning = probe.isRunning;
+      if (changed) notifyListeners();
+      return isRunning;
+    } finally {
+      _runningProbe = null;
+    }
   }
 
   /// מאמץ התקנה קיימת של אוצריא בתיקייה [dir] שהמשתמש הצביע עליה ידנית
@@ -243,6 +282,14 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   Future<void> launch() async {
     try {
       await _manager.launch();
+      // אוצריא נפתחה עכשיו. מציבים ולא דוגמים, כי התהליך עדיין לא בהכרח
+      // מופיע ב-`tasklist` — ואם בכל זאת לא עלה, הרענון המחזורי (שההודעה
+      // הזאת מדליקה) יתקן זאת תוך 3 שניות. בלי זה הלאנצ'ר המשיך להציג
+      // "סגורה" עד לבדיקה מלאה, ולא הציג את האזהרה לפני עדכון מסד.
+      if (!isRunning) {
+        isRunning = true;
+        notifyListeners();
+      }
     } catch (e, st) {
       errorMessage = e.toString();
       AppLogger.instance.error('OtzariaModuleController.launch() נכשל', e, st);
@@ -250,8 +297,13 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     }
   }
 
+  /// רענון התהליך רץ ברקע (טיימר מחזורי בלאנצ'ר) ועלול להסתיים אחרי
+  /// השחרור — `notifyListeners` אחרי `dispose` זורק.
+  bool _isDisposed = false;
+
   @override
   void dispose() {
+    _isDisposed = true;
     _manager.close();
     super.dispose();
   }

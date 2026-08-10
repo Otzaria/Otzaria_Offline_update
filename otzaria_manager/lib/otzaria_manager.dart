@@ -15,3 +15,4 @@ export 'src/services/otzaria_release_client.dart';
 export 'src/services/otzaria_state_store.dart';
 export 'src/services/running_otzaria_locator.dart';
 export 'src/services/windows_exe_version_reader.dart';
+export 'src/services/windows_install_registry.dart';

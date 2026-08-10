@@ -468,6 +468,50 @@ executable" rework moved that managed folder) was invisible to auto-detect —
 the manual "בחירת מיקום ידנית" picker (`OtzariaModuleController.adoptInstallDir`)
 is the fallback for anything these paths don't cover.
 
+**The Windows uninstall registry beats all of those guesses.**
+`WindowsInstallRegistry` reads `InstallLocation` out of the Inno Setup entries
+under `…\CurrentVersion\Uninstall` (HKCU first, then HKLM 64- and 32-bit), so an
+install in a folder nobody guessed is found *with Otzaria closed* — the case
+`RunningOtzariaLocator` cannot cover. Only the **directory** comes from there;
+the version is still read from the exe, because `DisplayVersion` records what
+the installer wrote, not what is on disk now. The scan costs ~200ms, so
+`checkForUpdate` builds `_autoDetectDirs` only when nothing is known yet.
+
+**Never return the first `.exe` in the install folder.** `crashpad_handler.exe`
+ships next to `otzaria.exe` and sorts before it, *and* carries a version
+resource of its own (0.15.4) — so `OtzariaAppLocator` reporting the first match
+produced a confident, completely wrong "installed version" plus a `launchPath`
+that ran the crash handler. A name match (`OtzariaAppLocator.mentionsOtzaria`)
+wins outright; known Flutter helper exes are excluded; anything else is only a
+fallback, kept so a rename of the app's exe does not break detection.
+
+**A name match must never match the launcher itself.** The Windows stub is
+`עדכוני אוצריא.exe` (`windows_stub/package.ps1`), whose name *contains*
+`אוצריא` — so the "name match wins outright" rule above made the launcher adopt
+itself the moment a scanned directory contained it, which `C:\אוצריא` and
+`%LocalAppData%\Programs\Otzaria` both realistically can. It then read its own
+version resource as "the installed Otzaria" and `launch()` re-ran the launcher.
+`OtzariaAppLocator._ourOwnExeNames` (plus a `Platform.resolvedExecutable`
+check) excludes both of our exes. This is the file-scan twin of the
+`pgrep -f` hazard already documented above — same trap, different mechanism.
+
+**The Windows exe scan is breadth-first and depth-capped**
+(`defaultWindowsMaxDepth`), exactly like the macOS one. Two reasons, both real:
+`Directory.list(recursive: true)` has no defined order, so a nested exe could
+beat the one at the install root and the answer differed between machines; and
+`C:\אוצריא` is *both* an auto-detect install dir and a common `seforim.db`
+library location, so an unbounded scan walked a ~1GB books tree on every
+`checkForUpdate()` for anyone whose app is not installed there.
+
+**Only `DisplayName` identifies an entry in the uninstall registry.** Matching
+on `InstallLocation` too let any third-party program in a path merely
+mentioning "otzaria" enter `_autoDetectDirs`, where `sharedDir: false` means no
+further identity check at all. Both real Inno entries write a `DisplayName`
+("אוצריא גירסה …"), verified against a real machine. `UninstallString` is only
+a fallback for the *directory*, and it must be parsed as a command line, not a
+path: `MsiExec.exe /X{GUID}` through `p.dirname` yields a **relative** string,
+because `package:path` treats the `/switch` as a path segment.
+
 ---
 
 ## 6. Verification status (read before claiming something works)
@@ -493,8 +537,10 @@ both installers together fit comfortably on a typical drive.
 
 Currently **not** verified on real hardware: the Windows path of
 `LibraryUpdateApplier` (full ~1GB download, delta chains, `tasklist` behaviour),
-`WindowsExeVersionReader` and `RunningOtzariaLocator` (both FFI via
-`package:win32`), and the Windows `.db` file picker filter. The macOS path of
+`RunningOtzariaLocator`'s FFI half (`QueryFullProcessImageNameW`), and the
+Windows `.db` file picker filter. `WindowsExeVersionReader` and
+`WindowsInstallRegistry` **were** run against a real install
+(`otzaria.exe` 0.9.96+90960, Windows 11, 2026-08-10). The macOS path of
 `otzaria_manager` and the launcher build/run on macOS **were** verified against a
 real `otzaria-macos.zip` — but that predates the custom title bar and
 `RunningOtzariaLocator._probeMac`, neither of which has run on a Mac.

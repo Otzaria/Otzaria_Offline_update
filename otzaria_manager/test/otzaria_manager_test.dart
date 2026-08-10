@@ -75,12 +75,14 @@ void main() {
     bool preferPrerelease = false,
     Map<String, String> environment = const {},
     String? runningOtzariaPath,
+    List<String> registeredInstallDirs = const [],
   }) {
     final manager = OtzariaManager(
       dataDir: dataDir.path,
       platform: OtzariaTargetPlatform.windows,
       environment: environment,
       runningLocator: _FakeRunningLocator(runningOtzariaPath),
+      installRegistry: _FakeInstallRegistry(registeredInstallDirs),
       preferPrerelease: preferPrerelease,
     );
     addTearDown(manager.close);
@@ -399,6 +401,82 @@ void main() {
       },
       testOn: 'windows',
     );
+
+    test(
+      'תיקייה מהרג׳יסטרי מזוהה — גם כשאינה באף מיקום ברירת מחדל',
+      () async {
+        if (!File(_systemExe).existsSync()) {
+          markTestSkipped('אין $_systemExe במכונה הזאת');
+          return;
+        }
+        final registered = p.join(dataDir.path, 'תיקייה שלי', 'אוצריא');
+        await installFakeOtzaria(registered);
+
+        final check = await managerFor(registeredInstallDirs: [registered])
+            .checkForUpdate();
+
+        expect(check.currentState!.installDir, registered);
+      },
+      testOn: 'windows',
+    );
+
+    test(
+      'הרג׳יסטרי קודם למיקומי ברירת המחדל, והתיקייה המנוהלת קודמת לשניהם',
+      () async {
+        if (!File(_systemExe).existsSync()) {
+          markTestSkipped('אין $_systemExe במכונה הזאת');
+          return;
+        }
+        final managed = p.join(dataDir.path, 'otzaria-app');
+        final registered = p.join(dataDir.path, 'רשום-ברג׳יסטרי');
+        final fromEnv = p.join(localAppData, 'Programs', 'Otzaria');
+        for (final dir in [managed, registered, fromEnv]) {
+          await installFakeOtzaria(dir);
+        }
+
+        final manager = managerFor(
+          environment: {'LOCALAPPDATA': localAppData},
+          registeredInstallDirs: [registered],
+        );
+
+        for (final expected in [managed, registered, fromEnv]) {
+          final check = await manager.checkForUpdate();
+          expect(check.currentState!.installDir, expected, reason: expected);
+          await Directory(expected).delete(recursive: true);
+        }
+      },
+      testOn: 'windows',
+    );
+
+    test(
+      'כשההתקנה כבר ידועה אין סריקת רג׳יסטרי בכלל — היא עולה ~200ms',
+      () async {
+        if (!File(_systemExe).existsSync()) {
+          markTestSkipped('אין $_systemExe במכונה הזאת');
+          return;
+        }
+        final known = p.join(dataDir.path, 'ידועה');
+        await installFakeOtzaria(known);
+        final registry = _FakeInstallRegistry(const []);
+        final manager = OtzariaManager(
+          dataDir: dataDir.path,
+          platform: OtzariaTargetPlatform.windows,
+          environment: const {},
+          runningLocator: _FakeRunningLocator(null),
+          installRegistry: registry,
+        );
+        addTearDown(manager.close);
+
+        final detected = await manager.detectExistingInstall(customDir: known);
+        await manager.adoptExistingInstall(detected!);
+        registry.calls = 0;
+
+        await manager.checkForUpdate();
+
+        expect(registry.calls, 0);
+      },
+      testOn: 'windows',
+    );
   });
 
   // הלנדמיין: אין נפילה חזרה ל-GitHub במסלול הבדיקה. אין דרך להזריק
@@ -426,4 +504,21 @@ class _FakeRunningLocator extends RunningOtzariaLocator {
   @override
   Future<RunningOtzariaProbe> probe() async =>
       (isRunning: launchPath != null, launchPath: launchPath);
+}
+
+/// מנטרל את הרג'יסטרי האמיתי: בלעדיו הבדיקות במכונת פיתוח עם אוצריא
+/// מותקנת היו מזהות דווקא אותה.
+class _FakeInstallRegistry extends WindowsInstallRegistry {
+  _FakeInstallRegistry([this.dirs = const []]);
+
+  final List<String> dirs;
+
+  /// כמה פעמים נסרק הרג'יסטרי — הסריקה יקרה, ויש מסלול שאמור לדלג עליה.
+  int calls = 0;
+
+  @override
+  List<String> installDirs() {
+    calls++;
+    return dirs;
+  }
 }
