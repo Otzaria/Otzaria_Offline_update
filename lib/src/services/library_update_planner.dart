@@ -17,6 +17,8 @@ class LibraryUpdatePlanner {
   /// [latestVersion] — הגרסה הגבוהה ביותר הזמינה ב-releases.
   /// [edges] — כל ה-patches הזמינים.
   /// [latestFullDbAsset] / [latestReleaseTag] — ה-DB המלא ל-fallback.
+  /// [latestFullDbVersion] — הגרסה ש**הנכס הזה** מביא; ראו
+  /// [LibraryDiscoveryResult.latestFullDbVersion].
   /// [localReleaseTag] — ה-release שממנו הגיע ה-DB המקומי, אם ידוע. ראו
   /// [_isContentRefresh].
   LibraryUpdatePlan plan({
@@ -26,12 +28,19 @@ class LibraryUpdatePlanner {
     required List<PatchEdge> edges,
     ReleaseAsset? latestFullDbAsset,
     String? latestReleaseTag,
+    int? latestFullDbVersion,
     String? localReleaseTag,
   }) {
+    // היעד של הורדה מלאה הוא מה שהנכס מביא, לא מה שקיים ב-releases: אחרת
+    // האימות שאחרי החילוץ דוחה את המסד. הפער נסגר בבדיקה הבאה, שתמצא מסלול
+    // דלתא משם ולמעלה.
+    final fullTargetVersion = latestFullDbVersion ?? latestVersion;
+
     if (!hasLocalVersionMeta) {
       return _fullOrBlocked(
         localVersion: localVersion,
         latestVersion: latestVersion,
+        fullTargetVersion: fullTargetVersion,
         asset: latestFullDbAsset,
         tag: latestReleaseTag,
         reason: AppL10n.strings.libraryDomain.planLocalVersionUnknown,
@@ -43,7 +52,7 @@ class LibraryUpdatePlanner {
           _isContentRefresh(localReleaseTag, latestReleaseTag)) {
         return LibraryUpdatePlan.fullDownload(
           localVersion: localVersion,
-          targetVersion: latestVersion,
+          targetVersion: fullTargetVersion,
           asset: latestFullDbAsset,
           releaseTag: latestReleaseTag!,
           reason: AppL10n.strings.libraryDomain
@@ -68,6 +77,7 @@ class LibraryUpdatePlanner {
     return _fullOrBlocked(
       localVersion: localVersion,
       latestVersion: latestVersion,
+      fullTargetVersion: fullTargetVersion,
       asset: latestFullDbAsset,
       tag: latestReleaseTag,
       reason: AppL10n.strings.libraryDomain
@@ -87,6 +97,7 @@ class LibraryUpdatePlanner {
   LibraryUpdatePlan _fullOrBlocked({
     required int localVersion,
     required int latestVersion,
+    required int fullTargetVersion,
     required ReleaseAsset? asset,
     required String? tag,
     required String reason,
@@ -94,7 +105,7 @@ class LibraryUpdatePlanner {
     if (asset != null && tag != null) {
       return LibraryUpdatePlan.fullDownload(
         localVersion: localVersion,
-        targetVersion: latestVersion,
+        targetVersion: fullTargetVersion,
         asset: asset,
         releaseTag: tag,
         reason: reason,

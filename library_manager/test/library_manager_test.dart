@@ -394,7 +394,7 @@ void main() {
             (e) => e.message,
             'message',
             AppL10n.strings.libraryDomain.interruptedUpdateNeedsManualFix(
-              AppL10n.strings.libraryDomain.interruptedUpdateNoBackup,
+              AppL10n.strings.libraryDomain.interruptedUpdateFound,
             ),
           )),
         );

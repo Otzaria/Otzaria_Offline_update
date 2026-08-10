@@ -15,7 +15,7 @@ List<int> pluginBytes(
   final archive = Archive()
     ..addFile(ArchiveFile(entryName, content.length, content))
     ..addFile(ArchiveFile('main.js', 3, utf8.encode('/**')));
-  return ZipEncoder().encode(archive)!;
+  return ZipEncoder().encode(archive);
 }
 
 String writePluginFile(Directory dir, String name, String manifestText) {

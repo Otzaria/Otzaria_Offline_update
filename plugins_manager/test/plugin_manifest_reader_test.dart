@@ -103,7 +103,7 @@ void main() {
       final archive = Archive()
         ..addFile(ArchiveFile('main.js', 3, utf8.encode('/**')));
       final path = p.join(temp.path, 'no-manifest.otzplugin');
-      File(path).writeAsBytesSync(ZipEncoder().encode(archive)!);
+      File(path).writeAsBytesSync(ZipEncoder().encode(archive));
       expect(PluginManifestReader.readId(path), isNull);
     });
 

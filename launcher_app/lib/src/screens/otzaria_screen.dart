@@ -135,11 +135,7 @@ class OtzariaScreen extends StatelessWidget {
           InfoProgressRow(stage: t.installingProgress),
         CardActionsRow(
           actions: [
-            ActionButton.neutral(
-              text: common.recheck,
-              icon: FluentIcons.arrow_sync_24_regular,
-              onPressed: _isBusy ? null : c.checkForUpdate,
-            ),
+            RecheckButton(onPressed: _isBusy ? null : c.checkForUpdate),
             ActionButton.recommended(
               text: t.launchButton,
               icon: FluentIcons.play_24_regular,

@@ -141,8 +141,12 @@ class OtzariaAppMirror {
   }) async {
     final online = await _releaseClient.fetchChannelReleases();
 
-    MirroredOtzariaRelease? stable;
-    MirroredOtzariaRelease? prerelease;
+    // מתחילים ממה שכבר על הכונן: ערוץ שההורדה שלו נכשלה (או שאינו ב-API
+    // כרגע) חייב להישאר במטא־דאטה, אחרת הורדה חלקית מוחקת בחירת ערוץ
+    // שכבר הייתה למחשב הלא-מקוון בזמן שקובץ ההתקנה שלה עדיין שם.
+    final existing = await load();
+    var stable = existing.stable;
+    var prerelease = existing.prerelease;
 
     for (final channel in OtzariaReleaseChannel.values) {
       final release = online[channel];
@@ -161,10 +165,13 @@ class OtzariaAppMirror {
     final result =
         MirroredOtzariaReleases(stable: stable, prerelease: prerelease);
     // קובצי התקנה של גרסאות שכבר אינן במטא־דאטה אינם שווים את המקום על
-    // הכונן הנייד.
-    await _installer.pruneCacheExcept(
-      keepTagNames: {for (final e in result.all) e.release.tagName},
-    );
+    // הכונן הנייד. קבוצת שמירה ריקה, לעומת זאת, פירושה "מחק את הכול" —
+    // ותשובת API ריקה (דף שכולו טיוטות) אינה עילה לרוקן כונן.
+    if (result.all.isNotEmpty) {
+      await _installer.pruneCacheExcept(
+        keepTagNames: {for (final e in result.all) e.release.tagName},
+      );
+    }
     return result;
   }
 

@@ -250,19 +250,8 @@ abstract class SettingsScreenStrings {
   String get syncPluginsTitle;
   String get syncPluginsSubtitle;
 
-  String get storageCardTitle;
-  String get storageCardSubtitle;
-  String get backupTitle;
-  String get backupSubtitle;
-  String get backupOff;
-  String get backupOn;
-
-  String get networkCardTitle;
-  String get networkCardSubtitle;
-  String get timeoutTitle;
-  String get timeoutSubtitle;
-
-  String get uiCardTitle;
+  String get appearanceCardTitle;
+  String get appearanceCardSubtitle;
   String get languageTitle;
   String get languageSubtitle;
   String get languageHebrew;
@@ -276,6 +265,7 @@ abstract class SettingsScreenStrings {
   String get textSizeNormal;
   String get textSizeLarge;
 
+  String get supportCardTitle;
   String get logTitle;
   String get logSubtitle;
   String get openLogFolderButton;
@@ -300,6 +290,9 @@ abstract class PluginsStrings {
   String get syncDialogConfirm;
   String get syncFailedSnack;
   String syncDoneSnack(int count);
+
+  /// סנכרון שהסתיים אך פריטים בודדים בו נכשלו — ראו `syncWarnings`.
+  String syncDoneWithWarningsSnack(int count);
   String get syncButton;
   String get reloadTooltip;
   String get syncingOverlayTitle;
@@ -447,6 +440,12 @@ abstract class UnitStrings {
 
   String bytes(int count);
   String progressOf(String received, String total);
+
+  /// יחידות הגודל הגדולות. הן מופיעות בשורת ההתקדמות של הורדה של ~1GB —
+  /// הטקסט הנקרא ביותר בתוכנה — ולכן אינן יכולות להישאר קבועות באנגלית.
+  String kilobytes(String amount);
+  String megabytes(String amount);
+  String gigabytes(String amount);
 }
 
 // ── הודעות מחבילות הספרייה (השורש + library_manager) ─────────────────────────
@@ -463,11 +462,7 @@ abstract class LibraryDomainStrings {
   String manifestDownloadFailed(String url, int statusCode);
   String manifestNotJsonObject(String url);
 
-  String get interruptedUpdateNoBackup;
-  String get interruptedUpdateRestored;
-  String get backupLabel;
-  String get restoreLabel;
-  String partialCopy(String label, int actual, int expected);
+  String get interruptedUpdateFound;
 
   String get exportLoadingReleases;
   String get exportNoReleases;
@@ -552,13 +547,31 @@ abstract class LibraryDomainStrings {
   String get zstdEmptyInput;
   String get zstdTruncatedFrame;
 
+  String dbIntegrityCheckFailed(String result);
+
+  // ── הקבצים הנלווים לספרייה (תלמוד, קטלוג, מילון) ────────────────────────
+  String get companionTalmudName;
+  String get companionCatalogName;
+  String get companionDictionaryName;
+  String companionChecking(String name);
+  String companionDownloading(String name);
+  String companionInstalling(String name);
+  String companionAssetMissingInRelease(String name);
+  String companionExtractionFailed(String name);
+  String get companionsMirrorMissing;
+
   // שלבי ההחלה, כפי שמוצגים במד ההתקדמות
   String applyDownloadingPatch(String step);
   String applyApplyingPatch(String step);
+
+  /// תת-שלב בתוך החלת ה-patch — [stage] הוא שם השלב הגולמי כפי ש-
+  /// `PatchApplier.onStage` מדווח אותו.
+  String applyPatchStage(String stage, String step);
   String get applyDownloadingFullDb;
   String get applyDecompressingFullDb;
   String get applyWritingFullDb;
   String get applyVerifying;
+  String get applyInstallingCompanions;
   String get applyDone;
 }
 
@@ -619,6 +632,12 @@ abstract class PluginsDomainStrings {
   String get syncDone;
   String get syncCategories;
   String syncStructureFailed(String error);
+
+  /// הסיבה שנמסרת ל-[syncStructureFailed] כשהתשובה תקינה אך ריקה ממבנה.
+  String get syncStructureEmpty;
+
+  /// סנכרון שהחזיר קטלוג ריק מול מראה שיש בה תוספים — נדחה במקום לרוקן.
+  String get syncEmptyCatalogRejected;
   String syncCategoryFailed(String name, String error);
   String syncImageFailed(String name, String error);
   String syncScreenshotFailed(String name, String error);

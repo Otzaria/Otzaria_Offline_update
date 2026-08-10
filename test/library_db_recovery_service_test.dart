@@ -17,63 +17,25 @@ void main() {
   });
   tearDown(() => tmp.deleteSync(recursive: true));
 
-  test('beginApply יוצר גיבוי מאומת וסימון', () async {
+  test('beginApply כותב סימון בלבד — בלי העתקה של ה-DB', () async {
     await service.beginApply(
       dbPath: dbPath,
       fromVersion: 1,
       toVersion: 2,
       timestamp: '2026-06-28T00:00:00Z',
     );
-    expect(File(service.backupPathFor(dbPath)).existsSync(), isTrue);
     expect(File(service.markerPathFor(dbPath)).existsSync(), isTrue);
-    expect(File(service.backupPathFor(dbPath)).readAsStringSync(), 'ORIGINAL');
-    // אין שאריות temp
-    expect(File('$dbPath.backup.tmp').existsSync(), isFalse);
-  });
-
-  test('beginApply(createBackup: false) כותב סימון בלבד — בלי העתקת ה-DB',
-      () async {
-    await service.beginApply(
-      dbPath: dbPath,
-      fromVersion: 1,
-      toVersion: 2,
-      timestamp: 't',
-      createBackup: false,
-    );
-    expect(File(service.markerPathFor(dbPath)).existsSync(), isTrue);
-    expect(File(service.backupPathFor(dbPath)).existsSync(), isFalse);
-    expect(File('$dbPath.backup.tmp').existsSync(), isFalse);
-  });
-
-  test('rollback ללא גיבוי (מסלול דלתא) מנקה סימון בלי לגעת ב-DB', () async {
-    await service.beginApply(
-      dbPath: dbPath,
-      fromVersion: 1,
-      toVersion: 2,
-      timestamp: 't',
-      createBackup: false,
-    );
-    await service.rollback(dbPath);
     expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
-    expect(File(service.markerPathFor(dbPath)).existsSync(), isFalse);
+    // אף עותק נוסף של המסד לא נוצר — זו כל הנקודה. רק ה-DB והסימון.
+    expect(tmp.listSync().length, 2);
   });
 
-  test('finishSuccess מנקה גיבוי וסימון', () async {
+  test('finishSuccess מנקה את הסימון', () async {
     await service.beginApply(
         dbPath: dbPath, fromVersion: 1, toVersion: 2, timestamp: 't');
     service.finishSuccess(dbPath);
-    expect(File(service.backupPathFor(dbPath)).existsSync(), isFalse);
     expect(File(service.markerPathFor(dbPath)).existsSync(), isFalse);
-  });
-
-  test('rollback משחזר את ה-DB מהגיבוי', () async {
-    await service.beginApply(
-        dbPath: dbPath, fromVersion: 1, toVersion: 2, timestamp: 't');
-    File(dbPath).writeAsStringSync('CORRUPTED-HALF-WRITE');
-    await service.rollback(dbPath);
     expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
-    expect(File(service.backupPathFor(dbPath)).existsSync(), isFalse);
-    expect(File(service.markerPathFor(dbPath)).existsSync(), isFalse);
   });
 
   group('checkDbHealthAfterCrash', () {
@@ -105,89 +67,44 @@ void main() {
   });
 
   group('recoverIfNeeded', () {
-    test('marker+backup → שחזור (סימולציית קריסה)', () async {
-      await service.beginApply(
-          dbPath: dbPath, fromVersion: 1, toVersion: 2, timestamp: 't');
-      File(dbPath).writeAsStringSync('HALF-APPLIED'); // קריסה באמצע
-      final result = await service.recoverIfNeeded(dbPath);
-      expect(result.action, RecoveryAction.restored);
-      expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
-      expect(File(service.markerPathFor(dbPath)).existsSync(), isFalse);
-      expect(File(service.backupPathFor(dbPath)).existsSync(), isFalse);
-    });
-
-    test('אין marker → none', () async {
+    test('אין marker → none, ה-DB לא נגוע', () async {
       final result = await service.recoverIfNeeded(dbPath);
       expect(result.action, RecoveryAction.none);
       expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
     });
 
-    test('marker ללא backup → blockedMissingBackup (לא מחיקה שקטה)', () async {
+    test('marker → interrupted, והסימון נשאר לקורא', () async {
       File(service.markerPathFor(dbPath)).writeAsStringSync('{}');
       final result = await service.recoverIfNeeded(dbPath);
-      expect(result.action, RecoveryAction.blockedMissingBackup);
+      expect(result.action, RecoveryAction.interrupted);
       expect(result.detail, isNotNull);
       expect(File(service.markerPathFor(dbPath)).existsSync(), isTrue);
+      // אין שחזור: ה-DB נשאר בדיוק כפי שהיה, והקורא בודק תקינות בעצמו.
+      expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
     });
 
-    test('backup יתום ללא marker → נמחק, none', () async {
-      File(service.backupPathFor(dbPath)).writeAsStringSync('STALE');
-      final result = await service.recoverIfNeeded(dbPath);
-      expect(result.action, RecoveryAction.none);
-      expect(File(service.backupPathFor(dbPath)).existsSync(), isFalse);
-    });
-
-    test('שארית backup.tmp (קריסה לפני rename) נמחקת ולא משוחזרת ממנה',
-        () async {
-      // backup.tmp יתום מדמה קריסה באמצע יצירת גיבוי — אסור לשחזר ממנו.
+    // מי שעדכן מגרסה שכן יצרה גיבוי — הקבצים האלה שווים ~1GB על הכונן.
+    test('שאריות הגיבוי מהמנגנון שהוסר נמחקות, בלי לשחזר מהן', () async {
+      File('$dbPath.backup').writeAsStringSync('OLD-BACKUP');
       File('$dbPath.backup.tmp').writeAsStringSync('PARTIAL');
-      final result = await service.recoverIfNeeded(dbPath);
-      expect(result.action, RecoveryAction.none);
-      expect(File('$dbPath.backup.tmp').existsSync(), isFalse);
-      expect(File(dbPath).readAsStringSync(), 'ORIGINAL'); // ה-DB לא נגוע
-    });
-
-    test('שארית restore.tmp (קריסה באמצע שחזור) נמחקת', () async {
       File('$dbPath.restore.tmp').writeAsStringSync('PARTIAL');
+
       final result = await service.recoverIfNeeded(dbPath);
       expect(result.action, RecoveryAction.none);
+      expect(File('$dbPath.backup').existsSync(), isFalse);
+      expect(File('$dbPath.backup.tmp').existsSync(), isFalse);
       expect(File('$dbPath.restore.tmp').existsSync(), isFalse);
       expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
     });
 
-    // ה-wal/shm שייכים ל-DB שהוחלף; השארתם אחרי rename מייצרת DB לא עקבי.
-    test('שחזור מוחק -wal/-shm ואינו משאיר restore.tmp', () async {
-      await service.beginApply(
-          dbPath: dbPath, fromVersion: 1, toVersion: 2, timestamp: 't');
-      File(dbPath).writeAsStringSync('HALF-APPLIED');
-      File('$dbPath-wal').writeAsStringSync('WAL');
-      File('$dbPath-shm').writeAsStringSync('SHM');
+    test('שאריות גיבוי נמחקות גם כשיש marker', () async {
+      File('$dbPath.backup').writeAsStringSync('OLD-BACKUP');
+      File(service.markerPathFor(dbPath)).writeAsStringSync('{}');
 
       final result = await service.recoverIfNeeded(dbPath);
-      expect(result.action, RecoveryAction.restored);
+      expect(result.action, RecoveryAction.interrupted);
+      expect(File('$dbPath.backup').existsSync(), isFalse);
       expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
-      expect(File('$dbPath-wal').existsSync(), isFalse);
-      expect(File('$dbPath-shm').existsSync(), isFalse);
-      expect(File('$dbPath.restore.tmp').existsSync(), isFalse);
-    });
-
-    test('שחזור עובד גם כשה-DB נעלם לגמרי באמצע העדכון', () async {
-      await service.beginApply(
-          dbPath: dbPath, fromVersion: 1, toVersion: 2, timestamp: 't');
-      File(dbPath).deleteSync();
-      final result = await service.recoverIfNeeded(dbPath);
-      expect(result.action, RecoveryAction.restored);
-      expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
-    });
-
-    test('תוכן בינארי משוחזר בית-בית', () async {
-      final bytes = List.generate(20000, (i) => (i * 7) % 256);
-      File(dbPath).writeAsBytesSync(bytes);
-      await service.beginApply(
-          dbPath: dbPath, fromVersion: 1, toVersion: 2, timestamp: 't');
-      File(dbPath).writeAsBytesSync(const [1, 2, 3]);
-      await service.recoverIfNeeded(dbPath);
-      expect(File(dbPath).readAsBytesSync(), bytes);
     });
   });
 
@@ -207,26 +124,22 @@ void main() {
       expect(marker['timestamp'], '2026-06-28T00:00:00Z');
     });
 
-    test('beginApply מנקה שאריות מריצה קודמת', () async {
-      File(service.backupPathFor(dbPath)).writeAsStringSync('OLD-BACKUP');
+    test('beginApply מנקה שאריות גיבוי מריצה קודמת', () async {
+      File('$dbPath.backup').writeAsStringSync('OLD-BACKUP');
       File(service.markerPathFor(dbPath)).writeAsStringSync('OLD-MARKER');
-      File('$dbPath.backup.tmp').writeAsStringSync('OLD-TMP');
 
       await service.beginApply(
           dbPath: dbPath, fromVersion: 1, toVersion: 2, timestamp: 't');
-      expect(
-          File(service.backupPathFor(dbPath)).readAsStringSync(), 'ORIGINAL');
-      expect(File('$dbPath.backup.tmp').existsSync(), isFalse);
+      expect(File('$dbPath.backup').existsSync(), isFalse);
       expect(File(service.markerPathFor(dbPath)).readAsStringSync(),
           contains('fromVersion'));
     });
 
-    test('clearStaleArtifacts מוחק סימון וגיבוי ומשאיר את ה-DB', () async {
+    test('clearStaleArtifacts מוחק סימון ומשאיר את ה-DB', () async {
       await service.beginApply(
           dbPath: dbPath, fromVersion: 1, toVersion: 2, timestamp: 't');
       service.clearStaleArtifacts(dbPath);
       expect(File(service.markerPathFor(dbPath)).existsSync(), isFalse);
-      expect(File(service.backupPathFor(dbPath)).existsSync(), isFalse);
       expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
     });
 
@@ -234,25 +147,6 @@ void main() {
       expect(() => service.finishSuccess(dbPath), returnsNormally);
       expect(() => service.clearStaleArtifacts(dbPath), returnsNormally);
     });
-
-    test('rollback בלי סימון ובלי גיבוי אינו נוגע ב-DB', () async {
-      await service.rollback(dbPath);
-      expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
-    });
-  });
-
-  test('cloneOrCopyFile מעתיק בית-בית ודורס יעד קיים', () {
-    final src = '${tmp.path}/src.bin';
-    final dst = '${tmp.path}/dst.bin';
-    File(src).writeAsBytesSync(List.generate(5000, (i) => i % 256));
-    File(dst).writeAsBytesSync(List.filled(9, 0));
-    cloneOrCopyFile(src, dst);
-    expect(File(dst).readAsBytesSync(), File(src).readAsBytesSync());
-  });
-
-  test('BackupIntegrityException נושא את ההודעה שלו', () {
-    const error = BackupIntegrityException('חצי');
-    expect('$error', contains('חצי'));
   });
 }
 

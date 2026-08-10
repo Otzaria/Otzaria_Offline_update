@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'app_colors.dart';
-
 ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
 
 extension on ColorScheme {
@@ -24,13 +22,20 @@ class AppSurfaces {
           );
   }
 
-  /// רקע סרגל עליון
+  /// רקע שורת הכותרת המותאמת — אותו רקע כמו הלוח, כך שהיא נקראת כהמשך של
+  /// המסך ולא כסרגל נפרד (כמו באוצריא).
   static Color topBarBackground(BuildContext context) =>
-      _cs(context).surfaceContainerHigh;
+      panelBackground(context);
 
-  /// רקע סרגל הניווט הצדי
+  /// רקע סרגל הניווט הצדי — גם הוא רקע הלוח, בלי תפר מול התוכן.
   static Color navRailBackground(BuildContext context) =>
-      _cs(context).isDark ? AppColors.darkScaffold : _cs(context).surface;
+      panelBackground(context);
+
+  /// קו ההפרדה של המסגרת — מתחת לשורת הכותרת ובין סרגל הניווט לתוכן.
+  /// שלושת המשטחים באותו צבע, ולכן הקו הזה הוא כל מה שמפריד ביניהם (כמו
+  /// ה-`VerticalDivider` וגבול ה-`CustomTitleBar` באוצריא).
+  static Color shellDivider(BuildContext context) =>
+      _cs(context).outlineVariant.withValues(alpha: 0.6);
 
   /// צבע ברירת המחדל לכרטיסי תוכן
   static Color card(BuildContext context) => _cs(context).isDark

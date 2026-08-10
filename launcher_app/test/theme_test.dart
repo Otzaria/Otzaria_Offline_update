@@ -245,8 +245,11 @@ void main() {
         expect(light[key], isNot(dark[key]), reason: key);
       }
       expect(light['divider'], light['panel']);
-      // במצב כהה סרגל הניווט הוא הגוון הקבוע של אוצריא.
-      expect(dark['navRail'], AppColors.darkScaffold);
+      // שורת הכותרת וסרגל הניווט נצבעים ברקע הלוח עצמו — בלי תפר מול התוכן.
+      for (final surfaces in [light, dark]) {
+        expect(surfaces['topBar'], surfaces['panel']);
+        expect(surfaces['navRail'], surfaces['panel']);
+      }
     });
 
     test('רקע שבב המצב נגזר מצבע החיווי בשקיפות אחידה', () {
@@ -286,7 +289,7 @@ void main() {
                 return Scaffold(
                   backgroundColor: AppSurfaces.panelBackground(context),
                   body: SettingsCard(
-                    title: s.settings.storageCardTitle,
+                    title: s.settings.appearanceCardTitle,
                     children: [
                       InfoStatusRow(
                         icon: FluentIcons.info_24_regular,
@@ -295,7 +298,7 @@ void main() {
                         label: s.common.upToDate,
                       ),
                       SettingsActionTile.text(
-                        title: s.settings.backupTitle,
+                        title: s.settings.languageTitle,
                         actions: [
                           ActionButton.recommended(
                             text: s.common.install,

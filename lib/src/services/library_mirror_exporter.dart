@@ -21,13 +21,14 @@ import 'patch_downloader.dart';
 /// התיקייה שנוצרה (USB וכו') ופותחים אותה במחשבים האחרים דרך "עדכן מתיקייה
 /// מקומית" בלאנצ'ר.
 ///
-/// **הערה על גודל:** מראה מלאה כוללת את כל ה-patches ההיסטוריים וגם את
-/// ה-DB המלא (~1.1GB דחוס) — יכולה להגיע לכמה ג'יגה-בייט. זה מחיר סביר
-/// עבור "עובד לגמרי אופליין"; אין כרגע אופציה לייצא רק טווח גרסאות חלקי.
+/// **הערה על גודל:** המראה נושאת את ה-DB המלא (~1.1GB דחוס) ואת ה-patches
+/// של [historyDepth] ה-releases האחרונים — לא את כל ההיסטוריה. ראו
+/// [recentReleases].
 class LibraryMirrorExporter {
   LibraryMirrorExporter({
     GithubLibraryReleaseClient? client,
     http.Client? httpClient,
+    this.historyDepth = defaultHistoryDepth,
   })  : _client = client ?? GithubLibraryReleaseClient(),
         _ownsClient = client == null,
         _httpClient = httpClient ?? http.Client(),
@@ -39,6 +40,13 @@ class LibraryMirrorExporter {
       decompress: _neverDecompress,
     );
   }
+
+  /// כמה releases אחרונים נשמרים במראה — ראו [recentReleases]. חמישה מכסים
+  /// בפועל מחשב שלא עודכן כמה חודשים, בעלות של כמה עשרות MB.
+  static const int defaultHistoryDepth = 5;
+
+  /// עומק היסטוריית ה-patches שנשמרת במראה.
+  final int historyDepth;
 
   final GithubLibraryReleaseClient _client;
   final bool _ownsClient;
@@ -76,7 +84,7 @@ class LibraryMirrorExporter {
       all,
       allowPrerelease: allowPrerelease,
     );
-    final relevant = _latestOnly(eligible);
+    final relevant = recentReleases(eligible);
 
     if (relevant.isEmpty) {
       throw StateError(strings.exportNoReleases);
@@ -177,49 +185,54 @@ class LibraryMirrorExporter {
         LocalMirrorLibraryReleaseClient.manifestFileName,
       ),
     );
-    final manifestFile = File(
-      p.join(destDir, LocalMirrorLibraryReleaseClient.manifestFileName),
+    // כתיבה אטומית: קובץ זמני, flush, ואז rename. `writeAsString` ישיר מקצץ
+    // מיד את המניפסט התקין, וקטיעה (שליפת הכונן) הייתה משאירה JSON פגום —
+    // שהמחשב הלא-מקוון קורא כ"מראה שבורה" למרות שכל הנכסים שלמים עליו.
+    final manifestPath =
+        p.join(destDir, LocalMirrorLibraryReleaseClient.manifestFileName);
+    final manifestTmp = File('$manifestPath.tmp');
+    await manifestTmp.writeAsString(
+      jsonEncode({
+        'formatVersion': 1,
+        'exportedAt': DateTime.now().toIso8601String(),
+        'releases': mirroredReleases.map((r) => r.toMirrorJson()).toList(),
+      }),
+      flush: true,
     );
-    await manifestFile.writeAsString(jsonEncode({
-      'formatVersion': 1,
-      'exportedAt': DateTime.now().toIso8601String(),
-      'releases': mirroredReleases.map((r) => r.toMirrorJson()).toList(),
-    }));
+    await manifestTmp.rename(manifestPath);
 
     onStage?.call(strings.exportDone);
   }
 
-  /// ה-release האחרון בלבד, ואיתו — אם הוא עצמו לא נושא `seforim.db.zst` —
-  /// ה-release האחרון שכן נושא כזה, כדי שתמיד יהיה מסלול הורדה מלאה במראה.
+  /// [historyDepth] ה-releases האחרונים שנושאים תוכן מסד, ואיתם — אם אף אחד
+  /// מהם לא נושא `seforim.db.zst` — האחרון שכן נושא כזה, כדי שתמיד יהיה
+  /// מסלול הורדה מלאה במראה.
   ///
-  /// היסטוריית ה-patches הישנה **לא** נכללת: היעד הוא כונן נייד, והמראה
-  /// המלאה הגיעה לכמה ג'יגה-בייט. מחשב שנמצא כמה גרסאות מאחור ייפול
-  /// למסלול ההורדה המלאה, שקיים במראה תמיד.
-  List<LibraryRelease> _latestOnly(List<LibraryRelease> eligible) {
+  /// **למה לא כל ההיסטוריה:** אוצריא המקוונת בוחרת מסלול patches מתוך הגרף
+  /// המלא, אבל מראה מלאה הגיעה לכמה ג'יגה-בייט והיעד הוא כונן נייד. עומק של
+  /// כמה גרסאות מכסה בפועל את מי שמעדכן מדי פעם — קובצי patch הם עשרות MB
+  /// לעומת ~1.1GB של המסד המלא — ומי שרחוק יותר נופל להורדה המלאה, שקיימת
+  /// במראה תמיד.
+  List<LibraryRelease> recentReleases(List<LibraryRelease> eligible) {
     final withDbContent = eligible
         .where((r) => r.deltaManifestAssets.isNotEmpty || r.fullDbAsset != null)
-        .toList(growable: false);
+        .toList()
+      ..sort((a, b) => LibraryUpdateDiscovery.releaseVersionOf(b)
+          .compareTo(LibraryUpdateDiscovery.releaseVersionOf(a)));
     if (withDbContent.isEmpty) return const [];
 
-    LibraryRelease? latest;
-    LibraryRelease? latestWithFullDb;
-    for (final release in withDbContent) {
-      final version = LibraryUpdateDiscovery.releaseVersionOf(release);
-      if (latest == null ||
-          version > LibraryUpdateDiscovery.releaseVersionOf(latest)) {
-        latest = release;
-      }
-      if (release.fullDbAsset == null) continue;
-      if (latestWithFullDb == null ||
-          version > LibraryUpdateDiscovery.releaseVersionOf(latestWithFullDb)) {
-        latestWithFullDb = release;
+    final kept = <LibraryRelease>{
+      ...withDbContent.take(historyDepth < 1 ? 1 : historyDepth),
+    };
+    if (!kept.any((r) => r.fullDbAsset != null)) {
+      for (final release in withDbContent) {
+        if (release.fullDbAsset != null) {
+          kept.add(release);
+          break;
+        }
       }
     }
-
-    return <LibraryRelease>{
-      if (latest != null) latest,
-      if (latestWithFullDb != null) latestWithFullDb,
-    }.toList(growable: false);
+    return kept.toList(growable: false);
   }
 
   String _safeDirName(String tag) =>

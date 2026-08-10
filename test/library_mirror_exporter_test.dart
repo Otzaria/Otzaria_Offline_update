@@ -72,6 +72,7 @@ void main() {
     List<ReleaseSpec> releases, {
     Set<String> corruptManifests = const {},
     String? failAsset,
+    int historyDepth = LibraryMirrorExporter.defaultHistoryDepth,
   }) {
     Uint8List bodyFor(String name) {
       if (!name.endsWith('.manifest.json')) {
@@ -134,6 +135,7 @@ void main() {
       exporter: LibraryMirrorExporter(
         client: GithubLibraryReleaseClient(httpClient: mock),
         httpClient: mock,
+        historyDepth: historyDepth,
       ),
       fetched: fetched,
     );
@@ -154,9 +156,10 @@ void main() {
       File([dir, 'assets', tag, name].join(Platform.pathSeparator))
           .existsSync();
 
-  group('_latestOnly — רק ה-release האחרון נשמר במראה', () {
-    // המראה יושבת על כונן נייד: היסטוריית ה-patches המלאה הגיעה לכמה ג'יגה.
-    test('היסטוריית patches ישנה אינה מיוצאת — רק ה-release האחרון', () async {
+  group('recentReleases — עומק ההיסטוריה במראה', () {
+    // כמו באוצריא המקוונת, מכונה שכמה גרסאות מאחור מקבלת שרשרת patches ולא
+    // הורדה מלאה — ההבדל היחיד הוא שהעומק חסום, כי המראה יושבת על כונן נייד.
+    test('ה-releases האחרונים בעומק ברירת המחדל מיוצאים כולם', () async {
       final built = buildExporter([
         release('v3', assets: [
           'seforim.db.zst',
@@ -164,12 +167,35 @@ void main() {
           'patch-v2-v3.db.zst.manifest.json',
         ]),
         release('v2', assets: [
-          'seforim.db.zst',
           'patch-v1-v2.db.zst',
           'patch-v1-v2.db.zst.manifest.json',
         ]),
-        release('v1', assets: ['seforim.db.zst']),
       ]);
+      await built.exporter.export(destDir: destDir);
+
+      expect(mirroredTags(destDir), containsAll(<String>['v3', 'v2']));
+      expect(assetOnDisk(destDir, 'v3', 'seforim.db.zst'), isTrue);
+      expect(assetOnDisk(destDir, 'v2', 'patch-v1-v2.db.zst'), isTrue);
+    });
+
+    // מעבר לעומק — ההיסטוריה נחתכת, אחרת המראה מגיעה לכמה ג'יגה-בייט.
+    test('מה שמעבר לעומק אינו מיוצא כלל', () async {
+      final built = buildExporter(
+        [
+          release('v3', assets: [
+            'seforim.db.zst',
+            'patch-v2-v3.db.zst',
+            'patch-v2-v3.db.zst.manifest.json',
+          ]),
+          release('v2', assets: [
+            'seforim.db.zst',
+            'patch-v1-v2.db.zst',
+            'patch-v1-v2.db.zst.manifest.json',
+          ]),
+          release('v1', assets: ['seforim.db.zst']),
+        ],
+        historyDepth: 1,
+      );
       await built.exporter.export(destDir: destDir);
 
       expect(mirroredTags(destDir), ['v3']);
@@ -187,14 +213,17 @@ void main() {
     // מסלול ההורדה המלאה חייב להיות זמין תמיד, גם כשה-release האחרון הוא
     // patch-only — אחרת מחשב שנמצא כמה גרסאות מאחור נתקע.
     test('release אחרון בלי DB מלא → נשמר גם האחרון שכן נושא אותו', () async {
-      final built = buildExporter([
-        release('v4', assets: [
-          'patch-v3-v4.db.zst',
-          'patch-v3-v4.db.zst.manifest.json',
-        ]),
-        release('v3', assets: ['seforim.db.zst']),
-        release('v2', assets: ['seforim.db.zst']),
-      ]);
+      final built = buildExporter(
+        [
+          release('v4', assets: [
+            'patch-v3-v4.db.zst',
+            'patch-v3-v4.db.zst.manifest.json',
+          ]),
+          release('v3', assets: ['seforim.db.zst']),
+          release('v2', assets: ['seforim.db.zst']),
+        ],
+        historyDepth: 1,
+      );
       await built.exporter.export(destDir: destDir);
 
       expect(mirroredTags(destDir), containsAll(<String>['v4', 'v3']));
@@ -204,14 +233,17 @@ void main() {
     });
 
     test('כשה-release האחרון נושא DB מלא — הוא נשמר פעם אחת בלבד', () async {
-      final built = buildExporter([
-        release('v3', assets: [
-          'seforim.db.zst',
-          'patch-v2-v3.db.zst',
-          'patch-v2-v3.db.zst.manifest.json',
-        ]),
-        release('v2', assets: ['seforim.db.zst']),
-      ]);
+      final built = buildExporter(
+        [
+          release('v3', assets: [
+            'seforim.db.zst',
+            'patch-v2-v3.db.zst',
+            'patch-v2-v3.db.zst.manifest.json',
+          ]),
+          release('v2', assets: ['seforim.db.zst']),
+        ],
+        historyDepth: 1,
+      );
       await built.exporter.export(destDir: destDir);
       expect(mirroredTags(destDir), ['v3']);
     });
@@ -246,9 +278,9 @@ void main() {
     });
   });
 
-  // הלב של המראה: מכונה שכמה גרסאות מאחור לא תמצא שרשרת דלתא, וחייבת ליפול
-  // למסלול ההורדה המלאה — שקיים במראה תמיד.
-  test('מכונה כמה גרסאות מאחור נופלת למסלול ההורדה המלאה מתוך המראה', () async {
+  // הלב של המראה: מכונה שכמה גרסאות מאחור מקבלת **שרשרת דלתא** מהמראה, כמו
+  // באוצריא המקוונת — ורק מי שרחוק מעבר לעומק ההיסטוריה נופל להורדה המלאה.
+  test('שרשרת דלתא רב-שלבית נבנית מהמראה, ומעבר לעומק — הורדה מלאה', () async {
     final built = buildExporter([
       release('v3', assets: [
         'seforim.db.zst',
@@ -266,32 +298,32 @@ void main() {
     final discovery = LibraryUpdateDiscovery(client: mirror);
     final result = await discovery.discover(allowPrerelease: true);
     expect(result.latestVersion, 3);
-    // רק ה-edge של ה-release האחרון שרד את הייצוא.
-    expect(result.edges.map((e) => '${e.fromVersion}-${e.toVersion}'), ['2-3']);
-
-    final plan = const LibraryUpdatePlanner().plan(
-      localVersion: 1,
-      hasLocalVersionMeta: true,
-      latestVersion: result.latestVersion,
-      edges: result.edges,
-      latestFullDbAsset: result.latestFullDbAsset,
-      latestReleaseTag: result.latestReleaseTag,
+    // שני ה-edges שרדו את הייצוא — זה בדיוק מה שהעומק החדש נותן.
+    expect(
+      result.edges.map((e) => '${e.fromVersion}-${e.toVersion}'),
+      containsAll(<String>['1-2', '2-3']),
     );
-    expect(plan.kind, LibraryUpdatePlanKind.fullDownload);
-    expect(plan.fullDbReleaseTag, 'v3');
+
+    LibraryUpdatePlan planFrom(int localVersion) =>
+        const LibraryUpdatePlanner().plan(
+          localVersion: localVersion,
+          hasLocalVersionMeta: true,
+          latestVersion: result.latestVersion,
+          edges: result.edges,
+          latestFullDbAsset: result.latestFullDbAsset,
+          latestReleaseTag: result.latestReleaseTag,
+        );
+
+    final chain = planFrom(1);
+    expect(chain.kind, LibraryUpdatePlanKind.delta);
+    expect(chain.deltaSteps.length, 2);
+
+    // גרסה שאין אליה patch במראה — מסלול ההורדה המלאה, שקיים תמיד.
+    final full = planFrom(0);
+    expect(full.kind, LibraryUpdatePlanKind.fullDownload);
+    expect(full.fullDbReleaseTag, 'v3');
     // ה-URL במראה הוא נתיב מוחלט על הדיסק, וקיים בפועל.
-    expect(File(plan.fullDbAsset!.downloadUrl).existsSync(), isTrue);
-
-    // ומכונה בגרסה הקודמת ממש כן מקבלת דלתא.
-    final delta = const LibraryUpdatePlanner().plan(
-      localVersion: 2,
-      hasLocalVersionMeta: true,
-      latestVersion: result.latestVersion,
-      edges: result.edges,
-      latestFullDbAsset: result.latestFullDbAsset,
-      latestReleaseTag: result.latestReleaseTag,
-    );
-    expect(delta.kind, LibraryUpdatePlanKind.delta);
+    expect(File(full.fullDbAsset!.downloadUrl).existsSync(), isTrue);
   });
 
   group('export — פרטי הכתיבה', () {

@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'src/screens/app_shell.dart';
 import 'src/screens/setup_error_screen.dart';
@@ -52,6 +54,8 @@ void main() {
         FlutterError.presentError(details);
       };
 
+      await _hideNativeTitleBar();
+
       // תיקיית הנתונים צמודה לתוכנה ואינה ניתנת לשינוי. אם אי אפשר לכתוב
       // בה — אין לאן לשמור *כלום*, כולל הלוג עצמו, ולכן זו לא שגיאה שאפשר
       // לרשום ולהמשיך: מציגים מסך הסבר ועוצרים.
@@ -80,6 +84,27 @@ void main() {
     // שבורחת מהטיפול הרגיל, היא עדיין תיכתב ללוג במקום להיעלם בשקט.
     (error, stackTrace) => report('Uncaught zone error', error, stackTrace),
   );
+}
+
+/// מסתיר את מסגרת החלון של המערכת — מכאן והלאה שורת הכותרת היא [AppTitleBar]
+/// שבתוך האפליקציה, בצבע הרקע. רץ לפני `runApp` כדי שהחלון ייצבע פעם אחת
+/// בגודלו הסופי: שינוי המסגרת מאתחל את אזור-הלקוח ומבטל פריים שכבר צויר.
+Future<void> _hideNativeTitleBar() async {
+  if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) return;
+  // כשל כאן הוא קוסמטי בלבד (נשארת מסגרת המערכת), אבל בלי ה-catch הוא היה
+  // בורח לפני שיש לוג ומשאיר את המשתמש בלי חלון בכלל.
+  try {
+    await windowManager.ensureInitialized();
+    await windowManager.setMinimumSize(const Size(900, 620));
+    // ברירת המחדל של windowButtonVisibility היא true — בלי false מפורש כפתורי
+    // המערכת של macOS יופיעו כפול לצד הכפתורים שלנו.
+    await windowManager.setTitleBarStyle(
+      TitleBarStyle.hidden,
+      windowButtonVisibility: false,
+    );
+  } catch (e) {
+    debugPrint('הסתרת מסגרת החלון נכשלה: $e');
+  }
 }
 
 class LauncherApp extends StatelessWidget {

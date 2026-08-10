@@ -8,7 +8,11 @@ import '../settings/settings_controller.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
 
-/// מסך ההגדרות — אוטומציה, אחסון, רשת וממשק.
+/// מסך ההגדרות — שפה ומראה, אוטומציה, הורדה ותמיכה.
+///
+/// **אין כאן הגדרות רשת בכוונה.** הזמן הקצוב לכל פנייה נקבע בלקוחות עצמם
+/// (ראו `OtzariaReleaseClient`, `GithubLibraryReleaseClient`) — ערך שהמשתמש
+/// אינו יכול לכוון נכון, וכשל הורדה נפתר בניסיון חוזר ולא בהארכת timeout.
 ///
 /// **אין כאן נתיבים בכוונה.** תיקיית הנתונים צמודה לקובץ ההרצה (ראו
 /// [AppPaths]) ומיקום אוצריא מתגלה לבד — שינוי נתיב היה שובר את הרעיון של
@@ -35,11 +39,11 @@ class SettingsScreen extends StatelessWidget {
       title: t.title,
       description: t.description,
       children: [
+        // שפה ומראה ראשונים: מי שפותח בפעם הראשונה צריך קודם להבין את המסך.
+        _appearanceCard(context),
         _automationCard(context),
         _downloadCard(context),
-        _storageCard(context),
-        _networkCard(context),
-        _uiCard(context),
+        _supportCard(context),
       ],
     );
   }
@@ -154,67 +158,19 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  // ── אחסון ─────────────────────────────────────────────────────────────────
+  // ── שפה ומראה ─────────────────────────────────────────────────────────────
 
-  Widget _storageCard(BuildContext context) {
-    final t = context.strings.settings;
-
-    return SettingsCard(
-      title: t.storageCardTitle,
-      subtitle: t.storageCardSubtitle,
-      children: [
-        SettingsActionTile.segmentedTile<int>(
-          icon: FluentIcons.history_24_regular,
-          title: t.backupTitle,
-          subtitle: t.backupSubtitle,
-          currentValue: _s.backupsToKeep,
-          onChanged: (v) => _set(_s.copyWith(backupsToKeep: v)),
-          options: [
-            SegmentOption(value: 0, label: t.backupOff),
-            SegmentOption(value: 1, label: t.backupOn),
-          ],
-        ),
-      ],
-    );
-  }
-
-  // ── רשת ───────────────────────────────────────────────────────────────────
-
-  Widget _networkCard(BuildContext context) {
-    final t = context.strings.settings;
-
-    return SettingsCard(
-      title: t.networkCardTitle,
-      subtitle: t.networkCardSubtitle,
-      children: [
-        SettingsActionTile.segmentedTile<int>(
-          icon: FluentIcons.timer_24_regular,
-          title: t.timeoutTitle,
-          subtitle: t.timeoutSubtitle,
-          currentValue: _s.networkTimeoutSeconds,
-          onChanged: (v) => _set(_s.copyWith(networkTimeoutSeconds: v)),
-          options: const [
-            SegmentOption(value: 10, label: '10'),
-            SegmentOption(value: 20, label: '20'),
-            SegmentOption(value: 45, label: '45'),
-          ],
-        ),
-      ],
-    );
-  }
-
-  // ── ממשק ותמיכה ───────────────────────────────────────────────────────────
-
-  /// רוחב קבוע לשלוש השורות למטה — כך שתיבות ערכת הנושא, שהתווית הארוכה
+  /// רוחב קבוע לשלוש השורות בכרטיס — כך שתיבות ערכת הנושא, שהתווית הארוכה
   /// ביניהן ("לפי המערכת") הייתה מגדילה אותן יותר מהשורה השנייה, יושבות
   /// באותו גודל בדיוק כמו תיבות השפה וגודל הטקסט.
   static const double _uiSegmentWidth = 300;
 
-  Widget _uiCard(BuildContext context) {
+  Widget _appearanceCard(BuildContext context) {
     final t = context.strings.settings;
 
     return SettingsCard(
-      title: t.uiCardTitle,
+      title: t.appearanceCardTitle,
+      subtitle: t.appearanceCardSubtitle,
       children: [
         SettingsActionTile.segmentedTile<AppLanguage>(
           icon: FluentIcons.local_language_24_regular,
@@ -252,6 +208,18 @@ class SettingsScreen extends StatelessWidget {
             SegmentOption(value: 1.15, label: t.textSizeLarge),
           ],
         ),
+      ],
+    );
+  }
+
+  // ── תמיכה ─────────────────────────────────────────────────────────────────
+
+  Widget _supportCard(BuildContext context) {
+    final t = context.strings.settings;
+
+    return SettingsCard(
+      title: t.supportCardTitle,
+      children: [
         SettingsActionTile.text(
           icon: FluentIcons.document_bullet_list_24_regular,
           title: t.logTitle,

@@ -33,6 +33,9 @@ dependencies:
   # רינדור Markdown ל"מה התחדש" (יומן השינויים) — המשך-הדרך של flutter_markdown
   # שהופסק על ידי צוות Flutter.
   flutter_markdown_plus: ^1.0.12
+  # שורת כותרת מותאמת אישית (כמו באוצריא): מסתירה את מסגרת החלון של המערכת
+  # ומספקת גרירה וכפתורי חלון משלנו.
+  window_manager: ^0.5.2
 
 dev_dependencies:
   flutter_test:

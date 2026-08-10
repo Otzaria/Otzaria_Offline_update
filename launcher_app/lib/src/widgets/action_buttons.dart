@@ -16,6 +16,10 @@ class ActionButton extends StatelessWidget {
   final String text;
   final VoidCallback? onPressed;
   final bool isLoading;
+
+  /// מסובב את הסמל במקום להחליף את התוכן במד טעינה — לפעולות קצרות
+  /// שהכפתור צריך להישאר קריא בזמנן.
+  final bool spinning;
   final IconData? icon;
   final _Variant _variant;
 
@@ -24,6 +28,7 @@ class ActionButton extends StatelessWidget {
     required this.text,
     required this.onPressed,
     this.isLoading = false,
+    this.spinning = false,
     this.icon,
   }) : _variant = _Variant.recommended;
 
@@ -32,6 +37,7 @@ class ActionButton extends StatelessWidget {
     required this.text,
     required this.onPressed,
     this.isLoading = false,
+    this.spinning = false,
     this.icon,
   }) : _variant = _Variant.neutral;
 
@@ -40,6 +46,7 @@ class ActionButton extends StatelessWidget {
     required this.text,
     required this.onPressed,
     this.isLoading = false,
+    this.spinning = false,
     this.icon,
   }) : _variant = _Variant.ghost;
 
@@ -48,6 +55,7 @@ class ActionButton extends StatelessWidget {
     required this.text,
     required this.onPressed,
     this.isLoading = false,
+    this.spinning = false,
     this.icon,
   }) : _variant = _Variant.warning;
 
@@ -125,7 +133,12 @@ class ActionButton extends StatelessWidget {
       );
     }
     if (icon != null) {
-      return _withIcon(leading: RtlIcon(icon!, size: 18), style: style);
+      return _withIcon(
+        leading: spinning
+            ? _SpinningIcon(icon!, size: 18)
+            : RtlIcon(icon!, size: 18),
+        style: style,
+      );
     }
     return _plain(
       onPressed: onPressed,
@@ -133,6 +146,37 @@ class ActionButton extends StatelessWidget {
       child: Text(text),
     );
   }
+}
+
+/// סמל שמסתובב ברציפות — סימן חיים לפעולה קצרה שאין לה מד התקדמות.
+class _SpinningIcon extends StatefulWidget {
+  const _SpinningIcon(this.icon, {this.size});
+
+  final IconData icon;
+  final double? size;
+
+  @override
+  State<_SpinningIcon> createState() => _SpinningIconState();
+}
+
+class _SpinningIconState extends State<_SpinningIcon>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _turns = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _turns.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RotationTransition(
+        turns: _turns,
+        child: RtlIcon(widget.icon, size: widget.size),
+      );
 }
 
 /// כפתור אייקון ניטרלי (secondaryContainer) — לפעולות משניות בשורה.

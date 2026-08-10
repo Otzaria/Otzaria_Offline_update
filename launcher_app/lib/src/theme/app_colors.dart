@@ -5,9 +5,6 @@ import 'package:flutter/material.dart';
 class AppColors {
   AppColors._();
 
-  /// רקע ה-Scaffold במצב כהה
-  static const Color darkScaffold = Color(0xFF242424);
-
   /// צבע מחסום הדיאלוג (barrier) — חצי שקוף
   static const Color dialogBarrier = Color(0x22000000);
 }

@@ -65,8 +65,6 @@ void main() {
         'automation',
         'channels',
         'sync',
-        'storage',
-        'network',
         'ui',
       });
       expect(allKeys(json), {
@@ -82,10 +80,6 @@ void main() {
         'app',
         'library',
         'plugins',
-        'storage',
-        'backupsToKeep',
-        'network',
-        'timeoutSeconds',
         'ui',
         'language',
         'themeMode',
@@ -107,8 +101,6 @@ void main() {
       expect(s.autoInstallApp, isFalse);
       expect(s.autoInstallLibrary, isFalse);
       expect(s.preferAppPrerelease, isFalse);
-      expect(s.backupsToKeep, 1);
-      expect(s.networkTimeoutSeconds, 20);
       expect(s.language, AppLanguage.hebrew);
       expect(s.themeMode, AppThemeMode.system);
       expect(s.textScale, 1.0);
@@ -124,8 +116,6 @@ void main() {
         autoInstallApp: true,
         autoInstallLibrary: true,
         preferAppPrerelease: true,
-        backupsToKeep: 0,
-        networkTimeoutSeconds: 45,
         language: AppLanguage.english,
         themeMode: AppThemeMode.light,
         textScale: 1.3,
@@ -141,8 +131,6 @@ void main() {
       expect(restored.autoInstallApp, isTrue);
       expect(restored.autoInstallLibrary, isTrue);
       expect(restored.preferAppPrerelease, isTrue);
-      expect(restored.backupsToKeep, 0);
-      expect(restored.networkTimeoutSeconds, 45);
       expect(restored.language, AppLanguage.english);
       expect(restored.themeMode, AppThemeMode.light);
       expect(restored.textScale, 1.3);
@@ -159,15 +147,17 @@ void main() {
         'schemaVersion': 99,
         'whatIsThis': {'nested': true},
         'automation': {'metadataCheck': 'כן', 'installApp': 1},
-        'storage': {'backupsToKeep': '2'},
+        // הסעיפים 'network' ו-'storage' (גיבוי המסד) הוסרו מה-schema — הם
+        // נבלעים ככל מפתח לא מוכר.
         'network': {'timeoutSeconds': 12.5},
+        'storage': {'backupsToKeep': 2},
         'ui': {'textScale': 2},
       });
 
       expect(restored.autoMetadataCheck, isTrue);
       expect(restored.autoInstallApp, isFalse);
-      expect(restored.backupsToKeep, 1);
-      expect(restored.networkTimeoutSeconds, 20);
+      expect(restored.toJson().containsKey('network'), isFalse);
+      expect(restored.toJson().containsKey('storage'), isFalse);
       // num שאינו int כן מתקבל ל-textScale (בשונה מהשדות השלמים).
       expect(restored.textScale, 2.0);
       // schemaVersion נכתב תמיד מחדש לגרסה הנוכחית.
@@ -175,11 +165,11 @@ void main() {
     });
 
     test('copyWith משנה שדה אחד ומשאיר את השאר', () {
-      const original = AppSettings(networkTimeoutSeconds: 30);
+      const original = AppSettings(textScale: 1.15);
       final next = original.copyWith(preferAppPrerelease: true);
 
       expect(next.preferAppPrerelease, isTrue);
-      expect(next.networkTimeoutSeconds, 30);
+      expect(next.textScale, 1.15);
       expect(next.language, original.language);
     });
 
@@ -247,9 +237,8 @@ void main() {
 
     test('שמירה אטומית: אין קובץ .tmp אחרי הכתיבה, והתוכן נקרא חזרה', () async {
       await controller.update(const AppSettings(
-        backupsToKeep: 0,
-        networkTimeoutSeconds: 33,
         preferAppPrerelease: true,
+        textScale: 1.15,
       ));
 
       expect(File('${settingsFile().path}.tmp').existsSync(), isFalse);
@@ -263,8 +252,7 @@ void main() {
       addTearDown(reloaded.dispose);
       await reloaded.load();
 
-      expect(reloaded.settings.backupsToKeep, 0);
-      expect(reloaded.settings.networkTimeoutSeconds, 33);
+      expect(reloaded.settings.textScale, 1.15);
       expect(reloaded.settings.preferAppPrerelease, isTrue);
     });
 

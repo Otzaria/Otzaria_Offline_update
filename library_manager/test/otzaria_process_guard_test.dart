@@ -60,6 +60,14 @@ void main() {
         return;
       }
 
+      const guardProbe = OtzariaProcessGuard();
+      if (await guardProbe.isRunning('otzaria.exe')) {
+        // אוצריא אמיתית פתוחה על המכונה הזו — אין דרך להבחין בינה לבין
+        // התאמת-יתר, וזה מצב שגרתי אצל מי שמפתח כאן.
+        markTestSkipped('אוצריא אמיתית פתוחה — יש לסגור אותה לבדיקה הזו');
+        return;
+      }
+
       // שם שתת-מחרוזת הייתה תופסת ("otzaria" בתוכו) אבל התאמה מדויקת לא.
       final fakePath = p.join(tempDir.path, 'otzaria-launcher-fake.exe');
       final started = await _startLongLivedCopyOfPing(fakePath);

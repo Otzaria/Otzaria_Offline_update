@@ -68,14 +68,19 @@ void main() {
         .writeAsString(jsonEncode(json));
   }
 
+  /// [runningOtzariaPath] מדמה "אוצריא רצה כרגע מהנתיב הזה". ברירת המחדל
+  /// null היא גם מה שמנטרל את הזיהוי האמיתי לפי תהליך — אחרת הבדיקות היו
+  /// תלויות בשאלה אם אוצריא פתוחה במכונת המפתח.
   OtzariaManager managerFor({
     bool preferPrerelease = false,
     Map<String, String> environment = const {},
+    String? runningOtzariaPath,
   }) {
     final manager = OtzariaManager(
       dataDir: dataDir.path,
       platform: OtzariaTargetPlatform.windows,
       environment: environment,
+      runningLocator: _FakeRunningLocator(runningOtzariaPath),
       preferPrerelease: preferPrerelease,
     );
     addTearDown(manager.close);
@@ -234,6 +239,98 @@ void main() {
     );
   });
 
+  // הזיהוי שמכסה את המשתמש שהתקין את אוצריא במקום שאינו ברשימה: כל עוד
+  // היא פתוחה, נתיב התהליך שלה אומר בדיוק איפה היא.
+  group('detectRunningInstall', () {
+    test('null כשאוצריא אינה רצה', () async {
+      expect(await managerFor().detectRunningInstall(), isNull);
+    });
+
+    test(
+      'גוזר תיקיית התקנה מנתיב התהליך, וקורא ממנו גרסה',
+      () async {
+        if (!File(_systemExe).existsSync()) {
+          markTestSkipped('אין $_systemExe במכונה הזאת');
+          return;
+        }
+        final dir = Directory(p.join(dataDir.path, 'מיקום מוזר'))
+          ..createSync(recursive: true);
+        final exe = p.join(dir.path, 'otzaria.exe');
+        await File(_systemExe).copy(exe);
+
+        final detected =
+            await managerFor(runningOtzariaPath: exe).detectRunningInstall();
+
+        expect(detected, isNotNull);
+        expect(detected!.installDir, dir.path);
+        expect(detected.launchPath, exe);
+        expect(detected.installedTagName, isNotEmpty);
+      },
+      testOn: 'windows',
+    );
+
+    test(
+      'נתיב תהליך שאין ממנו גרסה אינו נחשב התקנה',
+      () async {
+        final exe = p.join(dataDir.path, 'otzaria.exe');
+        File(exe).writeAsStringSync('לא exe');
+
+        expect(
+          await managerFor(runningOtzariaPath: exe).detectRunningInstall(),
+          isNull,
+        );
+      },
+      testOn: 'windows',
+    );
+
+    test(
+      'התהליך הרץ קודם לתיקיות ברירת המחדל — גם כשיש התקנה מוכרת',
+      () async {
+        if (!File(_systemExe).existsSync()) {
+          markTestSkipped('אין $_systemExe במכונה הזאת');
+          return;
+        }
+        final managed = Directory(p.join(dataDir.path, 'otzaria-app'))
+          ..createSync(recursive: true);
+        await File(_systemExe).copy(p.join(managed.path, 'otzaria.exe'));
+
+        final running = Directory(p.join(dataDir.path, 'D-Otzaria'))
+          ..createSync(recursive: true);
+        final runningExe = p.join(running.path, 'otzaria.exe');
+        await File(_systemExe).copy(runningExe);
+
+        final check =
+            await managerFor(runningOtzariaPath: runningExe).checkForUpdate();
+
+        expect(check.currentState!.launchPath, runningExe);
+      },
+      testOn: 'windows',
+    );
+
+    // הזיהוי חייב לשרוד את סגירת אוצריא — שזה בדיוק מה שמבקשים מהמשתמש
+    // לעשות מיד אחרי שהוא רואה את ההודעה "אוצריא פתוחה".
+    test(
+      'מה שזוהה מהתהליך נשמר, ונשאר גם אחרי שאוצריא נסגרה',
+      () async {
+        if (!File(_systemExe).existsSync()) {
+          markTestSkipped('אין $_systemExe במכונה הזאת');
+          return;
+        }
+        final dir = Directory(p.join(dataDir.path, 'התקנה שלי'))
+          ..createSync(recursive: true);
+        final exe = p.join(dir.path, 'otzaria.exe');
+        await File(_systemExe).copy(exe);
+
+        await managerFor(runningOtzariaPath: exe).checkForUpdate();
+        // מנהל חדש, ואוצריא כבר אינה רצה.
+        final afterClose = await managerFor().checkForUpdate();
+
+        expect(afterClose.currentState!.launchPath, exe);
+      },
+      testOn: 'windows',
+    );
+  });
+
   // סדר החיפוש מ-AGENTS.md §5: התיקייה המנוהלת קודם, ואחריה מיקומי
   // ברירת המחדל האמיתיים של ה-installer של אוצריא.
   group('זיהוי אוטומטי — סדר תיקיות ברירת המחדל בווינדוס', () {
@@ -318,4 +415,15 @@ void main() {
     expect(body, isNot(contains('_releaseClient')));
     expect(body, isNot(contains('fetchChannelReleases')));
   });
+}
+
+/// "אוצריא רצה מהנתיב הזה" קבוע — במקום לשאול את המערכת מה פתוח כרגע.
+class _FakeRunningLocator extends RunningOtzariaLocator {
+  const _FakeRunningLocator(this.launchPath);
+
+  final String? launchPath;
+
+  @override
+  Future<RunningOtzariaProbe> probe() async =>
+      (isRunning: launchPath != null, launchPath: launchPath);
 }

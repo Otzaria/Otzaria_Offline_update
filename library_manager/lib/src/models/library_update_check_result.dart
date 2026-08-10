@@ -16,12 +16,18 @@ class LibraryUpdateCheckResult {
     this.plan,
     this.isFreshInstall = false,
     this.latestReleaseTag,
+    this.companionsPending = false,
   });
 
   final String? dbPath;
   final LocalDbVersion? localVersion;
   final LibraryUpdatePlan? plan;
   final bool isFreshInstall;
+
+  /// `true` כשבמראה יש קובץ נלווה (תלמוד/קטלוג/מילון) חדש ממה שמותקן.
+  /// אוצריא מרעננת אותם בכל עדכון ספרייה, ולכן גם מסד מעודכן יכול להשאיר
+  /// עבודה — ראו [CompanionAssetsInstaller].
+  final bool companionsPending;
 
   /// ה-release האחרון שנמצא במראה. נרשם אחרי החלה מוצלחת כ"התוכן שמותקן
   /// אצלנו", וכך מזוהה בהמשך מסד שפורסם מחדש באותו `db_version`.
@@ -32,6 +38,9 @@ class LibraryUpdateCheckResult {
   /// מחדל חדשה) מעכשיו.
   bool get needsManualDbPath => dbPath == null;
 
-  bool get updateAvailable =>
+  /// יש עבודה על המסד עצמו (דלתא או הורדה מלאה).
+  bool get dbUpdateAvailable =>
       plan != null && plan!.kind != LibraryUpdatePlanKind.none;
+
+  bool get updateAvailable => dbUpdateAvailable || companionsPending;
 }

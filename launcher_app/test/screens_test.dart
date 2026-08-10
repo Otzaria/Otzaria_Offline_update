@@ -186,7 +186,7 @@ void main() {
     );
 
     expect(settings.settings.syncLibrary, isTrue);
-    await tester.tap(find.text('הרכיב הכבד — המסד המלא הוא כ-1GB'));
+    await tester.tap(find.text('הרכיב הכבד — המסד המלא הוא כ-1.5GB'));
     await tester.pumpAndSettle();
 
     expect(settings.settings.syncLibrary, isFalse);
@@ -512,12 +512,23 @@ void main() {
     );
 
     expect(find.text('אוטומציה'), findsOneWidget);
-    expect(find.text('אחסון'), findsOneWidget);
-    expect(find.text('רשת'), findsOneWidget);
-    expect(find.text('ממשק ותמיכה'), findsOneWidget);
+    expect(find.text('הורדה'), findsOneWidget);
+    expect(find.text('שפה ומראה'), findsOneWidget);
+    expect(find.text('תמיכה'), findsOneWidget);
+    // שפה ומראה הם הכרטיס הראשון, לפני האוטומציה.
+    expect(
+      tester.getTopLeft(find.text('שפה ומראה')).dy,
+      lessThan(tester.getTopLeft(find.text('אוטומציה')).dy),
+    );
+    // ההגדרה "timeout להורדה" הוסרה — הזמן הקצוב נקבע בלקוחות עצמם.
+    expect(find.text('רשת'), findsNothing);
+    expect(find.text('timeout להורדה'), findsNothing);
     // אין יותר הגדרות נתיבים — התיקייה צמודה לתוכנה ואינה ניתנת לשינוי.
     expect(find.text('נתיבים ואחסון'), findsNothing);
     expect(find.text('בחירת תיקייה'), findsNothing);
+    // גיבוי המסד בוטל לגמרי — אין כרטיס אחסון ואין מה לכבות/להדליק.
+    expect(find.text('אחסון'), findsNothing);
+    expect(find.text('גיבוי בטיחות של המסד'), findsNothing);
     // ערוץ הגרסאות קבוע ואינו הגדרה, וההתקנה האוטומטית של תוספים לא קיימת.
     expect(find.text('ערוצי גרסאות'), findsNothing);
     expect(find.text('התקנת תוספים אוטומטית'), findsNothing);
@@ -532,8 +543,9 @@ void main() {
     );
 
     expect(find.text('Automation'), findsOneWidget);
-    expect(find.text('Storage'), findsOneWidget);
-    expect(find.text('Interface and support'), findsOneWidget);
+    expect(find.text('Download'), findsOneWidget);
+    expect(find.text('Language and appearance'), findsOneWidget);
+    expect(find.text('Support'), findsOneWidget);
     expect(find.text('Interface language'), findsOneWidget);
     expect(find.text('אוטומציה'), findsNothing);
 
@@ -596,7 +608,11 @@ void main() {
       attemptedDir: r'C:\Program Files\Otzaria\OtzariaData',
     );
 
-    await pumpScreen(tester, const SetupErrorScreen(error: error));
+    // בלי ההזרקה WindowCaption פונה לערוץ פלטפורמה שאינו קיים בבדיקות.
+    await pumpScreen(
+      tester,
+      const SetupErrorScreen(error: error, showWindowButtons: false),
+    );
 
     expect(find.text(t.title), findsOneWidget);
     expect(find.text(t.explanation), findsOneWidget);
@@ -618,6 +634,7 @@ void main() {
       tester,
       const SetupErrorScreen(
         error: AppPathsException(message: 'denied', attemptedDir: '/ro/data'),
+        showWindowButtons: false,
       ),
       language: AppLanguage.english,
     );

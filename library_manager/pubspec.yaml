@@ -24,14 +24,22 @@ dependencies:
   zstandard_native: ^1.5.0
   ffi: ^2.1.3
   path: ^1.9.1
+  http: ^1.2.2
+  # `PRAGMA quick_check` על המסד המחולץ לפני שהוא מחליף את החי — בדיוק
+  # כמו `LibraryUpdateRepository._verifyFullDb` באוצריא.
+  sqlite3: ^3.3.3
+  # קריאת קופסת ההגדרות של אוצריא (`app_preferences.hive`) כדי לקבל את נתיב
+  # הספרייה שהמשתמש הגדיר *שם*. אותה חבילה שאוצריא כותבת איתה.
+  hive_ce: ^2.19.3
+  # פריסת ה-tar של ארכיון התלמוד (`talmud_bavli_latest.tar.zst`) — אותה
+  # חבילה שאוצריא משתמשת בה ב-`extractTarZstToDir`.
+  archive: ^4.0.9
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   test: ^1.30.1
-  # לבדיקות בלבד: יצירת `seforim.db` אמיתי (טבלת schema_meta) כדי שמסלול
-  # הבדיקה/ההחלה ייבדק מול LocalDbVersionReader האמיתי ולא מול קורא מזויף.
-  sqlite3: ^3.3.3
+  crypto: ^3.0.6
   # flutter_lints ולא lints: זו חבילת Flutter, ואותה ערכה כמו בשורש הריפו
   # וב-launcher_app (ראו analysis_options.yaml).
   flutter_lints: ^4.0.0

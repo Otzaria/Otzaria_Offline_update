@@ -355,6 +355,24 @@ void main() {
       );
     });
 
+    testWidgets('spinning מסובב את האייקון ומשאיר את הטקסט', (tester) async {
+      await tester.pumpWidget(wrap(ActionButton.neutral(
+        text: he.common.recheck,
+        icon: FluentIcons.arrow_sync_24_regular,
+        spinning: true,
+        onPressed: () {},
+      )));
+
+      expect(find.text(he.common.recheck), findsOneWidget);
+      expect(
+        find.ancestor(
+          of: find.byType(RtlIcon),
+          matching: find.byType(RotationTransition),
+        ),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('SecondaryIconButton מציג tooltip ומדווח על לחיצה',
         (tester) async {
       var taps = 0;
@@ -367,6 +385,68 @@ void main() {
       expect(find.byTooltip(he.settings.openLogFolderButton), findsOneWidget);
       await tester.tap(find.byType(IconButton));
       expect(taps, 1);
+    });
+  });
+
+  // ── RecheckButton ──────────────────────────────────────────────────────────
+
+  group('RecheckButton', () {
+    /// האם הכפתור שבפנים מבקש סיבוב כרגע.
+    bool spinningOf(WidgetTester tester) => tester
+        .widget<ActionButton>(
+          find.widgetWithText(ActionButton, he.common.recheck),
+        )
+        .spinning;
+
+    testWidgets('הסמל מסתובב לפחות שנייה גם כשהבדיקה מיידית', (tester) async {
+      var checks = 0;
+      await tester.pumpWidget(
+        wrap(RecheckButton(onPressed: () async => checks++)),
+      );
+
+      expect(spinningOf(tester), isFalse);
+      await tester.tap(find.text(he.common.recheck));
+      await tester.pump();
+
+      expect(checks, 1);
+      expect(spinningOf(tester), isTrue);
+
+      // הבדיקה כבר הסתיימה, והסמל עדיין מסתובב — זו כל הפואנטה.
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(spinningOf(tester), isTrue);
+
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump();
+      expect(spinningOf(tester), isFalse);
+    });
+
+    testWidgets('לחיצה נוספת בזמן סיבוב אינה מריצה בדיקה שנייה',
+        (tester) async {
+      var checks = 0;
+      await tester.pumpWidget(
+        wrap(RecheckButton(onPressed: () async => checks++)),
+      );
+
+      await tester.tap(find.text(he.common.recheck));
+      await tester.pump();
+      await tester.tap(find.text(he.common.recheck));
+      await tester.pump();
+
+      expect(checks, 1);
+      await tester.pump(const Duration(seconds: 1));
+    });
+
+    testWidgets('onPressed ריק משבית את הכפתור', (tester) async {
+      await tester.pumpWidget(wrap(const RecheckButton(onPressed: null)));
+
+      expect(
+        tester
+            .widget<ActionButton>(
+              find.widgetWithText(ActionButton, he.common.recheck),
+            )
+            .onPressed,
+        isNull,
+      );
     });
   });
 
@@ -771,12 +851,12 @@ void main() {
       await tester.pumpWidget(wrap(ScreenBody(
         title: he.settings.title,
         description: he.settings.description,
-        children: [Text(he.settings.storageCardTitle)],
+        children: [Text(he.settings.appearanceCardTitle)],
       )));
 
       expect(find.text(he.settings.title), findsOneWidget);
       expect(find.text(he.settings.description), findsOneWidget);
-      expect(find.text(he.settings.storageCardTitle), findsOneWidget);
+      expect(find.text(he.settings.appearanceCardTitle), findsOneWidget);
       expect(
         tester.getSize(find.byType(ListView)).width,
         LayoutConstraints.panelContentMaxWidth,
@@ -1173,13 +1253,13 @@ void main() {
               description: s.setupError.explanation,
               children: [
                 SettingsCard(
-                  title: s.settings.storageCardTitle,
-                  subtitle: s.settings.storageCardSubtitle,
+                  title: s.settings.appearanceCardTitle,
+                  subtitle: s.settings.appearanceCardSubtitle,
                   children: [
                     SettingsActionTile.text(
                       icon: FluentIcons.info_24_regular,
                       title: s.setupError.whatToDo,
-                      subtitle: s.settings.backupSubtitle,
+                      subtitle: s.settings.languageSubtitle,
                       actions: [
                         ActionButton.neutral(
                           text: s.setupError.copyPathButton,

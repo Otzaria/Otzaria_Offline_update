@@ -3,7 +3,6 @@ import 'dart:isolate';
 
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:seforim_library_updater/src/models/delta_manifest.dart';
-import 'package:seforim_library_updater/src/services/library_db_recovery_service.dart';
 import 'package:seforim_library_updater/src/services/logical_content_hasher.dart';
 import 'package:seforim_library_updater/src/services/patch_applier.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
@@ -115,16 +114,6 @@ void main() {
       )),
     );
     db.close();
-  });
-
-  test('cloneOrCopyFile (top-level, מחרוזות בלבד) עובר ב-Isolate.run',
-      () async {
-    final src = '${tmp.path}${Platform.pathSeparator}src.bin';
-    final dst = '${tmp.path}${Platform.pathSeparator}dst.bin';
-    File(src).writeAsBytesSync(List.generate(4096, (i) => i % 251));
-
-    await Isolate.run(() => cloneOrCopyFile(src, dst));
-    expect(File(dst).readAsBytesSync(), File(src).readAsBytesSync());
   });
 
   test('LogicalContentHasher רץ ב-isolate כשמעבירים נתיב בלבד', () async {

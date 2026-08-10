@@ -40,7 +40,7 @@ class MacAppVersionReader implements InstalledVersionReader {
       throw UnsupportedError(AppL10n.strings.appDomain.macOnlyReader);
     }
 
-    final bundlePath = _bundleRootOf(launchPath);
+    final bundlePath = bundleRootOf(launchPath);
     if (bundlePath == null) return null;
 
     final plistPath = p.join(bundlePath, 'Contents', 'Info.plist');
@@ -65,8 +65,9 @@ class MacAppVersionReader implements InstalledVersionReader {
   }
 
   /// מטפס מהנתיב שהתקבל אל שורש חבילת ה-`.app` שמכילה אותו, או null אם
-  /// הנתיב אינו בתוך `.app` בכלל.
-  String? _bundleRootOf(String path) {
+  /// הנתיב אינו בתוך `.app` בכלל. ציבורי כי גם [RunningOtzariaLocator]
+  /// צריך אותו — `ps` מחזיר את הבינארי שבתוך החבילה.
+  static String? bundleRootOf(String path) {
     var current = p.normalize(path);
     while (true) {
       if (p.basename(current).toLowerCase().endsWith('.app')) return current;

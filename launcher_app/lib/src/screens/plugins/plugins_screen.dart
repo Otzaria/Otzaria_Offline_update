@@ -126,8 +126,13 @@ class _PluginsScreenState extends State<PluginsScreen> {
 
     await widget.controller.sync();
     if (!mounted) return;
+    final warnings = widget.controller.syncWarnings;
     if (widget.controller.status == PluginsModuleStatus.error) {
       UiSnack.showError(widget.controller.errorMessage ?? t.syncFailedSnack);
+    } else if (warnings.isNotEmpty) {
+      // שכבת הסנכרון (ובה האזהרות) נעלמת ברגע הסיום. בלי ההודעה הזו סנכרון
+      // שבו קובצי תוספים לא ירדו נראה כהצלחה מלאה — והמשתמש שולף את הכונן.
+      UiSnack.showError(t.syncDoneWithWarningsSnack(warnings.length));
     } else {
       UiSnack.showSuccess(
         t.syncDoneSnack(widget.controller.plugins.length),
@@ -592,37 +597,38 @@ class _PluginsScreenState extends State<PluginsScreen> {
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final actions = [
-            // `Flexible` רופף: הכפתור שומר על רוחבו הטבעי כשיש מקום, ומתקצר
-            // במקום להגליש בחלון צר עם טקסט מוגדל.
-            Flexible(
-              child: ActionButton.recommended(
-                text: t.syncButton,
-                icon: FluentIcons.arrow_sync_24_regular,
-                isLoading: isSyncing,
-                onPressed: isSyncing ? null : _sync,
+          // קבוצה אחת ברוחב טבעי (`min`); ה-`Flexible` הפנימי מקצר את הכפתור
+          // כשהקבוצה נלחצת, בלי לקחת קצבה בשורה החיצונית.
+          final actions = Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: ActionButton.recommended(
+                  text: t.syncButton,
+                  icon: FluentIcons.arrow_sync_24_regular,
+                  isLoading: isSyncing,
+                  onPressed: isSyncing ? null : _sync,
+                ),
               ),
-            ),
-            const SizedBox(width: AppTokens.spaceSM),
-            SecondaryIconButton(
-              icon: FluentIcons.arrow_clockwise_24_regular,
-              tooltip: t.reloadTooltip,
-              onPressed: isSyncing ? null : controller.load,
-            ),
-          ];
+              const SizedBox(width: AppTokens.spaceSM),
+              SecondaryIconButton(
+                icon: FluentIcons.arrow_clockwise_24_regular,
+                tooltip: t.reloadTooltip,
+                onPressed: isSyncing ? null : controller.load,
+              ),
+            ],
+          );
 
           // גמיש: הטקסט מתקצר לפני שהשורה גולשת.
-          final status = Expanded(
-            child: Tooltip(
-              message: controller.pluginsDir ?? t.syncDirUnknownTooltip,
-              child: Text(
-                lastSync == null
-                    ? t.syncNeverRan
-                    : t.syncedAt(_formatDateTime(lastSync)),
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+          final status = Tooltip(
+            message: controller.pluginsDir ?? t.syncDirUnknownTooltip,
+            child: Text(
+              lastSync == null
+                  ? t.syncNeverRan
+                  : t.syncedAt(_formatDateTime(lastSync)),
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
           );
@@ -637,26 +643,37 @@ class _PluginsScreenState extends State<PluginsScreen> {
                 )
               : null;
 
-          // בחלון צר הכול לא נכנס לשורה אחת; המתג נשאר בקצה השמאלי העליון
+          // `Expanded` (tight) ולא `Flexible`: ילד רופף שאינו מנצל את כל קצבתו
+          // משאיר יתרה, ו-`Row` דוחף אותה **אחרי** האחרון — כך המתג שבסוף
+          // השורה נדחק פנימה ונראה באמצע. ה-`Align` משאיר לתוכן את רוחבו
+          // הטבעי בתוך הקצבה, וגבול הקצבה הוא שמקצר אותו בטקסט מוגדל.
+          Widget stretched(
+            Widget child, {
+            int flex = 1,
+            AlignmentGeometry alignment = AlignmentDirectional.centerStart,
+          }) =>
+              Expanded(
+                flex: flex,
+                child: Align(alignment: alignment, child: child),
+              );
+
+          final filterToggle = stretched(
+            _installedFilterToggle(context),
+            alignment: AlignmentDirectional.centerEnd,
+          );
+
+          // בחלון צר הכול לא נכנס לשורה אחת; המתג נשאר צמוד לקצה השמאלי העליון
           // בשני המצבים, ומועד הסנכרון יורד לשורה שנייה.
-          // `Flexible` סביב מה שנושא טקסט: `status` בלבד אינו מספיק — הוא
-          // מתכווץ עד 0 ואז השבב והמתג, שרוחבם פנימי, המשיכו לגלוש.
           if (constraints.maxWidth < _wideHeaderWidth) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    ...actions,
-                    const Spacer(),
-                    Flexible(child: _installedFilterToggle(context)),
-                  ],
-                ),
+                Row(children: [stretched(actions), filterToggle]),
                 const SizedBox(height: AppTokens.spaceSM),
                 Row(
                   children: [
-                    status,
-                    if (updates != null) Flexible(child: updates),
+                    stretched(status),
+                    if (updates != null) updates,
                   ],
                 ),
               ],
@@ -665,14 +682,14 @@ class _PluginsScreenState extends State<PluginsScreen> {
 
           return Row(
             children: [
-              ...actions,
+              stretched(actions),
               const SizedBox(width: AppTokens.spaceMD),
-              status,
+              stretched(status, flex: 2),
               if (updates != null) ...[
-                Flexible(child: updates),
+                updates,
                 const SizedBox(width: AppTokens.spaceSM),
               ],
-              Flexible(child: _installedFilterToggle(context)),
+              filterToggle,
             ],
           );
         },

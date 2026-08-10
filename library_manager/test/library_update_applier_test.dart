@@ -8,6 +8,7 @@ import 'package:library_manager/src/services/zstd_file_decompressor.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
+import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 import 'support/zstd_fixtures.dart';
 
@@ -242,7 +243,7 @@ void main() {
     setUp(() {
       applier = LibraryUpdateApplier(
         processGuard: const _FakeGuard(false),
-        versionReader: const _FixedVersionReader(5),
+        verifyExtractedDb: _fakeVerifier(5),
       );
     });
 
@@ -286,11 +287,12 @@ void main() {
       expect(stagedFileLength, payload.length);
       expect(dbStillOldWhileStaging, isTrue);
       expect(File(dbPath).readAsBytesSync(), payload);
+      // האימות קודם לכתיבה — מסד פגום נעצר בעוד ה-DB החי שלם, כמו באוצריא.
       expect(stages, [
         LibraryApplyStage.downloadingFullDb,
         LibraryApplyStage.decompressingFullDb,
-        LibraryApplyStage.writingFullDb,
         LibraryApplyStage.verifying,
+        LibraryApplyStage.writingFullDb,
         LibraryApplyStage.done,
       ]);
 
@@ -348,7 +350,8 @@ void main() {
       expect(File('$dbPath.download.zst').existsSync(), isFalse);
     });
 
-    test('createBackup: false אינו יוצר קובץ גיבוי', () async {
+    // אין גיבוי בשום שלב — גם לא באמצע ההחלה, כשה-DB הישן עוד קיים.
+    test('החלפת DB קיים אינה יוצרת עותק גיבוי בשום שלב', () async {
       if (bindings == null) {
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
         return;
@@ -362,15 +365,13 @@ void main() {
       await applier.applyFullDownload(
         plan: fullPlanFor(compressedPath),
         dbPath: dbPath,
-        createBackup: false,
         onProgress: (progress) {
-          if (progress.stage == LibraryApplyStage.writingFullDb) {
-            sawBackup = File('$dbPath.backup').existsSync();
-          }
+          if (File('$dbPath.backup').existsSync()) sawBackup = true;
         },
       );
 
       expect(sawBackup, isFalse);
+      expect(File('$dbPath.backup').existsSync(), isFalse);
       expect(File(dbPath).readAsBytesSync(), payload);
     });
 
@@ -487,19 +488,19 @@ void main() {
     });
   });
 
-  group('applyFullDownload — שחזור מגיבוי', () {
-    test('גרסה שאינה תואמת אחרי הכתיבה מחזירה את ה-DB הישן', () async {
+  group('applyFullDownload — אימות לפני ההחלפה', () {
+    test('גרסה שאינה תואמת נעצרת וה-DB הישן נשאר במקומו', () async {
       if (bindings == null) {
         applier = LibraryUpdateApplier(processGuard: const _FakeGuard(false));
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
         return;
       }
 
-      // הקורא מקבל 4 בעוד התוכנית מבטיחה 5 — בדיוק מצב "ה-DB שנכתב אינו מה
-      // שהובטח", שחייב להסתיים בשחזור ולא בהשארת מסד זר.
+      // האימות קורא 4 בעוד התוכנית מבטיחה 5 — "המסד שהורד אינו מה שהובטח".
+      // האימות קודם להחלפה, ולכן ה-DB החי כלל לא נגע.
       applier = LibraryUpdateApplier(
         processGuard: const _FakeGuard(false),
-        versionReader: const _FixedVersionReader(4),
+        verifyExtractedDb: _fakeVerifier(4),
       );
       final compressedPath =
           writeCompressed('seforim.db.zst', pseudoRandomBytes(64 * 1024));
@@ -522,7 +523,9 @@ void main() {
       expect(File(dbPath).readAsStringSync(), 'OLD DB');
       expect(File('$dbPath.backup').existsSync(), isFalse);
       expect(File('$dbPath.applying').existsSync(), isFalse);
-      // הערה: `<db>.download.zst` דווקא כן נשאר כאן — ראו הדיווח על הממצא.
+      // הכשל מגיע לפני ההחלפה, ולכן שני הזמניים כבר נוקו כאן.
+      expect(File('$dbPath.new').existsSync(), isFalse);
+      expect(File('$dbPath.download.zst').existsSync(), isFalse);
     });
 
     test('תוכנית בלי גרסת יעד מדלגת על האימות', () async {
@@ -534,7 +537,7 @@ void main() {
 
       applier = LibraryUpdateApplier(
         processGuard: const _FakeGuard(false),
-        versionReader: const _FixedVersionReader(1),
+        verifyExtractedDb: _fakeVerifier(1),
       );
       final payload = pseudoRandomBytes(4096);
       final compressedPath = writeCompressed('seforim.db.zst', payload);
@@ -546,6 +549,91 @@ void main() {
       );
 
       expect(File(dbPath).readAsBytesSync(), payload);
+    });
+  });
+
+  // האימות האמיתי (בלי הזרקה): `PRAGMA quick_check` + גרסה, כמו
+  // `LibraryUpdateRepository._verifyFullDb` באוצריא.
+  group('applyFullDownload — האימות האמיתי לפני ההחלפה', () {
+    Uint8List buildRealDb(int dbVersion) {
+      final path = p.join(tempDir.path, 'built-$dbVersion.db');
+      final db = sqlite3.sqlite3.open(path);
+      db.execute('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT)');
+      db.execute(
+        "INSERT INTO schema_meta VALUES ('db_version', '$dbVersion'), "
+        "('db_schema_version', '1')",
+      );
+      db.close();
+      return File(path).readAsBytesSync();
+    }
+
+    test('מסד תקין בגרסה הצפויה עובר ומוחלף', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+
+      final payload = buildRealDb(5);
+      final compressedPath = writeCompressed('seforim.db.zst', payload);
+      File(dbPath).writeAsStringSync('OLD DB');
+
+      await applier.applyFullDownload(
+        plan: fullPlanFor(compressedPath),
+        dbPath: dbPath,
+      );
+
+      expect(File(dbPath).readAsBytesSync(), payload);
+    });
+
+    test('קובץ שאינו מסד sqlite נעצר ב-quick_check וה-DB החי נשאר', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+
+      final compressedPath =
+          writeCompressed('seforim.db.zst', pseudoRandomBytes(64 * 1024));
+      File(dbPath).writeAsStringSync('OLD DB');
+
+      await expectLater(
+        applier.applyFullDownload(
+          plan: fullPlanFor(compressedPath),
+          dbPath: dbPath,
+        ),
+        throwsA(anything),
+      );
+
+      expect(File(dbPath).readAsStringSync(), 'OLD DB');
+      // האימות קודם להחלפה, ולכן לא נוצרו כלל סימון/גיבוי.
+      expect(File('$dbPath.applying').existsSync(), isFalse);
+      expect(File('$dbPath.backup').existsSync(), isFalse);
+      expect(File('$dbPath.new').existsSync(), isFalse);
+    });
+
+    test('מסד תקין בגרסה שאינה הצפויה נדחה לפני ההחלפה', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+
+      final compressedPath = writeCompressed('seforim.db.zst', buildRealDb(4));
+      File(dbPath).writeAsStringSync('OLD DB');
+
+      await expectLater(
+        applier.applyFullDownload(
+          plan: fullPlanFor(compressedPath),
+          dbPath: dbPath,
+        ),
+        throwsA(
+          isA<LibraryApplyException>().having(
+            (e) => e.message,
+            'message',
+            AppL10n.strings.libraryDomain.versionMismatchAfterWrite(4, 5),
+          ),
+        ),
+      );
+
+      expect(File(dbPath).readAsStringSync(), 'OLD DB');
     });
   });
 }
@@ -619,15 +707,16 @@ class _FakeGuard extends OtzariaProcessGuard {
 
 /// קורא גרסה שמחזיר ערך קבוע — כדי לבדוק את מסלול האימות/השחזור בלי לייצר
 /// מסד SQLite אמיתי בכל בדיקה.
-class _FixedVersionReader extends LocalDbVersionReader {
-  const _FixedVersionReader(this.version);
-
-  final int version;
-
-  @override
-  LocalDbVersion read(String dbPath) => LocalDbVersion(
-        dbVersion: version,
-        schemaVersion: 1,
-        hasVersionMeta: true,
+/// מדמה את אימות המסד המחולץ: המטענים בבדיקות הם בייטים אקראיים ולא מסד
+/// sqlite, ולכן ה-`quick_check` האמיתי לא רלוונטי כאן. [version] הוא מה
+/// שהאימות "קורא" מהמסד — שונה מהיעד ⇒ כשל, בדיוק כמו במימוש האמיתי.
+Future<void> Function(String, int?) _fakeVerifier(int version) {
+  return (newDbPath, expectedVersion) async {
+    if (expectedVersion != null && version != expectedVersion) {
+      throw LibraryApplyException(
+        AppL10n.strings.libraryDomain
+            .versionMismatchAfterWrite(version, expectedVersion),
       );
+    }
+  };
 }

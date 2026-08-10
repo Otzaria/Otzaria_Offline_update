@@ -29,9 +29,6 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
 
   final PluginsManager _manager;
 
-  /// זמן קצוב לפעולות רשת (מהגדרות "רשת") — נכנס לתוקף בבקשה הבאה.
-  set networkTimeout(Duration value) => _manager.networkTimeout = value;
-
   PluginsModuleStatus status = PluginsModuleStatus.idle;
   String? errorMessage;
 
@@ -120,7 +117,10 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
         // שאר מדי ההתקדמות.
         notifyProgress();
       });
-      AppLogger.instance.info('סנכרון חנות התוספים הושלם');
+      AppLogger.instance.info(
+        'סנכרון חנות התוספים הושלם עם ${syncWarnings.length} אזהרות'
+        '${syncWarnings.isEmpty ? '' : ':\n${syncWarnings.join('\n')}'}',
+      );
       await load();
     } catch (e, st) {
       status = PluginsModuleStatus.error;
