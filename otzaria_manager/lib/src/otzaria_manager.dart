@@ -48,6 +48,7 @@ class OtzariaManager {
     Map<String, String>? environment,
     RunningOtzariaLocator runningLocator = const RunningOtzariaLocator(),
     WindowsInstallRegistry installRegistry = const WindowsInstallRegistry(),
+    OtzariaLauncher launcher = const OtzariaLauncher(),
     this.preferPrerelease = false,
   })  : _platform =
             platform ?? OtzariaTargetPlatform.detect(Platform.operatingSystem),
@@ -56,7 +57,7 @@ class OtzariaManager {
         _installRegistry = installRegistry,
         _stateStore =
             OtzariaStateStore(p.join(dataDir, 'otzaria_install_state.json')),
-        _launcher = const OtzariaLauncher(),
+        _launcher = launcher,
         _appLocator = OtzariaAppLocator(platform: platform),
         _versionReader = installedVersionReaderFor(
           platform ?? OtzariaTargetPlatform.detect(Platform.operatingSystem),
@@ -239,15 +240,7 @@ class OtzariaManager {
 
     // רק כשעדיין לא ידוע כלום: בניית הרשימה עצמה סורקת את הרג'יסטרי
     // (~200ms), ואין סיבה לשלם על זה בכל בדיקה כשההתקנה כבר מוכרת.
-    if (current == null) {
-      for (final candidate in _autoDetectDirs) {
-        current = await detectExistingInstall(
-          customDir: candidate.dir,
-          isSharedDir: candidate.sharedDir,
-        );
-        if (current != null) break;
-      }
-    }
+    current ??= await _detectInKnownDirs();
 
     return OtzariaUpdateCheckResult(
       stableRelease: mirrored.stable?.release,
@@ -285,14 +278,33 @@ class OtzariaManager {
     return state;
   }
 
-  /// מפעיל את אוצריא לפי מצב ההתקנה השמור. זורק אם עדיין לא בוצעה אף
-  /// התקנה/אימוץ (יש לקרוא ל-[update] או ל-[adoptExistingInstall] קודם).
+  /// מפעיל את אוצריא: קודם לפי מצב ההתקנה השמור, ואם אין כזה — לפי ההתקנה
+  /// שמזוהה במיקומים המוכרים ([_autoDetectDirs]).
+  ///
+  /// הנפילה חזרה אינה מיותרת: זיהוי לפי תיקייה (רג'יסטרי ההסרה או תיקיית
+  /// ברירת המחדל) **אינו נשמר** בכוונה — ראו [checkForUpdate] — ולכן בלעדיה
+  /// הלאנצ'ר הציג את הגרסה שמצא ובלחיצה על "הפעל" סירב להפעיל אותה.
+  ///
+  /// זורק רק כשלא נמצאה שום התקנה; אז יש להתקין, או להצביע על התיקייה
+  /// ([detectExistingInstall] + [adoptExistingInstall]).
   Future<void> launch() async {
-    final state = await _stateStore.load();
+    final state = (await _stateStore.load()) ?? (await _detectInKnownDirs());
     if (state == null) {
-      throw StateError(AppL10n.strings.appDomain.notInstalledByThisLauncher);
+      throw StateError(AppL10n.strings.appDomain.noOtzariaInstallFound);
     }
     await _launcher.launch(state.launchPath);
+  }
+
+  /// ההתקנה הראשונה שנמצאת ב-[_autoDetectDirs], או null. אינה נשמרת.
+  Future<OtzariaInstallState?> _detectInKnownDirs() async {
+    for (final candidate in _autoDetectDirs) {
+      final detected = await detectExistingInstall(
+        customDir: candidate.dir,
+        isSharedDir: candidate.sharedDir,
+      );
+      if (detected != null) return detected;
+    }
+    return null;
   }
 
   /// מחפש התקנה קיימת של אוצריא בתיקייה נתונה (למשל תיקייה שהמשתמש

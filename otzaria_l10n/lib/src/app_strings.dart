@@ -586,7 +586,7 @@ abstract class AppDomainStrings {
 
   String get noInstallableReleaseForPlatform;
   String get mirrorEmptyRunDownload;
-  String get notInstalledByThisLauncher;
+  String get noOtzariaInstallFound;
   String get corruptReleaseMetadata;
   String unsupportedPlatform(String operatingSystem);
   String noAssetForPlatform(
