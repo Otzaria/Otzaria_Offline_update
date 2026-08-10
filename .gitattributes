@@ -4,3 +4,6 @@
 # ה-Kotlin (ראו test/patch_tables_contract_test.dart), ולכן חייב להישאר LF גם
 # ב-checkout על Windows — עם core.autocrlf=true הוא הפך ל-CRLF והבדיקה נכשלה.
 *.json text eol=lf
+
+# סקריפט שרץ כ-hook דרך bash (shebang) — CRLF שובר אותו בדיוק כמו למעלה.
+.githooks/* text eol=lf

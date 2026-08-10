@@ -148,6 +148,21 @@ Notes:
   `launcher_app/test/screens_test.dart`.
 - Report honestly what you ran and what failed. Do not claim a change is
   verified if only the analyzer passed.
+- **Favor generous, layered test coverage over relying on manual checks** —
+  unit tests, widget tests, golden/contract tests (like
+  `test/patch_tables_contract.json`) stacked on top of each other. The point
+  is not for a human (or an agent) to re-run everything by hand each time:
+  `.github/workflows/ci.yml` already runs the full suite, across every
+  package, on every push/PR, and — since 2026-08-10 — also on a weekly
+  schedule (`cron: "0 3 * * 1"`), so a regression surfaces even without a new
+  commit (a Flutter/Dart stable bump, a dependency update, a test that turned
+  flaky). When adding logic, add the tests that let CI catch its regressions
+  automatically, rather than trusting a one-time manual run.
+- **A local layer runs the same checks before a commit even leaves the
+  machine.** `.githooks/pre-commit` runs `dart format` + analyze + test on
+  whichever packages have staged changes, and blocks the commit on failure.
+  It is not wired in by git automatically — each clone needs the one-time
+  `git config core.hooksPath .githooks`.
 
 ---
 

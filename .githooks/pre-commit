@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# שכבת טסטים מקומית: לפני קומיט מריץ format+analyze+test רק על החבילות
+# שיש בהן שינוי staged. משלים את ci.yml (שרץ בגיטהאב על כל push/PR ושבועית) —
+# לא מחליף אותו, אלא נותן פידבק מהיר לפני שהשינוי בכלל עוזב את המחשב.
+# הפעלה חד-פעמית: git config core.hooksPath .githooks
+
+PACKAGES="otzaria_l10n otzaria_manager library_manager plugins_manager launcher_app"
+FLUTTER_PACKAGES=" . library_manager launcher_app "
+
+staged_files=$(git diff --cached --name-only --diff-filter=ACMR)
+
+touched=$(
+  for f in $staged_files; do
+    for p in $PACKAGES; do
+      case "$f" in
+        "$p"/*) echo "$p"; continue 2 ;;
+      esac
+    done
+    case "$f" in
+      lib/*|test/*|bin/*|pubspec.yaml|pubspec.lock|analysis_options.yaml) echo "." ;;
+    esac
+  done | sort -u
+)
+
+if [ -z "$touched" ]; then
+  exit 0
+fi
+
+fail=0
+for pkg in $touched; do
+  echo "== $pkg =="
+  case "$FLUTTER_PACKAGES" in
+    *" $pkg "*) is_flutter=1 ;;
+    *) is_flutter=0 ;;
+  esac
+  (
+    cd "$pkg" || exit 1
+    dart format --set-exit-if-changed . || exit 1
+    if [ "$is_flutter" = "1" ]; then
+      flutter analyze --no-fatal-infos || exit 1
+      flutter test || exit 1
+    else
+      dart analyze || exit 1
+      dart test || exit 1
+    fi
+  )
+  [ $? -ne 0 ] && fail=1
+done
+
+if [ "$fail" -ne 0 ]; then
+  echo ""
+  echo "pre-commit נכשל — הרץ dart format / analyze / test בחבילה הרלוונטית ותקן לפני קומיט חדש."
+  exit 1
+fi
+
+exit 0
