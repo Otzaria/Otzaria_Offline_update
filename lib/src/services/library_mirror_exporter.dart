@@ -42,9 +42,9 @@ class LibraryMirrorExporter {
     );
   }
 
-  /// כמה releases אחרונים נשמרים במראה — ראו [recentReleases]. חמישה מכסים
+  /// כמה releases אחרונים נשמרים במראה — ראו [recentReleases]. עשרה מכסים
   /// בפועל מחשב שלא עודכן כמה חודשים, בעלות של כמה עשרות MB.
-  static const int defaultHistoryDepth = 5;
+  static const int defaultHistoryDepth = 10;
 
   /// עומק היסטוריית ה-patches שנשמרת במראה.
   final int historyDepth;

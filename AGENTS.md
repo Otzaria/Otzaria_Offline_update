@@ -65,10 +65,10 @@ mirror/plugins/   catalog.json + files/     ← PluginMirrorStore
 otzaria-app/      the managed Otzaria install
 ```
 
-The download step keeps the last **five** releases, not the whole patch history
+The download step keeps the last **ten** releases, not the whole patch history
 (`LibraryMirrorExporter.recentReleases` / `defaultHistoryDepth`) — the full
 history reached several gigabytes, which does not belong on a flash drive.
-Online Otzaria walks the entire patch graph; five releases cover a machine that
+Online Otzaria walks the entire patch graph; ten releases cover a machine that
 updates occasionally, and anything older falls back to the full-DB route, which
 is always present in the mirror.
 
