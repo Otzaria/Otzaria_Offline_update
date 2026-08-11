@@ -49,7 +49,7 @@ class _Common extends CommonStrings {
   @override
   String get error => 'Error';
   @override
-  String get retry => 'Try again';
+  String get retry => 'Try Again';
   @override
   String get install => 'Install';
   @override
@@ -57,21 +57,21 @@ class _Common extends CommonStrings {
   @override
   String get launch => 'Open';
   @override
-  String get recheck => 'Check again';
+  String get recheck => 'Check Again';
   @override
   String get notCheckedYet => 'Not checked yet';
   @override
   String get checking => 'Checking…';
   @override
-  String get upToDate => 'Up to date';
+  String get upToDate => 'Up To Date';
   @override
-  String get updateAvailable => 'Update available';
+  String get updateAvailable => 'Update Available';
   @override
   String get installing => 'Installing…';
   @override
   String get unknownValue => 'Unknown';
   @override
-  String get lastDownloaded => 'Last downloaded';
+  String get lastDownloaded => 'Last Downloaded';
   @override
   String get emptyValue => '—';
 }
@@ -86,7 +86,7 @@ class _Shell extends ShellStrings {
   @override
   String get navHome => 'Home';
   @override
-  String get navApp => 'App';
+  String get navApp => 'Program';
   @override
   String get navLibrary => 'Library';
   @override
@@ -104,7 +104,7 @@ class _Home extends HomeStrings {
   String get title => 'Home';
   @override
   String get description =>
-      'Update the app and the library from the folder next to this '
+      'Update the Program and the Library from the folder next to this '
       'program — no internet required.';
 
   @override
@@ -114,7 +114,7 @@ class _Home extends HomeStrings {
       'Library updates are blocked until you close it.';
 
   @override
-  String get appTileTitle => 'Otzaria app';
+  String get appTileTitle => 'Otzaria Program';
   @override
   String get libraryTileTitle => 'Library';
 
@@ -130,7 +130,7 @@ class _Home extends HomeStrings {
   String get moreDetails => 'More details';
 
   @override
-  String get appInstallDialogTitle => 'Install the Otzaria app';
+  String get appInstallDialogTitle => 'Install the Otzaria Program';
   @override
   String get appInstallConfirm => 'Install';
   @override
@@ -141,7 +141,7 @@ class _Home extends HomeStrings {
   String get otzariaOpenSnack =>
       'Otzaria is open — please close it and try again.';
   @override
-  String get libraryUpdateDialogTitle => 'Update the library';
+  String get libraryUpdateDialogTitle => 'Update the Library';
   @override
   String libraryFreshInstallPrompt(String targetVersion) =>
       'The library (version $targetVersion) will be installed for the first '
@@ -150,10 +150,10 @@ class _Home extends HomeStrings {
   @override
   String libraryUpdatePrompt(String localVersion, String targetVersion) =>
       'The database will be updated from version $localVersion to version '
-      '$targetVersion. The current database is replaced only once the new '
-      'version checks out.';
+      '$targetVersion. The current database will be replaced only after the new'
+    'version has been verified';
   @override
-  String get libraryUpdateConfirm => 'Update now';
+  String get libraryUpdateConfirm => 'Update Now';
   @override
   String libraryUpdatedSnack(String version) =>
       'The database was updated to version $version';
@@ -181,11 +181,11 @@ class _Home extends HomeStrings {
   String lastCheckedAt(String time) => 'Last checked at $time';
 
   @override
-  String get downloadingApp => 'Downloading the Otzaria app…';
+  String get downloadingApp => 'Downloading the Otzaria Program…';
   @override
-  String get downloadingLibrary => 'Downloading the library…';
+  String get downloadingLibrary => 'Downloading the Library…';
   @override
-  String get downloadingPlugins => 'Downloading the plugins…';
+  String get downloadingPlugins => 'Downloading the Plugins…';
   @override
   String get downloadStarting => 'Starting the download…';
 
@@ -203,10 +203,10 @@ class _AppScreen extends AppScreenStrings {
   const _AppScreen();
 
   @override
-  String get title => 'Otzaria app update';
+  String get title => 'Otzaria Program Update';
   @override
   String get description =>
-      'The app is installed from the folder next to this program, with no '
+      'Otzaria is installed from the folder next to this program, with no '
       'internet needed. Make sure Otzaria is closed before you install.';
 
   @override
@@ -225,7 +225,7 @@ class _AppScreen extends AppScreenStrings {
   @override
   String get pickInstallDirButton => 'Choose the folder manually';
   @override
-  String get pickInstallDirDialogTitle => 'Choose the Otzaria install folder';
+  String get pickInstallDirDialogTitle => 'Choose the Otzaria installation folder';
   @override
   String get installAdoptedSnack =>
       'Otzaria was found there — the version has been updated';
@@ -267,7 +267,7 @@ class _AppScreen extends AppScreenStrings {
   @override
   String get launchButton => 'Open Otzaria';
   @override
-  String get installUpdateButton => 'Install the update';
+  String get installUpdateButton => 'Install the Update';
 
   @override
   String get whatsNewTitle => "What's new in the latest version";
@@ -277,13 +277,13 @@ class _AppScreen extends AppScreenStrings {
       'yet.';
 
   @override
-  String get sourceCardTitle => 'Folder the app is installed from';
+  String get sourceCardTitle => 'Folder the program is installed from';
   @override
   String get sourceCardSubtitle =>
-      'Fixed, next to the executable — see "Library update" for the full '
+      'Fixed, next to the executable — see "Library Update" for the full '
       'explanation.';
   @override
-  String get sourceDirTitle => 'App updates folder';
+  String get sourceDirTitle => 'Program updates Folder';
 
   @override
   String installPrompt({
@@ -292,7 +292,7 @@ class _AppScreen extends AppScreenStrings {
     required bool prereleaseNote,
   }) {
     final channelNote = prereleaseNote
-        ? ' This is the pre-release you selected on the app screen.'
+        ? ' This is the pre-release you selected on the program screen.'
         : '';
     return 'Version $latestVersion will be installed from the local folder '
         'over ${currentVersion ?? 'the existing installation'}.$channelNote '
@@ -319,7 +319,7 @@ class _LibraryScreen extends LibraryScreenStrings {
   @override
   String get dbFileTitle => 'Active seforim.db file';
   @override
-  String get dbFileMissing => 'Not found — please point to the file';
+  String get dbFileMissing => 'Not found — please select a file';
   @override
   String get pickDbButton => 'Choose a database file';
   @override
@@ -328,7 +328,7 @@ class _LibraryScreen extends LibraryScreenStrings {
   String get dbPathUpdatedSnack => 'The database location was updated';
 
   @override
-  String get localVersionTitle => 'Local version';
+  String get localVersionTitle => 'Local Version';
   @override
   String get targetVersionTitle => 'Target version in the local folder';
   @override
@@ -357,7 +357,7 @@ class _LibraryScreen extends LibraryScreenStrings {
       'drive the folder travels with it, and the offline computer reads '
       'straight from it.';
   @override
-  String get sourceDirTitle => 'Library updates folder';
+  String get sourceDirTitle => 'Library Updates Folder';
   @override
   String get mirrorContentTitle => 'Folder contents';
   @override
@@ -399,7 +399,7 @@ class _Settings extends SettingsScreenStrings {
       'internet) is ignored silently; the manual button on the home screen '
       'always works';
   @override
-  String get autoInstallAppTitle => 'Install the Otzaria app automatically';
+  String get autoInstallAppTitle => 'Install the Otzaria program automatically';
   @override
   String get autoInstallAppSubtitle =>
       'Installs on startup when a newer version sits in the local folder';
@@ -410,9 +410,9 @@ class _Settings extends SettingsScreenStrings {
       'Applies to the database on startup; skipped while Otzaria is open';
 
   @override
-  String get autoInstallSubjectApp => 'the Otzaria app';
+  String get autoInstallSubjectApp => 'the Otzaria program';
   @override
-  String get autoInstallSubjectLibrary => 'the library';
+  String get autoInstallSubjectLibrary => 'the Library';
   @override
   String autoInstallDialogTitle(String subject) =>
       'Install $subject automatically';
@@ -435,28 +435,28 @@ class _Settings extends SettingsScreenStrings {
       'Which parts the "Download now" button on the home screen brings into '
       'the local folder. The download itself always starts with a click.';
   @override
-  String get syncAppTitle => 'Otzaria app';
+  String get syncAppTitle => 'Otzaria program';
   @override
   String get syncAppSubtitle => 'The installer for the latest version';
   @override
   String get syncLibraryTitle => 'Library';
   @override
   String get syncLibrarySubtitle =>
-      'The heavy one — the full database is about 1 GB';
+      'The full package — the full database is about 1 GB';
   @override
   String get syncPluginsTitle => 'Plugin store';
   @override
   String get syncPluginsSubtitle =>
-      'The catalogue and the install files for every plugin';
+      'The catalogue and the installation files for every plugin';
 
   @override
-  String get appearanceCardTitle => 'Language and appearance';
+  String get appearanceCardTitle => 'Language and Appearance';
   @override
   String get appearanceCardSubtitle =>
-      'How the app looks and which language it speaks. Applies right away, and '
+      'How the program looks and which Language it is in. Applies right away, and '
       'is kept for next time.';
   @override
-  String get languageTitle => 'Interface language';
+  String get languageTitle => 'System Language';
   @override
   String get languageSubtitle => 'Changes every screen and message right away';
   @override
@@ -483,7 +483,7 @@ class _Settings extends SettingsScreenStrings {
   @override
   String get supportCardTitle => 'Support';
   @override
-  String get logTitle => 'Activity log';
+  String get logTitle => 'Activity Log';
   @override
   String get logSubtitle =>
       'Every check, download and install is recorded locally only';
@@ -565,10 +565,10 @@ class _Plugins extends PluginsStrings {
   @override
   String get loadingCatalog => 'Loading the plugin catalogue…';
   @override
-  String get catalogTitleFallback => 'The Otzaria plugin store';
+  String get catalogTitleFallback => 'The Otzaria Plugin Store';
   @override
   String get catalogSubtitleFallback =>
-      'Plugins that extend the way you learn in Otzaria';
+      'Plugins that enhance your learning experience in Otzaria';
   @override
   String get heroSearchHint => 'Search by name, description or topic…';
   @override
@@ -579,36 +579,36 @@ class _Plugins extends PluginsStrings {
       'are already here';
   @override
   String get emptyStoreBody =>
-      'Featured plugins and tidy categories are on their way. In the '
+      'Featured plugins and organized categories are on their way. In the '
       'meantime, search above or browse the full list of plugins.';
   @override
   String allPluginsWithCount(int count) => 'All plugins ($count)';
   @override
   String get browseAllPrompt => "Didn't find what you were looking for?";
   @override
-  String browseAllButton(int count) => 'Browse all plugins ($count)';
+  String browseAllButton(int count) => 'Browse all Plugins ($count)';
 
   @override
-  String get featuredEyebrow => 'Store picks';
+  String get featuredEyebrow => 'Store Picks';
   @override
-  String get featuredTitle => 'Featured plugins';
+  String get featuredTitle => 'Featured Plugins';
   @override
   String get showMoreFeatured => 'Show more picks';
   @override
   String categoryLinkButton(int count) => 'See the whole category ($count)';
 
   @override
-  String get breadcrumbRoot => 'Plugin store';
+  String get breadcrumbRoot => 'Plugin Store';
   @override
-  String get allPluginsPage => 'All plugins';
+  String get allPluginsPage => 'All Plugins';
   @override
-  String get listEyebrow => 'Plugin list';
+  String get listEyebrow => 'Plugin List';
   @override
-  String get listTitle => 'Pick the plugin that fits you';
+  String get listTitle => 'Pick the plugin that fits your needs';
   @override
   String get summaryNoResults => 'No plugins match the filters you chose';
   @override
-  String get summaryAllShown => 'Showing every plugin';
+  String get summaryAllShown => 'Showing Every Plugin';
   @override
   String summaryPartial(int shown, int total) =>
       'Showing $shown of $total plugins';
@@ -618,7 +618,7 @@ class _Plugins extends PluginsStrings {
   String categoryPluginCount(int count) => '$count plugins in this category';
 
   @override
-  String get hideInstalledLabel => 'Not installed only';
+  String get hideInstalledLabel => 'Not Installed Only';
   @override
   String hideInstalledOnTooltip(int installedCount) =>
       'Showing only plugins that are not installed or have an update.\n'
@@ -639,22 +639,22 @@ class _Plugins extends PluginsStrings {
   @override
   String get noResultsBody =>
       'Try a different name, clear a tag, pick another status, or turn off '
-      '"Not installed only".';
+      '"Not Installed Only".';
   @override
   String get allInstalledTitle => 'Everything is installed and up to date';
   @override
   String get allInstalledBody =>
-      'The "Not installed only" switch hides plugins you already have at '
+      'The "Not Installed Only" switch hides plugins you already have at '
       'the latest version. Turn it off to see them too.';
   @override
-  String get showInstalledButton => 'Show installed plugins too';
+  String get showInstalledButton => 'Show Installed Plugins Too';
   @override
   String get emptyCategoryTitle => 'Plugins are coming to this category soon';
   @override
   String get emptyCategoryBody =>
       'In the meantime you can browse the full list of plugins in the store.';
   @override
-  String get allPluginsButton => 'All plugins';
+  String get allPluginsButton => 'All Plugins';
 
   @override
   String get filterSearchLabel => 'Search';
@@ -669,14 +669,14 @@ class _Plugins extends PluginsStrings {
   @override
   String get filterStatusAll => 'All';
   @override
-  String get showMoreTags => 'Show more';
+  String get showMoreTags => 'Show More';
   @override
-  String get showFewerTags => 'Show fewer';
+  String get showFewerTags => 'Show Fewer';
 
   @override
   String get badgeFeaturedShort => 'Featured';
   @override
-  String get badgeFeatured => 'Featured plugin';
+  String get badgeFeatured => 'Featured Plugin';
   @override
   String pluginVersionBadge(String version) => 'Version $version';
   @override
@@ -688,9 +688,9 @@ class _Plugins extends PluginsStrings {
   @override
   String get directInstallButton => 'Install straight into Otzaria';
   @override
-  String get sourcePageButton => 'Source page';
+  String get sourcePageButton => 'Source Page';
   @override
-  String get cardDetailsLink => 'Full details';
+  String get cardDetailsLink => 'Full Details';
   @override
   String cardUpdatedOn(String date) => 'Updated $date';
   @override
@@ -708,13 +708,13 @@ class _Plugins extends PluginsStrings {
   @override
   String get installChipInstalled => 'Installed';
   @override
-  String get installChipUpdateAvailable => 'Update available';
+  String get installChipUpdateAvailable => 'Update Available';
   @override
   String installChipUpdateFrom(String installedVersion) =>
       'Update available (you have $installedVersion)';
 
   @override
-  String get infoPanelTitle => 'General information';
+  String get infoPanelTitle => 'General Information';
   @override
   String get tagsPanelTitle => 'Tags';
   @override
@@ -732,7 +732,7 @@ class _Plugins extends PluginsStrings {
   @override
   String get infoNetworkRequired => 'Required';
   @override
-  String get infoNetworkNotRequired => 'Not required';
+  String get infoNetworkNotRequired => 'Not Required';
   @override
   String get infoCompatibility => 'Compatibility';
   @override
@@ -754,7 +754,7 @@ class _Plugins extends PluginsStrings {
   @override
   String get categoriesTitle => 'Categories';
   @override
-  String get storeHomeItem => 'Store home';
+  String get storeHomeItem => 'Store Home';
   @override
   String get storeHomeChip => 'Home';
 
@@ -782,7 +782,7 @@ class _SetupError extends SetupErrorStrings {
   @override
   String get explanation =>
       'The launcher keeps all of its data — the library, the plugins and the '
-      'Otzaria app itself — in a folder right next to it, so everything '
+      'Otzaria program itself — in a folder right next to it, so everything '
       'travels together on the drive. The current folder is not writable, so '
       'there is nowhere to save.';
   @override
@@ -1164,7 +1164,7 @@ class _AppDomain extends AppDomainStrings {
   String get channelPrerelease => 'pre-release';
   @override
   String downloadingChannel(String channelLabel) =>
-      'Downloading the Otzaria app ($channelLabel version)…';
+      'Downloading the Otzaria program ($channelLabel version)…';
 
   @override
   String get noInstallableReleaseForPlatform =>
