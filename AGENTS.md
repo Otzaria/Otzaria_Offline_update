@@ -369,8 +369,18 @@ directory — `seforim.db` lives under `%APPDATA%` regardless, and stays
 
 **`launcher_app/macos/` is tracked in git** and contains non-default settings
 (product name, bundle id, sandbox disabled). Never run
-`flutter create --platforms=macos .` — it overwrites them. `windows/` is the
-opposite: it is generated in CI.
+`flutter create --platforms=macos .` — it overwrites them.
+
+**`launcher_app/windows/runner/` is tracked in git too, and carries two
+non-default edits.** `main.cpp` sets a Hebrew window title and sizes the window
+to the monitor's work area; `win32_window.cpp`'s `Show()` uses
+`SW_SHOWMAXIMIZED`, which is what makes the app open maximized. Doing it there
+rather than from Dart is deliberate: the runner only shows the window once the
+first frame is ready, so a `windowManager.maximize()` before `runApp` reveals an
+empty window early (a visible flicker) and is then undone by the runner's own
+`Show()`. `flutter create --platforms=windows .` — which CI still runs — only
+fills in missing files and leaves these two alone (verified 2026-08-12), but it
+does drop the `macos` entry from `.metadata`; check `git diff` after running it.
 
 **There is no Windows installer — the distribution is one self-extracting exe.**
 `inno_bundle` and its config were removed in `748accf`; Flutter for Windows

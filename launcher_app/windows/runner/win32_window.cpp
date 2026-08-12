@@ -150,7 +150,9 @@ bool Win32Window::Create(const std::wstring& title,
 }
 
 bool Win32Window::Show() {
-  return ShowWindow(window_handle_, SW_SHOWNORMAL);
+  // התוכנה נפתחת תמיד מוגדלת, וההגדלה נעשית כאן ולא מצד ה-Dart: החלון מוצג
+  // רק אחרי הפריים הראשון, ולכן maximize מוקדם היה חושף אותו ריק ומהבהב.
+  return ShowWindow(window_handle_, SW_SHOWMAXIMIZED);
 }
 
 // static

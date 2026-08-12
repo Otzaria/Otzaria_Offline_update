@@ -43,6 +43,12 @@
 בבדיקות widget יש להזריק `showWindowButtons: false`: `WindowCaption` מדבר
 עם ערוץ פלטפורמה שאינו קיים שם.
 
+**החלון נפתח מוגדל, וההגדלה נעשית ב-runner של Windows ולא ב-Dart.**
+`Win32Window::Show` מציג ב-`SW_SHOWMAXIMIZED`, ו-`main.cpp` יוצר את החלון
+מלכתחילה במידות שטח העבודה של הצג. הסיבה: הרנר מציג את החלון רק כשהפריים
+הראשון מוכן, ולכן `windowManager.maximize()` לפני `runApp` היה חושף חלון ריק
+(הבהוב) — ואז ה-`Show()` של הרנר, שהיה `SW_SHOWNORMAL`, ביטל את ההגדלה.
+
 יש גם מסך שישי שאינו בניווט: `screens/setup_error_screen.dart`, שמוצג
 במקום האפליקציה כשלא ניתן לכתוב לתיקייה שלצד קובץ ההרצה.
 

@@ -92,9 +92,9 @@ void main() {
 }
 
 /// מסתיר את מסגרת החלון של המערכת — מכאן והלאה שורת הכותרת היא [AppTitleBar]
-/// שבתוך האפליקציה, בצבע הרקע — ופותח את החלון מוגדל. רץ לפני `runApp` כדי
-/// שהחלון ייצבע פעם אחת בגודלו הסופי: שינוי המסגרת והגודל מאתחל את
-/// אזור-הלקוח ומבטל פריים שכבר צויר.
+/// שבתוך האפליקציה, בצבע הרקע. רץ לפני `runApp` כדי שהחלון ייצבע פעם אחת
+/// בגודלו הסופי: שינוי המסגרת מאתחל את אזור-הלקוח ומבטל פריים שכבר צויר.
+/// ההגדלה עצמה נעשית ב-runner (`Win32Window::Show`) ולא כאן — ראו שם.
 Future<void> _prepareWindow() async {
   if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) return;
   // כשל כאן הוא קוסמטי בלבד (נשארת מסגרת המערכת), אבל בלי ה-catch הוא היה
@@ -108,7 +108,6 @@ Future<void> _prepareWindow() async {
       TitleBarStyle.hidden,
       windowButtonVisibility: false,
     );
-    await windowManager.maximize();
   } catch (e) {
     debugPrint('הכנת החלון נכשלה: $e');
   }

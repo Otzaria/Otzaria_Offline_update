@@ -1,5 +1,6 @@
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
+#include <flutter_windows.h>
 #include <windows.h>
 
 #include "flutter_window.h"
@@ -25,8 +26,25 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
+  // החלון מוצג מוגדל (Win32Window::Show). נותנים לו כבר ביצירה את מידות שטח
+  // העבודה של הצג, כדי שהפריים הראשון ייוצר בגודלו הסופי ולא ייצבע קטן
+  // ויימתח. Create מצפה למידות לוגיות, ולכן מחלקים ב-scale של הצג.
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
+  RECT work_area;
+  if (::SystemParametersInfo(SPI_GETWORKAREA, 0, &work_area, 0)) {
+    const POINT top_left = {work_area.left, work_area.top};
+    const double scale =
+        FlutterDesktopGetDpiForMonitor(
+            ::MonitorFromPoint(top_left, MONITOR_DEFAULTTOPRIMARY)) /
+        96.0;
+    origin = Win32Window::Point(
+        static_cast<unsigned int>(work_area.left / scale),
+        static_cast<unsigned int>(work_area.top / scale));
+    size = Win32Window::Size(
+        static_cast<unsigned int>((work_area.right - work_area.left) / scale),
+        static_cast<unsigned int>((work_area.bottom - work_area.top) / scale));
+  }
   // Window title, Hebrew for "Otzaria Updates". Kept as escapes and not as
   // literal text on purpose: this file is compiled with /WX, and non-ASCII
   // bytes raise C4819 wherever the system code page is not UTF-8.
