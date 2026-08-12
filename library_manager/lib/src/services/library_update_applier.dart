@@ -26,13 +26,16 @@ enum LibraryApplyStage {
 }
 
 /// דיווח התקדמות יחיד. השדות האופציונליים רלוונטיים רק לשלבים מסוימים
-/// (למשל [stepIndex]/[stepCount] רק במסלול דלתא, [bytesDownloaded]/
-/// [bytesTotal] רק בשלבי הורדה).
+/// (למשל [stepIndex]/[stepCount] רק במסלול דלתא, [bytesDone]/[bytesTotal] רק
+/// בשלבים שסופרים בייטים).
 class LibraryApplyProgress {
   final LibraryApplyStage stage;
   final int? stepIndex;
   final int? stepCount;
-  final int? bytesDownloaded;
+
+  /// בייטים שהושלמו מתוך [bytesTotal] בשלב הנוכחי: מה שירד בשלבי ההורדה, ומה
+  /// שנקרא מהקובץ הדחוס בשלב החילוץ. `null` בשלבים שאין בהם בייטים למנות.
+  final int? bytesDone;
   final int? bytesTotal;
 
   /// תת-השלב הגולמי בתוך ההחלה, כפי ש-`PatchApplier.onStage` מדווח אותו
@@ -50,7 +53,7 @@ class LibraryApplyProgress {
     required this.stage,
     this.stepIndex,
     this.stepCount,
-    this.bytesDownloaded,
+    this.bytesDone,
     this.bytesTotal,
     this.patchStage,
     this.verifyProgress,
@@ -188,7 +191,7 @@ class LibraryUpdateApplier {
             stage: LibraryApplyStage.downloadingPatch,
             stepIndex: i + 1,
             stepCount: steps.length,
-            bytesDownloaded: downloaded,
+            bytesDone: downloaded,
             bytesTotal: total,
           ),
         ),
@@ -308,7 +311,7 @@ class LibraryUpdateApplier {
       resumeToken: asset.id?.toString(),
       onProgress: (downloaded, total) => onProgress?.call(LibraryApplyProgress(
         stage: LibraryApplyStage.downloadingFullDb,
-        bytesDownloaded: downloaded,
+        bytesDone: downloaded,
         bytesTotal: total,
       )),
       isCancelled: isCancelled,
@@ -326,6 +329,13 @@ class LibraryUpdateApplier {
       if (!await ZstdFileDecompressor.decompressFileToFile(
         compressedPath,
         newFilePath,
+        // חילוץ של ~1GB אורך דקות ארוכות; בלי הדיווח הזה המד היה לא-קבוע
+        // לאורך כולו. הבייטים הם של הקובץ הדחוס — גודל המסד שייצא אינו ידוע.
+        onProgress: (read, total) => onProgress?.call(LibraryApplyProgress(
+          stage: LibraryApplyStage.decompressingFullDb,
+          bytesDone: read,
+          bytesTotal: total,
+        )),
       )) {
         // אין streaming בפלטפורמה הזו — מסלול הזיכרון, ראו doc-comment.
         await _decompressInMemoryTo(compressedPath, newFilePath);

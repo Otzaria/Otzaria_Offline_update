@@ -317,6 +317,124 @@ void main() {
     });
   });
 
+  // מצב "עדכון אישי": מי שהמסד שלו כבר על המחשב אינו צריך את ~1.5GB של המסד
+  // המלא — רק את ה-patches מהגרסה שלו ומעלה.
+  group('export — מצב עדכון אישי (fromVersion)', () {
+    test('המסד המלא אינו יורד, וגם לא patches שמתחת לגרסה', () async {
+      final built = buildExporter([
+        release('v4', assets: [
+          'seforim.db.zst',
+          'patch-v3-v4.db.zst',
+          'patch-v3-v4.db.zst.manifest.json',
+        ]),
+        release('v3', assets: [
+          'seforim.db.zst',
+          'patch-v2-v3.db.zst',
+          'patch-v2-v3.db.zst.manifest.json',
+        ]),
+        release('v2', assets: [
+          'seforim.db.zst',
+          'patch-v1-v2.db.zst',
+          'patch-v1-v2.db.zst.manifest.json',
+        ]),
+      ]);
+      expect(
+        await built.exporter.export(destDir: destDir, fromVersion: 2),
+        isTrue,
+      );
+
+      expect(mirroredTags(destDir), containsAll(<String>['v4', 'v3']));
+      expect(mirroredTags(destDir), isNot(contains('v2')));
+      // זה כל העניין: אף לא עותק אחד של המסד המלא.
+      expect(built.fetched, isNot(contains('seforim.db.zst')));
+      expect(assetOnDisk(destDir, 'v3', 'patch-v2-v3.db.zst'), isTrue);
+      expect(assetOnDisk(destDir, 'v4', 'patch-v3-v4.db.zst'), isTrue);
+      expect(built.fetched, isNot(contains('patch-v1-v2.db.zst')));
+    });
+
+    test('המראה האישית מספיקה לשרשרת דלתא מהגרסה המקומית', () async {
+      final built = buildExporter([
+        release('v4', assets: [
+          'seforim.db.zst',
+          'patch-v3-v4.db.zst',
+          'patch-v3-v4.db.zst.manifest.json',
+        ]),
+        release('v3', assets: [
+          'patch-v2-v3.db.zst',
+          'patch-v2-v3.db.zst.manifest.json',
+        ]),
+      ]);
+      await built.exporter.export(destDir: destDir, fromVersion: 2);
+
+      final result = await LibraryUpdateDiscovery(
+        client: LocalMirrorLibraryReleaseClient(mirrorDir: destDir),
+      ).discover(allowPrerelease: true);
+      expect(result.latestVersion, 4);
+      expect(result.latestFullDbAsset, isNull);
+
+      LibraryUpdatePlan planFrom(int localVersion) =>
+          const LibraryUpdatePlanner().plan(
+            localVersion: localVersion,
+            hasLocalVersionMeta: true,
+            latestVersion: result.latestVersion,
+            edges: result.edges,
+            latestFullDbAsset: result.latestFullDbAsset,
+            latestReleaseTag: result.latestReleaseTag,
+          );
+
+      final chain = planFrom(2);
+      expect(chain.kind, LibraryUpdatePlanKind.delta);
+      expect(chain.deltaSteps.length, 2);
+      // בלי מסד מלא אין מסלול התאוששות — זו העלות המוצהרת של המצב הזה.
+      expect(chain.fullDownloadFallback, isNull);
+
+      // ומסד שאינו על השרשרת אינו "מתעדכן בשקט" אלא נחסם בנימוק.
+      expect(planFrom(1).kind, LibraryUpdatePlanKind.blocked);
+    });
+
+    test('אין גרסה חדשה → false, והמראה הקיימת נשארת שלמה', () async {
+      final first = buildExporter([
+        release('v3', assets: [
+          'seforim.db.zst',
+          'patch-v2-v3.db.zst',
+          'patch-v2-v3.db.zst.manifest.json',
+        ]),
+      ]);
+      await first.exporter.export(destDir: destDir);
+
+      final again = buildExporter([
+        release('v3', assets: [
+          'seforim.db.zst',
+          'patch-v2-v3.db.zst',
+          'patch-v2-v3.db.zst.manifest.json',
+        ]),
+      ]);
+      expect(
+        await again.exporter.export(destDir: destDir, fromVersion: 3),
+        isFalse,
+      );
+
+      // לא הורד דבר, ובעיקר: לא נמחק דבר ממה שכבר היה על הכונן.
+      expect(again.fetched, isEmpty);
+      expect(mirroredTags(destDir), ['v3']);
+      expect(assetOnDisk(destDir, 'v3', 'seforim.db.zst'), isTrue);
+    });
+
+    test('release שנושא DB מלא בלבד אינו נכנס למראה אישית', () async {
+      final built = buildExporter([
+        release('v5', assets: ['seforim.db.zst']),
+        release('v4', assets: [
+          'patch-v3-v4.db.zst',
+          'patch-v3-v4.db.zst.manifest.json',
+        ]),
+      ]);
+      await built.exporter.export(destDir: destDir, fromVersion: 3);
+
+      expect(mirroredTags(destDir), ['v4']);
+      expect(built.fetched, isNot(contains('seforim.db.zst')));
+    });
+  });
+
   // הלב של המראה: מכונה שכמה גרסאות מאחור מקבלת **שרשרת דלתא** מהמראה, כמו
   // באוצריא המקוונת — ורק מי שרחוק מעבר לעומק ההיסטוריה נופל להורדה המלאה.
   test('שרשרת דלתא רב-שלבית נבנית מהמראה, ומעבר לעומק — הורדה מלאה', () async {

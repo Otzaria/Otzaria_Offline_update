@@ -386,6 +386,34 @@ class _LibraryScreen extends LibraryScreenStrings {
   String mirrorHasVersion(String version) => 'מכילה גרסה $version';
   @override
   String get mirrorPresent => 'קיימת';
+  @override
+  String get personalVersionTitle => 'גרסת המסד שלי (עדכון אישי)';
+  @override
+  String personalVersionRecorded(String version) =>
+      'נרשמה גרסה $version — ההורדה תצא ממנה';
+  @override
+  String get personalVersionMissing =>
+      'טרם נרשמה גרסה. יש ללחוץ כאן במחשב שאוצריא שלכם מותקנת בו, לפני ההורדה';
+  @override
+  String get personalVersionButton => 'זהה את גרסת המסד שלי';
+  @override
+  String personalVersionCapturedSnack(String version) =>
+      'נרשמה גרסה $version לעדכון אישי';
+  @override
+  String get personalVersionNotFoundSnack =>
+      'לא נמצא מסד לקרוא ממנו גרסה במחשב הזה';
+  @override
+  String get downloadNoteTitle => 'ההורדה האחרונה';
+  @override
+  String downloadNotePersonal(String version) =>
+      'עדכון אישי — קובצי עדכון מגרסה $version ומעלה, בלי המסד המלא';
+  @override
+  String get downloadNotePersonalUnknownVersion =>
+      'עדכון אישי מופעל, אך לא זוהתה גרסת מסד מקומית — הורד המסד המלא. '
+      'הפעילו את התוכנה פעם אחת במחשב שבו אוצריא מותקנת.';
+  @override
+  String downloadNotePersonalUpToDate(String version) =>
+      'עדכון אישי — גרסה $version היא האחרונה, אין מה להוריד';
 }
 
 class _Settings extends SettingsScreenStrings {
@@ -460,6 +488,29 @@ class _Settings extends SettingsScreenStrings {
   String get syncPluginsTitle => 'חנות התוספים';
   @override
   String get syncPluginsSubtitle => 'הקטלוג וקובצי ההתקנה של כל התוספים';
+
+  @override
+  String get personalModeTitle => 'עדכון אישי — למחשב שלי בלבד';
+  @override
+  String get personalModeSubtitle =>
+      'מוריד רק את קובצי העדכון מהגרסה שמותקנת אצלך ומעלה, בלי המסד המלא '
+      '(~1.5GB). את הגרסה מזהים בלחיצה, במסך הספרייה.';
+  @override
+  String get personalModeDialogTitle => 'להפעיל עדכון אישי?';
+  @override
+  String get personalModeDialogContent =>
+      'ההורדה תביא רק את קובצי העדכון מהגרסה שמותקנת אצלך ומעלה — עשרות MB '
+      'במקום כמה ג\'יגה-בייט.\n\n'
+      'התוכנה אינה קוראת את גרסת המסד מעצמה: במסך הספרייה יש ללחוץ על '
+      '"זהה את גרסת המסד שלי", וזאת דווקא במחשב שאוצריא שלכם מותקנת בו. '
+      'הלחיצה נשמרת על הכונן ונוסעת איתו למחשב המקוון, כך שאוצריא שמותקנת '
+      'שם לא תיקבע במקומה.';
+  @override
+  String get personalModeDialogWarning =>
+      'הכונן לא ישמש עוד להתקנה במחשב אחר: המסד המלא יימחק ממנו בהורדה הבאה, '
+      'וגם מסלול ההתאוששות (התקנה מלאה כשקובץ עדכון אינו מתאים) לא יהיה זמין.';
+  @override
+  String get personalModeDialogConfirm => 'הפעל עדכון אישי';
 
   @override
   String get appearanceCardTitle => 'שפה ומראה';
@@ -1006,6 +1057,15 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get exportLoadingReleases => 'טוען רשימת גרסאות מ-GitHub';
   @override
   String get exportNoReleases => 'לא נמצאו releases עם עדכוני DB להורדה.';
+  @override
+  String exportPersonalFrom(int localVersion) =>
+      'עדכון אישי: מוריד קובצי עדכון מגרסה $localVersion ומעלה, בלי המסד המלא';
+  @override
+  String exportPersonalUpToDate(int localVersion) =>
+      'אין גרסה חדשה מ-$localVersion — לא הורד דבר';
+  @override
+  String get exportPersonalVersionUnknown =>
+      'לא זוהתה גרסת מסד מקומית — מוריד את המסד המלא';
   @override
   String exportDownloading(String tag, String asset) => 'מוריד $tag / $asset';
   @override

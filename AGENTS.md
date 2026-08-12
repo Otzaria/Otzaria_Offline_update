@@ -34,7 +34,7 @@ touched by *one* thing only: the download step that fills that folder.
 
 | Step | API | Needs network |
 | --- | --- | --- |
-| Download library updates + companion files | `LibraryManager.downloadToMirror()` | **yes** (heavy — full DB/patches, Talmud PDFs, catalog, dictionary) |
+| Download library updates + companion files | `LibraryManager.downloadToMirror()` | **yes** (heavy — full DB/patches, Talmud PDFs, catalog, dictionary; patches only in "personal update" mode, see below) |
 | Download the Otzaria installers (stable + newer pre-release) | `OtzariaManager.downloadToMirror()` | **yes** (heavy — installer files) |
 | Download the plugin store | `PluginsManager.sync()` | **yes** (heavy — images/`.otzplugin` files) |
 | Download a newer **launcher** (this program itself) | `LauncherSelfUpdater.downloadToMirror()` | **yes** (the packaged exe, tens of MB) |
@@ -86,6 +86,38 @@ history reached several gigabytes, which does not belong on a flash drive.
 Online Otzaria walks the entire patch graph; ten releases cover a machine that
 updates occasionally, and anything older falls back to the full-DB route, which
 is always present in the mirror.
+
+**"Personal update" is the one setting that changes what a download brings.**
+`AppSettings.personalUpdateMode` → `LibraryManager.personalUpdateMode` →
+`LibraryMirrorExporter.export(fromVersion:)`: only the patches from the user's
+own DB version upwards, and **no full DB at all** (`personalReleases`). It
+exists because carrying ~1.5GB to update a machine that already holds v20 is
+what users actually objected to (forum post 33695). Four things hold it
+together:
+
+- **Default off, and confirmed on enable.** The drive is a distribution tool
+  first; without the full DB it cannot serve a machine that has no Otzaria, and
+  `LibraryUpdatePlan.fullDownloadFallback` — the recovery from a patch that does
+  not fit (issue #19) — is `null`. The settings toggle says so in a warning
+  dialog before turning it on.
+- **The version is read only on an explicit click**, never automatically:
+  `LibraryManager.captureLocalDbVersion()`, behind the button in
+  `LibraryScreen`. A routine `checkForUpdate` deliberately does *not* record it.
+  The drive travels, and the **online** machine may hold its own (newer)
+  Otzaria — recording that one would have aimed the download at v22 while the
+  offline machine sat at v20, leaving it with no patch route at all.
+- **One record per machine, and the lowest wins**
+  (`LibraryStateStore.knownDbVersions`, keyed by hostname + DB path;
+  `lowestKnownDbVersion`). Someone who clicks on two machines gets a download
+  that serves both. `applyUpdate` raises that machine's entry, so a machine that
+  catches up stops dragging the floor down.
+- **"Nothing newer" does not touch the mirror.** `export` returns `false` and
+  skips the manifest write *and* `_pruneStaleAssets` — otherwise an up-to-date
+  machine would have deleted a perfectly good mirror.
+
+A local DB that is not on the mirrored chain is **not** silently mis-updated: it
+lands on `LibraryUpdatePlanKind.blocked` with a reason, since the planner already
+tolerates a missing full-DB asset (`_fullOrBlocked` → `planNoFullDbEither`).
 
 Within that window only the **patches** are per-release. `seforim.db.zst`
 (~1.5GB) is downloaded **once**, from the highest version that carries one —

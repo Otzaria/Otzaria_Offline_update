@@ -29,18 +29,55 @@ abstract final class ZstdFileDecompressor {
   /// אם הוא זמין אך הקובץ פגום.
   ///
   /// רץ ב-isolate נפרד: אלה קריאות native סינכרוניות על מאות MB, והן היו
-  /// חוסמות את ה-UI. הפונקציה שנשלחת היא top-level ומקבלת מחרוזות בלבד —
-  /// ראו האזהרה על closures ב-`LibraryUpdateApplier`.
+  /// חוסמות את ה-UI. הפונקציה שנשלחת היא top-level ומקבלת ערכים ניתנים-
+  /// לשליחה בלבד — ראו האזהרה על closures ב-`LibraryUpdateApplier`.
+  ///
+  /// [onProgress] מדווח כמה נקרא מהקובץ **הדחוס** מתוך גודלו — גודל המסד
+  /// שייצא אינו ידוע מראש. הדיווח חוזר דרך [ReceivePort] כדי שה-callback
+  /// עצמו לא ייכנס ל-`Context` של סוגר ה-`Isolate.run`.
   ///
   /// השפה מועברת במפורש כי משתנים סטטיים אינם משותפים בין isolates — בלעדיה
   /// הודעות ה-[ZstdStreamException] היו יוצאות תמיד בברירת המחדל (עברית).
   static Future<bool> decompressFileToFile(
     String sourcePath,
-    String destPath,
-  ) {
+    String destPath, {
+    void Function(int bytesRead, int totalBytes)? onProgress,
+  }) async {
     final language = AppL10n.language;
+    if (onProgress == null) {
+      return _runDecompressIsolate(sourcePath, destPath, language, null);
+    }
+
+    final port = ReceivePort();
+    final sub = port.listen((msg) {
+      if (msg is (int, int)) onProgress(msg.$1, msg.$2);
+    });
+    try {
+      return await _runDecompressIsolate(
+        sourcePath,
+        destPath,
+        language,
+        port.sendPort,
+      );
+    } finally {
+      // ההודעה האחרונה עדיין בתור כש-`Isolate.run` חוזר — בלי המתנה לסבב
+      // אירועים אחד המד היה נתקע לפני הסוף.
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      port.close();
+    }
+  }
+
+  /// מתודה נפרדת: כאן נוצר סוגר ה-`Isolate.run`, ולכן היא מקבלת **רק** ערכים
+  /// ניתנים-לשליחה — ראו האזהרה ב-`LibraryUpdateApplier`.
+  static Future<bool> _runDecompressIsolate(
+    String sourcePath,
+    String destPath,
+    AppLanguage language,
+    SendPort? sendPort,
+  ) {
     return Isolate.run(
-      () => _decompressInIsolate((sourcePath, destPath, language)),
+      () => _decompressInIsolate((sourcePath, destPath, language, sendPort)),
     );
   }
 
@@ -84,10 +121,12 @@ DynamicLibrary? _openLibrary() {
   return null;
 }
 
-/// גוף החילוץ. top-level ומקבל רק מחרוזות, כדי שלא ייתפס שום `this` בדרך
-/// ל-isolate. [args]: `($1: מקור, $2: יעד)`.
-bool _decompressInIsolate((String, String, AppLanguage) args) {
+/// גוף החילוץ. top-level ומקבל רק ערכים ניתנים-לשליחה, כדי שלא ייתפס שום
+/// `this` בדרך ל-isolate. [args]: `($1: מקור, $2: יעד, $3: שפה, $4: יציאת
+/// דיווח ההתקדמות או null)`.
+bool _decompressInIsolate((String, String, AppLanguage, SendPort?) args) {
   AppL10n.use(args.$3);
+  final progressPort = args.$4;
   final strings = AppL10n.strings.libraryDomain;
   final library = _openLibrary();
   if (library == null) return false;
@@ -106,6 +145,7 @@ bool _decompressInIsolate((String, String, AppLanguage) args) {
   final outBuffer = malloc<ZSTD_outBuffer>();
 
   final source = File(args.$1).openSync();
+  final totalBytes = source.lengthSync();
   final dest = File(args.$2).openSync(mode: FileMode.write);
   // view על הזיכרון ה-native — אין העתקה, רק גישה מ-Dart לאותם בתים.
   final inView = inPtr.asTypedList(inCapacity);
@@ -118,10 +158,15 @@ bool _decompressInIsolate((String, String, AppLanguage) args) {
 
     var lastResult = 0;
     var sawInput = false;
+    var bytesRead = 0;
     while (true) {
       final read = source.readIntoSync(inView, 0, inCapacity);
       if (read == 0) break;
       sawInput = true;
+      bytesRead += read;
+      // חוצץ הקלט הוא ~128KB, כלומר אלפי דיווחים על קובץ של ~1GB. הצד המקבל
+      // מדלל אותם (`ProgressNotifier`), וכאן זה עדיין זול משמעותית מה-I/O.
+      progressPort?.send((bytesRead, totalBytes));
 
       inBuffer.ref.size = read;
       inBuffer.ref.pos = 0;

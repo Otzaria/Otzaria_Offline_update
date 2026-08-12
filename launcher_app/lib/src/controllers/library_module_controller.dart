@@ -26,6 +26,18 @@ enum LibraryModuleStatus {
 /// הורדה יכולה לרוץ גם כשהמסד המקומי מעודכן (מורידים בשביל המחשב האחר).
 enum MirrorDownloadStatus { idle, downloading, done, error }
 
+/// מה ההורדה האחרונה עשתה במצב "עדכון אישי".
+enum LibraryPersonalDownloadNote {
+  /// ירדו קובצי עדכון מהגרסה שנרשמה ומעלה.
+  fromRecordedVersion,
+
+  /// המצב מופעל אך לא נרשמה גרסה — ירד המסד המלא.
+  versionUnknown,
+
+  /// אין גרסה חדשה מזו שנרשמה — לא ירד דבר.
+  upToDate,
+}
+
 /// עוטף את [LibraryManager] כמצב הניתן לצפייה עבור הדשבורד. שתי פעולות
 /// נפרדות לגמרי:
 ///  - [download] — מביא עדכונים מהרשת אל התיקייה שלצד התוכנה. **הפעולה
@@ -46,6 +58,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// מחליף ערוץ גרסאות — נכנס לתוקף בבדיקה/הורדה הבאה.
   set allowPrerelease(bool value) => _manager.allowPrerelease = value;
 
+  /// מצב "עדכון אישי" — משפיע על [download] בלבד.
+  set personalUpdateMode(bool value) => _manager.personalUpdateMode = value;
+  bool get personalUpdateMode => _manager.personalUpdateMode;
+
   final LibraryManager _manager;
   LibraryUpdateCheckResult? _lastCheck;
 
@@ -58,8 +74,9 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// מתעדכן במהלך [update] בלבד.
   double? applyProgress;
 
-  /// הבייטים עצמם של השלב הנוכחי ב-[update] — לתצוגת "כמה מתוך כמה".
-  /// `null` בשלבים שאינם הורדה (החלת patch, אימות).
+  /// הבייטים עצמם של השלב הנוכחי ב-[update] — לתצוגת "כמה מתוך כמה": מה שירד
+  /// בשלבי ההורדה, ומה שנקרא מהקובץ הדחוס בשלב החילוץ. `null` בשלבים שאין בהם
+  /// בייטים למנות (החלת patch, אימות).
   int? applyReceivedBytes;
   int? applyTotalBytes;
   String? errorMessage;
@@ -120,6 +137,14 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   int? downloadTotalBytes;
   String? downloadError;
   DateTime? lastDownloadedAt;
+
+  /// הגרסה שנרשמה כנקודת מוצא להורדה אישית, או `null` אם טרם נרשמה. נקראת
+  /// מקובץ ה-state בלבד — **לא** ממסד. ראו [capturePersonalVersion].
+  int? personalFromVersion;
+
+  /// מה ההורדה האחרונה הביאה במצב אישי, `null` כשלא רלוונטי. קיים כדי
+  /// שהמצב לא יהיה שקוף: מי שהפעיל אותו בלי לרשום גרסה קיבל מסד מלא.
+  LibraryPersonalDownloadNote? personalDownloadNote;
 
   /// 0..1 להורדה כולה: הנכסים שכבר הושלמו ועוד החלק היחסי של הנוכחי.
   /// כשעוד לא ידוע מספר הנכסים — מתקדם לפי הבייטים של הנכס הנוכחי בלבד.
@@ -182,10 +207,12 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     downloadReceivedBytes = null;
     downloadTotalBytes = null;
     downloadError = null;
+    // הדיווח מתייחס להורדה הזו בלבד — הישן היה מתאר מצב שכבר הוחלף.
+    personalDownloadNote = null;
     notifyListeners();
 
     try {
-      await _manager.downloadToMirror(
+      final outcome = await _manager.downloadToMirror(
         onStage: (stage) {
           downloadStage = stage;
           // כל נכס מדווח את הבייטים שלו מאפס — בלי איפוס כאן המד היה קופץ
@@ -211,6 +238,14 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       );
       downloadStatus = MirrorDownloadStatus.done;
       lastDownloadedAt = DateTime.now();
+      personalFromVersion = outcome.personalFromVersion ?? personalFromVersion;
+      personalDownloadNote = !personalUpdateMode
+          ? null
+          : outcome.upToDate
+              ? LibraryPersonalDownloadNote.upToDate
+              : outcome.personalFromVersion == null
+                  ? LibraryPersonalDownloadNote.versionUnknown
+                  : LibraryPersonalDownloadNote.fromRecordedVersion;
       notifyListeners();
       // עכשיו יש מול מה להשוות — מרעננים את מצב העדכון מהתיקייה החדשה.
       await checkForUpdate();
@@ -223,11 +258,30 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
   }
 
+  /// קורא את גרסת המסד של המחשב הזה ורושם אותה כנקודת המוצא להורדה אישית —
+  /// **רק מכאן**, כלומר מלחיצה מפורשת. מחזיר `false` אם לא נמצא מסד לקרוא
+  /// ממנו, כדי שהמסך יאמר זאת במקום להציג הצלחה שקטה.
+  Future<bool> capturePersonalVersion() async {
+    try {
+      final version = await _manager.captureLocalDbVersion();
+      if (version == null) return false;
+      personalFromVersion = version;
+      notifyListeners();
+      return true;
+    } catch (e, st) {
+      AppLogger.instance.error('רישום גרסת המסד לעדכון אישי נכשל', e, st);
+      return false;
+    }
+  }
+
   Future<void> checkForUpdate() async {
     status = LibraryModuleStatus.checking;
     errorMessage = null;
     canRetryWithFullDownload = false;
     notifyListeners();
+
+    // מה שנרשם בלחיצה — כולל במחשב אחר, דרך קובץ ה-state שנוסע על הכונן.
+    personalFromVersion = await _manager.recordedPersonalDbVersion();
 
     try {
       final check = await _manager.checkForUpdate();
@@ -322,12 +376,12 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
         useFullDownloadFallback: useFullDownloadFallback,
         onProgress: (p) {
           stageText = _describeApplyStage(p);
-          applyReceivedBytes = p.bytesDownloaded;
-          applyTotalBytes = p.bytesTotal;
-          applyProgress = (p.bytesDownloaded != null &&
-                  p.bytesTotal != null &&
-                  p.bytesTotal! > 0)
-              ? p.bytesDownloaded! / p.bytesTotal!
+          final done = p.bytesDone;
+          final total = p.bytesTotal;
+          applyReceivedBytes = done;
+          applyTotalBytes = total;
+          applyProgress = (done != null && total != null && total > 0)
+              ? done / total
               // אימות ה-hash אורך דקות בלי בייטים להציג — בלעדיו המד נראה
               // תקוע לאורך כל השלב הארוך ביותר בהחלה.
               : p.verifyProgress;

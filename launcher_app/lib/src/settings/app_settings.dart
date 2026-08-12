@@ -58,7 +58,8 @@ class AppSettings {
   /// 4: מקטע `storage` (גיבוי המסד) הוסר — ראו `LibraryDbRecoveryService`.
   /// 5: `ui.language` מקבל גם `system` — לפי שפת המחשב, וזו ברירת המחדל.
   /// 6: `ui.seedColor` / `ui.darkSeedColor` — פלטת הצבעים של אוצריא.
-  static const int schemaVersion = 6;
+  /// 7: `sync.personalMode` — הורדה למחשב שלי בלבד, בלי המסד המלא.
+  static const int schemaVersion = 7;
 
   /// בדיקת גרסאות בפתיחה כשיש חיבור לרשת — בדיקה קלה, בלי הורדה.
   final bool autoMetadataCheck;
@@ -74,6 +75,11 @@ class AppSettings {
   final bool syncApp;
   final bool syncLibrary;
   final bool syncPlugins;
+
+  /// `true` = "עדכון אישי": ההורדה מביאה רק קובצי עדכון מהגרסה שנרשמה ומעלה,
+  /// בלי המסד המלא (~1.5GB). ברירת המחדל `false` — התוכנה היא כלי הפצה, וכונן
+  /// בלי המסד המלא אינו יכול לשרת מחשב שאין בו אוצריא בכלל.
+  final bool personalUpdateMode;
 
   // ── התקנה אוטומטית מהתיקייה המקומית ─────────────────────────────────────
   final bool autoInstallApp;
@@ -106,6 +112,7 @@ class AppSettings {
     this.syncApp = true,
     this.syncLibrary = true,
     this.syncPlugins = true,
+    this.personalUpdateMode = false,
     this.autoInstallApp = false,
     this.autoInstallLibrary = false,
     this.preferAppPrerelease = false,
@@ -132,6 +139,7 @@ class AppSettings {
     bool? syncApp,
     bool? syncLibrary,
     bool? syncPlugins,
+    bool? personalUpdateMode,
     bool? autoInstallApp,
     bool? autoInstallLibrary,
     bool? preferAppPrerelease,
@@ -148,6 +156,7 @@ class AppSettings {
       syncApp: syncApp ?? this.syncApp,
       syncLibrary: syncLibrary ?? this.syncLibrary,
       syncPlugins: syncPlugins ?? this.syncPlugins,
+      personalUpdateMode: personalUpdateMode ?? this.personalUpdateMode,
       autoInstallApp: autoInstallApp ?? this.autoInstallApp,
       autoInstallLibrary: autoInstallLibrary ?? this.autoInstallLibrary,
       preferAppPrerelease: preferAppPrerelease ?? this.preferAppPrerelease,
@@ -174,6 +183,7 @@ class AppSettings {
           'app': syncApp,
           'library': syncLibrary,
           'plugins': syncPlugins,
+          'personalMode': personalUpdateMode,
         },
         'ui': {
           'language': languagePreference.code,
@@ -233,6 +243,8 @@ class AppSettings {
       syncApp: flag(sync, 'app', defaults.syncApp),
       syncLibrary: flag(sync, 'library', defaults.syncLibrary),
       syncPlugins: flag(sync, 'plugins', defaults.syncPlugins),
+      personalUpdateMode:
+          flag(sync, 'personalMode', defaults.personalUpdateMode),
       autoInstallApp: flag(automation, 'installApp', defaults.autoInstallApp),
       autoInstallLibrary:
           flag(automation, 'installLibrary', defaults.autoInstallLibrary),

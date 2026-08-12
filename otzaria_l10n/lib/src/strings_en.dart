@@ -406,6 +406,37 @@ class _LibraryScreen extends LibraryScreenStrings {
   String mirrorHasVersion(String version) => 'Contains version $version';
   @override
   String get mirrorPresent => 'Present';
+  @override
+  String get personalVersionTitle => 'My database version (personal update)';
+  @override
+  String personalVersionRecorded(String version) =>
+      'Version $version recorded — the download will start from it';
+  @override
+  String get personalVersionMissing =>
+      'No version recorded yet. Press here on the computer where your Otzaria '
+      'is installed, before downloading';
+  @override
+  String get personalVersionButton => 'Detect my database version';
+  @override
+  String personalVersionCapturedSnack(String version) =>
+      'Version $version recorded for personal update';
+  @override
+  String get personalVersionNotFoundSnack =>
+      'No database was found on this computer to read a version from';
+  @override
+  String get downloadNoteTitle => 'The last download';
+  @override
+  String downloadNotePersonal(String version) =>
+      'Personal update — update files from version $version onwards, without '
+      'the full database';
+  @override
+  String get downloadNotePersonalUnknownVersion =>
+      'Personal update is on, but no local database version was detected — the '
+      'full database was downloaded. Run this program once on the computer '
+      'where Otzaria is installed.';
+  @override
+  String downloadNotePersonalUpToDate(String version) =>
+      'Personal update — version $version is the latest, nothing to download';
 }
 
 class _Settings extends SettingsScreenStrings {
@@ -486,6 +517,32 @@ class _Settings extends SettingsScreenStrings {
   @override
   String get syncPluginsSubtitle =>
       'The catalogue and the installation files for every plugin';
+
+  @override
+  String get personalModeTitle => 'Personal update — this computer only';
+  @override
+  String get personalModeSubtitle =>
+      'Downloads only the update files from the version you already have '
+      'onwards, without the full database (~1.5 GB). You detect that version '
+      'with a click, on the library screen.';
+  @override
+  String get personalModeDialogTitle => 'Turn on personal update?';
+  @override
+  String get personalModeDialogContent =>
+      'The download will bring only the update files from the version you '
+      'already have onwards — tens of MB instead of several gigabytes.\n\n'
+      'This program never reads your database version on its own: on the '
+      'library screen, press "Detect my database version" — on the computer '
+      'where your Otzaria is installed. The result is stored on the drive and '
+      'travels with it to the online computer, so an Otzaria installed there '
+      'cannot take its place.';
+  @override
+  String get personalModeDialogWarning =>
+      'The drive will no longer serve another computer: the next download '
+      'removes the full database from it, and the recovery route (a full '
+      'install when an update file does not fit) will not be available.';
+  @override
+  String get personalModeDialogConfirm => 'Turn on personal update';
 
   @override
   String get appearanceCardTitle => 'Language and Appearance';
@@ -1050,6 +1107,16 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get exportNoReleases =>
       'No releases with database updates were found to download.';
+  @override
+  String exportPersonalFrom(int localVersion) =>
+      'Personal update: downloading update files from version $localVersion '
+      'onwards, without the full database';
+  @override
+  String exportPersonalUpToDate(int localVersion) =>
+      'Nothing newer than $localVersion — nothing was downloaded';
+  @override
+  String get exportPersonalVersionUnknown =>
+      'No local database version was detected — downloading the full database';
   @override
   String exportDownloading(String tag, String asset) =>
       'Downloading $tag / $asset';

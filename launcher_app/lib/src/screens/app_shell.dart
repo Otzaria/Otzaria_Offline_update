@@ -182,6 +182,7 @@ class _AppShellState extends State<AppShell> {
     // ה-setter מתעלם מהצבה חוזרת של אותו ערך, ולכן זה לא מריץ בדיקה בכל
     // שינוי הגדרה אחר.
     _otzaria.preferPrerelease = s.preferAppPrerelease;
+    _library.personalUpdateMode = s.personalUpdateMode;
   }
 
   /// בדיקת תהליך עצמאית — לרענון יזום מהמסך, ובעיקר **מיד לפני** פעולה

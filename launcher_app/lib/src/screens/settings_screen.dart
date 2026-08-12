@@ -160,8 +160,38 @@ class SettingsScreen extends StatelessWidget {
           value: _s.syncPlugins,
           onChanged: (v) => _set(_s.copyWith(syncPlugins: v)),
         ),
+        SettingsActionTile.switchTile(
+          icon: FluentIcons.person_24_regular,
+          title: t.personalModeTitle,
+          subtitle: t.personalModeSubtitle,
+          value: _s.personalUpdateMode,
+          onChanged: (v) => _confirmPersonalMode(context, enabled: v),
+        ),
       ],
     );
+  }
+
+  /// הפעלה דורשת אישור: מכאן והלאה הכונן אינו מתקין ספרייה במחשב אחר, וגם
+  /// מסלול ההתאוששות (מסד מלא כשקובץ עדכון אינו מתאים) נעלם ממנו.
+  Future<void> _confirmPersonalMode(
+    BuildContext context, {
+    required bool enabled,
+  }) async {
+    if (!enabled) {
+      await _set(_s.copyWith(personalUpdateMode: false));
+      return;
+    }
+
+    final t = context.strings.settings;
+    final approved = await showWarningDialog(
+      context: context,
+      title: t.personalModeDialogTitle,
+      content: t.personalModeDialogContent,
+      subtitle: t.personalModeDialogWarning,
+      confirmText: t.personalModeDialogConfirm,
+    );
+    if (!approved) return;
+    await _set(_s.copyWith(personalUpdateMode: true));
   }
 
   // ── שפה ומראה ─────────────────────────────────────────────────────────────

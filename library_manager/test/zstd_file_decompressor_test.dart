@@ -52,6 +52,38 @@ void main() {
       expect(File(destPath).readAsBytesSync(), original);
     });
 
+    test('החילוץ מדווח התקדמות עולה עד סך הקובץ הדחוס', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+
+      // 8MB דחוסים מפיקים הרבה יותר מחוצץ קלט אחד (~128KB), ולכן חייבים
+      // להגיע כמה דיווחים — דיווח אחד בלבד היה מד שקופץ מ-0 ל-100%.
+      final original = pseudoRandomBytes(8 * 1024 * 1024);
+      final compressedPath = '${tmp.path}/data.zst';
+      final compressed = compressWithZstd(bindings, original);
+      File(compressedPath).writeAsBytesSync(compressed);
+
+      final reports = <(int, int)>[];
+      expect(
+        await ZstdFileDecompressor.decompressFileToFile(
+          compressedPath,
+          '${tmp.path}/data.bin',
+          onProgress: (read, total) => reports.add((read, total)),
+        ),
+        isTrue,
+      );
+
+      expect(reports.length, greaterThan(1));
+      expect(reports.every((r) => r.$2 == compressed.length), isTrue);
+      // עולה מונוטונית ומגיעה לסוף: זה מה שמבדיל מד אמיתי ממד שנתקע.
+      for (var i = 1; i < reports.length; i++) {
+        expect(reports[i].$1, greaterThan(reports[i - 1].$1));
+      }
+      expect(reports.last.$1, compressed.length);
+    });
+
     test('קובץ קטוע נדחה במקום להשאיר DB חלקי', () async {
       if (bindings == null) {
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');

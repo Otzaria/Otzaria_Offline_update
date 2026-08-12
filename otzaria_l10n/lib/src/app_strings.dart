@@ -228,6 +228,22 @@ abstract class LibraryScreenStrings {
   String get mirrorUnreadable;
   String mirrorHasVersion(String version);
   String get mirrorPresent;
+
+  /// מצב "עדכון אישי": נקודת המוצא להורדה נרשמת רק בלחיצה כאן, ובמחשב שבו
+  /// אוצריא של המשתמש מותקנת.
+  String get personalVersionTitle;
+  String personalVersionRecorded(String version);
+  String get personalVersionMissing;
+  String get personalVersionButton;
+  String personalVersionCapturedSnack(String version);
+  String get personalVersionNotFoundSnack;
+
+  /// מה ההורדה האחרונה הביאה בפועל — קיים כדי שמצב "עדכון אישי" לא יהיה
+  /// שקוף: משתמש שהפעיל אותו ולא זוהתה לו גרסה קיבל בכל זאת מסד מלא.
+  String get downloadNoteTitle;
+  String downloadNotePersonal(String version);
+  String get downloadNotePersonalUnknownVersion;
+  String downloadNotePersonalUpToDate(String version);
 }
 
 // ── מסך ההגדרות ───────────────────────────────────────────────────────────────
@@ -264,6 +280,16 @@ abstract class SettingsScreenStrings {
   String get syncLibrarySubtitle;
   String get syncPluginsTitle;
   String get syncPluginsSubtitle;
+
+  // ── עדכון אישי ──
+  /// מוריד רק את קובצי העדכון מהגרסה שכבר מותקנת ומעלה, בלי המסד המלא —
+  /// ולכן הכונן אינו משמש עוד להפצה למחשבים אחרים.
+  String get personalModeTitle;
+  String get personalModeSubtitle;
+  String get personalModeDialogTitle;
+  String get personalModeDialogContent;
+  String get personalModeDialogWarning;
+  String get personalModeDialogConfirm;
 
   String get appearanceCardTitle;
   String get appearanceCardSubtitle;
@@ -581,6 +607,12 @@ abstract class LibraryDomainStrings {
 
   String get exportLoadingReleases;
   String get exportNoReleases;
+
+  /// מצב "עדכון אישי" — ההורדה מדלגת על המסד המלא.
+  String exportPersonalFrom(int localVersion);
+  String exportPersonalUpToDate(int localVersion);
+  String get exportPersonalVersionUnknown;
+
   String exportDownloading(String tag, String asset);
   String exportVerifying(String tag, String asset);
   String exportWritingManifest(String fileName);

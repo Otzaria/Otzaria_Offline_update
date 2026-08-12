@@ -73,7 +73,9 @@
 - **דיווח תת-שלבים** — `onStage`/`onVerifyProgress` חוזרים דרך `ReceivePort`
   ומגיעים ל-UI (`LibraryApplyProgress.patchStage` / `verifyProgress`), עם
   קובץ hint (`verify_total_bytes.txt`) ל-total מדויק. בלי זה שלב ה-hash
-  נראה כתקיעה של דקות.
+  נראה כתקיעה של דקות. מאותו טעם `ZstdFileDecompressor` מדווח כמה נקרא
+  מהקובץ הדחוס (`bytesDone`/`bytesTotal` בשלב `decompressingFullDb`) —
+  חילוץ של ~1GB הוא השלב הארוך הבא.
 - **`PRAGMA quick_check` לפני ההחלפה** — במסלול ההורדה המלאה, ב-isolate,
   על הקובץ המחולץ, ורק אז ה-rename. קודם החלפנו ואז בדקנו גרסה בלבד.
 - **הקבצים הנלווים** — ראו הסעיף הבא.
@@ -83,6 +85,13 @@
   ההיסטוריה עדיין לא שומרים — היעד הוא כונן נייד. מחלון ההיסטוריה יורדים
   ה-patches בלבד; את ה-DB המלא (~1.5GB) מורידים **פעם אחת**, מהגרסה
   הגבוהה ביותר שנושאת אותו — היחיד שהמסלול המלא באופליין בוחר.
+- **מצב "עדכון אישי"** — תוספת שאין באוצריא: `personalUpdateMode` מצמצם את
+  ההורדה ל-patches מהגרסה שנרשמה ומעלה, בלי המסד המלא. הגרסה נרשמת **רק**
+  ב-`captureLocalDbVersion()` (לחיצה במסך הספרייה), לא בבדיקה שגרתית — הכונן
+  מגיע גם למחשב המקוון, וקריאה אוטומטית שם הייתה דורסת את הגרסה של המחשב
+  שבשבילו מורידים. נשמרת רשומה לכל מחשב (`knownDbVersions`) וההורדה יוצאת
+  מהנמוכה. במצב הזה אין `fullDownloadFallback`, ולכן הוא מאושר בדיאלוג
+  אזהרה. ראו AGENTS.md §1.
 - **ניקוי נכסים נטושים** — בסוף כל הורדה מוצלחת נמחק מ-`assets/` כל מה
   שאינו במניפסט החדש (`release` שנפל מהחלון, נכס שהוחלף). קובצי ה-`.resume`
   של נכסים שכן במניפסט נשמרים — הם הזהות שמאפשרת לדלג על הורדה חוזרת.
@@ -292,7 +301,7 @@ if (check.updateAvailable) {
     // מוריד ומחיל בפועל (delta או full) על ה-DB החי.
     await manager.applyUpdate(
       check,
-      onProgress: (p) => print('${p.stage} ${p.bytesDownloaded}/${p.bytesTotal}'),
+      onProgress: (p) => print('${p.stage} ${p.bytesDone}/${p.bytesTotal}'),
     );
     print('ה-DB עודכן בהצלחה ל-${check.plan?.targetVersion}');
   } on OtzariaIsRunningException {

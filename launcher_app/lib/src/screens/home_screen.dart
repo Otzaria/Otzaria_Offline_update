@@ -198,6 +198,9 @@ class HomeScreen extends StatelessWidget {
       title: context.strings.home.libraryTileTitle,
       statusKind: libraryStatusKind(c.status),
       statusLabel: libraryStatusLabel(context, c),
+      // עדכון מסד אורך דקות ארוכות; בלי המד כאן האריח אמר "מעדכן" בלבד לכל
+      // אורכו, והמשתמש שהתחיל את העדכון מדף הבית לא ידע אם הוא בכלל מתקדם.
+      progress: isBusy ? libraryApplyProgressRow(context, c) : null,
       primaryActionText: c.status == LibraryModuleStatus.updateAvailable
           ? (c.isFreshInstall ? common.install : common.update)
           : null,
@@ -515,6 +518,18 @@ String libraryStatusLabel(BuildContext context, LibraryModuleController c) {
   };
 }
 
+/// שורת ההתקדמות של החלת עדכון על המסד — שלב, אחוז, וכמה בייטים מתוך כמה.
+/// משותפת לדף הבית ולמסך הספרייה כדי ששניהם יראו בדיוק את אותו חיווי.
+Widget libraryApplyProgressRow(
+  BuildContext context,
+  LibraryModuleController c,
+) =>
+    InfoProgressRow(
+      stage: c.stageText ?? context.strings.libraryScreen.updatingProgress,
+      progress: c.applyProgress,
+      detail: formatBytesProgress(c.applyReceivedBytes, c.applyTotalBytes),
+    );
+
 // ── אריח בית — עיצוב אחיד לשני הרכיבים ────────────────────────────────────────
 
 /// אריח גדול אחד בדף הבית: אייקון, כותרת, מצב, פעולה עיקרית (אם יש), וקישור
@@ -531,12 +546,16 @@ class _HomeTile extends StatelessWidget {
     required this.primaryActionLoading,
     required this.onPrimaryAction,
     required this.onDetails,
+    this.progress,
   });
 
   final IconData icon;
   final String title;
   final StatusKind statusKind;
   final String statusLabel;
+
+  /// מד התקדמות לפעולה ארוכה שרצה כרגע, או `null` כשאין כזו.
+  final Widget? progress;
   final String? primaryActionText;
   final IconData primaryActionIcon;
   final bool primaryActionLoading;
@@ -576,6 +595,7 @@ class _HomeTile extends StatelessWidget {
           ),
           const SizedBox(height: AppTokens.spaceMD),
           StatusChip(kind: statusKind, label: statusLabel),
+          if (progress != null) progress!,
           const SizedBox(height: AppTokens.spaceMD),
           if (primaryActionText != null)
             ActionButton.recommended(
@@ -584,7 +604,9 @@ class _HomeTile extends StatelessWidget {
               isLoading: primaryActionLoading,
               onPressed: onPrimaryAction,
             )
-          else
+          // "אין פעולה זמינה" נאמר רק כשבאמת אין מה לראות; בזמן שהמד רץ הוא
+          // התשובה לשאלה "מה קורה עכשיו".
+          else if (progress == null)
             Text(
               context.strings.home.noActionAvailable,
               style: theme.textTheme.bodySmall

@@ -51,14 +51,7 @@ void main() {
     test('מסד אמיתי שנבחר ידנית — הגרסה מוצגת גם לפני שהורדה מראה', () async {
       // הדיווח שהוליד את הבדיקה: אחרי בחירה ידנית המסך הראה "לא ידוע",
       // כי הבדיקה קראה את הגרסה ואז נפלה על היעדר מראה.
-      final realDb = File(p.join(tempDir.path, 'picked', 'seforim.db'))
-        ..parent.createSync(recursive: true);
-      final db = sqlite3.sqlite3.open(realDb.path);
-      db.execute('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT)');
-      db.execute("INSERT INTO schema_meta VALUES ('db_version', '18')");
-      db.close();
-
-      await controller.setCustomDbPath(realDb.path);
+      await controller.setCustomDbPath(_dbWithVersion(tempDir, 'picked', 18));
 
       expect(controller.status, LibraryModuleStatus.needsDownload);
       expect(controller.localVersion, 18);
@@ -68,6 +61,34 @@ void main() {
       await controller.setCustomDbPath(fakeDb.path);
 
       expect(controller.dbPath, fakeDb.path);
+    });
+
+    // מצב "עדכון אישי": נקודת המוצא נרשמת אך ורק בלחיצה, ולכן בדיקה שגרתית
+    // חייבת להשאיר אותה ריקה — אחרת אוצריא שעל המחשב המקוון הייתה נקבעת
+    // במקום זו של המחשב שבשבילו מורידים.
+    test('בדיקה שגרתית אינה רושמת גרסה לעדכון אישי', () async {
+      await controller.setCustomDbPath(_dbWithVersion(tempDir, 'auto', 18));
+
+      expect(controller.localVersion, 18);
+      expect(controller.personalFromVersion, isNull);
+    });
+
+    test('לחיצה על "זהה את גרסת המסד שלי" רושמת, ובדיקה חוזרת קוראת', () async {
+      await controller.setCustomDbPath(_dbWithVersion(tempDir, 'picked', 18));
+
+      expect(await controller.capturePersonalVersion(), isTrue);
+      expect(controller.personalFromVersion, 18);
+
+      // הרשומה יושבת בקובץ ה-state שנוסע על הכונן — ולכן שורדת בדיקה חדשה.
+      await controller.checkForUpdate();
+      expect(controller.personalFromVersion, 18);
+    });
+
+    test('לחיצה על מסד בלי db_version מדווחת כשל, ולא רושמת', () async {
+      await controller.setCustomDbPath(fakeDb.path);
+
+      expect(await controller.capturePersonalVersion(), isFalse);
+      expect(controller.personalFromVersion, isNull);
     });
 
     test('update לפני בדיקה אינו עושה דבר', () async {
@@ -234,4 +255,16 @@ void main() {
       expect(notifications, 0);
     });
   });
+}
+
+/// מסד sqlite אמיתי עם `db_version` — הקורא (`LocalDbVersionReader`) פותח
+/// את הקובץ בפועל, ולכן קובץ ריק אינו מספיק.
+String _dbWithVersion(Directory tempDir, String folder, int version) {
+  final file = File(p.join(tempDir.path, folder, 'seforim.db'))
+    ..parent.createSync(recursive: true);
+  final db = sqlite3.sqlite3.open(file.path);
+  db.execute('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT)');
+  db.execute("INSERT INTO schema_meta VALUES ('db_version', '$version')");
+  db.close();
+  return file.path;
 }

@@ -82,6 +82,7 @@ void main() {
         'app',
         'library',
         'plugins',
+        'personalMode',
         'ui',
         'language',
         'themeMode',
@@ -102,6 +103,8 @@ void main() {
       expect(s.syncApp, isTrue);
       expect(s.syncLibrary, isTrue);
       expect(s.syncPlugins, isTrue);
+      // ברירת המחדל היא הפצה: הכונן נושא מסד מלא ומשרת גם מחשב בלי אוצריא.
+      expect(s.personalUpdateMode, isFalse);
       expect(s.autoInstallApp, isFalse);
       expect(s.autoInstallLibrary, isFalse);
       expect(s.preferAppPrerelease, isFalse);
@@ -122,6 +125,7 @@ void main() {
         syncApp: false,
         syncLibrary: false,
         syncPlugins: false,
+        personalUpdateMode: true,
         autoInstallApp: true,
         autoInstallLibrary: true,
         preferAppPrerelease: true,
@@ -139,6 +143,7 @@ void main() {
       expect(restored.syncApp, isFalse);
       expect(restored.syncLibrary, isFalse);
       expect(restored.syncPlugins, isFalse);
+      expect(restored.personalUpdateMode, isTrue);
       expect(restored.autoInstallApp, isTrue);
       expect(restored.autoInstallLibrary, isTrue);
       expect(restored.preferAppPrerelease, isTrue);

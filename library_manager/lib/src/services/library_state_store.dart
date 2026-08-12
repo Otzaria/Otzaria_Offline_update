@@ -58,4 +58,46 @@ class LibraryStateStore {
     json['appliedReleaseTag'] = tag;
     await _writeAll(json);
   }
+
+  /// גרסת ה-DB של כל מחשב שנרשמה בו גרסה, לפי מזהה מחשב. נכתבת **רק** בלחיצה
+  /// על "זהה את גרסת המסד שלי" ואחרי עדכון שהוחל כאן — לא בבדיקה שגרתית.
+  /// נוסעת עם הכונן, וזה מה שמאפשר למחשב **המקוון** לדעת מאיזו גרסה להוריד
+  /// במצב "עדכון אישי", בלי לקרוא שום מסד אצלו.
+  ///
+  /// **רשומה לכל מחשב, ולא מספר אחד:** מי שלחץ גם במחשב הלא-מקוון (גרסה 20)
+  /// וגם במקוון (גרסה 22) היה דורס מספר בודד ל-22, ההורדה הייתה מביאה patches
+  /// מ-22 ומעלה, והמחשב הלא-מקוון היה נשאר בלי מסלול. לכן כל מחשב שומר את
+  /// שלו, וההורדה יוצאת מהנמוכה שבהן — ראו [lowestKnownDbVersion].
+  ///
+  /// לא נסמכים על זה לשום החלטה על ה-DB עצמו: שם הגרסה נקראת מהקובץ בפועל.
+  Future<Map<String, int>> loadKnownDbVersions() async {
+    final json = await _readAll();
+    final raw = json['knownDbVersions'];
+    if (raw is! Map) return const {};
+    final versions = <String, int>{};
+    raw.forEach((key, value) {
+      if (key is String && value is int && value > 0) versions[key] = value;
+    });
+    return versions;
+  }
+
+  /// הגרסה הנמוכה מבין כל המחשבים שנרשמו, או `null` כשאין רשומה כלל.
+  /// זו הגרסה שהורדה במצב אישי חייבת לצאת ממנה, כדי שתשרת את כולם.
+  Future<int?> lowestKnownDbVersion() async {
+    final versions = await loadKnownDbVersions();
+    if (versions.isEmpty) return null;
+    return versions.values.reduce((a, b) => a < b ? a : b);
+  }
+
+  /// רושם/מעדכן את הגרסה של [machineKey]. דריסה של אותו מפתח היא הכוונה:
+  /// מחשב שמעדכן את המסד שלו מפסיק למשוך את המינימום למטה בהרצה הבאה שלו.
+  Future<void> recordKnownDbVersion(String machineKey, int version) async {
+    final json = await _readAll();
+    final versions = <String, dynamic>{
+      ...await loadKnownDbVersions(),
+      machineKey: version,
+    };
+    json['knownDbVersions'] = versions;
+    await _writeAll(json);
+  }
 }

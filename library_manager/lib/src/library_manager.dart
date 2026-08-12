@@ -31,6 +31,23 @@ class LibraryMirrorMissingException implements Exception {
   String toString() => AppL10n.strings.libraryDomain.mirrorMissing;
 }
 
+/// מה [LibraryManager.downloadToMirror] הביא בפועל — קיים כדי שמצב "עדכון
+/// אישי" לא יהיה שקוף: משתמש שהפעיל אותו וגרסתו לא זוהתה מקבל בכל זאת מסד
+/// מלא, וזה צריך להיאמר.
+class MirrorDownloadOutcome {
+  const MirrorDownloadOutcome({
+    this.personalFromVersion,
+    this.upToDate = false,
+  });
+
+  /// הגרסה שממנה ירדו קובצי העדכון במצב אישי. `null` = ירד המסד המלא —
+  /// מצב ציבורי, או מצב אישי שלא זוהתה בו גרסה מקומית.
+  final int? personalFromVersion;
+
+  /// מצב אישי שבו אין במקור גרסה חדשה מזו שמותקנת — המראה לא נגעה.
+  final bool upToDate;
+}
+
 /// נקודת הכניסה היחידה שמודול ה-UI אמור להשתמש בה כדי **לבדוק** גרסת מסד
 /// (ה-DB) של אוצריא ו**להחיל** בפועל את העדכון (דלתא או DB מלא) על ה-DB
 /// החי — מחווט את שרשרת ה-discovery/planner/downloader/applier של
@@ -57,6 +74,7 @@ class LibraryManager {
   LibraryManager({
     required this.dataDir,
     this.allowPrerelease = false,
+    this.personalUpdateMode = false,
     Future<String?> Function()? otzariaLaunchPath,
   })  : _stateStore = LibraryStateStore(p.join(dataDir, 'library_state.json')),
         _planner = const LibraryUpdatePlanner(),
@@ -78,6 +96,12 @@ class LibraryManager {
   /// ב-GitHub נחשב יציב, pre-release נחשב לא יציב. ניתן לשינוי בזמן ריצה
   /// כדי שהחלפת ערוץ בהגדרות תיכנס לתוקף בבדיקה/הורדה הבאה.
   bool allowPrerelease;
+
+  /// `true` = "עדכון אישי": [downloadToMirror] מביא רק קובצי עדכון מהגרסה
+  /// המותקנת ומעלה, בלי המסד המלא (~1.5GB). ברירת המחדל `false` — התוכנה היא
+  /// כלי הפצה, והמסד המלא הוא מה שמאפשר לכונן לשרת מחשב שאין בו אוצריא בכלל.
+  /// משפיע על ההורדה בלבד; הבדיקה וההחלה זהות בשני המצבים.
+  bool personalUpdateMode;
 
   /// הזמן הקצוב לפעולות הרשת של המודול — נכנס לתוקף בבקשה הבאה.
   set networkTimeout(Duration value) {
@@ -185,18 +209,28 @@ class LibraryManager {
   /// [onCompanionWarning] מקבל כשל בקובץ נלווה בודד — פעולה best-effort
   /// שאינה מפילה את ההורדה, אך גם אינה אמורה להיעלם בשקט: בלעדיה המשתמש
   /// היה מגלה רק במחשב הלא-מקוון שהתלמוד לא נסע איתו.
-  Future<void> downloadToMirror({
+  Future<MirrorDownloadOutcome> downloadToMirror({
     void Function(String stage)? onStage,
     void Function(int doneAssets, int totalAssets)? onAssetProgress,
     void Function(int downloaded, int? total)? onBytesProgress,
     void Function(String assetName, Object error)? onCompanionWarning,
     bool Function()? isCancelled,
   }) async {
+    final fromVersion =
+        personalUpdateMode ? await recordedPersonalDbVersion() : null;
+    // מצב אישי בלי גרסה מזוהה נופל להורדה הרגילה במקום להיכשל — מוטב מסד
+    // מלא מכונן שאין בו כלום. ה-stage אומר זאת, וגם ה-[MirrorDownloadOutcome].
+    if (personalUpdateMode && fromVersion == null) {
+      onStage?.call(AppL10n.strings.libraryDomain.exportPersonalVersionUnknown);
+    }
+
+    var exported = true;
     final exporter = LibraryMirrorExporter(client: _cloudClient);
     try {
-      await exporter.export(
+      exported = await exporter.export(
         destDir: mirrorDir,
         allowPrerelease: allowPrerelease,
+        fromVersion: fromVersion,
         onStage: onStage,
         onAssetProgress: onAssetProgress,
         onBytesProgress: onBytesProgress,
@@ -217,6 +251,48 @@ class LibraryManager {
       onWarning: onCompanionWarning,
       isCancelled: isCancelled,
     );
+
+    return MirrorDownloadOutcome(
+      personalFromVersion: fromVersion,
+      upToDate: !exported,
+    );
+  }
+
+  /// הגרסה שממנה תצא הורדה במצב אישי: **הנמוכה** מבין הגרסאות שנרשמו
+  /// ב-[captureLocalDbVersion]. `null` = טרם נרשמה אף גרסה.
+  ///
+  /// **אינה קוראת שום מסד.** הקריאה קורית רק בלחיצה מפורשת, ובכוונה: הכונן
+  /// מגיע גם למחשב המקוון, ואם *הוא* מחזיק אוצריא — קריאה אוטומטית שם הייתה
+  /// דורסת את הגרסה של המחשב שבשבילו מורידים ומשאירה אותו בלי מסלול patches.
+  ///
+  /// ומדוע הנמוכה: מי שלחץ בכמה מחשבים מקבל הורדה שמשרתת את כולם.
+  Future<int?> recordedPersonalDbVersion() =>
+      _stateStore.lowestKnownDbVersion();
+
+  /// קורא את גרסת המסד של המחשב **הזה** ורושם אותה כנקודת המוצא להורדה
+  /// אישית. מחזיר `null` כשלא נמצא מסד, או שנמצא בלי `schema_meta.db_version`.
+  ///
+  /// זו הפעולה שמאחורי הכפתור במסך הספרייה — הדרך היחידה שגרסה נרשמת מקריאת
+  /// מסד. ראו [recordedPersonalDbVersion].
+  Future<int?> captureLocalDbVersion() async {
+    final path = await currentDbPath();
+    if (path == null) return null;
+    _lastResolvedDbPath = path;
+    final local = _versionReader.read(path);
+    if (!local.hasVersionMeta || local.dbVersion <= 0) return null;
+    await _stateStore.recordKnownDbVersion(_machineKey(path), local.dbVersion);
+    return local.dbVersion;
+  }
+
+  /// מזהה המחשב+הספרייה שתחתיו נרשמת הגרסה. שם המחשב לבדו אינו מספיק (שני
+  /// חשבונות על אותו מחשב הם שתי ספריות), והנתיב לבדו אינו מספיק (נתיב
+  /// ברירת המחדל זהה במחשבים שונים).
+  String _machineKey(String dbPath) {
+    var host = 'unknown';
+    try {
+      host = Platform.localHostname;
+    } catch (_) {}
+    return '$host|$dbPath';
   }
 
   /// בודק מה הגרסה העדכנית ביותר הזמינה ב-GitHub — **פעולת רשת קלה**:
@@ -422,6 +498,13 @@ class LibraryManager {
           await _stateStore.saveCustomDbPath(dbPath);
         }
         await _saveAppliedTag(check, plan);
+        // המחשב הזה עלה לגרסה החדשה — בלי העדכון הזה הורדה אישית הבאה עוד
+        // הייתה יוצאת מהגרסה הישנה שלו ומביאה patches שכבר הוחלו.
+        final installed = plan.targetVersion;
+        if (installed != null && installed > 0) {
+          await _stateStore.recordKnownDbVersion(
+              _machineKey(dbPath), installed);
+        }
       } catch (_) {}
       // מה השתנה, לטובת אינדקס החיפוש של אוצריא — ראו [ExternalUpdateNotice].
       await const ExternalUpdateNotice().write(

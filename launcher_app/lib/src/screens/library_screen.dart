@@ -118,14 +118,7 @@ class LibraryScreen extends StatelessWidget {
         if (c.errorMessage != null)
           InfoErrorRow(message: c.errorMessage!, onRetry: c.checkForUpdate),
         if (c.status == LibraryModuleStatus.updating)
-          InfoProgressRow(
-            stage: c.stageText ?? t.updatingProgress,
-            progress: c.applyProgress,
-            detail: formatBytesProgress(
-              c.applyReceivedBytes,
-              c.applyTotalBytes,
-            ),
-          ),
+          libraryApplyProgressRow(context, c),
         CardActionsRow(
           actions: [
             RecheckButton(onPressed: _isBusy ? null : _recheck),
@@ -273,7 +266,53 @@ class LibraryScreen extends StatelessWidget {
             title: context.strings.common.lastDownloaded,
             subtitle: c.lastDownloadedAt!.toLocal().toString().split('.').first,
           ),
+        // רק במצב אישי: זו נקודת המוצא של ההורדה, והיא נרשמת אך ורק כאן —
+        // התוכנה אינה קוראת את גרסת המסד מעצמה.
+        if (c.personalUpdateMode)
+          SettingsActionTile.text(
+            icon: FluentIcons.person_24_regular,
+            title: t.personalVersionTitle,
+            subtitle: c.personalFromVersion != null
+                ? t.personalVersionRecorded('${c.personalFromVersion}')
+                : t.personalVersionMissing,
+            actions: [
+              ActionButton.neutral(
+                text: t.personalVersionButton,
+                icon: FluentIcons.database_search_24_regular,
+                onPressed:
+                    _isBusy ? null : () => _capturePersonalVersion(context),
+              ),
+            ],
+          ),
+        if (c.personalUpdateMode && c.personalDownloadNote != null)
+          SettingsActionTile.text(
+            icon: FluentIcons.info_24_regular,
+            title: t.downloadNoteTitle,
+            subtitle: switch (c.personalDownloadNote!) {
+              LibraryPersonalDownloadNote.fromRecordedVersion =>
+                t.downloadNotePersonal('${c.personalFromVersion}'),
+              LibraryPersonalDownloadNote.versionUnknown =>
+                t.downloadNotePersonalUnknownVersion,
+              LibraryPersonalDownloadNote.upToDate =>
+                t.downloadNotePersonalUpToDate('${c.personalFromVersion}'),
+            },
+          ),
       ],
     );
+  }
+
+  /// קוראת את גרסת המסד של המחשב הזה ורושמת אותה. הדיווח הוא snack ולא שדה
+  /// מצב: לחיצה שלא מצאה מסד היא מידע חד-פעמי, לא תקלה שנשארת על המסך.
+  Future<void> _capturePersonalVersion(BuildContext context) async {
+    final t = context.strings.libraryScreen;
+    final captured = await library.capturePersonalVersion();
+    if (!context.mounted) return;
+    if (captured) {
+      UiSnack.showSuccess(
+        t.personalVersionCapturedSnack('${library.personalFromVersion}'),
+      );
+    } else {
+      UiSnack.showError(t.personalVersionNotFoundSnack);
+    }
   }
 }

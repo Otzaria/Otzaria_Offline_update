@@ -90,4 +90,56 @@ void main() {
       expect(File('$statePath.tmp').existsSync(), isFalse);
     });
   });
+
+  // נקודת המוצא של ההורדה במצב "עדכון אישי". הרשומה נוסעת על הכונן בין
+  // מחשבים, ולכן היא מפתח-לכל-מחשב והמינימום הוא מה שנקרא.
+  group('LibraryStateStore — גרסאות המסד שנרשמו', () {
+    test('בלי רשומות — null, בלי לזרוק', () async {
+      expect(await store.loadKnownDbVersions(), isEmpty);
+      expect(await store.lowestKnownDbVersion(), isNull);
+    });
+
+    test('הנמוכה מבין המחשבים היא זו שנקראת', () async {
+      await store.recordKnownDbVersion(r'HOME|C:\a\seforim.db', 20);
+      await store.recordKnownDbVersion(r'ONLINE|D:\b\seforim.db', 22);
+
+      expect(await LibraryStateStore(statePath).lowestKnownDbVersion(), 20);
+    });
+
+    test('רישום חוזר לאותו מחשב מעדכן אותו ומרים את המינימום', () async {
+      await store.recordKnownDbVersion('HOME', 20);
+      await store.recordKnownDbVersion('ONLINE', 22);
+      // המחשב הביתי עודכן — מכאן אין למי למשוך את המינימום למטה.
+      await store.recordKnownDbVersion('HOME', 22);
+
+      expect(await store.loadKnownDbVersions(), {'HOME': 22, 'ONLINE': 22});
+      expect(await store.lowestKnownDbVersion(), 22);
+    });
+
+    test('רישום גרסה אינו מוחק את שאר ה-state', () async {
+      await store.saveAppliedReleaseTag('v20');
+      await store.saveCustomDbPath(r'C:\lib\seforim.db');
+      await store.recordKnownDbVersion('HOME', 20);
+
+      expect(await store.loadAppliedReleaseTag(), 'v20');
+      expect(await store.loadCustomDbPath(), r'C:\lib\seforim.db');
+    });
+
+    test('ערכים פגומים בקובץ מסוננים ואינם מפילים את הקריאה', () async {
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsString(
+        '{"knownDbVersions": {"a": 0, "b": "x", "c": 18}}',
+      );
+
+      expect(await store.loadKnownDbVersions(), {'c': 18});
+      expect(await store.lowestKnownDbVersion(), 18);
+    });
+
+    test('knownDbVersions שאינו אובייקט נחשב "אין רשומות"', () async {
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsString('{"knownDbVersions": 7}');
+
+      expect(await store.lowestKnownDbVersion(), isNull);
+    });
+  });
 }

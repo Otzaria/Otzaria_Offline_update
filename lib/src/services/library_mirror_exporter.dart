@@ -25,6 +25,10 @@ import 'patch_downloader.dart';
 /// של הגרסה הגבוהה ביותר שנושאת אותו — ואת ה-patches של [historyDepth]
 /// ה-releases האחרונים (עשרות MB כל אחד), לא את כל ההיסטוריה. ראו
 /// [recentReleases].
+///
+/// `fromVersion` ב-[export] מחליף את שני אלה במצב "עדכון אישי": patches
+/// מהגרסה שמותקנת אצל המשתמש ומעלה בלבד, בלי המסד המלא — ראו
+/// [personalReleases].
 class LibraryMirrorExporter {
   LibraryMirrorExporter({
     GithubLibraryReleaseClient? client,
@@ -64,19 +68,22 @@ class LibraryMirrorExporter {
   /// בונה מראה מלאה תחת [destDir] (נוצרת אם חסרה). מוריד את כל ה-releases
   /// הרלוונטיים (כאלה עם delta manifests ו/או DB מלא), כולל כל קובצי ה-patch
   /// שכל manifest מצביע עליהם, וכותב `releases.json` בסוף.
-  Future<void> export({
+  ///
+  /// [fromVersion] — מצב "עדכון אישי": מורידים רק patches מהגרסה הזו ומעלה,
+  /// **בלי** המסד המלא. ראו [personalReleases].
+  ///
+  /// מחזיר `false` במצב אישי שבו אין גרסה חדשה מ-[fromVersion] — ואז המראה
+  /// הקיימת אינה נגעת בכלל: היא עדיין תקפה, ומחיקת נכסיה הייתה מוחקת מראה
+  /// שלמה רק בגלל שהמחשב הזה מעודכן.
+  Future<bool> export({
     required String destDir,
     bool allowPrerelease = true,
+    int? fromVersion,
     void Function(String stage)? onStage,
     void Function(int doneAssets, int totalAssets)? onAssetProgress,
     void Function(int downloaded, int? total)? onBytesProgress,
     bool Function()? isCancelled,
   }) async {
-    final root = Directory(destDir);
-    await root.create(recursive: true);
-    final assetsRoot = Directory(p.join(destDir, 'assets'));
-    await assetsRoot.create(recursive: true);
-
     final strings = AppL10n.strings.libraryDomain;
 
     onStage?.call(strings.exportLoadingReleases);
@@ -85,17 +92,31 @@ class LibraryMirrorExporter {
       all,
       allowPrerelease: allowPrerelease,
     );
-    final relevant = recentReleases(eligible);
+    final personal = fromVersion != null;
+    final relevant = personal
+        ? personalReleases(eligible, fromVersion)
+        : recentReleases(eligible);
 
     if (relevant.isEmpty) {
+      if (personal) {
+        onStage?.call(strings.exportPersonalUpToDate(fromVersion));
+        return false;
+      }
       throw StateError(strings.exportNoReleases);
     }
+
+    final root = Directory(destDir);
+    await root.create(recursive: true);
+    final assetsRoot = Directory(p.join(destDir, 'assets'));
+    await assetsRoot.create(recursive: true);
 
     // ה-DB המלא נדרש **פעם אחת** לכל המראה, לא לכל release: המסלול המלא
     // באופליין בוחר תמיד את הנכס של הגרסה הגבוהה ביותר שנושאת אותו (ראו
     // LibraryUpdateDiscovery.discover), ולכן עותק לכל release היה מוסיף כ-1.5GB
     // מתים לכל אחד מהם — כמה ג'יגה-בייט של נכסים שלא ייקראו לעולם.
-    final fullDbCarrier = _fullDbCarrier(relevant);
+    // במצב אישי הוא נשמט לגמרי — זה כל החיסכון שבמצב הזה.
+    final fullDbCarrier = personal ? null : _fullDbCarrier(relevant);
+    if (personal) onStage?.call(strings.exportPersonalFrom(fromVersion));
 
     // עבור כל release: אילו assets בפועל נדרשים — ה-manifests עצמם, קובצי
     // ה-patch שהם מצביעים עליהם, וה-DB המלא רק ב-[fullDbCarrier]. משתמשים
@@ -216,6 +237,7 @@ class LibraryMirrorExporter {
     await _pruneStaleAssets(assetsRoot, plannedByRelease);
 
     onStage?.call(strings.exportDone);
+    return true;
   }
 
   /// מוחק מתוך [assetsRoot] כל תיקיית tag ונכס שאינם בתוכנית — best-effort:
@@ -289,6 +311,24 @@ class LibraryMirrorExporter {
       }
     }
     return kept.toList(growable: false);
+  }
+
+  /// מצב "עדכון אישי": כל ה-releases שגרסתם **גבוהה** מ-[fromVersion], בלי
+  /// חסימת עומק ובלי המסד המלא. ריק פירושו "המחשב הזה מעודכן", לא שגיאה.
+  ///
+  /// ה-edge `patch-vN-vM` יושב ב-release שגרסתו M, ולכן "גבוה מ-[fromVersion]"
+  /// שומר בדיוק את השרשרת מהגרסה המקומית ולמעלה — עשרות MB לכל צעד, לעומת
+  /// ~1.5GB של המסד המלא. אין כאן מרווח ביטחון: גרסה מקומית שאינה מה שנרשם
+  /// תיתקל ב-`blocked` מנומק במחשב היעד, ולא בעדכון שקט של הקובץ הלא נכון.
+  List<LibraryRelease> personalReleases(
+    List<LibraryRelease> eligible,
+    int fromVersion,
+  ) {
+    return eligible
+        .where((r) =>
+            r.deltaManifestAssets.isNotEmpty &&
+            LibraryUpdateDiscovery.releaseVersionOf(r) > fromVersion)
+        .toList(growable: false);
   }
 
   /// ה-release היחיד שממנו מורידים את ה-DB המלא: הגרסה הגבוהה ביותר מבין

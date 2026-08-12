@@ -249,6 +249,35 @@ void main() {
     expect(find.text('עדכן עכשיו'), findsNothing);
   });
 
+  testWidgets('אריח הספרייה בדף הבית מציג התקדמות ולא רק "מעדכן"',
+      (tester) async {
+    library.status = LibraryModuleStatus.updating;
+    library.stageText = 'מאמת את תוצאת העדכון (2/3)...';
+    library.applyProgress = 0.37;
+
+    await pumpScreen(tester, home());
+
+    final libraryTile = find.ancestor(
+      of: find.text(stringsOf().home.libraryTileTitle),
+      matching: find.byType(AppCard),
+    );
+    expect(
+      find.descendant(of: libraryTile, matching: find.byType(InfoProgressRow)),
+      findsOneWidget,
+    );
+    expect(find.text('מאמת את תוצאת העדכון (2/3)...'), findsOneWidget);
+    expect(find.text('37%'), findsOneWidget);
+    // "אין פעולה זמינה" היה כל מה שהאריח אמר מתחת ל"מעדכן" — עכשיו המד
+    // במקומו, ואין שתי הודעות סותרות.
+    expect(
+      find.descendant(
+        of: libraryTile,
+        matching: find.text(stringsOf().home.noActionAvailable),
+      ),
+      findsNothing,
+    );
+  });
+
   testWidgets('מסך תוכנה מציג מצב ו"מה התחדש"', (tester) async {
     await pumpScreen(
       tester,
@@ -1158,6 +1187,88 @@ void main() {
       find.text(stringsOf().libraryScreen.mirrorUnreadable),
       findsOneWidget,
     );
+  });
+
+  // מצב "עדכון אישי": האריח שמאפשר לרשום את הגרסה מופיע רק במצב הזה, כי הוא
+  // הדרך **היחידה** שגרסה נרשמת — התוכנה אינה קוראת אותה מעצמה.
+  testWidgets('אריח גרסת המסד האישית מופיע רק במצב עדכון אישי', (tester) async {
+    final t = stringsOf().libraryScreen;
+
+    Widget screen() => LibraryScreen(
+          library: library,
+          otzariaIsRunning: false,
+          isDownloading: false,
+          onProcessStateChanged: () async => false,
+          onRequestReindex: () async {},
+        );
+
+    await pumpScreen(tester, screen());
+    expect(find.text(t.personalVersionTitle), findsNothing);
+
+    library.personalUpdateMode = true;
+    await pumpScreen(tester, screen());
+
+    expect(find.text(t.personalVersionTitle), findsOneWidget);
+    // טרם נרשמה גרסה — המסך אומר במפורש איפה יש ללחוץ.
+    expect(find.text(t.personalVersionMissing), findsOneWidget);
+    expect(find.text(t.personalVersionButton), findsOneWidget);
+
+    library.personalFromVersion = 20;
+    await pumpScreen(tester, screen());
+    expect(find.text(t.personalVersionRecorded('20')), findsOneWidget);
+  });
+
+  testWidgets('מצב אישי בלי גרסה רשומה מדווח שירד המסד המלא', (tester) async {
+    library.personalUpdateMode = true;
+    library.personalDownloadNote = LibraryPersonalDownloadNote.versionUnknown;
+    library.lastDownloadedAt = DateTime(2026, 8, 12);
+
+    await pumpScreen(
+      tester,
+      LibraryScreen(
+        library: library,
+        otzariaIsRunning: false,
+        isDownloading: false,
+        onProcessStateChanged: () async => false,
+        onRequestReindex: () async {},
+      ),
+    );
+
+    expect(
+      find.text(stringsOf().libraryScreen.downloadNotePersonalUnknownVersion),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('הפעלת עדכון אישי דורשת אישור באזהרה', (tester) async {
+    final t = stringsOf().settings;
+
+    await pumpScreen(
+      tester,
+      SettingsScreen(
+        controller: settings,
+        onOpenLog: () {},
+        launcherVersion: launcherVersion,
+      ),
+    );
+
+    await tester.tap(find.text(t.personalModeTitle));
+    await tester.pumpAndSettle();
+
+    expect(find.text(t.personalModeDialogTitle), findsOneWidget);
+    // האזהרה עצמה חייבת להיאמר: מכאן והלאה הכונן אינו משרת מחשב אחר.
+    expect(find.text(t.personalModeDialogWarning), findsOneWidget);
+
+    await tester.tap(find.text(stringsOf().common.cancel));
+    await tester.pumpAndSettle();
+    expect(settings.settings.personalUpdateMode, isFalse);
+
+    await tester.tap(find.text(t.personalModeTitle));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(t.personalModeDialogConfirm));
+    await tester.pumpAndSettle();
+
+    expect(settings.settings.personalUpdateMode, isTrue);
   });
 
   testWidgets('מסך הספרייה מציג התקדמות בזמן עדכון וחוסם פעולות',
