@@ -59,7 +59,7 @@ void main() {
         FlutterError.presentError(details);
       };
 
-      await _hideNativeTitleBar();
+      await _prepareWindow();
 
       // תיקיית הנתונים צמודה לתוכנה ואינה ניתנת לשינוי. אם אי אפשר לכתוב
       // בה — אין לאן לשמור *כלום*, כולל הלוג עצמו, ולכן זו לא שגיאה שאפשר
@@ -92,9 +92,10 @@ void main() {
 }
 
 /// מסתיר את מסגרת החלון של המערכת — מכאן והלאה שורת הכותרת היא [AppTitleBar]
-/// שבתוך האפליקציה, בצבע הרקע. רץ לפני `runApp` כדי שהחלון ייצבע פעם אחת
-/// בגודלו הסופי: שינוי המסגרת מאתחל את אזור-הלקוח ומבטל פריים שכבר צויר.
-Future<void> _hideNativeTitleBar() async {
+/// שבתוך האפליקציה, בצבע הרקע — ופותח את החלון מוגדל. רץ לפני `runApp` כדי
+/// שהחלון ייצבע פעם אחת בגודלו הסופי: שינוי המסגרת והגודל מאתחל את
+/// אזור-הלקוח ומבטל פריים שכבר צויר.
+Future<void> _prepareWindow() async {
   if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) return;
   // כשל כאן הוא קוסמטי בלבד (נשארת מסגרת המערכת), אבל בלי ה-catch הוא היה
   // בורח לפני שיש לוג ומשאיר את המשתמש בלי חלון בכלל.
@@ -107,8 +108,9 @@ Future<void> _hideNativeTitleBar() async {
       TitleBarStyle.hidden,
       windowButtonVisibility: false,
     );
+    await windowManager.maximize();
   } catch (e) {
-    debugPrint('הסתרת מסגרת החלון נכשלה: $e');
+    debugPrint('הכנת החלון נכשלה: $e');
   }
 }
 
