@@ -628,6 +628,8 @@ class _Plugins extends PluginsStrings {
       'The folder is chosen during the first sync';
   @override
   String updatesAvailableChip(int count) => '$count updates available';
+  @override
+  String get updatesChipTooltip => 'Show the plugins waiting for an update';
 
   @override
   String get saveDialogTitle => 'Save the plugin';
@@ -846,6 +848,24 @@ class _Plugins extends PluginsStrings {
   @override
   String updatesDialogRow(String installedVersion, String storeVersion) =>
       'Installed $installedVersion → store $storeVersion';
+  @override
+  String get updatesDialogUpdateButton => 'Update';
+  @override
+  String updatesDialogUpdateAllButton(int count) => 'Update all ($count)';
+  @override
+  String get updatesDialogDetailsButton => 'Details';
+  @override
+  String get updatesDialogSentLabel => 'Sent to Otzaria';
+  @override
+  String get updatesDialogDoneLabel => 'Updated';
+  @override
+  String get updatesDialogManualOnly => 'Install from the plugin page';
+  @override
+  String get updatesDialogPendingNote =>
+      'The installation itself happens inside Otzaria. Once it is done there, '
+      'press "Re-check" to see what has already been updated.';
+  @override
+  String get updatesDialogRecheckButton => 'Re-check';
 
   @override
   String get screenshotPrevious => 'Previous';

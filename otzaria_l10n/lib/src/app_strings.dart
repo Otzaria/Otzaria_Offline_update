@@ -342,6 +342,7 @@ abstract class PluginsStrings {
   String syncedAt(String time);
   String get syncDirUnknownTooltip;
   String updatesAvailableChip(int count);
+  String get updatesChipTooltip;
 
   String get saveDialogTitle;
   String get saveDoneSnack;
@@ -451,6 +452,18 @@ abstract class PluginsStrings {
   String updatesDialogTitle(int count);
   String get updatesDialogIntro;
   String updatesDialogRow(String installedVersion, String storeVersion);
+  String get updatesDialogUpdateButton;
+  String updatesDialogUpdateAllButton(int count);
+  String get updatesDialogDetailsButton;
+
+  /// שורה שהמסירה שלה לאוצריא הצליחה — ההתקנה עצמה נעשית שם.
+  String get updatesDialogSentLabel;
+  String get updatesDialogDoneLabel;
+
+  /// תוסף שאין לו התקנה ישירה — יש להתקינו מדף התוסף.
+  String get updatesDialogManualOnly;
+  String get updatesDialogPendingNote;
+  String get updatesDialogRecheckButton;
 
   // ── גלריית צילומי המסך ──────────────────────────────────────────────────
   String get screenshotPrevious;

@@ -23,6 +23,7 @@ import 'package:launcher_app/src/screens/plugins/plugins_screen.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:path/path.dart' as p;
 import 'package:plugins_manager/plugins_manager.dart';
 
 import 'test_harness.dart';
@@ -74,6 +75,28 @@ StorePlugin storePlugin(
           )
         : null,
   );
+}
+
+/// קונטרולר שרושם את המסירות לאוצריא במקום לבצע אותן. ההתקנה האמיתית
+/// מריצה תהליך (`otzaria://plugin/install-local`), ובבדיקה אין מה להריץ.
+class _RecordingController extends PluginsModuleController {
+  _RecordingController(String mirrorRootDir, {String? launchPath})
+      : super(
+          mirrorRootDir: mirrorRootDir,
+          otzariaLaunchPath:
+              launchPath == null ? null : (() async => launchPath),
+        );
+
+  final List<String> delivered = [];
+  bool succeeds = true;
+
+  @override
+  Future<PluginInstallResult> directInstall(StorePlugin plugin) async {
+    delivered.add(plugin.id);
+    return succeeds
+        ? const PluginInstallResult.ok()
+        : const PluginInstallResult.failure('אוצריא לא נפתחה');
+  }
 }
 
 /// האם ה-Scrollable הזה הוא הגליל הפנימי של שדה טקסט (`EditableText`).
@@ -128,6 +151,24 @@ void main() {
         )));
     await tester.runAsync(plugins.load);
     plugins.installed = const {};
+  }
+
+  /// אותו זרע, אבל עם קונטרולר שרושם את המסירות לאוצריא במקום לבצע אותן.
+  /// [launchPath] מפעיל את זיהוי ההתקנה הניידת בסורק — כך שסריקה מחדש
+  /// קוראת תיקיית תוספים אמיתית שהבדיקה בנתה.
+  Future<_RecordingController> seedRecording(
+    WidgetTester tester, {
+    required List<StorePlugin> catalog,
+    required Map<String, String> installed,
+    String? launchPath,
+  }) async {
+    plugins.dispose();
+    final recording =
+        _RecordingController(tempDir.path, launchPath: launchPath);
+    plugins = recording;
+    await seed(tester, catalog: catalog);
+    plugins.installed = installed;
+    return recording;
   }
 
   // ── פענוח התמונות ────────────────────────────────────────────────────────
@@ -776,6 +817,150 @@ void main() {
 
     expect(find.byType(PluginDetailView), findsOneWidget);
     expect(focusRequests, 1);
+  });
+
+  testWidgets('כפתור העדכון בשורה מוסר את התוסף לאוצריא ומסמן שנשלח',
+      (tester) async {
+    final controller = await seedRecording(
+      tester,
+      catalog: [
+        storePlugin('a',
+            name: 'תוסף לעדכון', manifestId: 'id-a', version: '2.0'),
+      ],
+      installed: {'id-a': '1.0'},
+    );
+
+    await pumpScreen(tester, PluginsScreen(controller: plugins));
+    await tester.pumpAndSettle();
+
+    expect(find.text(t.updatesDialogTitle(1)), findsOneWidget);
+    // תוסף בודד — אין "עדכון הכל", הכפתור שבשורה הוא הפעולה כולה.
+    expect(find.text(t.updatesDialogUpdateAllButton(1)), findsNothing);
+
+    await tester.tap(find.text(t.updatesDialogUpdateButton));
+    // בלי pumpAndSettle: השבב "נשלח" מסתובב בלי סוף, וההמתנה לא הייתה נגמרת.
+    await tester.pump();
+    await tester.pump();
+
+    expect(controller.delivered, ['a']);
+    expect(find.text(t.updatesDialogSentLabel), findsOneWidget);
+    expect(find.text(t.updatesDialogUpdateButton), findsNothing);
+    // ההסבר למה השורה עדיין כאן — אוצריא היא זו שמתקינה בפועל.
+    expect(find.text(t.updatesDialogPendingNote), findsOneWidget);
+  });
+
+  testWidgets('"עדכון הכל" מוסר את כל השורות, אחת אחרי השנייה', (tester) async {
+    final controller = await seedRecording(
+      tester,
+      catalog: [
+        storePlugin('a', name: 'ראשון', manifestId: 'id-a', version: '2.0'),
+        storePlugin('b', name: 'שני', manifestId: 'id-b', version: '3.0'),
+      ],
+      installed: {'id-a': '1.0', 'id-b': '1.0'},
+    );
+
+    await pumpScreen(tester, PluginsScreen(controller: plugins));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(t.updatesDialogUpdateAllButton(2)));
+    await tester.pump();
+    await tester.pump();
+
+    // המסירה השנייה ממתינה בכוונה — אחרת אוצריא הסגורה הייתה נפתחת פעמיים.
+    expect(controller.delivered, ['a']);
+    await tester.pump(pluginUpdateDeliverySpacing);
+    await tester.pump();
+
+    expect(controller.delivered, ['a', 'b']);
+    expect(find.text(t.updatesDialogSentLabel), findsNWidgets(2));
+  });
+
+  testWidgets('מסירה שנכשלה אינה מסומנת כנשלחה', (tester) async {
+    final controller = await seedRecording(
+      tester,
+      catalog: [
+        storePlugin('a',
+            name: 'תוסף לעדכון', manifestId: 'id-a', version: '2.0'),
+      ],
+      installed: {'id-a': '1.0'},
+    );
+    controller.succeeds = false;
+
+    await pumpScreen(tester, PluginsScreen(controller: plugins));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(t.updatesDialogUpdateButton));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text(t.updatesDialogSentLabel), findsNothing);
+    expect(find.text(t.updatesDialogUpdateButton), findsOneWidget);
+  });
+
+  testWidgets('לחיצה על שבב העדכונים פותחת את הרשימה מחדש', (tester) async {
+    // התלונה שהתיקון הזה בא בשבילה: ההודעה נפתחת פעם אחת בלבד, ובלי דרך
+    // לחזור אליה אי אפשר לדעת אילו תוספים עדיין ממתינים.
+    await seed(tester, catalog: [
+      storePlugin('a', name: 'תוסף לעדכון', manifestId: 'id-a', version: '2.0'),
+    ]);
+    plugins.installed = {'id-a': '1.0'};
+
+    await pumpScreen(tester, PluginsScreen(controller: plugins));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(stringsOf().common.close));
+    await tester.pumpAndSettle();
+    expect(find.text(t.updatesDialogTitle(1)), findsNothing);
+
+    await tester.tap(find.text(t.updatesAvailableChip(1)));
+    await tester.pumpAndSettle();
+    expect(find.text(t.updatesDialogTitle(1)), findsOneWidget);
+  });
+
+  testWidgets('סריקה מחדש הופכת שורה שנשלחה ל"עודכן"', (tester) async {
+    // התקנה ניידת מומצאת: הסורק גוזר את תיקיית התוספים מנתיב ההפעלה, וכך
+    // הבדיקה מריצה סריקה **אמיתית** במקום לזייף את המפה.
+    final exePath = p.join(tempDir.path, 'otzaria.exe');
+    File(exePath).writeAsStringSync('');
+    File(p.join(tempDir.path, 'portable.marker')).writeAsStringSync('');
+    final manifestDir = Directory(p.join(
+      tempDir.path,
+      'otzaria_data',
+      'plugins',
+      'installed',
+      'id-a',
+      'current',
+    ))
+      ..createSync(recursive: true);
+
+    final controller = await seedRecording(
+      tester,
+      catalog: [
+        storePlugin('a',
+            name: 'תוסף לעדכון', manifestId: 'id-a', version: '2.0'),
+      ],
+      installed: {'id-a': '1.0'},
+      launchPath: exePath,
+    );
+
+    await pumpScreen(tester, PluginsScreen(controller: plugins));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(t.updatesDialogUpdateButton));
+    await tester.pump();
+    await tester.pump();
+    expect(controller.delivered, ['a']);
+    expect(find.text(t.updatesDialogSentLabel), findsOneWidget);
+
+    // אוצריא סיימה את ההתקנה; זו הסריקה שמגלה זאת.
+    File(p.join(manifestDir.path, 'manifest.json'))
+        .writeAsStringSync('{"id":"id-a","version":"2.0"}');
+    await tester.runAsync(plugins.refreshInstalled);
+    await tester.pump();
+
+    expect(plugins.updatablePlugins, isEmpty);
+    expect(find.text(t.updatesDialogDoneLabel), findsOneWidget);
+    expect(find.text(t.updatesDialogSentLabel), findsNothing);
   });
 
   // ── דף הבית האצור ────────────────────────────────────────────────────────

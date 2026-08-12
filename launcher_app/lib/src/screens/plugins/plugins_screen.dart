@@ -103,21 +103,30 @@ class _PluginsScreenState extends State<PluginsScreen> {
   void _announceUpdatesIfNeeded() {
     if (_updatesDialogShown) return;
     if (widget.controller.status != PluginsModuleStatus.ready) return;
-    final updatable = widget.controller.updatablePlugins;
-    if (updatable.isEmpty) return;
+    if (widget.controller.updatablePlugins.isEmpty) return;
 
     _updatesDialogShown = true;
     unawaited(WidgetsBinding.instance.endOfFrame.then((_) async {
       if (!mounted) return;
-      final selected = await showPluginUpdatesDialog(
-        context: context,
-        controller: widget.controller,
-        updatable: updatable,
-      );
-      if (selected == null || !mounted) return;
-      setState(() => _selectedId = selected);
-      widget.onRequestFocus?.call();
+      await _showUpdatesDialog();
     }));
+  }
+
+  /// פותח את רשימת העדכונים — אוטומטית פעם אחת, ומכאן ואילך בלחיצה על
+  /// השבב. הרשימה נלקחת מהקונטרולר בכל פתיחה, ולכן היא תמיד רק מה שעדיין
+  /// ממתין לעדכון.
+  Future<void> _showUpdatesDialog() async {
+    final updatable = widget.controller.updatablePlugins;
+    if (updatable.isEmpty) return;
+
+    final selected = await showPluginUpdatesDialog(
+      context: context,
+      controller: widget.controller,
+      updatable: updatable,
+    );
+    if (selected == null || !mounted) return;
+    setState(() => _selectedId = selected);
+    widget.onRequestFocus?.call();
   }
 
   // ── פעולות ────────────────────────────────────────────────────────────────
@@ -641,12 +650,27 @@ class _PluginsScreenState extends State<PluginsScreen> {
             ),
           );
 
+          // השבב הוא גם הדרך לפתוח שוב את רשימת העדכונים: ההודעה מוצגת
+          // אוטומטית פעם אחת בלבד, ובלעדיו אי אפשר לחזור אליה.
           final updates = controller.status == PluginsModuleStatus.ready &&
                   controller.updatablePlugins.isNotEmpty
-              ? StatusChip(
-                  kind: StatusKind.updateAvailable,
-                  label: t.updatesAvailableChip(
-                    controller.updatablePlugins.length,
+              ? Tooltip(
+                  message: t.updatesChipTooltip,
+                  // Material שקוף: ה-Container של השורה צובע מעל ה-Material
+                  // של המסך, ובלעדיו אפקט הלחיצה נצבע מאחוריו ואינו נראה.
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: InkWell(
+                      borderRadius: AppTokens.borderRadiusAll,
+                      mouseCursor: SystemMouseCursors.click,
+                      onTap: () => unawaited(_showUpdatesDialog()),
+                      child: StatusChip(
+                        kind: StatusKind.updateAvailable,
+                        label: t.updatesAvailableChip(
+                          controller.updatablePlugins.length,
+                        ),
+                      ),
+                    ),
                   ),
                 )
               : null;

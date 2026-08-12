@@ -595,6 +595,8 @@ class _Plugins extends PluginsStrings {
   String get syncDirUnknownTooltip => 'התיקייה תיקבע בסנכרון הראשון';
   @override
   String updatesAvailableChip(int count) => '$count עדכונים זמינים';
+  @override
+  String get updatesChipTooltip => 'הצגת התוספים שממתינים לעדכון';
 
   @override
   String get saveDialogTitle => 'שמירת התוסף';
@@ -811,6 +813,24 @@ class _Plugins extends PluginsStrings {
   @override
   String updatesDialogRow(String installedVersion, String storeVersion) =>
       'מותקן $installedVersion ← בחנות $storeVersion';
+  @override
+  String get updatesDialogUpdateButton => 'עדכון';
+  @override
+  String updatesDialogUpdateAllButton(int count) => 'עדכון הכל ($count)';
+  @override
+  String get updatesDialogDetailsButton => 'לפרטים';
+  @override
+  String get updatesDialogSentLabel => 'נשלח לאוצריא';
+  @override
+  String get updatesDialogDoneLabel => 'עודכן';
+  @override
+  String get updatesDialogManualOnly => 'התקנה מדף התוסף';
+  @override
+  String get updatesDialogPendingNote =>
+      'ההתקנה עצמה מתבצעת בחלון של אוצריא. לאחר שתסתיים שם, לחצו '
+      '"בדיקה מחדש" כדי לראות מה כבר עודכן.';
+  @override
+  String get updatesDialogRecheckButton => 'בדיקה מחדש';
 
   @override
   String get screenshotPrevious => 'הקודם';
