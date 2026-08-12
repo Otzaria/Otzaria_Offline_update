@@ -242,6 +242,21 @@ jobs:
           git tag "$tag"
           git push origin HEAD:main
           git push origin "$tag"
+      # גיטהאב מנקה תווים שאינם ASCII משמות של נכסי release, ולכן
+      # `עדכוני אוצריא.exe` — שם שכולו עברית — נמחק אצלו עד הסוף והתפרסם
+      # כ-`default.exe` (v0.1.1, וגם ב-release הידני V1). השם שעל הכונן נשאר
+      # עברי; רק מה שיושב על ה-release מקבל שם לטיני, והוא גם השם שנדבק למי
+      # שמוריד ידנית בפעם הראשונה — ראו `LauncherInstallLayout.publishedExeName`.
+      - name: Give the Windows asset an ASCII name
+        run: |
+          exe="$(find assets -maxdepth 1 -name '*.exe' | head -1)"
+          if [ -z "$exe" ]; then
+            echo "::error::לא נמצא exe בארטיפקטים — release בלי הקובץ לווינדוס גרוע מג'וב אדום"
+            exit 1
+          fi
+          if [ "$exe" != "assets/Otzaria-Updates.exe" ]; then
+            mv "$exe" assets/Otzaria-Updates.exe
+          fi
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

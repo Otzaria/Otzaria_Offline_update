@@ -710,7 +710,15 @@ fallback, kept so a rename of the app's exe does not break detection.
 `עדכוני אוצריא.exe` (`windows_stub/package.ps1`), whose name *contains*
 `אוצריא` — so the "name match wins outright" rule above made the launcher adopt
 itself the moment a scanned directory contained it, which `C:\אוצריא` and
-`%LocalAppData%\Programs\Otzaria` both realistically can. It then read its own
+`%LocalAppData%\Programs\Otzaria` both realistically can. **The same file
+travels under a second name:** GitHub strips non-ASCII characters from release
+asset names, so an all-Hebrew name is erased down to `default.exe` (which is
+what `V1` and `v0.1.1` actually published). The `publish` job therefore uploads
+it as `Otzaria-Updates.exe` — a name that contains `otzaria`, and the one that
+sticks for anyone who downloaded manually. Both names are excluded
+(`_ourOwnExeNames`, pinned from the launcher side through
+`OtzariaAppLocator.isOurOwnExe`) and both are tie-breakers in
+`LauncherInstallLayout`. It then read its own
 version resource as "the installed Otzaria" and `launch()` re-ran the launcher.
 `OtzariaAppLocator._ourOwnExeNames` (plus a `Platform.resolvedExecutable`
 check) excludes both of our exes. This is the file-scan twin of the

@@ -34,6 +34,14 @@ class LauncherInstallLayout {
   /// כמה exe באותה תיקייה.
   static const String packagedExeName = 'עדכוני אוצריא.exe';
 
+  /// אותו קובץ, בשם שבו הוא יושב על ה-release. גיטהאב מנקה תווים שאינם ASCII
+  /// משמות נכסים, ושם שכולו עברית נמחק אצלו עד `default.exe` (כך אכן פורסמה
+  /// v0.1.1) — ולכן ג'וב הפרסום נותן לו שם לטיני, וזה השם שנדבק למי שהוריד
+  /// ידנית. שני השמות שוברי תיקו, ולא יותר מזה.
+  static const String publishedExeName = 'Otzaria-Updates.exe';
+
+  static const Set<String> _ourExeNames = {packagedExeName, publishedExeName};
+
   /// הדגל שבו מריצים את ה-stub החדש אחרי החלפה: הוא ממתין שהתהליך הזה
   /// ייסגר לפני שהוא מחלץ מחדש ל-`app-files`.
   static const String afterUpdateFlag = '--after-update';
@@ -90,7 +98,7 @@ class LauncherInstallLayout {
       return LauncherInstallLayout(executablePath: exes.single);
     }
     for (final exe in exes) {
-      if (p.basename(exe) == packagedExeName) {
+      if (_ourExeNames.contains(p.basename(exe))) {
         return LauncherInstallLayout(executablePath: exe);
       }
     }

@@ -52,10 +52,21 @@ class OtzariaAppLocator {
   /// הזו סריקה של תיקייה שהמשתמש העתיק אליה את הלאנצ'ר — `C:\אוצריא` היא
   /// מיקום סביר לכך — הייתה מאמצת את הלאנצ'ר כאוצריא, קוראת את הגרסה שלו
   /// ומריצה אותו במקומה.
+  ///
+  /// `otzaria-updates` הוא אותו קובץ בדיוק, בשם שבו הוא **מתפרסם**: גיטהאב
+  /// מנקה תווים שאינם ASCII משמות נכסי release, ולכן מי שמוריד ידנית מקבל את
+  /// השם הלטיני — שמכיל "otzaria" ולכן מפעיל את כלל התאמת-השם.
   static const Set<String> _ourOwnExeNames = {
     'launcher_app',
     'עדכוני אוצריא',
+    'otzaria-updates',
   };
+
+  /// האם [fileName] הוא אחד מה-exe של הלאנצ'ר עצמו. חשוף כדי שהלאנצ'ר יצמיד
+  /// לרשימה הזו את השמות שהוא מפורסם ומותקן בהם — בין החבילות אין תלות בזמן
+  /// קומפילציה, בדיוק כמו ב-`processNamesFor`.
+  static bool isOurOwnExe(String fileName) => _ourOwnExeNames
+      .contains(p.basenameWithoutExtension(fileName).toLowerCase());
 
   /// האם שם הקובץ/החבילה מזהה את אוצריא. משותף גם ל-`OtzariaManager`, שמסנן
   /// בו מועמדים בתיקייה משותפת — אותו זיהוי בדיוק בשני המקומות.

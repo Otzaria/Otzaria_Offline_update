@@ -91,6 +91,14 @@ void main() {
       expect(await locator.findIn(tempDir.path), isNull);
     });
 
+    test('גם השם הלטיני של הלאנצ׳ר אינו מזוהה כאוצריא', () async {
+      // כך הוא מגיע למי שהוריד ידנית: גיטהאב מנקה תווים שאינם ASCII משמות
+      // נכסים, ולכן ה-release נושא `Otzaria-Updates.exe` — שם שמכיל "otzaria".
+      File(p.join(tempDir.path, 'Otzaria-Updates.exe')).writeAsStringSync('f');
+
+      expect(await locator.findIn(tempDir.path), isNull);
+    });
+
     test('אוצריא האמיתית מנצחת את ה-stub של הלאנצ׳ר באותה תיקייה', () async {
       File(p.join(tempDir.path, 'עדכוני אוצריא.exe')).writeAsStringSync('fake');
       File(p.join(tempDir.path, 'otzaria.exe')).writeAsStringSync('fake');

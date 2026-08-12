@@ -7,6 +7,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/self_update/launcher_install_layout.dart';
+import 'package:otzaria_manager/otzaria_manager.dart';
 
 void main() {
   String read(String relativePath) {
@@ -55,6 +56,34 @@ void main() {
       packagePs1,
       contains("appFileName = '${LauncherInstallLayout.packagedExeName}'"),
     );
+  });
+
+  test('השם שג\'וב הפרסום מעלה בו הוא זה שהאיתור מכיר', () {
+    // גיטהאב מנקה שמות נכסים מתווים שאינם ASCII, ולכן השם שעל ה-release שונה
+    // מזה שעל הכונן — ומי שמוריד ידנית נשאר איתו. אם הם ייפרדו, העדכון העצמי
+    // של מי שהוריד ידנית יאבד את ה-stub שלו כששוברים תיקו.
+    expect(
+      read('../.github/workflows/ci.yml'),
+      contains('assets/${LauncherInstallLayout.publishedExeName}'),
+    );
+  });
+
+  test('הלאנצ\'ר אינו מאמץ את עצמו כאוצריא — בשני שמותיו', () {
+    // שני השמות מכילים "otzaria"/"אוצריא", ולכן כלל התאמת-השם ב-
+    // `OtzariaAppLocator` היה בוחר בהם. הפסילה שם היא לפי שם בלי סיומת,
+    // באותיות קטנות.
+    for (final name in const [
+      LauncherInstallLayout.packagedExeName,
+      LauncherInstallLayout.publishedExeName,
+    ]) {
+      expect(OtzariaAppLocator.mentionsOtzaria(name), isTrue,
+          reason: 'אחרת אין בכלל מה לפסול');
+      expect(
+        OtzariaAppLocator.isOurOwnExe(name),
+        isTrue,
+        reason: 'שם שהלאנצ\'ר נקרא בו חייב להיפסל באיתור אוצריא: $name',
+      );
+    }
   });
 
   test('המרקר מושווה לגרסת ה-payload, ולא רק נבדק שהוא קיים', () {
