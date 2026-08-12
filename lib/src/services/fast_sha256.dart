@@ -69,23 +69,35 @@ abstract class FastSha256Sink extends ByteConversionSink {
 
 /// עוטף את ה-sink של `package:crypto`, שאין לו מה לשחרר, כדי שלקוראים יהיה
 /// ממשק אחד בשני המסלולים.
+///
+/// אין לו זיכרון native לשחרר, אבל [dispose] חייב להיות **ביטול** גם כאן:
+/// אחרת אותו `finally` היה מפיק digest בלינוקס ולא בווינדוס, כלומר מסלול
+/// שגיאה שמתנהג אחרת לפי הפלטפורמה.
 class _FallbackSha256Sink extends FastSha256Sink {
   _FallbackSha256Sink(this._inner);
 
   final ByteConversionSink _inner;
+  bool _released = false;
 
   @override
-  void add(List<int> chunk) => _inner.add(chunk);
+  void add(List<int> chunk) => addSlice(chunk, 0, chunk.length, false);
 
   @override
-  void addSlice(List<int> chunk, int start, int end, bool isLast) =>
-      _inner.addSlice(chunk, start, end, isLast);
+  void addSlice(List<int> chunk, int start, int end, bool isLast) {
+    if (_released) throw StateError('FastSha256 sink: add after close');
+    _inner.addSlice(chunk, start, end, isLast);
+    if (isLast) _released = true;
+  }
 
   @override
-  void close() => _inner.close();
+  void close() {
+    if (_released) return;
+    _released = true;
+    _inner.close();
+  }
 
   @override
-  void dispose() {}
+  void dispose() => _released = true;
 }
 
 /// המימוש שבשימוש בפועל — `null` פירושו `package:crypto`.

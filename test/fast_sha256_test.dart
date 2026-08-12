@@ -138,37 +138,6 @@ void main() {
       expect(collector.adds, 1);
     });
 
-    test('add אחרי close נכשל במקום לכתוב לזיכרון משוחרר', () {
-      final collector = _Collector();
-      final sink = FastSha256.start(collector)..add(utf8.encode('אוצריא'));
-      sink.close();
-      // ב-`package:crypto` זה StateError; במסלול הנייטיבי החוצץ כבר שוחרר,
-      // וכתיבה לתוכו הייתה שחיתות heap שקטה.
-      expect(() => sink.add(utf8.encode('עוד')), throwsStateError);
-    });
-
-    test('dispose באמצע הזרמה משחרר, ואינו מפיק digest', () {
-      final collector = _Collector();
-      final sink = FastSha256.start(collector)..add(_bytes(5000, 7));
-      sink.dispose();
-      expect(collector.adds, 0);
-      expect(collector.closes, 0);
-      // אידמפוטנטי — הקוראים קוראים לו ב-`finally` גם אחרי close מוצלח.
-      sink.dispose();
-      sink.close();
-      expect(collector.adds, 0);
-    });
-
-    test('dispose אחרי close אינו משנה את התוצאה', () {
-      final data = _bytes(70000, 5);
-      final collector = _Collector();
-      final sink = FastSha256.start(collector)..add(data);
-      sink.close();
-      sink.dispose();
-      expect(collector.adds, 1);
-      expect(collector.value!.toString(), sha256.convert(data).toString());
-    });
-
     test('List<int> שאינו Uint8List עובד גם כן', () {
       final data = List<int>.generate(3000, (i) => i & 0xFF);
       final collector = _Collector();
@@ -198,6 +167,58 @@ void main() {
       expect(cb.value!.toString(), sha256.convert(b).toString());
     });
   });
+
+  // חוזה ה-sink נבדק בשני המסלולים במפורש. בלי זה הוא נבדק רק במסלול של
+  // הפלטפורמה שמריצה: הפרש בין השניים היה מתגלה רק כשה-CI מריץ לינוקס.
+  for (final fallbackOnly in [false, true]) {
+    final label = fallbackOnly ? 'package:crypto' : 'המסלול של הפלטפורמה';
+    group('חוזה ה-sink — $label', () {
+      setUp(() {
+        FastSha256.useFallbackOnly = fallbackOnly;
+        addTearDown(() => FastSha256.useFallbackOnly = false);
+      });
+
+      test('close חוזר אינו מפיק digest שני', () {
+        final collector = _Collector();
+        final sink = FastSha256.start(collector)..add(utf8.encode('אוצריא'));
+        sink.close();
+        sink.close();
+        expect(collector.adds, 1);
+      });
+
+      test('add אחרי close נכשל במקום לכתוב לזיכרון משוחרר', () {
+        final collector = _Collector();
+        final sink = FastSha256.start(collector)..add(utf8.encode('אוצריא'));
+        sink.close();
+        // במסלול הנייטיבי החוצץ כבר שוחרר, וכתיבה לתוכו הייתה שחיתות heap
+        // שקטה; `package:crypto` זורק StateError מעצמו.
+        expect(() => sink.add(utf8.encode('עוד')), throwsStateError);
+      });
+
+      test('dispose באמצע הזרמה מבטל — אין digest, גם אם close נקרא אחריו', () {
+        final collector = _Collector();
+        final sink = FastSha256.start(collector)..add(_bytes(5000, 7));
+        sink.dispose();
+        expect(collector.adds, 0);
+        expect(collector.closes, 0);
+        // אידמפוטנטי, ו-close שאחריו אינו מחייה את החישוב: הקוראים קוראים
+        // ל-dispose ב-`finally`, כולל אחרי close מוצלח.
+        sink.dispose();
+        sink.close();
+        expect(collector.adds, 0);
+      });
+
+      test('dispose אחרי close אינו משנה את התוצאה', () {
+        final data = _bytes(70000, 5);
+        final collector = _Collector();
+        final sink = FastSha256.start(collector)..add(data);
+        sink.close();
+        sink.dispose();
+        expect(collector.adds, 1);
+        expect(collector.value!.toString(), sha256.convert(data).toString());
+      });
+    });
+  }
 
   test('המסלול הנייטיבי אכן בשימוש ב-Windows ו-macOS', () {
     // לינוקס נופלת ל-package:crypto בכוונה; בשתי הפלטפורמות שהאפליקציה
