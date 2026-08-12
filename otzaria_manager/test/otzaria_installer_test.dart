@@ -39,7 +39,6 @@ void main() {
   });
 
   OtzariaInstaller installerWith(http.Client client) => OtzariaInstaller(
-        defaultInstallDir: p.join(tempDir.path, 'otzaria-app'),
         cacheDir: cacheDir,
         httpClient: client,
         appLocator:

@@ -1,4 +1,5 @@
-import 'dart:io' show FileSystemEntity, FileSystemEntityType, Platform;
+import 'dart:io'
+    show Directory, FileSystemEntity, FileSystemEntityType, Platform;
 
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
@@ -59,20 +60,20 @@ class OtzariaManager {
         _stateStore =
             OtzariaStateStore(p.join(dataDir, 'otzaria_install_state.json')),
         _launcher = launcher,
-        _appLocator = OtzariaAppLocator(platform: platform),
-        _versionReader = installedVersionReaderFor(
-          platform ?? OtzariaTargetPlatform.detect(Platform.operatingSystem),
-        ),
-        _defaultInstallDir = p.join(dataDir, 'otzaria-app'),
+        _managedInstallDir = p.join(dataDir, 'otzaria-app'),
         mirrorDir = p.join(dataDir, 'mirror', 'app') {
-    _releaseClient = OtzariaReleaseClient(platform: platform);
+    // הכול נבנה בגוף ה-constructor ולא ברשימת האתחול, כדי שכולם יקבלו את
+    // [_platform] שכבר נפתר — במקום לפתור את `Platform.operatingSystem`
+    // מחדש בכל אחד מהם.
+    _appLocator = OtzariaAppLocator(platform: _platform);
+    _versionReader = installedVersionReaderFor(_platform);
+    _releaseClient = OtzariaReleaseClient(platform: _platform);
     _changelogClient = OtzariaChangelogClient();
     _installer = OtzariaInstaller(
-      defaultInstallDir: _defaultInstallDir,
       // קובצי ההתקנה יושבים **בתוך** המראה, כדי שהמטא־דאטה והקובץ ייסעו
       // יחד על הכונן הנייד.
       cacheDir: p.join(mirrorDir, 'installers'),
-      appLocator: OtzariaAppLocator(platform: platform),
+      appLocator: _appLocator,
     );
     _mirror = OtzariaAppMirror(
       mirrorDir: mirrorDir,
@@ -106,17 +107,29 @@ class OtzariaManager {
   late final OtzariaInstaller _installer;
   late final OtzariaAppMirror _mirror;
   final OtzariaLauncher _launcher;
-  final OtzariaAppLocator _appLocator;
+  late final OtzariaAppLocator _appLocator;
   final RunningOtzariaLocator _runningLocator;
   final WindowsInstallRegistry _installRegistry;
-  final InstalledVersionReader _versionReader;
-  final String _defaultInstallDir;
+  late final InstalledVersionReader _versionReader;
+
+  /// `<data>/otzaria-app` — התיקייה שאליה הלאנצ'ר **נהג** להתקין, כשהיא עוד
+  /// הייתה ברירת המחדל. אין מתקינים לשם יותר (ראו [resolveDefaultInstallDir]),
+  /// אבל היא נשארת בראש [_autoDetectDirs]: התקנות שכבר יושבות שם חייבות
+  /// להמשיך להיות מזוהות ולהתעדכן במקומן.
+  final String _managedInstallDir;
 
   /// תיקיית האפליקציות הסטנדרטית של macOS. ב-macOS, בשונה מווינדוס,
   /// למשתמש שהתקין את אוצריא בעצמו היא כמעט תמיד תהיה שם — גרירת ה-`.app`
   /// ל-`/Applications` היא *הדרך* להתקין. לכן שווה להציץ שם לפני שמתקינים
   /// עותק שני בתיקייה המנוהלת של הלאנצ'ר.
   static const String _macApplicationsDir = '/Applications';
+
+  /// `~/Applications` — המקבילה הפר-משתמשית של [_macApplicationsDir], שאינה
+  /// דורשת הרשאת מנהל. Finder מציג אותה בדיוק כמו התיקייה הראשית.
+  String? get _userApplicationsDir {
+    final home = _environment['HOME'];
+    return home == null || home.isEmpty ? null : p.join(home, 'Applications');
+  }
 
   /// גיבוי משני בווינדוס — לא ברירת המחדל האמיתית. ייתכן שזה עדיין נכון
   /// בהתקנות ישנות (אומת מול מפתחי אוצריא: "אם קיימת התקנה קודמת — המתקין
@@ -148,26 +161,60 @@ class OtzariaManager {
     return dirs;
   }
 
+  /// לאן תלך התקנה חדשה כשאין עדיין התקנה מוכרת: **המיקום הרגיל של אוצריא
+  /// על המחשב**, ולא תיקייה של הלאנצ'ר. ציבורי כדי שהממשק יוכל להראות
+  /// מראש לאן מתקינים.
+  ///
+  /// זה הבאג שהיה כאן: ברירת המחדל הייתה [_managedInstallDir], שיושבת בתוך
+  /// `OtzariaData` שליד קובץ ההרצה. לאנצ'ר שרץ מכונן נייד — התרחיש שלשמו
+  /// נכתבה התוכנה — התקין בכך את אוצריא **על הכונן**: היא נעלמה מהמחשב
+  /// ברגע שהכונן נשלף, ותפסה עליו מקום במקום להישאר במחשב שאליו התכוונו.
+  Future<String> resolveDefaultInstallDir() async {
+    if (_platform == OtzariaTargetPlatform.windows) {
+      // הראשון ברשימה הוא `{autopf}` של התקנה למשתמש הנוכחי — בדיוק מה
+      // שה-installer עצמו היה בוחר בהרצה שאינה מוגברת, וזו ההרצה שלנו.
+      return _windowsRealDefaultDirs.first.dir;
+    }
+    // `/Applications` קיימת תמיד, אבל בחשבון שאינו מנהל אי אפשר לכתוב בה.
+    if (await _isWritableDir(_macApplicationsDir)) return _macApplicationsDir;
+    // בלי HOME נשארים על `/Applications` ונכשלים שם בקול — עדיף מהתקנה
+    // שקטה אל תיקיית הלאנצ'ר, כלומר אל הכונן הנייד.
+    return _userApplicationsDir ?? _macApplicationsDir;
+  }
+
+  /// האם אפשר באמת **ליצור** בתוך [dir] — ולא רק "היא קיימת".
+  static Future<bool> _isWritableDir(String dir) async {
+    try {
+      final probe = await Directory(dir).createTemp('.otzaria-write-test-');
+      await probe.delete();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// התיקיות שבהן מחפשים התקנה קיימת כשאין עדיין state שמור, לפי סדר
-  /// עדיפות. התיקייה המנוהלת של הלאנצ'ר תמיד ראשונה (אם הלאנצ'ר עצמו
-  /// התקין, זה המקור הסמכותי); אחריה, בווינדוס, מה שרשום ברג'יסטרי — זה
-  /// הנתיב האמיתי גם כשהמשתמש התקין במקום משלו, ולכן הוא קודם לניחוש לפי
-  /// מיקומי ברירת המחדל. ב-macOS `/Applications` בא **אחרון**, כדי שהתקנה
-  /// שהלאנצ'ר עשה בעצמו תמיד תנצח.
+  /// עדיפות. התיקייה המנוהלת הישנה של הלאנצ'ר תמיד ראשונה (אם הלאנצ'ר עצמו
+  /// התקין לשם בגרסה קודמת, זה המקור הסמכותי); אחריה, בווינדוס, מה שרשום
+  /// ברג'יסטרי — זה הנתיב האמיתי גם כשהמשתמש התקין במקום משלו, ולכן הוא
+  /// קודם לניחוש לפי מיקומי ברירת המחדל.
   ///
   /// `sharedDir` מסמן תיקייה שיש בה גם אפליקציות אחרות — ראו
   /// [_verifyIsOtzaria].
   List<({String dir, bool sharedDir})> get _autoDetectDirs =>
       switch (_platform) {
         OtzariaTargetPlatform.windows => [
-            (dir: _defaultInstallDir, sharedDir: false),
+            (dir: _managedInstallDir, sharedDir: false),
             for (final dir in _installRegistry.installDirs())
               (dir: dir, sharedDir: false),
             ..._windowsRealDefaultDirs,
           ],
         OtzariaTargetPlatform.macos => [
-            (dir: _defaultInstallDir, sharedDir: false),
+            (dir: _managedInstallDir, sharedDir: false),
             (dir: _macApplicationsDir, sharedDir: true),
+            // שתי היעדים שאליהם אנחנו מתקינים, בסדר שבו נבחרים ביניהם.
+            if (_userApplicationsDir case final dir?)
+              (dir: dir, sharedDir: true),
           ],
       };
 
@@ -260,8 +307,9 @@ class OtzariaManager {
 
   /// מתקין את הגרסה שיושבת במראה המקומית **בערוץ שנבחר**
   /// ([preferPrerelease]). אם יש כבר מצב מוכר (מותקן/מאומץ קודם), מעדכן
-  /// **באותה תיקייה** — לא יוצר התקנה שנייה בתיקייה המנוהלת. שומר את מצב
-  /// ההתקנה החדש לשימוש עתידי.
+  /// **באותה תיקייה** — לא יוצר התקנה שנייה; ואם אין, מתקין למיקום ברירת
+  /// המחדל של אוצריא עצמה ([resolveDefaultInstallDir]) — לא אל הכונן
+  /// שממנו הלאנצ'ר רץ. שומר את מצב ההתקנה החדש לשימוש עתידי.
   ///
   /// לא נוגע ברשת. זורק [StateError] אם אין מראה — כלומר לא בוצעה הורדה.
   Future<OtzariaInstallState> update(OtzariaUpdateCheckResult check) async {
@@ -274,7 +322,8 @@ class OtzariaManager {
     final state = await _installer.installFromFile(
       release: selected.release,
       installerPath: selected.installerPath,
-      targetInstallDir: check.currentState?.installDir,
+      installDir:
+          check.currentState?.installDir ?? await resolveDefaultInstallDir(),
       // שתי הגרסאות נשארות בכונן: התקנת אחת מהן לא מוחקת את קובץ ההתקנה
       // של השנייה, כדי שאפשר יהיה להחליף ערוץ בלי הורדה מחדש.
       keepCachedTagNames: {

@@ -73,16 +73,23 @@ void main() {
         if (await tempDir.exists()) await tempDir.delete(recursive: true);
       });
 
-      OtzariaInstaller newInstaller() => OtzariaInstaller(
-            defaultInstallDir: installDir,
-            cacheDir: cacheDir,
+      OtzariaInstaller newInstaller() => OtzariaInstaller(cacheDir: cacheDir);
+
+      /// אותו רצף שהייצור מריץ: המראה מוודאת שקובץ ההתקנה על הדיסק, וההתקנה
+      /// קוראת משם. ה-cache מולא ב-`setUp`, ולכן [ensureCached] הוא hit ולא
+      /// נוגע ברשת — ה-URL שב-release אינו קיים בכוונה.
+      Future<OtzariaInstallState> install(OtzariaInstaller installer) async =>
+          installer.installFromFile(
+            release: release,
+            installerPath: await installer.ensureCached(release: release),
+            installDir: installDir,
           );
 
       test('installs the .app, and the bundle stays runnable', () async {
         final installer = newInstaller();
         addTearDown(installer.close);
 
-        final state = await installer.downloadAndInstall(release: release);
+        final state = await install(installer);
 
         expect(state.installedTagName, tag);
         expect(state.installDir, installDir);
@@ -129,7 +136,7 @@ void main() {
         final installer = newInstaller();
         addTearDown(installer.close);
 
-        final first = await installer.downloadAndInstall(release: release);
+        final first = await install(installer);
         // סמן שנשתול בתוך ההתקנה הראשונה: אם ההתקנה השנייה באמת החליפה את
         // ה-bundle (ולא הוסיפה עותק שני לידו), הסמן ייעלם.
         final marker =
@@ -137,7 +144,7 @@ void main() {
               ..writeAsStringSync('x');
         expect(marker.existsSync(), isTrue);
 
-        final second = await installer.downloadAndInstall(release: release);
+        final second = await install(installer);
 
         expect(second.launchPath, first.launchPath);
         expect(marker.existsSync(), isFalse);

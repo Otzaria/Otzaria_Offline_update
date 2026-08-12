@@ -31,7 +31,6 @@ import 'otzaria_app_locator.dart';
 /// יחליף framework בעתיד, הדגלים האלה יפסיקו לעבוד ויהיה צריך לעדכן.
 class OtzariaInstaller {
   OtzariaInstaller({
-    required this.defaultInstallDir,
     required this.cacheDir,
     http.Client? httpClient,
     OtzariaAppLocator? appLocator,
@@ -45,10 +44,6 @@ class OtzariaInstaller {
   /// רואה מד התקדמות קפוא בלי שגיאה. ניתנים לשינוי מהגדרות הלאנצ'ר.
   Duration connectTimeout;
   Duration stallTimeout;
-
-  /// התיקייה שאליה מתקינים כשלא נבחרה תיקייה אחרת במפורש (למשל
-  /// `<data>/otzaria-app`) — ה"מיקום ברירת המחדל" של הלאנצ'ר עצמו.
-  final String defaultInstallDir;
 
   /// התיקייה שבה נשמר קובץ ההתקנה עצמו לצמיתות, תחת תת-תיקייה לפי tag
   /// (למשל `<cacheDir>/v1.2.3/OtzariaSetup.exe`) — לא temp, לא נמחק.
@@ -102,35 +97,16 @@ class OtzariaInstaller {
     return cachedInstallerPath;
   }
 
-  /// מוריד (אם צריך — ראו [ensureCached]) ומתקין release נתון. מחזיר את
-  /// מצב ההתקנה החדש (לשמירה על ידי הקורא, דרך [OtzariaStateStore]).
-  ///
-  /// [targetInstallDir] מאפשר להתקין לתיקייה שאינה [defaultInstallDir] —
-  /// למשל כשהמשתמש כבר הצביע בעבר על תיקיית התקנה קיימת משלו
-  /// ([OtzariaManager.adoptExistingInstall]), ורוצים לעדכן אותה במקום,
-  /// לא ליצור התקנה שנייה בתיקייה המנוהלת.
-  ///
-  /// [onDownloadProgress] מדווח (received, total) בזמן ההורדה (רק אם
-  /// בפועל הורדנו — אם כבר קיים ב-cache, לא נקרא בכלל).
-  Future<OtzariaInstallState> downloadAndInstall({
-    required OtzariaRelease release,
-    String? targetInstallDir,
-    void Function(int received, int total)? onDownloadProgress,
-  }) async {
-    final installerPath = await ensureCached(
-      release: release,
-      onDownloadProgress: onDownloadProgress,
-    );
-    return installFromFile(
-      release: release,
-      installerPath: installerPath,
-      targetInstallDir: targetInstallDir,
-    );
-  }
-
   /// מתקין קובץ התקנה **שכבר נמצא בדיסק** — בלי לגעת ברשת בכלל. זה המסלול
-  /// שמשמש בפועל: ההורדה נעשית מראש אל המראה המקומית (`OtzariaAppMirror`),
-  /// וההתקנה קוראת משם, גם במחשב בלי אינטרנט.
+  /// היחיד: ההורדה נעשית מראש אל המראה המקומית ([ensureCached] דרך
+  /// `OtzariaAppMirror`), וההתקנה קוראת משם, גם במחשב בלי אינטרנט. אין כאן
+  /// "הורד והתקן" בצעד אחד בכוונה — ראו AGENTS.md §1.
+  ///
+  /// [installDir] הוא פרמטר חובה ואין לו ברירת מחדל בכוונה: תיקייה משלנו
+  /// כברירת מחדל היא בדיוק הבאג שהיה כאן — לאנצ'ר שרץ מכונן נייד התקין את
+  /// אוצריא אל הכונן, וכל ההתקנה נסעה איתו במקום להישאר על המחשב. מי
+  /// שמחליט לאן מתקינים הוא [OtzariaManager.update].
+  ///
   /// [keepCachedTagNames] = התגים שקובצי ההתקנה שלהם יישארו ב-cache אחרי
   /// ההתקנה. ברירת המחדל היא הגרסה שהותקנה בלבד; הקורא מעביר את **כל**
   /// הגרסאות שבמראה, אחרת התקנה של ערוץ אחד הייתה מוחקת את קובץ ההתקנה
@@ -138,10 +114,9 @@ class OtzariaInstaller {
   Future<OtzariaInstallState> installFromFile({
     required OtzariaRelease release,
     required String installerPath,
-    String? targetInstallDir,
+    required String installDir,
     Set<String>? keepCachedTagNames,
   }) async {
-    final installDir = targetInstallDir ?? defaultInstallDir;
     await Directory(installDir).create(recursive: true);
 
     final String launchPath;
@@ -259,12 +234,6 @@ class OtzariaInstaller {
     // /VERYSILENT + /SUPPRESSMSGBOXES: אין UI בכלל, כולל תיבות שגיאה.
     // /NORESTART: לא להפעיל מחדש את המחשב גם אם ה-installer "רוצה".
     // /DIR=: נתיב התקנה מפורש, כדי שנדע איפה לחפש את ה-exe אחר כך.
-    //
-    // הערה: זה עדיין רץ בשקט (בלי ויזארד) — ההחלטה "להוריד קובץ installer
-    // רגיל, לא שקט" נוגעת לכך שהקובץ שנשמר ב-cache הוא ה-installer המלא
-    // הרגיל (כמו שמפורסם ב-GitHub, בלי גרסת "silent-only" מיוחדת), ושהוא
-    // נשמר כארטיפקט של ממש — לא לאופן הרצתו בפועל על המחשב. אם התכוונת
-    // שדווקא ההתקנה על המחשב תציג ויזארד למשתמש (לא שקטה), תגיד ונשנה.
     final args = [
       '/VERYSILENT',
       '/SUPPRESSMSGBOXES',

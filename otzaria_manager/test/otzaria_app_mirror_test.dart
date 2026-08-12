@@ -76,7 +76,6 @@ void main() {
         platform: OtzariaTargetPlatform.windows,
       ),
       installer: OtzariaInstaller(
-        defaultInstallDir: p.join(temp.path, 'install'),
         cacheDir: p.join(temp.path, 'installers'),
         appLocator: const OtzariaAppLocator(
           platform: OtzariaTargetPlatform.windows,
@@ -296,7 +295,6 @@ void main() {
           httpClient: releasesHttpClient,
         ),
         installer: OtzariaInstaller(
-          defaultInstallDir: p.join(tempDir.path, 'install'),
           cacheDir: p.join(tempDir.path, 'installers'),
           httpClient: installerHttpClient ?? mockInstallerDownload(),
           appLocator: const OtzariaAppLocator(

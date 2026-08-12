@@ -76,7 +76,7 @@
   [`OtzariaInstaller`](lib/src/services/otzaria_installer.dart).
 - ל-Inno Setup יש לפעמים תהליך "עוטף" (SetupLdr) שמסתיים מיד לפני
   שההתקנה בפועל נגמרת — לכן לא סומכים רק על קוד היציאה של התהליך; יש
-  polling נפרד שמחכה שקובץ `.exe` יופיע בתיקיית ההתקנה המנוהלת.
+  polling נפרד שמחכה שקובץ `.exe` יופיע בתיקיית ההתקנה.
 - **מבנה קבוע בתוך ה-installer**: הקובץ המותקן תמיד יושב ב-`app/otzaria.exe`
   בתוך תיקיית ההתקנה (אומת עם `innoextract` על installer אמיתי).
 - **`otzaria.exe` מכיל Windows version resource תקני**: `ProductVersion`/
@@ -109,6 +109,10 @@ if (check.needsDownload) {
 } else if (check.updateAvailable) {
   // כשיש שתיים, `check.hasChannelChoice` הוא true — ו-`preferPrerelease`
   // קובע איזו מהן `latestRelease`/`update` מתייחסים אליה.
+  //
+  // התקנה קיימת מתעדכנת **במקומה**; התקנה חדשה הולכת למיקום ברירת המחדל
+  // של אוצריא עצמה (`manager.resolveDefaultInstallDir()`) — לעולם לא אל
+  // `dataDir`, שיושבת על הכונן הנייד ונשלפת איתו.
   await manager.update(check);
 }
 // מפעיל את ה-state השמור (אחרי אימות שההתקנה שבו קיימת *כאן*), ואם אין כזה

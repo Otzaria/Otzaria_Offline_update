@@ -66,8 +66,19 @@ mirror/companions/ companions.json + the Talmud archive, catalog and dictionary 
 mirror/app/       latest-release.json (up to 2 channels) + installers/<tag>/  ← OtzariaAppMirror
 mirror/plugins/   catalog.json + files/     ← PluginMirrorStore
 mirror/launcher/  latest-release.json + files/<tag>/  ← LauncherUpdateMirror (the launcher itself)
-otzaria-app/      the managed Otzaria install
+otzaria-app/      **legacy** — Otzaria installs made before the install target was fixed
 ```
+
+**Otzaria itself is never installed under `OtzariaData/`.** The whole point of
+this program is that the *drive* is portable and the *installed app* is not:
+`otzaria-app/` used to be the default install target, which meant a launcher run
+from a USB stick installed Otzaria **onto the stick** — it vanished from the
+machine the moment the stick was pulled, and ate space on the stick instead.
+`OtzariaManager.resolveDefaultInstallDir()` now returns the app's own normal
+location (see §5), and `OtzariaInstaller.installFromFile` takes a **required**
+`installDir` so there is no launcher-owned default to fall back into. The folder
+stays first in `_autoDetectDirs` only so installs already sitting there keep
+being found and keep updating in place.
 
 The download step keeps the last **ten** releases, not the whole patch history
 (`LibraryMirrorExporter.recentReleases` / `defaultHistoryDepth`) — the full
@@ -679,7 +690,12 @@ installer's default is `{autopf}\Otzaria`, i.e. `%LocalAppData%\Programs\Otzaria
 for a per-user install (the installer's default) or `%ProgramFiles%\Otzaria`
 for a per-machine install; older installs may sit at `C:\אוצריא` or
 `{Program Files}\אוצריא`. `OtzariaManager._windowsRealDefaultDirs` checks all
-of these, after the launcher's own managed folder. This is a *different*
+of these, after the launcher's own managed folder — and its **first** entry is
+also where a fresh install goes (`resolveDefaultInstallDir()`), because
+`{autopf}` for a non-elevated run is exactly what the installer itself would
+pick, and we run it non-elevated. On macOS the same method returns
+`/Applications`, falling back to `~/Applications` when the account cannot write
+there. This is a *different*
 directory from where the library DB lives (`%APPDATA%\otzaria\`, see above) —
 don't conflate the two when debugging "Otzaria not detected" reports. Before
 this was added, `OtzariaManager._autoDetectDirs` on Windows checked **only**

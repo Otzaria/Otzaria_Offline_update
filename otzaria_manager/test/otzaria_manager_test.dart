@@ -76,10 +76,11 @@ void main() {
     Map<String, String> environment = const {},
     String? runningOtzariaPath,
     List<String> registeredInstallDirs = const [],
+    OtzariaTargetPlatform platform = OtzariaTargetPlatform.windows,
   }) {
     final manager = OtzariaManager(
       dataDir: dataDir.path,
-      platform: OtzariaTargetPlatform.windows,
+      platform: platform,
       environment: environment,
       runningLocator: _FakeRunningLocator(runningOtzariaPath),
       installRegistry: _FakeInstallRegistry(registeredInstallDirs),
@@ -88,6 +89,66 @@ void main() {
     addTearDown(manager.close);
     return manager;
   }
+
+  // הלאנצ'ר רץ מכונן נייד, ולכן `dataDir` יושבת על הכונן. התקנה לשם
+  // פירושה שכל אוצריא נוסעת עם הכונן ונעלמת מהמחשב ברגע שהוא נשלף.
+  group('לאן מתקינים כשאין עדיין התקנה', () {
+    test('ווינדוס: ברירת המחדל של המתקין עצמו, לא תיקיית הלאנצ׳ר', () async {
+      final localAppData = p.join(dataDir.path, 'env', 'LocalAppData');
+
+      final target = await managerFor(
+        environment: {'LOCALAPPDATA': localAppData},
+      ).resolveDefaultInstallDir();
+
+      expect(target, p.join(localAppData, 'Programs', 'Otzaria'));
+    });
+
+    test('ווינדוס: בלי LOCALAPPDATA נופלים ל-ProgramFiles, לא לכונן', () async {
+      final programFiles = p.join(dataDir.path, 'env', 'ProgramFiles');
+
+      final target = await managerFor(
+        environment: {'ProgramFiles': programFiles},
+      ).resolveDefaultInstallDir();
+
+      expect(target, p.join(programFiles, 'Otzaria'));
+    });
+
+    test('macOS: תיקיית האפליקציות — הראשית או זו של המשתמש', () async {
+      final home = p.join(dataDir.path, 'home');
+
+      final target = await managerFor(
+        platform: OtzariaTargetPlatform.macos,
+        environment: {'HOME': home},
+      ).resolveDefaultInstallDir();
+
+      // איזו מהשתיים תלוי בהרשאות המכונה שמריצה את הבדיקה; שתיהן תקינות.
+      expect(target, anyOf('/Applications', p.join(home, 'Applications')));
+    });
+
+    // הבדיקה שהבאג עצמו נכשל בה: היעד לעולם אינו בתוך תיקיית הנתונים של
+    // הלאנצ'ר, בשום פלטפורמה ובשום מצב סביבה.
+    test('בשום מקרה לא בתוך תיקיית הנתונים של הלאנצ׳ר', () async {
+      for (final platform in OtzariaTargetPlatform.values) {
+        for (final environment in [
+          const <String, String>{},
+          {'LOCALAPPDATA': p.join(dataDir.path, 'l')},
+          {'ProgramFiles': p.join(dataDir.path, 'pf')},
+          {'HOME': p.join(dataDir.path, 'h')},
+        ]) {
+          final target = await managerFor(
+            platform: platform,
+            environment: environment,
+          ).resolveDefaultInstallDir();
+
+          expect(
+            p.equals(target, p.join(dataDir.path, 'otzaria-app')),
+            isFalse,
+            reason: '$platform / $environment → $target',
+          );
+        }
+      }
+    });
+  });
 
   group('checkForUpdate — מהמראה בלבד', () {
     test('מראה ריקה: צריך להוריד, ואין קריסה ואין המתנה לרשת', () async {
