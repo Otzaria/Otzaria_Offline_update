@@ -88,6 +88,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// נתיב ה-`seforim.db` שזוהה בפועל — מתעדכן בכל [checkForUpdate].
   String? dbPath;
 
+  /// לאן תותקן הספרייה כשעדיין אין מסד — המיקום שאוצריא מחפשת בו, או בחירת
+  /// המשתמש. מוצג מראש כדי שההתקנה לא תנחת במקום מפתיע.
+  String? installTargetPath;
+
   /// בקשת עדכון אינדקס שממתינה לאוצריא, או `null` כשאין. הסימון יושב לצד
   /// המסד ולכן שורד הפעלות מחדש של הלאנצ'ר — [checkForUpdate] קורא אותו.
   ExternalUpdateNoticeData? pendingReindex;
@@ -322,6 +326,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     // הבדיקה עצמה כבר איתרה את הנתיב — גם כשהיא נכשלה אחר כך (למשל אין
     // מראה). קריאה נפרדת ל-`currentDbPath()` הייתה חוזרת על כל האיתור.
     dbPath = _manager.lastResolvedDbPath;
+    installTargetPath = _manager.lastInstallDbPath;
     // בקשה שנכתבה בהרצה קודמת ולא נמסרה עדיין — הסימון יושב לצד המסד, ולכן
     // הוא נקרא כאן ולא רק אחרי עדכון שנעשה בהרצה הזאת.
     await _refreshPendingReindex();
@@ -332,6 +337,17 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     await _manager.setCustomDbPath(dbPath);
     await checkForUpdate();
   }
+
+  /// קובע לאן תותקן הספרייה. התיקייה עוד יכולה להיות ריקה — הקובץ ייווצר בה
+  /// בהתקנה עצמה.
+  Future<void> setInstallDir(String dir) => setCustomDbPath(dbPathIn(dir));
+
+  /// נתיב המסד שייווצר בתיקייה הזו — לתצוגה בדיאלוג האזהרה, בלי לשמור כלום.
+  String dbPathIn(String dir) => _manager.dbPathIn(dir);
+
+  /// האם אוצריא תמצא את המסד הזה בעצמה — ראו את דיאלוג האזהרה במסך הספרייה.
+  Future<bool> isDbPathKnownToOtzaria(String dbPath) =>
+      _manager.isDbPathKnownToOtzaria(dbPath);
 
   /// מחיל בפועל את העדכון על ה-DB **החי** — delta patch-אחר-patch, או
   /// הורדת DB מלא, דרך [LibraryManager.applyUpdate]. בהצלחה, ה-DB של

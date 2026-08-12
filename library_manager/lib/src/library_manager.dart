@@ -88,8 +88,8 @@ class LibraryManager {
     );
   }
 
-  /// תיקיית הנתונים של הלאנצ'ר (state, ונתיב ברירת המחדל להתקנה טרייה של
-  /// ה-DB תחת `<dataDir>/library/seforim.db`).
+  /// תיקיית הנתונים של הלאנצ'ר (state ומראה). **לא** מיקום ההתקנה של המסד —
+  /// ראו [installDbPath].
   final String dataDir;
 
   /// `true` = הערוץ "כולל pre-release". ברירת המחדל `false` — release רגיל
@@ -139,6 +139,25 @@ class LibraryManager {
   Future<void> setCustomDbPath(String dbPath) =>
       _stateStore.saveCustomDbPath(dbPath);
 
+  /// נתיב המסד בתוך תיקייה שהמשתמש בחר — לבחירת מיקום להתקנה טרייה, לפני
+  /// שיש שם קובץ להצביע עליו.
+  String dbPathIn(String dir) => p.join(dir, LibraryDbLocator.databaseFileName);
+
+  /// לאן תותקן ספרייה חדשה: בחירת המשתמש אם קיימת, ואחרת המיקום שאוצריא
+  /// עצמה מחפשת בו (ההגדרה שלה, ואחרת ברירת המחדל של הפלטפורמה).
+  ///
+  /// תיקיית הלאנצ'ר היא **רשת ביטחון אחרונה** בלבד, לפלטפורמה שאין בה מיקום
+  /// כזה: לאנצ'ר שרץ מכונן נייד היה מתקין עליו את המסד, והוא היה נוסע איתו
+  /// ונעלם מהמחשב ברגע שנשלף.
+  Future<String> installDbPath() async =>
+      await _locator.resolveInstallDbPath() ??
+      p.join(dataDir, 'library', LibraryDbLocator.databaseFileName);
+
+  /// האם אוצריא תמצא את המסד הזה בעצמה. `false` = המשתמש יצטרך להצביע על
+  /// המיקום מתוך אוצריא — ראו [LibraryDbLocator.isKnownToOtzaria].
+  Future<bool> isDbPathKnownToOtzaria(String dbPath) =>
+      _locator.isKnownToOtzaria(dbPath);
+
   /// נתיב ה-`seforim.db` שזוהה בפועל, או `null` אם לא נמצא — לתצוגה בממשק.
   /// המיקום מתגלה בכל קריאה מחדש; אין להניח נתיב קבוע.
   Future<String?> currentDbPath() => _locator.resolveDbPath();
@@ -166,6 +185,13 @@ class LibraryManager {
   /// בנוסף: האיתור עצמו קורא את קופסת ההגדרות של אוצריא מעותק, וריצה כפולה
   /// שלו בכל בדיקה הייתה עלות מיותרת בעלייה.
   String? get lastResolvedDbPath => _lastResolvedDbPath;
+
+  String? _lastInstallDbPath;
+
+  /// לאן [checkForUpdate] האחרון היה מתקין ספרייה חדשה — כדי שהממשק יציג את
+  /// היעד **לפני** ההתקנה, בלי להריץ את כל האיתור (כולל קריאת ההגדרות של
+  /// אוצריא) פעם נוספת.
+  String? get lastInstallDbPath => _lastInstallDbPath;
 
   /// בקשת עדכון האינדקס שממתינה לאוצריא, או `null` כשאין. נכתבת אחרי כל
   /// עדכון מסד מוצלח ושורדת הפעלות מחדש של הלאנצ'ר — ראו
@@ -331,16 +357,17 @@ class LibraryManager {
   /// בודק אם יש עדכון זמין.
   ///
   /// אם לא נמצא DB בכלל (לא בנתיב מותאם אישית ולא בברירת המחדל של
-  /// אוצריא) — **לא** חוסם ומבקש בחירה ידנית; במקום זה מצביע אוטומטית על
-  /// נתיב ברירת מחדל משלו (`<dataDir>/library/seforim.db`) וממשיך לתוכנית
-  /// הורדה מלאה, בדיוק כמו שהתקנה ראשונה של אוצריא עצמה עובדת. ראו
+  /// אוצריא) — **לא** חוסם ומבקש בחירה ידנית; במקום זה מצביע על מיקום
+  /// ההתקנה ([installDbPath]) וממשיך לתוכנית הורדה מלאה, בדיוק כמו שהתקנה
+  /// ראשונה של אוצריא עצמה עובדת. ראו
   /// [LibraryUpdateCheckResult.isFreshInstall]. בחירה ידנית של קובץ DB
   /// קיים עדיין אפשרית מרצון דרך [setCustomDbPath].
   Future<LibraryUpdateCheckResult> checkForUpdate() async {
     var dbPath = await _locator.resolveDbPath();
     _lastResolvedDbPath = dbPath;
     final isFreshInstall = dbPath == null;
-    dbPath ??= p.join(dataDir, 'library', LibraryDbLocator.databaseFileName);
+    dbPath ??= await installDbPath();
+    _lastInstallDbPath = dbPath;
 
     LocalDbVersion local;
     if (isFreshInstall) {

@@ -377,6 +377,50 @@ void main() {
     expect(find.text('חזרה לעדכון מהרשת'), findsNothing);
   });
 
+  // לפני התיקון ההתקנה הטרייה נחתה בתיקיית הלאנצ'ר בלי שאיש ראה זאת מראש.
+  testWidgets('בלי מסד — מוצג יעד ההתקנה ואפשר לשנות אותו', (tester) async {
+    library.installTargetPath = r'C:\otzaria\books\seforim.db';
+
+    await pumpScreen(
+      tester,
+      LibraryScreen(
+        library: library,
+        otzariaIsRunning: false,
+        isDownloading: false,
+        onProcessStateChanged: () async => false,
+        onRequestReindex: () async {},
+      ),
+    );
+
+    expect(find.text('הספרייה תותקן אל'), findsOneWidget);
+    expect(find.text('קובץ seforim.db הפעיל'), findsNothing);
+    expect(
+      find.widgetWithText(ActionButton, 'בחירת מיקום להתקנה'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('כשיש מסד — אין יותר בחירת מיקום להתקנה', (tester) async {
+    library.dbPath = r'C:\otzaria\books\seforim.db';
+
+    await pumpScreen(
+      tester,
+      LibraryScreen(
+        library: library,
+        otzariaIsRunning: false,
+        isDownloading: false,
+        onProcessStateChanged: () async => false,
+        onRequestReindex: () async {},
+      ),
+    );
+
+    expect(find.text('קובץ seforim.db הפעיל'), findsOneWidget);
+    expect(
+      find.widgetWithText(ActionButton, 'בחירת מיקום להתקנה'),
+      findsNothing,
+    );
+  });
+
   testWidgets('מסך הספרייה חוסם לפי בדיקה טרייה — לא לפי מה שמוצג',
       (tester) async {
     fakeLibraryUpdateAvailable();

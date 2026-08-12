@@ -677,6 +677,22 @@ previous confident claim about the "real" location was simply wrong, and
 skipping Otzaria's setting silently updated the wrong file for anyone who had
 moved their library.
 
+**A fresh install lands in those same places — never in the launcher's own
+folder.** `LibraryDbLocator.resolveInstallDbPath()` answers "where does a *new*
+library go": the user's own choice if there is one (**even when the file does
+not exist yet** — in a fresh install that path is the *target*, so the
+existence check that `resolveDbPath` applies would be wrong), otherwise
+Otzaria's own setting, otherwise the platform default. `checkForUpdate` used to
+point at `<dataDir>/library/seforim.db` instead, which for a launcher running
+off a USB drive installed the ~5.5GB library **onto the drive** — it travelled
+away with it and vanished from the computer. `<dataDir>` survives only as the
+last-resort fallback for a platform with no known location at all.
+`isKnownToOtzaria(dbPath)` is the inverse question — will Otzaria find this file
+by itself? A `false` there is what makes `LibraryScreen` demand an explicit
+confirmation: any location outside those candidates is allowed, but only after
+a dialog saying the user must point Otzaria's own library-location setting at
+it, or Otzaria will see no books there.
+
 The Hive box is read **from a copy** in a temp dir (`OtzariaSettingsReader`):
 opening it in place creates a lock file inside Otzaria's own folder and clashes
 with a running Otzaria. Any failure returns `null` and the search continues.

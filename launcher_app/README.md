@@ -25,7 +25,7 @@
 | --- | --- | --- |
 | דף הבית | `screens/home_screen.dart` | שני אריחים (תוכנה/ספרייה) + בדיקת עדכונים צדדית ברשת |
 | תוכנה | `screens/otzaria_screen.dart` | מצב ההתקנה, "מה התחדש" (release notes מ-GitHub), בחירת מיקום ידנית |
-| ספרייה | `screens/library_screen.dart` | מצב ה-DB והחלת העדכון מהתיקייה המקומית |
+| ספרייה | `screens/library_screen.dart` | מצב ה-DB, יעד ההתקנה (כשעוד אין מסד) והחלת העדכון מהתיקייה המקומית |
 | תוספים | `screens/plugins/` | חנות התוספים: רשת כרטיסים, עמוד פרטים, הורדה |
 | הגדרות | `screens/settings_screen.dart` | שפה ומראה, אוטומציה, מה לסנכרן, תמיכה |
 

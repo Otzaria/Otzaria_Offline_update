@@ -216,7 +216,7 @@ void main() {
   });
 
   group('checkForUpdate — קורא מהמראה בלבד', () {
-    test('התקנה טרייה מצביעה על נתיב ברירת מחדל משלנו ומתכננת הורדה מלאה',
+    test('התקנה טרייה מצביעה על מיקום ברירת המחדל של אוצריא ומתכננת הורדה מלאה',
         () async {
       if (bindings == null) {
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
@@ -237,7 +237,21 @@ void main() {
 
         expect(check.isFreshInstall, isTrue);
         expect(check.needsManualDbPath, isFalse);
-        expect(check.dbPath, p.join(dataDir, 'library', 'seforim.db'));
+        // המסד מותקן למיקום שאוצריא עצמה מחפשת בו, **לא** לתיקיית הלאנצ'ר:
+        // לאנצ'ר שרץ מכונן נייד היה מתקין עליו את הספרייה, והיא הייתה
+        // נוסעת איתו ונעלמת מהמחשב ברגע שנשלף.
+        expect(check.dbPath, isNot(startsWith(dataDir)));
+        expect(check.dbPath, await manager.installDbPath());
+        expect(
+          check.dbPath,
+          p.join(
+            LibraryDbLocator.defaultDbDirs(
+              operatingSystem: Platform.operatingSystem,
+              environment: Platform.environment,
+            ).first,
+            'seforim.db',
+          ),
+        );
         expect(check.localVersion!.hasVersionMeta, isFalse);
         expect(check.plan!.kind, LibraryUpdatePlanKind.fullDownload);
         expect(check.latestReleaseTag, 'v5');

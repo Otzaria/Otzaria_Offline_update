@@ -35,6 +35,16 @@
   והאיתור ממשיך לברירות המחדל. סדר החיפוש המלא:
   נתיב ששמור אצלנו → ההגדרה של אוצריא (בשורש נייד ואז בשורש הרגיל) →
   ספרייה מצורפת (חבילת FULL ב-macOS) → ברירות המחדל → `C:\אוצריא`.
+- **התקנה טרייה נוחתת באותם מיקומים בדיוק** (עודכן אוגוסט 2026).
+  `LibraryDbLocator.resolveInstallDbPath()` מחזיר את ההגדרה של אוצריא (גם
+  כשהקובץ עוד לא קיים — שם היא תחפש) ואחרת את ברירת המחדל של הפלטפורמה.
+  ⚠️ קודם לכן `LibraryManager.checkForUpdate` הצביע ל-`<dataDir>/library`,
+  כלומר לתיקיית הנתונים של הלאנצ'ר: לאנצ'ר שרץ מכונן נייד התקין את המסד
+  **על הכונן**, והוא נעלם מהמחשב ברגע שנשלף. `<dataDir>` נשארה רשת ביטחון
+  לפלטפורמה שאין בה מיקום ידוע בכלל.
+  `isKnownToOtzaria(dbPath)` עונה על השאלה ההפוכה — האם אוצריא תמצא את
+  המסד שנבחר בעצמה. `false` הוא מה שמפעיל את אזהרת ה-UI: המשתמש יצטרך
+  להצביע על המיקום מתוך ההגדרות של אוצריא, אחרת היא לא תראה שם ספרים.
 - **התקנה ניידת של אוצריא** (`portable.marker` ליד ה-executable) מזיזה את
   שורש הנתונים כולו אל `otzaria_data` שלידו. הלאנצ'ר מזהה זאת דרך נתיב
   ההפעלה שמודול התוכנה מצא (`LibraryDbLocator.otzariaLaunchPath`), ולכן
@@ -294,6 +304,14 @@ if (check.needsManualDbPath) {
   // הצג בחירת תיקייה למשתמש (native folder picker), ואז:
   await manager.setCustomDbPath(userChosenDbPath);
   check = await manager.checkForUpdate();
+}
+
+// התקנה טרייה יורדת אל `await manager.installDbPath()` — המיקום שאוצריא
+// מחפשת בו. אם המשתמש בוחר אחר, חובה להזהיר: `isDbPathKnownToOtzaria`
+// מחזיר false, ואוצריא לא תראה שם ספרים עד שיצביע על המיקום בהגדרות שלה.
+if (!await manager.isDbPathKnownToOtzaria(manager.dbPathIn(userChosenDir))) {
+  // ...דיאלוג אזהרה, ורק אחריו:
+  await manager.setCustomDbPath(manager.dbPathIn(userChosenDir));
 }
 
 if (check.updateAvailable) {

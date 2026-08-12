@@ -314,6 +314,24 @@ class _LibraryScreen extends LibraryScreenStrings {
   String get dbPathUpdatedSnack => 'מיקום המסד עודכן';
 
   @override
+  String get installTargetTitle => 'הספרייה תותקן אל';
+  @override
+  String get pickInstallDirButton => 'בחירת מיקום להתקנה';
+  @override
+  String get pickInstallDirDialogTitle => 'בחירת התיקייה שאליה תותקן הספרייה';
+  @override
+  String get installDirUpdatedSnack => 'מיקום ההתקנה עודכן';
+  @override
+  String get customLocationDialogTitle => 'מיקום שאוצריא אינה מחפשת בו';
+  @override
+  String customLocationPrompt(String dbPath) => 'המיקום שנבחר:\n$dbPath\n\n'
+      'זה אינו מיקום ברירת המחדל של אוצריא, ולכן היא לא תמצא שם את הספרים '
+      'בעצמה. אחרי ההתקנה יש לפתוח את אוצריא, ובהגדרות שלה לבחור את מיקום '
+      'הספרייה — התיקייה הזו. להמשיך עם המיקום הזה?';
+  @override
+  String get customLocationConfirm => 'המשך עם המיקום שנבחר';
+
+  @override
   String get localVersionTitle => 'גרסה מקומית';
   @override
   String get targetVersionTitle => 'גרסת היעד בתיקייה המקומית';

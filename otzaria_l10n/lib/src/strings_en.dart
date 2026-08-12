@@ -331,6 +331,25 @@ class _LibraryScreen extends LibraryScreenStrings {
   String get dbPathUpdatedSnack => 'The database location was updated';
 
   @override
+  String get installTargetTitle => 'The library will be installed to';
+  @override
+  String get pickInstallDirButton => 'Choose an install location';
+  @override
+  String get pickInstallDirDialogTitle =>
+      'Choose the folder the library will be installed to';
+  @override
+  String get installDirUpdatedSnack => 'The install location was updated';
+  @override
+  String get customLocationDialogTitle => 'A location Otzaria does not look in';
+  @override
+  String customLocationPrompt(String dbPath) => 'Chosen location:\n$dbPath\n\n'
+      'This is not Otzaria\'s default location, so it will not find the books '
+      'there on its own. After the installation, open Otzaria and point its '
+      'library location setting at this folder. Continue with this location?';
+  @override
+  String get customLocationConfirm => 'Continue with this location';
+
+  @override
   String get localVersionTitle => 'Local Version';
   @override
   String get targetVersionTitle => 'Target version in the local folder';

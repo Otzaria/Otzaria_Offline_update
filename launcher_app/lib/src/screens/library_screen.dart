@@ -65,12 +65,20 @@ class LibraryScreen extends StatelessWidget {
           kind: libraryStatusKind(c.status),
           label: libraryStatusLabel(context, c),
         ),
+        // כשאין עדיין מסד, האריח מציג את **יעד ההתקנה** ולא "לא נמצא": שם
+        // ינחתו הספרים, וזו ההזדמנות לשנות את המיקום לפני שהם יורדים.
         SettingsActionTile.path(
           icon: FluentIcons.document_24_regular,
-          title: t.dbFileTitle,
-          path: c.dbPath,
+          title: c.dbPath == null ? t.installTargetTitle : t.dbFileTitle,
+          path: c.dbPath ?? c.installTargetPath,
           placeholder: t.dbFileMissing,
           actions: [
+            if (c.dbPath == null)
+              ActionButton.neutral(
+                text: t.pickInstallDirButton,
+                icon: FluentIcons.folder_add_24_regular,
+                onPressed: _isBusy ? null : () => _pickInstallDir(context),
+              ),
             ActionButton.neutral(
               text: t.pickDbButton,
               icon: FluentIcons.folder_open_24_regular,
@@ -158,9 +166,42 @@ class LibraryScreen extends StatelessWidget {
       allowedExtensions: const ['db'],
     );
     final path = result?.files.single.path;
-    if (path == null) return;
+    if (path == null || !context.mounted) return;
+    if (!await _confirmLocationOutsideOtzaria(context, path)) return;
     await library.setCustomDbPath(path);
     UiSnack.showSuccess(t.dbPathUpdatedSnack);
+  }
+
+  /// בחירת התיקייה שאליה תותקן ספרייה חדשה — הדרך לשנות את יעד ההתקנה לפני
+  /// שהיא מתחילה.
+  Future<void> _pickInstallDir(BuildContext context) async {
+    final t = context.strings.libraryScreen;
+    final dir = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: t.pickInstallDirDialogTitle,
+    );
+    if (dir == null || !context.mounted) return;
+    if (!await _confirmLocationOutsideOtzaria(context, library.dbPathIn(dir))) {
+      return;
+    }
+    await library.setInstallDir(dir);
+    UiSnack.showSuccess(t.installDirUpdatedSnack);
+  }
+
+  /// מיקום שאוצריא אינה מחפשת בו מותר — אבל רק אחרי אזהרה מפורשת: היא לא
+  /// תראה שם ספרים עד שהמשתמש יצביע על התיקייה מתוך ההגדרות שלה.
+  Future<bool> _confirmLocationOutsideOtzaria(
+    BuildContext context,
+    String dbPath,
+  ) async {
+    if (await library.isDbPathKnownToOtzaria(dbPath)) return true;
+    if (!context.mounted) return false;
+    final t = context.strings.libraryScreen;
+    return showTwoActionsDialog(
+      context: context,
+      title: t.customLocationDialogTitle,
+      content: t.customLocationPrompt(dbPath),
+      confirmText: t.customLocationConfirm,
+    );
   }
 
   Future<void> _confirmUpdate(BuildContext context) async {

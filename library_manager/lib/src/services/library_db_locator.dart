@@ -186,13 +186,17 @@ class LibraryDbLocator {
     return null;
   }
 
-  Future<String?> resolveDbPath() async {
-    final custom = await stateStore.loadCustomDbPath();
-    if (custom != null && await File(custom).exists()) {
-      return custom;
-    }
-
-    final launchPath = await otzariaLaunchPath?.call();
+  /// הנתיבים שבהם **אוצריא עצמה** מחפשת את המסד, לפי סדר עדיפות — הבסיס
+  /// המשותף ל-[resolveDbPath] (הראשון שקיים בפועל), ל-[resolveInstallDbPath]
+  /// (הראשון, גם כשעדיין אין שם קובץ) ול-[isKnownToOtzaria].
+  ///
+  /// [includeReadOnly] מוסיף מקומות שמזהים בהם מסד קיים אבל **לא מתקינים**
+  /// אליהם חדש: ספרייה מצורפת (חבילת FULL) והגיבוי הישן בווינדוס.
+  Future<List<String>> _otzariaDbCandidates({
+    required String? launchPath,
+    required bool includeReadOnly,
+  }) async {
+    final paths = <String>[];
 
     // ההגדרה של אוצריא עצמה — המקור המוסמך כשהיא כבר רצה פעם אחת.
     for (final root in await otzariaDataRoots(launchPath)) {
@@ -201,43 +205,77 @@ class LibraryDbLocator {
         path: _path,
         fileName: databaseFileName,
       );
-      if (fromSettings != null && await File(fromSettings).exists()) {
-        return fromSettings;
-      }
+      if (fromSettings != null) paths.add(fromSettings);
     }
 
-    final bundled = await bundledLibraryDir(launchPath);
-    if (bundled != null) return _path.join(bundled, databaseFileName);
+    if (includeReadOnly) {
+      final bundled = await bundledLibraryDir(launchPath);
+      if (bundled != null) paths.add(_path.join(bundled, databaseFileName));
+    }
 
-    final candidates = defaultDbDirs(
-      operatingSystem: _operatingSystem,
-      environment: _environment,
-    );
     // התקנה ניידת ששורש הנתונים שלה ליד התוכנה, כשאוצריא עוד לא רצה שם.
     final exeDir = exeDirFor(launchPath);
     if (exeDir != null &&
         await File(_path.join(exeDir, portableMarkerFileName)).exists()) {
-      candidates.insert(
-        0,
-        _path.join(exeDir, portableDataFolderName, 'books'),
-      );
+      paths.add(_path.joinAll(
+        [exeDir, portableDataFolderName, 'books', databaseFileName],
+      ));
     }
 
-    for (final dir in candidates) {
-      final candidate = _path.join(dir, databaseFileName);
-      if (await File(candidate).exists()) {
-        return candidate;
-      }
+    for (final dir in defaultDbDirs(
+      operatingSystem: _operatingSystem,
+      environment: _environment,
+    )) {
+      paths.add(_path.join(dir, databaseFileName));
     }
 
-    if (_operatingSystem == 'windows') {
-      final legacyPath =
-          _path.join(legacyFallbackLibraryPath, databaseFileName);
-      if (await File(legacyPath).exists()) {
-        return legacyPath;
-      }
+    if (includeReadOnly && _operatingSystem == 'windows') {
+      paths.add(_path.join(legacyFallbackLibraryPath, databaseFileName));
     }
 
+    return paths;
+  }
+
+  Future<String?> resolveDbPath() async {
+    final custom = await stateStore.loadCustomDbPath();
+    if (custom != null && await File(custom).exists()) {
+      return custom;
+    }
+
+    for (final candidate in await _otzariaDbCandidates(
+      launchPath: await otzariaLaunchPath?.call(),
+      includeReadOnly: true,
+    )) {
+      if (await File(candidate).exists()) return candidate;
+    }
     return null;
+  }
+
+  /// לאן תותקן ספרייה **חדשה** כשאין עדיין מסד בשום מקום: בחירת המשתמש אם
+  /// קיימת (גם כשהקובץ עצמו עוד לא נוצר — זו בדיוק המשמעות שלה כאן), ואחרת
+  /// המיקום שאוצריא עצמה תחפש בו. `null` רק בפלטפורמה שאין לנו בה מיקום כזה.
+  ///
+  /// לא נופל לתיקיית הלאנצ'ר: הוא עשוי לרוץ מכונן נייד, ומסד שמותקן לידו
+  /// נוסע איתו ונעלם מהמחשב ברגע שנשלף.
+  Future<String?> resolveInstallDbPath() async {
+    final custom = await stateStore.loadCustomDbPath();
+    if (custom != null) return custom;
+
+    final candidates = await _otzariaDbCandidates(
+      launchPath: await otzariaLaunchPath?.call(),
+      includeReadOnly: false,
+    );
+    return candidates.isEmpty ? null : candidates.first;
+  }
+
+  /// האם אוצריא תמצא את המסד הזה בעצמה — כלומר ההגדרה שלה או אחת מברירות
+  /// המחדל מצביעות עליו. `false` = אחרי ההתקנה המשתמש יצטרך להצביע על
+  /// המיקום מתוך אוצריא, ובלי זה היא לא תראה שם ספרים.
+  Future<bool> isKnownToOtzaria(String dbPath) async {
+    final candidates = await _otzariaDbCandidates(
+      launchPath: await otzariaLaunchPath?.call(),
+      includeReadOnly: true,
+    );
+    return candidates.any((candidate) => _path.equals(candidate, dbPath));
   }
 }

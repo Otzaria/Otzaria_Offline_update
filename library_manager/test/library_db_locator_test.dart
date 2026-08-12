@@ -279,6 +279,97 @@ void main() {
     });
   });
 
+  /// לאן מותקנת ספרייה **חדשה**. ה-landmine כאן: תיקיית הלאנצ'ר עלולה לשבת
+  /// על כונן נייד, ומסד שהותקן לידה נסע איתו ונעלם מהמחשב ברגע שנשלף.
+  group('LibraryDbLocator.resolveInstallDbPath', () {
+    late Directory tempDir;
+    late LibraryStateStore stateStore;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('db-install-test-');
+      stateStore = LibraryStateStore(p.join(tempDir.path, 'state.json'));
+    });
+
+    tearDown(() async {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+    });
+
+    LibraryDbLocator locator() => LibraryDbLocator(
+          stateStore: stateStore,
+          operatingSystem: 'macos',
+          environment: {'HOME': p.posix.join(tempDir.path, 'home')},
+        );
+
+    String defaultDb() => p.posix.join(tempDir.path, 'home', 'Library',
+        'Application Support', 'otzaria', 'books', 'seforim.db');
+
+    test('בלי כלום — מיקום ברירת המחדל של אוצריא, שעוד לא קיים על הדיסק',
+        () async {
+      expect(await locator().resolveInstallDbPath(), defaultDb());
+    });
+
+    test('בחירת המשתמש מנצחת — גם כשהקובץ עוד לא נוצר', () async {
+      // בשונה מ-`resolveDbPath`: בהתקנה טרייה הנתיב שנבחר הוא **היעד**, ולכן
+      // אסור לו להיפסל רק בגלל שאין שם עדיין קובץ.
+      final chosen = p.posix.join(tempDir.path, 'external', 'seforim.db');
+      await stateStore.saveCustomDbPath(chosen);
+
+      expect(await locator().resolveInstallDbPath(), chosen);
+      expect(await locator().resolveDbPath(), isNull);
+    });
+
+    test('פלטפורמה שאין בה מיקום ידוע מחזירה null, בלי לנחש', () async {
+      final unknown = LibraryDbLocator(
+        stateStore: stateStore,
+        operatingSystem: 'fuchsia',
+        environment: const {},
+      );
+
+      expect(await unknown.resolveInstallDbPath(), isNull);
+    });
+  });
+
+  group('LibraryDbLocator.isKnownToOtzaria', () {
+    late Directory tempDir;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('db-known-test-');
+    });
+
+    tearDown(() async {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+    });
+
+    LibraryDbLocator locator() => LibraryDbLocator(
+          stateStore: LibraryStateStore(p.join(tempDir.path, 'state.json')),
+          operatingSystem: 'macos',
+          environment: {'HOME': p.posix.join(tempDir.path, 'home')},
+        );
+
+    test('ברירת המחדל של אוצריא מוכרת לה, ומיקום אחר לא', () async {
+      final defaultDb = p.posix.join(tempDir.path, 'home', 'Library',
+          'Application Support', 'otzaria', 'books', 'seforim.db');
+
+      expect(await locator().isKnownToOtzaria(defaultDb), isTrue);
+      expect(
+        await locator()
+            .isKnownToOtzaria(p.posix.join(tempDir.path, 'usb', 'seforim.db')),
+        isFalse,
+      );
+    });
+
+    test('הגיבוי הישן בווינדוס נחשב מוכר — אוצריא ישנה עדיין יושבת שם',
+        () async {
+      final windows = LibraryDbLocator(
+        stateStore: LibraryStateStore(p.join(tempDir.path, 'state.json')),
+        operatingSystem: 'windows',
+        environment: const {r'APPDATA': r'C:\Users\dov\AppData\Roaming'},
+      );
+
+      expect(await windows.isKnownToOtzaria(r'C:\אוצריא\seforim.db'), isTrue);
+    });
+  });
+
   group('LibraryDbLocator.defaultDbDirs', () {
     // ברירות המחדל נגזרות מ-`lib/core/app_paths.dart` של אוצריא עצמה. הבדיקה
     // הזאת היא מה שיתפוס אם מישהו ישנה אותן כאן בלי לבדוק מול הקוד שם.

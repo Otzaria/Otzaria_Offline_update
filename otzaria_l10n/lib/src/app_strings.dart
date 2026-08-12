@@ -194,6 +194,16 @@ abstract class LibraryScreenStrings {
   String get pickDbDialogTitle;
   String get dbPathUpdatedSnack;
 
+  /// בחירת המיקום שאליו תותקן ספרייה חדשה, וההסבר החובה כשהוא אינו מיקום
+  /// שאוצריא מחפשת בו בעצמה.
+  String get installTargetTitle;
+  String get pickInstallDirButton;
+  String get pickInstallDirDialogTitle;
+  String get installDirUpdatedSnack;
+  String get customLocationDialogTitle;
+  String customLocationPrompt(String dbPath);
+  String get customLocationConfirm;
+
   String get localVersionTitle;
   String get targetVersionTitle;
   String get targetVersionNothingDownloaded;
