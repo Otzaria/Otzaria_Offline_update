@@ -1,7 +1,7 @@
 /// גרסת הלאנצ'ר עצמו. **חייבת להיות זהה ל-`version` שב-`pubspec.yaml`** —
 /// `launcher_version_test.dart` נכשל אחרת, וה-stub של Windows מקבל את אותה
 /// גרסה מ-`build_stub.ps1` (ראו `windows_stub/README` שבתוך `package.ps1`).
-const String launcherVersion = '0.1.2';
+const String launcherVersion = '0.1.3';
 
 /// השוואת גרסאות של הלאנצ'ר. תג ב-GitHub נראה `v1.2.3`, ה-pubspec מדווח
 /// `1.2.3`, ובנייה מקומית עשויה להוסיף `+build` — ולכן משווים אחרי נרמול.
