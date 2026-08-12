@@ -147,8 +147,8 @@ class LauncherSelfUpdater {
     );
   }
 
-  void close() {
-    _releaseClient.close();
-    _mirror.close();
+  void dispose() {
+    _releaseClient.dispose();
+    _mirror.dispose();
   }
 }

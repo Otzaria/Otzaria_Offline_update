@@ -3,11 +3,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
-import 'package:test/test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:seforim_library_updater/src/models/delta_manifest.dart';
 import 'package:seforim_library_updater/src/services/patch_downloader.dart';
+import 'package:test/test.dart';
 
 void main() {
   late Directory tmp;

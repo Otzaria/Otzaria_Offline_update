@@ -324,7 +324,7 @@ void main() {
         httpClient: _mockReleasesResponse(const []),
       );
 
-      expect(client.close, returnsNormally);
+      expect(client.dispose, returnsNormally);
     });
   });
 

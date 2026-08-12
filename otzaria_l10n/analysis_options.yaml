@@ -1,7 +1,7 @@
 # חובה שיהיה כאן קובץ משלה: בלעדיו האנלייזר מטפס לשורש הריפו, יורש משם
 # `exclude:` שמחריג את תת-החבילות, ומדווח "No issues found" בלי לבדוק כלום.
-include: package:lints/recommended.yaml
-
-linter:
-  rules:
-    - prefer_single_quotes
+include:
+  - package:lints/recommended.yaml
+  # `prefer_single_quotes` היה מוגדר כאן לבדו, וזו בדיוק הסחיפה שהקובץ
+  # המשותף בא למנוע — הוא חל עכשיו על כל החבילות.
+  - ../analysis_options_shared.yaml

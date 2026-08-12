@@ -11,6 +11,11 @@ staged_files=$(git diff --cached --name-only --diff-filter=ACMR)
 
 touched=$(
   for f in $staged_files; do
+    # ערכת ה-lint המשותפת חלה על כל החבילות — שינוי בה מחייב לבדוק את כולן,
+    # אחרת חוק שהודק שם נכנס בשקט ונופל רק ב-CI.
+    case "$f" in
+      analysis_options_shared.yaml) echo "."; echo $PACKAGES | tr ' ' '\n'; continue ;;
+    esac
     for p in $PACKAGES; do
       case "$f" in
         "$p"/*) echo "$p"; continue 2 ;;

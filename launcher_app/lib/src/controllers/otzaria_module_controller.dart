@@ -342,7 +342,7 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   @override
   void dispose() {
     _isDisposed = true;
-    _manager.close();
+    _manager.dispose();
     super.dispose();
   }
 }

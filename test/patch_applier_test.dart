@@ -1,12 +1,12 @@
 import 'dart:io';
 
 import 'package:otzaria_l10n/otzaria_l10n.dart';
-import 'package:test/test.dart';
 import 'package:seforim_library_updater/src/models/delta_manifest.dart';
 import 'package:seforim_library_updater/src/models/patch_table_spec.dart';
 import 'package:seforim_library_updater/src/services/logical_content_hasher.dart';
 import 'package:seforim_library_updater/src/services/patch_applier.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
+import 'package:test/test.dart';
 
 const _hasher = LogicalContentHasher();
 const _applier = PatchApplier();
@@ -93,7 +93,7 @@ void main() {
     final path = '${tmp.path}/patch_$from-$to.db';
     final db = sqlite3.sqlite3.open(path);
     db.execute('CREATE TABLE patch_meta (key TEXT PRIMARY KEY, value TEXT)');
-    db.execute("INSERT INTO patch_meta VALUES "
+    db.execute('INSERT INTO patch_meta VALUES '
         "('schema_version','$schemaVersion'),"
         "('from_version','$from'),('to_version','$to')");
     db.execute(

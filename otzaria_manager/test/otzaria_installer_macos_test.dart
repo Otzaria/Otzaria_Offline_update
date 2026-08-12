@@ -87,7 +87,7 @@ void main() {
 
       test('installs the .app, and the bundle stays runnable', () async {
         final installer = newInstaller();
-        addTearDown(installer.close);
+        addTearDown(installer.dispose);
 
         final state = await install(installer);
 
@@ -134,7 +134,7 @@ void main() {
 
       test('re-installing replaces the existing bundle in place', () async {
         final installer = newInstaller();
-        addTearDown(installer.close);
+        addTearDown(installer.dispose);
 
         final first = await install(installer);
         // סמן שנשתול בתוך ההתקנה הראשונה: אם ההתקנה השנייה באמת החליפה את

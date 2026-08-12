@@ -125,7 +125,7 @@ void main() {
           );
         }),
       );
-      addTearDown(client.close);
+      addTearDown(client.dispose);
       return client.fetchLatestStable();
     }
 
@@ -199,7 +199,7 @@ void main() {
         operatingSystem: 'windows',
         httpClient: MockClient((_) async => http.Response('nope', 403)),
       );
-      addTearDown(client.close);
+      addTearDown(client.dispose);
 
       expect(
         client.fetchLatestStable,
@@ -221,7 +221,7 @@ void main() {
     });
 
     tearDown(() async {
-      mirror.close();
+      mirror.dispose();
       await deleteTempDir(temp);
     });
 
@@ -503,7 +503,7 @@ void main() {
         installer: installer,
         resolveLayout: false,
       );
-      addTearDown(made.close);
+      addTearDown(made.dispose);
       return made;
     }
 

@@ -1,4 +1,7 @@
-include: package:flutter_lints/flutter.yaml
+include:
+  - package:flutter_lints/flutter.yaml
+  # ההידוקים המשותפים לכל החבילות — ראו את ההסבר בקובץ עצמו.
+  - analysis_options_shared.yaml
 
 # https://dart.dev/guides/language/analysis-options
 

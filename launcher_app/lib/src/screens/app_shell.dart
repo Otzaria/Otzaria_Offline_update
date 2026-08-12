@@ -384,19 +384,6 @@ class _AppShellState extends State<AppShell> {
     });
   }
 
-  /// שם המסך הפתוח, כפי שהוא מוצג בשורת הכותרת — אותן תוויות בדיוק כמו
-  /// בסרגל הניווט, כך שהשורה והסרגל מדברים באותה שפה.
-  String _screenTitle(BuildContext context, LauncherScreen screen) {
-    final s = context.strings.shell;
-    return switch (screen) {
-      LauncherScreen.home => s.navHome,
-      LauncherScreen.otzaria => s.navApp,
-      LauncherScreen.library => s.navLibrary,
-      LauncherScreen.plugins => s.navPlugins,
-      LauncherScreen.settings => s.navSettings,
-    };
-  }
-
   Widget _screenWidget(LauncherScreen screen) => switch (screen) {
         LauncherScreen.home => HomeScreen(
             otzaria: _otzaria,
@@ -449,7 +436,7 @@ class _AppShellState extends State<AppShell> {
       body: Column(
         children: [
           AppTitleBar(
-            screenTitle: _screenTitle(context, _screen),
+            screenTitle: _screenLabel(context, _screen),
             showWindowButtons: widget.showWindowButtons,
           ),
           Expanded(
@@ -487,15 +474,63 @@ class _AppShellState extends State<AppShell> {
 
 // ── סרגל הניווט ───────────────────────────────────────────────────────────────
 
+/// שם המסך — אותה תווית בסרגל הניווט ובשורת הכותרת, כך שהשניים מדברים באותה
+/// שפה. מקור אחד בכוונה: שני העתקים נטו להיפרד.
+String _screenLabel(BuildContext context, LauncherScreen screen) {
+  final s = context.strings.shell;
+  return switch (screen) {
+    LauncherScreen.home => s.navHome,
+    LauncherScreen.otzaria => s.navApp,
+    LauncherScreen.library => s.navLibrary,
+    LauncherScreen.plugins => s.navPlugins,
+    LauncherScreen.settings => s.navSettings,
+  };
+}
+
 class _NavRail extends StatelessWidget {
   final LauncherScreen current;
   final ValueChanged<LauncherScreen> onSelect;
 
   const _NavRail({required this.current, required this.onSelect});
 
+  /// הסמל הרגיל והמלא לכל מסך. הפריטים עצמם נגזרים מ-[LauncherScreen.values]
+  /// ולא נכתבים אחד-אחד, כך שמסך חדש אינו יכול להישאר בלי פריט בסרגל — הוא
+  /// ייפול כאן על סמל חסר במקום להיעלם בשקט.
+  static const Map<LauncherScreen, (IconData, IconData)> _icons = {
+    LauncherScreen.home: (
+      FluentIcons.home_24_regular,
+      FluentIcons.home_24_filled,
+    ),
+    LauncherScreen.otzaria: (
+      FluentIcons.desktop_24_regular,
+      FluentIcons.desktop_24_filled,
+    ),
+    LauncherScreen.library: (
+      FluentIcons.library_24_regular,
+      FluentIcons.library_24_filled,
+    ),
+    LauncherScreen.plugins: (
+      FluentIcons.puzzle_piece_24_regular,
+      FluentIcons.puzzle_piece_24_filled,
+    ),
+    LauncherScreen.settings: (
+      FluentIcons.settings_24_regular,
+      FluentIcons.settings_24_filled,
+    ),
+  };
+
   @override
   Widget build(BuildContext context) {
-    final s = context.strings.shell;
+    NavRailItem item(LauncherScreen screen) {
+      final (icon, iconFilled) = _icons[screen]!;
+      return NavRailItem(
+        icon: icon,
+        iconFilled: iconFilled,
+        label: _screenLabel(context, screen),
+        isSelected: current == screen,
+        onTap: () => onSelect(screen),
+      );
+    }
 
     return Container(
       width: NavRailItem.width,
@@ -503,42 +538,11 @@ class _NavRail extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: AppTokens.spaceSM),
       child: Column(
         children: [
-          NavRailItem(
-            icon: FluentIcons.home_24_regular,
-            iconFilled: FluentIcons.home_24_filled,
-            label: s.navHome,
-            isSelected: current == LauncherScreen.home,
-            onTap: () => onSelect(LauncherScreen.home),
-          ),
-          NavRailItem(
-            icon: FluentIcons.desktop_24_regular,
-            iconFilled: FluentIcons.desktop_24_filled,
-            label: s.navApp,
-            isSelected: current == LauncherScreen.otzaria,
-            onTap: () => onSelect(LauncherScreen.otzaria),
-          ),
-          NavRailItem(
-            icon: FluentIcons.library_24_regular,
-            iconFilled: FluentIcons.library_24_filled,
-            label: s.navLibrary,
-            isSelected: current == LauncherScreen.library,
-            onTap: () => onSelect(LauncherScreen.library),
-          ),
-          NavRailItem(
-            icon: FluentIcons.puzzle_piece_24_regular,
-            iconFilled: FluentIcons.puzzle_piece_24_filled,
-            label: s.navPlugins,
-            isSelected: current == LauncherScreen.plugins,
-            onTap: () => onSelect(LauncherScreen.plugins),
-          ),
+          // ההגדרות נדחקות לתחתית; כל השאר בסדר ההכרזה של ה-enum.
+          for (final screen in LauncherScreen.values)
+            if (screen != LauncherScreen.settings) item(screen),
           const Spacer(),
-          NavRailItem(
-            icon: FluentIcons.settings_24_regular,
-            iconFilled: FluentIcons.settings_24_filled,
-            label: s.navSettings,
-            isSelected: current == LauncherScreen.settings,
-            onTap: () => onSelect(LauncherScreen.settings),
-          ),
+          item(LauncherScreen.settings),
         ],
       ),
     );

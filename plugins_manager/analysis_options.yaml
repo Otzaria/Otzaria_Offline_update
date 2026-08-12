@@ -2,4 +2,7 @@
 # `dart analyze` היה יורש את ה-analysis_options של שורש הריפו, שכולל
 # `package:flutter_lints` — תלות שאינה קיימת כאן, ולכן כל הרצה הדפיסה
 # אזהרות "Failed to resolve package URI".
-include: package:lints/recommended.yaml
+include:
+  - package:lints/recommended.yaml
+  # ההידוקים המשותפים לכל החבילות — ראו את ההסבר בקובץ עצמו.
+  - ../analysis_options_shared.yaml

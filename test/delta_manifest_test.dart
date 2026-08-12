@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:test/test.dart';
 import 'package:seforim_library_updater/src/models/delta_manifest.dart';
+import 'package:test/test.dart';
 
 void main() {
   group('DeltaManifest.fromJson', () {

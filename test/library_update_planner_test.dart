@@ -1,9 +1,9 @@
 import 'package:otzaria_l10n/otzaria_l10n.dart';
-import 'package:test/test.dart';
 import 'package:seforim_library_updater/src/models/delta_manifest.dart';
 import 'package:seforim_library_updater/src/models/library_release.dart';
 import 'package:seforim_library_updater/src/models/library_update_plan.dart';
 import 'package:seforim_library_updater/src/services/library_update_planner.dart';
+import 'package:test/test.dart';
 
 /// בונה PatchEdge פיקטיבי מ-[from] ל-[to] בגודל דחוס [size].
 PatchEdge _edge(int from, int to, {int size = 1000}) {

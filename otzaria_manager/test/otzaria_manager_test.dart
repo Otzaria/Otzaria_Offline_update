@@ -86,7 +86,7 @@ void main() {
       installRegistry: _FakeInstallRegistry(registeredInstallDirs),
       preferPrerelease: preferPrerelease,
     );
-    addTearDown(manager.close);
+    addTearDown(manager.dispose);
     return manager;
   }
 
@@ -364,7 +364,7 @@ void main() {
           installRegistry: _FakeInstallRegistry([dir.path]),
           launcher: launcher,
         );
-        addTearDown(manager.close);
+        addTearDown(manager.dispose);
 
         final check = await manager.checkForUpdate();
         await manager.launch();
@@ -396,7 +396,7 @@ void main() {
           installRegistry: _FakeInstallRegistry([dir.path]),
           launcher: launcher,
         );
-        addTearDown(manager.close);
+        addTearDown(manager.dispose);
 
         await manager.checkForUpdate();
         await manager.requestLibraryReindex();
@@ -697,7 +697,7 @@ void main() {
           runningLocator: _FakeRunningLocator(null),
           installRegistry: registry,
         );
-        addTearDown(manager.close);
+        addTearDown(manager.dispose);
 
         final detected = await manager.detectExistingInstall(customDir: known);
         await manager.adoptExistingInstall(detected!);

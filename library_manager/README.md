@@ -202,6 +202,23 @@ otzaria://library/reindex
 > כל קריאת `Isolate.run` עוברת דרך פונקציית **top-level** שמקבלת רק
 > ארגומנטים פרימיטיביים/מבני-דאטה (records, `String`, `Uint8List`,
 > `DeltaManifest`) — אותו דפוס שכבר עבד נכון ב-`ZstdFileDecompressor`.
+>
+> **ואז הבאג חזר, מסיבה שנייה ועדינה יותר.** לא מספיק שהסוגר עצמו אינו נוגע
+> ב-`this`: דארט חולק אובייקט `Context` **אחד** בין כל הסוגרים שנוצרים באותו
+> בלוק לקסיקלי — לא רק בין אלה שמשתמשים בפועל במשתנה מסוים
+> ([dart-lang/sdk#52661](https://github.com/dart-lang/sdk/issues/52661),
+> "Closures over-capture, cannot be sent to other isolate"). ב-`applyDelta`
+> נוצר באותו בלוק גם סוגר ה-`onProgress` שמגיע מהצרכן, והוא סוגר-שרשרת על
+> `LibraryModuleController` וממנו על עץ ה-widgets כולו. גם כשקוד הסוגר של
+> ה-`Isolate.run` אינו מזכיר את `onProgress` בכלל, ה-`Context` המשותף כן
+> מכיל אותו — והשליחה נכשלת.
+>
+> לכן קריאת ה-`Isolate.run` יושבת במתודה **נפרדת לגמרי** (`_runApplyIsolate`),
+> ולא רק בסוגר נפרד: מתודה נפרדת = frame לקסיקלי נפרד = אין `Context` משותף
+> עם ה-callbacks. ה-callbacks עצמם נשארים במתודה שמעליה
+> (`_isolateApplyPatch`), ודיווח תת-השלבים חוזר מה-isolate דרך `ReceivePort`.
+> **אין להחזיר את הקריאה ל-`Isolate.run` אל גוף `applyDelta`** — זה מחזיר
+> בדיוק את הקריסה הזו.
 > `LibraryManager.applyUpdate(check)`
 > הוא נקודת הכניסה: מפעיל `OtzariaProcessGuard` (חוסם אם אוצריא פתוחה),
 > מוריד ומחיל מסלול delta (patch-אחר-patch, כל אחד

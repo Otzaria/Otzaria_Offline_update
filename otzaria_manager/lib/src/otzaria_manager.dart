@@ -498,9 +498,9 @@ class OtzariaManager {
     await _stateStore.save(detected);
   }
 
-  void close() {
-    _releaseClient.close();
-    _changelogClient.close();
-    _installer.close();
+  void dispose() {
+    _releaseClient.dispose();
+    _changelogClient.dispose();
+    _installer.dispose();
   }
 }

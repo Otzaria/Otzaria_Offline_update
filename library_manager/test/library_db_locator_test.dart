@@ -374,4 +374,73 @@ void main() {
       expect(LibraryDbLocator.databaseFileName, 'seforim.db');
     });
   });
+
+  /// [LibraryDbLocator.otzariaDataRoots] ו-[LibraryDbLocator.defaultDbDirs]
+  /// נגזרות מאותה טבלת נתיבים, ולכן ההבדל **המכוון** ביניהן — פלטפורמה לא
+  /// מוכרת — צריך שמירה: איתור המסד מסרב לנחש, איתור ההגדרות דווקא מנסה את
+  /// מיקום ה-XDG כדי שבדיקות CI בלינוקס לא יקבלו רשימה ריקה.
+  group('LibraryDbLocator.otzariaDataRoots', () {
+    LibraryDbLocator locatorFor(String os, Map<String, String> environment) =>
+        LibraryDbLocator(
+          stateStore: const LibraryStateStore('unused-state.json'),
+          operatingSystem: os,
+          environment: environment,
+        );
+
+    test('Windows: APPDATA לפני ProgramData, בלי סיומת books', () async {
+      expect(
+        await locatorFor('windows', const {
+          'APPDATA': r'C:\Users\dov\AppData\Roaming',
+          'ProgramData': r'C:\ProgramData',
+        }).otzariaDataRoots(null),
+        [r'C:\Users\dov\AppData\Roaming\otzaria', r'C:\ProgramData\otzaria'],
+      );
+    });
+
+    test('אותם שורשים בדיוק כמו defaultDbDirs, פחות ה-books', () async {
+      const env = {
+        'APPDATA': r'C:\Users\dov\AppData\Roaming',
+        'ProgramData': r'C:\ProgramData',
+      };
+      final roots = await locatorFor('windows', env).otzariaDataRoots(null);
+      expect(
+        LibraryDbLocator.defaultDbDirs(
+          operatingSystem: 'windows',
+          environment: env,
+        ),
+        [for (final root in roots) p.windows.join(root, 'books')],
+      );
+    });
+
+    test('משתני סביבה חסרים לא מייצרים שורש שבור', () async {
+      expect(
+        await locatorFor('windows', const {'APPDATA': '', 'ProgramData': ''})
+            .otzariaDataRoots(null),
+        isEmpty,
+      );
+    });
+
+    test('פלטפורמה לא מוכרת כן מנסה את XDG — בשונה מ-defaultDbDirs', () async {
+      const env = {'HOME': '/home/dov'};
+      expect(
+        await locatorFor('fuchsia', env).otzariaDataRoots(null),
+        ['/home/dov/.local/share/otzaria'],
+      );
+      expect(
+        LibraryDbLocator.defaultDbDirs(
+          operatingSystem: 'fuchsia',
+          environment: env,
+        ),
+        isEmpty,
+      );
+    });
+
+    test('linux: מיקום ה-XDG', () async {
+      expect(
+        await locatorFor('linux', const {'HOME': '/home/dov'})
+            .otzariaDataRoots(null),
+        ['/home/dov/.local/share/otzaria'],
+      );
+    });
+  });
 }

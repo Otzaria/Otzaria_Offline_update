@@ -44,7 +44,16 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   /// הכותרת והתקציר של דף הבית של החנות, כפי שירדו מהאתר.
   PluginStoreHome home = PluginStoreHome.empty;
 
-  Map<String, String> installed = const {};
+  /// `manifestId -> גרסה מותקנת`. setter ולא שדה: התוצרים הממוזנים למטה
+  /// ([filtered], [featured], [homeCategories]…) נגזרים ממנו, והצבה ישירה
+  /// הייתה משאירה אותם על התשובה הקודמת.
+  Map<String, String> get installed => _installed;
+  set installed(Map<String, String> value) {
+    _installed = value;
+    _invalidateDerived();
+  }
+
+  Map<String, String> _installed = const {};
   DateTime? lastSync;
 
   /// שורש קובצי החנות במראה — ממנו נבנים נתיבי התמונות המוחלטים.
@@ -278,6 +287,8 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   List<StorePlugin>? _updatable;
   List<StorePlugin>? _featured;
   Map<String, StorePlugin>? _byId;
+  List<PluginStoreCategory>? _homeCategories;
+  bool? _hasCuratedHome;
 
   void _invalidateDerived() {
     _filtered = null;
@@ -285,6 +296,8 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     _updatable = null;
     _featured = null;
     _byId = null;
+    _homeCategories = null;
+    _hasCuratedHome = null;
   }
 
   /// האם התוסף עובר את מתג "רק מה שלא מותקן" שבשורה העליונה. המתג הוא
@@ -313,7 +326,9 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
       .toList(growable: false);
 
   /// הקטגוריות שמקבלות שורה בדף הבית ונשאר בהן מה להציג אחרי מתג ההתקנה.
-  List<PluginStoreCategory> get homeCategories => [
+  /// ממוזן כמו שאר התוצרים: הוא מריץ [pluginsIn] לכל קטגוריה, ודף הבית קורא
+  /// לו מ-`build` — כלומר גם בכל דיווח התקדמות של סנכרון.
+  List<PluginStoreCategory> get homeCategories => _homeCategories ??= [
         for (final category in categories)
           if (category.showOnHome && pluginsIn(category).isNotEmpty) category,
       ];
@@ -321,8 +336,8 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   /// האם **קיים** דף בית אצור. נמדד על המבנה עצמו ולא על מה שנשאר אחרי
   /// הסינון — אחרת כיבוי כל הכרטיסים ע"י המתג היה נראה כמו חנות ריקה.
   bool get hasCuratedHome =>
-      plugins.any((p) => p.isFeatured) ||
-      categories.any((c) => c.showOnHome && c.pluginIds.isNotEmpty);
+      _hasCuratedHome ??= plugins.any((p) => p.isFeatured) ||
+          categories.any((c) => c.showOnHome && c.pluginIds.isNotEmpty);
 
   PluginStoreCategory? get openCategory {
     final slug = openCategorySlug;

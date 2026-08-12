@@ -172,7 +172,7 @@ class LauncherUpdateController extends ChangeNotifier with ProgressNotifier {
 
   @override
   void dispose() {
-    _updater.close();
+    _updater.dispose();
     super.dispose();
   }
 }

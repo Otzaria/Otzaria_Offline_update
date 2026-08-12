@@ -77,31 +77,12 @@ typedef ExtractedDbVerifier = Future<void> Function(
 
 /// מחיל בפועל [LibraryUpdatePlan] (delta או fullDownload) על ה-DB **החי**.
 ///
-/// זהו בדיוק הרכיב שהוסר בעבר מ-[LibraryManager] בעקבות קריסת
-/// `Illegal argument in isolate message: object is unsendable` (ראו
-/// README הישן): הסוגר שהועבר ל-`Isolate.run` ניגש לשדה **מופע** (למשל
-/// `_applier.apply(...)`), ובכך תפס implicitly את כל `this` — כולל
-/// `HttpClient` חי שאינו ניתן לשליחה בין isolates.
-///
-/// כאן זה נבנה מחדש נכון: כל קריאה ל-`Isolate.run` עוברת דרך פונקציית
-/// **top-level** (למטה בקובץ הזה) שמקבלת רק ארגומנטים פרימיטיביים/מבני-דאטה
-/// טהורים (records, `String`, `Uint8List`, `DeltaManifest`) — בדיוק כמו
-/// שכבר עובד נכון ב-`ZstdFileDecompressor`. אין כאן שום גישה לשדה מופע בתוך
-/// סוגר שמועבר ל-Isolate.
-///
-/// **תוספת חשובה (הבאג שחזר):** לא מספיק שהסוגר עצמו לא ניגש ל-`this` —
-/// דארט חולק אובייקט `Context` *אחד* בין כל הסוגרים שנוצרים באותו scope
-/// לקסיקלי, לא רק בין הסוגרים שבפועל *משתמשים* במשתנה מסוים. ב-`applyDelta`/
-/// `applyFullDownload`, הפרמטר `onProgress` (סוגר שמגיע מהצרכן וסוגר-שרשרת
-/// על `LibraryModuleController` כולו — עד לעץ ה-widgets) נקרא **באותו בלוק**
-/// שבו נוצר סוגר ה-`Isolate.run`. כתוצאה מכך, גם אם קוד הסוגר של ה-Isolate
-/// לא נוגע ב-`onProgress` בכלל, ה-Context המשותף שלו כן מכיל את `onProgress`
-/// — וניסיון השליחה ל-isolate נכשל כי הוא "גורר" איתו את כל השרשרת. ראו
-/// dart-lang/sdk#52661 ("Closures over-capture, cannot be sent to other
-/// isolate"). הפתרון: קריאת `Isolate.run` חייבת להיות בתוך מתודה/פונקציה
-/// **נפרדת לגמרי** (לא רק סוגר נפרד), כדי שה-Context שלה לא ישותף בשום צורה
-/// עם ה-scope של `applyDelta`/`applyFullDownload` — ראו [_isolateApplyPatch]
-/// ואת אותה תבנית ב-`ZstdFileDecompressor`.
+/// **כל קריאה ל-`Isolate.run` יושבת במתודה נפרדת** ([_runApplyIsolate],
+/// [_isolateVerifyExtractedDb]) ומריצה פונקציית top-level שמקבלת רק ערכים
+/// ניתנים-לשליחה. שתי קריסות `object is unsendable` נבעו מכאן, והשנייה עדינה:
+/// סוגרים באותו בלוק לקסיקלי חולקים `Context` אחד, ולכן די בכך ש-`onProgress`
+/// נקרא באותו בלוק כדי שהשליחה תיכשל. אין להחזיר את הקריאה לגוף [applyDelta].
+/// הסיפור המלא ב-`library_manager/README.md`, "היסטוריית התיקון".
 class LibraryUpdateApplier {
   LibraryUpdateApplier({
     OtzariaProcessGuard processGuard = const OtzariaProcessGuard(),
@@ -228,19 +209,8 @@ class LibraryUpdateApplier {
       ));
 
       try {
-        // חשוב: הקריאה ל-Isolate.run **חייבת** לקרות בתוך מתודה נפרדת
-        // (`_isolateApplyPatch`, סטטית), לא כאן inline בתוך הלולאה. הסיבה
-        // אינה טריוויאלית: גם אם הסוגר referenced רק dbPath/patchPath/
-        // manifest (משתנים מקומיים, לא שדות מופע), ה-compiler של Dart
-        // ארוז את כל המשתנים שנתפסים ע"י **כל** הסגורים שמוגדרים באותו
-        // בלוק לקסיקלי (כאן: גם הסוגר של `onProgress` בקריאת
-        // downloadAndExtract למעלה) לתוך אותו אובייקט Context משותף —
-        // ו-Isolate.send מנסה לשלוח את כל ה-Context, כולל שדות שלא
-        // בשימוש בפועל ע"י הסוגר הזה עצמו. זה בדיוק מה שגרם לקריסה
-        // "object is unsendable" גם אחרי התיקון הקודם: השרשרת בקריסה
-        // עברה דרך `onProgress` של הבקר (`LibraryModuleController`), עד
-        // לעץ ה-widgets כולו. מתודה נפרדת = frame לקסיקלי נפרד = אין
-        // Context משותף עם onProgress.
+        // אסור להחליף את הקריאה הזו ב-`Isolate.run` inline: הבלוק הזה מחזיק
+        // גם את סוגר ה-`onProgress` שלמעלה, וה-`Context` המשותף נשלח איתו.
         final result = await _isolateApplyPatch(
           dbPath: dbPath,
           patchPath: patchPath,
@@ -456,10 +426,8 @@ class LibraryUpdateApplier {
     onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.done));
   }
 
-  /// עוטף את `Isolate.run` במתודה **סטטית** נפרדת — קריטי, ראו הסבר
-  /// ב-doc-comment בנקודת הקריאה ב-[applyDelta]. סטטית = אין `this`
-  /// בכלל, ומתודה נפרדת = frame לקסיקלי נפרד שלא חולק Context עם
-  /// סגורי `onProgress` של הקוד הקורא.
+  /// סטטית ונפרדת — אין `this` בכלל, ואין `Context` משותף עם סוגרי
+  /// ה-`onProgress` של הקורא (ראו תיעוד [LibraryUpdateApplier]).
   ///
   /// [language] מועברת במפורש: משתנים סטטיים אינם משותפים בין isolates, ולכן
   /// `AppL10n` בתוך ה-isolate היה חוזר לברירת המחדל והודעות השגיאה משם היו

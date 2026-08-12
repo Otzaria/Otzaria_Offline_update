@@ -7,6 +7,7 @@ import '../controllers/library_module_controller.dart';
 import '../controllers/otzaria_module_controller.dart';
 import '../controllers/plugins_module_controller.dart';
 import '../services/byte_size.dart';
+import '../services/timestamps.dart';
 import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/screen_body.dart';
@@ -249,6 +250,15 @@ class HomeScreen extends StatelessWidget {
     final otzariaChecked = otzaria.onlineCheckedAt != null;
     final libraryChecked = library.onlineCheckedAt != null;
     final everChecked = otzariaChecked || libraryChecked;
+    // המאוחרת מבין השתיים. קודם הוצג תמיד זמן הבדיקה של אוצריא, גם כשבדיקת
+    // הספרייה רצה אחריה — "נבדק לאחרונה" הראה אז זמן מוקדם מהאמת.
+    final lastChecked = [
+      if (otzariaChecked) otzaria.onlineCheckedAt!,
+      if (libraryChecked) library.onlineCheckedAt!,
+    ].fold<DateTime?>(
+      null,
+      (latest, at) => latest == null || at.isAfter(latest) ? at : latest,
+    );
     final otzariaOnline = otzariaChecked && otzaria.onlineCheckError == null;
     final libraryOnline = libraryChecked && library.onlineCheckError == null;
     final isOnline = otzariaOnline || libraryOnline;
@@ -310,15 +320,10 @@ class HomeScreen extends StatelessWidget {
                 const SizedBox(height: AppTokens.spaceMD),
                 _downloadProgress(context),
               ],
-              if (otzaria.onlineCheckedAt != null ||
-                  library.onlineCheckedAt != null) ...[
+              if (lastChecked != null) ...[
                 const SizedBox(height: AppTokens.spaceSM),
                 Text(
-                  t.lastCheckedAt(
-                    _formatTime(
-                      otzaria.onlineCheckedAt ?? library.onlineCheckedAt!,
-                    ),
-                  ),
+                  t.lastCheckedAt(formatClock(lastChecked)),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -477,12 +482,6 @@ class HomeScreen extends StatelessWidget {
         ),
       ],
     );
-  }
-
-  static String _formatTime(DateTime time) {
-    final t = time.toLocal();
-    return '${t.hour.toString().padLeft(2, '0')}:'
-        '${t.minute.toString().padLeft(2, '0')}';
   }
 }
 

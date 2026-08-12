@@ -133,7 +133,7 @@ class LauncherReleaseClient {
     };
   }
 
-  void close() => _httpClient.close();
+  void dispose() => _httpClient.close();
 }
 
 /// שגיאה בעדכון העצמי. טיפוס נפרד כדי שה-UI יבחין בין "אין רשת" (נבלע

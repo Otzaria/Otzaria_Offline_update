@@ -214,5 +214,5 @@ class LauncherUpdateMirror {
     }
   }
 
-  void close() => _httpClient.close();
+  void dispose() => _httpClient.close();
 }

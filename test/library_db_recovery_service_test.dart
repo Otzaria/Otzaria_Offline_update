@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:seforim_library_updater/src/services/library_db_recovery_service.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 import 'package:test/test.dart';
-import 'package:seforim_library_updater/src/services/library_db_recovery_service.dart';
 
 void main() {
   const service = LibraryDbRecoveryService();

@@ -3,4 +3,7 @@
 # בלי הקובץ הזה `dart analyze` כאן היה עולה למעלה עד ל-analysis_options.yaml
 # של שורש הריפו — שכולל `package:flutter_lints` (בלתי פתיר בחבילה בלי Flutter)
 # **וגם** מחריג `otzaria_manager/**`, כלומר הריצה לא בדקה כאן שום דבר בפועל.
-include: package:lints/recommended.yaml
+include:
+  - package:lints/recommended.yaml
+  # ההידוקים המשותפים לכל החבילות — ראו את ההסבר בקובץ עצמו.
+  - ../analysis_options_shared.yaml

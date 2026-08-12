@@ -120,6 +120,12 @@ class AppSettings {
   /// כפתור ההורדה במקום להריץ פעולה שלא תעשה כלום.
   bool get hasSyncSelection => syncApp || syncLibrary || syncPlugins;
 
+  /// גבולות שפיות ל-[textScale] בקריאה מהדיסק — **לא** רשימת האפשרויות
+  /// שבהגדרות (0.9/1.0/1.15). רחבים בכוונה: קובץ שנערך ביד או נשמר בגרסה
+  /// אחרת עשוי להחזיק 1.3 או 2.0, ואין סיבה לדרוס אותו.
+  static const double minTextScale = 0.5;
+  static const double maxTextScale = 3.0;
+
   AppSettings copyWith({
     bool? autoMetadataCheck,
     bool? autoCheckOnlineUpdates,
@@ -204,6 +210,15 @@ class AppSettings {
       return value is int ? Color(value) : fallback;
     }
 
+    // ערך פגום היה מגיע ישר ל-`MediaQuery.withClampedTextScaling` (ראו
+    // `main.dart`): שלילי מפיל שם assert, ו-40 משאיר ממשק שאי אפשר לתקן בו
+    // כלום — כולל את מסך ההגדרות שבו משנים אותו בחזרה.
+    double textScale(double fallback) {
+      final value = ui['textScale'];
+      if (value is! num || !value.toDouble().isFinite) return fallback;
+      return value.toDouble().clamp(minTextScale, maxTextScale);
+    }
+
     return AppSettings(
       autoMetadataCheck: flag(
         automation,
@@ -218,16 +233,17 @@ class AppSettings {
       syncApp: flag(sync, 'app', defaults.syncApp),
       syncLibrary: flag(sync, 'library', defaults.syncLibrary),
       syncPlugins: flag(sync, 'plugins', defaults.syncPlugins),
-      autoInstallApp: flag(automation, 'installApp', false),
-      autoInstallLibrary: flag(automation, 'installLibrary', false),
-      preferAppPrerelease: flag(channels, 'appPrerelease', false),
+      autoInstallApp: flag(automation, 'installApp', defaults.autoInstallApp),
+      autoInstallLibrary:
+          flag(automation, 'installLibrary', defaults.autoInstallLibrary),
+      preferAppPrerelease:
+          flag(channels, 'appPrerelease', defaults.preferAppPrerelease),
       languagePreference: AppLanguagePreference.fromCode(ui['language']),
       themeMode: AppThemeMode.values.firstWhere(
         (m) => m.name == ui['themeMode'],
-        orElse: () => AppThemeMode.system,
+        orElse: () => defaults.themeMode,
       ),
-      textScale:
-          ui['textScale'] is num ? (ui['textScale'] as num).toDouble() : 1.0,
+      textScale: textScale(defaults.textScale),
       seedColor: color('seedColor', defaults.seedColor),
       darkSeedColor: color('darkSeedColor', defaults.darkSeedColor),
     );

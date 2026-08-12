@@ -4,8 +4,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
-import 'package:launcher_app/src/theme/theme_exports.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
+import 'package:launcher_app/src/theme/theme_exports.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
@@ -198,6 +198,44 @@ void main() {
       expect(restored.textScale, 2.0);
       // schemaVersion נכתב תמיד מחדש לגרסה הנוכחית.
       expect(restored.toJson()['schemaVersion'], AppSettings.schemaVersion);
+    });
+
+    // ה-textScale נכנס ישר ל-`MediaQuery.withClampedTextScaling`, ולכן ערך
+    // פגום בקובץ הוא ממשק שאי אפשר לתקן בו כלום — כולל את מסך ההגדרות עצמו.
+    test('textScale פגום נחסם, וכל ערך סביר עובר כמו שהוא', () {
+      double scaleFrom(Object? raw) => AppSettings.fromJson({
+            'ui': {'textScale': raw}
+          }).textScale;
+
+      // ערכים סבירים — כולל כאלה שאינם בשלוש האפשרויות שבהגדרות.
+      for (final value in [0.9, 1.0, 1.15, 1.3, 2.0]) {
+        expect(scaleFrom(value), value, reason: '$value');
+      }
+
+      // פגום → ברירת המחדל, לא ערך שמשתק את הממשק.
+      expect(scaleFrom(double.nan), 1.0);
+      expect(scaleFrom(double.infinity), 1.0);
+      expect(scaleFrom('גדול'), 1.0);
+      expect(scaleFrom(null), 1.0);
+
+      // מחוץ לגבולות → נחתך לגבול, כדי שהמסך יישאר שמיש.
+      expect(scaleFrom(-3), AppSettings.minTextScale);
+      expect(scaleFrom(0), AppSettings.minTextScale);
+      expect(scaleFrom(40), AppSettings.maxTextScale);
+    });
+
+    test('ברירות המחדל בפענוח נגזרות מ-AppSettings ולא מקודדות פעמיים', () {
+      // סעיפים קיימים אך ריקים: כל שדה חייב ליפול לברירת המחדל *שלו*, גם אם
+      // מישהו ישנה אותה בעתיד.
+      const defaults = AppSettings();
+      final restored = AppSettings.fromJson(const {
+        'automation': <String, dynamic>{},
+        'channels': <String, dynamic>{},
+        'sync': <String, dynamic>{},
+        'ui': <String, dynamic>{},
+      });
+
+      expect(restored.toJson(), defaults.toJson());
     });
 
     test('copyWith משנה שדה אחד ומשאיר את השאר', () {

@@ -3,11 +3,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
-import 'package:test/test.dart';
 import 'package:seforim_library_updater/src/models/patch_table_spec.dart';
 import 'package:seforim_library_updater/src/services/fast_sha256.dart';
 import 'package:seforim_library_updater/src/services/logical_content_hasher.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
+import 'package:test/test.dart';
 
 const _hasher = LogicalContentHasher();
 

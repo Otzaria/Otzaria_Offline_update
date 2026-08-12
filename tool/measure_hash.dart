@@ -4,9 +4,9 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:sqlite3/sqlite3.dart';
 import 'package:seforim_library_updater/seforim_library_updater.dart'
     show kHashTableOrder;
+import 'package:sqlite3/sqlite3.dart';
 
 void main(List<String> args) {
   final dbPath = args.isNotEmpty

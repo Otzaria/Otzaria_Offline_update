@@ -3,9 +3,9 @@
 // ignore_for_file: avoid_print — כלי CLI אבחוני; ההדפסה היא הפלט המיועד שלו.
 import 'dart:io';
 
-import 'package:sqlite3/sqlite3.dart';
 import 'package:seforim_library_updater/seforim_library_updater.dart'
     show LogicalContentHasher;
+import 'package:sqlite3/sqlite3.dart';
 
 void main(List<String> args) {
   final dbPath = args.isNotEmpty

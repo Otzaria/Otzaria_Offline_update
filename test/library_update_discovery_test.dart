@@ -1,13 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:test/test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:seforim_library_updater/src/models/library_release.dart';
 import 'package:seforim_library_updater/src/services/github_library_release_client.dart';
 import 'package:seforim_library_updater/src/services/library_update_discovery.dart';
 import 'package:seforim_library_updater/src/services/local_mirror_library_release_client.dart';
+import 'package:test/test.dart';
 
 LibraryRelease _release({
   required String tag,

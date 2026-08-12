@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:test/test.dart';
 import 'package:seforim_library_updater/src/models/delta_manifest.dart';
 import 'package:seforim_library_updater/src/services/patch_applier.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
+import 'package:test/test.dart';
 
 /// E2E אמיתי לדלתא סינתטית schema 2 → schema 2 דרך ה-updater האמיתי
 /// (PatchApplier של החבילה, כולל verifyFromHash), באותה תבנית של בדיקות ה-E2E
@@ -71,7 +71,7 @@ void main() {
 
       final db = sqlite3.sqlite3.open(dbPath, mode: sqlite3.OpenMode.readOnly);
       String meta(String k) => db.select(
-              "SELECT value FROM schema_meta WHERE key=?", [k]).first['value']
+              'SELECT value FROM schema_meta WHERE key=?', [k]).first['value']
           as String;
       int scalar(String sql) => db.select(sql).first.values.first as int;
       try {
@@ -88,7 +88,7 @@ void main() {
             0); // הזוג שנמחק אינו
         expect(scalar('SELECT baseProvenance FROM link WHERE id=3'), 2);
         expect(
-            scalar("SELECT COUNT(*) FROM line "
+            scalar('SELECT COUNT(*) FROM line '
                 "WHERE id=1 AND content LIKE '%<!--SYNTH-->'"),
             1);
         expect(

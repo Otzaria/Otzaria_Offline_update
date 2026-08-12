@@ -8,6 +8,7 @@ import 'package:flutter/rendering.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
 import '../../controllers/plugins_module_controller.dart';
+import '../../services/timestamps.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
 import 'plugin_detail_view.dart';
@@ -642,7 +643,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
             child: Text(
               lastSync == null
                   ? t.syncNeverRan
-                  : t.syncedAt(_formatDateTime(lastSync)),
+                  : t.syncedAt(formatTimestamp(lastSync)),
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
@@ -855,13 +856,6 @@ class _PluginsScreenState extends State<PluginsScreen> {
         );
       },
     );
-  }
-
-  static String _formatDateTime(DateTime value) {
-    final t = value.toLocal();
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${two(t.day)}.${two(t.month)}.${t.year}, '
-        '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
   }
 }
 

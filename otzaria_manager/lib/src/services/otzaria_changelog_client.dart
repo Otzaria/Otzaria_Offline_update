@@ -83,5 +83,5 @@ class OtzariaChangelogClient {
   static String _dedent(String line) =>
       line.startsWith('  ') ? line.substring(2) : line;
 
-  void close() => _httpClient.close();
+  void dispose() => _httpClient.close();
 }

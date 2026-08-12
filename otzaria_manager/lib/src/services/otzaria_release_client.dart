@@ -159,7 +159,7 @@ class OtzariaReleaseClient {
     );
   }
 
-  void close() => _httpClient.close();
+  void dispose() => _httpClient.close();
 }
 
 /// שגיאת תגובה לא תקינה מ-GitHub API. שם ייעודי (לא HttpException) כדי לא

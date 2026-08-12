@@ -149,6 +149,20 @@ Notes:
   inherits its `exclude:` for that very package, and reports "No issues found"
   while checking nothing. `library_manager` and `otzaria_manager` were both in
   that state; do not delete those files.
+- **Each of those six files includes two things:** its own base rule set
+  (`package:flutter_lints/flutter.yaml` for the Flutter packages,
+  `package:lints/recommended.yaml` for the pure-Dart ones) **and**
+  `analysis_options_shared.yaml` at the repo root, which holds every tightening
+  that applies repo-wide. A tightening added to one package only would silently
+  not apply to the rest — that is exactly what happened to
+  `prefer_single_quotes`, which was enabled in `otzaria_l10n` alone.
+  `otzaria_l10n/test/shared_lint_config_test.dart` asserts all six import it,
+  the same way `process_names_test.dart` guards the other cross-package
+  duplication. Before adding a rule there, measure it in **all six** packages —
+  a rule that is clean in five and fails in the sixth turns CI red. Note that
+  `dart analyze` right-aligns severity labels, so `warning` lines carry **no**
+  leading space while `info` lines do; a grep that assumes indentation misses
+  every warning (this cost one wrong "clean everywhere" measurement).
 - `.gitattributes` pins `*.json` to `eol=lf`. `test/patch_tables_contract.json`
   is compared byte-for-byte against the Kotlin side, and with
   `core.autocrlf=true` (the Windows default) it was checked out as CRLF and the

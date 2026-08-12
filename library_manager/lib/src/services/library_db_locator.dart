@@ -85,39 +85,59 @@ class LibraryDbLocator {
     required String operatingSystem,
     required Map<String, String> environment,
   }) {
-    final dirs = <String>[];
-    // ה-context נבחר לפי [operatingSystem] ולא לפי המכונה המריצה: `p.join`
-    // הגלובלי היה מרכיב נתיבי macOS עם `\` כשהבדיקות רצות ב-Windows.
-    final path = operatingSystem == 'windows' ? p.windows : p.posix;
+    final path = _pathFor(operatingSystem);
+    return [
+      for (final root in _platformDataRoots(
+        operatingSystem: operatingSystem,
+        environment: environment,
+        // פלטפורמה לא מוכרת מחזירה ריק במקום לנחש — יש על כך בדיקה.
+        guessUnknownPlatform: false,
+      ))
+        path.join(root, 'books'),
+    ];
+  }
+
+  /// ה-context לבניית נתיבים נבחר לפי ה-OS ולא לפי המכונה המריצה: `p.join`
+  /// הגלובלי היה מרכיב נתיבי macOS עם `\` כשהבדיקות רצות ב-Windows.
+  static p.Context _pathFor(String operatingSystem) =>
+      operatingSystem == 'windows' ? p.windows : p.posix;
+
+  /// שורשי הנתונים של אוצריא לפלטפורמה, בסדר עדיפות — **הטבלה היחידה**
+  /// שממנה נגזרים גם [defaultDbDirs] (שמוסיפה `books`) וגם [otzariaDataRoots]
+  /// (שקוראת משם את קופסת ההגדרות). שני העתקים נפרדים שלה כבר סחפו זה מזה.
+  ///
+  /// [guessUnknownPlatform] הוא ההבדל **המכוון** בין שני הקוראים: איתור המסד
+  /// מסרב לנחש נתיב בפלטפורמה שאינה מוכרת, ואיתור ההגדרות דווקא מנסה את
+  /// מיקום ה-XDG — כדי שבדיקות שרצות בלינוקס ב-CI לא יקבלו רשימה ריקה.
+  static List<String> _platformDataRoots({
+    required String operatingSystem,
+    required Map<String, String> environment,
+    required bool guessUnknownPlatform,
+  }) {
+    final path = _pathFor(operatingSystem);
+    final roots = <String>[];
+
+    void addUnder(String? base, List<String> parts) {
+      if (base == null || base.isEmpty) return;
+      roots.add(path.joinAll([base, ...parts]));
+    }
 
     switch (operatingSystem) {
       case 'windows':
-        final appData = environment['APPDATA'];
-        if (appData != null && appData.isNotEmpty) {
-          dirs.add(path.join(appData, 'otzaria', 'books'));
-        }
-        final programData = environment['ProgramData'];
-        if (programData != null && programData.isNotEmpty) {
-          dirs.add(path.join(programData, 'otzaria', 'books'));
-        }
+        addUnder(environment['APPDATA'], const ['otzaria']);
+        addUnder(environment['ProgramData'], const ['otzaria']);
       case 'macos':
-        final home = environment['HOME'];
-        if (home != null && home.isNotEmpty) {
-          dirs.add(path.join(
-              home, 'Library', 'Application Support', 'otzaria', 'books'));
-        }
-        dirs.add(
-            path.join('/Library', 'Application Support', 'otzaria', 'books'));
-      case 'linux':
-        // הלאנצ'ר לא נבנה ללינוקס, אבל הבדיקות רצות שם ב-CI — עדיף להחזיר
-        // את המיקום הנכון מלהחזיר רשימה ריקה.
-        final home = environment['HOME'];
-        if (home != null && home.isNotEmpty) {
-          dirs.add(path.join(home, '.local', 'share', 'otzaria', 'books'));
+        addUnder(environment['HOME'],
+            const ['Library', 'Application Support', 'otzaria']);
+        roots.add(path.join('/Library', 'Application Support', 'otzaria'));
+      default:
+        // הלאנצ'ר לא נבנה ללינוקס, אבל הבדיקות רצות שם ב-CI.
+        if (operatingSystem == 'linux' || guessUnknownPlatform) {
+          addUnder(environment['HOME'], const ['.local', 'share', 'otzaria']);
         }
     }
 
-    return dirs;
+    return roots;
   }
 
   /// התיקייה שבה יושב ה-executable של אוצריא, לפי נתיב ההפעלה: ב-macOS זהו
@@ -141,29 +161,11 @@ class LibraryDbLocator {
       roots.add(_path.join(exeDir, portableDataFolderName));
     }
 
-    switch (_operatingSystem) {
-      case 'windows':
-        final appData = _environment['APPDATA'];
-        if (appData != null && appData.isNotEmpty) {
-          roots.add(_path.join(appData, 'otzaria'));
-        }
-        final programData = _environment['ProgramData'];
-        if (programData != null && programData.isNotEmpty) {
-          roots.add(_path.join(programData, 'otzaria'));
-        }
-      case 'macos':
-        final home = _environment['HOME'];
-        if (home != null && home.isNotEmpty) {
-          roots.add(
-              _path.join(home, 'Library', 'Application Support', 'otzaria'));
-        }
-        roots.add(_path.join('/Library', 'Application Support', 'otzaria'));
-      default:
-        final home = _environment['HOME'];
-        if (home != null && home.isNotEmpty) {
-          roots.add(_path.join(home, '.local', 'share', 'otzaria'));
-        }
-    }
+    roots.addAll(_platformDataRoots(
+      operatingSystem: _operatingSystem,
+      environment: _environment,
+      guessUnknownPlatform: true,
+    ));
     return roots;
   }
 

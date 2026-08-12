@@ -62,7 +62,7 @@ void main() {
   group('OtzariaInstaller.ensureCached', () {
     test('מוריד לתת-תיקייה לפי תג, ומדווח התקדמות מול הגודל הצפוי', () async {
       final installer = installerWith(mockDownload(_installerBytes));
-      addTearDown(installer.close);
+      addTearDown(installer.dispose);
       final progress = <(int, int)>[];
 
       final path = await installer.ensureCached(
@@ -82,7 +82,7 @@ void main() {
       await Directory(p.join(cacheDir, _tag)).create(recursive: true);
       await File(cachedPath()).writeAsString(_installerBytes);
       final installer = installerWith(mustNotBeUsed());
-      addTearDown(installer.close);
+      addTearDown(installer.dispose);
 
       expect(await installer.ensureCached(release: _release()), cachedPath());
       expect(requests, 0);
@@ -93,7 +93,7 @@ void main() {
       await Directory(p.join(cacheDir, _tag)).create(recursive: true);
       await File(cachedPath()).writeAsString('חצי');
       final installer = installerWith(mockDownload(_installerBytes));
-      addTearDown(installer.close);
+      addTearDown(installer.dispose);
 
       await installer.ensureCached(release: _release());
 
@@ -103,7 +103,7 @@ void main() {
 
     test('גודל שונה מהמוצהר — שגיאה, והקובץ החלקי נמחק', () async {
       final installer = installerWith(mockDownload('short'));
-      addTearDown(installer.close);
+      addTearDown(installer.dispose);
 
       await expectLater(
         installer.ensureCached(release: _release(size: 999)),
@@ -120,7 +120,7 @@ void main() {
 
     test('סטטוס HTTP לא תקין — שגיאת l10n ובלי קובץ שנשאר', () async {
       final installer = installerWith(mockDownload('', status: 404));
-      addTearDown(installer.close);
+      addTearDown(installer.dispose);
 
       await expectLater(
         installer.ensureCached(release: _release()),
@@ -139,7 +139,7 @@ void main() {
         await Directory(p.join(cacheDir, tag)).create(recursive: true);
       }
       final installer = installerWith(mustNotBeUsed());
-      addTearDown(installer.close);
+      addTearDown(installer.dispose);
 
       // שני הערוצים נשמרים יחד — התקנה של אחד לא מוחקת את קובץ ההתקנה של
       // השני, אחרת החלפת ערוץ הייתה דורשת חזרה לרשת.
@@ -155,7 +155,7 @@ void main() {
 
     test('תיקיית cache שאינה קיימת אינה שגיאה', () async {
       final installer = installerWith(mustNotBeUsed());
-      addTearDown(installer.close);
+      addTearDown(installer.dispose);
 
       await expectLater(
         installer.pruneCacheExcept(keepTagNames: const {}),

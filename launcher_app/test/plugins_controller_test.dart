@@ -295,6 +295,24 @@ void main() {
       expect(controller.categoryName('אין-כזו'), 'אין-כזו');
     });
 
+    // התוצרים ממוזנים, ולכן קריאה **לפני** שינוי מצב חייבת להתבטל אחריו.
+    // בלי זה דף הבית היה נשאר על התשובה של הטעינה הראשונה.
+    test('homeCategories מתעדכן אחרי שינוי מצב, ולא נשאר על cache', () {
+      expect(controller.homeCategories.map((c) => c.slug), ['study']);
+
+      // הצבה ישירה ל-installed — כל התוספים מותקנים ומעודכנים.
+      controller.installed = const {
+        'm.a': '1.0.0',
+        'm.b': '1.0.0',
+        'm.c': '1.0.0'
+      };
+      expect(controller.homeCategories, isEmpty);
+
+      // כיבוי המתג מחזיר אותן, למרות שכבר נקרא פעמיים לפני כן.
+      controller.setHideInstalled(false);
+      expect(controller.homeCategories.map((c) => c.slug), ['study']);
+    });
+
     test('hasCuratedHome נמדד על המבנה — גם כשהמתג ריקן את הכרטיסים', () {
       controller.installed = const {
         'm.a': '1.0.0',

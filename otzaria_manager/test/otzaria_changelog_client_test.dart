@@ -139,7 +139,7 @@ void main() {
       final client =
           OtzariaChangelogClient(httpClient: _mockChangelog(_fakeChangelog));
 
-      expect(client.close, returnsNormally);
+      expect(client.dispose, returnsNormally);
     });
   });
 }

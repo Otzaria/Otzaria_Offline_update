@@ -133,7 +133,7 @@ if (detected != null) {
   await manager.adoptExistingInstall(detected); // מכאן והלאה עדכונים יתבצעו לתוך userChosenDir
 }
 
-manager.close();
+manager.dispose();
 ```
 
 ## מבנה
