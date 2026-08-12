@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:test/test.dart';
 import 'package:seforim_library_updater/src/models/patch_table_spec.dart';
+import 'package:seforim_library_updater/src/services/fast_sha256.dart';
 import 'package:seforim_library_updater/src/services/logical_content_hasher.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
@@ -121,6 +122,26 @@ void main() {
         // marker גם כשהטבלה נעדרת, לכן ה-golden מתעדכן עם סנכרון הרשימה.
         'be9a9509fc7a2ab495fb17447e6fc1b3aebc7ea7234757cac5748a00daadb265',
       );
+      db.close();
+    });
+
+    // ה-hash חייב להיות עצמאי מהמימוש של SHA-256: המסלול הנייטיבי
+    // (`FastSha256`) והמסלול של package:crypto מייצרים אותו golden. בלי זה
+    // רגרסיה במסלול אחד הייתה נראית "עוברת" בפלטפורמה שמשתמשת בשני.
+    test('שני מסלולי ה-SHA נותנים אותו golden', () {
+      final db = sqlite3.sqlite3.openInMemory();
+      db.execute('CREATE TABLE source (id INTEGER PRIMARY KEY, name TEXT)');
+      db.execute('INSERT INTO source VALUES (1, ?)', ['﻿שלום']);
+      db.execute("INSERT INTO source VALUES (2,'bet'),(3,NULL)");
+      db.execute('CREATE TABLE line (id INTEGER PRIMARY KEY, text TEXT)');
+      db.execute('INSERT INTO line VALUES (1, ?)', ['x' * 3000]);
+
+      addTearDown(() => FastSha256.useFallbackOnly = false);
+      FastSha256.useFallbackOnly = false;
+      final native = _hasher.compute(db);
+      FastSha256.useFallbackOnly = true;
+      final fallback = _hasher.compute(db);
+      expect(native, fallback);
       db.close();
     });
 

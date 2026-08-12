@@ -378,6 +378,75 @@ void main() {
     });
   });
 
+  group('תיקיית התוספים נגזרת מההתקנה שזוהתה', () {
+    const pluginId = 'launcher-test-plugin';
+    late String exe;
+    String? launchPath;
+
+    PluginsModuleController portableController() {
+      final c = PluginsModuleController(
+        mirrorRootDir: p.join(tempDir.path, 'mirror'),
+        otzariaLaunchPath: () async => launchPath,
+      );
+      addTearDown(c.dispose);
+      return c;
+    }
+
+    setUp(() {
+      // התקנה ניידת של אוצריא: קובץ הרצה, קובץ הסימון, ותיקיית הנתונים
+      // שלידם — בדיוק המבנה שבו `%APPDATA%` אינו רלוונטי.
+      final dir = p.join(tempDir.path, 'ניידת');
+      exe = p.join(dir, 'otzaria.exe');
+      File(exe).createSync(recursive: true);
+      File(p.join(dir, InstalledPluginsScanner.portableMarkerFileName))
+          .writeAsStringSync('');
+      File(p.join(
+        dir,
+        InstalledPluginsScanner.portableDataFolderName,
+        'plugins',
+        'installed',
+        pluginId,
+        'current',
+        'manifest.json',
+      ))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('{"id":"$pluginId","version":"1.4.0"}');
+      launchPath = null;
+    });
+
+    test('load קורא את התוספים של ההתקנה הניידת', () async {
+      launchPath = exe;
+      final c = portableController();
+
+      await c.load();
+
+      expect(c.installed, {pluginId: '1.4.0'});
+    });
+
+    test('refreshInstalled סורק מחדש אחרי שנתיב ההתקנה התברר', () async {
+      final c = portableController();
+      await c.load();
+      // לפני הזיהוי אין נתיב, והסריקה נפלה לברירת המחדל של הפלטפורמה.
+      expect(c.installed.containsKey(pluginId), isFalse);
+
+      launchPath = exe;
+      await c.refreshInstalled();
+
+      expect(c.installed[pluginId], '1.4.0');
+      expect(c.status, PluginsModuleStatus.ready);
+    });
+
+    test('refreshInstalled בזמן טעינה ממתינה לה ולא מדלגת', () async {
+      launchPath = exe;
+      final c = portableController();
+
+      final loading = c.load();
+      await Future.wait([loading, c.refreshInstalled()]);
+
+      expect(c.installed[pluginId], '1.4.0');
+    });
+  });
+
   group('sync — הפעולה היחידה שדורשת רשת', () {
     test('בלי חיבור: מצב שגיאה עם הודעה, בלי קריסה', () async {
       await controller.sync();

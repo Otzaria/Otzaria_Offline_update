@@ -151,6 +151,30 @@ void main() {
       });
     });
 
+    test('גרסת המסד המקומי נקראת גם בלי מראה — בחירה ידנית לפני הורדה',
+        () async {
+      await installExistingDb(17);
+      final manager = LibraryManager(dataDir: dataDir);
+      addTearDown(manager.dispose);
+
+      // הבדיקה נכשלת (אין מראה), אבל הגרסה שנקראה מהמסד לא הולכת לאיבוד.
+      await expectLater(manager.checkForUpdate(),
+          throwsA(isA<LibraryMirrorMissingException>()));
+
+      expect((await manager.readLocalVersion())?.dbVersion, 17);
+    });
+
+    test('בלי מסד כלל — readLocalVersion מחזירה null ולא זורקת', () async {
+      if (await ambientDbExists()) {
+        markTestSkipped('קיימת אוצריא אמיתית במכונה — הבדיקה אינה מבודדת');
+        return;
+      }
+      final manager = LibraryManager(dataDir: dataDir);
+      addTearDown(manager.dispose);
+
+      expect(await manager.readLocalVersion(), isNull);
+    });
+
     test('ההודעה של LibraryMirrorMissingException מגיעה מ-otzaria_l10n', () {
       const exception = LibraryMirrorMissingException(r'C:\mirror');
 
@@ -486,6 +510,87 @@ void main() {
         await LibraryStateStore(p.join(dataDir, 'library_state.json'))
             .loadAppliedReleaseTag(),
         isNull,
+      );
+      manager.dispose();
+    });
+
+    // ההתאוששות מ-issue #19: מסלול דלתא שנכשל (patch שאינו מתאים למסד) אינו
+    // מותיר את המשתמש תקוע — אותה בדיקה מותקנת דרך המסד המלא שבמראה.
+    test('useFullDownloadFallback מתקין את המסד המלא במקום ה-patches',
+        () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      if (await const OtzariaProcessGuard()
+          .isAnyRunning(OtzariaProcessGuard.processNamesFor(
+        Platform.operatingSystem,
+      ))) {
+        markTestSkipped('אוצריא פתוחה — ההחלה נחסמת בכוונה');
+        return;
+      }
+
+      final dbPath = await installExistingDb(4, appliedTag: 'v4');
+      final dbBytes = buildRealDb(5);
+      final compressed = p.join(tempDir.path, 'full.db.zst');
+      File(compressed)
+          .writeAsBytesSync(compressWithZstd(bindings, dbBytes), flush: true);
+
+      final check = LibraryUpdateCheckResult(
+        dbPath: dbPath,
+        latestReleaseTag: 'v5',
+        plan: LibraryUpdatePlan.delta(
+          localVersion: 4,
+          targetVersion: 5,
+          steps: const [],
+          fullDownloadFallback: LibraryUpdatePlan.fullDownload(
+            localVersion: 4,
+            targetVersion: 5,
+            asset: ReleaseAsset(
+              name: 'seforim.db.zst',
+              downloadUrl: compressed,
+              size: File(compressed).lengthSync(),
+            ),
+            releaseTag: 'v5',
+          ),
+        ),
+      );
+      expect(check.canFallBackToFullDownload, isTrue);
+
+      await _withoutNetwork((_) async {
+        final manager = LibraryManager(dataDir: dataDir);
+        await manager.applyUpdate(check, useFullDownloadFallback: true);
+
+        expect(File(dbPath).readAsBytesSync(), dbBytes);
+        expect(
+          await LibraryStateStore(p.join(dataDir, 'library_state.json'))
+              .loadAppliedReleaseTag(),
+          'v5',
+        );
+        manager.dispose();
+      });
+    });
+
+    test('בקשת מסלול חלופי שאינו קיים נכשלת במקום לא לעשות כלום', () async {
+      final manager = LibraryManager(dataDir: dataDir);
+
+      await expectLater(
+        manager.applyUpdate(
+          LibraryUpdateCheckResult(
+            dbPath: p.join(tempDir.path, 'seforim.db'),
+            plan: LibraryUpdatePlan.delta(
+              localVersion: 4,
+              targetVersion: 5,
+              steps: const [],
+            ),
+          ),
+          useFullDownloadFallback: true,
+        ),
+        throwsA(isA<LibraryApplyException>().having(
+          (e) => e.message,
+          'message',
+          AppL10n.strings.libraryDomain.fullDbAssetMissingFromPlan,
+        )),
       );
       manager.dispose();
     });

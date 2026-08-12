@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
+import 'package:launcher_app/src/theme/theme_exports.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
@@ -84,6 +86,8 @@ void main() {
         'language',
         'themeMode',
         'textScale',
+        'seedColor',
+        'darkSeedColor',
       });
       expect(json['schemaVersion'], AppSettings.schemaVersion);
     });
@@ -101,9 +105,14 @@ void main() {
       expect(s.autoInstallApp, isFalse);
       expect(s.autoInstallLibrary, isFalse);
       expect(s.preferAppPrerelease, isFalse);
-      expect(s.language, AppLanguage.hebrew);
+      // ברירת המחדל היא "אוטומטי" — לפי שפת המחשב, ולכן הבדיקה על הבחירה
+      // ולא על השפה שנפתרת ממנה (שתלויה במחשב שעליו הבדיקה רצה).
+      expect(s.languagePreference, AppLanguagePreference.system);
       expect(s.themeMode, AppThemeMode.system);
       expect(s.textScale, 1.0);
+      // אותם גוונים שאוצריא נפתחת בהם.
+      expect(s.seedColor, AppSeedColors.defaultLight);
+      expect(s.darkSeedColor, AppSeedColors.defaultDark);
     });
 
     test('סבב JSON מלא — כל שדה חוזר כפי שנשמר', () {
@@ -116,9 +125,11 @@ void main() {
         autoInstallApp: true,
         autoInstallLibrary: true,
         preferAppPrerelease: true,
-        language: AppLanguage.english,
+        languagePreference: AppLanguagePreference.english,
         themeMode: AppThemeMode.light,
         textScale: 1.3,
+        seedColor: AppSeedColors.teal,
+        darkSeedColor: AppSeedColors.amber,
       );
 
       final restored = AppSettings.fromJson(original.toJson());
@@ -131,10 +142,35 @@ void main() {
       expect(restored.autoInstallApp, isTrue);
       expect(restored.autoInstallLibrary, isTrue);
       expect(restored.preferAppPrerelease, isTrue);
+      expect(restored.languagePreference, AppLanguagePreference.english);
       expect(restored.language, AppLanguage.english);
       expect(restored.themeMode, AppThemeMode.light);
       expect(restored.textScale, 1.3);
+      expect(restored.seedColor, AppSeedColors.teal);
+      expect(restored.darkSeedColor, AppSeedColors.amber);
       expect(restored.hasSyncSelection, isFalse);
+    });
+
+    test('צבע נשמר כ-ARGB שלם, וערך פגום נופל לברירת המחדל', () {
+      final ui = const AppSettings(seedColor: AppSeedColors.navy).toJson()['ui']
+          as Map<String, dynamic>;
+      expect(ui['seedColor'], AppSeedColors.navy.toARGB32());
+
+      final restored = AppSettings.fromJson({
+        'ui': {'seedColor': '#FF0000', 'darkSeedColor': null},
+      });
+      expect(restored.seedColor, AppSeedColors.defaultLight);
+      expect(restored.darkSeedColor, AppSeedColors.defaultDark);
+    });
+
+    test('צבע שאינו בפלטה נשמר כמו שהוא — קובץ שנערך ביד לא נמחק', () {
+      const custom = Color(0xFF123456);
+      final restored = AppSettings.fromJson(
+        const AppSettings(seedColor: custom).toJson(),
+      );
+
+      expect(restored.seedColor, custom);
+      expect(AppSeedColors.labelOf(restored.seedColor), isNull);
     });
 
     test('JSON ריק → בדיוק ברירות המחדל', () {
@@ -170,7 +206,7 @@ void main() {
 
       expect(next.preferAppPrerelease, isTrue);
       expect(next.textScale, 1.15);
-      expect(next.language, original.language);
+      expect(next.languagePreference, original.languagePreference);
     });
 
     test('preferAppPrerelease נשמר בסעיף הערוצים ולא נוגע בהורדה', () {
@@ -270,7 +306,9 @@ void main() {
     test('החלפת שפה מזליגה ל-AppL10n — זה מה שקוראות חבילות התשתית', () async {
       expect(AppL10n.language, AppLanguage.hebrew);
 
-      await controller.update(const AppSettings(language: AppLanguage.english));
+      await controller.update(
+        const AppSettings(languagePreference: AppLanguagePreference.english),
+      );
 
       expect(AppL10n.language, AppLanguage.english);
       expect(AppL10n.strings.units.bytes(2), '2 bytes');
@@ -278,13 +316,39 @@ void main() {
 
     test('טעינה מקובץ שנשמר באנגלית מציבה את השפה כבר ב-load', () async {
       settingsFile().writeAsStringSync(jsonEncode(
-        const AppSettings(language: AppLanguage.english).toJson(),
+        const AppSettings(languagePreference: AppLanguagePreference.english)
+            .toJson(),
       ));
 
       await controller.load();
 
       expect(controller.settings.language, AppLanguage.english);
       expect(AppL10n.language, AppLanguage.english);
+    });
+
+    test('קובץ שנשמר עם שפה מפורשת אינו נגרר אחרי שפת המחשב', () async {
+      // המשתמש בחר עברית — גם על מחשב באנגלית זו תישאר עברית.
+      settingsFile().writeAsStringSync(jsonEncode(
+        const AppSettings(languagePreference: AppLanguagePreference.hebrew)
+            .toJson(),
+      ));
+
+      await controller.load();
+
+      expect(
+          controller.settings.languagePreference, AppLanguagePreference.hebrew);
+      expect(controller.settings.language, AppLanguage.hebrew);
+      expect(AppL10n.language, AppLanguage.hebrew);
+    });
+
+    test('בלי קובץ — השפה האוטומטית מוצבת ב-AppL10n כבר ב-load', () async {
+      // המלכודת: `load` יוצא מוקדם כשאין קובץ, ובלי הצבה מפורשת מלל התשתית
+      // היה נשאר עברית בזמן שהמסכים מוצגים בשפת המחשב.
+      AppL10n.use(AppLanguage.english);
+
+      await controller.load();
+
+      expect(AppL10n.language, controller.settings.language);
     });
 
     test('התיקייה נוצרת בשמירה גם כשלא הייתה קיימת', () async {

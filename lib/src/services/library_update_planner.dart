@@ -71,6 +71,17 @@ class LibraryUpdatePlanner {
         localVersion: localVersion,
         targetVersion: latestVersion,
         steps: path,
+        // ההתאוששות כש-patch נכשל על המסד הזה — ראו
+        // [LibraryUpdatePlan.fullDownloadFallback].
+        fullDownloadFallback:
+            latestFullDbAsset != null && latestReleaseTag != null
+                ? LibraryUpdatePlan.fullDownload(
+                    localVersion: localVersion,
+                    targetVersion: fullTargetVersion,
+                    asset: latestFullDbAsset,
+                    releaseTag: latestReleaseTag,
+                  )
+                : null,
       );
     }
 

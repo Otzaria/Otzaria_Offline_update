@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/library_module_controller.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
+import 'package:library_manager/library_manager.dart';
 import 'package:path/path.dart' as p;
+import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 import 'test_support.dart';
 
@@ -44,6 +46,22 @@ void main() {
       expect(controller.errorMessage, isNull);
       expect(controller.localVersion, isNull);
       expect(controller.targetVersion, isNull);
+    });
+
+    test('מסד אמיתי שנבחר ידנית — הגרסה מוצגת גם לפני שהורדה מראה', () async {
+      // הדיווח שהוליד את הבדיקה: אחרי בחירה ידנית המסך הראה "לא ידוע",
+      // כי הבדיקה קראה את הגרסה ואז נפלה על היעדר מראה.
+      final realDb = File(p.join(tempDir.path, 'picked', 'seforim.db'))
+        ..parent.createSync(recursive: true);
+      final db = sqlite3.sqlite3.open(realDb.path);
+      db.execute('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT)');
+      db.execute("INSERT INTO schema_meta VALUES ('db_version', '18')");
+      db.close();
+
+      await controller.setCustomDbPath(realDb.path);
+
+      expect(controller.status, LibraryModuleStatus.needsDownload);
+      expect(controller.localVersion, 18);
     });
 
     test('נתיב ה-DB מתגלה ונשמר — לא מונח מראש', () async {
@@ -144,6 +162,76 @@ void main() {
       controller.localVersion = 20;
 
       expect(controller.hasOnlineUpdate, isFalse);
+    });
+  });
+
+  /// עדכון מסד שנעשה כאן משאיר את אינדקס החיפוש של אוצריא על התוכן הישן,
+  /// והסימון שלצד המסד הוא מה שמזכיר לנו לבקש ממנה לתקן. ראו AGENTS §5.
+  group('בקשת עדכון האינדקס שממתינה', () {
+    /// כותב סימון "אמיתי" — דרך אותו שירות שכותב אותו ב-`applyUpdate`.
+    Future<void> writeNotice(
+            {String route = ExternalUpdateNotice.routeDelta}) =>
+        const ExternalUpdateNotice().write(
+          dbPath: fakeDb.path,
+          route: route,
+          booksTouched: {4, 11},
+          dbVersion: 30,
+        );
+
+    test('בלי סימון אין בקשה ממתינה', () async {
+      await controller.setCustomDbPath(fakeDb.path);
+
+      expect(controller.hasPendingReindex, isFalse);
+      expect(controller.pendingReindex, isNull);
+    });
+
+    // הסימון יושב לצד המסד ולכן שורד הפעלה מחדש של הלאנצ'ר: בדיקה בעלייה
+    // חייבת למצוא בקשה שנכתבה בהרצה קודמת ולא נמסרה.
+    test('סימון מהרצה קודמת נקרא בבדיקה, ולא רק אחרי עדכון', () async {
+      await writeNotice();
+
+      await controller.setCustomDbPath(fakeDb.path);
+
+      expect(controller.hasPendingReindex, isTrue);
+      expect(controller.pendingReindex!.booksTouched, {4, 11});
+      expect(controller.pendingReindex!.dbVersion, 30);
+    });
+
+    test('מסירה מוצלחת מוחקת את הסימון מהדיסק', () async {
+      await writeNotice(route: ExternalUpdateNotice.routeFull);
+      await controller.setCustomDbPath(fakeDb.path);
+      expect(controller.hasPendingReindex, isTrue);
+
+      await controller.markReindexRequestDelivered();
+
+      expect(controller.hasPendingReindex, isFalse);
+      expect(
+        File(p.join(fakeDb.parent.path, ExternalUpdateNotice.fileName))
+            .existsSync(),
+        isFalse,
+      );
+      // ובדיקה חוזרת אינה מחזירה אותה לחיים.
+      await controller.checkForUpdate();
+      expect(controller.hasPendingReindex, isFalse);
+    });
+
+    test('סימון שלא נמסר נשאר גם אחרי בדיקה חוזרת', () async {
+      await writeNotice();
+      await controller.setCustomDbPath(fakeDb.path);
+
+      await controller.checkForUpdate();
+
+      expect(controller.hasPendingReindex, isTrue);
+    });
+
+    test('markReindexRequestDelivered בלי בקשה ממתינה אינו עושה דבר', () async {
+      await controller.setCustomDbPath(fakeDb.path);
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+
+      await controller.markReindexRequestDelivered();
+
+      expect(notifications, 0);
     });
   });
 }

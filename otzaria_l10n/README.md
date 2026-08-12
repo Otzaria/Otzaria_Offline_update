@@ -18,7 +18,7 @@
 
 | קובץ | תפקיד |
 | --- | --- |
-| `app_language.dart` | `enum AppLanguage` — קוד ISO ו-`isRtl`. |
+| `app_language.dart` | `enum AppLanguage` — קוד ISO, `isRtl`, ומיפוי locale של המערכת. |
 | `app_strings.dart` | הממשק המופשט, מחולק לסעיפים לפי מסך/חבילה. |
 | `strings_he.dart` | עברית — **המקור**. |
 | `strings_en.dart` | אנגלית — תרגום חופשי, לא מילה במילה. |
@@ -40,4 +40,7 @@ throw LibraryApplyException(AppL10n.strings.libraryDomain.updateCancelled);
 1. שדה/מתודה חדשים בסעיף המתאים ב-`app_strings.dart`.
 2. מימוש בשני הקבצים — האנלייזר נכשל אם שכחת אחד מהם.
 
-ברירת המחדל היא עברית, והיא אינה נגזרת משפת המערכת.
+עברית היא שפת המקור, אבל **השפה שמוצגת** נגזרת כברירת מחדל משפת המחשב:
+`AppLanguage.forLanguageCode` ממפה את ה-locale של המערכת, ו-`AppSettings`
+של הלאנצ'ר הוא שקורא לו (ראו `AppLanguagePreference`). כשאין locale מוכר —
+אנגלית.

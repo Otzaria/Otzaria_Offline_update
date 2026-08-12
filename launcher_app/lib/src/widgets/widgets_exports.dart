@@ -6,6 +6,7 @@ export 'action_buttons.dart';
 export 'app_card.dart';
 export 'app_dialogs.dart';
 export 'app_title_bar.dart';
+export 'color_picker_tile.dart';
 export 'custom_switch.dart';
 export 'info_rows.dart';
 export 'nav_rail_item.dart';

@@ -88,16 +88,24 @@ void main() {
       expect(AppSeedColors.defaultDark, const Color(0xFF9C27B0));
     });
 
-    test('רשימת האפשרויות מלאה, בלי כפילות צבע או שם', () {
+    test('רשימת האפשרויות מלאה, בלי כפילות צבע או מזהה', () {
       const options = AppSeedColors.options;
 
-      expect(options, hasLength(13));
+      expect(options, hasLength(SeedColorLabel.values.length));
       expect(options.map((o) => o.color).toSet(), hasLength(options.length));
-      expect(options.map((o) => o.name).toSet(), hasLength(options.length));
+      expect(
+          options.map((o) => o.label).toSet(), SeedColorLabel.values.toSet());
       expect(
         options.map((o) => o.color),
         containsAll([AppSeedColors.defaultLight, AppSeedColors.defaultDark]),
       );
+    });
+
+    test('labelOf מזהה כל צבע בפלטה, וצבע זר הוא "מותאם אישית"', () {
+      for (final option in AppSeedColors.options) {
+        expect(AppSeedColors.labelOf(option.color), option.label);
+      }
+      expect(AppSeedColors.labelOf(const Color(0xFF123456)), isNull);
     });
   });
 

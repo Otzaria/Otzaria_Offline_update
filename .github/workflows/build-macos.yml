@@ -2,6 +2,8 @@ name: Build macOS app (launcher_app only)
 
 # מקבילה ל-build-exe.yml: ריצה מהירה של build ל-macOS בלבד, בלי
 # analyze/test על שאר החבילות. ה-CI המלא (ci.yml) עדיין רץ בנפרד.
+#
+# ⚠️ ארטיפקט לבדיקה בלבד — ההפצה למשתמשים נבנית ומפורסמת ב-ci.yml.
 on:
   push:
     branches: ["**"]

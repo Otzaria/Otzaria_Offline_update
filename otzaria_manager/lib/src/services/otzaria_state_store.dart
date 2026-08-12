@@ -3,10 +3,14 @@ import 'dart:io';
 
 import '../models/otzaria_install_state.dart';
 
-/// שומר/טוען את קובץ ה-state המקומי שמתעד מה הותקן ואיפה. הקובץ הזה הוא
-/// מקור האמת שלנו. הרג'יסטרי משמש לאיתור **התיקייה** בלבד
-/// ([WindowsInstallRegistry]) — הגרסה נקראת תמיד מקובץ ההרצה עצמו, כי
-/// `DisplayVersion` משקף את מה שהמתקין רשם ולא את מה שיושב על הדיסק.
+/// שומר/טוען את קובץ ה-state המקומי שמתעד מה הותקן ואיפה. הרג'יסטרי משמש
+/// לאיתור **התיקייה** בלבד ([WindowsInstallRegistry]) — הגרסה נקראת תמיד
+/// מקובץ ההרצה עצמו, כי `DisplayVersion` משקף את מה שהמתקין רשם ולא את מה
+/// שיושב על הדיסק.
+///
+/// הקובץ הוא נקודת פתיחה, **לא** מקור אמת: הוא יושב על הכונן הנייד ונוסע
+/// בין מחשבים, ולכן כל קורא חייב לאמת אותו מול הדיסק —
+/// `OtzariaManager._verifyStoredState`.
 class OtzariaStateStore {
   const OtzariaStateStore(this.stateFilePath);
 

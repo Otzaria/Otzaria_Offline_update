@@ -2,6 +2,10 @@ name: Build EXE (launcher_app only)
 
 # ריצה מהירה: רק build windows ל-launcher_app, בלי analyze/test על שאר
 # החבילות. ה-CI המלא (ci.yml) עדיין רץ בנפרד על כל push/PR.
+#
+# ⚠️ זהו ארטיפקט לבדיקה בלבד. מה שמופץ למשתמשים נבנה ומפורסם ב-ci.yml,
+# ורק שם הגרסה מוצבת לפי הריצה — ה-exe שנוצר כאן נושא את המספר שכתוב
+# ב-pubspec.yaml ולא את מספר ה-release.
 on:
   push:
     branches: ["**"]

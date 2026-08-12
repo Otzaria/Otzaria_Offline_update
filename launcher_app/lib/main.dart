@@ -44,6 +44,11 @@ void main() {
     () async {
       WidgetsFlutterBinding.ensureInitialized();
 
+      // שפת המחשב, עוד לפני שההגדרות נטענו: כשל באתחול (למשל [AppPaths])
+      // מנסח את הודעתו מ-`AppL10n` ברגע הזריקה. `SettingsController` יחליף
+      // אם המשתמש בחר שפה מפורשת.
+      AppL10n.use(systemLanguage());
+
       // תופס שגיאות שה-widgets framework עצמו זורק (למשל בתוך build/layout).
       FlutterError.onError = (details) {
         report(
@@ -132,6 +137,8 @@ class LauncherApp extends StatelessWidget {
             AppThemeMode.dark => ThemeMode.dark,
           },
           textScale: s.textScale,
+          seedColor: s.seedColor,
+          darkSeedColor: s.darkSeedColor,
           home: AppShell(dataDir: dataDir, settings: settings),
         );
       },
@@ -140,15 +147,18 @@ class LauncherApp extends StatelessWidget {
 }
 
 /// עוטף את [SetupErrorScreen] ב-MaterialApp משלו — ההגדרות עוד לא נטענו
-/// (ואי אפשר לטעון אותן), ולכן ערכת הנושא היא לפי המערכת.
+/// (ואי אפשר לטעון אותן), ולכן ערכת הנושא והשפה הן לפי המערכת.
 class SetupErrorApp extends StatelessWidget {
   const SetupErrorApp({super.key, required this.error});
 
   final AppPathsException error;
 
   @override
-  Widget build(BuildContext context) =>
-      _materialApp(home: SetupErrorScreen(error: error));
+  Widget build(BuildContext context) => _materialApp(
+        home: SetupErrorScreen(error: error),
+        // אותה שפה שבה נוסחה הודעת השגיאה עצמה, שנבנתה לפני `runApp`.
+        language: AppL10n.language,
+      );
 }
 
 /// הקונפיגורציה המשותפת לשני ה-MaterialApp — שפה, כיווניות וערכת הנושא.
@@ -157,9 +167,11 @@ class SetupErrorApp extends StatelessWidget {
 /// `GlobalWidgetsLocalizations`. אין כאן נגיעה ישירה ב-[Directionality].
 Widget _materialApp({
   required Widget home,
-  AppLanguage language = AppLanguage.hebrew,
+  required AppLanguage language,
   ThemeMode themeMode = ThemeMode.system,
   double textScale = 1.0,
+  Color seedColor = AppSeedColors.defaultLight,
+  Color darkSeedColor = AppSeedColors.defaultDark,
 }) {
   final strings = AppL10n.stringsFor(language);
 
@@ -178,16 +190,10 @@ Widget _materialApp({
       AppLanguage.english => const Locale('en'),
     },
     theme: AppThemeData.light(
-      AppThemeData.createColorScheme(
-        AppSeedColors.defaultLight,
-        Brightness.light,
-      ),
+      AppThemeData.createColorScheme(seedColor, Brightness.light),
     ),
     darkTheme: AppThemeData.dark(
-      AppThemeData.createColorScheme(
-        AppSeedColors.defaultDark,
-        Brightness.dark,
-      ),
+      AppThemeData.createColorScheme(darkSeedColor, Brightness.dark),
     ),
     themeMode: themeMode,
     // ב-`builder` ולא סביב `home`: כאן זה יושב **מעל** ה-Navigator, ולכן גם

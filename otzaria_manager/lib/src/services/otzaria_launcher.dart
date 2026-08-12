@@ -12,7 +12,11 @@ class OtzariaLauncher {
 
   /// מפעיל את אוצריא כתהליך עצמאי (לא ממתין לסיום שלו — אחרת הלאנצ'ר
   /// ייחסם כל עוד אוצריא פתוחה).
-  Future<void> launch(String launchPath) async {
+  ///
+  /// [withUri] הוא קישור עומק (`otzaria://...`) שנמסר כארגומנט — ראו
+  /// `OtzariaDeepLinks`. מסירה ישירה לקובץ ההרצה ולא דרך מטפל הפרוטוקול של
+  /// מערכת ההפעלה, כדי שזה יעבוד גם בהתקנה ניידת שאינה רושמת את הסכימה.
+  Future<void> launch(String launchPath, {String? withUri}) async {
     final isAppBundle = p.basename(launchPath).toLowerCase().endsWith('.app');
 
     // חבילת .app היא **תיקייה**, לא קובץ — בדיקת File.exists עליה תחזיר
@@ -32,7 +36,12 @@ class OtzariaLauncher {
       // הרשאות לפי ה-bundle id). הרצה ישירה של Contents/MacOS/<exe> "עובדת"
       // אבל מייצרת תהליך חסר-זהות שמתנהג אחרת. אין כאן -n בכוונה: אם אוצריא
       // כבר פתוחה, עדיף להביא אותה לחזית מלפתוח מופע שני שיילחם על ה-DB.
-      final result = await Process.run('/usr/bin/open', [launchPath]);
+      // `open -a <bundle> <uri>` הוא הדרך למסור URI לחבילה; בלי URI זו הפעלה
+      // רגילה של אותו bundle.
+      final result = await Process.run(
+        '/usr/bin/open',
+        withUri == null ? [launchPath] : ['-a', launchPath, withUri],
+      );
       if (result.exitCode != 0) {
         throw StateError(
           AppL10n.strings.appDomain
@@ -44,7 +53,7 @@ class OtzariaLauncher {
 
     await Process.start(
       launchPath,
-      const [],
+      [if (withUri != null) withUri],
       mode: ProcessStartMode.detached,
     );
   }

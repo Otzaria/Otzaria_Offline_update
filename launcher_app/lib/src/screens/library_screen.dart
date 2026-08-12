@@ -18,6 +18,7 @@ class LibraryScreen extends StatelessWidget {
     required this.otzariaIsRunning,
     required this.isDownloading,
     required this.onProcessStateChanged,
+    required this.onRequestReindex,
   });
 
   final LibraryModuleController library;
@@ -27,6 +28,10 @@ class LibraryScreen extends StatelessWidget {
   /// בודקת מחדש אם אוצריא פתוחה ומחזירה את התוצאה הטרייה — ראו
   /// [_confirmUpdate].
   final Future<bool> Function() onProcessStateChanged;
+
+  /// מוסרת לאוצריא את בקשת עדכון אינדקס החיפוש. יושבת ב-`AppShell` כי
+  /// המסירה עוברת דרך קובץ ההרצה של אוצריא, שמודול האפליקציה מכיר.
+  final Future<void> Function() onRequestReindex;
 
   bool get _isBusy =>
       library.status == LibraryModuleStatus.updating || isDownloading;
@@ -95,6 +100,21 @@ class LibraryScreen extends StatelessWidget {
             title: t.otzariaRunningTitle,
             subtitle: t.otzariaRunningSubtitle,
           ),
+        // האינדקס של אוצריא אינו יודע שהמסד התחלף מתחתיו, ולכן חיפוש בספר
+        // שהשתנה מחזיר תוכן ישן עד שהבקשה נמסרת.
+        if (c.hasPendingReindex)
+          SettingsActionTile.text(
+            icon: FluentIcons.search_24_regular,
+            title: t.reindexTitle,
+            subtitle: t.reindexPendingSubtitle,
+            actions: [
+              ActionButton.recommended(
+                text: t.reindexButton,
+                icon: FluentIcons.play_24_regular,
+                onPressed: _isBusy ? null : onRequestReindex,
+              ),
+            ],
+          ),
         if (c.errorMessage != null)
           InfoErrorRow(message: c.errorMessage!, onRetry: c.checkForUpdate),
         if (c.status == LibraryModuleStatus.updating)
@@ -109,6 +129,13 @@ class LibraryScreen extends StatelessWidget {
         CardActionsRow(
           actions: [
             RecheckButton(onPressed: _isBusy ? null : _recheck),
+            // ההתאוששות אחרי כשל דלתא — מוצגת רק אז, וכשיש מסד מלא במראה.
+            if (c.canRetryWithFullDownload)
+              ActionButton.neutral(
+                text: t.fullDownloadInsteadButton,
+                icon: FluentIcons.arrow_download_24_regular,
+                onPressed: _isBusy ? null : () => _confirmFullDownload(context),
+              ),
             ActionButton.recommended(
               text: t.installUpdateButton,
               icon: FluentIcons.database_arrow_right_24_regular,
@@ -171,6 +198,41 @@ class LibraryScreen extends StatelessWidget {
         AppL10n.strings.home.libraryUpdatedSnack('${c.localVersion}'),
       );
     }
+    // מציעים את עדכון האינדקס מיד — הרגע שבו המשתמש כאן ממילא. סירוב אינו
+    // מוחק את הסימון: האריח בכרטיס וההפעלה הבאה של אוצריא יציעו שוב.
+    await onRequestReindex();
+  }
+
+  /// המסלול החלופי: המסד המלא מהמראה, אחרי שמסלול הדלתא נכשל.
+  Future<void> _confirmFullDownload(BuildContext context) async {
+    if (await onProcessStateChanged()) {
+      UiSnack.showError(AppL10n.strings.home.otzariaOpenSnack);
+      return;
+    }
+    if (!context.mounted) return;
+    final t = context.strings.libraryScreen;
+
+    final c = library;
+    final size = c.fullDownloadFallbackSize;
+    final approved = await showTwoActionsDialog(
+      context: context,
+      title: t.fullDownloadInsteadDialogTitle,
+      content: t.fullDownloadInsteadPrompt(
+        size != null && size > 0
+            ? formatBytes(size)
+            : context.strings.common.unknownValue,
+      ),
+      confirmText: context.strings.common.install,
+    );
+    if (!approved) return;
+
+    await c.updateWithFullDownload();
+    if (c.status == LibraryModuleStatus.upToDate) {
+      UiSnack.showSuccess(
+        AppL10n.strings.home.libraryUpdatedSnack('${c.localVersion}'),
+      );
+    }
+    await onRequestReindex();
   }
 
   // ── התיקייה שממנה מעדכנים ─────────────────────────────────────────────────

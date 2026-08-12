@@ -6,8 +6,11 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:launcher_app/src/controllers/launcher_update_controller.dart';
 import 'package:launcher_app/src/controllers/library_module_controller.dart';
 import 'package:launcher_app/src/controllers/otzaria_module_controller.dart';
+import 'package:launcher_app/src/self_update/launcher_release.dart';
+import 'package:launcher_app/src/self_update/launcher_version.dart';
 import 'package:launcher_app/src/screens/home_screen.dart';
 import 'package:launcher_app/src/screens/library_screen.dart';
 import 'package:launcher_app/src/screens/otzaria_screen.dart';
@@ -19,7 +22,9 @@ import 'package:launcher_app/src/screens/setup_error_screen.dart';
 import 'package:launcher_app/src/services/app_paths.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
+import 'package:launcher_app/src/theme/theme_exports.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
+import 'package:library_manager/library_manager.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
@@ -31,11 +36,15 @@ void main() {
   late LibraryModuleController library;
   late PluginsModuleController plugins;
   late SettingsController settings;
+  late LauncherUpdateController launcherUpdate;
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('launcher_test');
     otzaria = OtzariaModuleController(dataDir: tempDir.path);
     library = LibraryModuleController(dataDir: tempDir.path);
+    // תיקייה זמנית ריקה: אין מראה, ולכן הבדיקה המקומית עונה "אין מה להתקין"
+    // בלי לגעת ברשת. הבנייה עצמה לא פונה לשום מקום.
+    launcherUpdate = LauncherUpdateController(dataDir: tempDir.path);
     // מראה בתיקייה זמנית ריקה: הקטלוג לא קיים ולכן [load] מחזיר קטלוג ריק
     // בלי לגעת ברשת — בדיוק המצב שלפני הסנכרון הראשון.
     plugins = PluginsModuleController(mirrorRootDir: tempDir.path);
@@ -54,6 +63,7 @@ void main() {
         otzaria: otzaria,
         library: library,
         plugins: plugins,
+        launcherUpdate: launcherUpdate,
         settings: settings,
         otzariaIsRunning: otzariaIsRunning,
         isDownloading: isDownloading,
@@ -61,6 +71,9 @@ void main() {
         onProcessStateChanged: onProcessStateChanged ?? () async => false,
         onCheckOnline: () async {},
         onDownloadAll: () async {},
+        onDownloadLauncherUpdate: () async {},
+        onInstallLauncherUpdate: () async {},
+        onRequestReindex: () async {},
         onGoToOtzaria: () {},
         onGoToLibrary: () {},
       );
@@ -69,6 +82,7 @@ void main() {
     otzaria.dispose();
     library.dispose();
     plugins.dispose();
+    launcherUpdate.dispose();
     settings.dispose();
     tempDir.deleteSync(recursive: true);
   });
@@ -113,6 +127,68 @@ void main() {
 
     expect(find.text('אוצריא פתוחה'), findsOneWidget);
     expect(find.text('עדכון הספרייה חסום עד לסגירתה.'), findsOneWidget);
+  });
+
+  // ── עדכון הלאנצ'ר עצמו ───────────────────────────────────────────────────
+
+  testWidgets('כרטיס עדכון התוכנה נעדר כשאין מה לומר', (tester) async {
+    final t = stringsOf().launcherUpdate;
+    await pumpScreen(tester, home());
+
+    // המצב הרגיל: התוכנה מעודכנת, ומספר הגרסה יושב בהגדרות.
+    expect(find.text(t.cardTitle), findsNothing);
+    expect(find.text(t.downloadButton), findsNothing);
+    expect(find.text(t.installButton), findsNothing);
+  });
+
+  testWidgets('נמצאה גרסה חדשה ברשת — הכרטיס מציע להוריד, ולא להתקין',
+      (tester) async {
+    final t = stringsOf().launcherUpdate;
+    // מדמה בדיקה קלה שמצאה עדכון, בלי לגעת ברשת.
+    launcherUpdate.onlineRelease = const LauncherRelease(
+      tagName: 'v9.9.9',
+      name: 'Otzaria Updates v9.9.9',
+      assetName: 'עדכוני אוצריא.exe',
+      downloadUrl: 'https://example/x.exe',
+      sizeBytes: 42 << 20,
+    );
+    launcherUpdate.onlineCheckedAt = DateTime(2026, 8, 1);
+
+    await pumpScreen(tester, home());
+
+    expect(find.text(t.cardTitle), findsOneWidget);
+    expect(find.text(t.statusUpdateAvailable), findsOneWidget);
+    expect(find.text(t.onlineVersion('9.9.9')), findsOneWidget);
+    expect(find.text(t.downloadButton), findsOneWidget);
+    // עוד לא הורד כלום, ולכן אין מה להתקין.
+    expect(find.text(t.installButton), findsNothing);
+  });
+
+  testWidgets('גרסה שהורדה — הכרטיס מציע התקנה, וגם בלי רשת', (tester) async {
+    final t = stringsOf().launcherUpdate;
+    launcherUpdate.status = LauncherUpdateStatus.readyToInstall;
+    launcherUpdate.downloadedVersion = '9.9.9';
+    launcherUpdate.canInstall = true;
+
+    await pumpScreen(tester, home());
+
+    expect(find.text(t.statusReadyToInstall), findsOneWidget);
+    expect(find.text(t.downloadedVersion('9.9.9')), findsOneWidget);
+    expect(find.text(t.installButton), findsOneWidget);
+    expect(find.text(t.downloadButton), findsNothing);
+  });
+
+  testWidgets('בלי נתיב לקובץ ההרצה אין כפתור התקנה שייכשל בלחיצה',
+      (tester) async {
+    final t = stringsOf().launcherUpdate;
+    launcherUpdate.status = LauncherUpdateStatus.readyToInstall;
+    launcherUpdate.downloadedVersion = '9.9.9';
+    launcherUpdate.canInstall = false;
+
+    await pumpScreen(tester, home());
+
+    expect(find.text(t.statusReadyToInstall), findsOneWidget);
+    expect(find.text(t.installButton), findsNothing);
   });
 
   /// הכפתור בדף הבית קיים רק כשיש מה לעדכן — כאן זה מוצב ידנית, בלי דיסק.
@@ -242,6 +318,7 @@ void main() {
       SettingsScreen(
         controller: settings,
         onOpenLog: () {},
+        launcherVersion: launcherVersion,
       ),
     );
 
@@ -260,6 +337,7 @@ void main() {
         otzariaIsRunning: false,
         isDownloading: false,
         onProcessStateChanged: () async => false,
+        onRequestReindex: () async {},
       ),
     );
 
@@ -286,6 +364,7 @@ void main() {
           checks++;
           return false;
         },
+        onRequestReindex: () async {},
       ),
     );
 
@@ -309,6 +388,7 @@ void main() {
           checks++;
           return true;
         },
+        onRequestReindex: () async {},
       ),
     );
 
@@ -317,6 +397,95 @@ void main() {
 
     expect(checks, 1);
     expect(find.text('עדכן עכשיו'), findsNothing);
+  });
+
+  // issue #19: patch שאינו מתאים למסד המקומי הותיר את המשתמש תקוע — אין
+  // בממשק שום דרך להתקין במקומו את המסד המלא שממילא יושב במראה.
+  testWidgets('כפתור הספרייה המלאה מופיע רק אחרי כשל, ופותח דיאלוג אישור',
+      (tester) async {
+    final t = stringsOf().libraryScreen;
+    fakeLibraryUpdateAvailable();
+
+    await pumpScreen(
+      tester,
+      LibraryScreen(
+        library: library,
+        otzariaIsRunning: false,
+        isDownloading: false,
+        onProcessStateChanged: () async => false,
+        onRequestReindex: () async {},
+      ),
+    );
+    expect(
+      find.widgetWithText(ActionButton, t.fullDownloadInsteadButton),
+      findsNothing,
+    );
+
+    // כמו אחרי כשל אמיתי של מסלול הדלתא. המסך הוא StatelessWidget שנבנה
+    // מחדש על ידי המסגרת, ולכן הבדיקה בונה אותו שוב ולא מסתמכת על notify.
+    library.status = LibraryModuleStatus.error;
+    library.errorMessage = 'ה-patch אינו מתאים למסד';
+    library.canRetryWithFullDownload = true;
+    await pumpScreen(
+      tester,
+      LibraryScreen(
+        library: library,
+        otzariaIsRunning: false,
+        isDownloading: false,
+        onProcessStateChanged: () async => false,
+        onRequestReindex: () async {},
+      ),
+    );
+
+    await tester
+        .tap(find.widgetWithText(ActionButton, t.fullDownloadInsteadButton));
+    await tester.pumpAndSettle();
+
+    // הדיאלוג בלבד — ההתקנה עצמה נוגעת בדיסק ואינה חלק מבדיקת המסך.
+    // הגודל לא ידוע כאן (אין בדיקה אמיתית מאחור), וזה בדיוק מה שמוצג.
+    expect(
+      find.text(
+        t.fullDownloadInsteadPrompt(stringsOf().common.unknownValue),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  // עדכון מסד שנעשה מכאן משאיר את אינדקס החיפוש של אוצריא על התוכן הישן,
+  // והבקשה לתקן זאת חייבת להיות נגישה גם אחרי שהמשתמש דחה אותה פעם אחת.
+  testWidgets('אריח בקשת עדכון האינדקס מופיע רק כשיש בקשה ממתינה',
+      (tester) async {
+    final t = stringsOf().libraryScreen;
+    var requests = 0;
+
+    Future<void> pumpLibrary() => pumpScreen(
+          tester,
+          LibraryScreen(
+            library: library,
+            otzariaIsRunning: false,
+            isDownloading: false,
+            onProcessStateChanged: () async => false,
+            onRequestReindex: () async => requests++,
+          ),
+        );
+
+    await pumpLibrary();
+    expect(find.text(t.reindexTitle), findsNothing);
+
+    // כמו אחרי עדכון מסד מוצלח: הסימון נקרא בבדיקה ויושב בקונטרולר.
+    library.pendingReindex = const ExternalUpdateNoticeData(
+      route: ExternalUpdateNotice.routeDelta,
+      booksTouched: {3, 9},
+      dbVersion: 42,
+    );
+    await pumpLibrary();
+
+    expect(find.text(t.reindexTitle), findsOneWidget);
+    await tester.tap(find.widgetWithText(ActionButton, t.reindexButton));
+    await tester.pump();
+
+    // הדיאלוג והמסירה עצמה יושבים ב-`AppShell` — כאן נבדק שהאריח קורא לו.
+    expect(requests, 1);
   });
 
   testWidgets('"בדוק שוב" במסך הספרייה מרענן גם את מצב התהליך', (tester) async {
@@ -333,6 +502,7 @@ void main() {
           checks++;
           return false;
         },
+        onRequestReindex: () async {},
       ),
     );
 
@@ -643,6 +813,7 @@ void main() {
       SettingsScreen(
         controller: settings,
         onOpenLog: () {},
+        launcherVersion: launcherVersion,
       ),
     );
 
@@ -673,7 +844,11 @@ void main() {
       (tester) async {
     await pumpScreen(
       tester,
-      SettingsScreen(controller: settings, onOpenLog: () {}),
+      SettingsScreen(
+        controller: settings,
+        onOpenLog: () {},
+        launcherVersion: launcherVersion,
+      ),
       language: AppLanguage.english,
     );
 
@@ -693,18 +868,116 @@ void main() {
   testWidgets('בחירת שפה נשמרת בהגדרות ומחליפה את המלל', (tester) async {
     await pumpScreen(
       tester,
-      SettingsScreen(controller: settings, onOpenLog: () {}),
+      SettingsScreen(
+        controller: settings,
+        onOpenLog: () {},
+        launcherVersion: launcherVersion,
+      ),
     );
 
-    expect(settings.settings.language, AppLanguage.hebrew);
+    // ברירת המחדל היא "אוטומטי" — לפי שפת המחשב.
+    expect(settings.settings.languagePreference, AppLanguagePreference.system);
     await tester.tap(find.text('English'));
     await tester.pumpAndSettle();
 
+    expect(settings.settings.languagePreference, AppLanguagePreference.english);
     expect(settings.settings.language, AppLanguage.english);
     // ה-scope כאן קבוע לעברית (הוא נבנה פעם אחת ב-`wrap`), ולכן הבדיקה
     // היא על ההגדרה עצמה ועל המצב הגלובלי שהיא מזליגה לחבילות התשתית.
     expect(AppL10n.language, AppLanguage.english);
     addTearDown(() => AppL10n.use(AppLanguage.hebrew));
+
+    // וחזרה לאוטומטי — הבחירה המפורשת ניתנת לביטול. המסך נבנה מחדש כדי
+    // שהסגמנט הנבחר יתעדכן: `SegmentedButton` מתעלם מהקשה על הנבחר.
+    await pumpScreen(
+      tester,
+      SettingsScreen(
+        controller: settings,
+        onOpenLog: () {},
+        launcherVersion: launcherVersion,
+      ),
+    );
+    await tester.tap(find.text('אוטומטי'));
+    await tester.pumpAndSettle();
+
+    expect(settings.settings.languagePreference, AppLanguagePreference.system);
+  });
+
+  testWidgets('פלטת הצבעים בוחרת, מאפסת ונשמרת', (tester) async {
+    final t = stringsOf().settings;
+
+    await pumpScreen(
+      tester,
+      SettingsScreen(
+        controller: settings,
+        onOpenLog: () {},
+        launcherVersion: launcherVersion,
+      ),
+    );
+
+    // ברירת המחדל היא הגוון הבהיר של אוצריא, והשורה מציגה את שמו.
+    expect(find.text(t.seedColorTitle), findsOneWidget);
+    expect(find.text(t.colorDarkBrown), findsOneWidget);
+
+    await tester.tap(find.text(t.seedColorButton));
+    await tester.pumpAndSettle();
+
+    expect(find.text(t.seedColorDialogTitle), findsOneWidget);
+    // כל צבע בפלטה מוצג עם שמו — זה מה שמכריח מלל מתורגם לכולם.
+    for (final option in AppSeedColors.options) {
+      expect(
+        find.byTooltip(seedColorName(t, option.color)),
+        findsOneWidget,
+        reason: '${option.label}',
+      );
+    }
+
+    await tester.tap(find.byTooltip(t.colorBlue));
+    await tester.pumpAndSettle();
+
+    expect(settings.settings.seedColor, AppSeedColors.blue);
+    // הערכה הכהה לא נגעה — כל בהירות והצבע שלה.
+    expect(settings.settings.darkSeedColor, AppSeedColors.defaultDark);
+
+    // "איפוס" מופיע גם בכרטיס התמיכה, ולכן דווקא זה שבתוך הפלטה.
+    await tester.tap(find.descendant(
+      of: find.byType(SeedColorPalette),
+      matching: find.text(t.seedColorResetButton),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(settings.settings.seedColor, AppSeedColors.defaultLight);
+  });
+
+  testWidgets('בערכה כהה הפלטה משנה את הצבע הכהה בלבד', (tester) async {
+    final t = stringsOf().settings;
+
+    await pumpScreen(
+      tester,
+      Theme(
+        data: AppThemeData.dark(
+          AppThemeData.createColorScheme(
+            AppSeedColors.defaultDark,
+            Brightness.dark,
+          ),
+        ),
+        child: SettingsScreen(
+          controller: settings,
+          onOpenLog: () {},
+          launcherVersion: launcherVersion,
+        ),
+      ),
+    );
+
+    expect(find.text(t.colorPurple), findsOneWidget);
+
+    await tester.tap(find.text(t.seedColorButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip(t.colorTeal));
+    await tester.pumpAndSettle();
+
+    expect(settings.settings.darkSeedColor, AppSeedColors.teal);
+    expect(settings.settings.seedColor, AppSeedColors.defaultLight);
   });
 
   testWidgets('הפעלת התקנה אוטומטית דורשת אישור באזהרה', (tester) async {
@@ -713,6 +986,7 @@ void main() {
       SettingsScreen(
         controller: settings,
         onOpenLog: () {},
+        launcherVersion: launcherVersion,
       ),
     );
 
@@ -869,6 +1143,7 @@ void main() {
         otzariaIsRunning: false,
         isDownloading: false,
         onProcessStateChanged: () async => false,
+        onRequestReindex: () async {},
       ),
     );
 
@@ -893,6 +1168,7 @@ void main() {
         otzariaIsRunning: true,
         isDownloading: false,
         onProcessStateChanged: () async => false,
+        onRequestReindex: () async {},
       ),
     );
 

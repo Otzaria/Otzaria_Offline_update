@@ -148,6 +148,55 @@ void main() {
       expect(() => service.clearStaleArtifacts(dbPath), returnsNormally);
     });
   });
+
+  // סימון "המסד לא אומת ב-hash" — מה שמונע משרשרת שנקטעה להשאיר מסד
+  // לא-מאומת בשקט. ראו `LibraryUpdateApplier.applyDelta`.
+  group('סימון לא-מאומת', () {
+    test('אין סימון → null', () {
+      expect(service.unverifiedVersion(dbPath), isNull);
+    });
+
+    test('markUnverified/unverifiedVersion — הלוך וחזור', () {
+      service.markUnverified(dbPath, 17);
+      expect(
+          File(service.unverifiedMarkerPathFor(dbPath)).existsSync(), isTrue);
+      expect(service.unverifiedVersion(dbPath), 17);
+    });
+
+    test('clearUnverified מוחק', () {
+      service.markUnverified(dbPath, 17);
+      service.clearUnverified(dbPath);
+      expect(service.unverifiedVersion(dbPath), isNull);
+      expect(
+          File(service.unverifiedMarkerPathFor(dbPath)).existsSync(), isFalse);
+    });
+
+    test('סימון פגום → null, בלי לזרוק', () {
+      File(service.unverifiedMarkerPathFor(dbPath)).writeAsStringSync('{{{');
+      expect(service.unverifiedVersion(dbPath), isNull);
+    });
+
+    test('סימון בלי שדה version → null', () {
+      File(service.unverifiedMarkerPathFor(dbPath))
+          .writeAsStringSync(jsonEncode({'other': 1}));
+      expect(service.unverifiedVersion(dbPath), isNull);
+    });
+
+    test('שני הסימונים נפרדים — beginApply אינו נוגע בסימון הלא-מאומת',
+        () async {
+      service.markUnverified(dbPath, 17);
+      await service.beginApply(
+          dbPath: dbPath, fromVersion: 17, toVersion: 18, timestamp: 't');
+      expect(service.unverifiedVersion(dbPath), 17);
+      // ...ו-finishSuccess של ההחלה אינו מוחק אותו: רק אימות שהצליח מוחק.
+      service.finishSuccess(dbPath);
+      expect(service.unverifiedVersion(dbPath), 17);
+    });
+
+    test('clearUnverified אינו זורק כשאין מה למחוק', () {
+      expect(() => service.clearUnverified(dbPath), returnsNormally);
+    });
+  });
 }
 
 /// בונה DB עם hot journal אמיתי (מדמה קריסה באמצע transaction) ומחזיר את נתיבו.

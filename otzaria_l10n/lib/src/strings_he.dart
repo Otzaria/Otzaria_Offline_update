@@ -25,6 +25,8 @@ class HebrewStrings extends AppStrings {
   @override
   SetupErrorStrings get setupError => const _SetupError();
   @override
+  LauncherUpdateStrings get launcherUpdate => const _LauncherUpdate();
+  @override
   UnitStrings get units => const _Units();
   @override
   LibraryDomainStrings get libraryDomain => const _LibraryDomain();
@@ -334,6 +336,39 @@ class _LibraryScreen extends LibraryScreenStrings {
   String get updateDialogTitle => 'עדכון ספריית הספרים';
 
   @override
+  String get reindexTitle => 'אינדקס החיפוש של אוצריא';
+  @override
+  String get reindexPendingSubtitle =>
+      'המסד עודכן מכאן, ולכן החיפוש בספרים שהשתנו עדיין מחזיר את התוכן הישן. '
+      'אוצריא תתקן את זה בבקשה אחת.';
+  @override
+  String get reindexButton => 'עדכון האינדקס';
+  @override
+  String get reindexDialogTitle => 'עדכון אינדקס החיפוש';
+  @override
+  String get reindexDialogContent =>
+      'אוצריא תיפתח, תטען את הספרייה מחדש ותאנדקס את הספרים שתוכנם השתנה. '
+      'האינדוקס רץ בתוך אוצריא ועשוי להימשך, ואפשר להמשיך לעבוד בזמנו. '
+      'לפתוח עכשיו?';
+  @override
+  String get reindexDialogConfirm => 'פתיחת אוצריא';
+  @override
+  String get reindexRequestedSnack => 'אוצריא תעדכן את אינדקס החיפוש';
+  @override
+  String reindexFailedSnack(String error) =>
+      'לא הצלחנו למסור את הבקשה לאוצריא ($error)';
+
+  @override
+  String get fullDownloadInsteadButton => 'התקנת הספרייה המלאה';
+  @override
+  String get fullDownloadInsteadDialogTitle => 'התקנת הספרייה המלאה';
+  @override
+  String fullDownloadInsteadPrompt(String size) =>
+      'העדכון המצטבר נכשל, והמסד לא נגע. אפשר להתקין במקומו את הספרייה '
+      'המלאה מהתיקייה שלצד התוכנה ($size) — פעולה ארוכה שדורשת מקום פנוי, '
+      'ואינה דורשת אינטרנט. להתקין עכשיו?';
+
+  @override
   String get sourceCardTitle => 'התיקייה שממנה מעדכנים';
   @override
   String get sourceCardSubtitle =>
@@ -434,7 +469,10 @@ class _Settings extends SettingsScreenStrings {
   @override
   String get languageTitle => 'שפת הממשק';
   @override
-  String get languageSubtitle => 'משנה את שפת כל המסכים וההודעות מיד';
+  String get languageSubtitle =>
+      'משנה את שפת כל המסכים וההודעות מיד. "אוטומטי" — לפי שפת המחשב.';
+  @override
+  String get languageSystem => 'אוטומטי';
   @override
   String get languageHebrew => 'עברית';
   @override
@@ -455,6 +493,43 @@ class _Settings extends SettingsScreenStrings {
   String get textSizeNormal => 'רגיל';
   @override
   String get textSizeLarge => 'גדול';
+
+  @override
+  String get seedColorTitle => 'צבע בסיס';
+  @override
+  String get seedColorButton => 'שינוי צבע';
+  @override
+  String get seedColorDialogTitle => 'בחר צבע בסיס';
+  @override
+  String get seedColorResetButton => 'איפוס';
+  @override
+  String get seedColorCustom => 'צבע מותאם אישית';
+  @override
+  String get colorRed => 'אדום';
+  @override
+  String get colorOrange => 'כתום';
+  @override
+  String get colorAmber => 'ענבר';
+  @override
+  String get colorGreen => 'ירוק';
+  @override
+  String get colorTeal => 'טורקיז';
+  @override
+  String get colorBlue => 'כחול';
+  @override
+  String get colorBlueGrey => 'אפור גרפיט';
+  @override
+  String get colorNavy => 'כחול כהה';
+  @override
+  String get colorPurple => 'סגול';
+  @override
+  String get colorBrown => 'חום';
+  @override
+  String get colorParchment => 'פרגמנט / בז\'';
+  @override
+  String get colorGrey => 'אפור';
+  @override
+  String get colorDarkBrown => 'חום זהבהב';
 
   @override
   String get supportCardTitle => 'תמיכה';
@@ -768,6 +843,102 @@ class _SetupError extends SetupErrorStrings {
       'לא ניתן לכתוב לתיקייה שלצד התוכנה: $osMessage';
 }
 
+class _LauncherUpdate extends LauncherUpdateStrings {
+  const _LauncherUpdate();
+
+  @override
+  String get cardTitle => 'עדכון התוכנה הזאת';
+  @override
+  String get cardSubtitle =>
+      'עדכוני אוצריא עצמה. העדכון מחליף אך ורק את התוכנה — הנתונים, ההגדרות '
+      'והתיקייה שלצידה נשארים כמו שהם.';
+  @override
+  String installedVersion(String version) => 'הגרסה המותקנת: $version';
+  @override
+  String downloadedVersion(String version) => 'הגרסה שהורדה: $version';
+  @override
+  String onlineVersion(String version) => 'הגרסה שברשת: $version';
+
+  @override
+  String get statusUpToDate => 'התוכנה מעודכנת';
+  @override
+  String get statusUpdateAvailable => 'יש גרסה חדשה להורדה';
+  @override
+  String get statusReadyToInstall => 'מוכן להתקנה';
+  @override
+  String get statusDownloading => 'מוריד את הגרסה החדשה';
+  @override
+  String get statusInstalling => 'מתקין את הגרסה החדשה';
+
+  @override
+  String get downloadButton => 'הורדת הגרסה החדשה';
+  @override
+  String get installButton => 'התקנה והפעלה מחדש';
+
+  @override
+  String get availableDialogTitle => 'עדכון לעדכוני אוצריא';
+  @override
+  String availableDialogContent(String version) =>
+      'גרסה $version של עדכוני אוצריא זמינה, להוריד עכשיו?';
+  @override
+  String availableDialogDetail(String size) =>
+      'גודל ההורדה: $size. הקובץ נשמר בתיקייה שלצד התוכנה, וההתקנה עצמה '
+      "נעשית מתוך הלאנצ'ר — גם במחשב בלי אינטרנט.";
+  @override
+  String get availableDialogConfirm => 'להוריד עכשיו';
+  @override
+  String get availableDialogCancel => 'לא עכשיו';
+
+  @override
+  String get readyDialogTitle => 'הגרסה החדשה מוכנה';
+  @override
+  String readyDialogContent(String version) =>
+      'גרסה $version הורדה. להתקין אותה עכשיו? התוכנה תיסגר ותיפתח מחדש '
+      'בגרסה החדשה, באותו מיקום בדיוק, והנתונים וההגדרות יישארו כמו שהם.';
+  @override
+  String get readyDialogConfirm => 'התקנה והפעלה מחדש';
+
+  @override
+  String downloadedSnack(String version) =>
+      'גרסה $version ירדה לתיקייה שלצד התוכנה';
+  @override
+  String get installingSnack => 'הגרסה החדשה מותקנת — התוכנה תיפתח מחדש מיד';
+  @override
+  String get manualRestartNotice =>
+      'הגרסה החדשה הוחלפה. יש לסגור את התוכנה ולפתוח אותה מחדש כדי לעבוד '
+      'איתה.';
+
+  @override
+  String get versionTileTitle => 'גרסת התוכנה';
+
+  @override
+  String get executableNotFound =>
+      'לא ניתן לאתר את קובץ ההרצה שממנו התוכנה פועלת, ולכן אין מה להחליף. '
+      'יש להוריד את הגרסה החדשה ולהחליף את הקובץ ידנית.';
+  @override
+  String get mirrorMissing =>
+      'הגרסה החדשה עדיין לא הורדה לתיקייה שלצד התוכנה — יש להריץ הורדה '
+      'במחשב עם אינטרנט.';
+  @override
+  String unsupportedPlatform(String operatingSystem) =>
+      'עדכון עצמי של התוכנה נתמך ב-Windows וב-macOS בלבד '
+      '(זוהה: $operatingSystem).';
+  @override
+  String downloadFailed(int statusCode) =>
+      'הורדת הגרסה החדשה נכשלה: סטטוס $statusCode';
+  @override
+  String sizeMismatch(int received, int expected) =>
+      'הקובץ שהורד לא בגודל הצפוי (התקבלו $received בתים, צפוי $expected) — '
+      'כנראה שההורדה נקטעה.';
+  @override
+  String replaceFailed(String error) =>
+      'החלפת קובץ ההרצה נכשלה: $error. הקובץ הקודם הוחזר למקומו.';
+  @override
+  String restartFailed(String error) =>
+      'הפעלת הגרסה החדשה נכשלה: $error. יש לסגור את התוכנה ולהפעיל אותה '
+      'מחדש ידנית — ההחלפה עצמה כבר הושלמה.';
+}
+
 class _Units extends UnitStrings {
   const _Units();
 
@@ -879,6 +1050,11 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get contentHashMismatchNeedsFullDownload =>
       'ה-DB המקומי שונה מהצפוי — hash לא תואם ל-fromContentHash. '
       'נדרשת הורדה מלאה.';
+  @override
+  String patchUniqueConflictNeedsFullDownload(String table, String detail) =>
+      'ה-patch אינו מתאים למסד שעל המחשב: התנגשות ערך ייחודי בטבלה "$table". '
+      'העדכון המצטבר בוטל והמסד לא נגע. נדרשת הורדה מלאה של הספרייה. '
+      '($detail)';
   @override
   String foreignKeyViolationsGrew(int before, int after) =>
       'מספר הפרות מפתח זר גדל ($before→$after) — ה-patch אינו תקין';

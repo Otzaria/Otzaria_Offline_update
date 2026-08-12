@@ -9,6 +9,7 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/delta_manifest.dart';
+import 'fast_sha256.dart';
 
 /// נזרק כשהורדה או אימות נכשלים. הקבצים הפגומים נמחקים לפני הזריקה.
 class PatchDownloadException implements Exception {
@@ -328,177 +329,165 @@ class PatchDownloader {
       // ה-hash של התחילית מחושב לפני שליחת הבקשה: ביטול/כשל-קריאה כאן אינם
       // משאירים תגובת HTTP פתוחה.
       _ChunkedDigestSink? digestSink;
-      ByteConversionSink? hashInput;
-      if (computeHash) {
-        digestSink = _ChunkedDigestSink();
-        hashInput = sha256.startChunkedConversion(digestSink);
-        if (currentOffset > 0) {
-          await for (final chunk in file.openRead(0, currentOffset)) {
-            _throwIfCancelled(isCancelled);
-            hashInput.add(chunk);
-          }
-        }
-      }
-
-      var roundOffset = currentOffset;
-      var downloaded = currentOffset;
-      var restart = false;
-      // ה-total הראשון שדווח בסבב 206 — כל סבב המשך חייב לדווח את אותו total,
-      // אחרת ('/40' ואז '/31') היה מתקבל קובץ קטוע כ"הצלחה". מתאפס לכל ניסיון.
-      int? sessionTotal;
-      var rounds = 0;
-
-      // לולאת המשך: 206 קצר חוקי (downloaded < total) שולח Range נוסף עד ה-total.
-      while (true) {
-        _throwIfCancelled(isCancelled);
-        // חסם קשיח על סבבי-המשך: שרת ששולח מעט בייטים בכל 206 היה מציף בבקשות.
-        // חריגה = כשל הניסיון; החלקי (בייטים תקינים) נשמר והריצה הבאה תמשיך.
-        if (rounds++ >= _maxContinuationRounds) {
-          hashInput?.close();
-          throw PatchDownloadException(
-            AppL10n.strings.libraryDomain
-                .resumeRoundLimit(_maxContinuationRounds, url),
-          );
-        }
-        final headers = <String, String>{'Accept': 'application/octet-stream'};
-        if (roundOffset > 0) {
-          headers['Range'] = 'bytes=$roundOffset-';
-          // כובל את ההמשך לגרסת הנכס: אם הייצוג הוחלף השרת יחזיר 200 ולא 206.
-          if (validator != null) headers['If-Range'] = validator;
-        }
-        final response = await _sendWithManualRedirects(url, headers);
-
-        if (response.statusCode == 200) {
-          // השרת התעלם מ-Range — גוף מלא מאפס (200 = משאב שלם בהגדרה).
-          try {
-            // הבייטים הישנים נמחקים לפני שמירת ה-validator החדש: קריסה בין
-            // השניים הייתה משאירה בייטים ישנים כבולים ל-ETag חדש (frankenfile).
-            if (file.existsSync()) {
-              _deleteRequired(
-                file.path,
-                AppL10n.strings.libraryDomain
-                    .deletePartialFromPreviousRepresentationFailed,
-              );
+      FastSha256Sink? hashInput;
+      try {
+        if (computeHash) {
+          digestSink = _ChunkedDigestSink();
+          hashInput = FastSha256.start(digestSink);
+          if (currentOffset > 0) {
+            await for (final chunk in file.openRead(0, currentOffset)) {
+              _throwIfCancelled(isCancelled);
+              hashInput.add(chunk);
             }
-            validator = _strongEtag(response.headers['etag']);
-            persistValidator(validator);
-          } catch (_) {
-            // התגובה כבר פתוחה — משחררים את החיבור לפני הפצת השגיאה.
-            await _abandonBody(response);
-            rethrow;
           }
-          final responseLength = response.contentLength;
-          if (expectedSize != null &&
-              responseLength != null &&
-              responseLength != expectedSize) {
+        }
+
+        var roundOffset = currentOffset;
+        var downloaded = currentOffset;
+        var restart = false;
+        // ה-total הראשון שדווח בסבב 206 — כל סבב המשך חייב לדווח את אותו total,
+        // אחרת ('/40' ואז '/31') היה מתקבל קובץ קטוע כ"הצלחה". מתאפס לכל ניסיון.
+        int? sessionTotal;
+        var rounds = 0;
+
+        // לולאת המשך: 206 קצר חוקי (downloaded < total) שולח Range נוסף עד ה-total.
+        while (true) {
+          _throwIfCancelled(isCancelled);
+          // חסם קשיח על סבבי-המשך: שרת ששולח מעט בייטים בכל 206 היה מציף בבקשות.
+          // חריגה = כשל הניסיון; החלקי (בייטים תקינים) נשמר והריצה הבאה תמשיך.
+          if (rounds++ >= _maxContinuationRounds) {
             hashInput?.close();
-            await _abandonBody(response);
-            _deleteQuietly(file.path);
-            if (sidecarPath != null) _deleteQuietly(sidecarPath);
             throw PatchDownloadException(
               AppL10n.strings.libraryDomain
-                  .contentLengthMismatch(responseLength, expectedSize),
+                  .resumeRoundLimit(_maxContinuationRounds, url),
             );
           }
-          if (computeHash) {
-            // ה-hasher הקודם כבר קיבל את התחילית הישנה; תגובת 200 היא גוף מלא
-            // מאפס, ולכן סוגרים אותו לפני יצירת hasher חדש.
-            hashInput?.close();
-            digestSink = _ChunkedDigestSink();
-            hashInput = sha256.startChunkedConversion(digestSink);
+          final headers = <String, String>{
+            'Accept': 'application/octet-stream'
+          };
+          if (roundOffset > 0) {
+            headers['Range'] = 'bytes=$roundOffset-';
+            // כובל את ההמשך לגרסת הנכס: אם הייצוג הוחלף השרת יחזיר 200 ולא 206.
+            if (validator != null) headers['If-Range'] = validator;
           }
-          final outcome = await _consumeBody(
-            response: response,
-            file: file,
-            resumeOffset: 0,
-            // גם כשאין גודל מה-manifest, Content-Length הוא חוזה אורך של גוף
-            // ה-200: הוא משמש כחסם כתיבה ולא רק כחיווי התקדמות.
-            expectedSize: expectedSize ?? responseLength,
-            overallTotal: expectedSize ?? responseLength,
-            hashInput: hashInput,
-            onProgress: onProgress,
-            isCancelled: isCancelled,
-          );
-          downloaded = outcome.downloaded;
-          hashInput?.close();
-          if (responseLength != null && downloaded != responseLength) {
-            _deleteQuietly(file.path);
-            if (sidecarPath != null) _deleteQuietly(sidecarPath);
-            throw PatchDownloadException(
-              AppL10n.strings.libraryDomain
-                  .truncatedBody(responseLength, downloaded),
-            );
-          }
-          _throwIfCancelled(isCancelled);
-          return (downloaded: downloaded, digest: digestSink?.value);
-        }
+          final response = await _sendWithManualRedirects(url, headers);
 
-        if (response.statusCode == 416) {
-          // 416 אינו הוכחה לשלמות: ייתכן שהחלקי המקומי גדול מהנכס המרוחק.
-          // מקבלים כשלם רק אם ה-total ב-Content-Range תואם ל-offset (ולצפוי).
-          final total =
-              _parseUnsatisfiedRangeTotal(response.headers['content-range']);
-          await _abandonBody(response);
-          // 416 שסותר total שכבר דווח ב-206 קודם ('/40' ואז '*/21') אינו שלמות.
-          final complete = roundOffset > 0 &&
-              file.existsSync() &&
-              file.lengthSync() == roundOffset &&
-              total != null &&
-              total == roundOffset &&
-              (sessionTotal == null || total == sessionTotal) &&
-              (expectedSize == null || total == expectedSize);
-          if (complete) {
-            hashInput?.close();
-            _throwIfCancelled(isCancelled);
-            return (downloaded: roundOffset, digest: digestSink?.value);
-          }
-          hashInput?.close();
-          _throwIfCancelled(isCancelled);
-          _deleteQuietly(file.path);
-          restart = true;
-          break;
-        }
-
-        if (response.statusCode != 206) {
-          await _abandonBody(response);
-          hashInput?.close();
-          throw PatchDownloadException(
-            AppL10n.strings.libraryDomain
-                .downloadHttpError(response.statusCode, url),
-          );
-        }
-
-        // עקביות ה-validator לאורך סבבי 206. סבב ראשון (validator ריק) קובע את
-        // ה-validator; סבב עם ETag ששונה מהמאומץ = ייצוג שהתחלף באמצע → restart.
-        // סבב בלי ETag כש-validator קיים: If-Range כבר נשלח, אז 206 מוכיח התאמה.
-        final roundEtag = _strongEtag(response.headers['etag']);
-        if (validator == null) {
-          if (roundEtag != null) {
-            validator = roundEtag;
+          if (response.statusCode == 200) {
+            // השרת התעלם מ-Range — גוף מלא מאפס (200 = משאב שלם בהגדרה).
             try {
-              persistValidator(roundEtag);
+              // הבייטים הישנים נמחקים לפני שמירת ה-validator החדש: קריסה בין
+              // השניים הייתה משאירה בייטים ישנים כבולים ל-ETag חדש (frankenfile).
+              if (file.existsSync()) {
+                _deleteRequired(
+                  file.path,
+                  AppL10n.strings.libraryDomain
+                      .deletePartialFromPreviousRepresentationFailed,
+                );
+              }
+              validator = _strongEtag(response.headers['etag']);
+              persistValidator(validator);
             } catch (_) {
-              // כשל דיסק אחרי שהתגובה נפתחה — משחררים את החיבור לפני ההפצה.
+              // התגובה כבר פתוחה — משחררים את החיבור לפני הפצת השגיאה.
               await _abandonBody(response);
               rethrow;
             }
+            final responseLength = response.contentLength;
+            if (expectedSize != null &&
+                responseLength != null &&
+                responseLength != expectedSize) {
+              hashInput?.close();
+              await _abandonBody(response);
+              _deleteQuietly(file.path);
+              if (sidecarPath != null) _deleteQuietly(sidecarPath);
+              throw PatchDownloadException(
+                AppL10n.strings.libraryDomain
+                    .contentLengthMismatch(responseLength, expectedSize),
+              );
+            }
+            if (computeHash) {
+              // ה-hasher הקודם כבר קיבל את התחילית הישנה; תגובת 200 היא גוף מלא
+              // מאפס, ולכן סוגרים אותו לפני יצירת hasher חדש.
+              hashInput?.close();
+              digestSink = _ChunkedDigestSink();
+              hashInput = FastSha256.start(digestSink);
+            }
+            final outcome = await _consumeBody(
+              response: response,
+              file: file,
+              resumeOffset: 0,
+              // גם כשאין גודל מה-manifest, Content-Length הוא חוזה אורך של גוף
+              // ה-200: הוא משמש כחסם כתיבה ולא רק כחיווי התקדמות.
+              expectedSize: expectedSize ?? responseLength,
+              overallTotal: expectedSize ?? responseLength,
+              hashInput: hashInput,
+              onProgress: onProgress,
+              isCancelled: isCancelled,
+            );
+            downloaded = outcome.downloaded;
+            hashInput?.close();
+            if (responseLength != null && downloaded != responseLength) {
+              _deleteQuietly(file.path);
+              if (sidecarPath != null) _deleteQuietly(sidecarPath);
+              throw PatchDownloadException(
+                AppL10n.strings.libraryDomain
+                    .truncatedBody(responseLength, downloaded),
+              );
+            }
+            _throwIfCancelled(isCancelled);
+            return (downloaded: downloaded, digest: digestSink?.value);
           }
-        } else if (roundEtag != null && roundEtag != validator) {
-          await _abandonBody(response);
-          hashInput?.close();
-          _throwIfCancelled(isCancelled);
-          _deleteQuietly(file.path);
-          restart = true;
-          break;
-        }
 
-        final range = _parseContentRange(response.headers['content-range']);
+          if (response.statusCode == 416) {
+            // 416 אינו הוכחה לשלמות: ייתכן שהחלקי המקומי גדול מהנכס המרוחק.
+            // מקבלים כשלם רק אם ה-total ב-Content-Range תואם ל-offset (ולצפוי).
+            final total =
+                _parseUnsatisfiedRangeTotal(response.headers['content-range']);
+            await _abandonBody(response);
+            // 416 שסותר total שכבר דווח ב-206 קודם ('/40' ואז '*/21') אינו שלמות.
+            final complete = roundOffset > 0 &&
+                file.existsSync() &&
+                file.lengthSync() == roundOffset &&
+                total != null &&
+                total == roundOffset &&
+                (sessionTotal == null || total == sessionTotal) &&
+                (expectedSize == null || total == expectedSize);
+            if (complete) {
+              hashInput?.close();
+              _throwIfCancelled(isCancelled);
+              return (downloaded: roundOffset, digest: digestSink?.value);
+            }
+            hashInput?.close();
+            _throwIfCancelled(isCancelled);
+            _deleteQuietly(file.path);
+            restart = true;
+            break;
+          }
 
-        // ה-total חייב להישאר עקבי לאורך סבבי-ההמשך. שרת שמשנה אותו באמצע
-        // (למשל '/40' ואז '/31') אינו אמין → מוחקים ומתחילים מאפס.
-        if (range?.total != null) {
-          sessionTotal ??= range!.total;
-          if (range!.total != sessionTotal) {
+          if (response.statusCode != 206) {
+            await _abandonBody(response);
+            hashInput?.close();
+            throw PatchDownloadException(
+              AppL10n.strings.libraryDomain
+                  .downloadHttpError(response.statusCode, url),
+            );
+          }
+
+          // עקביות ה-validator לאורך סבבי 206. סבב ראשון (validator ריק) קובע את
+          // ה-validator; סבב עם ETag ששונה מהמאומץ = ייצוג שהתחלף באמצע → restart.
+          // סבב בלי ETag כש-validator קיים: If-Range כבר נשלח, אז 206 מוכיח התאמה.
+          final roundEtag = _strongEtag(response.headers['etag']);
+          if (validator == null) {
+            if (roundEtag != null) {
+              validator = roundEtag;
+              try {
+                persistValidator(roundEtag);
+              } catch (_) {
+                // כשל דיסק אחרי שהתגובה נפתחה — משחררים את החיבור לפני ההפצה.
+                await _abandonBody(response);
+                rethrow;
+              }
+            }
+          } else if (roundEtag != null && roundEtag != validator) {
             await _abandonBody(response);
             hashInput?.close();
             _throwIfCancelled(isCancelled);
@@ -506,88 +495,109 @@ class PatchDownloader {
             restart = true;
             break;
           }
-        }
 
-        final validRange = range != null &&
-            range.start == roundOffset &&
-            range.end >= range.start &&
-            (range.total == null || range.end < range.total!) &&
-            (expectedSize == null || range.total == expectedSize) &&
-            (response.contentLength == null ||
-                response.contentLength == range.end - range.start + 1);
-        if (!validRange) {
-          await _abandonBody(response);
-          hashInput?.close();
-          _throwIfCancelled(isCancelled);
-          restart = true;
-          break;
-        }
+          final range = _parseContentRange(response.headers['content-range']);
 
-        final expectedRoundBytes = range.end - range.start + 1;
-        final outcome = await _consumeBody(
-          response: response,
-          file: file,
-          resumeOffset: roundOffset,
-          expectedSize: expectedSize,
-          // מד ההתקדמות חייב לשקף את הגודל הכולל, לא את גודל הסבב הנוכחי, אחרת
-          // הורדה רב-סבבית הייתה מדווחת 100% מוקדם. עדיפות: expectedSize→total.
-          overallTotal: expectedSize ?? sessionTotal,
-          // חסם כתיבה פר-סבב: שרת שחורג מהטווח שהצהיר נעצר מיד, לא אחרי GB.
-          maxRoundBytes: expectedRoundBytes,
-          hashInput: hashInput,
-          onProgress: onProgress,
-          isCancelled: isCancelled,
-        );
-        downloaded = outcome.downloaded;
+          // ה-total חייב להישאר עקבי לאורך סבבי-ההמשך. שרת שמשנה אותו באמצע
+          // (למשל '/40' ואז '/31') אינו אמין → מוחקים ומתחילים מאפס.
+          if (range?.total != null) {
+            sessionTotal ??= range!.total;
+            if (range!.total != sessionTotal) {
+              await _abandonBody(response);
+              hashInput?.close();
+              _throwIfCancelled(isCancelled);
+              _deleteQuietly(file.path);
+              restart = true;
+              break;
+            }
+          }
 
-        // אורך הגוף חייב להיות בדיוק end-start+1 — גם כש-Content-Length חסר.
-        // חוסר התאמה = קטע לא אמין → מוחקים ומתחילים מאפס.
-        if (outcome.overrun || downloaded - roundOffset != expectedRoundBytes) {
-          hashInput?.close();
-          _throwIfCancelled(isCancelled);
-          _deleteQuietly(file.path);
-          restart = true;
-          break;
-        }
+          final validRange = range != null &&
+              range.start == roundOffset &&
+              range.end >= range.start &&
+              (range.total == null || range.end < range.total!) &&
+              (expectedSize == null || range.total == expectedSize) &&
+              (response.contentLength == null ||
+                  response.contentLength == range.end - range.start + 1);
+          if (!validRange) {
+            await _abandonBody(response);
+            hashInput?.close();
+            _throwIfCancelled(isCancelled);
+            restart = true;
+            break;
+          }
 
-        // ללא total ידוע (206 עם `*` ו-expectedSize חסר) אי אפשר לאשר שלמות —
-        // 206 בודד אינו מוכיח שהנכס הושלם; מתחילים מאפס (GET מלא → 200).
-        final knownTotal = range.total;
-        if (knownTotal == null) {
-          hashInput?.close();
-          _throwIfCancelled(isCancelled);
-          _deleteQuietly(file.path);
-          restart = true;
-          break;
-        }
-        if (downloaded >= knownTotal) {
-          hashInput?.close();
-          _throwIfCancelled(isCancelled);
-          return (downloaded: downloaded, digest: digestSink?.value);
-        }
-        // 206 קצר חוקי — סבב המשך. חייב להתקדם, אחרת נעצור כדי לא להיתקע.
-        if (downloaded <= roundOffset) {
-          hashInput?.close();
-          throw PatchDownloadException(
-            AppL10n.strings.libraryDomain.resumeMadeNoProgress(url),
+          final expectedRoundBytes = range.end - range.start + 1;
+          final outcome = await _consumeBody(
+            response: response,
+            file: file,
+            resumeOffset: roundOffset,
+            expectedSize: expectedSize,
+            // מד ההתקדמות חייב לשקף את הגודל הכולל, לא את גודל הסבב הנוכחי, אחרת
+            // הורדה רב-סבבית הייתה מדווחת 100% מוקדם. עדיפות: expectedSize→total.
+            overallTotal: expectedSize ?? sessionTotal,
+            // חסם כתיבה פר-סבב: שרת שחורג מהטווח שהצהיר נעצר מיד, לא אחרי GB.
+            maxRoundBytes: expectedRoundBytes,
+            hashInput: hashInput,
+            onProgress: onProgress,
+            isCancelled: isCancelled,
           );
-        }
-        roundOffset = downloaded;
-      }
+          downloaded = outcome.downloaded;
 
-      if (restart) {
-        // התחלה מאפס = משיכת ייצוג טרי; ה-validator ייקבע מחדש מהתגובה הבאה.
-        // הבייטים הישנים נמחקים כאן (לכל מסלולי ה-restart, כולל invalidRange) —
-        // אחרת persistValidator של הניסיון הבא היה כובל בייטים ישנים ל-ETag חדש.
-        if (file.existsSync()) {
-          _deleteRequired(
-            file.path,
-            AppL10n.strings.libraryDomain.deletePartialBeforeRetryFailed,
-          );
+          // אורך הגוף חייב להיות בדיוק end-start+1 — גם כש-Content-Length חסר.
+          // חוסר התאמה = קטע לא אמין → מוחקים ומתחילים מאפס.
+          if (outcome.overrun ||
+              downloaded - roundOffset != expectedRoundBytes) {
+            hashInput?.close();
+            _throwIfCancelled(isCancelled);
+            _deleteQuietly(file.path);
+            restart = true;
+            break;
+          }
+
+          // ללא total ידוע (206 עם `*` ו-expectedSize חסר) אי אפשר לאשר שלמות —
+          // 206 בודד אינו מוכיח שהנכס הושלם; מתחילים מאפס (GET מלא → 200).
+          final knownTotal = range.total;
+          if (knownTotal == null) {
+            hashInput?.close();
+            _throwIfCancelled(isCancelled);
+            _deleteQuietly(file.path);
+            restart = true;
+            break;
+          }
+          if (downloaded >= knownTotal) {
+            hashInput?.close();
+            _throwIfCancelled(isCancelled);
+            return (downloaded: downloaded, digest: digestSink?.value);
+          }
+          // 206 קצר חוקי — סבב המשך. חייב להתקדם, אחרת נעצור כדי לא להיתקע.
+          if (downloaded <= roundOffset) {
+            hashInput?.close();
+            throw PatchDownloadException(
+              AppL10n.strings.libraryDomain.resumeMadeNoProgress(url),
+            );
+          }
+          roundOffset = downloaded;
         }
-        currentOffset = 0;
-        validator = null;
-        continue;
+
+        if (restart) {
+          // התחלה מאפס = משיכת ייצוג טרי; ה-validator ייקבע מחדש מהתגובה הבאה.
+          // הבייטים הישנים נמחקים כאן (לכל מסלולי ה-restart, כולל invalidRange) —
+          // אחרת persistValidator של הניסיון הבא היה כובל בייטים ישנים ל-ETag חדש.
+          if (file.existsSync()) {
+            _deleteRequired(
+              file.path,
+              AppL10n.strings.libraryDomain.deletePartialBeforeRetryFailed,
+            );
+          }
+          currentOffset = 0;
+          validator = null;
+          continue;
+        }
+      } finally {
+        // ביטול, כשל רשת או כשל דיסק יוצאים מכאן בכל שלב — בלי זה החוצץ
+        // הנייטיבי של ה-hasher היה נשאר מוקצה עד סוף התהליך.
+        hashInput?.dispose();
       }
     }
     throw PatchDownloadException(
@@ -777,15 +787,21 @@ class PatchDownloader {
   ) async {
     final total = await file.length();
     final digestSink = _ChunkedDigestSink();
-    final input = sha256.startChunkedConversion(digestSink);
+    final input = FastSha256.start(digestSink);
     var verified = 0;
-    await for (final chunk in file.openRead()) {
-      _throwIfCancelled(isCancelled);
-      input.add(chunk);
-      verified += chunk.length;
-      onVerifyProgress?.call(verified, total);
+    // ביטול באמצע אימות נכס של ~1.5GB הוא המסלול השכיח — ובלי ה-`finally`
+    // הוא היה מדליף את החוצץ הנייטיבי בכל פעם.
+    try {
+      await for (final chunk in file.openRead()) {
+        _throwIfCancelled(isCancelled);
+        input.add(chunk);
+        verified += chunk.length;
+        onVerifyProgress?.call(verified, total);
+      }
+      input.close();
+    } finally {
+      input.dispose();
     }
-    input.close();
     return digestSink.value;
   }
 
@@ -911,7 +927,7 @@ class PatchDownloader {
     required String expected,
     required String label,
   }) {
-    final actual = sha256.convert(bytes).toString();
+    final actual = FastSha256.convert(bytes).toString();
     if (actual != expected.toLowerCase()) {
       throw PatchDownloadException(
         AppL10n.strings.libraryDomain.checksumMismatch(label),
@@ -1005,12 +1021,12 @@ class PatchDownloader {
       );
     }
     IOSink? sink;
+    final digestSink = expectedSha256 != null ? _ChunkedDigestSink() : null;
+    // מוגדר מחוץ ל-try כדי שגם מסלול השגיאה ישחרר אותו.
+    final input = digestSink != null ? FastSha256.start(digestSink) : null;
     try {
       _deleteQuietly(destPath);
       sink = File(destPath).openWrite();
-      final digestSink = expectedSha256 != null ? _ChunkedDigestSink() : null;
-      final input =
-          digestSink != null ? sha256.startChunkedConversion(digestSink) : null;
       var copied = 0;
       var buffered = 0;
       await for (final chunk in source.openRead()) {
@@ -1047,6 +1063,8 @@ class PatchDownloader {
       }
       _deleteQuietly(destPath);
       rethrow;
+    } finally {
+      input?.dispose();
     }
   }
 }

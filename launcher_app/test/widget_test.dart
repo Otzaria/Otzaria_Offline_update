@@ -81,22 +81,29 @@ void main() {
       // הסעיפים שהוסרו ('paths', 'storage', 'network') נבלעים בשקט.
       expect(restored.toJson().keys, isNot(contains('storage')));
       expect(restored.hasSyncSelection, isTrue);
-      // קובץ מלפני שדה השפה נטען לעברית, לא לשפת המערכת.
-      expect(restored.language, AppLanguage.hebrew);
+      // קובץ מלפני שדה השפה נטען לזיהוי אוטומטי — כמו התקנה חדשה.
+      expect(restored.languagePreference, AppLanguagePreference.system);
     });
 
     test('שפת הממשק עוברת הלוך-חזור דרך ה-JSON', () {
-      const settings = AppSettings(language: AppLanguage.english);
+      const settings =
+          AppSettings(languagePreference: AppLanguagePreference.english);
       final restored = AppSettings.fromJson(settings.toJson());
 
       expect(settings.toJson()['ui'], containsPair('language', 'en'));
+      expect(restored.languagePreference, AppLanguagePreference.english);
       expect(restored.language, AppLanguage.english);
-      // ערך לא מוכר נופל לעברית, כמו כל שדה אחר.
+      // "אוטומטי" נשמר כערך משלו, ולא כשפה שנפתרה ממנו.
+      expect(
+        const AppSettings().toJson()['ui'],
+        containsPair('language', 'system'),
+      );
+      // ערך לא מוכר נופל לאוטומטי, שהוא ברירת המחדל של השדה.
       expect(
         AppSettings.fromJson({
           'ui': {'language': 'fr'}
-        }).language,
-        AppLanguage.hebrew,
+        }).languagePreference,
+        AppLanguagePreference.system,
       );
     });
   });

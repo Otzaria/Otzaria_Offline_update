@@ -1,6 +1,53 @@
+import 'dart:ui' show Color, PlatformDispatcher;
+
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
+import '../theme/app_seed_colors.dart';
+
 enum AppThemeMode { system, light, dark }
+
+/// בחירת שפת הממשק. [system] — לפי שפת מערכת ההפעלה, וזו ברירת המחדל:
+/// התקנה חדשה מדברת בשפה שהמחשב כבר מדבר, בלי שאיש יגדיר דבר.
+enum AppLanguagePreference {
+  system('system'),
+  hebrew('he'),
+  english('en');
+
+  const AppLanguagePreference(this.code);
+
+  /// גם הערך שנשמר תחת `ui.language` בקובץ ההגדרות.
+  final String code;
+
+  /// השפה בפועל. [system] נפתר בכל קריאה, ולכן שינוי שפה במערכת ההפעלה
+  /// נתפס מעצמו בהרצה הבאה בלי לגעת בקובץ ההגדרות.
+  AppLanguage resolve() => switch (this) {
+        AppLanguagePreference.system => systemLanguage(),
+        AppLanguagePreference.hebrew => AppLanguage.hebrew,
+        AppLanguagePreference.english => AppLanguage.english,
+      };
+
+  /// ערך לא מוכר — וגם קובץ הגדרות מלפני השדה הזה — נופל לזיהוי אוטומטי.
+  static AppLanguagePreference fromCode(Object? code) {
+    for (final preference in values) {
+      if (preference.code == code) return preference;
+    }
+    return AppLanguagePreference.system;
+  }
+}
+
+/// שפת מערכת ההפעלה, מצומצמת לשפות שהלאנצ'ר מדבר.
+///
+/// `PlatformDispatcher` ולא `Platform.localeName` — הראשון הוא שפת *הממשק*
+/// של המערכת, השני רק תבנית האזור (מחשב באנגלית עם אזור "ישראל" מדווח שם
+/// עברית). `instance` ישירות ולא דרך `WidgetsBinding`, כדי שגם קריאה לפני
+/// אתחול ה-binding תעבוד — `main` קורא לזה לפני שההגדרות נטענו.
+AppLanguage systemLanguage() {
+  final locales = PlatformDispatcher.instance.locales;
+  // מערכת שלא דיווחה שום locale — עברית, שפת הבית של התוכנה. זה שונה
+  // ממחשב שדיווח שפה אחרת, שאותו [AppLanguage.forLanguageCode] שולח לאנגלית.
+  if (locales.isEmpty) return AppLanguage.hebrew;
+  return AppLanguage.forLanguageCode(locales.first.languageCode);
+}
 
 /// כל ההגדרות של הלאנצ'ר, immutable ובעלות [schemaVersion] — נשמרות
 /// לקובץ JSON יחיד (ראו `SettingsController`).
@@ -9,7 +56,9 @@ enum AppThemeMode { system, light, dark }
 /// `AppPaths`), והמיקום של אוצריא עצמה מתגלה ואינו מוגדר.
 class AppSettings {
   /// 4: מקטע `storage` (גיבוי המסד) הוסר — ראו `LibraryDbRecoveryService`.
-  static const int schemaVersion = 4;
+  /// 5: `ui.language` מקבל גם `system` — לפי שפת המחשב, וזו ברירת המחדל.
+  /// 6: `ui.seedColor` / `ui.darkSeedColor` — פלטת הצבעים של אוצריא.
+  static const int schemaVersion = 6;
 
   /// בדיקת גרסאות בפתיחה כשיש חיבור לרשת — בדיקה קלה, בלי הורדה.
   final bool autoMetadataCheck;
@@ -37,10 +86,19 @@ class AppSettings {
   final bool preferAppPrerelease;
 
   // ── ממשק ────────────────────────────────────────────────────────────────
-  /// שפת הממשק. עברית היא ברירת המחדל ואינה נגזרת משפת המערכת.
-  final AppLanguage language;
+  /// *הבחירה* בהגדרות — כולל "אוטומטי", שהיא ברירת המחדל. השפה שמוצגת
+  /// בפועל היא [language].
+  final AppLanguagePreference languagePreference;
   final AppThemeMode themeMode;
   final double textScale;
+
+  /// צבעי ה-seed שמהם נבנית ערכת הצבעים — אחד לכל בהירות, כמו באוצריא:
+  /// הבחירה בהגדרות חלה על הערכה המוצגת באותו רגע.
+  final Color seedColor;
+  final Color darkSeedColor;
+
+  /// השפה שבה הממשק מוצג בפועל: [languagePreference] אחרי פתירת "אוטומטי".
+  AppLanguage get language => languagePreference.resolve();
 
   const AppSettings({
     this.autoMetadataCheck = true,
@@ -51,9 +109,11 @@ class AppSettings {
     this.autoInstallApp = false,
     this.autoInstallLibrary = false,
     this.preferAppPrerelease = false,
-    this.language = AppLanguage.hebrew,
+    this.languagePreference = AppLanguagePreference.system,
     this.themeMode = AppThemeMode.system,
     this.textScale = 1.0,
+    this.seedColor = AppSeedColors.defaultLight,
+    this.darkSeedColor = AppSeedColors.defaultDark,
   });
 
   /// `false` כשלא נבחר שום רכיב להורדה — ה-UI משתמש בזה כדי להשבית את
@@ -69,9 +129,11 @@ class AppSettings {
     bool? autoInstallApp,
     bool? autoInstallLibrary,
     bool? preferAppPrerelease,
-    AppLanguage? language,
+    AppLanguagePreference? languagePreference,
     AppThemeMode? themeMode,
     double? textScale,
+    Color? seedColor,
+    Color? darkSeedColor,
   }) {
     return AppSettings(
       autoMetadataCheck: autoMetadataCheck ?? this.autoMetadataCheck,
@@ -83,9 +145,11 @@ class AppSettings {
       autoInstallApp: autoInstallApp ?? this.autoInstallApp,
       autoInstallLibrary: autoInstallLibrary ?? this.autoInstallLibrary,
       preferAppPrerelease: preferAppPrerelease ?? this.preferAppPrerelease,
-      language: language ?? this.language,
+      languagePreference: languagePreference ?? this.languagePreference,
       themeMode: themeMode ?? this.themeMode,
       textScale: textScale ?? this.textScale,
+      seedColor: seedColor ?? this.seedColor,
+      darkSeedColor: darkSeedColor ?? this.darkSeedColor,
     );
   }
 
@@ -106,9 +170,12 @@ class AppSettings {
           'plugins': syncPlugins,
         },
         'ui': {
-          'language': language.code,
+          'language': languagePreference.code,
           'themeMode': themeMode.name,
           'textScale': textScale,
+          // ARGB שלם, כמו ש-`key-swatch-color` נשמר באוצריא.
+          'seedColor': seedColor.toARGB32(),
+          'darkSeedColor': darkSeedColor.toARGB32(),
         },
       };
 
@@ -132,6 +199,11 @@ class AppSettings {
       return value is bool ? value : fallback;
     }
 
+    Color color(String key, Color fallback) {
+      final value = ui[key];
+      return value is int ? Color(value) : fallback;
+    }
+
     return AppSettings(
       autoMetadataCheck: flag(
         automation,
@@ -149,13 +221,15 @@ class AppSettings {
       autoInstallApp: flag(automation, 'installApp', false),
       autoInstallLibrary: flag(automation, 'installLibrary', false),
       preferAppPrerelease: flag(channels, 'appPrerelease', false),
-      language: AppLanguage.fromCode(ui['language']),
+      languagePreference: AppLanguagePreference.fromCode(ui['language']),
       themeMode: AppThemeMode.values.firstWhere(
         (m) => m.name == ui['themeMode'],
         orElse: () => AppThemeMode.system,
       ),
       textScale:
           ui['textScale'] is num ? (ui['textScale'] as num).toDouble() : 1.0,
+      seedColor: color('seedColor', defaults.seedColor),
+      darkSeedColor: color('darkSeedColor', defaults.darkSeedColor),
     );
   }
 }

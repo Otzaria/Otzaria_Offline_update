@@ -119,6 +119,22 @@ class LibraryManager {
   /// המיקום מתגלה בכל קריאה מחדש; אין להניח נתיב קבוע.
   Future<String?> currentDbPath() => _locator.resolveDbPath();
 
+  /// גרסת המסד המקומי בלבד, בלי לגעת במראה. `null` כשלא נמצא מסד או שהקובץ
+  /// שנבחר אינו נפתח.
+  ///
+  /// קיימת כי [checkForUpdate] קורא את הגרסה ואז זורק `LibraryMirrorMissingException`
+  /// כשעוד לא הורידו כלום — והממשק נשאר עם "לא ידוע" למסד שנקרא בהצלחה,
+  /// בדיוק אחרי שהמשתמש בחר אותו ידנית.
+  Future<LocalDbVersion?> readLocalVersion() async {
+    final path = _lastResolvedDbPath ?? await _locator.resolveDbPath();
+    if (path == null) return null;
+    try {
+      return _versionReader.read(path);
+    } catch (_) {
+      return null;
+    }
+  }
+
   String? _lastResolvedDbPath;
 
   /// הנתיב ש-[checkForUpdate] האחרון איתר (`null` = לא נמצא DB, או שטרם
@@ -126,6 +142,27 @@ class LibraryManager {
   /// בנוסף: האיתור עצמו קורא את קופסת ההגדרות של אוצריא מעותק, וריצה כפולה
   /// שלו בכל בדיקה הייתה עלות מיותרת בעלייה.
   String? get lastResolvedDbPath => _lastResolvedDbPath;
+
+  /// בקשת עדכון האינדקס שממתינה לאוצריא, או `null` כשאין. נכתבת אחרי כל
+  /// עדכון מסד מוצלח ושורדת הפעלות מחדש של הלאנצ'ר — ראו
+  /// [ExternalUpdateNotice].
+  ///
+  /// [dbPath] מיותר כשכבר רצה [checkForUpdate]; אחרת המסד מאותר כאן.
+  Future<ExternalUpdateNoticeData?> pendingReindexRequest({
+    String? dbPath,
+  }) async {
+    final path = dbPath ?? _lastResolvedDbPath ?? await currentDbPath();
+    if (path == null) return null;
+    return const ExternalUpdateNotice().read(dbPath: path);
+  }
+
+  /// מסמן שהבקשה נמסרה לאוצריא. **רק אחרי מסירה בפועל** — ראו
+  /// [ExternalUpdateNotice.clear].
+  Future<void> clearReindexRequest({String? dbPath}) async {
+    final path = dbPath ?? _lastResolvedDbPath ?? await currentDbPath();
+    if (path == null) return;
+    await const ExternalUpdateNotice().clear(dbPath: path);
+  }
 
   /// תיקיית המראה המקומית — קבועה, לצד התוכנה (בתוך [dataDir]). זה **המקור
   /// היחיד** שממנו [checkForUpdate] ו-[applyUpdate] קוראים, תמיד; היא נמלאת
@@ -298,19 +335,34 @@ class LibraryManager {
   /// לא עושה כלום אם `check.updateAvailable == false`.
   ///
   /// מחזיר את מזהי הספרים שתוכנם השתנה (מסלול דלתא בלבד; ריק בהורדה מלאה,
-  /// שבה אין דיווח כזה) — אוצריא משתמשת בהם כדי לאנדקס מחדש בדיוק את הספרים
-  /// האלה. ראו `library_manager/README.md`, "אינדקס החיפוש".
+  /// שבה אין דיווח כזה). בסוף עדכון מוצלח נכתב גם סימון שבקשת עדכון אינדקס
+  /// ממתינה לאוצריא — ראו [pendingReindexRequest] ו-
+  /// `library_manager/README.md`, "אינדקס החיפוש".
   ///
   /// [onCompanionWarning] מקבל כשל בהתקנת קובץ נלווה בודד — כמו בהורדה, זה
   /// best-effort שאסור לו להיעלם בשקט.
+  ///
+  /// [useFullDownloadFallback] מריץ את **אותה בדיקה** דרך המסד המלא שבמראה
+  /// במקום ה-patches ([LibraryUpdatePlan.fullDownloadFallback]) — מסלול
+  /// ההתאוששות אחרי שמסלול הדלתא נכשל, למשל בגלל patch שאינו מתאים למסד
+  /// שעל המחשב. אינו קורה מאליו: זו הורדה גדולה, ולכן החלטה של המשתמש.
   Future<Set<int>> applyUpdate(
     LibraryUpdateCheckResult check, {
     void Function(LibraryApplyProgress progress)? onProgress,
     void Function(String assetName, Object error)? onCompanionWarning,
     bool Function()? isCancelled,
+    bool useFullDownloadFallback = false,
   }) async {
-    final plan = check.plan;
+    // מסלול ההתאוששות: אותה בדיקה, אבל עם המסד המלא במקום ה-patches. לא
+    // קורה מעצמו — הורדה של ~1.5GB וחילוץ של ~5.5GB היא החלטה של המשתמש.
+    final plan =
+        useFullDownloadFallback ? check.plan?.fullDownloadFallback : check.plan;
     final dbPath = check.dbPath;
+    if (useFullDownloadFallback && plan == null) {
+      throw LibraryApplyException(
+        AppL10n.strings.libraryDomain.fullDbAssetMissingFromPlan,
+      );
+    }
     if (dbPath == null || !check.updateAvailable) {
       return const <int>{};
     }

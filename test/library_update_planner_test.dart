@@ -93,6 +93,46 @@ void main() {
       expect(p.deltaSteps[1].toVersion, 3);
     });
 
+    // ההתאוששות מ-issue #19: patch שנכשל על המסד המקומי משאיר את המשתמש
+    // תקוע, אלא אם המסד המלא שבמראה נגיש מאותה תוכנית.
+    test('תוכנית דלתא נושאת את ההורדה המלאה כמסלול חלופי', () {
+      final p = plan(
+        local: 1,
+        latest: 3,
+        edges: [_edge(1, 2), _edge(2, 3)],
+        fullVersion: 3,
+      );
+
+      expect(p.kind, LibraryUpdatePlanKind.delta);
+      final fallback = p.fullDownloadFallback!;
+      expect(fallback.kind, LibraryUpdatePlanKind.fullDownload);
+      expect(fallback.fullDbAsset, _fullAsset);
+      expect(fallback.fullDbReleaseTag, 'v3');
+      // היעד הוא מה שהנכס מביא, לא מה שה-release מכריז — אחרת האימות
+      // שאחרי החילוץ דוחה את המסד.
+      expect(fallback.targetVersion, 3);
+      expect(fallback.fullDownloadFallback, isNull);
+    });
+
+    test('בלי מסד מלא במראה אין מסלול חלופי לתוכנית דלתא', () {
+      final p = plan(local: 1, latest: 2, edges: [_edge(1, 2)], full: null);
+
+      expect(p.kind, LibraryUpdatePlanKind.delta);
+      expect(p.fullDownloadFallback, isNull);
+    });
+
+    test('היעד של המסלול החלופי הוא הגרסה שהנכס מביא', () {
+      final p = plan(
+        local: 1,
+        latest: 5,
+        edges: [_edge(1, 5)],
+        fullVersion: 4, // ה-zst שבמראה מביא 4, לא 5
+      );
+
+      expect(p.targetVersion, 5);
+      expect(p.fullDownloadFallback!.targetVersion, 4);
+    });
+
     test('חסר 2→3 (רק 1→2, latest=3) → full fallback', () {
       final p = plan(local: 1, latest: 3, edges: [_edge(1, 2)]);
       expect(p.kind, LibraryUpdatePlanKind.fullDownload);

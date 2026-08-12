@@ -2,6 +2,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
+import '../controllers/launcher_update_controller.dart';
 import '../controllers/library_module_controller.dart';
 import '../controllers/otzaria_module_controller.dart';
 import '../controllers/plugins_module_controller.dart';
@@ -21,6 +22,7 @@ class HomeScreen extends StatelessWidget {
     required this.otzaria,
     required this.library,
     required this.plugins,
+    required this.launcherUpdate,
     required this.settings,
     required this.otzariaIsRunning,
     required this.isDownloading,
@@ -28,6 +30,9 @@ class HomeScreen extends StatelessWidget {
     required this.onProcessStateChanged,
     required this.onCheckOnline,
     required this.onDownloadAll,
+    required this.onDownloadLauncherUpdate,
+    required this.onInstallLauncherUpdate,
+    required this.onRequestReindex,
     required this.onGoToOtzaria,
     required this.onGoToLibrary,
   });
@@ -35,6 +40,7 @@ class HomeScreen extends StatelessWidget {
   final OtzariaModuleController otzaria;
   final LibraryModuleController library;
   final PluginsModuleController plugins;
+  final LauncherUpdateController launcherUpdate;
   final SettingsController settings;
   final bool otzariaIsRunning;
   final bool isDownloading;
@@ -45,6 +51,16 @@ class HomeScreen extends StatelessWidget {
   final Future<bool> Function() onProcessStateChanged;
   final Future<void> Function() onCheckOnline;
   final Future<void> Function() onDownloadAll;
+
+  /// שתי הפעולות של עדכון הלאנצ'ר עצמו. מיושמות ב-`AppShell` (הדיאלוגים
+  /// שלהן קופצים גם מהבדיקה האוטומטית בעלייה), וכאן רק נקראות.
+  final Future<void> Function() onDownloadLauncherUpdate;
+  final Future<void> Function() onInstallLauncherUpdate;
+
+  /// מציעה ומוסרת לאוצריא את בקשת עדכון אינדקס החיפוש, כשעדכון מסד השאיר
+  /// אותה ממתינה. גם היא מיושמת ב-`AppShell`, מאותו טעם.
+  final Future<void> Function() onRequestReindex;
+
   final VoidCallback onGoToOtzaria;
   final VoidCallback onGoToLibrary;
 
@@ -93,6 +109,10 @@ class HomeScreen extends StatelessWidget {
         ),
         const SizedBox(height: AppTokens.spaceLG),
         _onlineCheckCard(context),
+        if (_showLauncherUpdateCard) ...[
+          const SizedBox(height: AppTokens.spaceLG),
+          _launcherUpdateCard(context),
+        ],
       ],
     );
   }
@@ -217,6 +237,8 @@ class HomeScreen extends StatelessWidget {
         AppL10n.strings.home.libraryUpdatedSnack('${c.localVersion}'),
       );
     }
+    // המסד התחלף, ולכן אינדקס החיפוש של אוצריא מיושן — מציעים לתקן מיד.
+    await onRequestReindex();
   }
 
   // ── בדיקת עדכונים ברשת (צדדי) ────────────────────────────────────────────
@@ -342,6 +364,119 @@ class HomeScreen extends StatelessWidget {
       );
     }
     return InfoProgressRow(stage: t.downloadStarting);
+  }
+
+  // ── עדכון הלאנצ'ר עצמו ───────────────────────────────────────────────────
+
+  /// הכרטיס מוצג רק כשיש בו מה לומר. בשגרה — כשהתוכנה מעודכנת — הוא נעדר,
+  /// ומספר הגרסה נמצא בהגדרות; דף הבית הוא "יש עדכון? לחצו", לא לוח מכשירים.
+  bool get _showLauncherUpdateCard {
+    final c = launcherUpdate;
+    return c.hasOnlineUpdate ||
+        c.hasUpdateReady ||
+        c.isDownloading ||
+        c.isInstalling ||
+        c.status == LauncherUpdateStatus.error;
+  }
+
+  Widget _launcherUpdateCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final c = launcherUpdate;
+    final t = context.strings.launcherUpdate;
+
+    final (StatusKind kind, String label) = switch (c.status) {
+      LauncherUpdateStatus.downloading => (
+          StatusKind.working,
+          t.statusDownloading
+        ),
+      LauncherUpdateStatus.installing => (
+          StatusKind.working,
+          t.statusInstalling
+        ),
+      LauncherUpdateStatus.error => (
+          StatusKind.error,
+          context.strings.common.error
+        ),
+      LauncherUpdateStatus.readyToInstall => (
+          StatusKind.updateAvailable,
+          t.statusReadyToInstall
+        ),
+      _ when c.hasOnlineUpdate => (
+          StatusKind.updateAvailable,
+          t.statusUpdateAvailable
+        ),
+      _ => (StatusKind.ok, t.statusUpToDate),
+    };
+
+    final newest = c.newestKnownVersion;
+    final detail = theme.textTheme.bodySmall
+        ?.copyWith(color: theme.colorScheme.onSurfaceVariant);
+
+    return SettingsCard(
+      title: t.cardTitle,
+      subtitle: t.cardSubtitle,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(AppTokens.spaceMD),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              StatusChip(kind: kind, label: label),
+              const SizedBox(height: AppTokens.spaceMD),
+              Text(t.installedVersion(c.currentVersion), style: detail),
+              if (newest != null) ...[
+                const SizedBox(height: AppTokens.spaceXS),
+                Text(
+                  c.hasUpdateReady
+                      ? t.downloadedVersion(newest)
+                      : t.onlineVersion(newest),
+                  style: detail,
+                ),
+              ],
+              if (c.isDownloading) ...[
+                const SizedBox(height: AppTokens.spaceMD),
+                InfoProgressRow(
+                  stage: t.statusDownloading,
+                  progress: (c.downloadTotal ?? 0) > 0
+                      ? (c.downloadReceived ?? 0) / c.downloadTotal!
+                      : null,
+                  detail:
+                      formatBytesProgress(c.downloadReceived, c.downloadTotal),
+                ),
+              ],
+              // ההתקנה זמינה גם בלי רשת, ולכן היא מוצגת לפני ההורדה: במחשב
+              // המנותק זו הפעולה היחידה שאפשר בכלל ללחוץ עליה.
+              if (c.hasUpdateReady && c.canInstall) ...[
+                const SizedBox(height: AppTokens.spaceMD),
+                ActionButton.recommended(
+                  text: t.installButton,
+                  icon: FluentIcons.arrow_sync_24_regular,
+                  isLoading: c.isInstalling,
+                  onPressed: c.isInstalling ? null : onInstallLauncherUpdate,
+                ),
+              ],
+              if (c.hasOnlineUpdate) ...[
+                const SizedBox(height: AppTokens.spaceMD),
+                ActionButton.neutral(
+                  text: t.downloadButton,
+                  icon: FluentIcons.arrow_download_24_regular,
+                  isLoading: c.isDownloading,
+                  onPressed: c.isDownloading || isDownloading
+                      ? null
+                      : onDownloadLauncherUpdate,
+                ),
+              ],
+              // גם כשהמצב חזר ל"מוכן להתקנה" אחרי כשל התקנה — ההודעה היא מה
+              // שמסביר למה הכפתור עדיין שם.
+              if (c.errorMessage != null) ...[
+                const SizedBox(height: AppTokens.spaceSM),
+                InfoErrorRow(message: c.errorMessage!),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   static String _formatTime(DateTime time) {

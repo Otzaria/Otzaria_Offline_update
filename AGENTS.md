@@ -37,10 +37,13 @@ touched by *one* thing only: the download step that fills that folder.
 | Download library updates + companion files | `LibraryManager.downloadToMirror()` | **yes** (heavy — full DB/patches, Talmud PDFs, catalog, dictionary) |
 | Download the Otzaria installers (stable + newer pre-release) | `OtzariaManager.downloadToMirror()` | **yes** (heavy — installer files) |
 | Download the plugin store | `PluginsManager.sync()` | **yes** (heavy — images/`.otzplugin` files) |
+| Download a newer **launcher** (this program itself) | `LauncherSelfUpdater.downloadToMirror()` | **yes** (the packaged exe, tens of MB) |
 | Peek the latest library version online | `LibraryManager.peekLatestOnlineVersion()` | **yes** (light — one API call, no asset) |
 | Peek the latest Otzaria release online | `OtzariaManager.peekLatestOnlineRelease()` | **yes** (light — one API call, no asset) |
+| Peek the latest launcher release online | `LauncherSelfUpdater.peekLatestOnline()` | **yes** (light — one API call, no asset) |
 | Check / apply a library update | `LibraryManager.checkForUpdate()` / `.applyUpdate()` | no |
 | Check / install the Otzaria app | `OtzariaManager.checkForUpdate()` / `.update()` | no |
+| Check / install the launcher itself | `LauncherSelfUpdater.checkForUpdate()` / `.applyUpdate()` | no |
 | Read the store / install a plugin | `PluginsManager.load()` / `.directInstall()` | no |
 
 The two "peek" methods exist only to power the launcher's optional, one-shot,
@@ -62,6 +65,7 @@ mirror/library/   releases.json + assets/   ← LibraryManager.mirrorDir
 mirror/companions/ companions.json + the Talmud archive, catalog and dictionary  ← LibraryManager.companionsMirrorDir
 mirror/app/       latest-release.json (up to 2 channels) + installers/<tag>/  ← OtzariaAppMirror
 mirror/plugins/   catalog.json + files/     ← PluginMirrorStore
+mirror/launcher/  latest-release.json + files/<tag>/  ← LauncherUpdateMirror (the launcher itself)
 otzaria-app/      the managed Otzaria install
 ```
 
@@ -152,12 +156,17 @@ Notes:
   unit tests, widget tests, golden/contract tests (like
   `test/patch_tables_contract.json`) stacked on top of each other. The point
   is not for a human (or an agent) to re-run everything by hand each time:
-  `.github/workflows/ci.yml` already runs the full suite, across every
-  package, on every push/PR, and — since 2026-08-10 — also on a weekly
-  schedule (`cron: "0 3 * * 1"`), so a regression surfaces even without a new
-  commit (a Flutter/Dart stable bump, a dependency update, a test that turned
-  flaky). When adding logic, add the tests that let CI catch its regressions
+  `.github/workflows/ci.yml` runs the full suite, across every package, on
+  every push and PR. (It briefly also ran on a weekly `cron`; that was removed
+  on 2026-08-11 — the suite runs on every push, and that is the only trigger.)
+  When adding logic, add the tests that let CI catch its regressions
   automatically, rather than trusting a one-time manual run.
+- **A green push to `main` publishes a release.** `ci.yml`'s `publish` job
+  bumps the launcher's patch version, commits it, tags it, and uploads the two
+  artifacts the `launcher_app*` jobs already built. So `main` is not a
+  scratchpad: anything merged there reaches users as a new version, which the
+  launcher's own self-update then offers them. Details in
+  `launcher_app/README.md` § "עדכון עצמי".
 - **A local layer runs the same checks before a commit even leaves the
   machine.** `.githooks/pre-commit` runs `dart format` + analyze + test on
   whichever packages have staged changes, and blocks the commit on failure.
@@ -184,14 +193,15 @@ Notes:
 `otzaria/lib/theme/` and `otzaria/lib/widgets/`. Use the ported components
 (`ActionButton`, `SettingsCard`/`SettingsActionTile`, `AppCard`, `UiSnack`,
 the `show*Dialog` helpers, `AppSegmentedControl`, `RtlIcon`, `RtlTextField`,
-`StatusChip`) instead of raw Material widgets, and keep alpha/hover overrides
-inside `lib/src/theme/`. The full rule table — including what deliberately was
+`StatusChip`, `ColorPickerTile`) instead of raw Material widgets, and keep
+alpha/hover overrides inside `lib/src/theme/`. The full rule table — including what deliberately was
 *not* ported — is in `launcher_app/README.md`; the upstream contract is
 `otzaria/AGENTS.md` § "MANDATORY UI Components". When touching UI, read the
 Otzaria original before inventing something new.
 
 **All user-visible text lives in `otzaria_l10n`, never inline.** The launcher
-ships in Hebrew (the default) and English. Do not write a literal that a user
+ships in Hebrew and English, defaulting to whichever the computer speaks
+(`AppLanguagePreference.system`). Do not write a literal that a user
 can read — not in a widget, not in an exception message, not in a progress
 callback. Add a field to the right section of
 `otzaria_l10n/lib/src/app_strings.dart` and implement it in **both**
@@ -215,8 +225,11 @@ and register, not word order.
   chrome around it is, plus the store-title fallback used when the site left
   the field empty.
 - Direction is driven by the locale alone (`GlobalWidgetsLocalizations`); do
-  not set `Directionality` by hand. `UiSnack` is the one exception — it lives
-  in an `Overlay` and reads `AppL10n.language.isRtl` directly. For back/forward
+  not set `Directionality` by hand. There are exactly two exceptions, both
+  pinned by an allowlist in `launcher_app/test/widgets_test.dart`: `UiSnack`,
+  which lives in an `Overlay` and reads `AppL10n.language.isRtl` directly, and
+  `SeedColorPalette`, which forces RTL so the swatch order does not mirror in
+  English. A third one is a bug, not a precedent. For back/forward
   arrows use `context.backArrowIcon` / `context.forwardArrowIcon`: `RtlIcon`
   mirrors arrows under RTL, so those helpers hand it the *opposite* glyph and
   the rendered arrow ends up identical in both languages.
@@ -232,6 +245,36 @@ without knowing why it looks that way will regress it.
 `PatchApplier` are byte-for-byte translations of the Kotlin logic and must agree
 with it exactly (including the U+FEFF / BOM handling). Change either one and
 every update starts getting rejected. There are golden-hash tests guarding this.
+
+What that contract covers is the **byte stream**, not the SHA-256
+implementation. `FastSha256` deliberately runs the hash through the OS crypto
+library (CNG on Windows, CommonCrypto on macOS) because `package:crypto` is pure
+Dart at ~50MB/s against ~1,225MB/s native, and the logical hash reads the whole
+~7.4GB DB on every patch. Same algorithm, identical digest — so it is safe, and
+a self-test against `package:crypto` at load time silences the native path if it
+ever disagrees. Do **not** "simplify" that back into `sha256.startChunkedConversion`,
+and do not change what gets fed into it.
+
+That native sink owns memory Dart's GC knows nothing about, so **every caller
+must `dispose()` it in a `finally`** — which is why `FastSha256.start` returns
+`FastSha256Sink` and not a bare `ByteConversionSink`. `close()` disposes on the
+success path; the `finally` is what covers a cancelled download, a network
+failure or an SQLite error mid-scan, each of which otherwise leaks a 1MB buffer
+plus a CNG hash object for the life of the process. Adding to a sink after it
+closed throws, exactly like `package:crypto` does — without that guard it wrote
+into freed memory instead.
+
+**The logical hash is verified once per chain, not once per patch — and
+`<db>.unverified` is what makes that safe.** The hash covers the whole DB
+content, so matching the *last* step's `toContentHash` proves every step before
+it; verifying each step re-read a 7.4GB DB per patch. `PatchApplier.apply` still
+defaults to `verifyToHash: true` (upstream parity); `LibraryUpdateApplier.applyDelta`
+turns it off for every step but the last. The gap that creates: a chain
+interrupted midway leaves a DB that applied cleanly but was never hash-verified.
+So each unverified step records its version in `<db>.unverified`, and the next
+apply starting from that version runs with `verifyFromHash: true`. Remove that
+marker logic and you get a silently-unverified DB; remove the per-chain single
+verify and you are back to N full reads.
 
 **Blocking work must go to an isolate.** `LogicalContentHasher.compute` and
 `PatchApplier.apply` are synchronous and can take tens of seconds. Wrap them in
@@ -310,6 +353,96 @@ built-in `tar.exe` (present since Windows 10 1803), which reads zip — that is
 why no compression library is linked into the stub. The full rationale table is
 in `launcher_app/README.md`.
 
+**The launcher updates itself by replacing that stub — and `OtzariaData/`
+lives *inside* the folder it re-extracts.** `lib/src/self_update/` downloads a
+newer packaged exe into `mirror/launcher/`, copies it over the stub (two
+renames, rollback on failure — same pattern as the `seforim.db` swap), and
+re-launches it with `--after-update=<pid>`. Five things hold it together:
+
+- **The stub never deletes anything.** It extracts the payload *over* the
+  existing `app-files\`, so `app-files\OtzariaData\` — settings, the ~1GB
+  mirror, the managed Otzaria install — is untouched. A "clean install" that
+  wipes `app-files` first would delete exactly what the drive exists to carry.
+  Cost of that choice: files removed in a newer version linger. They are inert
+  (Flutter resolves assets through its manifest and only loads DLLs it
+  imports), and that is the deliberate trade.
+- **`.ready` holds the payload version, and that is what triggers a
+  re-extract.** It used to be an empty marker file, so a replaced exe would
+  have skipped extraction and run the *old* `launcher_app.exe` forever. An
+  empty marker written by an older stub does not match, which is what makes
+  the first self-update work at all.
+- **The version comes from `pubspec.yaml` only.** `build_stub.ps1` generates
+  `windows_stub/build/version.h` from it (`PAYLOAD_VERSION_A`, and
+  `PAYLOAD_VERSION_COMMAS` for the exe's version resource); `launcherVersion`
+  in `launcher_version.dart` must equal it, and a test asserts that. A tag that
+  disagrees with those two would ship a launcher that reports the old number
+  and offers itself the same update forever, so nothing sets them by hand:
+  `tool/set_launcher_version.sh` writes both, and CI runs it in the build jobs
+  *and* in `publish` with the same value, before the tag is created.
+- **The stub waits for the old process before extracting.** `launcher_app.exe`
+  and `flutter_windows.dll` are locked while the old launcher runs, so `tar`
+  would fail. Hence `--after-update=<pid>` and `WaitForProcessExit`. If
+  extraction fails anyway *and* a launcher already exists on disk, the stub
+  runs it instead of showing an error: the marker still holds the old version,
+  so the next launch retries. The error box is only for "nothing to run at
+  all".
+- **Only a strict `vX.Y.Z` tag counts as a release, and the highest version
+  wins — not the first one listed.** This repo already carries a hand-made
+  release tagged **`V1`** ("גירסת בדיקה", with a `default.exe`).
+  `normalize('V1')` is `1`, which compares *newer than every 0.x forever*, so a
+  first-match-wins client would eventually hand users that stale test build.
+  `LauncherVersion.isReleaseTag` rejects any tag that is not exactly
+  `v<major>.<minor>.<patch>`, which is precisely what CI publishes. Picking the
+  maximum instead of the first also removes the dependence on GitHub's ordering
+  (a re-published or edited release moves to the top of `/releases`).
+- **`Platform.resolvedExecutable` is the wrong file.** It points into
+  `app-files\`; what must be replaced is the stub beside it. The stub therefore
+  passes its own path in `OTZARIA_LAUNCHER_STUB`, and
+  `LauncherInstallLayout` falls back to "the single `.exe` next to
+  `app-files`" for stubs built before that existed.
+  `launcher_app/test/stub_contract_test.dart` pins every one of these shared
+  names (`app-files`, the env var, the flag, the packaged exe name) across
+  `stub.c`, `package.ps1` and the Dart side — they have no compile-time link,
+  exactly like the `processNamesFor` pair above.
+
+On macOS the same code replaces the whole `.app` bundle (`ditto`, never
+`unzip`) and does **not** restart: `open` on a bundle that was swapped under a
+running app is unreliable, so the user is asked to reopen it.
+
+**Some tables carry a UNIQUE constraint above their primary key, and a patch
+that trips it is not our bug — but being stuck is.** `tocText.text`,
+`author.name`, `source.name`, `topic.name`, `pub_place.name`, `pub_date.date`,
+`generation.name`, `connection_type.name`, `book_version(bookId,versionTitle)`
+and `alt_toc_structure(bookId,key)` are all `UNIQUE` in the SeforimLibrary
+schema, while `kPatchTablesInFkOrder` knows only the PK — so `_runUpserts`
+emits `ON CONFLICT(<pk>)`, which does not catch a value that moved from one id
+to another, and upserts run *before* deletes. The producer has
+`assertNoSecondaryUniqueCollisions` to refuse publishing such a patch; when one
+ships anyway (issue #19, v18→v20), the applier blows up mid-transaction. Do not
+"fix" this in the engine: it is byte-identical to upstream
+`otzaria_library_updater` and to the Kotlin `PatchApplier`, the same patch fails
+Otzaria's own online update, and a DB that disagrees with the patch would fail
+`verifyToHash` anyway. What we own is the exit: the message names the table and
+says a full download is needed, and `LibraryUpdatePlan.fullDownloadFallback`
+carries the mirror's full DB alongside every delta plan so
+`applyUpdate(useFullDownloadFallback: true)` can recover. That call is
+**never** automatic — ~1.5GB copied plus ~5.5GB extracted is the user's
+decision, the same reasoning as "no silent network fallback" below.
+
+**`otzaria_install_state.json` travels on the drive, so it is never trusted
+as-is.** It lives in `OtzariaData/`, i.e. on the flash drive, so an install
+recorded on one machine arrives on every other machine the drive is plugged
+into. `checkForUpdate` used to accept it verbatim, which is why the launcher
+announced "Otzaria is up to date" on two machines that had no Otzaria at all
+(issue #19) and `launch()` tried to run a path that did not exist.
+`OtzariaManager._verifyStoredState` now checks that `launchPath` still exists
+here (a *file* on Windows, an `.app` *directory* on macOS — hence
+`FileSystemEntity.typeSync`, not `File.existsSync`) and re-reads the version off
+the executable, rejecting the state when it does not. The file itself is **not**
+deleted: it may be perfectly valid on the machine the drive returns to. The same
+disease is latent in `LibraryStateStore.appliedReleaseTag`, which also travels —
+there it can only suppress an update when the version numbers already match.
+
 **Version strings need normalizing before comparison.** An installed build
 reports `0.9.96` while the release tag is `0.9.96+736`. `OtzariaUpdateCheckResult`
 strips a leading `v` and everything after `+`; without that, every launch sees a
@@ -338,6 +471,31 @@ Otzaria keeps an internal registry of installed plugins beyond the `installed/`
 directory, and a manual unpack bypasses it. `install-local` reads the file from
 disk, so it needs no network at all; the older `install?url=` does need one and
 is deliberately unused here.
+
+**Everything about plugins hangs off the Otzaria launch path the launcher
+already detected** (`OtzariaModuleController.launchPath`, the same value
+`LibraryDbLocator` gets). Two consequences, both load-bearing for a **portable**
+Otzaria:
+
+* `InstalledPluginsScanner` derives the plugins folder from it —
+  `<exeDir>/otzaria_data/plugins` when `portable.marker` sits next to the
+  executable **or that data folder already exists** (deliberately wider than
+  `LibraryDbLocator`, which demands the marker), and only otherwise
+  `%APPDATA%\otzaria\plugins`, then the system-wide install. The marker name
+  and data-folder name are duplicated in `plugins_manager` and `library_manager`;
+  `launcher_app/test/portable_paths_test.dart` verifies they never drift.
+* `PluginDirectInstaller` hands the very same `otzaria://…` URL straight to that
+  executable as its first argument — exactly what the registry handler would do
+  (`"otzaria.exe" "%1"`). A portable install never registers the `otzaria://`
+  scheme, so going through the OS was a guaranteed "make sure Otzaria is
+  installed" failure there. Without a known path (or when it no longer exists)
+  the OS protocol handler is still the fallback.
+
+Because the launch path is only known after `OtzariaManager.checkForUpdate`,
+`AppShell.checkAll()` re-scans the installed plugins right after it
+(`PluginsModuleController.refreshInstalled`), and so does the manual
+"pick the install folder" flow. Dropping those calls leaves the store showing a
+scan of the wrong folder until the next launch.
 
 **The data folder is not configurable, and that is load-bearing.** `AppPaths`
 resolves it next to the executable and `AppSettings` has **no path fields at
@@ -481,13 +639,39 @@ after the DB — same targets, same version markers, same best-effort semantics
 succeeded). The exact sources and markers are tabulated in
 `library_manager/README.md`.
 
-**A DB updated from outside leaves Otzaria's search index stale.** Otzaria
-re-indexes exactly the books `PatchApplier` reports in `booksTouched` (or runs
-`ReconcileIndex` after a full download); neither path runs when *we* write the
-DB, and startup indexing only adds *new* books. `applyUpdate` therefore writes
-`.otzaria-external-update.json` next to the DB with the route, version and book
-ids. Nothing reads it yet — it is the concrete proposal to the Otzaria
-developers, spelled out in `library_manager/README.md`.
+**A DB updated from outside leaves Otzaria's search index stale, and the fix
+is a deep link — not a file.** Otzaria re-indexes exactly the books
+`PatchApplier` reports in `booksTouched` (or runs `ReconcileIndex` after a full
+download); neither path runs when *we* write the DB, and startup indexing only
+adds *new* books, so search in a changed book returns its old content. We asked
+the Otzaria developers to read a file (`OTZARIA_REINDEX_REQUEST.md`); what they
+shipped instead (`dev`, `78f395f3`) is **`otzaria://library/reindex`** —
+parameterless, reloads the catalogue and runs `StartIndexing` +
+`ReconcileIndex`, even when their "auto index update" setting is off. Their
+fingerprint comparison finds the changed books itself, so `booksTouched` is not
+needed on their side.
+
+Three things about our half:
+
+- **`.otzaria-external-update.json` is now our own pending marker**, not a
+  message to Otzaria. `applyUpdate` writes it next to the DB; it survives
+  launcher restarts, `LibraryManager.pendingReindexRequest()` reads it, and
+  `clearReindexRequest()` deletes it **only after the request was actually
+  delivered**. Clearing it on the *offer* (or on a failed launch) would leave
+  the index on the old content with nobody aware — hence
+  `onLaunchUriDelivered` fires after `launch()` returns, never before.
+- **The link is handed to the detected executable as an argument**
+  (`otzaria.exe <url>`, `open -a` on macOS), not to the OS protocol handler —
+  same reason as `PluginDirectInstaller`: a portable install never registers
+  the `otzaria://` scheme. A running instance receives it through Otzaria's
+  single-instance forwarding. `OtzariaModuleController` therefore takes an
+  injectable `OtzariaLauncher`: without that seam, any test touching `launch()`
+  starts the real Otzaria on the machine running the suite — and asks it to
+  reindex.
+- **Every normal "launch Otzaria" carries a pending request along.** The
+  explicit tile in `LibraryScreen` and the dialog after an update are not
+  enough on their own: a user who opens Otzaria from a desktop shortcut never
+  delivers it, and that gap is the accepted cost of a link-based fix.
 
 **The Otzaria *app*'s real default install directory, verified against the
 Otzaria developers (2026-08-07) — not a guess:** the Windows Inno Setup
@@ -560,6 +744,16 @@ Also **not** verified end-to-end: the plugin store's real round trip — an actu
 `sync()` against `otzaria.org`, carrying `OtzariaData/` on a USB drive to an
 offline machine, and `otzaria://plugin/install-local` against a real Otzaria
 install. Unit-tested logic only; see `plugins_manager/README.md`.
+
+The launcher's **self-update** is unit-tested end to end on the Dart side (the
+GitHub client against a mock, the mirror round trip, the executable-location
+fallbacks, and the real file swap in a temp dir that asserts `OtzariaData/`
+survives), and `stub.c` compiles clean at `/W4` with the generated
+`version.h`. What has **not** run on real hardware: a full round trip — publish
+a tag, let a shipped exe find it, download it to a USB drive, replace itself and
+come back up in the new version. In particular the `--after-update=<pid>` wait,
+the re-extract over a live `app-files\`, and the macOS bundle swap have never
+executed outside tests.
 
 The offline-only rework (single mode, exe-adjacent data folder, app mirror,
 `prerelease`-based channels) is **unit-tested and analyzer-clean only**. Not yet

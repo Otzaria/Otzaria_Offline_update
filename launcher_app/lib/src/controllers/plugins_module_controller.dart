@@ -20,11 +20,15 @@ enum PluginStorePage { home, all, category }
 /// [load] בלבד נקרא בפתיחה: הוא קורא מהתיקייה המקומית וסורק את ההתקנה של
 /// אוצריא, ולא נוגע ברשת. [sync] היא הפעולה היחידה שדורשת אינטרנט.
 class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
-  PluginsModuleController({required String mirrorRootDir})
-      // תיקיית התוספים של אוצריא מזוהה אוטומטית ואינה ניתנת להגדרה —
-      // ראו AppPaths: אין נתיבים בהגדרות.
-      : _manager = PluginsManager(
+  PluginsModuleController({
+    required String mirrorRootDir,
+    Future<String?> Function()? otzariaLaunchPath,
+  })
+  // תיקיית התוספים של אוצריא נגזרת מההתקנה שהלאנצ'ר זיהה ואינה ניתנת
+  // להגדרה — ראו AppPaths: אין נתיבים בהגדרות.
+  : _manager = PluginsManager(
           resolveMirrorDir: () async => mirrorRootDir,
+          otzariaLaunchPath: otzariaLaunchPath,
         );
 
   final PluginsManager _manager;
@@ -71,8 +75,14 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   double? syncProgress;
   final List<String> syncWarnings = [];
 
+  /// הטעינה שרצה כרגע, אם רצה — [refreshInstalled] ממתינה לה במקום לדלג
+  /// עליה: בעלייה שתיהן יוצאות לדרך כמעט יחד.
+  Future<void>? _loading;
+
   /// טוען את הקטלוג המקומי וסורק את התוספים המותקנים. ללא רשת.
-  Future<void> load() async {
+  Future<void> load() => _loading = _load();
+
+  Future<void> _load() async {
     status = PluginsModuleStatus.loading;
     errorMessage = null;
     notifyListeners();
@@ -94,6 +104,25 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
       AppLogger.instance.error('טעינת קטלוג התוספים נכשלה', e, st);
     }
     notifyListeners();
+  }
+
+  /// סורק מחדש **רק** את התוספים המותקנים, בלי לטעון את הקטלוג ובלי להעביר
+  /// את המסך למצב טעינה. נקרא אחרי שזיהוי אוצריא התעדכן: תיקיית התוספים
+  /// נגזרת מנתיב ההתקנה, וסריקה שרצה לפניו הסתכלה במקום אחר.
+  Future<void> refreshInstalled() async {
+    await _loading;
+    if (status != PluginsModuleStatus.ready) return;
+
+    try {
+      final scanned = await _manager.scanInstalled();
+      if (mapEquals(installed, scanned)) return;
+      installed = scanned;
+      _invalidateDerived();
+      notifyListeners();
+    } catch (e, st) {
+      // כישלון כאן אינו הופך את החנות לשגויה — היא כבר טעונה ומוצגת.
+      AppLogger.instance.error('סריקת התוספים המותקנים נכשלה', e, st);
+    }
   }
 
   /// מסנכרן את הקטלוג והקבצים מהאתר אל המראה. דורש אינטרנט.

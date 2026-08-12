@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:library_manager/src/services/zstd_file_decompressor.dart';
@@ -634,6 +635,323 @@ void main() {
       );
 
       expect(File(dbPath).readAsStringSync(), 'OLD DB');
+    });
+  });
+
+  // אימות ה-hash רץ פעם אחת, בצעד האחרון — הוא מוכיח את כל השרשרת. כאן
+  // נבדק גם מה שמונע ממסד שנקטע להישאר לא-מאומת בשקט: סימון + `verifyFromHash`
+  // בהחלה הבאה.
+  group('applyDelta — אימות אחד בסוף השרשרת', () {
+    const recovery = LibraryDbRecoveryService();
+    const hasher = LogicalContentHasher();
+
+    String buildDb(String path,
+        {required int version, required List<List> rows}) {
+      final db = sqlite3.sqlite3.open(path);
+      db.execute('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT)');
+      db.execute("INSERT INTO schema_meta VALUES ('db_version','$version'),"
+          "('db_schema_version','2')");
+      db.execute('CREATE TABLE source (id INTEGER PRIMARY KEY, name TEXT)');
+      for (final row in rows) {
+        db.execute('INSERT INTO source VALUES (?,?)', [row[0], row[1]]);
+      }
+      db.close();
+      return path;
+    }
+
+    String hashOf(String path) {
+      final db = sqlite3.sqlite3.open(path, mode: sqlite3.OpenMode.readOnly);
+      try {
+        return hasher.compute(db);
+      } finally {
+        db.close();
+      }
+    }
+
+    // אותה קשת נבנית יותר מפעם אחת באותה בדיקה (שרשרת שנקטעה ואז ממשיכה),
+    // ולכן שם הקובץ חייב להיות ייחודי לכל בנייה.
+    var edgeSeq = 0;
+
+    /// בונה patch אמיתי, דוחס אותו ב-libzstd ומחזיר קשת עם URL מקומי —
+    /// בדיוק כמו מראה offline.
+    PatchEdge buildEdge({
+      required int from,
+      required int to,
+      required List<List> upsertRows,
+      required String fromHash,
+      required String toHash,
+      String? urlOverride,
+    }) {
+      final raw = p.join(tempDir.path, 'patch_${from}_${to}_${edgeSeq++}.db');
+      final db = sqlite3.sqlite3.open(raw);
+      db.execute('CREATE TABLE patch_meta (key TEXT PRIMARY KEY, value TEXT)');
+      db.execute("INSERT INTO patch_meta VALUES ('schema_version','2'),"
+          "('from_version','$from'),('to_version','$to')");
+      db.execute(
+          'CREATE TABLE migrations (version INTEGER PRIMARY KEY, sql TEXT)');
+      db.execute(
+          'CREATE TABLE upsert_schema_meta (key TEXT PRIMARY KEY, value TEXT)');
+      db.execute("INSERT INTO upsert_schema_meta VALUES ('db_version','$to')");
+      db.execute(
+          'CREATE TABLE upsert_source (id INTEGER PRIMARY KEY, name TEXT)');
+      for (final row in upsertRows) {
+        db.execute('INSERT INTO upsert_source VALUES (?,?)', [row[0], row[1]]);
+      }
+      db.close();
+
+      final rawBytes = File(raw).readAsBytesSync();
+      final compressed = compressWithZstd(bindings!, rawBytes);
+      final zstPath = '$raw.zst';
+      File(zstPath).writeAsBytesSync(compressed);
+      final fileName = 'patch_$from-$to.db.zst';
+
+      return PatchEdge(
+        manifest: DeltaManifest(
+          fromVersion: from,
+          toVersion: to,
+          fromSchemaVersion: 2,
+          toSchemaVersion: 2,
+          fromContentHash: fromHash,
+          toContentHash: toHash,
+          patchFiles: [
+            PatchFileEntry(
+              file: fileName,
+              compression: 'zstd',
+              sha256: sha256.convert(compressed).toString(),
+              size: compressed.length,
+              uncompressedSha256: sha256.convert(rawBytes).toString(),
+              uncompressedSize: rawBytes.length,
+            ),
+          ],
+        ),
+        patchFileUrls: {fileName: urlOverride ?? zstPath},
+        manifestUrl: 'manifest.json',
+      );
+    }
+
+    /// שלושת מצבי ה-DB בשרשרת 1→2→3, וה-hashes שלהם.
+    ({String h1, String h2, String h3}) buildChainHashes() {
+      final v1 = buildDb(p.join(tempDir.path, 'expect1.db'), version: 1, rows: [
+        [1, 'aleph'],
+      ]);
+      final v2 = buildDb(p.join(tempDir.path, 'expect2.db'), version: 2, rows: [
+        [1, 'aleph'],
+        [2, 'bet'],
+      ]);
+      final v3 = buildDb(p.join(tempDir.path, 'expect3.db'), version: 3, rows: [
+        [1, 'aleph'],
+        [2, 'bet'],
+        [3, 'gimel'],
+      ]);
+      return (h1: hashOf(v1), h2: hashOf(v2), h3: hashOf(v3));
+    }
+
+    /// אוסף את תת-השלבים שדווחו, לפי אינדקס הצעד.
+    Map<int, List<String>> stagesRecorder(List<LibraryApplyProgress> log) {
+      final byStep = <int, List<String>>{};
+      for (final p in log) {
+        final stage = p.patchStage;
+        if (stage == null) continue;
+        (byStep[p.stepIndex ?? 0] ??= []).add(stage);
+      }
+      return byStep;
+    }
+
+    setUp(() {
+      if (bindings == null) return;
+      buildDb(dbPath, version: 1, rows: [
+        [1, 'aleph'],
+      ]);
+    });
+
+    test('שני צעדים → verifyToHash רק באחרון, והמסד מגיע ליעד', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final h = buildChainHashes();
+      final log = <LibraryApplyProgress>[];
+
+      await applier.applyDelta(
+        plan: LibraryUpdatePlan.delta(
+          localVersion: 1,
+          targetVersion: 3,
+          steps: [
+            buildEdge(
+                from: 1,
+                to: 2,
+                upsertRows: [
+                  [2, 'bet']
+                ],
+                fromHash: h.h1,
+                toHash: h.h2),
+            buildEdge(
+                from: 2,
+                to: 3,
+                upsertRows: [
+                  [3, 'gimel']
+                ],
+                fromHash: h.h2,
+                toHash: h.h3),
+          ],
+        ),
+        dbPath: dbPath,
+        onProgress: log.add,
+      );
+
+      final stages = stagesRecorder(log);
+      expect(stages[1], isNot(contains('verifyToHash')),
+          reason: 'הצעד הראשון אינו מאמת');
+      expect(stages[2], contains('verifyToHash'),
+          reason: 'הצעד האחרון כן מאמת');
+      expect(stages[1], isNot(contains('verifyFromHash')));
+
+      // ה-hash של הצעד האחרון תואם ⇒ כל השרשרת נכונה.
+      expect(hashOf(dbPath), h.h3);
+      expect(recovery.unverifiedVersion(dbPath), isNull);
+    });
+
+    test('צעד אחד — מאמת כמו קודם, בלי סימון', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final h = buildChainHashes();
+      final log = <LibraryApplyProgress>[];
+
+      await applier.applyDelta(
+        plan: LibraryUpdatePlan.delta(
+          localVersion: 1,
+          targetVersion: 2,
+          steps: [
+            buildEdge(
+                from: 1,
+                to: 2,
+                upsertRows: [
+                  [2, 'bet']
+                ],
+                fromHash: h.h1,
+                toHash: h.h2),
+          ],
+        ),
+        dbPath: dbPath,
+        onProgress: log.add,
+      );
+
+      expect(stagesRecorder(log)[1], contains('verifyToHash'));
+      expect(recovery.unverifiedVersion(dbPath), isNull);
+    });
+
+    test('שרשרת שנקטעה מסמנת את המסד כלא-מאומת, וההחלה הבאה מאמתת אותו',
+        () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final h = buildChainHashes();
+
+      // הצעד השני מצביע על קובץ שאינו קיים — הראשון מוחל, השני נכשל.
+      await expectLater(
+        applier.applyDelta(
+          plan: LibraryUpdatePlan.delta(
+            localVersion: 1,
+            targetVersion: 3,
+            steps: [
+              buildEdge(
+                  from: 1,
+                  to: 2,
+                  upsertRows: [
+                    [2, 'bet']
+                  ],
+                  fromHash: h.h1,
+                  toHash: h.h2),
+              buildEdge(
+                from: 2,
+                to: 3,
+                upsertRows: [
+                  [3, 'gimel']
+                ],
+                fromHash: h.h2,
+                toHash: h.h3,
+                urlOverride: p.join(tempDir.path, 'missing.db.zst'),
+              ),
+            ],
+          ),
+          dbPath: dbPath,
+        ),
+        throwsA(anything),
+      );
+
+      // הצעד הראשון הוחל אך לא אומת — וזה מתועד.
+      expect(recovery.unverifiedVersion(dbPath), 2);
+
+      // ההחלה הבאה מתחילה מאותה גרסה ⇒ מאמתת את המסד לפני שהיא בונה עליו.
+      final log = <LibraryApplyProgress>[];
+      await applier.applyDelta(
+        plan: LibraryUpdatePlan.delta(
+          localVersion: 2,
+          targetVersion: 3,
+          steps: [
+            buildEdge(
+                from: 2,
+                to: 3,
+                upsertRows: [
+                  [3, 'gimel']
+                ],
+                fromHash: h.h2,
+                toHash: h.h3),
+          ],
+        ),
+        dbPath: dbPath,
+        onProgress: log.add,
+      );
+
+      expect(stagesRecorder(log)[1], contains('verifyFromHash'));
+      expect(hashOf(dbPath), h.h3);
+      expect(recovery.unverifiedVersion(dbPath), isNull);
+    });
+
+    test('מסד שסומן כלא-מאומת ותוכנו שגוי נדחה לפני שממשיכים לבנות עליו',
+        () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final h = buildChainHashes();
+
+      // מסד בגרסה 2, אבל עם תוכן שאינו מה ש-h2 מתאר — בדיוק המצב שהסימון
+      // קיים בשבילו. בלי `verifyFromHash` היינו בונים עליו בשקט.
+      buildDb(p.join(tempDir.path, 'tampered.db'), version: 2, rows: [
+        [1, 'aleph'],
+        [2, 'WRONG'],
+      ]);
+      File(p.join(tempDir.path, 'tampered.db')).copySync(dbPath);
+      recovery.markUnverified(dbPath, 2);
+
+      await expectLater(
+        applier.applyDelta(
+          plan: LibraryUpdatePlan.delta(
+            localVersion: 2,
+            targetVersion: 3,
+            steps: [
+              buildEdge(
+                  from: 2,
+                  to: 3,
+                  upsertRows: [
+                    [3, 'gimel']
+                  ],
+                  fromHash: h.h2,
+                  toHash: h.h3),
+            ],
+          ),
+          dbPath: dbPath,
+        ),
+        throwsA(isA<PatchApplyException>().having(
+          (e) => e.message,
+          'message',
+          AppL10n.strings.libraryDomain.contentHashMismatchNeedsFullDownload,
+        )),
+      );
     });
   });
 }

@@ -35,6 +35,18 @@ Flutter. אין ב‑package הזה widgets או UI; האינטגרציה עם �
 חילוץ zstd עדיין **מוזרק** על‑ידי הצרכן (ל‑`PatchDownloader.decompress`), כך שה‑package לא
 נעול לספריית דחיסה מסוימת.
 
+## SHA‑256 — `FastSha256`
+
+חישוב ה‑SHA‑256 עצמו (גם ב‑`LogicalContentHasher` וגם באימות הנכסים ב‑`PatchDownloader`) עובר
+דרך `FastSha256` ולא דרך `sha256.startChunkedConversion` ישירות. הסיבה מדידה: המימוש של
+`package:crypto` הוא דארט טהור ומגיע ל‑~50MB/s, מול ~1,225MB/s לאותו אלגוריתם דרך ספריית
+ההצפנה של המערכת — ואימות ה‑hash הלוגי קורא את כל המסד (~7.4GB) בכל patch.
+
+Windows דרך CNG (`bcrypt.dll`), macOS דרך CommonCrypto ב‑libSystem, וכל השאר (כולל לינוקס
+ב‑CI) נופל ל‑`package:crypto`. ה‑digest זהה בשלושת המסלולים — **חוזה ה‑hash מול ה‑Kotlin נוגע
+לזרם הבתים, לא למימוש ה‑SHA**. בטעינה הראשונה (פעם אחת לכל isolate) מורצת בדיקה עצמית מול
+`package:crypto`, ומסלול נייטיבי שאינו מסכים איתה מושתק — מימוש שגוי היה דוחה *כל* עדכון.
+
 **הערת web:** Flutter Web אינו תומך ב‑`dart:io`, שבו משתמשים `PatchApplier`,
 `LibraryDbRecoveryService` ו‑`LocalDbVersionReader`. החבילה מיועדת לפלטפורמות ה‑native
 (Android, iOS, macOS, Windows, Linux) בלבד.

@@ -29,7 +29,10 @@ class PatchApplyResult {
   final int migrations;
   final Map<String, int> upserts;
   final Map<String, int> deletes;
-  final String resultHash;
+
+  /// ה-hash הלוגי של ה-DB אחרי ההחלה, או `null` כש-`verifyToHash` היה כבוי —
+  /// ואז ה-hash לא חושב כלל ולא הושווה ל-`toContentHash`.
+  final String? resultHash;
 
   /// מזהי הספרים שתוכן האינדקס שלהם הושפע מה-patch — שינויים בטבלאות
   /// [kBooksTouchedTables] בלבד (book/line/TOC כולל tocText ו-alt-TOC,
@@ -62,6 +65,10 @@ class PatchApplyResult {
   });
 }
 
+/// `SQLITE_CONSTRAINT` — קוד התוצאה הבסיסי של כל הפרת אילוץ (UNIQUE, CHECK,
+/// FK...). ה-extended code הוא זה שמפרט איזה אילוץ, ואין צורך בו כאן.
+const int _sqliteConstraint = 19;
+
 /// נזרק כאשר preflight או אימות נכשלים — ה-DB לא שונה (לא בוצע commit).
 class PatchApplyException implements Exception {
   final String message;
@@ -93,6 +100,9 @@ List<String> hashTableOrderForSchemaVersion(int schemaVersion) {
 /// → deletes (סדר FK הפוך) → foreign_key_check → אימות `toContentHash` →
 /// COMMIT. כל כשל גורם ל-ROLLBACK וזריקה, וה-DB נשאר ללא שינוי.
 ///
+/// שלבי האימות (`verifyFromHash`, `verifyToHash`) קוראים כל אחד את **כל** ה-DB;
+/// ראו הדגלים ב-[apply].
+///
 /// המתודה סינכרונית וחוסמת — יש להריצה ב-Isolate או אחרי
 /// `closeForExternalWrite`.
 class PatchApplier {
@@ -111,12 +121,17 @@ class PatchApplier {
   /// [verifyFromHash] — אם פעיל, מחשב את ה-hash המקומי לפני apply ומשווה ל-
   /// `fromContentHash` (יקר אך מזהה DB ששונה ידנית/corruption).
   /// [checkForeignKeys] — אם פעיל, מוודא ש-`foreign_key_check` לא גדל.
+  /// [verifyToHash] — אם פעיל (ברירת המחדל), מאמת את ה-hash של התוצאה מול
+  /// `toContentHash` ומגלגל אחורה כשאינו תואם. כיבויו חוסך קריאה מלאה של
+  /// ה-DB, ומתאים **רק** לקורא שמאמת בעצמו בסוף שרשרת של patches — ראו
+  /// `LibraryUpdateApplier.applyDelta`.
   PatchApplyResult apply({
     required String dbPath,
     required String patchPath,
     required DeltaManifest manifest,
     bool verifyFromHash = true,
     bool checkForeignKeys = true,
+    bool verifyToHash = true,
     void Function(String stage)? onStage,
     void Function(int hashedBytes, int totalBytes)? onVerifyProgress,
     int? verifyTotalBytesHint,
@@ -218,19 +233,22 @@ class PatchApplier {
         }
       }
 
-      onStage?.call('verifyToHash');
-      if (verifyProgress != null) refreshTotal();
-      // ה-DB *אחרי* apply הוא בסכמת היעד — הסדר נבחר לפי toSchemaVersion.
-      final resultHash = hasher.compute(
-        db,
-        tableOrder: toOrder,
-        onProgress: verifyProgress,
-      );
-      if (resultHash != manifest.toContentHash) {
-        throw PatchApplyException(
-          AppL10n.strings.libraryDomain
-              .resultHashMismatch(resultHash, manifest.toContentHash),
+      String? resultHash;
+      if (verifyToHash) {
+        onStage?.call('verifyToHash');
+        if (verifyProgress != null) refreshTotal();
+        // ה-DB *אחרי* apply הוא בסכמת היעד — הסדר נבחר לפי toSchemaVersion.
+        resultHash = hasher.compute(
+          db,
+          tableOrder: toOrder,
+          onProgress: verifyProgress,
         );
+        if (resultHash != manifest.toContentHash) {
+          throw PatchApplyException(
+            AppL10n.strings.libraryDomain
+                .resultHashMismatch(resultHash, manifest.toContentHash),
+          );
+        }
       }
 
       onStage?.call('commit');
@@ -323,10 +341,24 @@ class PatchApplier {
       }
 
       // `WHERE true` נדרש כדי שה-parser ישייך את ON CONFLICT ל-INSERT ולא ל-SELECT.
-      db.execute(
-        'INSERT INTO "${table.name}" ($colsCsv) '
-        'SELECT $colsCsv FROM patch."$patchTable" WHERE true $conflictClause',
-      );
+      try {
+        db.execute(
+          'INSERT INTO "${table.name}" ($colsCsv) '
+          'SELECT $colsCsv FROM patch."$patchTable" WHERE true $conflictClause',
+        );
+      } on sqlite3.SqliteException catch (e) {
+        // ה-ON CONFLICT מכוון ל-PK בלבד, ולחלק מהטבלאות יש UNIQUE נוסף על
+        // עמודת תוכן (`tocText.text`, `author.name`, ...) — ערך שעבר בין
+        // id-ים מתפוצץ שם, כי ה-upserts רצים לפני ה-deletes. זה אומר שה-patch
+        // אינו מתאים למסד הזה, ולא שמשהו אצלנו נשבר: ראו
+        // `assertNoSecondaryUniqueCollisions` בצד המפיק. בלי העטיפה הזאת
+        // המשתמש קיבל SqliteException גולמי בלי שום רמז מה לעשות (issue #19).
+        if (e.resultCode != _sqliteConstraint) rethrow;
+        throw PatchApplyException(
+          AppL10n.strings.libraryDomain
+              .patchUniqueConflictNeedsFullDownload(table.name, e.message),
+        );
+      }
       counts[table.name] = db.updatedRows;
     }
     return counts;

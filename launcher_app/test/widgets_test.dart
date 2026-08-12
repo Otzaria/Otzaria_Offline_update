@@ -278,8 +278,9 @@ void main() {
       expect(tester.widget<TextField>(find.byType(TextField)).enabled, isFalse);
     });
 
-    // הכיווניות מגיעה מה-locale; החריג היחיד המותר הוא UiSnack שב-Overlay.
-    test('אין Directionality ידני ברכיבים — חוץ מ-UiSnack', () {
+    // הכיווניות מגיעה מה-locale. שני חריגים: `UiSnack` שיושב ב-Overlay, ופלטת
+    // הצבעים — עיגולי צבע אינם טקסט, וסדרם אינו אמור להתהפך באנגלית.
+    test('אין Directionality ידני ברכיבים — חוץ מ-UiSnack ומהפלטה', () {
       final offenders = [
         for (final file in Directory('lib/src/widgets').listSync())
           if (file is File &&
@@ -288,7 +289,7 @@ void main() {
             file.uri.pathSegments.last,
       ];
 
-      expect(offenders, ['ui_snack.dart']);
+      expect(offenders..sort(), ['color_picker_tile.dart', 'ui_snack.dart']);
     });
   });
 

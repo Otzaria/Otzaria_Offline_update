@@ -32,6 +32,9 @@ class LibraryDbRecoveryService {
 
   String markerPathFor(String dbPath) => '$dbPath.applying';
 
+  /// סימון "המסד בגרסה X אך תוכנו לא אומת ב-hash" — ראו [markUnverified].
+  String unverifiedMarkerPathFor(String dbPath) => '$dbPath.unverified';
+
   /// שאריות של מנגנון הגיבוי שהוסר — נמחקות בעלייה כדי לא להשאיר ~1GB תלוי
   /// אצל מי שעדכן מגרסה שכן יצרה גיבוי.
   static const List<String> _legacySuffixes = [
@@ -98,6 +101,41 @@ class LibraryDbRecoveryService {
 
   /// נקרא אחרי apply מוצלח — ה-DB תקין, מוחקים את הסימון.
   void finishSuccess(String dbPath) => _deleteQuietly(markerPathFor(dbPath));
+
+  /// מסמן שה-DB הגיע ל-[version] בהחלה שה-hash שלה **לא** חושב.
+  ///
+  /// שרשרת patches מאמתת hash פעם אחת, בצעד האחרון — הוא מוכיח את כל השרשרת
+  /// וחוסך קריאה מלאה של ~7.4GB לכל צעד. שרשרת שנקטעה באמצע (ביטול, כשל
+  /// הורדה) משאירה מסד שהוחל נקי אך לא אומת, והסימון הזה הוא מה שמונע ממנו
+  /// להישאר כך בשקט: ההחלה הבאה שמתחילה מ-[version] מפעילה `verifyFromHash`
+  /// ומאמתת אותו לפני שהיא בונה עליו — ראו `LibraryUpdateApplier.applyDelta`.
+  void markUnverified(String dbPath, int version) {
+    try {
+      File(unverifiedMarkerPathFor(dbPath))
+          .writeAsStringSync(jsonEncode({'version': version}), flush: true);
+    } catch (_) {
+      // כשל כתיבה (כונן מלא/לקריאה בלבד) אינו הופך החלה שהצליחה לכישלון;
+      // האימות של הצעד האחרון עוד יתפוס תוכן שגוי בהמשך.
+    }
+  }
+
+  /// הגרסה שסומנה כלא-מאומתת, או `null` כשאין סימון (או שאינו קריא).
+  int? unverifiedVersion(String dbPath) {
+    try {
+      final file = File(unverifiedMarkerPathFor(dbPath));
+      if (!file.existsSync()) return null;
+      final json = jsonDecode(file.readAsStringSync());
+      return json is Map && json['version'] is int
+          ? json['version'] as int
+          : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// נקרא אחרי אימות hash שהצליח, או אחרי התקנת מסד מלא מאומת.
+  void clearUnverified(String dbPath) =>
+      _deleteQuietly(unverifiedMarkerPathFor(dbPath));
 
   /// מנקה סימון תקוע — גם אחרי apply שנכשל (וה-DB נשאר בגרסה שלפניו), וגם
   /// אחרי שזוהה מצב לא תקין ודווח (לא מחיקה שקטה).

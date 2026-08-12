@@ -1,8 +1,9 @@
-import 'dart:io' show Platform;
+import 'dart:io' show FileSystemEntity, FileSystemEntityType, Platform;
 
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
+import 'models/otzaria_deep_links.dart';
 import 'models/otzaria_install_state.dart';
 import 'models/otzaria_release.dart';
 import 'models/otzaria_release_channel.dart';
@@ -207,10 +208,11 @@ class OtzariaManager {
         : release.copyWithReleaseNotes(changelogNotes);
   }
 
-  /// בודק אם יש עדכון זמין — **מהמראה המקומית בלבד, בלי רשת**. אם עדיין אין
-  /// state שמור (אף פעם לא הותקן/אומץ דרך הלאנצ'ר הזה), מנסה קודם לזהות
-  /// התקנה קיימת במיקומים המוכרים ([_autoDetectDirs]) — לא סורק את כל
-  /// המחשב — כדי לא "לשכוח" התקנה שכבר קיימת שם מסשן קודם.
+  /// בודק אם יש עדכון זמין — **מהמראה המקומית בלבד, בלי רשת**. ה-state השמור
+  /// מאומת קודם מול הדיסק של המחשב הזה ([_verifyStoredState]); אם הוא לא
+  /// תקף שם, או שאין state בכלל (אף פעם לא הותקן/אומץ דרך הלאנצ'ר הזה),
+  /// מנסים לזהות התקנה קיימת במיקומים המוכרים ([_autoDetectDirs]) — לא
+  /// סורקים את כל המחשב — כדי לא "לשכוח" התקנה שכבר קיימת שם מסשן קודם.
   ///
   /// [OtzariaUpdateCheckResult.latestRelease] הוא `null` כשעדיין לא הורדה
   /// שום גרסה. זה לא כשל: זה אומר "יש להריץ הורדה במחשב עם אינטרנט".
@@ -226,8 +228,13 @@ class OtzariaManager {
     final probe = _runningLocator.probe();
 
     final mirrored = await mirrorLoad;
-    var current = await storedState;
+    final stored = await storedState;
     final running = await probe;
+
+    // ה-state נאמן רק אם ההתקנה שהוא מתאר קיימת *כאן* — ראו
+    // [_verifyStoredState]. גרסה שהתחלפה על הדיסק נכתבת בחזרה.
+    var current = stored == null ? null : _verifyStoredState(stored);
+    if (current != null && current != stored) await _stateStore.save(current);
 
     // התהליך הרץ קודם לרשימת התיקיות: הוא אינו ניחוש אלא העותק שהמשתמש
     // מפעיל בפועל — כולל התקנה במיקום שאינו ברשימה. זו גם תצפית **חולפת**,
@@ -287,12 +294,65 @@ class OtzariaManager {
   ///
   /// זורק רק כשלא נמצאה שום התקנה; אז יש להתקין, או להצביע על התיקייה
   /// ([detectExistingInstall] + [adoptExistingInstall]).
-  Future<void> launch() async {
-    final state = (await _stateStore.load()) ?? (await _detectInKnownDirs());
+  /// [withUri] מוסר לאוצריא קישור עומק בהפעלה — ראו [OtzariaDeepLinks].
+  Future<void> launch({String? withUri}) async {
+    final state = (await _loadVerifiedState()) ?? (await _detectInKnownDirs());
     if (state == null) {
       throw StateError(AppL10n.strings.appDomain.noOtzariaInstallFound);
     }
-    await _launcher.launch(state.launchPath);
+    await _launcher.launch(state.launchPath, withUri: withUri);
+  }
+
+  /// מבקש מאוצריא לרענן את הספרייה מהדיסק ולעדכן את אינדקס החיפוש — הבקשה
+  /// שאחרי עדכון `seforim.db` שנעשה **מבחוץ**, ע"י הלאנצ'ר.
+  ///
+  /// אוצריא סגורה תיפתח; מופע פתוח מקבל את הבקשה דרך ה-single-instance שלו
+  /// ולא נפתח שוב. אין כאן פרמטרים — אוצריא מזהה לבד אילו ספרים השתנו.
+  Future<void> requestLibraryReindex() =>
+      launch(withUri: OtzariaDeepLinks.libraryReindex);
+
+  /// ה-state השמור, אחרי אימות מול הדיסק — או null כשאין כזה או שאינו תקף
+  /// כאן. ראו [_verifyStoredState].
+  Future<OtzariaInstallState?> _loadVerifiedState() async {
+    final stored = await _stateStore.load();
+    return stored == null ? null : _verifyStoredState(stored);
+  }
+
+  /// מאמת state שמור מול הדיסק של המחשב **הזה**, ומחזיר null אם ההתקנה
+  /// שהוא מתאר אינה שם.
+  ///
+  /// קובץ ה-state יושב ב-`OtzariaData` שעל הכונן הנייד ונוסע איתו בין
+  /// מחשבים, ולכן "מותקנת גרסה X" שנרשם במחשב אחד אינו עדות לכלום במחשב
+  /// הבא. בלי האימות הזה הלאנצ'ר הכריז "אוצריא מעודכנת" במחשב שאין בו
+  /// אוצריא בכלל, ובדיקה מחדש רק קראה שוב את אותו קובץ.
+  ///
+  /// הקובץ עצמו **אינו** נמחק: הוא עשוי להיות תקף לגמרי במחשב שהכונן יחזור
+  /// אליו.
+  OtzariaInstallState? _verifyStoredState(OtzariaInstallState stored) {
+    // `.exe` בווינדוס, חבילת `.app` (תיקייה) ב-macOS — לכן בדיקת סוג ולא
+    // `File.existsSync`.
+    if (FileSystemEntity.typeSync(stored.launchPath) ==
+        FileSystemEntityType.notFound) {
+      return null;
+    }
+
+    // הגרסה נקראת תמיד מקובץ ההרצה עצמו (ראו [OtzariaStateStore]), כדי
+    // שהתקנה שעודכנה מחוץ ללאנצ'ר לא תוצג בגרסה שאנחנו "זוכרים". כשל
+    // קריאה משאיר את התג השמור — הקובץ קיים, ואין סיבה להתייחס אליו כאילו
+    // נעלם.
+    String? onDisk;
+    try {
+      onDisk = _versionReader.readVersion(stored.launchPath);
+    } catch (_) {
+      onDisk = null;
+    }
+    if (onDisk == null || onDisk == stored.installedTagName) return stored;
+
+    return OtzariaInstallState(
+      installedTagName: onDisk,
+      installDir: stored.installDir,
+      launchPath: stored.launchPath,
+    );
   }
 
   /// ההתקנה הראשונה שנמצאת ב-[_autoDetectDirs], או null. אינה נשמרת.

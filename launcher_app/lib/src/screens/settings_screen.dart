@@ -5,6 +5,7 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import '../services/app_paths.dart';
 import '../settings/app_settings.dart';
 import '../settings/settings_controller.dart';
+import '../theme/theme_exports.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
 
@@ -22,10 +23,15 @@ class SettingsScreen extends StatelessWidget {
     super.key,
     required this.controller,
     required this.onOpenLog,
+    required this.launcherVersion,
   });
 
   final SettingsController controller;
   final VoidCallback onOpenLog;
+
+  /// גרסת הלאנצ'ר עצמו. מוצגת כאן ולא בדף הבית: הכרטיס בדף הבית מופיע רק
+  /// כשיש עדכון, וכשאין — עדיין צריך לדעת איזו גרסה רצה (למשל לתמיכה).
+  final String launcherVersion;
 
   AppSettings get _s => controller.settings;
 
@@ -172,16 +178,26 @@ class SettingsScreen extends StatelessWidget {
       title: t.appearanceCardTitle,
       subtitle: t.appearanceCardSubtitle,
       children: [
-        SettingsActionTile.segmentedTile<AppLanguage>(
+        SettingsActionTile.segmentedTile<AppLanguagePreference>(
           icon: FluentIcons.local_language_24_regular,
           title: t.languageTitle,
           subtitle: t.languageSubtitle,
-          currentValue: _s.language,
-          onChanged: (v) => _set(_s.copyWith(language: v)),
+          currentValue: _s.languagePreference,
+          onChanged: (v) => _set(_s.copyWith(languagePreference: v)),
           width: _uiSegmentWidth,
           options: [
-            SegmentOption(value: AppLanguage.hebrew, label: t.languageHebrew),
-            SegmentOption(value: AppLanguage.english, label: t.languageEnglish),
+            SegmentOption(
+              value: AppLanguagePreference.system,
+              label: t.languageSystem,
+            ),
+            SegmentOption(
+              value: AppLanguagePreference.hebrew,
+              label: t.languageHebrew,
+            ),
+            SegmentOption(
+              value: AppLanguagePreference.english,
+              label: t.languageEnglish,
+            ),
           ],
         ),
         SettingsActionTile.segmentedTile<AppThemeMode>(
@@ -196,6 +212,7 @@ class SettingsScreen extends StatelessWidget {
             SegmentOption(value: AppThemeMode.dark, label: t.themeDark),
           ],
         ),
+        _colorPickerTile(context),
         SettingsActionTile.segmentedTile<double>(
           icon: FluentIcons.text_font_size_24_regular,
           title: t.textSizeTitle,
@@ -212,6 +229,25 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
+  /// בורר צבע הבסיס. כמו באוצריא, הבחירה חלה על הערכה שמוצגת כרגע — ולכן
+  /// המפתח מכריח בנייה מחדש כשהבהירות מתחלפת, אחרת הצבע של הערכה הקודמת
+  /// היה נשאר על המסך.
+  Widget _colorPickerTile(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return ColorPickerTile(
+      key: ValueKey('seed-color-${isDark ? 'dark' : 'light'}'),
+      currentColor: isDark ? _s.darkSeedColor : _s.seedColor,
+      defaultColor:
+          isDark ? AppSeedColors.defaultDark : AppSeedColors.defaultLight,
+      onChanged: (color) => _set(
+        isDark
+            ? _s.copyWith(darkSeedColor: color)
+            : _s.copyWith(seedColor: color),
+      ),
+    );
+  }
+
   // ── תמיכה ─────────────────────────────────────────────────────────────────
 
   Widget _supportCard(BuildContext context) {
@@ -220,6 +256,12 @@ class SettingsScreen extends StatelessWidget {
     return SettingsCard(
       title: t.supportCardTitle,
       children: [
+        SettingsActionTile.text(
+          icon: FluentIcons.info_24_regular,
+          title: context.strings.launcherUpdate.versionTileTitle,
+          subtitle:
+              context.strings.launcherUpdate.installedVersion(launcherVersion),
+        ),
         SettingsActionTile.text(
           icon: FluentIcons.document_bullet_list_24_regular,
           title: t.logTitle,

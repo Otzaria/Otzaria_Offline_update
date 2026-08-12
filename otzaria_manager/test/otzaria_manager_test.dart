@@ -147,10 +147,15 @@ void main() {
     test('מצב שמור מחובר לתוצאה, ותג זהה אינו עדכון', () async {
       await writeMirror(stable: _release('0.9.96+736', isPrerelease: false));
       final manager = managerFor();
-      const detected = OtzariaInstallState(
+      // ההתקנה חייבת להיות קיימת בפועל, אחרת ה-state נפסל באימות.
+      final dir = Directory(p.join(dataDir.path, 'Otzaria'))
+        ..createSync(recursive: true);
+      final exe = p.join(dir.path, 'otzaria.exe');
+      File(exe).writeAsStringSync('exe מדומה');
+      final detected = OtzariaInstallState(
         installedTagName: '0.9.96',
-        installDir: r'C:\Otzaria',
-        launchPath: r'C:\Otzaria\otzaria.exe',
+        installDir: dir.path,
+        launchPath: exe,
       );
 
       await manager.adoptExistingInstall(detected);
@@ -160,6 +165,98 @@ void main() {
       // 0.9.96 מול 0.9.96+736 — הנרמול מונע את העדכון הפנטומי.
       expect(check.updateAvailable, isFalse);
     });
+  });
+
+  // הבאג מ-issue #19: קובץ ה-state יושב ב-OtzariaData שעל הכונן הנייד, ולכן
+  // "מותקנת גרסה X" שנרשם במחשב אחד הגיע גם למחשבים שאין בהם אוצריא כלל —
+  // והלאנצ'ר הכריז שם "אוצריא מעודכנת" וסירב להתקין.
+  group('אימות ה-state השמור מול הדיסק של המחשב הזה', () {
+    /// כותב state ידנית, בדיוק כמו קובץ שנסע על הכונן ממחשב אחר.
+    Future<void> writeState(OtzariaInstallState state) async {
+      await File(p.join(dataDir.path, 'otzaria_install_state.json'))
+          .writeAsString(jsonEncode(state.toJson()));
+    }
+
+    test('state שנתיב ההתקנה שלו אינו קיים כאן נפסל, וההתקנה מוצעת', () async {
+      if (_legacyInstallExists) return; // C:\אוצריא = כן תימצא התקנה אחרת
+      await writeMirror(stable: _release('0.9.96', isPrerelease: false));
+      await writeState(OtzariaInstallState(
+        installedTagName: '0.9.96',
+        installDir: p.join(dataDir.path, 'מחשב אחר'),
+        launchPath: p.join(dataDir.path, 'מחשב אחר', 'otzaria.exe'),
+      ));
+
+      final check = await managerFor().checkForUpdate();
+
+      expect(check.currentState, isNull);
+      expect(check.updateAvailable, isTrue);
+    });
+
+    test('הפעלה מסרבת ל-state שההתקנה שלו אינה במחשב הזה', () async {
+      if (_legacyInstallExists) return;
+      await writeState(OtzariaInstallState(
+        installedTagName: '0.9.96',
+        installDir: p.join(dataDir.path, 'מחשב אחר'),
+        launchPath: p.join(dataDir.path, 'מחשב אחר', 'otzaria.exe'),
+      ));
+
+      expect(
+        managerFor().launch,
+        throwsA(
+          isA<StateError>().having((e) => e.message, 'message',
+              AppL10n.strings.appDomain.noOtzariaInstallFound),
+        ),
+      );
+    });
+
+    test('state תקף נשמר — אין פסילה גורפת', () async {
+      final dir = Directory(p.join(dataDir.path, 'קיימת'))
+        ..createSync(recursive: true);
+      final exe = p.join(dir.path, 'otzaria.exe');
+      File(exe).writeAsStringSync('exe מדומה');
+      await writeState(OtzariaInstallState(
+        installedTagName: '0.9.90',
+        installDir: dir.path,
+        launchPath: exe,
+      ));
+
+      final check = await managerFor().checkForUpdate();
+
+      expect(check.currentState!.launchPath, exe);
+      // אין version resource בקובץ הזה, ולכן התג השמור נשאר על מקומו.
+      expect(check.currentState!.installedTagName, '0.9.90');
+    });
+
+    // ההתקנה קיימת, אבל הגרסה על הדיסק אינה מה שאנחנו "זוכרים" — למשל
+    // משתמש שעדכן את אוצריא במתקין שלה עצמה.
+    test(
+      'גרסה שהתחלפה על הדיסק גוברת על התג השמור, ונכתבת בחזרה',
+      () async {
+        if (!File(_systemExe).existsSync()) {
+          markTestSkipped('אין $_systemExe במכונה הזאת');
+          return;
+        }
+        final dir = Directory(p.join(dataDir.path, 'עודכנה מבחוץ'))
+          ..createSync(recursive: true);
+        final exe = p.join(dir.path, 'otzaria.exe');
+        await File(_systemExe).copy(exe);
+        await writeState(OtzariaInstallState(
+          installedTagName: '0.0.1',
+          installDir: dir.path,
+          launchPath: exe,
+        ));
+
+        final check = await managerFor().checkForUpdate();
+        final onDisk = check.currentState!.installedTagName;
+        expect(onDisk, isNot('0.0.1'));
+
+        // הבדיקה הבאה כבר קוראת את התג המעודכן מהקובץ.
+        final stateFile =
+            File(p.join(dataDir.path, 'otzaria_install_state.json'));
+        expect(stateFile.readAsStringSync(), contains(onDisk));
+      },
+      testOn: 'windows',
+    );
   });
 
   group('update / launch ללא מראה או ללא התקנה', () {
@@ -213,9 +310,52 @@ void main() {
 
         expect(check.currentState!.launchPath, exe);
         expect(launcher.launched, [exe]);
+        // הפעלה רגילה אינה מוסרת קישור עומק.
+        expect(launcher.uris, [null]);
       },
       testOn: 'windows',
     );
+
+    // בקשת עדכון האינדקס נמסרת לאותו קובץ הרצה כארגומנט, ולא דרך מטפל
+    // הפרוטוקול — כך היא עובדת גם בהתקנה ניידת, שאינה רושמת את הסכימה.
+    test(
+      'requestLibraryReindex מוסר את קישור העומק לקובץ ההרצה',
+      () async {
+        final dir = Directory(p.join(dataDir.path, 'reindex'))
+          ..createSync(recursive: true);
+        final exe = p.join(dir.path, 'otzaria.exe');
+        File(_systemExe).copySync(exe);
+        final launcher = _RecordingLauncher();
+
+        final manager = OtzariaManager(
+          dataDir: dataDir.path,
+          platform: OtzariaTargetPlatform.windows,
+          environment: const {},
+          runningLocator: _FakeRunningLocator(null),
+          installRegistry: _FakeInstallRegistry([dir.path]),
+          launcher: launcher,
+        );
+        addTearDown(manager.close);
+
+        await manager.checkForUpdate();
+        await manager.requestLibraryReindex();
+
+        expect(launcher.launched, [exe]);
+        expect(launcher.uris, [OtzariaDeepLinks.libraryReindex]);
+      },
+      testOn: 'windows',
+    );
+
+    // בלי התקנה מזוהה אין למי למסור את הבקשה — אותה שגיאה כמו בהפעלה.
+    test('requestLibraryReindex זורק כשלא זוהתה התקנה', () {
+      expect(
+        managerFor().requestLibraryReindex,
+        throwsA(
+          isA<StateError>().having((e) => e.message, 'message',
+              AppL10n.strings.appDomain.noOtzariaInstallFound),
+        ),
+      );
+    });
   });
 
   group('detectExistingInstall', () {
@@ -537,12 +677,16 @@ class _FakeRunningLocator extends RunningOtzariaLocator {
       (isRunning: launchPath != null, launchPath: launchPath);
 }
 
-/// קולט את נתיב ההפעלה במקום להריץ תהליך אמיתי.
+/// קולט את נתיב ההפעלה (ואת קישור העומק, אם נמסר) במקום להריץ תהליך אמיתי.
 class _RecordingLauncher extends OtzariaLauncher {
   final List<String> launched = [];
+  final List<String?> uris = [];
 
   @override
-  Future<void> launch(String launchPath) async => launched.add(launchPath);
+  Future<void> launch(String launchPath, {String? withUri}) async {
+    launched.add(launchPath);
+    uris.add(withUri);
+  }
 }
 
 /// מנטרל את הרג'יסטרי האמיתי: בלעדיו הבדיקות במכונת פיתוח עם אוצריא

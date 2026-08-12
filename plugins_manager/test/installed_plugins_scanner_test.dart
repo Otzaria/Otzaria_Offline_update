@@ -134,4 +134,83 @@ void main() {
       expect(scanner.resolveInstalledDir(), fallback.resolveInstalledDir());
     });
   });
+
+  group('התקנה ניידת', () {
+    /// התקנה ניידת של אוצריא: קובץ הרצה, סימון, ותיקיית נתונים לידם.
+    String portableInstall({bool marker = true, bool dataDir = true}) {
+      final exe = p.join(temp.path, 'otzaria.exe');
+      File(exe).writeAsStringSync('');
+      if (marker) {
+        File(p.join(temp.path, InstalledPluginsScanner.portableMarkerFileName))
+            .writeAsStringSync('');
+      }
+      if (dataDir) {
+        install(
+          p.join(temp.path, InstalledPluginsScanner.portableDataFolderName,
+              'plugins'),
+          'nikud',
+          '{"version":"1.4.0"}',
+        );
+      }
+      return exe;
+    }
+
+    test('התוספים נקראים מתיקיית הנתונים שליד קובץ ההרצה, לא מ-%APPDATA%',
+        () async {
+      final scanner =
+          InstalledPluginsScanner(otzariaLaunchPath: portableInstall());
+
+      expect(
+        scanner.resolvePluginsDir(),
+        p.join(temp.path, 'otzaria_data', 'plugins'),
+      );
+      expect(await scanner.scan(), {'nikud': '1.4.0'});
+    });
+
+    test('תיקיית נתונים קיימת מתקבלת גם בלי קובץ הסימון', () async {
+      final scanner = InstalledPluginsScanner(
+        otzariaLaunchPath: portableInstall(marker: false),
+      );
+
+      expect(await scanner.scan(), {'nikud': '1.4.0'});
+    });
+
+    test('התקנה רגילה (בלי סימון ובלי תיקיית נתונים) נופלת לברירת המחדל', () {
+      final scanner = InstalledPluginsScanner(
+        otzariaLaunchPath: portableInstall(marker: false, dataDir: false),
+      );
+      const fallback = InstalledPluginsScanner();
+
+      expect(scanner.resolveInstalledDir(), fallback.resolveInstalledDir());
+    });
+
+    test('נתיב מפורש מנצח את הזיהוי הניידת', () {
+      final explicit = p.join(temp.path, 'בחירה-ידנית');
+      final scanner = InstalledPluginsScanner(
+        customPluginsDir: explicit,
+        otzariaLaunchPath: portableInstall(),
+      );
+
+      expect(scanner.resolvePluginsDir(), explicit);
+    });
+
+    test('חבילת .app — הסימון והנתונים יושבים ב-Contents/MacOS', () async {
+      final bundle = p.join(temp.path, 'אוצריא.app');
+      final exeDir = p.join(bundle, 'Contents', 'MacOS');
+      Directory(exeDir).createSync(recursive: true);
+      File(p.join(exeDir, InstalledPluginsScanner.portableMarkerFileName))
+          .writeAsStringSync('');
+      install(p.join(exeDir, 'otzaria_data', 'plugins'), 'מפרשים',
+          '{"version":"2.0.0"}');
+
+      final scanner = InstalledPluginsScanner(otzariaLaunchPath: bundle);
+      expect(await scanner.scan(), {'מפרשים': '2.0.0'});
+    });
+
+    test('בלי נתיב התקנה — התנהגות ברירת המחדל נשמרת', () {
+      const scanner = InstalledPluginsScanner(otzariaLaunchPath: '');
+      const fallback = InstalledPluginsScanner();
+      expect(scanner.resolveInstalledDir(), fallback.resolveInstalledDir());
+    });
+  });
 }

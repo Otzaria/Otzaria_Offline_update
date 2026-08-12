@@ -60,6 +60,38 @@ void main() {
     });
   });
 
+  group('deliveryTargetFor', () {
+    test('קובץ הרצה קיים — ה-URL נמסר אליו ולא למטפל הפרוטוקול', () {
+      final exe = p.join(temp.path, 'otzaria.exe');
+      File(exe).writeAsStringSync('');
+
+      expect(PluginDirectInstaller.deliveryTargetFor(exe), exe);
+    });
+
+    test('חבילת .app היא תיקייה — נבדקת ככזו', () {
+      final bundle = p.join(temp.path, 'אוצריא.app');
+      Directory(bundle).createSync(recursive: true);
+
+      expect(PluginDirectInstaller.deliveryTargetFor(bundle), bundle);
+      // קובץ בשם .app שאינו חבילה אינו קיים כתיקייה — אין למי למסור.
+      expect(
+        PluginDirectInstaller.deliveryTargetFor(p.join(temp.path, 'אין.app')),
+        isNull,
+      );
+    });
+
+    test('בלי נתיב, או נתיב שכבר לא קיים — נפילה חזרה למטפל הפרוטוקול', () {
+      expect(PluginDirectInstaller.deliveryTargetFor(null), isNull);
+      expect(PluginDirectInstaller.deliveryTargetFor(''), isNull);
+      expect(
+        PluginDirectInstaller.deliveryTargetFor(
+          p.join(temp.path, 'נמחקה', 'otzaria.exe'),
+        ),
+        isNull,
+      );
+    });
+  });
+
   group('PluginDirectInstaller.install', () {
     test('קובץ חסר מוחזר ככשל, לא כחריג', () async {
       final result = await PluginDirectInstaller.install(

@@ -31,15 +31,29 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     required String dataDir,
     bool preferPrerelease = false,
     RunningOtzariaLocator runningLocator = const RunningOtzariaLocator(),
+    Future<String?> Function()? pendingLaunchUri,
+    Future<void> Function()? onLaunchUriDelivered,
+    // תפר לבדיקות: בלעדיו כל בדיקה שנוגעת ב-[launch] מפעילה את אוצריא
+    // האמיתית של מי שמריץ אותה.
+    OtzariaLauncher launcher = const OtzariaLauncher(),
   })  : _preferPrerelease = preferPrerelease,
+        _pendingLaunchUri = pendingLaunchUri,
+        _onLaunchUriDelivered = onLaunchUriDelivered,
         _runningLocator = runningLocator,
         _manager = OtzariaManager(
           dataDir: dataDir,
           preferPrerelease: preferPrerelease,
           runningLocator: runningLocator,
+          launcher: launcher,
         );
 
   final OtzariaManager _manager;
+
+  /// קישור עומק שממתין להיכנס לאוצריא בהפעלה הבאה (עדכון אינדקס אחרי עדכון
+  /// מסד), ומה שמסמן שנמסר. מוזרקים מהלאנצ'ר: המצב עצמו שייך למודול
+  /// הספרייה, והמסירה לקובץ ההרצה — כאן.
+  final Future<String?> Function()? _pendingLaunchUri;
+  final Future<void> Function()? _onLaunchUriDelivered;
 
   /// אותו locator שה-manager מקבל — נשמר גם כאן כדי ש-[refreshRunningState]
   /// תוכל לבדוק "אוצריא פתוחה?" לבד, בלי בדיקת גרסאות שלמה.
@@ -279,9 +293,13 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
   }
 
+  /// מפעיל את אוצריא. בקשת עדכון אינדקס שממתינה נוסעת עם ההפעלה הזאת: את
+  /// אוצריא המשתמש פותח ממילא, וכך האינדקס מתוקן בלי פעולה נוספת ממנו.
   Future<void> launch() async {
+    final uri = await _pendingLaunchUri?.call();
     try {
-      await _manager.launch();
+      await _manager.launch(withUri: uri);
+      if (uri != null) await _onLaunchUriDelivered?.call();
       // אוצריא נפתחה עכשיו. מציבים ולא דוגמים, כי התהליך עדיין לא בהכרח
       // מופיע ב-`tasklist` — ואם בכל זאת לא עלה, הרענון המחזורי (שההודעה
       // הזאת מדליקה) יתקן זאת תוך 3 שניות. בלי זה הלאנצ'ר המשיך להציג
@@ -294,6 +312,26 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
       errorMessage = e.toString();
       AppLogger.instance.error('OtzariaModuleController.launch() נכשל', e, st);
       notifyListeners();
+    }
+  }
+
+  /// מוסר לאוצריא את בקשת עדכון אינדקס החיפוש — הפעולה היזומה, כשהמשתמש
+  /// אינו רוצה לחכות להפעלה הבאה. אוצריא סגורה תיפתח.
+  ///
+  /// `false` = לא היה למי למסור (למשל לא זוהתה התקנה); הסיבה ב-[errorMessage].
+  Future<bool> requestLibraryReindex() async {
+    try {
+      await _manager.requestLibraryReindex();
+      if (!isRunning) {
+        isRunning = true;
+        notifyListeners();
+      }
+      return true;
+    } catch (e, st) {
+      errorMessage = e.toString();
+      AppLogger.instance.error('בקשת עדכון האינדקס לאוצריא נכשלה', e, st);
+      notifyListeners();
+      return false;
     }
   }
 

@@ -67,6 +67,12 @@ class LibraryUpdatePlan extends Equatable {
   /// הסבר קריא — חובה ל-[LibraryUpdatePlanKind.blocked], אופציונלי לאחרים.
   final String? reason;
 
+  /// תוכנית ההורדה המלאה שממתינה מאחורי מסלול דלתא — מסלול ההתאוששות
+  /// היחיד כש-patch אינו מתאים למסד שעל המחשב. המסד המלא ממילא יושב במראה,
+  /// ובלי הנתיב הזה משתמש שנתקל ב-patch כזה נשאר תקוע לנצח (issue #19).
+  /// `null` רק כשאין במראה מסד מלא בכלל.
+  final LibraryUpdatePlan? fullDownloadFallback;
+
   const LibraryUpdatePlan._({
     required this.kind,
     required this.localVersion,
@@ -75,6 +81,7 @@ class LibraryUpdatePlan extends Equatable {
     this.fullDbAsset,
     this.fullDbReleaseTag,
     this.reason,
+    this.fullDownloadFallback,
   });
 
   /// הספרייה מעודכנת — אין מה לעשות.
@@ -93,12 +100,14 @@ class LibraryUpdatePlan extends Equatable {
     required int localVersion,
     required int targetVersion,
     required List<PatchEdge> steps,
+    LibraryUpdatePlan? fullDownloadFallback,
   }) =>
       LibraryUpdatePlan._(
         kind: LibraryUpdatePlanKind.delta,
         localVersion: localVersion,
         targetVersion: targetVersion,
         deltaSteps: List.unmodifiable(steps),
+        fullDownloadFallback: fullDownloadFallback,
       );
 
   /// מסלול הורדה מלאה.
@@ -153,5 +162,6 @@ class LibraryUpdatePlan extends Equatable {
         fullDbAsset,
         fullDbReleaseTag,
         reason,
+        fullDownloadFallback,
       ];
 }

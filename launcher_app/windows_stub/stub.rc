@@ -1,6 +1,9 @@
 #pragma code_page(65001)
 #include <winres.h>
 
+// גרסת ה-payload, מיוצרת מ-pubspec.yaml ע"י build_stub.ps1 (מגיע דרך /i).
+#include "version.h"
+
 // אותו אייקון של הלאנצ'ר האמיתי — למשתמש זו אותה תוכנה.
 1 ICON "..\\windows\\runner\\resources\\app_icon.ico"
 
@@ -12,8 +15,8 @@
 100 RCDATA "build\\payload.zip"
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,0,0,0
- PRODUCTVERSION 1,0,0,0
+ FILEVERSION PAYLOAD_VERSION_COMMAS
+ PRODUCTVERSION PAYLOAD_VERSION_COMMAS
  FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
  FILEFLAGS 0x0L
  FILEOS VOS__WINDOWS32
@@ -26,12 +29,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "org.otzaria" "\0"
             VALUE "FileDescription", "עדכוני אוצריא" "\0"
-            VALUE "FileVersion", "1.0.0" "\0"
+            VALUE "FileVersion", PAYLOAD_VERSION_A "\0"
             VALUE "InternalName", "launcher_stub" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 org.otzaria. All rights reserved." "\0"
             VALUE "OriginalFilename", "עדכוני אוצריא.exe" "\0"
             VALUE "ProductName", "עדכוני אוצריא" "\0"
-            VALUE "ProductVersion", "1.0.0" "\0"
+            VALUE "ProductVersion", PAYLOAD_VERSION_A "\0"
         END
     END
     BLOCK "VarFileInfo"

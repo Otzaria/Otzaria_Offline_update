@@ -26,6 +26,8 @@ class EnglishStrings extends AppStrings {
   @override
   SetupErrorStrings get setupError => const _SetupError();
   @override
+  LauncherUpdateStrings get launcherUpdate => const _LauncherUpdate();
+  @override
   UnitStrings get units => const _Units();
   @override
   LibraryDomainStrings get libraryDomain => const _LibraryDomain();
@@ -350,6 +352,41 @@ class _LibraryScreen extends LibraryScreenStrings {
   String get updateDialogTitle => 'Update the book library';
 
   @override
+  String get reindexTitle => 'Otzaria\'s search index';
+  @override
+  String get reindexPendingSubtitle =>
+      'The database was updated from here, so searching the books that '
+      'changed still returns their old content. One request to Otzaria fixes '
+      'that.';
+  @override
+  String get reindexButton => 'Update the index';
+  @override
+  String get reindexDialogTitle => 'Update the search index';
+  @override
+  String get reindexDialogContent =>
+      'Otzaria will open, reload the library and index the books whose '
+      'content changed. The indexing runs inside Otzaria and may take a '
+      'while; you can keep working meanwhile. Open it now?';
+  @override
+  String get reindexDialogConfirm => 'Open Otzaria';
+  @override
+  String get reindexRequestedSnack => 'Otzaria will update its search index';
+  @override
+  String reindexFailedSnack(String error) =>
+      'The request could not be handed to Otzaria ($error)';
+
+  @override
+  String get fullDownloadInsteadButton => 'Install the full library';
+  @override
+  String get fullDownloadInsteadDialogTitle => 'Install the full library';
+  @override
+  String fullDownloadInsteadPrompt(String size) =>
+      'The incremental update failed, and the database was left untouched. '
+      'The full library can be installed instead, from the folder next to '
+      'this program ($size) — a long operation that needs free disk space, '
+      'and no internet. Install it now?';
+
+  @override
   String get sourceCardTitle => 'Folder the update comes from';
   @override
   String get sourceCardSubtitle =>
@@ -458,7 +495,11 @@ class _Settings extends SettingsScreenStrings {
   @override
   String get languageTitle => 'Interface language';
   @override
-  String get languageSubtitle => 'Changes every screen and message right away';
+  String get languageSubtitle =>
+      'Changes every screen and message right away. "Automatic" follows the '
+      'computer.';
+  @override
+  String get languageSystem => 'Automatic';
   @override
   String get languageHebrew => 'עברית';
   @override
@@ -479,6 +520,43 @@ class _Settings extends SettingsScreenStrings {
   String get textSizeNormal => 'Normal';
   @override
   String get textSizeLarge => 'Large';
+
+  @override
+  String get seedColorTitle => 'Base color';
+  @override
+  String get seedColorButton => 'Change color';
+  @override
+  String get seedColorDialogTitle => 'Pick a base color';
+  @override
+  String get seedColorResetButton => 'Reset';
+  @override
+  String get seedColorCustom => 'Custom color';
+  @override
+  String get colorRed => 'Red';
+  @override
+  String get colorOrange => 'Orange';
+  @override
+  String get colorAmber => 'Amber';
+  @override
+  String get colorGreen => 'Green';
+  @override
+  String get colorTeal => 'Teal';
+  @override
+  String get colorBlue => 'Blue';
+  @override
+  String get colorBlueGrey => 'Graphite grey';
+  @override
+  String get colorNavy => 'Navy';
+  @override
+  String get colorPurple => 'Purple';
+  @override
+  String get colorBrown => 'Brown';
+  @override
+  String get colorParchment => 'Parchment / beige';
+  @override
+  String get colorGrey => 'Grey';
+  @override
+  String get colorDarkBrown => 'Golden brown';
 
   @override
   String get supportCardTitle => 'Support';
@@ -801,6 +879,107 @@ class _SetupError extends SetupErrorStrings {
       'Cannot write to the folder next to this program: $osMessage';
 }
 
+class _LauncherUpdate extends LauncherUpdateStrings {
+  const _LauncherUpdate();
+
+  @override
+  String get cardTitle => 'Update this program';
+  @override
+  String get cardSubtitle =>
+      'Otzaria Updates itself. The update replaces the program only — your '
+      'data, your settings and the folder beside it stay exactly as they are.';
+  @override
+  String installedVersion(String version) => 'Installed version: $version';
+  @override
+  String downloadedVersion(String version) => 'Downloaded version: $version';
+  @override
+  String onlineVersion(String version) => 'Version online: $version';
+
+  @override
+  String get statusUpToDate => 'Up to date';
+  @override
+  String get statusUpdateAvailable => 'A new version is available';
+  @override
+  String get statusReadyToInstall => 'Ready to install';
+  @override
+  String get statusDownloading => 'Downloading the new version';
+  @override
+  String get statusInstalling => 'Installing the new version';
+
+  @override
+  String get downloadButton => 'Download the new version';
+  @override
+  String get installButton => 'Install and restart';
+
+  @override
+  String get availableDialogTitle => 'Update for Otzaria Updates';
+  @override
+  String availableDialogContent(String version) =>
+      'Version $version of Otzaria Updates is available. Download it now?';
+  @override
+  String availableDialogDetail(String size) =>
+      'Download size: $size. The file is kept in the folder beside the '
+      'program, and the installation itself runs from the launcher — even on '
+      'a computer with no internet.';
+  @override
+  String get availableDialogConfirm => 'Download now';
+  @override
+  String get availableDialogCancel => 'Not now';
+
+  @override
+  String get readyDialogTitle => 'The new version is ready';
+  @override
+  String readyDialogContent(String version) =>
+      'Version $version has been downloaded. Install it now? The program will '
+      'close and reopen in the new version, from the very same location, and '
+      'your data and settings will stay as they are.';
+  @override
+  String get readyDialogConfirm => 'Install and restart';
+
+  @override
+  String downloadedSnack(String version) =>
+      'Version $version was downloaded to the folder beside the program';
+  @override
+  String get installingSnack =>
+      'Installing the new version — the program will reopen in a moment';
+  @override
+  String get manualRestartNotice =>
+      'The new version is in place. Close the program and open it again to '
+      'start using it.';
+
+  @override
+  String get versionTileTitle => 'Program version';
+
+  @override
+  String get executableNotFound =>
+      'The executable this program runs from could not be located, so there '
+      'is nothing to replace. Please download the new version and replace the '
+      'file manually.';
+  @override
+  String get mirrorMissing =>
+      'The new version has not been downloaded to the folder beside the '
+      'program yet — run a download on a computer with internet.';
+  @override
+  String unsupportedPlatform(String operatingSystem) =>
+      'Self-update is supported on Windows and macOS only '
+      '(detected: $operatingSystem).';
+  @override
+  String downloadFailed(int statusCode) =>
+      'Downloading the new version failed: status $statusCode';
+  @override
+  String sizeMismatch(int received, int expected) =>
+      'The downloaded file is not the expected size ($received bytes '
+      'received, $expected expected) — the download was probably cut short.';
+  @override
+  String replaceFailed(String error) =>
+      'Replacing the executable failed: $error. The previous file was put '
+      'back in place.';
+  @override
+  String restartFailed(String error) =>
+      'Launching the new version failed: $error. Please close the program and '
+      'start it again manually — the replacement itself already finished.';
+}
+
 class _Units extends UnitStrings {
   const _Units();
 
@@ -920,6 +1099,12 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get contentHashMismatchNeedsFullDownload =>
       'The local database differs from what was expected — its hash does not '
       'match fromContentHash. A full download is required.';
+  @override
+  String patchUniqueConflictNeedsFullDownload(String table, String detail) =>
+      'This patch does not fit the database on this computer: a unique-value '
+      'conflict in table "$table". The incremental update was cancelled and '
+      'the database was left untouched. A full download of the library is '
+      'required. ($detail)';
   @override
   String foreignKeyViolationsGrew(int before, int after) =>
       'Foreign-key violations increased ($before→$after) — the patch is not '

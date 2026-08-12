@@ -71,6 +71,39 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// נתיב ה-`seforim.db` שזוהה בפועל — מתעדכן בכל [checkForUpdate].
   String? dbPath;
 
+  /// בקשת עדכון אינדקס שממתינה לאוצריא, או `null` כשאין. הסימון יושב לצד
+  /// המסד ולכן שורד הפעלות מחדש של הלאנצ'ר — [checkForUpdate] קורא אותו.
+  ExternalUpdateNoticeData? pendingReindex;
+
+  bool get hasPendingReindex => pendingReindex != null;
+
+  /// מסמן שהבקשה נמסרה לאוצריא בפועל. **רק אחרי מסירה מוצלחת** — מחיקה
+  /// מוקדמת הייתה משאירה את אינדקס החיפוש על התוכן הישן בלי שאיש יידע.
+  Future<void> markReindexRequestDelivered() async {
+    if (pendingReindex == null) return;
+    await _manager.clearReindexRequest(dbPath: dbPath);
+    pendingReindex = null;
+    notifyListeners();
+  }
+
+  Future<void> _refreshPendingReindex() async {
+    // בלי נתיב מסד אין לצד מה לחפש סימון, ובקשה מ-`LibraryManager` הייתה
+    // מריצה את כל האיתור מחדש (כולל קריאת קופסת ההגדרות של אוצריא מעותק).
+    final path = dbPath;
+    pendingReindex = path == null
+        ? null
+        : await _manager.pendingReindexRequest(dbPath: path);
+  }
+
+  /// `true` אחרי ניסיון עדכון שנכשל, כשיש במראה מסד מלא שאפשר להתקין
+  /// במקומו — ראו [updateWithFullDownload]. בלי זה משתמש שנתקל ב-patch
+  /// שאינו מתאים למסד שלו נשאר תקוע לנצח (issue #19).
+  bool canRetryWithFullDownload = false;
+
+  /// גודל ההורדה של אותה ספרייה מלאה, בבייטים — לתצוגה לפני שמאשרים.
+  int? get fullDownloadFallbackSize =>
+      _lastCheck?.plan?.fullDownloadFallback?.totalDownloadSize;
+
   /// התיקייה שלצד התוכנה שממנה נקראים העדכונים — המקור היחיד.
   String get mirrorDir => _manager.mirrorDir;
 
@@ -193,6 +226,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   Future<void> checkForUpdate() async {
     status = LibraryModuleStatus.checking;
     errorMessage = null;
+    canRetryWithFullDownload = false;
     notifyListeners();
 
     try {
@@ -220,7 +254,11 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       // אין מראה = טרם הורד דבר. מצב תקין, לא שגיאה — ולכן לא נרשם ללוג
       // ולא מוצג כתקלה.
       status = LibraryModuleStatus.needsDownload;
-      localVersion = null;
+      // הגרסה המקומית ידועה גם בלי מראה: הבדיקה כבר קראה אותה מהמסד לפני
+      // שנכשלה. בלי זה המסך מציג "לא ידוע" למסד שנמצא ונקרא בהצלחה — מה
+      // שמשתמש שבחר את הקובץ ידנית רואה כ"לא מזהה את המסד".
+      final local = await _manager.readLocalVersion();
+      localVersion = (local?.hasVersionMeta ?? false) ? local!.dbVersion : null;
       targetVersion = null;
     } catch (e, st) {
       status = LibraryModuleStatus.error;
@@ -230,6 +268,9 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     // הבדיקה עצמה כבר איתרה את הנתיב — גם כשהיא נכשלה אחר כך (למשל אין
     // מראה). קריאה נפרדת ל-`currentDbPath()` הייתה חוזרת על כל האיתור.
     dbPath = _manager.lastResolvedDbPath;
+    // בקשה שנכתבה בהרצה קודמת ולא נמסרה עדיין — הסימון יושב לצד המסד, ולכן
+    // הוא נקרא כאן ולא רק אחרי עדכון שנעשה בהרצה הזאת.
+    await _refreshPendingReindex();
     notifyListeners();
   }
 
@@ -246,7 +287,14 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// אם אוצריא פתוחה כרגע (בווינדוס), או `LibraryApplyException`
   /// על כשל הורדה/אימות/כתיבה — בשני המקרים ה-`toString()` של החריג
   /// כבר מנוסח כהודעה קריאה למשתמש, ומוצג ישירות ב-[errorMessage].
-  Future<void> update() async {
+  Future<void> update() => _apply(useFullDownloadFallback: false);
+
+  /// מתקין את הספרייה המלאה שבמראה במקום ה-patches — ההתאוששות מכשל של
+  /// מסלול הדלתא. פעולה ארוכה, ולכן נקראת רק מאישור מפורש של המשתמש.
+  Future<void> updateWithFullDownload() =>
+      _apply(useFullDownloadFallback: true);
+
+  Future<void> _apply({required bool useFullDownloadFallback}) async {
     if (_lastCheck == null) return;
     // שמירה מפני כניסה חוזרת: בין הלחיצה לדיאלוג יש בדיקת תהליך אסינכרונית,
     // והכפתור פעיל בזמנה — שתי החלות במקביל על ה-DB החי הן בדיוק מה שאסור.
@@ -258,9 +306,12 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     applyReceivedBytes = null;
     applyTotalBytes = null;
     errorMessage = null;
+    canRetryWithFullDownload = false;
     notifyListeners();
 
-    final plan = _lastCheck!.plan;
+    final plan = useFullDownloadFallback
+        ? _lastCheck!.plan?.fullDownloadFallback
+        : _lastCheck!.plan;
     AppLogger.instance.info(
       'update() מתחיל: kind=${plan?.kind} local=${plan?.localVersion} target=${plan?.targetVersion}',
     );
@@ -268,6 +319,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     try {
       await _manager.applyUpdate(
         _lastCheck!,
+        useFullDownloadFallback: useFullDownloadFallback,
         onProgress: (p) {
           stageText = _describeApplyStage(p);
           applyReceivedBytes = p.bytesDownloaded;
@@ -292,6 +344,13 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     } catch (e, st) {
       status = LibraryModuleStatus.error;
       errorMessage = e.toString();
+      // רק אחרי כשל של מסלול הדלתא, ורק אם יש מסד מלא במראה: הצעה שנייה
+      // אחרי כשל של ההורדה המלאה עצמה הייתה לולאה.
+      canRetryWithFullDownload =
+          !useFullDownloadFallback && _lastCheck!.canFallBackToFullDownload;
+      // שרשרת דלתא שנקטעה באמצע כן שינתה ספרים, והסימון נכתב — ולכן גם
+      // המסלול הזה מציע את עדכון האינדקס.
+      await _refreshPendingReindex();
       AppLogger.instance.error('update() נכשל', e, st);
     }
     notifyListeners();

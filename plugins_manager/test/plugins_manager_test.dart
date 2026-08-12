@@ -84,6 +84,54 @@ void main() {
     });
   });
 
+  group('otzariaLaunchPath', () {
+    /// התקנה ניידת של אוצריא עם תוסף מותקן בתיקיית הנתונים שלידה.
+    String portableInstall() {
+      final exeDir = Directory(p.join(temp.path, 'app'))
+        ..createSync(recursive: true);
+      final exe = p.join(exeDir.path, 'otzaria.exe');
+      File(exe).writeAsStringSync('');
+      File(p.join(
+        exeDir.path,
+        InstalledPluginsScanner.portableMarkerFileName,
+      )).writeAsStringSync('');
+
+      final installed = Directory(p.join(
+        exeDir.path,
+        InstalledPluginsScanner.portableDataFolderName,
+        'plugins',
+        'installed',
+        'manifest-a',
+        'current',
+      ))
+        ..createSync(recursive: true);
+      File(p.join(installed.path, 'manifest.json'))
+          .writeAsStringSync('{"id":"manifest-a","version":"2.5.0"}');
+      return exe;
+    }
+
+    PluginsManager portableManager(String exe) => PluginsManager(
+          resolveMirrorDir: () async => temp.path,
+          otzariaLaunchPath: () async => exe,
+          baseUrl: 'https://otzaria.test',
+          httpClient: MockClient((_) async => http.Response('', 404)),
+        );
+
+    test('בלי נתיב מפורש הסריקה נגזרת מההתקנה שזוהתה, לא מ-%APPDATA%',
+        () async {
+      final view = await portableManager(portableInstall()).load();
+
+      expect(view.installed, {'manifest-a': '2.5.0'});
+    });
+
+    test('scanInstalled מחזיר את אותה מפה בלי לקרוא את הקטלוג', () async {
+      final manager = portableManager(portableInstall());
+      await store.save(PluginCatalog(plugins: [plugin()]));
+
+      expect(await manager.scanInstalled(), (await manager.load()).installed);
+    });
+  });
+
   group('assetPath', () {
     test('נתיב ריק או חסר מחזיר null', () async {
       expect(await manager().assetPath(null), isNull);

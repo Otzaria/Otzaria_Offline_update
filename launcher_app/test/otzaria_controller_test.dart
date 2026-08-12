@@ -232,6 +232,112 @@ void main() {
     });
   });
 
+  /// בקשת עדכון האינדקס (`otzaria://library/reindex`) נוסעת עם ההפעלה
+  /// הרגילה של אוצריא, ונמחקת **רק** אחרי שנמסרה בפועל.
+  ///
+  /// כל הבדיקות כאן מזריקות `OtzariaLauncher` מדומה: בלעדיו הן מפעילות את
+  /// אוצריא האמיתית של מי שמריץ אותן, ואף מבקשות ממנה אינדוקס.
+  group('קישור עומק שממתין להפעלה', () {
+    /// התקנה שהזיהוי האוטומטי ימצא: התיקייה המנוהלת של הלאנצ'ר נבדקת
+    /// **ראשונה**, לפני ברירות המחדל והרג׳יסטרי, ולכן היא מנצחת גם על מכונה
+    /// שאוצריא אמיתית מותקנת בה.
+    void writeManagedInstall() {
+      final dir = Directory(p.join(tempDir.path, 'otzaria-app'))
+        ..createSync(recursive: true);
+      File(Platform.resolvedExecutable)
+          .copySync(p.join(dir.path, 'otzaria.exe'));
+    }
+
+    ({
+      OtzariaModuleController controller,
+      _RecordingLauncher launcher,
+      List<bool> delivered,
+    }) controllerWith({
+      String? uri = OtzariaDeepLinks.libraryReindex,
+      bool launchFails = false,
+    }) {
+      final launcher = _RecordingLauncher(fails: launchFails);
+      final delivered = <bool>[];
+      final controller = OtzariaModuleController(
+        dataDir: tempDir.path,
+        runningLocator: const _NeverRunningLocator(),
+        launcher: launcher,
+        pendingLaunchUri: () async => uri,
+        onLaunchUriDelivered: () async => delivered.add(true),
+      );
+      addTearDown(controller.dispose);
+      return (controller: controller, launcher: launcher, delivered: delivered);
+    }
+
+    test(
+      'הפעלה רגילה מוסרת את הבקשה הממתינה ומסמנת אותה כנמסרה',
+      () async {
+        writeManagedInstall();
+        final t = controllerWith();
+
+        await t.controller.launch();
+
+        expect(t.launcher.uris, [OtzariaDeepLinks.libraryReindex]);
+        expect(t.delivered, [true]);
+        expect(t.controller.errorMessage, isNull);
+      },
+      testOn: 'windows',
+    );
+
+    test(
+      'בלי בקשה ממתינה ההפעלה נשארת הפעלה רגילה',
+      () async {
+        writeManagedInstall();
+        final t = controllerWith(uri: null);
+
+        await t.controller.launch();
+
+        expect(t.launcher.uris, [null]);
+        expect(t.delivered, isEmpty);
+      },
+      testOn: 'windows',
+    );
+
+    // הרגרסיה שהבדיקה הזאת שומרת עליה: סימון "נמסר" על הפעלה שנכשלה היה
+    // מוחק את הבקשה, והאינדקס היה נשאר על התוכן הישן בלי שאיש יידע.
+    test(
+      'הפעלה שנכשלה אינה מסמנת את הבקשה כנמסרה',
+      () async {
+        writeManagedInstall();
+        final t = controllerWith(launchFails: true);
+
+        await t.controller.launch();
+
+        expect(t.delivered, isEmpty);
+        expect(t.controller.errorMessage, isNotNull);
+      },
+      testOn: 'windows',
+    );
+
+    test(
+      'requestLibraryReindex מוסר את הקישור גם בלי לחכות להפעלה הבאה',
+      () async {
+        writeManagedInstall();
+        final t = controllerWith();
+
+        expect(await t.controller.requestLibraryReindex(), isTrue);
+
+        expect(t.launcher.uris, [OtzariaDeepLinks.libraryReindex]);
+        // הסימון עצמו נמחק ב-`AppShell`, אחרי ה-true הזה.
+        expect(t.delivered, isEmpty);
+      },
+      testOn: 'windows',
+    );
+
+    test('requestLibraryReindex מחזיר false ומנסח סיבה כשהמסירה נכשלה',
+        () async {
+      final t = controllerWith(launchFails: true);
+
+      expect(await t.controller.requestLibraryReindex(), isFalse);
+      expect(t.controller.errorMessage, isNotNull);
+    });
+  });
+
   group('refreshRunningState — סגירה של אוצריא מזוהה בלי בדיקה מלאה', () {
     test('הרענון מעדכן את isRunning, מודיע, ומחזיר את הערך הטרי', () async {
       final locator = _ScriptedLocator([true, false]);
@@ -355,6 +461,21 @@ void main() {
       expect(errors.last, isNotNull);
     });
   });
+}
+
+/// קולט מה נמסר להפעלה במקום להריץ תהליך אמיתי — ובעיקר: במקום להפעיל את
+/// אוצריא של מי שמריץ את הבדיקות ולבקש ממנה אינדוקס.
+class _RecordingLauncher extends OtzariaLauncher {
+  _RecordingLauncher({this.fails = false});
+
+  final bool fails;
+  final List<String?> uris = [];
+
+  @override
+  Future<void> launch(String launchPath, {String? withUri}) async {
+    uris.add(withUri);
+    if (fails) throw StateError('הפעלה מדומה שנכשלה');
+  }
 }
 
 /// "אוצריא סגורה", בלי לגעת בתהליכים של המכונה — ראו [controllerFor].

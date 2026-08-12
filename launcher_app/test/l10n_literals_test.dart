@@ -12,15 +12,21 @@ import 'package:path/path.dart' as p;
 /// * הערות ותיעוד — נכתבים בעברית בכוונה (AGENTS §4).
 /// * שורות ליומן הפעילות והודעות `assert` — אבחון למפתח, לא מלל ממשק.
 /// * `hebrew_date.dart` — שמות חודשים וגימטריה; זה לוח שנה, לא מלל ממשק.
-/// * `app_seed_colors.dart` — פורט מאוצריא ואינו בשימוש בלאנצ'ר (אין בו
-///   בורר צבעים). אם יתווסף כזה, השמות חייבים לעבור ל-`otzaria_l10n`.
+///
+/// `app_seed_colors.dart` היה כאן כל זמן שלא היה בורר צבעים; משנוסף
+/// `ColorPickerTile` שמות הצבעים עברו ל-`otzaria_l10n` וההיתר בוטל.
 void main() {
   const allowedFiles = {
     'lib/src/services/hebrew_date.dart',
-    'lib/src/theme/app_seed_colors.dart',
+    // שמות של קבצים על הדיסק, לא מלל: שם ה-exe שהאריזה מייצרת ושם התיקייה
+    // שה-stub מחלץ אליה. הם חייבים להיות זהים בשלושת הצדדים (Dart, stub.c,
+    // package.ps1) — ראו `stub_contract_test.dart` — ולכן אינם מתורגמים.
+    'lib/src/self_update/launcher_install_layout.dart',
   };
 
-  /// סימנים שאחריהם הליטרל הוא אבחון למפתח ולא מלל ממשק.
+  /// סימנים שאחריהם הליטרל הוא אבחון למפתח ולא מלל ממשק. `FormatException`
+  /// כאן מאותה סיבה שהיא ברשימה המקבילה ב-`otzaria_l10n`: היא נזרקת על
+  /// רשומה שאינה עומדת בחוזה ותמיד נתפסת בדרך.
   const diagnosticMarkers = [
     'AppLogger',
     'logger.',
@@ -28,6 +34,7 @@ void main() {
     'debugPrint',
     'print(',
     'assert(',
+    'FormatException',
   ];
 
   test('אין ב-lib/ מחרוזת עברית שהמשתמש יכול לראות', () {

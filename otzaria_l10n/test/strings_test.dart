@@ -61,4 +61,20 @@ void main() {
     expect(AppLanguage.hebrew.isRtl, isTrue);
     expect(AppLanguage.english.isRtl, isFalse);
   });
+
+  test('locale של מערכת ההפעלה ממופה לשפה שהלאנצ\'ר מדבר', () {
+    for (final code in ['he', 'he-IL', 'he_IL.UTF-8', 'HE', 'iw', 'iw-IL']) {
+      expect(AppLanguage.forLanguageCode(code), AppLanguage.hebrew,
+          reason: code);
+    }
+    for (final code in ['en', 'en-US', 'en_GB.UTF-8']) {
+      expect(AppLanguage.forLanguageCode(code), AppLanguage.english,
+          reason: code);
+    }
+    // שפה שאיננו מדברים נופלת לאנגלית — לא לעברית, בשונה מ-`fromCode`.
+    for (final code in ['fr', 'ru-RU', 'yi', '', null]) {
+      expect(AppLanguage.forLanguageCode(code), AppLanguage.english,
+          reason: '$code');
+    }
+  });
 }

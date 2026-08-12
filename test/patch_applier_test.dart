@@ -50,6 +50,12 @@ DeltaManifest _manifest({
       ],
     );
 
+/// הודעת ההתנגשות בלי פרטי ה-SQLite שבסוגריים — הם אינם קבועים.
+String _uniqueConflictPrefix(String table) => AppL10n.strings.libraryDomain
+    .patchUniqueConflictNeedsFullDownload(table, '')
+    .replaceFirst('()', '')
+    .trimRight();
+
 void main() {
   late Directory tmp;
 
@@ -247,6 +253,60 @@ void main() {
         () =>
             _applier.apply(dbPath: base, patchPath: patch, manifest: manifest),
         throwsA(isA<PatchApplyException>()),
+      );
+      expect(_hashOf(base), beforeHash); // rollback שמר על המקור
+    });
+
+    // issue #19: `tocText.text` (וגם author.name, source.name...) נושאת UNIQUE
+    // מעל ה-PK, ו-ON CONFLICT מכוון ל-PK בלבד — ערך שעבר בין id-ים מתפוצץ
+    // כי ה-upserts רצים לפני ה-deletes. המשתמש קיבל SqliteException גולמי.
+    test('התנגשות UNIQUE משני → הודעה מובנת, rollback, וה-DB לא משתנה', () {
+      final base = '${tmp.path}/unique_base.db';
+      final bdb = sqlite3.sqlite3.open(base);
+      bdb.execute(
+          'CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT)');
+      bdb.execute("INSERT INTO schema_meta VALUES ('db_version','1'),"
+          "('db_schema_version','2')");
+      // כמו בסכימה האמיתית: UNIQUE על עמודת התוכן, לא רק על ה-PK.
+      bdb.execute(
+          'CREATE TABLE source (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)');
+      bdb.execute("INSERT INTO source VALUES (1,'א'),(2,'ב')");
+      bdb.close();
+      final beforeHash = _hashOf(base);
+
+      // 'א' עובר מ-id 1 ל-id 2 — השורה הישנה תימחק, אבל רק בשלב ה-deletes.
+      final patch = buildPatchDb(
+        from: 1,
+        to: 2,
+        upsertSource: [
+          [2, 'א'],
+        ],
+        deleteSource: [1],
+      );
+      final manifest =
+          _manifest(from: 1, to: 2, fromHash: beforeHash, toHash: 'irrelevant');
+
+      expect(
+        () => _applier.apply(
+          dbPath: base,
+          patchPath: patch,
+          manifest: manifest,
+          // בדיוק כמו בייצור (`_applyPatchInIsolate`).
+          verifyFromHash: false,
+          checkForeignKeys: false,
+        ),
+        throwsA(
+          isA<PatchApplyException>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              // ההודעה שלנו, עם שם הטבלה...
+              startsWith(_uniqueConflictPrefix('source')),
+              // ...ופרטי ה-SQLite המקוריים נשמרים בסוף, לדיאגנוסטיקה.
+              contains('UNIQUE constraint failed'),
+            ),
+          ),
+        ),
       );
       expect(_hashOf(base), beforeHash); // rollback שמר על המקור
     });
@@ -743,6 +803,92 @@ void main() {
         )),
       );
       expect(stages, isNot(contains('foreignKeyCheck')));
+    });
+
+    // `verifyToHash: false` — הדגל שמאפשר לשרשרת patches לאמת פעם אחת בסוף
+    // במקום בכל צעד. ראו `LibraryUpdateApplier.applyDelta`.
+    group('verifyToHash כבוי', () {
+      test('מקומיט בלי לחשב hash, ומחזיר resultHash null', () {
+        final base = buildBaseDb(version: 1, sourceRows: [
+          [1, 'aleph'],
+        ]);
+        final patch = buildPatchDb(from: 1, to: 2, upsertSource: [
+          [2, 'bet'],
+        ]);
+        final stages = <String>[];
+        final result = _applier.apply(
+          dbPath: base,
+          patchPath: patch,
+          // ה-hash הזה שגוי בכוונה: כשהאימות כבוי הוא לא נבדק בכלל.
+          manifest: _manifest(
+            from: 1,
+            to: 2,
+            fromHash: _hashOf(base),
+            toHash: 'deadbeef',
+          ),
+          verifyToHash: false,
+          onStage: stages.add,
+        );
+
+        expect(result.resultHash, isNull);
+        expect(stages, isNot(contains('verifyToHash')));
+        expect(stages, contains('commit'));
+
+        // ההחלה עצמה בוצעה במלואה.
+        final db = sqlite3.sqlite3.open(base, mode: sqlite3.OpenMode.readOnly);
+        try {
+          expect(db.select('SELECT name FROM source ORDER BY id').length, 2);
+          expect(
+            db
+                .select("SELECT value FROM schema_meta WHERE key='db_version'")
+                .first['value'],
+            '2',
+          );
+        } finally {
+          db.close();
+        }
+      });
+
+      test('אינו מבטל את preflight הגרסה — patch לא מתאים עוד נדחה', () {
+        final base = buildBaseDb(version: 5, sourceRows: [
+          [1, 'a'],
+        ]);
+        final patch = buildPatchDb(from: 1, to: 2);
+        expect(
+          () => _applier.apply(
+            dbPath: base,
+            patchPath: patch,
+            manifest: _manifest(
+              from: 1,
+              to: 2,
+              fromHash: 'x',
+              toHash: 'y',
+            ),
+            verifyToHash: false,
+          ),
+          throwsA(isA<PatchApplyException>()),
+        );
+      });
+
+      test('ברירת המחדל נשארה אימות — מסד שגוי נדחה בלי הדגל', () {
+        final base = buildBaseDb(version: 1, sourceRows: [
+          [1, 'a'],
+        ]);
+        final patch = buildPatchDb(from: 1, to: 2);
+        expect(
+          () => _applier.apply(
+            dbPath: base,
+            patchPath: patch,
+            manifest: _manifest(
+              from: 1,
+              to: 2,
+              fromHash: _hashOf(base),
+              toHash: 'deadbeef',
+            ),
+          ),
+          throwsA(isA<PatchApplyException>()),
+        );
+      });
     });
 
     test('טבלאות patch שאינן קיימות מדולגות — הספירות מכילות רק את שהופיע', () {

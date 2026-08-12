@@ -4,20 +4,45 @@
 // ל-exe, ולכן אי אפשר פשוט להוציא אותו מהתיקייה.
 //
 // חי מחוץ ל-windows/ בכוונה: ה-CI מריץ שם `flutter create` ודורס אותה.
+//
+// הוא גם הצד השני של העדכון העצמי: הלאנצ'ר מחליף את ה-exe הזה בגרסה חדשה
+// (ראו `lib/src/self_update/`) ומריץ אותו עם `--after-update=<pid>`. ה-exe
+// החדש נושא payload חדש, מזהה שהמרקר `.ready` מחזיק גרסה אחרת, ומחלץ אותו
+// **מעל** app-files הקיימת. `OtzariaData\` שבתוכה לא נוגעים בה בכלל — לא
+// מוחקים כלום, רק דורסים את מה שב-payload.
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <stdlib.h>
+#include <string.h>
 #include <strsafe.h>
 #include <wchar.h>
+
+// גרסת ה-payload, מיוצרת מ-`pubspec.yaml` ע"י build_stub.ps1 אל build\.
+#include "version.h"
 
 // חייב להתאים למזהה שב-stub.rc.
 #define PAYLOAD_RESOURCE_ID 100
 
 static const wchar_t kPayloadDir[] = L"app-files";
 static const wchar_t kTargetExe[] = L"launcher_app.exe";
-// נכתב רק אחרי חילוץ שהצליח, ולכן חילוץ שנקטע באמצע לא ייראה שלם.
+// נכתב רק אחרי חילוץ שהצליח, ולכן חילוץ שנקטע באמצע לא ייראה שלם. מאז
+// העדכון העצמי הוא גם מחזיק את **גרסת ה-payload** שחולצה: מרקר עם גרסה
+// אחרת (או ריק, כמו זה שכתבו גרסאות קודמות) פירושו "יש לחלץ מחדש".
 static const wchar_t kReadyMarker[] = L".ready";
+
+// הדגל שהלאנצ'ר מעביר אחרי שהחליף את ה-exe. חייב להתאים ל-
+// `LauncherInstallLayout.afterUpdateFlag`.
+static const wchar_t kAfterUpdateFlag[] = L"--after-update=";
+
+// משתנה הסביבה שבו מועבר ללאנצ'ר הנתיב של ה-exe הזה — הוא לבדו יודע אותו,
+// כי `Platform.resolvedExecutable` של הבן מצביע לתוך app-files. חייב להתאים
+// ל-`LauncherInstallLayout.stubPathEnvVar`.
+static const wchar_t kStubPathEnvVar[] = L"OTZARIA_LAUNCHER_STUB";
+
+// כמה להמתין לסגירת הלאנצ'ר הישן לפני חילוץ מחדש. הוא נסגר מיד אחרי שהוא
+// מריץ אותנו; הגבול קיים רק כדי שתקלה לא תשאיר את ה-stub תלוי לנצח.
+#define AFTER_UPDATE_WAIT_MS 60000
 
 // הטקסט היחיד בפרויקט שלא עובר דרך otzaria_l10n — קוד C לא יכול לתלות
 // בחבילת Dart. מוצג רק כשההכנה להרצה הראשונה נכשלה.
@@ -133,6 +158,70 @@ static BOOL RunTar(const wchar_t *zip_path, const wchar_t *dest_dir) {
   return ok;
 }
 
+// גרסת ה-payload שחולצה בפועל, כפי שנרשמה במרקר. ASCII בכוונה — מספר גרסה
+// הוא ספרות ונקודות, ואין צורך בקידוד.
+static BOOL MarkerMatchesPayload(const wchar_t *marker) {
+  HANDLE file = CreateFileW(marker, GENERIC_READ, FILE_SHARE_READ, NULL,
+                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+  if (file == INVALID_HANDLE_VALUE) {
+    return FALSE;
+  }
+  char buffer[64];
+  DWORD read = 0;
+  const BOOL ok =
+      ReadFile(file, buffer, (DWORD)(sizeof(buffer) - 1), &read, NULL);
+  CloseHandle(file);
+  if (!ok) {
+    return FALSE;
+  }
+  buffer[read] = '\0';
+  return strcmp(buffer, PAYLOAD_VERSION_A) == 0;
+}
+
+// FILE_ATTRIBUTE_HIDDEN חייב להישאר גם כאן: CREATE_ALWAYS על קובץ מוסתר
+// קיים נכשל ב-ACCESS_DENIED אם התכונה לא צוינה מחדש.
+static BOOL WriteMarker(const wchar_t *marker) {
+  HANDLE file = CreateFileW(marker, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+                            FILE_ATTRIBUTE_HIDDEN, NULL);
+  if (file == INVALID_HANDLE_VALUE) {
+    return FALSE;
+  }
+  const DWORD length = (DWORD)strlen(PAYLOAD_VERSION_A);
+  DWORD written = 0;
+  const BOOL ok =
+      WriteFile(file, PAYLOAD_VERSION_A, length, &written, NULL) &&
+      written == length;
+  CloseHandle(file);
+  return ok;
+}
+
+// שולף את ה-pid מהדגל **ומסיר את הדגל** מהמחרוזת, כדי שלא יועבר לתהליך הבן.
+static DWORD TakeAfterUpdatePid(wchar_t *command_line) {
+  wchar_t *found = wcsstr(command_line, kAfterUpdateFlag);
+  if (found == NULL) {
+    return 0;
+  }
+  wchar_t *cursor = found + wcslen(kAfterUpdateFlag);
+  wchar_t *end = cursor;
+  const DWORD process_id = (DWORD)wcstoul(cursor, &end, 10);
+  memmove(found, end, (wcslen(end) + 1) * sizeof(wchar_t));
+  return process_id;
+}
+
+// ממתין לסגירת הלאנצ'ר הישן. בלי זה tar היה מנסה לדרוס את launcher_app.exe
+// ואת flutter_windows.dll בזמן שהם עוד נעולים על ידו, והחילוץ היה נכשל.
+static void WaitForProcessExit(DWORD process_id) {
+  if (process_id == 0) {
+    return;
+  }
+  HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, process_id);
+  if (process == NULL) {
+    return;  // כבר יצא (או שאין הרשאה) — ממשיכים.
+  }
+  WaitForSingleObject(process, AFTER_UPDATE_WAIT_MS);
+  CloseHandle(process);
+}
+
 // ה-zip נכתב ל-%TEMP% ולא ליד ה-exe, כדי לא להשאיר פסולת על הכונן של
 // המשתמש אם החילוץ נכשל.
 static BOOL ExtractPayload(const wchar_t *dest_dir, const wchar_t *marker) {
@@ -152,14 +241,7 @@ static BOOL ExtractPayload(const wchar_t *dest_dir, const wchar_t *marker) {
   if (!extracted) {
     return FALSE;
   }
-
-  HANDLE done = CreateFileW(marker, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
-                            FILE_ATTRIBUTE_HIDDEN, NULL);
-  if (done == INVALID_HANDLE_VALUE) {
-    return FALSE;
-  }
-  CloseHandle(done);
-  return TRUE;
+  return WriteMarker(marker);
 }
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
@@ -168,11 +250,17 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   UNREFERENCED_PARAMETER(prev);
   UNREFERENCED_PARAMETER(show_command);
 
+  wchar_t stub_path[MAX_PATH];
   wchar_t stub_dir[MAX_PATH];
-  const DWORD length = GetModuleFileNameW(NULL, stub_dir, MAX_PATH);
-  if (length == 0 || length >= MAX_PATH) {
+  const DWORD length = GetModuleFileNameW(NULL, stub_path, MAX_PATH);
+  if (length == 0 || length >= MAX_PATH ||
+      FAILED(StringCchCopyW(stub_dir, MAX_PATH, stub_path))) {
     return ReportFailure();
   }
+  // הלאנצ'ר צריך את הנתיב שלנו כדי לדעת איזה קובץ להחליף בעדכון הבא;
+  // התהליך הבן יורש את הסביבה שלנו, ולכן די בהצבה כאן.
+  SetEnvironmentVariableW(kStubPathEnvVar, stub_path);
+
   wchar_t *separator = wcsrchr(stub_dir, L'\\');
   if (separator == NULL) {
     return ReportFailure();
@@ -194,18 +282,32 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     return ReportFailure();
   }
 
-  // הרצה ראשונה בלבד; מכאן והלאה ה-marker קיים והחילוץ מדולג. גם משחזר
-  // ערמת קבצים שנמחקה — ה-payload נשאר מוטמע ב-exe לתמיד.
-  if (GetFileAttributesW(marker) == INVALID_FILE_ATTRIBUTES &&
-      !ExtractPayload(stub_dir, marker)) {
+  // lpCmdLine של wWinMain הוא כבר בלי argv[0]. מועתק כדי שנוכל להסיר ממנו
+  // את הדגל הפנימי שלנו בלי לגעת במאגר של ה-CRT.
+  static wchar_t forwarded[32768];
+  if (FAILED(StringCchCopyW(forwarded, ARRAYSIZE(forwarded), command_line))) {
     return ReportFailure();
   }
+  const DWORD after_update_pid = TakeAfterUpdatePid(forwarded);
 
-  // lpCmdLine של wWinMain הוא כבר בלי argv[0], ולכן מועבר כמו שהוא.
+  // חילוץ בהרצה הראשונה, וגם כשגרסת ה-payload שונה מזו שבמרקר — כלומר אחרי
+  // שהעדכון העצמי החליף את ה-exe הזה. גם משחזר ערמת קבצים שנמחקה: ה-payload
+  // נשאר מוטמע ב-exe לתמיד.
+  if (!MarkerMatchesPayload(marker)) {
+    WaitForProcessExit(after_update_pid);
+    // חילוץ שנכשל כשכבר יש לאנצ'ר על הדיסק אינו סוף הדרך: מריצים את מה שיש,
+    // והמרקר (שלא נכתב) יגרום לניסיון נוסף בהרצה הבאה. תיבת שגיאה נשמרת
+    // למצב שבו אין מה להריץ בכלל.
+    if (!ExtractPayload(stub_dir, marker) &&
+        GetFileAttributesW(target) == INVALID_FILE_ATTRIBUTES) {
+      return ReportFailure();
+    }
+  }
+
   // CreateProcessW כותב לתוך המאגר הזה, ולכן הוא לא const.
   static wchar_t arguments[32768];
   if (FAILED(StringCchPrintfW(arguments, ARRAYSIZE(arguments), L"\"%s\" %s",
-                              target, command_line))) {
+                              target, forwarded))) {
     return ReportFailure();
   }
 

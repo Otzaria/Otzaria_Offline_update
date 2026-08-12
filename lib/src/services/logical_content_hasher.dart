@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 import '../models/patch_table_spec.dart';
+import 'fast_sha256.dart';
 
 /// מחשב logical content hash על תוכן ה-DB, בדיוק כמו `LogicalContentHasher.kt`
 /// בצד הייצור (SeforimLibrary). ה-hash משמש לאימות שה-DB המקומי תואם בדיוק
@@ -45,46 +46,52 @@ class LogicalContentHasher {
       {List<String> tableOrder = kHashTableOrder,
       void Function(int bytesHashed)? onProgress}) {
     final digestSink = _DigestSink();
-    final shaSink = sha256.startChunkedConversion(digestSink);
-    final out = _BufferedByteSink(shaSink, onProgress: onProgress);
+    final shaSink = FastSha256.start(digestSink);
+    // ה-`finally` הוא מה שמונע דליפה של החוצץ הנייטיבי: כל שגיאת SQLite
+    // באמצע הסריקה יוצאת מכאן, וה-sink מוקצה מחוץ לאיסוף האשפה של דארט.
+    try {
+      final out = _BufferedByteSink(shaSink, onProgress: onProgress);
 
-    for (final table in tableOrder) {
-      out.addBytes(utf8.encode(' table:$table '));
-      final cols = _readColumnsCanonical(db, table);
-      if (cols == null) continue;
-      out.addBytes(utf8.encode('cols:${cols.join(',')}'));
-      out.addByte(_nullTag);
+      for (final table in tableOrder) {
+        out.addBytes(utf8.encode(' table:$table '));
+        final cols = _readColumnsCanonical(db, table);
+        if (cols == null) continue;
+        out.addBytes(utf8.encode('cols:${cols.join(',')}'));
+        out.addByte(_nullTag);
 
-      // ל-text קוראים את ה-bytes הגולמיים (CAST AS BLOB) כדי לא לאבד BOM
-      // מוביל — ה-decoder של Dart מסיר U+FEFF, ולכן String רגיל היה משנה את
-      // ה-hash. typeof קובע את בית-הסוג; ה-CASE מחזיר blob רק ל-text.
-      final selectCols = cols
-          .map((c) => 'typeof("$c"),CASE WHEN typeof("$c")=\'text\' '
-              'THEN CAST("$c" AS BLOB) ELSE "$c" END')
-          .join(',');
-      final orderBy =
-          cols.contains('id') ? 'id' : cols.map((c) => '"$c"').join(',');
-      final stmt =
-          db.prepare('SELECT $selectCols FROM "$table" ORDER BY $orderBy');
-      try {
-        final cursor = stmt.selectCursor(const []);
-        while (cursor.moveNext()) {
-          final values = cursor.current.values;
-          for (var i = 0; i < values.length; i += 2) {
-            _encodeCell(out, values[i] as String, values[i + 1]);
+        // ל-text קוראים את ה-bytes הגולמיים (CAST AS BLOB) כדי לא לאבד BOM
+        // מוביל — ה-decoder של Dart מסיר U+FEFF, ולכן String רגיל היה משנה את
+        // ה-hash. typeof קובע את בית-הסוג; ה-CASE מחזיר blob רק ל-text.
+        final selectCols = cols
+            .map((c) => 'typeof("$c"),CASE WHEN typeof("$c")=\'text\' '
+                'THEN CAST("$c" AS BLOB) ELSE "$c" END')
+            .join(',');
+        final orderBy =
+            cols.contains('id') ? 'id' : cols.map((c) => '"$c"').join(',');
+        final stmt =
+            db.prepare('SELECT $selectCols FROM "$table" ORDER BY $orderBy');
+        try {
+          final cursor = stmt.selectCursor(const []);
+          while (cursor.moveNext()) {
+            final values = cursor.current.values;
+            for (var i = 0; i < values.length; i += 2) {
+              _encodeCell(out, values[i] as String, values[i + 1]);
+            }
+            out.addByte(_rowSeparator);
           }
-          out.addByte(_rowSeparator);
+        } finally {
+          stmt.close();
         }
-      } finally {
-        stmt.close();
       }
-    }
 
-    out.flush();
-    // דיווח סופי מדויק — מאפשר ל-caller לשמור את סך-הבתים האמיתי לריצה הבאה.
-    onProgress?.call(out.totalHashed);
-    shaSink.close();
-    return digestSink.digest.toString();
+      out.flush();
+      // דיווח סופי מדויק — מאפשר ל-caller לשמור את סך-הבתים האמיתי לריצה הבאה.
+      onProgress?.call(out.totalHashed);
+      shaSink.close();
+      return digestSink.digest.toString();
+    } finally {
+      shaSink.dispose();
+    }
   }
 
   /// קורא את שמות העמודות ממוינים אלפביתית, או null אם הטבלה אינה קיימת.

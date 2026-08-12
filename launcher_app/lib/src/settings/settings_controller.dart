@@ -20,6 +20,9 @@ class SettingsController extends ChangeNotifier {
   AppSettings get settings => _settings;
 
   Future<void> load() async {
+    // לפני הכול, וגם כשאין קובץ: ברירת המחדל היא "לפי שפת המחשב", ובלי
+    // ההצבה הזו מלל התשתית היה נשאר עברית בזמן שהמסכים באנגלית.
+    _applyLanguage();
     try {
       if (!await _file.exists()) return;
       final raw = jsonDecode(await _file.readAsString());

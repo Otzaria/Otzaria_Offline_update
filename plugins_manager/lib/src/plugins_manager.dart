@@ -52,6 +52,7 @@ class PluginsManager {
   PluginsManager({
     required this.resolveMirrorDir,
     this.resolvePluginsDir,
+    this.otzariaLaunchPath,
     String baseUrl = PluginStoreClient.defaultBaseUrl,
     http.Client? httpClient,
   }) : _client = PluginStoreClient(baseUrl: baseUrl, client: httpClient);
@@ -62,6 +63,12 @@ class PluginsManager {
   /// דריסה של תיקיית התוספים של אוצריא, לבדיקות. הלאנצ'ר אינו מעביר אותה:
   /// המיקום מתגלה אוטומטית ואין הגדרת נתיבים בממשק.
   final Future<String?> Function()? resolvePluginsDir;
+
+  /// נתיב ההפעלה של אוצריא שהלאנצ'ר זיהה. ממנו נגזרת תיקיית התוספים של
+  /// התקנה ניידת ([InstalledPluginsScanner]), ואליו נמסרת ההתקנה הישירה
+  /// ([PluginDirectInstaller]). `null` = ברירות המחדל של הפלטפורמה ומטפל
+  /// הפרוטוקול, כמו קודם.
+  final Future<String?> Function()? otzariaLaunchPath;
 
   final PluginStoreClient _client;
 
@@ -75,16 +82,21 @@ class PluginsManager {
   /// זו הפעולה שרצה בפתיחת המסך.
   Future<PluginStoreView> load() async {
     final store = await _store();
-    final scanner = InstalledPluginsScanner(
-      customPluginsDir: await resolvePluginsDir?.call(),
-    );
 
     return PluginStoreView(
       catalog: await store.load(),
-      installed: await scanner.scan(),
+      installed: await scanInstalled(),
       pluginsDir: store.pluginsDir,
     );
   }
+
+  /// סורק **רק** את ההתקנה של אוצריא, בלי לקרוא את הקטלוג. קיים בנפרד כדי
+  /// שהלאנצ'ר יוכל לרענן את המפה אחרי שנתיב ההתקנה התברר — לפניו הסריקה
+  /// קראה תיקייה אחרת לגמרי.
+  Future<Map<String, String>> scanInstalled() async => InstalledPluginsScanner(
+        customPluginsDir: await resolvePluginsDir?.call(),
+        otzariaLaunchPath: await otzariaLaunchPath?.call(),
+      ).scan();
 
   /// מסנכרן את הקטלוג והקבצים מהאתר אל המראה. דורש אינטרנט.
   Future<PluginCatalog> sync({
@@ -128,7 +140,8 @@ class PluginsManager {
       plugin.localFile?.fileName ??
       '${plugin.name}${plugin.localFile?.ext ?? '.otzplugin'}';
 
-  /// מתקין את התוסף באוצריא דרך `otzaria://plugin/install-local`.
+  /// מתקין את התוסף באוצריא דרך `otzaria://plugin/install-local` — ישירות
+  /// אל ההתקנה ש-[otzariaLaunchPath] מצביע עליה, כשהיא ידועה.
   ///
   /// אם קובץ התוסף חסר מהמראה (למשל הסנכרון דילג עליו) הוא מורד עכשיו —
   /// וזה הצעד היחיד כאן שדורש אינטרנט. כשהקובץ כבר במראה, ההתקנה עובדת
@@ -149,6 +162,7 @@ class PluginsManager {
 
     return PluginDirectInstaller.install(
       store.absolutePath(target.localFile!.relativePath),
+      otzariaLaunchPath: await otzariaLaunchPath?.call(),
     );
   }
 

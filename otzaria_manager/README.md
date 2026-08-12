@@ -19,6 +19,7 @@
 | מה מאתרים | `*.exe` ששמו מזכיר אוצריא, ובהיעדרו exe אחר (למעט `unins*` ו-exe עזר של Flutter) | חבילת `.app` (הרדודה ביותר, בלי להיכנס לתוכה) |
 | קריאת גרסה | `ProductVersion` מה-version resource (FFI, `package:win32`) | `CFBundleShortVersionString` מ-`Info.plist` (דרך `plutil`) |
 | הפעלה | `Process.start` מנותק | `open <bundle>` (דרך Launch Services) |
+| הפעלה עם קישור עומק | `Process.start` עם ה-URL כארגומנט | `open -a <bundle> <url>` |
 | זיהוי אוטומטי של התקנה קיימת | התהליך הרץ, התיקייה המנוהלת, הרג'יסטרי, ואחריהם מיקומי ברירת המחדל | התהליך הרץ, התיקייה המנוהלת, ואחריהם `/Applications` |
 | התקנה במיקום לא צפוי, כשאוצריא סגורה | `InstallLocation` ממפתחות ה-Uninstall (`WindowsInstallRegistry`) | אין מקבילה — נדרשת בחירה ידנית |
 | נתיב התהליך הרץ | `tasklist` (PID) + `QueryFullProcessImageNameW` | `ps -A -o comm=` ועלייה לשורש ה-`.app` |
@@ -110,9 +111,17 @@ if (check.needsDownload) {
   // קובע איזו מהן `latestRelease`/`update` מתייחסים אליה.
   await manager.update(check);
 }
-// מפעיל את ה-state השמור, ואם אין כזה — את ההתקנה שמזוהה במיקומים המוכרים
-// (רג'יסטרי ההסרה / תיקיית ברירת המחדל). זורק רק כשלא נמצאה שום התקנה.
+// מפעיל את ה-state השמור (אחרי אימות שההתקנה שבו קיימת *כאן*), ואם אין כזה
+// — את ההתקנה שמזוהה במיקומים המוכרים (רג'יסטרי ההסרה / תיקיית ברירת
+// המחדל). זורק רק כשלא נמצאה שום התקנה.
 await manager.launch();
+
+// אחרי שהלאנצ'ר החליף את `seforim.db` מבחוץ: מבקש מאוצריא לרענן את הספרייה
+// ולעדכן את אינדקס החיפוש (`otzaria://library/reindex`). הקישור נמסר לקובץ
+// ההרצה כארגומנט — ולא דרך מטפל הפרוטוקול של מערכת ההפעלה, שהתקנה ניידת
+// אינה רושמת. אוצריא סגורה תיפתח; מופע פתוח מקבל את הבקשה דרך
+// ה-single-instance שלו.
+await manager.requestLibraryReindex();
 
 // זרימה חד-פעמית: למשתמש שכבר יש לו אוצריא מותקנת במיקום משלו
 final detected = await manager.detectExistingInstall(customDir: userChosenDir);
@@ -149,6 +158,11 @@ manager.close();
   `launcher_app/test/process_names_test.dart` שומר על כך. **לא אומת מול
   אוצריא אמיתית רצה על חומרה.**
 - `services/otzaria_state_store.dart` — שמירה/טעינה של קובץ ה-state המקומי.
+  **הוא נקודת פתיחה, לא מקור אמת**: הקובץ יושב ב-`OtzariaData` שעל הכונן
+  הנייד ונוסע איתו בין מחשבים, ולכן `OtzariaManager._verifyStoredState`
+  מאמת אותו מול הדיסק המקומי (נתיב ההפעלה קיים? מה הגרסה שבו בפועל?) ופוסל
+  אותו כשלא. בלי זה "מותקנת גרסה X" שנרשם במחשב אחד הודיע "אוצריא מעודכנת"
+  בכל מחשב אחר שהכונן הגיע אליו (issue #19).
 - `services/otzaria_launcher.dart` — הפעלת אוצריא כתהליך עצמאי / דרך `open`.
   מקבל כל נתיב הפעלה — אינו דורש שההתקנה בוצעה דרך הלאנצ'ר. ניתן להזרקה
   לבנאי של `OtzariaManager` (לבדיקות).

@@ -17,6 +17,9 @@ dependencies:
     path: otzaria_l10n
   equatable: ^2.0.8
   crypto: ^3.0.7
+  # להקצאת חוצצי native ב-`FastSha256` (SHA-256 של ספריית המערכת).
+  ffi: ^2.1.0
+  meta: ^1.18.0
   path: ^1.9.1
   http: ^1.6.0
   sqlite3: ^3.3.3

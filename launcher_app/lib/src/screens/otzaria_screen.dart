@@ -27,6 +27,7 @@ class OtzariaScreen extends StatelessWidget {
     required this.otzaria,
     required this.settings,
     required this.otzariaIsRunning,
+    this.onInstallAdopted,
   });
 
   final OtzariaModuleController otzaria;
@@ -34,6 +35,10 @@ class OtzariaScreen extends StatelessWidget {
   /// בחירת ערוץ הגרסה נשמרת בהגדרות, כדי שתישאר בין הפעלות.
   final SettingsController settings;
   final bool otzariaIsRunning;
+
+  /// נקרא אחרי שהמשתמש הצביע ידנית על תיקיית ההתקנה — תיקיית התוספים
+  /// נגזרת מהנתיב הזה, ולכן צריך לסרוק אותה מחדש.
+  final Future<void> Function()? onInstallAdopted;
 
   /// **לא** תלוי בהורדה גלובלית: הורדה של רכיב אחר (למשל הספרייה) לא
   /// אמורה לחסום פעולות מקומיות כאן (בחירת מיקום, בדיקה מחדש).
@@ -172,6 +177,7 @@ class OtzariaScreen extends StatelessWidget {
 
     final adopted = await otzaria.adoptInstallDir(dir);
     if (adopted) {
+      await onInstallAdopted?.call();
       UiSnack.showSuccess(t.installAdoptedSnack);
     } else {
       UiSnack.showError(t.installNotFoundSnack);

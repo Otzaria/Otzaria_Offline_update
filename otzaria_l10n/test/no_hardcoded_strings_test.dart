@@ -32,15 +32,20 @@ const _exemptFiles = <String, String>{
   'library_manager/lib/src/services/otzaria_process_guard.dart': 'שם תהליך',
   // גימטריה ושמות חודשים עבריים — התוצאה עברית מעצם טבעה.
   'launcher_app/lib/src/services/hebrew_date.dart': 'לוח השנה העברי',
-  // שמות הגוונים; `options` אינו בשימוש בקוד כרגע.
-  'launcher_app/lib/src/theme/app_seed_colors.dart': 'שמות גוונים',
+  // `app_seed_colors.dart` היה פטור כל זמן שהפלטה לא הייתה בשימוש; משנוסף
+  // בורר הצבעים שמות הגוונים עברו לכאן, והפטור בוטל.
 };
 
 /// הקשרים שבהם מחרוזת עברית היא הודעה למפתח ולא למשתמש: יומן, `debugPrint`
 /// (הנתיב שלפני אתחול הלוגר), ושגיאות תכנות שנזרקות רק כשהקוד עצמו שגוי.
+///
+/// `FormatException` באותה קטגוריה: היא נזרקת מתוך `fromJson` על רשומה
+/// שאינה עומדת בחוזה, ותמיד נתפסת בדרך (מראה פגומה = "אין מראה"). המשתמש
+/// רואה הודעה מתורגמת של הקורא, לא אותה.
 final _developerContext = RegExp(
   r'(AppLogger\.\w+|logger\.\w+|debugPrint|assert'
-  r'|StateError|ArgumentError|UnsupportedError)[\s\S]{0,80}$',
+  r'|StateError|ArgumentError|UnsupportedError|FormatException)'
+  r'[\s\S]{0,80}$',
 );
 
 /// הפרות ידועות שטרם תוקנו — מוצמדות לרשימה סגורה כדי שיישארו גלויות
@@ -64,6 +69,10 @@ const _knownViolations = <String>{
 const _nameLiterals = <String>{
   'otzaria_manager/lib/src/services/otzaria_app_locator.dart|אוצריא',
   'otzaria_manager/lib/src/services/otzaria_app_locator.dart|עדכוני אוצריא',
+  // שם הקובץ ש-`package.ps1` מייצר. הוא זהה בכל שפת ממשק — תרגום שלו היה
+  // שובר את איתור ה-exe שצריך להוחלף בעדכון העצמי.
+  'launcher_app/lib/src/self_update/launcher_install_layout.dart|'
+      'עדכוני אוצריא.exe',
   'otzaria_manager/lib/src/services/running_otzaria_locator.dart|אוצריא',
   'library_manager/lib/src/services/companion_assets_installer.dart|תלמוד בבלי',
 };

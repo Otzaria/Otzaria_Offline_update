@@ -42,5 +42,9 @@ class LibraryUpdateCheckResult {
   bool get dbUpdateAvailable =>
       plan != null && plan!.kind != LibraryUpdatePlanKind.none;
 
+  /// `true` כשמסלול הדלתא נכשל וניתן לנסות במקומו את המסד המלא שבמראה —
+  /// ראו [LibraryManager.applyUpdate] ו-[LibraryUpdatePlan.fullDownloadFallback].
+  bool get canFallBackToFullDownload => plan?.fullDownloadFallback != null;
+
   bool get updateAvailable => dbUpdateAvailable || companionsPending;
 }

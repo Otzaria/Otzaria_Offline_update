@@ -6,13 +6,42 @@ on:
   pull_request:
     branches: ["**"]
   workflow_dispatch:
-  # ריצה תקופתית על כל הפרויקט גם בלי קומיט חדש — תופסת רגרסיות סביבתיות
-  # (Flutter/Dart stable שהתקדם, תלות שהתעדכנה, טסט שהפך פלייקי) שקומיט
-  # בודד לא היה חושף.
-  schedule:
-    - cron: "0 3 * * 1" # כל יום שני, 03:00 UTC
+
+# ה-workflow הזה גם **מפרסם**: כל דחיפה ל-main שכל הבדיקות בה עברו מקדמת
+# את מספר הגרסה ומעלה release חדש (ראו הג'וב `publish` בסוף). הפרסום יושב
+# כאן ולא ב-workflow נפרד כדי לא לבנות את הלאנצ'ר פעמיים על אותו קומיט —
+# הג'ובים כאן ממילא מייצרים בדיוק את שני הקבצים שמופצים.
+permissions:
+  contents: write
 
 jobs:
+  # מספר הגרסה של הריצה הזאת — הצעד הבא אחרי מה שב-pubspec, ואם התג הזה
+  # כבר קיים (ריצה חוזרת, או פרסום שכבר קרה) מתקדמים לפנוי הבא. הג'ובים
+  # שבונים את הלאנצ'ר מציבים אותו בקוד לפני הבנייה, כך שהקובץ המופץ מדווח
+  # על עצמו את אותו מספר שבתג.
+  version:
+    name: next version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      tag: ${{ steps.next.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # התגים נחוצים כדי לדעת מה כבר פורסם
+      - id: next
+        run: |
+          current="$(sed -n 's/^version:[[:space:]]*//p' launcher_app/pubspec.yaml | head -1 | cut -d+ -f1 | tr -d '[:space:]')"
+          major="${current%%.*}"; rest="${current#*.}"
+          minor="${rest%%.*}"; patch="${rest#*.}"
+          patch=$((patch + 1))
+          while git rev-parse -q --verify "refs/tags/v$major.$minor.$patch" >/dev/null; do
+            patch=$((patch + 1))
+          done
+          echo "version=$major.$minor.$patch" >> "$GITHUB_OUTPUT"
+          echo "tag=v$major.$minor.$patch" >> "$GITHUB_OUTPUT"
+          echo "מ-$current אל $major.$minor.$patch"
+
   seforim_library_updater:
     name: seforim_library_updater (analyze + test)
     runs-on: ubuntu-latest
@@ -75,12 +104,18 @@ jobs:
 
   launcher_app:
     name: launcher_app (analyze + windows build)
+    needs: version
     runs-on: windows-latest
     defaults:
       run:
         working-directory: launcher_app
     steps:
       - uses: actions/checkout@v4
+      # לפני הכול: הגרסה של הריצה הזאת נכנסת ל-pubspec ול-launcher_version.dart,
+      # ומשם ל-exe עצמו (`launcherVersion`, המרקר `.ready`, משאב הגרסה).
+      - name: Set the release version
+        shell: bash
+        run: bash ../tool/set_launcher_version.sh "${{ needs.version.outputs.version }}"
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -106,12 +141,15 @@ jobs:
 
   launcher_app_macos:
     name: launcher_app (analyze + macos build)
+    needs: version
     runs-on: macos-latest
     defaults:
       run:
         working-directory: launcher_app
     steps:
       - uses: actions/checkout@v4
+      - name: Set the release version
+        run: bash ../tool/set_launcher_version.sh "${{ needs.version.outputs.version }}"
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -134,3 +172,68 @@ jobs:
           name: launcher_app-macos
           path: launcher_app/launcher_app-macos.zip
           if-no-files-found: error
+
+  # ── פרסום אוטומטי ───────────────────────────────────────────────────────────
+  # דחיפה ל-main שכל הג'ובים שמעל עברו בה: מקדמים את הגרסה בקוד, מתייגים,
+  # ומעלים release עם ה-exe וה-zip. משם העדכון העצמי של הלאנצ'ר מוצא אותו
+  # מעצמו (`LauncherReleaseClient`) ומציע למשתמשים להוריד.
+  #
+  # אין כאן בנייה נוספת: הקבצים הם הארטיפקטים של הג'ובים שלמעלה, ולכן מה
+  # שמפורסם הוא בדיוק מה שנבדק.
+  publish:
+    name: publish release
+    needs:
+      - version
+      - seforim_library_updater
+      - otzaria_manager
+      - plugins_manager
+      - library_manager
+      - launcher_app
+      - launcher_app_macos
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # פרסום אחד בכל רגע: שתי דחיפות צמודות היו מנסות לתייג במקביל.
+    concurrency:
+      group: publish-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Bump the version in the repository
+        run: |
+          bash ./tool/set_launcher_version.sh "${{ needs.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # `[skip ci]` הוא חגורה נוספת: דחיפה עם GITHUB_TOKEN אינה מפעילה
+          # workflow חדש בלאו הכי, ולכן אין כאן לופ.
+          git diff --quiet || git commit -am "גרסה ${{ needs.version.outputs.version }} [skip ci]"
+      - name: Tag and push
+        run: |
+          tag="${{ needs.version.outputs.tag }}"
+          # התג נבדק שוב **עכשיו**: בין תחילת הריצה לכאן יכול היה להתפרסם
+          # release אחר, ולדרוס אותו בקבצים של בנייה אחרת זו הפגיעה הגרועה
+          # מכולן. כישלון רועש כאן עדיף — דחיפה נוספת תקבל מספר פנוי.
+          git fetch --tags --quiet
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "::error::$tag כבר קיים — יש להריץ מחדש כדי לקבל מספר פנוי"
+            exit 1
+          fi
+          git tag "$tag"
+          git push origin HEAD:main
+          git push origin "$tag"
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la assets
+          # ה-release נוצר כ**יציב**: הלקוח של העדכון העצמי פוסל pre-release
+          # ו-draft, כי הלאנצ'ר נוסע למחשבים שאין בהם איך לתקן גרסה שבורה.
+          gh release create "${{ needs.version.outputs.tag }}" \
+            --title "${{ needs.version.outputs.tag }}" \
+            --generate-notes \
+            assets/*

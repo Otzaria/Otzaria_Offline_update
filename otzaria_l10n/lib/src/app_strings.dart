@@ -18,6 +18,7 @@ abstract class AppStrings {
   SettingsScreenStrings get settings;
   PluginsStrings get plugins;
   SetupErrorStrings get setupError;
+  LauncherUpdateStrings get launcherUpdate;
   UnitStrings get units;
 
   // ── מלל שנוצר בחבילות התשתית ומוצג כמו שהוא ─────────────────────────────
@@ -205,6 +206,20 @@ abstract class LibraryScreenStrings {
   String get installUpdateButton;
   String get updateDialogTitle;
 
+  /// בקשת עדכון אינדקס החיפוש באוצריא, אחרי שהמסד הוחלף מבחוץ.
+  String get reindexTitle;
+  String get reindexPendingSubtitle;
+  String get reindexButton;
+  String get reindexDialogTitle;
+  String get reindexDialogContent;
+  String get reindexDialogConfirm;
+  String get reindexRequestedSnack;
+  String reindexFailedSnack(String error);
+
+  String get fullDownloadInsteadButton;
+  String get fullDownloadInsteadDialogTitle;
+  String fullDownloadInsteadPrompt(String size);
+
   String get sourceCardTitle;
   String get sourceCardSubtitle;
   String get sourceDirTitle;
@@ -254,6 +269,7 @@ abstract class SettingsScreenStrings {
   String get appearanceCardSubtitle;
   String get languageTitle;
   String get languageSubtitle;
+  String get languageSystem;
   String get languageHebrew;
   String get languageEnglish;
   String get themeTitle;
@@ -264,6 +280,31 @@ abstract class SettingsScreenStrings {
   String get textSizeSmall;
   String get textSizeNormal;
   String get textSizeLarge;
+
+  // ── פלטת צבע הבסיס ──
+  // הבחירה חלה על הערכה המוצגת כרגע — בהירה או כהה — כמו באוצריא.
+  String get seedColorTitle;
+  String get seedColorButton;
+  String get seedColorDialogTitle;
+  String get seedColorResetButton;
+
+  /// כשהצבע השמור אינו אחד מצבעי הפלטה (קובץ הגדרות שנערך ביד).
+  String get seedColorCustom;
+
+  /// שמות הצבעים, בסדר שבו הם מוצגים בבורר.
+  String get colorRed;
+  String get colorOrange;
+  String get colorAmber;
+  String get colorGreen;
+  String get colorTeal;
+  String get colorBlue;
+  String get colorBlueGrey;
+  String get colorNavy;
+  String get colorPurple;
+  String get colorBrown;
+  String get colorParchment;
+  String get colorGrey;
+  String get colorDarkBrown;
 
   String get supportCardTitle;
   String get logTitle;
@@ -433,6 +474,67 @@ abstract class SetupErrorStrings {
   String cannotWriteToDataDir(String osMessage);
 }
 
+// ── עדכון עצמי של הלאנצ'ר ─────────────────────────────────────────────────────
+
+/// המלל של עדכון **הלאנצ'ר עצמו** — לא אוצריא, לא הספרייה. הסעיף מחזיק גם
+/// את הודעות השגיאה של השירותים שמחליפים את קובץ ההרצה, כי הם חיים בתוך
+/// `launcher_app` ולא בחבילת תשתית משלהם.
+abstract class LauncherUpdateStrings {
+  const LauncherUpdateStrings();
+
+  // ── הכרטיס בדף הבית ─────────────────────────────────────────────────────
+  String get cardTitle;
+  String get cardSubtitle;
+  String installedVersion(String version);
+
+  /// הגרסה שכבר יושבת בתיקייה שלצד התוכנה ומחכה להתקנה.
+  String downloadedVersion(String version);
+
+  /// הגרסה שהבדיקה הקלה מצאה ברשת ועדיין לא הורדה.
+  String onlineVersion(String version);
+
+  String get statusUpToDate;
+  String get statusUpdateAvailable;
+  String get statusReadyToInstall;
+  String get statusDownloading;
+  String get statusInstalling;
+
+  String get downloadButton;
+  String get installButton;
+
+  // ── דיאלוג ההצעה, בפתיחת התוכנה ─────────────────────────────────────────
+  String get availableDialogTitle;
+  String availableDialogContent(String version);
+  String availableDialogDetail(String size);
+  String get availableDialogConfirm;
+  String get availableDialogCancel;
+
+  // ── דיאלוג "ההורדה הושלמה" ──────────────────────────────────────────────
+  String get readyDialogTitle;
+  String readyDialogContent(String version);
+  String get readyDialogConfirm;
+
+  String downloadedSnack(String version);
+  String get installingSnack;
+
+  /// ב-macOS ההחלפה מסתיימת בלי הפעלה מחדש אוטומטית — ראו
+  /// `LauncherSelfInstaller`.
+  String get manualRestartNotice;
+
+  // ── הגדרות ──────────────────────────────────────────────────────────────
+  String get versionTileTitle;
+
+  // ── שגיאות ──────────────────────────────────────────────────────────────
+  /// אין לנו את הנתיב של קובץ ההרצה שהמשתמש מפעיל, ולכן אין מה להחליף.
+  String get executableNotFound;
+  String get mirrorMissing;
+  String unsupportedPlatform(String operatingSystem);
+  String downloadFailed(int statusCode);
+  String sizeMismatch(int received, int expected);
+  String replaceFailed(String error);
+  String restartFailed(String error);
+}
+
 // ── יחידות ומספרים ────────────────────────────────────────────────────────────
 
 abstract class UnitStrings {
@@ -489,6 +591,7 @@ abstract class LibraryDomainStrings {
   String localVersionMismatch(int? localVersion, int expected);
   String localSchemaMismatch(int localSchema, int expected);
   String get contentHashMismatchNeedsFullDownload;
+  String patchUniqueConflictNeedsFullDownload(String table, String detail);
   String foreignKeyViolationsGrew(int before, int after);
   String resultHashMismatch(String actual, String expected);
   String get patchMetaSchemaVersionMissing;

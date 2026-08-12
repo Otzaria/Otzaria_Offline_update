@@ -1,5 +1,24 @@
 import 'package:flutter/material.dart';
 
+/// מזהה כל צבע בפלטה. באוצריא הרשימה נושאת את השם העברי עצמו; כאן המלל
+/// חייב לבוא מ-`otzaria_l10n` (AGENTS §4), ו-enum הוא מה שמכריח את הבורר
+/// לתרגם כל צבע — הוספת צבע בלי שם נופלת ב-switch, לא בזמן ריצה.
+enum SeedColorLabel {
+  red,
+  orange,
+  amber,
+  green,
+  teal,
+  blue,
+  blueGrey,
+  navy,
+  purple,
+  brown,
+  parchment,
+  grey,
+  darkBrown,
+}
+
 /// צבעי הבסיס לבחירת ערכת הצבעים — מועתק מאוצריא, כולל ברירות המחדל,
 /// כדי ששתי האפליקציות יפתחו באותם גוונים.
 class AppSeedColors {
@@ -26,20 +45,28 @@ class AppSeedColors {
   static const Color grey = Color(0xFF9E9E9E);
   static const Color darkBrown = Color(0xFF2C1B02);
 
-  /// רשימת כל הצבעים עם שמותיהם בעברית
-  static const List<({Color color, String name})> options = [
-    (color: red, name: 'אדום'),
-    (color: orange, name: 'כתום'),
-    (color: amber, name: 'ענבר'),
-    (color: green, name: 'ירוק'),
-    (color: teal, name: 'טורקיז'),
-    (color: blue, name: 'כחול'),
-    (color: blueGrey, name: 'אפור גרפיט'),
-    (color: navy, name: 'כחול כהה'),
-    (color: purple, name: 'סגול'),
-    (color: brown, name: 'חום'),
-    (color: parchment, name: 'פרגמנט / בז\''),
-    (color: grey, name: 'אפור'),
-    (color: darkBrown, name: 'חום זהבהב'),
+  /// כל הצבעים, בסדר שבו הם מוצגים בבורר — סדר האוצריא.
+  static const List<({Color color, SeedColorLabel label})> options = [
+    (color: red, label: SeedColorLabel.red),
+    (color: orange, label: SeedColorLabel.orange),
+    (color: amber, label: SeedColorLabel.amber),
+    (color: green, label: SeedColorLabel.green),
+    (color: teal, label: SeedColorLabel.teal),
+    (color: blue, label: SeedColorLabel.blue),
+    (color: blueGrey, label: SeedColorLabel.blueGrey),
+    (color: navy, label: SeedColorLabel.navy),
+    (color: purple, label: SeedColorLabel.purple),
+    (color: brown, label: SeedColorLabel.brown),
+    (color: parchment, label: SeedColorLabel.parchment),
+    (color: grey, label: SeedColorLabel.grey),
+    (color: darkBrown, label: SeedColorLabel.darkBrown),
   ];
+
+  /// המזהה של צבע, או `null` אם אינו אחד מצבעי הפלטה (קובץ הגדרות שנערך ביד).
+  static SeedColorLabel? labelOf(Color color) {
+    for (final entry in options) {
+      if (entry.color.toARGB32() == color.toARGB32()) return entry.label;
+    }
+    return null;
+  }
 }

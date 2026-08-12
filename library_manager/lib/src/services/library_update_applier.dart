@@ -146,6 +146,14 @@ class LibraryUpdateApplier {
   /// ה-DB נשאר תקין בגרסה שלפני השלב הזה (השלבים 1..N-1 כבר הוחלו והצליחו).
   /// אין גיבוי מלא של הקובץ במסלול הזה — הוא לא נחוץ, ו-DB מלא יכול להיות
   /// גדול מדי לגיבוי חוזר על כל patch.
+  ///
+  /// **אימות ה-hash רץ פעם אחת, בצעד האחרון.** ה-hash הלוגי הוא על תוכן ה-DB
+  /// כולו, ולכן התאמה ל-`toContentHash` של הצעד האחרון מוכיחה את **כל**
+  /// השרשרת — ואין טעם לקרוא מסד של ~7.4GB פעם לכל צעד (מי שפספס חמש גרסאות
+  /// שילם את זה חמש פעמים). שרשרת שנקטעה באמצע משאירה מסד שהוחל נקי אך לא
+  /// אומת, ולכן היא מסמנת אותו ב-[LibraryDbRecoveryService.markUnverified];
+  /// ההחלה הבאה שמתחילה מאותה גרסה מפעילה `verifyFromHash` ומאמתת אותו לפני
+  /// שהיא בונה עליו. כך אין מצב שבו מסד לא-מאומת נשאר כזה בשקט.
   /// מחזיר את מזהי הספרים שתוכנם השתנה — כפי ש-`PatchApplier` מדווח אותם.
   /// ראו [LibraryManager.applyUpdate] למה נעשה בהם.
   ///
@@ -172,7 +180,11 @@ class LibraryUpdateApplier {
     final hintFile = File(p.join(tmpDir.path, _verifyHintFileName));
     var verifyTotalHint = _readIntQuietly(hintFile);
     var lastVerifyDone = 0;
+    var lastPatchStage = 'verifyToHash';
     final booksTouched = <int>{};
+
+    // גרסה שנשארה לא-מאומתת משרשרת שנקטעה — ראו doc-comment למעלה.
+    final unverifiedVersion = _recovery.unverifiedVersion(dbPath);
 
     for (var i = 0; i < steps.length; i++) {
       _throwIfCancelled(isCancelled);
@@ -234,20 +246,29 @@ class LibraryUpdateApplier {
           patchPath: patchPath,
           manifest: manifest,
           language: AppL10n.language,
+          // אימות התוצאה רק בצעד האחרון; אימות המקור רק כשהמסד הגיע לגרסתו
+          // בשרשרת שנקטעה ולא אומת.
+          verifyFromHash: i == 0 && unverifiedVersion == manifest.fromVersion,
+          verifyToHash: i == steps.length - 1,
           verifyTotalBytesHint: verifyTotalHint,
-          onStage: (patchStage) => onProgress?.call(LibraryApplyProgress(
-            stage: LibraryApplyStage.applyingPatch,
-            stepIndex: i + 1,
-            stepCount: steps.length,
-            patchStage: patchStage,
-          )),
+          onStage: (patchStage) {
+            // נשמר כדי שמד ההתקדמות של ה-hash ידווח את תת-השלב הנכון: מעכשיו
+            // ייתכן גם `verifyFromHash`, ולא רק `verifyToHash`.
+            lastPatchStage = patchStage;
+            onProgress?.call(LibraryApplyProgress(
+              stage: LibraryApplyStage.applyingPatch,
+              stepIndex: i + 1,
+              stepCount: steps.length,
+              patchStage: patchStage,
+            ));
+          },
           onVerifyProgress: (done, total) {
             lastVerifyDone = done;
             onProgress?.call(LibraryApplyProgress(
               stage: LibraryApplyStage.applyingPatch,
               stepIndex: i + 1,
               stepCount: steps.length,
-              patchStage: 'verifyToHash',
+              patchStage: lastPatchStage,
               verifyProgress: total > 0 ? (done / total).clamp(0.0, 1.0) : null,
             ));
           },
@@ -258,6 +279,12 @@ class LibraryUpdateApplier {
         if (lastVerifyDone > 0) {
           verifyTotalHint = lastVerifyDone;
           _writeIntQuietly(hintFile, lastVerifyDone);
+        }
+        // `resultHash != null` פירושו שהצעד הזה אומת בפועל.
+        if (result.resultHash != null) {
+          _recovery.clearUnverified(dbPath);
+        } else {
+          _recovery.markUnverified(dbPath, manifest.toVersion);
         }
         _recovery.finishSuccess(dbPath);
       } catch (_) {
@@ -422,6 +449,9 @@ class LibraryUpdateApplier {
     _deleteQuietly(retiredPath);
 
     if (dbAlreadyExists) _recovery.finishSuccess(dbPath);
+    // המסד החדש אומת (`quick_check` + גרסה) והגיע מנכס שה-sha256 שלו נבדק,
+    // ולכן סימון "לא מאומת" משרשרת שנקטעה בעבר אינו רלוונטי יותר.
+    _recovery.clearUnverified(dbPath);
     _deleteQuietly(compressedPath);
     onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.done));
   }
@@ -442,6 +472,8 @@ class LibraryUpdateApplier {
     required String patchPath,
     required DeltaManifest manifest,
     required AppLanguage language,
+    required bool verifyFromHash,
+    required bool verifyToHash,
     int? verifyTotalBytesHint,
     void Function(String stage)? onStage,
     void Function(int done, int total)? onVerifyProgress,
@@ -461,6 +493,8 @@ class LibraryUpdateApplier {
         patchPath: patchPath,
         manifest: manifest,
         language: language,
+        verifyFromHash: verifyFromHash,
+        verifyToHash: verifyToHash,
         verifyTotalBytesHint: verifyTotalBytesHint,
         sendPort: port.sendPort,
       );
@@ -480,6 +514,8 @@ class LibraryUpdateApplier {
     required String patchPath,
     required DeltaManifest manifest,
     required AppLanguage language,
+    required bool verifyFromHash,
+    required bool verifyToHash,
     required SendPort sendPort,
     int? verifyTotalBytesHint,
   }) {
@@ -491,6 +527,8 @@ class LibraryUpdateApplier {
         language,
         verifyTotalBytesHint,
         sendPort,
+        verifyFromHash,
+        verifyToHash,
       )),
     );
   }
@@ -583,12 +621,12 @@ class LibraryUpdateApplier {
 /// פונקציית top-level — לעולם לא יכולה לתפוס `this` בטעות. זה בדיוק ההבדל
 /// מהבאג המקורי (ראו doc-comment של [LibraryUpdateApplier]).
 ///
-/// שני הדגלים כבויים, בדיוק כמו ב-`LibraryUpdateRepository` של אוצריא:
-/// `verifyToHash` שאחרי ההחלה הוא הערובה האמיתית (מקור שונה ⇒ ה-hash לא
-/// יתאים וה-transaction יתגלגל אחורה), והוא גם מכסה את כל הטבלאות וה-FK
-/// שביניהן. הפעלתם מוסיפה קריאה מלאה נוספת של מסד ~5.5GB לכל patch.
+/// `checkForeignKeys` כבוי, בדיוק כמו ב-`LibraryUpdateRepository` של אוצריא:
+/// אימות ה-hash הוא הערובה האמיתית (מקור שונה ⇒ ה-hash לא יתאים וה-transaction
+/// יתגלגל אחורה), והוא גם מכסה את כל הטבלאות וה-FK שביניהן. שני דגלי ה-hash
+/// נקבעים ע"י הקורא לפי מקום הצעד בשרשרת — ראו [LibraryUpdateApplier.applyDelta].
 PatchApplyResult _applyPatchInIsolate(
-  (String, String, DeltaManifest, AppLanguage, int?, SendPort) args,
+  (String, String, DeltaManifest, AppLanguage, int?, SendPort, bool, bool) args,
 ) {
   AppL10n.use(args.$4);
   const applier = PatchApplier();
@@ -596,8 +634,9 @@ PatchApplyResult _applyPatchInIsolate(
     dbPath: args.$1,
     patchPath: args.$2,
     manifest: args.$3,
-    verifyFromHash: false,
+    verifyFromHash: args.$7,
     checkForeignKeys: false,
+    verifyToHash: args.$8,
     verifyTotalBytesHint: args.$5,
     onStage: (stage) => args.$6.send(stage),
     onVerifyProgress: (done, total) => args.$6.send((done, total)),
