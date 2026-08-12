@@ -152,8 +152,8 @@ class _Home extends HomeStrings {
   @override
   String libraryUpdatePrompt(String localVersion, String targetVersion) =>
       'The database will be updated from version $localVersion to version '
-      '$targetVersion. The current database will be replaced only after the new'
-    'version has been verified';
+      '$targetVersion. The current database will be replaced only after the '
+      'new version has been verified.';
   @override
   String get libraryUpdateConfirm => 'Update Now';
   @override
@@ -227,7 +227,8 @@ class _AppScreen extends AppScreenStrings {
   @override
   String get pickInstallDirButton => 'Choose the folder manually';
   @override
-  String get pickInstallDirDialogTitle => 'Choose the Otzaria installation folder';
+  String get pickInstallDirDialogTitle =>
+      'Choose the Otzaria installation folder';
   @override
   String get installAdoptedSnack =>
       'Otzaria was found there — the version has been updated';
@@ -493,7 +494,7 @@ class _Settings extends SettingsScreenStrings {
       'How the program looks and which Language it is in. Applies right away, and '
       'is kept for next time.';
   @override
-  String get languageTitle => 'System Language';
+  String get languageTitle => 'Interface Language';
   @override
   String get languageSubtitle =>
       'Changes every screen and message right away. "Automatic" follows the '
