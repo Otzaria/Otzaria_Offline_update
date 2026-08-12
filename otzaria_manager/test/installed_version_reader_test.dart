@@ -22,6 +22,8 @@ void main() {
       );
     });
 
+    // רק בשתי הפלטפורמות שהלאנצ'ר תומך בהן: בלינוקס `detect` זורק בכוונה,
+    // ו-CI מריץ את החבילה הזו גם שם.
     test('currentInstalledVersionReader תואם לפלטפורמה שרצה', () {
       expect(
         currentInstalledVersionReader(),
@@ -29,7 +31,7 @@ void main() {
             ? isA<WindowsExeVersionReader>()
             : isA<MacAppVersionReader>(),
       );
-    });
+    }, testOn: 'windows || mac-os');
   });
 
   group('WindowsExeVersionReader', () {

@@ -74,6 +74,21 @@ jobs:
       - run: dart analyze
       - run: dart test
 
+  # ה-analyze של השורש מחריג את החבילה הזאת (ראו analysis_options.yaml), ולכן
+  # בלי הג'וב הזה היא לא נבדקת בשרת בכלל — ובה יושב כל המלל של התוכנה.
+  otzaria_l10n:
+    name: otzaria_l10n (analyze + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: otzaria_l10n
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+      - run: dart pub get
+      - run: dart analyze
+      - run: dart test
+
   plugins_manager:
     name: plugins_manager (analyze + test)
     runs-on: ubuntu-latest
@@ -185,6 +200,7 @@ jobs:
     needs:
       - version
       - seforim_library_updater
+      - otzaria_l10n
       - otzaria_manager
       - plugins_manager
       - library_manager

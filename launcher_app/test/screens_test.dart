@@ -852,15 +852,20 @@ void main() {
       language: AppLanguage.english,
     );
 
-    expect(find.text('Automation'), findsOneWidget);
-    expect(find.text('Download'), findsOneWidget);
-    expect(find.text('Language and appearance'), findsOneWidget);
-    expect(find.text('Support'), findsOneWidget);
-    expect(find.text('Interface language'), findsOneWidget);
-    expect(find.text('אוטומציה'), findsNothing);
+    // מול מלל ה-l10n עצמו ולא מול מחרוזות קבועות: ליטוש נוסח באנגלית הוא
+    // שינוי לגיטימי, וכשהוא הפיל את הבדיקה הזאת הוא הפיל איתה את כל ה-CI.
+    // מה שנבדק כאן הוא שהמסך אכן מתורגם ומתהפך, לא איך בדיוק הוא מנוסח.
+    const en = EnglishStrings();
+    expect(find.text(en.settings.automationCardTitle), findsOneWidget);
+    expect(find.text(en.settings.downloadCardTitle), findsOneWidget);
+    expect(find.text(en.settings.appearanceCardTitle), findsOneWidget);
+    expect(find.text(en.settings.supportCardTitle), findsOneWidget);
+    expect(find.text(en.settings.languageTitle), findsOneWidget);
+    expect(find.text(const HebrewStrings().settings.automationCardTitle),
+        findsNothing);
 
     final direction = Directionality.of(
-      tester.element(find.text('Automation')),
+      tester.element(find.text(en.settings.automationCardTitle)),
     );
     expect(direction, TextDirection.ltr);
   });

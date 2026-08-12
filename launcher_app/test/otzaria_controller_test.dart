@@ -241,11 +241,23 @@ void main() {
     /// התקנה שהזיהוי האוטומטי ימצא: התיקייה המנוהלת של הלאנצ'ר נבדקת
     /// **ראשונה**, לפני ברירות המחדל והרג׳יסטרי, ולכן היא מנצחת גם על מכונה
     /// שאוצריא אמיתית מותקנת בה.
-    void writeManagedInstall() {
+    /// התקנה מנוהלת מזויפת בתיקייה שהלאנצ'ר מחפש בה ראשונה.
+    ///
+    /// חייב להיות exe עם version resource אמיתי: `detectExistingInstall`
+    /// מחזיר null כשהוא לא מצליח לקרוא גרסה, ואז `launch()` נופל על "לא
+    /// נמצאה התקנה" — מה שקרה ב-CI, בזמן שאצל מפתח עם אוצריא אמיתית במכונה
+    /// הזיהוי הצליח דרכה והבדיקה עברה מהסיבה הלא נכונה. `notepad.exe` הוא
+    /// אותו תחליף שכבר משמש ב-`otzaria_manager/test/installed_version_reader_test.dart`.
+    bool writeManagedInstall() {
+      final source = File(r'C:\Windows\System32\notepad.exe');
+      if (!source.existsSync()) {
+        markTestSkipped('אין notepad.exe במכונה הזאת');
+        return false;
+      }
       final dir = Directory(p.join(tempDir.path, 'otzaria-app'))
         ..createSync(recursive: true);
-      File(Platform.resolvedExecutable)
-          .copySync(p.join(dir.path, 'otzaria.exe'));
+      source.copySync(p.join(dir.path, 'otzaria.exe'));
+      return true;
     }
 
     ({
@@ -272,7 +284,7 @@ void main() {
     test(
       'הפעלה רגילה מוסרת את הבקשה הממתינה ומסמנת אותה כנמסרה',
       () async {
-        writeManagedInstall();
+        if (!writeManagedInstall()) return;
         final t = controllerWith();
 
         await t.controller.launch();
@@ -287,7 +299,7 @@ void main() {
     test(
       'בלי בקשה ממתינה ההפעלה נשארת הפעלה רגילה',
       () async {
-        writeManagedInstall();
+        if (!writeManagedInstall()) return;
         final t = controllerWith(uri: null);
 
         await t.controller.launch();
@@ -303,7 +315,7 @@ void main() {
     test(
       'הפעלה שנכשלה אינה מסמנת את הבקשה כנמסרה',
       () async {
-        writeManagedInstall();
+        if (!writeManagedInstall()) return;
         final t = controllerWith(launchFails: true);
 
         await t.controller.launch();
@@ -317,7 +329,7 @@ void main() {
     test(
       'requestLibraryReindex מוסר את הקישור גם בלי לחכות להפעלה הבאה',
       () async {
-        writeManagedInstall();
+        if (!writeManagedInstall()) return;
         final t = controllerWith();
 
         expect(await t.controller.requestLibraryReindex(), isTrue);

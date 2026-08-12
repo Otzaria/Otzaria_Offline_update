@@ -2,13 +2,18 @@ include: package:flutter_lints/flutter.yaml
 
 # https://dart.dev/guides/language/analysis-options
 
-# otzaria_manager/, library_manager/, plugins_manager/ ו-launcher_app/ הם packages נפרדים
+# otzaria_l10n/, otzaria_manager/, library_manager/, plugins_manager/ ו-launcher_app/ הם packages נפרדים
 # (כל אחד עם pubspec.yaml משלו, וב-CI נבדקים בג'וב נפרד עם pub get משלו).
 # בלי ה-exclude הזה, `flutter analyze` שרץ מכאן (root) סורק אותם רקורסיבית
 # בלי context resolution תקין (אין להם .dart_tool כאן) ומדפיס עשרות
 # שגיאות "Target of URI doesn't exist" שלא שייכות בכלל לחבילה הזו.
 analyzer:
   exclude:
+    # בלי זה, ה-analyze של השורש נופל על `dart:mirrors` שב-
+    # otzaria_l10n/test/strings_completeness_test.dart: הוא קיים ב-SDK של דארט
+    # אבל לא בזה של Flutter. מקומית זה נעלם מהעין כי `dart pub get` בחבילה
+    # יוצר לה context משלה; ב-CI טרי אין אחד כזה.
+    - otzaria_l10n/**
     - otzaria_manager/**
     - library_manager/**
     - plugins_manager/**

@@ -56,6 +56,12 @@ void main() {
 
     test('קלט ריק מחזיר פלט ריק — הקוראים בודקים isEmpty, לא רק null',
         () async {
+      // בלי הספרייה כל חילוץ מחזיר null, כולל זה — כמו שאר הבדיקות כאן.
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+
       // חשוב: זה **לא** null. `PatchDownloader` ו-`LibraryUpdateApplier`
       // בודקים שניהם `== null || isEmpty` בדיוק בגלל זה.
       final extracted = await decompress(Uint8List(0));
