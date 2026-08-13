@@ -79,6 +79,9 @@ class _Site {
 
   /// נתיב -> סטטוס שגיאה שיוחזר במקום התשובה התקינה.
   final Map<String, int> failures = {};
+
+  /// נתיבים שהתשובה עליהם מתמהמהת — לבדיקת הזמן הקצוב.
+  final Set<String> stalls = {};
   final List<String> requests = [];
 
   List<String> requestsMatching(String suffix) =>
@@ -90,6 +93,10 @@ class _Site {
 
         final failure = failures[path];
         if (failure != null) return http.Response('nope', failure);
+
+        if (stalls.contains(path)) {
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        }
 
         if (path == '/api/plugins') return jsonResponse(plugins);
         if (path == '/api/plugins/store-home') return jsonResponse(storeHome);
@@ -400,6 +407,19 @@ void main() {
         ),
       );
       expect(events.last.phase, PluginSyncPhase.done);
+    });
+
+    test('כשל בזמן קצוב מדווח בעברית, ולא כ-TimeoutException גולמי', () async {
+      final site = _Site()..stalls.add('/api/plugins/a/download');
+      final events = <PluginSyncProgress>[];
+
+      await (manager(site)..networkTimeout = const Duration(milliseconds: 20))
+          .sync(onProgress: events.add);
+
+      expect(
+        warningsOf(events).single,
+        strings.syncPluginFileFailed('אלף', strings.networkTimedOut),
+      );
     });
   });
 

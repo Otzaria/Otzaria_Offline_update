@@ -439,12 +439,17 @@ never mistaken for a finished one. And its single error message is the **one**
 user-visible string in this repo that is not in `otzaria_l10n` — C cannot depend
 on a Dart package.
 
-**`package.ps1` must zip the payload before it compiles the stub.** `stub.rc`
-embeds `windows_stub/build/payload.zip`, so `rc.exe` needs that file to already
-exist; `build_stub.ps1` throws if it does not. Extraction itself uses Windows'
-built-in `tar.exe` (present since Windows 10 1803), which reads zip — that is
-why no compression library is linked into the stub. The full rationale table is
-in `launcher_app/README.md`.
+**`package.ps1` must pack the payload before it compiles the stub.** `stub.rc`
+embeds `windows_stub/build/payload.otz`, so `rc.exe` needs that file to already
+exist; `build_stub.ps1` throws if it does not. **Extraction happens inside the
+stub process**, through Windows' Compression API (`cabinet.dll`, LZMS) over a
+container format that `pack_payload.ps1` writes and `stub.c` reads — the two
+must agree, and `stub_contract_test.dart` pins the magic and the algorithm.
+It used to shell out to `tar.exe` over a zip in `%TEMP%`, and that is what
+broke extraction in the field: `tar.exe` only exists from Windows 10 1803, and
+its paths went through an ANSI command line, so a Hebrew path on a drive
+without 8.3 names arrived mangled. Do not reintroduce an external process here.
+The full rationale table is in `launcher_app/README.md`.
 
 **The launcher updates itself by replacing that stub — and `OtzariaData/`
 lives *inside* the folder it re-extracts.** `lib/src/self_update/` downloads a

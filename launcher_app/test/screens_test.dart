@@ -13,12 +13,14 @@ import 'package:launcher_app/src/controllers/plugins_module_controller.dart';
 import 'package:launcher_app/src/screens/home_screen.dart';
 import 'package:launcher_app/src/screens/library_screen.dart';
 import 'package:launcher_app/src/screens/otzaria_screen.dart';
+import 'package:launcher_app/src/screens/payload_mismatch_screen.dart';
 import 'package:launcher_app/src/screens/plugins/plugin_store_card.dart';
 import 'package:launcher_app/src/screens/plugins/plugins_screen.dart';
 import 'package:launcher_app/src/screens/settings_screen.dart';
 import 'package:launcher_app/src/screens/setup_error_screen.dart';
 import 'package:launcher_app/src/self_update/launcher_release.dart';
 import 'package:launcher_app/src/self_update/launcher_version.dart';
+import 'package:launcher_app/src/self_update/payload_check.dart';
 import 'package:launcher_app/src/services/app_paths.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
@@ -1156,6 +1158,36 @@ void main() {
     final buttons = tester.widgetList<ActionButton>(find.byType(ActionButton));
     expect(buttons.length, 1);
     expect(find.widgetWithText(ActionButton, t.copyPathButton), findsOneWidget);
+  });
+
+  testWidgets('מסך "הקבצים אינם תואמים" מציג את שתי הגרסאות ורק סגירה',
+      (tester) async {
+    final t = stringsOf().payloadMismatch;
+    var closed = false;
+
+    await pumpScreen(
+      tester,
+      PayloadMismatchScreen(
+        mismatch: const PayloadMismatch(
+          runningVersion: '0.1.8',
+          stubVersion: '0.1.9',
+        ),
+        showWindowButtons: false,
+        onClose: () => closed = true,
+      ),
+    );
+
+    expect(find.text(t.title), findsOneWidget);
+    expect(find.text(t.whatToDo), findsOneWidget);
+    // שתי הגרסאות מוצגות — בלעדיהן אי אפשר לדעת מה נתקע במה.
+    expect(find.textContaining('0.1.8'), findsOneWidget);
+    expect(find.textContaining('0.1.9'), findsOneWidget);
+
+    // אין "המשך בכל זאת": הרצה במצב הזה היא בדיוק מה שקורס.
+    final buttons = tester.widgetList<ActionButton>(find.byType(ActionButton));
+    expect(buttons.length, 1);
+    await tester.tap(find.widgetWithText(ActionButton, t.closeButton));
+    expect(closed, isTrue);
   });
 
   testWidgets('מסך השגיאה מתורגם לאנגלית', (tester) async {

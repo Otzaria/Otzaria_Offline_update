@@ -192,7 +192,8 @@ class PluginMirrorSync {
     } catch (e) {
       report(PluginSyncProgress(
         phase: PluginSyncPhase.warning,
-        message: strings.syncStructureFailed('$e'),
+        message:
+            strings.syncStructureFailed(PluginStoreClient.describeError(e)),
       ));
       return _StoreStructure(
         home: previous.home,
@@ -251,8 +252,8 @@ class PluginMirrorSync {
     } catch (e) {
       report(PluginSyncProgress(
         phase: PluginSyncPhase.warning,
-        message: AppL10n.strings.pluginsDomain
-            .syncCategoryFailed(summary.name, '$e'),
+        message: AppL10n.strings.pluginsDomain.syncCategoryFailed(
+            summary.name, PluginStoreClient.describeError(e)),
       ));
       final known = previous.categoryBySlug(summary.slug);
       if (known != null) ids = known.pluginIds;
@@ -287,8 +288,8 @@ class PluginMirrorSync {
       } catch (e) {
         report(PluginSyncProgress(
           phase: PluginSyncPhase.warning,
-          message:
-              AppL10n.strings.pluginsDomain.syncImageFailed(plugin.name, '$e'),
+          message: AppL10n.strings.pluginsDomain
+              .syncImageFailed(plugin.name, PluginStoreClient.describeError(e)),
         ));
       }
     }
@@ -306,8 +307,8 @@ class PluginMirrorSync {
         } catch (e) {
           report(PluginSyncProgress(
             phase: PluginSyncPhase.warning,
-            message: AppL10n.strings.pluginsDomain
-                .syncScreenshotFailed(plugin.name, '$e'),
+            message: AppL10n.strings.pluginsDomain.syncScreenshotFailed(
+                plugin.name, PluginStoreClient.describeError(e)),
           ));
         }
       }
@@ -415,8 +416,8 @@ class PluginMirrorSync {
     } catch (e) {
       report(PluginSyncProgress(
         phase: PluginSyncPhase.warning,
-        message: AppL10n.strings.pluginsDomain
-            .syncPluginFileFailed(plugin.name, '$e'),
+        message: AppL10n.strings.pluginsDomain.syncPluginFileFailed(
+            plugin.name, PluginStoreClient.describeError(e)),
       ));
       // הקובץ שבמראה הוא עדיין הישן — הקטלוג חייב לומר את גרסתו. אחרת
       // התכנון היה מדלג עליו בסנכרון הבא, הקובץ החדש לא יירד לעולם,

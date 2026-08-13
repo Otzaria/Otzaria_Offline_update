@@ -14,7 +14,7 @@ $payloadDirName = 'app-files'  # חייב להתאים ל-kPayloadDir שב-stub.
 $launcherRoot = Split-Path -Parent $PSScriptRoot
 $releaseDir = Join-Path $launcherRoot 'build\windows\x64\runner\Release'
 $stageDir = Join-Path $PSScriptRoot 'build\payload'
-$payloadZip = Join-Path $PSScriptRoot 'build\payload.zip'  # הנתיב שב-stub.rc
+$payloadFile = Join-Path $PSScriptRoot 'build\payload.otz'  # הנתיב שב-stub.rc
 $exePath = Join-Path $launcherRoot "build\$appFileName"
 
 if (-not (Test-Path $releaseDir)) {
@@ -26,13 +26,10 @@ $payloadDir = Join-Path $stageDir $payloadDirName
 New-Item -ItemType Directory -Force $payloadDir | Out-Null
 Copy-Item (Join-Path $releaseDir '*') $payloadDir -Recurse
 
-# CreateFromDirectory ולא Compress-Archive: מהיר בהרבה על ~2000 קבצים.
-# includeBaseDirectory=$false על $stageDir נותן רשומות בצורת "app-files/...",
-# שזה מה ש-tar במחלץ מצפה לו.
-if (Test-Path $payloadZip) { Remove-Item -Force $payloadZip }
-[System.IO.Compression.ZipFile]::CreateFromDirectory(
-  $stageDir, $payloadZip,
-  [System.IO.Compression.CompressionLevel]::Optimal, $false)
+# הנתיבים בתוך המכל הם יחסיים ל-$stageDir, כלומר "app-files/..." — וזה מה
+# שגורם ל-stub לחלץ ליד עצמו את התיקייה כולה.
+if (Test-Path $payloadFile) { Remove-Item -Force $payloadFile }
+& (Join-Path $PSScriptRoot 'pack_payload.ps1') -SourceDir $stageDir -OutFile $payloadFile
 
 & (Join-Path $PSScriptRoot 'build_stub.ps1')
 

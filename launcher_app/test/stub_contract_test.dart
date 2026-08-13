@@ -7,6 +7,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/self_update/launcher_install_layout.dart';
+import 'package:launcher_app/src/services/app_paths.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 
 void main() {
@@ -18,13 +19,17 @@ void main() {
   }
 
   late String stubC;
+  late String stubRc;
   late String packagePs1;
   late String buildStubPs1;
+  late String packPayloadPs1;
 
   setUpAll(() {
     stubC = read('windows_stub/stub.c');
+    stubRc = read('windows_stub/stub.rc');
     packagePs1 = read('windows_stub/package.ps1');
     buildStubPs1 = read('windows_stub/build_stub.ps1');
+    packPayloadPs1 = read('windows_stub/pack_payload.ps1');
   });
 
   test('שם תיקיית ה-payload זהה בשלושת המקומות', () {
@@ -101,5 +106,55 @@ void main() {
     // הכותרת המיוצרת מגיעה גם ל-rc וגם ל-cl דרך תיקיית ה-build.
     expect(buildStubPs1, contains(r'rc /nologo /i "$outDir"'));
     expect(buildStubPs1, contains(r'/I"$outDir"'));
+  });
+
+  test('משתנה הסביבה של גרסת ה-payload זהה בשני הצדדים ומוצב בפועל', () {
+    // זה מה שמאפשר ללאנצ'ר לזהות `app-files` שאינה שלו — ראו `PayloadCheck`.
+    expect(
+      stubC,
+      contains('kPayloadVersionEnvVar[] = '
+          'L"${LauncherInstallLayout.payloadVersionEnvVar}"'),
+    );
+    expect(stubC, contains('SetEnvironmentVariableW(kPayloadVersionEnvVar'));
+    // הערך שמוצב חייב להיות אותה גרסה שבמרקר, בצורתה ה-wide.
+    expect(buildStubPs1, contains('PAYLOAD_VERSION_W'));
+    expect(stubC, contains('PAYLOAD_VERSION_W'));
+  });
+
+  test('שם המרקר שהלאנצ\'ר מוחק הוא זה שה-stub כותב', () {
+    expect(
+      stubC,
+      contains('kReadyMarker[] = L"${LauncherInstallLayout.readyMarkerName}"'),
+    );
+  });
+
+  test('תיקיית הנתונים שה-stub כותב אליה לוג היא זו של הלאנצ\'ר', () {
+    // הלוג יושב ב-`<app-files>/OtzariaData/logs`, לצד `launcher.log`.
+    expect(stubC, contains('kDataDirName[] = L"${AppPaths.dirName}"'));
+  });
+
+  test('החילוץ אינו נשען על tar.exe ולא על שום תהליך חיצוני', () {
+    // התלות הזאת היא ששברה חילוץ בשטח: `tar.exe` קיים רק מ-Windows 10 1803,
+    // והנתיבים עברו אליו דרך שורת פקודה ב-ANSI. אם היא חוזרת — שתיפול כאן.
+    // ההשוואה היא על **קוד** ולא על כל הקובץ: ההסבר למה היא הוסרה נשאר בהערות.
+    expect(stubC, isNot(contains(r'L"\\tar.exe"')));
+    expect(stubC, isNot(contains('GetShortPathNameW')));
+    expect(stubC, contains('CreateDecompressor'));
+    // התהליך היחיד שה-stub מריץ הוא הלאנצ'ר עצמו.
+    expect(RegExp(r'CreateProcessW\(').allMatches(stubC).length, 1);
+  });
+
+  test('מבנה המכל זהה באורז ובמחלץ', () {
+    // כותרת שונה בין השניים = exe שלא מצליח לחלץ את עצמו, בלי שום אזהרה.
+    expect(packPayloadPs1, contains('OTZPAY1'));
+    expect(stubC, contains("{'O', 'T', 'Z', 'P', 'A', 'Y', '1', '\\0'}"));
+    expect(packPayloadPs1, contains(r'$algorithm = 5'));
+    expect(stubC, contains('COMPRESS_ALGORITHM_LZMS'));
+  });
+
+  test('שם קובץ ה-payload זהה באריזה, בהטמעה ובבנייה', () {
+    expect(packagePs1, contains("build\\payload.otz'"));
+    expect(stubRc, contains(r'100 RCDATA "build\\payload.otz"'));
+    expect(buildStubPs1, contains("'payload.otz'"));
   });
 }

@@ -9,7 +9,7 @@ import '../../services/byte_size.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/screen_body.dart';
 import '../../widgets/widgets_exports.dart';
-import 'add_custom_app_dialog.dart';
+import 'custom_app_form_dialog.dart';
 
 /// פותח את טופס ההוספה. משותף למסך הזה ולכרטיס שבהגדרות — שניהם מוסיפים
 /// אותו דבר, ורק הכניסה שונה.
@@ -19,7 +19,20 @@ Future<void> openAddCustomApp(
 ) =>
     showDialog<void>(
       context: context,
-      builder: (_) => AddCustomAppDialog(controller: controller),
+      builder: (_) => CustomAppFormDialog(controller: controller),
+    );
+
+/// פותח את אותו טופס עצמו על רשומה קיימת. אותו טופס בכוונה: מה שאפשר
+/// למלא בהוספה חייב להיות גם מה שאפשר לתקן אחריה.
+Future<void> openEditCustomApp(
+  BuildContext context,
+  CustomAppsController controller,
+  CustomAppEntry entry,
+) =>
+    showDialog<void>(
+      context: context,
+      builder: (_) =>
+          CustomAppFormDialog(controller: controller, existing: entry),
     );
 
 /// מסך "תוכנות נוספות" — כרטיס לכל תוכנה שהמשתמש הוסיף.
@@ -97,6 +110,13 @@ class _CustomAppCard extends StatelessWidget {
                       ),
                   ],
                 ),
+              ),
+              IconButton(
+                icon: const Icon(FluentIcons.edit_24_regular),
+                tooltip: t.editTooltip,
+                onPressed: controller.isBusy
+                    ? null
+                    : () => openEditCustomApp(context, controller, app.entry),
               ),
               IconButton(
                 icon: const Icon(FluentIcons.delete_24_regular),

@@ -169,6 +169,17 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     return ok == true;
   }
 
+  /// שומר עריכה של רשומה קיימת. המזהה נשאר כשהיה — ראו
+  /// [CustomAppsManager.update].
+  Future<bool> update(AppDescriptor descriptor) async {
+    final ok = await _guard(() async {
+      await _manager.update(descriptor);
+      return true;
+    });
+    if (ok == true) await load();
+    return ok == true;
+  }
+
   Future<bool> remove(String id) async {
     final ok = await _guard(() async {
       await _manager.remove(id);

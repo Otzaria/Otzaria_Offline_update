@@ -121,7 +121,7 @@ void main() {
       );
     });
 
-    test('בקשה שנתקעת נחתכת לפי ה-timeout', () async {
+    test('בקשה שנתקעת נחתכת לפי ה-timeout, בהודעה מתורגמת', () async {
       final client = clientFor(
         (_) async {
           await Future<void>.delayed(const Duration(milliseconds: 300));
@@ -135,10 +135,8 @@ void main() {
         throwsA(isA<PluginStoreException>().having(
           (e) => e.message,
           'message',
-          allOf(
-            startsWith(strings.siteUnreachable('')),
-            contains('TimeoutException'),
-          ),
+          // ולא "TimeoutException after ...: Future not completed".
+          strings.siteUnreachable(strings.networkTimedOut),
         )),
       );
     });
@@ -242,6 +240,19 @@ void main() {
     http.Response asset(List<int> bytes, Map<String, String> headers) =>
         http.Response.bytes(bytes, 200, headers: headers);
 
+    /// לקוח שהתשובה שלו זורמת — כך נבדק הזמן הקצוב על הגוף ולא על הכותרות.
+    PluginStoreClient streamingClientFor(
+      Stream<List<int>> body, {
+      required Duration stallTimeout,
+    }) =>
+        PluginStoreClient(
+          baseUrl: 'https://otzaria.test',
+          client: MockClient.streaming(
+            (_, __) async => http.StreamedResponse(body, 200),
+          ),
+          stallTimeout: stallTimeout,
+        );
+
     test('הסיומת נלקחת מ-Content-Disposition, כולל שם עברי', () async {
       final client = clientFor((_) async => asset(pluginBytes('{"id":"x"}'), {
             'content-disposition':
@@ -335,6 +346,51 @@ void main() {
           strings.httpStatusFor(404, '/api/plugins/a/image'),
         )),
       );
+    });
+
+    test('הורדה איטית שמתקדמת אינה נחתכת — הקצוב הוא על תקיעה, לא על משך',
+        () async {
+      Stream<List<int>> trickle() async* {
+        for (var i = 0; i < 5; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 40));
+          yield [i];
+        }
+      }
+
+      final client = streamingClientFor(
+        trickle(),
+        stallTimeout: const Duration(milliseconds: 150),
+      );
+
+      // 200ms סה"כ מול קצוב של 150ms — לפני התיקון זה היה נכשל.
+      final downloaded =
+          await client.downloadAsset('/x', p.join(temp.path, 'a'));
+      expect(downloaded.size, 5);
+      expect(File(downloaded.path).lengthSync(), 5);
+    });
+
+    test('גוף שנתקע נחתך, בלי קובץ חלקי ובלי לפגוע בקובץ הקודם', () async {
+      final stuck = StreamController<List<int>>();
+      stuck.add(const [1, 2, 3]); // מנה אחת, ואז שקט
+      final client = streamingClientFor(
+        stuck.stream,
+        stallTimeout: const Duration(milliseconds: 30),
+      );
+      final dest = File(p.join(temp.path, 'a.otzplugin'))
+        ..writeAsBytesSync(const [9, 9]);
+
+      await expectLater(
+        client.downloadAsset(
+          '/x',
+          p.join(temp.path, 'a'),
+          preferredExt: '.otzplugin',
+        ),
+        throwsA(isA<TimeoutException>()),
+      );
+
+      expect(dest.readAsBytesSync(), const [9, 9]);
+      expect(File('${dest.path}.part').existsSync(), isFalse);
+      await stuck.close();
     });
 
     test('כתובת מוחלטת אינה מקבלת את baseUrl כקידומת', () async {

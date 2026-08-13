@@ -28,6 +28,8 @@ class EnglishStrings extends AppStrings {
   @override
   SetupErrorStrings get setupError => const _SetupError();
   @override
+  PayloadMismatchStrings get payloadMismatch => const _PayloadMismatch();
+  @override
   LauncherUpdateStrings get launcherUpdate => const _LauncherUpdate();
   @override
   UnitStrings get units => const _Units();
@@ -1003,6 +1005,33 @@ class _SetupError extends SetupErrorStrings {
       'Cannot write to the folder next to this program: $osMessage';
 }
 
+class _PayloadMismatch extends PayloadMismatchStrings {
+  const _PayloadMismatch();
+
+  @override
+  String get title => 'The program files do not match each other';
+  @override
+  String get explanation =>
+      'The executable is from one version, and the files in the app-files '
+      'folder next to it are from another. This happens when an update did '
+      'not finish, or when the folder was copied between computers without '
+      'all of its files. Running like this can hang or close by itself, so '
+      'it was stopped here.';
+  @override
+  String get whatToDo =>
+      'What to do: close the program and open it again. It will restore the '
+      'missing files by itself — this can take up to a minute, and a black '
+      'window will appear meanwhile; do not close it. If this message comes '
+      'back after reopening, copy the executable into a new empty folder on '
+      'the hard drive and run it from there.';
+  @override
+  String get runningVersionTitle => 'Version actually running';
+  @override
+  String get expectedVersionTitle => 'Version of the executable';
+  @override
+  String get closeButton => 'Close the program';
+}
+
 class _LauncherUpdate extends LauncherUpdateStrings {
   const _LauncherUpdate();
 
@@ -1641,6 +1670,8 @@ class _PluginsDomain extends PluginsDomainStrings {
   String get responseNotPluginList =>
       'The site response is not a valid plugin list';
   @override
+  String get networkTimedOut => 'The site did not respond in time';
+  @override
   String siteUnreachable(String error) =>
       'Could not reach the Otzaria site: $error';
   @override
@@ -1746,6 +1777,8 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get addDialogTitle => 'Add a Program';
   @override
+  String get editDialogTitle => 'Edit Program';
+  @override
   String get nameLabel => 'Program name';
   @override
   String get nameHint => 'As it will appear in your list';
@@ -1807,7 +1840,18 @@ class _CustomApps extends CustomAppsStrings {
       'and at which version';
 
   @override
+  String get githubAssetKept =>
+      'The file picked here earlier will be kept. To change it — show the '
+      'files and pick another.';
+  @override
+  String installerKept(String fileName) =>
+      'The stored file, $fileName, will be kept. To change it — pick another '
+      'file.';
+
+  @override
   String get saveButton => 'Add';
+  @override
+  String get saveEditButton => 'Save';
   @override
   String get nameRequired => 'A program name is required';
   @override
@@ -1815,6 +1859,8 @@ class _CustomApps extends CustomAppsStrings {
       'Choose a file, or a repository and a file in it';
   @override
   String addedSnack(String name) => '$name was added';
+  @override
+  String updatedSnack(String name) => '$name was updated';
 
   @override
   String get kindInno => 'Inno Setup';
@@ -1872,6 +1918,8 @@ class _CustomApps extends CustomAppsStrings {
   String downloadedSnack(String version) =>
       'Version $version was downloaded to the drive';
 
+  @override
+  String get editTooltip => 'Edit';
   @override
   String get removeTooltip => 'Remove from list';
   @override
