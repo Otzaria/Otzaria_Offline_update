@@ -7,7 +7,11 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'src/screens/app_shell.dart';
+import 'src/screens/payload_mismatch_screen.dart';
 import 'src/screens/setup_error_screen.dart';
+import 'src/self_update/launcher_install_layout.dart';
+import 'src/self_update/launcher_version.dart';
+import 'src/self_update/payload_check.dart';
 import 'src/services/app_logger.dart';
 import 'src/services/app_paths.dart';
 import 'src/settings/app_settings.dart';
@@ -77,10 +81,27 @@ void main() {
       // זה היה שני סבבי I/O לפני הפריים הראשון; במקביל — סבב אחד.
       final settings = SettingsController(dataDir: paths.dataDir);
       final initialized = await Future.wait([
-        AppLogger.init(paths.dataDir),
+        AppLogger.init(
+          paths.dataDir,
+          version: launcherVersion,
+          payloadVersion: PayloadCheck.stubPayloadVersion(),
+        ),
         settings.load(),
       ]);
       logger = initialized.first as AppLogger;
+
+      // ערמת קבצים שאינה שייכת לקובץ ההרצה שלצידה קורסת בדרכים שאי אפשר
+      // לרשום אחר כך — לכן נעצרים כאן, אחרי שיש לוג ולפני שנוגעים בעוד משהו.
+      final mismatch = PayloadCheck.detect(
+        layout: LauncherInstallLayout.resolve(),
+      );
+      if (mismatch != null) {
+        AppLogger.instance
+            .error('ערמת הקבצים אינה תואמת לקובץ ההרצה: $mismatch');
+        await PayloadCheck.requestReextract(mismatch);
+        runApp(PayloadMismatchApp(mismatch: mismatch));
+        return;
+      }
 
       runApp(LauncherApp(dataDir: paths.dataDir, settings: settings));
     },
@@ -158,6 +179,20 @@ class SetupErrorApp extends StatelessWidget {
   Widget build(BuildContext context) => _materialApp(
         home: SetupErrorScreen(error: error),
         // אותה שפה שבה נוסחה הודעת השגיאה עצמה, שנבנתה לפני `runApp`.
+        language: AppL10n.language,
+      );
+}
+
+/// כמו [SetupErrorApp]: ההגדרות אולי נטענו, אבל אין טעם להפעיל את הממשק
+/// הרגיל מעל ערמת קבצים שאינה תואמת. שפת המערכת, כמו שאר מסכי העצירה.
+class PayloadMismatchApp extends StatelessWidget {
+  const PayloadMismatchApp({super.key, required this.mismatch});
+
+  final PayloadMismatch mismatch;
+
+  @override
+  Widget build(BuildContext context) => _materialApp(
+        home: PayloadMismatchScreen(mismatch: mismatch),
         language: AppL10n.language,
       );
 }

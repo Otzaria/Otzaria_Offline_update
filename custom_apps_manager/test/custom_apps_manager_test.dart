@@ -126,6 +126,36 @@ void main() {
     });
   });
 
+  group('עריכה', () {
+    test('שינוי פרטים נשמר, והקובץ שכבר על הכונן נשאר', () async {
+      await manager.add(descriptor(id: 'org.example.app', name: 'השם הישן'));
+      final setup = writeFile(p.join(root, 'dl', 'App-1.0.exe'), 'aaa');
+      await manager.attachInstaller('org.example.app',
+          sourcePath: setup, version: '1.0');
+
+      await manager.update(
+        descriptor(
+          id: 'org.example.app',
+          name: 'השם החדש',
+          detect: const AppDetectRules(exeName: 'myapp.exe'),
+        ),
+      );
+
+      final entry = (await manager.load('org.example.app'))!;
+      expect(entry.descriptor.name, 'השם החדש');
+      expect(entry.descriptor.detect.exeName, 'myapp.exe');
+      expect(entry.installer!.version, '1.0');
+    });
+
+    test('עריכה של תוכנה שאינה רשומה נדחית ואינה יוצרת אותה', () async {
+      await expectLater(
+        manager.update(descriptor(id: 'אין-כזה')),
+        throwsA(isA<AppDescriptorException>()),
+      );
+      expect(await manager.loadAll(), isEmpty);
+    });
+  });
+
   test('הסרה מוציאה מהרשימה', () async {
     await manager.add(descriptor());
     await manager.remove('org.example.app');

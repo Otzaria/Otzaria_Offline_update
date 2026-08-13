@@ -12,22 +12,33 @@ import '../../services/byte_size.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
 
-/// "הוספת תוכנה" — הדרך **היחידה** להוסיף תוכנה נוספת.
+/// "הוספת תוכנה", והוא גם טופס העריכה — הדרך **היחידה** שבה נכתבת רשומה
+/// של תוכנה נוספת.
 ///
 /// המשתמש ממלא שם, מצביע על מקור, ואומר לאן התוכנה מותקנת. כל השאר נגזר:
 /// סוג ההתקנה מזוהה מהקובץ, שם קובץ ההרצה נסרק מתיקיית ההתקנה, והמזהה
 /// נבנה לבד. "איזה framework בנה את ה-installer" ו"איך קוראים למזהה" הן
 /// השאלות שמשתמש רגיל אינו יכול לענות עליהן — ולכן הן אלה שנענות לבד.
-class AddCustomAppDialog extends StatefulWidget {
-  const AddCustomAppDialog({super.key, required this.controller});
+///
+/// בעריכה ([existing] אינו `null`) **המזהה אינו משתנה**: הוא שם התיקייה
+/// שבה כבר יושב קובץ ההתקנה שירד, ושינויו היה מנתק את התוכנה ממנו.
+class CustomAppFormDialog extends StatefulWidget {
+  const CustomAppFormDialog({
+    super.key,
+    required this.controller,
+    this.existing,
+  });
 
   final CustomAppsController controller;
 
+  /// הרשומה שעורכים, או `null` בהוספה.
+  final CustomAppEntry? existing;
+
   @override
-  State<AddCustomAppDialog> createState() => _AddCustomAppDialogState();
+  State<CustomAppFormDialog> createState() => _CustomAppFormDialogState();
 }
 
-class _AddCustomAppDialogState extends State<AddCustomAppDialog> {
+class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
   final _name = TextEditingController();
   final _description = TextEditingController();
   final _installDir = TextEditingController();
@@ -46,6 +57,21 @@ class _AddCustomAppDialogState extends State<AddCustomAppDialog> {
   bool _isFetching = false;
   bool _isSaving = false;
 
+  bool get _isEditing => widget.existing != null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.existing?.descriptor case final descriptor?) {
+      _name.text = descriptor.name;
+      _description.text = descriptor.description ?? '';
+      _installDir.text = descriptor.installDir ?? '';
+      _exeName.text = descriptor.detect.exeName ?? '';
+      _source = descriptor.sourceKind;
+      if (descriptor.github case final source?) _githubUrl.text = source.webUrl;
+    }
+  }
+
   @override
   void dispose() {
     for (final field in [
@@ -61,8 +87,10 @@ class _AddCustomAppDialogState extends State<AddCustomAppDialog> {
   }
 
   /// המזהה נגזר משם קובץ ההרצה, ואם אין — מהשם שנבחר. הוא רק שם תיקייה,
-  /// ולכן אינו מוצג ואינו נשאל.
-  String get _id => AppDescriptorIdGenerator.from(
+  /// ולכן אינו מוצג ואינו נשאל. בעריכה הוא נשאר כשהיה.
+  String get _id =>
+      widget.existing?.descriptor.id ??
+      AppDescriptorIdGenerator.from(
         _exeName.text.isNotEmpty
             ? p.basenameWithoutExtension(_exeName.text)
             : (_selectedAsset?.name ??
@@ -71,9 +99,28 @@ class _AddCustomAppDialogState extends State<AddCustomAppDialog> {
         taken: widget.controller.takenIds,
       );
 
+  /// התבנית שכבר נשמרה, כשעורכים ולא נגעו במקור. מתאפסת ברגע שבשדה יושב
+  /// ריפו אחר — תבנית שנבחרה בריפו אחד אינה אומרת דבר על השני.
+  String? get _keptAssetPattern {
+    if (_source != AppSourceKind.github) return null;
+    final source = widget.existing?.descriptor.github;
+    if (source == null || source.assetPattern.isEmpty) return null;
+    final parsed = GithubSource.parseUrl(_githubUrl.text);
+    if (parsed == null) return null;
+    if (parsed.owner != source.owner || parsed.repo != source.repo) return null;
+    return source.assetPattern;
+  }
+
+  /// קובץ ההתקנה שכבר יושב על הכונן. בעריכה הוא מקור לגיטימי בפני עצמו —
+  /// אין שום סיבה לדרוש מהמשתמש לבחור שוב קובץ שכבר נסע איתו.
+  StoredInstaller? get _keptInstaller =>
+      _source == AppSourceKind.manual ? widget.existing?.installer : null;
+
   bool get _hasSource => switch (_source) {
-        AppSourceKind.github => _selectedAsset != null,
-        AppSourceKind.manual => _localFilePath != null,
+        AppSourceKind.github =>
+          _selectedAsset != null || _keptAssetPattern != null,
+        AppSourceKind.manual =>
+          _localFilePath != null || _keptInstaller != null,
       };
 
   // ── מקור: גיטהאב ──────────────────────────────────────────────────────────
@@ -189,8 +236,10 @@ class _AddCustomAppDialogState extends State<AddCustomAppDialog> {
 
     setState(() => _isSaving = true);
     final descriptor = _buildDescriptor();
-    final added = await widget.controller.add(descriptor);
-    if (!added) {
+    final saved = _isEditing
+        ? await widget.controller.update(descriptor)
+        : await widget.controller.add(descriptor);
+    if (!saved) {
       if (mounted) setState(() => _isSaving = false);
       UiSnack.showError(widget.controller.errorMessage ?? '');
       return;
@@ -209,31 +258,44 @@ class _AddCustomAppDialogState extends State<AddCustomAppDialog> {
     if (!mounted) return;
 
     Navigator.of(context).pop();
-    UiSnack.showSuccess(AppL10n.strings.customApps.addedSnack(descriptor.name));
+    final strings = AppL10n.strings.customApps;
+    UiSnack.showSuccess(
+      _isEditing
+          ? strings.updatedSnack(descriptor.name)
+          : strings.addedSnack(descriptor.name),
+    );
   }
 
   AppDescriptor _buildDescriptor() {
     final parsed = GithubSource.parseUrl(_githubUrl.text);
+    final asset = _selectedAsset;
+    final existing = widget.existing?.descriptor;
     return AppDescriptor(
       id: _id,
       name: _name.text.trim(),
       description:
           _description.text.trim().isEmpty ? null : _description.text.trim(),
+      // שדות שהטופס אינו מציג נגררים כמות שהם — עריכה של שם לא אמורה
+      // למחוק בשקט שדה שהמשתמש אינו רואה בכלל.
+      publisher: existing?.publisher,
       sourceKind: _source,
       github: _source == AppSourceKind.github && parsed != null
           ? GithubSource(
               owner: parsed.owner,
               repo: parsed.repo,
               // התבנית נבנית משם הקובץ שנבחר, כדי שהיא תמשיך להתאים גם
-              // בגרסה הבאה — ראו [GithubAssetPattern].
-              assetPattern:
-                  GithubAssetPattern.fromAssetName(_selectedAsset!.name),
+              // בגרסה הבאה — ראו [GithubAssetPattern]. בעריכה שלא נגעה
+              // במקור נשמרת התבנית שכבר הייתה.
+              assetPattern: asset != null
+                  ? GithubAssetPattern.fromAssetName(asset.name)
+                  : _keptAssetPattern ?? '',
             )
           : null,
       installDir:
           _installDir.text.trim().isEmpty ? null : _installDir.text.trim(),
       detect: AppDetectRules(
         exeName: _exeName.text.trim().isEmpty ? null : _exeName.text.trim(),
+        registryDisplayName: existing?.detect.registryDisplayName,
         dirs: [
           if (_installDir.text.trim().isNotEmpty) _installDir.text.trim(),
         ],
@@ -249,7 +311,10 @@ class _AddCustomAppDialogState extends State<AddCustomAppDialog> {
     final theme = Theme.of(context);
 
     return AlertDialog(
-      title: Text(t.addDialogTitle, style: theme.textTheme.titleLarge),
+      title: Text(
+        _isEditing ? t.editDialogTitle : t.addDialogTitle,
+        style: theme.textTheme.titleLarge,
+      ),
       content: SizedBox(
         width: 480,
         child: SingleChildScrollView(
@@ -280,7 +345,7 @@ class _AddCustomAppDialogState extends State<AddCustomAppDialog> {
           onPressed: () => Navigator.of(context).pop(),
         ),
         ActionButton.recommended(
-          text: t.saveButton,
+          text: _isEditing ? t.saveEditButton : t.saveButton,
           isLoading: _isSaving,
           onPressed: _isSaving ? null : _save,
         ),
@@ -318,6 +383,16 @@ class _AddCustomAppDialogState extends State<AddCustomAppDialog> {
           isLoading: _isFetching,
           onPressed: _isFetching ? null : _fetchAssets,
         ),
+        // בעריכה, כל עוד לא הובאה רשימה חדשה, אומרים במפורש מה יישאר.
+        if (_release == null && _keptAssetPattern != null) ...[
+          const SizedBox(height: AppTokens.spaceSM),
+          Text(
+            t.githubAssetKept,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
         if (_githubError case final error?) ...[
           const SizedBox(height: AppTokens.spaceSM),
           InfoErrorRow(message: error),
@@ -359,12 +434,18 @@ class _AddCustomAppDialogState extends State<AddCustomAppDialog> {
     final t = context.strings.customApps;
     final theme = Theme.of(context);
     final path = _localFilePath;
+    final kept = _keptInstaller;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          path == null ? t.pickInstallerDialogTitle : p.basename(path),
+          // מה שנבחר עכשיו קודם לְמה ששמור, ובלי שניהם — הזמנה לבחור.
+          path != null
+              ? p.basename(path)
+              : kept != null
+                  ? t.installerKept(kept.fileName)
+                  : t.pickInstallerDialogTitle,
           style: theme.textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),

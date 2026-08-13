@@ -10,9 +10,9 @@
 // RT_MANIFEST(24) תחת המזהה 1 = CREATEPROCESS_MANIFEST_RESOURCE_ID.
 1 24 "stub.exe.manifest"
 
-// ערמת הקבצים עצמה, מוטמעת ב-exe. package.ps1 מייצר את ה-zip לפני הקימפול;
+// ערמת הקבצים עצמה, מוטמעת ב-exe. pack_payload.ps1 מייצר אותה לפני הקימפול;
 // המזהה חייב להתאים ל-PAYLOAD_RESOURCE_ID שב-stub.c.
-100 RCDATA "build\\payload.zip"
+100 RCDATA "build\\payload.otz"
 
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION PAYLOAD_VERSION_COMMAS

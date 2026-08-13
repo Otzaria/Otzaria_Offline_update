@@ -83,6 +83,20 @@ class CustomAppsManager {
   Future<void> add(AppDescriptor descriptor) async =>
       (await _store()).add(descriptor);
 
+  /// מעדכן רשומה שכבר קיימת — מה שהטופס עושה כשפותחים אותו לעריכה.
+  ///
+  /// **המזהה אינו משתנה.** הוא שם התיקייה שבה כבר יושבים קובץ ההתקנה
+  /// והמיקומים שנלמדו, ושינויו היה מנתק את התוכנה מהם.
+  Future<void> update(AppDescriptor descriptor) async {
+    final store = await _store();
+    if (await store.load(descriptor.id) == null) {
+      throw AppDescriptorException(
+        AppL10n.strings.customAppsDomain.appNotRegistered(descriptor.id),
+      );
+    }
+    await store.saveDescriptor(descriptor);
+  }
+
   /// מסיר מהמרשם. **אינו מסיר את התוכנה מהמחשב** — ראו
   /// [CustomAppStore.remove].
   Future<void> remove(String id) async => (await _store()).remove(id);

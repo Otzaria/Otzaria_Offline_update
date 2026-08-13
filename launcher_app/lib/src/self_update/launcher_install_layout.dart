@@ -21,6 +21,12 @@ class LauncherInstallLayout {
   /// התיקייה שבה הוא יושב — לשם מגיעה הגרסה החדשה, "אותו מיקום בדיוק".
   String get executableDir => p.dirname(executablePath);
 
+  /// התיקייה שה-stub מחלץ אליה, ובתוכה המרקר. ווינדוס בלבד — ב-macOS אין
+  /// חילוץ בכלל, ו-[executablePath] הוא חבילת ה-`.app` עצמה.
+  String get payloadDir => p.join(executableDir, payloadDirName);
+
+  String get readyMarkerPath => p.join(payloadDir, readyMarkerName);
+
   /// שם התיקייה שה-stub מחלץ אליה. **חייב להתאים ל-`kPayloadDir` שב-`stub.c`
   /// ול-`$payloadDirName` שב-`package.ps1`** — `stub_contract_test.dart`
   /// מאמת זאת.
@@ -29,6 +35,14 @@ class LauncherInstallLayout {
   /// משתנה הסביבה שה-stub מציב לפני שהוא מריץ את הלאנצ'ר, עם הנתיב המלא
   /// שלו עצמו. זו התשובה המדויקת; כל השאר הוא ניחוש.
   static const String stubPathEnvVar = 'OTZARIA_LAUNCHER_STUB';
+
+  /// משתנה סביבה שני מה-stub: גרסת ה-payload שהוא **נושא**. ראו
+  /// `PayloadCheck` — היא מושווית לגרסה שרצה בפועל.
+  static const String payloadVersionEnvVar = 'OTZARIA_PAYLOAD_VERSION';
+
+  /// המרקר שה-stub כותב בתוך [payloadDirName] בסוף חילוץ שהצליח. מחיקתו היא
+  /// הדרך לבקש חילוץ מחדש בהרצה הבאה.
+  static const String readyMarkerName = '.ready';
 
   /// שם ה-exe כפי ש-`package.ps1` מייצר אותו — משמש **רק** כשוברים תיקו בין
   /// כמה exe באותה תיקייה.

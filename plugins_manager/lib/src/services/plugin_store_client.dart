@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -26,6 +27,7 @@ class PluginStoreClient {
     String baseUrl = defaultBaseUrl,
     http.Client? client,
     this.timeout = const Duration(seconds: 20),
+    this.stallTimeout = const Duration(seconds: 30),
   })  : baseUrl = _trimTrailingSlash(baseUrl),
         _client = client ?? http.Client();
 
@@ -34,9 +36,14 @@ class PluginStoreClient {
   final String baseUrl;
   final http.Client _client;
 
-  /// זמן קצוב לכל בקשה. בלעדיו סנכרון של עשרות נכסים היה יכול להיתקע לנצח
-  /// על נכס בודד. ניתן לשינוי בזמן ריצה מהגדרות הלאנצ'ר.
+  /// זמן קצוב לקבלת כותרות התשובה (ולקריאות ה-JSON הקטנות במלואן). בלעדיו
+  /// סנכרון של עשרות נכסים היה יכול להיתקע לנצח על נכס בודד.
   Duration timeout;
+
+  /// זמן קצוב ל**חוסר התקדמות** בגוף התשובה — מתאפס בכל מנת בייטים. קובץ
+  /// תוסף שוקל עשרות MB, ודדליין יחיד על ההורדה כולה נכשל עליו בכל חיבור
+  /// איטי גם כשהיא התקדמה יפה.
+  Duration stallTimeout;
 
   /// שולף את רשימת התוספים המאושרים. זורק [PluginStoreException] על כל כשל
   /// — זה הכשל היחיד שכן צריך לעצור סנכרון (בלי רשימה אין מה לסנכרן).
@@ -80,7 +87,7 @@ class PluginStoreClient {
     try {
       response = await _client.get(Uri.parse('$baseUrl$path')).timeout(timeout);
     } catch (e) {
-      throw PluginStoreException(strings.siteUnreachable('$e'));
+      throw PluginStoreException(strings.siteUnreachable(describeError(e)));
     }
     if (response.statusCode != 200) {
       throw PluginStoreException(
@@ -103,14 +110,19 @@ class PluginStoreClient {
   /// מוריד נכס יחיד אל [destPathNoExt] + הסיומת שהוסקה. סדר ההסקה זהה
   /// למקור: `Content-Disposition`, אחר כך `Content-Type`, ולבסוף
   /// [preferredExt].
+  ///
+  /// יורד בזרימה ולא לזיכרון: הזמן הקצוב חל על חוסר התקדמות ([stallTimeout])
+  /// ולא על משך ההורדה, ותוסף של עשרות MB אינו יושב כולו ב-RAM.
   Future<DownloadedAsset> downloadAsset(
     String url,
     String destPathNoExt, {
     String? preferredExt,
   }) async {
-    final response =
-        await _client.get(Uri.parse(absolute(url))).timeout(timeout);
+    final response = await _client
+        .send(http.Request('GET', Uri.parse(absolute(url))))
+        .timeout(timeout);
     if (response.statusCode != 200) {
+      await _abandonBody(response);
       throw PluginStoreException(
         AppL10n.strings.pluginsDomain.httpStatusFor(response.statusCode, url),
       );
@@ -131,17 +143,57 @@ class PluginStoreClient {
     }
 
     final destPath = destPathNoExt + ext;
-    final file = File(destPath);
-    await file.parent.create(recursive: true);
-    await file.writeAsBytes(response.bodyBytes);
-
     return DownloadedAsset(
       path: destPath,
       ext: ext,
-      size: response.bodyBytes.length,
+      size: await _streamToFile(response, File(destPath)),
       originalName: originalName,
     );
   }
+
+  /// כותב את גוף התשובה ל-`.part` ומחליף בו את היעד רק אחרי שנסגר בהצלחה:
+  /// הורדה שנקטעה באמצע לא תשאיר קובץ חלקי שנראה כתוסף תקין, והקובץ הקודם
+  /// שבמראה נשאר שלם עד הרגע האחרון. מחזיר את מספר הבייטים שנכתבו.
+  Future<int> _streamToFile(http.StreamedResponse response, File dest) async {
+    await dest.parent.create(recursive: true);
+    final part = File('${dest.path}.part');
+    final sink = part.openWrite();
+    var size = 0;
+    try {
+      // ה-timeout על הזרם מתאפס בכל מנה — נחתך רק כשאין התקדמות.
+      await for (final chunk in response.stream.timeout(stallTimeout)) {
+        sink.add(chunk);
+        size += chunk.length;
+      }
+      await sink.flush();
+      await sink.close();
+      // ב-Windows handle פתוח חוסם את ההחלפה, ולכן השינוי אחרי הסגירה.
+      await part.rename(dest.path);
+    } catch (_) {
+      try {
+        await sink.close();
+      } catch (_) {}
+      try {
+        await part.delete();
+      } catch (_) {}
+      rethrow;
+    }
+    return size;
+  }
+
+  /// נוטש את גוף התשובה במסלול שגיאה בלי לרוקן אותו — אחרת שרת שממשיך לשדר
+  /// היה מזרים נכס שלם רק כדי שנדווח כשל.
+  Future<void> _abandonBody(http.StreamedResponse response) async {
+    try {
+      await response.stream.listen((_) {}).cancel();
+    } catch (_) {}
+  }
+
+  /// מתרגמת כשל רשת להודעה למשתמש. `TimeoutException` הוא המקרה השכיח
+  /// ביותר, והטקסט הגולמי שלו ("Future not completed") אינו אומר דבר.
+  static String describeError(Object error) => error is TimeoutException
+      ? AppL10n.strings.pluginsDomain.networkTimedOut
+      : '$error';
 
   String absolute(String url) =>
       (url.startsWith('http://') || url.startsWith('https://'))

@@ -182,6 +182,50 @@ void main() {
   });
 
   group('המרשם', () {
+    testWidgets('לכל כרטיס יש כפתור עריכה', (tester) async {
+      await addApp(tester, name: 'לעריכה');
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+
+      expect(find.byTooltip('עריכה'), findsOneWidget);
+    });
+
+    testWidgets('עריכה משנה את הרשומה ואינה יוצרת שנייה', (tester) async {
+      await addApp(tester, id: 'a', name: 'השם הישן', withInstaller: true);
+
+      await tester.runAsync(
+        () => controller.update(
+          const AppDescriptor(
+            id: 'a',
+            name: 'השם החדש',
+            sourceKind: AppSourceKind.manual,
+            detect: AppDetectRules(exeName: 'demo.exe'),
+          ),
+        ),
+      );
+
+      expect(controller.apps, hasLength(1));
+      expect(controller.apps.single.descriptor.name, 'השם החדש');
+      // הקובץ שכבר על הכונן שייך לתיקיית המזהה, והעריכה אינה נוגעת בו.
+      expect(controller.apps.single.storedInstaller?.version, '1.4.2');
+    });
+
+    testWidgets('עריכה של תוכנה שאינה רשומה אינה מוסיפה אותה', (tester) async {
+      await tester.runAsync(controller.load);
+
+      final ok = await tester.runAsync(
+        () => controller.update(
+          const AppDescriptor(
+            id: 'no-such-app',
+            name: 'רפאים',
+            sourceKind: AppSourceKind.manual,
+          ),
+        ),
+      );
+
+      expect(ok, isFalse);
+      expect(controller.hasApps, isFalse);
+    });
+
     testWidgets('הסרה מוציאה מהרשימה', (tester) async {
       await addApp(tester, id: 'a', name: 'להסרה');
       expect(controller.hasApps, isTrue);

@@ -19,6 +19,7 @@ abstract class AppStrings {
   PluginsStrings get plugins;
   CustomAppsStrings get customApps;
   SetupErrorStrings get setupError;
+  PayloadMismatchStrings get payloadMismatch;
   LauncherUpdateStrings get launcherUpdate;
   UnitStrings get units;
 
@@ -547,6 +548,21 @@ abstract class SetupErrorStrings {
   String cannotWriteToDataDir(String osMessage);
 }
 
+// ── ערמת קבצים שאינה תואמת ל-exe ──────────────────────────────────────────────
+
+/// המסך שעוצר הרצה של `app-files` שאינה שייכת ל-exe שלצידה — ראו
+/// `PayloadCheck`. הפעולה שמתקנת היא סגירה ופתיחה מחדש, ולכן זה כל מה שיש כאן.
+abstract class PayloadMismatchStrings {
+  const PayloadMismatchStrings();
+
+  String get title;
+  String get explanation;
+  String get whatToDo;
+  String get runningVersionTitle;
+  String get expectedVersionTitle;
+  String get closeButton;
+}
+
 // ── עדכון עצמי של הלאנצ'ר ─────────────────────────────────────────────────────
 
 /// המלל של עדכון **הלאנצ'ר עצמו** — לא אוצריא, לא הספרייה. הסעיף מחזיק גם
@@ -836,6 +852,10 @@ abstract class PluginsDomainStrings {
   String get whatStoreStructure;
   String whatCategory(String slug);
   String get responseNotPluginList;
+
+  /// מחליפה את הטקסט הגולמי של `TimeoutException` בכל דיווח כשל רשת —
+  /// "Future not completed" אינו אומר למשתמש דבר.
+  String get networkTimedOut;
   String siteUnreachable(String error);
   String loadFailed(String what, int statusCode);
   String responseNotJson(String what);
@@ -860,8 +880,9 @@ abstract class CustomAppsStrings {
   String get emptyHint;
   String get addButton;
 
-  // ── טופס ההוספה ──
+  // ── טופס ההוספה, והוא גם טופס העריכה ──
   String get addDialogTitle;
+  String get editDialogTitle;
   String get nameLabel;
   String get nameHint;
   String get descriptionLabel;
@@ -892,10 +913,17 @@ abstract class CustomAppsStrings {
   String get exeNameLabel;
   String get exeNameHint;
 
+  /// בעריכה המקור כבר נבחר פעם. שתי השורות האלה אומרות מה יישאר אם לא
+  /// נוגעים בו — בלעדיהן טופס עריכה נראה כאילו אין בו מקור.
+  String get githubAssetKept;
+  String installerKept(String fileName);
+
   String get saveButton;
+  String get saveEditButton;
   String get nameRequired;
   String get sourceRequired;
   String addedSnack(String name);
+  String updatedSnack(String name);
 
   // ── שמות סוגי ההתקנה. שמות מוצר — זהים בשתי השפות. ──
   String get kindInno;
@@ -932,6 +960,7 @@ abstract class CustomAppsStrings {
   String archiveInDownloadsSnack(String path);
   String downloadedSnack(String version);
 
+  String get editTooltip;
   String get removeTooltip;
   String get removeDialogTitle;
 

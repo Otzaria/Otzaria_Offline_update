@@ -27,6 +27,8 @@ class HebrewStrings extends AppStrings {
   @override
   SetupErrorStrings get setupError => const _SetupError();
   @override
+  PayloadMismatchStrings get payloadMismatch => const _PayloadMismatch();
+  @override
   LauncherUpdateStrings get launcherUpdate => const _LauncherUpdate();
   @override
   UnitStrings get units => const _Units();
@@ -957,6 +959,31 @@ class _SetupError extends SetupErrorStrings {
       'לא ניתן לכתוב לתיקייה שלצד התוכנה: $osMessage';
 }
 
+class _PayloadMismatch extends PayloadMismatchStrings {
+  const _PayloadMismatch();
+
+  @override
+  String get title => 'קבצי התוכנה אינם תואמים זה לזה';
+  @override
+  String get explanation =>
+      'קובץ ההרצה הוא מגרסה אחת, והקבצים שבתיקייה app-files שלצידו הם מגרסה '
+      'אחרת. זה קורה כשעדכון לא הושלם, או כשהתיקייה הועתקה בין מחשבים בלי '
+      'כל הקבצים. הרצה במצב הזה עלולה להיתקע או להיסגר מעצמה, ולכן היא '
+      'נעצרה כאן.';
+  @override
+  String get whatToDo =>
+      'מה לעשות: לסגור את התוכנה ולפתוח אותה שוב. היא תשלים את הקבצים '
+      'החסרים בעצמה — זה עשוי לקחת עד דקה, ובזמן הזה ייפתח חלון שחור שאין '
+      'לסגור אותו. אם ההודעה חוזרת גם אחרי הפתיחה מחדש, יש להעתיק את קובץ '
+      'ההרצה לתיקייה חדשה וריקה על הכונן הקשיח ולהפעיל אותו משם.';
+  @override
+  String get runningVersionTitle => 'הגרסה שרצה בפועל';
+  @override
+  String get expectedVersionTitle => 'הגרסה של קובץ ההרצה';
+  @override
+  String get closeButton => 'סגירת התוכנה';
+}
+
 class _LauncherUpdate extends LauncherUpdateStrings {
   const _LauncherUpdate();
 
@@ -1551,6 +1578,8 @@ class _PluginsDomain extends PluginsDomainStrings {
   @override
   String get responseNotPluginList => 'תשובת האתר אינה רשימת תוספים תקינה';
   @override
+  String get networkTimedOut => 'האתר לא השיב בזמן';
+  @override
   String siteUnreachable(String error) => 'לא ניתן להתחבר לאתר אוצריא: $error';
   @override
   String loadFailed(String what, int statusCode) =>
@@ -1648,6 +1677,8 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get addDialogTitle => 'הוספת תוכנה';
   @override
+  String get editDialogTitle => 'עריכת התוכנה';
+  @override
   String get nameLabel => 'שם התוכנה';
   @override
   String get nameHint => 'כפי שיוצג לכם ברשימה';
@@ -1707,13 +1738,24 @@ class _CustomApps extends CustomAppsStrings {
       'למשל myapp.exe — כך נדע אם התוכנה מותקנת ובאיזו גרסה';
 
   @override
+  String get githubAssetKept =>
+      'הקובץ שנבחר כאן בעבר יישאר. להחלפה — הציגו את הקבצים ובחרו אחר.';
+  @override
+  String installerKept(String fileName) =>
+      'הקובץ השמור, $fileName, יישאר. להחלפה — בחרו קובץ אחר.';
+
+  @override
   String get saveButton => 'הוספה';
+  @override
+  String get saveEditButton => 'שמירה';
   @override
   String get nameRequired => 'יש להזין שם לתוכנה';
   @override
   String get sourceRequired => 'יש לבחור קובץ, או ריפו וקובץ מתוכו';
   @override
   String addedSnack(String name) => '$name נוספה';
+  @override
+  String updatedSnack(String name) => '$name עודכנה';
 
   @override
   String get kindInno => 'Inno Setup';
@@ -1767,6 +1809,8 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String downloadedSnack(String version) => 'גרסה $version ירדה לכונן';
 
+  @override
+  String get editTooltip => 'עריכה';
   @override
   String get removeTooltip => 'הסרה מהרשימה';
   @override

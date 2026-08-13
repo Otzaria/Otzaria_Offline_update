@@ -27,7 +27,13 @@ class AppLogger {
   static const int maxBytes = 2 * 1024 * 1024;
 
   /// יש לקרוא פעם אחת, מוקדם ב-`main()`, לפני שנעשה שימוש ב-[instance].
-  static Future<AppLogger> init(String dataDir) async {
+  ///
+  /// [version] ו-[payloadVersion] נכתבים בשורת הפתיחה — ראו [startLine].
+  static Future<AppLogger> init(
+    String dataDir, {
+    String? version,
+    String? payloadVersion,
+  }) async {
     final dir = Directory(p.join(dataDir, 'logs'));
     if (!await dir.exists()) {
       await dir.create(recursive: true);
@@ -35,8 +41,19 @@ class AppLogger {
     final file = File(p.join(dir.path, 'launcher.log'));
     final logger = AppLogger._(file);
     _instance = logger;
-    logger.info('--- launcher started ---');
+    logger.info(startLine(version: version, payloadVersion: payloadVersion));
     return logger;
+  }
+
+  /// שורת הפתיחה נושאת את הגרסה שרצה בפועל: בלעדיה אי אפשר לדעת מהלוג אם
+  /// עדכון שהותקן באמת עלה — וזו השאלה הראשונה בכל דיווח על עדכון שנתקע.
+  /// גרסת ה-payload נוספת רק כשהיא שונה, וזו כבר עדות לתקלה (`PayloadCheck`).
+  static String startLine({String? version, String? payloadVersion}) {
+    if (version == null) return '--- launcher started ---';
+    if (payloadVersion == null || payloadVersion == version) {
+      return '--- launcher started ($version) ---';
+    }
+    return '--- launcher started ($version, stub carries $payloadVersion) ---';
   }
 
   /// זורק [StateError] אם [init] עוד לא נקרא — עדיף להיכשל מוקדם וברור
