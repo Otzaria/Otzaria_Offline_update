@@ -252,20 +252,25 @@ class HomeScreen extends StatelessWidget {
     final t = context.strings.home;
     final otzariaChecked = otzaria.onlineCheckedAt != null;
     final libraryChecked = library.onlineCheckedAt != null;
-    final everChecked = otzariaChecked || libraryChecked;
-    // המאוחרת מבין השתיים. קודם הוצג תמיד זמן הבדיקה של אוצריא, גם כשבדיקת
+    final pluginsChecked = plugins.onlineCheckedAt != null;
+    final everChecked = otzariaChecked || libraryChecked || pluginsChecked;
+    // המאוחרת מבין השלוש. קודם הוצג תמיד זמן הבדיקה של אוצריא, גם כשבדיקת
     // הספרייה רצה אחריה — "נבדק לאחרונה" הראה אז זמן מוקדם מהאמת.
     final lastChecked = [
       if (otzariaChecked) otzaria.onlineCheckedAt!,
       if (libraryChecked) library.onlineCheckedAt!,
+      if (pluginsChecked) plugins.onlineCheckedAt!,
     ].fold<DateTime?>(
       null,
       (latest, at) => latest == null || at.isAfter(latest) ? at : latest,
     );
     final otzariaOnline = otzariaChecked && otzaria.onlineCheckError == null;
     final libraryOnline = libraryChecked && library.onlineCheckError == null;
-    final isOnline = otzariaOnline || libraryOnline;
-    final hasUpdate = otzaria.hasOnlineUpdate || library.hasOnlineUpdate;
+    final pluginsOnline = pluginsChecked && plugins.onlineCheckError == null;
+    final isOnline = otzariaOnline || libraryOnline || pluginsOnline;
+    final hasUpdate = otzaria.hasOnlineUpdate ||
+        library.hasOnlineUpdate ||
+        plugins.hasOnlineUpdate;
 
     final StatusKind kind;
     final String label;
@@ -307,6 +312,11 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ],
               ),
+              // התוכנה והספרייה מדווחות מספר גרסה שהמסכים שלהן מציגים;
+              // לתוספים אין כזה, ובלי השורה הזו "יש עדכונים" לא סיפר שהם
+              // אלה שהתחדשו.
+              if (pluginsOnline && plugins.hasOnlineUpdate)
+                ..._pluginsOnlineDetail(context),
               if (isOnline && hasUpdate) ...[
                 const SizedBox(height: AppTokens.spaceMD),
                 ActionButton.recommended(
@@ -337,6 +347,40 @@ class HomeScreen extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  /// "X תוספים חדשים בחנות" / "Y תוספים עודכנו" — רק מה שיש בו מספר.
+  ///
+  /// ואם הורדת התוספים כבויה בהגדרות — נאמר כאן. בלי זה "הורד עכשיו" מדלג
+  /// עליהם בשקט, והמשתמש נשאר עם אותה הודעה בדיוק גם אחרי ההורדה.
+  List<Widget> _pluginsOnlineDetail(BuildContext context) {
+    final theme = Theme.of(context);
+    final t = context.strings.home;
+    final status = plugins.onlineStatus;
+    if (status == null) return const [];
+
+    final style = theme.textTheme.bodySmall
+        ?.copyWith(color: theme.colorScheme.onSurfaceVariant);
+
+    return [
+      for (final line in [
+        if (status.newCount > 0) t.onlineNewPlugins(status.newCount),
+        if (status.updatedCount > 0)
+          t.onlineUpdatedPlugins(status.updatedCount),
+        if (status.missingCount > 0)
+          t.onlineMissingPlugins(status.missingCount),
+      ]) ...[
+        const SizedBox(height: AppTokens.spaceXS),
+        Text(line, style: style),
+      ],
+      if (!settings.settings.syncPlugins) ...[
+        const SizedBox(height: AppTokens.spaceXS),
+        Text(
+          t.onlinePluginsSyncOff,
+          style: style?.copyWith(color: theme.colorScheme.error),
+        ),
+      ],
+    ];
   }
 
   /// שורת התקדמות אחת לרכיב שמוריד כרגע — ההורדות רצות בטור, ולכן לכל

@@ -122,6 +122,50 @@ void main() {
     expect(button.onPressed, isNull);
   });
 
+  testWidgets('תוסף חדש או מעודכן בחנות נספר כ"יש עדכונים ברשת"',
+      (tester) async {
+    final t = stringsOf().home;
+    plugins.onlineStatus = const PluginsOnlineStatus(
+      newPlugins: ['תוסף חדש'],
+      updatedPlugins: ['תוסף א', 'תוסף ב'],
+      totalOnline: 12,
+    );
+    plugins.onlineCheckedAt = DateTime(2026, 8, 13);
+
+    await pumpScreen(tester, home());
+
+    expect(find.text(t.onlineHasUpdates), findsOneWidget);
+    expect(find.text(t.onlineNewPlugins(1)), findsOneWidget);
+    expect(find.text(t.onlineUpdatedPlugins(2)), findsOneWidget);
+    expect(find.text('הורד עכשיו'), findsOneWidget);
+  });
+
+  testWidgets('קובץ תוסף שנמחק מהתיקייה מדווח בכרטיס', (tester) async {
+    final t = stringsOf().home;
+    plugins.onlineStatus = const PluginsOnlineStatus(
+      missingPlugins: ['תוסף א', 'תוסף ב'],
+      totalOnline: 12,
+    );
+    plugins.onlineCheckedAt = DateTime(2026, 8, 13);
+
+    await pumpScreen(tester, home());
+
+    expect(find.text(t.onlineHasUpdates), findsOneWidget);
+    expect(find.text(t.onlineMissingPlugins(2)), findsOneWidget);
+  });
+
+  testWidgets('חנות שאין בה מה חדש אינה מוסיפה שורות לכרטיס', (tester) async {
+    final t = stringsOf().home;
+    plugins.onlineStatus = PluginsOnlineStatus.empty;
+    plugins.onlineCheckedAt = DateTime(2026, 8, 13);
+
+    await pumpScreen(tester, home());
+
+    expect(find.text(t.onlineNoUpdates), findsOneWidget);
+    expect(find.text(t.onlineNewPlugins(0)), findsNothing);
+    expect(find.text(t.onlineUpdatedPlugins(0)), findsNothing);
+  });
+
   testWidgets('דף הבית מציג אזהרה כשאוצריא פתוחה', (tester) async {
     await pumpScreen(tester, home(otzariaIsRunning: true));
 

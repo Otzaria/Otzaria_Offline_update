@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 
 import '../controllers/launcher_update_controller.dart';
 import '../controllers/library_module_controller.dart';
+import '../controllers/online_check.dart';
 import '../controllers/otzaria_module_controller.dart';
 import '../controllers/plugins_module_controller.dart';
 import '../services/app_logger.dart';
@@ -216,14 +217,15 @@ class _AppShellState extends State<AppShell> {
     await _autoInstallIfEnabled();
   }
 
-  /// בדיקה קלה ברשת ("יש עדכון חדש?") לשני הרכיבים — מטא-דאטה בלבד, בלי
-  /// הורדת installer/מסד. כשל (אין רשת) נבלע בתוך הקונטרולרים עצמם.
+  /// בדיקה קלה ברשת ("יש עדכון חדש?") לכל הרכיבים — מטא-דאטה בלבד, בלי
+  /// הורדת installer/מסד/קובץ תוסף. כשל (אין רשת) נבלע בתוך הקונטרולרים עצמם.
   Future<void> checkOnline() async {
     if (_isCheckingOnline) return;
     setState(() => _isCheckingOnline = true);
     await Future.wait([
       _otzaria.checkOnline(),
       _library.checkOnline(),
+      _plugins.checkOnline(),
       _launcherUpdate.checkOnline(),
     ]);
     if (!mounted) return;
@@ -323,8 +325,9 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
-  /// מוריד מהרשת אל התיקייה שלצד התוכנה — רק את הרכיבים שסומנו בהגדרות.
-  /// זו הפעולה היחידה בכל האפליקציה שדורשת אינטרנט.
+  /// מוריד מהרשת אל התיקייה שלצד התוכנה — רק את הרכיבים שסומנו בהגדרות,
+  /// ומתוכם רק אלה שיש בהם באמת מה להביא. זו הפעולה היחידה בכל האפליקציה
+  /// שדורשת אינטרנט.
   ///
   /// הרכיבים מורדים בזה אחר זה ולא במקביל, כי הם חולקים את אותו רוחב פס
   /// והמסד לבדו הוא ~1GB; במקביל זה רק היה מאט את כולם ומבלבל את התצוגה.
@@ -336,14 +339,51 @@ class _AppShellState extends State<AppShell> {
       return;
     }
 
+    // רכיב שהבדיקה אמרה עליו "אין חדש" לא מורץ בכלל: ההורדה שלו אורכת
+    // דקות ומציגה מד התקדמות, ולא הייתה מביאה כלום. הכפתור עצמו מופיע רק
+    // כשמשהו כן התחדש — ולכן זה תמיד "הורד את מה שהתחדש", לא "הורד הכול".
+    final skipApp = s.syncApp &&
+        provenUpToDateOnline(
+          checkedAt: _otzaria.onlineCheckedAt,
+          error: _otzaria.onlineCheckError,
+          hasUpdate: _otzaria.hasOnlineUpdate,
+        );
+    // ב"עדכון אישי" היעד נגזר מהגרסה שנרשמה ולא מהחדשה שברשת, ולכן
+    // "אין חדש ברשת" אינו אומר שאין מה להוריד.
+    final skipLibrary = s.syncLibrary &&
+        !_library.personalUpdateMode &&
+        provenUpToDateOnline(
+          checkedAt: _library.onlineCheckedAt,
+          error: _library.onlineCheckError,
+          hasUpdate: _library.hasOnlineUpdate,
+        );
+    final skipPlugins = s.syncPlugins &&
+        provenUpToDateOnline(
+          checkedAt: _plugins.onlineCheckedAt,
+          error: _plugins.onlineCheckError,
+          hasUpdate: _plugins.hasOnlineUpdate,
+        );
+
     setState(() => _isDownloading = true);
 
-    if (s.syncApp) await _otzaria.download();
-    if (s.syncLibrary) await _library.download();
-    if (s.syncPlugins) await _plugins.sync();
+    if (s.syncApp && !skipApp) await _otzaria.download();
+    if (s.syncLibrary && !skipLibrary) await _library.download();
+    if (s.syncPlugins && !skipPlugins) await _plugins.sync();
     if (!mounted) return;
 
     setState(() => _isDownloading = false);
+
+    // דילוג שקט הוא בדיוק מה שגרם לבלבול "למה הוא לא הוריד תוספים" — אומרים
+    // על מה דילגנו ולמה.
+    final t = context.strings;
+    final skipped = [
+      if (skipApp) t.home.appTileTitle,
+      if (skipLibrary) t.home.libraryTileTitle,
+      if (skipPlugins) t.shell.navPlugins,
+    ];
+    if (skipped.isNotEmpty) {
+      UiSnack.show(t.home.downloadSkippedSnack(skipped.join(', ')));
+    }
   }
 
   /// מציע ומוסר לאוצריא את בקשת עדכון אינדקס החיפוש — הפעולה היזומה, כשלא

@@ -134,7 +134,7 @@ void main() {
           if (e.phase == PluginSyncPhase.warning) e.message,
       ];
 
-  Future<PluginCatalog> sync(
+  Future<PluginSyncOutcome> syncOutcome(
     _Site site, {
     List<PluginSyncProgress>? events,
     bool Function()? isCancelled,
@@ -143,6 +143,14 @@ void main() {
         onProgress: events?.add,
         isCancelled: isCancelled,
       );
+
+  Future<PluginCatalog> sync(
+    _Site site, {
+    List<PluginSyncProgress>? events,
+    bool Function()? isCancelled,
+  }) async =>
+      (await syncOutcome(site, events: events, isCancelled: isCancelled))
+          .catalog;
 
   group('סנכרון מלא', () {
     test('מושך תוספים, קטגוריות וטקסטים של דף הבית', () async {
@@ -386,7 +394,9 @@ void main() {
         warningsOf(events).single,
         strings.syncPluginFileFailed(
           'אלף',
-          strings.httpStatusFor(500, '/api/plugins/a/download'),
+          // הכתובת המלאה כפי שנשמרה בקטלוג — ממנה מנסים להוריד.
+          strings.httpStatusFor(
+              500, 'https://otzaria.test/api/plugins/a/download'),
         ),
       );
       expect(events.last.phase, PluginSyncPhase.done);
@@ -429,14 +439,151 @@ void main() {
   });
 
   group('דילוג על הורדה חוזרת', () {
-    test('גרסה שלא השתנתה — הקובץ לא יורד שוב, התמונות כן', () async {
+    test('שום דבר לא השתנה — לא הקובץ, לא התמונה ולא צילומי המסך', () async {
+      final shots = ['/api/plugins/a/shot-0', '/api/plugins/a/shot-1'];
+      await sync(_Site(plugins: _Site.defaultPlugins(screenshots: shots)));
+
+      final second = _Site(plugins: _Site.defaultPlugins(screenshots: shots));
+      final events = <PluginSyncProgress>[];
+      final outcome = await syncOutcome(second, events: events);
+      final catalog = outcome.catalog;
+
+      expect(second.requestsMatching('/download'), isEmpty);
+      expect(second.requestsMatching('/image'), isEmpty);
+      expect(second.requests.where((r) => r.contains('shot-')), isEmpty);
+      // הנתיבים שכבר במראה נשארים בקטלוג, אחרת הדילוג היה מוחק אותם.
+      expect(catalog.plugins.first.imagePath, 'files/a/image.png');
+      expect(catalog.plugins.first.screenshotPaths, hasLength(2));
+      // ולא רק שלא ירד כלום — התוספים האלה לא נכנסו לסבב בכלל.
+      expect(outcome.fetched, 0);
+      expect(outcome.skipped, 2);
+      expect(
+        events.where(
+            (e) => e.phase == PluginSyncPhase.plugin && e.current != null),
+        isEmpty,
+      );
+    });
+
+    test('קטלוג ישן בלי כתובות הנכסים אינו מוריד את התמונות מחדש', () async {
+      final shots = ['/api/plugins/a/shot-0'];
+      await sync(_Site(plugins: _Site.defaultPlugins(screenshots: shots)));
+
+      // מדמה קטלוג שנכתב לפני שכתובות הנכסים נכנסו אליו.
+      final store = PluginMirrorStore(temp.path);
+      final old = await store.load();
+      await store.save(PluginCatalog(
+        lastSync: old.lastSync,
+        categories: old.categories,
+        home: old.home,
+        plugins: [
+          for (final plugin in old.plugins)
+            StorePlugin.fromJson(plugin.toJson()
+              ..remove('remoteImageUrl')
+              ..remove('remoteScreenshotUrls')),
+        ],
+      ));
+
+      final second = _Site(plugins: _Site.defaultPlugins(screenshots: shots));
+      final outcome = await syncOutcome(second);
+
+      // הכתובות נכתבות לקטלוג גם בלי הורדה, ולכן ההגירה נסגרת מעצמה.
+      expect(second.requestsMatching('/image'), isEmpty);
+      expect(second.requests.where((r) => r.contains('shot-')), isEmpty);
+      expect(outcome.fetched, 0);
+      expect(
+        outcome.catalog.plugins.first.remoteImageUrl,
+        '/api/plugins/a/image',
+      );
+    });
+
+    test('המונה סופר רק את מי שיש בו מה להוריד, לא את כל החנות', () async {
       await sync(_Site());
+
+      // רק a התעדכן; b כבר במראה ולא אמור להיספר.
+      final second = _Site(plugins: _Site.defaultPlugins(versionA: '1.1.0'));
+      final events = <PluginSyncProgress>[];
+      final outcome = await syncOutcome(second, events: events);
+
+      expect(outcome.fetched, 1);
+      expect(outcome.skipped, 1);
+      expect(outcome.failed, isEmpty);
+      final counted = [
+        for (final e in events)
+          if (e.phase == PluginSyncPhase.plugin && e.current != null) e,
+      ];
+      expect(counted.single.message, strings.syncPlugin('אלף', 1, 1));
+      expect(events.last.message, strings.syncDoneCounts(1, 1));
+    });
+
+    test('קובץ שנכשל נספר ככישלון — המראה עדיין חסרה אותו', () async {
+      final site = _Site()..failures['/api/plugins/a/download'] = 500;
+      final outcome = await syncOutcome(site);
+
+      expect(outcome.failed, ['אלף']);
+      expect(outcome.hasFailures, isTrue);
+    });
+
+    test('תמונה שהוחלפה באתר יורדת מחדש — לבדה', () async {
+      await sync(_Site());
+
+      final second = _Site()
+        ..plugins.first['image'] = '/api/plugins/a/image-v2';
+      final catalog = await sync(second);
+
+      expect(second.requestsMatching('image-v2'), hasLength(1));
+      expect(second.requestsMatching('/download'), isEmpty);
+      // שם הקובץ במראה קבוע; מה שהשתנה הוא רק המקור שממנו הוא נמשך.
+      expect(catalog.plugins.first.imagePath, 'files/a/image.png');
+    });
+
+    test('updatedAt שהשתנה מוריד את התמונה מחדש מאותה כתובת', () async {
+      await sync(_Site());
+
+      final second = _Site()..plugins.first['updatedAt'] = '2026-08-13';
+      await sync(second);
+
+      expect(second.requestsMatching('/image'), hasLength(1));
+      expect(second.requestsMatching('/download'), isEmpty);
+    });
+
+    test('תמונה שנמחקה מהמראה יורדת שוב', () async {
+      await sync(_Site());
+      File(PluginMirrorStore(temp.path).absolutePath('files/a/image.png'))
+          .deleteSync();
 
       final second = _Site();
       await sync(second);
 
-      expect(second.requestsMatching('/download'), isEmpty);
       expect(second.requestsMatching('/image'), hasLength(1));
+    });
+
+    test('צילום מסך שנוסף מוריד את כל הסדרה, כי השמות לפי אינדקס', () async {
+      await sync(_Site(
+        plugins: _Site.defaultPlugins(screenshots: ['/api/plugins/a/shot-0']),
+      ));
+
+      final second = _Site(
+        plugins: _Site.defaultPlugins(
+          screenshots: ['/api/plugins/a/shot-new', '/api/plugins/a/shot-0'],
+        ),
+      );
+      final catalog = await sync(second);
+
+      expect(second.requests.where((r) => r.contains('shot-')), hasLength(2));
+      expect(catalog.plugins.first.screenshotPaths, [
+        'files/a/screenshot-0.png',
+        'files/a/screenshot-1.png',
+      ]);
+    });
+
+    test('כתובת הורדה שהשתנתה מורידה מחדש גם באותה גרסה', () async {
+      await sync(_Site());
+
+      final second = _Site()
+        ..plugins.first['downloadUrl'] = '/api/plugins/a/download?v=2';
+      await sync(second);
+
+      expect(second.requestsMatching('/download'), hasLength(1));
     });
 
     test('הורדה שנכשלה — הגרסה בקטלוג נשארת של הקובץ שבמראה, ויורד בסבב הבא',
@@ -497,12 +644,19 @@ void main() {
       await sync(_Site());
 
       var calls = 0;
-      final site = _Site();
+      // שני התוספים התחדשו, ולכן לשניהם יש מה להוריד — והביטול תופס באמצע.
+      final bumped = _Site.defaultPlugins(versionA: '1.1.0');
+      bumped[1]['version'] = '2.1.0';
+      final site = _Site(plugins: bumped);
       final catalog = await sync(site, isCancelled: () => ++calls > 1);
 
       // מה שהספיק להסתנכרן מתעדכן, ומה שכבר היה במראה נשמר — אחרת תוספים
       // שקבצים שלהם על הדיסק היו נעלמים מהמחשב המנותק עד סנכרון מלא.
       expect(catalog.plugins.map((e) => e.id), ['a', 'b']);
+      expect(catalog.plugins.first.version, '1.1.0');
+      // b לא הגיע תורו: הקטלוג חייב להמשיך לתאר את הקובץ שבמראה, אחרת
+      // התכנון הבא היה מדלג עליו והגרסה החדשה לא הייתה יורדת לעולם.
+      expect(catalog.plugins.last.version, '2.0.0');
       expect(catalog.categories.single.pluginIds, ['b', 'a']);
       expect(catalog.home.title, 'חנות התוספים של אוצריא');
       expect(site.requests, isNot(contains('/api/plugins/store-home')));
@@ -517,7 +671,7 @@ void main() {
       expect(events.first.phase, PluginSyncPhase.start);
       expect(events.first.message, strings.syncLoadingCatalog);
       expect(events.last.phase, PluginSyncPhase.done);
-      expect(events.last.message, strings.syncDone);
+      expect(events.last.message, strings.syncDoneCounts(2, 0));
       expect(events.last.fraction, 1.0);
 
       final counted = [
@@ -558,7 +712,7 @@ void main() {
       expect(catalog.categories.single.description, 'תוספים שמסייעים בלימוד');
       expect(catalog.home.title, 'חנות התוספים של אוצריא');
       // המסגרת סביבו — מתורגמת.
-      expect(events.last.message, english.syncDone);
+      expect(events.last.message, english.syncDoneCounts(2, 0));
       expect(events.first.message, english.syncLoadingCatalog);
     });
 

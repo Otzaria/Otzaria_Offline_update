@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/library_module_controller.dart';
+import 'package:launcher_app/src/controllers/online_check.dart';
 import 'package:launcher_app/src/controllers/otzaria_module_controller.dart';
 import 'package:launcher_app/src/controllers/progress_notifier.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
@@ -194,6 +195,50 @@ void main() {
       expect(c.hasOnlineUpdate, isFalse);
 
       c.dispose();
+    });
+  });
+
+  group('provenUpToDateOnline — מתי מותר לדלג על הורדה', () {
+    final checkedAt = DateTime(2026, 8, 13);
+
+    test('נבדק בהצלחה ואין חדש — מדלגים', () {
+      expect(
+        provenUpToDateOnline(
+          checkedAt: checkedAt,
+          error: null,
+          hasUpdate: false,
+        ),
+        isTrue,
+      );
+    });
+
+    test('יש עדכון — לא מדלגים', () {
+      expect(
+        provenUpToDateOnline(
+          checkedAt: checkedAt,
+          error: null,
+          hasUpdate: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('הבדיקה לא רצה — אין הוכחה, ולכן מורידים', () {
+      expect(
+        provenUpToDateOnline(checkedAt: null, error: null, hasUpdate: false),
+        isFalse,
+      );
+    });
+
+    test('הבדיקה נכשלה — "אין רשת" אינו "אין עדכון"', () {
+      expect(
+        provenUpToDateOnline(
+          checkedAt: checkedAt,
+          error: 'אין חיבור',
+          hasUpdate: false,
+        ),
+        isFalse,
+      );
     });
   });
 }

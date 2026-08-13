@@ -152,9 +152,12 @@ class _PluginsScreenState extends State<PluginsScreen> {
       // שבו קובצי תוספים לא ירדו נראה כהצלחה מלאה — והמשתמש שולף את הכונן.
       UiSnack.showError(t.syncDoneWithWarningsSnack(warnings.length));
     } else {
-      UiSnack.showSuccess(
-        t.syncDoneSnack(widget.controller.plugins.length),
-      );
+      // כמה באמת ירדו, ולא רק כמה יש בחנות — אחרת סנכרון שדילג על הכול
+      // נראה בדיוק כמו סנכרון שהוריד את כולה.
+      UiSnack.showSuccess(t.syncDoneSnack(
+        widget.controller.lastSyncOutcome?.fetched ?? 0,
+        widget.controller.plugins.length,
+      ));
     }
   }
 

@@ -64,6 +64,8 @@ class StorePlugin extends Equatable {
     required this.supportsDirectInstall,
     required this.isFeatured,
     required this.remoteDownloadUrl,
+    this.remoteImageUrl = '',
+    this.remoteScreenshotUrls = const [],
     this.imagePath,
     this.screenshotPaths = const [],
     this.categorySlugs = const [],
@@ -97,6 +99,11 @@ class StorePlugin extends Equatable {
   /// כתובת מוחלטת להורדת קובץ התוסף — נשמרת בקטלוג כדי שהתקנה ישירה תוכל
   /// להשלים קובץ חסר גם בלי סנכרון מלא מחדש.
   final String remoteDownloadUrl;
+
+  /// הכתובות שמהן ירדו התמונות, כפי שהאתר החזיר אותן. נשמרות כדי שסנכרון
+  /// הבא ידע אם התמונה בכלל השתנתה — אחרת כל סנכרון הוריד את כולן מחדש.
+  final String remoteImageUrl;
+  final List<String> remoteScreenshotUrls;
 
   final String? imagePath;
   final List<String> screenshotPaths;
@@ -163,6 +170,8 @@ class StorePlugin extends Equatable {
       supportsDirectInstall: supportsDirectInstall,
       isFeatured: isFeatured,
       remoteDownloadUrl: remoteDownloadUrl,
+      remoteImageUrl: remoteImageUrl,
+      remoteScreenshotUrls: remoteScreenshotUrls,
       imagePath: imagePath ?? this.imagePath,
       screenshotPaths: screenshotPaths ?? this.screenshotPaths,
       categorySlugs: categorySlugs ?? this.categorySlugs,
@@ -196,6 +205,13 @@ class StorePlugin extends Equatable {
       supportsDirectInstall: json['supportsDirectInstall'] == true,
       isFeatured: json['isPinned'] == true,
       remoteDownloadUrl: _absolute(_string(json['downloadUrl']), baseUrl),
+      // כמו שהאתר שלח, בלי להפוך למוחלט: הן נשמרות כדי להשוות מול התשובה
+      // הבאה, וההורדה עצמה כבר יודעת להשלים כתובת יחסית.
+      remoteImageUrl: _string(json['image']),
+      remoteScreenshotUrls: [
+        for (final url in _stringList(json['screenshots']))
+          if (url.isNotEmpty) url,
+      ],
     );
   }
 
@@ -218,6 +234,8 @@ class StorePlugin extends Equatable {
         'supportsDirectInstall': supportsDirectInstall,
         'isFeatured': isFeatured,
         'remoteDownloadUrl': remoteDownloadUrl,
+        'remoteImageUrl': remoteImageUrl,
+        'remoteScreenshotUrls': remoteScreenshotUrls,
         'image': imagePath,
         'screenshots': screenshotPaths,
         'categories': categorySlugs,
@@ -251,6 +269,8 @@ class StorePlugin extends Equatable {
       // `isPinned` — קטלוג שנכתב לפני שהאתר שינה את המשמעות ל"נבחר".
       isFeatured: json['isFeatured'] == true || json['isPinned'] == true,
       remoteDownloadUrl: _string(json['remoteDownloadUrl']),
+      remoteImageUrl: _string(json['remoteImageUrl']),
+      remoteScreenshotUrls: _stringList(json['remoteScreenshotUrls']),
       imagePath: json['image'] is String ? json['image'] as String : null,
       screenshotPaths: _stringList(json['screenshots']),
       categorySlugs: _stringList(json['categories']),

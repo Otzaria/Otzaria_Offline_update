@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import '../models/plugin_catalog.dart';
 import '../models/plugin_store_category.dart';
 import '../models/plugin_store_home.dart';
+import '../models/plugin_sync_outcome.dart';
 import '../models/plugin_sync_progress.dart';
 import '../models/store_plugin.dart';
 import 'plugin_manifest_reader.dart';
@@ -22,7 +23,13 @@ class PluginMirrorSync {
 
   /// זורק [PluginStoreException] רק אם רשימת התוספים עצמה לא נטענה. כשל
   /// בנכס בודד מדווח כ-[PluginSyncPhase.warning] והסנכרון ממשיך.
-  Future<PluginCatalog> sync({
+  ///
+  /// **הסנכרון מתוכנן לפני שהוא מתחיל**: קודם נקבע לכל תוסף מה בכלל חסר
+  /// במראה (השוואת מטא-דאטה + בדיקת קיום קבצים, בלי רשת), ורק מי שחסר לו
+  /// משהו נכנס ללולאה. תוסף שכבר מעודכן אינו נוגע ברשת, אינו מדווח
+  /// התקדמות, ואינו נספר במונה — כך "3 מתוך 3" הוא באמת מה שיורד עכשיו,
+  /// ולא "3 מתוך 40" שרובם רק נבדקים.
+  Future<PluginSyncOutcome> sync({
     void Function(PluginSyncProgress progress)? onProgress,
     bool Function()? isCancelled,
   }) async {
@@ -48,16 +55,24 @@ class PluginMirrorSync {
       for (final plugin in previousCatalog.plugins) plugin.id: plugin,
     };
 
-    final synced = <StorePlugin>[];
-    final total = remote.length;
+    final plans = [
+      for (final raw in remote) await _plan(raw, existing),
+    ];
+    final todo = [
+      for (final plan in plans)
+        if (plan.hasWork) plan,
+    ];
+
+    final fetched = <String, StorePlugin>{};
+    final failed = <String>[];
+    final total = todo.length;
     var done = 0;
 
-    for (final raw in remote) {
+    for (final plan in todo) {
       if (isCancelled?.call() ?? false) break;
       done++;
 
-      var plugin = StorePlugin.fromApi(raw, client.baseUrl);
-      final previous = existing[plugin.id];
+      var plugin = plan.plugin;
       report(PluginSyncProgress(
         phase: PluginSyncPhase.plugin,
         message: strings.syncPlugin(plugin.name, done, total),
@@ -65,34 +80,28 @@ class PluginMirrorSync {
         total: total,
       ));
 
-      // שומרים על מה שכבר יש מקומית, ומעדכנים רק את מה שבאמת ירד עכשיו.
-      plugin = plugin.copyWith(
-        imagePath: previous?.imagePath,
-        screenshotPaths: previous?.screenshotPaths ?? const [],
-        localFile: previous?.localFile,
-        manifestId: previous?.manifestId,
-      );
+      await Directory(store.pluginDir(plugin.id)).create(recursive: true);
+      plugin = await _syncImages(plan, plugin, report);
+      final file = await _syncPluginFile(plan, plugin, report);
+      plugin = file.plugin;
 
-      final dir = store.pluginDir(plugin.id);
-      await Directory(dir).create(recursive: true);
-
-      plugin = await _syncImages(plugin, raw, dir, report);
-      plugin = await _syncPluginFile(plugin, raw, previous, dir, report);
-
-      synced.add(plugin);
+      fetched[plugin.id] = plugin;
+      if (!file.ok) failed.add(plugin.name);
     }
 
     final cancelled = isCancelled?.call() ?? false;
 
-    // ביטול אינו מוחק מהקטלוג תוספים שכבר היו במראה: הקבצים שלהם עדיין על
-    // הדיסק, ורשימה חלקית הייתה מעלימה אותם מהמחשב המנותק עד סנכרון מלא.
-    final syncedIds = {for (final plugin in synced) plugin.id};
+    // תוסף שלא הגיע תורו בביטול חייב להישאר על הרשומה הקודמת: הרשומה
+    // החדשה מתארת גרסה שקובץ שלה לא ירד, וזה בדיוק מה שהיה גורם לסנכרון
+    // הבא לדלג עליו לנצח.
     final plugins = <StorePlugin>[
-      ...synced,
-      if (cancelled)
-        for (final plugin in previousCatalog.plugins)
-          if (!syncedIds.contains(plugin.id)) plugin,
+      for (final plan in plans)
+        fetched[plan.plugin.id] ??
+            (cancelled && plan.hasWork
+                ? (plan.previous ?? plan.plugin)
+                : plan.plugin),
     ];
+    final syncedIds = {for (final plugin in plugins) plugin.id};
 
     // סנכרון שבוטל באמצע לא מושך מבנה חדש — המבנה הקודם נשאר תואם למה
     // שכבר במראה יותר מרשימה חלקית שנבנתה על חצי קטלוג.
@@ -114,13 +123,52 @@ class PluginMirrorSync {
     );
     await store.save(catalog);
 
+    final skipped = plans.length - done;
     report(PluginSyncProgress(
       phase: PluginSyncPhase.done,
-      message: strings.syncDone,
+      message: strings.syncDoneCounts(done, skipped),
       current: done,
       total: total,
     ));
-    return catalog;
+    return PluginSyncOutcome(
+      catalog: catalog,
+      fetched: done,
+      skipped: skipped,
+      failed: failed,
+    );
+  }
+
+  /// מה חסר לתוסף הזה במראה — כל ההחלטות במקום אחד, ובלי רשת. השלבים
+  /// שמורידים בפועל רק מבצעים את מה שנקבע כאן.
+  Future<_PluginPlan> _plan(
+    Map<String, dynamic> raw,
+    Map<String, StorePlugin> existing,
+  ) async {
+    final remote = StorePlugin.fromApi(raw, client.baseUrl);
+    final previous = existing[remote.id];
+
+    // שומרים על מה שכבר יש מקומית, ומעדכנים רק את מה שבאמת ירד עכשיו.
+    final plugin = remote.copyWith(
+      imagePath: previous?.imagePath,
+      screenshotPaths: previous?.screenshotPaths ?? const [],
+      localFile: previous?.localFile,
+      manifestId: previous?.manifestId,
+    );
+
+    return _PluginPlan(
+      plugin: plugin,
+      previous: previous,
+      needsImage: plugin.remoteImageUrl.isNotEmpty &&
+          !await _imageUnchanged(plugin, previous),
+      needsScreenshots: plugin.remoteScreenshotUrls.isNotEmpty &&
+          !await _screenshotsUnchanged(plugin, previous),
+      needsFile: plugin.remoteDownloadUrl.isNotEmpty &&
+          !await _fileUnchanged(plugin, previous),
+      // תוסף שסונכרן לפני שה-manifestId נכנס לקטלוג — מחלצים אותו מהקובץ
+      // הקיים בלי להוריד מחדש. קריאת ZIP מקומית, לא רשת.
+      needsManifestId:
+          plugin.manifestId == null && await store.hasLocalFile(plugin),
+    );
   }
 
   /// מסנכרן את **מבנה** החנות — הקטגוריות המנוהלות והטקסטים של דף הבית.
@@ -220,19 +268,21 @@ class PluginMirrorSync {
     );
   }
 
-  /// תמונת התוסף וצילומי המסך קטנים, ולכן יורדים בכל סנכרון.
+  /// מוריד את מה שהתכנון סימן — התמונה וצילומי המסך, כל אחד בנפרד.
   Future<StorePlugin> _syncImages(
+    _PluginPlan plan,
     StorePlugin plugin,
-    Map<String, dynamic> raw,
-    String dir,
     void Function(PluginSyncProgress) report,
   ) async {
     var result = plugin;
+    final dir = store.pluginDir(plugin.id);
 
-    final image = raw['image'];
-    if (image is String && image.isNotEmpty) {
+    if (plan.needsImage) {
       try {
-        final asset = await client.downloadAsset(image, p.join(dir, 'image'));
+        final asset = await client.downloadAsset(
+          plugin.remoteImageUrl,
+          p.join(dir, 'image'),
+        );
         result = result.copyWith(imagePath: store.relativePath(asset.path));
       } catch (e) {
         report(PluginSyncProgress(
@@ -243,15 +293,15 @@ class PluginMirrorSync {
       }
     }
 
-    final rawShots = raw['screenshots'];
-    if (rawShots is List && rawShots.isNotEmpty) {
+    if (plan.needsScreenshots) {
+      final shotUrls = plugin.remoteScreenshotUrls;
       final shots = <String>[];
-      for (var i = 0; i < rawShots.length; i++) {
-        final url = rawShots[i];
-        if (url is! String || url.isEmpty) continue;
+      for (var i = 0; i < shotUrls.length; i++) {
         try {
-          final asset =
-              await client.downloadAsset(url, p.join(dir, 'screenshot-$i'));
+          final asset = await client.downloadAsset(
+            shotUrls[i],
+            p.join(dir, 'screenshot-$i'),
+          );
           shots.add(store.relativePath(asset.path));
         } catch (e) {
           report(PluginSyncProgress(
@@ -267,49 +317,100 @@ class PluginMirrorSync {
     return result;
   }
 
-  /// קובץ התוסף עצמו עלול להיות גדול — מדלגים עליו אם הגרסה לא השתנתה
-  /// והקובץ כבר קיים.
-  Future<StorePlugin> _syncPluginFile(
+  /// אותה כתובת, אותו `updatedAt`, והקובץ עדיין על הדיסק. `updatedAt` נדרש
+  /// כי האתר יכול להחליף את תוכן התמונה מתחת לאותה כתובת.
+  Future<bool> _imageUnchanged(
+          StorePlugin plugin, StorePlugin? previous) async =>
+      previous != null &&
+      _sameSource(previous.remoteImageUrl, plugin.remoteImageUrl) &&
+      previous.updatedAt == plugin.updatedAt &&
+      await store.hasAsset(previous.imagePath);
+
+  /// כתובת ריקה בצד הקודם היא **קטלוג ישן** שנכתב לפני שהשדה נוסף, לא
+  /// כתובת שהשתנתה. בלי החריג הזה הסנכרון הראשון אחרי העדכון היה מוריד את
+  /// כל תמונות החנות מחדש רק כדי למלא שדה — בדיוק ההתנהגות שבאנו לבטל.
+  /// `updatedAt` הוא מה שמכריע שם, והשדה נכתב לקטלוג גם בלי הורדה.
+  static bool _sameSource(String previous, String current) =>
+      previous.isEmpty || previous == current;
+
+  Future<bool> _screenshotsUnchanged(
     StorePlugin plugin,
-    Map<String, dynamic> raw,
     StorePlugin? previous,
-    String dir,
+  ) async {
+    if (previous == null ||
+        previous.updatedAt != plugin.updatedAt ||
+        !(previous.remoteScreenshotUrls.isEmpty ||
+            _sameUrls(
+                previous.remoteScreenshotUrls, plugin.remoteScreenshotUrls)) ||
+        previous.screenshotPaths.length != plugin.remoteScreenshotUrls.length) {
+      return false;
+    }
+    // כולם או כלום: צילום אחד שנעלם מהדיסק מחזיר את כל הסדרה להורדה, כי
+    // השמות נגזרים מהאינדקס ברשימה.
+    for (final path in previous.screenshotPaths) {
+      if (!await store.hasAsset(path)) return false;
+    }
+    return true;
+  }
+
+  static bool _sameUrls(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// אותה גרסה, אותה כתובת, והקובץ עדיין על הדיסק — ראו [_sameSource].
+  Future<bool> _fileUnchanged(
+    StorePlugin plugin,
+    StorePlugin? previous,
+  ) async =>
+      previous != null &&
+      _sameSource(previous.remoteDownloadUrl, plugin.remoteDownloadUrl) &&
+      previous.version == plugin.version &&
+      previous.localFile != null &&
+      await store.hasLocalFile(previous);
+
+  /// קובץ התוסף עצמו עלול להיות גדול — יורד רק כשהתכנון סימן שהוא חסר או
+  /// השתנה. `ok: false` = התכנון ביקש להוריד וההורדה נכשלה; המתקשר סופר.
+  Future<({StorePlugin plugin, bool ok})> _syncPluginFile(
+    _PluginPlan plan,
+    StorePlugin plugin,
     void Function(PluginSyncProgress) report,
   ) async {
-    final unchanged = previous != null &&
-        previous.version == plugin.version &&
-        previous.localFile != null &&
-        await store.hasLocalFile(previous);
+    final previous = plan.previous;
 
-    if (unchanged) {
-      // תוסף שסונכרן לפני שה-manifestId נכנס לקטלוג — מחלצים אותו מהקובץ
-      // הקיים בלי להוריד מחדש.
-      if (plugin.manifestId == null) {
+    if (!plan.needsFile) {
+      // קטלוג ישן בלי manifestId — מחלצים מהקובץ שכבר במראה, בלי רשת.
+      if (plan.needsManifestId && plugin.localFile != null) {
         final id = PluginManifestReader.readId(
-          store.absolutePath(previous.localFile!.relativePath),
+          store.absolutePath(plugin.localFile!.relativePath),
         );
-        if (id != null) return plugin.copyWith(manifestId: id);
+        if (id != null) {
+          return (plugin: plugin.copyWith(manifestId: id), ok: true);
+        }
       }
-      return plugin;
+      return (plugin: plugin, ok: true);
     }
-
-    final downloadUrl = raw['downloadUrl'];
-    if (downloadUrl is! String || downloadUrl.isEmpty) return plugin;
 
     try {
       final asset = await client.downloadAsset(
-        downloadUrl,
-        p.join(dir, 'plugin'),
+        plugin.remoteDownloadUrl,
+        p.join(store.pluginDir(plugin.id), 'plugin'),
         preferredExt: '.otzplugin',
       );
-      return plugin.copyWith(
-        localFile: PluginLocalFile(
-          relativePath: store.relativePath(asset.path),
-          fileName: asset.originalName ?? '${plugin.name}${asset.ext}',
-          ext: asset.ext,
-          size: asset.size,
+      return (
+        plugin: plugin.copyWith(
+          localFile: PluginLocalFile(
+            relativePath: store.relativePath(asset.path),
+            fileName: asset.originalName ?? '${plugin.name}${asset.ext}',
+            ext: asset.ext,
+            size: asset.size,
+          ),
+          manifestId: PluginManifestReader.readId(asset.path),
         ),
-        manifestId: PluginManifestReader.readId(asset.path),
+        ok: true,
       );
     } catch (e) {
       report(PluginSyncProgress(
@@ -318,14 +419,42 @@ class PluginMirrorSync {
             .syncPluginFileFailed(plugin.name, '$e'),
       ));
       // הקובץ שבמראה הוא עדיין הישן — הקטלוג חייב לומר את גרסתו. אחרת
-      // בדיקת ה-unchanged למעלה תתאים בסנכרון הבא, הקובץ החדש לא יירד לעולם,
+      // התכנון היה מדלג עליו בסנכרון הבא, הקובץ החדש לא יירד לעולם,
       // וההתקנה תגיש בשקט את הישן תחת מספר הגרסה החדש.
       if (previous?.localFile != null && await store.hasLocalFile(previous!)) {
-        return plugin.copyWith(version: previous.version);
+        return (plugin: plugin.copyWith(version: previous.version), ok: false);
       }
-      return plugin;
+      return (plugin: plugin, ok: false);
     }
   }
+}
+
+/// מה חסר לתוסף אחד במראה. נקבע פעם אחת, לפני שההורדות מתחילות — ראו
+/// [PluginMirrorSync.sync].
+class _PluginPlan {
+  const _PluginPlan({
+    required this.plugin,
+    required this.previous,
+    required this.needsImage,
+    required this.needsScreenshots,
+    required this.needsFile,
+    required this.needsManifestId,
+  });
+
+  /// הרשומה המרוחקת אחרי מיזוג הנתיבים המקומיים שכבר במראה.
+  final StorePlugin plugin;
+  final StorePlugin? previous;
+
+  final bool needsImage;
+  final bool needsScreenshots;
+  final bool needsFile;
+
+  /// חילוץ `manifestId` מקובץ שכבר במראה — עבודה מקומית, בלי רשת, אבל
+  /// כן סיבה לא לדלג על התוסף לגמרי.
+  final bool needsManifestId;
+
+  bool get hasWork =>
+      needsImage || needsScreenshots || needsFile || needsManifestId;
 }
 
 /// תוצאת סנכרון המבנה — הקטגוריות והטקסטים, ומהן נגזרת גם השיוך ההפוך

@@ -76,6 +76,12 @@ class PluginMirrorStore {
     await tmp.rename(catalogPath);
   }
 
+  /// האם הנכס (תמונה / צילום מסך) שנשמר בקטלוג קיים בפועל על הדיסק.
+  Future<bool> hasAsset(String? relativePath) async =>
+      relativePath != null &&
+      relativePath.isNotEmpty &&
+      await File(absolutePath(relativePath)).exists();
+
   /// האם קובץ ה-`.otzplugin` של [plugin] קיים בפועל על הדיסק.
   Future<bool> hasLocalFile(StorePlugin plugin) async {
     final local = plugin.localFile;

@@ -79,7 +79,22 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   /// המקורית: המשתמש בא לעדכן, לא לגלול על מה שכבר מותקן.
   bool hideInstalled = true;
 
+  // ── בדיקה קלה ברשת ────────────────────────────────────────────────────────
+
+  /// מה נמצא בחנות שברשת לעומת המראה, או `null` כשטרם נבדק בהרצה הזו.
+  PluginsOnlineStatus? onlineStatus;
+  String? onlineCheckError;
+  DateTime? onlineCheckedAt;
+
+  /// `true` כשיש בחנות תוסף חדש או גרסה חדשה שאינם במראה המקומית.
+  bool get hasOnlineUpdate => onlineStatus?.hasUpdates ?? false;
+
   // ── סנכרון ────────────────────────────────────────────────────────────────
+
+  /// מה הסנכרון האחרון באמת עשה (כמה ירדו, כמה דולגו), או `null` לפני
+  /// שרץ אחד בהרצה הזו.
+  PluginSyncOutcome? lastSyncOutcome;
+
   String? syncMessage;
   double? syncProgress;
   final List<String> syncWarnings = [];
@@ -134,6 +149,24 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     }
   }
 
+  /// שואל את האתר אם יש תוסף חדש או גרסה חדשה — **בקשה קלה אחת**, בלי
+  /// להוריד קובץ. כשל (בעיקר "אין רשת") הוא מצב תקין ונשמר ב-
+  /// [onlineCheckError], בדיוק כמו בשאר המודולים.
+  Future<void> checkOnline() async {
+    onlineCheckError = null;
+    notifyListeners();
+
+    try {
+      onlineStatus = await _manager.peekOnlineUpdates();
+    } catch (e, st) {
+      onlineStatus = null;
+      onlineCheckError = e.toString();
+      AppLogger.instance.info('בדיקת עדכונים ברשת (תוספים) לא הצליחה: $e\n$st');
+    }
+    onlineCheckedAt = DateTime.now();
+    notifyListeners();
+  }
+
   /// מסנכרן את הקטלוג והקבצים מהאתר אל המראה. דורש אינטרנט.
   Future<void> sync() async {
     status = PluginsModuleStatus.syncing;
@@ -144,7 +177,7 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
 
     try {
-      await _manager.sync(onProgress: (progress) {
+      final outcome = await _manager.sync(onProgress: (progress) {
         syncMessage = progress.message;
         if (progress.phase == PluginSyncPhase.warning) {
           syncWarnings.add(progress.message);
@@ -155,10 +188,18 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
         // שאר מדי ההתקדמות.
         notifyProgress();
       });
-      AppLogger.instance.info(
-        'סנכרון חנות התוספים הושלם עם ${syncWarnings.length} אזהרות'
-        '${syncWarnings.isEmpty ? '' : ':\n${syncWarnings.join('\n')}'}',
-      );
+      lastSyncOutcome = outcome;
+      AppLogger.instance.info('סנכרון התוספים: ${outcome.fetched} ירדו, '
+          '${outcome.skipped} דולגו, ${syncWarnings.length} אזהרות'
+          '${syncWarnings.isEmpty ? '' : ':\n${syncWarnings.join('\n')}'}');
+      // המראה זה עתה נמשכה מהאתר — התשובה הישנה של הבדיקה הקלה כבר לא
+      // מתארת אותה, והשארתה הייתה מציגה "יש עדכונים" אחרי שהם כבר ירדו.
+      // כשקובץ תוסף לא ירד המראה עדיין חסרה אותו, ולכן התשובה נשארת.
+      if (!outcome.hasFailures) {
+        onlineStatus = PluginsOnlineStatus.empty;
+        onlineCheckedAt = DateTime.now();
+        onlineCheckError = null;
+      }
       await load();
     } catch (e, st) {
       status = PluginsModuleStatus.error;

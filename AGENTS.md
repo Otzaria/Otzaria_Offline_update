@@ -41,15 +41,40 @@ touched by *one* thing only: the download step that fills that folder.
 | Peek the latest library version online | `LibraryManager.peekLatestOnlineVersion()` | **yes** (light — one API call, no asset) |
 | Peek the latest Otzaria release online | `OtzariaManager.peekLatestOnlineRelease()` | **yes** (light — one API call, no asset) |
 | Peek the latest launcher release online | `LauncherSelfUpdater.peekLatestOnline()` | **yes** (light — one API call, no asset) |
+| Peek what is new in the plugin store online | `PluginsManager.peekOnlineUpdates()` | **yes** (light — one API call, no asset) |
 | Check / apply a library update | `LibraryManager.checkForUpdate()` / `.applyUpdate()` | no |
 | Check / install the Otzaria app | `OtzariaManager.checkForUpdate()` / `.update()` | no |
 | Check / install the launcher itself | `LauncherSelfUpdater.checkForUpdate()` / `.applyUpdate()` | no |
 | Read the store / install a plugin | `PluginsManager.load()` / `.directInstall()` | no |
 
-The two "peek" methods exist only to power the launcher's optional, one-shot,
+**`downloadAll` runs only the components that have something to bring.**
+`AppShell.downloadAll()` used to run all three downloads whenever the button
+was pressed, so a store with two new plugins also re-ran the app and library
+downloads — minutes of progress bars for nothing, and it read as "it downloads
+everything again". A component is now skipped when `provenUpToDateOnline`
+(`controllers/online_check.dart`) says the light check *proved* there is
+nothing new: checked, no error, no update. A check that never ran or that
+failed proves nothing and never skips — "no network" is not "no update". The
+library is additionally never skipped in personal-update mode, where the target
+comes from the recorded DB version rather than from the newest release online.
+The skip is announced in a snackbar; a silent one is what produced the "why
+did it not download the plugins" confusion in the first place.
+
+The "peek" methods exist only to power the launcher's optional, one-shot,
 auto-on-launch "is there anything new online?" nudge (`AppShell.checkOnline()`,
 `AppSettings.autoCheckOnlineUpdates`) — metadata only, never an asset, and a
 failure (no network) is a normal, silently-handled outcome, not an error.
+**All four modules must be in that call.** The plugin store was missing from it
+for its whole life, so a new plugin — or a new version of one already in the
+mirror — was announced by exactly nothing: the launcher said "no new updates
+online" while the store had them. `PluginsManager.peekOnlineUpdates()` compares
+`/api/plugins` against the mirrored `catalog.json`, and it must keep agreeing
+with what a real `sync()` would download (see `plugins_manager/README.md`).
+**That includes looking at the disk**: the catalog is not evidence that the
+file exists — a deleted `.otzplugin`, a half-copied drive or a failed download
+all leave a complete-looking record behind, and the metadata-only version of
+this check answered "everything is up to date" for a folder that was missing
+plugins.
 
 `AppPaths.resolve()` (in `launcher_app`) puts the data folder at
 `<dir of the executable>/OtzariaData`, and there is **no setting to change it** —
@@ -523,6 +548,38 @@ extracted from the `manifest.json` inside the already-downloaded `.otzplugin`
 the catalog id and *nothing* is ever detected as installed. A plugin whose file
 has not been downloaded yet correctly reports
 `PluginInstallStatus.unknown` — that is not an error state.
+
+**A plugin sync plans before it starts, and its counter shows only real
+work.** `PluginMirrorSync._plan` decides per plugin what is missing from the
+mirror (metadata comparison + file-existence checks, no network), and only
+those enter the loop. So `PluginSyncProgress.total` is "how many are being
+downloaded", not the size of the store — a store that is fully up to date ends
+without a single request after `/api/plugins`, and the UI stops looking like it
+re-downloads everything. `PluginSyncOutcome` carries `fetched`/`skipped`/
+`failed` out, because the catalog alone reads the same whether nothing needed
+downloading or everything failed. `failed` is also what keeps
+`PluginsModuleController.onlineStatus` honest: a sync that could not fetch a
+file leaves the "there is something new online" answer standing.
+
+**A plugin sync downloads only what changed — images included.** The
+`.otzplugin` file was always skipped when the version matched, but the image
+and every screenshot of *every* plugin were re-fetched on each sync "because
+they are small". Over a whole store that is the store downloaded again, for
+one plugin that moved. `catalog.json` now also records where each asset came
+from (`remoteImageUrl`, `remoteScreenshotUrls`), and an asset is fetched only
+when that URL changed, when the plugin's `updatedAt` moved (the site can swap
+an image under the same URL), or when the file is missing from the mirror.
+Screenshots are all-or-nothing — their file names are `screenshot-<index>`, so
+a changed list must re-fetch the whole series or the contents shift between
+indices.
+
+**An empty recorded URL means "old catalog", not "changed"** (`_sameSource`).
+A mirror written before those fields existed has none of them, and treating
+that as a difference re-downloaded every image in the store on the first sync
+after the upgrade — the exact behaviour this removed, appearing one last time
+at the worst moment. The comparison falls back to `updatedAt` plus the file
+being on disk, and the URL is written into the catalog even when nothing is
+downloaded, so the migration closes itself.
 
 **The plugin store's *structure* sync must never be fatal.** Since the website's
 store redesign (managed categories, curated "featured" plugins, editable home

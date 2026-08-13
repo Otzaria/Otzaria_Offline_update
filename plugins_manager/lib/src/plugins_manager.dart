@@ -5,13 +5,16 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import 'models/plugin_catalog.dart';
+import 'models/plugin_sync_outcome.dart';
 import 'models/plugin_sync_progress.dart';
+import 'models/plugins_online_status.dart';
 import 'models/store_plugin.dart';
 import 'services/installed_plugins_scanner.dart';
 import 'services/plugin_direct_installer.dart';
 import 'services/plugin_manifest_reader.dart';
 import 'services/plugin_mirror_store.dart';
 import 'services/plugin_mirror_sync.dart';
+import 'services/plugin_online_peek.dart';
 import 'services/plugin_store_client.dart';
 
 /// תמונת מצב אחת של החנות, כפי שהממשק צריך אותה.
@@ -98,8 +101,9 @@ class PluginsManager {
         otzariaLaunchPath: await otzariaLaunchPath?.call(),
       ).scan();
 
-  /// מסנכרן את הקטלוג והקבצים מהאתר אל המראה. דורש אינטרנט.
-  Future<PluginCatalog> sync({
+  /// מסנכרן את הקטלוג והקבצים מהאתר אל המראה. דורש אינטרנט. מוריד **רק**
+  /// את מה שחסר או השתנה — ראו [PluginSyncOutcome].
+  Future<PluginSyncOutcome> sync({
     void Function(PluginSyncProgress progress)? onProgress,
     bool Function()? isCancelled,
   }) async {
@@ -107,6 +111,12 @@ class PluginsManager {
     final sync = PluginMirrorSync(client: _client, store: store);
     return sync.sync(onProgress: onProgress, isCancelled: isCancelled);
   }
+
+  /// בודק ברשת אם יש בחנות תוסף חדש או גרסה חדשה — **בקשה קלה אחת**, בלי
+  /// להוריד קובץ ובלי לגעת במראה. זורק כמו [sync] כשאין רשת; המתקשר הוא
+  /// שמחליט שזה מצב תקין.
+  Future<PluginsOnlineStatus> peekOnlineUpdates() async =>
+      PluginOnlinePeek(client: _client, store: await _store()).peek();
 
   /// נתיב מוחלט לנכס שנשמר בקטלוג כנתיב יחסי, או null אם אין נכס.
   Future<String?> assetPath(String? relativePath) async {

@@ -176,9 +176,23 @@ class _Home extends HomeStrings {
   @override
   String get onlineNoUpdates => 'No new updates online';
   @override
+  String onlineNewPlugins(int count) => '$count new plugins in the store';
+  @override
+  String onlineUpdatedPlugins(int count) =>
+      '$count plugins updated in the store';
+  @override
+  String onlineMissingPlugins(int count) =>
+      '$count plugins are missing from the folder — their install file is gone';
+  @override
+  String get onlinePluginsSyncOff =>
+      'Plugin downloads are turned off in Settings — they will be skipped.';
+  @override
   String get checkForUpdatesButton => 'Check for updates';
   @override
   String get downloadNowButton => 'Download now';
+  @override
+  String downloadSkippedSnack(String components) =>
+      'Skipped $components — nothing new for them online';
   @override
   String lastCheckedAt(String time) => 'Last checked at $time';
 
@@ -674,16 +688,23 @@ class _Plugins extends PluginsStrings {
   @override
   String get syncDialogContent =>
       'This downloads the plugin list, the categories, the images and the '
-      'install files from otzaria.org into the transfer folder. It needs '
-      'internet once; after that the store works on a computer with no '
-      'connection at all.';
+      'install files from otzaria.org into the transfer folder. Only new and '
+      'updated plugins are fetched — whatever is already there is left alone. '
+      'It needs internet once; after that the store works on a computer with '
+      'no connection at all.';
   @override
   String get syncDialogConfirm => 'Sync';
   @override
   String get syncFailedSnack => 'The sync failed';
   @override
-  String syncDoneSnack(int count) =>
-      'Sync complete — $count plugins in the store';
+  String syncDoneSnack(int fetched, int total) => fetched == 0
+      ? 'Everything was already up to date — nothing downloaded '
+          '($total plugins in the store)'
+      : 'Sync complete — $fetched plugins downloaded, out of $total in the '
+          'store';
+  @override
+  String get syncingOverlaySubtitle =>
+      'Only new and updated plugins are downloaded — the rest is skipped.';
   @override
   String syncDoneWithWarningsSnack(int count) =>
       'Sync finished, but $count items did not download. Details in the log.';
@@ -1576,6 +1597,9 @@ class _PluginsDomain extends PluginsDomainStrings {
       'Syncing: $name ($done/$total)';
   @override
   String get syncDone => 'Sync complete';
+  @override
+  String syncDoneCounts(int fetched, int skipped) =>
+      'Sync complete: $fetched plugins updated, $skipped already up to date';
   @override
   String get syncCategories => 'Syncing the store categories…';
   @override

@@ -108,8 +108,23 @@ abstract class HomeStrings {
   String get onlineOffline;
   String get onlineHasUpdates;
   String get onlineNoUpdates;
+
+  /// פירוט מה נמצא בחנות התוספים — לתוספים אין מספר גרסה אחד להשוות אליו,
+  /// ולכן הם נספרים.
+  String onlineNewPlugins(int count);
+  String onlineUpdatedPlugins(int count);
+
+  /// תוספים שהקטלוג מכיר אבל קובץ ההתקנה שלהם חסר בתיקייה.
+  String onlineMissingPlugins(int count);
+
+  /// נאמר כשנמצאו תוספים ברשת אך "הורדת תוספים" כבויה בהגדרות — אחרת
+  /// "הורד עכשיו" מדלג עליהם בשקט.
+  String get onlinePluginsSyncOff;
   String get checkForUpdatesButton;
   String get downloadNowButton;
+
+  /// אילו רכיבים ההורדה דילגה עליהם, כי הבדיקה הוכיחה שאין בהם חדש.
+  String downloadSkippedSnack(String components);
   String lastCheckedAt(String time);
 
   String get downloadingApp;
@@ -366,7 +381,13 @@ abstract class PluginsStrings {
   String get syncDialogContent;
   String get syncDialogConfirm;
   String get syncFailedSnack;
-  String syncDoneSnack(int count);
+
+  /// [fetched] הוא מה שבאמת ירד עכשיו, מתוך [total] שבחנות — הסנכרון מדלג
+  /// על כל מה שכבר מעודכן במראה, וההודעה חייבת לומר את זה.
+  String syncDoneSnack(int fetched, int total);
+
+  /// נאמר בזמן הסנכרון עצמו, מתחת לכותרת: לא מורידים את החנות מחדש.
+  String get syncingOverlaySubtitle;
 
   /// סנכרון שהסתיים אך פריטים בודדים בו נכשלו — ראו `syncWarnings`.
   String syncDoneWithWarningsSnack(int count);
@@ -786,8 +807,15 @@ abstract class PluginsDomainStrings {
   String get directInstallUnsupportedPlatform;
 
   String get syncLoadingCatalog;
+
+  /// [total] הוא מספר התוספים שיש בהם מה להוריד, לא גודל החנות — הסנכרון
+  /// מדלג לגמרי על מה שכבר מעודכן.
   String syncPlugin(String name, int done, int total);
   String get syncDone;
+
+  /// סיום מפורט: כמה ירדו וכמה דולגו. בלעדיו "הסתיים" נראה זהה בין
+  /// "הכול כבר היה מעודכן" לבין סנכרון שבאמת הביא משהו.
+  String syncDoneCounts(int fetched, int skipped);
   String get syncCategories;
   String syncStructureFailed(String error);
 

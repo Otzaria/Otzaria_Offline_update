@@ -168,9 +168,22 @@ class _Home extends HomeStrings {
   @override
   String get onlineNoUpdates => 'אין עדכונים חדשים ברשת';
   @override
+  String onlineNewPlugins(int count) => '$count תוספים חדשים בחנות';
+  @override
+  String onlineUpdatedPlugins(int count) => '$count תוספים עודכנו בחנות';
+  @override
+  String onlineMissingPlugins(int count) =>
+      '$count תוספים חסרים בתיקייה — קובץ ההתקנה שלהם אינו שם';
+  @override
+  String get onlinePluginsSyncOff =>
+      'הורדת התוספים כבויה בהגדרות — הם לא ייכללו בהורדה.';
+  @override
   String get checkForUpdatesButton => 'בדיקת עדכונים';
   @override
   String get downloadNowButton => 'הורד עכשיו';
+  @override
+  String downloadSkippedSnack(String components) =>
+      'דולג על $components — אין בהם שום דבר חדש ברשת';
   @override
   String lastCheckedAt(String time) => 'נבדק לאחרונה: $time';
 
@@ -637,14 +650,20 @@ class _Plugins extends PluginsStrings {
   @override
   String get syncDialogContent =>
       'הפעולה תוריד מ-otzaria.org את רשימת התוספים, הקטגוריות, התמונות '
-      'וקובצי ההתקנה אל תיקיית ההעברה. דורשת אינטרנט, ומרגע שהסתיימה החנות '
+      'וקובצי ההתקנה אל תיקיית ההעברה. יורדים רק תוספים חדשים ומעודכנים — '
+      'מה שכבר בתיקייה נשאר כמו שהוא. דורשת אינטרנט, ומרגע שהסתיימה החנות '
       'עובדת גם במחשב שאין בו אינטרנט.';
   @override
   String get syncDialogConfirm => 'סנכרן';
   @override
   String get syncFailedSnack => 'הסנכרון נכשל';
   @override
-  String syncDoneSnack(int count) => 'הסנכרון הושלם — $count תוספים בחנות';
+  String syncDoneSnack(int fetched, int total) => fetched == 0
+      ? 'הכול כבר היה מעודכן — לא ירד דבר ($total תוספים בחנות)'
+      : 'הסנכרון הושלם — $fetched תוספים ירדו, מתוך $total שבחנות';
+  @override
+  String get syncingOverlaySubtitle =>
+      'יורדים רק תוספים חדשים ומעודכנים — מה שכבר בתיקייה מדולג.';
   @override
   String syncDoneWithWarningsSnack(int count) =>
       'הסנכרון הסתיים, אך $count פריטים לא ירדו. הפרטים ביומן.';
@@ -1490,6 +1509,9 @@ class _PluginsDomain extends PluginsDomainStrings {
       'מסנכרן: $name ($done/$total)';
   @override
   String get syncDone => 'הסנכרון הושלם';
+  @override
+  String syncDoneCounts(int fetched, int skipped) =>
+      'הסנכרון הושלם: $fetched תוספים עודכנו, $skipped כבר היו מעודכנים';
   @override
   String get syncCategories => 'מסנכרן את קטגוריות החנות...';
   @override

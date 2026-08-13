@@ -38,6 +38,14 @@ class PluginSyncOverlay extends StatelessWidget {
                     style: theme.textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.bold),
                   ),
+                  const SizedBox(height: AppTokens.spaceXS),
+                  // בלי זה המונה שרץ נראה כאילו כל החנות יורדת מחדש.
+                  Text(
+                    t.syncingOverlaySubtitle,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: cs.onSurfaceVariant),
+                  ),
                   const SizedBox(height: AppTokens.spaceMD),
                   Text(
                     controller.syncMessage ?? t.syncingOverlayStarting,

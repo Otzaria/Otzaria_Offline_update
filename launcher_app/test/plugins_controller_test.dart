@@ -474,4 +474,46 @@ void main() {
       expect(controller.syncWarnings, isEmpty);
     });
   });
+
+  group('checkOnline — בדיקה קלה, כשל בה אינו שגיאה', () {
+    test('בלי חיבור: נרשמת הודעה, המצב אינו הופך לשגיאה', () async {
+      await controller.load();
+      await controller.checkOnline();
+
+      expect(controller.onlineCheckError, isNotNull);
+      expect(controller.onlineCheckedAt, isNotNull);
+      expect(controller.onlineStatus, isNull);
+      expect(controller.hasOnlineUpdate, isFalse);
+      // הבדיקה הקלה נפרדת ממצב החנות עצמה — היא לא הופכת אותה לשבורה.
+      expect(controller.status, PluginsModuleStatus.ready);
+      expect(controller.errorMessage, isNull);
+    });
+
+    test('תוצאה עם חדשים/מעודכנים מדליקה את הדגל', () async {
+      controller.onlineStatus = const PluginsOnlineStatus(
+        newPlugins: ['תוסף חדש'],
+        totalOnline: 3,
+      );
+      expect(controller.hasOnlineUpdate, isTrue);
+
+      controller.onlineStatus = const PluginsOnlineStatus(
+        updatedPlugins: ['תוסף מעודכן'],
+        totalOnline: 3,
+      );
+      expect(controller.hasOnlineUpdate, isTrue);
+
+      controller.onlineStatus = PluginsOnlineStatus.empty;
+      expect(controller.hasOnlineUpdate, isFalse);
+    });
+
+    test('סנכרון שנכשל אינו מוחק את תוצאת הבדיקה', () async {
+      controller.onlineStatus =
+          const PluginsOnlineStatus(newPlugins: ['תוסף חדש']);
+
+      await controller.sync();
+
+      expect(controller.status, PluginsModuleStatus.error);
+      expect(controller.hasOnlineUpdate, isTrue);
+    });
+  });
 }
