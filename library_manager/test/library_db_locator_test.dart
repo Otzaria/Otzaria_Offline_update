@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:hive_ce/hive.dart';
@@ -316,6 +317,19 @@ void main() {
 
       expect(await locator().resolveInstallDbPath(), chosen);
       expect(await locator().resolveDbPath(), isNull);
+    });
+
+    test('בחירה שהגיעה עם הכונן ממחשב אחר אינה היעד (issue #23)', () async {
+      // רשומה גלובלית מגרסה קודמת — כך נראה כונן שהותקנה בו ספרייה במחשב
+      // שחשבון המשתמש שלו נקרא user. בלי הסינון, ההתקנה כאן הייתה מכוונת
+      // לתיקייה שאינה קיימת במחשב הזה ונכשלת בשגיאת גישה.
+      final state = File(p.join(tempDir.path, 'state.json'));
+      await state.parent.create(recursive: true);
+      await state.writeAsString(jsonEncode({
+        'customDbPath': p.join(tempDir.path, 'other-user', 'seforim.db'),
+      }));
+
+      expect(await locator().resolveInstallDbPath(), defaultDb());
     });
 
     test('פלטפורמה שאין בה מיקום ידוע מחזירה null, בלי לנחש', () async {

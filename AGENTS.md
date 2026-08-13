@@ -522,6 +522,21 @@ carries the mirror's full DB alongside every delta plan so
 **never** automatic — ~1.5GB copied plus ~5.5GB extracted is the user's
 decision, the same reasoning as "no silent network fallback" below.
 
+**An absolute path recorded in `library_state.json` is per-machine, because the
+file rides on the drive.** `customDbPath` was one global record, written by
+`applyUpdate` after every fresh install and by the manual picker — so a drive
+that installed a library on a machine whose account is `user` arrived at the
+next machine still pointing at `C:\Users\user\AppData\Roaming\otzaria\books`.
+A standard account cannot create a folder under `C:\Users`, so
+`applyFullDownload`'s `createSync(recursive: true)` failed with an access error
+and the only way out was picking a location by hand (issue #23).
+`LibraryStateStore` now keys it under `currentMachineKey()` — hostname **and**
+account name, since two accounts on one machine are two `%APPDATA%` roots — and
+each machine's own choice survives the trip. A legacy global record (no machine
+key) is honoured only when it is absolute *for this platform* and its parent
+directory exists here; that is what repairs the drives already in the field
+without discarding the choice on the machine that wrote it.
+
 **`otzaria_install_state.json` travels on the drive, so it is never trusted
 as-is.** It lives in `OtzariaData/`, i.e. on the flash drive, so an install
 recorded on one machine arrives on every other machine the drive is plugged

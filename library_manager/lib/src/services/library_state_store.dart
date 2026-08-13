@@ -1,15 +1,33 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 /// שומר/טוען הגדרות מתמשכות של מודול הספרייה: נתיב DB מותאם אישית (למקרה
 /// שהמשתמש הצביע ידנית על תיקיית ספרייה שאינה ברירת המחדל של אוצריא), וכן
 /// נתיב "מראה מקומית" (offline) אם המשתמש בחר לעדכן מתיקייה מקומית/USB
 /// במקום מהענן. קובץ state נפרד מזה של [OtzariaStateStore] — שני מודולים
 /// שונים, שני קבצים.
+///
+/// **הקובץ יושב ב-`OtzariaData/`, כלומר על הכונן הנייד, ולכן הוא נוסע לכל
+/// מחשב שהכונן מגיע אליו.** כל נתיב מוחלט שנשמר בו הוא לכן פר-מחשב — ראו
+/// [loadCustomDbPath].
 class LibraryStateStore {
   const LibraryStateStore(this.stateFilePath);
 
   final String stateFilePath;
+
+  /// מזהה המחשב+החשבון שרשומות פר-מחשב נשמרות תחתיו. שם המחשב לבדו אינו
+  /// מספיק: שני חשבונות באותו מחשב הם שני `%APPDATA%` שונים.
+  static String currentMachineKey() {
+    var host = 'unknown';
+    try {
+      host = Platform.localHostname;
+    } catch (_) {}
+    final env = Platform.environment;
+    final account = env['USERNAME'] ?? env['USER'] ?? '';
+    return '$host|$account';
+  }
 
   Future<Map<String, dynamic>> _readAll() async {
     final file = File(stateFilePath);
@@ -31,16 +49,45 @@ class LibraryStateStore {
     await tmp.rename(stateFilePath);
   }
 
-  /// מחזיר null אם לא הוגדר נתיב מותאם אישית (או שהקובץ פגום/לא קריא —
-  /// מתייחסים לזה כ"לא הוגדר" ולא זורקים).
+  /// הנתיב שנבחר **במחשב הזה**, או null כשלא הוגדר (וגם כשהקובץ פגום/לא
+  /// קריא — מתייחסים לזה כ"לא הוגדר" ולא זורקים).
+  ///
+  /// **פר-מחשב, כי הקובץ נוסע עם הכונן** (issue #23): רשומה גלובלית אחת
+  /// הצביעה במחשב השני על `C:\Users\<שם המשתמש של המחשב הראשון>`, ושם אי אפשר
+  /// ליצור תיקייה — הספרייה סירבה להותקן עד שנבחר מיקום ידנית.
+  ///
+  /// רשומה מגרסה קודמת (מפתח יחיד, בלי מזהה מחשב) נחשבת רק אם היא נתיב מוחלט
+  /// **בפלטפורמה הזו** ותיקיית האם שלו קיימת כאן — זה מה שמבדיל בין הבחירה של
+  /// המחשב הזה לבין בחירה שהגיעה עם הכונן, בלי להפסיד את הראשונה.
   Future<String?> loadCustomDbPath() async {
     final json = await _readAll();
-    return json['customDbPath'] as String?;
+
+    final perMachine = json['customDbPaths'];
+    if (perMachine is Map) {
+      final own = perMachine[currentMachineKey()];
+      if (own is String && own.isNotEmpty) return own;
+    }
+
+    final legacy = json['customDbPath'];
+    if (legacy is! String || legacy.isEmpty || !p.isAbsolute(legacy)) {
+      return null;
+    }
+    return await Directory(p.dirname(legacy)).exists() ? legacy : null;
   }
 
   Future<void> saveCustomDbPath(String dbPath) async {
     final json = await _readAll();
-    json['customDbPath'] = dbPath;
+    final paths = <String, dynamic>{};
+    final existing = json['customDbPaths'];
+    if (existing is Map) {
+      existing.forEach((key, value) {
+        if (key is String && value is String) paths[key] = value;
+      });
+    }
+    paths[currentMachineKey()] = dbPath;
+    json['customDbPaths'] = paths;
+    // הרשומה הישנה נשארת כמו שהיא: היא עשויה להיות הבחירה של מחשב אחר,
+    // ו-[loadCustomDbPath] כבר מסננת אותה לפי המחשב שקורא.
     await _writeAll(json);
   }
 

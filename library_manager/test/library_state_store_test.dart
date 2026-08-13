@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -88,6 +89,97 @@ void main() {
       await store.saveAppliedReleaseTag('v1');
 
       expect(File('$statePath.tmp').existsSync(), isFalse);
+    });
+  });
+
+  // issue #23: הקובץ נוסע על הכונן, ורשומה גלובלית אחת הצביעה במחשב הבא אל
+  // `C:\Users\<שם החשבון של המחשב הראשון>` — תיקייה שאין שם ואי אפשר ליצור.
+  group('LibraryStateStore — נתיב מותאם אישית הוא פר-מחשב', () {
+    test('הנתיב נשמר תחת מזהה המחשב, ולא כשדה גלובלי', () async {
+      final dbPath = p.join(tempDir.path, 'lib', 'seforim.db');
+      await store.saveCustomDbPath(dbPath);
+
+      final json = jsonDecode(await File(statePath).readAsString()) as Map;
+      expect(json['customDbPath'], isNull);
+      expect(
+        json['customDbPaths'],
+        {LibraryStateStore.currentMachineKey(): dbPath},
+      );
+    });
+
+    test('רשומה של מחשב אחר אינה נקראת כאן', () async {
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsString(jsonEncode({
+        'customDbPaths': {
+          'OTHER-PC|user': p.join(tempDir.path, 'elsewhere', 'seforim.db'),
+        },
+      }));
+
+      expect(await store.loadCustomDbPath(), isNull);
+    });
+
+    test('שמירה כאן אינה מוחקת את הרשומה של מחשב אחר', () async {
+      final other = p.join(tempDir.path, 'elsewhere', 'seforim.db');
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsString(jsonEncode({
+        'customDbPaths': {'OTHER-PC|user': other},
+      }));
+
+      final mine = p.join(tempDir.path, 'mine', 'seforim.db');
+      await store.saveCustomDbPath(mine);
+
+      final json = jsonDecode(await File(statePath).readAsString()) as Map;
+      expect(json['customDbPaths'], {
+        'OTHER-PC|user': other,
+        LibraryStateStore.currentMachineKey(): mine,
+      });
+      expect(await store.loadCustomDbPath(), mine);
+    });
+
+    test('רשומה גלובלית ישנה נחשבת רק אם התיקייה שלה קיימת כאן', () async {
+      final living = Directory(p.join(tempDir.path, 'living'));
+      await living.create(recursive: true);
+      await File(statePath).parent.create(recursive: true);
+
+      await File(statePath).writeAsString(jsonEncode({
+        'customDbPath': p.join(living.path, 'seforim.db'),
+      }));
+      expect(
+        await store.loadCustomDbPath(),
+        p.join(living.path, 'seforim.db'),
+      );
+
+      // אותה רשומה, אבל התיקייה שייכת למחשב שממנו הכונן הגיע.
+      await File(statePath).writeAsString(jsonEncode({
+        'customDbPath': p.join(tempDir.path, 'no-such-user', 'seforim.db'),
+      }));
+      expect(await store.loadCustomDbPath(), isNull);
+    });
+
+    test('רשומה גלובלית שאינה נתיב מוחלט בפלטפורמה הזו נדחית', () async {
+      await File(statePath).parent.create(recursive: true);
+      // ב-POSIX נתיב ווינדוס אינו מוחלט, ו-`dirname` שלו היה מחזיר "." הקיים.
+      final foreign =
+          Platform.isWindows ? '/home/dov/otzaria' : r'C:\Users\user\otzaria';
+      await File(statePath).writeAsString(
+        jsonEncode({'customDbPath': p.join(foreign, 'seforim.db')}),
+      );
+
+      expect(await store.loadCustomDbPath(), isNull);
+    });
+
+    test('רשומת המחשב הזה מנצחת רשומה גלובלית קיימת', () async {
+      final mine = p.join(tempDir.path, 'mine', 'seforim.db');
+      await Directory(p.dirname(mine)).create(recursive: true);
+      await store.saveCustomDbPath(mine);
+
+      final json = jsonDecode(await File(statePath).readAsString())
+          as Map<String, dynamic>;
+      json['customDbPath'] = p.join(tempDir.path, 'legacy', 'seforim.db');
+      await Directory(p.join(tempDir.path, 'legacy')).create(recursive: true);
+      await File(statePath).writeAsString(jsonEncode(json));
+
+      expect(await store.loadCustomDbPath(), mine);
     });
   });
 
