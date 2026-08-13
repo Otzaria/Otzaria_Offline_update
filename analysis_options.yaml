@@ -5,7 +5,8 @@ include:
 
 # https://dart.dev/guides/language/analysis-options
 
-# otzaria_l10n/, otzaria_manager/, library_manager/, plugins_manager/ ו-launcher_app/ הם packages נפרדים
+# otzaria_l10n/, otzaria_manager/, library_manager/, plugins_manager/,
+# custom_apps_manager/ ו-launcher_app/ הם packages נפרדים
 # (כל אחד עם pubspec.yaml משלו, וב-CI נבדקים בג'וב נפרד עם pub get משלו).
 # בלי ה-exclude הזה, `flutter analyze` שרץ מכאן (root) סורק אותם רקורסיבית
 # בלי context resolution תקין (אין להם .dart_tool כאן) ומדפיס עשרות
@@ -20,4 +21,5 @@ analyzer:
     - otzaria_manager/**
     - library_manager/**
     - plugins_manager/**
+    - custom_apps_manager/**
     - launcher_app/**
