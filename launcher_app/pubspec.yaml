@@ -24,6 +24,8 @@ dependencies:
     path: ../library_manager
   plugins_manager:
     path: ../plugins_manager
+  custom_apps_manager:
+    path: ../custom_apps_manager
   path: ^1.9.1
   path_provider: ^2.1.4
   # העדכון העצמי של הלאנצ'ר מדבר עם GitHub API ומוריד את ה-exe בעצמו

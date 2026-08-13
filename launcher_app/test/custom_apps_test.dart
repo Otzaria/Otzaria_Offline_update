@@ -1,0 +1,201 @@
+// בדיקות לתוכנות נוספות. הכלל שנבדק שוב ושוב כאן הוא **"ריק = בלתי
+// נראה"**: משתמש שלא הוסיף תוכנה לא אמור לפגוש שום סימן לתכונה הזו.
+
+import 'dart:io';
+
+import 'package:custom_apps_manager/custom_apps_manager.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:launcher_app/src/controllers/custom_apps_controller.dart';
+import 'package:launcher_app/src/screens/custom_apps/custom_apps_screen.dart';
+import 'package:launcher_app/src/screens/custom_apps/custom_apps_settings_card.dart';
+import 'package:path/path.dart' as p;
+
+import 'test_harness.dart';
+
+void main() {
+  late Directory tempDir;
+  late CustomAppsController controller;
+
+  setUp(() {
+    tempDir = Directory.systemTemp.createTempSync('custom_apps_ui');
+    controller = CustomAppsController(
+      mirrorRootDir: p.join(tempDir.path, 'mirror'),
+    );
+  });
+
+  tearDown(() {
+    controller.dispose();
+    try {
+      tempDir.deleteSync(recursive: true);
+    } catch (_) {}
+  });
+
+  /// רושם תוכנה על הדיסק ומרענן. קריאות דיסק אמיתיות אינן מסתיימות בתוך
+  /// ה-fake-async של testWidgets, ולכן הכול ב-runAsync לפני ה-pump.
+  Future<void> addApp(
+    WidgetTester tester, {
+    String id = 'demo',
+    String name = 'תוכנת דמו',
+    String? description,
+    String? exeName,
+    AppSourceKind source = AppSourceKind.manual,
+    bool withInstaller = false,
+  }) async {
+    await tester.runAsync(() async {
+      await controller.add(
+        AppDescriptor(
+          id: id,
+          name: name,
+          description: description,
+          sourceKind: source,
+          github: source == AppSourceKind.github
+              ? const GithubSource(
+                  owner: 'someone',
+                  repo: 'their-app',
+                  assetPattern: r'^App\-\d+\.exe$',
+                )
+              : null,
+          detect: AppDetectRules(exeName: exeName),
+        ),
+      );
+      if (withInstaller) {
+        final source = File(p.join(tempDir.path, 'Demo-Setup.exe'))
+          ..writeAsStringSync('x');
+        await controller.attachInstaller(
+          id,
+          sourcePath: source.path,
+          version: '1.4.2',
+        );
+      }
+    });
+  }
+
+  group('ריק = בלתי נראה', () {
+    testWidgets('אין תוכנות — הדגל שמסתיר את פריט הניווט כבוי', (tester) async {
+      await tester.runAsync(controller.load);
+      expect(controller.hasApps, isFalse);
+    });
+
+    testWidgets('כרטיס ההגדרות כן מוצג — הוא הכניסה הראשונה', (tester) async {
+      await tester.runAsync(controller.load);
+      await pumpScreen(tester, CustomAppsSettingsCard(controller: controller));
+
+      expect(find.text('תוכנות נוספות'), findsWidgets);
+      expect(find.text('לא נוספו תוכנות'), findsOneWidget);
+      expect(find.text('הוספת תוכנה'), findsOneWidget);
+    });
+
+    testWidgets('תוכנה ראשונה מדליקה את פריט הניווט', (tester) async {
+      await addApp(tester);
+      expect(controller.hasApps, isTrue);
+    });
+  });
+
+  group('מסך התוכנות', () {
+    testWidgets('שם ותיאור מוצגים כפי שהם — תוכן שאינו מתורגם', (tester) async {
+      await addApp(
+        tester,
+        name: 'התוכנה של יוסי',
+        description: 'כלי לחישוב זמנים',
+      );
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+
+      expect(find.text('התוכנה של יוסי'), findsOneWidget);
+      expect(find.text('כלי לחישוב זמנים'), findsOneWidget);
+    });
+
+    testWidgets('בלי קובץ — אומר זאת, ואין כפתור התקנה', (tester) async {
+      await addApp(tester, exeName: 'demo.exe');
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+
+      expect(find.textContaining('עוד לא הורד קובץ התקנה'), findsOneWidget);
+      expect(find.text('התקנה'), findsNothing);
+    });
+
+    testWidgets('עם קובץ — מציג את הגרסה השמורה ומאפשר התקנה', (tester) async {
+      await addApp(tester, exeName: 'demo.exe', withInstaller: true);
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+
+      expect(find.textContaining('על הכונן: גרסה 1.4.2'), findsOneWidget);
+      expect(find.text('התקנה'), findsOneWidget);
+    });
+
+    // ההבחנה החשובה: "לא חיפשנו" אינו "חיפשנו ולא מצאנו".
+    testWidgets('בלי שם קובץ הרצה אינו מדווח "אינה מותקנת"', (tester) async {
+      await addApp(tester);
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+
+      expect(find.textContaining('לא ניתן לזהות'), findsOneWidget);
+      expect(find.textContaining('אינה מותקנת'), findsNothing);
+    });
+
+    testWidgets('עם שם קובץ הרצה שלא נמצא — כן "אינה מותקנת"', (tester) async {
+      await addApp(tester, exeName: 'no-such-app-anywhere.exe');
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+
+      expect(find.textContaining('אינה מותקנת'), findsOneWidget);
+    });
+
+    testWidgets('כפתורי הרשת מוצגים רק לתוכנה מגיטהאב', (tester) async {
+      await addApp(tester, id: 'local', name: 'מקומית');
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      expect(find.text('הורדה לכונן'), findsNothing);
+
+      await addApp(tester,
+          id: 'gh', name: 'מגיטהאב', source: AppSourceKind.github);
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      expect(find.text('הורדה לכונן'), findsOneWidget);
+      expect(find.text('בדיקה ברשת'), findsOneWidget);
+    });
+
+    testWidgets('בחירת מיקום ידנית מוצגת כשיש מה לחפש ולא נמצא',
+        (tester) async {
+      await addApp(tester, exeName: 'no-such-app-anywhere.exe');
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+
+      expect(find.text('בחירת מיקום ידנית'), findsOneWidget);
+    });
+
+    // בלי שם קובץ הרצה אין מה לחפש בתיקייה שייבחר — הכפתור היה חסר משמעות.
+    testWidgets('בלי שם קובץ הרצה אין בחירת מיקום ידנית', (tester) async {
+      await addApp(tester);
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+
+      expect(find.text('בחירת מיקום ידנית'), findsNothing);
+    });
+
+    testWidgets('כפתור ההוספה תמיד בתחתית המסך', (tester) async {
+      await addApp(tester);
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+
+      expect(find.text('הוספת תוכנה'), findsOneWidget);
+    });
+
+    testWidgets('כמה תוכנות — כולן מוצגות', (tester) async {
+      await addApp(tester, id: 'a', name: 'ראשונה');
+      await addApp(tester, id: 'b', name: 'שנייה');
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+
+      expect(find.text('ראשונה'), findsOneWidget);
+      expect(find.text('שנייה'), findsOneWidget);
+    });
+  });
+
+  group('המרשם', () {
+    testWidgets('הסרה מוציאה מהרשימה', (tester) async {
+      await addApp(tester, id: 'a', name: 'להסרה');
+      expect(controller.hasApps, isTrue);
+
+      await tester.runAsync(() => controller.remove('a'));
+      expect(controller.hasApps, isFalse);
+    });
+
+    testWidgets('מזהה כפול נדחה ואינו דורס', (tester) async {
+      await addApp(tester, id: 'same', name: 'המקורית');
+      await addApp(tester, id: 'same', name: 'המתחזה');
+
+      expect(controller.apps, hasLength(1));
+      expect(controller.apps.single.descriptor.name, 'המקורית');
+    });
+  });
+}

@@ -17,6 +17,7 @@ abstract class AppStrings {
   LibraryScreenStrings get libraryScreen;
   SettingsScreenStrings get settings;
   PluginsStrings get plugins;
+  CustomAppsStrings get customApps;
   SetupErrorStrings get setupError;
   LauncherUpdateStrings get launcherUpdate;
   UnitStrings get units;
@@ -25,6 +26,7 @@ abstract class AppStrings {
   LibraryDomainStrings get libraryDomain;
   AppDomainStrings get appDomain;
   PluginsDomainStrings get pluginsDomain;
+  CustomAppsDomainStrings get customAppsDomain;
 }
 
 // ── משותף ─────────────────────────────────────────────────────────────────────
@@ -63,6 +65,7 @@ abstract class ShellStrings {
   String get navApp;
   String get navLibrary;
   String get navPlugins;
+  String get navCustomApps;
   String get navSettings;
 
   /// נאמר כשלא ניתן לפתוח את תיקיית הלוגים בסייר הקבצים.
@@ -838,4 +841,137 @@ abstract class PluginsDomainStrings {
   String responseNotJson(String what);
   String get responseUnexpectedShape;
   String httpStatusFor(int statusCode, String url);
+}
+// ── תוכנות מותאמות (ממשק) ────────────────────────────────────────────────────
+
+/// המסגרת סביב תוכנות שהמשתמש הוסיף. **שם התוכנה והתיאור שלה אינם
+/// מתורגמים** — הם תוכן שהמשתמש כתב, כמו שמות התוספים מ-otzaria.org.
+abstract class CustomAppsStrings {
+  const CustomAppsStrings();
+
+  // ── המסך ──
+  String get screenTitle;
+  String get screenDescription;
+
+  /// הכניסה מההגדרות. היא קיימת כי פריט הניווט מופיע רק אחרי שנוספה
+  /// תוכנה — בלעדיה אי אפשר להוסיף את הראשונה.
+  String get settingsCardTitle;
+  String get settingsCardSubtitle;
+  String get emptyHint;
+  String get addButton;
+
+  // ── טופס ההוספה ──
+  String get addDialogTitle;
+  String get nameLabel;
+  String get nameHint;
+  String get descriptionLabel;
+  String get descriptionHint;
+  String get installDirLabel;
+  String get installDirHint;
+  String get pickInstallDirButton;
+  String get pickInstallDirDialogTitle;
+
+  String get sourceLabel;
+  String get sourceGithub;
+  String get sourceFile;
+
+  String get githubUrlLabel;
+  String get githubUrlHint;
+  String get githubUrlInvalid;
+  String get fetchAssetsButton;
+  String get fetchingAssets;
+  String get assetLabel;
+  String get assetHint;
+  String get noAssetsFound;
+  String assetsFromRelease(String tagName);
+
+  String get pickInstallerButton;
+  String get pickInstallerDialogTitle;
+  String get installerKindLabel;
+  String get installerKindSniffed;
+  String get exeNameLabel;
+  String get exeNameHint;
+
+  String get saveButton;
+  String get nameRequired;
+  String get sourceRequired;
+  String addedSnack(String name);
+
+  // ── שמות סוגי ההתקנה. שמות מוצר — זהים בשתי השפות. ──
+  String get kindInno;
+  String get kindNsis;
+  String get kindMsi;
+  String get kindZip;
+
+  // ── כרטיס תוכנה ──
+  String installedVersion(String version);
+  String get installedUnknownVersion;
+  String get notInstalled;
+
+  /// "לא חיפשנו" אינו "חיפשנו ולא מצאנו" — ראו `CustomAppView.canDetect`.
+  String get noDetectRules;
+  String storedInstaller(String version);
+  String get noStoredInstaller;
+
+  String get downloadButton;
+  String get downloadingLabel;
+  String get checkOnlineButton;
+  String onlineVersionAvailable(String version);
+  String get onlineUpToDate;
+  String get onlineUnavailable;
+  String get replaceInstallerButton;
+
+  /// "בחירת מיקום ידנית" — הנפילה חזרה כשהזיהוי האוטומטי לא מצא.
+  String get pickLocationButton;
+  String locationAdoptedSnack(String dir);
+  String get locationNotFoundSnack;
+
+  String installedSnack(String name);
+
+  /// תוכנה מסוג ארכיון אינה מותקנת — היא מונחת בתיקיית ההורדות.
+  String archiveInDownloadsSnack(String path);
+  String downloadedSnack(String version);
+
+  String get removeTooltip;
+  String get removeDialogTitle;
+
+  /// חייב לומר במפורש שהתוכנה עצמה **אינה** מוסרת מהמחשב.
+  String removeDialogContent(String name);
+  String get removeDialogConfirm;
+  String removedSnack(String name);
+}
+
+// ── הודעות מ-custom_apps_manager ──────────────────────────────────────────────
+
+/// שגיאות של תוכנות מותאמות. שמות התוכנות עצמם הם **תוכן** ואינם מתורגמים
+/// — רק המסגרת סביבם, בדיוק כמו בשמות התוספים מ-otzaria.org.
+abstract class CustomAppsDomainStrings {
+  const CustomAppsDomainStrings();
+
+  // ── קובץ התוסף ──
+  String get descriptorNotJson;
+  String descriptorUnsupportedSchema(int found, int supported);
+  String descriptorMissingField(String field);
+  String descriptorInvalidId(String id);
+  String descriptorUnknownInstallerKind(String found, String allowed);
+  String descriptorUnknownSourceKind(String found, String allowed);
+
+  // ── המרשם ──
+  String appAlreadyRegistered(String name);
+  String appNotRegistered(String id);
+
+  // ── התקנה ──
+  String get noInstallerInMirror;
+  String installerFileMissing(String path);
+  String installerExitCode(int exitCode, String output);
+  String archiveExtractFailed(String error);
+  String launchFileMissing(String launchPath);
+
+  // ── GitHub ──
+  String githubStatus(int statusCode, String uri);
+  String get githubBadResponse;
+  String get githubNoReleases;
+  String githubNoMatchingAsset(String tagName);
+  String downloadFailed(int statusCode);
+  String get sourceIsNotGithub;
 }

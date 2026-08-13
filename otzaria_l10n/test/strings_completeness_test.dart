@@ -120,6 +120,10 @@ const _sameInBothLanguages = {
   'settings.languageHebrew', // כל שפה מוצגת בשמה שלה
   'settings.languageEnglish',
   'plugins.localFileDescription', // מחרוזת פורמט טהורה: "קובץ (גודל)"
+  // שמות ה-framework-ים של חבילות ההתקנה — שמות מוצר, לא מונחים.
+  'customApps.kindInno',
+  'customApps.kindNsis',
+  'customApps.kindMsi',
 };
 const _hebrewLettersInEnglish = {'settings.languageHebrew'};
 
@@ -130,6 +134,9 @@ const _noHebrewLettersInHebrew = {
   'common.emptyValue',
   'settings.languageEnglish',
   'plugins.localFileDescription',
+  'customApps.kindInno',
+  'customApps.kindNsis',
+  'customApps.kindMsi',
 };
 
 void main() {

@@ -2,12 +2,14 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
+import '../controllers/custom_apps_controller.dart';
 import '../services/app_paths.dart';
 import '../settings/app_settings.dart';
 import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
+import 'custom_apps/custom_apps_settings_card.dart';
 
 /// מסך ההגדרות — שפה ומראה, אוטומציה, הורדה ותמיכה.
 ///
@@ -24,6 +26,7 @@ class SettingsScreen extends StatelessWidget {
     required this.controller,
     required this.onOpenLog,
     required this.launcherVersion,
+    this.customApps,
   });
 
   final SettingsController controller;
@@ -32,6 +35,9 @@ class SettingsScreen extends StatelessWidget {
   /// גרסת הלאנצ'ר עצמו. מוצגת כאן ולא בדף הבית: הכרטיס בדף הבית מופיע רק
   /// כשיש עדכון, וכשאין — עדיין צריך לדעת איזו גרסה רצה (למשל לתמיכה).
   final String launcherVersion;
+
+  /// הכניסה לתוכנות מותאמות. `null` בבדיקות שאינן נוגעות בהן.
+  final CustomAppsController? customApps;
 
   AppSettings get _s => controller.settings;
 
@@ -49,6 +55,8 @@ class SettingsScreen extends StatelessWidget {
         _appearanceCard(context),
         _automationCard(context),
         _downloadCard(context),
+        if (customApps case final controller?)
+          CustomAppsSettingsCard(controller: controller),
         _supportCard(context),
       ],
     );

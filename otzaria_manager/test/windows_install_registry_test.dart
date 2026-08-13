@@ -56,6 +56,33 @@ void main() {
       testOn: 'windows',
     );
 
+    // התפר שתוכנה מותאמת משתמשת בו: אותו סורק, תבנית שם אחרת.
+    test(
+      'תבנית DisplayName משלנו מוצאת תוכנה שאינה אוצריא',
+      () {
+        final dir = Directory.systemTemp.createTempSync('custom-reg-');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        if (!writeEntry('custom', {
+          'DisplayName': 'My Other App 3.1',
+          'InstallLocation': dir.path,
+        })) {
+          markTestSkipped('אין הרשאת כתיבה לרג׳יסטרי');
+          return;
+        }
+
+        final normalized = p.normalize(dir.path);
+        expect(
+          registry.installDirs(
+            matchesDisplayName: (name) => name.contains('My Other App'),
+          ),
+          contains(normalized),
+        );
+        // ברירת המחדל לא השתנתה — היא עדיין אוצריא בלבד.
+        expect(registry.installDirs(), isNot(contains(normalized)));
+      },
+      testOn: 'windows',
+    );
+
     test(
       'בהיעדר InstallLocation נגזרת התיקייה מ-UninstallString',
       () {

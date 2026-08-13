@@ -23,6 +23,8 @@ class HebrewStrings extends AppStrings {
   @override
   PluginsStrings get plugins => const _Plugins();
   @override
+  CustomAppsStrings get customApps => const _CustomApps();
+  @override
   SetupErrorStrings get setupError => const _SetupError();
   @override
   LauncherUpdateStrings get launcherUpdate => const _LauncherUpdate();
@@ -34,6 +36,8 @@ class HebrewStrings extends AppStrings {
   AppDomainStrings get appDomain => const _AppDomain();
   @override
   PluginsDomainStrings get pluginsDomain => const _PluginsDomain();
+  @override
+  CustomAppsDomainStrings get customAppsDomain => const _CustomAppsDomain();
 }
 
 class _Common extends CommonStrings {
@@ -92,6 +96,8 @@ class _Shell extends ShellStrings {
   String get navLibrary => 'ספרייה';
   @override
   String get navPlugins => 'תוספים';
+  @override
+  String get navCustomApps => 'תוכנות נוספות';
   @override
   String get navSettings => 'הגדרות';
   @override
@@ -1556,4 +1562,221 @@ class _PluginsDomain extends PluginsDomainStrings {
   @override
   String httpStatusFor(int statusCode, String url) =>
       'HTTP $statusCode עבור $url';
+}
+
+class _CustomAppsDomain extends CustomAppsDomainStrings {
+  const _CustomAppsDomain();
+
+  @override
+  String get descriptorNotJson => 'קובץ התוסף אינו קובץ JSON תקין';
+  @override
+  String descriptorUnsupportedSchema(int found, int supported) =>
+      'התוסף נכתב עבור גרסת פורמט $found, והתוכנה יודעת לקרוא עד $supported. '
+      'יש לעדכן את התוכנה';
+  @override
+  String descriptorMissingField(String field) =>
+      'חסר בתוסף השדה "$field", או שהוא ריק';
+  @override
+  String descriptorInvalidId(String id) =>
+      'המזהה "$id" אינו תקין. מותרים אותיות לועזיות קטנות, ספרות, נקודה, '
+      'מקף וקו תחתון בלבד';
+  @override
+  String descriptorUnknownInstallerKind(String found, String allowed) =>
+      'סוג ההתקנה "$found" אינו נתמך. הסוגים הנתמכים: $allowed';
+  @override
+  String descriptorUnknownSourceKind(String found, String allowed) =>
+      'מקור הגרסאות "$found" אינו נתמך. המקורות הנתמכים: $allowed';
+
+  @override
+  String appAlreadyRegistered(String name) => 'התוכנה $name כבר קיימת ברשימה';
+  @override
+  String appNotRegistered(String id) => 'לא נמצאה תוכנה עם המזהה $id';
+
+  @override
+  String get noInstallerInMirror =>
+      'אין קובץ התקנה שמור לתוכנה הזו — יש להוסיף אותו במחשב שיש בו הקובץ';
+  @override
+  String installerFileMissing(String path) => 'קובץ ההתקנה אינו נמצא: $path';
+  @override
+  String installerExitCode(int exitCode, String output) =>
+      'ההתקנה הסתיימה בשגיאה (קוד $exitCode).\n$output';
+  @override
+  String archiveExtractFailed(String error) => 'חילוץ הארכיון נכשל: $error';
+  @override
+  String launchFileMissing(String launchPath) =>
+      'קובץ ההרצה אינו נמצא: $launchPath';
+
+  @override
+  String githubStatus(int statusCode, String uri) =>
+      'גיטהאב החזיר שגיאה $statusCode עבור $uri';
+  @override
+  String get githubBadResponse => 'התשובה מגיטהאב אינה במבנה הצפוי';
+  @override
+  String get githubNoReleases => 'לא נמצאו גרסאות בריפו הזה';
+  @override
+  String githubNoMatchingAsset(String tagName) =>
+      'בגרסה $tagName אין קובץ שתואם למה שנבחר. ייתכן ששם הקובץ השתנה — '
+      'יש לבחור אותו מחדש';
+  @override
+  String downloadFailed(int statusCode) => 'ההורדה נכשלה (שגיאה $statusCode)';
+  @override
+  String get sourceIsNotGithub =>
+      'התוכנה הזו אינה מוגדרת עם ריפו — אין מה לבדוק ברשת';
+}
+
+class _CustomApps extends CustomAppsStrings {
+  const _CustomApps();
+
+  @override
+  String get screenTitle => 'תוכנות נוספות';
+  @override
+  String get screenDescription =>
+      'תוכנות שהוספתם בעצמכם. מורידים אותן במחשב שיש בו אינטרנט, ומתקינים '
+      'מהכונן במחשב שאין בו.';
+
+  @override
+  String get settingsCardTitle => 'תוכנות נוספות';
+  @override
+  String get settingsCardSubtitle =>
+      'אפשר להוסיף תוכנות משלכם, שהתוכנה תדע לשאת על הכונן ולהתקין במחשב '
+      'המנותק — בדיוק כמו שהיא עושה עם אוצריא.';
+  @override
+  String get emptyHint => 'לא נוספו תוכנות';
+  @override
+  String get addButton => 'הוספת תוכנה';
+
+  @override
+  String get addDialogTitle => 'הוספת תוכנה';
+  @override
+  String get nameLabel => 'שם התוכנה';
+  @override
+  String get nameHint => 'כפי שיוצג לכם ברשימה';
+  @override
+  String get descriptionLabel => 'תיאור';
+  @override
+  String get descriptionHint => 'שורה קצרה שתזכיר לכם מה זה';
+  @override
+  String get installDirLabel => 'מיקום ההתקנה';
+  @override
+  String get installDirHint =>
+      'לפי זה נדע לחפש את התוכנה במחשב. אפשר להשאיר ריק.';
+  @override
+  String get pickInstallDirButton => 'בחירת תיקייה';
+  @override
+  String get pickInstallDirDialogTitle => 'בחירת תיקיית ההתקנה';
+
+  @override
+  String get sourceLabel => 'מאיפה מגיעה התוכנה';
+  @override
+  String get sourceGithub => 'מגיטהאב';
+  @override
+  String get sourceFile => 'מקובץ שלי';
+
+  @override
+  String get githubUrlLabel => 'כתובת הריפו בגיטהאב';
+  @override
+  String get githubUrlHint => 'למשל github.com/owner/repo';
+  @override
+  String get githubUrlInvalid => 'זו אינה כתובת של ריפו בגיטהאב';
+  @override
+  String get fetchAssetsButton => 'הצגת הקבצים';
+  @override
+  String get fetchingAssets => 'מביא את רשימת הקבצים...';
+  @override
+  String get assetLabel => 'איזה קובץ להוריד';
+  @override
+  String get assetHint =>
+      'בגרסה אחת יש בדרך כלל כמה קבצים. בחרו את זה שמתאים למחשב שלכם.';
+  @override
+  String get noAssetsFound => 'אין קבצים להורדה בגרסה הזו';
+  @override
+  String assetsFromRelease(String tagName) => 'הקבצים בגרסה $tagName:';
+
+  @override
+  String get pickInstallerButton => 'בחירת קובץ';
+  @override
+  String get pickInstallerDialogTitle => 'בחירת קובץ ההתקנה';
+  @override
+  String get installerKindLabel => 'סוג ההתקנה';
+  @override
+  String get installerKindSniffed => 'זוהה מהקובץ';
+  @override
+  String get exeNameLabel => 'שם קובץ ההרצה';
+  @override
+  String get exeNameHint =>
+      'למשל myapp.exe — כך נדע אם התוכנה מותקנת ובאיזו גרסה';
+
+  @override
+  String get saveButton => 'הוספה';
+  @override
+  String get nameRequired => 'יש להזין שם לתוכנה';
+  @override
+  String get sourceRequired => 'יש לבחור קובץ, או ריפו וקובץ מתוכו';
+  @override
+  String addedSnack(String name) => '$name נוספה';
+
+  @override
+  String get kindInno => 'Inno Setup';
+  @override
+  String get kindNsis => 'NSIS';
+  @override
+  String get kindMsi => 'MSI';
+  @override
+  String get kindZip => 'ארכיון';
+
+  @override
+  String installedVersion(String version) => 'מותקנת: גרסה $version';
+  @override
+  String get installedUnknownVersion => 'מותקנת, אך לא ניתן לקרוא את הגרסה';
+  @override
+  String get notInstalled => 'אינה מותקנת';
+  @override
+  String get noDetectRules => 'לא ניתן לזהות — לא הוגדר שם קובץ הרצה';
+  @override
+  String storedInstaller(String version) => 'על הכונן: גרסה $version';
+  @override
+  String get noStoredInstaller => 'עוד לא הורד קובץ התקנה';
+
+  @override
+  String get downloadButton => 'הורדה לכונן';
+  @override
+  String get downloadingLabel => 'מוריד...';
+  @override
+  String get checkOnlineButton => 'בדיקה ברשת';
+  @override
+  String onlineVersionAvailable(String version) => 'ברשת יש גרסה $version';
+  @override
+  String get onlineUpToDate => 'מה שעל הכונן הוא הגרסה האחרונה';
+  @override
+  String get onlineUnavailable => 'אין חיבור לרשת כרגע';
+  @override
+  String get replaceInstallerButton => 'החלפת הקובץ';
+  @override
+  String get pickLocationButton => 'בחירת מיקום ידנית';
+  @override
+  String locationAdoptedSnack(String dir) => 'התוכנה נמצאה ב-$dir';
+  @override
+  String get locationNotFoundSnack =>
+      'לא נמצאה שם התקנה של התוכנה. בדקו שבחרתם את התיקייה הנכונה.';
+
+  @override
+  String installedSnack(String name) => '$name הותקנה';
+  @override
+  String archiveInDownloadsSnack(String path) =>
+      'הקובץ הועתק לתיקיית ההורדות: $path';
+  @override
+  String downloadedSnack(String version) => 'גרסה $version ירדה לכונן';
+
+  @override
+  String get removeTooltip => 'הסרה מהרשימה';
+  @override
+  String get removeDialogTitle => 'הסרה מהרשימה';
+  @override
+  String removeDialogContent(String name) =>
+      '$name תוסר מהרשימה, והקובץ השמור שלה יימחק מהכונן.\n\n'
+      'התוכנה עצמה לא תוסר מהמחשב.';
+  @override
+  String get removeDialogConfirm => 'הסרה';
+  @override
+  String removedSnack(String name) => '$name הוסרה';
 }

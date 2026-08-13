@@ -24,6 +24,8 @@ class EnglishStrings extends AppStrings {
   @override
   PluginsStrings get plugins => const _Plugins();
   @override
+  CustomAppsStrings get customApps => const _CustomApps();
+  @override
   SetupErrorStrings get setupError => const _SetupError();
   @override
   LauncherUpdateStrings get launcherUpdate => const _LauncherUpdate();
@@ -35,6 +37,8 @@ class EnglishStrings extends AppStrings {
   AppDomainStrings get appDomain => const _AppDomain();
   @override
   PluginsDomainStrings get pluginsDomain => const _PluginsDomain();
+  @override
+  CustomAppsDomainStrings get customAppsDomain => const _CustomAppsDomain();
 }
 
 class _Common extends CommonStrings {
@@ -93,6 +97,8 @@ class _Shell extends ShellStrings {
   String get navLibrary => 'Library';
   @override
   String get navPlugins => 'Plugins';
+  @override
+  String get navCustomApps => 'Other Programs';
   @override
   String get navSettings => 'Settings';
   @override
@@ -1649,4 +1655,234 @@ class _PluginsDomain extends PluginsDomainStrings {
   @override
   String httpStatusFor(int statusCode, String url) =>
       'HTTP $statusCode for $url';
+}
+
+class _CustomAppsDomain extends CustomAppsDomainStrings {
+  const _CustomAppsDomain();
+
+  @override
+  String get descriptorNotJson => 'The plugin file is not valid JSON';
+  @override
+  String descriptorUnsupportedSchema(int found, int supported) =>
+      'This plugin was written for format version $found, and this program '
+      'reads up to $supported. Please update the program';
+  @override
+  String descriptorMissingField(String field) =>
+      'The plugin is missing the "$field" field, or it is empty';
+  @override
+  String descriptorInvalidId(String id) =>
+      'The id "$id" is not valid. Only lowercase letters, digits, dots, '
+      'hyphens and underscores are allowed';
+  @override
+  String descriptorUnknownInstallerKind(String found, String allowed) =>
+      'Installer type "$found" is not supported. Supported types: $allowed';
+  @override
+  String descriptorUnknownSourceKind(String found, String allowed) =>
+      'Version source "$found" is not supported. Supported sources: $allowed';
+
+  @override
+  String appAlreadyRegistered(String name) => '$name is already on the list';
+  @override
+  String appNotRegistered(String id) => 'No program found with the id $id';
+
+  @override
+  String get noInstallerInMirror =>
+      'No installer is stored for this program — add one on a computer that '
+      'has the file';
+  @override
+  String installerFileMissing(String path) => 'Installer file not found: $path';
+  @override
+  String installerExitCode(int exitCode, String output) =>
+      'The installation failed (exit code $exitCode).\n$output';
+  @override
+  String archiveExtractFailed(String error) =>
+      'Extracting the archive failed: $error';
+  @override
+  String launchFileMissing(String launchPath) =>
+      'Executable not found: $launchPath';
+
+  @override
+  String githubStatus(int statusCode, String uri) =>
+      'GitHub returned error $statusCode for $uri';
+  @override
+  String get githubBadResponse =>
+      'The GitHub response is not in the expected shape';
+  @override
+  String get githubNoReleases => 'No releases were found in this repository';
+  @override
+  String githubNoMatchingAsset(String tagName) =>
+      'Release $tagName has no file matching the one that was chosen. The '
+      'file name may have changed — please choose it again';
+  @override
+  String downloadFailed(int statusCode) =>
+      'The download failed (error $statusCode)';
+  @override
+  String get sourceIsNotGithub =>
+      'This program has no repository set — there is nothing to check online';
+}
+
+class _CustomApps extends CustomAppsStrings {
+  const _CustomApps();
+
+  @override
+  String get screenTitle => 'Other Programs';
+  @override
+  String get screenDescription =>
+      'Programs you added yourself. Download them on a computer with '
+      'internet, and install them from the drive on one without.';
+
+  @override
+  String get settingsCardTitle => 'Other Programs';
+  @override
+  String get settingsCardSubtitle =>
+      'You can add your own programs, and this app will carry them on the '
+      'drive and install them on the offline computer — exactly as it does '
+      'for Otzaria.';
+  @override
+  String get emptyHint => 'No programs added';
+  @override
+  String get addButton => 'Add a Program';
+
+  @override
+  String get addDialogTitle => 'Add a Program';
+  @override
+  String get nameLabel => 'Program name';
+  @override
+  String get nameHint => 'As it will appear in your list';
+  @override
+  String get descriptionLabel => 'Description';
+  @override
+  String get descriptionHint => 'A short line to remind you what this is';
+  @override
+  String get installDirLabel => 'Install location';
+  @override
+  String get installDirHint =>
+      'This is where we will look for the program. Can be left empty.';
+  @override
+  String get pickInstallDirButton => 'Choose Folder';
+  @override
+  String get pickInstallDirDialogTitle => 'Choose the install folder';
+
+  @override
+  String get sourceLabel => 'Where the program comes from';
+  @override
+  String get sourceGithub => 'From GitHub';
+  @override
+  String get sourceFile => 'From my own file';
+
+  @override
+  String get githubUrlLabel => 'GitHub repository address';
+  @override
+  String get githubUrlHint => 'For example github.com/owner/repo';
+  @override
+  String get githubUrlInvalid => 'That is not a GitHub repository address';
+  @override
+  String get fetchAssetsButton => 'Show The Files';
+  @override
+  String get fetchingAssets => 'Fetching the file list…';
+  @override
+  String get assetLabel => 'Which file to download';
+  @override
+  String get assetHint =>
+      'A release usually holds several files. Pick the one that fits your '
+      'computer.';
+  @override
+  String get noAssetsFound => 'This release has no files to download';
+  @override
+  String assetsFromRelease(String tagName) => 'Files in release $tagName:';
+
+  @override
+  String get pickInstallerButton => 'Choose File';
+  @override
+  String get pickInstallerDialogTitle => 'Choose the installer file';
+  @override
+  String get installerKindLabel => 'Installer type';
+  @override
+  String get installerKindSniffed => 'detected from the file';
+  @override
+  String get exeNameLabel => 'Executable file name';
+  @override
+  String get exeNameHint =>
+      'For example myapp.exe — this is how we know whether it is installed, '
+      'and at which version';
+
+  @override
+  String get saveButton => 'Add';
+  @override
+  String get nameRequired => 'A program name is required';
+  @override
+  String get sourceRequired =>
+      'Choose a file, or a repository and a file in it';
+  @override
+  String addedSnack(String name) => '$name was added';
+
+  @override
+  String get kindInno => 'Inno Setup';
+  @override
+  String get kindNsis => 'NSIS';
+  @override
+  String get kindMsi => 'MSI';
+  @override
+  String get kindZip => 'Archive';
+
+  @override
+  String installedVersion(String version) => 'Installed: version $version';
+  @override
+  String get installedUnknownVersion =>
+      'Installed, but the version cannot be read';
+  @override
+  String get notInstalled => 'Not installed';
+  @override
+  String get noDetectRules => 'Cannot detect — no executable file name was set';
+  @override
+  String storedInstaller(String version) => 'On the drive: version $version';
+  @override
+  String get noStoredInstaller => 'No installer downloaded yet';
+
+  @override
+  String get downloadButton => 'Download To Drive';
+  @override
+  String get downloadingLabel => 'Downloading…';
+  @override
+  String get checkOnlineButton => 'Check Online';
+  @override
+  String onlineVersionAvailable(String version) =>
+      'Version $version is available online';
+  @override
+  String get onlineUpToDate => 'What is on the drive is the latest version';
+  @override
+  String get onlineUnavailable => 'No internet connection right now';
+  @override
+  String get replaceInstallerButton => 'Replace The File';
+  @override
+  String get pickLocationButton => 'Choose Location Manually';
+  @override
+  String locationAdoptedSnack(String dir) => 'The program was found in $dir';
+  @override
+  String get locationNotFoundSnack =>
+      'No installation was found there. Check that you picked the right '
+      'folder.';
+
+  @override
+  String installedSnack(String name) => '$name was installed';
+  @override
+  String archiveInDownloadsSnack(String path) =>
+      'The file was copied to your Downloads folder: $path';
+  @override
+  String downloadedSnack(String version) =>
+      'Version $version was downloaded to the drive';
+
+  @override
+  String get removeTooltip => 'Remove from list';
+  @override
+  String get removeDialogTitle => 'Remove From List';
+  @override
+  String removeDialogContent(String name) =>
+      '$name will be removed from the list, and its stored file will be '
+      'deleted from the drive.\n\n'
+      'The program itself will not be uninstalled from this computer.';
+  @override
+  String get removeDialogConfirm => 'Remove';
+  @override
+  String removedSnack(String name) => '$name was removed';
 }

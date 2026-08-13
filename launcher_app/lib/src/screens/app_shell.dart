@@ -6,6 +6,7 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
 
+import '../controllers/custom_apps_controller.dart';
 import '../controllers/launcher_update_controller.dart';
 import '../controllers/library_module_controller.dart';
 import '../controllers/online_check.dart';
@@ -18,6 +19,7 @@ import '../settings/app_settings.dart';
 import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/widgets_exports.dart';
+import 'custom_apps/custom_apps_screen.dart';
 import 'home_screen.dart';
 import 'library_screen.dart';
 import 'otzaria_screen.dart';
@@ -25,7 +27,10 @@ import 'plugins/plugins_screen.dart';
 import 'settings_screen.dart';
 
 /// המסך הפעיל בסרגל הניווט. "תוכנה" קודם ל"ספרייה" — ראו [_NavRail].
-enum LauncherScreen { home, otzaria, library, plugins, settings }
+///
+/// [customApps] הוא היחיד שאינו תמיד בסרגל: הוא מופיע רק אחרי שהמשתמש
+/// הוסיף תוכנה משלו. מי שלא עושה זאת רואה בדיוק את הסרגל שהיה כאן קודם.
+enum LauncherScreen { home, otzaria, library, plugins, customApps, settings }
 
 /// מסגרת האפליקציה: שורת כותרת מותאמת למעלה, סרגל ניווט קבוע בצד, וחמשת
 /// המסכים. שלושתם נצבעים באותו רקע לוח — בלי תפר ביניהם.
@@ -56,6 +61,10 @@ class _AppShellState extends State<AppShell> {
   late final OtzariaModuleController _otzaria;
   late final LibraryModuleController _library;
   late final PluginsModuleController _plugins;
+
+  /// תוכנות שהמשתמש הוסיף בעצמו. אינו מודול כמו השלושה: הוא לא נבדק
+  /// ב-[checkAll], אין לו הורדה מהרשת, והוא נעלם לגמרי כשאין בו כלום.
+  late final CustomAppsController _customApps;
 
   /// עדכון הלאנצ'ר **עצמו** — נפרד משלושת המודולים: הוא לא מתקין כלום במחשב,
   /// אלא מחליף את קובץ ההרצה שלנו ומפעיל אותו מחדש.
@@ -120,12 +129,17 @@ class _AppShellState extends State<AppShell> {
       // התוספים לידה, ואליה גם נמסרת ההתקנה הישירה של תוסף.
       otzariaLaunchPath: () async => _otzaria.launchPath,
     )..addListener(_onChange);
+    _customApps = CustomAppsController(
+      mirrorRootDir: p.join(widget.dataDir, 'mirror'),
+    )..addListener(_onChange);
     _launcherUpdate = LauncherUpdateController(dataDir: widget.dataDir)
       ..addListener(_onChange);
     widget.settings.addListener(_onChange);
     _applySettings(s);
 
     unawaited(_plugins.load());
+    // קריאת דיסק בלבד, ובדרך כלל של תיקייה שאינה קיימת — זולה.
+    unawaited(_customApps.load());
     // בדיקה מקומית בלבד — קוראת מהתיקייה שלצד התוכנה ולא נוגעת ברשת.
     // הורדה תמיד יזומה בלחיצה.
     if (s.autoMetadataCheck) {
@@ -149,10 +163,12 @@ class _AppShellState extends State<AppShell> {
     _otzaria.removeListener(_onChange);
     _library.removeListener(_onChange);
     _plugins.removeListener(_onChange);
+    _customApps.removeListener(_onChange);
     _launcherUpdate.removeListener(_onChange);
     _otzaria.dispose();
     _library.dispose();
     _plugins.dispose();
+    _customApps.dispose();
     _launcherUpdate.dispose();
     super.dispose();
   }
@@ -450,6 +466,7 @@ class _AppShellState extends State<AppShell> {
             otzariaIsRunning: _otzariaIsRunning,
             onInstallAdopted: _plugins.refreshInstalled,
           ),
+        LauncherScreen.customApps => CustomAppsScreen(controller: _customApps),
         LauncherScreen.library => LibraryScreen(
             library: _library,
             otzariaIsRunning: _otzariaIsRunning,
@@ -465,6 +482,7 @@ class _AppShellState extends State<AppShell> {
             controller: widget.settings,
             onOpenLog: _openLogFolder,
             launcherVersion: _launcherUpdate.currentVersion,
+            customApps: _customApps,
           ),
       };
 
@@ -486,6 +504,7 @@ class _AppShellState extends State<AppShell> {
                 _NavRail(
                   current: _screen,
                   onSelect: _goTo,
+                  showCustomApps: _customApps.hasApps,
                 ),
                 // הסרגל והתוכן חולקים רקע — הקו הזה הוא ההפרדה היחידה ביניהם.
                 VerticalDivider(
@@ -524,6 +543,7 @@ String _screenLabel(BuildContext context, LauncherScreen screen) {
     LauncherScreen.otzaria => s.navApp,
     LauncherScreen.library => s.navLibrary,
     LauncherScreen.plugins => s.navPlugins,
+    LauncherScreen.customApps => s.navCustomApps,
     LauncherScreen.settings => s.navSettings,
   };
 }
@@ -532,7 +552,15 @@ class _NavRail extends StatelessWidget {
   final LauncherScreen current;
   final ValueChanged<LauncherScreen> onSelect;
 
-  const _NavRail({required this.current, required this.onSelect});
+  /// מוסיף את "תוכנות נוספות" לסרגל. מוצג רק כשיש בפועל תוכנה כזו —
+  /// הכניסה הראשונה היא מההגדרות.
+  final bool showCustomApps;
+
+  const _NavRail({
+    required this.current,
+    required this.onSelect,
+    required this.showCustomApps,
+  });
 
   /// הסמל הרגיל והמלא לכל מסך. הפריטים עצמם נגזרים מ-[LauncherScreen.values]
   /// ולא נכתבים אחד-אחד, כך שמסך חדש אינו יכול להישאר בלי פריט בסרגל — הוא
@@ -553,6 +581,10 @@ class _NavRail extends StatelessWidget {
     LauncherScreen.plugins: (
       FluentIcons.puzzle_piece_24_regular,
       FluentIcons.puzzle_piece_24_filled,
+    ),
+    LauncherScreen.customApps: (
+      FluentIcons.box_24_regular,
+      FluentIcons.box_24_filled,
     ),
     LauncherScreen.settings: (
       FluentIcons.settings_24_regular,
@@ -581,7 +613,9 @@ class _NavRail extends StatelessWidget {
         children: [
           // ההגדרות נדחקות לתחתית; כל השאר בסדר ההכרזה של ה-enum.
           for (final screen in LauncherScreen.values)
-            if (screen != LauncherScreen.settings) item(screen),
+            if (screen != LauncherScreen.settings &&
+                (screen != LauncherScreen.customApps || showCustomApps))
+              item(screen),
           const Spacer(),
           item(LauncherScreen.settings),
         ],

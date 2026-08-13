@@ -1,0 +1,17 @@
+export 'src/custom_apps_manager.dart';
+export 'src/models/app_descriptor.dart';
+export 'src/models/app_descriptor_id.dart';
+export 'src/models/app_detect_rules.dart';
+export 'src/models/app_source_kind.dart';
+export 'src/models/custom_app_install_state.dart';
+export 'src/models/custom_installer_kind.dart';
+export 'src/models/github_release.dart';
+export 'src/models/github_source.dart';
+export 'src/models/stored_installer.dart';
+export 'src/services/app_descriptor_id_generator.dart';
+export 'src/services/custom_app_installer.dart';
+export 'src/services/custom_app_locator.dart';
+export 'src/services/custom_app_store.dart';
+export 'src/services/github_app_client.dart';
+export 'src/services/installer_kind_sniffer.dart';
+export 'src/services/known_locations_store.dart';

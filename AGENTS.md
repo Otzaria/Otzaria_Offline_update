@@ -156,7 +156,7 @@ it survive, since they are what lets a re-run skip a completed download.
 
 ## 2. Repository layout
 
-Six separate Dart/Flutter packages, each with its own `pubspec.yaml`. The main
+Seven separate Dart/Flutter packages, each with its own `pubspec.yaml`. The main
 package sits at the repo root (historical, do not move it).
 
 | Path | Package | Role |
@@ -166,7 +166,8 @@ package sits at the repo root (historical, do not move it).
 | `otzaria_manager/` | `otzaria_manager` | Pure Dart (no Flutter). Manages the **Otzaria app itself**: check latest release, download, silent install, launch. Windows + macOS. |
 | `library_manager/` | `library_manager` | Flutter package. Wires `seforim_library_updater` into the launcher: locate the user's real `seforim.db`, check versions, apply updates to the **live** DB, export/consume the offline mirror. |
 | `plugins_manager/` | `plugins_manager` | Pure Dart (no Flutter). The **offline Otzaria plugin store**: syncs the `otzaria.org/api/plugins` catalog (metadata, images, `.otzplugin` files) into the mirror, detects which plugins Otzaria already has installed, and installs via the `otzaria://` protocol. A conversion of `Yehuda-Zakesh/Offline-repository-plugin-store` (itself derived from `Otzaria/Otzaria_Website`). |
-| `launcher_app/` | `launcher_app` | The Flutter desktop app (Windows + macOS) that wires the modules into one dashboard. Depends on the other five via relative `path:`, so it must stay a sibling of them. |
+| `custom_apps_manager/` | `custom_apps_manager` | Pure Dart (no Flutter). **User-added programs**: a record the user fills in a form (name, GitHub repo *or* a local installer, install location, detection rules) so the launcher can carry and silently install a program that is not Otzaria. It is *not* a plugin system — no runtime, no WebView, no permissions, and **no importing a record from an external file**, so every repo and every file was chosen by the user. See its README, especially why the asset must be picked from the real release listing rather than guessed. |
+| `launcher_app/` | `launcher_app` | The Flutter desktop app (Windows + macOS) that wires the modules into one dashboard. Depends on the other six via relative `path:`, so it must stay a sibling of them. |
 
 Producer vs. consumer: the Kotlin repo `Otzaria/SeforimLibrary` *produces* the DB
 and the patches; this repo only *consumes* them.
@@ -194,7 +195,7 @@ dart format .
 
 # 2. Analyze
 flutter analyze --no-fatal-infos   # seforim_library_updater (root), library_manager, launcher_app
-dart analyze                      # otzaria_l10n, otzaria_manager, plugins_manager (pure Dart)
+dart analyze                      # otzaria_l10n, otzaria_manager, plugins_manager, custom_apps_manager (pure Dart)
 ```
 
 Notes:
@@ -206,16 +207,16 @@ Notes:
   inherits its `exclude:` for that very package, and reports "No issues found"
   while checking nothing. `library_manager` and `otzaria_manager` were both in
   that state; do not delete those files.
-- **Each of those six files includes two things:** its own base rule set
+- **Each of those seven files includes two things:** its own base rule set
   (`package:flutter_lints/flutter.yaml` for the Flutter packages,
   `package:lints/recommended.yaml` for the pure-Dart ones) **and**
   `analysis_options_shared.yaml` at the repo root, which holds every tightening
   that applies repo-wide. A tightening added to one package only would silently
   not apply to the rest — that is exactly what happened to
   `prefer_single_quotes`, which was enabled in `otzaria_l10n` alone.
-  `otzaria_l10n/test/shared_lint_config_test.dart` asserts all six import it,
+  `otzaria_l10n/test/shared_lint_config_test.dart` asserts all seven import it,
   the same way `process_names_test.dart` guards the other cross-package
-  duplication. Before adding a rule there, measure it in **all six** packages —
+  duplication. Before adding a rule there, measure it in **all seven** packages —
   a rule that is clean in five and fails in the sixth turns CI red. Note that
   `dart analyze` right-aligns severity labels, so `warning` lines carry **no**
   leading space while `info` lines do; a grep that assumes indentation misses
