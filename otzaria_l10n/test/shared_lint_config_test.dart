@@ -22,6 +22,7 @@ const _packages = [
   'otzaria_manager',
   'library_manager',
   'plugins_manager',
+  'custom_apps_manager',
   'launcher_app',
 ];
 
@@ -34,6 +35,7 @@ const _expectedBase = {
   'otzaria_l10n': 'package:lints/recommended.yaml',
   'otzaria_manager': 'package:lints/recommended.yaml',
   'plugins_manager': 'package:lints/recommended.yaml',
+  'custom_apps_manager': 'package:lints/recommended.yaml',
 };
 
 Directory _repoRoot() {
@@ -62,7 +64,7 @@ void main() {
     expect(text, contains('prefer_single_quotes'));
   });
 
-  test('כל שש החבילות מייבאות את הקובץ המשותף ואת ערכת הבסיס שלהן', () {
+  test('כל שבע החבילות מייבאות את הקובץ המשותף ואת ערכת הבסיס שלהן', () {
     for (final package in _packages) {
       final path = package == '.'
           ? '$root/analysis_options.yaml'

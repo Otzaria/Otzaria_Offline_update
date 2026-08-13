@@ -4,7 +4,7 @@
 # לא מחליף אותו, אלא נותן פידבק מהיר לפני שהשינוי בכלל עוזב את המחשב.
 # הפעלה חד-פעמית: git config core.hooksPath .githooks
 
-PACKAGES="otzaria_l10n otzaria_manager library_manager plugins_manager launcher_app"
+PACKAGES="otzaria_l10n otzaria_manager library_manager plugins_manager custom_apps_manager launcher_app"
 FLUTTER_PACKAGES=" . library_manager launcher_app "
 
 staged_files=$(git diff --cached --name-only --diff-filter=ACMR)

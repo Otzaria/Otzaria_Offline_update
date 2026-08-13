@@ -43,20 +43,32 @@ class WindowsInstallRegistry {
 
   /// תיקיות ההתקנה הרשומות, בלי כפילויות ולפי סדר העדיפות של [_roots].
   /// רשימה ריקה = אין רישום (או שלא רצים על ווינדוס), לא שגיאה.
-  List<String> installDirs() {
+  ///
+  /// [matchesDisplayName] בוחר אילו רישומים נחשבים. ברירת המחדל היא אוצריא,
+  /// ולכן כל הקוראים הקיימים אינם מושפעים; תוכנה מותאמת מעבירה לכאן את
+  /// התבנית שהתוסף שלה הצהיר עליה. הסינון נשאר על ה-`DisplayName` **בלבד**
+  /// — ראו [_dirOfEntry] להסבר למה `InstallLocation` אינו סימן זהות.
+  List<String> installDirs({
+    bool Function(String displayName)? matchesDisplayName,
+  }) {
     if (!Platform.isWindows) return const [];
 
+    final matches = matchesDisplayName ?? OtzariaAppLocator.mentionsOtzaria;
     final dirs = <String>[];
     final seen = <String>{};
     for (final root in _roots) {
-      for (final dir in _dirsUnder(root.hive, root.access)) {
+      for (final dir in _dirsUnder(root.hive, root.access, matches)) {
         if (seen.add(dir.toLowerCase())) dirs.add(dir);
       }
     }
     return dirs;
   }
 
-  List<String> _dirsUnder(int hive, int access) {
+  List<String> _dirsUnder(
+    int hive,
+    int access,
+    bool Function(String displayName) matches,
+  ) {
     final pathPtr = _uninstallKeyPath.toNativeUtf16();
     final keyPtr = calloc<IntPtr>();
     try {
@@ -64,7 +76,7 @@ class WindowsInstallRegistry {
         return const [];
       }
       try {
-        return _scanSubKeys(keyPtr.value, access);
+        return _scanSubKeys(keyPtr.value, access, matches);
       } finally {
         RegCloseKey(keyPtr.value);
       }
@@ -74,7 +86,11 @@ class WindowsInstallRegistry {
     }
   }
 
-  List<String> _scanSubKeys(int uninstallKey, int access) {
+  List<String> _scanSubKeys(
+    int uninstallKey,
+    int access,
+    bool Function(String displayName) matches,
+  ) {
     final dirs = <String>[];
     final namePtr = calloc<Uint16>(_maxKeyNameChars).cast<Utf16>();
     final nameLenPtr = calloc<Uint32>();
@@ -101,6 +117,7 @@ class WindowsInstallRegistry {
           uninstallKey,
           namePtr.toDartString(length: nameLenPtr.value),
           access,
+          matches,
         );
         if (dir != null) dirs.add(dir);
       }
@@ -112,7 +129,12 @@ class WindowsInstallRegistry {
   }
 
   /// תיקיית ההתקנה של רישום הסרה בודד, או null אם אינו של אוצריא.
-  String? _dirOfEntry(int uninstallKey, String subKeyName, int access) {
+  String? _dirOfEntry(
+    int uninstallKey,
+    String subKeyName,
+    int access,
+    bool Function(String displayName) matches,
+  ) {
     final namePtr = subKeyName.toNativeUtf16();
     final keyPtr = calloc<IntPtr>();
     try {
@@ -127,10 +149,7 @@ class WindowsInstallRegistry {
         // יכול להיות של תוכנה אחרת לגמרי — ומשם היא נכנסת לזיהוי האוטומטי
         // בלי שום אימות נוסף.
         final displayName = _readString(key, 'DisplayName');
-        if (displayName == null ||
-            !OtzariaAppLocator.mentionsOtzaria(displayName)) {
-          return null;
-        }
+        if (displayName == null || !matches(displayName)) return null;
 
         var dir = _readString(key, 'InstallLocation');
         if (dir == null) {

@@ -193,6 +193,7 @@ final _hebrewLetter = RegExp(r'[֐-׿]');
     'library_manager/lib',
     'otzaria_manager/lib',
     'plugins_manager/lib',
+    'custom_apps_manager/lib',
   ];
 
   final rootPath = _slashes(root.path);

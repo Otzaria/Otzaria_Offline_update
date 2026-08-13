@@ -102,6 +102,19 @@ jobs:
       - run: dart analyze
       - run: dart test
 
+  custom_apps_manager:
+    name: custom_apps_manager (analyze + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: custom_apps_manager
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+      - run: dart pub get
+      - run: dart analyze
+      - run: dart test
+
   library_manager:
     name: library_manager (analyze + test)
     runs-on: ubuntu-latest
@@ -203,6 +216,7 @@ jobs:
       - otzaria_l10n
       - otzaria_manager
       - plugins_manager
+      - custom_apps_manager
       - library_manager
       - launcher_app
       - launcher_app_macos
