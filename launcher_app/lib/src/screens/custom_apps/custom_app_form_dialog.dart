@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
@@ -197,29 +195,34 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
       dialogTitle: t.pickInstallDirDialogTitle,
     );
     if (dir == null || !mounted) return;
-    setState(() {
-      _installDir.text = dir;
-      _suggestExeFrom(dir);
-    });
+    setState(() => _installDir.text = dir);
+
+    final suggestion = await _findExeIn(dir);
+    if (suggestion == null || !mounted) return;
+    setState(() => _exeName.text = suggestion);
   }
 
   /// שם קובץ ההרצה אינו נשאל אם אפשר למצוא אותו: כשהתוכנה כבר מותקנת,
   /// ה-exe יושב בתיקייה שהמשתמש הרגע הצביע עליה.
-  void _suggestExeFrom(String dir) {
-    if (_exeName.text.isNotEmpty) return;
-    try {
-      for (final entry in Directory(dir).listSync()) {
-        if (entry is! File) continue;
-        final name = p.basename(entry.path);
-        if (p.extension(name).toLowerCase() == '.exe') {
-          _exeName.text = name;
-          return;
-        }
-      }
-    } catch (_) {
-      // תיקייה שאין בה הרשאת קריאה — פשוט לא מציעים כלום.
-    }
+  ///
+  /// ⚠️ עובר דרך `CustomAppsController.findInstalledExe` ולא דרך "ה-exe
+  /// הראשון בתיקייה". הגרסה הקודמת כאן לקחה את הראשון מ-`listSync()` — סדר
+  /// לא מובטח, בלי לפסול `unins000.exe` ובלי לפסול עזרי Flutter — וזה בדיוק
+  /// הבאג המתועד של `crashpad_handler.exe`, שגם מקדים באלף-בית וגם נושא שדה
+  /// גרסה משל עצמו.
+  Future<String?> _findExeIn(String dir) async {
+    if (_exeName.text.isNotEmpty) return null;
+    final path = await CustomAppsController.findInstalledExe(dir, _nameHints());
+    return path == null ? null : p.basename(path);
   }
+
+  /// אותם רמזים שהלמידה שאחרי ההתקנה משתמשת בהם — השם שהוקלד, שם הריפו ושם
+  /// קובץ ההתקנה.
+  List<String> _nameHints() => InstallLearner.nameHintsFor(
+        name: _name.text,
+        repo: GithubSource.parseUrl(_githubUrl.text)?.repo,
+        installerFileName: _selectedAsset?.name ?? _localFilePath,
+      );
 
   // ── שמירה ─────────────────────────────────────────────────────────────────
 

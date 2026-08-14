@@ -133,14 +133,16 @@ void main() {
 
   group('ארכיון — יורד לתיקיית ההורדות ואינו "מותקן"', () {
     test('מועתק לתיקיית ההורדות, בלי להריץ תהליך', () async {
-      final target = await installer.install(
+      final outcome = await installer.install(
         descriptor: descriptor(),
         installerPath: zipArchive(),
       );
 
       expect(runner.calls, isEmpty);
-      expect(target, p.join(downloads, 'portable.zip'));
-      expect(File(target!).existsSync(), isTrue);
+      expect(outcome.kind, CustomInstallerKind.zipPortable);
+      expect(outcome.isArchive, isTrue);
+      expect(outcome.archivePath, p.join(downloads, 'portable.zip'));
+      expect(File(outcome.archivePath!).existsSync(), isTrue);
     });
 
     test('אינו דורש מיקום התקנה — אין ל-ZIP כזה', () async {
@@ -165,12 +167,12 @@ void main() {
     test('קובץ קיים אינו נדרס — נוצר שם פנוי', () async {
       writeFile(p.join(downloads, 'portable.zip'), 'הישן');
 
-      final target = await installer.install(
+      final outcome = await installer.install(
         descriptor: descriptor(),
         installerPath: zipArchive(),
       );
 
-      expect(p.basename(target!), 'portable (2).zip');
+      expect(p.basename(outcome.archivePath!), 'portable (2).zip');
       expect(
           File(p.join(downloads, 'portable.zip')).readAsStringSync(), 'הישן');
     });

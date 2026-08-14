@@ -89,17 +89,27 @@ class OtzariaAppLocator {
   /// [macMaxDepth] מגביל את עומק הסריקה ב-macOS. שווה להקטין ל-1 כשסורקים
   /// `/Applications`: ה-`.app` תמיד יושבת שם ישירות, ואין טעם לצלול לתוך
   /// עשרות אלפי קבצים של אפליקציות אחרות.
+  ///
+  /// [nameMatches] מחליף את שכבת "שם תואם מנצח מיד", שברירת המחדל שלה היא
+  /// אוצריא. **תוכנה נוספת** מעבירה כאן זיהוי לפי השם שלה — כל שאר הכלל
+  /// (סריקת רוחב, פסילת `unins*`, פסילת עזרי Flutter ופסילת ה-exe של
+  /// הלאנצ'ר עצמו) הוא בדיוק מה שהיא צריכה, ואין סיבה לשכפל אותו.
   Future<String?> findIn(
     String directory, {
     bool Function(String candidatePath)? accept,
+    bool Function(String candidatePath)? nameMatches,
     int macMaxDepth = defaultMacMaxDepth,
     int windowsMaxDepth = defaultWindowsMaxDepth,
   }) async {
     if (!await Directory(directory).exists()) return null;
 
     return switch (_platform) {
-      OtzariaTargetPlatform.windows =>
-        _findWindowsExe(directory, accept, windowsMaxDepth),
+      OtzariaTargetPlatform.windows => _findWindowsExe(
+          directory,
+          accept,
+          nameMatches ?? nameLooksLikeOtzaria,
+          windowsMaxDepth,
+        ),
       OtzariaTargetPlatform.macos =>
         _findMacAppBundle(directory, accept, macMaxDepth),
     };
@@ -112,6 +122,7 @@ class OtzariaAppLocator {
   Future<String?> _findWindowsExe(
     String directory,
     bool Function(String candidatePath)? accept,
+    bool Function(String candidatePath) nameMatches,
     int maxDepth,
   ) async {
     var level = <Directory>[Directory(directory)];
@@ -147,7 +158,7 @@ class OtzariaAppLocator {
           if (p.equals(entity.path, Platform.resolvedExecutable)) continue;
           if (accept != null && !accept(entity.path)) continue;
 
-          if (nameLooksLikeOtzaria(entity.path)) {
+          if (nameMatches(entity.path)) {
             named.add(entity.path);
           } else if (!_windowsHelperExeNames.contains(base)) {
             others.add(entity.path);

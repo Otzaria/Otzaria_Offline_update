@@ -166,7 +166,7 @@ package sits at the repo root (historical, do not move it).
 | `otzaria_manager/` | `otzaria_manager` | Pure Dart (no Flutter). Manages the **Otzaria app itself**: check latest release, download, silent install, launch. Windows + macOS. |
 | `library_manager/` | `library_manager` | Flutter package. Wires `seforim_library_updater` into the launcher: locate the user's real `seforim.db`, check versions, apply updates to the **live** DB, export/consume the offline mirror. |
 | `plugins_manager/` | `plugins_manager` | Pure Dart (no Flutter). The **offline Otzaria plugin store**: syncs the `otzaria.org/api/plugins` catalog (metadata, images, `.otzplugin` files) into the mirror, detects which plugins Otzaria already has installed, and installs via the `otzaria://` protocol. A conversion of `Yehuda-Zakesh/Offline-repository-plugin-store` (itself derived from `Otzaria/Otzaria_Website`). |
-| `custom_apps_manager/` | `custom_apps_manager` | Pure Dart (no Flutter). **User-added programs**: a record the user fills in a form (name, GitHub repo *or* a local installer, install location, detection rules) so the launcher can carry and silently install a program that is not Otzaria. It is *not* a plugin system — no runtime, no WebView, no permissions, and **no importing a record from an external file**, so every repo and every file was chosen by the user. See its README, especially why the asset must be picked from the real release listing rather than guessed. |
+| `custom_apps_manager/` | `custom_apps_manager` | Pure Dart (no Flutter). **User-added programs**: a record the user fills in a form (name, GitHub repo *or* a local installer, install location, detection rules) so the launcher can carry and silently install a program that is not Otzaria. It is *not* a plugin system — no runtime, no WebView, no permissions, and **no importing a record from an external file**, so every repo and every file was chosen by the user. See its README, especially why the asset must be picked from the real release listing rather than guessed, and why the detection fields are *learned* rather than asked. |
 | `launcher_app/` | `launcher_app` | The Flutter desktop app (Windows + macOS) that wires the modules into one dashboard. Depends on the other six via relative `path:`, so it must stay a sibling of them. |
 
 Producer vs. consumer: the Kotlin repo `Otzaria/SeforimLibrary` *produces* the DB
@@ -897,6 +897,66 @@ beat the one at the install root and the answer differed between machines; and
 `C:\אוצריא` is *both* an auto-detect install dir and a common `seforim.db`
 library location, so an unbounded scan walked a ~1GB books tree on every
 `checkForUpdate()` for anyone whose app is not installed there.
+
+**A custom app learns how to detect itself, and a learned `DisplayName` is
+not a usable regex.** The form cannot ask "where will this install" or "what
+is the exe called" — on the online machine, where the record is created, the
+program is not installed at all. `InstallLearner` (`custom_apps_manager`)
+therefore snapshots the uninstall registry *before* running the installer and
+looks for the key that was born. Four things are load-bearing:
+
+- **A re-install does not create a new key**, and that is the common case, not
+  an edge case: whoever already has the program updates the *same* key. The
+  first version of this required a newly-born key, so it learned nothing
+  precisely for the users who already had the program working (verified on real
+  hardware against `KleiKodesh`). The pick therefore runs in three tiers — a key
+  that was **born**, a key that **changed** while we installed, then an
+  **existing** key whose name matches. The last two require a name match:
+  browsers and system updaters rewrite registry entries in the background with
+  no relation to us. And any name match beats a nameless guess — the "single
+  fresh entry" fallback runs *last*, after all three tiers, or an installer that
+  dragged one companion entry along would be adopted over the program's own
+  entry that merely got updated.
+- **Exit code 0 does not mean the install finished.** Inno's `setup.exe`
+  extracts a temp copy and launches a second process (certainly when it
+  elevates), so the registry entry can be written after the process we ran has
+  already returned. A single read right after the run is too early — hence a
+  **bounded re-poll** (60s, backing off from 500ms to 4s, because the registry
+  scan itself costs ~200ms). "No entry appeared" is a normal outcome, not an
+  error: a portable program registers no uninstall entry at all.
+- **The learned directory is never written to the record.** `descriptor.json`
+  travels on the drive, so an absolute path in it is exactly the
+  `otzaria_install_state.json` disease. It goes to `locations.json`, which is
+  per-host — and that happens for free, because `install` calls
+  `detectInstalled` on the freshly-learned record and *that* records the
+  location it found. Only `exeName` and `registryDisplayName` — facts about the
+  program, not about the machine — reach the record.
+- **`registryDisplayName` is a pattern, never the raw `DisplayName`.**
+  `MyApp 1.4.2 (x64)` is two bugs at once: the parens and dots are regex
+  metacharacters, and the embedded version stops matching the moment the
+  program updates. `RegistryDisplayNamePattern` cuts the tail from the version
+  on, escapes the rest, anchors at the start and adds a lookahead so `Git` does
+  not swallow `GitHub Desktop`. Same trap `GithubAssetPattern` exists for.
+  Compiling it goes through `RegistryDisplayNamePattern.compile`, never a bare
+  `RegExp(...)`: a `FormatException` inside detection is swallowed upstream, and
+  the result was a program reporting "not installed" forever with no sign
+  anything broke.
+- **`WindowsInstallRegistry.entries()` is what makes learning possible, and
+  the two registry seams are needed together.** `installDirs()` throws the
+  `DisplayName` away, and it also filters out an entry whose directory does not
+  exist — for a before/after diff that entry *is* the evidence. `entries()`
+  keeps both plus the key name, which is the stable identity (the `DisplayName`
+  carries the version and changes with it). `UninstallEntriesLookup` learns the
+  pattern; `UninstallDirLookup` is what turns it into detection. With only one
+  of them wired, the record updates and the app still reports "not installed".
+
+**Never pick the first `.exe` when learning either.** The learned exe name goes
+through `OtzariaAppLocator.findIn(nameMatches:)` — the same verified scanner,
+with an injected name predicate instead of `nameLooksLikeOtzaria`. The form's
+own suggestion used to take the first `.exe` from `listSync()`: undefined order,
+no `unins*` exclusion, no Flutter-helper exclusion. In a real Flutter app folder
+that returns `crashpad_handler.exe`, which is the landmine documented right
+below this one.
 
 **Only `DisplayName` identifies an entry in the uninstall registry.** Matching
 on `InstallLocation` too let any third-party program in a path merely

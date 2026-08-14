@@ -72,7 +72,14 @@ abstract final class GithubAssetPattern {
   /// `amd64`. רק ספרות שאחרי מפריד או בתחילת השם מוחלפות.
   ///
   /// זו ההבחנה שמונעת מתבנית של x64 להתאים גם ל-x86.
-  static final RegExp _versionDigits = RegExp(r'(?<![A-Za-z\d])\d+');
+  ///
+  /// ⚠️ ה-`v` האופציונלי הוא תיקון לבאג שנמצא מול ריפו אמיתי
+  /// (`KleiKodesh/KleiKodeshProject`): בשם `KleiKodeshSetup-v9.0.1-x64.exe`
+  /// הספרה `9` באה אחרי האות `v`, ולכן הכלל לעיל שימר אותה — התבנית קפאה על
+  /// `v9`, ובגרסה 10 התוכנה הייתה מדווחת "אין קובץ מתאים" לנצח. ה-`v` עצמו
+  /// חייב לבוא אחרי מפריד, כדי ש-`Rev9` יישאר חלק מהשם.
+  static final RegExp _versionDigits =
+      RegExp(r'(?<![A-Za-z\d])(v)?(\d+)', caseSensitive: false);
 
   /// תבנית מעוגנת שמתאימה לאותו קובץ בכל גרסה.
   static String fromAssetName(String assetName) {
@@ -81,6 +88,8 @@ abstract final class GithubAssetPattern {
 
     for (final match in _versionDigits.allMatches(assetName)) {
       buffer.write(RegExp.escape(assetName.substring(index, match.start)));
+      // ה-`v` נשמר כמות שהוא — הוא חלק מהשם, ורק המספר שאחריו משתנה.
+      if (match[1] case final prefix?) buffer.write(RegExp.escape(prefix));
       buffer.write(r'\d+');
       index = match.end;
     }

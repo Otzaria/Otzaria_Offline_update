@@ -127,6 +127,58 @@ void main() {
         isNotNull,
       );
     });
+
+    /// התפר שתוכנות נוספות משתמשות בו: אותו סורק בדיוק, עם זיהוי שם אחר.
+    /// כל שאר הכלל — פסילת `unins*`, פסילת עזרי Flutter ופסילת ה-exe של
+    /// הלאנצ'ר — הוא מה שאין שום סיבה לשכפל.
+    group('nameMatches — זיהוי שם מוזרק', () {
+      test('שם תואם לתוכנה שאינה אוצריא מנצח מיד', () async {
+        File(p.join(tempDir.path, 'aaa.exe')).writeAsStringSync('fake');
+        File(p.join(tempDir.path, 'myapp.exe')).writeAsStringSync('fake');
+
+        final result = await locator.findIn(
+          tempDir.path,
+          nameMatches: (path) =>
+              p.basenameWithoutExtension(path).toLowerCase() == 'myapp',
+        );
+        expect(p.basename(result!), 'myapp.exe');
+      });
+
+      // ⚠️ הבאג המתועד: crashpad_handler.exe מקדים באלף-בית וגם נושא שדה
+      // גרסה משל עצמו, ולכן "ה-exe הראשון בתיקייה" מחזיר אותו בביטחון.
+      test('crashpad_handler אינו נבחר גם כשאין התאמת שם', () async {
+        File(p.join(tempDir.path, 'crashpad_handler.exe'))
+            .writeAsStringSync('fake');
+        File(p.join(tempDir.path, 'myapp.exe')).writeAsStringSync('fake');
+
+        final result = await locator.findIn(
+          tempDir.path,
+          nameMatches: (_) => false,
+        );
+        expect(p.basename(result!), 'myapp.exe');
+      });
+
+      test('גם ה-uninstaller אינו נבחר', () async {
+        File(p.join(tempDir.path, 'unins000.exe')).writeAsStringSync('fake');
+        File(p.join(tempDir.path, 'tool.exe')).writeAsStringSync('fake');
+
+        final result = await locator.findIn(
+          tempDir.path,
+          nameMatches: (_) => false,
+        );
+        expect(p.basename(result!), 'tool.exe');
+      });
+
+      test('בלי הזרקה ההתנהגות אינה משתנה — אוצריא היא ברירת המחדל', () async {
+        File(p.join(tempDir.path, 'aaa.exe')).writeAsStringSync('fake');
+        File(p.join(tempDir.path, 'otzaria.exe')).writeAsStringSync('fake');
+
+        expect(
+          p.basename((await locator.findIn(tempDir.path))!),
+          'otzaria.exe',
+        );
+      });
+    });
   });
 
   group('OtzariaAppLocator (macOS)', () {

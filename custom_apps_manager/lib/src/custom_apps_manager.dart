@@ -6,12 +6,14 @@ import 'package:path/path.dart' as p;
 import 'models/app_descriptor.dart';
 import 'models/app_source_kind.dart';
 import 'models/custom_app_install_state.dart';
+import 'models/custom_install_outcome.dart';
 import 'models/github_release.dart';
 import 'models/stored_installer.dart';
 import 'services/custom_app_installer.dart';
 import 'services/custom_app_locator.dart';
 import 'services/custom_app_store.dart';
 import 'services/github_app_client.dart';
+import 'services/install_learner.dart';
 import 'services/known_locations_store.dart';
 
 /// נקודת הכניסה היחידה לתוכנות מותאמות.
@@ -40,9 +42,13 @@ class CustomAppsManager {
     required AppVersionReader readVersion,
     UninstallDirLookup? lookupUninstallDirs,
     RunningProcessLookup? lookupRunningProcess,
+    UninstallEntriesLookup? lookupUninstallEntries,
+    LearnedExeLookup? lookupInstalledExe,
+    void Function()? onLearningStarted,
     CustomProcessRunner? processRunner,
     String? downloadsDir,
     GithubAppClient? githubClient,
+    InstallLearner? learner,
   })  : _locator = CustomAppLocator(
           readVersion: readVersion,
           lookupUninstallDirs: lookupUninstallDirs,
@@ -52,6 +58,12 @@ class CustomAppsManager {
           processRunner: processRunner,
           downloadsDir: downloadsDir,
         ),
+        _learner = learner ??
+            InstallLearner(
+              lookupUninstallEntries: lookupUninstallEntries,
+              lookupExe: lookupInstalledExe,
+              onStart: onLearningStarted,
+            ),
         github = githubClient ?? GithubAppClient();
 
   /// תיקיית המראה נמסרת כ-callback ולא כמחרוזת — בדיוק כמו ב-
@@ -64,6 +76,7 @@ class CustomAppsManager {
 
   final CustomAppLocator _locator;
   final CustomAppInstaller _installer;
+  final InstallLearner _learner;
 
   /// לאן מגיעה תוכנה מסוג ארכיון.
   String get downloadsDir => _installer.downloadsDir;
@@ -204,9 +217,11 @@ class CustomAppsManager {
   /// מתקין מהקובץ ששמור במראה. **לא נוגע ברשת** — זה מה שעובד במחשב
   /// המנותק.
   ///
-  /// מחזיר את הנתיב שאליו הגיע הארכיון כשמדובר בתוכנה מסוג ארכיון (היא
-  /// אינה מותקנת אלא מונחת בתיקיית ההורדות), אחרת `null`.
-  Future<String?> install(String id) async {
+  /// מיד אחרי ההתקנה **נלמד כיצד לזהות את התוכנה** (ראו [InstallLearner]):
+  /// זו הדרך שבה שם קובץ ההרצה ותבנית ה-`DisplayName` נכנסים לרשומה בלי
+  /// שהמשתמש ייענה על שאלות שלא יכול היה לענות עליהן במחשב המקוון, שבו
+  /// התוכנה כלל לא הייתה מותקנת.
+  Future<CustomInstallOutcome> install(String id) async {
     final t = AppL10n.strings.customAppsDomain;
     final store = await _store();
     final entry = await store.load(id);
@@ -217,9 +232,34 @@ class CustomAppsManager {
       throw AppDescriptorException(t.noInstallerInMirror);
     }
 
-    return _installer.install(
+    // הצילום נלקח **לפני** ההרצה: אחריה אין דרך לדעת איזה רישום הסרה היה
+    // כאן קודם ואיזה נולד עכשיו.
+    final before = await _learner.snapshot();
+
+    final outcome = await _installer.install(
       descriptor: entry.descriptor,
       installerPath: store.installerPathFor(id, installer),
+    );
+    // ארכיון אינו מותקן לשום מקום, ולכן אין ממה ללמוד.
+    if (outcome.isArchive) return outcome;
+
+    final learned = await _learner.learn(
+      descriptor: entry.descriptor,
+      before: before,
+      installerFileName: installer.fileName,
+    );
+    if (learned == null) return outcome;
+
+    final updated = entry.descriptor.copyWith(detect: learned);
+    await store.saveDescriptor(updated);
+    // זיהוי מיד אחרי הלמידה עושה שני דברים: מאמת שמה שנלמד באמת מוצא את
+    // התוכנה, ורושם את התיקייה ל-`locations.json` — שהוא פר-מחשב, ולכן
+    // המקום היחיד שנתיב מוחלט מותר לשכון בו.
+    await detectInstalled(updated);
+    return CustomInstallOutcome(
+      kind: outcome.kind,
+      archivePath: outcome.archivePath,
+      learned: learned,
     );
   }
 

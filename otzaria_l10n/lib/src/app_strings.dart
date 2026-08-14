@@ -956,6 +956,13 @@ abstract class CustomAppsStrings {
 
   String installedSnack(String name);
 
+  /// מוצג כל זמן שממתינים לרישום ההסרה אחרי ההתקנה. חייב להיות שם: הסקירה
+  /// החוזרת יכולה להימשך עד דקה, ובלי הודעה זה נראה כתקיעה.
+  String get learningLabel;
+
+  /// מה שנלמד. נאמר במפורש כי מכאן והלאה הכרטיס יפסיק לומר "לא ניתן לזהות".
+  String learnedDetectionSnack(String exeName);
+
   /// תוכנה מסוג ארכיון אינה מותקנת — היא מונחת בתיקיית ההורדות.
   String archiveInDownloadsSnack(String path);
   String downloadedSnack(String version);

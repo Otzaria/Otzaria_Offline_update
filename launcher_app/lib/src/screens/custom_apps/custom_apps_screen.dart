@@ -144,6 +144,12 @@ class _CustomAppCard extends StatelessWidget {
               ),
             ),
           ],
+          // הלמידה שאחרי ההתקנה יכולה להימשך עד דקה — ראו `InstallLearner`.
+          // בלי השורה הזו זה נראה כתקיעה.
+          if (controller.isLearning) ...[
+            const SizedBox(height: AppTokens.spaceMD),
+            InfoProgressRow(stage: t.learningLabel),
+          ],
           if (_isDownloading) ...[
             const SizedBox(height: AppTokens.spaceMD),
             InfoProgressRow(
@@ -277,6 +283,11 @@ class _CustomAppCard extends StatelessWidget {
     UiSnack.showSuccess(
       AppL10n.strings.customApps.installedSnack(app.descriptor.name),
     );
+    // מה שנלמד נאמר במפורש: מכאן והלאה הכרטיס יפסיק לומר "לא ניתן לזהות",
+    // וזה שינוי שהמשתמש כדאי שיבין מאיפה בא.
+    if (result.learnedExeName case final exeName?) {
+      UiSnack.show(AppL10n.strings.customApps.learnedDetectionSnack(exeName));
+    }
   }
 
   Future<void> _pickLocation(BuildContext context) async {

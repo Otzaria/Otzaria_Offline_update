@@ -4,6 +4,7 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/app_descriptor.dart';
+import '../models/custom_install_outcome.dart';
 import '../models/custom_installer_kind.dart';
 import 'installer_kind_sniffer.dart';
 
@@ -43,9 +44,8 @@ class CustomAppInstaller {
   /// זורק [AppDescriptorException] עם הודעה מתורגמת בכל כשל — הממשק מציג
   /// אותה כמות שהיא.
   ///
-  /// מחזיר את הנתיב שאליו הגיע הארכיון, כשמדובר בתוכנה מסוג ארכיון;
-  /// אחרת `null`.
-  Future<String?> install({
+  /// מחזיר את הסוג שזוהה, ואת נתיב הארכיון כשמדובר בתוכנה מסוג ארכיון.
+  Future<CustomInstallOutcome> install({
     required AppDescriptor descriptor,
     required String installerPath,
   }) async {
@@ -65,13 +65,18 @@ class CustomAppInstaller {
     // ארכיון אינו "מותקן" — הוא פשוט מונח בתיקיית ההורדות, והמשתמש עושה
     // איתו מה שהוא רוצה. אין ל-ZIP מיקום התקנה טבעי, וניחוש שלנו היה
     // יוצר תיקייה שאיש לא ביקש.
-    if (kind.isArchive) return _copyToDownloads(installerPath);
+    if (kind.isArchive) {
+      return CustomInstallOutcome(
+        kind: kind,
+        archivePath: await _copyToDownloads(installerPath),
+      );
+    }
 
     final command = kind.silentCommand(
       installerPath: installerPath,
       installDir: descriptor.installDir,
     );
-    if (command == null) return null;
+    if (command == null) return CustomInstallOutcome(kind: kind);
 
     final result = await _run(command.executable, command.arguments);
     if (result.exitCode != 0) {
@@ -82,7 +87,7 @@ class CustomAppInstaller {
         ),
       );
     }
-    return null;
+    return CustomInstallOutcome(kind: kind);
   }
 
   /// מעתיק את הארכיון לתיקיית ההורדות, בלי לדרוס קובץ קיים בעל אותו שם.

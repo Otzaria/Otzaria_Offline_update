@@ -1690,7 +1690,7 @@ class _CustomApps extends CustomAppsStrings {
   String get installDirLabel => 'מיקום ההתקנה';
   @override
   String get installDirHint =>
-      'לפי זה נדע לחפש את התוכנה במחשב. אפשר להשאיר ריק.';
+      'אפשר להשאיר ריק — אחרי ההתקנה הראשונה המיקום יימצא לבד.';
   @override
   String get pickInstallDirButton => 'בחירת תיקייה';
   @override
@@ -1735,7 +1735,7 @@ class _CustomApps extends CustomAppsStrings {
   String get exeNameLabel => 'שם קובץ ההרצה';
   @override
   String get exeNameHint =>
-      'למשל myapp.exe — כך נדע אם התוכנה מותקנת ובאיזו גרסה';
+      'אפשר להשאיר ריק — אחרי ההתקנה הראשונה נלמד את השם לבד';
 
   @override
   String get githubAssetKept =>
@@ -1803,6 +1803,11 @@ class _CustomApps extends CustomAppsStrings {
 
   @override
   String installedSnack(String name) => '$name הותקנה';
+  @override
+  String get learningLabel => 'מזהה את ההתקנה...';
+  @override
+  String learnedDetectionSnack(String exeName) =>
+      'מעתה נזהה את התוכנה לבד, לפי $exeName';
   @override
   String archiveInDownloadsSnack(String path) =>
       'הקובץ הועתק לתיקיית ההורדות: $path';

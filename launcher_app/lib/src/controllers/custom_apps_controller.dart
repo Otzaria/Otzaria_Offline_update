@@ -1,6 +1,7 @@
 import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:flutter/foundation.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
+import 'package:path/path.dart' as p;
 
 import '../services/app_logger.dart';
 import 'progress_notifier.dart';
@@ -37,25 +38,42 @@ class CustomAppView {
 /// **ריק הוא המצב הרגיל.** רוב המשתמשים לא יוסיפו אף תוכנה, והממשק חייב
 /// להיעלם לגמרי כש-[apps] ריקה — ראו [hasApps].
 class CustomAppsController extends ChangeNotifier with ProgressNotifier {
+  /// נבנה בגוף הבנאי ולא ברשימת האתחול, כי `onLearningStarted` מצביע חזרה
+  /// אל הקונטרולר — ורשימת אתחול אינה יכולה לגעת ב-`this`.
   CustomAppsController({
     required String mirrorRootDir,
     CustomAppsManager? manager,
-  }) : _manager = manager ??
-            CustomAppsManager(
-              // כל המראות תחת אותו שורש שלצד התוכנה, כך שהכול נוסע יחד.
-              resolveMirrorDir: () async => mirrorRootDir,
-              // שני התפרים שהחבילה עצמה אינה ממשת, כדי להישאר נקייה
-              // מ-win32 — הלאנצ'ר כבר מחזיק את שניהם.
-              readVersion: _readInstalledVersion,
-              lookupUninstallDirs: _lookupUninstallDirs,
-              lookupRunningProcess: _findRunningProcess,
-            );
+  }) {
+    _manager = manager ??
+        CustomAppsManager(
+          // כל המראות תחת אותו שורש שלצד התוכנה, כך שהכול נוסע יחד.
+          resolveMirrorDir: () async => mirrorRootDir,
+          // התפרים שהחבילה עצמה אינה ממשת, כדי להישאר נקייה מ-win32 —
+          // הלאנצ'ר כבר מחזיק את כולם.
+          readVersion: _readInstalledVersion,
+          lookupUninstallDirs: _lookupUninstallDirs,
+          lookupRunningProcess: _findRunningProcess,
+          // שני התפרים של הלמידה שאחרי ההתקנה — ראו `InstallLearner`.
+          lookupUninstallEntries: _uninstallEntries,
+          lookupInstalledExe: findInstalledExe,
+          onLearningStarted: _markLearning,
+        );
+  }
 
-  final CustomAppsManager _manager;
+  void _markLearning() {
+    isLearning = true;
+    notifyListeners();
+  }
+
+  late final CustomAppsManager _manager;
 
   List<CustomAppView> apps = const [];
   bool isBusy = false;
   String? errorMessage;
+
+  /// דולק כל זמן שממתינים לרישום ההסרה אחרי התקנה — עד דקה, כי קוד יציאה 0
+  /// של מתקין אינו אומר שהרישום שלו כבר נכתב. המתנה בלי הודעה נראית כתקיעה.
+  bool isLearning = false;
 
   /// הדגל היחיד שהממשק צריך כדי להחליט אם להציג משהו בכלל.
   bool get hasApps => apps.isNotEmpty;
@@ -106,6 +124,53 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     } catch (_) {
       return const [];
     }
+  }
+
+  /// **כל** רישומי ההסרה, בלי סינון — זה מה שהופך צילום לפני/אחרי לאפשרי.
+  ///
+  /// הסריקה סינכרונית ועולה ~200ms, ולכן ההשוואה החוזרת ב-`InstallLearner`
+  /// מאטה בהדרגה: לולאה צמודה הייתה נועצת את הממשק שוב ושוב לאורך דקה.
+  static Future<List<UninstallEntry>> _uninstallEntries() async {
+    try {
+      return [
+        for (final entry
+            in const WindowsInstallRegistry().entries(matchesDisplayName: _any))
+          UninstallEntry(
+            keyName: entry.keyName,
+            displayName: entry.displayName,
+            installDir: entry.installDir,
+          ),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static bool _any(String _) => true;
+
+  /// קובץ ההרצה של תוכנה בתוך [dir], לפי רמזי שם.
+  ///
+  /// מממש דרך `OtzariaAppLocator` ולא דרך סורק חדש: הוא כבר יודע לפסול
+  /// `unins*.exe`, עזרי Flutter (`crashpad_handler.exe`) ואת קובצי ההרצה של
+  /// הלאנצ'ר עצמו, וסורק לרוחב כדי שהתשובה תהיה זהה בכל מחשב. **"ה-exe
+  /// הראשון בתיקייה" הוא באג מתועד בריפו הזה.**
+  static Future<String?> findInstalledExe(
+    String dir,
+    List<String> nameHints,
+  ) =>
+      const OtzariaAppLocator().findIn(
+        dir,
+        nameMatches: (candidate) => _nameMatchesHint(candidate, nameHints),
+      );
+
+  static bool _nameMatchesHint(String candidatePath, List<String> hints) {
+    final name = InstallLearner.normalize(p.basenameWithoutExtension(
+      candidatePath,
+    ));
+    for (final hint in hints) {
+      if (name.contains(hint)) return true;
+    }
+    return false;
   }
 
   /// טוען את הרשימה וסורק מה מותקן. קריאת דיסק בלבד — לא נוגע ברשת.
@@ -268,18 +333,24 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     return stored;
   }
 
-  /// מתקין מהעותק שעל הכונן. מחזיר את הנתיב שאליו הגיע ארכיון (תוכנת
-  /// ארכיון אינה מותקנת אלא מונחת בהורדות), או `null`.
-  Future<({bool ok, String? archivePath})> install(String id) async {
-    var isArchive = false;
-    final path = await _guard(() async {
-      final result = await _manager.install(id);
-      isArchive = result != null;
-      return result;
-    });
+  /// מתקין מהעותק שעל הכונן, ואחר כך **לומד כיצד לזהות את התוכנה**.
+  ///
+  /// הלמידה יכולה להימשך עד דקה — קוד יציאה 0 של מתקין אינו אומר שהרישום
+  /// שלו כבר נכתב — ולכן [isLearning] דולק בזמנה והממשק אומר זאת.
+  Future<({bool ok, String? archivePath, String? learnedExeName})> install(
+    String id,
+  ) async {
+    final outcome = await _guard(() => _manager.install(id));
+    isLearning = false;
+
     final ok = errorMessage == null;
     if (ok) await load();
-    return (ok: ok, archivePath: isArchive ? path : null);
+    notifyListeners();
+    return (
+      ok: ok,
+      archivePath: outcome?.archivePath,
+      learnedExeName: outcome?.learned?.exeName,
+    );
   }
 
   Future<bool> launch(CustomAppInstallState state) async {

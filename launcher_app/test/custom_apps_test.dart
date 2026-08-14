@@ -179,6 +179,73 @@ void main() {
       expect(find.text('ראשונה'), findsOneWidget);
       expect(find.text('שנייה'), findsOneWidget);
     });
+
+    // ההמתנה לרישום ההסרה יכולה להימשך עד דקה, כי קוד יציאה 0 של מתקין אינו
+    // אומר שהרישום כבר נכתב. בלי השורה הזו זה נראה כתקיעה.
+    testWidgets('בזמן הלמידה מוצגת הודעה ולא מסך קפוא', (tester) async {
+      await addApp(tester, name: 'בלמידה');
+      controller.isLearning = true;
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+
+      expect(find.textContaining('מזהה את ההתקנה'), findsOneWidget);
+    });
+
+    testWidgets('כשאין למידה ההודעה אינה מוצגת', (tester) async {
+      await addApp(tester, name: 'רגילה');
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+
+      expect(find.textContaining('מזהה את ההתקנה'), findsNothing);
+    });
+  });
+
+  /// חלק ג': הטופס אינו שואל "לאן זה מותקן" ו"איך נקרא ה-exe" — שתי שאלות
+  /// שאי אפשר לענות עליהן במחשב המקוון, שבו התוכנה כלל אינה מותקנת.
+  group('למידת הזיהוי', () {
+    testWidgets('שדות הזיהוי מוצגים כאופציונליים, ולא כדרישה', (tester) async {
+      await tester.runAsync(controller.load);
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      await tester.tap(find.text('הוספת תוכנה'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('אפשר להשאיר ריק'), findsNWidgets(2));
+    });
+
+    /// ⚠️ הבאג שהיה כאן: הצעת שם ה-exe לקחה את **הראשון** מ-`listSync()` —
+    /// סדר לא מובטח, בלי לפסול `unins000.exe` ובלי לפסול עזרי Flutter.
+    /// בתיקייה של אפליקציית Flutter זה מחזיר את `crashpad_handler.exe`.
+    testWidgets('סורק ה-exe אינו בוחר עזר של Flutter או uninstaller',
+        (tester) async {
+      final dir = Directory(p.join(tempDir.path, 'Installed'))
+        ..createSync(recursive: true);
+      for (final name in [
+        'crashpad_handler.exe',
+        'unins000.exe',
+        'realapp.exe',
+      ]) {
+        File(p.join(dir.path, name)).writeAsStringSync('x');
+      }
+
+      final found = await tester.runAsync(
+        () => CustomAppsController.findInstalledExe(dir.path, const []),
+      );
+      expect(p.basename(found!), 'realapp.exe');
+    });
+
+    testWidgets('רמז שם מנצח גם כשיש exe אחר בתיקייה', (tester) async {
+      final dir = Directory(p.join(tempDir.path, 'Installed2'))
+        ..createSync(recursive: true);
+      for (final name in ['aaa.exe', 'myapp.exe']) {
+        File(p.join(dir.path, name)).writeAsStringSync('x');
+      }
+
+      final found = await tester.runAsync(
+        () => CustomAppsController.findInstalledExe(
+          dir.path,
+          InstallLearner.nameHintsFor(name: 'MyApp'),
+        ),
+      );
+      expect(p.basename(found!), 'myapp.exe');
+    });
   });
 
   group('המרשם', () {

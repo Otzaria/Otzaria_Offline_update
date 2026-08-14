@@ -66,6 +66,145 @@ void main() {
     });
   });
 
+  /// המסלול השלם של חלק "הלמידה": התקנה ← רישום הסרה חדש ← הרשומה מתעדכנת
+  /// ← הזיהוי מוצא, והמיקום נרשם ל-`locations.json`.
+  group('למידה אחרי התקנה', () {
+    late String installedDir;
+
+    /// מנהל עם שני התפרים של הלמידה. [freshEntry] הוא הרישום שיופיע אחרי
+    /// ההתקנה, כמו שמתקין אמיתי היה כותב.
+    CustomAppsManager managerLearning({
+      required String displayName,
+      String? exeName = 'myapp.exe',
+      bool withInstallDir = true,
+    }) {
+      var installed = false;
+      List<UninstallEntry> entries() => [
+            const UninstallEntry(keyName: '{OLD}', displayName: 'Other 1.0'),
+            if (installed)
+              UninstallEntry(
+                keyName: '{NEW}_is1',
+                displayName: displayName,
+                installDir: withInstallDir ? installedDir : null,
+              ),
+          ];
+
+      return CustomAppsManager(
+        resolveMirrorDir: () async => root,
+        readVersion: (_) => '1.4.2',
+        processRunner: (executable, arguments) async {
+          installed = true;
+          return ProcessResult(1, 0, '', '');
+        },
+        downloadsDir: p.join(root, 'Downloads'),
+        lookupUninstallEntries: () async => entries(),
+        // ⚠️ שני התפרים נחוצים יחד: הראשון **לומד** את התבנית, והשני הוא
+        // מה שהופך אותה לזיהוי בפועל. עם אחד מהם בלבד הרשומה מתעדכנת אבל
+        // ממשיכה לדווח "אינה מותקנת" — כמו הלאנצ'ר, ששניהם יושבים בו.
+        lookupUninstallDirs: (pattern) => [
+          for (final entry in entries())
+            if (pattern.hasMatch(entry.displayName) && entry.installDir != null)
+              entry.installDir!,
+        ],
+        lookupInstalledExe: (dir, _) async =>
+            exeName == null ? null : p.join(dir, exeName),
+      );
+    }
+
+    /// קובץ עם הסימן של Inno — סוג ההתקנה נקבע מהתוכן.
+    String innoInstaller() {
+      final path = p.join(root, 'dl', 'MyApp-Setup-1.4.2.exe');
+      File(path)
+        ..parent.createSync(recursive: true)
+        ..writeAsBytesSync(
+          [...'MZ'.codeUnits, ...List.filled(64, 0), ...'Inno Setup'.codeUnits],
+        );
+      return path;
+    }
+
+    setUp(() {
+      installedDir = p.join(root, 'Program Files', 'MyApp');
+      writeFile(p.join(installedDir, 'myapp.exe'));
+    });
+
+    Future<CustomInstallOutcome> installFresh(CustomAppsManager m) async {
+      await m.add(descriptor(name: 'MyApp'));
+      await m.attachInstaller('org.example.app',
+          sourcePath: innoInstaller(), version: '1.4.2');
+      return m.install('org.example.app');
+    }
+
+    test('שני השדות שהטופס לא יכול לשאול עליהם נלמדים לבד', () async {
+      final m = managerLearning(displayName: 'MyApp 1.4.2');
+      final outcome = await installFresh(m);
+
+      expect(outcome.didLearn, isTrue);
+      expect(outcome.learned!.exeName, 'myapp.exe');
+
+      // ונשמרו לרשומה שעל הדיסק, לא רק הוחזרו.
+      final saved = (await m.loadAll()).single.descriptor;
+      expect(saved.detect.exeName, 'myapp.exe');
+      expect(
+        RegistryDisplayNamePattern.matches(
+            saved.detect.registryDisplayName!, 'MyApp 2.0'),
+        isTrue,
+      );
+    });
+
+    // זו הבדיקה שסוגרת את המעגל: מכאן והלאה הכרטיס מפסיק לומר "לא ניתן לזהות".
+    test('מיד אחרי הלמידה הזיהוי כבר מוצא את התוכנה', () async {
+      final m = managerLearning(displayName: 'MyApp 1.4.2');
+      await installFresh(m);
+
+      final saved = (await m.loadAll()).single.descriptor;
+      final state = await m.detectInstalled(saved);
+      expect(state, isNotNull);
+      expect(state!.installDir, installedDir);
+      expect(state.version, '1.4.2');
+    });
+
+    /// ⚠️ נתיב מוחלט **אינו** נכתב לרשומה: היא נוסעת על הכונן. מקומו
+    /// ב-`locations.json` שהוא פר-מחשב — המחלה של `otzaria_install_state.json`.
+    test('התיקייה נרשמת ל-locations.json ולא לרשומה', () async {
+      final m = managerLearning(displayName: 'MyApp 1.4.2');
+      await installFresh(m);
+
+      final saved = (await m.loadAll()).single.descriptor;
+      expect(saved.installDir, isNull);
+      expect(saved.detect.dirs, isEmpty);
+
+      final locations = File(
+        p.join(root, 'apps', 'org.example.app', 'locations.json'),
+      );
+      expect(locations.existsSync(), isTrue);
+      expect(locations.readAsStringSync(), contains('MyApp'));
+    });
+
+    test('ארכיון אינו מותקן לשום מקום, ולכן אין ממה ללמוד', () async {
+      final m = managerLearning(displayName: 'MyApp 1.4.2');
+      await m.add(descriptor(name: 'MyApp'));
+      final zip = p.join(root, 'dl', 'portable.zip');
+      File(zip)
+        ..parent.createSync(recursive: true)
+        ..writeAsBytesSync([0x50, 0x4B, 0x03, 0x04, ...'x'.codeUnits]);
+      await m.attachInstaller('org.example.app',
+          sourcePath: zip, version: '1.0');
+
+      final outcome = await m.install('org.example.app');
+      expect(outcome.isArchive, isTrue);
+      expect(outcome.didLearn, isFalse);
+      expect((await m.loadAll()).single.descriptor.detect.isEmpty, isTrue);
+    });
+
+    test('לא נמצא קובץ הרצה — הרשומה נשמרת עם מה שכן נלמד', () async {
+      final m = managerLearning(displayName: 'MyApp 1.4.2', exeName: null);
+      final outcome = await installFresh(m);
+
+      expect(outcome.learned!.exeName, isNull);
+      expect(outcome.learned!.registryDisplayName, isNotNull);
+    });
+  });
+
   test('התקנה בלי קובץ שמור — הודעה שמסבירה מה חסר', () async {
     await manager.add(descriptor());
 

@@ -71,6 +71,86 @@ void main() {
       );
     });
 
+    /// ⚠️ נמצא מול ריפו אמיתי — `KleiKodesh/KleiKodeshProject`. הספרה שאחרי
+    /// `v` נחשבה חלק מהשם לפי כלל ה"ספרה שאחרי אות", ולכן התבנית קפאה על
+    /// `v9`: בגרסה 10 התוכנה הייתה מדווחת "אין קובץ מתאים" לנצח.
+    group('`v` לפני מספר הגרסה — הריפו האמיתי שחשף את הבאג', () {
+      const chosen = 'KleiKodeshSetup-v9.0.1-x64.exe';
+
+      test('גרסה עוקבת מתאימה, וגם מעבר לספרה אחת', () {
+        final pattern = GithubAssetPattern.fromAssetName(chosen);
+
+        expect(GithubAssetPattern.matches(pattern, chosen), isTrue);
+        expect(
+          GithubAssetPattern.matches(pattern, 'KleiKodeshSetup-v9.0.2-x64.exe'),
+          isTrue,
+        );
+        // זה מה שנשבר לפני התיקון.
+        expect(
+          GithubAssetPattern.matches(
+              pattern, 'KleiKodeshSetup-v10.0.0-x64.exe'),
+          isTrue,
+        );
+      });
+
+      /// ל-release הזה יש ארבעה קבצים, ו"הראשון ברשימה" הוא ה-zip הנייד —
+      /// בדיוק הבאג שהתבנית קיימת כדי למנוע.
+      test('שלושת האחים באותו release אינם נתפסים', () {
+        final pattern = GithubAssetPattern.fromAssetName(chosen);
+
+        for (final sibling in [
+          'KleiKodeshSetup-v9.0.1-x86.exe',
+          'KleiKodeshSetup-v9.0.1.exe',
+          'KitveiHakodeshPortable-v9.0.1.zip',
+          'KleiKodeshSetup.exe',
+        ]) {
+          expect(
+            GithubAssetPattern.matches(pattern, sibling),
+            isFalse,
+            reason: sibling,
+          );
+        }
+      });
+
+      test('ה-zip הנייד נבחר — גם הוא שורד את הגרסה הבאה', () {
+        final pattern = GithubAssetPattern.fromAssetName(
+          'KitveiHakodeshPortable-v9.0.1.zip',
+        );
+        expect(
+          GithubAssetPattern.matches(
+              pattern, 'KitveiHakodeshPortable-v10.1.0.zip'),
+          isTrue,
+        );
+        expect(
+          GithubAssetPattern.matches(
+              pattern, 'KleiKodeshSetup-v10.1.0-x64.exe'),
+          isFalse,
+        );
+      });
+
+      // ה-`v` חייב לבוא אחרי מפריד, אחרת כל ספרה שאחרי אות `v` באמצע מילה
+      // הייתה נחשבת גרסה.
+      test('`v` שבתוך מילה אינו סימן גרסה', () {
+        final pattern = GithubAssetPattern.fromAssetName('Rev9-tool-1.0.exe');
+        expect(
+          GithubAssetPattern.matches(pattern, 'Rev9-tool-2.0.exe'),
+          isTrue,
+        );
+        expect(
+          GithubAssetPattern.matches(pattern, 'Rev8-tool-2.0.exe'),
+          isFalse,
+        );
+      });
+
+      test('הכתובת שהמשתמש מדביק בפועל — עם /releases בסוף', () {
+        final parsed = GithubSource.parseUrl(
+          'https://github.com/KleiKodesh/KleiKodeshProject/releases',
+        );
+        expect(parsed!.owner, 'KleiKodesh');
+        expect(parsed.repo, 'KleiKodeshProject');
+      });
+    });
+
     test('win32 ו-amd64 נשמרים כלשונם', () {
       final pattern = GithubAssetPattern.fromAssetName('tool-win32-1.0.zip');
       expect(GithubAssetPattern.matches(pattern, 'tool-win32-2.5.zip'), isTrue);

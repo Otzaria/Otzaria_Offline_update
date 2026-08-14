@@ -7,6 +7,31 @@ import 'package:win32/win32.dart';
 
 import 'otzaria_app_locator.dart';
 
+/// רישום הסרה בודד, כפי שהוא יושב ברג'יסטרי.
+///
+/// קיים כדי שאפשר יהיה **ללמוד** מהרג'יסטרי ולא רק לחפש בו: השוואת צילום
+/// לפני התקנה ואחריה מזהה את התוכנה שהרגע הותקנה, ומשם מגיע ה-`DisplayName`
+/// שלה. ראו `InstallLearner` ב-`custom_apps_manager`.
+class InstallRegistryEntry {
+  const InstallRegistryEntry({
+    required this.keyName,
+    required this.displayName,
+    this.installDir,
+  });
+
+  /// שם המפתח תחת `…\Uninstall` — `{GUID}_is1` ב-Inno, קוד המוצר ב-MSI.
+  /// **זו הזהות היציבה**, ולפיה משווים שני צילומים: ה-`DisplayName` מכיל
+  /// בדרך כלל את מספר הגרסה ומשתנה יחד איתה.
+  final String keyName;
+
+  final String displayName;
+
+  /// `InstallLocation` מנורמל, או הגיבוי מ-`UninstallString`. `null` כשאין
+  /// תיקייה מוחלטת שקיימת בפועל — רישום כזה עדיין מזהה את התוכנה, ולכן
+  /// הוא מוחזר ואינו מסונן.
+  final String? installDir;
+}
+
 /// שולף מרישומי ההסרה של ווינדוס את תיקיות ההתקנה של אוצריא. ה-installer
 /// (Inno Setup) רושם שם `InstallLocation`, ולכן זה המקום היחיד שיודע על
 /// התקנה שיושבת בתיקייה שאינה ברשימת ברירות המחדל — **גם כשאוצריא סגורה**,
@@ -51,20 +76,39 @@ class WindowsInstallRegistry {
   List<String> installDirs({
     bool Function(String displayName)? matchesDisplayName,
   }) {
-    if (!Platform.isWindows) return const [];
-
-    final matches = matchesDisplayName ?? OtzariaAppLocator.mentionsOtzaria;
     final dirs = <String>[];
     final seen = <String>{};
-    for (final root in _roots) {
-      for (final dir in _dirsUnder(root.hive, root.access, matches)) {
-        if (seen.add(dir.toLowerCase())) dirs.add(dir);
-      }
+    for (final entry in entries(matchesDisplayName: matchesDisplayName)) {
+      final dir = entry.installDir;
+      if (dir != null && seen.add(dir.toLowerCase())) dirs.add(dir);
     }
     return dirs;
   }
 
-  List<String> _dirsUnder(
+  /// רישומי ההסרה עצמם, עם ה-`DisplayName` ושם המפתח — מה ש-[installDirs]
+  /// זורק. רשומה בלי תיקייה מוחלטת שקיימת מוחזרת עם `installDir` שהוא `null`
+  /// ואינה מסוננת: לזיהוי היא חסרת תועלת, אבל ל**למידה** היא בדיוק העדות
+  /// שמחפשים ("איזה רישום חדש הופיע כאן עכשיו").
+  ///
+  /// בלי כפילויות לפי שם המפתח, לפי סדר העדיפות של [_roots] — אותה תוכנה
+  /// עשויה להיות רשומה גם למשתמש וגם לכלל המחשב.
+  List<InstallRegistryEntry> entries({
+    bool Function(String displayName)? matchesDisplayName,
+  }) {
+    if (!Platform.isWindows) return const [];
+
+    final matches = matchesDisplayName ?? OtzariaAppLocator.mentionsOtzaria;
+    final result = <InstallRegistryEntry>[];
+    final seen = <String>{};
+    for (final root in _roots) {
+      for (final entry in _entriesUnder(root.hive, root.access, matches)) {
+        if (seen.add(entry.keyName.toLowerCase())) result.add(entry);
+      }
+    }
+    return result;
+  }
+
+  List<InstallRegistryEntry> _entriesUnder(
     int hive,
     int access,
     bool Function(String displayName) matches,
@@ -86,12 +130,12 @@ class WindowsInstallRegistry {
     }
   }
 
-  List<String> _scanSubKeys(
+  List<InstallRegistryEntry> _scanSubKeys(
     int uninstallKey,
     int access,
     bool Function(String displayName) matches,
   ) {
-    final dirs = <String>[];
+    final found = <InstallRegistryEntry>[];
     final namePtr = calloc<Uint16>(_maxKeyNameChars).cast<Utf16>();
     final nameLenPtr = calloc<Uint32>();
 
@@ -113,23 +157,23 @@ class WindowsInstallRegistry {
         if (status == ERROR_MORE_DATA) continue;
         if (status != ERROR_SUCCESS) break;
 
-        final dir = _dirOfEntry(
+        final entry = _entryOf(
           uninstallKey,
           namePtr.toDartString(length: nameLenPtr.value),
           access,
           matches,
         );
-        if (dir != null) dirs.add(dir);
+        if (entry != null) found.add(entry);
       }
     } finally {
       calloc.free(namePtr);
       calloc.free(nameLenPtr);
     }
-    return dirs;
+    return found;
   }
 
-  /// תיקיית ההתקנה של רישום הסרה בודד, או null אם אינו של אוצריא.
-  String? _dirOfEntry(
+  /// רישום הסרה בודד, או null אם ה-`DisplayName` אינו תואם (או חסר).
+  InstallRegistryEntry? _entryOf(
     int uninstallKey,
     String subKeyName,
     int access,
@@ -151,21 +195,11 @@ class WindowsInstallRegistry {
         final displayName = _readString(key, 'DisplayName');
         if (displayName == null || !matches(displayName)) return null;
 
-        var dir = _readString(key, 'InstallLocation');
-        if (dir == null) {
-          // גיבוי: המתקין רשם רק את פקודת ההסרה — ה-uninstaller יושב
-          // בתיקיית ההתקנה עצמה, כך שהתיקייה שלו היא התשובה.
-          final uninstall = executableOf(_readString(key, 'UninstallString'));
-          dir = uninstall == null ? null : p.dirname(uninstall);
-        }
-        if (dir == null || dir.isEmpty) return null;
-
-        // רק תיקייה מוחלטת שקיימת בפועל: `UninstallString` של MSI הוא
-        // `MsiExec.exe /X{GUID}`, ומשם יוצא נתיב יחסי וחסר משמעות.
-        final normalized = p.normalize(dir);
-        if (!p.isAbsolute(normalized)) return null;
-        if (!Directory(normalized).existsSync()) return null;
-        return normalized;
+        return InstallRegistryEntry(
+          keyName: subKeyName,
+          displayName: displayName,
+          installDir: _dirOf(key),
+        );
       } finally {
         RegCloseKey(key);
       }
@@ -173,6 +207,25 @@ class WindowsInstallRegistry {
       calloc.free(namePtr);
       calloc.free(keyPtr);
     }
+  }
+
+  /// תיקיית ההתקנה של רישום פתוח, או `null` כשאין תיקייה מוחלטת שקיימת.
+  static String? _dirOf(int key) {
+    var dir = _readString(key, 'InstallLocation');
+    if (dir == null) {
+      // גיבוי: המתקין רשם רק את פקודת ההסרה — ה-uninstaller יושב בתיקיית
+      // ההתקנה עצמה, כך שהתיקייה שלו היא התשובה.
+      final uninstall = executableOf(_readString(key, 'UninstallString'));
+      dir = uninstall == null ? null : p.dirname(uninstall);
+    }
+    if (dir == null || dir.isEmpty) return null;
+
+    // רק תיקייה מוחלטת שקיימת בפועל: `UninstallString` של MSI הוא
+    // `MsiExec.exe /X{GUID}`, ומשם יוצא נתיב יחסי וחסר משמעות.
+    final normalized = p.normalize(dir);
+    if (!p.isAbsolute(normalized)) return null;
+    if (!Directory(normalized).existsSync()) return null;
+    return normalized;
   }
 
   static String? _readString(int key, String valueName) {

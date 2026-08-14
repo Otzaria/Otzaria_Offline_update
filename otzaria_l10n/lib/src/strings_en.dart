@@ -1790,7 +1790,8 @@ class _CustomApps extends CustomAppsStrings {
   String get installDirLabel => 'Install location';
   @override
   String get installDirHint =>
-      'This is where we will look for the program. Can be left empty.';
+      'Can be left empty — the location is found by itself after the first '
+      'install.';
   @override
   String get pickInstallDirButton => 'Choose Folder';
   @override
@@ -1836,8 +1837,8 @@ class _CustomApps extends CustomAppsStrings {
   String get exeNameLabel => 'Executable file name';
   @override
   String get exeNameHint =>
-      'For example myapp.exe — this is how we know whether it is installed, '
-      'and at which version';
+      'Can be left empty — the name is learned by itself after the first '
+      'install';
 
   @override
   String get githubAssetKept =>
@@ -1911,6 +1912,11 @@ class _CustomApps extends CustomAppsStrings {
 
   @override
   String installedSnack(String name) => '$name was installed';
+  @override
+  String get learningLabel => 'Identifying the installation...';
+  @override
+  String learnedDetectionSnack(String exeName) =>
+      'From now on it will be recognised automatically, by $exeName';
   @override
   String archiveInDownloadsSnack(String path) =>
       'The file was copied to your Downloads folder: $path';

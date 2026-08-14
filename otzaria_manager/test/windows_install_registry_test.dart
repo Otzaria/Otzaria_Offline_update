@@ -159,6 +159,84 @@ void main() {
     );
   });
 
+  /// `entries` הוא מה שמאפשר **ללמוד** ולא רק לחפש: `installDirs` זורק את
+  /// ה-`DisplayName`, וזה בדיוק הנתון שהלמידה שאחרי התקנה קיימת בשבילו.
+  group('entries — הרישומים עצמם, לא רק התיקיות', () {
+    test(
+      'ה-DisplayName ושם המפתח מוחזרים, לא רק התיקייה',
+      () {
+        final dir = Directory.systemTemp.createTempSync('entries-reg-');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        if (!writeEntry('entry', {
+          'DisplayName': 'Learnable App 3.1',
+          'InstallLocation': dir.path,
+        })) {
+          markTestSkipped('אין הרשאת כתיבה לרג׳יסטרי');
+          return;
+        }
+
+        final found = registry
+            .entries(matchesDisplayName: (n) => n.contains('Learnable App'))
+            .single;
+
+        expect(found.displayName, 'Learnable App 3.1');
+        expect(found.installDir, p.normalize(dir.path));
+        // שם המפתח הוא הזהות היציבה שמשווים לפניה ואחריה — ה-DisplayName
+        // מכיל את הגרסה ומשתנה איתה.
+        expect(found.keyName, endsWith('-entry'));
+      },
+      testOn: 'windows',
+    );
+
+    // להשוואת לפני/אחרי דרוש לראות **שהמפתח נולד**, גם כשאין לו תיקייה
+    // שימושית. `installDirs` היה מסנן אותו ומחמיץ את העדות.
+    test(
+      'רישום בלי InstallLocation קיים מוחזר עם installDir שהוא null',
+      () {
+        final missing = p.join(Directory.systemTemp.path, 'אין-כזו-תיקייה-9x');
+        if (!writeEntry('nodir', {
+          'DisplayName': 'Dirless App 1.0',
+          'InstallLocation': missing,
+        })) {
+          markTestSkipped('אין הרשאת כתיבה לרג׳יסטרי');
+          return;
+        }
+
+        final found = registry
+            .entries(matchesDisplayName: (n) => n.contains('Dirless App'))
+            .single;
+
+        expect(found.installDir, isNull);
+        // ואותו רישום בדיוק אינו נכנס ל-installDirs, שהוא לזיהוי ולא ללמידה.
+        expect(
+          registry.installDirs(
+            matchesDisplayName: (n) => n.contains('Dirless App'),
+          ),
+          isEmpty,
+        );
+      },
+      testOn: 'windows',
+    );
+
+    test(
+      'בלי כפילויות לפי שם המפתח',
+      () {
+        final keys = registry.entries(matchesDisplayName: (_) => true);
+        expect(
+          keys.map((e) => e.keyName.toLowerCase()).toSet(),
+          hasLength(keys.length),
+        );
+      },
+      testOn: 'windows',
+    );
+
+    test(
+      'מחוץ לווינדוס — רשימה ריקה, לא חריג',
+      () => expect(registry.entries(), isEmpty),
+      testOn: '!windows',
+    );
+  });
+
   group('executableOf — פקודת הסרה אינה נתיב', () {
     test('מירכאות מוסרות והארגומנטים נחתכים', () {
       expect(

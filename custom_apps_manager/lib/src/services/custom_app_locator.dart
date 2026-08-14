@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import '../models/app_descriptor.dart';
 import '../models/custom_app_install_state.dart';
+import '../models/registry_display_name_pattern.dart';
 
 /// קורא את הגרסה מקובץ הרצה. **מוזרק מבחוץ** ולא ממומש כאן: הקריאה
 /// דורשת Win32/FFI ב-Windows ו-`Info.plist` ב-macOS, והלאנצ'ר כבר מחזיק
@@ -94,11 +95,13 @@ class CustomAppLocator {
   ) sync* {
     yield* learnedDirs;
 
-    final pattern = descriptor.detect.registryDisplayName;
+    // ⚠️ ההידור עובר דרך `compile` ולא דרך `RegExp(...)` ישיר: תבנית פגומה
+    // ב-`descriptor.json` הייתה זורקת כאן, ה-throw נבלע במעלה הזרם, והתוצאה
+    // היא תוכנה שמדווחת "אינה מותקנת" לנצח בלי שום סימן שמשהו נשבר.
+    final pattern = RegistryDisplayNamePattern.compile(
+        descriptor.detect.registryDisplayName);
     final lookup = lookupUninstallDirs;
-    if (pattern != null && pattern.isNotEmpty && lookup != null) {
-      yield* lookup(RegExp(pattern, caseSensitive: false));
-    }
+    if (pattern != null && lookup != null) yield* lookup(pattern);
     if (descriptor.installDir case final dir? when dir.isNotEmpty) yield dir;
     yield* descriptor.detect.dirs;
   }
