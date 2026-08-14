@@ -186,7 +186,10 @@ jobs:
       # ההערה ב-build-macos.yml), ויצירה מחדש הייתה דורסת את ההתאמות שבה.
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos
-      - run: flutter test
+      # ⚠️ אין כאן `flutter test` בכוונה. מערך הבדיקות של הלאנצ'ר רץ במלואו
+      # בג'וב של ווינדוס, והוא גם היעד האמיתי של החלקים תלויי-הפלטפורמה שבו
+      # (סריקת `exe`, הרישום, `tasklist`) — ב-macOS הם מחזירים null ומפילים
+      # את הג'וב על משהו שאינו מייצג תקלה. הג'וב הזה קיים כדי **לבנות**.
       # ה-.app הוא ההפצה עצמה — אין מתקין ל-macOS (גוררים ל-Applications).
       - run: flutter build macos --release
       - name: Zip the .app bundle
