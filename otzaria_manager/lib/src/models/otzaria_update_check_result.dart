@@ -57,14 +57,41 @@ class OtzariaUpdateCheckResult {
   /// עדכון" פשוט אומר "צריך התקנה ראשונית". false כשאין מראה: בלי גרסה
   /// זמינה בדיסק אין שום דבר להתקין.
   ///
-  /// מספיק שהתג שונה מהמותקן: מעבר מהערוץ הלא-יציב חזרה ליציב הוא בדרך
-  /// כלל *ירידה* בגרסה, וגם אותו צריך להציע כשהמשתמש ביקש אותו במפורש.
+  /// תג שונה מהמותקן מספיק — למעט [installedIsNewer]: מעבר מהערוץ הלא-יציב
+  /// חזרה ליציב הוא בדרך כלל *ירידה* בגרסה, וגם אותו צריך להציע כשהמשתמש
+  /// ביקש אותו במפורש, אבל נסיגה שהמשתמש לא ביקש אינה "עדכון".
   bool get updateAvailable {
     final latest = latestRelease;
     if (latest == null) return false;
     final current = currentState;
     if (current == null) return true;
-    return !sameVersion(current.installedTagName, latest.tagName);
+    if (sameVersion(current.installedTagName, latest.tagName)) return false;
+    return !installedIsNewer;
+  }
+
+  /// המותקן **חדש** ממה שיושב במראה — אין מה להתקין, והצעת התקנה הייתה
+  /// נסיגת גרסה.
+  ///
+  /// דיווח משתמש: אוצריא 0.9.97+90970 מותקנת מול 0.9.96+736 במראה, והלאנצ'ר
+  /// הכריז "מוכן להתקנה" והציע להחזיר אותו ל-0.9.96. הבדיקה השוותה תגים
+  /// בשוויון בלבד, בלי סדר.
+  ///
+  /// מעבר ערוץ יזום אינו נסיגה כזאת: כשהמותקן הוא בדיוק התג של הערוץ השני
+  /// שבמראה, המשתמש בחר את הערוץ הנבחר במפורש — וזה כן מוצע.
+  bool get installedIsNewer {
+    final latest = latestRelease;
+    final current = currentState;
+    if (latest == null || current == null) return false;
+
+    final installed = current.installedTagName;
+    if (sameVersion(installed, latest.tagName)) return false;
+
+    final other = selectedChannel == OtzariaReleaseChannel.stable
+        ? prereleaseRelease
+        : stableRelease;
+    if (other != null && sameVersion(installed, other.tagName)) return false;
+
+    return compareVersions(installed, latest.tagName) > 0;
   }
 
   /// האם המותקן והתג הם אותה גרסה בפועל.
@@ -84,6 +111,42 @@ class OtzariaUpdateCheckResult {
     // בסיס זהה נחשב לאותה גרסה רק כשבדיוק אחד מהם נושא סיומת.
     return (installedBase == installed) != (tagBase == tag);
   }
+
+  /// סדר בין שתי גרסאות: שלילי אם [a] ותיקה מ-[b], חיובי אם חדשה ממנה,
+  /// ואפס כשהן שקולות או שאין הכרעה.
+  ///
+  /// חלקי הבסיס מושווים כמספרים ולא כטקסט (חלק חסר = 0) — `0.9.97` חדשה
+  /// מ-`0.9.96` וגם מ-`0.9.9`. סיומת ה-pre-release מכריעה רק בתיקו, והצד
+  /// שנושא אותה ותיק מהצד שבלעדיה (`1.0.0-beta` < `1.0.0`). שתי סיומות
+  /// שונות על אותו בסיס אינן ברות השוואה ומחזירות אפס.
+  static int compareVersions(String a, String b) {
+    final left = normalizeVersion(a);
+    final right = normalizeVersion(b);
+    final leftBase = _baseVersion(left);
+    final rightBase = _baseVersion(right);
+
+    final leftParts = _numericParts(leftBase);
+    final rightParts = _numericParts(rightBase);
+    final count = leftParts.length > rightParts.length
+        ? leftParts.length
+        : rightParts.length;
+    for (var i = 0; i < count; i++) {
+      final leftPart = i < leftParts.length ? leftParts[i] : 0;
+      final rightPart = i < rightParts.length ? rightParts[i] : 0;
+      if (leftPart != rightPart) return leftPart < rightPart ? -1 : 1;
+    }
+
+    final leftHasSuffix = left != leftBase;
+    final rightHasSuffix = right != rightBase;
+    if (leftHasSuffix == rightHasSuffix) return 0;
+    return leftHasSuffix ? -1 : 1;
+  }
+
+  /// חלקי הבסיס כמספרים; חלק שאינו מספר נחשב 0 (במקום להפיל את ההשוואה).
+  static List<int> _numericParts(String base) => base
+      .split('.')
+      .map((part) => int.tryParse(part) ?? 0)
+      .toList(growable: false);
 
   /// החלק שלפני סיומת ה-pre-release.
   static String _baseVersion(String version) {

@@ -46,9 +46,12 @@ class LibraryUpdateDiscovery {
         .toList(growable: false);
   }
 
-  /// מחלץ מספר גרסה מ-tag כמו `v3` או `3`. מחזיר null אם אין מספר.
+  /// מחלץ מספר גרסה מ-tag כמו `v20-20260807110905`, `v3` או `3`. מעוגן
+  /// לתחילת ה-tag בכוונה: המאגר מפרסם גם תגים ממוזערי-תוכן כמו
+  /// `lines-snapshot-sha256-<hex>`, ורצף הספרות **הראשון** שם הוא ה-`256`
+  /// שבתוך "sha256" — כלומר גרסה שגבוהה מכל גרסה אמיתית, לנצח.
   static int? parseVersionFromTag(String tag) {
-    final match = RegExp(r'(\d+)').firstMatch(tag);
+    final match = RegExp(r'^v?(\d+)').firstMatch(tag);
     if (match == null) return null;
     return int.tryParse(match.group(1)!);
   }

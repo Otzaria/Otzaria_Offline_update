@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
@@ -49,6 +50,8 @@ class LibraryDbRecoveryService {
   /// [checkDbHealthAfterCrash] ומנקה את הסימון. אין סימון → אין מה לעשות.
   Future<RecoveryResult> recoverIfNeeded(String dbPath) async {
     _deleteLegacyArtifacts(dbPath);
+    _restoreRetiredDb(dbPath);
+    _deleteAbandonedStaging(dbPath);
 
     if (!File(markerPathFor(dbPath)).existsSync()) {
       return const RecoveryResult(RecoveryAction.none);
@@ -59,6 +62,46 @@ class LibraryDbRecoveryService {
     );
   }
 
+  /// מחזיר את `<db>.old` לשמו כשאין `<db>` בכלל.
+  ///
+  /// ההחלפה היא שני rename, ומוות בין השניים (הפסקת חשמל) מותיר את המסד השלם
+  /// תחת `.old` ואת `seforim.db` לא-קיים. בלי השחזור הזה `resolveDbPath()`
+  /// מחזיר `null` בעלייה הבאה, כל מסלול ההתאוששות מדולג כי זו "התקנה טרייה",
+  /// ומסד שלם של ~7GB שיושב שם נזרק ומורד מחדש.
+  ///
+  /// ציבורי כי `LibraryManager` חייב לקרוא לזה **לפני** שהוא מסיק שאין מסד —
+  /// כלומר לפני [recoverIfNeeded], שרץ רק כשמסד כבר אותר.
+  void restoreRetiredDbIfOrphaned(String dbPath) => _restoreRetiredDb(dbPath);
+
+  void _restoreRetiredDb(String dbPath) {
+    try {
+      final db = File(dbPath);
+      final retired = File('$dbPath.old');
+      if (db.existsSync() || !retired.existsSync()) return;
+      if (retired.lengthSync() == 0) return;
+      retired.renameSync(dbPath);
+    } catch (_) {
+      // כשל שחזור אינו מחמיר דבר — הקבצים נשארים והמשתמש יכול לבחור ידנית.
+    }
+  }
+
+  /// מוחק שאריות staging של הורדה מלאה שנקטעה — עד ~9GB תלויים.
+  ///
+  /// **רק מכאן**, כלומר בעלייה, ולא מ-[beginApply]: שם `<db>.new` הוא הקובץ
+  /// המחולץ והמאומת שממתין להחלפה, ומחיקתו הייתה מבטלת עדכון שכבר הצליח.
+  void _deleteAbandonedStaging(String dbPath) {
+    for (final suffix in const [
+      '.new',
+      '.download.zst',
+      '.download.zst.resume'
+    ]) {
+      try {
+        final file = File('$dbPath$suffix');
+        if (file.existsSync()) file.deleteSync();
+      } catch (_) {}
+    }
+  }
+
   /// בודק תקינות DB אחרי עדכון שנקטע. מחזיר `true` אם ה-DB תקין (עבר
   /// `quick_check`).
   ///
@@ -66,20 +109,16 @@ class LibraryDbRecoveryService {
   /// גישת כתיבה כדי לגלגלו אחורה. פתיחת readOnly על hot journal נכשלת ב-"attempt
   /// to write a readonly database". הפתיחה כאן מגלגלת ומנקה את ה-journal, כך
   /// שפתיחת ה-read-only הראשית של האפליקציה אחריה מצליחה.
-  bool checkDbHealthAfterCrash(String dbPath) {
-    try {
-      final db = sqlite3.sqlite3.open(dbPath, mode: sqlite3.OpenMode.readWrite);
-      try {
-        final result = db.select('PRAGMA quick_check');
-        return result.isNotEmpty &&
-            result.first.values.first?.toString() == 'ok';
-      } finally {
-        db.close();
-      }
-    } catch (_) {
-      return false;
-    }
-  }
+  bool checkDbHealthAfterCrash(String dbPath) =>
+      _checkDbHealthInIsolate(dbPath);
+
+  /// אותה בדיקה, ב-isolate נפרד. `quick_check` על מסד של ~7GB חוסם **דקות**,
+  /// והקורא היחיד הוא `checkForUpdate` שרץ על ה-isolate הראשי — כלומר קפיאה
+  /// מלאה של הלאנצ'ר בעלייה, בלי מד ובלי אנימציה, בדיוק במחשב שהעדכון בו
+  /// נקטע. הסוגר קורא לפונקציה top-level ומקבל מחרוזת בלבד, כמו כל שאר
+  /// מעברי ה-isolate כאן.
+  Future<bool> checkDbHealthAfterCrashAsync(String dbPath) =>
+      Isolate.run(() => _checkDbHealthInIsolate(dbPath));
 
   /// נקרא לפני apply: כותב את הסימון (ומנקה שאריות קודמות תחילה).
   Future<void> beginApply({
@@ -153,5 +192,21 @@ class LibraryDbRecoveryService {
       final file = File(path);
       if (file.existsSync()) file.deleteSync();
     } catch (_) {}
+  }
+}
+
+/// top-level, ומקבלת מחרוזת בלבד — כך ה-`Isolate.run` אינו לוכד `this` ולא
+/// שום `HttpClient` חי. ראו האזהרה ב-`LibraryUpdateApplier`.
+bool _checkDbHealthInIsolate(String dbPath) {
+  try {
+    final db = sqlite3.sqlite3.open(dbPath, mode: sqlite3.OpenMode.readWrite);
+    try {
+      final result = db.select('PRAGMA quick_check');
+      return result.isNotEmpty && result.first.values.first?.toString() == 'ok';
+    } finally {
+      db.close();
+    }
+  } catch (_) {
+    return false;
   }
 }

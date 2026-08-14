@@ -75,6 +75,8 @@ class _Common extends CommonStrings {
   @override
   String get updateAvailable => 'Update Available';
   @override
+  String get installedIsNewer => 'A Newer Version Is Installed';
+  @override
   String get installing => 'Installing…';
   @override
   String get unknownValue => 'Unknown';
@@ -199,8 +201,27 @@ class _Home extends HomeStrings {
   @override
   String get downloadNowButton => 'Download now';
   @override
+  String get cancelDownloadButton => 'Cancel download';
+  @override
+  String get cancelDownloadPending => 'Cancelling…';
+  @override
+  String get cancelDownloadDialogTitle => 'Cancel the download?';
+  @override
+  String get cancelDownloadPrompt =>
+      'The files this download fetched will be deleted. Whatever the folder '
+      'already held from earlier downloads stays where it is.';
+  @override
+  String get cancelDownloadKeepGoing => 'Keep downloading';
+  @override
+  String get downloadCancelledSnack =>
+      'The download was cancelled, and what it had fetched was deleted';
+  @override
   String downloadSkippedSnack(String components) =>
       'Skipped $components — nothing new for them online';
+  @override
+  String downloadFailedSnack(String components) =>
+      'Downloading $components failed. What already arrived is kept — try '
+      'again and the download will continue where it stopped';
   @override
   String lastCheckedAt(String time) => 'Last checked at $time';
 
@@ -1193,6 +1214,11 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get exportPersonalVersionUnknown =>
       'No local database version was detected — downloading the full database';
   @override
+  String exportReusingFullDb(int version, String tag) =>
+      'Keeping the full database already in the folder (version $version, '
+      '$tag) — update files can carry it to the latest version, so there is '
+      'no need to download it again';
+  @override
   String exportDownloading(String tag, String asset) =>
       'Downloading $tag / $asset';
   @override
@@ -1206,6 +1232,19 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get exporterDoesNotExtract =>
       'LibraryMirrorExporter only downloads files, it does not extract them';
+  @override
+  String exportManifestUnreadable(String asset, String detail) =>
+      'The manifest $asset could not be read, so it was skipped ($detail)';
+  @override
+  String exportManifestFetchFailed(String asset, String detail) =>
+      'Fetching the manifest $asset failed even after retries. The download '
+      'stopped rather than write an incomplete mirror — try again on a stable '
+      'connection. ($detail)';
+  @override
+  String exportPatchAssetMissing(String tag, String file) =>
+      'The file $file of $tag is not available for download right now (it may '
+      'still be uploading), so the update route through it will not enter the '
+      'mirror';
 
   @override
   String get planLocalVersionUnknown =>
@@ -1418,6 +1457,21 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get updateCancelled => 'The update was cancelled';
   @override
+  String notEnoughDiskSpace(String dir, String needed, String free) =>
+      'Not enough free space in $dir: $needed is needed and $free is free. '
+      'Free up space on that drive and try again, or choose another location '
+      'for the database.';
+  @override
+  String installDirNotWritable(String dir, String detail) =>
+      'The folder $dir could not be created ($detail). Choose another location '
+      'for the database through "Choose location manually" on the library '
+      'screen.';
+  @override
+  String mirrorNotEnoughDiskSpace(String dir, String needed, String free) =>
+      'Not enough free space in $dir for the download: $needed is needed and '
+      '$free is free. Free up space and try again — what already arrived is '
+      'kept.';
+  @override
   String get otzariaIsRunning =>
       'Otzaria is currently open — close it before updating the database so '
       'the file is not locked.';
@@ -1513,6 +1567,8 @@ class _AppDomain extends AppDomainStrings {
   @override
   String downloadingChannel(String channelLabel) =>
       'Downloading the Otzaria program ($channelLabel version)…';
+  @override
+  String get downloadCancelled => 'The download was cancelled.';
 
   @override
   String get noInstallableReleaseForPlatform =>

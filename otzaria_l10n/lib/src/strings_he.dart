@@ -74,6 +74,8 @@ class _Common extends CommonStrings {
   @override
   String get updateAvailable => 'יש עדכון חדש';
   @override
+  String get installedIsNewer => 'מותקנת גרסה חדשה יותר';
+  @override
   String get installing => 'מתקין...';
   @override
   String get unknownValue => 'לא ידועה';
@@ -190,8 +192,26 @@ class _Home extends HomeStrings {
   @override
   String get downloadNowButton => 'הורד עכשיו';
   @override
+  String get cancelDownloadButton => 'ביטול ההורדה';
+  @override
+  String get cancelDownloadPending => 'מבטל...';
+  @override
+  String get cancelDownloadDialogTitle => 'לבטל את ההורדה?';
+  @override
+  String get cancelDownloadPrompt =>
+      'הקבצים שירדו בהורדה הזו יימחקו. מה שכבר היה בתיקייה מהורדות קודמות '
+      'יישאר במקומו.';
+  @override
+  String get cancelDownloadKeepGoing => 'המשך בהורדה';
+  @override
+  String get downloadCancelledSnack => 'ההורדה בוטלה, ומה שירד בה נמחק';
+  @override
   String downloadSkippedSnack(String components) =>
       'דולג על $components — אין בהם שום דבר חדש ברשת';
+  @override
+  String downloadFailedSnack(String components) =>
+      'ההורדה של $components נכשלה. מה שכבר ירד נשמר — נסו שוב, ההורדה תמשיך '
+      'מהמקום שבו נעצרה';
   @override
   String lastCheckedAt(String time) => 'נבדק לאחרונה: $time';
 
@@ -1137,6 +1157,10 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get exportPersonalVersionUnknown =>
       'לא זוהתה גרסת מסד מקומית — מוריד את המסד המלא';
   @override
+  String exportReusingFullDb(int version, String tag) =>
+      'המסד המלא שכבר בתיקייה (גרסה $version, $tag) נשמר — יש ממנו מסלול '
+      'קובצי עדכון לגרסה האחרונה, ולכן אין צורך להוריד אותו שוב';
+  @override
   String exportDownloading(String tag, String asset) => 'מוריד $tag / $asset';
   @override
   String exportVerifying(String tag, String asset) => 'מאמת $tag / $asset';
@@ -1149,6 +1173,17 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get exporterDoesNotExtract =>
       'LibraryMirrorExporter מוריד קבצים בלבד ואינו מחלץ אותם';
+  @override
+  String exportManifestUnreadable(String asset, String detail) =>
+      'ה-manifest $asset אינו קריא ולכן דולג ($detail)';
+  @override
+  String exportManifestFetchFailed(String asset, String detail) =>
+      'הבאת ה-manifest $asset נכשלה גם אחרי ניסיונות חוזרים. ההורדה נעצרה כדי '
+      'לא לכתוב מראה חסרה — נסו שוב כשהחיבור יציב. ($detail)';
+  @override
+  String exportPatchAssetMissing(String tag, String file) =>
+      'הקובץ $file של $tag אינו זמין להורדה כרגע (ייתכן שהוא עוד עולה), '
+      'ולכן מסלול העדכון דרכו לא ייכנס למראה';
 
   @override
   String get planLocalVersionUnknown =>
@@ -1339,6 +1374,18 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get updateCancelled => 'העדכון בוטל';
   @override
+  String notEnoughDiskSpace(String dir, String needed, String free) =>
+      'אין מספיק מקום פנוי ב-$dir: נדרשים $needed ופנויים $free. פנו מקום '
+      'בכונן הזה ונסו שוב, או בחרו מיקום אחר למסד.';
+  @override
+  String installDirNotWritable(String dir, String detail) =>
+      'לא ניתן ליצור את התיקייה $dir ($detail). בחרו מיקום אחר למסד דרך '
+      '"בחירת מיקום ידנית" במסך הספרייה.';
+  @override
+  String mirrorNotEnoughDiskSpace(String dir, String needed, String free) =>
+      'אין מספיק מקום פנוי ב-$dir להורדה: נדרשים $needed ופנויים $free. '
+      'פנו מקום בכונן ונסו שוב — מה שכבר ירד נשמר.';
+  @override
   String get otzariaIsRunning =>
       'אוצריא פתוחה כרגע — יש לסגור אותה לפני עדכון המסד, כדי למנוע נעילת '
       'קובץ.';
@@ -1431,6 +1478,8 @@ class _AppDomain extends AppDomainStrings {
   @override
   String downloadingChannel(String channelLabel) =>
       'מוריד את תוכנת אוצריא (גרסה $channelLabel)...';
+  @override
+  String get downloadCancelled => 'ההורדה בוטלה.';
 
   @override
   String get noInstallableReleaseForPlatform =>

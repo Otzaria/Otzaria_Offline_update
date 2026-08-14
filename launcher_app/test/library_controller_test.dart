@@ -177,10 +177,23 @@ void main() {
       expect(controller.hasOnlineUpdate, isFalse);
     });
 
-    test('בלי מראה בכלל, ההשוואה נופלת לגרסת המסד החי', () {
+    // כונן ריק במחשב שיש עליו אוצריא מעודכנת: השוואה לגרסת המסד החי הייתה
+    // מכבה את ההודעה, מסתירה את כפתור ההורדה היחיד, ומדלגת על הספרייה
+    // ב-downloadAll — הכונן נוסע ריק בלי שאיש יידע.
+    test('בלי מראה בכלל יש מה להוריד, גם כשהמסד החי מעודכן', () {
       controller.onlineLatestVersion = 20;
       controller.targetVersion = null;
       controller.localVersion = 20;
+      controller.mirrorMissing = true;
+
+      expect(controller.hasOnlineUpdate, isTrue);
+    });
+
+    test('מראה קיימת בלי תוכנית עדיין נמדדת מול הגרסה המקומית', () {
+      controller.onlineLatestVersion = 20;
+      controller.targetVersion = null;
+      controller.localVersion = 20;
+      controller.mirrorMissing = false;
 
       expect(controller.hasOnlineUpdate, isFalse);
     });

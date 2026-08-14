@@ -497,6 +497,65 @@ void main() {
       });
     });
 
+    // המראה שומרת בכוונה מסד מלא ישן מ-latest כשיש ממנו מסלול patches (ראו
+    // `LibraryMirrorExporter._chooseFullDbCarrier`), ולכן ההשלמה רצה באותה
+    // החלה — ומה שנרשם הוא הגרסה והתגית של סופה, לא של המסד שירד.
+    test('הורדה מלאה + followUpDelta נרשמות לפי הגרסה הסופית', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      if (await const OtzariaProcessGuard()
+          .isAnyRunning(OtzariaProcessGuard.processNamesFor(
+        Platform.operatingSystem,
+      ))) {
+        markTestSkipped('אוצריא פתוחה — ההחלה נחסמת בכוונה');
+        return;
+      }
+
+      final dbPath = await installExistingDb(3, appliedTag: 'v3');
+      final dbBytes = buildRealDb(5);
+      final compressed = p.join(tempDir.path, 'old-full.db.zst');
+      File(compressed)
+          .writeAsBytesSync(compressWithZstd(bindings, dbBytes), flush: true);
+
+      final check = LibraryUpdateCheckResult(
+        dbPath: dbPath,
+        latestReleaseTag: 'v6',
+        plan: LibraryUpdatePlan.fullDownload(
+          localVersion: 3,
+          // היעד של ההורדה עצמה הוא מה שהנכס מביא — האימות שאחריה בודק אותו.
+          targetVersion: 5,
+          asset: ReleaseAsset(
+            name: 'seforim.db.zst',
+            downloadUrl: compressed,
+            size: File(compressed).lengthSync(),
+          ),
+          releaseTag: 'v5',
+          // שרשרת ריקה: כאן נבדק החיווט, לא החלת ה-patches עצמה (מכוסה
+          // ב-library_update_applier_test).
+          followUpDelta: LibraryUpdatePlan.delta(
+            localVersion: 5,
+            targetVersion: 6,
+            steps: const [],
+          ),
+        ),
+      );
+
+      await _withoutNetwork((_) async {
+        final manager = LibraryManager(dataDir: dataDir);
+        await manager.applyUpdate(check);
+
+        expect(File(dbPath).readAsBytesSync(), dbBytes);
+        final store = LibraryStateStore(p.join(dataDir, 'library_state.json'));
+        // 'v5' כאן היה מסמן את המראה כ"תוכן אחר" ומציע 1GB בכל פתיחה.
+        expect(await store.loadAppliedReleaseTag(), 'v6');
+        final notice = await manager.pendingReindexRequest(dbPath: dbPath);
+        expect(notice!.dbVersion, 6);
+        manager.dispose();
+      });
+    });
+
     test('תוכנית none / חסרה — לא עושה כלום', () async {
       final manager = LibraryManager(dataDir: dataDir);
       final dbPath = p.join(tempDir.path, 'books', 'seforim.db');

@@ -287,6 +287,125 @@ void main() {
       expect(File(result.latestFullDbAsset!.downloadUrl).existsSync(), isTrue);
     });
 
+    // ⚠️ הלב של החיסכון: כל release ב-SeforimLibrary נושא מסד מלא משלו, ובלי
+    // ההעדפה הזו כל עדכון היה מוריד ~1.1GB מחדש בשביל תוצאה שקובצי עדכון של
+    // עשרות MB מגיעים אליה בדיוק באותה מידה.
+    group('מסד מלא שכבר במראה מנצח מסד מלא חדש', () {
+      test('release חדש עם DB מלא → רק ה-patch יורד, הישן נשאר', () async {
+        await buildExporter([
+          release('v3', assets: [
+            'seforim.db.zst',
+            'patch-v2-v3.db.zst',
+            'patch-v2-v3.db.zst.manifest.json',
+          ]),
+        ]).exporter.export(destDir: destDir);
+
+        final second = buildExporter([
+          release('v4', assets: [
+            'seforim.db.zst',
+            'patch-v3-v4.db.zst',
+            'patch-v3-v4.db.zst.manifest.json',
+          ]),
+          release('v3', assets: [
+            'seforim.db.zst',
+            'patch-v2-v3.db.zst',
+            'patch-v2-v3.db.zst.manifest.json',
+          ]),
+        ]);
+        await second.exporter.export(destDir: destDir);
+
+        expect(second.fetched, isNot(contains('seforim.db.zst')));
+        expect(second.fetched, contains('patch-v3-v4.db.zst'));
+        expect(assetOnDisk(destDir, 'v3', 'seforim.db.zst'), isTrue);
+        expect(assetOnDisk(destDir, 'v4', 'seforim.db.zst'), isFalse);
+
+        // ומה שהמראה מציעה באופליין: מסד מלא של v3, ומשם patches ל-4.
+        final result = await LibraryUpdateDiscovery(
+          client: LocalMirrorLibraryReleaseClient(mirrorDir: destDir),
+        ).discover(allowPrerelease: false);
+        expect(result.latestVersion, 4);
+        expect(result.latestFullDbVersion, 3);
+        expect(result.latestReleaseTag, 'v3');
+      });
+
+      test('אין מסלול patches מהישן ל-latest → המסד החדש כן יורד', () async {
+        await buildExporter([
+          release('v3', assets: ['seforim.db.zst']),
+        ]).exporter.export(destDir: destDir);
+
+        final second = buildExporter([
+          release('v5', assets: ['seforim.db.zst']),
+          release('v3', assets: ['seforim.db.zst']),
+        ]);
+        await second.exporter.export(destDir: destDir);
+
+        expect(second.fetched, contains('seforim.db.zst'));
+        expect(assetOnDisk(destDir, 'v5', 'seforim.db.zst'), isTrue);
+        expect(assetOnDisk(destDir, 'v3', 'seforim.db.zst'), isFalse);
+      });
+
+      // ה-edge קיים ב-manifest אבל קובץ ה-patch עצמו חסר מה-release — הוא לא
+      // ייבנה באופליין, ולכן אסור לו להצדיק שמירה של מסד מלא ישן.
+      test('edge שקובץ ה-patch שלו חסר אינו נחשב מסלול', () async {
+        await buildExporter([
+          release('v3', assets: ['seforim.db.zst']),
+        ]).exporter.export(destDir: destDir);
+
+        final second = buildExporter([
+          release('v4', assets: [
+            'seforim.db.zst',
+            'patch-v3-v4.db.zst.manifest.json',
+          ]),
+          release('v3', assets: ['seforim.db.zst']),
+        ]);
+        await second.exporter.export(destDir: destDir);
+
+        expect(assetOnDisk(destDir, 'v4', 'seforim.db.zst'), isTrue);
+      });
+
+      // התקנה על מחשב ריק: המסד הישן + השרשרת, בהחלה **אחת**.
+      test('התקנה טרייה מקבלת מסד ישן ואז patches, ברצף אחד', () async {
+        await buildExporter([
+          release('v3', assets: [
+            'seforim.db.zst',
+            'patch-v2-v3.db.zst',
+            'patch-v2-v3.db.zst.manifest.json',
+          ]),
+        ]).exporter.export(destDir: destDir);
+        await buildExporter([
+          release('v4', assets: [
+            'seforim.db.zst',
+            'patch-v3-v4.db.zst',
+            'patch-v3-v4.db.zst.manifest.json',
+          ]),
+          release('v3', assets: [
+            'seforim.db.zst',
+            'patch-v2-v3.db.zst',
+            'patch-v2-v3.db.zst.manifest.json',
+          ]),
+        ]).exporter.export(destDir: destDir);
+
+        final result = await LibraryUpdateDiscovery(
+          client: LocalMirrorLibraryReleaseClient(mirrorDir: destDir),
+        ).discover(allowPrerelease: false);
+        final plan = const LibraryUpdatePlanner().plan(
+          localVersion: 0,
+          hasLocalVersionMeta: false,
+          latestVersion: result.latestVersion,
+          edges: result.edges,
+          latestFullDbAsset: result.latestFullDbAsset,
+          latestReleaseTag: result.latestReleaseTag,
+          latestFullDbVersion: result.latestFullDbVersion,
+        );
+
+        expect(plan.kind, LibraryUpdatePlanKind.fullDownload);
+        // היעד של ההורדה נשאר מה שהנכס מביא — אחרת האימות שאחריה דוחה אותו.
+        expect(plan.targetVersion, 3);
+        expect(plan.followUpDelta!.targetVersion, 4);
+        expect(plan.followUpDelta!.deltaSteps.length, 1);
+      });
+    });
+
     test('prerelease אינו נבחר כאחרון כשהערוץ יציב', () async {
       final built = buildExporter([
         release('v9', prerelease: true, assets: ['seforim.db.zst']),

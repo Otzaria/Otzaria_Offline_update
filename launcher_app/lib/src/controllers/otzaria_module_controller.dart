@@ -18,6 +18,10 @@ enum OtzariaModuleStatus {
   /// עדיין לא הורדה שום גרסה לתיקייה המקומית — אין מה להתקין. מצב תקין
   /// בהרצה ראשונה, לא שגיאה.
   needsDownload,
+
+  /// המותקן חדש מהגרסה שבתיקייה המקומית — אין מה להתקין, כי התקנה הייתה
+  /// נסיגת גרסה. מצב תקין, לא שגיאה.
+  installedIsNewer,
 }
 
 /// מצב ההורדה מהרשת אל התיקייה המקומית, נפרד מ-[OtzariaModuleStatus].
@@ -199,7 +203,10 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   }
 
   /// מוריד את הגרסה האחרונה מהרשת אל התיקייה המקומית. לא מתקין.
-  Future<void> download() async {
+  ///
+  /// ביטול דרך [isCancelled] אינו שגיאה: המצב חוזר ל-
+  /// [OtzariaDownloadStatus.idle] בלי [downloadError].
+  Future<void> download({bool Function()? isCancelled}) async {
     downloadStatus = OtzariaDownloadStatus.downloading;
     downloadReceived = null;
     downloadTotal = null;
@@ -221,6 +228,7 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
           downloadTotal = null;
           notifyListeners();
         },
+        isCancelled: isCancelled,
       );
       downloadStage = null;
       downloadStatus = OtzariaDownloadStatus.done;
@@ -230,9 +238,15 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
       return;
     } catch (e, st) {
       downloadStage = null;
-      downloadStatus = OtzariaDownloadStatus.error;
-      downloadError = e.toString();
-      AppLogger.instance.error('הורדת גרסת אוצריא נכשלה', e, st);
+      // ביטול של המשתמש אינו תקלה — ראו [LibraryModuleController.download].
+      if (isCancelled?.call() ?? false) {
+        downloadStatus = OtzariaDownloadStatus.idle;
+        AppLogger.instance.info('הורדת גרסת אוצריא בוטלה: $e');
+      } else {
+        downloadStatus = OtzariaDownloadStatus.error;
+        downloadError = e.toString();
+        AppLogger.instance.error('הורדת גרסת אוצריא נכשלה', e, st);
+      }
     }
     notifyListeners();
   }
@@ -255,6 +269,7 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
       isRunning = check.isOtzariaRunning;
       status = switch (check) {
         _ when check.needsDownload => OtzariaModuleStatus.needsDownload,
+        _ when check.installedIsNewer => OtzariaModuleStatus.installedIsNewer,
         _ when check.updateAvailable => OtzariaModuleStatus.updateAvailable,
         _ => OtzariaModuleStatus.upToDate,
       };

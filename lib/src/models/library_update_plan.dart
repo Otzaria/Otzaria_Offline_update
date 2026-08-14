@@ -73,6 +73,12 @@ class LibraryUpdatePlan extends Equatable {
   /// `null` רק כשאין במראה מסד מלא בכלל.
   final LibraryUpdatePlan? fullDownloadFallback;
 
+  /// שרשרת ה-patches שרצה **מיד אחרי** הורדה מלאה שנוחתת על גרסה ישנה
+  /// מ-latest. המראה מעדיפה לשמור מסד מלא שכבר עליה על פני הורדת ~1.1GB
+  /// חדשים (`LibraryMirrorExporter._chooseFullDbCarrier`), ובלי ההשלמה הזו
+  /// התקנה על מחשב ריק הייתה נעצרת על אותה גרסה ישנה.
+  final LibraryUpdatePlan? followUpDelta;
+
   const LibraryUpdatePlan._({
     required this.kind,
     required this.localVersion,
@@ -82,6 +88,7 @@ class LibraryUpdatePlan extends Equatable {
     this.fullDbReleaseTag,
     this.reason,
     this.fullDownloadFallback,
+    this.followUpDelta,
   });
 
   /// הספרייה מעודכנת — אין מה לעשות.
@@ -117,6 +124,7 @@ class LibraryUpdatePlan extends Equatable {
     required ReleaseAsset asset,
     required String releaseTag,
     String? reason,
+    LibraryUpdatePlan? followUpDelta,
   }) =>
       LibraryUpdatePlan._(
         kind: LibraryUpdatePlanKind.fullDownload,
@@ -125,6 +133,7 @@ class LibraryUpdatePlan extends Equatable {
         fullDbAsset: asset,
         fullDbReleaseTag: releaseTag,
         reason: reason,
+        followUpDelta: followUpDelta,
       );
 
   /// מצב חסום — דורש פעולה ידנית.
@@ -146,7 +155,8 @@ class LibraryUpdatePlan extends Equatable {
       case LibraryUpdatePlanKind.delta:
         return deltaSteps.fold<int>(0, (sum, e) => sum + e.compressedSize);
       case LibraryUpdatePlanKind.fullDownload:
-        return fullDbAsset?.size ?? 0;
+        return (fullDbAsset?.size ?? 0) +
+            (followUpDelta?.totalDownloadSize ?? 0);
       case LibraryUpdatePlanKind.none:
       case LibraryUpdatePlanKind.blocked:
         return 0;
@@ -163,5 +173,6 @@ class LibraryUpdatePlan extends Equatable {
         fullDbReleaseTag,
         reason,
         fullDownloadFallback,
+        followUpDelta,
       ];
 }

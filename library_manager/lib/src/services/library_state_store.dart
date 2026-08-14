@@ -57,8 +57,13 @@ class LibraryStateStore {
   /// ליצור תיקייה — הספרייה סירבה להותקן עד שנבחר מיקום ידנית.
   ///
   /// רשומה מגרסה קודמת (מפתח יחיד, בלי מזהה מחשב) נחשבת רק אם היא נתיב מוחלט
-  /// **בפלטפורמה הזו** ותיקיית האם שלו קיימת כאן — זה מה שמבדיל בין הבחירה של
-  /// המחשב הזה לבין בחירה שהגיעה עם הכונן, בלי להפסיד את הראשונה.
+  /// **בפלטפורמה הזו**, תיקיית האם שלו קיימת כאן, **והוא אינו יושב בתוך תיקיית
+  /// הנתונים שעל הכונן**. התנאי האחרון הוא מה שסוגר את הכוננים שכבר בשטח:
+  /// גרסאות עד 0.1.8 רשמו כאן, אחרי כל התקנה טרייה, את
+  /// `<dataDir>/library/seforim.db` — ותיקיית האם של נתיב כזה נוסעת עם הכונן
+  /// ולכן קיימת *תמיד*, כך שמסננת ה"תיקיית האם קיימת" לא פסלה אותה. התוצאה
+  /// הייתה ~5.5GB שממשיכים להיכתב על הכונן, בזמן שאוצריא קוראת מ-`%APPDATA%`
+  /// ואינה רואה דבר.
   Future<String?> loadCustomDbPath() async {
     final json = await _readAll();
 
@@ -72,7 +77,21 @@ class LibraryStateStore {
     if (legacy is! String || legacy.isEmpty || !p.isAbsolute(legacy)) {
       return null;
     }
+    if (isInsideDataDir(legacy)) return null;
     return await Directory(p.dirname(legacy)).exists() ? legacy : null;
+  }
+
+  /// `true` אם [path] יושב בתוך תיקיית הנתונים שקובץ ה-state הזה חי בה —
+  /// כלומר על הכונן הנייד עצמו. ציבורי כדי שבדיקות יוכלו לפנות אליו ישירות.
+  bool isInsideDataDir(String path) {
+    final dataDir = p.dirname(stateFilePath);
+    final context = Platform.isWindows ? p.windows : p.posix;
+    try {
+      return context.equals(dataDir, path) ||
+          context.isWithin(dataDir, context.normalize(path));
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> saveCustomDbPath(String dbPath) async {
@@ -138,12 +157,22 @@ class LibraryStateStore {
 
   /// רושם/מעדכן את הגרסה של [machineKey]. דריסה של אותו מפתח היא הכוונה:
   /// מחשב שמעדכן את המסד שלו מפסיק למשוך את המינימום למטה בהרצה הבאה שלו.
+  ///
+  /// רשומות מגרסה קודמת של אותו מחשב נמחקות כאן. הן היו ממופתחות בנתיב המסד
+  /// המוחלט, ולכן מסד שעבר מקום (בחירה ידנית, שינוי בהגדרות אוצריא) יצר רשומה
+  /// **שנייה** לאותו מחשב, הישנה נשארה לנצח, ו"הנמוכה מנצחת" הקפיא את ההורדה
+  /// האישית על גרסה שהמחשב מזמן עבר. בדרך זה גם מוציא מהקובץ שנוסע על הכונן
+  /// נתיב מוחלט שכולל את שם החשבון.
   Future<void> recordKnownDbVersion(String machineKey, int version) async {
     final json = await _readAll();
-    final versions = <String, dynamic>{
-      ...await loadKnownDbVersions(),
-      machineKey: version,
-    };
+    final existing = await loadKnownDbVersions();
+    final host = machineKey.split('|').first;
+    final versions = <String, dynamic>{};
+    existing.forEach((key, value) {
+      final sameMachine = key == machineKey || key.startsWith('$host|');
+      if (!sameMachine) versions[key] = value;
+    });
+    versions[machineKey] = version;
     json['knownDbVersions'] = versions;
     await _writeAll(json);
   }

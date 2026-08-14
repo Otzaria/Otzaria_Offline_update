@@ -235,11 +235,15 @@ class LibraryManager {
   /// [onCompanionWarning] מקבל כשל בקובץ נלווה בודד — פעולה best-effort
   /// שאינה מפילה את ההורדה, אך גם אינה אמורה להיעלם בשקט: בלעדיה המשתמש
   /// היה מגלה רק במחשב הלא-מקוון שהתלמוד לא נסע איתו.
+  ///
+  /// [onWarning] מקבל אזהרה מהייצוא עצמו — למשל manifest שאינו קריא ולכן
+  /// ה-edge שלו דולג. כשל **רשת** אינו אזהרה אלא זריקה, ראו `export`.
   Future<MirrorDownloadOutcome> downloadToMirror({
     void Function(String stage)? onStage,
     void Function(int doneAssets, int totalAssets)? onAssetProgress,
     void Function(int downloaded, int? total)? onBytesProgress,
     void Function(String assetName, Object error)? onCompanionWarning,
+    void Function(String warning)? onWarning,
     bool Function()? isCancelled,
   }) async {
     final fromVersion =
@@ -260,6 +264,7 @@ class LibraryManager {
         onStage: onStage,
         onAssetProgress: onAssetProgress,
         onBytesProgress: onBytesProgress,
+        onWarning: onWarning,
         isCancelled: isCancelled,
       );
     } finally {
@@ -306,19 +311,14 @@ class LibraryManager {
     _lastResolvedDbPath = path;
     final local = _versionReader.read(path);
     if (!local.hasVersionMeta || local.dbVersion <= 0) return null;
-    await _stateStore.recordKnownDbVersion(_machineKey(path), local.dbVersion);
+    // המפתח הוא מחשב+חשבון, בלי נתיב המסד: הנתיב כלל שם חשבון בקובץ שנוסע על
+    // הכונן, ומסד שעבר מקום יצר רשומה שנייה שנשארה לנצח ומשכה את "הנמוכה
+    // מנצחת" למטה. ראו [LibraryStateStore.recordKnownDbVersion].
+    await _stateStore.recordKnownDbVersion(
+      LibraryStateStore.currentMachineKey(),
+      local.dbVersion,
+    );
     return local.dbVersion;
-  }
-
-  /// מזהה המחשב+הספרייה שתחתיו נרשמת הגרסה. שם המחשב לבדו אינו מספיק (שני
-  /// חשבונות על אותו מחשב הם שתי ספריות), והנתיב לבדו אינו מספיק (נתיב
-  /// ברירת המחדל זהה במחשבים שונים).
-  String _machineKey(String dbPath) {
-    var host = 'unknown';
-    try {
-      host = Platform.localHostname;
-    } catch (_) {}
-    return '$host|$dbPath';
   }
 
   /// בודק מה הגרסה העדכנית ביותר הזמינה ב-GitHub — **פעולת רשת קלה**:
@@ -364,6 +364,15 @@ class LibraryManager {
   /// קיים עדיין אפשרית מרצון דרך [setCustomDbPath].
   Future<LibraryUpdateCheckResult> checkForUpdate() async {
     var dbPath = await _locator.resolveDbPath();
+    // החלפה שנקטעה בין שני ה-rename משאירה את המסד השלם תחת `<db>.old` ואת
+    // `seforim.db` לא-קיים — ואז האיתור מחזיר null, וזה נראה כמו "התקנה
+    // טרייה" שמורידה ~1.4GB מחדש בזמן שהמסד השלם שוכב שם. השחזור חייב לרוץ
+    // **לפני** שמחליטים שאין מסד, ולכן הוא כאן ולא בענף ה-recovery.
+    if (dbPath == null) {
+      final target = await installDbPath();
+      _recovery.restoreRetiredDbIfOrphaned(target);
+      dbPath = await _locator.resolveDbPath();
+    }
     _lastResolvedDbPath = dbPath;
     final isFreshInstall = dbPath == null;
     dbPath ??= await installDbPath();
@@ -383,7 +392,8 @@ class LibraryManager {
       if (recovery.action == RecoveryAction.interrupted) {
         // אין גיבוי לשחזר ממנו: בודקים תקינות בפועל, לא מניחים תקלה רק
         // בגלל שהסימון נשאר.
-        if (!_recovery.checkDbHealthAfterCrash(dbPath)) {
+        // ב-isolate: `quick_check` על ~7GB חוסם דקות, וזה רץ בעליית הלאנצ'ר.
+        if (!await _recovery.checkDbHealthAfterCrashAsync(dbPath)) {
           final strings = AppL10n.strings.libraryDomain;
           throw StateError(
             strings.interruptedUpdateNeedsManualFix(
@@ -471,6 +481,10 @@ class LibraryManager {
     }
 
     var booksTouched = const <int>{};
+    // הגרסה שהמסד באמת הגיע אליה. שונה מ-`plan.targetVersion` כשהורדה מלאה
+    // נחתה על מסד ישן והושלמה ב-patches — ראו [LibraryUpdatePlan.followUpDelta].
+    var appliedVersion = plan?.targetVersion;
+    var appliedTag = plan?.fullDbReleaseTag ?? check.latestReleaseTag;
     if (plan != null && check.dbUpdateAvailable) {
       switch (plan.kind) {
         case LibraryUpdatePlanKind.delta:
@@ -504,6 +518,34 @@ class LibraryManager {
             onProgress: onProgress,
             isCancelled: isCancelled,
           );
+          // המסד המלא שבמראה עשוי להיות ישן מ-latest בכוונה (המראה מעדיפה
+          // אותו על פני הורדת ~1.1GB חדשים); ה-patches מכאן ולמעלה כבר על
+          // הכונן, ולכן הרצף מסתיים בגרסה האחרונה ולא בבדיקה נוספת.
+          final followUp = plan.followUpDelta;
+          if (followUp != null) {
+            // כשל כאן אינו מבטל את המסד המלא שכבר הותקן בהצלחה: רושמים את מה
+            // שהושג, והבדיקה הבאה תציע את השרשרת מחדש מהגרסה הזו.
+            try {
+              booksTouched = await _applier.applyDelta(
+                plan: followUp,
+                dbPath: dbPath,
+                onProgress: onProgress,
+                isCancelled: isCancelled,
+              );
+              appliedVersion = followUp.targetVersion;
+              appliedTag = check.latestReleaseTag;
+            } catch (_) {
+              await _finishDbUpdate(
+                check: check,
+                dbPath: dbPath,
+                route: ExternalUpdateNotice.routeFull,
+                booksTouched: const <int>{},
+                version: appliedVersion,
+                tag: appliedTag,
+              );
+              rethrow;
+            }
+          }
           break;
         case LibraryUpdatePlanKind.none:
           break;
@@ -514,34 +556,15 @@ class LibraryManager {
           );
       }
 
-      // רישומי ה-state הם קבצי JSON זעירים, אבל הם נכתבים **אחרי** שהמסד
-      // כבר הוחלף. כשל שלהם (כונן מלא, USB שנשלף) אינו הופך עדכון שהצליח
-      // לכישלון — לכל היותר הבדיקה הבאה תציע שוב את מה שכבר מותקן.
-      try {
-        // התקנה טרייה: ה-dbPath שכתבנו אליו הופך מעכשיו לנתיב הקבוע שנבדוק
-        // מולו (כמו בחירה ידנית של המשתמש) — כדי ש-checkForUpdate הבא ימצא
-        // אותו במקום לחשוב שוב שזו התקנה טרייה.
-        if (check.isFreshInstall) {
-          await _stateStore.saveCustomDbPath(dbPath);
-        }
-        await _saveAppliedTag(check, plan);
-        // המחשב הזה עלה לגרסה החדשה — בלי העדכון הזה הורדה אישית הבאה עוד
-        // הייתה יוצאת מהגרסה הישנה שלו ומביאה patches שכבר הוחלו.
-        final installed = plan.targetVersion;
-        if (installed != null && installed > 0) {
-          await _stateStore.recordKnownDbVersion(
-              _machineKey(dbPath), installed);
-        }
-      } catch (_) {}
-      // מה השתנה, לטובת אינדקס החיפוש של אוצריא — ראו [ExternalUpdateNotice].
-      await const ExternalUpdateNotice().write(
+      await _finishDbUpdate(
+        check: check,
         dbPath: dbPath,
         route: plan.kind == LibraryUpdatePlanKind.delta
             ? ExternalUpdateNotice.routeDelta
             : ExternalUpdateNotice.routeFull,
         booksTouched: booksTouched,
-        dbVersion: plan.targetVersion,
-        releaseTag: plan.fullDbReleaseTag ?? check.latestReleaseTag,
+        version: appliedVersion,
+        tag: appliedTag,
       );
     }
 
@@ -562,16 +585,44 @@ class LibraryManager {
     return booksTouched;
   }
 
-  Future<void> _saveAppliedTag(
-    LibraryUpdateCheckResult check,
-    LibraryUpdatePlan plan,
-  ) async {
-    // רושמים מאיזה release התוכן הנוכחי הגיע — זה מה שמאפשר לזהות בהמשך
-    // מסד מתוקן שפורסם באותו db_version (ראו LibraryUpdatePlanner).
-    final appliedTag = plan.fullDbReleaseTag ?? check.latestReleaseTag;
-    if (appliedTag != null) {
-      await _stateStore.saveAppliedReleaseTag(appliedTag);
-    }
+  /// רישומי הסיום של עדכון מסד שהצליח: state מקומי + הסימון לאוצריא.
+  /// [version] ו-[tag] הם מה שהמסד באמת הגיע אליו — לא בהכרח יעד התוכנית.
+  Future<void> _finishDbUpdate({
+    required LibraryUpdateCheckResult check,
+    required String dbPath,
+    required String route,
+    required Set<int> booksTouched,
+    required int? version,
+    required String? tag,
+  }) async {
+    // רישומי ה-state הם קבצי JSON זעירים, אבל הם נכתבים **אחרי** שהמסד כבר
+    // הוחלף. כשל שלהם (כונן מלא, USB שנשלף) אינו הופך עדכון שהצליח לכישלון —
+    // לכל היותר הבדיקה הבאה תציע שוב את מה שכבר מותקן.
+    try {
+      // התקנה טרייה: ה-dbPath שכתבנו אליו הופך מעכשיו לנתיב הקבוע שנבדוק
+      // מולו (כמו בחירה ידנית של המשתמש) — כדי ש-checkForUpdate הבא ימצא
+      // אותו במקום לחשוב שוב שזו התקנה טרייה.
+      if (check.isFreshInstall) {
+        await _stateStore.saveCustomDbPath(dbPath);
+      }
+      // רושמים מאיזה release התוכן הנוכחי הגיע — זה מה שמאפשר לזהות בהמשך
+      // מסד מתוקן שפורסם באותו db_version (ראו LibraryUpdatePlanner).
+      if (tag != null) await _stateStore.saveAppliedReleaseTag(tag);
+      // המחשב הזה עלה לגרסה החדשה — בלי העדכון הזה הורדה אישית הבאה עוד
+      // הייתה יוצאת מהגרסה הישנה שלו ומביאה patches שכבר הוחלו.
+      if (version != null && version > 0) {
+        await _stateStore.recordKnownDbVersion(
+            LibraryStateStore.currentMachineKey(), version);
+      }
+    } catch (_) {}
+    // מה השתנה, לטובת אינדקס החיפוש של אוצריא — ראו [ExternalUpdateNotice].
+    await const ExternalUpdateNotice().write(
+      dbPath: dbPath,
+      route: route,
+      booksTouched: booksTouched,
+      dbVersion: version,
+      releaseTag: tag,
+    );
   }
 
   /// סוגר את חיבורי ה-HTTP הפנימיים. יש לקרוא כשמסיימים להשתמש

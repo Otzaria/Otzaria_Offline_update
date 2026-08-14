@@ -79,6 +79,8 @@ class OtzariaScreen extends StatelessWidget {
             OtzariaModuleStatus.updateAvailable => StatusKind.updateAvailable,
             OtzariaModuleStatus.installing => StatusKind.working,
             OtzariaModuleStatus.needsDownload => StatusKind.needsAction,
+            // ההתקנה תקינה ומעודכנת — רק המראה מפגרת אחריה.
+            OtzariaModuleStatus.installedIsNewer => StatusKind.ok,
             OtzariaModuleStatus.error => StatusKind.error,
           },
           label: switch (c.status) {
@@ -88,6 +90,7 @@ class OtzariaScreen extends StatelessWidget {
             OtzariaModuleStatus.updateAvailable => t.readyToInstall,
             OtzariaModuleStatus.installing => common.installing,
             OtzariaModuleStatus.needsDownload => t.nothingDownloadedYet,
+            OtzariaModuleStatus.installedIsNewer => common.installedIsNewer,
             OtzariaModuleStatus.error => common.error,
           },
         ),

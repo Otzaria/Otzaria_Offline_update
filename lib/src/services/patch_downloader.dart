@@ -243,6 +243,7 @@ class PatchDownloader {
           sidecarPath: resumeToken != null ? sidecarPath : null,
           resumeToken: resumeToken,
           onProgress: onProgress,
+          onVerifyProgress: onVerifyProgress,
           isCancelled: isCancelled,
         );
         downloaded = outcome.downloaded;
@@ -309,6 +310,7 @@ class PatchDownloader {
     String? sidecarPath,
     String? resumeToken,
     void Function(int downloaded, int? total)? onProgress,
+    void Function(int verified, int total)? onVerifyProgress,
     bool Function()? isCancelled,
   }) async {
     // כובל את הבייטים לגרסת השרת דרך קובץ הצד: נכתב ברגע שהם מגיעים כדי שהפרעה
@@ -330,16 +332,15 @@ class PatchDownloader {
       // משאירים תגובת HTTP פתוחה.
       _ChunkedDigestSink? digestSink;
       FastSha256Sink? hashInput;
+      // התחילית מגובבת רק אחרי ש-206 מוכיח שהשרת אכן כיבד את ה-Range. ה-CDN
+      // של GitHub מתעלם מ-Range ומחזיר 200 (נמדד), ואז הגיבוב הזה — קריאה של
+      // עד ~1.4GB מכונן USB — נזרק כולו, בלי שום דיווח התקדמות: המשתמש ראה
+      // תוכנה תקועה כמה דקות ואז הורדה שמתחילה מאפס.
+      var prefixHashed = false;
       try {
         if (computeHash) {
           digestSink = _ChunkedDigestSink();
           hashInput = FastSha256.start(digestSink);
-          if (currentOffset > 0) {
-            await for (final chunk in file.openRead(0, currentOffset)) {
-              _throwIfCancelled(isCancelled);
-              hashInput.add(chunk);
-            }
-          }
         }
 
         var roundOffset = currentOffset;
@@ -452,6 +453,19 @@ class PatchDownloader {
                 (sessionTotal == null || total == sessionTotal) &&
                 (expectedSize == null || total == expectedSize);
             if (complete) {
+              // הקובץ שלם ולא נקרא ממנו בייט: ה-digest המוחזר הוא של כל הקובץ,
+              // ולכן דווקא כאן חייבים לגבב את התחילית (שנדחתה עד שיוכח שהיא
+              // נחוצה) — אחרת היה מוחזר hash של אפס בייטים.
+              if (computeHash && !prefixHashed && roundOffset > 0) {
+                prefixHashed = true;
+                var hashed = 0;
+                await for (final chunk in file.openRead(0, roundOffset)) {
+                  _throwIfCancelled(isCancelled);
+                  hashInput!.add(chunk);
+                  hashed += chunk.length;
+                  onVerifyProgress?.call(hashed, roundOffset);
+                }
+              }
               hashInput?.close();
               _throwIfCancelled(isCancelled);
               return (downloaded: roundOffset, digest: digestSink?.value);
@@ -525,6 +539,27 @@ class PatchDownloader {
             _throwIfCancelled(isCancelled);
             restart = true;
             break;
+          }
+
+          // רק כאן ידוע שהשרת כיבד את ה-Range וההמשך אמיתי, ולכן שווה לשלם על
+          // גיבוב התחילית. מדווח דרך [onVerifyProgress], כי אלה בייטים שנקראים
+          // מהדיסק ולא בייטים שיורדים.
+          if (computeHash && !prefixHashed && currentOffset > 0) {
+            prefixHashed = true;
+            try {
+              var hashed = 0;
+              await for (final chunk in file.openRead(0, currentOffset)) {
+                _throwIfCancelled(isCancelled);
+                hashInput!.add(chunk);
+                hashed += chunk.length;
+                onVerifyProgress?.call(hashed, currentOffset);
+              }
+            } catch (_) {
+              // התגובה כבר פתוחה — משחררים את החיבור לפני הפצת השגיאה.
+              await _abandonBody(response);
+              hashInput?.close();
+              rethrow;
+            }
           }
 
           final expectedRoundBytes = range.end - range.start + 1;

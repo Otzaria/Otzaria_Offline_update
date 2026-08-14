@@ -223,13 +223,19 @@ class OtzariaManager {
   ///
   /// מוריד **את שתי הגרסאות**: היציבה, ובנוסף ה-pre-release כשהוא חדש
   /// ממנה. כך במחשב המנותק אפשר לבחור ביניהן בלי לחזור לרשת.
+  ///
+  /// [isCancelled] נבדק גם באמצע נכס: הביטול הוא של המשתמש, וקובץ ההתקנה
+  /// (~70MB) אינו משהו שכדאי לחכות לסופו. קובץ חלקי נמחק, ונזרק
+  /// [OtzariaDownloadCancelled].
   Future<void> downloadToMirror({
     void Function(int received, int total)? onProgress,
     void Function(OtzariaReleaseChannel channel)? onChannel,
+    bool Function()? isCancelled,
   }) =>
       _mirror.sync(
         onDownloadProgress: onProgress,
         onChannelStart: onChannel,
+        isCancelled: isCancelled,
       );
 
   /// בודק מה הגרסה העדכנית ביותר ב-GitHub **בערוץ שהמשתמש בחר** —

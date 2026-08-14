@@ -138,6 +138,7 @@ class OtzariaAppMirror {
   Future<MirroredOtzariaReleases> sync({
     void Function(int received, int total)? onDownloadProgress,
     void Function(OtzariaReleaseChannel channel)? onChannelStart,
+    bool Function()? isCancelled,
   }) async {
     final online = await _releaseClient.fetchChannelReleases();
 
@@ -153,7 +154,8 @@ class OtzariaAppMirror {
       if (release == null) continue;
 
       onChannelStart?.call(channel);
-      final mirrored = await _downloadToMirror(release, onDownloadProgress);
+      final mirrored =
+          await _downloadToMirror(release, onDownloadProgress, isCancelled);
       if (channel == OtzariaReleaseChannel.stable) {
         stable = mirrored;
       } else {
@@ -178,6 +180,7 @@ class OtzariaAppMirror {
   Future<MirroredOtzariaRelease> _downloadToMirror(
     OtzariaRelease release,
     void Function(int received, int total)? onDownloadProgress,
+    bool Function()? isCancelled,
   ) async {
     final notes = await _changelogClient.notesFor(release.tagName);
     final withNotes =
@@ -186,6 +189,7 @@ class OtzariaAppMirror {
     final installerPath = await _installer.ensureCached(
       release: withNotes,
       onDownloadProgress: onDownloadProgress,
+      isCancelled: isCancelled,
     );
     return MirroredOtzariaRelease(
       release: withNotes,

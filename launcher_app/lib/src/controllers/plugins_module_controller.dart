@@ -168,7 +168,10 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   }
 
   /// מסנכרן את הקטלוג והקבצים מהאתר אל המראה. דורש אינטרנט.
-  Future<void> sync() async {
+  ///
+  /// [isCancelled] נבדק בין תוסף לתוסף (הקבצים עצמם קטנים) — ראו
+  /// `PluginMirrorSync.sync`.
+  Future<void> sync({bool Function()? isCancelled}) async {
     status = PluginsModuleStatus.syncing;
     errorMessage = null;
     syncMessage = AppL10n.strings.plugins.syncingOverlayStarting;
@@ -177,25 +180,28 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
 
     try {
-      final outcome = await _manager.sync(onProgress: (progress) {
-        syncMessage = progress.message;
-        if (progress.phase == PluginSyncPhase.warning) {
-          syncWarnings.add(progress.message);
-        } else if (progress.fraction != null) {
-          syncProgress = progress.fraction;
-        }
-        // הסנכרון מדווח פעמים רבות בשנייה (נכס אחר נכס) — מדולל, כמו
-        // שאר מדי ההתקדמות.
-        notifyProgress();
-      });
+      final outcome = await _manager.sync(
+          isCancelled: isCancelled,
+          onProgress: (progress) {
+            syncMessage = progress.message;
+            if (progress.phase == PluginSyncPhase.warning) {
+              syncWarnings.add(progress.message);
+            } else if (progress.fraction != null) {
+              syncProgress = progress.fraction;
+            }
+            // הסנכרון מדווח פעמים רבות בשנייה (נכס אחר נכס) — מדולל, כמו
+            // שאר מדי ההתקדמות.
+            notifyProgress();
+          });
       lastSyncOutcome = outcome;
       AppLogger.instance.info('סנכרון התוספים: ${outcome.fetched} ירדו, '
           '${outcome.skipped} דולגו, ${syncWarnings.length} אזהרות'
           '${syncWarnings.isEmpty ? '' : ':\n${syncWarnings.join('\n')}'}');
       // המראה זה עתה נמשכה מהאתר — התשובה הישנה של הבדיקה הקלה כבר לא
       // מתארת אותה, והשארתה הייתה מציגה "יש עדכונים" אחרי שהם כבר ירדו.
-      // כשקובץ תוסף לא ירד המראה עדיין חסרה אותו, ולכן התשובה נשארת.
-      if (!outcome.hasFailures) {
+      // כשקובץ תוסף לא ירד המראה עדיין חסרה אותו, ולכן התשובה נשארת — וכך
+      // גם בסנכרון שבוטל, שהשאיר בדיוק את אותו חוסר.
+      if (!outcome.hasFailures && !(isCancelled?.call() ?? false)) {
         onlineStatus = PluginsOnlineStatus.empty;
         onlineCheckedAt = DateTime.now();
         onlineCheckError = null;

@@ -85,6 +85,13 @@ class LibraryRelease extends Equatable {
     required this.assets,
   });
 
+  /// ה-`state` שנחשב נכס מוכן להורדה. GitHub יוצר את אובייקט ה-release לפני
+  /// שהנכסים עולים, וכל release של הספרייה נושא ~3.6GB — כלומר יש חלון של
+  /// דקות ארוכות שבו הנכסים קיימים ברשימה אך אינם שלמים (`starting`,
+  /// `uploading`, בדרך כלל `size: 0` ובלי `digest`). נכס כזה מסונן כאן, כדי
+  /// שהחלון הזה יהיה no-op ולא הורדה שנכשלת.
+  static const String uploadedAssetState = 'uploaded';
+
   factory LibraryRelease.fromJson(Map<String, dynamic> json) {
     final assetsRaw = json['assets'];
     return LibraryRelease(
@@ -94,7 +101,13 @@ class LibraryRelease extends Equatable {
       publishedAt: DateTime.tryParse((json['published_at'] as String?) ?? ''),
       assets: assetsRaw is List
           ? assetsRaw
-              .map((e) => ReleaseAsset.fromJson(e as Map<String, dynamic>))
+              .whereType<Map<String, dynamic>>()
+              .where((e) {
+                final state = e['state'] as String?;
+                // שדה חסר = API ישן או מראה מקומית; לא פוסלים על היעדרו.
+                return state == null || state == uploadedAssetState;
+              })
+              .map(ReleaseAsset.fromJson)
               .toList(growable: false)
           : const [],
     );

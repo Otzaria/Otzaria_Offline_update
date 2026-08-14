@@ -60,6 +60,22 @@ comes from the recorded DB version rather than from the newest release online.
 The skip is announced in a snackbar; a silent one is what produced the "why
 did it not download the plugins" confusion in the first place.
 
+**A running download can be cancelled, and cancelling deletes what *that*
+download brought.** The button lives next to the progress row on the home
+screen and only appears while a download runs; `AppShell._cancelDownload` is
+read through the `isCancelled` callback that every download layer already
+takes, so it takes effect mid-asset. The cleanup is
+`MirrorDownloadUndo` (`launcher_app/lib/src/services/`): it snapshots
+`mirror/library`, `mirror/companions`, `mirror/app` and `mirror/plugins`
+before the first byte, and on cancel deletes files that were created, restores
+any `.json` manifest that was rewritten (a new `releases.json` over deleted
+assets is a mirror pointing at nothing), and truncates a resumed partial asset
+back to its previous length so it stays resumable. Do **not** "simplify" this
+into deleting the mirror: the ~1.5GB compressed DB sitting there from an
+earlier run is exactly what must survive a cancel. `mirror/apps` and
+`mirror/launcher` are deliberately outside the snapshot — no download from
+this button writes there.
+
 The "peek" methods exist only to power the launcher's optional, one-shot,
 auto-on-launch "is there anything new online?" nudge (`AppShell.checkOnline()`,
 `AppSettings.autoCheckOnlineUpdates`) — metadata only, never an asset, and a
@@ -560,6 +576,18 @@ there it can only suppress an update when the version numbers already match.
 reports `0.9.96` while the release tag is `0.9.96+736`. `OtzariaUpdateCheckResult`
 strips a leading `v` and everything after `+`; without that, every launch sees a
 phantom update and re-downloads ~73MB.
+
+**"Different tag" is not "newer tag".** `updateAvailable` used to be pure
+inequality, so a user who had installed Otzaria 0.9.97+90970 himself while the
+mirror still held 0.9.96+736 was told "ready to install" and offered a
+*downgrade*. `compareVersions` orders the base components **numerically** (so
+`0.9.9 < 0.9.10`, which a string compare gets backwards) and ranks a
+pre-release suffix below the same bare base; `installedIsNewer` then suppresses
+the offer. The one downgrade that stays on the table is a deliberate channel
+switch — when the installed tag *is* the other mirrored channel's tag, the user
+asked for it (see `OtzariaChannelPair`, which only ever holds a prerelease
+newer than the stable). Two different suffixes on one base are incomparable and
+compare as 0, which keeps the old behaviour there.
 
 **Plugin install-state matching uses `manifestId`, not the catalog `id`.** The
 `id` that `otzaria.org/api/plugins` returns is the website's database id;

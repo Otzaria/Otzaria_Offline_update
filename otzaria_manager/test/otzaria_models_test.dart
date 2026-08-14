@@ -142,8 +142,89 @@ void main() {
         currentState: _state('0.9.97'),
       );
 
+      expect(result.installedIsNewer, isFalse);
       expect(result.updateAvailable, isTrue);
       expect(result.latestRelease!.tagName, '0.9.90');
+    });
+  });
+
+  group('installedIsNewer', () {
+    // דיווח מהשטח: 0.9.97 הותקנה ידנית, המראה החזיקה 0.9.96, והלאנצ'ר הציע
+    // "עדכון" שהיה מחזיר את המשתמש אחורה.
+    test('מותקן חדש מהמראה — אין הצעת התקנה', () {
+      final result = OtzariaUpdateCheckResult(
+        stableRelease: _release(tagName: '0.9.96+736'),
+        currentState: _state('0.9.97+90970'),
+      );
+
+      expect(result.installedIsNewer, isTrue);
+      expect(result.updateAvailable, isFalse);
+    });
+
+    test('המראה חדשה מהמותקן — עדכון רגיל', () {
+      final result = OtzariaUpdateCheckResult(
+        stableRelease: _release(tagName: '0.9.97+90970'),
+        currentState: _state('0.9.96'),
+      );
+
+      expect(result.installedIsNewer, isFalse);
+      expect(result.updateAvailable, isTrue);
+    });
+
+    test('אותה גרסה אינה נסיגה ואינה עדכון', () {
+      final result = OtzariaUpdateCheckResult(
+        stableRelease: _release(tagName: '0.9.96+741'),
+        currentState: _state('0.9.96+736'),
+      );
+
+      expect(result.installedIsNewer, isFalse);
+      expect(result.updateAvailable, isFalse);
+    });
+
+    test('בלי התקנה קודמת אין מול מה להשוות', () {
+      final result = OtzariaUpdateCheckResult(
+        stableRelease: _release(tagName: '0.9.96'),
+        currentState: null,
+      );
+
+      expect(result.installedIsNewer, isFalse);
+      expect(result.updateAvailable, isTrue);
+    });
+  });
+
+  group('compareVersions', () {
+    test('משווה כמספרים ולא כטקסט', () {
+      expect(OtzariaUpdateCheckResult.compareVersions('0.9.97', '0.9.96'), 1);
+      expect(OtzariaUpdateCheckResult.compareVersions('0.9.9', '0.9.10'), -1);
+      expect(OtzariaUpdateCheckResult.compareVersions('0.10.0', '0.9.99'), 1);
+    });
+
+    test('מתעלם מ-v מוביל ומסיומת ה-build', () {
+      expect(
+          OtzariaUpdateCheckResult.compareVersions('v0.9.96+741', '0.9.96+736'),
+          0);
+    });
+
+    test('חלק חסר נחשב 0', () {
+      expect(OtzariaUpdateCheckResult.compareVersions('1.2', '1.2.0'), 0);
+      expect(OtzariaUpdateCheckResult.compareVersions('1.2', '1.2.1'), -1);
+    });
+
+    // הסיומת מכריעה רק בתיקו, ורק כשהיא בצד אחד — שתי סיומות שונות אינן
+    // ברות השוואה, ושם ההכרעה נשארת ל-updateAvailable.
+    test('סיומת pre-release ותיקה מהבסיס הנקי', () {
+      expect(
+          OtzariaUpdateCheckResult.compareVersions('1.0.0-beta', '1.0.0'), -1);
+      expect(
+          OtzariaUpdateCheckResult.compareVersions('1.0.1-beta', '1.0.0'), 1);
+      expect(
+        OtzariaUpdateCheckResult.compareVersions('1.0.0-beta1', '1.0.0-beta2'),
+        0,
+      );
+    });
+
+    test('גרסה ריקה ותיקה מכל גרסה אמיתית', () {
+      expect(OtzariaUpdateCheckResult.compareVersions('', '0.9.96'), -1);
     });
   });
 

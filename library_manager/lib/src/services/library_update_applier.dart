@@ -182,6 +182,11 @@ class LibraryUpdateApplier {
         );
       }
 
+      // בדיקה חוזרת לפני **כל** צעד, מאותה סיבה שהיא רצה שוב לפני ההחלפה
+      // במסלול המלא: הצעד האחרון לבדו קורא ~7GB באימות ה-hash ולוקח דקות,
+      // ואוצריא יכולה להיפתח בינתיים ולכתוב לאותו מסד שאנחנו פותחים לכתיבה.
+      if (i > 0) await _guardOtzariaNotRunning();
+
       final patchPath = await _downloader.downloadAndExtract(
         patchFile: patchFile,
         downloadUrl: url,
@@ -300,9 +305,22 @@ class LibraryUpdateApplier {
     await _guardOtzariaNotRunning();
 
     final dir = Directory(p.dirname(dbPath));
-    if (!dir.existsSync()) dir.createSync(recursive: true);
+    try {
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+    } on FileSystemException catch (e) {
+      // issue #23: חשבון רגיל שאינו יכול ליצור תיקייה תחת C:\Users. השורש
+      // תוקן (נתיב פר-מחשב), אבל ההודעה הגולמית לא הפנתה לבורר הידני.
+      throw LibraryApplyException(
+        AppL10n.strings.libraryDomain
+            .installDirNotWritable(dir.path, e.osError?.message ?? e.message),
+      );
+    }
 
     final compressedPath = '$dbPath.download.zst';
+    // הדחוס וה-`.new` יושבים שניהם לצד המסד הקיים, ולכן שיא התפוסה על אותו
+    // נפח הוא ישן + דחוס + חדש. בלי הבדיקה הזו הכשל היה `errno = 112` באנגלית
+    // באמצע חילוץ של דקות, על נתיב `.new` שהמשתמש אינו מכיר.
+    _ensureSpaceFor(dir.path, asset.size);
     await _downloader.downloadToFile(
       url: asset.downloadUrl,
       destPath: compressedPath,
@@ -325,6 +343,12 @@ class LibraryUpdateApplier {
     // עד שהחדש מוכן במלואו, בדיוק כמו במסלול ה-staging של התקנת האפליקציה.
     final newFilePath = '$dbPath.new';
     _deleteQuietly(newFilePath);
+    // עכשיו הקובץ הדחוס על הדיסק, ולכן הגודל המחולץ המדויק קריא מכותרת
+    // ה-frame — בדיקה מדויקת ולא הערכה, לפני שמתחילים לכתוב ~7GB.
+    final extractedSize = ZstdFileDecompressor.contentSizeOf(compressedPath);
+    if (extractedSize != null) {
+      _ensureSpaceFor(dir.path, extractedSize);
+    }
     try {
       if (!await ZstdFileDecompressor.decompressFileToFile(
         compressedPath,
@@ -389,7 +413,18 @@ class LibraryUpdateApplier {
     // ההורדה והחילוץ ארכו דקות רבות; אוצריא יכלה להיפתח בינתיים. הבדיקה
     // החוזרת עולה כלום, ובלעדיה ב-macOS היינו מוחקים את המסד מתחת לאוצריא
     // רצה (`unlink` על קובץ פתוח מצליח שם).
-    await _guardOtzariaNotRunning();
+    try {
+      await _guardOtzariaNotRunning();
+    } catch (_) {
+      // כשל **נקי** שלא נגע במסד, ולכן אינו "עדכון שנקטע": בלי הניקוי הזה
+      // נשארו הסימון, ה-`.new` (~7GB) והדחוס — והריצה הבאה הייתה קוראת את
+      // הסימון ומריצה `quick_check` של דקות על המסד החי לחינם.
+      if (dbAlreadyExists) _recovery.clearStaleArtifacts(dbPath);
+      _deleteQuietly(newFilePath);
+      _deleteQuietly(compressedPath);
+      _deleteQuietly(PatchDownloader.resumeSidecarPath(compressedPath));
+      rethrow;
+    }
 
     onProgress?.call(
         const LibraryApplyProgress(stage: LibraryApplyStage.writingFullDb));
@@ -407,17 +442,27 @@ class LibraryUpdateApplier {
       File(newFilePath).renameSync(dbPath);
     } catch (_) {
       _deleteQuietly(compressedPath);
-      // גלגול אחור: המסד הישן חוזר לשמו, וה-`<db>.new` נשאר לניסיון הבא.
-      if (retired && !File(dbPath).existsSync()) {
-        try {
-          File(retiredPath).renameSync(dbPath);
-        } catch (_) {
-          // גם הגלגול נכשל — משאירים את שניהם, הם הקבצים התקינים היחידים,
-          // ואת הסימון שמעיד שכאן נקטע עדכון.
-          rethrow;
+      // גלגול אחור: המסד הישן חוזר לשמו. `<db>.new` נמחק בתחילת הריצה הבאה.
+      var rolledBack = false;
+      if (retired) {
+        if (!File(dbPath).existsSync()) {
+          try {
+            File(retiredPath).renameSync(dbPath);
+            rolledBack = true;
+          } catch (_) {
+            // גם הגלגול נכשל — משאירים את שניהם, הם הקבצים התקינים היחידים,
+            // ואת הסימון שמעיד שכאן נקטע עדכון.
+            rethrow;
+          }
         }
+        // ⚠️ מוחקים את `<db>.old` **רק** אחרי גלגול שהצליח. קודם לכן המחיקה
+        // רצה גם בענף שבו הגלגול דולג — והוא ניתן להגעה: rename ראשון מצליח,
+        // ואז אוצריא נפתחת, פתיחת `seforim.db` חסר ב-sqlite **יוצרת** קובץ ריק
+        // ונועלת אותו (וזה בדיוק מה שמכשיל את ה-rename השני), התנאי
+        // `!existsSync()` נופל, והמחיקה השמידה את הספרייה של המשתמש. שני
+        // ה-rename קיימים בדיוק כדי שזה לא יקרה.
+        if (rolledBack) _deleteQuietly(retiredPath);
       }
-      _deleteQuietly(retiredPath);
       if (dbAlreadyExists) _recovery.clearStaleArtifacts(dbPath);
       rethrow;
     }
@@ -433,6 +478,9 @@ class LibraryUpdateApplier {
     // ולכן סימון "לא מאומת" משרשרת שנקטעה בעבר אינו רלוונטי יותר.
     _recovery.clearUnverified(dbPath);
     _deleteQuietly(compressedPath);
+    // ה-sidecar הוא באחריות הצרכן (ראו PatchDownloader.downloadToFile);
+    // בלי זה נשאר `seforim.db.download.zst.resume` בתיקיית הספרים לנצח.
+    _deleteQuietly(PatchDownloader.resumeSidecarPath(compressedPath));
     onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.done));
   }
 
@@ -560,6 +608,28 @@ class LibraryUpdateApplier {
         AppL10n.strings.libraryDomain.updateCancelled,
       );
     }
+  }
+
+  /// זורק הודעה שאומרת כמה לפנות ואיפה, כשידוע בוודאות שאין מקום ל-[needed]
+  /// תחת [dir]. מדידה שנכשלה אינה חוסמת — ראו [DiskSpaceProbe].
+  void _ensureSpaceFor(String dir, int needed) {
+    if (!DiskSpaceProbe.isKnownInsufficient(dir, needed)) return;
+    final free = DiskSpaceProbe.freeBytesFor(dir) ?? 0;
+    throw LibraryApplyException(
+      AppL10n.strings.libraryDomain.notEnoughDiskSpace(
+        dir,
+        _formatBytes(needed),
+        _formatBytes(free),
+      ),
+    );
+  }
+
+  /// גדלים בג'יגה-בייט בעברית קריאה — ההודעה נועדה לומר לאדם כמה לפנות.
+  static String _formatBytes(int bytes) {
+    const gb = 1 << 30;
+    const mb = 1 << 20;
+    if (bytes >= gb) return '${(bytes / gb).toStringAsFixed(1)} GB';
+    return '${(bytes / mb).round()} MB';
   }
 
   String? _sha256FromDigest(String? digest) {

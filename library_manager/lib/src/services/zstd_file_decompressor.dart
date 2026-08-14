@@ -90,6 +90,38 @@ abstract final class ZstdFileDecompressor {
     final library = _openLibrary();
     return library == null ? null : ZstandardNativeBindings(library);
   }
+
+  /// הגודל **המחולץ** של קובץ ה-`.zst` לפי כותרת ה-frame שלו, או `null` כשהוא
+  /// אינו רשום שם או שאין ספריית zstd. עולה קריאה של 18 בתים.
+  ///
+  /// זה מה שמאפשר לבדוק מקום פנוי לפני חילוץ של ~7GB במקום להתנגש בדיסק מלא
+  /// באמצע. הנכס האמיתי של המסד אכן נושא את הגודל בכותרת (נמדד); patch אינו,
+  /// ואז התשובה `null` והקורא פשוט אינו בודק.
+  static int? contentSizeOf(String sourcePath) {
+    final bindings = bindingsOrNull();
+    if (bindings == null) return null;
+    final file = File(sourcePath);
+    if (!file.existsSync()) return null;
+
+    // ZSTD_frameHeaderSize_max הוא 18 — די בו כדי לקרוא את הגודל.
+    const headerMax = 18;
+    final raf = file.openSync();
+    final buffer = malloc.allocate<Uint8>(headerMax);
+    try {
+      final view = buffer.asTypedList(headerMax);
+      final read = raf.readIntoSync(view, 0, headerMax);
+      if (read <= 0) return null;
+      final size = bindings.ZSTD_getFrameContentSize(buffer.cast(), read);
+      // -1 = הגודל אינו בכותרת, -2 = שגיאה. שניהם "לא יודע".
+      if (size < 0) return null;
+      return size;
+    } catch (_) {
+      return null;
+    } finally {
+      malloc.free(buffer);
+      raf.closeSync();
+    }
+  }
 }
 
 class ZstdStreamException implements Exception {
@@ -120,6 +152,10 @@ DynamicLibrary? _openLibrary() {
   }
   return null;
 }
+
+/// גבול חלון הפענוח. 31 הוא המקסימום שהפורמט מגדיר, ומרווח הוא כל העניין:
+/// קלט שנדחס ב-`--long` היה נדחה בברירת המחדל (27).
+const int _maxWindowLog = 31;
 
 /// גוף החילוץ. top-level ומקבל רק ערכים ניתנים-לשליחה, כדי שלא ייתפס שום
 /// `this` בדרך ל-isolate. [args]: `($1: מקור, $2: יעד, $3: שפה, $4: יציאת
@@ -152,7 +188,18 @@ bool _decompressInIsolate((String, String, AppLanguage, SendPort?) args) {
   final outView = outPtr.asTypedList(outCapacity);
 
   try {
-    zstd.ZSTD_initDStream(dctx);
+    final init = zstd.ZSTD_initDStream(dctx);
+    if (zstd.ZSTD_isError(init) != 0) {
+      throw ZstdStreamException(strings.zstdContextCreationFailed);
+    }
+    // ברירת המחדל של libzstd היא windowLogMax=27 (128MB), וה-patches שהמאגר
+    // מפרסם יושבים בדיוק על 27 — עובר, בלי מרווח. שינוי אחד בהגדרות הדחיסה
+    // אצל המפיק (`--long`, `--ultra`) היה מפיל כל patch ב-windowTooLarge.
+    zstd.ZSTD_DCtx_setParameter(
+      dctx,
+      ZSTD_dParameter.ZSTD_d_windowLogMax,
+      _maxWindowLog,
+    );
     inBuffer.ref.src = inPtr.cast();
     outBuffer.ref.dst = outPtr.cast();
 

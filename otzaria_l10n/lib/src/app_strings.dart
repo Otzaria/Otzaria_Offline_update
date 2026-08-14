@@ -49,6 +49,9 @@ abstract class CommonStrings {
   String get checking;
   String get upToDate;
   String get updateAvailable;
+
+  /// המותקן חדש ממה שיושב בתיקייה המקומית — ולכן אין מה להתקין.
+  String get installedIsNewer;
   String get installing;
   String get unknownValue;
   String get lastDownloaded;
@@ -127,8 +130,21 @@ abstract class HomeStrings {
   String get checkForUpdatesButton;
   String get downloadNowButton;
 
+  /// ביטול ההורדה שרצה — מוצג רק בזמנה. הביטול **מוחק** את מה שההורדה הזו
+  /// הביאה, ולכן הוא עובר דרך דיאלוג אזהרה.
+  String get cancelDownloadButton;
+  String get cancelDownloadPending;
+  String get cancelDownloadDialogTitle;
+  String get cancelDownloadPrompt;
+  String get cancelDownloadKeepGoing;
+  String get downloadCancelledSnack;
+
   /// אילו רכיבים ההורדה דילגה עליהם, כי הבדיקה הוכיחה שאין בהם חדש.
   String downloadSkippedSnack(String components);
+
+  /// אילו רכיבים ההורדה שלהם נכשלה. בלי זה מד ההתקדמות פשוט נעלם, והמשתמש
+  /// נשאר עם כונן חסר וללא סימן שמשהו קרה.
+  String downloadFailedSnack(String components);
   String lastCheckedAt(String time);
 
   String get downloadingApp;
@@ -663,12 +679,25 @@ abstract class LibraryDomainStrings {
   String exportPersonalUpToDate(int localVersion);
   String get exportPersonalVersionUnknown;
 
+  /// המסד המלא שכבר במראה נשמר, כי יש ממנו מסלול patches לגרסה האחרונה.
+  String exportReusingFullDb(int version, String tag);
+
   String exportDownloading(String tag, String asset);
   String exportVerifying(String tag, String asset);
   String exportWritingManifest(String fileName);
   String get exportDone;
   String get exportCancelled;
   String get exporterDoesNotExtract;
+
+  /// manifest שתוכנו אינו קריא — מדלגים על ה-edge שלו, כמו באופליין.
+  String exportManifestUnreadable(String asset, String detail);
+
+  /// כשל **רשת** בשליפת manifest, אחרי ניסיונות חוזרים. לא מדלגים עליו:
+  /// מראה בלי קובצי ה-patch נראית שלמה וחסר בה edge.
+  String exportManifestFetchFailed(String asset, String detail);
+
+  /// ה-manifest מצביע על קובץ patch שאינו ברשימת הנכסים (עוד עולה, או הוסר).
+  String exportPatchAssetMissing(String tag, String file);
 
   String get planLocalVersionUnknown;
   String planContentChangedWithoutVersionBump(String releaseTag);
@@ -739,6 +768,16 @@ abstract class LibraryDomainStrings {
   String get fullDbExtractionFailed;
   String versionMismatchAfterWrite(int? actual, int? expected);
   String get updateCancelled;
+
+  /// אין מקום בדיסק. אומרת **כמה** לפנות ו**איפה** — קודם לכן זו הייתה שגיאת
+  /// OS באנגלית על נתיב `.new` שהמשתמש אינו מכיר.
+  String notEnoughDiskSpace(String dir, String needed, String free);
+
+  /// תיקיית ההתקנה אינה ניתנת לכתיבה (issue #23) — מפנה לבורר הידני.
+  String installDirNotWritable(String dir, String detail);
+
+  /// מקום פנוי חסר להורדת המראה, עם הגודל שנדרש בפועל לפי התוכנית.
+  String mirrorNotEnoughDiskSpace(String dir, String needed, String free);
   String get otzariaIsRunning;
   String get zstdContextCreationFailed;
   String zstdDecompressionFailed(String errorName);
@@ -781,6 +820,9 @@ abstract class AppDomainStrings {
   String get channelStable;
   String get channelPrerelease;
   String downloadingChannel(String channelLabel);
+
+  /// הודעת החריג שנזרק כשהמשתמש ביטל את ההורדה — לא שגיאה, בחירה.
+  String get downloadCancelled;
 
   String get noInstallableReleaseForPlatform;
   String get mirrorEmptyRunDownload;

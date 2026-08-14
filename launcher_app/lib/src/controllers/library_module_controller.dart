@@ -85,6 +85,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// טרייה) — ה-UI יכול להציג "מוריד ספרייה בפעם הראשונה" במקום "מעדכן".
   bool isFreshInstall = false;
 
+  /// `true` כשאין מראה מקומית בכלל (טרם הורד דבר). נשמר בנפרד מ-[status], כי
+  /// [hasOnlineUpdate] חייב לדעת זאת גם אחרי שה-status התקדם.
+  bool mirrorMissing = false;
+
   /// נתיב ה-`seforim.db` שזוהה בפועל — מתעדכן בכל [checkForUpdate].
   String? dbPath;
 
@@ -127,6 +131,9 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
 
   /// התיקייה שלצד התוכנה שממנה נקראים העדכונים — המקור היחיד.
   String get mirrorDir => _manager.mirrorDir;
+
+  /// תיקיית הקבצים הנלווים (תלמוד/קטלוג/מילון), שגם היא נמלאת ב-[download].
+  String get companionsMirrorDir => _manager.companionsMirrorDir;
 
   /// מצב ההורדה מהרשת אל [mirrorDir].
   MirrorDownloadStatus downloadStatus = MirrorDownloadStatus.idle;
@@ -178,6 +185,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   bool get hasOnlineUpdate {
     final online = onlineLatestVersion;
     if (online == null) return false;
+    // מראה ריקה = יש מה להוריד, נקודה. הנפילה לגרסת המסד החי השוותה את הרשת
+    // למחשב הזה במקום לכונן, ולכן כונן ריק במחשב שיש עליו אוצריא מעודכנת
+    // קיבל "אין עדכונים", בלי כפתור הורדה ועם דילוג ב-downloadAll.
+    if (mirrorMissing) return true;
     final mirrored = targetVersion ?? localVersion ?? 0;
     return online > mirrored;
   }
@@ -203,7 +214,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
 
   /// מוריד עדכוני ספרייה מהרשת אל [mirrorDir]. **הפעולה היחידה כאן שדורשת
   /// אינטרנט.** לא נוגעת ב-DB. לא זורקת — כשל נשמר ב-[downloadError].
-  Future<void> download() async {
+  ///
+  /// [isCancelled] נבדק לאורך כל ההורדה, כולל באמצע נכס. ביטול אינו שגיאה:
+  /// המצב חוזר ל-[MirrorDownloadStatus.idle] בלי [downloadError].
+  Future<void> download({bool Function()? isCancelled}) async {
     downloadStatus = MirrorDownloadStatus.downloading;
     downloadStage = null;
     downloadDoneAssets = null;
@@ -239,6 +253,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
         // מתגלה רק במחשב הלא-מקוון, כשכבר אין רשת לתקן בה.
         onCompanionWarning: (name, error) =>
             AppLogger.instance.info('הורדת הקובץ הנלווה "$name" נכשלה: $error'),
+        isCancelled: isCancelled,
       );
       downloadStatus = MirrorDownloadStatus.done;
       lastDownloadedAt = DateTime.now();
@@ -255,9 +270,17 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       await checkForUpdate();
       return;
     } catch (e, st) {
-      downloadStatus = MirrorDownloadStatus.error;
-      downloadError = e.toString();
-      AppLogger.instance.error('הורדת עדכוני ספרייה נכשלה', e, st);
+      // ביטול של המשתמש אינו תקלה, ולכן אינו נשאר על המסך כשגיאה. השלב
+      // מתאפס גם הוא — אחרת הכרטיס ממשיך לתאר נכס שהורדתו נפסקה.
+      if (isCancelled?.call() ?? false) {
+        downloadStatus = MirrorDownloadStatus.idle;
+        downloadStage = null;
+        AppLogger.instance.info('הורדת עדכוני ספרייה בוטלה: $e');
+      } else {
+        downloadStatus = MirrorDownloadStatus.error;
+        downloadError = e.toString();
+        AppLogger.instance.error('הורדת עדכוני ספרייה נכשלה', e, st);
+      }
     }
     notifyListeners();
   }
@@ -291,6 +314,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       final check = await _manager.checkForUpdate();
       _lastCheck = check;
       isFreshInstall = check.isFreshInstall;
+      mirrorMissing = false;
 
       if (check.needsManualDbPath) {
         status = LibraryModuleStatus.needsManualPath;
@@ -312,6 +336,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       // אין מראה = טרם הורד דבר. מצב תקין, לא שגיאה — ולכן לא נרשם ללוג
       // ולא מוצג כתקלה.
       status = LibraryModuleStatus.needsDownload;
+      mirrorMissing = true;
       // הגרסה המקומית ידועה גם בלי מראה: הבדיקה כבר קראה אותה מהמסד לפני
       // שנכשלה. בלי זה המסך מציג "לא ידוע" למסד שנמצא ונקרא בהצלחה — מה
       // שמשתמש שבחר את הקובץ ידנית רואה כ"לא מזהה את המסד".

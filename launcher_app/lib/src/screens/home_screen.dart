@@ -27,10 +27,12 @@ class HomeScreen extends StatelessWidget {
     required this.settings,
     required this.otzariaIsRunning,
     required this.isDownloading,
+    required this.isCancellingDownload,
     required this.isCheckingOnline,
     required this.onProcessStateChanged,
     required this.onCheckOnline,
     required this.onDownloadAll,
+    required this.onCancelDownload,
     required this.onDownloadLauncherUpdate,
     required this.onInstallLauncherUpdate,
     required this.onRequestReindex,
@@ -45,6 +47,10 @@ class HomeScreen extends StatelessWidget {
   final SettingsController settings;
   final bool otzariaIsRunning;
   final bool isDownloading;
+
+  /// המשתמש כבר ביקש לבטל, וההורדה בדרך לצאת — הכפתור אומר "מבטל..." ואינו
+  /// מאפשר לחיצה שנייה.
+  final bool isCancellingDownload;
   final bool isCheckingOnline;
 
   /// בודקת מחדש אם אוצריא פתוחה ומחזירה את התוצאה הטרייה — [otzariaIsRunning]
@@ -52,6 +58,9 @@ class HomeScreen extends StatelessWidget {
   final Future<bool> Function() onProcessStateChanged;
   final Future<void> Function() onCheckOnline;
   final Future<void> Function() onDownloadAll;
+
+  /// מבטל את ההורדה שרצה ומוחק את מה שהיא הביאה — מאשר קודם בדיאלוג.
+  final Future<void> Function() onCancelDownload;
 
   /// שתי הפעולות של עדכון הלאנצ'ר עצמו. מיושמות ב-`AppShell` (הדיאלוגים
   /// שלהן קופצים גם מהבדיקה האוטומטית בעלייה), וכאן רק נקראות.
@@ -136,6 +145,8 @@ class HomeScreen extends StatelessWidget {
         OtzariaModuleStatus.updateAvailable => StatusKind.updateAvailable,
         OtzariaModuleStatus.installing => StatusKind.working,
         OtzariaModuleStatus.needsDownload => StatusKind.needsAction,
+        // ההתקנה תקינה ומעודכנת — רק המראה מפגרת אחריה.
+        OtzariaModuleStatus.installedIsNewer => StatusKind.ok,
         OtzariaModuleStatus.error => StatusKind.error,
       },
       statusLabel: switch (c.status) {
@@ -147,6 +158,7 @@ class HomeScreen extends StatelessWidget {
         OtzariaModuleStatus.needsDownload => c.currentVersion == null
             ? t.appNoInstallFound
             : t.appNothingDownloaded,
+        OtzariaModuleStatus.installedIsNewer => common.installedIsNewer,
         OtzariaModuleStatus.error => common.error,
       },
       primaryActionText: switch (c.status) {
@@ -332,6 +344,16 @@ class HomeScreen extends StatelessWidget {
               if (isDownloading) ...[
                 const SizedBox(height: AppTokens.spaceMD),
                 _downloadProgress(context),
+                const SizedBox(height: AppTokens.spaceSM),
+                // מוצג אך ורק בזמן שההורדה רצה: היא אורכת דקות ארוכות, וזו
+                // הדרך היחידה לעצור אותה בלי לסגור את התוכנה.
+                ActionButton.warning(
+                  text: isCancellingDownload
+                      ? t.cancelDownloadPending
+                      : t.cancelDownloadButton,
+                  icon: FluentIcons.dismiss_circle_24_regular,
+                  onPressed: isCancellingDownload ? null : onCancelDownload,
+                ),
               ],
               if (lastChecked != null) ...[
                 const SizedBox(height: AppTokens.spaceSM),

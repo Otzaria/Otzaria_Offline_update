@@ -58,8 +58,10 @@ void main() {
   HomeScreen home({
     bool otzariaIsRunning = false,
     bool isDownloading = false,
+    bool isCancellingDownload = false,
     bool isCheckingOnline = false,
     Future<bool> Function()? onProcessStateChanged,
+    Future<void> Function()? onCancelDownload,
   }) =>
       HomeScreen(
         otzaria: otzaria,
@@ -69,10 +71,12 @@ void main() {
         settings: settings,
         otzariaIsRunning: otzariaIsRunning,
         isDownloading: isDownloading,
+        isCancellingDownload: isCancellingDownload,
         isCheckingOnline: isCheckingOnline,
         onProcessStateChanged: onProcessStateChanged ?? () async => false,
         onCheckOnline: () async {},
         onDownloadAll: () async {},
+        onCancelDownload: onCancelDownload ?? () async {},
         onDownloadLauncherUpdate: () async {},
         onInstallLauncherUpdate: () async {},
         onRequestReindex: () async {},
@@ -122,6 +126,33 @@ void main() {
       find.widgetWithText(ActionButton, 'הורד עכשיו'),
     );
     expect(button.onPressed, isNull);
+  });
+
+  testWidgets('כפתור ביטול ההורדה מופיע רק בזמן הורדה, ומבקש את הביטול',
+      (tester) async {
+    final t = stringsOf().home;
+    await pumpScreen(tester, home());
+    expect(find.text(t.cancelDownloadButton), findsNothing);
+
+    var requested = 0;
+    await pumpScreen(
+      tester,
+      home(isDownloading: true, onCancelDownload: () async => requested++),
+    );
+    await tester.tap(find.text(t.cancelDownloadButton));
+    await tester.pump();
+    expect(requested, 1);
+
+    // אחרי הבקשה הכפתור אומר "מבטל..." ואינו מאפשר לחיצה שנייה.
+    await pumpScreen(
+      tester,
+      home(isDownloading: true, isCancellingDownload: true),
+    );
+    expect(find.text(t.cancelDownloadButton), findsNothing);
+    final pending = tester.widget<ActionButton>(
+      find.widgetWithText(ActionButton, t.cancelDownloadPending),
+    );
+    expect(pending.onPressed, isNull);
   });
 
   testWidgets('תוסף חדש או מעודכן בחנות נספר כ"יש עדכונים ברשת"',

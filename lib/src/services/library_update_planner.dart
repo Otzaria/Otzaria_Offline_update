@@ -32,8 +32,8 @@ class LibraryUpdatePlanner {
     String? localReleaseTag,
   }) {
     // היעד של הורדה מלאה הוא מה שהנכס מביא, לא מה שקיים ב-releases: אחרת
-    // האימות שאחרי החילוץ דוחה את המסד. הפער נסגר בבדיקה הבאה, שתמצא מסלול
-    // דלתא משם ולמעלה.
+    // האימות שאחרי החילוץ דוחה את המסד. הפער נסגר באותה החלה עצמה, דרך
+    // [LibraryUpdatePlan.followUpDelta].
     final fullTargetVersion = latestFullDbVersion ?? latestVersion;
 
     if (!hasLocalVersionMeta) {
@@ -41,6 +41,7 @@ class LibraryUpdatePlanner {
         localVersion: localVersion,
         latestVersion: latestVersion,
         fullTargetVersion: fullTargetVersion,
+        edges: edges,
         asset: latestFullDbAsset,
         tag: latestReleaseTag,
         reason: AppL10n.strings.libraryDomain.planLocalVersionUnknown,
@@ -55,6 +56,8 @@ class LibraryUpdatePlanner {
           targetVersion: fullTargetVersion,
           asset: latestFullDbAsset,
           releaseTag: latestReleaseTag!,
+          followUpDelta:
+              _followUpDelta(edges, fullTargetVersion, latestVersion),
           reason: AppL10n.strings.libraryDomain
               .planContentChangedWithoutVersionBump(latestReleaseTag),
         );
@@ -80,6 +83,8 @@ class LibraryUpdatePlanner {
                     targetVersion: fullTargetVersion,
                     asset: latestFullDbAsset,
                     releaseTag: latestReleaseTag,
+                    followUpDelta:
+                        _followUpDelta(edges, fullTargetVersion, latestVersion),
                   )
                 : null,
       );
@@ -89,6 +94,7 @@ class LibraryUpdatePlanner {
       localVersion: localVersion,
       latestVersion: latestVersion,
       fullTargetVersion: fullTargetVersion,
+      edges: edges,
       asset: latestFullDbAsset,
       tag: latestReleaseTag,
       reason: AppL10n.strings.libraryDomain
@@ -105,10 +111,28 @@ class LibraryUpdatePlanner {
   bool _isContentRefresh(String? localTag, String? latestTag) =>
       localTag != null && latestTag != null && localTag != latestTag;
 
+  /// שרשרת ה-patches שמשלימה הורדה מלאה שנוחתת מתחת ל-latest. `null` כשהמסד
+  /// המלא כבר בגרסה האחרונה או שאין מסלול משם — ואז מה שהורד הוא כל מה שיש.
+  LibraryUpdatePlan? _followUpDelta(
+    List<PatchEdge> edges,
+    int fullTargetVersion,
+    int latestVersion,
+  ) {
+    if (fullTargetVersion >= latestVersion) return null;
+    final path = _findBestPath(edges, fullTargetVersion, latestVersion);
+    if (path == null || path.isEmpty) return null;
+    return LibraryUpdatePlan.delta(
+      localVersion: fullTargetVersion,
+      targetVersion: latestVersion,
+      steps: path,
+    );
+  }
+
   LibraryUpdatePlan _fullOrBlocked({
     required int localVersion,
     required int latestVersion,
     required int fullTargetVersion,
+    required List<PatchEdge> edges,
     required ReleaseAsset? asset,
     required String? tag,
     required String reason,
@@ -120,6 +144,7 @@ class LibraryUpdatePlanner {
         asset: asset,
         releaseTag: tag,
         reason: reason,
+        followUpDelta: _followUpDelta(edges, fullTargetVersion, latestVersion),
       );
     }
     return LibraryUpdatePlan.blocked(

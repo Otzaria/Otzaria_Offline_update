@@ -15,6 +15,7 @@ import '../controllers/plugins_module_controller.dart';
 import '../services/app_logger.dart';
 import '../services/byte_size.dart';
 import '../services/file_reveal.dart';
+import '../services/mirror_download_undo.dart';
 import '../settings/app_settings.dart';
 import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
@@ -95,6 +96,10 @@ class _AppShellState extends State<AppShell> {
 
   /// הורדה אחת בכל רגע — [downloadAll] מריץ את הרכיבים בטור.
   bool _isDownloading = false;
+
+  /// בקשת ביטול להורדה שרצה. נקראת דרך `isCancelled` בכל שכבות ההורדה, ולכן
+  /// נכנסת לתוקף באמצע נכס ולא רק בין רכיב לרכיב — ראו [cancelDownload].
+  bool _cancelDownload = false;
 
   /// הבדיקה הקלה ("יש עדכון ברשת?") — נפרדת לגמרי מ-[_isDownloading].
   bool _isCheckingOnline = false;
@@ -341,6 +346,35 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
+  /// התיקיות ש-[downloadAll] ממלא, ולכן אלה שביטול מנקה. `mirror/apps`
+  /// (תוכנות שהמשתמש הוסיף) ו-`mirror/launcher` אינן כאן בכוונה: אף הורדה
+  /// מכאן אינה נוגעת בהן.
+  List<String> get _downloadMirrorDirs => [
+        _library.mirrorDir,
+        _library.companionsMirrorDir,
+        _otzaria.mirrorDir,
+        p.join(widget.dataDir, 'mirror', 'plugins'),
+      ];
+
+  /// מבקש מהמשתמש אישור ואז מסמן ביטול להורדה שרצה. הדגל בלבד — ההורדה
+  /// עצמה יוצאת מהלולאות שלה, ו-[downloadAll] הוא שמנקה אחריה.
+  Future<void> cancelDownload() async {
+    if (!_isDownloading || _cancelDownload || !mounted) return;
+
+    final t = context.strings.home;
+    final approved = await showWarningDialog(
+      context: context,
+      title: t.cancelDownloadDialogTitle,
+      content: t.cancelDownloadPrompt,
+      cancelText: t.cancelDownloadKeepGoing,
+      confirmText: t.cancelDownloadButton,
+    );
+    // ההורדה יכולה להסתיים בזמן שהדיאלוג פתוח — ואז אין מה לבטל, ובעיקר אין
+    // מה למחוק: היא הצליחה.
+    if (!approved || !mounted || !_isDownloading) return;
+    setState(() => _cancelDownload = true);
+  }
+
   /// מוריד מהרשת אל התיקייה שלצד התוכנה — רק את הרכיבים שסומנו בהגדרות,
   /// ומתוכם רק אלה שיש בהם באמת מה להביא. זו הפעולה היחידה בכל האפליקציה
   /// שדורשת אינטרנט.
@@ -380,11 +414,37 @@ class _AppShellState extends State<AppShell> {
           hasUpdate: _plugins.hasOnlineUpdate,
         );
 
-    setState(() => _isDownloading = true);
+    setState(() {
+      _isDownloading = true;
+      _cancelDownload = false;
+    });
 
-    if (s.syncApp && !skipApp) await _otzaria.download();
-    if (s.syncLibrary && !skipLibrary) await _library.download();
-    if (s.syncPlugins && !skipPlugins) await _plugins.sync();
+    // צילום לפני הבייט הראשון: זה מה שמאפשר לביטול למחוק בדיוק את מה
+    // שההורדה הזו הביאה — ראו [MirrorDownloadUndo].
+    final undo = await MirrorDownloadUndo.capture(_downloadMirrorDirs);
+    bool cancelled() => _cancelDownload;
+
+    // הבדיקה בין רכיב לרכיב: ביטול באמצע הספרייה לא אמור להתחיל את התוספים.
+    if (s.syncApp && !skipApp) await _otzaria.download(isCancelled: cancelled);
+    if (!cancelled() && s.syncLibrary && !skipLibrary) {
+      await _library.download(isCancelled: cancelled);
+    }
+    if (!cancelled() && s.syncPlugins && !skipPlugins) {
+      await _plugins.sync(isCancelled: cancelled);
+    }
+
+    if (cancelled()) {
+      await undo.revert();
+      // הקטלוג שבזיכרון נטען לפני הניקוי ומצביע על קבצים שנמחקו זה עתה.
+      await _plugins.load();
+      if (!mounted) return;
+      setState(() {
+        _isDownloading = false;
+        _cancelDownload = false;
+      });
+      UiSnack.show(AppL10n.strings.home.downloadCancelledSnack);
+      return;
+    }
     if (!mounted) return;
 
     setState(() => _isDownloading = false);
@@ -399,6 +459,21 @@ class _AppShellState extends State<AppShell> {
     ];
     if (skipped.isNotEmpty) {
       UiSnack.show(t.home.downloadSkippedSnack(skipped.join(', ')));
+    }
+
+    // כשל הורדה נשמר בבקרים ולא נזרק, וקודם לכן גם לא הוצג בשום מקום: מד
+    // ההתקדמות פשוט נעלם אחרי 40 דקות והכרטיס המשיך לומר "יש עדכונים".
+    // זה מה שהיה מייצר "כתוב שהוריד אבל הכונן ריק".
+    final failed = [
+      if (s.syncApp && !skipApp && _otzaria.downloadError != null)
+        t.home.appTileTitle,
+      if (s.syncLibrary && !skipLibrary && _library.downloadError != null)
+        t.home.libraryTileTitle,
+      if (s.syncPlugins && !skipPlugins && _plugins.errorMessage != null)
+        t.shell.navPlugins,
+    ];
+    if (failed.isNotEmpty) {
+      UiSnack.show(t.home.downloadFailedSnack(failed.join(', ')));
     }
   }
 
@@ -450,10 +525,12 @@ class _AppShellState extends State<AppShell> {
             settings: widget.settings,
             otzariaIsRunning: _otzariaIsRunning,
             isDownloading: _isDownloading,
+            isCancellingDownload: _cancelDownload,
             isCheckingOnline: _isCheckingOnline,
             onProcessStateChanged: refreshProcessState,
             onCheckOnline: checkOnline,
             onDownloadAll: downloadAll,
+            onCancelDownload: cancelDownload,
             onDownloadLauncherUpdate: downloadLauncherUpdate,
             onInstallLauncherUpdate: installLauncherUpdate,
             onRequestReindex: requestLibraryReindex,

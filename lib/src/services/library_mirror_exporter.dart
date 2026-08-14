@@ -6,7 +6,9 @@ import 'package:http/http.dart' as http;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
+import '../models/delta_manifest.dart';
 import '../models/library_release.dart';
+import 'disk_space_probe.dart';
 import 'github_library_release_client.dart';
 import 'library_update_discovery.dart';
 import 'local_mirror_library_release_client.dart';
@@ -21,10 +23,11 @@ import 'patch_downloader.dart';
 /// התיקייה שנוצרה (USB וכו') ופותחים אותה במחשבים האחרים דרך "עדכן מתיקייה
 /// מקומית" בלאנצ'ר.
 ///
-/// **הערה על גודל:** המראה נושאת **עותק אחד** של ה-DB המלא (~1.5GB דחוס) —
-/// של הגרסה הגבוהה ביותר שנושאת אותו — ואת ה-patches של [historyDepth]
-/// ה-releases האחרונים (עשרות MB כל אחד), לא את כל ההיסטוריה. ראו
-/// [recentReleases].
+/// **הערה על גודל:** המראה נושאת **עותק אחד** של ה-DB המלא (~1.5GB דחוס) ואת
+/// ה-patches של [historyDepth] ה-releases האחרונים (עשרות MB כל אחד), לא את
+/// כל ההיסטוריה. ראו [recentReleases]. המסד המלא הזה אינו בהכרח של הגרסה
+/// האחרונה: מסד שכבר יושב במראה נשמר כל עוד יש ממנו מסלול patches ל-latest,
+/// כדי שעדכון שוטף יעלה עשרות MB ולא ~1.1GB — ראו [_chooseFullDbCarrier].
 ///
 /// `fromVersion` ב-[export] מחליף את שני אלה במצב "עדכון אישי": patches
 /// מהגרסה שמותקנת אצל המשתמש ומעלה בלבד, בלי המסד המלא — ראו
@@ -82,6 +85,7 @@ class LibraryMirrorExporter {
     void Function(String stage)? onStage,
     void Function(int doneAssets, int totalAssets)? onAssetProgress,
     void Function(int downloaded, int? total)? onBytesProgress,
+    void Function(String warning)? onWarning,
     bool Function()? isCancelled,
   }) async {
     final strings = AppL10n.strings.libraryDomain;
@@ -110,45 +114,76 @@ class LibraryMirrorExporter {
     final assetsRoot = Directory(p.join(destDir, 'assets'));
     await assetsRoot.create(recursive: true);
 
-    // ה-DB המלא נדרש **פעם אחת** לכל המראה, לא לכל release: המסלול המלא
-    // באופליין בוחר תמיד את הנכס של הגרסה הגבוהה ביותר שנושאת אותו (ראו
-    // LibraryUpdateDiscovery.discover), ולכן עותק לכל release היה מוסיף כ-1.5GB
-    // מתים לכל אחד מהם — כמה ג'יגה-בייט של נכסים שלא ייקראו לעולם.
-    // במצב אישי הוא נשמט לגמרי — זה כל החיסכון שבמצב הזה.
-    final fullDbCarrier = personal ? null : _fullDbCarrier(relevant);
     if (personal) onStage?.call(strings.exportPersonalFrom(fromVersion));
 
-    // עבור כל release: אילו assets בפועל נדרשים — ה-manifests עצמם, קובצי
-    // ה-patch שהם מצביעים עליהם, וה-DB המלא רק ב-[fullDbCarrier]. משתמשים
-    // ב-Map לפי שם כדי לא להוריד את אותו asset פעמיים אם כמה manifests
-    // מצביעים עליו.
-    final plannedByRelease = <LibraryRelease, List<ReleaseAsset>>{};
+    // עבור כל release: אילו assets בפועל נדרשים — ה-manifests עצמם וקובצי
+    // ה-patch שהם מצביעים עליהם. ה-DB המלא נוסף אחר כך, כי בחירת הנשא שלו
+    // תלויה ב-edges שנאספים כאן. משתמשים ב-Map לפי שם כדי לא להוריד את אותו
+    // asset פעמיים אם כמה manifests מצביעים עליו.
+    final neededByRelease = <LibraryRelease, Map<String, ReleaseAsset>>{};
+    final edges = <({int from, int to})>[];
     for (final release in relevant) {
       _throwIfCancelled(isCancelled);
       final needed = <String, ReleaseAsset>{};
       for (final manifestAsset in release.deltaManifestAssets) {
         needed[manifestAsset.name] = manifestAsset;
-        try {
-          final manifest =
-              await _client.fetchManifest(manifestAsset.downloadUrl);
-          for (final patchFile in manifest.patchFiles) {
-            final asset = release.assetByName(patchFile.file);
-            if (asset != null) needed[asset.name] = asset;
+        final manifest = await _fetchManifestOrNull(
+          manifestAsset,
+          onWarning: onWarning,
+        );
+        if (manifest == null) continue;
+        var complete = true;
+        for (final patchFile in manifest.patchFiles) {
+          final asset = release.assetByName(patchFile.file);
+          if (asset != null) {
+            needed[asset.name] = asset;
+          } else {
+            complete = false;
+            // ה-manifest מצביע על קובץ שאינו ברשימת הנכסים: או שהוא עוד עולה
+            // (סונן לפי `state`), או שהמפיק הסיר אותו. בשני המקרים ה-edge
+            // יעלם באופליין, ולכן זה נאמר במקום להיעלם בשקט.
+            onWarning?.call(strings.exportPatchAssetMissing(
+              release.tag,
+              patchFile.file,
+            ));
           }
-        } catch (_) {
-          // manifest פגום/חסר — מתעלמים מה-edge הזה, בדיוק כמו
-          // LibraryUpdateDiscovery._buildEdge בזרימה הרגילה.
+        }
+        // רק edge שכל קבציו יורדים ייבנה גם באופליין — ראו
+        // `LibraryUpdateDiscovery._buildEdge`. ספירת edge חסר כאן הייתה
+        // משאירה את המסד המלא הישן על סמך מסלול שאינו קיים.
+        if (complete) {
+          edges.add((from: manifest.fromVersion, to: manifest.toVersion));
         }
       }
-      if (release == fullDbCarrier) {
-        final full = release.fullDbAsset!;
-        needed[full.name] = full;
-      }
-      plannedByRelease[release] = needed.values.toList(growable: false);
+      neededByRelease[release] = needed;
     }
+
+    // ה-DB המלא נדרש **פעם אחת** לכל המראה, לא לכל release: המסלול המלא
+    // באופליין בוחר תמיד את הנכס של הגרסה הגבוהה ביותר שנושאת אותו (ראו
+    // LibraryUpdateDiscovery.discover), ולכן עותק לכל release היה מוסיף כ-1.5GB
+    // מתים לכל אחד מהם. במצב אישי הוא נשמט לגמרי — זה כל החיסכון שבמצב הזה.
+    final fullDbCarrier = personal
+        ? null
+        : _chooseFullDbCarrier(relevant, edges, assetsRoot.path, onStage);
+    if (fullDbCarrier != null) {
+      final full = fullDbCarrier.fullDbAsset!;
+      neededByRelease[fullDbCarrier]![full.name] = full;
+    }
+
+    final plannedByRelease = <LibraryRelease, List<ReleaseAsset>>{
+      for (final entry in neededByRelease.entries)
+        entry.key: entry.value.values.toList(growable: false),
+    };
 
     final totalAssets =
         plannedByRelease.values.fold<int>(0, (n, l) => n + l.length);
+
+    // בודקים מקום פנוי לפי מה שנשאר להוריד בפועל, לא לפי גודל המראה: נכס
+    // שכבר יושב שלם על הכונן אינו צורך מקום נוסף. שיא התפוסה גבוה מהמראה
+    // הסופית, כי ה-prune רץ רק בסוף — כלומר בזמן מיזוג release חדש יש על
+    // הכונן שני עותקים של המסד הדחוס.
+    _ensureSpaceForPlan(destDir, assetsRoot, plannedByRelease);
+
     var doneAssets = 0;
     // מדווחים את היעד עוד לפני הנכס הראשון: אחרת מד ההתקדמות אינו יודע לכמה
     // נכסים לחכות עד שהראשון (המסד המלא, ~1GB) מסתיים.
@@ -238,6 +273,74 @@ class LibraryMirrorExporter {
 
     onStage?.call(strings.exportDone);
     return true;
+  }
+
+  /// זורק כשידוע בוודאות שאין מקום להורדה שנותרה. מדידה שנכשלה אינה חוסמת —
+  /// ראו [DiskSpaceProbe]. נכס שכבר על הדיסק נספר לפי מה שחסר בו בלבד.
+  void _ensureSpaceForPlan(
+    String destDir,
+    Directory assetsRoot,
+    Map<LibraryRelease, List<ReleaseAsset>> planned,
+  ) {
+    var needed = 0;
+    for (final entry in planned.entries) {
+      final tagDir = p.join(assetsRoot.path, _safeDirName(entry.key.tag));
+      for (final asset in entry.value) {
+        if (asset.size <= 0) continue;
+        final existing = File(p.join(tagDir, asset.name));
+        final have = existing.existsSync() ? existing.lengthSync() : 0;
+        final missing = asset.size - have;
+        if (missing > 0) needed += missing;
+      }
+    }
+    if (needed == 0) return;
+    if (!DiskSpaceProbe.isKnownInsufficient(destDir, needed)) return;
+    final free = DiskSpaceProbe.freeBytesFor(destDir) ?? 0;
+    throw StateError(AppL10n.strings.libraryDomain.mirrorNotEnoughDiskSpace(
+      destDir,
+      _formatBytes(needed),
+      _formatBytes(free),
+    ));
+  }
+
+  static String _formatBytes(int bytes) {
+    const gb = 1 << 30;
+    const mb = 1 << 20;
+    if (bytes >= gb) return '${(bytes / gb).toStringAsFixed(1)} GB';
+    return '${(bytes / mb).round()} MB';
+  }
+
+  /// מספר הניסיונות לשליפת manifest. הם קבצים של מאות בתים, ולכן ניסיון חוזר
+  /// זול — ובלעדיו בקשה אחת רועדת מתוך ~13 מוחקת edge שלם מהמראה.
+  static const int _manifestAttempts = 3;
+
+  /// שולף manifest, ומבחין בין שני כשלים שאינם דומים:
+  /// **manifest פגום** ([FormatException]) — נתון קבוע, מדלגים על ה-edge בדיוק
+  /// כמו `LibraryUpdateDiscovery._buildEdge` באופליין; **כשל רשת/HTTP** — נתון
+  /// חולף, ולכן מנסים שוב ואם גם זה נכשל **זורקים**. בליעה שקטה שלו כתבה
+  /// `releases.json` בלי קובצי ה-patch, ואז `_pruneStaleAssets` מחק patch תקין
+  /// שריצה קודמת הורידה — מראה שנראית שלמה וחסר בה edge.
+  Future<DeltaManifest?> _fetchManifestOrNull(
+    ReleaseAsset manifestAsset, {
+    void Function(String warning)? onWarning,
+  }) async {
+    Object? lastError;
+    for (var attempt = 1; attempt <= _manifestAttempts; attempt++) {
+      try {
+        return await _client.fetchManifest(manifestAsset.downloadUrl);
+      } on FormatException catch (e) {
+        onWarning?.call(AppL10n.strings.libraryDomain
+            .exportManifestUnreadable(manifestAsset.name, e.message));
+        return null;
+      } catch (e) {
+        lastError = e;
+        if (attempt < _manifestAttempts) {
+          await Future<void>.delayed(Duration(milliseconds: 400 * attempt));
+        }
+      }
+    }
+    throw StateError(AppL10n.strings.libraryDomain
+        .exportManifestFetchFailed(manifestAsset.name, '$lastError'));
   }
 
   /// מוחק מתוך [assetsRoot] כל תיקיית tag ונכס שאינם בתוכנית — best-effort:
@@ -331,24 +434,75 @@ class LibraryMirrorExporter {
         .toList(growable: false);
   }
 
-  /// ה-release היחיד שממנו מורידים את ה-DB המלא: הגרסה הגבוהה ביותר מבין
-  /// [releases] שנושאת `seforim.db.zst`. `null` רק אם לאף אחד אין — מצב
-  /// ש-[recentReleases] מונע כל עוד קיים DB מלא בהיסטוריה.
+  /// ה-release שממנו מורידים את ה-DB המלא. ברירת המחדל היא הגרסה הגבוהה
+  /// שנושאת `seforim.db.zst`, אבל **מסד מלא ישן שכבר יושב במראה מנצח אותה**
+  /// כל עוד יש ממנו מסלול patches לגרסה האחרונה: כל release ב-SeforimLibrary
+  /// נושא מסד מלא משלו, ולכן בלי ההעדפה הזו כל עדכון היה מוריד ~1.1GB מחדש
+  /// בשביל תוצאה שקובצי עדכון של עשרות MB מגיעים אליה בדיוק באותה מידה.
   ///
-  /// זהו בדיוק הנכס ש-`LibraryUpdateDiscovery` יבחר באופליין, ולכן כל עותק
-  /// נוסף הוא מקום מבוזבז על הכונן הנייד.
-  LibraryRelease? _fullDbCarrier(List<LibraryRelease> releases) {
-    LibraryRelease? best;
-    var bestVersion = -1;
-    for (final release in releases) {
-      if (release.fullDbAsset == null) continue;
-      final version = LibraryUpdateDiscovery.releaseVersionOf(release);
-      if (version > bestVersion) {
-        bestVersion = version;
-        best = release;
+  /// המחיר: התקנה על מחשב ריק מקבלת את המסד הישן ואז את שרשרת ה-patches —
+  /// ראו `LibraryUpdatePlanner.plan` ו-`LibraryManager.applyUpdate`, שמריצים
+  /// את שני הצעדים ברצף.
+  LibraryRelease? _chooseFullDbCarrier(
+    List<LibraryRelease> releases,
+    List<({int from, int to})> edges,
+    String assetsRootPath,
+    void Function(String stage)? onStage,
+  ) {
+    final carriers = releases.where((r) => r.fullDbAsset != null).toList()
+      ..sort((a, b) => LibraryUpdateDiscovery.releaseVersionOf(b)
+          .compareTo(LibraryUpdateDiscovery.releaseVersionOf(a)));
+    if (carriers.isEmpty) return null;
+
+    final newest = carriers.first;
+    // כבר על הדיסק — אין מה לחסוך, וגם אין טעם לרדת לגרסה ישנה יותר.
+    if (_isCompleteOnDisk(assetsRootPath, newest)) return newest;
+
+    var latest = LibraryUpdateDiscovery.releaseVersionOf(newest);
+    for (final edge in edges) {
+      if (edge.to > latest) latest = edge.to;
+    }
+
+    for (final candidate in carriers.skip(1)) {
+      if (!_isCompleteOnDisk(assetsRootPath, candidate)) continue;
+      final version = LibraryUpdateDiscovery.releaseVersionOf(candidate);
+      if (!_reaches(edges, version, latest)) continue;
+      onStage?.call(AppL10n.strings.libraryDomain
+          .exportReusingFullDb(version, candidate.tag));
+      return candidate;
+    }
+    return newest;
+  }
+
+  /// האם ה-DB המלא של [release] כבר יושב **שלם** במראה. גודל בלבד: אימות
+  /// ה-sha256 ממילא רץ ב-[PatchDownloader], ו-1.1GB מכונן נייד לוקח דקה —
+  /// יותר מדי בשביל החלטה שנופלת לפני שהורדה בכלל התחילה.
+  bool _isCompleteOnDisk(String assetsRootPath, LibraryRelease release) {
+    final asset = release.fullDbAsset;
+    if (asset == null || asset.size <= 0) return false;
+    final file = File(p.join(
+      assetsRootPath,
+      _safeDirName(release.tag),
+      asset.name,
+    ));
+    return file.existsSync() && file.lengthSync() == asset.size;
+  }
+
+  /// האם יש מסלול patches מ-[from] ל-[to] מעל [edges]. BFS פשוט — הגרף כאן
+  /// הוא עשרות edges לכל היותר, וכל מה שנדרש הוא כן/לא.
+  bool _reaches(List<({int from, int to})> edges, int from, int to) {
+    if (from == to) return true;
+    final visited = <int>{from};
+    final queue = <int>[from];
+    while (queue.isNotEmpty) {
+      final current = queue.removeLast();
+      for (final edge in edges) {
+        if (edge.from != current || edge.to <= edge.from) continue;
+        if (edge.to == to) return true;
+        if (visited.add(edge.to)) queue.add(edge.to);
       }
     }
-    return best;
+    return false;
   }
 
   String _safeDirName(String tag) =>

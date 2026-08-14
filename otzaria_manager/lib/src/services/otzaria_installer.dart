@@ -8,6 +8,15 @@ import '../models/otzaria_install_state.dart';
 import '../models/otzaria_release.dart';
 import 'otzaria_app_locator.dart';
 
+/// נזרק כשהמשתמש ביטל את ההורדה. חריג נפרד ולא [StateError], כדי שהקורא
+/// יוכל להבחין בין בחירה של המשתמש לכשל אמיתי.
+class OtzariaDownloadCancelled implements Exception {
+  const OtzariaDownloadCancelled();
+
+  @override
+  String toString() => AppL10n.strings.appDomain.downloadCancelled;
+}
+
 /// מוריד את חבילת ההתקנה של אוצריא ומתקין אותה לתוך תיקייה נתונה, בשקט,
 /// לפי הפלטפורמה:
 ///
@@ -75,6 +84,7 @@ class OtzariaInstaller {
   Future<String> ensureCached({
     required OtzariaRelease release,
     void Function(int received, int total)? onDownloadProgress,
+    bool Function()? isCancelled,
   }) async {
     final releaseCacheDir = p.join(cacheDir, release.tagName);
     final cachedInstallerPath =
@@ -85,12 +95,16 @@ class OtzariaInstaller {
         await cachedFile.length() == release.installerSizeBytes;
 
     if (!alreadyCached) {
+      // ביטול לפני כל שינוי בדיסק: יצירת התיקייה עצמה היא כבר עקבות שהמסלול
+      // הזה משאיר אחריו.
+      _throwIfCancelled(isCancelled);
       await Directory(releaseCacheDir).create(recursive: true);
       await _download(
         url: release.installerDownloadUrl,
         destinationPath: cachedInstallerPath,
         expectedSizeBytes: release.installerSizeBytes,
         onProgress: onDownloadProgress,
+        isCancelled: isCancelled,
       );
     }
 
@@ -173,6 +187,7 @@ class OtzariaInstaller {
     required String destinationPath,
     required int expectedSizeBytes,
     void Function(int received, int total)? onProgress,
+    bool Function()? isCancelled,
   }) async {
     final request = http.Request('GET', Uri.parse(url));
     final response = await _httpClient.send(request).timeout(connectTimeout);
@@ -190,6 +205,8 @@ class OtzariaInstaller {
       // `timeout` על הזרם ולא רק על ה-send: חיבור שנפתח ואז נשתק היה תוקע
       // את ההורדה בלי גבול.
       await for (final chunk in response.stream.timeout(stallTimeout)) {
+        // ביטול באמצע נכס — ה-catch שלמטה מוחק את הקובץ החלקי.
+        _throwIfCancelled(isCancelled);
         sink.add(chunk);
         received += chunk.length;
         buffered += chunk.length;
@@ -202,6 +219,8 @@ class OtzariaInstaller {
       }
       await sink.flush();
       await sink.close();
+      // ביטול שהתרחש על הצ'אנק האחרון — בלי הבדיקה כאן הוא היה חוזר כהצלחה.
+      _throwIfCancelled(isCancelled);
     } catch (_) {
       // קובץ חלקי חייב להיעלם: הריצה הבאה בודקת cache-hit לפי גודל, וקובץ
       // שנקטע בדיוק בגודל הנכון היה נראה תקין. סוגרים לפני המחיקה — ב-Windows
@@ -424,6 +443,10 @@ class OtzariaInstaller {
     } catch (_) {
       // best-effort בלבד.
     }
+  }
+
+  void _throwIfCancelled(bool Function()? isCancelled) {
+    if (isCancelled?.call() ?? false) throw const OtzariaDownloadCancelled();
   }
 
   Future<void> _deleteDirQuietly(String path) async {
