@@ -8,6 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/custom_apps_controller.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_apps_screen.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_apps_settings_card.dart';
+import 'package:launcher_app/src/screens/custom_apps/installer_kind_label.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import 'test_harness.dart';
@@ -40,6 +42,7 @@ void main() {
     String? exeName,
     AppSourceKind source = AppSourceKind.manual,
     bool withInstaller = false,
+    bool portableFile = false,
   }) async {
     await tester.runAsync(() async {
       await controller.add(
@@ -47,6 +50,7 @@ void main() {
           id: id,
           name: name,
           description: description,
+          portableFile: portableFile,
           sourceKind: source,
           github: source == AppSourceKind.github
               ? const GithubSource(
@@ -245,6 +249,49 @@ void main() {
         ),
       );
       expect(p.basename(found!), 'myapp.exe');
+    });
+  });
+
+  /// חלק ד': הקובץ שנוסף אינו בהכרח מתקין. שני דברים נבדקים כאן — מה
+  /// שהטופס **מציג** על הקובץ, ומה שהטופס **שואל** ואי אפשר להסיק לבד.
+  group('סוג הקובץ שנוסף', () {
+    Future<void> openForm(WidgetTester tester) async {
+      await tester.runAsync(controller.load);
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      await tester.tap(find.text('הוספת תוכנה'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('הטופס שואל אם הקובץ הוא התוכנה עצמה', (tester) async {
+      await openForm(tester);
+
+      expect(find.text('הקובץ הוא התוכנה עצמה'), findsOneWidget);
+      expect(find.textContaining('תישאלו לאן להעתיק'), findsOneWidget);
+    });
+
+    // הריחרוח עצמו נבדק ב-custom_apps_manager; כאן נבדק שיש לו תרגום, ושהוא
+    // אומר את מה שבאמת קורה ולא רק את שם ה-framework.
+    testWidgets('לכל סוג התקנה יש שם שמוצג למשתמש', (tester) async {
+      final t = AppL10n.strings.customApps;
+
+      for (final kind in CustomInstallerKind.values) {
+        expect(installerKindLabelOf(kind, t), isNotEmpty, reason: kind.id);
+      }
+      expect(
+          installerKindLabelOf(CustomInstallerKind.zipPortable, t), 'ארכיון');
+    });
+
+    // ההצהרה נשמרת ברשומה — היא הדבר היחיד על הקובץ שאי אפשר להריח.
+    testWidgets('ההצהרה נשמרת, ושורדת עריכה של שם', (tester) async {
+      await addApp(tester, id: 'nayad', portableFile: true);
+      expect(controller.apps.single.descriptor.portableFile, isTrue);
+
+      await tester.runAsync(
+        () => controller.update(
+          controller.apps.single.descriptor.copyWith(name: 'שם חדש'),
+        ),
+      );
+      expect(controller.apps.single.descriptor.portableFile, isTrue);
     });
   });
 

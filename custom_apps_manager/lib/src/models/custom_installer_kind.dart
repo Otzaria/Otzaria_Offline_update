@@ -18,6 +18,15 @@ enum CustomInstallerKind {
   /// [silentCommand] מחזיר `null` עבורו.
   zipPortable('zip'),
 
+  /// הקובץ **הוא** התוכנה, ולא מתקין שלה — הוא רק מועתק לאן שהמשתמש בחר.
+  ///
+  /// ⚠️ זה הסוג היחיד שאינו מרוחרח מהקובץ אלא מוצהר ברשומה
+  /// ([AppDescriptor.portableFile]), כי אי אפשר להסיק אותו מהבייטים: exe
+  /// נייד ומתקין של framework שאיננו מכירים נראים זהים לחלוטין. הרצת
+  /// הראשון "כמתקין" פשוט מפעילה את התוכנה מהכונן — היא לעולם לא תגיע
+  /// למחשב.
+  portableFile('file'),
+
   /// לא הצלחנו לזהות איזה framework בנה את הקובץ.
   ///
   /// **הנפילה לכאן אינה כישלון** — הקובץ מורץ כרגיל, והמשתמש לוחץ "הבא"
@@ -43,6 +52,12 @@ enum CustomInstallerKind {
 
   /// האם ההתקנה היא חילוץ ארכיון ולא הרצת תהליך.
   bool get isArchive => this == CustomInstallerKind.zipPortable;
+
+  /// האם אין כאן התקנה בכלל אלא העתקת הקובץ בלבד. שני הסוגים האלה אינם
+  /// מריצים דבר, ולכן גם אין מהם מה ללמוד ברג'יסטרי ההסרה.
+  bool get isCopyOnly =>
+      this == CustomInstallerKind.zipPortable ||
+      this == CustomInstallerKind.portableFile;
 
   /// הפקודה שמריצה את ההתקנה בשקט, או `null` כשאין מה להריץ ([isArchive]).
   ///
@@ -87,6 +102,7 @@ enum CustomInstallerKind {
           ],
         ),
       CustomInstallerKind.zipPortable => null,
+      CustomInstallerKind.portableFile => null,
       // בלי דגלים בכלל: המתקין נפתח, והמשתמש מסיים אותו בעצמו.
       CustomInstallerKind.interactive => CustomInstallerCommand(
           executable: installerPath,
@@ -97,7 +113,7 @@ enum CustomInstallerKind {
 
   /// האם ההתקנה תרוץ בשקט. `false` ל-[interactive] — והממשק חייב לומר
   /// זאת מראש, כדי שחלון שנפתח לא ייראה כתקלה.
-  bool get isSilent => this != CustomInstallerKind.interactive && !isArchive;
+  bool get isSilent => this != CustomInstallerKind.interactive && !isCopyOnly;
 }
 
 /// פקודת התקנה מוכנה להרצה — מה מריצים ועם אילו ארגומנטים.

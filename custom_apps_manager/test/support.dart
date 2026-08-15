@@ -20,6 +20,7 @@ AppDescriptor descriptor({
   String name = 'תוכנה לדוגמה',
   String? publisher,
   String? installDir,
+  bool portableFile = false,
   AppDetectRules detect = const AppDetectRules(),
 }) =>
     AppDescriptor(
@@ -28,6 +29,7 @@ AppDescriptor descriptor({
       publisher: publisher,
       sourceKind: AppSourceKind.manual,
       installDir: installDir,
+      portableFile: portableFile,
       detect: detect,
     );
 

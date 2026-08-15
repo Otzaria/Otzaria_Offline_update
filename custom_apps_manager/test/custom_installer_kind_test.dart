@@ -68,16 +68,16 @@ void main() {
       );
     });
 
-    test('כל הסוגים חוץ מ-ZIP מייצרים פקודה', () {
+    test('כל הסוגים חוץ מהמעתיקים מייצרים פקודה', () {
       for (final kind in CustomInstallerKind.values) {
         final command = kind.silentCommand(installerPath: 'x');
-        expect(command == null, kind.isArchive, reason: kind.id);
+        expect(command == null, kind.isCopyOnly, reason: kind.id);
       }
     });
 
     test('המזהים יציבים — הם נכתבים לקובצי תוסף של משתמשים', () {
       expect(CustomInstallerKind.allIds,
-          ['inno', 'nsis', 'msi', 'zip', 'interactive']);
+          ['inno', 'nsis', 'msi', 'zip', 'file', 'interactive']);
       expect(CustomInstallerKind.byId('inno'), CustomInstallerKind.innoSetup);
       expect(CustomInstallerKind.byId('אין כזה'), isNull);
     });

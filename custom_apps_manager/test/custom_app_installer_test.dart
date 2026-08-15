@@ -141,8 +141,8 @@ void main() {
       expect(runner.calls, isEmpty);
       expect(outcome.kind, CustomInstallerKind.zipPortable);
       expect(outcome.isArchive, isTrue);
-      expect(outcome.archivePath, p.join(downloads, 'portable.zip'));
-      expect(File(outcome.archivePath!).existsSync(), isTrue);
+      expect(outcome.copiedPath, p.join(downloads, 'portable.zip'));
+      expect(File(outcome.copiedPath!).existsSync(), isTrue);
     });
 
     test('אינו דורש מיקום התקנה — אין ל-ZIP כזה', () async {
@@ -172,9 +172,75 @@ void main() {
         installerPath: zipArchive(),
       );
 
-      expect(p.basename(outcome.archivePath!), 'portable (2).zip');
+      expect(p.basename(outcome.copiedPath!), 'portable (2).zip');
       expect(
           File(p.join(downloads, 'portable.zip')).readAsStringSync(), 'הישן');
+    });
+  });
+
+  // ⚠️ הסוג היחיד שאינו מרוחרח מהקובץ, כי אי אפשר להריח אותו: exe נייד
+  // ומתקין לא-מוכר נראים זהים, ושניהם היו נופלים ל-interactive.
+  group('קובץ נייד — התוכנה עצמה, ולא מתקין שלה', () {
+    /// exe עם סימן של Inno בגוף — כדי שהבדיקה תוכיח שההצהרה **גוברת** על
+    /// הריחרוח, ולא שהיא רק ממלאת חלל ריק.
+    String portableExe() => innoSetup();
+
+    test('מועתק ליעד שנבחר, בלי להריץ כלום', () async {
+      final target = p.join(root, 'Tools');
+
+      final outcome = await installer.install(
+        descriptor: descriptor(portableFile: true),
+        installerPath: portableExe(),
+        copyToDir: target,
+      );
+
+      expect(runner.calls, isEmpty);
+      expect(outcome.kind, CustomInstallerKind.portableFile);
+      expect(outcome.isCopyOnly, isTrue);
+      expect(outcome.isArchive, isFalse);
+      expect(outcome.copiedPath, p.join(target, 'setup.exe'));
+      expect(File(outcome.copiedPath!).existsSync(), isTrue);
+    });
+
+    test('בלי יעד — נופל לתיקיית ההורדות ולא לשום מקום מומצא', () async {
+      final outcome = await installer.install(
+        descriptor: descriptor(portableFile: true),
+        installerPath: portableExe(),
+      );
+
+      expect(outcome.copiedPath, p.join(downloads, 'setup.exe'));
+    });
+
+    test('קובץ קיים אינו נדרס', () async {
+      final target = p.join(root, 'Tools');
+      writeFile(p.join(target, 'setup.exe'), 'הישן');
+
+      final outcome = await installer.install(
+        descriptor: descriptor(portableFile: true),
+        installerPath: portableExe(),
+        copyToDir: target,
+      );
+
+      expect(p.basename(outcome.copiedPath!), 'setup (2).exe');
+      expect(File(p.join(target, 'setup.exe')).readAsStringSync(), 'הישן');
+    });
+
+    // ארכיון מתעלם מהיעד בכוונה: אין לו מיקום התקנה, והוא תמיד להורדות.
+    test('היעד אינו חל על ארכיון', () async {
+      final outcome = await installer.install(
+        descriptor: descriptor(),
+        installerPath: zipArchive(),
+        copyToDir: p.join(root, 'Tools'),
+      );
+
+      expect(outcome.copiedPath, p.join(downloads, 'portable.zip'));
+    });
+
+    test('קובץ נייד מסומן כלא-שקט — נפתח דיאלוג בחירת יעד', () {
+      expect(CustomInstallerKind.portableFile.isSilent, isFalse);
+      expect(CustomInstallerKind.portableFile.isCopyOnly, isTrue);
+      expect(CustomInstallerKind.zipPortable.isCopyOnly, isTrue);
+      expect(CustomInstallerKind.innoSetup.isCopyOnly, isFalse);
     });
   });
 

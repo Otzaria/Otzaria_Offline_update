@@ -66,6 +66,76 @@ void main() {
     });
   });
 
+  /// ההצהרה "הקובץ הוא התוכנה עצמה" היא הדבר היחיד על הקובץ שאי אפשר
+  /// להריח מהבייטים, ולכן היא היחידה שנשמרת ברשומה.
+  group('קובץ נייד — התוכנה עצמה', () {
+    Future<void> register({String fileName = 'MyApp.exe'}) async {
+      await manager.add(descriptor(id: 'portable', portableFile: true));
+      await manager.attachInstaller(
+        'portable',
+        // תוכן עם סימן של Inno, כדי שההצהרה תוכיח שהיא גוברת על הריחרוח.
+        sourcePath: writeFile(p.join(root, 'src', fileName), 'MZ Inno Setup'),
+        version: '3.0',
+      );
+    }
+
+    test('מועתק ליעד שנבחר במקום לרוץ כמתקין', () async {
+      await register();
+      final target = p.join(root, 'Tools');
+
+      final outcome = await manager.install('portable', copyToDir: target);
+
+      expect(runner.calls, isEmpty);
+      expect(outcome.kind, CustomInstallerKind.portableFile);
+      expect(File(p.join(target, 'MyApp.exe')).existsSync(), isTrue);
+    });
+
+    // מתקין רגיל מלמד דרך רג'יסטרי ההסרה; כאן אין רישום כזה — אבל אנחנו
+    // עצמנו העתקנו את הקובץ, וזו עדות ישירה וחזקה יותר.
+    test('שם קובץ ההרצה והמיקום נלמדים מההעתקה עצמה', () async {
+      await register();
+      final target = p.join(root, 'Tools');
+
+      final outcome = await manager.install('portable', copyToDir: target);
+
+      expect(outcome.learned?.exeName, 'MyApp.exe');
+      final saved = (await manager.load('portable'))!.descriptor;
+      expect(saved.detect.exeName, 'MyApp.exe');
+      expect(saved.portableFile, isTrue);
+
+      final state = await manager.detectInstalled(saved);
+      expect(state!.installDir, target);
+    });
+
+    /// נתיב מוחלט ברשומה הוא בדיוק המחלה של `otzaria_install_state.json` —
+    /// היא נוסעת על הכונן, והמיקום נכון למחשב אחד בלבד.
+    test('התיקייה נרשמת ל-locations.json ולא לרשומה', () async {
+      await register();
+      await manager.install('portable', copyToDir: p.join(root, 'Tools'));
+
+      final saved = (await manager.load('portable'))!.descriptor;
+      expect(saved.installDir, isNull);
+      expect(
+        File(p.join(root, 'apps', 'portable', 'locations.json')).existsSync(),
+        isTrue,
+      );
+    });
+
+    // `launch` מריץ את מה שנרשם כאן — ארכיון או PDF היו הופכים את כפתור
+    // ההפעלה לשגיאה.
+    test('קובץ שאינו exe מועתק, אך אינו נרשם כקובץ הרצה', () async {
+      await register(fileName: 'manual.pdf');
+
+      final outcome =
+          await manager.install('portable', copyToDir: p.join(root, 'Tools'));
+
+      expect(File(p.join(root, 'Tools', 'manual.pdf')).existsSync(), isTrue);
+      expect(outcome.learned, isNull);
+      expect(
+          (await manager.load('portable'))!.descriptor.detect.exeName, isNull);
+    });
+  });
+
   /// המסלול השלם של חלק "הלמידה": התקנה ← רישום הסרה חדש ← הרשומה מתעדכנת
   /// ← הזיהוי מוצא, והמיקום נרשם ל-`locations.json`.
   group('למידה אחרי התקנה', () {

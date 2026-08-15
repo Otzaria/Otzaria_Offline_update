@@ -21,6 +21,7 @@ class AppDescriptor {
     this.publisher,
     this.github,
     this.installDir,
+    this.portableFile = false,
     this.detect = const AppDetectRules(),
     this.schemaVersion = currentSchemaVersion,
   });
@@ -56,6 +57,16 @@ class AppDescriptor {
   /// הבחירה **הנכונה**: היא מעדכנת התקנה קיימת במקומה במקום ליצור שנייה
   /// לידה. אותו שיקול בדיוק כמו ב-`OtzariaManager.resolveDefaultInstallDir`.
   final String? installDir;
+
+  /// הקובץ ששמור אינו מתקין אלא **התוכנה עצמה** — ההתקנה מעתיקה אותו לאן
+  /// שהמשתמש יבחר, ואינה מריצה אותו.
+  ///
+  /// ⚠️ זה השדה היחיד על הקובץ שכן נשמר ברשומה, ולא במקרה: כל השאר
+  /// (`CustomInstallerKind`) נגזר מהבייטים בזמן ההתקנה, אבל **את זה אי אפשר
+  /// להריח** — exe נייד ומתקין של framework לא מוכר נראים זהים, ושניהם
+  /// נופלים ל-`interactive`. ההרצה של קובץ נייד "כמתקין" רק מפעילה אותו
+  /// מהכונן, והוא לעולם לא מגיע למחשב.
+  final bool portableFile;
 
   final AppDetectRules detect;
 
@@ -143,6 +154,9 @@ class AppDescriptor {
       installDir: (rawInstallDir != null && rawInstallDir.trim().isNotEmpty)
           ? rawInstallDir.trim()
           : null,
+      // רשומה שנכתבה לפני שהשדה היה קיים מתכוונת ל"קובץ התקנה", וזה גם
+      // ברירת המחדל — ולכן אין כאן שבירת תאימות ואין קפיצת schemaVersion.
+      portableFile: install['portable'] == true,
       detect: AppDetectRules.fromJson(
         json['detect'] as Map<String, dynamic>? ?? const {},
       ),
@@ -159,7 +173,11 @@ class AppDescriptor {
           'kind': sourceKind.id,
           if (github case final source?) ...source.toJson(),
         },
-        if (installDir != null) 'install': {'dir': installDir},
+        if (installDir != null || portableFile)
+          'install': {
+            if (installDir != null) 'dir': installDir,
+            if (portableFile) 'portable': true,
+          },
         if (!detect.isEmpty) 'detect': detect.toJson(),
       };
 
@@ -176,6 +194,7 @@ class AppDescriptor {
         sourceKind: sourceKind,
         github: github,
         installDir: installDir,
+        portableFile: portableFile,
         detect: detect ?? this.detect,
       );
 

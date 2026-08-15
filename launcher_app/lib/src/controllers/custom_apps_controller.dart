@@ -337,10 +337,14 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
   ///
   /// הלמידה יכולה להימשך עד דקה — קוד יציאה 0 של מתקין אינו אומר שהרישום
   /// שלו כבר נכתב — ולכן [isLearning] דולק בזמנה והממשק אומר זאת.
-  Future<({bool ok, String? archivePath, String? learnedExeName})> install(
-    String id,
-  ) async {
-    final outcome = await _guard(() => _manager.install(id));
+  /// [copyToDir] נמסר רק לתוכנה שהקובץ שלה הוא **התוכנה עצמה** — הממשק
+  /// שואל לאן להעתיק לפני שהוא קורא לכאן.
+  Future<({bool ok, String? copiedPath, String? learnedExeName})> install(
+    String id, {
+    String? copyToDir,
+  }) async {
+    final outcome =
+        await _guard(() => _manager.install(id, copyToDir: copyToDir));
     isLearning = false;
 
     final ok = errorMessage == null;
@@ -348,7 +352,7 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
     return (
       ok: ok,
-      archivePath: outcome?.archivePath,
+      copiedPath: outcome?.copiedPath,
       learnedExeName: outcome?.learned?.exeName,
     );
   }

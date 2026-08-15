@@ -1679,7 +1679,7 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
   String installerExitCode(int exitCode, String output) =>
       'ההתקנה הסתיימה בשגיאה (קוד $exitCode).\n$output';
   @override
-  String archiveExtractFailed(String error) => 'חילוץ הארכיון נכשל: $error';
+  String fileCopyFailed(String error) => 'העתקת הקובץ נכשלה: $error';
   @override
   String launchFileMissing(String launchPath) =>
       'קובץ ההרצה אינו נמצא: $launchPath';
@@ -1779,7 +1779,17 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get installerKindLabel => 'סוג ההתקנה';
   @override
-  String get installerKindSniffed => 'זוהה מהקובץ';
+  String installerKindSniffed(String kind) => 'זוהה מהקובץ: $kind';
+  @override
+  String get portableFileLabel => 'הקובץ הוא התוכנה עצמה';
+  @override
+  String get portableFileHint =>
+      'סמנו כשהקובץ אינו מתקין אלא התוכנה עצמה. בהתקנה תישאלו לאן להעתיק '
+      'אותו, במקום להריץ אותו.';
+  @override
+  String get pickCopyTargetDialogTitle => 'לאן להעתיק את הקובץ';
+  @override
+  String copiedFileSnack(String path) => 'הקובץ הועתק אל $path';
   @override
   String get exeNameLabel => 'שם קובץ ההרצה';
   @override
@@ -1814,6 +1824,10 @@ class _CustomApps extends CustomAppsStrings {
   String get kindMsi => 'MSI';
   @override
   String get kindZip => 'ארכיון';
+  @override
+  String get kindPortableFile => 'הקובץ עצמו, ללא התקנה';
+  @override
+  String get kindInteractive => 'מתקין שאינו מוכר — ייפתח חלון התקנה רגיל';
 
   @override
   String installedVersion(String version) => 'מותקנת: גרסה $version';

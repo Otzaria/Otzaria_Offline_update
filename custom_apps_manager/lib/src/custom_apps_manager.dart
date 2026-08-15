@@ -4,9 +4,11 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import 'models/app_descriptor.dart';
+import 'models/app_detect_rules.dart';
 import 'models/app_source_kind.dart';
 import 'models/custom_app_install_state.dart';
 import 'models/custom_install_outcome.dart';
+import 'models/custom_installer_kind.dart';
 import 'models/github_release.dart';
 import 'models/stored_installer.dart';
 import 'services/custom_app_installer.dart';
@@ -221,7 +223,9 @@ class CustomAppsManager {
   /// זו הדרך שבה שם קובץ ההרצה ותבנית ה-`DisplayName` נכנסים לרשומה בלי
   /// שהמשתמש ייענה על שאלות שלא יכול היה לענות עליהן במחשב המקוון, שבו
   /// התוכנה כלל לא הייתה מותקנת.
-  Future<CustomInstallOutcome> install(String id) async {
+  /// [copyToDir] רלוונטי רק לתוכנה שהקובץ שלה הוא **התוכנה עצמה**
+  /// ([AppDescriptor.portableFile]) — הממשק שואל לאן להעתיק ומעביר לכאן.
+  Future<CustomInstallOutcome> install(String id, {String? copyToDir}) async {
     final t = AppL10n.strings.customAppsDomain;
     final store = await _store();
     final entry = await store.load(id);
@@ -239,9 +243,15 @@ class CustomAppsManager {
     final outcome = await _installer.install(
       descriptor: entry.descriptor,
       installerPath: store.installerPathFor(id, installer),
+      copyToDir: copyToDir,
     );
-    // ארכיון אינו מותקן לשום מקום, ולכן אין ממה ללמוד.
-    if (outcome.isArchive) return outcome;
+    // כשרק העתקנו קובץ, שום מתקין לא רץ ולכן אין רישום הסרה ללמוד ממנו.
+    // אבל בקובץ נייד ידוע **בדיוק** לאן הוא הלך, וזו עדות חזקה יותר מכל
+    // סריקה — ראו [_learnFromCopiedFile].
+    if (outcome.isCopyOnly) {
+      if (outcome.kind != CustomInstallerKind.portableFile) return outcome;
+      return _learnFromCopiedFile(store, entry.descriptor, outcome);
+    }
 
     final learned = await _learner.learn(
       descriptor: entry.descriptor,
@@ -258,7 +268,39 @@ class CustomAppsManager {
     await detectInstalled(updated);
     return CustomInstallOutcome(
       kind: outcome.kind,
-      archivePath: outcome.archivePath,
+      copiedPath: outcome.copiedPath,
+      learned: learned,
+    );
+  }
+
+  /// קובץ נייד אינו רושם הסרה ואינו מותקן לשום מקום — אבל אנחנו עצמנו
+  /// העתקנו אותו, ולכן שם קובץ ההרצה והתיקייה ידועים בוודאות. רישום
+  /// שניהם הוא מה שגורם לכרטיס לומר "מותקן" ולהציע "הפעלה" מיד.
+  Future<CustomInstallOutcome> _learnFromCopiedFile(
+    CustomAppStore store,
+    AppDescriptor descriptor,
+    CustomInstallOutcome outcome,
+  ) async {
+    final copied = outcome.copiedPath;
+    // רק קובץ הרצה: `launch` מריץ את מה שנרשם כאן, ותמונה או PDF שנרשמו
+    // כ"קובץ ההרצה" היו הופכים את כפתור ההפעלה לשגיאה.
+    if (copied == null || p.extension(copied).toLowerCase() != '.exe') {
+      return outcome;
+    }
+
+    final learned = AppDetectRules(
+      exeName: p.basename(copied),
+      registryDisplayName: descriptor.detect.registryDisplayName,
+      dirs: descriptor.detect.dirs,
+    );
+    final updated = descriptor.copyWith(detect: learned);
+    await store.saveDescriptor(updated);
+    // אותו תפקיד כמו ה-`detectInstalled` שאחרי הלמידה הרגילה: מאמת שמה
+    // שנרשם באמת מוצא את הקובץ, ורושם את התיקייה ל-`locations.json`.
+    await adoptInstallDir(updated, p.dirname(copied));
+    return CustomInstallOutcome(
+      kind: outcome.kind,
+      copiedPath: copied,
       learned: learned,
     );
   }

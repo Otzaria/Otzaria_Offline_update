@@ -1,5 +1,4 @@
 import 'package:custom_apps_manager/custom_apps_manager.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -7,8 +6,10 @@ import 'package:path/path.dart' as p;
 
 import '../../controllers/custom_apps_controller.dart';
 import '../../services/byte_size.dart';
+import '../../services/native_file_dialogs.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
+import 'installer_kind_label.dart';
 
 /// "הוספת תוכנה", והוא גם טופס העריכה — הדרך **היחידה** שבה נכתבת רשומה
 /// של תוכנה נוספת.
@@ -48,6 +49,15 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
   /// מקור "קובץ שלי" — הקובץ שנבחר.
   String? _localFilePath;
 
+  /// מה שהריחרוח מצא בקובץ שנבחר עכשיו, או `null` כשאין קובץ כזה או שלא
+  /// ניתן היה לקבוע. מוצג בלבד — ההכרעה האמיתית נעשית שוב בזמן ההתקנה,
+  /// מהבייטים של הקובץ ששמור על הכונן.
+  CustomInstallerKind? _sniffedKind;
+
+  /// "הקובץ אינו מתקין אלא התוכנה עצמה". השאלה היחידה על הקובץ שכן נשאלת,
+  /// כי אי אפשר להריח אותה: exe נייד ומתקין לא-מוכר נראים זהים.
+  bool _portableFile = false;
+
   /// מקור "גיטהאב" — מה שחזר מהריפו.
   GithubRelease? _release;
   GithubAsset? _selectedAsset;
@@ -66,6 +76,7 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
       _installDir.text = descriptor.installDir ?? '';
       _exeName.text = descriptor.detect.exeName ?? '';
       _source = descriptor.sourceKind;
+      _portableFile = descriptor.portableFile;
       if (descriptor.github case final source?) _githubUrl.text = source.webUrl;
     }
   }
@@ -173,25 +184,43 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
 
   Future<void> _pickLocalFile() async {
     final t = context.strings.customApps;
-    final picked = await FilePicker.platform.pickFiles(
+    final path = await NativeFileDialogs.pickFile(
       dialogTitle: t.pickInstallerDialogTitle,
     );
-    final path = picked?.files.single.path;
-    if (path == null) return;
+    if (path == null || !mounted) return;
 
     // סוג ההתקנה **אינו** נשאל ואינו נשמר — הוא נקבע מהקובץ עצמו בזמן
     // ההתקנה. ראו `CustomAppInstaller.install`.
     setState(() {
       _localFilePath = path;
+      _sniffedKind = null;
       if (_name.text.isEmpty) _name.text = p.basenameWithoutExtension(path);
     });
+    await _sniffKind(path);
+  }
+
+  /// מריח את הקובץ ומראה מה נמצא — ZIP בעיקר, שגורלו שונה לגמרי (הוא
+  /// מועתק לתיקיית ההורדות ואינו מותקן), אבל גם כדי שיהיה ברור מראש
+  /// כשייפתח חלון מתקין במקום התקנה שקטה.
+  ///
+  /// כשל כאן אינו כשל של הטופס: הריחרוח הוא הצגה בלבד, וההכרעה נעשית שוב
+  /// בזמן ההתקנה מהקובץ ששמור על הכונן.
+  Future<void> _sniffKind(String path) async {
+    CustomInstallerKind? kind;
+    try {
+      kind = await const InstallerKindSniffer().sniff(path);
+    } catch (_) {
+      kind = null;
+    }
+    if (!mounted || _localFilePath != path) return;
+    setState(() => _sniffedKind = kind);
   }
 
   // ── מיקום ההתקנה ──────────────────────────────────────────────────────────
 
   Future<void> _pickInstallDir() async {
     final t = context.strings.customApps;
-    final dir = await FilePicker.platform.getDirectoryPath(
+    final dir = await NativeFileDialogs.pickDirectory(
       dialogTitle: t.pickInstallDirDialogTitle,
     );
     if (dir == null || !mounted) return;
@@ -296,6 +325,7 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
           : null,
       installDir:
           _installDir.text.trim().isEmpty ? null : _installDir.text.trim(),
+      portableFile: _portableFile,
       detect: AppDetectRules(
         exeName: _exeName.text.trim().isEmpty ? null : _exeName.text.trim(),
         registryDisplayName: existing?.detect.registryDisplayName,
@@ -335,6 +365,7 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
               else
                 _localFileSection(context),
               const SizedBox(height: AppTokens.spaceLG),
+              _portableFileRow(context),
               const SizedBox(height: AppTokens.spaceLG),
               _installDirRow(context),
               _field(t.exeNameLabel, _exeName, hint: t.exeNameHint),
@@ -453,14 +484,39 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
+        // מה שזוהה בקובץ. ל-ZIP זה השינוי הגדול ביותר — הוא אינו מותקן
+        // אלא מועתק לתיקיית ההורדות, וכדאי לדעת זאת לפני ולא אחרי.
+        if (_sniffedKind case final kind?) ...[
+          const SizedBox(height: AppTokens.spaceXS),
+          Text(
+            t.installerKindSniffed(installerKindLabelOf(kind, t)),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
         const SizedBox(height: AppTokens.spaceSM),
         ActionButton.neutral(
           text: t.pickInstallerButton,
           icon: FluentIcons.folder_open_24_regular,
-          isLoading: _isFetching,
-          onPressed: _isFetching ? null : _pickLocalFile,
+          onPressed: _pickLocalFile,
         ),
       ],
+    );
+  }
+
+  /// ההצהרה "זו התוכנה עצמה". היא נשאלת דווקא משום שאי אפשר להריח אותה:
+  /// exe נייד ומתקין של framework לא מוכר נראים זהים לחלוטין, ושניהם
+  /// נופלים ל-`interactive`. הרצת קובץ נייד "כמתקין" רק מפעילה אותו מהכונן
+  /// — הוא לעולם לא מגיע למחשב.
+  Widget _portableFileRow(BuildContext context) {
+    final t = context.strings.customApps;
+    return SettingsActionTile.switchTile(
+      icon: FluentIcons.document_arrow_right_24_regular,
+      title: t.portableFileLabel,
+      subtitle: t.portableFileHint,
+      value: _portableFile,
+      onChanged: (value) => setState(() => _portableFile = value),
     );
   }
 

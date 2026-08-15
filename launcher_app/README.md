@@ -95,6 +95,7 @@ ZSTD_ROOT="C:/pub-cache/hosted/pub.dev/zstandard_native-1.5.0/src/zstd" \
 | כרטיס תוכן | `AppCard` / `AppCard.section` |
 | 2–4 אפשרויות | `AppSegmentedControl` (לא RadioButton) |
 | קלט טקסט | `RtlTextField` (לא `TextField`) |
+| בחירת קובץ / תיקייה | `NativeFileDialogs` (לא `FilePicker` ישירות) |
 | חיווי מצב | `StatusChip` — תמיד סמל **וגם** טקסט, לא צבע בלבד |
 | מלל למשתמש | `context.strings.<סעיף>.<שדה>` מ-`otzaria_l10n` — לעולם לא מחרוזת בקוד |
 
@@ -117,7 +118,7 @@ ZSTD_ROOT="C:/pub-cache/hosted/pub.dev/zstandard_native-1.5.0/src/zstd" \
 `AppLanguage.forLanguageCode` — עברית לעברית (כולל הקוד הישן `iw`), כל השאר
 אנגלית. בחירה מפורשת בהגדרות עוקפת אותו ונשמרת ב-`ui.language`. כל המלל יושב
 ב-`otzaria_l10n` — ראו `AGENTS.md` §4 "All user-visible text" לכללים
-המלאים. ארבע נקודות שנוגעות דווקא לרכיבים כאן:
+המלאים. חמש נקודות שנוגעות דווקא לרכיבים כאן:
 
 - `RtlTextField` **אינו** כופה עוד RTL. הוא יורש את כיוון השפה, אחרת
   חיפוש באנגלית היה נכתב מימין לשמאל.
@@ -127,6 +128,13 @@ ZSTD_ROOT="C:/pub-cache/hosted/pub.dev/zstandard_native-1.5.0/src/zstd" \
   הצבע: הם אינם טקסט, וסדר הפלטה אינו אמור להתהפך באנגלית. אלה **שני
   החריגים היחידים** ל-`Directionality` ידני, ובדיקה ב-`widgets_test.dart`
   נועלת את הרשימה הזאת בדיוק (`AGENTS.md` §4 מזכיר עדיין רק את `UiSnack`).
+- ⚠️ **בחירת קובץ או תיקייה תמיד דרך `NativeFileDialogs`** ולעולם לא
+  ישירות דרך `FilePicker`. שתי סיבות, שתיהן באגים שהיו: שורת הכותרת של
+  המערכת מוסתרת (`TitleBarStyle.hidden`), ולכן כשדיאלוג המערכת נסגר המיקוד
+  אינו חוזר לחלון שלנו — שדות טקסט נראים תקינים ואינם מקבלים הקלדה עד
+  קליק, וזה מה שנראה כ"הטופס לא עובד" אחרי בחירת קובץ. ו-`files.single`
+  זורק על ביטול שהחזיר רשימה ריקה, כך שהכפתור פשוט נראה מת. העטיפה מטפלת
+  בשניהם.
 - לחצי "חזרה"/"קדימה" יש להשתמש ב-`context.backArrowIcon` /
   `context.forwardArrowIcon`. `RtlIcon` (שדרכו `ActionButton` מצייר כל
   אייקון) מהפך חיצים ב-RTL, ולכן העוזרים האלה מוסרים לו את הסמל ההפוך —
@@ -333,7 +341,8 @@ app-files/          ← launcher_app.exe, ה-DLL, data/, ובזמן ריצה ג�
 | החלטה | למה |
 | --- | --- |
 | ה-stub חי ב-`windows_stub/` ולא ב-`windows/` | ה-CI מריץ `flutter create --platforms=windows .`, שדורס את תיקיית הרנר |
-| מקומפל עם `/MT` (CRT סטטי) | ה-stub יושב **מחוץ** ל-`app-files`, ולכן לא רואה את `vcruntime140.dll` שהבנייה של Flutter מעתיקה לתיקיית ה-Release. עם `/MD` הוא לא היה עולה בלי VC++ Redist |
+| מקומפל עם `/MT` (CRT סטטי) | ה-stub יושב **מחוץ** ל-`app-files`, ולכן לא רואה את `vcruntime140.dll` שנוסע *בתוכה*. עם `/MD` הוא לא היה עולה בלי VC++ Redist |
+| ה-CRT של VC++ נארז לתוך `app-files\` | `launcher_app.exe` ושלושה מה-DLL של ה-plugins מייבאים את `MSVCP140.dll`/`VCRUNTIME140.dll`/`VCRUNTIME140_1.dll` **בטעינה**, ופלאטר אינו מעתיק אותם לתיקיית ה-Release. בלי זה התוכנה אינה עולה על מחשב שאין בו VC++ Redist — וזה בדיוק המחשב שלנו: הלאנצ'ר רץ על המחשב **המקוון**, שבו אוצריא (שההתקנה שלה מביאה את ה-CRT) לא מותקנת. `package.ps1` מעתיק אותם מתיקיית ה-Redist של VS ו**נכשל ברעש** אם אחד מהם חסר |
 | החילוץ הוא ל-`app-files\` **ליד ה-exe**, לא ל-`%TEMP%` | `OtzariaData/` יורדת לתוך `app-files` וכוללת הורדות של ~1GB. חילוץ לזמני היה מוחק אותן בכל הרצה ושובר את כל מודל ה-USB |
 | החילוץ מתבצע **בתוך התהליך**, ב-Compression API של Windows | קודם הוא נעשה ב-`tar.exe` על zip שנכתב ל-`%TEMP%`, ושתי התלויות האלה שברו חילוץ בשטח: `tar.exe` קיים רק מ-Windows 10 1803, והנתיבים הועברו אליו דרך שורת פקודה שעוברת המרה ל-ANSI — נתיב עברי על כונן בלי שמות 8.3 (exFAT, וכל כונן שאינו כונן המערכת) הגיע משובש. `cabinet.dll` קיים מ-Windows 8, אין תהליך חיצוני, אין קובץ זמני, והנתיבים נשארים UTF-16 מקצה לקצה |
 | הפורמט הוא מכל משלנו (`payload.otz`) ולא zip | ה-Compression API דוחס גוש, לא ארכיון, ולכן `pack_payload.ps1` מוסיף טבלת קבצים פשוטה. בתמורה: LZMS דוחס טוב יותר מ-zip, ושמות הקבצים נשמרים ב-UTF-8 ומומרים ל-wide אצלנו |

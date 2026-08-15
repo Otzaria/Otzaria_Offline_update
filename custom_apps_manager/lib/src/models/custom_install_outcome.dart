@@ -9,7 +9,7 @@ import 'custom_installer_kind.dart';
 class CustomInstallOutcome {
   const CustomInstallOutcome({
     required this.kind,
-    this.archivePath,
+    this.copiedPath,
     this.learned,
   });
 
@@ -17,9 +17,9 @@ class CustomInstallOutcome {
   /// [CustomAppInstaller.install].
   final CustomInstallerKind kind;
 
-  /// לאן הועתק ארכיון. `null` בכל סוג אחר — ארכיון אינו מותקן אלא מונח
-  /// בתיקיית ההורדות.
-  final String? archivePath;
+  /// לאן הועתק הקובץ, כששום דבר לא הותקן: ארכיון (לתיקיית ההורדות) או
+  /// קובץ נייד (לתיקייה שהמשתמש בחר). `null` בהתקנה אמיתית.
+  final String? copiedPath;
 
   /// כללי הזיהוי שנלמדו מההתקנה הזו, או `null` כשלא נלמד כלום.
   ///
@@ -28,6 +28,9 @@ class CustomInstallOutcome {
   final AppDetectRules? learned;
 
   bool get isArchive => kind.isArchive;
+
+  /// שום דבר לא הותקן — הקובץ רק הועתק.
+  bool get isCopyOnly => kind.isCopyOnly;
 
   /// האם הלמידה הוסיפה משהו — הממשק אומר על כך למשתמש, כי מכאן והלאה
   /// הכרטיס שלו יפסיק לומר "לא ניתן לזהות".

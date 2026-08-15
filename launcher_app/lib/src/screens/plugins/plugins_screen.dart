@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 // SliverConstraints ו-SliverGridLayout אינם מיוצאים מ-material.
@@ -8,6 +7,7 @@ import 'package:flutter/rendering.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
 import '../../controllers/plugins_module_controller.dart';
+import '../../services/native_file_dialogs.dart';
 import '../../services/timestamps.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
@@ -163,10 +163,9 @@ class _PluginsScreenState extends State<PluginsScreen> {
 
   Future<void> _save(StorePlugin plugin) async {
     final t = context.strings.plugins;
-    final destPath = await FilePicker.platform.saveFile(
+    final destPath = await NativeFileDialogs.saveFile(
       dialogTitle: t.saveDialogTitle,
       fileName: widget.controller.suggestedFileName(plugin),
-      type: FileType.custom,
       allowedExtensions: const ['otzplugin'],
     );
     if (destPath == null || !mounted) return;

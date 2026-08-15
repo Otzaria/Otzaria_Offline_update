@@ -1,10 +1,10 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/library_module_controller.dart';
 import '../services/byte_size.dart';
+import '../services/native_file_dialogs.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
 import 'home_screen.dart';
@@ -160,12 +160,10 @@ class LibraryScreen extends StatelessWidget {
 
   Future<void> _pickDbFile(BuildContext context) async {
     final t = context.strings.libraryScreen;
-    final result = await FilePicker.platform.pickFiles(
+    final path = await NativeFileDialogs.pickFile(
       dialogTitle: t.pickDbDialogTitle,
-      type: FileType.custom,
       allowedExtensions: const ['db'],
     );
-    final path = result?.files.single.path;
     if (path == null || !context.mounted) return;
     if (!await _confirmLocationOutsideOtzaria(context, path)) return;
     await library.setCustomDbPath(path);
@@ -176,7 +174,7 @@ class LibraryScreen extends StatelessWidget {
   /// שהיא מתחילה.
   Future<void> _pickInstallDir(BuildContext context) async {
     final t = context.strings.libraryScreen;
-    final dir = await FilePicker.platform.getDirectoryPath(
+    final dir = await NativeFileDialogs.pickDirectory(
       dialogTitle: t.pickInstallDirDialogTitle,
     );
     if (dir == null || !context.mounted) return;

@@ -1,11 +1,11 @@
 import 'package:custom_apps_manager/custom_apps_manager.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../../controllers/custom_apps_controller.dart';
 import '../../services/byte_size.dart';
+import '../../services/native_file_dialogs.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/screen_body.dart';
 import '../../widgets/widgets_exports.dart';
@@ -268,15 +268,33 @@ class _CustomAppCard extends StatelessWidget {
   }
 
   Future<void> _install(BuildContext context) async {
-    final result = await controller.install(app.descriptor.id);
+    final t = context.strings.customApps;
+
+    // כשהקובץ הוא התוכנה עצמה אין מה להתקין — רק להעתיק, והמשתמש הוא זה
+    // שיודע לאן. ביטול הבחירה אינו שגיאה: פשוט לא קורה כלום.
+    String? copyToDir;
+    if (app.descriptor.portableFile) {
+      copyToDir = await NativeFileDialogs.pickDirectory(
+        dialogTitle: t.pickCopyTargetDialogTitle,
+      );
+      if (copyToDir == null) return;
+    }
+
+    final result = await controller.install(
+      app.descriptor.id,
+      copyToDir: copyToDir,
+    );
     if (!result.ok) {
       UiSnack.showError(controller.errorMessage ?? '');
       return;
     }
-    // ארכיון אינו מותקן — הוא מונח בתיקיית ההורדות, וצריך לומר איפה.
-    if (result.archivePath case final path?) {
+    // שום דבר לא הותקן — הקובץ רק הועתק, וצריך לומר לאן.
+    if (result.copiedPath case final path?) {
+      final strings = AppL10n.strings.customApps;
       UiSnack.showSuccess(
-        AppL10n.strings.customApps.archiveInDownloadsSnack(path),
+        app.descriptor.portableFile
+            ? strings.copiedFileSnack(path)
+            : strings.archiveInDownloadsSnack(path),
       );
       return;
     }
@@ -292,7 +310,7 @@ class _CustomAppCard extends StatelessWidget {
 
   Future<void> _pickLocation(BuildContext context) async {
     final t = context.strings.customApps;
-    final dir = await FilePicker.platform.getDirectoryPath(
+    final dir = await NativeFileDialogs.pickDirectory(
       dialogTitle: t.pickInstallDirDialogTitle,
     );
     if (dir == null) return;

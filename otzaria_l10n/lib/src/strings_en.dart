@@ -1782,8 +1782,7 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
   String installerExitCode(int exitCode, String output) =>
       'The installation failed (exit code $exitCode).\n$output';
   @override
-  String archiveExtractFailed(String error) =>
-      'Extracting the archive failed: $error';
+  String fileCopyFailed(String error) => 'Copying the file failed: $error';
   @override
   String launchFileMissing(String launchPath) =>
       'Executable not found: $launchPath';
@@ -1888,7 +1887,17 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get installerKindLabel => 'Installer type';
   @override
-  String get installerKindSniffed => 'detected from the file';
+  String installerKindSniffed(String kind) => 'Detected from the file: $kind';
+  @override
+  String get portableFileLabel => 'The file is the program itself';
+  @override
+  String get portableFileHint =>
+      'Tick this when the file is not an installer but the program itself. '
+      'On install you will be asked where to copy it, instead of running it.';
+  @override
+  String get pickCopyTargetDialogTitle => 'Where to copy the file';
+  @override
+  String copiedFileSnack(String path) => 'The file was copied to $path';
   @override
   String get exeNameLabel => 'Executable file name';
   @override
@@ -1927,6 +1936,11 @@ class _CustomApps extends CustomAppsStrings {
   String get kindMsi => 'MSI';
   @override
   String get kindZip => 'Archive';
+  @override
+  String get kindPortableFile => 'The file itself, no installation';
+  @override
+  String get kindInteractive =>
+      'Unrecognised installer — a normal install window will open';
 
   @override
   String installedVersion(String version) => 'Installed: version $version';

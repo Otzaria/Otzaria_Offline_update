@@ -44,10 +44,14 @@ class CustomAppInstaller {
   /// זורק [AppDescriptorException] עם הודעה מתורגמת בכל כשל — הממשק מציג
   /// אותה כמות שהיא.
   ///
-  /// מחזיר את הסוג שזוהה, ואת נתיב הארכיון כשמדובר בתוכנה מסוג ארכיון.
+  /// מחזיר את הסוג שזוהה, ואת נתיב היעד כשהקובץ רק הועתק.
+  ///
+  /// [copyToDir] הוא היעד של **קובץ נייד** — מה שהמשתמש בחר בדיאלוג. ארכיון
+  /// מתעלם ממנו והולך לתיקיית ההורדות, כי אין לו יעד טבעי אחר.
   Future<CustomInstallOutcome> install({
     required AppDescriptor descriptor,
     required String installerPath,
+    String? copyToDir,
   }) async {
     final t = AppL10n.strings.customAppsDomain;
 
@@ -55,20 +59,25 @@ class CustomAppInstaller {
       throw AppDescriptorException(t.installerFileMissing(installerPath));
     }
 
-    // **סוג ההתקנה נקבע כאן ולא נשמר ברשומה.** הוא נגזר מהבייטים של הקובץ
-    // שעומד לרוץ ברגע זה, ולכן אינו יכול להתיישן — ובעיקר, המשתמש אינו
-    // נשאל עליו בכלל. שאלה "איזה framework בנה את ה-installer" היא השאלה
-    // היחידה בכל התהליך שמשתמש רגיל אינו יכול לענות עליה.
-    final kind = await const InstallerKindSniffer().sniff(installerPath) ??
-        CustomInstallerKind.interactive;
+    // **סוג ההתקנה נקבע כאן ולא נשמר ברשומה** — חוץ מהצהרת "זו התוכנה
+    // עצמה", שהיא הדבר היחיד כאן שאי אפשר להריח מהבייטים (ראו
+    // [AppDescriptor.portableFile]). כל השאר נגזר מהקובץ שעומד לרוץ ברגע
+    // זה, ולכן אינו יכול להתיישן, והמשתמש אינו נשאל עליו בכלל.
+    final kind = descriptor.portableFile
+        ? CustomInstallerKind.portableFile
+        : await const InstallerKindSniffer().sniff(installerPath) ??
+            CustomInstallerKind.interactive;
 
-    // ארכיון אינו "מותקן" — הוא פשוט מונח בתיקיית ההורדות, והמשתמש עושה
-    // איתו מה שהוא רוצה. אין ל-ZIP מיקום התקנה טבעי, וניחוש שלנו היה
-    // יוצר תיקייה שאיש לא ביקש.
-    if (kind.isArchive) {
+    // אין כאן התקנה — רק העתקה. ארכיון מונח בתיקיית ההורדות (אין ל-ZIP
+    // מיקום התקנה טבעי, וניחוש שלנו היה יוצר תיקייה שאיש לא ביקש), וקובץ
+    // נייד מגיע לתיקייה שהמשתמש הצביע עליה.
+    if (kind.isCopyOnly) {
       return CustomInstallOutcome(
         kind: kind,
-        archivePath: await _copyToDownloads(installerPath),
+        copiedPath: await _copyInto(
+          kind.isArchive ? downloadsDir : (copyToDir ?? downloadsDir),
+          installerPath,
+        ),
       );
     }
 
@@ -90,18 +99,18 @@ class CustomAppInstaller {
     return CustomInstallOutcome(kind: kind);
   }
 
-  /// מעתיק את הארכיון לתיקיית ההורדות, בלי לדרוס קובץ קיים בעל אותו שם.
-  Future<String> _copyToDownloads(String archivePath) async {
+  /// מעתיק את הקובץ ל-[targetDir], בלי לדרוס קובץ קיים בעל אותו שם.
+  Future<String> _copyInto(String targetDir, String sourcePath) async {
     try {
-      final dir = Directory(downloadsDir);
+      final dir = Directory(targetDir);
       await dir.create(recursive: true);
 
-      final target = _freeNameIn(dir.path, p.basename(archivePath));
-      await File(archivePath).copy(target);
+      final target = _freeNameIn(dir.path, p.basename(sourcePath));
+      await File(sourcePath).copy(target);
       return target;
     } catch (e) {
       throw AppDescriptorException(
-        AppL10n.strings.customAppsDomain.archiveExtractFailed('$e'),
+        AppL10n.strings.customAppsDomain.fileCopyFailed('$e'),
       );
     }
   }

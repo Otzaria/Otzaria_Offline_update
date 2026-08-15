@@ -951,7 +951,15 @@ abstract class CustomAppsStrings {
   String get pickInstallerButton;
   String get pickInstallerDialogTitle;
   String get installerKindLabel;
-  String get installerKindSniffed;
+  String installerKindSniffed(String kind);
+
+  /// "הקובץ הוא התוכנה עצמה". השאלה היחידה על הקובץ שכן נשאלת, כי
+  /// **אי אפשר להסיק אותה מהבייטים**: exe נייד ומתקין שלא זוהה נראים זהים.
+  String get portableFileLabel;
+  String get portableFileHint;
+  String get pickCopyTargetDialogTitle;
+  String copiedFileSnack(String path);
+
   String get exeNameLabel;
   String get exeNameHint;
 
@@ -967,11 +975,13 @@ abstract class CustomAppsStrings {
   String addedSnack(String name);
   String updatedSnack(String name);
 
-  // ── שמות סוגי ההתקנה. שמות מוצר — זהים בשתי השפות. ──
+  // ── שמות סוגי ההתקנה. שלושת הראשונים שמות מוצר — זהים בשתי השפות. ──
   String get kindInno;
   String get kindNsis;
   String get kindMsi;
   String get kindZip;
+  String get kindPortableFile;
+  String get kindInteractive;
 
   // ── כרטיס תוכנה ──
   String installedVersion(String version);
@@ -1042,7 +1052,10 @@ abstract class CustomAppsDomainStrings {
   String get noInstallerInMirror;
   String installerFileMissing(String path);
   String installerExitCode(int exitCode, String output);
-  String archiveExtractFailed(String error);
+
+  /// כשל בהעתקת קובץ שאין מה להתקין ממנו — ארכיון או קובץ נייד. שום דבר
+  /// כאן אינו מחולץ, ולכן זה "העתקה" ולא "חילוץ".
+  String fileCopyFailed(String error);
   String launchFileMissing(String launchPath);
 
   // ── GitHub ──

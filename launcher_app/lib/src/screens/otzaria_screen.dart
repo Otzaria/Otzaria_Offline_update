@@ -1,10 +1,10 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/otzaria_module_controller.dart';
+import '../services/native_file_dialogs.dart';
 import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/screen_body.dart';
@@ -173,7 +173,7 @@ class OtzariaScreen extends StatelessWidget {
 
   Future<void> _pickInstallDir(BuildContext context) async {
     final t = context.strings.appScreen;
-    final dir = await FilePicker.platform.getDirectoryPath(
+    final dir = await NativeFileDialogs.pickDirectory(
       dialogTitle: t.pickInstallDirDialogTitle,
     );
     if (dir == null) return;
