@@ -445,7 +445,7 @@ and then `CreateProcessW`s `app-files\launcher_app.exe`; on every later run the
 load-bearing. It lives **outside** `windows/` because CI runs
 `flutter create --platforms=windows .` and overwrites that directory. It is
 compiled with **`/MT`** because a stub outside `app-files` cannot see the
-`vcruntime140.dll` that Flutter copies into the Release folder. Extraction goes
+`vcruntime140.dll` that travels *inside* it. Extraction goes
 next to the exe and **never to `%TEMP%`** — `OtzariaData/` lands inside
 `app-files/` (that is what `Platform.resolvedExecutable` yields, so
 `app_paths.dart` needed no change) and holds ~1GB of downloads, which a temp
@@ -466,6 +466,38 @@ broke extraction in the field: `tar.exe` only exists from Windows 10 1803, and
 its paths went through an ANSI command line, so a Hebrew path on a drive
 without 8.3 names arrived mangled. Do not reintroduce an external process here.
 The full rationale table is in `launcher_app/README.md`.
+
+**The Visual C++ CRT rides in the payload — Flutter does not put it there.**
+`launcher_app.exe`, `window_manager_plugin.dll`,
+`screen_retriever_windows_plugin.dll`, `zstandard_windows_plugin.dll` and
+`sqlite3_flutter_libs_plugin.dll` carry **load-time** imports on
+`MSVCP140.dll` / `VCRUNTIME140.dll` / `VCRUNTIME140_1.dll`, and
+`flutter build windows --release` copies none of them into the Release folder
+(there is no CRT handling in `windows/CMakeLists.txt` either). Until this was
+added, the shipped exe simply required the machine to already have the
+**VC++ 2015–2022 Redistributable** — an assumption that is wrong in exactly our
+case: the launcher runs on the **online** computer, which by definition is not
+the one where Otzaria (whose installer brings the CRT along) is installed.
+`package.ps1` therefore copies `Microsoft.VC*.CRT` out of the VS redist
+directory (resolved with `vswhere`, highest toolset version, sorted as
+`[version]` so `14.44` beats `14.9`) into the staged `app-files\`, and then
+**throws** when any of the three required DLLs is absent. The loud failure is
+the point: the old behaviour was a build that succeeded, an exe that was
+produced, and a program that did not start on the user's machine. Note the
+earlier `/MT` rationale depends on this: the stub sits outside `app-files` and
+so cannot use these DLLs.
+
+**This does nothing for issue #21, and the resemblance is a trap.** #21 asks
+the drive to carry *Otzaria's* dependencies (a C++ runtime, and whatever the
+plugin component turns out to be), because the mirror fetches the small
+installer rather than the full one. The CRT bundled above is the **launcher's
+own** and is invisible to Otzaria: Windows resolves a load-time import from the
+directory of the *importing* executable, so DLLs sitting in `app-files\` are
+reachable by `launcher_app.exe` alone. Serving #21 means mirroring the
+redistributable **installer** and running it on the offline machine — a
+system-wide install, not a file copy. A full import scan (`dumpbin /dependents`
+over all 18 payload binaries) confirms the launcher now needs nothing beyond
+the OS: Win32, the UCRT api-sets, and the graphics/crypto DLLs Windows ships.
 
 **The launcher updates itself by replacing that stub — and `OtzariaData/`
 lives *inside* the folder it re-extracts.** `lib/src/self_update/` downloads a

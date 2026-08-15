@@ -152,6 +152,24 @@ void main() {
     expect(stubC, contains('COMPRESS_ALGORITHM_LZMS'));
   });
 
+  test('ה-CRT של VC++ נארז לתוך ה-payload, והאריזה נכשלת בלעדיו', () {
+    // `launcher_app.exe` ושלושה מה-DLL של ה-plugins מייבאים את אלה **בטעינה**,
+    // ופלאטר אינו מעתיק אותם לתיקיית ה-Release. בלי הצעד הזה נארז exe תקין
+    // לגמרי שפשוט אינו עולה על מחשב בלי VC++ Redist — והמחשב המקוון, שעליו
+    // הלאנצ'ר רץ, הוא בדיוק זה שאין בו אוצריא שתביא אותו.
+    for (final dll in const [
+      'msvcp140.dll',
+      'vcruntime140.dll',
+      'vcruntime140_1.dll',
+    ]) {
+      expect(packagePs1, contains("'$dll'"),
+          reason: 'חסר מרשימת ה-DLL שהאריזה מוודאת: $dll');
+    }
+    expect(packagePs1, contains('Microsoft.VC*.CRT'));
+    // אזהרה לא מספיקה: בלי נפילה נפיץ exe שאינו רץ, וזה כשל שקט לחלוטין.
+    expect(packagePs1, contains(r'throw "CRT DLLs missing from the payload'));
+  });
+
   test('שם קובץ ה-payload זהה באריזה, בהטמעה ובבנייה', () {
     expect(packagePs1, contains("build\\payload.otz'"));
     expect(stubRc, contains(r'100 RCDATA "build\\payload.otz"'));
