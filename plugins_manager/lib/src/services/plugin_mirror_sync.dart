@@ -9,6 +9,7 @@ import '../models/plugin_store_home.dart';
 import '../models/plugin_sync_outcome.dart';
 import '../models/plugin_sync_progress.dart';
 import '../models/store_plugin.dart';
+import 'download_pool.dart';
 import 'plugin_manifest_reader.dart';
 import 'plugin_mirror_store.dart';
 import 'plugin_store_client.dart';
@@ -16,10 +17,22 @@ import 'plugin_store_client.dart';
 /// מסנכרן את הקטלוג מהאתר אל המראה המקומית — פורט של `syncNow` מחנות
 /// ה-Electron. רץ **רק** על המחשב המקוון; משם הכול עובד אופליין.
 class PluginMirrorSync {
-  const PluginMirrorSync({required this.client, required this.store});
+  const PluginMirrorSync({
+    required this.client,
+    required this.store,
+    this.maxConcurrentPlugins = defaultMaxConcurrentPlugins,
+  });
+
+  /// ארבעה תוספים בו-זמנית. ראו [runPooled]: הקבצים כאן קטנים והזמן הולך
+  /// על סיבובי הלוך-חזור, ולכן זה בדיוק המקום שבו מקביליות משתלמת.
+  static const int defaultMaxConcurrentPlugins = 4;
 
   final PluginStoreClient client;
   final PluginMirrorStore store;
+
+  /// כמה תוספים מסונכרנים בו-זמנית. כל אחד מהם עדיין מוריד את הנכסים שלו
+  /// בטור, כך שהתקרה חוסמת גם את מספר החיבורים בפועל.
+  final int maxConcurrentPlugins;
 
   /// זורק [PluginStoreException] רק אם רשימת התוספים עצמה לא נטענה. כשל
   /// בנכס בודד מדווח כ-[PluginSyncPhase.warning] והסנכרון ממשיך.
@@ -68,26 +81,35 @@ class PluginMirrorSync {
     final total = todo.length;
     var done = 0;
 
-    for (final plan in todo) {
-      if (isCancelled?.call() ?? false) break;
-      done++;
+    // התוספים מסונכרנים במקביל: כל אחד הוא כמה קבצים קטנים שרובם המתנה
+    // לשרת, ובטור ההמתנות האלה מצטברות לרוב זמן הסנכרון. בדיקת הביטול
+    // עברה לתוך המשימה — משימה שממתינה בתור בזמן שבוטלה פשוט לא מתחילה.
+    await runPooled(
+      [
+        for (final plan in todo)
+          () async {
+            if (isCancelled?.call() ?? false) return;
+            done++;
 
-      var plugin = plan.plugin;
-      report(PluginSyncProgress(
-        phase: PluginSyncPhase.plugin,
-        message: strings.syncPlugin(plugin.name, done, total),
-        current: done,
-        total: total,
-      ));
+            var plugin = plan.plugin;
+            report(PluginSyncProgress(
+              phase: PluginSyncPhase.plugin,
+              message: strings.syncPlugin(plugin.name, done, total),
+              current: done,
+              total: total,
+            ));
 
-      await Directory(store.pluginDir(plugin.id)).create(recursive: true);
-      plugin = await _syncImages(plan, plugin, report);
-      final file = await _syncPluginFile(plan, plugin, report);
-      plugin = file.plugin;
+            await Directory(store.pluginDir(plugin.id)).create(recursive: true);
+            plugin = await _syncImages(plan, plugin, report);
+            final file = await _syncPluginFile(plan, plugin, report);
+            plugin = file.plugin;
 
-      fetched[plugin.id] = plugin;
-      if (!file.ok) failed.add(plugin.name);
-    }
+            fetched[plugin.id] = plugin;
+            if (!file.ok) failed.add(plugin.name);
+          },
+      ],
+      maxConcurrent: maxConcurrentPlugins,
+    );
 
     final cancelled = isCancelled?.call() ?? false;
 

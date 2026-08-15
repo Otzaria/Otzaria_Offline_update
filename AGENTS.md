@@ -733,6 +733,50 @@ and decompression take many minutes, and on macOS `unlink` on an open file
 succeeds — without the re-check the DB could be replaced underneath a running
 Otzaria.
 
+**Downloads are parallel *across files*, never *within* a file — and that is
+not a design preference, it is what the server allows.** Issue #17 asked for a
+"download accelerator". The classic kind splits one file over N connections via
+`Range`, and GitHub's release CDN (`release-assets.githubusercontent.com`,
+an Azure Blob SAS behind a proxy) **strips it**: it answers `200` with the full
+body to every `Range` request — and to `x-ms-range` too — while still
+advertising `Accept-Ranges: bytes`. Verified five ways in August 2026. That is
+also why resume never actually works against GitHub, which the code already
+knew (`PatchDownloader._streamToFile` treats "server ignored Range → 200" as a
+restart). What the CDN *does* throttle is **each connection separately**:
+measured ~0.7MB/s on one connection versus ~2.1MB/s aggregate on four. So the
+only accelerator that exists here is running different files at once.
+
+`DownloadScheduler` (root package, exported) is that pool, and it is a
+**shared semaphore on purpose**: `LibraryManager` hands the same instance to
+`LibraryMirrorExporter` and to `CompanionAssetsMirror`, and then runs those two
+concurrently — the ~509MB of companions used to queue behind the ~1.55GB DB for
+no reason. One instance means the two stages together still never open more
+than four connections. `plugins_manager` cannot depend on the root package (it
+is pure Dart, the root is Flutter), so it carries its own 40-line `runPooled`;
+keep the two in step conceptually, and do not "unify" them by adding a
+cross-package dependency.
+
+Three consequences that are load-bearing:
+
+- **The biggest asset starts first** (`jobs.sort` by size, descending). With
+  the ~1.55GB DB last, every other connection sits idle while it runs alone.
+- **The byte counter is one aggregate for the whole download**
+  (`ByteProgressAggregator`), not per file — in parallel there is no "current
+  file". Each download gets its own `slot()`, and a slot only ever moves
+  **up**: an asset that is already complete reports its full size and then
+  re-hashes from zero on the same sink, which without the high-water mark
+  dropped the bar mid-download. `LibraryModuleController` therefore must **not**
+  null the byte fields on `onStage` any more; doing so blanks a bar that is
+  in fact advancing.
+- **A failed task stops new ones from starting but still awaits the ones
+  already running**, before rethrowing. A download left running in the
+  background keeps writing into the mirror after `MirrorDownloadUndo` has
+  already cleaned it.
+
+Deliberately *not* parallelised: `OtzariaAppMirror.sync` (two installers,
+~6% of the bytes, and its `onChannelStart` progress UI assumes one channel at
+a time) and the module ordering in `AppShell.downloadAll`.
+
 **Progress callbacks must not reach `setState` unthrottled.** `PatchDownloader`
 reports `onProgress` per chunk — tens of thousands of calls for a 1GB download.
 Each one used to become `notifyListeners()` → `setState` on `AppShell` → a

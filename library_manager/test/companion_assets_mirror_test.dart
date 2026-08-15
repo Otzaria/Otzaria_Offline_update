@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -8,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:path/path.dart' as p;
+import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 /// צד ההורדה של הקבצים הנלווים: אותם שלושה מאגרים ואותם כללי בחירת נכס
 /// שאוצריא משתמשת בהם, רק שהיעד הוא המראה ולא ההתקנה.
@@ -40,6 +42,8 @@ void main() {
   /// release חסר.
   ({CompanionAssetsMirror mirror, List<String> fetched}) buildMirror({
     Set<String> omit = const {},
+    DownloadScheduler? scheduler,
+    Future<void> Function(String assetName)? beforeAsset,
   }) {
     final fetched = <String>[];
     final client = MockClient.streaming((request, _) async {
@@ -72,6 +76,7 @@ void main() {
       } else {
         final name = url.split('/').last;
         fetched.add(name);
+        if (beforeAsset != null) await beforeAsset(name);
         body = name == 'version.txt'
             ? Uint8List.fromList(utf8.encode('55'))
             : bodyOf(name);
@@ -85,7 +90,7 @@ void main() {
     });
 
     return (
-      mirror: CompanionAssetsMirror(httpClient: client),
+      mirror: CompanionAssetsMirror(httpClient: client, scheduler: scheduler),
       fetched: fetched
     );
   }
@@ -166,5 +171,64 @@ void main() {
     final manifest = await second.mirror.sync(destDir: destDir);
 
     expect(manifest.entries.containsKey(CompanionAsset.talmud), isFalse);
+  });
+
+  // שלושת הפריטים אינם תלויים זה בזה; התלמוד לבדו הוא ~450MB, ובטור השניים
+  // האחרים המתינו לו בלי סיבה.
+  test('שלושת הפריטים יורדים בו-זמנית', () async {
+    // מחסום: כל פריט ממתין עד ששלושה נמצאים בו-זמנית. בהורדה טורית
+    // הראשון נתקע עד סוף הזמן הקצוב והשיא נשאר 1.
+    final barrier = Completer<void>();
+    var inFlight = 0;
+    var peak = 0;
+    final built = buildMirror(
+      beforeAsset: (name) async {
+        if (name == 'version.txt') return;
+        inFlight++;
+        if (inFlight > peak) peak = inFlight;
+        if (inFlight >= 3 && !barrier.isCompleted) barrier.complete();
+        await barrier.future
+            .timeout(const Duration(seconds: 2), onTimeout: () {});
+        inFlight--;
+      },
+    );
+    addTearDown(built.mirror.dispose);
+
+    await built.mirror.sync(destDir: destDir);
+    expect(peak, 3);
+  });
+
+  test('תקרת החיבורים המשותפת נשמרת גם כשהיא נמוכה משלושה', () async {
+    var inFlight = 0;
+    var peak = 0;
+    final built = buildMirror(
+      scheduler: DownloadScheduler(maxConcurrent: 1),
+      beforeAsset: (name) async {
+        inFlight++;
+        if (inFlight > peak) peak = inFlight;
+        await Future<void>.delayed(Duration.zero);
+        inFlight--;
+      },
+    );
+    addTearDown(built.mirror.dispose);
+
+    await built.mirror.sync(destDir: destDir);
+    expect(peak, 1);
+  });
+
+  test('מד הבייטים מסכם את שלושת הפריטים ואינו צונח ביניהם', () async {
+    final received = <int>[];
+    final built = buildMirror();
+    addTearDown(built.mirror.dispose);
+
+    await built.mirror.sync(
+      destDir: destDir,
+      onBytesProgress: (downloaded, _) => received.add(downloaded),
+    );
+
+    expect(received, isNotEmpty);
+    for (var i = 1; i < received.length; i++) {
+      expect(received[i], greaterThanOrEqualTo(received[i - 1]));
+    }
   });
 }

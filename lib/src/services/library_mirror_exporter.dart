@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import '../models/delta_manifest.dart';
 import '../models/library_release.dart';
 import 'disk_space_probe.dart';
+import 'download_scheduler.dart';
 import 'github_library_release_client.dart';
 import 'library_update_discovery.dart';
 import 'local_mirror_library_release_client.dart';
@@ -32,12 +33,18 @@ import 'patch_downloader.dart';
 /// `fromVersion` ב-[export] מחליף את שני אלה במצב "עדכון אישי": patches
 /// מהגרסה שמותקנת אצל המשתמש ומעלה בלבד, בלי המסד המלא — ראו
 /// [personalReleases].
+///
+/// **הנכסים יורדים במקביל, הגדול ראשון** — ראו [DownloadScheduler]. זה כל
+/// ה"מאיץ" שאפשר לבנות מול GitHub: פיצול קובץ בודד לכמה חיבורים אינו עובד
+/// שם, אבל קובצי ה-patch רצים לצד המסד הגדול במקום לחכות לו.
 class LibraryMirrorExporter {
   LibraryMirrorExporter({
     GithubLibraryReleaseClient? client,
     http.Client? httpClient,
     this.historyDepth = defaultHistoryDepth,
-  })  : _client = client ?? GithubLibraryReleaseClient(),
+    DownloadScheduler? scheduler,
+  })  : _scheduler = scheduler ?? DownloadScheduler(),
+        _client = client ?? GithubLibraryReleaseClient(),
         _ownsClient = client == null,
         _httpClient = httpClient ?? http.Client(),
         _ownsHttpClient = httpClient == null {
@@ -60,6 +67,11 @@ class LibraryMirrorExporter {
   final bool _ownsClient;
   final http.Client _httpClient;
   final bool _ownsHttpClient;
+
+  /// מה שמריץ את הנכסים במקביל — ראו [DownloadScheduler] להסבר למה זו
+  /// ההאצה היחידה שאפשרית מול GitHub. ניתן להזרקה כדי שהקבצים הנלווים
+  /// יחלקו את אותה תקרת חיבורים ולא יפתחו תקרה משלהם.
+  final DownloadScheduler _scheduler;
 
   /// ההורדה עוברת דרך [PatchDownloader] ולא דרך `http` ישר. זה לא ניקיון קוד:
   /// המוריד הזה כבר מביא זמן קצוב, אימות גודל ו-sha256, חידוש הורדה (Range +
@@ -189,62 +201,100 @@ class LibraryMirrorExporter {
     // נכסים לחכות עד שהראשון (המסד המלא, ~1GB) מסתיים.
     onAssetProgress?.call(0, totalAssets);
 
-    final mirroredReleases = <LibraryRelease>[];
+    // רשימה שטוחה של כל ההורדות, **הגדולה ראשונה**: המסד המלא (~1.5GB) הוא
+    // ארוך פי עשרות מכל השאר, ואם הוא יתחיל אחרון כל שאר החיבורים יעמדו
+    // בטלים בזמן שהוא לבדו רץ. פתיחה בו נותנת לקובצי ה-patch לרוץ לצידו.
+    final jobs =
+        <({LibraryRelease release, ReleaseAsset asset, String dest})>[];
     for (final entry in plannedByRelease.entries) {
-      final release = entry.key;
       final tagDir =
-          Directory(p.join(assetsRoot.path, _safeDirName(release.tag)));
+          Directory(p.join(assetsRoot.path, _safeDirName(entry.key.tag)));
       await tagDir.create(recursive: true);
-
-      final mirroredAssets = <ReleaseAsset>[];
       for (final asset in entry.value) {
-        _throwIfCancelled(isCancelled);
-        onStage?.call(strings.exportDownloading(release.tag, asset.name));
-        final destFile = File(p.join(tagDir.path, asset.name));
-        // נכס שכבר יושב שלם על הדיסק מדלג על ההורדה ורק מאומת — אימות sha256
-        // של 1.1GB מכונן נייד לוקח דקה, וללא הכרזה הוא נראה כמו תקיעה.
-        var announcedVerify = false;
-        await _downloader.downloadToFile(
-          url: asset.downloadUrl,
-          destPath: destFile.path,
-          // ה-manifests נכתבים ע"י GitHub ללא `size` אמין בכל המקרים; `size`
-          // של asset אמיתי כן מדויק, ואי-התאמה שלו היא הורדה שנקטעה.
-          expectedSize: asset.size > 0 ? asset.size : null,
-          expectedSha256: _sha256FromDigest(asset.digest),
-          // מזהה ה-asset הוא הזהות היציבה שמאפשרת לחדש הורדה שנקטעה במקום
-          // להתחיל מאפס — ראו PatchDownloader.downloadToFile.
-          resumeToken: asset.id?.toString(),
-          onProgress: onBytesProgress,
-          onVerifyProgress: (verified, total) {
-            if (!announcedVerify) {
-              announcedVerify = true;
-              onStage?.call(strings.exportVerifying(release.tag, asset.name));
-            }
-            onBytesProgress?.call(verified, total);
-          },
-          isCancelled: isCancelled,
-        );
-        final relativePath = p.relative(destFile.path, from: destDir);
-        mirroredAssets.add(ReleaseAsset(
-          name: asset.name,
-          downloadUrl: relativePath,
-          size: asset.size,
-          id: asset.id,
-          updatedAt: asset.updatedAt,
-          digest: asset.digest,
+        jobs.add((
+          release: entry.key,
+          asset: asset,
+          dest: p.join(tagDir.path, asset.name),
         ));
-        doneAssets++;
-        onAssetProgress?.call(doneAssets, totalAssets);
       }
-
-      mirroredReleases.add(LibraryRelease(
-        tag: release.tag,
-        isPrerelease: release.isPrerelease,
-        isDraft: release.isDraft,
-        publishedAt: release.publishedAt,
-        assets: mirroredAssets,
-      ));
     }
+    jobs.sort((a, b) => b.asset.size.compareTo(a.asset.size));
+
+    // מונה בייטים אחד לכל התוכנית: בהורדה מקבילה אין "הקובץ הנוכחי", וגם
+    // אין טעם באחד — מד שמתאר את כל ההורדה גם לא מתאפס בין נכס לנכס.
+    final bytes = ByteProgressAggregator(
+      totalBytes: jobs.fold<int>(
+        0,
+        (sum, job) => sum + (job.asset.size > 0 ? job.asset.size : 0),
+      ),
+      onProgress: onBytesProgress,
+    );
+
+    await _scheduler.run<void>([
+      for (final job in jobs)
+        () async {
+          _throwIfCancelled(isCancelled);
+          onStage?.call(
+              strings.exportDownloading(job.release.tag, job.asset.name));
+          final progress = bytes.slot();
+          // נכס שכבר יושב שלם על הדיסק מדלג על ההורדה ורק מאומת — אימות
+          // sha256 של 1.1GB מכונן נייד לוקח דקה, וללא הכרזה הוא נראה כתקיעה.
+          var announcedVerify = false;
+          await _downloader.downloadToFile(
+            url: job.asset.downloadUrl,
+            destPath: job.dest,
+            // ה-manifests נכתבים ע"י GitHub ללא `size` אמין בכל המקרים; `size`
+            // של asset אמיתי כן מדויק, ואי-התאמה שלו היא הורדה שנקטעה.
+            expectedSize: job.asset.size > 0 ? job.asset.size : null,
+            expectedSha256: _sha256FromDigest(job.asset.digest),
+            // מזהה ה-asset הוא הזהות היציבה שמאפשרת לחדש הורדה שנקטעה במקום
+            // להתחיל מאפס — ראו PatchDownloader.downloadToFile.
+            resumeToken: job.asset.id?.toString(),
+            onProgress: progress,
+            onVerifyProgress: (verified, total) {
+              if (!announcedVerify) {
+                announcedVerify = true;
+                onStage?.call(
+                    strings.exportVerifying(job.release.tag, job.asset.name));
+              }
+              progress(verified, total);
+            },
+            isCancelled: isCancelled,
+          );
+          doneAssets++;
+          onAssetProgress?.call(doneAssets, totalAssets);
+        },
+    ]);
+
+    // נבנה רק אחרי שכל ההורדות הצליחו — כשל של אחת זורק, ולכן כל נכס
+    // שברשימה אכן יושב שלם בדיסק.
+    final mirroredReleases = <LibraryRelease>[
+      for (final entry in plannedByRelease.entries)
+        LibraryRelease(
+          tag: entry.key.tag,
+          isPrerelease: entry.key.isPrerelease,
+          isDraft: entry.key.isDraft,
+          publishedAt: entry.key.publishedAt,
+          assets: [
+            for (final asset in entry.value)
+              ReleaseAsset(
+                name: asset.name,
+                downloadUrl: p.relative(
+                  p.join(
+                    assetsRoot.path,
+                    _safeDirName(entry.key.tag),
+                    asset.name,
+                  ),
+                  from: destDir,
+                ),
+                size: asset.size,
+                id: asset.id,
+                updatedAt: asset.updatedAt,
+                digest: asset.digest,
+              ),
+          ],
+        ),
+    ];
 
     onStage?.call(
       strings.exportWritingManifest(

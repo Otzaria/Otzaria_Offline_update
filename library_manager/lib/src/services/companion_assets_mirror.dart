@@ -17,8 +17,11 @@ import 'zstd_decompressor.dart';
 /// באחד (אין נכס ב-release, שגיאת רשת) לא מפיל את השניים האחרים, בדיוק כמו
 /// שם.
 class CompanionAssetsMirror {
-  CompanionAssetsMirror({http.Client? httpClient})
-      : _httpClient = httpClient ?? http.Client(),
+  CompanionAssetsMirror({
+    http.Client? httpClient,
+    DownloadScheduler? scheduler,
+  })  : _scheduler = scheduler ?? DownloadScheduler(),
+        _httpClient = httpClient ?? http.Client(),
         _ownsClient = httpClient == null {
     _downloader = PatchDownloader(
       httpClient: _httpClient,
@@ -53,6 +56,11 @@ class CompanionAssetsMirror {
   final http.Client _httpClient;
   final bool _ownsClient;
   late final PatchDownloader _downloader;
+
+  /// שלושת הפריטים אינם תלויים זה בזה, ולכן הם יורדים במקביל — התלמוד לבדו
+  /// הוא ~450MB, והמילון והקטלוג היו מחכים לו בתור בלי סיבה. מוזרק מבחוץ
+  /// כדי שהם יחלקו תקרת חיבורים אחת עם הורדת המסד שרצה במקביל.
+  final DownloadScheduler _scheduler;
 
   Duration timeout = const Duration(seconds: 30);
 
@@ -98,12 +106,20 @@ class CompanionAssetsMirror {
       }
     }
 
-    await run(CompanionAsset.talmud, strings.companionTalmudName,
-        () => _syncTalmud(destDir, onStage, onBytesProgress, isCancelled));
-    await run(CompanionAsset.catalog, strings.companionCatalogName,
-        () => _syncCatalog(destDir, onStage, onBytesProgress, isCancelled));
-    await run(CompanionAsset.dictionary, strings.companionDictionaryName,
-        () => _syncDictionary(destDir, onStage, onBytesProgress, isCancelled));
+    // מונה בייטים אחד לשלושתם: כל פריט מדווח למשבצת משלו, והמד מתאר את
+    // הסכום. בלי זה שלוש הורדות מקבילות היו דורסות זו את דיווחי זו.
+    final bytes = ByteProgressAggregator(onProgress: onBytesProgress);
+
+    // במקביל, לא בטור: התלמוד (~450MB) לבדו ארוך פי כמה מהשניים האחרים.
+    // הביטול הוא מה שכן עוצר את כולם — `run` מפיץ אותו הלאה בלבד.
+    await _scheduler.run<void>([
+      () => run(CompanionAsset.talmud, strings.companionTalmudName,
+          () => _syncTalmud(destDir, onStage, bytes.slot(), isCancelled)),
+      () => run(CompanionAsset.catalog, strings.companionCatalogName,
+          () => _syncCatalog(destDir, onStage, bytes.slot(), isCancelled)),
+      () => run(CompanionAsset.dictionary, strings.companionDictionaryName,
+          () => _syncDictionary(destDir, onStage, bytes.slot(), isCancelled)),
+    ]);
 
     final manifest = CompanionMirrorManifest(entries: entries);
     await File(p.join(destDir, CompanionMirrorManifest.fileName)).writeAsString(

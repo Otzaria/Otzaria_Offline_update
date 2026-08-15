@@ -233,10 +233,9 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       final outcome = await _manager.downloadToMirror(
         onStage: (stage) {
           downloadStage = stage;
-          // כל נכס מדווח את הבייטים שלו מאפס — בלי איפוס כאן המד היה קופץ
-          // אחורה עם הערכים של הנכס הקודם.
-          downloadReceivedBytes = null;
-          downloadTotalBytes = null;
+          // **בלי איפוס הבייטים.** הנכסים יורדים במקביל ומדווחים מונה אחד
+          // מצטבר לכל ההורדה (ראו `ByteProgressAggregator`), ולכן איפוס בכל
+          // הכרזת שלב היה מרוקן מד שדווקא כן מתקדם.
           notifyProgress();
         },
         onAssetProgress: (done, total) {

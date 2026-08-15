@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -84,6 +85,9 @@ class _Site {
   final Set<String> stalls = {};
   final List<String> requests = [];
 
+  /// נקרא לפני כל תשובה — לבדיקת מקביליות.
+  Future<void> Function(String path)? beforeResponse;
+
   List<String> requestsMatching(String suffix) =>
       requests.where((r) => r.endsWith(suffix)).toList();
 
@@ -97,6 +101,7 @@ class _Site {
         if (stalls.contains(path)) {
           await Future<void>.delayed(const Duration(milliseconds: 300));
         }
+        if (beforeResponse != null) await beforeResponse!(path);
 
         if (path == '/api/plugins') return jsonResponse(plugins);
         if (path == '/api/plugins/store-home') return jsonResponse(storeHome);
@@ -775,6 +780,97 @@ void main() {
         plugin.statusAgainst({'a': '0.9.0'}),
         PluginInstallStatus.notInstalled,
       );
+    });
+  });
+
+  // הסנכרון הוא עשרות קבצים קטנים, ורוב הזמן הוא המתנה לשרת. בטור ההמתנות
+  // האלה מצטברות; במקביל הן נחלקות.
+  group('סנכרון מקבילי', () {
+    test('כמה תוספים מסונכרנים בו-זמנית', () async {
+      final site = _Site(
+        plugins: [
+          for (var i = 0; i < 4; i++)
+            {
+              'id': 'p$i',
+              'name': 'תוסף $i',
+              'version': '1.0.0',
+              'downloadUrl': '/api/plugins/p$i/download',
+            },
+        ],
+      );
+
+      // מחסום: כל הורדה ממתינה עד שארבע נמצאות בו-זמנית. בסנכרון טורי
+      // הראשונה תיתקע עד סוף הזמן הקצוב והשיא יישאר 1.
+      final barrier = Completer<void>();
+      var inFlight = 0;
+      var peak = 0;
+      site.beforeResponse = (path) async {
+        if (!path.endsWith('/download')) return;
+        inFlight++;
+        if (inFlight > peak) peak = inFlight;
+        if (inFlight >= 4 && !barrier.isCompleted) barrier.complete();
+        await barrier.future
+            .timeout(const Duration(seconds: 2), onTimeout: () {});
+        inFlight--;
+      };
+
+      final catalog = await sync(site);
+      expect(peak, 4);
+      expect(catalog.plugins.length, 4);
+      for (final plugin in catalog.plugins) {
+        expect(plugin.localFile, isNotNull);
+      }
+    });
+
+    test('סדר התוספים בקטלוג נשמר גם כשההורדות מסתיימות בסדר אחר', () async {
+      final site = _Site(
+        plugins: [
+          for (var i = 0; i < 4; i++)
+            {
+              'id': 'p$i',
+              'name': 'תוסף $i',
+              'version': '1.0.0',
+              'downloadUrl': '/api/plugins/p$i/download',
+            },
+        ],
+      );
+      // הראשון מסיים אחרון.
+      site.beforeResponse = (path) async {
+        if (path.contains('/p0/')) {
+          for (var i = 0; i < 20; i++) {
+            await Future<void>.delayed(Duration.zero);
+          }
+        }
+      };
+
+      final catalog = await sync(site);
+      expect(catalog.plugins.map((e) => e.id), ['p0', 'p1', 'p2', 'p3']);
+    });
+
+    test('ביטול לפני שהתור התרוקן אינו מסנכרן את מה שנותר', () async {
+      final site = _Site(
+        plugins: [
+          for (var i = 0; i < 6; i++)
+            {
+              'id': 'p$i',
+              'name': 'תוסף $i',
+              'version': '1.0.0',
+              'downloadUrl': '/api/plugins/p$i/download',
+            },
+        ],
+      );
+
+      var cancelled = false;
+      final outcome = await syncOutcome(site, isCancelled: () => cancelled);
+      expect(outcome.fetched, 6);
+
+      // ריצה שנייה על מראה נקייה, שמבוטלת מיד.
+      deleteTempDir(temp);
+      temp = createTempDir();
+      cancelled = true;
+      final second = await syncOutcome(site, isCancelled: () => cancelled);
+      expect(second.fetched, 0);
+      expect(site.requestsMatching('/download'), hasLength(6));
     });
   });
 }

@@ -129,7 +129,13 @@ class LibraryManager {
 
   /// הקבצים הנלווים לספרייה (תלמוד, קטלוג, מילון). אוצריא מרעננת אותם
   /// **מהרשת** בכל עדכון ספרייה; כאן הם נוסעים במראה ומותקנים אופליין.
-  final CompanionAssetsMirror _companionsMirror = CompanionAssetsMirror();
+  /// תקרת החיבורים המקבילים של כל ההורדה — נכסי הספרייה **והקבצים הנלווים
+  /// יחד**. ראו [DownloadScheduler]: מול GitHub אי אפשר לפצל קובץ בודד לכמה
+  /// חיבורים, אבל אפשר להוריד קבצים שונים בו-זמנית, וזה מה שמאיץ בפועל.
+  final DownloadScheduler _scheduler = DownloadScheduler();
+
+  late final CompanionAssetsMirror _companionsMirror =
+      CompanionAssetsMirror(scheduler: _scheduler);
   final CompanionAssetsInstaller _companionsInstaller =
       const CompanionAssetsInstaller();
 
@@ -254,34 +260,56 @@ class LibraryManager {
       onStage?.call(AppL10n.strings.libraryDomain.exportPersonalVersionUnknown);
     }
 
+    // מונה בייטים אחד לשני השלבים, כי הם רצים יחד — ראו למטה. בלעדיו
+    // הייצוא והקבצים הנלווים היו כותבים לסירוגין למד ההתקדמות.
+    final bytes = ByteProgressAggregator(onProgress: onBytesProgress);
+    final exportBytes = bytes.slot();
+    final companionBytes = bytes.slot();
+
     var exported = true;
-    final exporter = LibraryMirrorExporter(client: _cloudClient);
-    try {
-      exported = await exporter.export(
-        destDir: mirrorDir,
-        allowPrerelease: allowPrerelease,
-        fromVersion: fromVersion,
-        onStage: onStage,
-        onAssetProgress: onAssetProgress,
-        onBytesProgress: onBytesProgress,
-        onWarning: onWarning,
-        isCancelled: isCancelled,
-      );
-    } finally {
-      // ה-exporter נוצר כאן בכל הורדה ומחזיק HttpClient משלו; בלי הסגירה
-      // הזו כל לחיצה על "הורדה" משאירה connection pool פתוח.
-      exporter.dispose();
-    }
+    final exporter = LibraryMirrorExporter(
+      client: _cloudClient,
+      scheduler: _scheduler,
+    );
+
+    // **שני השלבים רצים בו-זמנית.** הקבצים הנלווים הם ~509MB שלא היה להם
+    // שום קשר לנכסי הספרייה, והם המתינו בתור להורדת המסד (~1.5GB) שסיימה
+    // אותם. הם חולקים את אותה תקרת חיבורים ([_scheduler]), ולכן זה לא מוסיף
+    // עומס — רק ממלא את הזמן שבו רק המסד הגדול רץ.
+    final exportFuture = () async {
+      try {
+        exported = await exporter.export(
+          destDir: mirrorDir,
+          allowPrerelease: allowPrerelease,
+          fromVersion: fromVersion,
+          onStage: onStage,
+          onAssetProgress: onAssetProgress,
+          onBytesProgress: exportBytes,
+          onWarning: onWarning,
+          isCancelled: isCancelled,
+        );
+      } finally {
+        // ה-exporter נוצר כאן בכל הורדה ומחזיק HttpClient משלו; בלי הסגירה
+        // הזו כל לחיצה על "הורדה" משאירה connection pool פתוח.
+        exporter.dispose();
+      }
+    }();
+
     // הקבצים הנלווים הם חלק מאותה הורדה: באוצריא הם מתרעננים מהרשת בכל
     // עדכון ספרייה, ובלעדיהם המחשב הלא-מקוון מקבל מסד חדש עם תלמוד/קטלוג/
     // מילון ישנים. כשל בהם אינו מפיל את ההורדה — ראו [CompanionAssetsMirror].
-    await _companionsMirror.sync(
+    final companionsFuture = _companionsMirror.sync(
       destDir: companionsMirrorDir,
       onStage: onStage,
-      onBytesProgress: onBytesProgress,
+      onBytesProgress: companionBytes,
       onWarning: onCompanionWarning,
       isCancelled: isCancelled,
     );
+
+    // `Future.wait` ממתין לשניהם גם כשאחד נכשל, ואז מפיץ את השגיאה הראשונה.
+    // ההמתנה חשובה: שלב שנשאר רץ ברקע ממשיך לכתוב אל המראה אחרי שהמבטל כבר
+    // ניקה אותה (ראו `MirrorDownloadUndo`).
+    await Future.wait<void>([exportFuture, companionsFuture]);
 
     return MirrorDownloadOutcome(
       personalFromVersion: fromVersion,

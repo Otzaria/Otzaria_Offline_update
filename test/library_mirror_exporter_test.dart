@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -7,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:seforim_library_updater/src/models/library_update_plan.dart';
+import 'package:seforim_library_updater/src/services/download_scheduler.dart';
 import 'package:seforim_library_updater/src/services/github_library_release_client.dart';
 import 'package:seforim_library_updater/src/services/library_mirror_exporter.dart';
 import 'package:seforim_library_updater/src/services/library_update_discovery.dart';
@@ -73,9 +75,14 @@ void main() {
     Set<String> corruptManifests = const {},
     String? failAsset,
     int historyDepth = LibraryMirrorExporter.defaultHistoryDepth,
+    DownloadScheduler? scheduler,
+    Map<String, int> assetSizes = const {},
+    Future<void> Function(String assetName)? beforeAsset,
   }) {
     Uint8List bodyFor(String name) {
       if (!name.endsWith('.manifest.json')) {
+        final size = assetSizes[name];
+        if (size != null) return Uint8List(size)..fillRange(0, size, 7);
         return Uint8List.fromList(utf8.encode('asset:$name'));
       }
       if (corruptManifests.contains(name)) {
@@ -123,6 +130,7 @@ void main() {
         if (name == failAsset) {
           return http.StreamedResponse(const Stream<List<int>>.empty(), 500);
         }
+        if (beforeAsset != null) await beforeAsset(name);
         body = bodyFor(name);
       }
       return http.StreamedResponse(
@@ -136,6 +144,7 @@ void main() {
         client: GithubLibraryReleaseClient(httpClient: mock),
         httpClient: mock,
         historyDepth: historyDepth,
+        scheduler: scheduler,
       ),
       fetched: fetched,
     );
@@ -774,6 +783,111 @@ void main() {
       final secondJson =
           jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
       expect(secondJson['releases'], firstJson['releases']);
+    });
+  });
+
+  // ה-CDN של GitHub מתעלם מ-`Range`, ולכן אי אפשר לפצל קובץ בודד לכמה
+  // חיבורים; מה שכן מאיץ הוא להוריד נכסים **שונים** בו-זמנית.
+  group('export — הורדה מקבילה', () {
+    /// שלושה releases: אחד עם מסד מלא גדול, והשאר patches קטנים.
+    List<ReleaseSpec> parallelReleases() => [
+          release('v3', assets: [
+            'seforim.db.zst',
+            'patch-v2-v3.db.zst',
+            'patch-v2-v3.db.zst.manifest.json',
+          ]),
+          release('v2', assets: [
+            'patch-v1-v2.db.zst',
+            'patch-v1-v2.db.zst.manifest.json',
+          ]),
+        ];
+
+    test('נכסים יורדים בו-זמנית, עד תקרת המקביליות', () async {
+      // מחסום: כל נכס ממתין עד ששלושה נמצאים בו-זמנית. בהורדה טורית
+      // הראשון נתקע עד סוף הזמן הקצוב והשיא נשאר 1.
+      final barrier = Completer<void>();
+      var inFlight = 0;
+      var peak = 0;
+      final built = buildExporter(
+        parallelReleases(),
+        scheduler: DownloadScheduler(maxConcurrent: 3),
+        beforeAsset: (name) async {
+          if (name.endsWith('.manifest.json')) return;
+          inFlight++;
+          if (inFlight > peak) peak = inFlight;
+          if (inFlight >= 3 && !barrier.isCompleted) barrier.complete();
+          await barrier.future
+              .timeout(const Duration(seconds: 2), onTimeout: () {});
+          inFlight--;
+        },
+      );
+      await built.exporter.export(destDir: destDir);
+      expect(peak, 3);
+    });
+
+    test('הנכס הגדול נפתח ראשון, כדי שהקטנים ירוצו לצידו', () async {
+      final order = <String>[];
+      final built = buildExporter(
+        parallelReleases(),
+        // חיבור אחד בלבד: הסדר שנצפה הוא סדר התור, בלי רעש של מקביליות.
+        scheduler: DownloadScheduler(maxConcurrent: 1),
+        assetSizes: const {
+          'seforim.db.zst': 4096,
+          'patch-v2-v3.db.zst': 64,
+          'patch-v1-v2.db.zst': 32,
+        },
+        // ה-manifests נשלפים בשלב התכנון, לפני שהורדה כלשהי מתחילה.
+        beforeAsset: (name) async {
+          if (!name.endsWith('.manifest.json')) order.add(name);
+        },
+      );
+      await built.exporter.export(destDir: destDir);
+      expect(order.first, 'seforim.db.zst');
+    });
+
+    test('מד הבייטים מסכם את כל התוכנית ואינו מתאפס בין נכס לנכס', () async {
+      final received = <int>[];
+      int? lastTotal;
+      final built = buildExporter(
+        parallelReleases(),
+        assetSizes: const {
+          'seforim.db.zst': 4096,
+          'patch-v2-v3.db.zst': 64,
+          'patch-v1-v2.db.zst': 32,
+        },
+      );
+      await built.exporter.export(
+        destDir: destDir,
+        onBytesProgress: (downloaded, total) {
+          received.add(downloaded);
+          lastTotal = total;
+        },
+      );
+
+      // מונוטוני עולה — בדיווח פר-נכס הוא היה צונח בכל מעבר.
+      for (var i = 1; i < received.length; i++) {
+        expect(received[i], greaterThanOrEqualTo(received[i - 1]));
+      }
+      expect(received.last, lastTotal);
+      // 4096 + 64 + 32 + שני ה-manifests הקטנים.
+      expect(received.last, greaterThan(4096 + 64 + 32));
+    });
+
+    test('כשל בנכס אחד מפיל את הייצוא ואינו כותב מראה חלקית', () async {
+      final built = buildExporter(
+        parallelReleases(),
+        failAsset: 'patch-v1-v2.db.zst',
+      );
+      await expectLater(
+        built.exporter.export(destDir: destDir),
+        throwsA(isA<Exception>()),
+      );
+      expect(
+        File('$destDir${Platform.pathSeparator}'
+                '${LocalMirrorLibraryReleaseClient.manifestFileName}')
+            .existsSync(),
+        isFalse,
+      );
     });
   });
 }
