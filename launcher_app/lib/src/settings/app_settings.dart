@@ -59,7 +59,8 @@ class AppSettings {
   /// 5: `ui.language` מקבל גם `system` — לפי שפת המחשב, וזו ברירת המחדל.
   /// 6: `ui.seedColor` / `ui.darkSeedColor` — פלטת הצבעים של אוצריא.
   /// 7: `sync.personalMode` — הורדה למחשב שלי בלבד, בלי המסד המלא.
-  static const int schemaVersion = 7;
+  /// 8: `sync.fullPackage` — חבילת ההתקנה המלאה של אוצריא.
+  static const int schemaVersion = 8;
 
   /// בדיקת גרסאות בפתיחה כשיש חיבור לרשת — בדיקה קלה, בלי הורדה.
   final bool autoMetadataCheck;
@@ -75,6 +76,12 @@ class AppSettings {
   final bool syncApp;
   final bool syncLibrary;
   final bool syncPlugins;
+
+  /// `true` = ההורדה מביאה גם את **חבילת ההתקנה המלאה** של אוצריא (הגרסה
+  /// היציבה האחרונה, ~2GB, כוללת את הספרייה בתוכה). **כבוי כברירת מחדל**:
+  /// היא נחוצה רק למחשב שאוצריא מותקנת בו בפעם הראשונה, ומי שלא סימן
+  /// אותה לא רואה ממנה דבר.
+  final bool syncFullPackage;
 
   /// `true` = "עדכון אישי": ההורדה מביאה רק קובצי עדכון מהגרסה שנרשמה ומעלה,
   /// בלי המסד המלא (~1.5GB). ברירת המחדל `false` — התוכנה היא כלי הפצה, וכונן
@@ -112,6 +119,7 @@ class AppSettings {
     this.syncApp = true,
     this.syncLibrary = true,
     this.syncPlugins = true,
+    this.syncFullPackage = false,
     this.personalUpdateMode = false,
     this.autoInstallApp = false,
     this.autoInstallLibrary = false,
@@ -125,7 +133,8 @@ class AppSettings {
 
   /// `false` כשלא נבחר שום רכיב להורדה — ה-UI משתמש בזה כדי להשבית את
   /// כפתור ההורדה במקום להריץ פעולה שלא תעשה כלום.
-  bool get hasSyncSelection => syncApp || syncLibrary || syncPlugins;
+  bool get hasSyncSelection =>
+      syncApp || syncLibrary || syncPlugins || syncFullPackage;
 
   /// גבולות שפיות ל-[textScale] בקריאה מהדיסק — **לא** רשימת האפשרויות
   /// שבהגדרות (0.9/1.0/1.15). רחבים בכוונה: קובץ שנערך ביד או נשמר בגרסה
@@ -139,6 +148,7 @@ class AppSettings {
     bool? syncApp,
     bool? syncLibrary,
     bool? syncPlugins,
+    bool? syncFullPackage,
     bool? personalUpdateMode,
     bool? autoInstallApp,
     bool? autoInstallLibrary,
@@ -156,6 +166,7 @@ class AppSettings {
       syncApp: syncApp ?? this.syncApp,
       syncLibrary: syncLibrary ?? this.syncLibrary,
       syncPlugins: syncPlugins ?? this.syncPlugins,
+      syncFullPackage: syncFullPackage ?? this.syncFullPackage,
       personalUpdateMode: personalUpdateMode ?? this.personalUpdateMode,
       autoInstallApp: autoInstallApp ?? this.autoInstallApp,
       autoInstallLibrary: autoInstallLibrary ?? this.autoInstallLibrary,
@@ -183,6 +194,7 @@ class AppSettings {
           'app': syncApp,
           'library': syncLibrary,
           'plugins': syncPlugins,
+          'fullPackage': syncFullPackage,
           'personalMode': personalUpdateMode,
         },
         'ui': {
@@ -243,6 +255,7 @@ class AppSettings {
       syncApp: flag(sync, 'app', defaults.syncApp),
       syncLibrary: flag(sync, 'library', defaults.syncLibrary),
       syncPlugins: flag(sync, 'plugins', defaults.syncPlugins),
+      syncFullPackage: flag(sync, 'fullPackage', defaults.syncFullPackage),
       personalUpdateMode:
           flag(sync, 'personalMode', defaults.personalUpdateMode),
       autoInstallApp: flag(automation, 'installApp', defaults.autoInstallApp),

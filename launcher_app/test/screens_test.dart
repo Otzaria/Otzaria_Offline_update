@@ -28,6 +28,7 @@ import 'package:launcher_app/src/theme/theme_exports.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
 import 'test_harness.dart';
@@ -373,6 +374,84 @@ void main() {
     );
     // בלי שתי גרסאות בתיקייה אין מה לבחור, ולכן אין פקד ערוץ.
     expect(find.text('הגרסה שתותקן'), findsNothing);
+  });
+
+  testWidgets('כרטיס החבילה המלאה אינו קיים כשהיא לא על הכונן', (tester) async {
+    await pumpScreen(
+      tester,
+      OtzariaScreen(
+        otzaria: otzaria,
+        settings: settings,
+        otzariaIsRunning: false,
+      ),
+    );
+
+    // ברירת המחדל: ההגדרה כבויה, החבילה לא הורדה — והמסך זהה למה שהיה.
+    expect(find.text('חבילת התקנה מלאה'), findsNothing);
+  });
+
+  testWidgets('אין אוצריא + חבילה על הכונן — הכרטיס ממליץ והכפתור פעיל',
+      (tester) async {
+    otzaria.fullPackage = const OtzariaFullPackage(
+      assetName: 'otzaria-0.9.96-windows-full.exe',
+      downloadUrl: 'https://example/full.exe',
+      sizeBytes: 2114350952,
+      installerKind: OtzariaInstallerKind.windowsSetupExe,
+    );
+    otzaria.fullPackageRecommended = true;
+    otzaria.stableVersion = '0.9.96';
+
+    var installs = 0;
+    await pumpScreen(
+      tester,
+      OtzariaScreen(
+        otzaria: otzaria,
+        settings: settings,
+        otzariaIsRunning: false,
+        onInstallFullPackage: () async => installs++,
+      ),
+    );
+
+    expect(find.text('חבילת התקנה מלאה'), findsOneWidget);
+    expect(find.text('אין כאן אוצריא — מומלץ להתקין מכאן'), findsOneWidget);
+
+    await tester.tap(find.text('התקנה מלאה'));
+    await tester.pumpAndSettle();
+    expect(installs, 1);
+  });
+
+  testWidgets('אוצריא מותקנת — הכרטיס מוצג אך ההתקנה המלאה מושבתת',
+      (tester) async {
+    otzaria.fullPackage = const OtzariaFullPackage(
+      assetName: 'otzaria-0.9.96-windows-full.exe',
+      downloadUrl: 'https://example/full.exe',
+      sizeBytes: 2114350952,
+      installerKind: OtzariaInstallerKind.windowsSetupExe,
+    );
+    otzaria.fullPackageRecommended = false;
+    otzaria.currentVersion = '0.9.96';
+
+    await pumpScreen(
+      tester,
+      OtzariaScreen(
+        otzaria: otzaria,
+        settings: settings,
+        otzariaIsRunning: false,
+        onInstallFullPackage: () async {},
+      ),
+    );
+
+    expect(
+      find.text('אוצריא כבר מותקנת — אין צורך בחבילה המלאה'),
+      findsOneWidget,
+    );
+    final button = tester.widget<ActionButton>(
+      find.ancestor(
+        of: find.text('התקנה מלאה'),
+        matching: find.byType(ActionButton),
+      ),
+    );
+    expect(button.onPressed, isNull);
   });
 
   testWidgets('בחירת ערוץ מוצגת רק כשיש שתי גרסאות, ונשמרת בהגדרות',

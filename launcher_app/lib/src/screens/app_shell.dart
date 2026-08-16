@@ -71,6 +71,10 @@ class _AppShellState extends State<AppShell> {
   /// אלא מחליף את קובץ ההרצה שלנו ומפעיל אותו מחדש.
   late final LauncherUpdateController _launcherUpdate;
 
+  /// ההמלצה להתקין את החבילה המלאה מוצגת **פעם אחת בהרצה**, מאותה סיבה
+  /// שההצעה לעדכן את הלאנצ'ר: בדיקה חוזרת אינה עילה לדיאלוג נוסף.
+  bool _askedAboutFullPackage = false;
+
   /// ההצעה להוריד גרסה חדשה של הלאנצ'ר מוצגת **פעם אחת בהרצה**. הבדיקה הקלה
   /// יכולה לרוץ עוד פעמים (כפתור "בדיקת עדכונים"), ודיאלוג שקופץ בכל אחת מהן
   /// היה נדנוד.
@@ -204,6 +208,7 @@ class _AppShellState extends State<AppShell> {
     // ה-setter מתעלם מהצבה חוזרת של אותו ערך, ולכן זה לא מריץ בדיקה בכל
     // שינוי הגדרה אחר.
     _otzaria.preferPrerelease = s.preferAppPrerelease;
+    _otzaria.downloadFullPackage = s.syncFullPackage;
     _library.personalUpdateMode = s.personalUpdateMode;
   }
 
@@ -236,6 +241,52 @@ class _AppShellState extends State<AppShell> {
     await _library.checkForUpdate();
     if (!mounted) return;
     await _autoInstallIfEnabled();
+    if (!mounted) return;
+    await _offerFullPackageInstall();
+  }
+
+  /// "אין כאן אוצריא — להתקין את החבילה המלאה?" — פעם אחת בהרצה, ורק כשיש
+  /// מה להציע: לא זוהתה שום התקנה, ועל הכונן יושבת חבילה מלאה.
+  ///
+  /// שני התנאים יחד הם מה שמונע את ההצעה מכל השאר: במחשב שכבר יש בו
+  /// אוצריא היא 2GB מיותרים, ובכונן שלא ביקש אותה בהגדרות היא לא קיימת
+  /// בכלל — ולכן מי שלא סימן אינו רואה כאן שום שינוי.
+  Future<void> _offerFullPackageInstall() async {
+    if (_askedAboutFullPackage || !mounted) return;
+    if (!_otzaria.fullPackageRecommended) return;
+    _askedAboutFullPackage = true;
+
+    final t = context.strings.appScreen;
+    final approved = await showTwoActionsDialog(
+      context: context,
+      title: t.fullPackageDialogTitle,
+      content: t.fullPackagePrompt(
+        '${_otzaria.stableVersion}',
+        formatBytes(_otzaria.fullPackage?.sizeBytes ?? 0),
+      ),
+      confirmText: t.fullPackageInstallButton,
+    );
+    if (!approved || !mounted) return;
+    await installFullPackage();
+  }
+
+  /// מתקין את החבילה המלאה. יושב כאן ולא במסך, כי גם ההמלצה שבעלייה וגם
+  /// הכפתור שבכרטיס מגיעים אליו.
+  Future<void> installFullPackage() async {
+    final ok = await _otzaria.installFullPackage();
+    if (!mounted) return;
+    if (ok) {
+      // ההתקנה המלאה הביאה גם ספרייה — הבדיקה שלה מכאן היא מה שמחליף את
+      // "לא נמצא מסד" בגרסה שהרגע נפרסה.
+      await _library.checkForUpdate();
+      if (!mounted) return;
+      UiSnack.showSuccess(
+        AppL10n.strings.home.appInstalledSnack('${_otzaria.currentVersion}'),
+      );
+      return;
+    }
+    final error = _otzaria.errorMessage;
+    if (error != null) UiSnack.showError(error);
   }
 
   /// בדיקה קלה ברשת ("יש עדכון חדש?") לכל הרכיבים — מטא-דאטה בלבד, בלי
@@ -393,7 +444,15 @@ class _AppShellState extends State<AppShell> {
     // רכיב שהבדיקה אמרה עליו "אין חדש" לא מורץ בכלל: ההורדה שלו אורכת
     // דקות ומציגה מד התקדמות, ולא הייתה מביאה כלום. הכפתור עצמו מופיע רק
     // כשמשהו כן התחדש — ולכן זה תמיד "הורד את מה שהתחדש", לא "הורד הכול".
+    //
+    // חריג אחד: הגדרת החבילה המלאה השתנתה מאז ההורדה האחרונה. אז צריך ריצה של
+    // מודול התוכנה כדי להביא אותה — או כדי למחוק אותה מהכונן. בלי זה
+    // הדלקת ההגדרה על כונן שכבר מעודכן לא הייתה מביאה כלום, כי "אין גרסה
+    // חדשה" מדלג על הרכיב כולו.
+    final fullPackagePending = _otzaria.needsFullPackageDownload ||
+        (!s.syncFullPackage && _otzaria.fullPackage != null);
     final skipApp = s.syncApp &&
+        !fullPackagePending &&
         provenUpToDateOnline(
           checkedAt: _otzaria.onlineCheckedAt,
           error: _otzaria.onlineCheckError,
@@ -543,6 +602,7 @@ class _AppShellState extends State<AppShell> {
             settings: widget.settings,
             otzariaIsRunning: _otzariaIsRunning,
             onInstallAdopted: _plugins.refreshInstalled,
+            onInstallFullPackage: installFullPackage,
           ),
         LauncherScreen.customApps => CustomAppsScreen(controller: _customApps),
         LauncherScreen.library => LibraryScreen(

@@ -75,12 +75,15 @@ void main() {
         installerFileName: 'MyApp-Setup-1.4.2.exe',
       );
 
-      expect(learned, isNotNull);
-      expect(learned!.exeName, 'myapp.exe');
+      final rules = learned.rules;
+      expect(rules, isNotNull);
+      expect(rules!.exeName, 'myapp.exe');
+      // התיקייה שהתגלתה חוזרת, ולא נזרקת — היא מה שנרשם ל-locations.json.
+      expect(learned.installDir, dir);
       // התבנית ולא ה-`DisplayName` הגולמי — היא צריכה לשרוד את הגרסה הבאה.
       expect(
         RegistryDisplayNamePattern.matches(
-            learned.registryDisplayName!, 'MyApp 9.9.9'),
+            rules.registryDisplayName!, 'MyApp 9.9.9'),
         isTrue,
       );
     });
@@ -92,7 +95,7 @@ void main() {
         descriptor: descriptor(name: 'MyApp'),
         before: before,
       );
-      expect(learned, isNull);
+      expect(learned.rules, isNull);
     });
 
     // ⚠️ קוד יציאה 0 אינו אומר שההתקנה הסתיימה: setup.exe של Inno מחלץ עותק
@@ -110,16 +113,18 @@ void main() {
         before: const [],
       );
 
-      expect(learned, isNotNull);
-      expect(learned!.registryDisplayName, isNotNull);
+      expect(learned.rules, isNotNull);
+      expect(learned.rules!.registryDisplayName, isNotNull);
+      expect(learned.installDir, r'C:\MyApp');
     });
 
-    test('אף רישום לא הופיע — null, וזה מצב תקין ולא שגיאה', () async {
+    test('אף רישום לא הופיע — ריק, וזה מצב תקין ולא שגיאה', () async {
       final learned = await learnerWith().learn(
         descriptor: descriptor(name: 'MyApp'),
         before: const [],
       );
-      expect(learned, isNull);
+      expect(learned.rules, isNull);
+      expect(learned.installDir, isNull);
     });
   });
 
@@ -322,8 +327,8 @@ void main() {
         before: const [],
       );
 
-      expect(learned!.exeName, 'chosen-by-hand.exe');
-      expect(learned.registryDisplayName, isNotNull);
+      expect(learned.rules!.exeName, 'chosen-by-hand.exe');
+      expect(learned.rules!.registryDisplayName, isNotNull);
     });
 
     test('רשומה שכבר יודעת לזהות אינה לומדת שוב — ואינה סורקת בכלל', () async {
@@ -346,7 +351,7 @@ void main() {
         before: const [],
       );
 
-      expect(learned, isNull);
+      expect(learned.rules, isNull);
       expect(looked, isFalse);
     });
 
@@ -362,7 +367,7 @@ void main() {
         ),
         before: const [],
       );
-      expect(learned!.dirs, [r'C:\Declared']);
+      expect(learned.rules!.dirs, [r'C:\Declared']);
     });
   });
 
@@ -376,8 +381,8 @@ void main() {
         before: const [],
       );
 
-      expect(learned!.exeName, 'app.exe');
-      expect(learned.registryDisplayName, isNull);
+      expect(learned.rules!.exeName, 'app.exe');
+      expect(learned.rules!.registryDisplayName, isNull);
     });
 
     test('בלי תפר סריקה ובלי רישום — אין מה ללמוד', () async {
@@ -385,7 +390,7 @@ void main() {
         descriptor: descriptor(installDir: r'C:\Somewhere'),
         before: const [],
       );
-      expect(learned, isNull);
+      expect(learned.rules, isNull);
     });
   });
 

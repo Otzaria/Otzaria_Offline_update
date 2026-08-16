@@ -16,6 +16,7 @@ const _selector = OtzariaAssetSelector();
     );
 
 void main() {
+  _fullPackageTests();
   group('OtzariaAssetSelector (Windows)', () {
     test('בוחר את ה-installer הרגיל ולא את חבילת ה-FULL של ~2GB', () {
       final picked = _pick(OtzariaTargetPlatform.windows, [
@@ -107,5 +108,64 @@ void main() {
     );
 
     expect(picked!.$1['name'], 'otzaria-0.9.96-windows.exe');
+  });
+}
+
+void _fullPackageTests() {
+  const selector = OtzariaAssetSelector();
+
+  /// רשימת האסטים של release אמיתי (0.9.96), כולל חבילות ה-FULL.
+  const assets = [
+    'app-release.apk',
+    'otzaria-0.9.96+90960-90960.x86_64.rpm',
+    'otzaria-0.9.96+90960-linux.deb',
+    'otzaria-0.9.96-windows-full.exe',
+    'otzaria-0.9.96-windows.exe',
+    'otzaria-android-full.zip',
+    'otzaria-macos.dmg',
+    'otzaria-macos.zip',
+    'otzaria-windows.zip',
+  ];
+
+  (String, OtzariaInstallerKind)? full(OtzariaTargetPlatform platform) =>
+      selector.selectFull(
+        platform: platform,
+        assets: assets,
+        nameOf: (a) => a,
+      );
+
+  group('חבילת FULL — בורר נפרד, בלי לגעת ברגיל', () {
+    test('בווינדוס נבחרת חבילת ה-FULL ולא המתקין הרגיל', () {
+      expect(full(OtzariaTargetPlatform.windows)?.$1,
+          'otzaria-0.9.96-windows-full.exe');
+      expect(full(OtzariaTargetPlatform.windows)?.$2,
+          OtzariaInstallerKind.windowsSetupExe);
+    });
+
+    test('הבורר הרגיל ממשיך לבחור את המתקין הקטן', () {
+      final regular = selector.select(
+        platform: OtzariaTargetPlatform.windows,
+        assets: assets,
+        nameOf: (a) => a,
+      );
+      expect(regular?.$1, 'otzaria-0.9.96-windows.exe');
+    });
+
+    test('ב-macOS אין FULL ב-release הזה — null, ולא אסט אנדרואיד', () {
+      // `otzaria-android-full.zip` מסתיים ב-full.zip, ובלי הדרישה ל-`macos-`
+      // הוא היה נבחר כחבילת ה-macOS.
+      expect(full(OtzariaTargetPlatform.macos), isNull);
+    });
+
+    test('release בלי חבילת FULL מחזיר null ואינו שגיאה', () {
+      expect(
+        selector.selectFull(
+          platform: OtzariaTargetPlatform.windows,
+          assets: const ['otzaria-0.9.96-windows.exe'],
+          nameOf: (a) => a,
+        ),
+        isNull,
+      );
+    });
   });
 }

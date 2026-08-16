@@ -258,18 +258,28 @@ class CustomAppsManager {
       before: before,
       installerFileName: installer.fileName,
     );
-    if (learned == null) return outcome;
 
-    final updated = entry.descriptor.copyWith(detect: learned);
+    // ⚠️ התיקייה נרשמת **לפני** הזיהוי ובלי תלות בהצלחתו. היא העדות הישירה
+    // למקום שאליו המתקין הרגע כתב, בעוד שהזיהוי נאלץ לגזור אותה שוב
+    // מהרג'יסטרי — ורישום הסרה בלי `InstallLocation` תקין אינו מחזיר תיקייה
+    // כלל. בלי השורה הזו התוכנה דיווחה "אינה מותקנת" לנצח, אף שרגע קודם
+    // ידענו בדיוק היכן היא.
+    if (learned.installDir case final dir?) {
+      await _locations(store, id).record(dir);
+    }
+
+    final rules = learned.rules;
+    if (rules == null) return outcome;
+
+    final updated = entry.descriptor.copyWith(detect: rules);
     await store.saveDescriptor(updated);
-    // זיהוי מיד אחרי הלמידה עושה שני דברים: מאמת שמה שנלמד באמת מוצא את
-    // התוכנה, ורושם את התיקייה ל-`locations.json` — שהוא פר-מחשב, ולכן
-    // המקום היחיד שנתיב מוחלט מותר לשכון בו.
+    // זיהוי מיד אחרי הלמידה מאמת שמה שנלמד באמת מוצא את התוכנה, ומרענן את
+    // המיקום — שהוא פר-מחשב, ולכן המקום היחיד שנתיב מוחלט מותר לשכון בו.
     await detectInstalled(updated);
     return CustomInstallOutcome(
       kind: outcome.kind,
       copiedPath: outcome.copiedPath,
-      learned: learned,
+      learned: rules,
     );
   }
 
@@ -313,9 +323,7 @@ class CustomAppsManager {
     AppDescriptor descriptor,
   ) async {
     final store = await _store();
-    final locations = KnownLocationsStore(
-      KnownLocationsStore.pathIn(store.dirFor(descriptor.id)),
-    );
+    final locations = _locations(store, descriptor.id);
 
     final state = await _locator.detect(
       descriptor,
@@ -339,11 +347,14 @@ class CustomAppsManager {
     if (found == null) return null;
 
     final store = await _store();
-    await KnownLocationsStore(
-      KnownLocationsStore.pathIn(store.dirFor(descriptor.id)),
-    ).record(found.installDir);
+    await _locations(store, descriptor.id).record(found.installDir);
     return found;
   }
+
+  /// `locations.json` של תוכנה — **המקום היחיד** שנתיב מוחלט מותר לשכון בו,
+  /// כי הוא פר-מחשב ואינו נוסע עם הכונן.
+  KnownLocationsStore _locations(CustomAppStore store, String id) =>
+      KnownLocationsStore(KnownLocationsStore.pathIn(store.dirFor(id)));
 
   /// מפעיל את התוכנה המותקנת. מנותק מהתהליך שלנו — סגירת הלאנצ'ר לא
   /// אמורה לסגור אותה.

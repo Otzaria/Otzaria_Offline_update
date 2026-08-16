@@ -143,6 +143,15 @@ class OtzariaReleaseClient {
 
     final (asset, installerKind) = selected;
 
+    // חבילת ה-FULL נקראת תמיד מהמטא־דאטה, גם כשלא מורידים אותה: בלי זה
+    // הגדרה שנדלקת הייתה דורשת בדיקה חוזרת מול GitHub כדי לגלות שהיא בכלל
+    // קיימת. ההורדה עצמה מותנית בהגדרה — ראו `OtzariaAppMirror.sync`.
+    final fullAsset = _assetSelector.selectFull(
+      platform: _platform,
+      assets: assets,
+      nameOf: (asset) => asset['name'] as String,
+    );
+
     return OtzariaRelease(
       tagName: tagName,
       name: (json['name'] as String?) ?? tagName,
@@ -155,6 +164,14 @@ class OtzariaReleaseClient {
       installerAssetName: asset['name'] as String,
       installerDownloadUrl: asset['browser_download_url'] as String,
       installerSizeBytes: asset['size'] as int,
+      fullPackage: fullAsset == null
+          ? null
+          : OtzariaFullPackage(
+              assetName: fullAsset.$1['name'] as String,
+              downloadUrl: fullAsset.$1['browser_download_url'] as String,
+              sizeBytes: fullAsset.$1['size'] as int,
+              installerKind: fullAsset.$2,
+            ),
       releaseNotes: json['body'] as String?,
     );
   }

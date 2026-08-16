@@ -4,6 +4,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/otzaria_module_controller.dart';
+import '../services/byte_size.dart';
 import '../services/native_file_dialogs.dart';
 import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
@@ -28,6 +29,7 @@ class OtzariaScreen extends StatelessWidget {
     required this.settings,
     required this.otzariaIsRunning,
     this.onInstallAdopted,
+    this.onInstallFullPackage,
   });
 
   final OtzariaModuleController otzaria;
@@ -39,6 +41,10 @@ class OtzariaScreen extends StatelessWidget {
   /// נקרא אחרי שהמשתמש הצביע ידנית על תיקיית ההתקנה — תיקיית התוספים
   /// נגזרת מהנתיב הזה, ולכן צריך לסרוק אותה מחדש.
   final Future<void> Function()? onInstallAdopted;
+
+  /// התקנת החבילה המלאה. יושבת ב-`AppShell`, כי גם ההמלצה שבעלייה מגיעה
+  /// אליה, והיא מרעננת אחריה גם את מודול הספרייה.
+  final Future<void> Function()? onInstallFullPackage;
 
   /// **לא** תלוי בהורדה גלובלית: הורדה של רכיב אחר (למשל הספרייה) לא
   /// אמורה לחסום פעולות מקומיות כאן (בחירת מיקום, בדיקה מחדש).
@@ -53,6 +59,9 @@ class OtzariaScreen extends StatelessWidget {
       description: t.description,
       children: [
         _stateCard(context),
+        // רק כשהחבילה באמת על הכונן — כלומר רק למי שסימן אותה בהגדרות
+        // והוריד אותה. לכל השאר המסך נשאר כפי שהיה.
+        if (otzaria.fullPackage != null) _fullPackageCard(context),
         _whatsNewCard(context),
         _sourceCard(context),
       ],
@@ -294,6 +303,54 @@ class OtzariaScreen extends StatelessWidget {
             title: context.strings.common.lastDownloaded,
             subtitle: c.lastDownloadedAt!.toLocal().toString().split('.').first,
           ),
+      ],
+    );
+  }
+
+  // ── חבילת ההתקנה המלאה ────────────────────────────────────────────────────
+
+  /// החבילה שכוללת גם את הספרייה. מוצגת רק כשהיא על הכונן, וכפתור ההתקנה
+  /// פעיל רק כשאין במחשב אוצריא — במחשב שכבר יש בו אחת אין בה טעם, והיא
+  /// הייתה דורסת התקנה עובדת ב-2GB מיותרים.
+  Widget _fullPackageCard(BuildContext context) {
+    final c = otzaria;
+    final t = context.strings.appScreen;
+    final full = c.fullPackage!;
+
+    return SettingsCard(
+      title: t.fullPackageCardTitle,
+      subtitle: t.fullPackageCardSubtitle,
+      children: [
+        InfoStatusRow(
+          icon: FluentIcons.box_24_regular,
+          title: t.fullPackageRowTitle,
+          kind: c.fullPackageRecommended
+              ? StatusKind.updateAvailable
+              : StatusKind.ok,
+          label: c.fullPackageRecommended
+              ? t.fullPackageRecommended
+              : t.fullPackageNotNeeded,
+        ),
+        SettingsActionTile.text(
+          icon: FluentIcons.document_24_regular,
+          title: full.assetName,
+          subtitle: t.fullPackageSize(
+            '${c.stableVersion}',
+            formatBytes(full.sizeBytes),
+          ),
+          subtitleLtr: false,
+          actions: [
+            ActionButton.recommended(
+              text: t.fullPackageInstallButton,
+              icon: FluentIcons.desktop_arrow_right_24_regular,
+              isLoading: c.status == OtzariaModuleStatus.installing,
+              onPressed:
+                  c.fullPackageRecommended && onInstallFullPackage != null
+                      ? () => onInstallFullPackage!()
+                      : null,
+            ),
+          ],
+        ),
       ],
     );
   }

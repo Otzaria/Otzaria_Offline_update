@@ -14,6 +14,8 @@ class OtzariaUpdateCheckResult {
     this.prereleaseRelease,
     this.preferPrerelease = false,
     this.isOtzariaRunning = false,
+    this.mirroredFullPackage,
+    this.fullPackageKnown = false,
   });
 
   /// הגרסה היציבה שבמראה, או null אם לא הורדה כזו.
@@ -32,6 +34,23 @@ class OtzariaUpdateCheckResult {
   /// האם אוצריא פתוחה כרגע, כפי שנצפה **באותה בדיקת תהליך** ששימשה לזיהוי
   /// ההתקנה. מוחזר כאן כדי שהממשק לא יריץ בדיקת תהליך שנייה משלו.
   final bool isOtzariaRunning;
+
+  /// חבילת ה-FULL של הערוץ היציב, כשקובץ ההתקנה שלה יושב על הכונן. `null`
+  /// כשלא הורדה (וזו ברירת המחדל: היא יורדת רק אם ביקשו זאת בהגדרות).
+  final OtzariaFullPackage? mirroredFullPackage;
+
+  /// האם ידוע בכלל אם ל-release היציב שבמראה יש חבילת FULL — ראו
+  /// [MirroredOtzariaRelease.fullPackageKnown]. `false` גם כשאין מראה.
+  final bool fullPackageKnown;
+
+  /// ל-release היציב שבמראה **יש** חבילת FULL להורדה.
+  bool get fullPackageOffered => stableRelease?.fullPackage != null;
+
+  /// **אין במחשב אוצריא בכלל, ועל הכונן יש חבילת FULL.** רק אז הלאנצ'ר
+  /// ממליץ עליה: היא מביאה תוכנה **וספרייה** בצעד אחד, וזה בדיוק מה שחסר
+  /// למחשב ריק. במחשב שכבר יש בו אוצריא היא 2GB מיותרים, ולכן לא מוצעת שם.
+  bool get fullPackageRecommended =>
+      currentState == null && mirroredFullPackage != null;
 
   /// הגרסה שתותקן בפועל — לפי הערוץ שנבחר, עם נפילה לערוץ השני כשהנבחר
   /// ריק. null אם עדיין לא הורדה שום גרסה. ראו [needsDownload].

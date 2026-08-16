@@ -52,6 +52,57 @@ enum OtzariaInstallerKind {
       this == OtzariaInstallerKind.macAppDmg;
 }
 
+/// חבילת ה-FULL של release — אותו מתקין, אבל עם **הספרייה בתוכו**
+/// (`otzaria-<ver>-windows-full.exe`, ~2GB). קיימת רק כשה-release פרסם
+/// אותה, ולכן היא שדה אופציונלי ולא חלק מ-[OtzariaRelease] הרגיל.
+///
+/// **למי היא נועדה:** מחשב שאין בו אוצריא בכלל. הוא מקבל בצעד אחד תוכנה
+/// וספרייה, במקום התקנה ואז פריסת מסד. למחשב שכבר יש בו אוצריא היא סתם
+/// 2GB — ולכן הלאנצ'ר אינו מציע אותה שם.
+class OtzariaFullPackage extends Equatable {
+  const OtzariaFullPackage({
+    required this.assetName,
+    required this.downloadUrl,
+    required this.sizeBytes,
+    required this.installerKind,
+  });
+
+  final String assetName;
+  final String downloadUrl;
+  final int sizeBytes;
+  final OtzariaInstallerKind installerKind;
+
+  Map<String, dynamic> toJson() => {
+        'assetName': assetName,
+        'downloadUrl': downloadUrl,
+        'sizeBytes': sizeBytes,
+        'installerKind': installerKind.name,
+      };
+
+  /// `null` על רשומה חסרה או פגומה — חבילת FULL אינה חובה, וקובץ מטא־דאטה
+  /// שנכתב בגרסה קודמת של הלאנצ'ר פשוט אינו מכיל אותה.
+  static OtzariaFullPackage? fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) return null;
+    final kind = OtzariaInstallerKind.values
+        .where((k) => k.name == json['installerKind'])
+        .firstOrNull;
+    if (json['assetName'] is! String ||
+        json['sizeBytes'] is! int ||
+        kind == null) {
+      return null;
+    }
+    return OtzariaFullPackage(
+      assetName: json['assetName'] as String,
+      downloadUrl: (json['downloadUrl'] as String?) ?? '',
+      sizeBytes: json['sizeBytes'] as int,
+      installerKind: kind,
+    );
+  }
+
+  @override
+  List<Object?> get props => [assetName, downloadUrl, sizeBytes, installerKind];
+}
+
 /// Release אחד מתוך github.com/Otzaria/otzaria/releases, מצומצם לשדות
 /// שרלוונטיים להתקנה: תג הגרסה וקובץ ההתקנה לפלטפורמה הנוכחית.
 ///
@@ -73,6 +124,7 @@ class OtzariaRelease extends Equatable {
     required this.installerAssetName,
     required this.installerDownloadUrl,
     required this.installerSizeBytes,
+    this.fullPackage,
     this.releaseNotes,
   });
 
@@ -96,6 +148,10 @@ class OtzariaRelease extends Equatable {
   final String installerDownloadUrl;
   final int installerSizeBytes;
 
+  /// חבילת ה-FULL של אותו release, כשקיימת — ראו [OtzariaFullPackage].
+  /// היא **אינה** יורדת אלא אם המשתמש ביקש זאת במפורש בהגדרות.
+  final OtzariaFullPackage? fullPackage;
+
   /// עותק עם [releaseNotes] מוחלף — משמש להעדיף פסקה מיומן השינויים
   /// המרוכז (ראו `OtzariaChangelogClient`) על פני תיאור ה-release הגולמי.
   OtzariaRelease copyWithReleaseNotes(String? releaseNotes) => OtzariaRelease(
@@ -108,6 +164,7 @@ class OtzariaRelease extends Equatable {
         installerAssetName: installerAssetName,
         installerDownloadUrl: installerDownloadUrl,
         installerSizeBytes: installerSizeBytes,
+        fullPackage: fullPackage,
         releaseNotes: releaseNotes,
       );
 
@@ -121,6 +178,7 @@ class OtzariaRelease extends Equatable {
         'installerAssetName': installerAssetName,
         'installerDownloadUrl': installerDownloadUrl,
         'installerSizeBytes': installerSizeBytes,
+        'fullPackage': fullPackage?.toJson(),
         'releaseNotes': releaseNotes,
       };
 
@@ -150,6 +208,7 @@ class OtzariaRelease extends Equatable {
       installerAssetName: json['installerAssetName'] as String,
       installerDownloadUrl: (json['installerDownloadUrl'] as String?) ?? '',
       installerSizeBytes: json['installerSizeBytes'] as int,
+      fullPackage: OtzariaFullPackage.fromJson(json['fullPackage']),
       releaseNotes: json['releaseNotes'] as String?,
     );
   }
@@ -165,6 +224,7 @@ class OtzariaRelease extends Equatable {
         installerAssetName,
         installerDownloadUrl,
         installerSizeBytes,
+        fullPackage,
         releaseNotes,
       ];
 }

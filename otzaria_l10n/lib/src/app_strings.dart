@@ -204,6 +204,17 @@ abstract class AppScreenStrings {
   String get sourceCardSubtitle;
   String get sourceDirTitle;
 
+  // ── חבילת ההתקנה המלאה (תוכנה + ספרייה) ─────────────────────────────────
+  String get fullPackageCardTitle;
+  String get fullPackageCardSubtitle;
+  String get fullPackageRowTitle;
+  String get fullPackageRecommended;
+  String get fullPackageNotNeeded;
+  String fullPackageSize(String version, String size);
+  String get fullPackageInstallButton;
+  String get fullPackageDialogTitle;
+  String fullPackagePrompt(String version, String size);
+
   /// נוסח דיאלוג ההתקנה — משותף למסך הזה ולאריח שבדף הבית.
   String installPrompt({
     required String? latestVersion,
@@ -268,6 +279,7 @@ abstract class LibraryScreenStrings {
   String get sourceCardTitle;
   String get sourceCardSubtitle;
   String get sourceDirTitle;
+
   String get mirrorContentTitle;
   String get mirrorEmpty;
   String get mirrorUnreadable;
@@ -325,6 +337,8 @@ abstract class SettingsScreenStrings {
   String get syncLibrarySubtitle;
   String get syncPluginsTitle;
   String get syncPluginsSubtitle;
+  String get syncFullPackageTitle;
+  String get syncFullPackageSubtitle;
 
   // ── עדכון אישי ──
   /// מוריד רק את קובצי העדכון מהגרסה שכבר מותקנת ומעלה, בלי המסד המלא —
@@ -820,12 +834,14 @@ abstract class AppDomainStrings {
   String get channelStable;
   String get channelPrerelease;
   String downloadingChannel(String channelLabel);
+  String get downloadingFullPackage;
 
   /// הודעת החריג שנזרק כשהמשתמש ביטל את ההורדה — לא שגיאה, בחירה.
   String get downloadCancelled;
 
   String get noInstallableReleaseForPlatform;
   String get mirrorEmptyRunDownload;
+  String get fullPackageNotOnDrive;
   String get noOtzariaInstallFound;
   String get corruptReleaseMetadata;
   String unsupportedPlatform(String operatingSystem);

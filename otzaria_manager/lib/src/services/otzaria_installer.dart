@@ -66,6 +66,17 @@ class OtzariaInstaller {
   /// מספיק לכתוב, ההפרש נערם ב-RAM והתוכנה נתקעת באמצע ההורדה.
   static const int _writeBufferBytes = 4 << 20;
 
+  /// כמה להמתין להופעת קובץ ההרצה אחרי שה-installer הוחזר. ראו
+  /// [_runSilentInstall] — ב-Inno Setup התהליך שמריצים עשוי להסתיים לפני
+  /// שההתקנה בפועל הסתיימה.
+  static const Duration defaultAppAppearTimeout = Duration(minutes: 3);
+
+  /// אותה המתנה, בחבילת ה-FULL. היא פורסת ~2GB דחוסים לספרייה של כמה
+  /// ג'יגה־בייט על הדיסק, ולעיתים גם אל כונן חיצוני — שלוש דקות היו
+  /// מכריזות כישלון על התקנה שרק התחילה. הגבול קיים בכל זאת, כדי
+  /// שמתקין שנפל בשקט לא ישאיר את הלאנצ'ר תלוי לנצח.
+  static const Duration fullPackageAppAppearTimeout = Duration(minutes: 30);
+
   /// שם תיקיית ה-staging שנוצרת **בתוך** תיקיית ההתקנה בזמן התקנה ב-macOS.
   /// בתוך תיקיית ההתקנה בכוונה — כדי שההעברה של ה-`.app` הגמור למקומו תהיה
   /// `rename` באותו volume (אטומי ומיידי) ולא העתקה של 70MB+ בין דיסקים.
@@ -85,14 +96,36 @@ class OtzariaInstaller {
     required OtzariaRelease release,
     void Function(int received, int total)? onDownloadProgress,
     bool Function()? isCancelled,
+  }) =>
+      ensureAssetCached(
+        tagName: release.tagName,
+        assetName: release.installerAssetName,
+        downloadUrl: release.installerDownloadUrl,
+        sizeBytes: release.installerSizeBytes,
+        onDownloadProgress: onDownloadProgress,
+        isCancelled: isCancelled,
+      );
+
+  /// היכן יושב אסט של [tagName] ב-cache — בלי להוריד ובלי לבדוק קיום.
+  String assetPathFor(String tagName, String assetName) =>
+      p.join(cacheDir, tagName, assetName);
+
+  /// כמו [ensureCached], אבל לאסט כלשהו של אותו release — כלומר גם לחבילת
+  /// ה-FULL, שיושבת באותה תיקיית tag לצד המתקין הרגיל.
+  Future<String> ensureAssetCached({
+    required String tagName,
+    required String assetName,
+    required String downloadUrl,
+    required int sizeBytes,
+    void Function(int received, int total)? onDownloadProgress,
+    bool Function()? isCancelled,
   }) async {
-    final releaseCacheDir = p.join(cacheDir, release.tagName);
-    final cachedInstallerPath =
-        p.join(releaseCacheDir, release.installerAssetName);
+    final releaseCacheDir = p.join(cacheDir, tagName);
+    final cachedInstallerPath = p.join(releaseCacheDir, assetName);
     final cachedFile = File(cachedInstallerPath);
 
-    final alreadyCached = await cachedFile.exists() &&
-        await cachedFile.length() == release.installerSizeBytes;
+    final alreadyCached =
+        await cachedFile.exists() && await cachedFile.length() == sizeBytes;
 
     if (!alreadyCached) {
       // ביטול לפני כל שינוי בדיסק: יצירת התיקייה עצמה היא כבר עקבות שהמסלול
@@ -100,9 +133,9 @@ class OtzariaInstaller {
       _throwIfCancelled(isCancelled);
       await Directory(releaseCacheDir).create(recursive: true);
       await _download(
-        url: release.installerDownloadUrl,
+        url: downloadUrl,
         destinationPath: cachedInstallerPath,
-        expectedSizeBytes: release.installerSizeBytes,
+        expectedSizeBytes: sizeBytes,
         onProgress: onDownloadProgress,
         isCancelled: isCancelled,
       );
@@ -125,21 +158,27 @@ class OtzariaInstaller {
   /// ההתקנה. ברירת המחדל היא הגרסה שהותקנה בלבד; הקורא מעביר את **כל**
   /// הגרסאות שבמראה, אחרת התקנה של ערוץ אחד הייתה מוחקת את קובץ ההתקנה
   /// של השני.
+  ///
+  /// [installerKind] נמסר במפורש כשמתקינים אסט שאינו המתקין הרגיל — חבילת
+  /// ה-FULL עשויה להיות מסוג אחר (zip מול dmg ב-macOS). ברירת המחדל היא
+  /// הסוג של ה-release עצמו.
   Future<OtzariaInstallState> installFromFile({
     required OtzariaRelease release,
     required String installerPath,
     required String installDir,
+    OtzariaInstallerKind? installerKind,
+    Duration appAppearTimeout = defaultAppAppearTimeout,
     Set<String>? keepCachedTagNames,
   }) async {
     await Directory(installDir).create(recursive: true);
 
     final String launchPath;
-    switch (release.installerKind) {
+    switch (installerKind ?? release.installerKind) {
       case OtzariaInstallerKind.windowsSetupExe:
         await _runSilentInstall(installerPath, installDir);
         launchPath = await _waitForInstalledApp(
           installDir: installDir,
-          timeout: const Duration(minutes: 3),
+          timeout: appAppearTimeout,
         );
       case OtzariaInstallerKind.macAppZip:
         launchPath = await _installMacApp(

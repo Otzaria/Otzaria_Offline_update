@@ -332,6 +332,34 @@ class _AppScreen extends AppScreenStrings {
   String get sourceDirTitle => 'Program updates Folder';
 
   @override
+  String get fullPackageCardTitle => 'Full installation package';
+  @override
+  String get fullPackageCardSubtitle =>
+      'The installer that carries the library inside it. Meant for a computer '
+      'without Otzaria: it gets the program and the library in one install, '
+      'with no internet.';
+  @override
+  String get fullPackageRowTitle => 'Status';
+  @override
+  String get fullPackageRecommended =>
+      'No Otzaria here — installing from this is recommended';
+  @override
+  String get fullPackageNotNeeded =>
+      'Otzaria is already installed — the full package is not needed';
+  @override
+  String fullPackageSize(String version, String size) =>
+      'Stable version $version — $size';
+  @override
+  String get fullPackageInstallButton => 'Full install';
+  @override
+  String get fullPackageDialogTitle => 'No Otzaria installation was found';
+  @override
+  String fullPackagePrompt(String version, String size) =>
+      'The drive holds the full installation package of Otzaria $version '
+      '($size), library included. Installing from it brings both at once, and '
+      'needs no internet.';
+
+  @override
   String installPrompt({
     required String? latestVersion,
     required String? currentVersion,
@@ -579,6 +607,14 @@ class _Settings extends SettingsScreenStrings {
   @override
   String get syncPluginsSubtitle =>
       'The catalogue and the installation files for every plugin';
+  @override
+  String get syncFullPackageTitle => 'Full Otzaria installation package';
+  @override
+  String get syncFullPackageSubtitle =>
+      'Also downloads the installer that carries the library inside it (the '
+      'latest stable version, about 2GB), so a computer without Otzaria can '
+      'install everything at once. Off by default — a drive that serves '
+      'computers which already have Otzaria does not need it';
 
   @override
   String get personalModeTitle => 'Personal update — this computer only';
@@ -1568,11 +1604,17 @@ class _AppDomain extends AppDomainStrings {
   String downloadingChannel(String channelLabel) =>
       'Downloading the Otzaria program ($channelLabel version)…';
   @override
+  String get downloadingFullPackage => 'Downloading the full package';
+  @override
   String get downloadCancelled => 'The download was cancelled.';
 
   @override
   String get noInstallableReleaseForPlatform =>
       'No Otzaria version that can be installed on this platform was found.';
+  @override
+  String get fullPackageNotOnDrive =>
+      'The full installation package is not in the local folder — tick it in '
+      'settings and run a download on a computer with internet.';
   @override
   String get mirrorEmptyRunDownload =>
       'There is no Otzaria version in the local folder — run a download on a '

@@ -52,6 +52,7 @@ class OtzariaManager {
     WindowsInstallRegistry installRegistry = const WindowsInstallRegistry(),
     OtzariaLauncher launcher = const OtzariaLauncher(),
     this.preferPrerelease = false,
+    this.downloadFullPackage = false,
   })  : _platform =
             platform ?? OtzariaTargetPlatform.detect(Platform.operatingSystem),
         _environment = environment ?? Platform.environment,
@@ -87,6 +88,12 @@ class OtzariaManager {
   /// (pre-release), `false` = היציבה. ניתן לשינוי בזמן ריצה, ונכנס לתוקף
   /// בבדיקה/התקנה הבאה. אינו משפיע על ההורדה — היא תמיד מביאה את שתיהן.
   bool preferPrerelease;
+
+  /// `true` = ההורדה מביאה גם את **חבילת ה-FULL** של הגרסה היציבה
+  /// (~2GB, כוללת את הספרייה בתוכה). **כבוי כברירת מחדל** — היא נחוצה רק
+  /// למחשב שאוצריא מותקנת בו בפעם הראשונה, ולרוב הכוננים היא סתם נפח.
+  /// ניתן לשינוי בזמן ריצה, ונכנס לתוקף בהורדה הבאה.
+  bool downloadFullPackage;
 
   /// הזמן הקצוב לכל פעולת רשת של המודול — נכנס לתוקף בבקשה הבאה, כדי
   /// שההגדרה בלאנצ'ר לא תדרוש בנייה מחדש של הלקוחות.
@@ -230,12 +237,15 @@ class OtzariaManager {
   Future<void> downloadToMirror({
     void Function(int received, int total)? onProgress,
     void Function(OtzariaReleaseChannel channel)? onChannel,
+    void Function()? onFullPackage,
     bool Function()? isCancelled,
   }) =>
       _mirror.sync(
         onDownloadProgress: onProgress,
         onChannelStart: onChannel,
+        onFullPackageStart: onFullPackage,
         isCancelled: isCancelled,
+        includeFullPackage: downloadFullPackage,
       );
 
   /// בודק מה הגרסה העדכנית ביותר ב-GitHub **בערוץ שהמשתמש בחר** —
@@ -308,6 +318,12 @@ class OtzariaManager {
       preferPrerelease: preferPrerelease,
       currentState: current,
       isOtzariaRunning: running.isRunning,
+      // רק כשקובץ ההתקנה של ה-FULL באמת על הכונן — ראו
+      // [OtzariaAppMirror.load], שפוסלת רשומה שהקובץ שלה חסר.
+      mirroredFullPackage: mirrored.stable?.hasFullPackage ?? false
+          ? mirrored.stable?.release.fullPackage
+          : null,
+      fullPackageKnown: mirrored.stable?.fullPackageKnown ?? false,
     );
   }
 
@@ -332,6 +348,36 @@ class OtzariaManager {
           check.currentState?.installDir ?? await resolveDefaultInstallDir(),
       // שתי הגרסאות נשארות בכונן: התקנת אחת מהן לא מוחקת את קובץ ההתקנה
       // של השנייה, כדי שאפשר יהיה להחליף ערוץ בלי הורדה מחדש.
+      keepCachedTagNames: {
+        for (final entry in mirrored.all) entry.release.tagName,
+      },
+    );
+    await _stateStore.save(state);
+    return state;
+  }
+
+  /// מתקין את **חבילת ה-FULL** שיושבת במראה — תוכנה וספרייה בצעד אחד.
+  ///
+  /// מיועדת למחשב שאין בו אוצריא בכלל (ראו
+  /// [OtzariaUpdateCheckResult.fullPackageRecommended]), אבל אינה מסרבת
+  /// להתקין על גבי התקנה קיימת: אם המשתמש ביקש זאת במפורש, המתקין של
+  /// אוצריא יודע לשדרג במקום. לא נוגע ברשת.
+  Future<OtzariaInstallState> installFullPackage() async {
+    final mirrored = await _mirror.load();
+    final stable = mirrored.stable;
+    final full = stable?.release.fullPackage;
+    final path = stable?.fullInstallerPath;
+    if (stable == null || full == null || path == null) {
+      throw StateError(AppL10n.strings.appDomain.fullPackageNotOnDrive);
+    }
+
+    final existing = await _loadVerifiedState() ?? await _detectInKnownDirs();
+    final state = await _installer.installFromFile(
+      release: stable.release,
+      installerPath: path,
+      installerKind: full.installerKind,
+      installDir: existing?.installDir ?? await resolveDefaultInstallDir(),
+      appAppearTimeout: OtzariaInstaller.fullPackageAppAppearTimeout,
       keepCachedTagNames: {
         for (final entry in mirrored.all) entry.release.tagName,
       },

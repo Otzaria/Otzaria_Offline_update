@@ -8,6 +8,7 @@ export 'src/models/custom_install_outcome.dart';
 export 'src/models/custom_installer_kind.dart';
 export 'src/models/github_release.dart';
 export 'src/models/github_source.dart';
+export 'src/models/learned_install.dart';
 export 'src/models/registry_display_name_pattern.dart';
 export 'src/models/stored_installer.dart';
 export 'src/services/app_descriptor_id_generator.dart';

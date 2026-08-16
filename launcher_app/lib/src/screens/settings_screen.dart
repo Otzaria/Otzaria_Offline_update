@@ -169,6 +169,13 @@ class SettingsScreen extends StatelessWidget {
           onChanged: (v) => _set(_s.copyWith(syncPlugins: v)),
         ),
         SettingsActionTile.switchTile(
+          icon: FluentIcons.box_24_regular,
+          title: t.syncFullPackageTitle,
+          subtitle: t.syncFullPackageSubtitle,
+          value: _s.syncFullPackage,
+          onChanged: (v) => _set(_s.copyWith(syncFullPackage: v)),
+        ),
+        SettingsActionTile.switchTile(
           icon: FluentIcons.person_24_regular,
           title: t.personalModeTitle,
           subtitle: t.personalModeSubtitle,

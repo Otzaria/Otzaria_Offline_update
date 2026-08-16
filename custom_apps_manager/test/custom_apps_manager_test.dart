@@ -273,6 +273,56 @@ void main() {
       expect(outcome.learned!.exeName, isNull);
       expect(outcome.learned!.registryDisplayName, isNotNull);
     });
+
+    /// ⚠️ הרגרסיה שבגללה תוכנה דיווחה "אינה מותקנת" מיד אחרי התקנה מוצלחת.
+    /// הלמידה ידעה בדיוק לאן המתקין כתב, אבל זרקה את התיקייה והשאירה את
+    /// הזיהוי לגזור אותה שוב מהרג'יסטרי — וכאן הגזירה אינה מחזירה כלום.
+    test('התיקייה שהתגלתה שורדת גם כשהרג׳יסטרי לא יחזיר אותה שוב', () async {
+      final m = CustomAppsManager(
+        resolveMirrorDir: () async => root,
+        readVersion: (_) => '1.4.2',
+        processRunner: (_, __) async => ProcessResult(1, 0, '', ''),
+        downloadsDir: p.join(root, 'Downloads'),
+        lookupUninstallEntries: () async => [
+          UninstallEntry(
+            keyName: '{NEW}_is1',
+            displayName: 'MyApp 1.4.2',
+            installDir: installedDir,
+          ),
+        ],
+        // הערוץ שהזיהוי נשען עליו שותק — בדיוק כמו רישום הסרה שה-
+        // `InstallLocation` שלו ריק וה-`UninstallString` אינו נפתר לתיקייה.
+        lookupUninstallDirs: (_) => const [],
+        lookupInstalledExe: (dir, _) async => p.join(dir, 'myapp.exe'),
+      );
+      await installFresh(m);
+
+      final saved = (await m.loadAll()).single.descriptor;
+      final state = await m.detectInstalled(saved);
+      expect(state, isNotNull);
+      expect(state!.installDir, installedDir);
+    });
+
+    /// ⚠️ הלמידה סורקת דרך `OtzariaAppLocator` (עומק 3) והזיהוי סורק בעצמו.
+    /// כששני העומקים אינם שווים, exe עמוק נלמד ואז אינו נמצא לעולם.
+    test('exe שתי רמות מתחת לתיקיית ההתקנה — נלמד וגם נמצא', () async {
+      final nested = p.join(installedDir, 'bin', 'win64');
+      writeFile(p.join(nested, 'deep.exe'));
+
+      final m = managerLearning(displayName: 'MyApp 1.4.2', exeName: null);
+      await m.add(descriptor(name: 'MyApp'));
+      await m.attachInstaller('org.example.app',
+          sourcePath: innoInstaller(), version: '1.4.2');
+      await m.install('org.example.app');
+
+      final state = await m.detectInstalled(
+        (await m.loadAll()).single.descriptor.copyWith(
+              detect: const AppDetectRules(exeName: 'deep.exe'),
+            ),
+      );
+      expect(state, isNotNull);
+      expect(state!.installDir, nested);
+    });
   });
 
   test('התקנה בלי קובץ שמור — הודעה שמסבירה מה חסר', () async {

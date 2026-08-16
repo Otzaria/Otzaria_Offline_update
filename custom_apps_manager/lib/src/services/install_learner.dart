@@ -2,6 +2,7 @@ import 'package:path/path.dart' as p;
 
 import '../models/app_descriptor.dart';
 import '../models/app_detect_rules.dart';
+import '../models/learned_install.dart';
 import '../models/registry_display_name_pattern.dart';
 
 /// רישום הסרה של ווינדוס, כפי שהלמידה צריכה אותו.
@@ -105,11 +106,11 @@ class InstallLearner {
     }
   }
 
-  /// מה שנלמד, ממוזג לתוך כללי הזיהוי הקיימים — או `null` כשלא נלמד כלום.
+  /// מה שנלמד, ממוזג לתוך כללי הזיהוי הקיימים, ולצידו התיקייה שהתגלתה.
   ///
   /// **שדה שהמשתמש מילא בעצמו לא נדרס.** הוא ראה את ההתקנה שלו ואנחנו לא;
   /// הלמידה ממלאת חורים, לא מתקנת אנשים.
-  Future<AppDetectRules?> learn({
+  Future<LearnedInstall> learn({
     required AppDescriptor descriptor,
     required List<UninstallEntry> before,
     String? installerFileName,
@@ -117,7 +118,7 @@ class InstallLearner {
     final rules = descriptor.detect;
     final needsPattern = _isBlank(rules.registryDisplayName);
     final needsExe = _isBlank(rules.exeName);
-    if (!needsPattern && !needsExe) return null;
+    if (!needsPattern && !needsExe) return const LearnedInstall();
 
     onStart?.call();
     final hints = nameHintsFor(
@@ -134,15 +135,24 @@ class InstallLearner {
 
     // התיקייה מהרג'יסטרי קודמת לזו שהמשתמש הצהיר עליה: היא רישום שהמתקין
     // כתב ברגע זה, ולא ניחוש שנרשם בטופס לפני שהתוכנה הייתה קיימת בכלל.
-    final dir = entry?.installDir ?? descriptor.installDir;
+    final registryDir = entry?.installDir;
+    final dir = registryDir ?? descriptor.installDir;
     final learnedExe =
         needsExe && dir != null ? await _exeIn(dir, hints) : null;
 
-    if (learnedPattern == null && learnedExe == null) return null;
-    return AppDetectRules(
-      exeName: learnedExe ?? rules.exeName,
-      registryDisplayName: learnedPattern ?? rules.registryDisplayName,
-      dirs: rules.dirs,
+    // ⚠️ רק התיקייה **מהרג'יסטרי** מוחזרת, ולא זו שבטופס: זו שבטופס כבר
+    // מועמדת קבועה בזיהוי, ואילו זו מידע חדש שאין דרך אחרת להגיע אליו.
+    // היא מוחזרת גם כשלא נלמד שום כלל — ראו [LearnedInstall.installDir].
+    if (learnedPattern == null && learnedExe == null) {
+      return LearnedInstall(installDir: registryDir);
+    }
+    return LearnedInstall(
+      rules: AppDetectRules(
+        exeName: learnedExe ?? rules.exeName,
+        registryDisplayName: learnedPattern ?? rules.registryDisplayName,
+        dirs: rules.dirs,
+      ),
+      installDir: registryDir,
     );
   }
 

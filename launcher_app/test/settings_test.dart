@@ -82,6 +82,7 @@ void main() {
         'app',
         'library',
         'plugins',
+        'fullPackage',
         'personalMode',
         'ui',
         'language',

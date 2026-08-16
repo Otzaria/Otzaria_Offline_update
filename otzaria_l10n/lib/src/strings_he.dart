@@ -314,6 +314,32 @@ class _AppScreen extends AppScreenStrings {
   String get sourceDirTitle => 'תיקיית עדכוני התוכנה';
 
   @override
+  String get fullPackageCardTitle => 'חבילת התקנה מלאה';
+  @override
+  String get fullPackageCardSubtitle =>
+      'המתקין שכולל גם את הספרייה בתוכו. נועד למחשב שאין בו אוצריא: הוא '
+      'מקבל תוכנה וספרייה בהתקנה אחת, בלי אינטרנט.';
+  @override
+  String get fullPackageRowTitle => 'מצב';
+  @override
+  String get fullPackageRecommended => 'אין כאן אוצריא — מומלץ להתקין מכאן';
+  @override
+  String get fullPackageNotNeeded =>
+      'אוצריא כבר מותקנת — אין צורך בחבילה המלאה';
+  @override
+  String fullPackageSize(String version, String size) =>
+      'הגרסה היציבה $version — $size';
+  @override
+  String get fullPackageInstallButton => 'התקנה מלאה';
+  @override
+  String get fullPackageDialogTitle => 'לא נמצאה התקנה של אוצריא';
+  @override
+  String fullPackagePrompt(String version, String size) =>
+      'על הכונן יושבת חבילת ההתקנה המלאה של אוצריא $version ($size), '
+      'הכוללת גם את הספרייה. התקנה ממנה מביאה את שניהם בבת אחת, ואינה '
+      'דורשת אינטרנט.';
+
+  @override
   String installPrompt({
     required String? latestVersion,
     required String? currentVersion,
@@ -547,6 +573,13 @@ class _Settings extends SettingsScreenStrings {
   String get syncPluginsTitle => 'חנות התוספים';
   @override
   String get syncPluginsSubtitle => 'הקטלוג וקובצי ההתקנה של כל התוספים';
+  @override
+  String get syncFullPackageTitle => 'חבילת התקנה מלאה של אוצריא';
+  @override
+  String get syncFullPackageSubtitle =>
+      'מוריד גם את המתקין שכולל את הספרייה בתוכו (הגרסה היציבה האחרונה, '
+      'כ-2GB), כדי שמחשב שאין בו אוצריא יוכל להתקין הכול בבת אחת. כבוי '
+      'כברירת מחדל — לכונן שמשרת מחשבים שכבר יש בהם אוצריא הוא מיותר';
 
   @override
   String get personalModeTitle => 'עדכון אישי — למחשב שלי בלבד';
@@ -1479,11 +1512,17 @@ class _AppDomain extends AppDomainStrings {
   String downloadingChannel(String channelLabel) =>
       'מוריד את תוכנת אוצריא (גרסה $channelLabel)...';
   @override
+  String get downloadingFullPackage => 'מוריד את חבילת ההתקנה המלאה';
+  @override
   String get downloadCancelled => 'ההורדה בוטלה.';
 
   @override
   String get noInstallableReleaseForPlatform =>
       'לא נמצאה גרסת אוצריא שניתן להתקין בפלטפורמה הזו.';
+  @override
+  String get fullPackageNotOnDrive =>
+      'חבילת ההתקנה המלאה אינה בתיקייה המקומית — יש לסמן אותה בהגדרות '
+      'ולהריץ הורדה במחשב עם אינטרנט.';
   @override
   String get mirrorEmptyRunDownload =>
       'אין גרסת אוצריא בתיקייה המקומית — יש להריץ הורדה במחשב עם אינטרנט.';

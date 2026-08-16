@@ -35,7 +35,7 @@ touched by *one* thing only: the download step that fills that folder.
 | Step | API | Needs network |
 | --- | --- | --- |
 | Download library updates + companion files | `LibraryManager.downloadToMirror()` | **yes** (heavy — full DB/patches, Talmud PDFs, catalog, dictionary; patches only in "personal update" mode, see below) |
-| Download the Otzaria installers (stable + newer pre-release) | `OtzariaManager.downloadToMirror()` | **yes** (heavy — installer files) |
+| Download the Otzaria installers (stable + newer pre-release) | `OtzariaManager.downloadToMirror()` | **yes** (heavy — installer files, plus the ~2GB FULL package when asked) |
 | Download the plugin store | `PluginsManager.sync()` | **yes** (heavy — images/`.otzplugin` files) |
 | Download a newer **launcher** (this program itself) | `LauncherSelfUpdater.downloadToMirror()` | **yes** (the packaged exe, tens of MB) |
 | Peek the latest library version online | `LibraryManager.peekLatestOnlineVersion()` | **yes** (light — one API call, no asset) |
@@ -127,6 +127,32 @@ history reached several gigabytes, which does not belong on a flash drive.
 Online Otzaria walks the entire patch graph; ten releases cover a machine that
 updates occasionally, and anything older falls back to the full-DB route, which
 is always present in the mirror.
+
+**The FULL package is opt-in, stable-only, and invisible to everyone else.**
+`AppSettings.syncFullPackage` (default **off**) → `OtzariaManager.downloadFullPackage`
+→ `OtzariaAppMirror.sync(includeFullPackage:)` adds
+`otzaria-<ver>-windows-full.exe` (~2GB — the installer with the library inside
+it) to the mirror. Four things hold it together:
+
+- **Stable channel only.** It is a *first install* package; two of them, one per
+  channel, would be 4GB on a flash drive for no gain.
+- **Recommended only on a machine with no Otzaria at all**
+  (`OtzariaUpdateCheckResult.fullPackageRecommended` = no `currentState` **and**
+  the file is really on the drive). Where Otzaria already exists it is 2GB that
+  the regular installer makes redundant, so it is never offered there.
+- **Nothing appears for a user who did not tick it.** The card in the app screen
+  is drawn only when `fullPackage != null` — i.e. only when the file was
+  actually downloaded — and the one-per-run dialog needs the same evidence.
+- **Turning it off deletes the file** on the next download, and turning it *on*
+  forces the app module to run even when the online check proved there is no new
+  version (`fullPackagePending` in `AppShell.downloadAll`). Without that, a drive
+  that was already up to date would have skipped the module and never fetched the
+  package.
+
+It does **not** solve issue #21. The FULL installer carries only the ~2MB
+WebView2 *bootstrapper*, which downloads the runtime from the internet at install
+time — useless on the offline machine. VC++ is a non-issue in both installers
+since May 2026 (the CRT DLLs are bundled app-local beside `otzaria.exe`).
 
 **"Personal update" is the one setting that changes what a download brings.**
 `AppSettings.personalUpdateMode` → `LibraryManager.personalUpdateMode` →
