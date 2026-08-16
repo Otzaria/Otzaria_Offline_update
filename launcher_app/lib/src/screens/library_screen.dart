@@ -5,6 +5,7 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import '../controllers/library_module_controller.dart';
 import '../services/byte_size.dart';
 import '../services/native_file_dialogs.dart';
+import '../services/timestamps.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
 import 'home_screen.dart';
@@ -42,7 +43,6 @@ class LibraryScreen extends StatelessWidget {
 
     return ScreenBody(
       title: t.title,
-      description: t.description,
       children: [
         _stateCard(context),
         _sourceCard(context),
@@ -58,6 +58,24 @@ class LibraryScreen extends StatelessWidget {
 
     return SettingsCard(
       title: t.stateCardTitle,
+      actions: [
+        RecheckButton(onPressed: _isBusy ? null : _recheck),
+        // ההתאוששות אחרי כשל דלתא — מוצגת רק אז, וכשיש מסד מלא במראה.
+        if (c.canRetryWithFullDownload)
+          ActionButton.neutral(
+            text: t.fullDownloadInsteadButton,
+            icon: FluentIcons.arrow_download_24_regular,
+            onPressed: _isBusy ? null : () => _confirmFullDownload(context),
+          ),
+        ActionButton.recommended(
+          text: t.installUpdateButton,
+          icon: FluentIcons.database_arrow_right_24_regular,
+          isLoading: c.status == LibraryModuleStatus.updating,
+          onPressed: c.status == LibraryModuleStatus.updateAvailable
+              ? () => _confirmUpdate(context)
+              : null,
+        ),
+      ],
       children: [
         InfoStatusRow(
           icon: FluentIcons.database_24_regular,
@@ -67,12 +85,16 @@ class LibraryScreen extends StatelessWidget {
         ),
         // כשאין עדיין מסד, האריח מציג את **יעד ההתקנה** ולא "לא נמצא": שם
         // ינחתו הספרים, וזו ההזדמנות לשנות את המיקום לפני שהם יורדים.
-        SettingsActionTile.path(
+        // הנתיב עצמו אינו מוצג — הוא ארוך, ומעתיקים אותו בכפתור.
+        SettingsActionTile.text(
           icon: FluentIcons.document_24_regular,
           title: c.dbPath == null ? t.installTargetTitle : t.dbFileTitle,
-          path: c.dbPath ?? c.installTargetPath,
-          placeholder: t.dbFileMissing,
+          subtitle: c.dbPath == null && c.installTargetPath == null
+              ? t.dbFileMissing
+              : null,
           actions: [
+            if (c.dbPath ?? c.installTargetPath case final path?)
+              CopyPathButton(path: path),
             if (c.dbPath == null)
               ActionButton.neutral(
                 text: t.pickInstallDirButton,
@@ -127,26 +149,6 @@ class LibraryScreen extends StatelessWidget {
           InfoErrorRow(message: c.errorMessage!, onRetry: c.checkForUpdate),
         if (c.status == LibraryModuleStatus.updating)
           libraryApplyProgressRow(context, c),
-        CardActionsRow(
-          actions: [
-            RecheckButton(onPressed: _isBusy ? null : _recheck),
-            // ההתאוששות אחרי כשל דלתא — מוצגת רק אז, וכשיש מסד מלא במראה.
-            if (c.canRetryWithFullDownload)
-              ActionButton.neutral(
-                text: t.fullDownloadInsteadButton,
-                icon: FluentIcons.arrow_download_24_regular,
-                onPressed: _isBusy ? null : () => _confirmFullDownload(context),
-              ),
-            ActionButton.recommended(
-              text: t.installUpdateButton,
-              icon: FluentIcons.database_arrow_right_24_regular,
-              isLoading: c.status == LibraryModuleStatus.updating,
-              onPressed: c.status == LibraryModuleStatus.updateAvailable
-                  ? () => _confirmUpdate(context)
-                  : null,
-            ),
-          ],
-        ),
       ],
     );
   }
@@ -275,13 +277,13 @@ class LibraryScreen extends StatelessWidget {
 
     return SettingsCard(
       title: t.sourceCardTitle,
-      subtitle: t.sourceCardSubtitle,
+      hint: t.sourceCardHint,
       children: [
-        SettingsActionTile.path(
+        // הנתיב עצמו אינו מוצג — הוא קבוע, ארוך, ומה שעושים איתו זה להעתיק.
+        SettingsActionTile.text(
           icon: FluentIcons.folder_24_regular,
           title: t.sourceDirTitle,
-          path: c.mirrorDir,
-          placeholder: context.strings.common.emptyValue,
+          actions: [CopyPathButton(path: c.mirrorDir)],
         ),
         InfoStatusRow(
           icon: FluentIcons.arrow_download_24_regular,
@@ -303,7 +305,7 @@ class LibraryScreen extends StatelessWidget {
           SettingsActionTile.text(
             icon: FluentIcons.history_24_regular,
             title: context.strings.common.lastDownloaded,
-            subtitle: c.lastDownloadedAt!.toLocal().toString().split('.').first,
+            subtitle: formatTimestamp(c.lastDownloadedAt!),
           ),
         // רק במצב אישי: זו נקודת המוצא של ההורדה, והיא נרשמת אך ורק כאן —
         // התוכנה אינה קוראת את גרסת המסד מעצמה.

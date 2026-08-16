@@ -2,11 +2,13 @@
 // (`otzaria/lib/settings/widgets/settings_card.dart`), בגרסה מצומצמת:
 // ללא אנכורי חיפוש, dropdown ותפריטי נתיב.
 
+import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/theme_exports.dart';
 import 'app_card.dart';
+import 'app_dropdown_field.dart';
 import 'custom_switch.dart';
 import 'rtl_icon.dart';
 import 'segmented_control.dart';
@@ -17,13 +19,23 @@ import 'segmented_control.dart';
 class SettingsCard extends StatelessWidget {
   final String? title;
   final String? subtitle;
+
+  /// הסבר שמוצג בריחוף על סימן שאלה שליד הכותרת — לכרטיס שההסבר שלו נכון
+  /// אך אינו צריך לתפוס שורה קבועה על המסך.
+  final String? hint;
   final List<Widget> children;
+
+  /// כפתורי הפעולה של הכרטיס. מוצגים **מתחת** למשטח הכרטיס ולא כשורה בתוכו,
+  /// כדי שלא יישבו בפס לבן משל עצמם.
+  final List<Widget> actions;
 
   const SettingsCard({
     super.key,
     this.title,
     this.subtitle,
+    this.hint,
     required this.children,
+    this.actions = const [],
   });
 
   /// סגנון כותרת הכרטיס — מקור אמת יחיד.
@@ -38,51 +50,124 @@ class SettingsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    if (title == null || title!.isEmpty) {
+    final hasHeader = title != null && title!.isNotEmpty;
+    if (!hasHeader && actions.isEmpty) {
       return AppCard.section(children: children);
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.only(
-            right: 16,
-            left: 16,
-            top: 24,
-            bottom: 12,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title!, style: titleStyleOf(context)),
-              if (subtitle != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  subtitle!,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
+        if (hasHeader)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.only(
+              right: 16,
+              left: 16,
+              top: 24,
+              bottom: 12,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(child: Text(title!, style: titleStyleOf(context))),
+                    if (hint != null) ...[
+                      const SizedBox(width: AppTokens.spaceXS),
+                      _HintIcon(hint!),
+                    ],
+                  ],
                 ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle!,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
-        ),
         AppCard.section(children: children),
+        if (actions.isNotEmpty)
+          CardActionsRow(
+            // רק מלמעלה: הכפתורים מיושרים לקצה הכרטיס שמעליהם, והמרווח
+            // לכרטיס הבא מגיע ממילא מריפוד הכותרת שלו.
+            padding: const EdgeInsets.only(top: AppTokens.spaceMD),
+            actions: actions,
+          ),
       ],
     );
   }
 }
 
+/// שורת כפתורי הפעולה של כרטיס.
+///
+/// ברירת המחדל היא ריפוד מלא — לשורה שיושבת *בתוך* משטח הכרטיס.
+/// [SettingsCard.actions] מציב אותה מתחתיו, על רקע הלוח, עם ריפוד משלו.
+class CardActionsRow extends StatelessWidget {
+  final List<Widget> actions;
+  final EdgeInsetsGeometry padding;
+
+  const CardActionsRow({
+    super.key,
+    required this.actions,
+    this.padding = const EdgeInsets.all(AppTokens.spaceMD),
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: padding,
+        child: Wrap(
+          spacing: AppTokens.spaceSM,
+          runSpacing: AppTokens.spaceSM,
+          children: actions,
+        ),
+      );
+}
+
+/// סימן השאלה שלצד כותרת הכרטיס. גם לחיצה פותחת אותו, כי במסך מגע אין ריחוף.
+class _HintIcon extends StatelessWidget {
+  const _HintIcon(this.message);
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+        message: message,
+        triggerMode: TooltipTriggerMode.tap,
+        child: Icon(
+          FluentIcons.question_circle_24_regular,
+          size: 18,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      );
+}
+
 // ── Helpers לטיפוגרפיה אחידה ──────────────────────────────────────────────────
 
-Widget _settingTitle(String text) => Text(
-      text,
-      style: AppTextStyles.settingTitle,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-    );
+Widget _settingTitle(String text, {String? hint}) {
+  final label = Text(
+    text,
+    style: AppTextStyles.settingTitle,
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+  );
+  if (hint == null) return label;
+
+  // ההסבר הארוך יושב בסימן שאלה ולא בשורה נוספת מתחת לכותרת.
+  return Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Flexible(child: label),
+      const SizedBox(width: AppTokens.spaceXS),
+      _HintIcon(hint),
+    ],
+  );
+}
 
 Widget _settingSubtitle(String text, {Color? color, bool ltr = false}) => Text(
       text,
@@ -147,6 +232,7 @@ class SettingsActionTile extends StatelessWidget {
     this.iconColor,
     required String title,
     String? subtitle,
+    String? hint,
     bool subtitleLtr = false,
     Color? subtitleColor,
     this.actions = const [],
@@ -160,7 +246,7 @@ class SettingsActionTile extends StatelessWidget {
           'העבר icon או rtlIcon — לא שניהם יחד',
         ),
         _rawTitle = title,
-        title = _settingTitle(title),
+        title = _settingTitle(title, hint: hint),
         subtitle = subtitle != null
             ? _settingSubtitle(subtitle, color: subtitleColor, ltr: subtitleLtr)
             : null;
@@ -198,6 +284,7 @@ class SettingsActionTile extends StatelessWidget {
     IconData? rtlIcon,
     required String title,
     String? subtitle,
+    String? hint,
     required bool value,
     ValueChanged<bool>? onChanged,
     bool enabled = true,
@@ -208,9 +295,35 @@ class SettingsActionTile extends StatelessWidget {
         rtlIcon: rtlIcon,
         title: title,
         subtitle: subtitle,
+        hint: hint,
         value: value,
         onChanged: onChanged,
         enabled: enabled,
+      );
+
+  /// שורה עם [AppDropdownField]. [subtitle] — כשלא סופק, נלקח מתת-הכותרת של
+  /// האפשרות הנבחרת.
+  static Widget dropdownTile<T>({
+    Key? key,
+    IconData? icon,
+    IconData? rtlIcon,
+    required String title,
+    String? subtitle,
+    required List<AppMenuEntry<T>> entries,
+    required T currentValue,
+    required ValueChanged<T> onSelected,
+    double? width,
+  }) =>
+      _DropdownTile<T>(
+        key: key,
+        icon: icon,
+        rtlIcon: rtlIcon,
+        title: title,
+        subtitle: subtitle,
+        entries: entries,
+        currentValue: currentValue,
+        onSelected: onSelected,
+        width: width,
       );
 
   /// שורה עם [AppSegmentedControl] — 2–4 אפשרויות מוציאות זו את זו.
@@ -355,6 +468,7 @@ class _SwitchTile extends StatefulWidget {
   final IconData? rtlIcon;
   final String title;
   final String? subtitle;
+  final String? hint;
   final bool value;
   final ValueChanged<bool>? onChanged;
   final bool enabled;
@@ -365,6 +479,7 @@ class _SwitchTile extends StatefulWidget {
     this.rtlIcon,
     required this.title,
     this.subtitle,
+    this.hint,
     required this.value,
     this.onChanged,
     this.enabled = true,
@@ -418,6 +533,7 @@ class _SwitchTileState extends State<_SwitchTile> {
         rtlIcon: widget.rtlIcon,
         title: widget.title,
         subtitle: widget.subtitle,
+        hint: widget.hint,
         enabled: widget.enabled,
         focusNode: _focusNode,
         responsiveActions: false,
@@ -431,6 +547,97 @@ class _SwitchTileState extends State<_SwitchTile> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── _DropdownTile ─────────────────────────────────────────────────────────────
+
+/// רוחב התיבה לפי התווית הארוכה ברשימה — לא רוחב קבוע: תיבה של שלוש שפות
+/// אינה צריכה להיות ברוחב של פקד סגמנטד.
+double _dropdownWidth(List<AppMenuEntry<dynamic>> entries) {
+  final maxLen =
+      entries.map((e) => e.label.length).reduce((a, b) => a > b ? a : b);
+  // ריפוד + סמל החץ + רוחב תו ממוצע.
+  return (56 + maxLen * 9.0).clamp(120.0, 400.0);
+}
+
+class _DropdownTile<T> extends StatelessWidget {
+  final IconData? icon;
+  final IconData? rtlIcon;
+  final String title;
+  final String? subtitle;
+  final List<AppMenuEntry<T>> entries;
+  final T currentValue;
+  final ValueChanged<T> onSelected;
+  final double? width;
+
+  const _DropdownTile({
+    super.key,
+    this.icon,
+    this.rtlIcon,
+    required this.title,
+    this.subtitle,
+    required this.entries,
+    required this.currentValue,
+    required this.onSelected,
+    this.width,
+  });
+
+  String? get _resolvedSubtitle {
+    if (subtitle != null) return subtitle;
+    for (final e in entries) {
+      if (e.value == currentValue) return e.subtitle;
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final field = AppDropdownField<T>(
+      value: currentValue,
+      entries: entries,
+      onSelected: onSelected,
+      height: _kSegBoxHeight,
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= LayoutBreakpoints.compact) {
+          return SettingsActionTile.text(
+            icon: icon,
+            rtlIcon: rtlIcon,
+            title: title,
+            subtitle: _resolvedSubtitle,
+            actions: [
+              SizedBox(
+                width: width ?? _dropdownWidth(entries),
+                height: _kSegBoxHeight,
+                child: field,
+              ),
+            ],
+          );
+        }
+
+        // מסך צר: כותרת ב-ListTile, הפקד מתחתיה ברוחב מלא — כמו בשורת הסגמנטד.
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ListTile(
+              leading: _buildSettingIcon(icon, rtlIcon, null),
+              title: _settingTitle(title),
+              subtitle: _resolvedSubtitle != null
+                  ? _settingSubtitle(_resolvedSubtitle!)
+                  : null,
+            ),
+            Padding(
+              padding: const EdgeInsets.only(left: 16, right: 16, bottom: 12),
+              child: SizedBox(height: _kSegBoxHeight, child: field),
+            ),
+          ],
+        );
+      },
     );
   }
 }

@@ -500,7 +500,7 @@ void main() {
     testWidgets('כותרת, תת-כותרת ושורות מוצגות', (tester) async {
       await tester.pumpWidget(wrap(SettingsCard(
         title: he.settings.automationCardTitle,
-        subtitle: he.settings.automationCardSubtitle,
+        subtitle: he.settings.automationCardHint,
         children: [
           SettingsActionTile.text(
             icon: FluentIcons.timer_24_regular,
@@ -511,7 +511,7 @@ void main() {
       )));
 
       expect(find.text(he.settings.automationCardTitle), findsOneWidget);
-      expect(find.text(he.settings.automationCardSubtitle), findsOneWidget);
+      expect(find.text(he.settings.automationCardHint), findsOneWidget);
       expect(find.text(he.settings.autoCheckTitle), findsOneWidget);
     });
 
@@ -796,6 +796,38 @@ void main() {
       expect(find.text(he.common.retry), findsNothing);
     });
 
+    // כישלון התקנה נושא איתו את סוף לוג ה-Inno — עשרות שורות שדחפו את כל
+    // מה שמתחתיהן בכרטיס.
+    testWidgets('InfoErrorRow מקצר הודעה רב-שורתית ופותח את השאר בדיאלוג',
+        (tester) async {
+      const headline = 'ההתקנה הסתיימה בשגיאה (קוד 5).';
+      final log = List.generate(40, (i) => 'שורת לוג $i').join('\n');
+
+      await tester.pumpWidget(wrap(SettingsCard(children: [
+        InfoErrorRow(message: '$headline\n$log'),
+      ])));
+
+      // בשורה עצמה — הכותרת בלבד, ולא הלוג.
+      expect(find.text(headline), findsOneWidget);
+      expect(find.textContaining('שורת לוג 39'), findsNothing);
+
+      await tester.tap(find.text(he.common.errorDetailsButton));
+      await tester.pumpAndSettle();
+
+      expect(find.text(he.common.errorDetailsTitle), findsOneWidget);
+      expect(find.textContaining('שורת לוג 39'), findsOneWidget);
+    });
+
+    testWidgets('הודעה בשורה אחת נשארת כפי שהיא — בלי כפתור פרטים',
+        (tester) async {
+      await tester.pumpWidget(wrap(SettingsCard(children: [
+        InfoErrorRow(message: he.libraryDomain.mirrorMissing),
+      ])));
+
+      expect(find.text(he.libraryDomain.mirrorMissing), findsOneWidget);
+      expect(find.text(he.common.errorDetailsButton), findsNothing);
+    });
+
     testWidgets('InfoProgressRow מציג אחוז כשהוא ידוע ומד לא-קבוע כשלא',
         (tester) async {
       await tester.pumpWidget(wrap(InfoProgressRow(
@@ -843,20 +875,17 @@ void main() {
   // ── ScreenBody ─────────────────────────────────────────────────────────────
 
   group('ScreenBody', () {
-    testWidgets('מציג כותרת, הסבר וילדים, ומגביל את רוחב התוכן',
-        (tester) async {
+    testWidgets('מציג כותרת וילדים, ומגביל את רוחב התוכן', (tester) async {
       tester.view.physicalSize = const Size(1600, 900);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
 
       await tester.pumpWidget(wrap(ScreenBody(
         title: he.settings.title,
-        description: he.settings.description,
         children: [Text(he.settings.appearanceCardTitle)],
       )));
 
       expect(find.text(he.settings.title), findsOneWidget);
-      expect(find.text(he.settings.description), findsOneWidget);
       expect(find.text(he.settings.appearanceCardTitle), findsOneWidget);
       expect(
         tester.getSize(find.byType(ListView)).width,
@@ -918,6 +947,27 @@ void main() {
 
       await tester.pump(const Duration(seconds: 7));
     });
+
+    // הודעת שגיאה שנושאת איתה לוג כיסתה חצי מסך ונעלמה אחרי שש שניות.
+    testWidgets('הודעה ארוכה מקוצרת ואינה משתלטת על המסך', (tester) async {
+      tester.view.physicalSize = const Size(900, 620);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(wrap(const SizedBox.shrink()));
+
+      final long = List.generate(40, (i) => 'שורת לוג $i').join('\n');
+      UiSnack.showError(long);
+      await tester.pump();
+
+      final text = tester.widget<Text>(find.text(long));
+      expect(text.maxLines, 3);
+      expect(text.overflow, TextOverflow.ellipsis);
+      // גובה הטוסט נשאר חלק קטן מהחלון, ולא כולו.
+      expect(tester.getSize(find.byType(Text)).height, lessThan(200));
+      expect(tester.takeException(), isNull);
+
+      await tester.pump(const Duration(seconds: 7));
+    });
   });
 
   // ── דיאלוגים ───────────────────────────────────────────────────────────────
@@ -964,6 +1014,32 @@ void main() {
       ));
       await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsNothing);
+    });
+
+    // תוכן ארוך בחלון בגובה המינימלי — קודם גלש מהדיאלוג במקום לגלול בו.
+    testWidgets('דיאלוג טקסט גולל תוכן ארוך במקום לגלוש', (tester) async {
+      tester.view.physicalSize = const Size(900, 620);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final long = List.generate(60, (i) => 'שורה $i').join('\n');
+      await pumpOpener(
+        tester,
+        (context) => showSingleActionDialog(
+          context: context,
+          title: he.common.errorDetailsTitle,
+          content: long,
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byType(Scrollable),
+        ),
+        findsWidgets,
+      );
     });
 
     testWidgets('showTwoActionsDialog מחזיר true באישור ו-false בביטול',
@@ -1104,7 +1180,7 @@ void main() {
         tester,
         () => SettingsCard(
           title: he.settings.automationCardTitle,
-          subtitle: he.settings.automationCardSubtitle,
+          subtitle: he.settings.automationCardHint,
           children: [
             SettingsActionTile.switchTile(
               icon: FluentIcons.arrow_download_24_regular,
@@ -1140,14 +1216,34 @@ void main() {
         tester,
         () => SettingsCard(children: [
           SettingsActionTile.segmentedTile<int>(
-            icon: FluentIcons.text_font_size_24_regular,
-            title: he.settings.textSizeTitle,
+            icon: FluentIcons.dark_theme_24_regular,
+            title: he.settings.themeTitle,
             currentValue: 1,
             onChanged: (_) {},
             options: [
-              SegmentOption(value: 0, label: he.settings.textSizeSmall),
-              SegmentOption(value: 1, label: he.settings.textSizeNormal),
-              SegmentOption(value: 2, label: he.settings.textSizeLarge),
+              SegmentOption(value: 0, label: he.settings.themeSystem),
+              SegmentOption(value: 1, label: he.settings.themeLight),
+              SegmentOption(value: 2, label: he.settings.themeDark),
+            ],
+          ),
+        ]),
+      );
+    });
+
+    testWidgets('שורת תפריט נפתח עם שלוש שפות', (tester) async {
+      await expectNoOverflow(
+        tester,
+        () => SettingsCard(children: [
+          SettingsActionTile.dropdownTile<int>(
+            icon: FluentIcons.local_language_24_regular,
+            title: he.settings.languageTitle,
+            subtitle: he.settings.languageSubtitle,
+            currentValue: 0,
+            onSelected: (_) {},
+            entries: [
+              AppMenuEntry(value: 0, label: he.settings.languageSystem),
+              AppMenuEntry(value: 1, label: he.settings.languageHebrew),
+              AppMenuEntry(value: 2, label: he.settings.languageEnglish),
             ],
           ),
         ]),
@@ -1251,11 +1347,11 @@ void main() {
           await tester.pumpWidget(wrap(
             ScreenBody(
               title: s.setupError.title,
-              description: s.setupError.explanation,
               children: [
                 SettingsCard(
                   title: s.settings.appearanceCardTitle,
-                  subtitle: s.settings.appearanceCardSubtitle,
+                  subtitle: s.settings.languageSubtitle,
+                  hint: s.appScreen.fullPackageHint,
                   children: [
                     SettingsActionTile.text(
                       icon: FluentIcons.info_24_regular,
@@ -1263,7 +1359,7 @@ void main() {
                       subtitle: s.settings.languageSubtitle,
                       actions: [
                         ActionButton.neutral(
-                          text: s.setupError.copyPathButton,
+                          text: s.common.copyPathButton,
                           onPressed: () {},
                         ),
                       ],

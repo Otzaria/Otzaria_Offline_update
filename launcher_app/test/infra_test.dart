@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:launcher_app/src/controllers/download_summary.dart';
 import 'package:launcher_app/src/controllers/library_module_controller.dart';
 import 'package:launcher_app/src/controllers/online_check.dart';
 import 'package:launcher_app/src/controllers/otzaria_module_controller.dart';
@@ -238,6 +239,30 @@ void main() {
           hasUpdate: false,
         ),
         isFalse,
+      );
+    });
+  });
+
+  group('summarizeDownload — ההודעה האחת שבסוף ההורדה', () {
+    test('לא נכשל ולא דולג — ההורדה הצליחה, ואומרים את זה', () {
+      expect(
+        summarizeDownload(failed: const [], skipped: const []),
+        DownloadSummary.done,
+      );
+    });
+
+    test('דולג בלבד', () {
+      expect(
+        summarizeDownload(failed: const [], skipped: const ['תוספים']),
+        DownloadSummary.skipped,
+      );
+    });
+
+    // ל-UiSnack אין תור, ולכן שתי ההודעות יחד היו משאירות רק את האחרונה.
+    test('כשל גובר על דילוג', () {
+      expect(
+        summarizeDownload(failed: const ['הספרייה'], skipped: const ['תוספים']),
+        DownloadSummary.failed,
       );
     });
   });

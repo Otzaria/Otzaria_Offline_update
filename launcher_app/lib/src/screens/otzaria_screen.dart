@@ -6,6 +6,7 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import '../controllers/otzaria_module_controller.dart';
 import '../services/byte_size.dart';
 import '../services/native_file_dialogs.dart';
+import '../services/timestamps.dart';
 import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/screen_body.dart';
@@ -56,13 +57,11 @@ class OtzariaScreen extends StatelessWidget {
 
     return ScreenBody(
       title: t.title,
-      description: t.description,
       children: [
         _stateCard(context),
         // רק כשהחבילה באמת על הכונן — כלומר רק למי שסימן אותה בהגדרות
         // והוריד אותה. לכל השאר המסך נשאר כפי שהיה.
         if (otzaria.fullPackage != null) _fullPackageCard(context),
-        _whatsNewCard(context),
         _sourceCard(context),
       ],
     );
@@ -77,6 +76,22 @@ class OtzariaScreen extends StatelessWidget {
 
     return SettingsCard(
       title: t.stateCardTitle,
+      actions: [
+        RecheckButton(onPressed: _isBusy ? null : c.checkForUpdate),
+        ActionButton.recommended(
+          text: t.launchButton,
+          icon: FluentIcons.play_24_regular,
+          onPressed: c.canLaunch ? c.launch : null,
+        ),
+        ActionButton.neutral(
+          text: t.installUpdateButton,
+          icon: FluentIcons.desktop_arrow_right_24_regular,
+          isLoading: c.status == OtzariaModuleStatus.installing,
+          onPressed: c.status == OtzariaModuleStatus.updateAvailable
+              ? () => _confirmInstall(context)
+              : null,
+        ),
+      ],
       children: [
         InfoStatusRow(
           icon: FluentIcons.desktop_24_regular,
@@ -124,6 +139,13 @@ class OtzariaScreen extends StatelessWidget {
               ? t.channelPair('${c.stableVersion}', '${c.prereleaseVersion}')
               : c.latestVersion ?? t.mirrorEmpty,
           subtitleLtr: c.latestVersion != null && !c.hasChannelChoice,
+          actions: [
+            ActionButton.ghost(
+              text: t.whatsNewButton,
+              icon: FluentIcons.history_24_regular,
+              onPressed: () => _showWhatsNew(context),
+            ),
+          ],
         ),
         // מוצג רק כשבתיקייה יושבות שתי גרסאות — כלומר כשה-pre-release חדש
         // מהיציבה. אחרת אין בחירה אמיתית, ואין טעם להציג פקד.
@@ -141,33 +163,17 @@ class OtzariaScreen extends StatelessWidget {
             currentValue: c.preferPrerelease,
             onChanged: _setChannel,
           ),
-        SettingsActionTile.text(
-          icon: FluentIcons.play_24_regular,
-          title: t.processTitle,
-          subtitle: otzariaIsRunning ? t.processRunning : t.processStopped,
-        ),
+        // מוצג רק כשאוצריא פתוחה — אז זו אזהרה. "סגורה" היא שורה שאין בה מידע.
+        if (otzariaIsRunning)
+          SettingsActionTile.text(
+            icon: FluentIcons.warning_24_regular,
+            title: t.processTitle,
+            subtitle: t.processRunning,
+          ),
         if (c.errorMessage != null)
           InfoErrorRow(message: c.errorMessage!, onRetry: c.checkForUpdate),
         if (c.status == OtzariaModuleStatus.installing)
           InfoProgressRow(stage: t.installingProgress),
-        CardActionsRow(
-          actions: [
-            RecheckButton(onPressed: _isBusy ? null : c.checkForUpdate),
-            ActionButton.recommended(
-              text: t.launchButton,
-              icon: FluentIcons.play_24_regular,
-              onPressed: c.canLaunch ? c.launch : null,
-            ),
-            ActionButton.neutral(
-              text: t.installUpdateButton,
-              icon: FluentIcons.desktop_arrow_right_24_regular,
-              isLoading: c.status == OtzariaModuleStatus.installing,
-              onPressed: c.status == OtzariaModuleStatus.updateAvailable
-                  ? () => _confirmInstall(context)
-                  : null,
-            ),
-          ],
-        ),
       ],
     );
   }
@@ -214,26 +220,33 @@ class OtzariaScreen extends StatelessWidget {
 
   // ── מה התחדש ──────────────────────────────────────────────────────────────
 
-  Widget _whatsNewCard(BuildContext context) {
+  /// הערות הגרסה יושבות בדיאלוג ולא על המסך: הן ארוכות, וכשאין עדכון אין
+  /// למי שנכנס למסך עניין בהן. הכפתור יושב בשורת הגרסה שבתיקייה המקומית.
+  Future<void> _showWhatsNew(BuildContext context) {
     final notes = otzaria.latestReleaseNotes?.trim();
     final t = context.strings.appScreen;
 
-    return SettingsCard(
+    return showSingleActionDialog(
+      context: context,
       title: t.whatsNewTitle,
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(AppTokens.spaceMD),
+      confirmText: context.strings.common.close,
+      customContent: SizedBox(
+        width: 600,
+        // גובה **מרבי** ולא קבוע: בחלון בגובה המינימלי, ובעיקר בטקסט מוגדל,
+        // 400 קבועים גלשו מהדיאלוג במקום להצטמצם אליו.
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 400),
           child: (notes == null || notes.isEmpty)
-              ? Text(
-                  t.whatsNewEmpty,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                )
-              : MarkdownBody(
-                  data: notes,
-                  styleSheet: _whatsNewStyleSheet(context),
+              ? Text(t.whatsNewEmpty,
+                  style: Theme.of(context).textTheme.bodyMedium)
+              : SingleChildScrollView(
+                  child: MarkdownBody(
+                    data: notes,
+                    styleSheet: _whatsNewStyleSheet(context),
+                  ),
                 ),
         ),
-      ],
+      ),
     );
   }
 
@@ -289,19 +302,19 @@ class OtzariaScreen extends StatelessWidget {
 
     return SettingsCard(
       title: t.sourceCardTitle,
-      subtitle: t.sourceCardSubtitle,
+      hint: t.sourceCardHint,
       children: [
-        SettingsActionTile.path(
+        // הנתיב עצמו אינו מוצג — הוא קבוע, ארוך, ומה שעושים איתו זה להעתיק.
+        SettingsActionTile.text(
           icon: FluentIcons.folder_24_regular,
           title: t.sourceDirTitle,
-          path: c.mirrorDir,
-          placeholder: context.strings.common.emptyValue,
+          actions: [CopyPathButton(path: c.mirrorDir)],
         ),
         if (c.lastDownloadedAt != null)
           SettingsActionTile.text(
             icon: FluentIcons.history_24_regular,
             title: context.strings.common.lastDownloaded,
-            subtitle: c.lastDownloadedAt!.toLocal().toString().split('.').first,
+            subtitle: formatTimestamp(c.lastDownloadedAt!),
           ),
       ],
     );
@@ -319,7 +332,7 @@ class OtzariaScreen extends StatelessWidget {
 
     return SettingsCard(
       title: t.fullPackageCardTitle,
-      subtitle: t.fullPackageCardSubtitle,
+      hint: t.fullPackageHint,
       children: [
         InfoStatusRow(
           icon: FluentIcons.box_24_regular,
@@ -331,14 +344,14 @@ class OtzariaScreen extends StatelessWidget {
               ? t.fullPackageRecommended
               : t.fullPackageNotNeeded,
         ),
+        // שם הקובץ אינו מעניין אף אחד; מה שכן — איזו גרסה יושבת שם וכמה היא.
         SettingsActionTile.text(
           icon: FluentIcons.document_24_regular,
-          title: full.assetName,
+          title: t.fullPackageVersionTitle,
           subtitle: t.fullPackageSize(
             '${c.stableVersion}',
             formatBytes(full.sizeBytes),
           ),
-          subtitleLtr: false,
           actions: [
             ActionButton.recommended(
               text: t.fullPackageInstallButton,

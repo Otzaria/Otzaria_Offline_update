@@ -7,6 +7,7 @@ import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
 
 import '../controllers/custom_apps_controller.dart';
+import '../controllers/download_summary.dart';
 import '../controllers/launcher_update_controller.dart';
 import '../controllers/library_module_controller.dart';
 import '../controllers/online_check.dart';
@@ -70,10 +71,6 @@ class _AppShellState extends State<AppShell> {
   /// עדכון הלאנצ'ר **עצמו** — נפרד משלושת המודולים: הוא לא מתקין כלום במחשב,
   /// אלא מחליף את קובץ ההרצה שלנו ומפעיל אותו מחדש.
   late final LauncherUpdateController _launcherUpdate;
-
-  /// ההמלצה להתקין את החבילה המלאה מוצגת **פעם אחת בהרצה**, מאותה סיבה
-  /// שההצעה לעדכן את הלאנצ'ר: בדיקה חוזרת אינה עילה לדיאלוג נוסף.
-  bool _askedAboutFullPackage = false;
 
   /// ההצעה להוריד גרסה חדשה של הלאנצ'ר מוצגת **פעם אחת בהרצה**. הבדיקה הקלה
   /// יכולה לרוץ עוד פעמים (כפתור "בדיקת עדכונים"), ודיאלוג שקופץ בכל אחת מהן
@@ -241,33 +238,6 @@ class _AppShellState extends State<AppShell> {
     await _library.checkForUpdate();
     if (!mounted) return;
     await _autoInstallIfEnabled();
-    if (!mounted) return;
-    await _offerFullPackageInstall();
-  }
-
-  /// "אין כאן אוצריא — להתקין את החבילה המלאה?" — פעם אחת בהרצה, ורק כשיש
-  /// מה להציע: לא זוהתה שום התקנה, ועל הכונן יושבת חבילה מלאה.
-  ///
-  /// שני התנאים יחד הם מה שמונע את ההצעה מכל השאר: במחשב שכבר יש בו
-  /// אוצריא היא 2GB מיותרים, ובכונן שלא ביקש אותה בהגדרות היא לא קיימת
-  /// בכלל — ולכן מי שלא סימן אינו רואה כאן שום שינוי.
-  Future<void> _offerFullPackageInstall() async {
-    if (_askedAboutFullPackage || !mounted) return;
-    if (!_otzaria.fullPackageRecommended) return;
-    _askedAboutFullPackage = true;
-
-    final t = context.strings.appScreen;
-    final approved = await showTwoActionsDialog(
-      context: context,
-      title: t.fullPackageDialogTitle,
-      content: t.fullPackagePrompt(
-        '${_otzaria.stableVersion}',
-        formatBytes(_otzaria.fullPackage?.sizeBytes ?? 0),
-      ),
-      confirmText: t.fullPackageInstallButton,
-    );
-    if (!approved || !mounted) return;
-    await installFullPackage();
   }
 
   /// מתקין את החבילה המלאה. יושב כאן ולא במסך, כי גם ההמלצה שבעלייה וגם
@@ -382,9 +352,16 @@ class _AppShellState extends State<AppShell> {
   Future<void> _autoInstallIfEnabled() async {
     final s = widget.settings.settings;
 
-    if (s.autoInstallApp &&
-        _otzaria.status == OtzariaModuleStatus.updateAvailable) {
-      await _otzaria.install();
+    // גם כאן מדלגים כשאוצריא פתוחה, ולא רק בספרייה: המתקין דורס קבצים
+    // שהתהליך הרץ נועל, ואז נופל באמצע ההתקנה בקוד יציאה סתום (5).
+    if (s.autoInstallApp && !_otzariaIsRunning) {
+      // אין במחשב אוצריא ועל הכונן יושבת חבילה מלאה — היא מה שמותקן, כי
+      // היא מביאה בצעד אחד גם את הספרייה.
+      if (_otzaria.fullPackageRecommended) {
+        await installFullPackage();
+      } else if (_otzaria.status == OtzariaModuleStatus.updateAvailable) {
+        await _otzaria.install();
+      }
       if (!mounted) return;
     }
 
@@ -517,9 +494,6 @@ class _AppShellState extends State<AppShell> {
       if (skipLibrary) t.home.libraryTileTitle,
       if (skipPlugins) t.shell.navPlugins,
     ];
-    if (skipped.isNotEmpty) {
-      UiSnack.show(t.home.downloadSkippedSnack(skipped.join(', ')));
-    }
 
     // כשל הורדה נשמר בבקרים ולא נזרק, וקודם לכן גם לא הוצג בשום מקום: מד
     // ההתקדמות פשוט נעלם אחרי 40 דקות והכרטיס המשיך לומר "יש עדכונים".
@@ -532,8 +506,15 @@ class _AppShellState extends State<AppShell> {
       if (s.syncPlugins && !skipPlugins && _plugins.errorMessage != null)
         t.shell.navPlugins,
     ];
-    if (failed.isNotEmpty) {
-      UiSnack.show(t.home.downloadFailedSnack(failed.join(', ')));
+
+    // הודעה אחת בסוף, לפי [summarizeDownload] — ראו שם למה לא שתיים.
+    switch (summarizeDownload(failed: failed, skipped: skipped)) {
+      case DownloadSummary.failed:
+        UiSnack.show(t.home.downloadFailedSnack(failed.join(', ')));
+      case DownloadSummary.skipped:
+        UiSnack.show(t.home.downloadSkippedSnack(skipped.join(', ')));
+      case DownloadSummary.done:
+        UiSnack.showSuccess(t.home.downloadDoneSnack);
     }
   }
 
@@ -594,6 +575,7 @@ class _AppShellState extends State<AppShell> {
             onDownloadLauncherUpdate: downloadLauncherUpdate,
             onInstallLauncherUpdate: installLauncherUpdate,
             onRequestReindex: requestLibraryReindex,
+            onInstallFullPackage: installFullPackage,
             onGoToOtzaria: () => _goTo(LauncherScreen.otzaria),
             onGoToLibrary: () => _goTo(LauncherScreen.library),
           ),

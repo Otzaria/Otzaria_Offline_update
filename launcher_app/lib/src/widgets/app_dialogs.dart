@@ -65,6 +65,10 @@ class AppDialog extends StatelessWidget {
     final theme = Theme.of(context);
 
     return AlertDialog(
+      // תוכן טקסט ארוך (נתיב, נוסח אזהרה, טקסט מוגדל בחלון נמוך) גלש מהדיאלוג
+      // במקום לגלול. ל-`customContent` זה **אסור**: הוא מביא גליל משלו בתוך
+      // גובה חסום, ו-`Flexible` בתוך גליל חיצוני הוא אילוץ בלתי חסום שנופל.
+      scrollable: customContent == null,
       title: Text(title, style: theme.textTheme.titleLarge),
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

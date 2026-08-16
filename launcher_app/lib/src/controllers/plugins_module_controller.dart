@@ -158,10 +158,11 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
 
     try {
       onlineStatus = await _manager.peekOnlineUpdates();
-    } catch (e, st) {
+    } catch (e) {
       onlineStatus = null;
       onlineCheckError = e.toString();
-      AppLogger.instance.info('בדיקת עדכונים ברשת (תוספים) לא הצליחה: $e\n$st');
+      // ראו `LibraryModuleController.checkOnline` — בלי stack trace בכוונה.
+      AppLogger.instance.info('בדיקת עדכונים ברשת (תוספים) לא הצליחה: $e');
     }
     onlineCheckedAt = DateTime.now();
     notifyListeners();

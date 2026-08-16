@@ -190,10 +190,11 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
 
     try {
       onlineLatestRelease = await _manager.peekLatestOnlineRelease();
-    } catch (e, st) {
+    } catch (e) {
       onlineLatestRelease = null;
       onlineCheckError = e.toString();
-      AppLogger.instance.info('בדיקת עדכונים ברשת (אוצריא) לא הצליחה: $e\n$st');
+      // ראו `LibraryModuleController.checkOnline` — בלי stack trace בכוונה.
+      AppLogger.instance.info('בדיקת עדכונים ברשת (אוצריא) לא הצליחה: $e');
     }
     onlineCheckedAt = DateTime.now();
     notifyListeners();

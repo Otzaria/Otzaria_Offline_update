@@ -16,6 +16,7 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 abstract class _ToastTokens {
   static const double maxWidth = 500;
+  static const int maxLines = 3;
   static const double bgAlpha = 0.88;
   static const double blurSigma = 24.0;
 }
@@ -132,6 +133,11 @@ class _SnackView extends StatelessWidget {
                         Flexible(
                           child: Text(
                             message,
+                            // הודעה ארוכה (הודעת שגיאה שנושאת איתה לוג) כיסתה
+                            // חצי מסך ונעלמה אחרי שש שניות. הטוסט הוא שורה,
+                            // והפירוט יושב בכרטיס וביומן הפעילות.
+                            maxLines: _ToastTokens.maxLines,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: AppTokens.fontXL,
                               color: cs.onSurface,

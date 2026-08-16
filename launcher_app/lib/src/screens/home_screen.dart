@@ -36,6 +36,7 @@ class HomeScreen extends StatelessWidget {
     required this.onDownloadLauncherUpdate,
     required this.onInstallLauncherUpdate,
     required this.onRequestReindex,
+    this.onInstallFullPackage,
     required this.onGoToOtzaria,
     required this.onGoToLibrary,
   });
@@ -71,6 +72,10 @@ class HomeScreen extends StatelessWidget {
   /// אותה ממתינה. גם היא מיושמת ב-`AppShell`, מאותו טעם.
   final Future<void> Function() onRequestReindex;
 
+  /// התקנת החבילה המלאה, כשיש כזו על הכונן ואין במחשב אוצריא. גם היא
+  /// מיושמת ב-`AppShell`, כי אחריה צריך לבדוק מחדש גם את הספרייה.
+  final Future<void> Function()? onInstallFullPackage;
+
   final VoidCallback onGoToOtzaria;
   final VoidCallback onGoToLibrary;
 
@@ -80,7 +85,6 @@ class HomeScreen extends StatelessWidget {
 
     return ScreenBody(
       title: t.title,
-      description: t.description,
       children: [
         if (otzariaIsRunning)
           Padding(
@@ -181,7 +185,27 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
+  /// לחיצה על "התקנה". במחשב שאין בו אוצריא ויש על הכונן חבילה מלאה —
+  /// היא מה שמוצע, כי היא מביאה גם את הספרייה. ההצעה יושבת כאן ולא בעלייה:
+  /// דיאלוג שקופץ מעצמו בכניסה מקדים את המשתמש לפני שביקש להתקין בכלל.
   Future<void> _confirmAppInstall(BuildContext context) async {
+    final onFull = onInstallFullPackage;
+    if (otzaria.fullPackageRecommended && onFull != null) {
+      final f = context.strings.appScreen;
+      final approved = await showTwoActionsDialog(
+        context: context,
+        title: f.fullPackageDialogTitle,
+        content: f.fullPackagePrompt(
+          '${otzaria.stableVersion}',
+          formatBytes(otzaria.fullPackage?.sizeBytes ?? 0),
+        ),
+        confirmText: f.fullPackageInstallButton,
+      );
+      if (!approved) return;
+      await onFull();
+      return;
+    }
+
     final t = context.strings.home;
     final approved = await showTwoActionsDialog(
       context: context,
@@ -305,7 +329,7 @@ class HomeScreen extends StatelessWidget {
 
     return SettingsCard(
       title: t.onlineCardTitle,
-      subtitle: t.onlineCardSubtitle,
+      hint: t.onlineCardHint,
       children: [
         Padding(
           padding: const EdgeInsets.all(AppTokens.spaceMD),
@@ -482,13 +506,12 @@ class HomeScreen extends StatelessWidget {
       _ => (StatusKind.ok, t.statusUpToDate),
     };
 
-    final newest = c.newestKnownVersion;
     final detail = theme.textTheme.bodySmall
         ?.copyWith(color: theme.colorScheme.onSurfaceVariant);
 
     return SettingsCard(
       title: t.cardTitle,
-      subtitle: t.cardSubtitle,
+      hint: t.cardHint,
       children: [
         Padding(
           padding: const EdgeInsets.all(AppTokens.spaceMD),
@@ -498,14 +521,16 @@ class HomeScreen extends StatelessWidget {
               StatusChip(kind: kind, label: label),
               const SizedBox(height: AppTokens.spaceMD),
               Text(t.installedVersion(c.currentVersion), style: detail),
-              if (newest != null) ...[
+              // שתי שורות נפרדות, ולא "הגרסה החדשה ביותר": מה שיושב בתיקייה
+              // ומה שנמצא ברשת אינם אותו דבר — אחרי עדכון עצמי התיקייה
+              // מחזיקה בדיוק את הגרסה שרצה, וזו הוצגה כ"נמצאה ברשת".
+              if (c.hasUpdateReady && c.downloadedVersion != null) ...[
                 const SizedBox(height: AppTokens.spaceXS),
-                Text(
-                  c.hasUpdateReady
-                      ? t.downloadedVersion(newest)
-                      : t.onlineVersion(newest),
-                  style: detail,
-                ),
+                Text(t.downloadedVersion(c.downloadedVersion!), style: detail),
+              ],
+              if (c.onlineUpdateVersion case final online?) ...[
+                const SizedBox(height: AppTokens.spaceXS),
+                Text(t.onlineVersion(online), style: detail),
               ],
               if (c.isDownloading) ...[
                 const SizedBox(height: AppTokens.spaceMD),

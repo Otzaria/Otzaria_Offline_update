@@ -41,6 +41,11 @@ abstract class CommonStrings {
   String get close;
   String get error;
   String get retry;
+
+  /// הודעת שגיאה ארוכה (למשל לוג התקנה) מוצגת בשורתה הראשונה בלבד, והשאר
+  /// נפתח בדיאלוג — ארבעים שורות בתוך שורת כרטיס אינן נקראות.
+  String get errorDetailsButton;
+  String get errorDetailsTitle;
   String get install;
   String get update;
   String get launch;
@@ -56,6 +61,11 @@ abstract class CommonStrings {
   String get unknownValue;
   String get lastDownloaded;
   String get emptyValue;
+
+  /// שורות שמחזיקות נתיב אינן מציגות אותו — הוא ארוך ואינו קריא בעברית —
+  /// אלא מעתיקות אותו בלחיצה.
+  String get copyPathButton;
+  String get pathCopiedSnack;
 }
 
 // ── מסגרת האפליקציה ───────────────────────────────────────────────────────────
@@ -82,7 +92,6 @@ abstract class HomeStrings {
   const HomeStrings();
 
   String get title;
-  String get description;
 
   String get otzariaRunningTitle;
   String get otzariaRunningSubtitle;
@@ -109,7 +118,7 @@ abstract class HomeStrings {
 
   // ── כרטיס בדיקת העדכונים ברשת ───────────────────────────────────────────
   String get onlineCardTitle;
-  String get onlineCardSubtitle;
+  String get onlineCardHint;
   String get onlineChecking;
   String get onlineNeverChecked;
   String get onlineOffline;
@@ -145,6 +154,10 @@ abstract class HomeStrings {
   /// אילו רכיבים ההורדה שלהם נכשלה. בלי זה מד ההתקדמות פשוט נעלם, והמשתמש
   /// נשאר עם כונן חסר וללא סימן שמשהו קרה.
   String downloadFailedSnack(String components);
+
+  /// סוף הורדה שהצליחה. בלעדיה ההורדה — שאורכת עשרות דקות — נגמרה בכך שמד
+  /// ההתקדמות פשוט נעלם מהמסך.
+  String get downloadDoneSnack;
   String lastCheckedAt(String time);
 
   String get downloadingApp;
@@ -165,7 +178,6 @@ abstract class AppScreenStrings {
   const AppScreenStrings();
 
   String get title;
-  String get description;
 
   String get stateCardTitle;
   String get stateRowTitle;
@@ -197,21 +209,29 @@ abstract class AppScreenStrings {
   String get launchButton;
   String get installUpdateButton;
 
+  /// "מה התחדש" הוא דיאלוג מאחורי כפתור, ולא כרטיס על המסך — הערות הגרסה
+  /// ארוכות, והן מעניינות רגע אחד בלבד.
   String get whatsNewTitle;
+  String get whatsNewButton;
   String get whatsNewEmpty;
 
   String get sourceCardTitle;
-  String get sourceCardSubtitle;
+  String get sourceCardHint;
   String get sourceDirTitle;
 
   // ── חבילת ההתקנה המלאה (תוכנה + ספרייה) ─────────────────────────────────
   String get fullPackageCardTitle;
-  String get fullPackageCardSubtitle;
+
+  /// ההסבר מה החבילה הזו — מוצג בריחוף על סימן השאלה שליד כותרת הכרטיס.
+  String get fullPackageHint;
   String get fullPackageRowTitle;
   String get fullPackageRecommended;
   String get fullPackageNotNeeded;
+  String get fullPackageVersionTitle;
   String fullPackageSize(String version, String size);
   String get fullPackageInstallButton;
+
+  /// הדיאלוג שמוצע בלחיצה על "התקנה" במחשב שאין בו אוצריא — לא בעלייה.
   String get fullPackageDialogTitle;
   String fullPackagePrompt(String version, String size);
 
@@ -229,7 +249,6 @@ abstract class LibraryScreenStrings {
   const LibraryScreenStrings();
 
   String get title;
-  String get description;
 
   String get stateCardTitle;
   String get stateRowTitle;
@@ -277,7 +296,7 @@ abstract class LibraryScreenStrings {
   String fullDownloadInsteadPrompt(String size);
 
   String get sourceCardTitle;
-  String get sourceCardSubtitle;
+  String get sourceCardHint;
   String get sourceDirTitle;
 
   String get mirrorContentTitle;
@@ -309,14 +328,16 @@ abstract class SettingsScreenStrings {
   const SettingsScreenStrings();
 
   String get title;
-  String get description;
 
   String get automationCardTitle;
-  String get automationCardSubtitle;
+  String get automationCardHint;
   String get autoCheckTitle;
   String get autoCheckSubtitle;
   String get autoOnlineCheckTitle;
   String get autoOnlineCheckSubtitle;
+
+  /// ההסתייגויות — מוצגות בסימן השאלה שליד השורה, לא כשלוש שורות טקסט.
+  String get autoOnlineCheckHint;
   String get autoInstallAppTitle;
   String get autoInstallAppSubtitle;
   String get autoInstallLibraryTitle;
@@ -330,7 +351,7 @@ abstract class SettingsScreenStrings {
   String get autoInstallDialogConfirm;
 
   String get downloadCardTitle;
-  String get downloadCardSubtitle;
+  String get downloadCardHint;
   String get syncAppTitle;
   String get syncAppSubtitle;
   String get syncLibraryTitle;
@@ -339,19 +360,20 @@ abstract class SettingsScreenStrings {
   String get syncPluginsSubtitle;
   String get syncFullPackageTitle;
   String get syncFullPackageSubtitle;
+  String get syncFullPackageHint;
 
   // ── עדכון אישי ──
   /// מוריד רק את קובצי העדכון מהגרסה שכבר מותקנת ומעלה, בלי המסד המלא —
   /// ולכן הכונן אינו משמש עוד להפצה למחשבים אחרים.
   String get personalModeTitle;
   String get personalModeSubtitle;
+  String get personalModeHint;
   String get personalModeDialogTitle;
   String get personalModeDialogContent;
   String get personalModeDialogWarning;
   String get personalModeDialogConfirm;
 
   String get appearanceCardTitle;
-  String get appearanceCardSubtitle;
   String get languageTitle;
   String get languageSubtitle;
   String get languageSystem;
@@ -361,10 +383,6 @@ abstract class SettingsScreenStrings {
   String get themeSystem;
   String get themeLight;
   String get themeDark;
-  String get textSizeTitle;
-  String get textSizeSmall;
-  String get textSizeNormal;
-  String get textSizeLarge;
 
   // ── פלטת צבע הבסיס ──
   // הבחירה חלה על הערכה המוצגת כרגע — בהירה או כהה — כמו באוצריא.
@@ -570,8 +588,6 @@ abstract class SetupErrorStrings {
   String get explanation;
   String get whatToDo;
   String get attemptedDirTitle;
-  String get copyPathButton;
-  String get pathCopiedSnack;
 
   /// בפועל תמיד בעברית: השגיאה נזרקת לפני שקובץ ההגדרות בכלל נקרא, כי הוא
   /// יושב בתיקייה שנכשלה. מתורגם בכל זאת כדי שלא תישאר מחרוזת בקוד.
@@ -603,7 +619,7 @@ abstract class LauncherUpdateStrings {
 
   // ── הכרטיס בדף הבית ─────────────────────────────────────────────────────
   String get cardTitle;
-  String get cardSubtitle;
+  String get cardHint;
   String installedVersion(String version);
 
   /// הגרסה שכבר יושבת בתיקייה שלצד התוכנה ומחכה להתקנה.
@@ -854,6 +870,7 @@ abstract class AppDomainStrings {
   String installerDownloadFailed(int statusCode);
   String installerSizeMismatch(int received, int expected);
   String installerExitCode(int exitCode, String output);
+  String installerLogTail(String tail);
   String get macAppNotFoundInArchive;
   String macReplaceFailed(String error);
   String dittoExtractFailed(int exitCode, String output);
@@ -929,12 +946,11 @@ abstract class CustomAppsStrings {
 
   // ── המסך ──
   String get screenTitle;
-  String get screenDescription;
 
   /// הכניסה מההגדרות. היא קיימת כי פריט הניווט מופיע רק אחרי שנוספה
   /// תוכנה — בלעדיה אי אפשר להוסיף את הראשונה.
   String get settingsCardTitle;
-  String get settingsCardSubtitle;
+  String get settingsCardHint;
   String get emptyHint;
   String get addButton;
 

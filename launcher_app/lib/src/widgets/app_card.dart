@@ -37,11 +37,26 @@ class AppCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget card =
-        children != null ? _buildSection(context) : _buildSingle(context);
+    Widget card = _withShadow(
+      context,
+      children != null ? _buildSection(context) : _buildSingle(context),
+    );
 
     if (margin != null) card = Padding(padding: margin!, child: card);
     return card;
+  }
+
+  /// הצל יושב מחוץ למשטח הכרטיס ולא בתוכו, כדי שלא ייחתך ב-clip של הפינות.
+  Widget _withShadow(BuildContext context, Widget card) {
+    final shadow = AppSurfaces.cardShadow(context);
+    if (shadow.isEmpty) return card;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: AppTokens.borderRadiusAll,
+        boxShadow: shadow,
+      ),
+      child: card,
+    );
   }
 
   Widget _buildSingle(BuildContext context) {

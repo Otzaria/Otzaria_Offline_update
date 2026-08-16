@@ -1,6 +1,5 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../services/app_paths.dart';
 import '../theme/theme_exports.dart';
@@ -70,16 +69,7 @@ class SetupErrorScreen extends StatelessWidget {
                           path: error.attemptedDir,
                           placeholder: context.strings.common.emptyValue,
                           actions: [
-                            ActionButton.neutral(
-                              text: t.copyPathButton,
-                              icon: FluentIcons.copy_24_regular,
-                              onPressed: () async {
-                                await Clipboard.setData(
-                                  ClipboardData(text: error.attemptedDir),
-                                );
-                                UiSnack.showSuccess(t.pathCopiedSnack);
-                              },
-                            ),
+                            CopyPathButton(path: error.attemptedDir),
                           ],
                         ),
                       ],

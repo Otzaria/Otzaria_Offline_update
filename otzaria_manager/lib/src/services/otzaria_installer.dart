@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -292,28 +294,75 @@ class OtzariaInstaller {
     // /VERYSILENT + /SUPPRESSMSGBOXES: אין UI בכלל, כולל תיבות שגיאה.
     // /NORESTART: לא להפעיל מחדש את המחשב גם אם ה-installer "רוצה".
     // /DIR=: נתיב התקנה מפורש, כדי שנדע איפה לחפש את ה-exe אחר כך.
+    // /LOG=: ראו [_installFailureOutput]. הדגל מורכב בשרשור — `p.join` היה
+    // מתייחס אליו כרכיב נתיב.
+    final logPath =
+        p.join(Directory.systemTemp.path, 'otzaria-install-$pid.log');
     final args = [
       '/VERYSILENT',
       '/SUPPRESSMSGBOXES',
       '/NORESTART',
       '/DIR=$installDir',
+      '/LOG=$logPath',
     ];
 
     final result = await Process.run(installerPath, args);
     if (result.exitCode != 0) {
+      final details = _installFailureOutput(result, logPath);
+      _deleteQuietly(logPath);
       throw StateError(
-        AppL10n.strings.appDomain.installerExitCode(
-          result.exitCode,
-          'stdout: ${result.stdout}\nstderr: ${result.stderr}',
-        ),
+        AppL10n.strings.appDomain.installerExitCode(result.exitCode, details),
       );
     }
+    _deleteQuietly(logPath);
 
     // הערה: ל-installer-ים מבוססי Inno Setup יש לפעמים תהליך "עוטף"
     // (SetupLdr) שמשגר תהליך-בן ומסתיים מיד, עוד לפני שההתקנה בפועל
     // הסתיימה — ולכן exitCode==0 כאן לא מבטיח שהקבצים כבר על הדיסק.
     // בגלל זה יש polling נפרד ב-_waitForInstalledApp במקום להסתמך רק על
     // סיום התהליך.
+  }
+
+  /// כמה שורות מסוף לוג ה-Inno נכנסות להודעת השגיאה.
+  static const int _installLogTailLines = 40;
+
+  /// מה שיש לומר על כישלון התקנה. `stdout`/`stderr` של מתקין שקט **ריקים
+  /// תמיד**, ולכן "קוד יציאה 5" לבדו לא אומר דבר; לוג ה-Inno הוא זה שאומר
+  /// אם הקובץ היה נעול, אם נגמר המקום או אם ההרשאות חסרות.
+  String _installFailureOutput(ProcessResult result, String logPath) {
+    final tail = _readLogTail(logPath);
+    if (tail != null) return AppL10n.strings.appDomain.installerLogTail(tail);
+    return 'stdout: ${result.stdout}\nstderr: ${result.stderr}';
+  }
+
+  String? _readLogTail(String logPath) {
+    try {
+      final file = File(logPath);
+      if (!file.existsSync()) return null;
+      // פענוח סלחני: הלוג נכתב בקידוד של ה-installer (ANSI או UTF-16), ובית
+      // אחד לא-חוקי לא יבלע את ההסבר היחיד שיש לכישלון. ה-NUL-ים מוסרים כדי
+      // ש-UTF-16 לא ייקרא כטקסט מנוקד באפסים.
+      final text = utf8
+          .decode(file.readAsBytesSync(), allowMalformed: true)
+          .replaceAll(String.fromCharCode(0), '');
+      final lines = text
+          .split('\n')
+          .map((line) => line.trimRight())
+          .where((line) => line.isNotEmpty)
+          .toList();
+      if (lines.isEmpty) return null;
+      final from = math.max(0, lines.length - _installLogTailLines);
+      return lines.skip(from).join('\n');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _deleteQuietly(String path) {
+    try {
+      final file = File(path);
+      if (file.existsSync()) file.deleteSync();
+    } catch (_) {}
   }
 
   // ------------------------------------------------------------------ macOS

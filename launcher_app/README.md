@@ -90,7 +90,10 @@ ZSTD_ROOT="C:/pub-cache/hosted/pub.dev/zstandard_native-1.5.0/src/zstd" \
 | כפתורי פעולה | `ActionButton.recommended` / `.neutral` / `.ghost` / `.warning` |
 | הודעות למשתמש | `UiSnack.show` / `.showSuccess` / `.showError` |
 | דיאלוגים | `showSingleActionDialog` / `showTwoActionsDialog` / `showWarningDialog` |
-| כרטיסי הגדרות | `SettingsCard` + `SettingsActionTile` (`.text` / `.path` / `switchTile` / `segmentedTile`) |
+| כרטיסי הגדרות | `SettingsCard` + `SettingsActionTile` (`.text` / `.path` / `switchTile` / `segmentedTile` / `dropdownTile`) |
+| כפתורי הפעולה של כרטיס | `SettingsCard(actions: …)` — נפרסים מתחת לכרטיס, לא כשורה בתוכו |
+| רשימת אפשרויות ארוכה | `AppDropdownField` + `AppMenuEntry` — פורט מצומצם (בלי חיפוש/צ'יפים/תת-תפריטים) |
+| נתיב בשורת הגדרה | `CopyPathButton` — הנתיב מועתק ואינו מוצג; `SettingsActionTile.path` רק כשהנתיב עצמו הוא המסר (מסך השגיאה) |
 | בחירת צבע בסיס | `ColorPickerTile` — פלטת `AppSeedColors`, לא בורר צבעים חופשי |
 | כרטיס תוכן | `AppCard` / `AppCard.section` |
 | 2–4 אפשרויות | `AppSegmentedControl` (לא RadioButton) |
@@ -109,6 +112,14 @@ ZSTD_ROOT="C:/pub-cache/hosted/pub.dev/zstandard_native-1.5.0/src/zstd" \
 ובלי כפתורי פעולה. ⚠️ מאז שנוסף שדה החיפוש בחנות התוספים יש בלאנצ'ר
 קלט טקסט אמיתי ראשון, ולכן פורט מלא של
 `otzaria/lib/widgets/text/rtl_text_field.dart` הוא כעת חוב פתוח.
+
+**להיעדר התור יש שתי השלכות שחוזרות בקוד.** שתי קריאות `UiSnack` באותו
+רגע אינן שתי הודעות אלא אחת — השנייה דורסת את הראשונה מיד — ולכן פעולה
+שיש לה כמה תוצאות מסכמת אותן להודעה אחת לפי סדר חומרה (ראו
+`controllers/download_summary.dart`). וההודעה עצמה מוגבלת לשלוש שורות:
+טוסט הוא שורה, וכשהודעת שגיאה נושאת איתה לוג התקנה, מקומו של הלוג הוא
+דיאלוג ה"פרטים" של `InfoErrorRow` — שמציג את השורה הראשונה ופותח את
+השאר בלחיצה — ויומן הפעילות.
 
 ### שפה וכיווניות
 

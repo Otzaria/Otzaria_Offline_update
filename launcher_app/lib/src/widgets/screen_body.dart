@@ -2,17 +2,16 @@ import 'package:flutter/material.dart';
 
 import '../theme/theme_exports.dart';
 
-/// גוף מסך אחיד: כותרת, הסבר קצר ורשימת כרטיסים — ברוחב תוכן מוגבל
-/// וממורכז, כדי שהכרטיסים לא יתמשכו לרוחב מסך שלם (תכנון §14).
+/// גוף מסך אחיד: כותרת ורשימת כרטיסים — ברוחב תוכן מוגבל וממורכז, כדי
+/// שהכרטיסים לא יתמשכו לרוחב מסך שלם (תכנון §14). אין כאן פסקת הסבר:
+/// ההסברים עברו לסימני שאלה שליד הכותרות שהם באמת נוגעות להן.
 class ScreenBody extends StatelessWidget {
   final String title;
-  final String? description;
   final List<Widget> children;
 
   const ScreenBody({
     super.key,
     required this.title,
-    this.description,
     required this.children,
   });
 
@@ -37,21 +36,7 @@ class ScreenBody extends StatelessWidget {
                 left: AppTokens.spaceMD,
                 top: AppTokens.spaceSM,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: theme.textTheme.headlineSmall),
-                  if (description != null) ...[
-                    const SizedBox(height: AppTokens.spaceXS),
-                    Text(
-                      description!,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+              child: Text(title, style: theme.textTheme.headlineSmall),
             ),
             ...children,
             const SizedBox(height: AppTokens.spaceXL),

@@ -50,7 +50,6 @@ class CustomAppsScreen extends StatelessWidget {
 
     return ScreenBody(
       title: t.screenTitle,
-      description: t.screenDescription,
       children: [
         for (final app in controller.apps)
           Padding(

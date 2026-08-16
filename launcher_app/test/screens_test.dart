@@ -22,6 +22,7 @@ import 'package:launcher_app/src/self_update/launcher_release.dart';
 import 'package:launcher_app/src/self_update/launcher_version.dart';
 import 'package:launcher_app/src/self_update/payload_check.dart';
 import 'package:launcher_app/src/services/app_paths.dart';
+import 'package:launcher_app/src/services/timestamps.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
 import 'package:launcher_app/src/theme/theme_exports.dart';
@@ -63,6 +64,7 @@ void main() {
     bool isCheckingOnline = false,
     Future<bool> Function()? onProcessStateChanged,
     Future<void> Function()? onCancelDownload,
+    Future<void> Function()? onInstallFullPackage,
   }) =>
       HomeScreen(
         otzaria: otzaria,
@@ -81,6 +83,7 @@ void main() {
         onDownloadLauncherUpdate: () async {},
         onInstallLauncherUpdate: () async {},
         onRequestReindex: () async {},
+        onInstallFullPackage: onInstallFullPackage,
         onGoToOtzaria: () {},
         onGoToLibrary: () {},
       );
@@ -200,6 +203,48 @@ void main() {
     expect(find.text(t.onlineUpdatedPlugins(0)), findsNothing);
   });
 
+  // ההצעה על החבילה המלאה קופצת בלחיצה על "התקנה" בלבד. קודם היא קפצה
+  // מעצמה בכניסה לתוכנה, לפני שהמשתמש ביקש להתקין משהו.
+  testWidgets('אין אוצריא + חבילה על הכונן — "התקנה" מציעה את החבילה המלאה',
+      (tester) async {
+    final t = stringsOf().appScreen;
+    otzaria.status = OtzariaModuleStatus.updateAvailable;
+    otzaria.fullPackage = const OtzariaFullPackage(
+      assetName: 'otzaria-0.9.96-windows-full.exe',
+      downloadUrl: 'https://example/full.exe',
+      sizeBytes: 2114350952,
+      installerKind: OtzariaInstallerKind.windowsSetupExe,
+    );
+    otzaria.fullPackageRecommended = true;
+    otzaria.stableVersion = '0.9.96';
+
+    var installs = 0;
+    await pumpScreen(
+        tester, home(onInstallFullPackage: () async => installs++));
+    expect(find.text(t.fullPackageDialogTitle), findsNothing);
+
+    await tester.tap(find.text(stringsOf().common.install));
+    await tester.pumpAndSettle();
+    expect(find.text(t.fullPackageDialogTitle), findsOneWidget);
+
+    await tester.tap(find.text(t.fullPackageInstallButton));
+    await tester.pumpAndSettle();
+    expect(installs, 1);
+  });
+
+  testWidgets('אוצריא מותקנת — "התקנה" היא המתקין הרגיל ולא החבילה המלאה',
+      (tester) async {
+    otzaria.status = OtzariaModuleStatus.updateAvailable;
+    otzaria.currentVersion = '0.9.95';
+    otzaria.latestVersion = '0.9.96';
+
+    await pumpScreen(tester, home(onInstallFullPackage: () async {}));
+    await tester.tap(find.text(stringsOf().common.install));
+    await tester.pumpAndSettle();
+
+    expect(find.text(stringsOf().home.appInstallDialogTitle), findsOneWidget);
+  });
+
   testWidgets('דף הבית מציג אזהרה כשאוצריא פתוחה', (tester) async {
     await pumpScreen(tester, home(otzariaIsRunning: true));
 
@@ -240,6 +285,32 @@ void main() {
     expect(find.text(t.downloadButton), findsOneWidget);
     // עוד לא הורד כלום, ולכן אין מה להתקין.
     expect(find.text(t.installButton), findsNothing);
+  });
+
+  // אחרי עדכון עצמי התיקייה מחזיקה בדיוק את הגרסה שרצה, וזו הוצגה כ"נמצאה
+  // ברשת" — כלומר הכרטיס הודיע על עדכון ונקב במספר של הגרסה הנוכחית.
+  testWidgets('גרסה ישנה בתיקייה אינה מוצגת כגרסה שנמצאה ברשת', (tester) async {
+    final t = stringsOf().launcherUpdate;
+    launcherUpdate.status = LauncherUpdateStatus.upToDate;
+    launcherUpdate.downloadedVersion = launcherUpdate.currentVersion;
+    launcherUpdate.onlineRelease = const LauncherRelease(
+      tagName: 'v9.9.9',
+      name: 'Otzaria Updates v9.9.9',
+      assetName: 'עדכוני אוצריא.exe',
+      downloadUrl: 'https://example/x.exe',
+      sizeBytes: 42 << 20,
+    );
+
+    await pumpScreen(tester, home());
+
+    expect(find.text(t.onlineVersion('9.9.9')), findsOneWidget);
+    expect(
+      find.text(t.onlineVersion(launcherUpdate.currentVersion)),
+      findsNothing,
+    );
+    // אין בתיקייה מה להתקין — היא מחזיקה את הגרסה שכבר רצה.
+    expect(find.text(t.downloadedVersion(launcherUpdate.currentVersion)),
+        findsNothing);
   });
 
   testWidgets('גרסה שהורדה — הכרטיס מציע התקנה, וגם בלי רשת', (tester) async {
@@ -367,6 +438,11 @@ void main() {
     );
 
     expect(find.text('מצב ההתקנה'), findsOneWidget);
+    // הערות הגרסה יושבות מאחורי כפתור, ולא כריבוע על המסך.
+    expect(find.text('מה התחדש בגרסה האחרונה'), findsNothing);
+    await tester.tap(find.widgetWithText(ActionButton, 'מה התחדש'));
+    await tester.pumpAndSettle();
+
     expect(find.text('מה התחדש בגרסה האחרונה'), findsOneWidget);
     expect(
       find.text('אין תיאור לגרסה הזו, או שעדיין לא הורדה גרסה.'),
@@ -533,6 +609,40 @@ void main() {
     expect(find.text('חזרה לעדכון מהרשת'), findsNothing);
   });
 
+  /// הכפתורים ישבו כשורה בתוך [AppCard.section], ולכן על משטח הכרטיס הלבן.
+  /// מקומם מתחתיו, על רקע הלוח.
+  testWidgets('כפתורי הפעולה של הכרטיס אינם יושבים על משטח הכרטיס',
+      (tester) async {
+    Finder actionsInsideCard() => find.descendant(
+          of: find.byType(AppCard),
+          matching: find.byType(CardActionsRow),
+        );
+
+    await pumpScreen(
+      tester,
+      LibraryScreen(
+        library: library,
+        otzariaIsRunning: false,
+        isDownloading: false,
+        onProcessStateChanged: () async => false,
+        onRequestReindex: () async {},
+      ),
+    );
+    expect(find.byType(CardActionsRow), findsOneWidget);
+    expect(actionsInsideCard(), findsNothing);
+
+    await pumpScreen(
+      tester,
+      OtzariaScreen(
+        otzaria: otzaria,
+        settings: settings,
+        otzariaIsRunning: false,
+      ),
+    );
+    expect(find.byType(CardActionsRow), findsOneWidget);
+    expect(actionsInsideCard(), findsNothing);
+  });
+
   // לפני התיקון ההתקנה הטרייה נחתה בתיקיית הלאנצ'ר בלי שאיש ראה זאת מראש.
   testWidgets('בלי מסד — מוצג יעד ההתקנה ואפשר לשנות אותו', (tester) async {
     library.installTargetPath = r'C:\otzaria\books\seforim.db';
@@ -549,7 +659,7 @@ void main() {
     );
 
     expect(find.text('הספרייה תותקן אל'), findsOneWidget);
-    expect(find.text('קובץ seforim.db הפעיל'), findsNothing);
+    expect(find.text('קובץ seforim.db פעיל'), findsNothing);
     expect(
       find.widgetWithText(ActionButton, 'בחירת מיקום להתקנה'),
       findsOneWidget,
@@ -570,7 +680,7 @@ void main() {
       ),
     );
 
-    expect(find.text('קובץ seforim.db הפעיל'), findsOneWidget);
+    expect(find.text('קובץ seforim.db פעיל'), findsOneWidget);
     expect(
       find.widgetWithText(ActionButton, 'בחירת מיקום להתקנה'),
       findsNothing,
@@ -1111,7 +1221,10 @@ void main() {
 
     // ברירת המחדל היא "אוטומטי" — לפי שפת המחשב.
     expect(settings.settings.languagePreference, AppLanguagePreference.system);
-    await tester.tap(find.text('English'));
+    // הבורר הוא תפריט נפתח (כמו באוצריא), ולכן פותחים אותו לפני הבחירה.
+    await tester.tap(find.text('אוטומטי'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('English').last);
     await tester.pumpAndSettle();
 
     expect(settings.settings.languagePreference, AppLanguagePreference.english);
@@ -1121,8 +1234,7 @@ void main() {
     expect(AppL10n.language, AppLanguage.english);
     addTearDown(() => AppL10n.use(AppLanguage.hebrew));
 
-    // וחזרה לאוטומטי — הבחירה המפורשת ניתנת לביטול. המסך נבנה מחדש כדי
-    // שהסגמנט הנבחר יתעדכן: `SegmentedButton` מתעלם מהקשה על הנבחר.
+    // וחזרה לאוטומטי — הבחירה המפורשת ניתנת לביטול.
     await pumpScreen(
       tester,
       SettingsScreen(
@@ -1131,7 +1243,9 @@ void main() {
         launcherVersion: launcherVersion,
       ),
     );
-    await tester.tap(find.text('אוטומטי'));
+    await tester.tap(find.text('English'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('אוטומטי').last);
     await tester.pumpAndSettle();
 
     expect(settings.settings.languagePreference, AppLanguagePreference.system);
@@ -1267,7 +1381,10 @@ void main() {
     // הפעולה היחידה היא העתקת הנתיב — אין "המשך בכל זאת" ואין ניווט פנימה.
     final buttons = tester.widgetList<ActionButton>(find.byType(ActionButton));
     expect(buttons.length, 1);
-    expect(find.widgetWithText(ActionButton, t.copyPathButton), findsOneWidget);
+    expect(
+      find.widgetWithText(ActionButton, stringsOf().common.copyPathButton),
+      findsOneWidget,
+    );
   });
 
   testWidgets('מסך "הקבצים אינם תואמים" מציג את שתי הגרסאות ורק סגירה',
@@ -1344,7 +1461,7 @@ void main() {
     expect(find.text(t.channelPrerelease), findsNothing);
   });
 
-  testWidgets('מסך התוכנה מציג את שלושת הכרטיסים באנגלית', (tester) async {
+  testWidgets('מסך התוכנה מציג את הכרטיסים באנגלית', (tester) async {
     final t = stringsOf(AppLanguage.english).appScreen;
 
     await pumpScreen(
@@ -1358,9 +1475,42 @@ void main() {
     );
 
     expect(find.text(t.stateCardTitle), findsOneWidget);
-    expect(find.text(t.whatsNewTitle), findsOneWidget);
+    expect(find.text(t.whatsNewButton), findsOneWidget);
     expect(find.text(t.sourceCardTitle), findsOneWidget);
     expect(find.text(stringsOf().appScreen.stateCardTitle), findsNothing);
+  });
+
+  // שני המסכים עיצבו את "הורד לאחרונה" בעצמם דרך `DateTime.toString`, וכך
+  // הוצג בעברית תאריך ISO בזמן ש"סונכרן ב־" שבחנות הוצג ב-dd.mm.yyyy.
+  testWidgets('"הורד לאחרונה" בשני המסכים באותו פורמט של formatTimestamp',
+      (tester) async {
+    final at = DateTime(2026, 8, 12, 9, 5, 7);
+    final expected = formatTimestamp(at);
+    expect(expected, '12.08.2026, 09:05:07');
+
+    otzaria.lastDownloadedAt = at;
+    await pumpScreen(
+      tester,
+      OtzariaScreen(
+        otzaria: otzaria,
+        settings: settings,
+        otzariaIsRunning: false,
+      ),
+    );
+    expect(find.text(expected), findsOneWidget);
+
+    library.lastDownloadedAt = at;
+    await pumpScreen(
+      tester,
+      LibraryScreen(
+        library: library,
+        otzariaIsRunning: false,
+        isDownloading: false,
+        onProcessStateChanged: () async => false,
+        onRequestReindex: () async {},
+      ),
+    );
+    expect(find.text(expected), findsOneWidget);
   });
 
   // ── דף הבית: מצבי הבדיקה ברשת ─────────────────────────────────────────────

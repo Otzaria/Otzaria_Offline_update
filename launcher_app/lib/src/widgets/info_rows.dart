@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../l10n/app_strings_scope.dart';
 import '../theme/theme_exports.dart';
 import 'action_buttons.dart';
+import 'app_dialogs.dart';
 import 'settings_card.dart';
 import 'status_chip.dart';
 
@@ -33,23 +34,53 @@ class InfoStatusRow extends StatelessWidget {
 
 /// שורת שגיאה — הודעה בשפת הממשק, וכפתור "נסה שוב" כשיש מה לנסות.
 /// פרטים טכניים נשארים ביומן הפעילות (תכנון §14).
+///
+/// הודעה רב-שורתית (למשל כישלון התקנה, שגורר איתו את סוף לוג ה-Inno) מוצגת
+/// בשורתה הראשונה בלבד, והשאר נפתח בדיאלוג: ארבעים שורות בתוך שורת כרטיס
+/// דוחפות את כל מה שמתחתיהן ואינן נקראות ממילא.
 class InfoErrorRow extends StatelessWidget {
   final String message;
   final Future<void> Function()? onRetry;
 
   const InfoErrorRow({super.key, required this.message, this.onRetry});
 
+  /// השורה הראשונה היא הכותרת, וכל מה שאחריה — הפירוט (`null` כשאין כזה).
+  (String, String?) get _headlineAndDetails {
+    final breakAt = message.indexOf('\n');
+    if (breakAt < 0) return (message, null);
+    final details = message.substring(breakAt + 1).trim();
+    return (message.substring(0, breakAt), details.isEmpty ? null : details);
+  }
+
+  Future<void> _showDetails(BuildContext context) {
+    final common = context.strings.common;
+    return showSingleActionDialog(
+      context: context,
+      title: common.errorDetailsTitle,
+      content: message,
+      confirmText: common.close,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final common = context.strings.common;
+    final (headline, details) = _headlineAndDetails;
+
     return SettingsActionTile.text(
       icon: FluentIcons.error_circle_24_regular,
       iconColor: cs.error,
       title: common.error,
-      subtitle: message,
+      subtitle: headline,
       subtitleColor: cs.error,
       actions: [
+        if (details != null)
+          ActionButton.ghost(
+            text: common.errorDetailsButton,
+            icon: FluentIcons.document_bullet_list_24_regular,
+            onPressed: () => _showDetails(context),
+          ),
         if (onRetry != null)
           ActionButton.neutral(
             text: common.retry,
@@ -118,21 +149,4 @@ class InfoProgressRow extends StatelessWidget {
       ),
     );
   }
-}
-
-/// שורת כפתורי הפעולה בתחתית כרטיס.
-class CardActionsRow extends StatelessWidget {
-  final List<Widget> actions;
-
-  const CardActionsRow({super.key, required this.actions});
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.all(AppTokens.spaceMD),
-        child: Wrap(
-          spacing: AppTokens.spaceSM,
-          runSpacing: AppTokens.spaceSM,
-          children: actions,
-        ),
-      );
 }

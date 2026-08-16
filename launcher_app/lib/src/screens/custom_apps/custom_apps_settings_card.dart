@@ -21,7 +21,7 @@ class CustomAppsSettingsCard extends StatelessWidget {
 
     return SettingsCard(
       title: t.settingsCardTitle,
-      subtitle: t.settingsCardSubtitle,
+      hint: t.settingsCardHint,
       children: [
         SettingsActionTile.text(
           icon: FluentIcons.box_24_regular,

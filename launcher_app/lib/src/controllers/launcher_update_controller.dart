@@ -66,8 +66,10 @@ class LauncherUpdateController extends ChangeNotifier with ProgressNotifier {
     return LauncherVersion.isNewer(online.tagName, best);
   }
 
-  /// הגרסה שכדאי להציג כ"החדשה" — מה שהורד, ואם לא הורד כלום, מה שברשת.
-  String? get newestKnownVersion => downloadedVersion ?? onlineRelease?.version;
+  /// הגרסה שנמצאה ברשת ועדיין לא הורדה. `null` כשאין ברשת חדש ממה שכבר יש —
+  /// לא הגרסה שבתיקייה, שאחרי עדכון עצמי היא בדיוק זו שרצה כרגע.
+  String? get onlineUpdateVersion =>
+      hasOnlineUpdate ? onlineRelease?.version : null;
 
   /// בדיקה קלה ברשת. כשל (בעיקר "אין חיבור") הוא מצב תקין ונשמר בשקט, בדיוק
   /// כמו במודולים האחרים — בדיקה אוטומטית לא מציגה שגיאה כשאין רשת.
@@ -77,11 +79,12 @@ class LauncherUpdateController extends ChangeNotifier with ProgressNotifier {
 
     try {
       onlineRelease = await _updater.peekLatestOnline();
-    } catch (e, st) {
+    } catch (e) {
       onlineRelease = null;
       onlineCheckError = e.toString();
+      // ראו `LibraryModuleController.checkOnline` — בלי stack trace בכוונה.
       AppLogger.instance
-          .info("בדיקת עדכונים ברשת (הלאנצ'ר עצמו) לא הצליחה: $e\n$st");
+          .info("בדיקת עדכונים ברשת (הלאנצ'ר עצמו) לא הצליחה: $e");
     }
     onlineCheckedAt = DateTime.now();
     notifyListeners();

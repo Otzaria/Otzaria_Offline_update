@@ -49,7 +49,6 @@ class SettingsScreen extends StatelessWidget {
 
     return ScreenBody(
       title: t.title,
-      description: t.description,
       children: [
         // שפה ומראה ראשונים: מי שפותח בפעם הראשונה צריך קודם להבין את המסך.
         _appearanceCard(context),
@@ -69,7 +68,7 @@ class SettingsScreen extends StatelessWidget {
 
     return SettingsCard(
       title: t.automationCardTitle,
-      subtitle: t.automationCardSubtitle,
+      hint: t.automationCardHint,
       children: [
         SettingsActionTile.switchTile(
           icon: FluentIcons.search_info_24_regular,
@@ -82,6 +81,7 @@ class SettingsScreen extends StatelessWidget {
           icon: FluentIcons.cloud_24_regular,
           title: t.autoOnlineCheckTitle,
           subtitle: t.autoOnlineCheckSubtitle,
+          hint: t.autoOnlineCheckHint,
           value: _s.autoCheckOnlineUpdates,
           onChanged: (v) => _set(_s.copyWith(autoCheckOnlineUpdates: v)),
         ),
@@ -145,7 +145,7 @@ class SettingsScreen extends StatelessWidget {
 
     return SettingsCard(
       title: t.downloadCardTitle,
-      subtitle: t.downloadCardSubtitle,
+      hint: t.downloadCardHint,
       children: [
         SettingsActionTile.switchTile(
           icon: FluentIcons.desktop_24_regular,
@@ -172,6 +172,7 @@ class SettingsScreen extends StatelessWidget {
           icon: FluentIcons.box_24_regular,
           title: t.syncFullPackageTitle,
           subtitle: t.syncFullPackageSubtitle,
+          hint: t.syncFullPackageHint,
           value: _s.syncFullPackage,
           onChanged: (v) => _set(_s.copyWith(syncFullPackage: v)),
         ),
@@ -179,6 +180,7 @@ class SettingsScreen extends StatelessWidget {
           icon: FluentIcons.person_24_regular,
           title: t.personalModeTitle,
           subtitle: t.personalModeSubtitle,
+          hint: t.personalModeHint,
           value: _s.personalUpdateMode,
           onChanged: (v) => _confirmPersonalMode(context, enabled: v),
         ),
@@ -211,9 +213,8 @@ class SettingsScreen extends StatelessWidget {
 
   // ── שפה ומראה ─────────────────────────────────────────────────────────────
 
-  /// רוחב קבוע לשלוש השורות בכרטיס — כך שתיבות ערכת הנושא, שהתווית הארוכה
-  /// ביניהן ("לפי המערכת") הייתה מגדילה אותן יותר מהשורה השנייה, יושבות
-  /// באותו גודל בדיוק כמו תיבות השפה וגודל הטקסט.
+  /// רוחב קבוע לשורות הכרטיס — כך שתיבת ערכת הנושא, שהתווית הארוכה שבה
+  /// הייתה מגדילה אותה, יושבת באותו גודל בדיוק כמו בורר השפה.
   static const double _uiSegmentWidth = 300;
 
   Widget _appearanceCard(BuildContext context) {
@@ -221,25 +222,24 @@ class SettingsScreen extends StatelessWidget {
 
     return SettingsCard(
       title: t.appearanceCardTitle,
-      subtitle: t.appearanceCardSubtitle,
       children: [
-        SettingsActionTile.segmentedTile<AppLanguagePreference>(
+        // תפריט נפתח ולא סגמנטד — כמו בורר השפה של אוצריא.
+        SettingsActionTile.dropdownTile<AppLanguagePreference>(
           icon: FluentIcons.local_language_24_regular,
           title: t.languageTitle,
           subtitle: t.languageSubtitle,
           currentValue: _s.languagePreference,
-          onChanged: (v) => _set(_s.copyWith(languagePreference: v)),
-          width: _uiSegmentWidth,
-          options: [
-            SegmentOption(
+          onSelected: (v) => _set(_s.copyWith(languagePreference: v)),
+          entries: [
+            AppMenuEntry(
               value: AppLanguagePreference.system,
               label: t.languageSystem,
             ),
-            SegmentOption(
+            AppMenuEntry(
               value: AppLanguagePreference.hebrew,
               label: t.languageHebrew,
             ),
-            SegmentOption(
+            AppMenuEntry(
               value: AppLanguagePreference.english,
               label: t.languageEnglish,
             ),
@@ -258,18 +258,6 @@ class SettingsScreen extends StatelessWidget {
           ],
         ),
         _colorPickerTile(context),
-        SettingsActionTile.segmentedTile<double>(
-          icon: FluentIcons.text_font_size_24_regular,
-          title: t.textSizeTitle,
-          currentValue: _s.textScale,
-          onChanged: (v) => _set(_s.copyWith(textScale: v)),
-          width: _uiSegmentWidth,
-          options: [
-            SegmentOption(value: 0.9, label: t.textSizeSmall),
-            SegmentOption(value: 1.0, label: t.textSizeNormal),
-            SegmentOption(value: 1.15, label: t.textSizeLarge),
-          ],
-        ),
       ],
     );
   }

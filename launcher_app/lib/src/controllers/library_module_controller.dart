@@ -203,10 +203,12 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
 
     try {
       onlineLatestVersion = await _manager.peekLatestOnlineVersion();
-    } catch (e, st) {
+    } catch (e) {
       onlineLatestVersion = null;
       onlineCheckError = e.toString();
-      AppLogger.instance.info('בדיקת עדכונים ברשת (ספרייה) לא הצליחה: $e\n$st');
+      // בלי stack trace: "אין רשת" הוא המצב הרגיל במחשב שהתוכנה נועדה לו,
+      // וארבעה traces בכל הפעלה הטביעו את הלוג במקום להסביר משהו.
+      AppLogger.instance.info('בדיקת עדכונים ברשת (ספרייה) לא הצליחה: $e');
     }
     onlineCheckedAt = DateTime.now();
     notifyListeners();

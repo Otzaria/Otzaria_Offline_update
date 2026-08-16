@@ -42,6 +42,18 @@ class AppSurfaces {
       ? _cs(context).surfaceContainer
       : _cs(context).surface;
 
+  /// צל רך לכרטיסי תוכן — עומק עדין שמפריד את הכרטיס מרקע הלוח. במצב כהה
+  /// הרקע שחור ממילא, וצל עליו רק מלכלך את הפינות; שם אין צל.
+  static List<BoxShadow> cardShadow(BuildContext context) => _cs(context).isDark
+      ? const []
+      : [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ];
+
   /// צבע מפריד פנימי בין שורות בתוך כרטיס תוכן
   static Color cardRowDivider(BuildContext context) => panelBackground(context);
 
