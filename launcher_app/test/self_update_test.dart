@@ -85,6 +85,13 @@ void main() {
       expect(LauncherVersion.isNewer('v0.0.9', '0.1.0'), isFalse);
     });
 
+    test('הגרסה המוצגת מורידה את ה-.0 שבסוף התג', () {
+      // התג נשאר בן שלושה חלקים כדי שלאנצ'רים ותיקים יזהו אותו, אבל למשתמש
+      // מוצע "0.2" — אותו מספר שהתוכנה מדווחת על עצמה.
+      expect(_releaseFor('v0.2.0', 1).version, '0.2');
+      expect(_releaseFor('v0.1.15', 1).version, '0.1.15');
+    });
+
     test('רק vX.Y (או vX.Y.Z הוותיק) נחשב תג של release', () {
       expect(LauncherVersion.isReleaseTag('v0.2'), isTrue);
       expect(LauncherVersion.isReleaseTag('v0.1.7'), isTrue);
@@ -140,7 +147,7 @@ void main() {
       ]);
 
       expect(release?.tagName, 'v0.2.0');
-      expect(release?.version, '0.2.0');
+      expect(release?.version, '0.2');
       expect(release?.sizeBytes, 4);
     });
 
@@ -524,7 +531,7 @@ void main() {
       await self.downloadToMirror();
 
       final check = await self.checkForUpdate();
-      expect(check.mirroredVersion, LauncherVersion.normalize(_newerTag));
+      expect(check.mirroredVersion, _release().version);
       expect(check.updateAvailable, isTrue);
     });
 

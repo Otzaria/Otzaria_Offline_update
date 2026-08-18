@@ -26,7 +26,18 @@ class LauncherRelease {
   final String? releaseNotes;
 
   /// הגרסה המנורמלת של התג — זו שמוצגת למשתמש ומושווית למותקנת.
-  String get version => LauncherVersion.normalize(tagName);
+  ///
+  /// ה-`.0` שבסוף התג יורד: התג הוא `v0.2.0` (בן שלושה חלקים, כדי שלאנצ'רים
+  /// ותיקים יזהו אותו) אבל המספר שהתוכנה מדווחת על עצמה הוא `0.2`, ושני
+  /// מספרים שונים על אותו עדכון מבלבלים.
+  String get version {
+    final normalized = LauncherVersion.normalize(tagName);
+    final parts = normalized.split('.');
+    if (parts.length == 3 && parts.last == '0') {
+      return '${parts[0]}.${parts[1]}';
+    }
+    return normalized;
+  }
 
   Map<String, dynamic> toJson() => {
         'tagName': tagName,

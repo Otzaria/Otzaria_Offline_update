@@ -34,16 +34,20 @@ jobs:
           # הגרסה היא בת שני חלקים (`0.2`) ורק החלק השני עולה. ב-pubspec
           # יושב `0.2.0` — pub דורש שלושה חלקים — ולכן קוראים רק את השניים
           # הראשונים ומתעלמים מהשארית.
+          #
+          # ⚠️ התג נשאר בן שלושה חלקים (`v0.2.0`) ואינו הולך אחרי המספר
+          # המוצג. כל לאנצ'ר שכבר בשטח פוסל תג שאינו `vX.Y.Z` בדיוק, ולכן
+          # `v0.2` היה release שאיש מהמשתמשים הקיימים אינו יכול למצוא.
           current="$(sed -n 's/^version:[[:space:]]*//p' launcher_app/pubspec.yaml | head -1 | cut -d+ -f1 | tr -d '[:space:]')"
           major="${current%%.*}"; rest="${current#*.}"
           minor="${rest%%.*}"
           minor=$((minor + 1))
-          while git rev-parse -q --verify "refs/tags/v$major.$minor" >/dev/null; do
+          while git rev-parse -q --verify "refs/tags/v$major.$minor.0" >/dev/null; do
             minor=$((minor + 1))
           done
           echo "version=$major.$minor" >> "$GITHUB_OUTPUT"
-          echo "tag=v$major.$minor" >> "$GITHUB_OUTPUT"
-          echo "מ-$current אל $major.$minor"
+          echo "tag=v$major.$minor.0" >> "$GITHUB_OUTPUT"
+          echo "מ-$current אל $major.$minor (תג v$major.$minor.0)"
 
   seforim_library_updater:
     name: seforim_library_updater (analyze + test)

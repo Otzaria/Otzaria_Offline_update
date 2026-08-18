@@ -555,8 +555,14 @@ re-launches it with `--after-update=<pid>`. Five things hold it together:
 - **Versions have two parts (`0.2` → `0.3`); only the second one moves.**
   `pubspec.yaml` still holds `0.2.0` because pub rejects anything that is not
   MAJOR.MINOR.PATCH — that trailing `.0` is a technical detail and never
-  reaches the user, the tag, or `launcherVersion`. This is why `PayloadCheck`
-  compares versions numerically rather than as strings.
+  reaches the user or `launcherVersion`. This is why `PayloadCheck` compares
+  versions numerically rather than as strings.
+- **⚠️ The git tag stays three-part (`v0.2.0`) even though the version shown
+  is `0.2`.** Every launcher already in the field rejects a tag that is not
+  `vX.Y.Z` exactly (`LauncherVersion.isReleaseTag` in the *released* build, not
+  the one in this tree), so a `v0.2` release is invisible to all of them — it
+  happened once, and the fix was to tag `vX.Y.0` instead. `LauncherRelease.version`
+  drops that trailing `.0` again so the user is offered "0.2" and not "0.2.0".
 - **The stub waits for the old process before extracting.** `launcher_app.exe`
   and `flutter_windows.dll` are locked while the old launcher runs, so `tar`
   would fail. Hence `--after-update=<pid>` and `WaitForProcessExit`. If
