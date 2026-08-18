@@ -1,4 +1,5 @@
-/// גרסת הלאנצ'ר עצמו. **חייבת להיות זהה ל-`version` שב-`pubspec.yaml`** —
+/// גרסת הלאנצ'ר עצמו, בת שני חלקים. **חייבת להסכים עם `version` שב-
+/// `pubspec.yaml`**, שנושא `.0` נוסף כי pub דורש שלושה חלקים —
 /// `launcher_version_test.dart` נכשל אחרת, וה-stub של Windows מקבל את אותה
 /// גרסה מ-`build_stub.ps1` (ראו `windows_stub/README` שבתוך `package.ps1`).
 const String launcherVersion = '0.1.15';
@@ -10,12 +11,13 @@ const String launcherVersion = '0.1.15';
 /// הלאנצ'ר אנחנו מפרסמים בעצמנו, ו-release שנמשך חזרה אינו סיבה להציע
 /// למשתמש לרדת גרסה.
 abstract final class LauncherVersion {
-  /// תג של release שה-CI פרסם: `v0.1.7` בדיוק (עם `+build` אופציונלי).
+  /// תג של release שה-CI פרסם: `v0.2` (הצורה הנוכחית) או `v0.1.7` (תגים
+  /// ותיקים, מלפני שהחלק השלישי ירד), עם `+build` אופציונלי.
   ///
   /// ⚠️ תג שאינו בצורה הזאת **נפסל**, ולא מנוסה "בערך": בריפו יש release
   /// ידני ותיק בשם `V1`, וכל השוואה מספרית תראה בו גרסה 1 — כלומר חדשה
   /// לנצח מכל 0.x. תגים ידניים אינם מה שהעדכון העצמי אמור למצוא.
-  static final RegExp _releaseTag = RegExp(r'^[vV]?\d+\.\d+\.\d+(\+\d+)?$');
+  static final RegExp _releaseTag = RegExp(r'^[vV]?\d+\.\d+(\.\d+)?(\+\d+)?$');
 
   /// `true` אם [tag] הוא תג גרסה בצורה שה-CI מפרסם.
   static bool isReleaseTag(String tag) => _releaseTag.hasMatch(tag.trim());

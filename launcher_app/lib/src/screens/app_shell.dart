@@ -629,15 +629,15 @@ class _AppShellState extends State<AppShell> {
             showWindowButtons: widget.showWindowButtons,
           ),
           Expanded(
-            // ההדרכה צפה מעל התוכן בפינה השמאלית התחתונה — `Positioned.left`
-            // ולא `PositionedDirectional`, כדי שהיא תישאר שם גם באנגלית.
+            // ההדרכה צפה בפינה התחתונה שרחוקה מסרגל הניווט — `end` ולא
+            // `left`, אחרת באנגלית היא יושבת על כפתור ההגדרות שבסרגל.
             child: Stack(
               fit: StackFit.expand,
               children: [
                 _shellRow(context),
                 if (widget.settings.settings.showFaqButton)
-                  Positioned(
-                    left: AppTokens.spaceMD,
+                  PositionedDirectional(
+                    end: AppTokens.spaceMD,
                     bottom: AppTokens.spaceMD,
                     // `Offstage` ולא בנייה מותנית: הכפתור מוצג בדף הבית בלבד,
                     // אבל ה-state שלו חייב לשרוד ניווט — אחרת ההבהוב והבועה

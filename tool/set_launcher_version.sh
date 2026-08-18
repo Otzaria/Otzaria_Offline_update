@@ -8,12 +8,16 @@
 # פועל מכל תיקייה (הנתיבים נגזרים ממקום הסקריפט) ובלי `sed -i`, שאינו נייד
 # בין GNU ל-BSD — הג'וב של macOS מריץ אותו גם הוא.
 #
-#   tool/set_launcher_version.sh 0.1.7
+# הגרסה בת שני חלקים (`0.2`), ורק החלק השני עולה מגרסה לגרסה. ב-pubspec
+# נכתב `0.2.0`: pub מסרב לגרסה שאינה MAJOR.MINOR.PATCH. השלישייה הזאת היא
+# פרט טכני בלבד — מה שהתוכנה מדווחת ומה שמתויג הוא `0.2`.
+#
+#   tool/set_launcher_version.sh 0.2
 set -euo pipefail
 
 version="${1:?usage: set_launcher_version.sh <version>}"
-if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-  echo "set_launcher_version.sh: '$version' is not MAJOR.MINOR.PATCH" >&2
+if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+$'; then
+  echo "set_launcher_version.sh: '$version' is not MAJOR.MINOR" >&2
   exit 1
 fi
 
@@ -28,12 +32,12 @@ replace() { # <file> <regex> <replacement>
 }
 
 # `^version:` בלי הזחה — התלויות שבהמשך הקובץ מוזחות, ולכן אין התנגשות.
-replace "$pubspec" '^version:.*' "version: $version"
+replace "$pubspec" '^version:.*' "version: $version.0"
 replace "$dart" "^const String launcherVersion = '.*';" \
   "const String launcherVersion = '$version';"
 
 # מאמת שההצבה אכן נכנסה: sed שלא התאים לכלום אינו מחזיר שגיאה, וקובץ שנשאר
 # עם הגרסה הקודמת היה מייצר release שמדווח על עצמו מספר אחר.
-grep -qx "version: $version" "$pubspec"
+grep -qx "version: $version.0" "$pubspec"
 grep -qx "const String launcherVersion = '$version';" "$dart"
 echo "$version"

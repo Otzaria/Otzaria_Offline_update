@@ -58,7 +58,9 @@ class PayloadCheck {
     if (stub == null) return null;
 
     final running = runningVersion ?? launcherVersion;
-    if (stub == running) return null;
+    // השוואה מספרית ולא השוואת מחרוזות: ה-stub צורב את הגרסה מ-pubspec, שם
+    // יושב `0.2.0` בגלל דרישת pub, בעוד התוכנה מדווחת `0.2`.
+    if (LauncherVersion.compare(stub, running) == 0) return null;
 
     return PayloadMismatch(
       runningVersion: running,

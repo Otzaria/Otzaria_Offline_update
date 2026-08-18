@@ -85,12 +85,12 @@ void main() {
       expect(LauncherVersion.isNewer('v0.0.9', '0.1.0'), isFalse);
     });
 
-    test('רק vX.Y.Z נחשב תג של release', () {
+    test('רק vX.Y (או vX.Y.Z הוותיק) נחשב תג של release', () {
+      expect(LauncherVersion.isReleaseTag('v0.2'), isTrue);
       expect(LauncherVersion.isReleaseTag('v0.1.7'), isTrue);
       expect(LauncherVersion.isReleaseTag('0.1.7'), isTrue);
       expect(LauncherVersion.isReleaseTag('v0.1.7+90'), isTrue);
       expect(LauncherVersion.isReleaseTag('V1'), isFalse);
-      expect(LauncherVersion.isReleaseTag('v1.2'), isFalse);
       expect(LauncherVersion.isReleaseTag('גירסת בדיקה'), isFalse);
     });
 
@@ -99,13 +99,15 @@ void main() {
       expect(LauncherVersion.isNewer('1.0.0-beta', '1.0.0'), isFalse);
     });
 
-    test('הקבוע זהה לגרסה שב-pubspec.yaml', () {
+    test('הקבוע שווה מספרית לגרסה שב-pubspec.yaml', () {
       // המקור היחיד לגרסה: משם נצרבת גם גרסת ה-payload של ה-stub
       // (windows_stub/build_stub.ps1), ואי-התאמה שוברת את זיהוי העדכון.
+      // השוואה מספרית: ב-pubspec יושב `0.2.0` — pub דורש שלושה חלקים —
+      // ואילו הקבוע הוא `0.2`.
       final pubspec = File('pubspec.yaml').readAsLinesSync();
       final line = pubspec.firstWhere((l) => l.startsWith('version:'));
       final version = line.split(':')[1].trim().split('+').first;
-      expect(launcherVersion, version);
+      expect(LauncherVersion.compare(launcherVersion, version), 0);
     });
   });
 

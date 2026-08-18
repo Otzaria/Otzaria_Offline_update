@@ -31,16 +31,19 @@ jobs:
           fetch-depth: 0 # התגים נחוצים כדי לדעת מה כבר פורסם
       - id: next
         run: |
+          # הגרסה היא בת שני חלקים (`0.2`) ורק החלק השני עולה. ב-pubspec
+          # יושב `0.2.0` — pub דורש שלושה חלקים — ולכן קוראים רק את השניים
+          # הראשונים ומתעלמים מהשארית.
           current="$(sed -n 's/^version:[[:space:]]*//p' launcher_app/pubspec.yaml | head -1 | cut -d+ -f1 | tr -d '[:space:]')"
           major="${current%%.*}"; rest="${current#*.}"
-          minor="${rest%%.*}"; patch="${rest#*.}"
-          patch=$((patch + 1))
-          while git rev-parse -q --verify "refs/tags/v$major.$minor.$patch" >/dev/null; do
-            patch=$((patch + 1))
+          minor="${rest%%.*}"
+          minor=$((minor + 1))
+          while git rev-parse -q --verify "refs/tags/v$major.$minor" >/dev/null; do
+            minor=$((minor + 1))
           done
-          echo "version=$major.$minor.$patch" >> "$GITHUB_OUTPUT"
-          echo "tag=v$major.$minor.$patch" >> "$GITHUB_OUTPUT"
-          echo "מ-$current אל $major.$minor.$patch"
+          echo "version=$major.$minor" >> "$GITHUB_OUTPUT"
+          echo "tag=v$major.$minor" >> "$GITHUB_OUTPUT"
+          echo "מ-$current אל $major.$minor"
 
   seforim_library_updater:
     name: seforim_library_updater (analyze + test)

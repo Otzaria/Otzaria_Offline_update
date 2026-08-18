@@ -546,11 +546,17 @@ re-launches it with `--after-update=<pid>`. Five things hold it together:
 - **The version comes from `pubspec.yaml` only.** `build_stub.ps1` generates
   `windows_stub/build/version.h` from it (`PAYLOAD_VERSION_A`, and
   `PAYLOAD_VERSION_COMMAS` for the exe's version resource); `launcherVersion`
-  in `launcher_version.dart` must equal it, and a test asserts that. A tag that
-  disagrees with those two would ship a launcher that reports the old number
-  and offers itself the same update forever, so nothing sets them by hand:
-  `tool/set_launcher_version.sh` writes both, and CI runs it in the build jobs
-  *and* in `publish` with the same value, before the tag is created.
+  in `launcher_version.dart` must match it numerically, and a test asserts
+  that. A tag that disagrees with those two would ship a launcher that reports
+  the old number and offers itself the same update forever, so nothing sets
+  them by hand: `tool/set_launcher_version.sh` writes both, and CI runs it in
+  the build jobs *and* in `publish` with the same value, before the tag is
+  created.
+- **Versions have two parts (`0.2` → `0.3`); only the second one moves.**
+  `pubspec.yaml` still holds `0.2.0` because pub rejects anything that is not
+  MAJOR.MINOR.PATCH — that trailing `.0` is a technical detail and never
+  reaches the user, the tag, or `launcherVersion`. This is why `PayloadCheck`
+  compares versions numerically rather than as strings.
 - **The stub waits for the old process before extracting.** `launcher_app.exe`
   and `flutter_windows.dll` are locked while the old launcher runs, so `tar`
   would fail. Hence `--after-update=<pid>` and `WaitForProcessExit`. If

@@ -21,6 +21,7 @@ import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 
 import 'test_harness.dart';
@@ -50,16 +51,20 @@ void main() {
   Future<void> pumpShell(
     WidgetTester tester, {
     RunningOtzariaLocator locator = const _NeverRunningLocator(),
+    AppLanguage language = AppLanguage.hebrew,
   }) async {
     useViewSize(tester, const Size(1400, 1000));
     await tester.pumpWidget(
-      wrap(AppShell(
-        dataDir: tempDir.path,
-        settings: settings,
-        runningLocator: locator,
-        // כפתורי החלון מדברים עם ערוץ פלטפורמה שאינו קיים בבדיקות widget.
-        showWindowButtons: false,
-      )),
+      wrap(
+        AppShell(
+          dataDir: tempDir.path,
+          settings: settings,
+          runningLocator: locator,
+          // כפתורי החלון מדברים עם ערוץ פלטפורמה שאינו קיים בבדיקות widget.
+          showWindowButtons: false,
+        ),
+        language: language,
+      ),
     );
     await tester.pump();
   }
@@ -98,7 +103,7 @@ void main() {
     final windowSize = tester.view.physicalSize / tester.view.devicePixelRatio;
 
     expect(find.byType(FaqFloatingButton), findsOneWidget);
-    // פיזית שמאל-למטה, ולא "תחילת השורה" — בעברית התחלה היא ימין.
+    // בעברית סרגל הניווט מימין, ולכן הכפתור פיזית שמאל-למטה.
     expect(buttonRect().left, lessThan(windowSize.width / 2));
     expect(buttonRect().bottom, greaterThan(windowSize.height / 2));
 
@@ -110,6 +115,16 @@ void main() {
 
     await tapNav(tester, shell.navHome);
     expect(find.byType(FaqFloatingButton), findsOneWidget);
+  });
+
+  testWidgets('באנגלית הכפתור עובר לימין — הוא כיסה את סרגל הניווט שמשמאל',
+      (tester) async {
+    await pumpShell(tester, language: AppLanguage.english);
+
+    final rect = tester.getRect(find.byType(FaqFloatingButton));
+    final windowSize = tester.view.physicalSize / tester.view.devicePixelRatio;
+    expect(rect.right, greaterThan(windowSize.width / 2));
+    expect(rect.bottom, greaterThan(windowSize.height / 2));
   });
 
   testWidgets('כיבוי בהגדרות מוציא את הכפתור מהעץ לגמרי', (tester) async {

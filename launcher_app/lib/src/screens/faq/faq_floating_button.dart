@@ -23,7 +23,8 @@ const int _defaultPulseCycles = 3;
 const Duration _bubbleVisible = Duration(seconds: 2);
 const Duration _bubbleDelay = Duration(milliseconds: 500);
 
-/// כפתור "שאלות נפוצות" הצף בפינה השמאלית התחתונה.
+/// כפתור "שאלות נפוצות" הצף בפינה התחתונה שממול לסרגל הניווט — בעברית משמאל,
+/// באנגלית מימין.
 ///
 /// בפתיחת התוכנה הוא מהבהב כמה מחזורים ופותח בועה עם שמו לשתי שניות — משתמש
 /// שאינו מחפש עזרה לא ימצא כפתור עגול קטן בפינה מעצמו. שניהם חד-פעמיים
@@ -103,12 +104,13 @@ class _FaqFloatingButtonState extends State<FaqFloatingButton>
   Widget build(BuildContext context) {
     // הבועה יושבת ב-Positioned מעל הכפתור, ולכן אינה משתתפת במידות ה-Stack:
     // הגודל נקבע בידי הכפתור לבדו, וכך גם ב-RTL וגם ב-LTR הכול נשאר בפינה.
+    // היא נצמדת לקצה ה-end כמו הכפתור, ולכן נפתחת פנימה ולא אל מחוץ לחלון.
     return Stack(
-      alignment: Alignment.bottomLeft,
+      alignment: AlignmentDirectional.bottomEnd,
       clipBehavior: Clip.none,
       children: [
-        Positioned(
-          left: 0,
+        PositionedDirectional(
+          end: 0,
           bottom: _buttonSize + _bubbleGap,
           child: _Bubble(isOpen: _bubbleOpen),
         ),
@@ -212,8 +214,8 @@ class _Bubble extends StatelessWidget {
 
 /// מסגרת הבועה: מלבן מעוגל וזנב קטן בתחתיתו, שמצביע על הכפתור.
 ///
-/// המידות פיזיות ואינן קוראות את `textDirection` — הכפתור יושב תמיד בפינה
-/// השמאלית, גם באנגלית, ולכן הזנב לא אמור להתהפך.
+/// הזנב יושב בקצה ה-start של הבועה — כמו הכפתור עצמו — ולכן הוא מתהפך עם
+/// כיוון הכתיבה: בעברית משמאל, באנגלית מימין.
 class _BubbleBorder extends ShapeBorder {
   const _BubbleBorder();
 
@@ -233,14 +235,17 @@ class _BubbleBorder extends ShapeBorder {
       rect.right,
       rect.bottom - _tailHeight,
     );
+    final tailStart = textDirection == TextDirection.rtl
+        ? body.left + _tailInset
+        : body.right - _tailInset - _tailWidth;
     return Path()
       ..addRRect(RRect.fromRectAndRadius(
         body,
         const Radius.circular(AppTokens.radius),
       ))
-      ..moveTo(body.left + _tailInset, body.bottom)
-      ..lineTo(body.left + _tailInset + _tailWidth / 2, rect.bottom)
-      ..lineTo(body.left + _tailInset + _tailWidth, body.bottom)
+      ..moveTo(tailStart, body.bottom)
+      ..lineTo(tailStart + _tailWidth / 2, rect.bottom)
+      ..lineTo(tailStart + _tailWidth, body.bottom)
       ..close();
   }
 

@@ -675,7 +675,7 @@ class _Settings extends SettingsScreenStrings {
   String get showFaqTitle => 'Common-questions button';
   @override
   String get showFaqSubtitle =>
-      'The round button at the bottom-left of the home screen that opens the '
+      'The round button in the bottom corner of the home screen that opens the '
       'guide.';
 
   @override
