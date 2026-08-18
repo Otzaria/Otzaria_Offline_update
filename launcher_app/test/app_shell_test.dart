@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/screens/app_shell.dart';
+import 'package:launcher_app/src/screens/faq/faq_floating_button.dart';
 import 'package:launcher_app/src/screens/home_screen.dart';
 import 'package:launcher_app/src/screens/library_screen.dart';
 import 'package:launcher_app/src/screens/otzaria_screen.dart';
@@ -87,6 +88,40 @@ void main() {
     expect(screen(OtzariaScreen), findsNothing);
     expect(screen(LibraryScreen), findsNothing);
     expect(screen(SettingsScreen), findsNothing);
+  });
+
+  testWidgets('כפתור השאלות הנפוצות צף בפינה השמאלית התחתונה של דף הבית',
+      (tester) async {
+    await pumpShell(tester);
+
+    Rect buttonRect() => tester.getRect(find.byType(FaqFloatingButton));
+    final windowSize = tester.view.physicalSize / tester.view.devicePixelRatio;
+
+    expect(find.byType(FaqFloatingButton), findsOneWidget);
+    // פיזית שמאל-למטה, ולא "תחילת השורה" — בעברית התחלה היא ימין.
+    expect(buttonRect().left, lessThan(windowSize.width / 2));
+    expect(buttonRect().bottom, greaterThan(windowSize.height / 2));
+
+    // במסך אחר הוא מוסתר — אבל נשאר בעץ, אחרת ההבהוב והבועה החד-פעמיים היו
+    // חוזרים בכל חזרה לדף הבית.
+    await tapNav(tester, shell.navSettings);
+    expect(find.byType(FaqFloatingButton), findsNothing);
+    expect(find.byType(FaqFloatingButton, skipOffstage: false), findsOneWidget);
+
+    await tapNav(tester, shell.navHome);
+    expect(find.byType(FaqFloatingButton), findsOneWidget);
+  });
+
+  testWidgets('כיבוי בהגדרות מוציא את הכפתור מהעץ לגמרי', (tester) async {
+    // `runAsync` ולא `await` ישר: השמירה כותבת לדיסק, וקריאת `dart:io` אינה
+    // מסתיימת בתוך ה-fake-async של `testWidgets` — ראו AGENTS §3.
+    await tester.runAsync(() => settings.update(const AppSettings(
+          autoCheckOnlineUpdates: false,
+          showFaqButton: false,
+        )));
+    await pumpShell(tester);
+
+    expect(find.byType(FaqFloatingButton, skipOffstage: false), findsNothing);
   });
 
   testWidgets('מסך שנכנסים אליו נבנה, ונשאר בעץ גם אחרי מעבר משם',

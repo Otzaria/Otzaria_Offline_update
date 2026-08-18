@@ -67,4 +67,9 @@ class AppSurfaces {
 
   /// רקע שבב חיווי מצב — נגזר מצבע החיווי עצמו, בשקיפות אחידה
   static Color statusChip(Color base) => base.withValues(alpha: 0.12);
+
+  /// טבעת ההבהוב של כפתור השאלות הנפוצות. השקיפות קבועה — ההיעלמות נעשית
+  /// ב-`FadeTransition`, ולכן אין כאן חישוב alpha לפי מצב האנימציה.
+  static Color faqPulseRing(BuildContext context) =>
+      _cs(context).primary.withValues(alpha: 0.35);
 }

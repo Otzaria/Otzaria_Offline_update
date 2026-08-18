@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 
 import '../controllers/custom_apps_controller.dart';
 import '../controllers/download_summary.dart';
+import '../controllers/faq_controller.dart';
 import '../controllers/launcher_update_controller.dart';
 import '../controllers/library_module_controller.dart';
 import '../controllers/online_check.dart';
@@ -22,6 +23,7 @@ import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/widgets_exports.dart';
 import 'custom_apps/custom_apps_screen.dart';
+import 'faq/faq_floating_button.dart';
 import 'home_screen.dart';
 import 'library_screen.dart';
 import 'otzaria_screen.dart';
@@ -71,6 +73,10 @@ class _AppShellState extends State<AppShell> {
   /// עדכון הלאנצ'ר **עצמו** — נפרד משלושת המודולים: הוא לא מתקין כלום במחשב,
   /// אלא מחליף את קובץ ההרצה שלנו ומפעיל אותו מחדש.
   late final LauncherUpdateController _launcherUpdate;
+
+  /// ההתאמות שהמשתמש עשה להדרכת השאלות הנפוצות. אינו מודול: אין לו בדיקה,
+  /// אין לו הורדה, והוא נטען פעם אחת בעלייה.
+  late final FaqController _faq;
 
   /// ההצעה להוריד גרסה חדשה של הלאנצ'ר מוצגת **פעם אחת בהרצה**. הבדיקה הקלה
   /// יכולה לרוץ עוד פעמים (כפתור "בדיקת עדכונים"), ודיאלוג שקופץ בכל אחת מהן
@@ -140,6 +146,9 @@ class _AppShellState extends State<AppShell> {
     )..addListener(_onChange);
     _launcherUpdate = LauncherUpdateController(dataDir: widget.dataDir)
       ..addListener(_onChange);
+    // בלי `addListener`: הדיאלוג עצמו מאזין לו, והמסגרת אינה מציגה ממנו כלום.
+    _faq = FaqController(dataDir: widget.dataDir);
+    unawaited(_faq.load());
     widget.settings.addListener(_onChange);
     _applySettings(s);
 
@@ -176,6 +185,7 @@ class _AppShellState extends State<AppShell> {
     _plugins.dispose();
     _customApps.dispose();
     _launcherUpdate.dispose();
+    _faq.dispose();
     super.dispose();
   }
 
@@ -619,30 +629,24 @@ class _AppShellState extends State<AppShell> {
             showWindowButtons: widget.showWindowButtons,
           ),
           Expanded(
-            child: Row(
+            // ההדרכה צפה מעל התוכן בפינה השמאלית התחתונה — `Positioned.left`
+            // ולא `PositionedDirectional`, כדי שהיא תישאר שם גם באנגלית.
+            child: Stack(
+              fit: StackFit.expand,
               children: [
-                _NavRail(
-                  current: _screen,
-                  onSelect: _goTo,
-                  showCustomApps: _customApps.hasApps,
-                ),
-                // הסרגל והתוכן חולקים רקע — הקו הזה הוא ההפרדה היחידה ביניהם.
-                VerticalDivider(
-                  width: 1,
-                  thickness: 1,
-                  color: AppSurfaces.shellDivider(context),
-                ),
-                Expanded(
-                  child: IndexedStack(
-                    index: _screen.index,
-                    children: [
-                      for (final screen in LauncherScreen.values)
-                        _builtScreens.contains(screen)
-                            ? _screenWidget(screen)
-                            : const SizedBox.shrink(),
-                    ],
+                _shellRow(context),
+                if (widget.settings.settings.showFaqButton)
+                  Positioned(
+                    left: AppTokens.spaceMD,
+                    bottom: AppTokens.spaceMD,
+                    // `Offstage` ולא בנייה מותנית: הכפתור מוצג בדף הבית בלבד,
+                    // אבל ה-state שלו חייב לשרוד ניווט — אחרת ההבהוב והבועה
+                    // החד-פעמיים היו חוזרים בכל חזרה לדף הבית.
+                    child: Offstage(
+                      offstage: _screen != LauncherScreen.home,
+                      child: FaqFloatingButton(faq: _faq),
+                    ),
                   ),
-                ),
               ],
             ),
           ),
@@ -650,6 +654,33 @@ class _AppShellState extends State<AppShell> {
       ),
     );
   }
+
+  Widget _shellRow(BuildContext context) => Row(
+        children: [
+          _NavRail(
+            current: _screen,
+            onSelect: _goTo,
+            showCustomApps: _customApps.hasApps,
+          ),
+          // הסרגל והתוכן חולקים רקע — הקו הזה הוא ההפרדה היחידה ביניהם.
+          VerticalDivider(
+            width: 1,
+            thickness: 1,
+            color: AppSurfaces.shellDivider(context),
+          ),
+          Expanded(
+            child: IndexedStack(
+              index: _screen.index,
+              children: [
+                for (final screen in LauncherScreen.values)
+                  _builtScreens.contains(screen)
+                      ? _screenWidget(screen)
+                      : const SizedBox.shrink(),
+              ],
+            ),
+          ),
+        ],
+      );
 }
 
 // ── סרגל הניווט ───────────────────────────────────────────────────────────────

@@ -24,6 +24,8 @@ class EnglishStrings extends AppStrings {
   @override
   PluginsStrings get plugins => const _Plugins();
   @override
+  FaqStrings get faq => const _Faq();
+  @override
   CustomAppsStrings get customApps => const _CustomApps();
   @override
   SetupErrorStrings get setupError => const _SetupError();
@@ -669,6 +671,12 @@ class _Settings extends SettingsScreenStrings {
   String get themeLight => 'Light';
   @override
   String get themeDark => 'Dark';
+  @override
+  String get showFaqTitle => 'Common-questions button';
+  @override
+  String get showFaqSubtitle =>
+      'The round button at the bottom-left of the home screen that opens the '
+      'guide.';
 
   @override
   String get seedColorTitle => 'Base color';
@@ -1026,6 +1034,248 @@ class _Plugins extends PluginsStrings {
   String get screenshotPrevious => 'Previous';
   @override
   String get screenshotNext => 'Next';
+}
+
+class _Faq extends FaqStrings {
+  const _Faq();
+
+  @override
+  String get title => 'Common questions';
+  @override
+  String get intro => 'Click a question to see the answer.';
+
+  @override
+  String get groupBasics => 'How this works';
+  @override
+  String get groupDownload => 'Downloading and installing';
+  @override
+  String get groupLibrary => 'The books are not found';
+  @override
+  String get groupExtras => 'Plugins and extra programs';
+  @override
+  String get groupGeneral => 'General questions';
+
+  @override
+  String get qWhatIsThis => 'What do I actually do with this program?';
+  @override
+  String get aWhatIsThis =>
+      'When it opens, two tiles appear in the middle of the screen: one for '
+      'updating the Otzaria app, one for updating the books. If an update is '
+      'waiting, the tile says so. Do the app update first, and only then the '
+      'library update.';
+  @override
+  String get qOfflineFlow =>
+      'My computer has no internet — how do I update it?';
+  @override
+  String get aOfflineFlow =>
+      'That is exactly what this program is for. Copy the whole program folder '
+      'onto a USB drive, plug the drive into a computer that does have '
+      'internet, open the program there and press Download — everything is '
+      'collected into that same folder on the drive. Then unplug the drive, '
+      'plug it into your own computer, open the program from there and '
+      'install. No internet is needed at that stage.';
+  @override
+  String get qNoOtzariaYet =>
+      'I have no Otzaria on this computer at all — is this program for me?';
+  @override
+  String get aNoOtzariaYet =>
+      'Yes. When you press install you will be offered the full installation '
+      'package, and that is the recommended choice: it brings both the app and '
+      'the books in one step. A regular install on a computer with no Otzaria '
+      'may leave it half working. Note that the full package is large (about '
+      '2 GB) and is therefore not downloaded on its own — tick it in settings '
+      'before downloading.';
+
+  @override
+  String get qDownloadStopped =>
+      'The download stopped halfway — do I have to start over?';
+  @override
+  String get aDownloadStopped =>
+      'No. The download remembers what it already fetched, and pressing '
+      'Download again continues from there. Cancelling on purpose does not '
+      'erase earlier runs either — it only clears what the current download '
+      'brought in.';
+  @override
+  String get qDownloadTooBig =>
+      'The download is enormous and I only want to update the library I '
+      'already have';
+  @override
+  String get aDownloadTooBig =>
+      'Settings has a "personal update" option. With it on, only the steps '
+      'from your own version upwards are fetched instead of the whole '
+      'library — far less data. Before downloading, go to the Library screen '
+      'and press the button that records your library version, otherwise the '
+      'program does not know where to start from. One caveat: such a drive '
+      'cannot install Otzaria on a computer that has none, so if you update '
+      'several computers, leave the option off.';
+  @override
+  String get qOtzariaOpen => 'It says Otzaria is open and cannot be updated';
+  @override
+  String get aOtzariaOpen =>
+      'An update writes into files that Otzaria itself holds open, so it has '
+      'to be closed first. Close Otzaria completely and this program will '
+      'notice within seconds and re-enable the buttons.';
+  @override
+  String get qBrokenAfterUpdate =>
+      'I updated and everything came out broken, or it does not work';
+  @override
+  String get aBrokenAfterUpdate =>
+      'Otzaria is still under active development, and moving between versions '
+      'can occasionally leave mismatched files behind. In that case: uninstall '
+      'Otzaria, delete every folder named Otzaria or otzaria (searching the '
+      'computer for the name helps), and then install the full package again.';
+
+  @override
+  String get qAppNotDetected =>
+      'Otzaria is installed here, but the program does not detect it';
+  @override
+  String get aAppNotDetected =>
+      'If you chose a location other than the default when installing, it is '
+      'not found automatically. The fix is easy: launch Otzaria while this '
+      'program is open — it will detect it by itself and remember the location '
+      'from then on.';
+  @override
+  String get qDbNotFound => 'It says no database was found, but I have books';
+  @override
+  String get aDbNotFound =>
+      'The book database is likewise not detected when it sits somewhere other '
+      'than the default. On the Library screen, pick the location manually. If '
+      'you do not know where it is, Otzaria will tell you: open its settings, '
+      'and under the Library tab press "copy path".';
+  @override
+  String get qStillNotFound =>
+      'I picked the location by hand and it still finds nothing';
+  @override
+  String get aStillNotFound =>
+      'You most likely have a very old Otzaria (0.9.74 or earlier). Otzaria '
+      'has since moved to a new way of storing books, which this program '
+      'cannot update. It is best to uninstall Otzaria and install the full '
+      'package again.';
+  @override
+  String get qSearchMissesNewBooks =>
+      'I updated the library, but the search in Otzaria does not find the new '
+      'books';
+  @override
+  String get aSearchMissesNewBooks =>
+      'Otzaria searches through an index built in advance, and that index does '
+      'not refresh by itself once the books have been replaced. Right after a '
+      'library update this program offers to ask Otzaria to rebuild it — worth '
+      'accepting. If you declined, the offer returns the next time Otzaria '
+      'starts.';
+
+  @override
+  String get qWhatArePlugins => 'What is the Plugins tab?';
+  @override
+  String get aWhatArePlugins =>
+      'Plugins are helper programs for Otzaria. You can install them straight '
+      'from here, or press Save and then install them on any computer that has '
+      'Otzaria by double-clicking the file.';
+  @override
+  String get qWhatAreCustomApps => 'What are "extra programs"?';
+  @override
+  String get aWhatAreCustomApps =>
+      'A place to add helper programs that are not Otzaria — the kind that '
+      'help with learning. You fill in once where the program comes from, and '
+      'the drive then carries it and installs it even on a computer with no '
+      'internet.';
+
+  @override
+  String get qWrongFolder =>
+      'A message appeared saying the program is in an unsuitable location';
+  @override
+  String get aWrongFolder =>
+      'Everything this program downloads is kept in a folder right beside it, '
+      'so that it all travels together on the drive. If it was moved '
+      'somewhere without write permission — Program Files, for instance — '
+      'there is nowhere to save, so it stops rather than leaving the files on '
+      'the wrong computer. The fix: move the whole program folder to the USB '
+      'drive, or to an ordinary folder on the disk, and run it from there.';
+  @override
+  String get qLauncherSelfUpdate => 'Does this program update itself too?';
+  @override
+  String get aLauncherSelfUpdate =>
+      'Yes. When a new version exists it offers to download it on a computer '
+      'with internet, then replaces itself and reopens. Your settings, books '
+      'and plugins already on the drive stay untouched.';
+  @override
+  String get qFree => 'Wow, is all of this really free?';
+  @override
+  String get aFree =>
+      'Yes. Otzaria was built by people who set out to spread Torah learning, '
+      'and so they make it freely available to anyone who wants it.';
+  @override
+  String get qNoExpenses => 'Still, how can that be — do they have no costs?';
+  @override
+  String get aNoExpenses =>
+      'Development costs are considerable. The developers themselves take no '
+      'payment, but the work itself costs real money. Anyone who wants to take '
+      'part can donate through Nedarim Plus: open "Kupot Nosafot" (further '
+      'funds), then "Tzorchei Rabim - Kranot" (communal needs - funds), and '
+      'pick "Otzaria" there. That site is in Hebrew only.';
+
+  @override
+  String get contactTitle => 'Still have a question?';
+
+  @override
+  String get editTooltip => 'Customise this guide';
+  @override
+  String get editDoneTooltip => 'Done customising';
+  @override
+  String get editIntro =>
+      'Here you can hide questions that do not apply to you, add your own, and '
+      'put your details at the bottom of the list. Customisations are saved in '
+      'the folder beside the program and travel with it on the drive.';
+
+  @override
+  String get hideTooltip => 'Hide this question';
+  @override
+  String get restoreTooltip => 'Bring this question back';
+  @override
+  String get hiddenLabel => 'hidden';
+
+  @override
+  String get myQuestionsTitle => 'Questions I added';
+  @override
+  String get noExtrasYet => 'You have not added any questions yet.';
+  @override
+  String get addQuestionButton => 'Add a question';
+  @override
+  String get editQuestionTooltip => 'Edit this question';
+  @override
+  String get deleteQuestionTooltip => 'Delete this question';
+
+  @override
+  String get formAddTitle => 'New question';
+  @override
+  String get formEditTitle => 'Edit question';
+  @override
+  String get formQuestionLabel => 'Question';
+  @override
+  String get formAnswerLabel => 'Answer';
+  @override
+  String get formSave => 'Save';
+  @override
+  String get formIncompleteSnack => 'Fill in both the question and the answer.';
+
+  @override
+  String get deleteConfirmTitle => 'Delete this question?';
+  @override
+  String get deleteConfirmContent =>
+      'The question and its answer will be removed from the guide. You can add '
+      'them again at any time.';
+
+  @override
+  String get contactCardTitle => 'My details at the bottom of the guide';
+  @override
+  String get contactCardHint =>
+      'If you prepare drives for other people, put here who they should '
+      'contact. An empty field is simply not shown.';
+  @override
+  String get contactNameLabel => 'Name';
+  @override
+  String get contactPhoneLabel => 'Phone';
+  @override
+  String contactPhoneLine(String phone) => 'Phone: $phone';
 }
 
 class _SetupError extends SetupErrorStrings {

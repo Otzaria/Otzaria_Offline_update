@@ -60,7 +60,8 @@ class AppSettings {
   /// 6: `ui.seedColor` / `ui.darkSeedColor` — פלטת הצבעים של אוצריא.
   /// 7: `sync.personalMode` — הורדה למחשב שלי בלבד, בלי המסד המלא.
   /// 8: `sync.fullPackage` — חבילת ההתקנה המלאה של אוצריא.
-  static const int schemaVersion = 8;
+  /// 9: `ui.showFaq` — הכפתור הצף של השאלות הנפוצות.
+  static const int schemaVersion = 9;
 
   /// בדיקת גרסאות בפתיחה כשיש חיבור לרשת — בדיקה קלה, בלי הורדה.
   final bool autoMetadataCheck;
@@ -110,6 +111,10 @@ class AppSettings {
   final Color seedColor;
   final Color darkSeedColor;
 
+  /// הכפתור הצף של השאלות הנפוצות בדף הבית. דלוק כברירת מחדל — הוא ההדרכה
+  /// היחידה בתוכנה — וכיבוי מסתיר אותו לגמרי, כולל ההבהוב שבעלייה.
+  final bool showFaqButton;
+
   /// השפה שבה הממשק מוצג בפועל: [languagePreference] אחרי פתירת "אוטומטי".
   AppLanguage get language => languagePreference.resolve();
 
@@ -129,6 +134,7 @@ class AppSettings {
     this.textScale = 1.0,
     this.seedColor = AppSeedColors.defaultLight,
     this.darkSeedColor = AppSeedColors.defaultDark,
+    this.showFaqButton = true,
   });
 
   /// `false` כשלא נבחר שום רכיב להורדה — ה-UI משתמש בזה כדי להשבית את
@@ -158,6 +164,7 @@ class AppSettings {
     double? textScale,
     Color? seedColor,
     Color? darkSeedColor,
+    bool? showFaqButton,
   }) {
     return AppSettings(
       autoMetadataCheck: autoMetadataCheck ?? this.autoMetadataCheck,
@@ -176,6 +183,7 @@ class AppSettings {
       textScale: textScale ?? this.textScale,
       seedColor: seedColor ?? this.seedColor,
       darkSeedColor: darkSeedColor ?? this.darkSeedColor,
+      showFaqButton: showFaqButton ?? this.showFaqButton,
     );
   }
 
@@ -204,6 +212,7 @@ class AppSettings {
           // ARGB שלם, כמו ש-`key-swatch-color` נשמר באוצריא.
           'seedColor': seedColor.toARGB32(),
           'darkSeedColor': darkSeedColor.toARGB32(),
+          'showFaq': showFaqButton,
         },
       };
 
@@ -271,6 +280,7 @@ class AppSettings {
       textScale: textScale(defaults.textScale),
       seedColor: color('seedColor', defaults.seedColor),
       darkSeedColor: color('darkSeedColor', defaults.darkSeedColor),
+      showFaqButton: flag(ui, 'showFaq', defaults.showFaqButton),
     );
   }
 }

@@ -17,6 +17,11 @@ class RtlTextField extends StatelessWidget {
   final ValueChanged<String>? onSubmitted;
   final bool enabled;
 
+  /// שורה אחת כברירת מחדל, כמו במקור. יותר מזה נדרש למי שמקליד פסקה — תשובה
+  /// בהדרכה — ושם שדה בגובה שורה אינו קריא.
+  final int minLines;
+  final int maxLines;
+
   const RtlTextField({
     super.key,
     this.controller,
@@ -25,6 +30,8 @@ class RtlTextField extends StatelessWidget {
     this.onChanged,
     this.onSubmitted,
     this.enabled = true,
+    this.minLines = 1,
+    this.maxLines = 1,
   });
 
   @override
@@ -38,7 +45,8 @@ class RtlTextField extends StatelessWidget {
       enabled: enabled,
       textDirection: Directionality.of(context),
       textAlign: TextAlign.start,
-      maxLines: 1,
+      minLines: minLines,
+      maxLines: maxLines,
     );
   }
 }

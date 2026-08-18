@@ -258,6 +258,13 @@ class SettingsScreen extends StatelessWidget {
           ],
         ),
         _colorPickerTile(context),
+        SettingsActionTile.switchTile(
+          icon: FluentIcons.question_circle_24_regular,
+          title: t.showFaqTitle,
+          subtitle: t.showFaqSubtitle,
+          value: _s.showFaqButton,
+          onChanged: (v) => _set(_s.copyWith(showFaqButton: v)),
+        ),
       ],
     );
   }

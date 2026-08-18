@@ -17,6 +17,7 @@ abstract class AppStrings {
   LibraryScreenStrings get libraryScreen;
   SettingsScreenStrings get settings;
   PluginsStrings get plugins;
+  FaqStrings get faq;
   CustomAppsStrings get customApps;
   SetupErrorStrings get setupError;
   PayloadMismatchStrings get payloadMismatch;
@@ -384,6 +385,10 @@ abstract class SettingsScreenStrings {
   String get themeLight;
   String get themeDark;
 
+  /// הכפתור הצף של השאלות הנפוצות בדף הבית.
+  String get showFaqTitle;
+  String get showFaqSubtitle;
+
   // ── פלטת צבע הבסיס ──
   // הבחירה חלה על הערכה המוצגת כרגע — בהירה או כהה — כמו באוצריא.
   String get seedColorTitle;
@@ -577,6 +582,115 @@ abstract class PluginsStrings {
   // ── גלריית צילומי המסך ──────────────────────────────────────────────────
   String get screenshotPrevious;
   String get screenshotNext;
+}
+
+// ── שאלות נפוצות ──────────────────────────────────────────────────────────────
+
+/// ההדרכה שנפתחת מהכפתור הצף. הנוסח כאן מכוון למי שאינו מבין במחשבים, ולכן
+/// כל תשובה אומרת מה **לעשות** ולא איך זה בנוי מבפנים.
+///
+/// הזוגות שאלה/תשובה נאספים לרשימה ב-`launcher_app` (`faq_content.dart`);
+/// שדה שנוסף כאן חייב להיכנס גם שם, אחרת הוא לא יוצג.
+abstract class FaqStrings {
+  const FaqStrings();
+
+  /// שם ההדרכה — משמש גם לכותרת הדיאלוג, גם ל-tooltip וגם לבועה שנפתחת
+  /// בעלייה.
+  String get title;
+  String get intro;
+
+  // ── שמות הקבוצות ────────────────────────────────────────────────────────
+  String get groupBasics;
+  String get groupDownload;
+  String get groupLibrary;
+  String get groupExtras;
+  String get groupGeneral;
+
+  // ── איך זה עובד ─────────────────────────────────────────────────────────
+  String get qWhatIsThis;
+  String get aWhatIsThis;
+  String get qOfflineFlow;
+  String get aOfflineFlow;
+  String get qNoOtzariaYet;
+  String get aNoOtzariaYet;
+
+  // ── הורדה והתקנה ────────────────────────────────────────────────────────
+  String get qDownloadStopped;
+  String get aDownloadStopped;
+  String get qDownloadTooBig;
+  String get aDownloadTooBig;
+  String get qOtzariaOpen;
+  String get aOtzariaOpen;
+  String get qBrokenAfterUpdate;
+  String get aBrokenAfterUpdate;
+
+  // ── הספרים לא נמצאים ────────────────────────────────────────────────────
+  String get qAppNotDetected;
+  String get aAppNotDetected;
+  String get qDbNotFound;
+  String get aDbNotFound;
+  String get qStillNotFound;
+  String get aStillNotFound;
+  String get qSearchMissesNewBooks;
+  String get aSearchMissesNewBooks;
+
+  // ── תוספים ותוכנות נוספות ───────────────────────────────────────────────
+  String get qWhatArePlugins;
+  String get aWhatArePlugins;
+  String get qWhatAreCustomApps;
+  String get aWhatAreCustomApps;
+
+  // ── כללי ────────────────────────────────────────────────────────────────
+  String get qWrongFolder;
+  String get aWrongFolder;
+  String get qLauncherSelfUpdate;
+  String get aLauncherSelfUpdate;
+  String get qFree;
+  String get aFree;
+  String get qNoExpenses;
+  String get aNoExpenses;
+
+  // ── סיום ────────────────────────────────────────────────────────────────
+  /// כותרת כרטיס הסיום. הכרטיס כולו מוצג **רק** למי שמילא שם או טלפון
+  /// בהתאמה האישית — "אפשר לפנות אלינו" בלי לומר למי אינו עוזר לאיש.
+  String get contactTitle;
+
+  // ── התאמה אישית ─────────────────────────────────────────────────────────
+  /// מצב העריכה שנפתח בגלגל השיניים: הסתרת שאלות, הוספת שאלות משלי, והפרטים
+  /// שיופיעו בתחתית הרשימה. מיועד למי שמכין כונן לאחרים.
+  String get editTooltip;
+  String get editDoneTooltip;
+  String get editIntro;
+
+  String get hideTooltip;
+  String get restoreTooltip;
+  String get hiddenLabel;
+
+  String get myQuestionsTitle;
+  String get noExtrasYet;
+  String get addQuestionButton;
+  String get editQuestionTooltip;
+  String get deleteQuestionTooltip;
+
+  String get formAddTitle;
+  String get formEditTitle;
+  String get formQuestionLabel;
+  String get formAnswerLabel;
+  String get formSave;
+
+  /// נאמר כשמנסים לשמור שאלה בלי שאלה או בלי תשובה.
+  String get formIncompleteSnack;
+
+  String get deleteConfirmTitle;
+  String get deleteConfirmContent;
+
+  String get contactCardTitle;
+  String get contactCardHint;
+  String get contactNameLabel;
+  String get contactPhoneLabel;
+
+  /// שורת הטלפון כפי שהיא מוצגת בתחתית ההדרכה.
+  String contactPhoneLine(String phone);
 }
 
 // ── מסך "התוכנה במקום הלא נכון" ───────────────────────────────────────────────

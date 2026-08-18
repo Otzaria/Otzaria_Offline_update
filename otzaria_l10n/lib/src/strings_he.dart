@@ -23,6 +23,8 @@ class HebrewStrings extends AppStrings {
   @override
   PluginsStrings get plugins => const _Plugins();
   @override
+  FaqStrings get faq => const _Faq();
+  @override
   CustomAppsStrings get customApps => const _CustomApps();
   @override
   SetupErrorStrings get setupError => const _SetupError();
@@ -631,6 +633,11 @@ class _Settings extends SettingsScreenStrings {
   String get themeLight => 'בהיר';
   @override
   String get themeDark => 'כהה';
+  @override
+  String get showFaqTitle => 'כפתור שאלות נפוצות';
+  @override
+  String get showFaqSubtitle =>
+      'הכפתור העגול בפינה השמאלית התחתונה של דף הבית, שפותח את ההדרכה.';
 
   @override
   String get seedColorTitle => 'צבע בסיס';
@@ -980,6 +987,226 @@ class _Plugins extends PluginsStrings {
   String get screenshotPrevious => 'הקודם';
   @override
   String get screenshotNext => 'הבא';
+}
+
+class _Faq extends FaqStrings {
+  const _Faq();
+
+  @override
+  String get title => 'שאלות נפוצות';
+  @override
+  String get intro => 'לחיצה על שאלה פותחת את התשובה.';
+
+  @override
+  String get groupBasics => 'איך זה עובד';
+  @override
+  String get groupDownload => 'הורדה והתקנה';
+  @override
+  String get groupLibrary => 'הספרים לא נמצאים';
+  @override
+  String get groupExtras => 'תוספים ותוכנות נוספות';
+  @override
+  String get groupGeneral => 'שאלות כלליות';
+
+  @override
+  String get qWhatIsThis => 'מה עושים עם התוכנה הזאת?';
+  @override
+  String get aWhatIsThis =>
+      'בפתיחת התוכנה יופיעו במרכז המסך שני אריחים: אחד לעדכון תוכנת אוצריא, '
+      'ואחד לעדכון הספרים. אם יש עדכון, יופיע באריח הכיתוב "יש עדכון חדש". '
+      'לוחצים קודם על עדכון התוכנה, ורק אחר כך על עדכון הספרייה.';
+  @override
+  String get qOfflineFlow => 'המחשב שלי אינו מחובר לאינטרנט — איך אעדכן אותו?';
+  @override
+  String get aOfflineFlow =>
+      'בשביל זה התוכנה נבנתה. מעתיקים את תיקיית התוכנה כולה לכונן נייד '
+      '(דיסק און קי), מחברים אותו למחשב שיש בו אינטרנט, פותחים את התוכנה '
+      'ולוחצים "הורדה" — היא אוספת את כל העדכונים אל אותה תיקייה שעל הכונן. '
+      'אחר כך מוציאים את הכונן, מחברים אותו למחשב שלכם, פותחים את התוכנה '
+      'משם ומתקינים. בשלב הזה אין צורך באינטרנט כלל.';
+  @override
+  String get qNoOtzariaYet => 'אין לי אוצריא במחשב בכלל — התוכנה מתאימה לי?';
+  @override
+  String get aNoOtzariaYet =>
+      'בהחלט. בלחיצה על התקנה תופיע האפשרות לבחור בחבילת ההתקנה המלאה, וזו '
+      'האפשרות המומלצת: היא מביאה בפעולה אחת גם את התוכנה וגם את הספרים. '
+      'התקנה רגילה במחשב שאין בו אוצריא עלולה לגרום לשיבושים בשימוש. שימו לב '
+      'שהחבילה המלאה גדולה (כ-2 ג׳יגה) ולכן אינה יורדת מעצמה — יש לסמן אותה '
+      'בהגדרות לפני ההורדה.';
+
+  @override
+  String get qDownloadStopped => 'ההורדה נעצרה באמצע — צריך להתחיל מהתחלה?';
+  @override
+  String get aDownloadStopped =>
+      'לא. ההורדה זוכרת מה הספיקה להביא, ולחיצה נוספת על "הורדה" ממשיכה '
+      'מאותה נקודה. גם ביטול יזום אינו מוחק את מה שירד בהרצות קודמות — הוא '
+      'מנקה אך ורק את מה שההורדה הנוכחית הביאה.';
+  @override
+  String get qDownloadTooBig =>
+      'ההורדה ענקית, ואני רק רוצה לעדכן את הספרייה שיש לי';
+  @override
+  String get aDownloadTooBig =>
+      'בהגדרות יש אפשרות "עדכון אישי". כשהיא דלוקה מורידים רק את ההשלמות '
+      'מהגרסה שיש אצלכם ומעלה, במקום את הספרייה המלאה — נפח קטן בהרבה. לפני '
+      'ההורדה יש ללחוץ במסך "ספרייה" על הכפתור שרושם את גרסת הספרייה שלכם, '
+      'אחרת התוכנה אינה יודעת מאיפה להתחיל. חשוב לדעת: כונן כזה אינו יכול '
+      'לשמש להתקנה במחשב שאין בו אוצריא, ולכן מי שמעדכן כמה מחשבים כדאי לו '
+      'להשאיר את ההגדרה כבויה.';
+  @override
+  String get qOtzariaOpen => 'כתוב שאוצריא פתוחה ואי אפשר לעדכן';
+  @override
+  String get aOtzariaOpen =>
+      'העדכון כותב לתוך הקבצים שאוצריא מחזיקה פתוחים, ולכן יש לסגור אותה '
+      'קודם. סוגרים את אוצריא לגמרי, והתוכנה תבחין בזה מעצמה בתוך שניות '
+      'ותשחרר את הכפתורים.';
+  @override
+  String get qBrokenAfterUpdate => 'עדכנתי, והכול יצא משובש או שאינו עובד';
+  @override
+  String get aBrokenAfterUpdate =>
+      'אוצריא היא תוכנה בפיתוח, ולפעמים המעבר מגרסה לגרסה משאיר קבצים שאינם '
+      'תואמים. במקרה כזה: להסיר את אוצריא, למחוק כל תיקייה בשם אוצריא או '
+      'otzaria (מומלץ לחפש את השם במחשב), ואז להתקין מחדש את החבילה המלאה.';
+
+  @override
+  String get qAppNotDetected => 'אוצריא מותקנת אצלי, אבל התוכנה אינה מזהה אותה';
+  @override
+  String get aAppNotDetected =>
+      'אם בחרתם בשעת ההתקנה מקום אחר מברירת המחדל, התוכנה אינה מוצאת אותה '
+      'לבד. הפתרון פשוט: להפעיל את אוצריא בזמן שתוכנת העדכונים פתוחה — היא '
+      'תזהה אותה מעצמה, ומאותו רגע תזכור את המקום.';
+  @override
+  String get qDbNotFound => 'כתוב שלא נמצא מסד נתונים, אבל יש לי ספרייה';
+  @override
+  String get aDbNotFound =>
+      'גם מסד הספרים אינו מזוהה כשהוא יושב במקום שאינו ברירת המחדל. במסך '
+      '"ספרייה" יש לבחור את המקום ידנית. אם אינכם יודעים איפה הוא, אוצריא '
+      'עצמה תגיד לכם: היכנסו אליה להגדרות, ושם בלשונית "ספרייה" לחצו על '
+      '"העתק נתיב".';
+  @override
+  String get qStillNotFound =>
+      'בחרתי את המקום ידנית, והוא עדיין אינו מוצא כלום';
+  @override
+  String get aStillNotFound =>
+      'ככל הנראה יש לכם גרסת אוצריא ישנה מאוד (0.9.74 ומטה). מאז עברה אוצריא '
+      'לשיטת אחסון ספרים חדשה, שהתוכנה הזאת אינה יודעת לעדכן. מומלץ להסיר את '
+      'אוצריא ולהתקין מחדש את החבילה המלאה.';
+  @override
+  String get qSearchMissesNewBooks =>
+      'עדכנתי את הספרייה, אבל החיפוש באוצריא אינו מוצא את הספרים החדשים';
+  @override
+  String get aSearchMissesNewBooks =>
+      'החיפוש באוצריא עובד על אינדקס שנבנה מראש, והוא אינו מתעדכן מעצמו אחרי '
+      'שהספרים הוחלפו. מיד לאחר עדכון ספרייה התוכנה מציעה לבקש מאוצריא לבנות '
+      'את האינדקס מחדש — כדאי לאשר. מי שדחה את ההצעה יקבל אותה שוב בהפעלה '
+      'הבאה של אוצריא.';
+
+  @override
+  String get qWhatArePlugins => 'מה זו לשונית "תוספים"?';
+  @override
+  String get aWhatArePlugins =>
+      'תוספים הם תוכנות עזר לאוצריא. אפשר להתקין אותם ישירות מכאן, או ללחוץ '
+      'על "שמירה" ואז להתקין אותם בכל מחשב שיש בו אוצריא, בלחיצה כפולה על '
+      'הקובץ.';
+  @override
+  String get qWhatAreCustomApps => 'מה זה "תוכנות נוספות"?';
+  @override
+  String get aWhatAreCustomApps =>
+      'מקום להוסיף תוכנות עזר שאינן אוצריא — כאלה שעוזרות לאברכים בלימוד. '
+      'ממלאים פעם אחת מאיפה להביא את התוכנה, והכונן נושא אותה ומתקין אותה גם '
+      'במחשב שאין בו אינטרנט.';
+
+  @override
+  String get qWrongFolder => 'נפתחה הודעה שהתוכנה נמצאת במקום שאינו מתאים';
+  @override
+  String get aWrongFolder =>
+      'התוכנה שומרת כל מה שהיא מורידה בתיקייה שצמודה אליה, כדי שהכול ייסע '
+      'יחד על הכונן. אם היא הועברה למקום שאין בו הרשאת כתיבה — למשל '
+      'Program Files — אין לה לאן לשמור, והיא נעצרת במקום להשאיר את הקבצים '
+      'במחשב הלא נכון. הפתרון: להעביר את תיקיית התוכנה כולה לכונן הנייד או '
+      'לתיקייה רגילה בדיסק, ולהפעיל אותה משם.';
+  @override
+  String get qLauncherSelfUpdate => 'והתוכנה הזאת עצמה מתעדכנת?';
+  @override
+  String get aLauncherSelfUpdate =>
+      'כן. כשיש לה גרסה חדשה היא מציעה להוריד אותה במחשב שיש בו אינטרנט, ואז '
+      'מחליפה את עצמה ונפתחת מחדש. ההגדרות, הספרים והתוספים שכבר על הכונן '
+      'נשארים כמו שהם.';
+  @override
+  String get qFree => 'וואו, הכול בחינם?';
+  @override
+  String get aFree =>
+      'כן. אוצריא נבנתה בידי אנשים ששמו לעצמם למטרה להרבות תורה בישראל, ולכן '
+      'הם מנגישים אותה בחינם לכל דורש.';
+  @override
+  String get qNoExpenses => 'בכל זאת, איך זה יכול להיות — אין להם הוצאות?';
+  @override
+  String get aNoExpenses =>
+      'הוצאות הפיתוח אדירות. המפתחים עצמם אינם מקבלים כל תמורה, אבל הפיתוח '
+      'עצמו עולה כסף רב. מי שמעוניין להיות שותף לדבר הגדול הזה יכול לתרום '
+      'בנדרים פלוס: נכנסים ל"קופות נוספות", משם ל"צרכי רבים־קרנות", ושם '
+      'בוחרים "אוצריא".';
+
+  @override
+  String get contactTitle => 'עדיין יש לכם שאלה?';
+
+  @override
+  String get editTooltip => 'התאמה אישית של ההדרכה';
+  @override
+  String get editDoneTooltip => 'סיום ההתאמה';
+  @override
+  String get editIntro =>
+      'כאן אפשר להסתיר שאלות שאינן נוגעות לכם, להוסיף שאלות משלכם, ולרשום את '
+      'הפרטים שלכם בתחתית הרשימה. ההתאמות נשמרות בתיקייה שלצד התוכנה ונוסעות '
+      'איתה על הכונן.';
+
+  @override
+  String get hideTooltip => 'הסתרת השאלה';
+  @override
+  String get restoreTooltip => 'החזרת השאלה';
+  @override
+  String get hiddenLabel => 'מוסתרת';
+
+  @override
+  String get myQuestionsTitle => 'השאלות שהוספתי';
+  @override
+  String get noExtrasYet => 'עדיין לא הוספתם שאלות.';
+  @override
+  String get addQuestionButton => 'הוספת שאלה';
+  @override
+  String get editQuestionTooltip => 'עריכת השאלה';
+  @override
+  String get deleteQuestionTooltip => 'מחיקת השאלה';
+
+  @override
+  String get formAddTitle => 'שאלה חדשה';
+  @override
+  String get formEditTitle => 'עריכת שאלה';
+  @override
+  String get formQuestionLabel => 'השאלה';
+  @override
+  String get formAnswerLabel => 'התשובה';
+  @override
+  String get formSave => 'שמירה';
+  @override
+  String get formIncompleteSnack => 'יש למלא גם שאלה וגם תשובה.';
+
+  @override
+  String get deleteConfirmTitle => 'למחוק את השאלה?';
+  @override
+  String get deleteConfirmContent =>
+      'השאלה והתשובה יימחקו מההדרכה. אפשר להוסיף אותן שוב בכל עת.';
+
+  @override
+  String get contactCardTitle => 'הפרטים שלי בתחתית ההדרכה';
+  @override
+  String get contactCardHint =>
+      'מי שמכין כונן לאחרים יכול לרשום כאן למי לפנות. שדה ריק פשוט אינו מוצג.';
+  @override
+  String get contactNameLabel => 'שם';
+  @override
+  String get contactPhoneLabel => 'טלפון';
+  @override
+  String contactPhoneLine(String phone) => 'טלפון: $phone';
 }
 
 class _SetupError extends SetupErrorStrings {

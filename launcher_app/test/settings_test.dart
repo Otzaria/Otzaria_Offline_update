@@ -90,6 +90,7 @@ void main() {
         'textScale',
         'seedColor',
         'darkSeedColor',
+        'showFaq',
       });
       expect(json['schemaVersion'], AppSettings.schemaVersion);
     });
@@ -117,6 +118,8 @@ void main() {
       // אותם גוונים שאוצריא נפתחת בהם.
       expect(s.seedColor, AppSeedColors.defaultLight);
       expect(s.darkSeedColor, AppSeedColors.defaultDark);
+      // ההדרכה היחידה בתוכנה — דלוקה, ומי שאינו רוצה אותה מכבה אותה.
+      expect(s.showFaqButton, isTrue);
     });
 
     test('סבב JSON מלא — כל שדה חוזר כפי שנשמר', () {
@@ -135,6 +138,7 @@ void main() {
         textScale: 1.3,
         seedColor: AppSeedColors.teal,
         darkSeedColor: AppSeedColors.amber,
+        showFaqButton: false,
       );
 
       final restored = AppSettings.fromJson(original.toJson());
@@ -154,6 +158,7 @@ void main() {
       expect(restored.textScale, 1.3);
       expect(restored.seedColor, AppSeedColors.teal);
       expect(restored.darkSeedColor, AppSeedColors.amber);
+      expect(restored.showFaqButton, isFalse);
       expect(restored.hasSyncSelection, isFalse);
     });
 
