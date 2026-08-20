@@ -97,6 +97,10 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   String? latestVersion;
   String? errorMessage;
 
+  /// הודעה שאינה שגיאה — "ביטלת באשף", "האשף עוד פתוח". נפרדת מ-
+  /// [errorMessage] כדי שהממשק לא יצבע בחירה של המשתמש כתקלה אדומה.
+  String? noticeMessage;
+
   /// הגרסאות שבתיקייה המקומית לפי ערוץ — `null` לערוץ שאין בו גרסה.
   String? stableVersion;
   String? prereleaseVersion;
@@ -332,12 +336,17 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   }
 
   /// מתקין את הגרסה שבתיקייה המקומית. לא נוגע ברשת.
-  Future<void> install() async {
+  ///
+  /// [useWizard] = להריץ את המתקין עם האשף שלו, כמו ב-
+  /// [installFullPackage]. ברירת המחדל היא לחיצה של המשתמש; ההתקנה
+  /// האוטומטית מעבירה `false`.
+  Future<void> install({bool useWizard = true}) async {
     final check = _lastCheck;
     if (check == null) return;
 
     status = OtzariaModuleStatus.installing;
     errorMessage = null;
+    noticeMessage = null;
     notifyListeners();
     AppLogger.instance.info(
       'התקנת אוצריא מתחילה: ${check.currentState?.installedTagName} -> '
@@ -345,10 +354,27 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     );
 
     try {
-      final state = await _manager.update(check);
+      final state = await _manager.update(check, useWizard: useWizard);
       currentVersion = state.installedTagName;
       status = OtzariaModuleStatus.upToDate;
       AppLogger.instance.info('התקנת אוצריא הסתיימה בהצלחה');
+      if (useWizard) {
+        // הגרסה נקראת מקובץ ההרצה עצמו. במסלול האשף זה לא ניקיון אלא
+        // תיקון: Inno שמתרומם להרשאות מנהל מחזיר קוד יציאה 0 מהתהליך
+        // שהרצנו, ולכן "הסתיים" עוד לא אומר שהגרסה החדשה על הדיסק.
+        await checkForUpdate();
+        return;
+      }
+    } on OtzariaInstallCancelled catch (e) {
+      noticeMessage = e.toString();
+      AppLogger.instance.info('התקנת אוצריא בוטלה באשף');
+      await checkForUpdate();
+      return;
+    } on OtzariaWizardStillOpen catch (e) {
+      noticeMessage = e.toString();
+      AppLogger.instance.info('אשף ההתקנה עדיין פתוח — ההתקנה לא זוהתה עדיין');
+      await checkForUpdate();
+      return;
     } catch (e, st) {
       status = OtzariaModuleStatus.error;
       errorMessage = e.toString();
@@ -359,16 +385,34 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
 
   /// מתקין את חבילת ההתקנה המלאה שעל הכונן — תוכנה וספרייה בצעד אחד.
   /// לא נוגע ברשת. `false` בכשל, שנשמר ב-[errorMessage].
-  Future<bool> installFullPackage() async {
+  ///
+  /// [useWizard] = להריץ את המתקין עם האשף שלו, כך שהמשתמש בוחר לאן להתקין
+  /// והאם ליצור קיצור דרך. ברירת המחדל היא לחיצה של המשתמש; ההתקנה
+  /// האוטומטית מעבירה `false`, כי שם אין מי שיענה לאשף.
+  ///
+  /// ביטול באשף והמצב "האשף עוד פתוח" מוחזרים כ-`false` עם [noticeMessage]
+  /// ובלי [errorMessage] — הם אינם כשלים.
+  Future<bool> installFullPackage({bool useWizard = true}) async {
     status = OtzariaModuleStatus.installing;
     errorMessage = null;
+    noticeMessage = null;
     notifyListeners();
     AppLogger.instance.info('התקנת חבילת אוצריא המלאה מתחילה');
 
     try {
-      final state = await _manager.installFullPackage();
+      final state = await _manager.installFullPackage(useWizard: useWizard);
       currentVersion = state.installedTagName;
       AppLogger.instance.info('התקנת חבילת אוצריא המלאה הסתיימה בהצלחה');
+    } on OtzariaInstallCancelled catch (e) {
+      noticeMessage = e.toString();
+      AppLogger.instance.info('התקנת חבילת אוצריא המלאה בוטלה באשף');
+      await checkForUpdate();
+      return false;
+    } on OtzariaWizardStillOpen catch (e) {
+      noticeMessage = e.toString();
+      AppLogger.instance.info('אשף ההתקנה עדיין פתוח — ההתקנה לא זוהתה עדיין');
+      await checkForUpdate();
+      return false;
     } catch (e, st) {
       status = OtzariaModuleStatus.error;
       errorMessage = e.toString();

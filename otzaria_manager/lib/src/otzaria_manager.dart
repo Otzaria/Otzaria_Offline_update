@@ -143,11 +143,16 @@ class OtzariaManager {
   /// נשאר בנתיב שלה, למשל C:\אוצריא או {Program Files}\אוצריא").
   static const String _legacyWindowsInstallDir = r'C:\אוצריא';
 
-  /// ברירת המחדל האמיתית של installer-ה-Inno Setup של אוצריא בווינדוס —
-  /// **אומת מול מפתחי אוצריא** (לא ניחוש): `{autopf}\Otzaria`, כלומר
-  /// `%LocalAppData%\Programs\Otzaria` בהתקנה למשתמש הנוכחי (ברירת המחדל),
-  /// או `%ProgramFiles%\Otzaria` בהתקנה לכל המשתמשים (כמנהל). שתיהן
-  /// תיקיות ייעודיות לאוצריא בלבד — לא "משותפות" כמו `/Applications`.
+  /// המיקומים שאוצריא **עשויה** לשבת בהם בווינדוס, לצורכי זיהוי:
+  /// `{autopf}\Otzaria` (כלומר `%LocalAppData%\Programs\Otzaria` למשתמש
+  /// הנוכחי, או `%ProgramFiles%\Otzaria` לכל המשתמשים), ואחריו
+  /// [_legacyWindowsInstallDir]. כולן תיקיות ייעודיות לאוצריא בלבד — לא
+  /// "משותפות" כמו `/Applications`.
+  ///
+  /// ⚠️ **אין להסיק מכאן לאן להתקין.** הרשימה נבנתה כשחשבנו ש-`{autopf}`
+  /// הוא ברירת המחדל של המתקין (כך נמסר מהמפתחים ב-2026-08-07), אבל ה-iss
+  /// אומר `DefaultDirName=C:\אוצריא`. התקנה חדשה בווינדוס לא מוסרת `/DIR=`
+  /// בכלל — ראו [_installDirFor].
   List<({String dir, bool sharedDir})> get _windowsRealDefaultDirs {
     final dirs = <({String dir, bool sharedDir})>[];
 
@@ -176,10 +181,12 @@ class OtzariaManager {
   /// `OtzariaData` שליד קובץ ההרצה. לאנצ'ר שרץ מכונן נייד — התרחיש שלשמו
   /// נכתבה התוכנה — התקין בכך את אוצריא **על הכונן**: היא נעלמה מהמחשב
   /// ברגע שהכונן נשלף, ותפסה עליו מקום במקום להישאר במחשב שאליו התכוונו.
+  ///
+  /// ⚠️ **בווינדוס אין קוראים לזה בהתקנה** — ראו [_installDirFor]: המתקין
+  /// בוחר את ברירת המחדל שלו, ולא אנחנו. נשאר ציבורי כי הממשק מציג את
+  /// המיקום, וכי ב-macOS זה כן היעד בפועל.
   Future<String> resolveDefaultInstallDir() async {
     if (_platform == OtzariaTargetPlatform.windows) {
-      // הראשון ברשימה הוא `{autopf}` של התקנה למשתמש הנוכחי — בדיוק מה
-      // שה-installer עצמו היה בוחר בהרצה שאינה מוגברת, וזו ההרצה שלנו.
       return _windowsRealDefaultDirs.first.dir;
     }
     // `/Applications` קיימת תמיד, אבל בחשבון שאינו מנהל אי אפשר לכתוב בה.
@@ -329,31 +336,71 @@ class OtzariaManager {
 
   /// מתקין את הגרסה שיושבת במראה המקומית **בערוץ שנבחר**
   /// ([preferPrerelease]). אם יש כבר מצב מוכר (מותקן/מאומץ קודם), מעדכן
-  /// **באותה תיקייה** — לא יוצר התקנה שנייה; ואם אין, מתקין למיקום ברירת
-  /// המחדל של אוצריא עצמה ([resolveDefaultInstallDir]) — לא אל הכונן
-  /// שממנו הלאנצ'ר רץ. שומר את מצב ההתקנה החדש לשימוש עתידי.
+  /// **באותה תיקייה** — לא יוצר התקנה שנייה; ואם אין, נותן למתקין להתקין
+  /// לברירת המחדל שלו (ראו [_installDirFor]) ומזהה אחר כך לאן זה הלך.
+  /// שומר את מצב ההתקנה החדש לשימוש עתידי.
   ///
   /// לא נוגע ברשת. זורק [StateError] אם אין מראה — כלומר לא בוצעה הורדה.
-  Future<OtzariaInstallState> update(OtzariaUpdateCheckResult check) async {
+  ///
+  /// [useWizard] — כמו ב-[installFullPackage]: לחיצה של המשתמש פותחת את
+  /// האשף של המתקין, וההתקנה האוטומטית נשארת שקטה. גם בעדכון יש מה לבחור
+  /// שם (קיצור דרך, ובמחשב נקי גם התיקייה), ובעדכון של התקנה קיימת Inno
+  /// ממילא ממלא מראש את התיקייה שלה (`UsePreviousAppDir`) ומדלג על העמוד.
+  Future<OtzariaInstallState> update(
+    OtzariaUpdateCheckResult check, {
+    bool useWizard = false,
+  }) async {
     final mirrored = await _mirror.load();
     final selected = mirrored.select(preferPrerelease: preferPrerelease);
     if (selected == null) {
       throw StateError(AppL10n.strings.appDomain.mirrorEmptyRunDownload);
     }
 
-    final state = await _installer.installFromFile(
-      release: selected.release,
-      installerPath: selected.installerPath,
-      installDir:
-          check.currentState?.installDir ?? await resolveDefaultInstallDir(),
-      // שתי הגרסאות נשארות בכונן: התקנת אחת מהן לא מוחקת את קובץ ההתקנה
-      // של השנייה, כדי שאפשר יהיה להחליף ערוץ בלי הורדה מחדש.
-      keepCachedTagNames: {
-        for (final entry in mirrored.all) entry.release.tagName,
-      },
-    );
+    // שתי הגרסאות נשארות בכונן: התקנת אחת מהן לא מוחקת את קובץ ההתקנה
+    // של השנייה, כדי שאפשר יהיה להחליף ערוץ בלי הורדה מחדש.
+    final keepCachedTagNames = {
+      for (final entry in mirrored.all) entry.release.tagName,
+    };
+
+    // אשף רק במתקין של ווינדוס — ב-macOS ההתקנה היא חילוץ bundle, ואין שם
+    // אשף בכלל.
+    final state = useWizard &&
+            selected.release.installerKind ==
+                OtzariaInstallerKind.windowsSetupExe
+        ? await _installer.installWithWizard(
+            release: selected.release,
+            installerPath: selected.installerPath,
+            locateInstalled: _detectInKnownDirs,
+            // אותה תיקייה שההתקנה הקיימת יושבת בה — עדכון במקום, לא התקנה
+            // שנייה לצדה. `null` בהתקנה חדשה.
+            installDir: check.currentState?.installDir,
+            keepCachedTagNames: keepCachedTagNames,
+          )
+        : await _installer.installFromFile(
+            release: selected.release,
+            installerPath: selected.installerPath,
+            installDir: await _installDirFor(check.currentState),
+            locateInstalled: _detectInKnownDirs,
+            keepCachedTagNames: keepCachedTagNames,
+          );
     await _stateStore.save(state);
     return state;
+  }
+
+  /// לאן להתקין: התיקייה של התקנה קיימת — ובהיעדרה `null` בווינדוס, כלומר
+  /// "בלי `/DIR=`, שהמתקין יבחר".
+  ///
+  /// **למה לא ברירת מחדל משלנו:** [resolveDefaultInstallDir] נבנתה כדי
+  /// *לחזור* על ברירת המחדל של המתקין, והערך שבה (`{autopf}\Otzaria`) לא
+  /// תואם את ה-iss בפועל (`DefaultDirName=C:\אוצריא`). ניחוש שמתיישן הוא
+  /// גרוע מלא לנחש: המתקין יודע לאן הוא מתקין, והרג'יסטרי אומר לנו איפה
+  /// זה נגמר. ב-macOS אין מתקין שבוחר — ההתקנה היא העתקת bundle — ולכן שם
+  /// התיקייה נחוצה תמיד.
+  Future<String?> _installDirFor(OtzariaInstallState? existing) async {
+    if (existing != null) return existing.installDir;
+    return _platform == OtzariaTargetPlatform.macos
+        ? await resolveDefaultInstallDir()
+        : null;
   }
 
   /// מתקין את **חבילת ה-FULL** שיושבת במראה — תוכנה וספרייה בצעד אחד.
@@ -362,7 +409,20 @@ class OtzariaManager {
   /// [OtzariaUpdateCheckResult.fullPackageRecommended]), אבל אינה מסרבת
   /// להתקין על גבי התקנה קיימת: אם המשתמש ביקש זאת במפורש, המתקין של
   /// אוצריא יודע לשדרג במקום. לא נוגע ברשת.
-  Future<OtzariaInstallState> installFullPackage() async {
+  ///
+  /// [useWizard] = **להריץ את המתקין עם האשף שלו** ולא בשקט. זו ההתנהגות
+  /// כשהמשתמש לחץ "התקן" בעצמו: החבילה המלאה מגיעה למחשב שאין בו אוצריא,
+  /// ושם האשף מציג את הבחירות שרק המשתמש יכול לעשות — לאן להתקין (כונן
+  /// נייד? תיקייה של משתמש אחד?), האם ליצור קיצור דרך, והאזהרה של ה-`[Code]`
+  /// שבמתקין על נתונים שיימחקו. שקט נשאר ברירת המחדל למסלול ההתקנה
+  /// האוטומטית, שבו אין מי שיענה לאשף.
+  ///
+  /// זורק [OtzariaInstallCancelled] כשהמשתמש ביטל באשף, ו-
+  /// [OtzariaWizardStillOpen] כשהאשף עוד פתוח כשההמתנה נגמרה — שניהם אינם
+  /// שגיאות.
+  Future<OtzariaInstallState> installFullPackage({
+    bool useWizard = false,
+  }) async {
     final mirrored = await _mirror.load();
     final stable = mirrored.stable;
     final full = stable?.release.fullPackage;
@@ -371,16 +431,36 @@ class OtzariaManager {
       throw StateError(AppL10n.strings.appDomain.fullPackageNotOnDrive);
     }
 
+    final keepCachedTagNames = {
+      for (final entry in mirrored.all) entry.release.tagName,
+    };
+
     final existing = await _loadVerifiedState() ?? await _detectInKnownDirs();
+
+    // אשף רק במתקין של ווינדוס: ב-macOS אין מתקין בכלל — ההתקנה היא חילוץ
+    // bundle, ואין שם שום עמוד בחירה להציג.
+    if (useWizard &&
+        full.installerKind == OtzariaInstallerKind.windowsSetupExe) {
+      final state = await _installer.installWithWizard(
+        release: stable.release,
+        installerPath: path,
+        locateInstalled: _detectInKnownDirs,
+        // גם החבילה המלאה מתקינה על גבי התקנה קיימת, כשיש כזו.
+        installDir: existing?.installDir,
+        keepCachedTagNames: keepCachedTagNames,
+      );
+      await _stateStore.save(state);
+      return state;
+    }
+
     final state = await _installer.installFromFile(
       release: stable.release,
       installerPath: path,
       installerKind: full.installerKind,
-      installDir: existing?.installDir ?? await resolveDefaultInstallDir(),
+      installDir: await _installDirFor(existing),
+      locateInstalled: _detectInKnownDirs,
       appAppearTimeout: OtzariaInstaller.fullPackageAppAppearTimeout,
-      keepCachedTagNames: {
-        for (final entry in mirrored.all) entry.release.tagName,
-      },
+      keepCachedTagNames: keepCachedTagNames,
     );
     await _stateStore.save(state);
     return state;

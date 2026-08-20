@@ -219,7 +219,11 @@ class HomeScreen extends StatelessWidget {
       UiSnack.showSuccess(
         AppL10n.strings.home.appInstalledSnack('${otzaria.currentVersion}'),
       );
+      return;
     }
+    // ביטול באשף, או אשף שעוד פתוח — הודעה רגילה ולא שגיאה.
+    final notice = otzaria.noticeMessage;
+    if (notice != null) UiSnack.show(notice);
   }
 
   // ── אריח הספרייה ──────────────────────────────────────────────────────────
@@ -267,6 +271,7 @@ class HomeScreen extends StatelessWidget {
       content: c.isFreshInstall
           ? t.libraryFreshInstallPrompt('${c.targetVersion}')
           : t.libraryUpdatePrompt('${c.localVersion}', '${c.targetVersion}'),
+      subtitle: t.doNotRemoveDriveWarning,
       confirmText: t.libraryUpdateConfirm,
     );
     if (!approved) return;
@@ -619,6 +624,8 @@ Widget libraryApplyProgressRow(
       stage: c.stageText ?? context.strings.libraryScreen.updatingProgress,
       progress: c.applyProgress,
       detail: formatBytesProgress(c.applyReceivedBytes, c.applyTotalBytes),
+      // נשארת על המסך לכל אורך ההחלה — הרגע שבו שליפת הכונן מזיקה.
+      warning: context.strings.home.doNotRemoveDriveWarning,
     );
 
 // ── אריח בית — עיצוב אחיד לשני הרכיבים ────────────────────────────────────────

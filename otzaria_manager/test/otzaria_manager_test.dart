@@ -725,6 +725,54 @@ void main() {
     expect(body, isNot(contains('_releaseClient')));
     expect(body, isNot(contains('fetchChannelReleases')));
   });
+
+  // לנדמיין שני: להתקנה חדשה בווינדוס אין תיקיית יעד משלנו. אין דרך
+  // להזריק לתהליך שהמתקין מריץ, ולכן גם זה נאכף על הקוד עצמו.
+  test('התקנה חדשה בווינדוס אינה כופה תיקייה — רק macOS צריך אחת', () {
+    final source =
+        File(p.join('lib', 'src', 'otzaria_manager.dart')).readAsStringSync();
+    final body = source.substring(
+      source.indexOf('Future<String?> _installDirFor('),
+      source.indexOf('Future<OtzariaInstallState> installFullPackage('),
+    );
+
+    expect(body, contains('OtzariaTargetPlatform.macos'));
+    expect(body, contains('resolveDefaultInstallDir()'));
+    // ווינדוס נופל ל-null, כלומר "בלי /DIR=".
+    expect(body, contains(': null'));
+
+    // ומי שמתקין לא קורא לברירת המחדל בעצמו, כי אז הניחוש היה חוזר. בלי
+    // שורות ה-doc — הן מסבירות את ההחלטה, וגם מזכירות את שם המתודה.
+    final updateBody = source
+        .substring(
+          source.indexOf('Future<OtzariaInstallState> update('),
+          source.indexOf('Future<String?> _installDirFor('),
+        )
+        .split('\n')
+        .where((line) => !line.trimLeft().startsWith('///'))
+        .join('\n');
+    expect(updateBody, contains('_installDirFor('));
+    expect(updateBody, isNot(contains('resolveDefaultInstallDir')));
+  });
+
+  // מסלול האשף לא משתיק ולא מסמן משימות במקום המשתמש. `/DIR=` כן נמסר —
+  // אבל רק מהתיקייה שנמסרה לו, כדי שעדכון ייכנס למקום ההתקנה הקיימת.
+  // גם כאן אין דרך להזריק לתהליך, ולכן זה נאכף על הקוד.
+  test('מסלול האשף אינו משתיק, ומוסר /DIR= רק מהתיקייה שנמסרה', () {
+    final source = File(
+      p.join('lib', 'src', 'services', 'otzaria_installer.dart'),
+    ).readAsStringSync();
+    final body = source.substring(
+      source.indexOf('Future<OtzariaInstallState> installWithWizard('),
+      source.indexOf('static const Duration wizardDetectTimeout'),
+    );
+
+    expect(body, contains('/LOG='));
+    expect(body, contains("if (installDir != null) '/DIR=\$installDir'"));
+    expect(body, isNot(contains('MERGETASKS')));
+    expect(body, isNot(contains('VERYSILENT')));
+    expect(body, isNot(contains('SUPPRESSMSGBOXES')));
+  });
 }
 
 /// "אוצריא רצה מהנתיב הזה" קבוע — במקום לשאול את המערכת מה פתוח כרגע.

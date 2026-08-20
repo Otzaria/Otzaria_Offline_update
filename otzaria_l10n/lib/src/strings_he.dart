@@ -170,6 +170,10 @@ class _Home extends HomeStrings {
   String libraryUpdatedSnack(String version) => 'המסד עודכן לגרסה $version';
 
   @override
+  String get doNotRemoveDriveWarning =>
+      'שים לב! אין להסיר את האונקי עד לסיום העדכון.';
+
+  @override
   String get onlineCardTitle => 'בדיקת עדכונים';
   @override
   String get onlineCardHint =>
@@ -347,7 +351,8 @@ class _AppScreen extends AppScreenStrings {
       'לא נמצאה במחשב הזה התקנה של אוצריא, ועל הכונן יושבת חבילת ההתקנה '
       'המלאה של אוצריא $version ($size), '
       'הכוללת גם את הספרייה. התקנה ממנה מביאה את שניהם בבת אחת, ואינה '
-      'דורשת אינטרנט.';
+      'דורשת אינטרנט. המתקין של אוצריא ייפתח, ובו תבחר לאן להתקין והאם '
+      'ליצור קיצור דרך בשולחן העבודה.';
 
   @override
   String installPrompt({
@@ -360,7 +365,8 @@ class _AppScreen extends AppScreenStrings {
         : '';
     return 'הגרסה $latestVersion תותקן מהתיקייה המקומית על גבי '
         '${currentVersion ?? 'ההתקנה הקיימת'}.$channelNote '
-        'ההתקנה אינה דורשת אינטרנט. יש לוודא שאוצריא סגורה.';
+        'ההתקנה אינה דורשת אינטרנט. יש לוודא שאוצריא סגורה. '
+        'המתקין של אוצריא ייפתח, ובו תשלים את ההתקנה.';
   }
 }
 
@@ -1733,6 +1739,12 @@ class _AppDomain extends AppDomainStrings {
   String get downloadingFullPackage => 'מוריד את חבילת ההתקנה המלאה';
   @override
   String get downloadCancelled => 'ההורדה בוטלה.';
+  @override
+  String get installCancelledByUser => 'ההתקנה בוטלה במתקין.';
+  @override
+  String get wizardStillOpen =>
+      'המתקין של אוצריא נפתח. כשתסיים אותו, לחץ "בדיקה מחדש" כדי שהתוכנה '
+      'תזהה את ההתקנה.';
 
   @override
   String get noInstallableReleaseForPlatform =>
@@ -1801,6 +1813,11 @@ class _AppDomain extends AppDomainStrings {
       'לא נמצאה התקנה של אוצריא בתוך $installDir תוך $timeoutSeconds שניות '
       'מסיום ה-installer. ייתכן שההתקנה עדיין רצה ברקע, או שנתיב ההתקנה '
       'השתנה בגרסה חדשה של ה-installer.';
+  @override
+  String installNotDetectedAnywhere(int timeoutSeconds) =>
+      'ההתקנה הסתיימה, אבל אוצריא לא נמצאה במחשב תוך $timeoutSeconds שניות — '
+      'לא ברשימת התוכנות המותקנות ולא במיקומים המוכרים. אם היא כן הותקנה, '
+      'בחר את תיקיית ההתקנה ידנית במסך אוצריא.';
   @override
   String launchFileMissing(String launchPath) =>
       'קובץ ההפעלה לא נמצא בנתיב: $launchPath';

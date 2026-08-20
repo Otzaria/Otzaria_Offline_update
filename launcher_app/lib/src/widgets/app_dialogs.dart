@@ -21,7 +21,7 @@ class AppDialog extends StatelessWidget {
   final String confirmText;
   final String cancelText;
 
-  /// טקסט אזהרה בצבע error, מתחת לתוכן — רק בוריאנט warning.
+  /// טקסט אזהרה בצבע error, מתחת לתוכן — בוריאנטים warning ו-twoActions.
   final String? subtitle;
   final _DialogVariant _variant;
 
@@ -43,10 +43,10 @@ class AppDialog extends StatelessWidget {
     this.customContent,
     String? cancelText,
     String? confirmText,
+    this.subtitle,
   })  : _variant = _DialogVariant.twoActions,
         cancelText = cancelText ?? AppL10n.strings.common.cancel,
-        confirmText = confirmText ?? AppL10n.strings.common.confirm,
-        subtitle = null;
+        confirmText = confirmText ?? AppL10n.strings.common.confirm;
 
   AppDialog.warning({
     super.key,
@@ -145,6 +145,7 @@ Future<bool> showTwoActionsDialog({
   required String title,
   String? content,
   Widget? customContent,
+  String? subtitle,
   String? cancelText,
   String? confirmText,
 }) async =>
@@ -154,6 +155,7 @@ Future<bool> showTwoActionsDialog({
         title: title,
         content: content,
         customContent: customContent,
+        subtitle: subtitle,
         cancelText: cancelText,
         confirmText: confirmText,
       ),

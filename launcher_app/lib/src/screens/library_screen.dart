@@ -222,6 +222,7 @@ class LibraryScreen extends StatelessWidget {
       content: c.isFreshInstall
           ? home.libraryFreshInstallPrompt('${c.targetVersion}')
           : home.libraryUpdatePrompt('${c.localVersion}', '${c.targetVersion}'),
+      subtitle: home.doNotRemoveDriveWarning,
       confirmText: home.libraryUpdateConfirm,
     );
     if (!approved) return;
@@ -256,6 +257,7 @@ class LibraryScreen extends StatelessWidget {
             ? formatBytes(size)
             : context.strings.common.unknownValue,
       ),
+      subtitle: context.strings.home.doNotRemoveDriveWarning,
       confirmText: context.strings.common.install,
     );
     if (!approved) return;

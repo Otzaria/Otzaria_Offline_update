@@ -197,4 +197,194 @@ void main() {
       expect(code, isNot(contains('package:archive')));
     });
   });
+
+  group('OtzariaInstaller.windowsSilentArgs', () {
+    final args = OtzariaInstaller.windowsSilentArgs(
+      installDir: r'C:\Otzaria',
+      logPath: r'C:\Temp\otzaria-install.log',
+    );
+
+    test('התקנה שקטה, בלי תיבות הודעה ובלי הפעלה מחדש', () {
+      expect(args,
+          containsAll(['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART']));
+    });
+
+    test('נתיב ההתקנה והלוג נמסרים כדגלים משורשרים', () {
+      expect(args, contains(r'/DIR=C:\Otzaria'));
+      expect(args, contains(r'/LOG=C:\Temp\otzaria-install.log'));
+    });
+
+    // המשימה מוגדרת `unchecked` ב-iss של אוצריא, ולכן בלי הדגל הזה התקנה
+    // שקטה לא יוצרת קיצור-דרך בשולחן העבודה.
+    test('משימת קיצור-הדרך בשולחן העבודה נדלקת במפורש', () {
+      expect(args, contains('/MERGETASKS=desktopicon'));
+    });
+  });
+
+  group('OtzariaInstaller.windowsSilentArgs — התקנה חדשה', () {
+    // בלי `/DIR=` המתקין מתקין ל-DefaultDirName שלו. ניחוש משלנו התיישן
+    // פעם, וזו בדיוק הסיבה שאין כאן דגל.
+    test('התקנה חדשה (installDir=null) אינה מוסרת /DIR= בכלל', () {
+      final args = OtzariaInstaller.windowsSilentArgs(
+        installDir: null,
+        logPath: r'C:\Temp\otzaria-install.log',
+      );
+
+      expect(args.where((a) => a.startsWith('/DIR=')), isEmpty);
+      expect(args, contains('/VERYSILENT'));
+      expect(args, contains('/MERGETASKS=desktopicon'));
+    });
+
+    test('עדכון של התקנה קיימת כן מוסר את התיקייה שלה', () {
+      final args = OtzariaInstaller.windowsSilentArgs(
+        installDir: r'D:\אוצריא',
+        logPath: r'C:\Temp\otzaria-install.log',
+      );
+
+      expect(args, contains(r'/DIR=D:\אוצריא'));
+    });
+  });
+
+  group('OtzariaInstaller.wizardOutcomeFor', () {
+    test('0 = הסתיים', () {
+      expect(
+        OtzariaInstaller.wizardOutcomeFor(0),
+        OtzariaWizardOutcome.finished,
+      );
+    });
+
+    // 2 ו-5 הם הביטולים של Inno (לפני ההתקנה ובאמצעה), ו-1223 הוא סירוב
+    // ל-UAC. שלושתם בחירה של המשתמש ולא תקלה.
+    test('2, 5 ו-1223 = ביטול של המשתמש', () {
+      for (final code in [2, 5, 1223]) {
+        expect(
+          OtzariaInstaller.wizardOutcomeFor(code),
+          OtzariaWizardOutcome.cancelled,
+          reason: 'קוד $code',
+        );
+      }
+    });
+
+    test('כל קוד אחר = כשל', () {
+      for (final code in [1, 3, 4, 6, 7, 8]) {
+        expect(
+          OtzariaInstaller.wizardOutcomeFor(code),
+          OtzariaWizardOutcome.failed,
+          reason: 'קוד $code',
+        );
+      }
+    });
+  });
+
+  group('OtzariaInstaller.installWithWizard', () {
+    late OtzariaInstaller installer;
+
+    setUp(() => installer = OtzariaInstaller(cacheDir: cacheDir));
+
+    // המתקין שמורץ כאן הוא סקריפט אמיתי שיוצא בקוד 0 בלי לעשות כלום —
+    // כלומר "האשף נסגר וההתקנה לא נמצאה", המצב של משתמש שעוד באמצע.
+    test('אשף שהסתיים בלי שההתקנה נמצאה — OtzariaWizardStillOpen', () async {
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 0);
+
+      await expectLater(
+        installer.installWithWizard(
+          release: _release(),
+          installerPath: fakeInstaller,
+          locateInstalled: () async => null,
+          detectTimeout: Duration.zero,
+        ),
+        throwsA(isA<OtzariaWizardStillOpen>()),
+      );
+    });
+
+    test('אשף שהמשתמש ביטל — OtzariaInstallCancelled, לא שגיאה', () async {
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 2);
+
+      await expectLater(
+        installer.installWithWizard(
+          release: _release(),
+          installerPath: fakeInstaller,
+          locateInstalled: () async => throw StateError('לא אמור להיקרא'),
+        ),
+        throwsA(isA<OtzariaInstallCancelled>()),
+      );
+    });
+
+    test('אשף שהסתיים וההתקנה זוהתה — המצב שמוחזר הוא של הזיהוי', () async {
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 0);
+      final detected = OtzariaInstallState(
+        installedTagName: '0.9.0',
+        installDir: r'C:\אוצריא',
+        launchPath: r'C:\אוצריא\otzaria.exe',
+      );
+
+      final state = await installer.installWithWizard(
+        release: _release(),
+        installerPath: fakeInstaller,
+        locateInstalled: () async => detected,
+      );
+
+      expect(state.installDir, detected.installDir);
+      expect(state.launchPath, detected.launchPath);
+      // התג של ה-release, לא הגרסה שנקראה מה-exe — כמו במסלול השקט.
+      expect(state.installedTagName, _tag);
+    });
+
+    // "להתקין בדיוק לאותו מקום": התיקייה שנמסרה קודמת לזיהוי הכללי, שיכול
+    // להחזיר התקנה אחרת שנשארה במחשב.
+    test('התיקייה שנמסרה מנצחת את הזיהוי הכללי', () async {
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 0);
+      final existingDir = p.join(tempDir.path, 'התקנה קיימת');
+      final existingExe = p.join(existingDir, 'otzaria.exe');
+      await Directory(existingDir).create(recursive: true);
+      await File(existingExe).writeAsString('exe');
+
+      final state = await installer.installWithWizard(
+        release: _release(),
+        installerPath: fakeInstaller,
+        installDir: existingDir,
+        locateInstalled: () async => OtzariaInstallState(
+          installedTagName: '0.1.0',
+          installDir: r'C:\מקום אחר',
+          launchPath: r'C:\מקום אחר\otzaria.exe',
+        ),
+      );
+
+      expect(state.installDir, existingDir);
+      expect(state.launchPath, existingExe);
+    });
+
+    test('תיקייה שנמסרה וריקה — נופלים לזיהוי (המשתמש שינה יעד באשף)',
+        () async {
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 0);
+      final chosenElsewhere = OtzariaInstallState(
+        installedTagName: '0.1.0',
+        installDir: r'D:\אוצריא',
+        launchPath: r'D:\אוצריא\otzaria.exe',
+      );
+
+      final state = await installer.installWithWizard(
+        release: _release(),
+        installerPath: fakeInstaller,
+        installDir: p.join(tempDir.path, 'תיקייה שאינה קיימת'),
+        locateInstalled: () async => chosenElsewhere,
+      );
+
+      expect(state.installDir, chosenElsewhere.installDir);
+    });
+  });
+}
+
+/// כותב "מתקין" מדומה שכל תפקידו לצאת בקוד נתון. `.bat` בווינדוס ו-`sh`
+/// בשאר — הבדיקה מריצה תהליך אמיתי, כי זה מה שמסלול האשף עושה.
+Future<String> _writeExitScript(String dir, {required int exitCode}) async {
+  if (Platform.isWindows) {
+    final path = p.join(dir, 'fake-setup.bat');
+    await File(path).writeAsString('@echo off\r\nexit /b $exitCode\r\n');
+    return path;
+  }
+  final path = p.join(dir, 'fake-setup.sh');
+  await File(path).writeAsString('#!/bin/sh\nexit $exitCode\n');
+  await Process.run('chmod', ['+x', path]);
+  return path;
 }

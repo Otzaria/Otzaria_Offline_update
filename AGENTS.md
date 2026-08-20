@@ -148,6 +148,33 @@ it) to the mirror. Four things hold it together:
   version (`fullPackagePending` in `AppShell.downloadAll`). Without that, a drive
   that was already up to date would have skipped the module and never fetched the
   package.
+- **When the *user* installs, Otzaria's own wizard opens** — the full package
+  and the ordinary install alike (`installFullPackage(useWizard: true)` /
+  `update(check, useWizard: true)` → `OtzariaInstaller.installWithWizard`, no
+  flags but `/LOG=`). The wizard's two pages carry decisions only the person
+  standing there can make: which folder (a flash drive? one user's profile?) and
+  whether to create a desktop shortcut. `/VERYSILENT` deleted both pages, which
+  is what the report "it didn't open the installer's dialog and made no
+  shortcut" actually was. Do not "fix" this back by passing `/MERGETASKS` here
+  — overriding that choice is the bug. `/DIR=` is different and **is** passed
+  when an install already exists: Inno's `/DIR` only sets the *default* shown
+  on the destination page (hidden anyway on an update), so the new version
+  lands in the existing folder instead of beside it, and the user can still
+  change it when the page does show. Inno's own `UsePreviousAppDir` is not
+  enough — it needs Setup's own uninstall record, which a portable or
+  manually-adopted install does not have. The dir we passed also **outranks
+  detection** when deciding what got installed; only if no executable is there
+  (the user retargeted in the wizard) does detection answer. **Auto-install stays
+  silent** (`_autoInstallIfEnabled` passes `useWizard: false` on both paths): a
+  wizard waiting for a click is not "install by itself", and that is the only
+  path where `/MERGETASKS=desktopicon` still does anything.
+- **Cancelling the wizard is not a failure.** `OtzariaInstallCancelled` (Inno
+  exit 2/5, plus 1223 = UAC refused) and `OtzariaWizardStillOpen` (the process
+  returned before the install is on disk — routine when Inno elevates and the
+  process we ran hands off to an elevated child) surface as
+  `OtzariaModuleController.noticeMessage`, a plain snackbar. Never route them
+  through `errorMessage`: painting the user's own choice red is what makes
+  people think the program broke.
 
 It does **not** solve issue #21. The FULL installer carries only the ~2MB
 WebView2 *bootstrapper*, which downloads the runtime from the internet at install
@@ -976,16 +1003,23 @@ Three things about our half:
   enough on their own: a user who opens Otzaria from a desktop shortcut never
   delivers it, and that gap is the accepted cost of a link-based fix.
 
-**The Otzaria *app*'s real default install directory, verified against the
-Otzaria developers (2026-08-07) — not a guess:** the Windows Inno Setup
-installer's default is `{autopf}\Otzaria`, i.e. `%LocalAppData%\Programs\Otzaria`
-for a per-user install (the installer's default) or `%ProgramFiles%\Otzaria`
-for a per-machine install; older installs may sit at `C:\אוצריא` or
-`{Program Files}\אוצריא`. `OtzariaManager._windowsRealDefaultDirs` checks all
-of these, after the launcher's own managed folder — and its **first** entry is
-also where a fresh install goes (`resolveDefaultInstallDir()`), because
-`{autopf}` for a non-elevated run is exactly what the installer itself would
-pick, and we run it non-elevated. On macOS the same method returns
+**Where a fresh Windows install goes is the installer's call, not ours.**
+`installFromFile` passes `/DIR=` **only when updating an install we already
+know about**; for a fresh one it passes no `/DIR=` at all and then finds the
+result through detection (`InstallLocation` in the uninstall registry, then the
+known dirs). The reason is a landmine that already bit once: this repo recorded
+`{autopf}\Otzaria` as "the installer's real default, verified against the
+Otzaria developers (2026-08-07) — not a guess", and `installer/otzaria.iss` in
+`Otzaria/otzaria` says `DefaultDirName=C:\אוצריא`. A copied default silently
+drifts from the thing it copies; the installer always knows its own default, so
+let it choose. `_windowsRealDefaultDirs` (`{autopf}\Otzaria`,
+`%ProgramFiles%\Otzaria`, `{Program Files}\אוצריא`, `C:\אוצריא`) is now a
+**detection** list only, and `resolveDefaultInstallDir()` is a Windows *display*
+value plus the real macOS target — never an install argument on Windows. Verify
+installer facts against **`Otzaria/otzaria`** (what `OtzariaReleaseClient`
+downloads); `Sivan22/otzaria` also has an `installer/` folder with
+similar-but-different scripts, and reading the wrong one produces confident
+wrong answers. On macOS the same method returns
 `/Applications`, falling back to `~/Applications` when the account cannot write
 there. This is a *different*
 directory from where the library DB lives (`%APPDATA%\otzaria\`, see above) —

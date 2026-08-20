@@ -177,6 +177,10 @@ class _Home extends HomeStrings {
       'The database was updated to version $version';
 
   @override
+  String get doNotRemoveDriveWarning =>
+      'Note! Do not remove the USB drive until the update is finished.';
+
+  @override
   String get onlineCardTitle => 'Check for updates';
   @override
   String get onlineCardHint =>
@@ -367,7 +371,8 @@ class _AppScreen extends AppScreenStrings {
       'No Otzaria installation was found on this computer, and the drive '
       'holds the full installation package of Otzaria $version ($size), '
       'library included. Installing from it brings both at once, and needs '
-      'no internet.';
+      'no internet. The Otzaria installer will open, where you choose where '
+      'to install and whether to create a desktop shortcut.';
 
   @override
   String installPrompt({
@@ -380,7 +385,8 @@ class _AppScreen extends AppScreenStrings {
         : '';
     return 'Version $latestVersion will be installed from the local folder '
         'over ${currentVersion ?? 'the existing installation'}.$channelNote '
-        'No internet is needed. Make sure Otzaria is closed.';
+        'No internet is needed. Make sure Otzaria is closed. The Otzaria '
+        'installer will open for you to complete the installation.';
   }
 }
 
@@ -1846,6 +1852,13 @@ class _AppDomain extends AppDomainStrings {
   String get downloadingFullPackage => 'Downloading the full package';
   @override
   String get downloadCancelled => 'The download was cancelled.';
+  @override
+  String get installCancelledByUser =>
+      'The installation was cancelled in the installer.';
+  @override
+  String get wizardStillOpen =>
+      'The Otzaria installer was opened. When you finish it, press "Check '
+      'again" so the program detects the installation.';
 
   @override
   String get noInstallableReleaseForPlatform =>
@@ -1918,6 +1931,12 @@ class _AppDomain extends AppDomainStrings {
       '$timeoutSeconds seconds of the installer finishing. It may still be '
       'running in the background, or the install path may have changed in a '
       'newer installer.';
+  @override
+  String installNotDetectedAnywhere(int timeoutSeconds) =>
+      'The installation finished, but Otzaria was not found on this computer '
+      'within $timeoutSeconds seconds — neither in the list of installed '
+      'programs nor in the known locations. If it was installed after all, '
+      'choose its folder manually on the Otzaria screen.';
   @override
   String launchFileMissing(String launchPath) =>
       'The executable was not found at: $launchPath';

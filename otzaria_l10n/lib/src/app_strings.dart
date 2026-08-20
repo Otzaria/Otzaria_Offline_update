@@ -117,6 +117,10 @@ abstract class HomeStrings {
   String get libraryUpdateConfirm;
   String libraryUpdatedSnack(String version);
 
+  /// אזהרה לפני עדכון הספרייה ולאורכו — התוכנה והעדכונים יושבים על הכונן
+  /// הנשלף, ושליפתו באמצע ההחלה קוטעת את העדכון.
+  String get doNotRemoveDriveWarning;
+
   // ── כרטיס בדיקת העדכונים ברשת ───────────────────────────────────────────
   String get onlineCardTitle;
   String get onlineCardHint;
@@ -969,6 +973,13 @@ abstract class AppDomainStrings {
   /// הודעת החריג שנזרק כשהמשתמש ביטל את ההורדה — לא שגיאה, בחירה.
   String get downloadCancelled;
 
+  /// אותו דבר, כשהביטול היה באשף ההתקנה עצמו.
+  String get installCancelledByUser;
+
+  /// האשף רץ, סיים, וההתקנה עדיין לא נראית על הדיסק — כמעט תמיד משמע
+  /// שהמשתמש עוד באמצע. לא שגיאה: הודעה שאומרת מה לעשות.
+  String get wizardStillOpen;
+
   String get noInstallableReleaseForPlatform;
   String get mirrorEmptyRunDownload;
   String get fullPackageNotOnDrive;
@@ -992,6 +1003,10 @@ abstract class AppDomainStrings {
   String get macAppNotFoundInDmg;
   String dittoCopyFailed(int exitCode, String output);
   String installNotDetected(String installDir, int timeoutSeconds);
+
+  /// כשלא נמסר `/DIR=` — ההתקנה הלכה לברירת המחדל של המתקין, ואחריה
+  /// הזיהוי (רג'יסטרי + מיקומים מוכרים) לא מצא אותה.
+  String installNotDetectedAnywhere(int timeoutSeconds);
   String launchFileMissing(String launchPath);
   String launchFailed(int exitCode, String stderr);
   String githubStatus(int statusCode, String uri);

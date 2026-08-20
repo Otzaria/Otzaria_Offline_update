@@ -215,7 +215,11 @@ class OtzariaScreen extends StatelessWidget {
       UiSnack.showSuccess(
         AppL10n.strings.home.appInstalledSnack('${otzaria.currentVersion}'),
       );
+      return;
     }
+    // ביטול באשף, או אשף שעוד פתוח — הודעה רגילה ולא שגיאה.
+    final notice = otzaria.noticeMessage;
+    if (notice != null) UiSnack.show(notice);
   }
 
   // ── מה התחדש ──────────────────────────────────────────────────────────────

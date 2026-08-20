@@ -252,8 +252,11 @@ class _AppShellState extends State<AppShell> {
 
   /// מתקין את החבילה המלאה. יושב כאן ולא במסך, כי גם ההמלצה שבעלייה וגם
   /// הכפתור שבכרטיס מגיעים אליו.
-  Future<void> installFullPackage() async {
-    final ok = await _otzaria.installFullPackage();
+  ///
+  /// [useWizard] מועבר `false` רק מההתקנה האוטומטית — ראו
+  /// [OtzariaModuleController.installFullPackage].
+  Future<void> installFullPackage({bool useWizard = true}) async {
+    final ok = await _otzaria.installFullPackage(useWizard: useWizard);
     if (!mounted) return;
     if (ok) {
       // ההתקנה המלאה הביאה גם ספרייה — הבדיקה שלה מכאן היא מה שמחליף את
@@ -263,6 +266,12 @@ class _AppShellState extends State<AppShell> {
       UiSnack.showSuccess(
         AppL10n.strings.home.appInstalledSnack('${_otzaria.currentVersion}'),
       );
+      return;
+    }
+    // ביטול באשף, או אשף שעוד פתוח — הודעה רגילה ולא שגיאה.
+    final notice = _otzaria.noticeMessage;
+    if (notice != null) {
+      UiSnack.show(notice);
       return;
     }
     final error = _otzaria.errorMessage;
@@ -366,11 +375,12 @@ class _AppShellState extends State<AppShell> {
     // שהתהליך הרץ נועל, ואז נופל באמצע ההתקנה בקוד יציאה סתום (5).
     if (s.autoInstallApp && !_otzariaIsRunning) {
       // אין במחשב אוצריא ועל הכונן יושבת חבילה מלאה — היא מה שמותקן, כי
-      // היא מביאה בצעד אחד גם את הספרייה.
+      // היא מביאה בצעד אחד גם את הספרייה. בשקט ובלי אשף: המשתמש ביקש
+      // שההתקנה תיעשה לבדה, ואשף שממתין ללחיצה אינו "לבדה".
       if (_otzaria.fullPackageRecommended) {
-        await installFullPackage();
+        await installFullPackage(useWizard: false);
       } else if (_otzaria.status == OtzariaModuleStatus.updateAvailable) {
-        await _otzaria.install();
+        await _otzaria.install(useWizard: false);
       }
       if (!mounted) return;
     }

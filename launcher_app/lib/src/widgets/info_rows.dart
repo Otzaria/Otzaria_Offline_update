@@ -100,11 +100,16 @@ class InfoProgressRow extends StatelessWidget {
   final double? progress;
   final String? detail;
 
+  /// אזהרה שנשארת על המסך לאורך הפעולה, בצבע error — לפעולה שקטיעה שלה
+  /// מזיקה. null כשאין.
+  final String? warning;
+
   const InfoProgressRow({
     super.key,
     required this.stage,
     this.progress,
     this.detail,
+    this.warning,
   });
 
   @override
@@ -143,6 +148,16 @@ class InfoProgressRow extends StatelessWidget {
               detail!,
               style: theme.textTheme.bodySmall
                   ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+          ],
+          if (warning != null) ...[
+            const SizedBox(height: AppTokens.spaceXS),
+            Text(
+              warning!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.error,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ],
         ],
