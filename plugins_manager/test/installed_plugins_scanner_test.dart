@@ -12,9 +12,10 @@ void main() {
   setUp(() => temp = createTempDir());
   tearDown(() => deleteTempDir(temp));
 
-  /// יוצר `<root>/installed/<id>/current/manifest.json`, המבנה של אוצריא.
-  void install(String root, String id, String manifest) {
-    final dir = Directory(p.join(root, 'installed', id, 'current'))
+  /// יוצר `<root>/installed/<id>/<release>/manifest.json`, המבנה של אוצריא.
+  void install(String root, String id, String manifest,
+      {String release = 'current'}) {
+    final dir = Directory(p.join(root, 'installed', id, release))
       ..createSync(recursive: true);
     File(p.join(dir.path, 'manifest.json')).writeAsStringSync(manifest);
   }
@@ -60,6 +61,60 @@ void main() {
 
       final scanner = InstalledPluginsScanner(customPluginsDir: temp.path);
       expect(await scanner.scan(), {'good': '1.0.0'});
+    });
+
+    test('המבנה החדש — .release-<hash> — מזוהה כמותקן', () async {
+      // הרגרסיה: אוצריא החדשה פורשת ל-`.release-<hash>` ואין `current`,
+      // ולכן תוסף מותקן נראה בחנות כאילו לא הותקן מעולם.
+      install(temp.path, 'com.otzaria-marker', '{"version":"0.9.2"}',
+          release: '.release-fe601d89');
+
+      final scanner = InstalledPluginsScanner(customPluginsDir: temp.path);
+      expect(await scanner.scan(), {'com.otzaria-marker': '0.9.2'});
+    });
+
+    test('שני המבנים יחד נסרקים באותה סריקה', () async {
+      install(temp.path, 'old', '{"version":"1.0.0"}');
+      install(temp.path, 'new', '{"version":"2.0.0"}',
+          release: '.release-abc123');
+
+      final scanner = InstalledPluginsScanner(customPluginsDir: temp.path);
+      expect(await scanner.scan(), {'old': '1.0.0', 'new': '2.0.0'});
+    });
+
+    test('current גוברת על .release כששתיהן קיימות', () async {
+      install(temp.path, 'both', '{"version":"1.0.0"}');
+      install(temp.path, 'both', '{"version":"9.9.9"}',
+          release: '.release-stale');
+
+      final scanner = InstalledPluginsScanner(customPluginsDir: temp.path);
+      expect(await scanner.scan(), {'both': '1.0.0'});
+    });
+
+    test('מכמה .release נבחרת זו שנכתבה אחרונה', () async {
+      install(temp.path, 'many', '{"version":"1.0.0"}',
+          release: '.release-aaaaaa');
+      install(temp.path, 'many', '{"version":"2.0.0"}',
+          release: '.release-zzzzzz');
+
+      final scanner = InstalledPluginsScanner(customPluginsDir: temp.path);
+      expect(await scanner.scan(), {'many': '2.0.0'});
+    });
+
+    test('.release פגומה נופלת לזו שאחריה', () async {
+      install(temp.path, 'fallback', 'לא JSON', release: '.release-zzzzzz');
+      install(temp.path, 'fallback', '{"version":"1.0.0"}',
+          release: '.release-aaaaaa');
+
+      final scanner = InstalledPluginsScanner(customPluginsDir: temp.path);
+      expect(await scanner.scan(), {'fallback': '1.0.0'});
+    });
+
+    test('תיקיית משנה שאינה current או .release אינה נספרת', () async {
+      install(temp.path, 'data-only', '{"version":"1.0.0"}', release: 'data');
+
+      final scanner = InstalledPluginsScanner(customPluginsDir: temp.path);
+      expect(await scanner.scan(), isEmpty);
     });
 
     test('תיקייה בלי current/manifest.json מדולגת', () async {

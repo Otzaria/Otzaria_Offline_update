@@ -68,6 +68,14 @@ await manager.directInstall(view.catalog.plugins.first);
 שבתוך קובץ ה-`.otzplugin` שכבר ירד מקומית — ולכן תוסף שקובץ ההתקנה שלו
 עוד לא ירד מקבל `PluginInstallStatus.unknown`, וזה תקין.
 
+**לאוצריא שני מבנים על הדיסק, ו-`InstalledPluginsScanner` קורא את שניהם.**
+התקנות ישנות פורשות ל-`installed/<manifest.id>/current/`, וחדשות ל-
+`installed/<manifest.id>/.release-<hash>/` בלי `current` בכלל. קריאה של
+`current/manifest.json` לבדו — ההתנהגות שנתקנה — משמיטה מהמפה כל תוסף שהותקן
+לאחרונה, ואז החנות מציגה אותו כלא-מותקן והמתג "רק מה שלא מותקן" אינו מסתיר
+אותו. `current` גוברת כששתיהן קיימות, ומכמה `.release-` נבחרת זו שנכתבה
+אחרונה.
+
 **ההתקנה היא פרוטוקול בלבד:** `otzaria://plugin/install-local?path=<abs>`.
 לא מחלצים את ה-ZIP בעצמנו לתוך תיקיות אוצריא — לאוצריא יש רישום פנימי
 לתוספים המותקנים מעבר לתיקיית `installed/`, ופרישה ידנית עוקפת אותו.

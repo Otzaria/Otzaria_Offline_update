@@ -5,8 +5,10 @@ import 'package:path/path.dart' as p;
 
 /// סורק את התוספים שאוצריא כבר התקינה במחשב הזה.
 ///
-/// המבנה של אוצריא: `<pluginsDir>/installed/<manifestId>/current/manifest.json`,
-/// וה-`version` שבתוכו הוא הגרסה המותקנת בפועל.
+/// המבנה של אוצריא: `<pluginsDir>/installed/<manifestId>/<הוצאה>/manifest.json`,
+/// וה-`version` שבתוכו הוא הגרסה המותקנת בפועל. תיקיית ההוצאה היא `current`
+/// בהתקנות הישנות ו-`.release-<hash>` בחדשות — **שתיהן** נסרקות, אחרת כל
+/// תוסף שהותקן במבנה החדש נראה כלא-מותקן.
 ///
 /// בדומה ל-`LibraryDbLocator`, הנתיב **מתגלה ולא מונח כקבוע**: קודם נתיב
 /// שנמסר במפורש, אחר כך שורש הנתונים של ההתקנה שהלאנצ'ר זיהה (התקנה ניידת
@@ -29,6 +31,11 @@ class InstalledPluginsScanner {
 
   /// שם תיקיית המשנה שאוצריא מתקינה לתוכה כל תוסף.
   static const String installedDirName = 'installed';
+
+  /// שמות תיקיות ההוצאה שבתוך `installed/<manifestId>/` — המבנה הישן
+  /// (`current`) והחדש (`.release-<hash>`).
+  static const String currentDirName = 'current';
+  static const String releaseDirPrefix = '.release-';
 
   /// סימון ההתקנה הניידת של אוצריא, ליד ה-executable שלה, ותיקיית הנתונים
   /// שהוא מפעיל. **חייבים להישאר תואמים ל-`LibraryDbLocator`** — אותו זיהוי
@@ -145,16 +152,62 @@ class InstalledPluginsScanner {
     return dirs;
   }
 
+  /// הגרסה המותקנת של תוסף אחד — מתוך תיקיית ההוצאה הפעילה שלו.
   static String? _readInstalledVersion(String pluginDir) {
+    for (final dir in _releaseDirs(pluginDir)) {
+      final version = _versionIn(dir);
+      if (version != null) return version;
+    }
+    return null;
+  }
+
+  /// תיקיות ההוצאה של תוסף, בסדר עדיפות. `current` קודמת כי היא המצביע
+  /// המפורש של המבנה הישן; אחריה `.release-<hash>` מהחדשה לישנה, כי זו
+  /// שאוצריא כתבה אחרונה היא הפעילה.
+  static List<String> _releaseDirs(String pluginDir) {
+    final current = p.join(pluginDir, currentDirName);
+    final result = <String>[if (Directory(current).existsSync()) current];
+
+    final releases = <Directory>[];
     try {
-      final file = File(p.join(pluginDir, 'current', 'manifest.json'));
+      for (final entry in Directory(pluginDir).listSync(followLinks: false)) {
+        if (entry is Directory &&
+            p.basename(entry.path).startsWith(releaseDirPrefix)) {
+          releases.add(entry);
+        }
+      }
+    } catch (_) {
+      return result; // תיקייה שאי אפשר לקרוא — מה שנמצא עד כה
+    }
+    // מיון משני לפי השם, כדי ששתי הוצאות באותה חותמת זמן ייבחרו בקביעות.
+    releases.sort((a, b) {
+      final byTime = _modified(b).compareTo(_modified(a));
+      return byTime != 0
+          ? byTime
+          : p.basename(b.path).compareTo(p.basename(a.path));
+    });
+    result.addAll(releases.map((dir) => dir.path));
+    return result;
+  }
+
+  static DateTime _modified(Directory dir) {
+    try {
+      return dir.statSync().modified;
+    } catch (_) {
+      return DateTime.fromMillisecondsSinceEpoch(0);
+    }
+  }
+
+  static String? _versionIn(String releaseDir) {
+    try {
+      final file = File(p.join(releaseDir, 'manifest.json'));
       if (!file.existsSync()) return null;
       final decoded = jsonDecode(file.readAsStringSync().replaceFirst('﻿', ''));
       if (decoded is! Map) return null;
       final version = decoded['version'];
       return version is String && version.isNotEmpty ? version : null;
     } catch (_) {
-      return null; // מניפסט פגום — מתעלמים בשקט מהתוסף הזה
+      return null; // מניפסט פגום — מתעלמים בשקט מההוצאה הזו
     }
   }
 }

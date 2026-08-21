@@ -695,6 +695,17 @@ the catalog id and *nothing* is ever detected as installed. A plugin whose file
 has not been downloaded yet correctly reports
 `PluginInstallStatus.unknown` — that is not an error state.
 
+**Otzaria has two on-disk layouts for an installed plugin, and
+`InstalledPluginsScanner` must read both.** Older installs put the release in
+`installed/<manifest.id>/current/`; newer ones put it in
+`installed/<manifest.id>/.release-<hash>/` with no `current` at all. Reading
+only `current/manifest.json` — as the scanner did until this was fixed — leaves
+every recently installed plugin out of the installed map, so the store shows it
+as never installed and the "only what is not installed" toggle does not hide
+it. `current` still wins when both exist (it is the old layout's explicit
+pointer); among several `.release-` dirs the most recently written one is the
+active one.
+
 **A plugin sync plans before it starts, and its counter shows only real
 work.** `PluginMirrorSync._plan` decides per plugin what is missing from the
 mirror (metadata comparison + file-existence checks, no network), and only
