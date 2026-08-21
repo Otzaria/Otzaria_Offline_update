@@ -3,7 +3,7 @@ description: >-
   Unified dashboard launcher for Otzaria: wires together otzaria_manager
   (Otzaria app itself), library_manager (the seforim DB) and plugins_manager
   (the offline Otzaria plugin store).
-version: 0.3.0
+version: 0.4.0
 publish_to: none
 
 environment:
