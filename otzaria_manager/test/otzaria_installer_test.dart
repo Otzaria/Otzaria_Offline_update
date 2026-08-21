@@ -279,7 +279,14 @@ void main() {
   group('OtzariaInstaller.installWithWizard', () {
     late OtzariaInstaller installer;
 
-    setUp(() => installer = OtzariaInstaller(cacheDir: cacheDir));
+    // מאתר במצב ווינדוס במפורש: זה מסלול ווינדוס, ובלי ההזרקה המאתר גזר את
+    // הפלטפורמה מהמכונה שמריצה את הבדיקות וחיפש חבילת `.app` במקום `.exe`.
+    setUp(() => installer = OtzariaInstaller(
+          cacheDir: cacheDir,
+          appLocator: const OtzariaAppLocator(
+            platform: OtzariaTargetPlatform.windows,
+          ),
+        ));
 
     // המתקין שמורץ כאן הוא סקריפט אמיתי שיוצא בקוד 0 בלי לעשות כלום —
     // כלומר "האשף נסגר וההתקנה לא נמצאה", המצב של משתמש שעוד באמצע.
