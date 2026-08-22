@@ -18,6 +18,15 @@ void main() {
   final uncompressed = Uint8List.fromList(List.generate(64, (i) => i));
   final compressed = Uint8List.fromList(List.generate(32, (i) => 255 - i));
 
+  // שתי השורות הראשונות של קובץ הצד (טוקן + ETag), בלי שורת סימון האימות —
+  // שהיא זמן-תלויה ונבדקת בנפרד בקבוצה שלה.
+  String sidecarIdentity(String dest) => File('$dest.resume')
+      .readAsStringSync()
+      .split('\n')
+      .take(2)
+      .where((line) => line.isNotEmpty)
+      .join('\n');
+
   PatchFileEntry entry({String? badCompressedHash, int? badSize}) =>
       PatchFileEntry(
         file: 'patch-v1-v2.db.zst',
@@ -906,7 +915,10 @@ void main() {
         expect(captured.single.headers.containsKey('Range'), isFalse);
         expect(File(dest).readAsBytesSync(), full);
         // קובץ הצד שורד הורדה מוצלחת (חי ומת עם הקובץ) עם הטוקן החדש.
-        expect(File('$dest.resume').readAsStringSync(), 'v-new');
+        // שורה 3 היא סימון האימות שנרשם בסוף ההורדה.
+        final sidecar = File('$dest.resume').readAsStringSync().split('\n');
+        expect(sidecar.first, 'v-new');
+        expect(sidecar[2], startsWith('$fullHash|${full.length}|'));
       });
 
       test(
@@ -1161,7 +1173,7 @@ void main() {
         expect(captured.single.headers['Range'], 'bytes=15-');
         expect(File(dest).readAsBytesSync(), full);
         // קובץ הצד שורד הורדה מוצלחת (חי ומת עם הקובץ) עם הטוקן וה-validator.
-        expect(File('$dest.resume').readAsStringSync(), 'v-1\n"e1"');
+        expect(sidecarIdentity(dest), 'v-1\n"e1"');
       });
 
       test('חלקי בלי קובץ צד → נמחק ומתחילים מאפס', () async {
@@ -1299,7 +1311,7 @@ void main() {
         // ההורדה הראשונה: בקשה אחת, קובץ שלם וקובץ צד שורד.
         expect(captured, hasLength(1));
         expect(File(dest).readAsBytesSync(), full);
-        expect(File('$dest.resume').readAsStringSync(), 'v-1');
+        expect(sidecarIdentity(dest), 'v-1');
 
         // כניסה חוזרת מיידית — אותו טוקן, הקובץ כבר שלם.
         await downloader.downloadToFile(
@@ -1312,6 +1324,119 @@ void main() {
         // אין בקשת רשת נוספת (alreadyComplete), הקובץ נשאר תקין ומאומת.
         expect(captured, hasLength(1));
         expect(File(dest).readAsBytesSync(), full);
+      });
+
+      // סימון האימות: מה שמונע קריאה חוזרת של ~1.5GB מכונן נייד בכל לחיצה על
+      // "הורדה", על נכס שלם שלא נגעו בו מאז שאומת.
+      group('סימון אימות בקובץ הצד', () {
+        String markFor(String dest, String digest) {
+          final stat = File(dest).statSync();
+          return '$digest|${stat.size}|${stat.modified.microsecondsSinceEpoch}';
+        }
+
+        /// מוריד נכס שלם עם קובץ הצד ש-[sidecar] בונה **אחרי** כתיבת הקובץ
+        /// (סימון תלוי בזמן-השינוי שלו), ומחזיר את דיווחי האימות: רשימה ריקה
+        /// = ה-hash כלל לא חושב, כלומר הסימון חסך את הקריאה.
+        Future<List<(int, int)>> runComplete(
+            String dest, String Function(String dest) sidecar) async {
+          File(dest).writeAsBytesSync(full);
+          File('$dest.resume').writeAsStringSync(sidecar(dest));
+          final reports = <(int, int)>[];
+          await downloaderThatCaptures(
+            [],
+            handler: (req) async =>
+                http.StreamedResponse(const Stream.empty(), 416),
+          ).downloadToFile(
+            url: 'https://x/seforim.db.zst',
+            destPath: dest,
+            expectedSize: full.length,
+            expectedSha256: fullHash,
+            resumeToken: 'v-1',
+            onVerifyProgress: (verified, total) =>
+                reports.add((verified, total)),
+          );
+          return reports;
+        }
+
+        test('סימון תואם → מדלגים על קריאת הקובץ כולו', () async {
+          final dest = '${tmp.path}/seforim.db.zst';
+          final reports = await runComplete(
+              dest, (d) => 'v-1\n"e1"\n${markFor(d, fullHash)}');
+          expect(reports, isEmpty);
+          expect(File(dest).readAsBytesSync(), full);
+        });
+
+        test('סימון של digest אחר → אימות מלא', () async {
+          final dest = '${tmp.path}/seforim.db.zst';
+          final reports = await runComplete(
+              dest, (d) => 'v-1\n"e1"\n${markFor(d, 'deadbeef')}');
+          expect(reports, isNotEmpty);
+        });
+
+        test('הקובץ שונה מאז הסימון → אימות מלא', () async {
+          final dest = '${tmp.path}/seforim.db.zst';
+          // אותו digest ואותו גודל, זמן-שינוי אחר — בדיוק המצב של קובץ שנכתב
+          // מחדש (העתקה גרועה, resume שנקטע) אחרי שאומת.
+          final reports = await runComplete(dest, (d) {
+            final stat = File(d).statSync();
+            final stale = stat.modified.subtract(const Duration(days: 1));
+            return 'v-1\n"e1"\n'
+                '$fullHash|${stat.size}|${stale.microsecondsSinceEpoch}';
+          });
+          expect(reports, isNotEmpty);
+        });
+
+        test('קובץ צד דו-שורות (מריצה לפני הסימון) → אימות מלא', () async {
+          final dest = '${tmp.path}/seforim.db.zst';
+          final reports = await runComplete(dest, (_) => 'v-1\n"e1"');
+          expect(reports, isNotEmpty);
+        });
+
+        test('האימות במסלול alreadyComplete רושם סימון לריצה הבאה', () async {
+          final dest = '${tmp.path}/seforim.db.zst';
+          expect(await runComplete(dest, (_) => 'v-1\n"e1"'), isNotEmpty);
+          // אותו קובץ, אותו קובץ צד — הפעם בלי קריאה נוספת.
+          final reports = <(int, int)>[];
+          await downloaderThatCaptures(
+            [],
+            handler: (req) async =>
+                http.StreamedResponse(const Stream.empty(), 416),
+          ).downloadToFile(
+            url: 'https://x/seforim.db.zst',
+            destPath: dest,
+            expectedSize: full.length,
+            expectedSha256: fullHash,
+            resumeToken: 'v-1',
+            onVerifyProgress: (v, t) => reports.add((v, t)),
+          );
+          expect(reports, isEmpty);
+          // ה-ETag לא נדרס בדרך.
+          expect(sidecarIdentity(dest), 'v-1\n"e1"');
+        });
+
+        test('טוקן שונה → הסימון אינו נאמן, והקובץ יורד מחדש', () async {
+          final dest = '${tmp.path}/seforim.db.zst';
+          File(dest).writeAsBytesSync(full);
+          File('$dest.resume')
+              .writeAsStringSync('v-old\n"e1"\n${markFor(dest, fullHash)}');
+          final captured = <http.BaseRequest>[];
+          await downloaderThatCaptures(
+            captured,
+            handler: (req) async => http.StreamedResponse(
+              Stream.value(full),
+              200,
+              contentLength: full.length,
+            ),
+          ).downloadToFile(
+            url: 'https://x/seforim.db.zst',
+            destPath: dest,
+            expectedSize: full.length,
+            expectedSha256: fullHash,
+            resumeToken: 'v-new',
+          );
+          expect(captured, hasLength(1));
+          expect(File(dest).readAsBytesSync(), full);
+        });
       });
 
       test('כשל אימות sha256 → החלקי וקובץ הצד נמחקים', () async {
@@ -2029,7 +2154,7 @@ void main() {
         );
 
         // ETag חלש אינו שמיש עם If-Range — קובץ הצד מכיל רק טוקן, בלי validator.
-        expect(File('$dest.resume').readAsStringSync(), 'v-1');
+        expect(sidecarIdentity(dest), 'v-1');
       });
 
       test('ETag חלש שכבר קיים ב-sidecar אינו נשלח ב-If-Range', () async {
@@ -2133,7 +2258,7 @@ void main() {
         );
 
         // הריצה הבאה יכולה לשלוח If-Range עם ה-ETag שנשמר.
-        expect(File('$dest.resume').readAsStringSync(), 'v-1\n"srv"');
+        expect(sidecarIdentity(dest), 'v-1\n"srv"');
       });
     });
   });

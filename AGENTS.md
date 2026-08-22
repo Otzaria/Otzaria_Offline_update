@@ -221,6 +221,21 @@ a successful download, anything under `assets/` that is not in the new manifest
 is deleted (`_pruneStaleAssets`); the `.resume` sidecars of assets that *are* in
 it survive, since they are what lets a re-run skip a completed download.
 
+**A re-run does not re-hash an asset it already proved.** Skipping the download
+is not the same as skipping the check: `PatchDownloader.downloadToFile` still
+verified `expectedSha256`, and on the `alreadyComplete` path there is no stream
+to hash along with, so it read the whole ~1.5GB back off the flash drive — a
+minute per press of *download*, on a file nobody touched. The sidecar's third
+line now carries `sha256|size|mtime` written the moment a verification passed,
+and a complete asset whose mark still matches skips the hash. Do **not** turn
+this into "the file is there, trust it": the skip decision itself
+(`_isCompleteOnDisk`) is size-only on purpose, and the mark is what makes it
+safe — any write to the file, a re-published asset (new digest), or a different
+resume token brings the full verification back. That verification has to keep
+happening on the **online** machine, since it is the only place a corrupt asset
+can be fetched again; the offline machine re-checks the same sha256 while
+copying out of the mirror and has no way to recover from a failure.
+
 ---
 
 ## 2. Repository layout

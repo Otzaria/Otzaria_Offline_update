@@ -151,6 +151,13 @@ class PatchDownloader {
   /// מגרסאות שונות. כשלשרת אין ETag חזק אין validator: חלקי כזה אינו נאמן ונמחק
   /// (בכניסה וגם בהפרעה) כדי להתחיל מאפס בפעם הבאה.
   ///
+  /// **אימות של נכס שכבר שלם רץ פעם אחת, לא בכל הורדה.** ב-[expectedSha256]
+  /// שהתאים נרשמת בקובץ הצד חתימת `sha256|גודל|זמן-שינוי`, ונכס שלם שחתימתו
+  /// תואמת מדלג על ה-hash: בהורדה אמיתית ה-hash חושב בזרימה ולכן הוא חינם,
+  /// אבל במסלול "כבר על הדיסק" הוא קריאה של ~1.5GB מכונן נייד — דקה בכל
+  /// לחיצה על "הורדה", על קובץ שלא נגעו בו. שינוי בגודל/זמן, digest אחר
+  /// מהשרת, או כתיבה כלשהי לקובץ מבטלים את החתימה ומחזירים אימות מלא.
+  ///
   /// קובץ הצד חי ומת יחד עם הנתונים: הוא נמחק רק היכן ש-[destPath] עצמו נמחק
   /// (אי-התאמת טוקן, כשלי אימות, חריגת גודל). הורדה מוצלחת **אינה** מוחקת אותו —
   /// אחרת ביטול בזמן החילוץ אצל הצרכן היה משאיר קובץ שלם בלי קובץ צד, ובריצה
@@ -189,6 +196,8 @@ class PatchDownloader {
       // resume מותנה בטוקן: בלי טוקן אין זהות יציבה, ולכן כל קובץ קיים נמחק
       // וההורדה מאפס — אחרת חלקי ישן היה נתפר לנכס חדש על אותו URL (frankenfile).
       String? storedValidator;
+      // סימון האימות מהריצה הקודמת — נאמן רק כשהטוקן תואם, כמו ה-validator.
+      String? storedVerified;
       if (resumeToken == null) {
         _deleteRequired(
           destPath,
@@ -209,6 +218,7 @@ class PatchDownloader {
           _deleteQuietly(sidecarPath);
         } else {
           storedValidator = _strongEtag(sidecar?.etag);
+          storedVerified = sidecar?.verified;
         }
       }
 
@@ -263,17 +273,27 @@ class PatchDownloader {
         );
       }
       if (expectedSha256 != null) {
-        // ה-hash חושב בזרימה תוך כדי ההורדה; רק במסלול alreadyComplete (אין
-        // זרם) קוראים את הקובץ מהדיסק.
-        final actual = (streamDigest ??
-                await _hashFileDigest(file, isCancelled, onVerifyProgress))
-            .toString();
-        if (actual != expectedSha256.toLowerCase()) {
-          _deleteQuietly(destPath);
-          _deleteQuietly(sidecarPath);
-          throw PatchDownloadException(
-            AppL10n.strings.libraryDomain.fullDbHashMismatch,
-          );
+        final expected = expectedSha256.toLowerCase();
+        // נכס שלם שכבר אומת ולא נגעו בו מאז — הסימון בקובץ הצד חוסך קריאה
+        // חוזרת של ~1.5GB מכונן נייד בכל לחיצה על "הורדה".
+        if (!(alreadyComplete &&
+            _matchesVerifiedMark(storedVerified, file, expected))) {
+          // ה-hash חושב בזרימה תוך כדי ההורדה; רק במסלול alreadyComplete (אין
+          // זרם) קוראים את הקובץ מהדיסק.
+          final actual = (streamDigest ??
+                  await _hashFileDigest(file, isCancelled, onVerifyProgress))
+              .toString();
+          if (actual != expected) {
+            _deleteQuietly(destPath);
+            _deleteQuietly(sidecarPath);
+            throw PatchDownloadException(
+              AppL10n.strings.libraryDomain.fullDbHashMismatch,
+            );
+          }
+          // בלי טוקן אין קובץ צד לרשום בו (הוא נמחק בכניסה).
+          if (resumeToken != null) {
+            _markVerified(sidecarPath, resumeToken, expected, file);
+          }
         }
       }
       // ביטול שהתרחש אחרי שכל הבייטים הגיעו — הקובץ שלם ונשמר (עם resumeToken);
@@ -866,31 +886,75 @@ class PatchDownloader {
     }
   }
 
-  /// קורא את קובץ הצד: שורה ראשונה = טוקן, שורה שנייה (אופציונלית) = ה-ETag
-  /// החזק. מחזיר null אם חסר או שגיאה בקריאה.
-  ({String token, String? etag})? _readSidecar(String sidecarPath) {
+  /// קורא את קובץ הצד: שורה ראשונה = טוקן, שנייה (אופציונלית) = ה-ETag החזק,
+  /// שלישית (אופציונלית) = סימון האימות ([_verifiedMarkFor]). מחזיר null אם
+  /// חסר או שגיאה בקריאה; קובץ צד דו-שורות מריצה קודמת נקרא בלי סימון.
+  ({String token, String? etag, String? verified})? _readSidecar(
+      String sidecarPath) {
     try {
       final f = File(sidecarPath);
       if (!f.existsSync()) return null;
       final lines = f.readAsStringSync().split('\n');
       final etag = lines.length > 1 && lines[1].isNotEmpty ? lines[1] : null;
-      return (token: lines.first, etag: etag);
+      final verified =
+          lines.length > 2 && lines[2].isNotEmpty ? lines[2] : null;
+      return (token: lines.first, etag: etag, verified: verified);
     } catch (_) {
       return null;
     }
   }
 
-  /// כותב את הטוקן (וה-ETag אם קיים) לקובץ הצד: טוקן בשורה הראשונה, ETag בשנייה.
-  void _writeSidecar(String sidecarPath, String token, String? etag) {
+  /// כותב את הטוקן (וה-ETag/סימון האימות אם קיימים) לקובץ הצד, שורה לכל אחד.
+  /// בלי שניהם נכתב הטוקן לבדו — הצורה שקובץ הצד מקבל בתחילת כל הורדה, ולכן
+  /// גם מה שמוחק סימון אימות של תוכן שעומד להשתנות.
+  void _writeSidecar(String sidecarPath, String token, String? etag,
+      {String? verified}) {
     try {
-      final content = etag == null ? token : '$token\n$etag';
-      File(sidecarPath).writeAsStringSync(content, flush: true);
+      final lines = <String>[
+        token,
+        if (etag != null || verified != null) etag ?? '',
+        if (verified != null) verified,
+      ];
+      File(sidecarPath).writeAsStringSync(lines.join('\n'), flush: true);
     } catch (error) {
       throw PatchDownloadException(
         AppL10n.strings.libraryDomain
             .writeResumeSidecarFailed(sidecarPath, '$error'),
       );
     }
+  }
+
+  /// חתימת "הנכס הזה אומת": ה-sha256 שהוכח עליו, עם הגודל וזמן-השינוי שהיו
+  /// לקובץ באותו רגע. שינוי בכל אחד מהשלושה מבטל את הסימון ומחזיר אימות מלא.
+  /// null = אין stat קריא, ולכן אין סימון (נאמת שוב בפעם הבאה).
+  ///
+  /// זמן-השינוי נקרא תמיד ממערכת הקבצים (לא משעון שלנו), ולכן עיגול של FAT/
+  /// exFAT אינו מפריע. מעבר אזור-זמן על exFAT **כן** מזיז אותו — והתוצאה היא
+  /// אימות מלא אחד נוסף, לא דילוג שגוי.
+  String? _verifiedMarkFor(File file, String digest) {
+    try {
+      final stat = file.statSync();
+      return '$digest|${stat.size}|${stat.modified.microsecondsSinceEpoch}';
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// האם [mark] שנקרא מקובץ הצד מעיד על הקובץ **הזה** ועל [expectedSha256].
+  bool _matchesVerifiedMark(String? mark, File file, String expectedSha256) =>
+      mark != null && mark == _verifiedMarkFor(file, expectedSha256);
+
+  /// רושם בקובץ הצד שהנכס אומת, בלי לאבד את ה-ETag ששמור בו (הוא נכתב שם תוך
+  /// כדי ההורדה). כשל כתיבה כאן אינו מפיל הורדה שהצליחה — הריצה הבאה פשוט
+  /// תאמת שוב, וזו בדיוק העלות שהסימון בא לחסוך.
+  void _markVerified(
+      String sidecarPath, String token, String digest, File file) {
+    final mark = _verifiedMarkFor(file, digest);
+    if (mark == null) return;
+    try {
+      _writeSidecar(sidecarPath, token, _readSidecar(sidecarPath)?.etag,
+          verified: mark);
+    } catch (_) {}
   }
 
   /// מחזיר את ה-ETag רק אם הוא חזק (ללא קידומת `W/`) — ETag חלש אינו שמיש עם
