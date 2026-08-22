@@ -184,6 +184,20 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
         OtzariaUpdateCheckResult.normalizeVersion(mirrored);
   }
 
+  /// גרסת התוכנה שנמצאה ברשת וטרם ירדה למראה — לתצוגה בלבד. `null` כשאין
+  /// הפרש גרסאות, למשל כשההבדל היחיד הוא החבילה המלאה שחסרה.
+  String? get onlineUpdateVersion {
+    final online = onlineLatestRelease;
+    if (online == null) return null;
+    final mirrored = latestVersion;
+    if (mirrored != null &&
+        OtzariaUpdateCheckResult.normalizeVersion(online.tagName) ==
+            OtzariaUpdateCheckResult.normalizeVersion(mirrored)) {
+      return null;
+    }
+    return online.tagName;
+  }
+
   /// בודק ברשת מה הגרסה העדכנית ביותר — **פעולת רשת קלה**, בלי הורדת
   /// installer. כשל (בעיקר "אין חיבור") הוא מצב תקין: נשמר ב-
   /// [onlineCheckError] ולא נזרק, כדי שבדיקה אוטומטית לא תציג שגיאה

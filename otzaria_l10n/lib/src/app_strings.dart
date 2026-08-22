@@ -130,6 +130,18 @@ abstract class HomeStrings {
   String get onlineHasUpdates;
   String get onlineNoUpdates;
 
+  /// מה בדיוק התחדש ברשת בתוכנה ובספרייה — בלי השורות האלה "נמצאו עדכונים"
+  /// פירט רק את התוספים, ועדכון ספרייה נראה כאילו לא נמצא כלל.
+  String onlineAppUpdate(String version);
+  String onlineLibraryUpdate(String version);
+
+  /// יש עדכון לתוכנה רק במובן הזה: החבילה המלאה שסומנה בהגדרות אינה בתיקייה.
+  String get onlineAppFullPackage;
+
+  /// כמו [onlinePluginsSyncOff], לתוכנה ולספרייה.
+  String get onlineAppSyncOff;
+  String get onlineLibrarySyncOff;
+
   /// פירוט מה נמצא בחנות התוספים — לתוספים אין מספר גרסה אחד להשוות אליו,
   /// ולכן הם נספרים.
   String onlineNewPlugins(int count);

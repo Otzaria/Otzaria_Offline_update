@@ -353,11 +353,14 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ],
               ),
-              // התוכנה והספרייה מדווחות מספר גרסה שהמסכים שלהן מציגים;
-              // לתוספים אין כזה, ובלי השורה הזו "יש עדכונים" לא סיפר שהם
-              // אלה שהתחדשו.
-              if (pluginsOnline && plugins.hasOnlineUpdate)
-                ..._pluginsOnlineDetail(context),
+              // פירוט לכל רכיב שהתחדש. קודם פורטו כאן התוספים בלבד, ולכן
+              // עדכון תוכנה או ספרייה נראה בכרטיס כאילו רק תוספים התחדשו.
+              ..._onlineDetail(
+                context,
+                otzariaOnline: otzariaOnline,
+                libraryOnline: libraryOnline,
+                pluginsOnline: pluginsOnline,
+              ),
               if (isOnline && hasUpdate) ...[
                 const SizedBox(height: AppTokens.spaceMD),
                 ActionButton.recommended(
@@ -400,38 +403,57 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  /// "X תוספים חדשים בחנות" / "Y תוספים עודכנו" — רק מה שיש בו מספר.
+  /// שורת פירוט לכל רכיב שהתחדש ברשת — גרסה לתוכנה ולספרייה, מניין
+  /// לתוספים (אין להם מספר גרסה אחד).
   ///
-  /// ואם הורדת התוספים כבויה בהגדרות — נאמר כאן. בלי זה "הורד עכשיו" מדלג
-  /// עליהם בשקט, והמשתמש נשאר עם אותה הודעה בדיוק גם אחרי ההורדה.
-  List<Widget> _pluginsOnlineDetail(BuildContext context) {
+  /// ואם הורדת הרכיב כבויה בהגדרות — נאמר כאן. בלי זה "הורד עכשיו" מדלג
+  /// עליו בשקט, והמשתמש נשאר עם אותה הודעה בדיוק גם אחרי ההורדה.
+  List<Widget> _onlineDetail(
+    BuildContext context, {
+    required bool otzariaOnline,
+    required bool libraryOnline,
+    required bool pluginsOnline,
+  }) {
     final theme = Theme.of(context);
     final t = context.strings.home;
-    final status = plugins.onlineStatus;
-    if (status == null) return const [];
-
+    final s = settings.settings;
     final style = theme.textTheme.bodySmall
         ?.copyWith(color: theme.colorScheme.onSurfaceVariant);
+    final warnStyle = style?.copyWith(color: theme.colorScheme.error);
 
-    return [
-      for (final line in [
-        if (status.newCount > 0) t.onlineNewPlugins(status.newCount),
-        if (status.updatedCount > 0)
-          t.onlineUpdatedPlugins(status.updatedCount),
-        if (status.missingCount > 0)
-          t.onlineMissingPlugins(status.missingCount),
-      ]) ...[
-        const SizedBox(height: AppTokens.spaceXS),
-        Text(line, style: style),
-      ],
-      if (!settings.settings.syncPlugins) ...[
-        const SizedBox(height: AppTokens.spaceXS),
-        Text(
-          t.onlinePluginsSyncOff,
-          style: style?.copyWith(color: theme.colorScheme.error),
-        ),
-      ],
-    ];
+    final widgets = <Widget>[];
+    void line(String text, {bool warn = false}) {
+      widgets
+        ..add(const SizedBox(height: AppTokens.spaceXS))
+        ..add(Text(text, style: warn ? warnStyle : style));
+    }
+
+    if (otzariaOnline && otzaria.hasOnlineUpdate) {
+      final version = otzaria.onlineUpdateVersion;
+      if (version != null) line(t.onlineAppUpdate(version));
+      if (otzaria.needsFullPackageDownload) line(t.onlineAppFullPackage);
+      if (!s.syncApp) line(t.onlineAppSyncOff, warn: true);
+    }
+
+    if (libraryOnline && library.hasOnlineUpdate) {
+      final version = library.onlineUpdateVersion;
+      if (version != null) line(t.onlineLibraryUpdate('$version'));
+      if (!s.syncLibrary) line(t.onlineLibrarySyncOff, warn: true);
+    }
+
+    final status = plugins.onlineStatus;
+    if (pluginsOnline && plugins.hasOnlineUpdate && status != null) {
+      if (status.newCount > 0) line(t.onlineNewPlugins(status.newCount));
+      if (status.updatedCount > 0) {
+        line(t.onlineUpdatedPlugins(status.updatedCount));
+      }
+      if (status.missingCount > 0) {
+        line(t.onlineMissingPlugins(status.missingCount));
+      }
+      if (!s.syncPlugins) line(t.onlinePluginsSyncOff, warn: true);
+    }
+
+    return widgets;
   }
 
   /// שורת התקדמות אחת לרכיב שמוריד כרגע — ההורדות רצות בטור, ולכן לכל

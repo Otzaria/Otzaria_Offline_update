@@ -196,6 +196,21 @@ class _Home extends HomeStrings {
   @override
   String get onlineNoUpdates => 'No new updates online';
   @override
+  String onlineAppUpdate(String version) =>
+      'Otzaria Program: version $version is online';
+  @override
+  String onlineLibraryUpdate(String version) =>
+      'Library: version $version is online';
+  @override
+  String get onlineAppFullPackage =>
+      'The full Otzaria install package is not in the folder yet';
+  @override
+  String get onlineAppSyncOff =>
+      'Program downloads are turned off in Settings — it will be skipped.';
+  @override
+  String get onlineLibrarySyncOff =>
+      'Library downloads are turned off in Settings — it will be skipped.';
+  @override
   String onlineNewPlugins(int count) => '$count new plugins in the store';
   @override
   String onlineUpdatedPlugins(int count) =>

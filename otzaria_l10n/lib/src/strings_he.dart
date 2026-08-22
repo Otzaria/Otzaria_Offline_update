@@ -189,6 +189,19 @@ class _Home extends HomeStrings {
   @override
   String get onlineNoUpdates => 'אין עדכונים חדשים ברשת';
   @override
+  String onlineAppUpdate(String version) => 'תוכנת אוצריא: גרסה $version ברשת';
+  @override
+  String onlineLibraryUpdate(String version) => 'הספרייה: גרסה $version ברשת';
+  @override
+  String get onlineAppFullPackage =>
+      'חבילת ההתקנה המלאה של אוצריא עדיין אינה בתיקייה';
+  @override
+  String get onlineAppSyncOff =>
+      'הורדת התוכנה כבויה בהגדרות — היא לא תיכלל בהורדה.';
+  @override
+  String get onlineLibrarySyncOff =>
+      'הורדת הספרייה כבויה בהגדרות — היא לא תיכלל בהורדה.';
+  @override
   String onlineNewPlugins(int count) => '$count תוספים חדשים בחנות';
   @override
   String onlineUpdatedPlugins(int count) => '$count תוספים עודכנו בחנות';

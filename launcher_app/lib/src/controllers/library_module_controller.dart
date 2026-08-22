@@ -193,6 +193,9 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     return online > mirrored;
   }
 
+  /// גרסת הספרייה שנמצאה ברשת כשיש מה להוריד — לתצוגה בלבד.
+  int? get onlineUpdateVersion => hasOnlineUpdate ? onlineLatestVersion : null;
+
   /// בודק ברשת מה הגרסה העדכנית ביותר — **פעולת רשת קלה**, בלי הורדת
   /// המסד/patches. כשל (בעיקר "אין חיבור") הוא מצב תקין: נשמר ב-
   /// [onlineCheckError] ולא נזרק, כדי שבדיקה אוטומטית לא תציג שגיאה
