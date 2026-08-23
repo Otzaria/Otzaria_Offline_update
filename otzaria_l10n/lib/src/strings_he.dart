@@ -29,6 +29,10 @@ class HebrewStrings extends AppStrings {
   @override
   SetupErrorStrings get setupError => const _SetupError();
   @override
+  ReadOnlyDriveStrings get readOnlyDrive => const _ReadOnlyDrive();
+  @override
+  ElevationStrings get elevation => const _Elevation();
+  @override
   PayloadMismatchStrings get payloadMismatch => const _PayloadMismatch();
   @override
   LauncherUpdateStrings get launcherUpdate => const _LauncherUpdate();
@@ -1236,17 +1240,61 @@ class _SetupError extends SetupErrorStrings {
   @override
   String get explanation =>
       'הלאנצ׳ר שומר את כל הנתונים — הספרייה, התוספים וגרסת אוצריא — בתיקייה '
-      'שצמודה לו, כדי שהכול ייסע יחד על הכונן. בתיקייה הנוכחית אין הרשאת '
-      'כתיבה, ולכן אין לאן לשמור.';
+      'שצמודה לו, כדי שהכול ייסע יחד על הכונן. התיקייה הנוכחית חסומה לכתיבה '
+      '— הרשאות, או כונן שמוגן מפני כתיבה — ואין בה עדיין מראה שאפשר להתקין '
+      'ממנה, ולכן אין לאן לשמור.';
   @override
   String get whatToDo =>
-      'מה לעשות: להעביר את תיקיית התוכנה כולה לכונן הנייד (או לכל תיקייה '
-      'בדיסק שאינה תחת Program Files), ולהפעיל אותה משם.';
+      'מה לעשות: אם הכונן עצמו מוגן מפני כתיבה (מפתח נעילה על הכונן, כונן '
+      'צריבה, או הרשאות לקריאה בלבד) — לשחרר את ההגנה, להוריד את העדכונים, '
+      'ואז אפשר לנעול אותו שוב ולהתקין ממנו בכל מחשב. אחרת — להעביר את '
+      'תיקיית התוכנה כולה לכונן הנייד (או לכל תיקייה בדיסק שאינה תחת '
+      'Program Files), ולהפעיל אותה משם.';
   @override
   String get attemptedDirTitle => 'התיקייה שנוסתה';
   @override
   String cannotWriteToDataDir(String osMessage) =>
       'לא ניתן לכתוב לתיקייה שלצד התוכנה: $osMessage';
+}
+
+class _ReadOnlyDrive extends ReadOnlyDriveStrings {
+  const _ReadOnlyDrive();
+
+  @override
+  String get bannerTitle => 'הכונן מוגן מפני כתיבה — מצב קריאה';
+  @override
+  String get bannerSubtitle =>
+      'התקנה ועדכון של אוצריא, הספרייה והתוספים עובדים כרגיל: הם כותבים '
+      'למחשב הזה ולא לכונן. הורדה מהרשת ועדכון התוכנה עצמה כבויים — אין לאן '
+      'להוריד. ההגדרות והלוג נשמרים במחשב הזה.';
+  @override
+  String get downloadsDisabledSnack =>
+      'הכונן מוגן מפני כתיבה — אין לאן להוריד. אפשר להתקין ממה שכבר יש בו.';
+}
+
+class _Elevation extends ElevationStrings {
+  const _Elevation();
+
+  @override
+  String get hint =>
+      'נראה שהתיקייה מוגנת ודרושות לה הרשאות מנהל — כך זה כשאוצריא מותקנת '
+      'תחת Program Files. אפשר לסגור את התוכנה ולהפעיל אותה שוב בקליק ימני '
+      'על קובץ ההרצה → "הפעל כמנהל", ולנסות שוב.';
+  @override
+  String get dialogTitle => 'דרושות הרשאות מנהל';
+  @override
+  String get dialogContent =>
+      'הפעולה נכשלה כי אין הרשאת כתיבה לתיקייה — כך זה בדרך כלל כשאוצריא '
+      'מותקנת תחת Program Files. להפעיל את התוכנה מחדש עם הרשאות מנהל '
+      'ולנסות שוב? ווינדוס יבקש אישור.';
+  @override
+  String get dialogConfirm => 'הפעל מחדש כמנהל';
+  @override
+  String get dialogCancel => 'לא עכשיו';
+  @override
+  String restartFailedSnack(String error) =>
+      'ההפעלה מחדש כמנהל נכשלה: $error. אפשר לסגור את התוכנה ולהפעיל אותה '
+      'שוב בקליק ימני על קובץ ההרצה → "הפעל כמנהל".';
 }
 
 class _PayloadMismatch extends PayloadMismatchStrings {

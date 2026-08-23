@@ -65,8 +65,10 @@ void main() {
     Future<bool> Function()? onProcessStateChanged,
     Future<void> Function()? onCancelDownload,
     Future<void> Function()? onInstallFullPackage,
+    bool readOnly = false,
   }) =>
       HomeScreen(
+        readOnly: readOnly,
         otzaria: otzaria,
         library: library,
         plugins: plugins,
@@ -130,6 +132,23 @@ void main() {
       find.widgetWithText(ActionButton, 'הורד עכשיו'),
     );
     expect(button.onPressed, isNull);
+  });
+
+  testWidgets('כונן מוגן-כתיבה: הסבר במקום כרטיס ההורדה (בעיה #25)',
+      (tester) async {
+    final t = stringsOf().readOnlyDrive;
+    // נמצא עדכון ברשת — בהרצה רגילה זה בדיוק מה שמציג את "הורד עכשיו".
+    library.onlineLatestVersion = 99;
+    library.onlineCheckedAt = DateTime(2026, 1, 1);
+
+    await pumpScreen(tester, home(readOnly: true));
+
+    expect(find.text(t.bannerTitle), findsOneWidget);
+    expect(find.text('הורד עכשיו'), findsNothing);
+    expect(find.text('בדיקת עדכונים'), findsNothing);
+    // האריחים עצמם נשארים: מהם מתקינים, וזו כל הנקודה של מצב הקריאה.
+    expect(find.text('תוכנת אוצריא'), findsWidgets);
+    expect(find.text('הספרייה'), findsWidgets);
   });
 
   testWidgets('כפתור ביטול ההורדה מופיע רק בזמן הורדה, ומבקש את הביטול',

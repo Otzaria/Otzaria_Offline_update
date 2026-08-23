@@ -5,6 +5,7 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 
 import '../services/app_logger.dart';
+import '../services/elevation.dart';
 import 'progress_notifier.dart';
 
 enum OtzariaModuleStatus {
@@ -33,6 +34,7 @@ enum OtzariaDownloadStatus { idle, downloading, done, error }
 class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   OtzariaModuleController({
     required String dataDir,
+    String? stateDir,
     bool preferPrerelease = false,
     bool downloadFullPackage = false,
     RunningOtzariaLocator runningLocator = const RunningOtzariaLocator(),
@@ -47,6 +49,7 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
         _runningLocator = runningLocator,
         _manager = OtzariaManager(
           dataDir: dataDir,
+          stateDir: stateDir,
           preferPrerelease: preferPrerelease,
           downloadFullPackage: downloadFullPackage,
           runningLocator: runningLocator,
@@ -100,6 +103,10 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   /// הודעה שאינה שגיאה — "ביטלת באשף", "האשף עוד פתוח". נפרדת מ-
   /// [errorMessage] כדי שהממשק לא יצבע בחירה של המשתמש כתקלה אדומה.
   String? noticeMessage;
+
+  /// הכשל האחרון היה "אין הרשאה" — ראו [Elevation] ואת התאום שלו
+  /// ב-`LibraryModuleController`.
+  bool needsElevation = false;
 
   /// הגרסאות שבתיקייה המקומית לפי ערוץ — `null` לערוץ שאין בו גרסה.
   String? stableVersion;
@@ -317,7 +324,7 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   /// בודק מה מותקן מול מה שיש בתיקייה המקומית. לא נוגע ברשת.
   Future<void> checkForUpdate() async {
     status = OtzariaModuleStatus.checking;
-    errorMessage = null;
+    needsElevation = false;
     notifyListeners();
 
     try {
@@ -359,7 +366,7 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     if (check == null) return;
 
     status = OtzariaModuleStatus.installing;
-    errorMessage = null;
+    needsElevation = false;
     noticeMessage = null;
     notifyListeners();
     AppLogger.instance.info(
@@ -391,7 +398,10 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
       return;
     } catch (e, st) {
       status = OtzariaModuleStatus.error;
-      errorMessage = e.toString();
+      // המתקין עצמו מרים את עצמו; מה שנכשל כאן על הרשאות הוא מה שאנחנו
+      // כותבים סביבו — ולכן ההצעה להפעיל כמנהל שייכת גם למסלול הזה.
+      errorMessage = Elevation.describe(e);
+      needsElevation = Elevation.isAccessDenied(e);
       AppLogger.instance.error('התקנת אוצריא נכשלה', e, st);
     }
     notifyListeners();
@@ -408,7 +418,7 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   /// ובלי [errorMessage] — הם אינם כשלים.
   Future<bool> installFullPackage({bool useWizard = true}) async {
     status = OtzariaModuleStatus.installing;
-    errorMessage = null;
+    needsElevation = false;
     noticeMessage = null;
     notifyListeners();
     AppLogger.instance.info('התקנת חבילת אוצריא המלאה מתחילה');
@@ -429,7 +439,8 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
       return false;
     } catch (e, st) {
       status = OtzariaModuleStatus.error;
-      errorMessage = e.toString();
+      errorMessage = Elevation.describe(e);
+      needsElevation = Elevation.isAccessDenied(e);
       AppLogger.instance.error('התקנת חבילת אוצריא המלאה נכשלה', e, st);
       notifyListeners();
       return false;

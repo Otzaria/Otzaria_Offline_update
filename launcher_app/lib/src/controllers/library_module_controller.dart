@@ -6,6 +6,7 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import '../services/app_logger.dart';
+import '../services/elevation.dart';
 import 'progress_notifier.dart';
 
 enum LibraryModuleStatus {
@@ -47,10 +48,12 @@ enum LibraryPersonalDownloadNote {
 class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   LibraryModuleController({
     required String dataDir,
+    String? stateDir,
     bool allowPrerelease = false,
     Future<String?> Function()? otzariaLaunchPath,
   }) : _manager = LibraryManager(
           dataDir: dataDir,
+          stateDir: stateDir,
           allowPrerelease: allowPrerelease,
           otzariaLaunchPath: otzariaLaunchPath,
         );
@@ -124,6 +127,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// במקומו — ראו [updateWithFullDownload]. בלי זה משתמש שנתקל ב-patch
   /// שאינו מתאים למסד שלו נשאר תקוע לנצח (issue #19).
   bool canRetryWithFullDownload = false;
+
+  /// הכשל האחרון היה "אין הרשאה" — ראו [Elevation]. `AppShell` מציע על סמך
+  /// זה להפעיל מחדש כמנהל, ולכן זה נדלק בכשל ונכבה בכל ניסיון חדש.
+  bool needsElevation = false;
 
   /// גודל ההורדה של אותה ספרייה מלאה, בבייטים — לתצוגה לפני שמאשרים.
   int? get fullDownloadFallbackSize =>
@@ -307,8 +314,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
 
   Future<void> checkForUpdate() async {
     status = LibraryModuleStatus.checking;
-    errorMessage = null;
-    canRetryWithFullDownload = false;
+    needsElevation = false;
     notifyListeners();
 
     // מה שנרשם בלחיצה — כולל במחשב אחר, דרך קובץ ה-state שנוסע על הכונן.
@@ -404,8 +410,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     applyProgress = null;
     applyReceivedBytes = null;
     applyTotalBytes = null;
-    errorMessage = null;
-    canRetryWithFullDownload = false;
+    needsElevation = false;
     notifyListeners();
 
     final plan = useFullDownloadFallback
@@ -442,7 +447,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       await checkForUpdate();
     } catch (e, st) {
       status = LibraryModuleStatus.error;
-      errorMessage = e.toString();
+      // מסד שיושב בתיקייה מוגנת (Program Files) נכשל כאן, וההודעה של מערכת
+      // ההפעלה לבדה אינה אומרת למשתמש מה לעשות.
+      errorMessage = Elevation.describe(e);
+      needsElevation = Elevation.isAccessDenied(e);
       // רק אחרי כשל של מסלול הדלתא, ורק אם יש מסד מלא במראה: הצעה שנייה
       // אחרי כשל של ההורדה המלאה עצמה הייתה לולאה.
       canRetryWithFullDownload =

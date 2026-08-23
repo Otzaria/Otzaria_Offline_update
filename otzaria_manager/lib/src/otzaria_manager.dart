@@ -46,6 +46,11 @@ import 'services/windows_install_registry.dart';
 class OtzariaManager {
   OtzariaManager({
     required String dataDir,
+
+    /// לאן נכתב קובץ המצב, כשהוא אינו יכול לשבת ב-[dataDir] — כונן
+    /// מוגן-כתיבה שממנו אפשר רק להתקין (`AppPaths.readOnly` בלאנצ'ר).
+    /// ברירת המחדל היא [dataDir] עצמה.
+    String? stateDir,
     OtzariaTargetPlatform? platform,
     Map<String, String>? environment,
     RunningOtzariaLocator runningLocator = const RunningOtzariaLocator(),
@@ -58,8 +63,8 @@ class OtzariaManager {
         _environment = environment ?? Platform.environment,
         _runningLocator = runningLocator,
         _installRegistry = installRegistry,
-        _stateStore =
-            OtzariaStateStore(p.join(dataDir, 'otzaria_install_state.json')),
+        _stateStore = OtzariaStateStore(
+            p.join(stateDir ?? dataDir, 'otzaria_install_state.json')),
         _launcher = launcher,
         _managedInstallDir = p.join(dataDir, 'otzaria-app'),
         mirrorDir = p.join(dataDir, 'mirror', 'app') {

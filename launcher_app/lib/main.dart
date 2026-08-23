@@ -65,9 +65,11 @@ void main() {
 
       await _prepareWindow();
 
-      // תיקיית הנתונים צמודה לתוכנה ואינה ניתנת לשינוי. אם אי אפשר לכתוב
-      // בה — אין לאן לשמור *כלום*, כולל הלוג עצמו, ולכן זו לא שגיאה שאפשר
-      // לרשום ולהמשיך: מציגים מסך הסבר ועוצרים.
+      // תיקיית הנתונים צמודה לתוכנה ואינה ניתנת לשינוי. כשאי אפשר לכתוב בה
+      // אבל יש בה מראה, ההרצה נמשכת במצב קריאה — הלוג והמצב עוברים לתיקיית
+      // המשתמש שבמחשב הזה (ראו [AppPaths.resolve]). כשגם זה אינו אפשרי אין
+      // לאן לשמור *כלום*, ולכן זו לא שגיאה שאפשר לרשום ולהמשיך: מציגים מסך
+      // הסבר ועוצרים.
       final AppPaths paths;
       try {
         paths = await AppPaths.resolve();
@@ -76,13 +78,16 @@ void main() {
         runApp(SetupErrorApp(error: e));
         return;
       }
+      // לפני טעינת ההגדרות: במצב קריאה הן נקראות מתיקיית המחשב, ובלי
+      // ההעתקה הזו הרצה ראשונה שם הייתה מתחילה מברירות המחדל.
+      await paths.seedPreferences();
 
       // שני אלה נוגעים בדיסק ואינם תלויים זה בזה. בטור, על כונן USB איטי,
       // זה היה שני סבבי I/O לפני הפריים הראשון; במקביל — סבב אחד.
-      final settings = SettingsController(dataDir: paths.dataDir);
+      final settings = SettingsController(dataDir: paths.stateDir);
       final initialized = await Future.wait([
         AppLogger.init(
-          paths.dataDir,
+          paths.stateDir,
           version: launcherVersion,
           payloadVersion: PayloadCheck.stubPayloadVersion(),
         ),
@@ -103,7 +108,7 @@ void main() {
         return;
       }
 
-      runApp(LauncherApp(dataDir: paths.dataDir, settings: settings));
+      runApp(LauncherApp(paths: paths, settings: settings));
     },
     // תופס שגיאות אסינכרוניות שלא נתפסו ע"י שום try/catch — רשת חיצונית
     // (defense in depth): גם אם ניצור בעתיד בטעות עוד קריסת isolate/async
@@ -137,11 +142,11 @@ Future<void> _prepareWindow() async {
 class LauncherApp extends StatelessWidget {
   const LauncherApp({
     super.key,
-    required this.dataDir,
+    required this.paths,
     required this.settings,
   });
 
-  final String dataDir;
+  final AppPaths paths;
   final SettingsController settings;
 
   @override
@@ -161,7 +166,12 @@ class LauncherApp extends StatelessWidget {
           textScale: s.textScale,
           seedColor: s.seedColor,
           darkSeedColor: s.darkSeedColor,
-          home: AppShell(dataDir: dataDir, settings: settings),
+          home: AppShell(
+            dataDir: paths.dataDir,
+            stateDir: paths.stateDir,
+            readOnly: paths.readOnly,
+            settings: settings,
+          ),
         );
       },
     );

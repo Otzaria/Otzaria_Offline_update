@@ -28,7 +28,10 @@ import 'plugin_visuals.dart';
 /// אינטרנט, והיא תמיד יזומה בלחיצה.
 class PluginsScreen extends StatefulWidget {
   const PluginsScreen(
-      {super.key, required this.controller, this.onRequestFocus});
+      {super.key,
+      required this.controller,
+      this.onRequestFocus,
+      this.readOnly = false});
 
   final PluginsModuleController controller;
 
@@ -36,6 +39,10 @@ class PluginsScreen extends StatefulWidget {
   /// כל מסך (המסך נשאר בעץ גם כשיוצאים ממנו), ולכן פתיחת תוסף מתוכה חייבת
   /// גם להחזיר את הניווט לכאן — אחרת הפרטים נפתחים מאחורי מסך אחר.
   final VoidCallback? onRequestFocus;
+
+  /// הכונן מוגן מפני כתיבה — ראו `AppPaths.readOnly`. החנות עצמה נקראת
+  /// ומותקנת כרגיל; רק הסנכרון (שמוריד אליה) אינו קיים.
+  final bool readOnly;
 
   @override
   State<PluginsScreen> createState() => _PluginsScreenState();
@@ -133,6 +140,10 @@ class _PluginsScreenState extends State<PluginsScreen> {
   // ── פעולות ────────────────────────────────────────────────────────────────
 
   Future<void> _sync() async {
+    if (widget.readOnly) {
+      UiSnack.show(context.strings.readOnlyDrive.downloadsDisabledSnack);
+      return;
+    }
     final t = context.strings.plugins;
     final approved = await showTwoActionsDialog(
       context: context,
@@ -622,15 +633,18 @@ class _PluginsScreenState extends State<PluginsScreen> {
           final actions = Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Flexible(
-                child: ActionButton.recommended(
-                  text: t.syncButton,
-                  icon: FluentIcons.arrow_sync_24_regular,
-                  isLoading: isSyncing,
-                  onPressed: isSyncing ? null : _sync,
+              // הסנכרון מוריד את החנות אל הכונן — ולכן אינו קיים כשהוא נעול.
+              if (!widget.readOnly) ...[
+                Flexible(
+                  child: ActionButton.recommended(
+                    text: t.syncButton,
+                    icon: FluentIcons.arrow_sync_24_regular,
+                    isLoading: isSyncing,
+                    onPressed: isSyncing ? null : _sync,
+                  ),
                 ),
-              ),
-              const SizedBox(width: AppTokens.spaceSM),
+                const SizedBox(width: AppTokens.spaceSM),
+              ],
               SecondaryIconButton(
                 icon: FluentIcons.arrow_clockwise_24_regular,
                 tooltip: t.reloadTooltip,

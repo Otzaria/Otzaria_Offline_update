@@ -99,6 +99,32 @@ that is what makes the drive self-contained. If that folder is not writable
 `SetupErrorScreen` and refuses to run rather than silently falling back to
 `%APPDATA%`, which would leave the data behind on the online machine.
 
+**One exception: a write-protected drive that already carries a mirror runs in
+read-only mode** (issue #25 — someone locks the stick and hands it around; the
+people it reaches only ever install from it). `AppPaths` then returns
+`readOnly: true` with `stateDir` pointing at a per-machine folder
+(`%LOCALAPPDATA%\OtzariaOfflineUpdate`), and `dataDir` — the mirror, the only
+thing read from — still on the drive. This works because **no install writes to
+the drive**: the Otzaria installer is read from the mirror and Inno writes to
+the machine, the library applier stages the compressed asset and `<db>.new`
+next to the existing DB, and plugins go into Otzaria's own folder. What moves
+to `stateDir` is exactly the log, `launcher_settings.json`,
+`faq_customization.json`, `library_state.json` and
+`otzaria_install_state.json` — and the state files belong there anyway: "which
+version is installed" describes the machine, not the drive. Preferences are
+seeded once from the drive (`AppPaths.seedPreferences`); the state files are
+deliberately **not** copied, because they describe whoever wrote them.
+
+Everything that writes *to the drive* is off in that mode, and there is no
+prompt anywhere — the mode is detected, announced in one card on the home
+screen, and that is all: `downloadAll`, the plugin store sync, custom-app add
+and download, and the launcher's own self-update (it replaces the exe **on the
+drive**). `checkOnline` is skipped too: "there is something new online" with no
+way to bring it is nagging, not information. The detection costs nothing on the
+normal path — the mirror probe runs **only** after the write probe already
+failed. An empty locked folder is still `SetupErrorScreen`: nothing to install
+from means the program really is in the wrong place.
+
 Layout under `OtzariaData/`:
 
 ```
@@ -797,8 +823,24 @@ scan of the wrong folder until the next launch.
 resolves it next to the executable and `AppSettings` has **no path fields at
 all**. Adding one back (an "advanced" data-dir setting, a USB target picker, an
 `otzariaInstallPath`) breaks the premise that the drive carries everything.
+`AppPaths.stateDir` is not a way around this: it is not user-visible, it only
+ever differs from `dataDir` when the drive itself refuses writes, and the
+mirror never moves off the drive.
 On macOS the folder goes next to the `.app` bundle, not inside
 `Contents/MacOS`, so the user can actually see it.
+
+**Permission failures are diagnosed, not just printed.** Otzaria installed under
+`Program Files` means the launcher's *own* writes fail — the DB apply, the
+companion assets — while the Otzaria installer is fine (Inno elevates itself,
+which is why exit code 1223 is treated as "the user refused UAC"). `Elevation`
+(`launcher_app/lib/src/services/`) recognises that case by **OS error code**
+(5 / `EACCES`), never by message text: a Hebrew Windows says "הגישה נדחתה" and
+string matching would miss it. A file that is merely *in use* (error 32,
+Otzaria open on the DB) is deliberately **not** counted — elevating fixes
+nothing there. The sqlite path has no `OSError` at all, so a read-only DB is
+matched on sqlite's own untranslated `readonly database`. `AppShell` offers the
+restart once per run, from the shared listener, so the offer lives in one place
+instead of in every screen.
 
 **There is no backup of `seforim.db`, and no setting for one.**
 `LibraryDbRecoveryService` writes a marker (`<db>.applying`) and nothing else.
@@ -1195,7 +1237,10 @@ The offline-only rework (single mode, exe-adjacent data folder, app mirror,
 `prerelease`-based channels) is **unit-tested and analyzer-clean only**. Not yet
 run on real hardware: `AppPaths` on a real removable drive, the refusal path in
 a genuinely read-only folder, `OtzariaAppMirror.sync()` against real GitHub, and
-whether the trimmed mirror is in fact enough for a real offline apply.
+whether the trimmed mirror is in fact enough for a real offline apply. The
+read-only mode of issue #25 is in the same state — the write paths were traced
+and it is unit-tested, but a full install has not yet been run from a drive with
+its lock switch on.
 
 The two-channel download (stable + newer pre-release in one mirror, with the
 choice made offline) is likewise **unit-tested only**. Not verified against the

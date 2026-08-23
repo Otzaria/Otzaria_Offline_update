@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
@@ -16,6 +17,7 @@ import '../controllers/otzaria_module_controller.dart';
 import '../controllers/plugins_module_controller.dart';
 import '../services/app_logger.dart';
 import '../services/byte_size.dart';
+import '../services/elevation.dart';
 import '../services/file_reveal.dart';
 import '../services/mirror_download_undo.dart';
 import '../settings/app_settings.dart';
@@ -43,11 +45,25 @@ class AppShell extends StatefulWidget {
     super.key,
     required this.dataDir,
     required this.settings,
+    String? stateDir,
+    this.readOnly = false,
     this.runningLocator = const RunningOtzariaLocator(),
     this.showWindowButtons,
-  });
+  }) : _stateDir = stateDir;
 
+  /// התיקייה שלצד התוכנה — המראה, כלומר המקור שממנו קוראים ומתקינים.
   final String dataDir;
+
+  final String? _stateDir;
+
+  /// לאן נכתבים לוג, הגדרות ומצב. זהה ל-[dataDir] בהרצה רגילה — ראו
+  /// [AppPaths.stateDir].
+  String get stateDir => _stateDir ?? dataDir;
+
+  /// `true` = הכונן לקריאה בלבד: בדיקות והתקנות עובדות (הן כותבות למחשב),
+  /// והורדות מהרשת ועדכון הלאנצ'ר עצמו כבויים — אין לאן להוריד.
+  final bool readOnly;
+
   final SettingsController settings;
 
   /// בדיקת "אוצריא פתוחה?" — מוזרקת כדי שבדיקות widget לא יריצו `tasklist`
@@ -82,6 +98,10 @@ class _AppShellState extends State<AppShell> {
   /// יכולה לרוץ עוד פעמים (כפתור "בדיקת עדכונים"), ודיאלוג שקופץ בכל אחת מהן
   /// היה נדנוד.
   bool _askedAboutLauncherUpdate = false;
+
+  /// ההצעה להפעיל מחדש כמנהל — גם היא פעם אחת בהרצה, ראו
+  /// [_maybeOfferElevation].
+  bool _offeredElevation = false;
 
   LauncherScreen _screen = LauncherScreen.home;
 
@@ -118,6 +138,7 @@ class _AppShellState extends State<AppShell> {
 
     _otzaria = OtzariaModuleController(
       dataDir: widget.dataDir,
+      stateDir: widget.stateDir,
       // ההורדה מביאה תמיד את שתי הגרסאות; זו רק הבחירה איזו מהן מותקנת.
       preferPrerelease: s.preferAppPrerelease,
       runningLocator: widget.runningLocator,
@@ -130,6 +151,7 @@ class _AppShellState extends State<AppShell> {
     )..addListener(_onChange);
     _library = LibraryModuleController(
       dataDir: widget.dataDir,
+      stateDir: widget.stateDir,
       // נתיב ההתקנה של אוצריא מזהה התקנה ניידת/ספרייה מצורפת, ששם המסד לא
       // יושב ב-`%APPDATA%`. `null` לפני הבדיקה הראשונה — ראו [checkAll].
       otzariaLaunchPath: () async => _otzaria.launchPath,
@@ -147,7 +169,7 @@ class _AppShellState extends State<AppShell> {
     _launcherUpdate = LauncherUpdateController(dataDir: widget.dataDir)
       ..addListener(_onChange);
     // בלי `addListener`: הדיאלוג עצמו מאזין לו, והמסגרת אינה מציגה ממנו כלום.
-    _faq = FaqController(dataDir: widget.dataDir);
+    _faq = FaqController(dataDir: widget.stateDir);
     unawaited(_faq.load());
     widget.settings.addListener(_onChange);
     _applySettings(s);
@@ -194,6 +216,37 @@ class _AppShellState extends State<AppShell> {
     _applySettings(widget.settings.settings);
     _syncRunningPoll();
     setState(() {});
+    unawaited(_maybeOfferElevation());
+  }
+
+  /// כשל הרשאות בכל אחד מהמודולים מגיע לכאן דרך ה-listener המשותף, ולכן
+  /// ההצעה יושבת במקום אחד ולא בכל מסך בנפרד. **פעם אחת בהרצה**: מי שסירב
+  /// לא צריך לראות אותה שוב בכל ניסיון.
+  Future<void> _maybeOfferElevation() async {
+    if (_offeredElevation || !Platform.isWindows) return;
+    if (!_library.needsElevation && !_otzaria.needsElevation) return;
+    _offeredElevation = true;
+
+    // יציאה מה-tick של ההודעה לפני פתיחת דיאלוג: קונטרולר שמודיע בתוך
+    // בנייה היה מפיל את `showDialog`.
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+
+    final t = AppL10n.strings.elevation;
+    final approved = await showTwoActionsDialog(
+      context: context,
+      title: t.dialogTitle,
+      content: t.dialogContent,
+      cancelText: t.dialogCancel,
+      confirmText: t.dialogConfirm,
+    );
+    if (!approved) return;
+
+    // הצלחה → התהליך הזה נסגר ואיננו חוזרים לכאן בכלל.
+    final failure = await Elevation.restartElevated();
+    if (failure != null) {
+      UiSnack.showError(t.restartFailedSnack('$failure'));
+    }
   }
 
   /// מדליק/מכבה את הרענון המחזורי לפי מצב התהליך שהתקבל כרגע.
@@ -228,13 +281,25 @@ class _AppShellState extends State<AppShell> {
   Future<bool> refreshProcessState() =>
       _otzaria.refreshRunningState(force: true);
 
+  /// חוסם, עם הסבר, כל מסלול שכותב **לכונן** — הורדה מהרשת או החלפת קובץ
+  /// ההרצה — כשהכונן מוגן מפני כתיבה. ההתקנות עצמן אינן עוברות כאן: הן
+  /// כותבות למחשב, וזו כל הנקודה של מצב הקריאה.
+  bool _blockedByReadOnly() {
+    if (!widget.readOnly) return false;
+    UiSnack.show(AppL10n.strings.readOnlyDrive.downloadsDisabledSnack);
+    return true;
+  }
+
   /// בודק גרסאות בשני המודולים **מהתיקייה המקומית בלבד**. לא נוגע ברשת,
   /// לא מוריד ולא מתקין דבר.
   Future<void> checkAll() async {
     // העדכון של הלאנצ'ר עצמו קודם: הוא קריאת דיסק זולה ואינו תלוי בכלום,
-    // וכשיש גרסה מוכנה זה מה שכדאי שהמשתמש יראה קודם.
-    await _launcherUpdate.checkForUpdate();
-    if (!mounted) return;
+    // וכשיש גרסה מוכנה זה מה שכדאי שהמשתמש יראה קודם. במצב קריאה הוא נדלג:
+    // ההחלפה כותבת את ה-exe החדש על הכונן, ולכן אין מה להציע.
+    if (!widget.readOnly) {
+      await _launcherUpdate.checkForUpdate();
+      if (!mounted) return;
+    }
 
     // בטור ולא במקביל: בדיקת הספרייה משתמשת בנתיב ההתקנה של אוצריא כדי לאתר
     // את המסד (התקנה ניידת/ספרייה מצורפת), והוא ידוע רק אחרי הבדיקה שלה.
@@ -281,7 +346,9 @@ class _AppShellState extends State<AppShell> {
   /// בדיקה קלה ברשת ("יש עדכון חדש?") לכל הרכיבים — מטא-דאטה בלבד, בלי
   /// הורדת installer/מסד/קובץ תוסף. כשל (אין רשת) נבלע בתוך הקונטרולרים עצמם.
   Future<void> checkOnline() async {
-    if (_isCheckingOnline) return;
+    // במצב קריאה אין מה לעשות בתשובה: מה שהתחדש ברשת אינו יכול לירד לכונן,
+    // ו"יש עדכון" בלי דרך להביא אותו הוא נדנוד ולא מידע.
+    if (widget.readOnly || _isCheckingOnline) return;
     setState(() => _isCheckingOnline = true);
     await Future.wait([
       _otzaria.checkOnline(),
@@ -299,7 +366,7 @@ class _AppShellState extends State<AppShell> {
   /// "גירסה X זמינה, להוריד עכשיו?" — פעם אחת בהרצה, ורק כשהבדיקה הקלה מצאה
   /// ברשת גרסה חדשה מזו שכבר יושבת בתיקייה.
   Future<void> _promptLauncherUpdate() async {
-    if (!mounted) return;
+    if (!mounted || widget.readOnly) return;
     final c = _launcherUpdate;
     final release = c.onlineRelease;
     if (release == null || !c.hasOnlineUpdate) return;
@@ -322,6 +389,7 @@ class _AppShellState extends State<AppShell> {
   /// מוריד את הגרסה החדשה של הלאנצ'ר אל התיקייה שלצד התוכנה, ומיד אחר כך
   /// מציע להתקין — זה מה שהופך את ההורדה למשהו שאפשר לסיים מכאן.
   Future<void> downloadLauncherUpdate() async {
+    if (_blockedByReadOnly()) return;
     // ההורדה הכבדה (מסד/התקנה/תוספים) והורדת הלאנצ'ר חולקות רוחב פס; שתיהן
     // יחד רק היו מאטות זו את זו.
     if (_isDownloading || _launcherUpdate.isDownloading) return;
@@ -339,6 +407,7 @@ class _AppShellState extends State<AppShell> {
   /// מחליף את קובץ ההרצה בגרסה שהורדה ומפעיל מחדש — באישור המשתמש. פעולה
   /// מקומית לגמרי: היא עובדת גם במחשב בלי רשת.
   Future<void> installLauncherUpdate() async {
+    if (_blockedByReadOnly()) return;
     if (!mounted) return;
     final version = _launcherUpdate.downloadedVersion;
     if (version == null || !_launcherUpdate.canInstall) return;
@@ -431,6 +500,7 @@ class _AppShellState extends State<AppShell> {
   /// התקדמות משלו ובמקביל התצוגה הייתה מתבלבלת. המקביליות יושבת **בתוך** כל
   /// רכיב — שם היא גם הועילה בפועל; ראו `DownloadScheduler`.
   Future<void> downloadAll() async {
+    if (_blockedByReadOnly()) return;
     final s = widget.settings.settings;
     if (!s.hasSyncSelection ||
         _isDownloading ||
@@ -598,6 +668,7 @@ class _AppShellState extends State<AppShell> {
             onInstallFullPackage: installFullPackage,
             onGoToOtzaria: () => _goTo(LauncherScreen.otzaria),
             onGoToLibrary: () => _goTo(LauncherScreen.library),
+            readOnly: widget.readOnly,
           ),
         LauncherScreen.otzaria => OtzariaScreen(
             otzaria: _otzaria,
@@ -606,7 +677,10 @@ class _AppShellState extends State<AppShell> {
             onInstallAdopted: _plugins.refreshInstalled,
             onInstallFullPackage: installFullPackage,
           ),
-        LauncherScreen.customApps => CustomAppsScreen(controller: _customApps),
+        LauncherScreen.customApps => CustomAppsScreen(
+            controller: _customApps,
+            readOnly: widget.readOnly,
+          ),
         LauncherScreen.library => LibraryScreen(
             library: _library,
             otzariaIsRunning: _otzariaIsRunning,
@@ -617,6 +691,7 @@ class _AppShellState extends State<AppShell> {
         LauncherScreen.plugins => PluginsScreen(
             controller: _plugins,
             onRequestFocus: () => _goTo(LauncherScreen.plugins),
+            readOnly: widget.readOnly,
           ),
         LauncherScreen.settings => SettingsScreen(
             controller: widget.settings,

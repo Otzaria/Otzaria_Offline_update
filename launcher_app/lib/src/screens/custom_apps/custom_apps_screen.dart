@@ -40,9 +40,17 @@ Future<void> openEditCustomApp(
 /// הפריט בסרגל הניווט מופיע **רק אחרי שנוספה תוכנה ראשונה** (ראו
 /// `AppShell`), ולכן מי שלא משתמש בתכונה הזו לא פוגש אותה בכלל.
 class CustomAppsScreen extends StatelessWidget {
-  const CustomAppsScreen({super.key, required this.controller});
+  const CustomAppsScreen({
+    super.key,
+    required this.controller,
+    this.readOnly = false,
+  });
 
   final CustomAppsController controller;
+
+  /// הכונן מוגן מפני כתיבה — ראו `AppPaths.readOnly`. תוכנה שכבר יושבת על
+  /// הכונן מותקנת ומופעלת כרגיל; הוספה והורדה כותבות אליו, ולכן אינן קיימות.
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -54,22 +62,34 @@ class CustomAppsScreen extends StatelessWidget {
         for (final app in controller.apps)
           Padding(
             padding: const EdgeInsets.only(bottom: AppTokens.spaceMD),
-            child: _CustomAppCard(controller: controller, app: app),
+            child: _CustomAppCard(
+              controller: controller,
+              app: app,
+              readOnly: readOnly,
+            ),
           ),
-        ActionButton.recommended(
-          text: t.addButton,
-          icon: FluentIcons.add_24_regular,
-          onPressed: controller.isBusy
-              ? null
-              : () => openAddCustomApp(context, controller),
-        ),
+        if (!readOnly)
+          ActionButton.recommended(
+            text: t.addButton,
+            icon: FluentIcons.add_24_regular,
+            onPressed: controller.isBusy
+                ? null
+                : () => openAddCustomApp(context, controller),
+          ),
       ],
     );
   }
 }
 
 class _CustomAppCard extends StatelessWidget {
-  const _CustomAppCard({required this.controller, required this.app});
+  const _CustomAppCard({
+    required this.controller,
+    required this.app,
+    required this.readOnly,
+  });
+
+  /// ראו [CustomAppsScreen.readOnly].
+  final bool readOnly;
 
   final CustomAppsController controller;
   final CustomAppView app;
@@ -191,7 +211,8 @@ class _CustomAppCard extends StatelessWidget {
                   onPressed:
                       controller.isBusy ? null : () => _pickLocation(context),
                 ),
-              if (_isFromGithub) ...[
+              // שתיהן מורידות אל הכונן, או שואלות עליו — לא במצב קריאה.
+              if (_isFromGithub && !readOnly) ...[
                 ActionButton.neutral(
                   text: t.downloadButton,
                   icon: FluentIcons.arrow_download_24_regular,

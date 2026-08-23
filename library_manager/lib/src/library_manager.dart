@@ -73,10 +73,12 @@ class MirrorDownloadOutcome {
 class LibraryManager {
   LibraryManager({
     required this.dataDir,
+    String? stateDir,
     this.allowPrerelease = false,
     this.personalUpdateMode = false,
     Future<String?> Function()? otzariaLaunchPath,
-  })  : _stateStore = LibraryStateStore(p.join(dataDir, 'library_state.json')),
+  })  : _stateStore = LibraryStateStore(
+            p.join(stateDir ?? dataDir, 'library_state.json')),
         _planner = const LibraryUpdatePlanner(),
         _versionReader = const LocalDbVersionReader(),
         _recovery = const LibraryDbRecoveryService(),
@@ -90,6 +92,10 @@ class LibraryManager {
 
   /// תיקיית הנתונים של הלאנצ'ר (state ומראה). **לא** מיקום ההתקנה של המסד —
   /// ראו [installDbPath].
+  ///
+  /// `stateDir` שבבנאי מפריד את **קובץ המצב** ממנה, לכונן מוגן-כתיבה שממנו
+  /// אפשר רק להתקין (`AppPaths.readOnly` בלאנצ'ר). ברירת המחדל היא [dataDir]
+  /// עצמה, כלומר ההתנהגות שהייתה כאן תמיד.
   final String dataDir;
 
   /// `true` = הערוץ "כולל pre-release". ברירת המחדל `false` — release רגיל

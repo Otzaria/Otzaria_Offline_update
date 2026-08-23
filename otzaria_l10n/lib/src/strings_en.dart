@@ -30,6 +30,10 @@ class EnglishStrings extends AppStrings {
   @override
   SetupErrorStrings get setupError => const _SetupError();
   @override
+  ReadOnlyDriveStrings get readOnlyDrive => const _ReadOnlyDrive();
+  @override
+  ElevationStrings get elevation => const _Elevation();
+  @override
   PayloadMismatchStrings get payloadMismatch => const _PayloadMismatch();
   @override
   LauncherUpdateStrings get launcherUpdate => const _LauncherUpdate();
@@ -1308,18 +1312,67 @@ class _SetupError extends SetupErrorStrings {
   String get explanation =>
       'The launcher keeps all of its data — the library, the plugins and the '
       'Otzaria program itself — in a folder right next to it, so everything '
-      'travels together on the drive. The current folder is not writable, so '
-      'there is nowhere to save.';
+      'travels together on the drive. The current folder is blocked for '
+      'writing — permissions, or a write-protected drive — and carries no '
+      'mirror to install from, so there is nowhere to save.';
   @override
   String get whatToDo =>
-      'What to do: move the whole program folder onto the removable drive '
-      '(or into any folder on disk that is not under Program Files), and run '
-      'it from there.';
+      'What to do: if the drive itself is write-protected (a lock switch on '
+      'the drive, a burned disc, or read-only permissions) — remove the '
+      'protection, download the updates, and then you can lock it again and '
+      'install from it on any computer. Otherwise — move the whole program '
+      'folder onto the removable drive (or into any folder on disk that is '
+      'not under Program Files), and run it from there.';
   @override
   String get attemptedDirTitle => 'Folder that was tried';
   @override
   String cannotWriteToDataDir(String osMessage) =>
       'Cannot write to the folder next to this program: $osMessage';
+}
+
+class _ReadOnlyDrive extends ReadOnlyDriveStrings {
+  const _ReadOnlyDrive();
+
+  @override
+  String get bannerTitle => 'The drive is write-protected — read-only mode';
+  @override
+  String get bannerSubtitle =>
+      'Installing and updating Otzaria, the library and the plugins all work '
+      'as usual: they write to this computer, not to the drive. Downloading '
+      'from the internet and updating this program itself are off — there is '
+      'nowhere to download to. Settings and the log are kept on this computer.';
+  @override
+  String get downloadsDisabledSnack =>
+      'The drive is write-protected — there is nowhere to download to. You '
+      'can still install what it already carries.';
+}
+
+class _Elevation extends ElevationStrings {
+  const _Elevation();
+
+  @override
+  String get hint =>
+      'The folder appears to be protected and to need administrator rights — '
+      'that is what happens when Otzaria is installed under Program Files. '
+      'You can close this program, start it again with a right-click on the '
+      'executable → "Run as administrator", and try again.';
+  @override
+  String get dialogTitle => 'Administrator rights are needed';
+  @override
+  String get dialogContent =>
+      'The action failed because the folder is not writable — usually the '
+      'case when Otzaria is installed under Program Files. Restart this '
+      'program with administrator rights and try again? Windows will ask for '
+      'confirmation.';
+  @override
+  String get dialogConfirm => 'Restart as administrator';
+  @override
+  String get dialogCancel => 'Not now';
+  @override
+  String restartFailedSnack(String error) =>
+      'Restarting as administrator failed: $error. You can close this program '
+      'and start it again with a right-click on the executable → "Run as '
+      'administrator".';
 }
 
 class _PayloadMismatch extends PayloadMismatchStrings {

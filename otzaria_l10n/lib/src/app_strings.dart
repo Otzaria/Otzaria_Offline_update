@@ -20,6 +20,8 @@ abstract class AppStrings {
   FaqStrings get faq;
   CustomAppsStrings get customApps;
   SetupErrorStrings get setupError;
+  ReadOnlyDriveStrings get readOnlyDrive;
+  ElevationStrings get elevation;
   PayloadMismatchStrings get payloadMismatch;
   LauncherUpdateStrings get launcherUpdate;
   UnitStrings get units;
@@ -722,6 +724,39 @@ abstract class SetupErrorStrings {
   /// בפועל תמיד בעברית: השגיאה נזרקת לפני שקובץ ההגדרות בכלל נקרא, כי הוא
   /// יושב בתיקייה שנכשלה. מתורגם בכל זאת כדי שלא תישאר מחרוזת בקוד.
   String cannotWriteToDataDir(String osMessage);
+}
+
+// ── כונן מוגן-כתיבה: מצב קריאה ────────────────────────────────────────────────
+
+/// הכונן מוגן מפני כתיבה אך נושא מראה שנמלאה — ההתקנות עובדות (הן כותבות
+/// למחשב), וההורדות כבויות. ראו `AppPaths.readOnly`.
+abstract class ReadOnlyDriveStrings {
+  const ReadOnlyDriveStrings();
+
+  String get bannerTitle;
+  String get bannerSubtitle;
+
+  /// נאמר כשמסלול שדורש כתיבה לכונן נחסם — הורדה או עדכון הלאנצ'ר עצמו.
+  String get downloadsDisabledSnack;
+}
+
+// ── הרשאות מנהל ───────────────────────────────────────────────────────────────
+
+/// תיקייה שהלאנצ'ר צריך לכתוב אליה ואינו מורשה — אוצריא ב-`Program Files`
+/// היא המקרה השכיח. ראו `Elevation`.
+abstract class ElevationStrings {
+  const ElevationStrings();
+
+  /// נתלה בסוף הודעת השגיאה עצמה, ולכן מנוסח כהמשך שלה.
+  String get hint;
+
+  String get dialogTitle;
+  String get dialogContent;
+  String get dialogConfirm;
+  String get dialogCancel;
+
+  /// ההרמה עצמה נכשלה (למשל PowerShell חסום) — נשארת הדרך הידנית.
+  String restartFailedSnack(String error);
 }
 
 // ── ערמת קבצים שאינה תואמת ל-exe ──────────────────────────────────────────────

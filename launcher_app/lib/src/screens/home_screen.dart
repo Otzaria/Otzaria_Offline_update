@@ -39,6 +39,7 @@ class HomeScreen extends StatelessWidget {
     this.onInstallFullPackage,
     required this.onGoToOtzaria,
     required this.onGoToLibrary,
+    this.readOnly = false,
   });
 
   final OtzariaModuleController otzaria;
@@ -78,6 +79,10 @@ class HomeScreen extends StatelessWidget {
 
   final VoidCallback onGoToOtzaria;
   final VoidCallback onGoToLibrary;
+
+  /// הכונן מוגן מפני כתיבה — ראו `AppPaths.readOnly`. במצב הזה מוצגת הודעה
+  /// במקום כרטיס ההורדה: מה שהתחדש ברשת אינו יכול לירד לכאן.
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -122,12 +127,32 @@ class HomeScreen extends StatelessWidget {
           },
         ),
         const SizedBox(height: AppTokens.spaceLG),
-        _onlineCheckCard(context),
-        if (_showLauncherUpdateCard) ...[
+        // כרטיס ההורדה ועדכון הלאנצ'ר מוחלפים בהסבר: שניהם כותבים לכונן.
+        if (readOnly)
+          _readOnlyNoticeCard(context)
+        else
+          _onlineCheckCard(context),
+        if (!readOnly && _showLauncherUpdateCard) ...[
           const SizedBox(height: AppTokens.spaceLG),
           _launcherUpdateCard(context),
         ],
       ],
+    );
+  }
+
+  // ── כונן מוגן-כתיבה ──────────────────────────────────────────────────────
+
+  /// אותו מבנה של אזהרת "אוצריא פתוחה" שלמעלה: כרטיס אחד, אייקון והסבר,
+  /// בלי פעולה — אין כאן מה ללחוץ, וזו הנקודה.
+  Widget _readOnlyNoticeCard(BuildContext context) {
+    final t = context.strings.readOnlyDrive;
+
+    return AppCard(
+      child: SettingsActionTile.text(
+        icon: FluentIcons.lock_closed_24_regular,
+        title: t.bannerTitle,
+        subtitle: t.bannerSubtitle,
+      ),
     );
   }
 

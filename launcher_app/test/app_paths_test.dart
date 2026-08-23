@@ -123,6 +123,142 @@ void main() {
     });
   });
 
+  group('כונן מוגן-כתיבה (בעיה #25)', () {
+    late Directory sandbox;
+    late Directory drive;
+    late Directory machine;
+
+    /// שני המפתחות יחד, כדי שהבדיקה לא תהיה תלויה בפלטפורמה שהיא רצה בה.
+    Map<String, String> env() => {
+          'LOCALAPPDATA': machine.path,
+          'XDG_DATA_HOME': machine.path,
+        };
+
+    setUp(() async {
+      sandbox = await Directory.systemTemp.createTemp('locked-drive-');
+      drive = Directory(p.join(sandbox.path, 'drive'))..createSync();
+      machine = Directory(p.join(sandbox.path, 'machine'))..createSync();
+    });
+    tearDown(() async {
+      if (await sandbox.exists()) await sandbox.delete(recursive: true);
+    });
+
+    /// מייצר manifest אחד במראה שעל הכונן — ההוכחה שיש ממה להתקין.
+    void fillMirror() {
+      final file = File(p.join(
+        drive.path,
+        'mirror',
+        'library',
+        'releases.json',
+      ));
+      file.parent.createSync(recursive: true);
+      file.writeAsStringSync('[]');
+    }
+
+    test('כונן נעול שנושא מראה → מצב קריאה, והכתיבה עוברת למחשב', () async {
+      fillMirror();
+
+      final paths = await IOOverrides.runWithIOOverrides(
+        () => AppPaths.resolve(environment: env()),
+        _LockedDriveIOOverrides(driveRoot: drive.path),
+      );
+
+      expect(paths.readOnly, isTrue);
+      // המראה נשארת על הכונן — ממנה קוראים ומתקינים.
+      expect(paths.dataDir, expectedDataDir());
+      // ...והכתיבה עוברת לתיקיית המשתמש שבמחשב הזה.
+      expect(paths.stateDir, p.join(machine.path, AppPaths.machineDirName));
+      expect(p.isWithin(paths.dataDir, paths.stateDir), isFalse);
+    });
+
+    test('כונן נעול **בלי** מראה → אותה שגיאה כמו קודם', () async {
+      // תיקייה נעולה שאין בה מה להתקין אינה "מצב קריאה" אלא התקנה במקום
+      // הלא נכון — וזה מה שצריך להיאמר.
+      await expectLater(
+        IOOverrides.runWithIOOverrides(
+          () => AppPaths.resolve(environment: env()),
+          _LockedDriveIOOverrides(driveRoot: drive.path),
+        ),
+        throwsA(isA<AppPathsException>()),
+      );
+    });
+
+    test('אין תיקיית משתמש לכתוב אליה → שגיאה, ולא מצב קריאה שקרי', () async {
+      fillMirror();
+
+      await expectLater(
+        IOOverrides.runWithIOOverrides(
+          () => AppPaths.resolve(environment: const {}),
+          _LockedDriveIOOverrides(driveRoot: drive.path),
+        ),
+        throwsA(isA<AppPathsException>()),
+      );
+    });
+
+    test('הרצה כותבת רגילה נשארת ללא stateDir נפרד', () async {
+      final paths = await IOOverrides.runWithIOOverrides(
+        AppPaths.resolve,
+        _RedirectingIOOverrides(sandbox.path),
+      );
+
+      expect(paths.readOnly, isFalse);
+      expect(paths.stateDir, paths.dataDir);
+    });
+
+    test('העדפות מועתקות למחשב, קובצי המצב לא', () async {
+      // הגדרות ושפה נוסעות עם הכונן; "מה מותקן ואיפה" הוא של המחשב שכתב
+      // אותו, ולכן העתקה שלו הייתה משקרת על המחשב החדש.
+      File(p.join(drive.path, 'launcher_settings.json'))
+          .writeAsStringSync('{"language":"english"}');
+      File(p.join(drive.path, 'library_state.json'))
+          .writeAsStringSync('{"customDbPath":"D:/nope"}');
+
+      final paths = AppPaths(
+        dataDir: drive.path,
+        stateDir: machine.path,
+        readOnly: true,
+      );
+      await paths.seedPreferences();
+
+      expect(
+        File(p.join(machine.path, 'launcher_settings.json')).existsSync(),
+        isTrue,
+      );
+      expect(
+        File(p.join(machine.path, 'library_state.json')).existsSync(),
+        isFalse,
+      );
+    });
+
+    test('העתקה אינה דורסת העדפות שכבר נשמרו במחשב', () async {
+      File(p.join(drive.path, 'launcher_settings.json'))
+          .writeAsStringSync('from-drive');
+      final onMachine = File(p.join(machine.path, 'launcher_settings.json'))
+        ..writeAsStringSync('from-machine');
+
+      await AppPaths(
+        dataDir: drive.path,
+        stateDir: machine.path,
+        readOnly: true,
+      ).seedPreferences();
+
+      expect(onMachine.readAsStringSync(), 'from-machine');
+    });
+
+    test('בהרצה כותבת אין העתקה בכלל', () async {
+      File(p.join(drive.path, 'launcher_settings.json'))
+          .writeAsStringSync('from-drive');
+
+      await AppPaths(dataDir: drive.path, stateDir: machine.path)
+          .seedPreferences();
+
+      expect(
+        File(p.join(machine.path, 'launcher_settings.json')).existsSync(),
+        isFalse,
+      );
+    });
+  });
+
   group('תת-הנתיבים שמתחת לתיקיית הנתונים', () {
     late Directory tempDir;
 
@@ -195,6 +331,39 @@ final class _FailingIOOverrides extends IOOverrides {
   File createFile(String path) => _UnwritableFile(path, message);
 }
 
+/// מדמה כונן USB עם מפתח נעילה: התיקיות **קיימות ונקראות**, וכל כתיבה
+/// אליהן נכשלת. מה שמחוץ לכונן (תיקיית המשתמש שבמחשב) אמיתי וכותב — זה
+/// בדיוק מה שמצב הקריאה אמור למצוא.
+final class _LockedDriveIOOverrides extends IOOverrides {
+  _LockedDriveIOOverrides({required this.driveRoot});
+
+  /// התיקייה האמיתית שמחליפה את `<exe>/OtzariaData` שאי אפשר לכתוב אליה.
+  final String driveRoot;
+
+  String get _dataDir =>
+      p.join(p.dirname(Platform.resolvedExecutable), AppPaths.dirName);
+
+  bool _onDrive(String path) => path == _dataDir || p.isWithin(_dataDir, path);
+
+  String _mapped(String path) => path == _dataDir
+      ? driveRoot
+      : p.join(driveRoot, p.relative(path, from: _dataDir));
+
+  @override
+  Directory createDirectory(String path) =>
+      _realDirectory(_onDrive(path) ? _mapped(path) : path);
+
+  @override
+  File createFile(String path) {
+    if (!_onDrive(path)) return _realFile(path);
+    // קובץ הבדיקה הוא הכתיבה היחידה שהכונן חוסם כאן; השאר נקרא כרגיל.
+    if (p.basename(path) == '.write-test') {
+      return _UnwritableFile(path, 'The media is write protected');
+    }
+    return _realFile(_mapped(path));
+  }
+}
+
 class _UnwritableDirectory implements Directory {
   _UnwritableDirectory(this.path, this._message);
 
@@ -216,6 +385,11 @@ class _UnwritableFile implements File {
   @override
   final String path;
   final String _message;
+
+  /// תיקייה שאי אפשר לכתוב בה גם אינה נושאת מראה — בלי זה בדיקת המראה
+  /// שב-`resolve` הייתה נופלת ל-`noSuchMethod`.
+  @override
+  Future<bool> exists() async => false;
 
   @override
   Future<File> writeAsString(
