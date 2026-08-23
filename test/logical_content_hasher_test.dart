@@ -281,6 +281,83 @@ void main() {
     }, timeout: const Timeout(Duration(minutes: 2)));
   });
 
+  // בתי-הסוג נקראים כמסכות של 20 עמודות. הגבול הזה הוא מסלול קוד שלם שאינו
+  // מופעל באף טבלה צרה, ובאג בו היה מזיז בתי-סוג בין עמודות — hash שונה בלי
+  // שום שינוי בתוכן. מימוש-העד קורא `typeof()` כמחרוזת ולכן הוא עד עצמאי.
+  group('LogicalContentHasher מסכות בתי-הסוג', () {
+    /// בונה את `book` עם [n] עמודות `c0..c(n-1)`, ובשורה אחת מחזורי הסוגים
+    /// כולם: NULL, מספר שלם, טקסט, blob ו-REAL — כדי שכל תג ייפול על כל
+    /// מקום אפשרי בתוך המסכה.
+    sqlite3.Database wide(int n) {
+      final db = sqlite3.sqlite3.openInMemory();
+      final cols = [for (var i = 0; i < n; i++) 'c$i'];
+      db.execute('CREATE TABLE book (${cols.join(',')})');
+      final row = <Object?>[];
+      for (var i = 0; i < n; i++) {
+        row.add(switch (i % 5) {
+          0 => null,
+          1 => i * 1000,
+          2 => 'טקסט $i',
+          3 => Uint8List.fromList([0, i % 256, 255]),
+          _ => i + 0.5,
+        });
+      }
+      db.execute(
+        'INSERT INTO book VALUES (${List.filled(n, '?').join(',')})',
+        row,
+      );
+      return db;
+    }
+
+    // 19/20 = מסכה אחת (20 היא הקיבולת המדויקת), 21/41 = גלישה למסכה שנייה
+    // ושלישית. 41 גם מוודא שהעמודה הראשונה של מסכה חדשה מתחילה מהיסט 0.
+    for (final n in [1, 19, 20, 21, 40, 41]) {
+      test('טבלה בת-$n עמודות — זהה למימוש-העד', () {
+        final db = wide(n);
+        expect(
+          _hasher.compute(db),
+          sha256.convert(referenceStream(db, kHashTableOrder)).toString(),
+        );
+        db.close();
+      });
+    }
+
+    // עמודות ממוינות אלפביתית, ולכן c10 בא לפני c2 — הסדר שבו התגים נארזים
+    // חייב להיות זה של העמודות הממוינות, לא זה של הצהרת ה-CREATE TABLE.
+    test('מיון אלפביתי של שמות העמודות נשמר בתוך המסכה', () {
+      final db = wide(25);
+      final cols = (db.select('PRAGMA table_info("book")'))
+          .map((r) => r['name'] as String)
+          .toList()
+        ..sort();
+      expect(cols.take(3), ['c0', 'c1', 'c10']);
+      expect(
+        _hasher.compute(db),
+        sha256.convert(referenceStream(db, kHashTableOrder)).toString(),
+      );
+      db.close();
+    });
+
+    // כל חמשת הסוגים בשורה אחת, בטבלה צרה — נועל את מיפוי ה-CASE בעצמו.
+    test('כל חמשת סוגי SQLite בשורה אחת — זהה למימוש-העד', () {
+      final db = sqlite3.sqlite3.openInMemory();
+      db.execute('CREATE TABLE source (id INTEGER PRIMARY KEY, a, b, c, d)');
+      db.execute('INSERT INTO source VALUES (1,?,?,?,?)', [
+        null,
+        42,
+        'שלום',
+        Uint8List.fromList([0, 1, 255])
+      ]);
+      db.execute('INSERT INTO source VALUES (2,?,?,?,?)',
+          [1.5, -0.0, double.infinity, double.nan]);
+      expect(
+        _hasher.compute(db),
+        sha256.convert(referenceStream(db, kHashTableOrder)).toString(),
+      );
+      db.close();
+    });
+  });
+
   group('LogicalContentHasher canonicalisation', () {
     sqlite3.Database build(String create, List<String> inserts) {
       final db = sqlite3.sqlite3.openInMemory();

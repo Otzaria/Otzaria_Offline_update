@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -35,6 +36,11 @@ class LogicalContentHasher {
   static const int _unitSeparator = 0x1F;
   static const int _rowSeparator = 0xFF;
 
+  // אריזת בתי-הסוג: 3 ביטים לכל עמודה, 20 עמודות למסכה (60 ביט — חיובי
+  // ב-int64). טבלה רחבה יותר מקבלת מסכה נוספת, בלי גבול עליון.
+  static const int _bitsPerTag = 3;
+  static const int _colsPerMask = 20;
+
   /// מחשב את ה-hash על [db] ומחזיר אותו כ-hex. ניתן להריץ על חיבור read-only
   /// (preflight) או על חיבור כתיב בתוך transaction (אימות אחרי apply).
   ///
@@ -59,23 +65,24 @@ class LogicalContentHasher {
         out.addBytes(utf8.encode('cols:${cols.join(',')}'));
         out.addByte(_nullTag);
 
-        // ל-text קוראים את ה-bytes הגולמיים (CAST AS BLOB) כדי לא לאבד BOM
-        // מוביל — ה-decoder של Dart מסיר U+FEFF, ולכן String רגיל היה משנה את
-        // ה-hash. typeof קובע את בית-הסוג; ה-CASE מחזיר blob רק ל-text.
-        final selectCols = cols
-            .map((c) => 'typeof("$c"),CASE WHEN typeof("$c")=\'text\' '
-                'THEN CAST("$c" AS BLOB) ELSE "$c" END')
-            .join(',');
+        // בתי-הסוג של כל השורה נקראים כמסכות שלמות — ראו [_maskExpressions].
+        // אחריהן הערכים עצמם, עמודה-עמודה.
+        final masks = _maskExpressions(cols);
+        final selectCols = [...masks, ...cols.map(_valueExpression)].join(',');
         final orderBy =
             cols.contains('id') ? 'id' : cols.map((c) => '"$c"').join(',');
         final stmt =
             db.prepare('SELECT $selectCols FROM "$table" ORDER BY $orderBy');
         try {
+          final maskCount = masks.length;
+          final colCount = cols.length;
           final cursor = stmt.selectCursor(const []);
           while (cursor.moveNext()) {
             final values = cursor.current.values;
-            for (var i = 0; i < values.length; i += 2) {
-              _encodeCell(out, values[i] as String, values[i + 1]);
+            for (var i = 0; i < colCount; i++) {
+              final mask = values[i ~/ _colsPerMask] as int;
+              final tag = (mask >> ((i % _colsPerMask) * _bitsPerTag)) & 0x07;
+              _encodeCell(out, tag, values[maskCount + i]);
             }
             out.addByte(_rowSeparator);
           }
@@ -94,6 +101,41 @@ class LogicalContentHasher {
     }
   }
 
+  /// הערך עצמו. ל-text קוראים את ה-bytes הגולמיים (CAST AS BLOB) כדי לא לאבד
+  /// BOM מוביל — ה-decoder של Dart מסיר U+FEFF, ולכן String רגיל היה משנה את
+  /// ה-hash. ה-CASE מחזיר blob רק ל-text.
+  String _valueExpression(String c) =>
+      'CASE WHEN typeof("$c")=\'text\' THEN CAST("$c" AS BLOB) ELSE "$c" END';
+
+  /// בתי-הסוג של כל העמודות, ארוזים למספרים שלמים — [_bitsPerTag] ביטים
+  /// לעמודה, [_colsPerMask] עמודות למסכה. הצוואר של מעבר האימות הוא מספר
+  /// קריאות ה-FFI לכל שורה, ולכן `typeof()` **לא** נבחר כמחרוזת לכל תא (זו
+  /// הייתה הקצאת String ופענוח UTF-8 לעשרות מיליוני תאים) אלא נקרא כמסכה
+  /// אחת לשורה. הערכים 0/1/2/3 הם בדיוק תגי הסוג של זרם הבתים — הזרם עצמו
+  /// אינו משתנה.
+  List<String> _maskExpressions(List<String> cols) {
+    final masks = <String>[];
+    for (var start = 0; start < cols.length; start += _colsPerMask) {
+      final end = math.min(start + _colsPerMask, cols.length);
+      final parts = <String>[];
+      for (var i = start; i < end; i++) {
+        // 3 ביטים × 20 עמודות = 60 ביט — נשאר חיובי ב-int64, גם ב-SQLite.
+        parts.add(
+            '((${_tagExpression(cols[i])})<<${(i - start) * _bitsPerTag})');
+      }
+      masks.add(parts.join('|'));
+    }
+    return masks;
+  }
+
+  /// ממפה את `typeof()` לבית-הסוג. ה-ELSE מכסה 'integer' ו-'real' גם יחד —
+  /// ההבחנה ביניהם נעשית בדארט לפי סוג הערך, כמו קודם.
+  String _tagExpression(String c) => 'CASE typeof("$c") '
+      'WHEN \'null\' THEN $_nullTag '
+      'WHEN \'blob\' THEN $_blobTag '
+      'WHEN \'text\' THEN $_textTag '
+      'ELSE $_numberTag END';
+
   /// קורא את שמות העמודות ממוינים אלפביתית, או null אם הטבלה אינה קיימת.
   List<String>? _readColumnsCanonical(sqlite3.Database db, String table) {
     final result = db.select('PRAGMA table_info("$table")');
@@ -103,19 +145,19 @@ class LogicalContentHasher {
     return names;
   }
 
-  /// [type] הוא תוצאת `typeof()` ('null'/'integer'/'real'/'text'/'blob').
-  /// עבור 'text' ו-'blob', [value] הוא ה-bytes הגולמיים (Uint8List).
-  void _encodeCell(_BufferedByteSink out, String type, Object? value) {
-    switch (type) {
-      case 'null':
+  /// [tag] הוא בית-הסוג שנקרא מהמסכה (ראו [_maskExpressions]).
+  /// עבור [_textTag] ו-[_blobTag], [value] הוא ה-bytes הגולמיים (Uint8List).
+  void _encodeCell(_BufferedByteSink out, int tag, Object? value) {
+    switch (tag) {
+      case _nullTag:
         out.addByte(_nullTag);
-      case 'text':
+      case _textTag:
         out.addByte(_textTag);
         out.addBytes(value as Uint8List);
-      case 'blob':
+      case _blobTag:
         out.addByte(_blobTag);
         out.addBytes(value as Uint8List);
-      default: // 'integer' / 'real'
+      default: // _numberTag — 'integer' או 'real'
         out.addByte(_numberTag);
         out.addBytes(utf8.encode(value.toString()));
     }

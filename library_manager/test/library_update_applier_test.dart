@@ -404,6 +404,38 @@ void main() {
       expect(File('$dbPath.download.zst').existsSync(), isFalse);
     });
 
+    // הגודל שנכתב מושווה להצהרת כותרת ה-frame, ורק `<` נחשב כשל. ארכיון
+    // מרובה-frames מפיק **יותר** מהצהרת ה-frame הראשון (`contentSizeOf` קורא
+    // אותו לבדו), ולכן `!=` היה דוחה חילוץ תקין לגמרי. זה השומר על הבחירה.
+    test('ארכיון מרובה-frames מפיק יותר מההצהרה ואינו נדחה', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+
+      final first = pseudoRandomBytes(16 * 1024);
+      final second = pseudoRandomBytes(8 * 1024);
+      final compressedPath = p.join(tempDir.path, 'multi.db.zst');
+      File(compressedPath).writeAsBytesSync(Uint8List.fromList([
+        ...compressWithZstd(bindings, first),
+        ...compressWithZstd(bindings, second),
+      ]));
+
+      // ההצהרה היא של ה-frame הראשון בלבד — קטנה מהתוכן שייכתב בפועל.
+      expect(
+        ZstdFileDecompressor.contentSizeOf(compressedPath),
+        first.length,
+      );
+
+      await applier.applyFullDownload(
+        plan: fullPlanFor(compressedPath),
+        dbPath: dbPath,
+      );
+
+      expect(File(dbPath).readAsBytesSync(), [...first, ...second]);
+      expect(File('$dbPath.new').existsSync(), isFalse);
+    });
+
     test('חילוץ שמפיק קובץ ריק נדחה עם ההודעה מ-otzaria_l10n', () async {
       if (bindings == null) {
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');

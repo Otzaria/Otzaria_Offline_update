@@ -369,8 +369,14 @@ class LibraryUpdateApplier {
       _deleteQuietly(compressedPath);
       rethrow;
     }
-    if (!File(newFilePath).existsSync() ||
-        File(newFilePath).lengthSync() == 0) {
+    // הגודל שנכתב בפועל מושווה לזה שכותרת ה-frame הצהירה עליו. libzstd עצמו
+    // כבר תופס קלט פגום או קטוע, ולכן זו שכבת הגנה על הקובץ **כפי שהוא על
+    // הדיסק**: אנטי-וירוס שקיצר אותו, או מערכת קבצים נשלפת שדיווחה הצלחה.
+    // רק `<` נחשב כשל — ארכיון מרובה-frames מפיק יותר מהצהרת ה-frame הראשון.
+    final writtenSize =
+        File(newFilePath).existsSync() ? File(newFilePath).lengthSync() : 0;
+    if (writtenSize == 0 ||
+        (extractedSize != null && writtenSize < extractedSize)) {
       _deleteQuietly(newFilePath);
       _deleteQuietly(compressedPath);
       throw LibraryApplyException(
