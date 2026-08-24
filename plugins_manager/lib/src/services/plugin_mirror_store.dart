@@ -13,8 +13,12 @@ import '../models/store_plugin.dart';
 ///
 /// ```
 /// <mirrorDir>/plugins/catalog.json
-/// <mirrorDir>/plugins/files/<pluginId>/{image.*, screenshot-N.*, plugin.otzplugin}
+/// <mirrorDir>/plugins/files/<pluginId>/{image.*, screenshot-N.*, plugin-<version>.otzplugin}
 /// ```
+///
+/// **קובץ לכל בילד**, כי הכונן נושא עד שתי גרסאות של אוצריא ולכל אחת עשוי
+/// להתאים בילד אחר של אותו תוסף. `plugin.otzplugin` בלי גרסה הוא השם הישן
+/// ונשאר קריא — ראו `StorePlugin.fromJson`.
 ///
 /// כל הנתיבים בקטלוג נשמרים **יחסית** ל-`plugins/`, כדי שהמראה תעבוד גם
 /// כשהיא נפתחת מאות כונן אחרת.
@@ -82,10 +86,44 @@ class PluginMirrorStore {
       relativePath.isNotEmpty &&
       await File(absolutePath(relativePath)).exists();
 
-  /// האם קובץ ה-`.otzplugin` של [plugin] קיים בפועל על הדיסק.
-  Future<bool> hasLocalFile(StorePlugin plugin) async {
-    final local = plugin.localFile;
-    if (local == null) return false;
-    return File(absolutePath(local.relativePath)).exists();
+  /// האם הקובץ של בילד מסוים קיים בפועל על הדיסק.
+  Future<bool> hasFileFor(StorePlugin plugin, String? version) =>
+      hasAsset(plugin.localFileFor(version)?.relativePath);
+
+  /// שם הקובץ (בלי סיומת) של בילד מסוים בתוך תיקיית התוסף. הגרסה נכנסת
+  /// לשם כדי ששני בילדים של אותו תוסף יוכלו לשכון זה לצד זה.
+  String pluginFilePathNoExt(String pluginId, String version) =>
+      p.join(pluginDir(pluginId), 'plugin-${sanitizeVersion(version)}');
+
+  /// גרסאות תוסף הן semver ולכן בטוחות לשמות קבצים, אבל שם קובץ נבנה כאן
+  /// מנתון שמגיע מהרשת — כל מה שאינו אות/ספרה/`.`/`-`/`+` מוחלף.
+  static String sanitizeVersion(String version) =>
+      version.replaceAll(RegExp(r'[^A-Za-z0-9.+_-]'), '_');
+
+  /// מוחק קובצי בילד שכבר אינם בקטלוג — כשגרסת אוצריא שבכונן זזה, הבילד
+  /// שהתאים לקודמת אינו נחוץ עוד, וכונן נייד אינו המקום לצבור אותם.
+  /// מחזיר כמה נמחקו.
+  Future<int> pruneUnusedFiles(StorePlugin plugin) async {
+    final dir = Directory(pluginDir(plugin.id));
+    if (!await dir.exists()) return 0;
+
+    final keep = {
+      for (final file in plugin.localFiles.values)
+        p.normalize(absolutePath(file.relativePath)).toLowerCase(),
+    };
+    var removed = 0;
+    await for (final entry in dir.list()) {
+      if (entry is! File) continue;
+      final name = p.basename(entry.path).toLowerCase();
+      if (!name.startsWith('plugin')) continue;
+      if (keep.contains(p.normalize(entry.path).toLowerCase())) continue;
+      try {
+        await entry.delete();
+        removed++;
+      } catch (_) {
+        // קובץ נעול (אנטי-וירוס, העתקה שרצה) — לא סיבה להפיל סנכרון.
+      }
+    }
+    return removed;
   }
 }

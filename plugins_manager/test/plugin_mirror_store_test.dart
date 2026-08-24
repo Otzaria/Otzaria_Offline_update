@@ -22,14 +22,16 @@ void main() {
         {'id': id, 'name': name, 'version': '1.0.0'},
         'https://otzaria.org',
       ).copyWith(
-        localFile: relativePath == null
-            ? null
-            : PluginLocalFile(
-                relativePath: relativePath,
-                fileName: 'plugin.otzplugin',
-                ext: '.otzplugin',
-                size: 1,
-              ),
+        localFiles: relativePath == null
+            ? const {}
+            : {
+                '1.0.0': PluginLocalFile(
+                  relativePath: relativePath,
+                  fileName: 'plugin.otzplugin',
+                  ext: '.otzplugin',
+                  size: 1,
+                ),
+              },
       );
 
   group('נתיבים', () {
@@ -153,20 +155,21 @@ void main() {
     });
   });
 
-  group('hasLocalFile', () {
-    test('רשומה בלי localFile אינה קובץ קיים', () async {
-      expect(await store.hasLocalFile(plugin('abc')), isFalse);
+  group('hasFileFor', () {
+    test('רשומה בלי קובץ אינה קובץ קיים', () async {
+      expect(await store.hasFileFor(plugin('abc'), '1.0.0'), isFalse);
     });
 
     test('מבדיל בין רשומה בקטלוג לקובץ שקיים בפועל', () async {
       final entry = plugin('abc', relativePath: 'files/abc/plugin.otzplugin');
-      expect(await store.hasLocalFile(entry), isFalse);
+      expect(await store.hasFileFor(entry, '1.0.0'), isFalse);
 
-      final file = File(store.absolutePath(entry.localFile!.relativePath));
+      final file =
+          File(store.absolutePath(entry.localFileFor('1.0.0')!.relativePath));
       file.parent.createSync(recursive: true);
       file.writeAsBytesSync(pluginBytes('{"id":"real"}'));
 
-      expect(await store.hasLocalFile(entry), isTrue);
+      expect(await store.hasFileFor(entry, '1.0.0'), isTrue);
     });
 
     test('קובץ תחת תיקייה בעברית נמצא', () async {
@@ -174,11 +177,12 @@ void main() {
         'מפרשים',
         relativePath: 'files/מפרשים/plugin.otzplugin',
       );
-      final file = File(store.absolutePath(entry.localFile!.relativePath));
+      final file =
+          File(store.absolutePath(entry.localFileFor('1.0.0')!.relativePath));
       file.parent.createSync(recursive: true);
       file.writeAsBytesSync(pluginBytes('{"id":"real"}'));
 
-      expect(await store.hasLocalFile(entry), isTrue);
+      expect(await store.hasFileFor(entry, '1.0.0'), isTrue);
     });
   });
 }

@@ -189,6 +189,7 @@ class PluginDetailView extends StatelessWidget {
   Widget _heroDetails(BuildContext context) {
     final theme = Theme.of(context);
     final t = context.strings.plugins;
+    final target = controller.targetOf(plugin);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -208,10 +209,13 @@ class PluginDetailView extends StatelessWidget {
           runSpacing: AppTokens.spaceXS,
           children: [
             PluginBadge(
-              label: pluginStatusLabel(plugin.status),
+              label: pluginStatusLabel(target?.status ?? plugin.status),
               emphasized: true,
             ),
-            PluginBadge(label: t.pluginVersionBadge(plugin.version)),
+            // הגרסה שתותקן כאן — ראו הודעת התאימות מתחת לכפתורים.
+            PluginBadge(
+              label: t.pluginVersionBadge(controller.versionOf(plugin)),
+            ),
             PluginBadge(
               label: t.downloadsBadge(plugin.downloadCount),
               icon: FluentIcons.arrow_download_24_regular,
@@ -246,18 +250,18 @@ class PluginDetailView extends StatelessWidget {
           spacing: AppTokens.spaceSM,
           runSpacing: AppTokens.spaceSM,
           children: [
-            if (plugin.supportsDirectInstall)
+            if (target?.supportsDirectInstall ?? plugin.supportsDirectInstall)
               ActionButton.recommended(
                 text: t.directInstallButton,
                 icon: FluentIcons.arrow_download_24_regular,
                 isLoading: busy,
-                onPressed: onInstall,
+                onPressed: target == null ? null : onInstall,
               ),
             ActionButton.neutral(
               text: t.saveButton,
               icon: FluentIcons.save_24_regular,
               isLoading: busy,
-              onPressed: plugin.localFile == null ? null : onSave,
+              onPressed: controller.hasFileFor(plugin) ? onSave : null,
             ),
             if (plugin.homepage.isNotEmpty)
               ActionButton.ghost(
@@ -271,8 +275,19 @@ class PluginDetailView extends StatelessWidget {
     );
   }
 
+  /// טווח התאימות של הבילד שנבחר; בלי בילד תואם — של התוסף בכללותו.
+  String _compatibilityValue(BuildContext context, PluginVersionEntry? target) {
+    final t = context.strings.plugins;
+    final from = target?.compatibleWith ?? plugin.compatibleWith;
+    final to = target?.maxAppVersion ?? plugin.maxAppVersion;
+    if (from.isEmpty) return t.valueUnspecifiedFeminine;
+    return to == null ? from : t.compatibilityRange(from, to);
+  }
+
   Widget _infoPanel(BuildContext context) {
-    final localFile = plugin.localFile;
+    // כל השדות התלויי-גרסה מתארים את הבילד שיותקן כאן, לא את החי באתר.
+    final target = controller.targetOf(plugin);
+    final localFile = plugin.localFileFor(target?.version);
     final t = context.strings.plugins;
 
     return _panel(
@@ -283,14 +298,14 @@ class PluginDetailView extends StatelessWidget {
           final cells = <({String label, String value, bool wide})>[
             (
               label: t.infoVersion,
-              value: plugin.version.isEmpty
+              value: controller.versionOf(plugin).isEmpty
                   ? t.valueUnspecifiedFeminine
-                  : plugin.version,
+                  : controller.versionOf(plugin),
               wide: false,
             ),
             (
               label: t.infoStatus,
-              value: pluginStatusLabel(plugin.status),
+              value: pluginStatusLabel(target?.status ?? plugin.status),
               wide: false,
             ),
             (
@@ -311,21 +326,14 @@ class PluginDetailView extends StatelessWidget {
             ),
             (
               label: t.infoNetwork,
-              value: plugin.requiresNetwork
+              value: (target?.requiresNetwork ?? plugin.requiresNetwork)
                   ? t.infoNetworkRequired
                   : t.infoNetworkNotRequired,
               wide: false,
             ),
             (
               label: t.infoCompatibility,
-              value: plugin.compatibleWith.isEmpty
-                  ? t.valueUnspecifiedFeminine
-                  : plugin.maxAppVersion == null
-                      ? plugin.compatibleWith
-                      : t.compatibilityRange(
-                          plugin.compatibleWith,
-                          plugin.maxAppVersion!,
-                        ),
+              value: _compatibilityValue(context, target),
               wide: true,
             ),
             (

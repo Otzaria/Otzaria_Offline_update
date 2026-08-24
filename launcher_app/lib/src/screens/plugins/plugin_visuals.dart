@@ -215,6 +215,12 @@ class PluginInstallChip extends StatelessWidget {
               ? t.installChipUpdateAvailable
               : t.installChipUpdateFrom(installedVersion!),
         ),
+      // זה כן צריך שבב: בלעדיו התוסף נראה זמין, וההתקנה הייתה נכשלת
+      // בלי הסבר — או גרוע מכך, מתקינה משהו שלא עולה.
+      PluginInstallStatus.incompatible => StatusChip(
+          kind: StatusKind.needsAction,
+          label: t.installChipIncompatible,
+        ),
       // "לא מותקן" ו-"טרם נבדק" אינם צריכים שבב — היעדר השבב הוא המצב
       // הרגיל בחנות, וכל תוסף שהיה מקבל אותו רק היה מוסיף רעש.
       PluginInstallStatus.notInstalled ||

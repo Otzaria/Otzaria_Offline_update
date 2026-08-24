@@ -2,11 +2,11 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
-import 'package:path/path.dart' as p;
 
 import 'models/plugin_catalog.dart';
 import 'models/plugin_sync_outcome.dart';
 import 'models/plugin_sync_progress.dart';
+import 'models/plugin_version_entry.dart';
 import 'models/plugins_online_status.dart';
 import 'models/store_plugin.dart';
 import 'services/installed_plugins_scanner.dart';
@@ -103,20 +103,33 @@ class PluginsManager {
 
   /// מסנכרן את הקטלוג והקבצים מהאתר אל המראה. דורש אינטרנט. מוריד **רק**
   /// את מה שחסר או השתנה — ראו [PluginSyncOutcome].
+  ///
+  /// [appVersions] הן גרסאות אוצריא שהכונן נושא; לכל אחת יורד בילד התוסף
+  /// שתואם לה. ראו `plugin_compatibility.dart`.
   Future<PluginSyncOutcome> sync({
+    List<String> appVersions = const [],
     void Function(PluginSyncProgress progress)? onProgress,
     bool Function()? isCancelled,
   }) async {
     final store = await _store();
     final sync = PluginMirrorSync(client: _client, store: store);
-    return sync.sync(onProgress: onProgress, isCancelled: isCancelled);
+    return sync.sync(
+      appVersions: appVersions,
+      onProgress: onProgress,
+      isCancelled: isCancelled,
+    );
   }
 
   /// בודק ברשת אם יש בחנות תוסף חדש או גרסה חדשה — **בקשה קלה אחת**, בלי
   /// להוריד קובץ ובלי לגעת במראה. זורק כמו [sync] כשאין רשת; המתקשר הוא
   /// שמחליט שזה מצב תקין.
-  Future<PluginsOnlineStatus> peekOnlineUpdates() async =>
-      PluginOnlinePeek(client: _client, store: await _store()).peek();
+  ///
+  /// [appVersions] חייבות להיות אותן גרסאות ש-[sync] יקבל.
+  Future<PluginsOnlineStatus> peekOnlineUpdates({
+    List<String> appVersions = const [],
+  }) async =>
+      PluginOnlinePeek(client: _client, store: await _store())
+          .peek(appVersions: appVersions);
 
   /// נתיב מוחלט לנכס שנשמר בקטלוג כנתיב יחסי, או null אם אין נכס.
   Future<String?> assetPath(String? relativePath) async {
@@ -128,12 +141,14 @@ class PluginsManager {
   /// בשכבת ה-UI (file picker), כי היא תלוית-Flutter.
   Future<PluginInstallResult> saveCopy(
     StorePlugin plugin,
-    String destPath,
-  ) async {
+    String destPath, {
+    String? appVersion,
+  }) async {
     final store = await _store();
-    final local = plugin.localFile;
+    final local =
+        plugin.localFileFor(plugin.installTarget(appVersion)?.version);
     final strings = AppL10n.strings.pluginsDomain;
-    if (local == null || !await store.hasLocalFile(plugin)) {
+    if (local == null || !await store.hasAsset(local.relativePath)) {
       return PluginInstallResult.failure(strings.fileNotAvailableSyncFirst);
     }
 
@@ -146,9 +161,12 @@ class PluginsManager {
   }
 
   /// שם הקובץ המוצע לשמירה, לפי מה שהאתר החזיר ב-`Content-Disposition`.
-  String suggestedFileName(StorePlugin plugin) =>
-      plugin.localFile?.fileName ??
-      '${plugin.name}${plugin.localFile?.ext ?? '.otzplugin'}';
+  String suggestedFileName(StorePlugin plugin, {String? appVersion}) {
+    final local =
+        plugin.localFileFor(plugin.installTarget(appVersion)?.version) ??
+            plugin.anyLocalFile;
+    return local?.fileName ?? '${plugin.name}${local?.ext ?? '.otzplugin'}';
+  }
 
   /// מתקין את התוסף באוצריא דרך `otzaria://plugin/install-local` — ישירות
   /// אל ההתקנה ש-[otzariaLaunchPath] מצביע עליה, כשהיא ידועה.
@@ -156,50 +174,61 @@ class PluginsManager {
   /// אם קובץ התוסף חסר מהמראה (למשל הסנכרון דילג עליו) הוא מורד עכשיו —
   /// וזה הצעד היחיד כאן שדורש אינטרנט. כשהקובץ כבר במראה, ההתקנה עובדת
   /// בלי רשת בכלל.
-  Future<PluginInstallResult> directInstall(StorePlugin plugin) async {
+  ///
+  /// [appVersion] היא גרסת אוצריא שבמחשב הזה — היא שקובעת **איזה בילד**
+  /// מותקן. `null` = לא ידוע, ואז נבחר הבילד החי כמו קודם.
+  Future<PluginInstallResult> directInstall(
+    StorePlugin plugin, {
+    String? appVersion,
+  }) async {
     final store = await _store();
-    var target = plugin;
+    final strings = AppL10n.strings.pluginsDomain;
 
-    if (!await store.hasLocalFile(target)) {
-      final fetched = await _fetchMissingFile(store, target);
-      if (fetched == null) {
-        return PluginInstallResult.failure(
-          AppL10n.strings.pluginsDomain.pluginFileNotAvailable,
-        );
+    final target = plugin.installTarget(appVersion);
+    if (target == null) {
+      return PluginInstallResult.failure(strings.noCompatibleBuild);
+    }
+
+    var local = plugin.localFileFor(target.version);
+    if (local == null || !await store.hasAsset(local.relativePath)) {
+      local = await _fetchMissingFile(store, plugin, target);
+      if (local == null) {
+        return PluginInstallResult.failure(strings.pluginFileNotAvailable);
       }
-      target = fetched;
     }
 
     return PluginDirectInstaller.install(
-      store.absolutePath(target.localFile!.relativePath),
+      store.absolutePath(local.relativePath),
       otzariaLaunchPath: await otzariaLaunchPath?.call(),
     );
   }
 
-  /// מוריד קובץ תוסף חסר ומעדכן את הקטלוג. מחזיר null אם לא הצליח.
-  Future<StorePlugin?> _fetchMissingFile(
+  /// מוריד בילד חסר ומעדכן את הקטלוג. מחזיר null אם לא הצליח.
+  Future<PluginLocalFile?> _fetchMissingFile(
     PluginMirrorStore store,
     StorePlugin plugin,
+    PluginVersionEntry target,
   ) async {
-    if (plugin.remoteDownloadUrl.isEmpty) return null;
+    if (target.downloadUrl.isEmpty) return null;
 
     try {
-      final dir = store.pluginDir(plugin.id);
-      await Directory(dir).create(recursive: true);
+      await Directory(store.pluginDir(plugin.id)).create(recursive: true);
       final asset = await _client.downloadAsset(
-        plugin.remoteDownloadUrl,
-        p.join(dir, 'plugin'),
+        target.downloadUrl,
+        store.pluginFilePathNoExt(plugin.id, target.version),
         preferredExt: '.otzplugin',
       );
 
+      final file = PluginLocalFile(
+        relativePath: store.relativePath(asset.path),
+        fileName: asset.originalName ?? '${plugin.name}${asset.ext}',
+        ext: asset.ext,
+        size: asset.size,
+      );
       final updated = plugin.copyWith(
-        localFile: PluginLocalFile(
-          relativePath: store.relativePath(asset.path),
-          fileName: asset.originalName ?? '${plugin.name}${asset.ext}',
-          ext: asset.ext,
-          size: asset.size,
-        ),
-        manifestId: PluginManifestReader.readId(asset.path),
+        localFiles: {...plugin.localFiles, target.version: file},
+        manifestId:
+            plugin.manifestId ?? PluginManifestReader.readId(asset.path),
       );
 
       // הקטגוריות וטקסטי דף הבית **חייבים** לנסוע איתם: בלעדיהם השמירה הזו
@@ -214,7 +243,7 @@ class PluginsManager {
         categories: catalog.categories,
         home: catalog.home,
       ));
-      return updated;
+      return file;
     } catch (_) {
       return null;
     }

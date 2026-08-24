@@ -162,6 +162,17 @@ class _AppShellState extends State<AppShell> {
       // אותו נתיב התקנה שמודול הספרייה מקבל: התקנה ניידת מחזיקה גם את
       // התוספים לידה, ואליה גם נמסרת ההתקנה הישירה של תוסף.
       otzariaLaunchPath: () async => _otzaria.launchPath,
+      // ההורדה מביאה בילד תוסף לכל גרסת אוצריא שהכונן נושא — שתיהן, בדיוק
+      // כמו מראת התוכנה עצמה. נקרא **בזמן** הסנכרון, שרץ אחרי הורדת
+      // התוכנה, ולכן משקף גם גרסה שזה עתה ירדה.
+      mirroredAppVersions: () async => [
+        if (_otzaria.stableVersion != null) _otzaria.stableVersion!,
+        if (_otzaria.prereleaseVersion != null) _otzaria.prereleaseVersion!,
+      ],
+      // ומה שמותקן כאן בפועל הוא שקובע איזה בילד מוצג ומותקן. כשאין
+      // התקנה — הגרסה שעומדת להיות מותקנת מהכונן.
+      installedAppVersion: () async =>
+          _otzaria.currentVersion ?? _otzaria.latestVersion,
     )..addListener(_onChange);
     _customApps = CustomAppsController(
       mirrorRootDir: p.join(widget.dataDir, 'mirror'),

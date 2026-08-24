@@ -8,6 +8,7 @@ class PluginSyncOutcome {
     required this.fetched,
     required this.skipped,
     this.failed = const [],
+    this.incompatible = const [],
   });
 
   final PluginCatalog catalog;
@@ -21,6 +22,12 @@ class PluginSyncOutcome {
   /// שמות התוספים שקובץ ההתקנה שלהם התבקש ולא ירד. המראה עדיין חסרה
   /// אותם, ולכן בדיקת הרשת הבאה תדווח עליהם שוב — וזה נכון.
   final List<String> failed;
+
+  /// תוספים שאין להם אף בילד שירוץ על גרסת אוצריא שהכונן נושא, ולכן לא
+  /// ירד להם קובץ. **לא כשל** ולא מוצג למשתמש — נכתב ליומן בלבד, כדי
+  /// שיהיה אפשר לענות על "למה התוסף הזה לא בכונן".
+  /// כל פריט הוא `שם התוסף (דורש X)`.
+  final List<String> incompatible;
 
   bool get hasFailures => failed.isNotEmpty;
 }

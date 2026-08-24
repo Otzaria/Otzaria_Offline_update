@@ -24,7 +24,7 @@ void main() {
         'https://otzaria.org',
       );
 
-      expect(notDownloaded.localFile, isNull);
+      expect(notDownloaded.localFiles, isEmpty);
       expect(notDownloaded.manifestId, isNull);
       expect(
         notDownloaded.statusAgainst({'a': '1.0.0'}),
@@ -248,12 +248,14 @@ void main() {
               .copyWith(
             imagePath: 'files/abc/image.png',
             screenshotPaths: ['files/abc/screenshot-0.png'],
-            localFile: const PluginLocalFile(
-              relativePath: 'files/abc/plugin.otzplugin',
-              fileName: 'tosef.otzplugin',
-              ext: '.otzplugin',
-              size: 1234,
-            ),
+            localFiles: const {
+              '1.2.3': PluginLocalFile(
+                relativePath: 'files/abc/plugin-1.2.3.otzplugin',
+                fileName: 'tosef.otzplugin',
+                ext: '.otzplugin',
+                size: 1234,
+              ),
+            },
             manifestId: 'real-abc',
             categorySlugs: ['study-tools'],
           ),
@@ -295,8 +297,8 @@ void main() {
       expect(plugin.downloadCount, 42);
       expect(plugin.imagePath, 'files/abc/image.png');
       expect(plugin.screenshotPaths, ['files/abc/screenshot-0.png']);
-      expect(plugin.localFile?.fileName, 'tosef.otzplugin');
-      expect(plugin.localFile?.size, 1234);
+      expect(plugin.localFileFor('1.2.3')?.fileName, 'tosef.otzplugin');
+      expect(plugin.localFileFor('1.2.3')?.size, 1234);
       expect(plugin.manifestId, 'real-abc');
       expect(
         plugin.remoteDownloadUrl,

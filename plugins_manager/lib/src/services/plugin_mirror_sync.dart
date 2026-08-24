@@ -8,6 +8,7 @@ import '../models/plugin_store_category.dart';
 import '../models/plugin_store_home.dart';
 import '../models/plugin_sync_outcome.dart';
 import '../models/plugin_sync_progress.dart';
+import '../models/plugin_version_entry.dart';
 import '../models/store_plugin.dart';
 import 'download_pool.dart';
 import 'plugin_manifest_reader.dart';
@@ -42,7 +43,13 @@ class PluginMirrorSync {
   /// משהו נכנס ללולאה. תוסף שכבר מעודכן אינו נוגע ברשת, אינו מדווח
   /// התקדמות, ואינו נספר במונה — כך "3 מתוך 3" הוא באמת מה שיורד עכשיו,
   /// ולא "3 מתוך 40" שרובם רק נבדקים.
+  ///
+  /// [appVersions] הן גרסאות אוצריא שהכונן נושא (היציבה, ואיתה הלא-יציבה
+  /// כשהיא חדשה ממנה). לכל אחת יורד הבילד שתואם לה — ראו
+  /// `plugin_compatibility.dart`. רשימה ריקה = אין מול מה לסנן, ואז יורד
+  /// הבילד החי, כמו לפני שהתאימות נכנסה.
   Future<PluginSyncOutcome> sync({
+    List<String> appVersions = const [],
     void Function(PluginSyncProgress progress)? onProgress,
     bool Function()? isCancelled,
   }) async {
@@ -69,7 +76,7 @@ class PluginMirrorSync {
     };
 
     final plans = [
-      for (final raw in remote) await _plan(raw, existing),
+      for (final raw in remote) await _plan(raw, existing, appVersions),
     ];
     final todo = [
       for (final plan in plans)
@@ -101,11 +108,11 @@ class PluginMirrorSync {
 
             await Directory(store.pluginDir(plugin.id)).create(recursive: true);
             plugin = await _syncImages(plan, plugin, report);
-            final file = await _syncPluginFile(plan, plugin, report);
-            plugin = file.plugin;
+            final files = await _syncPluginFiles(plan, plugin, report);
+            plugin = files.plugin;
 
             fetched[plugin.id] = plugin;
-            if (!file.ok) failed.add(plugin.name);
+            if (!files.ok) failed.add(plugin.name);
           },
       ],
       maxConcurrent: maxConcurrentPlugins,
@@ -145,6 +152,15 @@ class PluginMirrorSync {
     );
     await store.save(catalog);
 
+    // בילד שכבר אינו בקטלוג (גרסת אוצריא שבכונן זזה) נמחק מהדיסק — אחרת
+    // כל עדכון של אוצריא היה מוסיף שכבת בילדים ישנים על הכונן הנייד.
+    // **לא בביטול**: שם הקטלוג הוא הישן, והניקוי היה מוחק את מה שכן ירד.
+    if (!cancelled) {
+      for (final plugin in catalog.plugins) {
+        await store.pruneUnusedFiles(plugin);
+      }
+    }
+
     final skipped = plans.length - done;
     report(PluginSyncProgress(
       phase: PluginSyncPhase.done,
@@ -157,6 +173,12 @@ class PluginMirrorSync {
       fetched: done,
       skipped: skipped,
       failed: failed,
+      // ליומן בלבד — ראו [PluginSyncOutcome.incompatible].
+      incompatible: [
+        for (final plan in plans)
+          if (plan.isIncompatible)
+            '${plan.plugin.name} (${plan.plugin.lowestSupportedApp ?? '?'})',
+      ],
     );
   }
 
@@ -165,17 +187,33 @@ class PluginMirrorSync {
   Future<_PluginPlan> _plan(
     Map<String, dynamic> raw,
     Map<String, StorePlugin> existing,
+    List<String> appVersions,
   ) async {
     final remote = StorePlugin.fromApi(raw, client.baseUrl);
     final previous = existing[remote.id];
 
     // שומרים על מה שכבר יש מקומית, ומעדכנים רק את מה שבאמת ירד עכשיו.
-    final plugin = remote.copyWith(
+    var plugin = remote.copyWith(
       imagePath: previous?.imagePath,
       screenshotPaths: previous?.screenshotPaths ?? const [],
-      localFile: previous?.localFile,
+      localFiles: previous?.localFiles,
       manifestId: previous?.manifestId,
     );
+
+    // בילד לכל גרסת אוצריא שהכונן נושא. בילד שכבר במראה נשמר, וזה שאינו
+    // מבוקש עוד נושר מהקטלוג — הקובץ שלו נמחק בסוף הסנכרון.
+    final keep = <String, PluginLocalFile>{};
+    final missing = <PluginVersionEntry>[];
+    final targets = plugin.targetsFor(appVersions);
+    for (final target in targets) {
+      if (target.downloadUrl.isEmpty) continue;
+      if (await _buildUnchanged(target, plugin, previous)) {
+        keep[target.version] = plugin.localFileFor(target.version)!;
+      } else {
+        missing.add(target);
+      }
+    }
+    plugin = plugin.copyWith(localFiles: keep);
 
     return _PluginPlan(
       plugin: plugin,
@@ -184,12 +222,12 @@ class PluginMirrorSync {
           !await _imageUnchanged(plugin, previous),
       needsScreenshots: plugin.remoteScreenshotUrls.isNotEmpty &&
           !await _screenshotsUnchanged(plugin, previous),
-      needsFile: plugin.remoteDownloadUrl.isNotEmpty &&
-          !await _fileUnchanged(plugin, previous),
+      missingBuilds: missing,
+      // אין אף בילד תואם — לא כשל, אבל כן דבר שכדאי שיהיה ביומן.
+      isIncompatible: targets.isEmpty && plugin.remoteDownloadUrl.isNotEmpty,
       // תוסף שסונכרן לפני שה-manifestId נכנס לקטלוג — מחלצים אותו מהקובץ
       // הקיים בלי להוריד מחדש. קריאת ZIP מקומית, לא רשת.
-      needsManifestId:
-          plugin.manifestId == null && await store.hasLocalFile(plugin),
+      needsManifestId: plugin.manifestId == null && keep.isNotEmpty,
     );
   }
 
@@ -384,32 +422,33 @@ class PluginMirrorSync {
     return true;
   }
 
-  /// אותה גרסה, אותה כתובת, והקובץ עדיין על הדיסק — ראו [_sameSource].
-  Future<bool> _fileUnchanged(
+  /// הבילד הזה כבר במראה: קובץ רשום לגרסה שלו, הקובץ עדיין על הדיסק,
+  /// והכתובת שממנה הוא ירד לא השתנתה מתחתיו — ראו [_sameSource].
+  Future<bool> _buildUnchanged(
+    PluginVersionEntry target,
     StorePlugin plugin,
     StorePlugin? previous,
-  ) async =>
-      previous != null &&
-      _sameSource(previous.remoteDownloadUrl, plugin.remoteDownloadUrl) &&
-      previous.version == plugin.version &&
-      previous.localFile != null &&
-      await store.hasLocalFile(previous);
+  ) async {
+    if (!await store.hasFileFor(plugin, target.version)) return false;
+    final known = previous?.versionEntries
+        .where((entry) => entry.version == target.version)
+        .firstOrNull;
+    return known == null || _sameSource(known.downloadUrl, target.downloadUrl);
+  }
 
-  /// קובץ התוסף עצמו עלול להיות גדול — יורד רק כשהתכנון סימן שהוא חסר או
-  /// השתנה. `ok: false` = התכנון ביקש להוריד וההורדה נכשלה; המתקשר סופר.
-  Future<({StorePlugin plugin, bool ok})> _syncPluginFile(
+  /// מוריד את הבילדים שהתכנון סימן — אחד לכל גרסת אוצריא שהכונן נושא
+  /// ושהבילד שלה עוד לא במראה. `ok: false` = לפחות אחד מהם נכשל.
+  Future<({StorePlugin plugin, bool ok})> _syncPluginFiles(
     _PluginPlan plan,
     StorePlugin plugin,
     void Function(PluginSyncProgress) report,
   ) async {
-    final previous = plan.previous;
-
-    if (!plan.needsFile) {
-      // קטלוג ישן בלי manifestId — מחלצים מהקובץ שכבר במראה, בלי רשת.
-      if (plan.needsManifestId && plugin.localFile != null) {
-        final id = PluginManifestReader.readId(
-          store.absolutePath(plugin.localFile!.relativePath),
-        );
+    if (plan.missingBuilds.isEmpty) {
+      // קטלוג ישן בלי manifestId — מחלצים מקובץ שכבר במראה, בלי רשת.
+      final known = plugin.anyLocalFile;
+      if (plan.needsManifestId && known != null) {
+        final id =
+            PluginManifestReader.readId(store.absolutePath(known.relativePath));
         if (id != null) {
           return (plugin: plugin.copyWith(manifestId: id), ok: true);
         }
@@ -417,38 +456,51 @@ class PluginMirrorSync {
       return (plugin: plugin, ok: true);
     }
 
-    try {
-      final asset = await client.downloadAsset(
-        plugin.remoteDownloadUrl,
-        p.join(store.pluginDir(plugin.id), 'plugin'),
-        preferredExt: '.otzplugin',
-      );
-      return (
-        plugin: plugin.copyWith(
-          localFile: PluginLocalFile(
-            relativePath: store.relativePath(asset.path),
-            fileName: asset.originalName ?? '${plugin.name}${asset.ext}',
-            ext: asset.ext,
-            size: asset.size,
-          ),
-          manifestId: PluginManifestReader.readId(asset.path),
-        ),
-        ok: true,
-      );
-    } catch (e) {
-      report(PluginSyncProgress(
-        phase: PluginSyncPhase.warning,
-        message: AppL10n.strings.pluginsDomain.syncPluginFileFailed(
-            plugin.name, PluginStoreClient.describeError(e)),
-      ));
-      // הקובץ שבמראה הוא עדיין הישן — הקטלוג חייב לומר את גרסתו. אחרת
-      // התכנון היה מדלג עליו בסנכרון הבא, הקובץ החדש לא יירד לעולם,
-      // וההתקנה תגיש בשקט את הישן תחת מספר הגרסה החדש.
-      if (previous?.localFile != null && await store.hasLocalFile(previous!)) {
-        return (plugin: plugin.copyWith(version: previous.version), ok: false);
+    final files = Map.of(plugin.localFiles);
+    var manifestId = plugin.manifestId;
+    var ok = true;
+
+    for (final target in plan.missingBuilds) {
+      try {
+        final asset = await client.downloadAsset(
+          target.downloadUrl,
+          store.pluginFilePathNoExt(plugin.id, target.version),
+          preferredExt: '.otzplugin',
+        );
+        files[target.version] = PluginLocalFile(
+          relativePath: store.relativePath(asset.path),
+          fileName: asset.originalName ?? '${plugin.name}${asset.ext}',
+          ext: asset.ext,
+          size: asset.size,
+        );
+        manifestId ??= PluginManifestReader.readId(asset.path);
+      } catch (e) {
+        ok = false;
+        report(PluginSyncProgress(
+          phase: PluginSyncPhase.warning,
+          message: AppL10n.strings.pluginsDomain.syncPluginFileFailed(
+              plugin.name, PluginStoreClient.describeError(e)),
+        ));
       }
-      return (plugin: plugin, ok: false);
     }
+
+    // בילד שנכשל אינו נרשם, ולכן הסנכרון הבא ינסה אותו שוב. אבל אז גם אין
+    // מה להתקין — ולכן בילד ישן שכבר יושב במראה נשאר בקטלוג במקום להימחק
+    // ב-[PluginMirrorStore.pruneUnusedFiles]. עדיף בילד ישן שרץ מכלום.
+    final previous = plan.previous;
+    if (!ok && previous != null) {
+      for (final entry in previous.localFiles.entries) {
+        if (files.containsKey(entry.key)) continue;
+        if (await store.hasAsset(entry.value.relativePath)) {
+          files[entry.key] = entry.value;
+        }
+      }
+    }
+
+    return (
+      plugin: plugin.copyWith(localFiles: files, manifestId: manifestId),
+      ok: ok,
+    );
   }
 }
 
@@ -460,24 +512,36 @@ class _PluginPlan {
     required this.previous,
     required this.needsImage,
     required this.needsScreenshots,
-    required this.needsFile,
+    required this.missingBuilds,
+    required this.isIncompatible,
     required this.needsManifestId,
   });
 
-  /// הרשומה המרוחקת אחרי מיזוג הנתיבים המקומיים שכבר במראה.
+  /// הרשומה המרוחקת אחרי מיזוג הנתיבים המקומיים שכבר במראה. ה-[localFiles]
+  /// שלה מכילים כבר רק את הבילדים המבוקשים שנמצאו על הדיסק.
   final StorePlugin plugin;
   final StorePlugin? previous;
 
   final bool needsImage;
   final bool needsScreenshots;
-  final bool needsFile;
+
+  /// הבילדים שצריכים לרדת — אחד לכל גרסת אוצריא שהכונן נושא ושהבילד
+  /// המתאים לה אינו במראה.
+  final List<PluginVersionEntry> missingBuilds;
+
+  /// אין אף בילד שירוץ על גרסת אוצריא שהכונן נושא — אין מה להוריד, וזה
+  /// אינו כשל. ראו [PluginSyncOutcome.incompatible].
+  final bool isIncompatible;
 
   /// חילוץ `manifestId` מקובץ שכבר במראה — עבודה מקומית, בלי רשת, אבל
   /// כן סיבה לא לדלג על התוסף לגמרי.
   final bool needsManifestId;
 
   bool get hasWork =>
-      needsImage || needsScreenshots || needsFile || needsManifestId;
+      needsImage ||
+      needsScreenshots ||
+      missingBuilds.isNotEmpty ||
+      needsManifestId;
 }
 
 /// תוצאת סנכרון המבנה — הקטגוריות והטקסטים, ומהן נגזרת גם השיוך ההפוך

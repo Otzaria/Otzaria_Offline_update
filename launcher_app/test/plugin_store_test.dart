@@ -66,14 +66,16 @@ StorePlugin storePlugin(
     imagePath: imagePath,
     screenshotPaths: screenshots,
     categorySlugs: categories,
-    localFile: withLocalFile
-        ? PluginLocalFile(
-            relativePath: 'files/$id/$id.otzplugin',
-            fileName: '$id.otzplugin',
-            ext: 'otzplugin',
-            size: 2048,
-          )
-        : null,
+    localFiles: withLocalFile
+        ? {
+            version: PluginLocalFile(
+              relativePath: 'files/$id/$id.otzplugin',
+              fileName: '$id.otzplugin',
+              ext: 'otzplugin',
+              size: 2048,
+            ),
+          }
+        : const {},
   );
 }
 

@@ -90,7 +90,9 @@ with what a real `sync()` would download (see `plugins_manager/README.md`).
 file exists — a deleted `.otzplugin`, a half-copied drive or a failed download
 all leave a complete-looking record behind, and the metadata-only version of
 this check answered "everything is up to date" for a folder that was missing
-plugins.
+plugins. **And it takes the same `appVersions`** the sync takes: a build the
+drive's Otzaria cannot run is not an update, and announcing it would send the
+user to a download that brings nothing.
 
 `AppPaths.resolve()` (in `launcher_app`) puts the data folder at
 `<dir of the executable>/OtzariaData`, and there is **no setting to change it** —
@@ -131,7 +133,7 @@ Layout under `OtzariaData/`:
 mirror/library/   releases.json + assets/   ← LibraryManager.mirrorDir
 mirror/companions/ companions.json + the Talmud archive, catalog and dictionary  ← LibraryManager.companionsMirrorDir
 mirror/app/       latest-release.json (up to 2 channels) + installers/<tag>/  ← OtzariaAppMirror
-mirror/plugins/   catalog.json + files/     ← PluginMirrorStore
+mirror/plugins/   catalog.json + files/<id>/plugin-<version>.otzplugin  ← PluginMirrorStore
 mirror/launcher/  latest-release.json + files/<tag>/  ← LauncherUpdateMirror (the launcher itself)
 otzaria-app/      **legacy** — Otzaria installs made before the install target was fixed
 ```
@@ -756,6 +758,46 @@ as never installed and the "only what is not installed" toggle does not hide
 it. `current` still wins when both exist (it is the old layout's explicit
 pointer); among several `.release-` dirs the most recently written one is the
 active one.
+
+**The mirror carries the plugin build that will *run*, not the newest one
+published.** Every plugin build on the site declares a compatibility range —
+`compatibleWith` (minimum Otzaria version) and `maxAppVersion` — and
+`/api/plugins` returns the whole `versions[]` history with the range and a
+per-build `downloadUrl`. `plugins_manager/lib/src/services/plugin_compatibility.dart`
+is a 1:1 port of the website's `src/lib/pluginCompatibility.js`: pick the
+**highest build whose range contains the app version**. Before this, the sync
+always fetched the live build, so an offline machine got plugins that would not
+load — not a corner case: when this was written, 8 of the 37 plugins on the site
+required an Otzaria newer than the latest stable release.
+
+Four things hold it together, and the AGENTS-level rules are:
+
+- **The drive's own app versions decide what is downloaded.**
+  `PluginsManager.sync(appVersions:)` gets the stable release and, when it is
+  newer, the pre-release — the same `OtzariaChannelPair` the app mirror holds —
+  plus whatever Otzaria is actually installed here, and fetches a build for
+  each. The launcher passes them from `OtzariaModuleController` (`app_shell.dart`).
+  An **empty** list means "nothing to filter against" and falls back to the live
+  build, which is what a drive with no app mirror gets.
+- **One file per build**, `files/<pluginId>/plugin-<version>.otzplugin`, and
+  `StorePlugin.localFiles` is a `version -> file` map. A build no longer targeted
+  is deleted (`PluginMirrorStore.pruneUnusedFiles`) so a flash drive does not
+  accumulate a layer per Otzaria update — but **never on a cancelled sync**,
+  where the catalog is still the old one and the cleanup would delete what did
+  come down. A failed download keeps the older build in the catalog: an old build
+  that runs beats nothing.
+- **`versions[]` is stored in `catalog.json`.** The resolution has to run on the
+  offline machine, against the Otzaria installed *there* — one drive can serve
+  several machines. The site also offers `?appVersion=` which resolves
+  server-side; using it would bake one machine's answer into the mirror, so it is
+  deliberately not used.
+- **None of this is visible to the user.** No screen, no choice, no explanation —
+  the store simply shows the version number that will be installed. The single
+  exception is `PluginInstallStatus.incompatible`: with no compatible build the
+  install button is disabled, and a disabled button with no word reads as a
+  fault. Plugins skipped this way go into `PluginSyncOutcome.incompatible`, which
+  the controller writes **to the log only**, so "why is that plugin not on the
+  drive" can be answered.
 
 **A plugin sync plans before it starts, and its counter shows only real
 work.** `PluginMirrorSync._plan` decides per plugin what is missing from the

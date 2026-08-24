@@ -981,6 +981,8 @@ class _Plugins extends PluginsStrings {
   @override
   String installChipUpdateFrom(String installedVersion) =>
       'Update available (you have $installedVersion)';
+  @override
+  String get installChipIncompatible => 'Needs a newer Otzaria';
 
   @override
   String get infoPanelTitle => 'General Information';
@@ -2035,6 +2037,9 @@ class _PluginsDomain extends PluginsDomainStrings {
   @override
   String get pluginFileNotAvailable =>
       'The plugin file is not available. Run a sync first.';
+  @override
+  String get noCompatibleBuild =>
+      'This plugin has no build that runs on the Otzaria version on this machine.';
   @override
   String get localPluginFileMissing =>
       'The local plugin file is missing. Please sync again.';

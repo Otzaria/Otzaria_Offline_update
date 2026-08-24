@@ -23,6 +23,8 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   PluginsModuleController({
     required String mirrorRootDir,
     Future<String?> Function()? otzariaLaunchPath,
+    this.mirroredAppVersions,
+    this.installedAppVersion,
   })
   // תיקיית התוספים של אוצריא נגזרת מההתקנה שהלאנצ'ר זיהה ואינה ניתנת
   // להגדרה — ראו AppPaths: אין נתיבים בהגדרות.
@@ -32,6 +34,18 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
         );
 
   final PluginsManager _manager;
+
+  /// גרסאות אוצריא שהכונן נושא — היציבה, ואיתה הלא-יציבה כשהיא חדשה ממנה.
+  /// **ההורדה** מביאה בילד תוסף לכל אחת מהן, כדי שהמחשב המנותק ימצא בילד
+  /// שירוץ אצלו בכל אחד משני המקרים.
+  final Future<List<String>> Function()? mirroredAppVersions;
+
+  /// גרסת אוצריא שבמחשב **הזה**, ולפיה נבחר איזה בילד יוצג ויותקן.
+  final Future<String?> Function()? installedAppVersion;
+
+  /// התשובה האחרונה של [installedAppVersion]. `null` = לא ידוע (אוצריא לא
+  /// זוהתה), ואז אין מול מה לסנן והבילד החי הוא שנבחר.
+  String? appVersion;
 
   PluginsModuleStatus status = PluginsModuleStatus.idle;
   String? errorMessage;
@@ -112,6 +126,9 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
 
     try {
+      // לפני הקטלוג: הגרסה היא שקובעת איזה בילד כל תוסף מציג, והנגזרות
+      // למטה מחושבות מיד אחרי ההצבה של `installed`.
+      appVersion = await installedAppVersion?.call();
       final snapshot = await _manager.load();
       plugins = snapshot.catalog.plugins;
       categories = snapshot.catalog.categories;
@@ -139,7 +156,11 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
 
     try {
       final scanned = await _manager.scanInstalled();
-      if (mapEquals(installed, scanned)) return;
+      // גם הגרסה מתעדכנת כאן: היא נקראת מאותה התקנה שזה עתה זוהתה, ובלעדיה
+      // החנות הייתה ממשיכה להציג בילדים לפי גרסה שכבר לא נכונה.
+      final version = await installedAppVersion?.call();
+      if (mapEquals(installed, scanned) && version == appVersion) return;
+      appVersion = version;
       installed = scanned;
       _invalidateDerived();
       notifyListeners();
@@ -157,7 +178,11 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
 
     try {
-      onlineStatus = await _manager.peekOnlineUpdates();
+      // אותן גרסאות שהסנכרון יקבל — אחרת ההצצה מדווחת על עדכון שההורדה
+      // לא תביא, או שותקת על אחד שכן.
+      onlineStatus = await _manager.peekOnlineUpdates(
+        appVersions: await _appVersions(),
+      );
     } catch (e) {
       onlineStatus = null;
       onlineCheckError = e.toString();
@@ -182,6 +207,7 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
 
     try {
       final outcome = await _manager.sync(
+          appVersions: await _appVersions(),
           isCancelled: isCancelled,
           onProgress: (progress) {
             syncMessage = progress.message;
@@ -198,6 +224,14 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
       AppLogger.instance.info('סנכרון התוספים: ${outcome.fetched} ירדו, '
           '${outcome.skipped} דולגו, ${syncWarnings.length} אזהרות'
           '${syncWarnings.isEmpty ? '' : ':\n${syncWarnings.join('\n')}'}');
+      // ליומן בלבד: הבחירה עצמה שקופה למשתמש, אבל "למה התוסף הזה לא על
+      // הכונן" חייב להיות ניתן לענות עליו.
+      if (outcome.incompatible.isNotEmpty) {
+        AppLogger.instance.info(
+          'תוספים בלי גרסה שתואמת לאוצריא שבכונן: '
+          '${outcome.incompatible.join(', ')}',
+        );
+      }
       // המראה זה עתה נמשכה מהאתר — התשובה הישנה של הבדיקה הקלה כבר לא
       // מתארת אותה, והשארתה הייתה מציגה "יש עדכונים" אחרי שהם כבר ירדו.
       // כשקובץ תוסף לא ירד המראה עדיין חסרה אותו, ולכן התשובה נשארת — וכך
@@ -216,6 +250,18 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     }
   }
 
+  /// הגרסאות שההורדה וההצצה מסננות לפיהן: מה שיושב במראת התוכנה, ואיתן
+  /// הגרסה שמותקנת כאן בפועל — מחשב שנשאר על גרסה ישנה יותר מזו שבכונן
+  /// צריך גם הוא בילד שירוץ אצלו. רשימה ריקה = אין מול מה לסנן.
+  Future<List<String>> _appVersions() async {
+    final installedVersion = await installedAppVersion?.call();
+    final versions = <String>{
+      ...?await mirroredAppVersions?.call(),
+      if (installedVersion != null) installedVersion,
+    };
+    return versions.where((v) => v.isNotEmpty).toList(growable: false);
+  }
+
   // ── פעולות על תוסף בודד ───────────────────────────────────────────────────
 
   StorePlugin? byId(String id) {
@@ -226,14 +272,27 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   }
 
   PluginInstallStatus statusOf(StorePlugin plugin) =>
-      plugin.statusAgainst(installed);
+      plugin.statusAgainst(installed, appVersion: appVersion);
 
   /// הגרסה המותקנת של התוסף, או null אם אינו מותקן.
   String? installedVersionOf(StorePlugin plugin) =>
       plugin.manifestId == null ? null : installed[plugin.manifestId];
 
+  /// הבילד שיותקן במחשב הזה — לא בהכרח האחרון שפורסם. `null` = אין בילד
+  /// שתואם לגרסת אוצריא שכאן.
+  PluginVersionEntry? targetOf(StorePlugin plugin) =>
+      plugin.installTarget(appVersion);
+
+  /// מספר הגרסה להצגה: של הבילד שיותקן, ובחוסר — של החי בקטלוג.
+  String versionOf(StorePlugin plugin) =>
+      targetOf(plugin)?.version ?? plugin.version;
+
+  /// האם הקובץ של הבילד שיותקן בכלל ירד למראה.
+  bool hasFileFor(StorePlugin plugin) =>
+      plugin.localFileFor(targetOf(plugin)?.version) != null;
+
   String suggestedFileName(StorePlugin plugin) =>
-      _manager.suggestedFileName(plugin);
+      _manager.suggestedFileName(plugin, appVersion: appVersion);
 
   /// נתיב מוחלט לנכס (תמונה / צילום מסך) שנשמר בקטלוג כנתיב יחסי.
   String? assetPath(String? relativePath) {
@@ -245,10 +304,10 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   }
 
   Future<PluginInstallResult> saveCopy(StorePlugin plugin, String destPath) =>
-      _manager.saveCopy(plugin, destPath);
+      _manager.saveCopy(plugin, destPath, appVersion: appVersion);
 
   Future<PluginInstallResult> directInstall(StorePlugin plugin) async {
-    final result = await _manager.directInstall(plugin);
+    final result = await _manager.directInstall(plugin, appVersion: appVersion);
     if (!result.success) {
       AppLogger.instance.error(
         'התקנה ישירה של ${plugin.name} נכשלה: ${result.error}',

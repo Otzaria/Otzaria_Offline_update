@@ -556,6 +556,12 @@ abstract class PluginsStrings {
   String get installChipUpdateAvailable;
   String installChipUpdateFrom(String installedVersion);
 
+  /// אין לתוסף בילד שירוץ על גרסת אוצריא שבמחשב הזה. **המקום היחיד**
+  /// שבו בחירת הגרסה נראית למשתמש: כשאין מה להתקין, כפתור מושבת בלי מילה
+  /// היה נראה כתקלה. בכל שאר המצבים הבחירה שקופה — מוצג פשוט מספר הגרסה
+  /// שתותקן.
+  String get installChipIncompatible;
+
   String get infoPanelTitle;
   String get tagsPanelTitle;
   String get screenshotsPanelTitle;
@@ -1070,6 +1076,9 @@ abstract class PluginsDomainStrings {
   String get fileNotAvailableSyncFirst;
   String saveFailed(String error);
   String get pluginFileNotAvailable;
+
+  /// אין לתוסף אף בילד שירוץ על גרסת אוצריא שבמחשב הזה.
+  String get noCompatibleBuild;
   String get localPluginFileMissing;
   String get badPluginExtension;
   String get otzariaOpenFailedHint;

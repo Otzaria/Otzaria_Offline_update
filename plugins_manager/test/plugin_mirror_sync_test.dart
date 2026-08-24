@@ -150,8 +150,10 @@ void main() {
     _Site site, {
     List<PluginSyncProgress>? events,
     bool Function()? isCancelled,
+    List<String> appVersions = const [],
   }) =>
       manager(site).sync(
+        appVersions: appVersions,
         onProgress: events?.add,
         isCancelled: isCancelled,
       );
@@ -160,8 +162,14 @@ void main() {
     _Site site, {
     List<PluginSyncProgress>? events,
     bool Function()? isCancelled,
+    List<String> appVersions = const [],
   }) async =>
-      (await syncOutcome(site, events: events, isCancelled: isCancelled))
+      (await syncOutcome(
+        site,
+        events: events,
+        isCancelled: isCancelled,
+        appVersions: appVersions,
+      ))
           .catalog;
 
   group('סנכרון מלא', () {
@@ -195,8 +203,8 @@ void main() {
         'files/a/screenshot-0.png',
         'files/a/screenshot-1.png',
       ]);
-      expect(featured.localFile?.fileName, 'plugin.otzplugin');
-      expect(featured.localFile?.ext, '.otzplugin');
+      expect(featured.anyLocalFile?.fileName, 'plugin.otzplugin');
+      expect(featured.anyLocalFile?.ext, '.otzplugin');
       expect(featured.remoteDownloadUrl,
           'https://otzaria.test/api/plugins/a/download');
     });
@@ -208,8 +216,9 @@ void main() {
       final catalog = await store.load();
 
       expect(catalog.plugins.length, 2);
+      // שם הקובץ נושא את הגרסה — שני בילדים של אותו תוסף שוכנים זה לצד זה.
       expect(
-        File(store.absolutePath('files/a/plugin.otzplugin')).existsSync(),
+        File(store.absolutePath('files/a/plugin-1.0.0.otzplugin')).existsSync(),
         isTrue,
       );
       expect(File(store.catalogPath).existsSync(), isTrue);
@@ -223,7 +232,7 @@ void main() {
       final catalog = await sync(site, events: events);
 
       expect(catalog.plugins.single.id, 'c');
-      expect(catalog.plugins.single.localFile, isNull);
+      expect(catalog.plugins.single.localFiles, isEmpty);
       expect(site.requestsMatching('/download'), isEmpty);
       expect(warningsOf(events), isEmpty);
     });
@@ -395,7 +404,7 @@ void main() {
       final catalog = await sync(site, events: events);
 
       final plugin = catalog.plugins.first;
-      expect(plugin.localFile, isNull);
+      expect(plugin.localFiles, isEmpty);
       expect(plugin.manifestId, isNull);
       // בלי הקובץ אין manifestId, ולכן אין מול מה להשוות — לא שגיאה.
       expect(
@@ -611,21 +620,21 @@ void main() {
       expect(second.requestsMatching('/download'), hasLength(1));
     });
 
-    test('הורדה שנכשלה — הגרסה בקטלוג נשארת של הקובץ שבמראה, ויורד בסבב הבא',
-        () async {
+    test('הורדה שנכשלה — הבילד שבמראה נשמר, והחדש יורד בסבב הבא', () async {
       await sync(_Site());
 
-      // גרסה חדשה באתר, אבל ההורדה נופלת: הקטלוג חייב להמשיך לתאר את 1.0.0,
+      // גרסה חדשה באתר, אבל ההורדה נופלת. הקטלוג חייב להמשיך להצביע על
+      // הקובץ של 1.0.0 (עדיף בילד ישן שרץ מכלום), ו**לא** לרשום את 1.1.0 —
       // אחרת בדיקת ה-unchanged תתאים לנצח והקובץ החדש לא יירד לעולם.
       final failing = _Site(plugins: _Site.defaultPlugins(versionA: '1.1.0'))
         ..failures['/api/plugins/a/download'] = 500;
       final afterFailure = await sync(failing);
-      expect(afterFailure.plugins.first.version, '1.0.0');
+      expect(afterFailure.plugins.first.localFiles.keys, ['1.0.0']);
 
       final retry = _Site(plugins: _Site.defaultPlugins(versionA: '1.1.0'));
       final catalog = await sync(retry);
       expect(retry.requestsMatching('/download'), ['/api/plugins/a/download']);
-      expect(catalog.plugins.first.version, '1.1.0');
+      expect(catalog.plugins.first.localFiles.keys, ['1.1.0']);
     });
 
     test('גרסה שהשתנתה מורידה מחדש', () async {
@@ -783,6 +792,131 @@ void main() {
     });
   });
 
+  group('תאימות לגרסת אוצריא', () {
+    /// תוסף אחד עם שני בילדים: החדש דורש אוצריא 0.9.97, הישן 0.9.95.
+    List<Map<String, dynamic>> versioned() => [
+          {
+            'id': 'a',
+            'name': 'אלף',
+            'version': '2.0.0',
+            'compatibleWith': '0.9.97',
+            'downloadUrl': '/api/plugins/a/download',
+            'versions': [
+              {
+                'version': '2.0.0',
+                'compatibleWith': '0.9.97',
+                'downloadUrl': '/api/plugins/a/download',
+                'isLatest': true,
+              },
+              {
+                'version': '1.5.0',
+                'compatibleWith': '0.9.95',
+                'downloadUrl': '/api/plugins/a@1.5.0/download',
+              },
+            ],
+          },
+        ];
+
+    test('אוצריא ישנה מקבלת את הבילד הישן, ולא את האחרון שפורסם', () async {
+      final site = _Site(plugins: versioned());
+      final catalog = await sync(site, appVersions: ['0.9.96']);
+
+      expect(catalog.plugins.single.localFiles.keys, ['1.5.0']);
+      expect(site.requestsMatching('/download'),
+          ['/api/plugins/a@1.5.0/download']);
+    });
+
+    test('שתי גרסאות אוצריא בכונן — שני בילדים יורדים, קובץ לכל אחד', () async {
+      final site = _Site(plugins: versioned());
+      final catalog = await sync(site, appVersions: ['0.9.96', '0.9.97']);
+
+      final plugin = catalog.plugins.single;
+      expect(plugin.localFiles.keys.toSet(), {'1.5.0', '2.0.0'});
+
+      final store = PluginMirrorStore(temp.path);
+      for (final version in ['1.5.0', '2.0.0']) {
+        expect(
+          File(store.absolutePath('files/a/plugin-$version.otzplugin'))
+              .existsSync(),
+          isTrue,
+          reason: version,
+        );
+      }
+      // וכל מחשב מקבל את שלו מאותה מראה.
+      expect(plugin.installTarget('0.9.96')?.version, '1.5.0');
+      expect(plugin.installTarget('0.9.97')?.version, '2.0.0');
+    });
+
+    test('שתי הגרסאות נפתרות לאותו בילד — הוא יורד פעם אחת', () async {
+      final site = _Site(plugins: versioned());
+      await sync(site, appVersions: ['0.9.97', '0.9.98']);
+
+      expect(site.requestsMatching('/download'), ['/api/plugins/a/download']);
+    });
+
+    test('בלי אף בילד תואם לא יורד קובץ, וזה אינו כשל', () async {
+      final site = _Site(plugins: versioned());
+      final events = <PluginSyncProgress>[];
+      final outcome = await syncOutcome(
+        site,
+        events: events,
+        appVersions: ['0.9.80'],
+      );
+
+      expect(outcome.catalog.plugins.single.localFiles, isEmpty);
+      expect(site.requestsMatching('/download'), isEmpty);
+      expect(outcome.failed, isEmpty);
+      expect(warningsOf(events), isEmpty);
+      // ליומן בלבד — המשתמש אינו רואה את זה.
+      expect(outcome.incompatible, ['אלף (0.9.95)']);
+    });
+
+    test('אוצריא שעודכנה — הבילד הישן נמחק מהכונן', () async {
+      await sync(_Site(plugins: versioned()), appVersions: ['0.9.96']);
+      final store = PluginMirrorStore(temp.path);
+      final old = File(store.absolutePath('files/a/plugin-1.5.0.otzplugin'));
+      expect(old.existsSync(), isTrue);
+
+      final catalog =
+          await sync(_Site(plugins: versioned()), appVersions: ['0.9.97']);
+
+      expect(catalog.plugins.single.localFiles.keys, ['2.0.0']);
+      expect(old.existsSync(), isFalse);
+      expect(
+        File(store.absolutePath('files/a/plugin-2.0.0.otzplugin')).existsSync(),
+        isTrue,
+      );
+    });
+
+    test('הבילד שכבר במראה אינו יורד שוב', () async {
+      await sync(_Site(plugins: versioned()), appVersions: ['0.9.96']);
+
+      final second = _Site(plugins: versioned());
+      await sync(second, appVersions: ['0.9.96']);
+
+      expect(second.requestsMatching('/download'), isEmpty);
+    });
+
+    test('בלי גרסאות כלל (מראת תוכנה ריקה) יורד הבילד החי', () async {
+      final site = _Site(plugins: versioned());
+      final catalog = await sync(site);
+
+      expect(catalog.plugins.single.localFiles.keys, ['2.0.0']);
+    });
+
+    test('היסטוריית הגרסאות נשמרת בקטלוג, כדי שההכרעה תעבוד גם אופליין',
+        () async {
+      await sync(_Site(plugins: versioned()), appVersions: ['0.9.96']);
+
+      final reloaded = await PluginMirrorStore(temp.path).load();
+      final plugin = reloaded.plugins.single;
+
+      expect(plugin.versions.map((e) => e.version), ['2.0.0', '1.5.0']);
+      expect(plugin.compatibleFor('0.9.97')?.version, '2.0.0');
+      expect(plugin.installTarget('0.9.96')?.version, '1.5.0');
+    });
+  });
+
   // הסנכרון הוא עשרות קבצים קטנים, ורוב הזמן הוא המתנה לשרת. בטור ההמתנות
   // האלה מצטברות; במקביל הן נחלקות.
   group('סנכרון מקבילי', () {
@@ -818,7 +952,7 @@ void main() {
       expect(peak, 4);
       expect(catalog.plugins.length, 4);
       for (final plugin in catalog.plugins) {
-        expect(plugin.localFile, isNotNull);
+        expect(plugin.localFiles, isNotEmpty);
       }
     });
 

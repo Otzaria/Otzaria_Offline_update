@@ -41,7 +41,9 @@ void main() {
           'downloadUrl': downloadUrl,
         },
         'https://otzaria.test',
-      ).copyWith(localFile: localFile);
+      ).copyWith(
+        localFiles: localFile == null ? const {} : {'1.0.0': localFile},
+      );
 
   /// כותב קובץ `.otzplugin` אמיתי במראה ומחזיר את הרשומה שמצביעה עליו.
   StorePlugin withLocalFile({String id = 'a'}) {
@@ -50,12 +52,14 @@ void main() {
     file.writeAsBytesSync(pluginBytes('{"id":"manifest-$id"}'));
 
     return plugin(id: id).copyWith(
-      localFile: PluginLocalFile(
-        relativePath: store.relativePath(file.path),
-        fileName: 'plugin.otzplugin',
-        ext: '.otzplugin',
-        size: file.lengthSync(),
-      ),
+      localFiles: {
+        '1.0.0': PluginLocalFile(
+          relativePath: store.relativePath(file.path),
+          fileName: 'plugin.otzplugin',
+          ext: '.otzplugin',
+          size: file.lengthSync(),
+        ),
+      },
     );
   }
 
@@ -200,7 +204,7 @@ void main() {
       expect(result.error, isNull);
       expect(
         File(dest).readAsBytesSync(),
-        File(store.absolutePath(entry.localFile!.relativePath))
+        File(store.absolutePath(entry.anyLocalFile!.relativePath))
             .readAsBytesSync(),
       );
     });
@@ -252,10 +256,10 @@ void main() {
       expect(result.error, strings.badPluginExtension);
 
       final saved = (await store.load()).plugins.single;
-      expect(saved.localFile?.relativePath, 'files/a/plugin.zip');
+      expect(saved.anyLocalFile?.relativePath, 'files/a/plugin-1.0.0.zip');
       expect(saved.manifestId, 'manifest-a');
       expect(
-        File(store.absolutePath(saved.localFile!.relativePath)).existsSync(),
+        File(store.absolutePath(saved.anyLocalFile!.relativePath)).existsSync(),
         isTrue,
       );
     });

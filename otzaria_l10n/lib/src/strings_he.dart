@@ -933,6 +933,8 @@ class _Plugins extends PluginsStrings {
   @override
   String installChipUpdateFrom(String installedVersion) =>
       'עדכון זמין (מותקן $installedVersion)';
+  @override
+  String get installChipIncompatible => 'דורש אוצריא חדשה יותר';
 
   @override
   String get infoPanelTitle => 'מידע כללי';
@@ -1907,6 +1909,9 @@ class _PluginsDomain extends PluginsDomainStrings {
   @override
   String get pluginFileNotAvailable =>
       'קובץ התוסף אינו זמין. יש לבצע סנכרון קודם.';
+  @override
+  String get noCompatibleBuild =>
+      'אין לתוסף גרסה שמתאימה לגרסת אוצריא שבמחשב הזה.';
   @override
   String get localPluginFileMissing =>
       'קובץ התוסף המקומי חסר. יש לבצע סנכרון מחדש.';

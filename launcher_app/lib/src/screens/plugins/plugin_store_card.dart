@@ -36,6 +36,7 @@ class PluginStoreCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final installStatus = controller.statusOf(plugin);
+    final target = controller.targetOf(plugin);
     final t = context.strings.plugins;
 
     return AppCard(
@@ -73,10 +74,14 @@ class PluginStoreCard extends StatelessWidget {
                 clipBehavior: Clip.hardEdge,
                 children: [
                   PluginBadge(
-                    label: pluginStatusLabel(plugin.status),
+                    label: pluginStatusLabel(target?.status ?? plugin.status),
                     emphasized: true,
                   ),
-                  PluginBadge(label: t.pluginVersionBadge(plugin.version)),
+                  // הגרסה שתותקן כאן, לא בהכרח האחרונה שפורסמה — ראו
+                  // `PluginsModuleController.versionOf`.
+                  PluginBadge(
+                    label: t.pluginVersionBadge(controller.versionOf(plugin)),
+                  ),
                   PluginBadge(
                     label: '${plugin.downloadCount}',
                     icon: FluentIcons.arrow_download_24_regular,
@@ -126,17 +131,20 @@ class PluginStoreCard extends StatelessWidget {
                     text: t.saveButton,
                     icon: FluentIcons.save_24_regular,
                     isLoading: busy,
-                    onPressed: plugin.localFile == null ? null : onSave,
+                    onPressed: controller.hasFileFor(plugin) ? onSave : null,
                   ),
                 ),
-                if (plugin.supportsDirectInstall) ...[
+                // בלי בילד תואם אין מה להתקין — הכפתור כבוי, והשבב למעלה
+                // אומר למה.
+                if (target?.supportsDirectInstall ??
+                    plugin.supportsDirectInstall) ...[
                   const SizedBox(width: AppTokens.spaceSM),
                   Expanded(
                     child: ActionButton.recommended(
                       text: t.installButton,
                       icon: FluentIcons.arrow_download_24_regular,
                       isLoading: busy,
-                      onPressed: onInstall,
+                      onPressed: target == null ? null : onInstall,
                     ),
                   ),
                 ],

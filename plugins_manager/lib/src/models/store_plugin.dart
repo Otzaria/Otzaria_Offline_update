@@ -1,7 +1,9 @@
 import 'package:equatable/equatable.dart';
 
+import '../services/plugin_compatibility.dart';
 import '../services/plugin_version_compare.dart';
 import 'plugin_install_status.dart';
+import 'plugin_version_entry.dart';
 
 /// קובץ ה-`.otzplugin` כפי שהוא יושב במראה המקומית.
 class PluginLocalFile extends Equatable {
@@ -44,7 +46,14 @@ class PluginLocalFile extends Equatable {
 
 /// תוסף בקטלוג המקומי — מיזוג של המטא-דאטה מ-`/api/plugins` עם הנתיבים
 /// היחסיים של הקבצים שירדו למראה.
+///
+/// **הקבצים הם מפה, לא קובץ אחד** ([localFiles]): הכונן נושא עד שתי גרסאות
+/// של אוצריא, ולכל אחת עשוי להתאים בילד אחר של אותו תוסף. ראו
+/// `plugin_compatibility.dart`.
 class StorePlugin extends Equatable {
+  /// [versions] נכנס **כפי שהוא**, בהנחה שהוא ממוין מהגבוה לנמוך — ההכרעה
+  /// נשענת על הסדר. שני היצרנים שקוראים נתונים מבחוץ ([fromApi], [fromJson])
+  /// מסדרים בעצמם; המיון כאן היה מבטל את היות הבנאי `const`.
   const StorePlugin({
     required this.id,
     required this.name,
@@ -69,8 +78,9 @@ class StorePlugin extends Equatable {
     this.imagePath,
     this.screenshotPaths = const [],
     this.categorySlugs = const [],
-    this.localFile,
+    this.localFiles = const {},
     this.manifestId,
+    this.versions = const [],
   });
 
   /// מזהה מסד-הנתונים של האתר. **אינו** המזהה שאוצריא משתמשת בו לתיקיית
@@ -79,6 +89,8 @@ class StorePlugin extends Equatable {
   final String name;
   final String shortDescription;
   final String description;
+
+  /// הגרסה **החיה** באתר. אינה בהכרח זו שתותקן: ראו [installTarget].
   final String version;
   final String status;
   final String author;
@@ -91,6 +103,10 @@ class StorePlugin extends Equatable {
   final String homepage;
   final int downloadCount;
   final bool supportsDirectInstall;
+
+  /// כל הבילדים שהאתר מכיר — החי וההיסטוריים — ממוינים מהגבוה לנמוך.
+  /// זה מה שמאפשר להכריע אופליין איזה בילד מתאים לגרסת אוצריא שבמחשב.
+  final List<PluginVersionEntry> versions;
 
   /// "תוסף נבחר" — האצירה הידנית של דף הבית בחנות. באתר השדה עדיין נקרא
   /// `isPinned` (תאימות לאחור), ומשמעותו כיום featured.
@@ -112,19 +128,81 @@ class StorePlugin extends Equatable {
   /// אלא מחושב בסנכרון מתוך רשימות החברות של הקטגוריות.
   final List<String> categorySlugs;
 
-  final PluginLocalFile? localFile;
+  /// `גרסת הבילד -> הקובץ שלו במראה`. רק בילדים שהקובץ שלהם באמת ירד.
+  final Map<String, PluginLocalFile> localFiles;
 
   /// ה-id האמיתי מתוך `manifest.json` שבקובץ ה-`.otzplugin`. זהו המפתח
   /// היחיד שמותר להשוות מולו את התוספים המותקנים (`installed/<manifestId>/`).
   final String? manifestId;
 
-  /// מצב התוסף מול מפת המותקנים (`manifestId -> גרסה מותקנת`).
-  PluginInstallStatus statusAgainst(Map<String, String> installed) {
+  /// הבילדים להכרעה. קטלוג ישן (או אתר בלי `versions`) מקבל רשומה אחת
+  /// שנבנית מהשדות העליונים — בדיוק `buildLiveVersionEntry` של האתר.
+  List<PluginVersionEntry> get versionEntries =>
+      versions.isNotEmpty ? versions : [_liveEntry];
+
+  PluginVersionEntry get _liveEntry => PluginVersionEntry(
+        version: version,
+        status: status,
+        compatibleWith: compatibleWith,
+        maxAppVersion: maxAppVersion,
+        downloadUrl: remoteDownloadUrl,
+        requiresNetwork: requiresNetwork,
+        supportsDirectInstall: supportsDirectInstall,
+        isLatest: true,
+      );
+
+  /// הקובץ שירד עבור בילד מסוים, או null אם הבילד הזה אינו במראה.
+  PluginLocalFile? localFileFor(String? version) =>
+      version == null ? null : localFiles[version];
+
+  /// קובץ כלשהו שירד — לתצוגה בלבד, כשאין גרסת אוצריא להכריע לפיה.
+  PluginLocalFile? get anyLocalFile =>
+      localFiles[version] ??
+      (localFiles.isEmpty ? null : localFiles.values.first);
+
+  /// הבילד הגבוה ביותר שתואם ל-[appVersion], בין אם הקובץ שלו במראה ובין
+  /// אם לא. `null` = לתוסף אין מה להציע לגרסה הזו.
+  PluginVersionEntry? compatibleFor(String? appVersion) =>
+      resolveCompatibleVersion(versionEntries, appVersion);
+
+  /// הבילד שיותקן במחשב שמריץ [appVersion]: הגבוה ביותר שתואם לו **ושהקובץ
+  /// שלו יושב במראה**. כשאף בילד תואם לא ירד מוחזר הגבוה שתואם, כדי
+  /// שהממשק יאמר "הקובץ לא ירד" ולא "אין תוסף".
+  PluginVersionEntry? installTarget(String? appVersion) {
+    PluginVersionEntry? compatible;
+    for (final entry in versionEntries) {
+      if (!isCompatibleWithApp(entry, appVersion)) continue;
+      compatible ??= entry;
+      if (localFiles.containsKey(entry.version)) return entry;
+    }
+    return compatible;
+  }
+
+  /// הבילדים שצריכים לרדת עבור הגרסאות שהכונן נושא — ראו [resolveTargets].
+  List<PluginVersionEntry> targetsFor(List<String> appVersions) =>
+      resolveTargets(versionEntries, appVersions);
+
+  /// גרסת אוצריא המינימלית שמריצה בילד כלשהו של התוסף — לשורת היומן
+  /// שמסבירה למה תוסף לא ירד. ראו [PluginSyncOutcome.incompatible].
+  String? get lowestSupportedApp => lowestSupportedAppVersion(versionEntries);
+
+  /// מצב התוסף מול מפת המותקנים (`manifestId -> גרסה מותקנת`), ביחס
+  /// ל-[appVersion] של אוצריא שבמחשב הזה.
+  ///
+  /// [PluginInstallStatus.incompatible] הוא מצב אמיתי ולא שגיאה: לתוסף אין
+  /// אף בילד שירוץ על הגרסה הזו, ולכן אין מה להציע.
+  PluginInstallStatus statusAgainst(
+    Map<String, String> installed, {
+    String? appVersion,
+  }) {
+    final target = installTarget(appVersion);
+    if (target == null) return PluginInstallStatus.incompatible;
+
     final key = manifestId;
     if (key == null || key.isEmpty) return PluginInstallStatus.unknown;
     final installedVersion = installed[key];
     if (installedVersion == null) return PluginInstallStatus.notInstalled;
-    return comparePluginVersions(version, installedVersion) > 0
+    return comparePluginVersions(target.version, installedVersion) > 0
         ? PluginInstallStatus.updateAvailable
         : PluginInstallStatus.upToDate;
   }
@@ -145,18 +223,16 @@ class StorePlugin extends Equatable {
     String? imagePath,
     List<String>? screenshotPaths,
     List<String>? categorySlugs,
-    PluginLocalFile? localFile,
+    Map<String, PluginLocalFile>? localFiles,
     String? manifestId,
-    // הגרסה נדרסת רק כשהורדת הקובץ נכשלה: הקטלוג מתאר את מה שבמראה בפועל,
-    // ראו `PluginMirrorSync._syncPluginFile`.
-    String? version,
+    List<PluginVersionEntry>? versions,
   }) {
     return StorePlugin(
       id: id,
       name: name,
       shortDescription: shortDescription,
       description: description,
-      version: version ?? this.version,
+      version: version,
       status: status,
       author: author,
       updatedAt: updatedAt,
@@ -175,8 +251,9 @@ class StorePlugin extends Equatable {
       imagePath: imagePath ?? this.imagePath,
       screenshotPaths: screenshotPaths ?? this.screenshotPaths,
       categorySlugs: categorySlugs ?? this.categorySlugs,
-      localFile: localFile ?? this.localFile,
+      localFiles: localFiles ?? this.localFiles,
       manifestId: manifestId ?? this.manifestId,
+      versions: versions ?? this.versions,
     );
   }
 
@@ -205,6 +282,7 @@ class StorePlugin extends Equatable {
       supportsDirectInstall: json['supportsDirectInstall'] == true,
       isFeatured: json['isPinned'] == true,
       remoteDownloadUrl: _absolute(_string(json['downloadUrl']), baseUrl),
+      versions: _sortedDescending(_versions(json['versions'], baseUrl)),
       // כמו שהאתר שלח, בלי להפוך למוחלט: הן נשמרות כדי להשוות מול התשובה
       // הבאה, וההורדה עצמה כבר יודעת להשלים כתובת יחסית.
       remoteImageUrl: _string(json['image']),
@@ -239,19 +317,24 @@ class StorePlugin extends Equatable {
         'image': imagePath,
         'screenshots': screenshotPaths,
         'categories': categorySlugs,
-        'localFile': localFile?.toJson(),
+        'versions': [for (final entry in versions) entry.toJson()],
+        'localFiles': {
+          for (final entry in localFiles.entries)
+            entry.key: entry.value.toJson(),
+        },
         'manifestId': manifestId,
       };
 
   /// קורא רשומה מהקטלוג השמור. שדה חסר או פגום נופל לברירת המחדל שלו,
   /// כדי שקטלוג שנפגם חלקית לא יאבד את כל התוספים.
   factory StorePlugin.fromJson(Map<String, dynamic> json) {
+    final version = _string(json['version']);
     return StorePlugin(
       id: _string(json['id']),
       name: _string(json['name']),
       shortDescription: _string(json['shortDescription']),
       description: _string(json['description']),
-      version: _string(json['version']),
+      version: version,
       status: _string(json['status']),
       author: _string(json['author']),
       updatedAt: _string(json['updatedAt']),
@@ -274,7 +357,8 @@ class StorePlugin extends Equatable {
       imagePath: json['image'] is String ? json['image'] as String : null,
       screenshotPaths: _stringList(json['screenshots']),
       categorySlugs: _stringList(json['categories']),
-      localFile: PluginLocalFile.fromJson(json['localFile']),
+      versions: _sortedDescending(_versions(json['versions'], '')),
+      localFiles: _localFiles(json, version),
       manifestId: json['manifestId'] is String &&
               (json['manifestId'] as String).isNotEmpty
           ? json['manifestId'] as String
@@ -288,6 +372,52 @@ class StorePlugin extends Equatable {
       ? value.whereType<String>().toList(growable: false)
       : const <String>[];
 
+  static List<PluginVersionEntry> _versions(Object? value, String baseUrl) {
+    if (value is! List) return const [];
+    return [
+      for (final raw in value)
+        if (PluginVersionEntry.fromApi(raw, baseUrl) case final entry?) entry,
+    ];
+  }
+
+  /// קורא את מפת הקבצים, **וגם** קטלוג ישן שכתב `localFile` יחיד: הקובץ
+  /// ההוא שייך לגרסה שנרשמה לצדו, וכך הוא ממשיך להיחשב במראה בלי הורדה
+  /// מחדש. בלי ההגירה הזו הסנכרון הראשון שאחרי העדכון היה מוריד את כל
+  /// החנות שוב.
+  static Map<String, PluginLocalFile> _localFiles(
+    Map<String, dynamic> json,
+    String version,
+  ) {
+    final raw = json['localFiles'];
+    if (raw is Map) {
+      final files = <String, PluginLocalFile>{};
+      for (final entry in raw.entries) {
+        final key = entry.key;
+        final file = PluginLocalFile.fromJson(entry.value);
+        if (key is String && key.isNotEmpty && file != null) files[key] = file;
+      }
+      if (files.isNotEmpty) return files;
+    }
+
+    final legacy = PluginLocalFile.fromJson(json['localFile']);
+    if (legacy == null || version.isEmpty) return const {};
+    return {version: legacy};
+  }
+
+  /// מיון יורד יציב: האתר כבר מחזיר ממוין, אבל ההכרעה נשענת על הסדר ולכן
+  /// אינה סומכת עליו. שוויון שומר על סדר המקור (ה-`sort` של Dart אינו יציב).
+  static List<PluginVersionEntry> _sortedDescending(
+    List<PluginVersionEntry> entries,
+  ) {
+    final indexed = [
+      for (var i = 0; i < entries.length; i++) (i, entries[i]),
+    ]..sort((a, b) {
+        final byVersion = comparePluginVersions(b.$2.version, a.$2.version);
+        return byVersion != 0 ? byVersion : a.$1 - b.$1;
+      });
+    return [for (final pair in indexed) pair.$2];
+  }
+
   static String _absolute(String url, String baseUrl) {
     if (url.isEmpty) return '';
     if (url.startsWith('http://') || url.startsWith('https://')) return url;
@@ -296,5 +426,5 @@ class StorePlugin extends Equatable {
 
   @override
   List<Object?> get props =>
-      [id, version, manifestId, localFile, imagePath, categorySlugs];
+      [id, version, manifestId, localFiles, imagePath, categorySlugs, versions];
 }

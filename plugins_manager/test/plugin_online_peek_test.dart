@@ -110,7 +110,7 @@ void main() {
       await manager(_Site(catalog)).sync();
 
       final store = PluginMirrorStore(temp.path);
-      File(store.absolutePath('files/a/plugin.otzplugin')).deleteSync();
+      File(store.absolutePath('files/a/plugin-1.0.0.otzplugin')).deleteSync();
 
       final status = await manager(_Site(catalog)).peekOnlineUpdates();
 
@@ -145,7 +145,7 @@ void main() {
       final catalog = [_plugin('a', '1.0.0')];
       await manager(_Site(catalog)).sync();
       File(PluginMirrorStore(temp.path)
-              .absolutePath('files/a/plugin.otzplugin'))
+              .absolutePath('files/a/plugin-1.0.0.otzplugin'))
           .deleteSync();
 
       final fixing = _Site(catalog);
@@ -211,6 +211,68 @@ void main() {
       expect(
         downloading.requests.where((r) => r.endsWith('/download')),
         hasLength(1),
+      );
+    });
+  });
+
+  group('תאימות לגרסת אוצריא', () {
+    /// תוסף עם שני בילדים — כמו ב-`plugin_mirror_sync_test`.
+    List<Map<String, dynamic>> versioned() => [
+          {
+            'id': 'a',
+            'name': 'תוסף a',
+            'version': '2.0.0',
+            'compatibleWith': '0.9.97',
+            'downloadUrl': '/api/plugins/a/download',
+            'versions': [
+              {
+                'version': '2.0.0',
+                'compatibleWith': '0.9.97',
+                'downloadUrl': '/api/plugins/a/download',
+                'isLatest': true,
+              },
+              {
+                'version': '1.5.0',
+                'compatibleWith': '0.9.95',
+                'downloadUrl': '/api/plugins/a@1.5.0/download',
+              },
+            ],
+          },
+        ];
+
+    test('בילד חדש שאינו תואם אינו מדווח כעדכון', () async {
+      await manager(_Site(versioned())).sync(appVersions: ['0.9.96']);
+
+      // 2.0.0 קיים באתר, אבל לא ירוץ על 0.9.96 — ולכן אין מה לדווח.
+      final status = await manager(_Site(versioned()))
+          .peekOnlineUpdates(appVersions: ['0.9.96']);
+
+      expect(status.hasUpdates, isFalse);
+    });
+
+    test('תוסף בלי אף בילד תואם אינו "חדש" ואינו "חסר"', () async {
+      final status = await manager(_Site(versioned()))
+          .peekOnlineUpdates(appVersions: ['0.9.80']);
+
+      expect(status.hasUpdates, isFalse);
+    });
+
+    test('גרסת אוצריא שנוספה לכונן — הבילד שלה מדווח, והסנכרון מביא אותו',
+        () async {
+      await manager(_Site(versioned())).sync(appVersions: ['0.9.96']);
+
+      // הכונן קיבל אוצריא נוספת, ולבילד שלה אין קובץ — זהו חוסר, לא
+      // "גרסה חדשה": הגרסה עצמה כבר רשומה בקטלוג.
+      final status = await manager(_Site(versioned()))
+          .peekOnlineUpdates(appVersions: ['0.9.96', '0.9.97']);
+      expect(status.missingPlugins, ['תוסף a']);
+      expect(status.hasUpdates, isTrue);
+
+      final downloading = _Site(versioned());
+      await manager(downloading).sync(appVersions: ['0.9.96', '0.9.97']);
+      expect(
+        downloading.requests.where((r) => r.endsWith('/download')),
+        ['/api/plugins/a/download'],
       );
     });
   });

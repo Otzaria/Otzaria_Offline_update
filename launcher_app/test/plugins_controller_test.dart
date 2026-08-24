@@ -516,4 +516,89 @@ void main() {
       expect(controller.hasOnlineUpdate, isTrue);
     });
   });
+
+  group('בחירת בילד לפי גרסת אוצריא', () {
+    /// תוסף עם שני בילדים, ושני הקבצים כבר במראה — כמו כונן שהוריד עבור
+    /// הגרסה היציבה והלא-יציבה גם יחד.
+    StorePlugin versioned({Map<String, String> files = const {}}) =>
+        StorePlugin.fromApi(const {
+          'id': 'db-1',
+          'name': 'תוסף',
+          'version': '2.0.0',
+          'compatibleWith': '0.9.97',
+          'downloadUrl': '/api/plugins/db-1/download',
+          'versions': [
+            {
+              'version': '2.0.0',
+              'compatibleWith': '0.9.97',
+              'downloadUrl': '/api/plugins/db-1/download',
+              'isLatest': true,
+            },
+            {
+              'version': '1.5.0',
+              'compatibleWith': '0.9.95',
+              'downloadUrl': '/api/plugins/db-1@1.5.0/download',
+            },
+          ],
+        }, 'https://otzaria.org')
+            .copyWith(
+          manifestId: 'com.example.one',
+          localFiles: {
+            for (final entry in files.entries)
+              entry.key: PluginLocalFile(
+                relativePath: entry.value,
+                fileName: 'plugin.otzplugin',
+                ext: '.otzplugin',
+                size: 1,
+              ),
+          },
+        );
+
+    Future<PluginsModuleController> controllerFor(String? appVersion) async {
+      await saveCatalog(PluginCatalog(plugins: [
+        versioned(files: {
+          '2.0.0': 'files/db-1/plugin-2.0.0.otzplugin',
+          '1.5.0': 'files/db-1/plugin-1.5.0.otzplugin',
+        }),
+      ]));
+      final c = PluginsModuleController(
+        mirrorRootDir: p.join(tempDir.path, 'mirror'),
+        installedAppVersion: () async => appVersion,
+      );
+      addTearDown(c.dispose);
+      await c.load();
+      return c;
+    }
+
+    test('אותה מראה מציגה בילד אחר לכל גרסת אוצריא', () async {
+      final newer = await controllerFor('0.9.97');
+      expect(newer.versionOf(newer.plugins.single), '2.0.0');
+
+      final older = await controllerFor('0.9.96');
+      expect(older.versionOf(older.plugins.single), '1.5.0');
+      expect(older.hasFileFor(older.plugins.single), isTrue);
+    });
+
+    test('"מעודכן" נמדד מול הבילד שירוץ כאן, לא מול האחרון שפורסם', () async {
+      final c = await controllerFor('0.9.96');
+      c.installed = const {'com.example.one': '1.5.0'};
+
+      expect(c.statusOf(c.plugins.single), PluginInstallStatus.upToDate);
+      expect(c.updatablePlugins, isEmpty);
+    });
+
+    test('אין בילד תואם — incompatible, וזה לא שגיאה', () async {
+      final c = await controllerFor('0.9.80');
+
+      expect(c.statusOf(c.plugins.single), PluginInstallStatus.incompatible);
+      expect(c.targetOf(c.plugins.single), isNull);
+      expect(c.status, PluginsModuleStatus.ready);
+    });
+
+    test('בלי גרסה ידועה נבחר הבילד החי, כמו קודם', () async {
+      final c = await controllerFor(null);
+
+      expect(c.versionOf(c.plugins.single), '2.0.0');
+    });
+  });
 }
