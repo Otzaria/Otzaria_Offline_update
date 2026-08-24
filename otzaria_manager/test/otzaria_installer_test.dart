@@ -219,6 +219,12 @@ void main() {
     test('משימת קיצור-הדרך בשולחן העבודה נדלקת במפורש', () {
       expect(args, contains('/MERGETASKS=desktopicon'));
     });
+
+    // ב-`otzaria.iss` יש רשומת `[Run]` שרצה **רק** בהתקנה שקטה, ובלי הדגל
+    // אוצריא נפתחה מיד וחסמה את עדכון המסד שרץ אחריה.
+    test('אוצריא אינה נפתחת בסוף התקנה שקטה', () {
+      expect(args, contains('/NOLAUNCH=1'));
+    });
   });
 
   group('OtzariaInstaller.windowsSilentArgs — התקנה חדשה', () {

@@ -287,6 +287,38 @@ void main() {
     expect(item(shell.navSettings).isSelected, isTrue);
     expect(screen(SettingsScreen), findsOneWidget);
   });
+
+  // ההתקנה האוטומטית עצמה אינה נהיגה מבדיקת widget — היא מריצה מתקין אמיתי
+  // ו-`dart:io` שאינו מסתיים ב-fake-async. הסדר, לעומת זאת, הוא כל התיקון,
+  // ולכן הוא מוצמד מהמקור — כמו ב-`faq_test.dart`.
+  group('_autoInstallIfEnabled', () {
+    final source = File('lib/src/screens/app_shell.dart').readAsStringSync();
+    final start = source.indexOf('_autoInstallIfEnabled() async {');
+    final body =
+        source.substring(start, source.indexOf('_downloadMirrorDirs', start));
+
+    test('גוף המתודה נמצא — אחרת כל השאר כאן בודק מחרוזת ריקה', () {
+      expect(start, greaterThan(-1));
+      expect(body, contains('_library.update()'));
+    });
+
+    // המתקין של אוצריא משיק אותה בסוף התקנה שקטה, ואוצריא פתוחה נועלת את
+    // המסד — בסדר ההפוך הלאנצ'ר חסם את עדכון המסד שהוא עצמו הריץ.
+    test('עדכון המסד מוקדם להתקנת התוכנה', () {
+      expect(body.indexOf('_library.update()'),
+          lessThan(body.indexOf('_otzaria.install(')));
+    });
+
+    test('כל שלושת המסלולים נשענים על בדיקת תהליך טרייה', () {
+      expect(
+        'refreshProcessState()'.allMatches(body).length,
+        3,
+        reason: 'החבילה המלאה, עדכון המסד וההתקנה',
+      );
+      // הערך שנלכד בבנייה הוא בדיוק מה שהיה מיושן כאן.
+      expect(body, isNot(contains('_otzariaIsRunning')));
+    });
+  });
 }
 
 /// "אוצריא סגורה", בלי להריץ `tasklist` — ראו ה-setUp.

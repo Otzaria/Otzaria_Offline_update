@@ -194,6 +194,16 @@ it) to the mirror. Four things hold it together:
   silent** (`_autoInstallIfEnabled` passes `useWizard: false` on both paths): a
   wizard waiting for a click is not "install by itself", and that is the only
   path where `/MERGETASKS=desktopicon` still does anything.
+- **A silent install must pass `/NOLAUNCH=1`, and the library goes first.**
+  `otzaria.iss` carries a *second* `[Run]` entry that fires **only** under
+  `WizardSilent`, to make up for the finish-page one that `skipifsilent` drops —
+  so a silent install opened Otzaria, which locks `seforim.db`, which blocked the
+  library update running right after it (`OtzariaIsRunningException`). The flag is
+  the iss's own kill switch. `otzaria_full.iss` has no equivalent (its launch sits
+  in `[Code]`, unconditional), so `_autoInstallIfEnabled` also runs the **library
+  before** the installer, and re-probes the process with `refreshProcessState()`
+  before each of its three actions — `_otzariaIsRunning` is a value captured
+  earlier, and the periodic refresh only runs while Otzaria is *already* open.
 - **Cancelling the wizard is not a failure.** `OtzariaInstallCancelled` (Inno
   exit 2/5, plus 1223 = UAC refused) and `OtzariaWizardStillOpen` (the process
   returned before the install is on disk — routine when Inno elevates and the

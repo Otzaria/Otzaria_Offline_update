@@ -499,6 +499,13 @@ class OtzariaInstaller {
   /// `/LOG=`: ראו [_installFailureOutput]. הדגלים מורכבים בשרשור —
   /// `p.join` היה מתייחס אליהם כרכיבי נתיב.
   ///
+  /// **`/NOLAUNCH=1` — אוצריא לא נפתחת בסוף התקנה שקטה.** ב-`otzaria.iss`
+  /// יש רשומת `[Run]` שנייה שרצה **רק** בשקט (`ShouldLaunchAppAfterSilentInstall`),
+  /// כדי לפצות על זו של דף הסיום שמדולגת ב-`/VERYSILENT`. אוצריא שנפתחה
+  /// כך נועלת את `seforim.db`, ולכן עדכון המסד שרץ מיד אחריה נחסם —
+  /// הלאנצ'ר גרם לשגיאה שהוא עצמו דיווח עליה. הדגל הוא מפתח הכיבוי
+  /// שה-iss עצמו מציע.
+  ///
   /// **`/DIR=` נמסר רק כשיש תיקייה קיימת לעדכן.** בהתקנה חדשה
   /// ([installDir] = `null`) הוא נעדר בכוונה, והמתקין מתקין ל-
   /// `DefaultDirName` שלו — ברירת המחדל של אוצריא ולא ניחוש שלנו, שהתיישן
@@ -511,6 +518,7 @@ class OtzariaInstaller {
         '/VERYSILENT',
         '/SUPPRESSMSGBOXES',
         '/NORESTART',
+        '/NOLAUNCH=1',
         if (installDir != null) '/DIR=$installDir',
         '/MERGETASKS=$_desktopIconTask',
         '/LOG=$logPath',

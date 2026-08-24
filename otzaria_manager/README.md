@@ -113,6 +113,16 @@
   יקרה לבדו, ואשף שממתין ללחיצה אינו "לבדו" — `AppShell._autoInstallIfEnabled`
   מעביר `useWizard: false` בשני המסלולים. זה גם המסלול היחיד שבו
   `/MERGETASKS=desktopicon` עוד רלוונטי; באשף המשתמש מסמן בעצמו.
+- **`/NOLAUNCH=1` — אוצריא לא נפתחת בסוף התקנה שקטה.** ב-`otzaria.iss` יש
+  רשומת `[Run]` **שנייה**, מעל זו של דף הסיום (`skipifsilent`), שרצה רק
+  כש-`WizardSilent` — `Check: ShouldLaunchAppAfterSilentInstall`, שהוא
+  `WizardSilent and ({param:NOLAUNCH|0} <> '1')`. כלומר בשקט אוצריא נפתחה
+  דווקא **כן**, נעלה את `seforim.db`, ועדכון המסד שרץ מיד אחריה נחסם. הדגל
+  מכבה את הרשומה הזאת; באשף אין לו שום השפעה.
+  ⚠️ ב-`otzaria_full.iss` אין לזה מקביל: ההשקה שם יושבת ב-`[Code]`
+  (`if WizardSilent then ExecAsOriginalUser(...)` בסוף `ssPostInstall`) בלי
+  בדיקת `NOLAUNCH`, ולכן אינה ניתנת לכיבוי מצידנו. מה שמגן על המסלול הזה
+  הוא סדר הפעולות ב-`_autoInstallIfEnabled`: מסד לפני מתקין.
 - **ביטול באשף אינו שגיאה**: `OtzariaInstallCancelled` (קודי יציאה 2/5 של
   Inno, ו-1223 שהוא סירוב ל-UAC), ו-`OtzariaWizardStillOpen` כשהתהליך חזר
   אך ההתקנה עוד לא על הדיסק — מה שקורה כשה-Inno מתרומם להרשאות מנהל

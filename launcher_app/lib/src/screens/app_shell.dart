@@ -440,26 +440,36 @@ class _AppShellState extends State<AppShell> {
   Future<void> _autoInstallIfEnabled() async {
     final s = widget.settings.settings;
 
-    // גם כאן מדלגים כשאוצריא פתוחה, ולא רק בספרייה: המתקין דורס קבצים
-    // שהתהליך הרץ נועל, ואז נופל באמצע ההתקנה בקוד יציאה סתום (5).
-    if (s.autoInstallApp && !_otzariaIsRunning) {
-      // אין במחשב אוצריא ועל הכונן יושבת חבילה מלאה — היא מה שמותקן, כי
-      // היא מביאה בצעד אחד גם את הספרייה. בשקט ובלי אשף: המשתמש ביקש
-      // שההתקנה תיעשה לבדה, ואשף שממתין ללחיצה אינו "לבדה".
-      if (_otzaria.fullPackageRecommended) {
-        await installFullPackage(useWizard: false);
-      } else if (_otzaria.status == OtzariaModuleStatus.updateAvailable) {
-        await _otzaria.install(useWizard: false);
-      }
+    // אין במחשב אוצריא ועל הכונן יושבת חבילה מלאה — היא מה שמותקן, והיא
+    // ראשונה: היא מביאה בצעד אחד גם את הספרייה, ואין מסד לעדכן לפניה.
+    // בשקט ובלי אשף: המשתמש ביקש שההתקנה תיעשה לבדה, ואשף שממתין
+    // ללחיצה אינו "לבדה".
+    final wantsFullPackage =
+        s.autoInstallApp && _otzaria.fullPackageRecommended;
+    if (wantsFullPackage && !(await refreshProcessState())) {
+      await installFullPackage(useWizard: false);
       if (!mounted) return;
     }
 
-    // עדכון מסד כותב לקובץ שאוצריא נועלת — מדלגים בשקט כשהיא פתוחה, במקום
-    // להיכשל ברקע על משהו שהמשתמש לא ביקש עכשיו.
+    // **המסד לפני המתקין, ולא אחריו.** המתקין של אוצריא משיק אותה בסוף
+    // התקנה שקטה, ואוצריא פתוחה נועלת את המסד — כלומר בסדר ההפוך הלאנצ'ר
+    // עצמו חסם את עדכון המסד שהוא הריץ מיד אחר כך. הבדיקה טרייה ובכפייה:
+    // המצב שנלכד קודם הוא בדיוק מה שהיה מיושן כאן, והרענון המחזורי דולק
+    // רק כשאוצריא כבר הייתה פתוחה.
     if (s.autoInstallLibrary &&
-        !_otzariaIsRunning &&
-        _library.status == LibraryModuleStatus.updateAvailable) {
+        _library.status == LibraryModuleStatus.updateAvailable &&
+        !(await refreshProcessState())) {
       await _library.update();
+      if (!mounted) return;
+    }
+
+    // גם ההתקנה מדלגת כשאוצריא פתוחה, ולא רק הספרייה: המתקין דורס קבצים
+    // שהתהליך הרץ נועל, ואז נופל באמצע ההתקנה בקוד יציאה סתום (5).
+    if (s.autoInstallApp &&
+        !wantsFullPackage &&
+        _otzaria.status == OtzariaModuleStatus.updateAvailable &&
+        !(await refreshProcessState())) {
+      await _otzaria.install(useWizard: false);
     }
   }
 

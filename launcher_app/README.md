@@ -379,6 +379,10 @@ fallback הוחלף באייקון `puzzle_piece` על רקע `primaryContainer`
 **התקנה אוטומטית** (`autoInstallApp`/`autoInstallLibrary`, כבויים בברירת
 מחדל) דורשת אישור באזהרה — `_confirmAutoInstall` — ומחווטת ב-
 `AppShell._autoInstallIfEnabled`, שמדלג על עדכון מסד כשאוצריא פתוחה.
+**הסדר שם הוא ספרייה לפני תוכנה**, ולפני כל אחת משלוש הפעולות רצה
+`refreshProcessState()`: המתקין של אוצריא משיק אותה בסוף התקנה שקטה, ואוצריא
+פתוחה נועלת את המסד — כלומר בסדר ההפוך העדכון האוטומטי חסם את עצמו. ראו
+`otzaria_manager/README.md` על `/NOLAUNCH=1`.
 ההגדרות נשמרות ל-`launcher_settings.json` עם `schemaVersion` וכתיבה אטומית
 (קובץ זמני + rename).
 
