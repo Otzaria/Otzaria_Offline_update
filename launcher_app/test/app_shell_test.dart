@@ -334,6 +334,29 @@ void main() {
     test('החבילה המלאה אינה מותקנת אוטומטית', () {
       expect(body, isNot(contains('installFullPackage(')));
     });
+
+    // דילוג שקט נראה בדיוק כמו הגדרה שאינה עובדת.
+    test('דילוג בגלל אוצריא פתוחה מדווח בדיאלוג', () {
+      expect(body, contains('skippedWhileRunning'));
+      expect(body, contains('showSingleActionDialog'));
+      expect(body, contains('autoInstallSkippedTitle'));
+    });
+  });
+
+  // ההחלפה מסתיימת ב-`exit(0)`, ולכן היא נחסמת בזמן פעולה ארוכה — גם
+  // כשהכפתור מנוטרל: [downloadLauncherUpdate] מגיע לכאן בלי כפתור בכלל.
+  group('installLauncherUpdate', () {
+    final source = File('lib/src/screens/app_shell.dart').readAsStringSync();
+    final start = source.indexOf('Future<void> installLauncherUpdate()');
+    final body =
+        source.substring(start, source.indexOf('_autoInstallIfEnabled', start));
+
+    test('גוף המתודה נמצא', () => expect(start, greaterThan(-1)));
+
+    test('נחסמת בזמן הורדה או התקנה, עם הודעה', () {
+      expect(body, contains('_longTaskRunning'));
+      expect(body, contains('busyNotice'));
+    });
   });
 }
 

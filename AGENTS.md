@@ -206,6 +206,21 @@ it) to the mirror. Four things hold it together:
   before** the installer, and re-probes the process with `refreshProcessState()`
   before each of its two actions — `_otzariaIsRunning` is a value captured
   earlier, and the periodic refresh only runs while Otzaria is *already* open.
+- **Replacing the launcher's exe is refused while a long task runs.**
+  `LauncherSelfInstaller` ends in `exit(0)`, so an install pressed during a
+  mirror download killed the process mid-asset: `MirrorDownloadUndo` never ran,
+  and partial assets stayed next to an already-rewritten manifest.
+  `AppShell._longTaskRunning` (download, library `updating`, Otzaria
+  `installing`) disables the card's button **and** guards
+  `installLauncherUpdate` itself — the button is not enough, since
+  `downloadLauncherUpdate` offers the install straight after a download with no
+  button involved.
+- **A skipped auto-install is announced.** Otzaria being open blocks both paths,
+  and the skip used to be silent — no snackbar, no log — which reads as a
+  setting that does not work. `_autoInstallIfEnabled` collects
+  `skippedWhileRunning` and ends in a `showSingleActionDialog`; a snackbar at
+  startup disappears before it is read, and this one asks the user to do
+  something.
 - **Auto-install only ever *updates*; a first install is never automatic.**
   Both paths are gated — the library on `!isFreshInstall`, the app on
   `currentVersion != null` — and the FULL package is not in

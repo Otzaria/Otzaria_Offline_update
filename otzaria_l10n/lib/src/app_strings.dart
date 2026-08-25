@@ -113,6 +113,12 @@ abstract class HomeStrings {
   String appInstalledSnack(String version);
 
   String get otzariaOpenSnack;
+
+  /// ההתקנה האוטומטית דילגה כי אוצריא פתוחה — דיאלוג ולא snackbar, כי
+  /// המשתמש ביקש שההתקנה תיעשה לבדה והיא לא נעשתה.
+  String get autoInstallSkippedTitle;
+  String get autoInstallSkippedContent;
+
   String get libraryUpdateDialogTitle;
   String libraryFreshInstallPrompt(String targetVersion);
   String libraryUpdatePrompt(String localVersion, String targetVersion);
@@ -838,6 +844,13 @@ abstract class LauncherUpdateStrings {
   /// ב-macOS ההחלפה מסתיימת בלי הפעלה מחדש אוטומטית — ראו
   /// `LauncherSelfInstaller`.
   String get manualRestartNotice;
+
+  /// ההחלפה מסתיימת ב-`exit(0)`, ולכן היא נחסמת בזמן הורדה או התקנה.
+  String get busyNotice;
+
+  /// הגרסה מוכנה אך אין לנו את קובץ ההרצה להחליף — הכרטיס אומר זאת במקום
+  /// להציג את עצמו בלי אף כפתור.
+  String get installUnavailableNotice;
 
   // ── הגדרות ──────────────────────────────────────────────────────────────
   String get versionTileTitle;

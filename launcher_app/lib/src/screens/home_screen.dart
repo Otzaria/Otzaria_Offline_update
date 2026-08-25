@@ -29,6 +29,7 @@ class HomeScreen extends StatelessWidget {
     required this.isDownloading,
     required this.isCancellingDownload,
     required this.isCheckingOnline,
+    required this.longTaskRunning,
     required this.onProcessStateChanged,
     required this.onCheckOnline,
     required this.onDownloadAll,
@@ -54,6 +55,10 @@ class HomeScreen extends StatelessWidget {
   /// מאפשר לחיצה שנייה.
   final bool isCancellingDownload;
   final bool isCheckingOnline;
+
+  /// רצה כרגע הורדה או התקנה. החלפת קובץ ההרצה של הלאנצ'ר מסתיימת ב-`exit(0)`
+  /// ולכן אינה מוצעת אז — ראו `AppShell._longTaskRunning`.
+  final bool longTaskRunning;
 
   /// בודקת מחדש אם אוצריא פתוחה ומחזירה את התוצאה הטרייה — [otzariaIsRunning]
   /// כאן הוא הערך מרגע הבנייה, וייתכן שאוצריא נסגרה מאז.
@@ -596,15 +601,24 @@ class HomeScreen extends StatelessWidget {
                 ),
               ],
               // ההתקנה זמינה גם בלי רשת, ולכן היא מוצגת לפני ההורדה: במחשב
-              // המנותק זו הפעולה היחידה שאפשר בכלל ללחוץ עליה.
+              // המנותק זו הפעולה היחידה שאפשר בכלל ללחוץ עליה. מנוטרלת בזמן
+              // הורדה או התקנה — היא מסתיימת ב-`exit(0)` ותקטע אותן.
               if (c.hasUpdateReady && c.canInstall) ...[
                 const SizedBox(height: AppTokens.spaceMD),
                 ActionButton.recommended(
                   text: t.installButton,
                   icon: FluentIcons.arrow_sync_24_regular,
                   isLoading: c.isInstalling,
-                  onPressed: c.isInstalling ? null : onInstallLauncherUpdate,
+                  onPressed: c.isInstalling || longTaskRunning
+                      ? null
+                      : onInstallLauncherUpdate,
                 ),
+              ],
+              // גרסה מוכנה שאין לנו איך להתקין — בלי השורה הזאת הכרטיס הכריז
+              // "מוכן להתקנה" ולא הציג אף כפתור.
+              if (c.hasUpdateReady && !c.canInstall) ...[
+                const SizedBox(height: AppTokens.spaceSM),
+                Text(t.installUnavailableNotice, style: detail),
               ],
               if (c.hasOnlineUpdate) ...[
                 const SizedBox(height: AppTokens.spaceMD),

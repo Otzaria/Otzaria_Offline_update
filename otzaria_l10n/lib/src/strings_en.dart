@@ -160,6 +160,13 @@ class _Home extends HomeStrings {
       'Otzaria was updated to version $version';
 
   @override
+  String get autoInstallSkippedTitle => 'The automatic update was not applied';
+  @override
+  String get autoInstallSkippedContent =>
+      'Otzaria is open right now, so the automatic update was not applied — '
+      'installing over a running program corrupts it. Close Otzaria and '
+      'apply the update by hand from the home screen.';
+  @override
   String get otzariaOpenSnack =>
       'Otzaria is open — please close it and try again.';
   @override
@@ -1492,6 +1499,15 @@ class _LauncherUpdate extends LauncherUpdateStrings {
   String get manualRestartNotice =>
       'The new version is in place. Close the program and open it again to '
       'start using it.';
+  @override
+  String get busyNotice =>
+      'Installing the new version closes and reopens this program, so it '
+      'waits for the download or install that is running right now.';
+  @override
+  String get installUnavailableNotice =>
+      'The version is ready, but the executable to replace was not found in '
+      'this run. The downloaded file sits in the mirror\\launcher folder '
+      'beside the program and can be swapped in by hand.';
 
   @override
   String get versionTileTitle => 'Program version';

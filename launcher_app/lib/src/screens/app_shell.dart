@@ -415,11 +415,25 @@ class _AppShellState extends State<AppShell> {
     await installLauncherUpdate();
   }
 
+  /// פעולה ארוכה שאסור לקטוע. החלפת קובץ ההרצה מסתיימת ב-`exit(0)`, ותהליך
+  /// שנהרג באמצע הורדה משאיר נכסים חלקיים בלי ש-[MirrorDownloadUndo] ירוץ,
+  /// ובאמצע התקנה — מסד או מתקין שנקטעו.
+  bool get _longTaskRunning =>
+      _isDownloading ||
+      _library.status == LibraryModuleStatus.updating ||
+      _otzaria.status == OtzariaModuleStatus.installing;
+
   /// מחליף את קובץ ההרצה בגרסה שהורדה ומפעיל מחדש — באישור המשתמש. פעולה
   /// מקומית לגמרי: היא עובדת גם במחשב בלי רשת.
   Future<void> installLauncherUpdate() async {
     if (_blockedByReadOnly()) return;
     if (!mounted) return;
+    // גם כשהכפתור מנוטרל: לכאן מגיעים גם מסוף [downloadLauncherUpdate], ושם
+    // אין כפתור לנטרל.
+    if (_longTaskRunning) {
+      UiSnack.show(AppL10n.strings.launcherUpdate.busyNotice);
+      return;
+    }
     final version = _launcherUpdate.downloadedVersion;
     if (version == null || !_launcherUpdate.canInstall) return;
 
@@ -462,12 +476,19 @@ class _AppShellState extends State<AppShell> {
     // עצמו חסם את עדכון המסד שהוא הריץ מיד אחר כך. הבדיקה טרייה ובכפייה:
     // המצב שנלכד קודם הוא בדיוק מה שהיה מיושן כאן, והרענון המחזורי דולק
     // רק כשאוצריא כבר הייתה פתוחה.
+    // דילוג בגלל אוצריא פתוחה נאסף ומדווח בסוף: המשתמש ביקש שההתקנה תיעשה
+    // לבדה, ודילוג שקט נראה בדיוק כמו הגדרה שאינה עובדת.
+    var skippedWhileRunning = false;
+
     if (s.autoInstallLibrary &&
         !_library.isFreshInstall &&
-        _library.status == LibraryModuleStatus.updateAvailable &&
-        !(await refreshProcessState())) {
-      await _library.update();
-      if (!mounted) return;
+        _library.status == LibraryModuleStatus.updateAvailable) {
+      if (await refreshProcessState()) {
+        skippedWhileRunning = true;
+      } else {
+        await _library.update();
+        if (!mounted) return;
+      }
     }
 
     // גם ההתקנה מדלגת כשאוצריא פתוחה, ולא רק הספרייה: המתקין דורס קבצים
@@ -477,10 +498,23 @@ class _AppShellState extends State<AppShell> {
     // (`fullPackageRecommended`), כלומר בדיוק המקרה שאינו אוטומטי.
     if (s.autoInstallApp &&
         _otzaria.currentVersion != null &&
-        _otzaria.status == OtzariaModuleStatus.updateAvailable &&
-        !(await refreshProcessState())) {
-      await _otzaria.install(useWizard: false);
+        _otzaria.status == OtzariaModuleStatus.updateAvailable) {
+      if (await refreshProcessState()) {
+        skippedWhileRunning = true;
+      } else {
+        await _otzaria.install(useWizard: false);
+      }
     }
+
+    if (!skippedWhileRunning || !mounted) return;
+    // דיאלוג ולא snackbar: זו הודעה שהמשתמש צריך לפעול לפיה, ו-snackbar
+    // בעלייה נעלם לפני שקוראים אותו.
+    final t = context.strings.home;
+    await showSingleActionDialog(
+      context: context,
+      title: t.autoInstallSkippedTitle,
+      content: t.autoInstallSkippedContent,
+    );
   }
 
   /// התיקיות ש-[downloadAll] ממלא, ולכן אלה שביטול מנקה. `mirror/apps`
@@ -678,6 +712,7 @@ class _AppShellState extends State<AppShell> {
             isDownloading: _isDownloading,
             isCancellingDownload: _cancelDownload,
             isCheckingOnline: _isCheckingOnline,
+            longTaskRunning: _longTaskRunning,
             onProcessStateChanged: refreshProcessState,
             onCheckOnline: checkOnline,
             onDownloadAll: downloadAll,

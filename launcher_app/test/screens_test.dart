@@ -62,6 +62,7 @@ void main() {
     bool isDownloading = false,
     bool isCancellingDownload = false,
     bool isCheckingOnline = false,
+    bool longTaskRunning = false,
     Future<bool> Function()? onProcessStateChanged,
     Future<void> Function()? onCancelDownload,
     Future<void> Function()? onInstallFullPackage,
@@ -78,6 +79,7 @@ void main() {
         isDownloading: isDownloading,
         isCancellingDownload: isCancellingDownload,
         isCheckingOnline: isCheckingOnline,
+        longTaskRunning: longTaskRunning,
         onProcessStateChanged: onProcessStateChanged ?? () async => false,
         onCheckOnline: () async {},
         onDownloadAll: () async {},
@@ -389,6 +391,28 @@ void main() {
 
     expect(find.text(t.statusReadyToInstall), findsOneWidget);
     expect(find.text(t.installButton), findsNothing);
+    // ובלי ההסבר הכרטיס הכריז "מוכן להתקנה" ולא הציג שום דרך להמשיך.
+    expect(find.text(t.installUnavailableNotice), findsOneWidget);
+  });
+
+  // ההחלפה מסתיימת ב-`exit(0)`: לחיצה באמצע הורדה של ~1.5GB הרגה את התהליך
+  // ו-`MirrorDownloadUndo` לא רץ מעולם.
+  testWidgets('בזמן הורדה או התקנה כפתור ההתקנה מנוטרל', (tester) async {
+    final t = stringsOf().launcherUpdate;
+    launcherUpdate.status = LauncherUpdateStatus.readyToInstall;
+    launcherUpdate.downloadedVersion = '9.9.9';
+    launcherUpdate.canInstall = true;
+
+    await pumpScreen(tester, home(longTaskRunning: true));
+
+    expect(find.text(t.installButton), findsOneWidget);
+    final button = tester.widget<ActionButton>(
+      find.ancestor(
+        of: find.text(t.installButton),
+        matching: find.byType(ActionButton),
+      ),
+    );
+    expect(button.onPressed, isNull);
   });
 
   /// הכפתור בדף הבית קיים רק כשיש מה לעדכן — כאן זה מוצב ידנית, בלי דיסק.

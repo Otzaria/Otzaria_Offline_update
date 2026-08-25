@@ -159,6 +159,13 @@ class _Home extends HomeStrings {
   @override
   String get otzariaOpenSnack => 'אוצריא פתוחה — יש לסגור אותה ואז לנסות שוב.';
   @override
+  String get autoInstallSkippedTitle => 'העדכון האוטומטי לא הוחל';
+  @override
+  String get autoInstallSkippedContent =>
+      'אוצריא פתוחה כרגע, ולכן העדכון האוטומטי לא הוחל — התקנה על תוכנה '
+      'פתוחה משבשת אותה. יש לסגור את אוצריא ולהחיל את העדכון ידנית מדף '
+      'הבית.';
+  @override
   String get libraryUpdateDialogTitle => 'עדכון הספרייה';
   @override
   String libraryFreshInstallPrompt(String targetVersion) =>
@@ -1407,6 +1414,15 @@ class _LauncherUpdate extends LauncherUpdateStrings {
   String get manualRestartNotice =>
       'הגרסה החדשה הוחלפה. יש לסגור את התוכנה ולפתוח אותה מחדש כדי לעבוד '
       'איתה.';
+  @override
+  String get busyNotice =>
+      'התקנת הגרסה החדשה סוגרת את התוכנה ופותחת אותה מחדש, ולכן היא ממתינה '
+      'לסיום ההורדה או ההתקנה שרצה כרגע.';
+  @override
+  String get installUnavailableNotice =>
+      'הגרסה מוכנה, אך לא נמצא קובץ ההרצה שיש להחליף בהרצה הזאת. הקובץ '
+      'שהורד יושב בתיקייה mirror\\launcher שלצד התוכנה, ואפשר להחליף אותו '
+      'ידנית.';
 
   @override
   String get versionTileTitle => 'גרסת התוכנה';
