@@ -341,6 +341,24 @@ void main() {
 
       expect(await unknown.resolveInstallDbPath(), isNull);
     });
+
+    // זו התכונה ש-`LibraryManager._finishDbUpdate` נשען עליה: יעד שנגזר
+    // מכאן ייקרא לבדו בהרצה הבאה, ולכן אסור לרשום אותו כבחירת המשתמש —
+    // רישום כזה נבדק **לפני** ההגדרות של אוצריא ונועל את הלאנצ'ר עליו.
+    test('היעד שנגזר לבד הוא תמיד כזה שהאיתור ימצא בעצמו', () async {
+      final target = await locator().resolveInstallDbPath();
+
+      expect(target, isNotNull);
+      expect(await locator().isKnownToOtzaria(target!), isTrue);
+    });
+
+    test('יעד שנבחר ידנית מחוץ למיקומים של אוצריא אינו מוכר לה', () async {
+      final chosen = p.posix.join(tempDir.path, 'usb', 'seforim.db');
+      await stateStore.saveCustomDbPath(chosen);
+
+      expect(await locator().resolveInstallDbPath(), chosen);
+      expect(await locator().isKnownToOtzaria(chosen), isFalse);
+    });
   });
 
   group('LibraryDbLocator.isKnownToOtzaria', () {
