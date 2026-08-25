@@ -950,6 +950,25 @@ class _Plugins extends PluginsStrings {
   String pluginVersionBadge(String version) => 'Version $version';
   @override
   String downloadsBadge(int count) => '$count downloads';
+
+  @override
+  String ratingBadge(String average, int count) => '$average ($count)';
+  @override
+  String ratingTooltip(int count) => 'Average rating from $count raters';
+  @override
+  String get ratingPanelTitle => 'User Rating';
+  @override
+  String ratingCountLabel(int count) =>
+      count == 1 ? '$count rater' : '$count raters';
+  @override
+  String ratingVerifiedLabel(int count) => '$count verified';
+  @override
+  String get ratingVerifiedTooltip =>
+      'Raters whose install of the plugin was actually recorded';
+  @override
+  String get ratingEmpty => 'This plugin has not been rated yet';
+  @override
+  String ratingStarsLabel(String average) => 'Rated $average out of 5';
   @override
   String get saveButton => 'Save';
   @override

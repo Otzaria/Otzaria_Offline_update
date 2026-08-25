@@ -9,11 +9,12 @@ import '../../services/byte_size.dart';
 import '../../services/hebrew_date.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
+import 'plugin_rating_panel.dart';
 import 'plugin_screenshot_lightbox.dart';
 import 'plugin_store_body.dart';
 import 'plugin_visuals.dart';
 
-/// עמוד פרטי התוסף — hero, מידע כללי, תגיות וגלריית צילומי מסך.
+/// עמוד פרטי התוסף — hero, מידע כללי, תגיות, דירוג וגלריית צילומי מסך.
 class PluginDetailView extends StatelessWidget {
   const PluginDetailView({
     super.key,
@@ -87,6 +88,13 @@ class PluginDetailView extends StatelessWidget {
             ],
           );
         },
+      ),
+      const SizedBox(height: AppTokens.spaceLG),
+      // גם בלי דירוגים הסעיף מוצג ואומר זאת — כמו באתר.
+      _panel(
+        context,
+        context.strings.plugins.ratingPanelTitle,
+        PluginRatingSummary(plugin: plugin),
       ),
       if (plugin.screenshotPaths.isNotEmpty) ...[
         const SizedBox(height: AppTokens.spaceLG),
@@ -220,6 +228,8 @@ class PluginDetailView extends StatelessWidget {
               label: t.downloadsBadge(plugin.downloadCount),
               icon: FluentIcons.arrow_download_24_regular,
             ),
+            // באתר הדירוג מופיע פעמיים בעמוד: כגלולה כאן, וכסעיף מלא למטה.
+            if (plugin.ratingCount > 0) PluginRatingBadge(plugin: plugin),
             if (plugin.isFeatured)
               PluginBadge(
                 label: t.badgeFeatured,

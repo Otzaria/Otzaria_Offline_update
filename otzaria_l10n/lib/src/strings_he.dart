@@ -902,6 +902,24 @@ class _Plugins extends PluginsStrings {
   String pluginVersionBadge(String version) => 'גרסה $version';
   @override
   String downloadsBadge(int count) => '$count הורדות';
+
+  @override
+  String ratingBadge(String average, int count) => '$average ($count)';
+  @override
+  String ratingTooltip(int count) => 'דירוג ממוצע מתוך $count מדרגים';
+  @override
+  String get ratingPanelTitle => 'דירוג המשתמשים';
+  @override
+  String ratingCountLabel(int count) =>
+      count == 1 ? '$count מדרג' : '$count מדרגים';
+  @override
+  String ratingVerifiedLabel(int count) => '$count מאומתים';
+  @override
+  String get ratingVerifiedTooltip => 'מדרגים שהתקנת התוסף אצלם נרשמה בפועל';
+  @override
+  String get ratingEmpty => 'התוסף עדיין לא דורג';
+  @override
+  String ratingStarsLabel(String average) => 'דירוג $average מתוך 5';
   @override
   String get saveButton => 'שמירה';
   @override

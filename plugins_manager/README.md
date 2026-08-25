@@ -209,7 +209,8 @@ U+FEFF מוביל. אותו טיפול בדיוק כמו ב-`LogicalContentHashe
 `status`, `author`, `updatedAt`, `originalDate`, `compatibleWith`,
 `maxAppVersion`, `requiresNetwork`, `tags`, `homepage`, `downloadCount`,
 `supportsDirectInstall`, `isPinned`, `image`, `screenshots`, `downloadUrl`,
-`versions`.
+`versions`, `ratingAvg`, `ratingCount`, `ratingVerifiedCount`,
+`ratingBreakdown`.
 הרשימה מגיעה ממוינת — הנבחרים ראשונים בסדר האצירה — והסדר נשמר בקטלוג.
 
 `versions` הוא מערך הבילדים (הגרסה החיה ואחריה ההיסטוריות), ולכל אחד
@@ -225,6 +226,10 @@ U+FEFF מוביל. אותו טיפול בדיוק כמו ב-`LogicalContentHashe
 
 `image`, `screenshots` ו-`downloadUrl` הם נתיבים יחסיים לאתר. אם כתובת
 האתר תשתנה — `PluginStoreClient.defaultBaseUrl`.
+
+**שדות הדירוג הם לקריאה בלבד.** הם נשמרים בקטלוג ומוצגים במחשב המנותק,
+אבל אין כאן דירוג ואין קריאה ל-`/api/plugins/<id>/rating`: הדירוג נעשה
+באתר ודורש חשבון. קטלוג שנכתב לפני שהם נוספו נקרא כתוסף שטרם דורג.
 
 ### מבנה החנות: קטגוריות, נבחרים וטקסטים
 
@@ -259,7 +264,7 @@ U+FEFF מוביל. אותו טיפול בדיוק כמו ב-`LogicalContentHashe
 
 ## ⚠️ מה אומת בפועל ומה לא
 
-**אומת:** 256 בדיקות יחידה (`dart test`) עוברות, קובץ לכל שירות —
+**אומת:** 260 בדיקות יחידה (`dart test`) עוברות, קובץ לכל שירות —
 קריאת `manifest.json` מ-`.otzplugin` אמיתי שנבנה ב-`archive` (BOM, ZIP
 פגום, manifest חסר או בתת-תיקייה, id ריק/לא-מחרוזת), סריקת תוספים
 מותקנים מול עץ תיקיות זמני, round-trip של `catalog.json` (כולל קטלוג

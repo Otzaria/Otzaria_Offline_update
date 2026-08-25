@@ -81,6 +81,10 @@ class StorePlugin extends Equatable {
     this.localFiles = const {},
     this.manifestId,
     this.versions = const [],
+    this.ratingAvg = 0,
+    this.ratingCount = 0,
+    this.ratingVerifiedCount = 0,
+    this.ratingBreakdown = const [0, 0, 0, 0, 0],
   });
 
   /// מזהה מסד-הנתונים של האתר. **אינו** המזהה שאוצריא משתמשת בו לתיקיית
@@ -103,6 +107,17 @@ class StorePlugin extends Equatable {
   final String homepage;
   final int downloadCount;
   final bool supportsDirectInstall;
+
+  /// דירוג המשתמשים כפי שהאתר מחשב אותו. **לקריאה בלבד** — הדירוג נעשה
+  /// באתר (דורש חשבון), והמראה רק נושאת את התוצאה אל המחשב הלא-מקוון.
+  final double ratingAvg;
+  final int ratingCount;
+
+  /// מדרגים שהתקנת התוסף אצלם נרשמה בפועל.
+  final int ratingVerifiedCount;
+
+  /// כמה מדרגים נתנו כל ציון — חמישה מספרים, מכוכב אחד ועד חמישה.
+  final List<int> ratingBreakdown;
 
   /// כל הבילדים שהאתר מכיר — החי וההיסטוריים — ממוינים מהגבוה לנמוך.
   /// זה מה שמאפשר להכריע אופליין איזה בילד מתאים לגרסת אוצריא שבמחשב.
@@ -254,6 +269,10 @@ class StorePlugin extends Equatable {
       localFiles: localFiles ?? this.localFiles,
       manifestId: manifestId ?? this.manifestId,
       versions: versions ?? this.versions,
+      ratingAvg: ratingAvg,
+      ratingCount: ratingCount,
+      ratingVerifiedCount: ratingVerifiedCount,
+      ratingBreakdown: ratingBreakdown,
     );
   }
 
@@ -281,6 +300,10 @@ class StorePlugin extends Equatable {
           json['downloadCount'] is int ? json['downloadCount'] as int : 0,
       supportsDirectInstall: json['supportsDirectInstall'] == true,
       isFeatured: json['isPinned'] == true,
+      ratingAvg: _double(json['ratingAvg']),
+      ratingCount: _int(json['ratingCount']),
+      ratingVerifiedCount: _int(json['ratingVerifiedCount']),
+      ratingBreakdown: _breakdown(json['ratingBreakdown']),
       remoteDownloadUrl: _absolute(_string(json['downloadUrl']), baseUrl),
       versions: _sortedDescending(_versions(json['versions'], baseUrl)),
       // כמו שהאתר שלח, בלי להפוך למוחלט: הן נשמרות כדי להשוות מול התשובה
@@ -311,6 +334,10 @@ class StorePlugin extends Equatable {
         'downloadCount': downloadCount,
         'supportsDirectInstall': supportsDirectInstall,
         'isFeatured': isFeatured,
+        'ratingAvg': ratingAvg,
+        'ratingCount': ratingCount,
+        'ratingVerifiedCount': ratingVerifiedCount,
+        'ratingBreakdown': ratingBreakdown,
         'remoteDownloadUrl': remoteDownloadUrl,
         'remoteImageUrl': remoteImageUrl,
         'remoteScreenshotUrls': remoteScreenshotUrls,
@@ -351,6 +378,10 @@ class StorePlugin extends Equatable {
       supportsDirectInstall: json['supportsDirectInstall'] == true,
       // `isPinned` — קטלוג שנכתב לפני שהאתר שינה את המשמעות ל"נבחר".
       isFeatured: json['isFeatured'] == true || json['isPinned'] == true,
+      ratingAvg: _double(json['ratingAvg']),
+      ratingCount: _int(json['ratingCount']),
+      ratingVerifiedCount: _int(json['ratingVerifiedCount']),
+      ratingBreakdown: _breakdown(json['ratingBreakdown']),
       remoteDownloadUrl: _string(json['remoteDownloadUrl']),
       remoteImageUrl: _string(json['remoteImageUrl']),
       remoteScreenshotUrls: _stringList(json['remoteScreenshotUrls']),
@@ -367,6 +398,20 @@ class StorePlugin extends Equatable {
   }
 
   static String _string(Object? value) => value is String ? value : '';
+
+  /// `ratingAvg` חוזר מהאתר כשלם כשאין לו שבר (`5` ולא `5.0`).
+  static double _double(Object? value) => value is num ? value.toDouble() : 0;
+
+  static int _int(Object? value) => value is int ? value : 0;
+
+  /// תמיד חמישה מספרים — פילוח קטוע היה מפיל את שורות הפירוט בעמוד התוסף.
+  static List<int> _breakdown(Object? value) {
+    if (value is! List) return const [0, 0, 0, 0, 0];
+    return [
+      for (var i = 0; i < 5; i++)
+        i < value.length && value[i] is int ? value[i] as int : 0,
+    ];
+  }
 
   static List<String> _stringList(Object? value) => value is List
       ? value.whereType<String>().toList(growable: false)

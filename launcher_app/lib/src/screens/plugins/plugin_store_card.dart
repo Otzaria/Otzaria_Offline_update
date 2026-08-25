@@ -27,8 +27,12 @@ class PluginStoreCard extends StatelessWidget {
   final VoidCallback onInstall;
   final bool busy;
 
-  /// תקציבי הגובה של שתי שורות הגלולות. הם חלק מהחישוב של
+  /// תקציבי הגובה של שורות הגלולות. הם חלק מהחישוב של
   /// `_cardContentHeight` ב-`plugins_screen.dart` — שינוי כאן דורש שינוי שם.
+  ///
+  /// תקציב הגלולות **מוכפל ב-`textScale`**, כמו התקציב שבצד השני של
+  /// המשוואה. כשהיה מספר קבוע הוא נגבה במלואו גם בהגדלה 0.9 (שבה התקציב
+  /// הקטן ביותר) ובכל זאת חתך גלולות בהגדלה גדולה — הרע שבשני העולמות.
   static const double _badgesHeight = 52;
   static const double _tagsHeight = 26;
 
@@ -63,11 +67,13 @@ class PluginStoreCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: AppTokens.spaceMD),
-            // תקציב גובה קבוע לשתי שורות גלולות. הכרטיס ברשת הוא בגובה
-            // קבוע (mainAxisExtent), ולכן `Wrap` שגולש לשורה שלישית — למשל
-            // עם שבב "עדכון זמין (מותקן …)" בכרטיס צר — היה מגלישׂ את הכרטיס.
+            // תקציב גובה לשתי שורות גלולות. הכרטיס ברשת הוא בגובה קבוע
+            // (mainAxisExtent), ולכן `Wrap` שגולש לשורה נוספת — למשל עם
+            // שבב "עדכון זמין (מותקן …)" בכרטיס צר — היה מגלישׂ את הכרטיס.
+            // מה שנחתך הוא האחרון, ולכן גלולת הדירוג היא האחרונה: היא
+            // קישוט, ושבב ההתקנה הוא מידע שאסור להיעלם.
             SizedBox(
-              height: _badgesHeight,
+              height: MediaQuery.textScalerOf(context).scale(_badgesHeight),
               child: Wrap(
                 spacing: AppTokens.spaceXS,
                 runSpacing: AppTokens.spaceXS,
@@ -87,6 +93,8 @@ class PluginStoreCard extends StatelessWidget {
                     icon: FluentIcons.arrow_download_24_regular,
                   ),
                   PluginInstallChip(status: installStatus, compact: true),
+                  // כמו באתר: תוסף שטרם דורג אינו מציג גלולת דירוג ריקה.
+                  if (plugin.ratingCount > 0) PluginRatingBadge(plugin: plugin),
                 ],
               ),
             ),

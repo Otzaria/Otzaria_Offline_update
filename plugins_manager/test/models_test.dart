@@ -197,6 +197,56 @@ void main() {
     });
   });
 
+  group('דירוג המשתמשים', () {
+    test('נקרא מ-/api/plugins, גם כשהממוצע חוזר כשלם', () {
+      final plugin = StorePlugin.fromApi(const {
+        'id': 'x',
+        'ratingAvg': 5,
+        'ratingCount': 3,
+        'ratingVerifiedCount': 1,
+        'ratingBreakdown': [0, 0, 0, 0, 3],
+      }, 'https://otzaria.org');
+
+      expect(plugin.ratingAvg, 5.0);
+      expect(plugin.ratingCount, 3);
+      expect(plugin.ratingVerifiedCount, 1);
+      expect(plugin.ratingBreakdown, [0, 0, 0, 0, 3]);
+    });
+
+    test('שורד את הדרך למראה ובחזרה — המחשב המנותק מציג את מה שהיה באתר', () {
+      final plugin = StorePlugin.fromApi(const {
+        'id': 'x',
+        'ratingAvg': 4.5,
+        'ratingCount': 2,
+        'ratingBreakdown': [0, 0, 0, 1, 1],
+      }, 'https://otzaria.org');
+
+      final reloaded = StorePlugin.fromJson(plugin.toJson());
+      expect(reloaded.ratingAvg, 4.5);
+      expect(reloaded.ratingCount, 2);
+      expect(reloaded.ratingBreakdown, [0, 0, 0, 1, 1]);
+      // copyWith רץ בכל שלב בסנכרון — דירוג שנמחק שם לא היה מגיע לקטלוג.
+      expect(reloaded.copyWith(manifestId: 'real').ratingAvg, 4.5);
+    });
+
+    test('קטלוג ישן, בלי שדות דירוג, נקרא כתוסף שטרם דורג', () {
+      final plugin = StorePlugin.fromJson(const {'id': 'x'});
+
+      expect(plugin.ratingAvg, 0);
+      expect(plugin.ratingCount, 0);
+      expect(plugin.ratingBreakdown, [0, 0, 0, 0, 0]);
+    });
+
+    test('פילוח קטוע או פגום מושלם לחמישה ציונים', () {
+      final short = StorePlugin.fromJson(const {
+        'id': 'x',
+        'ratingBreakdown': [1, 'שתיים'],
+      });
+
+      expect(short.ratingBreakdown, [1, 0, 0, 0, 0]);
+    });
+  });
+
   group('PluginLocalFile', () {
     test('round-trip שומר את כל השדות', () {
       const file = PluginLocalFile(

@@ -155,9 +155,12 @@ ZSTD_ROOT="C:/pub-cache/hosted/pub.dev/zstandard_native-1.5.0/src/zstd" \
 
 `screens/plugins/plugin_visuals.dart` מגדיר רכיבים שאין להם מקבילה
 במערכת העיצוב של אוצריא: `PluginBadge` (גלולת מטא-דאטה), `PluginTagPill`,
-`PluginInstallChip` (עוטף `StatusChip`), `PluginThumbnail` ו-
-`PluginSectionEyebrow` (ה"עינית" מעל כותרת סעיף). אליהם מצטרף
-ה-lightbox ב-`plugin_screenshot_lightbox.dart`. הם נדרשו כי החנות היא
+`PluginInstallChip` (עוטף `StatusChip`), `PluginThumbnail`,
+`PluginSectionEyebrow` (ה"עינית" מעל כותרת סעיף) ו-`PluginRatingStars`
+(חמישה כוכבים במילוי חלקי — פורט של `StarRating` שבאתר, ולכן גם צבע
+הכוכב הוא קבוע: `AppColors.ratingStar`). אליהם מצטרפים ה-lightbox
+ב-`plugin_screenshot_lightbox.dart` וסעיף הדירוג ב-
+`plugin_rating_panel.dart`. הם נדרשו כי החנות היא
 המרה של ממשק אינטרנט עם רשת כרטיסים ותמונות, ולא מסך הגדרות.
 
 **מסך התוספים הוא היחיד שאינו משתמש ב-`ScreenBody`.** במקומו
@@ -634,6 +637,7 @@ lib/
             ├── plugin_store_card.dart       — כרטיס ברשת
             ├── plugin_detail_view.dart      — עמוד פרטי תוסף
             ├── plugin_filters_bar.dart      — חיפוש, סטטוס, תגיות
+            ├── plugin_rating_panel.dart     — דירוג המשתמשים (תצוגה בלבד)
             ├── plugin_screenshot_lightbox.dart
             ├── plugin_sync_overlay.dart, plugin_updates_dialog.dart
             └── plugin_visuals.dart          — רכיבים מקומיים (לא פורט)

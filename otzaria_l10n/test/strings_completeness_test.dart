@@ -120,6 +120,7 @@ const _sameInBothLanguages = {
   'settings.languageHebrew', // כל שפה מוצגת בשמה שלה
   'settings.languageEnglish',
   'plugins.localFileDescription', // מחרוזת פורמט טהורה: "קובץ (גודל)"
+  'plugins.ratingBadge', // מחרוזת פורמט טהורה: "4.5 (128)"
   // שמות ה-framework-ים של חבילות ההתקנה — שמות מוצר, לא מונחים.
   'customApps.kindInno',
   'customApps.kindNsis',
@@ -134,6 +135,7 @@ const _noHebrewLettersInHebrew = {
   'common.emptyValue',
   'settings.languageEnglish',
   'plugins.localFileDescription',
+  'plugins.ratingBadge',
   'customApps.kindInno',
   'customApps.kindNsis',
   'customApps.kindMsi',

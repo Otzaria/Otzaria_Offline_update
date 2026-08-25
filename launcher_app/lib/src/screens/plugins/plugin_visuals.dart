@@ -41,17 +41,72 @@ String pluginStatusLabel(String status) {
   };
 }
 
+/// הממוצע כפי שהאתר מציג אותו — ספרה אחת אחרי הנקודה, תמיד.
+String formatRating(double value) => value.toStringAsFixed(1);
+
+/// חמישה כוכבים עם מילוי חלקי לפי [value] — הפורט של `StarRating` שבאתר:
+/// שכבת כוכבים מעומעמת, ומעליה שכבה כתומה שנחתכת ל-`value/5` מהרוחב.
+///
+/// **תצוגה בלבד.** את הדירוג עצמו נותנים באתר (דורש חשבון), ואין כאן
+/// שום דרך לדרג — גם לא במחשב מקוון.
+class PluginRatingStars extends StatelessWidget {
+  const PluginRatingStars({super.key, required this.value, this.size = 13});
+
+  final double value;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final clamped = value.clamp(0.0, 5.0);
+
+    return Semantics(
+      label: AppL10n.strings.plugins.ratingStarsLabel(formatRating(clamped)),
+      child: Stack(
+        alignment: AlignmentDirectional.centerStart,
+        children: [
+          _stars(cs.onSurfaceVariant.withValues(alpha: .3)),
+          // Align עם widthFactor הוא מה שחותך כאן — ב-RTL ה-start הוא
+          // הצד הימני, ולכן המילוי מתחיל מאותו כוכב כמו באתר.
+          ClipRect(
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              widthFactor: clamped / 5,
+              child: _stars(AppColors.ratingStar),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _stars(Color color) {
+    final icon =
+        size < 20 ? FluentIcons.star_16_filled : FluentIcons.star_24_filled;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < 5; i++) Icon(icon, size: size, color: color),
+      ],
+    );
+  }
+}
+
 /// גלולת מטא-דאטה קטנה (גרסה, מספר הורדות, סטטוס).
 class PluginBadge extends StatelessWidget {
   const PluginBadge({
     super.key,
     required this.label,
     this.icon,
+    this.leading,
     this.emphasized = false,
   });
 
   final String label;
   final IconData? icon;
+
+  /// רכיב לפני התווית, כשסמל בודד אינו מספיק — הכוכבים של גלולת הדירוג.
+  final Widget? leading;
 
   /// גלולה מודגשת בצבע ה-primary — לסטטוס התוסף.
   final bool emphasized;
@@ -72,7 +127,10 @@ class PluginBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (icon != null) ...[
+          if (leading != null) ...[
+            leading!,
+            const SizedBox(width: 4),
+          ] else if (icon != null) ...[
             Icon(icon, size: 13, color: foreground),
             const SizedBox(width: 4),
           ],
@@ -89,6 +147,28 @@ class PluginBadge extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// גלולת הדירוג — כוכבים, הממוצע ומספר המדרגים בסוגריים, כמו בכרטיס
+/// שבאתר. מי שקורא לה אחראי להסתיר אותה כשאין דירוגים כלל.
+class PluginRatingBadge extends StatelessWidget {
+  const PluginRatingBadge({super.key, required this.plugin});
+
+  final StorePlugin plugin;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.strings.plugins;
+
+    return Tooltip(
+      message: t.ratingTooltip(plugin.ratingCount),
+      child: PluginBadge(
+        label:
+            t.ratingBadge(formatRating(plugin.ratingAvg), plugin.ratingCount),
+        leading: PluginRatingStars(value: plugin.ratingAvg),
       ),
     );
   }

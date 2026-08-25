@@ -539,6 +539,18 @@ abstract class PluginsStrings {
   String get badgeFeatured;
   String pluginVersionBadge(String version);
   String downloadsBadge(int count);
+
+  // ── דירוג המשתמשים ──────────────────────────────────────────────────────
+  // תצוגה בלבד. הדירוג עצמו נעשה באתר (דורש חשבון), ואין כאן דרך לדרג.
+  String ratingBadge(String average, int count);
+  String ratingTooltip(int count);
+  String get ratingPanelTitle;
+  String ratingCountLabel(int count);
+  String ratingVerifiedLabel(int count);
+  String get ratingVerifiedTooltip;
+  String get ratingEmpty;
+  String ratingStarsLabel(String average);
+
   String get saveButton;
   String get installButton;
   String get directInstallButton;

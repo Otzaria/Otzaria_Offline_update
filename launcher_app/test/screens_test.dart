@@ -965,8 +965,9 @@ void main() {
   testWidgets('כרטיס עמוס בכרטיס הצר ביותר אינו גולש — בכל הגדלה ובשתי השפות',
       (tester) async {
     // המקרה הגרוע: שם ארוך, תקציר ארוך, ארבע תגיות עבריות ארוכות, מונה
-    // הורדות בן שש ספרות ושבב "עדכון זמין" (שמופיע רק כשמותקנת גרסה
-    // ישנה) — כל אלה מרחיבים את שתי שורות הגלולות שהכרטיס תוקצב עבורן.
+    // הורדות בן שש ספרות, גלולת דירוג ושבב "עדכון זמין" (שמופיע רק
+    // כשמותקנת גרסה ישנה) — כל אלה מרחיבים את שורות הגלולות שהכרטיס
+    // תוקצב עבורן.
     final store = PluginMirrorStore(tempDir.path);
     await tester.runAsync(() => store.save(PluginCatalog(
           lastSync: DateTime.utc(2026, 8, 6),
@@ -981,6 +982,8 @@ void main() {
                 'version': '10.20.30',
                 'status': 'experimental',
                 'downloadCount': 123456,
+                'ratingAvg': 4.5,
+                'ratingCount': 128,
                 'isPinned': true,
                 'tags': const [
                   'תגית ארוכה למדי',

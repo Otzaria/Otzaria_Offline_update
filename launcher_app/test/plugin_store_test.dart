@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/plugins_module_controller.dart';
 import 'package:launcher_app/src/screens/plugins/plugin_detail_view.dart';
 import 'package:launcher_app/src/screens/plugins/plugin_filters_bar.dart';
+import 'package:launcher_app/src/screens/plugins/plugin_rating_panel.dart';
 import 'package:launcher_app/src/screens/plugins/plugin_store_body.dart';
 import 'package:launcher_app/src/screens/plugins/plugin_store_card.dart';
 import 'package:launcher_app/src/screens/plugins/plugin_store_nav.dart';
@@ -45,6 +46,10 @@ StorePlugin storePlugin(
   List<String> screenshots = const [],
   List<String> categories = const [],
   bool withLocalFile = false,
+  num ratingAvg = 0,
+  int ratingCount = 0,
+  int ratingVerified = 0,
+  List<int> ratingBreakdown = const [0, 0, 0, 0, 0],
 }) {
   final plugin = StorePlugin.fromApi({
     'id': id,
@@ -59,6 +64,10 @@ StorePlugin storePlugin(
     'isPinned': featured,
     'supportsDirectInstall': direct,
     'downloadUrl': '/api/plugins/$id/download',
+    'ratingAvg': ratingAvg,
+    'ratingCount': ratingCount,
+    'ratingVerifiedCount': ratingVerified,
+    'ratingBreakdown': ratingBreakdown,
   }, 'https://otzaria.org');
 
   return plugin.copyWith(
@@ -559,6 +568,73 @@ void main() {
     await tester.tap(find.text(t.backToStore));
     await tester.pumpAndSettle();
     expect(find.byType(PluginDetailView), findsNothing);
+  });
+
+  testWidgets('הדירוג שבאתר מוצג בכרטיס ובעמוד התוסף — ואין דרך לדרג',
+      (tester) async {
+    await seed(tester, catalog: [
+      storePlugin(
+        'a',
+        name: 'תוסף מדורג',
+        ratingAvg: 4.5,
+        ratingCount: 2,
+        ratingVerified: 1,
+        ratingBreakdown: const [0, 0, 0, 1, 1],
+      ),
+    ]);
+
+    await pumpScreen(tester, PluginsScreen(controller: plugins));
+    await tester.pumpAndSettle();
+
+    // בכרטיס: ממוצע בספרה אחת ומספר המדרגים בסוגריים, כמו באתר.
+    expect(find.text(t.ratingBadge('4.5', 2)), findsOneWidget);
+
+    await tester.tap(find.text(t.cardDetailsLink));
+    await tester.pumpAndSettle();
+
+    // בעמוד התוסף הדירוג מופיע פעמיים, כמו באתר: גלולה ליד ההורדות...
+    expect(
+      find.descendant(
+        of: find.byType(PluginDetailView),
+        matching: find.byType(PluginRatingBadge),
+      ),
+      findsOneWidget,
+    );
+
+    // ...וסעיף מלא עם הפילוח.
+    final panel = find.byType(PluginRatingSummary);
+    expect(find.text(t.ratingPanelTitle), findsOneWidget);
+    expect(
+      find.descendant(of: panel, matching: find.text('4.5')),
+      findsOneWidget,
+    );
+    expect(find.text(t.ratingCountLabel(2)), findsOneWidget);
+    expect(find.text(t.ratingVerifiedLabel(1)), findsOneWidget);
+
+    // הדירוג הוא תצוגה בלבד: בסעיף אין שום דבר שאפשר ללחוץ עליו.
+    expect(
+      find.descendant(of: panel, matching: find.byType(InkWell)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: panel, matching: find.byType(ButtonStyleButton)),
+      findsNothing,
+    );
+  });
+
+  testWidgets('תוסף שטרם דורג — הסעיף אומר זאת ואין גלולת דירוג ריקה',
+      (tester) async {
+    await seed(tester, catalog: [storePlugin('a', name: 'תוסף בלי דירוג')]);
+
+    await pumpScreen(tester, PluginsScreen(controller: plugins));
+    await tester.pumpAndSettle();
+    expect(find.byType(PluginRatingBadge), findsNothing);
+
+    await tester.tap(find.text(t.cardDetailsLink));
+    await tester.pumpAndSettle();
+
+    expect(find.text(t.ratingEmpty), findsOneWidget);
+    expect(find.text(t.ratingCountLabel(0)), findsNothing);
   });
 
   testWidgets('לחיצה על תגית בעמוד התוסף מסננת את "כל התוספים"',
