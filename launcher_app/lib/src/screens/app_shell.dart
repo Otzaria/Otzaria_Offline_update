@@ -329,10 +329,10 @@ class _AppShellState extends State<AppShell> {
   /// מתקין את החבילה המלאה. יושב כאן ולא במסך, כי גם ההמלצה שבעלייה וגם
   /// הכפתור שבכרטיס מגיעים אליו.
   ///
-  /// [useWizard] מועבר `false` רק מההתקנה האוטומטית — ראו
-  /// [OtzariaModuleController.installFullPackage].
-  Future<void> installFullPackage({bool useWizard = true}) async {
-    final ok = await _otzaria.installFullPackage(useWizard: useWizard);
+  /// תמיד עם האשף: זו התקנה ראשונה, ולכן תמיד לחיצה של המשתמש — ראו
+  /// [_autoInstallIfEnabled].
+  Future<void> installFullPackage() async {
+    final ok = await _otzaria.installFullPackage(useWizard: true);
     if (!mounted) return;
     if (ok) {
       // ההתקנה המלאה הביאה גם ספרייה — הבדיקה שלה מכאן היא מה שמחליף את
@@ -448,19 +448,14 @@ class _AppShellState extends State<AppShell> {
 
   /// מתקין מהתיקייה המקומית בלי לשאול — אך ורק למי שהדליק זאת במפורש
   /// בהגדרות (ראו `SettingsScreen._confirmAutoInstall`). לא מוריד דבר.
+  ///
+  /// **מעדכן את מה שכבר מותקן, ולעולם לא מתקין בפעם הראשונה.** ליעד של
+  /// התקנה ראשונה אין מקור ודאי: הוא מנוחש מברירות המחדל בכל פעם שההגדרות
+  /// של אוצריא לא נקראו (`OtzariaSettingsReader` מחזיר `null` על כל כשל),
+  /// והניחוש נרשם אחר כך כבחירת המשתמש — כלומר מסד שלם במקום הלא נכון,
+  /// ולנצח. מי שאין לו התקנה מחליט בעצמו, מהכרטיס שבדף הבית.
   Future<void> _autoInstallIfEnabled() async {
     final s = widget.settings.settings;
-
-    // אין במחשב אוצריא ועל הכונן יושבת חבילה מלאה — היא מה שמותקן, והיא
-    // ראשונה: היא מביאה בצעד אחד גם את הספרייה, ואין מסד לעדכן לפניה.
-    // בשקט ובלי אשף: המשתמש ביקש שההתקנה תיעשה לבדה, ואשף שממתין
-    // ללחיצה אינו "לבדה".
-    final wantsFullPackage =
-        s.autoInstallApp && _otzaria.fullPackageRecommended;
-    if (wantsFullPackage && !(await refreshProcessState())) {
-      await installFullPackage(useWizard: false);
-      if (!mounted) return;
-    }
 
     // **המסד לפני המתקין, ולא אחריו.** המתקין של אוצריא משיק אותה בסוף
     // התקנה שקטה, ואוצריא פתוחה נועלת את המסד — כלומר בסדר ההפוך הלאנצ'ר
@@ -468,6 +463,7 @@ class _AppShellState extends State<AppShell> {
     // המצב שנלכד קודם הוא בדיוק מה שהיה מיושן כאן, והרענון המחזורי דולק
     // רק כשאוצריא כבר הייתה פתוחה.
     if (s.autoInstallLibrary &&
+        !_library.isFreshInstall &&
         _library.status == LibraryModuleStatus.updateAvailable &&
         !(await refreshProcessState())) {
       await _library.update();
@@ -476,8 +472,11 @@ class _AppShellState extends State<AppShell> {
 
     // גם ההתקנה מדלגת כשאוצריא פתוחה, ולא רק הספרייה: המתקין דורס קבצים
     // שהתהליך הרץ נועל, ואז נופל באמצע ההתקנה בקוד יציאה סתום (5).
+    //
+    // החבילה המלאה אינה כאן בכוונה: היא מוצעת **רק** כשאין אוצריא במחשב
+    // (`fullPackageRecommended`), כלומר בדיוק המקרה שאינו אוטומטי.
     if (s.autoInstallApp &&
-        !wantsFullPackage &&
+        _otzaria.currentVersion != null &&
         _otzaria.status == OtzariaModuleStatus.updateAvailable &&
         !(await refreshProcessState())) {
       await _otzaria.install(useWizard: false);

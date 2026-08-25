@@ -411,8 +411,8 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   /// לא נוגע ברשת. `false` בכשל, שנשמר ב-[errorMessage].
   ///
   /// [useWizard] = להריץ את המתקין עם האשף שלו, כך שהמשתמש בוחר לאן להתקין
-  /// והאם ליצור קיצור דרך. ברירת המחדל היא לחיצה של המשתמש; ההתקנה
-  /// האוטומטית מעבירה `false`, כי שם אין מי שיענה לאשף.
+  /// והאם ליצור קיצור דרך. תמיד `true` בפועל: זו התקנה ראשונה, וההתקנה
+  /// האוטומטית אינה מתקינה בפעם הראשונה (ראו `AppShell._autoInstallIfEnabled`).
   ///
   /// ביטול באשף והמצב "האשף עוד פתוח" מוחזרים כ-`false` עם [noticeMessage]
   /// ובלי [errorMessage] — הם אינם כשלים.

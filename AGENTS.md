@@ -204,8 +204,25 @@ it) to the mirror. Four things hold it together:
   the iss's own kill switch. `otzaria_full.iss` has no equivalent (its launch sits
   in `[Code]`, unconditional), so `_autoInstallIfEnabled` also runs the **library
   before** the installer, and re-probes the process with `refreshProcessState()`
-  before each of its three actions — `_otzariaIsRunning` is a value captured
+  before each of its two actions — `_otzariaIsRunning` is a value captured
   earlier, and the periodic refresh only runs while Otzaria is *already* open.
+- **Auto-install only ever *updates*; a first install is never automatic.**
+  Both paths are gated — the library on `!isFreshInstall`, the app on
+  `currentVersion != null` — and the FULL package is not in
+  `_autoInstallIfEnabled` at all, since `fullPackageRecommended` is by
+  definition "no Otzaria on this machine". The reason is the *target*: a first
+  install has no certain one. `LibraryDbLocator` finds a library that was moved
+  elsewhere only by reading Otzaria's own `app_preferences.hive`, and
+  `OtzariaSettingsReader` returns `null` on **any** failure — an unreadable box
+  and "the user never moved it" are the same answer. That guess then becomes
+  `saveCustomDbPath` in `_finishDbUpdate`, i.e. recorded as the user's own
+  choice and checked *before* Otzaria's settings from then on. So a single
+  unreadable box used to mean ~5.5GB written where Otzaria does not look, no
+  visible change inside Otzaria, and a launcher permanently locked onto the
+  wrong path. Do **not** re-enable a first install here to be "helpful": the
+  home-screen card already says the library is not installed and offers the
+  button, which is exactly the decision that belongs to the person at the
+  machine.
 - **Cancelling the wizard is not a failure.** `OtzariaInstallCancelled` (Inno
   exit 2/5, plus 1223 = UAC refused) and `OtzariaWizardStillOpen` (the process
   returned before the install is on disk — routine when Inno elevates and the

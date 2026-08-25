@@ -309,14 +309,30 @@ void main() {
           lessThan(body.indexOf('_otzaria.install(')));
     });
 
-    test('כל שלושת המסלולים נשענים על בדיקת תהליך טרייה', () {
+    test('שני המסלולים נשענים על בדיקת תהליך טרייה', () {
       expect(
         'refreshProcessState()'.allMatches(body).length,
-        3,
-        reason: 'החבילה המלאה, עדכון המסד וההתקנה',
+        2,
+        reason: 'עדכון המסד וההתקנה',
       );
       // הערך שנלכד בבנייה הוא בדיוק מה שהיה מיושן כאן.
       expect(body, isNot(contains('_otzariaIsRunning')));
+    });
+
+    // התקנה ראשונה מנחשת את היעד (`resolveInstallDbPath`), והניחוש נרשם
+    // אחר כך כבחירת המשתמש — מסד שלם במקום הלא נכון, ולנצח.
+    test('עדכון המסד מותנה בכך שיש כבר מסד', () {
+      expect(body, contains('!_library.isFreshInstall'));
+    });
+
+    test('התקנת התוכנה מותנית בכך שאוצריא כבר מותקנת', () {
+      expect(body, contains('_otzaria.currentVersion != null'));
+    });
+
+    // `fullPackageRecommended` הוא בהגדרתו "אין אוצריא במחשב" — בדיוק
+    // המקרה שאינו אוטומטי.
+    test('החבילה המלאה אינה מותקנת אוטומטית', () {
+      expect(body, isNot(contains('installFullPackage(')));
     });
   });
 }

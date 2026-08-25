@@ -588,12 +588,13 @@ class _Settings extends SettingsScreenStrings {
   String get autoInstallAppTitle => 'Install the Otzaria program automatically';
   @override
   String get autoInstallAppSubtitle =>
-      'Installs on startup when a newer version sits in the local folder';
+      'Updates an existing install on startup; never installs the first time';
   @override
   String get autoInstallLibraryTitle => 'Install library updates automatically';
   @override
   String get autoInstallLibrarySubtitle =>
-      'Applies to the database on startup; skipped while Otzaria is open';
+      'Updates an existing database on startup; skipped while Otzaria is open '
+      'or when no database was found';
 
   @override
   String get autoInstallSubjectApp => 'the Otzaria program';
@@ -604,9 +605,10 @@ class _Settings extends SettingsScreenStrings {
       'Install $subject automatically';
   @override
   String autoInstallDialogContent(String subject) =>
-      'From now on, $subject will be installed without asking whenever a '
-      'newer version is found in the folder next to this program. The '
-      'download itself still starts with a click.';
+      'From now on, $subject will be updated without asking whenever a newer '
+      'version is found in the folder next to this program — but only once it '
+      'is already installed. The first install stays your call, and so does '
+      'the download itself.';
   @override
   String get autoInstallDialogWarning =>
       'Installing replaces files on your computer. If you are not sure, '

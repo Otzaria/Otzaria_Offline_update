@@ -558,12 +558,12 @@ class _Settings extends SettingsScreenStrings {
   String get autoInstallAppTitle => 'התקנת תוכנת אוצריא אוטומטית';
   @override
   String get autoInstallAppSubtitle =>
-      'מתקין בפתיחה כשיש גרסה חדשה בתיקייה המקומית';
+      'מעדכן בפתיחה התקנה קיימת; אינו מתקין בפעם הראשונה';
   @override
   String get autoInstallLibraryTitle => 'התקנת עדכון ספרייה אוטומטית';
   @override
   String get autoInstallLibrarySubtitle =>
-      'מחיל על המסד בפתיחה; מדולג כשאוצריא פתוחה';
+      'מעדכן בפתיחה מסד קיים; מדולג כשאוצריא פתוחה או כשאין מסד';
 
   @override
   String get autoInstallSubjectApp => 'תוכנת אוצריא';
@@ -573,8 +573,9 @@ class _Settings extends SettingsScreenStrings {
   String autoInstallDialogTitle(String subject) => 'התקנה אוטומטית של $subject';
   @override
   String autoInstallDialogContent(String subject) =>
-      'מעתה $subject תותקן ללא אישור נוסף בכל פעם שתימצא גרסה חדשה בתיקייה '
-      'שלצד התוכנה. ההורדה עצמה תישאר יזומה.';
+      'מעתה $subject תעודכן ללא אישור נוסף בכל פעם שתימצא גרסה חדשה בתיקייה '
+      'שלצד התוכנה — אך ורק כשהיא כבר מותקנת. התקנה ראשונה נשארת בידיים '
+      'שלך, וגם ההורדה עצמה תישאר יזומה.';
   @override
   String get autoInstallDialogWarning =>
       'התקנה מחליפה קבצים במחשב שלך. אם אינך בטוח/ה — עדיף להשאיר את '
