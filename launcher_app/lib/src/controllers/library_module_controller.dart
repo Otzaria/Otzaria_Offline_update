@@ -330,7 +330,9 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
         status = LibraryModuleStatus.needsManualPath;
       } else {
         localVersion = check.localVersion?.dbVersion;
-        targetVersion = check.plan?.targetVersion;
+        // הגרסה שבסוף התהליך, ולא זו של המסד המלא: התקנה טרייה שנוחתת על מסד
+        // מלא ישן ומושלמת ב-patches הבטיחה למשתמש את הגרסה הישנה.
+        targetVersion = check.plan?.finalTargetVersion;
 
         if (check.plan?.kind == LibraryUpdatePlanKind.blocked) {
           status = LibraryModuleStatus.error;

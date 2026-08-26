@@ -157,11 +157,15 @@ void main() {
       expect(p.kind, LibraryUpdatePlanKind.fullDownload);
       expect(p.targetVersion, 3);
       expect(p.fullDbAsset, _fullAsset);
+      // מה שמוצג למשתמש הוא סוף השרשרת: 3 כאן הבטיח את גרסת המסד המלא.
+      expect(p.finalTargetVersion, 4);
     });
 
     test('בלי גרסת נכס מפורשת נשמרת ההתנהגות הקודמת — היעד הוא ה-latest', () {
       final p = plan(local: 1, latest: 3, edges: [_edge(1, 2)]);
       expect(p.targetVersion, 3);
+      // בלי השלמה, שני המספרים זהים.
+      expect(p.finalTargetVersion, 3);
     });
 
     test('שני chains באותו אורך → בוחר את הזול', () {

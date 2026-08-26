@@ -149,6 +149,12 @@ class LibraryUpdatePlan extends Equatable {
         reason: reason,
       );
 
+  /// הגרסה שהמסד יגיע אליה **בסוף** התוכנית, כולל ההשלמה ב-patches שרצה
+  /// אחרי הורדה מלאה. [targetVersion] הוא היעד של השלב הראשון בלבד — מה
+  /// שהאימות אחרי החילוץ דורש — ולכן הצגתו הבטיחה למשתמש את גרסת המסד המלא
+  /// במקום את הגרסה שיקבל בפועל.
+  int? get finalTargetVersion => followUpDelta?.targetVersion ?? targetVersion;
+
   /// גודל ההורדה הכולל בבייטים (דחוס) — לתצוגה למשתמש.
   int get totalDownloadSize {
     switch (kind) {
