@@ -3,6 +3,16 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+/// מאיזה release הגיע תוכן המסד שעל המחשב הזה, ובאיזו גרסה הוא היה אז.
+/// שני השדות יחד — גרסה בלי tag אינה מזהה פרסום-מחדש, ו-tag בלי הגרסה
+/// שנרשמה איתו אינו מעיד על המסד שקיים עכשיו.
+class AppliedRelease {
+  const AppliedRelease({required this.tag, required this.dbVersion});
+
+  final String tag;
+  final int dbVersion;
+}
+
 /// שומר/טוען הגדרות מתמשכות של מודול הספרייה: נתיב DB מותאם אישית (למקרה
 /// שהמשתמש הצביע ידנית על תיקיית ספרייה שאינה ברירת המחדל של אוצריא), וכן
 /// נתיב "מראה מקומית" (offline) אם המשתמש בחר לעדכן מתיקייה מקומית/USB
@@ -110,18 +120,47 @@ class LibraryStateStore {
     await _writeAll(json);
   }
 
-  /// ה-release שממנו הגיע תוכן ה-DB המותקן כרגע, או null אם ה-DB לא הותקן
-  /// דרך הלאנצ'ר הזה. מאפשר לזהות מסד שפורסם מחדש באותו `db_version` —
-  /// ראו `LibraryUpdatePlanner`.
-  Future<String?> loadAppliedReleaseTag() async {
+  /// ה-release שממנו הגיע תוכן ה-DB **של המחשב הזה**, יחד עם גרסת ה-DB
+  /// שנרשמה איתו. מאפשר לזהות מסד שפורסם מחדש באותו `db_version` — ראו
+  /// `LibraryUpdatePlanner`.
+  ///
+  /// **פר-מחשב, כי הקובץ נוסע עם הכונן**, בדיוק כמו [loadCustomDbPath]:
+  /// רשומה גלובלית אחת נדרסה בין המחשבים, וה-tag של מחשב אחד נבדק מול המסד
+  /// של השני — מה שהכריז על "עדכון" מגרסה X לאותה גרסה X.
+  ///
+  /// הרשומה הגלובלית הישנה (`appliedReleaseTag`) **אינה** נקראת: היא החזיקה
+  /// את ה-tag של נושא המסד המלא, לא של ה-release שהתוכן הגיע ממנו, ולכן
+  /// אינה בת-השוואה. אין מה לאבד — לכל היותר פרסום-מחדש אחד לא יזוהה, עד
+  /// שהעדכון הבא יכתוב רשומה תקינה.
+  Future<AppliedRelease?> loadAppliedRelease() async {
     final json = await _readAll();
-    final tag = json['appliedReleaseTag'];
-    return tag is String && tag.isNotEmpty ? tag : null;
+    final all = json['appliedReleases'];
+    if (all is! Map) return null;
+    final own = all[currentMachineKey()];
+    if (own is! Map) return null;
+    final tag = own['tag'];
+    final version = own['dbVersion'];
+    if (tag is! String || tag.isEmpty || version is! int) return null;
+    return AppliedRelease(tag: tag, dbVersion: version);
   }
 
-  Future<void> saveAppliedReleaseTag(String tag) async {
+  Future<void> saveAppliedRelease({
+    required String tag,
+    required int dbVersion,
+  }) async {
     final json = await _readAll();
-    json['appliedReleaseTag'] = tag;
+    final records = <String, dynamic>{};
+    final existing = json['appliedReleases'];
+    if (existing is Map) {
+      existing.forEach((key, value) {
+        if (key is String && value is Map) records[key] = value;
+      });
+    }
+    records[currentMachineKey()] = {'tag': tag, 'dbVersion': dbVersion};
+    json['appliedReleases'] = records;
+    // הרשומה הגלובלית הישנה יורדת מהכונן: לאנצ'ר בגרסה קודמת שקורא אותה
+    // משווה tag של נושא המסד המלא ומציע הורדה מלאה מיותרת.
+    json.remove('appliedReleaseTag');
     await _writeAll(json);
   }
 

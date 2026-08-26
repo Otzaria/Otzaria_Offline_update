@@ -292,7 +292,7 @@ void main() {
       final result = await LibraryUpdateDiscovery(
         client: LocalMirrorLibraryReleaseClient(mirrorDir: destDir),
       ).discover(allowPrerelease: false);
-      expect(result.latestReleaseTag, 'v3');
+      expect(result.fullDbReleaseTag, 'v3');
       expect(File(result.latestFullDbAsset!.downloadUrl).existsSync(), isTrue);
     });
 
@@ -334,7 +334,7 @@ void main() {
         ).discover(allowPrerelease: false);
         expect(result.latestVersion, 4);
         expect(result.latestFullDbVersion, 3);
-        expect(result.latestReleaseTag, 'v3');
+        expect(result.fullDbReleaseTag, 'v3');
       });
 
       test('אין מסלול patches מהישן ל-latest → המסד החדש כן יורד', () async {
@@ -403,7 +403,7 @@ void main() {
           latestVersion: result.latestVersion,
           edges: result.edges,
           latestFullDbAsset: result.latestFullDbAsset,
-          latestReleaseTag: result.latestReleaseTag,
+          fullDbReleaseTag: result.fullDbReleaseTag,
           latestFullDbVersion: result.latestFullDbVersion,
         );
 
@@ -507,7 +507,7 @@ void main() {
             latestVersion: result.latestVersion,
             edges: result.edges,
             latestFullDbAsset: result.latestFullDbAsset,
-            latestReleaseTag: result.latestReleaseTag,
+            fullDbReleaseTag: result.fullDbReleaseTag,
           );
 
       final chain = planFrom(2);
@@ -596,7 +596,7 @@ void main() {
           latestVersion: result.latestVersion,
           edges: result.edges,
           latestFullDbAsset: result.latestFullDbAsset,
-          latestReleaseTag: result.latestReleaseTag,
+          fullDbReleaseTag: result.fullDbReleaseTag,
         );
 
     final chain = planFrom(1);

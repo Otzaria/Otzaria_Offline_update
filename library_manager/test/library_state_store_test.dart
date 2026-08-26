@@ -6,8 +6,8 @@ import 'package:library_manager/library_manager.dart';
 import 'package:path/path.dart' as p;
 
 /// ה-state הזה הוא מה שמבדיל בין "מסד שהותקן על ידינו" לבין "מסד שמצאנו":
-/// בלי `appliedReleaseTag` ידוע, `LibraryUpdatePlanner` **לא** מנחש שמדובר
-/// בפרסום מחדש — אחרת כל פתיחה הייתה מציעה הורדה של ~1GB.
+/// בלי רשומת `appliedReleases` של המחשב הזה, `LibraryUpdatePlanner` **לא**
+/// מנחש שמדובר בפרסום מחדש — אחרת כל פתיחה הייתה מציעה הורדה של ~1GB.
 void main() {
   late Directory tempDir;
   late String statePath;
@@ -26,7 +26,7 @@ void main() {
   group('LibraryStateStore', () {
     test('קובץ שלא קיים מחזיר null לשני השדות, בלי לזרוק', () async {
       expect(await store.loadCustomDbPath(), isNull);
-      expect(await store.loadAppliedReleaseTag(), isNull);
+      expect(await store.loadAppliedRelease(), isNull);
       expect(File(statePath).existsSync(), isFalse);
     });
 
@@ -38,17 +38,20 @@ void main() {
       expect(File(statePath).existsSync(), isTrue);
     });
 
-    test('סבב כתיבה/קריאה של appliedReleaseTag', () async {
-      await store.saveAppliedReleaseTag('v42');
-      expect(await LibraryStateStore(statePath).loadAppliedReleaseTag(), 'v42');
+    test('סבב כתיבה/קריאה של appliedRelease — tag וגרסה יחד', () async {
+      await store.saveAppliedRelease(tag: 'v42', dbVersion: 42);
+
+      final loaded = await LibraryStateStore(statePath).loadAppliedRelease();
+      expect(loaded?.tag, 'v42');
+      expect(loaded?.dbVersion, 42);
     });
 
     test('כתיבת שדה אחד לא מוחקת את השני', () async {
       await store.saveCustomDbPath(r'C:\somewhere\seforim.db');
-      await store.saveAppliedReleaseTag('v7');
+      await store.saveAppliedRelease(tag: 'v7', dbVersion: 7);
       await store.saveCustomDbPath(r'C:\elsewhere\seforim.db');
 
-      expect(await store.loadAppliedReleaseTag(), 'v7');
+      expect((await store.loadAppliedRelease())?.tag, 'v7');
       expect(await store.loadCustomDbPath(), r'C:\elsewhere\seforim.db');
     });
 
@@ -57,7 +60,7 @@ void main() {
       await File(statePath).writeAsString('{ this is not json');
 
       expect(await store.loadCustomDbPath(), isNull);
-      expect(await store.loadAppliedReleaseTag(), isNull);
+      expect(await store.loadAppliedRelease(), isNull);
     });
 
     test('JSON תקין שאינו אובייקט נחשב "לא הוגדר"', () async {
@@ -65,28 +68,64 @@ void main() {
       await File(statePath).writeAsString('["not", "a", "map"]');
 
       expect(await store.loadCustomDbPath(), isNull);
-      expect(await store.loadAppliedReleaseTag(), isNull);
+      expect(await store.loadAppliedRelease(), isNull);
     });
 
     test('כתיבה על קובץ פגום משחזרת אותו במקום להיתקע', () async {
       await File(statePath).parent.create(recursive: true);
       await File(statePath).writeAsString('}{');
 
-      await store.saveAppliedReleaseTag('v9');
-      expect(await store.loadAppliedReleaseTag(), 'v9');
+      await store.saveAppliedRelease(tag: 'v9', dbVersion: 9);
+      expect((await store.loadAppliedRelease())?.tag, 'v9');
     });
 
-    test('tag ריק או מסוג לא-מחרוזת נחשב "לא ידוע" — לא מנחשים', () async {
+    test('רשומה חסרת tag או חסרת גרסה נחשבת "לא ידוע" — לא מנחשים', () async {
+      final key = LibraryStateStore.currentMachineKey();
       await File(statePath).parent.create(recursive: true);
-      await File(statePath).writeAsString('{"appliedReleaseTag": ""}');
-      expect(await store.loadAppliedReleaseTag(), isNull);
 
-      await File(statePath).writeAsString('{"appliedReleaseTag": 5}');
-      expect(await store.loadAppliedReleaseTag(), isNull);
+      await File(statePath).writeAsString(jsonEncode({
+        'appliedReleases': {
+          key: {'tag': '', 'dbVersion': 9}
+        }
+      }));
+      expect(await store.loadAppliedRelease(), isNull);
+
+      await File(statePath).writeAsString(jsonEncode({
+        'appliedReleases': {
+          key: {'tag': 'v9'}
+        }
+      }));
+      expect(await store.loadAppliedRelease(), isNull);
+    });
+
+    // הבאג של "עדכון מגרסה 22 לגרסה 22": רשומה גלובלית אחת על כונן שנוסע בין
+    // מחשבים נקראה מול מסד של מחשב אחר לגמרי.
+    test('רשומה של מחשב אחר אינה נקראת כאן, והישנה הגלובלית מתעלמים ממנה',
+        () async {
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsString(jsonEncode({
+        'appliedReleaseTag': 'v21-carrier',
+        'appliedReleases': {
+          'OTHER-PC|someone': {'tag': 'v20', 'dbVersion': 20},
+        },
+      }));
+
+      expect(await store.loadAppliedRelease(), isNull);
+    });
+
+    test('כתיבה מסירה מהכונן את הרשומה הגלובלית הישנה', () async {
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsString('{"appliedReleaseTag": "v21"}');
+
+      await store.saveAppliedRelease(tag: 'v22', dbVersion: 22);
+
+      final json = jsonDecode(await File(statePath).readAsString()) as Map;
+      expect(json.containsKey('appliedReleaseTag'), isFalse);
+      expect((await store.loadAppliedRelease())?.dbVersion, 22);
     });
 
     test('הכתיבה עוברת דרך קובץ זמני ולא משאירה אותו', () async {
-      await store.saveAppliedReleaseTag('v1');
+      await store.saveAppliedRelease(tag: 'v1', dbVersion: 1);
 
       expect(File('$statePath.tmp').existsSync(), isFalse);
     });
@@ -209,11 +248,11 @@ void main() {
     });
 
     test('רישום גרסה אינו מוחק את שאר ה-state', () async {
-      await store.saveAppliedReleaseTag('v20');
+      await store.saveAppliedRelease(tag: 'v20', dbVersion: 20);
       await store.saveCustomDbPath(r'C:\lib\seforim.db');
       await store.recordKnownDbVersion('HOME', 20);
 
-      expect(await store.loadAppliedReleaseTag(), 'v20');
+      expect((await store.loadAppliedRelease())?.tag, 'v20');
       expect(await store.loadCustomDbPath(), r'C:\lib\seforim.db');
     });
 

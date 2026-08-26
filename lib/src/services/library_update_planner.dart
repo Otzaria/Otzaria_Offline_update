@@ -16,20 +16,23 @@ class LibraryUpdatePlanner {
   /// [hasLocalVersionMeta] — `false` אם `schema_meta.db_version` חסר.
   /// [latestVersion] — הגרסה הגבוהה ביותר הזמינה ב-releases.
   /// [edges] — כל ה-patches הזמינים.
-  /// [latestFullDbAsset] / [latestReleaseTag] — ה-DB המלא ל-fallback.
+  /// [latestFullDbAsset] / [fullDbReleaseTag] — ה-DB המלא ל-fallback.
   /// [latestFullDbVersion] — הגרסה ש**הנכס הזה** מביא; ראו
   /// [LibraryDiscoveryResult.latestFullDbVersion].
-  /// [localReleaseTag] — ה-release שממנו הגיע ה-DB המקומי, אם ידוע. ראו
-  /// [_isContentRefresh].
+  /// [latestContentTag] — ה-release החדש ביותר, זה שהתוכן העדכני מגיע ממנו.
+  /// [localReleaseTag] / [localReleaseTagVersion] — ה-release שממנו הגיע ה-DB
+  /// המקומי והגרסה שנרשמה איתו, אם ידועים. ראו [_isContentRefresh].
   LibraryUpdatePlan plan({
     required int localVersion,
     required bool hasLocalVersionMeta,
     required int latestVersion,
     required List<PatchEdge> edges,
     ReleaseAsset? latestFullDbAsset,
-    String? latestReleaseTag,
+    String? fullDbReleaseTag,
     int? latestFullDbVersion,
+    String? latestContentTag,
     String? localReleaseTag,
+    int? localReleaseTagVersion,
   }) {
     // היעד של הורדה מלאה הוא מה שהנכס מביא, לא מה שקיים ב-releases: אחרת
     // האימות שאחרי החילוץ דוחה את המסד. הפער נסגר באותה החלה עצמה, דרך
@@ -43,23 +46,29 @@ class LibraryUpdatePlanner {
         fullTargetVersion: fullTargetVersion,
         edges: edges,
         asset: latestFullDbAsset,
-        tag: latestReleaseTag,
+        tag: fullDbReleaseTag,
         reason: AppL10n.strings.libraryDomain.planLocalVersionUnknown,
       );
     }
 
     if (localVersion >= latestVersion) {
       if (latestFullDbAsset != null &&
-          _isContentRefresh(localReleaseTag, latestReleaseTag)) {
+          fullDbReleaseTag != null &&
+          _isContentRefresh(
+            localTag: localReleaseTag,
+            localTagVersion: localReleaseTagVersion,
+            latestTag: latestContentTag,
+            localVersion: localVersion,
+          )) {
         return LibraryUpdatePlan.fullDownload(
           localVersion: localVersion,
           targetVersion: fullTargetVersion,
           asset: latestFullDbAsset,
-          releaseTag: latestReleaseTag!,
+          releaseTag: fullDbReleaseTag,
           followUpDelta:
               _followUpDelta(edges, fullTargetVersion, latestVersion),
           reason: AppL10n.strings.libraryDomain
-              .planContentChangedWithoutVersionBump(latestReleaseTag),
+              .planContentChangedWithoutVersionBump(latestContentTag!),
         );
       }
       return LibraryUpdatePlan.none(
@@ -77,12 +86,12 @@ class LibraryUpdatePlanner {
         // ההתאוששות כש-patch נכשל על המסד הזה — ראו
         // [LibraryUpdatePlan.fullDownloadFallback].
         fullDownloadFallback:
-            latestFullDbAsset != null && latestReleaseTag != null
+            latestFullDbAsset != null && fullDbReleaseTag != null
                 ? LibraryUpdatePlan.fullDownload(
                     localVersion: localVersion,
                     targetVersion: fullTargetVersion,
                     asset: latestFullDbAsset,
-                    releaseTag: latestReleaseTag,
+                    releaseTag: fullDbReleaseTag,
                     followUpDelta:
                         _followUpDelta(edges, fullTargetVersion, latestVersion),
                   )
@@ -96,7 +105,7 @@ class LibraryUpdatePlanner {
       fullTargetVersion: fullTargetVersion,
       edges: edges,
       asset: latestFullDbAsset,
-      tag: latestReleaseTag,
+      tag: fullDbReleaseTag,
       reason: AppL10n.strings.libraryDomain
           .planNoDeltaRoute(localVersion, latestVersion),
     );
@@ -108,8 +117,21 @@ class LibraryUpdatePlanner {
   /// דורש שנדע מאיזה release ה-DB המקומי הגיע: `null` פירושו DB שלא הותקן
   /// דרך הלאנצ'ר הזה, ואז אין דרך להשוות — ומוטב לדווח "מעודכן" מלהציע
   /// הורדה מלאה של ~1GB בכל פתיחה על סמך ניחוש.
-  bool _isContentRefresh(String? localTag, String? latestTag) =>
-      localTag != null && latestTag != null && localTag != latestTag;
+  ///
+  /// [localTagVersion] חייבת להתאים ל-[localVersion]: רישום שנעשה בגרסה אחרת
+  /// אינו מעיד על התוכן שבמסד עכשיו (מסד שאוצריא עדכנה בעצמה, או מחשב אחר
+  /// שכתב את הרישום על הכונן), והשוואה כזו הכריזה על "עדכון" מגרסה X לאותה
+  /// גרסה X — ~1.4GB על לא כלום.
+  bool _isContentRefresh({
+    required String? localTag,
+    required int? localTagVersion,
+    required String? latestTag,
+    required int localVersion,
+  }) =>
+      localTag != null &&
+      latestTag != null &&
+      localTagVersion == localVersion &&
+      localTag != latestTag;
 
   /// שרשרת ה-patches שמשלימה הורדה מלאה שנוחתת מתחת ל-latest. `null` כשהמסד
   /// המלא כבר בגרסה האחרונה או שאין מסלול משם — ואז מה שהורד הוא כל מה שיש.

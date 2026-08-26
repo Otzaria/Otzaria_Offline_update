@@ -8,7 +8,15 @@ class LibraryDiscoveryResult {
   final int latestVersion;
   final List<PatchEdge> edges;
   final ReleaseAsset? latestFullDbAsset;
-  final String? latestReleaseTag;
+
+  /// ה-tag של ה-release ש-[latestFullDbAsset] יורד ממנו — **לא** ה-release
+  /// החדש ביותר. ראו [latestContentTag].
+  final String? fullDbReleaseTag;
+
+  /// ה-tag של ה-release החדש ביותר, כלומר זה שהתוכן העדכני מגיע ממנו.
+  /// נפרד מ-[fullDbReleaseTag] בכוונה: release שמכיל patches בלבד הוא החדש
+  /// ביותר, בעוד המסד המלא נשאר של גרסה קודמת.
+  final String? latestContentTag;
 
   /// גרסת ה-DB ש-[latestFullDbAsset] באמת מביא. **אינה בהכרח**
   /// [latestVersion]: כש-release חדש מכיל patches בלבד, ה-DB המלא האחרון
@@ -20,7 +28,8 @@ class LibraryDiscoveryResult {
     required this.latestVersion,
     required this.edges,
     required this.latestFullDbAsset,
-    required this.latestReleaseTag,
+    required this.fullDbReleaseTag,
+    required this.latestContentTag,
     this.latestFullDbVersion,
   });
 }
@@ -103,9 +112,34 @@ class LibraryUpdateDiscovery {
       latestVersion: latestVersion,
       edges: edges,
       latestFullDbAsset: latestFull,
-      latestReleaseTag: latestTag,
+      fullDbReleaseTag: latestTag,
+      latestContentTag: _newestReleaseTag(releases),
       latestFullDbVersion: latestFull == null ? null : bestFullVersion,
     );
+  }
+
+  /// ה-tag של ה-release בעל הגרסה הגבוהה ביותר; שוויון נשבר לפי תאריך
+  /// הפרסום. זה ה-release שמסד מעודכן "מגיע ממנו" — ולכן זה מה שנרשם אחרי
+  /// החלה מוצלחת, ולא נושא המסד המלא.
+  static String? _newestReleaseTag(List<LibraryRelease> releases) {
+    LibraryRelease? newest;
+    var newestVersion = -1;
+    for (final release in releases) {
+      final version = releaseVersionOf(release);
+      if (version > newestVersion ||
+          (version == newestVersion && _publishedAfter(release, newest))) {
+        newestVersion = version;
+        newest = release;
+      }
+    }
+    return newest?.tag;
+  }
+
+  static bool _publishedAfter(LibraryRelease candidate, LibraryRelease? best) {
+    final bestDate = best?.publishedAt;
+    if (bestDate == null) return true;
+    final own = candidate.publishedAt;
+    return own != null && own.isAfter(bestDate);
   }
 
   /// בונה [PatchEdge] מ-manifest asset. מחזיר null אם ה-manifest פגום או אם

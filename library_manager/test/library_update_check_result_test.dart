@@ -17,7 +17,7 @@ void main() {
 
       expect(result.plan, isNull);
       expect(result.localVersion, isNull);
-      expect(result.latestReleaseTag, isNull);
+      expect(result.latestContentTag, isNull);
       expect(result.isFreshInstall, isFalse);
       expect(result.updateAvailable, isFalse);
       expect(result.needsManualDbPath, isFalse);
@@ -27,7 +27,7 @@ void main() {
       final result = LibraryUpdateCheckResult(
         dbPath: r'C:\db\seforim.db',
         plan: LibraryUpdatePlan.none(localVersion: 5, targetVersion: 5),
-        latestReleaseTag: 'v5',
+        latestContentTag: 'v5',
       );
 
       expect(result.updateAvailable, isFalse);
@@ -44,7 +44,7 @@ void main() {
           asset: asset,
           releaseTag: 'v5',
         ),
-        latestReleaseTag: 'v5',
+        latestContentTag: 'v5',
       );
 
       expect(result.updateAvailable, isTrue);

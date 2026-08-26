@@ -48,7 +48,9 @@ void main() {
     bool hasMeta = true,
     ReleaseAsset? full = _fullAsset,
     String? tag = 'v3',
+    String? contentTag,
     String? localTag,
+    int? localTagVersion,
     int? fullVersion,
   }) =>
       planner.plan(
@@ -57,9 +59,12 @@ void main() {
         latestVersion: latest,
         edges: edges,
         latestFullDbAsset: full,
-        latestReleaseTag: tag,
+        fullDbReleaseTag: tag,
         latestFullDbVersion: fullVersion,
+        // ברירת המחדל: ה-release החדש ביותר הוא גם נושא המסד המלא.
+        latestContentTag: contentTag ?? tag,
         localReleaseTag: localTag,
+        localReleaseTagVersion: localTagVersion ?? local,
       );
 
   group('LibraryUpdatePlanner', () {
@@ -231,6 +236,48 @@ void main() {
     test('אותה גרסה ואותו release → none', () {
       final p = plan(local: 3, latest: 3, edges: [], localTag: 'v3', tag: 'v3');
       expect(p.kind, LibraryUpdatePlanKind.none);
+    });
+
+    // הבאג שהופיע בשטח: המראה נושאת מסד מלא של v21 בעוד ה-release החדש הוא
+    // v22 (patches בלבד). ההשוואה מול נושא המסד המלא הכריזה "עדכון" מגרסה 22
+    // לגרסה 22 — ~1.4GB על מסד שכבר מעודכן.
+    test('נושא המסד המלא ישן מה-release החדש → none, לא "עדכון" 22→22', () {
+      final p = plan(
+        local: 22,
+        latest: 22,
+        edges: [],
+        tag: 'v21-carrier',
+        contentTag: 'v22-latest',
+        localTag: 'v22-latest',
+      );
+      expect(p.kind, LibraryUpdatePlanKind.none);
+    });
+
+    // רישום של גרסה אחרת (מסד שאוצריא עדכנה בעצמה, או מחשב אחר שכתב על
+    // הכונן) אינו מעיד על התוכן שבמסד עכשיו.
+    test('רישום שנעשה בגרסה אחרת אינו מפעיל הורדה מלאה', () {
+      final p = plan(
+        local: 22,
+        latest: 22,
+        edges: [],
+        tag: 'v22-latest',
+        localTag: 'v20-old',
+        localTagVersion: 20,
+      );
+      expect(p.kind, LibraryUpdatePlanKind.none);
+    });
+
+    test('פרסום מחדש אמיתי באותה גרסה עדיין מזוהה', () {
+      final p = plan(
+        local: 22,
+        latest: 22,
+        edges: [],
+        tag: 'v22-b',
+        localTag: 'v22-a',
+        localTagVersion: 22,
+      );
+      expect(p.kind, LibraryUpdatePlanKind.fullDownload);
+      expect(p.fullDbReleaseTag, 'v22-b');
     });
 
     // DB שלא הותקן דרך הלאנצ'ר — אין tag להשוות מולו, ואסור להציע בגללו

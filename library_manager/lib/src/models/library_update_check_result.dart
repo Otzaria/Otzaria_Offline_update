@@ -15,7 +15,8 @@ class LibraryUpdateCheckResult {
     this.localVersion,
     this.plan,
     this.isFreshInstall = false,
-    this.latestReleaseTag,
+    this.latestVersion,
+    this.latestContentTag,
     this.companionsPending = false,
   });
 
@@ -29,9 +30,14 @@ class LibraryUpdateCheckResult {
   /// עבודה — ראו [CompanionAssetsInstaller].
   final bool companionsPending;
 
-  /// ה-release האחרון שנמצא במראה. נרשם אחרי החלה מוצלחת כ"התוכן שמותקן
-  /// אצלנו", וכך מזוהה בהמשך מסד שפורסם מחדש באותו `db_version`.
-  final String? latestReleaseTag;
+  /// הגרסה הגבוהה ביותר שיש במראה — מה שהמסד אמור להגיע אליו.
+  final int? latestVersion;
+
+  /// ה-tag של ה-release **החדש ביותר** שבמראה, זה שהתוכן העדכני מגיע ממנו.
+  /// נרשם אחרי החלה שהגיעה ל-[latestVersion] כ"התוכן שמותקן אצלנו", וכך
+  /// מזוהה בהמשך מסד שפורסם מחדש באותו `db_version`. **לא** ה-tag של נושא
+  /// המסד המלא — הוא יושב ב-`LibraryUpdatePlan.fullDbReleaseTag`.
+  final String? latestContentTag;
 
   /// נשמר לצורך תאימות לאחור בלבד — כמעט ולא אמור להיות true יותר, כי
   /// [LibraryManager.checkForUpdate] תמיד מצביע על נתיב (קיים או ברירת

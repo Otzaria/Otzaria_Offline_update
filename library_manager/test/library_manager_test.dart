@@ -99,7 +99,9 @@ void main() {
     File(dbPath).writeAsBytesSync(buildRealDb(dbVersion));
     final store = LibraryStateStore(p.join(dataDir, 'library_state.json'));
     await store.saveCustomDbPath(dbPath);
-    if (appliedTag != null) await store.saveAppliedReleaseTag(appliedTag);
+    if (appliedTag != null) {
+      await store.saveAppliedRelease(tag: appliedTag, dbVersion: dbVersion);
+    }
     return dbPath;
   }
 
@@ -254,7 +256,7 @@ void main() {
         );
         expect(check.localVersion!.hasVersionMeta, isFalse);
         expect(check.plan!.kind, LibraryUpdatePlanKind.fullDownload);
-        expect(check.latestReleaseTag, 'v5');
+        expect(check.latestContentTag, 'v5');
         expect(check.updateAvailable, isTrue);
         manager.dispose();
       });
@@ -486,7 +488,7 @@ void main() {
 
         // מה שנרשם ב-state הוא מה שמונע הצעת הורדה חוזרת בכל פתיחה.
         final store = LibraryStateStore(p.join(dataDir, 'library_state.json'));
-        expect(await store.loadAppliedReleaseTag(), 'v5');
+        expect((await store.loadAppliedRelease())?.tag, 'v5');
         expect(await store.loadCustomDbPath(), check.dbPath);
 
         final recheck = await manager.checkForUpdate();
@@ -521,7 +523,8 @@ void main() {
 
       final check = LibraryUpdateCheckResult(
         dbPath: dbPath,
-        latestReleaseTag: 'v6',
+        latestVersion: 6,
+        latestContentTag: 'v6',
         plan: LibraryUpdatePlan.fullDownload(
           localVersion: 3,
           // היעד של ההורדה עצמה הוא מה שהנכס מביא — האימות שאחריה בודק אותו.
@@ -549,7 +552,7 @@ void main() {
         expect(File(dbPath).readAsBytesSync(), dbBytes);
         final store = LibraryStateStore(p.join(dataDir, 'library_state.json'));
         // 'v5' כאן היה מסמן את המראה כ"תוכן אחר" ומציע 1GB בכל פתיחה.
-        expect(await store.loadAppliedReleaseTag(), 'v6');
+        expect((await store.loadAppliedRelease())?.tag, 'v6');
         final notice = await manager.pendingReindexRequest(dbPath: dbPath);
         expect(notice!.dbVersion, 6);
         manager.dispose();
@@ -581,7 +584,7 @@ void main() {
       expect(File(dbPath).existsSync(), isFalse);
       expect(
         await LibraryStateStore(p.join(dataDir, 'library_state.json'))
-            .loadAppliedReleaseTag(),
+            .loadAppliedRelease(),
         isNull,
       );
       manager.dispose();
@@ -611,7 +614,8 @@ void main() {
 
       final check = LibraryUpdateCheckResult(
         dbPath: dbPath,
-        latestReleaseTag: 'v5',
+        latestVersion: 5,
+        latestContentTag: 'v5',
         plan: LibraryUpdatePlan.delta(
           localVersion: 4,
           targetVersion: 5,
@@ -636,8 +640,9 @@ void main() {
 
         expect(File(dbPath).readAsBytesSync(), dbBytes);
         expect(
-          await LibraryStateStore(p.join(dataDir, 'library_state.json'))
-              .loadAppliedReleaseTag(),
+          (await LibraryStateStore(p.join(dataDir, 'library_state.json'))
+                  .loadAppliedRelease())
+              ?.tag,
           'v5',
         );
         manager.dispose();

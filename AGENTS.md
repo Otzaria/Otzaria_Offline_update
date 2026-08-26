@@ -751,8 +751,9 @@ here (a *file* on Windows, an `.app` *directory* on macOS — hence
 `FileSystemEntity.typeSync`, not `File.existsSync`) and re-reads the version off
 the executable, rejecting the state when it does not. The file itself is **not**
 deleted: it may be perfectly valid on the machine the drive returns to. The same
-disease is latent in `LibraryStateStore.appliedReleaseTag`, which also travels —
-there it can only suppress an update when the version numbers already match.
+disease used to be live in `LibraryStateStore`'s applied release tag, which also
+travels; it is now recorded per machine (`appliedReleases`) for exactly that
+reason.
 
 **Version strings need normalizing before comparison.** An installed build
 reports `0.9.96` while the release tag is `0.9.96+736`. `OtzariaUpdateCheckResult`
@@ -1068,10 +1069,24 @@ Two consequences to preserve:
 **A DB update can ship without a version bump.** SeforimLibrary sometimes
 re-publishes a corrected `seforim.db.zst` under the same `db_version`. The
 version comparison alone reports "up to date", so `LibraryUpdatePlanner` also
-compares the applied release tag (`LibraryStateStore.appliedReleaseTag`, written
-by `applyUpdate`). It only does so when that tag is *known* — a DB that was not
-installed by this launcher has no tag, and guessing there would offer a ~1GB
-download on every single launch.
+compares the applied release tag (`LibraryStateStore.loadAppliedRelease()`,
+written by `applyUpdate`). It only does so when that tag is *known* — a DB that
+was not installed by this launcher has no tag, and guessing there would offer a
+~1GB download on every single launch.
+
+**That comparison has two traps, and both were live.** First, the tag it
+compares against must be `LibraryDiscoveryResult.latestContentTag` — the newest
+release — and **not** `fullDbReleaseTag`, the release that happens to carry
+`seforim.db.zst`. A release with patches only is the newest one while the full
+DB stays on an older tag, so recording the carrier meant that every time the
+mirror picked up a newer full DB, every machine already on the latest version
+was told "the content changed" and offered ~1.4GB — printed as *"the DB will be
+updated from version 22 to version 22"*. Second, the record is **per machine and
+carries the `db_version` it was written for** (`appliedReleases`, keyed like
+`customDbPaths`). A single global `appliedReleaseTag` travelled with the drive,
+so one machine's tag was compared against another machine's DB, and a DB that
+Otzaria updated by itself kept a tag from a version it no longer held. The
+legacy global field is ignored on read and deleted on write.
 
 **DB location is discovered, not assumed — and Otzaria's own setting wins.**
 `LibraryDbLocator` checks, in order: a path we saved ourselves, then

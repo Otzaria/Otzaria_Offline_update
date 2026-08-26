@@ -197,7 +197,7 @@ void main() {
 
       expect(
           result.latestFullDbAsset?.downloadUrl, 'https://x/v3/seforim.db.zst');
-      expect(result.latestReleaseTag, 'v3');
+      expect(result.fullDbReleaseTag, 'v3');
     });
 
     test('release חדש עם DB מלא בלבד (ללא patches) נחשב latest', () async {
@@ -251,7 +251,57 @@ void main() {
       expect(result.latestVersion, 4); // מה-full DB, גבוה מ-edge המקסימלי (3)
       expect(
           result.latestFullDbAsset?.downloadUrl, 'https://x/v4/seforim.db.zst');
-      expect(result.latestReleaseTag, 'v4');
+      expect(result.fullDbReleaseTag, 'v4');
+    });
+
+    // הבאג שהופיע בשטח: ה-tag שנרשם כ"מאיפה התוכן שלנו הגיע" חייב להיות של
+    // ה-release החדש ביותר, ולא של נושא המסד המלא — אחרת כל החלפה של נושא
+    // המסד נראתה כפרסום מחדש, והוצע "עדכון" מגרסה 22 לגרסה 22.
+    test('release עם patches בלבד הוא latestContentTag, גם כשהמסד המלא ישן',
+        () async {
+      final releases = jsonEncode([
+        {
+          'tag_name': 'v22-latest',
+          'assets': [
+            {
+              'name': 'patch-v21-v22.db.zst',
+              'browser_download_url': 'https://x/v22/patch-v21-v22.db.zst',
+              'size': 1000
+            },
+            {
+              'name': 'patch-v21-v22.db.zst.manifest.json',
+              'browser_download_url':
+                  'https://x/v22/patch-v21-v22.db.zst.manifest.json',
+              'size': 100
+            },
+          ],
+        },
+        {
+          'tag_name': 'v21-carrier',
+          'assets': [
+            {
+              'name': 'seforim.db.zst',
+              'browser_download_url': 'https://x/v21/seforim.db.zst',
+              'size': 1200000000
+            },
+          ],
+        },
+      ]);
+      final mock = MockClient((request) async {
+        final url = request.url.toString();
+        if (url.contains('/releases')) return http.Response(releases, 200);
+        if (url.endsWith('patch-v21-v22.db.zst.manifest.json')) {
+          return http.Response(_manifestJson(21, 22), 200);
+        }
+        return http.Response('not found', 404);
+      });
+      final discovery = LibraryUpdateDiscovery(
+          client: GithubLibraryReleaseClient(httpClient: mock));
+      final result = await discovery.discover(allowPrerelease: false);
+
+      expect(result.latestVersion, 22);
+      expect(result.fullDbReleaseTag, 'v21-carrier');
+      expect(result.latestContentTag, 'v22-latest');
     });
 
     test('ללא releases כלל → latestVersion=0, בלי edges ובלי DB מלא', () async {
@@ -262,7 +312,8 @@ void main() {
       expect(result.latestVersion, 0);
       expect(result.edges, isEmpty);
       expect(result.latestFullDbAsset, isNull);
-      expect(result.latestReleaseTag, isNull);
+      expect(result.fullDbReleaseTag, isNull);
+      expect(result.latestContentTag, isNull);
     });
 
     // manifest פגום/חסר מפיל רק את ה-edge שלו — שאר המסלולים חייבים לשרוד.
@@ -439,7 +490,7 @@ void main() {
       expect(result.edges, hasLength(1));
       expect(File(result.edges.single.patchFileUrls.values.single).existsSync(),
           isTrue);
-      expect(result.latestReleaseTag, 'v3');
+      expect(result.fullDbReleaseTag, 'v3');
     });
 
     test('releases.json חסר → LocalMirrorException (בלי נפילה לרשת)', () {

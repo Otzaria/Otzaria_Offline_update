@@ -445,16 +445,21 @@ class LibraryManager {
     final discoveryResult =
         await discoverer.discover(allowPrerelease: allowPrerelease);
 
+    // מאיזה release התוכן שעל **המחשב הזה** הגיע, ובאיזו גרסה — בלי זה,
+    // release שמפרסם מסד מתוקן באותו db_version נראה כ"מעודכן".
+    final applied = await _stateStore.loadAppliedRelease();
+
     final plan = _planner.plan(
       localVersion: local.dbVersion,
       hasLocalVersionMeta: local.hasVersionMeta,
       latestVersion: discoveryResult.latestVersion,
       edges: discoveryResult.edges,
       latestFullDbAsset: discoveryResult.latestFullDbAsset,
-      latestReleaseTag: discoveryResult.latestReleaseTag,
+      fullDbReleaseTag: discoveryResult.fullDbReleaseTag,
       latestFullDbVersion: discoveryResult.latestFullDbVersion,
-      // בלי זה, release שמפרסם מסד מתוקן באותו db_version נראה כ"מעודכן".
-      localReleaseTag: await _stateStore.loadAppliedReleaseTag(),
+      latestContentTag: discoveryResult.latestContentTag,
+      localReleaseTag: applied?.tag,
+      localReleaseTagVersion: applied?.dbVersion,
     );
 
     return LibraryUpdateCheckResult(
@@ -462,7 +467,8 @@ class LibraryManager {
       localVersion: local,
       plan: plan,
       isFreshInstall: isFreshInstall,
-      latestReleaseTag: discoveryResult.latestReleaseTag,
+      latestVersion: discoveryResult.latestVersion,
+      latestContentTag: discoveryResult.latestContentTag,
       companionsPending: await _companionsInstaller.hasPendingWork(
         mirrorDir: companionsMirrorDir,
         dbPath: dbPath,
@@ -518,7 +524,7 @@ class LibraryManager {
     // הגרסה שהמסד באמת הגיע אליה. שונה מ-`plan.targetVersion` כשהורדה מלאה
     // נחתה על מסד ישן והושלמה ב-patches — ראו [LibraryUpdatePlan.followUpDelta].
     var appliedVersion = plan?.targetVersion;
-    var appliedTag = plan?.fullDbReleaseTag ?? check.latestReleaseTag;
+    var appliedTag = _contentTagFor(check, appliedVersion);
     if (plan != null && check.dbUpdateAvailable) {
       switch (plan.kind) {
         case LibraryUpdatePlanKind.delta:
@@ -567,7 +573,7 @@ class LibraryManager {
                 isCancelled: isCancelled,
               );
               appliedVersion = followUp.targetVersion;
-              appliedTag = check.latestReleaseTag;
+              appliedTag = _contentTagFor(check, appliedVersion);
             } catch (_) {
               await _finishDbUpdate(
                 check: check,
@@ -619,6 +625,17 @@ class LibraryManager {
     return booksTouched;
   }
 
+  /// ה-release שהתוכן בגרסה [version] הגיע ממנו: ה-release החדש ביותר כשהגענו
+  /// ל-latest, ואחרת נושא המסד המלא שהורד. **לא** נושא המסד המלא כברירת מחדל:
+  /// זה מה שהפך כל החלפה שלו ל"עדכון" מגרסה X לאותה גרסה X.
+  String? _contentTagFor(LibraryUpdateCheckResult check, int? version) {
+    final latest = check.latestVersion;
+    if (version != null && latest != null && version >= latest) {
+      return check.latestContentTag ?? check.plan?.fullDbReleaseTag;
+    }
+    return check.plan?.fullDbReleaseTag ?? check.latestContentTag;
+  }
+
   /// רישומי הסיום של עדכון מסד שהצליח: state מקומי + הסימון לאוצריא.
   /// [version] ו-[tag] הם מה שהמסד באמת הגיע אליו — לא בהכרח יעד התוכנית.
   Future<void> _finishDbUpdate({
@@ -639,9 +656,12 @@ class LibraryManager {
       if (check.isFreshInstall && !await _locator.isKnownToOtzaria(dbPath)) {
         await _stateStore.saveCustomDbPath(dbPath);
       }
-      // רושמים מאיזה release התוכן הנוכחי הגיע — זה מה שמאפשר לזהות בהמשך
-      // מסד מתוקן שפורסם באותו db_version (ראו LibraryUpdatePlanner).
-      if (tag != null) await _stateStore.saveAppliedReleaseTag(tag);
+      // רושמים מאיזה release התוכן הנוכחי הגיע, **יחד עם הגרסה** — זה מה
+      // שמאפשר לזהות בהמשך מסד מתוקן שפורסם באותו db_version, ומונע השוואה
+      // מול רישום שנעשה בגרסה אחרת (ראו LibraryUpdatePlanner).
+      if (tag != null && version != null && version > 0) {
+        await _stateStore.saveAppliedRelease(tag: tag, dbVersion: version);
+      }
       // המחשב הזה עלה לגרסה החדשה — בלי העדכון הזה הורדה אישית הבאה עוד
       // הייתה יוצאת מהגרסה הישנה שלו ומביאה patches שכבר הוחלו.
       if (version != null && version > 0) {

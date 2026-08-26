@@ -228,8 +228,9 @@ otzaria://library/reindex
 - `services/companion_assets*.dart` — המראה וההתקנה של הקבצים הנלווים.
 - `services/external_update_notice.dart` — סימון "המסד עודכן מבחוץ".
 - `services/library_state_store.dart` — שמירת נתיב מותאם אישית ושל
-  `appliedReleaseTag` (ה-release שממנו הגיע תוכן ה-DB — כך מזוהה מסד שפורסם
-  מחדש באותו `db_version`).
+  `appliedReleases` (ה-release שממנו הגיע תוכן ה-DB **והגרסה שנרשמה איתו**,
+  פר-מחשב — כך מזוהה מסד שפורסם מחדש באותו `db_version`, בלי להשוות מול רישום
+  של מחשב אחר או של גרסה אחרת).
 - `services/library_update_applier.dart` — **`LibraryUpdateApplier`**: ההחלה
   בפועל של delta/fullDownload על ה-DB החי (patch/apply דרך `Isolate.run` נכון,
   סימון עדכון-שנקטע, בדיקת "אוצריא רצה").
