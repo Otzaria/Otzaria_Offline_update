@@ -486,6 +486,9 @@ abstract class PluginsStrings {
   String get saveDoneSnack;
   String get saveFailedSnack;
   String installOpenedSnack(String pluginName);
+
+  /// אחרי שהסריקה הוכיחה שאוצריא סיימה — ולא כשהמסירה אליה הצליחה.
+  String installDoneSnack(String pluginName);
   String get installFailedSnack;
 
   String get loadingCatalog;
@@ -618,8 +621,9 @@ abstract class PluginsStrings {
 
   /// תוסף שאין לו התקנה ישירה — יש להתקינו מדף התוסף.
   String get updatesDialogManualOnly;
+
+  /// למה השורות עדיין לא הפכו ל"עודכן" — והבטחה שאין מה ללחוץ.
   String get updatesDialogPendingNote;
-  String get updatesDialogRecheckButton;
 
   // ── גלריית צילומי המסך ──────────────────────────────────────────────────
   String get screenshotPrevious;

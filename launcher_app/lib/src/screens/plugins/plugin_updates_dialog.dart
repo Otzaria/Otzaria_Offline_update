@@ -185,19 +185,16 @@ class _PluginUpdatesListState extends State<_PluginUpdatesList> {
               ),
             ),
           ),
-          if (_sent.isNotEmpty) ...[
+          // ההערה נשארת כל עוד יש שורה שנמסרה וטרם אושרה — הקונטרולר סורק
+          // את תיקיית ההתקנה בעצמו, ולכן אין כאן כפתור "בדיקה מחדש".
+          if (widget.updatable
+              .any((p) => _sent.contains(p.id) && !_isDone(p))) ...[
             const SizedBox(height: AppTokens.spaceSM),
             Text(
               t.updatesDialogPendingNote,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
-            ),
-            const SizedBox(height: AppTokens.spaceSM),
-            ActionButton.neutral(
-              text: t.updatesDialogRecheckButton,
-              icon: FluentIcons.arrow_clockwise_24_regular,
-              onPressed: () => unawaited(widget.controller.refreshInstalled()),
             ),
           ],
         ],

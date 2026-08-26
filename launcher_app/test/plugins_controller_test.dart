@@ -465,6 +465,94 @@ void main() {
     });
   });
 
+  group('סיום ההתקנה באוצריא מזוהה מאליו', () {
+    const manifestId = 'launcher-fresh-plugin';
+    late String exe;
+    late String installedDir;
+
+    PluginsModuleController watching({Duration? timeout}) {
+      final c = PluginsModuleController(
+        mirrorRootDir: p.join(tempDir.path, 'mirror'),
+        otzariaLaunchPath: () async => exe,
+        installWatchInterval: const Duration(milliseconds: 10),
+        installWatchTimeout: timeout ?? const Duration(minutes: 5),
+      );
+      addTearDown(c.dispose);
+      return c;
+    }
+
+    /// מה שאוצריא כותבת לדיסק כשהיא מסיימת להתקין.
+    void otzariaFinishes(String version) {
+      File(p.join(installedDir, manifestId, 'current', 'manifest.json'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('{"id":"$manifestId","version":"$version"}');
+    }
+
+    setUp(() {
+      final dir = p.join(tempDir.path, 'ניידת-המתנה');
+      exe = p.join(dir, 'otzaria.exe');
+      File(exe).createSync(recursive: true);
+      File(p.join(dir, InstalledPluginsScanner.portableMarkerFileName))
+          .writeAsStringSync('');
+      installedDir = p.join(dir, InstalledPluginsScanner.portableDataFolderName,
+          'plugins', 'installed');
+      Directory(installedDir).createSync(recursive: true);
+    });
+
+    test('הסריקה החוזרת מזהה את ההתקנה ומודיעה עליה, בלי בדיקה ידנית',
+        () async {
+      final c = watching();
+      await c.load();
+      final target = plugin('חדש', 'תוסף חדש', manifestId: manifestId);
+
+      final announced = c.installCompletions.first;
+      c.watchForInstall(target);
+      expect(c.isAwaitingInstallOf(target), isTrue);
+
+      otzariaFinishes('2.0.0');
+
+      expect(await announced, 'תוסף חדש');
+      expect(c.installed[manifestId], '2.0.0');
+      expect(c.isAwaitingInstall, isFalse);
+    });
+
+    test('גם עדכון מזוהה — הגרסה שעל הדיסק היא שהשתנתה', () async {
+      otzariaFinishes('1.0.0');
+      final c = watching();
+      await c.load();
+      final target = plugin('חדש', 'תוסף', manifestId: manifestId);
+
+      final announced = c.installCompletions.first;
+      c.watchForInstall(target);
+      otzariaFinishes('1.1.0');
+
+      expect(await announced, 'תוסף');
+      expect(c.installed[manifestId], '1.1.0');
+    });
+
+    test('פסק זמן סוגר את ההמתנה בלי להודיע על הצלחה', () async {
+      final c = watching(timeout: Duration.zero);
+      await c.load();
+      var announced = false;
+      c.installCompletions.listen((_) => announced = true);
+
+      c.watchForInstall(plugin('חדש', 'תוסף', manifestId: manifestId));
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      expect(c.isAwaitingInstall, isFalse);
+      expect(announced, isFalse);
+    });
+
+    test('תוסף בלי מזהה מניפסט אינו נכנס להמתנה', () async {
+      final c = watching();
+      await c.load();
+
+      c.watchForInstall(plugin('חדש', 'תוסף'));
+
+      expect(c.isAwaitingInstall, isFalse);
+    });
+  });
+
   group('sync — הפעולה היחידה שדורשת רשת', () {
     test('בלי חיבור: מצב שגיאה עם הודעה, בלי קריסה', () async {
       await controller.sync();

@@ -838,6 +838,9 @@ class _Plugins extends PluginsStrings {
   String installOpenedSnack(String pluginName) =>
       'Otzaria was opened to finish installing $pluginName';
   @override
+  String installDoneSnack(String pluginName) =>
+      '$pluginName was installed successfully';
+  @override
   String get installFailedSnack => 'The installation failed';
 
   @override
@@ -1080,10 +1083,8 @@ class _Plugins extends PluginsStrings {
   String get updatesDialogManualOnly => 'Install from the plugin page';
   @override
   String get updatesDialogPendingNote =>
-      'The installation itself happens inside Otzaria. Once it is done there, '
-      'press "Re-check" to see what has already been updated.';
-  @override
-  String get updatesDialogRecheckButton => 'Re-check';
+      'The installation itself happens inside Otzaria. This list updates by '
+      'itself the moment it finishes there — nothing to press.';
 
   @override
   String get screenshotPrevious => 'Previous';

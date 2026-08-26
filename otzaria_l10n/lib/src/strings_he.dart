@@ -790,6 +790,9 @@ class _Plugins extends PluginsStrings {
   String installOpenedSnack(String pluginName) =>
       'אוצריא נפתחה כדי להשלים את התקנת $pluginName';
   @override
+  String installDoneSnack(String pluginName) =>
+      'התוסף $pluginName הותקן בהצלחה';
+  @override
   String get installFailedSnack => 'ההתקנה נכשלה';
 
   @override
@@ -1029,10 +1032,8 @@ class _Plugins extends PluginsStrings {
   String get updatesDialogManualOnly => 'התקנה מדף התוסף';
   @override
   String get updatesDialogPendingNote =>
-      'ההתקנה עצמה מתבצעת בחלון של אוצריא. לאחר שתסתיים שם, לחצו '
-      '"בדיקה מחדש" כדי לראות מה כבר עודכן.';
-  @override
-  String get updatesDialogRecheckButton => 'בדיקה מחדש';
+      'ההתקנה עצמה מתבצעת בחלון של אוצריא. הרשימה כאן מתעדכנת מאליה '
+      'ברגע שהיא מסתיימת שם — אין מה ללחוץ.';
 
   @override
   String get screenshotPrevious => 'הקודם';

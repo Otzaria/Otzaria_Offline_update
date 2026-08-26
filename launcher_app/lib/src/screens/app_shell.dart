@@ -82,6 +82,9 @@ class _AppShellState extends State<AppShell> {
   late final LibraryModuleController _library;
   late final PluginsModuleController _plugins;
 
+  /// "התוסף הותקן בהצלחה" — נשלח מהקונטרולר כשהסריקה זיהתה שאוצריא סיימה.
+  late final StreamSubscription<String> _installDone;
+
   /// תוכנות שהמשתמש הוסיף בעצמו. אינו מודול כמו השלושה: הוא לא נבדק
   /// ב-[checkAll], אין לו הורדה מהרשת, והוא נעלם לגמרי כשאין בו כלום.
   late final CustomAppsController _customApps;
@@ -174,6 +177,13 @@ class _AppShellState extends State<AppShell> {
       installedAppVersion: () async =>
           _otzaria.currentVersion ?? _otzaria.latestVersion,
     )..addListener(_onChange);
+    // כאן ולא במסך החנות: ההתקנה נגמרת בחלון של אוצריא, והמשתמש עשוי
+    // לחזור בינתיים לכל מסך אחר — ההודעה צריכה למצוא אותו גם שם.
+    _installDone = _plugins.installCompletions.listen((name) {
+      if (mounted) {
+        UiSnack.showSuccess(AppL10n.strings.plugins.installDoneSnack(name));
+      }
+    });
     _customApps = CustomAppsController(
       mirrorRootDir: p.join(widget.dataDir, 'mirror'),
     )..addListener(_onChange);
@@ -207,6 +217,7 @@ class _AppShellState extends State<AppShell> {
   @override
   void dispose() {
     _runningPoll?.cancel();
+    unawaited(_installDone.cancel());
     widget.settings.removeListener(_onChange);
     _otzaria.removeListener(_onChange);
     _library.removeListener(_onChange);

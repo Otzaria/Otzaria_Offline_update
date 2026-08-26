@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:plugins_manager/plugins_manager.dart';
@@ -25,6 +27,8 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     Future<String?> Function()? otzariaLaunchPath,
     this.mirroredAppVersions,
     this.installedAppVersion,
+    this.installWatchInterval = const Duration(seconds: 1),
+    this.installWatchTimeout = const Duration(minutes: 5),
   })
   // תיקיית התוספים של אוצריא נגזרת מההתקנה שהלאנצ'ר זיהה ואינה ניתנת
   // להגדרה — ראו AppPaths: אין נתיבים בהגדרות.
@@ -42,6 +46,11 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
 
   /// גרסת אוצריא שבמחשב **הזה**, ולפיה נבחר איזה בילד יוצג ויותקן.
   final Future<String?> Function()? installedAppVersion;
+
+  /// כל כמה זמן נסרקת תיקיית התוספים אחרי מסירה לאוצריא, ועד מתי. מוזרקים
+  /// רק כדי שבדיקות לא יחכו בזמן אמת.
+  final Duration installWatchInterval;
+  final Duration installWatchTimeout;
 
   /// התשובה האחרונה של [installedAppVersion]. `null` = לא ידוע (אוצריא לא
   /// זוהתה), ואז אין מול מה לסנן והבילד החי הוא שנבחר.
@@ -159,14 +168,96 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
       // גם הגרסה מתעדכנת כאן: היא נקראת מאותה התקנה שזה עתה זוהתה, ובלעדיה
       // החנות הייתה ממשיכה להציג בילדים לפי גרסה שכבר לא נכונה.
       final version = await installedAppVersion?.call();
-      if (mapEquals(installed, scanned) && version == appVersion) return;
-      appVersion = version;
-      installed = scanned;
-      _invalidateDerived();
-      notifyListeners();
+      if (!mapEquals(installed, scanned) || version != appVersion) {
+        appVersion = version;
+        installed = scanned;
+        _invalidateDerived();
+        notifyListeners();
+      }
+      // אחרי ההצבה, לא לפניה: מי שמאזין להודעת הסיום קורא מיד את המפה
+      // החדשה. גם סריקה שלא שינתה כלום מגיעה לכאן — פסק הזמן נסגר בה.
+      _settleInstallWatch(scanned);
     } catch (e, st) {
       // כישלון כאן אינו הופך את החנות לשגויה — היא כבר טעונה ומוצגת.
       AppLogger.instance.error('סריקת התוספים המותקנים נכשלה', e, st);
+    }
+  }
+
+  // ── המתנה להתקנה שנמסרה לאוצריא ───────────────────────────────────────────
+  // ההתקנה עצמה קורית בחלון של אוצריא, ולכן הרגע שבו היא נגמרה מגיע אלינו
+  // רק מהדיסק: תיקיית ההתקנה נסרקת שוב ושוב עד שהגרסה שם משתנה. בלי זה
+  // המשתמש היה צריך ללחוץ "בדיקה מחדש" כדי לראות מה כבר עודכן.
+
+  /// תוספים שנמסרו לאוצריא וטרם אושרו בסריקה, לפי `id` של התוסף בחנות.
+  final Map<String, _PendingInstall> _pendingInstalls = {};
+  Timer? _installWatch;
+
+  /// שמות התוספים שאוצריא סיימה להתקין. `AppShell` מאזין ומציג הודעה —
+  /// גם כשהמשתמש כבר עבר ממסך החנות למסך אחר.
+  final StreamController<String> _installDone =
+      StreamController<String>.broadcast();
+  Stream<String> get installCompletions => _installDone.stream;
+
+  /// האם ממתינים כרגע לאוצריא שתסיים התקנה כלשהי.
+  bool get isAwaitingInstall => _pendingInstalls.isNotEmpty;
+
+  bool isAwaitingInstallOf(StorePlugin plugin) =>
+      _pendingInstalls.containsKey(plugin.id);
+
+  /// מתחיל להמתין להתקנה של [plugin] באוצריא. ציבורי כדי שבדיקות יוכלו
+  /// להריץ את ההמתנה בלי למסור URL למערכת ההפעלה.
+  void watchForInstall(StorePlugin plugin) {
+    final manifestId = plugin.manifestId;
+    // בלי מזהה מניפסט אין מה לזהות בסריקה — התוסף לא ייספר כמותקן ממילא.
+    if (manifestId == null) return;
+
+    _pendingInstalls[plugin.id] = _PendingInstall(
+      name: plugin.name,
+      manifestId: manifestId,
+      versionBefore: installed[manifestId],
+      deadline: DateTime.now().add(installWatchTimeout),
+    );
+    _installWatch ??= Timer.periodic(installWatchInterval, _tick);
+    notifyListeners();
+  }
+
+  void _tick(Timer _) {
+    // חנות שאינה מוכנה (טעינה / סנכרון / שגיאה) לא נסרקת, אבל המועד שעבר
+    // חייב לסגור את ההמתנה גם אז — אחרת הטיימר רץ עד סוף ההרצה.
+    if (status == PluginsModuleStatus.ready) {
+      unawaited(refreshInstalled());
+    } else {
+      _settleInstallWatch(installed);
+    }
+  }
+
+  /// סוגר את מה שהסריקה הוכיחה: גרסה שהשתנתה = ההתקנה הסתיימה, ומועד
+  /// שעבר = הפסקנו לחכות (המשתמש ביטל בחלון של אוצריא, או שלא סיים).
+  void _settleInstallWatch(Map<String, String> scanned) {
+    if (_pendingInstalls.isEmpty) return;
+
+    final now = DateTime.now();
+    final countBefore = _pendingInstalls.length;
+    final done = <String>[];
+    _pendingInstalls.removeWhere((id, pending) {
+      if (scanned[pending.manifestId] != pending.versionBefore) {
+        done.add(pending.name);
+        return true;
+      }
+      return now.isAfter(pending.deadline);
+    });
+
+    if (_pendingInstalls.length == countBefore) return; // עוד מחכים
+
+    if (_pendingInstalls.isEmpty) {
+      _installWatch?.cancel();
+      _installWatch = null;
+    }
+    // גם פסק זמן משנה את מצב השורה בדיאלוג, והסריקה עצמה לא בהכרח תודיע.
+    notifyListeners();
+    for (final name in done) {
+      AppLogger.instance.info('אוצריא סיימה להתקין את $name');
+      if (!_installDone.isClosed) _installDone.add(name);
     }
   }
 
@@ -306,9 +397,13 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   Future<PluginInstallResult> saveCopy(StorePlugin plugin, String destPath) =>
       _manager.saveCopy(plugin, destPath, appVersion: appVersion);
 
+  /// מוסר את התוסף לאוצריא. ההצלחה כאן היא של ה**מסירה** בלבד — ההתקנה
+  /// נגמרת בחלון של אוצריא, ולכן מתחילים מיד להמתין לה על הדיסק.
   Future<PluginInstallResult> directInstall(StorePlugin plugin) async {
     final result = await _manager.directInstall(plugin, appVersion: appVersion);
-    if (!result.success) {
+    if (result.success) {
+      watchForInstall(plugin);
+    } else {
       AppLogger.instance.error(
         'התקנה ישירה של ${plugin.name} נכשלה: ${result.error}',
       );
@@ -502,7 +597,25 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
 
   @override
   void dispose() {
+    _installWatch?.cancel();
+    unawaited(_installDone.close());
     _manager.dispose();
     super.dispose();
   }
+}
+
+/// תוסף שנמסר לאוצריא וממתין לאישור מהדיסק. [versionBefore] הוא מה שהיה
+/// מותקן ברגע המסירה — כל שינוי ממנו הוא ההוכחה שההתקנה הסתיימה.
+class _PendingInstall {
+  const _PendingInstall({
+    required this.name,
+    required this.manifestId,
+    required this.versionBefore,
+    required this.deadline,
+  });
+
+  final String name;
+  final String manifestId;
+  final String? versionBefore;
+  final DateTime deadline;
 }
