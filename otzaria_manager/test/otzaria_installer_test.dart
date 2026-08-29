@@ -271,8 +271,18 @@ void main() {
       }
     });
 
+    // 1 = `InitializeSetup` החזיר False, ובמתקין של אוצריא זה בדיוק מה
+    // שקורה אחרי שהוא שיגר את עצמו מחדש (מורם ב-UAC, או שקט בשדרוג).
+    // ההתקנה ממשיכה בתהליך השני — לא כשל.
+    test('1 = המתקין שיגר את עצמו מחדש, לא כשל', () {
+      expect(
+        OtzariaInstaller.wizardOutcomeFor(1),
+        OtzariaWizardOutcome.relaunched,
+      );
+    });
+
     test('כל קוד אחר = כשל', () {
-      for (final code in [1, 3, 4, 6, 7, 8]) {
+      for (final code in [3, 4, 6, 7, 8]) {
         expect(
           OtzariaInstaller.wizardOutcomeFor(code),
           OtzariaWizardOutcome.failed,
@@ -308,6 +318,41 @@ void main() {
         ),
         throwsA(isA<OtzariaWizardStillOpen>()),
       );
+    });
+
+    // הבאג מ-issue #26: המתקין שיגר את עצמו מחדש מורם (התקנה ישנה בנתיב
+    // שדורש מנהל), התהליך שהרצנו יצא בקוד 1, וההתקנה בתהליך השני הצליחה —
+    // אבל הלאנצ'ר הכריז "התקנת אוצריא נכשלה".
+    test('קוד יציאה 1 — הודעה שהאשף פתוח, לא כשל', () async {
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+
+      await expectLater(
+        installer.installWithWizard(
+          release: _release(),
+          installerPath: fakeInstaller,
+          locateInstalled: () async => null,
+          detectTimeout: Duration.zero,
+        ),
+        throwsA(isA<OtzariaWizardStillOpen>()),
+      );
+    });
+
+    test('קוד יציאה 1 וההתקנה כבר נמצאה — הצלחה', () async {
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+      final detected = OtzariaInstallState(
+        installedTagName: '0.9.0',
+        installDir: r'C:\אוצריא',
+        launchPath: r'C:\אוצריא\otzaria.exe',
+      );
+
+      final state = await installer.installWithWizard(
+        release: _release(),
+        installerPath: fakeInstaller,
+        locateInstalled: () async => detected,
+      );
+
+      expect(state.launchPath, detected.launchPath);
+      expect(state.installedTagName, _tag);
     });
 
     test('אשף שהמשתמש ביטל — OtzariaInstallCancelled, לא שגיאה', () async {

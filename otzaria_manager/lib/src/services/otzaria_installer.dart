@@ -40,7 +40,7 @@ class OtzariaWizardStillOpen implements Exception {
 
 /// איך הסתיימה הרצת המתקין עם האשף — ראו
 /// [OtzariaInstaller.wizardOutcomeFor].
-enum OtzariaWizardOutcome { finished, cancelled, failed }
+enum OtzariaWizardOutcome { finished, relaunched, cancelled, failed }
 
 /// מוריד את חבילת ההתקנה של אוצריא ומתקין אותה לתוך תיקייה נתונה, בשקט,
 /// לפי הפלטפורמה:
@@ -278,7 +278,12 @@ class OtzariaInstaller {
         throw StateError(
           AppL10n.strings.appDomain.installerExitCode(result.exitCode, details),
         );
+      // "שוגר מחדש" מטופל כמו "הסתיים": התהליך שהרצנו פרש בכוונה, והאשף
+      // (או ההתקנה השקטה) ממשיך בתהליך שני שאנחנו לא מחזיקים. הזיהוי
+      // שלמטה הוא שיקבע — ו-OtzariaWizardStillOpen הוא התשובה הנכונה
+      // כשהמשתמש עוד עומד מול האשף המורם.
       case OtzariaWizardOutcome.finished:
+      case OtzariaWizardOutcome.relaunched:
         _deleteQuietly(logPath);
     }
 
@@ -323,9 +328,17 @@ class OtzariaInstaller {
   /// קודי היציאה של Inno Setup: 0 הצלחה; 2 ו-5 ביטול של המשתמש (לפני
   /// ההתקנה ובאמצעה); 1223 הוא `ERROR_CANCELLED` של Windows — סירוב ל-UAC,
   /// כלומר גם הוא בחירה ולא תקלה.
+  ///
+  /// **1 אינו כשל במתקין של אוצריא.** זהו קוד היציאה כש-`InitializeSetup`
+  /// החזיר `False`, ו-`otzaria.iss`/`otzaria_full.iss` משתמשים בזה כדי
+  /// לפרוש מהתהליך הנוכחי **אחרי** ששיגרו את המתקין מחדש — מורם ב-UAC
+  /// כשההתקנה הקודמת יושבת בנתיב שדורש מנהל, או שקט בשדרוג מגרסה 0.9.88
+  /// ומעלה. ההתקנה נמשכת בתהליך השני, ולכן [OtzariaWizardOutcome.relaunched]
+  /// ממשיך לזיהוי כמו [OtzariaWizardOutcome.finished].
   static OtzariaWizardOutcome wizardOutcomeFor(int exitCode) =>
       switch (exitCode) {
         0 => OtzariaWizardOutcome.finished,
+        1 => OtzariaWizardOutcome.relaunched,
         2 || 5 || 1223 => OtzariaWizardOutcome.cancelled,
         _ => OtzariaWizardOutcome.failed,
       };
