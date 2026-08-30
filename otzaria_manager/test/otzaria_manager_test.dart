@@ -652,6 +652,57 @@ void main() {
       testOn: 'windows',
     );
 
+    // ה-DisplayName ברג׳יסטרי נבחר בהכלה, ולכן "HebrewBooks לאוצריא" —
+    // מוצר אחר — נכנס לרשימה, והלאנצ׳ר קרא גרסה (2.12.0) מה-exe הזר שלו,
+    // הכריז installedIsNewer וסירב להתקין אוצריא בכלל.
+    test(
+      'תיקייה מהרג׳יסטרי בלי exe של אוצריא אינה נחשבת התקנה',
+      () async {
+        if (!File(_systemExe).existsSync()) {
+          markTestSkipped('אין $_systemExe במכונה הזאת');
+          return;
+        }
+        final registered = p.join(dataDir.path, 'Otzaria HebrewBooks Search');
+        await Directory(registered).create(recursive: true);
+        await File(_systemExe)
+            .copy(p.join(registered, 'HebrewBooksSearchService.exe'));
+
+        final check = await managerFor(
+          registeredInstallDirs: [registered],
+          environment: {
+            'LOCALAPPDATA': localAppData,
+            'ProgramFiles': programFiles,
+          },
+        ).checkForUpdate();
+
+        expect(check.currentState?.installDir, isNot(registered));
+        if (!_legacyInstallExists) expect(check.currentState, isNull);
+      },
+      testOn: 'windows',
+    );
+
+    // הצד השני של אותו כלל: בתיקייה ייעודית שהשם שבתוכה השתנה, ה-fallback
+    // עדיין תופס — אחרת שינוי שם ה-exe באוצריא היה מנתק את הזיהוי.
+    test(
+      'תיקיית ברירת מחדל עם exe בשם אחר עדיין מזוהה',
+      () async {
+        if (!File(_systemExe).existsSync()) {
+          markTestSkipped('אין $_systemExe במכונה הזאת');
+          return;
+        }
+        final defaultDir = p.join(localAppData, 'Programs', 'Otzaria');
+        await Directory(defaultDir).create(recursive: true);
+        await File(_systemExe).copy(p.join(defaultDir, 'sefaria-reader.exe'));
+
+        final check = await managerFor(
+          environment: {'LOCALAPPDATA': localAppData},
+        ).checkForUpdate();
+
+        expect(check.currentState!.installDir, defaultDir);
+      },
+      testOn: 'windows',
+    );
+
     test(
       'הרג׳יסטרי קודם למיקומי ברירת המחדל, והתיקייה המנוהלת קודמת לשניהם',
       () async {

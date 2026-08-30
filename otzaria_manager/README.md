@@ -217,13 +217,21 @@ manager.dispose();
   להעדיף אותה על פני `release.body` שלא תמיד מלא.
 - `services/otzaria_asset_selector.dart` — בחירת האסט לפי פלטפורמה; פונקציה טהורה (בלי רשת ובלי `Platform`), ולכן ניתנת לבדיקה עבור שתי הפלטפורמות.
 - `services/otzaria_installer.dart` — הורדה + התקנה + גילוי מה שהותקן; מסלול לכל `OtzariaInstallerKind`, ותיקיית יעד לבחירה (ברירת מחדל, או תיקייה קיימת שאומצה).
-- `services/otzaria_app_locator.dart` — סריקת תיקייה ואיתור ה-exe/`.app` הראשי (משותף בין installer לזיהוי התקנה קיימת), עם סינון אופציונלי לתיקיות משותפות כמו `/Applications`.
+- `services/otzaria_app_locator.dart` — סריקת תיקייה ואיתור ה-exe/`.app` הראשי (משותף בין installer לזיהוי התקנה קיימת), עם סינון אופציונלי לתיקייה משותפת כמו `/Applications` — ולתיקייה שהגענו אליה מהתאמת שם, ראו למטה.
 - `services/installed_version_reader.dart` — הממשק המשותף + בחירת המימוש לפי פלטפורמה.
 - `services/windows_exe_version_reader.dart` — קריאת `ProductVersion` מתוך Windows version resource, דרך FFI (`package:win32`).
 - `services/windows_install_registry.dart` — `InstallLocation` ממפתחות
   ה-Uninstall של Inno Setup (HKCU, ואחריו HKLM ב-64 וב-32 סיביות). מאתר
   התקנה בתיקייה שאינה ברשימת ברירות המחדל **גם כשאוצריא סגורה**; התיקייה
   בלבד נלקחת משם, הגרסה נקראת תמיד מה-exe.
+
+  ⚠️ **התאמת ה-`DisplayName` היא בהכלה, ולכן אינה ראיה בפני עצמה.** גם
+  "HebrewBooks לאוצריא" — מוצר אחר — מכילה "אוצריא", וכך גם שם התיקייה שלה.
+  לכן תיקייה שהגיעה מהרג'יסטרי נדרשת לאימות זהות (`verifyIdentity`
+  ב-`detectExistingInstall`): בלי קובץ הרצה ששמו מזהה את אוצריא היא נפסלת,
+  והזיהוי ממשיך הלאה. בלי זה נקראה גרסה מ-exe זר, והלאנצ'ר סירב להתקין
+  אוצריא בטענה שהמותקן חדש יותר. בתיקייה **ייעודית** (`{autopf}\Otzaria`,
+  `C:\אוצריא`, המנוהלת) מועמד הגיבוי נשאר — שם שם התיקייה הוא הראיה.
 - `services/mac_app_version_reader.dart` — קריאת `CFBundleShortVersionString`/`CFBundleIdentifier` מ-`Info.plist` (binary plist, ולכן דרך `plutil`).
 - `services/otzaria_app_mirror.dart` — מראת התוכנה שעל הכונן: מורידה את שתי
   הגרסאות (יציבה + pre-release כשהוא חדש ממנה), כותבת `latest-release.json`

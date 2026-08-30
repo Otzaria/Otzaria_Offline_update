@@ -220,22 +220,45 @@ class OtzariaManager {
   ///
   /// `sharedDir` מסמן תיקייה שיש בה גם אפליקציות אחרות — ראו
   /// [_verifyIsOtzaria].
-  List<({String dir, bool sharedDir})> get _autoDetectDirs =>
-      switch (_platform) {
-        OtzariaTargetPlatform.windows => [
-            (dir: _managedInstallDir, sharedDir: false),
-            for (final dir in _installRegistry.installDirs())
-              (dir: dir, sharedDir: false),
-            ..._windowsRealDefaultDirs,
-          ],
-        OtzariaTargetPlatform.macos => [
-            (dir: _managedInstallDir, sharedDir: false),
-            (dir: _macApplicationsDir, sharedDir: true),
-            // שתי היעדים שאליהם אנחנו מתקינים, בסדר שבו נבחרים ביניהם.
-            if (_userApplicationsDir case final dir?)
-              (dir: dir, sharedDir: true),
-          ],
-      };
+  ///
+  /// `verifyIdentity` על תיקיות הרג'יסטרי: ה-`DisplayName` שם נבחר בהכלה
+  /// (`mentionsOtzaria`), ולכן גם **מוצר אחר** ששמו מזכיר את אוצריא נכנס
+  /// לרשימה — "HebrewBooks לאוצריא" הביא את הלאנצ'ר לקרוא גרסה מ-exe זר
+  /// (2.12.0), להכריז installedIsNewer ולסרב להתקין אוצריא בכלל. בתיקייה
+  /// ייעודית (`{autopf}\Otzaria`) הניחוש בטוח, וה-fallback נשאר.
+  List<({String dir, bool sharedDir, bool verifyIdentity})>
+      get _autoDetectDirs => switch (_platform) {
+            OtzariaTargetPlatform.windows => [
+                (
+                  dir: _managedInstallDir,
+                  sharedDir: false,
+                  verifyIdentity: false
+                ),
+                for (final dir in _installRegistry.installDirs())
+                  (dir: dir, sharedDir: false, verifyIdentity: true),
+                for (final candidate in _windowsRealDefaultDirs)
+                  (
+                    dir: candidate.dir,
+                    sharedDir: candidate.sharedDir,
+                    verifyIdentity: false
+                  ),
+              ],
+            OtzariaTargetPlatform.macos => [
+                (
+                  dir: _managedInstallDir,
+                  sharedDir: false,
+                  verifyIdentity: false
+                ),
+                (
+                  dir: _macApplicationsDir,
+                  sharedDir: true,
+                  verifyIdentity: false
+                ),
+                // שתי היעדים שאליהם אנחנו מתקינים, בסדר שבו נבחרים ביניהם.
+                if (_userApplicationsDir case final dir?)
+                  (dir: dir, sharedDir: true, verifyIdentity: false),
+              ],
+          };
 
   /// מוריד את הגרסאות האחרונות אל המראה המקומית — **הפעולה הכבדה** שנוגעת
   /// ברשת (מוריד את קובצי ההתקנה עצמם). לא מתקין כלום.
@@ -547,6 +570,7 @@ class OtzariaManager {
       final detected = await detectExistingInstall(
         customDir: candidate.dir,
         isSharedDir: candidate.sharedDir,
+        verifyIdentity: candidate.verifyIdentity,
       );
       if (detected != null) return detected;
     }
@@ -566,13 +590,17 @@ class OtzariaManager {
   /// `/Applications`), ואז נדרש גם אימות זהות ([_verifyIsOtzaria]) ולא
   /// מסתפקים ב"נמצאה שם אפליקציה". כשהמשתמש הצביע ידנית על תיקייה, ברירת
   /// המחדל (false) נכונה: הוא אמר לנו שאוצריא שם.
+  ///
+  /// [verifyIdentity] דורש את אותו אימות בתיקייה שאינה משותפת — כשהגענו
+  /// אליה מהתאמת שם ולא מידיעה. ראו [_autoDetectDirs].
   Future<OtzariaInstallState?> detectExistingInstall({
     required String customDir,
     bool isSharedDir = false,
+    bool verifyIdentity = false,
   }) async {
     final launchPath = await _appLocator.findIn(
       customDir,
-      accept: isSharedDir ? _verifyIsOtzaria : null,
+      accept: isSharedDir || verifyIdentity ? _verifyIsOtzaria : null,
       // בתיקייה משותפת ה-.app תמיד יושבת ישירות בשורש — אין טעם לצלול.
       macMaxDepth: isSharedDir ? 1 : OtzariaAppLocator.defaultMacMaxDepth,
     );
