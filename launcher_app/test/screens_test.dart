@@ -24,6 +24,7 @@ import 'package:launcher_app/src/self_update/payload_check.dart';
 import 'package:launcher_app/src/services/app_paths.dart';
 import 'package:launcher_app/src/services/timestamps.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
+import 'package:launcher_app/src/settings/safer_mode.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
 import 'package:launcher_app/src/theme/theme_exports.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
@@ -629,6 +630,38 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(settings.settings.preferAppPrerelease, isTrue);
+  });
+
+  testWidgets('בורר הערוץ נעול במצב סייפר — הוא ההגדרה היחידה שמחוץ למסך',
+      (tester) async {
+    otzaria.hasChannelChoice = true;
+    otzaria.stableVersion = '0.9.90';
+    otzaria.prereleaseVersion = '0.9.97';
+    otzaria.latestVersion = '0.9.90';
+    await tester.runAsync(
+      () => settings.update(
+        AppSettings(
+          saferModeEnabled: true,
+          saferModePassword: SaferModePassword.encode('1234'),
+        ),
+      ),
+    );
+
+    await pumpScreen(
+      tester,
+      OtzariaScreen(
+        otzaria: otzaria,
+        settings: settings,
+        otzariaIsRunning: false,
+        saferMode: SaferModeGate(settings),
+      ),
+    );
+
+    await tester.tap(find.text('לא יציבה'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('הזן סיסמה'), findsOneWidget);
+    expect(settings.settings.preferAppPrerelease, isFalse);
   });
 
   testWidgets('בחירת מיקום ידנית לאוצריא לא מושבתת בגלל הורדה של רכיב אחר',

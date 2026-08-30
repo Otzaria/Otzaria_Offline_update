@@ -17,6 +17,10 @@ class RtlTextField extends StatelessWidget {
   final ValueChanged<String>? onSubmitted;
   final bool enabled;
 
+  /// מסתיר את התווים — שדה סיסמה. ראו `SaferModePasswordDialog`.
+  final bool obscureText;
+  final bool autofocus;
+
   /// שורה אחת כברירת מחדל, כמו במקור. יותר מזה נדרש למי שמקליד פסקה — תשובה
   /// בהדרכה — ושם שדה בגובה שורה אינו קריא.
   final int minLines;
@@ -30,6 +34,8 @@ class RtlTextField extends StatelessWidget {
     this.onChanged,
     this.onSubmitted,
     this.enabled = true,
+    this.obscureText = false,
+    this.autofocus = false,
     this.minLines = 1,
     this.maxLines = 1,
   });
@@ -43,6 +49,8 @@ class RtlTextField extends StatelessWidget {
       onChanged: onChanged,
       onSubmitted: onSubmitted,
       enabled: enabled,
+      obscureText: obscureText,
+      autofocus: autofocus,
       textDirection: Directionality.of(context),
       textAlign: TextAlign.start,
       minLines: minLines,

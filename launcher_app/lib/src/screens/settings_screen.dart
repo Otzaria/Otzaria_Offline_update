@@ -5,6 +5,7 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import '../controllers/custom_apps_controller.dart';
 import '../services/app_paths.dart';
 import '../settings/app_settings.dart';
+import '../settings/safer_mode.dart';
 import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/screen_body.dart';
@@ -27,6 +28,8 @@ class SettingsScreen extends StatelessWidget {
     required this.onOpenLog,
     required this.launcherVersion,
     this.customApps,
+    this.readOnly = false,
+    this.saferMode,
   });
 
   final SettingsController controller;
@@ -36,8 +39,16 @@ class SettingsScreen extends StatelessWidget {
   /// כשיש עדכון, וכשאין — עדיין צריך לדעת איזו גרסה רצה (למשל לתמיכה).
   final String launcherVersion;
 
-  /// הכניסה לתוכנות מותאמות. `null` בבדיקות שאינן נוגעות בהן.
+  /// ניהול התוכנות המותאמות. `null` בבדיקות שאינן נוגעות בהן.
   final CustomAppsController? customApps;
+
+  /// הכונן מוגן מפני כתיבה — ראו `AppPaths.readOnly`. כל ניהול המרשם כותב
+  /// אליו, ולכן כרטיס התוכנות הנוספות כולו אינו מוצג.
+  final bool readOnly;
+
+  /// שומר הסף של מצב הסייפר — נדרש כדי לסמן אימות אחרי בחירת סיסמה. `null`
+  /// בבדיקות שאינן נוגעות בנעילה.
+  final SaferModeGate? saferMode;
 
   AppSettings get _s => controller.settings;
 
@@ -54,8 +65,9 @@ class SettingsScreen extends StatelessWidget {
         _appearanceCard(context),
         _automationCard(context),
         _downloadCard(context),
-        if (customApps case final controller?)
+        if (customApps case final controller? when !readOnly)
           CustomAppsSettingsCard(controller: controller),
+        _saferModeCard(context),
         _supportCard(context),
       ],
     );
@@ -288,6 +300,140 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
+  // ── מצב סייפר ─────────────────────────────────────────────────────────────
+
+  /// נעילת ההגדרות בסיסמה. הכרטיס עצמו יושב **בתוך** המסך הנעול: מי שהגיע
+  /// לכאן כבר עבר את השער, ולכן כאן די באימות לפני כל שינוי של הנעילה
+  /// עצמה — הפעלה, כיבוי, החלפת סיסמה או מחיקתה.
+  Widget _saferModeCard(BuildContext context) {
+    final t = context.strings.saferMode;
+    final hasPassword = _s.hasSaferModePassword;
+
+    return SettingsCard(
+      title: t.cardTitle,
+      hint: t.cardHint,
+      children: [
+        if (hasPassword)
+          SettingsActionTile.switchTile(
+            icon: _s.saferModeEnabled
+                ? FluentIcons.shield_lock_24_filled
+                : FluentIcons.shield_lock_24_regular,
+            title: t.toggleTitle,
+            subtitle:
+                _s.saferModeEnabled ? t.toggleOnSubtitle : t.toggleOffSubtitle,
+            value: _s.saferModeEnabled,
+            onChanged: (v) => _toggleSaferMode(context, enabled: v),
+          )
+        else
+          SettingsActionTile.text(
+            icon: FluentIcons.shield_lock_24_regular,
+            title: t.toggleTitle,
+            subtitle: t.needsPasswordSubtitle,
+            actions: [
+              ActionButton.recommended(
+                icon: FluentIcons.key_24_regular,
+                text: t.setPasswordButton,
+                onPressed: () => _setSaferModePassword(context),
+              ),
+            ],
+          ),
+        if (hasPassword)
+          SettingsActionTile.text(
+            icon: FluentIcons.key_24_regular,
+            title: t.passwordTileTitle,
+            subtitle: t.passwordTileSubtitle,
+            actions: [
+              ActionButton.neutral(
+                icon: FluentIcons.key_24_regular,
+                text: t.passwordOptionsButton,
+                onPressed: () => _setSaferModePassword(context),
+              ),
+              // מחיקה כשהמצב פעיל הייתה דלת אחורית מתוך הנעילה — הכפתור
+              // מושבת ומסביר, במקום להיעלם בלי סיבה נראית.
+              ActionButton.warning(
+                text:
+                    _s.saferModeEnabled ? t.clearBlockedButton : t.clearButton,
+                onPressed: _s.saferModeEnabled
+                    ? null
+                    : () => _clearSaferModePassword(context),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+
+  Future<void> _toggleSaferMode(
+    BuildContext context, {
+    required bool enabled,
+  }) async {
+    final t = context.strings.saferMode;
+    final verified = await showSaferModePasswordDialog(
+      context,
+      storedPassword: _s.saferModePassword,
+      hint: enabled ? t.verifyEnableHint : t.verifyDisableHint,
+    );
+    if (!verified) return;
+    // מי שהפעיל את המצב הרגע הוכיח את הסיסמה — ולא יישאל שוב עד הסגירה.
+    saferMode?.unlock();
+    await _set(_s.copyWith(saferModeEnabled: enabled));
+    UiSnack.show(enabled ? t.enabledSnack : t.disabledSnack);
+  }
+
+  Future<void> _setSaferModePassword(BuildContext context) async {
+    final t = context.strings.saferMode;
+    final hadPassword = _s.hasSaferModePassword;
+
+    if (hadPassword) {
+      final verified = await showSaferModePasswordDialog(
+        context,
+        storedPassword: _s.saferModePassword,
+        hint: t.verifyChangeHint,
+      );
+      if (!verified || !context.mounted) return;
+    }
+
+    final encoded = await showSaferModeSetPasswordDialog(context);
+    if (encoded == null) return;
+    await _set(_s.copyWith(saferModePassword: encoded));
+    saferMode?.unlock();
+    UiSnack.showSuccess(t.passwordSavedSnack);
+
+    // סיסמה ראשונה אינה נועלת דבר בלי המתג, ומי שבחר אותה מתכוון לנעול.
+    if (hadPassword || _s.saferModeEnabled || !context.mounted) return;
+    final activate = await showTwoActionsDialog(
+      context: context,
+      title: t.activateNowTitle,
+      content: t.activateNowContent,
+      confirmText: t.activateNowConfirm,
+    );
+    if (!activate) return;
+    await _set(_s.copyWith(saferModeEnabled: true));
+    UiSnack.show(t.enabledSnack);
+  }
+
+  Future<void> _clearSaferModePassword(BuildContext context) async {
+    final t = context.strings.saferMode;
+    final verified = await showSaferModePasswordDialog(
+      context,
+      storedPassword: _s.saferModePassword,
+      hint: t.verifyChangeHint,
+    );
+    if (!verified || !context.mounted) return;
+
+    final approved = await showWarningDialog(
+      context: context,
+      title: t.clearDialogTitle,
+      content: t.clearDialogContent,
+      confirmText: t.clearDialogConfirm,
+    );
+    if (!approved) return;
+    await _set(_s.copyWith(saferModePassword: '', saferModeEnabled: false));
+    // בלי זה, סיסמה שתיבחר מיד אחר כך הייתה נכנסת לתוקף רק בהרצה הבאה.
+    saferMode?.lock();
+    UiSnack.show(t.passwordRemovedSnack);
+  }
+
   // ── תמיכה ─────────────────────────────────────────────────────────────────
 
   Widget _supportCard(BuildContext context) {
@@ -340,7 +486,14 @@ class SettingsScreen extends StatelessWidget {
     );
     if (!approved) return;
     // איפוס מחזיר גם את השפה לעברית — ולכן ההודעה נקראת אחרי ההחלה.
-    await _set(const AppSettings());
+    // הנעילה שורדת אותו בכוונה: "החזר הגדרות לברירת המחדל" אינו אמור
+    // לפתוח בשקט את מה שנועל את ההגדרות עצמן.
+    await _set(
+      const AppSettings().copyWith(
+        saferModeEnabled: _s.saferModeEnabled,
+        saferModePassword: _s.saferModePassword,
+      ),
+    );
     UiSnack.showSuccess(AppL10n.strings.settings.resetDoneSnack);
   }
 }

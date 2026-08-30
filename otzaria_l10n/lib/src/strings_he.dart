@@ -21,6 +21,8 @@ class HebrewStrings extends AppStrings {
   @override
   SettingsScreenStrings get settings => const _Settings();
   @override
+  SaferModeStrings get saferMode => const _SaferMode();
+  @override
   PluginsStrings get plugins => const _Plugins();
   @override
   FaqStrings get faq => const _Faq();
@@ -734,6 +736,112 @@ class _Settings extends SettingsScreenStrings {
   String get resetDialogConfirm => 'אפס הגדרות';
   @override
   String get resetDoneSnack => 'ההגדרות אופסו';
+}
+
+class _SaferMode extends SaferModeStrings {
+  const _SaferMode();
+
+  @override
+  String get cardTitle => 'מצב סייפר';
+  @override
+  String get cardHint =>
+      'נעילת ההגדרות בסיסמה. הורדה, בדיקה והתקנה נשארות פתוחות לכולם — '
+      'רק שינוי ההגדרות ועריכת ההדרכה נדרשים לסיסמה.';
+  @override
+  String get toggleTitle => 'מצב סייפר';
+  @override
+  String get toggleOnSubtitle => 'ההגדרות ועריכת ההדרכה נעולות בסיסמה';
+  @override
+  String get toggleOffSubtitle => 'ההגדרות פתוחות לכל מי שפותח את התוכנה';
+  @override
+  String get needsPasswordSubtitle => 'יש לבחור סיסמה תחילה';
+  @override
+  String get setPasswordButton => 'בחר סיסמה';
+  @override
+  String get passwordTileTitle => 'סיסמה';
+  @override
+  String get passwordTileSubtitle => 'סיסמה הוגדרה — אפשר לשנות או למחוק אותה';
+  @override
+  String get passwordOptionsButton => 'אפשרויות';
+  @override
+  String get enabledSnack => 'מצב סייפר הופעל';
+  @override
+  String get disabledSnack => 'מצב סייפר הושבת';
+
+  @override
+  String get verifyTitle => 'הזן סיסמה';
+  @override
+  String get verifySettingsHint =>
+      'הנך במצב סייפר. הזן את הסיסמה כדי לגשת להגדרות.';
+  @override
+  String get verifyFaqHint =>
+      'הנך במצב סייפר. הזן את הסיסמה כדי לערוך את ההדרכה.';
+  @override
+  String get verifyEnableHint => 'הזן את הסיסמה כדי להפעיל את מצב הסייפר.';
+  @override
+  String get verifyDisableHint => 'הזן את הסיסמה כדי להשבית את מצב הסייפר.';
+  @override
+  String get verifyChangeHint => 'הזן את הסיסמה הנוכחית כדי לשנות אותה.';
+  @override
+  String get passwordLabel => 'סיסמה';
+  @override
+  String get passwordFieldHint => 'הזן את הסיסמה';
+  @override
+  String get wrongPassword => 'סיסמה שגויה';
+  @override
+  String get showPasswordTooltip => 'הצג את הסיסמה';
+  @override
+  String get hidePasswordTooltip => 'הסתר את הסיסמה';
+
+  @override
+  String get setTitle => 'בחירת סיסמה';
+  @override
+  String get setIntro =>
+      'הסיסמה נשמרת מעורבלת בקובץ ההגדרות שעל הכונן, ואין דרך לשחזר אותה. '
+      'מי שיאבד אותה יצטרך למחוק את קובץ ההגדרות.';
+  @override
+  String get newPasswordLabel => 'סיסמה חדשה';
+  @override
+  String minLengthHint(int minLength) => 'לפחות $minLength תווים';
+  @override
+  String get confirmPasswordLabel => 'אימות סיסמה';
+  @override
+  String get confirmPasswordFieldHint => 'הזן שוב את הסיסמה';
+  @override
+  String get passwordRequired => 'יש להזין סיסמה';
+  @override
+  String passwordTooShort(int minLength) =>
+      'הסיסמה חייבת להיות באורך $minLength תווים לפחות';
+  @override
+  String get passwordsDoNotMatch => 'הסיסמאות אינן זהות';
+  @override
+  String get passwordSavedSnack => 'הסיסמה נשמרה';
+  @override
+  String get saveButton => 'שמור';
+
+  @override
+  String get activateNowTitle => 'להפעיל את מצב הסייפר עכשיו?';
+  @override
+  String get activateNowContent =>
+      'מכאן והלאה תידרש הסיסמה כדי להיכנס להגדרות ולערוך את ההדרכה. '
+      'אפשר גם להפעיל את המצב מאוחר יותר, מהמתג שבכרטיס.';
+  @override
+  String get activateNowConfirm => 'הפעל עכשיו';
+
+  @override
+  String get clearButton => 'מחיקת הסיסמה';
+  @override
+  String get clearBlockedButton => 'יש להשבית את מצב הסייפר לפני מחיקת הסיסמה';
+  @override
+  String get clearDialogTitle => 'מחיקת הסיסמה';
+  @override
+  String get clearDialogContent =>
+      'לא תידרש עוד סיסמה, ולא יהיה אפשר להפעיל את מצב הסייפר עד שתיבחר '
+      'סיסמה חדשה.';
+  @override
+  String get clearDialogConfirm => 'מחק את הסיסמה';
+  @override
+  String get passwordRemovedSnack => 'הסיסמה נמחקה';
 }
 
 class _Plugins extends PluginsStrings {
@@ -2091,7 +2199,8 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get settingsCardHint =>
       'אפשר להוסיף תוכנות משלכם, שהתוכנה תדע לשאת על הכונן ולהתקין במחשב '
-      'המנותק — בדיוק כמו שהיא עושה עם אוצריא.';
+      'המנותק — בדיוק כמו שהיא עושה עם אוצריא. הוספה, עריכה והסרה נעשות '
+      'כאן; ההורדה וההתקנה עצמן במסך "תוכנות נוספות".';
   @override
   String get emptyHint => 'לא נוספו תוכנות';
   @override
@@ -2215,6 +2324,23 @@ class _CustomApps extends CustomAppsStrings {
   String storedInstaller(String version) => 'על הכונן: גרסה $version';
   @override
   String get noStoredInstaller => 'עוד לא הורד קובץ התקנה';
+
+  @override
+  String pendingDialogTitle(int count) =>
+      'יש תוכנות שממתינות על הכונן ($count)';
+  @override
+  String get pendingDialogIntro =>
+      'הכונן נושא קובצי התקנה שעדיין לא הותקנו במחשב הזה. ההתקנה עצמה — '
+      'בכפתור שבכרטיס של כל תוכנה, מאחורי החלון הזה.';
+  @override
+  String pendingDialogNotInstalledRow(String storedVersion) =>
+      'על הכונן גרסה $storedVersion — עדיין אינה מותקנת כאן';
+  @override
+  String pendingDialogUpdateRow(
+    String installedVersion,
+    String storedVersion,
+  ) =>
+      'מותקנת $installedVersion ← על הכונן $storedVersion';
 
   @override
   String get downloadButton => 'הורדה לכונן';

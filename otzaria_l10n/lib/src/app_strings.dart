@@ -16,6 +16,7 @@ abstract class AppStrings {
   AppScreenStrings get appScreen;
   LibraryScreenStrings get libraryScreen;
   SettingsScreenStrings get settings;
+  SaferModeStrings get saferMode;
   PluginsStrings get plugins;
   FaqStrings get faq;
   CustomAppsStrings get customApps;
@@ -453,6 +454,72 @@ abstract class SettingsScreenStrings {
   String get resetDoneSnack;
 }
 
+// ── מצב סייפר ─────────────────────────────────────────────────────────────────
+
+/// נעילת ההגדרות בסיסמה. מלל משלו ולא בתוך [SettingsScreenStrings], כי הוא
+/// מופיע גם מחוץ למסך ההגדרות — בכניסה אליו, ובמעבר לעריכת ההדרכה.
+abstract class SaferModeStrings {
+  const SaferModeStrings();
+
+  // ── הכרטיס שבהגדרות ──
+  String get cardTitle;
+  String get cardHint;
+  String get toggleTitle;
+  String get toggleOnSubtitle;
+  String get toggleOffSubtitle;
+
+  /// כשעוד לא נבחרה סיסמה — אין מה להפעיל, ולכן שורת המתג מוחלפת בכפתור.
+  String get needsPasswordSubtitle;
+  String get setPasswordButton;
+  String get passwordTileTitle;
+  String get passwordTileSubtitle;
+  String get passwordOptionsButton;
+  String get enabledSnack;
+  String get disabledSnack;
+
+  // ── דיאלוג האימות ──
+  String get verifyTitle;
+
+  /// למה מבקשים את הסיסמה עכשיו — משפט אחד לכל מקום שנעול.
+  String get verifySettingsHint;
+  String get verifyFaqHint;
+  String get verifyEnableHint;
+  String get verifyDisableHint;
+  String get verifyChangeHint;
+  String get passwordLabel;
+  String get passwordFieldHint;
+  String get wrongPassword;
+  String get showPasswordTooltip;
+  String get hidePasswordTooltip;
+
+  // ── דיאלוג בחירת הסיסמה ──
+  String get setTitle;
+  String get setIntro;
+  String get newPasswordLabel;
+  String minLengthHint(int minLength);
+  String get confirmPasswordLabel;
+  String get confirmPasswordFieldHint;
+  String get passwordRequired;
+  String passwordTooShort(int minLength);
+  String get passwordsDoNotMatch;
+  String get passwordSavedSnack;
+  String get saveButton;
+
+  /// הצעה להפעיל את המצב מיד אחרי שנבחרה סיסמה ראשונה.
+  String get activateNowTitle;
+  String get activateNowContent;
+  String get activateNowConfirm;
+
+  // ── מחיקת הסיסמה ──
+  String get clearButton;
+
+  /// אי אפשר למחוק סיסמה כשהמצב פעיל — זו הייתה דלת אחורית מתוך הנעילה.
+  String get clearBlockedButton;
+  String get clearDialogTitle;
+  String get clearDialogContent;
+  String get clearDialogConfirm;
+  String get passwordRemovedSnack;
+}
 // ── חנות התוספים ──────────────────────────────────────────────────────────────
 
 abstract class PluginsStrings {
@@ -1161,8 +1228,7 @@ abstract class CustomAppsStrings {
   // ── המסך ──
   String get screenTitle;
 
-  /// הכניסה מההגדרות. היא קיימת כי פריט הניווט מופיע רק אחרי שנוספה
-  /// תוכנה — בלעדיה אי אפשר להוסיף את הראשונה.
+  /// כרטיס ההגדרות — **כל** ניהול המרשם: הוספה, עריכה והסרה.
   String get settingsCardTitle;
   String get settingsCardHint;
   String get emptyHint;
@@ -1238,6 +1304,19 @@ abstract class CustomAppsStrings {
   String get noDetectRules;
   String storedInstaller(String version);
   String get noStoredInstaller;
+
+  // ── הודעת הכניסה למסך: מה שעל הכונן וטרם הותקן ──
+
+  /// נפתחת פעם אחת בכניסה למסך, ורק כשיש מה לומר. הכול נקרא מהדיסק —
+  /// אין כאן בדיקה ברשת.
+  String pendingDialogTitle(int count);
+  String get pendingDialogIntro;
+
+  /// תוכנה שקובץ ההתקנה שלה על הכונן, והיא כלל אינה מותקנת כאן.
+  String pendingDialogNotInstalledRow(String storedVersion);
+
+  /// תוכנה מותקנת שעל הכונן יושבת לה גרסה חדשה יותר.
+  String pendingDialogUpdateRow(String installedVersion, String storedVersion);
 
   String get downloadButton;
   String get downloadingLabel;

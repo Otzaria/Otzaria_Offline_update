@@ -61,7 +61,8 @@ class AppSettings {
   /// 7: `sync.personalMode` — הורדה למחשב שלי בלבד, בלי המסד המלא.
   /// 8: `sync.fullPackage` — חבילת ההתקנה המלאה של אוצריא.
   /// 9: `ui.showFaq` — הכפתור הצף של השאלות הנפוצות.
-  static const int schemaVersion = 9;
+  /// 10: `protection` — מצב סייפר: נעילת ההגדרות בסיסמה.
+  static const int schemaVersion = 10;
 
   /// בדיקת גרסאות בפתיחה כשיש חיבור לרשת — בדיקה קלה, בלי הורדה.
   final bool autoMetadataCheck;
@@ -115,6 +116,16 @@ class AppSettings {
   /// היחידה בתוכנה — וכיבוי מסתיר אותו לגמרי, כולל ההבהוב שבעלייה.
   final bool showFaqButton;
 
+  // ── מצב סייפר ───────────────────────────────────────────────────────────
+  /// `true` = ההגדרות ועריכת ההדרכה נעולות בסיסמה. אין לזה משמעות בלי
+  /// [saferModePassword], ולכן שאלו תמיד את [saferModeActive].
+  final bool saferModeEnabled;
+
+  /// הסיסמה, מעורבלת — `"<מלח>:<sha256(מלח+סיסמה)>"`, וריק כשאין. **הסיסמה
+  /// עצמה לעולם אינה נשמרת**; המלח נוצר מחדש בכל בחירת סיסמה, כך שאותה
+  /// סיסמה על שני כוננים אינה נראית אותו דבר בקובץ.
+  final String saferModePassword;
+
   /// השפה שבה הממשק מוצג בפועל: [languagePreference] אחרי פתירת "אוטומטי".
   AppLanguage get language => languagePreference.resolve();
 
@@ -135,12 +146,21 @@ class AppSettings {
     this.seedColor = AppSeedColors.defaultLight,
     this.darkSeedColor = AppSeedColors.defaultDark,
     this.showFaqButton = true,
+    this.saferModeEnabled = false,
+    this.saferModePassword = '',
   });
 
   /// `false` כשלא נבחר שום רכיב להורדה — ה-UI משתמש בזה כדי להשבית את
   /// כפתור ההורדה במקום להריץ פעולה שלא תעשה כלום.
   bool get hasSyncSelection =>
       syncApp || syncLibrary || syncPlugins || syncFullPackage;
+
+  /// יש סיסמה שמורה — התנאי להפעלת מצב הסייפר.
+  bool get hasSaferModePassword => saferModePassword.isNotEmpty;
+
+  /// מצב הסייפר נועל בפועל. מתג דלוק בלי סיסמה אינו נועל דבר — כך קובץ
+  /// שנערך ביד אינו יכול לנעול את ההגדרות בסיסמה שאינה קיימת.
+  bool get saferModeActive => saferModeEnabled && hasSaferModePassword;
 
   /// גבולות שפיות ל-[textScale] בקריאה מהדיסק — **לא** רשימת האפשרויות
   /// שבהגדרות (0.9/1.0/1.15). רחבים בכוונה: קובץ שנערך ביד או נשמר בגרסה
@@ -165,6 +185,8 @@ class AppSettings {
     Color? seedColor,
     Color? darkSeedColor,
     bool? showFaqButton,
+    bool? saferModeEnabled,
+    String? saferModePassword,
   }) {
     return AppSettings(
       autoMetadataCheck: autoMetadataCheck ?? this.autoMetadataCheck,
@@ -184,6 +206,8 @@ class AppSettings {
       seedColor: seedColor ?? this.seedColor,
       darkSeedColor: darkSeedColor ?? this.darkSeedColor,
       showFaqButton: showFaqButton ?? this.showFaqButton,
+      saferModeEnabled: saferModeEnabled ?? this.saferModeEnabled,
+      saferModePassword: saferModePassword ?? this.saferModePassword,
     );
   }
 
@@ -214,6 +238,10 @@ class AppSettings {
           'darkSeedColor': darkSeedColor.toARGB32(),
           'showFaq': showFaqButton,
         },
+        'protection': {
+          'enabled': saferModeEnabled,
+          'password': saferModePassword,
+        },
       };
 
   /// קורא הגדרות מ-JSON. שדה חסר או פגום נופל לברירת המחדל שלו — קובץ
@@ -229,6 +257,7 @@ class AppSettings {
     final channels = section('channels');
     final sync = section('sync');
     final ui = section('ui');
+    final protection = section('protection');
     const defaults = AppSettings();
 
     bool flag(Map<String, dynamic> from, String key, bool fallback) {
@@ -281,6 +310,14 @@ class AppSettings {
       seedColor: color('seedColor', defaults.seedColor),
       darkSeedColor: color('darkSeedColor', defaults.darkSeedColor),
       showFaqButton: flag(ui, 'showFaq', defaults.showFaqButton),
+      saferModeEnabled: flag(
+        protection,
+        'enabled',
+        defaults.saferModeEnabled,
+      ),
+      saferModePassword: protection['password'] is String
+          ? protection['password'] as String
+          : defaults.saferModePassword,
     );
   }
 }

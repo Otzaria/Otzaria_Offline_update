@@ -68,6 +68,7 @@ void main() {
         'channels',
         'sync',
         'ui',
+        'protection',
       });
       expect(allKeys(json), {
         'schemaVersion',
@@ -91,6 +92,9 @@ void main() {
         'seedColor',
         'darkSeedColor',
         'showFaq',
+        'protection',
+        'enabled',
+        'password',
       });
       expect(json['schemaVersion'], AppSettings.schemaVersion);
     });

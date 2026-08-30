@@ -31,7 +31,30 @@ class CustomAppView {
   /// האם התוסף בכלל הגדיר כיצד לזהות. בלי זה אסור להציג "אינה מותקנת" —
   /// התשובה הנכונה היא "לא ניתן לדעת".
   bool get canDetect => (descriptor.detect.exeName ?? '').isNotEmpty;
+
+  /// מה שהכונן מציע למחשב הזה — עליו נפתחת הודעת הכניסה למסך.
+  ///
+  /// **הכול נקרא מהדיסק ולא מהרשת.** שתי שתיקות מכוונות: בלי כללי זיהוי
+  /// אנחנו לא יודעים אם התוכנה מותקנת, ובהתקנה שגרסתה אינה נקראית אין מה
+  /// להשוות — "לא ידוע" אינו "יש עדכון", ולנדנד עליו בכל כניסה זה רעש.
+  CustomAppPending get pending {
+    final stored = storedInstaller;
+    if (stored == null || !canDetect) return CustomAppPending.none;
+
+    final current = installed;
+    if (current == null) return CustomAppPending.notInstalled;
+
+    final version = current.version;
+    if (version == null) return CustomAppPending.none;
+    return OtzariaUpdateCheckResult.compareVersions(version, stored.version) < 0
+        ? CustomAppPending.newerOnDrive
+        : CustomAppPending.none;
+  }
 }
+
+/// מה ממתין לתוכנה על הכונן. שני המצבים אינם זהים למשתמש: האחד הוא תוכנה
+/// שעוד לא הגיעה למחשב הזה, והשני עדכון לתוכנה שכבר יושבת בו.
+enum CustomAppPending { none, notInstalled, newerOnDrive }
 
 /// מצב התוכנות המותאמות עבור הממשק.
 ///
@@ -77,6 +100,12 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
 
   /// הדגל היחיד שהממשק צריך כדי להחליט אם להציג משהו בכלל.
   bool get hasApps => apps.isNotEmpty;
+
+  /// התוכנות שיש להן מה להציע למחשב הזה — ראו [CustomAppView.pending].
+  List<CustomAppView> get pendingApps => [
+        for (final app in apps)
+          if (app.pending != CustomAppPending.none) app,
+      ];
 
   /// נפתר בעצלתיים ובתוך `try`: פלטפורמה שאין לה קורא זורקת, וזה לא אמור
   /// למנוע מהרשימה להיטען — היא פשוט לא תדע גרסאות.

@@ -21,6 +21,7 @@ import '../services/elevation.dart';
 import '../services/file_reveal.dart';
 import '../services/mirror_download_undo.dart';
 import '../settings/app_settings.dart';
+import '../settings/safer_mode.dart';
 import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/widgets_exports.dart';
@@ -107,6 +108,10 @@ class _AppShellState extends State<AppShell> {
   bool _offeredElevation = false;
 
   LauncherScreen _screen = LauncherScreen.home;
+
+  /// שומר הסף של מצב הסייפר. חי לאורך ההרצה, ולכן אימות אחד מלווה גם את
+  /// ההגדרות וגם את עריכת ההדרכה — ראו `SaferModeGate`.
+  late final SaferModeGate _saferMode = SaferModeGate(widget.settings);
 
   /// **נגזר** מהקונטרולר ולא מועתק לשדה: העתק נשאר תקוע על "פתוחה" עד
   /// להפעלה מחדש של הלאנצ'ר, גם אחרי שאוצריא נסגרה ובדיקה חדשה כבר ידעה זאת.
@@ -705,7 +710,19 @@ class _AppShellState extends State<AppShell> {
     UiSnack.show(AppL10n.strings.shell.logPathFallback(logger.filePath));
   }
 
-  void _goTo(LauncherScreen screen) {
+  /// ניווט למסך. הכניסה להגדרות עוברת בשומר הסף של מצב הסייפר — כאן ולא
+  /// בתוך המסך עצמו: ה-[IndexedStack] משאיר כל מסך שנבנה בעץ עד הסגירה,
+  /// ולכן שער שיושב בתוך המסך היה נפתח פעם אחת ונשאר פתוח.
+  Future<void> _goTo(LauncherScreen screen) async {
+    if (screen == LauncherScreen.settings && _saferMode.isLocked) {
+      final unlocked = await showSaferModePasswordDialog(
+        context,
+        storedPassword: widget.settings.settings.saferModePassword,
+        hint: context.strings.saferMode.verifySettingsHint,
+      );
+      if (!unlocked || !mounted) return;
+      _saferMode.unlock();
+    }
     setState(() {
       _screen = screen;
       _builtScreens.add(screen);
@@ -742,6 +759,7 @@ class _AppShellState extends State<AppShell> {
             otzariaIsRunning: _otzariaIsRunning,
             onInstallAdopted: _plugins.refreshInstalled,
             onInstallFullPackage: installFullPackage,
+            saferMode: _saferMode,
           ),
         LauncherScreen.customApps => CustomAppsScreen(
             controller: _customApps,
@@ -763,6 +781,7 @@ class _AppShellState extends State<AppShell> {
             controller: widget.settings,
             onOpenLog: _openLogFolder,
             launcherVersion: _launcherUpdate.currentVersion,
+            saferMode: _saferMode,
             customApps: _customApps,
           ),
       };
@@ -795,7 +814,8 @@ class _AppShellState extends State<AppShell> {
                     // החד-פעמיים היו חוזרים בכל חזרה לדף הבית.
                     child: Offstage(
                       offstage: _screen != LauncherScreen.home,
-                      child: FaqFloatingButton(faq: _faq),
+                      child:
+                          FaqFloatingButton(faq: _faq, saferMode: _saferMode),
                     ),
                   ),
               ],

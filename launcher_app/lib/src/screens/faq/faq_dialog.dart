@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../controllers/faq_controller.dart';
 import '../../settings/faq_customization.dart';
+import '../../settings/safer_mode.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
 import 'faq_content.dart';
@@ -33,12 +34,13 @@ double _listHeight(BuildContext context) =>
 Future<void> showFaqDialog(
   BuildContext context, {
   required FaqController faq,
+  SaferModeGate? saferMode,
 }) =>
     showSingleActionDialog(
       context: context,
       title: context.strings.faq.title,
       confirmText: context.strings.common.close,
-      customContent: FaqBody(faq: faq),
+      customContent: FaqBody(faq: faq, saferMode: saferMode),
     );
 
 /// רשימת השאלות, מקובצת. תשובה אחת פתוחה בכל רגע — רשימה שכולה פתוחה היא
@@ -47,9 +49,13 @@ Future<void> showFaqDialog(
 /// גלגל השיניים שבראש מחליף למצב עריכה: הסתרת שאלות, שאלות משלי, והפרטים
 /// שבתחתית. הוא בכוונה לא בולט — רוב המשתמשים רק קוראים כאן.
 class FaqBody extends StatefulWidget {
-  const FaqBody({super.key, required this.faq});
+  const FaqBody({super.key, required this.faq, this.saferMode});
 
   final FaqController faq;
+
+  /// שומר הסף של מצב הסייפר. `null` = אין נעילה (בדיקות, וכל מי שמציג את
+  /// ההדרכה בלי הגדרות).
+  final SaferModeGate? saferMode;
 
   @override
   State<FaqBody> createState() => _FaqBodyState();
@@ -130,6 +136,29 @@ class _FaqBodyState extends State<FaqBody> {
     await widget.faq.update(_custom.copyWith(extras: extras));
   }
 
+  /// מעבר בין קריאה לעריכה. במצב סייפר הכניסה *לעריכה* נשאלת סיסמה —
+  /// היציאה ממנה לא, ומי שכבר אומת בהרצה הזו אינו נשאל שוב.
+  Future<void> _toggleEditing() async {
+    if (!_editing) {
+      final gate = widget.saferMode;
+      if (gate != null && gate.isLocked) {
+        final unlocked = await showSaferModePasswordDialog(
+          context,
+          storedPassword: gate.settings.settings.saferModePassword,
+          hint: context.strings.saferMode.verifyFaqHint,
+        );
+        if (!unlocked || !mounted) return;
+        gate.unlock();
+      }
+    } else {
+      unawaited(_saveContact());
+    }
+    setState(() {
+      _editing = !_editing;
+      _openKey = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -159,13 +188,7 @@ class _FaqBodyState extends State<FaqBody> {
                       ? FluentIcons.checkmark_24_regular
                       : FluentIcons.settings_24_regular,
                 ),
-                onPressed: () {
-                  if (_editing) unawaited(_saveContact());
-                  setState(() {
-                    _editing = !_editing;
-                    _openKey = null;
-                  });
-                },
+                onPressed: () => unawaited(_toggleEditing()),
               ),
             ],
           ),

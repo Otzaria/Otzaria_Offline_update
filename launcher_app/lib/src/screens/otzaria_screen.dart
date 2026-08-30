@@ -7,6 +7,7 @@ import '../controllers/otzaria_module_controller.dart';
 import '../services/byte_size.dart';
 import '../services/native_file_dialogs.dart';
 import '../services/timestamps.dart';
+import '../settings/safer_mode.dart';
 import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/screen_body.dart';
@@ -31,6 +32,7 @@ class OtzariaScreen extends StatelessWidget {
     required this.otzariaIsRunning,
     this.onInstallAdopted,
     this.onInstallFullPackage,
+    this.saferMode,
   });
 
   final OtzariaModuleController otzaria;
@@ -46,6 +48,10 @@ class OtzariaScreen extends StatelessWidget {
   /// התקנת החבילה המלאה. יושבת ב-`AppShell`, כי גם ההמלצה שבעלייה מגיעה
   /// אליה, והיא מרעננת אחריה גם את מודול הספרייה.
   final Future<void> Function()? onInstallFullPackage;
+
+  /// שומר הסף של מצב הסייפר. בורר הערוץ הוא ההגדרה היחידה שנקבעת מחוץ למסך
+  /// ההגדרות, ולכן היא היחידה שצריכה שער משלה.
+  final SaferModeGate? saferMode;
 
   /// **לא** תלוי בהורדה גלובלית: הורדה של רכיב אחר (למשל הספרייה) לא
   /// אמורה לחסום פעולות מקומיות כאן (בחירת מיקום, בדיקה מחדש).
@@ -161,7 +167,7 @@ class OtzariaScreen extends StatelessWidget {
               SegmentOption(value: true, label: t.channelPrerelease),
             ],
             currentValue: c.preferPrerelease,
-            onChanged: _setChannel,
+            onChanged: (v) => _setChannel(context, v),
           ),
         // מוצג רק כשאוצריא פתוחה — אז זו אזהרה. "סגורה" היא שורה שאין בה מידע.
         if (otzariaIsRunning)
@@ -180,8 +186,20 @@ class OtzariaScreen extends StatelessWidget {
 
   /// שומר את הבחירה בהגדרות; `AppShell` מזליג אותה לקונטרולר, שמריץ בדיקה
   /// מחדש מהתיקייה המקומית. אין כאן רשת — שתי הגרסאות כבר בדיסק.
-  void _setChannel(bool preferPrerelease) {
-    settings.update(
+  ///
+  /// זו הגדרה, ולכן היא נעולה במצב סייפר — למרות שהמסך עצמו פתוח.
+  Future<void> _setChannel(BuildContext context, bool preferPrerelease) async {
+    final gate = saferMode;
+    if (gate != null && gate.isLocked) {
+      final unlocked = await showSaferModePasswordDialog(
+        context,
+        storedPassword: gate.settings.settings.saferModePassword,
+        hint: context.strings.saferMode.verifySettingsHint,
+      );
+      if (!unlocked) return;
+      gate.unlock();
+    }
+    await settings.update(
       settings.settings.copyWith(preferAppPrerelease: preferPrerelease),
     );
   }

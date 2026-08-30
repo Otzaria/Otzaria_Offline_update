@@ -168,11 +168,14 @@ void main() {
       expect(find.text('בחירת מיקום ידנית'), findsNothing);
     });
 
-    testWidgets('כפתור ההוספה תמיד בתחתית המסך', (tester) async {
+    // כל הניהול עבר להגדרות — במסך נשאר רק מה שעושים עם התוכנה עצמה.
+    testWidgets('אין במסך הוספה, עריכה או הסרה', (tester) async {
       await addApp(tester);
       await pumpScreen(tester, CustomAppsScreen(controller: controller));
 
-      expect(find.text('הוספת תוכנה'), findsOneWidget);
+      expect(find.text('הוספת תוכנה'), findsNothing);
+      expect(find.byTooltip('עריכה'), findsNothing);
+      expect(find.byTooltip('הסרה מהרשימה'), findsNothing);
     });
 
     testWidgets('כמה תוכנות — כולן מוצגות', (tester) async {
@@ -207,7 +210,7 @@ void main() {
   group('למידת הזיהוי', () {
     testWidgets('שדות הזיהוי מוצגים כאופציונליים, ולא כדרישה', (tester) async {
       await tester.runAsync(controller.load);
-      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      await pumpScreen(tester, CustomAppsSettingsCard(controller: controller));
       await tester.tap(find.text('הוספת תוכנה'));
       await tester.pumpAndSettle();
 
@@ -257,7 +260,7 @@ void main() {
   group('סוג הקובץ שנוסף', () {
     Future<void> openForm(WidgetTester tester) async {
       await tester.runAsync(controller.load);
-      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      await pumpScreen(tester, CustomAppsSettingsCard(controller: controller));
       await tester.tap(find.text('הוספת תוכנה'));
       await tester.pumpAndSettle();
     }
@@ -296,11 +299,16 @@ void main() {
   });
 
   group('המרשם', () {
-    testWidgets('לכל כרטיס יש כפתור עריכה', (tester) async {
-      await addApp(tester, name: 'לעריכה');
-      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+    // המרשם כולו נערך מההגדרות — שורה לתוכנה, ובכל שורה עריכה והסרה.
+    testWidgets('כל תוכנה מקבלת שורה בהגדרות, עם עריכה והסרה', (tester) async {
+      await addApp(tester, id: 'a', name: 'ראשונה');
+      await addApp(tester, id: 'b', name: 'שנייה');
+      await pumpScreen(tester, CustomAppsSettingsCard(controller: controller));
 
-      expect(find.byTooltip('עריכה'), findsOneWidget);
+      expect(find.text('ראשונה'), findsOneWidget);
+      expect(find.text('שנייה'), findsOneWidget);
+      expect(find.byTooltip('עריכה'), findsNWidgets(2));
+      expect(find.byTooltip('הסרה מהרשימה'), findsNWidgets(2));
     });
 
     testWidgets('עריכה משנה את הרשומה ואינה יוצרת שנייה', (tester) async {
@@ -354,6 +362,164 @@ void main() {
 
       expect(controller.apps, hasLength(1));
       expect(controller.apps.single.descriptor.name, 'המקורית');
+    });
+  });
+
+  /// חלק ה': ההודעה שנפתחת בכניסה למסך. שני הכללים שנבדקים כאן הם
+  /// **"רק מי שנכנס ללשונית רואה אותה"** ו**"שותקים כשלא באמת יודעים"**.
+  group('הודעת מה שממתין על הכונן', () {
+    CustomAppView viewOf({
+      String? storedVersion,
+      String? exeName = 'demo.exe',
+      String? installedVersion,
+      bool isInstalled = false,
+    }) =>
+        CustomAppView(
+          entry: CustomAppEntry(
+            descriptor: AppDescriptor(
+              id: 'a',
+              name: 'תוכנה',
+              sourceKind: AppSourceKind.manual,
+              detect: AppDetectRules(exeName: exeName),
+            ),
+            installer: storedVersion == null
+                ? null
+                : StoredInstaller(
+                    fileName: 'App.exe',
+                    version: storedVersion,
+                    sizeBytes: 1,
+                    addedAt: DateTime(2026),
+                  ),
+          ),
+          installed: isInstalled
+              ? CustomAppInstallState(
+                  version: installedVersion,
+                  installDir: r'C:\App',
+                  launchPath: r'C:\App\demo.exe',
+                )
+              : null,
+        );
+
+    test('קובץ על הכונן שאינו מותקן כאן — תוכנה חדשה', () {
+      expect(
+        viewOf(storedVersion: '1.4.2').pending,
+        CustomAppPending.notInstalled,
+      );
+    });
+
+    test('על הכונן גרסה חדשה מהמותקנת — עדכון', () {
+      expect(
+        viewOf(
+                storedVersion: '1.4.2',
+                isInstalled: true,
+                installedVersion: '1.4.0')
+            .pending,
+        CustomAppPending.newerOnDrive,
+      );
+    });
+
+    test('אותה גרסה, וגם מותקנת חדשה יותר — אין מה לומר', () {
+      expect(
+        viewOf(
+                storedVersion: '1.4.2',
+                isInstalled: true,
+                installedVersion: '1.4.2')
+            .pending,
+        CustomAppPending.none,
+      );
+      expect(
+        viewOf(
+                storedVersion: '1.4.2',
+                isInstalled: true,
+                installedVersion: '1.5.0')
+            .pending,
+        CustomAppPending.none,
+      );
+    });
+
+    // "לא ידוע" אינו "יש עדכון". שתי השתיקות שבלעדיהן ההודעה הייתה קופצת
+    // בכל כניסה, לנצח, על תוכנה שאיש אינו יודע מה מצבה.
+    test('גרסה מותקנת שלא ניתן לקרוא — שותקים', () {
+      expect(
+        viewOf(storedVersion: '1.4.2', isInstalled: true).pending,
+        CustomAppPending.none,
+      );
+    });
+
+    test('בלי שם קובץ הרצה — שותקים, כי לא ידוע אם מותקנת', () {
+      expect(
+        viewOf(storedVersion: '1.4.2', exeName: null).pending,
+        CustomAppPending.none,
+      );
+    });
+
+    test('בלי קובץ על הכונן — אין מה להתקין', () {
+      expect(viewOf().pending, CustomAppPending.none);
+    });
+
+    testWidgets('בכניסה למסך ההודעה נפתחת, ומונה את התוכנות', (tester) async {
+      await addApp(
+        tester,
+        exeName: 'no-such-app-anywhere.exe',
+        withInstaller: true,
+      );
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      await tester.pumpAndSettle();
+
+      final t = stringsOf().customApps;
+      expect(find.text(t.pendingDialogTitle(1)), findsOneWidget);
+      expect(
+        find.text(t.pendingDialogNotInstalledRow('1.4.2')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('כשאין מה להתקין אין הודעה', (tester) async {
+      await addApp(tester, exeName: 'no-such-app-anywhere.exe');
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining(stringsOf().customApps.pendingDialogIntro),
+        findsNothing,
+      );
+    });
+
+    // המסך נבנה רק בכניסה ללשונית (`AppShell._builtScreens`) — ולכן מי
+    // שאינו נכנס אליה אינו רואה דבר, גם כשיש מה להתקין.
+    testWidgets('בלי כניסה למסך אין הודעה', (tester) async {
+      await addApp(
+        tester,
+        exeName: 'no-such-app-anywhere.exe',
+        withInstaller: true,
+      );
+      await pumpScreen(tester, CustomAppsSettingsCard(controller: controller));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining(stringsOf().customApps.pendingDialogIntro),
+        findsNothing,
+      );
+    });
+
+    testWidgets('ההודעה נפתחת פעם אחת, ולא בכל רענון', (tester) async {
+      await addApp(
+        tester,
+        exeName: 'no-such-app-anywhere.exe',
+        withInstaller: true,
+      );
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      await tester.pumpAndSettle();
+
+      final title = stringsOf().customApps.pendingDialogTitle(1);
+      await tester.tap(find.text(stringsOf().common.close));
+      await tester.pumpAndSettle();
+      expect(find.text(title), findsNothing);
+
+      // רענון של הרשימה אינו כניסה מחדש למסך.
+      await tester.pumpWidget(wrap(CustomAppsScreen(controller: controller)));
+      await tester.pumpAndSettle();
+      expect(find.text(title), findsNothing);
     });
   });
 }

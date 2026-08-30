@@ -4,6 +4,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 
 import '../../controllers/faq_controller.dart';
+import '../../settings/safer_mode.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
 import 'faq_dialog.dart';
@@ -34,6 +35,7 @@ class FaqFloatingButton extends StatefulWidget {
     super.key,
     required this.faq,
     this.showIntro = true,
+    this.saferMode,
   });
 
   /// ההתאמות שהמשתמש עשה להדרכה — נמסרות לדיאלוג, שהוא גם מי שעורך אותן.
@@ -41,6 +43,9 @@ class FaqFloatingButton extends StatefulWidget {
 
   /// כיבוי ההבהוב והבועה — לבדיקות, ולכל מקום שבו הכפתור אינו "חדש" למשתמש.
   final bool showIntro;
+
+  /// שומר הסף של מצב הסייפר — נמסר לדיאלוג, ששואל אותו לפני מעבר לעריכה.
+  final SaferModeGate? saferMode;
 
   @override
   State<FaqFloatingButton> createState() => _FaqFloatingButtonState();
@@ -97,7 +102,7 @@ class _FaqFloatingButtonState extends State<FaqFloatingButton>
   Future<void> _open() async {
     _bubbleTimer?.cancel();
     if (_bubbleOpen) setState(() => _bubbleOpen = false);
-    await showFaqDialog(context, faq: widget.faq);
+    await showFaqDialog(context, faq: widget.faq, saferMode: widget.saferMode);
   }
 
   @override

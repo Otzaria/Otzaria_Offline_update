@@ -19,6 +19,7 @@ import 'package:launcher_app/src/screens/plugins/plugins_screen.dart';
 import 'package:launcher_app/src/screens/settings_screen.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
+import 'package:launcher_app/src/settings/safer_mode.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -356,6 +357,101 @@ void main() {
     test('נחסמת בזמן הורדה או התקנה, עם הודעה', () {
       expect(body, contains('_longTaskRunning'));
       expect(body, contains('busyNotice'));
+    });
+  });
+  group('מצב סייפר — הכניסה להגדרות', () {
+    /// מפעיל את הנעילה על ההגדרות שהמסגרת כבר מחזיקה. `runAsync` כי הכתיבה
+    /// לדיסק אינה מסתיימת בתוך ה-fake-async.
+    Future<void> lockSettings(WidgetTester tester) => tester.runAsync(
+          () => settings.update(
+            AppSettings(
+              autoCheckOnlineUpdates: false,
+              saferModeEnabled: true,
+              saferModePassword: SaferModePassword.encode('1234'),
+            ),
+          ),
+        );
+
+    testWidgets('לחיצה על ההגדרות פותחת דיאלוג סיסמה ואינה בונה את המסך',
+        (tester) async {
+      await lockSettings(tester);
+      await pumpShell(tester);
+
+      await tapNav(tester, shell.navSettings);
+      await tester.pump();
+
+      expect(find.text(stringsOf().saferMode.verifyTitle), findsOneWidget);
+      // המסך עצמו כלל לא נבנה — גם לא מוסתר מאחורי הדיאלוג.
+      expect(screen(SettingsScreen), findsNothing);
+    });
+
+    testWidgets('ביטול הדיאלוג משאיר את המשתמש בדף הבית', (tester) async {
+      await lockSettings(tester);
+      await pumpShell(tester);
+
+      await tapNav(tester, shell.navSettings);
+      await tester.pump();
+      await tester.tap(find.text(stringsOf().common.cancel));
+      await tester.pump();
+
+      expect(screen(SettingsScreen), findsNothing);
+      expect(screen(HomeScreen), findsOneWidget);
+    });
+
+    testWidgets('סיסמה שגויה אינה פותחת את המסך', (tester) async {
+      await lockSettings(tester);
+      await pumpShell(tester);
+
+      await tapNav(tester, shell.navSettings);
+      await tester.pump();
+      await tester.enterText(find.byType(TextField), '9999');
+      await tester.tap(find.text(stringsOf().common.confirm));
+      await tester.pump();
+
+      expect(screen(SettingsScreen), findsNothing);
+      // הדיאלוג נשאר פתוח — מי שטעה מנסה שוב.
+      expect(find.text(stringsOf().saferMode.verifyTitle), findsOneWidget);
+    });
+
+    testWidgets('הסיסמה הנכונה פותחת, וכניסה חוזרת אינה נשאלת שוב',
+        (tester) async {
+      await lockSettings(tester);
+      await pumpShell(tester);
+
+      await tapNav(tester, shell.navSettings);
+      await tester.pump();
+      await tester.enterText(find.byType(TextField), '1234');
+      await tester.tap(find.text(stringsOf().common.confirm));
+      await tester.pump();
+
+      expect(screen(SettingsScreen), findsOneWidget);
+
+      // אימות אחד מחזיק להרצה — יציאה וחזרה אינן מבקשות סיסמה שוב.
+      await tapNav(tester, shell.navHome);
+      await tapNav(tester, shell.navSettings);
+      await tester.pump();
+
+      expect(find.text(stringsOf().saferMode.verifyTitle), findsNothing);
+      expect(screen(SettingsScreen), findsOneWidget);
+    });
+
+    testWidgets('בלי סיסמה שמורה המתג אינו נועל כלום', (tester) async {
+      // קובץ שנערך ביד יכול להדליק את המתג בלי סיסמה — וזה אינו נועל.
+      await tester.runAsync(
+        () => settings.update(
+          const AppSettings(
+            autoCheckOnlineUpdates: false,
+            saferModeEnabled: true,
+          ),
+        ),
+      );
+      await pumpShell(tester);
+
+      await tapNav(tester, shell.navSettings);
+      await tester.pump();
+
+      expect(find.text(stringsOf().saferMode.verifyTitle), findsNothing);
+      expect(screen(SettingsScreen), findsOneWidget);
     });
   });
 }

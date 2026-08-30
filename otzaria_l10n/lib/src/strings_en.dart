@@ -22,6 +22,8 @@ class EnglishStrings extends AppStrings {
   @override
   SettingsScreenStrings get settings => const _Settings();
   @override
+  SaferModeStrings get saferMode => const _SaferMode();
+  @override
   PluginsStrings get plugins => const _Plugins();
   @override
   FaqStrings get faq => const _Faq();
@@ -778,6 +780,117 @@ class _Settings extends SettingsScreenStrings {
   String get resetDialogConfirm => 'Reset settings';
   @override
   String get resetDoneSnack => 'Settings have been reset';
+}
+
+class _SaferMode extends SaferModeStrings {
+  const _SaferMode();
+
+  @override
+  String get cardTitle => 'Safer mode';
+  @override
+  String get cardHint =>
+      'Locks the settings behind a password. Downloading, checking and '
+      'installing stay open to everyone — only changing settings and editing '
+      'the guide ask for the password.';
+  @override
+  String get toggleTitle => 'Safer mode';
+  @override
+  String get toggleOnSubtitle => 'Settings and guide editing are locked';
+  @override
+  String get toggleOffSubtitle =>
+      'Settings are open to anyone who opens the app';
+  @override
+  String get needsPasswordSubtitle => 'Choose a password first';
+  @override
+  String get setPasswordButton => 'Choose a password';
+  @override
+  String get passwordTileTitle => 'Password';
+  @override
+  String get passwordTileSubtitle =>
+      'A password is set — you can change or delete it';
+  @override
+  String get passwordOptionsButton => 'Options';
+  @override
+  String get enabledSnack => 'Safer mode is on';
+  @override
+  String get disabledSnack => 'Safer mode is off';
+
+  @override
+  String get verifyTitle => 'Enter password';
+  @override
+  String get verifySettingsHint =>
+      'Safer mode is on. Enter the password to open the settings.';
+  @override
+  String get verifyFaqHint =>
+      'Safer mode is on. Enter the password to edit the guide.';
+  @override
+  String get verifyEnableHint => 'Enter the password to turn safer mode on.';
+  @override
+  String get verifyDisableHint => 'Enter the password to turn safer mode off.';
+  @override
+  String get verifyChangeHint => 'Enter the current password to change it.';
+  @override
+  String get passwordLabel => 'Password';
+  @override
+  String get passwordFieldHint => 'Enter the password';
+  @override
+  String get wrongPassword => 'Wrong password';
+  @override
+  String get showPasswordTooltip => 'Show the password';
+  @override
+  String get hidePasswordTooltip => 'Hide the password';
+
+  @override
+  String get setTitle => 'Choose a password';
+  @override
+  String get setIntro =>
+      'The password is stored hashed in the settings file on the drive, and '
+      'cannot be recovered. Losing it means deleting the settings file.';
+  @override
+  String get newPasswordLabel => 'New password';
+  @override
+  String minLengthHint(int minLength) => 'At least $minLength characters';
+  @override
+  String get confirmPasswordLabel => 'Confirm password';
+  @override
+  String get confirmPasswordFieldHint => 'Enter the password again';
+  @override
+  String get passwordRequired => 'A password is required';
+  @override
+  String passwordTooShort(int minLength) =>
+      'The password must be at least $minLength characters long';
+  @override
+  String get passwordsDoNotMatch => 'The passwords do not match';
+  @override
+  String get passwordSavedSnack => 'Password saved';
+  @override
+  String get saveButton => 'Save';
+
+  @override
+  String get activateNowTitle => 'Turn safer mode on now?';
+  @override
+  String get activateNowContent =>
+      'From now on the password will be required to open the settings and to '
+      'edit the guide. You can also turn it on later, from the switch on the '
+      'card.';
+  @override
+  String get activateNowConfirm => 'Turn on now';
+
+  @override
+  String get clearButton => 'Delete the password';
+  @override
+  String get clearBlockedButton =>
+      'Turn safer mode off before deleting the password';
+  @override
+  String get clearDialogTitle => 'Delete the password';
+  @override
+  String get clearDialogContent =>
+      'No password will be asked for any more, and safer mode cannot be turned '
+      'on again until a new password is chosen.';
+  @override
+  String get clearDialogConfirm => 'Delete the password';
+  @override
+  String get passwordRemovedSnack => 'Password deleted';
 }
 
 class _Plugins extends PluginsStrings {
@@ -2232,7 +2345,8 @@ class _CustomApps extends CustomAppsStrings {
   String get settingsCardHint =>
       'You can add your own programs, and this app will carry them on the '
       'drive and install them on the offline computer — exactly as it does '
-      'for Otzaria.';
+      'for Otzaria. Adding, editing and removing happen here; downloading '
+      'and installing happen on the "Other Programs" screen.';
   @override
   String get emptyHint => 'No programs added';
   @override
@@ -2364,6 +2478,24 @@ class _CustomApps extends CustomAppsStrings {
   String storedInstaller(String version) => 'On the drive: version $version';
   @override
   String get noStoredInstaller => 'No installer downloaded yet';
+
+  @override
+  String pendingDialogTitle(int count) =>
+      'Programs are waiting on the drive ($count)';
+  @override
+  String get pendingDialogIntro =>
+      'The drive carries installers that have not been installed on this '
+      'computer yet. Installing is done from each program\'s card, behind '
+      'this window.';
+  @override
+  String pendingDialogNotInstalledRow(String storedVersion) =>
+      'Version $storedVersion on the drive — not installed here yet';
+  @override
+  String pendingDialogUpdateRow(
+    String installedVersion,
+    String storedVersion,
+  ) =>
+      'Installed $installedVersion → on the drive $storedVersion';
 
   @override
   String get downloadButton => 'Download To Drive';

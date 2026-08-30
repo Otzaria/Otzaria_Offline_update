@@ -15,6 +15,7 @@ export 'nav_rail_item.dart';
 export 'recheck_button.dart';
 export 'rtl_icon.dart';
 export 'rtl_text_field.dart';
+export 'safer_mode_dialogs.dart';
 export 'segmented_control.dart';
 export 'settings_card.dart';
 export 'status_chip.dart';
