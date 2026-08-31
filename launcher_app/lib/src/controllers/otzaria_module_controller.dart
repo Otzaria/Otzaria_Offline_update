@@ -68,6 +68,10 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   /// תוכל לבדוק "אוצריא פתוחה?" לבד, בלי בדיקת גרסאות שלמה.
   final RunningOtzariaLocator _runningLocator;
   OtzariaUpdateCheckResult? _lastCheck;
+
+  /// הבדיקה המקומית שרצה כרגע — כדי ש-[ensureChecked] תצטרף אליה במקום
+  /// להריץ שנייה במקביל על אותו כונן.
+  Future<void>? _checkInFlight;
   bool _preferPrerelease;
 
   /// הערוץ שממנו מתקינים כשיושבות בתיקייה שתי גרסאות. ההורדה מביאה תמיד
@@ -321,8 +325,27 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
   }
 
+  /// מבטיח שהבדיקה המקומית כבר רצה — בלי להריץ שנייה כשאחת בדרך.
+  ///
+  /// הבדיקה הקלה ברשת יוצאת בעלייה **במקביל** למקומית, ומי שתלוי בגרסאות
+  /// שהמקומית מגלה (הבילד של כל תוסף נבחר לפיהן) חייב להמתין לה: בלעדיה
+  /// רשימת הגרסאות יוצאת ריקה, ההצצה נופלת לבילד החי של כל תוסף, ומדווחת
+  /// "חסר" על מה שההורדה לעולם לא תביא.
+  Future<void> ensureChecked() async {
+    if (_lastCheck != null) return;
+    await (_checkInFlight ?? checkForUpdate());
+  }
+
   /// בודק מה מותקן מול מה שיש בתיקייה המקומית. לא נוגע ברשת.
-  Future<void> checkForUpdate() async {
+  Future<void> checkForUpdate() {
+    final started = _checkForUpdate();
+    _checkInFlight = started;
+    return started.whenComplete(() {
+      if (identical(_checkInFlight, started)) _checkInFlight = null;
+    });
+  }
+
+  Future<void> _checkForUpdate() async {
     status = OtzariaModuleStatus.checking;
     needsElevation = false;
     notifyListeners();

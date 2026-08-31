@@ -289,14 +289,16 @@ void main() {
       expect(dbStillOldWhileStaging, isTrue);
       expect(File(dbPath).readAsBytesSync(), payload);
       // האימות קודם לכתיבה — מסד פגום נעצר בעוד ה-DB החי שלם, כמו באוצריא.
+      // אין שלב הורדה: המקור מקומי, ומחלצים ממנו ישירות בלי להעתיקו.
       expect(stages, [
-        LibraryApplyStage.downloadingFullDb,
         LibraryApplyStage.decompressingFullDb,
         LibraryApplyStage.verifying,
         LibraryApplyStage.writingFullDb,
         LibraryApplyStage.done,
       ]);
 
+      // המראה עצמה אינה נמחקת — היא הכונן שממנו יתקינו גם במחשב הבא.
+      expect(File(compressedPath).existsSync(), isTrue);
       // אין שאריות: לא הקובץ הדחוס, לא הצדדי, לא גיבוי/סימון, ולא wal/shm.
       expect(File('$dbPath.new').existsSync(), isFalse);
       expect(File('$dbPath.download.zst').existsSync(), isFalse);
@@ -465,7 +467,56 @@ void main() {
       expect(File('$dbPath.download.zst').existsSync(), isFalse);
     });
 
-    test('ביטול לפני ההורדה עוצר בלי לגעת ב-DB', () async {
+    // מסלול המראה מחלץ **ישירות** מהקובץ שעל הכונן, ולכן שני הדברים שאסור
+    // שיישברו הם הבדיקה המקדימה שהוא באמת מה שהובטח, והכלל שהוא לעולם אינו
+    // נמחק — הוא הכונן שממנו יתקינו גם במחשב הבא.
+    test('מקור מקומי בגודל שאינו כמובטח נדחה, והמראה נשארת במקומה', () async {
+      final compressedPath = p.join(tempDir.path, 'seforim.db.zst');
+      File(compressedPath).writeAsBytesSync(Uint8List.fromList([1, 2, 3]));
+      File(dbPath).writeAsStringSync('OLD DB');
+      final plan = fullPlanFor(compressedPath);
+      // הנכס גדל אחרי שהתוכנית נבנתה — בדיוק העתקה חלקית לכונן.
+      File(compressedPath).writeAsBytesSync(Uint8List.fromList([1, 2, 3, 4]));
+
+      await expectLater(
+        applier.applyFullDownload(plan: plan, dbPath: dbPath),
+        throwsA(
+          isA<LibraryApplyException>().having(
+            (e) => e.message,
+            'message',
+            AppL10n.strings.libraryDomain.localFileSizeMismatch(
+              3,
+              4,
+              compressedPath,
+            ),
+          ),
+        ),
+      );
+      expect(File(dbPath).readAsStringSync(), 'OLD DB');
+      expect(File(compressedPath).existsSync(), isTrue);
+    });
+
+    test('מקור מקומי חסר נדחה בהודעה שאומרת איזה קובץ', () async {
+      final compressedPath = p.join(tempDir.path, 'seforim.db.zst');
+      File(compressedPath).writeAsBytesSync(Uint8List.fromList([1, 2, 3]));
+      final plan = fullPlanFor(compressedPath);
+      File(compressedPath).deleteSync();
+      File(dbPath).writeAsStringSync('OLD DB');
+
+      await expectLater(
+        applier.applyFullDownload(plan: plan, dbPath: dbPath),
+        throwsA(
+          isA<LibraryApplyException>().having(
+            (e) => e.message,
+            'message',
+            AppL10n.strings.libraryDomain.localSourceNotFound(compressedPath),
+          ),
+        ),
+      );
+      expect(File(dbPath).readAsStringSync(), 'OLD DB');
+    });
+
+    test('ביטול לפני החילוץ עוצר בלי לגעת ב-DB', () async {
       final compressedPath = p.join(tempDir.path, 'seforim.db.zst');
       File(compressedPath).writeAsBytesSync(Uint8List.fromList([1, 2, 3]));
       File(dbPath).writeAsStringSync('OLD DB');
@@ -476,9 +527,17 @@ void main() {
           dbPath: dbPath,
           isCancelled: () => true,
         ),
-        throwsA(isA<PatchDownloadCancelled>()),
+        throwsA(
+          isA<LibraryApplyException>().having(
+            (e) => e.message,
+            'message',
+            AppL10n.strings.libraryDomain.updateCancelled,
+          ),
+        ),
       );
       expect(File(dbPath).readAsStringSync(), 'OLD DB');
+      // המקור נשאר — הביטול נוגע רק במה שהתוכנה עמדה ליצור.
+      expect(File(compressedPath).existsSync(), isTrue);
     });
 
     test('digest פגום נאכף — ה-sha256 מועבר מהתוכנית להורדה', () async {
@@ -1060,8 +1119,9 @@ class _FakeGuard extends OtzariaProcessGuard {
 /// מדמה את אימות המסד המחולץ: המטענים בבדיקות הם בייטים אקראיים ולא מסד
 /// sqlite, ולכן ה-`quick_check` האמיתי לא רלוונטי כאן. [version] הוא מה
 /// שהאימות "קורא" מהמסד — שונה מהיעד ⇒ כשל, בדיוק כמו במימוש האמיתי.
-Future<void> Function(String, int?) _fakeVerifier(int version) {
-  return (newDbPath, expectedVersion) async {
+ExtractedDbVerifier _fakeVerifier(int version) {
+  return (newDbPath, expectedVersion, {onStage}) async {
+    onStage?.call('dbIntegrity');
     if (expectedVersion != null && version != expectedVersion) {
       throw LibraryApplyException(
         AppL10n.strings.libraryDomain

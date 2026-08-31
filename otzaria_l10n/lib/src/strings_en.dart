@@ -2050,9 +2050,26 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get applyDecompressingFullDb => 'Extracting the database…';
   @override
+  String get applyDecompressingAndVerifyingFullDb =>
+      'Extracting the database and verifying its checksum…';
+  @override
   String get applyWritingFullDb => 'Writing the database…';
   @override
   String get applyVerifying => 'Verifying…';
+  @override
+  String applyVerifyStage(String stage) {
+    switch (stage) {
+      case 'sourceHash':
+        return 'Verifying the database file checksum…';
+      case 'dbIntegrity':
+        return 'Checking the extracted database (full scan, may take minutes)…';
+      case 'dbVersion':
+        return 'Verifying the extracted database version…';
+      default:
+        return applyVerifying;
+    }
+  }
+
   @override
   String get applyInstallingCompanions => 'Installing companion files…';
   @override
@@ -2503,6 +2520,23 @@ class _CustomApps extends CustomAppsStrings {
   String get downloadingLabel => 'Downloading…';
   @override
   String get checkOnlineButton => 'Check Online';
+  @override
+  String get checkAllOnlineButton => 'Check All Programs Online';
+  @override
+  String checkingAllOnlineLabel(int done, int total) =>
+      'Checking online… ($done/$total)';
+  @override
+  String checkAllOnlineSummary(int updates, int checked) =>
+      '$checked programs checked — $updates have a newer version online';
+  @override
+  String checkAllOnlineNoUpdates(int checked) =>
+      '$checked programs checked — what is on the drive is up to date';
+  @override
+  String get checkAllOnlineAllFailed =>
+      'No program could be checked — there is probably no internet connection';
+  @override
+  String checkAllOnlineSomeFailed(int failed) =>
+      '$failed programs could not be checked.';
   @override
   String onlineVersionAvailable(String version) =>
       'Version $version is available online';

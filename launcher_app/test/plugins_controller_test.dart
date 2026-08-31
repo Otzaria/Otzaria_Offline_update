@@ -577,6 +577,34 @@ void main() {
       expect(controller.errorMessage, isNull);
     });
 
+    test('ההצצה ממתינה לבדיקה המקומית לפני שהיא שואלת על הגרסאות', () async {
+      // הבדיקה המקומית והקלה יוצאות יחד בעלייה. תשובה לפני שהיא הסתיימה
+      // הייתה רשימת גרסאות ריקה, ואז ההצצה שואלת על הבילד החי של כל תוסף
+      // ומדווחת "חסר" על מה שההורדה לעולם לא תביא.
+      final calls = <String>[];
+      final c = PluginsModuleController(
+        mirrorRootDir: p.join(tempDir.path, 'mirror'),
+        ensureAppVersionsKnown: () async {
+          await Future<void>.delayed(Duration.zero);
+          calls.add('ensure');
+        },
+        mirroredAppVersions: () async {
+          calls.add('mirrored');
+          return const ['0.9.96'];
+        },
+        installedAppVersion: () async {
+          calls.add('installed');
+          return '0.9.96';
+        },
+      );
+      addTearDown(c.dispose);
+
+      await c.checkOnline();
+
+      expect(calls.first, 'ensure');
+      expect(calls, containsAll(['mirrored', 'installed']));
+    });
+
     test('תוצאה עם חדשים/מעודכנים מדליקה את הדגל', () async {
       controller.onlineStatus = const PluginsOnlineStatus(
         newPlugins: ['תוסף חדש'],

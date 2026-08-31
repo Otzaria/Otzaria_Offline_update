@@ -181,6 +181,10 @@ class _AppShellState extends State<AppShell> {
       // התקנה — הגרסה שעומדת להיות מותקנת מהכונן.
       installedAppVersion: () async =>
           _otzaria.currentVersion ?? _otzaria.latestVersion,
+      // ההצצה ברשת יוצאת בעלייה **במקביל** לבדיקה המקומית, ושתי הקריאות
+      // שמעליי עונות ממנה. בלי ההמתנה הזו הן החזירו ריק, וההצצה שאלה על
+      // הבילד החי של כל תוסף במקום על התואם.
+      ensureAppVersionsKnown: _otzaria.ensureChecked,
     )..addListener(_onChange);
     // כאן ולא במסך החנות: ההתקנה נגמרת בחלון של אוצריא, והמשתמש עשוי
     // לחזור בינתיים לכל מסך אחר — ההודעה צריכה למצוא אותו גם שם.

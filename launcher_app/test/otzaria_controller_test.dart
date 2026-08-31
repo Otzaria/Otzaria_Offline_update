@@ -115,6 +115,25 @@ void main() {
       expect(c.hasChannelChoice, isFalse);
     });
 
+    test('ensureChecked מצטרפת לבדיקה שכבר רצה, ולא מריצה שנייה', () async {
+      writeAppMirror(stableTag: '99.9.9+1');
+      final c = controllerFor();
+
+      // בעלייה שתי הקריאות יוצאות יחד: המקומית מ-`checkAll`, וההצצה ברשת
+      // דרך `ensureChecked`. השנייה חייבת לחכות לראשונה ולא לפתוח סריקה
+      // מקבילה על אותו כונן.
+      final both = Future.wait([c.checkForUpdate(), c.ensureChecked()]);
+      expect(c.stableVersion, isNull);
+      await both;
+
+      expect(c.stableVersion, '99.9.9+1');
+
+      // ומשיש תשובה, ההמתנה הבאה חוזרת מיד בלי לגעת בדיסק.
+      c.stableVersion = null;
+      await c.ensureChecked();
+      expect(c.stableVersion, isNull);
+    });
+
     test('גרסה יציבה בתיקייה = יש מה להתקין, בלי רשת', () async {
       writeAppMirror(stableTag: '99.9.9+1');
       final c = controllerFor();

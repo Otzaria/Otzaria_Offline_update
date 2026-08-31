@@ -79,6 +79,13 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
     return ScreenBody(
       title: t.screenTitle,
       children: [
+        // בדיקה אחת לכל התוכנות, במקום לחיצה על כל כרטיס בנפרד. כמו
+        // ההורדה — היא נוגעת ברשת וכותבת רק לזיכרון, ולכן אינה במצב קריאה.
+        if (controller.hasOnlineSources && !widget.readOnly)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppTokens.spaceMD),
+            child: _CheckAllCard(controller: controller),
+          ),
         for (final app in controller.apps)
           Padding(
             padding: const EdgeInsets.only(bottom: AppTokens.spaceMD),
@@ -90,6 +97,72 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
           ),
       ],
     );
+  }
+}
+
+/// "בדיקה ברשת לכל התוכנות" — הבקשה שחזרה מהפורום: לא ללחוץ על כל כרטיס
+/// בנפרד. יושב כאן ולא בדף הבית בכוונה: הבדיקה המרוכזת שם נוגעת ברכיבי
+/// הליבה בלבד, והתוכנות הנוספות הן תוספת שלא כולם מפעילים.
+class _CheckAllCard extends StatelessWidget {
+  const _CheckAllCard({required this.controller});
+
+  final CustomAppsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.strings.customApps;
+
+    return AppCard(
+      padding: const EdgeInsets.all(AppTokens.spaceLG),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ActionButton.neutral(
+            text: t.checkAllOnlineButton,
+            icon: FluentIcons.arrow_sync_24_regular,
+            isLoading: controller.isCheckingAll,
+            onPressed: controller.isCheckingAll ? null : () => _run(),
+          ),
+          if (controller.isCheckingAll) ...[
+            const SizedBox(height: AppTokens.spaceSM),
+            InfoProgressRow(
+              stage: t.checkingAllOnlineLabel(
+                controller.checkAllDone ?? 0,
+                controller.checkAllTotal ?? 0,
+              ),
+              progress: (controller.checkAllTotal ?? 0) > 0
+                  ? (controller.checkAllDone ?? 0) / controller.checkAllTotal!
+                  : null,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _run() async {
+    final result = await controller.checkAllOnline();
+    if (result.checked == 0) return;
+    final t = AppL10n.strings.customApps;
+
+    // כולן נכשלו = אין רשת. זו התשובה השלמה, ואין מה להוסיף עליה.
+    if (result.failed == result.checked) {
+      UiSnack.showError(t.checkAllOnlineAllFailed);
+      return;
+    }
+    final summary = result.updates > 0
+        ? t.checkAllOnlineSummary(result.updates, result.checked)
+        : t.checkAllOnlineNoUpdates(result.checked);
+    // בדיקה שנכשלה לחלק מהן אינה שגיאה, אבל אסור לבלוע אותה: "אין עדכונים"
+    // על תוכנות שכלל לא נבדקו הוא בדיוק מה שמטעה.
+    final text = result.failed > 0
+        ? '$summary ${t.checkAllOnlineSomeFailed(result.failed)}'
+        : summary;
+    if (result.updates > 0) {
+      UiSnack.show(text);
+    } else {
+      UiSnack.showSuccess(text);
+    }
   }
 }
 

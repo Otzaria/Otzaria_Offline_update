@@ -177,7 +177,7 @@ class PatchDownloader {
     // בקשת רשת — נזרק לפני ה-try כדי שניקוי ה-catch לא ימחק קובץ קיים.
     _throwIfCancelled(isCancelled);
 
-    if (!_isRemote(url)) {
+    if (!isRemoteUrl(url)) {
       await _copyLocalFile(
         url: url,
         destPath: destPath,
@@ -972,7 +972,7 @@ class PatchDownloader {
     void Function(int downloaded, int? total)? onProgress,
     bool Function()? isCancelled,
   }) async {
-    if (!_isRemote(url)) {
+    if (!isRemoteUrl(url)) {
       return _readLocalFile(
         url,
         maxBytes: maxBytes,
@@ -1067,7 +1067,7 @@ class PatchDownloader {
 
   /// `true` אם [url] הוא כתובת HTTP/HTTPS אמיתית; `false` אם זהו נתיב קובץ
   /// מקומי (למשל בזמן עדכון ממראה offline — ראו [LocalMirrorLibraryReleaseClient]).
-  static bool _isRemote(String url) =>
+  static bool isRemoteUrl(String url) =>
       url.startsWith('http://') || url.startsWith('https://');
 
   /// קורא קובץ מקומי במקום להוריד — משמש כשה-`url` הוא בעצם נתיב על הדיסק

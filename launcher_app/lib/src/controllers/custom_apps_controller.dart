@@ -329,6 +329,60 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
   }
 
+  /// כמה תוכנות כבר נבדקו בסבב "בדיקה לכולן", ומתוך כמה. `null` כשאין סבב.
+  int? checkAllDone;
+  int? checkAllTotal;
+  bool get isCheckingAll => checkAllTotal != null;
+
+  /// האם יש בכלל מה לבדוק ברשת — תוכנה שקובץ ההתקנה שלה הובא ידנית אין לה
+  /// מקור מקוון, ולכן כפתור "בדיקה לכולן" אינו קיים כשאין אף אחת כזו.
+  bool get hasOnlineSources =>
+      apps.any((a) => a.descriptor.sourceKind == AppSourceKind.github);
+
+  /// בודק ברשת את **כל** התוכנות שיש להן מקור מקוון, במקום ללחוץ על כל
+  /// כרטיס בנפרד. סדרתי בכוונה: אלה קריאות API קלות, ובמקביל הן רק היו
+  /// מסכנות חסימת-קצב מול הריפו.
+  ///
+  /// כשל בבדיקה אינו עוצר את השאר — הוא נספר ומדווח בסיכום, כי במחשב
+  /// המנותק "אין רשת" הוא הנורמה ולא שגיאה.
+  Future<({int checked, int updates, int failed})> checkAllOnline() async {
+    if (isCheckingAll) return (checked: 0, updates: 0, failed: 0);
+    final targets = [
+      for (final app in apps)
+        if (app.descriptor.sourceKind == AppSourceKind.github) app,
+    ];
+    if (targets.isEmpty) return (checked: 0, updates: 0, failed: 0);
+
+    checkAllTotal = targets.length;
+    checkAllDone = 0;
+    notifyListeners();
+    try {
+      for (final app in targets) {
+        await checkOnline(app.descriptor);
+        checkAllDone = (checkAllDone ?? 0) + 1;
+        notifyListeners();
+      }
+    } finally {
+      checkAllTotal = null;
+      checkAllDone = null;
+      notifyListeners();
+    }
+
+    var updates = 0;
+    var failed = 0;
+    for (final app in targets) {
+      final id = app.descriptor.id;
+      if (onlineUnavailable.contains(id)) {
+        failed++;
+        continue;
+      }
+      // אותה השוואה שהכרטיס מציג: מה שברשת מול מה ששמור על הכונן.
+      final online = onlineVersions[id];
+      if (online != null && online != app.storedInstaller?.version) updates++;
+    }
+    return (checked: targets.length, updates: updates, failed: failed);
+  }
+
   /// **הפעולה היחידה כאן שדורשת אינטרנט**: מורידה מהריפו את הקובץ שנבחר
   /// אל הכונן.
   Future<StoredInstaller?> download(String id) async {

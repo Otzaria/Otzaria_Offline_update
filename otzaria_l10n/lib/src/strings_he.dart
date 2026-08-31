@@ -1923,9 +1923,26 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get applyDecompressingFullDb => 'מחלץ את המסד...';
   @override
+  String get applyDecompressingAndVerifyingFullDb =>
+      'מחלץ את המסד ומאמת את חתימתו...';
+  @override
   String get applyWritingFullDb => 'כותב את המסד...';
   @override
   String get applyVerifying => 'מוודא תקינות...';
+  @override
+  String applyVerifyStage(String stage) {
+    switch (stage) {
+      case 'sourceHash':
+        return 'מאמת את חתימת קובץ המסד...';
+      case 'dbIntegrity':
+        return 'בודק את שלמות המסד שחולץ (סריקה מלאה, עשוי לקחת דקות)...';
+      case 'dbVersion':
+        return 'מאמת את גרסת המסד שחולץ...';
+      default:
+        return applyVerifying;
+    }
+  }
+
   @override
   String get applyInstallingCompanions => 'מתקין קבצים נלווים...';
   @override
@@ -2348,6 +2365,23 @@ class _CustomApps extends CustomAppsStrings {
   String get downloadingLabel => 'מוריד...';
   @override
   String get checkOnlineButton => 'בדיקה ברשת';
+  @override
+  String get checkAllOnlineButton => 'בדיקה ברשת לכל התוכנות';
+  @override
+  String checkingAllOnlineLabel(int done, int total) =>
+      'בודק ברשת... ($done/$total)';
+  @override
+  String checkAllOnlineSummary(int updates, int checked) =>
+      'נבדקו $checked תוכנות — ל-$updates יש ברשת גרסה חדשה יותר';
+  @override
+  String checkAllOnlineNoUpdates(int checked) =>
+      'נבדקו $checked תוכנות — מה שעל הכונן מעודכן';
+  @override
+  String get checkAllOnlineAllFailed =>
+      'הבדיקה לא הצליחה לאף תוכנה — כנראה אין חיבור לרשת';
+  @override
+  String checkAllOnlineSomeFailed(int failed) =>
+      'ל-$failed תוכנות הבדיקה לא הצליחה.';
   @override
   String onlineVersionAvailable(String version) => 'ברשת יש גרסה $version';
   @override

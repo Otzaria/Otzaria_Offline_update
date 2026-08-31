@@ -17,7 +17,8 @@ export 'services/library_update_applier.dart'
         LibraryUpdateApplier,
         LibraryApplyStage,
         LibraryApplyProgress,
-        LibraryApplyException;
+        LibraryApplyException,
+        ExtractedDbVerifier;
 
 /// נזרק כשאין עדיין מראה מקומית להיבדק מולה — כלומר עוד לא בוצעה הורדה
 /// אף פעם. זה מצב תקין לחלוטין בהרצה ראשונה, ולא שגיאה אמיתית: ה-UI אמור
