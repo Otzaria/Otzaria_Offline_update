@@ -407,3 +407,40 @@ class _NativeShaFailure implements Exception {
   @override
   String toString() => 'NativeShaFailure: $symbol';
 }
+
+/// SHA-256 מוזרם שמחזיר **hex**, כדי שצרכנים לא יידרשו ל-`Digest` של
+/// `package:crypto` רק בשביל להשוות מול `sha256:` של נכס.
+///
+/// עוטף את [FastSha256], ולכן מקבל את אותה האצה נייטיבית. כמו שם, [dispose]
+/// חייב להיקרא ב-`finally`.
+class Sha256Stream {
+  Sha256Stream() {
+    _sink = FastSha256.start(_collector);
+  }
+
+  final _DigestCollector _collector = _DigestCollector();
+  late final FastSha256Sink _sink;
+  String? _hex;
+
+  /// מזרים [chunk] כולו.
+  void add(List<int> chunk) => _sink.add(chunk);
+
+  /// מזרים רק את `[start, end)` — לחוצץ שנעשה בו שימוש חוזר, כמו חוצץ
+  /// הקריאה של חילוץ בזרימה.
+  void addSlice(List<int> chunk, int start, int end) =>
+      _sink.addSlice(chunk, start, end, false);
+
+  /// ה-hex הסופי. קריאות נוספות מחזירות את אותו ערך, ואין להזרים אחריה.
+  String close() {
+    if (_hex case final done?) return done;
+    _sink.close();
+    return _hex = _collector.value.toString();
+  }
+
+  /// משחרר בלי להפיק digest — ראו [FastSha256Sink.dispose].
+  void dispose() => _sink.dispose();
+
+  /// חישוב חד-פעמי על מטען שכבר בזיכרון.
+  static String ofBytes(List<int> bytes) =>
+      FastSha256.convert(bytes).toString();
+}

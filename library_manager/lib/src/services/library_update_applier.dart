@@ -42,6 +42,12 @@ class LibraryApplyProgress {
   /// (`upserts`, `verifyToHash`...). `null` בכל שלב שאינו החלת patch.
   final String? patchStage;
 
+  /// **מה** מאומת כרגע, כשמשהו מאומת: `sourceHash` (ה-sha256 של הנכס הדחוס,
+  /// רוכב על החילוץ), `dbIntegrity` (`quick_check` על המסד שחולץ) או
+  /// `dbVersion`. קיים כי "מוודא תקינות..." לבדו לא אמר למשתמש דבר, והוא
+  /// מופיע כמה פעמים בהחלה אחת.
+  final String? verifyStage;
+
   /// יחס התקדמות 0..1 בתוך אימות ה-hash הארוך; `null` בשאר תת-השלבים.
   final double? verifyProgress;
 
@@ -56,6 +62,7 @@ class LibraryApplyProgress {
     this.bytesDone,
     this.bytesTotal,
     this.patchStage,
+    this.verifyStage,
     this.verifyProgress,
     this.statusText,
   });
@@ -73,10 +80,14 @@ class LibraryApplyException implements Exception {
 
 /// אימות המסד המחולץ לפני שהוא מחליף את החי — `quick_check` וגרסה. מוזרק
 /// כדי שבדיקות יוכלו לרוץ על מטען שאינו מסד sqlite אמיתי.
+///
+/// [onStage] מדווח `dbIntegrity`/`dbVersion` — שתי בדיקות שונות שלקחו זמן
+/// תחת אותה מילה "מאמת", ולכן נאמרות בנפרד.
 typedef ExtractedDbVerifier = Future<void> Function(
   String newDbPath,
-  int? expectedVersion,
-);
+  int? expectedVersion, {
+  void Function(String stage)? onStage,
+});
 
 /// מחיל בפועל [LibraryUpdatePlan] (delta או fullDownload) על ה-DB **החי**.
 ///
@@ -109,9 +120,15 @@ class LibraryUpdateApplier {
 
   static Future<void> _defaultExtractedDbVerifier(
     String newDbPath,
-    int? expectedVersion,
-  ) =>
-      _isolateVerifyExtractedDb(newDbPath, expectedVersion, AppL10n.language);
+    int? expectedVersion, {
+    void Function(String stage)? onStage,
+  }) =>
+      _isolateVerifyExtractedDb(
+        newDbPath,
+        expectedVersion,
+        AppL10n.language,
+        onStage: onStage,
+      );
 
   /// הזמן הקצוב לפתיחת חיבור בהורדות של ההחלה — ראו
   /// [PatchDownloader.connectTimeout]. ה-`stallTimeout` נשאר בברירת המחדל
@@ -316,39 +333,86 @@ class LibraryUpdateApplier {
       );
     }
 
-    final compressedPath = '$dbPath.download.zst';
-    // הדחוס וה-`.new` יושבים שניהם לצד המסד הקיים, ולכן שיא התפוסה על אותו
-    // נפח הוא ישן + דחוס + חדש. בלי הבדיקה הזו הכשל היה `errno = 112` באנגלית
-    // באמצע חילוץ של דקות, על נתיב `.new` שהמשתמש אינו מכיר.
-    _ensureSpaceFor(dir.path, asset.size);
-    await _downloader.downloadToFile(
-      url: asset.downloadUrl,
-      destPath: compressedPath,
-      expectedSize: asset.size,
-      expectedSha256: _sha256FromDigest(asset.digest),
-      resumeToken: asset.id?.toString(),
-      onProgress: (downloaded, total) => onProgress?.call(LibraryApplyProgress(
-        stage: LibraryApplyStage.downloadingFullDb,
-        bytesDone: downloaded,
-        bytesTotal: total,
-      )),
-      isCancelled: isCancelled,
-    );
+    final stagedPath = '$dbPath.download.zst';
+    final expectedSha256 = _sha256FromDigest(asset.digest);
+
+    // **מראה מקומית = מחלצים ממנה ישירות.** הנכס כבר קובץ על הדיסק (הכונן
+    // הנייד), והעתקתו לצד המסד הייתה מוסיפה כתיבה וקריאה של ~1.5GB ודורשת
+    // ישן + דחוס + חדש על אותו נפח. ה-sha256 נשמר: הוא מחושב על אותם בתים
+    // שנקראים לחילוץ. רק מקור רשת עדיין יורד לקובץ ביניים.
+    final isLocalSource = !PatchDownloader.isRemoteUrl(asset.downloadUrl);
+    // הנתיב ש**אנחנו** יצרנו, ולכן מותר למחוק. המראה עצמה לעולם לא.
+    String? staged;
+    void deleteStaged() {
+      if (staged case final path?) {
+        _deleteQuietly(path);
+        _deleteQuietly(PatchDownloader.resumeSidecarPath(path));
+      }
+    }
+
+    final String compressedPath;
+    if (isLocalSource) {
+      compressedPath = asset.downloadUrl;
+      _throwIfCancelled(isCancelled);
+      final source = File(compressedPath);
+      if (!source.existsSync()) {
+        throw LibraryApplyException(
+          AppL10n.strings.libraryDomain.localSourceNotFound(compressedPath),
+        );
+      }
+      final size = source.lengthSync();
+      if (size != asset.size) {
+        throw LibraryApplyException(
+          AppL10n.strings.libraryDomain
+              .localFileSizeMismatch(asset.size, size, compressedPath),
+        );
+      }
+      // שארית מגרסה שעוד העתיקה את הנכס לכאן — אין לה שימוש יותר.
+      _deleteQuietly(stagedPath);
+      _deleteQuietly(PatchDownloader.resumeSidecarPath(stagedPath));
+    } else {
+      compressedPath = stagedPath;
+      // הדחוס וה-`.new` יושבים שניהם לצד המסד הקיים, ולכן שיא התפוסה על אותו
+      // נפח הוא ישן + דחוס + חדש. בלי הבדיקה הזו הכשל היה `errno = 112`
+      // באנגלית באמצע חילוץ של דקות, על נתיב `.new` שהמשתמש אינו מכיר.
+      _ensureSpaceFor(dir.path, asset.size);
+      await _downloader.downloadToFile(
+        url: asset.downloadUrl,
+        destPath: stagedPath,
+        expectedSize: asset.size,
+        expectedSha256: expectedSha256,
+        resumeToken: asset.id?.toString(),
+        onProgress: (downloaded, total) => onProgress?.call(
+          LibraryApplyProgress(
+            stage: LibraryApplyStage.downloadingFullDb,
+            bytesDone: downloaded,
+            bytesTotal: total,
+          ),
+        ),
+        isCancelled: isCancelled,
+      );
+      staged = stagedPath;
+    }
 
     _throwIfCancelled(isCancelled);
-    onProgress?.call(const LibraryApplyProgress(
-        stage: LibraryApplyStage.decompressingFullDb));
+    // המקור המקומי מאומת תוך כדי החילוץ; מקור רשת כבר אומת בהורדה.
+    final verifiesWhileExtracting = isLocalSource && expectedSha256 != null;
+    onProgress?.call(LibraryApplyProgress(
+      stage: LibraryApplyStage.decompressingFullDb,
+      verifyStage: verifiesWhileExtracting ? 'sourceHash' : null,
+    ));
 
     // מחלצים לקובץ צדדי ורק בסוף מחליפים את ה-DB: כך ה-DB הקיים נשאר שלם
     // עד שהחדש מוכן במלואו, בדיוק כמו במסלול ה-staging של התקנת האפליקציה.
     final newFilePath = '$dbPath.new';
     _deleteQuietly(newFilePath);
-    // עכשיו הקובץ הדחוס על הדיסק, ולכן הגודל המחולץ המדויק קריא מכותרת
-    // ה-frame — בדיקה מדויקת ולא הערכה, לפני שמתחילים לכתוב ~7GB.
+    // גודל החילוץ המדויק קריא מכותרת ה-frame — בדיקה מדויקת ולא הערכה,
+    // לפני שמתחילים לכתוב ~7GB.
     final extractedSize = ZstdFileDecompressor.contentSizeOf(compressedPath);
     if (extractedSize != null) {
       _ensureSpaceFor(dir.path, extractedSize);
     }
+    String? sourceDigest;
     try {
       if (!await ZstdFileDecompressor.decompressFileToFile(
         compressedPath,
@@ -357,16 +421,32 @@ class LibraryUpdateApplier {
         // לאורך כולו. הבייטים הם של הקובץ הדחוס — גודל המסד שייצא אינו ידוע.
         onProgress: (read, total) => onProgress?.call(LibraryApplyProgress(
           stage: LibraryApplyStage.decompressingFullDb,
+          verifyStage: verifiesWhileExtracting ? 'sourceHash' : null,
           bytesDone: read,
           bytesTotal: total,
         )),
+        onSourceDigest:
+            verifiesWhileExtracting ? (hex) => sourceDigest = hex : null,
+        isCancelled: isCancelled,
       )) {
         // אין streaming בפלטפורמה הזו — מסלול הזיכרון, ראו doc-comment.
-        await _decompressInMemoryTo(compressedPath, newFilePath);
+        await _decompressInMemoryTo(
+          compressedPath,
+          newFilePath,
+          expectedSha256: verifiesWhileExtracting ? expectedSha256 : null,
+        );
+      } else if (verifiesWhileExtracting &&
+          sourceDigest?.toLowerCase() != expectedSha256.toLowerCase()) {
+        // אותה הודעה ואותו טיפוס שהעתקת המקור המקומית הייתה זורקת.
+        throw PatchDownloadException(
+          AppL10n.strings.libraryDomain.localFileHashMismatch(compressedPath),
+        );
       }
     } catch (_) {
       _deleteQuietly(newFilePath);
-      _deleteQuietly(compressedPath);
+      deleteStaged();
+      // ביטול באמצע החילוץ מדווח כביטול ולא ככשל חילוץ.
+      _throwIfCancelled(isCancelled);
       rethrow;
     }
     // הגודל שנכתב בפועל מושווה לזה שכותרת ה-frame הצהירה עליו. libzstd עצמו
@@ -378,7 +458,7 @@ class LibraryUpdateApplier {
     if (writtenSize == 0 ||
         (extractedSize != null && writtenSize < extractedSize)) {
       _deleteQuietly(newFilePath);
-      _deleteQuietly(compressedPath);
+      deleteStaged();
       throw LibraryApplyException(
         AppL10n.strings.libraryDomain.fullDbExtractionFailed,
       );
@@ -389,10 +469,18 @@ class LibraryUpdateApplier {
     onProgress
         ?.call(const LibraryApplyProgress(stage: LibraryApplyStage.verifying));
     try {
-      await _verifyExtractedDb(newFilePath, plan.targetVersion);
+      await _verifyExtractedDb(
+        newFilePath,
+        plan.targetVersion,
+        // `quick_check` על מסד מלא לוקח דקות; המשתמש צריך לדעת מה נבדק.
+        onStage: (stage) => onProgress?.call(LibraryApplyProgress(
+          stage: LibraryApplyStage.verifying,
+          verifyStage: stage,
+        )),
+      );
     } catch (_) {
       _deleteQuietly(newFilePath);
-      _deleteQuietly(compressedPath);
+      deleteStaged();
       rethrow;
     }
     _throwIfCancelled(isCancelled);
@@ -411,7 +499,7 @@ class LibraryUpdateApplier {
         // כשל כאן (תיקייה שאינה ניתנת לכתיבה) קרה **אחרי** שהמסד המחולץ כבר
         // על הדיסק — בלי הניקוי הזה נשארים ~1.1GB תלויים על כונן שכבר צר.
         _deleteQuietly(newFilePath);
-        _deleteQuietly(compressedPath);
+        deleteStaged();
         rethrow;
       }
     }
@@ -427,8 +515,7 @@ class LibraryUpdateApplier {
       // הסימון ומריצה `quick_check` של דקות על המסד החי לחינם.
       if (dbAlreadyExists) _recovery.clearStaleArtifacts(dbPath);
       _deleteQuietly(newFilePath);
-      _deleteQuietly(compressedPath);
-      _deleteQuietly(PatchDownloader.resumeSidecarPath(compressedPath));
+      deleteStaged();
       rethrow;
     }
 
@@ -447,7 +534,7 @@ class LibraryUpdateApplier {
       }
       File(newFilePath).renameSync(dbPath);
     } catch (_) {
-      _deleteQuietly(compressedPath);
+      deleteStaged();
       // גלגול אחור: המסד הישן חוזר לשמו. `<db>.new` נמחק בתחילת הריצה הבאה.
       var rolledBack = false;
       if (retired) {
@@ -483,10 +570,9 @@ class LibraryUpdateApplier {
     // המסד החדש אומת (`quick_check` + גרסה) והגיע מנכס שה-sha256 שלו נבדק,
     // ולכן סימון "לא מאומת" משרשרת שנקטעה בעבר אינו רלוונטי יותר.
     _recovery.clearUnverified(dbPath);
-    _deleteQuietly(compressedPath);
     // ה-sidecar הוא באחריות הצרכן (ראו PatchDownloader.downloadToFile);
     // בלי זה נשאר `seforim.db.download.zst.resume` בתיקיית הספרים לנצח.
-    _deleteQuietly(PatchDownloader.resumeSidecarPath(compressedPath));
+    deleteStaged();
     onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.done));
   }
 
@@ -570,10 +656,34 @@ class LibraryUpdateApplier {
   static Future<void> _isolateVerifyExtractedDb(
     String newDbPath,
     int? expectedVersion,
+    AppLanguage language, {
+    void Function(String stage)? onStage,
+  }) async {
+    final port = ReceivePort();
+    final sub = port.listen((msg) {
+      if (msg is String) onStage?.call(msg);
+    });
+    try {
+      await _runVerifyIsolate(
+          newDbPath, expectedVersion, language, port.sendPort);
+    } finally {
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      port.close();
+    }
+  }
+
+  /// מתודה נפרדת — כאן נוצר סוגר ה-`Isolate.run` (ראו תיעוד המחלקה).
+  static Future<void> _runVerifyIsolate(
+    String newDbPath,
+    int? expectedVersion,
     AppLanguage language,
+    SendPort sendPort,
   ) {
     return Isolate.run(
-      () => _verifyExtractedDbInIsolate((newDbPath, expectedVersion, language)),
+      () => _verifyExtractedDbInIsolate(
+        (newDbPath, expectedVersion, language, sendPort),
+      ),
     );
   }
 
@@ -586,10 +696,20 @@ class LibraryUpdateApplier {
   /// את ה-I/O מחוץ ל-isolate הראשי.
   Future<void> _decompressInMemoryTo(
     String compressedPath,
-    String destPath,
-  ) async {
-    final extracted =
-        await _decompress(await File(compressedPath).readAsBytes());
+    String destPath, {
+    String? expectedSha256,
+  }) async {
+    final compressed = await File(compressedPath).readAsBytes();
+    // חילוץ ישיר מהמראה עוקף את ההעתקה שאימתה את ה-sha256 — כאן, במסלול
+    // שאין בו זרימה, האימות נעשה על המטען שכבר בזיכרון.
+    if (expectedSha256 != null &&
+        Sha256Stream.ofBytes(compressed).toLowerCase() !=
+            expectedSha256.toLowerCase()) {
+      throw PatchDownloadException(
+        AppL10n.strings.libraryDomain.localFileHashMismatch(compressedPath),
+      );
+    }
+    final extracted = await _decompress(compressed);
     if (extracted == null || extracted.isEmpty) {
       throw LibraryApplyException(
         AppL10n.strings.libraryDomain.fullDbExtractionFailed,
@@ -699,8 +819,12 @@ PatchApplyResult _applyPatchInIsolate(
 
 /// מוודא שהמסד שחולץ תקין (`quick_check`) ובגרסה הצפויה — **לפני** שהוא
 /// מחליף את המסד החי. top-level מאותה סיבה כמו [_applyPatchInIsolate].
-void _verifyExtractedDbInIsolate((String, int?, AppLanguage) args) {
+void _verifyExtractedDbInIsolate((String, int?, AppLanguage, SendPort) args) {
   AppL10n.use(args.$3);
+  final stagePort = args.$4;
+  // `quick_check` סורק את הקובץ כולו ולוקח דקות על מסד מלא — האמירה מה
+  // נבדק היא ההבדל בין "מוודא תקינות..." שנתקע לבין שלב מובן.
+  stagePort.send('dbIntegrity');
   final db = sqlite3.sqlite3.open(args.$1, mode: sqlite3.OpenMode.readOnly);
   try {
     final check = db.select('PRAGMA quick_check');
@@ -715,6 +839,7 @@ void _verifyExtractedDbInIsolate((String, int?, AppLanguage) args) {
   }
   final expectedVersion = args.$2;
   if (expectedVersion != null) {
+    stagePort.send('dbVersion');
     final local = const LocalDbVersionReader().read(args.$1);
     if (local.dbVersion != expectedVersion) {
       throw LibraryApplyException(

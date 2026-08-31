@@ -481,11 +481,19 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       case LibraryApplyStage.downloadingFullDb:
         return t.applyDownloadingFullDb;
       case LibraryApplyStage.decompressingFullDb:
-        return t.applyDecompressingFullDb;
+        // חילוץ ישירות מהמראה מאמת את החתימה תוך כדי — ואז מד הבייטים הזה
+        // הוא גם מד ההתקדמות של האימות.
+        return p.verifyStage == 'sourceHash'
+            ? t.applyDecompressingAndVerifyingFullDb
+            : t.applyDecompressingFullDb;
       case LibraryApplyStage.writingFullDb:
         return t.applyWritingFullDb;
       case LibraryApplyStage.verifying:
-        return t.applyVerifying;
+        // "מוודא תקינות..." לבדו חזר כמה פעמים בלי לומר על מה מחכים.
+        final verifyStage = p.verifyStage;
+        return verifyStage == null
+            ? t.applyVerifying
+            : t.applyVerifyStage(verifyStage);
       case LibraryApplyStage.installingCompanions:
         // ההתקנה מדווחת טקסט מוכן (שם הפריט שבטיפול); ה-fallback לשלב כולו.
         return p.statusText ?? t.applyInstallingCompanions;

@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:seforim_library_updater/seforim_library_updater.dart';
 import 'package:zstandard_native/zstandard_native_bindings.dart';
 
 /// מחלץ קובץ `.zst` **בזרימה**, קובץ-לקובץ, בלי להחזיק את התוכן בזיכרון.
@@ -36,48 +38,86 @@ abstract final class ZstdFileDecompressor {
   /// שייצא אינו ידוע מראש. הדיווח חוזר דרך [ReceivePort] כדי שה-callback
   /// עצמו לא ייכנס ל-`Context` של סוגר ה-`Isolate.run`.
   ///
+  /// [onSourceDigest] מבקש את ה-sha256 של קובץ **המקור**, מחושב על אותם בתים
+  /// שנקראו לחילוץ. זה מה שמאפשר לחלץ ישירות מהמראה בלי להעתיק אותה קודם:
+  /// האימות רוכב על הקריאה היחידה, במקום לדרוש מעבר נוסף על ~1.5GB.
+  ///
+  /// [isCancelled] נבדק כאן ומועבר ל-isolate כדגל בזיכרון נייטיבי: סוגר אינו
+  /// יכול לחצות isolate, והלולאה שם סינכרונית ולא תריץ מאזין על פורט.
+  ///
   /// השפה מועברת במפורש כי משתנים סטטיים אינם משותפים בין isolates — בלעדיה
   /// הודעות ה-[ZstdStreamException] היו יוצאות תמיד בברירת המחדל (עברית).
   static Future<bool> decompressFileToFile(
     String sourcePath,
     String destPath, {
     void Function(int bytesRead, int totalBytes)? onProgress,
+    void Function(String sha256Hex)? onSourceDigest,
+    bool Function()? isCancelled,
   }) async {
     final language = AppL10n.language;
-    if (onProgress == null) {
-      return _runDecompressIsolate(sourcePath, destPath, language, null);
+    final hashSource = onSourceDigest != null;
+    if (onProgress == null && !hashSource && isCancelled == null) {
+      final (ok, _) = await _runDecompressIsolate(
+          sourcePath, destPath, language, false, 0, null);
+      return ok;
     }
 
     final port = ReceivePort();
     final sub = port.listen((msg) {
-      if (msg is (int, int)) onProgress(msg.$1, msg.$2);
+      if (msg is (int, int)) onProgress?.call(msg.$1, msg.$2);
     });
+    // בית בודד בזיכרון נייטיבי — הדבר היחיד ששני ה-isolates יכולים לחלוק.
+    final cancelFlag =
+        isCancelled == null ? nullptr : malloc.allocate<Uint8>(1);
+    if (cancelFlag != nullptr) cancelFlag.value = 0;
+    final poll = isCancelled == null
+        ? null
+        : Timer.periodic(const Duration(milliseconds: 200), (_) {
+            if (isCancelled()) cancelFlag.value = 1;
+          });
     try {
-      return await _runDecompressIsolate(
+      // ה-digest חוזר בערך ההחזרה ולא דרך הפורט: הודעה אחרונה שנשלחת רגע
+      // לפני יציאת ה-isolate אינה מובטחת להגיע לפני שההמתנה מסתיימת.
+      final (ok, digest) = await _runDecompressIsolate(
         sourcePath,
         destPath,
         language,
+        hashSource,
+        cancelFlag.address,
         port.sendPort,
       );
+      if (digest != null) onSourceDigest?.call(digest);
+      return ok;
     } finally {
+      poll?.cancel();
       // ההודעה האחרונה עדיין בתור כש-`Isolate.run` חוזר — בלי המתנה לסבב
       // אירועים אחד המד היה נתקע לפני הסוף.
       await Future<void>.delayed(Duration.zero);
       await sub.cancel();
       port.close();
+      if (cancelFlag != nullptr) malloc.free(cancelFlag);
     }
   }
 
   /// מתודה נפרדת: כאן נוצר סוגר ה-`Isolate.run`, ולכן היא מקבלת **רק** ערכים
   /// ניתנים-לשליחה — ראו האזהרה ב-`LibraryUpdateApplier`.
-  static Future<bool> _runDecompressIsolate(
+  static Future<(bool, String?)> _runDecompressIsolate(
     String sourcePath,
     String destPath,
     AppLanguage language,
+    bool hashSource,
+    int cancelFlagAddress,
     SendPort? sendPort,
   ) {
     return Isolate.run(
-      () => _decompressInIsolate((sourcePath, destPath, language, sendPort)),
+      () => _decompressInIsolate((
+        sourcePath,
+        destPath,
+        language,
+        hashSource,
+        cancelFlagAddress,
+        sendPort,
+      )),
     );
   }
 
@@ -158,15 +198,23 @@ DynamicLibrary? _openLibrary() {
 const int _maxWindowLog = 31;
 
 /// גוף החילוץ. top-level ומקבל רק ערכים ניתנים-לשליחה, כדי שלא ייתפס שום
-/// `this` בדרך ל-isolate. [args]: `($1: מקור, $2: יעד, $3: שפה, $4: יציאת
-/// דיווח ההתקדמות או null)`.
-bool _decompressInIsolate((String, String, AppLanguage, SendPort?) args) {
+/// `this` בדרך ל-isolate. [args]: `($1: מקור, $2: יעד, $3: שפה, $4: לחשב
+/// sha256 של המקור, $5: כתובת דגל הביטול או 0, $6: יציאת הדיווח או null)`.
+///
+/// מחזיר `(האם חולץ בזרימה, ה-sha256 של המקור או null)`.
+(bool, String?) _decompressInIsolate(
+  (String, String, AppLanguage, bool, int, SendPort?) args,
+) {
   AppL10n.use(args.$3);
-  final progressPort = args.$4;
+  final progressPort = args.$6;
+  final cancelFlag =
+      args.$5 == 0 ? nullptr : Pointer<Uint8>.fromAddress(args.$5);
   final strings = AppL10n.strings.libraryDomain;
   final library = _openLibrary();
-  if (library == null) return false;
+  // לפני כל הקצאה: הקורא נופל למסלול הזיכרון, ואין מה לשחרר.
+  if (library == null) return (false, null);
   final zstd = ZstandardNativeBindings(library);
+  final hasher = args.$4 ? Sha256Stream() : null;
 
   final inCapacity = zstd.ZSTD_DStreamInSize();
   final outCapacity = zstd.ZSTD_DStreamOutSize();
@@ -207,10 +255,16 @@ bool _decompressInIsolate((String, String, AppLanguage, SendPort?) args) {
     var sawInput = false;
     var bytesRead = 0;
     while (true) {
+      // נבדק פעם בחוצץ קלט (~128KB) — קריאת בית אחד מול דקות של חילוץ.
+      if (cancelFlag != nullptr && cancelFlag.value != 0) {
+        throw ZstdStreamException(strings.updateCancelled);
+      }
       final read = source.readIntoSync(inView, 0, inCapacity);
       if (read == 0) break;
       sawInput = true;
       bytesRead += read;
+      // אותם בתים בדיוק שנקראו לחילוץ — זה מה שחוסך מעבר שני על הקובץ.
+      hasher?.addSlice(inView, 0, read);
       // חוצץ הקלט הוא ~128KB, כלומר אלפי דיווחים על קובץ של ~1GB. הצד המקבל
       // מדלל אותם (`ProgressNotifier`), וכאן זה עדיין זול משמעותית מה-I/O.
       progressPort?.send((bytesRead, totalBytes));
@@ -245,8 +299,10 @@ bool _decompressInIsolate((String, String, AppLanguage, SendPort?) args) {
       throw ZstdStreamException(strings.zstdTruncatedFrame);
     }
     dest.flushSync();
-    return true;
+    // רק אחרי שהחילוץ הצליח: digest של קלט שנדחה ממילא אינו מעניין איש.
+    return (true, hasher?.close());
   } finally {
+    hasher?.dispose();
     source.closeSync();
     dest.closeSync();
     malloc.free(inBuffer);

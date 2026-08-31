@@ -130,7 +130,10 @@ const _hebrewLettersInEnglish = {'settings.languageHebrew'};
 
 /// ארגומנטים שבוחרים ניסוח ואינם מוצגים — בדיוק כמו בוליאני. המפתח הוא
 /// `נתיב#אינדקס`, כדי שהפטור יחול על הפרמטר האחד ולא על השדה כולו.
-const _selectorArgs = {'libraryDomain.applyPatchStage#0'};
+const _selectorArgs = {
+  'libraryDomain.applyPatchStage#0',
+  'libraryDomain.applyVerifyStage#0',
+};
 const _noHebrewLettersInHebrew = {
   'common.emptyValue',
   'settings.languageEnglish',

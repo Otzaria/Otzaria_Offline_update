@@ -1103,8 +1103,17 @@ abstract class LibraryDomainStrings {
   String applyPatchStage(String stage, String step);
   String get applyDownloadingFullDb;
   String get applyDecompressingFullDb;
+
+  /// חילוץ שגם מאמת את ה-sha256 של הנכס תוך כדי — כך זה כשמחלצים ישירות
+  /// מהמראה במקום להעתיק אותה קודם לצד המסד.
+  String get applyDecompressingAndVerifyingFullDb;
   String get applyWritingFullDb;
   String get applyVerifying;
+
+  /// **מה** מאומת כרגע — [stage] הוא `dbIntegrity`/`dbVersion` כפי
+  /// ש-`LibraryApplyProgress.verifyStage` מדווח. "מוודא תקינות..." לבדו
+  /// חוזר כמה פעמים בהחלה אחת ואינו אומר על מה מחכים.
+  String applyVerifyStage(String stage);
   String get applyInstallingCompanions;
   String get applyDone;
 }
@@ -1321,6 +1330,19 @@ abstract class CustomAppsStrings {
   String get downloadButton;
   String get downloadingLabel;
   String get checkOnlineButton;
+
+  // ── בדיקה ברשת לכל התוכנות בבת אחת, במקום כרטיס-כרטיס ──
+  String get checkAllOnlineButton;
+  String checkingAllOnlineLabel(int done, int total);
+  String checkAllOnlineSummary(int updates, int checked);
+  String checkAllOnlineNoUpdates(int checked);
+
+  /// כולן נכשלו — כלומר אין רשת, וזו התשובה השלמה.
+  String get checkAllOnlineAllFailed;
+
+  /// חלקן נכשלו. חייב להיאמר: "אין עדכונים" על תוכנות שלא נבדקו הוא מטעה.
+  String checkAllOnlineSomeFailed(int failed);
+
   String onlineVersionAvailable(String version);
   String get onlineUpToDate;
   String get onlineUnavailable;
