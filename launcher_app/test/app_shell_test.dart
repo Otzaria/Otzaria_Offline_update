@@ -235,9 +235,18 @@ void main() {
     );
 
     await pumpShell(tester);
-    await tester.pump(const Duration(seconds: 1));
+    // ההצצה לתוספים ממתינה לבדיקה המקומית — היא שקובעת לאילו גרסאות אוצריא
+    // לשאול על בילדי התוספים. זו סדרת קריאות `dart:io`, וכל אחת מתקדמת רק
+    // ב-runAsync בעוד המיקרו-משימות שלה נשטפות ב-pump שאחריו.
+    final offline = find.text(stringsOf().home.onlineOffline);
+    for (var i = 0; i < 40 && offline.evaluate().isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump(const Duration(seconds: 1));
+    }
 
-    expect(find.text(stringsOf().home.onlineOffline), findsOneWidget);
+    expect(offline, findsOneWidget);
     expect(find.byType(InfoErrorRow), findsNothing);
     expect(find.text(stringsOf().common.error), findsNothing);
     // לא נמצא עדכון ברשת, ולכן גם אין הצעה להוריד.

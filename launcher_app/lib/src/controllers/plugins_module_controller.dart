@@ -27,6 +27,7 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     Future<String?> Function()? otzariaLaunchPath,
     this.mirroredAppVersions,
     this.installedAppVersion,
+    this.ensureAppVersionsKnown,
     this.installWatchInterval = const Duration(seconds: 1),
     this.installWatchTimeout = const Duration(minutes: 5),
   })
@@ -46,6 +47,11 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
 
   /// גרסת אוצריא שבמחשב **הזה**, ולפיה נבחר איזה בילד יוצג ויותקן.
   final Future<String?> Function()? installedAppVersion;
+
+  /// ממתין לכך ששתי הקריאות שמעליי יידעו לענות. הן נשענות על הבדיקה
+  /// המקומית של מודול התוכנה, שרצה בעלייה **במקביל** להצצה ברשת —
+  /// ראו [_appVersions].
+  final Future<void> Function()? ensureAppVersionsKnown;
 
   /// כל כמה זמן נסרקת תיקיית התוספים אחרי מסירה לאוצריא, ועד מתי. מוזרקים
   /// רק כדי שבדיקות לא יחכו בזמן אמת.
@@ -344,7 +350,13 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   /// הגרסאות שההורדה וההצצה מסננות לפיהן: מה שיושב במראת התוכנה, ואיתן
   /// הגרסה שמותקנת כאן בפועל — מחשב שנשאר על גרסה ישנה יותר מזו שבכונן
   /// צריך גם הוא בילד שירוץ אצלו. רשימה ריקה = אין מול מה לסנן.
+  ///
+  /// **ממתין תחילה לבדיקה המקומית**: רשימה ריקה מפני שהיא עוד לא הספיקה
+  /// אינה "אין מול מה לסנן" אלא תשובה שגויה — ההצצה הייתה שואלת על הבילד
+  /// החי, מדווחת "חסר" על מה שאינו תואם לכונן, וההורדה שאחריה לא הייתה
+  /// מביאה דבר. כך הנדנוד חוזר אחרי כל הורדה.
   Future<List<String>> _appVersions() async {
+    await ensureAppVersionsKnown?.call();
     final installedVersion = await installedAppVersion?.call();
     final versions = <String>{
       ...?await mirroredAppVersions?.call(),
