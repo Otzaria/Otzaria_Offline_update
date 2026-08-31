@@ -39,7 +39,8 @@ class CustomAppsScreen extends StatefulWidget {
 }
 
 class _CustomAppsScreenState extends State<CustomAppsScreen> {
-  /// ההודעה נאמרת פעם אחת בכל הרצה, ולא בכל רענון של הרשימה.
+  /// ההודעה נאמרת פעם אחת בכל הרצה, ולא בכל רענון של הרשימה. מה שמונע
+  /// ממנה לחזור בהרצה הבאה הוא הרישום שבקונטרולר — ראו `markAnnounced`.
   bool _pendingDialogShown = false;
 
   @override
@@ -60,13 +61,15 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
   /// `AppShell._builtScreens`), ולכן מי שלא נכנס אליה אינו רואה את ההודעה.
   void _announcePendingIfNeeded() {
     if (_pendingDialogShown) return;
-    final pending = widget.controller.pendingApps;
+    final pending = widget.controller.unannouncedApps;
     if (pending.isEmpty) return;
 
     _pendingDialogShown = true;
     // אחרי סיום הפריים: פתיחת דיאלוג בתוך build/initState אסורה.
     unawaited(WidgetsBinding.instance.endOfFrame.then((_) async {
       if (!mounted) return;
+      // נרשם עם הפתיחה ולא עם הסגירה: מה שנרשם הוא שההודעה הוצגה כאן.
+      unawaited(widget.controller.markAnnounced(pending));
       await showCustomAppsPendingDialog(context: context, pending: pending);
     }));
   }

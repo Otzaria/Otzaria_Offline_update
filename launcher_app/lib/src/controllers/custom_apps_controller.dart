@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
 
+import '../services/announced_apps_store.dart';
 import '../services/app_logger.dart';
 import 'progress_notifier.dart';
 
@@ -65,8 +66,10 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
   /// אל הקונטרולר — ורשימת אתחול אינה יכולה לגעת ב-`this`.
   CustomAppsController({
     required String mirrorRootDir,
+    String? stateDir,
     CustomAppsManager? manager,
   }) {
+    _announced = stateDir == null ? null : AnnouncedAppsStore(stateDir);
     _manager = manager ??
         CustomAppsManager(
           // כל המראות תחת אותו שורש שלצד התוכנה, כך שהכול נוסע יחד.
@@ -90,6 +93,14 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
 
   late final CustomAppsManager _manager;
 
+  /// לאן נרשם "כבר הוצגה הודעה על התוכנה הזו במחשב הזה". `null` כשאין
+  /// תיקיית כתיבה — אז הזיכרון הוא של ההרצה הנוכחית בלבד.
+  late final AnnouncedAppsStore? _announced;
+
+  /// המזהים שההודעה עליהם כבר נאמרה כאן. נטענים יחד עם הרשימה, ולכן הם
+  /// מוכנים עוד לפני שהמסך מספיק לפתוח את ההודעה.
+  Set<String> _announcedIds = {};
+
   List<CustomAppView> apps = const [];
   bool isBusy = false;
   String? errorMessage;
@@ -106,6 +117,22 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
         for (final app in apps)
           if (app.pending != CustomAppPending.none) app,
       ];
+
+  /// מתוכן — אלה שההודעה עליהן **עוד לא נאמרה במחשב הזה**, והן היחידות
+  /// שפותחות אותה. תוכנה שכבר הוכרזה כאן שותקת מכאן ואילך: הכרטיס שבמסך
+  /// ממילא אומר את אותו הדבר בכל כניסה, וחלון קופץ שחוזר הוא נדנוד.
+  List<CustomAppView> get unannouncedApps => [
+        for (final app in pendingApps)
+          if (!_announcedIds.contains(app.descriptor.id)) app,
+      ];
+
+  /// רושם שההודעה על [shown] נאמרה במחשב הזה, כדי שלא תיאמר בו שוב.
+  Future<void> markAnnounced(Iterable<CustomAppView> shown) async {
+    final ids = [for (final app in shown) app.descriptor.id];
+    if (ids.isEmpty) return;
+    _announcedIds = {..._announcedIds, ...ids};
+    await _announced?.record(ids);
+  }
 
   /// נפתר בעצלתיים ובתוך `try`: פלטפורמה שאין לה קורא זורקת, וזה לא אמור
   /// למנוע מהרשימה להיטען — היא פשוט לא תדע גרסאות.
@@ -205,6 +232,8 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
   /// טוען את הרשימה וסורק מה מותקן. קריאת דיסק בלבד — לא נוגע ברשת.
   Future<void> load() async {
     try {
+      // לפני הרשימה: המסך פותח את ההודעה ברגע שהיא מגיעה אליו.
+      if (_announced != null) _announcedIds = await _announced.load();
       final entries = await _manager.loadAll();
       final views = <CustomAppView>[];
       for (final entry in entries) {
