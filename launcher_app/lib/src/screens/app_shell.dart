@@ -195,6 +195,8 @@ class _AppShellState extends State<AppShell> {
     });
     _customApps = CustomAppsController(
       mirrorRootDir: p.join(widget.dataDir, 'mirror'),
+      // תיקיית הכתיבה, כי "על מה כבר הודענו" הוא נתון של המחשב הזה.
+      stateDir: widget.stateDir,
     )..addListener(_onChange);
     _launcherUpdate = LauncherUpdateController(dataDir: widget.dataDir)
       ..addListener(_onChange);

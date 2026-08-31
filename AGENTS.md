@@ -111,10 +111,11 @@ the drive**: the Otzaria installer is read from the mirror and Inno writes to
 the machine, the library applier stages the compressed asset and `<db>.new`
 next to the existing DB, and plugins go into Otzaria's own folder. What moves
 to `stateDir` is exactly the log, `launcher_settings.json`,
-`faq_customization.json`, `library_state.json` and
-`otzaria_install_state.json` — and the state files belong there anyway: "which
-version is installed" describes the machine, not the drive. Preferences are
-seeded once from the drive (`AppPaths.seedPreferences`); the state files are
+`faq_customization.json`, `library_state.json`,
+`otzaria_install_state.json` and `custom_apps_announced.json` — and the state
+files belong there anyway: "which version is installed" describes the machine,
+not the drive. Preferences are seeded once from the drive
+(`AppPaths.seedPreferences`); the state files are
 deliberately **not** copied, because they describe whoever wrote them.
 
 Everything that writes *to the drive* is off in that mode, and there is no

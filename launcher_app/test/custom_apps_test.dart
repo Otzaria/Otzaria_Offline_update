@@ -9,6 +9,7 @@ import 'package:launcher_app/src/controllers/custom_apps_controller.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_apps_screen.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_apps_settings_card.dart';
 import 'package:launcher_app/src/screens/custom_apps/installer_kind_label.dart';
+import 'package:launcher_app/src/services/announced_apps_store.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
@@ -520,6 +521,85 @@ void main() {
       await tester.pumpWidget(wrap(CustomAppsScreen(controller: controller)));
       await tester.pumpAndSettle();
       expect(find.text(title), findsNothing);
+    });
+  });
+
+  // ההודעה אמורה לקפוץ פעם אחת **בכל מחשב**: תוכנה שכבר הוכרזה כאן לא
+  // מכריזה על עצמה שוב בהרצה הבאה, גם כשהיא עדיין אינה מותקנת.
+  group('הודעה פעם אחת בכל מחשב', () {
+    CustomAppsController persisting() => CustomAppsController(
+          mirrorRootDir: p.join(tempDir.path, 'mirror'),
+          stateDir: tempDir.path,
+        );
+
+    test('הרישום נשמר לפי שם המחשב', () async {
+      final store = AnnouncedAppsStore(tempDir.path, hostName: 'PC-A');
+      await store.record(['demo']);
+
+      expect(await store.load(), {'demo'});
+      // כונן שעבר למחשב אחר — שם ההודעה עוד לא נאמרה.
+      expect(
+        await AnnouncedAppsStore(tempDir.path, hostName: 'PC-B').load(),
+        isEmpty,
+      );
+    });
+
+    testWidgets('אחרי שההודעה נאמרה, הרצה חדשה שותקת', (tester) async {
+      await addApp(
+        tester,
+        exeName: 'no-such-app-anywhere.exe',
+        withInstaller: true,
+      );
+
+      await tester.runAsync(() async {
+        final first = persisting();
+        await first.load();
+        expect(first.unannouncedApps, hasLength(1));
+        await first.markAnnounced(first.unannouncedApps);
+        first.dispose();
+
+        // הרצה חדשה: אותו כונן, אותו מחשב, אותה תוכנה שאינה מותקנת.
+        final second = persisting();
+        await second.load();
+        expect(second.pendingApps, hasLength(1));
+        expect(second.unannouncedApps, isEmpty);
+        second.dispose();
+      });
+    });
+
+    testWidgets('תוכנה שכבר הוכרזה אינה פותחת את החלון', (tester) async {
+      await addApp(
+        tester,
+        exeName: 'no-such-app-anywhere.exe',
+        withInstaller: true,
+      );
+      await tester.runAsync(() => controller.markAnnounced(controller.apps));
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining(stringsOf().customApps.pendingDialogIntro),
+        findsNothing,
+      );
+    });
+
+    testWidgets('תוכנה חדשה שנוספה אחר כך כן מכריזה', (tester) async {
+      await addApp(
+        tester,
+        exeName: 'no-such-app-anywhere.exe',
+        withInstaller: true,
+      );
+      await tester.runAsync(() => controller.markAnnounced(controller.apps));
+      await addApp(
+        tester,
+        id: 'demo2',
+        name: 'תוכנה נוספת',
+        exeName: 'no-such-app-anywhere.exe',
+        withInstaller: true,
+      );
+
+      expect(controller.unannouncedApps, hasLength(1));
+      expect(controller.unannouncedApps.single.descriptor.id, 'demo2');
     });
   });
 }
