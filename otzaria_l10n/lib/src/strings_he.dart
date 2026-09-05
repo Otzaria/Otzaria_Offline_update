@@ -444,6 +444,8 @@ class _LibraryScreen extends LibraryScreenStrings {
   String get targetVersionNothingDownloaded => 'טרם הורדו עדכונים';
   @override
   String get targetVersionUnknown => 'לא ידועה — יש לבצע בדיקה';
+  @override
+  String get updateRouteNoteTitle => 'על אופן העדכון';
 
   @override
   String get otzariaRunningTitle => 'אוצריא פתוחה';
@@ -1648,6 +1650,24 @@ class _LibraryDomain extends LibraryDomainStrings {
   String exportPatchAssetMissing(String tag, String file) =>
       'הקובץ $file של $tag אינו זמין להורדה כרגע (ייתכן שהוא עוד עולה), '
       'ולכן מסלול העדכון דרכו לא ייכנס למראה';
+  @override
+  String exportSkippingUnappliablePatch(
+    String tag,
+    String file,
+    int schemaVersion,
+  ) =>
+      'קובץ העדכון $file של $tag בנוי על סכמה $schemaVersion שאינה ניתנת '
+      'להחלה, ולכן הוא אינו מועתק למראה';
+  @override
+  String exportFullDbRequiredBySchema(int schemaVersion, int latestVersion) =>
+      'גרסה $latestVersion משתמשת בפורמט מסד חדש (סכמה $schemaVersion): '
+      'מוריד את המסד המלא במקום קובצי העדכון';
+  @override
+  String exportPersonalNeedsFullDb(int fromVersion, int latestVersion) =>
+      'אין מסלול קובצי עדכון שיכול להעביר את גרסה $fromVersion לגרסה '
+      '$latestVersion — הספרייה עברה לפורמט מסד חדש, ולכן נדרש המסד המלא. '
+      '"עדכון אישי" אינו כולל את המסד המלא: יש לכבות אותו בהגדרות ולהוריד '
+      'שוב.';
 
   @override
   String get planLocalVersionUnknown =>
@@ -1661,6 +1681,33 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String planNoFullDbEither(String reason) =>
       '$reason, ואין DB מלא זמין להורדה';
+  @override
+  String planPatchSchemaTooNew(int schemaVersion, int latestVersion) =>
+      'הגרסה האחרונה של הספרייה ($latestVersion) בנויה על סכמת מסד '
+      '$schemaVersion, שגרסה זו של התוכנה אינה יודעת להחיל דרך קובצי עדכון';
+  @override
+  String planFullDbWouldNotProgress(
+    int reachableVersion,
+    int localVersion,
+    int latestVersion,
+  ) =>
+      'המסד המלא הזמין להורדה מגיע רק לגרסה $reachableVersion, שאינה חדשה '
+      'מהגרסה שכבר מותקנת ($localVersion) — התקנתו תחליף את הספרייה בגרסה '
+      'ישנה יותר במקום לעדכן אותה לגרסה $latestVersion. לכן העדכון לא בוצע: '
+      'נדרש מסד מלא חדש יותר, או גרסה חדשה יותר של התוכנה.';
+  @override
+  String planNewSchemaNeedsFullDb(int latestVersion, int schemaVersion) =>
+      'גרסה $latestVersion עברה לפורמט מסד חדש (סכמה $schemaVersion), ולכן '
+      'המסד כולו מורד מחדש במקום קובצי עדכון';
+  @override
+  String planPartialDeltaSchemaStop(
+    int reachedVersion,
+    int latestVersion,
+    int schemaVersion,
+  ) =>
+      'העדכון מגיע לגרסה $reachedVersion. גרסה $latestVersion עברה לפורמט '
+      'מסד חדש (סכמה $schemaVersion) שאין אליו קובצי עדכון — כדי להגיע '
+      'אליה נדרש מסד מלא חדש.';
 
   @override
   String mirrorManifestMissing(String fileName, String mirrorDir) =>
@@ -1688,7 +1735,8 @@ class _LibraryDomain extends LibraryDomainStrings {
 
   @override
   String unsupportedSchemaForHashOrder(int schemaVersion) =>
-      'גרסת סכמה $schemaVersion אינה נתמכת לבחירת סדר hash';
+      'גרסת סכמה $schemaVersion אינה נתמכת להחלת קובצי עדכון — נדרשת '
+      'הורדה של המסד המלא';
   @override
   String localVersionMismatch(int? localVersion, int expected) =>
       'גרסת ה-DB המקומי ($localVersion) אינה תואמת ל-patch (מצפה ל-$expected)';

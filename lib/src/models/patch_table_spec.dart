@@ -138,3 +138,22 @@ const List<String> kHashTableOrderSchema1 = [
   'default_targum',
   'schema_meta',
 ];
+
+/// סדרי ה-hash לפי גרסת סכמה — **נקודת האמת היחידה** לשאלה "איזו סכמה
+/// אנחנו יודעים להחיל patch עליה". התכנון וייצוא המראה נגזרים ממנה דרך
+/// [isSupportedSchemaVersion], כדי שהוספת סכמה תיגע במקום אחד בלבד.
+const Map<int, List<String>> kHashTableOrderBySchemaVersion = {
+  1: kHashTableOrderSchema1,
+  2: kHashTableOrder,
+};
+
+/// הסכמה הגבוהה ביותר ב-[kHashTableOrderBySchemaVersion]. const (ולכן כתוב
+/// ידנית) כי הוא ברירת מחדל בבנאי `const`; `patch_table_spec_test` מוודא
+/// שהוא נשאר תואם למפה.
+const int kMaxSupportedSchemaVersion = 2;
+
+/// האם קיים סדר hash לסכמה הזו — כלומר האם אפשר להחיל patch שנוגע בה.
+/// סכמה חדשה יותר אינה תקלה: המסלול אליה הוא הורדת מסד מלא, כמו באוצריא
+/// עצמה. ראו `LibraryUpdateDiscovery.discover`.
+bool isSupportedSchemaVersion(int schemaVersion) =>
+    kHashTableOrderBySchemaVersion.containsKey(schemaVersion);

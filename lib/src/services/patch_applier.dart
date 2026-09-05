@@ -77,20 +77,19 @@ class PatchApplyException implements Exception {
   String toString() => 'PatchApplyException: $message';
 }
 
-/// בוחר את סדר ה-hash לפי גרסת הסכמה: 1 → [kHashTableOrderSchema1] (33 הישן),
-/// 2 → [kHashTableOrder] (34 הנוכחי). כל ערך אחר → זריקה (fail loudly).
+/// בוחר את סדר ה-hash לפי גרסת הסכמה, מתוך [kHashTableOrderBySchemaVersion].
+/// סכמה שאין לה סדר → זריקה (fail loudly). זו שכבת ההגנה האחרונה בלבד:
+/// קשת כזו מסוננת עוד ב-`LibraryUpdateDiscovery`, כדי שהכשל לא יגיע אחרי
+/// הורדה וחילוץ של ג'יגה-בייטים.
 List<String> hashTableOrderForSchemaVersion(int schemaVersion) {
-  switch (schemaVersion) {
-    case 1:
-      return kHashTableOrderSchema1;
-    case 2:
-      return kHashTableOrder;
-    default:
-      throw PatchApplyException(
-        AppL10n.strings.libraryDomain
-            .unsupportedSchemaForHashOrder(schemaVersion),
-      );
+  final order = kHashTableOrderBySchemaVersion[schemaVersion];
+  if (order == null) {
+    throw PatchApplyException(
+      AppL10n.strings.libraryDomain
+          .unsupportedSchemaForHashOrder(schemaVersion),
+    );
   }
+  return order;
 }
 
 /// מחיל patch DB דלתאי על `seforim.db` בצורה אטומית, ומשכפל את
@@ -113,7 +112,7 @@ class PatchApplier {
 
   const PatchApplier({
     this.hasher = const LogicalContentHasher(),
-    this.supportedSchemaVersion = 2,
+    this.supportedSchemaVersion = kMaxSupportedSchemaVersion,
   });
 
   /// מחיל את ה-patch שב-[patchPath] על ה-DB שב-[dbPath] לפי [manifest].

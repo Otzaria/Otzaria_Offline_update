@@ -300,6 +300,10 @@ abstract class LibraryScreenStrings {
   String get targetVersionNothingDownloaded;
   String get targetVersionUnknown;
 
+  /// כותרת ההסבר למה העדכון הזה מוריד מסד שלם ולא קובצי עדכון — התוכן עצמו
+  /// מגיע מ-`LibraryUpdatePlan.reason`.
+  String get updateRouteNoteTitle;
+
   String get otzariaRunningTitle;
   String get otzariaRunningSubtitle;
 
@@ -996,10 +1000,37 @@ abstract class LibraryDomainStrings {
   /// ה-manifest מצביע על קובץ patch שאינו ברשימת הנכסים (עוד עולה, או הוסר).
   String exportPatchAssetMissing(String tag, String file);
 
+  /// ה-patch בנוי על סכמה שאינה ניתנת להחלה — הוא אינו נכנס למראה.
+  String exportSkippingUnappliablePatch(
+    String tag,
+    String file,
+    int schemaVersion,
+  );
+
+  /// סכמה חדשה בגרסה האחרונה — המראה מקבלת DB מלא במקום patches.
+  String exportFullDbRequiredBySchema(int schemaVersion, int latestVersion);
+
+  /// "עדכון אישי" שאין לו מסלול patches — נאלצים לכלול DB מלא.
+  String exportPersonalNeedsFullDb(int fromVersion, int latestVersion);
+
   String get planLocalVersionUnknown;
   String planContentChangedWithoutVersionBump(String releaseTag);
   String planNoDeltaRoute(int localVersion, int latestVersion);
   String planNoFullDbEither(String reason);
+  String planPatchSchemaTooNew(int schemaVersion, int latestVersion);
+  String planFullDbWouldNotProgress(
+    int reachableVersion,
+    int localVersion,
+    int latestVersion,
+  );
+  String planNewSchemaNeedsFullDb(int latestVersion, int schemaVersion);
+
+  /// שרשרת קובצי עדכון שנעצרת מתחת ל-latest כי הגרסאות שמעליה עברו סכמה.
+  String planPartialDeltaSchemaStop(
+    int reachedVersion,
+    int latestVersion,
+    int schemaVersion,
+  );
 
   String mirrorManifestMissing(String fileName, String mirrorDir);
   String mirrorManifestCorrupt(String fileName, String mirrorDir, String error);

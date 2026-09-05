@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 
 import 'delta_manifest.dart';
 import 'library_release.dart';
+import 'patch_table_spec.dart';
 
 /// קשת בגרף העדכונים: patch בודד מ-[fromVersion] ל-[toVersion], עם ה-manifest
 /// שלו וה-URLs להורדת קבצי ה-patch.
@@ -25,6 +26,13 @@ class PatchEdge extends Equatable {
 
   /// גודל ההורדה הדחוס הכולל של קשת זו.
   int get compressedSize => manifest.totalCompressedSize;
+
+  /// האם שני קצות ה-patch בסכמות שיש להן סדר hash — כלומר האם אפשר להחיל
+  /// אותו בכלל. קשת שאינה כזו מסוננת ב-`LibraryUpdateDiscovery` ואינה נכנסת
+  /// למראה: המסלול לגרסה כזו הוא מסד מלא, לא קובצי עדכון.
+  bool get hasSupportedSchema =>
+      isSupportedSchemaVersion(manifest.fromSchemaVersion) &&
+      isSupportedSchemaVersion(manifest.toSchemaVersion);
 
   @override
   List<Object?> get props => [manifest, patchFileUrls, manifestUrl];
@@ -107,6 +115,7 @@ class LibraryUpdatePlan extends Equatable {
     required int localVersion,
     required int targetVersion,
     required List<PatchEdge> steps,
+    String? reason,
     LibraryUpdatePlan? fullDownloadFallback,
   }) =>
       LibraryUpdatePlan._(
@@ -114,6 +123,7 @@ class LibraryUpdatePlan extends Equatable {
         localVersion: localVersion,
         targetVersion: targetVersion,
         deltaSteps: List.unmodifiable(steps),
+        reason: reason,
         fullDownloadFallback: fullDownloadFallback,
       );
 

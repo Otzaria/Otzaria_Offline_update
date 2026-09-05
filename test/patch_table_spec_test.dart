@@ -75,6 +75,34 @@ void main() {
     });
   });
 
+  // המפה הזו היא נקודת האמת היחידה ל"איזו סכמה אנחנו יודעים להחיל patch
+  // עליה" — התכנון וייצוא המראה נגזרים ממנה. חוסר התאמה בינה, הקבוע
+  // ו-[isSupportedSchemaVersion] שולח patch לכישלון אחרי שהמסד החי הוחלף.
+  group('kHashTableOrderBySchemaVersion', () {
+    test('kMaxSupportedSchemaVersion הוא המפתח הגבוה במפה', () {
+      expect(
+        kMaxSupportedSchemaVersion,
+        kHashTableOrderBySchemaVersion.keys.reduce((a, b) => a > b ? a : b),
+      );
+    });
+
+    test('כל סכמה ממופה לקבוע הקפוא שלה', () {
+      expect(kHashTableOrderBySchemaVersion.keys.toList(), [1, 2]);
+      expect(kHashTableOrderBySchemaVersion[1], same(kHashTableOrderSchema1));
+      expect(kHashTableOrderBySchemaVersion[2], same(kHashTableOrder));
+    });
+
+    test('isSupportedSchemaVersion נתמך ל-1 ול-2 בלבד', () {
+      expect(isSupportedSchemaVersion(1), isTrue);
+      expect(isSupportedSchemaVersion(2), isTrue);
+      // 0 אינה סכמה, ו-3/4 הן סכמות עתידיות שאין לנו סדר hash להן — הבאג
+      // בשטח היה release שהצהיר `toSchemaVersion: 4`.
+      expect(isSupportedSchemaVersion(0), isFalse);
+      expect(isSupportedSchemaVersion(3), isFalse);
+      expect(isSupportedSchemaVersion(4), isFalse);
+    });
+  });
+
   group('kBooksTouchedTables', () {
     test('כל טבלה מוכרת גם בסדר ה-FK', () {
       expect(fkNames.toSet(), containsAll(kBooksTouchedTables));

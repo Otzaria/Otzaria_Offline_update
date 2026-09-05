@@ -136,6 +136,19 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   int? get fullDownloadFallbackSize =>
       _lastCheck?.plan?.fullDownloadFallback?.totalDownloadSize;
 
+  /// ההסבר של התוכנית כשמסלול העדכון אינו המובן מאליו — מסד שלם במקום
+  /// קובצי עדכון, או שרשרת שנעצרת מתחת ל-latest. בלי זה המשתמש רואה הורדה
+  /// של ~1.5GB, או יעד נמוך מהגרסה הקיימת, בלי סיבה.
+  String? get updateRouteNote {
+    final plan = _lastCheck?.plan;
+    return switch (plan?.kind) {
+      LibraryUpdatePlanKind.fullDownload ||
+      LibraryUpdatePlanKind.delta =>
+        plan?.reason,
+      _ => null,
+    };
+  }
+
   /// התיקייה שלצד התוכנה שממנה נקראים העדכונים — המקור היחיד.
   String get mirrorDir => _manager.mirrorDir;
 

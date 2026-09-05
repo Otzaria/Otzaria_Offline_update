@@ -484,6 +484,25 @@ without knowing why it looks that way will regress it.
 with it exactly (including the U+FEFF / BOM handling). Change either one and
 every update starts getting rejected. There are golden-hash tests guarding this.
 
+**A DB schema we have no hash order for is a full-download route, not a
+failure — and it must be detected during *planning*.** `kHashTableOrderBySchemaVersion`
+in `patch_table_spec.dart` is the single source of truth for which schemas we can
+apply a patch across (`isSupportedSchemaVersion`); adding a schema is one line
+there. Everything downstream reads it: `PatchEdge.hasSupportedSchema`,
+`LibraryUpdateDiscovery.discover` (which drops those edges from the graph but
+still counts them toward `latestVersion`, so a new release never silently reads
+as "up to date"), `LibraryUpdatePlanner`, and `LibraryMirrorExporter` (which keeps
+the tiny `.manifest.json` but not the patch files, and no longer lets an old full
+DB "reach" latest through an unappliable chain). Do not move this check back into
+`PatchApplier` alone: SeforimLibrary shipped v26 in schema 4, and the rejection
+landing inside `apply` meant the launcher had already replaced a live v23 database
+with the mirror's v21 one before it failed — the user ended up on v22.
+Related guard, same incident: a full-download plan whose final version (including
+`followUpDelta`) is not higher than the local one is `blocked` with a reason, never
+an "update" that installs an older library. That guard is skipped only when
+`hasLocalVersionMeta` is false, where there is no trustworthy local version to
+protect and every DB is an improvement.
+
 What that contract covers is the **byte stream**, not the SHA-256
 implementation. `FastSha256` deliberately runs the hash through the OS crypto
 library (CNG on Windows, CommonCrypto on macOS) because `package:crypto` is pure

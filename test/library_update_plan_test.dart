@@ -3,11 +3,18 @@ import 'package:seforim_library_updater/src/models/library_release.dart';
 import 'package:seforim_library_updater/src/models/library_update_plan.dart';
 import 'package:test/test.dart';
 
-DeltaManifest manifest(int from, int to, {int size = 1000}) => DeltaManifest(
+DeltaManifest manifest(
+  int from,
+  int to, {
+  int size = 1000,
+  int fromSchema = 2,
+  int toSchema = 2,
+}) =>
+    DeltaManifest(
       fromVersion: from,
       toVersion: to,
-      fromSchemaVersion: 2,
-      toSchemaVersion: 2,
+      fromSchemaVersion: fromSchema,
+      toSchemaVersion: toSchema,
       fromContentHash: 'h$from',
       toContentHash: 'h$to',
       patchFiles: [
@@ -22,8 +29,21 @@ DeltaManifest manifest(int from, int to, {int size = 1000}) => DeltaManifest(
       ],
     );
 
-PatchEdge edge(int from, int to, {int size = 1000}) => PatchEdge(
-      manifest: manifest(from, to, size: size),
+PatchEdge edge(
+  int from,
+  int to, {
+  int size = 1000,
+  int fromSchema = 2,
+  int toSchema = 2,
+}) =>
+    PatchEdge(
+      manifest: manifest(
+        from,
+        to,
+        size: size,
+        fromSchema: fromSchema,
+        toSchema: toSchema,
+      ),
       patchFileUrls: {'patch-v$from-v$to.db.zst': 'https://x/p'},
       manifestUrl: 'https://x/m.json',
     );
@@ -80,6 +100,31 @@ void main() {
     test('שוויון לפי ערך (props)', () {
       expect(edge(1, 2), edge(1, 2));
       expect(edge(1, 2), isNot(edge(1, 3)));
+    });
+
+    // ⚠️ הבאג בשטח: release שהצהיר `toSchemaVersion: 4` נכשל רק בתוך
+    // `PatchApplier.apply` — אחרי שהמסד החי כבר הוחלף במסד ישן יותר.
+    // הדגל הזה הוא מה שמוציא קשת כזו מהגרף עוד לפני התכנון.
+    group('hasSupportedSchema', () {
+      test('סכמות מוכרות (1→2) — נתמך', () {
+        expect(
+            edge(1, 2, fromSchema: 1, toSchema: 2).hasSupportedSchema, isTrue);
+      });
+
+      test('סכמת יעד שאין לה סדר hash (2→4) — לא נתמך', () {
+        expect(edge(22, 26, fromSchema: 2, toSchema: 4).hasSupportedSchema,
+            isFalse);
+      });
+
+      test('שני הקצות לא מוכרים (3→4) — לא נתמך', () {
+        expect(edge(24, 26, fromSchema: 3, toSchema: 4).hasSupportedSchema,
+            isFalse);
+      });
+
+      test('סכמה עתידית בשני הקצות (4→4) — לא נתמך', () {
+        expect(edge(26, 27, fromSchema: 4, toSchema: 4).hasSupportedSchema,
+            isFalse);
+      });
     });
   });
 

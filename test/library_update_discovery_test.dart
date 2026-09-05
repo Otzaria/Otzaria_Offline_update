@@ -27,12 +27,19 @@ LibraryRelease _release({
   );
 }
 
-/// בונה manifest JSON עבור patch from→to.
-String _manifestJson(int from, int to) => jsonEncode({
+/// בונה manifest JSON עבור patch from→to. [fromSchema]/[toSchema] מאפשרים
+/// לדמות release שעבר לסכמה שאין לנו סדר hash עבורה.
+String _manifestJson(
+  int from,
+  int to, {
+  int fromSchema = 1,
+  int toSchema = 1,
+}) =>
+    jsonEncode({
       'fromVersion': from,
       'toVersion': to,
-      'fromSchemaVersion': 1,
-      'toSchemaVersion': 1,
+      'fromSchemaVersion': fromSchema,
+      'toSchemaVersion': toSchema,
       'fromContentHash': 'hash$from',
       'toContentHash': 'hash$to',
       'patchFiles': [
@@ -403,6 +410,160 @@ void main() {
           client: GithubLibraryReleaseClient(httpClient: mock));
       expect(() => discovery.discover(allowPrerelease: true),
           throwsA(isA<Exception>()));
+    });
+  });
+
+  // ⚠️ הבאג בשטח: SeforimLibrary פרסמה v26 עם patches שמצהירים
+  // `toSchemaVersion: 4`, ואין לנו סדר hash לסכמה כזו. הכישלון התגלה רק
+  // בתוך `PatchApplier.apply` — אחרי ~1.5GB הורדה, ~5.5GB חילוץ והחלפת המסד
+  // החי (v23) במסד v21 של המראה. הסינון כאן הוא מה שמקדים אותו.
+  group('discover — סכמה שאין לה סדר hash', () {
+    /// גרף כמו בשטח: v26 (patch 22→26), v22 (patch 21→22), v21 (מסד מלא).
+    /// [toSchemaOf26] קובע לאיזו סכמה ה-patch של v26 מצהיר שהוא מוביל.
+    LibraryUpdateDiscovery buildDiscovery({required int toSchemaOf26}) {
+      final releases = jsonEncode([
+        {
+          'tag_name': 'v26',
+          'assets': [
+            {
+              'name': 'patch-v22-v26.db.zst',
+              'browser_download_url': 'https://x/v26/patch-v22-v26.db.zst',
+              'size': 1000
+            },
+            {
+              'name': 'patch-v22-v26.db.zst.manifest.json',
+              'browser_download_url':
+                  'https://x/v26/patch-v22-v26.db.zst.manifest.json',
+              'size': 100
+            },
+          ],
+        },
+        {
+          'tag_name': 'v22',
+          'assets': [
+            {
+              'name': 'patch-v21-v22.db.zst',
+              'browser_download_url': 'https://x/v22/patch-v21-v22.db.zst',
+              'size': 1000
+            },
+            {
+              'name': 'patch-v21-v22.db.zst.manifest.json',
+              'browser_download_url':
+                  'https://x/v22/patch-v21-v22.db.zst.manifest.json',
+              'size': 100
+            },
+          ],
+        },
+        {
+          'tag_name': 'v21',
+          'assets': [
+            {
+              'name': 'seforim.db.zst',
+              'browser_download_url': 'https://x/v21/seforim.db.zst',
+              'size': 1200000000
+            },
+          ],
+        },
+      ]);
+      final mock = MockClient((request) async {
+        final url = request.url.toString();
+        if (url.contains('/releases')) return http.Response(releases, 200);
+        if (url.endsWith('patch-v22-v26.db.zst.manifest.json')) {
+          return http.Response(
+            _manifestJson(22, 26, fromSchema: 2, toSchema: toSchemaOf26),
+            200,
+          );
+        }
+        if (url.endsWith('patch-v21-v22.db.zst.manifest.json')) {
+          return http.Response(
+            _manifestJson(21, 22, fromSchema: 2, toSchema: 2),
+            200,
+          );
+        }
+        return http.Response('not found', 404);
+      });
+      return LibraryUpdateDiscovery(
+          client: GithubLibraryReleaseClient(httpClient: mock));
+    }
+
+    test('הקשת שחוצה את הסכמה מסוננת, אך הגרסה נשארת ה-latest', () async {
+      final result =
+          await buildDiscovery(toSchemaOf26: 4).discover(allowPrerelease: true);
+
+      // הגרסה נגזרת מכל הקשתות, גם מזו שאיננו יודעים להחיל: אחרת v26 היה
+      // נראה כ"מעודכן" והמשתמש לא היה יודע שיש חדש בכלל.
+      expect(result.latestVersion, 26);
+      expect(
+        result.edges.map((e) => '${e.fromVersion}-${e.toVersion}'),
+        ['21-22'],
+      );
+      expect(result.unsupportedSchemaVersions, {4});
+      expect(result.blockingSchemaVersion, 4);
+      // וה-fallback היחיד שנשאר הוא המסד המלא של v21.
+      expect(result.fullDbReleaseTag, 'v21');
+      expect(result.latestFullDbVersion, 21);
+    });
+
+    test('כשכל הסכמות מוכרות — אין חסימה ואין קשת מסוננת', () async {
+      final result =
+          await buildDiscovery(toSchemaOf26: 2).discover(allowPrerelease: true);
+
+      expect(result.latestVersion, 26);
+      expect(
+        result.edges.map((e) => '${e.fromVersion}-${e.toVersion}').toSet(),
+        {'22-26', '21-22'},
+      );
+      expect(result.unsupportedSchemaVersions, isEmpty);
+      expect(result.blockingSchemaVersion, isNull);
+    });
+
+    /// release שנושא את ה-manifest בלבד — בדיוק מה שהמראה כותבת כשהיא מדלגת
+    /// על קובץ patch שאינו ניתן להחלה. ה-tag חסר מספר בכוונה, כדי שהגרסה
+    /// תוכל להגיע מהקשת ולא מה-tag.
+    LibraryUpdateDiscovery manifestOnly({required int toSchema}) {
+      final releases = jsonEncode([
+        {
+          'tag_name': 'rolling',
+          'assets': [
+            {
+              'name': 'patch-v22-v26.db.zst.manifest.json',
+              'browser_download_url':
+                  'https://x/rolling/patch-v22-v26.db.zst.manifest.json',
+              'size': 100
+            },
+          ],
+        },
+      ]);
+      final mock = MockClient((request) async {
+        final url = request.url.toString();
+        if (url.contains('/releases')) return http.Response(releases, 200);
+        return http.Response(
+          _manifestJson(22, 26, fromSchema: 2, toSchema: toSchema),
+          200,
+        );
+      });
+      return LibraryUpdateDiscovery(
+          client: GithubLibraryReleaseClient(httpClient: mock));
+    }
+
+    test('קובץ patch חסר בסכמה מוכרת → אין קשת בכלל', () async {
+      final result =
+          await manifestOnly(toSchema: 2).discover(allowPrerelease: true);
+      expect(result.edges, isEmpty);
+      // הקשת לא נבנתה כלל, ולכן גם הגרסה אינה נגזרת ממנה.
+      expect(result.latestVersion, 0);
+      expect(result.unsupportedSchemaVersions, isEmpty);
+    });
+
+    // המראה נושאת manifest בלי קובץ ה-patch (מאות בתים במקום מאות MB); בלי
+    // הקשת הזו הגרסה החדשה נעלמת מהמראה ונראית באופליין כ"מעודכן".
+    test('קובץ patch חסר בסכמה שאינה נתמכת → קשת מטא-דאטה שנספרת ל-latest',
+        () async {
+      final result =
+          await manifestOnly(toSchema: 4).discover(allowPrerelease: true);
+      expect(result.latestVersion, 26);
+      expect(result.edges, isEmpty); // מסוננת מהתכנון
+      expect(result.blockingSchemaVersion, 4);
     });
   });
 

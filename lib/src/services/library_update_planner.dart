@@ -22,6 +22,9 @@ class LibraryUpdatePlanner {
   /// [latestContentTag] — ה-release החדש ביותר, זה שהתוכן העדכני מגיע ממנו.
   /// [localReleaseTag] / [localReleaseTagVersion] — ה-release שממנו הגיע ה-DB
   /// המקומי והגרסה שנרשמה איתו, אם ידועים. ראו [_isContentRefresh].
+  /// [blockingSchemaVersion] — סכמה שנראתה ב-releases ואיננו יודעים להחיל
+  /// (`LibraryDiscoveryResult.blockingSchemaVersion`). לתוכנית עצמה אין בה
+  /// צורך — ה-edges שלה כבר סוננו — אלא רק להסבר שמוצג למשתמש.
   LibraryUpdatePlan plan({
     required int localVersion,
     required bool hasLocalVersionMeta,
@@ -33,6 +36,7 @@ class LibraryUpdatePlanner {
     String? latestContentTag,
     String? localReleaseTag,
     int? localReleaseTagVersion,
+    int? blockingSchemaVersion,
   }) {
     // היעד של הורדה מלאה הוא מה שהנכס מביא, לא מה שקיים ב-releases: אחרת
     // האימות שאחרי החילוץ דוחה את המסד. הפער נסגר באותה החלה עצמה, דרך
@@ -48,6 +52,9 @@ class LibraryUpdatePlanner {
         asset: latestFullDbAsset,
         tag: fullDbReleaseTag,
         reason: AppL10n.strings.libraryDomain.planLocalVersionUnknown,
+        // גרסה מקומית לא ידועה — אין מול מה לדרוש התקדמות, וממילא זה גם
+        // המסלול של התקנה טרייה.
+        requireProgress: false,
       );
     }
 
@@ -77,12 +84,38 @@ class LibraryUpdatePlanner {
       );
     }
 
-    final path = _findBestPath(edges, localVersion, latestVersion);
-    if (path != null && path.isNotEmpty) {
+    // המסלול בקובצי עדכון — עד latest אם אפשר, ואחרת עד הגרסה הגבוהה שהם
+    // כן מגיעים אליה. מעבר סכמה חותך את הגרף באמצע, ואז חצי הדרך בעשרות MB
+    // עדיפה גם על הישארות במקום וגם על ~1.5GB שנוחתים נמוך יותר.
+    final path = _bestReachablePath(edges, localVersion, latestVersion);
+    final deltaTarget = path == null ? localVersion : path.last.toVersion;
+
+    // הגרסה שההורדה המלאה מגיעה אליה בסוף, או `localVersion` כשאין מסד מלא
+    // בכלל — כלומר "אין מולה מה להשוות".
+    final fullAvailable = latestFullDbAsset != null && fullDbReleaseTag != null;
+    final fullRouteTarget = fullAvailable
+        ? (_followUpDelta(edges, fullTargetVersion, latestVersion)
+                ?.targetVersion ??
+            fullTargetVersion)
+        : localVersion;
+
+    if (path != null && path.isNotEmpty && deltaTarget >= fullRouteTarget) {
       return LibraryUpdatePlan.delta(
         localVersion: localVersion,
-        targetVersion: latestVersion,
+        targetVersion: deltaTarget,
         steps: path,
+        // מסלול שנעצר מתחת ל-latest אומר למה — אחרת המסך מציג יעד 23 בזמן
+        // שקיימת 26, בלי הסבר.
+        reason: deltaTarget >= latestVersion
+            ? null
+            : blockingSchemaVersion != null
+                ? AppL10n.strings.libraryDomain.planPartialDeltaSchemaStop(
+                    deltaTarget,
+                    latestVersion,
+                    blockingSchemaVersion,
+                  )
+                : AppL10n.strings.libraryDomain
+                    .planNoDeltaRoute(deltaTarget, latestVersion),
         // ההתאוששות כש-patch נכשל על המסד הזה — ראו
         // [LibraryUpdatePlan.fullDownloadFallback].
         fullDownloadFallback:
@@ -99,6 +132,10 @@ class LibraryUpdatePlanner {
       );
     }
 
+    // אין מסלול patches — או שאין קשתות, או שהן נפסלו בגלל סכמה שאיננו
+    // יודעים להחיל. ההסבר נבדל, כי במקרה השני ההורדה המלאה היא **המסלול
+    // המתוכנן** ולא נפילה לאחור, וכך זה גם באוצריא עצמה.
+    final strings = AppL10n.strings.libraryDomain;
     return _fullOrBlocked(
       localVersion: localVersion,
       latestVersion: latestVersion,
@@ -106,8 +143,11 @@ class LibraryUpdatePlanner {
       edges: edges,
       asset: latestFullDbAsset,
       tag: fullDbReleaseTag,
-      reason: AppL10n.strings.libraryDomain
-          .planNoDeltaRoute(localVersion, latestVersion),
+      reason: blockingSchemaVersion != null
+          ? strings.planPatchSchemaTooNew(blockingSchemaVersion, latestVersion)
+          : strings.planNoDeltaRoute(localVersion, latestVersion),
+      requireProgress: true,
+      blockingSchemaVersion: blockingSchemaVersion,
     );
   }
 
@@ -150,6 +190,8 @@ class LibraryUpdatePlanner {
     );
   }
 
+  /// [requireProgress] — לדרוש שהתוכנית תעבור את הגרסה המקומית. כבוי רק
+  /// כשאין גרסה מקומית להשוות אליה (התקנה טרייה / מסד בלי `schema_meta`).
   LibraryUpdatePlan _fullOrBlocked({
     required int localVersion,
     required int latestVersion,
@@ -158,22 +200,66 @@ class LibraryUpdatePlanner {
     required ReleaseAsset? asset,
     required String? tag,
     required String reason,
+    required bool requireProgress,
+    int? blockingSchemaVersion,
   }) {
+    final strings = AppL10n.strings.libraryDomain;
     if (asset != null && tag != null) {
+      final followUp = _followUpDelta(edges, fullTargetVersion, latestVersion);
+      final finalTarget = followUp?.targetVersion ?? fullTargetVersion;
+      // מסד מלא שגם עם ההשלמה ב-patches אינו עובר את הגרסה המקומית אינו
+      // עדכון אלא נסיגה — זה בדיוק המסלול שהחליף מסד v23 במסד v21 ואז נכשל,
+      // כשגרסה חדשה עברה לסכמה שאיננו מכירים. עדיף לומר זאת מלגעת במסד.
+      if (requireProgress && finalTarget <= localVersion) {
+        return LibraryUpdatePlan.blocked(
+          localVersion: localVersion,
+          targetVersion: latestVersion,
+          reason: strings.planFullDbWouldNotProgress(
+            finalTarget,
+            localVersion,
+            latestVersion,
+          ),
+        );
+      }
       return LibraryUpdatePlan.fullDownload(
         localVersion: localVersion,
         targetVersion: fullTargetVersion,
         asset: asset,
         releaseTag: tag,
-        reason: reason,
-        followUpDelta: _followUpDelta(edges, fullTargetVersion, latestVersion),
+        // סכמה חדשה אינה "נפילה לאחור": הורדת המסד המלא היא המסלול המתוכנן,
+        // ולכן ההסבר אומר את זה ולא את "אין מסלול דלתא".
+        reason: blockingSchemaVersion != null
+            ? strings.planNewSchemaNeedsFullDb(
+                latestVersion,
+                blockingSchemaVersion,
+              )
+            : reason,
+        followUpDelta: followUp,
       );
     }
     return LibraryUpdatePlan.blocked(
       localVersion: localVersion,
       targetVersion: latestVersion,
-      reason: AppL10n.strings.libraryDomain.planNoFullDbEither(reason),
+      reason: strings.planNoFullDbEither(reason),
     );
+  }
+
+  /// המסלול אל הגרסה הגבוהה ביותר שאפשר להגיע אליה מ-[from], עד [to] כולל.
+  /// מנסה מלמעלה למטה ועוצר בהצלחה הראשונה, ולכן מחזיר תמיד את הגבוהה ביותר.
+  /// `null` כשאין אף מסלול קדימה.
+  ///
+  /// הגרף כאן הוא עשרות קשתות, ולכן כמה ריצות Dijkstra הן זולות — וזה מה
+  /// שמאפשר לעצור באמצע כשמעבר סכמה חתך את הדרך ל-latest.
+  List<PatchEdge>? _bestReachablePath(
+    List<PatchEdge> edges,
+    int from,
+    int to,
+  ) {
+    for (var target = to; target > from; target--) {
+      final path = _findBestPath(edges, from, target);
+      if (path != null && path.isNotEmpty) return path;
+    }
+    return null;
   }
 
   /// מוצא מסלול ממזער (מספר patches, ואז גודל דחוס כולל) מ-[from] ל-[to].

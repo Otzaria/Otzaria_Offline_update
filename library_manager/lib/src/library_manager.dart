@@ -461,6 +461,7 @@ class LibraryManager {
       latestContentTag: discoveryResult.latestContentTag,
       localReleaseTag: applied?.tag,
       localReleaseTagVersion: applied?.dbVersion,
+      blockingSchemaVersion: discoveryResult.blockingSchemaVersion,
     );
 
     return LibraryUpdateCheckResult(
@@ -539,7 +540,7 @@ class LibraryManager {
               dbPath: dbPath,
               onProgress: onProgress,
               isCancelled: isCancelled,
-              onStepApplied: partial.addAll,
+              onStepApplied: (books, _) => partial.addAll(books),
             );
           } catch (_) {
             if (partial.isNotEmpty) {
@@ -572,6 +573,12 @@ class LibraryManager {
                 dbPath: dbPath,
                 onProgress: onProgress,
                 isCancelled: isCancelled,
+                // שרשרת שנקטעה באמצע השאירה את המסד בגרסת הצעד האחרון
+                // שהצליח, לא בזו של המסד המלא — וזה מה שנרשם ב-catch.
+                onStepApplied: (_, version) {
+                  appliedVersion = version;
+                  appliedTag = _contentTagFor(check, version);
+                },
               );
               appliedVersion = followUp.targetVersion;
               appliedTag = _contentTagFor(check, appliedVersion);
@@ -634,7 +641,10 @@ class LibraryManager {
     if (version != null && latest != null && version >= latest) {
       return check.latestContentTag ?? check.plan?.fullDbReleaseTag;
     }
-    return check.plan?.fullDbReleaseTag ?? check.latestContentTag;
+    // מתחת ל-latest ה-tag היחיד שידוע בוודאות הוא של המסד המלא שהותקן.
+    // שרשרת שנעצרת באמצע (מעבר סכמה חתך את הדרך) הייתה נרשמת אחרת כאילו
+    // התוכן הגיע מה-release האחרון — "מסד v23 שהגיע מ-v26".
+    return check.plan?.fullDbReleaseTag;
   }
 
   /// רישומי הסיום של עדכון מסד שהצליח: state מקומי + הסימון לאוצריא.

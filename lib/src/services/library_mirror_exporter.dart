@@ -8,6 +8,8 @@ import 'package:path/path.dart' as p;
 
 import '../models/delta_manifest.dart';
 import '../models/library_release.dart';
+import '../models/library_update_plan.dart';
+import '../models/patch_table_spec.dart';
 import 'disk_space_probe.dart';
 import 'download_scheduler.dart';
 import 'github_library_release_client.dart';
@@ -29,6 +31,8 @@ import 'patch_downloader.dart';
 /// כל ההיסטוריה. ראו [recentReleases]. המסד המלא הזה אינו בהכרח של הגרסה
 /// האחרונה: מסד שכבר יושב במראה נשמר כל עוד יש ממנו מסלול patches ל-latest,
 /// כדי שעדכון שוטף יעלה עשרות MB ולא ~1.1GB — ראו [_chooseFullDbCarrier].
+/// שינוי סכמה שובר את החישוב הזה: קובצי ה-patch שחוצים אותו אינם ניתנים
+/// להחלה, ולכן הם אינם נכנסים למראה והמסד המלא **החדש** מורד במקומם.
 ///
 /// `fromVersion` ב-[export] מחליף את שני אלה במצב "עדכון אישי": patches
 /// מהגרסה שמותקנת אצל המשתמש ומעלה בלבד, בלי המסד המלא — ראו
@@ -134,6 +138,8 @@ class LibraryMirrorExporter {
     // asset פעמיים אם כמה manifests מצביעים עליו.
     final neededByRelease = <LibraryRelease, Map<String, ReleaseAsset>>{};
     final edges = <({int from, int to})>[];
+    // הסכמה הגבוהה שנראתה ואיננו יודעים להחיל, 0 אם אין כזו.
+    var blockingSchema = 0;
     for (final release in relevant) {
       _throwIfCancelled(isCancelled);
       final needed = <String, ReleaseAsset>{};
@@ -144,6 +150,20 @@ class LibraryMirrorExporter {
           onWarning: onWarning,
         );
         if (manifest == null) continue;
+        // patch שסכמתו אינה מוכרת ייכשל ב-preflight של `PatchApplier`, ולכן
+        // קובציו (מאות MB) אינם נכנסים למראה ו-`_pruneStaleAssets` מוציא גם
+        // כאלה שכבר עליה. ה-manifest עצמו (מאות בתים) כן נשמר — בלעדיו
+        // הגרסה החדשה נעלמת מהמראה ונראית באופליין כ"מעודכן".
+        if (!_schemaAppliable(manifest)) {
+          final schema = _unsupportedSchemaOf(manifest);
+          if (schema > blockingSchema) blockingSchema = schema;
+          onWarning?.call(strings.exportSkippingUnappliablePatch(
+            release.tag,
+            manifest.patchFiles.first.file,
+            schema,
+          ));
+          continue;
+        }
         var complete = true;
         for (final patchFile in manifest.patchFiles) {
           final asset = release.assetByName(patchFile.file);
@@ -174,6 +194,23 @@ class LibraryMirrorExporter {
     // באופליין בוחר תמיד את הנכס של הגרסה הגבוהה ביותר שנושאת אותו (ראו
     // LibraryUpdateDiscovery.discover), ולכן עותק לכל release היה מוסיף כ-1.5GB
     // מתים לכל אחד מהם. במצב אישי הוא נשמט לגמרי — זה כל החיסכון שבמצב הזה.
+    if (blockingSchema > 0) {
+      var latestSeen = 0;
+      for (final release in relevant) {
+        final version = LibraryUpdateDiscovery.releaseVersionOf(release);
+        if (version > latestSeen) latestSeen = version;
+      }
+      // המסלול לגרסה כזו הוא המסד המלא ולא קובצי עדכון, בדיוק כמו באוצריא
+      // המקוונת. במצב אישי אין מסד מלא בכלל — ולכן שם זו אזהרה, לא הכרזה.
+      if (personal) {
+        onWarning
+            ?.call(strings.exportPersonalNeedsFullDb(fromVersion, latestSeen));
+      } else {
+        onStage?.call(
+            strings.exportFullDbRequiredBySchema(blockingSchema, latestSeen));
+      }
+    }
+
     final fullDbCarrier = personal
         ? null
         : _chooseFullDbCarrier(relevant, edges, assetsRoot.path, onStage);
@@ -493,6 +530,10 @@ class LibraryMirrorExporter {
   /// המחיר: התקנה על מחשב ריק מקבלת את המסד הישן ואז את שרשרת ה-patches —
   /// ראו `LibraryUpdatePlanner.plan` ו-`LibraryManager.applyUpdate`, שמריצים
   /// את שני הצעדים ברצף.
+  ///
+  /// [edges] מגיע **מסונן** מ-patches שסכמתם אינה מוכרת, ולכן מסד ישן שהמסלול
+  /// ממנו חוצה שינוי סכמה אינו "מגיע" ל-latest ומפנה את מקומו למסד המלא החדש.
+  /// זה מה שמונע את המצב שבו מסד v21 נשמר בשביל שרשרת שנפסלת בהחלה.
   LibraryRelease? _chooseFullDbCarrier(
     List<LibraryRelease> releases,
     List<({int from, int to})> edges,
@@ -523,6 +564,19 @@ class LibraryMirrorExporter {
     }
     return newest;
   }
+
+  /// האם שני קצות ה-patch בסכמות שאפשר להחיל — אותו כלל בדיוק שמסנן קשתות
+  /// ב-`LibraryUpdateDiscovery`, כדי שהמראה לא תישא patch שהמחשב הלא-מקוון
+  /// יפסול. ראו [PatchEdge.hasSupportedSchema].
+  bool _schemaAppliable(DeltaManifest manifest) =>
+      isSupportedSchemaVersion(manifest.fromSchemaVersion) &&
+      isSupportedSchemaVersion(manifest.toSchemaVersion);
+
+  /// הסכמה שבגללה ה-patch נפסל — היעד קודם, כי הוא החדשה מהשתיים.
+  int _unsupportedSchemaOf(DeltaManifest manifest) =>
+      isSupportedSchemaVersion(manifest.toSchemaVersion)
+          ? manifest.fromSchemaVersion
+          : manifest.toSchemaVersion;
 
   /// האם ה-DB המלא של [release] כבר יושב **שלם** במראה. גודל בלבד: אימות
   /// ה-sha256 ממילא רץ ב-[PatchDownloader], ו-1.1GB מכונן נייד לוקח דקה —

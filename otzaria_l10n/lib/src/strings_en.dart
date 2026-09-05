@@ -467,6 +467,8 @@ class _LibraryScreen extends LibraryScreenStrings {
   String get targetVersionNothingDownloaded => 'Nothing downloaded yet';
   @override
   String get targetVersionUnknown => 'Unknown — run a check';
+  @override
+  String get updateRouteNoteTitle => 'About this update';
 
   @override
   String get otzariaRunningTitle => 'Otzaria is open';
@@ -1747,6 +1749,27 @@ class _LibraryDomain extends LibraryDomainStrings {
       'The file $file of $tag is not available for download right now (it may '
       'still be uploading), so the update route through it will not enter the '
       'mirror';
+  @override
+  String exportSkippingUnappliablePatch(
+    String tag,
+    String file,
+    int schemaVersion,
+  ) =>
+      'The update file $file in release $tag is built on schema '
+      '$schemaVersion, which cannot be applied, so it is not being copied '
+      'into the mirror';
+  @override
+  String exportFullDbRequiredBySchema(int schemaVersion, int latestVersion) =>
+      'Version $latestVersion uses a new database format (schema '
+      '$schemaVersion): downloading the full database instead of the update '
+      'files';
+  @override
+  String exportPersonalNeedsFullDb(int fromVersion, int latestVersion) =>
+      'There is no chain of update files that can carry version $fromVersion '
+      'to version $latestVersion — the library moved to a new database '
+      'format, so the full database is required. A personal update never '
+      'includes the full database: turn it off in the settings and download '
+      'again.';
 
   @override
   String get planLocalVersionUnknown =>
@@ -1762,6 +1785,37 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String planNoFullDbEither(String reason) =>
       '$reason, and no full database is available to download';
+  @override
+  String planPatchSchemaTooNew(int schemaVersion, int latestVersion) =>
+      'The newest library release ($latestVersion) is built on database '
+      'schema $schemaVersion, which this version of the software does not '
+      'know how to apply through update files';
+  @override
+  String planFullDbWouldNotProgress(
+    int reachableVersion,
+    int localVersion,
+    int latestVersion,
+  ) =>
+      'The full database available for download only reaches version '
+      '$reachableVersion, which is not newer than the version already '
+      'installed ($localVersion) — installing it would replace the library '
+      'with an older version instead of updating it to version '
+      '$latestVersion. The update was therefore not performed: a newer full '
+      'database, or a newer version of the software, is needed.';
+  @override
+  String planNewSchemaNeedsFullDb(int latestVersion, int schemaVersion) =>
+      'Version $latestVersion moved to a new database format (schema '
+      '$schemaVersion), so the whole database is downloaded anew instead of '
+      'update files';
+  @override
+  String planPartialDeltaSchemaStop(
+    int reachedVersion,
+    int latestVersion,
+    int schemaVersion,
+  ) =>
+      'This update reaches version $reachedVersion. Version $latestVersion '
+      'moved to a new database format (schema $schemaVersion) that has no '
+      'update files — reaching it requires a new full database.';
 
   @override
   String mirrorManifestMissing(String fileName, String mirrorDir) =>
@@ -1789,8 +1843,8 @@ class _LibraryDomain extends LibraryDomainStrings {
 
   @override
   String unsupportedSchemaForHashOrder(int schemaVersion) =>
-      'Schema version $schemaVersion is not supported for choosing the hash '
-      'order';
+      'Schema version $schemaVersion is not supported for applying update '
+      'files — a full database download is required';
   @override
   String localVersionMismatch(int? localVersion, int expected) =>
       'The local database version ($localVersion) does not match the patch '

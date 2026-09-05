@@ -6,14 +6,20 @@ import 'package:seforim_library_updater/src/services/library_update_planner.dart
 import 'package:test/test.dart';
 
 /// בונה PatchEdge פיקטיבי מ-[from] ל-[to] בגודל דחוס [size].
-PatchEdge _edge(int from, int to, {int size = 1000}) {
+PatchEdge _edge(
+  int from,
+  int to, {
+  int size = 1000,
+  int fromSchema = 1,
+  int toSchema = 1,
+}) {
   final file = 'patch-v$from-v$to.db.zst';
   return PatchEdge(
     manifest: DeltaManifest(
       fromVersion: from,
       toVersion: to,
-      fromSchemaVersion: 1,
-      toSchemaVersion: 1,
+      fromSchemaVersion: fromSchema,
+      toSchemaVersion: toSchema,
       fromContentHash: 'hash$from',
       toContentHash: 'hash$to',
       patchFiles: [
@@ -52,6 +58,7 @@ void main() {
     String? localTag,
     int? localTagVersion,
     int? fullVersion,
+    int? blockingSchema,
   }) =>
       planner.plan(
         localVersion: local,
@@ -65,6 +72,7 @@ void main() {
         latestContentTag: contentTag ?? tag,
         localReleaseTag: localTag,
         localReleaseTagVersion: localTagVersion ?? local,
+        blockingSchemaVersion: blockingSchema,
       );
 
   group('LibraryUpdatePlanner', () {
@@ -211,7 +219,21 @@ void main() {
       expect(p.kind, LibraryUpdatePlanKind.fullDownload);
     });
 
-    test('אין מסלול ואין DB מלא → blocked', () {
+    test('אין מסלול כלל ואין DB מלא → blocked', () {
+      final p = plan(
+        local: 1,
+        latest: 3,
+        edges: [_edge(2, 3)],
+        full: null,
+        tag: null,
+      );
+      expect(p.kind, LibraryUpdatePlanKind.blocked);
+      expect(p.reason, isNotNull);
+    });
+
+    // מסלול שמגיע רק לחצי הדרך עדיין שווה יותר מכלום: המשתמש עולה לגרסה 2
+    // בעשרות MB, ומקבל הסבר למה לא הגיע ל-3.
+    test('מסלול חלקי בלי DB מלא → דלתא עד כמה שאפשר, עם הסבר', () {
       final p = plan(
         local: 1,
         latest: 3,
@@ -219,8 +241,12 @@ void main() {
         full: null,
         tag: null,
       );
-      expect(p.kind, LibraryUpdatePlanKind.blocked);
-      expect(p.reason, isNotNull);
+      expect(p.kind, LibraryUpdatePlanKind.delta);
+      expect(p.finalTargetVersion, 2);
+      expect(
+        p.reason,
+        AppL10n.strings.libraryDomain.planNoDeltaRoute(2, 3),
+      );
     });
 
     // SeforimLibrary מפרסם לפעמים מסד מתוקן באותו db_version. בלי השוואת
@@ -372,6 +398,151 @@ void main() {
     test('הורדה מלאה מדווחת את גודל הנכס', () {
       final p = plan(local: 1, latest: 3, edges: []);
       expect(p.totalDownloadSize, _fullAsset.size);
+    });
+
+    // ⚠️ הרגרסיה של v26: ה-patches ל-latest נפסלו בגלל סכמה שאיננו יודעים
+    // להחיל, והמסד המלא שבמראה הוא של v21 — ישן מהמסד המקומי. המסלול הזה
+    // החליף מסד v23 תקין במסד v21, ואז נכשל בהחלה והשאיר את המשתמש על 22.
+    // התוכנית מקבלת edges **מסוננים** (ה-discovery כבר הסיר אותם), ולכן
+    // הקשת שחוצה את הסכמה פשוט אינה כאן.
+    // המראה האמיתית (ספטמבר 2026): קשתות עד v23 בסכמה 2, ו-v26 בסכמה 4
+    // שסוננה. מסד v21/v22 יכול לטפס ל-23 בעשרות MB — וזה עדיף גם על
+    // "חסום" וגם על הורדה מלאה של ~1.5GB שנוחתת על 21.
+    group('שרשרת שנעצרת מתחת ל-latest', () {
+      test('מטפסים לגרסה הגבוהה שאפשר, ולא נחסמים', () {
+        final p = plan(
+          local: 22,
+          latest: 26,
+          edges: [_edge(21, 23), _edge(22, 23)],
+          fullVersion: 21,
+          blockingSchema: 4,
+        );
+
+        expect(p.kind, LibraryUpdatePlanKind.delta);
+        expect(p.finalTargetVersion, 23);
+        expect(
+          p.reason,
+          AppL10n.strings.libraryDomain.planPartialDeltaSchemaStop(23, 26, 4),
+        );
+      });
+
+      test('קובצי עדכון מנצחים מסד מלא שנוחת נמוך מהם', () {
+        // 1.5GB שמגיעים ל-21 מול עשרות MB שמגיעים ל-23.
+        final p = plan(
+          local: 20,
+          latest: 26,
+          edges: [_edge(20, 22), _edge(22, 23)],
+          fullVersion: 21,
+          blockingSchema: 4,
+        );
+
+        expect(p.kind, LibraryUpdatePlanKind.delta);
+        expect(p.finalTargetVersion, 23);
+      });
+
+      test('מסד מלא שמגיע גבוה יותר מנצח את השרשרת החלקית', () {
+        final p = plan(
+          local: 20,
+          latest: 26,
+          edges: [_edge(20, 22)],
+          fullVersion: 26,
+          blockingSchema: 4,
+        );
+
+        expect(p.kind, LibraryUpdatePlanKind.fullDownload);
+        expect(p.finalTargetVersion, 26);
+      });
+
+      test('שרשרת שמגיעה ל-latest נשארת בלי הסבר', () {
+        final p = plan(local: 22, latest: 23, edges: [_edge(22, 23)]);
+
+        expect(p.kind, LibraryUpdatePlanKind.delta);
+        expect(p.finalTargetVersion, 23);
+        expect(p.reason, isNull);
+      });
+    });
+
+    group('מסד מלא שאינו מקדם', () {
+      test('מסד מלא ישן מהמקומי ובלי השלמה ל-latest → blocked, לא הורדה מלאה',
+          () {
+        final p = plan(
+          local: 23,
+          latest: 26,
+          edges: [_edge(21, 22, fromSchema: 2, toSchema: 2)],
+          fullVersion: 21,
+        );
+        expect(p.kind, LibraryUpdatePlanKind.blocked);
+        // 21 ולא 22: ההשלמה חייבת להגיע ל-latest בדיוק, ואין לה מסלול.
+        expect(
+          p.reason,
+          AppL10n.strings.libraryDomain.planFullDbWouldNotProgress(21, 23, 26),
+        );
+      });
+
+      test('אותו גרף מגרסה מקומית נמוכה יותר → הורדה מלאה', () {
+        final p = plan(
+          local: 20,
+          latest: 26,
+          edges: [_edge(21, 22, fromSchema: 2, toSchema: 2)],
+          fullVersion: 21,
+        );
+        expect(p.kind, LibraryUpdatePlanKind.fullDownload);
+        expect(p.finalTargetVersion, 21);
+      });
+
+      // אין גרסה מקומית אמינה להגן עליה — וזה גם מסלול ההתקנה הטרייה.
+      test('בלי meta מקומי ההגנה כבויה → הורדה מלאה', () {
+        final p = plan(
+          local: 23,
+          latest: 26,
+          edges: [_edge(21, 22, fromSchema: 2, toSchema: 2)],
+          hasMeta: false,
+          fullVersion: 21,
+        );
+        expect(p.kind, LibraryUpdatePlanKind.fullDownload);
+      });
+    });
+
+    group('סכמה שאיננו יודעים להחיל — ההסבר למשתמש', () {
+      test('הורדת המסד המלא היא המסלול המתוכנן, לא "אין מסלול דלתא"', () {
+        final p = plan(
+          local: 23,
+          latest: 26,
+          edges: [],
+          fullVersion: 26,
+          blockingSchema: 4,
+        );
+        final strings = AppL10n.strings.libraryDomain;
+        expect(p.kind, LibraryUpdatePlanKind.fullDownload);
+        expect(p.reason, strings.planNewSchemaNeedsFullDb(26, 4));
+        expect(p.reason, isNot(strings.planNoDeltaRoute(23, 26)));
+      });
+
+      test('בלי סכמה חוסמת נשמר ההסבר הקודם', () {
+        final p = plan(local: 23, latest: 26, edges: [], fullVersion: 26);
+        expect(p.kind, LibraryUpdatePlanKind.fullDownload);
+        expect(
+          p.reason,
+          AppL10n.strings.libraryDomain.planNoDeltaRoute(23, 26),
+        );
+      });
+
+      test('סכמה חוסמת ובלי מסד מלא כלל → blocked', () {
+        final p = plan(
+          local: 23,
+          latest: 26,
+          edges: [],
+          full: null,
+          tag: null,
+          blockingSchema: 4,
+        );
+        final strings = AppL10n.strings.libraryDomain;
+        expect(p.kind, LibraryUpdatePlanKind.blocked);
+        expect(
+          p.reason,
+          strings.planNoFullDbEither(strings.planPatchSchemaTooNew(4, 26)),
+        );
+      });
     });
   });
 }
