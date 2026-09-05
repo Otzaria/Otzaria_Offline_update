@@ -159,12 +159,13 @@ class LibraryUpdateApplier {
   /// ראו [LibraryManager.applyUpdate] למה נעשה בהם.
   ///
   /// [onStepApplied] נקרא אחרי **כל** שלב שהוחל בהצלחה, עם הספרים שהשלב
-  /// הזה נגע בהם — כדי שהקורא יוכל לרשום גם שרשרת שנקטעה באמצע.
+  /// הזה נגע בהם והגרסה שהמסד הגיע אליה — כדי שהקורא יוכל לרשום גם שרשרת
+  /// שנקטעה באמצע, ולא יעד שלא הושג.
   Future<Set<int>> applyDelta({
     required LibraryUpdatePlan plan,
     required String dbPath,
     void Function(LibraryApplyProgress progress)? onProgress,
-    void Function(Set<int> booksTouched)? onStepApplied,
+    void Function(Set<int> booksTouched, int toVersion)? onStepApplied,
     bool Function()? isCancelled,
   }) async {
     if (plan.kind != LibraryUpdatePlanKind.delta) {
@@ -269,7 +270,7 @@ class LibraryUpdateApplier {
           },
         );
         booksTouched.addAll(result.booksTouched);
-        onStepApplied?.call(result.booksTouched);
+        onStepApplied?.call(result.booksTouched, manifest.toVersion);
         // הדיווח האחרון הוא הסך המדויק — ה-total לריצות הבאות.
         if (lastVerifyDone > 0) {
           verifyTotalHint = lastVerifyDone;

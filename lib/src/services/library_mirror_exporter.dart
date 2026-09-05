@@ -8,6 +8,8 @@ import 'package:path/path.dart' as p;
 
 import '../models/delta_manifest.dart';
 import '../models/library_release.dart';
+import '../models/library_update_plan.dart';
+import '../models/patch_table_spec.dart';
 import 'disk_space_probe.dart';
 import 'download_scheduler.dart';
 import 'github_library_release_client.dart';
@@ -29,6 +31,8 @@ import 'patch_downloader.dart';
 /// כל ההיסטוריה. ראו [recentReleases]. המסד המלא הזה אינו בהכרח של הגרסה
 /// האחרונה: מסד שכבר יושב במראה נשמר כל עוד יש ממנו מסלול patches ל-latest,
 /// כדי שעדכון שוטף יעלה עשרות MB ולא ~1.1GB — ראו [_chooseFullDbCarrier].
+/// שינוי סכמה שובר את החישוב הזה: קובצי ה-patch שחוצים אותו אינם ניתנים
+/// להחלה, ולכן הם אינם נכנסים למראה והמסד המלא **החדש** מורד במקומם.
 ///
 /// `fromVersion` ב-[export] מחליף את שני אלה במצב "עדכון אישי": patches
 /// מהגרסה שמותקנת אצל המשתמש ומעלה בלבד, בלי המסד המלא — ראו
@@ -134,6 +138,15 @@ class LibraryMirrorExporter {
     // asset פעמיים אם כמה manifests מצביעים עליו.
     final neededByRelease = <LibraryRelease, Map<String, ReleaseAsset>>{};
     final edges = <({int from, int to})>[];
+    // הסכמה הגבוהה שנראתה ואיננו יודעים להחיל, 0 אם אין כזו. [blockingFormat]
+    // הוא אותו דבר על ציר פורמט ה-`patch.db`.
+    var blockingSchema = 0;
+    var blockingFormat = 0;
+    // הנכסים של כל קשת קבילה, כדי שאפשר יהיה להסיר קשת שאין בה תועלת —
+    // ראו [_dropUselessPatches]. ה-manifests של קשתות שנפסלו אינם נכנסים
+    // לכאן, ולכן הם נשארים במראה כהסבר.
+    final mirroredEdges =
+        <({LibraryRelease release, int to, List<String> assetNames})>[];
     for (final release in relevant) {
       _throwIfCancelled(isCancelled);
       final needed = <String, ReleaseAsset>{};
@@ -144,11 +157,38 @@ class LibraryMirrorExporter {
           onWarning: onWarning,
         );
         if (manifest == null) continue;
+        // patch שסכמתו אינה מוכרת ייכשל ב-preflight של `PatchApplier`, ולכן
+        // קובציו (מאות MB) אינם נכנסים למראה ו-`_pruneStaleAssets` מוציא גם
+        // כאלה שכבר עליה. ה-manifest עצמו (מאות בתים) כן נשמר — בלעדיו
+        // הגרסה החדשה נעלמת מהמראה ונראית באופליין כ"מעודכן".
+        if (!_schemaAppliable(manifest)) {
+          final schema = _unsupportedSchemaOf(manifest);
+          if (schema > blockingSchema) blockingSchema = schema;
+          onWarning?.call(strings.exportSkippingUnappliablePatch(
+            release.tag,
+            manifest.patchFiles.first.file,
+            schema,
+          ));
+          continue;
+        }
+        // הציר השני: הסכמה מוכרת אבל פורמט ה-`patch.db` אינו.
+        if (!_patchFormatAppliable(manifest)) {
+          final format = manifest.patchFormatVersion!;
+          if (format > blockingFormat) blockingFormat = format;
+          onWarning?.call(strings.exportSkippingUnsupportedPatchFormat(
+            release.tag,
+            manifest.patchFiles.first.file,
+            format,
+          ));
+          continue;
+        }
         var complete = true;
+        final fileNames = <String>[];
         for (final patchFile in manifest.patchFiles) {
           final asset = release.assetByName(patchFile.file);
           if (asset != null) {
             needed[asset.name] = asset;
+            fileNames.add(asset.name);
           } else {
             complete = false;
             // ה-manifest מצביע על קובץ שאינו ברשימת הנכסים: או שהוא עוד עולה
@@ -165,6 +205,11 @@ class LibraryMirrorExporter {
         // משאירה את המסד המלא הישן על סמך מסלול שאינו קיים.
         if (complete) {
           edges.add((from: manifest.fromVersion, to: manifest.toVersion));
+          mirroredEdges.add((
+            release: release,
+            to: manifest.toVersion,
+            assetNames: [manifestAsset.name, ...fileNames],
+          ));
         }
       }
       neededByRelease[release] = needed;
@@ -174,14 +219,63 @@ class LibraryMirrorExporter {
     // באופליין בוחר תמיד את הנכס של הגרסה הגבוהה ביותר שנושאת אותו (ראו
     // LibraryUpdateDiscovery.discover), ולכן עותק לכל release היה מוסיף כ-1.5GB
     // מתים לכל אחד מהם. במצב אישי הוא נשמט לגמרי — זה כל החיסכון שבמצב הזה.
+    if (blockingSchema > 0 || blockingFormat > 0) {
+      var latestSeen = 0;
+      for (final release in relevant) {
+        final version = LibraryUpdateDiscovery.releaseVersionOf(release);
+        if (version > latestSeen) latestSeen = version;
+      }
+      // המסלול לגרסה כזו הוא המסד המלא ולא קובצי עדכון, בדיוק כמו באוצריא
+      // המקוונת. במצב אישי אין מסד מלא בכלל — ולכן שם זו אזהרה, לא הכרזה.
+      if (personal) {
+        onWarning
+            ?.call(strings.exportPersonalNeedsFullDb(fromVersion, latestSeen));
+      } else if (blockingSchema > 0) {
+        onStage?.call(
+            strings.exportFullDbRequiredBySchema(blockingSchema, latestSeen));
+      } else {
+        onStage?.call(strings.exportFullDbRequiredByPatchFormat(
+          blockingFormat,
+          latestSeen,
+        ));
+      }
+    }
+
     final fullDbCarrier = personal
         ? null
         : _chooseFullDbCarrier(relevant, edges, assetsRoot.path, onStage);
     if (fullDbCarrier != null) {
       final full = fullDbCarrier.fullDbAsset!;
       neededByRelease[fullDbCarrier]![full.name] = full;
+
+      // **קובצי עדכון שהמסד המלא כבר עוקף אינם נשמרים.** אחרי מעבר סכמה
+      // השרשרת נקטעת מתחת לגרסת המסד המלא, ואז ה-planner באופליין בוחר בו
+      // בכל מקרה — עשרה releases של patches הם מאות MB מתים על הכונן. ראו
+      // `LibraryUpdatePlanner.plan`: דלתא נבחרת רק כשהיא מגיעה גבוה לפחות
+      // כמו המסלול המלא.
+      var latestVersion = 0;
+      for (final release in relevant) {
+        final version = LibraryUpdateDiscovery.releaseVersionOf(release);
+        if (version > latestVersion) latestVersion = version;
+      }
+      final dropped = _dropUselessPatches(
+        neededByRelease: neededByRelease,
+        mirroredEdges: mirroredEdges,
+        edges: edges,
+        carrier: fullDbCarrier,
+        latestVersion: latestVersion,
+      );
+      if (dropped > 0) {
+        onStage?.call(strings.exportSkippingPatchesFullDbWins(
+          dropped,
+          LibraryUpdateDiscovery.releaseVersionOf(fullDbCarrier),
+        ));
+      }
     }
 
+    // release שנשאר בלי נכסים **נשאר ברשימה**: `_pruneStaleAssets` ירוקן את
+    // תיקייתו, אבל הגרסה שלו עדיין נספרת ל-latest באופליין (`releaseVersionOf`
+    // נופל ל-tag). הסרתו הייתה מעלימה גרסה שקיימת.
     final plannedByRelease = <LibraryRelease, List<ReleaseAsset>>{
       for (final entry in neededByRelease.entries)
         entry.key: entry.value.values.toList(growable: false),
@@ -493,6 +587,10 @@ class LibraryMirrorExporter {
   /// המחיר: התקנה על מחשב ריק מקבלת את המסד הישן ואז את שרשרת ה-patches —
   /// ראו `LibraryUpdatePlanner.plan` ו-`LibraryManager.applyUpdate`, שמריצים
   /// את שני הצעדים ברצף.
+  ///
+  /// [edges] מגיע **מסונן** מ-patches שסכמתם אינה מוכרת, ולכן מסד ישן שהמסלול
+  /// ממנו חוצה שינוי סכמה אינו "מגיע" ל-latest ומפנה את מקומו למסד המלא החדש.
+  /// זה מה שמונע את המצב שבו מסד v21 נשמר בשביל שרשרת שנפסלת בהחלה.
   LibraryRelease? _chooseFullDbCarrier(
     List<LibraryRelease> releases,
     List<({int from, int to})> edges,
@@ -522,6 +620,89 @@ class LibraryMirrorExporter {
       return candidate;
     }
     return newest;
+  }
+
+  /// האם שני קצות ה-patch בסכמות שאפשר להחיל — אותו כלל בדיוק שמסנן קשתות
+  /// ב-`LibraryUpdateDiscovery`, כדי שהמראה לא תישא patch שהמחשב הלא-מקוון
+  /// יפסול. ראו [PatchEdge.hasSupportedSchema].
+  bool _schemaAppliable(DeltaManifest manifest) =>
+      isSupportedSchemaVersion(manifest.fromSchemaVersion) &&
+      isSupportedSchemaVersion(manifest.toSchemaVersion);
+
+  /// הציר השני של אותה פסילה — ראו [PatchEdge.hasSupportedPatchFormat].
+  bool _patchFormatAppliable(DeltaManifest manifest) {
+    final format = manifest.patchFormatVersion;
+    return format == null || isSupportedPatchFormatVersion(format);
+  }
+
+  /// הסכמה שבגללה ה-patch נפסל — היעד קודם, כי הוא החדשה מהשתיים.
+  int _unsupportedSchemaOf(DeltaManifest manifest) =>
+      isSupportedSchemaVersion(manifest.toSchemaVersion)
+          ? manifest.fromSchemaVersion
+          : manifest.toSchemaVersion;
+
+  /// מוציא מהתוכנית קשתות שאין בהן תועלת מול המסד המלא, ומחזיר כמה נכסים
+  /// הוסרו. 0 = לא נגענו בכלום.
+  ///
+  /// **הכלל:** אחרי שמחילים קשת, חייבת להישאר דרך להגיע לפחות לאן שהמסלול
+  /// המלא מגיע — אחרת `LibraryUpdatePlanner` יבחר במסד המלא ממילא, והקשת
+  /// היא מאות MB מתים על הכונן. לכן קשת נשמרת רק כש-`maxReach(edge.to)`
+  /// מגיע ליעד ההוא.
+  ///
+  /// שני מצבים שהכלל תופס, ושניהם קרו בשטח (ספטמבר 2026, latest=26):
+  /// כשאין קשתות אל 26 כלל — כל 411MB של v15–v23 מיותרים; וכשיש — הקשתות
+  /// שנכנסות ל-23 הן עדיין מבוי סתום, כי מ-23 אין המשך.
+  int _dropUselessPatches({
+    required Map<LibraryRelease, Map<String, ReleaseAsset>> neededByRelease,
+    required List<({LibraryRelease release, int to, List<String> assetNames})>
+        mirroredEdges,
+    required List<({int from, int to})> edges,
+    required LibraryRelease carrier,
+    required int latestVersion,
+  }) {
+    final carrierVersion = LibraryUpdateDiscovery.releaseVersionOf(carrier);
+    // היעד של המסלול המלא: המסד המלא, ועוד ההשלמה ב-patches אם היא מגיעה
+    // ל-latest בדיוק (זה מה ש-`LibraryUpdatePlanner._followUpDelta` דורש).
+    final fullRouteTarget = _reaches(edges, carrierVersion, latestVersion)
+        ? latestVersion
+        : carrierVersion;
+
+    final reach = _maxReachByVersion(edges);
+    var dropped = 0;
+    for (final edge in mirroredEdges) {
+      if ((reach[edge.to] ?? edge.to) >= fullRouteTarget) continue;
+      final needed = neededByRelease[edge.release];
+      if (needed == null) continue;
+      for (final name in edge.assetNames) {
+        if (needed.remove(name) != null) dropped++;
+      }
+    }
+    return dropped;
+  }
+
+  /// לכל גרסה — הגרסה הגבוהה ביותר שאפשר להגיע אליה ממנה דרך [edges].
+  /// רלקסציה חוזרת עד התייצבות; הגרף כאן הוא עשרות קשתות.
+  Map<int, int> _maxReachByVersion(List<({int from, int to})> edges) {
+    final reach = <int, int>{};
+    for (final edge in edges) {
+      reach[edge.from] = edge.from > (reach[edge.from] ?? 0)
+          ? edge.from
+          : (reach[edge.from] ?? edge.from);
+      reach[edge.to] = reach[edge.to] ?? edge.to;
+    }
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (final edge in edges) {
+        if (edge.to <= edge.from) continue; // רק קדימה
+        final candidate = reach[edge.to] ?? edge.to;
+        if (candidate > (reach[edge.from] ?? edge.from)) {
+          reach[edge.from] = candidate;
+          changed = true;
+        }
+      }
+    }
+    return reach;
   }
 
   /// האם ה-DB המלא של [release] כבר יושב **שלם** במראה. גודל בלבד: אימות

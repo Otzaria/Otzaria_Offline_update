@@ -59,6 +59,10 @@ const _knownViolations = <String>{
       'applyDelta נקרא על תוכנית שאינה delta',
   'library_manager/lib/src/services/library_update_applier.dart|'
       'applyFullDownload נקרא על תוכנית שאינה fullDownload',
+  // הודעת אבחון ליומן, לא מלל שמוצג במסך — היומן נקרא על ידי מי שמתחזק,
+  // ותרגומו היה מקשה על השוואת דיווחים.
+  'launcher_app/lib/src/services/startup_diagnostics.dart|'
+      'אינו מגיע למסך',
 };
 
 /// מחרוזות שהן **שם** ולא מלל: שם האפליקציה, שם תהליך, שם תיקייה על הדיסק.

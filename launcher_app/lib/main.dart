@@ -14,6 +14,7 @@ import 'src/self_update/launcher_version.dart';
 import 'src/self_update/payload_check.dart';
 import 'src/services/app_logger.dart';
 import 'src/services/app_paths.dart';
+import 'src/services/startup_diagnostics.dart';
 import 'src/settings/app_settings.dart';
 import 'src/settings/settings_controller.dart';
 import 'src/theme/theme_exports.dart';
@@ -94,6 +95,10 @@ void main() {
         settings.load(),
       ]);
       logger = initialized.first as AppLogger;
+
+      // מיד אחרי שיש לוג: משם והלאה כל שלב בעלייה מותיר עקבות, כולל הפריים
+      // הראשון שהוצג — בלעדיו "מסך שחור" ו"תקוע" נראים אותו דבר (issue #28).
+      StartupDiagnostics.start();
 
       // ערמת קבצים שאינה שייכת לקובץ ההרצה שלצידה קורסת בדרכים שאי אפשר
       // לרשום אחר כך — לכן נעצרים כאן, אחרי שיש לוג ולפני שנוגעים בעוד משהו.

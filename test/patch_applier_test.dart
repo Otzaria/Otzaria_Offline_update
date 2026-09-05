@@ -11,18 +11,23 @@ import 'package:test/test.dart';
 const _hasher = LogicalContentHasher();
 const _applier = PatchApplier();
 
-String _hashOf(String dbPath) {
+/// ברירת המחדל היא סדר סכמה-2, ולא ברירת המחדל של ה-hasher (סכמה 4/5):
+/// רוב ה-manifests כאן מצהירים סכמה 2, וה-applier בוחר את הסדר לפיה.
+String _hashOf(
+  String dbPath, {
+  List<String> tableOrder = kHashTableOrderSchema2,
+}) {
   final db = sqlite3.sqlite3.open(dbPath, mode: sqlite3.OpenMode.readOnly);
   try {
-    return _hasher.compute(db);
+    return _hasher.compute(db, tableOrder: tableOrder);
   } finally {
     db.close();
   }
 }
 
 /// בונה manifest סינתטי. ה-hashes מחושבים מהקבצים בפועל אחרי בנייתם.
-/// [fromSchema]/[toSchema] ברירת מחדל 2 → סדר ה-hash הנוכחי (34), תואם ל-
-/// [_hashOf] (שמשתמש בברירת המחדל של ה-hasher). בדיקות v14/v15 מעבירות 1.
+/// [fromSchema]/[toSchema] ברירת מחדל 2 → סדר ה-hash של סכמה-2 (34), תואם
+/// לברירת המחדל של [_hashOf]. בדיקות v14/v15 מעבירות 1.
 DeltaManifest _manifest({
   required int from,
   required int to,
@@ -30,12 +35,14 @@ DeltaManifest _manifest({
   required String toHash,
   int fromSchema = 2,
   int toSchema = 2,
+  int? patchFormat,
 }) =>
     DeltaManifest(
       fromVersion: from,
       toVersion: to,
       fromSchemaVersion: fromSchema,
       toSchemaVersion: toSchema,
+      patchFormatVersion: patchFormat,
       fromContentHash: fromHash,
       toContentHash: toHash,
       patchFiles: const [
@@ -919,21 +926,151 @@ void main() {
     });
   });
 
+  // הציר השני של החוזה: `patch_meta.schema_version` הוא פורמט ה-patch, לא
+  // סכמת ה-DB. ערבוב השניים היה שולח את ה-applier להחיל פורמט שאינו מכיר.
+  group('פורמט ה-patch', () {
+    test('פורמט שהמניפסט הצהיר עליו חייב להתאים לקובץ', () {
+      final base = buildBaseDb(version: 1, sourceRows: [
+        [1, 'a'],
+      ]);
+      final beforeHash = _hashOf(base);
+      final patch = buildPatchDb(from: 1, to: 2, schemaVersion: 3);
+      final manifest = _manifest(
+        from: 1,
+        to: 2,
+        fromHash: beforeHash,
+        toHash: 'whatever',
+        patchFormat: 4,
+      );
+
+      expect(
+        () =>
+            _applier.apply(dbPath: base, patchPath: patch, manifest: manifest),
+        throwsA(isA<PatchApplyException>()),
+      );
+      expect(_hashOf(base), beforeHash);
+    });
+
+    // סכמת DB 5 פורסמה בפורמט 4 — לקוח שמערבב את הצירים היה פוסל אותה.
+    test('פורמט 4 מתקבל גם כשסכמת ה-DB היא 5', () {
+      expect(
+        const PatchApplier().supportedPatchFormatVersion,
+        greaterThanOrEqualTo(4),
+      );
+    });
+  });
+
+  // שדרוג סכמה 4→5: `line_dh` מקבלת את `dhDisplay`, ולכן ה-upsert עליה חייב
+  // להיות DO UPDATE — שורה שה-PK שלה לא השתנה עדיין מקבלת ערך חדש.
+  group('שדרוג סכמה 4→5 (line_dh.dhDisplay)', () {
+    String buildDhDb({
+      required int version,
+      required int schema,
+      required bool withDisplay,
+      required List<List> rows,
+    }) {
+      final path = '${tmp.path}/dh_$version.db';
+      final db = sqlite3.sqlite3.open(path);
+      db.execute('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT)');
+      db.execute("INSERT INTO schema_meta VALUES ('db_version','$version'),"
+          "('db_schema_version','$schema')");
+      db.execute('CREATE TABLE line_dh ('
+          'bookId INTEGER NOT NULL, dhText TEXT NOT NULL, '
+          'lineIndex INTEGER NOT NULL'
+          '${withDisplay ? ", dhDisplay TEXT NOT NULL DEFAULT ''" : ''}, '
+          'PRIMARY KEY (bookId, dhText, lineIndex)) WITHOUT ROWID');
+      final placeholders = withDisplay ? '?,?,?,?' : '?,?,?';
+      for (final r in rows) {
+        db.execute('INSERT INTO line_dh VALUES ($placeholders)', r);
+      }
+      db.close();
+      return path;
+    }
+
+    test('המיגרציה רצה לפני ה-upsert ומעדכנת שורות עם PK קיים', () {
+      final base = buildDhDb(version: 26, schema: 4, withDisplay: false, rows: [
+        [1, 'מאימתי קורין', 0],
+        [1, 'משעה', 1],
+      ]);
+      final expected =
+          buildDhDb(version: 27, schema: 5, withDisplay: true, rows: [
+        [1, 'מאימתי קורין', 0, 'מאימתי קורין'],
+        [1, 'משעה', 1, 'משעה שהכהנים'],
+      ]);
+
+      final patch = '${tmp.path}/patch-26-27.db';
+      final patchDb = sqlite3.sqlite3.open(patch);
+      patchDb.execute('CREATE TABLE patch_meta (key TEXT PRIMARY KEY, '
+          'value TEXT)');
+      patchDb.execute("INSERT INTO patch_meta VALUES ('schema_version','4'),"
+          "('from_version','26'),('to_version','27')");
+      patchDb.execute(
+          'CREATE TABLE migrations (version INTEGER PRIMARY KEY, sql TEXT)');
+      patchDb.execute('INSERT INTO migrations VALUES (1,?)', [
+        "ALTER TABLE line_dh ADD COLUMN dhDisplay TEXT NOT NULL DEFAULT ''",
+      ]);
+      patchDb.execute('CREATE TABLE upsert_schema_meta '
+          '(key TEXT PRIMARY KEY, value TEXT)');
+      patchDb.execute('INSERT INTO upsert_schema_meta VALUES '
+          "('db_version','27'),('db_schema_version','5')");
+      patchDb.execute('CREATE TABLE upsert_line_dh (bookId INTEGER, '
+          'dhText TEXT, lineIndex INTEGER, dhDisplay TEXT)');
+      patchDb.execute('INSERT INTO upsert_line_dh VALUES (?,?,?,?)',
+          [1, 'מאימתי קורין', 0, 'מאימתי קורין']);
+      patchDb.execute('INSERT INTO upsert_line_dh VALUES (?,?,?,?)',
+          [1, 'משעה', 1, 'משעה שהכהנים']);
+      patchDb.close();
+
+      final result = _applier.apply(
+        dbPath: base,
+        patchPath: patch,
+        manifest: _manifest(
+          from: 26,
+          to: 27,
+          fromSchema: 4,
+          toSchema: 5,
+          patchFormat: 4,
+          fromHash: _hashOf(base, tableOrder: kHashTableOrderSchema4),
+          toHash: _hashOf(expected, tableOrder: kHashTableOrderSchema4),
+        ),
+      );
+
+      expect(result.migrations, 1);
+      expect(result.upserts['line_dh'], 2);
+      // אינדקס נגזר — אינו גורר רענון אינדקס חיפוש.
+      expect(result.booksTouched, isEmpty);
+      expect(result.hasChangesOutsideBooksTouched, isFalse);
+    });
+  });
+
   group('hashTableOrderForSchemaVersion', () {
     test('סכמה-1 → סדר 33 הישן (ללא book_base_text)', () {
       expect(hashTableOrderForSchemaVersion(1), same(kHashTableOrderSchema1));
       expect(kHashTableOrderSchema1.length, 33);
       expect(kHashTableOrderSchema1, isNot(contains('book_base_text')));
     });
-    test('סכמה-2 → סדר 34 הנוכחי (כולל book_base_text)', () {
-      expect(hashTableOrderForSchemaVersion(2), same(kHashTableOrder));
-      expect(kHashTableOrder.length, 34);
-      expect(kHashTableOrder, contains('book_base_text'));
+    test('סכמה-2 → סדר 34 (כולל book_base_text)', () {
+      expect(hashTableOrderForSchemaVersion(2), same(kHashTableOrderSchema2));
+      expect(kHashTableOrderSchema2.length, 34);
+      expect(kHashTableOrderSchema2, contains('book_base_text'));
+    });
+    test('סכמה-3 → סדר 35 (כולל link_suppressed_side)', () {
+      expect(hashTableOrderForSchemaVersion(3), same(kHashTableOrderSchema3));
+      expect(kHashTableOrderSchema3.length, 35);
+      expect(kHashTableOrderSchema3, contains('link_suppressed_side'));
+    });
+    // סכמה 5 שינתה עמודה ב-`line_dh` ולא את סדר הטבלאות — שתיהן על אותה
+    // רשימה, וה-hasher קורא את העמודות מה-DB עצמו.
+    test('סכמות 4 ו-5 → אותו סדר 37 (כולל line_ref ו-line_dh)', () {
+      expect(hashTableOrderForSchemaVersion(4), same(kHashTableOrderSchema4));
+      expect(hashTableOrderForSchemaVersion(5), same(kHashTableOrderSchema4));
+      expect(kHashTableOrderSchema4.length, 37);
+      expect(kHashTableOrderSchema4, containsAll(['line_ref', 'line_dh']));
     });
     test('גרסת סכמה לא מוכרת → זורק PatchApplyException', () {
       expect(() => hashTableOrderForSchemaVersion(0),
           throwsA(isA<PatchApplyException>()));
-      expect(() => hashTableOrderForSchemaVersion(3),
+      expect(() => hashTableOrderForSchemaVersion(6),
           throwsA(isA<PatchApplyException>()));
     });
   });

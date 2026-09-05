@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/library_module_controller.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:library_manager/library_manager.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
@@ -268,6 +270,76 @@ void main() {
       expect(notifications, 0);
     });
   });
+
+  // הרגרסיה של גרסה 0.11: המראה החזיקה מסד מלא של v21 ושרשרת patches אל
+  // v26 חצתה לסכמה 4, והבדיקה תכננה להחליף מסד v23 חי במסד v21 — ואז נכשלה
+  // על הצעד שחוצה את הסכמה. סכמה 4 נתמכת מאז; כאן משתמשים בסכמה עתידית כדי
+  // לשמר את התרחיש. ראו CHANGELOG.
+  group('סכמה שאיננו יודעים להחיל', () {
+    test('מסד מלא ישן מזה שמותקן אינו עדכון אלא חסימה מנומקת', () async {
+      _writeMirror(tempDir, releases: [
+        const _MirrorRelease('v21', hasFullDb: true),
+        const _MirrorRelease('v22', patches: [_MirrorPatch(21, 22)]),
+        const _MirrorRelease('v26',
+            patches: [_MirrorPatch(22, 26, toSchema: 6)]),
+      ]);
+      await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 23));
+
+      expect(controller.status, LibraryModuleStatus.error);
+      expect(
+        controller.errorMessage,
+        AppL10n.strings.libraryDomain.planFullDbWouldNotProgress(21, 23, 26),
+      );
+    });
+
+    test('מסד מלא של הגרסה החדשה מורד, עם נימוק שמוצג למשתמש', () async {
+      _writeMirror(tempDir, releases: [
+        const _MirrorRelease('v21', hasFullDb: true),
+        const _MirrorRelease('v26',
+            patches: [_MirrorPatch(22, 26, toSchema: 6)], hasFullDb: true),
+      ]);
+      await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 23));
+
+      expect(controller.status, LibraryModuleStatus.updateAvailable);
+      expect(controller.targetVersion, 26);
+      expect(
+        controller.updateRouteNote,
+        AppL10n.strings.libraryDomain.planNewSchemaNeedsFullDb(26, 6),
+      );
+    });
+
+    // צורת המראה שעל הכונן בפועל: מסד מלא של v21, קובצי עדכון עד v23,
+    // ומעליהם גרסה בסכמה שאיננו מכירים. מסד v22 חייב לטפס ל-23, לא להיחסם.
+    test('מסד שיכול לטפס בקובצי עדכון עושה זאת, ומקבל הסבר', () async {
+      _writeMirror(tempDir, releases: [
+        const _MirrorRelease('v21', hasFullDb: true),
+        const _MirrorRelease('v23',
+            patches: [_MirrorPatch(21, 23), _MirrorPatch(22, 23)]),
+        const _MirrorRelease('v26',
+            patches: [_MirrorPatch(22, 26, toSchema: 6)]),
+      ]);
+      await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 22));
+
+      expect(controller.status, LibraryModuleStatus.updateAvailable);
+      expect(controller.targetVersion, 23);
+      expect(
+        controller.updateRouteNote,
+        AppL10n.strings.libraryDomain.planPartialDeltaSchemaStop(23, 26, 6),
+      );
+    });
+
+    test('כשכל הסכמות מוכרות אין נימוק מיוחד — מסלול דלתא רגיל', () async {
+      _writeMirror(tempDir, releases: [
+        const _MirrorRelease('v21', hasFullDb: true),
+        const _MirrorRelease('v24', patches: [_MirrorPatch(23, 24)]),
+      ]);
+      await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 23));
+
+      expect(controller.status, LibraryModuleStatus.updateAvailable);
+      expect(controller.targetVersion, 24);
+      expect(controller.updateRouteNote, isNull);
+    });
+  });
 }
 
 /// מסד sqlite אמיתי עם `db_version` — הקורא (`LocalDbVersionReader`) פותח
@@ -280,4 +352,91 @@ String _dbWithVersion(Directory tempDir, String folder, int version) {
   db.execute("INSERT INTO schema_meta VALUES ('db_version', '$version')");
   db.close();
   return file.path;
+}
+
+/// כותב מראה מקומית מינימלית תחת `<dataDir>/mirror/library`: `releases.json`
+/// וקובצי ה-manifest שהוא מצביע עליהם. קובצי ה-patch עצמם אינם נדרשים —
+/// הבדיקה עוצרת בתכנון ולא מחילה דבר.
+void _writeMirror(
+  Directory tempDir, {
+  required List<_MirrorRelease> releases,
+}) {
+  final root = Directory(p.join(tempDir.path, 'mirror', 'library'))
+    ..createSync(recursive: true);
+  final json = <Map<String, Object?>>[];
+  for (final release in releases) {
+    final dir = Directory(p.join(root.path, 'assets', release.tag))
+      ..createSync(recursive: true);
+    final assets = <Map<String, Object?>>[];
+    for (final patch in release.patches) {
+      final patchFile = 'patch-v${patch.from}-v${patch.to}.db.zst';
+      File(p.join(dir.path, '$patchFile.manifest.json')).writeAsStringSync(
+        jsonEncode({
+          'fromVersion': patch.from,
+          'toVersion': patch.to,
+          'fromSchemaVersion': patch.fromSchema,
+          'toSchemaVersion': patch.toSchema,
+          'fromContentHash': 'from${patch.from}',
+          'toContentHash': 'to${patch.to}',
+          'patchFiles': [
+            {
+              'file': patchFile,
+              'compression': 'zstd',
+              'sha256': 'a' * 64,
+              'size': 1000,
+              'uncompressedSha256': 'b' * 64,
+              'uncompressedSize': 2000,
+            },
+          ],
+        }),
+      );
+      for (final name in ['$patchFile.manifest.json', patchFile]) {
+        assets.add({
+          'name': name,
+          'downloadUrl': p.join('assets', release.tag, name),
+          'size': 1000,
+        });
+      }
+    }
+    if (release.hasFullDb) {
+      assets.add({
+        'name': 'seforim.db.zst',
+        'downloadUrl': p.join('assets', release.tag, 'seforim.db.zst'),
+        'size': 1500000000,
+      });
+    }
+    json.add({
+      'tag': release.tag,
+      'isPrerelease': false,
+      'isDraft': false,
+      'assets': assets,
+    });
+  }
+  File(p.join(root.path, 'releases.json')).writeAsStringSync(jsonEncode({
+    'formatVersion': 1,
+    'exportedAt': DateTime.now().toIso8601String(),
+    'releases': json,
+  }));
+}
+
+class _MirrorPatch {
+  const _MirrorPatch(this.from, this.to, {this.toSchema = 2});
+  final int from;
+  final int to;
+
+  /// סכמת המקור היא תמיד 2 — הגרסאות שבמראה מתחילות ממנה, ומה שמעניין
+  /// כאן הוא היעד: v26 היא הראשונה שקפצה לסכמה 4.
+  int get fromSchema => 2;
+  final int toSchema;
+}
+
+class _MirrorRelease {
+  const _MirrorRelease(
+    this.tag, {
+    this.patches = const [],
+    this.hasFullDb = false,
+  });
+  final String tag;
+  final List<_MirrorPatch> patches;
+  final bool hasFullDb;
 }

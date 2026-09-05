@@ -39,18 +39,28 @@ void main() {
   group('חוזה טבלאות ה-patch', () {
     const fixturePath = 'test/patch_tables_contract.json';
 
-    // ה-fixture מתאר את החוזה הנוכחי (סכמה-2): hashOrder = 34 הטבלאות.
-    // kHashTableOrderSchema1 (33) הוא היסטוריה קפואה של Dart בלבד — לא נכנס
-    // ל-fixture ואין לו תאום Kotlin.
+    // ה-fixture מתאר את החוזה הנוכחי (סכמה-5): hashOrder = 37 הטבלאות.
+    // הסדרים הקפואים של סכמות 1–4 הם היסטוריה — אינם נכנסים ל-fixture.
     test('הסריאליזציה הקנונית תואמת ל-fixture המקומי', () {
       final expected = File(fixturePath).readAsStringSync();
       final actual = canonicalContract(
         kPatchTablesInFkOrder,
         kHashTableOrder,
-        const PatchApplier().supportedSchemaVersion,
+        kSupportedDbSchemaVersion,
       );
       expect(actual, expected,
           reason: 'הרשימות סטו מה-fixture — הרץ מחדש את מחולל החוזה');
+    });
+
+    // שני הצירים חייבים להישאר נפרדים: קבוע אחד לשניהם שולח את ה-applier
+    // להחיל פורמט patch שאינו מכיר, או פוסל סכמת DB שהוא כן יודע לגבב.
+    test('יכולת סכמת ה-DB ויכולת פורמט ה-patch מוצהרות בנפרד', () {
+      expect(kSupportedDbSchemaVersion, 5);
+      expect(kSupportedPatchFormatVersion, 4);
+      expect(
+        const PatchApplier().supportedPatchFormatVersion,
+        kSupportedPatchFormatVersion,
+      );
     });
 
     // ה-fixture מושווה בית-אחר-בית מול צד ה-Kotlin, ולכן חייב להישאר LF גם

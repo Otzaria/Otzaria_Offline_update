@@ -124,6 +124,14 @@ class LibraryScreen extends StatelessWidget {
                   : t.targetVersionUnknown),
           subtitleLtr: c.targetVersion != null,
         ),
+        // הורדה של מסד שלם במקום קובצי עדכון היא הפרש של שלוש סדרי גודל,
+        // ולכן הסיבה נאמרת ולא נשארת בלוג בלבד.
+        if (c.updateRouteNote case final note?)
+          SettingsActionTile.text(
+            icon: FluentIcons.info_24_regular,
+            title: t.updateRouteNoteTitle,
+            subtitle: note,
+          ),
         if (otzariaIsRunning)
           SettingsActionTile.text(
             icon: FluentIcons.warning_24_regular,

@@ -750,10 +750,12 @@ void main() {
       return path;
     }
 
+    // סדר סכמה-2, כמו ה-manifests שכאן — ולא ברירת המחדל של ה-hasher
+    // (סכמה 4/5), שאותה ה-applier לא היה בוחר עבורם.
     String hashOf(String path) {
       final db = sqlite3.sqlite3.open(path, mode: sqlite3.OpenMode.readOnly);
       try {
-        return hasher.compute(db);
+        return hasher.compute(db, tableOrder: kHashTableOrderSchema2);
       } finally {
         db.close();
       }
@@ -772,6 +774,8 @@ void main() {
       required String fromHash,
       required String toHash,
       String? urlOverride,
+      // סכמה שאינה נתמכת (כמו v26 האמיתית) — הצעד נדחה לפני שנגע במסד.
+      int toSchemaVersion = 2,
     }) {
       final raw = p.join(tempDir.path, 'patch_${from}_${to}_${edgeSeq++}.db');
       final db = sqlite3.sqlite3.open(raw);
@@ -801,7 +805,7 @@ void main() {
           fromVersion: from,
           toVersion: to,
           fromSchemaVersion: 2,
-          toSchemaVersion: 2,
+          toSchemaVersion: toSchemaVersion,
           fromContentHash: fromHash,
           toContentHash: toHash,
           patchFiles: [
@@ -1043,6 +1047,97 @@ void main() {
           AppL10n.strings.libraryDomain.contentHashMismatchNeedsFullDownload,
         )),
       );
+    });
+
+    // הדיווח פר-צעד הוא מה שמאפשר לקורא לרשום שרשרת שנקטעה באמצע לפי הגרסה
+    // שהושגה בפועל. בלעדיו נרשמה גרסת המסד המלא, והמסד היה בגרסה אחרת.
+    test('onStepApplied מדווח על כל צעד שהוחל, לפי סדרו ועם הגרסה שהושגה',
+        () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final h = buildChainHashes();
+      final reported = <(Set<int>, int)>[];
+
+      final booksTouched = await applier.applyDelta(
+        plan: LibraryUpdatePlan.delta(
+          localVersion: 1,
+          targetVersion: 3,
+          steps: [
+            buildEdge(
+                from: 1,
+                to: 2,
+                upsertRows: [
+                  [2, 'bet']
+                ],
+                fromHash: h.h1,
+                toHash: h.h2),
+            buildEdge(
+                from: 2,
+                to: 3,
+                upsertRows: [
+                  [3, 'gimel']
+                ],
+                fromHash: h.h2,
+                toHash: h.h3),
+          ],
+        ),
+        dbPath: dbPath,
+        onStepApplied: (books, version) => reported.add((books, version)),
+      );
+
+      // צעד אחד = דיווח אחד, בסדר השרשרת, עם הגרסה שאותו צעד הגיע אליה.
+      expect(reported.map((r) => r.$2).toList(), [2, 3]);
+      // מה שהקורא מצטבר מהדיווחים הוא בדיוק מה שההחלה מחזירה בסופה.
+      expect(reported.expand((r) => r.$1).toSet(), booksTouched);
+    });
+
+    test('צעד שנכשל אינו מדווח — הדיווח האחרון הוא הגרסה שהמסד הגיע אליה',
+        () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final h = buildChainHashes();
+      final reported = <(Set<int>, int)>[];
+
+      await expectLater(
+        applier.applyDelta(
+          plan: LibraryUpdatePlan.delta(
+            localVersion: 1,
+            targetVersion: 3,
+            steps: [
+              buildEdge(
+                  from: 1,
+                  to: 2,
+                  upsertRows: [
+                    [2, 'bet']
+                  ],
+                  fromHash: h.h1,
+                  toHash: h.h2),
+              // בדיוק v26 של SeforimLibrary: סכמת יעד שהמחיל אינו יודע להחיל.
+              buildEdge(
+                from: 2,
+                to: 3,
+                upsertRows: [
+                  [3, 'gimel']
+                ],
+                fromHash: h.h2,
+                toHash: h.h3,
+                toSchemaVersion: 6,
+              ),
+            ],
+          ),
+          dbPath: dbPath,
+          onStepApplied: (books, version) => reported.add((books, version)),
+        ),
+        throwsA(isA<PatchApplyException>()),
+      );
+
+      // הצעד הראשון דווח, הנכשל לא — ולכן 2 היא הגרסה שמותר לרשום.
+      expect(reported.map((r) => r.$2).toList(), [2]);
+      expect(recovery.unverifiedVersion(dbPath), 2);
     });
   });
 }

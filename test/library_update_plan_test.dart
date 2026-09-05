@@ -3,11 +3,20 @@ import 'package:seforim_library_updater/src/models/library_release.dart';
 import 'package:seforim_library_updater/src/models/library_update_plan.dart';
 import 'package:test/test.dart';
 
-DeltaManifest manifest(int from, int to, {int size = 1000}) => DeltaManifest(
+DeltaManifest manifest(
+  int from,
+  int to, {
+  int size = 1000,
+  int fromSchema = 2,
+  int toSchema = 2,
+  int? patchFormat,
+}) =>
+    DeltaManifest(
       fromVersion: from,
       toVersion: to,
-      fromSchemaVersion: 2,
-      toSchemaVersion: 2,
+      fromSchemaVersion: fromSchema,
+      toSchemaVersion: toSchema,
+      patchFormatVersion: patchFormat,
       fromContentHash: 'h$from',
       toContentHash: 'h$to',
       patchFiles: [
@@ -22,8 +31,23 @@ DeltaManifest manifest(int from, int to, {int size = 1000}) => DeltaManifest(
       ],
     );
 
-PatchEdge edge(int from, int to, {int size = 1000}) => PatchEdge(
-      manifest: manifest(from, to, size: size),
+PatchEdge edge(
+  int from,
+  int to, {
+  int size = 1000,
+  int fromSchema = 2,
+  int toSchema = 2,
+  int? patchFormat,
+}) =>
+    PatchEdge(
+      manifest: manifest(
+        from,
+        to,
+        size: size,
+        fromSchema: fromSchema,
+        toSchema: toSchema,
+        patchFormat: patchFormat,
+      ),
       patchFileUrls: {'patch-v$from-v$to.db.zst': 'https://x/p'},
       manifestUrl: 'https://x/m.json',
     );
@@ -80,6 +104,55 @@ void main() {
     test('שוויון לפי ערך (props)', () {
       expect(edge(1, 2), edge(1, 2));
       expect(edge(1, 2), isNot(edge(1, 3)));
+    });
+
+    // ⚠️ הבאג בשטח: release שהצהיר `toSchemaVersion: 4` נכשל רק בתוך
+    // `PatchApplier.apply` — אחרי שהמסד החי כבר הוחלף במסד ישן יותר.
+    // הדגלים האלה הם מה שמוציא קשת כזו מהגרף עוד לפני התכנון.
+    group('hasSupportedSchema', () {
+      test('סכמות מוכרות (1→2) — נתמך', () {
+        expect(
+            edge(1, 2, fromSchema: 1, toSchema: 2).hasSupportedSchema, isTrue);
+      });
+
+      // המסלול שאותו הבאג חסם: v18 (סכמה 2) קופץ ל-v26 (סכמה 4) בקשת אחת.
+      test('קפיצה 2→4 — נתמך מאז שנוספו סדרי סכמות 3–4', () {
+        expect(edge(18, 26, fromSchema: 2, toSchema: 4).hasSupportedSchema,
+            isTrue);
+      });
+
+      test('סכמת יעד שאין לה סדר hash (5→6) — לא נתמך', () {
+        expect(edge(27, 28, fromSchema: 5, toSchema: 6).hasSupportedSchema,
+            isFalse);
+      });
+
+      test('שני הקצות לא מוכרים (6→7) — לא נתמך', () {
+        expect(edge(28, 29, fromSchema: 6, toSchema: 7).hasSupportedSchema,
+            isFalse);
+      });
+    });
+
+    // הציר השני: סכמת DB מוכרת, אבל פורמט ה-`patch.db` חדש מהנתמך. פסילה
+    // כאן היא מה שמונע הורדת מאות MB שייפסלו רק ב-preflight.
+    group('hasSupportedPatchFormat', () {
+      test('מניפסט היסטורי בלי השדה — נחשב נתמך', () {
+        final e = edge(1, 2, fromSchema: 1, toSchema: 2);
+        expect(e.manifest.patchFormatVersion, isNull);
+        expect(e.hasSupportedPatchFormat, isTrue);
+        expect(e.isApplicable, isTrue);
+      });
+
+      test('פורמט 4 עם סכמה 5 — נתמך (שני צירים נפרדים)', () {
+        final e = edge(26, 27, fromSchema: 4, toSchema: 5, patchFormat: 4);
+        expect(e.isApplicable, isTrue);
+      });
+
+      test('פורמט 5 — נפסל אף שסכמת ה-DB מוכרת', () {
+        final e = edge(26, 27, fromSchema: 4, toSchema: 5, patchFormat: 5);
+        expect(e.hasSupportedSchema, isTrue);
+        expect(e.hasSupportedPatchFormat, isFalse);
+        expect(e.isApplicable, isFalse);
+      });
     });
   });
 

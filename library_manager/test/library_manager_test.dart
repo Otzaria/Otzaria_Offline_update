@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:library_manager/src/services/zstd_file_decompressor.dart';
@@ -112,6 +113,84 @@ void main() {
         stateStore: LibraryStateStore(p.join(tempDir.path, 'probe.json')),
       ).resolveDbPath() !=
       null;
+
+  /// מסד בסכמה 2 עם טבלת תוכן — הצורה ש-`PatchApplier` יודע להחיל עליה
+  /// patches, בשונה מ-[buildRealDb] שנועד רק לקריאת גרסה.
+  Uint8List buildPatchableDb(int dbVersion, List<List> rows) {
+    final path =
+        p.join(tempDir.path, 'patchable-$dbVersion-${builtDbCount++}.db');
+    final db = sqlite3.sqlite3.open(path);
+    db.execute('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT)');
+    db.execute("INSERT INTO schema_meta VALUES ('db_version','$dbVersion'),"
+        "('db_schema_version','2')");
+    db.execute('CREATE TABLE source (id INTEGER PRIMARY KEY, name TEXT)');
+    for (final row in rows) {
+      db.execute('INSERT INTO source VALUES (?,?)', [row[0], row[1]]);
+    }
+    db.close();
+    return File(path).readAsBytesSync();
+  }
+
+  var edgeSeq = 0;
+
+  /// קשת patch אמיתית עם כתובת **מקומית**, כמו במראה offline. ה-hashes
+  /// דמיוניים בכוונה: בשרשרת שנקטעת אף אחד מהם אינו נבדק (ראו
+  /// `LibraryUpdateApplier.applyDelta`), וההחלה עצמה מכוסה בבדיקות המחיל.
+  /// [toSchemaVersion] שאינה נתמכת מדמה את v26 של SeforimLibrary.
+  PatchEdge buildPatchEdge({
+    required int from,
+    required int to,
+    required List<List> upsertRows,
+    int toSchemaVersion = 2,
+  }) {
+    final raw = p.join(tempDir.path, 'patch_${from}_${to}_${edgeSeq++}.db');
+    final db = sqlite3.sqlite3.open(raw);
+    db.execute('CREATE TABLE patch_meta (key TEXT PRIMARY KEY, value TEXT)');
+    db.execute("INSERT INTO patch_meta VALUES ('schema_version','2'),"
+        "('from_version','$from'),('to_version','$to')");
+    db.execute(
+        'CREATE TABLE migrations (version INTEGER PRIMARY KEY, sql TEXT)');
+    db.execute(
+        'CREATE TABLE upsert_schema_meta (key TEXT PRIMARY KEY, value TEXT)');
+    db.execute("INSERT INTO upsert_schema_meta VALUES ('db_version','$to')");
+    db.execute(
+        'CREATE TABLE upsert_source (id INTEGER PRIMARY KEY, name TEXT)');
+    for (final row in upsertRows) {
+      db.execute('INSERT INTO upsert_source VALUES (?,?)', [row[0], row[1]]);
+    }
+    db.close();
+
+    final rawBytes = File(raw).readAsBytesSync();
+    final compressed = compressWithZstd(bindings!, rawBytes);
+    final zstPath = '$raw.zst';
+    File(zstPath).writeAsBytesSync(compressed);
+    final fileName = 'patch_$from-$to.db.zst';
+    const dummyHash =
+        '0000000000000000000000000000000000000000000000000000000000000001';
+
+    return PatchEdge(
+      manifest: DeltaManifest(
+        fromVersion: from,
+        toVersion: to,
+        fromSchemaVersion: 2,
+        toSchemaVersion: toSchemaVersion,
+        fromContentHash: dummyHash,
+        toContentHash: dummyHash,
+        patchFiles: [
+          PatchFileEntry(
+            file: fileName,
+            compression: 'zstd',
+            sha256: sha256.convert(compressed).toString(),
+            size: compressed.length,
+            uncompressedSha256: sha256.convert(rawBytes).toString(),
+            uncompressedSize: rawBytes.length,
+          ),
+        ],
+      ),
+      patchFileUrls: {fileName: zstPath},
+      manifestUrl: 'manifest.json',
+    );
+  }
 
   group('mirrorDir / hasMirror', () {
     test('המראה יושבת תמיד באותו מקום יחסית לתיקיית הנתונים', () {
@@ -555,6 +634,88 @@ void main() {
         expect((await store.loadAppliedRelease())?.tag, 'v6');
         final notice = await manager.pendingReindexRequest(dbPath: dbPath);
         expect(notice!.dbVersion, 6);
+        manager.dispose();
+      });
+    });
+
+    // v26 של SeforimLibrary פורסמה עם patches בסכמה שהמחיל אינו יודע להחיל:
+    // המסד המלא הישן הותקן, הצעד הראשון בשרשרת ההשלמה הצליח והשני נדחה.
+    // הרישום חייב להיות הגרסה שהמסד באמת הגיע אליה ולא זו של המסד המלא —
+    // אחרת ה-state מצהיר על גרסה אחת בעוד המסד בגרסה אחרת.
+    test('שרשרת השלמה שנקטעה נרשמת לפי הצעד שהצליח, לא לפי המסד המלא',
+        () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      if (await const OtzariaProcessGuard()
+          .isAnyRunning(OtzariaProcessGuard.processNamesFor(
+        Platform.operatingSystem,
+      ))) {
+        markTestSkipped('אוצריא פתוחה — ההחלה נחסמת בכוונה');
+        return;
+      }
+
+      // המסד החי מתקדם מהמסד המלא שבמראה — בדיוק המצב שבו הבאג התגלה.
+      final dbPath = await installExistingDb(23, appliedTag: 'v23');
+      final compressed = p.join(tempDir.path, 'full-21.db.zst');
+      File(compressed).writeAsBytesSync(
+        compressWithZstd(
+            bindings,
+            buildPatchableDb(21, [
+              [1, 'aleph']
+            ])),
+        flush: true,
+      );
+
+      final check = LibraryUpdateCheckResult(
+        dbPath: dbPath,
+        latestVersion: 26,
+        latestContentTag: 'v26',
+        plan: LibraryUpdatePlan.fullDownload(
+          localVersion: 23,
+          targetVersion: 21,
+          asset: ReleaseAsset(
+            name: 'seforim.db.zst',
+            downloadUrl: compressed,
+            size: File(compressed).lengthSync(),
+          ),
+          releaseTag: 'v21',
+          followUpDelta: LibraryUpdatePlan.delta(
+            localVersion: 21,
+            targetVersion: 26,
+            steps: [
+              buildPatchEdge(from: 21, to: 22, upsertRows: [
+                [2, 'bet']
+              ]),
+              buildPatchEdge(
+                from: 22,
+                to: 26,
+                upsertRows: [
+                  [3, 'gimel']
+                ],
+                toSchemaVersion: 6,
+              ),
+            ],
+          ),
+        ),
+      );
+
+      await _withoutNetwork((_) async {
+        final manager = LibraryManager(dataDir: dataDir);
+        await expectLater(
+          manager.applyUpdate(check),
+          throwsA(isA<PatchApplyException>()),
+        );
+
+        // המסד נעצר ב-22, וזו הגרסה שנרשמה — 21 כאן היה שקר על הדיסק.
+        expect(const LocalDbVersionReader().read(dbPath).dbVersion, 22);
+        final store = LibraryStateStore(p.join(dataDir, 'library_state.json'));
+        expect((await store.loadAppliedRelease())?.dbVersion, 22);
+        expect(
+          (await manager.pendingReindexRequest(dbPath: dbPath))?.dbVersion,
+          22,
+        );
         manager.dispose();
       });
     });

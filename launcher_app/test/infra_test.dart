@@ -8,13 +8,14 @@ import 'package:launcher_app/src/controllers/online_check.dart';
 import 'package:launcher_app/src/controllers/otzaria_module_controller.dart';
 import 'package:launcher_app/src/controllers/progress_notifier.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
+import 'package:launcher_app/src/services/startup_diagnostics.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
 
 import 'test_support.dart';
 
-/// בדיקות לשתי תשתיות שהתנהגותן אינה נראית במסך: דילול דיווחי ההתקדמות,
-/// וסדר/גודל הכתיבה ליומן הפעילות.
+/// בדיקות לתשתיות שהתנהגותן אינה נראית במסך: דילול דיווחי ההתקדמות,
+/// סדר/גודל הכתיבה ליומן הפעילות, ושורות האבחון של העלייה.
 void main() {
   group('ProgressNotifier', () {
     test('סופר דיווחים רבים לכדי מעט הודעות, ומוסר את האחרון', () async {
@@ -265,6 +266,23 @@ void main() {
         DownloadSummary.failed,
       );
     });
+  });
+
+  group('StartupDiagnostics', () {
+    test('שורת הסביבה נושאת מערכת, ABI ומעבד — בשורה אחת', () {
+      // גם הקריאה ל-EnumDisplayDevices עוברת כאן: כשל שלה לא יפיל את
+      // השורה, אבל היא לא אמורה להיכשל על ווינדוס.
+      final line = StartupDiagnostics.machineLine();
+      expect(line, startsWith('--- machine: '));
+      expect(line, endsWith(' ---'));
+      expect(line, isNot(contains('\n')));
+      expect(line, contains(Platform.operatingSystem));
+      expect(line, contains('process '));
+      expect(line, contains('cpu '));
+    });
+
+    // אין כאן בדיקה לשתי שורות הפריים: הן נכתבות מתוך callbacks של המנוע,
+    // והכתיבה ללוג היא I/O אמיתי שאינו מתקדם בזמן המזויף של `testWidgets`.
   });
 }
 

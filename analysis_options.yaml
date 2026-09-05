@@ -23,3 +23,4 @@ analyzer:
     - plugins_manager/**
     - custom_apps_manager/**
     - launcher_app/**
+    - build/**

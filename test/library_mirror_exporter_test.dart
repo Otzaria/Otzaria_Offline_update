@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:seforim_library_updater/src/models/library_update_plan.dart';
+import 'package:seforim_library_updater/src/models/patch_table_spec.dart';
 import 'package:seforim_library_updater/src/services/download_scheduler.dart';
 import 'package:seforim_library_updater/src/services/github_library_release_client.dart';
 import 'package:seforim_library_updater/src/services/library_mirror_exporter.dart';
@@ -32,11 +33,21 @@ ReleaseSpec release(
 }) =>
     (tag: tag, prerelease: prerelease, draft: draft, assets: assets);
 
-Map<String, dynamic> manifestBody(int from, int to) => {
+Map<String, dynamic> manifestBody(
+  int from,
+  int to, {
+  int fromSchema = 2,
+  int toSchema = 2,
+  int? patchFormat,
+}) =>
+    {
       'fromVersion': from,
       'toVersion': to,
-      'fromSchemaVersion': 2,
-      'toSchemaVersion': 2,
+      'fromSchemaVersion': fromSchema,
+      'toSchemaVersion': toSchema,
+      // מסכמה 4 ומעלה היצרן כותב את השדה תמיד — ראו `DeltaManifest.fromJson`.
+      if (toSchema >= 4 || patchFormat != null)
+        'patchFormatVersion': patchFormat ?? kSupportedPatchFormatVersion,
       'fromContentHash': 'h$from',
       'toContentHash': 'h$to',
       'patchFiles': [
@@ -69,7 +80,8 @@ void main() {
   /// שרת מדומה אחד ל-API, ל-manifests ולנכסים עצמם. הגודל וה-`digest` של כל
   /// נכס נגזרים מהגוף שמוגש בפועל, כדי שאימות ה-sha256 של [PatchDownloader]
   /// ירוץ באמת. [corruptManifests] מדמה manifest פגום; [failAsset] מחזיר
-  /// שגיאת HTTP לנכס מסוים.
+  /// שגיאת HTTP לנכס מסוים. [schemaByVersion] קובע את סכמת ה-DB של גרסה
+  /// מסוימת (ברירת המחדל 2), כדי לדמות release שעבר לסכמה שאיננו מכירים.
   ({LibraryMirrorExporter exporter, List<String> fetched}) buildExporter(
     List<ReleaseSpec> releases, {
     Set<String> corruptManifests = const {},
@@ -77,6 +89,7 @@ void main() {
     int historyDepth = LibraryMirrorExporter.defaultHistoryDepth,
     DownloadScheduler? scheduler,
     Map<String, int> assetSizes = const {},
+    Map<int, int> schemaByVersion = const {},
     Future<void> Function(String assetName)? beforeAsset,
   }) {
     Uint8List bodyFor(String name) {
@@ -89,9 +102,13 @@ void main() {
         return Uint8List.fromList(utf8.encode('{{{ not json'));
       }
       final match = RegExp(r'patch-v(\d+)-v(\d+)').firstMatch(name)!;
+      final from = int.parse(match.group(1)!);
+      final to = int.parse(match.group(2)!);
       return Uint8List.fromList(utf8.encode(jsonEncode(manifestBody(
-        int.parse(match.group(1)!),
-        int.parse(match.group(2)!),
+        from,
+        to,
+        fromSchema: schemaByVersion[from] ?? 2,
+        toSchema: schemaByVersion[to] ?? 2,
       ))));
     }
 
@@ -164,6 +181,22 @@ void main() {
   bool assetOnDisk(String dir, String tag, String name) =>
       File([dir, 'assets', tag, name].join(Platform.pathSeparator))
           .existsSync();
+
+  /// שמות הנכסים שנרשמו ל-[tag] ב-`releases.json` — מה שהמחשב הלא-מקוון
+  /// באמת רואה, להבדיל ממה שיושב על הדיסק.
+  List<String> mirroredAssetNames(String dir, String tag) {
+    final decoded = jsonDecode(
+      File('$dir${Platform.pathSeparator}'
+              '${LocalMirrorLibraryReleaseClient.manifestFileName}')
+          .readAsStringSync(),
+    ) as Map<String, dynamic>;
+    final release = (decoded['releases'] as List)
+        .cast<Map<String, dynamic>>()
+        .firstWhere((r) => r['tag'] == tag);
+    return (release['assets'] as List)
+        .map((a) => (a as Map<String, dynamic>)['name'] as String)
+        .toList();
+  }
 
   group('recentReleases — עומק ההיסטוריה במראה', () {
     // כמו באוצריא המקוונת, מכונה שכמה גרסאות מאחור מקבלת שרשרת patches ולא
@@ -442,6 +475,217 @@ void main() {
         throwsA(isA<StateError>().having((e) => e.message, 'message',
             AppL10n.strings.libraryDomain.exportNoReleases)),
       );
+    });
+  });
+
+  // ⚠️ v26 של SeforimLibrary יצא עם `toSchemaVersion: 4`, שאותה עדיין לא ידענו
+  // להחיל. עד התיקון ה-patches שלה נכנסו למראה, הצדיקו שמירה של מסד מלא ישן,
+  // ורק אחרי ~1.5GB הורדה ו-~5.5GB חילוץ נפסלו — על מסד v23 חי שכבר הוחלף.
+  // סכמה 4 נתמכת מאז; הבדיקות כאן משתמשות בסכמה עתידית כדי לשמר את התרחיש.
+  group('export — patches בסכמה שאי אפשר להחיל', () {
+    test('ה-manifest נשמר, קובץ ה-patch עצמו לא', () async {
+      final warnings = <String>[];
+      final built = buildExporter(
+        [
+          release('v26', assets: [
+            'seforim.db.zst',
+            'patch-v25-v26.db.zst',
+            'patch-v25-v26.db.zst.manifest.json',
+          ]),
+        ],
+        schemaByVersion: {26: 6},
+      );
+      await built.exporter.export(destDir: destDir, onWarning: warnings.add);
+
+      // ה-manifest (מאות בתים) נשאר, אחרת הגרסה החדשה נעלמת מהמראה ונראית
+      // באופליין כ"מעודכן"; קובץ ה-patch (מאות MB) אינו יורד כלל.
+      expect(
+        assetOnDisk(destDir, 'v26', 'patch-v25-v26.db.zst.manifest.json'),
+        isTrue,
+      );
+      expect(assetOnDisk(destDir, 'v26', 'patch-v25-v26.db.zst'), isFalse);
+      expect(
+        mirroredAssetNames(destDir, 'v26'),
+        contains('patch-v25-v26.db.zst.manifest.json'),
+      );
+      expect(
+        mirroredAssetNames(destDir, 'v26'),
+        isNot(contains('patch-v25-v26.db.zst')),
+      );
+      expect(built.fetched, isNot(contains('patch-v25-v26.db.zst')));
+      expect(
+        warnings,
+        contains(AppL10n.strings.libraryDomain.exportSkippingUnappliablePatch(
+          'v26',
+          'patch-v25-v26.db.zst',
+          6,
+        )),
+      );
+    });
+
+    // כאן היה הנזק האמיתי: השרשרת שחוצה את הסכמה נראתה כמסלול תקף, ולכן
+    // המסד המלא של v21 נשמר במקום זה של v26 — ואז ההחלה נכשלה.
+    test('מסלול שחוצה שינוי סכמה אינו שומר על המסד המלא הישן', () async {
+      await buildExporter([
+        release('v21', assets: ['seforim.db.zst']),
+      ]).exporter.export(destDir: destDir);
+
+      final second = buildExporter(
+        [
+          release('v26', assets: [
+            'seforim.db.zst',
+            'patch-v21-v26.db.zst',
+            'patch-v21-v26.db.zst.manifest.json',
+          ]),
+          release('v21', assets: ['seforim.db.zst']),
+        ],
+        schemaByVersion: {26: 6},
+      );
+      await second.exporter.export(destDir: destDir);
+
+      expect(second.fetched, contains('seforim.db.zst'));
+      expect(assetOnDisk(destDir, 'v26', 'seforim.db.zst'), isTrue);
+      expect(assetOnDisk(destDir, 'v21', 'seforim.db.zst'), isFalse);
+    });
+
+    // חלון ההיסטוריה מסתובב, וגם ההגדרה של "ניתן להחלה" יכולה להשתנות בין
+    // ריצות — קובץ patch שירד פעם ואינו קביל עכשיו הוא מאות MB מתים.
+    test('patch שירד בריצה קודמת ואינו קביל עכשיו נמחק מהמראה', () async {
+      // ריצה קודמת של הייצוא, מלפני שה-patch הזה נפסל — הקובץ כבר על הכונן.
+      final stale = File([destDir, 'assets', 'v26', 'patch-v25-v26.db.zst']
+          .join(Platform.pathSeparator))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('asset:patch-v25-v26.db.zst');
+
+      await buildExporter(
+        [
+          release('v26', assets: [
+            'seforim.db.zst',
+            'patch-v25-v26.db.zst',
+            'patch-v25-v26.db.zst.manifest.json',
+          ]),
+        ],
+        schemaByVersion: {26: 6},
+      ).exporter.export(destDir: destDir);
+
+      expect(stale.existsSync(), isFalse);
+      expect(
+        assetOnDisk(destDir, 'v26', 'patch-v25-v26.db.zst.manifest.json'),
+        isTrue,
+      );
+    });
+
+    // במצב אישי אין מסד מלא בכלל — זו אזהרה למי שמייצא, לא הכרזה על מסלול.
+    test('מצב אישי מזהיר שנדרש מסד מלא, ועדיין אינו מוסיף אותו', () async {
+      final warnings = <String>[];
+      final built = buildExporter(
+        [
+          release('v26', assets: [
+            'seforim.db.zst',
+            'patch-v25-v26.db.zst',
+            'patch-v25-v26.db.zst.manifest.json',
+          ]),
+        ],
+        schemaByVersion: {26: 6},
+      );
+      await built.exporter.export(
+        destDir: destDir,
+        fromVersion: 25,
+        onWarning: warnings.add,
+      );
+
+      expect(
+        warnings,
+        contains(
+            AppL10n.strings.libraryDomain.exportPersonalNeedsFullDb(25, 26)),
+      );
+      expect(built.fetched, isNot(contains('seforim.db.zst')));
+      expect(assetOnDisk(destDir, 'v26', 'seforim.db.zst'), isFalse);
+      expect(
+        mirroredAssetNames(destDir, 'v26'),
+        isNot(contains('seforim.db.zst')),
+      );
+    });
+
+    // אותו תרחיש בדיוק, כשכל הסכמות מוכרות: שום אזהרה, והמסד הישן שוב מנצח.
+    // ⚠️ הרצת הפיתוח של ספטמבר 2026: המראה הורידה את המסד המלא של v26
+    // (1.4GB) **וגם** 411MB של patches מ-v15 עד v23 — שאיש לא יחיל, כי כל
+    // שרשרת קבילה נעצרת ב-23 וה-planner בוחר במסד המלא שמגיע ל-26.
+    test('קובצי עדכון שהמסד המלא עוקף אינם יורדים כלל', () async {
+      final stages = <String>[];
+      final built = buildExporter(
+        [
+          release('v23', assets: [
+            'patch-v21-v23.db.zst',
+            'patch-v21-v23.db.zst.manifest.json',
+          ]),
+          release('v26', assets: [
+            'seforim.db.zst',
+            'patch-v25-v26.db.zst',
+            'patch-v25-v26.db.zst.manifest.json',
+          ]),
+        ],
+        // v26 בסכמה שאיננו יודעים להחיל: השרשרת אל 26 נחתכת, ומה שנשאר
+        // (21→23) נעצר מתחת למסד המלא.
+        schemaByVersion: {26: 99},
+      );
+      await built.exporter.export(destDir: destDir, onStage: stages.add);
+
+      expect(built.fetched, contains('seforim.db.zst'));
+      expect(built.fetched, isNot(contains('patch-v21-v23.db.zst')));
+      expect(assetOnDisk(destDir, 'v23', 'patch-v21-v23.db.zst'), isFalse);
+      expect(
+        stages,
+        contains(AppL10n.strings.libraryDomain
+            .exportSkippingPatchesFullDbWins(2, 26)),
+      );
+    });
+
+    // הדקוּת של הכלל: קשת שכן מגיעה ליעד נשמרת, וזו שנכנסת למבוי סתום לא.
+    test('קשת שמובילה ליעד נשמרת, קשת למבוי סתום מושמטת', () async {
+      final built = buildExporter(
+        [
+          release('v23', assets: [
+            'patch-v21-v23.db.zst',
+            'patch-v21-v23.db.zst.manifest.json',
+          ]),
+          release('v26', assets: [
+            'seforim.db.zst',
+            'patch-v22-v26.db.zst',
+            'patch-v22-v26.db.zst.manifest.json',
+          ]),
+        ],
+      );
+      await built.exporter.export(destDir: destDir);
+
+      // 22→26 מגיעה ל-latest ולכן שווה את מקומה; 21→23 היא מבוי סתום, כי
+      // מ-23 אין המשך אל 26.
+      expect(built.fetched, contains('patch-v22-v26.db.zst'));
+      expect(built.fetched, isNot(contains('patch-v21-v23.db.zst')));
+    });
+
+    test('כשכל הסכמות נתמכות — אין אזהרות והמסד הישן נשמר', () async {
+      await buildExporter([
+        release('v21', assets: ['seforim.db.zst']),
+      ]).exporter.export(destDir: destDir);
+
+      final warnings = <String>[];
+      final second = buildExporter([
+        release('v26', assets: [
+          'seforim.db.zst',
+          'patch-v21-v26.db.zst',
+          'patch-v21-v26.db.zst.manifest.json',
+        ]),
+        release('v21', assets: ['seforim.db.zst']),
+      ]);
+      await second.exporter.export(destDir: destDir, onWarning: warnings.add);
+
+      expect(warnings, isEmpty);
+      expect(second.fetched, isNot(contains('seforim.db.zst')));
+      expect(second.fetched, contains('patch-v21-v26.db.zst'));
+      expect(assetOnDisk(destDir, 'v21', 'seforim.db.zst'), isTrue);
+      expect(assetOnDisk(destDir, 'v26', 'seforim.db.zst'), isFalse);
+      expect(assetOnDisk(destDir, 'v26', 'patch-v21-v26.db.zst'), isTrue);
     });
   });
 
