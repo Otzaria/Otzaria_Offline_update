@@ -44,6 +44,10 @@ dependencies:
   # שורת כותרת מותאמת אישית (כמו באוצריא): מסתירה את מסגרת החלון של המערכת
   # ומספקת גרירה וכפתורי חלון משלנו.
   window_manager: ^0.5.2
+  # אבחון עלייה (`services/startup_diagnostics.dart`): שם כרטיס המסך דרך
+  # EnumDisplayDevices. win32 ו-ffi ממילא נגררות על ידי החבילות שכאן.
+  win32: ^5.15.0
+  ffi: ^2.1.4
 
 dev_dependencies:
   flutter_test:
