@@ -462,6 +462,7 @@ class LibraryManager {
       localReleaseTag: applied?.tag,
       localReleaseTagVersion: applied?.dbVersion,
       blockingSchemaVersion: discoveryResult.blockingSchemaVersion,
+      blockingPatchFormatVersion: discoveryResult.blockingPatchFormatVersion,
     );
 
     return LibraryUpdateCheckResult(

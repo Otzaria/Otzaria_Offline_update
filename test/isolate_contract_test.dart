@@ -3,6 +3,7 @@ import 'dart:isolate';
 
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:seforim_library_updater/src/models/delta_manifest.dart';
+import 'package:seforim_library_updater/src/models/patch_table_spec.dart';
 import 'package:seforim_library_updater/src/services/logical_content_hasher.dart';
 import 'package:seforim_library_updater/src/services/patch_applier.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
@@ -10,10 +11,13 @@ import 'package:test/test.dart';
 
 /// נקודת כניסה top-level ל-isolate: מקבלת נתיב בלבד ופותחת את ה-DB בפנים.
 /// חיבור sqlite פתוח **אינו** ניתן לשליחה — ראו הבדיקה "מלכודת ה-unsendable".
+/// הסדר הוא של סכמה-2, כמו ה-manifest שכאן — ולא ברירת המחדל של ה-hasher
+/// (סכמה 4/5), שאותה ה-applier לא היה בוחר עבורו.
 String hashDbAtPath(String dbPath) {
   final db = sqlite3.sqlite3.open(dbPath, mode: sqlite3.OpenMode.readOnly);
   try {
-    return const LogicalContentHasher().compute(db);
+    return const LogicalContentHasher()
+        .compute(db, tableOrder: kHashTableOrderSchema2);
   } finally {
     db.close();
   }

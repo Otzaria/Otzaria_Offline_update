@@ -68,6 +68,12 @@ class DeltaManifest extends Equatable {
   final int fromSchemaVersion;
   final int toSchemaVersion;
 
+  /// גרסת פורמט `patch.db` (`patch_meta.schema_version`) שהיצרן מפרסם. ציר
+  /// נפרד מסכמת ה-DB — ראו `kSupportedPatchFormatVersion`. `null` במניפסט
+  /// שאינו מצהיר עליו (סכמות 1–3 קדמו לשדה), ואז הפסילה נשארת ב-preflight
+  /// של `PatchApplier` במקום בתכנון.
+  final int? patchFormatVersion;
+
   /// logical content hash צפוי של ה-DB *לפני* החלת ה-patch.
   final String fromContentHash;
 
@@ -86,6 +92,7 @@ class DeltaManifest extends Equatable {
     required this.toVersion,
     required this.fromSchemaVersion,
     required this.toSchemaVersion,
+    this.patchFormatVersion,
     required this.fromContentHash,
     required this.toContentHash,
     required this.patchFiles,
@@ -103,11 +110,17 @@ class DeltaManifest extends Equatable {
       );
     }
     final booksTouchedRaw = json['booksTouched'];
+    // **השדה נשאר אופציונלי בכוונה**, גם מסכמה 4 שבה היצרן כותב אותו תמיד:
+    // מניפסט שנפסל בפענוח נעלם מהגרף, ואיתו נעלמת הגרסה שהוא מוביל אליה —
+    // המחשב הלא-מקוון היה רואה "מעודכן" ונתקע שם. בלי הצהרה, ה-preflight של
+    // `PatchApplier` נשאר השער, במחיר של הורדה אחת שתידחה.
+    final patchFormatVersion = _optionalInt(json, 'patchFormatVersion');
     return DeltaManifest(
       fromVersion: _requireInt(json, 'fromVersion'),
       toVersion: _requireInt(json, 'toVersion'),
       fromSchemaVersion: _requireInt(json, 'fromSchemaVersion'),
       toSchemaVersion: _requireInt(json, 'toSchemaVersion'),
+      patchFormatVersion: patchFormatVersion,
       fromContentHash: _requireString(json, 'fromContentHash'),
       toContentHash: _requireString(json, 'toContentHash'),
       patchFiles: patchFilesRaw
@@ -130,6 +143,7 @@ class DeltaManifest extends Equatable {
         toVersion,
         fromSchemaVersion,
         toSchemaVersion,
+        patchFormatVersion,
         fromContentHash,
         toContentHash,
         patchFiles,
@@ -150,6 +164,19 @@ String _requireString(Map<String, dynamic> json, String key) {
 
 int _requireInt(Map<String, dynamic> json, String key) {
   final value = json[key];
+  if (value is! num) {
+    throw FormatException(
+      AppL10n.strings.libraryDomain.manifestMissingField(key),
+    );
+  }
+  return value.toInt();
+}
+
+/// שדה מספרי אופציונלי: חסר או `null` ⇒ `null`, אך ערך מסוג אחר הוא מניפסט
+/// פגום ולא "שדה שאיננו מכירים".
+int? _optionalInt(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value == null) return null;
   if (value is! num) {
     throw FormatException(
       AppL10n.strings.libraryDomain.manifestMissingField(key),

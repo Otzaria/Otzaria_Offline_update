@@ -9,12 +9,14 @@ DeltaManifest manifest(
   int size = 1000,
   int fromSchema = 2,
   int toSchema = 2,
+  int? patchFormat,
 }) =>
     DeltaManifest(
       fromVersion: from,
       toVersion: to,
       fromSchemaVersion: fromSchema,
       toSchemaVersion: toSchema,
+      patchFormatVersion: patchFormat,
       fromContentHash: 'h$from',
       toContentHash: 'h$to',
       patchFiles: [
@@ -35,6 +37,7 @@ PatchEdge edge(
   int size = 1000,
   int fromSchema = 2,
   int toSchema = 2,
+  int? patchFormat,
 }) =>
     PatchEdge(
       manifest: manifest(
@@ -43,6 +46,7 @@ PatchEdge edge(
         size: size,
         fromSchema: fromSchema,
         toSchema: toSchema,
+        patchFormat: patchFormat,
       ),
       patchFileUrls: {'patch-v$from-v$to.db.zst': 'https://x/p'},
       manifestUrl: 'https://x/m.json',
@@ -104,26 +108,50 @@ void main() {
 
     // ⚠️ הבאג בשטח: release שהצהיר `toSchemaVersion: 4` נכשל רק בתוך
     // `PatchApplier.apply` — אחרי שהמסד החי כבר הוחלף במסד ישן יותר.
-    // הדגל הזה הוא מה שמוציא קשת כזו מהגרף עוד לפני התכנון.
+    // הדגלים האלה הם מה שמוציא קשת כזו מהגרף עוד לפני התכנון.
     group('hasSupportedSchema', () {
       test('סכמות מוכרות (1→2) — נתמך', () {
         expect(
             edge(1, 2, fromSchema: 1, toSchema: 2).hasSupportedSchema, isTrue);
       });
 
-      test('סכמת יעד שאין לה סדר hash (2→4) — לא נתמך', () {
-        expect(edge(22, 26, fromSchema: 2, toSchema: 4).hasSupportedSchema,
+      // המסלול שאותו הבאג חסם: v18 (סכמה 2) קופץ ל-v26 (סכמה 4) בקשת אחת.
+      test('קפיצה 2→4 — נתמך מאז שנוספו סדרי סכמות 3–4', () {
+        expect(edge(18, 26, fromSchema: 2, toSchema: 4).hasSupportedSchema,
+            isTrue);
+      });
+
+      test('סכמת יעד שאין לה סדר hash (5→6) — לא נתמך', () {
+        expect(edge(27, 28, fromSchema: 5, toSchema: 6).hasSupportedSchema,
             isFalse);
       });
 
-      test('שני הקצות לא מוכרים (3→4) — לא נתמך', () {
-        expect(edge(24, 26, fromSchema: 3, toSchema: 4).hasSupportedSchema,
+      test('שני הקצות לא מוכרים (6→7) — לא נתמך', () {
+        expect(edge(28, 29, fromSchema: 6, toSchema: 7).hasSupportedSchema,
             isFalse);
       });
+    });
 
-      test('סכמה עתידית בשני הקצות (4→4) — לא נתמך', () {
-        expect(edge(26, 27, fromSchema: 4, toSchema: 4).hasSupportedSchema,
-            isFalse);
+    // הציר השני: סכמת DB מוכרת, אבל פורמט ה-`patch.db` חדש מהנתמך. פסילה
+    // כאן היא מה שמונע הורדת מאות MB שייפסלו רק ב-preflight.
+    group('hasSupportedPatchFormat', () {
+      test('מניפסט היסטורי בלי השדה — נחשב נתמך', () {
+        final e = edge(1, 2, fromSchema: 1, toSchema: 2);
+        expect(e.manifest.patchFormatVersion, isNull);
+        expect(e.hasSupportedPatchFormat, isTrue);
+        expect(e.isApplicable, isTrue);
+      });
+
+      test('פורמט 4 עם סכמה 5 — נתמך (שני צירים נפרדים)', () {
+        final e = edge(26, 27, fromSchema: 4, toSchema: 5, patchFormat: 4);
+        expect(e.isApplicable, isTrue);
+      });
+
+      test('פורמט 5 — נפסל אף שסכמת ה-DB מוכרת', () {
+        final e = edge(26, 27, fromSchema: 4, toSchema: 5, patchFormat: 5);
+        expect(e.hasSupportedSchema, isTrue);
+        expect(e.hasSupportedPatchFormat, isFalse);
+        expect(e.isApplicable, isFalse);
       });
     });
   });

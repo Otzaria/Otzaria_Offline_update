@@ -30,11 +30,21 @@ class LibraryDiscoveryResult {
   /// והמסלול לגרסה האחרונה הוא מסד מלא ולא קובצי עדכון.
   final Set<int> unsupportedSchemaVersions;
 
+  /// גרסאות פורמט ה-`patch.db` שנראו ואיננו יודעים להחיל — הציר השני של
+  /// אותה פסילה, ראו [isSupportedPatchFormatVersion].
+  final Set<int> unsupportedPatchFormatVersions;
+
   /// גרסת הסכמה הגבוהה שנראתה ואינה נתמכת, או null כשהכל נתמך. זו הגרסה
   /// שמוצגת למשתמש כהסבר למה מורידים מסד שלם.
-  int? get blockingSchemaVersion => unsupportedSchemaVersions.isEmpty
-      ? null
-      : unsupportedSchemaVersions.reduce((a, b) => a > b ? a : b);
+  int? get blockingSchemaVersion => _highest(unsupportedSchemaVersions);
+
+  /// אותו דבר לציר הפורמט. הסכמה נבדקת ראשונה בהודעות: היא מה שמשתנה בפועל
+  /// בין גרסאות הספרייה.
+  int? get blockingPatchFormatVersion =>
+      _highest(unsupportedPatchFormatVersions);
+
+  static int? _highest(Set<int> versions) =>
+      versions.isEmpty ? null : versions.reduce((a, b) => a > b ? a : b);
 
   const LibraryDiscoveryResult({
     required this.latestVersion,
@@ -44,6 +54,7 @@ class LibraryDiscoveryResult {
     required this.latestContentTag,
     this.latestFullDbVersion,
     this.unsupportedSchemaVersions = const {},
+    this.unsupportedPatchFormatVersions = const {},
   });
 }
 
@@ -102,13 +113,15 @@ class LibraryUpdateDiscovery {
       if (edge.toVersion > maxEdgeVersion) maxEdgeVersion = edge.toVersion;
     }
 
-    // **הסינון המרכזי:** patch שסכמתו אינה מוכרת ייכשל ב-preflight של
-    // `PatchApplier` — אחרי הורדה, חילוץ, והחלפת המסד החי במסלול המלא. לכן
-    // הוא יוצא מהגרף כאן, וה-planner בונה תוכנית רק ממה שאפשר להחיל.
+    // **הסינון המרכזי:** patch שסכמתו או שפורמטו אינם מוכרים ייכשל
+    // ב-preflight של `PatchApplier` — אחרי הורדה, חילוץ, והחלפת המסד החי
+    // במסלול המלא. לכן הוא יוצא מהגרף כאן, וה-planner בונה תוכנית רק ממה
+    // שאפשר להחיל.
     final unsupportedSchemas = <int>{};
+    final unsupportedFormats = <int>{};
     final edges = <PatchEdge>[];
     for (final edge in allEdges) {
-      if (edge.hasSupportedSchema) {
+      if (edge.isApplicable) {
         edges.add(edge);
         continue;
       }
@@ -117,6 +130,10 @@ class LibraryUpdateDiscovery {
         edge.manifest.toSchemaVersion,
       ]) {
         if (!isSupportedSchemaVersion(schema)) unsupportedSchemas.add(schema);
+      }
+      final format = edge.manifest.patchFormatVersion;
+      if (format != null && !isSupportedPatchFormatVersion(format)) {
+        unsupportedFormats.add(format);
       }
     }
 
@@ -149,6 +166,7 @@ class LibraryUpdateDiscovery {
       latestContentTag: _newestReleaseTag(releases),
       latestFullDbVersion: latestFull == null ? null : bestFullVersion,
       unsupportedSchemaVersions: unsupportedSchemas,
+      unsupportedPatchFormatVersions: unsupportedFormats,
     );
   }
 
@@ -200,11 +218,11 @@ class LibraryUpdateDiscovery {
         manifestUrl: manifestAsset.downloadUrl,
       );
       // קובץ patch חסר ⇒ הקשת אינה שמישה, ומתעלמים ממנה בלי להכשיל הכל.
-      // היוצא היחיד: סכמה שאיננו יודעים להחיל, שממנה המראה שומרת את
-      // ה-manifest בלבד (`LibraryMirrorExporter`). שם הקשת נשמרת כמטא-דאטה
+      // היוצא היחיד: יכולת שאיננו מכירים (סכמה או פורמט), שממנה המראה שומרת
+      // את ה-manifest בלבד (`LibraryMirrorExporter`). שם הקשת נשמרת כמטא-דאטה
       // כדי שהגרסה החדשה תישאר ידועה ומנומקת ולא תיראה כ"מעודכן" — היא
       // מסוננת מיד ב-[discover] ולעולם אינה מגיעה לתוכנית.
-      if (missingFile && edge.hasSupportedSchema) return null;
+      if (missingFile && edge.isApplicable) return null;
       return edge;
     } catch (_) {
       return null;

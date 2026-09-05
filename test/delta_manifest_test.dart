@@ -74,5 +74,32 @@ void main() {
       (json['patchFiles'] as List).first['compression'] = 'gzip';
       expect(() => DeltaManifest.fromJson(json), throwsFormatException);
     });
+
+    group('patchFormatVersion', () {
+      test('נקרא כשהוא מוצהר', () {
+        final json = jsonDecode(validJson) as Map<String, dynamic>;
+        json['patchFormatVersion'] = 4;
+        expect(DeltaManifest.fromJson(json).patchFormatVersion, 4);
+      });
+
+      // ⚠️ מניפסט שנפסל בפענוח נעלם מהגרף, ואיתו הגרסה שהוא מוביל אליה —
+      // המחשב הלא-מקוון רואה "מעודכן" ונתקע. לכן היעדר השדה אינו כשל, גם
+      // בסכמה שבה היצרן כותב אותו תמיד.
+      test('היעדרו אינו מפיל את הפענוח — גם בסכמה 4 ומעלה', () {
+        final json = jsonDecode(validJson) as Map<String, dynamic>;
+        json['fromSchemaVersion'] = 4;
+        json['toSchemaVersion'] = 5;
+        json.remove('patchFormatVersion');
+        final manifest = DeltaManifest.fromJson(json);
+        expect(manifest.patchFormatVersion, isNull);
+        expect(manifest.toSchemaVersion, 5);
+      });
+
+      test('ערך שאינו מספר הוא מניפסט פגום', () {
+        final json = jsonDecode(validJson) as Map<String, dynamic>;
+        json['patchFormatVersion'] = 'four';
+        expect(() => DeltaManifest.fromJson(json), throwsFormatException);
+      });
+    });
   });
 }

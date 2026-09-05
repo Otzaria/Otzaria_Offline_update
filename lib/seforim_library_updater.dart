@@ -13,7 +13,20 @@ export 'src/models/library_release.dart' show LibraryRelease, ReleaseAsset;
 export 'src/models/library_update_plan.dart'
     show LibraryUpdatePlan, LibraryUpdatePlanKind, PatchEdge;
 export 'src/models/patch_table_spec.dart'
-    show PatchTableSpec, kPatchTablesInFkOrder, kHashTableOrder;
+    show
+        PatchTableSpec,
+        kPatchTablesInFkOrder,
+        kHashTableOrder,
+        // הסדרים הקפואים מיוצאים כדי שצרכן יוכל לגבב DB בסכמה היסטורית —
+        // בלעדיהם `compute` על מסד ישן מחזיר hash של הסדר הנוכחי.
+        kHashTableOrderSchema1,
+        kHashTableOrderSchema2,
+        kHashTableOrderSchema3,
+        kHashTableOrderSchema4,
+        kSupportedDbSchemaVersion,
+        kSupportedPatchFormatVersion,
+        isSupportedSchemaVersion,
+        isSupportedPatchFormatVersion;
 export 'src/services/disk_space_probe.dart' show DiskSpaceProbe;
 export 'src/services/download_scheduler.dart'
     show DownloadScheduler, ByteProgressAggregator;

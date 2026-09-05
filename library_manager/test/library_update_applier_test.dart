@@ -750,10 +750,12 @@ void main() {
       return path;
     }
 
+    // סדר סכמה-2, כמו ה-manifests שכאן — ולא ברירת המחדל של ה-hasher
+    // (סכמה 4/5), שאותה ה-applier לא היה בוחר עבורם.
     String hashOf(String path) {
       final db = sqlite3.sqlite3.open(path, mode: sqlite3.OpenMode.readOnly);
       try {
-        return hasher.compute(db);
+        return hasher.compute(db, tableOrder: kHashTableOrderSchema2);
       } finally {
         db.close();
       }
@@ -1123,7 +1125,7 @@ void main() {
                 ],
                 fromHash: h.h2,
                 toHash: h.h3,
-                toSchemaVersion: 4,
+                toSchemaVersion: 6,
               ),
             ],
           ),

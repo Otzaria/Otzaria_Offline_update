@@ -1007,8 +1007,24 @@ abstract class LibraryDomainStrings {
     int schemaVersion,
   );
 
+  /// אותו דבר, על ציר פורמט ה-`patch.db` (ראו `kSupportedPatchFormatVersion`).
+  String exportSkippingUnsupportedPatchFormat(
+    String tag,
+    String file,
+    int patchFormatVersion,
+  );
+
   /// סכמה חדשה בגרסה האחרונה — המראה מקבלת DB מלא במקום patches.
   String exportFullDbRequiredBySchema(int schemaVersion, int latestVersion);
+
+  /// אותו דבר, כשהחוסם הוא פורמט ה-patch ולא סכמת ה-DB.
+  String exportFullDbRequiredByPatchFormat(
+    int patchFormatVersion,
+    int latestVersion,
+  );
+
+  /// קובצי עדכון שהושמטו מהמראה כי המסד המלא מגיע גבוה מהם ממילא.
+  String exportSkippingPatchesFullDbWins(int fileCount, int fullDbVersion);
 
   /// "עדכון אישי" שאין לו מסלול patches — נאלצים לכלול DB מלא.
   String exportPersonalNeedsFullDb(int fromVersion, int latestVersion);
@@ -1018,6 +1034,9 @@ abstract class LibraryDomainStrings {
   String planNoDeltaRoute(int localVersion, int latestVersion);
   String planNoFullDbEither(String reason);
   String planPatchSchemaTooNew(int schemaVersion, int latestVersion);
+
+  /// אותו מצב על ציר פורמט ה-patch: הסכמה מוכרת, הפורמט לא.
+  String planPatchFormatTooNew(int patchFormatVersion, int latestVersion);
   String planFullDbWouldNotProgress(
     int reachableVersion,
     int localVersion,
@@ -1030,6 +1049,13 @@ abstract class LibraryDomainStrings {
     int reachedVersion,
     int latestVersion,
     int schemaVersion,
+  );
+
+  /// אותה עצירה, כשהחוסם הוא פורמט ה-patch.
+  String planPartialDeltaFormatStop(
+    int reachedVersion,
+    int latestVersion,
+    int patchFormatVersion,
   );
 
   String mirrorManifestMissing(String fileName, String mirrorDir);
@@ -1047,7 +1073,12 @@ abstract class LibraryDomainStrings {
   String foreignKeyViolationsGrew(int before, int after);
   String resultHashMismatch(String actual, String expected);
   String get patchMetaSchemaVersionMissing;
-  String patchSchemaTooNew(int schemaVersion, int supported);
+
+  /// `patch_meta.schema_version` — גרסת פורמט ה-`patch.db` — מחוץ לטווח הנתמך.
+  String patchFormatTooNew(int patchFormatVersion, int supported);
+
+  /// הפורמט שבקובץ ה-patch אינו זה שהמניפסט הצהיר עליו.
+  String patchFormatMismatch(int inPatch, int inManifest);
   String patchVersionRangeMismatch(
     int? from,
     int? to,

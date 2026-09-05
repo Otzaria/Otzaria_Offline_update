@@ -27,12 +27,23 @@ class PatchEdge extends Equatable {
   /// גודל ההורדה הדחוס הכולל של קשת זו.
   int get compressedSize => manifest.totalCompressedSize;
 
-  /// האם שני קצות ה-patch בסכמות שיש להן סדר hash — כלומר האם אפשר להחיל
-  /// אותו בכלל. קשת שאינה כזו מסוננת ב-`LibraryUpdateDiscovery` ואינה נכנסת
-  /// למראה: המסלול לגרסה כזו הוא מסד מלא, לא קובצי עדכון.
+  /// האם שני קצות ה-patch בסכמות DB שיש להן סדר hash.
   bool get hasSupportedSchema =>
       isSupportedSchemaVersion(manifest.fromSchemaVersion) &&
       isSupportedSchemaVersion(manifest.toSchemaVersion);
+
+  /// האם פורמט ה-`patch.db` שהמניפסט מצהיר עליו ניתן להחלה. מניפסט היסטורי
+  /// (סכמות 1–3) אינו נושא את השדה, ושם ה-preflight של `PatchApplier` נשאר
+  /// השער היחיד — ראו `DeltaManifest.patchFormatVersion`.
+  bool get hasSupportedPatchFormat {
+    final format = manifest.patchFormatVersion;
+    return format == null || isSupportedPatchFormatVersion(format);
+  }
+
+  /// האם אפשר להחיל את הקשת בכלל — **שני** צירי היכולת. קשת שאינה כזו
+  /// מסוננת ב-`LibraryUpdateDiscovery` ואינה נכנסת למראה: המסלול לגרסה כזו
+  /// הוא מסד מלא, לא קובצי עדכון.
+  bool get isApplicable => hasSupportedSchema && hasSupportedPatchFormat;
 
   @override
   List<Object?> get props => [manifest, patchFileUrls, manifestUrl];

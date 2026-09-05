@@ -1759,10 +1759,31 @@ class _LibraryDomain extends LibraryDomainStrings {
       '$schemaVersion, which cannot be applied, so it is not being copied '
       'into the mirror';
   @override
+  String exportSkippingUnsupportedPatchFormat(
+    String tag,
+    String file,
+    int patchFormatVersion,
+  ) =>
+      'The update file $file in release $tag is built in format '
+      '$patchFormatVersion, which cannot be applied, so it is not being '
+      'copied into the mirror';
+  @override
   String exportFullDbRequiredBySchema(int schemaVersion, int latestVersion) =>
       'Version $latestVersion uses a new database format (schema '
       '$schemaVersion): downloading the full database instead of the update '
       'files';
+  @override
+  String exportFullDbRequiredByPatchFormat(
+    int patchFormatVersion,
+    int latestVersion,
+  ) =>
+      'The update files of version $latestVersion are built in a new format '
+      '($patchFormatVersion): downloading the full database instead';
+  @override
+  String exportSkippingPatchesFullDbWins(int fileCount, int fullDbVersion) =>
+      'Skipping $fileCount update files: the full database (version '
+      '$fullDbVersion) reaches higher than any appliable chain, so they are '
+      'not needed';
   @override
   String exportPersonalNeedsFullDb(int fromVersion, int latestVersion) =>
       'There is no chain of update files that can carry version $fromVersion '
@@ -1791,6 +1812,11 @@ class _LibraryDomain extends LibraryDomainStrings {
       'schema $schemaVersion, which this version of the software does not '
       'know how to apply through update files';
   @override
+  String planPatchFormatTooNew(int patchFormatVersion, int latestVersion) =>
+      'The update files of the newest release ($latestVersion) are built in '
+      'format $patchFormatVersion, which this version of the software does '
+      'not know how to apply';
+  @override
   String planFullDbWouldNotProgress(
     int reachableVersion,
     int localVersion,
@@ -1816,6 +1842,15 @@ class _LibraryDomain extends LibraryDomainStrings {
       'This update reaches version $reachedVersion. Version $latestVersion '
       'moved to a new database format (schema $schemaVersion) that has no '
       'update files — reaching it requires a new full database.';
+  @override
+  String planPartialDeltaFormatStop(
+    int reachedVersion,
+    int latestVersion,
+    int patchFormatVersion,
+  ) =>
+      'This update reaches version $reachedVersion. The update files of '
+      'version $latestVersion are built in format $patchFormatVersion, which '
+      'the software cannot apply — reaching it requires a new full database.';
 
   @override
   String mirrorManifestMissing(String fileName, String mirrorDir) =>
@@ -1875,9 +1910,13 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get patchMetaSchemaVersionMissing =>
       'patch_meta.schema_version is missing from the patch';
   @override
-  String patchSchemaTooNew(int schemaVersion, int supported) =>
-      'The patch schema version ($schemaVersion) is newer than supported '
-      '($supported) — please update this program';
+  String patchFormatTooNew(int patchFormatVersion, int supported) =>
+      'The patch file format ($patchFormatVersion) is outside the supported '
+      'range (1–$supported) — please update this program';
+  @override
+  String patchFormatMismatch(int inPatch, int inManifest) =>
+      'The patch file format ($inPatch) does not match what the manifest '
+      'declared ($inManifest)';
   @override
   String patchVersionRangeMismatch(
     int? from,

@@ -1659,9 +1659,28 @@ class _LibraryDomain extends LibraryDomainStrings {
       'קובץ העדכון $file של $tag בנוי על סכמה $schemaVersion שאינה ניתנת '
       'להחלה, ולכן הוא אינו מועתק למראה';
   @override
+  String exportSkippingUnsupportedPatchFormat(
+    String tag,
+    String file,
+    int patchFormatVersion,
+  ) =>
+      'קובץ העדכון $file של $tag בנוי בפורמט $patchFormatVersion שאינו ניתן '
+      'להחלה, ולכן הוא אינו מועתק למראה';
+  @override
   String exportFullDbRequiredBySchema(int schemaVersion, int latestVersion) =>
       'גרסה $latestVersion משתמשת בפורמט מסד חדש (סכמה $schemaVersion): '
       'מוריד את המסד המלא במקום קובצי העדכון';
+  @override
+  String exportFullDbRequiredByPatchFormat(
+    int patchFormatVersion,
+    int latestVersion,
+  ) =>
+      'קובצי העדכון של גרסה $latestVersion בנויים בפורמט חדש '
+      '($patchFormatVersion): מוריד את המסד המלא במקומם';
+  @override
+  String exportSkippingPatchesFullDbWins(int fileCount, int fullDbVersion) =>
+      'מדלג על $fileCount קובצי עדכון: המסד המלא (גרסה $fullDbVersion) מגיע '
+      'גבוה מכל שרשרת שאפשר להחיל, ולכן אין בהם צורך';
   @override
   String exportPersonalNeedsFullDb(int fromVersion, int latestVersion) =>
       'אין מסלול קובצי עדכון שיכול להעביר את גרסה $fromVersion לגרסה '
@@ -1686,6 +1705,10 @@ class _LibraryDomain extends LibraryDomainStrings {
       'הגרסה האחרונה של הספרייה ($latestVersion) בנויה על סכמת מסד '
       '$schemaVersion, שגרסה זו של התוכנה אינה יודעת להחיל דרך קובצי עדכון';
   @override
+  String planPatchFormatTooNew(int patchFormatVersion, int latestVersion) =>
+      'קובצי העדכון של הגרסה האחרונה ($latestVersion) בנויים בפורמט '
+      '$patchFormatVersion, שגרסה זו של התוכנה אינה יודעת להחיל';
+  @override
   String planFullDbWouldNotProgress(
     int reachableVersion,
     int localVersion,
@@ -1708,6 +1731,15 @@ class _LibraryDomain extends LibraryDomainStrings {
       'העדכון מגיע לגרסה $reachedVersion. גרסה $latestVersion עברה לפורמט '
       'מסד חדש (סכמה $schemaVersion) שאין אליו קובצי עדכון — כדי להגיע '
       'אליה נדרש מסד מלא חדש.';
+  @override
+  String planPartialDeltaFormatStop(
+    int reachedVersion,
+    int latestVersion,
+    int patchFormatVersion,
+  ) =>
+      'העדכון מגיע לגרסה $reachedVersion. קובצי העדכון של גרסה $latestVersion '
+      'בנויים בפורמט $patchFormatVersion שהתוכנה אינה יודעת להחיל — כדי '
+      'להגיע אליה נדרש מסד מלא חדש.';
 
   @override
   String mirrorManifestMissing(String fileName, String mirrorDir) =>
@@ -1762,9 +1794,13 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get patchMetaSchemaVersionMissing =>
       'patch_meta.schema_version חסר ב-patch';
   @override
-  String patchSchemaTooNew(int schemaVersion, int supported) =>
-      'גרסת סכמת ה-patch ($schemaVersion) חדשה מהנתמך ($supported) — '
-      'נדרש עדכון תוכנה';
+  String patchFormatTooNew(int patchFormatVersion, int supported) =>
+      'פורמט קובץ העדכון ($patchFormatVersion) אינו בטווח הנתמך '
+      '(1–$supported) — נדרש עדכון תוכנה';
+  @override
+  String patchFormatMismatch(int inPatch, int inManifest) =>
+      'פורמט קובץ העדכון ($inPatch) אינו תואם למה שה-manifest הצהיר '
+      '($inManifest)';
   @override
   String patchVersionRangeMismatch(
     int? from,

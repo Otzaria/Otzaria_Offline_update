@@ -694,7 +694,7 @@ void main() {
                 upsertRows: [
                   [3, 'gimel']
                 ],
-                toSchemaVersion: 4,
+                toSchemaVersion: 6,
               ),
             ],
           ),

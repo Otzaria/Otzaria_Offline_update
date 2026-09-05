@@ -272,15 +272,16 @@ void main() {
   });
 
   // הרגרסיה של גרסה 0.11: המראה החזיקה מסד מלא של v21 ושרשרת patches אל
-  // v26 שחוצה סכמה 4, והבדיקה תכננה להחליף מסד v23 חי במסד v21 — ואז
-  // נכשלה על הצעד שחוצה את הסכמה. ראו CHANGELOG.
+  // v26 חצתה לסכמה 4, והבדיקה תכננה להחליף מסד v23 חי במסד v21 — ואז נכשלה
+  // על הצעד שחוצה את הסכמה. סכמה 4 נתמכת מאז; כאן משתמשים בסכמה עתידית כדי
+  // לשמר את התרחיש. ראו CHANGELOG.
   group('סכמה שאיננו יודעים להחיל', () {
     test('מסד מלא ישן מזה שמותקן אינו עדכון אלא חסימה מנומקת', () async {
       _writeMirror(tempDir, releases: [
         const _MirrorRelease('v21', hasFullDb: true),
         const _MirrorRelease('v22', patches: [_MirrorPatch(21, 22)]),
         const _MirrorRelease('v26',
-            patches: [_MirrorPatch(22, 26, toSchema: 4)]),
+            patches: [_MirrorPatch(22, 26, toSchema: 6)]),
       ]);
       await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 23));
 
@@ -295,7 +296,7 @@ void main() {
       _writeMirror(tempDir, releases: [
         const _MirrorRelease('v21', hasFullDb: true),
         const _MirrorRelease('v26',
-            patches: [_MirrorPatch(22, 26, toSchema: 4)], hasFullDb: true),
+            patches: [_MirrorPatch(22, 26, toSchema: 6)], hasFullDb: true),
       ]);
       await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 23));
 
@@ -303,19 +304,19 @@ void main() {
       expect(controller.targetVersion, 26);
       expect(
         controller.updateRouteNote,
-        AppL10n.strings.libraryDomain.planNewSchemaNeedsFullDb(26, 4),
+        AppL10n.strings.libraryDomain.planNewSchemaNeedsFullDb(26, 6),
       );
     });
 
-    // צורת המראה שעל הכונן בפועל (ספטמבר 2026): מסד מלא של v21, קובצי
-    // עדכון עד v23, ו-v26 בסכמה 4. מסד v22 חייב לטפס ל-23, לא להיחסם.
+    // צורת המראה שעל הכונן בפועל: מסד מלא של v21, קובצי עדכון עד v23,
+    // ומעליהם גרסה בסכמה שאיננו מכירים. מסד v22 חייב לטפס ל-23, לא להיחסם.
     test('מסד שיכול לטפס בקובצי עדכון עושה זאת, ומקבל הסבר', () async {
       _writeMirror(tempDir, releases: [
         const _MirrorRelease('v21', hasFullDb: true),
         const _MirrorRelease('v23',
             patches: [_MirrorPatch(21, 23), _MirrorPatch(22, 23)]),
         const _MirrorRelease('v26',
-            patches: [_MirrorPatch(22, 26, toSchema: 4)]),
+            patches: [_MirrorPatch(22, 26, toSchema: 6)]),
       ]);
       await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 22));
 
@@ -323,7 +324,7 @@ void main() {
       expect(controller.targetVersion, 23);
       expect(
         controller.updateRouteNote,
-        AppL10n.strings.libraryDomain.planPartialDeltaSchemaStop(23, 26, 4),
+        AppL10n.strings.libraryDomain.planPartialDeltaSchemaStop(23, 26, 6),
       );
     });
 

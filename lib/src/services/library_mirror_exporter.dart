@@ -138,8 +138,15 @@ class LibraryMirrorExporter {
     // asset פעמיים אם כמה manifests מצביעים עליו.
     final neededByRelease = <LibraryRelease, Map<String, ReleaseAsset>>{};
     final edges = <({int from, int to})>[];
-    // הסכמה הגבוהה שנראתה ואיננו יודעים להחיל, 0 אם אין כזו.
+    // הסכמה הגבוהה שנראתה ואיננו יודעים להחיל, 0 אם אין כזו. [blockingFormat]
+    // הוא אותו דבר על ציר פורמט ה-`patch.db`.
     var blockingSchema = 0;
+    var blockingFormat = 0;
+    // הנכסים של כל קשת קבילה, כדי שאפשר יהיה להסיר קשת שאין בה תועלת —
+    // ראו [_dropUselessPatches]. ה-manifests של קשתות שנפסלו אינם נכנסים
+    // לכאן, ולכן הם נשארים במראה כהסבר.
+    final mirroredEdges =
+        <({LibraryRelease release, int to, List<String> assetNames})>[];
     for (final release in relevant) {
       _throwIfCancelled(isCancelled);
       final needed = <String, ReleaseAsset>{};
@@ -164,11 +171,24 @@ class LibraryMirrorExporter {
           ));
           continue;
         }
+        // הציר השני: הסכמה מוכרת אבל פורמט ה-`patch.db` אינו.
+        if (!_patchFormatAppliable(manifest)) {
+          final format = manifest.patchFormatVersion!;
+          if (format > blockingFormat) blockingFormat = format;
+          onWarning?.call(strings.exportSkippingUnsupportedPatchFormat(
+            release.tag,
+            manifest.patchFiles.first.file,
+            format,
+          ));
+          continue;
+        }
         var complete = true;
+        final fileNames = <String>[];
         for (final patchFile in manifest.patchFiles) {
           final asset = release.assetByName(patchFile.file);
           if (asset != null) {
             needed[asset.name] = asset;
+            fileNames.add(asset.name);
           } else {
             complete = false;
             // ה-manifest מצביע על קובץ שאינו ברשימת הנכסים: או שהוא עוד עולה
@@ -185,6 +205,11 @@ class LibraryMirrorExporter {
         // משאירה את המסד המלא הישן על סמך מסלול שאינו קיים.
         if (complete) {
           edges.add((from: manifest.fromVersion, to: manifest.toVersion));
+          mirroredEdges.add((
+            release: release,
+            to: manifest.toVersion,
+            assetNames: [manifestAsset.name, ...fileNames],
+          ));
         }
       }
       neededByRelease[release] = needed;
@@ -194,7 +219,7 @@ class LibraryMirrorExporter {
     // באופליין בוחר תמיד את הנכס של הגרסה הגבוהה ביותר שנושאת אותו (ראו
     // LibraryUpdateDiscovery.discover), ולכן עותק לכל release היה מוסיף כ-1.5GB
     // מתים לכל אחד מהם. במצב אישי הוא נשמט לגמרי — זה כל החיסכון שבמצב הזה.
-    if (blockingSchema > 0) {
+    if (blockingSchema > 0 || blockingFormat > 0) {
       var latestSeen = 0;
       for (final release in relevant) {
         final version = LibraryUpdateDiscovery.releaseVersionOf(release);
@@ -205,9 +230,14 @@ class LibraryMirrorExporter {
       if (personal) {
         onWarning
             ?.call(strings.exportPersonalNeedsFullDb(fromVersion, latestSeen));
-      } else {
+      } else if (blockingSchema > 0) {
         onStage?.call(
             strings.exportFullDbRequiredBySchema(blockingSchema, latestSeen));
+      } else {
+        onStage?.call(strings.exportFullDbRequiredByPatchFormat(
+          blockingFormat,
+          latestSeen,
+        ));
       }
     }
 
@@ -217,8 +247,35 @@ class LibraryMirrorExporter {
     if (fullDbCarrier != null) {
       final full = fullDbCarrier.fullDbAsset!;
       neededByRelease[fullDbCarrier]![full.name] = full;
+
+      // **קובצי עדכון שהמסד המלא כבר עוקף אינם נשמרים.** אחרי מעבר סכמה
+      // השרשרת נקטעת מתחת לגרסת המסד המלא, ואז ה-planner באופליין בוחר בו
+      // בכל מקרה — עשרה releases של patches הם מאות MB מתים על הכונן. ראו
+      // `LibraryUpdatePlanner.plan`: דלתא נבחרת רק כשהיא מגיעה גבוה לפחות
+      // כמו המסלול המלא.
+      var latestVersion = 0;
+      for (final release in relevant) {
+        final version = LibraryUpdateDiscovery.releaseVersionOf(release);
+        if (version > latestVersion) latestVersion = version;
+      }
+      final dropped = _dropUselessPatches(
+        neededByRelease: neededByRelease,
+        mirroredEdges: mirroredEdges,
+        edges: edges,
+        carrier: fullDbCarrier,
+        latestVersion: latestVersion,
+      );
+      if (dropped > 0) {
+        onStage?.call(strings.exportSkippingPatchesFullDbWins(
+          dropped,
+          LibraryUpdateDiscovery.releaseVersionOf(fullDbCarrier),
+        ));
+      }
     }
 
+    // release שנשאר בלי נכסים **נשאר ברשימה**: `_pruneStaleAssets` ירוקן את
+    // תיקייתו, אבל הגרסה שלו עדיין נספרת ל-latest באופליין (`releaseVersionOf`
+    // נופל ל-tag). הסרתו הייתה מעלימה גרסה שקיימת.
     final plannedByRelease = <LibraryRelease, List<ReleaseAsset>>{
       for (final entry in neededByRelease.entries)
         entry.key: entry.value.values.toList(growable: false),
@@ -572,11 +629,81 @@ class LibraryMirrorExporter {
       isSupportedSchemaVersion(manifest.fromSchemaVersion) &&
       isSupportedSchemaVersion(manifest.toSchemaVersion);
 
+  /// הציר השני של אותה פסילה — ראו [PatchEdge.hasSupportedPatchFormat].
+  bool _patchFormatAppliable(DeltaManifest manifest) {
+    final format = manifest.patchFormatVersion;
+    return format == null || isSupportedPatchFormatVersion(format);
+  }
+
   /// הסכמה שבגללה ה-patch נפסל — היעד קודם, כי הוא החדשה מהשתיים.
   int _unsupportedSchemaOf(DeltaManifest manifest) =>
       isSupportedSchemaVersion(manifest.toSchemaVersion)
           ? manifest.fromSchemaVersion
           : manifest.toSchemaVersion;
+
+  /// מוציא מהתוכנית קשתות שאין בהן תועלת מול המסד המלא, ומחזיר כמה נכסים
+  /// הוסרו. 0 = לא נגענו בכלום.
+  ///
+  /// **הכלל:** אחרי שמחילים קשת, חייבת להישאר דרך להגיע לפחות לאן שהמסלול
+  /// המלא מגיע — אחרת `LibraryUpdatePlanner` יבחר במסד המלא ממילא, והקשת
+  /// היא מאות MB מתים על הכונן. לכן קשת נשמרת רק כש-`maxReach(edge.to)`
+  /// מגיע ליעד ההוא.
+  ///
+  /// שני מצבים שהכלל תופס, ושניהם קרו בשטח (ספטמבר 2026, latest=26):
+  /// כשאין קשתות אל 26 כלל — כל 411MB של v15–v23 מיותרים; וכשיש — הקשתות
+  /// שנכנסות ל-23 הן עדיין מבוי סתום, כי מ-23 אין המשך.
+  int _dropUselessPatches({
+    required Map<LibraryRelease, Map<String, ReleaseAsset>> neededByRelease,
+    required List<({LibraryRelease release, int to, List<String> assetNames})>
+        mirroredEdges,
+    required List<({int from, int to})> edges,
+    required LibraryRelease carrier,
+    required int latestVersion,
+  }) {
+    final carrierVersion = LibraryUpdateDiscovery.releaseVersionOf(carrier);
+    // היעד של המסלול המלא: המסד המלא, ועוד ההשלמה ב-patches אם היא מגיעה
+    // ל-latest בדיוק (זה מה ש-`LibraryUpdatePlanner._followUpDelta` דורש).
+    final fullRouteTarget = _reaches(edges, carrierVersion, latestVersion)
+        ? latestVersion
+        : carrierVersion;
+
+    final reach = _maxReachByVersion(edges);
+    var dropped = 0;
+    for (final edge in mirroredEdges) {
+      if ((reach[edge.to] ?? edge.to) >= fullRouteTarget) continue;
+      final needed = neededByRelease[edge.release];
+      if (needed == null) continue;
+      for (final name in edge.assetNames) {
+        if (needed.remove(name) != null) dropped++;
+      }
+    }
+    return dropped;
+  }
+
+  /// לכל גרסה — הגרסה הגבוהה ביותר שאפשר להגיע אליה ממנה דרך [edges].
+  /// רלקסציה חוזרת עד התייצבות; הגרף כאן הוא עשרות קשתות.
+  Map<int, int> _maxReachByVersion(List<({int from, int to})> edges) {
+    final reach = <int, int>{};
+    for (final edge in edges) {
+      reach[edge.from] = edge.from > (reach[edge.from] ?? 0)
+          ? edge.from
+          : (reach[edge.from] ?? edge.from);
+      reach[edge.to] = reach[edge.to] ?? edge.to;
+    }
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (final edge in edges) {
+        if (edge.to <= edge.from) continue; // רק קדימה
+        final candidate = reach[edge.to] ?? edge.to;
+        if (candidate > (reach[edge.from] ?? edge.from)) {
+          reach[edge.from] = candidate;
+          changed = true;
+        }
+      }
+    }
+    return reach;
+  }
 
   /// האם ה-DB המלא של [release] כבר יושב **שלם** במראה. גודל בלבד: אימות
   /// ה-sha256 ממילא רץ ב-[PatchDownloader], ו-1.1GB מכונן נייד לוקח דקה —

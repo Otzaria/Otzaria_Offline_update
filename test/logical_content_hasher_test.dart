@@ -118,8 +118,20 @@ void main() {
       db.execute("INSERT INTO source VALUES (1,'aleph'),(2,'bet'),(3,'gimel')");
       expect(
         _hasher.compute(db),
-        // 34 טבלאות ב-kHashTableOrder (כולל book_base_text) — כל שם נכתב כ-
-        // marker גם כשהטבלה נעדרת, לכן ה-golden מתעדכן עם סנכרון הרשימה.
+        // 37 טבלאות ב-kHashTableOrder (סכמה 4/5) — כל שם נכתב כ-marker גם
+        // כשהטבלה נעדרת, לכן ה-golden מתעדכן עם סנכרון הרשימה.
+        '493bda433e8a8a154b69645c148240159365bca99d3386afd8e113c75b1d59ed',
+      );
+      // הסדרים הקפואים חייבים להמשיך לשחזר את ה-goldens ההיסטוריים —
+      // מוכיח שההקפאה נאמנה בית-בבית לרשימות שקדמו להוספת הטבלאות. שני
+      // הערכים האלה מגיעים מ-`otzaria_library_updater` (PR #8), ולכן הם גם
+      // אימות צולב לכך שהרשימות כאן זהות לשלו.
+      expect(
+        _hasher.compute(db, tableOrder: kHashTableOrderSchema3),
+        'c26ea1c49cab50b9893df661a98211e8fd923269df79e13cbd89a88f98f2e6c0',
+      );
+      expect(
+        _hasher.compute(db, tableOrder: kHashTableOrderSchema2),
         'be9a9509fc7a2ab495fb17447e6fc1b3aebc7ea7234757cac5748a00daadb265',
       );
       db.close();
@@ -159,10 +171,12 @@ void main() {
     });
 
     // goldens נוספים — נועלים את זרם הבתים גם למקרי הקצה, לא רק ל-DB "רגיל".
+    // כולם על סדר סכמה-2 הקפוא: מה שהם שומרים הוא הקידוד, לא רשימת הטבלאות,
+    // ולכן אין סיבה שיתחלפו בכל הוספת טבלה.
     test('golden: DB ללא אף טבלה — רק ה-markers של 34 הטבלאות', () {
       final db = sqlite3.sqlite3.openInMemory();
       expect(
-        _hasher.compute(db),
+        _hasher.compute(db, tableOrder: kHashTableOrderSchema2),
         'a90dcaf32e725f36c18bc4bfaa503768777cea28267328ec65d4cf2b00c1b20f',
       );
       db.close();
@@ -172,7 +186,7 @@ void main() {
       final db = sqlite3.sqlite3.openInMemory();
       db.execute('CREATE TABLE source (id INTEGER PRIMARY KEY, name TEXT)');
       expect(
-        _hasher.compute(db),
+        _hasher.compute(db, tableOrder: kHashTableOrderSchema2),
         'b2ff6c3838f06cff468875141e36898b788ac42a66c9ff4273e7ce59635bd675',
       );
       db.close();
@@ -184,7 +198,7 @@ void main() {
       db.execute('CREATE TABLE source (id INTEGER PRIMARY KEY, name TEXT)');
       db.execute('INSERT INTO source VALUES (1,?),(2,?)', ['﻿aleph', 'aleph']);
       expect(
-        _hasher.compute(db),
+        _hasher.compute(db, tableOrder: kHashTableOrderSchema2),
         'f23214051daa700264659215f40bf88ca2b4c0905426034ff2d83e8b265b25fa',
       );
       db.close();
@@ -203,7 +217,7 @@ void main() {
       db.execute('INSERT INTO source VALUES (2,?,?,?,?)',
           ['﻿רש״י', -0.0, <int>[], '']);
       expect(
-        _hasher.compute(db),
+        _hasher.compute(db, tableOrder: kHashTableOrderSchema2),
         '70723509e74ff527af77abb47c28c68b1f18d14375ff3d598882921fa4b4336b',
       );
       db.close();
@@ -477,7 +491,7 @@ void main() {
         ['INSERT INTO book_base_text VALUES (1,2)'],
       );
       expect(
-        _hasher.compute(db, tableOrder: kHashTableOrder),
+        _hasher.compute(db, tableOrder: kHashTableOrderSchema2),
         isNot(_hasher.compute(db, tableOrder: kHashTableOrderSchema1)),
       );
       db.close();
@@ -489,8 +503,8 @@ void main() {
   group('LogicalContentHasher against real DBs', () {
     final releasesDir =
         Platform.environment['SEFORIM_LIBRARY_RELEASES_DIR'] ?? '/nonexistent';
-    // כל fixture נבדק בשני הסדרים:
-    // * hash34 — סדר 34 הטבלאות הנוכחי ([kHashTableOrder], ברירת המחדל).
+    // v14/v15 הן הפצות סכמה-2, ולכן שני הסדרים כאן קפואים ואינם ברירת המחדל:
+    // * hash34 — סדר 34 הטבלאות של סכמה-2 ([kHashTableOrderSchema2]).
     // * hashLegacy — סדר 33 הטבלאות הקפוא ([kHashTableOrderSchema1]); מוכיח
     //   שהרשימה הישנה משחזרת אות-באות את ה-hashes ההיסטוריים של סכמה-1.
     const cases = [
@@ -511,7 +525,10 @@ void main() {
       test('hash($version) — סדר 34 ו-33 תואמים ל-goldens', () {
         final db = sqlite3.sqlite3.open(path, mode: sqlite3.OpenMode.readOnly);
         try {
-          expect(_hasher.compute(db), hash34);
+          expect(
+            _hasher.compute(db, tableOrder: kHashTableOrderSchema2),
+            hash34,
+          );
           expect(
             _hasher.compute(db, tableOrder: kHashTableOrderSchema1),
             hashLegacy,

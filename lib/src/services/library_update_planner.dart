@@ -25,6 +25,8 @@ class LibraryUpdatePlanner {
   /// [blockingSchemaVersion] — סכמה שנראתה ב-releases ואיננו יודעים להחיל
   /// (`LibraryDiscoveryResult.blockingSchemaVersion`). לתוכנית עצמה אין בה
   /// צורך — ה-edges שלה כבר סוננו — אלא רק להסבר שמוצג למשתמש.
+  /// [blockingPatchFormatVersion] — אותו דבר על ציר פורמט ה-`patch.db`;
+  /// משמש רק כשהסכמה עצמה מוכרת.
   LibraryUpdatePlan plan({
     required int localVersion,
     required bool hasLocalVersionMeta,
@@ -37,6 +39,7 @@ class LibraryUpdatePlanner {
     String? localReleaseTag,
     int? localReleaseTagVersion,
     int? blockingSchemaVersion,
+    int? blockingPatchFormatVersion,
   }) {
     // היעד של הורדה מלאה הוא מה שהנכס מביא, לא מה שקיים ב-releases: אחרת
     // האימות שאחרי החילוץ דוחה את המסד. הפער נסגר באותה החלה עצמה, דרך
@@ -108,14 +111,12 @@ class LibraryUpdatePlanner {
         // שקיימת 26, בלי הסבר.
         reason: deltaTarget >= latestVersion
             ? null
-            : blockingSchemaVersion != null
-                ? AppL10n.strings.libraryDomain.planPartialDeltaSchemaStop(
-                    deltaTarget,
-                    latestVersion,
-                    blockingSchemaVersion,
-                  )
-                : AppL10n.strings.libraryDomain
-                    .planNoDeltaRoute(deltaTarget, latestVersion),
+            : _partialStopReason(
+                deltaTarget,
+                latestVersion,
+                blockingSchemaVersion,
+                blockingPatchFormatVersion,
+              ),
         // ההתאוששות כש-patch נכשל על המסד הזה — ראו
         // [LibraryUpdatePlan.fullDownloadFallback].
         fullDownloadFallback:
@@ -132,9 +133,9 @@ class LibraryUpdatePlanner {
       );
     }
 
-    // אין מסלול patches — או שאין קשתות, או שהן נפסלו בגלל סכמה שאיננו
-    // יודעים להחיל. ההסבר נבדל, כי במקרה השני ההורדה המלאה היא **המסלול
-    // המתוכנן** ולא נפילה לאחור, וכך זה גם באוצריא עצמה.
+    // אין מסלול patches — או שאין קשתות, או שהן נפסלו בגלל יכולת שאיננו
+    // מכירים. ההסבר נבדל, כי במקרה השני ההורדה המלאה היא **המסלול המתוכנן**
+    // ולא נפילה לאחור, וכך זה גם באוצריא עצמה.
     final strings = AppL10n.strings.libraryDomain;
     return _fullOrBlocked(
       localVersion: localVersion,
@@ -145,10 +146,42 @@ class LibraryUpdatePlanner {
       tag: fullDbReleaseTag,
       reason: blockingSchemaVersion != null
           ? strings.planPatchSchemaTooNew(blockingSchemaVersion, latestVersion)
-          : strings.planNoDeltaRoute(localVersion, latestVersion),
+          : blockingPatchFormatVersion != null
+              ? strings.planPatchFormatTooNew(
+                  blockingPatchFormatVersion,
+                  latestVersion,
+                )
+              : strings.planNoDeltaRoute(localVersion, latestVersion),
       requireProgress: true,
       blockingSchemaVersion: blockingSchemaVersion,
+      blockingPatchFormatVersion: blockingPatchFormatVersion,
     );
+  }
+
+  /// ההסבר לשרשרת שנעצרה מתחת ל-latest: מעבר סכמה, פורמט patch שאיננו
+  /// מכירים, או פשוט חוסר קשתות. הסכמה קודמת — היא מה שמשתנה בפועל.
+  String _partialStopReason(
+    int reachedVersion,
+    int latestVersion,
+    int? blockingSchemaVersion,
+    int? blockingPatchFormatVersion,
+  ) {
+    final strings = AppL10n.strings.libraryDomain;
+    if (blockingSchemaVersion != null) {
+      return strings.planPartialDeltaSchemaStop(
+        reachedVersion,
+        latestVersion,
+        blockingSchemaVersion,
+      );
+    }
+    if (blockingPatchFormatVersion != null) {
+      return strings.planPartialDeltaFormatStop(
+        reachedVersion,
+        latestVersion,
+        blockingPatchFormatVersion,
+      );
+    }
+    return strings.planNoDeltaRoute(reachedVersion, latestVersion);
   }
 
   /// האם המסד המקומי בגרסה האחרונה אבל מ-release **אחר** — כלומר התוכן
@@ -202,6 +235,7 @@ class LibraryUpdatePlanner {
     required String reason,
     required bool requireProgress,
     int? blockingSchemaVersion,
+    int? blockingPatchFormatVersion,
   }) {
     final strings = AppL10n.strings.libraryDomain;
     if (asset != null && tag != null) {
@@ -233,7 +267,12 @@ class LibraryUpdatePlanner {
                 latestVersion,
                 blockingSchemaVersion,
               )
-            : reason,
+            : blockingPatchFormatVersion != null
+                ? strings.planPatchFormatTooNew(
+                    blockingPatchFormatVersion,
+                    latestVersion,
+                  )
+                : reason,
         followUpDelta: followUp,
       );
     }

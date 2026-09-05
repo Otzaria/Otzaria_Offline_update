@@ -9,6 +9,10 @@ import 'logical_content_hasher.dart';
 
 /// הטבלאות ששינוי בהן ממופה למזהי ספרים ב-[PatchApplyResult.booksTouched].
 /// חייב להישאר תואם ל-queries ב-`PatchApplier._collectBooksTouched`.
+///
+/// `line_ref` ו-`line_dh` (סכמה 4) מוחרגות במכוון: הן אינדקסים נגזרים
+/// (הפניה→שורה, דיבור-המתחיל→שורה) ולא תוכן שנכנס לאינדקס החיפוש — שינוי
+/// תוכן אמיתי מגיע תמיד דרך שורות `line` שכבר מכוסות.
 const Set<String> kBooksTouchedTables = {
   'book',
   'line',
@@ -46,12 +50,14 @@ class PatchApplyResult {
   final Set<int> booksTouched;
 
   /// האם ה-patch שינה טבלאות שאינן מכוסות ב-[booksTouched] (מלבד schema_meta,
-  /// שמתעדכן בכל patch). כש-true, צרכן שהאינדקס שלו תלוי בטבלאות האלה צריך
-  /// רענון מלא — אין דרך לגזור מהן מזהי ספרים מדויקים.
+  /// שמתעדכן בכל patch, ו-line_ref/line_dh, שאינן תוכן חיפוש — ראו
+  /// [kBooksTouchedTables]). כש-true, צרכן שהאינדקס שלו תלוי בטבלאות האלה
+  /// צריך רענון מלא — אין דרך לגזור מהן מזהי ספרים מדויקים.
   bool get hasChangesOutsideBooksTouched {
+    const ignored = {'schema_meta', 'line_ref', 'line_dh'};
     bool changed(MapEntry<String, int> e) =>
         e.value > 0 &&
-        e.key != 'schema_meta' &&
+        !ignored.contains(e.key) &&
         !kBooksTouchedTables.contains(e.key);
     return upserts.entries.any(changed) || deletes.entries.any(changed);
   }
@@ -107,12 +113,13 @@ List<String> hashTableOrderForSchemaVersion(int schemaVersion) {
 class PatchApplier {
   final LogicalContentHasher hasher;
 
-  /// גרסת הסכמה הגבוהה ביותר שהאפליקציה יודעת להחיל.
-  final int supportedSchemaVersion;
+  /// גרסת פורמט ה-`patch.db` הגבוהה ביותר שהאפליקציה יודעת להחיל. **אינה**
+  /// סכמת ה-DB: זו נבדקת דרך [hashTableOrderForSchemaVersion].
+  final int supportedPatchFormatVersion;
 
   const PatchApplier({
     this.hasher = const LogicalContentHasher(),
-    this.supportedSchemaVersion = kMaxSupportedSchemaVersion,
+    this.supportedPatchFormatVersion = kSupportedPatchFormatVersion,
   });
 
   /// מחיל את ה-patch שב-[patchPath] על ה-DB שב-[dbPath] לפי [manifest].
@@ -282,14 +289,23 @@ class PatchApplier {
   }
 
   void _assertPatchCompatible(sqlite3.Database db, DeltaManifest manifest) {
-    final schemaVersion = _readPatchMetaInt(db, 'schema_version');
+    // `patch_meta.schema_version` הוא גרסת **פורמט** ה-patch, לא סכמת ה-DB.
+    final formatVersion = _readPatchMetaInt(db, 'schema_version');
     final strings = AppL10n.strings.libraryDomain;
-    if (schemaVersion == null) {
+    if (formatVersion == null) {
       throw PatchApplyException(strings.patchMetaSchemaVersionMissing);
     }
-    if (schemaVersion > supportedSchemaVersion) {
+    if (formatVersion < 1 || formatVersion > supportedPatchFormatVersion) {
       throw PatchApplyException(
-        strings.patchSchemaTooNew(schemaVersion, supportedSchemaVersion),
+        strings.patchFormatTooNew(formatVersion, supportedPatchFormatVersion),
+      );
+    }
+    // הצהרת המניפסט קושרת לקובץ עצמו: אי-התאמה פירושה שהתכנון סינן לפי ערך
+    // אחד וההחלה רצה על אחר.
+    final declaredFormat = manifest.patchFormatVersion;
+    if (declaredFormat != null && declaredFormat != formatVersion) {
+      throw PatchApplyException(
+        strings.patchFormatMismatch(formatVersion, declaredFormat),
       );
     }
     final from = _readPatchMetaInt(db, 'from_version');

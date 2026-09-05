@@ -29,17 +29,21 @@ LibraryRelease _release({
 
 /// בונה manifest JSON עבור patch from→to. [fromSchema]/[toSchema] מאפשרים
 /// לדמות release שעבר לסכמה שאין לנו סדר hash עבורה.
+/// [patchFormat] נכתב אוטומטית מסכמה 4 ומעלה, כמו שהיצרן עושה בפועל.
 String _manifestJson(
   int from,
   int to, {
   int fromSchema = 1,
   int toSchema = 1,
+  int? patchFormat,
 }) =>
     jsonEncode({
       'fromVersion': from,
       'toVersion': to,
       'fromSchemaVersion': fromSchema,
       'toSchemaVersion': toSchema,
+      if (patchFormat != null || toSchema >= 4)
+        'patchFormatVersion': patchFormat ?? 4,
       'fromContentHash': 'hash$from',
       'toContentHash': 'hash$to',
       'patchFiles': [
@@ -488,7 +492,7 @@ void main() {
 
     test('הקשת שחוצה את הסכמה מסוננת, אך הגרסה נשארת ה-latest', () async {
       final result =
-          await buildDiscovery(toSchemaOf26: 4).discover(allowPrerelease: true);
+          await buildDiscovery(toSchemaOf26: 6).discover(allowPrerelease: true);
 
       // הגרסה נגזרת מכל הקשתות, גם מזו שאיננו יודעים להחיל: אחרת v26 היה
       // נראה כ"מעודכן" והמשתמש לא היה יודע שיש חדש בכלל.
@@ -497,8 +501,8 @@ void main() {
         result.edges.map((e) => '${e.fromVersion}-${e.toVersion}'),
         ['21-22'],
       );
-      expect(result.unsupportedSchemaVersions, {4});
-      expect(result.blockingSchemaVersion, 4);
+      expect(result.unsupportedSchemaVersions, {6});
+      expect(result.blockingSchemaVersion, 6);
       // וה-fallback היחיד שנשאר הוא המסד המלא של v21.
       expect(result.fullDbReleaseTag, 'v21');
       expect(result.latestFullDbVersion, 21);
@@ -560,10 +564,10 @@ void main() {
     test('קובץ patch חסר בסכמה שאינה נתמכת → קשת מטא-דאטה שנספרת ל-latest',
         () async {
       final result =
-          await manifestOnly(toSchema: 4).discover(allowPrerelease: true);
+          await manifestOnly(toSchema: 6).discover(allowPrerelease: true);
       expect(result.latestVersion, 26);
       expect(result.edges, isEmpty); // מסוננת מהתכנון
-      expect(result.blockingSchemaVersion, 4);
+      expect(result.blockingSchemaVersion, 6);
     });
   });
 

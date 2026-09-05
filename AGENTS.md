@@ -503,6 +503,27 @@ an "update" that installs an older library. That guard is skipped only when
 `hasLocalVersionMeta` is false, where there is no trustworthy local version to
 protect and every DB is an improvement.
 
+**Two version axes, never one constant.** `patch_meta.schema_version` is the
+**patch.db format** version, not the logical DB schema. They travelled together
+until DB schema 5 shipped in patch format 4, so `kSupportedDbSchemaVersion` (5)
+and `kSupportedPatchFormatVersion` (4) are separate constants with separate
+predicates (`isSupportedSchemaVersion` / `isSupportedPatchFormatVersion`) and
+separate filters everywhere downstream. Collapsing them back into one constant
+makes `PatchApplier` silently accept a patch format it cannot apply the moment
+the schema map moves ahead of the format. `patchFormatVersion` in the manifest
+stays **optional** even for schemas where the producer always writes it: a
+manifest that fails to parse disappears from the graph, and with it the version
+it leads to, so the offline machine reads "up to date" and is stuck there
+forever. One download rejected at preflight is the cheaper failure. This is a
+deliberate divergence from `otzaria_library_updater`, which fails closed.
+
+**Adding a schema is one line in the map — plus the frozen list.** Freeze the
+previous order as `kHashTableOrderSchemaN` before extending `kHashTableOrder`,
+and keep `test/patch_tables_contract.json` byte-identical to the copy in
+`Otzaria/otzaria_library_updater` (whose CI compares it against the Kotlin
+producer). The golden-hash tests pin schemas 2 and 3 by absolute value; if a
+frozen list drifts, every historical patch starts failing preflight.
+
 What that contract covers is the **byte stream**, not the SHA-256
 implementation. `FastSha256` deliberately runs the hash through the OS crypto
 library (CNG on Windows, CommonCrypto on macOS) because `package:crypto` is pure
