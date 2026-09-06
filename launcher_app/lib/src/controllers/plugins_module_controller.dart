@@ -141,6 +141,11 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
 
     try {
+      // ההמתנה לבדיקה המקומית קודמת לכול: לפניה נתיב ההתקנה אינו ידוע והסריקה
+      // מסתכלת בתיקיית ברירת המחדל, וגרסת אוצריא ריקה מכשירה **כל** בילד
+      // שבמראה — כולל זה שירד עבור הגרסה השנייה שהכונן נושא. משם "יש עדכון"
+      // על תוסף שכבר עדכני, ורשימה שמתהפכת כשהזיהוי מגיע. ראו [_appVersions].
+      await ensureAppVersionsKnown?.call();
       // לפני הקטלוג: הגרסה היא שקובעת איזה בילד כל תוסף מציג, והנגזרות
       // למטה מחושבות מיד אחרי ההצבה של `installed`.
       appVersion = await installedAppVersion?.call();

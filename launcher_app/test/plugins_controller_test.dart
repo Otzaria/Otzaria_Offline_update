@@ -716,5 +716,42 @@ void main() {
 
       expect(c.versionOf(c.plugins.single), '2.0.0');
     });
+
+    test('הטעינה ממתינה לבדיקה המקומית לפני שהיא קוראת את הגרסה', () async {
+      // התלונה שהתיקון הזה בא בשבילה: `load` יצאה לדרך בעלייה, לפני שאוצריא
+      // זוהתה, וגרסה לא ידועה מכשירה **כל** בילד שבמראה — גם זה שירד עבור
+      // הגרסה השנייה שהכונן נושא. הודעת הכניסה לחנות נפתחה אז על "עדכון"
+      // שהתהפך ל"מעודכן" ברגע שהזיהוי נחת.
+      await saveCatalog(PluginCatalog(plugins: [
+        versioned(files: {
+          '2.0.0': 'files/db-1/plugin-2.0.0.otzplugin',
+          '1.5.0': 'files/db-1/plugin-1.5.0.otzplugin',
+        }),
+      ]));
+      final calls = <String>[];
+      var detected = false;
+      final c = PluginsModuleController(
+        mirrorRootDir: p.join(tempDir.path, 'mirror'),
+        ensureAppVersionsKnown: () async {
+          await Future<void>.delayed(Duration.zero);
+          detected = true;
+          calls.add('ensure');
+        },
+        installedAppVersion: () async {
+          calls.add('installed');
+          return detected ? '0.9.96' : null;
+        },
+      );
+      addTearDown(c.dispose);
+
+      await c.load();
+      c.installed = const {'com.example.one': '1.5.0'};
+
+      expect(calls, ['ensure', 'installed']);
+      expect(c.appVersion, '0.9.96');
+      // הבילד שירוץ כאן הוא זה שכבר מותקן — ולכן אין מה להודיע עליו.
+      expect(c.statusOf(c.plugins.single), PluginInstallStatus.upToDate);
+      expect(c.updatablePlugins, isEmpty);
+    });
   });
 }

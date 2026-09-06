@@ -48,9 +48,9 @@ Future<String?> showPluginUpdatesDialog({
 
 /// רשימת התוספים שממתינים לעדכון, עם כפתור עדכון לכל אחד ו"עדכון הכל".
 ///
-/// הרשימה עצמה היא תצלום המצב שנמסר בפתיחה, אבל מצב כל שורה נקרא **חי**
-/// מהקונטרולר: המסירה לאוצריא אינה ההתקנה, וסריקה מחדש היא הדבר היחיד
-/// שיודע מה כבר עודכן שם.
+/// [updatable] הוא תצלום הפתיחה — סדר התצוגה בלבד; גם השורות עצמן וגם מצב
+/// כל אחת נקראים **חי** מהקונטרולר: המסירה לאוצריא אינה ההתקנה, וסריקה
+/// מחדש היא הדבר היחיד שיודע מה כבר עודכן שם.
 class _PluginUpdatesList extends StatefulWidget {
   const _PluginUpdatesList({
     required this.controller,
@@ -94,9 +94,30 @@ class _PluginUpdatesListState extends State<_PluginUpdatesList> {
   bool _isDone(StorePlugin plugin) =>
       widget.controller.statusOf(plugin) == PluginInstallStatus.upToDate;
 
+  /// השורות המוצגות. נקראות **חי** מהקונטרולר ולא מהתצלום שנמסר בפתיחה:
+  /// רשימה שהשתנתה אחרי הפתיחה (סריקה מחדש, זיהוי אוצריא שנחת) חייבת
+  /// להגיע לכאן — אחרת "עדכון הכל" נשאר על מספר שכבר לא נכון. שורה שכבר
+  /// מסרנו נשארת גם כשירדה מהרשימה החיה, כדי שתציג "עודכן" ולא תיעלם.
+  List<StorePlugin> get _rows {
+    final live = widget.controller.updatablePlugins;
+    final liveById = {for (final plugin in live) plugin.id: plugin};
+    final rows = <StorePlugin>[];
+    final shown = <String>{};
+    for (final plugin in widget.updatable) {
+      final current = liveById[plugin.id];
+      if (current == null && !_sent.contains(plugin.id)) continue;
+      rows.add(current ?? plugin);
+      shown.add(plugin.id);
+    }
+    for (final plugin in live) {
+      if (!shown.contains(plugin.id)) rows.add(plugin);
+    }
+    return rows;
+  }
+
   /// שורות שעדיין יש מה לעשות בהן דרך הכפתור.
   List<StorePlugin> get _pending => [
-        for (final plugin in widget.updatable)
+        for (final plugin in _rows)
           if (plugin.supportsDirectInstall &&
               !_sent.contains(plugin.id) &&
               !_isDone(plugin))
@@ -142,6 +163,7 @@ class _PluginUpdatesListState extends State<_PluginUpdatesList> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final t = context.strings.plugins;
+    final rows = _rows;
     final pending = _pending;
 
     return ConstrainedBox(
@@ -178,8 +200,7 @@ class _PluginUpdatesListState extends State<_PluginUpdatesList> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    for (final plugin in widget.updatable)
-                      _row(context, plugin),
+                    for (final plugin in rows) _row(context, plugin),
                   ],
                 ),
               ),
@@ -187,8 +208,7 @@ class _PluginUpdatesListState extends State<_PluginUpdatesList> {
           ),
           // ההערה נשארת כל עוד יש שורה שנמסרה וטרם אושרה — הקונטרולר סורק
           // את תיקיית ההתקנה בעצמו, ולכן אין כאן כפתור "בדיקה מחדש".
-          if (widget.updatable
-              .any((p) => _sent.contains(p.id) && !_isDone(p))) ...[
+          if (rows.any((p) => _sent.contains(p.id) && !_isDone(p))) ...[
             const SizedBox(height: AppTokens.spaceSM),
             Text(
               t.updatesDialogPendingNote,

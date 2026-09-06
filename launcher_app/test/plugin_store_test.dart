@@ -1041,6 +1041,85 @@ void main() {
     expect(find.text(t.updatesDialogSentLabel), findsNothing);
   });
 
+  /// התקנה ניידת מומצאת שהסורק יודע לקרוא — מחזירה את נתיב ההפעלה.
+  /// [manifests] הוא `manifestId -> גרסה מותקנת`.
+  String fakePortableInstall(Map<String, String> manifests) {
+    final exePath = p.join(tempDir.path, 'otzaria.exe');
+    File(exePath).writeAsStringSync('');
+    File(p.join(tempDir.path, 'portable.marker')).writeAsStringSync('');
+    manifests.forEach((id, version) {
+      final dir = Directory(p.join(
+          tempDir.path, 'otzaria_data', 'plugins', 'installed', id, 'current'))
+        ..createSync(recursive: true);
+      File(p.join(dir.path, 'manifest.json'))
+          .writeAsStringSync('{"id":"$id","version":"$version"}');
+    });
+    return exePath;
+  }
+
+  /// טקסט שנמצא **בתוך** הדיאלוג; אותם שמות מופיעים גם בכרטיסים שמאחוריו.
+  Finder inDialog(String text) => find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text(text),
+      );
+
+  testWidgets('סריקה מיישרת את הרשימה הפתוחה — שורה שכבר עדכנית יורדת',
+      (tester) async {
+    // התלונה שהתיקון הזה בא בשבילה: ההודעה נפתחה בכניסה לחנות לפני
+    // שאוצריא זוהתה, וכל בילד שבמראה נראה אז כעדכון. הרשימה נקראת חי,
+    // ולכן הסריקה שאחרי הזיהוי מורידה ממנה את מה שאינו עדכון.
+    final exePath = fakePortableInstall({'id-a': '1.0', 'id-b': '3.0'});
+    await seedRecording(
+      tester,
+      catalog: [
+        storePlugin('a', name: 'ראשון', manifestId: 'id-a', version: '2.0'),
+        storePlugin('b', name: 'שני', manifestId: 'id-b', version: '3.0'),
+      ],
+      // המפה שלפני הזיהוי — שני התוספים נראים בה ישנים.
+      installed: {'id-a': '1.0', 'id-b': '1.0'},
+      launchPath: exePath,
+    );
+
+    await pumpScreen(tester, PluginsScreen(controller: plugins));
+    await tester.pumpAndSettle();
+    expect(find.text(t.updatesDialogUpdateAllButton(2)), findsOneWidget);
+
+    await tester.runAsync(plugins.refreshInstalled);
+    await tester.pump();
+
+    expect(inDialog('שני'), findsNothing);
+    expect(inDialog('ראשון'), findsOneWidget);
+    // נותר תוסף אחד — הכפתור שבשורה הוא הפעולה כולה.
+    expect(find.text(t.updatesDialogUpdateAllButton(1)), findsNothing);
+    expect(find.text(t.updatesDialogUpdateButton), findsOneWidget);
+  });
+
+  testWidgets('תוסף שהתגלה בסריקה נכנס לרשימה הפתוחה, ואיתו "עדכון הכל"',
+      (tester) async {
+    // הכיוון ההפוך: לפני שנתיב ההתקנה התברר הסריקה קראה תיקייה אחרת, ולכן
+    // תוסף מותקן לא נספר כלל. הוא חייב להצטרף להודעה שכבר פתוחה.
+    final exePath = fakePortableInstall({'id-a': '1.0', 'id-b': '1.0'});
+    await seedRecording(
+      tester,
+      catalog: [
+        storePlugin('a', name: 'ראשון', manifestId: 'id-a', version: '2.0'),
+        storePlugin('b', name: 'שני', manifestId: 'id-b', version: '3.0'),
+      ],
+      installed: {'id-a': '1.0'},
+      launchPath: exePath,
+    );
+
+    await pumpScreen(tester, PluginsScreen(controller: plugins));
+    await tester.pumpAndSettle();
+    expect(inDialog('שני'), findsNothing);
+
+    await tester.runAsync(plugins.refreshInstalled);
+    await tester.pump();
+
+    expect(inDialog('שני'), findsOneWidget);
+    expect(find.text(t.updatesDialogUpdateAllButton(2)), findsOneWidget);
+  });
+
   // ── דף הבית האצור ────────────────────────────────────────────────────────
 
   testWidgets('"הצג עוד נבחרים" נפתח פעם אחת ונשאר פתוח', (tester) async {
