@@ -11,6 +11,11 @@ abstract final class FileReveal {
   /// הנתיב כטקסט להעתקה, שזה fallback שימושי יותר מהודעת שגיאה.
   static Future<bool> revealDirectory(String path) async {
     try {
+      // תיקייה שאינה קיימת נכשלת בשקט ב-Explorer, ובלי הבדיקה הזאת הקורא
+      // קיבל `true` ולעולם לא הציג את הנתיב כטקסט — ה-fallback היחיד שאומר
+      // למשתמש איפה הלוג באמת יושב.
+      if (!await Directory(path).exists()) return false;
+
       if (Platform.isWindows) {
         // explorer.exe מחזיר קוד יציאה 1 גם כשהוא הצליח לפתוח את החלון —
         // ולכן אין כאן בדיקת exitCode. (התנהגות מתועדת ומוכרת שלו.)

@@ -97,9 +97,13 @@ class CompanionAssetsMirror {
       } catch (error) {
         if (_isCancellation(error)) rethrow;
         final kept = previous?.entries[asset];
+        // **קיום אינו שלמות.** נכס שהוחלף בשרת נמחק ויורד מאפס, וכשל באמצע
+        // משאיר שבר באותו שם — שהרשומה הישנה מצהירה עליו כשלם. כזה נוסע
+        // לכונן ומתגלה רק במחשב המנותק, ובמקרה של המילון (0 בתים) גם בשקט
+        // מוחלט: הוא "מותקן" בכל פתיחה ולעולם אינו נחשב מעודכן.
         if (kept != null &&
             kept.fileName.isNotEmpty &&
-            await File(p.join(destDir, kept.fileName)).exists()) {
+            await _isCompleteFile(p.join(destDir, kept.fileName), kept.size)) {
           entries[asset] = kept;
         }
         onWarning?.call(name, error);
@@ -288,6 +292,15 @@ class CompanionAssetsMirror {
         AppL10n.strings.libraryDomain.companionTalmudName,
       ),
     );
+  }
+
+  /// הקובץ קיים ובאורך שהרשומה מבטיחה. גודל 0 ברשומה (מקור שלא הצהיר על
+  /// גודל) נבדק כ"לא ריק" בלבד — אין מול מה להשוות.
+  Future<bool> _isCompleteFile(String path, int expectedSize) async {
+    final file = File(path);
+    if (!await file.exists()) return false;
+    final length = await file.length();
+    return expectedSize > 0 ? length == expectedSize : length > 0;
   }
 
   _GithubAssetRef? _talmudAssetOf(Map<String, dynamic> release) {

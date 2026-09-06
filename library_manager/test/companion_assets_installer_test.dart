@@ -112,6 +112,27 @@ void main() {
         'NEWER',
       );
     });
+
+    /// הלולאה השקטה: נכס קטוע (הורדה שנקטעה והשאירה 0 בתים) הותקן, סומן,
+    /// ודווח `installed` — בעוד הפרדיקט של אוצריא פוסל אותו לנצח. התוצאה
+    /// הייתה "יש עדכון לספרייה" בכל פתיחה, בלי שגיאה ובלי שורה בלוג.
+    test('מילון ריק במראה מדווח ככשל, לא כהתקנה שהצליחה', () async {
+      await File(p.join(mirrorDir, 'lexical.db')).writeAsBytes(const []);
+      await writeManifest({
+        'dictionary': {'fileName': 'lexical.db', 'size': 0, 'tag': 'v9'},
+      });
+
+      final report =
+          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
+      expect(report.outcomes[CompanionAsset.dictionary],
+          CompanionInstallOutcome.failed);
+      expect(report.errors[CompanionAsset.dictionary], isNotNull);
+      // העבודה אכן נשארה ממתינה — אבל עכשיו זה נאמר במקום להישמע כהצלחה.
+      expect(
+        await installer.hasPendingWork(mirrorDir: mirrorDir, dbPath: dbPath),
+        isTrue,
+      );
+    });
   });
 
   group('קטלוג otzar-HB', () {
@@ -263,6 +284,69 @@ void main() {
           await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
       expect(report.outcomes[CompanionAsset.talmud],
           CompanionInstallOutcome.installed);
+    });
+
+    /// רשומה בלי digest ובלי תג אינה נושאת מידע גרסה. ההתקנה כתבה עבורה סימון
+    /// ריק והפרדיקט פסל אותו — כלומר חילוץ של ~450MB בכל פתיחה, לנצח.
+    test('רשומה בלי digest ובלי תג — הריצה השנייה כבר מעודכנת', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      writeTalmudArchive(
+        p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'),
+        ['ברכות.pdf'],
+      );
+      await writeManifest({
+        'talmud': {
+          'fileName': 'talmud_bavli_latest.tar.zst',
+          'size': 1,
+          'compressed': true,
+        },
+      });
+
+      final first =
+          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
+      expect(first.outcomes[CompanionAsset.talmud],
+          CompanionInstallOutcome.installed);
+      final second =
+          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
+      expect(second.outcomes[CompanionAsset.talmud],
+          CompanionInstallOutcome.alreadyUpToDate);
+      expect(
+        await installer.hasPendingWork(mirrorDir: mirrorDir, dbPath: dbPath),
+        isFalse,
+      );
+    });
+
+    /// המחיקה קדמה לחילוץ, ולכן ארכיון קטוע השאיר את המשתמש בלי התלמוד שכבר
+    /// היה לו — ועם סימון 'installing' שמזמין את אותו כשל בכל פתיחה.
+    test('ארכיון פגום אינו מוחק את התלמוד שכבר מותקן', () async {
+      final talmudDir = Directory(p.join(libraryDir, 'תלמוד בבלי'));
+      await talmudDir.create(recursive: true);
+      await File(p.join(talmudDir.path, 'ברכות.pdf')).writeAsString('ישן');
+      await File(p.join(talmudDir.path, '.version')).writeAsString('old');
+      await File(p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'))
+          .writeAsString('זה בכלל לא zstd');
+      await writeManifest({
+        'talmud': {
+          'fileName': 'talmud_bavli_latest.tar.zst',
+          'size': 1,
+          'sha256': 'new-digest',
+          'compressed': true,
+        },
+      });
+
+      final report =
+          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
+      expect(report.outcomes[CompanionAsset.talmud],
+          CompanionInstallOutcome.failed);
+      expect(
+          File(p.join(talmudDir.path, 'ברכות.pdf')).readAsStringSync(), 'ישן');
+      expect(
+        File(p.join(talmudDir.path, '.version')).readAsStringSync(),
+        'old',
+      );
     });
   });
 

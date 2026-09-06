@@ -2106,6 +2106,13 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get companionsMirrorMissing =>
       'The companion files have not been downloaded to the local folder yet';
+  @override
+  String companionStillPendingAfterInstall(String name) =>
+      'Installing $name finished, but the item is still marked as out of date';
+  @override
+  String companionsInstallFailed(String names) =>
+      'The database was updated, but installing the companion files ($names) '
+      'failed — so the library update will keep being offered.';
 
   @override
   String applyDownloadingPatch(String step) => 'Downloading the update$step…';

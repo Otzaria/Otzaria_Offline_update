@@ -1971,6 +1971,13 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get companionsMirrorMissing =>
       'הקבצים הנלווים טרם הורדו לתיקייה המקומית';
+  @override
+  String companionStillPendingAfterInstall(String name) =>
+      'ההתקנה של $name הסתיימה אך הפריט עדיין מסומן כלא מעודכן';
+  @override
+  String companionsInstallFailed(String names) =>
+      'המסד עודכן, אך התקנת הקבצים הנלווים ($names) נכשלה — ולכן ההצעה לעדכן '
+      'את הספרייה תחזור.';
 
   @override
   String applyDownloadingPatch(String step) => 'מוריד עדכון$step...';

@@ -498,6 +498,10 @@ class LibraryManager {
   /// [onCompanionWarning] מקבל כשל בהתקנת קובץ נלווה בודד — כמו בהורדה, זה
   /// best-effort שאסור לו להיעלם בשקט.
   ///
+  /// [onStateWarning] מקבל כשל ברישומי ה-state שאחרי החלה שהצליחה. הם אינם
+  /// הופכים אותה לכישלון, אבל בלעדיהם הבדיקה הבאה מציעה שוב את מה שכבר
+  /// מותקן — ולכן הכשל חייב להגיע ללוג.
+  ///
   /// [useFullDownloadFallback] מריץ את **אותה בדיקה** דרך המסד המלא שבמראה
   /// במקום ה-patches ([LibraryUpdatePlan.fullDownloadFallback]) — מסלול
   /// ההתאוששות אחרי שמסלול הדלתא נכשל, למשל בגלל patch שאינו מתאים למסד
@@ -506,6 +510,7 @@ class LibraryManager {
     LibraryUpdateCheckResult check, {
     void Function(LibraryApplyProgress progress)? onProgress,
     void Function(String assetName, Object error)? onCompanionWarning,
+    void Function(Object error)? onStateWarning,
     bool Function()? isCancelled,
     bool useFullDownloadFallback = false,
   }) async {
@@ -591,6 +596,7 @@ class LibraryManager {
                 booksTouched: const <int>{},
                 version: appliedVersion,
                 tag: appliedTag,
+                onStateWarning: onStateWarning,
               );
               rethrow;
             }
@@ -614,6 +620,7 @@ class LibraryManager {
         booksTouched: booksTouched,
         version: appliedVersion,
         tag: appliedTag,
+        onStateWarning: onStateWarning,
       );
     }
 
@@ -657,30 +664,44 @@ class LibraryManager {
     required Set<int> booksTouched,
     required int? version,
     required String? tag,
+    void Function(Object error)? onStateWarning,
   }) async {
     // רישומי ה-state הם קבצי JSON זעירים, אבל הם נכתבים **אחרי** שהמסד כבר
     // הוחלף. כשל שלהם (כונן מלא, USB שנשלף) אינו הופך עדכון שהצליח לכישלון —
-    // לכל היותר הבדיקה הבאה תציע שוב את מה שכבר מותקן.
-    try {
-      // התקנה טרייה נרשמת **רק** כשהאיתור הרגיל לא ימצא אותה לבדו: רישום
-      // גורף הפך ניחוש (ברירת מחדל, כשההגדרות של אוצריא לא נקראו) לבחירה
-      // של המשתמש — שנבדקת לפניהן, ולכן נעל את הלאנצ'ר על המסד הלא נכון.
+    // אבל הוא כן מחזיר את ההצעה בבדיקה הבאה, ולכן הוא **מדווח ולא נבלע**:
+    // בלי זה "מציע לעדכן בכל פתיחה" הוא תקלה בלי שום עקבה בלוג.
+    //
+    // **כל כתיבה ב-try משלה.** כששלושתן חלקו אחד, כשל בראשונה דילג על השתיים
+    // שאחריה — ודווקא הן אלה שמונעות את ההצעה החוזרת.
+    Future<void> record(Future<void> Function() write) async {
+      try {
+        await write();
+      } catch (e) {
+        onStateWarning?.call(e);
+      }
+    }
+
+    // התקנה טרייה נרשמת **רק** כשהאיתור הרגיל לא ימצא אותה לבדו: רישום
+    // גורף הפך ניחוש (ברירת מחדל, כשההגדרות של אוצריא לא נקראו) לבחירה
+    // של המשתמש — שנבדקת לפניהן, ולכן נעל את הלאנצ'ר על המסד הלא נכון.
+    await record(() async {
       if (check.isFreshInstall && !await _locator.isKnownToOtzaria(dbPath)) {
         await _stateStore.saveCustomDbPath(dbPath);
       }
-      // רושמים מאיזה release התוכן הנוכחי הגיע, **יחד עם הגרסה** — זה מה
-      // שמאפשר לזהות בהמשך מסד מתוקן שפורסם באותו db_version, ומונע השוואה
-      // מול רישום שנעשה בגרסה אחרת (ראו LibraryUpdatePlanner).
-      if (tag != null && version != null && version > 0) {
-        await _stateStore.saveAppliedRelease(tag: tag, dbVersion: version);
-      }
-      // המחשב הזה עלה לגרסה החדשה — בלי העדכון הזה הורדה אישית הבאה עוד
-      // הייתה יוצאת מהגרסה הישנה שלו ומביאה patches שכבר הוחלו.
-      if (version != null && version > 0) {
-        await _stateStore.recordKnownDbVersion(
-            LibraryStateStore.currentMachineKey(), version);
-      }
-    } catch (_) {}
+    });
+    // רושמים מאיזה release התוכן הנוכחי הגיע, **יחד עם הגרסה** — זה מה
+    // שמאפשר לזהות בהמשך מסד מתוקן שפורסם באותו db_version, ומונע השוואה
+    // מול רישום שנעשה בגרסה אחרת (ראו LibraryUpdatePlanner).
+    if (tag != null && version != null && version > 0) {
+      await record(
+          () => _stateStore.saveAppliedRelease(tag: tag, dbVersion: version));
+    }
+    // המחשב הזה עלה לגרסה החדשה — בלי העדכון הזה הורדה אישית הבאה עוד
+    // הייתה יוצאת מהגרסה הישנה שלו ומביאה patches שכבר הוחלו.
+    if (version != null && version > 0) {
+      await record(() => _stateStore.recordKnownDbVersion(
+          LibraryStateStore.currentMachineKey(), version));
+    }
     // מה השתנה, לטובת אינדקס החיפוש של אוצריא — ראו [ExternalUpdateNotice].
     await const ExternalUpdateNotice().write(
       dbPath: dbPath,

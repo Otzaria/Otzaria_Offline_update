@@ -79,6 +79,12 @@ class CompanionAssetsInstaller {
       onStage?.call(strings.companionChecking(name));
       try {
         final installed = await body(entry);
+        // הפרדיקט הוא בדיוק מה שהבדיקה הבאה תשאל. התקנה שדיווחה הצלחה ולא
+        // סיפקה אותו תציע את עצמה שוב בכל פתיחה בלי שדבר ישתנה — ולכן זה כשל
+        // שחייב להישמע, ולא הצלחה שקטה.
+        if (installed && !_isUpToDate(asset, libraryDir, entry)) {
+          throw StateError(strings.companionStillPendingAfterInstall(name));
+        }
         outcomes[asset] = installed
             ? CompanionInstallOutcome.installed
             : CompanionInstallOutcome.alreadyUpToDate;
@@ -118,17 +124,28 @@ class CompanionAssetsInstaller {
     if (manifest == null || manifest.isEmpty) return false;
     final libraryDir = p.dirname(dbPath);
 
-    final talmud = manifest.entries[CompanionAsset.talmud];
-    if (talmud != null && !_talmudUpToDate(libraryDir, talmud)) return true;
-
-    final catalog = manifest.entries[CompanionAsset.catalog];
-    if (catalog != null && !_catalogUpToDate(libraryDir, catalog)) return true;
-
-    final dictionary = manifest.entries[CompanionAsset.dictionary];
-    if (dictionary != null && !_dictionaryUpToDate(libraryDir, dictionary)) {
-      return true;
+    for (final e in manifest.entries.entries) {
+      if (!_isUpToDate(e.key, libraryDir, e.value)) return true;
     }
     return false;
+  }
+
+  /// הפרדיקט של פריט בודד. **נקודה אחת בלבד**, כי [hasPendingWork] וההתקנה
+  /// חייבים לשאול בדיוק את אותה שאלה: פרדיקט שנענה "לא מעודכן" אחרי התקנה
+  /// שהצליחה הוא הצעת עדכון שחוזרת בכל פתיחה.
+  bool _isUpToDate(
+    CompanionAsset asset,
+    String libraryDir,
+    CompanionMirrorEntry entry,
+  ) {
+    switch (asset) {
+      case CompanionAsset.talmud:
+        return _talmudUpToDate(libraryDir, entry);
+      case CompanionAsset.catalog:
+        return _catalogUpToDate(libraryDir, entry);
+      case CompanionAsset.dictionary:
+        return _dictionaryUpToDate(libraryDir, entry);
+    }
   }
 
   // ── תלמוד בבלי ────────────────────────────────────────────────────────
@@ -139,8 +156,11 @@ class CompanionAssetsInstaller {
     final marker = File(p.join(dir.path, talmudVersionFileName));
     if (!marker.existsSync()) return false;
     final installed = marker.readAsStringSync().trim();
-    if (installed.isEmpty || installed == talmudInstallingMarker) return false;
-    return installed == entry.versionMarker;
+    if (installed == talmudInstallingMarker) return false;
+    // מושווה מול `?? ''` בדיוק כמו שההתקנה כותבת. מניפסט בלי digest ובלי תג
+    // אינו נושא מידע גרסה כלל, ופסילת הסימון הריק שנכתב עבורו הייתה מחלצת
+    // ~450MB מחדש בכל פתיחה — בלי שדבר ישתנה.
+    return installed == (entry.versionMarker ?? '');
   }
 
   Future<bool> _installTalmud(
@@ -160,18 +180,14 @@ class CompanionAssetsInstaller {
     final targetDir = Directory(p.join(libraryDir, talmudFolderName));
     await targetDir.create(recursive: true);
     final marker = File(p.join(targetDir.path, talmudVersionFileName));
-    // הסימון נכתב לפני החילוץ: קטיעה באמצע משאירה התקנה חלקית **מסומנת**,
-    // ואוצריא מתעלמת ממנה במקום להציג ספרים חסרים.
-    marker.writeAsStringSync(talmudInstallingMarker);
-    for (final entity in targetDir.listSync()) {
-      if (entity is File && p.basename(entity.path) != talmudVersionFileName) {
-        entity.deleteSync();
-      }
-    }
 
     // הארכיון מכיל את התיקייה 'תלמוד בבלי/' עצמה — מחולץ לתיקיית האב.
     final tarPath = p.join(libraryDir, '${entry.fileName}.tar');
     try {
+      // **הפרישה קודמת למחיקה.** ארכיון קטוע או כונן מלא נכשלים בשלב הזה,
+      // ומחיקה לפניו הותירה את המשתמש בלי התלמוד שכבר היה לו — ועם סימון
+      // 'installing' שמזמין את אותו כשל בכל פתיחה. המחיר הוא שיא אחסון גבוה
+      // יותר לרגע: ה-tar לצד הקבצים הישנים.
       if (!await ZstdFileDecompressor.decompressFileToFile(
         archive.path,
         tarPath,
@@ -179,6 +195,15 @@ class CompanionAssetsInstaller {
         throw StateError(
           strings.companionExtractionFailed(strings.companionTalmudName),
         );
+      }
+      // הסימון נכתב לפני החילוץ: קטיעה באמצע משאירה התקנה חלקית **מסומנת**,
+      // ואוצריא מתעלמת ממנה במקום להציג ספרים חסרים.
+      marker.writeAsStringSync(talmudInstallingMarker);
+      for (final entity in targetDir.listSync()) {
+        if (entity is File &&
+            p.basename(entity.path) != talmudVersionFileName) {
+          entity.deleteSync();
+        }
       }
       await extractFileToDisk(tarPath, libraryDir);
     } finally {
@@ -261,21 +286,21 @@ class CompanionAssetsInstaller {
     }
   }
 
+  /// **זורק בכשל, ובכוונה.** הנכס שיורד אינו נושא `db_meta.version` בעצמו —
+  /// הגרסה מגיעה מ-`version.txt` נפרד — ולכן ההחתמה היא הראיה היחידה לגרסה
+  /// שהותקנה. בליעה שקטה שלה השאירה קטלוג "ממתין" לנצח: העתקה מלאה בכל
+  /// פתיחה, והצעת עדכון שלא נגמרת.
   void _stampCatalogVersion(String path, int version) {
+    final db = sqlite3.sqlite3.open(path);
     try {
-      final db = sqlite3.sqlite3.open(path);
-      try {
-        db.execute('CREATE TABLE IF NOT EXISTS db_meta '
-            '(key TEXT PRIMARY KEY, value TEXT NOT NULL)');
-        db.execute(
-          'INSERT OR REPLACE INTO db_meta (key, value) VALUES (?, ?)',
-          ['version', '$version'],
-        );
-      } finally {
-        db.close();
-      }
-    } catch (_) {
-      // best-effort, כמו `_ensureVersionStamped` באוצריא.
+      db.execute('CREATE TABLE IF NOT EXISTS db_meta '
+          '(key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+      db.execute(
+        'INSERT OR REPLACE INTO db_meta (key, value) VALUES (?, ?)',
+        ['version', '$version'],
+      );
+    } finally {
+      db.close();
     }
   }
 

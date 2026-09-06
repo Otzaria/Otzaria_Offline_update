@@ -34,15 +34,35 @@ class AppLogger {
     String? version,
     String? payloadVersion,
   }) async {
-    final dir = Directory(p.join(dataDir, 'logs'));
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
-    final file = File(p.join(dir.path, 'launcher.log'));
+    final file = File(p.join(await _resolveLogDir(dataDir), 'launcher.log'));
     final logger = AppLogger._(file);
     _instance = logger;
     logger.info(startLine(version: version, payloadVersion: payloadVersion));
+    // **הנתיב, בכל הרצה.** הלוג נודד לתיקיית המחשב כשהכונן מוגן מכתיבה, ואז
+    // התיקייה שעל הכונן קופאת בלי שדבר יעיד על כך — משתמש שנשאל "שלח לוג"
+    // שולח קובץ בן חודשיים ומדווח בצדק "התוכנה לא כותבת ללוג".
+    logger.info('--- log file: ${file.path} ---');
     return logger;
+  }
+
+  /// **לעולם אינו זורק.** [init] רץ ב-`main` לפני `runApp`, וחריגה ממנו
+  /// בורחת ומונעת את הפריים הראשון — תהליך בלי חלון *ובלי* שורת לוג אחת
+  /// להסביר למה. תיקייה שאי אפשר ליצור נופלת ל-temp, וכשל גם שם משאיר נתיב
+  /// שהכתיבות אליו נבלעות בשקט, כמו כל כתיבה אחרת כאן.
+  static Future<String> _resolveLogDir(String dataDir) async {
+    final preferred = p.join(dataDir, 'logs');
+    try {
+      final dir = Directory(preferred);
+      if (!await dir.exists()) await dir.create(recursive: true);
+      return dir.path;
+    } catch (_) {}
+    try {
+      final fallback =
+          Directory(p.join(Directory.systemTemp.path, 'OtzariaOfflineUpdate'));
+      if (!await fallback.exists()) await fallback.create(recursive: true);
+      return fallback.path;
+    } catch (_) {}
+    return preferred;
   }
 
   /// שורת הפתיחה נושאת את הגרסה שרצה בפועל: בלעדיה אי אפשר לדעת מהלוג אם

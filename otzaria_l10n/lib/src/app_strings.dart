@@ -1155,6 +1155,8 @@ abstract class LibraryDomainStrings {
   String companionAssetMissingInRelease(String name);
   String companionExtractionFailed(String name);
   String get companionsMirrorMissing;
+  String companionStillPendingAfterInstall(String name);
+  String companionsInstallFailed(String names);
 
   // שלבי ההחלה, כפי שמוצגים במד ההתקדמות
   String applyDownloadingPatch(String step);

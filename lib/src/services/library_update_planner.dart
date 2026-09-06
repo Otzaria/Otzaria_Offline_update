@@ -70,16 +70,23 @@ class LibraryUpdatePlanner {
             latestTag: latestContentTag,
             localVersion: localVersion,
           )) {
-        return LibraryUpdatePlan.fullDownload(
-          localVersion: localVersion,
-          targetVersion: fullTargetVersion,
-          asset: latestFullDbAsset,
-          releaseTag: fullDbReleaseTag,
-          followUpDelta:
-              _followUpDelta(edges, fullTargetVersion, latestVersion),
-          reason: AppL10n.strings.libraryDomain
-              .planContentChangedWithoutVersionBump(latestContentTag!),
-        );
+        final followUp =
+            _followUpDelta(edges, fullTargetVersion, latestVersion);
+        // **רענון תוכן אינו שווה נסיגה.** המראה שומרת בכוונה מסד מלא ישן, וכש-
+        // ה-patches שמעליו נפסלו (סכמה שאיננו מכירים) המסלול הזה הציע להחליף
+        // מסד חי v26 ב-v21 — בשם "עדכון". זו הבדיקה שכל שאר המסלולים עושים
+        // דרך `requireProgress`, והענף הזה היה היחיד בלעדיה.
+        if ((followUp?.targetVersion ?? fullTargetVersion) >= localVersion) {
+          return LibraryUpdatePlan.fullDownload(
+            localVersion: localVersion,
+            targetVersion: fullTargetVersion,
+            asset: latestFullDbAsset,
+            releaseTag: fullDbReleaseTag,
+            followUpDelta: followUp,
+            reason: AppL10n.strings.libraryDomain
+                .planContentChangedWithoutVersionBump(latestContentTag!),
+          );
+        }
       }
       return LibraryUpdatePlan.none(
         localVersion: localVersion,

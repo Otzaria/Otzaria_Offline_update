@@ -68,6 +68,11 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   final LibraryManager _manager;
   LibraryUpdateCheckResult? _lastCheck;
 
+  /// הבדיקה שרצה כרגע — קריאה נוספת מצטרפת אליה במקום להריץ שנייה במקביל.
+  /// שתי בדיקות חופפות דרסו זו את שדות זו ואת `lastResolvedDbPath` המשותף
+  /// של המנהל; זה קורה כשלוחצים "בדוק שוב" בזמן בדיקת העלייה.
+  Future<void>? _checkInFlight;
+
   LibraryModuleStatus status = LibraryModuleStatus.idle;
   int? localVersion;
   int? targetVersion;
@@ -325,7 +330,18 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     }
   }
 
-  Future<void> checkForUpdate() async {
+  /// ראו [_checkInFlight] — קריאה שמגיעה בזמן בדיקה פעילה מצטרפת אליה.
+  Future<void> checkForUpdate() {
+    final inFlight = _checkInFlight;
+    if (inFlight != null) return inFlight;
+    final started = _runCheckForUpdate();
+    _checkInFlight = started;
+    return started.whenComplete(() {
+      if (identical(_checkInFlight, started)) _checkInFlight = null;
+    });
+  }
+
+  Future<void> _runCheckForUpdate() async {
     status = LibraryModuleStatus.checking;
     needsElevation = false;
     notifyListeners();
@@ -333,11 +349,18 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     // מה שנרשם בלחיצה — כולל במחשב אחר, דרך קובץ ה-state שנוסע על הכונן.
     personalFromVersion = await _manager.recordedPersonalDbVersion();
 
+    // **לא `_lastCheck`.** הוא נכתב רק בנתיב ההצלחה, ובמסלולי החריגה הוא
+    // מחזיק את התוצאה של הריצה הקודמת — שורת אבחון שקוראת ממנו משקרת.
+    LibraryUpdateCheckResult? check;
     try {
-      final check = await _manager.checkForUpdate();
+      check = await _manager.checkForUpdate();
       _lastCheck = check;
       isFreshInstall = check.isFreshInstall;
       mirrorMissing = false;
+      // שגיאה מבדיקה קודמת אינה מתארת את זו: `LibraryScreen` הציג אותה כל עוד
+      // השדה מלא, בלי קשר ל-status, ולכן היא שרדה בדיקה שהצליחה.
+      errorMessage = null;
+      canRetryWithFullDownload = false;
 
       if (check.needsManualDbPath) {
         status = LibraryModuleStatus.needsManualPath;
@@ -380,6 +403,17 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     // בקשה שנכתבה בהרצה קודמת ולא נמסרה עדיין — הסימון יושב לצד המסד, ולכן
     // הוא נקרא כאן ולא רק אחרי עדכון שנעשה בהרצה הזאת.
     await _refreshPendingReindex();
+    // **שורה אחת בכל בדיקה, וזו ששווה הכול.** בלעדיה בדיקה שהצליחה והכריזה
+    // "יש עדכון" לא השאירה שום עקבה, ו"מציע לעדכן בכל פתיחה" לא היה ניתן
+    // לאבחון מהלוג בכלל. `companions` מפריד בין הצעה על המסד לבין קובץ נלווה
+    // שאינו נרשם כמותקן — שני באגים שונים לגמרי שנראים אותו דבר על המסך.
+    AppLogger.instance.info(
+      'checkForUpdate: status=$status kind=${check?.plan?.kind} '
+      'local=$localVersion target=$targetVersion '
+      'planTarget=${check?.plan?.targetVersion} latest=${check?.latestVersion} '
+      'companions=${check?.companionsPending} fresh=$isFreshInstall '
+      'mirrorMissing=$mirrorMissing reindex=$hasPendingReindex db=$dbPath',
+    );
     notifyListeners();
   }
 
@@ -435,6 +469,11 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       'update() מתחיל: kind=${plan?.kind} local=${plan?.localVersion} target=${plan?.targetVersion}',
     );
 
+    // מה נכשל מבין הקבצים הנלווים. נאסף כאן כי `applyUpdate` הוא best-effort
+    // לגביהם ואינו זורק — וכשל שלהם הוא בדיוק מה שמשאיר את הבדיקה על
+    // "יש עדכון" אחרי החלה שהצליחה.
+    final companionFailures = <String, Object>{};
+
     try {
       await _manager.applyUpdate(
         _lastCheck!,
@@ -452,14 +491,29 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
               : p.verifyProgress;
           notifyProgress();
         },
-        onCompanionWarning: (name, error) =>
-            AppLogger.instance.info('התקנת הקובץ הנלווה "$name" נכשלה: $error'),
+        onCompanionWarning: (name, error) {
+          companionFailures[name] = error;
+          AppLogger.instance.warn('התקנת הקובץ הנלווה "$name" נכשלה: $error');
+        },
+        onStateWarning: (error) => AppLogger.instance
+            .warn('רישום מצב העדכון נכשל — הבדיקה הבאה תציע שוב: $error'),
       );
-      AppLogger.instance.info('update() הסתיים בהצלחה');
+      AppLogger.instance.info(
+        'update() הסתיים בהצלחה, נלווים שנכשלו=${companionFailures.length}',
+      );
       // מרעננים את מצב הבדיקה עצמו (localVersion/targetVersion/status) —
       // עדיף על קביעה ידנית של upToDate, כי זה קורא בפועל את הגרסה
       // שנכתבה ל-DB במקום להניח שהיא תואמת ליעד.
       await checkForUpdate();
+      // המסד עודכן, אבל קובץ נלווה שלא נרשם כמותקן משאיר את הבדיקה על
+      // "יש עדכון" — והמשתמש קיבל את אותה הצעה בכל פתיחה בלי הודעה ובלי
+      // שגיאה. עכשיו נאמר לו מה נכשל, ונדלקת הצעת ההרשאות כשזו הסיבה.
+      if (companionFailures.isNotEmpty &&
+          status == LibraryModuleStatus.updateAvailable) {
+        errorMessage = AppL10n.strings.libraryDomain
+            .companionsInstallFailed(companionFailures.keys.join(', '));
+        needsElevation = companionFailures.values.any(Elevation.isAccessDenied);
+      }
     } catch (e, st) {
       status = LibraryModuleStatus.error;
       // מסד שיושב בתיקייה מוגנת (Program Files) נכשל כאן, וההודעה של מערכת

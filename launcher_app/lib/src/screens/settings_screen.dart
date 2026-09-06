@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/custom_apps_controller.dart';
+import '../services/app_logger.dart';
 import '../services/app_paths.dart';
 import '../settings/app_settings.dart';
 import '../settings/safer_mode.dart';
@@ -451,7 +452,11 @@ class SettingsScreen extends StatelessWidget {
         SettingsActionTile.text(
           icon: FluentIcons.document_bullet_list_24_regular,
           title: t.logTitle,
-          subtitle: t.logSubtitle,
+          // הנתיב עצמו, ולא רק הסבר: הלוג עובר לתיקיית המחשב כשהכונן מוגן
+          // מכתיבה, ובלי זה מי שמתבקש "שלח את הלוג" הולך לכונן ומביא קובץ
+          // שקפא לפני חודשיים.
+          subtitle:
+              '${t.logSubtitle}\n${AppLogger.maybeInstance?.filePath ?? ''}',
           actions: [
             ActionButton.neutral(
               text: t.openLogFolderButton,
