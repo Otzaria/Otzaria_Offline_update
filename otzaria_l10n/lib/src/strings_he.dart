@@ -1682,10 +1682,25 @@ class _LibraryDomain extends LibraryDomainStrings {
       'מדלג על $fileCount קובצי עדכון: המסד המלא (גרסה $fullDbVersion) מגיע '
       'גבוה מכל שרשרת שאפשר להחיל, ולכן אין בהם צורך';
   @override
+  String exportFullDbInsteadOfSlowPatches(
+    int fileCount,
+    int patchMinutes,
+    int fullDbMinutes,
+    int fullDbVersion,
+  ) =>
+      'העדכון לגרסה $fullDbVersion שינה את המסד מקצה לקצה: החלת קובצי העדכון '
+      'תארך כ-$patchMinutes דקות במחשב שמתעדכן, לעומת כ-$fullDbMinutes דקות '
+      'של החלפת המסד המלא. מוריד את המסד המלא בלבד ומוחק $fileCount קובצי '
+      'עדכון מהתיקייה';
+  @override
   String exportPersonalNeedsFullDb(int fromVersion, int latestVersion) =>
       'אין מסלול קובצי עדכון שיכול להעביר את גרסה $fromVersion לגרסה '
-      '$latestVersion — הספרייה עברה לפורמט מסד חדש, ולכן נדרש המסד המלא. '
-      '"עדכון אישי" אינו כולל את המסד המלא: יש לכבות אותו בהגדרות ולהוריד '
+      '$latestVersion, ולכן מוריד את המסד המלא — למרות ש"עדכון אישי" בדרך '
+      'כלל מדלג עליו';
+  @override
+  String exportPersonalNoFullDbEither(int fromVersion, int latestVersion) =>
+      'אין מסלול קובצי עדכון מגרסה $fromVersion לגרסה $latestVersion, וגם '
+      'אין מסד מלא בגרסה האחרונה. יש לכבות את "עדכון אישי" בהגדרות ולהוריד '
       'שוב.';
 
   @override

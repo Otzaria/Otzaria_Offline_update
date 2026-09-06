@@ -157,6 +157,40 @@ Online Otzaria walks the entire patch graph; ten releases cover a machine that
 updates occasionally, and anything older falls back to the full-DB route, which
 is always present in the mirror.
 
+**What goes into the mirror is decided by how long the update will take on the
+*offline* machine, not by which files are smaller.** The two routes are not
+priced the same: applying a patch pays a full-database hash scan **per step**
+on top of the apply itself, while the full route is one decompress. September
+2026 (v27) is the case that forced this: the library rewrote the database end
+to end, its patches came out at ~500MB each, and the mirror — which prefers to
+keep an existing full DB and download patches — pulled **2.15GB** of them
+instead of a fresh 1.31GB full DB. The user paid for that twice: an hour of
+downloading, then **64 minutes** of applying, against ~2 minutes for a full-DB
+swap. `ApplyTimeEstimate` (calibrated on measured runs, `lib/src/services/`)
+now estimates both routes, and `LibraryMirrorExporter._fullDbBeatsPatches`
+drops the whole patch history — old full DB included — when the delta route
+leaves its range. **It is a range, not "whichever is faster":** the patch route
+is allowed to be somewhat slower, because it saves ~1.3GB of download on the
+online machine; it loses only when it is both more than twice as slow **and**
+at least ten minutes slower. Do not "simplify" this back into a size
+comparison — an 8.5MB patch and a 585MB one weigh nothing alike but both start
+from the same fixed cost, and that is exactly what a size rule cannot see.
+
+**The same rule runs in personal-update mode, and it is the one thing that
+puts a full DB there.** That mode exists to skip the full DB — that is its
+entire saving — but skipping it when the user's own chain costs far more than
+it does, or when no chain reaches the latest version at all, leaves them with
+the more expensive of the two updates. So `export` runs the identical decision
+with `fromVersion` set, which is the one difference that matters: there the
+route measured is **the user's actual chain, every step of it**, instead of
+the cheapest single step a mirror can offer an unknown machine. When it loses,
+the full DB is downloaded and the patches are dropped. Two consequences worth
+knowing: a release that ships **only** a full DB is no longer invisible to
+personal mode (it used to be filtered out by `personalReleases` and the mode
+reported "up to date" while a newer version existed), and the old "turn off
+personal update in the settings and download again" message now fires only
+when there is no full DB at the latest version either — a real dead end.
+
 **The FULL package is opt-in, stable-only, and invisible to everyone else.**
 `AppSettings.syncFullPackage` (default **off**) → `OtzariaManager.downloadFullPackage`
 → `OtzariaAppMirror.sync(includeFullPackage:)` adds

@@ -9,6 +9,7 @@ import 'package:http/testing.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:seforim_library_updater/src/models/library_update_plan.dart';
 import 'package:seforim_library_updater/src/models/patch_table_spec.dart';
+import 'package:seforim_library_updater/src/services/apply_time_estimate.dart';
 import 'package:seforim_library_updater/src/services/download_scheduler.dart';
 import 'package:seforim_library_updater/src/services/github_library_release_client.dart';
 import 'package:seforim_library_updater/src/services/library_mirror_exporter.dart';
@@ -87,6 +88,7 @@ void main() {
     Set<String> corruptManifests = const {},
     String? failAsset,
     int historyDepth = LibraryMirrorExporter.defaultHistoryDepth,
+    ApplyTimeEstimate applyTime = const ApplyTimeEstimate(),
     DownloadScheduler? scheduler,
     Map<String, int> assetSizes = const {},
     Map<int, int> schemaByVersion = const {},
@@ -161,6 +163,7 @@ void main() {
         client: GithubLibraryReleaseClient(httpClient: mock),
         httpClient: mock,
         historyDepth: historyDepth,
+        applyTime: applyTime,
         scheduler: scheduler,
       ),
       fetched: fetched,
@@ -576,8 +579,8 @@ void main() {
     });
 
     // במצב אישי אין מסד מלא בכלל — זו אזהרה למי שמייצא, לא הכרזה על מסלול.
-    test('מצב אישי מזהיר שנדרש מסד מלא, ועדיין אינו מוסיף אותו', () async {
-      final warnings = <String>[];
+    test('מצב אישי שאין לו מסלול patches מוריד את המסד המלא', () async {
+      final stages = <String>[];
       final built = buildExporter(
         [
           release('v26', assets: [
@@ -591,20 +594,18 @@ void main() {
       await built.exporter.export(
         destDir: destDir,
         fromVersion: 25,
-        onWarning: warnings.add,
+        onStage: stages.add,
       );
 
       expect(
-        warnings,
+        stages,
         contains(
             AppL10n.strings.libraryDomain.exportPersonalNeedsFullDb(25, 26)),
       );
-      expect(built.fetched, isNot(contains('seforim.db.zst')));
-      expect(assetOnDisk(destDir, 'v26', 'seforim.db.zst'), isFalse);
-      expect(
-        mirroredAssetNames(destDir, 'v26'),
-        isNot(contains('seforim.db.zst')),
-      );
+      // ה-patch נפסל בסכמה, ולכן המסד המלא הוא כל המסלול — גם כאן.
+      expect(built.fetched, contains('seforim.db.zst'));
+      expect(assetOnDisk(destDir, 'v26', 'seforim.db.zst'), isTrue);
+      expect(mirroredAssetNames(destDir, 'v26'), ['seforim.db.zst']);
     });
 
     // אותו תרחיש בדיוק, כשכל הסכמות מוכרות: שום אזהרה, והמסד הישן שוב מנצח.
@@ -689,27 +690,163 @@ void main() {
     });
   });
 
+  // ⚠️ ההרחבה של ספטמבר 2026 (v27): המראה שמרה את המסד המלא של v23 והורידה
+  // 2.15GB של patches, ואצל המשתמש ההחלה ארכה **64 דקות** — מול כשתי דקות
+  // של החלפת מסד מלא. ההשוואה כאן היא בזמן, לא בגודל.
+  //
+  // הבדיקה אינה יכולה לייצר גיגה-בייטים אמיתיים, ולכן היא מקטינה את הנכסים
+  // ומרחיבה את הקבועים באותו יחס: 4MB "מסד מלא" = 4 דקות, patch של 5MB =
+  // 59 דקות — בדיוק היחס שנמדד בשטח.
+  group('החלת קובצי העדכון ארוכה בהרבה מהחלפת המסד המלא', () {
+    const rewriteScale = ApplyTimeEstimate(
+      fullSecondsPerMb: 60,
+      stepSecondsPerMb: 640,
+    );
+
+    test('רק המסד המלא יורד, וההיסטוריה נמחקת מהמראה', () async {
+      await buildExporter(
+        [
+          release('v23', assets: ['seforim.db.zst'])
+        ],
+        assetSizes: {'seforim.db.zst': 4 << 20},
+      ).exporter.export(destDir: destDir);
+
+      final stages = <String>[];
+      final second = buildExporter(
+        [
+          release('v27', assets: [
+            'seforim.db.zst',
+            'patch-v23-v27.db.zst',
+            'patch-v23-v27.db.zst.manifest.json',
+          ]),
+          release('v23', assets: ['seforim.db.zst']),
+        ],
+        assetSizes: {
+          'seforim.db.zst': 4 << 20,
+          'patch-v23-v27.db.zst': 5 << 20,
+        },
+        applyTime: rewriteScale,
+      );
+      await second.exporter.export(destDir: destDir, onStage: stages.add);
+
+      expect(second.fetched, contains('seforim.db.zst'));
+      expect(second.fetched, isNot(contains('patch-v23-v27.db.zst')));
+      expect(assetOnDisk(destDir, 'v27', 'seforim.db.zst'), isTrue);
+      // ההיסטוריה — כולל המסד המלא הישן — יורדת מהכונן.
+      expect(assetOnDisk(destDir, 'v23', 'seforim.db.zst'), isFalse);
+      expect(mirroredAssetNames(destDir, 'v27'), ['seforim.db.zst']);
+      expect(mirroredAssetNames(destDir, 'v23'), isEmpty);
+      expect(
+        stages,
+        contains(AppL10n.strings.libraryDomain
+            .exportFullDbInsteadOfSlowPatches(2, 59, 4, 27)),
+      );
+
+      // ומה שהמחשב הלא-מקוון מקבל: החלפת מסד מלא, לא החלת patch של שעה.
+      final result = await LibraryUpdateDiscovery(
+        client: LocalMirrorLibraryReleaseClient(mirrorDir: destDir),
+      ).discover(allowPrerelease: false);
+      final plan = const LibraryUpdatePlanner().plan(
+        localVersion: 23,
+        hasLocalVersionMeta: true,
+        latestVersion: result.latestVersion,
+        edges: result.edges,
+        latestFullDbAsset: result.latestFullDbAsset,
+        fullDbReleaseTag: result.fullDbReleaseTag,
+        latestFullDbVersion: result.latestFullDbVersion,
+      );
+      expect(plan.kind, LibraryUpdatePlanKind.fullDownload);
+      expect(plan.targetVersion, 27);
+    });
+
+    // חודש רגיל: העדכון בקובצי עדכון ארוך במקצת מהמסד המלא — וזה בסדר. הוא
+    // חוסך ~1.3GB בהורדה, ולכן הטווח מרשה לו את זה.
+    test('בתוך הטווח — ההיסטוריה נשמרת והמסד הישן מנצח', () async {
+      await buildExporter(
+        [
+          release('v23', assets: ['seforim.db.zst'])
+        ],
+        assetSizes: {'seforim.db.zst': 4 << 20},
+      ).exporter.export(destDir: destDir);
+
+      final second = buildExporter(
+        [
+          release('v24', assets: [
+            'seforim.db.zst',
+            'patch-v23-v24.db.zst',
+            'patch-v23-v24.db.zst.manifest.json',
+          ]),
+          release('v23', assets: ['seforim.db.zst']),
+        ],
+        assetSizes: {
+          'seforim.db.zst': 4 << 20,
+          'patch-v23-v24.db.zst': 5 << 20,
+        },
+        // אותם 4MB = 4 דקות, אבל ההחלה כאן היא של patch רגיל: ~5.5 דקות.
+        applyTime: const ApplyTimeEstimate(fullSecondsPerMb: 60),
+      );
+      await second.exporter.export(destDir: destDir);
+
+      expect(second.fetched, isNot(contains('seforim.db.zst')));
+      expect(second.fetched, contains('patch-v23-v24.db.zst'));
+      expect(assetOnDisk(destDir, 'v23', 'seforim.db.zst'), isTrue);
+    });
+
+    // בלי מסד מלא שמגיע **לבדו** ל-latest, מחיקת הקשתות הייתה עוצרת את
+    // המראה מתחת לגרסה האחרונה.
+    test('מסד מלא שאינו מגיע ל-latest אינו מאפס את המראה', () async {
+      final built = buildExporter(
+        [
+          release('v27', assets: [
+            'patch-v26-v27.db.zst',
+            'patch-v26-v27.db.zst.manifest.json',
+          ]),
+          release('v26', assets: ['seforim.db.zst']),
+        ],
+        assetSizes: {
+          'seforim.db.zst': 4 << 20,
+          'patch-v26-v27.db.zst': 5 << 20,
+        },
+        applyTime: rewriteScale,
+      );
+      await built.exporter.export(destDir: destDir);
+
+      expect(assetOnDisk(destDir, 'v27', 'patch-v26-v27.db.zst'), isTrue);
+      expect(assetOnDisk(destDir, 'v26', 'seforim.db.zst'), isTrue);
+    });
+  });
+
   // מצב "עדכון אישי": מי שהמסד שלו כבר על המחשב אינו צריך את ~1.5GB של המסד
   // המלא — רק את ה-patches מהגרסה שלו ומעלה.
   group('export — מצב עדכון אישי (fromVersion)', () {
+    // הגדלים והקבועים כאן אינם קישוט: מאז שההחלטה נמדדת בזמן, מסד מלא של
+    // עשרים בתים היה נראה כהחלפה מיידית שכל שרשרת מפסידה לה. 4MB = ארבע
+    // דקות, ושרשרת של שני צעדים קטנים = עשר — יחס אמיתי, ובתוך הטווח.
+    const realistic = ApplyTimeEstimate(fullSecondsPerMb: 60);
+    const fullDbSizes = {'seforim.db.zst': 4 << 20};
+
     test('המסד המלא אינו יורד, וגם לא patches שמתחת לגרסה', () async {
-      final built = buildExporter([
-        release('v4', assets: [
-          'seforim.db.zst',
-          'patch-v3-v4.db.zst',
-          'patch-v3-v4.db.zst.manifest.json',
-        ]),
-        release('v3', assets: [
-          'seforim.db.zst',
-          'patch-v2-v3.db.zst',
-          'patch-v2-v3.db.zst.manifest.json',
-        ]),
-        release('v2', assets: [
-          'seforim.db.zst',
-          'patch-v1-v2.db.zst',
-          'patch-v1-v2.db.zst.manifest.json',
-        ]),
-      ]);
+      final built = buildExporter(
+        [
+          release('v4', assets: [
+            'seforim.db.zst',
+            'patch-v3-v4.db.zst',
+            'patch-v3-v4.db.zst.manifest.json',
+          ]),
+          release('v3', assets: [
+            'seforim.db.zst',
+            'patch-v2-v3.db.zst',
+            'patch-v2-v3.db.zst.manifest.json',
+          ]),
+          release('v2', assets: [
+            'seforim.db.zst',
+            'patch-v1-v2.db.zst',
+            'patch-v1-v2.db.zst.manifest.json',
+          ]),
+        ],
+        assetSizes: fullDbSizes,
+        applyTime: realistic,
+      );
       expect(
         await built.exporter.export(destDir: destDir, fromVersion: 2),
         isTrue,
@@ -725,17 +862,21 @@ void main() {
     });
 
     test('המראה האישית מספיקה לשרשרת דלתא מהגרסה המקומית', () async {
-      final built = buildExporter([
-        release('v4', assets: [
-          'seforim.db.zst',
-          'patch-v3-v4.db.zst',
-          'patch-v3-v4.db.zst.manifest.json',
-        ]),
-        release('v3', assets: [
-          'patch-v2-v3.db.zst',
-          'patch-v2-v3.db.zst.manifest.json',
-        ]),
-      ]);
+      final built = buildExporter(
+        [
+          release('v4', assets: [
+            'seforim.db.zst',
+            'patch-v3-v4.db.zst',
+            'patch-v3-v4.db.zst.manifest.json',
+          ]),
+          release('v3', assets: [
+            'patch-v2-v3.db.zst',
+            'patch-v2-v3.db.zst.manifest.json',
+          ]),
+        ],
+        assetSizes: fullDbSizes,
+        applyTime: realistic,
+      );
       await built.exporter.export(destDir: destDir, fromVersion: 2);
 
       final result = await LibraryUpdateDiscovery(
@@ -792,7 +933,11 @@ void main() {
       expect(assetOnDisk(destDir, 'v3', 'seforim.db.zst'), isTrue);
     });
 
-    test('release שנושא DB מלא בלבד אינו נכנס למראה אישית', () async {
+    // גרסה שאין אליה שרשרת קובצי עדכון — כאן v5 יצא עם מסד מלא בלבד. לפני
+    // הכלל הזה המראה האישית הביאה את v4 ו-v5 פשוט נעלמה, כלומר המשתמש נשאר
+    // מתחת לגרסה האחרונה בלי לדעת.
+    test('אין שרשרת אל הגרסה האחרונה → המסד המלא כן יורד', () async {
+      final stages = <String>[];
       final built = buildExporter([
         release('v5', assets: ['seforim.db.zst']),
         release('v4', assets: [
@@ -800,10 +945,76 @@ void main() {
           'patch-v3-v4.db.zst.manifest.json',
         ]),
       ]);
-      await built.exporter.export(destDir: destDir, fromVersion: 3);
+      await built.exporter
+          .export(destDir: destDir, fromVersion: 3, onStage: stages.add);
 
-      expect(mirroredTags(destDir), ['v4']);
+      expect(built.fetched, contains('seforim.db.zst'));
+      expect(assetOnDisk(destDir, 'v5', 'seforim.db.zst'), isTrue);
+      // ומה שאינו מגיע לשם יורד מהתוכנית: המסלול הוא המסד המלא.
+      expect(assetOnDisk(destDir, 'v4', 'patch-v3-v4.db.zst'), isFalse);
+      expect(
+        stages,
+        contains(AppL10n.strings.libraryDomain.exportPersonalNeedsFullDb(3, 5)),
+      );
+    });
+
+    // אין שרשרת וגם אין מסד מלא בגרסה האחרונה — כאן באמת אין מה להביא.
+    test('בלי מסד מלא בגרסה האחרונה — אזהרה, ולא הורדה', () async {
+      final warnings = <String>[];
+      final built = buildExporter(
+        [
+          release('v5', assets: [
+            'patch-v4-v5.db.zst',
+            'patch-v4-v5.db.zst.manifest.json',
+          ]),
+        ],
+        schemaByVersion: {5: 99},
+      );
+      await built.exporter
+          .export(destDir: destDir, fromVersion: 3, onWarning: warnings.add);
+
       expect(built.fetched, isNot(contains('seforim.db.zst')));
+      expect(
+        warnings,
+        contains(
+            AppL10n.strings.libraryDomain.exportPersonalNoFullDbEither(3, 5)),
+      );
+    });
+
+    // ⚠️ אותה הרחבה של v27, במצב אישי: השרשרת של המשתמש היא צעד אחד של
+    // 5MB — ובזמן, כמעט שעה מול ארבע דקות. המצב הזה נבנה כדי לדלג על המסד
+    // המלא, אבל דילוג עליו כאן מותיר את המשתמש עם העדכון היקר משניהם.
+    test('שרשרת ארוכה בהרבה מהמסד המלא → המסד המלא יורד גם במצב אישי',
+        () async {
+      final stages = <String>[];
+      final built = buildExporter(
+        [
+          release('v27', assets: [
+            'seforim.db.zst',
+            'patch-v26-v27.db.zst',
+            'patch-v26-v27.db.zst.manifest.json',
+          ]),
+        ],
+        assetSizes: {
+          'seforim.db.zst': 4 << 20,
+          'patch-v26-v27.db.zst': 5 << 20,
+        },
+        applyTime: const ApplyTimeEstimate(
+          fullSecondsPerMb: 60,
+          stepSecondsPerMb: 640,
+        ),
+      );
+      await built.exporter
+          .export(destDir: destDir, fromVersion: 26, onStage: stages.add);
+
+      expect(built.fetched, contains('seforim.db.zst'));
+      expect(built.fetched, isNot(contains('patch-v26-v27.db.zst')));
+      expect(mirroredAssetNames(destDir, 'v27'), ['seforim.db.zst']);
+      expect(
+        stages,
+        contains(AppL10n.strings.libraryDomain
+            .exportFullDbInsteadOfSlowPatches(2, 59, 4, 27)),
+      );
     });
   });
 

@@ -10,6 +10,7 @@ import '../models/delta_manifest.dart';
 import '../models/library_release.dart';
 import '../models/library_update_plan.dart';
 import '../models/patch_table_spec.dart';
+import 'apply_time_estimate.dart';
 import 'disk_space_probe.dart';
 import 'download_scheduler.dart';
 import 'github_library_release_client.dart';
@@ -33,10 +34,16 @@ import 'patch_downloader.dart';
 /// כדי שעדכון שוטף יעלה עשרות MB ולא ~1.1GB — ראו [_chooseFullDbCarrier].
 /// שינוי סכמה שובר את החישוב הזה: קובצי ה-patch שחוצים אותו אינם ניתנים
 /// להחלה, ולכן הם אינם נכנסים למראה והמסד המלא **החדש** מורד במקומם.
+/// גם הרחבה שכתבה את המסד מחדש שוברת אותו — שם החלת קובצי העדכון אצל
+/// המשתמש ארוכה בהרבה מהחלפת המסד המלא, והמראה מתאפסת למסד המלא בלבד.
+/// ראו [_fullDbBeatsPatches] ו-[ApplyTimeEstimate].
 ///
 /// `fromVersion` ב-[export] מחליף את שני אלה במצב "עדכון אישי": patches
 /// מהגרסה שמותקנת אצל המשתמש ומעלה בלבד, בלי המסד המלא — ראו
-/// [personalReleases].
+/// [personalReleases]. **גם שם אותו כלל זמן חל:** כששרשרת ה-patches של
+/// המשתמש ארוכה בהרבה מהמסד המלא, או שאינה קיימת כלל, המסד המלא כן יורד.
+/// המצב הזה נועד לחסוך אותו, לא להשאיר את המשתמש עם העדכון היקר מבין
+/// השניים.
 ///
 /// **הנכסים יורדים במקביל, הגדול ראשון** — ראו [DownloadScheduler]. זה כל
 /// ה"מאיץ" שאפשר לבנות מול GitHub: פיצול קובץ בודד לכמה חיבורים אינו עובד
@@ -46,6 +53,7 @@ class LibraryMirrorExporter {
     GithubLibraryReleaseClient? client,
     http.Client? httpClient,
     this.historyDepth = defaultHistoryDepth,
+    this.applyTime = const ApplyTimeEstimate(),
     DownloadScheduler? scheduler,
   })  : _scheduler = scheduler ?? DownloadScheduler(),
         _client = client ?? GithubLibraryReleaseClient(),
@@ -66,6 +74,11 @@ class LibraryMirrorExporter {
 
   /// עומק היסטוריית ה-patches שנשמרת במראה.
   final int historyDepth;
+
+  /// אומדן זמן העדכון אצל המשתמש, שלפיו נבחר בין היסטוריית patches לבין מסד
+  /// מלא — ראו [_fullDbBeatsPatches]. ניתן להזרקה כדי שהבדיקות לא יידרשו
+  /// לייצר גיגה-בייטים אמיתיים.
+  final ApplyTimeEstimate applyTime;
 
   final GithubLibraryReleaseClient _client;
   final bool _ownsClient;
@@ -117,12 +130,21 @@ class LibraryMirrorExporter {
         ? personalReleases(eligible, fromVersion)
         : recentReleases(eligible);
 
+    // הגרסה הגבוהה ביותר שקיימת בכלל, וה-release שנושא את המסד המלא שלה.
+    // במצב אישי `relevant` מסנן החוצה releases בלי קובצי עדכון, ולכן שניהם
+    // נגזרים מ-[eligible] — אחרת גרסה שיצאה עם מסד מלא בלבד הייתה נעלמת.
+    final latestEligible = _latestVersionOf(eligible);
+    final personalCarrier =
+        personal ? _newestFullDbCarrier(eligible, latestEligible) : null;
+
     if (relevant.isEmpty) {
-      if (personal) {
+      if (!personal) throw StateError(strings.exportNoReleases);
+      // release שיצא בלי קובצי עדכון כלל אינו "אין גרסה חדשה": המסד המלא
+      // הוא כל המסלול אליו, וזה בדיוק המקרה שבו גם מצב אישי מוריד אותו.
+      if (personalCarrier == null || latestEligible <= fromVersion) {
         onStage?.call(strings.exportPersonalUpToDate(fromVersion));
         return false;
       }
-      throw StateError(strings.exportNoReleases);
     }
 
     final root = Directory(destDir);
@@ -145,8 +167,7 @@ class LibraryMirrorExporter {
     // הנכסים של כל קשת קבילה, כדי שאפשר יהיה להסיר קשת שאין בה תועלת —
     // ראו [_dropUselessPatches]. ה-manifests של קשתות שנפסלו אינם נכנסים
     // לכאן, ולכן הם נשארים במראה כהסבר.
-    final mirroredEdges =
-        <({LibraryRelease release, int to, List<String> assetNames})>[];
+    final mirroredEdges = <MirroredEdge>[];
     for (final release in relevant) {
       _throwIfCancelled(isCancelled);
       final needed = <String, ReleaseAsset>{};
@@ -207,6 +228,7 @@ class LibraryMirrorExporter {
           edges.add((from: manifest.fromVersion, to: manifest.toVersion));
           mirroredEdges.add((
             release: release,
+            from: manifest.fromVersion,
             to: manifest.toVersion,
             assetNames: [manifestAsset.name, ...fileNames],
           ));
@@ -220,16 +242,15 @@ class LibraryMirrorExporter {
     // LibraryUpdateDiscovery.discover), ולכן עותק לכל release היה מוסיף כ-1.5GB
     // מתים לכל אחד מהם. במצב אישי הוא נשמט לגמרי — זה כל החיסכון שבמצב הזה.
     if (blockingSchema > 0 || blockingFormat > 0) {
-      var latestSeen = 0;
-      for (final release in relevant) {
-        final version = LibraryUpdateDiscovery.releaseVersionOf(release);
-        if (version > latestSeen) latestSeen = version;
-      }
+      final latestSeen = _latestVersionOf(relevant);
       // המסלול לגרסה כזו הוא המסד המלא ולא קובצי עדכון, בדיוק כמו באוצריא
-      // המקוונת. במצב אישי אין מסד מלא בכלל — ולכן שם זו אזהרה, לא הכרזה.
+      // המקוונת. במצב אישי ההכרזה נדחית לענף שלהלן: אם יש מסד מלא הוא ירד
+      // (למרות שהמצב הזה נבנה כדי לדלג עליו), ואם אין — זו אזהרה.
       if (personal) {
-        onWarning
-            ?.call(strings.exportPersonalNeedsFullDb(fromVersion, latestSeen));
+        if (personalCarrier == null) {
+          onWarning?.call(
+              strings.exportPersonalNoFullDbEither(fromVersion, latestSeen));
+        }
       } else if (blockingSchema > 0) {
         onStage?.call(
             strings.exportFullDbRequiredBySchema(blockingSchema, latestSeen));
@@ -253,11 +274,7 @@ class LibraryMirrorExporter {
       // בכל מקרה — עשרה releases של patches הם מאות MB מתים על הכונן. ראו
       // `LibraryUpdatePlanner.plan`: דלתא נבחרת רק כשהיא מגיעה גבוה לפחות
       // כמו המסלול המלא.
-      var latestVersion = 0;
-      for (final release in relevant) {
-        final version = LibraryUpdateDiscovery.releaseVersionOf(release);
-        if (version > latestVersion) latestVersion = version;
-      }
+      final latestVersion = _latestVersionOf(relevant);
       final dropped = _dropUselessPatches(
         neededByRelease: neededByRelease,
         mirroredEdges: mirroredEdges,
@@ -270,6 +287,45 @@ class LibraryMirrorExporter {
           dropped,
           LibraryUpdateDiscovery.releaseVersionOf(fullDbCarrier),
         ));
+      }
+
+      // **הרחבה שכתבה מחדש את המסד:** החלת קובצי העדכון אצל המשתמש ארוכה
+      // בהרבה מהחלפת המסד המלא — ואז ההעדפה לשמור מסד ישן ולהוריד patches
+      // עובדת נגד מי שמעדכן. ראו [_fullDbBeatsPatches].
+      final beaten = _fullDbBeatsPatches(
+        relevant,
+        neededByRelease,
+        mirroredEdges,
+        latestVersion: latestVersion,
+      );
+      if (beaten != null) {
+        _switchToFullDbOnly(
+          beaten,
+          neededByRelease: neededByRelease,
+          onStage: onStage,
+        );
+      }
+    }
+
+    // **אותו כלל בדיוק במצב אישי.** המצב הזה בנוי כדי לדלג על המסד המלא —
+    // זה כל החיסכון שבו — אבל דילוג עליו כשהשרשרת של המשתמש ארוכה בהרבה
+    // ממנו (או שאינה קיימת בכלל) מותיר אותו עם העדכון היקר משניהם. הנשא
+    // מגיע מ-[eligible] ולא מ-`relevant`, כי `personalReleases` מסנן החוצה
+    // release שאין בו קובצי עדכון.
+    if (personal && personalCarrier != null) {
+      final beaten = _fullDbBeatsPatches(
+        [personalCarrier],
+        neededByRelease,
+        mirroredEdges,
+        latestVersion: latestEligible,
+        fromVersion: fromVersion,
+      );
+      if (beaten != null) {
+        _switchToFullDbOnly(
+          beaten,
+          neededByRelease: neededByRelease,
+          onStage: onStage,
+        );
       }
     }
 
@@ -654,8 +710,7 @@ class LibraryMirrorExporter {
   /// שנכנסות ל-23 הן עדיין מבוי סתום, כי מ-23 אין המשך.
   int _dropUselessPatches({
     required Map<LibraryRelease, Map<String, ReleaseAsset>> neededByRelease,
-    required List<({LibraryRelease release, int to, List<String> assetNames})>
-        mirroredEdges,
+    required List<MirroredEdge> mirroredEdges,
     required List<({int from, int to})> edges,
     required LibraryRelease carrier,
     required int latestVersion,
@@ -677,6 +732,205 @@ class LibraryMirrorExporter {
         if (needed.remove(name) != null) dropped++;
       }
     }
+    return dropped;
+  }
+
+  /// האם עדיף לוותר על היסטוריית ה-patches ולהחזיק מסד מלא בלבד — ואם כן,
+  /// מאיזה release להוריד אותו. `null` = לא נוגעים בכלום.
+  ///
+  /// **הכלל הוא זמן, לא גודל:** מה שהמשתמש משלם אינו הבייטים שבמראה אלא
+  /// כמה זמן העדכון רץ אצלו, ושני המסלולים אינם מתומחרים לפי אותו דבר —
+  /// החלת patch משלמת סריקת-hash של **כל** המסד בכל צעד, בנוסף להחלה עצמה.
+  /// ראו [ApplyTimeEstimate], שהקבועים בו מכוילים על מדידות אמיתיות.
+  ///
+  /// **מה נמדד:** [_chooseFullDbCarrier] מעדיף מסד מלא שכבר יושב במראה, כי
+  /// בחודש רגיל קובצי העדכון הם עשרות MB לעומת ~1.3GB — ובזמן, זה עדכון של
+  /// כ-6 דקות מול כ-4. בהרחבה שכתבה את המסד מקצה לקצה (ספטמבר 2026, v27)
+  /// היחס התהפך: המראה שמרה מסד של v23 והורידה 2.15GB של patches, ואצל
+  /// המשתמש ההחלה ארכה **64 דקות** מול כשתי דקות של החלפת מסד מלא.
+  ///
+  /// **הטווח:** מסלול הדלתא אינו חייב להיות מהיר יותר — הוא חוסך ~1.3GB
+  /// בהורדה במחשב המקוון, ולכן מותר לו להיות איטי במקצת. הוא מפסיד רק
+  /// כשהוא יוצא מהטווח של [ApplyTimeEstimate.isOutOfRange] — גם ביחס וגם
+  /// בהפרש מוחלט.
+  ///
+  /// **מה נמדד:** הזמן של המסלול שהמראה הזו באמת מציעה למשתמש. במצב אישי
+  /// ידוע מאיזו גרסה הוא מתחיל ([fromVersion]), ולכן נמדדת **השרשרת שלו**
+  /// על כל צעדיה; במראה רגילה אין משתמש אחד, ולכן נמדד הצעד הזול ביותר אל
+  /// הגרסה האחרונה — מי שמעדכן באופן שוטף. אם אפילו הוא יצא מהטווח, כל מי
+  /// שרחוק יותר גרוע ממנו.
+  ///
+  /// **`null` כשאין מסלול קובצי עדכון בכלל** מתפרש לפי המצב: במראה רגילה
+  /// המסד המלא כבר בתוכנית ומה שמיותר הוסר ב-[_dropUselessPatches], ולכן
+  /// אין מה לעשות; במצב אישי אין שם מסד מלא כלל, ולכן זו בדיוק הסיבה
+  /// להוריד אותו — ראו [_personalRouteIsFullDb].
+  ///
+  /// דרישה בשני המצבים: המסד המלא חייב להגיע **לבדו** ל-latest, אחרת מחיקת
+  /// הקשתות הייתה עוצרת את המראה מתחת לגרסה האחרונה.
+  ({LibraryRelease carrier, double? routeSeconds, int? fromVersion})?
+      _fullDbBeatsPatches(
+    List<LibraryRelease> candidates,
+    Map<LibraryRelease, Map<String, ReleaseAsset>> neededByRelease,
+    List<MirroredEdge> mirroredEdges, {
+    required int latestVersion,
+    int? fromVersion,
+  }) {
+    final carrier = _newestFullDbCarrier(candidates, latestVersion);
+    if (carrier == null) return null;
+    final fullBytes = carrier.fullDbAsset!.size;
+    if (fullBytes <= 0) return null;
+
+    final route = _cheapestRouteSeconds(
+      to: latestVersion,
+      from: fromVersion,
+      neededByRelease: neededByRelease,
+      mirroredEdges: mirroredEdges,
+    );
+    if (route == null) {
+      return fromVersion == null
+          ? null
+          : (carrier: carrier, routeSeconds: null, fromVersion: fromVersion);
+    }
+    if (!applyTime.isOutOfRange(route, applyTime.fullRouteSeconds(fullBytes))) {
+      return null;
+    }
+    return (carrier: carrier, routeSeconds: route, fromVersion: fromVersion);
+  }
+
+  /// מחליף את התוכנית ל**מסד מלא בלבד** ומכריז על כך. אותה החלטה ואותה
+  /// הודעה בשני המצבים — ההבדל היחיד הוא שבמצב אישי יש גם מקרה של "אין
+  /// מסלול קובצי עדכון כלל", שאין לו זמן לדווח עליו.
+  void _switchToFullDbOnly(
+    ({
+      LibraryRelease carrier,
+      double? routeSeconds,
+      int? fromVersion
+    }) decision, {
+    required Map<LibraryRelease, Map<String, ReleaseAsset>> neededByRelease,
+    required void Function(String stage)? onStage,
+  }) {
+    final strings = AppL10n.strings.libraryDomain;
+    final carrier = decision.carrier;
+    final version = LibraryUpdateDiscovery.releaseVersionOf(carrier);
+    final route = decision.routeSeconds;
+    final files = _keepOnlyFullDb(neededByRelease, carrier);
+    onStage?.call(route == null
+        ? strings.exportPersonalNeedsFullDb(decision.fromVersion!, version)
+        : strings.exportFullDbInsteadOfSlowPatches(
+            files,
+            ApplyTimeEstimate.minutesOf(route),
+            ApplyTimeEstimate.minutesOf(
+                applyTime.fullRouteSeconds(carrier.fullDbAsset!.size)),
+            version,
+          ));
+  }
+
+  /// הגרסה הגבוהה ביותר מבין [releases], 0 כשאין אף אחת.
+  int _latestVersionOf(List<LibraryRelease> releases) {
+    var latest = 0;
+    for (final release in releases) {
+      final version = LibraryUpdateDiscovery.releaseVersionOf(release);
+      if (version > latest) latest = version;
+    }
+    return latest;
+  }
+
+  /// ה-release הגבוה ביותר מבין [candidates] שנושא מסד מלא — ורק אם הוא
+  /// עצמו בגרסה [latestVersion]. מסד שאינו שם היה משאיר את המשתמש מתחתיה
+  /// בלי שרשרת שתשלים, אחרי שהקשתות נמחקו.
+  LibraryRelease? _newestFullDbCarrier(
+    List<LibraryRelease> candidates,
+    int latestVersion,
+  ) {
+    LibraryRelease? newest;
+    var newestVersion = -1;
+    for (final release in candidates) {
+      if (release.fullDbAsset == null) continue;
+      final version = LibraryUpdateDiscovery.releaseVersionOf(release);
+      if (version > newestVersion) {
+        newestVersion = version;
+        newest = release;
+      }
+    }
+    return newestVersion < latestVersion ? null : newest;
+  }
+
+  /// זמן המסלול הזול ביותר בקובצי עדכון אל [to], בשניות. [from] נתון
+  /// במצב אישי — ואז זו השרשרת מהגרסה שלו; בלעדיו זהו הצעד הבודד הזול
+  /// ביותר שנכנס ל-[to]. `null` = אין מסלול כזה בתוכנית.
+  double? _cheapestRouteSeconds({
+    required int to,
+    required int? from,
+    required Map<LibraryRelease, Map<String, ReleaseAsset>> neededByRelease,
+    required List<MirroredEdge> mirroredEdges,
+  }) {
+    final steps = <({int from, int to, int bytes})>[];
+    for (final edge in mirroredEdges) {
+      if (edge.to <= edge.from) continue; // רק קדימה
+      final bytes = _plannedEdgeBytes(edge, neededByRelease);
+      if (bytes == null) continue; // קשת שהוסרה מהתוכנית אינה מסלול
+      steps.add((from: edge.from, to: edge.to, bytes: bytes));
+    }
+
+    if (from == null) {
+      double? cheapest;
+      for (final step in steps) {
+        if (step.to != to) continue;
+        final seconds = applyTime.deltaRouteSeconds([step.bytes]);
+        if (cheapest == null || seconds < cheapest) cheapest = seconds;
+      }
+      return cheapest;
+    }
+
+    // הקשתות מתקדמות תמיד קדימה, ולכן מעבר על הגרסאות בסדר עולה הוא סדר
+    // טופולוגי תקין — אין צורך ב-Dijkstra.
+    final best = <int, double>{from: 0};
+    final starts = steps.map((s) => s.from).toSet().toList()..sort();
+    for (final version in starts) {
+      final base = best[version];
+      if (base == null) continue;
+      for (final step in steps) {
+        if (step.from != version) continue;
+        final cost = base + applyTime.deltaRouteSeconds([step.bytes]);
+        final known = best[step.to];
+        if (known == null || cost < known) best[step.to] = cost;
+      }
+    }
+    return best[to];
+  }
+
+  /// הגודל הדחוס של קשת שנשארה בתוכנית, או `null` אם נכס שלה כבר אינו בה.
+  int? _plannedEdgeBytes(
+    MirroredEdge edge,
+    Map<LibraryRelease, Map<String, ReleaseAsset>> neededByRelease,
+  ) {
+    final needed = neededByRelease[edge.release];
+    if (needed == null) return null;
+    var bytes = 0;
+    for (final name in edge.assetNames) {
+      final asset = needed[name];
+      if (asset == null) return null;
+      if (asset.size > 0) bytes += asset.size;
+    }
+    return bytes;
+  }
+
+  /// משאיר בתוכנית את המסד המלא של [carrier] בלבד, ומחזיר כמה נכסים ירדו
+  /// ממנה. מה שיצא נמחק מהכונן ב-[_pruneStaleAssets] — כולל המסד המלא הישן,
+  /// שאין בו יותר צורך.
+  int _keepOnlyFullDb(
+    Map<LibraryRelease, Map<String, ReleaseAsset>> neededByRelease,
+    LibraryRelease carrier,
+  ) {
+    var dropped = 0;
+    for (final needed in neededByRelease.values) {
+      dropped += needed.values.where((a) => !a.isFullDbArchive).length;
+      needed.clear();
+    }
+    final full = carrier.fullDbAsset!;
+    // במצב אישי הנשא כלל אינו ברשימת ה-releases שנבחרו — `personalReleases`
+    // מסנן החוצה release שאין בו קובצי עדכון — ולכן הוא נוסף כאן.
+    neededByRelease.putIfAbsent(carrier, () => {})[full.name] = full;
     return dropped;
   }
 
@@ -767,3 +1021,13 @@ class LibraryMirrorExporter {
 Future<Uint8List?> _neverDecompress(Uint8List _) => throw UnsupportedError(
       AppL10n.strings.libraryDomain.exporterDoesNotExtract,
     );
+
+/// קשת שנכנסת למראה: ה-release שנושא אותה, שתי הגרסאות שהיא מחברת, ושמות
+/// הנכסים שלה — ה-manifest וקובצי ה-patch. הגדלים נקראים מהתוכנית עצמה, כי
+/// קשת שהוסרה ממנה אינה מסלול שקיים במראה.
+typedef MirroredEdge = ({
+  LibraryRelease release,
+  int from,
+  int to,
+  List<String> assetNames,
+});

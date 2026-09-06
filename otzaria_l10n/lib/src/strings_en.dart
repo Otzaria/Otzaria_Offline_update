@@ -1785,11 +1785,28 @@ class _LibraryDomain extends LibraryDomainStrings {
       '$fullDbVersion) reaches higher than any appliable chain, so they are '
       'not needed';
   @override
+  String exportFullDbInsteadOfSlowPatches(
+    int fileCount,
+    int patchMinutes,
+    int fullDbMinutes,
+    int fullDbVersion,
+  ) =>
+      'The update to version $fullDbVersion rewrote the database end to end: '
+      'applying its update files would take about $patchMinutes minutes on '
+      'the computer being updated, against about $fullDbMinutes minutes to '
+      'swap in the full database. Downloading only the full database and '
+      'dropping $fileCount update files from the folder';
+  @override
   String exportPersonalNeedsFullDb(int fromVersion, int latestVersion) =>
       'There is no chain of update files that can carry version $fromVersion '
-      'to version $latestVersion — the library moved to a new database '
-      'format, so the full database is required. A personal update never '
-      'includes the full database: turn it off in the settings and download '
+      'to version $latestVersion, so the full database is being downloaded — '
+      'even though a personal update normally skips it';
+
+  @override
+  String exportPersonalNoFullDbEither(int fromVersion, int latestVersion) =>
+      'There is no chain of update files from version $fromVersion to '
+      'version $latestVersion, and no full database for the latest version '
+      'either. Turn off "personal update" in the settings and download '
       'again.';
 
   @override

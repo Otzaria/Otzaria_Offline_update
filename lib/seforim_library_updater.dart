@@ -27,6 +27,7 @@ export 'src/models/patch_table_spec.dart'
         kSupportedPatchFormatVersion,
         isSupportedSchemaVersion,
         isSupportedPatchFormatVersion;
+export 'src/services/apply_time_estimate.dart' show ApplyTimeEstimate;
 export 'src/services/disk_space_probe.dart' show DiskSpaceProbe;
 export 'src/services/download_scheduler.dart'
     show DownloadScheduler, ByteProgressAggregator;

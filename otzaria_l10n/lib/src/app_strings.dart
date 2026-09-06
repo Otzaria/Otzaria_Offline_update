@@ -1026,8 +1026,22 @@ abstract class LibraryDomainStrings {
   /// קובצי עדכון שהושמטו מהמראה כי המסד המלא מגיע גבוה מהם ממילא.
   String exportSkippingPatchesFullDbWins(int fileCount, int fullDbVersion);
 
-  /// "עדכון אישי" שאין לו מסלול patches — נאלצים לכלול DB מלא.
+  /// הרחבה שכתבה את המסד מחדש: החלת קובצי העדכון אצל המשתמש ארוכה בהרבה
+  /// מהחלפת המסד המלא, ולכן המראה מתאפסת למסד המלא בלבד.
+  String exportFullDbInsteadOfSlowPatches(
+    int fileCount,
+    int patchMinutes,
+    int fullDbMinutes,
+    int fullDbVersion,
+  );
+
+  /// "עדכון אישי" שאין לו מסלול patches — המסד המלא יורד למרות שהמצב הזה
+  /// בנוי כדי לדלג עליו.
   String exportPersonalNeedsFullDb(int fromVersion, int latestVersion);
+
+  /// אותו מצב, כשגם מסד מלא בגרסה האחרונה אינו קיים — כאן באמת אין מה
+  /// להביא, ולכן זו אזהרה.
+  String exportPersonalNoFullDbEither(int fromVersion, int latestVersion);
 
   String get planLocalVersionUnknown;
   String planContentChangedWithoutVersionBump(String releaseTag);
