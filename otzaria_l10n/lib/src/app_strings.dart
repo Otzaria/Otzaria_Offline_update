@@ -1389,6 +1389,9 @@ abstract class CustomAppsStrings {
   /// תוכנה מותקנת שעל הכונן יושבת לה גרסה חדשה יותר.
   String pendingDialogUpdateRow(String installedVersion, String storedVersion);
 
+  /// השבב שמחליף את כפתור ההתקנה בשורה שכבר הותקנה מתוך החלון.
+  String get pendingDialogInstalledLabel;
+
   String get downloadButton;
   String get downloadingLabel;
   String get checkOnlineButton;

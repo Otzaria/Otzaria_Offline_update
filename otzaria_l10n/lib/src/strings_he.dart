@@ -2431,8 +2431,8 @@ class _CustomApps extends CustomAppsStrings {
       'יש תוכנות שממתינות על הכונן ($count)';
   @override
   String get pendingDialogIntro =>
-      'הכונן נושא קובצי התקנה שעדיין לא הותקנו במחשב הזה. ההתקנה עצמה — '
-      'בכפתור שבכרטיס של כל תוכנה, מאחורי החלון הזה.';
+      'הכונן נושא קובצי התקנה שעדיין לא הותקנו במחשב הזה. אפשר להתקין כאן, '
+      'או מאוחר יותר מהכרטיס של כל תוכנה.';
   @override
   String pendingDialogNotInstalledRow(String storedVersion) =>
       'על הכונן גרסה $storedVersion — עדיין אינה מותקנת כאן';
@@ -2442,6 +2442,9 @@ class _CustomApps extends CustomAppsStrings {
     String storedVersion,
   ) =>
       'מותקנת $installedVersion ← על הכונן $storedVersion';
+
+  @override
+  String get pendingDialogInstalledLabel => 'הותקנה';
 
   @override
   String get downloadButton => 'הורדה לכונן';

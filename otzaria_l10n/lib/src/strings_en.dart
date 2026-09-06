@@ -2595,8 +2595,8 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get pendingDialogIntro =>
       'The drive carries installers that have not been installed on this '
-      'computer yet. Installing is done from each program\'s card, behind '
-      'this window.';
+      'computer yet. Install them here, or later from the card of each '
+      'program.';
   @override
   String pendingDialogNotInstalledRow(String storedVersion) =>
       'Version $storedVersion on the drive — not installed here yet';
@@ -2606,6 +2606,9 @@ class _CustomApps extends CustomAppsStrings {
     String storedVersion,
   ) =>
       'Installed $installedVersion → on the drive $storedVersion';
+
+  @override
+  String get pendingDialogInstalledLabel => 'Installed';
 
   @override
   String get downloadButton => 'Download To Drive';

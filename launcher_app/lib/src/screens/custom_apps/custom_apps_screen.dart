@@ -11,6 +11,7 @@ import '../../services/native_file_dialogs.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/screen_body.dart';
 import '../../widgets/widgets_exports.dart';
+import 'custom_app_install_action.dart';
 import 'custom_apps_pending_dialog.dart';
 
 /// מסך "תוכנות נוספות" — כרטיס לכל תוכנה שהמשתמש הוסיף.
@@ -70,7 +71,11 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
       if (!mounted) return;
       // נרשם עם הפתיחה ולא עם הסגירה: מה שנרשם הוא שההודעה הוצגה כאן.
       unawaited(widget.controller.markAnnounced(pending));
-      await showCustomAppsPendingDialog(context: context, pending: pending);
+      await showCustomAppsPendingDialog(
+        context: context,
+        controller: widget.controller,
+        pending: pending,
+      );
     }));
   }
 
@@ -351,46 +356,8 @@ class _CustomAppCard extends StatelessWidget {
     );
   }
 
-  Future<void> _install(BuildContext context) async {
-    final t = context.strings.customApps;
-
-    // כשהקובץ הוא התוכנה עצמה אין מה להתקין — רק להעתיק, והמשתמש הוא זה
-    // שיודע לאן. ביטול הבחירה אינו שגיאה: פשוט לא קורה כלום.
-    String? copyToDir;
-    if (app.descriptor.portableFile) {
-      copyToDir = await NativeFileDialogs.pickDirectory(
-        dialogTitle: t.pickCopyTargetDialogTitle,
-      );
-      if (copyToDir == null) return;
-    }
-
-    final result = await controller.install(
-      app.descriptor.id,
-      copyToDir: copyToDir,
-    );
-    if (!result.ok) {
-      UiSnack.showError(controller.errorMessage ?? '');
-      return;
-    }
-    // שום דבר לא הותקן — הקובץ רק הועתק, וצריך לומר לאן.
-    if (result.copiedPath case final path?) {
-      final strings = AppL10n.strings.customApps;
-      UiSnack.showSuccess(
-        app.descriptor.portableFile
-            ? strings.copiedFileSnack(path)
-            : strings.archiveInDownloadsSnack(path),
-      );
-      return;
-    }
-    UiSnack.showSuccess(
-      AppL10n.strings.customApps.installedSnack(app.descriptor.name),
-    );
-    // מה שנלמד נאמר במפורש: מכאן והלאה הכרטיס יפסיק לומר "לא ניתן לזהות",
-    // וזה שינוי שהמשתמש כדאי שיבין מאיפה בא.
-    if (result.learnedExeName case final exeName?) {
-      UiSnack.show(AppL10n.strings.customApps.learnedDetectionSnack(exeName));
-    }
-  }
+  Future<void> _install(BuildContext context) =>
+      installCustomApp(context: context, controller: controller, app: app);
 
   Future<void> _pickLocation(BuildContext context) async {
     final t = context.strings.customApps;

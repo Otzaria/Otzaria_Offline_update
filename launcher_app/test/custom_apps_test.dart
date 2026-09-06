@@ -475,6 +475,20 @@ void main() {
       );
     });
 
+    // הבקשה שחזרה מהמשתמשים: לא לסגור את החלון ולחפש את הכרטיס.
+    testWidgets('לכל שורה בחלון יש כפתור התקנה', (tester) async {
+      await addApp(
+        tester,
+        exeName: 'no-such-app-anywhere.exe',
+        withInstaller: true,
+      );
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      await tester.pumpAndSettle();
+
+      // אחד בחלון, ואחד בכרטיס שמאחוריו.
+      expect(find.text(stringsOf().common.install), findsNWidgets(2));
+    });
+
     testWidgets('כשאין מה להתקין אין הודעה', (tester) async {
       await addApp(tester, exeName: 'no-such-app-anywhere.exe');
       await pumpScreen(tester, CustomAppsScreen(controller: controller));
