@@ -62,7 +62,7 @@ class LibraryDbRecoveryService {
     );
   }
 
-  /// מחזיר את `<db>.old` לשמו כשאין `<db>` בכלל.
+  /// מחזיר את `<db>.old` לשמו כשאין `<db>` בכלל, או כשיושב שם קובץ באורך 0.
   ///
   /// ההחלפה היא שני rename, ומוות בין השניים (הפסקת חשמל) מותיר את המסד השלם
   /// תחת `.old` ואת `seforim.db` לא-קיים. בלי השחזור הזה `resolveDbPath()`
@@ -77,8 +77,14 @@ class LibraryDbRecoveryService {
     try {
       final db = File(dbPath);
       final retired = File('$dbPath.old');
-      if (db.existsSync() || !retired.existsSync()) return;
-      if (retired.lengthSync() == 0) return;
+      if (!retired.existsSync() || retired.lengthSync() == 0) return;
+      if (db.existsSync()) {
+        // רשת ביטחון לשם התפוס: מסד באורך 0 אינו מסד, אלא נתיב ש-sqlite
+        // פתחה ולא כתבה — כך נראה `seforim.db` כשאוצריא נפתחה בין שני
+        // ה-rename. בלי הפינוי הזה `.old` השלם נשאר בצד לנצח.
+        if (db.lengthSync() != 0) return;
+        db.deleteSync();
+      }
       retired.renameSync(dbPath);
     } catch (_) {
       // כשל שחזור אינו מחמיר דבר — הקבצים נשארים והמשתמש יכול לבחור ידנית.

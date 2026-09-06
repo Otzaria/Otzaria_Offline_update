@@ -70,13 +70,18 @@ class MirrorDownloadUndo {
     return MirrorDownloadUndo._(roots, files, dirs, untouched);
   }
 
+  /// קובצי הצד של ההורדה (`<נכס>.resume`) קטנים כמו מניפסט, וההורדה כותבת
+  /// אותם מחדש — חיתוך לאורך הישן היה מותיר JSON קטוע ומאבד את החידוש.
+  static const Set<String> _rememberedExtensions = {'.json', '.resume'};
+
   static bool _remembersContent(String path, int length) =>
-      p.extension(path).toLowerCase() == '.json' &&
+      _rememberedExtensions.contains(p.extension(path).toLowerCase()) &&
       length <= _rememberedContentLimit;
 
   /// מחזיר את התיקיות למצב שבו היו: קובץ שנוצר נמחק, קובץ שנכתב מחדש
   /// (מניפסט) מוחזר לתוכנו, וקובץ שההורדה רק הוסיפה לסופו (נכס חלקי שהמשיכה)
-  /// נחתך חזרה לאורכו — כך שהוא נשאר ניתן לחידוש בהורדה הבאה.
+  /// נחתך חזרה לאורכו — כך שהוא נשאר ניתן לחידוש בהורדה הבאה. נכס שההורדה
+  /// מחקה והתחילה מאפס נמחק, כי תוכנו הקודם אינו ניתן לשחזור.
   ///
   /// כל פעולה היא best-effort: קובץ נעול לא מפיל את שאר הניקוי.
   Future<void> revert() async {
@@ -146,9 +151,16 @@ class _FileSnapshot {
       file.writeAsBytesSync(content, flush: true);
       return;
     }
-    // רק גדילה מוחזרת: קובץ שהתקצר לא נגע בו איש מלבד ההורדה, וכתיבה עליו
-    // ממילא אין לנו במה.
-    if (file.lengthSync() <= length) return;
+    final now = file.lengthSync();
+    // קצר מכפי שהיה = ההורדה מחקה את הנכס והתחילה לכתוב אותו מאפס (טוקן
+    // שאינו תואם, או 200 במקום 206). התוכן הישן איננו ואין לנו במה להחזירו,
+    // ולכן משאירים "לא קיים" ולא חתיכה זרה תחת המניפסט הישן — שהיה נראה
+    // כמראה שלמה ונופל באימות ה-sha256 רק במחשב המנותק.
+    if (now < length) {
+      file.deleteSync();
+      return;
+    }
+    if (now == length) return;
     final handle = file.openSync(mode: FileMode.append);
     try {
       handle.truncateSync(length);

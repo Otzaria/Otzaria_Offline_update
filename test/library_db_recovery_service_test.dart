@@ -108,6 +108,47 @@ void main() {
     });
   });
 
+  group('שחזור `<db>.old`', () {
+    test('מסד חסר → הישן חוזר לשמו', () {
+      File(dbPath).deleteSync();
+      File('$dbPath.old').writeAsStringSync('RETIRED');
+
+      service.restoreRetiredDbIfOrphaned(dbPath);
+
+      expect(File(dbPath).readAsStringSync(), 'RETIRED');
+      expect(File('$dbPath.old').existsSync(), isFalse);
+    });
+
+    // אוצריא שנפתחה בין שני ה-rename יוצרת שם קובץ באורך 0 ונועלת אותו.
+    test('קובץ באורך 0 תפס את השם → הישן גובר עליו', () {
+      File(dbPath).writeAsStringSync('');
+      File('$dbPath.old').writeAsStringSync('RETIRED');
+
+      service.restoreRetiredDbIfOrphaned(dbPath);
+
+      expect(File(dbPath).readAsStringSync(), 'RETIRED');
+      expect(File('$dbPath.old').existsSync(), isFalse);
+    });
+
+    test('מסד קיים ולא ריק → לא נוגעים בשניהם', () {
+      File('$dbPath.old').writeAsStringSync('RETIRED');
+
+      service.restoreRetiredDbIfOrphaned(dbPath);
+
+      expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
+      expect(File('$dbPath.old').readAsStringSync(), 'RETIRED');
+    });
+
+    test('`.old` ריק אינו משוחזר על מסד חסר', () {
+      File(dbPath).deleteSync();
+      File('$dbPath.old').writeAsStringSync('');
+
+      service.restoreRetiredDbIfOrphaned(dbPath);
+
+      expect(File(dbPath).existsSync(), isFalse);
+    });
+  });
+
   group('סימון ה-apply', () {
     test('הסימון מכיל את הגרסאות ואת חותמת הזמן', () async {
       await service.beginApply(

@@ -539,6 +539,11 @@ class LibraryUpdateApplier {
       // גלגול אחור: המסד הישן חוזר לשמו. `<db>.new` נמחק בתחילת הריצה הבאה.
       var rolledBack = false;
       if (retired) {
+        // הקובץ שתופס עכשיו את `seforim.db` אינו המסד החדש — ה-rename השני
+        // נכשל. אם הוא באורך 0 הוא גם אינו מסד: כך נראה נתיב ש-sqlite פתחה
+        // ולא כתבה, וזה בדיוק מה שנוצר כשאוצריא נפתחה בין שני ה-rename.
+        // בלי הפינוי הזה `.old` היה נשאר בצד והמשתמש היה נשאר עם מסד ריק.
+        if (_isEmptyFile(dbPath)) _deleteQuietly(dbPath);
         if (!File(dbPath).existsSync()) {
           try {
             File(retiredPath).renameSync(dbPath);
@@ -557,7 +562,12 @@ class LibraryUpdateApplier {
         // ה-rename קיימים בדיוק כדי שזה לא יקרה.
         if (rolledBack) _deleteQuietly(retiredPath);
       }
-      if (dbAlreadyExists) _recovery.clearStaleArtifacts(dbPath);
+      // הסימון נמחק רק כשידוע שהמסד החי הוא הישן והתקין. גלגול שנחסם (קובץ
+      // זר תופס את השם) חייב להשאיר סימון — הוא מה שגורם לעלייה הבאה להריץ
+      // `quick_check` ולהודיע, במקום לפתוח בשקט מסד שאינו שלנו.
+      if (dbAlreadyExists && (rolledBack || !retired)) {
+        _recovery.clearStaleArtifacts(dbPath);
+      }
       rethrow;
     }
 
@@ -770,6 +780,17 @@ class LibraryUpdateApplier {
       final file = File(path);
       if (file.existsSync()) file.deleteSync();
     } catch (_) {}
+  }
+
+  /// קובץ שקיים ואורכו 0 — הסימן היחיד שאפשר לסמוך עליו לזיהוי נתיב שנפתח
+  /// ולא נכתב. קובץ לא-קיים אינו "ריק": שם אין מה לפנות.
+  bool _isEmptyFile(String path) {
+    try {
+      final file = File(path);
+      return file.existsSync() && file.lengthSync() == 0;
+    } catch (_) {
+      return false;
+    }
   }
 
   static int? _readIntQuietly(File file) {

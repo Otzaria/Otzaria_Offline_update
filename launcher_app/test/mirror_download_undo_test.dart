@@ -85,6 +85,42 @@ void main() {
     expect(file('assets/v1/seforim.db.zst.resume').existsSync(), isTrue);
   });
 
+  test('נכס שההורדה מחקה והתחילה מאפס נמחק, ולא נשאר תחת המניפסט הישן',
+      () async {
+    write('releases.json', '{"releases":["v1"]}');
+    write('assets/v1/seforim.db.zst', 'הנכס השלם הקודם');
+    write('assets/v1/seforim.db.zst.resume', '{"token":"111"}');
+
+    final undo = await MirrorDownloadUndo.capture([mirrorDir]);
+    // אי-התאמת טוקן: ההורדה מוחקת את הקיים וכותבת נכס חדש מאפס.
+    file('assets/v1/seforim.db.zst').deleteSync();
+    write('assets/v1/seforim.db.zst', 'חלקי');
+    write('assets/v1/seforim.db.zst.resume', '{"token":"222"}');
+    write('releases.json', '{"releases":["v1","v2"]}');
+
+    await undo.revert();
+
+    expect(file('assets/v1/seforim.db.zst').existsSync(), isFalse);
+    // המניפסט וקובץ הצד חוזרים לתוכנם, כדי שלא יעידו על נכס שאינו שם.
+    expect(file('releases.json').readAsStringSync(), '{"releases":["v1"]}');
+    expect(file('assets/v1/seforim.db.zst.resume').readAsStringSync(),
+        '{"token":"111"}');
+  });
+
+  test('קובץ צד שההורדה כתבה מחדש חוזר לתוכנו, ולא נחתך ל-JSON קטוע', () async {
+    write('assets/v1/seforim.db.zst', '0123456789');
+    write('assets/v1/seforim.db.zst.resume', '{"token":"111","etag":"a"}');
+
+    final undo = await MirrorDownloadUndo.capture([mirrorDir]);
+    file('assets/v1/seforim.db.zst').writeAsStringSync('0123456789abc');
+    write('assets/v1/seforim.db.zst.resume', '{"token":"111"}');
+
+    await undo.revert();
+
+    expect(file('assets/v1/seforim.db.zst.resume').readAsStringSync(),
+        '{"token":"111","etag":"a"}');
+  });
+
   test('כמה תיקיות מראה מנוקות באותו ביטול', () async {
     final companionsDir = p.join(tempDir.path, 'mirror', 'companions');
     Directory(companionsDir).createSync(recursive: true);
