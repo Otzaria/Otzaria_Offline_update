@@ -472,6 +472,50 @@ void main() {
       expect(stale.existsSync(), isFalse);
     });
 
+    // המסלול האמיתי של גרסה שיוצאת כלא-יציבה ומסומנת בהמשך כיציבה: היא
+    // עוברת לערוץ היציב, וה-API מפסיק להחזיר לא-יציב. הרשומה הישנה חייבת
+    // לרדת — אחרת נשארת "בחירת ערוץ" בין שתי רשומות של אותה גרסה.
+    test('ערוץ שנעלם מהרשת יורד מהמטא־דאטה, וקובץ ההתקנה שלו נמחק', () async {
+      final tempDir =
+          await Directory.systemTemp.createTemp('otzaria-mirror-sync-test');
+      addTearDown(() => tempDir.delete(recursive: true));
+
+      // סבב ראשון: יציבה 0.9.96, ולצדה 0.9.97 שעדיין מסומנת לא-יציבה.
+      final before = await mirrorFor(
+        releasesHttpClient: mockReleases([
+          releaseJson('0.9.97', prerelease: true),
+          releaseJson('0.9.96', prerelease: false),
+        ]),
+        changelogHttpClient: MockClient((_) async => http.Response('', 404)),
+        tempDir: tempDir,
+      );
+      final first = await before.sync();
+      expect(first.hasChoice, isTrue);
+
+      // סבב שני: 0.9.97 סומנה כיציבה, ואין עוד לא-יציבה ברשת.
+      final after = await mirrorFor(
+        releasesHttpClient:
+            mockReleases([releaseJson('0.9.97', prerelease: false)]),
+        changelogHttpClient: MockClient((_) async => http.Response('', 404)),
+        tempDir: tempDir,
+      );
+      final second = await after.sync();
+
+      expect(second.prerelease, isNull);
+      expect(second.stable!.release.tagName, '0.9.97');
+      expect(second.hasChoice, isFalse);
+
+      final reloaded = await after.load();
+      expect(reloaded.prerelease, isNull);
+
+      // והגרסה הקודמת אינה נושאת עוד מקום על הכונן.
+      final kept = Directory(p.join(tempDir.path, 'installers'))
+          .listSync()
+          .map((e) => p.basename(e.path))
+          .toList();
+      expect(kept, ['0.9.97']);
+    });
+
     // אין יציב בעמוד הראשון — אז ה-pre-release הוא הגרסה היחידה, והתווית
     // אומרת את זה במפורש.
     test('בלי יציב, רק ה-pre-release יורד ומתויג ככזה', () async {

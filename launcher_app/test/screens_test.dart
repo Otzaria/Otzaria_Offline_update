@@ -203,16 +203,18 @@ void main() {
   // איתם נראה כאילו רק התוספים התחדשו.
   testWidgets('עדכון תוכנה וספרייה מפורטים בכרטיס לצד התוספים', (tester) async {
     final t = stringsOf().home;
-    otzaria.onlineLatestRelease = const OtzariaRelease(
-      tagName: '0.9.96',
-      name: 'אוצריא 0.9.96',
-      isPrerelease: false,
-      isDraft: false,
-      publishedAt: null,
-      installerKind: OtzariaInstallerKind.windowsSetupExe,
-      installerAssetName: 'setup.exe',
-      installerDownloadUrl: 'https://example.invalid/setup.exe',
-      installerSizeBytes: 1,
+    otzaria.onlineChannels = const OtzariaChannelReleases(
+      stable: OtzariaRelease(
+        tagName: '0.9.96',
+        name: 'אוצריא 0.9.96',
+        isPrerelease: false,
+        isDraft: false,
+        publishedAt: null,
+        installerKind: OtzariaInstallerKind.windowsSetupExe,
+        installerAssetName: 'setup.exe',
+        installerDownloadUrl: 'https://example.invalid/setup.exe',
+        installerSizeBytes: 1,
+      ),
     );
     otzaria.onlineCheckedAt = DateTime(2026, 8, 13);
     library.onlineLatestVersion = 99;

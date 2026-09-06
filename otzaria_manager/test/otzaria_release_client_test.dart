@@ -130,6 +130,33 @@ void main() {
       expect(releases.hasChoice, isFalse);
     });
 
+    // חלון הזמן שבין פרסום ה-release לסיום העלאת הקבצים: GitHub כבר מחזיר
+    // את האסט, אבל `size` הוא 0 ו-`state` אינו `uploaded`. קובץ כזה נראה
+    // תקין לכל אורך המסלול — אימות הגודל מדלג על 0, ואחר כך קובץ ריק נחשב
+    // cache-hit ולא ינוסה שוב — ולכן ה-release כולו מדולג עד שיהיה מוכן.
+    test('release שהאסטים שלו עדיין בהעלאה מדולג לטובת הוותיק ממנו', () async {
+      final client = OtzariaReleaseClient(
+        platform: OtzariaTargetPlatform.windows,
+        httpClient: _mockReleasesResponse([
+          _fakeRelease(tag: '0.9.97', prerelease: true, assets: [
+            {
+              'name': 'otzaria-0.9.97-windows.exe',
+              'browser_download_url': 'https://example/uploading.exe',
+              'size': 0,
+              'state': 'starter',
+            },
+          ]),
+          _fakeRelease(tag: '0.9.96', prerelease: true),
+          _fakeRelease(tag: '0.9.90', prerelease: false),
+        ]),
+      );
+
+      final releases = await client.fetchChannelReleases();
+
+      expect(releases.prerelease!.tagName, '0.9.96');
+      expect(releases.stable!.tagName, '0.9.90');
+    });
+
     // הריפו של אוצריא מפרסם בעיקר pre-release, ולכן זה מצב מציאותי: אז
     // פשוט אין ערוץ יציב להציע, וה-pre-release הוא היחיד שקיים.
     test('בלי release יציב כלל — מוחזר pre-release בלבד', () async {

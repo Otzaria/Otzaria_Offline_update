@@ -213,6 +213,18 @@ class PluginMirrorSync {
         missing.add(target);
       }
     }
+    // אין אף בילד תואם לגרסאות שהכונן נושא — ואז הרשומה יוצאת ריקה,
+    // התוסף אינו נכנס ללולאת ההורדה, ו-`pruneUnusedFiles` מוחקת את מה
+    // שכבר על הכונן. אבל מחשב מנותק אחר עשוי לרוץ על גרסה ישנה יותר
+    // מאלה שברשימה, ובילד ישן שכבר שם עדיף לו על כלום — בדיוק כמו בילד
+    // שהורדתו נכשלה, למטה.
+    if (targets.isEmpty && previous != null) {
+      for (final entry in previous.localFiles.entries) {
+        if (await store.hasAsset(entry.value.relativePath)) {
+          keep[entry.key] = entry.value;
+        }
+      }
+    }
     plugin = plugin.copyWith(localFiles: keep);
 
     return _PluginPlan(

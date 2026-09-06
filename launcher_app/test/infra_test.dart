@@ -157,16 +157,18 @@ void main() {
 
     test('אוצריא: הורדה מכבה את ההודעה גם כשההתקנה עוד ישנה', () {
       final c = OtzariaModuleController(dataDir: tempDir.path);
-      c.onlineLatestRelease = const OtzariaRelease(
-        tagName: '0.9.96+736',
-        name: 'אוצריא 0.9.96',
-        isPrerelease: false,
-        isDraft: false,
-        publishedAt: null,
-        installerKind: OtzariaInstallerKind.windowsSetupExe,
-        installerAssetName: 'setup.exe',
-        installerDownloadUrl: 'https://example.invalid/setup.exe',
-        installerSizeBytes: 1,
+      c.onlineChannels = const OtzariaChannelReleases(
+        stable: OtzariaRelease(
+          tagName: '0.9.96+736',
+          name: 'אוצריא 0.9.96',
+          isPrerelease: false,
+          isDraft: false,
+          publishedAt: null,
+          installerKind: OtzariaInstallerKind.windowsSetupExe,
+          installerAssetName: 'setup.exe',
+          installerDownloadUrl: 'https://example.invalid/setup.exe',
+          installerSizeBytes: 1,
+        ),
       );
 
       // לפני ההורדה אין במראה כלום — יש מה להביא מהרשת.
@@ -174,15 +176,62 @@ void main() {
 
       // אחרי ההורדה המראה מחזיקה את הגרסה שברשת, וההתקנה עדיין ישנה:
       // אין מה להוריד יותר, גם אם יש עוד מה להתקין.
+      c.stableVersion = '0.9.96+736';
       c.latestVersion = '0.9.96+736';
       c.currentVersion = '0.9.90';
       expect(c.hasOnlineUpdate, isFalse);
 
       // גרסה חדשה יותר ברשת מדליקה את ההודעה מחדש.
+      c.stableVersion = '0.9.95';
       c.latestVersion = '0.9.95';
       expect(c.hasOnlineUpdate, isTrue);
 
       c.dispose();
+    });
+
+    // התלונה שהתיקון הזה בא בשבילה: אוצריא מפרסמת גרסה חדשה ומסמנת אותה
+    // לא-יציבה, בלי לגעת ביציבה. בהשוואה על הערוץ הנבחר בלבד (יציב, כברירת
+    // מחדל) זה נראה "אין חדש" — ההורדה דילגה על מודול התוכנה, הערוץ
+    // הלא-יציב לא ירד, ובלעדיו פקד בחירת הערוץ לא הופיע כלל.
+    test('אוצריא: pre-release חדש מדליק את ההודעה גם כשהיציב לא זז', () {
+      final c = OtzariaModuleController(dataDir: tempDir.path);
+      addTearDown(c.dispose);
+
+      c.onlineChannels = const OtzariaChannelReleases(
+        stable: OtzariaRelease(
+          tagName: '0.9.96+736',
+          name: 'אוצריא 0.9.96',
+          isPrerelease: false,
+          isDraft: false,
+          publishedAt: null,
+          installerKind: OtzariaInstallerKind.windowsSetupExe,
+          installerAssetName: 'setup.exe',
+          installerDownloadUrl: 'https://example.invalid/setup.exe',
+          installerSizeBytes: 1,
+        ),
+        prerelease: OtzariaRelease(
+          tagName: '0.9.97',
+          name: 'אוצריא 0.9.97',
+          isPrerelease: true,
+          isDraft: false,
+          publishedAt: null,
+          installerKind: OtzariaInstallerKind.windowsSetupExe,
+          installerAssetName: 'setup.exe',
+          installerDownloadUrl: 'https://example.invalid/setup.exe',
+          installerSizeBytes: 1,
+        ),
+      );
+
+      // היציב שברשת הוא בדיוק זה שכבר על הכונן, והלא-יציב חדש ואינו שם.
+      c.stableVersion = '0.9.96+736';
+      c.latestVersion = '0.9.96+736';
+      expect(c.hasOnlineUpdate, isTrue);
+      expect(c.onlineUpdateVersion, '0.9.97');
+
+      // אחרי שההורדה הביאה גם אותו — אין עוד מה להביא.
+      c.prereleaseVersion = '0.9.97';
+      expect(c.hasOnlineUpdate, isFalse);
+      expect(c.onlineUpdateVersion, isNull);
     });
 
     test('ספרייה: ההשוואה היא מול גרסת המראה ולא מול המסד החי', () {

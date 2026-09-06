@@ -122,8 +122,15 @@ class OtzariaReleaseClient {
 
   OtzariaRelease _parseRelease(Map<String, dynamic> json) {
     final tagName = json['tag_name'] as String;
-    final assets =
-        (json['assets'] as List<dynamic>).cast<Map<String, dynamic>>();
+    // אסט שהעלאתו ל-GitHub טרם הסתיימה מדווח `size: 0` (ו-`state` שאינו
+    // `uploaded`) — וזה בדיוק החלון שבין פרסום ה-release לסיום העלאת
+    // הקבצים. הוא נראה תקין לכל אורך המסלול: אימות הגודל מדלג על 0, ואחר
+    // כך קובץ ריק נחשב cache-hit ולא ינוסה שוב לעולם. לכן הוא נפסל כאן
+    // כאילו אינו קיים, וה-release מדולג לטובת הוותיק ממנו עד שיהיה מוכן.
+    final assets = (json['assets'] as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .where(_assetIsReady)
+        .toList(growable: false);
 
     // בחירת האסט לפי פלטפורמת היעד — ראו [OtzariaAssetSelector] להסבר על
     // כללי ההתאמה (ולמה חבילות ה-FULL של 2GB נפסלות מעצמן).
@@ -174,6 +181,14 @@ class OtzariaReleaseClient {
             ),
       releaseNotes: json['body'] as String?,
     );
+  }
+
+  /// ההעלאה של האסט הסתיימה. `state` נבדק רק כשהוא קיים — תשובה בלעדיו
+  /// אינה עילה לפסול אסט שגודלו תקין.
+  static bool _assetIsReady(Map<String, dynamic> asset) {
+    final state = asset['state'];
+    if (state is String && state != 'uploaded') return false;
+    return (asset['size'] as int? ?? 0) > 0;
   }
 
   void dispose() => _httpClient.close();

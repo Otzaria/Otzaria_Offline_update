@@ -166,9 +166,15 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
 
   /// מצב הבדיקה הקלה ("יש עדכון ברשת?") — נפרד לגמרי מ-[downloadStatus]:
   /// היא לא מורידה כלום, רק שואלת. `null`/`null` = טרם נבדק בהרצה הזו.
-  OtzariaRelease? onlineLatestRelease;
+  /// **שני הערוצים** שההצצה מצאה ברשת. הפער מול המראה נמדד ערוץ מול ערוץ —
+  /// ראו [hasOnlineUpdate].
+  OtzariaChannelReleases? onlineChannels;
   String? onlineCheckError;
   DateTime? onlineCheckedAt;
+
+  /// הגרסה שברשת בערוץ שהמשתמש בחר — לתצוגה בלבד.
+  OtzariaRelease? get onlineLatestRelease =>
+      onlineChannels?.select(preferPrerelease: preferPrerelease);
 
   bool get canLaunch => currentVersion != null;
 
@@ -187,26 +193,47 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     // חבילה מלאה שהתבקשה ואינה על הכונן היא "יש מה להביא", גם כשגרסת
     // התוכנה עצמה זהה לזו שכבר ירדה.
     if (needsFullPackageDownload) return true;
-    final online = onlineLatestRelease;
+    final online = onlineChannels;
     if (online == null) return false;
-    final mirrored = latestVersion;
+    // **כל ערוץ מול המקביל לו**, ולא הנבחר מול הנבחר: ההורדה מביאה את
+    // שניהם, ולכן pre-release חדש שהיציב לא זז לצדו הוא "יש מה להביא".
+    // בהשוואה על הנבחר בלבד הוא נראה כ"אין חדש", ההורדה דילגה על מודול
+    // התוכנה, ובלי שהערוץ ירד לא הופיע גם הפקד שמאפשר לבחור בו.
+    return _channelHasMore(online.stable?.tagName, stableVersion) ||
+        _channelHasMore(online.prerelease?.tagName, prereleaseVersion);
+  }
+
+  /// יש ברשת תג שאינו זה שיושב במראה באותו ערוץ. ערוץ שאינו ברשת אינו
+  /// "עדכון": הניקוי שלו קורה בהורדה הבאה, ולא כדאי שידליק את ההודעה על
+  /// משהו שאין מה להוריד עבורו.
+  static bool _channelHasMore(String? online, String? mirrored) {
+    if (online == null) return false;
     if (mirrored == null) return true;
-    return OtzariaUpdateCheckResult.normalizeVersion(online.tagName) !=
+    return OtzariaUpdateCheckResult.normalizeVersion(online) !=
         OtzariaUpdateCheckResult.normalizeVersion(mirrored);
   }
 
   /// גרסת התוכנה שנמצאה ברשת וטרם ירדה למראה — לתצוגה בלבד. `null` כשאין
   /// הפרש גרסאות, למשל כשההבדל היחיד הוא החבילה המלאה שחסרה.
+  ///
+  /// הערוץ הנבחר קודם, ואחריו השני: גם pre-release שירד עבור מי שעוד לא
+  /// ביקש אותו הוא גרסה שההורדה תביא, ולכן ראוי שתיאמר בשמה.
   String? get onlineUpdateVersion {
-    final online = onlineLatestRelease;
+    final online = onlineChannels;
     if (online == null) return null;
-    final mirrored = latestVersion;
-    if (mirrored != null &&
-        OtzariaUpdateCheckResult.normalizeVersion(online.tagName) ==
-            OtzariaUpdateCheckResult.normalizeVersion(mirrored)) {
-      return null;
+    final selectedFirst = preferPrerelease
+        ? [
+            (online.prerelease?.tagName, prereleaseVersion),
+            (online.stable?.tagName, stableVersion),
+          ]
+        : [
+            (online.stable?.tagName, stableVersion),
+            (online.prerelease?.tagName, prereleaseVersion),
+          ];
+    for (final (onlineTag, mirroredTag) in selectedFirst) {
+      if (_channelHasMore(onlineTag, mirroredTag)) return onlineTag;
     }
-    return online.tagName;
+    return null;
   }
 
   /// בודק ברשת מה הגרסה העדכנית ביותר — **פעולת רשת קלה**, בלי הורדת
@@ -218,9 +245,9 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
 
     try {
-      onlineLatestRelease = await _manager.peekLatestOnlineRelease();
+      onlineChannels = await _manager.peekOnlineChannels();
     } catch (e) {
-      onlineLatestRelease = null;
+      onlineChannels = null;
       onlineCheckError = e.toString();
       // ראו `LibraryModuleController.checkOnline` — בלי stack trace בכוונה.
       AppLogger.instance.info('בדיקת עדכונים ברשת (אוצריא) לא הצליחה: $e');

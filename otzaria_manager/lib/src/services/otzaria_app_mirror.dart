@@ -185,12 +185,19 @@ class OtzariaAppMirror {
   }) async {
     final online = await _releaseClient.fetchChannelReleases();
 
-    // מתחילים ממה שכבר על הכונן: ערוץ שההורדה שלו נכשלה (או שאינו ב-API
-    // כרגע) חייב להישאר במטא־דאטה, אחרת הורדה חלקית מוחקת בחירת ערוץ
-    // שכבר הייתה למחשב הלא-מקוון בזמן שקובץ ההתקנה שלה עדיין שם.
+    // מתחילים ממה שכבר על הכונן: ערוץ שההורדה שלו נכשלה חייב להישאר
+    // במטא־דאטה, אחרת הורדה חלקית מוחקת בחירת ערוץ שכבר הייתה למחשב
+    // הלא-מקוון בזמן שקובץ ההתקנה שלה עדיין שם.
+    //
+    // אבל ערוץ שקריאה **מוצלחת** לא החזירה כלל הוא סיפור אחר: הוא כבר לא
+    // קיים ברשת. זה בדיוק מה שקורה כש-pre-release מסומן בהמשך כיציב —
+    // הוא עובר לערוץ היציב וה-API מפסיק להחזיר לא-יציב. השארתו כאן הותירה
+    // בחירת ערוץ מדומה בין שתי רשומות שמצביעות על אותו קובץ, ואת קובצי
+    // ההתקנה הישנים על הכונן לנצח. איפוס כאן, ו-`pruneCacheExcept` שבסוף
+    // מוחק את מה שכבר אינו מוזכר.
     final existing = await load();
-    var stable = existing.stable;
-    var prerelease = existing.prerelease;
+    var stable = online.stable == null ? null : existing.stable;
+    var prerelease = online.prerelease == null ? null : existing.prerelease;
 
     for (final channel in OtzariaReleaseChannel.values) {
       final release = online[channel];

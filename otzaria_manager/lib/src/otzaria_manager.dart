@@ -293,17 +293,36 @@ class OtzariaManager {
   /// (`OtzariaChangelogClient`) כשהגרסה מופיעה בו, ונופל חזרה לתיאור
   /// ה-release הגולמי מ-GitHub אם לא.
   Future<OtzariaRelease> peekLatestOnlineRelease() async {
-    final online = await _releaseClient.fetchChannelReleases();
-    final release = online.select(preferPrerelease: preferPrerelease);
+    final release =
+        (await peekOnlineChannels()).select(preferPrerelease: preferPrerelease);
     if (release == null) {
       throw StateError(
         AppL10n.strings.appDomain.noInstallableReleaseForPlatform,
       );
     }
-    final changelogNotes = await _changelogClient.notesFor(release.tagName);
-    return changelogNotes == null
-        ? release
-        : release.copyWithReleaseNotes(changelogNotes);
+    return release;
+  }
+
+  /// **שני הערוצים** כפי שהם ברשת כרגע, ולא גרסה נבחרת אחת.
+  ///
+  /// ההורדה מביאה תמיד את שניהם, ולכן "יש מה להביא?" חייב להישאל על כל
+  /// ערוץ מול המקביל לו במראה. כששאלנו על הנבחר בלבד, פרסום של pre-release
+  /// לבדו (היציב לא זז) נראה כמו "אין חדש": מודול התוכנה דולג, הערוץ
+  /// הלא-יציב לא ירד, ולכן פקד בחירת הערוץ לא הופיע — והמשתמש לא יכול היה
+  /// לבקש אותו. ראו `OtzariaModuleController.hasOnlineUpdate`.
+  Future<OtzariaChannelReleases> peekOnlineChannels() async {
+    final online = await _releaseClient.fetchChannelReleases();
+    return OtzariaChannelReleases(
+      stable: await _withChangelogNotes(online.stable),
+      prerelease: await _withChangelogNotes(online.prerelease),
+    );
+  }
+
+  /// "מה התחדש" מיומן השינויים המרוכז, עם נפילה לתיאור ה-release הגולמי.
+  Future<OtzariaRelease?> _withChangelogNotes(OtzariaRelease? release) async {
+    if (release == null) return null;
+    final notes = await _changelogClient.notesFor(release.tagName);
+    return notes == null ? release : release.copyWithReleaseNotes(notes);
   }
 
   /// בודק אם יש עדכון זמין — **מהמראה המקומית בלבד, בלי רשת**. ה-state השמור

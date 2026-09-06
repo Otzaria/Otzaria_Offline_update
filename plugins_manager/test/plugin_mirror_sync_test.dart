@@ -888,6 +888,26 @@ void main() {
       );
     });
 
+    // הרצפה של התוסף עלתה מעל הגרסאות שהכונן נושא, ולכן אין לו עוד בילד
+    // תואם. הרשומה יוצאת ריקה והתוסף אינו נכנס ללולאת ההורדה — ובלי שימור
+    // מפורש `pruneUnusedFiles` הייתה מוחקת את הקובץ שכבר על הכונן. מחשב
+    // מנותק שרץ על גרסה ישנה יותר עדיין מריץ אותו, ובילד ישן עדיף על כלום.
+    test('תוסף שאיבד תאימות שומר את הקובץ שכבר על הכונן', () async {
+      await sync(_Site(plugins: versioned()), appVersions: ['0.9.96']);
+      final store = PluginMirrorStore(temp.path);
+      final file = File(store.absolutePath('files/a/plugin-1.5.0.otzplugin'));
+      expect(file.existsSync(), isTrue);
+
+      final outcome = await syncOutcome(
+        _Site(plugins: versioned()),
+        appVersions: ['0.9.80'],
+      );
+
+      expect(outcome.incompatible, ['אלף (0.9.95)']);
+      expect(outcome.catalog.plugins.single.localFiles.keys, ['1.5.0']);
+      expect(file.existsSync(), isTrue);
+    });
+
     test('הבילד שכבר במראה אינו יורד שוב', () async {
       await sync(_Site(plugins: versioned()), appVersions: ['0.9.96']);
 
