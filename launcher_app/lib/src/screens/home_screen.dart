@@ -298,9 +298,15 @@ class HomeScreen extends StatelessWidget {
     final approved = await showTwoActionsDialog(
       context: context,
       title: t.libraryUpdateDialogTitle,
-      content: c.isFreshInstall
-          ? t.libraryFreshInstallPrompt('${c.targetVersion}')
-          : t.libraryUpdatePrompt('${c.localVersion}', '${c.targetVersion}'),
+      // "עדכון מגרסה 27 לגרסה 27" הוא מה שהמשתמש קרא כתקלה כשההצעה נבעה
+      // מקובץ נלווה בלבד. עכשיו הדיאלוג אומר בדיוק מה יותקן.
+      content: switch (c) {
+        _ when c.isFreshInstall =>
+          t.libraryFreshInstallPrompt('${c.targetVersion}'),
+        _ when c.companionsOnly => AppL10n.strings.libraryDomain
+            .companionsOnlyPrompt(c.pendingCompanionNames),
+        _ => t.libraryUpdatePrompt('${c.localVersion}', '${c.targetVersion}'),
+      },
       subtitle: t.doNotRemoveDriveWarning,
       confirmText: t.libraryUpdateConfirm,
     );
@@ -666,8 +672,12 @@ String libraryStatusLabel(BuildContext context, LibraryModuleController c) {
     LibraryModuleStatus.idle => common.notCheckedYet,
     LibraryModuleStatus.checking => common.checking,
     LibraryModuleStatus.upToDate => common.upToDate,
-    LibraryModuleStatus.updateAvailable =>
-      c.isFreshInstall ? t.libraryNotInstalledYet : common.updateAvailable,
+    LibraryModuleStatus.updateAvailable => switch (c) {
+        _ when c.isFreshInstall => t.libraryNotInstalledYet,
+        _ when c.companionsOnly => AppL10n.strings.libraryDomain
+            .companionsOnlyPending(c.pendingCompanionNames),
+        _ => common.updateAvailable,
+      },
     LibraryModuleStatus.updating => t.libraryUpdating,
     LibraryModuleStatus.error => common.error,
     LibraryModuleStatus.needsDownload => t.libraryNothingDownloaded,

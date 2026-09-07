@@ -1172,6 +1172,14 @@ abstract class LibraryDomainStrings {
   String companionStillPendingAfterInstall(String name);
   String companionsInstallFailed(String names);
 
+  /// מה שהעדכון יעשה כשהמסד עצמו מעודכן ורק קבצים נלווים ממתינים. בלי זה
+  /// המסך הציע "עדכון ספרייה" ליד "גרסה 27 → 27", והמשתמש קרא זאת כתקלה.
+  String companionsOnlyPending(String names);
+  String companionsOnlyPrompt(String names);
+
+  /// רשומה שהקובץ שלה חסר או קטוע במראה — המראה שעל הכונן חלקית.
+  String companionsMissingFromMirror(String names);
+
   // שלבי ההחלה, כפי שמוצגים במד ההתקדמות
   String applyDownloadingPatch(String step);
   String applyApplyingPatch(String step);

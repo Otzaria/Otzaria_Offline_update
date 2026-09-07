@@ -1993,6 +1993,15 @@ class _LibraryDomain extends LibraryDomainStrings {
   String companionsInstallFailed(String names) =>
       'המסד עודכן, אך התקנת הקבצים הנלווים ($names) נכשלה — ולכן ההצעה לעדכן '
       'את הספרייה תחזור.';
+  @override
+  String companionsOnlyPending(String names) =>
+      'המסד מעודכן; ממתינים קבצים נלווים: $names';
+  @override
+  String companionsOnlyPrompt(String names) =>
+      'המסד עצמו מעודכן. העדכון יתקין רק את הקבצים הנלווים: $names. להמשיך?';
+  @override
+  String companionsMissingFromMirror(String names) =>
+      'קבצים נלווים רשומים במראה אך חסרים בה בפועל: $names';
 
   @override
   String applyDownloadingPatch(String step) => 'מוריד עדכון$step...';

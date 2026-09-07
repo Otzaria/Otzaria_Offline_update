@@ -37,6 +37,22 @@ void main() {
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
+  /// אורכו האמיתי של קובץ במראה. הרשומה מצהירה עליו, ו-`pendingWork` פוסלת
+  /// רשומה שאינה תואמת — בדיוק כמו שכתיבת המראה מבטיחה.
+  int mirrorSize(String fileName) =>
+      File(p.join(mirrorDir, fileName)).lengthSync();
+
+  /// הפריטים שהבדיקה תציע. [delivered] הוא מה שהתקנה קודמת כבר מסרה כאן.
+  Future<Set<CompanionAsset>> pending([
+    Map<CompanionAsset, String> delivered = const {},
+  ]) async =>
+      (await installer.pendingWork(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+        delivered: delivered,
+      ))
+          .pending;
+
   Future<void> writeManifest(Map<String, dynamic> entries) async {
     await File(p.join(mirrorDir, CompanionMirrorManifest.fileName))
         .writeAsString(jsonEncode({
@@ -52,10 +68,7 @@ void main() {
       dbPath: dbPath,
     );
     expect(report.outcomes, isEmpty);
-    expect(
-      await installer.hasPendingWork(mirrorDir: mirrorDir, dbPath: dbPath),
-      isFalse,
-    );
+    expect(await pending(), isEmpty);
   });
 
   group('מילון החיפוש', () {
@@ -67,10 +80,7 @@ void main() {
     });
 
     test('מותקן לצד המסד עם סימון גרסה, ובריצה שנייה כבר מעודכן', () async {
-      expect(
-        await installer.hasPendingWork(mirrorDir: mirrorDir, dbPath: dbPath),
-        isTrue,
-      );
+      expect(await pending(), {CompanionAsset.dictionary});
 
       final first =
           await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
@@ -90,10 +100,9 @@ void main() {
           await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
       expect(second.outcomes[CompanionAsset.dictionary],
           CompanionInstallOutcome.alreadyUpToDate);
-      expect(
-        await installer.hasPendingWork(mirrorDir: mirrorDir, dbPath: dbPath),
-        isFalse,
-      );
+      expect(await pending(), isEmpty);
+      // מה שנרשם כ"נמסר כאן" — הראיה שמונעת הצעה חוזרת בהמשך.
+      expect(second.delivered[CompanionAsset.dictionary], 'v2');
     });
 
     test('תג שונה במראה מחליף את הקובץ המותקן', () async {
@@ -127,11 +136,15 @@ void main() {
       expect(report.outcomes[CompanionAsset.dictionary],
           CompanionInstallOutcome.failed);
       expect(report.errors[CompanionAsset.dictionary], isNotNull);
-      // העבודה אכן נשארה ממתינה — אבל עכשיו זה נאמר במקום להישמע כהצלחה.
-      expect(
-        await installer.hasPendingWork(mirrorDir: mirrorDir, dbPath: dbPath),
-        isTrue,
+      expect(report.delivered, isEmpty);
+      // הקובץ שבמראה עצמו קטוע, ולכן זו אינה הצעה שאפשר להשלים כאן: היא
+      // מדווחת כ"חסר במראה" ואינה חוזרת כ"יש עדכון" בכל פתיחה.
+      final report2 = await installer.pendingWork(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
       );
+      expect(report2.pending, isEmpty);
+      expect(report2.unavailable, {CompanionAsset.dictionary});
     });
   });
 
@@ -219,7 +232,7 @@ void main() {
       await writeManifest({
         'talmud': {
           'fileName': 'talmud_bavli_latest.tar.zst',
-          'size': 1,
+          'size': mirrorSize('talmud_bavli_latest.tar.zst'),
           'tag': 'v1',
           'sha256': 'abc123',
           'compressed': true,
@@ -266,7 +279,7 @@ void main() {
       await writeManifest({
         'talmud': {
           'fileName': 'talmud_bavli_latest.tar.zst',
-          'size': 1,
+          'size': mirrorSize('talmud_bavli_latest.tar.zst'),
           'sha256': 'abc123',
           'compressed': true,
         },
@@ -276,10 +289,7 @@ void main() {
       await File(p.join(talmudDir.path, '.version'))
           .writeAsString('installing');
 
-      expect(
-        await installer.hasPendingWork(mirrorDir: mirrorDir, dbPath: dbPath),
-        isTrue,
-      );
+      expect(await pending(), {CompanionAsset.talmud});
       final report =
           await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
       expect(report.outcomes[CompanionAsset.talmud],
@@ -300,7 +310,7 @@ void main() {
       await writeManifest({
         'talmud': {
           'fileName': 'talmud_bavli_latest.tar.zst',
-          'size': 1,
+          'size': mirrorSize('talmud_bavli_latest.tar.zst'),
           'compressed': true,
         },
       });
@@ -313,10 +323,7 @@ void main() {
           await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
       expect(second.outcomes[CompanionAsset.talmud],
           CompanionInstallOutcome.alreadyUpToDate);
-      expect(
-        await installer.hasPendingWork(mirrorDir: mirrorDir, dbPath: dbPath),
-        isFalse,
-      );
+      expect(await pending(), isEmpty);
     });
 
     /// המחיקה קדמה לחילוץ, ולכן ארכיון קטוע השאיר את המשתמש בלי התלמוד שכבר
@@ -348,6 +355,85 @@ void main() {
         'old',
       );
     });
+  });
+
+  /// **הלולאה של issue הלוג מ-0.14.** המסד מעודכן (`kind=none, 27→27`), ובכל
+  /// זאת `status=updateAvailable` בכל פתיחה, כי `companions=true`. הסיבה:
+  /// סימוני התלמוד והמילון הם digest/תג ואין ביניהם סדר, ולכן קובץ שאוצריא
+  /// עצמה רעננה מהרשת נראה בדיוק כמו קובץ ישן.
+  group('קובץ שהוחלף מחוץ ללאנצ׳ר', () {
+    setUp(() async {
+      await File(p.join(mirrorDir, 'lexical.db')).writeAsString('LEXICAL');
+      await writeManifest({
+        'dictionary': {'fileName': 'lexical.db', 'size': 7, 'tag': 'v2'},
+      });
+    });
+
+    test('מראה שכבר נמסרה כאן אינה מוצעת שוב אחרי שאוצריא החליפה את הקובץ',
+        () async {
+      final report =
+          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
+      expect(report.delivered[CompanionAsset.dictionary], 'v2');
+      final delivered = {CompanionAsset.dictionary: 'v2'};
+
+      // אוצריא הורידה מהרשת מילון אחר וכתבה סימון משלה.
+      await File(p.join(libraryDir, 'lexical.db.version')).writeAsString('v7');
+
+      // בלי הרשומה זו הייתה הצעה שחוזרת בכל פתיחה — ולחיצה עליה הייתה
+      // מורידה את המילון בחזרה ל-v2.
+      expect(await pending(), {CompanionAsset.dictionary});
+      expect(await pending(delivered), isEmpty);
+    });
+
+    test('פריט שנמחק אחרי שנמסר כן חוזר להצעה', () async {
+      await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
+      final delivered = {CompanionAsset.dictionary: 'v2'};
+      expect(await pending(delivered), isEmpty);
+
+      await File(p.join(libraryDir, 'lexical.db')).delete();
+      expect(await pending(delivered), {CompanionAsset.dictionary});
+    });
+
+    test('מראה חדשה יותר מוצעת גם אחרי שנמסרה קודמת', () async {
+      await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
+      final delivered = {CompanionAsset.dictionary: 'v2'};
+      await File(p.join(mirrorDir, 'lexical.db')).writeAsString('NEWER');
+      await writeManifest({
+        'dictionary': {'fileName': 'lexical.db', 'size': 5, 'tag': 'v3'},
+      });
+
+      expect(await pending(delivered), {CompanionAsset.dictionary});
+    });
+  });
+
+  /// רשומה שהקובץ שלה לא נסע לכונן: כהצעה היא הייתה חוזרת בכל פתיחה ונכשלת
+  /// בכל לחיצה, כי אין כאן ממה להתקין.
+  test('רשומה שהקובץ שלה חסר במראה מדווחת כחסרה ולא כהצעה', () async {
+    await writeManifest({
+      'dictionary': {'fileName': 'lexical.db', 'size': 7, 'tag': 'v2'},
+    });
+
+    final report = await installer.pendingWork(
+      mirrorDir: mirrorDir,
+      dbPath: dbPath,
+    );
+    expect(report.pending, isEmpty);
+    expect(report.unavailable, {CompanionAsset.dictionary});
+    expect(report.hasPending, isFalse);
+  });
+
+  test('רשומה שהקובץ שלה קטוע במראה (אורך שאינו תואם) אינה הצעה', () async {
+    await File(p.join(mirrorDir, 'lexical.db')).writeAsString('חלקי');
+    await writeManifest({
+      'dictionary': {'fileName': 'lexical.db', 'size': 9999, 'tag': 'v2'},
+    });
+
+    final report = await installer.pendingWork(
+      mirrorDir: mirrorDir,
+      dbPath: dbPath,
+    );
+    expect(report.pending, isEmpty);
+    expect(report.unavailable, {CompanionAsset.dictionary});
   });
 
   test('כשל בפריט אחד אינו מונע את השאר', () async {

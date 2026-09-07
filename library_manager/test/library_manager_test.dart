@@ -192,6 +192,71 @@ void main() {
     );
   }
 
+  /// **הלולאה שהלוג מ-0.14 תיעד:** `kind=none local=27 target=27` ובכל זאת
+  /// `status=updateAvailable`, כי `companions=true` — בכל פתיחה מחדש.
+  group('קבצים נלווים אינם מציעים עדכון בלי סוף', () {
+    /// מראה עם מילון בלבד: הקטן משלושת הפריטים, ובלי zstd.
+    Future<void> writeCompanionMirror({
+      required String tag,
+      required String content,
+    }) async {
+      final dir = p.join(dataDir, 'mirror', 'companions');
+      await Directory(dir).create(recursive: true);
+      await File(p.join(dir, 'lexical.db')).writeAsString(content);
+      await File(p.join(dir, 'companions.json')).writeAsString(jsonEncode({
+        'formatVersion': 1,
+        'exportedAt': DateTime.now().toIso8601String(),
+        'dictionary': {
+          'fileName': 'lexical.db',
+          'size': utf8.encode(content).length,
+          'tag': tag,
+        },
+      }));
+    }
+
+    test('אחרי התקנה, קובץ שאוצריא החליפה מהרשת אינו מחזיר את ההצעה', () async {
+      final dbPath = await installExistingDb(27, appliedTag: 'v27');
+      await writeMirror(tag: 'v27');
+      await writeCompanionMirror(tag: 'v2', content: 'LEXICAL');
+
+      final manager = LibraryManager(dataDir: dataDir);
+      addTearDown(manager.dispose);
+
+      // המסד מעודכן, ורק המילון ממתין — וזה נאמר בשמו.
+      final first = await manager.checkForUpdate();
+      expect(first.dbUpdateAvailable, isFalse);
+      expect(first.pendingCompanions, {CompanionAsset.dictionary});
+
+      await manager.applyUpdate(first);
+      expect((await manager.checkForUpdate()).updateAvailable, isFalse);
+
+      // אוצריא הורידה מהרשת מילון אחר וכתבה סימון משלה. עד עכשיו זה נראה
+      // בדיוק כמו מילון ישן: הצעה בכל פתיחה, ולחיצה שמורידה אותו אחורה.
+      await File(p.join(p.dirname(dbPath), 'lexical.db.version'))
+          .writeAsString('v7');
+
+      final after = await manager.checkForUpdate();
+      expect(after.pendingCompanions, isEmpty);
+      expect(after.updateAvailable, isFalse);
+    });
+
+    test('רשומה שהקובץ שלה חסר במראה אינה הצעה, אבל כן מדווחת', () async {
+      await installExistingDb(27, appliedTag: 'v27');
+      await writeMirror(tag: 'v27');
+      await writeCompanionMirror(tag: 'v2', content: 'LEXICAL');
+      await File(p.join(dataDir, 'mirror', 'companions', 'lexical.db'))
+          .delete();
+
+      final manager = LibraryManager(dataDir: dataDir);
+      addTearDown(manager.dispose);
+
+      final check = await manager.checkForUpdate();
+      expect(check.pendingCompanions, isEmpty);
+      expect(check.unavailableCompanions, {CompanionAsset.dictionary});
+      expect(check.updateAvailable, isFalse);
+    });
+  });
+
   group('mirrorDir / hasMirror', () {
     test('המראה יושבת תמיד באותו מקום יחסית לתיקיית הנתונים', () {
       final manager = LibraryManager(dataDir: dataDir);

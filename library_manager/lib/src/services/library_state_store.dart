@@ -164,6 +164,50 @@ class LibraryStateStore {
     await _writeAll(json);
   }
 
+  /// מזהי הגרסה של הקבצים הנלווים ש**נמסרו למחשב הזה** מהמראה, לפי שם
+  /// הפריט. זה מה שמבדיל בין "המראה חדשה ממה שמותקן" לבין "מישהו אחר —
+  /// אוצריא עצמה, מהרשת — החליף את הקובץ אחרינו": בלי הרשומה הזו כל קובץ
+  /// נלווה שלא הגיע מהמראה נראה כישן, וההצעה חזרה בכל פתיחה.
+  ///
+  /// **פר-מחשב, כי הקובץ נוסע עם הכונן**, בדיוק כמו [loadAppliedRelease].
+  Future<Map<String, String>> loadDeliveredCompanions() async {
+    final json = await _readAll();
+    final all = json['deliveredCompanions'];
+    if (all is! Map) return const {};
+    final own = all[currentMachineKey()];
+    if (own is! Map) return const {};
+    final markers = <String, String>{};
+    own.forEach((key, value) {
+      if (key is String && value is String) markers[key] = value;
+    });
+    return markers;
+  }
+
+  /// ממזג [markers] לרשומה של המחשב הזה. מיזוג ולא דריסה: התקנה שבה פריט
+  /// אחד נכשל אינה מוחקת את מה שנמסר בהתקנות קודמות.
+  Future<void> saveDeliveredCompanions(Map<String, String> markers) async {
+    if (markers.isEmpty) return;
+    final json = await _readAll();
+    final records = <String, dynamic>{};
+    final existing = json['deliveredCompanions'];
+    if (existing is Map) {
+      existing.forEach((key, value) {
+        if (key is String && value is Map) records[key] = value;
+      });
+    }
+    final own = <String, dynamic>{};
+    final previous = records[currentMachineKey()];
+    if (previous is Map) {
+      previous.forEach((key, value) {
+        if (key is String && value is String) own[key] = value;
+      });
+    }
+    own.addAll(markers);
+    records[currentMachineKey()] = own;
+    json['deliveredCompanions'] = records;
+    await _writeAll(json);
+  }
+
   /// גרסת ה-DB של כל מחשב שנרשמה בו גרסה, לפי מזהה מחשב. נכתבת **רק** בלחיצה
   /// על "זהה את גרסת המסד שלי" ואחרי עדכון שהוחל כאן — לא בבדיקה שגרתית.
   /// נוסעת עם הכונן, וזה מה שמאפשר למחשב **המקוון** לדעת מאיזו גרסה להוריד

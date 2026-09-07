@@ -173,11 +173,20 @@
 | קטלוג otzar-HB | `Otzaria/otzar-HB_catalog`, `otzar-HB_catalog.db.zst` + `version.txt` | `otzar-HB_catalog.db` | `db_meta.version` |
 | מילון החיפוש | `Otzaria/SeforimMagicIndexer`, הנכס שה-URL שלו מסתיים ב-`/lexical.db` | `lexical.db` | `lexical.db.version` = תג |
 
+**סימון גרסה אינו סדר.** ה-digest של התלמוד והתג של המילון אינם ניתנים
+להשוואה: "שונה ממה שבמראה" אינו "ישן ממה שבמראה". לכן נרשם לכל מחשב מה כבר
+נמסר לו מהמראה (`LibraryStateStore.saveDeliveredCompanions`, פר-מחשב כמו
+`appliedReleases`), ומראה שנמסרה כאן אינה מוצעת שוב — אחרת קובץ שאוצריא
+עצמה רעננה מהרשת נראה כישן, ההצעה חוזרת בכל פתיחה, ולחיצה עליה מורידה אותו
+אחורה. פריט שנמחק לגמרי כן חוזר להצעה. במקביל, רשומה שהקובץ שלה חסר או קטוע
+במראה אינה הצעה אלא דיווח (`unavailableCompanions`): אי אפשר להשלים אותה
+כאן, וכהצעה היא הייתה חוזרת לנצח.
+
 הצד המוריד הוא [`CompanionAssetsMirror`](lib/src/services/companion_assets_mirror.dart)
 (רץ בסוף `downloadToMirror`, כותב `companions.json`), והצד המתקין הוא
 [`CompanionAssetsInstaller`](lib/src/services/companion_assets_installer.dart)
 (רץ בסוף `applyUpdate`, ומדווח גם ב-`checkForUpdate` דרך
-`LibraryUpdateCheckResult.companionsPending`). כמו באוצריא, **כל פריט הוא
+`LibraryUpdateCheckResult.pendingCompanions`). כמו באוצריא, **כל פריט הוא
 best-effort**: כשל באחד לא מפיל את השאר ולא מבטל עדכון מסד שכבר הצליח.
 סימון ה-`installing` נכתב לפני חילוץ התלמוד, כך שחילוץ שנקטע מסומן
 כהתקנה חלקית ואוצריא מתעלמת ממנה.

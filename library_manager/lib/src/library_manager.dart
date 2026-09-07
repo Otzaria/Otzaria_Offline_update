@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import 'models/library_update_check_result.dart';
+import 'services/companion_assets.dart';
 import 'services/companion_assets_installer.dart';
 import 'services/companion_assets_mirror.dart';
 import 'services/external_update_notice.dart';
@@ -450,6 +451,16 @@ class LibraryManager {
     // release שמפרסם מסד מתוקן באותו db_version נראה כ"מעודכן".
     final applied = await _stateStore.loadAppliedRelease();
 
+    // מה שכבר נמסר למחשב הזה מהמראה — בלעדיו קובץ נלווה שאוצריא עצמה רעננה
+    // מהרשת נראה כישן, וההצעה חוזרת בכל פתיחה. ראו
+    // `CompanionAssetsInstaller.pendingWork`.
+    final companions = await _companionsInstaller.pendingWork(
+      mirrorDir: companionsMirrorDir,
+      dbPath: dbPath,
+      delivered:
+          _deliveredCompanions(await _stateStore.loadDeliveredCompanions()),
+    );
+
     final plan = _planner.plan(
       localVersion: local.dbVersion,
       hasLocalVersionMeta: local.hasVersionMeta,
@@ -472,10 +483,8 @@ class LibraryManager {
       isFreshInstall: isFreshInstall,
       latestVersion: discoveryResult.latestVersion,
       latestContentTag: discoveryResult.latestContentTag,
-      companionsPending: await _companionsInstaller.hasPendingWork(
-        mirrorDir: companionsMirrorDir,
-        dbPath: dbPath,
-      ),
+      pendingCompanions: companions.pending,
+      unavailableCompanions: companions.unavailable,
     );
   }
 
@@ -626,7 +635,7 @@ class LibraryManager {
 
     // הקבצים הנלווים אחרי המסד — אותו סדר כמו ב-`LibraryUpdateBloc` באוצריא,
     // ובאותה רוח: כשל בהם אינו מבטל עדכון מסד שכבר הצליח.
-    await _companionsInstaller.install(
+    final companions = await _companionsInstaller.install(
       mirrorDir: companionsMirrorDir,
       dbPath: dbPath,
       onStage: (stage) => onProgress?.call(LibraryApplyProgress(
@@ -636,9 +645,30 @@ class LibraryManager {
       onWarning: onCompanionWarning,
       isCancelled: isCancelled,
     );
+    // **הראיה שהמראה הזו נמסרה כאן.** בלעדיה הבדיקה הבאה אינה יודעת להבדיל
+    // בין קובץ ישן לבין קובץ שאוצריא החליפה אחרינו, ומציעה שוב את מה שכבר
+    // מותקן — ולכן כשל ברישום מדווח ואינו נבלע.
+    try {
+      await _stateStore.saveDeliveredCompanions({
+        for (final e in companions.delivered.entries) e.key.name: e.value,
+      });
+    } catch (e) {
+      onStateWarning?.call(e);
+    }
 
     onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.done));
     return booksTouched;
+  }
+
+  /// הרשומה שנשמרה לפי שם הפריט, מומרת חזרה ל-enum. שם שאינו מוכר (רשומה
+  /// מגרסה עתידית) פשוט נופל — הוא ייחשב "לא נמסר", ולכל היותר יוצע שוב.
+  Map<CompanionAsset, String> _deliveredCompanions(Map<String, String> raw) {
+    final byAsset = <CompanionAsset, String>{};
+    for (final asset in CompanionAsset.values) {
+      final marker = raw[asset.name];
+      if (marker != null) byAsset[asset] = marker;
+    }
+    return byAsset;
   }
 
   /// ה-release שהתוכן בגרסה [version] הגיע ממנו: ה-release החדש ביותר כשהגענו

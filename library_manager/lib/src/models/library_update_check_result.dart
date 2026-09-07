@@ -1,5 +1,7 @@
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
+import '../services/companion_assets.dart';
+
 /// תוצאת בדיקת עדכון למסד (ה-DB).
 ///
 /// [dbPath] כבר לא יכול להיות null בזרימה הרגילה: אם לא נמצא DB קיים (לא
@@ -17,7 +19,8 @@ class LibraryUpdateCheckResult {
     this.isFreshInstall = false,
     this.latestVersion,
     this.latestContentTag,
-    this.companionsPending = false,
+    this.pendingCompanions = const {},
+    this.unavailableCompanions = const {},
   });
 
   final String? dbPath;
@@ -25,10 +28,20 @@ class LibraryUpdateCheckResult {
   final LibraryUpdatePlan? plan;
   final bool isFreshInstall;
 
-  /// `true` כשבמראה יש קובץ נלווה (תלמוד/קטלוג/מילון) חדש ממה שמותקן.
+  /// הקבצים הנלווים (תלמוד/קטלוג/מילון) שבמראה יש מהם חדש ממה שמותקן.
   /// אוצריא מרעננת אותם בכל עדכון ספרייה, ולכן גם מסד מעודכן יכול להשאיר
-  /// עבודה — ראו [CompanionAssetsInstaller].
-  final bool companionsPending;
+  /// עבודה — ראו `CompanionAssetsInstaller`.
+  ///
+  /// **קבוצה ולא `bool`:** הצעה שאינה יודעת לומר על מה היא מדברת מוצגת
+  /// כ"יש עדכון לספרייה" ליד "גרסה 27 → 27", ונקראת כתקלה.
+  final Set<CompanionAsset> pendingCompanions;
+
+  /// פריטים שרשומים במניפסט של המראה אבל הקובץ שלהם חסר או קטוע שם. **אינם
+  /// הצעה** — אי אפשר להשלים אותם כאן — אבל כן מגיעים ללוג, כי הם אומרים
+  /// שהמראה שעל הכונן חלקית.
+  final Set<CompanionAsset> unavailableCompanions;
+
+  bool get companionsPending => pendingCompanions.isNotEmpty;
 
   /// הגרסה הגבוהה ביותר שיש במראה — מה שהמסד אמור להגיע אליו.
   final int? latestVersion;

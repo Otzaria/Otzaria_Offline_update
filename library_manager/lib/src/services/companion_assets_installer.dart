@@ -12,13 +12,38 @@ import 'zstd_file_decompressor.dart';
 enum CompanionInstallOutcome { alreadyUpToDate, installed, failed, missing }
 
 class CompanionInstallReport {
-  const CompanionInstallReport(this.outcomes, this.errors);
+  const CompanionInstallReport(this.outcomes, this.errors, this.delivered);
 
   final Map<CompanionAsset, CompanionInstallOutcome> outcomes;
   final Map<CompanionAsset, Object> errors;
 
+  /// מזהה הגרסה שבמראה שהפריט הזה אכן קיבל כאן. נרשם ב-state, וזה מה שמונע
+  /// הצעה חוזרת על מראה שכבר נמסרה — ראו [CompanionAssetsInstaller.pendingWork].
+  /// **רק פריטים שהצליחו**: רישום של כשל היה מבליע עבודה אמיתית.
+  final Map<CompanionAsset, String> delivered;
+
   bool get anyInstalled =>
       outcomes.values.any((o) => o == CompanionInstallOutcome.installed);
+}
+
+/// מה שבדיקת העדכון מצאה בקבצים הנלווים. **לא bool** — הצעה שאינה יודעת
+/// לומר על מה היא מדברת מוצגת כ"יש עדכון לספרייה" ליד "גרסה 27 → 27",
+/// והמשתמש קורא אותה כתקלה גם כשהיא מוצדקת.
+class CompanionPendingReport {
+  const CompanionPendingReport({
+    this.pending = const {},
+    this.unavailable = const {},
+  });
+
+  /// יש מה להתקין, והקובץ במראה שלם — הצעה שאפשר להשלים.
+  final Set<CompanionAsset> pending;
+
+  /// רשומה במניפסט שהקובץ שלה חסר או קטוע במראה. **אינה נספרת כהצעה**: היא
+  /// אינה ניתנת להשלמה במחשב הזה, וכהצעה היא הייתה חוזרת בכל פתיחה לנצח.
+  /// מדווחת בנפרד כדי שתגיע ללוג במקום להיעלם.
+  final Set<CompanionAsset> unavailable;
+
+  bool get hasPending => pending.isNotEmpty;
 }
 
 /// מתקין מהמראה את הקבצים הנלווים אל תיקיית הספרייה של אוצריא — אותם
@@ -58,8 +83,9 @@ class CompanionAssetsInstaller {
     final manifest = await CompanionMirrorManifest.load(mirrorDir);
     final outcomes = <CompanionAsset, CompanionInstallOutcome>{};
     final errors = <CompanionAsset, Object>{};
+    final delivered = <CompanionAsset, String>{};
     if (manifest == null || manifest.isEmpty) {
-      return const CompanionInstallReport({}, {});
+      return const CompanionInstallReport({}, {}, {});
     }
 
     final libraryDir = p.dirname(dbPath);
@@ -88,6 +114,9 @@ class CompanionAssetsInstaller {
         outcomes[asset] = installed
             ? CompanionInstallOutcome.installed
             : CompanionInstallOutcome.alreadyUpToDate;
+        // **רק בהצלחה.** זו הראיה שהמראה הזו כבר נמסרה כאן, ובלעדיה כשל
+        // חוזר היה נרשם כאילו הושלם ומעלים עבודה אמיתית.
+        delivered[asset] = mirrorMarkerOf(asset, entry);
       } catch (error) {
         outcomes[asset] = CompanionInstallOutcome.failed;
         errors[asset] = error;
@@ -111,26 +140,93 @@ class CompanionAssetsInstaller {
       (entry) => _installDictionary(mirrorDir, libraryDir, entry, onStage),
     );
 
-    return CompanionInstallReport(outcomes, errors);
+    return CompanionInstallReport(outcomes, errors, delivered);
   }
 
-  /// `true` אם משהו במראה חדש ממה שמותקן — כדי שהבדיקה תוכל להציע עדכון גם
-  /// כשהמסד עצמו מעודכן.
-  Future<bool> hasPendingWork({
+  /// מה שממתין בקבצים הנלווים, כדי שהבדיקה תוכל להציע עדכון גם כשהמסד עצמו
+  /// מעודכן — ותדע **לומר על מה** היא מדברת.
+  ///
+  /// [delivered] הוא מה שהתקנה קודמת של הלאנצ'ר כבר מסרה למחשב הזה, לפי
+  /// [mirrorMarkerOf]. בלעדיו ההצעה אינה נגמרת: סימוני התלמוד והמילון הם
+  /// digest/תג ואין ביניהם סדר, ולכן "שונה ממה שבמראה" אינו "ישן ממה
+  /// שבמראה" — קובץ שאוצריא עצמה רעננה מהרשת נראה כאן בדיוק כמו קובץ ישן,
+  /// ההצעה חזרה בכל פתיחה, ולחיצה עליה הייתה מורידה אותו אחורה.
+  Future<CompanionPendingReport> pendingWork({
     required String mirrorDir,
     required String dbPath,
+    Map<CompanionAsset, String> delivered = const {},
   }) async {
     final manifest = await CompanionMirrorManifest.load(mirrorDir);
-    if (manifest == null || manifest.isEmpty) return false;
+    if (manifest == null || manifest.isEmpty) {
+      return const CompanionPendingReport();
+    }
     final libraryDir = p.dirname(dbPath);
+    final pending = <CompanionAsset>{};
+    final unavailable = <CompanionAsset>{};
 
     for (final e in manifest.entries.entries) {
-      if (!_isUpToDate(e.key, libraryDir, e.value)) return true;
+      if (_isUpToDate(e.key, libraryDir, e.value)) continue;
+      // המראה הזו כבר נמסרה כאן ומשהו אחר יושב במקומה — לא מציעים שוב.
+      // התנאי השני הוא מה שמבדיל בין "הוחלף בגרסה אחרת" לבין "נמחק": פריט
+      // שנעלם לגמרי כן צריך לחזור.
+      if (delivered[e.key] == mirrorMarkerOf(e.key, e.value) &&
+          _isInstalledLocally(e.key, libraryDir)) {
+        continue;
+      }
+      // **קיום אינו שלמות.** רשומה שהקובץ שלה חסר או קטוע במראה אינה הצעה
+      // שאפשר להשלים — כהצעה היא הייתה חוזרת בכל פתיחה ונכשלת בכל לחיצה.
+      if (!_mirrorFileReady(mirrorDir, e.value)) {
+        unavailable.add(e.key);
+        continue;
+      }
+      pending.add(e.key);
     }
-    return false;
+    return CompanionPendingReport(pending: pending, unavailable: unavailable);
   }
 
-  /// הפרדיקט של פריט בודד. **נקודה אחת בלבד**, כי [hasPendingWork] וההתקנה
+  /// מזהה הגרסה של הפריט **במראה** — המחרוזת שנרשמת כ"נמסר" ונבדקת מולה.
+  static String mirrorMarkerOf(
+    CompanionAsset asset,
+    CompanionMirrorEntry entry,
+  ) {
+    switch (asset) {
+      case CompanionAsset.talmud:
+        return entry.versionMarker ?? '';
+      case CompanionAsset.catalog:
+        return entry.version?.toString() ?? '';
+      case CompanionAsset.dictionary:
+        return entry.tag ?? '';
+    }
+  }
+
+  /// הקובץ שהרשומה מצביעה עליו קיים במראה ובאורך שהיא מבטיחה. גודל 0
+  /// ברשומה (מקור שלא הצהיר על גודל) נבדק כ"לא ריק" בלבד.
+  bool _mirrorFileReady(String mirrorDir, CompanionMirrorEntry entry) {
+    if (entry.fileName.isEmpty) return false;
+    final file = File(p.join(mirrorDir, entry.fileName));
+    if (!file.existsSync()) return false;
+    final length = file.lengthSync();
+    return entry.size > 0 ? length == entry.size : length > 0;
+  }
+
+  /// האם הפריט קיים כאן בכלל, בלי לשאול באיזו גרסה. מבדיל בין "מישהו אחר
+  /// החליף אותו" (לא מציעים שוב) לבין "נמחק" (כן מציעים).
+  bool _isInstalledLocally(CompanionAsset asset, String libraryDir) {
+    switch (asset) {
+      case CompanionAsset.talmud:
+        final marker =
+            File(p.join(libraryDir, talmudFolderName, talmudVersionFileName));
+        return marker.existsSync() &&
+            marker.readAsStringSync().trim() != talmudInstallingMarker;
+      case CompanionAsset.catalog:
+        return File(p.join(libraryDir, catalogDatabaseFileName)).existsSync();
+      case CompanionAsset.dictionary:
+        final file = File(p.join(libraryDir, dictionaryFileName));
+        return file.existsSync() && file.lengthSync() > 0;
+    }
+  }
+
+  /// הפרדיקט של פריט בודד. **נקודה אחת בלבד**, כי [pendingWork] וההתקנה
   /// חייבים לשאול בדיוק את אותה שאלה: פרדיקט שנענה "לא מעודכן" אחרי התקנה
   /// שהצליחה הוא הצעת עדכון שחוזרת בכל פתיחה.
   bool _isUpToDate(

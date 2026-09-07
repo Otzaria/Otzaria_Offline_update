@@ -330,6 +330,36 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     }
   }
 
+  /// הקבצים הנלווים שממתינים, בשמם — זה מה שהמסך אומר במקום "יש עדכון"
+  /// סתמי ליד "גרסה 27 → 27". ריק כשההצעה היא על המסד עצמו.
+  Set<CompanionAsset> pendingCompanions = const {};
+
+  /// פריטים שרשומים במראה אבל הקובץ שלהם חסר או קטוע שם. לא הצעה — אבל כן
+  /// נאמר, כי המראה שעל הכונן חלקית.
+  Set<CompanionAsset> unavailableCompanions = const {};
+
+  /// ההצעה הנוכחית היא **רק** על קבצים נלווים: המסד עצמו מעודכן.
+  bool get companionsOnly =>
+      status == LibraryModuleStatus.updateAvailable &&
+      !(_lastCheck?.dbUpdateAvailable ?? false) &&
+      pendingCompanions.isNotEmpty;
+
+  /// שמות הפריטים, מופרדים בפסיק — לתצוגה ולדיאלוג.
+  String get pendingCompanionNames => _companionNames(pendingCompanions);
+  String get unavailableCompanionNames =>
+      _companionNames(unavailableCompanions);
+
+  String _companionNames(Set<CompanionAsset> assets) {
+    final t = AppL10n.strings.libraryDomain;
+    return assets
+        .map((a) => switch (a) {
+              CompanionAsset.talmud => t.companionTalmudName,
+              CompanionAsset.catalog => t.companionCatalogName,
+              CompanionAsset.dictionary => t.companionDictionaryName,
+            })
+        .join(', ');
+  }
+
   /// ראו [_checkInFlight] — קריאה שמגיעה בזמן בדיקה פעילה מצטרפת אליה.
   Future<void> checkForUpdate() {
     final inFlight = _checkInFlight;
@@ -361,6 +391,8 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       // השדה מלא, בלי קשר ל-status, ולכן היא שרדה בדיקה שהצליחה.
       errorMessage = null;
       canRetryWithFullDownload = false;
+      pendingCompanions = check.pendingCompanions;
+      unavailableCompanions = check.unavailableCompanions;
 
       if (check.needsManualDbPath) {
         status = LibraryModuleStatus.needsManualPath;
@@ -385,6 +417,8 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       // ולא מוצג כתקלה.
       status = LibraryModuleStatus.needsDownload;
       mirrorMissing = true;
+      pendingCompanions = const {};
+      unavailableCompanions = const {};
       // הגרסה המקומית ידועה גם בלי מראה: הבדיקה כבר קראה אותה מהמסד לפני
       // שנכשלה. בלי זה המסך מציג "לא ידוע" למסד שנמצא ונקרא בהצלחה — מה
       // שמשתמש שבחר את הקובץ ידנית רואה כ"לא מזהה את המסד".
@@ -394,6 +428,8 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     } catch (e, st) {
       status = LibraryModuleStatus.error;
       errorMessage = e.toString();
+      pendingCompanions = const {};
+      unavailableCompanions = const {};
       AppLogger.instance.error('checkForUpdate נכשל', e, st);
     }
     // הבדיקה עצמה כבר איתרה את הנתיב — גם כשהיא נכשלה אחר כך (למשל אין
@@ -411,7 +447,9 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       'checkForUpdate: status=$status kind=${check?.plan?.kind} '
       'local=$localVersion target=$targetVersion '
       'planTarget=${check?.plan?.targetVersion} latest=${check?.latestVersion} '
-      'companions=${check?.companionsPending} fresh=$isFreshInstall '
+      'companions=[${_companionNames(pendingCompanions)}] '
+      'companionsMissingInMirror=[${_companionNames(unavailableCompanions)}] '
+      'fresh=$isFreshInstall '
       'mirrorMissing=$mirrorMissing reindex=$hasPendingReindex db=$dbPath',
     );
     notifyListeners();

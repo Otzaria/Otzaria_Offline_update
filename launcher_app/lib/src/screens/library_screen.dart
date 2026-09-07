@@ -124,6 +124,15 @@ class LibraryScreen extends StatelessWidget {
                   : t.targetVersionUnknown),
           subtitleLtr: c.targetVersion != null,
         ),
+        // רשומה במראה שהקובץ שלה לא נסע לכונן. אינה הצעה — ולכן היא הייתה
+        // נעלמת לגמרי בלי השורה הזו.
+        if (c.unavailableCompanions.isNotEmpty)
+          SettingsActionTile.text(
+            icon: FluentIcons.warning_24_regular,
+            title: t.updateRouteNoteTitle,
+            subtitle: AppL10n.strings.libraryDomain
+                .companionsMissingFromMirror(c.unavailableCompanionNames),
+          ),
         // הורדה של מסד שלם במקום קובצי עדכון היא הפרש של שלוש סדרי גודל,
         // ולכן הסיבה נאמרת ולא נשארת בלוג בלבד.
         if (c.updateRouteNote case final note?)
@@ -227,9 +236,14 @@ class LibraryScreen extends StatelessWidget {
     final approved = await showTwoActionsDialog(
       context: context,
       title: context.strings.libraryScreen.updateDialogTitle,
-      content: c.isFreshInstall
-          ? home.libraryFreshInstallPrompt('${c.targetVersion}')
-          : home.libraryUpdatePrompt('${c.localVersion}', '${c.targetVersion}'),
+      content: switch (c) {
+        _ when c.isFreshInstall =>
+          home.libraryFreshInstallPrompt('${c.targetVersion}'),
+        _ when c.companionsOnly => AppL10n.strings.libraryDomain
+            .companionsOnlyPrompt(c.pendingCompanionNames),
+        _ =>
+          home.libraryUpdatePrompt('${c.localVersion}', '${c.targetVersion}'),
+      },
       subtitle: home.doNotRemoveDriveWarning,
       confirmText: home.libraryUpdateConfirm,
     );

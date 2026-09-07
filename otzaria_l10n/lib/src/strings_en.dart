@@ -2130,6 +2130,16 @@ class _LibraryDomain extends LibraryDomainStrings {
   String companionsInstallFailed(String names) =>
       'The database was updated, but installing the companion files ($names) '
       'failed — so the library update will keep being offered.';
+  @override
+  String companionsOnlyPending(String names) =>
+      'The database is up to date; companion files pending: $names';
+  @override
+  String companionsOnlyPrompt(String names) =>
+      'The database itself is up to date. The update will only install the '
+      'companion files: $names. Continue?';
+  @override
+  String companionsMissingFromMirror(String names) =>
+      'Companion files listed in the mirror but missing from it: $names';
 
   @override
   String applyDownloadingPatch(String step) => 'Downloading the update$step…';
