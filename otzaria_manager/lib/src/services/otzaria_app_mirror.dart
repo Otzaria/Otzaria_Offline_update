@@ -55,9 +55,16 @@ class OtzariaAppMirror {
     required OtzariaReleaseClient releaseClient,
     required OtzariaInstaller installer,
     OtzariaChangelogClient? changelogClient,
+    OtzariaTargetPlatform? platform,
   })  : _releaseClient = releaseClient,
         _installer = installer,
-        _changelogClient = changelogClient ?? OtzariaChangelogClient();
+        _changelogClient = changelogClient ?? OtzariaChangelogClient(),
+        _platform = platform ??
+            OtzariaTargetPlatform.detectOrNull(Platform.operatingSystem);
+
+  /// הפלטפורמה שהמראה נקראת בה — ראו [load]. `null` = פלטפורמה שאין לה
+  /// מסלול התקנה (לינוקס, שם רצות הבדיקות ב-CI), ואז אין סינון בכלל.
+  final OtzariaTargetPlatform? _platform;
 
   /// `<dataDir>/mirror/app` — נוסע עם התוכנה על הכונן הנייד.
   final String mirrorDir;
@@ -129,7 +136,12 @@ class OtzariaAppMirror {
       );
 
   /// רשומת ערוץ בודדת מתוך המטא־דאטה, או `null` אם היא חסרה/פגומה/מצביעה
-  /// על קובץ התקנה שאינו שם.
+  /// על קובץ התקנה שאינו שם — **או שהיא של פלטפורמה אחרת**.
+  ///
+  /// הכונן נוסע בין מחשבים, ומי שהוריד בווינדוס נושא עליו `.exe` של Inno.
+  /// בלי הפסילה כאן מסלול ההתקנה ב-macOS היה מנסה להריץ אותו ונופל
+  /// ב-ProcessException; "אין מראה — יש להריץ הורדה" היא התשובה הנכונה,
+  /// והממשק כבר יודע לומר אותה.
   Future<MirroredOtzariaRelease?> _entryFrom(Object? raw) async {
     if (raw is! Map<String, dynamic>) return null;
 
@@ -144,6 +156,11 @@ class OtzariaAppMirror {
       installerPath =
           p.joinAll([mirrorDir, ...relative.split(RegExp(r'[/\\]'))]);
     } catch (_) {
+      return null;
+    }
+
+    final platform = _platform;
+    if (platform != null && release.installerKind.targetPlatform != platform) {
       return null;
     }
 

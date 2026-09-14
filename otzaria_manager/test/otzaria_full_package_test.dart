@@ -64,6 +64,7 @@ Future<void> _writeMirror(
 
 OtzariaAppMirror _mirrorAt(Directory dir) => OtzariaAppMirror(
       mirrorDir: dir.path,
+      platform: OtzariaTargetPlatform.windows,
       releaseClient: OtzariaReleaseClient(
         platform: OtzariaTargetPlatform.windows,
       ),
@@ -203,6 +204,7 @@ void main() {
 
     OtzariaAppMirror mirror(http.Client c) => OtzariaAppMirror(
           mirrorDir: temp.path,
+          platform: OtzariaTargetPlatform.windows,
           releaseClient: OtzariaReleaseClient(
             httpClient: c,
             platform: OtzariaTargetPlatform.windows,

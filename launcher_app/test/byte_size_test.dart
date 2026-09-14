@@ -69,6 +69,12 @@ void main() {
       expect(formatBytesProgress(null, null), isNull);
     });
 
+    test('הורדה שאין בה מה להוריד — בלי "0 בייט" מיותר', () {
+      // כל הקבצים כבר על הכונן: היעד 0, ואין מה להציג.
+      expect(formatBytesProgress(0, 0), isNull);
+      expect(formatBytesProgress(0, null), isNull);
+    });
+
     test('בלי יעד ידוע — רק כמה ירד עד כה', () {
       final kb2 = AppL10n.strings.units.kilobytes('2');
       expect(formatBytesProgress(2048, null), kb2);

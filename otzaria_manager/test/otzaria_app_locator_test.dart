@@ -253,5 +253,37 @@ void main() {
         p.join(tempDir.path, 'nested', 'אוצריא.app'),
       );
     });
+
+    // התאום ב-macOS של המלכודת המתועדת בווינדוס ("התאמת שם לא תתאים
+    // ללאנצ'ר עצמו"): שם החבילה שלנו הוא `Otzaria Launcher.app`, ולכן
+    // `nameLooksLikeOtzaria` מחזיר עליו true — וגרירה ל-/Applications היא
+    // *הדרך* להתקין ב-macOS.
+    test('the launcher own bundle is never adopted as Otzaria', () async {
+      Directory(p.join(tempDir.path, 'Otzaria Launcher.app'))
+          .createSync(recursive: true);
+
+      expect(await locator.findIn(tempDir.path, macMaxDepth: 1), isNull);
+    });
+
+    test('our own bundle loses even when it sorts before the real one',
+        () async {
+      Directory(p.join(tempDir.path, 'Otzaria Launcher.app'))
+          .createSync(recursive: true);
+      Directory(p.join(tempDir.path, 'אוצריא.app')).createSync(recursive: true);
+
+      expect(
+        await locator.findIn(
+          tempDir.path,
+          accept: (path) => OtzariaAppLocator.nameLooksLikeOtzaria(path),
+          macMaxDepth: 1,
+        ),
+        p.join(tempDir.path, 'אוצריא.app'),
+      );
+    });
+
+    test('isOurOwnExe covers the macOS bundle name too', () {
+      expect(OtzariaAppLocator.isOurOwnExe('Otzaria Launcher.app'), isTrue);
+      expect(OtzariaAppLocator.isOurOwnExe('אוצריא.app'), isFalse);
+    });
   });
 }

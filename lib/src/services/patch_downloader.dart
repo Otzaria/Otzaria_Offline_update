@@ -171,6 +171,7 @@ class PatchDownloader {
     String? resumeToken,
     void Function(int downloaded, int? total)? onProgress,
     void Function(int verified, int total)? onVerifyProgress,
+    void Function(int bytes)? onExistingBytes,
     bool Function()? isCancelled,
   }) async {
     // ביטול בכניסה חייב לקדום לכל שינוי (מחיקת קובץ קיים, כתיבת קובץ צד) ולכל
@@ -239,6 +240,8 @@ class PatchDownloader {
 
       var downloaded = offset;
       Digest? streamDigest;
+      // התחילית שכבר על הדיסק אינה עוברת ברשת ואינה נספרת במד.
+      if (offset > 0) onExistingBytes?.call(offset);
       if (!alreadyComplete) {
         if (resumeToken != null) {
           _writeSidecar(sidecarPath, resumeToken, storedValidator);
@@ -254,6 +257,7 @@ class PatchDownloader {
           resumeToken: resumeToken,
           onProgress: onProgress,
           onVerifyProgress: onVerifyProgress,
+          onExistingBytes: onExistingBytes,
           isCancelled: isCancelled,
         );
         downloaded = outcome.downloaded;
@@ -331,6 +335,7 @@ class PatchDownloader {
     String? resumeToken,
     void Function(int downloaded, int? total)? onProgress,
     void Function(int verified, int total)? onVerifyProgress,
+    void Function(int bytes)? onExistingBytes,
     bool Function()? isCancelled,
   }) async {
     // כובל את הבייטים לגרסת השרת דרך קובץ הצד: נכתב ברגע שהם מגיעים כדי שהפרעה
@@ -407,6 +412,8 @@ class PatchDownloader {
               }
               validator = _strongEtag(response.headers['etag']);
               persistValidator(validator);
+              // התחילית נמחקה — כל הקובץ יורד, ואין עוד מה לנכות מהמד.
+              onExistingBytes?.call(0);
             } catch (_) {
               // התגובה כבר פתוחה — משחררים את החיבור לפני הפצת השגיאה.
               await _abandonBody(response);
@@ -646,6 +653,7 @@ class PatchDownloader {
             );
           }
           currentOffset = 0;
+          onExistingBytes?.call(0);
           validator = null;
           continue;
         }

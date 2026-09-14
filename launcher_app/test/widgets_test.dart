@@ -13,6 +13,7 @@ import 'package:launcher_app/src/theme/theme_exports.dart';
 import 'package:launcher_app/src/widgets/screen_body.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:window_manager/window_manager.dart';
 
 final AppStrings he = AppL10n.stringsFor(AppLanguage.hebrew);
 final AppStrings en = AppL10n.stringsFor(AppLanguage.english);
@@ -1379,6 +1380,65 @@ void main() {
           );
         }
       }
+    });
+  });
+
+  // `WindowCaption` של window_manager הוא, לפי התיעוד שלו, "סימולציה של
+  // שורת הכותרת של Windows 11". ב-macOS מערכת ההפעלה מציירת את שלושת
+  // הכפתורים העגולים בפינה השמאלית בעצמה, ולכן ציור שלנו בצד השני נותן
+  // שתי שלישיות בשורה אחת — וגם חוסם את מה שיושב תחתיו.
+  group('AppTitleBar — שתי הפריסות', () {
+    testWidgets('macOS: בלי כפתורים משלנו, ועם מקום לכפתורי המערכת',
+        (tester) async {
+      await tester.pumpWidget(wrap(
+        const AppTitleBar(screenTitle: 'מסך', isMacOS: true),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(WindowCaption), findsNothing);
+
+      // הריווח הוא **פיזי** ולא לוגי: ב-RTL הוא היה עובר לצד הלא נכון.
+      final container = tester.widget<Container>(
+        find
+            .ancestor(
+              of: find.byType(DragToMoveArea).first,
+              matching: find.byType(Container),
+            )
+            .first,
+      );
+      final padding = container.padding!.resolve(TextDirection.rtl);
+      expect(padding.left, greaterThan(0));
+      expect(padding.right, 0);
+    });
+
+    testWidgets('ווינדוס: הכפתורים שלנו מצוירים', (tester) async {
+      await tester.pumpWidget(wrap(
+        const AppTitleBar(
+          screenTitle: 'מסך',
+          isMacOS: false,
+          showWindowButtons: true,
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(WindowCaption), findsOneWidget);
+    });
+
+    testWidgets('macOS: גם כשמזריקים showWindowButtons אין ריווח בצד הסיום',
+        (tester) async {
+      // הזרקת `false` היא מה שכל בדיקות המסכים עושות; הריווח אינו תלוי בה.
+      await tester.pumpWidget(wrap(
+        const AppTitleBar(
+          screenTitle: 'מסך',
+          isMacOS: true,
+          showWindowButtons: false,
+        ),
+        language: AppLanguage.english,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(WindowCaption), findsNothing);
     });
   });
 }

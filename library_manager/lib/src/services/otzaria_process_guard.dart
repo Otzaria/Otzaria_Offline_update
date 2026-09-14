@@ -75,7 +75,14 @@ class OtzariaProcessGuard {
   ///
   /// קודי היציאה של pgrep: 0 = נמצא, 1 = לא נמצא, ≥2 = שגיאה אמיתית.
   Future<bool> _isRunningPosix(String processName) async {
-    final result = await Process.run('/usr/bin/pgrep', ['-x', processName]);
+    final ProcessResult result;
+    try {
+      result = await Process.run('/usr/bin/pgrep', ['-x', processName]);
+    } on ProcessException {
+      // הכלי עצמו חסר או חסום. כמו כשל בהרצתו — חוסמים, ולא מפילים את
+      // הבדיקה בחריג שבורח אל הקורא (`RunningOtzariaLocator` נוהג כך גם הוא).
+      return true;
+    }
 
     return switch (result.exitCode) {
       0 => true,

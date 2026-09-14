@@ -111,9 +111,9 @@ void main() {
 
       final a = aggregator.slot();
       final b = aggregator.slot();
-      a(50, 100);
-      b(80, 200);
-      a(100, 100);
+      a.report(50, 100);
+      b.report(80, 200);
+      a.report(100, 100);
 
       expect(reports.last, (downloaded: 180, total: 300));
     });
@@ -125,9 +125,9 @@ void main() {
         onProgress: (downloaded, _) => last = downloaded,
       );
       final slot = aggregator.slot();
-      slot(100, 100); // הקובץ כבר שלם
-      slot(0, 100); // ואז אימות sha256 מתחיל מאפס
-      slot(40, 100);
+      slot.report(100, 100); // הקובץ כבר שלם
+      slot.report(0, 100); // ואז אימות sha256 מתחיל מאפס
+      slot.report(40, 100);
       expect(last, 100);
     });
 
@@ -138,10 +138,10 @@ void main() {
       );
       final a = aggregator.slot();
       final b = aggregator.slot();
-      a(10, 100);
+      a.report(10, 100);
       // כל עוד יש משבצת בלי total ידוע, אין סכום לדווח.
       expect(lastTotal, isNull);
-      b(10, 50);
+      b.report(10, 50);
       expect(lastTotal, 150);
     });
 
@@ -151,8 +151,91 @@ void main() {
         totalBytes: 100,
         onProgress: (_, total) => lastTotal = total,
       );
-      aggregator.slot()(140, null);
+      aggregator.slot().report(140, null);
       expect(lastTotal, 140);
+    });
+
+    test('נכס שכבר על הדיסק יורד משני האגפים — יעד ומונה', () {
+      var lastReceived = -1;
+      int? lastTotal;
+      final aggregator = ByteProgressAggregator(
+        totalBytes: 1500,
+        onProgress: (received, total) {
+          lastReceived = received;
+          lastTotal = total;
+        },
+      );
+
+      final onDisk = aggregator.slot();
+      final downloading = aggregator.slot();
+      // 500 שכבר על הכונן: מדווחים כשלמים, ואז מאומתים מאפס.
+      onDisk.markExisting(500);
+      onDisk.report(500, 500);
+      onDisk.report(250, 500); // אימות sha256
+      downloading.report(400, 1000);
+
+      expect(lastReceived, 400);
+      expect(lastTotal, 1000);
+    });
+
+    test('הורדה שכל קבציה כבר על הכונן — יעד 0, בלי חלוקה באפס בממשק', () {
+      var lastReceived = -1;
+      int? lastTotal;
+      final aggregator = ByteProgressAggregator(
+        totalBytes: 700,
+        onProgress: (received, total) {
+          lastReceived = received;
+          lastTotal = total;
+        },
+      );
+
+      final slot = aggregator.slot();
+      slot.markExisting(700);
+      slot.report(700, 700);
+
+      expect(lastReceived, 0);
+      expect(lastTotal, 0);
+    });
+
+    test('תחילית להמשך נספרת רק מהבייט שבאמת ירד', () {
+      var lastReceived = -1;
+      int? lastTotal;
+      final aggregator = ByteProgressAggregator(
+        totalBytes: 1000,
+        onProgress: (received, total) {
+          lastReceived = received;
+          lastTotal = total;
+        },
+      );
+
+      final slot = aggregator.slot();
+      slot.markExisting(300); // 300 כבר על הדיסק מהורדה שנקטעה
+      slot.report(300, 1000);
+      expect(lastReceived, 0);
+      expect(lastTotal, 700);
+
+      slot.report(800, 1000);
+      expect(lastReceived, 500);
+    });
+
+    test('תחילית שנזרקה (שרת שהתעלם מ-Range) חוזרת להיספר', () {
+      var lastReceived = -1;
+      int? lastTotal;
+      final aggregator = ByteProgressAggregator(
+        totalBytes: 1000,
+        onProgress: (received, total) {
+          lastReceived = received;
+          lastTotal = total;
+        },
+      );
+
+      final slot = aggregator.slot();
+      slot.markExisting(300);
+      slot.markExisting(0); // הקובץ נמחק, הכול יורד מחדש
+      slot.report(1000, 1000);
+
+      expect(lastReceived, 1000);
+      expect(lastTotal, 1000);
     });
   });
 }

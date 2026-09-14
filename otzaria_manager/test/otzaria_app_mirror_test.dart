@@ -70,8 +70,11 @@ void main() {
   setUp(() async {
     temp = await Directory.systemTemp.createTemp('otzaria-mirror-test');
     // sync() לא נקרא בבדיקות האלה, ולכן הלקוח וה-installer לא בשימוש.
+    // `platform` מפורש: הנכסים כאן הם של ווינדוס, וברירת המחדל (המכונה
+    // שמריצה) הייתה פוסלת אותם כשהבדיקות רצות על מק.
     mirror = OtzariaAppMirror(
       mirrorDir: temp.path,
+      platform: OtzariaTargetPlatform.windows,
       releaseClient: OtzariaReleaseClient(
         platform: OtzariaTargetPlatform.windows,
       ),
@@ -235,6 +238,28 @@ void main() {
 
       expect((await mirror.load()).isEmpty, isTrue);
     });
+
+    // הכונן נוסע בין מחשבים: מי שהוריד במחשב ווינדוס נושא עליו `.exe` של
+    // Inno, ומק שקורא אותו היה מנסה להריץ אותו.
+    test('מראה של ווינדוס נקראת כריקה במק, ולא כהתקנה שאפשר להריץ', () async {
+      await _writeMirror(temp, stable: _release(isPrerelease: false));
+
+      final macMirror = OtzariaAppMirror(
+        mirrorDir: temp.path,
+        platform: OtzariaTargetPlatform.macos,
+        releaseClient: OtzariaReleaseClient(
+          platform: OtzariaTargetPlatform.macos,
+        ),
+        installer: OtzariaInstaller(
+          cacheDir: p.join(temp.path, 'installers'),
+          appLocator: const OtzariaAppLocator(
+            platform: OtzariaTargetPlatform.macos,
+          ),
+        ),
+      );
+
+      expect((await macMirror.load()).isEmpty, isTrue);
+    });
   });
 
   test('OtzariaRelease עובר round-trip דרך JSON', () {
@@ -290,6 +315,7 @@ void main() {
     }) async {
       return OtzariaAppMirror(
         mirrorDir: tempDir.path,
+        platform: OtzariaTargetPlatform.windows,
         releaseClient: OtzariaReleaseClient(
           platform: OtzariaTargetPlatform.windows,
           httpClient: releasesHttpClient,

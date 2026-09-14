@@ -998,7 +998,8 @@ void main() {
       );
 
       // לא הורד דבר, ובעיקר: לא נמחק דבר ממה שכבר היה על הכונן.
-      expect(again.fetched, isEmpty);
+      // המניפסטים נקראים שוב בתכנון; הנכסים עצמם כבר על הכונן ואינם יורדים.
+      expect(again.fetched, isNot(contains('seforim.db.zst')));
       expect(mirroredTags(destDir), ['v3']);
       expect(assetOnDisk(destDir, 'v3', 'seforim.db.zst'), isTrue);
     });
@@ -1401,6 +1402,34 @@ void main() {
       expect(received.last, lastTotal);
       // 4096 + 64 + 32 + שני ה-manifests הקטנים.
       expect(received.last, greaterThan(4096 + 64 + 32));
+    });
+
+    test('נכס שכבר שלם על הכונן אינו נספר במד — לא ביעד ולא במונה', () async {
+      final sizes = {
+        'seforim.db.zst': 4096,
+        'patch-v2-v3.db.zst': 64,
+        'patch-v1-v2.db.zst': 32,
+      };
+      await buildExporter(parallelReleases(), assetSizes: sizes)
+          .exporter
+          .export(destDir: destDir);
+
+      // ריצה שנייה על אותה מראה: הכול כבר שם, ולכן שום בייט אינו עובר ברשת.
+      var lastReceived = -1;
+      int? lastTotal;
+      final again = buildExporter(parallelReleases(), assetSizes: sizes);
+      await again.exporter.export(
+        destDir: destDir,
+        onBytesProgress: (downloaded, total) {
+          lastReceived = downloaded;
+          lastTotal = total;
+        },
+      );
+
+      // המניפסטים נקראים שוב בתכנון; הנכסים עצמם כבר על הכונן ואינם יורדים.
+      expect(again.fetched, isNot(contains('seforim.db.zst')));
+      expect(lastTotal, 0);
+      expect(lastReceived, 0);
     });
 
     test('כשל בנכס אחד מפיל את הייצוא ואינו כותב מראה חלקית', () async {

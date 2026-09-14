@@ -26,6 +26,17 @@ enum OtzariaTargetPlatform {
     };
   }
 
+  /// כמו [detect], אבל `null` במקום חריג. למי שהפלטפורמה היא אצלו *סינון*
+  /// ולא הכרעה — למשל `OtzariaAppMirror`, שרץ גם בלינוקס תחת הבדיקות
+  /// ואסור לו להפיל אותן שם.
+  static OtzariaTargetPlatform? detectOrNull(String operatingSystem) {
+    return switch (operatingSystem) {
+      'windows' => OtzariaTargetPlatform.windows,
+      'macos' => OtzariaTargetPlatform.macos,
+      _ => null,
+    };
+  }
+
   /// תווית לשימוש בהודעות שגיאה למשתמש.
   String get label => switch (this) {
         OtzariaTargetPlatform.windows => 'Windows',
@@ -50,6 +61,11 @@ enum OtzariaInstallerKind {
   bool get isMac =>
       this == OtzariaInstallerKind.macAppZip ||
       this == OtzariaInstallerKind.macAppDmg;
+
+  /// הפלטפורמה שהאסט הזה מתקין עליה. הכונן נוסע בין מחשבים, ולכן מראה
+  /// שנכתבה בווינדוס עלולה להיקרא במק — ראו `OtzariaAppMirror.load`.
+  OtzariaTargetPlatform get targetPlatform =>
+      isMac ? OtzariaTargetPlatform.macos : OtzariaTargetPlatform.windows;
 }
 
 /// חבילת ה-FULL של release — אותו מתקין, אבל עם **הספרייה בתוכו**

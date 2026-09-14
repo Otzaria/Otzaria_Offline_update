@@ -134,7 +134,7 @@ class CompanionAssetsMirror {
   Future<CompanionMirrorEntry?> _syncTalmud(
     String destDir,
     void Function(String stage)? onStage,
-    void Function(int downloaded, int? total)? onBytesProgress,
+    ByteProgressSlot progress,
     bool Function()? isCancelled,
   ) async {
     final strings = AppL10n.strings.libraryDomain;
@@ -146,7 +146,7 @@ class CompanionAssetsMirror {
       size: release.size,
       sha256: release.sha256,
       identity: release.identity,
-      onBytesProgress: onBytesProgress,
+      progress: progress,
       isCancelled: isCancelled,
     );
     return CompanionMirrorEntry(
@@ -161,7 +161,7 @@ class CompanionAssetsMirror {
   Future<CompanionMirrorEntry?> _syncCatalog(
     String destDir,
     void Function(String stage)? onStage,
-    void Function(int downloaded, int? total)? onBytesProgress,
+    ByteProgressSlot progress,
     bool Function()? isCancelled,
   ) async {
     final strings = AppL10n.strings.libraryDomain;
@@ -196,7 +196,7 @@ class CompanionAssetsMirror {
       size: chosen.size,
       sha256: chosen.sha256,
       identity: chosen.identity,
-      onBytesProgress: onBytesProgress,
+      progress: progress,
       isCancelled: isCancelled,
     );
     return CompanionMirrorEntry(
@@ -211,7 +211,7 @@ class CompanionAssetsMirror {
   Future<CompanionMirrorEntry?> _syncDictionary(
     String destDir,
     void Function(String stage)? onStage,
-    void Function(int downloaded, int? total)? onBytesProgress,
+    ByteProgressSlot progress,
     bool Function()? isCancelled,
   ) async {
     final strings = AppL10n.strings.libraryDomain;
@@ -234,7 +234,7 @@ class CompanionAssetsMirror {
       size: asset.size,
       sha256: asset.sha256,
       identity: asset.identity,
-      onBytesProgress: onBytesProgress,
+      progress: progress,
       isCancelled: isCancelled,
     );
     return CompanionMirrorEntry(
@@ -251,7 +251,7 @@ class CompanionAssetsMirror {
     required int size,
     required String? sha256,
     required String identity,
-    void Function(int downloaded, int? total)? onBytesProgress,
+    required ByteProgressSlot progress,
     bool Function()? isCancelled,
   }) {
     return _downloader.downloadToFile(
@@ -260,7 +260,9 @@ class CompanionAssetsMirror {
       expectedSize: size > 0 ? size : null,
       expectedSha256: sha256,
       resumeToken: identity,
-      onProgress: onBytesProgress,
+      onProgress: progress.report,
+      // קובץ נלווה שכבר על הכונן אינו יורד — ואינו נספר במד.
+      onExistingBytes: progress.markExisting,
       isCancelled: isCancelled,
     );
   }

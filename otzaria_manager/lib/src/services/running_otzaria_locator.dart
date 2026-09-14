@@ -96,6 +96,7 @@ class RunningOtzariaLocator {
     final executablePath = selectMacExecutablePath(
       const LineSplitter().convert(result.stdout.toString()),
       processNamesFor('macos'),
+      selfExecutable: Platform.resolvedExecutable,
     );
     if (executablePath == null) return (isRunning: false, launchPath: null);
 
@@ -173,14 +174,21 @@ class RunningOtzariaLocator {
   ///
   /// ההתאמה היא על שם הקובץ **במלואו**, כמו `pgrep -x` — ולא כתת-מחרוזת,
   /// שהייתה תופסת גם את הלאנצ'ר עצמו: הנתיב שלו מכיל את המילה otzaria.
+  ///
+  /// [selfExecutable] הוא קובץ ההרצה של הלאנצ'ר, ותהליך שרץ ממנו נפסל —
+  /// המקבילה ל-[_isSelf] שבמסלול ווינדוס. שם הלאנצ'ר ב-macOS אמנם שונה
+  /// (`Otzaria Launcher`, ראו `AppInfo.xcconfig`), אבל ההסתמכות על כך לבדה
+  /// היא בדיוק סוג ההנחה שכבר נשברה כאן פעם אחת.
   static String? selectMacExecutablePath(
     Iterable<String> psLines,
-    List<String> processNames,
-  ) {
+    List<String> processNames, {
+    String? selfExecutable,
+  }) {
     for (final line in psLines) {
       final path = line.trim();
       if (path.isEmpty) continue;
       if (!processNames.contains(p.basename(path))) continue;
+      if (selfExecutable != null && p.equals(path, selfExecutable)) continue;
       return path;
     }
     return null;

@@ -12,18 +12,29 @@ import 'package:path/path.dart' as p;
 /// **המתקין של אוצריא אינו זקוק לזה** — Inno מרים את עצמו (ולכן קוד יציאה
 /// 1223 מטופל כסירוב ל-UAC). מה שכן זקוק הוא מה שהלאנצ'ר כותב בעצמו:
 /// המסד, קובצי הנלווים והתוספים.
+///
+/// **ב-macOS אין הרמה בכלל**, ולכן [restartElevated] מסרבת שם ו-`AppShell`
+/// אינו מציע אותה: אפליקציה אינה יכולה להרים את עצמה (`osascript` עם
+/// `with administrator privileges` מריץ *פקודת מעטפת* כ-root, לא את
+/// האפליקציה, והוא גם מקפיץ בקשת סיסמה שנראית בדיוק כמו הונאה). מה שכן
+/// עוזר שם הוא לבחור מיקום שהחשבון יכול לכתוב אליו — וזה מה ש-[describe]
+/// אומר — או גישה מלאה לדיסק בהגדרות המערכת.
 class Elevation {
   const Elevation._();
 
   /// הזיהוי העיקרי הוא קוד השגיאה של מערכת ההפעלה, ולא טקסט: ההודעה עצמה
   /// מתורגמת לשפת ווינדוס, ובעברית "הגישה נדחתה" לא היה נתפס.
-  static bool isAccessDenied(Object error) {
+  static bool isAccessDenied(Object error, {bool? isWindows}) {
     if (error is FileSystemException) {
       final code = error.osError?.errorCode;
       if (code != null) {
-        // 5 = ERROR_ACCESS_DENIED, 13 = EACCES. אינם אותו מספר, ולכן לפי
-        // הפלטפורמה: 13 בווינדוס הוא ERROR_INVALID_DATA, שגיאה אחרת לגמרי.
-        return Platform.isWindows ? code == 5 : code == 13;
+        // 5 = ERROR_ACCESS_DENIED, 13 = EACCES ו-1 = EPERM. אינם אותו מספר,
+        // ולכן לפי הפלטפורמה: 13 בווינדוס הוא ERROR_INVALID_DATA, שגיאה
+        // אחרת לגמרי. EPERM הוא מה ש-macOS מחזיר על כתיבה לתיקייה מוגנת
+        // ב-SIP או על נכס שהבעלות עליו אינה של המשתמש.
+        return (isWindows ?? Platform.isWindows)
+            ? code == 5
+            : code == 13 || code == 1;
       }
     }
     // מסד בתיקייה מוגנת נכשל ב-sqlite ולא ב-dart:io, ואין שם OSError.
@@ -33,9 +44,21 @@ class Elevation {
 
   /// מוסיף להודעת השגיאה את מה שאפשר לעשות — ורק כשזו שגיאת הרשאות.
   /// בכל מקרה אחר ההודעה נשארת בדיוק כשהייתה.
-  static String describe(Object error) => isAccessDenied(error)
-      ? '$error\n\n${AppL10n.strings.elevation.hint}'
-      : error.toString();
+  ///
+  /// העצה עצמה שונה בין הפלטפורמות: בווינדוס יש "הפעל כמנהל", וב-macOS אין
+  /// דבר כזה — ולכן הנוסח שם מצביע על מיקום שאפשר לכתוב אליו. הצגת ההוראה
+  /// של ווינדוס למשתמש מק היא עצה שאי אפשר לבצע.
+  static String describe(Object error, {bool? isMacOS, bool? isWindows}) {
+    final macOS = isMacOS ?? Platform.isMacOS;
+    // שתי הפלטפורמות היחידות שהלאנצ'ר נבנה להן, ולכן הזרקת האחת קובעת גם
+    // את השנייה — כך בדיקה מאמתת את שני המסלולים מאותה מכונה. בלי הזרקה
+    // בכלל נשארת הפלטפורמה שרצה בפועל (הבדיקות רצות גם בלינוקס).
+    final windows =
+        isWindows ?? (isMacOS == null ? Platform.isWindows : !macOS);
+    if (!isAccessDenied(error, isWindows: windows)) return error.toString();
+    final t = AppL10n.strings.elevation;
+    return '$error\n\n${macOS ? t.macHint : t.hint}';
+  }
 
   /// מפעיל מחדש את **אותו** קובץ הרצה עם בקשת הרשאות מנהל (UAC), ויוצא.
   /// מחזיר `null` כשההרמה יצאה לדרך — ואז התהליך הזה כבר נסגר — או את מה

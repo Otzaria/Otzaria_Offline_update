@@ -13,10 +13,13 @@ String formatBytes(int bytes) {
 }
 
 /// "412 MB מתוך 1.1 GB" לשורת ההתקדמות. `null` כשעוד לא הגיע דיווח בייטים,
-/// ובלי היעד — רק כמה ירד עד כה.
+/// ובלי היעד — רק כמה ירד עד כה. גם 0 מתוך 0 הוא `null`: זו הורדה שכל
+/// קבציה כבר על הכונן, ו-"0 בייט" רק מבלבל.
 String? formatBytesProgress(int? received, int? total) {
   if (received == null) return null;
-  if (total == null || total <= 0) return formatBytes(received);
+  if (total == null || total <= 0) {
+    return received > 0 ? formatBytes(received) : null;
+  }
   return AppL10n.strings.units.progressOf(
     formatBytes(received),
     formatBytes(total),

@@ -1420,6 +1420,13 @@ class _Elevation extends ElevationStrings {
       'תחת Program Files. אפשר לסגור את התוכנה ולהפעיל אותה שוב בקליק ימני '
       'על קובץ ההרצה → "הפעל כמנהל", ולנסות שוב.';
   @override
+  String get macHint =>
+      'נראה שאין הרשאת כתיבה לתיקייה. ב-macOS אפשר לנסות שלושה דברים: '
+      'להתקין את אוצריא אל "Applications" שבתיקיית הבית (~/Applications) '
+      'במקום אל /Applications של כל המחשב; לבחור לספרייה מיקום בתוך תיקיית '
+      'הבית; או לתת לתוכנה גישה מלאה לדיסק בהגדרות המערכת ← פרטיות ואבטחה '
+      '← גישה מלאה לדיסק, ואז לפתוח אותה מחדש.';
+  @override
   String get dialogTitle => 'דרושות הרשאות מנהל';
   @override
   String get dialogContent =>
@@ -2143,6 +2150,10 @@ class _AppDomain extends AppDomainStrings {
   @override
   String macReplaceFailed(String error) =>
       'החלפת חבילת ה-.app בתיקיית ההתקנה נכשלה: $error';
+  @override
+  String get macCloseOtzariaBeforeInstall =>
+      'אוצריא פתוחה כרגע. ב-macOS ההתקנה מחליפה את חבילת האפליקציה כולה, '
+      'ואוצריא שרצה תישאר בלי הקבצים שלה ותקרוס — יש לסגור אותה ולנסות שוב.';
   @override
   String dittoExtractFailed(int exitCode, String output) =>
       'חילוץ חבילת ההתקנה (ditto) נכשל בקוד $exitCode.\n$output';

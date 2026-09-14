@@ -849,6 +849,11 @@ abstract class ElevationStrings {
   /// נתלה בסוף הודעת השגיאה עצמה, ולכן מנוסח כהמשך שלה.
   String get hint;
 
+  /// אותו תפקיד ב-macOS, ששם אין "הפעל כמנהל": התוכנה אינה יכולה להרים את
+  /// עצמה, והפעולה שפותרת היא אחרת לגמרי — לבחור מיקום שהחשבון יכול לכתוב
+  /// אליו, או לתת לתוכנה גישה מלאה לדיסק בהגדרות המערכת.
+  String get macHint;
+
   String get dialogTitle;
   String get dialogContent;
   String get dialogConfirm;
@@ -1250,6 +1255,11 @@ abstract class AppDomainStrings {
   String installerLogTail(String tail);
   String get macAppNotFoundInArchive;
   String macReplaceFailed(String error);
+
+  /// ההתקנה ב-macOS מחליפה את חבילת ה-`.app` כולה, ומחיקת קבצים שתהליך
+  /// מחזיק פתוחים מצליחה שם בשקט — כלומר אוצריא שרצה הייתה נשארת בלי
+  /// הקבצים שלה. לכן מסרבים, ומבקשים לסגור אותה.
+  String get macCloseOtzariaBeforeInstall;
   String dittoExtractFailed(int exitCode, String output);
   String hdiutilAttachFailed(int exitCode, String output);
   String get macAppNotFoundInDmg;

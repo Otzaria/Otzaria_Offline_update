@@ -166,9 +166,9 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   int? downloadDoneAssets;
   int? downloadTotalAssets;
 
-  /// בייטים שהורדו/סה"כ **בנכס שיורד כרגע**. בלי זה המד נשען על ספירת
-  /// הנכסים בלבד, והמסד המלא (~1GB בקובץ אחד) השאיר אותו תקוע על אותו
-  /// אחוז לאורך כל ההורדה.
+  /// בייטים שהורדו/סה"כ **לכל ההורדה יחד**, ורק מה שבאמת עובר ברשת: נכס
+  /// שכבר יושב שלם על הכונן אינו נספר בשני האגפים. בלי המונה הזה המד נשען
+  /// על ספירת הנכסים בלבד, והמסד המלא (~1GB בקובץ אחד) השאיר אותו תקוע.
   int? downloadReceivedBytes;
   int? downloadTotalBytes;
   String? downloadError;
@@ -182,19 +182,20 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// שהמצב לא יהיה שקוף: מי שהפעיל אותו בלי לרשום גרסה קיבל מסד מלא.
   LibraryPersonalDownloadNote? personalDownloadNote;
 
-  /// 0..1 להורדה כולה: הנכסים שכבר הושלמו ועוד החלק היחסי של הנוכחי.
-  /// כשעוד לא ידוע מספר הנכסים — מתקדם לפי הבייטים של הנכס הנוכחי בלבד.
+  /// 0..1 להורדה כולה. **הבייטים קודמים לספירת הנכסים**: המונה מתאר ממילא
+  /// את כל ההורדה יחד (`ByteProgressAggregator`), ולחלק אותו במספר הנכסים
+  /// היה משאיר את המד על שליש בזמן שההורדה כמעט הסתיימה. ספירת הנכסים היא
+  /// הנפילה־לאחור, לפני שידוע סכום בייטים — ובהורדה שכולה כבר על הכונן.
   double? get downloadProgress {
     final received = downloadReceivedBytes;
     final bytesTotal = downloadTotalBytes;
-    final inAsset = (received != null && bytesTotal != null && bytesTotal > 0)
-        ? (received / bytesTotal).clamp(0.0, 1.0)
-        : null;
+    if (received != null && bytesTotal != null && bytesTotal > 0) {
+      return (received / bytesTotal).clamp(0.0, 1.0);
+    }
 
     final totalAssets = downloadTotalAssets;
-    if (totalAssets == null || totalAssets <= 0) return inAsset;
-    final done = downloadDoneAssets ?? 0;
-    return ((done + (inAsset ?? 0)) / totalAssets).clamp(0.0, 1.0);
+    if (totalAssets == null || totalAssets <= 0) return null;
+    return ((downloadDoneAssets ?? 0) / totalAssets).clamp(0.0, 1.0);
   }
 
   /// מצב הבדיקה הקלה ("יש עדכון ברשת?") — נפרד לגמרי מ-[downloadStatus]:

@@ -58,6 +58,20 @@ void main() {
     test('תקלה רגילה אינה מזוהה', () {
       expect(Elevation.isAccessDenied(StateError('המראה ריקה')), isFalse);
     });
+
+    // ב-macOS כתיבה לתיקייה מוגנת (או לנכס של משתמש אחר) חוזרת כ-EPERM
+    // ולא כ-EACCES, ועד שנוסף כאן היא נראתה כתקלה סתמית בלי שום עצה.
+    test('macOS: גם EPERM הוא סירוב הרשאה, ובווינדוס 1 אינו', () {
+      const eperm = FileSystemException(
+        'Operation not permitted',
+        '/Applications/אוצריא.app',
+        OSError('Operation not permitted', 1),
+      );
+
+      expect(Elevation.isAccessDenied(eperm, isWindows: false), isTrue);
+      // בווינדוס 1 הוא ERROR_INVALID_FUNCTION — שגיאה אחרת לגמרי.
+      expect(Elevation.isAccessDenied(eperm, isWindows: true), isFalse);
+    });
   });
 
   group('Elevation.describe', () {
@@ -77,6 +91,33 @@ void main() {
     test('שגיאה אחרת נשארת מילה במילה', () {
       final other = StateError('המראה ריקה');
       expect(Elevation.describe(other), other.toString());
+    });
+
+    // ב-macOS אין "הפעל כמנהל", ולכן ההוראה של ווינדוס היא עצה שאי אפשר
+    // לבצע — ובדיוק זו שהוצגה שם עד שנוספה `macHint`.
+    test('macOS מקבל עצה משלו, בלי "הפעל כמנהל"', () {
+      const denied = FileSystemException(
+        'Permission denied',
+        '/Applications/אוצריא.app',
+        OSError('Permission denied', 13),
+      );
+
+      const deniedOnWindows = FileSystemException(
+        'Access is denied',
+        r'C:\Program Files\Otzaria',
+        OSError('Access is denied', 5),
+      );
+
+      final t = AppL10n.strings.elevation;
+      expect(Elevation.describe(denied, isMacOS: true), contains(t.macHint));
+      expect(
+        Elevation.describe(denied, isMacOS: true),
+        isNot(contains(t.hint)),
+      );
+      expect(
+        Elevation.describe(deniedOnWindows, isMacOS: false),
+        allOf(contains(t.hint), isNot(contains(t.macHint))),
+      );
     });
 
     test('ההסבר מגיע מ-otzaria_l10n בשפה שנבחרה', () {

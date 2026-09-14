@@ -800,7 +800,37 @@ re-launches it with `--after-update=<pid>`. Five things hold it together:
 
 On macOS the same code replaces the whole `.app` bundle (`ditto`, never
 `unzip`) and does **not** restart: `open` on a bundle that was swapped under a
-running app is unreliable, so the user is asked to reopen it.
+running app is unreliable, so the user is asked to reopen it. Two things there
+are easy to drop: `cleanupLeftovers` must delete the macOS leftovers, which are
+**directories** (`.launcher-update-staging/` and `<app>.previous`) and not the
+two Windows files — each is a full bundle, so an interrupted update used to
+park hundreds of megabytes on the drive forever; and the new bundle gets
+`xattr -dr com.apple.quarantine`, because a zip that reached the drive through a
+browser or AirDrop carries the flag and Gatekeeper then blocks the launcher on
+a machine with no internet to fix it.
+
+**The custom title bar is Windows-shaped, and macOS needs the other half.**
+`WindowCaption` is, by its own documentation, "a widget to simulate the title
+bar of windows 11". So on macOS `main.dart` passes
+`windowButtonVisibility: true` and lets the system draw its three round buttons,
+`AppTitleBar` renders no `WindowCaption` at all, and the row reserves
+`_kMacTrafficLightsWidth` on the **physical** left (`EdgeInsets.only(left:)`,
+never `EdgeInsetsDirectional` — under Hebrew RTL the logical start is the right
+edge, which is not where those buttons are). Matching that, `MainFlutterWindow`
+sizes the window to the screen's `visibleFrame`, which is the macOS counterpart
+of the Windows runner's work-area sizing plus `SW_SHOWMAXIMIZED`; both are done
+in the runner and not from Dart, because the runner only shows the window once
+the first frame is ready.
+
+**`Elevation` has two different pieces of advice, and only one of them is
+actionable per platform.** macOS has no "run as administrator" — an app cannot
+elevate itself (`osascript … with administrator privileges` runs a *shell
+command* as root, not the app, and pops a password prompt indistinguishable
+from a phishing one). So `restartElevated` refuses there, `AppShell` never
+offers it, and `describe` appends `macHint` (pick a writable location, or grant
+Full Disk Access) rather than the Windows text. Detection also differs: macOS
+returns `EPERM` (1) as well as `EACCES` (13) for a protected directory, while on
+Windows only 5 counts.
 
 **Some tables carry a UNIQUE constraint above their primary key, and a patch
 that trips it is not our bug — but being stuck is.** `tocText.text`,
@@ -1009,7 +1039,14 @@ all**. Adding one back (an "advanced" data-dir setting, a USB target picker, an
 ever differs from `dataDir` when the drive itself refuses writes, and the
 mirror never moves off the drive.
 On macOS the folder goes next to the `.app` bundle, not inside
-`Contents/MacOS`, so the user can actually see it.
+`Contents/MacOS`, so the user can actually see it. That is `AppPaths.executableRoot`
+climbing out of the bundle, and it is load-bearing twice over: a folder inside
+the bundle is invisible in Finder **and** is destroyed by the self-update, which
+replaces the whole bundle. `LauncherInstallLayout._resolveMacOS` and
+`LauncherSelfInstaller` both assume it — the comment claiming it was there long
+before the code was. When the drive refuses writes, the machine-local state dir
+is `~/Library/Application Support/` on macOS; `XDG_DATA_HOME` and `~/.local` are
+a Linux convention and put it somewhere a Mac user will never find.
 
 **Permission failures are diagnosed, not just printed.** Otzaria installed under
 `Program Files` means the launcher's *own* writes fail — the DB apply, the
@@ -1312,6 +1349,38 @@ that ran the crash handler. A name match (`OtzariaAppLocator.mentionsOtzaria`)
 wins outright; known Flutter helper exes are excluded; anything else is only a
 fallback, kept so a rename of the app's exe does not break detection.
 
+**…and on macOS that same rule is about the `.app` bundle.** `PRODUCT_NAME` is
+`Otzaria Launcher`, so `Otzaria Launcher.app` *contains* "otzaria" and
+`nameLooksLikeOtzaria` says yes to it — while `/Applications` is both an
+auto-detect directory and the place you get an app by dragging it there, which
+is how macOS installs work. `_findMacAppBundle` therefore skips any bundle that
+`isOurOwnExe` matches **and** any bundle that `Platform.resolvedExecutable` sits
+inside (the twin of the `p.equals(..., resolvedExecutable)` check on the Windows
+side — there it is the same file, here the executable is buried in
+`Contents/MacOS`). Without it the launcher adopted itself as Otzaria, read its
+own `Info.plist` as "the installed version", and "launch Otzaria" re-ran the
+launcher.
+
+**On macOS, refuse to install while Otzaria is running.** The install there is
+a whole-bundle swap followed by deleting the previous bundle, and `unlink`
+succeeds on files a process holds open — so a running Otzaria kept running
+without its own resources and crashed on the next thing it needed to load.
+`OtzariaManager._refuseIfRunningOnMac` blocks `update` and `installFullPackage`
+on that platform only; Windows needs nothing, because Inno decides what to do
+with a locked file. Same reasoning as the process-guard re-check immediately
+before the `seforim.db` swap.
+
+**The mirrors are read with a platform filter, because the drive travels.**
+A drive filled on a Windows machine carries an Inno `.exe`, and the macOS
+launcher reading that metadata would hand it to `ditto` (launcher self-update)
+or `Process.run` it (app mirror) and fail with something that explains nothing.
+`OtzariaAppMirror.load` drops an entry whose `installerKind.targetPlatform` is
+not this one, and `LauncherUpdateMirror.load` drops an asset that fails
+`LauncherReleaseClient.matchesPlatform` — both then read as "no mirror, run the
+download", which the UI already knows how to say. Note `OtzariaAppMirror` takes
+`OtzariaTargetPlatform?` and uses `detectOrNull`: the tests run on Linux in CI,
+where `detect` throws.
+
 **A name match must never match the launcher itself.** The Windows stub is
 `עדכוני אוצריא.exe` (`windows_stub/package.ps1`), whose name *contains*
 `אוצריא` — so the "name match wins outright" rule above made the launcher adopt
@@ -1452,6 +1521,16 @@ Windows `.db` file picker filter. `WindowsExeVersionReader` and
 `otzaria_manager` and the launcher build/run on macOS **were** verified against a
 real `otzaria-macos.zip` — but that predates the custom title bar and
 `RunningOtzariaLocator._probeMac`, neither of which has run on a Mac.
+
+**The macOS pass of 2026-09-14 is analyzer-clean and unit-tested only.** It
+closed six places where a Windows fix had no macOS twin — the data folder
+landing inside the `.app`, the launcher adopting its own bundle as Otzaria, the
+Windows-11 caption buttons drawn on a Mac, a window opening below its own
+minimum size, a bundle swap under a running Otzaria, and Windows-only advice on
+a permission failure — plus the self-update leftovers and the cross-platform
+mirror reads. Every one is covered by tests that run on any host (the platform
+is injected), and **not one of them has run on real Apple hardware.** Treat the
+whole list as "should be right", not "was seen working".
 
 Also unit-tested only, never on real hardware: the companion assets
 (`CompanionAssetsMirror` against the three real GitHub repos, and

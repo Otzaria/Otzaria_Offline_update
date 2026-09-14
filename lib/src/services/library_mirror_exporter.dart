@@ -369,6 +369,8 @@ class LibraryMirrorExporter {
 
     // מונה בייטים אחד לכל התוכנית: בהורדה מקבילה אין "הקובץ הנוכחי", וגם
     // אין טעם באחד — מד שמתאר את כל ההורדה גם לא מתאפס בין נכס לנכס.
+    // היעד הוא סכום התוכנית, ומנוכה ממנו כל נכס שכבר יושב שלם על הכונן
+    // (`markExisting`) — אחרת המד מבטיח הורדה גדולה ממה שבאמת עובר ברשת.
     final bytes = ByteProgressAggregator(
       totalBytes: jobs.fold<int>(
         0,
@@ -397,14 +399,16 @@ class LibraryMirrorExporter {
             // מזהה ה-asset הוא הזהות היציבה שמאפשרת לחדש הורדה שנקטעה במקום
             // להתחיל מאפס — ראו PatchDownloader.downloadToFile.
             resumeToken: job.asset.id?.toString(),
-            onProgress: progress,
+            onProgress: progress.report,
+            // נכס שכבר על הכונן אינו יורד — ולכן גם אינו נספר במד.
+            onExistingBytes: progress.markExisting,
             onVerifyProgress: (verified, total) {
               if (!announcedVerify) {
                 announcedVerify = true;
                 onStage?.call(
                     strings.exportVerifying(job.release.tag, job.asset.name));
               }
-              progress(verified, total);
+              progress.report(verified, total);
             },
             isCancelled: isCancelled,
           );

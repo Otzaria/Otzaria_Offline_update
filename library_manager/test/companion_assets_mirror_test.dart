@@ -231,4 +231,26 @@ void main() {
       expect(received[i], greaterThanOrEqualTo(received[i - 1]));
     }
   });
+
+  test('קובץ נלווה שכבר על הכונן אינו נספר במד', () async {
+    final first = buildMirror();
+    addTearDown(first.mirror.dispose);
+    await first.mirror.sync(destDir: destDir);
+
+    // ריצה שנייה: שלושת הקבצים כבר שם, ולכן אין מה להוריד ואין מה להציג.
+    var lastReceived = -1;
+    int? lastTotal;
+    final again = buildMirror();
+    addTearDown(again.mirror.dispose);
+    await again.mirror.sync(
+      destDir: destDir,
+      onBytesProgress: (downloaded, total) {
+        lastReceived = downloaded;
+        lastTotal = total;
+      },
+    );
+
+    expect(lastReceived, 0);
+    expect(lastTotal, 0);
+  });
 }

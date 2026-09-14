@@ -80,10 +80,13 @@ class StartupDiagnostics {
     buffer.write(Platform.operatingSystemVersion);
     // ה-ABI של התהליך מול זה של המערכת: 32 סיביות כאן פוסל את כל השאר.
     buffer.write(' | process ${Abi.current()}');
+    // שני משתני הסביבה האלה קיימים בווינדוס בלבד; ב-macOS הארכיטקטורה כבר
+    // נאמרה ב-`Abi.current()` שלמעלה, ו-"cpu ?" היה רק רעש.
     final cpu = Platform.environment['PROCESSOR_ARCHITEW6432'] ??
-        Platform.environment['PROCESSOR_ARCHITECTURE'] ??
-        '?';
-    buffer.write(' | cpu $cpu x${Platform.numberOfProcessors}');
+        Platform.environment['PROCESSOR_ARCHITECTURE'];
+    buffer.write(cpu == null
+        ? ' | cpu x${Platform.numberOfProcessors}'
+        : ' | cpu $cpu x${Platform.numberOfProcessors}');
     final adapter = primaryDisplayAdapter();
     if (adapter != null) buffer.write(' | display $adapter');
     buffer.write(' | ${_viewsDescription()}');
