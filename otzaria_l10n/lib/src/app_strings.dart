@@ -70,6 +70,11 @@ abstract class CommonStrings {
   /// אלא מעתיקות אותו בלחיצה.
   String get copyPathButton;
   String get pathCopiedSnack;
+
+  /// האזהרה "אוצריא פתוחה" מופיעה בשלושה מסכים, והכפתור שסוגר אותה זהה
+  /// בכולם — ולכן המלל שלו יושב כאן ולא בכל אחד מהם.
+  String get closeOtzariaButton;
+  String get closeOtzariaFailedSnack;
 }
 
 // ── מסגרת האפליקציה ───────────────────────────────────────────────────────────

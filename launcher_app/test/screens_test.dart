@@ -65,6 +65,7 @@ void main() {
     bool isCheckingOnline = false,
     bool longTaskRunning = false,
     Future<bool> Function()? onProcessStateChanged,
+    Future<bool> Function()? onCloseOtzaria,
     Future<void> Function()? onCancelDownload,
     Future<void> Function()? onInstallFullPackage,
     bool readOnly = false,
@@ -77,6 +78,7 @@ void main() {
         launcherUpdate: launcherUpdate,
         settings: settings,
         otzariaIsRunning: otzariaIsRunning,
+        onCloseOtzaria: onCloseOtzaria ?? () async => true,
         isDownloading: isDownloading,
         isCancellingDownload: isCancellingDownload,
         isCheckingOnline: isCheckingOnline,
@@ -308,6 +310,33 @@ void main() {
     expect(find.text('עדכון הספרייה חסום עד לסגירתה.'), findsOneWidget);
   });
 
+  testWidgets('האזהרה נושאת כפתור שסוגר את אוצריא', (tester) async {
+    var closes = 0;
+    await pumpScreen(
+      tester,
+      home(
+        otzariaIsRunning: true,
+        onCloseOtzaria: () async {
+          closes++;
+          return true;
+        },
+      ),
+    );
+
+    final button = find.text(stringsOf().common.closeOtzariaButton);
+    expect(button, findsOneWidget);
+
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(closes, 1);
+  });
+
+  testWidgets('אין אזהרה — אין כפתור סגירה', (tester) async {
+    await pumpScreen(tester, home());
+
+    expect(find.text(stringsOf().common.closeOtzariaButton), findsNothing);
+  });
+
   // ── עדכון הלאנצ'ר עצמו ───────────────────────────────────────────────────
 
   testWidgets('כרטיס עדכון התוכנה נעדר כשאין מה לומר', (tester) async {
@@ -435,6 +464,7 @@ void main() {
       tester,
       home(
         otzariaIsRunning: true,
+        onCloseOtzaria: () async => true,
         onProcessStateChanged: () async {
           checks++;
           return false;
@@ -458,6 +488,7 @@ void main() {
       tester,
       home(
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
         onProcessStateChanged: () async {
           checks++;
           return true;
@@ -512,6 +543,7 @@ void main() {
         otzaria: otzaria,
         settings: settings,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
       ),
     );
 
@@ -542,6 +574,7 @@ void main() {
         otzaria: otzaria,
         settings: settings,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
       ),
     );
 
@@ -586,6 +619,7 @@ void main() {
         otzaria: otzaria,
         settings: settings,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
       ),
     );
 
@@ -602,6 +636,7 @@ void main() {
         otzaria: otzaria,
         settings: settings,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
       ),
     );
 
@@ -627,6 +662,7 @@ void main() {
         otzaria: otzaria,
         settings: settings,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
         onInstallFullPackage: () async => installs++,
       ),
     );
@@ -656,6 +692,7 @@ void main() {
         otzaria: otzaria,
         settings: settings,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
         onInstallFullPackage: () async {},
       ),
     );
@@ -687,6 +724,7 @@ void main() {
         otzaria: otzaria,
         settings: settings,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
       ),
     );
 
@@ -720,6 +758,7 @@ void main() {
         otzaria: otzaria,
         settings: settings,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
         saferMode: SaferModeGate(settings),
       ),
     );
@@ -739,6 +778,7 @@ void main() {
         otzaria: otzaria,
         settings: settings,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
       ),
     );
 
@@ -771,6 +811,7 @@ void main() {
       LibraryScreen(
         library: library,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
@@ -798,6 +839,7 @@ void main() {
       LibraryScreen(
         library: library,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
@@ -812,6 +854,7 @@ void main() {
         otzaria: otzaria,
         settings: settings,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
       ),
     );
     expect(find.byType(CardActionsRow), findsOneWidget);
@@ -827,6 +870,7 @@ void main() {
       LibraryScreen(
         library: library,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
@@ -849,6 +893,7 @@ void main() {
       LibraryScreen(
         library: library,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
@@ -873,6 +918,7 @@ void main() {
       LibraryScreen(
         library: library,
         otzariaIsRunning: true,
+        onCloseOtzaria: () async => true,
         isDownloading: false,
         onProcessStateChanged: () async {
           checks++;
@@ -897,6 +943,7 @@ void main() {
       LibraryScreen(
         library: library,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
         isDownloading: false,
         onProcessStateChanged: () async {
           checks++;
@@ -925,6 +972,7 @@ void main() {
       LibraryScreen(
         library: library,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
@@ -945,6 +993,7 @@ void main() {
       LibraryScreen(
         library: library,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
@@ -977,6 +1026,7 @@ void main() {
           LibraryScreen(
             library: library,
             otzariaIsRunning: false,
+            onCloseOtzaria: () async => true,
             isDownloading: false,
             onProcessStateChanged: () async => false,
             onRequestReindex: () async => requests++,
@@ -1011,6 +1061,7 @@ void main() {
       LibraryScreen(
         library: library,
         otzariaIsRunning: true,
+        onCloseOtzaria: () async => true,
         isDownloading: false,
         onProcessStateChanged: () async {
           checks++;
@@ -1628,6 +1679,7 @@ void main() {
         otzaria: otzaria,
         settings: settings,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
       ),
     );
 
@@ -1648,6 +1700,7 @@ void main() {
         otzaria: otzaria,
         settings: settings,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
       ),
       language: AppLanguage.english,
     );
@@ -1673,6 +1726,7 @@ void main() {
         otzaria: otzaria,
         settings: settings,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
       ),
     );
     expect(find.text(expected), findsOneWidget);
@@ -1683,6 +1737,7 @@ void main() {
       LibraryScreen(
         library: library,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
@@ -1733,6 +1788,7 @@ void main() {
       LibraryScreen(
         library: library,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
@@ -1755,6 +1811,7 @@ void main() {
     Widget screen() => LibraryScreen(
           library: library,
           otzariaIsRunning: false,
+          onCloseOtzaria: () async => true,
           isDownloading: false,
           onProcessStateChanged: () async => false,
           onRequestReindex: () async {},
@@ -1786,6 +1843,7 @@ void main() {
       LibraryScreen(
         library: library,
         otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
@@ -1840,6 +1898,7 @@ void main() {
       LibraryScreen(
         library: library,
         otzariaIsRunning: true,
+        onCloseOtzaria: () async => true,
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},

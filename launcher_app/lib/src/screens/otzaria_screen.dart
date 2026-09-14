@@ -34,6 +34,7 @@ class OtzariaScreen extends StatelessWidget {
     required this.otzaria,
     required this.settings,
     required this.otzariaIsRunning,
+    required this.onCloseOtzaria,
     this.onInstallAdopted,
     this.onInstallFullPackage,
     this.saferMode,
@@ -44,6 +45,10 @@ class OtzariaScreen extends StatelessWidget {
   /// בחירת ערוץ הגרסה נשמרת בהגדרות, כדי שתישאר בין הפעלות.
   final SettingsController settings;
   final bool otzariaIsRunning;
+
+  /// מבקשת מאוצריא הפתוחה להיסגר ומחזירה אם היא אכן נסגרה — הכפתור שלצד
+  /// שורת האזהרה. יושבת ב-`AppShell`, כמו יתר הפעולות שנוגעות בתהליך.
+  final Future<bool> Function() onCloseOtzaria;
 
   /// נקרא אחרי שהמשתמש הצביע ידנית על תיקיית ההתקנה — תיקיית התוספים
   /// נגזרת מהנתיב הזה, ולכן צריך לסרוק אותה מחדש.
@@ -191,6 +196,7 @@ class OtzariaScreen extends StatelessWidget {
             icon: FluentIcons.warning_24_regular,
             title: t.processTitle,
             subtitle: t.processRunning,
+            actions: [CloseOtzariaButton(onClose: onCloseOtzaria)],
           ),
         if (c.errorMessage != null)
           InfoErrorRow(message: c.errorMessage!, onRetry: c.checkForUpdate),

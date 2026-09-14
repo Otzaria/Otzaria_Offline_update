@@ -7,6 +7,7 @@ export 'app_card.dart';
 export 'app_dialogs.dart';
 export 'app_dropdown_field.dart';
 export 'app_title_bar.dart';
+export 'close_otzaria_button.dart';
 export 'color_picker_tile.dart';
 export 'copy_path_button.dart';
 export 'custom_switch.dart';

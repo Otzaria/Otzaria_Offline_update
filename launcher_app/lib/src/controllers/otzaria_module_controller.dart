@@ -43,10 +43,15 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     // תפר לבדיקות: בלעדיו כל בדיקה שנוגעת ב-[launch] מפעילה את אוצריא
     // האמיתית של מי שמריץ אותה.
     OtzariaLauncher launcher = const OtzariaLauncher(),
+    // תפר לבדיקות גם כאן: בלעדיו בדיקה שנוגעת ב-[closeRunning] סוגרת את
+    // אוצריא האמיתית של מי שמריץ אותה.
+    OtzariaProcessCloser? processCloser,
   })  : _preferPrerelease = preferPrerelease,
         _pendingLaunchUri = pendingLaunchUri,
         _onLaunchUriDelivered = onLaunchUriDelivered,
         _runningLocator = runningLocator,
+        _processCloser =
+            processCloser ?? OtzariaProcessCloser(locator: runningLocator),
         _manager = OtzariaManager(
           dataDir: dataDir,
           stateDir: stateDir,
@@ -67,6 +72,9 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   /// אותו locator שה-manager מקבל — נשמר גם כאן כדי ש-[refreshRunningState]
   /// תוכל לבדוק "אוצריא פתוחה?" לבד, בלי בדיקת גרסאות שלמה.
   final RunningOtzariaLocator _runningLocator;
+
+  /// סוגר את אוצריא לבקשת המשתמש — ראו [closeRunning].
+  final OtzariaProcessCloser _processCloser;
   OtzariaUpdateCheckResult? _lastCheck;
 
   /// הבדיקה המקומית שרצה כרגע — כדי ש-[ensureChecked] תצטרף אליה במקום
@@ -153,6 +161,11 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
 
   /// בדיקת התהליך שרצה כרגע, אם רצה — ראו [refreshRunningState].
   Future<bool>? _runningProbe;
+
+  /// בקשת סגירה שנשלחה ועדיין ממתינה — ראו [closeRunning]. הממשק מסמן בה
+  /// את הכפתור כטוען, כי הסגירה נמשכת שנייה־שתיים ובלעדיה הלחיצה נראית
+  /// כאילו לא קרתה.
+  bool isClosing = false;
 
   OtzariaDownloadStatus downloadStatus = OtzariaDownloadStatus.idle;
   int? downloadReceived;
@@ -290,6 +303,31 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
       return isRunning;
     } finally {
       _runningProbe = null;
+    }
+  }
+
+  /// מבקש מאוצריא הפתוחה להיסגר — הפעולה שמאחורי הכפתור שלצד האזהרה
+  /// "אוצריא פתוחה". בקשת סגירה רגילה, לא הריגה; ראו [OtzariaProcessCloser].
+  ///
+  /// `true` = אוצריא אינה רצה יותר, והמסלול החסום (עדכון מסד, התקנה) פתוח.
+  /// `false` = היא שרדה את הבקשה, והקורא מבקש מהמשתמש לסגור ידנית.
+  Future<bool> closeRunning() async {
+    if (isClosing) return !isRunning;
+    isClosing = true;
+    notifyListeners();
+    try {
+      final closed = await _processCloser.close();
+      if (_isDisposed) return closed;
+      // בדיקה טרייה ולא הצבה של [closed]: התהליך יכול להיעלם אחרי שהבקשה
+      // ויתרה, ומצב "פתוחה" שנשאר על המסך חוסם פעולה שכבר אינה חסומה.
+      await refreshRunningState(force: true);
+      return closed;
+    } catch (e, st) {
+      AppLogger.instance.error('סגירת אוצריא מהלאנצ׳ר נכשלה', e, st);
+      return false;
+    } finally {
+      isClosing = false;
+      if (!_isDisposed) notifyListeners();
     }
   }
 

@@ -99,6 +99,11 @@ class _Common extends CommonStrings {
   String get copyPathButton => 'העתקת הנתיב';
   @override
   String get pathCopiedSnack => 'הנתיב הועתק';
+  @override
+  String get closeOtzariaButton => 'סגירת אוצריא';
+  @override
+  String get closeOtzariaFailedSnack =>
+      'אוצריא לא נסגרה — ייתכן שהיא ממתינה לשמירה. יש לסגור אותה ידנית.';
 }
 
 class _Shell extends ShellStrings {

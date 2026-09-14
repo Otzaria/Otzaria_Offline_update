@@ -31,6 +31,7 @@ class HomeScreen extends StatelessWidget {
     required this.isCheckingOnline,
     required this.longTaskRunning,
     required this.onProcessStateChanged,
+    required this.onCloseOtzaria,
     required this.onCheckOnline,
     required this.onDownloadAll,
     required this.onCancelDownload,
@@ -63,6 +64,10 @@ class HomeScreen extends StatelessWidget {
   /// בודקת מחדש אם אוצריא פתוחה ומחזירה את התוצאה הטרייה — [otzariaIsRunning]
   /// כאן הוא הערך מרגע הבנייה, וייתכן שאוצריא נסגרה מאז.
   final Future<bool> Function() onProcessStateChanged;
+
+  /// מבקשת מאוצריא הפתוחה להיסגר ומחזירה אם היא אכן נסגרה — הכפתור שלצד
+  /// האזהרה. יושבת ב-`AppShell` כי היא נוגעת בתהליך שמודול האפליקציה מכיר.
+  final Future<bool> Function() onCloseOtzaria;
   final Future<void> Function() onCheckOnline;
   final Future<void> Function() onDownloadAll;
 
@@ -104,6 +109,7 @@ class HomeScreen extends StatelessWidget {
                 icon: FluentIcons.warning_24_regular,
                 title: t.otzariaRunningTitle,
                 subtitle: t.otzariaRunningSubtitle,
+                actions: [CloseOtzariaButton(onClose: onCloseOtzaria)],
               ),
             ),
           ),

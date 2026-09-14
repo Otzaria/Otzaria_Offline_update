@@ -314,6 +314,17 @@ class _AppShellState extends State<AppShell> {
   Future<bool> refreshProcessState() =>
       _otzaria.refreshRunningState(force: true);
 
+  /// מבקש מאוצריא הפתוחה להיסגר — הכפתור שלצד האזהרה, בכל מסך שמציג אותה.
+  /// מחזיר אם היא אכן נסגרה; ההודעה על כישלון היא של הכפתור עצמו.
+  ///
+  /// הרענון המחזורי מסונכרן אחריו במפורש: הוא נדלק לפי מצב התהליך, וסגירה
+  /// שהצליחה אמורה לכבות אותו מיד ולא רק בפעימה הבאה.
+  Future<bool> closeOtzaria() async {
+    final closed = await _otzaria.closeRunning();
+    if (mounted) _syncRunningPoll();
+    return closed;
+  }
+
   /// חוסם, עם הסבר, כל מסלול שכותב **לכונן** — הורדה מהרשת או החלפת קובץ
   /// ההרצה — כשהכונן מוגן מפני כתיבה. ההתקנות עצמן אינן עוברות כאן: הן
   /// כותבות למחשב, וזו כל הנקודה של מצב הקריאה.
@@ -748,6 +759,7 @@ class _AppShellState extends State<AppShell> {
             isCheckingOnline: _isCheckingOnline,
             longTaskRunning: _longTaskRunning,
             onProcessStateChanged: refreshProcessState,
+            onCloseOtzaria: closeOtzaria,
             onCheckOnline: checkOnline,
             onDownloadAll: downloadAll,
             onCancelDownload: cancelDownload,
@@ -763,6 +775,7 @@ class _AppShellState extends State<AppShell> {
             otzaria: _otzaria,
             settings: widget.settings,
             otzariaIsRunning: _otzariaIsRunning,
+            onCloseOtzaria: closeOtzaria,
             onInstallAdopted: _plugins.refreshInstalled,
             onInstallFullPackage: installFullPackage,
             saferMode: _saferMode,
@@ -776,6 +789,7 @@ class _AppShellState extends State<AppShell> {
             otzariaIsRunning: _otzariaIsRunning,
             isDownloading: _isDownloading,
             onProcessStateChanged: refreshProcessState,
+            onCloseOtzaria: closeOtzaria,
             onRequestReindex: requestLibraryReindex,
           ),
         LauncherScreen.plugins => PluginsScreen(

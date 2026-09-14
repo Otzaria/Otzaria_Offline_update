@@ -100,6 +100,12 @@ class _Common extends CommonStrings {
   String get copyPathButton => 'Copy the path';
   @override
   String get pathCopiedSnack => 'The path was copied';
+  @override
+  String get closeOtzariaButton => 'Close Otzaria';
+  @override
+  String get closeOtzariaFailedSnack =>
+      'Otzaria did not close — it may be waiting to save. Please close it '
+      'manually.';
 }
 
 class _Shell extends ShellStrings {

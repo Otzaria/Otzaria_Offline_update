@@ -19,6 +19,7 @@ class LibraryScreen extends StatelessWidget {
     required this.otzariaIsRunning,
     required this.isDownloading,
     required this.onProcessStateChanged,
+    required this.onCloseOtzaria,
     required this.onRequestReindex,
   });
 
@@ -29,6 +30,10 @@ class LibraryScreen extends StatelessWidget {
   /// בודקת מחדש אם אוצריא פתוחה ומחזירה את התוצאה הטרייה — ראו
   /// [_confirmUpdate].
   final Future<bool> Function() onProcessStateChanged;
+
+  /// מבקשת מאוצריא הפתוחה להיסגר ומחזירה אם היא אכן נסגרה — הכפתור שלצד
+  /// האזהרה, שמסיר את מה שחוסם את עדכון המסד.
+  final Future<bool> Function() onCloseOtzaria;
 
   /// מוסרת לאוצריא את בקשת עדכון אינדקס החיפוש. יושבת ב-`AppShell` כי
   /// המסירה עוברת דרך קובץ ההרצה של אוצריא, שמודול האפליקציה מכיר.
@@ -146,6 +151,7 @@ class LibraryScreen extends StatelessWidget {
             icon: FluentIcons.warning_24_regular,
             title: t.otzariaRunningTitle,
             subtitle: t.otzariaRunningSubtitle,
+            actions: [CloseOtzariaButton(onClose: onCloseOtzaria)],
           ),
         // האינדקס של אוצריא אינו יודע שהמסד התחלף מתחתיו, ולכן חיפוש בספר
         // שהשתנה מחזיר תוכן ישן עד שהבקשה נמסרת.
