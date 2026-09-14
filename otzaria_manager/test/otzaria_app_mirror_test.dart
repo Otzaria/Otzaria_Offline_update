@@ -516,6 +516,47 @@ void main() {
       expect(kept, ['0.9.97']);
     });
 
+    // אותו מסלול, אבל הסנכרון השני נקטע אחרי הערוץ היציב: הרשומה
+    // הלא-יציבה הישנה מצביעה עכשיו על אותו תג בדיוק. בלי הניקוי נשארת
+    // "בחירת ערוץ" בין שתי רשומות של אותו קובץ — וכונן כזה נוסע למחשב
+    // מנותק שלעולם לא יסנכרן שוב.
+    test('גרסה שסומנה כיציבה אינה נשארת גם ברשומה הלא-יציבה', () async {
+      final tempDir =
+          await Directory.systemTemp.createTemp('otzaria-mirror-sync-test');
+      addTearDown(() => tempDir.delete(recursive: true));
+
+      final before = await mirrorFor(
+        releasesHttpClient: mockReleases([
+          releaseJson('0.9.97', prerelease: true),
+          releaseJson('0.9.96', prerelease: false),
+        ]),
+        changelogHttpClient: MockClient((_) async => http.Response('', 404)),
+        tempDir: tempDir,
+      );
+      expect((await before.sync()).hasChoice, isTrue);
+
+      // 0.9.97 סומנה כיציבה, ולצדה פורסמה 0.9.98 לא-יציבה שההורדה שלה
+      // נכשלת — כך שהמטא־דאטה נכתבת אחרי הערוץ היציב בלבד.
+      final after = await mirrorFor(
+        releasesHttpClient: mockReleases([
+          releaseJson('0.9.98', prerelease: true),
+          releaseJson('0.9.97', prerelease: false),
+        ]),
+        changelogHttpClient: MockClient((_) async => http.Response('', 404)),
+        installerHttpClient: MockClient((request) async =>
+            request.url.path.contains('0.9.98')
+                ? http.Response('', 500)
+                : http.Response(installerBytes, 200)),
+        tempDir: tempDir,
+      );
+      await expectLater(after.sync(), throwsA(isA<Object>()));
+
+      final reloaded = await after.load();
+      expect(reloaded.stable!.release.tagName, '0.9.97');
+      expect(reloaded.prerelease, isNull);
+      expect(reloaded.hasChoice, isFalse);
+    });
+
     // אין יציב בעמוד הראשון — אז ה-pre-release הוא הגרסה היחידה, והתווית
     // אומרת את זה במפורש.
     test('בלי יציב, רק ה-pre-release יורד ומתויג ככזה', () async {

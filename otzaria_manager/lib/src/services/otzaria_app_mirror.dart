@@ -103,12 +103,30 @@ class OtzariaAppMirror {
           : MirroredOtzariaReleases(stable: legacy);
     }
 
-    return MirroredOtzariaReleases(
+    return _withoutDuplicateTag(
       stable: await _entryFrom(decoded[OtzariaReleaseChannel.stable.name]),
       prerelease:
           await _entryFrom(decoded[OtzariaReleaseChannel.prerelease.name]),
     );
   }
+
+  /// אותו תג בשני הערוצים אינו בחירה אלא רישום כפול — הרשומה הלא-יציבה
+  /// יורדת.
+  ///
+  /// זה מה שנשאר כשגרסה שירדה כלא-יציבה סומנה אחר כך כיציבה וסנכרון אחד
+  /// כתב את הערוץ היציב אך לא הספיק לרוקן את השני (הורדה שנכשלה/בוטלה
+  /// באמצע). הניקוי גם בקריאה ולא רק בכתיבה, כי כונן שכבר נשא מטא־דאטה
+  /// כזאת מגיע למחשב מנותק שלעולם לא יריץ שם סנכרון.
+  static MirroredOtzariaReleases _withoutDuplicateTag({
+    MirroredOtzariaRelease? stable,
+    MirroredOtzariaRelease? prerelease,
+  }) =>
+      MirroredOtzariaReleases(
+        stable: stable,
+        prerelease: prerelease?.release.tagName == stable?.release.tagName
+            ? null
+            : prerelease,
+      );
 
   /// רשומת ערוץ בודדת מתוך המטא־דאטה, או `null` אם היא חסרה/פגומה/מצביעה
   /// על קובץ התקנה שאינו שם.
@@ -215,14 +233,19 @@ class OtzariaAppMirror {
       );
       if (channel == OtzariaReleaseChannel.stable) {
         stable = mirrored;
+        // הגרסה שהייתה לא-יציבה סומנה כיציבה: הרשומה הישנה שנשמרה מהדיסק
+        // מצביעה עכשיו על אותו תג בדיוק, ובלי הניקוי היא הייתה מייצרת
+        // "בחירת ערוץ" בין שתי רשומות של אותו קובץ אם הערוץ השני לא ירד.
+        if (prerelease?.release.tagName == mirrored.release.tagName) {
+          prerelease = null;
+        }
       } else {
         prerelease = mirrored;
       }
       await _writeMetadata(stable: stable, prerelease: prerelease);
     }
 
-    final result =
-        MirroredOtzariaReleases(stable: stable, prerelease: prerelease);
+    final result = _withoutDuplicateTag(stable: stable, prerelease: prerelease);
     // קובצי התקנה של גרסאות שכבר אינן במטא־דאטה אינם שווים את המקום על
     // הכונן הנייד. קבוצת שמירה ריקה, לעומת זאת, פירושה "מחק את הכול" —
     // ותשובת API ריקה (דף שכולו טיוטות) אינה עילה לרוקן כונן.

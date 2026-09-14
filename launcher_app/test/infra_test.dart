@@ -189,6 +189,79 @@ void main() {
       c.dispose();
     });
 
+    // אוצריא מתקנת באג ומפרסמת מחדש תחת אותו מספר גרסה — רק ה-build שאחרי
+    // ה-+ עולה. בהשוואה על מספר הגרסה בלבד זה נראה "אין חדש", ההורדה דילגה
+    // על מודול התוכנה, והתיקון לא הגיע לכונן.
+    test('אוצריא: build חדש באותה גרסה מדליק את ההודעה', () {
+      final c = OtzariaModuleController(dataDir: tempDir.path);
+      addTearDown(c.dispose);
+
+      c.onlineChannels = const OtzariaChannelReleases(
+        stable: OtzariaRelease(
+          tagName: '0.9.96+741',
+          name: 'אוצריא 0.9.96',
+          isPrerelease: false,
+          isDraft: false,
+          publishedAt: null,
+          installerKind: OtzariaInstallerKind.windowsSetupExe,
+          installerAssetName: 'setup.exe',
+          installerDownloadUrl: 'https://example.invalid/setup.exe',
+          installerSizeBytes: 1,
+        ),
+      );
+
+      c.stableVersion = '0.9.96+736';
+      c.latestVersion = '0.9.96+736';
+      expect(c.hasOnlineUpdate, isTrue);
+      expect(c.onlineUpdateVersion, '0.9.96+741');
+
+      // אחרי ההורדה אותו תג בדיוק יושב על הכונן — אין עוד מה להביא.
+      c.stableVersion = '0.9.96+741';
+      c.latestVersion = '0.9.96+741';
+      expect(c.hasOnlineUpdate, isFalse);
+      expect(c.onlineUpdateVersion, isNull);
+    });
+
+    // גרסה שירדה לכונן כלא-יציבה מסומנת אחר כך כיציבה: היא עוברת לערוץ
+    // היציב, וה-API מפסיק להחזיר לא-יציב. גם זה "יש מה להביא" — בלי הורדה
+    // המראה תמשיך להציג אותה כלא-יציבה, עם האזהרה שכבר אינה נכונה.
+    test('אוצריא: גרסה שסומנה כיציבה מדליקה את ההודעה', () {
+      const promoted = OtzariaRelease(
+        tagName: '0.9.97',
+        name: 'אוצריא 0.9.97',
+        isPrerelease: false,
+        isDraft: false,
+        publishedAt: null,
+        installerKind: OtzariaInstallerKind.windowsSetupExe,
+        installerAssetName: 'setup.exe',
+        installerDownloadUrl: 'https://example.invalid/setup.exe',
+        installerSizeBytes: 1,
+      );
+
+      final c = OtzariaModuleController(dataDir: tempDir.path);
+      addTearDown(c.dispose);
+      c.onlineChannels = const OtzariaChannelReleases(stable: promoted);
+
+      // על הכונן: 0.9.96 יציבה, ו-0.9.97 שירדה כלא-יציבה.
+      c.stableVersion = '0.9.96+736';
+      c.prereleaseVersion = '0.9.97';
+      c.latestVersion = '0.9.96+736';
+      expect(c.hasOnlineUpdate, isTrue);
+      expect(c.onlineUpdateVersion, '0.9.97');
+
+      // ומצב הקצה שמופיע בפועל באתר: אין יציבה על הכונן בכלל, רק הלא-יציבה
+      // שזה עתה הוכתרה.
+      c.stableVersion = null;
+      expect(c.hasOnlineUpdate, isTrue);
+
+      // אחרי ההורדה 0.9.97 יושבת בערוץ היציב, והלא-יציב התרוקן.
+      c.stableVersion = '0.9.97';
+      c.prereleaseVersion = null;
+      c.latestVersion = '0.9.97';
+      expect(c.hasOnlineUpdate, isFalse);
+      expect(c.onlineUpdateVersion, isNull);
+    });
+
     // התלונה שהתיקון הזה בא בשבילה: אוצריא מפרסמת גרסה חדשה ומסמנת אותה
     // לא-יציבה, בלי לגעת ביציבה. בהשוואה על הערוץ הנבחר בלבד (יציב, כברירת
     // מחדל) זה נראה "אין חדש" — ההורדה דילגה על מודול התוכנה, הערוץ

@@ -206,11 +206,18 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   /// יש ברשת תג שאינו זה שיושב במראה באותו ערוץ. ערוץ שאינו ברשת אינו
   /// "עדכון": הניקוי שלו קורה בהורדה הבאה, ולא כדאי שידליק את ההודעה על
   /// משהו שאין מה להוריד עבורו.
+  ///
+  /// גם מספר ה-build שאחרי ה-`+` נספר: שני התגים כאן הגיעו מגיטהאב, ותיקון
+  /// באג שאוצריא מפרסמת באותו מספר גרסה ובמספר build חדש בלבד הוא בהחלט
+  /// "יש מה להביא" — ראו [OtzariaUpdateCheckResult.sameBuild].
   static bool _channelHasMore(String? online, String? mirrored) {
     if (online == null) return false;
     if (mirrored == null) return true;
-    return OtzariaUpdateCheckResult.normalizeVersion(online) !=
-        OtzariaUpdateCheckResult.normalizeVersion(mirrored);
+    if (OtzariaUpdateCheckResult.normalizeVersion(online) !=
+        OtzariaUpdateCheckResult.normalizeVersion(mirrored)) {
+      return true;
+    }
+    return !OtzariaUpdateCheckResult.sameBuild(online, mirrored);
   }
 
   /// גרסת התוכנה שנמצאה ברשת וטרם ירדה למראה — לתצוגה בלבד. `null` כשאין

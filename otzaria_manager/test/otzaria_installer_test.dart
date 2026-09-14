@@ -153,6 +153,26 @@ void main() {
       expect(remaining, ['0.9.96+736', '0.9.97']);
     });
 
+    // build חדש באותו מספר גרסה — הקודם יורד מהכונן במלואו, כולל חבילת
+    // ה-FULL שלצדו. שתי גרסאות של אותו `0.9.96` הן ~2GB כפול על כונן נייד.
+    test('build ותיק של אותה גרסה נמחק כולו', () async {
+      final oldDir = Directory(p.join(cacheDir, '0.9.96+736'));
+      await oldDir.create(recursive: true);
+      File(p.join(oldDir.path, 'otzaria-0.9.96-windows.exe'))
+          .writeAsStringSync('x');
+      File(p.join(oldDir.path, 'otzaria-0.9.96-windows-full.exe'))
+          .writeAsStringSync('x');
+      await Directory(p.join(cacheDir, '0.9.96+741')).create(recursive: true);
+
+      final installer = installerWith(mustNotBeUsed());
+      addTearDown(installer.dispose);
+
+      await installer.pruneCacheExcept(keepTagNames: {'0.9.96+741'});
+
+      expect(oldDir.existsSync(), isFalse);
+      expect(Directory(p.join(cacheDir, '0.9.96+741')).existsSync(), isTrue);
+    });
+
     test('תיקיית cache שאינה קיימת אינה שגיאה', () async {
       final installer = installerWith(mustNotBeUsed());
       addTearDown(installer.dispose);

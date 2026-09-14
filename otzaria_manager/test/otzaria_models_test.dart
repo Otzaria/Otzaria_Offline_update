@@ -74,7 +74,7 @@ void main() {
       for (final pair in [
         ('0.9.96', '0.9.96+736'),
         ('0.9.96', 'v0.9.96'),
-        ('v0.9.96+1', '0.9.96+736'),
+        ('v0.9.96+736', '0.9.96+736'),
         (' 0.9.96 ', '0.9.96'),
       ]) {
         final result = OtzariaUpdateCheckResult(
@@ -115,6 +115,66 @@ void main() {
         OtzariaUpdateCheckResult.sameVersion('0.9.53', '0.9.54-pr-1'),
         isFalse,
       );
+    });
+
+    // אוצריא מתקנת באג ומפרסמת מחדש באותו מספר גרסה, עם build חדש בלבד.
+    test('build חדש באותה גרסה הוא עדכון', () {
+      final result = OtzariaUpdateCheckResult(
+        stableRelease: _release(tagName: '0.9.96+741'),
+        currentState: _state('0.9.96+736'),
+      );
+
+      expect(result.updateAvailable, isTrue);
+      expect(result.installedIsNewer, isFalse);
+      expect(
+        OtzariaUpdateCheckResult.sameVersion('0.9.96+736', '0.9.96+741'),
+        isFalse,
+      );
+    });
+
+    // הסיבה שבגללה ה-build מושמט מלכתחילה: ההתקנה מדווחת `0.9.96` בלבד.
+    test('התקנה מאומצת בלי build אינה נראית כעדכון', () {
+      expect(
+        OtzariaUpdateCheckResult.sameBuild('0.9.96', '0.9.96+741'),
+        isTrue,
+      );
+      expect(
+          OtzariaUpdateCheckResult.sameBuild('0.9.96+', '0.9.96+741'), isTrue);
+      expect(
+        OtzariaUpdateCheckResult.sameBuild('0.9.96+736', '0.9.96+741'),
+        isFalse,
+      );
+    });
+
+    test('build ותיק מותקן מול חדש במראה אינו נסיגת גרסה', () {
+      expect(
+        OtzariaUpdateCheckResult.compareVersions('0.9.96+736', '0.9.96+741'),
+        lessThan(0),
+      );
+      expect(
+        OtzariaUpdateCheckResult.compareVersions('0.9.96+741', '0.9.96+736'),
+        greaterThan(0),
+      );
+      // build שאינו מספר אינו בר-השוואה — אין הכרעה, ולא ניחוש.
+      expect(
+        OtzariaUpdateCheckResult.compareVersions('0.9.96+abc', '0.9.96+736'),
+        0,
+      );
+      expect(
+        OtzariaUpdateCheckResult.compareVersions('0.9.96', '0.9.96+736'),
+        0,
+      );
+    });
+
+    // המותקן חדש מהמראה — הצעת התקנה כאן הייתה מחזירה את המשתמש לבאג.
+    test('build חדש מותקן מול ותיק במראה הוא installedIsNewer', () {
+      final result = OtzariaUpdateCheckResult(
+        stableRelease: _release(tagName: '0.9.96+736'),
+        currentState: _state('0.9.96+741'),
+      );
+
+      expect(result.installedIsNewer, isTrue);
+      expect(result.updateAvailable, isFalse);
     });
 
     test('normalizeVersion עצמו אינו נוגע בסיומת המקף', () {
@@ -173,8 +233,8 @@ void main() {
 
     test('אותה גרסה אינה נסיגה ואינה עדכון', () {
       final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: '0.9.96+741'),
-        currentState: _state('0.9.96+736'),
+        stableRelease: _release(tagName: '0.9.96+736'),
+        currentState: _state('v0.9.96+736'),
       );
 
       expect(result.installedIsNewer, isFalse);
@@ -199,10 +259,13 @@ void main() {
       expect(OtzariaUpdateCheckResult.compareVersions('0.10.0', '0.9.99'), 1);
     });
 
-    test('מתעלם מ-v מוביל ומסיומת ה-build', () {
+    test('מתעלם מ-v מוביל, אבל לא ממספר ה-build', () {
+      expect(
+          OtzariaUpdateCheckResult.compareVersions('v0.9.96+736', '0.9.96+736'),
+          0);
       expect(
           OtzariaUpdateCheckResult.compareVersions('v0.9.96+741', '0.9.96+736'),
-          0);
+          greaterThan(0));
     });
 
     test('חלק חסר נחשב 0', () {

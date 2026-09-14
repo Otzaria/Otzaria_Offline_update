@@ -119,7 +119,11 @@ class OtzariaUpdateCheckResult {
   /// בלבד** — הצד שבלעדיה נקרא מתוך ההתקנה עצמה, ושם היא לעולם לא מופיעה.
   /// השמטה דו-צדדית הייתה משתקת את המעבר בין הערוצים: `1.0.0-beta` מותקן
   /// מול `1.0.0` יציב היה נראה "מעודכן" ולא ניתן היה לחזור ליציב.
+  ///
+  /// מספר ה-build שאחרי ה-`+` מכריע גם הוא — ראו [sameBuild].
   static bool sameVersion(String installedVersion, String tagName) {
+    // build שונה הוא release שונה, גם כשמספר הגרסה זהה לחלוטין.
+    if (!sameBuild(installedVersion, tagName)) return false;
     final installed = normalizeVersion(installedVersion);
     final tag = normalizeVersion(tagName);
     if (installed == tag) return true;
@@ -137,7 +141,8 @@ class OtzariaUpdateCheckResult {
   /// חלקי הבסיס מושווים כמספרים ולא כטקסט (חלק חסר = 0) — `0.9.97` חדשה
   /// מ-`0.9.96` וגם מ-`0.9.9`. סיומת ה-pre-release מכריעה רק בתיקו, והצד
   /// שנושא אותה ותיק מהצד שבלעדיה (`1.0.0-beta` < `1.0.0`). שתי סיומות
-  /// שונות על אותו בסיס אינן ברות השוואה ומחזירות אפס.
+  /// שונות על אותו בסיס אינן ברות השוואה ומחזירות אפס. בתיקו מלא מכריע
+  /// מספר ה-build (`0.9.96+736` < `0.9.96+741`) — ראו [sameBuild].
   static int compareVersions(String a, String b) {
     final left = normalizeVersion(a);
     final right = normalizeVersion(b);
@@ -157,8 +162,45 @@ class OtzariaUpdateCheckResult {
 
     final leftHasSuffix = left != leftBase;
     final rightHasSuffix = right != rightBase;
-    if (leftHasSuffix == rightHasSuffix) return 0;
-    return leftHasSuffix ? -1 : 1;
+    if (leftHasSuffix != rightHasSuffix) return leftHasSuffix ? -1 : 1;
+    // תיקו בבסיס ובסיומת — נשאר רק ה-build להכריע בו.
+    return _compareBuilds(a, b);
+  }
+
+  /// שני תגים נושאים את **אותו** מספר build, או שלפחות אחד מהם בלי build
+  /// כלל.
+  ///
+  /// אוצריא מוציאה לפעמים תיקון לבאג בלי להעלות את מספר הגרסה: אותו
+  /// `0.9.96`, ורק המספר שאחרי ה-`+` עולה (`+736` → `+741`). הבדל כזה הוא
+  /// release חדש לכל דבר, ולכן הוא כן נספר.
+  ///
+  /// **אבל רק כששני הצדדים נושאים build.** צד שנקרא מתוך התקנה קיימת
+  /// לעולם אינו נושא אחד (`ProductVersion` מחזיר `0.9.96` בלבד), ו-build
+  /// חסר אינו "build אחר" — אחרת כל זיהוי של התקנה קיימת היה חוזר להיראות
+  /// כמו עדכון ממתין, הבאג שבגללו [normalizeVersion] קיים מלכתחילה.
+  static bool sameBuild(String a, String b) {
+    final left = _buildSuffix(a);
+    final right = _buildSuffix(b);
+    if (left == null || right == null) return true;
+    return left == right;
+  }
+
+  /// החלק שאחרי ה-`+`, או null כשאין כזה (גם ל-`0.9.96+` הריק).
+  static String? _buildSuffix(String raw) {
+    final version = raw.trim();
+    final separator = version.indexOf('+');
+    if (separator < 0) return null;
+    final build = version.substring(separator + 1).trim();
+    return build.isEmpty ? null : build;
+  }
+
+  /// סדר בין מספרי ה-build. מוכרע רק כששניהם קיימים ושניהם מספריים —
+  /// סיומת שאינה מספר אינה ברת השוואה, ואפס פירושו "אין הכרעה".
+  static int _compareBuilds(String a, String b) {
+    final left = int.tryParse(_buildSuffix(a) ?? '');
+    final right = int.tryParse(_buildSuffix(b) ?? '');
+    if (left == null || right == null || left == right) return 0;
+    return left < right ? -1 : 1;
   }
 
   /// חלקי הבסיס כמספרים; חלק שאינו מספר נחשב 0 (במקום להפיל את ההשוואה).
@@ -182,6 +224,10 @@ class OtzariaUpdateCheckResult {
   /// `CFBundleShortVersionString` ב-macOS מחזירים שניהם `0.9.96`. בלי
   /// הנרמול הזה, כל זיהוי של התקנה קיימת היה נראה כמו "יש עדכון" ומוריד
   /// שוב את אותה גרסה בדיוק (ב-macOS: 73MB, בווינדוס installer מלא).
+  ///
+  /// ה-build עצמו לא נזרק לפח: [sameBuild] מכריע בו כששני הצדדים נושאים
+  /// אחד. כאן הוא יורד כי הפונקציה משמשת גם לאיתור הסעיף ביומן השינויים,
+  /// שבו הכותרות הן מספר הגרסה בלבד.
   static String normalizeVersion(String raw) {
     var version = raw.trim();
     if (version.startsWith('v') || version.startsWith('V')) {
