@@ -318,6 +318,75 @@ void main() {
       },
       testOn: 'windows',
     );
+
+    // דיווח מהשטח: אוצריא שהותקנה דרך הלאנצ'ר הוכרזה מיד "מותקנת גרסה
+    // חדשה יותר". ה-build שמוטבע ב-exe (`0.9.97+99702`) הוא ספירה אחרת
+    // לגמרי מזו שבתג הגיטהאב (`0.9.97+740`), וההשוואה ביניהם תמיד נטתה
+    // לטובת המותקן.
+    test(
+      'ה-build שב-exe אינו דורס את תג הגיטהאב השמור',
+      () async {
+        if (!File(_systemExe).existsSync()) {
+          markTestSkipped('אין $_systemExe במכונה הזאת');
+          return;
+        }
+        final dir = Directory(p.join(dataDir.path, 'הותקנה מהלאנצ׳ר'))
+          ..createSync(recursive: true);
+        final exe = p.join(dir.path, 'otzaria.exe');
+        await File(_systemExe).copy(exe);
+
+        final onDisk = const WindowsExeVersionReader().readVersion(exe)!;
+        final version = OtzariaUpdateCheckResult.normalizeVersion(onDisk);
+        final tag = '$version+740';
+        await writeMirror(stable: _release(tag, isPrerelease: false));
+        await writeState(OtzariaInstallState(
+          installedTagName: tag,
+          installDir: dir.path,
+          launchPath: exe,
+        ));
+
+        final check = await managerFor().checkForUpdate();
+
+        expect(check.currentState!.installedTagName, tag);
+        expect(check.installedIsNewer, isFalse);
+        expect(check.updateAvailable, isFalse);
+        // הגרסה שנקראה נחתמת כטביעת אצבע, כדי שהבדיקה הבאה תדע אם הקובץ
+        // עצמו התחלף.
+        expect(check.currentState!.appVersion, onDisk);
+      },
+      testOn: 'windows',
+    );
+
+    // קובץ ה-state נוסע על הכונן: ההתקנה במחשב הבא עשויה לשאת את אותו
+    // מספר גרסה ולהיות קובץ אחר לגמרי, ואז התג השמור אינו מתאר אותה.
+    test(
+      'exe שאינו זה שנחתם מחליף את התג השמור',
+      () async {
+        if (!File(_systemExe).existsSync()) {
+          markTestSkipped('אין $_systemExe במכונה הזאת');
+          return;
+        }
+        final dir = Directory(p.join(dataDir.path, 'מחשב אחר, אותה גרסה'))
+          ..createSync(recursive: true);
+        final exe = p.join(dir.path, 'otzaria.exe');
+        await File(_systemExe).copy(exe);
+
+        final onDisk = const WindowsExeVersionReader().readVersion(exe)!;
+        final version = OtzariaUpdateCheckResult.normalizeVersion(onDisk);
+        await writeState(OtzariaInstallState(
+          installedTagName: '$version+740',
+          installDir: dir.path,
+          launchPath: exe,
+          appVersion: '$version+99999',
+        ));
+
+        final check = await managerFor().checkForUpdate();
+
+        expect(check.currentState!.installedTagName, version);
+        expect(check.currentState!.appVersion, onDisk);
+      },
+      testOn: 'windows',
+    );
   });
 
   group('update / launch ללא מראה או ללא התקנה', () {

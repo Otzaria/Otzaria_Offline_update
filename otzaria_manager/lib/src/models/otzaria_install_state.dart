@@ -8,6 +8,7 @@ class OtzariaInstallState extends Equatable {
     required this.installedTagName,
     required this.installDir,
     required this.launchPath,
+    this.appVersion,
   });
 
   factory OtzariaInstallState.fromJson(Map<String, dynamic> json) {
@@ -18,6 +19,7 @@ class OtzariaInstallState extends Equatable {
       // בלבד) — נקרא גם הוא, כדי שמשתמש קיים לא "יאבד" את ההתקנה שלו
       // ויותקן לו מחדש בלי צורך אחרי עדכון הלאנצ'ר.
       launchPath: (json['launchPath'] ?? json['exePath']) as String,
+      appVersion: json['appVersion'] as String?,
     );
   }
 
@@ -32,12 +34,21 @@ class OtzariaInstallState extends Equatable {
   /// ב-macOS.
   final String launchPath;
 
+  /// מה שקובץ ההרצה עצמו דיווח כשראינו אותו לאחרונה (`0.9.97+99702`) —
+  /// **טביעת אצבע, לא תג גיטהאב**: מספר ה-build המוטבע ב-exe הוא ספירה
+  /// אחרת לגמרי מזו שבתגים, ולכן הוא בר-השוואה רק מול עצמו. כך יודעים אם
+  /// מישהו החליף את ההתקנה מחוץ ללאנצ'ר — ראו `OtzariaManager.
+  /// _verifyStoredState`. `null` ב-state שנכתב לפני שהשדה היה קיים.
+  final String? appVersion;
+
   Map<String, dynamic> toJson() => {
         'installedTagName': installedTagName,
         'installDir': installDir,
         'launchPath': launchPath,
+        if (appVersion != null) 'appVersion': appVersion,
       };
 
   @override
-  List<Object?> get props => [installedTagName, installDir, launchPath];
+  List<Object?> get props =>
+      [installedTagName, installDir, launchPath, appVersion];
 }

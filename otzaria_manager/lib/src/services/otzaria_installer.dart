@@ -312,10 +312,12 @@ class OtzariaInstaller {
     );
     // התג של ה-release ולא הגרסה שנקראה מה-exe — אותה סמנטיקה שהמסלול
     // השקט שומר, כדי ששני המסלולים לא יכתבו שני דברים שונים לאותו state.
+    // הגרסה שנקראה נשמרת בכל זאת כטביעת אצבע של הקובץ.
     return OtzariaInstallState(
       installedTagName: release.tagName,
       installDir: found.installDir,
       launchPath: found.launchPath,
+      appVersion: found.appVersion,
     );
   }
 
@@ -377,6 +379,7 @@ class OtzariaInstaller {
       installedTagName: release.tagName,
       installDir: found.installDir,
       launchPath: found.launchPath,
+      appVersion: found.appVersion,
     );
   }
 

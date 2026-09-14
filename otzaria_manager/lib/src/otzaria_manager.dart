@@ -589,12 +589,32 @@ class OtzariaManager {
     // קריאה משאיר את התג השמור — הקובץ קיים, ואין סיבה להתייחס אליו כאילו
     // נעלם.
     final onDisk = _readVersionQuietly(stored.launchPath);
-    if (onDisk == null || onDisk == stored.installedTagName) return stored;
+    if (onDisk == null) return stored;
 
-    return OtzariaInstallState(
-      installedTagName: onDisk,
-      installDir: stored.installDir,
+    // אותו exe שראינו כשנכתב ה-state: התג השמור נאמן, והוא היחיד שהוא תג
+    // גיטהאב מלא — כולל ה-build שלו, שהדיסק אינו יודע לדווח.
+    if (onDisk == stored.appVersion) return stored;
+
+    // state שנכתב לפני שהטביעה נשמרה (או על ידי המתקין): כשזו אותה גרסה,
+    // רק חותמים אותה. השוואה מול התג היא על הגרסה בלבד — ה-build שב-exe
+    // אינו אותה ספירה, וכל השוואה בינו לבין התג הכריזה "מותקנת גרסה חדשה
+    // יותר".
+    final version = OtzariaUpdateCheckResult.normalizeVersion(onDisk);
+    if (stored.appVersion == null &&
+        OtzariaUpdateCheckResult.sameVersion(
+            version, stored.installedTagName)) {
+      return OtzariaInstallState(
+        installedTagName: stored.installedTagName,
+        installDir: stored.installDir,
+        launchPath: stored.launchPath,
+        appVersion: onDisk,
+      );
+    }
+
+    return _diskStateAt(
       launchPath: stored.launchPath,
+      installDir: stored.installDir,
+      version: onDisk,
     );
   }
 
@@ -643,10 +663,10 @@ class OtzariaManager {
     final version = _readVersionQuietly(launchPath);
     if (version == null) return null;
 
-    return OtzariaInstallState(
-      installedTagName: version,
-      installDir: customDir,
+    return _diskStateAt(
       launchPath: launchPath,
+      installDir: customDir,
+      version: version,
     );
   }
 
@@ -668,10 +688,10 @@ class OtzariaManager {
     final version = _readVersionQuietly(launchPath);
     if (version == null) return null;
 
-    return OtzariaInstallState(
-      installedTagName: version,
-      installDir: p.dirname(launchPath),
+    return _diskStateAt(
       launchPath: launchPath,
+      installDir: p.dirname(launchPath),
+      version: version,
     );
   }
 
@@ -681,6 +701,9 @@ class OtzariaManager {
   /// למועמד הבא. הקורא עצמו כן זורק — `plutil` שאינו שם, קובץ בלי משאב
   /// גרסה, או קורא של פלטפורמה אחרת — ובלי העטיפה כל `checkForUpdate`
   /// הייתה נופלת בגלל אפליקציה זרה אחת שנקרתה בדרך.
+  ///
+  /// מחזיר את מה שכתוב ב-exe **כפי שהוא**, כולל ה-build — ראו
+  /// [_diskStateAt] למה הוא אינו נכנס לתג.
   String? _readVersionQuietly(String launchPath) {
     try {
       return _versionReader.readVersion(launchPath);
@@ -688,6 +711,24 @@ class OtzariaManager {
       return null;
     }
   }
+
+  /// מצב התקנה מגרסה שנקראה מהדיסק.
+  ///
+  /// ה-build שאחרי ה-`+` נשמר כ-[OtzariaInstallState.appVersion] ואינו
+  /// נכנס לתג: המספר המוטבע ב-exe (`0.9.97+99702`) הוא ספירה אחרת מזו
+  /// שבתגי הגיטהאב (`0.9.97+740`), והשוואה בין השתיים הכריזה תמיד
+  /// "מותקנת גרסה חדשה יותר".
+  OtzariaInstallState _diskStateAt({
+    required String launchPath,
+    required String installDir,
+    required String version,
+  }) =>
+      OtzariaInstallState(
+        installedTagName: OtzariaUpdateCheckResult.normalizeVersion(version),
+        installDir: installDir,
+        launchPath: launchPath,
+        appVersion: version,
+      );
 
   /// האם [candidatePath] הוא בכלל אוצריא. נבדק לפי שם החבילה, ואם זה לא
   /// מכריע — לפי `CFBundleIdentifier` ב-macOS (`com.example.otzaria` בבנייה
