@@ -22,6 +22,10 @@ String appInstallPrompt(BuildContext context, OtzariaModuleController c) =>
       prereleaseNote: c.hasChannelChoice && c.preferPrerelease,
     );
 
+/// מה הלחיצה על כפתור ההתקנה עושה בפועל. שלושתן מריצות את אותו מתקין
+/// מהתיקייה המקומית — ההבדל הוא מה נאמר למשתמש לפני כן.
+enum _Install { update, reinstall, older }
+
 /// מסך עדכון תוכנת אוצריא — מקביל במבנה ל-[LibraryScreen]: מצב, מה
 /// התחדש בגרסה האחרונה, והתיקייה שממנה מותקנים.
 class OtzariaScreen extends StatelessWidget {
@@ -79,6 +83,15 @@ class OtzariaScreen extends StatelessWidget {
     final c = otzaria;
     final t = context.strings.appScreen;
     final common = context.strings.common;
+    // הכפתור קפוא רק כשאין בתיקייה מה להתקין, או כשעוד לא ידוע מה יש בה.
+    // בכל מצב אחר ההתקנה חוקית — גם על אותה גרסה (התקנה פגומה שצריך לתקן),
+    // וגם כשהמותקן חדש מהתיקייה (חזרה לגרסה שעל הכונן).
+    final action = switch (c.status) {
+      OtzariaModuleStatus.updateAvailable => _Install.update,
+      OtzariaModuleStatus.upToDate => _Install.reinstall,
+      OtzariaModuleStatus.installedIsNewer => _Install.older,
+      _ => null,
+    };
 
     return SettingsCard(
       title: t.stateCardTitle,
@@ -90,12 +103,15 @@ class OtzariaScreen extends StatelessWidget {
           onPressed: c.canLaunch ? c.launch : null,
         ),
         ActionButton.neutral(
-          text: t.installUpdateButton,
+          text: switch (action) {
+            _Install.reinstall => t.reinstallButton,
+            _Install.older => t.installOlderButton,
+            _ => t.installUpdateButton,
+          },
           icon: FluentIcons.desktop_arrow_right_24_regular,
           isLoading: c.status == OtzariaModuleStatus.installing,
-          onPressed: c.status == OtzariaModuleStatus.updateAvailable
-              ? () => _confirmInstall(context)
-              : null,
+          onPressed:
+              action == null ? null : () => _confirmInstall(context, action),
         ),
       ],
       children: [
@@ -220,24 +236,45 @@ class OtzariaScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _confirmInstall(BuildContext context) async {
+  Future<void> _confirmInstall(BuildContext context, _Install action) async {
+    final t = context.strings.appScreen;
+    final home = context.strings.home;
     final approved = await showTwoActionsDialog(
       context: context,
-      title: context.strings.home.appInstallDialogTitle,
-      content: appInstallPrompt(context, otzaria),
-      confirmText: context.strings.home.appInstallConfirm,
+      title: switch (action) {
+        _Install.update => home.appInstallDialogTitle,
+        _Install.reinstall => t.reinstallDialogTitle,
+        _Install.older => t.installOlderDialogTitle,
+      },
+      content: switch (action) {
+        _Install.update => appInstallPrompt(context, otzaria),
+        _Install.reinstall => t.reinstallPrompt('${otzaria.latestVersion}'),
+        _Install.older => t.installOlderPrompt(
+            '${otzaria.latestVersion}',
+            '${otzaria.currentVersion}',
+          ),
+      },
+      confirmText: switch (action) {
+        _Install.update => home.appInstallConfirm,
+        _Install.reinstall => t.reinstallButton,
+        _Install.older => t.installOlderButton,
+      },
     );
     if (!approved) return;
     await otzaria.install();
+    // ההודעה נבדקת לפני המצב: בהתקנה חוזרת המצב נשאר "מעודכן" גם כשהמשתמש
+    // ביטל באשף, ולפי המצב לבדו זה היה נקרא הצלחה.
+    final notice = otzaria.noticeMessage;
+    if (notice != null) {
+      // ביטול באשף, או אשף שעוד פתוח — הודעה רגילה ולא שגיאה.
+      UiSnack.show(notice);
+      return;
+    }
     if (otzaria.status == OtzariaModuleStatus.upToDate) {
       UiSnack.showSuccess(
         AppL10n.strings.home.appInstalledSnack('${otzaria.currentVersion}'),
       );
-      return;
     }
-    // ביטול באשף, או אשף שעוד פתוח — הודעה רגילה ולא שגיאה.
-    final notice = otzaria.noticeMessage;
-    if (notice != null) UiSnack.show(notice);
   }
 
   // ── מה התחדש ──────────────────────────────────────────────────────────────

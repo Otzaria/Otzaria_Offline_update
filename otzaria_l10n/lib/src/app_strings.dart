@@ -235,6 +235,18 @@ abstract class AppScreenStrings {
   String get launchButton;
   String get installUpdateButton;
 
+  /// התקנה חוזרת של אותה גרסה — מוצעת דווקא כשהכול מעודכן, כדי לתקן התקנה
+  /// פגומה בלי להמתין לגרסה הבאה.
+  String get reinstallButton;
+  String get reinstallDialogTitle;
+  String reinstallPrompt(String version);
+
+  /// המותקן חדש מהתיקייה — התקנה משם היא נסיגת גרסה, וזה חייב להיאמר
+  /// בדיאלוג. הכפתור עצמו נשאר פעיל: לפעמים בדיוק לשם כך לוחצים.
+  String get installOlderButton;
+  String get installOlderDialogTitle;
+  String installOlderPrompt(String mirrorVersion, String installedVersion);
+
   /// "מה התחדש" הוא דיאלוג מאחורי כפתור, ולא כרטיס על המסך — הערות הגרסה
   /// ארוכות, והן מעניינות רגע אחד בלבד.
   String get whatsNewTitle;

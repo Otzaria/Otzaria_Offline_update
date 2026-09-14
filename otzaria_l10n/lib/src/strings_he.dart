@@ -336,6 +336,28 @@ class _AppScreen extends AppScreenStrings {
   String get installUpdateButton => 'התקנת העדכון';
 
   @override
+  String get reinstallButton => 'התקנה מחדש';
+  @override
+  String get reinstallDialogTitle => 'להתקין את אוצריא מחדש?';
+  @override
+  String reinstallPrompt(String version) =>
+      'אוצריא $version כבר מותקנת ומעודכנת, וההתקנה תרוץ שוב על אותה גרסה '
+      'מהתיקייה המקומית — שימושי כשההתקנה עצמה פגומה, או כשקובץ בה נמחק. '
+      'אין צורך באינטרנט. יש לוודא שאוצריא סגורה. '
+      'המתקין של אוצריא ייפתח, ובו תשלים את ההתקנה.';
+
+  @override
+  String get installOlderButton => 'התקנת הגרסה שבתיקייה';
+  @override
+  String get installOlderDialogTitle => 'לחזור לגרסה שבתיקייה המקומית?';
+  @override
+  String installOlderPrompt(String mirrorVersion, String installedVersion) =>
+      'בתיקייה המקומית יושבת גרסה $mirrorVersion, והמותקנת היא '
+      '$installedVersion — כלומר זו נסיגת גרסה ולא עדכון. '
+      'אין צורך באינטרנט. יש לוודא שאוצריא סגורה. '
+      'המתקין של אוצריא ייפתח, ובו תשלים את ההתקנה.';
+
+  @override
   String get whatsNewTitle => 'מה התחדש בגרסה האחרונה';
   @override
   String get whatsNewButton => 'מה התחדש';

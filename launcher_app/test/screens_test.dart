@@ -530,6 +530,71 @@ void main() {
     expect(find.text('הגרסה שתותקן'), findsNothing);
   });
 
+  testWidgets('אוצריא מותקנת ומעודכנת — כפתור ההתקנה מחדש פעיל',
+      (tester) async {
+    otzaria.status = OtzariaModuleStatus.upToDate;
+    otzaria.currentVersion = '0.9.96';
+    otzaria.latestVersion = '0.9.96';
+
+    await pumpScreen(
+      tester,
+      OtzariaScreen(
+        otzaria: otzaria,
+        settings: settings,
+        otzariaIsRunning: false,
+      ),
+    );
+
+    final button = tester.widget<ActionButton>(
+      find.widgetWithText(ActionButton, 'התקנה מחדש'),
+    );
+    expect(button.onPressed, isNotNull);
+    // הדיאלוג אומר שזו אותה גרסה, ולא "עדכון מגרסה 0.9.96 לגרסה 0.9.96".
+    await tester.tap(find.widgetWithText(ActionButton, 'התקנה מחדש'));
+    await tester.pumpAndSettle();
+    expect(find.text('להתקין את אוצריא מחדש?'), findsOneWidget);
+    expect(find.textContaining('כבר מותקנת ומעודכנת'), findsOneWidget);
+  });
+
+  testWidgets('המותקן חדש מהתיקייה — הכפתור פעיל ואומר שזו נסיגת גרסה',
+      (tester) async {
+    otzaria.status = OtzariaModuleStatus.installedIsNewer;
+    otzaria.currentVersion = '0.9.97';
+    otzaria.latestVersion = '0.9.96';
+
+    await pumpScreen(
+      tester,
+      OtzariaScreen(
+        otzaria: otzaria,
+        settings: settings,
+        otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
+      ),
+    );
+
+    await tester.tap(find.widgetWithText(ActionButton, 'התקנת הגרסה שבתיקייה'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('נסיגת גרסה ולא עדכון'), findsOneWidget);
+  });
+
+  testWidgets('אין מה להתקין — כפתור ההתקנה מושבת', (tester) async {
+    otzaria.status = OtzariaModuleStatus.needsDownload;
+
+    await pumpScreen(
+      tester,
+      OtzariaScreen(
+        otzaria: otzaria,
+        settings: settings,
+        otzariaIsRunning: false,
+      ),
+    );
+
+    final button = tester.widget<ActionButton>(
+      find.widgetWithText(ActionButton, 'התקנת העדכון'),
+    );
+    expect(button.onPressed, isNull);
+  });
+
   testWidgets('כרטיס החבילה המלאה אינו קיים כשהיא לא על הכונן', (tester) async {
     await pumpScreen(
       tester,

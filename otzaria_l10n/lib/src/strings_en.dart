@@ -353,6 +353,29 @@ class _AppScreen extends AppScreenStrings {
   String get installUpdateButton => 'Install the Update';
 
   @override
+  String get reinstallButton => 'Reinstall';
+  @override
+  String get reinstallDialogTitle => 'Reinstall Otzaria?';
+  @override
+  String reinstallPrompt(String version) =>
+      'Otzaria $version is already installed and up to date, and the same '
+      'version will be installed again from the local folder — useful when '
+      'the installation itself is broken, or a file in it was deleted. No '
+      'internet is needed. Make sure Otzaria is closed. The Otzaria '
+      'installer will open for you to complete the installation.';
+
+  @override
+  String get installOlderButton => 'Install the folder version';
+  @override
+  String get installOlderDialogTitle => 'Go back to the folder version?';
+  @override
+  String installOlderPrompt(String mirrorVersion, String installedVersion) =>
+      'The local folder holds version $mirrorVersion, while $installedVersion '
+      'is installed — so this is a downgrade, not an update. No internet is '
+      'needed. Make sure Otzaria is closed. The Otzaria installer will open '
+      'for you to complete the installation.';
+
+  @override
   String get whatsNewTitle => "What's new in the latest version";
   @override
   String get whatsNewButton => "What's new";
