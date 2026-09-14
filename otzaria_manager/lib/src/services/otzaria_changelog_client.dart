@@ -27,9 +27,11 @@ class OtzariaChangelogClient {
       'otzaria/dev/assets/%D7%99%D7%95%D7%9E%D7%9F%20%D7%A9%D7%99%D7%A0%D7%95'
       '%D7%99%D7%99%D7%9D.md';
 
-  /// כותרת גרסה בקובץ, לדוגמה `* **0.9.96**`.
-  static final RegExp _versionHeader =
-      RegExp(r'^\*\s*\*\*([0-9][0-9.]*)\*\*\s*$');
+  /// כותרת גרסה בקובץ, לדוגמה `* **0.9.96**` — וגם עם סיומת build
+  /// (`* **0.9.97+2**`), שאוצריא מוסיפה כשגרסה יצאה בכמה releases.
+  static final RegExp _versionHeader = RegExp(
+    r'^\*\s*\*\*\s*v?([0-9][0-9.]*(?:\+[0-9A-Za-z.-]+)?)\s*\*\*\s*$',
+  );
 
   final http.Client _httpClient;
 
@@ -58,9 +60,14 @@ class OtzariaChangelogClient {
     for (final line in lines) {
       final header = _versionHeader.firstMatch(line);
       if (header != null) {
-        // כותרת הגרסה הבאה — אם כבר היינו בפסקה שלנו, זה הסוף שלה.
-        if (inSection) break;
-        inSection = header.group(1) == target;
+        final matches =
+            OtzariaUpdateCheckResult.normalizeVersion(header.group(1)!) ==
+                target;
+        // גרסה שיצאה בכמה releases מפוצלת לכמה סעיפים רצופים (`0.9.97+2`,
+        // `0.9.97+1`) — כולם יחד הם "מה התחדש" שלה. רק כותרת של גרסה אחרת,
+        // אחרי שכבר נאסף משהו, סוגרת את הפסקה.
+        if (!matches && collected.isNotEmpty) break;
+        inSection = matches;
         continue;
       }
       // כל שורות הפסקה מוזחות באותם שני רווחים תחת כותרת הגרסה (רשימה

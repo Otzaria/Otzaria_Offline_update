@@ -17,6 +17,19 @@ const String _fakeChangelog = '''
   - שורה ישנה
 ''';
 
+/// גרסה שיצאה בכמה releases, כפי שאוצריא כותבת אותה: כמה סעיפים רצופים עם
+/// סיומת build משלהם.
+const String _splitChangelog = '''
+* **0.9.97+2**
+  - תיקון מאוחר
+
+* **0.9.97+1**
+  - כלי חדש
+
+* **0.9.96**
+  - שורה של 0.9.96
+''';
+
 http.Client _mockChangelog(String body, {int status = 200}) =>
     MockClient((request) async {
       expect(request.url.toString(), OtzariaChangelogClient.url);
@@ -60,6 +73,24 @@ void main() {
 
       expect(notes, contains('שורה א של 0.9.96'));
       expect(notes, contains('שורה ב של 0.9.96'));
+    });
+
+    // דיווח משתמש: ב-0.9.97 הוצג תיאור ה-release מגיטהאב (רשימת קישורי
+    // הורדה) במקום מה שהתחדש — הכותרות בקובץ היו `0.9.97+1`/`+2`, וביטוי
+    // הכותרת לא הכיר סיומת build כלל.
+    test('כותרת עם סיומת build מזוהה, וכל סעיפי הגרסה נאספים יחד', () async {
+      final client =
+          OtzariaChangelogClient(httpClient: _mockChangelog(_splitChangelog));
+
+      expect(await client.notesFor('0.9.97+789'), '- תיקון מאוחר\n\n- כלי חדש');
+    });
+
+    test('הפסקה נעצרת בגרסה הקודמת גם כשהיא מפוצלת', () async {
+      final client =
+          OtzariaChangelogClient(httpClient: _mockChangelog(_splitChangelog));
+
+      expect(await client.notesFor('0.9.97'), isNot(contains('0.9.96')));
+      expect(await client.notesFor('0.9.96'), '- שורה של 0.9.96');
     });
 
     test('מחזיר null כשהגרסה לא מופיעה בקובץ', () async {
