@@ -2,13 +2,21 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../models/library_release.dart';
 import '../models/library_update_plan.dart';
+import 'apply_time_estimate.dart';
 
 /// בוחר את תוכנית העדכון: מסלול דלתא, הורדה מלאה, none, או blocked.
 ///
 /// פונקציה טהורה — אינה ניגשת לרשת או ל-DB. מקבלת את כל המידע שכבר נאסף
 /// (גרסה מקומית, edges, ו-DB מלא ל-fallback) ומחזירה [LibraryUpdatePlan].
+///
+/// **כששני המסלולים מגיעים לאותה גרסה, נבחר המהיר** — שניהם כבר יושבים על
+/// הכונן, ולכן מה שנשאר להשוות הוא הזמן שהמשתמש מחכה. ראו [ApplyTimeEstimate].
 class LibraryUpdatePlanner {
-  const LibraryUpdatePlanner();
+  const LibraryUpdatePlanner({this.applyTime = const ApplyTimeEstimate()});
+
+  /// אומדן זמן העדכון **על המחשב הזה**, שלפיו נבחר בין שרשרת קובצי עדכון
+  /// לבין החלפת המסד המלא כששתיהן מגיעות לאותה גרסה. ניתן להזרקה לבדיקות.
+  final ApplyTimeEstimate applyTime;
 
   /// בונה תוכנית עדכון.
   ///
@@ -108,6 +116,38 @@ class LibraryUpdatePlanner {
                 ?.targetVersion ??
             fullTargetVersion)
         : localVersion;
+
+    // **המסלול המהיר מנצח, גם כשהוא החלפת המסד כולו.** שתי הדרכים יושבות
+    // כבר על הכונן, ולכן מה שנשאר להשוות הוא רק הזמן שהמשתמש מחכה: כל צעד
+    // דלתא משלם סריקת-hash של המסד כולו, ושרשרת ארוכה (או צעד שכתב את המסד
+    // מחדש) הגיעה לשעה מול שתי דקות של החלפה. ראו [ApplyTimeEstimate].
+    if (fullAvailable &&
+        path != null &&
+        path.isNotEmpty &&
+        deltaTarget == fullRouteTarget &&
+        fullRouteTarget > localVersion &&
+        latestFullDbAsset.size > 0) {
+      final deltaSeconds =
+          applyTime.deltaRouteSeconds(path.map((e) => e.compressedSize));
+      final followUp = _followUpDelta(edges, fullTargetVersion, latestVersion);
+      final fullSeconds = applyTime.fullRouteSeconds(latestFullDbAsset.size) +
+          applyTime.deltaRouteSeconds(
+              followUp?.deltaSteps.map((e) => e.compressedSize) ?? const []);
+      if (applyTime.isOutOfRange(deltaSeconds, fullSeconds)) {
+        return LibraryUpdatePlan.fullDownload(
+          localVersion: localVersion,
+          targetVersion: fullTargetVersion,
+          asset: latestFullDbAsset,
+          releaseTag: fullDbReleaseTag,
+          reason: AppL10n.strings.libraryDomain.planFullDbFasterThanPatches(
+            path.length,
+            ApplyTimeEstimate.minutesOf(deltaSeconds),
+            ApplyTimeEstimate.minutesOf(fullSeconds),
+          ),
+          followUpDelta: followUp,
+        );
+      }
+    }
 
     if (path != null && path.isNotEmpty && deltaTarget >= fullRouteTarget) {
       return LibraryUpdatePlan.delta(

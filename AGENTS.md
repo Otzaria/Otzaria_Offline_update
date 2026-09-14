@@ -167,14 +167,36 @@ keep an existing full DB and download patches — pulled **2.15GB** of them
 instead of a fresh 1.31GB full DB. The user paid for that twice: an hour of
 downloading, then **64 minutes** of applying, against ~2 minutes for a full-DB
 swap. `ApplyTimeEstimate` (calibrated on measured runs, `lib/src/services/`)
-now estimates both routes, and `LibraryMirrorExporter._fullDbBeatsPatches`
-drops the whole patch history — old full DB included — when the delta route
-leaves its range. **It is a range, not "whichever is faster":** the patch route
+now estimates both routes, and `LibraryMirrorExporter._dropSlowPatches` keeps
+a patch out of the mirror when applying **that one edge** already costs more
+than swapping the whole database; whatever the drop turns into a dead end goes
+with it (`_dropUselessPatches`), old full DB included. **It is a range, not
+"whichever is faster":** the patch route
 is allowed to be somewhat slower, because it saves ~1.3GB of download on the
 online machine; it loses only when it is both more than twice as slow **and**
 at least ten minutes slower. Do not "simplify" this back into a size
 comparison — an 8.5MB patch and a 585MB one weigh nothing alike but both start
 from the same fixed cost, and that is exactly what a size rule cannot see.
+
+**The verdict has to be re-derivable, not remembered.** The first version of
+this measured only the cheapest single step into the latest version, so the
+decision survived in nothing but the files it had deleted. The month after, a
+new release put an ordinary patch at the end of the chain, that one
+measurement came back "in range", and the 585MB edge — with the ten releases
+of chain hanging below it — was downloaded all over again. Measuring the edge
+itself keeps a rejected edge rejected on every later run, with no state
+carried between runs and nothing to go stale.
+
+**The offline machine picks the fastest route it has, and that route can be
+the full database.** `LibraryUpdatePlanner` used to take the delta chain
+whenever it reached at least as high as the full route — but by then both
+assets already sit on the drive, so the only thing left to compare is how long
+the user waits. When the two routes land on the *same* version the same
+`ApplyTimeEstimate` range decides, and a chain that is far slower loses to the
+swap (`planFullDbFasterThanPatches` says so on screen). A chain that reaches
+*higher* still wins regardless — freshness before speed — and with no full DB
+in the mirror (personal-update mode) there is nothing to compare against, so
+the chain stands.
 
 **The same rule runs in personal-update mode, and it is the one thing that
 puts a full DB there.** That mode exists to skip the full DB — that is its
@@ -183,7 +205,7 @@ it does, or when no chain reaches the latest version at all, leaves them with
 the more expensive of the two updates. So `export` runs the identical decision
 with `fromVersion` set, which is the one difference that matters: there the
 route measured is **the user's actual chain, every step of it**, instead of
-the cheapest single step a mirror can offer an unknown machine. When it loses,
+the per-edge verdict a mirror can hand an unknown machine. When it loses,
 the full DB is downloaded and the patches are dropped. Two consequences worth
 knowing: a release that ships **only** a full DB is no longer invisible to
 personal mode (it used to be filtered out by `personalReleases` and the mode

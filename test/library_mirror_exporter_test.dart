@@ -759,6 +759,76 @@ void main() {
       expect(plan.targetVersion, 27);
     });
 
+    // ⚠️ הבאג שההחלטה הזו נשכחה בו: אחרי שהמראה התאפסה למסד המלא, יציאת
+    // גרסה חדשה עם patch רגיל החזירה את ה-patch הענק שכבר נפסל — כי הזמן
+    // נמדד על הצעד האחרון אל latest ולא על הקשת עצמה. בשטח זה היה
+    // 2.15GB שיורדים שוב בכל חודש.
+    test('קשת שנפסלה אינה חוזרת למראה כשיוצאת גרסה חדשה', () async {
+      const sizes = {
+        'seforim.db.zst': 4 << 20,
+        'patch-v23-v27.db.zst': 5 << 20,
+        'patch-v27-v28.db.zst': 64 << 10,
+      };
+      await buildExporter(
+        [
+          release('v27', assets: [
+            'seforim.db.zst',
+            'patch-v23-v27.db.zst',
+            'patch-v23-v27.db.zst.manifest.json',
+          ]),
+          release('v23', assets: ['seforim.db.zst']),
+        ],
+        assetSizes: sizes,
+        applyTime: rewriteScale,
+      ).exporter.export(destDir: destDir);
+
+      final third = buildExporter(
+        [
+          release('v28', assets: [
+            'seforim.db.zst',
+            'patch-v27-v28.db.zst',
+            'patch-v27-v28.db.zst.manifest.json',
+          ]),
+          release('v27', assets: [
+            'seforim.db.zst',
+            'patch-v23-v27.db.zst',
+            'patch-v23-v27.db.zst.manifest.json',
+          ]),
+          release('v23', assets: ['seforim.db.zst']),
+        ],
+        assetSizes: sizes,
+        applyTime: rewriteScale,
+      );
+      await third.exporter.export(destDir: destDir);
+
+      // רק הצעד הקטן אל הגרסה החדשה יורד: לא ה-patch הענק, וגם לא המסד
+      // המלא — זה שכבר יושב על הכונן משמש נשא.
+      expect(third.fetched, contains('patch-v27-v28.db.zst'));
+      expect(third.fetched, isNot(contains('patch-v23-v27.db.zst')));
+      expect(third.fetched, isNot(contains('seforim.db.zst')));
+      expect(assetOnDisk(destDir, 'v27', 'seforim.db.zst'), isTrue);
+      expect(assetOnDisk(destDir, 'v27', 'patch-v23-v27.db.zst'), isFalse);
+      expect(mirroredAssetNames(destDir, 'v27'), ['seforim.db.zst']);
+
+      // ומי שתקוע על v23 מקבל החלפת מסד מלא ואז את הצעד הקטן — ולא שעה
+      // של החלת ה-patch הענק.
+      final result = await LibraryUpdateDiscovery(
+        client: LocalMirrorLibraryReleaseClient(mirrorDir: destDir),
+      ).discover(allowPrerelease: false);
+      final plan = const LibraryUpdatePlanner().plan(
+        localVersion: 23,
+        hasLocalVersionMeta: true,
+        latestVersion: result.latestVersion,
+        edges: result.edges,
+        latestFullDbAsset: result.latestFullDbAsset,
+        fullDbReleaseTag: result.fullDbReleaseTag,
+        latestFullDbVersion: result.latestFullDbVersion,
+      );
+      expect(plan.kind, LibraryUpdatePlanKind.fullDownload);
+      expect(plan.targetVersion, 27);
+      expect(plan.finalTargetVersion, 28);
+    });
+
     // חודש רגיל: העדכון בקובצי עדכון ארוך במקצת מהמסד המלא — וזה בסדר. הוא
     // חוסך ~1.3GB בהורדה, ולכן הטווח מרשה לו את זה.
     test('בתוך הטווח — ההיסטוריה נשמרת והמסד הישן מנצח', () async {
@@ -1031,7 +1101,9 @@ void main() {
         'patch-v1-v2.db.zst',
         'patch-v1-v2.db.zst.manifest.json',
       ]),
-    ]);
+    ], assetSizes: const {
+      'seforim.db.zst': 4 << 20
+    });
     await built.exporter.export(destDir: destDir);
 
     final mirror = LocalMirrorLibraryReleaseClient(mirrorDir: destDir);
@@ -1044,8 +1116,11 @@ void main() {
       containsAll(<String>['1-2', '2-3']),
     );
 
-    LibraryUpdatePlan planFrom(int localVersion) =>
-        const LibraryUpdatePlanner().plan(
+    // הגדלים והקבועים אינם קישוט: התכנון נמדד בזמן, ומסד מלא של עשרים בתים
+    // היה נראה כהחלפה מיידית שכל שרשרת מפסידה לה. 4MB = ארבע דקות.
+    LibraryUpdatePlan planFrom(int localVersion) => const LibraryUpdatePlanner(
+          applyTime: ApplyTimeEstimate(fullSecondsPerMb: 60),
+        ).plan(
           localVersion: localVersion,
           hasLocalVersionMeta: true,
           latestVersion: result.latestVersion,

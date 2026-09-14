@@ -1686,12 +1686,12 @@ class _LibraryDomain extends LibraryDomainStrings {
     int fileCount,
     int patchMinutes,
     int fullDbMinutes,
-    int fullDbVersion,
+    int toVersion,
   ) =>
-      'העדכון לגרסה $fullDbVersion שינה את המסד מקצה לקצה: החלת קובצי העדכון '
+      'העדכון לגרסה $toVersion שינה את המסד מקצה לקצה: החלת קובצי העדכון שלו '
       'תארך כ-$patchMinutes דקות במחשב שמתעדכן, לעומת כ-$fullDbMinutes דקות '
-      'של החלפת המסד המלא. מוריד את המסד המלא בלבד ומוחק $fileCount קובצי '
-      'עדכון מהתיקייה';
+      'של החלפת המסד המלא. מדלג על $fileCount הקבצים האלה ומוריד את המסד '
+      'המלא במקומם';
   @override
   String exportPersonalNeedsFullDb(int fromVersion, int latestVersion) =>
       'אין מסלול קובצי עדכון שיכול להעביר את גרסה $fromVersion לגרסה '
@@ -1712,6 +1712,14 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String planNoDeltaRoute(int localVersion, int latestVersion) =>
       'אין מסלול דלתא רציף מגרסה $localVersion לגרסה $latestVersion';
+  @override
+  String planFullDbFasterThanPatches(
+    int stepCount,
+    int patchMinutes,
+    int fullDbMinutes,
+  ) =>
+      'החלת $stepCount קובצי העדכון תארך כ-$patchMinutes דקות, לעומת כ-'
+      '$fullDbMinutes דקות של החלפת המסד המלא — ולכן המסד המלא מוחלף';
   @override
   String planNoFullDbEither(String reason) =>
       '$reason, ואין DB מלא זמין להורדה';

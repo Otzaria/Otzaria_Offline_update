@@ -1026,13 +1026,13 @@ abstract class LibraryDomainStrings {
   /// קובצי עדכון שהושמטו מהמראה כי המסד המלא מגיע גבוה מהם ממילא.
   String exportSkippingPatchesFullDbWins(int fileCount, int fullDbVersion);
 
-  /// הרחבה שכתבה את המסד מחדש: החלת קובצי העדכון אצל המשתמש ארוכה בהרבה
-  /// מהחלפת המסד המלא, ולכן המראה מתאפסת למסד המלא בלבד.
+  /// קובץ עדכון שהחלתו אצל המשתמש ארוכה מהחלפת המסד המלא כולו — אינו נכנס
+  /// למראה, והמסד המלא יורד במקומו.
   String exportFullDbInsteadOfSlowPatches(
     int fileCount,
     int patchMinutes,
     int fullDbMinutes,
-    int fullDbVersion,
+    int toVersion,
   );
 
   /// "עדכון אישי" שאין לו מסלול patches — המסד המלא יורד למרות שהמצב הזה
@@ -1046,6 +1046,14 @@ abstract class LibraryDomainStrings {
   String get planLocalVersionUnknown;
   String planContentChangedWithoutVersionBump(String releaseTag);
   String planNoDeltaRoute(int localVersion, int latestVersion);
+
+  /// שרשרת קובצי העדכון מגיעה לאותה גרסה כמו החלפת המסד המלא, אבל ארוכה
+  /// ממנה בהרבה — ולכן נבחרת ההחלפה.
+  String planFullDbFasterThanPatches(
+    int stepCount,
+    int patchMinutes,
+    int fullDbMinutes,
+  );
   String planNoFullDbEither(String reason);
   String planPatchSchemaTooNew(int schemaVersion, int latestVersion);
 

@@ -1789,13 +1789,13 @@ class _LibraryDomain extends LibraryDomainStrings {
     int fileCount,
     int patchMinutes,
     int fullDbMinutes,
-    int fullDbVersion,
+    int toVersion,
   ) =>
-      'The update to version $fullDbVersion rewrote the database end to end: '
+      'The update to version $toVersion rewrote the database end to end: '
       'applying its update files would take about $patchMinutes minutes on '
       'the computer being updated, against about $fullDbMinutes minutes to '
-      'swap in the full database. Downloading only the full database and '
-      'dropping $fileCount update files from the folder';
+      'swap in the full database. Skipping those $fileCount files and '
+      'downloading the full database instead';
   @override
   String exportPersonalNeedsFullDb(int fromVersion, int latestVersion) =>
       'There is no chain of update files that can carry version $fromVersion '
@@ -1820,6 +1820,15 @@ class _LibraryDomain extends LibraryDomainStrings {
   String planNoDeltaRoute(int localVersion, int latestVersion) =>
       'There is no continuous delta route from version $localVersion to '
       'version $latestVersion';
+  @override
+  String planFullDbFasterThanPatches(
+    int stepCount,
+    int patchMinutes,
+    int fullDbMinutes,
+  ) =>
+      'Applying the $stepCount update files would take about $patchMinutes '
+      'minutes, against about $fullDbMinutes minutes to swap in the full '
+      'database — replacing the full database instead';
   @override
   String planNoFullDbEither(String reason) =>
       '$reason, and no full database is available to download';

@@ -408,6 +408,53 @@ void main() {
     // המראה האמיתית (ספטמבר 2026): קשתות עד v23 בסכמה 2, ו-v26 בסכמה 4
     // שסוננה. מסד v21/v22 יכול לטפס ל-23 בעשרות MB — וזה עדיף גם על
     // "חסום" וגם על הורדה מלאה של ~1.5GB שנוחתת על 21.
+    // ⚠️ מה שהמשתמש מחכה לו הוא זמן, לא בייטים: כל צעד דלתא משלם סריקת-hash
+    // של המסד כולו. שני המסלולים יושבים כבר על הכונן, ולכן כשהשרשרת ארוכה
+    // בהרבה — נבחרת החלפת המסד המלא.
+    group('המסלול המהיר מנצח, גם כשהוא החלפת המסד כולו', () {
+      test('צעד שכתב את המסד מחדש מפסיד להחלפת המסד המלא', () {
+        final p =
+            plan(local: 2, latest: 3, edges: [_edge(2, 3, size: 600 << 20)]);
+        expect(p.kind, LibraryUpdatePlanKind.fullDownload);
+        expect(p.targetVersion, 3);
+        expect(
+          p.reason,
+          AppL10n.strings.libraryDomain.planFullDbFasterThanPatches(1, 60, 4),
+        );
+      });
+
+      test('שרשרת ארוכה מפסידה', () {
+        final p = plan(
+          local: 1,
+          latest: 5,
+          edges: [_edge(1, 2), _edge(2, 3), _edge(3, 4), _edge(4, 5)],
+        );
+        expect(p.kind, LibraryUpdatePlanKind.fullDownload);
+        expect(p.finalTargetVersion, 5);
+      });
+
+      // חודש רגיל: שרשרת קצרה ארוכה במקצת מהמסד המלא — ונשארת. הטווח של
+      // [ApplyTimeEstimate] מרשה לה את זה.
+      test('שרשרת קצרה נשארת', () {
+        final p = plan(local: 1, latest: 3, edges: [_edge(1, 2), _edge(2, 3)]);
+        expect(p.kind, LibraryUpdatePlanKind.delta);
+      });
+
+      // בלי מסד מלא במראה (מצב "עדכון אישי") אין מול מה להשוות, והשרשרת
+      // היא כל מה שיש.
+      test('בלי מסד מלא במראה — השרשרת נשארת גם כשהיא ארוכה', () {
+        final p = plan(
+          local: 1,
+          latest: 5,
+          edges: [_edge(1, 2), _edge(2, 3), _edge(3, 4), _edge(4, 5)],
+          full: null,
+          tag: null,
+        );
+        expect(p.kind, LibraryUpdatePlanKind.delta);
+        expect(p.deltaSteps, hasLength(4));
+      });
+    });
+
     group('שרשרת שנעצרת מתחת ל-latest', () {
       test('מטפסים לגרסה הגבוהה שאפשר, ולא נחסמים', () {
         final p = plan(
