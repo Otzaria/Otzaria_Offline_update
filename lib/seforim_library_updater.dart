@@ -30,7 +30,7 @@ export 'src/models/patch_table_spec.dart'
 export 'src/services/apply_time_estimate.dart' show ApplyTimeEstimate;
 export 'src/services/disk_space_probe.dart' show DiskSpaceProbe;
 export 'src/services/download_scheduler.dart'
-    show DownloadScheduler, ByteProgressAggregator;
+    show DownloadScheduler, ByteProgressAggregator, ByteProgressSlot;
 export 'src/services/fast_sha256.dart' show Sha256Stream;
 export 'src/services/github_library_release_client.dart'
     show GithubLibraryReleaseClient;

@@ -129,20 +129,20 @@ void main() {
       expect(controller.downloadProgress, isNull);
     });
 
-    test('בייטים בלבד (נכס אחד גדול) = היחס בתוך הנכס', () {
+    test('הבייטים מתארים את כל ההורדה, ולכן הם המד', () {
       controller.downloadReceivedBytes = 250;
       controller.downloadTotalBytes = 1000;
 
       expect(controller.downloadProgress, 0.25);
     });
 
-    test('נכסים ובייטים יחד — הנכסים שהושלמו ועוד החלק היחסי', () {
+    test('ספירת הנכסים אינה מדללת את הבייטים', () {
       controller.downloadDoneAssets = 1;
       controller.downloadTotalAssets = 4;
       controller.downloadReceivedBytes = 500;
       controller.downloadTotalBytes = 1000;
 
-      expect(controller.downloadProgress, closeTo(0.375, 1e-9));
+      expect(controller.downloadProgress, 0.5);
     });
 
     test('סה"כ בייטים לא ידוע — מתקדם לפי ספירת הנכסים בלבד', () {
@@ -150,6 +150,16 @@ void main() {
       controller.downloadTotalAssets = 4;
 
       expect(controller.downloadProgress, 0.5);
+    });
+
+    test('יעד 0 (הכול כבר על הכונן) נופל לספירת הנכסים ולא מתפוצץ', () {
+      controller.downloadReceivedBytes = 0;
+      controller.downloadTotalBytes = 0;
+      expect(controller.downloadProgress, isNull);
+
+      controller.downloadDoneAssets = 2;
+      controller.downloadTotalAssets = 2;
+      expect(controller.downloadProgress, 1.0);
     });
 
     test('ערכים חריגים נחתכים ל-0..1 ואינם מפילים את המד', () {

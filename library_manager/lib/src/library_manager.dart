@@ -292,7 +292,7 @@ class LibraryManager {
           fromVersion: fromVersion,
           onStage: onStage,
           onAssetProgress: onAssetProgress,
-          onBytesProgress: exportBytes,
+          onBytesProgress: exportBytes.report,
           onWarning: onWarning,
           isCancelled: isCancelled,
         );
@@ -309,7 +309,7 @@ class LibraryManager {
     final companionsFuture = _companionsMirror.sync(
       destDir: companionsMirrorDir,
       onStage: onStage,
-      onBytesProgress: companionBytes,
+      onBytesProgress: companionBytes.report,
       onWarning: onCompanionWarning,
       isCancelled: isCancelled,
     );
