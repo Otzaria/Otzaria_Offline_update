@@ -777,6 +777,61 @@ void main() {
     expect(body, isNot(contains('fetchChannelReleases')));
   });
 
+  // ב-macOS ההתקנה מחליפה את חבילת ה-`.app` כולה ומוחקת את הקודמת;
+  // `unlink` שם מצליח על קבצים פתוחים, ולכן אוצריא שרצה הייתה נשארת בלי
+  // הקבצים שלה. בווינדוס המתקין של Inno הוא שמכריע, ולכן אין שם סירוב.
+  group('macOS: לא מתקינים על אוצריא פתוחה', () {
+    OtzariaRelease macRelease(String tag) => OtzariaRelease(
+          tagName: tag,
+          name: 'Otzaria $tag',
+          isPrerelease: false,
+          isDraft: false,
+          publishedAt: DateTime.utc(2026, 1, 1),
+          installerKind: OtzariaInstallerKind.macAppZip,
+          installerAssetName: 'otzaria-macos.zip',
+          installerDownloadUrl: 'https://example.invalid/$tag',
+          installerSizeBytes: _installerBytes.length,
+        );
+
+    test('update מסרב בהודעה, ולא נוגע בכלום', () async {
+      await writeMirror(stable: macRelease('0.9.96'));
+      final manager = managerFor(
+        platform: OtzariaTargetPlatform.macos,
+        runningOtzariaPath: '/Applications/אוצריא.app',
+        environment: {'HOME': p.join(dataDir.path, 'home')},
+      );
+
+      await expectLater(
+        manager.update(await manager.checkForUpdate()),
+        throwsA(isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          AppL10n.strings.appDomain.macCloseOtzariaBeforeInstall,
+        )),
+      );
+    });
+
+    test('בווינדוס אותה מראה אינה נחסמת על תהליך רץ', () async {
+      // אותו תרחיש בדיוק, פלטפורמה אחרת: הסירוב לא זלג לשם. ההתקנה תיכשל
+      // בהמשך (אין מתקין אמיתי), אבל **לא** בהודעה של macOS.
+      await writeMirror(stable: _release('0.9.96', isPrerelease: false));
+      final manager = managerFor(runningOtzariaPath: _systemExe);
+      final check = await manager.checkForUpdate();
+
+      Object? thrown;
+      try {
+        await manager.update(check);
+      } catch (e) {
+        thrown = e;
+      }
+
+      expect(
+        '$thrown',
+        isNot(contains(AppL10n.strings.appDomain.macCloseOtzariaBeforeInstall)),
+      );
+    });
+  });
+
   // לנדמיין שני: להתקנה חדשה בווינדוס אין תיקיית יעד משלנו. אין דרך
   // להזריק לתהליך שהמתקין מריץ, ולכן גם זה נאכף על הקוד עצמו.
   test('התקנה חדשה בווינדוס אינה כופה תיקייה — רק macOS צריך אחת', () {

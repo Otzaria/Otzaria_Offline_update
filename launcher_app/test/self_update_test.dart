@@ -226,6 +226,9 @@ void main() {
       mirror = LauncherUpdateMirror(
         mirrorDir: p.join(temp.path, 'mirror', 'launcher'),
         httpClient: MockClient((_) async => http.Response('abcd', 200)),
+        // מפורש: הנכסים כאן הם `.exe`, ו-`load()` פוסלת נכס של פלטפורמה
+        // אחרת — ראו הבדיקה האחרונה בקבוצה.
+        operatingSystem: 'windows',
       );
     });
 
@@ -301,6 +304,23 @@ void main() {
       );
       expect(File(expected).existsSync(), isFalse);
       expect(await mirror.load(), isNull);
+    });
+
+    // הכונן נוסע בין מחשבים: מי שהוריד בווינדוס נושא `.exe`, ומק שקורא
+    // אותו היה מוסר אותו ל-`ditto` ונכשל בהודעה שאינה אומרת דבר.
+    test('נכס של פלטפורמה אחרת נקרא כ"אין מראה"', () async {
+      await mirror.sync(_release());
+
+      final asMac = LauncherUpdateMirror(
+        mirrorDir: mirror.mirrorDir,
+        httpClient: MockClient((_) async => http.Response('abcd', 200)),
+        operatingSystem: 'macos',
+      );
+      addTearDown(asMac.dispose);
+
+      expect(await asMac.load(), isNull);
+      // ובווינדוס אותה מראה בדיוק עדיין תקינה.
+      expect(await mirror.load(), isNotNull);
     });
   });
 
@@ -476,6 +496,31 @@ void main() {
       await installer().cleanupLeftovers(layout);
 
       expect(leftover.existsSync(), isFalse);
+    });
+
+    // ב-macOS השאריות הן **תיקיות** — תיקיית ה-staging וחבילת ה-.app
+    // הקודמת, מאות מגה-בייט כל אחת. הניקוי טיפל רק בקבצים של ווינדוס,
+    // ולכן עדכון שנקטע השאיר אותן על הכונן לנצח.
+    test('macOS: תיקיית ה-staging וחבילת ה-.app הקודמת נמחקות גם הן', () async {
+      final bundle = Directory(p.join(temp.path, 'Otzaria Launcher.app'));
+      await bundle.create(recursive: true);
+      final macLayout = LauncherInstallLayout(executablePath: bundle.path);
+
+      final staging = Directory(
+        p.join(temp.path, LauncherSelfInstaller.macStagingDirName),
+      );
+      await Directory(p.join(staging.path, 'Otzaria Launcher.app'))
+          .create(recursive: true);
+      final previous = Directory('${bundle.path}.previous');
+      await Directory(p.join(previous.path, 'Contents'))
+          .create(recursive: true);
+
+      await installer().cleanupLeftovers(macLayout);
+
+      expect(staging.existsSync(), isFalse);
+      expect(previous.existsSync(), isFalse);
+      // והחבילה עצמה לא נגעו בה.
+      expect(bundle.existsSync(), isTrue);
     });
   });
 

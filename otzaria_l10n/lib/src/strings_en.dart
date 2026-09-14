@@ -1503,6 +1503,14 @@ class _Elevation extends ElevationStrings {
       'You can close this program, start it again with a right-click on the '
       'executable → "Run as administrator", and try again.';
   @override
+  String get macHint =>
+      'The folder does not appear to be writable. On macOS there are three '
+      'things to try: install Otzaria into the "Applications" folder inside '
+      'your home directory (~/Applications) rather than the machine-wide '
+      '/Applications; pick a library location inside your home directory; or '
+      'grant this program Full Disk Access in System Settings → Privacy & '
+      'Security → Full Disk Access, and then reopen it.';
+  @override
   String get dialogTitle => 'Administrator rights are needed';
   @override
   String get dialogContent =>
@@ -2285,6 +2293,11 @@ class _AppDomain extends AppDomainStrings {
   @override
   String macReplaceFailed(String error) =>
       'Replacing the .app bundle in the install folder failed: $error';
+  @override
+  String get macCloseOtzariaBeforeInstall =>
+      'Otzaria is currently open. On macOS the install replaces the whole '
+      'application bundle, so a running Otzaria would be left without its own '
+      'files and crash — please close it and try again.';
   @override
   String dittoExtractFailed(int exitCode, String output) =>
       'Extracting the package (ditto) failed with code $exitCode.\n$output';

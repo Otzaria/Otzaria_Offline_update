@@ -15,23 +15,42 @@ const double kAppTitleBarHeight = 40;
 /// שלושת כפתורי החלון של Windows 11, 46 לכל אחד.
 const double _kWindowCaptionButtonsWidth = 138;
 
+/// הרוחב שנשמר בפינה **השמאלית הפיזית** ב-macOS לשלושת הכפתורים העגולים של
+/// המערכת. הם מצוירים בידי המערכת מעל החלון, ולכן תוכן שיושב שם נחתך תחתיהם
+/// — וב-RTL זה דווקא הקצה שבו יושבים כפתורי החלון שלנו היו יושבים.
+const double _kMacTrafficLightsWidth = 78;
+
 /// שורת הזהות של האפליקציה, שהיא גם שורת הכותרת של החלון: הסמל והשם בצד
 /// ההתחלה, שם המסך הפתוח באמצע, וכפתורי החלון בצד הסיום. כל מה שביניהם גורר
 /// את החלון.
 class AppTitleBar extends StatelessWidget {
-  const AppTitleBar(
-      {super.key, required this.screenTitle, this.showWindowButtons});
+  const AppTitleBar({
+    super.key,
+    required this.screenTitle,
+    this.showWindowButtons,
+    this.isMacOS,
+  });
 
   /// שם המסך הפתוח — משתנה עם הלשונית שנבחרה בסרגל, כמו באוצריא.
   final String screenTitle;
 
-  /// כפתורי מזעור/הגדלה/סגירה. `null` = לפי הפלטפורמה; בבדיקות widget מוזרק
-  /// `false`, כי [WindowCaption] מדבר עם ערוץ פלטפורמה שאינו קיים שם.
+  /// כפתורי מזעור/הגדלה/סגירה **בסגנון Windows**. `null` = לפי הפלטפורמה;
+  /// בבדיקות widget מוזרק `false`, כי [WindowCaption] מדבר עם ערוץ פלטפורמה
+  /// שאינו קיים שם.
   final bool? showWindowButtons;
 
+  /// `null` = לפי הפלטפורמה. מוזרק בבדיקות כדי לאמת את שני הפריסות מאותה
+  /// מכונה.
+  final bool? isMacOS;
+
+  bool get _isMacOS => isMacOS ?? Platform.isMacOS;
+
+  /// ב-macOS מערכת ההפעלה מציירת את שלושת הכפתורים שלה
+  /// (`windowButtonVisibility` ב-`main.dart`), ולכן אין כאן כפתורים משלנו:
+  /// שתי שלישיות באותה שורה, אחת בכל קצה, זה מה שהיה מתקבל.
   bool get _showWindowButtons =>
       showWindowButtons ??
-      (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+      (!_isMacOS && (Platform.isWindows || Platform.isLinux));
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +66,11 @@ class AppTitleBar extends StatelessWidget {
           bottom: BorderSide(color: AppSurfaces.shellDivider(context)),
         ),
       ),
+      // `EdgeInsets.only(left:)` ולא `EdgeInsetsDirectional`: הכפתורים של
+      // macOS יושבים בפינה השמאלית הפיזית גם כשהממשק בעברית.
+      padding: _isMacOS
+          ? const EdgeInsets.only(left: _kMacTrafficLightsWidth)
+          : EdgeInsets.zero,
       child: Row(
         children: [
           DragToMoveArea(

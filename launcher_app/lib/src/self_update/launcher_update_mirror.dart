@@ -30,9 +30,14 @@ class LauncherUpdateMirror {
   LauncherUpdateMirror({
     required this.mirrorDir,
     http.Client? httpClient,
+    String? operatingSystem,
     this.connectTimeout = const Duration(seconds: 20),
     this.stallTimeout = const Duration(seconds: 30),
-  }) : _httpClient = httpClient ?? http.Client();
+  })  : _httpClient = httpClient ?? http.Client(),
+        _operatingSystem = operatingSystem ?? Platform.operatingSystem;
+
+  /// הפלטפורמה שהמראה נקראת בה — ראו [load]. מוזרקת בבדיקות.
+  final String _operatingSystem;
 
   /// `<dataDir>/mirror/launcher` — נוסע עם התוכנה על הכונן הנייד.
   final String mirrorDir;
@@ -55,6 +60,11 @@ class LauncherUpdateMirror {
   /// הגרסה שיושבת במראה, או `null` כשאין: אין קובץ מטא-דאטה, הוא פגום, או
   /// שהקובץ שהוא מצביע עליו חסר/בגודל שגוי (הורדה שנקטעה). בכל המקרים
   /// התשובה הנכונה זהה — "צריך להוריד".
+  ///
+  /// **וגם כשהאסט שבמראה אינו של הפלטפורמה הזאת.** הכונן נוסע בין מחשבים,
+  /// והורדה שנעשתה בווינדוס משאירה שם `.exe`; בלעדי הסינון הזה מק היה מנסה
+  /// לחלץ אותו ב-`ditto` ולהיכשל בהודעה שאינה אומרת דבר. "אין מה להתקין"
+  /// היא התשובה הנכונה, ובדיוק זו שהממשק כבר יודע להציג.
   Future<MirroredLauncherRelease?> load() async {
     final file = File(_metadataPath);
     if (!await file.exists()) return null;
@@ -80,6 +90,13 @@ class LauncherUpdateMirror {
       // `OtzariaAppMirror`; `\` היסטורי עדיין נתמך.
       filePath = p.joinAll([mirrorDir, ...relative.split(RegExp(r'[/\\]'))]);
     } catch (_) {
+      return null;
+    }
+
+    if (!LauncherReleaseClient.matchesPlatform(
+      release.assetName,
+      _operatingSystem,
+    )) {
       return null;
     }
 

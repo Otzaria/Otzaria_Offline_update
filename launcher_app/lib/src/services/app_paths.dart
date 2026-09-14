@@ -62,8 +62,19 @@ class AppPaths {
   /// מראה (למשל התוכנה הועברה ל-`Program Files`). אין נפילה חזרה לתיקיית
   /// המשתמש עבור המראה עצמה: מיקום שאי אפשר להוריד אליו פירושו שהתוכנה
   /// הותקנה במקום הלא נכון, וזה מה שצריך להיאמר.
-  static Future<AppPaths> resolve({Map<String, String>? environment}) async {
-    final dataDir = p.join(_executableRoot(), dirName);
+  static Future<AppPaths> resolve({
+    Map<String, String>? environment,
+    String? resolvedExecutable,
+    bool? isMacOS,
+  }) async {
+    final macOS = isMacOS ?? Platform.isMacOS;
+    final dataDir = p.join(
+      executableRoot(
+        resolvedExecutable ?? Platform.resolvedExecutable,
+        isMacOS: macOS,
+      ),
+      dirName,
+    );
     final failure = await _probeWritable(dataDir);
     if (failure == null) {
       return AppPaths(dataDir: dataDir, stateDir: dataDir);
@@ -72,7 +83,11 @@ class AppPaths {
     // הבדיקה הזו רצה **רק** אחרי כשל כתיבה, כדי שההרצה הרגילה תישאר סבב
     // I/O אחד.
     if (await _hasMirror(dataDir)) {
-      final stateDir = _machineStateDir(environment ?? Platform.environment);
+      final stateDir = machineStateDir(
+        environment ?? Platform.environment,
+        isWindows: Platform.isWindows,
+        isMacOS: macOS,
+      );
       if (stateDir != null && await _probeWritable(stateDir) == null) {
         return AppPaths(
           dataDir: dataDir,
@@ -89,8 +104,33 @@ class AppPaths {
     );
   }
 
-  /// התיקייה שבה "יושבת" התוכנה מנקודת מבט המשתמש — התיקייה של ה-exe.
-  static String _executableRoot() => p.dirname(Platform.resolvedExecutable);
+  /// התיקייה שבה "יושבת" התוכנה מנקודת מבט המשתמש.
+  ///
+  /// ב-macOS קובץ ההרצה קבור ב-`<App>.app/Contents/MacOS`, ותיקייה שנוצרת
+  /// לצידו נכנסת **לתוך** החבילה: המשתמש אינו רואה אותה ב-Finder, והעדכון
+  /// העצמי — שמחליף את החבילה כולה — מוחק אותה. לכן מטפסים החוצה אל
+  /// התיקייה שבה יושבת החבילה עצמה, בדיוק כמו ליד ה-exe בווינדוס.
+  static String executableRoot(
+    String resolvedExecutable, {
+    required bool isMacOS,
+  }) {
+    final exeDir = p.dirname(resolvedExecutable);
+    if (!isMacOS) return exeDir;
+    final bundle = enclosingAppBundle(exeDir);
+    return bundle == null ? exeDir : p.dirname(bundle);
+  }
+
+  /// חבילת ה-`.app` שמכילה את [path], או `null` כשההרצה אינה מתוך חבילה
+  /// (`flutter run`, בדיקות, בינארי חשוף).
+  static String? enclosingAppBundle(String path) {
+    var current = p.normalize(path);
+    while (true) {
+      if (p.extension(current).toLowerCase() == '.app') return current;
+      final parent = p.dirname(current);
+      if (parent == current) return null;
+      current = parent;
+    }
+  }
 
   /// יוצר את התיקייה ובודק כתיבה **בפועל** (קובץ בדיקה), ולא רק שהיצירה
   /// לא זרקה: ב-Windows תיקייה יכולה להיווצר ואז לחסום כתיבה בגלל ACL.
@@ -146,12 +186,26 @@ class AppPaths {
     }
   }
 
-  /// תיקיית הכתיבה שבמחשב הזה, או `null` כשאין ממה לגזור אותה.
-  static String? _machineStateDir(Map<String, String> environment) {
-    final base = Platform.isWindows
-        ? environment['LOCALAPPDATA'] ?? environment['APPDATA']
-        : environment['XDG_DATA_HOME'] ??
-            _joinHome(environment, ['.local', 'share']);
+  /// תיקיית הכתיבה שבמחשב הזה, או `null` כשאין ממה לגזור אותה. ציבורית כדי
+  /// שבדיקה אחת תאמת את שלוש הפלטפורמות מאותה מכונה.
+  ///
+  /// ב-macOS זו `~/Library/Application Support` — המקום שבו אפליקציה שומרת
+  /// מצב, ואותו שורש שאוצריא עצמה משתמשת בו. `XDG_DATA_HOME` הוא מוסכמה של
+  /// לינוקס, ותיקייה מוסתרת תחת `~/.local` היא מקום שמשתמש מק לא ימצא בו.
+  static String? machineStateDir(
+    Map<String, String> environment, {
+    required bool isWindows,
+    required bool isMacOS,
+  }) {
+    final String? base;
+    if (isWindows) {
+      base = environment['LOCALAPPDATA'] ?? environment['APPDATA'];
+    } else if (isMacOS) {
+      base = _joinHome(environment, ['Library', 'Application Support']);
+    } else {
+      base = environment['XDG_DATA_HOME'] ??
+          _joinHome(environment, ['.local', 'share']);
+    }
     if (base == null || base.isEmpty) return null;
     return p.join(base, machineDirName);
   }

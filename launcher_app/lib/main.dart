@@ -154,11 +154,13 @@ Future<void> _prepareWindow() async {
   try {
     await windowManager.ensureInitialized();
     await windowManager.setMinimumSize(const Size(900, 620));
-    // ברירת המחדל של windowButtonVisibility היא true — בלי false מפורש כפתורי
-    // המערכת של macOS יופיעו כפול לצד הכפתורים שלנו.
+    // ב-macOS **משאירים** את שלושת הכפתורים העגולים של המערכת: `WindowCaption`
+    // מצייר כפתורים בסגנון Windows 11 בצד הסיום של השורה, ומשתמש מק מחפש
+    // אותם בפינה השמאלית — חלון בלי אף אחד מהם, או עם השלישייה הלא נכונה,
+    // פשוט נראה שבור. בווינדוס נשארת `false`, אחרת היו מופיעים כפולים.
     await windowManager.setTitleBarStyle(
       TitleBarStyle.hidden,
-      windowButtonVisibility: false,
+      windowButtonVisibility: Platform.isMacOS,
     );
   } catch (e) {
     debugPrint('הכנת החלון נכשלה: $e');

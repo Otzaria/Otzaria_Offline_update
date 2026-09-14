@@ -56,15 +56,21 @@ class OtzariaAppLocator {
   /// `otzaria-updates` הוא אותו קובץ בדיוק, בשם שבו הוא **מתפרסם**: גיטהאב
   /// מנקה תווים שאינם ASCII משמות נכסי release, ולכן מי שמוריד ידנית מקבל את
   /// השם הלטיני — שמכיל "otzaria" ולכן מפעיל את כלל התאמת-השם.
+  ///
+  /// `otzaria launcher` הוא אותה מלכודת ב-macOS: זה ה-`PRODUCT_NAME` של
+  /// הלאנצ'ר, כלומר שם חבילת ה-`.app` **וגם** הבינארי שבתוכה. גרירת אפליקציה
+  /// ל-`/Applications` היא *הדרך* להתקין ב-macOS, ו-`/Applications` היא
+  /// תיקיית זיהוי — ולכן בלי הפסילה כאן הלאנצ'ר היה מאמץ את עצמו כאוצריא.
   static const Set<String> _ourOwnExeNames = {
     'launcher_app',
     'עדכוני אוצריא',
     'otzaria-updates',
+    'otzaria launcher',
   };
 
-  /// האם [fileName] הוא אחד מה-exe של הלאנצ'ר עצמו. חשוף כדי שהלאנצ'ר יצמיד
-  /// לרשימה הזו את השמות שהוא מפורסם ומותקן בהם — בין החבילות אין תלות בזמן
-  /// קומפילציה, בדיוק כמו ב-`processNamesFor`.
+  /// האם [fileName] הוא אחד מקובצי ההרצה/החבילות של הלאנצ'ר עצמו. חשוף כדי
+  /// שהלאנצ'ר יצמיד לרשימה הזו את השמות שהוא מפורסם ומותקן בהם — בין החבילות
+  /// אין תלות בזמן קומפילציה, בדיוק כמו ב-`processNamesFor`.
   static bool isOurOwnExe(String fileName) => _ourOwnExeNames
       .contains(p.basenameWithoutExtension(fileName).toLowerCase());
 
@@ -208,6 +214,9 @@ class OtzariaAppLocator {
           // שה-installer יוצר בתוך תיקיית ההתקנה אינן נתפסות כהתקנה.
           if (name.startsWith('.') || name == '__MACOSX') continue;
           if (name.toLowerCase().endsWith('.app')) {
+            // החבילה של הלאנצ'ר עצמו — ראו [_ourOwnExeNames]. גם לפי השם וגם
+            // לפי "האם אנחנו רצים מתוכה", כדי שגם חבילה ששמה שונה תיפסל.
+            if (isOurOwnExe(name) || _isSelfBundle(entity.path)) continue;
             if (accept == null || accept(entity.path)) return entity.path;
             // .app שנפסלה — לא נכנסים לתוכה, אבל ממשיכים לחפש בשאר הרמה.
             continue;
@@ -220,5 +229,16 @@ class OtzariaAppLocator {
     }
 
     return null;
+  }
+
+  /// האם [bundlePath] היא החבילה שאנחנו עצמנו רצים מתוכה. המקבילה ל-
+  /// `p.equals(..., Platform.resolvedExecutable)` שבמסלול ווינדוס — שם זה
+  /// אותו קובץ, וכאן קובץ ההרצה קבור ב-`Contents/MacOS` שבתוך החבילה.
+  static bool _isSelfBundle(String bundlePath) {
+    try {
+      return p.isWithin(bundlePath, Platform.resolvedExecutable);
+    } catch (_) {
+      return false;
+    }
   }
 }

@@ -75,6 +75,84 @@ void main() {
       expect(paths.dataDir, isNot(contains('Application Support')));
     }, skip: !Platform.isMacOS);
 
+    // אותה מלכודת, בבדיקה שרצה **בכל** פלטפורמה: ב-macOS קובץ ההרצה קבור
+    // בתוך החבילה, ותיקייה שנוצרת לצידו נעלמת מהמשתמש וגם נמחקת בכל עדכון
+    // עצמי (שמחליף את החבילה כולה).
+    group('executableRoot', () {
+      // הנתיבים נבנים ב-`p.join` ולא כמחרוזת: הבדיקה רצה גם בווינדוס, ושם
+      // המפריד אחר — בדיוק כמו ב-`AppPaths` עצמה.
+      final driveRoot = p.join('Volumes', 'KEY');
+      final bundle = p.join(driveRoot, 'Otzaria Launcher.app');
+
+      test('macOS: מטפס אל התיקייה שמחוץ לחבילת ה-.app', () {
+        expect(
+          AppPaths.executableRoot(
+            p.join(bundle, 'Contents', 'MacOS', 'Otzaria Launcher'),
+            isMacOS: true,
+          ),
+          driveRoot,
+        );
+      });
+
+      test('macOS: הרצה שאינה מתוך חבילה נשארת בתיקיית הקובץ', () {
+        expect(
+          AppPaths.executableRoot(
+            p.join('tmp', 'build', 'launcher_app'),
+            isMacOS: true,
+          ),
+          p.join('tmp', 'build'),
+        );
+      });
+
+      test('ווינדוס: תיקיית ה-exe, גם כשהנתיב מזכיר .app', () {
+        expect(
+          AppPaths.executableRoot(
+            r'C:\key\app-files\launcher_app.exe',
+            isMacOS: false,
+          ),
+          r'C:\key\app-files',
+        );
+      });
+    });
+
+    // המקום שבו נשמרים לוג ומצב כשהכונן נעול. `XDG_DATA_HOME` הוא מוסכמה
+    // של לינוקס, ו-`~/.local` ב-macOS הוא מקום שהמשתמש לא ימצא בו.
+    group('machineStateDir', () {
+      test('macOS: תחת Library/Application Support', () {
+        expect(
+          AppPaths.machineStateDir(
+            const {'HOME': '/Users/x', 'XDG_DATA_HOME': '/Users/x/.local'},
+            isWindows: false,
+            isMacOS: true,
+          ),
+          p.join('/Users/x', 'Library', 'Application Support',
+              AppPaths.machineDirName),
+        );
+      });
+
+      test('ווינדוס: LOCALAPPDATA', () {
+        expect(
+          AppPaths.machineStateDir(
+            const {'LOCALAPPDATA': r'C:\Users\x\AppData\Local'},
+            isWindows: true,
+            isMacOS: false,
+          ),
+          p.join(r'C:\Users\x\AppData\Local', AppPaths.machineDirName),
+        );
+      });
+
+      test('בלי HOME — אין ממה לגזור', () {
+        expect(
+          AppPaths.machineStateDir(
+            const {},
+            isWindows: false,
+            isMacOS: true,
+          ),
+          isNull,
+        );
+      });
+    });
+
     test('תיקייה שאי אפשר ליצור → AppPathsException, בלי נפילה ל-%APPDATA%',
         () async {
       await expectLater(

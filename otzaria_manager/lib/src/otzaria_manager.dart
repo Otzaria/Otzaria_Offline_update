@@ -86,6 +86,7 @@ class OtzariaManager {
       releaseClient: _releaseClient,
       installer: _installer,
       changelogClient: _changelogClient,
+      platform: _platform,
     );
   }
 
@@ -409,6 +410,8 @@ class OtzariaManager {
       for (final entry in mirrored.all) entry.release.tagName,
     };
 
+    await _refuseIfRunningOnMac();
+
     // אשף רק במתקין של ווינדוס — ב-macOS ההתקנה היא חילוץ bundle, ואין שם
     // אשף בכלל.
     final state = useWizard &&
@@ -432,6 +435,21 @@ class OtzariaManager {
           );
     await _stateStore.save(state);
     return state;
+  }
+
+  /// מסרב להתקין ב-macOS בזמן שאוצריא פתוחה.
+  ///
+  /// ההתקנה שם היא החלפת חבילת ה-`.app` כולה, ואחריה מחיקת החבילה הקודמת —
+  /// ו-`unlink` ב-macOS מצליח על קבצים שתהליך מחזיק פתוחים. כלומר אוצריא
+  /// שרצה הייתה ממשיכה לרוץ בלי הקבצים שלה וקורסת ברגע שתזדקק למשאב נוסף.
+  /// בווינדוס אין צורך בזה: המתקין של Inno הוא שמכריע מה לעשות עם קובץ נעול.
+  ///
+  /// אותו שיקול בדיוק שבגללו `LibraryUpdateApplier` בודק את שומר-התהליך שוב
+  /// מיד לפני החלפת המסד.
+  Future<void> _refuseIfRunningOnMac() async {
+    if (_platform != OtzariaTargetPlatform.macos) return;
+    if (!(await _runningLocator.probe()).isRunning) return;
+    throw StateError(AppL10n.strings.appDomain.macCloseOtzariaBeforeInstall);
   }
 
   /// לאן להתקין: התיקייה של התקנה קיימת — ובהיעדרה `null` בווינדוס, כלומר
@@ -483,6 +501,8 @@ class OtzariaManager {
     };
 
     final existing = await _loadVerifiedState() ?? await _detectInKnownDirs();
+
+    await _refuseIfRunningOnMac();
 
     // אשף רק במתקין של ווינדוס: ב-macOS אין מתקין בכלל — ההתקנה היא חילוץ
     // bundle, ואין שם שום עמוד בחירה להציג.
@@ -568,12 +588,7 @@ class OtzariaManager {
     // שהתקנה שעודכנה מחוץ ללאנצ'ר לא תוצג בגרסה שאנחנו "זוכרים". כשל
     // קריאה משאיר את התג השמור — הקובץ קיים, ואין סיבה להתייחס אליו כאילו
     // נעלם.
-    String? onDisk;
-    try {
-      onDisk = _versionReader.readVersion(stored.launchPath);
-    } catch (_) {
-      onDisk = null;
-    }
+    final onDisk = _readVersionQuietly(stored.launchPath);
     if (onDisk == null || onDisk == stored.installedTagName) return stored;
 
     return OtzariaInstallState(
@@ -625,7 +640,7 @@ class OtzariaManager {
     );
     if (launchPath == null) return null;
 
-    final version = _versionReader.readVersion(launchPath);
+    final version = _readVersionQuietly(launchPath);
     if (version == null) return null;
 
     return OtzariaInstallState(
@@ -650,7 +665,7 @@ class OtzariaManager {
   OtzariaInstallState? _installStateAt(String? launchPath) {
     if (launchPath == null) return null;
 
-    final version = _versionReader.readVersion(launchPath);
+    final version = _readVersionQuietly(launchPath);
     if (version == null) return null;
 
     return OtzariaInstallState(
@@ -658,6 +673,20 @@ class OtzariaManager {
       installDir: p.dirname(launchPath),
       launchPath: launchPath,
     );
+  }
+
+  /// קריאת הגרסה מקובץ ההרצה, שכשל בה הוא "לא ידוע" ולא תקלה.
+  ///
+  /// הקוראים כאן הם מסלולי **זיהוי**, ושם `null` הוא תשובה תקינה: ממשיכים
+  /// למועמד הבא. הקורא עצמו כן זורק — `plutil` שאינו שם, קובץ בלי משאב
+  /// גרסה, או קורא של פלטפורמה אחרת — ובלי העטיפה כל `checkForUpdate`
+  /// הייתה נופלת בגלל אפליקציה זרה אחת שנקרתה בדרך.
+  String? _readVersionQuietly(String launchPath) {
+    try {
+      return _versionReader.readVersion(launchPath);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// האם [candidatePath] הוא בכלל אוצריא. נבדק לפי שם החבילה, ואם זה לא
@@ -668,9 +697,15 @@ class OtzariaManager {
     if (OtzariaAppLocator.nameLooksLikeOtzaria(candidatePath)) return true;
 
     if (_platform == OtzariaTargetPlatform.macos) {
-      final id =
-          const MacAppVersionReader().readBundleIdentifier(candidatePath);
-      return id != null && id.toLowerCase().endsWith('.otzaria');
+      // כמו ב-[_readVersionQuietly]: הקורא זורק כשאין `plutil`, וזיהוי
+      // שנכשל פירושו "לא הוכח שזו אוצריא" — לא תקלה.
+      try {
+        final id =
+            const MacAppVersionReader().readBundleIdentifier(candidatePath);
+        return id != null && id.toLowerCase().endsWith('.otzaria');
+      } catch (_) {
+        return false;
+      }
     }
     return false;
   }

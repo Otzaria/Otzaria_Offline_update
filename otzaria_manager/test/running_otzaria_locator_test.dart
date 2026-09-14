@@ -60,6 +60,29 @@ void main() {
       );
     });
 
+    // חגורה שנייה מעל "ההתאמה היא על השם במלואו": גם אם הלאנצ'ר ייקרא יום
+    // אחד בדיוק כמו אוצריא, התהליך שרץ מקובץ ההרצה שלנו נפסל.
+    test('תהליך שרץ מקובץ ההרצה שלנו עצמו נפסל', () {
+      const self = '/Volumes/USB/Otzaria Launcher.app/Contents/MacOS/otzaria';
+
+      expect(
+        RunningOtzariaLocator.selectMacExecutablePath(
+          const [self, '/Applications/אוצריא.app/Contents/MacOS/אוצריא'],
+          names,
+          selfExecutable: self,
+        ),
+        '/Applications/אוצריא.app/Contents/MacOS/אוצריא',
+      );
+      expect(
+        RunningOtzariaLocator.selectMacExecutablePath(
+          const [self],
+          names,
+          selfExecutable: self,
+        ),
+        isNull,
+      );
+    });
+
     test('שורות ריקות מדולגות', () {
       expect(
         RunningOtzariaLocator.selectMacExecutablePath(
