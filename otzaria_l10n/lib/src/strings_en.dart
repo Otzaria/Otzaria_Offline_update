@@ -2690,6 +2690,21 @@ class _CustomApps extends CustomAppsStrings {
   String checkAllOnlineSomeFailed(int failed) =>
       '$failed programs could not be checked.';
   @override
+  String get downloadAllButton => 'Download All Updates';
+  @override
+  String downloadingAllLabel(int done, int total) =>
+      'Downloading updates… ($done/$total)';
+  @override
+  String downloadAllDoneSnack(int downloaded) =>
+      'Updates for $downloaded programs were downloaded to the drive';
+  @override
+  String downloadAllNothingNew(int checked) =>
+      '$checked programs checked — nothing to download, what is on the drive '
+      'is up to date';
+  @override
+  String downloadAllSomeFailed(int failed) =>
+      '$failed programs could not be downloaded.';
+  @override
   String onlineVersionAvailable(String version) =>
       'Version $version is available online';
   @override

@@ -2520,6 +2520,20 @@ class _CustomApps extends CustomAppsStrings {
   String checkAllOnlineSomeFailed(int failed) =>
       'ל-$failed תוכנות הבדיקה לא הצליחה.';
   @override
+  String get downloadAllButton => 'הורדת כל העדכונים';
+  @override
+  String downloadingAllLabel(int done, int total) =>
+      'מוריד עדכונים... ($done/$total)';
+  @override
+  String downloadAllDoneSnack(int downloaded) =>
+      'הורדו לכונן עדכונים ל-$downloaded תוכנות';
+  @override
+  String downloadAllNothingNew(int checked) =>
+      'נבדקו $checked תוכנות — אין מה להוריד, מה שעל הכונן מעודכן';
+  @override
+  String downloadAllSomeFailed(int failed) =>
+      'ל-$failed תוכנות ההורדה לא הצליחה.';
+  @override
   String onlineVersionAvailable(String version) => 'ברשת יש גרסה $version';
   @override
   String get onlineUpToDate => 'מה שעל הכונן הוא הגרסה האחרונה';

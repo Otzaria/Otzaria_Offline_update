@@ -1450,6 +1450,18 @@ abstract class CustomAppsStrings {
   /// חלקן נכשלו. חייב להיאמר: "אין עדכונים" על תוכנות שלא נבדקו הוא מטעה.
   String checkAllOnlineSomeFailed(int failed);
 
+  // ── הורדה לכל התוכנות בבת אחת — רק למה שיש בו חדש ──
+  String get downloadAllButton;
+  String downloadingAllLabel(int done, int total);
+  String downloadAllDoneSnack(int downloaded);
+
+  /// נבדק, ואין מה להוריד. אומר כמה נבדקו, כי זה ההבדל בין "הכול מעודכן"
+  /// לבין "לא נבדק כלום".
+  String downloadAllNothingNew(int checked);
+
+  /// הורדות שנכשלו. אסור לבלוע — "הורדו 2" על שלוש שנוסו הוא מטעה.
+  String downloadAllSomeFailed(int failed);
+
   String onlineVersionAvailable(String version);
   String get onlineUpToDate;
   String get onlineUnavailable;

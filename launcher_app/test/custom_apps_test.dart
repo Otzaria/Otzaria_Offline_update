@@ -616,4 +616,187 @@ void main() {
       expect(controller.unannouncedApps.single.descriptor.id, 'demo2');
     });
   });
+
+  group('הורדה לכל התוכנות — רק למה שיש בו חדש', () {
+    /// קונטרולר שהרשת שלו מזויפת — הדרך היחידה לבדוק הורדה מרוכזת בלי
+    /// לצאת לגיטהאב.
+    Future<({CustomAppsController controller, _FakeManager fake})>
+        fakeController(
+      Map<String, String> online, {
+      required List<String> ids,
+      String storedVersion = '1.4.2',
+    }) async {
+      final root = p.join(tempDir.path, 'fake-mirror');
+      final fake = _FakeManager(
+        mirrorRootDir: root,
+        online: online,
+        sourceFile: File(p.join(tempDir.path, 'Fake-Setup.exe'))
+          ..writeAsStringSync('x'),
+      );
+      final built = CustomAppsController(mirrorRootDir: root, manager: fake);
+      for (final id in ids) {
+        await built.add(
+          AppDescriptor(
+            id: id,
+            name: id,
+            sourceKind: AppSourceKind.github,
+            github: const GithubSource(
+              owner: 'someone',
+              repo: 'their-app',
+              assetPattern: r'^App\-\d+\.exe$',
+            ),
+            detect: const AppDetectRules(),
+          ),
+        );
+        await built.attachInstaller(
+          id,
+          sourcePath: fake.sourceFile.path,
+          version: storedVersion,
+        );
+      }
+      return (controller: built, fake: fake);
+    }
+
+    testWidgets('הכפתור מוצג רק כשיש מקור מקוון', (tester) async {
+      final t = stringsOf().customApps;
+      await addApp(tester, id: 'local', name: 'מקומית');
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      expect(find.text(t.downloadAllButton), findsNothing);
+
+      await addApp(
+        tester,
+        id: 'gh',
+        name: 'מגיטהאב',
+        source: AppSourceKind.github,
+      );
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      expect(find.text(t.downloadAllButton), findsOneWidget);
+      expect(find.text(t.checkAllOnlineButton), findsOneWidget);
+    });
+
+    // ההורדה כותבת לכונן, וכונן מוגן מפני כתיבה אינו יכול לקבל אותה.
+    testWidgets('בכונן לקריאה בלבד אין כלל כרטיס פעולות מרוכזות',
+        (tester) async {
+      final t = stringsOf().customApps;
+      await addApp(tester, id: 'gh', source: AppSourceKind.github);
+      await pumpScreen(
+        tester,
+        CustomAppsScreen(controller: controller, readOnly: true),
+      );
+
+      expect(find.text(t.downloadAllButton), findsNothing);
+      expect(find.text(t.checkAllOnlineButton), findsNothing);
+    });
+
+    testWidgets('מה שכבר נבדק ונמצא מעודכן — אינו יורד שוב', (tester) async {
+      late ({int checked, int downloaded, int failed, int notChecked}) result;
+      late _FakeManager fake;
+      await tester.runAsync(() async {
+        final built = await fakeController({'a': '1.4.2'}, ids: ['a']);
+        fake = built.fake;
+        await built.controller.load();
+        await built.controller.checkAllOnline();
+        result = await built.controller.downloadAllOutdated();
+        built.controller.dispose();
+      });
+
+      expect(fake.downloaded, isEmpty);
+      expect(result.checked, 1);
+      expect(result.downloaded, 0);
+    });
+
+    testWidgets('יורדת רק התוכנה שיש לה ברשת גרסה חדשה', (tester) async {
+      late ({int checked, int downloaded, int failed, int notChecked}) result;
+      late _FakeManager fake;
+      await tester.runAsync(() async {
+        final built = await fakeController(
+          {'old': '2.0.0', 'current': '1.4.2'},
+          ids: ['old', 'current'],
+        );
+        fake = built.fake;
+        await built.controller.load();
+        // בלי בדיקה מוקדמת: ההורדה המרוכזת בודקת בעצמה.
+        result = await built.controller.downloadAllOutdated();
+        built.controller.dispose();
+      });
+
+      expect(fake.downloaded, ['old']);
+      expect(result.downloaded, 1);
+      expect(result.failed, 0);
+      expect(result.checked, 2);
+    });
+
+    // "לא נבדק" אינו "מעודכן" — הוא נספר בנפרד ונאמר למשתמש.
+    testWidgets('תוכנה שהבדיקה שלה נכשלה נספרת ואינה יורדת', (tester) async {
+      late ({int checked, int downloaded, int failed, int notChecked}) result;
+      late _FakeManager fake;
+      await tester.runAsync(() async {
+        final built = await fakeController(
+          {'ok': '2.0.0'},
+          ids: ['ok', 'offline'],
+        );
+        fake = built.fake;
+        fake.failFor.add('offline');
+        await built.controller.load();
+        result = await built.controller.downloadAllOutdated();
+        built.controller.dispose();
+      });
+
+      expect(fake.downloaded, ['ok']);
+      expect(result.notChecked, 1);
+      expect(result.checked, 1);
+      expect(result.downloaded, 1);
+    });
+  });
+}
+
+/// מנהל שהרשת שלו מזויפת: [peekLatestOnline] מחזיר את מה שהבדיקה אמורה
+/// למצוא, וההורדה רק רושמת קובץ שכבר יושב על הדיסק.
+class _FakeManager extends CustomAppsManager {
+  _FakeManager({
+    required String mirrorRootDir,
+    required this.online,
+    required this.sourceFile,
+  }) : super(
+          resolveMirrorDir: () async => mirrorRootDir,
+          readVersion: _noVersion,
+        );
+
+  /// הגרסה שכל תוכנה "תמצא" ברשת, לפי מזהה.
+  final Map<String, String> online;
+  final File sourceFile;
+
+  /// מזהים שהבדיקה שלהם תיכשל — כמו מחשב בלי רשת.
+  final Set<String> failFor = {};
+
+  /// מה שהורד בפועל. זו הטענה שנבדקת: רק מה שיש בו חדש.
+  final List<String> downloaded = [];
+
+  static String? _noVersion(String _) => null;
+
+  @override
+  Future<GithubRelease?> peekLatestOnline(AppDescriptor descriptor) async {
+    if (failFor.contains(descriptor.id)) throw const SocketException('אין רשת');
+    final version = online[descriptor.id];
+    return version == null
+        ? null
+        : GithubRelease(
+            tagName: version,
+            isPrerelease: false,
+            assets: const [],
+          );
+  }
+
+  @override
+  Future<StoredInstaller> downloadFromGithub(
+    String id, {
+    void Function(int received, int total)? onProgress,
+  }) async {
+    downloaded.add(id);
+    return attachInstaller(
+      id,
+      sourcePath: sourceFile.path,
+      version: online[id]!,
+    );
+  }
 }

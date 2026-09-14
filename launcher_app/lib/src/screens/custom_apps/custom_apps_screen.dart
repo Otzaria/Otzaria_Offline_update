@@ -87,12 +87,12 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
     return ScreenBody(
       title: t.screenTitle,
       children: [
-        // בדיקה אחת לכל התוכנות, במקום לחיצה על כל כרטיס בנפרד. כמו
-        // ההורדה — היא נוגעת ברשת וכותבת רק לזיכרון, ולכן אינה במצב קריאה.
+        // בדיקה והורדה לכל התוכנות, במקום לחיצה על כל כרטיס בנפרד. שתיהן
+        // נוגעות ברשת, וההורדה כותבת לכונן — ולכן אינן במצב קריאה.
         if (controller.hasOnlineSources && !widget.readOnly)
           Padding(
             padding: const EdgeInsets.only(bottom: AppTokens.spaceMD),
-            child: _CheckAllCard(controller: controller),
+            child: _BulkActionsCard(controller: controller),
           ),
         for (final app in controller.apps)
           Padding(
@@ -108,28 +108,46 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
   }
 }
 
-/// "בדיקה ברשת לכל התוכנות" — הבקשה שחזרה מהפורום: לא ללחוץ על כל כרטיס
-/// בנפרד. יושב כאן ולא בדף הבית בכוונה: הבדיקה המרוכזת שם נוגעת ברכיבי
-/// הליבה בלבד, והתוכנות הנוספות הן תוספת שלא כולם מפעילים.
-class _CheckAllCard extends StatelessWidget {
-  const _CheckAllCard({required this.controller});
+/// שתי הפעולות המרוכזות — "בדיקה ברשת לכל התוכנות" ו"הורדת כל העדכונים".
+/// הבקשה שחזרה מהפורום: לא ללחוץ על כל כרטיס בנפרד. יושב כאן ולא בדף
+/// הבית בכוונה: הבדיקה המרוכזת שם נוגעת ברכיבי הליבה בלבד, והתוכנות
+/// הנוספות הן תוספת שלא כולם מפעילים.
+class _BulkActionsCard extends StatelessWidget {
+  const _BulkActionsCard({required this.controller});
 
   final CustomAppsController controller;
 
   @override
   Widget build(BuildContext context) {
     final t = context.strings.customApps;
+    final busy = controller.isCheckingAll || controller.isDownloadingAll;
 
     return AppCard(
       padding: const EdgeInsets.all(AppTokens.spaceLG),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ActionButton.neutral(
-            text: t.checkAllOnlineButton,
-            icon: FluentIcons.arrow_sync_24_regular,
-            isLoading: controller.isCheckingAll,
-            onPressed: controller.isCheckingAll ? null : () => _run(),
+          Wrap(
+            spacing: AppTokens.spaceSM,
+            runSpacing: AppTokens.spaceSM,
+            children: [
+              ActionButton.neutral(
+                text: t.checkAllOnlineButton,
+                icon: FluentIcons.arrow_sync_24_regular,
+                isLoading: controller.isCheckingAll,
+                onPressed: busy ? null : () => _check(),
+              ),
+              // בודקת בעצמה לפני שהיא מורידה, ומורידה רק את מה שיש בו
+              // חדש — ולכן אינה דורשת לחיצה על "בדיקה" קודם.
+              ActionButton.recommended(
+                text: t.downloadAllButton,
+                icon: FluentIcons.arrow_download_24_regular,
+                isLoading: controller.isDownloadingAll,
+                onPressed: busy || controller.downloadingId != null
+                    ? null
+                    : () => _downloadAll(),
+              ),
+            ],
           ),
           if (controller.isCheckingAll) ...[
             const SizedBox(height: AppTokens.spaceSM),
@@ -143,12 +161,31 @@ class _CheckAllCard extends StatelessWidget {
                   : null,
             ),
           ],
+          // מונה התוכנות, ומתחתיו ההתקדמות של הקובץ שיורד כרגע — בלעדיה
+          // הורדה של מאות מגה־בייט נראית תקועה.
+          if (controller.isDownloadingAll) ...[
+            const SizedBox(height: AppTokens.spaceSM),
+            InfoProgressRow(
+              stage: t.downloadingAllLabel(
+                controller.downloadAllDone ?? 0,
+                controller.downloadAllTotal ?? 0,
+              ),
+              progress: (controller.downloadAllTotal ?? 0) > 0
+                  ? (controller.downloadAllDone ?? 0) /
+                      controller.downloadAllTotal!
+                  : null,
+              detail: formatBytesProgress(
+                controller.downloadReceived,
+                controller.downloadTotal,
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Future<void> _run() async {
+  Future<void> _check() async {
     final result = await controller.checkAllOnline();
     if (result.checked == 0) return;
     final t = AppL10n.strings.customApps;
@@ -171,6 +208,36 @@ class _CheckAllCard extends StatelessWidget {
     } else {
       UiSnack.showSuccess(text);
     }
+  }
+
+  Future<void> _downloadAll() async {
+    final result = await controller.downloadAllOutdated();
+    final t = AppL10n.strings.customApps;
+    if (result.checked == 0 && result.notChecked == 0) return;
+
+    // לא נבדקה אף אחת = אין רשת. אין טעם לומר "אין מה להוריד" על כך.
+    if (result.checked == 0) {
+      UiSnack.showError(t.checkAllOnlineAllFailed);
+      return;
+    }
+    // מה שלא נבדק נאמר בכל מקרה: "הכול מעודכן" על תוכנות שלא נבדקו מטעה.
+    final notChecked = result.notChecked > 0
+        ? ' ${t.checkAllOnlineSomeFailed(result.notChecked)}'
+        : '';
+    if (result.downloaded == 0 && result.failed == 0) {
+      UiSnack.showSuccess(
+        '${t.downloadAllNothingNew(result.checked)}$notChecked',
+      );
+      return;
+    }
+    final done = t.downloadAllDoneSnack(result.downloaded);
+    if (result.failed > 0) {
+      UiSnack.showError(
+        '$done ${t.downloadAllSomeFailed(result.failed)}$notChecked',
+      );
+      return;
+    }
+    UiSnack.showSuccess('$done$notChecked');
   }
 }
 
@@ -286,7 +353,10 @@ class _CustomAppCard extends StatelessWidget {
                   text: t.downloadButton,
                   icon: FluentIcons.arrow_download_24_regular,
                   isLoading: _isDownloading,
-                  onPressed: controller.downloadingId != null
+                  // גם בין קובץ לקובץ של ההורדה המרוכזת — שם `downloadingId`
+                  // מתרוקן לרגע, והכפתור היה נפתח באמצע הסבב.
+                  onPressed: controller.downloadingId != null ||
+                          controller.isDownloadingAll
                       ? null
                       : () => _download(context),
                 ),

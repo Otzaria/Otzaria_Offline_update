@@ -365,23 +365,58 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
 
   /// האם יש בכלל מה לבדוק ברשת — תוכנה שקובץ ההתקנה שלה הובא ידנית אין לה
   /// מקור מקוון, ולכן כפתור "בדיקה לכולן" אינו קיים כשאין אף אחת כזו.
-  bool get hasOnlineSources =>
-      apps.any((a) => a.descriptor.sourceKind == AppSourceKind.github);
+  bool get hasOnlineSources => _onlineApps.isNotEmpty;
+
+  List<CustomAppView> get _onlineApps => [
+        for (final app in apps)
+          if (app.descriptor.sourceKind == AppSourceKind.github) app,
+      ];
+
+  /// נמצאה ברשת גרסה שאינה זו ששמורה על הכונן — **רק אחרי שנבדק**.
+  /// "לא נבדק" אינו "אין חדש", וכשל בבדיקה מכסה גם תשובה ישנה שנשארה
+  /// בזיכרון: זה בדיוק מה שהכרטיס מציג.
+  bool _hasNewerOnline(CustomAppView app) {
+    final id = app.descriptor.id;
+    if (app.descriptor.sourceKind != AppSourceKind.github) return false;
+    if (onlineUnavailable.contains(id)) return false;
+    final online = onlineVersions[id];
+    return online != null && online != app.storedInstaller?.version;
+  }
+
+  /// התוכנות שיש להן ברשת גרסה חדשה מזו שעל הכונן — אלה ואלה בלבד שההורדה
+  /// המרוכזת נוגעת בהן.
+  List<CustomAppView> get outdatedApps => [
+        for (final app in apps)
+          if (_hasNewerOnline(app)) app,
+      ];
 
   /// בודק ברשת את **כל** התוכנות שיש להן מקור מקוון, במקום ללחוץ על כל
-  /// כרטיס בנפרד. סדרתי בכוונה: אלה קריאות API קלות, ובמקביל הן רק היו
-  /// מסכנות חסימת-קצב מול הריפו.
+  /// כרטיס בנפרד.
   ///
   /// כשל בבדיקה אינו עוצר את השאר — הוא נספר ומדווח בסיכום, כי במחשב
   /// המנותק "אין רשת" הוא הנורמה ולא שגיאה.
   Future<({int checked, int updates, int failed})> checkAllOnline() async {
     if (isCheckingAll) return (checked: 0, updates: 0, failed: 0);
-    final targets = [
-      for (final app in apps)
-        if (app.descriptor.sourceKind == AppSourceKind.github) app,
-    ];
+    final targets = _onlineApps;
     if (targets.isEmpty) return (checked: 0, updates: 0, failed: 0);
 
+    await _checkEach(targets);
+
+    var updates = 0;
+    var failed = 0;
+    for (final app in targets) {
+      if (onlineUnavailable.contains(app.descriptor.id)) {
+        failed++;
+        continue;
+      }
+      if (_hasNewerOnline(app)) updates++;
+    }
+    return (checked: targets.length, updates: updates, failed: failed);
+  }
+
+  /// סדרתי בכוונה: אלה קריאות API קלות, ובמקביל הן רק היו מסכנות
+  /// חסימת-קצב מול הריפו.
+  Future<void> _checkEach(List<CustomAppView> targets) async {
     checkAllTotal = targets.length;
     checkAllDone = 0;
     notifyListeners();
@@ -396,20 +431,77 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
       checkAllDone = null;
       notifyListeners();
     }
+  }
 
-    var updates = 0;
-    var failed = 0;
-    for (final app in targets) {
-      final id = app.descriptor.id;
-      if (onlineUnavailable.contains(id)) {
-        failed++;
-        continue;
-      }
-      // אותה השוואה שהכרטיס מציג: מה שברשת מול מה ששמור על הכונן.
-      final online = onlineVersions[id];
-      if (online != null && online != app.storedInstaller?.version) updates++;
+  /// כמה תוכנות כבר ירדו בסבב "הורדת כל העדכונים", ומתוך כמה. `null`
+  /// כשאין סבב.
+  int? downloadAllDone;
+  int? downloadAllTotal;
+  bool get isDownloadingAll => downloadAllTotal != null;
+
+  /// מוריד לכונן את מה שיש לו ברשת גרסה חדשה מזו ששמורה — **ורק אותו**.
+  ///
+  /// תוכנה שטרם נבדקה בהרצה הזו נבדקת כאן תחילה, אחרת "אין מה להוריד"
+  /// היה נאמר על מה שאיש לא בדק. מה שכבר נבדק אינו נבדק שוב — הכרטיס
+  /// מציג את אותה תשובה.
+  ///
+  /// הורדה אחת בכל רגע, מאותה סיבה שב-[download]: כולן חולקות את אותו
+  /// רוחב פס, ובמקביל הן רק היו מאטות זו את זו.
+  Future<({int checked, int downloaded, int failed, int notChecked})>
+      downloadAllOutdated() async {
+    const nothing = (checked: 0, downloaded: 0, failed: 0, notChecked: 0);
+    if (isCheckingAll || isDownloadingAll || downloadingId != null) {
+      return nothing;
     }
-    return (checked: targets.length, updates: updates, failed: failed);
+    final online = _onlineApps;
+    if (online.isEmpty) return nothing;
+
+    final unchecked = [
+      for (final app in online)
+        if (!onlineVersions.containsKey(app.descriptor.id) &&
+            !onlineUnavailable.contains(app.descriptor.id))
+          app,
+    ];
+    if (unchecked.isNotEmpty) await _checkEach(unchecked);
+
+    final notChecked = [
+      for (final app in online)
+        if (onlineUnavailable.contains(app.descriptor.id)) app,
+    ].length;
+    final checked = online.length - notChecked;
+
+    // המזהים נלקחים מראש: כל הורדה מרעננת את הרשימה, והתצוגות שבה מוחלפות.
+    final targets = [for (final app in outdatedApps) app.descriptor.id];
+    if (targets.isEmpty) {
+      return (
+        checked: checked,
+        downloaded: 0,
+        failed: 0,
+        notChecked: notChecked,
+      );
+    }
+
+    downloadAllTotal = targets.length;
+    downloadAllDone = 0;
+    notifyListeners();
+    var downloaded = 0;
+    try {
+      for (final id in targets) {
+        if (await download(id) != null) downloaded++;
+        downloadAllDone = (downloadAllDone ?? 0) + 1;
+        notifyListeners();
+      }
+    } finally {
+      downloadAllTotal = null;
+      downloadAllDone = null;
+      notifyListeners();
+    }
+    return (
+      checked: checked,
+      downloaded: downloaded,
+      failed: targets.length - downloaded,
+      notChecked: notChecked,
+    );
   }
 
   /// **הפעולה היחידה כאן שדורשת אינטרנט**: מורידה מהריפו את הקובץ שנבחר
