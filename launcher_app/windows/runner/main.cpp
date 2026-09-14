@@ -4,6 +4,7 @@
 #include <windows.h>
 
 #include "flutter_window.h"
+#include "splash_window.h"
 #include "utils.h"
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
@@ -17,6 +18,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // Initialize COM, so that it is available for use in the library and/or
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
+  // הסמל עולה כאן, לפני אתחול המנוע: המנוע לוקח ~1.8 שניות שבהן עוד אין שום
+  // קוד Dart שיצייר משהו, ובלעדיו הלחיצה נראית כאילו לא קרה דבר. אחרי
+  // `CoInitializeEx` — WIC דורש COM.
+  splash::Show();
 
   flutter::DartProject project(L"data");
 
