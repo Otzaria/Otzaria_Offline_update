@@ -134,6 +134,25 @@ void main() {
       expect(c.stableVersion, isNull);
     });
 
+    test(
+        'checkForUpdate שיוצאת בזמן ש-ensureChecked כבר רצה מצטרפת אליה, '
+        'ולא פותחת סריקה מקבילה', () async {
+      writeAppMirror(stableTag: '99.9.9+1');
+      final c = controllerFor();
+
+      // סדר הפוך מהבדיקה הקודמת — וזה בדיוק סדר הקריאות שקרס בפועל
+      // בעלייה: `ensureChecked` (מ-`PluginsModuleController`) יוצאת ראשונה,
+      // ו-`checkForUpdate` (מ-`checkAll`) מגיעה בזמן שהיא כבר באוויר. שתי
+      // בדיקות מקבילות היו כותבות בו-זמנית לאותו `.tmp` ב-state store,
+      // וה-rename של אחת מהן נופל עם `PathNotFoundException`.
+      final both = Future.wait([c.ensureChecked(), c.checkForUpdate()]);
+      await both;
+
+      expect(c.status, isNot(OtzariaModuleStatus.error));
+      expect(c.errorMessage, isNull);
+      expect(c.stableVersion, '99.9.9+1');
+    });
+
     test('גרסה יציבה בתיקייה = יש מה להתקין, בלי רשת', () async {
       writeAppMirror(stableTag: '99.9.9+1');
       final c = controllerFor();

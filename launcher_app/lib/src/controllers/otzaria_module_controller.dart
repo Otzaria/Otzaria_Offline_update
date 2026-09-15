@@ -409,7 +409,14 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   }
 
   /// בודק מה מותקן מול מה שיש בתיקייה המקומית. לא נוגע ברשת.
+  ///
+  /// מצטרפת לבדיקה שכבר באוויר במקום לפתוח שנייה: שתי בדיקות מקבילות
+  /// (למשל מ-`checkAll` ומ-`ensureChecked` בעלייה) היו כותבות בו-זמנית
+  /// לאותו קובץ `.tmp` ב-`OtzariaStateStore.save`, וה-rename של אחת מהן
+  /// נכשל עם `PathNotFoundException` כי השנייה כבר החליפה אותו.
   Future<void> checkForUpdate() {
+    final inFlight = _checkInFlight;
+    if (inFlight != null) return inFlight;
     final started = _checkForUpdate();
     _checkInFlight = started;
     return started.whenComplete(() {
