@@ -15,7 +15,7 @@
 | שלב | Windows | macOS |
 | --- | --- | --- |
 | האסט שנבחר | `otzaria-<ver>-windows.exe` | `otzaria-macos.zip`, ובהיעדרו `otzaria-macos.dmg` |
-| התקנה | הרצת Inno Setup — בשקט בעדכון, ועם האשף בהתקנת חבילת FULL שהמשתמש יזם | חילוץ עם `ditto` והחלפת ה-`.app` בתיקיית ההתקנה |
+| התקנה | הרצת Inno Setup — בשקט בעדכון אוטומטי, ועם האשף בכל התקנה שהמשתמש יזם | חילוץ עם `ditto` והחלפת ה-`.app` בתיקיית ההתקנה |
 | מה מאתרים | `*.exe` ששמו מזכיר אוצריא, ובהיעדרו exe אחר (למעט `unins*` ו-exe עזר של Flutter) | חבילת `.app` (הרדודה ביותר, בלי להיכנס לתוכה) |
 | קריאת גרסה | `ProductVersion` מה-version resource (FFI, `package:win32`) | `CFBundleShortVersionString` מ-`Info.plist` (דרך `plutil`) |
 | הפעלה | `Process.start` מנותק | `open <bundle>` (דרך Launch Services) |
@@ -29,6 +29,14 @@
 בתוכן, והלאנצ'ר מוריד אותה בנפרד דרך `library_manager`. ההתאמה לפי סיומת
 (`windows.exe`/`macos.zip`) פוסלת אותן מעצמה, כי הן מסתיימות ב-`full.exe`/
 `full.zip`.
+
+מה שנשאר מהן הוא `OtzariaAssetSelector.isFullPackage` — **לניקוי בלבד**:
+כונן שההגדרה הישנה הורידה אליו חבילה כזו עדיין נושא 2GB מיותרים, ולכן
+`OtzariaAppMirror.staleFullPackages()` מוצא אותם ו-`sync()` מוחק. הדגל
+`OtzariaUpdateCheckResult.hasStaleFullPackage` מדווח על כך ללאנצ'ר, שמריץ
+את מודול התוכנה גם כשאין גרסה חדשה — אחרת המחיקה לא הייתה מתרחשת לעולם.
+הסיומת היא `-full` ולא `full`, כדי שאסט אנדרואיד (`otzaria-android-full.zip`)
+לא ייתפס בטעות.
 
 ### ממצאים שאומתו מול חבילת macOS אמיתית (`otzaria-macos.zip`, 0.9.96+736)
 
@@ -92,7 +100,7 @@
   מדלגת עליה: המשתמש קיבל אוצריא מותקנת בלי אייקון, בשונה מהתקנה ידנית שבה
   הוא מסמן את התיבה. הדגל מוסיף את המשימה לברירת המחדל. שאר האייקונים
   (תפריט התחל) אינם תלויי-משימה ונוצרו גם קודם.
-- **כל התקנה שהמשתמש יזם רצה עם האשף, לא בשקט** — גם החבילה המלאה וגם
+- **כל התקנה שהמשתמש יזם רצה עם האשף, לא בשקט** — גם התקנה ראשונה וגם
   ההתקנה/עדכון הרגילים
   ([`installWithWizard`](lib/src/services/otzaria_installer.dart)).
   `/VERYSILENT` מבטל את שני עמודי הבחירה שהאשף מציג במחשב נקי — תיקיית היעד

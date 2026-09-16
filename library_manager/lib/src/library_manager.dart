@@ -336,6 +336,14 @@ class LibraryManager {
   Future<int?> recordedPersonalDbVersion() =>
       _stateStore.lowestKnownDbVersion();
 
+  /// `true` אם **המחשב הזה** נרשם כיעד לעדכון אישי, כלומר נלחץ בו
+  /// [captureLocalDbVersion]. זה מה שמבדיל תקלה ("אין מסלול קובצי עדכון")
+  /// ממראה שנבנתה בשביל מחשב אחר, ולכן ממילא אינה אמורה להתאים כאן.
+  Future<bool> isRegisteredForPersonalUpdate() async {
+    final versions = await _stateStore.loadKnownDbVersions();
+    return versions.containsKey(LibraryStateStore.currentMachineKey());
+  }
+
   /// קורא את גרסת המסד של המחשב **הזה** ורושם אותה כנקודת המוצא להורדה
   /// אישית. מחזיר `null` כשלא נמצא מסד, או שנמצא בלי `schema_meta.db_version`.
   ///

@@ -908,7 +908,7 @@ void main() {
         File(p.join('lib', 'src', 'otzaria_manager.dart')).readAsStringSync();
     final body = source.substring(
       source.indexOf('Future<String?> _installDirFor('),
-      source.indexOf('Future<OtzariaInstallState> installFullPackage('),
+      source.indexOf('Future<void> launch({'),
     );
 
     expect(body, contains('OtzariaTargetPlatform.macos'));

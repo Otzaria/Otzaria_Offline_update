@@ -255,7 +255,7 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
         done.add(pending.name);
         return true;
       }
-      return now.isAfter(pending.deadline);
+      return !now.isBefore(pending.deadline);
     });
 
     if (_pendingInstalls.length == countBefore) return; // עוד מחכים

@@ -164,6 +164,24 @@ class _Home extends HomeStrings {
   String appInstalledSnack(String version) => 'אוצריא עודכנה לגרסה $version';
 
   @override
+  String get firstInstallDialogTitle => 'אוצריא אינה מותקנת במחשב זה';
+  @override
+  String firstInstallPrompt(String appVersion, String libraryVersion) =>
+      'לא נמצאה כאן התקנה של אוצריא ולא נמצא מסד ספרים. בלחיצה אחת יותקנו '
+      'שניהם מהכונן, בלי אינטרנט: תוכנת אוצריא $appVersion, ואחריה ספריית '
+      'הספרים בגרסה $libraryVersion.\n\n'
+      'המתקין של אוצריא ייפתח ראשון, ובו תבחר לאן להתקין והאם ליצור קיצור '
+      'דרך. התקנת הספרייה תתחיל מיד אחריו ותימשך דקות ארוכות.';
+  @override
+  String get firstInstallConfirm => 'התקנה מלאה';
+  @override
+  String get closeOtzariaForLibraryDialogTitle => 'יש לסגור את אוצריא';
+  @override
+  String get closeOtzariaForLibraryPrompt =>
+      'אוצריא נפתחה בסיום ההתקנה, והיא נועלת את קובץ הספרייה. סגור אותה '
+      'ולחץ "נסה שוב" כדי להמשיך בהתקנת הספרייה.';
+
+  @override
   String get otzariaOpenSnack => 'אוצריא פתוחה — יש לסגור אותה ואז לנסות שוב.';
   @override
   String get autoInstallSkippedTitle => 'העדכון האוטומטי לא הוחל';
@@ -210,9 +228,6 @@ class _Home extends HomeStrings {
   String onlineAppUpdate(String version) => 'תוכנת אוצריא: גרסה $version ברשת';
   @override
   String onlineLibraryUpdate(String version) => 'הספרייה: גרסה $version ברשת';
-  @override
-  String get onlineAppFullPackage =>
-      'חבילת ההתקנה המלאה של אוצריא עדיין אינה בתיקייה';
   @override
   String get onlineAppSyncOff =>
       'הורדת התוכנה כבויה בהגדרות — היא לא תיכלל בהורדה.';
@@ -276,6 +291,8 @@ class _Home extends HomeStrings {
   String get libraryNothingDownloaded => 'טרם הורדו עדכונים';
   @override
   String get libraryNeedsManualPath => 'נדרשת בחירת מיקום';
+  @override
+  String get libraryPersonalOtherMachine => 'מיועד למחשב אחר';
 }
 
 class _AppScreen extends AppScreenStrings {
@@ -376,36 +393,6 @@ class _AppScreen extends AppScreenStrings {
       'קבועה, לצד קובץ ההרצה — ראו "עדכון ספרייה" להסבר המלא.';
   @override
   String get sourceDirTitle => 'תיקיית עדכוני התוכנה';
-
-  @override
-  String get fullPackageCardTitle => 'חבילת התקנה מלאה';
-  @override
-  String get fullPackageHint =>
-      'המתקין שכולל גם את הספרייה בתוכו. נועד למחשב שאין בו אוצריא: הוא '
-      'מקבל תוכנה וספרייה בהתקנה אחת, בלי אינטרנט.';
-  @override
-  String get fullPackageRowTitle => 'מצב';
-  @override
-  String get fullPackageRecommended => 'אין כאן אוצריא — מומלץ להתקין מכאן';
-  @override
-  String get fullPackageNotNeeded =>
-      'אוצריא כבר מותקנת — אין צורך בחבילה המלאה';
-  @override
-  String get fullPackageVersionTitle => 'החבילה שבתיקייה המקומית';
-  @override
-  String fullPackageSize(String version, String size) =>
-      'הגרסה היציבה $version — $size';
-  @override
-  String get fullPackageInstallButton => 'התקנה מלאה';
-  @override
-  String get fullPackageDialogTitle => 'להתקין את החבילה המלאה?';
-  @override
-  String fullPackagePrompt(String version, String size) =>
-      'לא נמצאה במחשב הזה התקנה של אוצריא, ועל הכונן יושבת חבילת ההתקנה '
-      'המלאה של אוצריא $version ($size), '
-      'הכוללת גם את הספרייה. התקנה ממנה מביאה את שניהם בבת אחת, ואינה '
-      'דורשת אינטרנט. המתקין של אוצריא ייפתח, ובו תבחר לאן להתקין והאם '
-      'ליצור קיצור דרך בשולחן העבודה.';
 
   @override
   String installPrompt({
@@ -555,6 +542,18 @@ class _LibraryScreen extends LibraryScreenStrings {
   String get personalVersionNotFoundSnack =>
       'לא נמצא מסד לקרוא ממנו גרסה במחשב הזה';
   @override
+  String get personalOtherMachineTitle => 'עדכון אישי — לא למחשב הזה';
+  @override
+  String personalOtherMachineSubtitle(String version) =>
+      'התיקייה שלצד התוכנה נבנתה לעדכון אישי מגרסה $version, של המחשב שנרשם. '
+      'המחשב הזה לא נרשם, ולכן אין כאן מה להתקין עליו — ההורדה עצמה הצליחה '
+      'ונוסעת עם הכונן. אפשר לרשום גם את המחשב הזה, או לכבות "עדכון אישי" '
+      'בהגדרות כדי לחזור להורדת המסד המלא.';
+  @override
+  String get personalOtherMachineCaptureButton => 'רשום גם את המחשב הזה';
+  @override
+  String get personalOtherMachineSettingsButton => 'פתח הגדרות';
+  @override
   String get downloadNoteTitle => 'ההורדה האחרונה';
   @override
   String downloadNotePersonal(String version) =>
@@ -577,43 +576,31 @@ class _Settings extends SettingsScreenStrings {
   @override
   String get automationCardTitle => 'אוטומציה';
   @override
-  String get automationCardHint =>
-      'ברירת המחדל: בדיקה מקומית בלבד, בלי להתקין.';
+  String get automationCardHint => 'ברירת המחדל: בדיקה בלבד, בלי להתקין.';
   @override
-  String get autoCheckTitle => 'בדיקת גרסאות בפתיחה';
+  String get autoCheckTitle => 'התוכנה תבדוק עדכונים בפתיחה';
   @override
   String get autoCheckSubtitle =>
-      'משווה את המותקן למה שיש בתיקייה המקומית — בלי רשת';
+      'משווה את המותקן לתיקייה המקומית, וכשיש רשת גם לגרסה החדשה ביותר';
   @override
-  String get autoOnlineCheckTitle => 'בדיקת עדכונים אוטומטית כשיש רשת';
+  String get autoCheckHint =>
+      'הבדיקה ברשת היא מטא-דאטה בלבד, בלי הורדה. כשל (אין רשת) נבלע בשקט, '
+      'והכפתור הידני בדף הבית עובד בכל מקרה.';
   @override
-  String get autoOnlineCheckSubtitle =>
-      'בדיקה קלה בפתיחה מול GitHub, בלי הורדה';
+  String get autoInstallTitle =>
+      'פתיחת התוכנה תעדכן אוטומטית את התוכנה והספרייה';
   @override
-  String get autoOnlineCheckHint =>
-      'כשל (אין רשת) נבלע בשקט, והכפתור הידני בדף הבית עובד בכל מקרה.';
-  @override
-  String get autoInstallAppTitle => 'התקנת תוכנת אוצריא אוטומטית';
-  @override
-  String get autoInstallAppSubtitle =>
-      'מעדכן בפתיחה התקנה קיימת; אינו מתקין בפעם הראשונה';
-  @override
-  String get autoInstallLibraryTitle => 'התקנת עדכון ספרייה אוטומטית';
-  @override
-  String get autoInstallLibrarySubtitle =>
-      'מעדכן בפתיחה מסד קיים; מדולג כשאוצריא פתוחה או כשאין מסד';
+  String get autoInstallSubtitle =>
+      'מעדכן בפתיחה מה שכבר מותקן; אינו מתקין בפעם הראשונה, ומדלג כשאוצריא '
+      'פתוחה';
 
   @override
-  String get autoInstallSubjectApp => 'תוכנת אוצריא';
+  String get autoInstallDialogTitle => 'להפעיל התקנה אוטומטית?';
   @override
-  String get autoInstallSubjectLibrary => 'הספרייה';
-  @override
-  String autoInstallDialogTitle(String subject) => 'התקנה אוטומטית של $subject';
-  @override
-  String autoInstallDialogContent(String subject) =>
-      'מעתה $subject תעודכן ללא אישור נוסף בכל פעם שתימצא גרסה חדשה בתיקייה '
-      'שלצד התוכנה — אך ורק כשהיא כבר מותקנת. התקנה ראשונה נשארת בידיים '
-      'שלך, וגם ההורדה עצמה תישאר יזומה.';
+  String get autoInstallDialogContent =>
+      'מעתה תוכנת אוצריא והספרייה יעודכנו ללא אישור נוסף בכל פעם שתימצא גרסה '
+      'חדשה בתיקייה שלצד התוכנה — אך ורק כשהן כבר מותקנות. התקנה ראשונה '
+      'נשארת בידיים שלך, וגם ההורדה עצמה תישאר יזומה.';
   @override
   String get autoInstallDialogWarning =>
       'התקנה מחליפה קבצים במחשב שלך. אם אינך בטוח/ה — עדיף להשאיר את '
@@ -628,27 +615,20 @@ class _Settings extends SettingsScreenStrings {
       'אילו רכיבים כפתור "הורד עכשיו" בדף הבית מביא לתיקייה המקומית. '
       'ההורדה עצמה תמיד יזומה בלחיצה.';
   @override
-  String get syncAppTitle => 'תוכנת אוצריא';
+  String get syncTargetsTitle => 'בחר מה ברצונך להוריד מהרשת';
   @override
-  String get syncAppSubtitle => 'קובץ ההתקנה של הגרסה האחרונה';
+  String get syncTargetsHint =>
+      'תוכנה — קובץ ההתקנה של הגרסה האחרונה. ספרייה — הרכיב הכבד, המסד המלא '
+      'הוא כ-1.5GB. תוספים — הקטלוג וקובצי ההתקנה של כל התוספים.';
   @override
-  String get syncLibraryTitle => 'הספרייה';
+  String get syncTargetAll => 'הכל';
   @override
-  String get syncLibrarySubtitle => 'הרכיב הכבד — המסד המלא הוא כ-1.5GB';
+  String get syncTargetApp => 'תוכנה';
   @override
-  String get syncPluginsTitle => 'חנות התוספים';
+  String get syncTargetLibrary => 'ספרייה';
   @override
-  String get syncPluginsSubtitle => 'הקטלוג וקובצי ההתקנה של כל התוספים';
+  String get syncTargetPlugins => 'תוספים';
   @override
-  String get syncFullPackageTitle => 'חבילת התקנה מלאה של אוצריא';
-  @override
-  String get syncFullPackageSubtitle =>
-      'המתקין שכולל את הספרייה בתוכו — הגרסה היציבה, כ-2GB';
-  @override
-  String get syncFullPackageHint =>
-      'כך מחשב שאין בו אוצריא מקבל הכול בהתקנה אחת. כבוי כברירת מחדל — '
-      'לכונן שמשרת מחשבים שכבר יש בהם אוצריא הוא מיותר.';
-
   @override
   String get personalModeTitle => 'עדכון אישי — למחשב שלי בלבד';
   @override
@@ -2117,8 +2097,6 @@ class _AppDomain extends AppDomainStrings {
   String downloadingChannel(String channelLabel) =>
       'מוריד את תוכנת אוצריא (גרסה $channelLabel)...';
   @override
-  String get downloadingFullPackage => 'מוריד את חבילת ההתקנה המלאה';
-  @override
   String get downloadCancelled => 'ההורדה בוטלה.';
   @override
   String get installCancelledByUser => 'ההתקנה בוטלה במתקין.';
@@ -2130,10 +2108,6 @@ class _AppDomain extends AppDomainStrings {
   @override
   String get noInstallableReleaseForPlatform =>
       'לא נמצאה גרסת אוצריא שניתן להתקין בפלטפורמה הזו.';
-  @override
-  String get fullPackageNotOnDrive =>
-      'חבילת ההתקנה המלאה אינה בתיקייה המקומית — יש לסמן אותה בהגדרות '
-      'ולהריץ הורדה במחשב עם אינטרנט.';
   @override
   String get mirrorEmptyRunDownload =>
       'אין גרסת אוצריא בתיקייה המקומית — יש להריץ הורדה במחשב עם אינטרנט.';

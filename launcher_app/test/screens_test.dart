@@ -67,7 +67,6 @@ void main() {
     Future<bool> Function()? onProcessStateChanged,
     Future<bool> Function()? onCloseOtzaria,
     Future<void> Function()? onCancelDownload,
-    Future<void> Function()? onInstallFullPackage,
     bool readOnly = false,
   }) =>
       HomeScreen(
@@ -90,7 +89,6 @@ void main() {
         onDownloadLauncherUpdate: () async {},
         onInstallLauncherUpdate: () async {},
         onRequestReindex: () async {},
-        onInstallFullPackage: onInstallFullPackage,
         onGoToOtzaria: () {},
         onGoToLibrary: () {},
       );
@@ -261,46 +259,49 @@ void main() {
     expect(find.text(t.onlineUpdatedPlugins(0)), findsNothing);
   });
 
-  // ההצעה על החבילה המלאה קופצת בלחיצה על "התקנה" בלבד. קודם היא קפצה
-  // מעצמה בכניסה לתוכנה, לפני שהמשתמש ביקש להתקין משהו.
-  testWidgets('אין אוצריא + חבילה על הכונן — "התקנה" מציעה את החבילה המלאה',
-      (tester) async {
-    final t = stringsOf().appScreen;
+  // ההצעה המשולבת קופצת בלחיצה על "התקנה" בלבד, ולא מעצמה בכניסה לתוכנה.
+  testWidgets('מחשב ריק — "התקנה" מציעה גם את הספרייה', (tester) async {
+    final t = stringsOf().home;
     otzaria.status = OtzariaModuleStatus.updateAvailable;
-    otzaria.fullPackage = const OtzariaFullPackage(
-      assetName: 'otzaria-0.9.96-windows-full.exe',
-      downloadUrl: 'https://example/full.exe',
-      sizeBytes: 2114350952,
-      installerKind: OtzariaInstallerKind.windowsSetupExe,
-    );
-    otzaria.fullPackageRecommended = true;
-    otzaria.stableVersion = '0.9.96';
+    otzaria.latestVersion = '0.9.96';
+    library.isFreshInstall = true;
+    library.status = LibraryModuleStatus.updateAvailable;
+    library.targetVersion = 27;
 
-    var installs = 0;
-    await pumpScreen(
-        tester, home(onInstallFullPackage: () async => installs++));
-    expect(find.text(t.fullPackageDialogTitle), findsNothing);
+    await pumpScreen(tester, home());
+    expect(find.text(t.firstInstallDialogTitle), findsNothing);
 
-    await tester.tap(find.text(stringsOf().common.install));
+    await tester.tap(find.text(stringsOf().common.install).first);
     await tester.pumpAndSettle();
-    expect(find.text(t.fullPackageDialogTitle), findsOneWidget);
-
-    await tester.tap(find.text(t.fullPackageInstallButton));
-    await tester.pumpAndSettle();
-    expect(installs, 1);
+    expect(find.text(t.firstInstallDialogTitle), findsOneWidget);
   });
 
-  testWidgets('אוצריא מותקנת — "התקנה" היא המתקין הרגיל ולא החבילה המלאה',
+  testWidgets('אוצריא מותקנת — "התקנה" היא דיאלוג העדכון הרגיל',
       (tester) async {
     otzaria.status = OtzariaModuleStatus.updateAvailable;
     otzaria.currentVersion = '0.9.95';
     otzaria.latestVersion = '0.9.96';
 
-    await pumpScreen(tester, home(onInstallFullPackage: () async {}));
+    await pumpScreen(tester, home());
     await tester.tap(find.text(stringsOf().common.install));
     await tester.pumpAndSettle();
 
     expect(find.text(stringsOf().home.appInstallDialogTitle), findsOneWidget);
+  });
+
+  // מחשב שאוצריא אינה בו אבל המסד כן — אין מה להציע יחד.
+  testWidgets('אין אוצריא אך יש כבר מסד — הדיאלוג הרגיל', (tester) async {
+    otzaria.status = OtzariaModuleStatus.updateAvailable;
+    otzaria.latestVersion = '0.9.96';
+    library.isFreshInstall = false;
+    library.status = LibraryModuleStatus.upToDate;
+
+    await pumpScreen(tester, home());
+    await tester.tap(find.text(stringsOf().common.install));
+    await tester.pumpAndSettle();
+
+    expect(find.text(stringsOf().home.appInstallDialogTitle), findsOneWidget);
+    expect(find.text(stringsOf().home.firstInstallDialogTitle), findsNothing);
   });
 
   testWidgets('דף הבית מציג אזהרה כשאוצריא פתוחה', (tester) async {
@@ -629,87 +630,6 @@ void main() {
     expect(button.onPressed, isNull);
   });
 
-  testWidgets('כרטיס החבילה המלאה אינו קיים כשהיא לא על הכונן', (tester) async {
-    await pumpScreen(
-      tester,
-      OtzariaScreen(
-        otzaria: otzaria,
-        settings: settings,
-        otzariaIsRunning: false,
-        onCloseOtzaria: () async => true,
-      ),
-    );
-
-    // ברירת המחדל: ההגדרה כבויה, החבילה לא הורדה — והמסך זהה למה שהיה.
-    expect(find.text('חבילת התקנה מלאה'), findsNothing);
-  });
-
-  testWidgets('אין אוצריא + חבילה על הכונן — הכרטיס ממליץ והכפתור פעיל',
-      (tester) async {
-    otzaria.fullPackage = const OtzariaFullPackage(
-      assetName: 'otzaria-0.9.96-windows-full.exe',
-      downloadUrl: 'https://example/full.exe',
-      sizeBytes: 2114350952,
-      installerKind: OtzariaInstallerKind.windowsSetupExe,
-    );
-    otzaria.fullPackageRecommended = true;
-    otzaria.stableVersion = '0.9.96';
-
-    var installs = 0;
-    await pumpScreen(
-      tester,
-      OtzariaScreen(
-        otzaria: otzaria,
-        settings: settings,
-        otzariaIsRunning: false,
-        onCloseOtzaria: () async => true,
-        onInstallFullPackage: () async => installs++,
-      ),
-    );
-
-    expect(find.text('חבילת התקנה מלאה'), findsOneWidget);
-    expect(find.text('אין כאן אוצריא — מומלץ להתקין מכאן'), findsOneWidget);
-
-    await tester.tap(find.text('התקנה מלאה'));
-    await tester.pumpAndSettle();
-    expect(installs, 1);
-  });
-
-  testWidgets('אוצריא מותקנת — הכרטיס מוצג אך ההתקנה המלאה מושבתת',
-      (tester) async {
-    otzaria.fullPackage = const OtzariaFullPackage(
-      assetName: 'otzaria-0.9.96-windows-full.exe',
-      downloadUrl: 'https://example/full.exe',
-      sizeBytes: 2114350952,
-      installerKind: OtzariaInstallerKind.windowsSetupExe,
-    );
-    otzaria.fullPackageRecommended = false;
-    otzaria.currentVersion = '0.9.96';
-
-    await pumpScreen(
-      tester,
-      OtzariaScreen(
-        otzaria: otzaria,
-        settings: settings,
-        otzariaIsRunning: false,
-        onCloseOtzaria: () async => true,
-        onInstallFullPackage: () async {},
-      ),
-    );
-
-    expect(
-      find.text('אוצריא כבר מותקנת — אין צורך בחבילה המלאה'),
-      findsOneWidget,
-    );
-    final button = tester.widget<ActionButton>(
-      find.ancestor(
-        of: find.text('התקנה מלאה'),
-        matching: find.byType(ActionButton),
-      ),
-    );
-    expect(button.onPressed, isNull);
-  });
-
   testWidgets('בחירת ערוץ מוצגת רק כשיש שתי גרסאות, ונשמרת בהגדרות',
       (tester) async {
     // מדמה מראה עם שתי גרסאות — בלי לגעת בדיסק או ברשת.
@@ -788,7 +708,9 @@ void main() {
     expect(button.onPressed, isNotNull);
   });
 
-  testWidgets('מתגי הסנכרון עברו להגדרות ונשמרים', (tester) async {
+  testWidgets('בחירת רכיבי ההורדה היא שורת סימון אחת, והיא נשמרת',
+      (tester) async {
+    final t = stringsOf().settings;
     await pumpScreen(
       tester,
       SettingsScreen(
@@ -799,10 +721,26 @@ void main() {
     );
 
     expect(settings.settings.syncLibrary, isTrue);
-    await tester.tap(find.text('הרכיב הכבד — המסד המלא הוא כ-1.5GB'));
+    await tester.tap(find.text(t.syncTargetLibrary));
     await tester.pumpAndSettle();
-
     expect(settings.settings.syncLibrary, isFalse);
+    // השאר לא זזו, ו"הכל" כבה מעצמו.
+    expect(settings.settings.syncApp, isTrue);
+    expect(settings.settings.syncPlugins, isTrue);
+
+    // "הכל" מחזיר את שלושתם בלחיצה אחת.
+    await tester.tap(find.text(t.syncTargetAll));
+    await tester.pumpAndSettle();
+    expect(settings.settings.hasSyncSelection, isTrue);
+    expect(settings.settings.syncLibrary, isTrue);
+
+    // ולחיצה נוספת מכבה את שלושתם — בחירה ריקה מותרת, היא רק מכבה את
+    // כפתור ההורדה.
+    await tester.tap(find.text(t.syncTargetAll));
+    await tester.pumpAndSettle();
+    expect(settings.settings.syncApp, isFalse);
+    expect(settings.settings.syncLibrary, isFalse);
+    expect(settings.settings.syncPlugins, isFalse);
   });
 
   testWidgets('מסך הספרייה מציג מצב ואת התיקייה שממנה מעדכנים', (tester) async {
@@ -815,6 +753,7 @@ void main() {
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
+        onGoToSettings: () {},
       ),
     );
 
@@ -823,6 +762,37 @@ void main() {
     // אין יותר בחירת מקור — התיקייה קבועה ליד התוכנה.
     expect(find.text('עדכון מתיקייה מקומית'), findsNothing);
     expect(find.text('חזרה לעדכון מהרשת'), findsNothing);
+  });
+
+  // המחשב המקוון בעדכון אישי: הסבר במקום ההודעה האדומה, ושתי הדרכים החוצה.
+  testWidgets('מראה שנבנתה למחשב אחר מוסברת, בלי שורת שגיאה', (tester) async {
+    final t = stringsOf().libraryScreen;
+    var wentToSettings = 0;
+    library.status = LibraryModuleStatus.personalTargetElsewhere;
+    library.personalFromVersion = 741;
+
+    await pumpScreen(
+      tester,
+      LibraryScreen(
+        library: library,
+        otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
+        isDownloading: false,
+        onProcessStateChanged: () async => false,
+        onRequestReindex: () async {},
+        onGoToSettings: () => wentToSettings++,
+      ),
+    );
+
+    expect(find.text(t.personalOtherMachineTitle), findsOneWidget);
+    expect(find.text(t.personalOtherMachineSubtitle('741')), findsOneWidget);
+    expect(find.byType(InfoErrorRow), findsNothing);
+
+    await tester.tap(
+      find.widgetWithText(ActionButton, t.personalOtherMachineSettingsButton),
+    );
+    await tester.pumpAndSettle();
+    expect(wentToSettings, 1);
   });
 
   /// הכפתורים ישבו כשורה בתוך [AppCard.section], ולכן על משטח הכרטיס הלבן.
@@ -843,6 +813,7 @@ void main() {
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
+        onGoToSettings: () {},
       ),
     );
     expect(find.byType(CardActionsRow), findsOneWidget);
@@ -874,6 +845,7 @@ void main() {
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
+        onGoToSettings: () {},
       ),
     );
 
@@ -897,6 +869,7 @@ void main() {
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
+        onGoToSettings: () {},
       ),
     );
 
@@ -925,6 +898,7 @@ void main() {
           return false;
         },
         onRequestReindex: () async {},
+        onGoToSettings: () {},
       ),
     );
 
@@ -950,6 +924,7 @@ void main() {
           return true;
         },
         onRequestReindex: () async {},
+        onGoToSettings: () {},
       ),
     );
 
@@ -976,6 +951,7 @@ void main() {
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
+        onGoToSettings: () {},
       ),
     );
     expect(
@@ -997,6 +973,7 @@ void main() {
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
+        onGoToSettings: () {},
       ),
     );
 
@@ -1030,6 +1007,7 @@ void main() {
             isDownloading: false,
             onProcessStateChanged: () async => false,
             onRequestReindex: () async => requests++,
+            onGoToSettings: () {},
           ),
         );
 
@@ -1068,6 +1046,7 @@ void main() {
           return false;
         },
         onRequestReindex: () async {},
+        onGoToSettings: () {},
       ),
     );
 
@@ -1567,21 +1546,22 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('התקנת תוכנת אוצריא אוטומטית'));
+    await tester.tap(find.text(stringsOf().settings.autoInstallTitle));
     await tester.pumpAndSettle();
 
-    expect(find.text('התקנה אוטומטית של תוכנת אוצריא'), findsOneWidget);
+    expect(
+        find.text(stringsOf().settings.autoInstallDialogTitle), findsOneWidget);
     // ביטול משאיר את ההגדרה כבויה.
     await tester.tap(find.text('ביטול'));
     await tester.pumpAndSettle();
-    expect(settings.settings.autoInstallApp, isFalse);
+    expect(settings.settings.autoInstall, isFalse);
 
-    await tester.tap(find.text('התקנת תוכנת אוצריא אוטומטית'));
+    await tester.tap(find.text(stringsOf().settings.autoInstallTitle));
     await tester.pumpAndSettle();
     await tester.tap(find.text('הפעל התקנה אוטומטית'));
     await tester.pumpAndSettle();
 
-    expect(settings.settings.autoInstallApp, isTrue);
+    expect(settings.settings.autoInstall, isTrue);
   });
 
   // ── מסך השגיאה שמחליף את האפליקציה ────────────────────────────────────────
@@ -1741,6 +1721,7 @@ void main() {
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
+        onGoToSettings: () {},
       ),
     );
     expect(find.text(expected), findsOneWidget);
@@ -1792,6 +1773,7 @@ void main() {
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
+        onGoToSettings: () {},
       ),
     );
 
@@ -1815,6 +1797,7 @@ void main() {
           isDownloading: false,
           onProcessStateChanged: () async => false,
           onRequestReindex: () async {},
+          onGoToSettings: () {},
         );
 
     await pumpScreen(tester, screen());
@@ -1847,6 +1830,7 @@ void main() {
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
+        onGoToSettings: () {},
       ),
     );
 
@@ -1902,6 +1886,7 @@ void main() {
         isDownloading: false,
         onProcessStateChanged: () async => false,
         onRequestReindex: () async {},
+        onGoToSettings: () {},
       ),
     );
 
@@ -1933,7 +1918,7 @@ void main() {
     await reloaded.load();
 
     expect(reloaded.settings.syncLibrary, isFalse);
-    expect(reloaded.settings.autoInstallLibrary, isFalse);
+    expect(reloaded.settings.autoInstall, isFalse);
     // ברירת המחדל היא הגרסה היציבה, והבחירה שורדת הפעלה מחדש.
     expect(const AppSettings().preferAppPrerelease, isFalse);
     expect(reloaded.settings.preferAppPrerelease, isTrue);

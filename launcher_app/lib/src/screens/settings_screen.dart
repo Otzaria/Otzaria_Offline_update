@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/custom_apps_controller.dart';
-import '../services/app_logger.dart';
 import '../services/app_paths.dart';
 import '../settings/app_settings.dart';
 import '../settings/safer_mode.dart';
@@ -87,40 +86,16 @@ class SettingsScreen extends StatelessWidget {
           icon: FluentIcons.search_info_24_regular,
           title: t.autoCheckTitle,
           subtitle: t.autoCheckSubtitle,
-          value: _s.autoMetadataCheck,
-          onChanged: (v) => _set(_s.copyWith(autoMetadataCheck: v)),
-        ),
-        SettingsActionTile.switchTile(
-          icon: FluentIcons.cloud_24_regular,
-          title: t.autoOnlineCheckTitle,
-          subtitle: t.autoOnlineCheckSubtitle,
-          hint: t.autoOnlineCheckHint,
-          value: _s.autoCheckOnlineUpdates,
-          onChanged: (v) => _set(_s.copyWith(autoCheckOnlineUpdates: v)),
+          hint: t.autoCheckHint,
+          value: _s.autoCheckUpdates,
+          onChanged: (v) => _set(_s.copyWith(autoCheckUpdates: v)),
         ),
         SettingsActionTile.switchTile(
           icon: FluentIcons.desktop_arrow_right_24_regular,
-          title: t.autoInstallAppTitle,
-          subtitle: t.autoInstallAppSubtitle,
-          value: _s.autoInstallApp,
-          onChanged: (v) => _confirmAutoInstall(
-            context,
-            enabled: v,
-            what: t.autoInstallSubjectApp,
-            apply: (on) => _set(_s.copyWith(autoInstallApp: on)),
-          ),
-        ),
-        SettingsActionTile.switchTile(
-          icon: FluentIcons.database_arrow_right_24_regular,
-          title: t.autoInstallLibraryTitle,
-          subtitle: t.autoInstallLibrarySubtitle,
-          value: _s.autoInstallLibrary,
-          onChanged: (v) => _confirmAutoInstall(
-            context,
-            enabled: v,
-            what: t.autoInstallSubjectLibrary,
-            apply: (on) => _set(_s.copyWith(autoInstallLibrary: on)),
-          ),
+          title: t.autoInstallTitle,
+          subtitle: t.autoInstallSubtitle,
+          value: _s.autoInstall,
+          onChanged: (v) => _confirmAutoInstall(context, enabled: v),
         ),
       ],
     );
@@ -131,27 +106,51 @@ class SettingsScreen extends StatelessWidget {
   Future<void> _confirmAutoInstall(
     BuildContext context, {
     required bool enabled,
-    required String what,
-    required Future<void> Function(bool) apply,
   }) async {
     if (!enabled) {
-      await apply(false);
+      await _set(_s.copyWith(autoInstall: false));
       return;
     }
 
     final t = context.strings.settings;
     final approved = await showWarningDialog(
       context: context,
-      title: t.autoInstallDialogTitle(what),
-      content: t.autoInstallDialogContent(what),
+      title: t.autoInstallDialogTitle,
+      content: t.autoInstallDialogContent,
       subtitle: t.autoInstallDialogWarning,
       confirmText: t.autoInstallDialogConfirm,
     );
     if (!approved) return;
-    await apply(true);
+    await _set(_s.copyWith(autoInstall: true));
   }
 
   // ── הורדה ─────────────────────────────────────────────────────────────────
+
+  /// [_SyncTarget.all] אינו הגדרה בפני עצמו — הוא דלוק כששלושת הרכיבים
+  /// דלוקים, ולחיצה עליו מדליקה או מכבה את שלושתם יחד.
+  Set<_SyncTarget> get _selectedSyncTargets => {
+        if (_s.syncApp) _SyncTarget.app,
+        if (_s.syncLibrary) _SyncTarget.library,
+        if (_s.syncPlugins) _SyncTarget.plugins,
+        if (_s.syncApp && _s.syncLibrary && _s.syncPlugins) _SyncTarget.all,
+      };
+
+  Future<void> _toggleSyncTarget(_SyncTarget target) {
+    final selected = _selectedSyncTargets;
+    final on = !selected.contains(target);
+    return _set(
+      switch (target) {
+        _SyncTarget.all => _s.copyWith(
+            syncApp: on,
+            syncLibrary: on,
+            syncPlugins: on,
+          ),
+        _SyncTarget.app => _s.copyWith(syncApp: on),
+        _SyncTarget.library => _s.copyWith(syncLibrary: on),
+        _SyncTarget.plugins => _s.copyWith(syncPlugins: on),
+      },
+    );
+  }
 
   Widget _downloadCard(BuildContext context) {
     final t = context.strings.settings;
@@ -160,34 +159,24 @@ class SettingsScreen extends StatelessWidget {
       title: t.downloadCardTitle,
       hint: t.downloadCardHint,
       children: [
-        SettingsActionTile.switchTile(
-          icon: FluentIcons.desktop_24_regular,
-          title: t.syncAppTitle,
-          subtitle: t.syncAppSubtitle,
-          value: _s.syncApp,
-          onChanged: (v) => _set(_s.copyWith(syncApp: v)),
-        ),
-        SettingsActionTile.switchTile(
-          icon: FluentIcons.library_24_regular,
-          title: t.syncLibraryTitle,
-          subtitle: t.syncLibrarySubtitle,
-          value: _s.syncLibrary,
-          onChanged: (v) => _set(_s.copyWith(syncLibrary: v)),
-        ),
-        SettingsActionTile.switchTile(
-          icon: FluentIcons.puzzle_piece_24_regular,
-          title: t.syncPluginsTitle,
-          subtitle: t.syncPluginsSubtitle,
-          value: _s.syncPlugins,
-          onChanged: (v) => _set(_s.copyWith(syncPlugins: v)),
-        ),
-        SettingsActionTile.switchTile(
-          icon: FluentIcons.box_24_regular,
-          title: t.syncFullPackageTitle,
-          subtitle: t.syncFullPackageSubtitle,
-          hint: t.syncFullPackageHint,
-          value: _s.syncFullPackage,
-          onChanged: (v) => _set(_s.copyWith(syncFullPackage: v)),
+        SettingsActionTile.multiSegmentedTile<_SyncTarget>(
+          icon: FluentIcons.cloud_arrow_down_24_regular,
+          title: t.syncTargetsTitle,
+          hint: t.syncTargetsHint,
+          selected: _selectedSyncTargets,
+          onToggled: _toggleSyncTarget,
+          options: [
+            SegmentOption(value: _SyncTarget.all, label: t.syncTargetAll),
+            SegmentOption(value: _SyncTarget.app, label: t.syncTargetApp),
+            SegmentOption(
+              value: _SyncTarget.library,
+              label: t.syncTargetLibrary,
+            ),
+            SegmentOption(
+              value: _SyncTarget.plugins,
+              label: t.syncTargetPlugins,
+            ),
+          ],
         ),
         SettingsActionTile.switchTile(
           icon: FluentIcons.person_24_regular,
@@ -452,11 +441,7 @@ class SettingsScreen extends StatelessWidget {
         SettingsActionTile.text(
           icon: FluentIcons.document_bullet_list_24_regular,
           title: t.logTitle,
-          // הנתיב עצמו, ולא רק הסבר: הלוג עובר לתיקיית המחשב כשהכונן מוגן
-          // מכתיבה, ובלי זה מי שמתבקש "שלח את הלוג" הולך לכונן ומביא קובץ
-          // שקפא לפני חודשיים.
-          subtitle:
-              '${t.logSubtitle}\n${AppLogger.maybeInstance?.filePath ?? ''}',
+          subtitle: t.logSubtitle,
           actions: [
             ActionButton.neutral(
               text: t.openLogFolderButton,
@@ -502,3 +487,6 @@ class SettingsScreen extends StatelessWidget {
     UiSnack.showSuccess(AppL10n.strings.settings.resetDoneSnack);
   }
 }
+
+/// אפשרויות שורת הסימון של ההורדה. `all` הוא קיצור לשלושתם, לא רכיב.
+enum _SyncTarget { all, app, library, plugins }

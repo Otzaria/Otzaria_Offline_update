@@ -555,14 +555,14 @@ void main() {
       await tester.pumpWidget(wrap(StatefulBuilder(
         builder: (context, setState) => SettingsCard(children: [
           SettingsActionTile.switchTile(
-            title: he.settings.syncLibraryTitle,
+            title: he.settings.personalModeTitle,
             value: value,
             onChanged: (v) => setState(() => value = v),
           ),
         ]),
       )));
 
-      await tester.tap(find.text(he.settings.syncLibraryTitle));
+      await tester.tap(find.text(he.settings.personalModeTitle));
       await tester.pumpAndSettle();
       expect(value, isTrue);
 
@@ -574,13 +574,13 @@ void main() {
       var disabled = false;
       await tester.pumpWidget(wrap(SettingsCard(children: [
         SettingsActionTile.switchTile(
-          title: he.settings.syncAppTitle,
+          title: he.settings.personalModeTitle,
           value: false,
           enabled: false,
           onChanged: (v) => disabled = v,
         ),
       ])));
-      await tester.tap(find.text(he.settings.syncAppTitle));
+      await tester.tap(find.text(he.settings.personalModeTitle));
       await tester.pumpAndSettle();
       expect(disabled, isFalse);
     });
@@ -590,7 +590,7 @@ void main() {
       Widget tile() => SettingsCard(children: [
             SettingsActionTile.text(
               icon: FluentIcons.arrow_download_24_regular,
-              title: he.settings.autoInstallLibraryTitle,
+              title: he.settings.personalModeTitle,
               actions: [
                 ActionButton.neutral(
                   text: he.common.install,
@@ -606,7 +606,7 @@ void main() {
       await tester.pumpWidget(wrap(SizedBox(width: 280, child: tile())));
       // בפריסה האנכית אין יותר ListTile — הכותרת מעל והפעולות מתחתיה.
       expect(find.byType(ListTile), findsNothing);
-      expect(find.text(he.settings.autoInstallLibraryTitle), findsOneWidget);
+      expect(find.text(he.settings.personalModeTitle), findsOneWidget);
       expect(find.text(he.common.install), findsOneWidget);
     });
 
@@ -1185,15 +1185,15 @@ void main() {
           children: [
             SettingsActionTile.switchTile(
               icon: FluentIcons.arrow_download_24_regular,
-              title: he.settings.autoInstallLibraryTitle,
-              subtitle: he.settings.autoInstallLibrarySubtitle,
+              title: he.settings.autoInstallTitle,
+              subtitle: he.settings.autoInstallSubtitle,
               value: true,
               onChanged: (_) {},
             ),
             SettingsActionTile.text(
               icon: FluentIcons.database_24_regular,
-              title: he.settings.syncLibraryTitle,
-              subtitle: he.settings.syncLibrarySubtitle,
+              title: he.settings.personalModeTitle,
+              subtitle: he.settings.personalModeSubtitle,
               actions: [
                 ActionButton.neutral(
                   text: he.common.install,
@@ -1229,6 +1229,37 @@ void main() {
           ),
         ]),
       );
+    });
+
+    testWidgets('שורת סימון מרובה עם ארבע תוויות', (tester) async {
+      Widget card() => SettingsCard(children: [
+            SettingsActionTile.multiSegmentedTile<int>(
+              icon: FluentIcons.cloud_arrow_down_24_regular,
+              title: he.settings.syncTargetsTitle,
+              hint: he.settings.syncTargetsHint,
+              selected: const {1, 2},
+              onToggled: (_) {},
+              options: [
+                SegmentOption(value: 0, label: he.settings.syncTargetAll),
+                SegmentOption(value: 1, label: he.settings.syncTargetApp),
+                SegmentOption(value: 2, label: he.settings.syncTargetLibrary),
+                SegmentOption(value: 3, label: he.settings.syncTargetPlugins),
+              ],
+            ),
+          ]);
+
+      // 380 הוא הפריסה האנכית, ו-700 הוא זו שבה הפקד יושב לצד הכותרת —
+      // דווקא שם ארבע תוויות ותווית ארוכה יכולות להידחס.
+      for (final language in AppLanguage.values) {
+        for (final width in const [380.0, 700.0]) {
+          await expectNoOverflow(
+            tester,
+            card,
+            width: width,
+            language: language,
+          );
+        }
+      }
     });
 
     testWidgets('שורת תפריט נפתח עם שלוש שפות', (tester) async {
@@ -1352,7 +1383,7 @@ void main() {
                 SettingsCard(
                   title: s.settings.appearanceCardTitle,
                   subtitle: s.settings.languageSubtitle,
-                  hint: s.appScreen.fullPackageHint,
+                  hint: s.settings.syncTargetsHint,
                   children: [
                     SettingsActionTile.text(
                       icon: FluentIcons.info_24_regular,

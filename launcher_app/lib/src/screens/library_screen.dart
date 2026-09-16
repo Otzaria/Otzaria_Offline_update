@@ -21,6 +21,7 @@ class LibraryScreen extends StatelessWidget {
     required this.onProcessStateChanged,
     required this.onCloseOtzaria,
     required this.onRequestReindex,
+    required this.onGoToSettings,
   });
 
   final LibraryModuleController library;
@@ -38,6 +39,10 @@ class LibraryScreen extends StatelessWidget {
   /// מוסרת לאוצריא את בקשת עדכון אינדקס החיפוש. יושבת ב-`AppShell` כי
   /// המסירה עוברת דרך קובץ ההרצה של אוצריא, שמודול האפליקציה מכיר.
   final Future<void> Function() onRequestReindex;
+
+  /// מעבירה למסך ההגדרות — שם מכבים "עדכון אישי". ראו
+  /// [LibraryModuleStatus.personalTargetElsewhere].
+  final VoidCallback onGoToSettings;
 
   bool get _isBusy =>
       library.status == LibraryModuleStatus.updating || isDownloading;
@@ -165,6 +170,30 @@ class LibraryScreen extends StatelessWidget {
                 text: t.reindexButton,
                 icon: FluentIcons.play_24_regular,
                 onPressed: _isBusy ? null : onRequestReindex,
+              ),
+            ],
+          ),
+        // המראה של מחשב אחר. מידע, לא שגיאה — ראו
+        // [LibraryModuleStatus.personalTargetElsewhere].
+        if (c.status == LibraryModuleStatus.personalTargetElsewhere)
+          SettingsActionTile.text(
+            icon: FluentIcons.person_24_regular,
+            title: t.personalOtherMachineTitle,
+            subtitle: t.personalOtherMachineSubtitle(
+              c.personalFromVersion?.toString() ??
+                  context.strings.common.unknownValue,
+            ),
+            actions: [
+              ActionButton.neutral(
+                text: t.personalOtherMachineCaptureButton,
+                icon: FluentIcons.database_search_24_regular,
+                onPressed:
+                    _isBusy ? null : () => _capturePersonalVersion(context),
+              ),
+              ActionButton.neutral(
+                text: t.personalOtherMachineSettingsButton,
+                icon: FluentIcons.settings_24_regular,
+                onPressed: onGoToSettings,
               ),
             ],
           ),

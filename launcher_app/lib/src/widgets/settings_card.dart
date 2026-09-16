@@ -350,6 +350,32 @@ class SettingsActionTile extends StatelessWidget {
         width: width,
       );
 
+  /// שורה עם [AppMultiSegmentedControl] — כמה אפשרויות סימון בשורה אחת.
+  static Widget multiSegmentedTile<T>({
+    Key? key,
+    IconData? icon,
+    IconData? rtlIcon,
+    required String title,
+    String? subtitle,
+    String? hint,
+    required List<SegmentOption<T>> options,
+    required Set<T> selected,
+    required ValueChanged<T> onToggled,
+    double? width,
+  }) =>
+      _MultiSegmentedTile<T>(
+        key: key,
+        icon: icon,
+        rtlIcon: rtlIcon,
+        title: title,
+        subtitle: subtitle,
+        hint: hint,
+        options: options,
+        selected: selected,
+        onToggled: onToggled,
+        width: width,
+      );
+
   // ── Internals ──────────────────────────────────────────────────────────────
 
   static final RegExp _pathSeparatorRegExp = RegExp(r'[/\\]');
@@ -663,6 +689,81 @@ double _segGroupWidth(List<SegmentOption<dynamic>> options) {
       maxLen * _kSegCharWidth;
   return (btnW * options.length + _kSegGroupPadding)
       .clamp(_kSegMinWidth, _kSegMaxWidth);
+}
+
+class _MultiSegmentedTile<T> extends StatelessWidget {
+  final IconData? icon;
+  final IconData? rtlIcon;
+  final String title;
+  final String? subtitle;
+  final String? hint;
+  final List<SegmentOption<T>> options;
+  final Set<T> selected;
+  final ValueChanged<T> onToggled;
+  final double? width;
+
+  const _MultiSegmentedTile({
+    super.key,
+    this.icon,
+    this.rtlIcon,
+    required this.title,
+    this.subtitle,
+    this.hint,
+    required this.options,
+    required this.selected,
+    required this.onToggled,
+    this.width,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < LayoutBreakpoints.compact;
+        final control = AppMultiSegmentedControl<T>(
+          options: options,
+          selected: selected,
+          onToggled: onToggled,
+          expandToFillWidth: isNarrow,
+          height: _kSegBoxHeight,
+        );
+
+        if (!isNarrow) {
+          return SettingsActionTile.text(
+            icon: icon,
+            rtlIcon: rtlIcon,
+            title: title,
+            subtitle: subtitle,
+            hint: hint,
+            actions: [
+              SizedBox(
+                width: width ?? _segGroupWidth(options),
+                height: _kSegBoxHeight,
+                child: control,
+              ),
+            ],
+          );
+        }
+
+        // מסך צר: כותרת ב-ListTile, הפקד מתחתיה ברוחב מלא.
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ListTile(
+              leading: _buildSettingIcon(icon, rtlIcon, null),
+              title: _settingTitle(title, hint: hint),
+              subtitle: subtitle != null ? _settingSubtitle(subtitle!) : null,
+            ),
+            Padding(
+              padding: const EdgeInsets.only(left: 16, right: 16, bottom: 12),
+              child: control,
+            ),
+          ],
+        );
+      },
+    );
+  }
 }
 
 class _SegmentedTile<T> extends StatelessWidget {

@@ -168,6 +168,27 @@ class _Home extends HomeStrings {
       'Otzaria was updated to version $version';
 
   @override
+  String get firstInstallDialogTitle => 'Otzaria is not installed here';
+  @override
+  String firstInstallPrompt(String appVersion, String libraryVersion) =>
+      'No Otzaria installation and no book database were found on this '
+      'computer. One click installs both from the drive, with no internet: '
+      'the Otzaria program $appVersion, and then the book library, version '
+      '$libraryVersion.\n\n'
+      'The Otzaria installer opens first, where you choose where to install '
+      'and whether to create a shortcut. The library install starts right '
+      'after it and takes many minutes.';
+  @override
+  String get firstInstallConfirm => 'Full install';
+  @override
+  String get closeOtzariaForLibraryDialogTitle => 'Please close Otzaria';
+  @override
+  String get closeOtzariaForLibraryPrompt =>
+      'Otzaria opened when the installation finished, and it locks the '
+      'library file. Close it and press "Try again" to continue installing '
+      'the library.';
+
+  @override
   String get autoInstallSkippedTitle => 'The automatic update was not applied';
   @override
   String get autoInstallSkippedContent =>
@@ -220,9 +241,6 @@ class _Home extends HomeStrings {
   @override
   String onlineLibraryUpdate(String version) =>
       'Library: version $version is online';
-  @override
-  String get onlineAppFullPackage =>
-      'The full Otzaria install package is not in the folder yet';
   @override
   String get onlineAppSyncOff =>
       'Program downloads are turned off in Settings — it will be skipped.';
@@ -289,6 +307,8 @@ class _Home extends HomeStrings {
   String get libraryNothingDownloaded => 'Nothing downloaded yet';
   @override
   String get libraryNeedsManualPath => 'Choose the database file';
+  @override
+  String get libraryPersonalOtherMachine => 'Targets another computer';
 }
 
 class _AppScreen extends AppScreenStrings {
@@ -398,38 +418,6 @@ class _AppScreen extends AppScreenStrings {
       'explanation.';
   @override
   String get sourceDirTitle => 'Program updates Folder';
-
-  @override
-  String get fullPackageCardTitle => 'Full installation package';
-  @override
-  String get fullPackageHint =>
-      'The installer that carries the library inside it. Meant for a computer '
-      'without Otzaria: it gets the program and the library in one install, '
-      'with no internet.';
-  @override
-  String get fullPackageRowTitle => 'Status';
-  @override
-  String get fullPackageRecommended =>
-      'No Otzaria here — installing from this is recommended';
-  @override
-  String get fullPackageNotNeeded =>
-      'Otzaria is already installed — the full package is not needed';
-  @override
-  String get fullPackageVersionTitle => 'The package in the local folder';
-  @override
-  String fullPackageSize(String version, String size) =>
-      'Stable version $version — $size';
-  @override
-  String get fullPackageInstallButton => 'Full install';
-  @override
-  String get fullPackageDialogTitle => 'Install the full package?';
-  @override
-  String fullPackagePrompt(String version, String size) =>
-      'No Otzaria installation was found on this computer, and the drive '
-      'holds the full installation package of Otzaria $version ($size), '
-      'library included. Installing from it brings both at once, and needs '
-      'no internet. The Otzaria installer will open, where you choose where '
-      'to install and whether to create a desktop shortcut.';
 
   @override
   String installPrompt({
@@ -584,6 +572,20 @@ class _LibraryScreen extends LibraryScreenStrings {
   String get personalVersionNotFoundSnack =>
       'No database was found on this computer to read a version from';
   @override
+  String get personalOtherMachineTitle => 'Personal update — not this computer';
+  @override
+  String personalOtherMachineSubtitle(String version) =>
+      'The folder next to the app holds a personal update from version '
+      '$version, for the computer that was registered. This computer was not '
+      'registered, so there is nothing here to install on it — the download '
+      'itself succeeded and travels with the drive. You can register this '
+      'computer too, or turn "Personal update" off in settings to go back to '
+      'downloading the full database.';
+  @override
+  String get personalOtherMachineCaptureButton => 'Register this computer too';
+  @override
+  String get personalOtherMachineSettingsButton => 'Open settings';
+  @override
   String get downloadNoteTitle => 'The last download';
   @override
   String downloadNotePersonal(String version) =>
@@ -609,46 +611,34 @@ class _Settings extends SettingsScreenStrings {
   String get automationCardTitle => 'Automation';
   @override
   String get automationCardHint =>
-      'Default: check locally only, never install on its own.';
+      'Default: check only, never install on its own.';
   @override
-  String get autoCheckTitle => 'Check versions on startup';
+  String get autoCheckTitle => 'Check for updates on startup';
   @override
   String get autoCheckSubtitle =>
-      'Compares what is installed with what is in the local folder — offline';
+      'Compares what is installed with the local folder, and with the latest '
+      'release whenever there is a connection';
   @override
-  String get autoOnlineCheckTitle => 'Check online for updates when connected';
+  String get autoCheckHint =>
+      'The online part is metadata only, with no download. Failure (no '
+      'internet) is ignored silently, and the manual button on the home '
+      'screen always works.';
   @override
-  String get autoOnlineCheckSubtitle =>
-      'A light check against GitHub on startup, with no download';
+  String get autoInstallTitle =>
+      'Starting this program updates Otzaria and the library automatically';
   @override
-  String get autoOnlineCheckHint =>
-      'Failure (no internet) is ignored silently, and the manual button on '
-      'the home screen always works.';
-  @override
-  String get autoInstallAppTitle => 'Install the Otzaria program automatically';
-  @override
-  String get autoInstallAppSubtitle =>
-      'Updates an existing install on startup; never installs the first time';
-  @override
-  String get autoInstallLibraryTitle => 'Install library updates automatically';
-  @override
-  String get autoInstallLibrarySubtitle =>
-      'Updates an existing database on startup; skipped while Otzaria is open '
-      'or when no database was found';
+  String get autoInstallSubtitle =>
+      'Updates what is already installed on startup; never installs the first '
+      'time, and is skipped while Otzaria is open';
 
   @override
-  String get autoInstallSubjectApp => 'the Otzaria program';
+  String get autoInstallDialogTitle => 'Turn on automatic installs?';
   @override
-  String get autoInstallSubjectLibrary => 'the Library';
-  @override
-  String autoInstallDialogTitle(String subject) =>
-      'Install $subject automatically';
-  @override
-  String autoInstallDialogContent(String subject) =>
-      'From now on, $subject will be updated without asking whenever a newer '
-      'version is found in the folder next to this program — but only once it '
-      'is already installed. The first install stays your call, and so does '
-      'the download itself.';
+  String get autoInstallDialogContent =>
+      'From now on, the Otzaria program and the library will be updated '
+      'without asking whenever a newer version is found in the folder next to '
+      'this program — but only once they are already installed. The first '
+      'install stays your call, and so does the download itself.';
   @override
   String get autoInstallDialogWarning =>
       'Installing replaces files on your computer. If you are not sure, '
@@ -663,30 +653,21 @@ class _Settings extends SettingsScreenStrings {
       'Which parts the "Download now" button on the home screen brings into '
       'the local folder. The download itself always starts with a click.';
   @override
-  String get syncAppTitle => 'Otzaria program';
+  String get syncTargetsTitle => 'Choose what to download from the internet';
   @override
-  String get syncAppSubtitle => 'The installer for the latest version';
+  String get syncTargetsHint =>
+      'Program — the installer for the latest version. Library — the heavy '
+      'part, the full database is about 1.5 GB. Plugins — the catalogue and '
+      'the installation files for every plugin.';
   @override
-  String get syncLibraryTitle => 'Library';
+  String get syncTargetAll => 'All';
   @override
-  String get syncLibrarySubtitle =>
-      'The full package — the full database is about 1 GB';
+  String get syncTargetApp => 'Program';
   @override
-  String get syncPluginsTitle => 'Plugin store';
+  String get syncTargetLibrary => 'Library';
   @override
-  String get syncPluginsSubtitle =>
-      'The catalogue and the installation files for every plugin';
+  String get syncTargetPlugins => 'Plugins';
   @override
-  String get syncFullPackageTitle => 'Full Otzaria installation package';
-  @override
-  String get syncFullPackageSubtitle =>
-      'The installer that carries the library inside it — stable, about 2GB';
-  @override
-  String get syncFullPackageHint =>
-      'That is how a computer without Otzaria gets everything in one '
-      'install. Off by default — a drive that serves computers which already '
-      'have Otzaria does not need it.';
-
   @override
   String get personalModeTitle => 'Personal update — this computer only';
   @override
@@ -2260,8 +2241,6 @@ class _AppDomain extends AppDomainStrings {
   String downloadingChannel(String channelLabel) =>
       'Downloading the Otzaria program ($channelLabel version)…';
   @override
-  String get downloadingFullPackage => 'Downloading the full package';
-  @override
   String get downloadCancelled => 'The download was cancelled.';
   @override
   String get installCancelledByUser =>
@@ -2274,10 +2253,6 @@ class _AppDomain extends AppDomainStrings {
   @override
   String get noInstallableReleaseForPlatform =>
       'No Otzaria version that can be installed on this platform was found.';
-  @override
-  String get fullPackageNotOnDrive =>
-      'The full installation package is not in the local folder — tick it in '
-      'settings and run a download on a computer with internet.';
   @override
   String get mirrorEmptyRunDownload =>
       'There is no Otzaria version in the local folder — run a download on a '

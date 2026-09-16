@@ -112,8 +112,6 @@ void main() {
 }
 
 void _fullPackageTests() {
-  const selector = OtzariaAssetSelector();
-
   /// רשימת האסטים של release אמיתי (0.9.96), כולל חבילות ה-FULL.
   const assets = [
     'app-release.apk',
@@ -127,45 +125,35 @@ void _fullPackageTests() {
     'otzaria-windows.zip',
   ];
 
-  (String, OtzariaInstallerKind)? full(OtzariaTargetPlatform platform) =>
-      selector.selectFull(
-        platform: platform,
-        assets: assets,
-        nameOf: (a) => a,
+  group('זיהוי חבילת FULL — לניקוי בלבד', () {
+    test('מזהה את חבילות ה-FULL של ווינדוס ו-macOS', () {
+      expect(
+        assets.where(OtzariaAssetSelector.isFullPackage),
+        ['otzaria-0.9.96-windows-full.exe'],
       );
-
-  group('חבילת FULL — בורר נפרד, בלי לגעת ברגיל', () {
-    test('בווינדוס נבחרת חבילת ה-FULL ולא המתקין הרגיל', () {
-      expect(full(OtzariaTargetPlatform.windows)?.$1,
-          'otzaria-0.9.96-windows-full.exe');
-      expect(full(OtzariaTargetPlatform.windows)?.$2,
-          OtzariaInstallerKind.windowsSetupExe);
+      expect(
+          OtzariaAssetSelector.isFullPackage('otzaria-macos-full.zip'), isTrue);
+      expect(
+          OtzariaAssetSelector.isFullPackage('otzaria-macos-full.dmg'), isTrue);
     });
 
-    test('הבורר הרגיל ממשיך לבחור את המתקין הקטן', () {
+    test('אסט אנדרואיד אינו נחשב חבילת FULL', () {
+      // `otzaria-android-full.zip` מסתיים ב-full.zip, ובלי הדרישה ל-`macos-`
+      // הוא היה נמחק מהמראה.
+      expect(OtzariaAssetSelector.isFullPackage('otzaria-android-full.zip'),
+          isFalse);
+    });
+
+    test('המתקין הרגיל אינו נפגע', () {
+      expect(OtzariaAssetSelector.isFullPackage('otzaria-0.9.96-windows.exe'),
+          isFalse);
+      const selector = OtzariaAssetSelector();
       final regular = selector.select(
         platform: OtzariaTargetPlatform.windows,
         assets: assets,
         nameOf: (a) => a,
       );
       expect(regular?.$1, 'otzaria-0.9.96-windows.exe');
-    });
-
-    test('ב-macOS אין FULL ב-release הזה — null, ולא אסט אנדרואיד', () {
-      // `otzaria-android-full.zip` מסתיים ב-full.zip, ובלי הדרישה ל-`macos-`
-      // הוא היה נבחר כחבילת ה-macOS.
-      expect(full(OtzariaTargetPlatform.macos), isNull);
-    });
-
-    test('release בלי חבילת FULL מחזיר null ואינו שגיאה', () {
-      expect(
-        selector.selectFull(
-          platform: OtzariaTargetPlatform.windows,
-          assets: const ['otzaria-0.9.96-windows.exe'],
-          nameOf: (a) => a,
-        ),
-        isNull,
-      );
     });
   });
 }

@@ -21,6 +21,10 @@ enum LibraryModuleStatus {
   /// עדיין לא הורדו עדכונים לתיקייה המקומית — אין מול מה להשוות. מצב תקין
   /// בהרצה ראשונה, לא שגיאה.
   needsDownload,
+
+  /// "עדכון אישי" דלוק, והמראה נבנתה לגרסה של מחשב אחר שנרשם — המחשב הזה
+  /// לא נרשם כיעד, ולכן אין לו כאן מה להתקין. מצב תקין, לא שגיאה.
+  personalTargetElsewhere,
 }
 
 /// מצב ההורדה מהרשת אל התיקייה המקומית. נפרד לגמרי מ-[LibraryModuleStatus]:
@@ -182,6 +186,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// שהמצב לא יהיה שקוף: מי שהפעיל אותו בלי לרשום גרסה קיבל מסד מלא.
   LibraryPersonalDownloadNote? personalDownloadNote;
 
+  /// האם המחשב הזה נרשם כיעד לעדכון אישי. `true` גם כשהמצב כבוי, כי אז
+  /// כל מחשב הוא יעד לגיטימי. ראו [LibraryModuleStatus.personalTargetElsewhere].
+  bool personalTargetIsThisMachine = true;
+
   /// 0..1 להורדה כולה. **הבייטים קודמים לספירת הנכסים**: המונה מתאר ממילא
   /// את כל ההורדה יחד (`ByteProgressAggregator`), ולחלק אותו במספר הנכסים
   /// היה משאיר את המד על שליש בזמן שההורדה כמעט הסתיימה. ספירת הנכסים היא
@@ -323,7 +331,9 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       final version = await _manager.captureLocalDbVersion();
       if (version == null) return false;
       personalFromVersion = version;
-      notifyListeners();
+      // בדיקה מחדש ולא רק notify: המחשב הזה הפך זה עתה ליעד, ו-
+      // [LibraryModuleStatus.personalTargetElsewhere] שהוצג לו כבר אינו נכון.
+      await checkForUpdate();
       return true;
     } catch (e, st) {
       AppLogger.instance.error('רישום גרסת המסד לעדכון אישי נכשל', e, st);
@@ -379,6 +389,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
 
     // מה שנרשם בלחיצה — כולל במחשב אחר, דרך קובץ ה-state שנוסע על הכונן.
     personalFromVersion = await _manager.recordedPersonalDbVersion();
+    // ומי נרשם: המראה של עדכון אישי נבנית לגרסה של המחשבים שנרשמו, ולכן
+    // "אין מסלול" במחשב שאינו אחד מהם אינו תקלה אלא מראה של מישהו אחר.
+    personalTargetIsThisMachine =
+        !personalUpdateMode || await _manager.isRegisteredForPersonalUpdate();
 
     // **לא `_lastCheck`.** הוא נכתב רק בנתיב ההצלחה, ובמסלולי החריגה הוא
     // מחזיק את התוצאה של הריצה הקודמת — שורת אבחון שקוראת ממנו משקרת.
@@ -404,9 +418,17 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
         targetVersion = check.plan?.finalTargetVersion;
 
         if (check.plan?.kind == LibraryUpdatePlanKind.blocked) {
-          status = LibraryModuleStatus.error;
-          errorMessage = check.plan?.reason ??
-              AppL10n.strings.libraryDomain.blockedNeedsManualActionWithPeriod;
+          // ההודעה האדומה נשמרת למי שבאמת תקוע. במחשב המקוון, שרק הוריד
+          // בשביל מחשב אחר, "אין מסלול דלתא" הוא מצב תקין — ראו
+          // [LibraryModuleStatus.personalTargetElsewhere].
+          if (personalTargetIsThisMachine) {
+            status = LibraryModuleStatus.error;
+            errorMessage = check.plan?.reason ??
+                AppL10n
+                    .strings.libraryDomain.blockedNeedsManualActionWithPeriod;
+          } else {
+            status = LibraryModuleStatus.personalTargetElsewhere;
+          }
         } else {
           status = check.updateAvailable
               ? LibraryModuleStatus.updateAvailable

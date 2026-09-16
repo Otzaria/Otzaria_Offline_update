@@ -6,12 +6,11 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 void main() {
   group('AppSettings', () {
-    test('ברירת המחדל: שום התקנה אוטומטית, רק בדיקה מקומית', () {
+    test('ברירת המחדל: בדיקה בפתיחה, בלי שום התקנה אוטומטית', () {
       const s = AppSettings();
 
-      expect(s.autoMetadataCheck, isTrue);
-      expect(s.autoInstallApp, isFalse);
-      expect(s.autoInstallLibrary, isFalse);
+      expect(s.autoCheckUpdates, isTrue);
+      expect(s.autoInstall, isFalse);
     });
 
     test('ברירת המחדל: ההורדה מסמנת את שלושת הרכיבים', () {
@@ -35,8 +34,8 @@ void main() {
 
     test('סבב JSON שומר את הערכים', () {
       const original = AppSettings(
-        autoMetadataCheck: false,
-        autoInstallLibrary: true,
+        autoCheckUpdates: false,
+        autoInstall: true,
         syncLibrary: false,
         themeMode: AppThemeMode.dark,
         textScale: 1.15,
@@ -44,8 +43,8 @@ void main() {
 
       final restored = AppSettings.fromJson(original.toJson());
 
-      expect(restored.autoMetadataCheck, isFalse);
-      expect(restored.autoInstallLibrary, isTrue);
+      expect(restored.autoCheckUpdates, isFalse);
+      expect(restored.autoInstall, isTrue);
       expect(restored.syncLibrary, isFalse);
       expect(restored.themeMode, AppThemeMode.dark);
       expect(restored.textScale, 1.15);
@@ -58,8 +57,8 @@ void main() {
         'ui': {'themeMode': 'ערכה שלא קיימת'},
       });
 
-      expect(restored.autoMetadataCheck, isTrue);
-      expect(restored.autoInstallApp, isFalse);
+      expect(restored.autoCheckUpdates, isTrue);
+      expect(restored.autoInstall, isFalse);
       expect(restored.themeMode, AppThemeMode.system);
     });
 
@@ -76,7 +75,7 @@ void main() {
         'ui': {'themeMode': 'dark', 'textScale': 1.15},
       });
 
-      expect(restored.autoMetadataCheck, isFalse);
+      expect(restored.autoCheckUpdates, isFalse);
       expect(restored.themeMode, AppThemeMode.dark);
       // הסעיפים שהוסרו ('paths', 'storage', 'network') נבלעים בשקט.
       expect(restored.toJson().keys, isNot(contains('storage')));

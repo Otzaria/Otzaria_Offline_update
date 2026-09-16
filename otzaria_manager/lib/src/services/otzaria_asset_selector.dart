@@ -16,8 +16,8 @@ import '../models/otzaria_release.dart';
 /// מביאה את הספרייה בנפרד (library_manager), ואין סיבה למשוך 2GB כפולים.
 /// אותו דבר לגבי `-windows-silent.exe`.
 ///
-/// מי שכן רוצה את חבילת ה-FULL מבקש אותה במפורש בהגדרות, ואז [selectFull]
-/// מוצא אותה — בורר נפרד, כדי ששני המסלולים לא יוכלו להתבלבל ביניהם.
+/// חבילת ה-FULL **אינה נתמכת יותר**, ומה שנשאר ממנה כאן הוא
+/// [isFullPackage] בלבד — לזהות קובץ כזה שנשאר על כונן ישן ולמחוק אותו.
 class OtzariaAssetSelector {
   const OtzariaAssetSelector();
 
@@ -36,22 +36,20 @@ class OtzariaAssetSelector {
     ],
   };
 
-  /// הסיומות של חבילות ה-FULL — אותו מתקין **עם הספרייה בתוכו**.
-  ///
-  /// הן אינן חופפות לסיומות הרגילות: `otzaria-0.9.96-windows-full.exe`
-  /// מסתיים ב-`full.exe` ולא ב-`windows.exe`, ולכן כל בורר מוצא בדיוק את
-  /// שלו. `-full` ולא רק `full` כדי שלא ייתפס אסט אנדרואיד
-  /// (`otzaria-android-full.zip`) בבורר של macOS.
-  static const Map<OtzariaTargetPlatform, List<(String, OtzariaInstallerKind)>>
-      _fullCandidatesByPlatform = {
-    OtzariaTargetPlatform.windows: [
-      ('windows-full.exe', OtzariaInstallerKind.windowsSetupExe),
-    ],
-    OtzariaTargetPlatform.macos: [
-      ('macos-full.zip', OtzariaInstallerKind.macAppZip),
-      ('macos-full.dmg', OtzariaInstallerKind.macAppDmg),
-    ],
-  };
+  /// סיומות חבילות ה-FULL, שנשארו רק כדי למחוק קובץ שירד בגרסה ישנה.
+  /// `-full` ולא רק `full`, כדי שאסט אנדרואיד (`otzaria-android-full.zip`)
+  /// לא ייתפס בטעות.
+  static const List<String> fullPackageSuffixes = [
+    'windows-full.exe',
+    'macos-full.zip',
+    'macos-full.dmg',
+  ];
+
+  /// האם [assetName] הוא חבילת FULL — כלומר קובץ שיש למחוק מהמראה.
+  static bool isFullPackage(String assetName) {
+    final lower = assetName.toLowerCase();
+    return fullPackageSuffixes.any(lower.endsWith);
+  }
 
   /// הסיומות שמחפשים עבור [platform] — לשימוש בהודעות שגיאה.
   static List<String> expectedSuffixesFor(OtzariaTargetPlatform platform) =>
@@ -67,16 +65,6 @@ class OtzariaAssetSelector {
     required String Function(T asset) nameOf,
   }) =>
       _selectFrom(_candidatesByPlatform[platform]!, assets, nameOf);
-
-  /// חבילת ה-FULL של אותו release, או null כשה-release לא פרסם כזו. `null`
-  /// כאן הוא מצב תקין ולא שגיאה — בשונה מ-[select], שהיעדרו פוסל את
-  /// ה-release כולו.
-  (T, OtzariaInstallerKind)? selectFull<T>({
-    required OtzariaTargetPlatform platform,
-    required List<T> assets,
-    required String Function(T asset) nameOf,
-  }) =>
-      _selectFrom(_fullCandidatesByPlatform[platform]!, assets, nameOf);
 
   static (T, OtzariaInstallerKind)? _selectFrom<T>(
     List<(String, OtzariaInstallerKind)> candidates,

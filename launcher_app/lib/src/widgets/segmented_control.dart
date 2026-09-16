@@ -23,6 +23,66 @@ class SegmentOption<T> {
         );
 }
 
+/// פקד סגמנטד לבחירה מרובה — כמה אפשרויות סימון בשורה אחת, במקום מתג
+/// לכל אחת. [onToggled] מקבל את האפשרות שנלחצה בלבד, כך שכל אחת יכולה
+/// לדרוש אישור משלה בלי שהשאר ישתנו.
+class AppMultiSegmentedControl<T> extends StatelessWidget {
+  final List<SegmentOption<T>> options;
+  final Set<T> selected;
+  final ValueChanged<T> onToggled;
+  final bool expandToFillWidth;
+  final double? height;
+
+  const AppMultiSegmentedControl({
+    super.key,
+    required this.options,
+    required this.selected,
+    required this.onToggled,
+    this.expandToFillWidth = false,
+    this.height,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return SegmentedButton<T>(
+      multiSelectionEnabled: true,
+      // בלי זה הפקד מסרב לרוקן את הבחירה האחרונה — וכאן "שום דבר" היא
+      // בחירה לגיטימית, שרק מכבה את כפתור ההורדה.
+      emptySelectionAllowed: true,
+      segments: [
+        for (final o in options)
+          ButtonSegment<T>(
+            value: o.value,
+            label: Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(o.label, style: AppTextStyles.settingTitle),
+              ),
+            ),
+          ),
+      ],
+      selected: selected,
+      expandedInsets: expandToFillWidth ? EdgeInsets.zero : null,
+      // הפקד מחזיר את הקבוצה כולה; ההפרש מול הקיים הוא בדיוק מה שנלחץ.
+      onSelectionChanged: (next) {
+        final changed = selected.difference(next).followedBy(
+              next.difference(selected),
+            );
+        for (final value in changed) {
+          onToggled(value);
+        }
+      },
+      showSelectedIcon: false,
+      style: height != null
+          ? AppSegmentedControl._fixedHeightStyle(cs, height!)
+          : AppSegmentedControl._buttonStyle(cs)
+              .copyWith(visualDensity: VisualDensity.compact),
+    );
+  }
+}
+
 /// פקד סגמנטד גנרי — החלופה היחידה לקבוצת RadioButton בין 2–4 אפשרויות.
 class AppSegmentedControl<T> extends StatelessWidget {
   final List<SegmentOption<T>> options;

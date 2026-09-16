@@ -73,17 +73,14 @@ void main() {
       expect(allKeys(json), {
         'schemaVersion',
         'automation',
-        'metadataCheck',
-        'checkOnlineUpdates',
-        'installApp',
-        'installLibrary',
+        'checkUpdates',
+        'install',
         'channels',
         'appPrerelease',
         'sync',
         'app',
         'library',
         'plugins',
-        'fullPackage',
         'personalMode',
         'ui',
         'language',
@@ -104,15 +101,13 @@ void main() {
     test('לכל שדה יש ברירת מחדל מוגדרת', () {
       const s = AppSettings();
 
-      expect(s.autoMetadataCheck, isTrue);
-      expect(s.autoCheckOnlineUpdates, isTrue);
+      expect(s.autoCheckUpdates, isTrue);
       expect(s.syncApp, isTrue);
       expect(s.syncLibrary, isTrue);
       expect(s.syncPlugins, isTrue);
       // ברירת המחדל היא הפצה: הכונן נושא מסד מלא ומשרת גם מחשב בלי אוצריא.
       expect(s.personalUpdateMode, isFalse);
-      expect(s.autoInstallApp, isFalse);
-      expect(s.autoInstallLibrary, isFalse);
+      expect(s.autoInstall, isFalse);
       expect(s.preferAppPrerelease, isFalse);
       // ברירת המחדל היא "אוטומטי" — לפי שפת המחשב, ולכן הבדיקה על הבחירה
       // ולא על השפה שנפתרת ממנה (שתלויה במחשב שעליו הבדיקה רצה).
@@ -128,14 +123,12 @@ void main() {
 
     test('סבב JSON מלא — כל שדה חוזר כפי שנשמר', () {
       const original = AppSettings(
-        autoMetadataCheck: false,
-        autoCheckOnlineUpdates: false,
+        autoCheckUpdates: false,
         syncApp: false,
         syncLibrary: false,
         syncPlugins: false,
         personalUpdateMode: true,
-        autoInstallApp: true,
-        autoInstallLibrary: true,
+        autoInstall: true,
         preferAppPrerelease: true,
         languagePreference: AppLanguagePreference.english,
         themeMode: AppThemeMode.light,
@@ -147,14 +140,12 @@ void main() {
 
       final restored = AppSettings.fromJson(original.toJson());
 
-      expect(restored.autoMetadataCheck, isFalse);
-      expect(restored.autoCheckOnlineUpdates, isFalse);
+      expect(restored.autoCheckUpdates, isFalse);
       expect(restored.syncApp, isFalse);
       expect(restored.syncLibrary, isFalse);
       expect(restored.syncPlugins, isFalse);
       expect(restored.personalUpdateMode, isTrue);
-      expect(restored.autoInstallApp, isTrue);
-      expect(restored.autoInstallLibrary, isTrue);
+      expect(restored.autoInstall, isTrue);
       expect(restored.preferAppPrerelease, isTrue);
       expect(restored.languagePreference, AppLanguagePreference.english);
       expect(restored.language, AppLanguage.english);
@@ -197,7 +188,7 @@ void main() {
       final restored = AppSettings.fromJson({
         'schemaVersion': 99,
         'whatIsThis': {'nested': true},
-        'automation': {'metadataCheck': 'כן', 'installApp': 1},
+        'automation': {'checkUpdates': 'כן', 'install': 1},
         // הסעיפים 'network' ו-'storage' (גיבוי המסד) הוסרו מה-schema — הם
         // נבלעים ככל מפתח לא מוכר.
         'network': {'timeoutSeconds': 12.5},
@@ -205,8 +196,8 @@ void main() {
         'ui': {'textScale': 2},
       });
 
-      expect(restored.autoMetadataCheck, isTrue);
-      expect(restored.autoInstallApp, isFalse);
+      expect(restored.autoCheckUpdates, isTrue);
+      expect(restored.autoInstall, isFalse);
       expect(restored.toJson().containsKey('network'), isFalse);
       expect(restored.toJson().containsKey('storage'), isFalse);
       // num שאינו int כן מתקבל ל-textScale (בשונה מהשדות השלמים).
@@ -270,12 +261,31 @@ void main() {
       expect(json['sync'], containsPair('app', true));
     });
 
-    test('autoCheckOnlineUpdates נפרד מ-autoMetadataCheck', () {
-      final json = const AppSettings(autoCheckOnlineUpdates: false)
-          .toJson()['automation'] as Map<String, dynamic>;
+    // קובץ מגרסה 10 ומטה — ארבעה דגלים שמתמזגים לשניים, שמרנית: הגדרה
+    // שהמשתמש לא אישר (פנייה לרשת, התקנה שדורסת קבצים) לא נדלקת מאליה.
+    test('מיזוג דגלי האוטומציה מקובץ ישן דורש ששניהם היו דלוקים', () {
+      AppSettings restore(bool a, bool b, bool installA, bool installB) =>
+          AppSettings.fromJson({
+            'automation': {
+              'metadataCheck': a,
+              'checkOnlineUpdates': b,
+              'installApp': installA,
+              'installLibrary': installB,
+            },
+          });
 
-      expect(json['checkOnlineUpdates'], isFalse);
-      expect(json['metadataCheck'], isTrue);
+      expect(restore(true, true, true, true).autoCheckUpdates, isTrue);
+      expect(restore(true, false, false, false).autoCheckUpdates, isFalse);
+      expect(restore(false, true, false, false).autoCheckUpdates, isFalse);
+      expect(restore(true, true, true, true).autoInstall, isTrue);
+      expect(restore(true, true, false, true).autoInstall, isFalse);
+      // הדגל החדש גובר על הישנים כשהוא קיים בקובץ.
+      expect(
+        AppSettings.fromJson({
+          'automation': {'checkUpdates': false, 'metadataCheck': true},
+        }).autoCheckUpdates,
+        isFalse,
+      );
     });
   });
 
@@ -312,7 +322,7 @@ void main() {
 
       await controller.load();
 
-      expect(controller.settings.autoMetadataCheck, isTrue);
+      expect(controller.settings.autoCheckUpdates, isTrue);
       expect(controller.settings.themeMode, AppThemeMode.system);
     });
 

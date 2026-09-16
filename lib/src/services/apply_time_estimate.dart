@@ -9,7 +9,8 @@
 /// שעה. ראו `LibraryMirrorExporter._dropSlowPatches` ו-`LibraryUpdatePlanner`.
 ///
 /// **הקבועים כוילו על מדידות אמיתיות** מלוג של משתמש (ספטמבר 2026,
-/// `update() מתחיל` → `update() הסתיים`), ומ-`DB_UPDATE_SPEED_PLAN.md`:
+/// `update() מתחיל` → `update() הסתיים`) ומסבב המדידות על המסד האמיתי
+/// (ראו AGENTS.md §5.1):
 ///
 /// | מסלול | נכס | זמן שנמדד | האומדן כאן |
 /// | --- | --- | --- | --- |

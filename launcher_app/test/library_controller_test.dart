@@ -350,6 +350,45 @@ void main() {
       expect(controller.updateRouteNote, isNull);
     });
   });
+
+  // המחשב המקוון: הוריד עדכון אישי בשביל מחשב אחר, ולכן אין במראה מסלול
+  // שמתאים לו. זו הייתה הודעה אדומה שהבהילה בלי סיבה.
+  group('עדכון אישי שנבנה למחשב אחר', () {
+    /// מראה של עדכון אישי: קובצי עדכון מגרסה 30 בלבד, בלי מסד מלא.
+    void writePersonalMirror() => _writeMirror(tempDir, releases: [
+          const _MirrorRelease('v31', patches: [_MirrorPatch(30, 31)]),
+        ]);
+
+    test('מחשב שלא נרשם מקבל מצב מוסבר, לא שגיאה', () async {
+      controller.personalUpdateMode = true;
+      writePersonalMirror();
+      await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 23));
+
+      expect(controller.status, LibraryModuleStatus.personalTargetElsewhere);
+      expect(controller.errorMessage, isNull);
+      expect(controller.personalTargetIsThisMachine, isFalse);
+    });
+
+    test('אחרי שנרשם, אותה חסימה חוזרת להיות שגיאה אמיתית', () async {
+      controller.personalUpdateMode = true;
+      writePersonalMirror();
+      await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 23));
+
+      expect(await controller.capturePersonalVersion(), isTrue);
+
+      expect(controller.status, LibraryModuleStatus.error);
+      expect(controller.errorMessage, isNotNull);
+      expect(controller.personalTargetIsThisMachine, isTrue);
+    });
+
+    test('כשהמצב כבוי כל מחשב הוא יעד, והחסימה נשארת שגיאה', () async {
+      writePersonalMirror();
+      await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 23));
+
+      expect(controller.status, LibraryModuleStatus.error);
+      expect(controller.personalTargetIsThisMachine, isTrue);
+    });
+  });
 }
 
 /// מסד sqlite אמיתי עם `db_version` — הקורא (`LocalDbVersionReader`) פותח

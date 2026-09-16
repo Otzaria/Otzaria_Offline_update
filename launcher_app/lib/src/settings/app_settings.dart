@@ -59,18 +59,16 @@ class AppSettings {
   /// 5: `ui.language` מקבל גם `system` — לפי שפת המחשב, וזו ברירת המחדל.
   /// 6: `ui.seedColor` / `ui.darkSeedColor` — פלטת הצבעים של אוצריא.
   /// 7: `sync.personalMode` — הורדה למחשב שלי בלבד, בלי המסד המלא.
-  /// 8: `sync.fullPackage` — חבילת ההתקנה המלאה של אוצריא.
+  /// 8: `sync.fullPackage` — חבילת ההתקנה המלאה של אוצריא (הוסר).
   /// 9: `ui.showFaq` — הכפתור הצף של השאלות הנפוצות.
   /// 10: `protection` — מצב סייפר: נעילת ההגדרות בסיסמה.
-  static const int schemaVersion = 10;
+  /// 11: `automation` — שני דגלים במקום ארבעה: בדיקה והתקנה, כל אחד
+  ///     לתוכנה ולספרייה גם יחד.
+  static const int schemaVersion = 11;
 
-  /// בדיקת גרסאות בפתיחה כשיש חיבור לרשת — בדיקה קלה, בלי הורדה.
-  final bool autoMetadataCheck;
-
-  /// בדיקה חד-פעמית בפתיחה מול GitHub — "יש עדכון חדש ברשת?" — קלה
-  /// (מטא-דאטה בלבד, בלי הורדת המסד/ההתקנה). כשל (אין רשת) נבלע בשקט.
-  /// לא קשור ל-[autoMetadataCheck], שהוא בדיקה מקומית בלבד.
-  final bool autoCheckOnlineUpdates;
+  /// בדיקת עדכונים בפתיחה — גם מקומית (התיקייה שלצד התוכנה) וגם קלה מול
+  /// GitHub כשיש רשת: מטא-דאטה בלבד, בלי הורדה, וכשל (אין רשת) נבלע בשקט.
+  final bool autoCheckUpdates;
 
   // ── מה נכלל בהורדה ──────────────────────────────────────────────────────
   /// אילו רכיבים פעולת ההורדה מביאה אל התיקייה המקומית. ההורדה עצמה תמיד
@@ -79,20 +77,14 @@ class AppSettings {
   final bool syncLibrary;
   final bool syncPlugins;
 
-  /// `true` = ההורדה מביאה גם את **חבילת ההתקנה המלאה** של אוצריא (הגרסה
-  /// היציבה האחרונה, ~2GB, כוללת את הספרייה בתוכה). **כבוי כברירת מחדל**:
-  /// היא נחוצה רק למחשב שאוצריא מותקנת בו בפעם הראשונה, ומי שלא סימן
-  /// אותה לא רואה ממנה דבר.
-  final bool syncFullPackage;
-
   /// `true` = "עדכון אישי": ההורדה מביאה רק קובצי עדכון מהגרסה שנרשמה ומעלה,
   /// בלי המסד המלא (~1.5GB). ברירת המחדל `false` — התוכנה היא כלי הפצה, וכונן
   /// בלי המסד המלא אינו יכול לשרת מחשב שאין בו אוצריא בכלל.
   final bool personalUpdateMode;
 
   // ── התקנה אוטומטית מהתיקייה המקומית ─────────────────────────────────────
-  final bool autoInstallApp;
-  final bool autoInstallLibrary;
+  /// התוכנה והספרייה יחד — התקנה ראשונה לעולם אינה אוטומטית.
+  final bool autoInstall;
 
   // ── ערוץ הגרסה של תוכנת אוצריא ──────────────────────────────────────────
   /// `true` = להתקין את הגרסה הלא-יציבה (pre-release). ההורדה מביאה תמיד
@@ -130,15 +122,12 @@ class AppSettings {
   AppLanguage get language => languagePreference.resolve();
 
   const AppSettings({
-    this.autoMetadataCheck = true,
-    this.autoCheckOnlineUpdates = true,
+    this.autoCheckUpdates = true,
     this.syncApp = true,
     this.syncLibrary = true,
     this.syncPlugins = true,
-    this.syncFullPackage = false,
     this.personalUpdateMode = false,
-    this.autoInstallApp = false,
-    this.autoInstallLibrary = false,
+    this.autoInstall = false,
     this.preferAppPrerelease = false,
     this.languagePreference = AppLanguagePreference.system,
     this.themeMode = AppThemeMode.system,
@@ -152,8 +141,7 @@ class AppSettings {
 
   /// `false` כשלא נבחר שום רכיב להורדה — ה-UI משתמש בזה כדי להשבית את
   /// כפתור ההורדה במקום להריץ פעולה שלא תעשה כלום.
-  bool get hasSyncSelection =>
-      syncApp || syncLibrary || syncPlugins || syncFullPackage;
+  bool get hasSyncSelection => syncApp || syncLibrary || syncPlugins;
 
   /// יש סיסמה שמורה — התנאי להפעלת מצב הסייפר.
   bool get hasSaferModePassword => saferModePassword.isNotEmpty;
@@ -169,15 +157,12 @@ class AppSettings {
   static const double maxTextScale = 3.0;
 
   AppSettings copyWith({
-    bool? autoMetadataCheck,
-    bool? autoCheckOnlineUpdates,
+    bool? autoCheckUpdates,
     bool? syncApp,
     bool? syncLibrary,
     bool? syncPlugins,
-    bool? syncFullPackage,
     bool? personalUpdateMode,
-    bool? autoInstallApp,
-    bool? autoInstallLibrary,
+    bool? autoInstall,
     bool? preferAppPrerelease,
     AppLanguagePreference? languagePreference,
     AppThemeMode? themeMode,
@@ -189,16 +174,12 @@ class AppSettings {
     String? saferModePassword,
   }) {
     return AppSettings(
-      autoMetadataCheck: autoMetadataCheck ?? this.autoMetadataCheck,
-      autoCheckOnlineUpdates:
-          autoCheckOnlineUpdates ?? this.autoCheckOnlineUpdates,
+      autoCheckUpdates: autoCheckUpdates ?? this.autoCheckUpdates,
       syncApp: syncApp ?? this.syncApp,
       syncLibrary: syncLibrary ?? this.syncLibrary,
       syncPlugins: syncPlugins ?? this.syncPlugins,
-      syncFullPackage: syncFullPackage ?? this.syncFullPackage,
       personalUpdateMode: personalUpdateMode ?? this.personalUpdateMode,
-      autoInstallApp: autoInstallApp ?? this.autoInstallApp,
-      autoInstallLibrary: autoInstallLibrary ?? this.autoInstallLibrary,
+      autoInstall: autoInstall ?? this.autoInstall,
       preferAppPrerelease: preferAppPrerelease ?? this.preferAppPrerelease,
       languagePreference: languagePreference ?? this.languagePreference,
       themeMode: themeMode ?? this.themeMode,
@@ -214,10 +195,8 @@ class AppSettings {
   Map<String, dynamic> toJson() => {
         'schemaVersion': schemaVersion,
         'automation': {
-          'metadataCheck': autoMetadataCheck,
-          'checkOnlineUpdates': autoCheckOnlineUpdates,
-          'installApp': autoInstallApp,
-          'installLibrary': autoInstallLibrary,
+          'checkUpdates': autoCheckUpdates,
+          'install': autoInstall,
         },
         'channels': {
           'appPrerelease': preferAppPrerelease,
@@ -226,7 +205,6 @@ class AppSettings {
           'app': syncApp,
           'library': syncLibrary,
           'plugins': syncPlugins,
-          'fullPackage': syncFullPackage,
           'personalMode': personalUpdateMode,
         },
         'ui': {
@@ -279,26 +257,37 @@ class AppSettings {
       return value.toDouble().clamp(minTextScale, maxTextScale);
     }
 
+    // קובץ מגרסה 10 ומטה החזיק ארבעה דגלים, ושניים מהם מתמזגים לאחד.
+    // המיזוג שמרני — **וגם** ולא **או**: הפעלה שהמשתמש מעולם לא אישר
+    // (פנייה לרשת, או התקנה שדורסת קבצים) לא תידלק כאן מאליה.
+    bool merged(String key, String legacyA, String legacyB, bool fallback) {
+      final value = automation[key];
+      if (value is bool) return value;
+      final a = automation[legacyA];
+      final b = automation[legacyB];
+      if (a is! bool && b is! bool) return fallback;
+      // מפתח חסר בקובץ הישן שווה לברירת המחדל שלו — זהה לחדשה.
+      return (a is bool ? a : fallback) && (b is bool ? b : fallback);
+    }
+
     return AppSettings(
-      autoMetadataCheck: flag(
-        automation,
+      autoCheckUpdates: merged(
+        'checkUpdates',
         'metadataCheck',
-        defaults.autoMetadataCheck,
-      ),
-      autoCheckOnlineUpdates: flag(
-        automation,
         'checkOnlineUpdates',
-        defaults.autoCheckOnlineUpdates,
+        defaults.autoCheckUpdates,
       ),
       syncApp: flag(sync, 'app', defaults.syncApp),
       syncLibrary: flag(sync, 'library', defaults.syncLibrary),
       syncPlugins: flag(sync, 'plugins', defaults.syncPlugins),
-      syncFullPackage: flag(sync, 'fullPackage', defaults.syncFullPackage),
       personalUpdateMode:
           flag(sync, 'personalMode', defaults.personalUpdateMode),
-      autoInstallApp: flag(automation, 'installApp', defaults.autoInstallApp),
-      autoInstallLibrary:
-          flag(automation, 'installLibrary', defaults.autoInstallLibrary),
+      autoInstall: merged(
+        'install',
+        'installApp',
+        'installLibrary',
+        defaults.autoInstall,
+      ),
       preferAppPrerelease:
           flag(channels, 'appPrerelease', defaults.preferAppPrerelease),
       languagePreference: AppLanguagePreference.fromCode(ui['language']),

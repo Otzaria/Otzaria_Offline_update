@@ -118,6 +118,17 @@ abstract class HomeStrings {
   String get appInstallConfirm;
   String appInstalledSnack(String version);
 
+  /// **התקנה ראשונה במחשב ריק** — אותה לחיצה על "התקנה" מציעה גם את
+  /// הספרייה, כי אין במחשב לא תוכנה ולא מסד. זה מה שהחליף את חבילת ה-FULL.
+  String get firstInstallDialogTitle;
+  String firstInstallPrompt(String appVersion, String libraryVersion);
+  String get firstInstallConfirm;
+
+  /// אוצריא נפתחה מדף הסיום של המתקין ונועלת את המסד, והסגירה האוטומטית לא
+  /// הצליחה — רק אז מבקשים מהמשתמש לסגור ידנית.
+  String get closeOtzariaForLibraryDialogTitle;
+  String get closeOtzariaForLibraryPrompt;
+
   String get otzariaOpenSnack;
 
   /// ההתקנה האוטומטית דילגה כי אוצריא פתוחה — דיאלוג ולא snackbar, כי
@@ -148,9 +159,6 @@ abstract class HomeStrings {
   /// פירט רק את התוספים, ועדכון ספרייה נראה כאילו לא נמצא כלל.
   String onlineAppUpdate(String version);
   String onlineLibraryUpdate(String version);
-
-  /// יש עדכון לתוכנה רק במובן הזה: החבילה המלאה שסומנה בהגדרות אינה בתיקייה.
-  String get onlineAppFullPackage;
 
   /// כמו [onlinePluginsSyncOff], לתוכנה ולספרייה.
   String get onlineAppSyncOff;
@@ -201,6 +209,7 @@ abstract class HomeStrings {
   String get libraryUpdating;
   String get libraryNothingDownloaded;
   String get libraryNeedsManualPath;
+  String get libraryPersonalOtherMachine;
 }
 
 // ── מסך תוכנת אוצריא ──────────────────────────────────────────────────────────
@@ -261,22 +270,6 @@ abstract class AppScreenStrings {
   String get sourceCardTitle;
   String get sourceCardHint;
   String get sourceDirTitle;
-
-  // ── חבילת ההתקנה המלאה (תוכנה + ספרייה) ─────────────────────────────────
-  String get fullPackageCardTitle;
-
-  /// ההסבר מה החבילה הזו — מוצג בריחוף על סימן השאלה שליד כותרת הכרטיס.
-  String get fullPackageHint;
-  String get fullPackageRowTitle;
-  String get fullPackageRecommended;
-  String get fullPackageNotNeeded;
-  String get fullPackageVersionTitle;
-  String fullPackageSize(String version, String size);
-  String get fullPackageInstallButton;
-
-  /// הדיאלוג שמוצע בלחיצה על "התקנה" במחשב שאין בו אוצריא — לא בעלייה.
-  String get fullPackageDialogTitle;
-  String fullPackagePrompt(String version, String size);
 
   /// נוסח דיאלוג ההתקנה — משותף למסך הזה ולאריח שבדף הבית.
   String installPrompt({
@@ -361,6 +354,13 @@ abstract class LibraryScreenStrings {
   String personalVersionCapturedSnack(String version);
   String get personalVersionNotFoundSnack;
 
+  /// המראה נבנתה לעדכון אישי של מחשב אחר. לא שגיאה — המחשב הזה רק הוריד,
+  /// ואין לו מה להתקין מהתיקייה הזו.
+  String get personalOtherMachineTitle;
+  String personalOtherMachineSubtitle(String version);
+  String get personalOtherMachineCaptureButton;
+  String get personalOtherMachineSettingsButton;
+
   /// מה ההורדה האחרונה הביאה בפועל — קיים כדי שמצב "עדכון אישי" לא יהיה
   /// שקוף: משתמש שהפעיל אותו ולא זוהתה לו גרסה קיבל בכל זאת מסד מלא.
   String get downloadNoteTitle;
@@ -378,36 +378,32 @@ abstract class SettingsScreenStrings {
 
   String get automationCardTitle;
   String get automationCardHint;
+
+  /// שאלה אחת — מקומית ורשת יחד. ההסתייגויות יושבות ב[autoCheckHint],
+  /// בסימן השאלה שליד השורה, ולא כשורות טקסט על המסך.
   String get autoCheckTitle;
   String get autoCheckSubtitle;
-  String get autoOnlineCheckTitle;
-  String get autoOnlineCheckSubtitle;
+  String get autoCheckHint;
 
-  /// ההסתייגויות — מוצגות בסימן השאלה שליד השורה, לא כשלוש שורות טקסט.
-  String get autoOnlineCheckHint;
-  String get autoInstallAppTitle;
-  String get autoInstallAppSubtitle;
-  String get autoInstallLibraryTitle;
-  String get autoInstallLibrarySubtitle;
-
-  String get autoInstallSubjectApp;
-  String get autoInstallSubjectLibrary;
-  String autoInstallDialogTitle(String subject);
-  String autoInstallDialogContent(String subject);
+  /// שאלה אחת לתוכנה ולספרייה גם יחד.
+  String get autoInstallTitle;
+  String get autoInstallSubtitle;
+  String get autoInstallDialogTitle;
+  String get autoInstallDialogContent;
   String get autoInstallDialogWarning;
   String get autoInstallDialogConfirm;
 
   String get downloadCardTitle;
   String get downloadCardHint;
-  String get syncAppTitle;
-  String get syncAppSubtitle;
-  String get syncLibraryTitle;
-  String get syncLibrarySubtitle;
-  String get syncPluginsTitle;
-  String get syncPluginsSubtitle;
-  String get syncFullPackageTitle;
-  String get syncFullPackageSubtitle;
-  String get syncFullPackageHint;
+
+  /// שורת הסימון של רכיבי ההורדה — תווית אחת וארבע אפשרויות, במקום מתג
+  /// לכל רכיב. ההסברים שהיו בתת-הכותרות עברו ל[syncTargetsHint].
+  String get syncTargetsTitle;
+  String get syncTargetsHint;
+  String get syncTargetAll;
+  String get syncTargetApp;
+  String get syncTargetLibrary;
+  String get syncTargetPlugins;
 
   // ── עדכון אישי ──
   /// מוריד רק את קובצי העדכון מהגרסה שכבר מותקנת ומעלה, בלי המסד המלא —
@@ -1242,7 +1238,6 @@ abstract class AppDomainStrings {
   String get channelStable;
   String get channelPrerelease;
   String downloadingChannel(String channelLabel);
-  String get downloadingFullPackage;
 
   /// הודעת החריג שנזרק כשהמשתמש ביטל את ההורדה — לא שגיאה, בחירה.
   String get downloadCancelled;
@@ -1256,7 +1251,6 @@ abstract class AppDomainStrings {
 
   String get noInstallableReleaseForPlatform;
   String get mirrorEmptyRunDownload;
-  String get fullPackageNotOnDrive;
   String get noOtzariaInstallFound;
   String get corruptReleaseMetadata;
   String unsupportedPlatform(String operatingSystem);

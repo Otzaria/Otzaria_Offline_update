@@ -1,6 +1,6 @@
 // בדיקות ל-[AppShell] — המסגרת שמחזיקה את חמשת המסכים.
 //
-// הבדיקה הקלה ברשת (`autoCheckOnlineUpdates`) כבויה בכולן חוץ מאחת, ושם
+// בדיקת העדכונים בפתיחה (`autoCheckUpdates`) כבויה בכולן חוץ מאחת, ושם
 // הרשת חסומה ב-[NoNetworkHttpOverrides] — אף בדיקה כאן לא נוגעת ברשת אמיתית.
 // מה שכן נפתח ב-`initState` (טעינת הקטלוג, בדיקה מהתיקייה המקומית) הוא
 // `dart:io` ולכן אינו מסתיים בתוך ה-fake-async; מכאן שכל ה-pump כאן הוא
@@ -37,10 +37,9 @@ void main() {
     tempDir = Directory.systemTemp.createTempSync('app_shell_test');
     await AppLogger.init(tempDir.path);
     settings = SettingsController(dataDir: tempDir.path);
-    // הבדיקה המקומית נשארת דלוקה דווקא: היא ממתינה לקריאות `dart:io` שלא
-    // מסתיימות ב-fake-async. בדיקת התהליך היא היחידה שהייתה מריצה כאן
-    // `tasklist` אמיתי (ואיתו טיימר תלוי שמפיל את הבדיקה), ולכן היא מוזרקת.
-    await settings.update(const AppSettings(autoCheckOnlineUpdates: false));
+    // בדיקת התהליך הייתה מריצה כאן `tasklist` אמיתי (ואיתו טיימר תלוי
+    // שמפיל את הבדיקה), ולכן היא מוזרקת.
+    await settings.update(const AppSettings(autoCheckUpdates: false));
   });
 
   tearDown(() async {
@@ -132,7 +131,7 @@ void main() {
     // `runAsync` ולא `await` ישר: השמירה כותבת לדיסק, וקריאת `dart:io` אינה
     // מסתיימת בתוך ה-fake-async של `testWidgets` — ראו AGENTS §3.
     await tester.runAsync(() => settings.update(const AppSettings(
-          autoCheckOnlineUpdates: false,
+          autoCheckUpdates: false,
           showFaqButton: false,
         )));
     await pumpShell(tester);
@@ -231,7 +230,7 @@ void main() {
     addTearDown(() => HttpOverrides.global = null);
     // שמירת ההגדרות כותבת לדיסק — חייבת לרוץ מחוץ ל-fake-async.
     await tester.runAsync(
-      () => settings.update(const AppSettings(autoCheckOnlineUpdates: true)),
+      () => settings.update(const AppSettings(autoCheckUpdates: true)),
     );
 
     await pumpShell(tester);
@@ -258,8 +257,7 @@ void main() {
     // הבדיקה המקומית כבויה כאן בכוונה: היא קוראת מהדיסק ולא מסתיימת בתוך
     // ה-fake-async, ואז מצב התהליך היה נקבע רק אחרי סיום הבדיקה.
     await tester.runAsync(() => settings.update(const AppSettings(
-          autoMetadataCheck: false,
-          autoCheckOnlineUpdates: false,
+          autoCheckUpdates: false,
         )));
     final locator = _MutableLocator(isRunning: true);
 
@@ -339,10 +337,11 @@ void main() {
       expect(body, contains('_otzaria.currentVersion != null'));
     });
 
-    // `fullPackageRecommended` הוא בהגדרתו "אין אוצריא במחשב" — בדיוק
-    // המקרה שאינו אוטומטי.
-    test('החבילה המלאה אינה מותקנת אוטומטית', () {
-      expect(body, isNot(contains('installFullPackage(')));
+    // ההתקנה המשולבת פותחת אשף וממתינה לסגירת אוצריא — בדיוק המקרה שאינו
+    // אוטומטי. היא יושבת ב-`HomeScreen`, ואסור שתדלוף לכאן.
+    test('ההתקנה המשולבת אינה רצה אוטומטית', () {
+      expect(body, isNot(contains('_installLibraryAfterApp(')));
+      expect(body, isNot(contains('useWizard: true')));
     });
 
     // דילוג שקט נראה בדיוק כמו הגדרה שאינה עובדת.
@@ -374,7 +373,7 @@ void main() {
     Future<void> lockSettings(WidgetTester tester) => tester.runAsync(
           () => settings.update(
             AppSettings(
-              autoCheckOnlineUpdates: false,
+              autoCheckUpdates: false,
               saferModeEnabled: true,
               saferModePassword: SaferModePassword.encode('1234'),
             ),
@@ -449,7 +448,7 @@ void main() {
       await tester.runAsync(
         () => settings.update(
           const AppSettings(
-            autoCheckOnlineUpdates: false,
+            autoCheckUpdates: false,
             saferModeEnabled: true,
           ),
         ),

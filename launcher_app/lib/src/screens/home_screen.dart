@@ -38,7 +38,6 @@ class HomeScreen extends StatelessWidget {
     required this.onDownloadLauncherUpdate,
     required this.onInstallLauncherUpdate,
     required this.onRequestReindex,
-    this.onInstallFullPackage,
     required this.onGoToOtzaria,
     required this.onGoToLibrary,
     this.readOnly = false,
@@ -82,10 +81,6 @@ class HomeScreen extends StatelessWidget {
   /// מציעה ומוסרת לאוצריא את בקשת עדכון אינדקס החיפוש, כשעדכון מסד השאיר
   /// אותה ממתינה. גם היא מיושמת ב-`AppShell`, מאותו טעם.
   final Future<void> Function() onRequestReindex;
-
-  /// התקנת החבילה המלאה, כשיש כזו על הכונן ואין במחשב אוצריא. גם היא
-  /// מיושמת ב-`AppShell`, כי אחריה צריך לבדוק מחדש גם את הספרייה.
-  final Future<void> Function()? onInstallFullPackage;
 
   final VoidCallback onGoToOtzaria;
   final VoidCallback onGoToLibrary;
@@ -221,45 +216,81 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  /// לחיצה על "התקנה". במחשב שאין בו אוצריא ויש על הכונן חבילה מלאה —
-  /// היא מה שמוצע, כי היא מביאה גם את הספרייה. ההצעה יושבת כאן ולא בעלייה:
-  /// דיאלוג שקופץ מעצמו בכניסה מקדים את המשתמש לפני שביקש להתקין בכלל.
-  Future<void> _confirmAppInstall(BuildContext context) async {
-    final onFull = onInstallFullPackage;
-    if (otzaria.fullPackageRecommended && onFull != null) {
-      final f = context.strings.appScreen;
-      final approved = await showTwoActionsDialog(
-        context: context,
-        title: f.fullPackageDialogTitle,
-        content: f.fullPackagePrompt(
-          '${otzaria.stableVersion}',
-          formatBytes(otzaria.fullPackage?.sizeBytes ?? 0),
-        ),
-        confirmText: f.fullPackageInstallButton,
-      );
-      if (!approved) return;
-      await onFull();
-      return;
-    }
+  /// **אין במחשב אוצריא, ועל הכונן יש גם ספרייה** — ואז אותה לחיצה על
+  /// "התקנה" מציעה את שתיהן. זה מה שהחליף את חבילת ה-FULL: אותה תוצאה
+  /// בדיוק, בלי 2GB כפולים על הכונן.
+  bool get _offersLibraryToo =>
+      otzaria.currentVersion == null &&
+      library.isFreshInstall &&
+      library.status == LibraryModuleStatus.updateAvailable;
 
+  /// לחיצה על "התקנה". ההצעה המשולבת יושבת כאן ולא בעלייה: דיאלוג שקופץ
+  /// מעצמו בכניסה מקדים את המשתמש לפני שביקש להתקין בכלל.
+  Future<void> _confirmAppInstall(BuildContext context) async {
     final t = context.strings.home;
+    final withLibrary = _offersLibraryToo;
     final approved = await showTwoActionsDialog(
       context: context,
-      title: t.appInstallDialogTitle,
-      content: appInstallPrompt(context, otzaria),
-      confirmText: t.appInstallConfirm,
+      title: withLibrary ? t.firstInstallDialogTitle : t.appInstallDialogTitle,
+      content: withLibrary
+          ? t.firstInstallPrompt(
+              '${otzaria.latestVersion}',
+              '${library.targetVersion}',
+            )
+          : appInstallPrompt(context, otzaria),
+      confirmText: withLibrary ? t.firstInstallConfirm : t.appInstallConfirm,
     );
     if (!approved) return;
     await otzaria.install();
-    if (otzaria.status == OtzariaModuleStatus.upToDate) {
-      UiSnack.showSuccess(
-        AppL10n.strings.home.appInstalledSnack('${otzaria.currentVersion}'),
-      );
+    if (otzaria.status != OtzariaModuleStatus.upToDate) {
+      // ביטול באשף, או אשף שעוד פתוח — הודעה רגילה ולא שגיאה.
+      final notice = otzaria.noticeMessage;
+      if (notice != null) UiSnack.show(notice);
       return;
     }
-    // ביטול באשף, או אשף שעוד פתוח — הודעה רגילה ולא שגיאה.
-    final notice = otzaria.noticeMessage;
-    if (notice != null) UiSnack.show(notice);
+    UiSnack.showSuccess(t.appInstalledSnack('${otzaria.currentVersion}'));
+    if (!withLibrary || !context.mounted) return;
+
+    // **בדיקה מחדש אחרי האשף, ולא לפניו.** לאן המסד הולך נגזר ממה שנבחר
+    // שם — התקנה ניידת שומרת אותו ליד ה-exe ורגילה ב-%APPDATA% — ורק
+    // עכשיו יש exe ש-`LibraryDbLocator` יכול להיתלות בו.
+    await library.checkForUpdate();
+    if (!context.mounted) return;
+    await _installLibraryAfterApp(context);
+  }
+
+  /// הספרייה, מיד אחרי שהתוכנה הותקנה.
+  ///
+  /// **אוצריא נפתחת בסוף האשף** — תיבת "הפעל את אוצריא" בעמוד הסיום מסומנת
+  /// כברירת מחדל, ואין דגל שמכבה אותה (`/NOLAUNCH=1` ב-`otzaria.iss` נבדק
+  /// רק תחת `WizardSilent`). אוצריא פתוחה נועלת את `seforim.db`, ולכן היא
+  /// נסגרת כאן מעצמה.
+  ///
+  /// **הסגירה בטוחה דווקא כאן.** `OtzariaProcessCloser` מבקש ולא הורג
+  /// (`taskkill` בלי `/F`), ואוצריא שנפתחה לפני שתי שניות מדף הסיום עוד לא
+  /// פתחה שום ספר — אין מה לאבד. רק אם היא שרדה את הבקשה מבקשים מהמשתמש.
+  Future<void> _installLibraryAfterApp(BuildContext context) async {
+    final t = context.strings.home;
+    while (await onProcessStateChanged()) {
+      if (await onCloseOtzaria()) break;
+      if (!context.mounted) return;
+      final retry = await showTwoActionsDialog(
+        context: context,
+        title: t.closeOtzariaForLibraryDialogTitle,
+        content: t.closeOtzariaForLibraryPrompt,
+        confirmText: context.strings.common.retry,
+      );
+      // דילג — כרטיס הספרייה נשאר עם כפתור ההתקנה שלו.
+      if (!retry) return;
+    }
+    if (!context.mounted) return;
+    if (library.status != LibraryModuleStatus.updateAvailable) return;
+
+    await library.update();
+    if (library.status == LibraryModuleStatus.upToDate) {
+      UiSnack.showSuccess(t.libraryUpdatedSnack('${library.localVersion}'));
+    }
+    await onRequestReindex();
   }
 
   // ── אריח הספרייה ──────────────────────────────────────────────────────────
@@ -473,7 +504,6 @@ class HomeScreen extends StatelessWidget {
     if (otzariaOnline && otzaria.hasOnlineUpdate) {
       final version = otzaria.onlineUpdateVersion;
       if (version != null) line(t.onlineAppUpdate(version));
-      if (otzaria.needsFullPackageDownload) line(t.onlineAppFullPackage);
       if (!s.syncApp) line(t.onlineAppSyncOff, warn: true);
     }
 
@@ -668,6 +698,7 @@ StatusKind libraryStatusKind(LibraryModuleStatus status) => switch (status) {
       LibraryModuleStatus.error => StatusKind.error,
       LibraryModuleStatus.needsDownload => StatusKind.needsAction,
       LibraryModuleStatus.needsManualPath => StatusKind.needsAction,
+      LibraryModuleStatus.personalTargetElsewhere => StatusKind.needsAction,
     };
 
 String libraryStatusLabel(BuildContext context, LibraryModuleController c) {
@@ -688,6 +719,8 @@ String libraryStatusLabel(BuildContext context, LibraryModuleController c) {
     LibraryModuleStatus.error => common.error,
     LibraryModuleStatus.needsDownload => t.libraryNothingDownloaded,
     LibraryModuleStatus.needsManualPath => t.libraryNeedsManualPath,
+    LibraryModuleStatus.personalTargetElsewhere =>
+      t.libraryPersonalOtherMachine,
   };
 }
 

@@ -211,7 +211,7 @@ class _AppShellState extends State<AppShell> {
     unawaited(_customApps.load());
     // בדיקה מקומית בלבד — קוראת מהתיקייה שלצד התוכנה ולא נוגעת ברשת.
     // הורדה תמיד יזומה בלחיצה.
-    if (s.autoMetadataCheck) {
+    if (s.autoCheckUpdates) {
       // `checkAll` כבר מרענן את מצב התהליך בעצמו — קריאה נפרדת כאן הייתה
       // מריצה `tasklist` פעמיים בעלייה.
       unawaited(checkAll());
@@ -220,7 +220,7 @@ class _AppShellState extends State<AppShell> {
     }
     // בדיקה קלה ברשת (מטא-דאטה בלבד) — פעם אחת בהפעלה, לא טיימר מחזורי.
     // כשל (אין רשת) נבלע בתוך הקונטרולרים ולא מוצג כשגיאה.
-    if (s.autoCheckOnlineUpdates) {
+    if (s.autoCheckUpdates) {
       unawaited(checkOnline());
     }
   }
@@ -301,7 +301,6 @@ class _AppShellState extends State<AppShell> {
     // ה-setter מתעלם מהצבה חוזרת של אותו ערך, ולכן זה לא מריץ בדיקה בכל
     // שינוי הגדרה אחר.
     _otzaria.preferPrerelease = s.preferAppPrerelease;
-    _otzaria.downloadFullPackage = s.syncFullPackage;
     _library.personalUpdateMode = s.personalUpdateMode;
   }
 
@@ -357,34 +356,6 @@ class _AppShellState extends State<AppShell> {
     await _library.checkForUpdate();
     if (!mounted) return;
     await _autoInstallIfEnabled();
-  }
-
-  /// מתקין את החבילה המלאה. יושב כאן ולא במסך, כי גם ההמלצה שבעלייה וגם
-  /// הכפתור שבכרטיס מגיעים אליו.
-  ///
-  /// תמיד עם האשף: זו התקנה ראשונה, ולכן תמיד לחיצה של המשתמש — ראו
-  /// [_autoInstallIfEnabled].
-  Future<void> installFullPackage() async {
-    final ok = await _otzaria.installFullPackage(useWizard: true);
-    if (!mounted) return;
-    if (ok) {
-      // ההתקנה המלאה הביאה גם ספרייה — הבדיקה שלה מכאן היא מה שמחליף את
-      // "לא נמצא מסד" בגרסה שהרגע נפרסה.
-      await _library.checkForUpdate();
-      if (!mounted) return;
-      UiSnack.showSuccess(
-        AppL10n.strings.home.appInstalledSnack('${_otzaria.currentVersion}'),
-      );
-      return;
-    }
-    // ביטול באשף, או אשף שעוד פתוח — הודעה רגילה ולא שגיאה.
-    final notice = _otzaria.noticeMessage;
-    if (notice != null) {
-      UiSnack.show(notice);
-      return;
-    }
-    final error = _otzaria.errorMessage;
-    if (error != null) UiSnack.showError(error);
   }
 
   /// בדיקה קלה ברשת ("יש עדכון חדש?") לכל הרכיבים — מטא-דאטה בלבד, בלי
@@ -513,7 +484,7 @@ class _AppShellState extends State<AppShell> {
     // לבדה, ודילוג שקט נראה בדיוק כמו הגדרה שאינה עובדת.
     var skippedWhileRunning = false;
 
-    if (s.autoInstallLibrary &&
+    if (s.autoInstall &&
         !_library.isFreshInstall &&
         _library.status == LibraryModuleStatus.updateAvailable) {
       if (await refreshProcessState()) {
@@ -527,9 +498,9 @@ class _AppShellState extends State<AppShell> {
     // גם ההתקנה מדלגת כשאוצריא פתוחה, ולא רק הספרייה: המתקין דורס קבצים
     // שהתהליך הרץ נועל, ואז נופל באמצע ההתקנה בקוד יציאה סתום (5).
     //
-    // החבילה המלאה אינה כאן בכוונה: היא מוצעת **רק** כשאין אוצריא במחשב
-    // (`fullPackageRecommended`), כלומר בדיוק המקרה שאינו אוטומטי.
-    if (s.autoInstallApp &&
+    // ההתקנה המשולבת (תוכנה+ספרייה) אינה כאן בכוונה: היא פותחת אשף וממתינה
+    // לסגירת אוצריא, כלומר בדיוק המקרה שאינו אוטומטי.
+    if (s.autoInstall &&
         _otzaria.currentVersion != null &&
         _otzaria.status == OtzariaModuleStatus.updateAvailable) {
       if (await refreshProcessState()) {
@@ -599,14 +570,11 @@ class _AppShellState extends State<AppShell> {
     // דקות ומציגה מד התקדמות, ולא הייתה מביאה כלום. הכפתור עצמו מופיע רק
     // כשמשהו כן התחדש — ולכן זה תמיד "הורד את מה שהתחדש", לא "הורד הכול".
     //
-    // חריג אחד: הגדרת החבילה המלאה השתנתה מאז ההורדה האחרונה. אז צריך ריצה של
-    // מודול התוכנה כדי להביא אותה — או כדי למחוק אותה מהכונן. בלי זה
-    // הדלקת ההגדרה על כונן שכבר מעודכן לא הייתה מביאה כלום, כי "אין גרסה
-    // חדשה" מדלג על הרכיב כולו.
-    final fullPackagePending = _otzaria.needsFullPackageDownload ||
-        (!s.syncFullPackage && _otzaria.fullPackage != null);
+    // חריג אחד: על הכונן יושבת עדיין חבילת FULL מגרסה ישנה. מודול התוכנה
+    // הוא זה שמוחק אותה, ובלי החריג "אין גרסה חדשה" היה מדלג עליו — ו-2GB
+    // היו נשארים שם לנצח.
     final skipApp = s.syncApp &&
-        !fullPackagePending &&
+        !_otzaria.hasStaleFullPackage &&
         provenUpToDateOnline(
           checkedAt: _otzaria.onlineCheckedAt,
           error: _otzaria.onlineCheckError,
@@ -766,7 +734,6 @@ class _AppShellState extends State<AppShell> {
             onDownloadLauncherUpdate: downloadLauncherUpdate,
             onInstallLauncherUpdate: installLauncherUpdate,
             onRequestReindex: requestLibraryReindex,
-            onInstallFullPackage: installFullPackage,
             onGoToOtzaria: () => _goTo(LauncherScreen.otzaria),
             onGoToLibrary: () => _goTo(LauncherScreen.library),
             readOnly: widget.readOnly,
@@ -777,7 +744,6 @@ class _AppShellState extends State<AppShell> {
             otzariaIsRunning: _otzariaIsRunning,
             onCloseOtzaria: closeOtzaria,
             onInstallAdopted: _plugins.refreshInstalled,
-            onInstallFullPackage: installFullPackage,
             saferMode: _saferMode,
           ),
         LauncherScreen.customApps => CustomAppsScreen(
@@ -791,6 +757,7 @@ class _AppShellState extends State<AppShell> {
             onProcessStateChanged: refreshProcessState,
             onCloseOtzaria: closeOtzaria,
             onRequestReindex: requestLibraryReindex,
+            onGoToSettings: () => _goTo(LauncherScreen.settings),
           ),
         LauncherScreen.plugins => PluginsScreen(
             controller: _plugins,

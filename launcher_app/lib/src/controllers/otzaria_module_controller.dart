@@ -36,7 +36,6 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     required String dataDir,
     String? stateDir,
     bool preferPrerelease = false,
-    bool downloadFullPackage = false,
     RunningOtzariaLocator runningLocator = const RunningOtzariaLocator(),
     Future<String?> Function()? pendingLaunchUri,
     Future<void> Function()? onLaunchUriDelivered,
@@ -56,7 +55,6 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
           dataDir: dataDir,
           stateDir: stateDir,
           preferPrerelease: preferPrerelease,
-          downloadFullPackage: downloadFullPackage,
           runningLocator: runningLocator,
           launcher: launcher,
         );
@@ -93,12 +91,6 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     unawaited(checkForUpdate());
   }
 
-  /// האם ההורדה מביאה גם את חבילת ההתקנה המלאה. **אינו מריץ בדיקה מחדש**:
-  /// הוא משפיע רק על ההורדה הבאה, ולא על מה שכבר יושב על הכונן.
-  bool get downloadFullPackage => _manager.downloadFullPackage;
-
-  set downloadFullPackage(bool value) => _manager.downloadFullPackage = value;
-
   OtzariaModuleStatus status = OtzariaModuleStatus.idle;
   String? currentVersion;
 
@@ -127,32 +119,10 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   /// שתי הגרסאות יושבות בתיקייה — רק אז מוצגת למשתמש בחירת ערוץ.
   bool hasChannelChoice = false;
 
-  /// חבילת ההתקנה המלאה שיושבת על הכונן, או `null` כשאינה שם. זהו גם
-  /// התנאי היחיד להצגת הכרטיס: מי שלא סימן את ההגדרה לא הוריד אותה, ולכן
-  /// לא רואה ממנה דבר.
-  OtzariaFullPackage? fullPackage;
-
-  /// אין במחשב אוצריא בכלל, ועל הכונן יש חבילה מלאה — רק אז ממליצים עליה.
-  bool fullPackageRecommended = false;
-
-  /// ל-release שבמראה **יש** חבילה מלאה שאפשר להוריד — בלי קשר לשאלה אם
-  /// היא כבר על הכונן.
-  bool fullPackageOffered = false;
-
-  /// האם המראה בכלל יודעת לענות על השאלה הזאת. מראה שנכתבה בגרסה קודמת
-  /// של הלאנצ'ר אינה מכילה את השדה, ואז "אין חבילה" הוא "לא נבדק".
-  bool fullPackageKnown = false;
-
-  /// **התבקשה חבילה מלאה שאינה על הכונן.** זה מה שהופך את ההגדרה לפעולה:
-  /// הכפתור "הורד עכשיו" מופיע, והדילוג על מודול התוכנה מתבטל.
-  ///
-  /// מראה שעדיין אינה יודעת אם ל-release יש חבילה כזו נחשבת "כן, אולי" —
-  /// אחרת כונן שנוצר בגרסה קודמת היה נתקע לנצח: ההגדרה דלוקה, הכפתור לא
-  /// מופיע, ולכן המטא־דאטה לעולם לא נכתבת מחדש כדי לגלות שהחבילה קיימת.
-  bool get needsFullPackageDownload =>
-      downloadFullPackage &&
-      fullPackage == null &&
-      (fullPackageOffered || !fullPackageKnown);
+  /// על הכונן יושבת חבילת FULL (~2GB) מגרסה ישנה של הלאנצ'ר. ההורדה הבאה
+  /// מוחקת אותה, ולכן זה גם מה שמחייב את מודול התוכנה לרוץ אפילו כשאין
+  /// גרסה חדשה — אחרת "אין מה להוריד" היה משאיר אותה שם לנצח.
+  bool hasStaleFullPackage = false;
 
   /// האם אוצריא פתוחה, לפי בדיקת התהליך ש-[checkForUpdate] מבצעת ממילא.
   /// כך הלאנצ'ר לא מריץ `tasklist` שני משלו בעלייה. [refreshRunningState]
@@ -203,9 +173,6 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   /// שואל היא "יש ברשת משהו שעוד לא הורדנו?" — התקנה היא צעד נפרד, ומדידה
   /// מול המותקן השאירה את ההודעה דולקת מיד אחרי הורדה מוצלחת.
   bool get hasOnlineUpdate {
-    // חבילה מלאה שהתבקשה ואינה על הכונן היא "יש מה להביא", גם כשגרסת
-    // התוכנה עצמה זהה לזו שכבר ירדה.
-    if (needsFullPackageDownload) return true;
     final online = onlineChannels;
     if (online == null) return false;
     // **כל ערוץ מול המקביל לו**, ולא הנבחר מול הנבחר: ההורדה מביאה את
@@ -368,12 +335,6 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
           downloadTotal = null;
           notifyListeners();
         },
-        onFullPackage: () {
-          downloadStage = AppL10n.strings.appDomain.downloadingFullPackage;
-          downloadReceived = null;
-          downloadTotal = null;
-          notifyListeners();
-        },
         isCancelled: isCancelled,
       );
       downloadStage = null;
@@ -438,10 +399,7 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
       stableVersion = check.stableRelease?.tagName;
       prereleaseVersion = check.prereleaseRelease?.tagName;
       hasChannelChoice = check.hasChannelChoice;
-      fullPackage = check.mirroredFullPackage;
-      fullPackageRecommended = check.fullPackageRecommended;
-      fullPackageOffered = check.fullPackageOffered;
-      fullPackageKnown = check.fullPackageKnown;
+      hasStaleFullPackage = check.hasStaleFullPackage;
       isRunning = check.isOtzariaRunning;
       status = switch (check) {
         _ when check.needsDownload => OtzariaModuleStatus.needsDownload,
@@ -460,8 +418,7 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
 
   /// מתקין את הגרסה שבתיקייה המקומית. לא נוגע ברשת.
   ///
-  /// [useWizard] = להריץ את המתקין עם האשף שלו, כמו ב-
-  /// [installFullPackage]. ברירת המחדל היא לחיצה של המשתמש; ההתקנה
+  /// [useWizard] = להריץ את המתקין עם האשף שלו.
   /// האוטומטית מעבירה `false`.
   Future<void> install({bool useWizard = true}) async {
     final check = _lastCheck;
@@ -507,50 +464,6 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
       AppLogger.instance.error('התקנת אוצריא נכשלה', e, st);
     }
     notifyListeners();
-  }
-
-  /// מתקין את חבילת ההתקנה המלאה שעל הכונן — תוכנה וספרייה בצעד אחד.
-  /// לא נוגע ברשת. `false` בכשל, שנשמר ב-[errorMessage].
-  ///
-  /// [useWizard] = להריץ את המתקין עם האשף שלו, כך שהמשתמש בוחר לאן להתקין
-  /// והאם ליצור קיצור דרך. תמיד `true` בפועל: זו התקנה ראשונה, וההתקנה
-  /// האוטומטית אינה מתקינה בפעם הראשונה (ראו `AppShell._autoInstallIfEnabled`).
-  ///
-  /// ביטול באשף והמצב "האשף עוד פתוח" מוחזרים כ-`false` עם [noticeMessage]
-  /// ובלי [errorMessage] — הם אינם כשלים.
-  Future<bool> installFullPackage({bool useWizard = true}) async {
-    status = OtzariaModuleStatus.installing;
-    needsElevation = false;
-    noticeMessage = null;
-    notifyListeners();
-    AppLogger.instance.info('התקנת חבילת אוצריא המלאה מתחילה');
-
-    try {
-      final state = await _manager.installFullPackage(useWizard: useWizard);
-      currentVersion = state.installedTagName;
-      AppLogger.instance.info('התקנת חבילת אוצריא המלאה הסתיימה בהצלחה');
-    } on OtzariaInstallCancelled catch (e) {
-      noticeMessage = e.toString();
-      AppLogger.instance.info('התקנת חבילת אוצריא המלאה בוטלה באשף');
-      await checkForUpdate();
-      return false;
-    } on OtzariaWizardStillOpen catch (e) {
-      noticeMessage = e.toString();
-      AppLogger.instance.info('אשף ההתקנה עדיין פתוח — ההתקנה לא זוהתה עדיין');
-      await checkForUpdate();
-      return false;
-    } catch (e, st) {
-      status = OtzariaModuleStatus.error;
-      errorMessage = Elevation.describe(e);
-      needsElevation = Elevation.isAccessDenied(e);
-      AppLogger.instance.error('התקנת חבילת אוצריא המלאה נכשלה', e, st);
-      notifyListeners();
-      return false;
-    }
-    // בדיקה מלאה ולא הצבה: ההתקנה שינתה גם את הספרייה שעל הדיסק, ומצב
-    // ההתקנה נקרא מחדש מקובץ ההרצה עצמו.
-    await checkForUpdate();
-    return true;
   }
 
   /// מפעיל את אוצריא. בקשת עדכון אינדקס שממתינה נוסעת עם ההפעלה הזאת: את

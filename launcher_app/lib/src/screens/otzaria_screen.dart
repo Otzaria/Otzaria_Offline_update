@@ -4,7 +4,6 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/otzaria_module_controller.dart';
-import '../services/byte_size.dart';
 import '../services/native_file_dialogs.dart';
 import '../services/timestamps.dart';
 import '../settings/safer_mode.dart';
@@ -36,7 +35,6 @@ class OtzariaScreen extends StatelessWidget {
     required this.otzariaIsRunning,
     required this.onCloseOtzaria,
     this.onInstallAdopted,
-    this.onInstallFullPackage,
     this.saferMode,
   });
 
@@ -56,7 +54,6 @@ class OtzariaScreen extends StatelessWidget {
 
   /// התקנת החבילה המלאה. יושבת ב-`AppShell`, כי גם ההמלצה שבעלייה מגיעה
   /// אליה, והיא מרעננת אחריה גם את מודול הספרייה.
-  final Future<void> Function()? onInstallFullPackage;
 
   /// שומר הסף של מצב הסייפר. בורר הערוץ הוא ההגדרה היחידה שנקבעת מחוץ למסך
   /// ההגדרות, ולכן היא היחידה שצריכה שער משלה.
@@ -74,9 +71,6 @@ class OtzariaScreen extends StatelessWidget {
       title: t.title,
       children: [
         _stateCard(context),
-        // רק כשהחבילה באמת על הכונן — כלומר רק למי שסימן אותה בהגדרות
-        // והוריד אותה. לכל השאר המסך נשאר כפי שהיה.
-        if (otzaria.fullPackage != null) _fullPackageCard(context),
         _sourceCard(context),
       ],
     );
@@ -381,54 +375,6 @@ class OtzariaScreen extends StatelessWidget {
             title: context.strings.common.lastDownloaded,
             subtitle: formatTimestamp(c.lastDownloadedAt!),
           ),
-      ],
-    );
-  }
-
-  // ── חבילת ההתקנה המלאה ────────────────────────────────────────────────────
-
-  /// החבילה שכוללת גם את הספרייה. מוצגת רק כשהיא על הכונן, וכפתור ההתקנה
-  /// פעיל רק כשאין במחשב אוצריא — במחשב שכבר יש בו אחת אין בה טעם, והיא
-  /// הייתה דורסת התקנה עובדת ב-2GB מיותרים.
-  Widget _fullPackageCard(BuildContext context) {
-    final c = otzaria;
-    final t = context.strings.appScreen;
-    final full = c.fullPackage!;
-
-    return SettingsCard(
-      title: t.fullPackageCardTitle,
-      hint: t.fullPackageHint,
-      children: [
-        InfoStatusRow(
-          icon: FluentIcons.box_24_regular,
-          title: t.fullPackageRowTitle,
-          kind: c.fullPackageRecommended
-              ? StatusKind.updateAvailable
-              : StatusKind.ok,
-          label: c.fullPackageRecommended
-              ? t.fullPackageRecommended
-              : t.fullPackageNotNeeded,
-        ),
-        // שם הקובץ אינו מעניין אף אחד; מה שכן — איזו גרסה יושבת שם וכמה היא.
-        SettingsActionTile.text(
-          icon: FluentIcons.document_24_regular,
-          title: t.fullPackageVersionTitle,
-          subtitle: t.fullPackageSize(
-            '${c.stableVersion}',
-            formatBytes(full.sizeBytes),
-          ),
-          actions: [
-            ActionButton.recommended(
-              text: t.fullPackageInstallButton,
-              icon: FluentIcons.desktop_arrow_right_24_regular,
-              isLoading: c.status == OtzariaModuleStatus.installing,
-              onPressed:
-                  c.fullPackageRecommended && onInstallFullPackage != null
-                      ? () => onInstallFullPackage!()
-                      : null,
-            ),
-          ],
-        ),
       ],
     );
   }

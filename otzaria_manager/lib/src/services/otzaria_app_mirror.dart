@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import '../models/otzaria_release.dart';
 import '../models/otzaria_release_channel.dart';
+import 'otzaria_asset_selector.dart';
 import 'otzaria_changelog_client.dart';
 import 'otzaria_installer.dart';
 import 'otzaria_release_client.dart';
@@ -15,26 +16,12 @@ class MirroredOtzariaRelease {
   const MirroredOtzariaRelease({
     required this.release,
     required this.installerPath,
-    this.fullInstallerPath,
-    this.fullPackageKnown = false,
   });
 
   final OtzariaRelease release;
 
   /// נתיב מלא לקובץ ההתקנה בדיסק — ההתקנה קוראת מכאן, בלי רשת.
   final String installerPath;
-
-  /// נתיב חבילת ה-FULL בדיסק, או `null` כשהיא אינה על הכונן — או שלא
-  /// התבקשה, או שה-release לא פרסם אותה. **קיים רק בערוץ היציב**.
-  final String? fullInstallerPath;
-
-  /// האם המטא־דאטה בכלל **יודעת לומר** אם ל-release יש חבילת FULL. מראה
-  /// שנכתבה בגרסה קודמת של הלאנצ'ר אינה מכילה את השדה כלל, ואז "אין
-  /// חבילה" פירושו "לא נבדק" ולא "לא קיימת" — הבדל שקובע אם הדלקת ההגדרה
-  /// מייצרת הורדה או לא עושה כלום.
-  final bool fullPackageKnown;
-
-  bool get hasFullPackage => fullInstallerPath != null;
 }
 
 /// הגרסאות שיושבות במראה, לפי ערוץ — ראו [OtzariaChannelPair].
@@ -171,28 +158,28 @@ class OtzariaAppMirror {
     return MirroredOtzariaRelease(
       release: release,
       installerPath: installerPath,
-      // חבילת ה-FULL נבדקת בנפרד ואינה יכולה לפסול את הרשומה: היא תוספת,
-      // וקובץ חסר שלה פירושו "אין FULL על הכונן" ולא "אין מה להתקין".
-      fullInstallerPath: await _fullPathFrom(raw, release),
-      // מפתח קיים (גם כשערכו null) = המראה נכתבה בגרסה שמכירה חבילות FULL.
-      fullPackageKnown: raw.containsKey('fullPackage'),
     );
   }
 
-  /// נתיב חבילת ה-FULL מתוך הרשומה, או `null` כשאינה שם/בגודל שגוי.
-  Future<String?> _fullPathFrom(
-    Map<String, dynamic> raw,
-    OtzariaRelease release,
-  ) async {
-    final full = release.fullPackage;
-    final relative = raw['fullInstallerPath'];
-    if (full == null || relative is! String || relative.isEmpty) return null;
-
-    final path = p.joinAll([mirrorDir, ...relative.split(RegExp(r'[/\\]'))]);
-    final file = File(path);
-    if (!await file.exists()) return null;
-    if (await file.length() != full.sizeBytes) return null;
-    return path;
+  /// חבילות FULL שנשארו במראה מגרסה ישנה של הלאנצ'ר, שאינה נושאת אותן
+  /// יותר. הן ~2GB כל אחת, ולכן [sync] מוחקת אותן — ו-`OtzariaManager`
+  /// מדווח עליהן כדי שמודול התוכנה ירוץ גם על כונן שאין בו גרסה חדשה,
+  /// אחרת "אין מה להוריד" היה משאיר אותן שם לנצח.
+  Future<List<String>> staleFullPackages() async {
+    final root = Directory(_installer.cacheDir);
+    if (!await root.exists()) return const [];
+    final found = <String>[];
+    try {
+      await for (final entity in root.list(recursive: true)) {
+        if (entity is File &&
+            OtzariaAssetSelector.isFullPackage(p.basename(entity.path))) {
+          found.add(entity.path);
+        }
+      }
+    } catch (_) {
+      // סריקה best-effort: כונן שנשלף באמצע אינו סיבה להפיל בדיקת גרסה.
+    }
+    return found;
   }
 
   /// מוריד את שתי הגרסאות (יציבה, ו-pre-release כשהוא חדש ממנה) אל
@@ -206,17 +193,12 @@ class OtzariaAppMirror {
   /// [onChannelStart] נקרא לפני כל הורדה, כדי שה-UI יוכל לומר איזו משתיהן
   /// יורדת כרגע (מד ההתקדמות מתאפס בין השתיים).
   ///
-  /// [includeFullPackage] מוסיף את חבילת ה-FULL (~2GB) — **רק לערוץ היציב**,
-  /// ורק כשהמשתמש ביקש זאת בהגדרות. היא חבילת התקנה ראשונית למחשב שאין בו
-  /// אוצריא, ואין טעם בשתי כאלה בשני ערוצים. כשההגדרה כבויה, חבילה שירדה
-  /// בעבר **נמחקת מהכונן** — אחרת 2GB היו נשארים שם לנצח בלי שאיש רואה
-  /// אותם.
+  /// חבילת FULL שירדה בגרסה ישנה של הלאנצ'ר **נמחקת כאן** — ראו
+  /// [staleFullPackages].
   Future<MirroredOtzariaReleases> sync({
     void Function(int received, int total)? onDownloadProgress,
     void Function(OtzariaReleaseChannel channel)? onChannelStart,
-    void Function()? onFullPackageStart,
     bool Function()? isCancelled,
-    bool includeFullPackage = false,
   }) async {
     final online = await _releaseClient.fetchChannelReleases();
 
@@ -243,10 +225,6 @@ class OtzariaAppMirror {
         release,
         onDownloadProgress,
         isCancelled,
-        // ה-FULL הוא חבילת ההתקנה הראשונית, ולכן היציבה בלבד.
-        includeFullPackage:
-            includeFullPackage && channel == OtzariaReleaseChannel.stable,
-        onFullPackageStart: onFullPackageStart,
       );
       if (channel == OtzariaReleaseChannel.stable) {
         stable = mirrored;
@@ -271,16 +249,19 @@ class OtzariaAppMirror {
         keepTagNames: {for (final e in result.all) e.release.tagName},
       );
     }
+    // `pruneCacheExcept` מנקה תגים שלמים בלבד, וחבילת FULL ישנה יושבת
+    // דווקא בתג שנשמר — לצד המתקין הרגיל.
+    for (final path in await staleFullPackages()) {
+      await _deleteQuietly(path);
+    }
     return result;
   }
 
   Future<MirroredOtzariaRelease> _downloadToMirror(
     OtzariaRelease release,
     void Function(int received, int total)? onDownloadProgress,
-    bool Function()? isCancelled, {
-    bool includeFullPackage = false,
-    void Function()? onFullPackageStart,
-  }) async {
+    bool Function()? isCancelled,
+  ) async {
     final notes = await _changelogClient.notesFor(release.tagName);
     final withNotes =
         notes == null ? release : release.copyWithReleaseNotes(notes);
@@ -291,31 +272,9 @@ class OtzariaAppMirror {
       isCancelled: isCancelled,
     );
 
-    // המתקין הרגיל יורד תמיד וקודם: חבילת ה-FULL היא תוספת למחשב שאין בו
-    // אוצריא, וכישלון בהורדתה (2GB על חיבור שנופל) לא אמור להשאיר את הכונן
-    // בלי מה להתקין.
-    final full = withNotes.fullPackage;
-    String? fullInstallerPath;
-    if (includeFullPackage && full != null) {
-      onFullPackageStart?.call();
-      fullInstallerPath = await _installer.ensureAssetCached(
-        tagName: withNotes.tagName,
-        assetName: full.assetName,
-        downloadUrl: full.downloadUrl,
-        sizeBytes: full.sizeBytes,
-        onDownloadProgress: onDownloadProgress,
-        isCancelled: isCancelled,
-      );
-    } else if (full != null) {
-      // ההגדרה כבויה — חבילה שירדה בריצה קודמת אינה נשארת על הכונן.
-      await _deleteQuietly(
-          _installer.assetPathFor(withNotes.tagName, full.assetName));
-    }
-
     return MirroredOtzariaRelease(
       release: withNotes,
       installerPath: installerPath,
-      fullInstallerPath: fullInstallerPath,
     );
   }
 
@@ -337,13 +296,8 @@ class OtzariaAppMirror {
     String relative(String path) =>
         p.relative(path, from: mirrorDir).replaceAll(r'\', '/');
 
-    Map<String, dynamic> entry(MirroredOtzariaRelease e) => e.release.toJson()
-      ..['installerPath'] = relative(e.installerPath)
-      // נכתב **תמיד**, גם כ-null: בלי הנתיב הזה קובץ ההתקנה המלא יכול
-      // לשבת על הכונן במלואו והמראה לא תדע עליו — הכרטיס לא יופיע,
-      // ו"יש מה להוריד" יישאר דלוק לנצח.
-      ..['fullInstallerPath'] =
-          e.fullInstallerPath == null ? null : relative(e.fullInstallerPath!);
+    Map<String, dynamic> entry(MirroredOtzariaRelease e) =>
+        e.release.toJson()..['installerPath'] = relative(e.installerPath);
 
     await Directory(mirrorDir).create(recursive: true);
     final json = <String, dynamic>{

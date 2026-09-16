@@ -34,8 +34,8 @@ void main() {
   void writeAppMirror({
     String? stableTag,
     String? prereleaseTag,
-    bool stableOffersFull = false,
-    bool fullOnDrive = false,
+    // חבילת FULL שירדה בגרסה ישנה של הלאנצ'ר ונשארה לצד המתקין הרגיל.
+    bool staleFullOnDrive = false,
   }) {
     final mirrorDir = p.join(tempDir.path, 'mirror', 'app');
     Directory(mirrorDir).createSync(recursive: true);
@@ -46,25 +46,16 @@ void main() {
         ..parent.createSync(recursive: true)
         ..writeAsStringSync('installer for $tag');
 
-      // חבילת FULL קיימת רק בערוץ היציב, ורק כשהתבקשה.
-      final offersFull = stableOffersFull && !prerelease;
-      final fullRelative = 'installers/$tag/otzaria-$tag-windows-full.exe';
-      const fullContents = 'full installer bytes';
-      if (offersFull && fullOnDrive) {
-        File(p.join(mirrorDir, p.joinAll(fullRelative.split('/'))))
+      // הקובץ בלבד, בלי רישום במטא־דאטה: כך הוא נראה אחרי שהמראה נכתבה
+      // מחדש בגרסה שכבר אינה מכירה חבילות FULL.
+      if (staleFullOnDrive && !prerelease) {
+        final stale = 'installers/$tag/otzaria-$tag-windows-full.exe';
+        File(p.join(mirrorDir, p.joinAll(stale.split('/'))))
           ..parent.createSync(recursive: true)
-          ..writeAsStringSync(fullContents);
+          ..writeAsStringSync('full installer bytes');
       }
 
       return {
-        if (offersFull)
-          'fullPackage': {
-            'assetName': 'otzaria-$tag-windows-full.exe',
-            'downloadUrl': 'https://example.invalid/full-$tag.exe',
-            'sizeBytes': fullContents.length,
-            'installerKind': OtzariaInstallerKind.windowsSetupExe.name,
-          },
-        if (offersFull && fullOnDrive) 'fullInstallerPath': fullRelative,
         'tagName': tag,
         'name': 'אוצריא $tag',
         'isPrerelease': prerelease,
@@ -535,86 +526,23 @@ void main() {
     });
   });
 
-  group('חבילת ההתקנה המלאה', () {
-    test('בלי חבילה במראה — אין מה להציג ואין מה להמליץ', () async {
+  group('חבילת FULL שנשארה מגרסה ישנה', () {
+    test('מראה רגילה — אין מה לנקות', () async {
       writeAppMirror(stableTag: '0.9.96');
       final c = controllerFor();
       await c.checkForUpdate();
 
-      expect(c.fullPackage, isNull);
-      expect(c.fullPackageOffered, isFalse);
-      expect(c.fullPackageRecommended, isFalse);
+      expect(c.hasStaleFullPackage, isFalse);
     });
 
-    test('ה-release מציע חבילה אך היא לא הורדה — "מוצעת" ולא "על הכונן"',
-        () async {
-      writeAppMirror(stableTag: '0.9.96', stableOffersFull: true);
+    test('קובץ FULL על הכונן מדליק את הדגל', () async {
+      writeAppMirror(stableTag: '0.9.96', staleFullOnDrive: true);
       final c = controllerFor();
       await c.checkForUpdate();
 
-      // ההבחנה הזאת היא מה שמאפשר להדליק את ההגדרה על כונן מעודכן ולקבל
-      // בכל זאת הורדה — ראו `AppShell.downloadAll`.
-      expect(c.fullPackageOffered, isTrue);
-      expect(c.fullPackage, isNull);
-      expect(c.fullPackageRecommended, isFalse);
-    });
-
-    test('חבילה שקובץ ההתקנה שלה על הכונן נקראת מהמראה', () async {
-      writeAppMirror(
-        stableTag: '0.9.96',
-        stableOffersFull: true,
-        fullOnDrive: true,
-      );
-      final c = controllerFor();
-      await c.checkForUpdate();
-
-      expect(c.fullPackage?.assetName, 'otzaria-0.9.96-windows-full.exe');
-      // ההמלצה עצמה תלויה בשאלה אם יש אוצריא **במחשב הזה**, ולכן היא
-      // נבדקת ב-`otzaria_manager` על מצב מפורש ולא על מחשב הבודק.
-      expect(c.fullPackageOffered, isTrue);
-    });
-
-    test('הגדרה דלוקה + מראה ישנה שאינה מכירה חבילות — יש מה להוריד', () async {
-      // בדיוק המצב של כונן שנוצר לפני התכונה: המטא־דאטה אינה מכילה את
-      // השדה בכלל. בלי היחס הזה ההגדרה הייתה נדלקת ולא קורה כלום.
-      writeAppMirror(stableTag: '0.9.96');
-      final c = controllerFor()..downloadFullPackage = true;
-      await c.checkForUpdate();
-
-      expect(c.fullPackageKnown, isFalse);
-      expect(c.needsFullPackageDownload, isTrue);
-      // וזה מה שמחזיר את כפתור "הורד עכשיו" ומבטל את הדילוג על הרכיב.
-      expect(c.hasOnlineUpdate, isTrue);
-    });
-
-    test('הגדרה דלוקה והחבילה כבר על הכונן — אין מה להוריד', () async {
-      writeAppMirror(
-        stableTag: '0.9.96',
-        stableOffersFull: true,
-        fullOnDrive: true,
-      );
-      final c = controllerFor()..downloadFullPackage = true;
-      await c.checkForUpdate();
-
-      expect(c.needsFullPackageDownload, isFalse);
-    });
-
-    test('הגדרה כבויה — אין דרישה, גם כשה-release מציע חבילה', () async {
-      writeAppMirror(stableTag: '0.9.96', stableOffersFull: true);
-      final c = controllerFor();
-      await c.checkForUpdate();
-
-      expect(c.fullPackageOffered, isTrue);
-      expect(c.needsFullPackageDownload, isFalse);
-    });
-
-    test('התקנה בלי חבילה על הכונן נכשלת בהודעה, בלי לגעת ברשת', () async {
-      writeAppMirror(stableTag: '0.9.96');
-      final c = controllerFor();
-      await c.checkForUpdate();
-
-      expect(await c.installFullPackage(), isFalse);
-      expect(c.errorMessage, isNotNull);
+      // זה מה שמבטל את הדילוג על מודול התוכנה ב-`AppShell.downloadAll`,
+      // ולכן מה שגורם ל-2GB באמת להימחק.
+      expect(c.hasStaleFullPackage, isTrue);
     });
   });
 }
