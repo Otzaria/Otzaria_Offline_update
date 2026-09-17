@@ -94,11 +94,16 @@ class AppDialog extends StatelessWidget {
   List<Widget> _actions(BuildContext context) {
     void close(bool result) => Navigator.of(context).pop(result);
 
+    // הכפתור המומלץ מקבל את המיקוד, ולכן Enter מפעיל אותו בלי לגעת בעכבר.
+    // רק כשהתוכן הוא טקסט: ל-`customContent` יש שדות משלו, והמיקוד שלהם.
+    final defaultAction = customContent == null;
+
     return switch (_variant) {
       _DialogVariant.singleAction => [
           ActionButton.recommended(
             text: confirmText,
             onPressed: () => close(true),
+            autofocus: defaultAction,
           ),
         ],
       _DialogVariant.twoActions => [
@@ -106,9 +111,11 @@ class AppDialog extends StatelessWidget {
           ActionButton.recommended(
             text: confirmText,
             onPressed: () => close(true),
+            autofocus: defaultAction,
           ),
         ],
-      // באזהרה הכפתור המומלץ הוא דווקא הביטול — הבחירה הבטוחה.
+      // באזהרה הכפתור המומלץ הוא דווקא הביטול — הבחירה הבטוחה, ולכן גם זו
+      // ש-Enter בוחר. פעולה הרסנית לא תקרה בהקשה אחת מיותרת.
       _DialogVariant.warning => [
           ActionButton.warning(
             text: confirmText,
@@ -117,6 +124,7 @@ class AppDialog extends StatelessWidget {
           ActionButton.recommended(
             text: cancelText,
             onPressed: () => close(false),
+            autofocus: defaultAction,
           ),
         ],
     };

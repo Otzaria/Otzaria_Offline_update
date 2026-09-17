@@ -21,6 +21,10 @@ class ActionButton extends StatelessWidget {
   /// שהכפתור צריך להישאר קריא בזמנן.
   final bool spinning;
   final IconData? icon;
+
+  /// לוקח את המיקוד בהופעה, ואז Enter מפעיל אותו — כפתור ברירת המחדל של
+  /// דיאלוג. ראו `AppDialog`.
+  final bool autofocus;
   final _Variant _variant;
 
   const ActionButton.recommended({
@@ -30,6 +34,7 @@ class ActionButton extends StatelessWidget {
     this.isLoading = false,
     this.spinning = false,
     this.icon,
+    this.autofocus = false,
   }) : _variant = _Variant.recommended;
 
   const ActionButton.neutral({
@@ -39,6 +44,7 @@ class ActionButton extends StatelessWidget {
     this.isLoading = false,
     this.spinning = false,
     this.icon,
+    this.autofocus = false,
   }) : _variant = _Variant.neutral;
 
   const ActionButton.ghost({
@@ -48,6 +54,7 @@ class ActionButton extends StatelessWidget {
     this.isLoading = false,
     this.spinning = false,
     this.icon,
+    this.autofocus = false,
   }) : _variant = _Variant.ghost;
 
   const ActionButton.warning({
@@ -57,6 +64,7 @@ class ActionButton extends StatelessWidget {
     this.isLoading = false,
     this.spinning = false,
     this.icon,
+    this.autofocus = false,
   }) : _variant = _Variant.warning;
 
   Color _loadingColor(ColorScheme cs) => switch (_variant) {
@@ -78,15 +86,18 @@ class ActionButton extends StatelessWidget {
       switch (_variant) {
         _Variant.recommended => FilledButton(
             onPressed: onPressed,
+            autofocus: autofocus,
             child: child,
           ),
         _Variant.neutral => FilledButton.tonal(
             onPressed: onPressed,
+            autofocus: autofocus,
             child: child,
           ),
         _Variant.ghost || _Variant.warning => TextButton(
             onPressed: onPressed,
             style: style,
+            autofocus: autofocus,
             child: child,
           ),
       };
@@ -96,11 +107,13 @@ class ActionButton extends StatelessWidget {
     return switch (_variant) {
       _Variant.recommended => FilledButton.icon(
           onPressed: onPressed,
+          autofocus: autofocus,
           icon: leading,
           label: label,
         ),
       _Variant.neutral => FilledButton.tonalIcon(
           onPressed: onPressed,
+          autofocus: autofocus,
           icon: leading,
           label: label,
         ),
@@ -109,6 +122,7 @@ class ActionButton extends StatelessWidget {
           icon: leading,
           label: label,
           style: style,
+          autofocus: autofocus,
         ),
     };
   }

@@ -1067,6 +1067,61 @@ void main() {
       expect(result, isTrue);
     });
 
+    // דווח בפורום: הכפתור המומלץ כבר בולט, ובכל זאת צריך להזיז אליו עכבר.
+    testWidgets('Enter מפעיל את הכפתור המומלץ בלי לגעת בעכבר', (tester) async {
+      bool? result;
+      await pumpOpener(
+        tester,
+        (context) async => result = await showTwoActionsDialog(
+          context: context,
+          title: he.settings.resetDialogTitle,
+          content: he.settings.resetDialogContent,
+        ),
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(result, isTrue);
+    });
+
+    // באזהרה המומלץ הוא הביטול, ולכן הקשה מיותרת אינה מבצעת את ההרסני.
+    testWidgets('Enter באזהרה בוחר בביטול ולא בפעולה', (tester) async {
+      bool? result;
+      await pumpOpener(
+        tester,
+        (context) async => result = await showWarningDialog(
+          context: context,
+          title: he.settings.resetDialogTitle,
+          confirmText: he.settings.resetDialogConfirm,
+        ),
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(result, isFalse);
+    });
+
+    testWidgets('דיאלוג עם תוכן משלו אינו גונב את המיקוד מהשדה שבו',
+        (tester) async {
+      final focus = FocusNode();
+      addTearDown(focus.dispose);
+
+      await pumpOpener(
+        tester,
+        (context) => showTwoActionsDialog(
+          context: context,
+          title: he.settings.resetDialogTitle,
+          customContent: TextField(focusNode: focus, autofocus: true),
+        ),
+      );
+
+      expect(focus.hasFocus, isTrue);
+    });
+
     testWidgets('showTwoActionsDialog מחזיר false גם כשנסגר בלחיצה בחוץ',
         (tester) async {
       bool? result;
