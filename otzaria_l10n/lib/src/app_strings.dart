@@ -1002,7 +1002,10 @@ abstract class LibraryDomainStrings {
   String exportReusingFullDb(int version, String tag);
 
   String exportDownloading(String tag, String asset);
-  String exportVerifying(String tag, String asset);
+
+  /// אימות sha256 של נכס שכבר על הכונן — דקה שלמה שבה מד הבייטים אינו זז,
+  /// ולכן האחוז נמסר כאן.
+  String exportVerifying(String tag, String asset, int percent);
   String exportWritingManifest(String fileName);
   String get exportDone;
   String get exportCancelled;
@@ -1226,6 +1229,10 @@ abstract class LibraryDomainStrings {
   /// ש-`LibraryApplyProgress.verifyStage` מדווח. "מוודא תקינות..." לבדו
   /// חוזר כמה פעמים בהחלה אחת ואינו אומר על מה מחכים.
   String applyVerifyStage(String stage);
+
+  /// שם השלב ולצידו הזמן שחלף בו, לשלבים שאינם מדווחים התקדמות כלל
+  /// (`quick_check` על מסד מלא חוסם דקות). [elapsed] הוא `mm:ss`.
+  String applyStageElapsed(String stage, String elapsed);
   String get applyInstallingCompanions;
   String get applyDone;
 }

@@ -379,16 +379,23 @@ class LibraryMirrorExporter {
       onProgress: onBytesProgress,
     );
 
-    await _scheduler.run<void>([
+    // המשבצות והניכוי נקבעים **לפני** ההורדה הראשונה, לא כשהג'וב מגיע לתורו:
+    // עם ארבע הורדות במקביל נכס עשירי מנוכה דקות אחרי ההתחלה, והיעד שקפץ
+    // באמצע הוא בדיוק מה שהפך את האחוזים ללא אמינים. רק נכס **שלם** מנוכה
+    // כאן — תחילית חלקית יכולה להימחק ולרדת מאפס, ואותה מנכה ההורדה עצמה.
+    final slots = <ByteProgressSlot>[
       for (final job in jobs)
+        bytes.slot(existingBytes: _completeOnDisk(job.dest, job.asset.size)),
+    ];
+    bytes.announce();
+
+    await _scheduler.run<void>([
+      for (final (index, job) in jobs.indexed)
         () async {
           _throwIfCancelled(isCancelled);
           onStage?.call(
               strings.exportDownloading(job.release.tag, job.asset.name));
-          final progress = bytes.slot();
-          // נכס שכבר יושב שלם על הדיסק מדלג על ההורדה ורק מאומת — אימות
-          // sha256 של 1.1GB מכונן נייד לוקח דקה, וללא הכרזה הוא נראה כתקיעה.
-          var announcedVerify = false;
+          final progress = slots[index];
           await _downloader.downloadToFile(
             url: job.asset.downloadUrl,
             destPath: job.dest,
@@ -402,14 +409,17 @@ class LibraryMirrorExporter {
             onProgress: progress.report,
             // נכס שכבר על הכונן אינו יורד — ולכן גם אינו נספר במד.
             onExistingBytes: progress.markExisting,
-            onVerifyProgress: (verified, total) {
-              if (!announcedVerify) {
-                announcedVerify = true;
-                onStage?.call(
-                    strings.exportVerifying(job.release.tag, job.asset.name));
-              }
-              progress.report(verified, total);
-            },
+            // **אימות אינו הורדה.** נכס שכבר שלם על הכונן רק מאומת, ובייטים
+            // שנקראים מהדיסק אינם עוברים ברשת — דיווחם למד הבייטים השאיר
+            // אותו קפוא דקה שלמה (sha256 של 1.1GB מכונן נייד). האחוז נמסר
+            // כאן בכיתוב השלב, שהוא המקום היחיד שבו הוא נכון.
+            onVerifyProgress: (verified, total) => onStage?.call(
+              strings.exportVerifying(
+                job.release.tag,
+                job.asset.name,
+                total > 0 ? (verified * 100 ~/ total).clamp(0, 100) : 0,
+              ),
+            ),
             isCancelled: isCancelled,
           );
           doneAssets++;
@@ -509,6 +519,16 @@ class LibraryMirrorExporter {
     const mb = 1 << 20;
     if (bytes >= gb) return '${(bytes / gb).toStringAsFixed(1)} GB';
     return '${(bytes / mb).round()} MB';
+  }
+
+  /// כמה מהנכס כבר יושב על הדיסק שלם, כלומר לא יעבור ברשת. התנאי זהה לזה
+  /// שבו [PatchDownloader] מדלג על ההורדה; תחילית חלקית מוחזרת כ-0, כי היא
+  /// עשויה להימחק ולרדת מאפס — את זה מנכה ההורדה עצמה.
+  int _completeOnDisk(String path, int size) {
+    if (size <= 0) return 0;
+    final file = File(path);
+    if (!file.existsSync() || file.lengthSync() < size) return 0;
+    return size;
   }
 
   /// מספר הניסיונות לשליפת manifest. הם קבצים של מאות בתים, ולכן ניסיון חוזר

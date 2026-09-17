@@ -87,13 +87,11 @@ class CompanionAssetsMirror {
     Future<void> run(
       CompanionAsset asset,
       String name,
-      Future<CompanionMirrorEntry?> Function() body,
+      Future<void> Function() body,
     ) async {
       _throwIfCancelled(isCancelled);
-      onStage?.call(strings.companionChecking(name));
       try {
-        final entry = await body();
-        if (entry != null) entries[asset] = entry;
+        await body();
       } catch (error) {
         if (_isCancellation(error)) rethrow;
         final kept = previous?.entries[asset];
@@ -110,19 +108,70 @@ class CompanionAssetsMirror {
       }
     }
 
+    // **הגילוי קודם להורדה, ובכוונה.** היעד של מד הבייטים חייב להיות ידוע
+    // לפני הבייט הראשון; כשהוא התברר רק אחרי ששלושת הפריטים כבר ירדו, המד
+    // נמדד עד אז בסרגל אחר לגמרי וקפץ ברגע המעבר. אלה שאילתות API בלבד,
+    // ולכן הן אינן נכנסות לתקרת ההורדות.
+    final plans = <CompanionAsset, _CompanionPlan>{};
+    Future<void> plan(
+      CompanionAsset asset,
+      String name,
+      Future<_CompanionPlan> Function() body,
+    ) =>
+        run(asset, name, () async {
+          onStage?.call(strings.companionChecking(name));
+          plans[asset] = await body();
+        });
+
+    await Future.wait<void>([
+      plan(CompanionAsset.talmud, strings.companionTalmudName,
+          () => _planTalmud(destDir)),
+      plan(CompanionAsset.catalog, strings.companionCatalogName,
+          () => _planCatalog(destDir)),
+      plan(CompanionAsset.dictionary, strings.companionDictionaryName,
+          () => _planDictionary(destDir)),
+    ]);
+
     // מונה בייטים אחד לשלושתם: כל פריט מדווח למשבצת משלו, והמד מתאר את
     // הסכום. בלי זה שלוש הורדות מקבילות היו דורסות זו את דיווחי זו.
-    final bytes = ByteProgressAggregator(onProgress: onBytesProgress);
+    final bytes = ByteProgressAggregator(
+      totalBytes: plans.values
+          .fold<int>(0, (sum, plan) => sum + (plan.size > 0 ? plan.size : 0)),
+      onProgress: onBytesProgress,
+    );
+    // התלמוד (~450MB) ראשון: הוא הארוך מכולם, ובתקרה נמוכה מוטב שיתחיל מיד.
+    // הניכוי של קובץ שכבר יושב שלם על הכונן נעשה כאן ולא כשיגיע תורו בתור —
+    // יעד שיורד באמצע הוא בדיוק מה שהקפיץ את האחוזים.
+    final slots = <CompanionAsset, ByteProgressSlot>{};
+    for (final asset in CompanionAsset.values) {
+      final plan = plans[asset];
+      if (plan == null) continue;
+      final complete = plan.size > 0 &&
+          await _isCompleteFile(plan.destPath, plan.size, atLeast: true);
+      slots[asset] = bytes.slot(existingBytes: complete ? plan.size : 0);
+    }
+    bytes.announce();
 
     // במקביל, לא בטור: התלמוד (~450MB) לבדו ארוך פי כמה מהשניים האחרים.
     // הביטול הוא מה שכן עוצר את כולם — `run` מפיץ אותו הלאה בלבד.
     await _scheduler.run<void>([
-      () => run(CompanionAsset.talmud, strings.companionTalmudName,
-          () => _syncTalmud(destDir, onStage, bytes.slot(), isCancelled)),
-      () => run(CompanionAsset.catalog, strings.companionCatalogName,
-          () => _syncCatalog(destDir, onStage, bytes.slot(), isCancelled)),
-      () => run(CompanionAsset.dictionary, strings.companionDictionaryName,
-          () => _syncDictionary(destDir, onStage, bytes.slot(), isCancelled)),
+      for (final entry in slots.entries)
+        () {
+          final plan = plans[entry.key]!;
+          return run(entry.key, plan.name, () async {
+            onStage?.call(strings.companionDownloading(plan.name));
+            await _download(
+              url: plan.url,
+              destPath: plan.destPath,
+              size: plan.size,
+              sha256: plan.sha256,
+              identity: plan.identity,
+              progress: entry.value,
+              isCancelled: isCancelled,
+            );
+            entries[entry.key] = plan.entry;
+          });
+        },
     ]);
 
     final manifest = CompanionMirrorManifest(entries: entries);
@@ -131,39 +180,27 @@ class CompanionAssetsMirror {
     return manifest;
   }
 
-  Future<CompanionMirrorEntry?> _syncTalmud(
-    String destDir,
-    void Function(String stage)? onStage,
-    ByteProgressSlot progress,
-    bool Function()? isCancelled,
-  ) async {
+  Future<_CompanionPlan> _planTalmud(String destDir) async {
     final strings = AppL10n.strings.libraryDomain;
     final release = await _findTalmudRelease();
-    onStage?.call(strings.companionDownloading(strings.companionTalmudName));
-    await _download(
+    return _CompanionPlan(
+      name: strings.companionTalmudName,
       url: release.downloadUrl,
       destPath: p.join(destDir, talmudArchiveFileName),
       size: release.size,
       sha256: release.sha256,
       identity: release.identity,
-      progress: progress,
-      isCancelled: isCancelled,
-    );
-    return CompanionMirrorEntry(
-      fileName: talmudArchiveFileName,
-      size: release.size,
-      tag: release.tag,
-      sha256: release.sha256,
-      compressed: true,
+      entry: CompanionMirrorEntry(
+        fileName: talmudArchiveFileName,
+        size: release.size,
+        tag: release.tag,
+        sha256: release.sha256,
+        compressed: true,
+      ),
     );
   }
 
-  Future<CompanionMirrorEntry?> _syncCatalog(
-    String destDir,
-    void Function(String stage)? onStage,
-    ByteProgressSlot progress,
-    bool Function()? isCancelled,
-  ) async {
+  Future<_CompanionPlan> _planCatalog(String destDir) async {
     final strings = AppL10n.strings.libraryDomain;
     final json = await _getJson(catalogReleaseApi);
     final assets = _assetsOf(json);
@@ -189,31 +226,24 @@ class CompanionAssetsMirror {
           strings.companionAssetMissingInRelease(strings.companionCatalogName));
     }
 
-    onStage?.call(strings.companionDownloading(strings.companionCatalogName));
-    await _download(
+    return _CompanionPlan(
+      name: strings.companionCatalogName,
       url: chosen.downloadUrl,
       destPath: p.join(destDir, chosen.name),
       size: chosen.size,
       sha256: chosen.sha256,
       identity: chosen.identity,
-      progress: progress,
-      isCancelled: isCancelled,
-    );
-    return CompanionMirrorEntry(
-      fileName: chosen.name,
-      size: chosen.size,
-      sha256: chosen.sha256,
-      version: version,
-      compressed: chosen.name == catalogArchiveFileName,
+      entry: CompanionMirrorEntry(
+        fileName: chosen.name,
+        size: chosen.size,
+        sha256: chosen.sha256,
+        version: version,
+        compressed: chosen.name == catalogArchiveFileName,
+      ),
     );
   }
 
-  Future<CompanionMirrorEntry?> _syncDictionary(
-    String destDir,
-    void Function(String stage)? onStage,
-    ByteProgressSlot progress,
-    bool Function()? isCancelled,
-  ) async {
+  Future<_CompanionPlan> _planDictionary(String destDir) async {
     final strings = AppL10n.strings.libraryDomain;
     final json = await _getJson(dictionaryReleaseApi);
     final tag = (json['tag_name'] as String?)?.trim();
@@ -226,22 +256,19 @@ class CompanionAssetsMirror {
           .companionAssetMissingInRelease(strings.companionDictionaryName));
     }
 
-    onStage
-        ?.call(strings.companionDownloading(strings.companionDictionaryName));
-    await _download(
+    return _CompanionPlan(
+      name: strings.companionDictionaryName,
       url: asset.downloadUrl,
       destPath: p.join(destDir, dictionaryFileName),
       size: asset.size,
       sha256: asset.sha256,
       identity: asset.identity,
-      progress: progress,
-      isCancelled: isCancelled,
-    );
-    return CompanionMirrorEntry(
-      fileName: dictionaryFileName,
-      size: asset.size,
-      tag: tag,
-      sha256: asset.sha256,
+      entry: CompanionMirrorEntry(
+        fileName: dictionaryFileName,
+        size: asset.size,
+        tag: tag,
+        sha256: asset.sha256,
+      ),
     );
   }
 
@@ -298,11 +325,18 @@ class CompanionAssetsMirror {
 
   /// הקובץ קיים ובאורך שהרשומה מבטיחה. גודל 0 ברשומה (מקור שלא הצהיר על
   /// גודל) נבדק כ"לא ריק" בלבד — אין מול מה להשוות.
-  Future<bool> _isCompleteFile(String path, int expectedSize) async {
+  /// [atLeast] מרפה את ההשוואה ל"לפחות", כדי שתתאים בדיוק לתנאי שבו
+  /// [PatchDownloader] מדלג על ההורדה — זה מה שמותר לנכות מראש מהיעד.
+  Future<bool> _isCompleteFile(
+    String path,
+    int expectedSize, {
+    bool atLeast = false,
+  }) async {
     final file = File(path);
     if (!await file.exists()) return false;
     final length = await file.length();
-    return expectedSize > 0 ? length == expectedSize : length > 0;
+    if (expectedSize <= 0) return length > 0;
+    return atLeast ? length >= expectedSize : length == expectedSize;
   }
 
   _GithubAssetRef? _talmudAssetOf(Map<String, dynamic> release) {
@@ -401,6 +435,30 @@ class CompanionAssetsMirror {
     _downloader.dispose();
     if (_ownsClient) _httpClient.close();
   }
+}
+
+/// כל מה שנדרש להורדת פריט נלווה אחד, אחרי שהגילוי הסתיים ולפני שבייט
+/// כלשהו עבר. [size] כאן הוא מה שמאפשר להכריז על יעד ההורדה מראש.
+class _CompanionPlan {
+  const _CompanionPlan({
+    required this.name,
+    required this.url,
+    required this.destPath,
+    required this.size,
+    required this.sha256,
+    required this.identity,
+    required this.entry,
+  });
+
+  final String name;
+  final String url;
+  final String destPath;
+  final int size;
+  final String? sha256;
+  final String identity;
+
+  /// הרשומה שתיכתב ל-`companions.json` אם ההורדה תצליח.
+  final CompanionMirrorEntry entry;
 }
 
 /// נכס בודד מתוך JSON של release, בצורה שנוחה להורדה מאומתת.

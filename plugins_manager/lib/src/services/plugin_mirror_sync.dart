@@ -85,7 +85,10 @@ class PluginMirrorSync {
 
     final fetched = <String, StorePlugin>{};
     final failed = <String>[];
-    final total = todo.length;
+    // **נספרים רק תוספים שנוגעים ברשת.** תוסף שכל עבודתו היא חילוץ
+    // `manifestId` מקובץ שכבר במראה נכנס ל-[todo] אבל אינו מוריד דבר, ואילו
+    // נספר — הסנכרון הראשון אחרי שהשדה נוסף לקטלוג הציג את כל החנות כיורדת.
+    final total = todo.where((plan) => plan.needsNetwork).length;
     var done = 0;
 
     // התוספים מסונכרנים במקביל: כל אחד הוא כמה קבצים קטנים שרובם המתנה
@@ -96,15 +99,17 @@ class PluginMirrorSync {
         for (final plan in todo)
           () async {
             if (isCancelled?.call() ?? false) return;
-            done++;
 
             var plugin = plan.plugin;
-            report(PluginSyncProgress(
-              phase: PluginSyncPhase.plugin,
-              message: strings.syncPlugin(plugin.name, done, total),
-              current: done,
-              total: total,
-            ));
+            if (plan.needsNetwork) {
+              done++;
+              report(PluginSyncProgress(
+                phase: PluginSyncPhase.plugin,
+                message: strings.syncPlugin(plugin.name, done, total),
+                current: done,
+                total: total,
+              ));
+            }
 
             await Directory(store.pluginDir(plugin.id)).create(recursive: true);
             plugin = await _syncImages(plan, plugin, report);
@@ -549,11 +554,11 @@ class _PluginPlan {
   /// כן סיבה לא לדלג על התוסף לגמרי.
   final bool needsManifestId;
 
-  bool get hasWork =>
-      needsImage ||
-      needsScreenshots ||
-      missingBuilds.isNotEmpty ||
-      needsManifestId;
+  /// עבודה שיש בה פנייה לרשת. רק היא נספרת ומדווחת — ראו [PluginMirrorSync.sync].
+  bool get needsNetwork =>
+      needsImage || needsScreenshots || missingBuilds.isNotEmpty;
+
+  bool get hasWork => needsNetwork || needsManifestId;
 }
 
 /// תוצאת סנכרון המבנה — הקטגוריות והטקסטים, ומהן נגזרת גם השיוך ההפוך

@@ -1643,7 +1643,8 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String exportDownloading(String tag, String asset) => 'מוריד $tag / $asset';
   @override
-  String exportVerifying(String tag, String asset) => 'מאמת $tag / $asset';
+  String exportVerifying(String tag, String asset, int percent) =>
+      'מאמת $tag / $asset — $percent%';
   @override
   String exportWritingManifest(String fileName) => 'כותב $fileName';
   @override
@@ -2080,6 +2081,8 @@ class _LibraryDomain extends LibraryDomainStrings {
     }
   }
 
+  @override
+  String applyStageElapsed(String stage, String elapsed) => '$stage — $elapsed';
   @override
   String get applyInstallingCompanions => 'מתקין קבצים נלווים...';
   @override

@@ -548,6 +548,7 @@ class HomeScreen extends StatelessWidget {
       return InfoProgressRow(
         stage: library.downloadStage ?? t.downloadingLibrary,
         progress: library.downloadProgress,
+        secondaryStage: library.downloadCompanionStage,
         detail: formatBytesProgress(
           library.downloadReceivedBytes,
           library.downloadTotalBytes,

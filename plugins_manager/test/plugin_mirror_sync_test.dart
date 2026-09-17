@@ -671,6 +671,38 @@ void main() {
       expect(catalog.plugins.first.manifestId, 'manifest-a');
       expect(second.requestsMatching('/download'), isEmpty);
     });
+
+    test('חילוץ manifestId מקובץ קיים אינו נספר ואינו מדווח כהורדה', () async {
+      await sync(_Site());
+
+      // קטלוג ישן בלי manifestId — ל**כל** החנות יש עבודה, אבל היא מקומית.
+      final store = PluginMirrorStore(temp.path);
+      final old = await store.load();
+      await store.save(PluginCatalog(
+        lastSync: old.lastSync,
+        categories: old.categories,
+        home: old.home,
+        plugins: [
+          for (final plugin in old.plugins)
+            StorePlugin.fromJson(plugin.toJson()..remove('manifestId')),
+        ],
+      ));
+
+      final second = _Site();
+      final events = <PluginSyncProgress>[];
+      final outcome = await syncOutcome(second, events: events);
+
+      expect(second.requestsMatching('/download'), isEmpty);
+      expect(outcome.fetched, 0);
+      expect(outcome.skipped, 2);
+      expect(
+        events.where(
+            (e) => e.phase == PluginSyncPhase.plugin && e.current != null),
+        isEmpty,
+      );
+      // ועדיין — העבודה המקומית עצמה נעשתה.
+      expect(outcome.catalog.plugins.first.manifestId, 'manifest-a');
+    });
   });
 
   group('ביטול', () {

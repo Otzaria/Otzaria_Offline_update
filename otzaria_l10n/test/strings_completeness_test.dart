@@ -121,6 +121,8 @@ const _sameInBothLanguages = {
   'settings.languageEnglish',
   'plugins.localFileDescription', // מחרוזת פורמט טהורה: "קובץ (גודל)"
   'plugins.ratingBadge', // מחרוזת פורמט טהורה: "4.5 (128)"
+  // מחרוזת פורמט טהורה: שם שלב (כבר מתורגם) ולצידו mm:ss.
+  'libraryDomain.applyStageElapsed',
   // שמות ה-framework-ים של חבילות ההתקנה — שמות מוצר, לא מונחים.
   'customApps.kindInno',
   'customApps.kindNsis',
@@ -136,6 +138,7 @@ const _selectorArgs = {
 };
 const _noHebrewLettersInHebrew = {
   'common.emptyValue',
+  'libraryDomain.applyStageElapsed',
   'settings.languageEnglish',
   'plugins.localFileDescription',
   'plugins.ratingBadge',

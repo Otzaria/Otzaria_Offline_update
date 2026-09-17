@@ -100,6 +100,10 @@ class InfoProgressRow extends StatelessWidget {
   final double? progress;
   final String? detail;
 
+  /// שלב שני שרץ **במקביל** לזה שב-[stage] ונספר באותו מד. שורה משלו, כי
+  /// שניהם על אותה שורה גרמו לכיתוב לקפוץ ביניהם.
+  final String? secondaryStage;
+
   /// אזהרה שנשארת על המסך לאורך הפעולה, בצבע error — לפעולה שקטיעה שלה
   /// מזיקה. null כשאין.
   final String? warning;
@@ -109,6 +113,7 @@ class InfoProgressRow extends StatelessWidget {
     required this.stage,
     this.progress,
     this.detail,
+    this.secondaryStage,
     this.warning,
   });
 
@@ -142,6 +147,14 @@ class InfoProgressRow extends StatelessWidget {
           ),
           const SizedBox(height: AppTokens.spaceXS),
           LinearProgressIndicator(value: value, minHeight: 6),
+          if (secondaryStage != null) ...[
+            const SizedBox(height: AppTokens.spaceXS),
+            Text(
+              secondaryStage!,
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+          ],
           if (detail != null) ...[
             const SizedBox(height: AppTokens.spaceXS),
             Text(

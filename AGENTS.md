@@ -546,6 +546,16 @@ successful download, anything under `assets/` missing from the new manifest is
 deleted (`_pruneStaleAssets`); the `.resume` sidecars of assets that *are* in it
 survive, since they let a re-run skip a completed download.
 
+**Every successful download ends with one sweep of the whole mirror**
+(`MirrorJunkSweeper`, called from `AppShell.downloadAll`). Each component already
+prunes itself, but only inside a download that brought it something: a skipped
+component, or an `export` that returned `false`, prunes nothing — which is how a
+drive ended up carrying full DBs of v20 *and* v21, and 5GB after a version bump.
+A manifest that cannot be read means skipping that area, an empty keep-set being
+"delete everything"; the sweep does not run after a failed download (assets the
+manifest does not know yet); and `mirror/apps` and `otzaria-app/` are never
+touched. It is silent by design — the freed bytes go to the log only.
+
 **A re-run does not re-hash an asset it already proved.** Skipping the download is
 not skipping the check: `downloadToFile` still verified `expectedSha256`, and on the
 `alreadyComplete` path there is no stream to hash along with, so it read ~1.5GB back
@@ -585,6 +595,16 @@ load-bearing consequences:
   zero on the same sink, which without the high-water mark dropped the bar.
   `LibraryModuleController` must therefore **not** null the byte fields on
   `onStage` — that blanks a bar which is in fact advancing.
+- **The target is known before the first byte.** Both aggregators plan their total
+  up front and `announce()` it, and bytes already complete on disk are deducted
+  through `slot(existingBytes:)` — not by `markExisting` when the job reaches the
+  queue, which in four-way parallelism is minutes in. That is why
+  `CompanionAssetsMirror.sync` resolves all three assets (`_plan*`) before it
+  downloads any. Without it the total appeared late and moved, and
+  `downloadProgress` measured in assets meanwhile: two rulers, swapping mid-
+  download. It now returns `null` rather than fall back to assets once bytes have
+  flowed. Verification bytes are **not** download bytes — `onVerifyProgress` feeds
+  the stage text (`exportVerifying`), never the meter.
 - **A failed task stops new ones but still awaits the running ones** before
   rethrowing; a download left running in the background keeps writing into the
   mirror after `MirrorDownloadUndo` has cleaned it.

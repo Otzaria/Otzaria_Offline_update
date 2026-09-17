@@ -113,11 +113,17 @@ class ByteProgressAggregator {
   /// הבייטים שנצברו עד כה בכל המשבצות — משמש לקינון של מאחד בתוך מאחד.
   int get receivedBytes => _sum;
 
-  /// סינק התקדמות להורדה בודדת.
-  ByteProgressSlot slot() {
+  /// מוסר את היעד המתוכנן **לפני** הבייט הראשון. בלעדיו הקורא נשאר בלי יעד
+  /// עד שההורדה הראשונה מדווחת, ואז מד ההתקדמות מחליף סרגל מדידה באמצע.
+  void announce() => _emit();
+
+  /// סינק התקדמות להורדה בודדת. [existingBytes] הוא מה שכבר יושב על הדיסק
+  /// **לפני** שההורדה התחילה — נמסר כאן ולא ב-[ByteProgressSlot.markExisting]
+  /// כדי שלא ייצא דיווח באמצע בניית התוכנית, עם חלק מהניכויים בלבד.
+  ByteProgressSlot slot({int existingBytes = 0}) {
     _received.add(0);
     _totals.add(null);
-    _existing.add(0);
+    _existing.add(existingBytes < 0 ? 0 : existingBytes);
     return ByteProgressSlot._(this, _received.length - 1);
   }
 

@@ -8,6 +8,7 @@ import 'package:seforim_library_updater/seforim_library_updater.dart';
 import '../services/app_logger.dart';
 import '../services/elevation.dart';
 import 'progress_notifier.dart';
+import 'stage_clock.dart';
 
 enum LibraryModuleStatus {
   idle,
@@ -81,6 +82,11 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   int? localVersion;
   int? targetVersion;
   String? stageText;
+
+  /// שעון לשלבים שאינם מדווחים דבר — ראו [StageClock]. הטיימר יושב כאן
+  /// והמדידה שם, כדי שהחישוב יהיה בר-בדיקה בלי להריץ החלה שלמה.
+  final StageClock _stageClock = StageClock();
+  Timer? _stageTicker;
 
   /// 0..1 כשיש יעד ידוע (בייטים שהורדו/סה"כ), אחרת null (מד לא-קבוע).
   /// מתעדכן במהלך [update] בלבד.
@@ -167,6 +173,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// מצב ההורדה מהרשת אל [mirrorDir].
   MirrorDownloadStatus downloadStatus = MirrorDownloadStatus.idle;
   String? downloadStage;
+
+  /// שלב הקבצים הנלווים, שרץ **במקביל** לשלב שב-[downloadStage]. שורה משלו
+  /// כי שניהם כתבו לאחת וזו קפצה ביניהם בזמן שהמד מתאר את שניהם יחד.
+  String? downloadCompanionStage;
   int? downloadDoneAssets;
   int? downloadTotalAssets;
 
@@ -200,6 +210,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     if (received != null && bytesTotal != null && bytesTotal > 0) {
       return (received / bytesTotal).clamp(0.0, 1.0);
     }
+    // **אין החלפת סרגל באמצע.** בייטים שכבר עברו בלי שיש להם יעד הם המצב
+    // היחיד שבו ספירת הנכסים הייתה מציגה אחוז מסרגל אחר לגמרי — ואז הכניסה
+    // של הבייטים קפצה. מד בלתי-מוגדר אומר את האמת, ונמשך שניות בודדות.
+    if (received != null && received > 0 && bytesTotal == null) return null;
 
     final totalAssets = downloadTotalAssets;
     if (totalAssets == null || totalAssets <= 0) return null;
@@ -259,6 +273,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   Future<void> download({bool Function()? isCancelled}) async {
     downloadStatus = MirrorDownloadStatus.downloading;
     downloadStage = null;
+    downloadCompanionStage = null;
     downloadDoneAssets = null;
     downloadTotalAssets = null;
     downloadReceivedBytes = null;
@@ -275,6 +290,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
           // **בלי איפוס הבייטים.** הנכסים יורדים במקביל ומדווחים מונה אחד
           // מצטבר לכל ההורדה (ראו `ByteProgressAggregator`), ולכן איפוס בכל
           // הכרזת שלב היה מרוקן מד שדווקא כן מתקדם.
+          notifyProgress();
+        },
+        onCompanionStage: (stage) {
+          downloadCompanionStage = stage;
           notifyProgress();
         },
         onAssetProgress: (done, total) {
@@ -313,6 +332,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       if (isCancelled?.call() ?? false) {
         downloadStatus = MirrorDownloadStatus.idle;
         downloadStage = null;
+        downloadCompanionStage = null;
         AppLogger.instance.info('הורדת עדכוני ספרייה בוטלה: $e');
       } else {
         downloadStatus = MirrorDownloadStatus.error;
@@ -541,6 +561,13 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
         useFullDownloadFallback: useFullDownloadFallback,
         onProgress: (p) {
           stageText = _describeApplyStage(p);
+          // שלב ארוך בלי בייטים ובלי אחוזים מקבל שעון; כל השאר מכבים אותו.
+          if (_isSilentLongStage(p)) {
+            _startStageClock(stageText!);
+            stageText = _stageTextWithElapsed();
+          } else {
+            _stopStageClock();
+          }
           final done = p.bytesDone;
           final total = p.bytesTotal;
           applyReceivedBytes = done;
@@ -590,8 +617,34 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       await _refreshPendingReindex();
       AppLogger.instance.error('update() נכשל', e, st);
     }
+    _stopStageClock();
     notifyListeners();
   }
+
+  /// שלב שיכול להימשך דקות בלי לדווח בייטים ובלי אחוזים. אימות ה-hash
+  /// שבמסלול הדלתא **אינו** כזה — הוא מדווח `verifyProgress`.
+  static bool _isSilentLongStage(LibraryApplyProgress p) =>
+      p.stage == LibraryApplyStage.verifying ||
+      p.stage == LibraryApplyStage.writingFullDb;
+
+  /// מתחיל שעון לשלב ששמו [base], ומפעיל טיימר רק כשזו התחלה חדשה.
+  void _startStageClock(String base) {
+    if (!_stageClock.start(base)) return;
+    _stageTicker?.cancel();
+    _stageTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      stageText = _stageTextWithElapsed();
+      notifyProgress();
+    });
+  }
+
+  void _stopStageClock() {
+    _stageTicker?.cancel();
+    _stageTicker = null;
+    _stageClock.stop();
+  }
+
+  String _stageTextWithElapsed() =>
+      _stageClock.text(AppL10n.strings.libraryDomain.applyStageElapsed);
 
   String _describeApplyStage(LibraryApplyProgress p) {
     final t = AppL10n.strings.libraryDomain;
@@ -632,6 +685,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
 
   @override
   void dispose() {
+    _stopStageClock();
     _manager.dispose();
     super.dispose();
   }

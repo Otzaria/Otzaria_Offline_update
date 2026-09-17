@@ -1744,7 +1744,8 @@ class _LibraryDomain extends LibraryDomainStrings {
   String exportDownloading(String tag, String asset) =>
       'Downloading $tag / $asset';
   @override
-  String exportVerifying(String tag, String asset) => 'Verifying $tag / $asset';
+  String exportVerifying(String tag, String asset, int percent) =>
+      'Verifying $tag / $asset — $percent%';
   @override
   String exportWritingManifest(String fileName) => 'Writing $fileName';
   @override
@@ -2224,6 +2225,8 @@ class _LibraryDomain extends LibraryDomainStrings {
     }
   }
 
+  @override
+  String applyStageElapsed(String stage, String elapsed) => '$stage — $elapsed';
   @override
   String get applyInstallingCompanions => 'Installing companion files…';
   @override

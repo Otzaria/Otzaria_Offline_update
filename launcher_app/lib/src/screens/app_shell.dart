@@ -20,6 +20,7 @@ import '../services/byte_size.dart';
 import '../services/elevation.dart';
 import '../services/file_reveal.dart';
 import '../services/mirror_download_undo.dart';
+import '../services/mirror_junk_sweeper.dart';
 import '../settings/app_settings.dart';
 import '../settings/safer_mode.dart';
 import '../settings/settings_controller.dart';
@@ -652,6 +653,12 @@ class _AppShellState extends State<AppShell> {
         t.shell.navPlugins,
     ];
 
+    // ניקוי שקט של מה שאף מניפסט אינו מזכיר עוד. **רק כששום רכיב לא נכשל**:
+    // הורדה שנפלה באמצע השאירה נכסים שהמניפסט עוד לא מכיר, ומחיקתם פירושה
+    // להוריד אותם שוב. ראו [MirrorJunkSweeper] למה זה לא מספיק שכל רכיב
+    // מנקה אחרי עצמו.
+    if (failed.isEmpty) unawaited(_sweepMirrorJunk());
+
     // הודעה אחת בסוף, לפי [summarizeDownload] — ראו שם למה לא שתיים.
     switch (summarizeDownload(failed: failed, skipped: skipped)) {
       case DownloadSummary.failed:
@@ -660,6 +667,15 @@ class _AppShellState extends State<AppShell> {
         UiSnack.show(t.home.downloadSkippedSnack(skipped.join(', ')));
       case DownloadSummary.done:
         UiSnack.showSuccess(t.home.downloadDoneSnack);
+    }
+  }
+
+  /// מנקה, ומדווח **ללוג בלבד**: זו תחזוקה ולא פעולה של המשתמש, ושורה על
+  /// המסך הייתה רק מעוררת את השאלה מה נמחק.
+  Future<void> _sweepMirrorJunk() async {
+    final freed = await MirrorJunkSweeper(dataDir: widget.dataDir).sweep();
+    if (freed > 0) {
+      AppLogger.instance.info('ניקוי המראה פינה ${formatBytes(freed)}');
     }
   }
 

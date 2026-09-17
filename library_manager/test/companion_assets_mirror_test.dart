@@ -232,6 +232,29 @@ void main() {
     }
   });
 
+  test('היעד ידוע כבר בדיווח הראשון, לפני שבייט כלשהו עבר', () async {
+    final totals = <int?>[];
+    var firstReceived = -1;
+    final built = buildMirror();
+    addTearDown(built.mirror.dispose);
+
+    await built.mirror.sync(
+      destDir: destDir,
+      onBytesProgress: (downloaded, total) {
+        if (totals.isEmpty) firstReceived = downloaded;
+        totals.add(total);
+      },
+    );
+
+    // בלי זה הקורא נשאר בלי יעד עד שכל שלושת הפריטים התחילו לרדת, ומד
+    // ההתקדמות מדד עד אז בסרגל אחר לגמרי.
+    expect(firstReceived, 0);
+    expect(totals.first, isNotNull);
+    expect(totals.any((t) => t == null), isFalse);
+    // ויעד שאינו זז: קפיצה בו היא בדיוק מה שהפך את האחוזים ללא אמינים.
+    expect(totals.toSet(), hasLength(1));
+  });
+
   test('קובץ נלווה שכבר על הכונן אינו נספר במד', () async {
     final first = buildMirror();
     addTearDown(first.mirror.dispose);

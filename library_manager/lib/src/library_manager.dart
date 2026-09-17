@@ -252,8 +252,13 @@ class LibraryManager {
   ///
   /// [onWarning] מקבל אזהרה מהייצוא עצמו — למשל manifest שאינו קריא ולכן
   /// ה-edge שלו דולג. כשל **רשת** אינו אזהרה אלא זריקה, ראו `export`.
+  ///
+  /// [onCompanionStage] הוא ערוץ נפרד בכוונה: שני השלבים רצים במקביל, וכשהם
+  /// כתבו לאותה שורת מצב היא קפצה בין "מוריד תלמוד" ל"מוריד מסד" בזמן שהמד
+  /// מתאר את שניהם יחד. בלעדיו הם חוזרים לערוץ אחד, כמקודם.
   Future<MirrorDownloadOutcome> downloadToMirror({
     void Function(String stage)? onStage,
+    void Function(String stage)? onCompanionStage,
     void Function(int doneAssets, int totalAssets)? onAssetProgress,
     void Function(int downloaded, int? total)? onBytesProgress,
     void Function(String assetName, Object error)? onCompanionWarning,
@@ -308,7 +313,7 @@ class LibraryManager {
     // מילון ישנים. כשל בהם אינו מפיל את ההורדה — ראו [CompanionAssetsMirror].
     final companionsFuture = _companionsMirror.sync(
       destDir: companionsMirrorDir,
-      onStage: onStage,
+      onStage: onCompanionStage ?? onStage,
       onBytesProgress: companionBytes.report,
       onWarning: onCompanionWarning,
       isCancelled: isCancelled,

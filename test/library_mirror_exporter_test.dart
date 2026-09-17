@@ -1404,6 +1404,46 @@ void main() {
       expect(received.last, greaterThan(4096 + 64 + 32));
     });
 
+    test('היעד מוכרז לפני הבייט הראשון, ונכס שכבר על הכונן מנוכה בו מיד',
+        () async {
+      final sizes = {
+        'seforim.db.zst': 4096,
+        'patch-v2-v3.db.zst': 64,
+        'patch-v1-v2.db.zst': 32,
+      };
+      await buildExporter(parallelReleases(), assetSizes: sizes)
+          .exporter
+          .export(destDir: destDir);
+      // מוחקים נכס אחד בלבד: השאר כבר על הכונן, ולכן היעד חייב לתאר אותו
+      // לבדו — כשהניכוי קרה רק כשהג'וב הגיע לתורו, היעד צנח באמצע והאחוז קפץ.
+      File([destDir, 'assets', 'v3', 'patch-v2-v3.db.zst']
+              .join(Platform.pathSeparator))
+          .deleteSync();
+
+      var firstReceived = -1;
+      int? firstTotal;
+      int? lastTotal;
+      final again = buildExporter(parallelReleases(), assetSizes: sizes);
+      await again.exporter.export(
+        destDir: destDir,
+        onBytesProgress: (downloaded, total) {
+          if (firstReceived < 0) {
+            firstReceived = downloaded;
+            firstTotal = total;
+          }
+          lastTotal = total;
+        },
+      );
+
+      // הדיווח הראשון הוא ההכרזה עצמה: יעד ידוע, בלי בייט אחד שעבר.
+      expect(firstReceived, 0);
+      expect(firstTotal, isNotNull);
+      // המסד המלא (4096) כבר על הכונן ומנוכה כבר כאן, לא כשיגיע תורו בתור.
+      expect(firstTotal, lessThan(sizes['seforim.db.zst']!));
+      // ומעל הכול: היעד אינו זז באמצע — זה מה שהקפיץ את האחוזים.
+      expect(lastTotal, firstTotal);
+    });
+
     test('נכס שכבר שלם על הכונן אינו נספר במד — לא ביעד ולא במונה', () async {
       final sizes = {
         'seforim.db.zst': 4096,
