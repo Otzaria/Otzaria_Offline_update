@@ -8,4 +8,5 @@ export 'src/services/library_db_locator.dart';
 export 'src/services/library_state_store.dart';
 export 'src/services/otzaria_process_guard.dart';
 export 'src/services/otzaria_settings_reader.dart';
+export 'src/services/otzaria_settings_writer.dart';
 export 'src/services/zstd_decompressor.dart';

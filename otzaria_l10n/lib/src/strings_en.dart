@@ -2159,6 +2159,11 @@ class _LibraryDomain extends LibraryDomainStrings {
       'The database was updated, but installing the companion files ($names) '
       'failed — so the library update will keep being offered.';
   @override
+  String libraryLocationNeedsManualSetting(String dbPath) =>
+      'The library was installed in $dbPath, but Otzaria\'s settings could '
+      'not be updated. Open Otzaria and point it at this folder in the '
+      'library location screen.';
+  @override
   String companionsOnlyPending(String names) =>
       'The database is up to date; companion files pending: $names';
   @override

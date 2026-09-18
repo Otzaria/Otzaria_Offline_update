@@ -69,6 +69,10 @@ class LibraryDbLocator {
   /// בהתקנות ישנות/מסוימות (למשל חבילת "FULL" שמתקינה במיקום קבוע).
   static const String legacyFallbackLibraryPath = r'C:\אוצריא';
 
+  /// הסימון שהמתקין של אוצריא כותב ליד ה-exe בהתקנת מנהל
+  /// (`AppPaths.isWindowsSystemInstall`).
+  static const String systemInstallMarkerFileName = 'system_install.marker';
+
   /// תיקיות ה-`books` שאוצריא משתמשת בהן כברירת מחדל, לפי סדר עדיפות.
   ///
   /// **נגזר מקוד המקור של אוצריא** (`lib/core/app_paths.dart`,
@@ -80,10 +84,12 @@ class LibraryDbLocator {
   ///   מערכתית `/Library/Application Support/otzaria/books`.
   ///
   /// [environment] מוזרק כדי שהבדיקות יוכלו לדמות את שתי הפלטפורמות בלי
-  /// לגעת בסביבה האמיתית.
+  /// לגעת בסביבה האמיתית. [systemInstall] הופך את הסדר — ראו
+  /// [isSystemInstall].
   static List<String> defaultDbDirs({
     required String operatingSystem,
     required Map<String, String> environment,
+    bool systemInstall = false,
   }) {
     final path = _pathFor(operatingSystem);
     return [
@@ -92,6 +98,7 @@ class LibraryDbLocator {
         environment: environment,
         // פלטפורמה לא מוכרת מחזירה ריק במקום לנחש — יש על כך בדיקה.
         guessUnknownPlatform: false,
+        systemWideFirst: systemInstall,
       ))
         path.join(root, 'books'),
     ];
@@ -109,35 +116,48 @@ class LibraryDbLocator {
   /// [guessUnknownPlatform] הוא ההבדל **המכוון** בין שני הקוראים: איתור המסד
   /// מסרב לנחש נתיב בפלטפורמה שאינה מוכרת, ואיתור ההגדרות דווקא מנסה את
   /// מיקום ה-XDG — כדי שבדיקות שרצות בלינוקס ב-CI לא יקבלו רשימה ריקה.
+  ///
+  /// [systemWideFirst] הופך את סדר שני המיקומים בווינדוס: בהתקנת מנהל
+  /// ברירת המחדל של אוצריא היא `%ProgramData%` ולא `%APPDATA%`. רלוונטי
+  /// למיקום **הספרייה** בלבד.
+  ///
+  /// [userOnly] משמיט לגמרי את המיקום המערכתי — לכתיבת ההגדרות, שיושבות
+  /// תמיד בשורש של המשתמש. בלעדיו סביבה בלי `%APPDATA%` הייתה מחזירה את
+  /// `%ProgramData%` כ"ראשון", כלומר כותבת הגדרות למקום שאוצריא לא קוראת ממנו.
   static List<String> _platformDataRoots({
     required String operatingSystem,
     required Map<String, String> environment,
     required bool guessUnknownPlatform,
+    bool systemWideFirst = false,
+    bool userOnly = false,
   }) {
     final path = _pathFor(operatingSystem);
-    final roots = <String>[];
+    final user = <String>[];
+    final system = <String>[];
 
-    void addUnder(String? base, List<String> parts) {
+    void addUnder(List<String> into, String? base, List<String> parts) {
       if (base == null || base.isEmpty) return;
-      roots.add(path.joinAll([base, ...parts]));
+      into.add(path.joinAll([base, ...parts]));
     }
 
     switch (operatingSystem) {
       case 'windows':
-        addUnder(environment['APPDATA'], const ['otzaria']);
-        addUnder(environment['ProgramData'], const ['otzaria']);
+        addUnder(user, environment['APPDATA'], const ['otzaria']);
+        addUnder(system, environment['ProgramData'], const ['otzaria']);
       case 'macos':
-        addUnder(environment['HOME'],
+        addUnder(user, environment['HOME'],
             const ['Library', 'Application Support', 'otzaria']);
-        roots.add(path.join('/Library', 'Application Support', 'otzaria'));
+        system.add(path.join('/Library', 'Application Support', 'otzaria'));
       default:
         // הלאנצ'ר לא נבנה ללינוקס, אבל הבדיקות רצות שם ב-CI.
         if (operatingSystem == 'linux' || guessUnknownPlatform) {
-          addUnder(environment['HOME'], const ['.local', 'share', 'otzaria']);
+          addUnder(
+              user, environment['HOME'], const ['.local', 'share', 'otzaria']);
         }
     }
 
-    return roots;
+    if (userOnly) return user;
+    return systemWideFirst ? [...system, ...user] : [...user, ...system];
   }
 
   /// התיקייה שבה יושב ה-executable של אוצריא, לפי נתיב ההפעלה: ב-macOS זהו
@@ -155,11 +175,8 @@ class LibraryDbLocator {
   /// כמו `AppPaths.getDataRootPath`.
   Future<List<String>> otzariaDataRoots(String? launchPath) async {
     final roots = <String>[];
-    final exeDir = exeDirFor(launchPath);
-    if (exeDir != null &&
-        await File(_path.join(exeDir, portableMarkerFileName)).exists()) {
-      roots.add(_path.join(exeDir, portableDataFolderName));
-    }
+    final portable = await portableDataRoot(launchPath);
+    if (portable != null) roots.add(portable);
 
     roots.addAll(_platformDataRoots(
       operatingSystem: _operatingSystem,
@@ -167,6 +184,63 @@ class LibraryDbLocator {
       guessUnknownPlatform: true,
     ));
     return roots;
+  }
+
+  /// תיקיית הנתונים של התקנה **ניידת** (`portable.marker` ליד ה-exe), או
+  /// `null` כשההתקנה אינה כזו.
+  Future<String?> portableDataRoot(String? launchPath) async {
+    final exeDir = exeDirFor(launchPath);
+    if (exeDir == null) return null;
+    if (!await File(_path.join(exeDir, portableMarkerFileName)).exists()) {
+      return null;
+    }
+    return _path.join(exeDir, portableDataFolderName);
+  }
+
+  /// השורש היחיד שאוצריא **כותבת** אליו את ההגדרות — תרגום של
+  /// `AppPaths.getDataRootPath`: תיקיית ההתקנה הניידת אם יש, ואחרת השורש של
+  /// המשתמש. `%ProgramData%` לעולם אינו כזה: שם יושבת לכל היותר הספרייה
+  /// בהתקנת מנהל, וקופסת ההגדרות נשארת אצל המשתמש. `null` = אין מיקום ידוע,
+  /// ואז אין לאן לכתוב.
+  Future<String?> otzariaSettingsRoot(String? launchPath) async {
+    final portable = await portableDataRoot(launchPath);
+    if (portable != null) return portable;
+
+    final roots = _platformDataRoots(
+      operatingSystem: _operatingSystem,
+      environment: _environment,
+      guessUnknownPlatform: true,
+      userOnly: true,
+    );
+    return roots.isEmpty ? null : roots.first;
+  }
+
+  /// האם אוצריא הותקנה כמנהל (התקנה מערכתית) — תרגום של
+  /// `AppPaths.isWindowsSystemInstall`: סימון ליד ה-exe, או exe תחת
+  /// `Program Files`. בהתקנה כזו ברירת המחדל של הספרייה היא `%ProgramData%`,
+  /// ולכן ספרייה שהותקנה ב-`%APPDATA%` פשוט לא נמצאת. התקנה ניידת לעולם
+  /// אינה מערכתית. מחוץ לווינדוס תמיד `false` — שם הסימון הוא קיום תיקייה
+  /// מערכתית, שממילא נבדק בהמשך הרשימה.
+  Future<bool> isSystemInstall(String? launchPath) async {
+    if (_operatingSystem != 'windows') return false;
+    final exeDir = exeDirFor(launchPath);
+    if (exeDir == null) return false;
+    if (await File(_path.join(exeDir, portableMarkerFileName)).exists()) {
+      return false;
+    }
+    if (await File(_path.join(exeDir, systemInstallMarkerFileName)).exists()) {
+      return true;
+    }
+    final lower = exeDir.toLowerCase();
+    for (final key in const ['ProgramFiles', 'ProgramFiles(x86)']) {
+      final base = _environment[key];
+      if (base != null &&
+          base.isNotEmpty &&
+          lower.startsWith(base.toLowerCase())) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// תיקיית הספרייה המצורפת (חבילת FULL) ליד ההתקנה, או `null`. הסימון הוא
@@ -225,6 +299,7 @@ class LibraryDbLocator {
     for (final dir in defaultDbDirs(
       operatingSystem: _operatingSystem,
       environment: _environment,
+      systemInstall: await isSystemInstall(launchPath),
     )) {
       paths.add(_path.join(dir, databaseFileName));
     }

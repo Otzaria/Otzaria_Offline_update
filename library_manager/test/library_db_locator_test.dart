@@ -426,8 +426,7 @@ void main() {
       expect(dirs, ['/Library/Application Support/otzaria/books']);
     });
 
-    test('Windows: APPDATA first, then ProgramData for a system-wide install',
-        () {
+    test('Windows: APPDATA first, then ProgramData in a per-user install', () {
       final dirs = LibraryDbLocator.defaultDbDirs(
         operatingSystem: 'windows',
         environment: const {
@@ -439,6 +438,24 @@ void main() {
       expect(dirs, [
         r'C:\Users\dov\AppData\Roaming\otzaria\books',
         r'C:\ProgramData\otzaria\books',
+      ]);
+    });
+
+    // `AppPaths.getDefaultLibraryPath` באוצריא מחזיר `%ProgramData%` בהתקנת
+    // מנהל — התקנה לתוך `%APPDATA%` שם היא ספרייה שאוצריא לא מחפשת בה.
+    test('Windows: ProgramData ראשון בהתקנה מערכתית', () {
+      final dirs = LibraryDbLocator.defaultDbDirs(
+        operatingSystem: 'windows',
+        environment: const {
+          'APPDATA': r'C:\Users\dov\AppData\Roaming',
+          'ProgramData': r'C:\ProgramData',
+        },
+        systemInstall: true,
+      );
+
+      expect(dirs, [
+        r'C:\ProgramData\otzaria\books',
+        r'C:\Users\dov\AppData\Roaming\otzaria\books',
       ]);
     });
 
@@ -564,6 +581,164 @@ void main() {
             .otzariaDataRoots(null),
         ['/home/dov/.local/share/otzaria'],
       );
+    });
+
+    /// שורש **הכתיבה** אינו הראשון ברשימת הקריאה: קופסת ההגדרות יושבת תמיד
+    /// אצל המשתמש, וכתיבה ל-`%ProgramData%` הייתה נבלעת בלי שאוצריא תקרא
+    /// אותה אי-פעם.
+    group('otzariaSettingsRoot', () {
+      test('Windows: תמיד APPDATA, לעולם לא ProgramData', () async {
+        expect(
+          await locatorFor('windows', const {
+            'APPDATA': r'C:\Users\dov\AppData\Roaming',
+            'ProgramData': r'C:\ProgramData',
+          }).otzariaSettingsRoot(null),
+          r'C:\Users\dov\AppData\Roaming\otzaria',
+        );
+      });
+
+      test('בלי APPDATA מחזיר null — ולא נופל ל-ProgramData', () async {
+        expect(
+          await locatorFor('windows', const {'ProgramData': r'C:\ProgramData'})
+              .otzariaSettingsRoot(null),
+          isNull,
+        );
+      });
+
+      test('macOS: השורש של המשתמש, לא /Library המערכתי', () async {
+        expect(
+          await locatorFor('macos', const {'HOME': '/Users/dov'})
+              .otzariaSettingsRoot(null),
+          '/Users/dov/Library/Application Support/otzaria',
+        );
+        expect(
+          await locatorFor('macos', const {}).otzariaSettingsRoot(null),
+          isNull,
+        );
+      });
+    });
+  });
+
+  /// ההתקנה הניידת מזיזה גם את ההגדרות, ולכן שורש הכתיבה חייב ללכת אחריה.
+  group('LibraryDbLocator.otzariaSettingsRoot — התקנה ניידת', () {
+    late Directory tempDir;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('db-settings-root-');
+    });
+
+    tearDown(() async {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+    });
+
+    test('הסימון ליד ה-exe מנצח את השורש של המשתמש', () async {
+      if (!Platform.isWindows) {
+        markTestSkipped('נתיבי Windows אמיתיים נדרשים לבדיקת קיום קובץ');
+        return;
+      }
+      final installDir = p.join(tempDir.path, 'drive');
+      await Directory(installDir).create(recursive: true);
+      await File(p.join(installDir, LibraryDbLocator.portableMarkerFileName))
+          .writeAsString('');
+
+      final locator = LibraryDbLocator(
+        stateStore: LibraryStateStore(p.join(tempDir.path, 'state.json')),
+        operatingSystem: 'windows',
+        environment: {'APPDATA': p.join(tempDir.path, 'Roaming')},
+      );
+
+      expect(
+        await locator.otzariaSettingsRoot(p.join(installDir, 'otzaria.exe')),
+        p.join(installDir, LibraryDbLocator.portableDataFolderName),
+      );
+    });
+  });
+
+  /// זיהוי התקנת מנהל — האות שקובע אם ברירת המחדל של הספרייה היא
+  /// `%ProgramData%`. נוגע בקבצים אמיתיים בנתיבי Windows, ולכן רץ שם בלבד.
+  group('LibraryDbLocator.isSystemInstall', () {
+    late Directory tempDir;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('db-sysinstall-test-');
+    });
+
+    tearDown(() async {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+    });
+
+    LibraryDbLocator locator({String? programFiles}) => LibraryDbLocator(
+          stateStore: LibraryStateStore(p.join(tempDir.path, 'state.json')),
+          operatingSystem: 'windows',
+          environment: {
+            'APPDATA': p.join(tempDir.path, 'Roaming'),
+            'ProgramData': p.join(tempDir.path, 'ProgramData'),
+            if (programFiles != null) 'ProgramFiles': programFiles,
+          },
+        );
+
+    /// `true` בווינדוס בלבד — בשאר הפלטפורמות ה-`p.windows` שבמאתר לא יתאים
+    /// לנתיבי ה-tempDir, וקיום הקבצים ייבדק על נתיב מעורבב.
+    bool onWindows() {
+      if (Platform.isWindows) return true;
+      markTestSkipped('נתיבי Windows אמיתיים נדרשים לבדיקת קיום קובץ');
+      return false;
+    }
+
+    Future<String> exeIn(String dir, {List<String> markers = const []}) async {
+      await Directory(dir).create(recursive: true);
+      for (final marker in markers) {
+        await File(p.join(dir, marker)).writeAsString('');
+      }
+      return p.join(dir, 'otzaria.exe');
+    }
+
+    test('סימון ליד ה-exe = התקנה מערכתית', () async {
+      if (!onWindows()) return;
+      final exe = await exeIn(
+        p.join(tempDir.path, 'app'),
+        markers: [LibraryDbLocator.systemInstallMarkerFileName],
+      );
+
+      expect(await locator().isSystemInstall(exe), isTrue);
+    });
+
+    test('exe תחת Program Files = התקנה מערכתית גם בלי סימון', () async {
+      if (!onWindows()) return;
+      final programFiles = p.join(tempDir.path, 'Program Files');
+      final exe = await exeIn(p.join(programFiles, 'Otzaria'));
+
+      expect(
+        await locator(programFiles: programFiles).isSystemInstall(exe),
+        isTrue,
+      );
+    });
+
+    // התקנה ניידת שמה את הכול ליד התוכנה, ו-`%ProgramData%` שם הוא בדיוק
+    // המקום שאוצריא לא תסתכל בו.
+    test('התקנה ניידת לעולם אינה מערכתית', () async {
+      if (!onWindows()) return;
+      final programFiles = p.join(tempDir.path, 'Program Files');
+      final exe = await exeIn(
+        p.join(programFiles, 'Otzaria'),
+        markers: [
+          LibraryDbLocator.portableMarkerFileName,
+          LibraryDbLocator.systemInstallMarkerFileName,
+        ],
+      );
+
+      expect(
+        await locator(programFiles: programFiles).isSystemInstall(exe),
+        isFalse,
+      );
+    });
+
+    test('התקנת משתמש רגילה, ובלי נתיב הפעלה בכלל', () async {
+      if (!onWindows()) return;
+      final exe = await exeIn(p.join(tempDir.path, 'Local', 'Otzaria'));
+
+      expect(await locator().isSystemInstall(exe), isFalse);
+      expect(await locator().isSystemInstall(null), isFalse);
     });
   });
 }

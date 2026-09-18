@@ -2017,6 +2017,10 @@ class _LibraryDomain extends LibraryDomainStrings {
       'המסד עודכן, אך התקנת הקבצים הנלווים ($names) נכשלה — ולכן ההצעה לעדכן '
       'את הספרייה תחזור.';
   @override
+  String libraryLocationNeedsManualSetting(String dbPath) =>
+      'הספרייה הותקנה ב-$dbPath, אך לא ניתן היה לעדכן את ההגדרות של אוצריא. '
+      'יש לפתוח את אוצריא ולהצביע על התיקייה הזו במסך בחירת מיקום הספרייה.';
+  @override
   String companionsOnlyPending(String names) =>
       'המסד מעודכן; ממתינים קבצים נלווים: $names';
   @override

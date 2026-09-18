@@ -12,6 +12,9 @@ import 'services/external_update_notice.dart';
 import 'services/library_db_locator.dart';
 import 'services/library_state_store.dart';
 import 'services/library_update_applier.dart';
+import 'services/otzaria_process_guard.dart';
+import 'services/otzaria_settings_reader.dart';
+import 'services/otzaria_settings_writer.dart';
 
 export 'services/library_update_applier.dart'
     show
@@ -73,12 +76,17 @@ class MirrorDownloadOutcome {
 /// }
 /// ```
 class LibraryManager {
+  /// [operatingSystem] ו-[environment] הן דריסות **לבדיקות בלבד**, והן
+  /// נמסרות ל-[LibraryDbLocator]: בלעדיהן בדיקה של התקנה טרייה הייתה כותבת
+  /// את מיקום הספרייה להגדרות האמיתיות של אוצריא שעל מכונת המפתח.
   LibraryManager({
     required this.dataDir,
     String? stateDir,
     this.allowPrerelease = false,
     this.personalUpdateMode = false,
     Future<String?> Function()? otzariaLaunchPath,
+    String? operatingSystem,
+    Map<String, String>? environment,
   })  : _stateStore = LibraryStateStore(
             p.join(stateDir ?? dataDir, 'library_state.json')),
         _planner = const LibraryUpdatePlanner(),
@@ -89,6 +97,8 @@ class LibraryManager {
     _locator = LibraryDbLocator(
       stateStore: _stateStore,
       otzariaLaunchPath: otzariaLaunchPath,
+      operatingSystem: operatingSystem,
+      environment: environment,
     );
   }
 
@@ -146,6 +156,10 @@ class LibraryManager {
       CompanionAssetsMirror(scheduler: _scheduler);
   final CompanionAssetsInstaller _companionsInstaller =
       const CompanionAssetsInstaller();
+
+  /// מכוון את ההגדרה של אוצריא לספרייה שהרגע הותקנה — ראו
+  /// [_pointOtzariaAtFreshDb].
+  final OtzariaSettingsWriter _settingsWriter = const OtzariaSettingsWriter();
 
   /// תיקיית המראה של הקבצים הנלווים — לצד מראת הספרייה, תחת אותו שורש.
   String get companionsMirrorDir => p.join(dataDir, 'mirror', 'companions');
@@ -528,11 +542,16 @@ class LibraryManager {
   /// במקום ה-patches ([LibraryUpdatePlan.fullDownloadFallback]) — מסלול
   /// ההתאוששות אחרי שמסלול הדלתא נכשל, למשל בגלל patch שאינו מתאים למסד
   /// שעל המחשב. אינו קורה מאליו: זו הורדה גדולה, ולכן החלטה של המשתמש.
+  ///
+  /// [onLibraryLocationNotSet] נקרא אחרי **התקנה טרייה** שלא הצלחנו לכוון
+  /// אליה את ההגדרה של אוצריא — ראו [_pointOtzariaAtFreshDb]. בלי להציג
+  /// זאת, אוצריא תיפתח על ספרייה ריקה בלי שום רמז למה.
   Future<Set<int>> applyUpdate(
     LibraryUpdateCheckResult check, {
     void Function(LibraryApplyProgress progress)? onProgress,
     void Function(String assetName, Object error)? onCompanionWarning,
     void Function(Object error)? onStateWarning,
+    void Function(String dbPath)? onLibraryLocationNotSet,
     bool Function()? isCancelled,
     bool useFullDownloadFallback = false,
   }) async {
@@ -619,6 +638,7 @@ class LibraryManager {
                 version: appliedVersion,
                 tag: appliedTag,
                 onStateWarning: onStateWarning,
+                onLibraryLocationNotSet: onLibraryLocationNotSet,
               );
               rethrow;
             }
@@ -643,6 +663,7 @@ class LibraryManager {
         version: appliedVersion,
         tag: appliedTag,
         onStateWarning: onStateWarning,
+        onLibraryLocationNotSet: onLibraryLocationNotSet,
       );
     }
 
@@ -708,6 +729,7 @@ class LibraryManager {
     required int? version,
     required String? tag,
     void Function(Object error)? onStateWarning,
+    void Function(String dbPath)? onLibraryLocationNotSet,
   }) async {
     // רישומי ה-state הם קבצי JSON זעירים, אבל הם נכתבים **אחרי** שהמסד כבר
     // הוחלף. כשל שלהם (כונן מלא, USB שנשלף) אינו הופך עדכון שהצליח לכישלון —
@@ -732,6 +754,13 @@ class LibraryManager {
         await _stateStore.saveCustomDbPath(dbPath);
       }
     });
+    // ספרייה טרייה שאוצריא לא מכוונת אליה היא ספרייה שהיא לא תראה בכלל —
+    // היא אינה סורקת את ברירת המחדל שלה. כשל כאן אינו מבטל את העדכון, אבל
+    // המשתמש חייב לדעת שנשאר לו צעד ידני.
+    if (check.isFreshInstall) {
+      final pointed = await _pointOtzariaAtFreshDb(dbPath);
+      if (!pointed) onLibraryLocationNotSet?.call(dbPath);
+    }
     // רושמים מאיזה release התוכן הנוכחי הגיע, **יחד עם הגרסה** — זה מה
     // שמאפשר לזהות בהמשך מסד מתוקן שפורסם באותו db_version, ומונע השוואה
     // מול רישום שנעשה בגרסה אחרת (ראו LibraryUpdatePlanner).
@@ -753,6 +782,58 @@ class LibraryManager {
       dbVersion: version,
       releaseTag: tag,
     );
+  }
+
+  /// מכוון את ההגדרה של אוצריא אל הספרייה שהרגע הותקנה, ומחזיר אם היא
+  /// אכן תמצא אותה מעכשיו.
+  ///
+  /// **אוצריא אינה סורקת את ברירת המחדל שלה**: `getDatabasePath` נופל
+  /// ל-`'.'` כש-`key-library-path` ריק, ולכן ספרייה טרייה שהותקנה במיקום
+  /// ברירת המחדל פשוט אינה נראית לה (דיווח בפורום, פוסט 39342). הגדרה
+  /// **קיימת** לא נדרסת: היא בחירה של המשתמש, וממילא היא זו שקבעה לאן
+  /// התקנו — אז היא כבר מצביעה לכאן, אלא אם המשתמש בחר יעד אחר בעצמו,
+  /// ואז נכון שיקבל את ההוראה הידנית.
+  Future<bool> _pointOtzariaAtFreshDb(String dbPath) async {
+    try {
+      final launchPath = await _locator.otzariaLaunchPath?.call();
+      final root = await _locator.otzariaSettingsRoot(launchPath);
+      if (root == null) return false;
+
+      final current = await _locator.settingsReader.read(root);
+      if (current != null && !current.isEmpty) {
+        final resolved = current.resolveDbPath(
+          path: p.context,
+          fileName: LibraryDbLocator.databaseFileName,
+        );
+        return resolved != null && p.equals(resolved, dbPath);
+      }
+
+      // קופסה שקיימת אך לא נקראה (פגומה, מוצפנת, פורמט אחר) מוחזרת
+      // כ-`null` בדיוק כמו קופסה שאינה קיימת — והכתיבה לתוכה עלולה
+      // להחמיר. כותבים רק כשאין קובץ בכלל, או כשהוא נקרא והתברר כריק.
+      final boxFile = File(p.join(root, OtzariaSettingsReader.boxFileName));
+      if (current == null && await boxFile.exists()) return false;
+
+      // פתיחת הקופסה במקומה לוקחת נעילה בתיקייה של אוצריא. אוצריא רצה
+      // מחזיקה אותה, וניסיון כזה נוגע בקובץ הנעילה שלה — ולכן פשוט לא
+      // מנסים. ההחלה עצמה כבר חסומה כשהיא פתוחה; זו הבדיקה לתהליך שעלה
+      // באמצע העדכון הארוך.
+      if (await const OtzariaProcessGuard().isAnyRunning(
+        OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
+      )) {
+        return false;
+      }
+
+      return await _settingsWriter.pointLibraryAt(
+        dataRootPath: root,
+        dbPath: dbPath,
+        // אוצריא מותקנת אך מעולם לא רצה — אין עדיין שורש נתונים, ואנחנו
+        // יוצרים אותו. בלי נתיב הפעלה ידוע לא ניצור תיקיות מיותרות.
+        allowCreate: launchPath != null,
+      );
+    } catch (_) {
+      return false;
+    }
   }
 
   /// סוגר את חיבורי ה-HTTP הפנימיים. יש לקרוא כשמסיימים להשתמש

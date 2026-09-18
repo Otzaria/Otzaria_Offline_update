@@ -555,6 +555,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     // "יש עדכון" אחרי החלה שהצליחה.
     final companionFailures = <String, Object>{};
 
+    // התקנה טרייה שההגדרה של אוצריא לא כוונה אליה — היא לא תראה שם ספרים,
+    // ורק הודעה מפורשת אומרת למשתמש מה נשאר לו לעשות.
+    String? locationNotSetFor;
+
     try {
       await _manager.applyUpdate(
         _lastCheck!,
@@ -585,6 +589,11 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
         },
         onStateWarning: (error) => AppLogger.instance
             .warn('רישום מצב העדכון נכשל — הבדיקה הבאה תציע שוב: $error'),
+        onLibraryLocationNotSet: (dbPath) {
+          locationNotSetFor = dbPath;
+          AppLogger.instance
+              .warn('מיקום הספרייה לא נכתב להגדרות של אוצריא: $dbPath');
+        },
       );
       AppLogger.instance.info(
         'update() הסתיים בהצלחה, נלווים שנכשלו=${companionFailures.length}',
@@ -601,6 +610,13 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
         errorMessage = AppL10n.strings.libraryDomain
             .companionsInstallFailed(companionFailures.keys.join(', '));
         needsElevation = companionFailures.values.any(Elevation.isAccessDenied);
+      }
+      // גובר על אזהרת הנלווים: ספרייה שאוצריא לא תמצא בכלל היא התקלה
+      // הגדולה מבין השתיים.
+      final notSet = locationNotSetFor;
+      if (notSet != null) {
+        errorMessage = AppL10n.strings.libraryDomain
+            .libraryLocationNeedsManualSetting(notSet);
       }
     } catch (e, st) {
       status = LibraryModuleStatus.error;

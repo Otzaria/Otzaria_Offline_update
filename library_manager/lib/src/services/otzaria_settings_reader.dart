@@ -62,14 +62,18 @@ class OtzariaSettingsReader {
   static int _readCounter = 0;
   static Future<void> _lock = Future<void>.value();
 
-  Future<OtzariaSettings?> read(String dataRootPath) {
+  /// התור שכל גישה לקופסאות של אוצריא עוברת בו — קריאה **וכתיבה**
+  /// (`OtzariaSettingsWriter`) גם יחד, מאותה סיבה: `Hive.init` והמזהה לפי
+  /// שם הם מצב גלובלי.
+  static Future<T> runExclusively<T>(Future<T> Function() action) {
     final previous = _lock;
     final completer = Completer<void>();
     _lock = completer.future;
-    return previous
-        .then((_) => _readExclusively(dataRootPath))
-        .whenComplete(completer.complete);
+    return previous.then((_) => action()).whenComplete(completer.complete);
   }
+
+  Future<OtzariaSettings?> read(String dataRootPath) =>
+      runExclusively(() => _readExclusively(dataRootPath));
 
   Future<OtzariaSettings?> _readExclusively(String dataRootPath) async {
     final source = File(p.join(dataRootPath, boxFileName));

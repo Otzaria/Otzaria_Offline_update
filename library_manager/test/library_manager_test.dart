@@ -932,6 +932,156 @@ void main() {
     });
   });
 
+  /// אוצריא אינה סורקת את ברירת המחדל שלה (`getDatabasePath` נופל ל-`'.'`
+  /// כשההגדרה ריקה), ולכן ספרייה טרייה חייבת להיכתב להגדרות שלה — אחרת היא
+  /// נפתחת על ספרייה ריקה. הסביבה נדרסת לתיקייה זמנית: הבדיקה לא תיגע
+  /// בהגדרות האמיתיות של מי שמריץ אותה.
+  group('התקנה טרייה מכוונת את ההגדרות של אוצריא', () {
+    late String otzariaRoot;
+    late LibraryManager manager;
+
+    /// מנהל עם סביבה מבודדת — `%APPDATA%` ו-`HOME` מצביעים לתיקייה זמנית.
+    LibraryManager isolatedManager() {
+      otzariaRoot = Platform.isWindows
+          ? p.join(tempDir.path, 'Roaming', 'otzaria')
+          : p.join(tempDir.path, 'home', 'Library', 'Application Support',
+              'otzaria');
+      return LibraryManager(
+        dataDir: dataDir,
+        operatingSystem: Platform.isWindows ? 'windows' : 'macos',
+        environment: Platform.isWindows
+            ? {'APPDATA': p.join(tempDir.path, 'Roaming')}
+            : {'HOME': p.join(tempDir.path, 'home')},
+      );
+    }
+
+    setUp(() {
+      manager = isolatedManager();
+      addTearDown(manager.dispose);
+    });
+
+    /// התקנה טרייה אמיתית: הורדה מלאה מקובץ מקומי אל [dbPath]. בלי תוכנית
+    /// `applyUpdate` פשוט לא עושה כלום, וגם הכיוון להגדרות לא היה רץ.
+    LibraryUpdateCheckResult freshCheck(String dbPath) {
+      final compressed = p.join(tempDir.path, 'fresh-$builtDbCount.db.zst');
+      File(compressed).writeAsBytesSync(
+        compressWithZstd(bindings!, buildRealDb(5)),
+        flush: true,
+      );
+      return LibraryUpdateCheckResult(
+        dbPath: dbPath,
+        isFreshInstall: true,
+        latestVersion: 5,
+        latestContentTag: 'v5',
+        plan: LibraryUpdatePlan.fullDownload(
+          localVersion: 0,
+          targetVersion: 5,
+          asset: ReleaseAsset(
+            name: 'seforim.db.zst',
+            downloadUrl: compressed,
+            size: File(compressed).lengthSync(),
+          ),
+          releaseTag: 'v5',
+        ),
+      );
+    }
+
+    /// הבדיקות כאן מחילות בפועל, ולכן הן תלויות ב-zstd ובאוצריא סגורה —
+    /// בדיוק כמו שאר בדיקות ה-`applyUpdate`.
+    Future<bool> canApply() async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return false;
+      }
+      if (await const OtzariaProcessGuard()
+          .isAnyRunning(OtzariaProcessGuard.processNamesFor(
+        Platform.operatingSystem,
+      ))) {
+        markTestSkipped('אוצריא פתוחה — ההחלה נחסמת בכוונה');
+        return false;
+      }
+      return true;
+    }
+
+    test('ההגדרה נכתבת, והקורא מוצא אחר כך את אותו מסד', () async {
+      if (!await canApply()) return;
+      final dbPath = p.join(otzariaRoot, 'books', 'seforim.db');
+      await Directory(p.dirname(dbPath)).create(recursive: true);
+
+      final notSet = <String>[];
+      await manager.applyUpdate(
+        freshCheck(dbPath),
+        onLibraryLocationNotSet: notSet.add,
+      );
+
+      expect(notSet, isEmpty);
+      final settings = await const OtzariaSettingsReader().read(otzariaRoot);
+      expect(settings?.resolveDbPath(path: p.context), dbPath);
+    });
+
+    // בחירה קיימת של המשתמש אינה נדרסת — אבל אז היא גם מצביעה למקום אחר,
+    // וזה בדיוק המצב שבו צריך לומר לו להצביע ידנית.
+    test('הגדרה קיימת שמצביעה למקום אחר מייצרת התרעה ולא נדרסת', () async {
+      if (!await canApply()) return;
+      await Directory(otzariaRoot).create(recursive: true);
+      final other = p.join(tempDir.path, 'old-library', 'books');
+      await const OtzariaSettingsWriter().pointLibraryAt(
+        dataRootPath: otzariaRoot,
+        dbPath: p.join(other, 'seforim.db'),
+      );
+
+      final dbPath = p.join(tempDir.path, 'usb', 'seforim.db');
+      await Directory(p.dirname(dbPath)).create(recursive: true);
+
+      final notSet = <String>[];
+      await manager.applyUpdate(
+        freshCheck(dbPath),
+        onLibraryLocationNotSet: notSet.add,
+      );
+
+      expect(notSet, [dbPath]);
+      final settings = await const OtzariaSettingsReader().read(otzariaRoot);
+      expect(settings?.libraryPath, other);
+    });
+
+    // קופסה פגומה/מוצפנת מוחזרת מהקורא כ-`null`, בדיוק כמו קופסה שאינה
+    // קיימת. כתיבה לתוכה עלולה להחמיר, ולכן היא נחסמת.
+    test('קופסה שלא ניתן לקרוא אינה נכתבת', () async {
+      if (!await canApply()) return;
+      await Directory(otzariaRoot).create(recursive: true);
+      final boxFile = File(p.join(otzariaRoot, 'app_preferences.hive'));
+      await boxFile.writeAsString('לא קופסת Hive בכלל');
+      final before = await boxFile.readAsString();
+
+      final dbPath = p.join(otzariaRoot, 'books', 'seforim.db');
+      await Directory(p.dirname(dbPath)).create(recursive: true);
+
+      final notSet = <String>[];
+      await manager.applyUpdate(
+        freshCheck(dbPath),
+        onLibraryLocationNotSet: notSet.add,
+      );
+
+      expect(notSet, [dbPath]);
+      expect(await boxFile.readAsString(), before);
+    });
+
+    test('שורש נתונים שאינו קיים ואוצריא אינה מותקנת — לא נוצר כלום', () async {
+      if (!await canApply()) return;
+      final dbPath = p.join(tempDir.path, 'books', 'seforim.db');
+      await Directory(p.dirname(dbPath)).create(recursive: true);
+
+      final notSet = <String>[];
+      await manager.applyUpdate(
+        freshCheck(dbPath),
+        onLibraryLocationNotSet: notSet.add,
+      );
+
+      expect(notSet, [dbPath]);
+      expect(await Directory(otzariaRoot).exists(), isFalse);
+    });
+  });
+
   group('peekLatestOnlineVersion — הפעולה היחידה בבדיקה שנוגעת ברשת', () {
     test('כשל רשת הוא תוצאה רגילה: זורק, ולא משאיר את המודול פגום', () async {
       if (bindings == null) {

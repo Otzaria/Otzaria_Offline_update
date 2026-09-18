@@ -684,6 +684,51 @@ moved their library. **The Hive box is read from a copy in a temp dir**
 folder and clashes with a running Otzaria; any failure returns `null` and the search
 continues.
 
+**Otzaria does not look in its own default — a fresh install must be written into
+its settings.** `DatabaseConstants.getDatabasePath` falls back to `'.'` when
+`key-library-path` is empty; `getDefaultLibraryPath` is only used by *its* own
+download screen. A library we installed at the platform default was therefore
+invisible to it (forum post 39342). `OtzariaSettingsWriter` is the one and only
+thing we write into that Hive box, and only after a **fresh** install: the box is
+opened in place (there is no other way), `key-library-path` is set to the DB's
+folder with an empty `key-library-folder-name` — exactly what `EmptyLibraryBloc`
+writes — and **only when the setting is still empty**. An existing value is the
+user's choice and is never overwritten; it is also what decided where we
+installed, so it already points here unless the user picked a different target.
+A failure returns `false`, `applyUpdate` reports it through
+`onLibraryLocationNotSet`, and the UI tells the user to point Otzaria at the
+folder. Reading stays copy-only — do not turn the reader into an in-place open.
+Five things make that in-place open safe, and each one is a bug that the review
+of this feature caught before it shipped:
+
+- **`crashRecovery: false`.** Hive's default is to "recover" a box it cannot
+  parse by **truncating the file in place**, before a single byte of ours is
+  written — on the user's live settings. The reader does not care (it works on a
+  copy); here it would silently discard everything Otzaria ever saved. A box that
+  does not open cleanly must throw and we give up.
+- **Otzaria must be closed**, re-checked with `OtzariaProcessGuard` immediately
+  before the write, not just at the start of the long update. Opening in place
+  takes an exclusive lock on `app_preferences.lock` inside Otzaria's folder, and
+  a failed attempt rewrites — on macOS, deletes — the lock file of a running
+  Otzaria.
+- **Verify `box.path`.** `Hive.openBox` resolves an already-open box **by name
+  alone** and ignores the `path` argument, so a box left open on another root
+  hands you the wrong install to write to.
+- **One `putAll`, not two `put`s.** A crash between them leaves a new
+  `key-library-path` beside a stale `key-library-folder-name`, i.e. a DB path
+  that does not exist.
+- **The settings root is `otzariaSettingsRoot`, never `otzariaDataRoots.first`.**
+  With `%APPDATA%` missing, the first read root is `%ProgramData%` — a place
+  Otzaria never reads settings from, so the write would vanish and still report
+  success.
+
+**An admin install defaults to `%ProgramData%`, not `%APPDATA%`.**
+`LibraryDbLocator.isSystemInstall` mirrors `AppPaths.isWindowsSystemInstall`
+(`system_install.marker` next to the exe, or an exe under `Program Files`;
+portable never counts) and flips the order of the two Windows defaults. Getting
+this wrong installs into a folder Otzaria does not search, with no warning —
+`isKnownToOtzaria` considers both defaults known.
+
 **A fresh install lands in those same places — never in the launcher's own folder.**
 `resolveInstallDbPath()` answers "where does a *new* library go": the user's own
 choice if there is one (**even when the file does not exist yet** — in a fresh

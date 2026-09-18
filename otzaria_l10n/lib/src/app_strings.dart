@@ -1201,6 +1201,11 @@ abstract class LibraryDomainStrings {
   String companionStillPendingAfterInstall(String name);
   String companionsInstallFailed(String names);
 
+  /// אחרי התקנה טרייה שלא הצלחנו לכוון אליה את ההגדרה של אוצריא. אוצריא
+  /// אינה סורקת את ברירת המחדל שלה, ולכן בלי ההוראה הזו היא נפתחת על
+  /// ספרייה ריקה בלי שום רמז למה.
+  String libraryLocationNeedsManualSetting(String dbPath);
+
   /// מה שהעדכון יעשה כשהמסד עצמו מעודכן ורק קבצים נלווים ממתינים. בלי זה
   /// המסך הציע "עדכון ספרייה" ליד "גרסה 27 → 27", והמשתמש קרא זאת כתקלה.
   String companionsOnlyPending(String names);
