@@ -813,6 +813,15 @@ them right after the DB — same targets, same version markers, same best-effort
 semantics (one failing item never fails the others or the DB update that succeeded).
 Sources and markers are tabulated in `library_manager/README.md`.
 
+**A version marker is not the content it stands for — and the completeness check
+must never err towards "incomplete".** The Talmud predicate asked only for
+`תלמוד בבלי/.version`, so a folder left holding one PDF of the whole Shas read as
+up to date forever (issue #33). It now also weighs the folder, against our
+`.version.contents` spec or, lacking one, a deliberately crude floor. Erring the
+other way is worse than the bug it fixes: "incomplete" means offering a ~450MB
+re-extract on every launch. Both rules and their traps are in
+`library_manager/README.md`; `CompanionAssetsInstaller._talmudContentsComplete`.
+
 **A DB updated from outside leaves Otzaria's search index stale, and the fix is a
 deep link — not a file.** Otzaria re-indexes exactly the books `PatchApplier` reports
 in `booksTouched` (or runs `ReconcileIndex` after a full download); neither runs when

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
@@ -62,6 +63,17 @@ class CompanionAssetsInstaller {
   /// חילוץ שנקטע משאיר אותו, וכך אוצריא מתעלמת מההתקנה החלקית.
   static const String talmudVersionFileName = '.version';
   static const String talmudInstallingMarker = 'installing';
+
+  /// מפרט מה שחולץ לכאן בפועל — **קובץ שלנו**, לא של אוצריא. `.version`
+  /// חייב להישאר בדיוק ה-digest שאוצריא משווה אליו, ולכן מספר הקבצים
+  /// והבייטים יושבים לצידו. נושא את הסימון שעבורו נכתב, כך שמפרט שנשאר
+  /// מהתקנה קודמת אינו נבדק מול תוכן של גרסה אחרת.
+  static const String talmudContentsFileName = '.version.contents';
+
+  /// מתחת לגודל הזה הארכיון קטן מדי מכדי שיחס הגדלים יעיד על משהו: תקורת
+  /// ה-tar (512 בייט לכל קובץ) יכולה לבדה לעבור את המרווח. ראו
+  /// [_talmudContentsComplete].
+  static const int talmudFloorMinArchiveBytes = 1 << 20;
 
   static const String catalogDatabaseFileName = 'otzar-HB_catalog.db';
   static const String dictionaryFileName = 'lexical.db';
@@ -170,7 +182,7 @@ class CompanionAssetsInstaller {
       // התנאי השני הוא מה שמבדיל בין "הוחלף בגרסה אחרת" לבין "נמחק": פריט
       // שנעלם לגמרי כן צריך לחזור.
       if (delivered[e.key] == mirrorMarkerOf(e.key, e.value) &&
-          _isInstalledLocally(e.key, libraryDir)) {
+          _isInstalledLocally(e.key, libraryDir, e.value)) {
         continue;
       }
       // **קיום אינו שלמות.** רשומה שהקובץ שלה חסר או קטוע במראה אינה הצעה
@@ -211,13 +223,21 @@ class CompanionAssetsInstaller {
 
   /// האם הפריט קיים כאן בכלל, בלי לשאול באיזו גרסה. מבדיל בין "מישהו אחר
   /// החליף אותו" (לא מציעים שוב) לבין "נמחק" (כן מציעים).
-  bool _isInstalledLocally(CompanionAsset asset, String libraryDir) {
+  bool _isInstalledLocally(
+    CompanionAsset asset,
+    String libraryDir,
+    CompanionMirrorEntry entry,
+  ) {
     switch (asset) {
       case CompanionAsset.talmud:
         final marker =
             File(p.join(libraryDir, talmudFolderName, talmudVersionFileName));
-        return marker.existsSync() &&
-            marker.readAsStringSync().trim() != talmudInstallingMarker;
+        if (!marker.existsSync()) return false;
+        final installed = marker.readAsStringSync().trim();
+        if (installed == talmudInstallingMarker) return false;
+        // תיקייה שתוכנה נמחק היא "נמחק", לא "הוחלף" — בלי זה המשמר של
+        // `delivered` בולע בדיוק את המקרה של issue #33.
+        return _talmudContentsComplete(libraryDir, entry, installed);
       case CompanionAsset.catalog:
         return File(p.join(libraryDir, catalogDatabaseFileName)).existsSync();
       case CompanionAsset.dictionary:
@@ -256,7 +276,88 @@ class CompanionAssetsInstaller {
     // מושווה מול `?? ''` בדיוק כמו שההתקנה כותבת. מניפסט בלי digest ובלי תג
     // אינו נושא מידע גרסה כלל, ופסילת הסימון הריק שנכתב עבורו הייתה מחלצת
     // ~450MB מחדש בכל פתיחה — בלי שדבר ישתנה.
-    return installed == (entry.versionMarker ?? '');
+    if (installed != (entry.versionMarker ?? '')) return false;
+    // הסימון תואם, והקבצים עדיין עשויים להיות חסרים מתחתיו.
+    return _talmudContentsComplete(libraryDir, entry, installed);
+  }
+
+  /// האם תוכן תיקיית התלמוד שלם, ולא רק הסימון שמעליו. בלי זה תיקייה שנשאר
+  /// בה PDF אחד מתוך כל הש"ס נקראת "מעודכנת" לנצח (issue #33).
+  ///
+  /// **אסור לו לטעות לחומרה.** "לא שלם" פירושו הצעה לחלץ ~450MB מחדש, והצעה
+  /// כזו שחוזרת בכל פתיחה גרועה מהבאג עצמו. לכן שני מדרגים: מפרט מדויק
+  /// שאנחנו כתבנו בהתקנה, ורק בהיעדרו רצפה גסה שהתקנה שלמה אינה יכולה
+  /// ליפול מתחתיה.
+  bool _talmudContentsComplete(
+    String libraryDir,
+    CompanionMirrorEntry entry,
+    String marker,
+  ) {
+    final dir = Directory(p.join(libraryDir, talmudFolderName));
+    final stats = _talmudFolderStats(dir);
+    final recorded = _readTalmudContents(dir, marker);
+    // `>=` ולא `==`: קובץ שנוסף לתיקייה אינו חוסר.
+    if (recorded != null) {
+      return stats.files >= recorded.files && stats.bytes >= recorded.bytes;
+    }
+    // התקנה שלא אנחנו עשינו (אוצריא עצמה, או לאנצ'ר ישן) — אין מפרט. ה-PDF
+    // כבר דחוס, ולכן חילוץ שלם שוקל בערך כמו הארכיון; רבע ממנו הוא חוסר
+    // שאי אפשר לטעות בו, וכל דחיסה אמיתית רק מרחיבה את המרווח.
+    if (entry.size < talmudFloorMinArchiveBytes) return true;
+    return stats.bytes >= entry.size ~/ 4;
+  }
+
+  /// כמה קבצים ובכמה בייטים יושבים בתיקייה, בלי שני קובצי הסימון.
+  ({int files, int bytes}) _talmudFolderStats(Directory dir) {
+    if (!dir.existsSync()) return (files: 0, bytes: 0);
+    var files = 0;
+    var bytes = 0;
+    for (final entity in dir.listSync(recursive: true, followLinks: false)) {
+      if (entity is! File) continue;
+      final name = p.basename(entity.path);
+      if (name == talmudVersionFileName || name == talmudContentsFileName) {
+        continue;
+      }
+      files++;
+      try {
+        bytes += entity.lengthSync();
+      } catch (_) {}
+    }
+    return (files: files, bytes: bytes);
+  }
+
+  /// המפרט שנכתב כאן, ורק אם הוא נכתב עבור [marker] הנוכחי — מפרט שנשאר
+  /// מגרסה קודמת מתאר תוכן אחר, והשוואה אליו הייתה הצעה שאינה נגמרת.
+  ({int files, int bytes})? _readTalmudContents(Directory dir, String marker) {
+    try {
+      final file = File(p.join(dir.path, talmudContentsFileName));
+      if (!file.existsSync()) return null;
+      final json = jsonDecode(file.readAsStringSync());
+      if (json is! Map<String, dynamic> || json['marker'] != marker) {
+        return null;
+      }
+      final files = (json['files'] as num?)?.toInt();
+      final bytes = (json['bytes'] as num?)?.toInt();
+      if (files == null || bytes == null) return null;
+      return (files: files, bytes: bytes);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// **best-effort בכוונה.** כשל כתיבה כאן אינו מבטל חילוץ שהצליח; בהיעדר
+  /// המפרט הבדיקה נופלת לרצפה, שהתקנה שלמה עוברת ממילא.
+  void _writeTalmudContents(Directory dir, String marker) {
+    try {
+      final stats = _talmudFolderStats(dir);
+      File(p.join(dir.path, talmudContentsFileName)).writeAsStringSync(
+        jsonEncode({
+          'marker': marker,
+          'files': stats.files,
+          'bytes': stats.bytes,
+        }),
+      );
+    } catch (_) {}
   }
 
   Future<bool> _installTalmud(
@@ -306,7 +407,11 @@ class CompanionAssetsInstaller {
       _deleteQuietly(tarPath);
     }
 
-    marker.writeAsStringSync(entry.versionMarker ?? '');
+    // המפרט לפני הסימון: סימון בלי מפרט נופל לרצפה, מפרט בלי סימון מתעלמים
+    // ממנו ממילא.
+    final installed = entry.versionMarker ?? '';
+    _writeTalmudContents(targetDir, installed);
+    marker.writeAsStringSync(installed);
     return true;
   }
 

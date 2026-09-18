@@ -355,6 +355,118 @@ void main() {
         'old',
       );
     });
+
+    /// **issue #33.** הפרדיקט שאל רק את `.version`, ולכן תיקייה שנשאר בה
+    /// קובץ אחד מתוך כל הש"ס נקראה "מעודכנת" — ומשמר ה-`delivered` בלע גם
+    /// את זה, כי "קיים" נמדד באותו סימון עצמו.
+    test('קובץ PDF שנמחק מתחת לסימון תקין מחזיר את התלמוד להצעה', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      writeTalmudArchive(
+        p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'),
+        ['ברכות.pdf', 'שבת.pdf', 'בבא בתרא.pdf'],
+      );
+      await writeManifest({
+        'talmud': {
+          'fileName': 'talmud_bavli_latest.tar.zst',
+          'size': mirrorSize('talmud_bavli_latest.tar.zst'),
+          'sha256': 'abc123',
+          'compressed': true,
+        },
+      });
+      await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
+      const delivered = {CompanionAsset.talmud: 'abc123'};
+      expect(await pending(delivered), isEmpty);
+
+      final talmudDir = p.join(libraryDir, 'תלמוד בבלי');
+      File(p.join(talmudDir, 'ברכות.pdf')).deleteSync();
+      File(p.join(talmudDir, 'שבת.pdf')).deleteSync();
+
+      // הסימון עדיין תקין ובכל זאת התוכן חסר.
+      expect(File(p.join(talmudDir, '.version')).readAsStringSync(), 'abc123');
+      expect(await pending(delivered), {CompanionAsset.talmud});
+
+      final repair =
+          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
+      expect(repair.outcomes[CompanionAsset.talmud],
+          CompanionInstallOutcome.installed);
+      expect(await pending(delivered), isEmpty);
+    });
+
+    /// הצד השני של אותו מטבע: קובץ ש**נוסף** לתיקייה אינו חוסר, ושורת מפרט
+    /// שנשארה מגרסה קודמת אינה נבדקת מול תוכן של גרסה אחרת. שתיהן היו
+    /// הצעה שחוזרת בכל פתיחה בלי שדבר ישתנה.
+    test('תוספת לתיקייה ומפרט מגרסה קודמת אינם מייצרים הצעה', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      writeTalmudArchive(
+        p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'),
+        ['ברכות.pdf'],
+      );
+      await writeManifest({
+        'talmud': {
+          'fileName': 'talmud_bavli_latest.tar.zst',
+          'size': mirrorSize('talmud_bavli_latest.tar.zst'),
+          'sha256': 'abc123',
+          'compressed': true,
+        },
+      });
+      await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
+      const delivered = {CompanionAsset.talmud: 'abc123'};
+
+      final talmudDir = p.join(libraryDir, 'תלמוד בבלי');
+      await File(p.join(talmudDir, 'הערות שלי.pdf')).writeAsString('משלי');
+      expect(await pending(delivered), isEmpty);
+
+      // מפרט שנכתב עבור סימון אחר — מתעלמים ממנו, לא נכשלים עליו.
+      await File(p.join(talmudDir, '.version.contents')).writeAsString(
+        jsonEncode({'marker': 'ישן', 'files': 999, 'bytes': 1 << 30}),
+      );
+      expect(await pending(delivered), isEmpty);
+    });
+
+    /// תיקייה שאוצריא עצמה התקינה אין לה מפרט שלנו, ולכן נותרת רק הרצפה:
+    /// ה-PDF-ים אינם נדחסים, וחילוץ שלם אינו יכול לשקול רבע מהארכיון.
+    group('רצפת הגודל, בהיעדר מפרט', () {
+      const archiveBytes = 2 * 1024 * 1024;
+
+      setUp(() async {
+        // לא ארכיון אמיתי: הבדיקה הזו נוגעת רק בפרדיקט, ואינה מחלצת.
+        await File(p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'))
+            .writeAsBytes(Uint8List(archiveBytes));
+        await writeManifest({
+          'talmud': {
+            'fileName': 'talmud_bavli_latest.tar.zst',
+            'size': archiveBytes,
+            'sha256': 'abc123',
+            'compressed': true,
+          },
+        });
+      });
+
+      Future<void> seedTalmudFolder(int bytes) async {
+        final dir = Directory(p.join(libraryDir, 'תלמוד בבלי'));
+        await dir.create(recursive: true);
+        await File(p.join(dir.path, 'בבא בתרא.pdf'))
+            .writeAsBytes(Uint8List(bytes));
+        await File(p.join(dir.path, '.version')).writeAsString('abc123');
+      }
+
+      test('תוכן זעום מול ארכיון גדול חוזר להצעה', () async {
+        await seedTalmudFolder(1024);
+        expect(await pending(const {CompanionAsset.talmud: 'abc123'}),
+            {CompanionAsset.talmud});
+      });
+
+      test('תוכן בסדר הגודל של הארכיון אינו מוצע', () async {
+        await seedTalmudFolder(archiveBytes);
+        expect(await pending(const {CompanionAsset.talmud: 'abc123'}), isEmpty);
+      });
+    });
   });
 
   /// **הלולאה של issue הלוג מ-0.14.** המסד מעודכן (`kind=none, 27→27`), ובכל
