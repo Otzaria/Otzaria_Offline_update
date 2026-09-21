@@ -2,8 +2,6 @@ import 'dart:async';
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
-// SliverConstraints ו-SliverGridLayout אינם מיוצאים מ-material.
-import 'package:flutter/rendering.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
 import '../../controllers/plugins_module_controller.dart';
@@ -11,14 +9,14 @@ import '../../services/native_file_dialogs.dart';
 import '../../services/timestamps.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
+import '../store_kit/store_kit.dart';
 import 'plugin_detail_view.dart';
 import 'plugin_filters_bar.dart';
-import 'plugin_store_body.dart';
 import 'plugin_store_card.dart';
 import 'plugin_store_nav.dart';
 import 'plugin_sync_overlay.dart';
 import 'plugin_updates_dialog.dart';
-import 'plugin_visuals.dart';
+import 'store_app_export_flow.dart';
 
 /// מסך חנות התוספים — פורט של מבנה החנות שבאתר: דף בית אצור
 /// (`/plugins`), "כל התוספים" (`/plugins/all`) ודף קטגוריה
@@ -48,7 +46,7 @@ class PluginsScreen extends StatefulWidget {
   State<PluginsScreen> createState() => _PluginsScreenState();
 }
 
-/// גובה כל מה שאינו התמונה בכרטיס — ראו החישוב ב-[_PluginGridDelegate].
+/// גובה כל מה שאינו התמונה בכרטיס — ראו החישוב ב-[StoreGridDelegate].
 ///
 /// 352 ולא 336: התקציב אינו תלוי שפה, ובאנגלית השם והתקציר מגיעים למספר
 /// השורות המרבי שלהם כבר בעמודה הצרה ביותר — שם 336 גלש. נמדד מול
@@ -251,6 +249,10 @@ class _PluginsScreenState extends State<PluginsScreen> {
           _storeView(context),
         if (controller.status == PluginsModuleStatus.syncing)
           Positioned.fill(child: PluginSyncOverlay(controller: controller)),
+        if (controller.isExporting)
+          Positioned.fill(
+            child: StoreAppExportOverlay(controller: controller),
+          ),
       ],
     );
   }
@@ -264,7 +266,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
         final sidebar =
             hasNav && constraints.maxWidth >= kStoreSidebarBreakpoint;
 
-        return PluginStoreBody(
+        return StoreBody(
           header: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -280,13 +282,13 @@ class _PluginsScreenState extends State<PluginsScreen> {
     );
   }
 
-  /// התוכן הגליל, לפי המסך שנבחר. הכול slivers — ראו [PluginStoreBody].
+  /// התוכן הגליל, לפי המסך שנבחר. הכול slivers — ראו [StoreBody].
   List<Widget> _slivers(BuildContext context) {
     final controller = widget.controller;
 
     return [
       if (controller.errorMessage != null)
-        PluginStoreBody.block(
+        StoreBody.block(
           AppCard(
             child: InfoErrorRow(
               message: controller.errorMessage!,
@@ -296,7 +298,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
           top: AppTokens.spaceMD,
         ),
       if (controller.status == PluginsModuleStatus.loading)
-        PluginStoreBody.block(
+        StoreBody.block(
           AppCard(
             child: InfoProgressRow(
               stage: context.strings.plugins.loadingCatalog,
@@ -305,8 +307,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
           top: AppTokens.spaceLG,
         )
       else if (controller.plugins.isEmpty)
-        PluginStoreBody.block(_neverSyncedState(context),
-            top: AppTokens.spaceLG)
+        StoreBody.block(_neverSyncedState(context), top: AppTokens.spaceLG)
       else
         ...switch (controller.view) {
           PluginStorePage.home => _homeSlivers(context),
@@ -327,10 +328,10 @@ class _PluginsScreenState extends State<PluginsScreen> {
         : featured.take(_featuredPreviewCount).toList(growable: false);
 
     return [
-      PluginStoreBody.block(_hero(context), top: AppTokens.spaceLG),
+      StoreBody.block(_hero(context), top: AppTokens.spaceLG),
       // אין אצירה להציג — שער אל כל התוספים, כמו המצב הריק של דף הבית באתר.
       if (!controller.hasCuratedHome)
-        PluginStoreBody.block(
+        StoreBody.block(
           _emptyCard(
             context,
             icon: FluentIcons.puzzle_piece_24_regular,
@@ -348,20 +349,19 @@ class _PluginsScreenState extends State<PluginsScreen> {
       if (controller.hasCuratedHome &&
           featured.isEmpty &&
           controller.homeCategories.isEmpty)
-        PluginStoreBody.block(_allInstalledState(context),
-            top: AppTokens.spaceLG),
+        StoreBody.block(_allInstalledState(context), top: AppTokens.spaceLG),
       if (featured.isNotEmpty) ...[
-        PluginStoreBody.block(
-          _SectionHeader(
+        StoreBody.block(
+          StoreSectionHeader(
             eyebrow: t.featuredEyebrow,
             title: t.featuredTitle,
           ),
           top: AppTokens.spaceXL,
           bottom: AppTokens.spaceMD,
         ),
-        PluginStoreBody.padded(_gridSliver(context, visibleFeatured)),
+        StoreBody.padded(_gridSliver(context, visibleFeatured)),
         if (featured.length > _featuredPreviewCount && !_allFeaturedShown)
-          PluginStoreBody.block(
+          StoreBody.block(
             Center(
               child: ActionButton.neutral(
                 text: t.showMoreFeatured,
@@ -373,8 +373,8 @@ class _PluginsScreenState extends State<PluginsScreen> {
           ),
       ],
       for (final category in controller.homeCategories) ...[
-        PluginStoreBody.block(
-          _SectionHeader(
+        StoreBody.block(
+          StoreSectionHeader(
             title: category.name,
             description: category.description,
             action: ActionButton.ghost(
@@ -386,7 +386,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
           top: AppTokens.spaceXL,
           bottom: AppTokens.spaceMD,
         ),
-        PluginStoreBody.padded(
+        StoreBody.padded(
           _gridSliver(
             context,
             controller.pluginsIn(category, limit: category.homeLimit),
@@ -394,7 +394,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
         ),
       ],
       if (controller.hasCuratedHome)
-        PluginStoreBody.block(_discoveryStrip(context), top: AppTokens.spaceXL),
+        StoreBody.block(_discoveryStrip(context), top: AppTokens.spaceXL),
     ];
   }
 
@@ -506,19 +506,19 @@ class _PluginsScreenState extends State<PluginsScreen> {
     final filtered = controller.filtered;
 
     return [
-      PluginStoreBody.block(
+      StoreBody.block(
         _breadcrumb(context, t.allPluginsPage),
         top: AppTokens.spaceMD,
         bottom: AppTokens.spaceSM,
       ),
-      PluginStoreBody.block(
+      StoreBody.block(
         PluginFiltersBar(
           controller: controller,
           searchController: _search,
         ),
       ),
-      PluginStoreBody.block(
-        _SectionHeader(
+      StoreBody.block(
+        StoreSectionHeader(
           eyebrow: t.listEyebrow,
           title: t.listTitle,
           action: Text(
@@ -532,9 +532,9 @@ class _PluginsScreenState extends State<PluginsScreen> {
         bottom: AppTokens.spaceMD,
       ),
       if (filtered.isEmpty)
-        PluginStoreBody.block(_noResultsState(context))
+        StoreBody.block(_noResultsState(context))
       else
-        PluginStoreBody.padded(_gridSliver(context, filtered)),
+        StoreBody.padded(_gridSliver(context, filtered)),
     ];
   }
 
@@ -555,13 +555,13 @@ class _PluginsScreenState extends State<PluginsScreen> {
     final plugins = controller.pluginsIn(category);
 
     return [
-      PluginStoreBody.block(
+      StoreBody.block(
         _breadcrumb(context, category.name),
         top: AppTokens.spaceMD,
         bottom: AppTokens.spaceSM,
       ),
-      PluginStoreBody.block(
-        _SectionHeader(
+      StoreBody.block(
+        StoreSectionHeader(
           title: category.name,
           description: category.description,
           footnote: plugins.length == 1
@@ -571,14 +571,14 @@ class _PluginsScreenState extends State<PluginsScreen> {
         bottom: AppTokens.spaceMD,
       ),
       if (plugins.isEmpty)
-        PluginStoreBody.block(
+        StoreBody.block(
           // קטגוריה שיש בה תוספים אבל כולם מותקנים — לא "בקרוב יתווספו".
           category.pluginIds.isEmpty
               ? _emptyCategoryState(context)
               : _allInstalledState(context),
         )
       else
-        PluginStoreBody.padded(_gridSliver(context, plugins)),
+        StoreBody.padded(_gridSliver(context, plugins)),
     ];
   }
 
@@ -627,7 +627,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
         ),
       ),
       padding: const EdgeInsets.symmetric(
-        horizontal: PluginStoreBody.horizontalPadding,
+        horizontal: StoreBody.horizontalPadding,
         vertical: AppTokens.spaceSM,
       ),
       child: LayoutBuilder(
@@ -647,6 +647,12 @@ class _PluginsScreenState extends State<PluginsScreen> {
                     onPressed: isSyncing ? null : _sync,
                   ),
                 ),
+                const SizedBox(width: AppTokens.spaceSM),
+              ],
+              // ליד הסנכרון, כמו הכפתור שבאתר לצד "העלאת תוסף חדש". קיים גם
+              // בכונן נעול: ההעתקה יוצאת מהכונן ואינה כותבת אליו.
+              if (StoreAppExportButton.isSupported) ...[
+                Flexible(child: StoreAppExportButton(controller: controller)),
                 const SizedBox(width: AppTokens.spaceSM),
               ],
               SecondaryIconButton(
@@ -761,7 +767,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
       message: isOn
           ? t.hideInstalledOnTooltip(controller.installedCount)
           : t.hideInstalledOffTooltip(controller.installedCount),
-      child: PluginTagPill(
+      child: StoreTagPill(
         label: t.hideInstalledLabel,
         icon: FluentIcons.filter_24_regular,
         active: isOn,
@@ -860,8 +866,10 @@ class _PluginsScreenState extends State<PluginsScreen> {
 
   Widget _gridSliver(BuildContext context, List<StorePlugin> plugins) {
     return SliverGrid.builder(
-      gridDelegate: _PluginGridDelegate(
+      gridDelegate: StoreGridDelegate(
         textScale: MediaQuery.textScalerOf(context).scale(1),
+        minCardWidth: _minCardWidth,
+        contentHeight: _cardContentHeight,
       ),
       itemCount: plugins.length,
       itemBuilder: (context, index) {
@@ -875,114 +883,6 @@ class _PluginsScreenState extends State<PluginsScreen> {
           onInstall: () => _install(plugin),
         );
       },
-    );
-  }
-}
-
-/// פריסת רשת הכרטיסים — מספר העמודות וגובה האריח נגזרים מרוחב הרשת.
-///
-/// החישוב יושב ב-delegate ולא ב-`SliverLayoutBuilder`, כי ה-scrollOffset הוא
-/// חלק מ-`SliverConstraints`: שם הרשת נבנתה מחדש בכל פריים של גלילה — עם כל
-/// הכרטיסים הגלויים — ומכאן הגלילה התקועה.
-class _PluginGridDelegate extends SliverGridDelegate {
-  const _PluginGridDelegate({required this.textScale});
-
-  /// הגדלת הטקסט של המשתמש; תוכן הכרטיס גדל איתה, ולכן גם גובה האריח.
-  final double textScale;
-
-  static const double _spacing = AppTokens.spaceLG;
-
-  @override
-  SliverGridLayout getLayout(SliverConstraints constraints) {
-    // מספר העמודות נגזר מרוחב מינימלי לכרטיס, כמו auto-fill ב-CSS —
-    // כך שמסך רחב מקבל יותר עמודות ולא כרטיסים מנופחים.
-    final width = constraints.crossAxisExtent;
-    final columns =
-        ((width + _spacing) / (_minCardWidth + _spacing)).floor().clamp(1, 6);
-
-    // גובה הכרטיס נגזר ולא קבוע: התמונה תופסת יחס 16/11 מרוחב הכרטיס,
-    // ולכן כרטיס רחב הוא גם גבוה יותר. שאר התוכן מקבל גובה קבוע שמוכפל
-    // בהגדלת הטקסט של המשתמש — אחרת טקסט מוגדל היה גולש.
-    final tileWidth = (width - _spacing * (columns - 1)) / columns;
-    final imageHeight = (tileWidth - AppTokens.spaceMD * 2) * 11 / 16;
-
-    return SliverGridDelegateWithFixedCrossAxisCount(
-      crossAxisCount: columns,
-      crossAxisSpacing: _spacing,
-      mainAxisSpacing: _spacing,
-      mainAxisExtent: imageHeight + _cardContentHeight * textScale,
-    ).getLayout(constraints);
-  }
-
-  @override
-  bool shouldRelayout(_PluginGridDelegate oldDelegate) =>
-      oldDelegate.textScale != textScale;
-}
-
-/// כותרת סעיף בחנות — "קו + עינית" מעל כותרת גדולה, תיאור אופציונלי,
-/// ופעולה בקצה השורה. הפורמט של כל הסעיפים באתר.
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.title,
-    this.eyebrow,
-    this.description = '',
-    this.footnote,
-    this.action,
-  });
-
-  final String title;
-  final String? eyebrow;
-  final String description;
-  final String? footnote;
-  final Widget? action;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (eyebrow != null) ...[
-                PluginSectionEyebrow(eyebrow!),
-                const SizedBox(height: AppTokens.spaceXS),
-              ],
-              Text(
-                title,
-                style: theme.textTheme.headlineSmall
-                    ?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              if (description.isNotEmpty) ...[
-                const SizedBox(height: AppTokens.spaceXS),
-                Text(
-                  description,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-              if (footnote != null) ...[
-                const SizedBox(height: AppTokens.spaceXS),
-                Text(
-                  footnote!,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-        if (action != null) ...[
-          const SizedBox(width: AppTokens.spaceMD),
-          action!,
-        ],
-      ],
     );
   }
 }

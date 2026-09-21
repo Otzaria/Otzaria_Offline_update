@@ -14,13 +14,13 @@ import 'package:launcher_app/src/controllers/plugins_module_controller.dart';
 import 'package:launcher_app/src/screens/plugins/plugin_detail_view.dart';
 import 'package:launcher_app/src/screens/plugins/plugin_filters_bar.dart';
 import 'package:launcher_app/src/screens/plugins/plugin_rating_panel.dart';
-import 'package:launcher_app/src/screens/plugins/plugin_store_body.dart';
 import 'package:launcher_app/src/screens/plugins/plugin_store_card.dart';
 import 'package:launcher_app/src/screens/plugins/plugin_store_nav.dart';
 import 'package:launcher_app/src/screens/plugins/plugin_sync_overlay.dart';
 import 'package:launcher_app/src/screens/plugins/plugin_updates_dialog.dart';
 import 'package:launcher_app/src/screens/plugins/plugin_visuals.dart';
 import 'package:launcher_app/src/screens/plugins/plugins_screen.dart';
+import 'package:launcher_app/src/screens/store_kit/store_kit.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -1181,9 +1181,9 @@ void main() {
     expect(find.byType(InfoProgressRow), findsOneWidget);
   });
 
-  test('PluginStoreBody.block עוטף כל תוכן כ-sliver ממורווח', () {
+  test('StoreBody.block עוטף כל תוכן כ-sliver ממורווח', () {
     // ה-API מקבל slivers בלבד; העוזרים הם הדרך היחידה להכניס תוכן רגיל.
-    final sliver = PluginStoreBody.block(const Text('x'), top: 4);
+    final sliver = StoreBody.block(const Text('x'), top: 4);
     expect(sliver, isA<SliverPadding>());
     expect((sliver as SliverPadding).child, isA<SliverToBoxAdapter>());
   });

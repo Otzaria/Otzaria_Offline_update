@@ -514,7 +514,8 @@ class HomeScreen extends StatelessWidget {
     }
 
     final status = plugins.onlineStatus;
-    if (pluginsOnline && plugins.hasOnlineUpdate && status != null) {
+    final storeApp = plugins.storeAppOnline;
+    if (pluginsOnline && plugins.hasCatalogOnlineUpdate && status != null) {
       if (status.newCount > 0) line(t.onlineNewPlugins(status.newCount));
       if (status.updatedCount > 0) {
         line(t.onlineUpdatedPlugins(status.updatedCount));
@@ -522,7 +523,12 @@ class HomeScreen extends StatelessWidget {
       if (status.missingCount > 0) {
         line(t.onlineMissingPlugins(status.missingCount));
       }
-      if (!s.syncPlugins) line(t.onlinePluginsSyncOff, warn: true);
+    }
+    // תנאי משלה: היא נבדקת מול גיטהאב, ולכן אתר שאינו עונה אינו מעלים
+    // אותה — ובלי השורה הזאת "נמצאו עדכונים" היה מופיע בלי שום פירוט.
+    if (storeApp != null) line(t.onlineStoreAppUpdate(storeApp.tagName));
+    if (plugins.hasOnlineUpdate && !s.syncPlugins) {
+      line(t.onlinePluginsSyncOff, warn: true);
     }
 
     return widgets;

@@ -242,6 +242,9 @@ class _Home extends HomeStrings {
   String onlineMissingPlugins(int count) =>
       '$count תוספים חסרים בתיקייה — קובץ ההתקנה שלהם אינו שם';
   @override
+  String onlineStoreAppUpdate(String version) =>
+      'גרסה $version של תוכנת חנות התוספים';
+  @override
   String get onlinePluginsSyncOff =>
       'הורדת התוספים כבויה בהגדרות — הם לא ייכללו בהורדה.';
   @override
@@ -1156,6 +1159,65 @@ class _Plugins extends PluginsStrings {
   String get screenshotPrevious => 'הקודם';
   @override
   String get screenshotNext => 'הבא';
+
+  @override
+  String get storeAppButton => 'העתקת החנות למחשב';
+  @override
+  String get storeAppDialogTitle => 'חנות התוספים כתוכנה למחשב';
+  @override
+  String get storeAppDialogBody =>
+      'תוכנה נפרדת למחשבי Windows, שכל התוספים שבכונן ייארזו לתוכה. אפשר '
+      'להעתיק אותה לכונן נייד, לעיין בתוספים ולהתקין אותם ישירות לאוצריא — '
+      'גם במחשב שאין בו חיבור לאינטרנט.';
+  @override
+  String get storeAppHighlightBundled => 'כל התוספים שבכונן ייארזו בפנים';
+  @override
+  String get storeAppHighlightOffline => 'עובדת גם בלי חיבור לאינטרנט';
+  @override
+  String get storeAppHighlightDirect => 'מתקינה ישירות לתוך אוצריא';
+  @override
+  String get storeAppChipWindows => 'מיועדת ל-Windows';
+  @override
+  String storeAppChipSize(String size) => 'גודל $size';
+  @override
+  String storeAppChipUpdated(String date) => 'עודכנה ב-$date';
+  @override
+  String get storeAppChooseFolder => 'בחירת תיקייה…';
+  @override
+  String get storeAppUnavailableTooltip =>
+      'תוכנת החנות עדיין לא הורדה. יש להריץ "הורדה" במחשב שיש בו אינטרנט.';
+  @override
+  String get storeAppNoPluginsTooltip =>
+      'אין תוספים בכונן. יש לסנכרן את החנות במחשב שיש בו אינטרנט.';
+  @override
+  String get storeAppPickFolderTitle => 'לאן להעתיק את חנות התוספים?';
+  @override
+  String get storeAppOverwriteTitle => 'כבר יש כאן חנות';
+  @override
+  String storeAppOverwriteContent(String path) =>
+      'בתיקייה $path כבר יושבת חנות תוספים. העדכון ידרוס את קובץ ההרצה ואת '
+      'התוספים, ולא ייגע בשאר מה שיש שם.';
+  @override
+  String get storeAppOverwriteConfirm => 'עדכון';
+  @override
+  String get storeAppCopyingTitle => 'מעתיק את חנות התוספים';
+  @override
+  String get storeAppCopyingSubtitle =>
+      'מעתיק מהכונן בלבד — אין כאן שימוש באינטרנט.';
+  @override
+  String get storeAppDoneTitle => 'החנות הועתקה';
+  @override
+  String storeAppDoneContent(int plugins, String size) =>
+      'החנות הועתקה עם $plugins תוספים ($size).';
+  @override
+  String storeAppDoneSkipped(int count) =>
+      'ל-$count תוספים חסר קובץ בכונן והם הושמטו.';
+  @override
+  String get storeAppOpenFolder => 'פתיחת התיקייה';
+  @override
+  String get storeAppLaunch => 'הפעלת החנות';
+  @override
+  String storeAppFailedSnack(String error) => 'ההעתקה נכשלה: $error';
 }
 
 class _Faq extends FaqStrings {
@@ -2285,6 +2347,21 @@ class _PluginsDomain extends PluginsDomainStrings {
   @override
   String httpStatusFor(int statusCode, String url) =>
       'HTTP $statusCode עבור $url';
+
+  @override
+  String get exportPreparing => 'מכין את ההעתקה…';
+  @override
+  String get exportAppMissing =>
+      'תוכנת החנות אינה בכונן. יש להריץ "הורדה" במחשב שיש בו אינטרנט.';
+  @override
+  String get exportCopyingApp => 'מעתיק את תוכנת החנות…';
+  @override
+  String exportPlugin(String name, int done, int total) =>
+      'מעתיק את $name ($done מתוך $total)';
+  @override
+  String get exportWritingCatalog => 'כותב את הקטלוג…';
+  @override
+  String exportDone(int plugins) => 'הועתקו $plugins תוספים';
 }
 
 class _CustomAppsDomain extends CustomAppsDomainStrings {
@@ -2330,6 +2407,12 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
       'קובץ ההרצה אינו נמצא: $launchPath';
 
   @override
+  String mediaFileMissing(String path) => 'קובץ התמונה אינו נמצא: $path';
+  @override
+  String mediaNotAnImage(String fileName) =>
+      '$fileName אינו קובץ תמונה. ניתן לבחור PNG, JPG, GIF, WEBP או BMP.';
+
+  @override
   String githubStatus(int statusCode, String uri) =>
       'גיטהאב החזיר שגיאה $statusCode עבור $uri';
   @override
@@ -2352,6 +2435,132 @@ class _CustomApps extends CustomAppsStrings {
 
   @override
   String get screenTitle => 'תוכנות נוספות';
+
+  // ── רשת הכרטיסים וסרגל הקטגוריות ──
+  @override
+  String get categoriesTitle => 'קטגוריות';
+  @override
+  String get allAppsItem => 'כל התוכנות';
+  @override
+  String allAppsWithCount(int count) => 'לכל התוכנות ($count)';
+  @override
+  String get uncategorizedItem => 'ללא קטגוריה';
+  @override
+  String get cardDetailsLink => 'לפרטים מלאים';
+  @override
+  String get backToApps => 'חזרה לתוכנות';
+
+  // ── דף התוכנה ──
+  @override
+  String get aboutPanelTitle => 'על התוכנה';
+  @override
+  String get infoPanelTitle => 'מידע כללי';
+  @override
+  String get screenshotsPanelTitle => 'צילומי מסך';
+  @override
+  String get categoriesPanelTitle => 'קטגוריות';
+  @override
+  String get infoSource => 'מקור';
+  @override
+  String get infoSourceGithub => 'גיטהאב';
+  @override
+  String get infoSourceFile => 'קובץ שנבחר ידנית';
+  @override
+  String get infoInstalled => 'במחשב הזה';
+  @override
+  String get infoStored => 'על הכונן';
+  @override
+  String get infoOnline => 'ברשת';
+  @override
+  String get infoStoredSize => 'גודל הקובץ השמור';
+  @override
+  String get infoStoredAdded => 'נוסף לכונן';
+  @override
+  String get valueUnknown => 'לא ידוע';
+
+  // ── מצבים ריקים ──
+  @override
+  String get emptyCategoryTitle => 'אין כאן עדיין תוכנות';
+  @override
+  String get emptyCategoryBody =>
+      'אפשר לשייך תוכנות לקטגוריה הזו בעריכת התוכנה, בכרטיס שבהגדרות.';
+  @override
+  String get emptyUncategorizedTitle => 'כל התוכנות משויכות';
+  @override
+  String get emptyUncategorizedBody => 'אין תוכנה שאינה בקטגוריה כלשהי.';
+  @override
+  String categoryAppCount(int count) =>
+      count == 1 ? '$count תוכנה' : '$count תוכנות';
+
+  // ── ניהול הקטגוריות ──
+  @override
+  String get manageCategoriesButton => 'ניהול קטגוריות';
+  @override
+  String get categoriesDialogHint =>
+      'הקטגוריות נוסעות על הכונן יחד עם התוכנות, ומוצגות כסרגל צד במסך.';
+  @override
+  String get categoryNameLabel => 'שם הקטגוריה';
+  @override
+  String get categoryNameHint => 'למשל: כלי לימוד';
+  @override
+  String get categoryDescriptionLabel => 'תיאור (לא חובה)';
+  @override
+  String get addCategoryButton => 'הוספת קטגוריה';
+  @override
+  String get noCategoriesHint =>
+      'עוד לא הוגדרו קטגוריות. בלעדיהן המסך מציג את כל התוכנות יחד.';
+  @override
+  String get removeCategoryTooltip => 'מחיקת הקטגוריה';
+  @override
+  String removeCategoryDialogTitle(String name) => 'למחוק את "$name"?';
+  @override
+  String removeCategoryDialogContent(String name, int count) =>
+      'הקטגוריה "$name" תימחק. $count תוכנות ישויכו שוב ל"ללא קטגוריה" — '
+      'שום תוכנה אינה נמחקת ושום קובץ אינו נמחק מהכונן.';
+  @override
+  String categoryRemovedSnack(String name) => 'הקטגוריה "$name" נמחקה';
+
+  // ── מדיה וקטגוריות בטופס ──
+  @override
+  String get appCategoriesLabel => 'קטגוריות';
+  @override
+  String get appCategoriesHint =>
+      'אפשר לשייך את התוכנה לכמה קטגוריות, או לאף אחת.';
+  @override
+  String get longDescriptionLabel => 'תיאור מורחב';
+  @override
+  String get longDescriptionHint =>
+      'מה התוכנה עושה, למי היא מיועדת וכל מה שכדאי לדעת. מוצג בדף התוכנה.';
+  @override
+  String get iconLabel => 'אייקון';
+  @override
+  String get pickIconButton => 'בחירת אייקון';
+  @override
+  String get pickIconDialogTitle => 'בחירת תמונת אייקון';
+  @override
+  String get removeIconTooltip => 'הסרת האייקון';
+  @override
+  String get extractIconButton => 'חילוץ מקובץ ההרצה';
+  @override
+  String extractedIconSnack(String fileName) => 'האייקון חולץ מתוך $fileName';
+  @override
+  String get extractIconFailedSnack =>
+      'לא נמצא אייקון בקובץ. אפשר לבחור תמונה ידנית.';
+  @override
+  String get moveScreenshotBackTooltip => 'הזזה אחורה';
+  @override
+  String get moveScreenshotForwardTooltip => 'הזזה קדימה';
+  @override
+  String get screenshotsLabel => 'צילומי מסך';
+  @override
+  String get addScreenshotsButton => 'הוספת צילומי מסך';
+  @override
+  String get pickScreenshotsDialogTitle => 'בחירת צילומי מסך';
+  @override
+  String get removeScreenshotTooltip => 'הסרת התמונה';
+  @override
+  String screenshotsChosen(int count) =>
+      count == 1 ? '$count תמונה' : '$count תמונות';
 
   @override
   String get settingsCardTitle => 'תוכנות נוספות';

@@ -34,6 +34,28 @@ abstract final class NativeFileDialogs {
     }
   }
 
+  /// בחירת כמה קבצים בבת אחת, או רשימה ריקה בביטול. צילומי מסך נבחרים
+  /// יחד — בחירה אחת לכל תמונה הייתה פותחת את דיאלוג המערכת חמש פעמים.
+  static Future<List<String>> pickManyFiles({
+    required String dialogTitle,
+    List<String>? allowedExtensions,
+  }) async {
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        dialogTitle: dialogTitle,
+        allowMultiple: true,
+        type: allowedExtensions == null ? FileType.any : FileType.custom,
+        allowedExtensions: allowedExtensions,
+      );
+      return [
+        for (final file in picked?.files ?? const <PlatformFile>[])
+          if (file.path case final path?) path,
+      ];
+    } finally {
+      await _restoreWindowFocus();
+    }
+  }
+
   /// בחירת תיקייה, או `null` בביטול.
   static Future<String?> pickDirectory({required String dialogTitle}) async {
     try {

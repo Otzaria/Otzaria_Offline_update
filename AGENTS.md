@@ -121,6 +121,7 @@ mirror/library/     releases.json + assets/                               ← Li
 mirror/companions/  companions.json + Talmud archive, catalog, dictionary ← LibraryManager.companionsMirrorDir
 mirror/app/         latest-release.json (≤2 channels) + installers/<tag>/ ← OtzariaAppMirror
 mirror/plugins/     catalog.json + files/<id>/plugin-<version>.otzplugin  ← PluginMirrorStore
+mirror/store-app/   latest-release.json + files/<tag>/<store>.exe         ← StoreAppMirror
 mirror/launcher/    latest-release.json + files/<tag>/                    ← LauncherUpdateMirror
 otzaria-app/        legacy — installs made before the target was fixed
 ```
@@ -225,10 +226,13 @@ dart analyze                       # otzaria_l10n, otzaria_manager, plugins_mana
 - **Favor layered tests over manual checks.** `.github/workflows/ci.yml` runs the
   full suite across every package on every push and PR — the only trigger (the
   weekly `cron` was removed 2026-08-11).
-- **A green push to `main` publishes a release.** The `publish` job bumps the
-  launcher's patch version, commits, tags, and uploads the artifacts. `main` is
-  not a scratchpad: anything merged reaches users through the self-update. See
-  `launcher_app/README.md` § "עדכון עצמי".
+- **Publishing is a deliberate click, not a push.** A push to `main` only runs
+  `ci.yml`. A release comes from Actions → **Release** → *Run workflow* (`main`
+  only): `release.yml` runs the whole of `ci.yml` via `workflow_call`, then its
+  `publish` job bumps the launcher's version, commits, tags, and uploads *that
+  run's* artifacts — so what ships is exactly what was tested. Before 2026-09-21
+  every green push published; it does not any more. See `launcher_app/README.md`
+  § "עדכון עצמי".
 - **`.githooks/pre-commit` runs the same checks locally** on staged packages and
   blocks the commit on failure. Each clone needs
   `git config core.hooksPath .githooks` once.
@@ -1177,6 +1181,33 @@ Because the launch path is known only after `OtzariaManager.checkForUpdate`,
 (`refreshInstalled`), and so does the manual "pick the install folder" flow. Dropping
 those calls leaves the store showing a scan of the wrong folder until the next launch.
 
+**The standalone store app's `Data\` is our plugin mirror with one path edit, not a
+repack.** `Otzaria/otzaria-plugin-store` is a JS port of this very package — same
+`PluginMirrorStore`, same `StorePlugin.toJson` — so `catalog.json` is identical on
+both sides. The only difference is where the files sit: ours at
+`<mirror>/plugins/files/<id>/…` (catalog paths `files/<id>/…`), its at
+`Data\plugins\<id>\…` (paths `<id>/…`). `StoreAppExporter` copies each asset and
+rewrites its path relative to `filesDir`; an asset that resolves outside it is
+**dropped, not sanitized** (a corrupt catalog is the only way it gets there). The
+catalog is written **last**, so an interrupted copy never leaves a store describing
+plugins whose files are missing.
+
+**Only the basic `.exe` is mirrored — never the `bundle` tag.** That release carries
+109MB of plugins we already have on the drive, one version staler.
+`isStoreAppReleaseTag` (`^v?\d+$`) rejects `bundle` outright and
+`isBasicAppAsset` rejects `*-Full.exe`.
+
+**The store program has its own peek and its own skip, separate from the catalog's.**
+`PluginsManager.syncStoreApp` takes the release `peekStoreApp` already found and
+does nothing without one, so a download with nothing new never reaches GitHub at
+all. The two cannot share a flag: the catalog comes from otzaria.org and the
+program from GitHub, so one being unreachable says nothing about the other, and
+`skipPlugins` (dozens of site calls) must not be decided by a 600KB file.
+`hasCatalogOnlineUpdate` drives `skipPlugins`, `hasStoreAppOnlineUpdate` drives
+`skipStoreApp`, and `hasOnlineUpdate` is the union — the home screen reads the
+union, or a new store-program version would not even show the download button.
+A failed store-app download is a log line, never a failed download run.
+
 ### 5.7 Custom apps
 
 **A custom app learns how to detect itself.** The form cannot ask "where will this
@@ -1225,6 +1256,41 @@ through `OtzariaAppLocator.findIn(nameMatches:)` — the same verified scanner w
 injected name predicate. The form's suggestion used to take the first `.exe` from
 `listSync()`: undefined order, no `unins*` exclusion, no Flutter-helper exclusion. In a
 real Flutter app folder that returns `crashpad_handler.exe` (§5.5).
+
+**The record carries file *names*, never paths — icons and screenshots
+included.** `AppDescriptor.iconFile`/`screenshotFiles` name files inside
+`apps/<id>/media/`, and the full path is rebuilt at runtime (`CustomAppMedia`).
+An absolute path in a file that travels on the drive is the
+`otzaria_install_state.json` disease (§5.3). The names also arrive from another
+machine, so `_safeFileName` rejects anything with `..`, a separator or a colon —
+the same boundary `AppDescriptorId` draws for the folder name. These fields are
+optional additions, so `schemaVersion` deliberately stayed 1, exactly as
+`install.portable` did.
+
+**Media is rewritten whole, through a staging directory.** Screenshot names are
+their order (`screenshot-1`, `screenshot-2`…), so swapping two images that
+already sit in `media/` would overwrite one halfway through.
+`CustomAppMedia.save` copies everything into `media/.staging` first, clears the
+folder and only then moves them in — which is also why a missing source file
+fails *before* anything existing is deleted. `CustomAppsManager.saveMedia`
+starts from `descriptor.withoutMedia()`, since `copyWith` cannot clear a field
+and a removed icon otherwise stayed recorded, pointing at a deleted file.
+
+**A category is deleted from the apps too, not only from the list.**
+`CustomAppsManager.removeCategory` strips the slug from every descriptor;
+without it a record kept pointing at a category that no longer exists. The UI
+survives such a slug anyway — `CustomAppsController.uncategorizedApps` counts
+only *known* slugs, so an app assigned on another machine to a category this
+drive does not have is shown rather than hidden. The slug itself never reaches
+the user: a Hebrew category name leaves nothing latin, so it falls back to
+`category`, `category-2` (`CustomAppCategory.slugFor`).
+
+**`CustomAppsScreen` listens to its own controller**, like `PluginsScreen` and
+unlike the version before the card grid: the open category lives in the
+controller, and a tap in the side rail rebuilt nothing when the screen relied on
+`AppShell` rebuilding it from outside. Both listeners are fine; the screen is
+still built lazily on first visit, which is what makes the pending dialog fire
+there.
 
 ### 5.8 Packaging, distribution and self-update
 

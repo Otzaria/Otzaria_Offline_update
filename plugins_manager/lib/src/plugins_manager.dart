@@ -2,12 +2,14 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:path/path.dart' as p;
 
 import 'models/plugin_catalog.dart';
 import 'models/plugin_sync_outcome.dart';
 import 'models/plugin_sync_progress.dart';
 import 'models/plugin_version_entry.dart';
 import 'models/plugins_online_status.dart';
+import 'models/store_app_release.dart';
 import 'models/store_plugin.dart';
 import 'services/installed_plugins_scanner.dart';
 import 'services/plugin_direct_installer.dart';
@@ -16,6 +18,9 @@ import 'services/plugin_mirror_store.dart';
 import 'services/plugin_mirror_sync.dart';
 import 'services/plugin_online_peek.dart';
 import 'services/plugin_store_client.dart';
+import 'services/store_app_exporter.dart';
+import 'services/store_app_mirror.dart';
+import 'services/store_app_release_client.dart';
 
 /// תמונת מצב אחת של החנות, כפי שהממשק צריך אותה.
 class PluginStoreView {
@@ -130,6 +135,81 @@ class PluginsManager {
   }) async =>
       PluginOnlinePeek(client: _client, store: await _store())
           .peek(appVersions: appVersions);
+
+  // ── תוכנת החנות העצמאית ────────────────────────────────────────────────
+  // אותה חלוקה כמו בשאר: [peekStoreApp] ו-[syncStoreApp] נוגעות ברשת,
+  // ואילו [loadStoreApp] ו-[exportStoreApp] קוראות מהכונן בלבד.
+
+  Future<StoreAppMirror> _appMirror() async =>
+      StoreAppMirror(mirrorDir: p.join(await resolveMirrorDir(), 'store-app'));
+
+  /// בודק ברשת אם יצאה גרסה חדשה של תוכנת החנות — **בקשה קלה אחת**, בלי
+  /// להוריד קובץ ובלי לגעת במראה. מקבילה של [peekOnlineUpdates], ורצה
+  /// באותה בדיקה קלה: ההורדה עצמה מדלגת כשזו החזירה `null`.
+  ///
+  /// `null` = אין חדש (או שאין release עם קובץ הרצה בסיסי כלל). זורק כשאין
+  /// רשת; המתקשר הוא שמחליט שזה מצב תקין.
+  Future<StoreAppRelease?> peekStoreApp() async {
+    final mirror = await _appMirror();
+    final client = StoreAppReleaseClient();
+    try {
+      final latest = await client.fetchLatestStable();
+      if (latest == null) return null;
+      final current = await mirror.load();
+      if (current != null && current.release.version >= latest.version) {
+        return null;
+      }
+      return latest;
+    } finally {
+      client.dispose();
+      mirror.dispose();
+    }
+  }
+
+  /// מוריד את [release] אל `mirror/store-app/`. **דורש אינטרנט**, ולכן
+  /// נקרא רק אחרי ש-[peekStoreApp] מצא גרסה חדשה — אין כאן "בדוק ואז
+  /// הורד", כדי שהורדה שאין בה חדש לא תיגע ברשת בכלל.
+  Future<MirroredStoreApp> syncStoreApp(
+    StoreAppRelease release, {
+    void Function(int received, int total)? onProgress,
+  }) async {
+    final mirror = await _appMirror();
+    try {
+      return await mirror.sync(release, onProgress: onProgress);
+    } finally {
+      mirror.dispose();
+    }
+  }
+
+  /// מה שיושב במראה, בלי רשת — `null` כשאין מה לייצא.
+  Future<MirroredStoreApp?> loadStoreApp() async {
+    final mirror = await _appMirror();
+    try {
+      return await mirror.load();
+    } finally {
+      mirror.dispose();
+    }
+  }
+
+  /// מעתיק את תוכנת החנות ואת כל התוספים שבמראה אל [destinationDir].
+  /// **אינו נוגע ברשת** — ראו [StoreAppExporter].
+  Future<StoreAppExportOutcome> exportStoreApp(
+    String destinationDir, {
+    void Function(StoreAppExportProgress progress)? onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    final mirror = await _appMirror();
+    try {
+      return await StoreAppExporter(store: await _store(), appMirror: mirror)
+          .exportTo(
+        destinationDir,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      );
+    } finally {
+      mirror.dispose();
+    }
+  }
 
   /// נתיב מוחלט לנכס שנשמר בקטלוג כנתיב יחסי, או null אם אין נכס.
   Future<String?> assetPath(String? relativePath) async {

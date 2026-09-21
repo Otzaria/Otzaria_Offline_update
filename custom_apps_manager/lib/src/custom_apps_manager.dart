@@ -6,13 +6,16 @@ import 'package:path/path.dart' as p;
 import 'models/app_descriptor.dart';
 import 'models/app_detect_rules.dart';
 import 'models/app_source_kind.dart';
+import 'models/custom_app_category.dart';
 import 'models/custom_app_install_state.dart';
 import 'models/custom_install_outcome.dart';
 import 'models/custom_installer_kind.dart';
 import 'models/github_release.dart';
 import 'models/stored_installer.dart';
+import 'services/custom_app_categories_store.dart';
 import 'services/custom_app_installer.dart';
 import 'services/custom_app_locator.dart';
+import 'services/custom_app_media.dart';
 import 'services/custom_app_store.dart';
 import 'services/github_app_client.dart';
 import 'services/install_learner.dart';
@@ -115,6 +118,77 @@ class CustomAppsManager {
   /// מסיר מהמרשם. **אינו מסיר את התוכנה מהמחשב** — ראו
   /// [CustomAppStore.remove].
   Future<void> remove(String id) async => (await _store()).remove(id);
+
+  // ── מדיה: אייקון וצילומי מסך ──────────────────────────────────────────
+
+  /// המדיה של תוכנה רשומה — לקריאת נתיבים בלבד. הכתיבה היא [saveMedia].
+  Future<CustomAppMedia> media(String id) async =>
+      CustomAppMedia(appDir: (await _store()).dirFor(id));
+
+  /// כותב מחדש את **כל** המדיה של התוכנה ורושם את שמות הקבצים ברשומה.
+  ///
+  /// המקורות הם נתיבים מלאים — גם קבצים חדשים שנבחרו וגם אלה שכבר יושבים
+  /// ב-`media/` ונשארים. מה שלא נמסר נמחק, ולכן זו גם הדרך להסיר תמונה.
+  Future<AppDescriptor> saveMedia(
+    String id, {
+    String? iconSource,
+    List<String> screenshotSources = const [],
+  }) async {
+    final store = await _store();
+    final entry = await store.load(id);
+    if (entry == null) {
+      throw AppDescriptorException(
+        AppL10n.strings.customAppsDomain.appNotRegistered(id),
+      );
+    }
+
+    final saved = await CustomAppMedia(appDir: store.dirFor(id)).save(
+      iconSource: iconSource,
+      screenshotSources: screenshotSources,
+    );
+    // מתחילים מרשומה בלי מדיה: `copyWith` אינו יכול למחוק שדה, ובלי זה
+    // אייקון שהוסר היה נשאר רשום ומצביע על קובץ שכבר נמחק.
+    final updated = entry.descriptor.withoutMedia().copyWith(
+          iconFile: saved.icon,
+          screenshotFiles: saved.screenshots,
+        );
+    await store.saveDescriptor(updated);
+    return updated;
+  }
+
+  // ── קטגוריות ──────────────────────────────────────────────────────────
+
+  Future<CustomAppCategoriesStore> _categories() async =>
+      CustomAppCategoriesStore(mirrorRootDir: await resolveMirrorDir());
+
+  /// הקטגוריות שהמשתמש הגדיר. רשימה ריקה היא המצב הרגיל.
+  Future<List<CustomAppCategory>> loadCategories() async =>
+      (await _categories()).load();
+
+  Future<void> saveCategories(List<CustomAppCategory> categories) async =>
+      (await _categories()).save(categories);
+
+  /// מסיר קטגוריה — **וגם מנתק ממנה כל תוכנה ששויכה אליה**. slug שנשאר
+  /// ברשומה אחרי שהקטגוריה נמחקה הוא שיוך למשהו שאינו קיים, והממשק היה
+  /// סופר אותו ולא מוצא היכן להציג אותו.
+  Future<void> removeCategory(String slug) async {
+    final store = await _store();
+    final categories = await loadCategories();
+    await saveCategories([
+      for (final category in categories)
+        if (category.slug != slug) category,
+    ]);
+
+    for (final entry in await store.loadAll()) {
+      if (!entry.descriptor.categorySlugs.contains(slug)) continue;
+      await store.saveDescriptor(
+        entry.descriptor.copyWith(categorySlugs: [
+          for (final existing in entry.descriptor.categorySlugs)
+            if (existing != slug) existing,
+        ]),
+      );
+    }
+  }
 
   /// מעתיק קובץ התקנה אל תיקיית התוכנה במראה, כך שייסע על הכונן.
   ///

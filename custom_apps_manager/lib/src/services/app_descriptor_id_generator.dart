@@ -11,9 +11,14 @@ abstract final class AppDescriptorIdGenerator {
   /// מזהה פנוי שנגזר מ-[source] ואינו נמצא ב-[taken].
   ///
   /// עדיף להזין לכאן את **שם קובץ ההרצה** ולא את שם התוכנה: הוא לטיני
-  /// כמעט תמיד, והוא גם מתאר את התוכנה בפועל.
-  static String from(String source, {Set<String> taken = const {}}) {
-    final base = _slug(source);
+  /// כמעט תמיד, והוא גם מתאר את התוכנה בפועל. [whenEmpty] הוא הבסיס
+  /// כששום דבר לא שרד את הניקוי — שם בעברית, למשל.
+  static String from(
+    String source, {
+    Set<String> taken = const {},
+    String whenEmpty = fallback,
+  }) {
+    final base = _slug(source, whenEmpty);
     if (!taken.contains(base)) return base;
 
     // ריבוי גרסאות של אותה תוכנה אינו מקרה קצה — הוא מה שקורה כשמישהו
@@ -25,7 +30,7 @@ abstract final class AppDescriptorIdGenerator {
     return base;
   }
 
-  static String _slug(String source) {
+  static String _slug(String source, String whenEmpty) {
     final buffer = StringBuffer();
     var lastWasSeparator = true;
 
@@ -57,6 +62,6 @@ abstract final class AppDescriptorIdGenerator {
 
     // הבדיקה האחרונה היא מול המאמת עצמו ולא מול ההיגיון כאן — כך שם
     // התקן שמור כמו `con` אינו יכול לחמוק החוצה.
-    return AppDescriptorId.isValid(slug) ? slug : fallback;
+    return AppDescriptorId.isValid(slug) ? slug : whenEmpty;
   }
 }

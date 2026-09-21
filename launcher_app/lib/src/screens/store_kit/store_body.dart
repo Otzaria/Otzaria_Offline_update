@@ -13,8 +13,8 @@ import '../../theme/theme_exports.dart';
 /// כרטיסים עם תמונות, ולכן הוא חייב להיבנות מדורג. `SliverList` עם רשימת
 /// ילדים קבועה בונה את כולם מיד — מה שמחזיר בדיוק את הבעיה שבגללה הרשת
 /// הועברה מ-`GridView(shrinkWrap: true)` ל-`SliverGrid`.
-class PluginStoreBody extends StatelessWidget {
-  const PluginStoreBody({
+class StoreBody extends StatelessWidget {
+  const StoreBody({
     super.key,
     required this.slivers,
     this.header,
@@ -81,8 +81,8 @@ class PluginStoreBody extends StatelessWidget {
 }
 
 /// תווית שדה קטנה מעל פקד — כמו ה-`label` בחנות המקורית.
-class PluginFieldLabel extends StatelessWidget {
-  const PluginFieldLabel(this.text, {super.key});
+class StoreFieldLabel extends StatelessWidget {
+  const StoreFieldLabel(this.text, {super.key});
 
   final String text;
 

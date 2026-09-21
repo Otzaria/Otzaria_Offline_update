@@ -18,10 +18,14 @@ class AppDescriptor {
     required this.name,
     required this.sourceKind,
     this.description,
+    this.longDescription,
     this.publisher,
     this.github,
     this.installDir,
     this.portableFile = false,
+    this.categorySlugs = const [],
+    this.iconFile,
+    this.screenshotFiles = const [],
     this.detect = const AppDetectRules(),
     this.schemaVersion = currentSchemaVersion,
   });
@@ -43,6 +47,23 @@ class AppDescriptor {
   /// תיאור קצר שהמשתמש כתב לעצמו — "מה התוכנה הזאת". מוצג בכרטיס. גם הוא
   /// תוכן ואינו מתורגם.
   final String? description;
+
+  /// התיאור המלא, כפי שהוא מוצג בדף התוכנה. נפרד מ-[description] בכוונה:
+  /// הכרטיס ברשת הוא בגובה קבוע ויכול להציג שלוש שורות בלבד.
+  final String? longDescription;
+
+  /// הקטגוריות שאליהן שויכה התוכנה, לפי ה-slug שלהן. ריק פירושו "ללא
+  /// קטגוריה", וזה המצב הרגיל — קטגוריות הן תוספת שלא כולם מגדירים.
+  final List<String> categorySlugs;
+
+  /// שם קובץ האייקון **בתוך `media/` של התוכנה**, לא נתיב.
+  ///
+  /// ⚠️ יחסי בכוונה: הרשומה נוסעת על הכונן, ונתיב מוחלט בתוכה הוא בדיוק
+  /// המחלה של `otzaria_install_state.json` (§5.3).
+  final String? iconFile;
+
+  /// שמות קובצי צילומי המסך בתוך `media/`, בסדר התצוגה. יחסיים מאותה סיבה.
+  final List<String> screenshotFiles;
 
   /// מי מפרסם את התוכנה. תוכן, אינו מתורגם.
   final String? publisher;
@@ -143,11 +164,21 @@ class AppDescriptor {
       return value.trim();
     }
 
+    final media = json['media'] as Map<String, dynamic>? ?? const {};
+
     return AppDescriptor(
       schemaVersion: schemaVersion,
       id: id,
       name: required('name'),
       description: optional('description'),
+      longDescription: optional('longDescription'),
+      categorySlugs: _slugsFrom(json['categories']),
+      iconFile: _safeFileName(media['icon']),
+      screenshotFiles: [
+        if (media['screenshots'] is List)
+          for (final raw in media['screenshots'] as List)
+            if (_safeFileName(raw) case final name?) name,
+      ],
       publisher: optional('publisher'),
       sourceKind: sourceKind,
       github: github,
@@ -163,11 +194,41 @@ class AppDescriptor {
     );
   }
 
+  /// שם קובץ מדיה שבטוח לצרף לנתיב, או `null`. הרשומה מגיעה מכונן שנדד,
+  /// ולכן `../../windows/system32` כאן הוא גבול אמיתי ולא ניקיון — אותו
+  /// שיקול בדיוק כמו ב-[AppDescriptorId].
+  static String? _safeFileName(Object? value) {
+    if (value is! String) return null;
+    final name = value.trim();
+    if (name.isEmpty || name.contains('..')) return null;
+    if (name.contains('/') || name.contains(r'\') || name.contains(':')) {
+      return null;
+    }
+    return name;
+  }
+
+  /// slug פסול מדולג ולא מפיל את הטעינה — תוצאתו היא קטגוריה שלא תימצא,
+  /// והממשק ממילא מתעלם משיוך לקטגוריה שאינה קיימת.
+  static List<String> _slugsFrom(Object? value) {
+    if (value is! List) return const [];
+    return [
+      for (final raw in value)
+        if (raw is String && AppDescriptorId.isValid(raw.trim())) raw.trim(),
+    ];
+  }
+
   Map<String, dynamic> toJson() => {
         'schemaVersion': schemaVersion,
         'id': id,
         'name': name,
         if (description != null) 'description': description,
+        if (longDescription != null) 'longDescription': longDescription,
+        if (categorySlugs.isNotEmpty) 'categories': categorySlugs,
+        if (iconFile != null || screenshotFiles.isNotEmpty)
+          'media': {
+            if (iconFile != null) 'icon': iconFile,
+            if (screenshotFiles.isNotEmpty) 'screenshots': screenshotFiles,
+          },
         if (publisher != null) 'publisher': publisher,
         'source': {
           'kind': sourceKind.id,
@@ -184,18 +245,44 @@ class AppDescriptor {
   AppDescriptor copyWith({
     String? name,
     AppDetectRules? detect,
+    String? iconFile,
+    List<String>? screenshotFiles,
+    List<String>? categorySlugs,
   }) =>
       AppDescriptor(
         schemaVersion: schemaVersion,
         id: id,
         name: name ?? this.name,
         description: description,
+        longDescription: longDescription,
+        categorySlugs: categorySlugs ?? this.categorySlugs,
+        // `null` כאן פירושו "אל תיגע", ולכן מחיקת אייקון נעשית בבניית
+        // רשומה חדשה ולא דרך copyWith — ראו `CustomAppsManager.saveMedia`.
+        iconFile: iconFile ?? this.iconFile,
+        screenshotFiles: screenshotFiles ?? this.screenshotFiles,
         publisher: publisher,
         sourceKind: sourceKind,
         github: github,
         installDir: installDir,
         portableFile: portableFile,
         detect: detect ?? this.detect,
+      );
+
+  /// רשומה זהה, בלי שום מדיה. `copyWith` אינו יכול **למחוק** שדה, וזו
+  /// הדרך היחידה לומר "אין אייקון" ו"אין צילומי מסך".
+  AppDescriptor withoutMedia() => AppDescriptor(
+        schemaVersion: schemaVersion,
+        id: id,
+        name: name,
+        description: description,
+        longDescription: longDescription,
+        categorySlugs: categorySlugs,
+        publisher: publisher,
+        sourceKind: sourceKind,
+        github: github,
+        installDir: installDir,
+        portableFile: portableFile,
+        detect: detect,
       );
 
   /// טקסט הקובץ כפי שהוא נכתב לדיסק — עם הזחה, כדי שיישאר קריא לבן אדם

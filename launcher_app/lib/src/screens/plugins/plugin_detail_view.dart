@@ -9,9 +9,8 @@ import '../../services/byte_size.dart';
 import '../../services/hebrew_date.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
+import '../store_kit/store_kit.dart';
 import 'plugin_rating_panel.dart';
-import 'plugin_screenshot_lightbox.dart';
-import 'plugin_store_body.dart';
 import 'plugin_visuals.dart';
 
 /// עמוד פרטי התוסף — hero, מידע כללי, תגיות, דירוג וגלריית צילומי מסך.
@@ -49,10 +48,10 @@ class PluginDetailView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PluginStoreBody(
+    return StoreBody(
       header: _backHeader(context),
       slivers: [
-        PluginStoreBody.padded(
+        StoreBody.padded(
           SliverList.list(children: _panels(context)),
           top: AppTokens.spaceMD,
         ),
@@ -114,7 +113,7 @@ class PluginDetailView extends StatelessWidget {
         ),
       ),
       padding: const EdgeInsets.symmetric(
-        horizontal: PluginStoreBody.horizontalPadding,
+        horizontal: StoreBody.horizontalPadding,
         vertical: AppTokens.spaceSM,
       ),
       child: Row(
@@ -163,7 +162,7 @@ class PluginDetailView extends StatelessWidget {
             final narrow = constraints.maxWidth < LayoutBreakpoints.medium;
             final image = SizedBox(
               width: narrow ? double.infinity : 340,
-              child: PluginThumbnail(
+              child: StoreThumbnail(
                 imagePath: controller.assetPath(plugin.imagePath),
                 aspectRatio: 4 / 3,
               ),
@@ -216,22 +215,22 @@ class PluginDetailView extends StatelessWidget {
           spacing: AppTokens.spaceXS,
           runSpacing: AppTokens.spaceXS,
           children: [
-            PluginBadge(
+            StoreBadge(
               label: pluginStatusLabel(target?.status ?? plugin.status),
               emphasized: true,
             ),
             // הגרסה שתותקן כאן — ראו הודעת התאימות מתחת לכפתורים.
-            PluginBadge(
+            StoreBadge(
               label: t.pluginVersionBadge(controller.versionOf(plugin)),
             ),
-            PluginBadge(
+            StoreBadge(
               label: t.downloadsBadge(plugin.downloadCount),
               icon: FluentIcons.arrow_download_24_regular,
             ),
             // באתר הדירוג מופיע פעמיים בעמוד: כגלולה כאן, וכסעיף מלא למטה.
             if (plugin.ratingCount > 0) PluginRatingBadge(plugin: plugin),
             if (plugin.isFeatured)
-              PluginBadge(
+              StoreBadge(
                 label: t.badgeFeatured,
                 icon: FluentIcons.star_24_regular,
               ),
@@ -248,7 +247,7 @@ class PluginDetailView extends StatelessWidget {
             runSpacing: AppTokens.spaceSM,
             children: [
               for (final slug in plugin.categorySlugs)
-                PluginTagPill(
+                StoreTagPill(
                   label: controller.categoryName(slug),
                   onTap: () => onCategorySelected(slug),
                 ),
@@ -390,7 +389,7 @@ class PluginDetailView extends StatelessWidget {
         runSpacing: AppTokens.spaceSM,
         children: [
           for (final tag in plugin.tags)
-            PluginTagPill(label: tag, onTap: () => onTagSelected(tag)),
+            StoreTagPill(label: tag, onTap: () => onTagSelected(tag)),
         ],
       ),
     );
@@ -414,7 +413,7 @@ class PluginDetailView extends StatelessWidget {
             SizedBox(
               width: _screenshotThumbWidth,
               child: AppCard(
-                onTap: () => showPluginScreenshots(
+                onTap: () => showStoreScreenshots(
                   context,
                   paths: paths,
                   initialIndex: i,

@@ -1,9 +1,12 @@
 // בדיקות לתוכנות נוספות. הכלל שנבדק שוב ושוב כאן הוא **"ריק = בלתי
 // נראה"**: משתמש שלא הוסיף תוכנה לא אמור לפגוש שום סימן לתכונה הזו.
 
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:custom_apps_manager/custom_apps_manager.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/custom_apps_controller.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_apps_screen.dart';
@@ -40,6 +43,8 @@ void main() {
     String id = 'demo',
     String name = 'תוכנת דמו',
     String? description,
+    String? longDescription,
+    List<String> categories = const [],
     String? exeName,
     AppSourceKind source = AppSourceKind.manual,
     bool withInstaller = false,
@@ -51,6 +56,8 @@ void main() {
           id: id,
           name: name,
           description: description,
+          longDescription: longDescription,
+          categorySlugs: categories,
           portableFile: portableFile,
           sourceKind: source,
           github: source == AppSourceKind.github
@@ -141,7 +148,8 @@ void main() {
       expect(find.textContaining('אינה מותקנת'), findsOneWidget);
     });
 
-    testWidgets('כפתורי הרשת מוצגים רק לתוכנה מגיטהאב', (tester) async {
+    // הכרטיס נושא פעולה ראשית אחת; "הורדה לכונן" היא זו כשאין מה להתקין.
+    testWidgets('כפתור ההורדה בכרטיס רק לתוכנה מגיטהאב', (tester) async {
       await addApp(tester, id: 'local', name: 'מקומית');
       await pumpScreen(tester, CustomAppsScreen(controller: controller));
       expect(find.text('הורדה לכונן'), findsNothing);
@@ -150,23 +158,8 @@ void main() {
           id: 'gh', name: 'מגיטהאב', source: AppSourceKind.github);
       await pumpScreen(tester, CustomAppsScreen(controller: controller));
       expect(find.text('הורדה לכונן'), findsOneWidget);
-      expect(find.text('בדיקה ברשת'), findsOneWidget);
-    });
-
-    testWidgets('בחירת מיקום ידנית מוצגת כשיש מה לחפש ולא נמצא',
-        (tester) async {
-      await addApp(tester, exeName: 'no-such-app-anywhere.exe');
-      await pumpScreen(tester, CustomAppsScreen(controller: controller));
-
-      expect(find.text('בחירת מיקום ידנית'), findsOneWidget);
-    });
-
-    // בלי שם קובץ הרצה אין מה לחפש בתיקייה שייבחר — הכפתור היה חסר משמעות.
-    testWidgets('בלי שם קובץ הרצה אין בחירת מיקום ידנית', (tester) async {
-      await addApp(tester);
-      await pumpScreen(tester, CustomAppsScreen(controller: controller));
-
-      expect(find.text('בחירת מיקום ידנית'), findsNothing);
+      // "בדיקה ברשת" עברה לדף התוכנה — בכרטיס יש פעולה אחת בלבד.
+      expect(find.text('בדיקה ברשת'), findsNothing);
     });
 
     // כל הניהול עבר להגדרות — במסך נשאר רק מה שעושים עם התוכנה עצמה.
@@ -748,6 +741,193 @@ void main() {
       expect(result.downloaded, 1);
     });
   });
+
+  // הפריסה החדשה: רשת כרטיסים, סרגל קטגוריות ודף לכל תוכנה — אותם
+  // רכיבים של חנות התוספים (`screens/store_kit/`).
+  group('רשת, קטגוריות ודף התוכנה', () {
+    /// מוסיף קטגוריה ומחזיר את ה-slug שלה. השם בעברית, ולכן ה-slug נגזר
+    /// מהבסיס הקבוע — הוא מפתח ואינו מוצג.
+    Future<String> addCategory(WidgetTester tester, String name) async {
+      late String slug;
+      await tester.runAsync(() async {
+        slug = (await controller.addCategory(name))!;
+      });
+      return slug;
+    }
+
+    testWidgets('לחיצה על כרטיס פותחת את דף התוכנה', (tester) async {
+      await addApp(
+        tester,
+        name: 'תוכנת דמו',
+        longDescription: 'הסבר ארוך על מה התוכנה יודעת לעשות',
+        exeName: 'no-such-app-anywhere.exe',
+      );
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+
+      // התיאור המורחב שייך לדף בלבד — הכרטיס ברשת בגובה קבוע.
+      expect(find.textContaining('הסבר ארוך'), findsNothing);
+
+      await tester.tap(find.text('לפרטים מלאים'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('חזרה לתוכנות'), findsOneWidget);
+      expect(find.text('על התוכנה'), findsOneWidget);
+      expect(find.textContaining('הסבר ארוך'), findsOneWidget);
+      expect(find.text('מידע כללי'), findsOneWidget);
+    });
+
+    // הפעולות שירדו מהכרטיס חייבות להיות זמינות אי-שם, וזה המקום.
+    testWidgets('כל הפעולות יושבות בדף התוכנה', (tester) async {
+      await addApp(
+        tester,
+        exeName: 'no-such-app-anywhere.exe',
+        source: AppSourceKind.github,
+      );
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      await tester.tap(find.text('לפרטים מלאים'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('בחירת מיקום ידנית'), findsOneWidget);
+      expect(find.text('בדיקה ברשת'), findsOneWidget);
+      expect(find.text('הורדה לכונן'), findsOneWidget);
+    });
+
+    testWidgets('חזרה מדף התוכנה מחזירה לרשת', (tester) async {
+      await addApp(tester, name: 'תוכנת דמו');
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      await tester.tap(find.text('לפרטים מלאים'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('חזרה לתוכנות'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('לפרטים מלאים'), findsOneWidget);
+      expect(find.text('חזרה לתוכנות'), findsNothing);
+    });
+
+    // סרגל עם פריט אחד הוא רעש שגוזל רוחב — ולכן אינו קיים.
+    testWidgets('בלי קטגוריות אין סרגל צד', (tester) async {
+      await addApp(tester);
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+
+      expect(find.text('קטגוריות'), findsNothing);
+      expect(find.text('כל התוכנות'), findsNothing);
+    });
+
+    testWidgets('קטגוריה בסרגל מסננת את הרשת', (tester) async {
+      final slug = await addCategory(tester, 'כלי לימוד');
+      await addApp(tester, id: 'a', name: 'ראשונה', categories: [slug]);
+      await addApp(tester, id: 'b', name: 'שנייה');
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+
+      expect(find.text('ראשונה'), findsOneWidget);
+      expect(find.text('שנייה'), findsOneWidget);
+
+      // הראשון הוא פריט הסרגל; השני הוא גלולת הקטגוריה שעל הכרטיס.
+      await tester.tap(find.text('כלי לימוד').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('ראשונה'), findsOneWidget);
+      expect(find.text('שנייה'), findsNothing);
+    });
+
+    testWidgets('"ללא קטגוריה" מוצג רק כשיש מה לאסוף לתוכו', (tester) async {
+      final slug = await addCategory(tester, 'כלי לימוד');
+      await addApp(tester, id: 'a', name: 'ראשונה', categories: [slug]);
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      expect(find.text('ללא קטגוריה'), findsNothing);
+
+      await addApp(tester, id: 'b', name: 'שנייה');
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      expect(find.text('ללא קטגוריה'), findsOneWidget);
+
+      await tester.tap(find.text('ללא קטגוריה'));
+      await tester.pumpAndSettle();
+      expect(find.text('שנייה'), findsOneWidget);
+      expect(find.text('ראשונה'), findsNothing);
+    });
+
+    // שיוך לקטגוריה שנמחקה במחשב אחר אינו מעלים את התוכנה מהמסך.
+    testWidgets('שיוך לקטגוריה שאינה קיימת נחשב "ללא קטגוריה"', (tester) async {
+      await addCategory(tester, 'כלי לימוד');
+      await addApp(tester, name: 'יתומה', categories: const ['אבודה']);
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+
+      await tester.tap(find.text('ללא קטגוריה'));
+      await tester.pumpAndSettle();
+      expect(find.text('יתומה'), findsOneWidget);
+    });
+
+    testWidgets('גלריית צילומי המסך מוצגת בדף כשיש תמונות', (tester) async {
+      await addApp(tester, name: 'תוכנת דמו');
+      await tester.runAsync(() async {
+        final shot = File(p.join(tempDir.path, 'shot.png'))
+          ..writeAsBytesSync(_onePixelPng);
+        await controller.saveMedia('demo', screenshotSources: [shot.path]);
+      });
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      await tester.tap(find.text('לפרטים מלאים'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('צילומי מסך'), findsOneWidget);
+    });
+
+    testWidgets('בלי תמונות אין סעיף צילומי מסך', (tester) async {
+      await addApp(tester, name: 'תוכנת דמו');
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      await tester.tap(find.text('לפרטים מלאים'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('צילומי מסך'), findsNothing);
+    });
+
+    testWidgets('כרטיס עמוס בכרטיס הצר ביותר אינו גולש', (tester) async {
+      final slug = await addCategory(tester, 'כלי לימוד');
+      for (var i = 0; i < 4; i++) {
+        await addApp(
+          tester,
+          id: 'app-$i',
+          name: 'שם ארוך במיוחד לתוכנה שנועד לתפוס שתי שורות שלמות',
+          description:
+              'תקציר ארוך שנמשך על פני כמה שורות כדי לבדוק שהכרטיס אינו '
+              'גולש גם כשהטקסט מגיע למקסימום השורות המותר בו',
+          categories: [slug],
+          exeName: 'no-such-app-anywhere.exe',
+        );
+      }
+
+      // שני רוחבים צרים ושניים רחבים, שתי השפות, וכל ההגדלות שהמשתמש
+      // יכול לבחור — ומעליהן ההגדלה של המערכת.
+      for (final width in [584.0, 700.0, 1160.0]) {
+        for (final language in AppLanguage.values) {
+          for (final scale in [0.9, 1.0, 1.15, 1.3, 1.5]) {
+            // עץ נקי בין שילוב לשילוב: `RenderFlex` מדווח על גלישה **פעם
+            // אחת** לכל render object, ובלי איפוס שילוב גולש נבלע בשקט.
+            useViewSize(tester, Size(width, 1400));
+            AppL10n.use(language);
+            await tester.pumpWidget(const SizedBox());
+            await tester.pumpWidget(
+              wrap(
+                MediaQuery(
+                  data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+                  child: CustomAppsScreen(controller: controller),
+                ),
+                language: language,
+              ),
+            );
+            await tester.pump();
+
+            expect(
+              tester.takeException(),
+              isNull,
+              reason: 'הכרטיס גלש ברוחב $width, שפה $language, הגדלה $scale',
+            );
+          }
+        }
+      }
+      AppL10n.use(AppLanguage.hebrew);
+    });
+  });
 }
 
 /// מנהל שהרשת שלו מזויפת: [peekLatestOnline] מחזיר את מה שהבדיקה אמורה
@@ -800,3 +980,10 @@ class _FakeManager extends CustomAppsManager {
     );
   }
 }
+
+/// PNG אמיתי בגודל פיקסל אחד — `Image.file` על קובץ שאינו תמונה מדווח
+/// שגיאת פענוח, וזו הייתה נספרת בבדיקה כחריג.
+final Uint8List _onePixelPng = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGA'
+  'hKmMIQAAAABJRU5ErkJggg==',
+);

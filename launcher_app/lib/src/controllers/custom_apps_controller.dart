@@ -57,6 +57,20 @@ class CustomAppView {
 /// שעוד לא הגיעה למחשב הזה, והשני עדכון לתוכנה שכבר יושבת בו.
 enum CustomAppPending { none, notInstalled, newerOnDrive }
 
+/// איזו רשימה מוצגת במסך — כמו `PluginStorePage` של חנות התוספים, פחות
+/// דף הבית האצור: אין כאן אתר שאוצר משהו.
+enum CustomAppsPage {
+  /// כל התוכנות, בלי סינון. זה המצב ההתחלתי, וגם היחיד למי שלא הגדיר
+  /// קטגוריות בכלל.
+  all,
+
+  /// קטגוריה אחת — ראו [CustomAppsController.openCategorySlug].
+  category,
+
+  /// מה שלא שויך לשום קטגוריה. מוצג רק כשיש בכלל קטגוריות.
+  uncategorized,
+}
+
 /// מצב התוכנות המותאמות עבור הממשק.
 ///
 /// **ריק הוא המצב הרגיל.** רוב המשתמשים לא יוסיפו אף תוכנה, והממשק חייב
@@ -69,6 +83,7 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     String? stateDir,
     CustomAppsManager? manager,
   }) {
+    _mirrorRootDir = mirrorRootDir;
     _announced = stateDir == null ? null : AnnouncedAppsStore(stateDir);
     _manager = manager ??
         CustomAppsManager(
@@ -93,6 +108,10 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
 
   late final CustomAppsManager _manager;
 
+  /// שורש המראה. נשמר גם כאן ולא רק בתוך ה-manager, כי נתיבי המדיה
+  /// נדרשים **סינכרונית** בזמן `build` — התיקייה עצמה קבועה כל ההרצה.
+  late final String _mirrorRootDir;
+
   /// לאן נרשם "כבר הוצגה הודעה על התוכנה הזו במחשב הזה". `null` כשאין
   /// תיקיית כתיבה — אז הזיכרון הוא של ההרצה הנוכחית בלבד.
   late final AnnouncedAppsStore? _announced;
@@ -102,6 +121,11 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
   Set<String> _announcedIds = {};
 
   List<CustomAppView> apps = const [];
+
+  /// הקטגוריות שהמשתמש הגדיר, בסדר שנקבע. ריק הוא המצב הרגיל — קטגוריות
+  /// הן תוספת, והמסך מסתדר בלעדיהן לגמרי.
+  List<CustomAppCategory> categories = const [];
+
   bool isBusy = false;
   String? errorMessage;
 
@@ -234,6 +258,7 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     try {
       // לפני הרשימה: המסך פותח את ההודעה ברגע שהיא מגיעה אליו.
       if (_announced != null) _announcedIds = await _announced.load();
+      categories = await _manager.loadCategories();
       final entries = await _manager.loadAll();
       final views = <CustomAppView>[];
       for (final entry in entries) {
@@ -571,6 +596,186 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
 
   /// המזהים התפוסים — הבונה צריך אותם כדי לייצר מזהה פנוי.
   Set<String> get takenIds => {for (final app in apps) app.descriptor.id};
+
+  // ── מדיה: אייקון וצילומי מסך ──────────────────────────────────────────
+
+  /// נבנה בכל קריאה מחדש ולא נשמר: הוא עולה כלום, והשורש קבוע כל ההרצה.
+  CustomAppMedia _mediaOf(String id) => CustomAppMedia(
+        appDir: CustomAppStore(mirrorRootDir: _mirrorRootDir).dirFor(id),
+      );
+
+  /// נתיב קובץ ההתקנה ששמור על הכונן, או `null` כשעוד לא הגיע קובץ.
+  /// חשוף לטופס: כשהתוכנה אינה מותקנת במחשב הזה — והמצב הזה הוא הנורמה
+  /// במחשב המקוון — המתקין הוא הקובץ היחיד שאפשר לחלץ ממנו אייקון.
+  String? storedInstallerPathOf(String id) {
+    for (final app in apps) {
+      if (app.descriptor.id != id) continue;
+      final installer = app.storedInstaller;
+      if (installer == null) return null;
+      return CustomAppStore(mirrorRootDir: _mirrorRootDir)
+          .installerPathFor(id, installer);
+    }
+    return null;
+  }
+
+  /// נתיב האייקון, או `null` כשאין. סינכרוני בכוונה — הוא נקרא מתוך
+  /// `build`, ו-`Image.file` ממילא מטפל בקובץ שנמחק.
+  String? iconPathOf(AppDescriptor descriptor) =>
+      _mediaOf(descriptor.id).iconPathOf(descriptor);
+
+  List<String> screenshotPathsOf(AppDescriptor descriptor) =>
+      _mediaOf(descriptor.id).screenshotPathsOf(descriptor);
+
+  /// כותב מחדש את המדיה של תוכנה רשומה. המקורות הם נתיבים מלאים, ומה
+  /// שלא נמסר נמחק — ראו `CustomAppsManager.saveMedia`.
+  Future<bool> saveMedia(
+    String id, {
+    String? iconSource,
+    List<String> screenshotSources = const [],
+  }) async {
+    final saved = await _guard(
+      () => _manager.saveMedia(
+        id,
+        iconSource: iconSource,
+        screenshotSources: screenshotSources,
+      ),
+    );
+    if (saved == null) return false;
+    await load();
+    return true;
+  }
+
+  // ── קטגוריות ──────────────────────────────────────────────────────────
+
+  /// איזו רשימה מוצגת. נשמר בקונטרולר ולא במסך, כדי שיציאה ללשונית אחרת
+  /// וחזרה לא יאפסו את הקטגוריה שנבחרה — המסך עצמו נשאר בעץ.
+  CustomAppsPage page = CustomAppsPage.all;
+
+  /// הקטגוריה הפתוחה, כש-[page] הוא `category`.
+  String? openCategorySlug;
+
+  CustomAppCategory? get openCategory {
+    final slug = openCategorySlug;
+    if (slug == null) return null;
+    for (final category in categories) {
+      if (category.slug == slug) return category;
+    }
+    return null;
+  }
+
+  void showAllApps() {
+    page = CustomAppsPage.all;
+    openCategorySlug = null;
+    notifyListeners();
+  }
+
+  void showCategory(String slug) {
+    page = CustomAppsPage.category;
+    openCategorySlug = slug;
+    notifyListeners();
+  }
+
+  void showUncategorized() {
+    page = CustomAppsPage.uncategorized;
+    openCategorySlug = null;
+    notifyListeners();
+  }
+
+  Set<String> get _knownSlugs => {for (final c in categories) c.slug};
+
+  List<CustomAppView> appsIn(String slug) => [
+        for (final app in apps)
+          if (app.descriptor.categorySlugs.contains(slug)) app,
+      ];
+
+  /// מה שאינו שייך לשום קטגוריה **קיימת**. שיוך לקטגוריה שנמחקה מכונן
+  /// אחר נחשב כאן כאילו אינו — אחרת התוכנה הייתה נעלמת מכל הרשימות.
+  List<CustomAppView> get uncategorizedApps {
+    final known = _knownSlugs;
+    return [
+      for (final app in apps)
+        if (!app.descriptor.categorySlugs.any(known.contains)) app,
+    ];
+  }
+
+  /// מה שמוצג כרגע, לפי [page].
+  List<CustomAppView> get visibleApps => switch (page) {
+        CustomAppsPage.all => apps,
+        CustomAppsPage.uncategorized => uncategorizedApps,
+        CustomAppsPage.category =>
+          openCategorySlug == null ? apps : appsIn(openCategorySlug!),
+      };
+
+  /// שם הקטגוריה לפי slug, או ה-slug עצמו כשאינה מוכרת — כך תגית של
+  /// קטגוריה שהגיעה מכונן אחר עדיין אומרת משהו.
+  String categoryName(String slug) {
+    for (final category in categories) {
+      if (category.slug == slug) return category.name;
+    }
+    return slug;
+  }
+
+  /// מוסיף קטגוריה חדשה ומחזיר את ה-slug שלה, או `null` בכשל.
+  Future<String?> addCategory(String name, {String description = ''}) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return null;
+    final slug = CustomAppCategory.slugFor(trimmed, taken: _knownSlugs);
+
+    final ok = await _guard(() async {
+      await _manager.saveCategories([
+        ...categories,
+        CustomAppCategory(
+          slug: slug,
+          name: trimmed,
+          description: description.trim(),
+        ),
+      ]);
+      return true;
+    });
+    if (ok != true) return null;
+    await load();
+    return slug;
+  }
+
+  /// שינוי שם או תיאור. ה-slug **אינו** משתנה — הוא רשום על התוכנות
+  /// עצמן, ושינויו היה מנתק את כולן מהקטגוריה.
+  Future<bool> renameCategory(
+    String slug, {
+    required String name,
+    String? description,
+  }) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return false;
+
+    final ok = await _guard(() async {
+      await _manager.saveCategories([
+        for (final category in categories)
+          if (category.slug == slug)
+            category.copyWith(name: trimmed, description: description?.trim())
+          else
+            category,
+      ]);
+      return true;
+    });
+    if (ok == true) await load();
+    return ok == true;
+  }
+
+  /// מסיר קטגוריה ומנתק ממנה את כל התוכנות. **אינו מסיר תוכנות** —
+  /// הן פשוט חוזרות ל"ללא קטגוריה".
+  Future<bool> removeCategory(String slug) async {
+    final ok = await _guard(() async {
+      await _manager.removeCategory(slug);
+      return true;
+    });
+    if (ok != true) return false;
+    if (openCategorySlug == slug) {
+      page = CustomAppsPage.all;
+      openCategorySlug = null;
+    }
+    await load();
+    return true;
+  }
 
   /// מריץ פעולה, מסמן עסוק, ולוכד את ההודעה המתורגמת של החבילה.
   Future<T?> _guard<T>(Future<T> Function() action) async {

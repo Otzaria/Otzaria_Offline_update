@@ -11,7 +11,7 @@ import '../../widgets/widgets_exports.dart';
 /// ב-Esc או בלחיצה על הרקע — כמו ה-lightbox בחנות המקורית.
 ///
 /// הכיווניות נגזרת מהשפה: ב-RTL ← מקדם ו-→ מחזיר, וב-LTR להפך.
-Future<void> showPluginScreenshots(
+Future<void> showStoreScreenshots(
   BuildContext context, {
   required List<String> paths,
   required int initialIndex,

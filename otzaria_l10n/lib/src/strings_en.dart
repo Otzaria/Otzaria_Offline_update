@@ -256,6 +256,9 @@ class _Home extends HomeStrings {
   String onlineMissingPlugins(int count) =>
       '$count plugins are missing from the folder — their install file is gone';
   @override
+  String onlineStoreAppUpdate(String version) =>
+      'Version $version of the plugin store program';
+  @override
   String get onlinePluginsSyncOff =>
       'Plugin downloads are turned off in Settings — they will be skipped.';
   @override
@@ -1215,6 +1218,68 @@ class _Plugins extends PluginsStrings {
   String get screenshotPrevious => 'Previous';
   @override
   String get screenshotNext => 'Next';
+
+  @override
+  String get storeAppButton => 'Copy the store to a computer';
+  @override
+  String get storeAppDialogTitle => 'The plugin store as a desktop program';
+  @override
+  String get storeAppDialogBody =>
+      'A separate Windows program, with every plugin on this drive packed '
+      'inside it. Copy it to a flash drive, browse the plugins and install '
+      'them straight into Otzaria — even on a machine with no internet.';
+  @override
+  String get storeAppHighlightBundled =>
+      'Every plugin on this drive is packed in';
+  @override
+  String get storeAppHighlightOffline => 'Works with no internet connection';
+  @override
+  String get storeAppHighlightDirect => 'Installs straight into Otzaria';
+  @override
+  String get storeAppChipWindows => 'For Windows';
+  @override
+  String storeAppChipSize(String size) => 'Size $size';
+  @override
+  String storeAppChipUpdated(String date) => 'Updated $date';
+  @override
+  String get storeAppChooseFolder => 'Choose a folder…';
+  @override
+  String get storeAppUnavailableTooltip =>
+      'The store program has not been downloaded yet. Run "Download" on a '
+      'computer with internet.';
+  @override
+  String get storeAppNoPluginsTooltip =>
+      'There are no plugins on this drive. Sync the store on a computer with '
+      'internet.';
+  @override
+  String get storeAppPickFolderTitle => 'Where should the plugin store go?';
+  @override
+  String get storeAppOverwriteTitle => 'A store is already here';
+  @override
+  String storeAppOverwriteContent(String path) =>
+      'A plugin store already sits in $path. Updating will overwrite the '
+      'program and the plugins, and will leave everything else alone.';
+  @override
+  String get storeAppOverwriteConfirm => 'Update';
+  @override
+  String get storeAppCopyingTitle => 'Copying the plugin store';
+  @override
+  String get storeAppCopyingSubtitle =>
+      'Copying from this drive only — no internet is used here.';
+  @override
+  String get storeAppDoneTitle => 'The store was copied';
+  @override
+  String storeAppDoneContent(int plugins, String size) =>
+      'The store was copied with $plugins plugins ($size).';
+  @override
+  String storeAppDoneSkipped(int count) =>
+      '$count plugins have no file on this drive and were left out.';
+  @override
+  String get storeAppOpenFolder => 'Open the folder';
+  @override
+  String get storeAppLaunch => 'Launch the store';
+  @override
+  String storeAppFailedSnack(String error) => 'The copy failed: $error';
 }
 
 class _Faq extends FaqStrings {
@@ -2446,6 +2511,22 @@ class _PluginsDomain extends PluginsDomainStrings {
   @override
   String httpStatusFor(int statusCode, String url) =>
       'HTTP $statusCode for $url';
+
+  @override
+  String get exportPreparing => 'Preparing the copy…';
+  @override
+  String get exportAppMissing =>
+      'The store program is not on this drive. Run "Download" on a computer '
+      'with internet.';
+  @override
+  String get exportCopyingApp => 'Copying the store program…';
+  @override
+  String exportPlugin(String name, int done, int total) =>
+      'Copying $name ($done/$total)';
+  @override
+  String get exportWritingCatalog => 'Writing the catalog…';
+  @override
+  String exportDone(int plugins) => '$plugins plugins copied';
 }
 
 class _CustomAppsDomain extends CustomAppsDomainStrings {
@@ -2492,6 +2573,12 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
       'Executable not found: $launchPath';
 
   @override
+  String mediaFileMissing(String path) => 'Image file not found: $path';
+  @override
+  String mediaNotAnImage(String fileName) =>
+      '$fileName is not an image file. Pick a PNG, JPG, GIF, WEBP or BMP.';
+
+  @override
   String githubStatus(int statusCode, String uri) =>
       'GitHub returned error $statusCode for $uri';
   @override
@@ -2516,6 +2603,139 @@ class _CustomApps extends CustomAppsStrings {
 
   @override
   String get screenTitle => 'Other Programs';
+
+  // ── The card grid and the category rail ──
+  @override
+  String get categoriesTitle => 'Categories';
+  @override
+  String get allAppsItem => 'All programs';
+  @override
+  String allAppsWithCount(int count) => 'All programs ($count)';
+  @override
+  String get uncategorizedItem => 'Uncategorized';
+  @override
+  String get cardDetailsLink => 'Full details';
+  @override
+  String get backToApps => 'Back to programs';
+
+  // ── The program page ──
+  @override
+  String get aboutPanelTitle => 'About';
+  @override
+  String get infoPanelTitle => 'General information';
+  @override
+  String get screenshotsPanelTitle => 'Screenshots';
+  @override
+  String get categoriesPanelTitle => 'Categories';
+  @override
+  String get infoSource => 'Source';
+  @override
+  String get infoSourceGithub => 'GitHub';
+  @override
+  String get infoSourceFile => 'Manually picked file';
+  @override
+  String get infoInstalled => 'On this computer';
+  @override
+  String get infoStored => 'On the drive';
+  @override
+  String get infoOnline => 'Online';
+  @override
+  String get infoStoredSize => 'Stored file size';
+  @override
+  String get infoStoredAdded => 'Added to the drive';
+  @override
+  String get valueUnknown => 'Unknown';
+
+  // ── Empty states ──
+  @override
+  String get emptyCategoryTitle => 'No programs here yet';
+  @override
+  String get emptyCategoryBody =>
+      'Programs are assigned to a category when you edit them, from the '
+      'settings card.';
+  @override
+  String get emptyUncategorizedTitle => 'Every program is assigned';
+  @override
+  String get emptyUncategorizedBody => 'No program is left outside a category.';
+  @override
+  String categoryAppCount(int count) =>
+      count == 1 ? '$count program' : '$count programs';
+
+  // ── Managing categories ──
+  @override
+  String get manageCategoriesButton => 'Manage categories';
+  @override
+  String get categoriesDialogHint =>
+      'Categories travel on the drive together with the programs, and appear '
+      'as a side rail on the screen.';
+  @override
+  String get categoryNameLabel => 'Category name';
+  @override
+  String get categoryNameHint => 'For example: study tools';
+  @override
+  String get categoryDescriptionLabel => 'Description (optional)';
+  @override
+  String get addCategoryButton => 'Add category';
+  @override
+  String get noCategoriesHint =>
+      'No categories yet. Without them the screen shows every program '
+      'together.';
+  @override
+  String get removeCategoryTooltip => 'Delete category';
+  @override
+  String removeCategoryDialogTitle(String name) => 'Delete "$name"?';
+  @override
+  String removeCategoryDialogContent(String name, int count) =>
+      'The category "$name" will be deleted. $count programs will go back to '
+      '"Uncategorized" — no program is removed and no file is deleted from '
+      'the drive.';
+  @override
+  String categoryRemovedSnack(String name) =>
+      'The category "$name" was deleted';
+
+  // ── Media and categories in the form ──
+  @override
+  String get appCategoriesLabel => 'Categories';
+  @override
+  String get appCategoriesHint =>
+      'A program can belong to several categories, or to none.';
+  @override
+  String get longDescriptionLabel => 'Full description';
+  @override
+  String get longDescriptionHint =>
+      'What the program does, who it is for, and anything worth knowing. '
+      'Shown on the program page.';
+  @override
+  String get iconLabel => 'Icon';
+  @override
+  String get pickIconButton => 'Pick an icon';
+  @override
+  String get pickIconDialogTitle => 'Pick an icon image';
+  @override
+  String get removeIconTooltip => 'Remove the icon';
+  @override
+  String get extractIconButton => 'Extract from the executable';
+  @override
+  String extractedIconSnack(String fileName) =>
+      'The icon was extracted from $fileName';
+  @override
+  String get extractIconFailedSnack =>
+      'No icon was found in the file. You can pick an image manually.';
+  @override
+  String get moveScreenshotBackTooltip => 'Move back';
+  @override
+  String get moveScreenshotForwardTooltip => 'Move forward';
+  @override
+  String get screenshotsLabel => 'Screenshots';
+  @override
+  String get addScreenshotsButton => 'Add screenshots';
+  @override
+  String get pickScreenshotsDialogTitle => 'Pick screenshots';
+  @override
+  String get removeScreenshotTooltip => 'Remove the image';
+  @override
+  String screenshotsChosen(int count) =>
+      count == 1 ? '$count image' : '$count images';
 
   @override
   String get settingsCardTitle => 'Other Programs';

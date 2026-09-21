@@ -1,0 +1,98 @@
+name: Release
+
+# פרסום יזום בלבד: Actions → Release → Run workflow. דחיפה ל-main מריצה רק
+# בדיקות (ci.yml) ואינה מפרסמת דבר.
+#
+# הריצה מפעילה קודם את ה-CI המלא — הפרסום עצמו לא בונה כלום, אלא מוריד את
+# הארטיפקטים שלו, כך שמה שמגיע למשתמשים הוא בדיוק מה שנבדק ברגע הזה.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# פרסום אחד בכל רגע: שתי הפעלות צמודות היו מנסות לתייג במקביל.
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
+
+jobs:
+  # לפני שנשרפת ריצת CI שלמה: הפרסום דוחף ל-main ומתייג שם, והפעלה מענף אחר
+  # הייתה מפרסמת קוד אחד ומתייגת אחר.
+  guard:
+    name: main only
+    runs-on: ubuntu-latest
+    steps:
+      - if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::פרסום אפשרי רק מ-main (התבקש ${{ github.ref }})"
+          exit 1
+
+  # מריץ את כל הג'ובים של ci.yml באותה ריצה — ולכן `download-artifact` למטה
+  # מוצא את הקבצים שלהם בלי להעלות אותם לשום מקום בדרך.
+  ci:
+    needs: guard
+    uses: ./.github/workflows/ci.yml
+
+  # מקדמים את הגרסה בקוד, מתייגים, ומעלים release עם ה-exe וה-zip. משם
+  # העדכון העצמי של הלאנצ'ר מוצא אותו מעצמו (`LauncherReleaseClient`).
+  publish:
+    name: publish release
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Bump the version in the repository
+        run: |
+          bash ./tool/set_launcher_version.sh "${{ needs.ci.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # `[skip ci]` הוא חגורה נוספת: דחיפה עם GITHUB_TOKEN אינה מפעילה
+          # workflow חדש בלאו הכי, ולכן אין כאן לופ.
+          git diff --quiet || git commit -am "גרסה ${{ needs.ci.outputs.version }} [skip ci]"
+      - name: Tag and push
+        run: |
+          tag="${{ needs.ci.outputs.tag }}"
+          # התג נבדק שוב **עכשיו**: בין תחילת הריצה לכאן יכול היה להתפרסם
+          # release אחר, ולדרוס אותו בקבצים של בנייה אחרת זו הפגיעה הגרועה
+          # מכולן. כישלון רועש כאן עדיף — הפעלה נוספת תקבל מספר פנוי.
+          git fetch --tags --quiet
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "::error::$tag כבר קיים — יש להריץ מחדש כדי לקבל מספר פנוי"
+            exit 1
+          fi
+          git tag "$tag"
+          git push origin HEAD:main
+          git push origin "$tag"
+      # גיטהאב מנקה תווים שאינם ASCII משמות של נכסי release, ולכן
+      # `עדכוני אוצריא.exe` — שם שכולו עברית — נמחק אצלו עד הסוף והתפרסם
+      # כ-`default.exe` (v0.1.1, וגם ב-release הידני V1). השם שעל הכונן נשאר
+      # עברי; רק מה שיושב על ה-release מקבל שם לטיני, והוא גם השם שנדבק למי
+      # שמוריד ידנית בפעם הראשונה — ראו `LauncherInstallLayout.publishedExeName`.
+      - name: Give the Windows asset an ASCII name
+        run: |
+          exe="$(find assets -maxdepth 1 -name '*.exe' | head -1)"
+          if [ -z "$exe" ]; then
+            echo "::error::לא נמצא exe בארטיפקטים — release בלי הקובץ לווינדוס גרוע מג'וב אדום"
+            exit 1
+          fi
+          if [ "$exe" != "assets/Otzaria-Updates.exe" ]; then
+            mv "$exe" assets/Otzaria-Updates.exe
+          fi
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la assets
+          # ה-release נוצר כ**יציב**: הלקוח של העדכון העצמי פוסל pre-release
+          # ו-draft, כי הלאנצ'ר נוסע למחשבים שאין בהם איך לתקן גרסה שבורה.
+          gh release create "${{ needs.ci.outputs.tag }}" \
+            --title "${{ needs.ci.outputs.tag }}" \
+            --generate-notes \
+            assets/*

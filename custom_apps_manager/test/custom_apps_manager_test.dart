@@ -431,4 +431,77 @@ void main() {
 
     expect(state!.version, '1.4.2');
   });
+
+  group('מדיה', () {
+    setUp(() => manager.add(descriptor(id: 'org.example.app')));
+
+    test('נשמרת בתיקיית התוכנה, ושמות הקבצים נרשמים ברשומה', () async {
+      final logo = writeFile(p.join(root, 'pics', 'logo.png'), 'png');
+
+      final updated = await manager.saveMedia(
+        'org.example.app',
+        iconSource: logo,
+        screenshotSources: [writeFile(p.join(root, 'pics', 'a.png'), 'png')],
+      );
+
+      expect(updated.iconFile, 'icon.png');
+      expect(updated.screenshotFiles, ['screenshot-1.png']);
+      // ⚠️ ברשומה נשמר שם בלבד: נתיב מוחלט בקובץ שנוסע על הכונן הוא באג.
+      expect(updated.encode(), isNot(contains(root)));
+      // וגם נכתבה לדיסק — לא רק הוחזרה.
+      final reloaded = await manager.load('org.example.app');
+      expect(reloaded!.descriptor.iconFile, 'icon.png');
+    });
+
+    test('שמירה בלי מקורות מוחקת את מה שהיה', () async {
+      await manager.saveMedia(
+        'org.example.app',
+        iconSource: writeFile(p.join(root, 'pics', 'logo.png'), 'png'),
+      );
+
+      final updated = await manager.saveMedia('org.example.app');
+
+      expect(updated.iconFile, isNull);
+      expect(
+          (await manager.load('org.example.app'))!.descriptor.iconFile, isNull);
+    });
+
+    test('תוכנה שאינה רשומה נדחית בשמה', () async {
+      expect(
+        () => manager.saveMedia('אין-כזו'),
+        throwsA(isA<AppDescriptorException>()),
+      );
+    });
+  });
+
+  group('קטגוריות', () {
+    test('נשמרות ונטענות', () async {
+      await manager.saveCategories(
+        const [CustomAppCategory(slug: 'tools', name: 'כלים')],
+      );
+
+      expect((await manager.loadCategories()).single.name, 'כלים');
+    });
+
+    // slug שנשאר ברשומה אחרי מחיקת הקטגוריה הוא שיוך למשהו שאינו קיים.
+    test('מחיקת קטגוריה מנתקת ממנה גם את התוכנות', () async {
+      await manager.saveCategories(
+        const [CustomAppCategory(slug: 'tools', name: 'כלים')],
+      );
+      await manager.add(
+        AppDescriptor(
+          id: 'org.example.app',
+          name: 'תוכנה',
+          sourceKind: AppSourceKind.manual,
+          categorySlugs: const ['tools', 'study'],
+        ),
+      );
+
+      await manager.removeCategory('tools');
+
+      expect(await manager.loadCategories(), isEmpty);
+      final entry = await manager.load('org.example.app');
+      expect(entry!.descriptor.categorySlugs, ['study']);
+    });
+  });
 }

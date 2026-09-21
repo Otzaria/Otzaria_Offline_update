@@ -236,4 +236,80 @@ void main() {
       );
     });
   });
+
+  mediaAndCategories();
+}
+
+/// התוכן המורחב שדף התוכנה מציג — תיאור ארוך, קטגוריות ומדיה. כולו
+/// אופציונלי, ולכן **לא** הוקפצה `schemaVersion`: רשומה ישנה נקראת כרגיל,
+/// וגרסה ישנה של הלאנצ'ר מתעלמת מהשדות החדשים.
+void mediaAndCategories() {
+  group('תוכן מורחב', () {
+    test('הלוך ושוב דרך JSON', () {
+      const original = AppDescriptor(
+        id: 'a.b',
+        name: 'תוכנה',
+        sourceKind: AppSourceKind.manual,
+        description: 'תקציר',
+        longDescription: 'הסבר ארוך על מה התוכנה עושה',
+        categorySlugs: ['tools', 'study'],
+        iconFile: 'icon.png',
+        screenshotFiles: ['screenshot-1.png', 'screenshot-2.png'],
+      );
+
+      final parsed = AppDescriptor.parse(original.encode());
+
+      expect(parsed.longDescription, 'הסבר ארוך על מה התוכנה עושה');
+      expect(parsed.categorySlugs, ['tools', 'study']);
+      expect(parsed.iconFile, 'icon.png');
+      expect(parsed.screenshotFiles, hasLength(2));
+    });
+
+    test('רשומה ישנה בלי השדות נקראת כרגיל', () {
+      final d = AppDescriptor.parse('{"id": "a.b", "name": "x"}');
+
+      expect(d.longDescription, isNull);
+      expect(d.categorySlugs, isEmpty);
+      expect(d.iconFile, isNull);
+      expect(d.screenshotFiles, isEmpty);
+      // השדות האופציונליים אינם נכתבים כשהם ריקים.
+      expect(d.encode(), isNot(contains('media')));
+    });
+
+    // שם קובץ הופך לנתיב תחת `media/`, והרשומה מגיעה מכונן שנדד.
+    test('שם קובץ מדיה שיוצא מהתיקייה מדולג', () {
+      final d = AppDescriptor.parse(
+        '{"id": "a.b", "name": "x", "media": {"icon": "../../evil.png", '
+        r'"screenshots": ["ok.png", "sub/dir.png", "..\\evil.png"]}}',
+      );
+
+      expect(d.iconFile, isNull);
+      expect(d.screenshotFiles, ['ok.png']);
+    });
+
+    test('slug פסול של קטגוריה מדולג ואינו מפיל את הרשומה', () {
+      final d = AppDescriptor.parse(
+        '{"id": "a.b", "name": "x", "categories": ["ok", "../escape", 7]}',
+      );
+
+      expect(d.categorySlugs, ['ok']);
+    });
+
+    test('withoutMedia מוחק, ו-copyWith משמר', () {
+      const d = AppDescriptor(
+        id: 'a.b',
+        name: 'x',
+        sourceKind: AppSourceKind.manual,
+        iconFile: 'icon.png',
+        screenshotFiles: ['screenshot-1.png'],
+        longDescription: 'ארוך',
+      );
+
+      expect(d.copyWith(name: 'y').iconFile, 'icon.png');
+      expect(d.withoutMedia().iconFile, isNull);
+      expect(d.withoutMedia().screenshotFiles, isEmpty);
+      // מה שאינו מדיה נשאר — "בלי מדיה" אינו "רשומה חדשה".
+      expect(d.withoutMedia().longDescription, 'ארוך');
+    });
+  });
 }

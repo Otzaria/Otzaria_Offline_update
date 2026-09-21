@@ -6,6 +6,7 @@ import '../../controllers/plugins_module_controller.dart';
 import '../../services/hebrew_date.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
+import '../store_kit/store_kit.dart';
 import 'plugin_visuals.dart';
 
 /// כרטיס תוסף בודד ברשת החנות.
@@ -52,13 +53,13 @@ class PluginStoreCard extends StatelessWidget {
           children: [
             Stack(
               children: [
-                PluginThumbnail(
+                StoreThumbnail(
                     imagePath: controller.assetPath(plugin.imagePath)),
                 if (plugin.isFeatured)
                   Positioned(
                     top: AppTokens.spaceSM,
                     right: AppTokens.spaceSM,
-                    child: PluginBadge(
+                    child: StoreBadge(
                       label: t.badgeFeaturedShort,
                       icon: FluentIcons.star_24_regular,
                       emphasized: true,
@@ -79,16 +80,16 @@ class PluginStoreCard extends StatelessWidget {
                 runSpacing: AppTokens.spaceXS,
                 clipBehavior: Clip.hardEdge,
                 children: [
-                  PluginBadge(
+                  StoreBadge(
                     label: pluginStatusLabel(target?.status ?? plugin.status),
                     emphasized: true,
                   ),
                   // הגרסה שתותקן כאן, לא בהכרח האחרונה שפורסמה — ראו
                   // `PluginsModuleController.versionOf`.
-                  PluginBadge(
+                  StoreBadge(
                     label: t.pluginVersionBadge(controller.versionOf(plugin)),
                   ),
-                  PluginBadge(
+                  StoreBadge(
                     label: '${plugin.downloadCount}',
                     icon: FluentIcons.arrow_download_24_regular,
                   ),
@@ -125,7 +126,7 @@ class PluginStoreCard extends StatelessWidget {
                   clipBehavior: Clip.hardEdge,
                   children: [
                     for (final tag in plugin.tags.take(4))
-                      PluginTagPill(label: tag),
+                      StoreTagPill(label: tag),
                   ],
                 ),
               ),

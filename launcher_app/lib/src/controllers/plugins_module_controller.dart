@@ -88,6 +88,29 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   /// שורש קובצי החנות במראה — ממנו נבנים נתיבי התמונות המוחלטים.
   String? pluginsDir;
 
+  // ── תוכנת החנות העצמאית ───────────────────────────────────────────────────
+
+  /// קובץ ההרצה של תוכנת החנות שיושב במראה, או `null` כשעדיין לא הורד.
+  /// נטען ב-[load] יחד עם הקטלוג, כדי שהכפתור יידע אם יש מה להעתיק.
+  MirroredStoreApp? storeApp;
+
+  /// יש גם תוכנה וגם תוספים — רק אז יש מה להעתיק.
+  bool get canExportStoreApp => storeApp != null && plugins.isNotEmpty;
+
+  /// הגרסה החדשה שהבדיקה הקלה מצאה, או `null` כשאין חדש. **היא לבדה
+  /// מרשה להוריד** — ראו [syncStoreApp].
+  StoreAppRelease? storeAppOnline;
+  DateTime? storeAppCheckedAt;
+  String? storeAppCheckError;
+
+  /// `true` כשיש ברשת גרסה של תוכנת החנות שאינה במראה.
+  bool get hasStoreAppOnlineUpdate => storeAppOnline != null;
+
+  /// ההעתקה שרצה כרגע, לתצוגת ההתקדמות.
+  String? exportMessage;
+  double? exportProgress;
+  bool isExporting = false;
+
   // ── ניווט ─────────────────────────────────────────────────────────────────
 
   /// המסך המוצג. החנות נפתחת בדף הבית האצור, בדיוק כמו באתר; מראה בלי
@@ -116,7 +139,16 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   DateTime? onlineCheckedAt;
 
   /// `true` כשיש בחנות תוסף חדש או גרסה חדשה שאינם במראה המקומית.
-  bool get hasOnlineUpdate => onlineStatus?.hasUpdates ?? false;
+  ///
+  /// **הקטלוג בלבד** — [hasOnlineUpdate] מוסיף לו את תוכנת החנות. השניים
+  /// נפרדים כי הם מדלגים בנפרד ב-`downloadAll`: סנכרון הקטלוג הוא עשרות
+  /// קריאות לאתר, והורדת התוכנה היא קובץ אחד מגיטהאב.
+  bool get hasCatalogOnlineUpdate => onlineStatus?.hasUpdates ?? false;
+
+  /// `true` כשמשהו בחנות התחדש ברשת — הקטלוג או תוכנת החנות. זה מה שדף
+  /// הבית קורא: בלי תוכנת החנות כאן, גרסה חדשה שלה לא הייתה מציגה בכלל
+  /// את כפתור ההורדה.
+  bool get hasOnlineUpdate => hasCatalogOnlineUpdate || hasStoreAppOnlineUpdate;
 
   // ── סנכרון ────────────────────────────────────────────────────────────────
 
@@ -156,6 +188,7 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
       lastSync = snapshot.catalog.lastSync;
       installed = snapshot.installed;
       pluginsDir = snapshot.pluginsDir;
+      storeApp = await _manager.loadStoreApp();
       _invalidateDerived();
       _settleView();
       status = PluginsModuleStatus.ready;
@@ -275,16 +308,24 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   /// שואל את האתר אם יש תוסף חדש או גרסה חדשה — **בקשה קלה אחת**, בלי
   /// להוריד קובץ. כשל (בעיקר "אין רשת") הוא מצב תקין ונשמר ב-
   /// [onlineCheckError], בדיוק כמו בשאר המודולים.
+  /// שתי בקשות קלות לשני שרתים שונים — הקטלוג מ-otzaria.org ותוכנת החנות
+  /// מגיטהאב. במקביל, ועם דיווח כשל נפרד: אתר שאינו עונה אינו אומר דבר על
+  /// הזמינות של השני, ודגל כשל משותף היה מבטל את הדילוג של שניהם.
   Future<void> checkOnline() async {
     onlineCheckError = null;
+    storeAppCheckError = null;
     notifyListeners();
 
+    // אותן גרסאות שהסנכרון יקבל — אחרת ההצצה מדווחת על עדכון שההורדה
+    // לא תביא, או שותקת על אחד שכן.
+    final appVersions = await _appVersions();
+    await Future.wait([_peekCatalog(appVersions), _peekStoreApp()]);
+    notifyListeners();
+  }
+
+  Future<void> _peekCatalog(List<String> appVersions) async {
     try {
-      // אותן גרסאות שהסנכרון יקבל — אחרת ההצצה מדווחת על עדכון שההורדה
-      // לא תביא, או שותקת על אחד שכן.
-      onlineStatus = await _manager.peekOnlineUpdates(
-        appVersions: await _appVersions(),
-      );
+      onlineStatus = await _manager.peekOnlineUpdates(appVersions: appVersions);
     } catch (e) {
       onlineStatus = null;
       onlineCheckError = e.toString();
@@ -292,7 +333,17 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
       AppLogger.instance.info('בדיקת עדכונים ברשת (תוספים) לא הצליחה: $e');
     }
     onlineCheckedAt = DateTime.now();
-    notifyListeners();
+  }
+
+  Future<void> _peekStoreApp() async {
+    try {
+      storeAppOnline = await _manager.peekStoreApp();
+    } catch (e) {
+      storeAppOnline = null;
+      storeAppCheckError = e.toString();
+      AppLogger.instance.info('בדיקת גרסת תוכנת החנות לא הצליחה: $e');
+    }
+    storeAppCheckedAt = DateTime.now();
   }
 
   /// מסנכרן את הקטלוג והקבצים מהאתר אל המראה. דורש אינטרנט.
@@ -348,6 +399,56 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
       status = PluginsModuleStatus.error;
       errorMessage = e.toString();
       AppLogger.instance.error('סנכרון חנות התוספים נכשל', e, st);
+      notifyListeners();
+    }
+  }
+
+  /// מוריד את תוכנת החנות — **אך ורק** כשהבדיקה הקלה מצאה גרסה חדשה. בלי
+  /// [storeAppOnline] אין כאן שום פנייה לרשת: הורדה שלא התחדש בה דבר אינה
+  /// נוגעת בגיטהאב בכלל.
+  ///
+  /// **לעולם אינו קטלני** — הוא נוסע בצד של הורדת התוספים, וכשל שלו אינו
+  /// סיבה לסמן הורדה שהצליחה ככושלת: הכפתור פשוט יישאר על הגרסה הקודמת עד
+  /// ההורדה הבאה. כמו מבנה החנות (`syncStructureFailed`), האזהרה ליומן.
+  Future<void> syncStoreApp() async {
+    final release = storeAppOnline;
+    if (release == null) return;
+
+    try {
+      storeApp = await _manager.syncStoreApp(release);
+      AppLogger.instance.info('תוכנת החנות ירדה: ${release.tagName}');
+      // ירדה — ולכן התשובה הישנה של הבדיקה כבר אינה מתארת את המראה.
+      storeAppOnline = null;
+      storeAppCheckedAt = DateTime.now();
+      storeAppCheckError = null;
+    } catch (e) {
+      AppLogger.instance.info('הורדת תוכנת החנות לא הצליחה: $e');
+    }
+    notifyListeners();
+  }
+
+  /// מעתיק את תוכנת החנות ואת כל התוספים שבמראה ליעד שהמשתמש בחר. **בלי
+  /// רשת.** זורק בכישלון; המסך הוא שמציג את ההודעה.
+  Future<StoreAppExportOutcome> exportStoreApp(String destinationDir) async {
+    isExporting = true;
+    exportMessage = AppL10n.strings.pluginsDomain.exportPreparing;
+    exportProgress = null;
+    notifyListeners();
+
+    try {
+      return await _manager.exportStoreApp(
+        destinationDir,
+        onProgress: (progress) {
+          exportMessage = progress.message;
+          exportProgress = progress.fraction;
+          // תוסף אחר תוסף — מדולל כמו שאר מדי ההתקדמות.
+          notifyProgress();
+        },
+      );
+    } finally {
+      isExporting = false;
+      exportMessage = null;
+      exportProgress = null;
       notifyListeners();
     }
   }

@@ -4,8 +4,7 @@ import 'package:flutter/material.dart';
 import '../../controllers/plugins_module_controller.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
-import 'plugin_store_body.dart';
-import 'plugin_visuals.dart';
+import '../store_kit/store_kit.dart';
 
 /// שורת החיפוש והסינון של "כל התוספים" — חיפוש, סטטוס ושורת תגיות מתקפלת.
 /// פריסה של שדות בשורה אחת, כמו בחנות המקורית, ולא שורות
@@ -91,7 +90,7 @@ class _PluginFiltersBarState extends State<PluginFiltersBar> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        PluginFieldLabel(t.filterSearchLabel),
+        StoreFieldLabel(t.filterSearchLabel),
         RtlTextField(
           controller: widget.searchController,
           onChanged: widget.controller.setSearch,
@@ -125,7 +124,7 @@ class _PluginFiltersBarState extends State<PluginFiltersBar> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        PluginFieldLabel(context.strings.plugins.filterStatusLabel),
+        StoreFieldLabel(context.strings.plugins.filterStatusLabel),
         DropdownButtonFormField<PluginStatusFilter>(
           initialValue: widget.controller.statusFilter,
           onChanged: (value) {
@@ -161,18 +160,18 @@ class _PluginFiltersBarState extends State<PluginFiltersBar> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          PluginFieldLabel(t.filterTagsLabel),
+          StoreFieldLabel(t.filterTagsLabel),
           Wrap(
             spacing: AppTokens.spaceSM,
             runSpacing: AppTokens.spaceSM,
             children: [
-              PluginTagPill(
+              StoreTagPill(
                 label: t.filterAllTags,
                 active: widget.controller.tagFilter == null,
                 onTap: () => widget.controller.setTagFilter(null),
               ),
               for (final tag in shown)
-                PluginTagPill(
+                StoreTagPill(
                   label: tag,
                   active: widget.controller.tagFilter == tag,
                   onTap: () => widget.controller.setTagFilter(tag),

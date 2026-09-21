@@ -68,7 +68,7 @@ void main() {
     // מזה שעל הכונן — ומי שמוריד ידנית נשאר איתו. אם הם ייפרדו, העדכון העצמי
     // של מי שהוריד ידנית יאבד את ה-stub שלו כששוברים תיקו.
     expect(
-      read('../.github/workflows/ci.yml'),
+      read('../.github/workflows/release.yml'),
       contains('assets/${LauncherInstallLayout.publishedExeName}'),
     );
   });

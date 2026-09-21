@@ -151,23 +151,33 @@ ZSTD_ROOT="C:/pub-cache/hosted/pub.dev/zstandard_native-1.5.0/src/zstd" \
   אייקון) מהפך חיצים ב-RTL, ולכן העוזרים האלה מוסרים לו את הסמל ההפוך —
   והחץ שמוצג בפועל יוצא זהה בשתי השפות.
 
-### תוספת שאינה פורט — רכיבי חנות התוספים
+### תוספת שאינה פורט — רכיבי מסכי החנות (`screens/store_kit/`)
 
-`screens/plugins/plugin_visuals.dart` מגדיר רכיבים שאין להם מקבילה
-במערכת העיצוב של אוצריא: `PluginBadge` (גלולת מטא-דאטה), `PluginTagPill`,
-`PluginInstallChip` (עוטף `StatusChip`), `PluginThumbnail`,
-`PluginSectionEyebrow` (ה"עינית" מעל כותרת סעיף) ו-`PluginRatingStars`
-(חמישה כוכבים במילוי חלקי — פורט של `StarRating` שבאתר, ולכן גם צבע
-הכוכב הוא קבוע: `AppColors.ratingStar`). אליהם מצטרפים ה-lightbox
-ב-`plugin_screenshot_lightbox.dart` וסעיף הדירוג ב-
-`plugin_rating_panel.dart`. הם נדרשו כי החנות היא
-המרה של ממשק אינטרנט עם רשת כרטיסים ותמונות, ולא מסך הגדרות.
+שני מסכים בלאנצ'ר הם **חנות**: חנות התוספים ומסך התוכנות הנוספות. מה
+שמשותף לשניהם יושב ב-`screens/store_kit/` ואינו קשור לתוספים דווקא:
 
-**מסך התוספים הוא היחיד שאינו משתמש ב-`ScreenBody`.** במקומו
-`plugin_store_body.dart`, שפורס לרוחב **מלא** ולא מגביל ל-860px
-וממרכז. הסיבה: רשת הכרטיסים נגזרת מרוחב מינימלי של 300px לכרטיס (כמו
-`minmax(300px, 1fr)` ב-CSS המקורי), ולכן הגבלת רוחב הייתה מקבעת אותה על
-שתי עמודות גם במסך רחב.
+| קובץ | מה יש בו |
+| --- | --- |
+| `store_body.dart` | `StoreBody` — גוף המסך ברוחב מלא, עם כותרת קבועה וסרגל צד |
+| `store_visuals.dart` | `StoreBadge`, `StoreTagPill`, `StoreThumbnail`, `StoreSectionEyebrow`, `decodeWidthFor` |
+| `store_nav.dart` | `StoreNavItem` ← `StoreSidebar` (רחב) / `StoreCategoryBar` (צר) |
+| `store_grid.dart` | `StoreGridDelegate` — עמודות וגובה אריח לפי רוחב הרשת |
+| `store_section_header.dart` | כותרת סעיף: עינית, כותרת, תיאור ופעולה |
+| `store_screenshot_lightbox.dart` | גלריית צילומי המסך במסך מלא |
+
+מה שנשאר ייחודי לתוספים נשאר ב-`screens/plugins/plugin_visuals.dart`:
+`PluginInstallChip` (עוטף `StatusChip`), `PluginRatingStars` (חמישה כוכבים
+במילוי חלקי — פורט של `StarRating` שבאתר, ולכן גם צבע הכוכב קבוע:
+`AppColors.ratingStar`), `PluginRatingBadge` ו-`pluginStatusLabel`.
+
+הרכיבים האלה נדרשו כי חנות היא רשת כרטיסים עם תמונות, ולא מסך הגדרות. הם
+**אינם מיוצאים ל-`widgets/`** בכוונה, כדי שלא ייחשבו בטעות לרכיבים
+מאושרים של מערכת העיצוב של אוצריא.
+
+**שני מסכי החנות הם היחידים שאינם משתמשים ב-`ScreenBody`.** במקומו
+`StoreBody`, שפורס לרוחב **מלא** ולא מגביל ל-860px וממרכז. הסיבה: רשת
+הכרטיסים נגזרת מרוחב מינימלי לכרטיס (כמו `minmax(300px, 1fr)` ב-CSS
+המקורי), ולכן הגבלת רוחב הייתה מקבעת אותה על שתי עמודות גם במסך רחב.
 
 **שלושת מסכי החנות = שלושת ה-routes של האתר** (`PluginStorePage`):
 
@@ -279,11 +289,32 @@ fallback הוחלף באייקון `puzzle_piece` על רקע `primaryContainer`
 
 - **`openAddCustomApp`/`openEditCustomApp` עברו לכרטיס ההגדרות** — הן
   היחידות שפותחות את `CustomAppFormDialog`, והמסך אינו מייבא אותו כלל.
+  שם יושב גם `showCustomAppCategoriesDialog`, מאותה סיבה בדיוק.
 - **אין במסך שום דרך לנהל, גם לא הפניה.** מי שרוצה להוסיף, לערוך או
   להסיר הולך להגדרות — בדיוק כמו כל הגדרה אחרת בלאנצ'ר.
 - **בכונן מוגן מפני כתיבה הכרטיס כולו אינו מוצג** (`SettingsScreen.readOnly`).
   כל ניהול המרשם כותב אל הכונן, ולכן כרטיס שכל תפקידו לנהל היה שם רק כדי
   להיכשל. התוכנות שכבר על הכונן מותקנות ומופעלות כרגיל.
+
+### מסך התוכנות הנוספות: רשת כרטיסים, קטגוריות ודף תוכנה
+
+המסך בנוי כמו חנות התוספים ומאותם רכיבים (`screens/store_kit/`): רשת
+כרטיסים, סרגל קטגוריות בצד, ודף מלא לכל תוכנה. ארבע החלטות שאינן מקריות:
+
+- **בכרטיס פעולה ראשית אחת בלבד** — מה שנכון לעשות עכשיו: התקנה כשיש
+  עדכון על הכונן, אחרת הפעלה, אחרת התקנה, ואחרת הורדה לכונן. השאר (בדיקה
+  ברשת, בחירת מיקום ידנית) בדף התוכנה. כרטיס ברשת הוא בגובה קבוע
+  (`kCustomAppCardContentHeight`), וארבעה כפתורים בו היו גולשים.
+- **הסרגל מופיע רק כשהוגדרה קטגוריה**, ופריט "ללא קטגוריה" רק כשיש בו
+  משהו. סרגל עם פריט אחד גוזל רוחב ואינו אומר דבר.
+- **התיאור המורחב, האייקון וצילומי המסך הם תוכן שהמשתמש כתב** — ולכן
+  אינם מתורגמים, בדיוק כמו שם התוכנה. הם נוסעים על הכונן תחת
+  `apps/<id>/media/`; ראו `custom_apps_manager/README.md`.
+- **האייקון יכול להתחלץ מקובץ ההרצה** (`services/exe_icon_extractor.dart`,
+  ווינדוס בלבד): במחשב המקוון התוכנה בדרך כלל אינה מותקנת, אבל המתקין
+  שעל הכונן נושא כמעט תמיד את האייקון שלה. החילוץ עובר ב-PowerShell מול
+  `PrivateExtractIcons` ב-256×256, עם נפילה חזרה ל-`ExtractAssociatedIcon`
+  שנותן 32×32 בלבד.
 
 ### הודעת "יש תוכנות שממתינות על הכונן"
 
@@ -628,11 +659,13 @@ BOM ומכילים עברית, ולכן חייבים `pwsh` (7+) ולא Windows 
 והתקנה שקוראות רק מהתיקייה שלצד התוכנה. כך גם העדכון של התוכנה נוסע על
 הכונן: מורידים במחשב המקוון, ומתקינים בכל מחשב.
 
-**פרסום גרסה חדשה הוא אוטומטי — אין מה לעשות ביד.** כל דחיפה ל-`main`
-ש[כל הבדיקות](../.github/workflows/ci.yml) בה עברו מקדמת את מספר הגרסה
-(`0.2` → `0.3`), כותבת אותו ל-`pubspec.yaml` ול-`launcher_version.dart`,
-מקמטת אותו לקומיט, מתייגת `v0.3`, ומעלה release עם ה-exe וה-zip — ומכאן
-המשתמשים מקבלים את ההצעה מעצמם.
+**פרסום גרסה חדשה הוא יזום.** דחיפה ל-`main` מריצה רק את
+[הבדיקות](../.github/workflows/ci.yml) ואינה מפרסמת דבר. כדי לפרסם נכנסים
+ב-GitHub ל-Actions → **Release** → *Run workflow* (מ-`main` בלבד):
+[`release.yml`](../.github/workflows/release.yml) מריץ קודם את כל ה-CI, ואז
+מקדם את מספר הגרסה (`0.2` → `0.3`), כותב אותו ל-`pubspec.yaml`
+ול-`launcher_version.dart`, מקמט אותו לקומיט, מתייג `v0.3.0`, ומעלה release
+עם ה-exe וה-zip — ומכאן המשתמשים מקבלים את ההצעה מעצמם.
 
 הגרסה בת שני חלקים, ורק השני עולה. ב-`pubspec.yaml` נכתב `0.3.0` — pub
 מסרב לגרסה שאינה MAJOR.MINOR.PATCH — וזה פרט טכני בלבד: מה שהתוכנה מדווחת
@@ -645,14 +678,15 @@ BOM ומכילים עברית, ולכן חייבים `pwsh` (7+) ולא Windows 
 
 | פרט | איך |
 | --- | --- |
+| מי מריץ | Actions → Release → Run workflow. הריצה מפעילה את `ci.yml` במלואו ורק אחריו מפרסמת |
 | מי מחשב את המספר | הג'וב `version` ב-`ci.yml`: minor+1, ואם התג כבר קיים (ריצה חוזרת) מתקדם לפנוי הבא |
 | מי כותב אותו לקוד | [`tool/set_launcher_version.sh`](../tool/set_launcher_version.sh), באותה ריצה, גם בג'ובים שבונים וגם ב-`publish` — כך שה-exe מדווח בדיוק את מה שבתג |
-| מה נבנה | שום דבר נוסף: ה-release מקבל את הארטיפקטים של ג'ובי הבדיקה עצמם, כלומר בדיוק מה שנבדק |
+| מה נבנה | שום דבר נוסף: ה-release מקבל את הארטיפקטים של ג'ובי הבדיקה של אותה ריצה, כלומר בדיוק מה שנבדק |
 | מה קורה בכשל | אין תג ואין release. הבנייה מתה לפני שנוצר משהו — הגרסה שב-`main` נשארת כשהייתה |
 | הקומיט של הגרסה | נדחף ע"י `github-actions[bot]` עם `[skip ci]`. דחיפה עם `GITHUB_TOKEN` אינה מפעילה workflow חדש, ולכן אין לופ |
 
-⚠️ **`main` הוא לא טיוטה.** כל דחיפה אליו מגיעה למשתמשים כגרסה חדשה. עבודה
-בתהליכים נעשית בענף (שם רצות אותן בדיקות בדיוק, בלי פרסום).
+⚠️ **`main` הוא לא טיוטה.** מה שיושב עליו הוא מה שיפורסם בלחיצה הבאה, בלי
+הזדמנות נוספת לבדוק. עבודה בתהליכים נעשית בענף (שם רצות אותן בדיקות בדיוק).
 
 ⚠️ אם על `main` מוגדר branch protection שחוסם דחיפה — צריך לאשר ל-
 `github-actions[bot]` לדחוף אליו, אחרת ה-`publish` ייכשל בשלב התיוג.
@@ -792,15 +826,30 @@ lib/
         │   ├── faq_dialog.dart              — האקורדיון + מצב העריכה
         │   ├── faq_question_form.dart       — טופס שאלה שהמשתמש מוסיף
         │   └── faq_floating_button.dart     — הכפתור הצף, ההבהוב והבועה
+        ├── store_kit/                 — רכיבים משותפים לשני מסכי החנות
+        │   ├── store_body.dart              — גוף ברוחב מלא + סרגל צד
+        │   ├── store_nav.dart               — סרגל קטגוריות / שורת צ'יפים
+        │   ├── store_grid.dart              — פריסת רשת הכרטיסים
+        │   ├── store_section_header.dart, store_screenshot_lightbox.dart
+        │   └── store_visuals.dart           — גלולה, תגית, תמונה, decodeWidthFor
+        ├── custom_apps/               — תוכנות נוספות
+        │   ├── custom_apps_screen.dart      — רשת ↔ דף תוכנה, קטגוריות
+        │   ├── custom_app_store_card.dart   — כרטיס ברשת (פעולה ראשית אחת)
+        │   ├── custom_app_detail_view.dart  — דף התוכנה: תיאור, מידע, צילומים
+        │   ├── custom_app_status.dart       — תוויות המצב, משותפות לשניהם
+        │   ├── custom_app_form_dialog.dart  — הוספה ועריכה (כולל מדיה)
+        │   ├── custom_app_categories_dialog.dart — ניהול הקטגוריות
+        │   ├── custom_apps_settings_card.dart, custom_apps_pending_dialog.dart
+        │   └── custom_app_install_action.dart, installer_kind_label.dart
         └── plugins/                   — חנות התוספים
             ├── plugins_screen.dart          — רשימה ↔ פרטים, סנכרון
             ├── plugin_store_card.dart       — כרטיס ברשת
             ├── plugin_detail_view.dart      — עמוד פרטי תוסף
             ├── plugin_filters_bar.dart      — חיפוש, סטטוס, תגיות
             ├── plugin_rating_panel.dart     — דירוג המשתמשים (תצוגה בלבד)
-            ├── plugin_screenshot_lightbox.dart
+            ├── plugin_store_nav.dart        — פריטי הניווט של החנות
             ├── plugin_sync_overlay.dart, plugin_updates_dialog.dart
-            └── plugin_visuals.dart          — רכיבים מקומיים (לא פורט)
+            └── plugin_visuals.dart          — מה שייחודי לתוספים (לא פורט)
 ```
 
 ## ביצועים — שלוש החלטות שאין לבטל בטעות

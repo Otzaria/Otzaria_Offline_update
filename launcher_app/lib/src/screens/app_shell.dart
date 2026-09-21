@@ -530,6 +530,7 @@ class _AppShellState extends State<AppShell> {
         _library.companionsMirrorDir,
         _otzaria.mirrorDir,
         p.join(widget.dataDir, 'mirror', 'plugins'),
+        p.join(widget.dataDir, 'mirror', 'store-app'),
       ];
 
   /// מבקש מהמשתמש אישור ואז מסמן ביטול להורדה שרצה. הדגל בלבד — ההורדה
@@ -594,7 +595,15 @@ class _AppShellState extends State<AppShell> {
         provenUpToDateOnline(
           checkedAt: _plugins.onlineCheckedAt,
           error: _plugins.onlineCheckError,
-          hasUpdate: _plugins.hasOnlineUpdate,
+          hasUpdate: _plugins.hasCatalogOnlineUpdate,
+        );
+    // נפרד מהקטלוג: הוא מגיע מגיטהאב ולא מ-otzaria.org, ובדיקה שנכשלה
+    // באחד מהם אינה אומרת דבר על השני.
+    final skipStoreApp = s.syncPlugins &&
+        provenUpToDateOnline(
+          checkedAt: _plugins.storeAppCheckedAt,
+          error: _plugins.storeAppCheckError,
+          hasUpdate: _plugins.hasStoreAppOnlineUpdate,
         );
 
     setState(() {
@@ -614,6 +623,12 @@ class _AppShellState extends State<AppShell> {
     }
     if (!cancelled() && s.syncPlugins && !skipPlugins) {
       await _plugins.sync(isCancelled: cancelled);
+    }
+    // גם כשדילגנו על התוספים — לתוכנת החנות בדיקה משלה. `syncStoreApp`
+    // מוריד רק את מה שהבדיקה הקלה כבר מצאה, ולכן דילוג כאן פירושו שאין
+    // שום פנייה לגיטהאב.
+    if (!cancelled() && s.syncPlugins && !skipStoreApp) {
+      await _plugins.syncStoreApp();
     }
 
     if (cancelled()) {

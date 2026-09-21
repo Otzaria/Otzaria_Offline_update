@@ -754,4 +754,87 @@ void main() {
       expect(c.updatablePlugins, isEmpty);
     });
   });
+
+  group('תוכנת החנות העצמאית', () {
+    /// כותב מראה של תוכנת החנות, כמו ש-`StoreAppMirror.sync` משאיר.
+    Future<void> seedStoreApp() async {
+      const bytes = 'exe';
+      final dir = p.join(tempDir.path, 'mirror', 'store-app');
+      final file = File(p.join(dir, 'files', 'v6', 'Store.exe'));
+      await file.parent.create(recursive: true);
+      await file.writeAsString(bytes);
+      await File(p.join(dir, 'latest-release.json')).writeAsString(
+        '{"schemaVersion":1,"release":{"tagName":"v6","version":6,'
+        '"assetName":"Store.exe","downloadUrl":"https://x/v6.exe",'
+        '"sizeBytes":${bytes.length}},"filePath":"files/v6/Store.exe"}',
+      );
+    }
+
+    test('בלי קובץ הרצה במראה אין מה להעתיק', () async {
+      await saveCatalog(PluginCatalog(plugins: [plugin('a', 'תוסף')]));
+      await controller.load();
+
+      expect(controller.storeApp, isNull);
+      expect(controller.canExportStoreApp, isFalse);
+    });
+
+    test('עם קובץ הרצה אבל בלי תוספים עדיין אין מה להעתיק', () async {
+      await seedStoreApp();
+      await saveCatalog(const PluginCatalog());
+      await controller.load();
+
+      expect(controller.storeApp, isNotNull);
+      expect(controller.canExportStoreApp, isFalse);
+    });
+
+    test('בלי גרסה חדשה שנמצאה — ההורדה אינה נוגעת ברשת', () async {
+      await saveCatalog(const PluginCatalog());
+      await controller.load();
+
+      // `storeAppOnline` הוא `null` (לא רצה בדיקה קלה), ולכן אין מה להוריד
+      // — וחשוב מכך, אין אף פנייה לגיטהאב. הרשת חסומה כאן, וקריאה כזו
+      // הייתה זורקת.
+      expect(controller.hasStoreAppOnlineUpdate, isFalse);
+      await controller.syncStoreApp();
+      expect(controller.storeApp, isNull);
+    });
+
+    test('גרסה חדשה מדווחת ככפתור הורדה, וגם הקטלוג נשאר נפרד', () async {
+      await saveCatalog(const PluginCatalog());
+      await controller.load();
+      expect(controller.hasOnlineUpdate, isFalse);
+
+      controller.storeAppOnline = const StoreAppRelease(
+        tagName: 'v7',
+        version: 7,
+        assetName: 'Store.exe',
+        downloadUrl: 'https://x/v7.exe',
+        sizeBytes: 3,
+      );
+
+      // דף הבית קורא את המאוחד, ו-`downloadAll` את כל אחד בנפרד.
+      expect(controller.hasOnlineUpdate, isTrue);
+      expect(controller.hasCatalogOnlineUpdate, isFalse);
+      expect(controller.hasStoreAppOnlineUpdate, isTrue);
+    });
+
+    test('עם שניהם — הייצוא כותב את היעד שנבחר', () async {
+      await seedStoreApp();
+      await saveCatalog(PluginCatalog(plugins: [plugin('a', 'תוסף')]));
+      await controller.load();
+      expect(controller.canExportStoreApp, isTrue);
+
+      final dest = p.join(tempDir.path, 'dest');
+      final outcome = await controller.exportStoreApp(dest);
+
+      expect(outcome.plugins, 1);
+      expect(File(p.join(dest, 'Store.exe')).existsSync(), isTrue);
+      expect(
+        File(p.join(dest, 'Data', 'catalog.json')).existsSync(),
+        isTrue,
+      );
+      // הדגל מתאפס גם בהצלחה — אחרת השכבה החוסמת נשארת על המסך.
+      expect(controller.isExporting, isFalse);
+    });
+  });
 }

@@ -172,6 +172,10 @@ abstract class HomeStrings {
   /// תוספים שהקטלוג מכיר אבל קובץ ההתקנה שלהם חסר בתיקייה.
   String onlineMissingPlugins(int count);
 
+  /// גרסה חדשה של **תוכנת** החנות (הקובץ שמעתיקים למחשב אחר), שאינה
+  /// קשורה לקטלוג התוספים ונבדקת מול גיטהאב בנפרד.
+  String onlineStoreAppUpdate(String version);
+
   /// נאמר כשנמצאו תוספים ברשת אך "הורדת תוספים" כבויה בהגדרות — אחרת
   /// "הורד עכשיו" מדלג עליהם בשקט.
   String get onlinePluginsSyncOff;
@@ -712,6 +716,44 @@ abstract class PluginsStrings {
   // ── גלריית צילומי המסך ──────────────────────────────────────────────────
   String get screenshotPrevious;
   String get screenshotNext;
+
+  // ── תוכנת החנות העצמאית ─────────────────────────────────────────────────
+  // כפתור בשורת הסנכרון שמעתיק את חנות התוספים כתוכנת ווינדוס עצמאית,
+  // ואיתה כל התוספים שבמראה. הניסוח מקביל לזה שבאתר (Otzaria_Website#171).
+  String get storeAppButton;
+  String get storeAppDialogTitle;
+  String get storeAppDialogBody;
+  String get storeAppHighlightBundled;
+  String get storeAppHighlightOffline;
+  String get storeAppHighlightDirect;
+  String get storeAppChipWindows;
+  String storeAppChipSize(String size);
+  String storeAppChipUpdated(String date);
+  String get storeAppChooseFolder;
+
+  /// הכפתור מושבת — אין מה להעתיק. שתי סיבות נפרדות, כי הפעולה הנדרשת
+  /// שונה: להוריד תוספים, או להוריד במחשב מקוון בכלל.
+  String get storeAppUnavailableTooltip;
+  String get storeAppNoPluginsTooltip;
+
+  String get storeAppPickFolderTitle;
+
+  /// ביעד כבר יושבת חנות — מעדכנים במקום, ולא מוחקים מה שאיננו מכירים.
+  String get storeAppOverwriteTitle;
+  String storeAppOverwriteContent(String path);
+  String get storeAppOverwriteConfirm;
+
+  String get storeAppCopyingTitle;
+  String get storeAppCopyingSubtitle;
+
+  String get storeAppDoneTitle;
+  String storeAppDoneContent(int plugins, String size);
+
+  /// תוספים שנכס שלהם חסר במראה ולכן הושמטו — לא כשל, אבל ראוי שייאמר.
+  String storeAppDoneSkipped(int count);
+  String get storeAppOpenFolder;
+  String get storeAppLaunch;
+  String storeAppFailedSnack(String error);
 }
 
 // ── שאלות נפוצות ──────────────────────────────────────────────────────────────
@@ -1353,6 +1395,16 @@ abstract class PluginsDomainStrings {
   String responseNotJson(String what);
   String get responseUnexpectedShape;
   String httpStatusFor(int statusCode, String url);
+
+  // ── ייצוא תוכנת החנות ───────────────────────────────────────────────────
+  String get exportPreparing;
+
+  /// אין קובץ הרצה במראה — במחשב המקוון לא נלחץ "הורד", או שההורדה נכשלה.
+  String get exportAppMissing;
+  String get exportCopyingApp;
+  String exportPlugin(String name, int done, int total);
+  String get exportWritingCatalog;
+  String exportDone(int plugins);
 }
 // ── תוכנות מותאמות (ממשק) ────────────────────────────────────────────────────
 
@@ -1363,6 +1415,83 @@ abstract class CustomAppsStrings {
 
   // ── המסך ──
   String get screenTitle;
+
+  // ── רשת הכרטיסים, סרגל הקטגוריות ודף התוכנה ──
+
+  /// כותרת סרגל הצד, וגם כותרת חלון ניהול הקטגוריות.
+  String get categoriesTitle;
+  String get allAppsItem;
+  String allAppsWithCount(int count);
+
+  /// הפריט שמרכז את מה שלא שויך לשום קטגוריה. מוצג רק כשיש קטגוריות.
+  String get uncategorizedItem;
+
+  String get cardDetailsLink;
+  String get backToApps;
+
+  /// כותרות הסעיפים בדף התוכנה.
+  String get aboutPanelTitle;
+  String get infoPanelTitle;
+  String get screenshotsPanelTitle;
+  String get categoriesPanelTitle;
+
+  // ── שדות "מידע כללי" בדף התוכנה ──
+  String get infoSource;
+  String get infoSourceGithub;
+  String get infoSourceFile;
+  String get infoInstalled;
+  String get infoStored;
+  String get infoOnline;
+  String get infoStoredSize;
+  String get infoStoredAdded;
+  String get valueUnknown;
+
+  // ── מצבים ריקים ──
+  String get emptyCategoryTitle;
+  String get emptyCategoryBody;
+  String get emptyUncategorizedTitle;
+  String get emptyUncategorizedBody;
+  String categoryAppCount(int count);
+
+  // ── ניהול הקטגוריות (בהגדרות) ──
+  String get manageCategoriesButton;
+  String get categoriesDialogHint;
+  String get categoryNameLabel;
+  String get categoryNameHint;
+  String get categoryDescriptionLabel;
+  String get addCategoryButton;
+  String get noCategoriesHint;
+  String get removeCategoryTooltip;
+  String removeCategoryDialogTitle(String name);
+
+  /// המחיקה אינה נוגעת בתוכנות עצמן — חובה לומר זאת, אחרת "מחיקה" נשמעת
+  /// כמו מחיקת מה שבתוכה.
+  String removeCategoryDialogContent(String name, int count);
+  String categoryRemovedSnack(String name);
+
+  // ── מדיה בטופס ──
+  String get appCategoriesLabel;
+  String get appCategoriesHint;
+  String get longDescriptionLabel;
+  String get longDescriptionHint;
+  String get iconLabel;
+  String get pickIconButton;
+  String get pickIconDialogTitle;
+  String get removeIconTooltip;
+
+  /// חילוץ האייקון מקובץ הרצה — ווינדוס בלבד, ורק כשיש מאיזה קובץ.
+  /// מתקין של Inno נושא כמעט תמיד את האייקון של התוכנה עצמה.
+  String get extractIconButton;
+  String extractedIconSnack(String fileName);
+  String get extractIconFailedSnack;
+
+  String get moveScreenshotBackTooltip;
+  String get moveScreenshotForwardTooltip;
+  String get screenshotsLabel;
+  String get addScreenshotsButton;
+  String get pickScreenshotsDialogTitle;
+  String get removeScreenshotTooltip;
+  String screenshotsChosen(int count);
 
   /// כרטיס ההגדרות — **כל** ניהול המרשם: הוספה, עריכה והסרה.
   String get settingsCardTitle;
@@ -1546,6 +1675,12 @@ abstract class CustomAppsDomainStrings {
   /// כאן אינו מחולץ, ולכן זה "העתקה" ולא "חילוץ".
   String fileCopyFailed(String error);
   String launchFileMissing(String launchPath);
+
+  // ── מדיה: אייקון וצילומי מסך ──
+  String mediaFileMissing(String path);
+
+  /// נבחר קובץ שאינו תמונה. נאמר בשם הקובץ, כי הבחירה הייתה מרשימה.
+  String mediaNotAnImage(String fileName);
 
   // ── GitHub ──
   String githubStatus(int statusCode, String uri);

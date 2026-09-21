@@ -5,6 +5,7 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../../controllers/custom_apps_controller.dart';
 import '../../widgets/widgets_exports.dart';
+import 'custom_app_categories_dialog.dart';
 import 'custom_app_form_dialog.dart';
 
 /// פותח את טופס ההוספה.
@@ -48,6 +49,18 @@ class CustomAppsSettingsCard extends StatelessWidget {
       title: t.settingsCardTitle,
       hint: t.settingsCardHint,
       actions: [
+        // הקטגוריות הן חלק מאותו מרשם, ולכן הניהול שלהן יושב כאן ולא
+        // במסך — שם רואים אותן כסרגל צד ואי אפשר לשנותן.
+        ActionButton.neutral(
+          text: t.manageCategoriesButton,
+          icon: FluentIcons.tag_24_regular,
+          onPressed: controller.isBusy
+              ? null
+              : () => showCustomAppCategoriesDialog(
+                    context: context,
+                    controller: controller,
+                  ),
+        ),
         ActionButton.recommended(
           text: t.addButton,
           icon: FluentIcons.add_24_regular,

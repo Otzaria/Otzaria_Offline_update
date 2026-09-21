@@ -6,9 +6,11 @@ import 'package:path/path.dart' as p;
 
 import '../../controllers/custom_apps_controller.dart';
 import '../../services/byte_size.dart';
+import '../../services/exe_icon_extractor.dart';
 import '../../services/native_file_dialogs.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
+import '../store_kit/store_kit.dart';
 import 'installer_kind_label.dart';
 
 /// "הוספת תוכנה", והוא גם טופס העריכה — הדרך **היחידה** שבה נכתבת רשומה
@@ -40,11 +42,23 @@ class CustomAppFormDialog extends StatefulWidget {
 class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
   final _name = TextEditingController();
   final _description = TextEditingController();
+  final _longDescription = TextEditingController();
   final _installDir = TextEditingController();
   final _exeName = TextEditingController();
   final _githubUrl = TextEditingController();
 
   AppSourceKind _source = AppSourceKind.github;
+
+  /// הקטגוריות שסומנו, לפי slug.
+  final Set<String> _categories = {};
+
+  /// נתיבים **מלאים** — גם לתמונה חדשה שנבחרה וגם לזו שכבר יושבת
+  /// ב-`media/`. ההעתקה פנימה וההמרה לשמות יחסיים נעשות בשמירה, ב-
+  /// `CustomAppsManager.saveMedia`.
+  String? _iconPath;
+  List<String> _screenshots = [];
+
+  bool _isExtractingIcon = false;
 
   /// מקור "קובץ שלי" — הקובץ שנבחר.
   String? _localFilePath;
@@ -73,10 +87,16 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
     if (widget.existing?.descriptor case final descriptor?) {
       _name.text = descriptor.name;
       _description.text = descriptor.description ?? '';
+      _longDescription.text = descriptor.longDescription ?? '';
       _installDir.text = descriptor.installDir ?? '';
       _exeName.text = descriptor.detect.exeName ?? '';
       _source = descriptor.sourceKind;
       _portableFile = descriptor.portableFile;
+      _categories.addAll(descriptor.categorySlugs);
+      // המדיה נטענת כנתיבים מלאים, כדי שמה שנשאר ומה שנוסף עכשיו ייראו
+      // אותו הדבר לשמירה.
+      _iconPath = widget.controller.iconPathOf(descriptor);
+      _screenshots = widget.controller.screenshotPathsOf(descriptor);
       if (descriptor.github case final source?) _githubUrl.text = source.webUrl;
     }
   }
@@ -86,6 +106,7 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
     for (final field in [
       _name,
       _description,
+      _longDescription,
       _installDir,
       _exeName,
       _githubUrl,
@@ -287,6 +308,16 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
         version: readInstallerVersion(_localFilePath!) ?? '',
       );
     }
+    // המדיה נכתבת אחרי הרשומה ולא לפניה: היא נשמרת בתיקייה שהרשומה
+    // יוצרת, ושמות הקבצים נרשמים בה בסיום. כשלון כאן אינו מבטל את
+    // השמירה — הרשומה עצמה כבר נכונה.
+    if (!await widget.controller.saveMedia(
+      descriptor.id,
+      iconSource: _iconPath,
+      screenshotSources: _screenshots,
+    )) {
+      UiSnack.showError(widget.controller.errorMessage ?? '');
+    }
     if (!mounted) return;
 
     Navigator.of(context).pop();
@@ -307,9 +338,17 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
       name: _name.text.trim(),
       description:
           _description.text.trim().isEmpty ? null : _description.text.trim(),
+      longDescription: _longDescription.text.trim().isEmpty
+          ? null
+          : _longDescription.text.trim(),
+      categorySlugs: _categories.toList(growable: false),
       // שדות שהטופס אינו מציג נגררים כמות שהם — עריכה של שם לא אמורה
       // למחוק בשקט שדה שהמשתמש אינו רואה בכלל.
       publisher: existing?.publisher,
+      // שמות קובצי המדיה נגררים גם הם, ונכתבים מחדש רק כש-`saveMedia`
+      // מצליח — אחרת כשלון בהעתקת תמונה היה מוחק מהרשומה מדיה שקיימת.
+      iconFile: existing?.iconFile,
+      screenshotFiles: existing?.screenshotFiles ?? const [],
       sourceKind: _source,
       github: _source == AppSourceKind.github && parsed != null
           ? GithubSource(
@@ -357,6 +396,16 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
             children: [
               _field(t.nameLabel, _name, hint: t.nameHint),
               _field(t.descriptionLabel, _description, hint: t.descriptionHint),
+              _field(
+                t.longDescriptionLabel,
+                _longDescription,
+                hint: t.longDescriptionHint,
+                maxLines: 4,
+              ),
+              if (widget.controller.categories.isNotEmpty) ...[
+                _categoriesSection(context),
+                const SizedBox(height: AppTokens.spaceLG),
+              ],
               const SizedBox(height: AppTokens.spaceSM),
               _sourcePicker(context),
               const SizedBox(height: AppTokens.spaceLG),
@@ -369,6 +418,10 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
               const SizedBox(height: AppTokens.spaceLG),
               _installDirRow(context),
               _field(t.exeNameLabel, _exeName, hint: t.exeNameHint),
+              const SizedBox(height: AppTokens.spaceSM),
+              _iconSection(context),
+              const SizedBox(height: AppTokens.spaceLG),
+              _screenshotsSection(context),
             ],
           ),
         ),
@@ -551,19 +604,302 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
         ],
       );
 
-  Widget _field(String label, TextEditingController controller,
-      {String? hint}) {
+  Widget _field(
+    String label,
+    TextEditingController controller, {
+    String? hint,
+    int maxLines = 1,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: AppTokens.spaceMD),
       child: RtlTextField(
         controller: controller,
+        maxLines: maxLines,
         decoration: InputDecoration(labelText: label, helperText: hint),
         onChanged: (_) => setState(() {}),
       ),
     );
   }
+
+  // ── קטגוריות ──────────────────────────────────────────────────────────
+
+  /// הקטגוריות כגלולות שנבחרות. **אין כאן יצירה של קטגוריה** — היא נעשית
+  /// בכרטיס שבהגדרות, יחד עם שאר ניהול המרשם; כשאין אף קטגוריה הסעיף כולו
+  /// אינו מוצג.
+  Widget _categoriesSection(BuildContext context) {
+    final t = context.strings.customApps;
+
+    return _labelled(
+      context,
+      t.appCategoriesLabel,
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: AppTokens.spaceSM,
+            runSpacing: AppTokens.spaceSM,
+            children: [
+              for (final category in widget.controller.categories)
+                StoreTagPill(
+                  label: category.name,
+                  active: _categories.contains(category.slug),
+                  onTap: () => setState(() {
+                    if (!_categories.remove(category.slug)) {
+                      _categories.add(category.slug);
+                    }
+                  }),
+                ),
+            ],
+          ),
+          const SizedBox(height: AppTokens.spaceXS),
+          Text(
+            t.appCategoriesHint,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── אייקון ────────────────────────────────────────────────────────────
+
+  Widget _iconSection(BuildContext context) {
+    final t = context.strings.customApps;
+    final path = _iconPath;
+
+    return _labelled(
+      context,
+      t.iconLabel,
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 64,
+            child: StoreThumbnail(
+              imagePath: path,
+              placeholderIcon: FluentIcons.box_24_regular,
+              aspectRatio: 1,
+              iconSize: 28,
+            ),
+          ),
+          const SizedBox(width: AppTokens.spaceMD),
+          Expanded(
+            child: Wrap(
+              spacing: AppTokens.spaceSM,
+              runSpacing: AppTokens.spaceSM,
+              children: [
+                ActionButton.neutral(
+                  text: t.pickIconButton,
+                  icon: FluentIcons.image_24_regular,
+                  onPressed: _pickIcon,
+                ),
+                // רק כשיש ממה לחלץ, ורק בווינדוס.
+                if (_iconSourceExe() != null)
+                  ActionButton.ghost(
+                    text: t.extractIconButton,
+                    icon: FluentIcons.wand_24_regular,
+                    isLoading: _isExtractingIcon,
+                    onPressed: _isExtractingIcon ? null : _extractIcon,
+                  ),
+                if (path != null)
+                  ActionButton.ghost(
+                    text: t.removeIconTooltip,
+                    icon: FluentIcons.dismiss_24_regular,
+                    onPressed: () => setState(() => _iconPath = null),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickIcon() async {
+    final t = context.strings.customApps;
+    final path = await NativeFileDialogs.pickFile(
+      dialogTitle: t.pickIconDialogTitle,
+      allowedExtensions: _imageExtensions,
+    );
+    if (path == null || !mounted) return;
+    setState(() => _iconPath = path);
+  }
+
+  /// מאיזה קובץ הרצה לחלץ. הסדר הוא סדר האיכות: התוכנה עצמה כשהיא
+  /// מותקנת כאן, ואחריה המתקין ששמור על הכונן — שנושא כמעט תמיד את אותו
+  /// אייקון, וזה הקובץ היחיד שקיים במחשב המקוון.
+  String? _iconSourceExe() {
+    if (!ExeIconExtractor.isSupported) return null;
+
+    final id = widget.existing?.descriptor.id;
+    if (id != null) {
+      for (final app in widget.controller.apps) {
+        if (app.descriptor.id != id) continue;
+        if (app.installed?.launchPath case final path?) return path;
+      }
+      final stored = widget.controller.storedInstallerPathOf(id);
+      if (stored != null && p.extension(stored).toLowerCase() == '.exe') {
+        return stored;
+      }
+    }
+    final local = _localFilePath;
+    if (local != null && p.extension(local).toLowerCase() == '.exe') {
+      return local;
+    }
+    return null;
+  }
+
+  Future<void> _extractIcon() async {
+    final source = _iconSourceExe();
+    if (source == null) return;
+
+    setState(() => _isExtractingIcon = true);
+    final extracted = await ExeIconExtractor.extract(source);
+    if (!mounted) return;
+    setState(() {
+      _isExtractingIcon = false;
+      if (extracted != null) _iconPath = extracted;
+    });
+
+    final t = AppL10n.strings.customApps;
+    if (extracted == null) {
+      UiSnack.showError(t.extractIconFailedSnack);
+      return;
+    }
+    UiSnack.showSuccess(t.extractedIconSnack(p.basename(source)));
+  }
+
+  // ── צילומי מסך ────────────────────────────────────────────────────────
+
+  Widget _screenshotsSection(BuildContext context) {
+    final t = context.strings.customApps;
+
+    return _labelled(
+      context,
+      t.screenshotsLabel,
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < _screenshots.length; i++)
+            _ScreenshotRow(
+              path: _screenshots[i],
+              // התמונה הראשונה היא זו שנראית ראשונה בדף, ולכן הסדר כן
+              // משנה — והדרך לשנות אותו היא הזזה ולא הסרה ובחירה מחדש.
+              onMoveBack: i == 0 ? null : () => _moveScreenshot(i, i - 1),
+              onMoveForward: i == _screenshots.length - 1
+                  ? null
+                  : () => _moveScreenshot(i, i + 1),
+              onRemove: () => setState(() => _screenshots.removeAt(i)),
+            ),
+          if (_screenshots.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppTokens.spaceSM),
+              child: Text(
+                t.screenshotsChosen(_screenshots.length),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ),
+          ActionButton.neutral(
+            text: t.addScreenshotsButton,
+            icon: FluentIcons.image_multiple_24_regular,
+            onPressed: _pickScreenshots,
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _moveScreenshot(int from, int to) {
+    setState(() {
+      final path = _screenshots.removeAt(from);
+      _screenshots.insert(to, path);
+    });
+  }
+
+  Future<void> _pickScreenshots() async {
+    final t = context.strings.customApps;
+    final picked = await NativeFileDialogs.pickManyFiles(
+      dialogTitle: t.pickScreenshotsDialogTitle,
+      allowedExtensions: _imageExtensions,
+    );
+    if (picked.isEmpty || !mounted) return;
+    setState(() => _screenshots = [..._screenshots, ...picked]);
+  }
 }
 
 extension _LetExtension<T> on T {
   R let<R>(R Function(T) transform) => transform(this);
+}
+
+/// הסיומות שדיאלוג הבחירה מציע. אותה רשימה שמאשרת `CustomAppMedia` —
+/// עדיף לסנן בדיאלוג מאשר לדחות אחרי שהמשתמש כבר בחר.
+final List<String> _imageExtensions = [
+  for (final extension in CustomAppMedia.allowedExtensions)
+    extension.substring(1),
+];
+
+/// שורת צילום מסך אחת בטופס: תצוגה מקדימה, הזזה בסדר, והסרה.
+class _ScreenshotRow extends StatelessWidget {
+  const _ScreenshotRow({
+    required this.path,
+    required this.onMoveBack,
+    required this.onMoveForward,
+    required this.onRemove,
+  });
+
+  final String path;
+  final VoidCallback? onMoveBack;
+  final VoidCallback? onMoveForward;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.strings.customApps;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppTokens.spaceSM),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 72,
+            child: StoreThumbnail(
+              imagePath: path,
+              placeholderIcon: FluentIcons.image_off_24_regular,
+              aspectRatio: 16 / 9,
+              iconSize: 20,
+            ),
+          ),
+          const SizedBox(width: AppTokens.spaceSM),
+          Expanded(
+            child: Text(
+              p.basename(path),
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+          // ⚠️ חיצים ולא `RtlIcon`: אלה חיצי סדר ברשימה אנכית, ו-RTL
+          // אינו הופך "למעלה" ו"למטה".
+          SecondaryIconButton(
+            icon: FluentIcons.arrow_up_24_regular,
+            tooltip: t.moveScreenshotBackTooltip,
+            onPressed: onMoveBack,
+          ),
+          SecondaryIconButton(
+            icon: FluentIcons.arrow_down_24_regular,
+            tooltip: t.moveScreenshotForwardTooltip,
+            onPressed: onMoveForward,
+          ),
+          SecondaryIconButton(
+            icon: FluentIcons.delete_24_regular,
+            tooltip: t.removeScreenshotTooltip,
+            onPressed: onRemove,
+          ),
+        ],
+      ),
+    );
+  }
 }
