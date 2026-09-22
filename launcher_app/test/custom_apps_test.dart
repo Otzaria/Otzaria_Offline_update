@@ -45,6 +45,7 @@ void main() {
     String? description,
     String? longDescription,
     List<String> categories = const [],
+    bool autoIcon = true,
     String? exeName,
     AppSourceKind source = AppSourceKind.manual,
     bool withInstaller = false,
@@ -58,6 +59,7 @@ void main() {
           description: description,
           longDescription: longDescription,
           categorySlugs: categories,
+          autoIcon: autoIcon,
           portableFile: portableFile,
           sourceKind: source,
           github: source == AppSourceKind.github
@@ -926,6 +928,157 @@ void main() {
         }
       }
       AppL10n.use(AppLanguage.hebrew);
+    });
+  });
+
+  // ⚠️ `BoxFit.cover` ממלא את המסגרת וחותך את מה שחורג — ואייקון ריבועי
+  // במסגרת רחבה נחתך מלמעלה ומלמטה. זה היה הבאג "האייקון בורח מהמסגרת".
+  group('תצוגת האייקון', () {
+    Finder iconImage() => find.byType(Image);
+
+    testWidgets('אייקון נכנס שלם, ואינו נמתח מעבר לגודלו', (tester) async {
+      await addApp(tester, name: 'תוכנת דמו');
+      await tester.runAsync(() async {
+        final png = File(p.join(tempDir.path, 'icon.png'))
+          ..writeAsBytesSync(_onePixelPng);
+        await controller.saveMedia('demo', iconSource: png.path);
+      });
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+
+      final image = tester.widget<Image>(iconImage().first);
+      expect(image.fit, BoxFit.contain);
+      // ורוחב התצוגה מוגבל — אייקון של 256 אינו נמתח לרוחב הכרטיס.
+      expect(tester.getSize(iconImage().first).width, lessThanOrEqualTo(96));
+    });
+  });
+
+  // האייקון הוא **ברירת מחדל ולא בקשה**: מי שהוסיף תוכנה ולא בחר תמונה
+  // מקבל את האייקון של קובץ ההרצה, בלי להגדיר דבר.
+  group('אייקון אוטומטי', () {
+    /// קונטרולר על אותה מראה, עם חילוץ מזויף — החילוץ האמיתי מריץ
+    /// PowerShell, ואין לו מה לעשות בסוויטה.
+    ({CustomAppsController controller, List<String> asked}) withExtractor({
+      bool succeeds = true,
+    }) {
+      final asked = <String>[];
+      final built = CustomAppsController(
+        mirrorRootDir: p.join(tempDir.path, 'mirror'),
+        extractIcon: (exe) async {
+          asked.add(exe);
+          if (!succeeds) return null;
+          final png = File(p.join(tempDir.path, 'extracted.png'))
+            ..writeAsBytesSync(_onePixelPng);
+          return png.path;
+        },
+      );
+      addTearDown(built.dispose);
+      return (controller: built, asked: asked);
+    }
+
+    testWidgets('אייקון חסר מתמלא מקובץ ההתקנה שעל הכונן', (tester) async {
+      await addApp(tester, withInstaller: true);
+      final built = withExtractor();
+
+      await tester.runAsync(() async {
+        await built.controller.load();
+        await built.controller.fillMissingIcons();
+      });
+
+      expect(built.controller.apps.single.descriptor.iconFile, 'icon.png');
+      // המקור הוא המתקין ששמור על הכונן — הקובץ היחיד שקיים במחשב המקוון.
+      expect(built.asked.single, endsWith('Demo-Setup.exe'));
+    });
+
+    testWidgets('בלי קובץ שאפשר לחלץ ממנו — לא נוגעים', (tester) async {
+      await addApp(tester);
+      final built = withExtractor();
+
+      await tester.runAsync(() async {
+        await built.controller.load();
+        await built.controller.fillMissingIcons();
+      });
+
+      expect(built.asked, isEmpty);
+      expect(built.controller.apps.single.descriptor.iconFile, isNull);
+    });
+
+    // הסרה מפורשת של אייקון היא החלטה של המשתמש, ולא מצב להשלים.
+    testWidgets('אייקון שהוסר במפורש אינו חוזר', (tester) async {
+      await addApp(tester, withInstaller: true, autoIcon: false);
+      final built = withExtractor();
+
+      await tester.runAsync(() async {
+        await built.controller.load();
+        await built.controller.fillMissingIcons();
+      });
+
+      expect(built.asked, isEmpty);
+      expect(built.controller.apps.single.descriptor.iconFile, isNull);
+    });
+
+    testWidgets('אייקון שנבחר ידנית אינו נדרס', (tester) async {
+      await addApp(tester, withInstaller: true);
+      final built = withExtractor();
+
+      await tester.runAsync(() async {
+        final chosen = File(p.join(tempDir.path, 'chosen.png'))
+          ..writeAsBytesSync(_onePixelPng);
+        await built.controller.load();
+        await built.controller.saveMedia('demo', iconSource: chosen.path);
+        await built.controller.fillMissingIcons();
+      });
+
+      expect(built.asked, isEmpty);
+      expect(built.controller.apps.single.descriptor.iconFile, 'icon.png');
+    });
+
+    // ⚠️ `saveMedia` כותב את כל המדיה מחדש. בלי שהמילוי ימסור את צילומי
+    // המסך הקיימים, הוספת האייקון הייתה מוחקת אותם.
+    testWidgets('המילוי אינו מוחק את צילומי המסך', (tester) async {
+      await addApp(tester, withInstaller: true);
+      final built = withExtractor();
+
+      await tester.runAsync(() async {
+        final shot = File(p.join(tempDir.path, 'shot.png'))
+          ..writeAsBytesSync(_onePixelPng);
+        await built.controller.load();
+        await built.controller
+            .saveMedia('demo', screenshotSources: [shot.path]);
+        await built.controller.fillMissingIcons();
+      });
+
+      final descriptor = built.controller.apps.single.descriptor;
+      expect(descriptor.iconFile, 'icon.png');
+      expect(descriptor.screenshotFiles, ['screenshot-1.png']);
+    });
+
+    // הכונן מוגן מפני כתיבה — והמילוי כותב אליו.
+    testWidgets('במצב קריאה בלבד אין מילוי', (tester) async {
+      await addApp(tester, withInstaller: true);
+      final built = withExtractor();
+
+      await tester.runAsync(() async {
+        await built.controller.load();
+        await built.controller.fillMissingIcons(readOnly: true);
+      });
+
+      expect(built.asked, isEmpty);
+    });
+
+    // כל ניסיון עולה תהליך PowerShell, ותוכנה בלי אייקון בקובץ תיכשל בכל
+    // פעם מחדש — הרענון הבא אינו אמור לשלם על זה שוב.
+    testWidgets('ניסיון שנכשל אינו חוזר בכל רענון', (tester) async {
+      await addApp(tester, withInstaller: true);
+      final built = withExtractor(succeeds: false);
+
+      await tester.runAsync(() async {
+        await built.controller.load();
+        await built.controller.fillMissingIcons();
+        await built.controller.fillMissingIcons();
+      });
+
+      expect(built.asked, hasLength(1));
+      expect(built.controller.apps.single.descriptor.iconFile, isNull);
     });
   });
 }

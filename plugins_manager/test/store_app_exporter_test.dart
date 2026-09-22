@@ -232,6 +232,25 @@ void main() {
       expect(Directory(p.join(dest, 'Data')).existsSync(), isFalse);
     });
 
+    test('קובץ הרצה שנעלם אחרי ההעתקה נכשל ואינו מדווח כהצלחה', () async {
+      final (:store, :appMirror) = _mirrors(temp);
+      final release = await _seedApp(appMirror);
+      await store.save(const PluginCatalog());
+
+      final dest = p.join(temp.path, 'dest');
+      final exporter = StoreAppExporter(store: store, appMirror: appMirror);
+
+      // מדמה אנטי-וירוס: הקובץ נמחק בזמן שהייצוא ממשיך הלאה. נתלים
+      // ב-callback של ההתקדמות, שרץ בין העתקת ה-exe לכתיבת הקטלוג.
+      await expectLater(
+        exporter.exportTo(dest, onProgress: (progress) {
+          if (progress.phase != StoreAppExportPhase.catalog) return;
+          File(p.join(dest, release.assetName)).deleteSync();
+        }),
+        throwsA(isA<PluginStoreException>()),
+      );
+    });
+
     test('hasExistingStore מזהה exe או Data\\, ולא תיקייה ריקה', () async {
       final empty = Directory(p.join(temp.path, 'empty'))..createSync();
       expect(await StoreAppExporter.hasExistingStore(empty.path), isFalse);

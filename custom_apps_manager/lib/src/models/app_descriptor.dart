@@ -25,6 +25,7 @@ class AppDescriptor {
     this.portableFile = false,
     this.categorySlugs = const [],
     this.iconFile,
+    this.autoIcon = true,
     this.screenshotFiles = const [],
     this.detect = const AppDetectRules(),
     this.schemaVersion = currentSchemaVersion,
@@ -61,6 +62,13 @@ class AppDescriptor {
   /// ⚠️ יחסי בכוונה: הרשומה נוסעת על הכונן, ונתיב מוחלט בתוכה הוא בדיוק
   /// המחלה של `otzaria_install_state.json` (§5.3).
   final String? iconFile;
+
+  /// האם מותר למלא [iconFile] לבד, מהאייקון של קובץ ההרצה. ברירת המחדל
+  /// היא כן — המשתמש אינו אמור לחפש תמונה לתוכנה שכבר יש לה אייקון.
+  ///
+  /// נכבה רק כשהמשתמש **הסיר** אייקון בטופס: בלי זה הוא היה חוזר מעצמו
+  /// בכניסה הבאה למסך, וזה בדיוק "התוכנה עושה מה שהיא רוצה".
+  final bool autoIcon;
 
   /// שמות קובצי צילומי המסך בתוך `media/`, בסדר התצוגה. יחסיים מאותה סיבה.
   final List<String> screenshotFiles;
@@ -174,6 +182,8 @@ class AppDescriptor {
       longDescription: optional('longDescription'),
       categorySlugs: _slugsFrom(json['categories']),
       iconFile: _safeFileName(media['icon']),
+      // רשומה ישנה, מלפני השדה, מתכוונת ל"כן" — וזו גם ברירת המחדל.
+      autoIcon: media['auto'] != false,
       screenshotFiles: [
         if (media['screenshots'] is List)
           for (final raw in media['screenshots'] as List)
@@ -224,9 +234,10 @@ class AppDescriptor {
         if (description != null) 'description': description,
         if (longDescription != null) 'longDescription': longDescription,
         if (categorySlugs.isNotEmpty) 'categories': categorySlugs,
-        if (iconFile != null || screenshotFiles.isNotEmpty)
+        if (iconFile != null || screenshotFiles.isNotEmpty || !autoIcon)
           'media': {
             if (iconFile != null) 'icon': iconFile,
+            if (!autoIcon) 'auto': false,
             if (screenshotFiles.isNotEmpty) 'screenshots': screenshotFiles,
           },
         if (publisher != null) 'publisher': publisher,
@@ -259,6 +270,7 @@ class AppDescriptor {
         // `null` כאן פירושו "אל תיגע", ולכן מחיקת אייקון נעשית בבניית
         // רשומה חדשה ולא דרך copyWith — ראו `CustomAppsManager.saveMedia`.
         iconFile: iconFile ?? this.iconFile,
+        autoIcon: autoIcon,
         screenshotFiles: screenshotFiles ?? this.screenshotFiles,
         publisher: publisher,
         sourceKind: sourceKind,
@@ -277,6 +289,8 @@ class AppDescriptor {
         description: description,
         longDescription: longDescription,
         categorySlugs: categorySlugs,
+        // העדפה ולא מדיה: "אל תמלא לי אייקון" נשאר גם כשהמדיה נמחקת.
+        autoIcon: autoIcon,
         publisher: publisher,
         sourceKind: sourceKind,
         github: github,

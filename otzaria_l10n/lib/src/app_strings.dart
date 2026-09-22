@@ -754,6 +754,10 @@ abstract class PluginsStrings {
   String get storeAppOpenFolder;
   String get storeAppLaunch;
   String storeAppFailedSnack(String error);
+
+  /// הפעלת החנות שהועתקה נכשלה. קובץ חסר הוא הסיבה השכיחה, ולכן ההודעה
+  /// אינה נבלעת: כפתור שלא עושה דבר נראה כתקלה בלאנצ'ר.
+  String storeAppLaunchFailedSnack(String error);
 }
 
 // ── שאלות נפוצות ──────────────────────────────────────────────────────────────
@@ -1402,6 +1406,12 @@ abstract class PluginsDomainStrings {
   /// אין קובץ הרצה במראה — במחשב המקוון לא נלחץ "הורד", או שההורדה נכשלה.
   String get exportAppMissing;
   String get exportCopyingApp;
+  String exportAppCopyFailed(String error);
+
+  /// קובץ ההרצה הועתק ואינו שם יותר — כמעט תמיד אנטי-וירוס שמחק קובץ
+  /// לא-חתום. **חייב להיאמר**: בלעדיו הדיאלוג הכריז "הועתק" על תיקייה
+  /// שיש בה `Data\` בלבד.
+  String exportAppVanished(String path);
   String exportPlugin(String name, int done, int total);
   String get exportWritingCatalog;
   String exportDone(int plugins);

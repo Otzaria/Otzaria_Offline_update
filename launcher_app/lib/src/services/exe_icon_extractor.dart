@@ -11,6 +11,10 @@ typedef IconScriptRunner = Future<int> Function(
   List<String> arguments,
 );
 
+/// חילוץ אייקון מקובץ הרצה: מחזיר נתיב ל-PNG זמני, או `null`. הקונטרולר
+/// מחזיק אחד כזה כדי שבדיקות לא יריצו PowerShell אמיתי.
+typedef ExeIconExtraction = Future<String?> Function(String exePath);
+
 /// חילוץ האייקון של קובץ הרצה לקובץ PNG.
 ///
 /// **למה בכלל:** הרשומה של תוכנה נוספת נוצרת במחשב המקוון, שבו התוכנה

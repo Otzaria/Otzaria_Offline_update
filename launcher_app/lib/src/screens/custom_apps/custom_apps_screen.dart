@@ -58,7 +58,15 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
     // אינו בונה את המסך מחדש מבחוץ.
     widget.controller.addListener(_onControllerChange);
     _announcePendingIfNeeded();
+    _fillMissingIcons();
   }
+
+  /// מילוי האייקונים החסרים הוא **ברירת המחדל**, ורץ בכניסה למסך ולא
+  /// בעלייה: כל ניסיון הוא תהליך PowerShell, ומי שאינו נכנס ללשונית אינו
+  /// משלם עליו. הקונטרולר זוכר את מי כבר ניסה, ולכן הקריאה החוזרת זולה.
+  void _fillMissingIcons() => unawaited(
+        widget.controller.fillMissingIcons(readOnly: widget.readOnly),
+      );
 
   @override
   void dispose() {
@@ -70,6 +78,8 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
     if (!mounted) return;
     setState(() {});
     _announcePendingIfNeeded();
+    // גם תוכנה שקובץ ההתקנה שלה הרגע ירד מקבלת אייקון, בלי כניסה מחדש.
+    _fillMissingIcons();
   }
 
   /// `AppShell` בונה את המסך מחדש גם הוא, ולכן רשימה שהגיעה מאוחר מגיעה

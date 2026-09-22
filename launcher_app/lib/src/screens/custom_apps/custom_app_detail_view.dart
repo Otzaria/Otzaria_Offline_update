@@ -151,10 +151,13 @@ class CustomAppDetailView extends StatelessWidget {
             final narrow = constraints.maxWidth < LayoutBreakpoints.medium;
             final image = SizedBox(
               width: narrow ? double.infinity : 340,
-              child: StoreThumbnail(
+              child: StoreThumbnail.icon(
                 imagePath: controller.iconPathOf(_descriptor),
                 placeholderIcon: FluentIcons.box_24_regular,
                 aspectRatio: 4 / 3,
+                // אייקון של ווינדוס הוא 256×256 לכל היותר; מתיחה שלו
+                // לרוחב המסגרת רק מטשטשת אותו.
+                maxImageSize: 192,
               ),
             );
             final details = _heroDetails(context);

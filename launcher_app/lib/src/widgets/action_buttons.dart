@@ -5,11 +5,13 @@ import 'package:flutter/material.dart';
 
 import 'rtl_icon.dart';
 
-enum _Variant { recommended, neutral, ghost, warning }
+enum _Variant { recommended, neutral, outlined, ghost, warning }
 
 /// כפתור פעולה גנרי בסגנון M3. השתמש בבנאים הממוינים:
 /// - [ActionButton.recommended] — FilledButton לפעולה מומלצת
 /// - [ActionButton.neutral] — FilledButton.tonal לפעולה ניטרלית
+/// - [ActionButton.outlined] — OutlinedButton: מסגרת בלבד, לפעולה שעומדת
+///   לצד המומלצת ואינה מתחרה בה. כך נראה הכפתור המקביל באתר אוצריא.
 /// - [ActionButton.ghost] — TextButton שקוף וניטרלי
 /// - [ActionButton.warning] — TextButton עם טקסט cs.error לפעולות הרסניות
 class ActionButton extends StatelessWidget {
@@ -47,6 +49,16 @@ class ActionButton extends StatelessWidget {
     this.autofocus = false,
   }) : _variant = _Variant.neutral;
 
+  const ActionButton.outlined({
+    super.key,
+    required this.text,
+    required this.onPressed,
+    this.isLoading = false,
+    this.spinning = false,
+    this.icon,
+    this.autofocus = false,
+  }) : _variant = _Variant.outlined;
+
   const ActionButton.ghost({
     super.key,
     required this.text,
@@ -70,7 +82,7 @@ class ActionButton extends StatelessWidget {
   Color _loadingColor(ColorScheme cs) => switch (_variant) {
         _Variant.recommended => cs.onPrimary,
         _Variant.neutral => cs.onSecondaryContainer,
-        _Variant.ghost => cs.primary,
+        _Variant.outlined || _Variant.ghost => cs.primary,
         _Variant.warning => cs.error,
       };
 
@@ -91,6 +103,12 @@ class ActionButton extends StatelessWidget {
           ),
         _Variant.neutral => FilledButton.tonal(
             onPressed: onPressed,
+            autofocus: autofocus,
+            child: child,
+          ),
+        _Variant.outlined => OutlinedButton(
+            onPressed: onPressed,
+            style: style,
             autofocus: autofocus,
             child: child,
           ),
@@ -116,6 +134,13 @@ class ActionButton extends StatelessWidget {
           autofocus: autofocus,
           icon: leading,
           label: label,
+        ),
+      _Variant.outlined => OutlinedButton.icon(
+          onPressed: onPressed,
+          autofocus: autofocus,
+          icon: leading,
+          label: label,
+          style: style,
         ),
       _Variant.ghost || _Variant.warning => TextButton.icon(
           onPressed: onPressed,

@@ -295,6 +295,27 @@ void mediaAndCategories() {
       expect(d.categorySlugs, ['ok']);
     });
 
+    // ברירת המחדל היא שהלאנצ'ר ממלא אייקון לבד; הכיבוי הוא החלטה של
+    // המשתמש שהסיר אחד, והוא חייב לשרוד את הנסיעה על הכונן.
+    test('כיבוי המילוי האוטומטי נשמר, וברירת המחדל אינה נכתבת', () {
+      const off = AppDescriptor(
+        id: 'a.b',
+        name: 'x',
+        sourceKind: AppSourceKind.manual,
+        autoIcon: false,
+      );
+
+      expect(AppDescriptor.parse(off.encode()).autoIcon, isFalse);
+      // רשומה רגילה אינה נושאת את השדה בכלל.
+      expect(
+        AppDescriptor.parse(
+          '{"id": "a.b", "name": "x"}',
+        ).autoIcon,
+        isTrue,
+      );
+      expect(off.withoutMedia().autoIcon, isFalse);
+    });
+
     test('withoutMedia מוחק, ו-copyWith משמר', () {
       const d = AppDescriptor(
         id: 'a.b',

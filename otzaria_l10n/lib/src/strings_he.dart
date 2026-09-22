@@ -1218,6 +1218,8 @@ class _Plugins extends PluginsStrings {
   String get storeAppLaunch => 'הפעלת החנות';
   @override
   String storeAppFailedSnack(String error) => 'ההעתקה נכשלה: $error';
+  @override
+  String storeAppLaunchFailedSnack(String error) => 'הפעלת החנות נכשלה: $error';
 }
 
 class _Faq extends FaqStrings {
@@ -2355,6 +2357,14 @@ class _PluginsDomain extends PluginsDomainStrings {
       'תוכנת החנות אינה בכונן. יש להריץ "הורדה" במחשב שיש בו אינטרנט.';
   @override
   String get exportCopyingApp => 'מעתיק את תוכנת החנות…';
+  @override
+  String exportAppCopyFailed(String error) =>
+      'לא ניתן לכתוב את קובץ ההרצה ליעד: $error. ייתכן שתוכנת אנטי-וירוס '
+      'חוסמת אותו, או שאין הרשאת כתיבה לתיקייה שנבחרה.';
+  @override
+  String exportAppVanished(String path) =>
+      'קובץ ההרצה הועתק ואז נעלם מ-$path. כמעט תמיד זו תוכנת אנטי-וירוס '
+      'שמחקה קובץ לא-חתום; יש לאשר אותו בה או לבחור תיקייה אחרת.';
   @override
   String exportPlugin(String name, int done, int total) =>
       'מעתיק את $name ($done מתוך $total)';

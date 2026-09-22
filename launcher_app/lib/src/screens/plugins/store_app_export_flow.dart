@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
 import '../../controllers/plugins_module_controller.dart';
@@ -41,9 +43,11 @@ class StoreAppExportButton extends StatelessWidget {
         ? t.storeAppUnavailableTooltip
         : (controller.plugins.isEmpty ? t.storeAppNoPluginsTooltip : null);
 
-    final button = ActionButton.neutral(
+    // `outlined` ובסמל המסך, כמו הכפתור המקביל באתר: הוא עומד לצד
+    // "סנכרון מהאתר" ואינו אמור להתחרות בו על העין.
+    final button = ActionButton.outlined(
       text: t.storeAppButton,
-      icon: FluentIcons.desktop_arrow_down_24_regular,
+      icon: FluentIcons.desktop_24_regular,
       isLoading: controller.isExporting,
       onPressed: enabled ? () => runStoreAppExport(context, controller) : null,
     );
@@ -174,7 +178,7 @@ Future<void> _showDoneDialog(
           icon: FluentIcons.folder_open_24_regular,
           onPressed: () {
             Navigator.of(dialogContext).pop();
-            FileReveal.revealDirectory(outcome.destinationDir);
+            unawaited(FileReveal.revealDirectory(outcome.destinationDir));
           },
         ),
         ActionButton.recommended(
@@ -182,7 +186,7 @@ Future<void> _showDoneDialog(
           icon: FluentIcons.play_24_regular,
           onPressed: () {
             Navigator.of(dialogContext).pop();
-            _launch(outcome.appPath);
+            unawaited(_launch(outcome.appPath));
           },
         ),
       ],
@@ -264,12 +268,17 @@ class StoreAppExportOverlay extends StatelessWidget {
 }
 
 /// מנותק מהלאנצ'ר בכוונה: החנות היא תוכנה נפרדת, וסגירת הלאנצ'ר אינה
-/// אמורה לסגור אותה. כשל כאן נכתב ליומן — הקובץ נמצא בתיקייה שנפתחה.
-void _launch(String appPath) {
+/// אמורה לסגור אותה.
+///
+/// ⚠️ **`await` ולא "שגר ושכח".** `Process.start` מחזיר `Future`, וקובץ
+/// חסר נכשל בתוכו ולא בזריקה סינכרונית — ה-`try` לא תפס אותו, השגיאה
+/// נבלעה כחריג אסינכרוני בלי מטפל, והכפתור פשוט לא עשה כלום.
+Future<void> _launch(String appPath) async {
   try {
-    Process.start(appPath, const [], mode: ProcessStartMode.detached);
+    await Process.start(appPath, const [], mode: ProcessStartMode.detached);
   } catch (e) {
     AppLogger.instance.info('הפעלת חנות התוספים נכשלה: $e');
+    UiSnack.show(AppL10n.strings.plugins.storeAppLaunchFailedSnack('$e'));
   }
 }
 

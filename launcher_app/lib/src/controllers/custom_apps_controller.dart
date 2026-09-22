@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import '../services/announced_apps_store.dart';
 import '../services/app_logger.dart';
+import '../services/exe_icon_extractor.dart';
 import 'progress_notifier.dart';
 
 /// הגרסה המוטבעת בקובץ הרצה, או `null`. ציבורי כי הבונה משתמש בו כדי
@@ -82,8 +83,10 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     required String mirrorRootDir,
     String? stateDir,
     CustomAppsManager? manager,
+    ExeIconExtraction? extractIcon,
   }) {
     _mirrorRootDir = mirrorRootDir;
+    _extractIcon = extractIcon ?? ExeIconExtractor.extract;
     _announced = stateDir == null ? null : AnnouncedAppsStore(stateDir);
     _manager = manager ??
         CustomAppsManager(
@@ -604,6 +607,15 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
         appDir: CustomAppStore(mirrorRootDir: _mirrorRootDir).dirFor(id),
       );
 
+  /// חילוץ האייקון מקובץ הרצה. תפר לבדיקות — האמיתי מריץ PowerShell.
+  late final ExeIconExtraction _extractIcon;
+
+  /// המזהים שכבר ניסינו למלא להם אייקון בהרצה הזו. ניסיון עולה תהליך
+  /// PowerShell, ואין טעם לשלם עליו שוב על תוכנה שאין לה אייקון בקובץ.
+  final Set<String> _iconAttempts = {};
+
+  bool _fillingIcons = false;
+
   /// נתיב קובץ ההתקנה ששמור על הכונן, או `null` כשעוד לא הגיע קובץ.
   /// חשוף לטופס: כשהתוכנה אינה מותקנת במחשב הזה — והמצב הזה הוא הנורמה
   /// במחשב המקוון — המתקין הוא הקובץ היחיד שאפשר לחלץ ממנו אייקון.
@@ -643,6 +655,64 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     if (saved == null) return false;
     await load();
     return true;
+  }
+
+  /// מאיזה קובץ הרצה אפשר לחלץ אייקון לתוכנה הזו, או `null` כשאין.
+  ///
+  /// הסדר הוא סדר האיכות: **התוכנה עצמה** כשהיא מותקנת כאן, ואחריה
+  /// **המתקין ששמור על הכונן** — שנושא כמעט תמיד את אותו אייקון, והוא
+  /// הקובץ היחיד שקיים במחשב המקוון, שבו התוכנה כלל אינה מותקנת.
+  String? iconSourceExeOf(CustomAppView app) {
+    if (app.installed?.launchPath case final path?) return path;
+    final stored = storedInstallerPathOf(app.descriptor.id);
+    if (stored != null && p.extension(stored).toLowerCase() == '.exe') {
+      return stored;
+    }
+    return null;
+  }
+
+  /// ממלא אייקון לתוכנות שאין להן אחד — **ברירת המחדל, בלי שהמשתמש יבקש**.
+  ///
+  /// שקט לחלוטין: האייקון הוא קישוט, וכשל בחילוץ אינו שגיאה שמישהו צריך
+  /// לראות. [readOnly] עוצר לגמרי — השמירה כותבת אל הכונן.
+  Future<void> fillMissingIcons({bool readOnly = false}) async {
+    if (readOnly || _fillingIcons) return;
+    _fillingIcons = true;
+    var filled = false;
+    try {
+      for (final app in apps) {
+        if (await _fillIcon(app)) filled = true;
+      }
+    } finally {
+      _fillingIcons = false;
+    }
+    if (filled) await load();
+  }
+
+  Future<bool> _fillIcon(CustomAppView app) async {
+    final descriptor = app.descriptor;
+    // אייקון שכבר יש, או משתמש שהסיר אחד במפורש — לא נוגעים.
+    if (descriptor.iconFile != null || !descriptor.autoIcon) return false;
+    if (!_iconAttempts.add(descriptor.id)) return false;
+
+    final source = iconSourceExeOf(app);
+    if (source == null) return false;
+    final extracted = await _extractIcon(source);
+    if (extracted == null) return false;
+
+    try {
+      // ⚠️ צילומי המסך נמסרים שוב: `saveMedia` כותב את **כל** המדיה
+      // מחדש, ובלעדיהם מילוי האייקון היה מוחק אותם.
+      await _manager.saveMedia(
+        descriptor.id,
+        iconSource: extracted,
+        screenshotSources: screenshotPathsOf(descriptor),
+      );
+      return true;
+    } catch (e) {
+      AppLogger.instance.warn('שמירת האייקון של ${descriptor.id} נכשלה: $e');
+      return false;
+    }
   }
 
   // ── קטגוריות ──────────────────────────────────────────────────────────

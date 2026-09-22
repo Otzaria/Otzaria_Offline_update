@@ -57,9 +57,11 @@ class CustomAppStoreCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            StoreThumbnail(
+            // אייקון ולא תמונת חנות — ראו `StoreThumbnail.icon`.
+            StoreThumbnail.icon(
               imagePath: controller.iconPathOf(app.descriptor),
               placeholderIcon: FluentIcons.box_24_regular,
+              maxImageSize: 96,
             ),
             const SizedBox(height: AppTokens.spaceMD),
             // שורת גלולות אחת, בגובה קבוע: הכרטיס ברשת בגובה קבוע, ושורה

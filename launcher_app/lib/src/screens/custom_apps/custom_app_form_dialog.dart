@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
@@ -59,6 +61,10 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
   List<String> _screenshots = [];
 
   bool _isExtractingIcon = false;
+
+  /// המשתמש לחץ "הסרת האייקון" ולא בחר אחר במקומו. ראו
+  /// [AppDescriptor.autoIcon] — בלי הדגל הזה האייקון היה חוזר מעצמו.
+  bool _removedIcon = false;
 
   /// מקור "קובץ שלי" — הקובץ שנבחר.
   String? _localFilePath;
@@ -318,6 +324,8 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
     )) {
       UiSnack.showError(widget.controller.errorMessage ?? '');
     }
+    // מי שלא בחר אייקון מקבל אותו לבד מקובץ ההרצה — ברירת המחדל.
+    unawaited(widget.controller.fillMissingIcons());
     if (!mounted) return;
 
     Navigator.of(context).pop();
@@ -349,6 +357,9 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
       // מצליח — אחרת כשלון בהעתקת תמונה היה מוחק מהרשומה מדיה שקיימת.
       iconFile: existing?.iconFile,
       screenshotFiles: existing?.screenshotFiles ?? const [],
+      // הסרה **מפורשת** של אייקון מכבה את המילוי האוטומטי, אחרת הוא היה
+      // מחזיר אותו בכניסה הבאה למסך.
+      autoIcon: _removedIcon ? false : (existing?.autoIcon ?? true),
       sourceKind: _source,
       github: _source == AppSourceKind.github && parsed != null
           ? GithubSource(
@@ -677,7 +688,7 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
         children: [
           SizedBox(
             width: 64,
-            child: StoreThumbnail(
+            child: StoreThumbnail.icon(
               imagePath: path,
               placeholderIcon: FluentIcons.box_24_regular,
               aspectRatio: 1,
@@ -707,7 +718,10 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
                   ActionButton.ghost(
                     text: t.removeIconTooltip,
                     icon: FluentIcons.dismiss_24_regular,
-                    onPressed: () => setState(() => _iconPath = null),
+                    onPressed: () => setState(() {
+                      _iconPath = null;
+                      _removedIcon = true;
+                    }),
                   ),
               ],
             ),
@@ -724,12 +738,15 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
       allowedExtensions: _imageExtensions,
     );
     if (path == null || !mounted) return;
-    setState(() => _iconPath = path);
+    setState(() {
+      _iconPath = path;
+      _removedIcon = false;
+    });
   }
 
-  /// מאיזה קובץ הרצה לחלץ. הסדר הוא סדר האיכות: התוכנה עצמה כשהיא
-  /// מותקנת כאן, ואחריה המתקין ששמור על הכונן — שנושא כמעט תמיד את אותו
-  /// אייקון, וזה הקובץ היחיד שקיים במחשב המקוון.
+  /// מאיזה קובץ הרצה לחלץ — הבחירה עצמה יושבת בקונטרולר
+  /// ([CustomAppsController.iconSourceExeOf]), כי גם המילוי האוטומטי
+  /// משתמש בה. כאן נוסף רק הקובץ שנבחר עכשיו בטופס וטרם נשמר.
   String? _iconSourceExe() {
     if (!ExeIconExtractor.isSupported) return null;
 
@@ -737,11 +754,9 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
     if (id != null) {
       for (final app in widget.controller.apps) {
         if (app.descriptor.id != id) continue;
-        if (app.installed?.launchPath case final path?) return path;
-      }
-      final stored = widget.controller.storedInstallerPathOf(id);
-      if (stored != null && p.extension(stored).toLowerCase() == '.exe') {
-        return stored;
+        if (widget.controller.iconSourceExeOf(app) case final path?) {
+          return path;
+        }
       }
     }
     final local = _localFilePath;
@@ -760,7 +775,10 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
     if (!mounted) return;
     setState(() {
       _isExtractingIcon = false;
-      if (extracted != null) _iconPath = extracted;
+      if (extracted != null) {
+        _iconPath = extracted;
+        _removedIcon = false;
+      }
     });
 
     final t = AppL10n.strings.customApps;

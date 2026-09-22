@@ -150,9 +150,11 @@ class StoreAppExporter {
     var bytes = 0;
 
     // ── קובץ ההרצה ─────────────────────────────────────────────────────────
+    // ראשון, ולא אחרון: הוא הדבר היחיד כאן שאנטי-וירוס או מדיניות ארגונית
+    // עשויים לחסום, וכשל אחרי העתקת מאות MB של תוספים הוא כשל יקר.
     report(StoreAppExportPhase.app, strings.exportCopyingApp);
     final appPath = p.join(destinationDir, mirrored.release.assetName);
-    await File(mirrored.filePath).copy(appPath);
+    await _copyApp(mirrored, appPath);
     files++;
     bytes += mirrored.release.sizeBytes;
 
@@ -238,6 +240,12 @@ class StoreAppExporter {
     await temp.rename(catalogPath);
     files++;
 
+    // ⚠️ בדיקה שנייה, אחרי הכול: קובץ הרצה לא-חתום שנוחת בתיקיית משתמש
+    // נסרק ברגע שנסגר, ואנטי-וירוס עשוי למחוק אותו **אחרי** שההעתקה
+    // הצליחה. בלי הבדיקה הזאת הדיאלוג הכריז "החנות הועתקה" על תיקייה שיש
+    // בה `Data\` בלבד, ו"הפעלת החנות" לא עשתה דבר.
+    await _verifyApp(mirrored, appPath);
+
     report(StoreAppExportPhase.done, strings.exportDone(exported.length));
     return StoreAppExportOutcome(
       destinationDir: destinationDir,
@@ -246,6 +254,30 @@ class StoreAppExporter {
       files: files,
       bytes: bytes,
       skipped: skipped,
+    );
+  }
+
+  /// מעתיק את קובץ ההרצה ומוודא מיד שהוא שם ובגודל הנכון. `File.copy`
+  /// מדווח הצלחה גם כשמנגנון הגנה החליף את הכתיבה בשקט, ולכן הבדיקה אינה
+  /// מיותרת.
+  Future<void> _copyApp(MirroredStoreApp mirrored, String appPath) async {
+    try {
+      await File(mirrored.filePath).copy(appPath);
+    } catch (e) {
+      throw PluginStoreException(
+        AppL10n.strings.pluginsDomain.exportAppCopyFailed('$e'),
+      );
+    }
+    await _verifyApp(mirrored, appPath);
+  }
+
+  /// זורק אם קובץ ההרצה אינו ביעד או שגודלו אינו זה שבמראה.
+  Future<void> _verifyApp(MirroredStoreApp mirrored, String appPath) async {
+    final copied = File(appPath);
+    final size = await copied.exists() ? await copied.length() : -1;
+    if (size == mirrored.release.sizeBytes) return;
+    throw PluginStoreException(
+      AppL10n.strings.pluginsDomain.exportAppVanished(appPath),
     );
   }
 

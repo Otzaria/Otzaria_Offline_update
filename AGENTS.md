@@ -1208,6 +1208,15 @@ program from GitHub, so one being unreachable says nothing about the other, and
 union, or a new store-program version would not even show the download button.
 A failed store-app download is a log line, never a failed download run.
 
+**The exported `.exe` is verified after the copy *and* again at the end.** It is an
+unsigned 600KB binary landing in a user folder, so antivirus can delete it after
+`File.copy` returned success — and the export then announced "the store was copied"
+over a folder holding only `Data\`, with "launch" doing nothing.
+`StoreAppExporter._verifyApp` checks presence and size at both points and names the
+likely cause. For the same reason `_launch` **awaits** `Process.start`: it returns a
+`Future`, a missing file fails inside it rather than throwing synchronously, so the
+`try` caught nothing and the error vanished as an unhandled async error.
+
 ### 5.7 Custom apps
 
 **A custom app learns how to detect itself.** The form cannot ask "where will this
@@ -1284,6 +1293,26 @@ only *known* slugs, so an app assigned on another machine to a category this
 drive does not have is shown rather than hidden. The slug itself never reaches
 the user: a Hebrew category name leaves nothing latin, so it falls back to
 `category`, `category-2` (`CustomAppCategory.slugFor`).
+
+**The icon fills itself, and `autoIcon` is what keeps it from coming back.**
+`CustomAppsController.fillMissingIcons` extracts the icon of the installed exe —
+or, on the online machine where the program is not installed, of the installer
+on the drive, which carries the same icon — for every app that has none. Four
+things hold it together: it runs on entering the screen, not at launch, because
+each attempt costs a PowerShell process; a failed attempt is remembered for the
+run (`_iconAttempts`), since an exe with no icon fails every time; it passes the
+existing screenshots back to `saveMedia`, which rewrites *all* media and would
+otherwise delete them; and `readOnly` stops it, because it writes to the drive.
+`AppDescriptor.autoIcon` is set to false only when the user **removed** an icon
+in the form — without it the removed icon reappeared on the next visit.
+
+**An icon is displayed with `StoreThumbnail.icon`, never the default
+constructor.** The default is `BoxFit.cover`, right for a wide store image and
+wrong for a square icon: it fills the frame and crops what sticks out, which is
+exactly the report "the icon escapes the frame and you can't see all of it". The
+named constructor centers the whole image on a neutral background and caps it at
+`maxImageSize`, because a Windows icon is 256×256 at most and stretching it to a
+340px hero only blurs it.
 
 **`CustomAppsScreen` listens to its own controller**, like `PluginsScreen` and
 unlike the version before the card grid: the open category lives in the

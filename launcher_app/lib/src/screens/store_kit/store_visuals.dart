@@ -184,7 +184,25 @@ class StoreThumbnail extends StatelessWidget {
     this.aspectRatio = 16 / 11,
     this.iconSize = 44,
     this.placeholderIcon = FluentIcons.puzzle_piece_24_regular,
-  });
+  })  : _icon = false,
+        _maxImageSize = null;
+
+  /// תצוגה של **אייקון** ולא של תמונת חנות: התמונה נכנסת שלמה, ממורכזת,
+  /// על רקע ניטרלי, ואינה גדלה מעבר ל-[maxImageSize].
+  ///
+  /// ⚠️ זה לא סגנון — זה תיקון של באג. `BoxFit.cover` ממלא את המסגרת
+  /// **וחותך** את מה שחורג, ואייקון ריבועי בתוך מסגרת רחבה נחתך מלמעלה
+  /// ומלמטה: "האייקון בורח מהמסגרת ולא רואים את כולו". אייקון של ווינדוס
+  /// הוא 256×256 לכל היותר, ולכן מתיחה שלו לרוחב המסגרת גם מטשטשת אותו.
+  const StoreThumbnail.icon({
+    super.key,
+    required this.imagePath,
+    this.aspectRatio = 16 / 11,
+    this.iconSize = 44,
+    this.placeholderIcon = FluentIcons.puzzle_piece_24_regular,
+    double maxImageSize = 128,
+  })  : _icon = true,
+        _maxImageSize = maxImageSize;
 
   final String? imagePath;
   final double aspectRatio;
@@ -192,6 +210,9 @@ class StoreThumbnail extends StatelessWidget {
 
   /// מה מוצג כשאין תמונה — פאזל לתוסף, קופסה לתוכנה נוספת.
   final IconData placeholderIcon;
+
+  final bool _icon;
+  final double? _maxImageSize;
 
   @override
   Widget build(BuildContext context) {
@@ -207,13 +228,47 @@ class StoreThumbnail extends StatelessWidget {
   Widget _content(BuildContext context) {
     final path = imagePath;
     if (path == null || path.isEmpty) return _placeholder(context);
+    return _icon ? _iconImage(context, path) : _coverImage(context, path);
+  }
 
+  Widget _coverImage(BuildContext context, String path) {
     return LayoutBuilder(
       builder: (context, constraints) => Image.file(
         File(path),
         fit: BoxFit.cover,
         cacheWidth: decodeWidthFor(context, constraints.maxWidth),
         errorBuilder: (context, _, __) => _placeholder(context),
+      ),
+    );
+  }
+
+  Widget _iconImage(BuildContext context, String path) {
+    final cs = Theme.of(context).colorScheme;
+
+    return ColoredBox(
+      color: cs.surfaceContainerHighest,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // הריפוד הוא חלק מהתצוגה: אייקון שנוגע בקצוות נראה כמו תמונה
+          // שנחתכה, גם כשהיא שלמה.
+          final inset = constraints.maxHeight * 0.12;
+          final available = constraints.maxHeight - inset * 2;
+          final cap = _maxImageSize;
+          final size = cap == null || available < cap ? available : cap;
+
+          return Center(
+            child: SizedBox(
+              width: size,
+              height: size,
+              child: Image.file(
+                File(path),
+                fit: BoxFit.contain,
+                cacheWidth: decodeWidthFor(context, size),
+                errorBuilder: (context, _, __) => _placeholder(context),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

@@ -1280,6 +1280,9 @@ class _Plugins extends PluginsStrings {
   String get storeAppLaunch => 'Launch the store';
   @override
   String storeAppFailedSnack(String error) => 'The copy failed: $error';
+  @override
+  String storeAppLaunchFailedSnack(String error) =>
+      'Launching the store failed: $error';
 }
 
 class _Faq extends FaqStrings {
@@ -2520,6 +2523,16 @@ class _PluginsDomain extends PluginsDomainStrings {
       'with internet.';
   @override
   String get exportCopyingApp => 'Copying the store program…';
+  @override
+  String exportAppCopyFailed(String error) =>
+      'The program file could not be written to the destination: $error. '
+      'Antivirus software may be blocking it, or the chosen folder may not '
+      'be writable.';
+  @override
+  String exportAppVanished(String path) =>
+      'The program file was copied and then disappeared from $path. This is '
+      'almost always antivirus software deleting an unsigned file; allow it '
+      'there, or choose a different folder.';
   @override
   String exportPlugin(String name, int done, int total) =>
       'Copying $name ($done/$total)';
