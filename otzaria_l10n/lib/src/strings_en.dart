@@ -2530,9 +2530,15 @@ class _PluginsDomain extends PluginsDomainStrings {
       'be writable.';
   @override
   String exportAppVanished(String path) =>
-      'The program file was copied and then disappeared from $path. This is '
-      'almost always antivirus software deleting an unsigned file; allow it '
-      'there, or choose a different folder.';
+      'The store program file has disappeared from $path. This is almost '
+      'always antivirus software deleting an unsigned executable (in Windows '
+      'Defender: Windows Security → Virus protection → Protection history, '
+      'then "Allow on device").';
+  @override
+  String get exportAppRemovedFromMirror =>
+      'The store program was downloaded to the drive and is no longer there. '
+      'Downloading again will not help — antivirus software is most likely '
+      'deleting it; allow it there first, then download again.';
   @override
   String exportPlugin(String name, int done, int total) =>
       'Copying $name ($done/$total)';

@@ -688,10 +688,13 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
         children: [
           SizedBox(
             width: 64,
+            // תצוגה מקדימה קטנה ומרובעת, ולכן היחס נקבע כאן ולא מהכלל:
+            // ריבוע 64 עם האוויר של הכרטיס היה משאיר אייקון של 32.
             child: StoreThumbnail.icon(
               imagePath: path,
               placeholderIcon: FluentIcons.box_24_regular,
               aspectRatio: 1,
+              ratio: 0.78,
               iconSize: 28,
             ),
           ),

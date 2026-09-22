@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
@@ -25,6 +26,22 @@ int? decodeWidthFor(BuildContext context, double logicalWidth) {
 }
 
 const int _decodeStep = 64;
+
+/// **הכלל של גודל האייקון:** צלע האייקון היא חלק קבוע מרוחב המסגרת שלו,
+/// ולא מספר פיקסלים. כרטיס צר מקבל אייקון קטן וכרטיס רחב אייקון גדול,
+/// ולכן הכרטיס נראה אותו הדבר בכל רוחב חלון ובכל מספר עמודות — מספר
+/// פיקסלים קבוע נכון לרוחב אחד בלבד, ובכל השאר הוא או זעיר או בולע.
+const double kStoreIconRatio = 0.5;
+
+/// האוויר מעל האייקון ומתחתיו, גם הוא כיחס מרוחב המסגרת. יחד עם
+/// [kStoreIconRatio] הוא קובע את [kStoreIconFrameAspect].
+const double kStoreIconGutterRatio = 0.065;
+
+/// יחס המסגרת שמסביב לאייקון — רוחב חלקי גובה. **נגזר** משני היחסים
+/// שלמעלה ולא נבחר בנפרד: מסגרת שגובהה אינו גובה האייקון ועוד האוויר
+/// שלו היא בדיוק הפס הריק שהאייקון "מרחף" בתוכו.
+const double kStoreIconFrameAspect =
+    1 / (kStoreIconRatio + kStoreIconGutterRatio * 2);
 
 /// גלולת מטא-דאטה קטנה (גרסה, מספר הורדות, סטטוס).
 class StoreBadge extends StatelessWidget {
@@ -185,24 +202,30 @@ class StoreThumbnail extends StatelessWidget {
     this.iconSize = 44,
     this.placeholderIcon = FluentIcons.puzzle_piece_24_regular,
   })  : _icon = false,
-        _maxImageSize = null;
+        _ratio = 0,
+        _maxSize = 0;
 
   /// תצוגה של **אייקון** ולא של תמונת חנות: התמונה נכנסת שלמה, ממורכזת,
-  /// על רקע ניטרלי, ואינה גדלה מעבר ל-[maxImageSize].
+  /// על רקע ניטרלי, וגודלה נגזר מרוחב המסגרת לפי [kStoreIconRatio].
   ///
   /// ⚠️ זה לא סגנון — זה תיקון של באג. `BoxFit.cover` ממלא את המסגרת
   /// **וחותך** את מה שחורג, ואייקון ריבועי בתוך מסגרת רחבה נחתך מלמעלה
-  /// ומלמטה: "האייקון בורח מהמסגרת ולא רואים את כולו". אייקון של ווינדוס
-  /// הוא 256×256 לכל היותר, ולכן מתיחה שלו לרוחב המסגרת גם מטשטשת אותו.
+  /// ומלמטה: "האייקון בורח מהמסגרת ולא רואים את כולו".
+  ///
+  /// [maxSize] הוא חסם הטשטוש ולא העיצוב: אייקון של ווינדוס הוא 256×256
+  /// לכל היותר, ומתיחה מעבר לזה רק מרככת אותו. מי שרוצה אייקון קטן יותר
+  /// מצר את המסגרת — לא את החסם.
   const StoreThumbnail.icon({
     super.key,
     required this.imagePath,
-    this.aspectRatio = 16 / 11,
+    this.aspectRatio = kStoreIconFrameAspect,
     this.iconSize = 44,
     this.placeholderIcon = FluentIcons.puzzle_piece_24_regular,
-    double maxImageSize = 128,
+    double ratio = kStoreIconRatio,
+    double maxSize = 256,
   })  : _icon = true,
-        _maxImageSize = maxImageSize;
+        _ratio = ratio,
+        _maxSize = maxSize;
 
   final String? imagePath;
   final double aspectRatio;
@@ -212,7 +235,8 @@ class StoreThumbnail extends StatelessWidget {
   final IconData placeholderIcon;
 
   final bool _icon;
-  final double? _maxImageSize;
+  final double _ratio;
+  final double _maxSize;
 
   @override
   Widget build(BuildContext context) {
@@ -249,12 +273,7 @@ class StoreThumbnail extends StatelessWidget {
       color: cs.surfaceContainerHighest,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          // הריפוד הוא חלק מהתצוגה: אייקון שנוגע בקצוות נראה כמו תמונה
-          // שנחתכה, גם כשהיא שלמה.
-          final inset = constraints.maxHeight * 0.12;
-          final available = constraints.maxHeight - inset * 2;
-          final cap = _maxImageSize;
-          final size = cap == null || available < cap ? available : cap;
+          final size = _iconEdgeFor(constraints);
 
           return Center(
             child: SizedBox(
@@ -271,6 +290,17 @@ class StoreThumbnail extends StatelessWidget {
         },
       ),
     );
+  }
+
+  /// צלע האייקון: היחס מרוחב המסגרת, חסום ברזולוציית המקור וגם בגובה
+  /// הפנוי — מסגרת שמישהו הצר ידנית אינה מקום להיחתך בו.
+  double _iconEdgeFor(BoxConstraints constraints) {
+    final byWidth = constraints.maxWidth * _ratio;
+    // אותו יחס בדיוק, אבל נמדד מהגובה — כך האוויר נשאר פרופורציוני גם
+    // במסגרת נמוכה מהיחס הקנוני.
+    final byHeight =
+        constraints.maxHeight * _ratio / (_ratio + kStoreIconGutterRatio * 2);
+    return math.min(math.min(byWidth, byHeight), _maxSize);
   }
 
   Widget _placeholder(BuildContext context) {

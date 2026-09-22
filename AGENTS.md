@@ -1217,6 +1217,18 @@ likely cause. For the same reason `_launch` **awaits** `Process.start`: it retur
 `Future`, a missing file fails inside it rather than throwing synchronously, so the
 `try` caught nothing and the error vanished as an unhandled async error.
 
+**Measured, not theorised — and do not try to hide the file from the scanner.**
+On 2026-09-22 Defender flagged `Otzaria-Plugin-Store.exe` as
+`Trojan:Win32/Wacatac.B!ml` and deleted it one second after the download, from the
+mirror *and* the destination; the verdict then cleared by itself once automatic
+sample submission had it re-scored. Storing it under a neutral extension was tried
+and **measured not to help** — the scan is on content. The levers are all upstream
+(code signing in `Otzaria/otzaria-plugin-store`, a false-positive report to
+Microsoft, and dropping the self-copy in `overlay.h` that makes it look like a
+dropper). What this repo does is tell the truth about the state:
+`StoreAppMirror.wasRemoved` separates "never downloaded" from "downloaded and
+deleted", because only the first is fixed by downloading again.
+
 ### 5.7 Custom apps
 
 **A custom app learns how to detect itself.** The form cannot ask "where will this
@@ -1310,9 +1322,22 @@ in the form — without it the removed icon reappeared on the next visit.
 constructor.** The default is `BoxFit.cover`, right for a wide store image and
 wrong for a square icon: it fills the frame and crops what sticks out, which is
 exactly the report "the icon escapes the frame and you can't see all of it". The
-named constructor centers the whole image on a neutral background and caps it at
-`maxImageSize`, because a Windows icon is 256×256 at most and stretching it to a
-340px hero only blurs it.
+named constructor centers the whole image on a neutral background.
+
+**The icon's size is a ratio of its frame, never a pixel count.**
+`kStoreIconRatio` (0.5) is the edge, `kStoreIconGutterRatio` the air above and
+below it, and `kStoreIconFrameAspect` is **derived** from the two — a frame whose
+height is not "icon + its air" is precisely the empty band the icon floats in. A
+fixed pixel size is right for one card width and either tiny or overflowing at
+every other, and the grid's card width changes with the window. `maxSize` is the
+blur ceiling (the source is 256×256), not the design.
+
+⚠️ A card that narrows its icon frame (`kCustomAppIconFrameMaxWidth`) must pass
+the same number to `StoreGridDelegate.imageMaxWidth`. The delegate decides the
+tile's height and the card decides what fills it; if the two disagree the card
+either overflows or floats in dead space. Without the cap a single-column window
+gave a 500px-wide frame with a small icon adrift in the middle — the same empty
+band, reintroduced from the other end.
 
 **`CustomAppsScreen` listens to its own controller**, like `PluginsScreen` and
 unlike the version before the card grid: the open category lives in the

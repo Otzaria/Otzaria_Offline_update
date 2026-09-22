@@ -9,9 +9,11 @@ import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/custom_apps_controller.dart';
+import 'package:launcher_app/src/screens/custom_apps/custom_app_store_card.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_apps_screen.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_apps_settings_card.dart';
 import 'package:launcher_app/src/screens/custom_apps/installer_kind_label.dart';
+import 'package:launcher_app/src/screens/store_kit/store_kit.dart';
 import 'package:launcher_app/src/services/announced_apps_store.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
@@ -936,7 +938,7 @@ void main() {
   group('תצוגת האייקון', () {
     Finder iconImage() => find.byType(Image);
 
-    testWidgets('אייקון נכנס שלם, ואינו נמתח מעבר לגודלו', (tester) async {
+    testWidgets('אייקון נכנס שלם, וגודלו נגזר מרוחב המסגרת', (tester) async {
       await addApp(tester, name: 'תוכנת דמו');
       await tester.runAsync(() async {
         final png = File(p.join(tempDir.path, 'icon.png'))
@@ -947,8 +949,15 @@ void main() {
 
       final image = tester.widget<Image>(iconImage().first);
       expect(image.fit, BoxFit.contain);
-      // ורוחב התצוגה מוגבל — אייקון של 256 אינו נמתח לרוחב הכרטיס.
-      expect(tester.getSize(iconImage().first).width, lessThanOrEqualTo(96));
+
+      // הכלל עצמו: צלע האייקון היא חלק קבוע מרוחב המסגרת, ולא מספר
+      // פיקסלים — ראו `kStoreIconRatio`.
+      final frame = tester.getSize(find.byType(StoreThumbnail).first);
+      final icon = tester.getSize(iconImage().first);
+      expect(icon.width, closeTo(frame.width * kStoreIconRatio, 1));
+      expect(icon.height, closeTo(icon.width, 0.01));
+      // והמסגרת חסומה ברוחבה, אחרת האייקון מרחף בפס ריק.
+      expect(frame.width, lessThanOrEqualTo(kCustomAppIconFrameMaxWidth));
     });
   });
 

@@ -274,6 +274,17 @@ class StoreAppExportOverlay extends StatelessWidget {
 /// חסר נכשל בתוכו ולא בזריקה סינכרונית — ה-`try` לא תפס אותו, השגיאה
 /// נבלעה כחריג אסינכרוני בלי מטפל, והכפתור פשוט לא עשה כלום.
 Future<void> _launch(String appPath) async {
+  // הקובץ נבדק לפני ההפעלה, כי הוא עלול להיעלם **אחרי** שההעתקה הסתיימה:
+  // Defender מחק אותו שנייה אחת אחרי סיום ייצוא מוצלח (22/09/2026,
+  // `Trojan:Win32/Wacatac.B!ml`). בלי הבדיקה המשתמש קיבל
+  // `ProcessException: The system cannot find the file specified` —
+  // נכון טכנית, ולא אומר דבר על מה שבאמת קרה.
+  if (!await File(appPath).exists()) {
+    AppLogger.instance.info('קובץ ההרצה של החנות נעלם מ-$appPath');
+    UiSnack.show(AppL10n.strings.pluginsDomain.exportAppVanished(appPath));
+    return;
+  }
+
   try {
     await Process.start(appPath, const [], mode: ProcessStartMode.detached);
   } catch (e) {

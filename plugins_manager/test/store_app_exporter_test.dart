@@ -19,8 +19,8 @@ import 'support.dart';
 /// היה משאיר.
 Future<StoreAppRelease> _seedApp(StoreAppMirror mirror) async {
   const bytes = 'MZ-not-really-an-exe';
-  final filePath =
-      p.join(mirror.mirrorDir, 'files', 'v6', 'Otzaria-Plugin-Store.exe');
+  const mirrored = 'Otzaria-Plugin-Store.exe';
+  final filePath = p.join(mirror.mirrorDir, 'files', 'v6', mirrored);
   File(filePath).parent.createSync(recursive: true);
   File(filePath).writeAsStringSync(bytes);
 
@@ -36,7 +36,7 @@ Future<StoreAppRelease> _seedApp(StoreAppMirror mirror) async {
     jsonEncode({
       'schemaVersion': 1,
       'release': release.toJson(),
-      'filePath': 'files/v6/Otzaria-Plugin-Store.exe',
+      'filePath': 'files/v6/$mirrored',
     }),
   );
   return release;
@@ -327,6 +327,20 @@ void main() {
       File(p.join(appMirror.mirrorDir, 'files', 'v6', release.assetName))
           .writeAsStringSync('short');
       expect(await appMirror.load(), isNull);
+    });
+
+    test('מבחין בין "לא הורד" לבין "הורד ונמחק"', () async {
+      final (store: _, :appMirror) = _mirrors(temp);
+      expect(await appMirror.wasRemoved, isFalse);
+
+      final release = await _seedApp(appMirror);
+      expect(await appMirror.wasRemoved, isFalse);
+
+      // מדמה אנטי-וירוס שמחק את הקובץ והשאיר את המטא-דאטה.
+      File(p.join(appMirror.mirrorDir, 'files', 'v6', release.assetName))
+          .deleteSync();
+      expect(await appMirror.load(), isNull);
+      expect(await appMirror.wasRemoved, isTrue);
     });
   });
 }

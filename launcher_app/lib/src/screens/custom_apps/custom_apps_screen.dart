@@ -403,6 +403,8 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
         textScale: MediaQuery.textScalerOf(context).scale(1),
         minCardWidth: kCustomAppMinCardWidth,
         contentHeight: kCustomAppCardContentHeight,
+        imageAspectRatio: kStoreIconFrameAspect,
+        imageMaxWidth: kCustomAppIconFrameMaxWidth,
       ),
       itemCount: apps.length,
       itemBuilder: (context, index) {

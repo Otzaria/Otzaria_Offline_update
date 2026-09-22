@@ -1412,6 +1412,10 @@ abstract class PluginsDomainStrings {
   /// לא-חתום. **חייב להיאמר**: בלעדיו הדיאלוג הכריז "הועתק" על תיקייה
   /// שיש בה `Data\` בלבד.
   String exportAppVanished(String path);
+
+  /// ההורדה הצליחה והקובץ אינו בכונן יותר. **הודעה נפרדת מ-[exportAppMissing]
+  /// בכוונה**: שם הפעולה הנכונה היא להוריד, וכאן הורדה חוזרת רק תימחק שוב.
+  String get exportAppRemovedFromMirror;
   String exportPlugin(String name, int done, int total);
   String get exportWritingCatalog;
   String exportDone(int plugins);

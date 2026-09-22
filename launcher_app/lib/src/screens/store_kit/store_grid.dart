@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 // SliverConstraints ו-SliverGridLayout מגיעים מ-rendering, לא מ-material.
 import 'package:flutter/rendering.dart';
 
@@ -16,6 +18,7 @@ class StoreGridDelegate extends SliverGridDelegate {
     required this.contentHeight,
     this.imageAspectRatio = 16 / 11,
     this.imagePadding = AppTokens.spaceMD * 2,
+    this.imageMaxWidth,
   });
 
   /// הגדלת הטקסט של המשתמש; תוכן הכרטיס גדל איתה, ולכן גם גובה האריח.
@@ -33,6 +36,12 @@ class StoreGridDelegate extends SliverGridDelegate {
   /// הריפוד האופקי סביב התמונה בתוך הכרטיס.
   final double imagePadding;
 
+  /// חסם על רוחב התמונה, לכרטיס שהתמונה בו אינה נמתחת לכל רוחבו.
+  ///
+  /// ⚠️ מי שמציב אותו חייב להצר את התמונה גם בכרטיס עצמו, באותו מספר —
+  /// כאן נקבע רק הגובה שהאריח מקבל, ושתי הצורות חייבות להסכים.
+  final double? imageMaxWidth;
+
   static const double _spacing = AppTokens.spaceLG;
 
   @override
@@ -46,8 +55,9 @@ class StoreGridDelegate extends SliverGridDelegate {
     // בהגדלת הטקסט של המשתמש — אחרת טקסט מוגדל היה גולש.
     final tileWidth = (width - _spacing * (columns - 1)) / columns;
     final aspect = imageAspectRatio;
-    final imageHeight =
-        aspect == null ? 0.0 : (tileWidth - imagePadding) / aspect;
+    final imageWidth =
+        math.min(tileWidth - imagePadding, imageMaxWidth ?? double.infinity);
+    final imageHeight = aspect == null ? 0.0 : imageWidth / aspect;
 
     return SliverGridDelegateWithFixedCrossAxisCount(
       crossAxisCount: columns,
@@ -62,5 +72,6 @@ class StoreGridDelegate extends SliverGridDelegate {
       oldDelegate.textScale != textScale ||
       oldDelegate.minCardWidth != minCardWidth ||
       oldDelegate.contentHeight != contentHeight ||
-      oldDelegate.imageAspectRatio != imageAspectRatio;
+      oldDelegate.imageAspectRatio != imageAspectRatio ||
+      oldDelegate.imageMaxWidth != imageMaxWidth;
 }

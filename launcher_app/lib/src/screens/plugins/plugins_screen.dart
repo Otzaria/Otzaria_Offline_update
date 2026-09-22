@@ -455,6 +455,19 @@ class _PluginsScreenState extends State<PluginsScreen> {
                     ),
                   ],
                 ),
+                // מתחת לחיפוש וממורכז, כמו הכפתור המקביל באתר. `Wrap` ולא
+                // `Row`: בחלון צר הוא יורד לשורה משלו במקום לגלוש.
+                if (StoreAppExportButton.isSupported) ...[
+                  const SizedBox(height: AppTokens.spaceMD),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: AppTokens.spaceSM,
+                    runSpacing: AppTokens.spaceSM,
+                    children: [
+                      StoreAppExportButton(controller: controller),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -647,12 +660,6 @@ class _PluginsScreenState extends State<PluginsScreen> {
                     onPressed: isSyncing ? null : _sync,
                   ),
                 ),
-                const SizedBox(width: AppTokens.spaceSM),
-              ],
-              // ליד הסנכרון, כמו הכפתור שבאתר לצד "העלאת תוסף חדש". קיים גם
-              // בכונן נעול: ההעתקה יוצאת מהכונן ואינה כותבת אליו.
-              if (StoreAppExportButton.isSupported) ...[
-                Flexible(child: StoreAppExportButton(controller: controller)),
                 const SizedBox(width: AppTokens.spaceSM),
               ],
               SecondaryIconButton(

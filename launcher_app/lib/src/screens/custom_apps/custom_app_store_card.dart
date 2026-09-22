@@ -57,13 +57,20 @@ class CustomAppStoreCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // אייקון ולא תמונת חנות — ראו `StoreThumbnail.icon`.
-            StoreThumbnail.icon(
-              imagePath: controller.iconPathOf(app.descriptor),
-              placeholderIcon: FluentIcons.box_24_regular,
-              maxImageSize: 96,
+            // אייקון ולא תמונת חנות — ראו `StoreThumbnail.icon`. החסם על
+            // הרוחב חייב להיות זהה לזה שנמסר ל-`StoreGridDelegate`, אחרת
+            // האריח מקבל גובה שאינו הגובה שהכרטיס תופס בפועל.
+            Center(
+              child: ConstrainedBox(
+                constraints:
+                    const BoxConstraints(maxWidth: kCustomAppIconFrameMaxWidth),
+                child: StoreThumbnail.icon(
+                  imagePath: controller.iconPathOf(app.descriptor),
+                  placeholderIcon: FluentIcons.box_24_regular,
+                ),
+              ),
             ),
-            const SizedBox(height: AppTokens.spaceMD),
+            const SizedBox(height: AppTokens.spaceSM),
             // שורת גלולות אחת, בגובה קבוע: הכרטיס ברשת בגובה קבוע, ושורה
             // שנייה הייתה מגלישה אותו. הפירוט המלא בדף התוכנה.
             SizedBox(
@@ -97,7 +104,7 @@ class CustomAppStoreCard extends StatelessWidget {
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
-                maxLines: 3,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
             ],
@@ -198,11 +205,18 @@ class CustomAppStoreCard extends StatelessWidget {
 
 /// גובה כל מה שאינו התמונה בכרטיס — ראו החישוב ב-[StoreGridDelegate].
 ///
-/// נגזר מהתקציבים שלמעלה: גלולה (30), שם בשתי שורות, תקציר בשלוש,
+/// נגזר מהתקציבים שלמעלה: גלולה (30), שם בשתי שורות, תקציר בשתיים,
 /// שורת קטגוריות (26), כפתור, מפריד ושורת תחתית — עם המרווחים ביניהם.
 /// נמדד מול הבדיקה "כרטיס עמוס" ב-`custom_apps_test.dart`.
-const double kCustomAppCardContentHeight = 300;
+const double kCustomAppCardContentHeight = 272;
 
-/// הרוחב המינימלי של כרטיס ברשת; ממנו נגזר מספר העמודות. זהה לזה של
-/// חנות התוספים, כדי ששני המסכים ייראו אותו הדבר.
-const double kCustomAppMinCardWidth = 280;
+/// הרוחב המינימלי של כרטיס ברשת; ממנו נגזר מספר העמודות.
+///
+/// צר מזה של חנות התוספים: שם הכרטיס נושא תמונת חנות רחבה, וכאן הוא נושא
+/// אייקון ריבועי, שאינו זקוק לאותו רוחב.
+const double kCustomAppMinCardWidth = 250;
+
+/// החסם על רוחב מסגרת האייקון. בלעדיו כרטיס רחב (עמודה אחת בחלון צר)
+/// היה מקבל מסגרת גבוהה עם אייקון קטן במרכזה — בדיוק הפס הריק שהיחס
+/// ב-`kStoreIconRatio` נועד למנוע.
+const double kCustomAppIconFrameMaxWidth = 260;

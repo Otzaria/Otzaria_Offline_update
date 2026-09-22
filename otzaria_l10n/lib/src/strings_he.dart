@@ -2363,8 +2363,13 @@ class _PluginsDomain extends PluginsDomainStrings {
       'חוסמת אותו, או שאין הרשאת כתיבה לתיקייה שנבחרה.';
   @override
   String exportAppVanished(String path) =>
-      'קובץ ההרצה הועתק ואז נעלם מ-$path. כמעט תמיד זו תוכנת אנטי-וירוס '
-      'שמחקה קובץ לא-חתום; יש לאשר אותו בה או לבחור תיקייה אחרת.';
+      'קובץ ההרצה של החנות נעלם מ-$path. כמעט תמיד זו תוכנת אנטי-וירוס '
+      'שמחקה קובץ הרצה לא-חתום (ב-Windows Defender: אבטחת Windows ← הגנה '
+      'מפני וירוסים ← היסטוריית הגנה, ומשם "אפשר במכשיר").';
+  @override
+  String get exportAppRemovedFromMirror =>
+      'תוכנת החנות הורדה לכונן ואינה שם יותר. הורדה חוזרת לא תעזור — כנראה '
+      'תוכנת אנטי-וירוס מוחקת אותה; יש לאשר אותה שם ואז להוריד שוב.';
   @override
   String exportPlugin(String name, int done, int total) =>
       'מעתיק את $name ($done מתוך $total)';
