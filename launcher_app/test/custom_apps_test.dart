@@ -464,7 +464,46 @@ void main() {
       await addApp(tester, id: 'solo', name: 'יחידה');
       await openManager(tester);
 
-      expect(find.textContaining('הסדר כאן הוא הסדר'), findsNothing);
+      expect(find.textContaining('גררו תוכנה'), findsNothing);
+    });
+
+    testWidgets('גרירה בידית מזיזה בפועל', (tester) async {
+      await addThree(tester);
+      await openManager(tester);
+
+      final handles = find.byTooltip('גרירה לשינוי הסדר');
+      expect(handles, findsNWidgets(3));
+
+      // מושכים את הראשונה אל מתחת לשנייה — בצעדים, כמו עכבר אמיתי.
+      final rowHeight = tester.getCenter(handles.at(1)).dy -
+          tester.getCenter(handles.at(0)).dy;
+      final gesture =
+          await tester.startGesture(tester.getCenter(handles.at(0)));
+      await tester.pump(const Duration(milliseconds: 50));
+      for (var i = 0; i < 10; i++) {
+        await gesture.moveBy(Offset(0, rowHeight * 1.2 / 10));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(idsOf(), ['bet', 'alef', 'gimel']);
+    });
+
+    testWidgets('חיפוש מסנן, ובזמנו אין גרירה ואין חיצים', (tester) async {
+      for (final name in ['א', 'ב', 'ג', 'ד', 'ה', 'ו']) {
+        await addApp(tester, id: 'app-${name.codeUnitAt(0)}', name: name);
+      }
+      await openManager(tester);
+
+      await tester.enterText(find.byType(TextField), 'ד');
+      await tester.pumpAndSettle();
+
+      expect(find.text('ד'), findsWidgets);
+      expect(find.text('א'), findsNothing);
+      expect(find.byTooltip('גרירה לשינוי הסדר'), findsNothing);
+      expect(find.byTooltip('העלאה ברשימה'), findsNothing);
+      expect(find.byTooltip('עריכה'), findsOneWidget);
     });
   });
 
