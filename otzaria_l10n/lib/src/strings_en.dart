@@ -30,6 +30,8 @@ class EnglishStrings extends AppStrings {
   @override
   CustomAppsStrings get customApps => const _CustomApps();
   @override
+  ErrorReportsStrings get errorReports => const _ErrorReports();
+  @override
   SetupErrorStrings get setupError => const _SetupError();
   @override
   ReadOnlyDriveStrings get readOnlyDrive => const _ReadOnlyDrive();
@@ -49,6 +51,9 @@ class EnglishStrings extends AppStrings {
   PluginsDomainStrings get pluginsDomain => const _PluginsDomain();
   @override
   CustomAppsDomainStrings get customAppsDomain => const _CustomAppsDomain();
+  @override
+  ErrorReportsDomainStrings get errorReportsDomain =>
+      const _ErrorReportsDomain();
 }
 
 class _Common extends CommonStrings {
@@ -3091,4 +3096,87 @@ class _CustomApps extends CustomAppsStrings {
   String get removeDialogConfirm => 'Remove';
   @override
   String removedSnack(String name) => '$name was removed';
+}
+
+String _reports(int count) => count == 1 ? 'report' : 'reports';
+
+class _ErrorReports extends ErrorReportsStrings {
+  const _ErrorReports();
+
+  @override
+  String get collectDialogTitle => 'Unsent error reports';
+  @override
+  String collectDialogContent(int count) =>
+      'Otzaria has $count open error ${_reports(count)} that have not been '
+      'sent yet.\n\nCollect them to the drive, so they can be sent to Otzaria '
+      'from the computer that is online?';
+  @override
+  String get collectConfirm => 'Collect';
+  @override
+  String get collectLater => 'Not now';
+  @override
+  String collectedSnack(int count) =>
+      '$count ${_reports(count)} collected to the drive. They will be sent '
+      'from the computer that is online';
+  @override
+  String collectPartialSnack(int count, String error) =>
+      '$count ${_reports(count)} collected, but not all of them: $error';
+  @override
+  String collectFailedSnack(String error) =>
+      'Collecting the reports failed: $error';
+  @override
+  String get collectOtzariaOpenSnack =>
+      'Otzaria is open, so the reports were not collected. You will be asked '
+      'again next launch';
+
+  @override
+  String uploadButton(int count) =>
+      'Upload $count ${_reports(count)} to Otzaria';
+  @override
+  String get uploadLongDialogTitle => 'Uploading error reports';
+  @override
+  String uploadLongDialogContent(int count, int perMinute, int minutes) =>
+      'The drive holds $count ${_reports(count)}. The Otzaria server accepts '
+      'up to $perMinute reports a minute, so the upload will take about '
+      '$minutes minutes.\n\nYou can stop in the middle; next time the upload '
+      'continues from where it stopped.';
+  @override
+  String get uploadLongDialogConfirm => 'Start';
+  @override
+  String uploadingStage(int done, int total) =>
+      'Uploading reports... ($done/$total)';
+  @override
+  String uploadWaitingStage(int seconds) =>
+      'Waiting for the server — continuing in $seconds seconds';
+  @override
+  String get uploadStopButton => 'Stop';
+  @override
+  String uploadSummary(int sent, int rejected, int remaining) => [
+        '$sent ${_reports(sent)} sent',
+        if (rejected > 0) '$rejected rejected by the server and deleted',
+        if (remaining > 0) '$remaining left for next time',
+      ].join(', ');
+  @override
+  String uploadFailedSnack(String error) => 'The upload stopped: $error';
+}
+
+class _ErrorReportsDomain extends ErrorReportsDomainStrings {
+  const _ErrorReportsDomain();
+
+  @override
+  String get queueUnreadable => 'Could not read the Otzaria report queue';
+  @override
+  String get someNotCollected =>
+      'The reports that were not collected stayed in Otzaria';
+
+  @override
+  String uploadHttpStatus(int statusCode) =>
+      'The server answered with code $statusCode';
+  @override
+  String get uploadTimedOut => 'The server did not respond in time';
+  @override
+  String uploadNetworkError(String error) => 'Cannot reach the server: $error';
+  @override
+  String outboxUnreadable(String error) =>
+      'Cannot read the reports on the drive: $error';
 }

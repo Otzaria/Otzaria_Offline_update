@@ -2,6 +2,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
+import '../controllers/error_reports_controller.dart';
 import '../controllers/launcher_update_controller.dart';
 import '../controllers/library_module_controller.dart';
 import '../controllers/otzaria_module_controller.dart';
@@ -12,6 +13,7 @@ import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
+import 'error_reports_upload_section.dart';
 import 'otzaria_screen.dart';
 
 /// דף הבית — שני אריחים בלבד: עדכון/התקנת תוכנת אוצריא, ועדכון הספרייה.
@@ -41,6 +43,8 @@ class HomeScreen extends StatelessWidget {
     required this.onGoToOtzaria,
     required this.onGoToLibrary,
     this.readOnly = false,
+    this.errorReports,
+    this.onUploadErrorReports,
   });
 
   final OtzariaModuleController otzaria;
@@ -88,6 +92,11 @@ class HomeScreen extends StatelessWidget {
   /// הכונן מוגן מפני כתיבה — ראו `AppPaths.readOnly`. במצב הזה מוצגת הודעה
   /// במקום כרטיס ההורדה: מה שהתחדש ברשת אינו יכול לירד לכאן.
   final bool readOnly;
+
+  /// דיווחי טעויות שנאספו לכונן. כפתור ההעלאה יושב בכרטיס ההורדות — המקום
+  /// היחיד שבו הלאנצ'ר פונה לרשת.
+  final ErrorReportsController? errorReports;
+  final Future<void> Function()? onUploadErrorReports;
 
   @override
   Widget build(BuildContext context) {
@@ -460,6 +469,11 @@ class HomeScreen extends StatelessWidget {
                   onPressed: isCancellingDownload ? null : onCancelDownload,
                 ),
               ],
+              if (errorReports != null && !readOnly)
+                ErrorReportsUploadSection(
+                  controller: errorReports!,
+                  onUpload: onUploadErrorReports,
+                ),
               if (lastChecked != null) ...[
                 const SizedBox(height: AppTokens.spaceSM),
                 Text(

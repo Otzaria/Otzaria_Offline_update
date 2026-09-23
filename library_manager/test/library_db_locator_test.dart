@@ -159,6 +159,16 @@ void main() {
       expect(await locator().resolveDbPath(), nested);
     });
 
+    test(
+        'key-databases-path נקרא — ממנו דיווחי הטעויות מאתרים את user_state.db',
+        () async {
+      final dbs = p.join(tempDir.path, 'my-databases');
+      await writeSettings({OtzariaSettingsReader.keyDatabasesPath: dbs});
+
+      final settings = await const OtzariaSettingsReader().read(dataRoot);
+      expect(settings?.databasesPath, dbs);
+    });
+
     test('הגדרה שמצביעה על קובץ שאינו קיים נופלת לברירת המחדל', () async {
       final fallback = await createDb(p.join(dataRoot, 'books'));
       await writeSettings({

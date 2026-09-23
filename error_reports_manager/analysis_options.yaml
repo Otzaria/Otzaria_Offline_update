@@ -1,0 +1,7 @@
+# חבילת Dart טהורה — `lints` ולא `flutter_lints`. בלי הקובץ הזה
+# `dart analyze` היה יורש את ה-analysis_options של שורש הריפו, שכולל
+# `package:flutter_lints` — תלות שאינה קיימת כאן.
+include:
+  - package:lints/recommended.yaml
+  # ההידוקים המשותפים לכל החבילות — ראו את ההסבר בקובץ עצמו.
+  - ../analysis_options_shared.yaml

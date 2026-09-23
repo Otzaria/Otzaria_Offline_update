@@ -29,6 +29,8 @@ class HebrewStrings extends AppStrings {
   @override
   CustomAppsStrings get customApps => const _CustomApps();
   @override
+  ErrorReportsStrings get errorReports => const _ErrorReports();
+  @override
   SetupErrorStrings get setupError => const _SetupError();
   @override
   ReadOnlyDriveStrings get readOnlyDrive => const _ReadOnlyDrive();
@@ -48,6 +50,9 @@ class HebrewStrings extends AppStrings {
   PluginsDomainStrings get pluginsDomain => const _PluginsDomain();
   @override
   CustomAppsDomainStrings get customAppsDomain => const _CustomAppsDomain();
+  @override
+  ErrorReportsDomainStrings get errorReportsDomain =>
+      const _ErrorReportsDomain();
 }
 
 class _Common extends CommonStrings {
@@ -2890,4 +2895,77 @@ class _CustomApps extends CustomAppsStrings {
   String get removeDialogConfirm => 'הסרה';
   @override
   String removedSnack(String name) => '$name הוסרה';
+}
+
+class _ErrorReports extends ErrorReportsStrings {
+  const _ErrorReports();
+
+  @override
+  String get collectDialogTitle => 'דיווחי טעויות שלא נשלחו';
+  @override
+  String collectDialogContent(int count) =>
+      'נמצאו באוצריא $count דיווחי טעויות פתוחים שעדיין לא נשלחו.\n\n'
+      'לאסוף אותם לכונן, כדי לשלוח אותם לאוצריא מהמחשב המחובר לרשת?';
+  @override
+  String get collectConfirm => 'איסוף';
+  @override
+  String get collectLater => 'לא עכשיו';
+  @override
+  String collectedSnack(int count) =>
+      'נאספו לכונן $count דיווחים. הם יישלחו מהמחשב המחובר לרשת';
+  @override
+  String collectPartialSnack(int count, String error) =>
+      'נאספו $count דיווחים, אבל לא כולם: $error';
+  @override
+  String collectFailedSnack(String error) => 'איסוף הדיווחים נכשל: $error';
+  @override
+  String get collectOtzariaOpenSnack =>
+      'אוצריא פתוחה, ולכן הדיווחים לא נאספו. השאלה תחזור בהפעלה הבאה';
+
+  @override
+  String uploadButton(int count) => 'העלאת $count דיווחים לאוצריא';
+  @override
+  String get uploadLongDialogTitle => 'העלאת דיווחי הטעויות';
+  @override
+  String uploadLongDialogContent(int count, int perMinute, int minutes) =>
+      'על הכונן $count דיווחים. השרת של אוצריא מקבל עד $perMinute דיווחים '
+      'בדקה, ולכן ההעלאה תימשך כ-$minutes דקות.\n\n'
+      'אפשר לעצור באמצע, ובפעם הבאה ההעלאה תמשיך מהמקום שבו נעצרה.';
+  @override
+  String get uploadLongDialogConfirm => 'התחלה';
+  @override
+  String uploadingStage(int done, int total) =>
+      'מעלה דיווחים... ($done/$total)';
+  @override
+  String uploadWaitingStage(int seconds) =>
+      'ממתין לשרת — ממשיך בעוד $seconds שניות';
+  @override
+  String get uploadStopButton => 'עצירה';
+  @override
+  String uploadSummary(int sent, int rejected, int remaining) => [
+        'נשלחו $sent דיווחים',
+        if (rejected > 0) '$rejected נדחו על ידי השרת ונמחקו',
+        if (remaining > 0) '$remaining ממתינים לפעם הבאה',
+      ].join(', ');
+  @override
+  String uploadFailedSnack(String error) => 'ההעלאה נעצרה: $error';
+}
+
+class _ErrorReportsDomain extends ErrorReportsDomainStrings {
+  const _ErrorReportsDomain();
+
+  @override
+  String get queueUnreadable => 'לא ניתן היה לקרוא את תור הדיווחים של אוצריא';
+  @override
+  String get someNotCollected => 'הדיווחים שלא נאספו נשארו באוצריא';
+
+  @override
+  String uploadHttpStatus(int statusCode) => 'השרת השיב בקוד $statusCode';
+  @override
+  String get uploadTimedOut => 'השרת לא השיב בזמן';
+  @override
+  String uploadNetworkError(String error) => 'אין חיבור לשרת: $error';
+  @override
+  String outboxUnreadable(String error) =>
+      'לא ניתן לקרוא את הדיווחים שעל הכונן: $error';
 }

@@ -202,6 +202,14 @@ void main() {
     expect(exists('launcher.log'), isTrue);
   });
 
+  test('דיווחי טעויות שטרם נשלחו אינם נגעים — הם מחוץ ל-mirror/', () async {
+    libraryManifest();
+    file('reports/outbox/r1.json', bytes: 50);
+
+    await sweep();
+    expect(exists('reports/outbox/r1.json'), isTrue);
+  });
+
   test('תיקיית נתונים ריקה אינה שגיאה', () async {
     expect(await sweep(), 0);
   });

@@ -591,6 +591,18 @@ personalUpdateMode`) הוא מה שנקרא בכל מקום, ולא `syncLibrary
 ההגדרות נשמרות ל-`launcher_settings.json` עם `schemaVersion` וכתיבה אטומית
 (קובץ זמני + rename).
 
+### חריג שני: העלאת דיווחי טעויות
+
+דיווחי טעויות שאוצריא לא הצליחה לשלוח נאספים לכונן במחשב הלא-מקוון (דיאלוג
+בעלייה, `AppShell._offerErrorReports` → `offerErrorReportCollection`), ונשלחים
+מהכפתור שבכרטיס ההורדות במחשב המקוון (`ErrorReportsUploadSection` →
+`uploadErrorReports`). זו הפנייה השנייה לרשת, וגם היא בלחיצה בלבד — אין לה חלק
+ב-`checkOnline`. הבקר (`ErrorReportsController`) אינו מחובר ל-listener של
+`AppShell`: ההתקדמות מתעדכנת כל שנייה, והשורה מאזינה לו בעצמה. האיסוף קורא
+וכותב ישירות את התור של אוצריא ב-`user_state.db` (`resolveOtzariaReportQueue`
+מאתר אותו), ולכן רק כשהיא סגורה. הפרטים וכללי השליחה —
+ב-`error_reports_manager/README.md`.
+
 ## macOS
 
 ```bash
@@ -838,6 +850,7 @@ lib/
     │   ├── library_module_controller.dart   — עוטף LibraryManager כ-ChangeNotifier
     │   ├── plugins_module_controller.dart   — עוטף PluginsManager כ-ChangeNotifier
     │   ├── launcher_update_controller.dart  — עוטף LauncherSelfUpdater כ-ChangeNotifier
+    │   ├── error_reports_controller.dart    — איסוף והעלאה של דיווחי טעויות
     │   └── progress_notifier.dart           — דילול דיווחי התקדמות (ראו למטה)
     ├── self_update/                   — עדכון הלאנצ'ר עצמו (ראו למעלה)
     │   ├── launcher_version.dart            — הגרסה הרצה + השוואת גרסאות
@@ -854,6 +867,7 @@ lib/
     └── screens/
         ├── app_shell.dart             — סרגל ניווט, סרגל מצב, IndexedStack מדורג
         ├── home_screen.dart, otzaria_screen.dart, library_screen.dart, settings_screen.dart
+        ├── error_reports_flow.dart, error_reports_upload_section.dart — דיווחי טעויות
         ├── faq/                       — הדרכת שאלות נפוצות (ראו למטה)
         │   ├── faq_content.dart             — הזוגות שאלה/תשובה, מקובצים
         │   ├── faq_dialog.dart              — האקורדיון + מצב העריכה
