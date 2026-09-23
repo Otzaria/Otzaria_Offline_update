@@ -14,6 +14,7 @@ dependencies:
   otzaria_l10n:
     path: ../otzaria_l10n
   path: ^1.9.1
+  crypto: ^3.0.7
   http: ^1.6.0
 
 dev_dependencies:

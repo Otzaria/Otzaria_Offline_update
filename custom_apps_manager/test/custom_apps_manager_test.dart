@@ -368,6 +368,21 @@ void main() {
           (await manager.load('org.example.app'))!.installer!.version, '2.0');
     });
 
+    test('ה-sha256 נרשם, וקובץ שנפגם על הכונן אינו מורץ', () async {
+      final setup = writeFile(p.join(root, 'dl', 'App.exe'), 'MZ Inno Setup');
+      final stored = await manager.attachInstaller('org.example.app',
+          sourcePath: setup, version: '1.0');
+      expect(stored.sha256, hasLength(64));
+
+      // הכונן השתבש בדרך למחשב המנותק
+      writeFile(p.join(root, 'apps', 'org.example.app', 'App.exe'), 'MZ Inno');
+      await expectLater(
+        manager.install('org.example.app'),
+        throwsA(isA<AppDescriptorException>()),
+      );
+      expect(runner.calls, isEmpty);
+    });
+
     test('קובץ מקור חסר נדחה', () async {
       await expectLater(
         manager.attachInstaller('org.example.app',

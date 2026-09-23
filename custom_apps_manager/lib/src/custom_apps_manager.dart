@@ -18,6 +18,7 @@ import 'services/custom_app_locator.dart';
 import 'services/custom_app_media.dart';
 import 'services/custom_app_order_store.dart';
 import 'services/custom_app_store.dart';
+import 'services/file_digest.dart';
 import 'services/github_app_client.dart';
 import 'services/install_learner.dart';
 import 'services/known_locations_store.dart';
@@ -233,14 +234,17 @@ class CustomAppsManager {
     }
 
     final fileName = p.basename(sourcePath);
+    final target = p.join(store.dirFor(id), fileName);
     await Directory(store.dirFor(id)).create(recursive: true);
-    await source.copy(p.join(store.dirFor(id), fileName));
+    await source.copy(target);
 
     final stored = StoredInstaller(
       fileName: fileName,
       version: version,
       sizeBytes: await source.length(),
       addedAt: DateTime.now(),
+      // מהעותק שבמראה ולא מהמקור — זה הקובץ שייבדק לפני ההתקנה.
+      sha256: await sha256OfFile(target),
     );
     await store.saveInstaller(id, stored);
     return stored;
@@ -287,7 +291,7 @@ class CustomAppsManager {
     final dir = store.dirFor(id);
     final target = p.join(dir, asset.name);
     final temp = '$target.part';
-    await github.download(asset, temp, onProgress: onProgress);
+    final digest = await github.download(asset, temp, onProgress: onProgress);
 
     if (entry.installer case final old? when old.fileName != asset.name) {
       try {
@@ -301,6 +305,7 @@ class CustomAppsManager {
       version: release.version,
       sizeBytes: await File(target).length(),
       addedAt: DateTime.now(),
+      sha256: digest,
     );
     await store.saveInstaller(id, stored);
     return stored;
@@ -326,13 +331,22 @@ class CustomAppsManager {
       throw AppDescriptorException(t.noInstallerInMirror);
     }
 
+    // קובץ שנפגם על הכונן (העתקה שנקטעה, סקטור רע) לא ירוץ: מתקין קטוע
+    // עלול להשאיר התקנה חצויה. קובץ שחסר נשאר להודעה של ה-installer.
+    final installerPath = store.installerPathFor(id, installer);
+    if (installer.sha256 case final expected?
+        when await File(installerPath).exists() &&
+            await sha256OfFile(installerPath) != expected) {
+      throw AppDescriptorException(t.installerDigestMismatch);
+    }
+
     // הצילום נלקח **לפני** ההרצה: אחריה אין דרך לדעת איזה רישום הסרה היה
     // כאן קודם ואיזה נולד עכשיו.
     final before = await _learner.snapshot();
 
     final outcome = await _installer.install(
       descriptor: entry.descriptor,
-      installerPath: store.installerPathFor(id, installer),
+      installerPath: installerPath,
       copyToDir: copyToDir,
     );
     // כשרק העתקנו קובץ, שום מתקין לא רץ ולכן אין רישום הסרה ללמוד ממנו.
