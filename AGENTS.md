@@ -233,6 +233,10 @@ dart analyze                       # otzaria_l10n, otzaria_manager, plugins_mana
   run's* artifacts — so what ships is exactly what was tested. Before 2026-09-21
   every green push published; it does not any more. See `launcher_app/README.md`
   § "עדכון עצמי".
+- **⚠️ Push only to `main`, unless the maintainer explicitly asks otherwise.**
+  Commit on `main` and push `main` — do not create feature branches or push
+  other branches on your own initiative. A request for a specific branch or a
+  PR applies to that task only.
 - **`.githooks/pre-commit` runs the same checks locally** on staged packages and
   blocks the commit on failure. Each clone needs
   `git config core.hooksPath .githooks` once.
