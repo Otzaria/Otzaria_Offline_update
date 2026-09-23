@@ -24,6 +24,8 @@ class CustomAppStoreCard extends StatelessWidget {
     required this.onInstall,
     required this.onLaunch,
     required this.onDownload,
+    this.manageToolbar,
+    this.highlighted = false,
   });
 
   final CustomAppsController controller;
@@ -37,6 +39,12 @@ class CustomAppStoreCard extends StatelessWidget {
   final VoidCallback onLaunch;
   final VoidCallback onDownload;
 
+  /// במסך הניהול: כלי הסדר והעריכה, במקום הפעולה הראשית ושורת התחתית.
+  final Widget? manageToolbar;
+
+  /// כרטיס שמעליו מרחף כרטיס נגרר — שם הוא ינחת.
+  final bool highlighted;
+
   /// תקציב הגובה של שורת הגלולות, ושל שורת הקטגוריות. שניהם חלק מהחישוב
   /// של `kCustomAppCardContentHeight` — שינוי כאן דורש שינוי שם.
   static const double _badgesHeight = 30;
@@ -48,10 +56,12 @@ class CustomAppStoreCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final t = context.strings.customApps;
+    final manage = manageToolbar != null;
+    final action = manageToolbar ?? _primaryAction(context);
 
     return AppCard(
       onTap: onOpenDetail,
+      selected: highlighted,
       child: Padding(
         padding: const EdgeInsets.all(AppTokens.spaceMD),
         child: Column(
@@ -124,37 +134,45 @@ class CustomAppStoreCard extends StatelessWidget {
             ],
             const Spacer(),
             const SizedBox(height: AppTokens.spaceSM),
-            if (_primaryAction(context) case final action?) ...[
-              SizedBox(width: double.infinity, child: action),
+            if (action != null) SizedBox(width: double.infinity, child: action),
+            // במצב ניהול הסרגל תופס את מקום שורת התחתית: הוא בגובה קבוע
+            // והתקציב מוכפל בהגדלת הטקסט, ושניהם יחד גלשו ב-0.9.
+            if (!manage) ...[
+              if (action != null) const SizedBox(height: AppTokens.spaceSM),
+              Divider(height: 1, color: theme.colorScheme.outlineVariant),
               const SizedBox(height: AppTokens.spaceSM),
+              _footer(context),
             ],
-            Divider(height: 1, color: theme.colorScheme.outlineVariant),
-            const SizedBox(height: AppTokens.spaceSM),
-            Row(
-              children: [
-                Text(
-                  t.cardDetailsLink,
-                  style: TextStyle(
-                    fontSize: AppTokens.fontSM,
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-                const Spacer(),
-                Flexible(
-                  child: Text(
-                    customAppStoredLabel(context, app),
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ],
-            ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _footer(BuildContext context) {
+    final theme = Theme.of(context);
+    final t = context.strings.customApps;
+    return Row(
+      children: [
+        Text(
+          t.cardDetailsLink,
+          style: TextStyle(
+            fontSize: AppTokens.fontSM,
+            fontWeight: FontWeight.bold,
+            color: theme.colorScheme.primary,
+          ),
+        ),
+        const Spacer(),
+        Flexible(
+          child: Text(
+            customAppStoredLabel(context, app),
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

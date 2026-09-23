@@ -1623,5 +1623,7 @@ Treat the whole list as "should be right", not "was seen working".
 
 ## 7. Communication
 
-Reply to the user in Hebrew (per their global preference). Code, identifiers, commands
-and this file stay in English.
+**Talk to the maintainer in Hebrew — every message, from the first to the
+last, including progress updates between tool calls.** The maintainer asked
+for this explicitly (2026-09-24) after replies drifted into English
+mid-session. Code, identifiers, commands and this file stay in English.

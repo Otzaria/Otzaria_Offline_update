@@ -1544,9 +1544,9 @@ abstract class CustomAppsStrings {
   /// אחרת החיצים נראים כמו שינוי שאינו משפיע על דבר.
   String get orderHint;
 
-  /// ⚠️ חיצי סדר ברשימה אנכית — RTL אינו הופך "למעלה" ו"למטה".
-  String get moveAppUpTooltip;
-  String get moveAppDownTooltip;
+  /// "קודם" ו"הבא" בסדר הרשת — בכיוון הקריאה, ולכן החיצים מתהפכים ב-RTL.
+  String get moveAppEarlierTooltip;
+  String get moveAppLaterTooltip;
   String get dragToReorderTooltip;
 
   // ── קבוצות השדות בטופס ──
@@ -1554,11 +1554,6 @@ abstract class CustomAppsStrings {
   String get formSectionSource;
   String get formSectionInstall;
   String get formSectionMedia;
-  String get manageSearchHint;
-  String get manageNoResults;
-
-  /// בזמן חיפוש הרשימה חלקית, ולכן הגרירה כבויה — ההסבר למה.
-  String get manageReorderDisabledWhileSearching;
 
   // ── טופס ההוספה, והוא גם טופס העריכה ──
   String get addDialogTitle;

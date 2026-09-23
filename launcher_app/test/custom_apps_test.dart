@@ -86,6 +86,19 @@ void main() {
     });
   }
 
+  /// פעולה שהתחילה מלחיצה כותבת לדיסק מתוך ה-fake-async; נותנים לקריאות
+  /// האמיתיות לרוץ, ומריצים את ההמשכים שלהן בין לבין.
+  Future<void> settleDisk(WidgetTester tester) async {
+    // שני סבבים לפחות: ההמשך שאחרי סגירת דיאלוג עוד לא התחיל לכתוב.
+    for (var i = 0; i < 100 && (i < 2 || controller.isBusy); i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+  }
+
   /// פותח את מסך הניהול מתוך שורת ההגדרות — הדרך היחידה להגיע אליו.
   Future<void> openManager(WidgetTester tester) async {
     await pumpScreen(tester, CustomAppsSettingsCard(controller: controller));
@@ -436,8 +449,8 @@ void main() {
       await addThree(tester);
       await openManager(tester);
 
-      // החץ הראשון של השורה השנייה — מעלה אותה מעל הראשונה.
-      await tester.tap(find.byTooltip('העלאה ברשימה').at(1));
+      // "למקום הקודם" בכרטיס השני — מקדים אותו לפני הראשון.
+      await tester.tap(find.byTooltip('הזזה למקום הקודם').at(1));
       await tester.pumpAndSettle();
 
       expect(idsOf(), ['bet', 'alef', 'gimel']);
@@ -455,55 +468,151 @@ void main() {
             ),
           );
 
-      expect(buttonAt('העלאה ברשימה', 0).onPressed, isNull);
-      expect(buttonAt('הורדה ברשימה', 2).onPressed, isNull);
-      expect(buttonAt('הורדה ברשימה', 0).onPressed, isNotNull);
+      expect(buttonAt('הזזה למקום הקודם', 0).onPressed, isNull);
+      expect(buttonAt('הזזה למקום הבא', 2).onPressed, isNull);
+      expect(buttonAt('הזזה למקום הבא', 0).onPressed, isNotNull);
     });
 
     testWidgets('תוכנה אחת — אין רמז על סדר', (tester) async {
       await addApp(tester, id: 'solo', name: 'יחידה');
       await openManager(tester);
 
-      expect(find.textContaining('גררו תוכנה'), findsNothing);
+      expect(find.textContaining('גררו כרטיס'), findsNothing);
     });
 
-    testWidgets('גרירה בידית מזיזה בפועל', (tester) async {
-      await addThree(tester);
-      await openManager(tester);
-
-      final handles = find.byTooltip('גרירה לשינוי הסדר');
-      expect(handles, findsNWidgets(3));
-
-      // מושכים את הראשונה אל מתחת לשנייה — בצעדים, כמו עכבר אמיתי.
-      final rowHeight = tester.getCenter(handles.at(1)).dy -
-          tester.getCenter(handles.at(0)).dy;
-      final gesture =
-          await tester.startGesture(tester.getCenter(handles.at(0)));
+    /// גוררים כרטיס אל מקומו של אחר — בצעדים, כמו עכבר אמיתי.
+    Future<void> dragOnto(WidgetTester tester, Finder from, Finder to) async {
+      final start = tester.getCenter(from);
+      final delta = tester.getCenter(to) - start;
+      final gesture = await tester.startGesture(start);
       await tester.pump(const Duration(milliseconds: 50));
       for (var i = 0; i < 10; i++) {
-        await gesture.moveBy(Offset(0, rowHeight * 1.2 / 10));
+        await gesture.moveBy(delta / 10);
         await tester.pump(const Duration(milliseconds: 16));
       }
       await gesture.up();
       await tester.pumpAndSettle();
+    }
 
+    testWidgets('גרירת כרטיס אל מקומו של אחר מזיזה בפועל', (tester) async {
+      await addThree(tester);
+      await openManager(tester);
+      expect(find.byTooltip('גרירה לשינוי הסדר'), findsNWidgets(3));
+
+      final handles = find.byTooltip('גרירה לשינוי הסדר');
+      await dragOnto(tester, handles.at(0), find.text('ב'));
       expect(idsOf(), ['bet', 'alef', 'gimel']);
+      // עד שהסדר נשמר הקונטרולר עסוק, והגרירה כבויה.
+      await settleDisk(tester);
+
+      // ולכיוון ההפוך: האחרונה אל מקום הראשונה.
+      await dragOnto(tester, handles.at(2), find.text('ב'));
+      expect(idsOf(), ['gimel', 'bet', 'alef']);
     });
 
-    testWidgets('חיפוש מסנן, ובזמנו אין גרירה ואין חיצים', (tester) async {
-      for (final name in ['א', 'ב', 'ג', 'ד', 'ה', 'ו']) {
-        await addApp(tester, id: 'app-${name.codeUnitAt(0)}', name: name);
-      }
+    // בקטגוריה פתוחה "הקודם" הוא הקודם *בה*, וההזזה נשמרת בסדר המלא.
+    testWidgets('בקטגוריה החיצים מדלגים על מה שמחוץ לה', (tester) async {
+      await tester.runAsync(() async {
+        await controller.load();
+        await controller.addCategory('כלים');
+      });
+      final slug = controller.categories.single.slug;
+      await addApp(tester, id: 'alef', name: 'א', categories: [slug]);
+      await addApp(tester, id: 'bet', name: 'ב');
+      await addApp(tester, id: 'gimel', name: 'ג', categories: [slug]);
+      // קטגוריה שנפתחה בלשונית אינה נגררת לניהול — הוא מתחיל מהכול.
+      controller.showCategory(slug);
       await openManager(tester);
+      expect(find.text('ב'), findsOneWidget);
 
-      await tester.enterText(find.byType(TextField), 'ד');
+      controller.showCategory(slug);
+      await tester.pumpAndSettle();
+      expect(find.text('ב'), findsNothing);
+      await tester.tap(find.byTooltip('הזזה למקום הקודם').at(1));
       await tester.pumpAndSettle();
 
-      expect(find.text('ד'), findsWidgets);
-      expect(find.text('א'), findsNothing);
-      expect(find.byTooltip('גרירה לשינוי הסדר'), findsNothing);
-      expect(find.byTooltip('העלאה ברשימה'), findsNothing);
-      expect(find.byTooltip('עריכה'), findsOneWidget);
+      expect(idsOf(), ['gimel', 'alef', 'bet']);
+    });
+  });
+
+  /// מסך הניהול הוא מסך התוכנות עצמו, רק עם כלי העריכה במקום הפעולות.
+  group('מסך הניהול', () {
+    testWidgets('זו אותה רשת, בלי התקנה, הורדה או בדיקה ברשת', (tester) async {
+      await addApp(tester,
+          id: 'gh', name: 'מגיטהאב', source: AppSourceKind.github);
+      await addApp(tester,
+          id: 'local',
+          name: 'מקומית',
+          exeName: 'demo.exe',
+          withInstaller: true);
+      await openManager(tester);
+
+      expect(find.byType(CustomAppStoreCard), findsNWidgets(2));
+      expect(find.byTooltip('עריכה'), findsNWidgets(2));
+      expect(find.text('לפרטים מלאים'), findsNothing);
+      expect(find.text('התקנה'), findsNothing);
+      expect(find.text('הורדה לכונן'), findsNothing);
+      expect(find.text('בדיקה ברשת לכל התוכנות'), findsNothing);
+    });
+
+    testWidgets('לחיצה על כרטיס פותחת את טופס העריכה', (tester) async {
+      await addApp(tester, name: 'לעריכה בלחיצה');
+      await openManager(tester);
+
+      await tester.tap(find.text('לעריכה בלחיצה'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('עריכת התוכנה'), findsOneWidget);
+    });
+
+    testWidgets('הוספה פותחת את הטופס גם כשהמרשם ריק', (tester) async {
+      await tester.runAsync(controller.load);
+      await openManager(tester);
+
+      expect(find.text('לא נוספו תוכנות'), findsWidgets);
+      await tester.tap(find.text('הוספת תוכנה'));
+      await tester.pumpAndSettle();
+      expect(find.text('פרטי התוכנה'), findsOneWidget);
+    });
+
+    testWidgets('הסרה שואלת לפני, ורק אז מסירה', (tester) async {
+      await addApp(tester, id: 'a', name: 'להסרה');
+      await openManager(tester);
+
+      await tester.tap(find.byTooltip('הסרה מהרשימה'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('ביטול'));
+      await tester.pumpAndSettle();
+      expect(controller.isBusy, isFalse);
+      expect(controller.hasApps, isTrue);
+
+      // ההסרה עצמה נבדקת ב"הסרה מוציאה מהרשימה": כתיבה לדיסק שהתחילה
+      // מלחיצה אינה מסתיימת בתוך testWidgets. כאן — שהאישור מפעיל אותה.
+      await tester.tap(find.byTooltip('הסרה מהרשימה'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('הסרה').last);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('ביטול'), findsNothing);
+      expect(controller.isBusy, isTrue);
+    });
+
+    testWidgets('סגירה מחזירה להגדרות', (tester) async {
+      await tester.runAsync(controller.load);
+      await openManager(tester);
+
+      await tester.tap(find.text('סגירה'));
+      await tester.pumpAndSettle();
+      expect(find.text('ניהול התוכנות הנוספות'), findsNothing);
+    });
+
+    // המסך נפתח כדי לערוך — ההודעה על מה שממתין שייכת ללשונית.
+    testWidgets('אין בו הודעה על מה שממתין על הכונן', (tester) async {
+      await addApp(tester, exeName: 'demo.exe', withInstaller: true);
+      await openManager(tester);
+
+      expect(controller.unannouncedApps, isNotEmpty);
+      expect(find.byType(AlertDialog), findsNothing);
     });
   });
 
@@ -1045,31 +1154,38 @@ void main() {
       }
 
       // שני רוחבים צרים ושניים רחבים, שתי השפות, וכל ההגדלות שהמשתמש
-      // יכול לבחור — ומעליהן ההגדלה של המערכת.
-      for (final width in [584.0, 700.0, 1160.0]) {
-        for (final language in AppLanguage.values) {
-          for (final scale in [0.9, 1.0, 1.15, 1.3, 1.5]) {
-            // עץ נקי בין שילוב לשילוב: `RenderFlex` מדווח על גלישה **פעם
-            // אחת** לכל render object, ובלי איפוס שילוב גולש נבלע בשקט.
-            useViewSize(tester, Size(width, 1400));
-            AppL10n.use(language);
-            await tester.pumpWidget(const SizedBox());
-            await tester.pumpWidget(
-              wrap(
-                MediaQuery(
-                  data: MediaQueryData(textScaler: TextScaler.linear(scale)),
-                  child: CustomAppsScreen(controller: controller),
+      // יכול לבחור — ומעליהן ההגדלה של המערכת. גם במצב ניהול, שבו סרגל
+      // הכלים מחליף את הפעולה הראשית.
+      for (final manage in [false, true]) {
+        for (final width in [584.0, 700.0, 1160.0]) {
+          for (final language in AppLanguage.values) {
+            for (final scale in [0.9, 1.0, 1.15, 1.3, 1.5]) {
+              // עץ נקי בין שילוב לשילוב: `RenderFlex` מדווח על גלישה **פעם
+              // אחת** לכל render object, ובלי איפוס שילוב גולש נבלע בשקט.
+              useViewSize(tester, Size(width, 1400));
+              AppL10n.use(language);
+              await tester.pumpWidget(const SizedBox());
+              await tester.pumpWidget(
+                wrap(
+                  MediaQuery(
+                    data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+                    child: CustomAppsScreen(
+                      controller: controller,
+                      manage: manage,
+                    ),
+                  ),
+                  language: language,
                 ),
-                language: language,
-              ),
-            );
-            await tester.pump();
+              );
+              await tester.pump();
 
-            expect(
-              tester.takeException(),
-              isNull,
-              reason: 'הכרטיס גלש ברוחב $width, שפה $language, הגדלה $scale',
-            );
+              expect(
+                tester.takeException(),
+                isNull,
+                reason: 'הכרטיס גלש ברוחב $width, שפה $language, '
+                    'הגדלה $scale, ניהול $manage',
+              );
+            }
           }
         }
       }
