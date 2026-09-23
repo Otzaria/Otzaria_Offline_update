@@ -321,6 +321,48 @@ class PatchDownloader {
   /// לאחר חילוץ מוצלח (או בכשל חילוץ) ינקה גם את קובץ הצד.
   static String resumeSidecarPath(String destPath) => '$destPath.resume';
 
+  /// האם [destPath] כבר מחזיק בדיוק את [expectedSha256], לנכס שלא ירד דרך
+  /// [downloadToFile] (הורכב מחלקים). אינו מוחק דבר; סימון תואם חוסך את ה-hash.
+  Future<bool> verifyExistingFile({
+    required String destPath,
+    required int expectedSize,
+    required String expectedSha256,
+    required String resumeToken,
+    void Function(int verified, int total)? onVerifyProgress,
+    bool Function()? isCancelled,
+  }) async {
+    final file = File(destPath);
+    if (!file.existsSync() || file.lengthSync() != expectedSize) return false;
+    final expected = expectedSha256.toLowerCase();
+    final sidecarPath = resumeSidecarPath(destPath);
+    final sidecar = _readSidecar(sidecarPath);
+    if (sidecar?.token == resumeToken &&
+        _matchesVerifiedMark(sidecar?.verified, file, expected)) {
+      return true;
+    }
+    final actual =
+        (await _hashFileDigest(file, isCancelled, onVerifyProgress)).toString();
+    if (actual != expected) return false;
+    recordVerified(
+        destPath: destPath, resumeToken: resumeToken, sha256: expected);
+    return true;
+  }
+
+  /// רושם ש-[destPath] אומת מול [sha256], באותה צורה ש-[downloadToFile]
+  /// רושמת — כדי שהריצה הבאה תדלג על ה-hash. כשל כתיבה נבלע.
+  void recordVerified({
+    required String destPath,
+    required String resumeToken,
+    required String sha256,
+  }) {
+    final mark = _verifiedMarkFor(File(destPath), sha256.toLowerCase());
+    if (mark == null) return;
+    try {
+      _writeSidecar(resumeSidecarPath(destPath), resumeToken, null,
+          verified: mark);
+    } catch (_) {}
+  }
+
   /// זורם את גוף התגובה אל [file], תוך המשך מ-[offset] בעזרת `Range`.
   /// מחזיר את גודל הקובץ הכולל שנכתב ואת ה-sha256 שחושב בזרימה (או null אם
   /// [computeHash] כבוי). שמירת חלקי בהפרעה נקבעת על-ידי [downloadToFile].

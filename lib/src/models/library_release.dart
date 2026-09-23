@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import 'split_archive_manifest.dart';
+
 /// קובץ מצורף בודד ב-release של GitHub.
 class ReleaseAsset extends Equatable {
   final String name;
@@ -15,6 +17,13 @@ class ReleaseAsset extends Equatable {
   /// digest של התוכן (`sha256:<hex>`) כשה-API מספק; null כשחסר.
   final String? digest;
 
+  /// נכס מפוצל: החלקים לפי הסדר, והנכס עצמו וירטואלי (אין לו [downloadUrl]).
+  /// ריק בנכס רגיל ובמראה המקומית, שנושאת תמיד את הנכס המורכב.
+  final List<ReleaseAsset> parts;
+
+  /// ה-`<name>.manifest.json` של נכס מפוצל — sha256 של החלקים ושל המורכב.
+  final ReleaseAsset? splitManifest;
+
   const ReleaseAsset({
     required this.name,
     required this.downloadUrl,
@@ -22,7 +31,15 @@ class ReleaseAsset extends Equatable {
     this.id,
     this.updatedAt,
     this.digest,
+    this.parts = const [],
+    this.splitManifest,
   });
+
+  /// שם ה-DB המלא הדחוס — גם כשהוא מגיע מפוצל.
+  static const String fullDbArchiveName = 'seforim.db.zst';
+
+  /// האם הנכס מורכב מחלקים ויורד דרכם — ראו [LibraryRelease.fromJson].
+  bool get isSplit => parts.isNotEmpty;
 
   factory ReleaseAsset.fromJson(Map<String, dynamic> json) {
     return ReleaseAsset(
@@ -63,10 +80,11 @@ class ReleaseAsset extends Equatable {
       name.startsWith('patch-') && name.endsWith('.db.zst.manifest.json');
 
   /// `true` אם זהו ה-DB המלא הדחוס (`seforim.db.zst`).
-  bool get isFullDbArchive => name == 'seforim.db.zst';
+  bool get isFullDbArchive => name == fullDbArchiveName;
 
   @override
-  List<Object?> get props => [name, downloadUrl, size, id, updatedAt, digest];
+  List<Object?> get props =>
+      [name, downloadUrl, size, id, updatedAt, digest, parts, splitManifest];
 }
 
 /// מייצג release אחד מ-GitHub עם כל ה-assets שלו.
@@ -100,17 +118,64 @@ class LibraryRelease extends Equatable {
       isDraft: (json['draft'] as bool?) ?? false,
       publishedAt: DateTime.tryParse((json['published_at'] as String?) ?? ''),
       assets: assetsRaw is List
-          ? assetsRaw
-              .whereType<Map<String, dynamic>>()
-              .where((e) {
-                final state = e['state'] as String?;
-                // שדה חסר = API ישן או מראה מקומית; לא פוסלים על היעדרו.
-                return state == null || state == uploadedAssetState;
-              })
-              .map(ReleaseAsset.fromJson)
-              .toList(growable: false)
+          ? _withAssembledFullDb(
+              assetsRaw
+                  .whereType<Map<String, dynamic>>()
+                  .where(_isUploaded)
+                  .map(ReleaseAsset.fromJson)
+                  .toList(growable: false),
+              pending: {
+                for (final e in assetsRaw.whereType<Map<String, dynamic>>())
+                  if (!_isUploaded(e)) (e['name'] as String?) ?? '',
+              },
+            )
           : const [],
     );
+  }
+
+  // שדה חסר = API ישן או מראה מקומית; לא פוסלים על היעדרו.
+  static bool _isUploaded(Map<String, dynamic> e) {
+    final state = e['state'] as String?;
+    return state == null || state == uploadedAssetState;
+  }
+
+  /// מוסיף נכס `seforim.db.zst` וירטואלי כשה-DB פורסם מפוצל, כדי שכל
+  /// ה-planning יראה DB מלא רגיל. חלק חסר (עוד עולה) = אין DB מלא, כמו היום.
+  static List<ReleaseAsset> _withAssembledFullDb(
+    List<ReleaseAsset> assets, {
+    required Set<String> pending,
+  }) {
+    const archive = ReleaseAsset.fullDbArchiveName;
+    final byName = {for (final a in assets) a.name: a};
+    if (byName.containsKey(archive)) return assets;
+    // חלק או מניפסט שעדיין עולים: החלקים שכבר עלו אינם הקובץ כולו.
+    if (pending.any((name) => name.startsWith('$archive.'))) return assets;
+    final manifest = byName['$archive${SplitArchiveManifest.fileSuffix}'];
+    if (manifest == null) return assets;
+
+    final parts = <ReleaseAsset>[];
+    for (var i = 0;; i++) {
+      final part = byName[SplitArchiveManifest.partName(archive, i)];
+      if (part == null) break;
+      parts.add(part);
+    }
+    final partCount =
+        assets.where((a) => a.name.startsWith('$archive.part-')).length;
+    // פער ברצף (חלק שעדיין עולה) — הרכבה הייתה חסרה, ולכן אין DB מלא.
+    if (parts.isEmpty || parts.length != partCount) return assets;
+    if (parts.any((part) => part.size <= 0)) return assets;
+
+    return List.unmodifiable([
+      ...assets,
+      ReleaseAsset(
+        name: archive,
+        downloadUrl: '',
+        size: parts.fold<int>(0, (sum, part) => sum + part.size),
+        updatedAt: manifest.updatedAt,
+        parts: List.unmodifiable(parts),
+        splitManifest: manifest,
+      ),
+    ]);
   }
 
   /// סריאליזציה לפורמט המראה המקומית (offline) — ראו

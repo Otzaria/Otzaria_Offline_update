@@ -5,6 +5,7 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../models/delta_manifest.dart';
 import '../models/library_release.dart';
+import '../models/split_archive_manifest.dart';
 import 'library_release_source.dart';
 
 /// לקוח לקריאת ה-releases וה-assets של הספרייה מ-GitHub.
@@ -75,7 +76,15 @@ class GithubLibraryReleaseClient implements LibraryReleaseSource {
 
   /// מוריד ומפענח manifest דלתאי מכתובת [url]. זורק בכשל רשת או parse.
   @override
-  Future<DeltaManifest> fetchManifest(String url) async {
+  Future<DeltaManifest> fetchManifest(String url) async =>
+      DeltaManifest.fromJson(await _getJsonObject(url));
+
+  /// מוריד ומפענח את המניפסט של נכס מפוצל. זורק [FormatException] על תוכן
+  /// פגום, וחריג אחר בכשל רשת — אותה הבחנה כמו ב-[fetchManifest].
+  Future<SplitArchiveManifest> fetchSplitManifest(String url) async =>
+      SplitArchiveManifest.fromJson(await _getJsonObject(url));
+
+  Future<Map<String, dynamic>> _getJsonObject(String url) async {
     final response = await _httpClient.get(
       Uri.parse(url),
       headers: const {
@@ -95,7 +104,7 @@ class GithubLibraryReleaseClient implements LibraryReleaseSource {
         AppL10n.strings.libraryDomain.manifestNotJsonObject(url),
       );
     }
-    return DeltaManifest.fromJson(decoded);
+    return decoded;
   }
 
   /// סוגר את לקוח ה-HTTP אם הוא נוצר פנימית.

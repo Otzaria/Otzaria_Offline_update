@@ -1055,6 +1055,19 @@ abstract class LibraryDomainStrings {
   /// אימות sha256 של נכס שכבר על הכונן — דקה שלמה שבה מד הבייטים אינו זז,
   /// ולכן האחוז נמסר כאן.
   String exportVerifying(String tag, String asset, int percent);
+
+  /// חיבור חלקי ה-DB המפוצל לקובץ אחד על הכונן — קריאה וכתיבה, לא רשת.
+  String exportAssembling(String tag, String asset, int percent);
+
+  /// מסד מלא מפוצל שהמניפסט שלו פגום או אינו תואם לחלקים — הוא נחשב כאילו
+  /// אינו קיים, ומסד מלא אחר נבחר במקומו.
+  String exportSplitFullDbSkipped(String tag, String detail);
+
+  /// הקובץ שהורכב מחלקים שעברו כל אחד אימות, ובכל זאת אינו תואם למניפסט.
+  String exportAssembledHashMismatch(String asset);
+
+  /// הקובץ המורכב לא הועבר למקומו — בדרך כלל יעד נעול.
+  String exportAssembledReplaceFailed(String path, String detail);
   String exportWritingManifest(String fileName);
   String get exportDone;
   String get exportCancelled;

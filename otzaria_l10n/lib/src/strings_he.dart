@@ -1713,6 +1713,21 @@ class _LibraryDomain extends LibraryDomainStrings {
   String exportVerifying(String tag, String asset, int percent) =>
       'מאמת $tag / $asset — $percent%';
   @override
+  String exportAssembling(String tag, String asset, int percent) =>
+      'מרכיב $tag / $asset מחלקיו — $percent%';
+  @override
+  String exportSplitFullDbSkipped(String tag, String detail) =>
+      'המסד המלא של $tag פורסם בחלקים, אבל המניפסט של החלקים פגום או אינו '
+      'תואם להם — ולכן הוא לא ירד ($detail)';
+  @override
+  String exportAssembledHashMismatch(String asset) =>
+      'הקובץ $asset שהורכב מחלקיו אינו תואם ל-sha256 שבמניפסט. ההורדה נעצרה '
+      'ולא נכתב דבר למראה.';
+  @override
+  String exportAssembledReplaceFailed(String path, String detail) =>
+      'לא ניתן היה לשמור את $path אחרי שהורכב מחלקיו — ייתכן שתוכנה אחרת '
+      '(למשל אנטי-וירוס) מחזיקה אותו. נסו שוב. ($detail)';
+  @override
   String exportWritingManifest(String fileName) => 'כותב $fileName';
   @override
   String get exportDone => 'הושלם';

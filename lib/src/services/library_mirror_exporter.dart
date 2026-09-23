@@ -10,9 +10,11 @@ import '../models/delta_manifest.dart';
 import '../models/library_release.dart';
 import '../models/library_update_plan.dart';
 import '../models/patch_table_spec.dart';
+import '../models/split_archive_manifest.dart';
 import 'apply_time_estimate.dart';
 import 'disk_space_probe.dart';
 import 'download_scheduler.dart';
+import 'fast_sha256.dart';
 import 'github_library_release_client.dart';
 import 'library_update_discovery.dart';
 import 'local_mirror_library_release_client.dart';
@@ -121,21 +123,46 @@ class LibraryMirrorExporter {
 
     onStage?.call(strings.exportLoadingReleases);
     final all = await _client.fetchReleases();
-    final eligible = LibraryUpdateDiscovery.eligibleReleases(
+    var eligible = LibraryUpdateDiscovery.eligibleReleases(
       all,
       allowPrerelease: allowPrerelease,
     );
     final personal = fromVersion != null;
-    final relevant = personal
-        ? personalReleases(eligible, fromVersion)
-        : recentReleases(eligible);
-
-    // הגרסה הגבוהה ביותר שקיימת בכלל, וה-release שנושא את המסד המלא שלה.
-    // במצב אישי `relevant` מסנן החוצה releases בלי קובצי עדכון, ולכן שניהם
-    // נגזרים מ-[eligible] — אחרת גרסה שיצאה עם מסד מלא בלבד הייתה נעלמת.
-    final latestEligible = _latestVersionOf(eligible);
-    final personalCarrier =
-        personal ? _newestFullDbCarrier(eligible, latestEligible) : null;
+    final splitManifests = <ReleaseAsset, SplitArchiveManifest>{};
+    List<LibraryRelease> relevant;
+    int latestEligible;
+    LibraryRelease? personalCarrier;
+    // מניפסטי הפיצול נשלפים רק למועמדים לנשא, לפני בחירתו. מסד מפוצל פגום
+    // נחשב כאילו אינו קיים — ואז המועמדים מחושבים מחדש, עד שאין מה לפסול.
+    while (true) {
+      relevant = personal
+          ? personalReleases(eligible, fromVersion)
+          : recentReleases(eligible);
+      // הגרסה הגבוהה ביותר שקיימת בכלל, וה-release שנושא את המסד המלא שלה.
+      // במצב אישי `relevant` מסנן החוצה releases בלי קובצי עדכון, ולכן שניהם
+      // נגזרים מ-[eligible] — אחרת גרסה שיצאה עם מסד מלא בלבד הייתה נעלמת.
+      latestEligible = _latestVersionOf(eligible);
+      personalCarrier =
+          personal ? _newestFullDbCarrier(eligible, latestEligible) : null;
+      final unresolved = {
+        ...relevant,
+        if (personalCarrier != null) personalCarrier,
+      }.where((r) {
+        final full = r.fullDbAsset;
+        return full != null &&
+            full.isSplit &&
+            !splitManifests.containsKey(full);
+      }).toList();
+      if (unresolved.isEmpty) break;
+      _throwIfCancelled(isCancelled);
+      final replaced = await _resolveSplitFullDbs(
+        unresolved,
+        splitManifests,
+        onWarning: onWarning,
+      );
+      if (replaced.isEmpty) break;
+      eligible = [for (final r in eligible) replaced[r] ?? r];
+    }
 
     if (relevant.isEmpty) {
       if (!personal) throw StateError(strings.exportNoReleases);
@@ -337,32 +364,92 @@ class LibraryMirrorExporter {
     final totalAssets =
         plannedByRelease.values.fold<int>(0, (n, l) => n + l.length);
 
+    // DB מפוצל: המניפסט הוא מקור ה-sha256 של כל חלק ושל הקובץ המורכב.
+    final splits = <_SplitJob>[];
+    for (final entry in plannedByRelease.entries) {
+      for (final asset in entry.value.where((a) => a.isSplit)) {
+        final dest =
+            p.join(assetsRoot.path, _safeDirName(entry.key.tag), asset.name);
+        splits.add((
+          release: entry.key,
+          asset: asset,
+          manifest: splitManifests[asset]!,
+          dest: dest,
+          partsDir: splitPartsDir(dest),
+        ));
+      }
+    }
+
+    var doneAssets = 0;
+    // מסד מפוצל שכבר הורכב ואומת בריצה קודמת אינו יורד שוב.
+    final assembled = <_SplitJob>{};
+    for (final split in splits) {
+      _throwIfCancelled(isCancelled);
+      if (await _downloader.verifyExistingFile(
+        destPath: split.dest,
+        expectedSize: split.manifest.size,
+        expectedSha256: split.manifest.sha256,
+        resumeToken: _assembledToken(split.manifest),
+        onVerifyProgress: (verified, total) => onStage?.call(
+          strings.exportVerifying(
+            split.release.tag,
+            split.asset.name,
+            total > 0 ? (verified * 100 ~/ total).clamp(0, 100) : 0,
+          ),
+        ),
+        isCancelled: isCancelled,
+      )) {
+        assembled.add(split);
+        doneAssets++;
+      } else {
+        // שארית שאינה התוכן הנכון רק תופסת מקום עד ההרכבה.
+        _deleteQuietly(split.dest);
+        _deleteQuietly(PatchDownloader.resumeSidecarPath(split.dest));
+      }
+    }
+
     // בודקים מקום פנוי לפי מה שנשאר להוריד בפועל, לא לפי גודל המראה: נכס
     // שכבר יושב שלם על הכונן אינו צורך מקום נוסף. שיא התפוסה גבוה מהמראה
     // הסופית, כי ה-prune רץ רק בסוף — כלומר בזמן מיזוג release חדש יש על
-    // הכונן שני עותקים של המסד הדחוס.
+    // הכונן שני עותקים של המסד הדחוס. אחרי אימות המפוצלים: מורכב פגום נמחק.
     _ensureSpaceForPlan(destDir, assetsRoot, plannedByRelease);
 
-    var doneAssets = 0;
     // מדווחים את היעד עוד לפני הנכס הראשון: אחרת מד ההתקדמות אינו יודע לכמה
     // נכסים לחכות עד שהראשון (המסד המלא, ~1GB) מסתיים.
-    onAssetProgress?.call(0, totalAssets);
+    onAssetProgress?.call(doneAssets, totalAssets);
 
     // רשימה שטוחה של כל ההורדות, **הגדולה ראשונה**: המסד המלא (~1.5GB) הוא
     // ארוך פי עשרות מכל השאר, ואם הוא יתחיל אחרון כל שאר החיבורים יעמדו
     // בטלים בזמן שהוא לבדו רץ. פתיחה בו נותנת לקובצי ה-patch לרוץ לצידו.
-    final jobs =
-        <({LibraryRelease release, ReleaseAsset asset, String dest})>[];
+    // חלקי מסד מפוצל הם ג'ובים נפרדים — כך הם יורדים במקביל זה לזה.
+    final jobs = <_DownloadJob>[];
     for (final entry in plannedByRelease.entries) {
       final tagDir =
           Directory(p.join(assetsRoot.path, _safeDirName(entry.key.tag)));
       await tagDir.create(recursive: true);
       for (final asset in entry.value) {
-        jobs.add((
-          release: entry.key,
-          asset: asset,
-          dest: p.join(tagDir.path, asset.name),
-        ));
+        if (!asset.isSplit) {
+          jobs.add((
+            release: entry.key,
+            asset: asset,
+            dest: p.join(tagDir.path, asset.name),
+            sha256: _sha256FromDigest(asset.digest),
+            countsAsAsset: true,
+          ));
+          continue;
+        }
+        final split = splits.firstWhere((s) => identical(s.asset, asset));
+        if (assembled.contains(split)) continue;
+        await Directory(split.partsDir).create(recursive: true);
+        for (final (index, part) in asset.parts.indexed) {
+          jobs.add((
+            release: entry.key,
+            asset: part,
+            dest: p.join(split.partsDir, part.name),
+            sha256: split.manifest.parts[index].sha256,
+            countsAsAsset: false,
+          ));
+        }
       }
     }
     jobs.sort((a, b) => b.asset.size.compareTo(a.asset.size));
@@ -402,7 +489,7 @@ class LibraryMirrorExporter {
             // ה-manifests נכתבים ע"י GitHub ללא `size` אמין בכל המקרים; `size`
             // של asset אמיתי כן מדויק, ואי-התאמה שלו היא הורדה שנקטעה.
             expectedSize: job.asset.size > 0 ? job.asset.size : null,
-            expectedSha256: _sha256FromDigest(job.asset.digest),
+            expectedSha256: job.sha256,
             // מזהה ה-asset הוא הזהות היציבה שמאפשרת לחדש הורדה שנקטעה במקום
             // להתחיל מאפס — ראו PatchDownloader.downloadToFile.
             resumeToken: job.asset.id?.toString(),
@@ -422,10 +509,24 @@ class LibraryMirrorExporter {
             ),
             isCancelled: isCancelled,
           );
-          doneAssets++;
-          onAssetProgress?.call(doneAssets, totalAssets);
+          if (job.countsAsAsset) {
+            doneAssets++;
+            onAssetProgress?.call(doneAssets, totalAssets);
+          }
         },
     ]);
+
+    for (final split in splits) {
+      if (assembled.contains(split)) continue;
+      await _assembleSplit(split, onStage: onStage, isCancelled: isCancelled);
+      doneAssets++;
+      onAssetProgress?.call(doneAssets, totalAssets);
+    }
+    // במראה המסד המפוצל הוא קובץ אחד רגיל, עם ה-sha256 של המורכב.
+    final splitDigests = {
+      for (final split in splits)
+        split.asset: 'sha256:${split.manifest.sha256}',
+    };
 
     // נבנה רק אחרי שכל ההורדות הצליחו — כשל של אחת זורק, ולכן כל נכס
     // שברשימה אכן יושב שלם בדיסק.
@@ -451,7 +552,7 @@ class LibraryMirrorExporter {
                 size: asset.size,
                 id: asset.id,
                 updatedAt: asset.updatedAt,
-                digest: asset.digest,
+                digest: splitDigests[asset] ?? asset.digest,
               ),
           ],
         ),
@@ -501,7 +602,17 @@ class LibraryMirrorExporter {
         final existing = File(p.join(tagDir, asset.name));
         final have = existing.existsSync() ? existing.lengthSync() : 0;
         final missing = asset.size - have;
-        if (missing > 0) needed += missing;
+        if (missing <= 0) continue;
+        needed += missing;
+        // מפוצל: החלקים והמורכב יושבים יחד על הכונן עד סוף ההרכבה.
+        if (asset.isSplit) {
+          final partsDir = splitPartsDir(existing.path);
+          for (final part in asset.parts) {
+            final file = File(p.join(partsDir, part.name));
+            final partHave = file.existsSync() ? file.lengthSync() : 0;
+            if (part.size > partHave) needed += part.size - partHave;
+          }
+        }
       }
     }
     if (needed == 0) return;
@@ -1049,6 +1160,175 @@ class LibraryMirrorExporter {
   String _safeDirName(String tag) =>
       tag.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
 
+  /// התיקייה שבה יורדים חלקי נכס מפוצל, לצד [assembledPath]. היא נמחקת
+  /// אחרי הרכבה מוצלחת, ושורדת כשל — כדי שהריצה הבאה תמשיך ממנה.
+  static String splitPartsDir(String assembledPath) => '$assembledPath.parts';
+
+  /// זהות הקובץ המורכב בקובץ הצד: תוכנו, לא מזהה של נכס GitHub כלשהו.
+  String _assembledToken(SplitArchiveManifest manifest) =>
+      'split:${manifest.sha256}';
+
+  /// שולף במקביל את מניפסטי הפיצול של [releases] וממלא את [manifests].
+  /// מניפסט פגום או שאינו תואם לחלקים = אזהרה, וה-release מוחלף בעותק בלי
+  /// DB מלא. מוחזרים רק ההחלפות (מקור → עותק).
+  Future<Map<LibraryRelease, LibraryRelease>> _resolveSplitFullDbs(
+    List<LibraryRelease> releases,
+    Map<ReleaseAsset, SplitArchiveManifest> manifests, {
+    void Function(String warning)? onWarning,
+  }) async {
+    final strings = AppL10n.strings.libraryDomain;
+    final problems = await Future.wait([
+      for (final release in releases)
+        () async {
+          final full = release.fullDbAsset!;
+          try {
+            final manifest = await _fetchSplitManifest(full.splitManifest!);
+            final problem = _splitMismatch(full, manifest);
+            if (problem == null) manifests[full] = manifest;
+            return problem;
+          } on FormatException catch (e) {
+            return e.message;
+          }
+        }(),
+    ]);
+    final replaced = <LibraryRelease, LibraryRelease>{};
+    for (final (index, release) in releases.indexed) {
+      final problem = problems[index];
+      if (problem == null) continue;
+      final full = release.fullDbAsset!;
+      onWarning?.call(strings.exportSplitFullDbSkipped(release.tag, problem));
+      replaced[release] = LibraryRelease(
+        tag: release.tag,
+        isPrerelease: release.isPrerelease,
+        isDraft: release.isDraft,
+        publishedAt: release.publishedAt,
+        assets: [
+          for (final asset in release.assets)
+            if (!identical(asset, full)) asset,
+        ],
+      );
+    }
+    return replaced;
+  }
+
+  /// שולף מניפסט פיצול. [FormatException] עולה כמות שהיא (תוכן קבוע);
+  /// כשל רשת מנוסה שוב ואז זורק — מראה בלי המסד הייתה נראית שלמה.
+  Future<SplitArchiveManifest> _fetchSplitManifest(
+      ReleaseAsset manifestAsset) async {
+    Object? lastError;
+    for (var attempt = 1; attempt <= _manifestAttempts; attempt++) {
+      try {
+        return await _client.fetchSplitManifest(manifestAsset.downloadUrl);
+      } on FormatException {
+        rethrow;
+      } catch (e) {
+        lastError = e;
+        if (attempt < _manifestAttempts) {
+          await Future<void>.delayed(Duration(milliseconds: 400 * attempt));
+        }
+      }
+    }
+    throw StateError(AppL10n.strings.libraryDomain
+        .exportManifestFetchFailed(manifestAsset.name, '$lastError'));
+  }
+
+  /// מה לא תואם בין המניפסט לחלקים ברשימת הנכסים, או null כשהכול תואם.
+  /// זה פרט טכני בתוך הודעה מתורגמת, ולכן נשאר כמות שהוא.
+  String? _splitMismatch(ReleaseAsset asset, SplitArchiveManifest manifest) {
+    if (manifest.archive != asset.name) return 'archive=${manifest.archive}';
+    if (manifest.size != asset.size) {
+      return 'size ${manifest.size} != ${asset.size}';
+    }
+    if (manifest.parts.length != asset.parts.length) {
+      return 'parts ${manifest.parts.length} != ${asset.parts.length}';
+    }
+    for (final (index, part) in manifest.parts.indexed) {
+      final published = asset.parts[index];
+      if (part.name != published.name || part.size != published.size) {
+        return '${part.name}/${part.size} != '
+            '${published.name}/${published.size}';
+      }
+    }
+    return null;
+  }
+
+  /// מחבר את החלקים (כל אחד כבר אומת) לקובץ אחד לצד המראה, ומחליף את
+  /// היעד רק אחרי שה-sha256 של כולו תואם. החלקים נמחקים בסוף.
+  Future<void> _assembleSplit(
+    _SplitJob split, {
+    void Function(String stage)? onStage,
+    bool Function()? isCancelled,
+  }) async {
+    final strings = AppL10n.strings.libraryDomain;
+    final manifest = split.manifest;
+    final tmp = File(p.join(split.partsDir, '${split.asset.name}.assembling'));
+    final hasher = Sha256Stream();
+    RandomAccessFile? out;
+    try {
+      out = await tmp.open(mode: FileMode.write);
+      var written = 0;
+      var lastPercent = -1;
+      for (final part in manifest.parts) {
+        await for (final chunk
+            in File(p.join(split.partsDir, part.name)).openRead()) {
+          _throwIfCancelled(isCancelled);
+          hasher.add(chunk);
+          await out.writeFrom(chunk);
+          written += chunk.length;
+          final percent = (written * 100 ~/ manifest.size).clamp(0, 100);
+          if (percent != lastPercent) {
+            lastPercent = percent;
+            onStage?.call(strings.exportAssembling(
+                split.release.tag, split.asset.name, percent));
+          }
+        }
+      }
+      await out.flush();
+      await out.close();
+      out = null;
+      if (hasher.close() != manifest.sha256) {
+        // החלקים תואמים למניפסט, ולכן ריצה חוזרת תיכשל שוב — לא משאירים
+        // גיגה-בייטים תקועים על הכונן.
+        await _deleteDirQuietly(split.partsDir);
+        throw StateError(strings.exportAssembledHashMismatch(split.asset.name));
+      }
+      _deleteQuietly(split.dest);
+      try {
+        await tmp.rename(split.dest);
+      } on FileSystemException catch (e) {
+        // יעד נעול (אנטי-וירוס) — הודעה מתורגמת ולא חריג גולמי באנגלית.
+        throw StateError(strings.exportAssembledReplaceFailed(
+            split.dest, e.osError?.message ?? e.message));
+      }
+      _downloader.recordVerified(
+        destPath: split.dest,
+        resumeToken: _assembledToken(manifest),
+        sha256: manifest.sha256,
+      );
+    } finally {
+      hasher.dispose();
+      try {
+        await out?.close();
+      } catch (_) {}
+    }
+    // מקום מבוזבז בלבד אם נכשל; ה-prune בסוף הייצוא ינסה שוב.
+    await _deleteDirQuietly(split.partsDir);
+  }
+
+  Future<void> _deleteDirQuietly(String path) async {
+    try {
+      final dir = Directory(path);
+      if (dir.existsSync()) await dir.delete(recursive: true);
+    } catch (_) {}
+  }
+
+  void _deleteQuietly(String path) {
+    try {
+      final file = File(path);
+      if (file.existsSync()) file.deleteSync();
+    } catch (_) {}
+  }
+
   /// ה-`digest` שמגיע מ-GitHub הוא בצורת `sha256:<hex>`; פורמט אחר (או היעדר
   /// שדה) פירושו "אין hash לאמת מולו", ולא כשל.
   String? _sha256FromDigest(String? digest) {
@@ -1077,6 +1357,24 @@ class LibraryMirrorExporter {
 Future<Uint8List?> _neverDecompress(Uint8List _) => throw UnsupportedError(
       AppL10n.strings.libraryDomain.exporterDoesNotExtract,
     );
+
+/// הורדה אחת בתוכנית. חלק של מסד מפוצל אינו נספר כנכס — ההרכבה שלו כן.
+typedef _DownloadJob = ({
+  LibraryRelease release,
+  ReleaseAsset asset,
+  String dest,
+  String? sha256,
+  bool countsAsAsset,
+});
+
+/// מסד מפוצל בתוכנית: המניפסט שלו, היעד המורכב ותיקיית החלקים.
+typedef _SplitJob = ({
+  LibraryRelease release,
+  ReleaseAsset asset,
+  SplitArchiveManifest manifest,
+  String dest,
+  String partsDir,
+});
 
 /// קשת שנכנסת למראה: ה-release שנושא אותה, שתי הגרסאות שהיא מחברת, ושמות
 /// הנכסים שלה — ה-manifest וקובצי ה-patch. הגדלים נקראים מהתוכנית עצמה, כי

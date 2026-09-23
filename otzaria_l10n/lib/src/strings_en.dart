@@ -1818,6 +1818,24 @@ class _LibraryDomain extends LibraryDomainStrings {
   String exportVerifying(String tag, String asset, int percent) =>
       'Verifying $tag / $asset — $percent%';
   @override
+  String exportAssembling(String tag, String asset, int percent) =>
+      'Assembling $tag / $asset from its parts — $percent%';
+  @override
+  String exportSplitFullDbSkipped(String tag, String detail) =>
+      'The full database of $tag was published in parts, but the manifest of '
+      'the parts is damaged or does not match them, so it was not downloaded '
+      '($detail)';
+  @override
+  String exportAssembledHashMismatch(String asset) =>
+      'The file $asset assembled from its parts does not match the sha256 in '
+      'its manifest. The download stopped and nothing was written to the '
+      'mirror.';
+  @override
+  String exportAssembledReplaceFailed(String path, String detail) =>
+      'Could not save $path after assembling it from its parts — another '
+      'program (an antivirus, for example) may be holding it. Try again. '
+      '($detail)';
+  @override
   String exportWritingManifest(String fileName) => 'Writing $fileName';
   @override
   String get exportDone => 'Done';
