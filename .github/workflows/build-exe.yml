@@ -35,6 +35,10 @@ jobs:
       - name: Package portable build
         shell: pwsh
         run: .\windows_stub\package.ps1
+        # הגרסה כאן זהה לזו שכבר מותקנת, ובלי הקומיט במרקר ה-stub לא היה
+        # מחלץ את הבנייה החדשה ומריץ את הקוד הישן.
+        env:
+          PAYLOAD_BUILD_ID: ${{ github.sha }}
       # glob ולא השם המלא: הקובץ הוא "עדכוני אוצריא.exe", ואין טעם לתלות
       # את ה-workflow בקידוד של שם עברי.
       - uses: actions/upload-artifact@v4

@@ -429,8 +429,8 @@ static BOOL WritePayloadFiles(const wchar_t *dest_root, const BYTE *raw,
   return all_ok;
 }
 
-// גרסת ה-payload שחולצה בפועל, כפי שנרשמה במרקר. ASCII בכוונה — מספר גרסה
-// הוא ספרות ונקודות, ואין צורך בקידוד.
+// מה שחולץ בפועל, כפי שנרשם במרקר: הגרסה, ובבניית בדיקה גם מזהה הקומיט —
+// אחרת בנייה חדשה באותה גרסה לא חולצה ורץ הקוד הישן. ASCII בכוונה.
 static BOOL MarkerMatchesPayload(const wchar_t *marker) {
   HANDLE file = CreateFileW(marker, GENERIC_READ, FILE_SHARE_READ, NULL,
                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -448,9 +448,9 @@ static BOOL MarkerMatchesPayload(const wchar_t *marker) {
     return FALSE;
   }
   buffer[read] = '\0';
-  if (strcmp(buffer, PAYLOAD_VERSION_A) != 0) {
+  if (strcmp(buffer, PAYLOAD_MARKER_A) != 0) {
     LogLine(L"המרקר מחזיק '%hs' וה-payload הוא '%hs' — חילוץ מחדש", buffer,
-            PAYLOAD_VERSION_A);
+            PAYLOAD_MARKER_A);
     return FALSE;
   }
   return TRUE;
@@ -464,10 +464,10 @@ static BOOL WriteMarker(const wchar_t *marker) {
   if (file == INVALID_HANDLE_VALUE) {
     return FALSE;
   }
-  const DWORD length = (DWORD)strlen(PAYLOAD_VERSION_A);
+  const DWORD length = (DWORD)strlen(PAYLOAD_MARKER_A);
   DWORD written = 0;
   const BOOL ok =
-      WriteFile(file, PAYLOAD_VERSION_A, length, &written, NULL) &&
+      WriteFile(file, PAYLOAD_MARKER_A, length, &written, NULL) &&
       written == length;
   CloseHandle(file);
   return ok;

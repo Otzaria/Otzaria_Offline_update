@@ -95,8 +95,19 @@ void main() {
     // זה מה שהופך עדכון עצמי לחילוץ מחדש: exe חדש נושא payload חדש, והמרקר
     // הישן (או ריק, כמו זה שכתבו גרסאות קודמות) אינו תואם לו.
     expect(stubC, contains('MarkerMatchesPayload'));
-    expect(stubC, contains('strcmp(buffer, PAYLOAD_VERSION_A)'));
+    expect(stubC, contains('strcmp(buffer, PAYLOAD_MARKER_A)'));
+    expect(stubC, contains('WriteFile(file, PAYLOAD_MARKER_A'));
     expect(stubC, contains('#include "version.h"'));
+  });
+
+  test('בניית בדיקה מוסיפה את הקומיט למרקר, ולא לגרסה', () {
+    // בלי זה exe לבדיקה באותה גרסה כמו המותקן לא חולץ, ורץ הקוד הישן.
+    expect(buildStubPs1, contains('PAYLOAD_MARKER_A'));
+    expect(buildStubPs1, contains(r'$env:PAYLOAD_BUILD_ID'));
+    expect(
+      read('../.github/workflows/build-exe.yml'),
+      contains(r'PAYLOAD_BUILD_ID: ${{ github.sha }}'),
+    );
   });
 
   test('גרסת ה-payload נלקחת מ-pubspec ומיוצרת אל version.h', () {
