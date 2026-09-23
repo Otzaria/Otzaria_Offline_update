@@ -45,6 +45,14 @@ class OtzariaAssetSelector {
     'macos-full.dmg',
   ];
 
+  /// אסטים שמסתיימים בסיומת של מתקין אבל אינם מתקין אוצריא.
+  /// מסייע ההורדה (`Otzaria-Download-Assistant-windows.exe`) דורש אינטרנט,
+  /// ובמיון רגיש-רישיות הוא קודם למתקין.
+  static const List<String> _nonInstallerMarkers = ['download-assistant'];
+
+  static bool _isNonInstaller(String lowerName) =>
+      _nonInstallerMarkers.any(lowerName.contains);
+
   /// האם [assetName] הוא חבילת FULL — כלומר קובץ שיש למחוק מהמראה.
   static bool isFullPackage(String assetName) {
     final lower = assetName.toLowerCase();
@@ -73,7 +81,8 @@ class OtzariaAssetSelector {
   ) {
     for (final (suffix, kind) in candidates) {
       for (final asset in assets) {
-        if (nameOf(asset).toLowerCase().endsWith(suffix)) {
+        final lower = nameOf(asset).toLowerCase();
+        if (lower.endsWith(suffix) && !_isNonInstaller(lower)) {
           return (asset, kind);
         }
       }

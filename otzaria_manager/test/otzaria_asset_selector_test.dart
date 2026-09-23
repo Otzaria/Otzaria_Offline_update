@@ -44,6 +44,26 @@ void main() {
       );
     });
 
+    test('מדלג על מסייע ההורדה גם כשהוא ראשון ברשימה', () {
+      // Otzaria/otzaria#1484 מוסיף אותו לכל שחרור, והוא מסתיים ב-windows.exe.
+      final picked = _pick(OtzariaTargetPlatform.windows, [
+        'Otzaria-Download-Assistant-windows.exe',
+        'otzaria-0.9.97-windows.exe',
+      ]);
+      expect(picked!.$1, 'otzaria-0.9.97-windows.exe');
+    });
+
+    test('מסייע ההורדה לבדו אינו נבחר', () {
+      expect(
+        _pick(OtzariaTargetPlatform.windows, [
+          'Otzaria-Download-Assistant-windows.exe',
+          'otzaria-update-windows-x64-0.9.97_769-to-0.9.97_789.zip',
+          'otzaria-app-files-windows-x64.json',
+        ]),
+        isNull,
+      );
+    });
+
     test('ההתאמה אינה תלוית רישיות', () {
       expect(
         _pick(OtzariaTargetPlatform.windows, ['OTZARIA-0.9.96-WINDOWS.EXE'])!
