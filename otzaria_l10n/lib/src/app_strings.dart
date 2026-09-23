@@ -1507,11 +1507,27 @@ abstract class CustomAppsStrings {
   String get removeScreenshotTooltip;
   String screenshotsChosen(int count);
 
-  /// כרטיס ההגדרות — **כל** ניהול המרשם: הוספה, עריכה והסרה.
+  /// שורת ההגדרות — שורה אחת, שכל תפקידה לפתוח את מסך הניהול.
   String get settingsCardTitle;
   String get settingsCardHint;
   String get emptyHint;
   String get addButton;
+
+  /// כמה תוכנות רשומות. זה מה שמבדיל את השורה הריקה מהמלאה בהגדרות.
+  String registeredAppCount(int count);
+  String get openManagerButton;
+
+  // ── מסך הניהול: **כל** ניהול המרשם — הוספה, עריכה, הסרה, קטגוריות וסדר ──
+  String get manageDialogTitle;
+  String get manageDialogHint;
+
+  /// הסדר נקבע כאן והוא הסדר שבו התוכנות מוצגות במסך — חייב להיאמר,
+  /// אחרת החיצים נראים כמו שינוי שאינו משפיע על דבר.
+  String get orderHint;
+
+  /// ⚠️ חיצי סדר ברשימה אנכית — RTL אינו הופך "למעלה" ו"למטה".
+  String get moveAppUpTooltip;
+  String get moveAppDownTooltip;
 
   // ── טופס ההוספה, והוא גם טופס העריכה ──
   String get addDialogTitle;

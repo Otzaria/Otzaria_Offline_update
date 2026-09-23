@@ -2498,7 +2498,7 @@ class _CustomApps extends CustomAppsStrings {
   String get emptyCategoryTitle => 'אין כאן עדיין תוכנות';
   @override
   String get emptyCategoryBody =>
-      'אפשר לשייך תוכנות לקטגוריה הזו בעריכת התוכנה, בכרטיס שבהגדרות.';
+      'אפשר לשייך תוכנות לקטגוריה הזו בעריכת התוכנה, במסך הניהול שבהגדרות.';
   @override
   String get emptyUncategorizedTitle => 'כל התוכנות משויכות';
   @override
@@ -2582,12 +2582,32 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get settingsCardHint =>
       'אפשר להוסיף תוכנות משלכם, שהתוכנה תדע לשאת על הכונן ולהתקין במחשב '
-      'המנותק — בדיוק כמו שהיא עושה עם אוצריא. הוספה, עריכה והסרה נעשות '
-      'כאן; ההורדה וההתקנה עצמן במסך "תוכנות נוספות".';
+      'המנותק — בדיוק כמו שהיא עושה עם אוצריא. כל הניהול נעשה במסך הניהול '
+      'שנפתח מכאן; ההורדה וההתקנה עצמן במסך "תוכנות נוספות".';
   @override
   String get emptyHint => 'לא נוספו תוכנות';
   @override
   String get addButton => 'הוספת תוכנה';
+  @override
+  String registeredAppCount(int count) =>
+      count == 1 ? '$count תוכנה רשומה' : '$count תוכנות רשומות';
+  @override
+  String get openManagerButton => 'ניהול התוכנות';
+
+  // ── מסך הניהול ──
+  @override
+  String get manageDialogTitle => 'ניהול התוכנות הנוספות';
+  @override
+  String get manageDialogHint =>
+      'המרשם נקבע פעם אחת במחשב המקוון ונוסע על הכונן כפי שהוא. ההורדה '
+      'וההתקנה עצמן נעשות במסך "תוכנות נוספות".';
+  @override
+  String get orderHint =>
+      'הסדר כאן הוא הסדר שבו התוכנות מוצגות במסך, והוא נוסע על הכונן.';
+  @override
+  String get moveAppUpTooltip => 'העלאה ברשימה';
+  @override
+  String get moveAppDownTooltip => 'הורדה ברשימה';
 
   @override
   String get addDialogTitle => 'הוספת תוכנה';

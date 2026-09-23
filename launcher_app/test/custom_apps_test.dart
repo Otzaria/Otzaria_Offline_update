@@ -86,19 +86,39 @@ void main() {
     });
   }
 
+  /// פותח את מסך הניהול מתוך שורת ההגדרות — הדרך היחידה להגיע אליו.
+  Future<void> openManager(WidgetTester tester) async {
+    await pumpScreen(tester, CustomAppsSettingsCard(controller: controller));
+    await tester.tap(find.text('ניהול התוכנות'));
+    await tester.pumpAndSettle();
+  }
+
   group('ריק = בלתי נראה', () {
     testWidgets('אין תוכנות — הדגל שמסתיר את פריט הניווט כבוי', (tester) async {
       await tester.runAsync(controller.load);
       expect(controller.hasApps, isFalse);
     });
 
-    testWidgets('כרטיס ההגדרות כן מוצג — הוא הכניסה הראשונה', (tester) async {
+    // בהגדרות נשארה שורה אחת בלבד, וכל תפקידה לפתוח את מסך הניהול.
+    testWidgets('שורת ההגדרות כן מוצגת — היא הכניסה הראשונה', (tester) async {
       await tester.runAsync(controller.load);
       await pumpScreen(tester, CustomAppsSettingsCard(controller: controller));
 
       expect(find.text('תוכנות נוספות'), findsWidgets);
       expect(find.text('לא נוספו תוכנות'), findsOneWidget);
+      expect(find.text('ניהול התוכנות'), findsOneWidget);
+      // ההוספה עברה למסך הניהול — בהגדרות אין יותר שום פעולה על המרשם.
+      expect(find.text('הוספת תוכנה'), findsNothing);
+      expect(find.text('ניהול קטגוריות'), findsNothing);
+    });
+
+    testWidgets('מסך הניהול נפתח מהשורה, ובו הכול', (tester) async {
+      await tester.runAsync(controller.load);
+      await openManager(tester);
+
+      expect(find.text('ניהול התוכנות הנוספות'), findsOneWidget);
       expect(find.text('הוספת תוכנה'), findsOneWidget);
+      expect(find.text('ניהול קטגוריות'), findsOneWidget);
     });
 
     testWidgets('תוכנה ראשונה מדליקה את פריט הניווט', (tester) async {
@@ -208,7 +228,7 @@ void main() {
   group('למידת הזיהוי', () {
     testWidgets('שדות הזיהוי מוצגים כאופציונליים, ולא כדרישה', (tester) async {
       await tester.runAsync(controller.load);
-      await pumpScreen(tester, CustomAppsSettingsCard(controller: controller));
+      await openManager(tester);
       await tester.tap(find.text('הוספת תוכנה'));
       await tester.pumpAndSettle();
 
@@ -258,7 +278,7 @@ void main() {
   group('סוג הקובץ שנוסף', () {
     Future<void> openForm(WidgetTester tester) async {
       await tester.runAsync(controller.load);
-      await pumpScreen(tester, CustomAppsSettingsCard(controller: controller));
+      await openManager(tester);
       await tester.tap(find.text('הוספת תוכנה'));
       await tester.pumpAndSettle();
     }
@@ -297,11 +317,11 @@ void main() {
   });
 
   group('המרשם', () {
-    // המרשם כולו נערך מההגדרות — שורה לתוכנה, ובכל שורה עריכה והסרה.
-    testWidgets('כל תוכנה מקבלת שורה בהגדרות, עם עריכה והסרה', (tester) async {
+    // המרשם כולו נערך במסך הניהול — שורה לתוכנה, ובכל שורה עריכה והסרה.
+    testWidgets('כל תוכנה מקבלת שורה בניהול, עם עריכה והסרה', (tester) async {
       await addApp(tester, id: 'a', name: 'ראשונה');
       await addApp(tester, id: 'b', name: 'שנייה');
-      await pumpScreen(tester, CustomAppsSettingsCard(controller: controller));
+      await openManager(tester);
 
       expect(find.text('ראשונה'), findsOneWidget);
       expect(find.text('שנייה'), findsOneWidget);
@@ -360,6 +380,91 @@ void main() {
 
       expect(controller.apps, hasLength(1));
       expect(controller.apps.single.descriptor.name, 'המקורית');
+    });
+  });
+
+  /// סדר התצוגה. נשמר ל-`apps/order.json` ונוסע על הכונן, ולכן הבדיקה
+  /// הקובעת היא שהוא שורד טעינה מחדש ולא רק מסדר את מה שבזיכרון.
+  group('סדר התוכנות', () {
+    /// שלוש תוכנות שהסדר האלפביתי שלהן ידוע, כדי שהזזה תהיה נראית לעין.
+    Future<void> addThree(WidgetTester tester) async {
+      await addApp(tester, id: 'alef', name: 'א');
+      await addApp(tester, id: 'bet', name: 'ב');
+      await addApp(tester, id: 'gimel', name: 'ג');
+    }
+
+    List<String> idsOf() => [for (final a in controller.apps) a.descriptor.id];
+
+    testWidgets('בלי סדר שמור — מיון לפי שם', (tester) async {
+      await addThree(tester);
+      expect(idsOf(), ['alef', 'bet', 'gimel']);
+    });
+
+    testWidgets('הזזה למטה מחליפה עם הבאה, ושורדת טעינה מחדש', (tester) async {
+      await addThree(tester);
+      await tester.runAsync(() => controller.moveApp(0, 1));
+
+      expect(idsOf(), ['bet', 'alef', 'gimel']);
+      await tester.runAsync(controller.load);
+      expect(idsOf(), ['bet', 'alef', 'gimel']);
+    });
+
+    testWidgets('הזזה למעלה היא ההפך המדויק', (tester) async {
+      await addThree(tester);
+      await tester.runAsync(() => controller.moveApp(2, 1));
+
+      expect(idsOf(), ['alef', 'gimel', 'bet']);
+    });
+
+    testWidgets('אינדקס מחוץ לתחום אינו משנה דבר', (tester) async {
+      await addThree(tester);
+      await tester.runAsync(() => controller.moveApp(0, 9));
+
+      expect(idsOf(), ['alef', 'bet', 'gimel']);
+    });
+
+    // תוכנה שהוסרה נעלמת מהרשימה, והסדר של השאר נשאר כפי שהיה.
+    testWidgets('הסרה אינה מבלבלת את הסדר', (tester) async {
+      await addThree(tester);
+      await tester.runAsync(() => controller.moveApp(2, 0));
+      await tester.runAsync(() => controller.remove('alef'));
+
+      expect(idsOf(), ['gimel', 'bet']);
+    });
+
+    testWidgets('החיצים במסך הניהול מזיזים בפועל', (tester) async {
+      await addThree(tester);
+      await openManager(tester);
+
+      // החץ הראשון של השורה השנייה — מעלה אותה מעל הראשונה.
+      await tester.tap(find.byTooltip('העלאה ברשימה').at(1));
+      await tester.pumpAndSettle();
+
+      expect(idsOf(), ['bet', 'alef', 'gimel']);
+    });
+
+    testWidgets('בקצוות החץ המתאים כבוי', (tester) async {
+      await addThree(tester);
+      await openManager(tester);
+
+      IconButton buttonAt(String tooltip, int index) =>
+          tester.widget<IconButton>(
+            find.descendant(
+              of: find.byTooltip(tooltip).at(index),
+              matching: find.byType(IconButton),
+            ),
+          );
+
+      expect(buttonAt('העלאה ברשימה', 0).onPressed, isNull);
+      expect(buttonAt('הורדה ברשימה', 2).onPressed, isNull);
+      expect(buttonAt('הורדה ברשימה', 0).onPressed, isNotNull);
+    });
+
+    testWidgets('תוכנה אחת — אין רמז על סדר', (tester) async {
+      await addApp(tester, id: 'solo', name: 'יחידה');
+      await openManager(tester);
+
+      expect(find.textContaining('הסדר כאן הוא הסדר'), findsNothing);
     });
   });
 

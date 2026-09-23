@@ -16,6 +16,7 @@ import 'services/custom_app_categories_store.dart';
 import 'services/custom_app_installer.dart';
 import 'services/custom_app_locator.dart';
 import 'services/custom_app_media.dart';
+import 'services/custom_app_order_store.dart';
 import 'services/custom_app_store.dart';
 import 'services/github_app_client.dart';
 import 'services/install_learner.dart';
@@ -89,9 +90,13 @@ class CustomAppsManager {
   Future<CustomAppStore> _store() async =>
       CustomAppStore(mirrorRootDir: await resolveMirrorDir());
 
-  /// כל התוכנות הרשומות. רשימה ריקה היא המצב הרגיל אצל רוב המשתמשים —
-  /// והממשק חייב להיעלם לגמרי כשהיא ריקה.
-  Future<List<CustomAppEntry>> loadAll() async => (await _store()).loadAll();
+  /// כל התוכנות הרשומות, **בסדר שהמשתמש קבע** — ראו [CustomAppOrderStore].
+  /// רשימה ריקה היא המצב הרגיל אצל רוב המשתמשים, והממשק חייב להיעלם
+  /// לגמרי כשהיא ריקה.
+  Future<List<CustomAppEntry>> loadAll() async => CustomAppOrderStore.sort(
+        await (await _store()).loadAll(),
+        await loadOrder(),
+      );
 
   Future<CustomAppEntry?> load(String id) async => (await _store()).load(id);
 
@@ -118,6 +123,17 @@ class CustomAppsManager {
   /// מסיר מהמרשם. **אינו מסיר את התוכנה מהמחשב** — ראו
   /// [CustomAppStore.remove].
   Future<void> remove(String id) async => (await _store()).remove(id);
+
+  // ── סדר התצוגה ────────────────────────────────────────────────────────
+
+  Future<CustomAppOrderStore> _order() async =>
+      CustomAppOrderStore(mirrorRootDir: await resolveMirrorDir());
+
+  Future<List<String>> loadOrder() async => (await _order()).load();
+
+  /// שומר את סדר התצוגה. מזהה של תוכנה שהוסרה נשאר בקובץ בלי נזק — המיון
+  /// מדלג עליו, והשמירה הבאה מהממשק כותבת ממילא את הרשימה הנוכחית בלבד.
+  Future<void> saveOrder(List<String> ids) async => (await _order()).save(ids);
 
   // ── מדיה: אייקון וצילומי מסך ──────────────────────────────────────────
 

@@ -17,6 +17,7 @@ export 'src/services/custom_app_categories_store.dart';
 export 'src/services/custom_app_installer.dart';
 export 'src/services/custom_app_locator.dart';
 export 'src/services/custom_app_media.dart';
+export 'src/services/custom_app_order_store.dart';
 export 'src/services/custom_app_store.dart';
 export 'src/services/github_app_client.dart';
 export 'src/services/install_learner.dart';

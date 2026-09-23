@@ -1297,6 +1297,14 @@ fails *before* anything existing is deleted. `CustomAppsManager.saveMedia`
 starts from `descriptor.withoutMedia()`, since `copyWith` cannot clear a field
 and a removed icon otherwise stayed recorded, pointing at a deleted file.
 
+**The display order is one central `apps/order.json`, never a field on the
+record.** `descriptor.json` travels alone — copying one `apps/<id>/` folder is
+how a user hands a program to a friend — and a position written inside it
+collides the moment such a folder arrives. `CustomAppOrderStore.sort` ranks by
+that list and drops anything unlisted to the end sorted by name, so a copied-in
+folder joins without disturbing the order; an id left behind by a removed app is
+skipped. `List.sort` is not stable, hence the explicit name tiebreak.
+
 **A category is deleted from the apps too, not only from the list.**
 `CustomAppsManager.removeCategory` strips the slug from every descriptor;
 without it a record kept pointing at a category that no longer exists. The UI

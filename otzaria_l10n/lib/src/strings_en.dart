@@ -2671,7 +2671,7 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get emptyCategoryBody =>
       'Programs are assigned to a category when you edit them, from the '
-      'settings card.';
+      'management window in the settings.';
   @override
   String get emptyUncategorizedTitle => 'Every program is assigned';
   @override
@@ -2762,12 +2762,35 @@ class _CustomApps extends CustomAppsStrings {
   String get settingsCardHint =>
       'You can add your own programs, and this app will carry them on the '
       'drive and install them on the offline computer — exactly as it does '
-      'for Otzaria. Adding, editing and removing happen here; downloading '
-      'and installing happen on the "Other Programs" screen.';
+      'for Otzaria. All management happens in the management window opened '
+      'from here; downloading and installing happen on the "Other Programs" '
+      'screen.';
   @override
   String get emptyHint => 'No programs added';
   @override
   String get addButton => 'Add a Program';
+  @override
+  String registeredAppCount(int count) =>
+      count == 1 ? '$count program registered' : '$count programs registered';
+  @override
+  String get openManagerButton => 'Manage programs';
+
+  // ── The management window ──
+  @override
+  String get manageDialogTitle => 'Manage Other Programs';
+  @override
+  String get manageDialogHint =>
+      'The registry is set once on the online computer and travels on the '
+      'drive as it is. Downloading and installing themselves happen on the '
+      '"Other Programs" screen.';
+  @override
+  String get orderHint =>
+      'This order is the order the programs appear in on the screen, and it '
+      'travels on the drive.';
+  @override
+  String get moveAppUpTooltip => 'Move up';
+  @override
+  String get moveAppDownTooltip => 'Move down';
 
   @override
   String get addDialogTitle => 'Add a Program';

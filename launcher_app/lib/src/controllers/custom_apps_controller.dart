@@ -340,6 +340,29 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     return ok == true;
   }
 
+  /// מזיז תוכנה אחת ברשימה. הסדר נשמר ל-`apps/order.json` ונוסע על הכונן
+  /// — ראו [CustomAppOrderStore].
+  ///
+  /// הרשימה שבזיכרון מסודרת **מיד**, ורק אז נכתבת: לחיצה שממתינה לדיסק
+  /// נראית תקועה, וטעינה מחדש הייתה סורקת שוב את כל ההתקנות שבמחשב.
+  Future<bool> moveApp(int from, int to) async {
+    if (from < 0 || from >= apps.length || to < 0 || to >= apps.length) {
+      return false;
+    }
+    if (from == to) return true;
+
+    final next = [...apps];
+    next.insert(to, next.removeAt(from));
+    apps = next;
+    notifyListeners();
+
+    return await _guard(() async {
+          await _manager.saveOrder([for (final a in next) a.descriptor.id]);
+          return true;
+        }) ==
+        true;
+  }
+
   /// מעתיק קובץ התקנה אל הכונן. מחזיר את הרשומה שנשמרה, או `null` בכשל.
   Future<StoredInstaller?> attachInstaller(
     String id, {
