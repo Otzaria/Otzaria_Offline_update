@@ -588,7 +588,8 @@ class _AppShellState extends State<AppShell> {
         !_library.personalUpdateMode &&
         provenUpToDateOnline(
           checkedAt: _library.onlineCheckedAt,
-          error: _library.onlineCheckError,
+          // כולל בדיקת הנלווים: הם יורדים רק בתוך הורדת הספרייה.
+          error: _library.onlineProofError,
           hasUpdate: _library.hasOnlineUpdate,
         );
     final skipPlugins = s.syncPlugins &&

@@ -229,6 +229,9 @@ class _Home extends HomeStrings {
   @override
   String onlineLibraryUpdate(String version) => 'הספרייה: גרסה $version ברשת';
   @override
+  String onlineLibraryCompanions(String names) =>
+      'קבצים נלווים לספרייה להורדה: $names';
+  @override
   String get onlineAppSyncOff =>
       'הורדת התוכנה כבויה בהגדרות — היא לא תיכלל בהורדה.';
   @override
@@ -2093,6 +2096,10 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String companionsMissingFromMirror(String names) =>
       'קבצים נלווים רשומים במראה אך חסרים בה בפועל: $names';
+  @override
+  String get companionsAbsentFromMirror =>
+      'הכונן אינו נושא את הקבצים הנלווים (תלמוד בבלי, קטלוג, מילון), ולכן הם '
+      'לא יותקנו. יש לבדוק עדכונים ולהוריד שוב במחשב המחובר לרשת.';
 
   @override
   String applyDownloadingPatch(String step) => 'מוריד עדכון$step...';

@@ -384,6 +384,11 @@ class LibraryManager {
     return local.dbVersion;
   }
 
+  /// הקבצים הנלווים שהורדה למראה הייתה מביאה עכשיו — הבדיקה הקלה שלהם. הם
+  /// מתעדכנים בנפרד מהמסד, ולכן [peekLatestOnlineVersion] אינו רואה אותם.
+  Future<Set<CompanionAsset>> peekPendingCompanions() =>
+      _companionsMirror.peekPending(destDir: companionsMirrorDir);
+
   /// בודק מה הגרסה העדכנית ביותר הזמינה ב-GitHub — **פעולת רשת קלה**:
   /// קריאת API יחידה ל-`/releases`, בלי הורדת manifest או asset כלשהו
   /// (בשונה מ-[LibraryUpdateDiscovery.discover], שמוריד גם manifest לכל
@@ -512,6 +517,7 @@ class LibraryManager {
       latestContentTag: discoveryResult.latestContentTag,
       pendingCompanions: companions.pending,
       unavailableCompanions: companions.unavailable,
+      mirroredCompanions: companions.mirrored,
     );
   }
 

@@ -242,6 +242,9 @@ class _Home extends HomeStrings {
   String onlineLibraryUpdate(String version) =>
       'Library: version $version is online';
   @override
+  String onlineLibraryCompanions(String names) =>
+      'Library companion files to download: $names';
+  @override
   String get onlineAppSyncOff =>
       'Program downloads are turned off in Settings — it will be skipped.';
   @override
@@ -2241,6 +2244,11 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String companionsMissingFromMirror(String names) =>
       'Companion files listed in the mirror but missing from it: $names';
+  @override
+  String get companionsAbsentFromMirror =>
+      'The drive carries no companion files (Talmud Bavli, catalog, '
+      'dictionary), so they will not be installed. Check for updates and '
+      'download again on the online computer.';
 
   @override
   String applyDownloadingPatch(String step) => 'Downloading the update$step…';

@@ -226,11 +226,30 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   String? onlineCheckError;
   DateTime? onlineCheckedAt;
 
+  /// הנלווים שהורדה הייתה מביאה עכשיו, לפי הבדיקה הקלה שלהם.
+  Set<CompanionAsset> onlinePendingCompanions = const {};
+
+  /// כשל בבדיקת הנלווים בלבד. אינו "אין רשת" למודול, אך שולל את ההוכחה שאין
+  /// מה להוריד — ראו [onlineProofError].
+  String? onlineCompanionsCheckError;
+
+  /// מה שמונע מ-`provenUpToDateOnline` לדלג על הספרייה: כשל באחת משתי הבדיקות.
+  String? get onlineProofError =>
+      onlineCheckError ?? onlineCompanionsCheckError;
+
+  String get onlinePendingCompanionNames =>
+      _companionNames(onlinePendingCompanions);
+
   /// `true` אם הבדיקה הקלה מצאה ברשת גרסה גבוהה מזו שיושבת **במראה
   /// המקומית**. [targetVersion] הוא הגרסה האחרונה שבמראה (התוכנית מחזירה
   /// אותה גם כשאין מה לעדכן), ולכן הוא הבסיס להשוואה — לא גרסת המסד החי,
   /// שההתקנה מעדכנת בשלב נפרד לגמרי מההורדה.
-  bool get hasOnlineUpdate {
+  bool get hasOnlineUpdate =>
+      // הנלווים מתעדכנים בנפרד מהמסד: בלעדי זה כונן בלי תלמוד, עם מסד עדכני,
+      // לא קיבל כפתור הורדה ודולג ב-downloadAll — לנצח (issue #33).
+      _hasOnlineDbUpdate || onlinePendingCompanions.isNotEmpty;
+
+  bool get _hasOnlineDbUpdate {
     final online = onlineLatestVersion;
     if (online == null) return false;
     // מראה ריקה = יש מה להוריד, נקודה. הנפילה לגרסת המסד החי השוותה את הרשת
@@ -242,7 +261,8 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   }
 
   /// גרסת הספרייה שנמצאה ברשת כשיש מה להוריד — לתצוגה בלבד.
-  int? get onlineUpdateVersion => hasOnlineUpdate ? onlineLatestVersion : null;
+  int? get onlineUpdateVersion =>
+      _hasOnlineDbUpdate ? onlineLatestVersion : null;
 
   /// בודק ברשת מה הגרסה העדכנית ביותר — **פעולת רשת קלה**, בלי הורדת
   /// המסד/patches. כשל (בעיקר "אין חיבור") הוא מצב תקין: נשמר ב-
@@ -261,6 +281,19 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       // וארבעה traces בכל הפעלה הטביעו את הלוג במקום להסביר משהו.
       AppLogger.instance.info('בדיקת עדכונים ברשת (ספרייה) לא הצליחה: $e');
     }
+    // בנפרד: כשל כאן אינו מבטל את תשובת המסד, ולהפך.
+    onlineCompanionsCheckError = null;
+    try {
+      onlinePendingCompanions = await _manager.peekPendingCompanions();
+    } catch (e) {
+      onlinePendingCompanions = const {};
+      onlineCompanionsCheckError = e.toString();
+      AppLogger.instance.info('בדיקת הקבצים הנלווים ברשת לא הצליחה: $e');
+    }
+    AppLogger.instance.info(
+      'checkOnline (ספרייה): latest=$onlineLatestVersion '
+      'companions=[${_companionNames(onlinePendingCompanions)}]',
+    );
     onlineCheckedAt = DateTime.now();
     notifyListeners();
   }
@@ -369,6 +402,17 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// נאמר, כי המראה שעל הכונן חלקית.
   Set<CompanionAsset> unavailableCompanions = const {};
 
+  /// מה שרשום במניפסט הנלווים שבמראה — ריק כשהכונן לא נשא אף אחד מהם.
+  Set<CompanionAsset> mirroredCompanions = const {};
+
+  /// יש מראה, והיא אינה נושאת אף קובץ נלווה: עדכון מכאן יביא מסד בלי תלמוד,
+  /// קטלוג ומילון. בלי ההודעה הזו זה נראה כ"הכול מעודכן" (issue #33).
+  bool get mirrorLacksCompanions =>
+      !mirrorMissing &&
+      mirroredCompanions.isEmpty &&
+      (status == LibraryModuleStatus.upToDate ||
+          status == LibraryModuleStatus.updateAvailable);
+
   /// ההצעה הנוכחית היא **רק** על קבצים נלווים: המסד עצמו מעודכן.
   bool get companionsOnly =>
       status == LibraryModuleStatus.updateAvailable &&
@@ -428,6 +472,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       canRetryWithFullDownload = false;
       pendingCompanions = check.pendingCompanions;
       unavailableCompanions = check.unavailableCompanions;
+      mirroredCompanions = check.mirroredCompanions;
 
       if (check.needsManualDbPath) {
         status = LibraryModuleStatus.needsManualPath;
@@ -462,6 +507,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       mirrorMissing = true;
       pendingCompanions = const {};
       unavailableCompanions = const {};
+      mirroredCompanions = const {};
       // הגרסה המקומית ידועה גם בלי מראה: הבדיקה כבר קראה אותה מהמסד לפני
       // שנכשלה. בלי זה המסך מציג "לא ידוע" למסד שנמצא ונקרא בהצלחה — מה
       // שמשתמש שבחר את הקובץ ידנית רואה כ"לא מזהה את המסד".
@@ -473,6 +519,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       errorMessage = e.toString();
       pendingCompanions = const {};
       unavailableCompanions = const {};
+      mirroredCompanions = const {};
       AppLogger.instance.error('checkForUpdate נכשל', e, st);
     }
     // הבדיקה עצמה כבר איתרה את הנתיב — גם כשהיא נכשלה אחר כך (למשל אין
@@ -492,6 +539,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       'planTarget=${check?.plan?.targetVersion} latest=${check?.latestVersion} '
       'companions=[${_companionNames(pendingCompanions)}] '
       'companionsMissingInMirror=[${_companionNames(unavailableCompanions)}] '
+      'companionsInMirror=[${_companionNames(mirroredCompanions)}] '
       'fresh=$isFreshInstall '
       'mirrorMissing=$mirrorMissing reindex=$hasPendingReindex db=$dbPath',
     );

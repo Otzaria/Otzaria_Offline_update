@@ -34,6 +34,7 @@ class CompanionPendingReport {
   const CompanionPendingReport({
     this.pending = const {},
     this.unavailable = const {},
+    this.mirrored = const {},
   });
 
   /// יש מה להתקין, והקובץ במראה שלם — הצעה שאפשר להשלים.
@@ -43,6 +44,9 @@ class CompanionPendingReport {
   /// אינה ניתנת להשלמה במחשב הזה, וכהצעה היא הייתה חוזרת בכל פתיחה לנצח.
   /// מדווחת בנפרד כדי שתגיע ללוג במקום להיעלם.
   final Set<CompanionAsset> unavailable;
+
+  /// כל מה שרשום במניפסט — ריק כשהכונן לא נשא קובץ נלווה אחד.
+  final Set<CompanionAsset> mirrored;
 
   bool get hasPending => pending.isNotEmpty;
 }
@@ -193,7 +197,11 @@ class CompanionAssetsInstaller {
       }
       pending.add(e.key);
     }
-    return CompanionPendingReport(pending: pending, unavailable: unavailable);
+    return CompanionPendingReport(
+      pending: pending,
+      unavailable: unavailable,
+      mirrored: manifest.entries.keys.toSet(),
+    );
   }
 
   /// מזהה הגרסה של הפריט **במראה** — המחרוזת שנרשמת כ"נמסר" ונבדקת מולה.

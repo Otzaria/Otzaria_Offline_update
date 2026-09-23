@@ -460,6 +460,13 @@ The library is never skipped in personal-update mode, where the target comes fro
 the recorded DB version. The skip is announced in a snackbar; a silent one produced
 the "why did it not download the plugins" confusion.
 
+**The library's light check covers the companions, not just the DB version.**
+They download only inside the library download, which `skipLibrary` skipped whenever
+the mirror's DB matched the latest online — so a drive that once missed the Talmud
+never got it, and `companions=[]` on the offline machine hid it (issue #33).
+`CompanionAssetsMirror.peekPending` → `LibraryModuleController.onlinePendingCompanions`
+feeds `hasOnlineUpdate`; its failure blocks the skip via `onlineProofError`.
+
 **Cancelling a download deletes what *that* download brought.** The button appears
 next to the progress row only while a download runs, and `AppShell._cancelDownload`
 rides the `isCancelled` callback every layer already takes, so it lands mid-asset.

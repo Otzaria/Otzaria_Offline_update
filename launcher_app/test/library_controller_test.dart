@@ -115,6 +115,22 @@ void main() {
       expect(controller.status, LibraryModuleStatus.idle);
       expect(controller.errorMessage, isNull);
       expect(controller.hasOnlineUpdate, isFalse);
+      expect(controller.onlineCompanionsCheckError, isNotNull);
+      expect(controller.onlinePendingCompanions, isEmpty);
+    });
+
+    test('מראה בלי אף נלווה נאמרת, ומראה חסרה — לא', () {
+      controller.status = LibraryModuleStatus.upToDate;
+      controller.mirrorMissing = false;
+      controller.mirroredCompanions = const {};
+      expect(controller.mirrorLacksCompanions, isTrue);
+
+      controller.mirroredCompanions = {CompanionAsset.catalog};
+      expect(controller.mirrorLacksCompanions, isFalse);
+
+      controller.mirroredCompanions = const {};
+      controller.mirrorMissing = true;
+      expect(controller.mirrorLacksCompanions, isFalse);
     });
 
     test('hasOnlineUpdate כבוי כל עוד לא נבדק ברשת', () {
@@ -199,6 +215,27 @@ void main() {
       controller.mirrorMissing = true;
 
       expect(controller.hasOnlineUpdate, isTrue);
+    });
+
+    // issue #33: מסד עדכני בכונן שאין בו תלמוד — בלי זה לא הוצג כפתור הורדה,
+    // downloadAll דילג על הספרייה, והנלווים לא הגיעו לכונן לעולם.
+    test('נלווה שממתין ברשת מדליק, בלי לטעון לגרסת מסד חדשה', () {
+      controller.onlineLatestVersion = 28;
+      controller.targetVersion = 28;
+      controller.onlinePendingCompanions = {CompanionAsset.talmud};
+
+      expect(controller.hasOnlineUpdate, isTrue);
+      expect(controller.onlineUpdateVersion, isNull);
+    });
+
+    test('כשל בבדיקת הנלווים שולל את ההוכחה, לא את תשובת המסד', () {
+      controller.onlineLatestVersion = 28;
+      controller.targetVersion = 28;
+      controller.onlineCompanionsCheckError = 'rate limit';
+
+      expect(controller.onlineCheckError, isNull);
+      expect(controller.onlineProofError, 'rate limit');
+      expect(controller.hasOnlineUpdate, isFalse);
     });
 
     test('מראה קיימת בלי תוכנית עדיין נמדדת מול הגרסה המקומית', () {

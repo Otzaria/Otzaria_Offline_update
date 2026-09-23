@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import 'companion_assets.dart';
+import 'companion_assets_installer.dart';
 import 'zstd_decompressor.dart';
 
 /// מוריד למראה את שלושת הקבצים הנלווים שאוצריא מרעננת בכל עדכון ספרייה,
@@ -178,6 +179,58 @@ class CompanionAssetsMirror {
     await File(p.join(destDir, CompanionMirrorManifest.fileName)).writeAsString(
         const JsonEncoder.withIndent('  ').convert(manifest.toJson()));
     return manifest;
+  }
+
+  /// מה ש-[sync] היה מביא אילו רץ עכשיו — **מטא־דאטה בלבד**, בלי בייט
+  /// מהנכסים. בלעדיה נלווה חדש או חסר לא נראה בבדיקה הקלה, וההורדה שמביאה
+  /// אותו לא הוצעה לעולם (issue #33).
+  ///
+  /// פריט שהשאילתה שלו נכשלה אינו נספר; רק כשל של שלושתם נזרק, כ"אין רשת".
+  Future<Set<CompanionAsset>> peekPending({required String destDir}) async {
+    final previous = await CompanionMirrorManifest.load(destDir);
+    final pending = <CompanionAsset>{};
+    final errors = <Object>[];
+
+    Future<void> check(
+      CompanionAsset asset,
+      Future<_CompanionPlan> Function() plan,
+    ) async {
+      try {
+        final planned = await plan();
+        final held = await _mirrorHolds(
+          destDir,
+          asset,
+          previous?.entries[asset],
+          planned.entry,
+        );
+        if (!held) pending.add(asset);
+      } catch (error) {
+        errors.add(error);
+      }
+    }
+
+    await Future.wait<void>([
+      check(CompanionAsset.talmud, () => _planTalmud(destDir)),
+      check(CompanionAsset.catalog, () => _planCatalog(destDir)),
+      check(CompanionAsset.dictionary, () => _planDictionary(destDir)),
+    ]);
+    if (errors.length == CompanionAsset.values.length) throw errors.first;
+    return pending;
+  }
+
+  /// הרשומה שבמראה היא בדיוק מה שהרשת מציעה, והקובץ שלה שלם על הכונן.
+  Future<bool> _mirrorHolds(
+    String destDir,
+    CompanionAsset asset,
+    CompanionMirrorEntry? mirrored,
+    CompanionMirrorEntry planned,
+  ) async {
+    if (mirrored == null || mirrored.fileName != planned.fileName) return false;
+    if (CompanionAssetsInstaller.mirrorMarkerOf(asset, mirrored) !=
+        CompanionAssetsInstaller.mirrorMarkerOf(asset, planned)) {
+      return false;
+    }
+    return _isCompleteFile(p.join(destDir, mirrored.fileName), mirrored.size);
   }
 
   Future<_CompanionPlan> _planTalmud(String destDir) async {

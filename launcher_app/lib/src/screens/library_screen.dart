@@ -143,6 +143,13 @@ class LibraryScreen extends StatelessWidget {
             subtitle: AppL10n.strings.libraryDomain
                 .companionsMissingFromMirror(c.unavailableCompanionNames),
           ),
+        // כונן שלא נשא אף נלווה נראה בדיוק כמו "הכול מעודכן" (issue #33).
+        if (c.mirrorLacksCompanions)
+          SettingsActionTile.text(
+            icon: FluentIcons.warning_24_regular,
+            title: t.updateRouteNoteTitle,
+            subtitle: AppL10n.strings.libraryDomain.companionsAbsentFromMirror,
+          ),
         // הורדה של מסד שלם במקום קובצי עדכון היא הפרש של שלוש סדרי גודל,
         // ולכן הסיבה נאמרת ולא נשארת בלוג בלבד.
         if (c.updateRouteNote case final note?)

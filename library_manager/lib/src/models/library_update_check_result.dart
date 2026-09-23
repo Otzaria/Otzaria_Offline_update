@@ -21,6 +21,7 @@ class LibraryUpdateCheckResult {
     this.latestContentTag,
     this.pendingCompanions = const {},
     this.unavailableCompanions = const {},
+    this.mirroredCompanions = const {},
   });
 
   final String? dbPath;
@@ -40,6 +41,10 @@ class LibraryUpdateCheckResult {
   /// הצעה** — אי אפשר להשלים אותם כאן — אבל כן מגיעים ללוג, כי הם אומרים
   /// שהמראה שעל הכונן חלקית.
   final Set<CompanionAsset> unavailableCompanions;
+
+  /// מה שרשום במניפסט של המראה בכלל. ריק = הכונן לא נשא אף קובץ נלווה, ובלי
+  /// ההבחנה הזו "אין מה להתקין" ו"לא הובא דבר" נראו זהים בלוג (issue #33).
+  final Set<CompanionAsset> mirroredCompanions;
 
   bool get companionsPending => pendingCompanions.isNotEmpty;
 

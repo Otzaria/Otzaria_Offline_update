@@ -44,12 +44,17 @@ void main() {
     Set<String> omit = const {},
     DownloadScheduler? scheduler,
     Future<void> Function(String assetName)? beforeAsset,
+    String dictionaryTag = 'dict-v7',
+    bool apiDown = false,
   }) {
     final fetched = <String>[];
     final client = MockClient.streaming((request, _) async {
       final url = request.url.toString();
       Uint8List body;
 
+      if (apiDown && url.contains('api.github.com')) {
+        return http.StreamedResponse(const Stream.empty(), 403);
+      }
       if (url.contains('/repos/Otzaria/otzaria-library/')) {
         body = Uint8List.fromList(utf8.encode(jsonEncode({
           'tag_name': 'lib-v9',
@@ -70,7 +75,7 @@ void main() {
         })));
       } else if (url.contains('/repos/Otzaria/SeforimMagicIndexer/')) {
         body = Uint8List.fromList(utf8.encode(jsonEncode({
-          'tag_name': 'dict-v7',
+          'tag_name': dictionaryTag,
           'assets': [assetJson('lexical.db', 'https://x/lexical.db')],
         })));
       } else {
@@ -275,5 +280,75 @@ void main() {
 
     expect(lastReceived, 0);
     expect(lastTotal, 0);
+  });
+
+  // issue #33: הנלווים מתעדכנים בלי קשר למסד, ובלי בדיקה קלה משלהם כונן
+  // שלא קיבל אותם פעם אחת לא הציע את ההורדה שמביאה אותם לעולם.
+  group('peekPending — הבדיקה הקלה של הנלווים', () {
+    test('מראה ריקה: שלושתם ממתינים, ואף נכס אינו יורד', () async {
+      final built = buildMirror();
+      addTearDown(built.mirror.dispose);
+
+      final pending = await built.mirror.peekPending(destDir: destDir);
+
+      expect(pending, CompanionAsset.values.toSet());
+      // `version.txt` הוא מטא־דאטה של הקטלוג; שום נכס של ממש לא ירד.
+      expect(built.fetched, ['version.txt']);
+    });
+
+    test('אחרי הורדה מלאה אין מה להביא', () async {
+      final built = buildMirror();
+      addTearDown(built.mirror.dispose);
+      await built.mirror.sync(destDir: destDir);
+
+      expect(await built.mirror.peekPending(destDir: destDir), isEmpty);
+    });
+
+    test('גרסה חדשה של נלווה אחד — רק הוא ממתין', () async {
+      final first = buildMirror();
+      addTearDown(first.mirror.dispose);
+      await first.mirror.sync(destDir: destDir);
+
+      final second = buildMirror(dictionaryTag: 'dict-v8');
+      addTearDown(second.mirror.dispose);
+
+      expect(
+        await second.mirror.peekPending(destDir: destDir),
+        {CompanionAsset.dictionary},
+      );
+    });
+
+    test('קובץ שנעלם מהכונן ממתין, גם כשהרשומה עוד במניפסט', () async {
+      final built = buildMirror();
+      addTearDown(built.mirror.dispose);
+      final manifest = await built.mirror.sync(destDir: destDir);
+      File(p.join(destDir, manifest.entries[CompanionAsset.talmud]!.fileName))
+          .deleteSync();
+
+      expect(
+        await built.mirror.peekPending(destDir: destDir),
+        {CompanionAsset.talmud},
+      );
+    });
+
+    test('נכס שאינו ב-release אינו נספר, והשאר כן', () async {
+      final built = buildMirror(omit: {'talmud'});
+      addTearDown(built.mirror.dispose);
+
+      expect(
+        await built.mirror.peekPending(destDir: destDir),
+        {CompanionAsset.catalog, CompanionAsset.dictionary},
+      );
+    });
+
+    test('כשל של שלושתם נזרק — "אין רשת" אינו "אין מה להוריד"', () async {
+      final built = buildMirror(apiDown: true);
+      addTearDown(built.mirror.dispose);
+
+      await expectLater(
+        built.mirror.peekPending(destDir: destDir),
+        throwsA(anything),
+      );
+    });
   });
 }

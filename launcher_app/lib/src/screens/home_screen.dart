@@ -510,6 +510,9 @@ class HomeScreen extends StatelessWidget {
     if (libraryOnline && library.hasOnlineUpdate) {
       final version = library.onlineUpdateVersion;
       if (version != null) line(t.onlineLibraryUpdate('$version'));
+      if (library.onlinePendingCompanions.isNotEmpty) {
+        line(t.onlineLibraryCompanions(library.onlinePendingCompanionNames));
+      }
       if (!s.syncLibrary) line(t.onlineLibrarySyncOff, warn: true);
     }
 

@@ -160,6 +160,9 @@ abstract class HomeStrings {
   String onlineAppUpdate(String version);
   String onlineLibraryUpdate(String version);
 
+  /// נלווים שהמראה חסרה או שיצאו בגרסה חדשה — מתעדכנים בלי קשר למסד.
+  String onlineLibraryCompanions(String names);
+
   /// כמו [onlinePluginsSyncOff], לתוכנה ולספרייה.
   String get onlineAppSyncOff;
   String get onlineLibrarySyncOff;
@@ -1259,6 +1262,9 @@ abstract class LibraryDomainStrings {
 
   /// רשומה שהקובץ שלה חסר או קטוע במראה — המראה שעל הכונן חלקית.
   String companionsMissingFromMirror(String names);
+
+  /// המראה אינה נושאת אף קובץ נלווה — עדכון מכאן לא יביא תלמוד, קטלוג ומילון.
+  String get companionsAbsentFromMirror;
 
   // שלבי ההחלה, כפי שמוצגים במד ההתקדמות
   String applyDownloadingPatch(String step);
