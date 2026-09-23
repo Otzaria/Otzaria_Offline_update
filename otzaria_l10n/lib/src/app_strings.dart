@@ -1732,6 +1732,9 @@ abstract class CustomAppsDomainStrings {
   String installerFileMissing(String path);
   String installerExitCode(int exitCode, String output);
 
+  /// המתקין דורש מנהל, והמשתמש סירב בחלון ה-UAC.
+  String get installerElevationDeclined;
+
   /// הקובץ שעל הכונן אינו תואם ל-sha256 שנרשם כשנכנס למראה.
   String get installerDigestMismatch;
 
@@ -1739,6 +1742,9 @@ abstract class CustomAppsDomainStrings {
   /// כאן אינו מחולץ, ולכן זה "העתקה" ולא "חילוץ".
   String fileCopyFailed(String error);
   String launchFileMissing(String launchPath);
+
+  /// התוכנה דורשת מנהל גם בהפעלה, והמשתמש סירב בחלון ה-UAC.
+  String get launchElevationDeclined;
 
   // ── מדיה: אייקון וצילומי מסך ──
   String mediaFileMissing(String path);

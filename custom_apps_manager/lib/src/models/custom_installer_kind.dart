@@ -89,6 +89,7 @@ enum CustomInstallerKind {
             '/S',
             if (dir != null) '/D=$dir',
           ],
+          rawLastArgument: dir != null,
         ),
       // חבילת MSI אינה קובץ הרצה — מריצים אותה דרך msiexec.
       CustomInstallerKind.msi => CustomInstallerCommand(
@@ -121,10 +122,15 @@ class CustomInstallerCommand {
   const CustomInstallerCommand({
     required this.executable,
     required this.arguments,
+    this.rawLastArgument = false,
   });
 
   final String executable;
   final List<String> arguments;
+
+  /// הארגומנט האחרון נשלח כמות שהוא, בלי מרכאות גם כשיש בו רווח — ה-`/D=`
+  /// של NSIS. `Process.run` תמיד מצטט, ולכן זה עובר דרך `ElevatedProcess`.
+  final bool rawLastArgument;
 
   @override
   String toString() => [executable, ...arguments].join(' ');

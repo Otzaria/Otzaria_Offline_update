@@ -2438,6 +2438,10 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
   String installerExitCode(int exitCode, String output) =>
       'ההתקנה הסתיימה בשגיאה (קוד $exitCode).\n$output';
   @override
+  String get installerElevationDeclined =>
+      'המתקין דורש הרשאות מנהל, והבקשה נדחתה. כדי להתקין, יש לאשר את '
+      'חלון ההרשאות של ווינדוס.';
+  @override
   String get installerDigestMismatch =>
       'קובץ ההתקנה שעל הכונן פגום — הוא אינו זהה לקובץ שנשמר. יש להוריד '
       'או לצרף אותו מחדש במחשב שיש בו אינטרנט';
@@ -2446,6 +2450,9 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
   @override
   String launchFileMissing(String launchPath) =>
       'קובץ ההרצה אינו נמצא: $launchPath';
+  @override
+  String get launchElevationDeclined =>
+      'התוכנה דורשת הרשאות מנהל, והבקשה נדחתה.';
 
   @override
   String mediaFileMissing(String path) => 'קובץ התמונה אינו נמצא: $path';

@@ -18,6 +18,7 @@ import 'services/custom_app_locator.dart';
 import 'services/custom_app_media.dart';
 import 'services/custom_app_order_store.dart';
 import 'services/custom_app_store.dart';
+import 'services/elevated_process.dart';
 import 'services/file_digest.dart';
 import 'services/github_app_client.dart';
 import 'services/install_learner.dart';
@@ -468,11 +469,29 @@ class CustomAppsManager {
         AppL10n.strings.customAppsDomain.launchFileMissing(state.launchPath),
       );
     }
-    await Process.start(
-      state.launchPath,
-      const [],
-      workingDirectory: state.installDir,
-      mode: ProcessStartMode.detached,
-    );
+    try {
+      await Process.start(
+        state.launchPath,
+        const [],
+        workingDirectory: state.installDir,
+        mode: ProcessStartMode.detached,
+      );
+    } on ProcessException catch (e) {
+      // תוכנה שדורשת מנהל גם בהפעלה — אותה שגיאה 740 כמו במתקין.
+      if (!ElevatedProcess.isElevationRequired(e)) rethrow;
+      final result = await ElevatedProcess.start(
+        state.launchPath,
+        const [],
+        workingDirectory: state.installDir,
+      );
+      if (result.exitCode == ElevatedProcess.cancelledCode) {
+        throw AppDescriptorException(
+          AppL10n.strings.customAppsDomain.launchElevationDeclined,
+        );
+      }
+      if (result.exitCode != 0) {
+        throw AppDescriptorException('$e\n${result.stderr}'.trim());
+      }
+    }
   }
 }

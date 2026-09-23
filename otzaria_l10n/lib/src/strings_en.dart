@@ -2612,6 +2612,10 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
   String installerExitCode(int exitCode, String output) =>
       'The installation failed (exit code $exitCode).\n$output';
   @override
+  String get installerElevationDeclined =>
+      'The installer requires administrator rights, and the request was '
+      'declined. To install, approve the Windows permission prompt.';
+  @override
   String get installerDigestMismatch =>
       'The installer on the drive is damaged — it does not match the file '
       'that was stored. Download or add it again on a computer with internet';
@@ -2620,6 +2624,10 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
   @override
   String launchFileMissing(String launchPath) =>
       'Executable not found: $launchPath';
+  @override
+  String get launchElevationDeclined =>
+      'The program requires administrator rights, and the request was '
+      'declined.';
 
   @override
   String mediaFileMissing(String path) => 'Image file not found: $path';

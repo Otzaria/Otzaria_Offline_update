@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:custom_apps_manager/custom_apps_manager.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -11,9 +12,42 @@ class _FakeRunner {
   final calls = <({String executable, List<String> arguments})>[];
   int exitCode = 0;
 
+  /// כך נראה מתקין שהמניפסט שלו `requireAdministrator`.
+  bool requiresElevation = false;
+
   Future<ProcessResult> call(String executable, List<String> arguments) async {
     calls.add((executable: executable, arguments: arguments));
+    if (requiresElevation) {
+      throw ProcessException(executable, arguments,
+          'The requested operation requires elevation', 740);
+    }
     return ProcessResult(1, exitCode, '', exitCode == 0 ? '' : 'boom');
+  }
+}
+
+/// ShellExecute מדומה — רושם גם אם ביקשו הרמה ושורה גולמית.
+class _FakeShell {
+  final calls = <({
+    String executable,
+    List<String> arguments,
+    bool elevate,
+    bool rawLastArgument,
+  })>[];
+  int exitCode = 0;
+
+  Future<ProcessResult> call(
+    String executable,
+    List<String> arguments, {
+    required bool elevate,
+    required bool rawLastArgument,
+  }) async {
+    calls.add((
+      executable: executable,
+      arguments: arguments,
+      elevate: elevate,
+      rawLastArgument: rawLastArgument,
+    ));
+    return ProcessResult(1, exitCode, '', '');
   }
 }
 
@@ -21,14 +55,17 @@ void main() {
   late String root;
   late String downloads;
   late _FakeRunner runner;
+  late _FakeShell elevated;
   late CustomAppInstaller installer;
 
   setUp(() {
     root = tempMirrorRoot();
     downloads = p.join(root, 'Downloads');
     runner = _FakeRunner();
+    elevated = _FakeShell();
     installer = CustomAppInstaller(
       processRunner: runner.call,
+      shellRunner: elevated.call,
       downloadsDir: downloads,
     );
   });
@@ -129,6 +166,175 @@ void main() {
         ),
       ),
     );
+  });
+
+  // CreateProcess אינו מקפיץ UAC — מתקין NSIS עם requireAdministrator
+  // נפל בשגיאה 740 בלי שהמשתמש נשאל דבר.
+  group('מתקין שדורש מנהל', () {
+    test('שגיאה 740 — מורץ שוב עם UAC, באותה פקודה בדיוק', () async {
+      runner.requiresElevation = true;
+      final path = innoSetup();
+
+      await installer.install(
+        descriptor: descriptor(installDir: r'C:\Apps\X'),
+        installerPath: path,
+      );
+
+      expect(elevated.calls.single.executable, path);
+      expect(elevated.calls.single.arguments, runner.calls.single.arguments);
+      expect(elevated.calls.single.elevate, isTrue);
+    });
+
+    test('סירוב ל-UAC — הודעה משלו, לא "קוד 1223"', () async {
+      runner.requiresElevation = true;
+      elevated.exitCode = ElevatedProcess.cancelledCode;
+
+      await expectLater(
+        installer.install(descriptor: descriptor(), installerPath: innoSetup()),
+        throwsA(isA<AppDescriptorException>().having(
+          (e) => e.message,
+          'message',
+          AppL10n.strings.customAppsDomain.installerElevationDeclined,
+        )),
+      );
+    });
+
+    test('כשל של ההרצה המורמת — נושא את קוד היציאה', () async {
+      runner.requiresElevation = true;
+      elevated.exitCode = 1603;
+
+      await expectLater(
+        installer.install(descriptor: descriptor(), installerPath: innoSetup()),
+        throwsA(isA<AppDescriptorException>()
+            .having((e) => e.message, 'message', contains('1603'))),
+      );
+    });
+
+    test('שגיאת הרצה אחרת אינה מורמת', () async {
+      final failing = CustomAppInstaller(
+        processRunner: (exe, args) async =>
+            throw ProcessException(exe, args, 'not found', 2),
+        shellRunner: elevated.call,
+      );
+
+      await expectLater(
+        failing.install(descriptor: descriptor(), installerPath: innoSetup()),
+        throwsA(isA<ProcessException>()),
+      );
+      expect(elevated.calls, isEmpty);
+    });
+  });
+
+  // NSIS מעתיק את כל מה שאחרי `/D=` — כולל `"` סוגר שהיה נכנס לנתיב.
+  group('NSIS עם רווח בתיקיית היעד', () {
+    String nsisSetup() => writeBytes(
+          'setup.exe',
+          [...'MZ'.codeUnits, ...List.filled(200, 0), ...'Nullsoft'.codeUnits],
+        );
+
+    test('עובר דרך ShellExecute עם /D= גולמי, בלי הרמה מפורשת', () async {
+      await installer.install(
+        descriptor: descriptor(installDir: r'C:\Program Files\X'),
+        installerPath: nsisSetup(),
+      );
+
+      expect(runner.calls, isEmpty);
+      final call = elevated.calls.single;
+      expect(call.arguments.last, r'/D=C:\Program Files\X');
+      expect(call.rawLastArgument, isTrue);
+      // ShellExecute מקפיץ UAC לבד כשהמניפסט דורש; runas היה מבקש תמיד.
+      expect(call.elevate, isFalse);
+    });
+
+    test('סירוב ל-UAC גם כאן מקבל את ההודעה שלו', () async {
+      elevated.exitCode = ElevatedProcess.cancelledCode;
+
+      await expectLater(
+        installer.install(
+          descriptor: descriptor(installDir: r'C:\Program Files\X'),
+          installerPath: nsisSetup(),
+        ),
+        throwsA(isA<AppDescriptorException>().having(
+          (e) => e.message,
+          'message',
+          AppL10n.strings.customAppsDomain.installerElevationDeclined,
+        )),
+      );
+    });
+
+    test('נתיב בלי רווח — Process.run רגיל, כמו קודם', () async {
+      await installer.install(
+        descriptor: descriptor(installDir: r'C:\Apps\X'),
+        installerPath: nsisSetup(),
+      );
+
+      expect(runner.calls, hasLength(1));
+      expect(elevated.calls, isEmpty);
+    });
+
+    // Inno מבין מרכאות, ולכן `/DIR=` עם רווח נשאר במסלול הרגיל.
+    test('Inno עם רווח אינו מושפע', () async {
+      await installer.install(
+        descriptor: descriptor(installDir: r'C:\Program Files\X'),
+        installerPath: innoSetup(),
+      );
+
+      expect(runner.calls, hasLength(1));
+      expect(elevated.calls, isEmpty);
+    });
+  });
+
+  group('ElevatedProcess', () {
+    test('שורת פקודה עם אחרון גולמי', () {
+      expect(
+        ElevatedProcess.buildCommandLine(
+          const ['/S', r'/D=C:\Program Files\X'],
+          rawLastArgument: true,
+        ),
+        r'/S /D=C:\Program Files\X',
+      );
+      expect(
+        ElevatedProcess.buildCommandLine(
+            const ['/S', r'/D=C:\Program Files\X']),
+        r'/S "/D=C:\Program Files\X"',
+      );
+    });
+
+    test('בלי elevate — אין runas', () {
+      final script =
+          ElevatedProcess.powershellArgs(r'C:\a.exe', const [], elevate: false)
+              .last;
+      expect(script, isNot(contains('runas')));
+      expect(script, contains('UseShellExecute'));
+    });
+
+    test('ציטוט כמו של Dart — רווחים, מרכאות ולוכסן בסוף', () {
+      expect(ElevatedProcess.quoteWindowsArg('/S'), '/S');
+      expect(ElevatedProcess.quoteWindowsArg(''), '""');
+      expect(
+          ElevatedProcess.quoteWindowsArg(r'C:\a b\c.msi'), r'"C:\a b\c.msi"');
+      expect(ElevatedProcess.quoteWindowsArg(r'C:\a b\'), r'"C:\a b\\"');
+      expect(ElevatedProcess.quoteWindowsArg('a"b'), r'"a\"b"');
+    });
+
+    test('גרש בנתיב אינו שובר את פקודת PowerShell', () {
+      final script = ElevatedProcess.powershellArgs(
+        r"C:\O'Brien\setup.exe",
+        const ['/S'],
+      ).last;
+
+      expect(script, contains(r"$i.FileName = 'C:\O''Brien\setup.exe'"));
+      expect(script, contains(r"$i.Arguments = '/S'"));
+      expect(script, contains('WaitForExit'));
+    });
+
+    test('הפעלת תוכנה אינה ממתינה לסגירתה', () {
+      final script =
+          ElevatedProcess.powershellArgs(r'C:\a.exe', const [], wait: false)
+              .last;
+
+      expect(script, isNot(contains('WaitForExit')));
+    });
   });
 
   group('ארכיון — יורד לתיקיית ההורדות ואינו "מותקן"', () {

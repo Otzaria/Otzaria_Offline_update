@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import '../models/app_descriptor.dart';
 import '../models/custom_install_outcome.dart';
 import '../models/custom_installer_kind.dart';
+import 'elevated_process.dart';
 import 'installer_kind_sniffer.dart';
 
 /// מריץ תהליך ומחזיר את תוצאתו. מוזרק כדי שבדיקות לא יריצו installer
@@ -15,6 +16,14 @@ typedef CustomProcessRunner = Future<ProcessResult> Function(
   List<String> arguments,
 );
 
+/// הרצה דרך ShellExecute — ראו [ElevatedProcess.run]. מוזרק מאותה סיבה.
+typedef CustomShellRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments, {
+  required bool elevate,
+  required bool rawLastArgument,
+});
+
 /// מתקין תוכנה נוספת מקובץ שכבר יושב על הכונן — **בלי לגעת ברשת**.
 ///
 /// אותו עיקרון של `OtzariaInstaller`: ההורדה נעשית מראש אל המראה,
@@ -22,11 +31,16 @@ typedef CustomProcessRunner = Future<ProcessResult> Function(
 class CustomAppInstaller {
   CustomAppInstaller({
     CustomProcessRunner? processRunner,
+    CustomShellRunner? shellRunner,
     String? downloadsDir,
   })  : _run = processRunner ?? Process.run,
+        _runShell = shellRunner ?? ElevatedProcess.run,
         _downloadsDir = downloadsDir;
 
   final CustomProcessRunner _run;
+
+  /// כש-`Process.run` אינו יכול: מתקין שדורש מנהל, או `/D=` שאסור לצטט.
+  final CustomShellRunner _runShell;
   final String? _downloadsDir;
 
   /// תיקיית ההורדות של המשתמש — לשם מגיעה תוכנה מסוג ארכיון.
@@ -87,13 +101,50 @@ class CustomAppInstaller {
     );
     if (command == null) return CustomInstallOutcome(kind: kind);
 
-    final result = await _run(command.executable, command.arguments);
+    // `Process.run` היה עוטף במרכאות, ו-NSIS היה מתקין לנתיב שמסתיים ב-`"`.
+    if (command.rawLastArgument &&
+        ElevatedProcess.needsQuoting(command.arguments.last)) {
+      return _installViaShell(kind, command, elevate: false);
+    }
+
+    final ProcessResult result;
+    try {
+      result = await _run(command.executable, command.arguments);
+    } on ProcessException catch (e) {
+      if (!ElevatedProcess.isElevationRequired(e)) rethrow;
+      return _installViaShell(kind, command, elevate: true);
+    }
     if (result.exitCode != 0) {
       throw AppDescriptorException(
         t.installerExitCode(
           result.exitCode,
           'stdout: ${result.stdout}\nstderr: ${result.stderr}',
         ),
+      );
+    }
+    return CustomInstallOutcome(kind: kind);
+  }
+
+  /// דרך ShellExecute, שיודע להקפיץ UAC — `CreateProcess` אינו יודע.
+  /// סירוב ל-UAC מקבל הודעה משלו — אינו "שגיאה בהתקנה".
+  Future<CustomInstallOutcome> _installViaShell(
+    CustomInstallerKind kind,
+    CustomInstallerCommand command, {
+    required bool elevate,
+  }) async {
+    final t = AppL10n.strings.customAppsDomain;
+    final result = await _runShell(
+      command.executable,
+      command.arguments,
+      elevate: elevate,
+      rawLastArgument: command.rawLastArgument,
+    );
+    if (result.exitCode == ElevatedProcess.cancelledCode) {
+      throw AppDescriptorException(t.installerElevationDeclined);
+    }
+    if (result.exitCode != 0) {
+      throw AppDescriptorException(
+        t.installerExitCode(result.exitCode, 'stderr: ${result.stderr}'),
       );
     }
     return CustomInstallOutcome(kind: kind);
