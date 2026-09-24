@@ -13,7 +13,7 @@ actually been verified on real hardware. Before **adding** anything here, read
 | § | |
 | --- | --- |
 | [1](#1-what-this-software-is-for) | What this software is for — the offline workflow, the data folder |
-| [2](#2-repository-layout) | Repository layout — seven packages |
+| [2](#2-repository-layout) | Repository layout — eight packages |
 | [3](#3-mandatory-workflow-after-every-change) | Format, analyze, test — required after every change |
 | [4](#4-code-style) | Comments, module boundaries, UI components, l10n |
 | [5](#5-landmines--do-not-break-these) | Landmines, grouped by area |
@@ -86,7 +86,8 @@ This repository is the updater/launcher for those users:
 **There is exactly one mode: offline.** Otzaria already updates itself over the
 network, so this launcher deliberately offers no "just update from the internet"
 path. Every check and every install reads the local folder, always — even when
-the machine is online. One thing touches the network: the download step.
+the machine is online. Two clicks touch the network: the download step, and
+uploading the error reports the drive collected (§5.10).
 
 | Step | API | Network |
 | --- | --- | --- |
@@ -99,6 +100,8 @@ the machine is online. One thing touches the network: the download step.
 | Check / install the Otzaria app | `OtzariaManager.checkForUpdate()` / `.update()` | no |
 | Check / install the launcher itself | `LauncherSelfUpdater.checkForUpdate()` / `.applyUpdate()` | no |
 | Read the store / install a plugin | `PluginsManager.load()` / `.directInstall()` | no |
+| Collect Otzaria's unsent error reports to the drive | `ErrorReportsController.collect()` | no |
+| Upload the collected error reports | `ErrorReportUploader.upload()` | **yes**, light — a click only |
 
 The "peek" calls exist only for the optional, one-shot, on-launch "is there
 anything new online?" nudge (`AppShell.checkOnline()`,
@@ -151,7 +154,7 @@ version is installed" describes the machine). Preferences are seeded once
 (`AppPaths.seedPreferences`); the state files deliberately are not.
 
 Everything that writes to the drive is off, with no prompt anywhere: `downloadAll`,
-the plugin sync, custom-app add/download, and self-update (it replaces the exe *on
+the plugin sync, custom-app add/download, error-report collect/upload, and self-update (it replaces the exe *on
 the drive*). `checkOnline` is skipped too — "there is something new online" with no
 way to bring it is nagging. Detection is free on the normal path: the mirror probe
 runs **only** after the write probe failed. An empty locked folder is still
@@ -161,7 +164,7 @@ runs **only** after the write probe failed. An empty locked folder is still
 
 ## 2. Repository layout
 
-Seven Dart/Flutter packages, each with its own `pubspec.yaml`. The main package
+Eight Dart/Flutter packages, each with its own `pubspec.yaml`. The main package
 sits at the repo root (historical — do not move it).
 
 | Path | Package | Role |
@@ -172,7 +175,8 @@ sits at the repo root (historical — do not move it).
 | `library_manager/` | `library_manager` | Flutter. Wires the root package into the launcher: locate the real `seforim.db`, check versions, apply to the **live** DB, export/consume the mirror. |
 | `plugins_manager/` | `plugins_manager` | Pure Dart. The **offline plugin store**: syncs `otzaria.org/api/plugins` into the mirror, detects what Otzaria has, installs via `otzaria://`. Converted from `Yehuda-Zakesh/Offline-repository-plugin-store` (itself derived from `Otzaria/Otzaria_Website`); details in `plugins_manager/README.md`. |
 | `custom_apps_manager/` | `custom_apps_manager` | Pure Dart. **User-added programs**: a record filled in a form (name, GitHub repo *or* local installer, install location, detection rules) so the drive can carry a program that is not Otzaria. Not a plugin system — no runtime, no WebView, no permissions, and **no importing a record from a file**, so every repo and file was chosen by the user. |
-| `launcher_app/` | `launcher_app` | The Flutter desktop app (Windows + macOS) wiring the modules into one dashboard. Depends on the other six by relative `path:`, so it must stay their sibling. |
+| `error_reports_manager/` | `error_reports_manager` | Pure Dart. **Otzaria's unsent book-error reports**, carried offline → online: read Otzaria's queue in `user_state.db` directly (Otzaria unchanged), port of its `toApiPayload`, a drive outbox, upload to `otzaria.org` in rate-limited batches. See §5.10. |
+| `launcher_app/` | `launcher_app` | The Flutter desktop app (Windows + macOS) wiring the modules into one dashboard. Depends on the other seven by relative `path:`, so it must stay their sibling. |
 
 Producer vs. consumer: the Kotlin repo `Otzaria/SeforimLibrary` *produces* the DB
 and the patches; this repo only *consumes* them.
@@ -196,7 +200,7 @@ Run these in the package(s) you touched. Not optional, not deferred to CI.
 dart format .
 
 flutter analyze --no-fatal-infos   # root, library_manager, launcher_app
-dart analyze                       # otzaria_l10n, otzaria_manager, plugins_manager, custom_apps_manager
+dart analyze                       # otzaria_l10n, otzaria_manager, plugins_manager, custom_apps_manager, error_reports_manager
 ```
 
 - **Analyze inside each package you changed.** The root `analysis_options.yaml`
@@ -204,12 +208,15 @@ dart analyze                       # otzaria_l10n, otzaria_manager, plugins_mana
   Every sub-package carries its own file for the same reason — without one the
   analyzer walks up, inherits the root's `exclude:` for that very package, and
   reports "No issues found" while checking nothing. Do not delete those files.
-- **Each of the seven includes two things:** its base rule set
+  A **new** package must also be added to that root `exclude:` list — locally the
+  package's own `.dart_tool` hides the omission, but a fresh CI checkout fails the
+  root job with "Target of URI doesn't exist".
+- **Each of the eight includes two things:** its base rule set
   (`flutter_lints` or `lints/recommended`) and the root
   `analysis_options_shared.yaml`, which holds every repo-wide tightening. A rule
   added to one package only silently does not apply to the rest (that is what
   happened to `prefer_single_quotes`); `otzaria_l10n/test/shared_lint_config_test.dart`
-  asserts all seven import it. Measure a new rule in **all seven** — one that is
+  asserts all eight import it. Measure a new rule in **all eight** — one that is
   clean in five and fails in the sixth turns CI red. Note `dart analyze`
   right-aligns severity, so `warning` lines have **no** leading space while `info`
   lines do; a grep assuming indentation misses every warning.
@@ -337,7 +344,8 @@ whether the machine happened to be online — the duality this design removes.
 [5.6 Plugins](#56-plugins) ·
 [5.7 Custom apps](#57-custom-apps) ·
 [5.8 Packaging & self-update](#58-packaging-distribution-and-self-update) ·
-[5.9 UI and platform](#59-ui-and-platform)
+[5.9 UI and platform](#59-ui-and-platform) ·
+[5.10 Error reports](#510-error-reports-offline--online)
 
 ### 5.1 The contract with the Kotlin producer
 
@@ -1617,6 +1625,67 @@ aside), and the website's mobile-style horizontal card rows were deliberately no
 ported — a nested horizontal scrollable swallows the mouse wheel and makes the page
 feel frozen.
 
+### 5.10 Error reports (offline → online)
+
+Otzaria queues book-error reports it could not send; `error_reports_manager` carries
+them on the drive. **Otzaria is not changed for this**: the launcher reads and writes
+Otzaria's own queue in `user_state.db` directly and builds the request body itself —
+every `sqlite3` call inside `Isolate.run`, the offer after the first frame (§5.9).
+UI is deliberately one startup dialog plus one button in the download card — no screen,
+no nav item, no setting. Paths, table layout and the transaction are tabulated in
+`error_reports_manager/README.md`.
+
+**The request body is a port, and it must be kept in step with Otzaria.**
+`lib/src/port/` translates `toApiPayload`, `apiErrorDetails` (the fallback block, word
+for word), `contentDigest` and OCJ-1 from Otzaria's `lib/models/direct_error_report.dart`
+and `lib/utils/canonical_json.dart`. `port_test.dart` compares against vectors produced
+by Otzaria's own code (commit named in the fixture); a change there must be re-ported
+and the vectors regenerated, or the server receives a body Otzaria would never send.
+
+**Never write to a DB we do not understand.** `PRAGMA user_version` above
+`UserStateReportQueue.knownSchemaVersion`, a missing `pending_reports` table, a report
+`schemaVersion` above 2, or a still-present `<dataRoot>/error_reports_queue.hive`
+(queue not yet migrated out of Hive) all mean "no offer" and no write. The DB and its
+folder are never created. Unsendable reports (`isSendable`, Otzaria's own export filter
+plus the 256KB limit) stay in the queue.
+
+**Otzaria must be closed — checked before the offer *and* after the click**
+(`offerErrorReportCollection`). Otzaria keeps `user_state.db` open for the life of every
+window (`busy_timeout=1000`, no retry by design), so a write under it can fail its own
+transactions; the dialog can sit open for minutes. Running at the first check does not
+consume the once-per-launch offer; it runs even with `autoCheckUpdates` off (after
+`_otzaria.ensureChecked()`), never on a read-only drive.
+
+**File first, then `markPendingReportAsSent` in one `BEGIN IMMEDIATE`.** A crash
+between them leaves the report pending and it is rewritten next time; the reverse order
+could mark it sent with no sendable copy. A row changed since it was read, or one whose
+marking threw, is skipped and its file discarded, so the outbox mirrors Otzaria. The
+sent counter lives in the same DB (`lists`), so it is updated in the same transaction;
+nothing is written to Hive.
+
+**One report per id (`_sendable` dedupes).** Marking deletes *every* pending row with
+that id, so a second same-id row found its row gone and discarded the file the first
+had just written — a lost report (QA, reproduced). An id moved in the run is never
+discarded.
+
+**The outbox is `<stateDir>/reports/outbox`, never under `mirror/`.** Collected reports
+are marked sent in Otzaria — its sent history keeps them too, but only the last 100 —
+so the outbox is the only copy that will be *sent*;
+`MirrorJunkSweeper` and `MirrorDownloadUndo` delete whatever no manifest names.
+A test in `mirror_junk_sweeper_test.dart` pins it.
+
+**8 requests, then 65s measured from the *end* of the last one — and it outlives a
+stop.** The server allows 8 a minute per IP; timing from the batch's start let one slow
+request shorten the real gap. `ErrorReportUploader` keeps `_lastRequestEnd` for the
+session, so "stop, resume at once" still waits. A 429 anyway waits a full window and
+retries the same report (`maxRateLimitRetries`). Stop is immediate, mid-wait and
+mid-request; an abandoned request keeps its file and the re-send answers `duplicate`.
+
+**Only 2xx deletes a file as sent; 400/409/413/422 and a non-`https://otzaria.org`
+endpoint delete it as rejected; anything else keeps it and stops the run.** A drive
+file can come from anywhere, so the endpoint is checked before any POST — and before
+the rate-limit wait, since it is not a request. Rejection reasons go to the log only.
+
 ---
 
 ## 6. Verification status
@@ -1641,6 +1710,7 @@ verify something new.
 | `OtzariaSettingsReader` against a real `app_preferences.hive` | Unit-tested only |
 | Combined first install (app wizard → auto-close → library), replacing the FULL package | Unit-tested only — the dialogs and the ordering are covered, but never run against a real wizard on a machine with no Otzaria, and the auto-close path has not been seen working. `otzaria.iss` was read to confirm `/NOLAUNCH=1` cannot clear the finish-page box |
 | Custom title bar (`window_manager` with the native frame hidden) | Unit-tested only, on either platform |
+| Error reports (§5.10) | Unit- and widget-tested only — against a DB built with Otzaria's schema and vectors from Otzaria's own code; never against a real installation's `user_state.db`, nor the real `otzaria.org` endpoint |
 
 **The macOS pass of 2026-09-14 is analyzer-clean and unit-tested only.** It closed six
 places where a Windows fix had no macOS twin — the data folder landing inside the

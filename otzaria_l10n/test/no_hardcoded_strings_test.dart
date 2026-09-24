@@ -32,6 +32,9 @@ const _exemptFiles = <String, String>{
   'library_manager/lib/src/services/otzaria_process_guard.dart': 'שם תהליך',
   // גימטריה ושמות חודשים עבריים — התוצאה עברית מעצם טבעה.
   'launcher_app/lib/src/services/hebrew_date.dart': 'לוח השנה העברי',
+  // בלוק ה-fallback נשלח לשרת בנוסח של אוצריא, מילה במילה — חלק מה-digest.
+  'error_reports_manager/lib/src/port/direct_error_report.dart':
+      'נוסח החוזה של אוצריא',
   // `app_seed_colors.dart` היה פטור כל זמן שהפלטה לא הייתה בשימוש; משנוסף
   // בורר הצבעים שמות הגוונים עברו לכאן, והפטור בוטל.
 };
@@ -201,6 +204,7 @@ final _hebrewLetter = RegExp(r'[֐-׿]');
     'otzaria_manager/lib',
     'plugins_manager/lib',
     'custom_apps_manager/lib',
+    'error_reports_manager/lib',
   ];
 
   final rootPath = _slashes(root.path);

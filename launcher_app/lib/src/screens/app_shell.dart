@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 
 import '../controllers/custom_apps_controller.dart';
 import '../controllers/download_summary.dart';
+import '../controllers/error_reports_controller.dart';
 import '../controllers/faq_controller.dart';
 import '../controllers/launcher_update_controller.dart';
 import '../controllers/library_module_controller.dart';
@@ -27,6 +28,7 @@ import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/widgets_exports.dart';
 import 'custom_apps/custom_apps_screen.dart';
+import 'error_reports_flow.dart';
 import 'faq/faq_floating_button.dart';
 import 'home_screen.dart';
 import 'library_screen.dart';
@@ -98,6 +100,9 @@ class _AppShellState extends State<AppShell> {
   /// ההתאמות שהמשתמש עשה להדרכת השאלות הנפוצות. אינו מודול: אין לו בדיקה,
   /// אין לו הורדה, והוא נטען פעם אחת בעלייה.
   late final FaqController _faq;
+
+  /// דיווחי טעויות של אוצריא: איסוף לכונן בעלייה, והעלאה מכרטיס ההורדות.
+  late final ErrorReportsController _errorReports;
 
   /// ההצעה להוריד גרסה חדשה של הלאנצ'ר מוצגת **פעם אחת בהרצה**. הבדיקה הקלה
   /// יכולה לרוץ עוד פעמים (כפתור "בדיקת עדכונים"), ודיאלוג שקופץ בכל אחת מהן
@@ -204,6 +209,11 @@ class _AppShellState extends State<AppShell> {
     // בלי `addListener`: הדיאלוג עצמו מאזין לו, והמסגרת אינה מציגה ממנו כלום.
     _faq = FaqController(dataDir: widget.stateDir);
     unawaited(_faq.load());
+    _errorReports = ErrorReportsController.forDrive(
+      stateDir: widget.stateDir,
+      launchPath: () async => _otzaria.launchPath,
+    );
+    if (!widget.readOnly) unawaited(_errorReports.refreshOutbox());
     widget.settings.addListener(_onChange);
     _applySettings(s);
 
@@ -218,6 +228,12 @@ class _AppShellState extends State<AppShell> {
       unawaited(checkAll());
     } else {
       unawaited(refreshProcessState());
+      // ההצעה לאסוף דיווחים אוטומטית גם בלי בדיקה בעלייה: היא צריכה רק את
+      // נתיב ההפעלה. אחרי הפריים הראשון — ראו AGENTS §5.9.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_otzaria.ensureChecked().then((_) => _offerErrorReports()));
+      });
     }
     // בדיקה קלה ברשת (מטא-דאטה בלבד) — פעם אחת בהפעלה, לא טיימר מחזורי.
     // כשל (אין רשת) נבלע בתוך הקונטרולרים ולא מוצג כשגיאה.
@@ -241,6 +257,7 @@ class _AppShellState extends State<AppShell> {
     _plugins.dispose();
     _customApps.dispose();
     _launcherUpdate.dispose();
+    _errorReports.dispose();
     _faq.dispose();
     super.dispose();
   }
@@ -357,6 +374,28 @@ class _AppShellState extends State<AppShell> {
     await _library.checkForUpdate();
     if (!mounted) return;
     await _autoInstallIfEnabled();
+    if (!mounted) return;
+    await _offerErrorReports();
+  }
+
+  /// "נמצאו דיווחים שלא נשלחו — לאסוף?". אוצריא פתוחה נבדקת בזרימה עצמה,
+  /// לפני ההצעה ואחרי האישור: המאגר שלה עלול להיות נעול.
+  Future<void> _offerErrorReports() async {
+    // גם מ-`checkAll` שהתחיל ב-`initState`: הדיאלוג והקריאה מהמסד — אחרי פריים.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || _otzaria.launchPath == null) return;
+    await offerErrorReportCollection(
+      context,
+      _errorReports,
+      readOnly: widget.readOnly,
+      isOtzariaRunning: refreshProcessState,
+    );
+  }
+
+  /// העלאת הדיווחים שעל הכונן — הפעולה היחידה שלהם שפונה לרשת.
+  Future<void> _uploadErrorReports() async {
+    if (_blockedByReadOnly() || !mounted) return;
+    await uploadErrorReports(context, _errorReports);
   }
 
   /// בדיקה קלה ברשת ("יש עדכון חדש?") לכל הרכיבים — מטא-דאטה בלבד, בלי
@@ -778,6 +817,8 @@ class _AppShellState extends State<AppShell> {
             onGoToOtzaria: () => _goTo(LauncherScreen.otzaria),
             onGoToLibrary: () => _goTo(LauncherScreen.library),
             readOnly: widget.readOnly,
+            errorReports: _errorReports,
+            onUploadErrorReports: _uploadErrorReports,
           ),
         LauncherScreen.otzaria => OtzariaScreen(
             otzaria: _otzaria,

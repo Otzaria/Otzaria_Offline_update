@@ -20,6 +20,7 @@ abstract class AppStrings {
   PluginsStrings get plugins;
   FaqStrings get faq;
   CustomAppsStrings get customApps;
+  ErrorReportsStrings get errorReports;
   SetupErrorStrings get setupError;
   ReadOnlyDriveStrings get readOnlyDrive;
   ElevationStrings get elevation;
@@ -32,6 +33,7 @@ abstract class AppStrings {
   AppDomainStrings get appDomain;
   PluginsDomainStrings get pluginsDomain;
   CustomAppsDomainStrings get customAppsDomain;
+  ErrorReportsDomainStrings get errorReportsDomain;
 }
 
 // ── משותף ─────────────────────────────────────────────────────────────────────
@@ -1766,4 +1768,55 @@ abstract class CustomAppsDomainStrings {
   /// הקובץ שהורד אינו תואם ל-digest שגיטהאב מפרסם לו.
   String downloadDigestMismatch(String fileName);
   String get sourceIsNotGithub;
+}
+
+// ── דיווחי טעויות: מהמחשב הלא-מקוון אל אוצריא ──────────────────────────────
+
+/// איסוף דיווחי הטעויות שאוצריא לא הצליחה לשלוח, ושליחתם מהמחשב המקוון.
+/// אין לזה מסך משלו: דיאלוג בעלייה, וכפתור בכרטיס ההורדות.
+abstract class ErrorReportsStrings {
+  const ErrorReportsStrings();
+
+  // ── איסוף, במחשב הלא-מקוון ──
+  String get collectDialogTitle;
+  String collectDialogContent(int count);
+  String get collectConfirm;
+  String get collectLater;
+  String collectedSnack(int count);
+
+  /// אוצריא דיווחה על כשל חלקי — מה שנאסף תקין ויישלח.
+  String collectPartialSnack(int count, String error);
+  String collectFailedSnack(String error);
+
+  /// אוצריא נפתחה בין האישור לאיסוף — הדיווחים נשארים בה עד ההפעלה הבאה.
+  String get collectOtzariaOpenSnack;
+
+  // ── העלאה, במחשב המקוון ──
+  String uploadButton(int count);
+  String get uploadLongDialogTitle;
+  String uploadLongDialogContent(int count, int perMinute, int minutes);
+  String get uploadLongDialogConfirm;
+  String uploadingStage(int done, int total);
+  String uploadWaitingStage(int seconds);
+  String get uploadStopButton;
+
+  /// הסיכום בסוף ריצה — גם כשנעצרה באמצע.
+  String uploadSummary(int sent, int rejected, int remaining);
+  String uploadFailedSnack(String error);
+}
+
+/// שגיאות של התור של אוצריא ושל שרת הדיווחים.
+abstract class ErrorReportsDomainStrings {
+  const ErrorReportsDomainStrings();
+
+  /// התור של אוצריא (`user_state.db`) לא נקרא או לא נכתב. הפרטים — ביומן.
+  String get queueUnreadable;
+
+  /// חלק מהדיווחים לא הועברו; הם נשארו בתור של אוצריא.
+  String get someNotCollected;
+
+  String uploadHttpStatus(int statusCode);
+  String get uploadTimedOut;
+  String uploadNetworkError(String error);
+  String outboxUnreadable(String error);
 }

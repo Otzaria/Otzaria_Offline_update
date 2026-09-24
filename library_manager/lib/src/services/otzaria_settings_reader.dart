@@ -11,11 +11,15 @@ class OtzariaSettings {
     this.libraryPath,
     this.libraryFolderName,
     this.dbEffectivePath,
+    this.databasesPath,
   });
 
   final String? libraryPath;
   final String? libraryFolderName;
   final String? dbEffectivePath;
+
+  /// תיקיית המסדים האישיים (`key-databases-path`) — שם יושב `user_state.db`.
+  final String? databasesPath;
 
   bool get isEmpty =>
       (libraryPath == null || libraryPath!.isEmpty) &&
@@ -55,6 +59,7 @@ class OtzariaSettingsReader {
   static const String keyLibraryPath = 'key-library-path';
   static const String keyLibraryFolderName = 'key-library-folder-name';
   static const String keyDbEffectivePath = 'key-db-effective-path';
+  static const String keyDatabasesPath = 'key-databases-path';
 
   /// Hive מזהה קופסה פתוחה לפי **שם בלבד** ומתעלם מה-`path` — שתי קריאות
   /// מקבילות על שורשי נתונים שונים היו מקבלות את אותה קופסה, כלומר את
@@ -93,6 +98,7 @@ class OtzariaSettingsReader {
           libraryPath: _stringOrNull(box.get(keyLibraryPath)),
           libraryFolderName: _stringOrNull(box.get(keyLibraryFolderName)),
           dbEffectivePath: _stringOrNull(box.get(keyDbEffectivePath)),
+          databasesPath: _stringOrNull(box.get(keyDatabasesPath)),
         );
       } finally {
         await box.close();
