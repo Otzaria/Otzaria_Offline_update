@@ -1,6 +1,5 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/otzaria_module_controller.dart';
@@ -8,7 +7,6 @@ import '../services/native_file_dialogs.dart';
 import '../services/timestamps.dart';
 import '../settings/safer_mode.dart';
 import '../settings/settings_controller.dart';
-import '../theme/theme_exports.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
 
@@ -282,73 +280,15 @@ class OtzariaScreen extends StatelessWidget {
   /// הערות הגרסה יושבות בדיאלוג ולא על המסך: הן ארוכות, וכשאין עדכון אין
   /// למי שנכנס למסך עניין בהן. הכפתור יושב בשורת הגרסה שבתיקייה המקומית.
   Future<void> _showWhatsNew(BuildContext context) {
-    final notes = otzaria.latestReleaseNotes?.trim();
     final t = context.strings.appScreen;
 
     return showSingleActionDialog(
       context: context,
       title: t.whatsNewTitle,
       confirmText: context.strings.common.close,
-      customContent: SizedBox(
-        width: 600,
-        // גובה **מרבי** ולא קבוע: בחלון בגובה המינימלי, ובעיקר בטקסט מוגדל,
-        // 400 קבועים גלשו מהדיאלוג במקום להצטמצם אליו.
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 400),
-          child: (notes == null || notes.isEmpty)
-              ? Text(t.whatsNewEmpty,
-                  style: Theme.of(context).textTheme.bodyMedium)
-              : SingleChildScrollView(
-                  child: MarkdownBody(
-                    data: notes,
-                    styleSheet: _whatsNewStyleSheet(context),
-                  ),
-                ),
-        ),
-      ),
-    );
-  }
-
-  /// גיליון סגנון ל"מה התחדש" — מבוסס על עיצוב הערכה (`fromTheme`) עם
-  /// דריסות לפי טוקני העיצוב של אוצריא (צבע/פונט כותרות כמו כותרת
-  /// [SettingsCard], והזחת בלט/מסגרת ציטוט לפי כיוון הכתיבה).
-  MarkdownStyleSheet _whatsNewStyleSheet(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final isRtl = context.isRtl;
-    final headingStyle =
-        TextStyle(color: cs.primary, fontWeight: FontWeight.bold);
-
-    return MarkdownStyleSheet.fromTheme(theme).copyWith(
-      a: TextStyle(color: cs.primary, decoration: TextDecoration.underline),
-      h1: theme.textTheme.headlineSmall?.merge(headingStyle),
-      h2: theme.textTheme.titleLarge?.merge(headingStyle),
-      h3: theme.textTheme.titleMedium?.merge(headingStyle),
-      blockSpacing: AppTokens.spaceSM,
-      listIndent: AppTokens.spaceLG,
-      // ה-bullet הוא הילד הראשון ב-Row של הפריט; הריווח צריך להיות בצד
-      // שאליו זורם הטקסט — שמאל ב-RTL, ימין ב-LTR.
-      listBulletPadding: EdgeInsets.only(
-        left: isRtl ? AppTokens.spaceXS : 0,
-        right: isRtl ? 0 : AppTokens.spaceXS,
-      ),
-      blockquotePadding: const EdgeInsets.symmetric(
-        horizontal: AppTokens.spaceMD,
-        vertical: AppTokens.spaceXS,
-      ),
-      blockquoteDecoration: BoxDecoration(
-        color: cs.surfaceContainerHighest,
-        borderRadius: AppTokens.borderRadiusAll,
-        border: BorderDirectional(
-          start: BorderSide(color: cs.primary, width: 3),
-        ),
-      ),
-      codeblockDecoration: BoxDecoration(
-        color: cs.surfaceContainerHigh,
-        borderRadius: AppTokens.borderRadiusAll,
-      ),
-      horizontalRuleDecoration: BoxDecoration(
-        border: Border(top: BorderSide(color: theme.dividerColor)),
+      customContent: WhatsNewView(
+        markdown: otzaria.latestReleaseNotes,
+        emptyText: t.whatsNewEmpty,
       ),
     );
   }

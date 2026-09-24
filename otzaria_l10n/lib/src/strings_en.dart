@@ -1715,7 +1715,19 @@ class _LauncherUpdate extends LauncherUpdateStrings {
       'beside the program and can be swapped in by hand.';
 
   @override
+  String get whatsNewHeading => "What's new:";
+
+  @override
   String get versionTileTitle => 'Program version';
+
+  @override
+  String get changelogButton => 'Changelog';
+
+  @override
+  String get changelogDialogTitle => 'Program changelog';
+
+  @override
+  String get changelogNotFound => 'No changelog file was found.';
 
   @override
   String get executableNotFound =>

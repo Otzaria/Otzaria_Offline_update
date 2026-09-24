@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'package:http/http.dart' as http;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
+import 'launcher_changelog.dart';
 import 'launcher_release.dart';
 import 'launcher_version.dart';
 
@@ -83,6 +84,37 @@ class LauncherReleaseClient {
       }
     }
     return best;
+  }
+
+  /// יומן השינויים כפי שהוא בתג [tagName], או `null` כשאין בתג כזה (תג
+  /// מלפני שנוסף). קובץ טקסט אחד מ-raw — לא API, ולא נספר במכסה שלו.
+  Future<String?> fetchChangelog(String tagName) async {
+    final uri = Uri(
+      scheme: 'https',
+      host: 'raw.githubusercontent.com',
+      pathSegments: [
+        _owner,
+        _repo,
+        'refs',
+        'tags',
+        tagName,
+        'launcher_app',
+        ...launcherChangelogAsset.split('/'),
+      ],
+    );
+    final response = await _httpClient.get(
+      uri,
+      headers: const {'User-Agent': 'otzaria-launcher'},
+    ).timeout(timeout);
+
+    if (response.statusCode == 404) return null;
+    if (response.statusCode != 200) {
+      throw LauncherUpdateException(
+        AppL10n.strings.appDomain.githubStatus(response.statusCode, '$uri'),
+      );
+    }
+    // raw מחזיר text/plain בלי charset, ו-`body` היה מפענח latin1.
+    return utf8.decode(response.bodyBytes, allowMalformed: true);
   }
 
   /// `null` כשה-release אינו מתאים (תג שאינו גרסה, או אין אסט לפלטפורמה) —

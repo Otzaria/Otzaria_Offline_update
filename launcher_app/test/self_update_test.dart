@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:launcher_app/src/controllers/launcher_update_controller.dart';
+import 'package:launcher_app/src/self_update/launcher_changelog.dart';
 import 'package:launcher_app/src/self_update/launcher_install_layout.dart';
 import 'package:launcher_app/src/self_update/launcher_release.dart';
 import 'package:launcher_app/src/self_update/launcher_release_client.dart';
@@ -215,6 +216,103 @@ void main() {
         throwsA(isA<LauncherUpdateException>()),
       );
     });
+
+    test('יומן השינויים נשלף מהתג, בנתיב הנכס, ומפוענח כ-UTF-8', () async {
+      late Uri requested;
+      final client = LauncherReleaseClient(
+        operatingSystem: 'windows',
+        httpClient: MockClient((request) async {
+          requested = request.url;
+          return http.Response.bytes(utf8.encode('* **1.0**\n  - חדש'), 200);
+        }),
+      );
+      addTearDown(client.dispose);
+
+      expect(await client.fetchChangelog('v1.0.0'), contains('חדש'));
+      expect(requested.host, 'raw.githubusercontent.com');
+      expect(
+        requested.pathSegments,
+        containsAllInOrder(
+            ['refs', 'tags', 'v1.0.0', 'launcher_app', 'assets']),
+      );
+      expect(requested.pathSegments.last, 'יומן שינויים.md');
+    });
+
+    test('תג בלי יומן (404) — null, ולא שגיאה', () async {
+      final client = LauncherReleaseClient(
+        operatingSystem: 'windows',
+        httpClient: MockClient((_) async => http.Response('', 404)),
+      );
+      addTearDown(client.dispose);
+
+      expect(await client.fetchChangelog('v0.5.0'), isNull);
+    });
+  });
+
+  group('changelogBetweenVersions', () {
+    const changelog = '''
+  - עוד לא יצא
+
+* **0.24**
+  - חדש
+
+* **0.23**
+  - ביניים
+
+* **0.22**
+  - ישן
+''';
+
+    test('רק הגרסאות שאחרי הנוכחית ועד החדשה, עם הכותרות', () {
+      final result = changelogBetweenVersions(
+        changelog: changelog,
+        currentVersion: '0.22',
+        latestVersion: 'v0.24.0',
+      )!;
+
+      expect(result, startsWith('* **0.24**'));
+      expect(result, contains('  - ביניים'));
+      expect(result, isNot(contains('ישן')));
+      // פריטים בלי כותרת עוד לא יצאו בשום גרסה.
+      expect(result, isNot(contains('עוד לא יצא')));
+    });
+
+    test('גרסה שאינה חדשה, או אין ביניהן כלום — null', () {
+      expect(
+        changelogBetweenVersions(
+          changelog: changelog,
+          currentVersion: '0.24',
+          latestVersion: '0.24',
+        ),
+        isNull,
+      );
+      expect(
+        changelogBetweenVersions(
+          changelog: changelog,
+          currentVersion: '0.24',
+          latestVersion: '0.25',
+        ),
+        isNull,
+      );
+    });
+
+    test('היומן הארוז: כל כותרת היא גרסה, מהחדשה לישנה, והנכס מוצהר', () {
+      final text = File(launcherChangelogAsset).readAsStringSync();
+      final versions = [
+        for (final line in text.split(RegExp(r'\r?\n')))
+          if (line.trimLeft().startsWith('* ')) changelogHeadingVersion(line),
+      ];
+
+      expect(versions, isNotEmpty);
+      expect(versions, isNot(contains(null)),
+          reason: 'שורת "* " שאינה כותרת גרסה תוצג בחיתוך כחלק מגרסה אחרת');
+      for (var i = 1; i < versions.length; i++) {
+        expect(LauncherVersion.compare(versions[i - 1]!, versions[i]!),
+            greaterThan(0));
+      }
+      expect(File('pubspec.yaml').readAsStringSync(),
+          contains('- $launcherChangelogAsset'));
+    });
   });
 
   group('LauncherUpdateMirror', () {
@@ -257,6 +355,14 @@ void main() {
             .readAsString(),
       ) as Map<String, dynamic>;
       expect(json['filePath'], isNot(contains(r'\')));
+    });
+
+    test('יומן השינויים נוסע במטא-דאטה — המחשב המנותק קורא אותו בלי רשת',
+        () async {
+      await mirror.sync(_release().withChangelog('* **1.0**\n  - חדש'));
+
+      final loaded = await mirror.load();
+      expect(loaded?.release.changelog, contains('חדש'));
     });
 
     test('קובץ בגודל שגוי (הורדה שנקטעה) נחשב "אין מראה"', () async {
@@ -535,6 +641,7 @@ void main() {
     LauncherSelfUpdater updater({
       LauncherInstallLayout? layout,
       String body = 'abcd',
+      String? changelog,
       LauncherSelfInstaller? installer,
     }) {
       // `Response.bytes` ולא `Response(...)`: השני מקודד latin1 כשאין
@@ -543,6 +650,10 @@ void main() {
         if (request.url.host == 'api.github.com') {
           return http.Response.bytes(
               utf8.encode(jsonEncode([_releaseJson()])), 200);
+        }
+        if (request.url.host == 'raw.githubusercontent.com') {
+          if (changelog == null) return http.Response('', 404);
+          return http.Response.bytes(utf8.encode(changelog), 200);
         }
         return http.Response.bytes(utf8.encode(body), 200);
       });
@@ -600,6 +711,44 @@ void main() {
 
     group('LauncherUpdateController', () {
       setUp(() => AppLogger.init(temp.path));
+
+      test('"מה התחדש" נשלף בהצעה, ואחרי ההורדה נקרא מהמראה', () async {
+        final newer = _release().version;
+        final controller = LauncherUpdateController(
+          dataDir: temp.path,
+          updater: updater(
+            changelog: '  - עוד לא יצא\n\n* **$newer**\n  - חדש\n\n'
+                '* **$launcherVersion**\n  - מה שכבר רץ',
+          ),
+        );
+        addTearDown(controller.dispose);
+
+        await controller.checkOnline();
+        expect(controller.onlineWhatsNew, contains('חדש'));
+        expect(controller.onlineWhatsNew, isNot(contains('מה שכבר רץ')));
+
+        await controller.download();
+        // לאנצ'ר חדש, כמו במחשב המנותק: אין רשת, רק מה שעל הכונן.
+        final offline = LauncherUpdateController(
+          dataDir: temp.path,
+          updater: updater(),
+        );
+        addTearDown(offline.dispose);
+        await offline.checkForUpdate();
+        expect(offline.downloadedWhatsNew, contains('חדש'));
+      });
+
+      test('כשל בשליפת היומן אינו מפיל את ההורדה', () async {
+        final controller = LauncherUpdateController(
+          dataDir: temp.path,
+          updater: updater(), // raw מחזיר 404
+        );
+        addTearDown(controller.dispose);
+
+        await controller.download();
+        expect(controller.hasUpdateReady, isTrue);
+        expect(controller.downloadedWhatsNew, isNull);
+      });
 
       test('כשל התקנה משאיר את הכפתור — במחשב מנותק אין דרך אחרת לנסות שוב',
           () async {

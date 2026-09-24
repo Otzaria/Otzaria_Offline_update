@@ -1387,6 +1387,28 @@ void main() {
     expect(find.text('התקנת תוספים אוטומטית'), findsNothing);
   });
 
+  testWidgets('"יומן שינויים" בשורת הגרסה פותח את היומן הארוז', (tester) async {
+    await pumpScreen(
+      tester,
+      SettingsScreen(
+        controller: settings,
+        onOpenLog: () {},
+        launcherVersion: launcherVersion,
+      ),
+    );
+
+    await tester.ensureVisible(find.text('יומן שינויים'));
+    await tester.tap(find.text('יומן שינויים'));
+    // טעינת הנכס היא I/O אמיתי — ראו AGENTS.md §3.
+    await tester.runAsync(() => Future<void>.delayed(
+          const Duration(milliseconds: 200),
+        ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('יומן שינויים בתוכנה'), findsOneWidget);
+    expect(find.text('לא נמצא קובץ יומן שינויים.'), findsNothing);
+  });
+
   testWidgets('מסך ההגדרות באנגלית — הכול מתורגם והכיוון מתהפך',
       (tester) async {
     await pumpScreen(

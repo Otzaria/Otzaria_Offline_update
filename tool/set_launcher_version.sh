@@ -40,4 +40,8 @@ replace "$dart" "^const String launcherVersion = '.*';" \
 # עם הגרסה הקודמת היה מייצר release שמדווח על עצמו מספר אחר.
 grep -qx "version: $version.0" "$pubspec"
 grep -qx "const String launcherVersion = '$version';" "$dart"
+
+# הפריטים שעוד לא יצאו מקבלים את כותרת הגרסה — בבנייה, כדי שהיומן הארוז
+# יכיל אותה, ובפרסום, כדי שתיכנס לקומיט המתויג.
+bash "$root/tool/changelog.sh" stamp "$version"
 echo "$version"

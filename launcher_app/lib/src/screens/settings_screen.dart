@@ -1,8 +1,10 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/custom_apps_controller.dart';
+import '../self_update/launcher_changelog.dart';
 import '../services/app_paths.dart';
 import '../settings/app_settings.dart';
 import '../settings/safer_mode.dart';
@@ -437,6 +439,13 @@ class SettingsScreen extends StatelessWidget {
           title: context.strings.launcherUpdate.versionTileTitle,
           subtitle:
               context.strings.launcherUpdate.installedVersion(launcherVersion),
+          actions: [
+            ActionButton.ghost(
+              icon: FluentIcons.history_24_regular,
+              text: context.strings.launcherUpdate.changelogButton,
+              onPressed: () => _showChangelog(context),
+            ),
+          ],
         ),
         SettingsActionTile.text(
           icon: FluentIcons.document_bullet_list_24_regular,
@@ -462,6 +471,27 @@ class SettingsScreen extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+
+  /// יומן השינויים המלא, מהעותק שנארז בתוכנה — בלי רשת.
+  Future<void> _showChangelog(BuildContext context) async {
+    String? changelog;
+    try {
+      changelog = await rootBundle.loadString(launcherChangelogAsset);
+    } catch (_) {
+      changelog = null;
+    }
+    if (!context.mounted) return;
+    final t = context.strings.launcherUpdate;
+    await showSingleActionDialog(
+      context: context,
+      title: t.changelogDialogTitle,
+      confirmText: context.strings.common.close,
+      customContent: WhatsNewView(
+        markdown: changelog,
+        emptyText: t.changelogNotFound,
+      ),
     );
   }
 

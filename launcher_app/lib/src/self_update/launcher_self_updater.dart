@@ -105,7 +105,19 @@ class LauncherSelfUpdater {
   }) async {
     final target = release ?? await peekLatestOnline();
     if (target == null) return null;
-    return _mirror.sync(target, onProgress: onProgress);
+    return _mirror.sync(await withChangelog(target), onProgress: onProgress);
+  }
+
+  /// [release] עם יומן השינויים שבתג שלו. כשל נבלע: "מה התחדש" חסר אינו
+  /// סיבה להפיל הורדה של גרסה.
+  Future<LauncherRelease> withChangelog(LauncherRelease release) async {
+    if (release.changelog != null) return release;
+    try {
+      return release
+          .withChangelog(await _releaseClient.fetchChangelog(release.tagName));
+    } catch (_) {
+      return release;
+    }
   }
 
   /// בודק מה מוכן בתיקייה מול הגרסה שרצה. לא נוגע ברשת ולא זורק על מראה

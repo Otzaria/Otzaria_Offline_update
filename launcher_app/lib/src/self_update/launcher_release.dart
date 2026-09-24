@@ -11,6 +11,7 @@ class LauncherRelease {
     required this.sizeBytes,
     this.publishedAt,
     this.releaseNotes,
+    this.changelog,
   });
 
   final String tagName;
@@ -24,6 +25,21 @@ class LauncherRelease {
   final int sizeBytes;
   final DateTime? publishedAt;
   final String? releaseNotes;
+
+  /// יומן השינויים כפי שהוא בתג הזה — נשמר במטא-דאטה של המראה, כדי שהמחשב
+  /// המנותק יציג "מה התחדש" בלי רשת. `null` כשלא נשלף.
+  final String? changelog;
+
+  LauncherRelease withChangelog(String? changelog) => LauncherRelease(
+        tagName: tagName,
+        name: name,
+        assetName: assetName,
+        downloadUrl: downloadUrl,
+        sizeBytes: sizeBytes,
+        publishedAt: publishedAt,
+        releaseNotes: releaseNotes,
+        changelog: changelog,
+      );
 
   /// הגרסה המנורמלת של התג — זו שמוצגת למשתמש ומושווית למותקנת.
   ///
@@ -47,6 +63,7 @@ class LauncherRelease {
         'sizeBytes': sizeBytes,
         if (publishedAt != null) 'publishedAt': publishedAt!.toIso8601String(),
         if (releaseNotes != null) 'releaseNotes': releaseNotes,
+        if (changelog != null) 'changelog': changelog,
       };
 
   /// זורק [FormatException] על רשומה שחסר בה שדה חובה — הקורא (המראה) הופך
@@ -78,6 +95,8 @@ class LauncherRelease {
       releaseNotes: json['releaseNotes'] is String
           ? json['releaseNotes'] as String
           : null,
+      changelog:
+          json['changelog'] is String ? json['changelog'] as String : null,
     );
   }
 }

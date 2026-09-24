@@ -22,6 +22,8 @@ void main() {
     // שה-stub מחלץ אליה. הם חייבים להיות זהים בשלושת הצדדים (Dart, stub.c,
     // package.ps1) — ראו `stub_contract_test.dart` — ולכן אינם מתורגמים.
     'lib/src/self_update/launcher_install_layout.dart',
+    // שם קובץ יומן השינויים — אותו שם כמו באוצריא, והוא גם הנתיב בתג.
+    'lib/src/self_update/launcher_changelog.dart',
   };
 
   /// סימנים שאחריהם הליטרל הוא אבחון למפתח ולא מלל ממשק. `FormatException`

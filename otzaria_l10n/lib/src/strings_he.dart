@@ -1617,7 +1617,19 @@ class _LauncherUpdate extends LauncherUpdateStrings {
       'ידנית.';
 
   @override
+  String get whatsNewHeading => 'מה התחדש:';
+
+  @override
   String get versionTileTitle => 'גרסת התוכנה';
+
+  @override
+  String get changelogButton => 'יומן שינויים';
+
+  @override
+  String get changelogDialogTitle => 'יומן שינויים בתוכנה';
+
+  @override
+  String get changelogNotFound => 'לא נמצא קובץ יומן שינויים.';
 
   @override
   String get executableNotFound =>

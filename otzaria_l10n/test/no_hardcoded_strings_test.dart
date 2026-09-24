@@ -77,6 +77,9 @@ const _nameLiterals = <String>{
   // שובר את איתור ה-exe שצריך להוחלף בעדכון העצמי.
   'launcher_app/lib/src/self_update/launcher_install_layout.dart|'
       'עדכוני אוצריא.exe',
+  // שם קובץ יומן השינויים, כמו באוצריא — הוא גם הנתיב שנשלף מהתג ב-GitHub.
+  'launcher_app/lib/src/self_update/launcher_changelog.dart|'
+      'assets/יומן שינויים.md',
   'otzaria_manager/lib/src/services/running_otzaria_locator.dart|אוצריא',
   'library_manager/lib/src/services/companion_assets_installer.dart|תלמוד בבלי',
 };

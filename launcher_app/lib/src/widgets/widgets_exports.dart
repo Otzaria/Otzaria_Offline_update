@@ -21,3 +21,4 @@ export 'segmented_control.dart';
 export 'settings_card.dart';
 export 'status_chip.dart';
 export 'ui_snack.dart';
+export 'whats_new_view.dart';

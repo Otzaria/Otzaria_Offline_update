@@ -233,6 +233,14 @@ dart analyze                       # otzaria_l10n, otzaria_manager, plugins_mana
   run's* artifacts — so what ships is exactly what was tested. Before 2026-09-21
   every green push published; it does not any more. See `launcher_app/README.md`
   § "עדכון עצמי".
+- **Before every release, write the main user-facing changes into
+  `launcher_app/assets/יומן שינויים.md`** — short Hebrew bullets
+  (`  - …`) at the **top of the file, with no heading**. The version number is
+  only decided at publish time, so `tool/changelog.sh stamp` (run by
+  `set_launcher_version.sh`) adds the `* **0.N**` heading above them, and the
+  Release workflow's `guard` job fails when there is nothing unheaded to stamp.
+  That file is what "מה התחדש" shows, in the update dialogs and in Settings.
+  When you finish a user-visible change, add its bullet there.
 - **`.githooks/pre-commit` runs the same checks locally** on staged packages and
   blocks the commit on failure. Each clone needs
   `git config core.hooksPath .githooks` once.
@@ -1491,6 +1499,12 @@ exe into `mirror/launcher/`, copies it over the stub (two renames, rollback on f
   Otzaria `installing`) disables the card's button **and** guards
   `installLauncherUpdate` itself — the button is not enough, since
   `downloadLauncherUpdate` offers the install straight after a download.
+
+**"What's new" travels inside `latest-release.json`, not as its own file.**
+The offline machine runs the *old* exe, whose bundled changelog lacks the new
+version, so `LauncherSelfUpdater.withChangelog` fetches the file from the tag
+and the mirror stores it in `LauncherRelease.changelog`; a separate file would
+be deleted by `MirrorJunkSweeper`. A failed fetch never fails the download.
 
 **On macOS the same code replaces the whole `.app` bundle** (`ditto`, never `unzip`)
 and does **not** restart: `open` on a bundle swapped under a running app is unreliable,

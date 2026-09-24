@@ -390,11 +390,15 @@ class _AppShellState extends State<AppShell> {
     _askedAboutLauncherUpdate = true;
 
     final t = context.strings.launcherUpdate;
+    final whatsNew = c.onlineWhatsNew;
     final approved = await showTwoActionsDialog(
       context: context,
       title: t.availableDialogTitle,
       content: '${t.availableDialogContent(release.version)}\n\n'
           '${t.availableDialogDetail(formatBytes(release.sizeBytes))}',
+      customContent: whatsNew == null
+          ? null
+          : WhatsNewSection(heading: t.whatsNewHeading, markdown: whatsNew),
       cancelText: t.availableDialogCancel,
       confirmText: t.availableDialogConfirm,
     );
@@ -443,10 +447,15 @@ class _AppShellState extends State<AppShell> {
     if (version == null || !_launcherUpdate.canInstall) return;
 
     final t = context.strings.launcherUpdate;
+    // מהמראה ולא מהרשת: כאן מגיעים גם במחשב המנותק.
+    final whatsNew = _launcherUpdate.downloadedWhatsNew;
     final approved = await showTwoActionsDialog(
       context: context,
       title: t.readyDialogTitle,
       content: t.readyDialogContent(version),
+      customContent: whatsNew == null
+          ? null
+          : WhatsNewSection(heading: t.whatsNewHeading, markdown: whatsNew),
       confirmText: t.readyDialogConfirm,
     );
     if (!approved) return;

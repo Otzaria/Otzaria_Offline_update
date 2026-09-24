@@ -17,4 +17,8 @@ The two rules that apply to *every* change:
    explanations belong in the package README or CHANGELOG. Comments and
    doc-comments are written in Hebrew, matching the existing code.
 
+**Before every release**, the main user-facing changes must be written at the
+top of `launcher_app/assets/יומן שינויים.md`, with no version heading — see
+AGENTS.md §3. The Release workflow refuses to publish without them.
+
 Reply to the user in Hebrew.

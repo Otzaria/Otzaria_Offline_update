@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../self_update/launcher_changelog.dart';
 import '../self_update/launcher_release.dart';
 import '../self_update/launcher_self_updater.dart';
 import '../self_update/launcher_version.dart';
@@ -37,6 +38,9 @@ class LauncherUpdateController extends ChangeNotifier with ProgressNotifier {
   /// הגרסה שמוכנה בתיקייה, אם יש.
   String? downloadedVersion;
 
+  /// יומן השינויים שנשמר במראה יחד עם [downloadedVersion].
+  String? _downloadedChangelog;
+
   /// מה שהבדיקה הקלה מצאה ברשת — `null` כשלא נבדק או שאין רשת.
   LauncherRelease? onlineRelease;
   String? onlineCheckError;
@@ -71,6 +75,30 @@ class LauncherUpdateController extends ChangeNotifier with ProgressNotifier {
   String? get onlineUpdateVersion =>
       hasOnlineUpdate ? onlineRelease?.version : null;
 
+  /// "מה התחדש" מהגרסה שרצה ועד זו שברשת — `null` כשאין מה להציג.
+  String? get onlineWhatsNew {
+    final online = onlineRelease;
+    final changelog = online?.changelog;
+    if (online == null || changelog == null) return null;
+    return changelogBetweenVersions(
+      changelog: changelog,
+      currentVersion: currentVersion,
+      latestVersion: online.tagName,
+    );
+  }
+
+  /// "מה התחדש" מהגרסה שרצה ועד זו שמוכנה בתיקייה — בלי רשת.
+  String? get downloadedWhatsNew {
+    final version = downloadedVersion;
+    final changelog = _downloadedChangelog;
+    if (version == null || changelog == null) return null;
+    return changelogBetweenVersions(
+      changelog: changelog,
+      currentVersion: currentVersion,
+      latestVersion: version,
+    );
+  }
+
   /// בדיקה קלה ברשת. כשל (בעיקר "אין חיבור") הוא מצב תקין ונשמר בשקט, בדיוק
   /// כמו במודולים האחרים — בדיקה אוטומטית לא מציגה שגיאה כשאין רשת.
   Future<void> checkOnline() async {
@@ -79,6 +107,11 @@ class LauncherUpdateController extends ChangeNotifier with ProgressNotifier {
 
     try {
       onlineRelease = await _updater.peekLatestOnline();
+      // בקשה נוספת רק כשיש מה להציע — היומן מוצג בדיאלוג ההצעה.
+      final online = onlineRelease;
+      if (online != null && hasOnlineUpdate) {
+        onlineRelease = await _updater.withChangelog(online);
+      }
     } catch (e) {
       onlineRelease = null;
       onlineCheckError = e.toString();
@@ -95,6 +128,7 @@ class LauncherUpdateController extends ChangeNotifier with ProgressNotifier {
     try {
       final check = await _updater.checkForUpdate();
       downloadedVersion = check.mirroredVersion;
+      _downloadedChangelog = check.mirrored?.release.changelog;
       canInstall = check.canInstall;
       status = check.updateAvailable
           ? LauncherUpdateStatus.readyToInstall

@@ -63,4 +63,6 @@ flutter:
 
   assets:
     - assets/images/
+    # יומן השינויים למשתמש — ראו `launcher_changelog.dart`.
+    - assets/יומן שינויים.md
 

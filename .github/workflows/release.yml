@@ -27,6 +27,11 @@ jobs:
         run: |
           echo "::error::פרסום אפשרי רק מ-main (התבקש ${{ github.ref }})"
           exit 1
+      # גרסה בלי "מה התחדש" אינה יוצאת — ראו AGENTS.md §3. הכותרת נחתמת
+      # בבנייה (`set_launcher_version.sh`), כאן רק בודקים שיש מה לחתום.
+      - uses: actions/checkout@v4
+      - name: Changelog has unreleased items
+        run: bash ./tool/changelog.sh check
 
   # מריץ את כל הג'ובים של ci.yml באותה ריצה — ולכן `download-artifact` למטה
   # מוצא את הקבצים שלהם בלי להעלות אותם לשום מקום בדרך.

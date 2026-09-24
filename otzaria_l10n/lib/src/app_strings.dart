@@ -994,8 +994,15 @@ abstract class LauncherUpdateStrings {
   /// להציג את עצמו בלי אף כפתור.
   String get installUnavailableNotice;
 
+  // ── מה התחדש ────────────────────────────────────────────────────────────
+  /// הכותרת שמעל יומן השינויים בדיאלוגים של הגרסה החדשה.
+  String get whatsNewHeading;
+
   // ── הגדרות ──────────────────────────────────────────────────────────────
   String get versionTileTitle;
+  String get changelogButton;
+  String get changelogDialogTitle;
+  String get changelogNotFound;
 
   // ── שגיאות ──────────────────────────────────────────────────────────────
   /// אין לנו את הנתיב של קובץ ההרצה שהמשתמש מפעיל, ולכן אין מה להחליף.
