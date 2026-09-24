@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
@@ -87,9 +88,12 @@ class GithubAppClient {
     return null;
   }
 
-  /// מוריד קובץ אל [destinationPath]. הקובץ החלקי נמחק בכשל, כדי שהריצה
-  /// הבאה לא תראה אותו כהורדה שהסתיימה.
-  Future<void> download(
+  /// מוריד קובץ אל [destinationPath] ומחזיר את ה-sha256 שלו. הקובץ החלקי
+  /// נמחק בכשל, כדי שהריצה הבאה לא תראה אותו כהורדה שהסתיימה.
+  ///
+  /// כשגיטהאב פרסם digest, קובץ שאינו תואם לו נדחה — עדיף לגלות את זה כאן
+  /// מאשר במחשב המנותק, שבו אין מאיפה להוריד שוב.
+  Future<String> download(
     GithubAsset asset,
     String destinationPath, {
     void Function(int received, int total)? onProgress,
@@ -107,10 +111,15 @@ class GithubAppClient {
     final sink = file.openWrite();
     var received = 0;
     var buffered = 0;
+    Digest? digest;
+    final hasher = sha256.startChunkedConversion(
+      ChunkedConversionSink<Digest>.withCallback((d) => digest = d.single),
+    );
 
     try {
       await for (final chunk in response.stream.timeout(stallTimeout)) {
         sink.add(chunk);
+        hasher.add(chunk);
         received += chunk.length;
         buffered += chunk.length;
         onProgress?.call(received, asset.sizeBytes);
@@ -123,6 +132,15 @@ class GithubAppClient {
       }
       await sink.flush();
       await sink.close();
+      hasher.close();
+
+      final actual = digest!.toString();
+      if (asset.sha256 case final expected? when expected != actual) {
+        throw AppDescriptorException(
+          AppL10n.strings.customAppsDomain.downloadDigestMismatch(asset.name),
+        );
+      }
+      return actual;
     } catch (_) {
       try {
         await sink.close();

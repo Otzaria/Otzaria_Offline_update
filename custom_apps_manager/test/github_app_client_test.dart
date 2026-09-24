@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -167,6 +168,52 @@ void main() {
 
       expect(File(target).lengthSync(), 50);
       expect(lastReceived, 50);
+    });
+
+    group('digest', () {
+      final bytes = List.filled(50, 65);
+      final good = sha256.convert(bytes).toString();
+
+      GithubAppClient clientServing() => GithubAppClient(
+            httpClient:
+                MockClient((_) async => http.Response.bytes(bytes, 200)),
+          );
+
+      GithubAsset asset(String? digest) => GithubAsset(
+            name: 'App.exe',
+            downloadUrl: 'https://example.test/App.exe',
+            sizeBytes: 50,
+            sha256: digest,
+          );
+
+      test('נקרא מה-JSON של גיטהאב, בלי הקידומת', () {
+        final parsed = GithubAsset.fromJson({
+          'name': 'a.exe',
+          'browser_download_url': 'https://example.test/a.exe',
+          'digest': 'sha256:ABCDEF',
+        });
+        expect(parsed.sha256, 'abcdef');
+      });
+
+      test('תואם — הקובץ נשאר, וה-sha256 מוחזר', () async {
+        final target = p.join(tempMirrorRoot(), 'App.exe');
+        expect(await clientServing().download(asset(good), target), good);
+        expect(File(target).existsSync(), isTrue);
+      });
+
+      test('אינו תואם — נדחה, והקובץ נמחק', () async {
+        final target = p.join(tempMirrorRoot(), 'App.exe');
+        await expectLater(
+          clientServing().download(asset('0' * 64), target),
+          throwsA(isA<AppDescriptorException>()),
+        );
+        expect(File(target).existsSync(), isFalse);
+      });
+
+      test('release בלי digest — מתקבל, וה-sha256 עדיין מחושב', () async {
+        final target = p.join(tempMirrorRoot(), 'App.exe');
+        expect(await clientServing().download(asset(null), target), good);
+      });
     });
 
     test('סטטוס שגוי — הקובץ אינו נשאר על הדיסק', () async {

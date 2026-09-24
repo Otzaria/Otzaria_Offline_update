@@ -7,13 +7,13 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import '../../controllers/custom_apps_controller.dart';
-import '../../services/byte_size.dart';
 import '../../services/exe_icon_extractor.dart';
 import '../../services/native_file_dialogs.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
-import '../store_kit/store_kit.dart';
-import 'installer_kind_label.dart';
+import 'custom_app_form_fields.dart';
+import 'custom_app_form_media.dart';
+import 'custom_app_form_source.dart';
 
 /// "הוספת תוכנה", והוא גם טופס העריכה — הדרך **היחידה** שבה נכתבת רשומה
 /// של תוכנה נוספת.
@@ -392,6 +392,7 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
   Widget build(BuildContext context) {
     final t = context.strings.customApps;
     final theme = Theme.of(context);
+    void rebuild(String _) => setState(() {});
 
     return AlertDialog(
       title: Text(
@@ -399,40 +400,128 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
         style: theme.textTheme.titleLarge,
       ),
       content: SizedBox(
-        width: 480,
+        width: 520,
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              _field(t.nameLabel, _name, hint: t.nameHint),
-              _field(t.descriptionLabel, _description, hint: t.descriptionHint),
-              _field(
-                t.longDescriptionLabel,
-                _longDescription,
+              FormSectionHeader(t.formSectionDetails),
+              FormTextField(
+                label: t.nameLabel,
+                controller: _name,
+                hint: t.nameHint,
+                onChanged: rebuild,
+              ),
+              FormTextField(
+                label: t.descriptionLabel,
+                controller: _description,
+                hint: t.descriptionHint,
+              ),
+              FormTextField(
+                label: t.longDescriptionLabel,
+                controller: _longDescription,
                 hint: t.longDescriptionHint,
                 maxLines: 4,
               ),
               if (widget.controller.categories.isNotEmpty) ...[
-                _categoriesSection(context),
+                CustomAppCategoriesPicker(
+                  categories: widget.controller.categories,
+                  selected: _categories,
+                  onToggle: (slug) => setState(() {
+                    if (!_categories.remove(slug)) _categories.add(slug);
+                  }),
+                ),
                 const SizedBox(height: AppTokens.spaceLG),
               ],
-              const SizedBox(height: AppTokens.spaceSM),
-              _sourcePicker(context),
+              FormSectionHeader(t.formSectionSource),
+              FormLabelled(
+                label: t.sourceLabel,
+                child: AppSegmentedControl<AppSourceKind>(
+                  options: [
+                    SegmentOption(
+                      value: AppSourceKind.github,
+                      label: t.sourceGithub,
+                    ),
+                    SegmentOption(
+                      value: AppSourceKind.manual,
+                      label: t.sourceFile,
+                    ),
+                  ],
+                  currentValue: _source,
+                  onChanged: (value) => setState(() => _source = value),
+                ),
+              ),
               const SizedBox(height: AppTokens.spaceLG),
               if (_source == AppSourceKind.github)
-                _githubSection(context)
+                CustomAppGithubSection(
+                  urlController: _githubUrl,
+                  onUrlChanged: rebuild,
+                  isFetching: _isFetching,
+                  onFetch: _fetchAssets,
+                  hasKeptAsset: _keptAssetPattern != null,
+                  error: _githubError,
+                  release: _release,
+                  selectedAsset: _selectedAsset,
+                  onSelectAsset: _selectAsset,
+                )
               else
-                _localFileSection(context),
+                CustomAppLocalFileSection(
+                  path: _localFilePath,
+                  kept: _keptInstaller,
+                  sniffedKind: _sniffedKind,
+                  onPick: _pickLocalFile,
+                ),
               const SizedBox(height: AppTokens.spaceLG),
-              _portableFileRow(context),
+              // "זו התוכנה עצמה" נשאל דווקא משום שאי אפשר להריח אותו: exe
+              // נייד ומתקין של framework לא מוכר נראים זהים לחלוטין.
+              SettingsActionTile.switchTile(
+                icon: FluentIcons.document_arrow_right_24_regular,
+                title: t.portableFileLabel,
+                subtitle: t.portableFileHint,
+                value: _portableFile,
+                onChanged: (value) => setState(() => _portableFile = value),
+              ),
               const SizedBox(height: AppTokens.spaceLG),
-              _installDirRow(context),
-              _field(t.exeNameLabel, _exeName, hint: t.exeNameHint),
+              FormSectionHeader(t.formSectionInstall),
+              FormTextField(
+                label: t.installDirLabel,
+                controller: _installDir,
+                hint: t.installDirHint,
+                onChanged: rebuild,
+              ),
+              ActionButton.neutral(
+                text: t.pickInstallDirButton,
+                icon: FluentIcons.folder_24_regular,
+                onPressed: _pickInstallDir,
+              ),
+              const SizedBox(height: AppTokens.spaceMD),
+              FormTextField(
+                label: t.exeNameLabel,
+                controller: _exeName,
+                hint: t.exeNameHint,
+                onChanged: rebuild,
+              ),
               const SizedBox(height: AppTokens.spaceSM),
-              _iconSection(context),
+              FormSectionHeader(t.formSectionMedia),
+              CustomAppIconSection(
+                iconPath: _iconPath,
+                canExtract: _iconSourceExe() != null,
+                isExtracting: _isExtractingIcon,
+                onPick: _pickIcon,
+                onExtract: _extractIcon,
+                onRemove: () => setState(() {
+                  _iconPath = null;
+                  _removedIcon = true;
+                }),
+              ),
               const SizedBox(height: AppTokens.spaceLG),
-              _screenshotsSection(context),
+              CustomAppScreenshotsSection(
+                screenshots: _screenshots,
+                onMove: _moveScreenshot,
+                onRemove: (i) => setState(() => _screenshots.removeAt(i)),
+                onAdd: _pickScreenshots,
+              ),
             ],
           ),
         ),
@@ -451,294 +540,13 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
     );
   }
 
-  Widget _sourcePicker(BuildContext context) {
-    final t = context.strings.customApps;
-    return _labelled(
-      context,
-      t.sourceLabel,
-      AppSegmentedControl<AppSourceKind>(
-        options: [
-          SegmentOption(value: AppSourceKind.github, label: t.sourceGithub),
-          SegmentOption(value: AppSourceKind.manual, label: t.sourceFile),
-        ],
-        currentValue: _source,
-        onChanged: (value) => setState(() => _source = value),
-      ),
-    );
-  }
-
-  Widget _githubSection(BuildContext context) {
-    final t = context.strings.customApps;
-    final theme = Theme.of(context);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _field(t.githubUrlLabel, _githubUrl, hint: t.githubUrlHint),
-        ActionButton.neutral(
-          text: t.fetchAssetsButton,
-          icon: FluentIcons.search_24_regular,
-          isLoading: _isFetching,
-          onPressed: _isFetching ? null : _fetchAssets,
-        ),
-        // בעריכה, כל עוד לא הובאה רשימה חדשה, אומרים במפורש מה יישאר.
-        if (_release == null && _keptAssetPattern != null) ...[
-          const SizedBox(height: AppTokens.spaceSM),
-          Text(
-            t.githubAssetKept,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-        if (_githubError case final error?) ...[
-          const SizedBox(height: AppTokens.spaceSM),
-          InfoErrorRow(message: error),
-        ],
-        if (_release case final release?) ...[
-          const SizedBox(height: AppTokens.spaceMD),
-          Text(
-            t.assetsFromRelease(release.tagName),
-            style: theme.textTheme.labelLarge,
-          ),
-          Text(
-            t.assetHint,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: AppTokens.spaceSM),
-          if (release.assets.isEmpty)
-            Text(t.noAssetsFound, style: theme.textTheme.bodyMedium)
-          else
-            // ⚠️ הבחירה כאן היא כל ההבדל בין "מוריד את הקובץ הנכון" לבין
-            // "מוריד את הראשון ברשימה" — ל-release טיפוסי יש גם x86, גם
-            // portable וגם קובצי sha.
-            for (final asset in release.assets)
-              SettingsActionTile.text(
-                icon: asset == _selectedAsset
-                    ? FluentIcons.checkmark_circle_24_filled
-                    : FluentIcons.circle_24_regular,
-                title: asset.name,
-                subtitle: formatBytes(asset.sizeBytes),
-                onTap: () => _selectAsset(asset),
-              ),
-        ],
-      ],
-    );
-  }
-
-  Widget _localFileSection(BuildContext context) {
-    final t = context.strings.customApps;
-    final theme = Theme.of(context);
-    final path = _localFilePath;
-    final kept = _keptInstaller;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          // מה שנבחר עכשיו קודם לְמה ששמור, ובלי שניהם — הזמנה לבחור.
-          path != null
-              ? p.basename(path)
-              : kept != null
-                  ? t.installerKept(kept.fileName)
-                  : t.pickInstallerDialogTitle,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        // מה שזוהה בקובץ. ל-ZIP זה השינוי הגדול ביותר — הוא אינו מותקן
-        // אלא מועתק לתיקיית ההורדות, וכדאי לדעת זאת לפני ולא אחרי.
-        if (_sniffedKind case final kind?) ...[
-          const SizedBox(height: AppTokens.spaceXS),
-          Text(
-            t.installerKindSniffed(installerKindLabelOf(kind, t)),
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-        const SizedBox(height: AppTokens.spaceSM),
-        ActionButton.neutral(
-          text: t.pickInstallerButton,
-          icon: FluentIcons.folder_open_24_regular,
-          onPressed: _pickLocalFile,
-        ),
-      ],
-    );
-  }
-
-  /// ההצהרה "זו התוכנה עצמה". היא נשאלת דווקא משום שאי אפשר להריח אותה:
-  /// exe נייד ומתקין של framework לא מוכר נראים זהים לחלוטין, ושניהם
-  /// נופלים ל-`interactive`. הרצת קובץ נייד "כמתקין" רק מפעילה אותו מהכונן
-  /// — הוא לעולם לא מגיע למחשב.
-  Widget _portableFileRow(BuildContext context) {
-    final t = context.strings.customApps;
-    return SettingsActionTile.switchTile(
-      icon: FluentIcons.document_arrow_right_24_regular,
-      title: t.portableFileLabel,
-      subtitle: t.portableFileHint,
-      value: _portableFile,
-      onChanged: (value) => setState(() => _portableFile = value),
-    );
-  }
-
-  Widget _installDirRow(BuildContext context) {
-    final t = context.strings.customApps;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _field(t.installDirLabel, _installDir, hint: t.installDirHint),
-        ActionButton.neutral(
-          text: t.pickInstallDirButton,
-          icon: FluentIcons.folder_24_regular,
-          onPressed: _pickInstallDir,
-        ),
-        const SizedBox(height: AppTokens.spaceMD),
-      ],
-    );
-  }
-
-  Widget _labelled(
-    BuildContext context,
-    String label,
-    Widget child, {
-    TextStyle? style,
-  }) =>
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: style ?? Theme.of(context).textTheme.labelLarge),
-          const SizedBox(height: AppTokens.spaceSM),
-          child,
-        ],
-      );
-
-  Widget _field(
-    String label,
-    TextEditingController controller, {
-    String? hint,
-    int maxLines = 1,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppTokens.spaceMD),
-      child: RtlTextField(
-        controller: controller,
-        maxLines: maxLines,
-        decoration: InputDecoration(labelText: label, helperText: hint),
-        onChanged: (_) => setState(() {}),
-      ),
-    );
-  }
-
-  // ── קטגוריות ──────────────────────────────────────────────────────────
-
-  /// הקטגוריות כגלולות שנבחרות. **אין כאן יצירה של קטגוריה** — היא נעשית
-  /// בכרטיס שבהגדרות, יחד עם שאר ניהול המרשם; כשאין אף קטגוריה הסעיף כולו
-  /// אינו מוצג.
-  Widget _categoriesSection(BuildContext context) {
-    final t = context.strings.customApps;
-
-    return _labelled(
-      context,
-      t.appCategoriesLabel,
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: AppTokens.spaceSM,
-            runSpacing: AppTokens.spaceSM,
-            children: [
-              for (final category in widget.controller.categories)
-                StoreTagPill(
-                  label: category.name,
-                  active: _categories.contains(category.slug),
-                  onTap: () => setState(() {
-                    if (!_categories.remove(category.slug)) {
-                      _categories.add(category.slug);
-                    }
-                  }),
-                ),
-            ],
-          ),
-          const SizedBox(height: AppTokens.spaceXS),
-          Text(
-            t.appCategoriesHint,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── אייקון ────────────────────────────────────────────────────────────
-
-  Widget _iconSection(BuildContext context) {
-    final t = context.strings.customApps;
-    final path = _iconPath;
-
-    return _labelled(
-      context,
-      t.iconLabel,
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 64,
-            // תצוגה מקדימה קטנה ומרובעת, ולכן היחס נקבע כאן ולא מהכלל:
-            // ריבוע 64 עם האוויר של הכרטיס היה משאיר אייקון של 32.
-            child: StoreThumbnail.icon(
-              imagePath: path,
-              placeholderIcon: FluentIcons.box_24_regular,
-              aspectRatio: 1,
-              ratio: 0.78,
-              iconSize: 28,
-            ),
-          ),
-          const SizedBox(width: AppTokens.spaceMD),
-          Expanded(
-            child: Wrap(
-              spacing: AppTokens.spaceSM,
-              runSpacing: AppTokens.spaceSM,
-              children: [
-                ActionButton.neutral(
-                  text: t.pickIconButton,
-                  icon: FluentIcons.image_24_regular,
-                  onPressed: _pickIcon,
-                ),
-                // רק כשיש ממה לחלץ, ורק בווינדוס.
-                if (_iconSourceExe() != null)
-                  ActionButton.ghost(
-                    text: t.extractIconButton,
-                    icon: FluentIcons.wand_24_regular,
-                    isLoading: _isExtractingIcon,
-                    onPressed: _isExtractingIcon ? null : _extractIcon,
-                  ),
-                if (path != null)
-                  ActionButton.ghost(
-                    text: t.removeIconTooltip,
-                    icon: FluentIcons.dismiss_24_regular,
-                    onPressed: () => setState(() {
-                      _iconPath = null;
-                      _removedIcon = true;
-                    }),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // ── מדיה ──────────────────────────────────────────────────────────────
 
   Future<void> _pickIcon() async {
     final t = context.strings.customApps;
     final path = await NativeFileDialogs.pickFile(
       dialogTitle: t.pickIconDialogTitle,
-      allowedExtensions: _imageExtensions,
+      allowedExtensions: customAppImageExtensions,
     );
     if (path == null || !mounted) return;
     setState(() {
@@ -792,48 +600,6 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
     UiSnack.showSuccess(t.extractedIconSnack(p.basename(source)));
   }
 
-  // ── צילומי מסך ────────────────────────────────────────────────────────
-
-  Widget _screenshotsSection(BuildContext context) {
-    final t = context.strings.customApps;
-
-    return _labelled(
-      context,
-      t.screenshotsLabel,
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (var i = 0; i < _screenshots.length; i++)
-            _ScreenshotRow(
-              path: _screenshots[i],
-              // התמונה הראשונה היא זו שנראית ראשונה בדף, ולכן הסדר כן
-              // משנה — והדרך לשנות אותו היא הזזה ולא הסרה ובחירה מחדש.
-              onMoveBack: i == 0 ? null : () => _moveScreenshot(i, i - 1),
-              onMoveForward: i == _screenshots.length - 1
-                  ? null
-                  : () => _moveScreenshot(i, i + 1),
-              onRemove: () => setState(() => _screenshots.removeAt(i)),
-            ),
-          if (_screenshots.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: AppTokens.spaceSM),
-              child: Text(
-                t.screenshotsChosen(_screenshots.length),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-              ),
-            ),
-          ActionButton.neutral(
-            text: t.addScreenshotsButton,
-            icon: FluentIcons.image_multiple_24_regular,
-            onPressed: _pickScreenshots,
-          ),
-        ],
-      ),
-    );
-  }
-
   void _moveScreenshot(int from, int to) {
     setState(() {
       final path = _screenshots.removeAt(from);
@@ -845,7 +611,7 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
     final t = context.strings.customApps;
     final picked = await NativeFileDialogs.pickManyFiles(
       dialogTitle: t.pickScreenshotsDialogTitle,
-      allowedExtensions: _imageExtensions,
+      allowedExtensions: customAppImageExtensions,
     );
     if (picked.isEmpty || !mounted) return;
     setState(() => _screenshots = [..._screenshots, ...picked]);
@@ -854,73 +620,4 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
 
 extension _LetExtension<T> on T {
   R let<R>(R Function(T) transform) => transform(this);
-}
-
-/// הסיומות שדיאלוג הבחירה מציע. אותה רשימה שמאשרת `CustomAppMedia` —
-/// עדיף לסנן בדיאלוג מאשר לדחות אחרי שהמשתמש כבר בחר.
-final List<String> _imageExtensions = [
-  for (final extension in CustomAppMedia.allowedExtensions)
-    extension.substring(1),
-];
-
-/// שורת צילום מסך אחת בטופס: תצוגה מקדימה, הזזה בסדר, והסרה.
-class _ScreenshotRow extends StatelessWidget {
-  const _ScreenshotRow({
-    required this.path,
-    required this.onMoveBack,
-    required this.onMoveForward,
-    required this.onRemove,
-  });
-
-  final String path;
-  final VoidCallback? onMoveBack;
-  final VoidCallback? onMoveForward;
-  final VoidCallback onRemove;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.strings.customApps;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppTokens.spaceSM),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 72,
-            child: StoreThumbnail(
-              imagePath: path,
-              placeholderIcon: FluentIcons.image_off_24_regular,
-              aspectRatio: 16 / 9,
-              iconSize: 20,
-            ),
-          ),
-          const SizedBox(width: AppTokens.spaceSM),
-          Expanded(
-            child: Text(
-              p.basename(path),
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ),
-          // ⚠️ חיצים ולא `RtlIcon`: אלה חיצי סדר ברשימה אנכית, ו-RTL
-          // אינו הופך "למעלה" ו"למטה".
-          SecondaryIconButton(
-            icon: FluentIcons.arrow_up_24_regular,
-            tooltip: t.moveScreenshotBackTooltip,
-            onPressed: onMoveBack,
-          ),
-          SecondaryIconButton(
-            icon: FluentIcons.arrow_down_24_regular,
-            tooltip: t.moveScreenshotForwardTooltip,
-            onPressed: onMoveForward,
-          ),
-          SecondaryIconButton(
-            icon: FluentIcons.delete_24_regular,
-            tooltip: t.removeScreenshotTooltip,
-            onPressed: onRemove,
-          ),
-        ],
-      ),
-    );
-  }
 }

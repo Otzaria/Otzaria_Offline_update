@@ -5,17 +5,28 @@ class GithubAsset {
     required this.name,
     required this.downloadUrl,
     required this.sizeBytes,
+    this.sha256,
   });
 
   final String name;
   final String downloadUrl;
   final int sizeBytes;
 
-  factory GithubAsset.fromJson(Map<String, dynamic> json) => GithubAsset(
-        name: json['name'] as String,
-        downloadUrl: json['browser_download_url'] as String,
-        sizeBytes: json['size'] as int? ?? 0,
-      );
+  /// ה-digest שגיטהאב מפרסם לקובץ (hex). `null` ב-release ישן שאין לו
+  /// digest — אז ההורדה פשוט אינה נבדקת מולו.
+  final String? sha256;
+
+  factory GithubAsset.fromJson(Map<String, dynamic> json) {
+    final digest = json['digest'] as String?;
+    return GithubAsset(
+      name: json['name'] as String,
+      downloadUrl: json['browser_download_url'] as String,
+      sizeBytes: json['size'] as int? ?? 0,
+      sha256: digest != null && digest.startsWith('sha256:')
+          ? digest.substring('sha256:'.length).toLowerCase()
+          : null,
+    );
+  }
 }
 
 /// גרסה שפורסמה בריפו.

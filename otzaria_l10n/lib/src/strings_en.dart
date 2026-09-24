@@ -2624,6 +2624,10 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
   String installerExitCode(int exitCode, String output) =>
       'The installation failed (exit code $exitCode).\n$output';
   @override
+  String get installerDigestMismatch =>
+      'The installer on the drive is damaged — it does not match the file '
+      'that was stored. Download or add it again on a computer with internet';
+  @override
   String fileCopyFailed(String error) => 'Copying the file failed: $error';
   @override
   String launchFileMissing(String launchPath) =>
@@ -2650,6 +2654,10 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
   @override
   String downloadFailed(int statusCode) =>
       'The download failed (error $statusCode)';
+  @override
+  String downloadDigestMismatch(String fileName) =>
+      'The downloaded $fileName does not match the checksum GitHub publishes '
+      'for it — the download was corrupted. Please try again';
   @override
   String get sourceIsNotGithub =>
       'This program has no repository set — there is nothing to check online';
@@ -2823,12 +2831,30 @@ class _CustomApps extends CustomAppsStrings {
       '"Other Programs" screen.';
   @override
   String get orderHint =>
-      'This order is the order the programs appear in on the screen, and it '
+      'Drag a program by its handle to reorder. This is the order the '
+      'programs appear in on the screen, and it '
       'travels on the drive.';
   @override
   String get moveAppUpTooltip => 'Move up';
   @override
   String get moveAppDownTooltip => 'Move down';
+  @override
+  String get dragToReorderTooltip => 'Drag to reorder';
+  @override
+  String get formSectionDetails => 'Program details';
+  @override
+  String get formSectionSource => 'Installer source';
+  @override
+  String get formSectionInstall => 'Install and detection';
+  @override
+  String get formSectionMedia => 'Icon and images';
+  @override
+  String get manageSearchHint => 'Search programs';
+  @override
+  String get manageNoResults => 'No program matches the search.';
+  @override
+  String get manageReorderDisabledWhileSearching =>
+      'Reordering is available when the search is empty.';
 
   @override
   String get addDialogTitle => 'Add a Program';

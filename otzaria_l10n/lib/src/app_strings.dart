@@ -1554,6 +1554,18 @@ abstract class CustomAppsStrings {
   /// ⚠️ חיצי סדר ברשימה אנכית — RTL אינו הופך "למעלה" ו"למטה".
   String get moveAppUpTooltip;
   String get moveAppDownTooltip;
+  String get dragToReorderTooltip;
+
+  // ── קבוצות השדות בטופס ──
+  String get formSectionDetails;
+  String get formSectionSource;
+  String get formSectionInstall;
+  String get formSectionMedia;
+  String get manageSearchHint;
+  String get manageNoResults;
+
+  /// בזמן חיפוש הרשימה חלקית, ולכן הגרירה כבויה — ההסבר למה.
+  String get manageReorderDisabledWhileSearching;
 
   // ── טופס ההוספה, והוא גם טופס העריכה ──
   String get addDialogTitle;
@@ -1727,6 +1739,9 @@ abstract class CustomAppsDomainStrings {
   String installerFileMissing(String path);
   String installerExitCode(int exitCode, String output);
 
+  /// הקובץ שעל הכונן אינו תואם ל-sha256 שנרשם כשנכנס למראה.
+  String get installerDigestMismatch;
+
   /// כשל בהעתקת קובץ שאין מה להתקין ממנו — ארכיון או קובץ נייד. שום דבר
   /// כאן אינו מחולץ, ולכן זה "העתקה" ולא "חילוץ".
   String fileCopyFailed(String error);
@@ -1744,5 +1759,8 @@ abstract class CustomAppsDomainStrings {
   String get githubNoReleases;
   String githubNoMatchingAsset(String tagName);
   String downloadFailed(int statusCode);
+
+  /// הקובץ שהורד אינו תואם ל-digest שגיטהאב מפרסם לו.
+  String downloadDigestMismatch(String fileName);
   String get sourceIsNotGithub;
 }

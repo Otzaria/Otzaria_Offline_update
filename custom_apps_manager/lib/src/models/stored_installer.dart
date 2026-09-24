@@ -9,6 +9,7 @@ class StoredInstaller {
     required this.version,
     required this.sizeBytes,
     required this.addedAt,
+    this.sha256,
   });
 
   /// שם הקובץ בתוך תיקיית התוכנה במראה. **שם בלבד ולא נתיב** — המראה
@@ -24,6 +25,10 @@ class StoredInstaller {
   /// מתי נוסף — מוצג למשתמש כדי שיבין מה יושב אצלו על הכונן.
   final DateTime addedAt;
 
+  /// ה-sha256 של הקובץ כשנכנס למראה. נבדק שוב לפני ההתקנה, כי במחשב
+  /// המנותק אין דרך להוריד מחדש קובץ שנפגם בדרך. `null` ברשומה ישנה.
+  final String? sha256;
+
   factory StoredInstaller.fromJson(Map<String, dynamic> json) =>
       StoredInstaller(
         fileName: json['fileName'] as String,
@@ -31,6 +36,7 @@ class StoredInstaller {
         sizeBytes: json['sizeBytes'] as int? ?? 0,
         addedAt: DateTime.tryParse(json['addedAt'] as String? ?? '') ??
             DateTime.fromMillisecondsSinceEpoch(0),
+        sha256: json['sha256'] as String?,
       );
 
   Map<String, dynamic> toJson() => {
@@ -38,5 +44,6 @@ class StoredInstaller {
         'version': version,
         'sizeBytes': sizeBytes,
         'addedAt': addedAt.toIso8601String(),
+        if (sha256 != null) 'sha256': sha256,
       };
 }

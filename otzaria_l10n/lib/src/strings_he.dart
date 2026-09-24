@@ -2450,6 +2450,10 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
   String installerExitCode(int exitCode, String output) =>
       'ההתקנה הסתיימה בשגיאה (קוד $exitCode).\n$output';
   @override
+  String get installerDigestMismatch =>
+      'קובץ ההתקנה שעל הכונן פגום — הוא אינו זהה לקובץ שנשמר. יש להוריד '
+      'או לצרף אותו מחדש במחשב שיש בו אינטרנט';
+  @override
   String fileCopyFailed(String error) => 'העתקת הקובץ נכשלה: $error';
   @override
   String launchFileMissing(String launchPath) =>
@@ -2474,6 +2478,10 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
       'יש לבחור אותו מחדש';
   @override
   String downloadFailed(int statusCode) => 'ההורדה נכשלה (שגיאה $statusCode)';
+  @override
+  String downloadDigestMismatch(String fileName) =>
+      'הקובץ $fileName שהורד אינו תואם לחתימה שגיטהאב מפרסם לו — ההורדה '
+      'השתבשה. יש לנסות שוב';
   @override
   String get sourceIsNotGithub =>
       'התוכנה הזו אינה מוגדרת עם ריפו — אין מה לבדוק ברשת';
@@ -2637,11 +2645,29 @@ class _CustomApps extends CustomAppsStrings {
       'וההתקנה עצמן נעשות במסך "תוכנות נוספות".';
   @override
   String get orderHint =>
-      'הסדר כאן הוא הסדר שבו התוכנות מוצגות במסך, והוא נוסע על הכונן.';
+      'גררו תוכנה בידית כדי לשנות את הסדר. זה הסדר שבו התוכנות מוצגות '
+      'במסך, והוא נוסע על הכונן.';
   @override
   String get moveAppUpTooltip => 'העלאה ברשימה';
   @override
   String get moveAppDownTooltip => 'הורדה ברשימה';
+  @override
+  String get dragToReorderTooltip => 'גרירה לשינוי הסדר';
+  @override
+  String get formSectionDetails => 'פרטי התוכנה';
+  @override
+  String get formSectionSource => 'מקור קובץ ההתקנה';
+  @override
+  String get formSectionInstall => 'התקנה וזיהוי';
+  @override
+  String get formSectionMedia => 'אייקון ותמונות';
+  @override
+  String get manageSearchHint => 'חיפוש תוכנה';
+  @override
+  String get manageNoResults => 'לא נמצאה תוכנה שתואמת לחיפוש.';
+  @override
+  String get manageReorderDisabledWhileSearching =>
+      'שינוי הסדר זמין כשהחיפוש ריק.';
 
   @override
   String get addDialogTitle => 'הוספת תוכנה';
