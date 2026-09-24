@@ -674,6 +674,8 @@ class _Settings extends SettingsScreenStrings {
   @override
   String get syncTargetPlugins => 'Plugins';
   @override
+  String get syncLibraryLockedSubtitle =>
+      'Personal update is on, so the library is always downloaded';
   @override
   String get personalModeTitle => 'Personal update — this computer only';
   @override

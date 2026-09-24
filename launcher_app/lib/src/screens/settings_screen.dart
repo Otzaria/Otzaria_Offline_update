@@ -132,9 +132,10 @@ class SettingsScreen extends StatelessWidget {
   /// דלוקים, ולחיצה עליו מדליקה או מכבה את שלושתם יחד.
   Set<_SyncTarget> get _selectedSyncTargets => {
         if (_s.syncApp) _SyncTarget.app,
-        if (_s.syncLibrary) _SyncTarget.library,
+        if (_s.downloadsLibrary) _SyncTarget.library,
         if (_s.syncPlugins) _SyncTarget.plugins,
-        if (_s.syncApp && _s.syncLibrary && _s.syncPlugins) _SyncTarget.all,
+        if (_s.syncApp && _s.downloadsLibrary && _s.syncPlugins)
+          _SyncTarget.all,
       };
 
   Future<void> _toggleSyncTarget(_SyncTarget target) {
@@ -142,9 +143,10 @@ class SettingsScreen extends StatelessWidget {
     final on = !selected.contains(target);
     return _set(
       switch (target) {
+        // בעדכון אישי הספרייה נעולה — "הכל" נוגע רק בשני האחרים.
         _SyncTarget.all => _s.copyWith(
             syncApp: on,
-            syncLibrary: on,
+            syncLibrary: _s.personalUpdateMode ? null : on,
             syncPlugins: on,
           ),
         _SyncTarget.app => _s.copyWith(syncApp: on),
@@ -164,6 +166,7 @@ class SettingsScreen extends StatelessWidget {
         SettingsActionTile.multiSegmentedTile<_SyncTarget>(
           icon: FluentIcons.cloud_arrow_down_24_regular,
           title: t.syncTargetsTitle,
+          subtitle: _s.personalUpdateMode ? t.syncLibraryLockedSubtitle : null,
           hint: t.syncTargetsHint,
           selected: _selectedSyncTargets,
           onToggled: _toggleSyncTarget,
@@ -173,6 +176,7 @@ class SettingsScreen extends StatelessWidget {
             SegmentOption(
               value: _SyncTarget.library,
               label: t.syncTargetLibrary,
+              enabled: !_s.personalUpdateMode,
             ),
             SegmentOption(
               value: _SyncTarget.plugins,

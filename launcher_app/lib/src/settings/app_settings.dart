@@ -139,9 +139,13 @@ class AppSettings {
     this.saferModePassword = '',
   });
 
+  /// האם ההורדה מביאה את הספרייה בפועל. "עדכון אישי" כופה אותה, בלי לדרוס
+  /// את [syncLibrary] — כך שכיבוי המצב מחזיר את הבחירה הקודמת.
+  bool get downloadsLibrary => syncLibrary || personalUpdateMode;
+
   /// `false` כשלא נבחר שום רכיב להורדה — ה-UI משתמש בזה כדי להשבית את
   /// כפתור ההורדה במקום להריץ פעולה שלא תעשה כלום.
-  bool get hasSyncSelection => syncApp || syncLibrary || syncPlugins;
+  bool get hasSyncSelection => syncApp || downloadsLibrary || syncPlugins;
 
   /// יש סיסמה שמורה — התנאי להפעלת מצב הסייפר.
   bool get hasSaferModePassword => saferModePassword.isNotEmpty;

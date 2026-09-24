@@ -412,6 +412,9 @@ abstract class SettingsScreenStrings {
   String get syncTargetLibrary;
   String get syncTargetPlugins;
 
+  /// מוצג מתחת לשורת הסימון כשעדכון אישי נועל את "ספרייה" במצב דלוק.
+  String get syncLibraryLockedSubtitle;
+
   // ── עדכון אישי ──
   /// מוריד רק את קובצי העדכון מהגרסה שכבר מותקנת ומעלה, בלי המסד המלא —
   /// ולכן הכונן אינו משמש עוד להפצה למחשבים אחרים.

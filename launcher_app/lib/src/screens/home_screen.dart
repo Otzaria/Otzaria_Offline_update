@@ -513,7 +513,7 @@ class HomeScreen extends StatelessWidget {
       if (library.onlinePendingCompanions.isNotEmpty) {
         line(t.onlineLibraryCompanions(library.onlinePendingCompanionNames));
       }
-      if (!s.syncLibrary) line(t.onlineLibrarySyncOff, warn: true);
+      if (!s.downloadsLibrary) line(t.onlineLibrarySyncOff, warn: true);
     }
 
     final status = plugins.onlineStatus;

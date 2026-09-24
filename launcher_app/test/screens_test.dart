@@ -743,6 +743,56 @@ void main() {
     expect(settings.settings.syncPlugins, isFalse);
   });
 
+  testWidgets('עדכון אישי נועל את "ספרייה" במצב דלוק', (tester) async {
+    final t = stringsOf().settings;
+    await tester.runAsync(
+      () => settings.update(
+        const AppSettings(syncLibrary: false, personalUpdateMode: true),
+      ),
+    );
+    await pumpScreen(
+      tester,
+      SettingsScreen(
+        controller: settings,
+        onOpenLog: () {},
+        launcherVersion: launcherVersion,
+      ),
+    );
+
+    expect(find.text(t.syncLibraryLockedSubtitle), findsOneWidget);
+    final bar = tester.widget<SegmentedButton<Object?>>(
+      find.ancestor(
+        of: find.text(t.syncTargetAll),
+        matching: find.byWidgetPredicate((w) => w is SegmentedButton),
+      ),
+    );
+    final library = bar.segments.singleWhere((s) => !s.enabled);
+    expect(find.text(t.syncTargetLibrary), findsOneWidget);
+    // נעול ומסומן, ולכן גם "הכל" מסומן — כל ארבעת הסגמנטים.
+    expect(bar.selected, contains(library.value));
+    expect(bar.selected, hasLength(4));
+
+    // לחיצה על הסגמנט הנעול אינה משנה דבר.
+    await tester.tap(find.text(t.syncTargetLibrary), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(settings.settings.syncLibrary, isFalse);
+
+    // "הכל" מכבה את השניים האחרים ואינו נוגע בבחירה השמורה של הספרייה.
+    await tester.tap(find.text(t.syncTargetAll));
+    await tester.pumpAndSettle();
+    expect(settings.settings.syncApp, isFalse);
+    expect(settings.settings.syncPlugins, isFalse);
+    expect(settings.settings.syncLibrary, isFalse);
+    expect(settings.settings.hasSyncSelection, isTrue);
+
+    // ולחיצה חוזרת מדליקה אותם — עדיין בלי לגעת בספרייה.
+    await tester.tap(find.text(t.syncTargetAll));
+    await tester.pumpAndSettle();
+    expect(settings.settings.syncApp, isTrue);
+    expect(settings.settings.syncPlugins, isTrue);
+    expect(settings.settings.syncLibrary, isFalse);
+  });
+
   testWidgets('מסך הספרייה מציג מצב ואת התיקייה שממנה מעדכנים', (tester) async {
     await pumpScreen(
       tester,

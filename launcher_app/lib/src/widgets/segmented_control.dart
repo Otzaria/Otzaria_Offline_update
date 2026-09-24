@@ -11,12 +11,16 @@ class SegmentOption<T> {
   final IconData? rtlIcon;
   final String? subtitle;
 
+  /// `false` = מוצג אך אינו לחיץ. נתמך כרגע רק ב-[AppMultiSegmentedControl].
+  final bool enabled;
+
   const SegmentOption({
     required this.value,
     required this.label,
     this.icon,
     this.rtlIcon,
     this.subtitle,
+    this.enabled = true,
   }) : assert(
           icon == null || rtlIcon == null,
           'העבר icon או rtlIcon — לא שניהם יחד',
@@ -55,6 +59,7 @@ class AppMultiSegmentedControl<T> extends StatelessWidget {
         for (final o in options)
           ButtonSegment<T>(
             value: o.value,
+            enabled: o.enabled,
             label: Center(
               child: FittedBox(
                 fit: BoxFit.scaleDown,
@@ -132,13 +137,22 @@ class AppSegmentedControl<T> extends StatelessWidget {
 
   static ButtonStyle _buttonStyle(ColorScheme cs) => ButtonStyle(
         alignment: Alignment.center,
+        // מושבת נבדק ראשון: אחרת סגמנט נעול ומסומן נראה לחיץ כמו כל השאר.
         foregroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            return AppSurfaces.disabledForeground(cs);
+          }
           if (states.contains(WidgetState.selected)) {
             return cs.onSecondaryContainer;
           }
           return cs.onSurfaceVariant;
         }),
         backgroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            return states.contains(WidgetState.selected)
+                ? AppSurfaces.disabledSelectedBackground(cs)
+                : cs.surface;
+          }
           if (states.contains(WidgetState.selected)) {
             return cs.secondaryContainer;
           }

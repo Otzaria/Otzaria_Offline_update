@@ -635,6 +635,8 @@ class _Settings extends SettingsScreenStrings {
   @override
   String get syncTargetPlugins => 'תוספים';
   @override
+  String get syncLibraryLockedSubtitle =>
+      'עדכון אישי פעיל, ולכן הספרייה תמיד נכללת בהורדה';
   @override
   String get personalModeTitle => 'עדכון אישי — למחשב שלי בלבד';
   @override

@@ -593,7 +593,7 @@ class _AppShellState extends State<AppShell> {
         );
     // ב"עדכון אישי" היעד נגזר מהגרסה שנרשמה ולא מהחדשה שברשת, ולכן
     // "אין חדש ברשת" אינו אומר שאין מה להוריד.
-    final skipLibrary = s.syncLibrary &&
+    final skipLibrary = s.downloadsLibrary &&
         !_library.personalUpdateMode &&
         provenUpToDateOnline(
           checkedAt: _library.onlineCheckedAt,
@@ -628,7 +628,7 @@ class _AppShellState extends State<AppShell> {
 
     // הבדיקה בין רכיב לרכיב: ביטול באמצע הספרייה לא אמור להתחיל את התוספים.
     if (s.syncApp && !skipApp) await _otzaria.download(isCancelled: cancelled);
-    if (!cancelled() && s.syncLibrary && !skipLibrary) {
+    if (!cancelled() && s.downloadsLibrary && !skipLibrary) {
       await _library.download(isCancelled: cancelled);
     }
     if (!cancelled() && s.syncPlugins && !skipPlugins) {
@@ -672,7 +672,7 @@ class _AppShellState extends State<AppShell> {
     final failed = [
       if (s.syncApp && !skipApp && _otzaria.downloadError != null)
         t.home.appTileTitle,
-      if (s.syncLibrary && !skipLibrary && _library.downloadError != null)
+      if (s.downloadsLibrary && !skipLibrary && _library.downloadError != null)
         t.home.libraryTileTitle,
       if (s.syncPlugins && !skipPlugins && _plugins.errorMessage != null)
         t.shell.navPlugins,

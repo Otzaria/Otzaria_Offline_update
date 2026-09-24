@@ -32,6 +32,20 @@ void main() {
       expect(s.hasSyncSelection, isFalse);
     });
 
+    test('עדכון אישי כופה את הספרייה בלי לדרוס את הבחירה השמורה', () {
+      const s = AppSettings(
+        syncApp: false,
+        syncLibrary: false,
+        syncPlugins: false,
+        personalUpdateMode: true,
+      );
+
+      expect(s.downloadsLibrary, isTrue);
+      expect(s.hasSyncSelection, isTrue);
+      // כיבוי המצב מחזיר את מה שנבחר קודם.
+      expect(s.copyWith(personalUpdateMode: false).downloadsLibrary, isFalse);
+    });
+
     test('סבב JSON שומר את הערכים', () {
       const original = AppSettings(
         autoCheckUpdates: false,

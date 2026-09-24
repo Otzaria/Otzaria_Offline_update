@@ -154,7 +154,9 @@ void main() {
       expect(restored.seedColor, AppSeedColors.teal);
       expect(restored.darkSeedColor, AppSeedColors.amber);
       expect(restored.showFaqButton, isFalse);
-      expect(restored.hasSyncSelection, isFalse);
+      // עדכון אישי כופה את הספרייה, גם כשהבחירה השמורה כבויה.
+      expect(restored.downloadsLibrary, isTrue);
+      expect(restored.hasSyncSelection, isTrue);
     });
 
     test('צבע נשמר כ-ARGB שלם, וערך פגום נופל לברירת המחדל', () {
