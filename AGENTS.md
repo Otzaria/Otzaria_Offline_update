@@ -246,6 +246,9 @@ dart analyze                       # otzaria_l10n, otzaria_manager, plugins_mana
   `git config core.hooksPath .githooks` once.
 - **Report honestly what you ran and what failed.** Do not call a change verified
   when only the analyzer passed.
+- **Prove a bug fix with a test that fails before it and passes after**, under the
+  reporter's conditions. Never weaken an existing test to make a change pass, and
+  read every caller before changing shared code.
 
 ---
 
@@ -253,13 +256,22 @@ dart analyze                       # otzaria_l10n, otzaria_manager, plugins_mana
 
 - **Comments are short — one or two lines.** Explain *why*, not *what*; skip the
   comment when the code says it. Long prose belongs in the package README or
-  CHANGELOG. Comments and doc-comments are in Hebrew; keep them so.
+  CHANGELOG. Comments and doc-comments are in Hebrew; keep them so. Never record
+  history in a comment ("used to…", "changed in…", commented-out code) — git keeps
+  that; when you touch a file, fix a comment there that breaks this rule.
+- **Fix bugs at the root, minimally.** Investigate first — `git log` on the code,
+  read it, name the cause — then prefer removing or reverting the code that caused
+  it over adding more. A `try/catch` that silences an error, a null check that
+  "shouldn't be needed", a workaround flag, or a fix over ~15 lines means the cause
+  has not been found yet.
 - Match the surrounding naming and idiom. Follow `flutter_lints`.
 - **Keep the module boundaries.** `otzaria_manager` must not depend on Flutter;
   the root package must not depend on Otzaria app code or on the launcher.
   `otzaria_l10n` is the one package everything may depend on — which is why it has
   no dependencies of its own.
 - Do not silently widen scope. Fix what was asked, then say what you left out.
+- Do not create Markdown files for plans, progress logs or summaries — report those
+  in the conversation or the PR. Durable references go into an existing document.
 
 **UI in `launcher_app` follows Otzaria's design system, not its own.**
 `launcher_app/lib/src/theme/` and `lib/src/widgets/` are ports of
@@ -299,7 +311,9 @@ Hebrew is the source, English a free translation of it.
   does not mirror). A third is a bug, not a precedent. For back/forward arrows use
   `context.backArrowIcon` / `context.forwardArrowIcon`: `RtlIcon` mirrors arrows
   under RTL, so those helpers hand it the *opposite* glyph and the result is
-  identical in both languages.
+  identical in both languages. On a `Text`, pass `textDirection: TextDirection.ltr`
+  only for inherently LTR content (paths, emails, versions, hashes, URLs); never
+  pass `TextDirection.rtl` — the locale already sets it.
 
 ---
 
@@ -1559,6 +1573,14 @@ indistinguishable from phishing). So `restartElevated` refuses there, `AppShell`
 offers it, and `describe` appends `macHint` (pick a writable location, or grant Full
 Disk Access). Detection differs too: macOS returns `EPERM` (1) as well as `EACCES` (13)
 for a protected directory, while Windows counts only 5.
+
+**Nothing blocks the UI isolate at startup — on Windows it is the platform thread.**
+A synchronous native call there (`sqlite3` FFI, a registry write, `Process.run`)
+freezes every frame *and* every Dart timer, so a `Future.timeout` cannot rescue it;
+on filtered or antivirus-heavy machines one process spawn costs ~1s (Otzaria issues
+#989, #1192). Run startup work after the first frame, never loop `Process.run`, give
+every network call an explicit timeout, and move heavy CPU or bulk DB work to
+`Isolate.run`.
 
 **Progress callbacks must not reach `setState` unthrottled.** `PatchDownloader` reports
 per chunk — tens of thousands of calls for a 1GB download, each of which used to
