@@ -235,7 +235,7 @@ dart analyze                       # otzaria_l10n, otzaria_manager, plugins_mana
   § "עדכון עצמי".
 - **Before every release, write the main user-facing changes into
   `launcher_app/assets/יומן שינויים.md`** — short Hebrew bullets
-  (`  - …`) at the **top of the file, with no heading**. The version number is
+  at the **top of the file, with no heading**. The version number is
   only decided at publish time, so `tool/changelog.sh stamp` (run by
   `set_launcher_version.sh`) adds the `* **0.N**` heading above them, and the
   Release workflow's `guard` job fails when there is nothing unheaded to stamp.

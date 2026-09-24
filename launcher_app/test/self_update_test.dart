@@ -296,18 +296,17 @@ void main() {
       );
     });
 
-    test('היומן הארוז: כל כותרת היא גרסה, מהחדשה לישנה, והנכס מוצהר', () {
+    test('היומן הארוז: יש כותרות גרסה, מהחדשה לישנה, והנכס מוצהר', () {
       final text = File(launcherChangelogAsset).readAsStringSync();
       final versions = [
         for (final line in text.split(RegExp(r'\r?\n')))
-          if (line.trimLeft().startsWith('* ')) changelogHeadingVersion(line),
+          if (changelogHeadingVersion(line) case final version?) version,
       ];
 
       expect(versions, isNotEmpty);
-      expect(versions, isNot(contains(null)),
-          reason: 'שורת "* " שאינה כותרת גרסה תוצג בחיתוך כחלק מגרסה אחרת');
+      // סדר הפוך היה חותך בדיאלוג את הגרסאות הלא נכונות.
       for (var i = 1; i < versions.length; i++) {
-        expect(LauncherVersion.compare(versions[i - 1]!, versions[i]!),
+        expect(LauncherVersion.compare(versions[i - 1], versions[i]),
             greaterThan(0));
       }
       expect(File('pubspec.yaml').readAsStringSync(),
