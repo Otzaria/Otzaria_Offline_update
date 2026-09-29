@@ -1166,6 +1166,29 @@ class _Plugins extends PluginsStrings {
       'ברגע שהיא מסתיימת שם — אין מה ללחוץ.';
 
   @override
+  String get newToastOne => 'תוסף חדש בחנות!';
+  @override
+  String newToastMany(int count) => '$count תוספים חדשים בחנות!';
+  @override
+  String get newToastView => 'צפה';
+  @override
+  String get newToastClose => 'סגור';
+  @override
+  String get homeNoticeTitle => 'חנות התוספים';
+  @override
+  String get homeNoticeUpdates => 'יש עדכונים זמינים לתוספים שברשותך.';
+  @override
+  String get homeNoticeNewOne => 'יש תוסף חדש בחנות התוספים.';
+  @override
+  String homeNoticeNewMany(int count) =>
+      'יש $count תוספים חדשים בחנות התוספים.';
+  @override
+  String get homeNoticeUpdatesAndNew =>
+      'יש עדכונים זמינים לתוספים שברשותך וגם תוספים חדשים בחנות.';
+  @override
+  String get homeNoticeOpenButton => 'פתיחת חנות התוספים';
+
+  @override
   String get screenshotPrevious => 'הקודם';
   @override
   String get screenshotNext => 'הבא';

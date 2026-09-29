@@ -142,6 +142,10 @@ class _AppShellState extends State<AppShell> {
   /// נכנסת לתוקף באמצע נכס ולא רק בין רכיב לרכיב — ראו [cancelDownload].
   bool _cancelDownload = false;
 
+  /// חלון "יש עדכונים / תוספים חדשים" נבדק פעם אחת בהרצה — ראו
+  /// [_maybeAnnouncePlugins].
+  bool _announcedPlugins = false;
+
   /// הבדיקה הקלה ("יש עדכון ברשת?") — נפרדת לגמרי מ-[_isDownloading].
   bool _isCheckingOnline = false;
 
@@ -173,6 +177,8 @@ class _AppShellState extends State<AppShell> {
     _plugins = PluginsModuleController(
       // כל המראות יושבות תחת אותו שורש שלצד התוכנה, כך שהכול נוסע יחד.
       mirrorRootDir: p.join(widget.dataDir, 'mirror'),
+      // "אילו תוספים כבר נראו" הוא נתון של המחשב הזה, ולכן בתיקיית הכתיבה.
+      stateDir: widget.stateDir,
       // אותו נתיב התקנה שמודול הספרייה מקבל: התקנה ניידת מחזיקה גם את
       // התוספים לידה, ואליה גם נמסרת ההתקנה הישירה של תוסף.
       otzariaLaunchPath: () async => _otzaria.launchPath,
@@ -268,6 +274,50 @@ class _AppShellState extends State<AppShell> {
     _syncRunningPoll();
     setState(() {});
     unawaited(_maybeOfferElevation());
+    unawaited(_maybeAnnouncePlugins());
+  }
+
+  /// "יש עדכונים / יש תוספים חדשים" — חלון אחד בעלייה, כמו התראת הרקע של
+  /// החנות הרשמית. **פעם אחת בהרצה**, ורק כשהקטלוג המקומי נטען: הבדיקה
+  /// קוראת מהמראה ולא מהרשת. תוסף חדש מוזכר כאן פעם אחת במחשב הזה.
+  Future<void> _maybeAnnouncePlugins() async {
+    if (_announcedPlugins || _plugins.status != PluginsModuleStatus.ready) {
+      return;
+    }
+    _announcedPlugins = true;
+
+    final fresh = _plugins.newPluginsForHome;
+    final hasUpdates = _plugins.updatablePlugins.isNotEmpty;
+    if (fresh.isEmpty && !hasUpdates) return;
+
+    // אחרי הפריים, ובלי לעלות מעל דיאלוג אחר שכבר פתוח (עדכון לאנצ'ר,
+    // הצעת דיווחים). מוותרים אחרי דקה — ההודעה לא נרשמה, ותחזור בהרצה הבאה.
+    await WidgetsBinding.instance.endOfFrame;
+    var waits = 0;
+    while (mounted && !(ModalRoute.of(context)?.isCurrent ?? true)) {
+      if (++waits > 120) return;
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+    if (!mounted) return;
+
+    final t = context.strings.plugins;
+    final message = hasUpdates && fresh.isNotEmpty
+        ? t.homeNoticeUpdatesAndNew
+        : hasUpdates
+            ? t.homeNoticeUpdates
+            : fresh.length == 1
+                ? t.homeNoticeNewOne
+                : t.homeNoticeNewMany(fresh.length);
+
+    unawaited(_plugins.markHomeNotified(fresh));
+    final open = await showTwoActionsDialog(
+      context: context,
+      title: t.homeNoticeTitle,
+      content: message,
+      cancelText: context.strings.common.close,
+      confirmText: t.homeNoticeOpenButton,
+    );
+    if (open && mounted) await _goTo(LauncherScreen.plugins);
   }
 
   /// כשל הרשאות בכל אחד מהמודולים מגיע לכאן דרך ה-listener המשותף, ולכן

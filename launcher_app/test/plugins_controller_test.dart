@@ -61,6 +61,144 @@ void main() {
     await deleteTempDir(tempDir);
   });
 
+  group('תוספים חדשים — פעם אחת בכל מחשב', () {
+    PluginsModuleController withState() =>
+        PluginsModuleController(
+          mirrorRootDir: p.join(tempDir.path, 'mirror'),
+          stateDir: p.join(tempDir.path, 'state'),
+        );
+
+    test('הטעינה הראשונה קובעת נקודת התחלה: שום דבר אינו חדש', () async {
+      await saveCatalog(PluginCatalog(plugins: [
+        plugin('a', 'א', manifestId: 'a'),
+        plugin('b', 'ב', manifestId: 'b'),
+      ]));
+      final c = withState();
+      addTearDown(c.dispose);
+
+      await c.load();
+
+      expect(c.newPlugins, isEmpty);
+      expect(c.newPluginsForHome, isEmpty);
+    });
+
+    test('קטלוג ריק אינו נקודת התחלה — הסנכרון הראשון לא מכריז על כולו',
+        () async {
+      final first = withState();
+      addTearDown(first.dispose);
+      await first.load();
+
+      await saveCatalog(PluginCatalog(plugins: [
+        plugin('a', 'א', manifestId: 'a'),
+        plugin('b', 'ב', manifestId: 'b'),
+      ]));
+      final second = withState();
+      addTearDown(second.dispose);
+      await second.load();
+
+      expect(second.newPlugins, isEmpty);
+    });
+
+    test('תוסף שנוסף אחרי נקודת ההתחלה הוא חדש, ונאמר פעם אחת', () async {
+      await saveCatalog(PluginCatalog(plugins: [
+        plugin('a', 'א', manifestId: 'a'),
+      ]));
+      final first = withState();
+      addTearDown(first.dispose);
+      await first.load();
+
+      await saveCatalog(PluginCatalog(plugins: [
+        plugin('a', 'א', manifestId: 'a'),
+        plugin('b', 'ב', manifestId: 'b'),
+      ]));
+      final second = withState();
+      addTearDown(second.dispose);
+      await second.load();
+
+      expect(second.newPlugins.map((x) => x.id), ['b']);
+      await second.markNewSeen(second.newPlugins);
+      expect(second.newPlugins, isEmpty);
+
+      final third = withState();
+      addTearDown(third.dispose);
+      await third.load();
+      expect(third.newPlugins, isEmpty);
+    });
+
+    test('הטוסט והחלון שבמסך הראשי נרשמים בנפרד', () async {
+      await saveCatalog(PluginCatalog(plugins: [
+        plugin('a', 'א', manifestId: 'a'),
+      ]));
+      final first = withState();
+      addTearDown(first.dispose);
+      await first.load();
+
+      await saveCatalog(PluginCatalog(plugins: [
+        plugin('a', 'א', manifestId: 'a'),
+        plugin('b', 'ב', manifestId: 'b'),
+      ]));
+      final c = withState();
+      addTearDown(c.dispose);
+      await c.load();
+
+      await c.markHomeNotified(c.newPluginsForHome);
+
+      expect(c.newPluginsForHome, isEmpty);
+      expect(c.newPlugins.map((x) => x.id), ['b']);
+    });
+
+    test('תוסף שכבר נראה בחנות אינו מוזכר שוב במסך הראשי', () async {
+      await saveCatalog(PluginCatalog(plugins: [
+        plugin('a', 'א', manifestId: 'a'),
+      ]));
+      final first = withState();
+      addTearDown(first.dispose);
+      await first.load();
+
+      await saveCatalog(PluginCatalog(plugins: [
+        plugin('a', 'א', manifestId: 'a'),
+        plugin('b', 'ב', manifestId: 'b'),
+      ]));
+      final c = withState();
+      addTearDown(c.dispose);
+      await c.load();
+
+      await c.markNewSeen(c.newPlugins);
+
+      expect(c.newPluginsForHome, isEmpty);
+    });
+
+    test('תוסף שכבר מותקן כאן אינו חדש', () async {
+      await saveCatalog(PluginCatalog(plugins: [
+        plugin('a', 'א', manifestId: 'a'),
+      ]));
+      final first = withState();
+      addTearDown(first.dispose);
+      await first.load();
+
+      await saveCatalog(PluginCatalog(plugins: [
+        plugin('a', 'א', manifestId: 'a'),
+        plugin('b', 'ב', manifestId: 'b'),
+      ]));
+      final c = withState();
+      addTearDown(c.dispose);
+      await c.load();
+      c.installed = {'b': '1.0.0'};
+
+      expect(c.newPlugins, isEmpty);
+    });
+
+    test('בלי תיקיית כתיבה אין הודעות בכלל', () async {
+      await saveCatalog(PluginCatalog(plugins: [
+        plugin('a', 'א', manifestId: 'a'),
+      ]));
+      await controller.load();
+
+      expect(controller.newPlugins, isEmpty);
+      expect(controller.newPluginsForHome, isEmpty);
+    });
+  });
+
   group('load — מהמראה בלבד', () {
     test('מראה ריקה: קטלוג ריק, מצב ready, בלי שגיאה', () async {
       await controller.load();

@@ -721,6 +721,18 @@ abstract class PluginsStrings {
   /// למה השורות עדיין לא הפכו ל"עודכן" — והבטחה שאין מה ללחוץ.
   String get updatesDialogPendingNote;
 
+  // ── תוספים חדשים: הטוסט שבחנות והחלון שבמסך הראשי ──────────────────────
+  String get newToastOne;
+  String newToastMany(int count);
+  String get newToastView;
+  String get newToastClose;
+  String get homeNoticeTitle;
+  String get homeNoticeUpdates;
+  String get homeNoticeNewOne;
+  String homeNoticeNewMany(int count);
+  String get homeNoticeUpdatesAndNew;
+  String get homeNoticeOpenButton;
+
   // ── גלריית צילומי המסך ──────────────────────────────────────────────────
   String get screenshotPrevious;
   String get screenshotNext;

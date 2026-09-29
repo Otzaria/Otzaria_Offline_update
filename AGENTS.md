@@ -1266,6 +1266,15 @@ dropper). What this repo does is tell the truth about the state:
 `StoreAppMirror.wasRemoved` separates "never downloaded" from "downloaded and
 deleted", because only the first is fixed by downloading again.
 
+**"New plugin" notices are once per machine, and an empty catalog is not a
+baseline.** `KnownPluginsStore` (`plugins_known.json`, keyed by hostname like
+`AnnouncedAppsStore`) keeps two lists: what the store toast has shown and what
+the home-screen dialog has mentioned — one list would let the dialog swallow the
+toast. The first *non-empty* load only records the catalog as known; recording
+on an empty one would make the first sync announce the whole store. Updates, unlike
+new plugins, are announced once per run. `PluginsModuleController.newPlugins`,
+`newPluginsForHome`, `AppShell._maybeAnnouncePlugins`, `PluginNewToast`.
+
 ### 5.7 Custom apps
 
 **A custom app learns how to detect itself.** The form cannot ask "where will this

@@ -12,6 +12,7 @@ import '../../widgets/widgets_exports.dart';
 import '../store_kit/store_kit.dart';
 import 'plugin_detail_view.dart';
 import 'plugin_filters_bar.dart';
+import 'plugin_new_toast.dart';
 import 'plugin_store_card.dart';
 import 'plugin_store_nav.dart';
 import 'plugin_sync_overlay.dart';
@@ -85,6 +86,11 @@ class _PluginsScreenState extends State<PluginsScreen> {
   /// הודעת העדכונים מוצגת פעם אחת בכל הרצה, לא בכל טעינה מחדש.
   bool _updatesDialogShown = false;
 
+  /// התוספים החדשים שהטוסט עוד לא נצפה בהם. מוגדר פעם אחת בהרצה, ברגע
+  /// שהם נרשמים כ"נראו" — ראו [_announceNewIfNeeded].
+  List<StorePlugin> _newQueue = const [];
+  bool _newToastShown = false;
+
   /// "הצג עוד נבחרים" — נפתח פעם אחת ונשאר פתוח, כמו באתר.
   bool _allFeaturedShown = false;
 
@@ -94,6 +100,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
     widget.controller.addListener(_onControllerChange);
     // הטעינה עצמה נעשית ב-AppShell, כמו לשאר המודולים; כאן רק מגיבים לה.
     _announceUpdatesIfNeeded();
+    _announceNewIfNeeded();
   }
 
   @override
@@ -107,6 +114,32 @@ class _PluginsScreenState extends State<PluginsScreen> {
     if (!mounted) return;
     setState(() {});
     _announceUpdatesIfNeeded();
+    _announceNewIfNeeded();
+  }
+
+  /// מציג את הטוסט "תוסף חדש בחנות" בפעם הראשונה שהקטלוג נטען, ורושם
+  /// את התוספים כ"נראו" כבר עכשיו — כמו בחנות הרשמית, ההודעה נאמרת פעם
+  /// אחת במחשב הזה גם אם נסגרה בלי להסתכל.
+  void _announceNewIfNeeded() {
+    if (_newToastShown) return;
+    if (widget.controller.status != PluginsModuleStatus.ready) return;
+    final fresh = widget.controller.newPlugins;
+    if (fresh.isEmpty) return;
+
+    _newToastShown = true;
+    _newQueue = fresh.toList();
+    unawaited(widget.controller.markNewSeen(fresh));
+  }
+
+  /// "צפה": פותח את הראשון בתור, והטוסט נשאר עם מה שעוד לא נצפה.
+  void _viewNextNew() {
+    if (_newQueue.isEmpty) return;
+    final next = _newQueue.first;
+    setState(() {
+      _newQueue = _newQueue.sublist(1);
+      _selectedId = next.id;
+    });
+    widget.onRequestFocus?.call();
   }
 
   /// מציג את הודעת "יש עדכונים זמינים" בפעם הראשונה שהקטלוג נטען בהצלחה.
@@ -252,6 +285,12 @@ class _PluginsScreenState extends State<PluginsScreen> {
         if (controller.isExporting)
           Positioned.fill(
             child: StoreAppExportOverlay(controller: controller),
+          ),
+        if (_newQueue.isNotEmpty)
+          PluginNewToast(
+            count: _newQueue.length,
+            onView: _viewNextNew,
+            onClose: () => setState(() => _newQueue = const []),
           ),
       ],
     );

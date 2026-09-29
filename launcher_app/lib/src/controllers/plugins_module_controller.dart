@@ -5,6 +5,7 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
 import '../services/app_logger.dart';
+import '../services/known_plugins_store.dart';
 import 'progress_notifier.dart';
 
 enum PluginsModuleStatus { idle, loading, ready, syncing, error }
@@ -24,6 +25,7 @@ enum PluginStorePage { home, all, category }
 class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   PluginsModuleController({
     required String mirrorRootDir,
+    String? stateDir,
     Future<String?> Function()? otzariaLaunchPath,
     this.mirroredAppVersions,
     this.installedAppVersion,
@@ -36,9 +38,15 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   : _manager = PluginsManager(
           resolveMirrorDir: () async => mirrorRootDir,
           otzariaLaunchPath: otzariaLaunchPath,
-        );
+        ),
+        // תיקיית הכתיבה, כי "מה כבר נראה" הוא נתון של המחשב הזה.
+        _known = stateDir == null ? null : KnownPluginsStore(stateDir);
 
   final PluginsManager _manager;
+
+  /// זיכרון "אילו תוספים כבר נראו כאן". `null` כשאין תיקיית כתיבה — אז אין
+  /// הודעות על תוספים חדשים בכלל, ולא הודעה שחוזרת בכל הרצה.
+  final KnownPluginsStore? _known;
 
   /// גרסאות אוצריא שהכונן נושא — היציבה, ואיתה הלא-יציבה כשהיא חדשה ממנה.
   /// **ההורדה** מביאה בילד תוסף לכל אחת מהן, כדי שהמחשב המנותק ימצא בילד
@@ -189,6 +197,7 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
       installed = snapshot.installed;
       pluginsDir = snapshot.pluginsDir;
       storeApp = await _manager.loadStoreApp();
+      await _loadKnown();
       _invalidateDerived();
       _settleView();
       status = PluginsModuleStatus.ready;
@@ -605,6 +614,7 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   List<StorePlugin>? _filtered;
   List<String>? _allTags;
   List<StorePlugin>? _updatable;
+  List<StorePlugin>? _newPlugins;
   List<StorePlugin>? _featured;
   Map<String, StorePlugin>? _byId;
   List<PluginStoreCategory>? _homeCategories;
@@ -614,6 +624,7 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     _filtered = null;
     _allTags = null;
     _updatable = null;
+    _newPlugins = null;
     _featured = null;
     _byId = null;
     _homeCategories = null;
@@ -705,6 +716,78 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
         }
         return tags.toList()..sort();
       }();
+
+  // ── תוספים חדשים ──────────────────────────────────────────────────────────
+
+  /// מה שהטוסט של החנות והחלון שבמסך הראשי כבר הכירו במחשב הזה. `null` =
+  /// אין נקודת התחלה (אין תיקיית כתיבה, או שהקטלוג עוד ריק) — ואז אין הודעות.
+  Set<String>? _seenIds;
+  Set<String>? _notifiedIds;
+
+  /// הרגע שבו קטלוג לא ריק נטען לראשונה במחשב הזה רק **קובע נקודת התחלה**:
+  /// בלי זה מחשב חדש היה מכריז על כל החנות כחדשה. קטלוג ריק אינו נקודת
+  /// התחלה — אחרת הסנכרון הראשון היה מכריז על כולו.
+  Future<void> _loadKnown() async {
+    final known = _known;
+    if (known == null) return;
+    var seen = await known.loadSeen();
+    var notified = await known.loadNotified();
+    if (seen == null && plugins.isNotEmpty) {
+      final ids = plugins.map((plugin) => plugin.id).toList();
+      await known.recordSeen(ids);
+      await known.recordNotified(ids);
+      seen = ids.toSet();
+      notified = ids.toSet();
+    }
+    _seenIds = seen;
+    _notifiedIds = notified ?? seen;
+  }
+
+  /// תוסף חדש לפי המדד של החנות הרשמית: לא מותקן כאן, ויש לו בילד שרץ.
+  bool _isNewCandidate(StorePlugin plugin) {
+    final status = statusOf(plugin);
+    return status == PluginInstallStatus.notInstalled ||
+        status == PluginInstallStatus.unknown;
+  }
+
+  /// תוספים שעוד לא הוצגו בטוסט של החנות במחשב הזה.
+  List<StorePlugin> get newPlugins {
+    final seen = _seenIds;
+    if (seen == null) return const [];
+    return _newPlugins ??= plugins
+        .where((p) => !seen.contains(p.id) && _isNewCandidate(p))
+        .toList(growable: false);
+  }
+
+  /// תוספים שהחלון שבמסך הראשי עוד לא הזכיר. מי שכבר נראה בחנות אינו חדש.
+  List<StorePlugin> get newPluginsForHome {
+    final seen = _seenIds;
+    final notified = _notifiedIds;
+    if (seen == null || notified == null) return const [];
+    return plugins
+        .where((p) =>
+            !seen.contains(p.id) &&
+            !notified.contains(p.id) &&
+            _isNewCandidate(p))
+        .toList(growable: false);
+  }
+
+  /// רושם שהטוסט של החנות הציג את התוספים האלה.
+  Future<void> markNewSeen(Iterable<StorePlugin> shown) async {
+    final ids = shown.map((plugin) => plugin.id).toList();
+    if (ids.isEmpty) return;
+    _seenIds = {...?_seenIds, ...ids};
+    _newPlugins = null;
+    await _known?.recordSeen(ids);
+  }
+
+  /// רושם שהחלון שבמסך הראשי הזכיר את התוספים האלה.
+  Future<void> markHomeNotified(Iterable<StorePlugin> shown) async {
+    final ids = shown.map((plugin) => plugin.id).toList();
+    if (ids.isEmpty) return;
+    _notifiedIds = {...?_notifiedIds, ...ids};
+    await _known?.recordNotified(ids);
+  }
 
   /// תוספים שמותקנים אצל המשתמש בגרסה ישנה מזו שבחנות.
   List<StorePlugin> get updatablePlugins => _updatable ??= plugins

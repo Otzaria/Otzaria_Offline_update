@@ -1225,6 +1225,31 @@ class _Plugins extends PluginsStrings {
       'itself the moment it finishes there — nothing to press.';
 
   @override
+  String get newToastOne => 'New plugin in the store!';
+  @override
+  String newToastMany(int count) => '$count new plugins in the store!';
+  @override
+  String get newToastView => 'View';
+  @override
+  String get newToastClose => 'Close';
+  @override
+  String get homeNoticeTitle => 'Plugin store';
+  @override
+  String get homeNoticeUpdates =>
+      'Updates are available for plugins you have installed.';
+  @override
+  String get homeNoticeNewOne => 'There is a new plugin in the plugin store.';
+  @override
+  String homeNoticeNewMany(int count) =>
+      'There are $count new plugins in the plugin store.';
+  @override
+  String get homeNoticeUpdatesAndNew =>
+      'Updates are available for plugins you have installed, and there are '
+      'new plugins in the store.';
+  @override
+  String get homeNoticeOpenButton => 'Open the plugin store';
+
+  @override
   String get screenshotPrevious => 'Previous';
   @override
   String get screenshotNext => 'Next';
