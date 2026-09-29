@@ -7,6 +7,7 @@ import 'dart:io';
 
 import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -17,11 +18,14 @@ import 'package:launcher_app/src/controllers/otzaria_module_controller.dart';
 import 'package:launcher_app/src/controllers/plugins_module_controller.dart';
 import 'package:launcher_app/src/screens/error_reports_flow.dart';
 import 'package:launcher_app/src/screens/home_screen.dart';
+import 'package:launcher_app/src/services/notices_seen_store.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
 import 'package:library_manager/library_manager.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import 'test_harness.dart';
+import 'test_support.dart';
 
 Map<String, dynamic> _report(String id) => OutboxReport.fileJson(
       reportId: id,
@@ -135,6 +139,109 @@ void main() {
       );
 
   setUp(() => running = false);
+
+  group('הסבר חד-פעמי על הדיווחים', () {
+    const key = NoticesSeenStore.errorReportsIntro;
+
+    testWidgets('בהרצה הראשונה מופיע, ו"הבנתי" רושם שהוצג', (tester) async {
+      final store = MemoryNoticesStore();
+      final ctx = await host(tester);
+      unawaited(showErrorReportsIntroOnce(ctx, store));
+      await tester.pumpAndSettle();
+
+      expect(find.text(t.introDialogTitle), findsOneWidget);
+      expect(find.text(t.introDialogContent), findsOneWidget);
+      // עוד לא נסגר — עוד לא נרשם.
+      expect(store.marked, isEmpty);
+
+      await tester.tap(find.text(t.introDialogConfirm));
+      await tester.pumpAndSettle();
+
+      expect(find.text(t.introDialogTitle), findsNothing);
+      expect(store.marked, [key]);
+    });
+
+    testWidgets('Esc נחשב "נראה"', (tester) async {
+      final store = MemoryNoticesStore();
+      final ctx = await host(tester);
+      unawaited(showErrorReportsIntroOnce(ctx, store));
+      await tester.pumpAndSettle();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
+      expect(find.text(t.introDialogTitle), findsNothing);
+      expect(store.marked, [key]);
+    });
+
+    testWidgets('פעם אחת בלבד: מי שכבר ראה לא רואה שוב', (tester) async {
+      final store = MemoryNoticesStore();
+      final ctx = await host(tester);
+      unawaited(showErrorReportsIntroOnce(ctx, store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(t.introDialogConfirm));
+      await tester.pumpAndSettle();
+
+      late bool shownAgain;
+      unawaited(
+        showErrorReportsIntroOnce(ctx, store).then((v) => shownAgain = v),
+      );
+      await tester.pumpAndSettle();
+
+      expect(shownAgain, isFalse);
+      expect(find.text(t.introDialogTitle), findsNothing);
+    });
+
+    testWidgets('הודעה שכבר נרשמה במחשב הזה אינה מופיעה', (tester) async {
+      final ctx = await host(tester);
+      unawaited(
+        showErrorReportsIntroOnce(ctx, MemoryNoticesStore(seen: {key})),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(t.introDialogTitle), findsNothing);
+    });
+
+    testWidgets('כונן לקריאה בלבד: מופיע בנוסח שאומר שאי אפשר לאסוף',
+        (tester) async {
+      final store = MemoryNoticesStore();
+      final ctx = await host(tester);
+      unawaited(showErrorReportsIntroOnce(ctx, store, readOnly: true));
+      await tester.pumpAndSettle();
+
+      expect(find.text(t.introDialogContentReadOnly), findsOneWidget);
+      expect(find.text(t.introDialogContent), findsNothing);
+      await tester.tap(find.text(t.introDialogConfirm));
+      await tester.pumpAndSettle();
+      expect(store.marked, [key]);
+    });
+
+    testWidgets('אי אפשר להציג עכשיו → לא מוצג ולא נרשם', (tester) async {
+      final store = MemoryNoticesStore();
+      final ctx = await host(tester);
+      late bool shown;
+      unawaited(
+        showErrorReportsIntroOnce(
+          ctx,
+          store,
+          waitUntilFree: () async => false,
+        ).then((v) => shown = v),
+      );
+      await tester.pumpAndSettle();
+
+      expect(shown, isFalse);
+      expect(find.text(t.introDialogTitle), findsNothing);
+      expect(store.marked, isEmpty);
+    });
+
+    testWidgets('הנוסח באנגלית קיים ושונה מהעברי', (tester) async {
+      final en = stringsOf(AppLanguage.english).errorReports;
+
+      expect(en.introDialogTitle, isNotEmpty);
+      expect(en.introDialogContent, isNot(t.introDialogContent));
+      expect(en.introDialogContentReadOnly, isNot(en.introDialogContent));
+    });
+  });
 
   group('איסוף בעלייה', () {
     testWidgets('אוצריא פתוחה → אין דיאלוג, וההצעה לא "נוצלה"', (tester) async {

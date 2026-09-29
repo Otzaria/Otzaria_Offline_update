@@ -22,6 +22,7 @@ import '../services/elevation.dart';
 import '../services/file_reveal.dart';
 import '../services/mirror_download_undo.dart';
 import '../services/mirror_junk_sweeper.dart';
+import '../services/notices_seen_store.dart';
 import '../settings/app_settings.dart';
 import '../settings/safer_mode.dart';
 import '../settings/settings_controller.dart';
@@ -53,6 +54,7 @@ class AppShell extends StatefulWidget {
     this.readOnly = false,
     this.runningLocator = const RunningOtzariaLocator(),
     this.showWindowButtons,
+    this.noticesStore,
   }) : _stateDir = stateDir;
 
   /// התיקייה שלצד התוכנה — המראה, כלומר המקור שממנו קוראים ומתקינים.
@@ -76,6 +78,10 @@ class AppShell extends StatefulWidget {
 
   /// ראו [AppTitleBar.showWindowButtons] — מוזרק `false` בבדיקות widget.
   final bool? showWindowButtons;
+
+  /// "אילו הודעות הוצגו". מוזרק בבדיקות: קריאת דיסק אמיתית אינה מסתיימת
+  /// בתוך ה-fake-async, ובלי זה הודעה יכולה לצוץ באמצע בדיקה שאינה שלה.
+  final NoticesSeenStore? noticesStore;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -103,6 +109,15 @@ class _AppShellState extends State<AppShell> {
 
   /// דיווחי טעויות של אוצריא: איסוף לכונן בעלייה, והעלאה מכרטיס ההורדות.
   late final ErrorReportsController _errorReports;
+
+  /// אילו הודעות חד-פעמיות כבר הוצגו במחשב הזה. נכתב ל-`stateDir`, ולכן
+  /// עובד גם בכונן לקריאה בלבד.
+  late final NoticesSeenStore _notices =
+      widget.noticesStore ?? NoticesSeenStore(widget.stateDir);
+
+  /// ההסבר על דיווחי הטעויות רץ לפני ההצעה לאסוף — [_offerErrorReports]
+  /// ממתין לו, כדי שהמשתמש יבין קודם מה זה ואחר כך יישאל.
+  Future<void> _errorReportsIntro = Future<void>.value();
 
   /// ההצעה להוריד גרסה חדשה של הלאנצ'ר מוצגת **פעם אחת בהרצה**. הבדיקה הקלה
   /// יכולה לרוץ עוד פעמים (כפתור "בדיקת עדכונים"), ודיאלוג שקופץ בכל אחת מהן
@@ -220,6 +235,7 @@ class _AppShellState extends State<AppShell> {
       launchPath: () async => _otzaria.launchPath,
     );
     if (!widget.readOnly) unawaited(_errorReports.refreshOutbox());
+    _errorReportsIntro = _showErrorReportsIntro();
     widget.settings.addListener(_onChange);
     _applySettings(s);
 
@@ -318,6 +334,28 @@ class _AppShellState extends State<AppShell> {
       confirmText: t.homeNoticeOpenButton,
     );
     if (open && mounted) await _goTo(LauncherScreen.plugins);
+  }
+
+  /// ממתין עד שאין דיאלוג אחר פתוח, כדי לא לעלות מעליו. מוותרים אחרי דקה.
+  Future<bool> _waitUntilNoDialog() async {
+    var waits = 0;
+    while (mounted && !(ModalRoute.of(context)?.isCurrent ?? true)) {
+      if (++waits > 120) return false;
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+    return mounted;
+  }
+
+  /// ההסבר החד-פעמי על דיווחי הטעויות, ראו [showErrorReportsIntroOnce].
+  Future<void> _showErrorReportsIntro() async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    await showErrorReportsIntroOnce(
+      context,
+      _notices,
+      readOnly: widget.readOnly,
+      waitUntilFree: _waitUntilNoDialog,
+    );
   }
 
   /// כשל הרשאות בכל אחד מהמודולים מגיע לכאן דרך ה-listener המשותף, ולכן
@@ -433,6 +471,8 @@ class _AppShellState extends State<AppShell> {
   Future<void> _offerErrorReports() async {
     // גם מ-`checkAll` שהתחיל ב-`initState`: הדיאלוג והקריאה מהמסד — אחרי פריים.
     await WidgetsBinding.instance.endOfFrame;
+    // ההסבר קודם להצעה: מי שנשאל "לאסוף?" צריך לדעת קודם על מה מדובר.
+    await _errorReportsIntro;
     if (!mounted || _otzaria.launchPath == null) return;
     await offerErrorReportCollection(
       context,

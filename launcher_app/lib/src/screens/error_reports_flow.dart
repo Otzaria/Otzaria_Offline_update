@@ -3,7 +3,36 @@ import 'package:flutter/widgets.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/error_reports_controller.dart';
+import '../services/notices_seen_store.dart';
 import '../widgets/widgets_exports.dart';
+
+/// ההסבר החד-פעמי על דיווחי הטעויות. נפרד מההצעה לאסוף: זו מופיעה רק כשיש
+/// דיווחים, וההסבר צריך להגיע לכל משתמש, פעם אחת בכל מחשב.
+///
+/// [waitUntilFree] מחזיר `false` כשאי אפשר להציג (למשל דיאלוג אחר פתוח
+/// לאורך זמן). ההודעה לא נרשמת אז, ותחזור בהרצה הבאה.
+Future<bool> showErrorReportsIntroOnce(
+  BuildContext context,
+  NoticesSeenStore store, {
+  bool readOnly = false,
+  Future<bool> Function()? waitUntilFree,
+}) async {
+  if (await store.hasSeen(NoticesSeenStore.errorReportsIntro)) return false;
+  if (waitUntilFree != null && !await waitUntilFree()) return false;
+  if (!context.mounted) return false;
+
+  final t = context.strings.errorReports;
+  await showSingleActionDialog(
+    context: context,
+    title: t.introDialogTitle,
+    content: readOnly ? t.introDialogContentReadOnly : t.introDialogContent,
+    confirmText: t.introDialogConfirm,
+  );
+  // נרשם רק אחרי הסגירה — "הבנתי", Esc או לחיצה מחוץ לחלון נחשבים כולם
+  // "נראה". חלון שנסגר עם האפליקציה לא נרשם, ויחזור.
+  await store.markSeen(NoticesSeenStore.errorReportsIntro);
+  return true;
+}
 
 /// מה קרה להצעה לאסוף — בעיקר לבדיקות.
 enum ReportOfferOutcome { notOffered, declined, otzariaOpened, collected }

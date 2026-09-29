@@ -499,7 +499,7 @@ fallback הוחלף באייקון `puzzle_piece` על רקע `primaryContainer`
 למחשב, החלת הספרייה מכינה את הקובץ הדחוס ואת `<db>.new` לצד המסד הקיים,
 והתוספים נכנסים לתיקייה של אוצריא. מה שעובר ל-`stateDir` הוא בדיוק הלוג,
 `launcher_settings.json`, `faq_customization.json`, `library_state.json`,
-`otzaria_install_state.json` ו-`custom_apps_announced.json` — ושם גם
+`otzaria_install_state.json`, `custom_apps_announced.json` ו-`notices_seen.json` — ושם גם
 מקומם: "איזו גרסה מותקנת" היא תכונה של המחשב, לא של הכונן. ההעדפות
 מועתקות פעם אחת מהכונן (`AppPaths.seedPreferences`), קובצי המצב לא — הם
 מתארים את מי שכתב אותם.

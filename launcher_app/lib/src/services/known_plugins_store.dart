@@ -29,8 +29,7 @@ class KnownPluginsStore {
 
   Future<void> recordSeen(Iterable<String> ids) => _record('seen', ids);
 
-  Future<void> recordNotified(Iterable<String> ids) =>
-      _record('notified', ids);
+  Future<void> recordNotified(Iterable<String> ids) => _record('notified', ids);
 
   Future<Set<String>?> _load(String list) async {
     final ids = (await _loadAll())[_host]?[list];

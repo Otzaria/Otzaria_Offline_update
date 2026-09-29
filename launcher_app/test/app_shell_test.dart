@@ -18,6 +18,7 @@ import 'package:launcher_app/src/screens/otzaria_screen.dart';
 import 'package:launcher_app/src/screens/plugins/plugins_screen.dart';
 import 'package:launcher_app/src/screens/settings_screen.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
+import 'package:launcher_app/src/services/notices_seen_store.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/settings/safer_mode.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
@@ -52,6 +53,8 @@ void main() {
     WidgetTester tester, {
     RunningOtzariaLocator locator = const _NeverRunningLocator(),
     AppLanguage language = AppLanguage.hebrew,
+    MemoryNoticesStore? notices,
+    bool readOnly = false,
   }) async {
     useViewSize(tester, const Size(1400, 1000));
     await tester.pumpWidget(
@@ -60,6 +63,11 @@ void main() {
           dataDir: tempDir.path,
           settings: settings,
           runningLocator: locator,
+          readOnly: readOnly,
+          // ברירת המחדל: ההסבר החד-פעמי כבר הוצג, כדי שלא יצוץ באמצע בדיקה
+          // שאינה שלו.
+          noticesStore: notices ??
+              MemoryNoticesStore(seen: {NoticesSeenStore.errorReportsIntro}),
           // כפתורי החלון מדברים עם ערוץ פלטפורמה שאינו קיים בבדיקות widget.
           showWindowButtons: false,
         ),
@@ -182,6 +190,50 @@ void main() {
     expect(find.byType(Dialog), findsNothing);
     expect(find.byType(AlertDialog), findsNothing);
     expect(screen(PluginsScreen), findsNothing);
+  });
+
+  group('הסבר חד-פעמי על דיווחי הטעויות', () {
+    final t = stringsOf().errorReports;
+
+    /// `pump` ולא `pumpAndSettle` — ראו ההערה בראש הקובץ. הראשון מריץ את
+    /// `endOfFrame`, השני בונה את הדיאלוג, והשלישי מסיים את האנימציה שלו.
+    Future<void> settleDialog(WidgetTester tester) async {
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    testWidgets('הרצה ראשונה: החלון מופיע אחרי הפריים ונרשם רק בסגירה',
+        (tester) async {
+      final notices = MemoryNoticesStore();
+      await pumpShell(tester, notices: notices);
+      await settleDialog(tester);
+
+      expect(find.text(t.introDialogTitle), findsOneWidget);
+      expect(find.text(t.introDialogContent), findsOneWidget);
+      expect(notices.marked, isEmpty);
+
+      await tester.tap(find.text(t.introDialogConfirm));
+      await settleDialog(tester);
+
+      expect(find.text(t.introDialogTitle), findsNothing);
+      expect(notices.marked, [NoticesSeenStore.errorReportsIntro]);
+    });
+
+    testWidgets('כונן נעול: מופיע בנוסח שמסביר שאי אפשר לאסוף', (tester) async {
+      await pumpShell(tester, notices: MemoryNoticesStore(), readOnly: true);
+      await settleDialog(tester);
+
+      expect(find.text(t.introDialogContentReadOnly), findsOneWidget);
+      expect(find.text(t.introDialogContent), findsNothing);
+    });
+
+    testWidgets('כבר הוצג במחשב הזה → אין חלון', (tester) async {
+      await pumpShell(tester);
+      await settleDialog(tester);
+
+      expect(find.text(t.introDialogTitle), findsNothing);
+    });
   });
 
   testWidgets('בקשת מיקוד מחנות התוספים מעבירה את התצוגה אליה', (tester) async {

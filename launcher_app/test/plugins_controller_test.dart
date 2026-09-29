@@ -62,8 +62,7 @@ void main() {
   });
 
   group('תוספים חדשים — פעם אחת בכל מחשב', () {
-    PluginsModuleController withState() =>
-        PluginsModuleController(
+    PluginsModuleController withState() => PluginsModuleController(
           mirrorRootDir: p.join(tempDir.path, 'mirror'),
           stateDir: p.join(tempDir.path, 'state'),
         );

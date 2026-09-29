@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:launcher_app/src/services/notices_seen_store.dart';
+
 /// מוחק תיקייה זמנית בסבלנות. בווינדוס קובץ הלוג יכול להישאר תפוס עוד רגע
 /// אחרי הכתיבה האחרונה, ואז המחיקה נכשלת ומפילה בדיקה שכבר עברה.
 Future<void> deleteTempDir(Directory dir) async {
@@ -48,4 +50,25 @@ class _NoNetworkClient implements HttpClient {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// [NoticesSeenStore] בזיכרון, בלי דיסק — קריאת `dart:io` אינה מסתיימת בתוך
+/// ה-fake-async של `testWidgets`. [seen] = מה שכבר "הוצג"; [marked] = מה
+/// שנרשם בזמן הבדיקה.
+class MemoryNoticesStore extends NoticesSeenStore {
+  MemoryNoticesStore({Set<String> seen = const {}})
+      : seen = {...seen},
+        super('unused');
+
+  final Set<String> seen;
+  final List<String> marked = [];
+
+  @override
+  Future<bool> hasSeen(String key) async => seen.contains(key);
+
+  @override
+  Future<void> markSeen(String key) async {
+    seen.add(key);
+    marked.add(key);
+  }
 }

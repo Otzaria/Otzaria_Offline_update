@@ -2946,6 +2946,20 @@ class _ErrorReports extends ErrorReportsStrings {
       'אוצריא פתוחה, ולכן הדיווחים לא נאספו. השאלה תחזור בהפעלה הבאה';
 
   @override
+  String get introDialogTitle => 'דיווחי טעויות בספרים';
+  @override
+  String get introDialogContent =>
+      'אוצריא שומרת דיווחי טעויות בספרים שלא נשלחו כשאין רשת.\n\n'
+      'הלאנצ\'ר יכול לאסוף אותם לכונן, ולשלוח אותם לאוצריא מהמחשב המחובר '
+      'לרשת.';
+  @override
+  String get introDialogContentReadOnly =>
+      'אוצריא שומרת דיווחי טעויות בספרים שלא נשלחו כשאין רשת.\n\n'
+      'הכונן הזה נעול לכתיבה, ולכן אי אפשר לאסוף דרכו דיווחים.';
+  @override
+  String get introDialogConfirm => 'הבנתי';
+
+  @override
   String uploadButton(int count) => 'העלאת $count דיווחים לאוצריא';
   @override
   String get uploadLongDialogTitle => 'העלאת דיווחי הטעויות';

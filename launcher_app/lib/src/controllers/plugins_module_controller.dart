@@ -32,7 +32,7 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     this.ensureAppVersionsKnown,
     this.installWatchInterval = const Duration(seconds: 1),
     this.installWatchTimeout = const Duration(minutes: 5),
-  })
+  })  
   // תיקיית התוספים של אוצריא נגזרת מההתקנה שהלאנצ'ר זיהה ואינה ניתנת
   // להגדרה — ראו AppPaths: אין נתיבים בהגדרות.
   : _manager = PluginsManager(

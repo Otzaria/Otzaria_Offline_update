@@ -3155,6 +3155,21 @@ class _ErrorReports extends ErrorReportsStrings {
       'again next launch';
 
   @override
+  String get introDialogTitle => 'Book error reports';
+  @override
+  String get introDialogContent =>
+      'Otzaria keeps book error reports that could not be sent while there '
+      'was no network.\n\nThe launcher can collect them to the drive, and '
+      'send them to Otzaria from the computer that is online.';
+  @override
+  String get introDialogContentReadOnly =>
+      'Otzaria keeps book error reports that could not be sent while there '
+      'was no network.\n\nThis drive is locked for writing, so reports '
+      'cannot be collected through it.';
+  @override
+  String get introDialogConfirm => 'Got it';
+
+  @override
   String uploadButton(int count) =>
       'Upload $count ${_reports(count)} to Otzaria';
   @override

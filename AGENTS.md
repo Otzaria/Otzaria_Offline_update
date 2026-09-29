@@ -1644,6 +1644,14 @@ UI is deliberately one startup dialog plus one button in the download card — n
 no nav item, no setting. Paths, table layout and the transaction are tabulated in
 `error_reports_manager/README.md`.
 
+**The one-time explainer is separate from the offer, and shown before it.** The
+offer needs pending reports; the explainer (`showErrorReportsIntroOnce`) is for
+everyone, once per computer, so `_offerErrorReports` awaits it. "Shown" is
+`NoticesSeenStore` (`notices_seen.json` in `stateDir`, per hostname; the next
+one-time notice adds a key, not a file), written only *after* the dialog closes.
+Read-only drives get it too, with a text saying collecting is impossible there.
+It never opens over another dialog and gives up unrecorded after a minute.
+
 **The request body is a port, and it must be kept in step with Otzaria.**
 `lib/src/port/` translates `toApiPayload`, `apiErrorDetails` (the fallback block, word
 for word), `contentDigest` and OCJ-1 from Otzaria's `lib/models/direct_error_report.dart`

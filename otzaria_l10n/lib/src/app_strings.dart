@@ -1803,6 +1803,14 @@ abstract class ErrorReportsStrings {
   /// אוצריא נפתחה בין האישור לאיסוף — הדיווחים נשארים בה עד ההפעלה הבאה.
   String get collectOtzariaOpenSnack;
 
+  // ── הסבר חד-פעמי, בהרצה הראשונה במחשב ──
+  String get introDialogTitle;
+  String get introDialogContent;
+
+  /// בכונן נעול אי אפשר לאסוף — ההסבר אומר זאת במקום להציע.
+  String get introDialogContentReadOnly;
+  String get introDialogConfirm;
+
   // ── העלאה, במחשב המקוון ──
   String uploadButton(int count);
   String get uploadLongDialogTitle;
