@@ -47,6 +47,8 @@ void main() {
         installDir: r'C:\Program Files\My App',
       )!;
       expect(command.arguments.last, isNot(contains('"')));
+      // בלי הדגל Process.run היה מוסיף את המרכאות בעצמו, אחרי הבדיקה הזו.
+      expect(command.rawLastArgument, isTrue);
     });
 
     test('MSI מורץ דרך msiexec ולא ישירות — הוא אינו קובץ הרצה', () {

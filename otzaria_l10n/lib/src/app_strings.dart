@@ -1568,9 +1568,9 @@ abstract class CustomAppsStrings {
   /// אחרת החיצים נראים כמו שינוי שאינו משפיע על דבר.
   String get orderHint;
 
-  /// ⚠️ חיצי סדר ברשימה אנכית — RTL אינו הופך "למעלה" ו"למטה".
-  String get moveAppUpTooltip;
-  String get moveAppDownTooltip;
+  /// "קודם" ו"הבא" בסדר הרשת — בכיוון הקריאה, ולכן החיצים מתהפכים ב-RTL.
+  String get moveAppEarlierTooltip;
+  String get moveAppLaterTooltip;
   String get dragToReorderTooltip;
 
   // ── קבוצות השדות בטופס ──
@@ -1578,11 +1578,6 @@ abstract class CustomAppsStrings {
   String get formSectionSource;
   String get formSectionInstall;
   String get formSectionMedia;
-  String get manageSearchHint;
-  String get manageNoResults;
-
-  /// בזמן חיפוש הרשימה חלקית, ולכן הגרירה כבויה — ההסבר למה.
-  String get manageReorderDisabledWhileSearching;
 
   // ── טופס ההוספה, והוא גם טופס העריכה ──
   String get addDialogTitle;
@@ -1756,6 +1751,9 @@ abstract class CustomAppsDomainStrings {
   String installerFileMissing(String path);
   String installerExitCode(int exitCode, String output);
 
+  /// המתקין דורש מנהל, והמשתמש סירב בחלון ה-UAC.
+  String get installerElevationDeclined;
+
   /// הקובץ שעל הכונן אינו תואם ל-sha256 שנרשם כשנכנס למראה.
   String get installerDigestMismatch;
 
@@ -1763,6 +1761,9 @@ abstract class CustomAppsDomainStrings {
   /// כאן אינו מחולץ, ולכן זה "העתקה" ולא "חילוץ".
   String fileCopyFailed(String error);
   String launchFileMissing(String launchPath);
+
+  /// התוכנה דורשת מנהל גם בהפעלה, והמשתמש סירב בחלון ה-UAC.
+  String get launchElevationDeclined;
 
   // ── מדיה: אייקון וצילומי מסך ──
   String mediaFileMissing(String path);

@@ -2656,6 +2656,10 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
   String installerExitCode(int exitCode, String output) =>
       'The installation failed (exit code $exitCode).\n$output';
   @override
+  String get installerElevationDeclined =>
+      'The installer requires administrator rights, and the request was '
+      'declined. To install, approve the Windows permission prompt.';
+  @override
   String get installerDigestMismatch =>
       'The installer on the drive is damaged — it does not match the file '
       'that was stored. Download or add it again on a computer with internet';
@@ -2664,6 +2668,10 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
   @override
   String launchFileMissing(String launchPath) =>
       'Executable not found: $launchPath';
+  @override
+  String get launchElevationDeclined =>
+      'The program requires administrator rights, and the request was '
+      'declined.';
 
   @override
   String mediaFileMissing(String path) => 'Image file not found: $path';
@@ -2858,18 +2866,17 @@ class _CustomApps extends CustomAppsStrings {
   String get manageDialogTitle => 'Manage Other Programs';
   @override
   String get manageDialogHint =>
-      'The registry is set once on the online computer and travels on the '
-      'drive as it is. Downloading and installing themselves happen on the '
-      '"Other Programs" screen.';
+      'Click a program to edit it. The registry is set once on the online '
+      'computer and travels on the drive as it is; downloading and '
+      'installing themselves happen on the "Other Programs" screen.';
   @override
   String get orderHint =>
-      'Drag a program by its handle to reorder. This is the order the '
-      'programs appear in on the screen, and it '
-      'travels on the drive.';
+      "Drag a card by its handle onto another card's place to reorder. This is the order "
+      'the programs appear in on the screen, and it travels on the drive.';
   @override
-  String get moveAppUpTooltip => 'Move up';
+  String get moveAppEarlierTooltip => 'Move earlier';
   @override
-  String get moveAppDownTooltip => 'Move down';
+  String get moveAppLaterTooltip => 'Move later';
   @override
   String get dragToReorderTooltip => 'Drag to reorder';
   @override
@@ -2880,13 +2887,6 @@ class _CustomApps extends CustomAppsStrings {
   String get formSectionInstall => 'Install and detection';
   @override
   String get formSectionMedia => 'Icon and images';
-  @override
-  String get manageSearchHint => 'Search programs';
-  @override
-  String get manageNoResults => 'No program matches the search.';
-  @override
-  String get manageReorderDisabledWhileSearching =>
-      'Reordering is available when the search is empty.';
 
   @override
   String get addDialogTitle => 'Add a Program';

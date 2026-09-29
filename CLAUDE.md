@@ -13,7 +13,9 @@ The three rules that apply to *every* change:
    (root / `library_manager` / `launcher_app`) or `dart analyze`
    (`otzaria_manager`). The root `analysis_options.yaml` excludes the
    sub-packages, so analyzing from the root does not cover them.
-2. **Keep code comments short** — one or two lines, explaining *why*. Longer
+2. **Push only to `main`**, unless the maintainer explicitly asks for another
+   branch. No feature branches on your own initiative.
+3. **Keep code comments short** — one or two lines, explaining *why*. Longer
    explanations belong in the package README or CHANGELOG. Comments and
    doc-comments are written in Hebrew, matching the existing code.
 3. **QA before calling it done.** When a feature or PR is finished, a separate

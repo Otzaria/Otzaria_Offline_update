@@ -240,6 +240,10 @@ dart analyze                       # otzaria_l10n, otzaria_manager, plugins_mana
   run's* artifacts — so what ships is exactly what was tested. Before 2026-09-21
   every green push published; it does not any more. See `launcher_app/README.md`
   § "עדכון עצמי".
+- **⚠️ Push only to `main`, unless the maintainer explicitly asks otherwise.**
+  Commit on `main` and push `main` — do not create feature branches or push
+  other branches on your own initiative. A request for a specific branch or a
+  PR applies to that task only.
 - **Before every release, write the main user-facing changes into
   `launcher_app/assets/יומן שינויים.md`** — short Hebrew bullets
   at the **top of the file, with no heading**. The version number is
@@ -1742,5 +1746,7 @@ Treat the whole list as "should be right", not "was seen working".
 
 ## 7. Communication
 
-Reply to the user in Hebrew (per their global preference). Code, identifiers, commands
-and this file stay in English.
+**Talk to the maintainer in Hebrew — every message, from the first to the
+last, including progress updates between tool calls.** The maintainer asked
+for this explicitly (2026-09-24) after replies drifted into English
+mid-session. Code, identifiers, commands and this file stay in English.

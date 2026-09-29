@@ -2480,6 +2480,10 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
   String installerExitCode(int exitCode, String output) =>
       'ההתקנה הסתיימה בשגיאה (קוד $exitCode).\n$output';
   @override
+  String get installerElevationDeclined =>
+      'המתקין דורש הרשאות מנהל, והבקשה נדחתה. כדי להתקין, יש לאשר את '
+      'חלון ההרשאות של ווינדוס.';
+  @override
   String get installerDigestMismatch =>
       'קובץ ההתקנה שעל הכונן פגום — הוא אינו זהה לקובץ שנשמר. יש להוריד '
       'או לצרף אותו מחדש במחשב שיש בו אינטרנט';
@@ -2488,6 +2492,9 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
   @override
   String launchFileMissing(String launchPath) =>
       'קובץ ההרצה אינו נמצא: $launchPath';
+  @override
+  String get launchElevationDeclined =>
+      'התוכנה דורשת הרשאות מנהל, והבקשה נדחתה.';
 
   @override
   String mediaFileMissing(String path) => 'קובץ התמונה אינו נמצא: $path';
@@ -2671,16 +2678,17 @@ class _CustomApps extends CustomAppsStrings {
   String get manageDialogTitle => 'ניהול התוכנות הנוספות';
   @override
   String get manageDialogHint =>
-      'המרשם נקבע פעם אחת במחשב המקוון ונוסע על הכונן כפי שהוא. ההורדה '
-      'וההתקנה עצמן נעשות במסך "תוכנות נוספות".';
+      'לחיצה על תוכנה פותחת את העריכה שלה. המרשם נקבע פעם אחת במחשב המקוון '
+      'ונוסע על הכונן כפי שהוא; ההורדה וההתקנה עצמן נעשות במסך "תוכנות '
+      'נוספות".';
   @override
   String get orderHint =>
-      'גררו תוכנה בידית כדי לשנות את הסדר. זה הסדר שבו התוכנות מוצגות '
-      'במסך, והוא נוסע על הכונן.';
+      'גררו כרטיס בידית אל מקומו של כרטיס אחר כדי לשנות את הסדר. זה הסדר שבו '
+      'התוכנות מוצגות במסך, והוא נוסע על הכונן.';
   @override
-  String get moveAppUpTooltip => 'העלאה ברשימה';
+  String get moveAppEarlierTooltip => 'הזזה למקום הקודם';
   @override
-  String get moveAppDownTooltip => 'הורדה ברשימה';
+  String get moveAppLaterTooltip => 'הזזה למקום הבא';
   @override
   String get dragToReorderTooltip => 'גרירה לשינוי הסדר';
   @override
@@ -2691,13 +2699,6 @@ class _CustomApps extends CustomAppsStrings {
   String get formSectionInstall => 'התקנה וזיהוי';
   @override
   String get formSectionMedia => 'אייקון ותמונות';
-  @override
-  String get manageSearchHint => 'חיפוש תוכנה';
-  @override
-  String get manageNoResults => 'לא נמצאה תוכנה שתואמת לחיפוש.';
-  @override
-  String get manageReorderDisabledWhileSearching =>
-      'שינוי הסדר זמין כשהחיפוש ריק.';
 
   @override
   String get addDialogTitle => 'הוספת תוכנה';
