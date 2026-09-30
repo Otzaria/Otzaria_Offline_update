@@ -1,74 +1,69 @@
-# seforim_library_updater
+עדכוני אוצריא — Otzaria Offline Update
 
-> **מבנה הרפו:** ה‑package הראשי (`seforim_library_updater`) יושב ב‑root, כמו קודם. בתיקיות
-> [`otzaria_manager/`](otzaria_manager) ו-[`library_manager/`](library_manager) יושבים packages נוספים,
-> נפרדים, לניהול עדכון/התקנה/הפעלה של **אפליקציית אוצריא עצמה** ולחיווט המסד לתוך לאנצ'ר מאוחד,
-> בהתאמה — חלק ממיזם לאנצ'ר מאוחד. [`launcher_app/`](launcher_app) הוא אפליקציית ה-Flutter
-> (**Windows ו-macOS**) שמחווטת את שני המודולים האלה לדשבורד אחד (חנות התוספים עדיין
-> placeholder). לכל package יש `pubspec.yaml` משלו.
->
-> **תמיכת macOS:** הלאנצ'ר בונה ורץ ב-macOS 10.15+, ומנהל שם את אוצריא דרך
-> `otzaria-macos.zip` (חבילת `.app`) במקום ה-installer של Windows. הפירוט —
-> מה נבחר, איך מותקן ואיפה יושבים הנתיבים — ב-README של
-> [`otzaria_manager`](otzaria_manager/README.md#שני-מסלולים-אותו-api),
-> [`library_manager`](library_manager/README.md) ו-[`launcher_app`](launcher_app/README.md#macos).
+תוכנה לעדכון אופליין של אוצריא : התוכנה עצמה, ספריית הספרים והתוספים. מוקדשת ללומדי התורה הנמנעים משימוש באינטרנט, גם החסום.
 
-חבילת **Flutter** לצריכת הפצות הדלתא של [`Otzaria/SeforimLibrary`](https://github.com/Otzaria/SeforimLibrary).
+איך זה עובד
 
-החבילה היא צד‑הלקוח של פורמט ההפצה: היא מגלה גרסאות ב‑GitHub Releases, בוחרת מסלול עדכון
-(דלתא או הורדה מלאה), מורידה ומאמתת קובצי `patch-vX-vY.db.zst`, מחילה אותם אטומית על ה‑DB
-המקומי, ומוודאת שטביעת‑האצבע הלוגית (hash) של התוצאה תואמת למה שה‑Kotlin ייצר.
+הרשת צריכה רק להורדה. כל השאר — בדיקת גרסאות, התקנה ועדכון — קורא מתיקייה מקומית בלבד.
 
-> **לא יצרן — צרכן.** מאגר ה‑Kotlin (`SeforimLibrary`) מייצר את ה‑DB וההפרשים; חבילה זו
-> צורכת אותם. שני רכיבים כאן הם תרגום ישיר של לוגיקת ה‑Kotlin וחייבים להסכים איתה בית‑בית:
-> `LogicalContentHasher` (תואם `LogicalContentHasher.kt`) ו‑`PatchApplier`.
+מקוון — מורידים את הרכיבים שנבחרו (תוכנה / ספרייה / תוספים) אל תיקיית מראה ( OtzariaData) שצמודה לקובץ ההרצה, למשל על כונן נייד.
+הלא־מקוון — מריצים את הלאנצ'ר מהכונן, והוא מתקין ומעדכן מתוך המראה.
 
-## חבילת Flutter
+הלאנצ'ר מוצג למשתמש בשם "עדכוני אוצריא" , ותומך ב- Windows וב- macOS .
 
-החבילה הומרה מ‑Dart טהור ל‑Flutter package: `pubspec.yaml` מכריז תלות ב‑`flutter` (sdk),
-ונוסף `sqlite3_flutter_libs` כדי לספק את ספריות ה‑native של SQLite עבור
-Android/iOS/macOS/Windows/Linux בלי הסתמכות על ספריית מערכת מותקנת מראש. הלוגיקה עצמה
-(המודלים והשירותים תחת `lib/src`) לא השתנתה — היא Dart טהור ועובדת זהה בתוך אפליקציית
-Flutter. אין ב‑package הזה widgets או UI; האינטגרציה עם ממשק המשתמש (progress bars, כפתורי
-עדכון וכו') היא באחריות האפליקציה הצורכת.
+מבנה הריפו
 
-חילוץ zstd עדיין **מוזרק** על‑ידי הצרכן (ל‑`PatchDownloader.decompress`), כך שה‑package לא
-נעול לספריית דחיסה מסוימת.
+חבילת כל תיק היאייה נפרדת עם pubspec.yamlו-README משלו.
 
-## SHA‑256 — `FastSha256`
+תיקיה	תפקיד
+/(שׁוֹרֶשׁ),lib/	seforim_library_updater— עדכון מסד הספרים מהפצות דלתא שלSeforimLibrary
+otzaria_manager/	התקנה, עדכון והפעלה של אפליקציית אוצריא עצמה
+library_manager/	חיווט עדכון המסד ( seforim.db) לתוך הלאנצ'ר
+plugins_manager/	חנות התוספים האופליינית: סנכרון הקטלוג מ- otzaria.orgוהתקנה דרךotzaria://
+custom_apps_manager/	רשם "תוכנות נוספות" שנוסעות על הכונן
+error_reports_manager/	איסוף דיווחי טעויות במחשב הלא־מקוון והעלאתם ממחשב מקוון
+otzaria_l10n/	מחרוזות ממשק (עברית ואנגלית)
+launcher_app/	אפליקציית Flutter לדסקטופ שמחברת את כל המודולים לדשבורד אחד
+tool/,test/	סקריפטי עזר ובדיקות של החבילה
 
-חישוב ה‑SHA‑256 עצמו (גם ב‑`LogicalContentHasher` וגם באימות הנכסים ב‑`PatchDownloader`) עובר
-דרך `FastSha256` ולא דרך `sha256.startChunkedConversion` ישירות. הסיבה מדידה: המימוש של
-`package:crypto` הוא דארט טהור ומגיע ל‑~50MB/s, מול ~1,225MB/s לאותו אלגוריתם דרך ספריית
-ההצפנה של המערכת — ואימות ה‑hash הלוגי קורא את כל המסד (~7.4GB) בכל patch.
+launcher_appתלוי בשאר החבילות דרך path:יחסים, הם חייבים לשבת באותה רמה בריפו.
 
-Windows דרך CNG (`bcrypt.dll`), macOS דרך CommonCrypto ב‑libSystem, וכל השאר (כולל לינוקס
-ב‑CI) נופל ל‑`package:crypto`. ה‑digest זהה בשלושת המסלולים — **חוזה ה‑hash מול ה‑Kotlin נוגע
-לזרם הבתים, לא למימוש ה‑SHA**. בטעינה הראשונה (פעם אחת לכל isolate) מורצת בדיקה עצמית מול
-`package:crypto`, ומסלול נייטיבי שאינו מסכים איתה מושתק — מימוש שגוי היה דוחה *כל* עדכון.
+החבילה הראשונה:seforim_library_updater
 
-**הערת web:** Flutter Web אינו תומך ב‑`dart:io`, שבו משתמשים `PatchApplier`,
-`LibraryDbRecoveryService` ו‑`LocalDbVersionReader`. החבילה מיועדת לפלטפורמות ה‑native
-(Android, iOS, macOS, Windows, Linux) בלבד.
+חבילת Flutter היא צד הלקוח של פורמט ההפצה של SeforimLibrary. היא:
 
-## ⚠️ פעולות חוסמות — הרץ ב‑Isolate
+מגלה גרסאות ב-GitHub Releases ובוחרת עדכון מסלול — דלתא או הורדה מלאה.
+מורידה ומאמתת קובצי patch-vX-vY.db.zst.
+מחילה אותם אטומית על ה-DB המקומי.
+מוודאת שה-hash הלוגי של התוצאה זה לזה שה-קוטלין ייצר.
 
-`LogicalContentHasher.compute` ו‑`PatchApplier.apply` הן **סינכרוניות וכבדות** (חישוב ה‑hash
-עשוי להימשך עשרות שניות על DB מלא). **אל תריץ אותן על ה‑UI isolate** — עטוף ב‑`Isolate.run`:
+צרכן, לא יצרן. מאגר ה-קוטלין מייצר את המסד והפרשים. LogicalContentHasherו- PatchApplierהם תרגום ישיר של הלוגיקה שם, וחייבים להסכים איתה בית־בית.
 
-```dart
+נקודות שכדאי לדעת:
+
+אין כאן ממשק משתמש. ה-package הוא לוגיקה בלבד; מסכים והתקדמות באחריות האפליקציה הצורכת.
+פלטפורמות מקוריות בלבד (אנדרואיד, iOS, macOS, Windows, Linux) — dart:ioאינו נתמך ב-Web.
+חילוץ zstd מוזר על ידי הצרכן ( PatchDownloader.decompress).
+חישוב SHA-256 עובר דרךFastSha256 (CNG ב-Windows, CommonCrypto ב-macOS, package:cryptoכגיבוי) — המסד כולו נקרא בכל התאמה, והמימוש הנייטיבי מהיר גודל מהדארטי.
+⚠️ פעולות כבדות — הריצו ב-Isolate. LogicalContentHasher.compute ו- PatchApplier.applyסינכרוניות וארוכות:
+חֵץ
 await Isolate.run(() => const PatchApplier().apply(/* ... */));
-```
+בניה והרצאה
+לַחֲבוֹט
+cd launcher_app
+flutter pub get
+flutter run -d windows   # או: -d macos
+Windows: תיקיית windows/נוצרת ב-CI; מקומית יש להריץ קודם flutter create --platforms=windows .. ההפצה היא קובץ exe בודד שמחלץ את עצמו ( windows_stub/package.ps1).
+macOS: flutter build macos --release מייצר Otzaria Launcher.app. ההפצה היא ה- .appעצמו, בחתימה אד-הוק.
 
-## בדיקות
+פרטים מלאים, כולל שחרור גרסאות ועדכון עצמי: launcher_app/README.md.
 
-- **fixtures inline** — הבדיקות בונות DB זעירים בזיכרון (`openInMemory`), כולל golden hash
-  קבוע ומקרה BOM; רצים תמיד ולוכדים רגרסיה בחוזה מול Kotlin.
-- **בדיקות מול הפצות אמיתיות** — אופציונליות, מופעלות כשמשתנה הסביבה
-  `SEFORIM_LIBRARY_RELEASES_DIR` מצביע לתיקייה עם `v14/seforim.db` ו‑
-  `v15/{seforim.db, patch-v14-v15.db, patch-v14-v15r.db}`. אחרת מדלגות.
-
-```bash
-dart test                                   # fixtures בלבד
-SEFORIM_LIBRARY_RELEASES_DIR=/path/to/releases dart test   # + חוזה מלא
-```
+בדקות
+לַחֲבוֹט
+dart test                                                  # ה-package הראשי: fixtures בלבד
+SEFORIM_LIBRARY_RELEASES_DIR=/path/to/releases dart test   # + בדיקות מול הפצות אמיתיות (אופציונלי)
+cd launcher_app && flutter test                            # הלאנצ'ר
+מסמכים נוספים
+AGENTS.md— כללי עבודה וקונבנציות בפרויקט
+CHANGELOG.md— שינויים היסטוריים
+LICENSE
