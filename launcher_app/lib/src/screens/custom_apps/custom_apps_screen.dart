@@ -624,10 +624,13 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
       children: [
         handle,
         const Spacer(),
-        // ⚠️ בכוונה בלי `context.backArrowIcon`: בסדר הרשת "הקודם" הוא בכיוון
-        // הקריאה, ו-`RtlIcon` הופך את החץ ב-RTL.
+        // ⚠️ חייבים את `backArrowIcon` / `forwardArrowIcon`: ל-`arrow_left` ול-
+        // `arrow_right` יש `matchTextDirection`, כלומר Flutter הופך אותם ב-RTL
+        // בעצמו, ו-`RtlIcon` (שבתוך `SecondaryIconButton`) הופך שוב. אייקון
+        // גולמי נשאר עם ההיפוך הכפול — ובעברית "הקודם" הראה חץ שמאלה כשהכרטיס
+        // הקודם נמצא מימין.
         SecondaryIconButton(
-          icon: FluentIcons.arrow_left_24_regular,
+          icon: context.backArrowIcon,
           tooltip: t.moveAppEarlierTooltip,
           onPressed: busy || index == 0
               ? null
@@ -636,7 +639,7 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
         ),
         const SizedBox(width: AppTokens.spaceXS),
         SecondaryIconButton(
-          icon: FluentIcons.arrow_right_24_regular,
+          icon: context.forwardArrowIcon,
           tooltip: t.moveAppLaterTooltip,
           onPressed: busy || index == visible.length - 1
               ? null
