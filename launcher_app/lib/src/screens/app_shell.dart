@@ -124,6 +124,10 @@ class _AppShellState extends State<AppShell> {
   /// היה נדנוד.
   bool _askedAboutLauncherUpdate = false;
 
+  /// "מה התחדש" כבר הוצג בדיאלוג ההצעה, ולכן דיאלוג ההתקנה שבא מיד אחריו
+  /// לא חוזר עליו. נכבה בסוף הרצף, כדי שהתקנה ידנית מאוחרת תציג אותו.
+  bool _whatsNewAlreadyShown = false;
+
   /// ההצעה להפעיל מחדש כמנהל — גם היא פעם אחת בהרצה, ראו
   /// [_maybeOfferElevation].
   bool _offeredElevation = false;
@@ -532,7 +536,12 @@ class _AppShellState extends State<AppShell> {
       confirmText: t.availableDialogConfirm,
     );
     if (!approved || !mounted) return;
-    await downloadLauncherUpdate();
+    _whatsNewAlreadyShown = whatsNew != null;
+    try {
+      await downloadLauncherUpdate();
+    } finally {
+      _whatsNewAlreadyShown = false;
+    }
   }
 
   /// מוריד את הגרסה החדשה של הלאנצ'ר אל התיקייה שלצד התוכנה, ומיד אחר כך
@@ -577,7 +586,8 @@ class _AppShellState extends State<AppShell> {
 
     final t = context.strings.launcherUpdate;
     // מהמראה ולא מהרשת: כאן מגיעים גם במחשב המנותק.
-    final whatsNew = _launcherUpdate.downloadedWhatsNew;
+    final whatsNew =
+        _whatsNewAlreadyShown ? null : _launcherUpdate.downloadedWhatsNew;
     final approved = await showTwoActionsDialog(
       context: context,
       title: t.readyDialogTitle,
