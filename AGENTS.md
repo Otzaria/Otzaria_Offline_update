@@ -515,6 +515,8 @@ is a mirror pointing at nothing), and truncates a resumed partial asset back to 
 previous length so it stays resumable. Do **not** simplify this into deleting the
 mirror — the ~1.5GB DB from an earlier run is exactly what must survive a cancel.
 `mirror/apps` and `mirror/launcher` are deliberately outside the snapshot.
+A root in which a captured file went missing is left in its new state: components
+prune only after writing their manifest, so the old one would name deleted files.
 
 **The mirror keeps the last ten releases, not the whole patch history**
 (`LibraryMirrorExporter.recentReleases` / `defaultHistoryDepth`). The full history

@@ -139,6 +139,56 @@ void main() {
     expect(Directory(companionsDir).existsSync(), isTrue);
   });
 
+  test('a root whose download already pruned old files is kept as committed',
+      () async {
+    final pluginsDir = p.join(tempDir.path, 'mirror', 'plugins');
+    write('releases.json', '{"releases":["v1"]}');
+    write('assets/v1/seforim.db.zst', 'old full DB');
+    File(p.join(pluginsDir, 'catalog.json'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('{"plugins":["a"]}');
+
+    final undo = await MirrorDownloadUndo.capture([mirrorDir, pluginsDir]);
+    // Library step finished: new asset, new manifest, old asset pruned.
+    write('assets/v2/seforim.db.zst', 'new full DB');
+    write('releases.json', '{"releases":["v2"]}');
+    file('assets/v1/seforim.db.zst').deleteSync();
+    // Cancelled mid plugin sync: only partial writes, nothing deleted.
+    File(p.join(pluginsDir, 'catalog.json'))
+        .writeAsStringSync('{"plugins":["a","b"]}');
+    File(p.join(pluginsDir, 'files', 'b', 'plugin-1.otzplugin'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('partial');
+
+    await undo.revert();
+
+    // The old asset cannot be restored, so the new state must stay intact.
+    expect(file('releases.json').readAsStringSync(), '{"releases":["v2"]}');
+    expect(file('assets/v2/seforim.db.zst').existsSync(), isTrue);
+    expect(File(p.join(pluginsDir, 'catalog.json')).readAsStringSync(),
+        '{"plugins":["a"]}');
+    expect(Directory(p.join(pluginsDir, 'files')).existsSync(), isFalse);
+  });
+
+  test('a captured partial deleted by an unfinished step keeps the root',
+      () async {
+    write('releases.json', '{"releases":["v1"]}');
+    write('assets/v1/patch-v1-v2.zst', 'old patch');
+    write('assets/v2/seforim.db.zst', 'stale partial');
+
+    final undo = await MirrorDownloadUndo.capture([mirrorDir]);
+    // Trade-off: the stale partial is gone and cannot be restored, so the root
+    // is kept as is, including the new partial written after it.
+    file('assets/v2/seforim.db.zst').deleteSync();
+    write('assets/v2/seforim.db.zst.part', 'new partial');
+
+    await undo.revert();
+
+    expect(file('releases.json').readAsStringSync(), '{"releases":["v1"]}');
+    expect(file('assets/v1/patch-v1-v2.zst').existsSync(), isTrue);
+    expect(file('assets/v2/seforim.db.zst.part').existsSync(), isTrue);
+  });
+
   test('ביטול שלא הביא כלום אינו נוגע בדבר', () async {
     write('releases.json', '{"releases":["v1"]}');
     write('assets/v1/patch.zst', 'קובץ קודם');
