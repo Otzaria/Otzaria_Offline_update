@@ -11,9 +11,9 @@ const String _installerBytes = 'inno-setup-installer-bytes';
 const String _tag = '0.9.96+736';
 const String _assetName = 'otzaria-0.9.96-windows.exe';
 
-OtzariaRelease _release({int? size}) => OtzariaRelease(
-      tagName: _tag,
-      name: 'Otzaria $_tag',
+OtzariaRelease _release({int? size, String tag = _tag}) => OtzariaRelease(
+      tagName: tag,
+      name: 'Otzaria $tag',
       isPrerelease: false,
       isDraft: false,
       publishedAt: null,
@@ -451,6 +451,265 @@ void main() {
       expect(state.installDir, chosenElsewhere.installDir);
     });
   });
+
+  // Issue #26 on an update: the installer relaunched itself (exit 1) and the
+  // old exe still in installDir must not count as the finished update.
+  group('OtzariaInstaller.installWithWizard - relaunched update', () {
+    late OtzariaInstaller installer;
+    late String installDir;
+    late String exe;
+
+    setUp(() async {
+      installer = OtzariaInstaller(
+        cacheDir: cacheDir,
+        appLocator: const OtzariaAppLocator(
+          platform: OtzariaTargetPlatform.windows,
+        ),
+        versionReader: const _FileContentVersionReader(),
+      );
+      installDir = p.join(tempDir.path, 'existing install');
+      exe = p.join(installDir, 'otzaria.exe');
+      await Directory(installDir).create(recursive: true);
+    });
+
+    test('old version still on disk - still open, not done', () async {
+      await File(exe).writeAsString('0.9.90+90900');
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+
+      await expectLater(
+        installer.installWithWizard(
+          release: _release(),
+          installerPath: fakeInstaller,
+          installDir: installDir,
+          locateInstalled: () async => null,
+          detectTimeout: Duration.zero,
+        ),
+        throwsA(isA<OtzariaWizardStillOpen>()),
+      );
+    });
+
+    test('done only once the elevated child replaced the exe', () async {
+      await File(exe).writeAsString('0.9.90+90900');
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+      var replaced = false;
+      Future<void>.delayed(const Duration(seconds: 3), () async {
+        await File(exe).writeAsString('0.9.96+99600');
+        replaced = true;
+      });
+
+      final state = await installer.installWithWizard(
+        release: _release(),
+        installerPath: fakeInstaller,
+        installDir: installDir,
+        locateInstalled: () async => null,
+      );
+
+      expect(replaced, isTrue);
+      expect(state.launchPath, exe);
+      expect(state.installedTagName, _tag);
+    });
+
+    test('destination changed in the wizard - the new install is found',
+        () async {
+      await File(exe).writeAsString('0.9.90+90900');
+      final otherDir = p.join(tempDir.path, 'chosen elsewhere');
+      final otherExe = p.join(otherDir, 'otzaria.exe');
+      await Directory(otherDir).create(recursive: true);
+      await File(otherExe).writeAsString('0.9.96+99600');
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+
+      final state = await installer.installWithWizard(
+        release: _release(),
+        installerPath: fakeInstaller,
+        installDir: installDir,
+        locateInstalled: () async => OtzariaInstallState(
+          installedTagName: _tag,
+          installDir: otherDir,
+          launchPath: otherExe,
+        ),
+        detectTimeout: Duration.zero,
+      );
+
+      expect(state.launchPath, otherExe);
+    });
+
+    test('detection returning the same old exe - still open', () async {
+      await File(exe).writeAsString('0.9.90+90900');
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+
+      await expectLater(
+        installer.installWithWizard(
+          release: _release(),
+          installerPath: fakeInstaller,
+          installDir: installDir,
+          locateInstalled: () async => OtzariaInstallState(
+            installedTagName: _tag,
+            installDir: installDir,
+            launchPath: exe,
+          ),
+          detectTimeout: Duration.zero,
+        ),
+        throwsA(isA<OtzariaWizardStillOpen>()),
+      );
+    });
+
+    test('detection finding an even older install elsewhere - still open',
+        () async {
+      await File(exe).writeAsString('0.9.90+90900');
+      final otherDir = p.join(tempDir.path, 'older install');
+      final otherExe = p.join(otherDir, 'otzaria.exe');
+      await Directory(otherDir).create(recursive: true);
+      await File(otherExe).writeAsString('0.9.80+98000');
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+
+      await expectLater(
+        installer.installWithWizard(
+          release: _release(),
+          installerPath: fakeInstaller,
+          installDir: installDir,
+          locateInstalled: () async => OtzariaInstallState(
+            installedTagName: _tag,
+            installDir: otherDir,
+            launchPath: otherExe,
+          ),
+          detectTimeout: Duration.zero,
+        ),
+        throwsA(isA<OtzariaWizardStillOpen>()),
+      );
+    });
+
+    test('version unreadable while the exe is replaced - not done yet',
+        () async {
+      await File(exe).writeAsString('0.9.90+90900');
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+      Future<void>.delayed(const Duration(milliseconds: 500), () async {
+        await File(exe).writeAsString('?');
+      });
+
+      await expectLater(
+        installer.installWithWizard(
+          release: _release(),
+          installerPath: fakeInstaller,
+          installDir: installDir,
+          locateInstalled: () async => null,
+          detectTimeout: const Duration(seconds: 3),
+        ),
+        throwsA(isA<OtzariaWizardStillOpen>()),
+      );
+    });
+
+    // Inno keeps the build's file timestamps, so a reinstall of the same
+    // build leaves nothing to tell the new exe from the old one.
+    test('reinstall of the installed version - success right away', () async {
+      await File(exe).writeAsString('0.9.96+99600');
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+
+      final state = await installer.installWithWizard(
+        release: _release(),
+        installerPath: fakeInstaller,
+        installDir: installDir,
+        locateInstalled: () async => null,
+        detectTimeout: Duration.zero,
+      );
+
+      expect(state.launchPath, exe);
+    });
+
+    // Hotfix tags have a 4th part the exe never reports, so the exe looks
+    // the same before and after; this must not end as "still open".
+    test('hotfix tag 0.9.97.2 over exe 0.9.97 - success, not still open',
+        () async {
+      await File(exe).writeAsString('0.9.97+99702');
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+
+      final state = await installer.installWithWizard(
+        release: _release(tag: '0.9.97.2+800'),
+        installerPath: fakeInstaller,
+        installDir: installDir,
+        locateInstalled: () async => null,
+        detectTimeout: Duration.zero,
+      );
+
+      expect(state.launchPath, exe);
+      expect(state.installedTagName, '0.9.97.2+800');
+    });
+
+    test('update 0.9.96 -> 0.9.97 is stale until the exe is replaced',
+        () async {
+      await File(exe).writeAsString('0.9.96+99600');
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+
+      await expectLater(
+        installer.installWithWizard(
+          release: _release(tag: '0.9.97+740'),
+          installerPath: fakeInstaller,
+          installDir: installDir,
+          locateInstalled: () async => null,
+          detectTimeout: Duration.zero,
+        ),
+        throwsA(isA<OtzariaWizardStillOpen>()),
+      );
+    });
+  });
+
+  group('OtzariaInstaller.installFromFile (silent, Windows)', () {
+    late OtzariaInstaller installer;
+
+    setUp(() => installer = OtzariaInstaller(
+          cacheDir: cacheDir,
+          appLocator: const OtzariaAppLocator(
+            platform: OtzariaTargetPlatform.windows,
+          ),
+        ));
+
+    // Under /VERYSILENT the installer never relaunches itself, so exit 1 is a
+    // real init failure (e.g. unsupported architecture).
+    test('exit 1 is a failure, unlike the wizard path', () async {
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+
+      await expectLater(
+        installer.installFromFile(
+          release: _release(),
+          installerPath: fakeInstaller,
+          installDir: null,
+          locateInstalled: () async => throw StateError('must not be called'),
+        ),
+        throwsA(isA<StateError>().having((e) => e.message, 'message',
+            startsWith(AppL10n.strings.appDomain.installerExitCode(1, '')))),
+      );
+    });
+
+    test('update, exit 0 - the exe in installDir counts as installed',
+        () async {
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 0);
+      final dir = p.join(tempDir.path, 'existing install');
+      await Directory(dir).create(recursive: true);
+      await File(p.join(dir, 'otzaria.exe')).writeAsString('exe');
+
+      final state = await installer.installFromFile(
+        release: _release(),
+        installerPath: fakeInstaller,
+        installDir: dir,
+        appAppearTimeout: const Duration(seconds: 5),
+      );
+
+      expect(state.launchPath, p.join(dir, 'otzaria.exe'));
+    });
+  });
+}
+
+/// Reads the "version" from the fake exe's text content.
+class _FileContentVersionReader implements InstalledVersionReader {
+  const _FileContentVersionReader();
+
+  @override
+  String? readVersion(String launchPath) {
+    final file = File(launchPath);
+    if (!file.existsSync()) return null;
+    final content = file.readAsStringSync();
+    // '?' stands for an exe whose version resource cannot be read yet.
+    return content == '?' ? null : content;
+  }
 }
 
 /// כותב "מתקין" מדומה שכל תפקידו לצאת בקוד נתון. `.bat` בווינדוס ו-`sh`

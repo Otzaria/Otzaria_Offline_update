@@ -8,7 +8,10 @@ import 'package:path/path.dart' as p;
 
 import '../models/otzaria_install_state.dart';
 import '../models/otzaria_release.dart';
+import '../models/otzaria_update_check_result.dart';
+import 'installed_version_reader.dart';
 import 'otzaria_app_locator.dart';
+import 'windows_exe_version_reader.dart';
 
 /// נזרק כשהמשתמש ביטל את ההורדה. חריג נפרד ולא [StateError], כדי שהקורא
 /// יוכל להבחין בין בחירה של המשתמש לכשל אמיתי.
@@ -68,10 +71,12 @@ class OtzariaInstaller {
     required this.cacheDir,
     http.Client? httpClient,
     OtzariaAppLocator? appLocator,
+    InstalledVersionReader? versionReader,
     this.connectTimeout = const Duration(seconds: 20),
     this.stallTimeout = const Duration(seconds: 30),
   })  : _httpClient = httpClient ?? http.Client(),
-        _appLocator = appLocator ?? const OtzariaAppLocator();
+        _appLocator = appLocator ?? const OtzariaAppLocator(),
+        _versionReader = versionReader ?? const WindowsExeVersionReader();
 
   /// זמן קצוב לפתיחת החיבור, ולשקט בין צ'אנקים. בלעדיהם הורדת ה-installer
   /// (~70MB) הייתה יכולה להישאר תלויה לנצח על חיבור שנפל באמצע, והמשתמש היה
@@ -85,6 +90,9 @@ class OtzariaInstaller {
 
   final http.Client _httpClient;
   final OtzariaAppLocator _appLocator;
+
+  /// Only the wizard path (Windows) uses it, so Windows is the default.
+  final InstalledVersionReader _versionReader;
 
   /// כמה בייטים מותר לצבור ב-`IOSink` לפני שממתינים לכתיבתם בפועל. `IOSink.
   /// add` אינו מפעיל לחץ-נגד: כשקובץ ההתקנה יורד מהר יותר משהכונן הנייד
@@ -257,12 +265,14 @@ class OtzariaInstaller {
   }) async {
     final logPath =
         p.join(Directory.systemTemp.path, 'otzaria-install-$pid.log');
+    final previousVersion = await _versionIn(installDir);
     final result = await Process.run(installerPath, [
       if (installDir != null) '/DIR=$installDir',
       '/LOG=$logPath',
     ]);
 
-    switch (wizardOutcomeFor(result.exitCode)) {
+    final outcome = wizardOutcomeFor(result.exitCode);
+    switch (outcome) {
       case OtzariaWizardOutcome.cancelled:
         _deleteQuietly(logPath);
         throw const OtzariaInstallCancelled();
@@ -281,13 +291,29 @@ class OtzariaInstaller {
         _deleteQuietly(logPath);
     }
 
+    // After a relaunch the old exe is not the update yet. The exe carries only
+    // major.minor.patch, so same-base targets (reinstall, hotfix) are exempt.
+    final staleVersion = outcome == OtzariaWizardOutcome.relaunched &&
+            previousVersion != null &&
+            _isOlderBase(previousVersion, release.tagName)
+        ? previousVersion
+        : null;
+
     // התיקייה שמסרנו קודמת לזיהוי: היא מה שהתבקש, והזיהוי הכללי עלול
     // להחזיר דווקא התקנה אחרת שנשארה במחשב. אם היא ריקה — המשתמש שינה את
     // היעד באשף, ואז הזיהוי הוא התשובה.
+    // Not ready yet: still an older base (the old exe or another old install),
+    // or unreadable while Inno replaces the file.
+    bool isStale(String launchPath) {
+      if (staleVersion == null) return false;
+      final version = _readVersionQuietly(launchPath);
+      return version == null || _isOlderBase(version, release.tagName);
+    }
+
     Future<OtzariaInstallState?> locate() async {
       if (installDir != null) {
         final launchPath = await _appLocator.findIn(installDir);
-        if (launchPath != null) {
+        if (launchPath != null && !isStale(launchPath)) {
           return OtzariaInstallState(
             installedTagName: release.tagName,
             installDir: installDir,
@@ -295,7 +321,9 @@ class OtzariaInstaller {
           );
         }
       }
-      return locateInstalled();
+      // Detection also scans the registry dirs, which may hold the same old exe.
+      final found = await locateInstalled();
+      return found != null && isStale(found.launchPath) ? null : found;
     }
 
     final found = await _pollForInstalled(locate, detectTimeout);
@@ -796,6 +824,34 @@ class OtzariaInstaller {
       AppL10n.strings.appDomain
           .installNotDetected(installDir, timeout.inSeconds),
     );
+  }
+
+  Future<String?> _versionIn(String? installDir) async {
+    if (installDir == null) return null;
+    final launchPath = await _appLocator.findIn(installDir);
+    return launchPath == null ? null : _readVersionQuietly(launchPath);
+  }
+
+  /// Compares only major.minor.patch: `0.9.97.2+800` is a hotfix tag whose
+  /// exe still reports `0.9.97+99702`.
+  static bool _isOlderBase(String installed, String tagName) {
+    final pattern = RegExp(r'^\d+(?:\.\d+){0,2}');
+    final a = pattern
+        .firstMatch(OtzariaUpdateCheckResult.normalizeVersion(installed))
+        ?.group(0);
+    final b = pattern
+        .firstMatch(OtzariaUpdateCheckResult.normalizeVersion(tagName))
+        ?.group(0);
+    if (a == null || b == null) return false;
+    return OtzariaUpdateCheckResult.compareVersions(a, b) < 0;
+  }
+
+  String? _readVersionQuietly(String launchPath) {
+    try {
+      return _versionReader.readVersion(launchPath);
+    } catch (_) {
+      return null;
+    }
   }
 
   void dispose() => _httpClient.close();
