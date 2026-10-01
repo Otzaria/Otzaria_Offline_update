@@ -79,6 +79,7 @@ class OtzariaManager {
       // יחד על הכונן הנייד.
       cacheDir: p.join(mirrorDir, 'installers'),
       appLocator: _appLocator,
+      versionReader: _versionReader,
     );
     _mirror = OtzariaAppMirror(
       mirrorDir: mirrorDir,
