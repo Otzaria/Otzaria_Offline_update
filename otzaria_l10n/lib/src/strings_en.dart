@@ -1604,6 +1604,10 @@ class _ReadOnlyDrive extends ReadOnlyDriveStrings {
   String get downloadsDisabledSnack =>
       'The drive is write-protected — there is nowhere to download to. You '
       'can still install what it already carries.';
+  @override
+  String get customAppsManageDisabled =>
+      'The drive is write-protected, so programs cannot be added, edited or '
+      'removed here. Programs already on the drive install as usual.';
 }
 
 class _Elevation extends ElevationStrings {

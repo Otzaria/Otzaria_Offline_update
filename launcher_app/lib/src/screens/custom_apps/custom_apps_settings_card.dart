@@ -11,9 +11,17 @@ import 'custom_apps_manage_dialog.dart';
 /// [showCustomAppsManageDialog]. מסך ההגדרות הוא רשימת הגדרות, ומרשם
 /// שגדל עם כל תוכנה שנוספת הפך אותו למסך של תוכנות נוספות.
 class CustomAppsSettingsCard extends StatelessWidget {
-  const CustomAppsSettingsCard({super.key, required this.controller});
+  const CustomAppsSettingsCard({
+    super.key,
+    required this.controller,
+    this.readOnly = false,
+  });
 
   final CustomAppsController controller;
+
+  /// Management writes to mirror/apps on the drive, so a locked drive shows
+  /// the card disabled with an explanation instead of failing on save.
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -29,17 +37,21 @@ class CustomAppsSettingsCard extends StatelessWidget {
           SettingsActionTile.text(
             icon: FluentIcons.box_24_regular,
             title: t.settingsCardTitle,
-            subtitle: controller.hasApps
-                ? t.registeredAppCount(controller.apps.length)
-                : t.emptyHint,
+            subtitle: readOnly
+                ? context.strings.readOnlyDrive.customAppsManageDisabled
+                : controller.hasApps
+                    ? t.registeredAppCount(controller.apps.length)
+                    : t.emptyHint,
             actions: [
               ActionButton.recommended(
                 text: t.openManagerButton,
                 icon: FluentIcons.settings_24_regular,
-                onPressed: () => showCustomAppsManageDialog(
-                  context: context,
-                  controller: controller,
-                ),
+                onPressed: readOnly
+                    ? null
+                    : () => showCustomAppsManageDialog(
+                          context: context,
+                          controller: controller,
+                        ),
               ),
             ],
           ),
