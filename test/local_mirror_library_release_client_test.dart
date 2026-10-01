@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/src/models/library_release.dart';
 import 'package:seforim_library_updater/src/services/local_mirror_library_release_client.dart';
 import 'package:test/test.dart';
@@ -160,6 +161,49 @@ void main() {
       final releases = await client.fetchReleases();
       expect(releases.map((r) => r.tag), ['v2']);
     });
+
+    Map<String, Object> mirrorWithAssetPath(String downloadUrl) => {
+          'formatVersion': 1,
+          'releases': [
+            {
+              'tag': 'v27',
+              'assets': [
+                {'name': 'seforim.db.zst', 'downloadUrl': downloadUrl},
+              ],
+            },
+          ],
+        };
+
+    // A mirror filled on Windows carries `\`; one filled on macOS carries `/`.
+    // Both must resolve to the native path of the same file on any host.
+    for (final stored in [
+      r'assets\v27\seforim.db.zst',
+      'assets/v27/seforim.db.zst',
+    ]) {
+      test('asset path "$stored" resolves on any host OS', () async {
+        final expected = p.join(tmp.path, 'assets', 'v27', 'seforim.db.zst');
+        File(expected)
+          ..createSync(recursive: true)
+          ..writeAsStringSync('db');
+        writeManifest(mirrorWithAssetPath(stored));
+
+        final asset = (await client.fetchReleases()).single.assets.single;
+        expect(asset.downloadUrl, expected);
+        expect(File(asset.downloadUrl).existsSync(), isTrue);
+      });
+    }
+
+    for (final stored in [
+      r'..\outside\seforim.db.zst',
+      'assets/../../seforim.db.zst',
+      '/etc/seforim.db.zst',
+      r'C:\seforim.db.zst',
+    ]) {
+      test('asset path "$stored" outside the mirror is rejected', () {
+        writeManifest(mirrorWithAssetPath(stored));
+        expect(client.fetchReleases, throwsA(isA<LocalMirrorException>()));
+      });
+    }
   });
 
   group('fetchManifest', () {
