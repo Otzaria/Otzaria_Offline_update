@@ -2951,7 +2951,7 @@ class _ErrorReports extends ErrorReportsStrings {
   @override
   String get introDialogContent =>
       'אוצריא שומרת דיווחי טעויות בספרים שלא נשלחו כשאין רשת.\n\n'
-      'הלאנצ\'ר יכול לאסוף אותם לכונן, ולשלוח אותם לאוצריא מהמחשב המחובר '
+      'התוכנה יכולה לאסוף אותם לכונן, ולשלוח אותם לאוצריא מהמחשב המחובר '
       'לרשת.';
   @override
   String get introDialogContentReadOnly =>

@@ -251,7 +251,11 @@ dart analyze                       # otzaria_l10n, otzaria_manager, plugins_mana
   `set_launcher_version.sh`) adds the `* **0.N**` heading above them, and the
   Release workflow's `guard` job fails when there is nothing unheaded to stamp.
   That file is what "מה התחדש" shows, in the update dialogs and in Settings.
-  When you finish a user-visible change, add its bullet there.
+  **For every change, ask the maintainer whether it warrants a changelog entry**
+  before editing that file, and follow their answer. A "no" for routine work does
+  not waive the release requirement: before release, document the main user-facing
+  changes. If the maintainer declines to document one of those changes, pause
+  release preparation until the conflict is resolved.
 - **`.githooks/pre-commit` runs the same checks locally** on staged packages and
   blocks the commit on failure. Each clone needs
   `git config core.hooksPath .githooks` once.

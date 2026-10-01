@@ -3159,7 +3159,7 @@ class _ErrorReports extends ErrorReportsStrings {
   @override
   String get introDialogContent =>
       'Otzaria keeps book error reports that could not be sent while there '
-      'was no network.\n\nThe launcher can collect them to the drive, and '
+      'was no network.\n\nThe program can collect them to the drive, and '
       'send them to Otzaria from the computer that is online.';
   @override
   String get introDialogContentReadOnly =>
