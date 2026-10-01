@@ -59,6 +59,58 @@ void main() {
       expect(controller.localVersion, 18);
     });
 
+    // A locked DB is a local error with its own message; the flag keeps the
+    // screen from labelling the mirror as the culprit.
+    test('locked local DB is an error flagged as local, not a mirror fault',
+        () async {
+      final dbPath = _dbWithVersion(tempDir, 'locked', 26);
+      await controller.setCustomDbPath(dbPath);
+      expect(controller.localDbUnreadable, isFalse);
+
+      final writer = sqlite3.sqlite3.open(dbPath);
+      try {
+        writer.execute('BEGIN EXCLUSIVE');
+        writer.execute(
+            "UPDATE schema_meta SET value = '27' WHERE key = 'db_version'");
+        await controller.checkForUpdate();
+      } finally {
+        writer.execute('ROLLBACK');
+        writer.close();
+      }
+      expect(controller.status, LibraryModuleStatus.error);
+      expect(controller.localDbUnreadable, isTrue);
+      expect(
+          controller.errorMessage, AppL10n.strings.libraryDomain.localDbLocked);
+
+      await controller.checkForUpdate();
+      expect(controller.localDbUnreadable, isFalse);
+      expect(controller.status, LibraryModuleStatus.needsDownload);
+    });
+
+    // "No DB found" would be wrong here: the DB exists but is locked.
+    test('capturing from a locked DB reports the lock, not "not found"',
+        () async {
+      final dbPath = _dbWithVersion(tempDir, 'locked-capture', 26);
+      await controller.setCustomDbPath(dbPath);
+
+      final writer = sqlite3.sqlite3.open(dbPath);
+      try {
+        writer.execute('BEGIN EXCLUSIVE');
+        writer.execute(
+            "UPDATE schema_meta SET value = '27' WHERE key = 'db_version'");
+        expect(await controller.capturePersonalVersion(), isFalse);
+      } finally {
+        writer.execute('ROLLBACK');
+        writer.close();
+      }
+      expect(controller.personalCaptureError,
+          AppL10n.strings.libraryDomain.localDbLocked);
+      expect(controller.personalFromVersion, isNull);
+
+      expect(await controller.capturePersonalVersion(), isTrue);
+      expect(controller.personalCaptureError, isNull);
+    });
+
     test('נתיב ה-DB מתגלה ונשמר — לא מונח מראש', () async {
       await controller.setCustomDbPath(fakeDb.path);
 
@@ -91,6 +143,7 @@ void main() {
 
       expect(await controller.capturePersonalVersion(), isFalse);
       expect(controller.personalFromVersion, isNull);
+      expect(controller.personalCaptureError, isNull);
     });
 
     test('update לפני בדיקה אינו עושה דבר', () async {

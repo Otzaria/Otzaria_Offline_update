@@ -356,11 +356,15 @@ class LibraryScreen extends StatelessWidget {
           title: t.mirrorContentTitle,
           kind: switch (c.status) {
             LibraryModuleStatus.needsDownload => StatusKind.needsAction,
+            LibraryModuleStatus.error when c.localDbUnreadable =>
+              StatusKind.unknown,
             LibraryModuleStatus.error => StatusKind.error,
             _ => StatusKind.ok,
           },
           label: switch (c.status) {
             LibraryModuleStatus.needsDownload => t.mirrorEmpty,
+            LibraryModuleStatus.error when c.localDbUnreadable =>
+              t.mirrorNotChecked,
             LibraryModuleStatus.error => t.mirrorUnreadable,
             _ => c.targetVersion != null
                 ? t.mirrorHasVersion('${c.targetVersion}')
@@ -419,7 +423,8 @@ class LibraryScreen extends StatelessWidget {
         t.personalVersionCapturedSnack('${library.personalFromVersion}'),
       );
     } else {
-      UiSnack.showError(t.personalVersionNotFoundSnack);
+      UiSnack.showError(
+          library.personalCaptureError ?? t.personalVersionNotFoundSnack);
     }
   }
 }

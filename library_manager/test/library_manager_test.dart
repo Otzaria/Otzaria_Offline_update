@@ -494,6 +494,48 @@ void main() {
       });
     });
 
+    // A locked live v26 must not read as "no version": that skipped the
+    // no-downgrade guard and planned the mirror's older v21 full DB over it.
+    test('locked local DB fails the check instead of planning a downgrade',
+        () async {
+      final dbPath = await installExistingDb(26, appliedTag: 'v26');
+      await writeMirror(
+        tag: 'v21',
+        compressedDb: Uint8List.fromList(const [1, 2, 3]),
+      );
+
+      await _withoutNetwork((_) async {
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          versionReader: const LocalDbVersionReader(
+            busyTimeout: Duration(milliseconds: 50),
+          ),
+        );
+        addTearDown(manager.dispose);
+        // Unlocked, the guard holds: no plan installs the older v21.
+        final unlocked = await manager.checkForUpdate();
+        expect(unlocked.plan!.kind, isNot(LibraryUpdatePlanKind.fullDownload));
+
+        final writer = sqlite3.sqlite3.open(dbPath);
+        try {
+          writer.execute('BEGIN EXCLUSIVE');
+          writer.execute(
+              "UPDATE schema_meta SET value = '27' WHERE key = 'db_version'");
+          await expectLater(
+            manager.checkForUpdate(),
+            throwsA(isA<LocalDbUnreadableException>().having(
+              (e) => e.reason,
+              'reason',
+              LocalDbUnreadableReason.locked,
+            )),
+          );
+        } finally {
+          writer.execute('ROLLBACK');
+          writer.close();
+        }
+      });
+    });
+
     test('מראה בלי נכס מסד כלל = blocked, לא קריסה', () async {
       await installExistingDb(4, appliedTag: 'v4');
       await writeMirror(tag: 'v9'); // release בלי seforim.db.zst

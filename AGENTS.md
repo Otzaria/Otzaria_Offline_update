@@ -376,7 +376,9 @@ v21 one — the user ended up on v22.
 **A plan whose final version is not higher than the local one is `blocked`, with a
 reason** — never an "update" that installs an older library (`followUpDelta` counts
 toward that final version). Skipped only when `hasLocalVersionMeta` is false, where
-there is no trustworthy local version and every DB is an improvement.
+there is no trustworthy local version and every DB is an improvement. A transient
+read error (locked DB, hot journal, read-only folder) is not "no version": it
+surfaces as `LocalDbUnreadableException` and the check fails instead of planning.
 
 **Two version axes, never one constant.** `patch_meta.schema_version` is the
 **patch.db format** version, not the logical DB schema. They travelled together

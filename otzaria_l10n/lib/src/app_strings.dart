@@ -351,6 +351,9 @@ abstract class LibraryScreenStrings {
   String get mirrorContentTitle;
   String get mirrorEmpty;
   String get mirrorUnreadable;
+
+  /// המראה לא נבדקה, כי הבדיקה נעצרה כבר בקריאת המסד המקומי.
+  String get mirrorNotChecked;
   String mirrorHasVersion(String version);
   String get mirrorPresent;
 
@@ -1267,6 +1270,12 @@ abstract class LibraryDomainStrings {
   /// מקום פנוי חסר להורדת המראה, עם הגודל שנדרש בפועל לפי התוכנית.
   String mirrorNotEnoughDiskSpace(String dir, String needed, String free);
   String get otzariaIsRunning;
+
+  /// גרסת המסד המקומי לא נקראה כרגע: הוא נעול, נשאר באמצע כתיבה, או יושב
+  /// בתיקייה שאי אפשר לכתוב אליה. ראו `LocalDbUnreadableReason`.
+  String get localDbLocked;
+  String get localDbInterruptedWrite;
+  String get localDbReadOnlyLocation;
   String get zstdContextCreationFailed;
   String zstdDecompressionFailed(String errorName);
   String get zstdEmptyInput;

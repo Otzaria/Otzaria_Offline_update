@@ -533,6 +533,8 @@ class _LibraryScreen extends LibraryScreenStrings {
   @override
   String get mirrorUnreadable => 'לא ניתן לקרוא';
   @override
+  String get mirrorNotChecked => 'לא נבדקה: המסד המקומי לא נקרא';
+  @override
   String mirrorHasVersion(String version) => 'מכילה גרסה $version';
   @override
   String get mirrorPresent => 'קיימת';
@@ -2099,6 +2101,18 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get otzariaIsRunning =>
       'אוצריא פתוחה כרגע — יש לסגור אותה לפני עדכון המסד, כדי למנוע נעילת '
       'קובץ.';
+  @override
+  String get localDbLocked =>
+      'לא ניתן לקרוא את גרסת הספרייה המקומית כי המסד נעול, כנראה מפני '
+      'שאוצריא פתוחה. יש לסגור את אוצריא ולבדוק שוב.';
+  @override
+  String get localDbInterruptedWrite =>
+      'לא ניתן לקרוא את גרסת הספרייה המקומית: המסד נשאר באמצע כתיבה שנקטעה. '
+      'יש לפתוח את אוצריא ולסגור אותה, ואז לבדוק שוב.';
+  @override
+  String get localDbReadOnlyLocation =>
+      'לא ניתן לקרוא את גרסת הספרייה המקומית, כי התיקייה שלה מוגנת מפני '
+      'כתיבה. יש לאפשר כתיבה לתיקייה ולבדוק שוב.';
   @override
   String get zstdContextCreationFailed => 'יצירת הקשר החילוץ (DCtx) נכשלה';
   @override

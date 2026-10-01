@@ -1857,6 +1857,33 @@ void main() {
     );
   });
 
+  // A local DB that could not be read stopped the check before the mirror,
+  // so the mirror row must not say the mirror is unreadable.
+  testWidgets('a local-DB read error does not blame the mirror',
+      (tester) async {
+    final t = stringsOf().libraryScreen;
+    library.status = LibraryModuleStatus.error;
+    library.localDbUnreadable = true;
+    library.errorMessage = stringsOf().libraryDomain.localDbLocked;
+
+    await pumpScreen(
+      tester,
+      LibraryScreen(
+        library: library,
+        otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
+        isDownloading: false,
+        onProcessStateChanged: () async => false,
+        onRequestReindex: () async {},
+        onGoToSettings: () {},
+      ),
+    );
+
+    expect(find.text(stringsOf().libraryDomain.localDbLocked), findsOneWidget);
+    expect(find.text(t.mirrorNotChecked), findsOneWidget);
+    expect(find.text(t.mirrorUnreadable), findsNothing);
+  });
+
   // מצב "עדכון אישי": האריח שמאפשר לרשום את הגרסה מופיע רק במצב הזה, כי הוא
   // הדרך **היחידה** שגרסה נרשמת — התוכנה אינה קוראת אותה מעצמה.
   testWidgets('אריח גרסת המסד האישית מופיע רק במצב עדכון אישי', (tester) async {

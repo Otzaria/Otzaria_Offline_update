@@ -562,6 +562,9 @@ class _LibraryScreen extends LibraryScreenStrings {
   @override
   String get mirrorUnreadable => 'Cannot be read';
   @override
+  String get mirrorNotChecked =>
+      'Not checked: the local database could not be read';
+  @override
   String mirrorHasVersion(String version) => 'Contains version $version';
   @override
   String get mirrorPresent => 'Present';
@@ -2248,6 +2251,20 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get otzariaIsRunning =>
       'Otzaria is currently open — close it before updating the database so '
       'the file is not locked.';
+  @override
+  String get localDbLocked =>
+      'Could not read the local library version because the database is '
+      'locked, probably because Otzaria is open. Close Otzaria and check '
+      'again.';
+  @override
+  String get localDbInterruptedWrite =>
+      'Could not read the local library version: the database was left in '
+      'the middle of an interrupted write. Open and close Otzaria, then '
+      'check again.';
+  @override
+  String get localDbReadOnlyLocation =>
+      'Could not read the local library version because its folder is '
+      'write-protected. Allow writing to the folder and check again.';
   @override
   String get zstdContextCreationFailed =>
       'Could not create the decompression context (DCtx)';
