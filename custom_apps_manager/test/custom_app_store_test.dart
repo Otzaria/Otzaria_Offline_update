@@ -110,6 +110,84 @@ void main() {
       expect(entry.installer!.version, '1.4.2');
     });
 
+    group('fileName from a foreign installer.json escapes the app folder', () {
+      late String outside;
+
+      setUp(() => outside = writeFile(p.join(root, 'outside', 'x.exe')));
+
+      for (final (label, name) in [
+        ('absolute', () => outside),
+        ('dot-dot', () => p.join('..', '..', 'outside', 'x.exe')),
+        ('empty', () => ''),
+      ]) {
+        test('$label name - installer treated as absent', () async {
+          await store.add(descriptor());
+          writeFile(
+            p.join(root, 'apps', 'org.example.app', 'installer.json'),
+            jsonEncode({'fileName': name(), 'version': '1'}),
+          );
+
+          final entry = await store.load('org.example.app');
+          expect(entry, isNotNull);
+          expect(entry!.hasInstaller, isFalse);
+          expect(File(outside).existsSync(), isTrue);
+        });
+      }
+
+      for (final name in [
+        '.',
+        '..',
+        '...',
+        ' setup.exe',
+        'setup.exe ',
+        'setup.exe.',
+      ]) {
+        test('"$name" is rejected', () {
+          expect(
+            () => StoredInstaller.fromJson({'fileName': name}),
+            throwsFormatException,
+          );
+        });
+      }
+
+      for (final name in [
+        'setup.exe',
+        'Setup...exe',
+        'App..exe',
+        'App v1.0..2.exe',
+      ]) {
+        test('"$name" is a legit name and still loads', () async {
+          await store.add(descriptor());
+          writeFile(p.join(root, 'apps', 'org.example.app', name));
+          writeFile(
+            p.join(root, 'apps', 'org.example.app', 'installer.json'),
+            jsonEncode({'fileName': name, 'version': '1'}),
+          );
+
+          final entry = await store.load('org.example.app');
+          expect(entry!.installer!.fileName, name);
+        });
+      }
+
+      test('installerPathFor never returns a path outside the app', () {
+        StoredInstaller named(String fileName) => StoredInstaller(
+              fileName: fileName,
+              version: '1',
+              sizeBytes: 1,
+              addedAt: DateTime(2026),
+            );
+        expect(
+          () => store.installerPathFor('org.example.app', named(outside)),
+          throwsArgumentError,
+        );
+        expect(
+          () => store.installerPathFor(
+              'org.example.app', named(p.join('..', '..', 'x.exe'))),
+          throwsArgumentError,
+        );
+      });
+    });
+
     test('הנתיב מורכב בזמן ריצה — הקובץ שומר שם בלבד', () async {
       final installer = StoredInstaller(
         fileName: 'setup.exe',

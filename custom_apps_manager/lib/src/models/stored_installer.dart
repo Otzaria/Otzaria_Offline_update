@@ -1,3 +1,5 @@
+import 'safe_file_name.dart';
+
 /// קובץ ההתקנה ששמור במראה עבור תוכנה מותאמת.
 ///
 /// במקור `manual` אין מה "לבדוק ברשת": מה שיש כאן **הוא** הגרסה הזמינה.
@@ -29,15 +31,22 @@ class StoredInstaller {
   /// המנותק אין דרך להוריד מחדש קובץ שנפגם בדרך. `null` ברשומה ישנה.
   final String? sha256;
 
-  factory StoredInstaller.fromJson(Map<String, dynamic> json) =>
-      StoredInstaller(
-        fileName: json['fileName'] as String,
-        version: json['version'] as String? ?? '',
-        sizeBytes: json['sizeBytes'] as int? ?? 0,
-        addedAt: DateTime.tryParse(json['addedAt'] as String? ?? '') ??
-            DateTime.fromMillisecondsSinceEpoch(0),
-        sha256: json['sha256'] as String?,
-      );
+  /// Throws [FormatException] on a name that is not a bare file name, so the
+  /// loader treats it like a corrupt installer.json.
+  factory StoredInstaller.fromJson(Map<String, dynamic> json) {
+    final fileName = json['fileName'];
+    if (fileName is! String || safeFileName(fileName) == null) {
+      throw FormatException('Unsafe installer file name', fileName);
+    }
+    return StoredInstaller(
+      fileName: fileName,
+      version: json['version'] as String? ?? '',
+      sizeBytes: json['sizeBytes'] as int? ?? 0,
+      addedAt: DateTime.tryParse(json['addedAt'] as String? ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0),
+      sha256: json['sha256'] as String?,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'fileName': fileName,

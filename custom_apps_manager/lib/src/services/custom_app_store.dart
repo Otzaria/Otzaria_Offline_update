@@ -48,7 +48,17 @@ class CustomAppStore {
   /// הנתיב המלא לקובץ ההתקנה השמור — מורכב בזמן ריצה משם הקובץ, ולא
   /// נקרא מהדיסק. ראו [StoredInstaller.fileName].
   String installerPathFor(String id, StoredInstaller installer) =>
-      p.join(dirFor(id), installer.fileName);
+      installerPathNamed(id, installer.fileName);
+
+  /// The path an installer named [fileName] is written to, deleted from and
+  /// run from. Throws [ArgumentError] when it would leave the app folder.
+  String installerPathNamed(String id, String fileName) {
+    final path = p.join(dirFor(id), fileName);
+    if (!p.isWithin(dirFor(id), path)) {
+      throw ArgumentError.value(fileName, 'fileName');
+    }
+    return path;
+  }
 
   /// כל התוכנות הרשומות, ממוינות לפי שם. תיקייה פגומה מדולגת בשקט ואינה
   /// מפילה את הטעינה: תוסף אחד שנשבר לא ימנע מהמשתמש לראות את השאר.

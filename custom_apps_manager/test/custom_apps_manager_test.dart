@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:custom_apps_manager/custom_apps_manager.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -63,6 +66,100 @@ void main() {
       // 3. במחשב המנותק — התקנה מהעותק המקומי, בלי רשת
       await manager.install('org.example.myapp');
       expect(runner.calls.single.arguments, contains('/VERYSILENT'));
+    });
+  });
+
+  group('installer.json naming a file outside the app folder', () {
+    late String outside;
+
+    setUp(() async {
+      outside = writeFile(p.join(root, 'outside', 'x.exe'));
+      await manager.add(descriptor());
+      writeFile(
+        p.join(root, 'apps', 'org.example.app', 'installer.json'),
+        jsonEncode({
+          'fileName': p.join('..', '..', 'outside', 'x.exe'),
+          'version': '1',
+        }),
+      );
+    });
+
+    test('is never run', () async {
+      await expectLater(
+        manager.install('org.example.app'),
+        throwsA(isA<AppDescriptorException>()),
+      );
+      expect(runner.calls, isEmpty);
+    });
+
+    test('is not deleted when a new installer replaces it', () async {
+      await manager.attachInstaller(
+        'org.example.app',
+        sourcePath: writeFile(p.join(root, 'src', 'setup.exe')),
+        version: '2',
+      );
+      expect(File(outside).existsSync(), isTrue);
+    });
+
+    test('a GitHub asset name that escapes the folder is not downloaded',
+        () async {
+      final requests = <Uri>[];
+      final m = CustomAppsManager(
+        resolveMirrorDir: () async => root,
+        readVersion: (_) => '1',
+        processRunner: runner.call,
+        githubClient: GithubAppClient(
+          httpClient: MockClient((request) async {
+            requests.add(request.url);
+            return http.Response(
+              jsonEncode([
+                {
+                  'tag_name': 'v1',
+                  'prerelease': false,
+                  'draft': false,
+                  'published_at': '2026-08-13T10:00:00Z',
+                  'assets': [
+                    {
+                      'name': r'..\..\outside\y.exe',
+                      'browser_download_url': 'https://example.test/y.exe',
+                      'size': 1,
+                    },
+                  ],
+                },
+              ]),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }),
+        ),
+      );
+      await m.add(
+        const AppDescriptor(
+          id: 'org.example.gh',
+          name: 'gh',
+          sourceKind: AppSourceKind.github,
+          github: GithubSource(owner: 'o', repo: 'r', assetPattern: r'\.exe$'),
+        ),
+      );
+
+      await expectLater(
+        m.downloadFromGithub('org.example.gh'),
+        throwsA(isA<AppDescriptorException>()),
+      );
+      expect(requests, hasLength(1), reason: 'only the release lookup');
+      expect(File(p.join(root, 'outside', 'y.exe')).existsSync(), isFalse);
+    });
+
+    test('a normal name still installs', () async {
+      final setup = writeFile(
+          p.join(root, 'apps', 'org.example.app', 'setup.exe'),
+          'MZ Inno Setup');
+      writeFile(
+        p.join(root, 'apps', 'org.example.app', 'installer.json'),
+        jsonEncode({'fileName': 'setup.exe', 'version': '1'}),
+      );
+      await manager.install('org.example.app');
+      expect(runner.calls.single.executable, setup);
     });
   });
 

@@ -11,6 +11,7 @@ import 'models/custom_app_install_state.dart';
 import 'models/custom_install_outcome.dart';
 import 'models/custom_installer_kind.dart';
 import 'models/github_release.dart';
+import 'models/safe_file_name.dart';
 import 'models/stored_installer.dart';
 import 'services/custom_app_categories_store.dart';
 import 'services/custom_app_installer.dart';
@@ -218,7 +219,11 @@ class CustomAppsManager {
   }) async {
     final t = AppL10n.strings.customAppsDomain;
     final source = File(sourcePath);
-    if (!await source.exists()) {
+    final fileName = p.basename(sourcePath);
+    // The stored name must load back on another machine (see safeFileName).
+    // Reusing installerFileMissing is intentional: only a name Windows would
+    // alter (a colon, trailing space or dot, e.g. from a Mac) can fail here.
+    if (safeFileName(fileName) == null || !await source.exists()) {
       throw AppDescriptorException(t.installerFileMissing(sourcePath));
     }
 
@@ -234,8 +239,7 @@ class CustomAppsManager {
       } catch (_) {}
     }
 
-    final fileName = p.basename(sourcePath);
-    final target = p.join(store.dirFor(id), fileName);
+    final target = store.installerPathNamed(id, fileName);
     await Directory(store.dirFor(id)).create(recursive: true);
     await source.copy(target);
 
@@ -283,14 +287,15 @@ class CustomAppsManager {
     );
     // התבנית נבנתה משם שהמשתמש בחר, אך שמות משתנים. הודעה מפורשת עדיפה
     // על הורדת "הקובץ הראשון", שהיא בדיוק הבאג שהתבנית קיימת כדי למנוע.
-    if (asset == null) {
+    // An unsafe asset name counts as no usable asset, intentionally reusing
+    // that message: GitHub sanitizes asset names, so this is a backstop.
+    if (asset == null || safeFileName(asset.name) == null) {
       throw AppDescriptorException(t.githubNoMatchingAsset(release.tagName));
     }
 
     // מורידים לשם זמני ומחליפים רק בסוף: הורדה שנקטעה לא תיראה כקובץ
     // שמוכן להתקנה במחשב המנותק.
-    final dir = store.dirFor(id);
-    final target = p.join(dir, asset.name);
+    final target = store.installerPathNamed(id, asset.name);
     final temp = '$target.part';
     final digest = await github.download(asset, temp, onProgress: onProgress);
 
