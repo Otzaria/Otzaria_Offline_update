@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:path/path.dart' as p;
 
 import '../models/delta_manifest.dart';
 import '../models/library_release.dart';
@@ -91,8 +92,19 @@ class LocalMirrorLibraryReleaseClient implements LibraryReleaseSource {
     );
   }
 
-  String _absolutePath(String relative) =>
-      '$mirrorDir${Platform.pathSeparator}$relative';
+  // A drive filled on Windows may carry `\` separators; split on both so the
+  // same mirror resolves on macOS too.
+  String _absolutePath(String relative) {
+    final segments = relative.split(RegExp(r'[\\/]'))
+      ..removeWhere((s) => s.isEmpty || s == '.');
+    if (p.windows.isAbsolute(relative) || segments.contains('..')) {
+      throw LocalMirrorException(
+        AppL10n.strings.libraryDomain
+            .mirrorManifestUnexpectedShape(manifestFileName, mirrorDir),
+      );
+    }
+    return p.joinAll([mirrorDir, ...segments]);
+  }
 
   @override
   Future<DeltaManifest> fetchManifest(String url) async {

@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/src/models/library_update_plan.dart';
 import 'package:seforim_library_updater/src/models/patch_table_spec.dart';
 import 'package:seforim_library_updater/src/services/apply_time_estimate.dart';
@@ -1142,6 +1143,30 @@ void main() {
     expect(File(full.fullDbAsset!.downloadUrl).existsSync(), isTrue);
   });
 
+  group('mirrorRelativePath', () {
+    test('Windows-style paths are written with POSIX separators', () {
+      expect(
+        mirrorRelativePath(
+          r'D:\OtzariaData\mirror\library\assets\v3\seforim.db.zst',
+          from: r'D:\OtzariaData\mirror\library',
+          context: p.Context(style: p.Style.windows),
+        ),
+        'assets/v3/seforim.db.zst',
+      );
+    });
+
+    test('POSIX-style paths stay as they are', () {
+      expect(
+        mirrorRelativePath(
+          '/Volumes/KEY/OtzariaData/mirror/library/assets/v3/seforim.db.zst',
+          from: '/Volumes/KEY/OtzariaData/mirror/library',
+          context: p.Context(style: p.Style.posix),
+        ),
+        'assets/v3/seforim.db.zst',
+      );
+    });
+  });
+
   group('export — פרטי הכתיבה', () {
     test('releases.json נכתב עם formatVersion ונתיבים יחסיים בלבד', () async {
       final built = buildExporter([
@@ -1161,6 +1186,9 @@ void main() {
       expect(url, isNot(startsWith('http')));
       expect(url, isNot(contains(destDir)));
       expect(url, contains('seforim.db.zst'));
+      // POSIX separators, so a mirror filled on Windows reads on macOS.
+      expect(url, isNot(contains(r'\')));
+      expect(url, 'assets/v3/seforim.db.zst');
     });
 
     // חלון ההיסטוריה מסתובב: release שנפל ממנו השאיר עד עכשיו את נכסיו על

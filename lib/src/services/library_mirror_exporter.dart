@@ -20,6 +20,14 @@ import 'library_update_discovery.dart';
 import 'local_mirror_library_release_client.dart';
 import 'patch_downloader.dart';
 
+/// The path of [path] relative to [from], always with `/` separators, so a
+/// mirror filled on Windows reads on macOS. [context] defaults to the host's.
+String mirrorRelativePath(String path,
+    {required String from, p.Context? context}) {
+  final ctx = context ?? p.context;
+  return p.posix.joinAll(ctx.split(ctx.relative(path, from: from)));
+}
+
 /// בונה "מראה" (mirror) מקומית מלאה של כל עדכוני הספרייה מ-GitHub,
 /// לתיקייה על הדיסק (USB / תיקייה משותפת) — כדי שמחשבים **בלי אינטרנט
 /// בכלל** יוכלו לעדכן את ה-DB אחר-כך דרך [LocalMirrorLibraryReleaseClient],
@@ -541,7 +549,7 @@ class LibraryMirrorExporter {
             for (final asset in entry.value)
               ReleaseAsset(
                 name: asset.name,
-                downloadUrl: p.relative(
+                downloadUrl: mirrorRelativePath(
                   p.join(
                     assetsRoot.path,
                     _safeDirName(entry.key.tag),
