@@ -287,6 +287,17 @@ void mediaAndCategories() {
       expect(d.screenshotFiles, ['ok.png']);
     });
 
+    test('dots inside a media name are fine, escaping names are not', () {
+      final d = AppDescriptor.parse(
+        '{"id": "a.b", "name": "x", "media": {"icon": "icon..png", '
+        '"screenshots": ["shot..png", "screenshot-1.png", "../x.png", '
+        '" pad.png", "trail.png.", ".."]}}',
+      );
+
+      expect(d.iconFile, 'icon..png');
+      expect(d.screenshotFiles, ['shot..png', 'screenshot-1.png']);
+    });
+
     test('slug פסול של קטגוריה מדולג ואינו מפיל את הרשומה', () {
       final d = AppDescriptor.parse(
         '{"id": "a.b", "name": "x", "categories": ["ok", "../escape", 7]}',

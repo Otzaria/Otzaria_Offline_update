@@ -1341,7 +1341,9 @@ included.** `AppDescriptor.iconFile`/`screenshotFiles` name files inside
 `apps/<id>/media/`, and the full path is rebuilt at runtime (`CustomAppMedia`).
 An absolute path in a file that travels on the drive is the
 `otzaria_install_state.json` disease (§5.3). The names also arrive from another
-machine, so `_safeFileName` rejects anything with `..`, a separator or a colon —
+machine, so `safeFileName` (shared with the installer `fileName` in
+`installer.json`) rejects anything that is not one path component as stored:
+empty, a separator or a colon, leading or trailing whitespace, or a trailing dot —
 the same boundary `AppDescriptorId` draws for the folder name. These fields are
 optional additions, so `schemaVersion` deliberately stayed 1, exactly as
 `install.portable` did.

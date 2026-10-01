@@ -6,6 +6,7 @@ import 'app_descriptor_id.dart';
 import 'app_detect_rules.dart';
 import 'app_source_kind.dart';
 import 'github_source.dart';
+import 'safe_file_name.dart';
 
 /// תוכנה נוספת שהמשתמש הוסיף — מה שהטופס "הוספת תוכנה" ממלא.
 ///
@@ -181,13 +182,13 @@ class AppDescriptor {
       description: optional('description'),
       longDescription: optional('longDescription'),
       categorySlugs: _slugsFrom(json['categories']),
-      iconFile: _safeFileName(media['icon']),
+      iconFile: safeFileName(media['icon']),
       // רשומה ישנה, מלפני השדה, מתכוונת ל"כן" — וזו גם ברירת המחדל.
       autoIcon: media['auto'] != false,
       screenshotFiles: [
         if (media['screenshots'] is List)
           for (final raw in media['screenshots'] as List)
-            if (_safeFileName(raw) case final name?) name,
+            if (safeFileName(raw) case final name?) name,
       ],
       publisher: optional('publisher'),
       sourceKind: sourceKind,
@@ -202,19 +203,6 @@ class AppDescriptor {
         json['detect'] as Map<String, dynamic>? ?? const {},
       ),
     );
-  }
-
-  /// שם קובץ מדיה שבטוח לצרף לנתיב, או `null`. הרשומה מגיעה מכונן שנדד,
-  /// ולכן `../../windows/system32` כאן הוא גבול אמיתי ולא ניקיון — אותו
-  /// שיקול בדיוק כמו ב-[AppDescriptorId].
-  static String? _safeFileName(Object? value) {
-    if (value is! String) return null;
-    final name = value.trim();
-    if (name.isEmpty || name.contains('..')) return null;
-    if (name.contains('/') || name.contains(r'\') || name.contains(':')) {
-      return null;
-    }
-    return name;
   }
 
   /// slug פסול מדולג ולא מפיל את הטעינה — תוצאתו היא קטגוריה שלא תימצא,
