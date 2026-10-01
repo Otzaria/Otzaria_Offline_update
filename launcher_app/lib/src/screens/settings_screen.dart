@@ -45,7 +45,7 @@ class SettingsScreen extends StatelessWidget {
   final CustomAppsController? customApps;
 
   /// הכונן מוגן מפני כתיבה — ראו `AppPaths.readOnly`. כל ניהול המרשם כותב
-  /// אליו, ולכן כרטיס התוכנות הנוספות כולו אינו מוצג.
+  /// אליו, ולכן כרטיס התוכנות הנוספות מוצג מושבת עם הסבר.
   final bool readOnly;
 
   /// שומר הסף של מצב הסייפר — נדרש כדי לסמן אימות אחרי בחירת סיסמה. `null`
@@ -67,8 +67,8 @@ class SettingsScreen extends StatelessWidget {
         _appearanceCard(context),
         _automationCard(context),
         _downloadCard(context),
-        if (customApps case final controller? when !readOnly)
-          CustomAppsSettingsCard(controller: controller),
+        if (customApps case final controller?)
+          CustomAppsSettingsCard(controller: controller, readOnly: readOnly),
         _saferModeCard(context),
         _supportCard(context),
       ],

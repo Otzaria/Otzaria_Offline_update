@@ -916,6 +916,9 @@ abstract class ReadOnlyDriveStrings {
 
   /// נאמר כשמסלול שדורש כתיבה לכונן נחסם — הורדה או עדכון הלאנצ'ר עצמו.
   String get downloadsDisabledSnack;
+
+  /// Shown on the custom-apps settings card: managing apps writes to the drive.
+  String get customAppsManageDisabled;
 }
 
 // ── הרשאות מנהל ───────────────────────────────────────────────────────────────

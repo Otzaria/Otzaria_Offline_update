@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/screens/app_shell.dart';
+import 'package:launcher_app/src/screens/custom_apps/custom_apps_settings_card.dart';
 import 'package:launcher_app/src/screens/faq/faq_floating_button.dart';
 import 'package:launcher_app/src/screens/home_screen.dart';
 import 'package:launcher_app/src/screens/library_screen.dart';
@@ -347,6 +348,31 @@ void main() {
     expect(item(shell.navSettings).isSelected, isTrue);
     expect(screen(SettingsScreen), findsOneWidget);
   });
+
+  // Custom-app management writes to mirror/apps on the drive (issue #25).
+  for (final readOnly in [true, false]) {
+    testWidgets('settings custom-apps card with readOnly=$readOnly',
+        (tester) async {
+      await pumpShell(tester, readOnly: readOnly);
+      await tapNav(tester, shell.navSettings);
+
+      final card = find.byType(CustomAppsSettingsCard, skipOffstage: false);
+      expect(card, findsOneWidget);
+      final button = tester.widget<ActionButton>(
+        find.descendant(of: card, matching: find.byType(ActionButton)),
+      );
+      expect(button.onPressed == null, readOnly);
+      expect(
+        find.descendant(
+          of: card,
+          matching: find.text(
+            stringsOf().readOnlyDrive.customAppsManageDisabled,
+          ),
+        ),
+        readOnly ? findsOneWidget : findsNothing,
+      );
+    });
+  }
 
   // ההתקנה האוטומטית עצמה אינה נהיגה מבדיקת widget — היא מריצה מתקין אמיתי
   // ו-`dart:io` שאינו מסתיים ב-fake-async. הסדר, לעומת זאת, הוא כל התיקון,

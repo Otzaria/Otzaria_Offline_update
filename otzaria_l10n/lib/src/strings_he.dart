@@ -1513,6 +1513,10 @@ class _ReadOnlyDrive extends ReadOnlyDriveStrings {
   @override
   String get downloadsDisabledSnack =>
       'הכונן מוגן מפני כתיבה — אין לאן להוריד. אפשר להתקין ממה שכבר יש בו.';
+  @override
+  String get customAppsManageDisabled =>
+      'הכונן מוגן מפני כתיבה, ולכן אי אפשר להוסיף, לערוך או להסיר כאן '
+      'תוכנות. התקנה של תוכנות שכבר יש בכונן עובדת כרגיל.';
 }
 
 class _Elevation extends ElevationStrings {

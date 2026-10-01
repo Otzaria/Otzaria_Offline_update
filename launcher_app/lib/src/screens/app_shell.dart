@@ -952,6 +952,7 @@ class _AppShellState extends State<AppShell> {
             launcherVersion: _launcherUpdate.currentVersion,
             saferMode: _saferMode,
             customApps: _customApps,
+            readOnly: widget.readOnly,
           ),
       };
 
