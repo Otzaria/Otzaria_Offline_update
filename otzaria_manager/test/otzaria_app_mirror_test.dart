@@ -11,13 +11,15 @@ OtzariaRelease _release({
   int size = 4,
   String tagName = '0.9.96+736',
   bool isPrerelease = true,
+  DateTime? publishedAt,
+  bool unknownDate = false,
 }) =>
     OtzariaRelease(
       tagName: tagName,
       name: 'Otzaria $tagName',
       isPrerelease: isPrerelease,
       isDraft: false,
-      publishedAt: DateTime.utc(2026, 1, 1),
+      publishedAt: unknownDate ? null : publishedAt ?? DateTime.utc(2026, 1, 1),
       installerKind: OtzariaInstallerKind.windowsSetupExe,
       installerAssetName: 'otzaria-$tagName-windows.exe',
       installerDownloadUrl: 'https://example/otzaria-$tagName-windows.exe',
@@ -153,6 +155,70 @@ void main() {
       expect(loaded.prerelease, isNull);
     });
 
+    // A drive left with a prerelease older than its stable (an interrupted
+    // sync) must not offer it: preferPrerelease would install a downgrade.
+    test('drops a prerelease published before the stable', () async {
+      await _writeMirror(
+        temp,
+        stable: _release(
+          tagName: '0.9.98',
+          isPrerelease: false,
+          publishedAt: DateTime.utc(2026, 1, 2),
+        ),
+        prerelease:
+            _release(tagName: '0.9.97', publishedAt: DateTime.utc(2026, 1, 1)),
+      );
+
+      final loaded = await mirror.load();
+
+      expect(loaded.stable!.release.tagName, '0.9.98');
+      expect(loaded.prerelease, isNull);
+      expect(loaded.select(preferPrerelease: true)!.release.tagName, '0.9.98');
+    });
+
+    // Real tag pairs compare as older or equal; publish order is what counts.
+    for (final pair in const [
+      ['v0.2.7', 'v0.2.7-dev-118'],
+      ['0.9.71', '0.9.71+80'],
+    ]) {
+      test('keeps prerelease ${pair[1]} published after stable ${pair[0]}',
+          () async {
+        await _writeMirror(
+          temp,
+          stable: _release(
+            tagName: pair[0],
+            isPrerelease: false,
+            publishedAt: DateTime.utc(2026, 1, 1),
+          ),
+          prerelease:
+              _release(tagName: pair[1], publishedAt: DateTime.utc(2026, 1, 2)),
+        );
+
+        final loaded = await mirror.load();
+
+        expect(loaded.hasChoice, isTrue);
+        expect(loaded.prerelease!.release.tagName, pair[1]);
+      });
+    }
+
+    test('without dates, only a prerelease ranked older is dropped', () async {
+      await _writeMirror(
+        temp,
+        stable:
+            _release(tagName: '0.9.98', isPrerelease: false, unknownDate: true),
+        prerelease: _release(tagName: '0.9.97', unknownDate: true),
+      );
+      expect((await mirror.load()).prerelease, isNull);
+
+      await _writeMirror(
+        temp,
+        stable:
+            _release(tagName: '0.9.71', isPrerelease: false, unknownDate: true),
+        prerelease: _release(tagName: '0.9.71+80', unknownDate: true),
+      );
+      expect((await mirror.load()).prerelease!.release.tagName, '0.9.71+80');
+    });
+
     // מראה שנבנתה בווינדוס נקראת ב-macOS ולהיפך — הנתיב בקטלוג נשמר עם `/`,
     // אבל גם `\` היסטורי חייב להמשיך להיפתח.
     test('נתיב עם מפריד של הפלטפורמה האחרת נפתח בכל זאת', () async {
@@ -275,13 +341,14 @@ void main() {
       String tag, {
       required bool prerelease,
       String body = '',
+      String publishedAt = '2026-01-01T00:00:00Z',
     }) =>
         {
           'tag_name': tag,
           'name': 'Otzaria $tag',
           'prerelease': prerelease,
           'draft': false,
-          'published_at': '2026-01-01T00:00:00Z',
+          'published_at': publishedAt,
           'body': body,
           'assets': [
             {
@@ -582,6 +649,89 @@ void main() {
       expect(reloaded.prerelease, isNull);
       expect(reloaded.hasChoice, isFalse);
     });
+
+    // The new stable lands but the new prerelease fails: the old prerelease
+    // from the drive is now older than the stable and must not be written.
+    test('a failed prerelease download leaves no older prerelease behind',
+        () async {
+      final tempDir =
+          await Directory.systemTemp.createTemp('otzaria-mirror-sync-test');
+      addTearDown(() => tempDir.delete(recursive: true));
+
+      final before = await mirrorFor(
+        releasesHttpClient: mockReleases([
+          releaseJson('0.9.97',
+              prerelease: true, publishedAt: '2026-01-02T00:00:00Z'),
+          releaseJson('0.9.96',
+              prerelease: false, publishedAt: '2026-01-01T00:00:00Z'),
+        ]),
+        changelogHttpClient: MockClient((_) async => http.Response('', 404)),
+        tempDir: tempDir,
+      );
+      expect((await before.sync()).hasChoice, isTrue);
+
+      final after = await mirrorFor(
+        releasesHttpClient: mockReleases([
+          releaseJson('0.9.99',
+              prerelease: true, publishedAt: '2026-01-04T00:00:00Z'),
+          releaseJson('0.9.98',
+              prerelease: false, publishedAt: '2026-01-03T00:00:00Z'),
+        ]),
+        changelogHttpClient: MockClient((_) async => http.Response('', 404)),
+        installerHttpClient: MockClient((request) async =>
+            request.url.path.contains('0.9.99')
+                ? http.Response('', 500)
+                : http.Response(installerBytes, 200)),
+        tempDir: tempDir,
+      );
+      await expectLater(after.sync(), throwsA(isA<Object>()));
+
+      final written = jsonDecode(
+        await File(p.join(tempDir.path, 'latest-release.json')).readAsString(),
+      ) as Map<String, dynamic>;
+      expect((written['stable'] as Map)['tagName'], '0.9.98');
+      expect(written.containsKey('prerelease'), isFalse);
+
+      final reloaded = await after.load();
+      expect(
+          reloaded.select(preferPrerelease: true)!.release.tagName, '0.9.98');
+      expect(reloaded.prerelease, isNull);
+    });
+
+    // A prerelease downloaded in this sync was vetted by publish order; real
+    // tag formats must not make it fail a version comparison and get pruned.
+    for (final pair in const [
+      ['v0.2.7', 'v0.2.7-dev-118'],
+      ['0.9.71', '0.9.71+80'],
+      ['0.9.97+789', '0.9.97+795'],
+      ['0.9.97+789', '0.9.98+800'],
+    ]) {
+      test('keeps fresh prerelease ${pair[1]} beside stable ${pair[0]}',
+          () async {
+        final tempDir =
+            await Directory.systemTemp.createTemp('otzaria-mirror-sync-test');
+        addTearDown(() => tempDir.delete(recursive: true));
+
+        final mirror = await mirrorFor(
+          releasesHttpClient: mockReleases([
+            releaseJson(pair[1],
+                prerelease: true, publishedAt: '2026-01-02T00:00:00Z'),
+            releaseJson(pair[0],
+                prerelease: false, publishedAt: '2026-01-01T00:00:00Z'),
+          ]),
+          changelogHttpClient: MockClient((_) async => http.Response('', 404)),
+          tempDir: tempDir,
+        );
+
+        final synced = await mirror.sync();
+        expect(synced.prerelease?.release.tagName, pair[1]);
+
+        final reloaded = await mirror.load();
+        expect(reloaded.hasChoice, isTrue);
+        expect(reloaded.prerelease!.release.tagName, pair[1]);
+        expect(File(reloaded.prerelease!.installerPath).existsSync(), isTrue);
+      });
+    }
 
     // אין יציב בעמוד הראשון — אז ה-pre-release הוא הגרסה היחידה, והתווית
     // אומרת את זה במפורש.

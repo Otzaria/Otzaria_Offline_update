@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import '../models/otzaria_release.dart';
 import '../models/otzaria_release_channel.dart';
+import '../models/otzaria_update_check_result.dart';
 import 'otzaria_asset_selector.dart';
 import 'otzaria_changelog_client.dart';
 import 'otzaria_installer.dart';
@@ -97,7 +98,7 @@ class OtzariaAppMirror {
           : MirroredOtzariaReleases(stable: legacy);
     }
 
-    return _withoutDuplicateTag(
+    return _withoutStalePrerelease(
       stable: await _entryFrom(decoded[OtzariaReleaseChannel.stable.name]),
       prerelease:
           await _entryFrom(decoded[OtzariaReleaseChannel.prerelease.name]),
@@ -111,16 +112,42 @@ class OtzariaAppMirror {
   /// כתב את הערוץ היציב אך לא הספיק לרוקן את השני (הורדה שנכשלה/בוטלה
   /// באמצע). הניקוי גם בקריאה ולא רק בכתיבה, כי כונן שכבר נשא מטא־דאטה
   /// כזאת מגיע למחשב מנותק שלעולם לא יריץ שם סנכרון.
-  static MirroredOtzariaReleases _withoutDuplicateTag({
+  ///
+  /// The same holds for a prerelease older than the stable (§5.5): with
+  /// preferPrerelease it would be installed as a silent downgrade.
+  static MirroredOtzariaReleases _withoutStalePrerelease({
     MirroredOtzariaRelease? stable,
     MirroredOtzariaRelease? prerelease,
   }) =>
       MirroredOtzariaReleases(
         stable: stable,
-        prerelease: prerelease?.release.tagName == stable?.release.tagName
+        prerelease: stable != null &&
+                prerelease != null &&
+                _isStalePrerelease(stable.release, prerelease.release)
             ? null
             : prerelease,
       );
+
+  /// Online, "newer" means listed above the stable (`fetchChannelReleases`),
+  /// which matches publish dates in practice, so the dates decide; tags only
+  /// when a date is missing. Real tag pairs such as
+  /// `v0.2.7` / `v0.2.7-dev-118` rank the prerelease below or equal.
+  static bool _isStalePrerelease(
+    OtzariaRelease stable,
+    OtzariaRelease prerelease,
+  ) {
+    if (prerelease.tagName == stable.tagName) return true;
+    final prereleaseDate = prerelease.publishedAt;
+    final stableDate = stable.publishedAt;
+    if (prereleaseDate != null && stableDate != null) {
+      return prereleaseDate.isBefore(stableDate);
+    }
+    return OtzariaUpdateCheckResult.compareVersions(
+          prerelease.tagName,
+          stable.tagName,
+        ) <
+        0;
+  }
 
   /// רשומת ערוץ בודדת מתוך המטא־דאטה, או `null` אם היא חסרה/פגומה/מצביעה
   /// על קובץ התקנה שאינו שם — **או שהיא של פלטפורמה אחרת**.
@@ -228,10 +255,12 @@ class OtzariaAppMirror {
       );
       if (channel == OtzariaReleaseChannel.stable) {
         stable = mirrored;
-        // הגרסה שהייתה לא-יציבה סומנה כיציבה: הרשומה הישנה שנשמרה מהדיסק
-        // מצביעה עכשיו על אותו תג בדיוק, ובלי הניקוי היא הייתה מייצרת
-        // "בחירת ערוץ" בין שתי רשומות של אותו קובץ אם הערוץ השני לא ירד.
-        if (prerelease?.release.tagName == mirrored.release.tagName) {
+        // Stable downloads first, so the prerelease here is still the one
+        // carried over from the drive; if its own download fails it must not
+        // stay beside a newer stable. A freshly downloaded one is never
+        // re-judged: release list order already vetted it.
+        if (prerelease != null &&
+            _isStalePrerelease(mirrored.release, prerelease.release)) {
           prerelease = null;
         }
       } else {
@@ -240,7 +269,10 @@ class OtzariaAppMirror {
       await _writeMetadata(stable: stable, prerelease: prerelease);
     }
 
-    final result = _withoutDuplicateTag(stable: stable, prerelease: prerelease);
+    final result = MirroredOtzariaReleases(
+      stable: stable,
+      prerelease: prerelease,
+    );
     // קובצי התקנה של גרסאות שכבר אינן במטא־דאטה אינם שווים את המקום על
     // הכונן הנייד. קבוצת שמירה ריקה, לעומת זאת, פירושה "מחק את הכול" —
     // ותשובת API ריקה (דף שכולו טיוטות) אינה עילה לרוקן כונן.
