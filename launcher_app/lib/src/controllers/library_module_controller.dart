@@ -99,6 +99,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   int? applyTotalBytes;
   String? errorMessage;
 
+  /// The last check failed on reading the local DB, before the mirror was
+  /// read, so the screen must not blame the mirror for [errorMessage].
+  bool localDbUnreadable = false;
+
   /// `true` אם checkForUpdate האחרון זיהה שאין DB בכלל עדיין (התקנה
   /// טרייה) — ה-UI יכול להציג "מוריד ספרייה בפעם הראשונה" במקום "מעדכן".
   bool isFreshInstall = false;
@@ -380,6 +384,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// **רק מכאן**, כלומר מלחיצה מפורשת. מחזיר `false` אם לא נמצא מסד לקרוא
   /// ממנו, כדי שהמסך יאמר זאת במקום להציג הצלחה שקטה.
   Future<bool> capturePersonalVersion() async {
+    personalCaptureError = null;
     try {
       final version = await _manager.captureLocalDbVersion();
       if (version == null) return false;
@@ -389,10 +394,22 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       await checkForUpdate();
       return true;
     } catch (e, st) {
-      AppLogger.instance.error('רישום גרסת המסד לעדכון אישי נכשל', e, st);
+      AppLogger.instance
+          .error('רישום גרסת המסד לעדכון אישי נכשל${_sqliteDetail(e)}', e, st);
+      if (e is LocalDbUnreadableException) personalCaptureError = e.toString();
       return false;
     }
   }
+
+  /// Why the last [capturePersonalVersion] failed when it found a DB it could
+  /// not read; `null` means no DB with a version was found.
+  String? personalCaptureError;
+
+  /// The SQLite code behind a [LocalDbUnreadableException], for the log only:
+  /// its localized message alone does not say which error it was.
+  static String _sqliteDetail(Object e) => e is LocalDbUnreadableException
+      ? ' (${e.reason.name}, SQLite ${e.extendedResultCode}: ${e.detail})'
+      : '';
 
   /// הקבצים הנלווים שממתינים, בשמם — זה מה שהמסך אומר במקום "יש עדכון"
   /// סתמי ליד "גרסה 27 → 27". ריק כשההצעה היא על המסד עצמו.
@@ -461,6 +478,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     // **לא `_lastCheck`.** הוא נכתב רק בנתיב ההצלחה, ובמסלולי החריגה הוא
     // מחזיק את התוצאה של הריצה הקודמת — שורת אבחון שקוראת ממנו משקרת.
     LibraryUpdateCheckResult? check;
+    localDbUnreadable = false;
     try {
       check = await _manager.checkForUpdate();
       _lastCheck = check;
@@ -517,10 +535,11 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     } catch (e, st) {
       status = LibraryModuleStatus.error;
       errorMessage = e.toString();
+      localDbUnreadable = e is LocalDbUnreadableException;
       pendingCompanions = const {};
       unavailableCompanions = const {};
       mirroredCompanions = const {};
-      AppLogger.instance.error('checkForUpdate נכשל', e, st);
+      AppLogger.instance.error('checkForUpdate נכשל${_sqliteDetail(e)}', e, st);
     }
     // הבדיקה עצמה כבר איתרה את הנתיב — גם כשהיא נכשלה אחר כך (למשל אין
     // מראה). קריאה נפרדת ל-`currentDbPath()` הייתה חוזרת על כל האיתור.

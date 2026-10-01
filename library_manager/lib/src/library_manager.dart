@@ -79,6 +79,7 @@ class LibraryManager {
   /// [operatingSystem] ו-[environment] הן דריסות **לבדיקות בלבד**, והן
   /// נמסרות ל-[LibraryDbLocator]: בלעדיהן בדיקה של התקנה טרייה הייתה כותבת
   /// את מיקום הספרייה להגדרות האמיתיות של אוצריא שעל מכונת המפתח.
+  /// [versionReader] lets tests shorten the busy timeout.
   LibraryManager({
     required this.dataDir,
     String? stateDir,
@@ -87,10 +88,11 @@ class LibraryManager {
     Future<String?> Function()? otzariaLaunchPath,
     String? operatingSystem,
     Map<String, String>? environment,
+    LocalDbVersionReader versionReader = const LocalDbVersionReader(),
   })  : _stateStore = LibraryStateStore(
             p.join(stateDir ?? dataDir, 'library_state.json')),
         _planner = const LibraryUpdatePlanner(),
-        _versionReader = const LocalDbVersionReader(),
+        _versionReader = versionReader,
         _recovery = const LibraryDbRecoveryService(),
         _cloudClient = GithubLibraryReleaseClient(),
         _applier = LibraryUpdateApplier() {
@@ -200,7 +202,7 @@ class LibraryManager {
     final path = _lastResolvedDbPath ?? await _locator.resolveDbPath();
     if (path == null) return null;
     try {
-      return _versionReader.read(path);
+      return await _versionReader.readInIsolate(path);
     } catch (_) {
       return null;
     }
@@ -372,7 +374,7 @@ class LibraryManager {
     final path = await currentDbPath();
     if (path == null) return null;
     _lastResolvedDbPath = path;
-    final local = _versionReader.read(path);
+    final local = await _versionReader.readInIsolate(path);
     if (!local.hasVersionMeta || local.dbVersion <= 0) return null;
     // המפתח הוא מחשב+חשבון, בלי נתיב המסד: הנתיב כלל שם חשבון בקובץ שנוסע על
     // הכונן, ומסד שעבר מקום יצר רשומה שנייה שנשארה לנצח ומשכה את "הנמוכה
@@ -471,7 +473,7 @@ class LibraryManager {
         }
         _recovery.clearStaleArtifacts(dbPath);
       }
-      local = _versionReader.read(dbPath);
+      local = await _versionReader.readInIsolate(dbPath);
     }
 
     final source = await _resolveSource();

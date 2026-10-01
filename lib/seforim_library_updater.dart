@@ -42,7 +42,11 @@ export 'src/services/library_update_discovery.dart'
     show LibraryUpdateDiscovery, LibraryDiscoveryResult;
 export 'src/services/library_update_planner.dart' show LibraryUpdatePlanner;
 export 'src/services/local_db_version_reader.dart'
-    show LocalDbVersionReader, LocalDbVersion;
+    show
+        LocalDbVersionReader,
+        LocalDbVersion,
+        LocalDbUnreadableException,
+        LocalDbUnreadableReason;
 export 'src/services/local_mirror_library_release_client.dart'
     show LocalMirrorLibraryReleaseClient, LocalMirrorException;
 export 'src/services/logical_content_hasher.dart' show LogicalContentHasher;
