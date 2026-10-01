@@ -84,6 +84,9 @@ class MirrorDownloadUndo {
   /// מחקה והתחילה מאפס נמחק, כי תוכנו הקודם אינו ניתן לשחזור.
   ///
   /// כל פעולה היא best-effort: קובץ נעול לא מפיל את שאר הניקוי.
+  ///
+  /// A root where a captured file went missing is kept as is: components
+  /// prune only after writing their manifest.
   Future<void> revert() async {
     for (final root in _roots) {
       final dir = Directory(root.path);
@@ -93,8 +96,21 @@ class MirrorDownloadUndo {
         _quietly(() => dir.deleteSync(recursive: true), root.path);
         continue;
       }
+      // A file gone since capture was pruned by a completed step; it cannot
+      // be restored, so reverting would leave the old manifest naming nothing.
+      if (_lostFileUnder(root.path) case final lost?) {
+        AppLogger.instance.info('Cancel keeps ${root.path}: $lost was pruned');
+        continue;
+      }
       await _revertInto(dir);
     }
+  }
+
+  String? _lostFileUnder(String rootPath) {
+    for (final path in _files.keys) {
+      if (p.isWithin(rootPath, path) && !File(path).existsSync()) return path;
+    }
+    return null;
   }
 
   Future<void> _revertInto(Directory root) async {
