@@ -79,8 +79,10 @@ class ReleaseAsset extends Equatable {
   bool get isDeltaManifest =>
       name.startsWith('patch-') && name.endsWith('.db.zst.manifest.json');
 
-  /// `true` אם זהו ה-DB המלא הדחוס (`seforim.db.zst`).
-  bool get isFullDbArchive => name == fullDbArchiveName;
+  /// מסד מלא רגיל או מסד ששמו כולל את גרסת הסכמה.
+  bool get isFullDbArchive =>
+      name == fullDbArchiveName ||
+      RegExp(r'^seforim-schema[1-9]\d*\.db\.zst$').hasMatch(name);
 
   @override
   List<Object?> get props =>

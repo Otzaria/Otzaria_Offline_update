@@ -93,6 +93,7 @@ void main() {
     DownloadScheduler? scheduler,
     Map<String, int> assetSizes = const {},
     Map<int, int> schemaByVersion = const {},
+    int? patchFormat,
     Future<void> Function(String assetName)? beforeAsset,
   }) {
     Uint8List bodyFor(String name) {
@@ -112,6 +113,7 @@ void main() {
         to,
         fromSchema: schemaByVersion[from] ?? 2,
         toSchema: schemaByVersion[to] ?? 2,
+        patchFormat: patchFormat,
       ))));
     }
 
@@ -169,6 +171,45 @@ void main() {
       ),
       fetched: fetched,
     );
+  }
+
+  for (final personal in [false, true]) {
+    test('מסד סכמה 6 מחליף עדכון full-rebase (אישי: $personal)', () async {
+      final built = buildExporter(
+        [
+          release('v31-20261004170255', assets: [
+            'seforim-schema6.db.zst',
+            'seforim.db.buildstate.zst',
+            'patch-v29-v31.db.zst',
+            'patch-v29-v31.db.zst.manifest.json',
+          ]),
+        ],
+        schemaByVersion: {29: 5, 31: 6},
+        patchFormat: 999,
+      );
+      await built.exporter.export(
+        destDir: destDir,
+        fromVersion: personal ? 29 : null,
+      );
+      expect(built.fetched, contains('seforim-schema6.db.zst'));
+      expect(built.fetched, isNot(contains('patch-v29-v31.db.zst')));
+      expect(built.fetched, isNot(contains('seforim.db.buildstate.zst')));
+      final discovery = await LibraryUpdateDiscovery(
+        client: LocalMirrorLibraryReleaseClient(mirrorDir: destDir),
+      ).discover(allowPrerelease: false);
+      final plan = const LibraryUpdatePlanner().plan(
+        localVersion: 29,
+        hasLocalVersionMeta: true,
+        latestVersion: discovery.latestVersion,
+        edges: discovery.edges,
+        latestFullDbAsset: discovery.latestFullDbAsset,
+        fullDbReleaseTag: discovery.fullDbReleaseTag,
+        latestFullDbVersion: discovery.latestFullDbVersion,
+      );
+      expect(plan.kind, LibraryUpdatePlanKind.fullDownload);
+      expect(plan.finalTargetVersion, 31);
+      expect(plan.fullDbAsset?.name, 'seforim-schema6.db.zst');
+    });
   }
 
   List<String> mirroredTags(String dir) {

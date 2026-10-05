@@ -70,8 +70,15 @@ void main() {
       expect(named('patch-v1-v2.manifest.json').isDeltaManifest, isFalse);
     });
 
-    test('isFullDbArchive רק ל-seforim.db.zst בדיוק', () {
+    test('isFullDbArchive מזהה מסד רגיל או מסד עם סכמה בשם', () {
       expect(named('seforim.db.zst').isFullDbArchive, isTrue);
+      expect(named('seforim-schema6.db.zst').isFullDbArchive, isTrue);
+      expect(named('seforim-schema12.db.zst').isFullDbArchive, isTrue);
+      expect(named('seforim.db.buildstate.zst').isFullDbArchive, isFalse);
+      expect(named('seforim-schema6.db.zst.manifest.json').isFullDbArchive,
+          isFalse);
+      expect(named('seforim-schema6.db.zst.part-000').isFullDbArchive, isFalse);
+      expect(named('old-seforim-schema6.db.zst').isFullDbArchive, isFalse);
       expect(named('seforim.db').isFullDbArchive, isFalse);
       expect(named('old-seforim.db.zst').isFullDbArchive, isFalse);
     });
