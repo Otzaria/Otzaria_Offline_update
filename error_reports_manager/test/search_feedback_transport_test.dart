@@ -39,6 +39,36 @@ void main() {
 
   tearDown(() async => temporary.delete(recursive: true));
 
+  test('persisted paths cannot expose or remove files outside the queue',
+      () async {
+    final victim = File(p.join(temporary.path, 'seg-victim.jsonl'));
+    const contents = '{"app":"otzaria"}\n{"query":"private"}\n';
+    await victim.writeAsString(contents);
+    final metadata = File(p.join(source, 'queue-state.json'));
+    final state = jsonDecode(await metadata.readAsString()) as Map;
+    (state['segments'] as List).add({
+      'name': '../seg-victim.jsonl',
+      'events': 1,
+      'bytes': contents.length,
+    });
+    await metadata.writeAsString(jsonEncode(state));
+    expect(await queue.sealAndList(), hasLength(1));
+    for (final name in [
+      '../seg-victim.jsonl',
+      r'..\seg-victim.jsonl',
+      victim.path,
+      'seg-../seg-victim.jsonl',
+      'queue-state.json',
+    ]) {
+      expect(await queue.read(name), isNull);
+      expect(await queue.claim(name), isNull);
+      await queue.split(name);
+      await queue.remove(name);
+      expect(await victim.readAsString(), contents);
+    }
+    expect(await File(p.join(source, 'queue-state.json')).exists(), true);
+  });
+
   test('consent denial leaves queue and drive untouched', () async {
     final transport = SearchFeedbackTransport(destination);
     addTearDown(transport.close);

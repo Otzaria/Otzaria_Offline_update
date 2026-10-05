@@ -474,6 +474,7 @@ class _DiskQueue {
       try {
         final state = jsonDecode(await metadata.readAsString()) as Map;
         for (final row in state['segments'] as List) {
+          if (!_isSegmentName(row['name'] as String)) continue;
           _segments.add(
             SearchFeedbackSegment(
               row['name'] as String,
@@ -594,7 +595,9 @@ class _DiskQueue {
       });
 
   static bool _isSegmentName(String name) =>
-      name.startsWith(_prefix) && name.endsWith(_extension);
+      name.startsWith(_prefix) &&
+      name.endsWith(_extension) &&
+      !name.contains(RegExp(r'[/\\:\x00]'));
 
   /// מוסיף אירוע. context שונה מהמקטע הפתוח פותח מקטע חדש.
   Future<void> append(
@@ -674,6 +677,7 @@ class _DiskQueue {
 
   /// לוקח מקטע לשליחה בשינוי שם אטומי; `null` כשתהליך אחר כבר לקח אותו.
   Future<String?> claim(String name) => _serialized(() async {
+        if (!_isSegmentName(name)) return null;
         if (name.endsWith(_claimedExtension)) return name;
         final dir = await _directory();
         final claimed = '${name.substring(0, name.length - _extension.length)}'
@@ -700,6 +704,7 @@ class _DiskQueue {
   /// null = המקטע כבר אינו קיים.
   Future<SearchFeedbackStoredBatch?> read(String name, {DateTime? notBefore}) =>
       _serialized(() async {
+        if (!_isSegmentName(name)) return null;
         final dir = await _directory();
         final file = File(p.join(dir.path, name));
         if (!await file.exists()) return null;
@@ -752,6 +757,7 @@ class _DiskQueue {
 
   /// מסיר מקטע שנשלח (או שהוחלט לוותר עליו).
   Future<void> remove(String name) => _serialized(() async {
+        if (!_isSegmentName(name)) return;
         final dir = await _directory();
         _segments.removeWhere((s) => s.name == name);
         if (_open?.name == name) _open = null;
@@ -761,6 +767,7 @@ class _DiskQueue {
 
   /// מפצל מקטע לשניים במקומו בסדר התור; מקטע של אירוע אחד מוסר.
   Future<void> split(String name) => _serialized(() async {
+        if (!_isSegmentName(name)) return;
         final dir = await _directory();
         final file = File(p.join(dir.path, name));
         final index = _segments.indexWhere((s) => s.name == name);

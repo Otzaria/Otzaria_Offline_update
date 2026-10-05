@@ -101,6 +101,35 @@ void main() {
       expect(await pending(report.delivered), isEmpty);
     });
 
+    test('סימון תג ישן אינו מסתיר מילון חדש באותו תג עם digest', () async {
+      const digest =
+          'b42e36626802629fed178068e8cf11f0f034d6f24ae3b72ac9999b9311bf299f';
+      await writeManifest({
+        'dictionary': {
+          'fileName': 'lexical.db',
+          'size': 7,
+          'tag': 'v2',
+          'sha256': digest,
+        },
+      });
+      final target = File(p.join(libraryDir, 'lexical.db'));
+      await target.writeAsString('OLD');
+      final marker = File('${target.path}.version');
+      await marker.writeAsString('v2');
+      const delivered = {CompanionAsset.dictionary: 'v2'};
+      expect(await pending(delivered), {CompanionAsset.dictionary});
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+        delivered: delivered,
+      );
+      expect(report.outcomes[CompanionAsset.dictionary],
+          CompanionInstallOutcome.installed);
+      expect(await target.readAsString(), 'LEXICAL');
+      expect(await marker.readAsString(), digest);
+      expect(await pending(report.delivered), isEmpty);
+    });
+
     test('מילון שאוצריא סימנה ב-digest אינו מוצע או מוחלף שוב', () async {
       const digest =
           '554085db9c68f7b44855d0dad42b3a5e41b836d3b0d2ec3b5a5aeea84416a4fb';

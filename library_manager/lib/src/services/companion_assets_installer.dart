@@ -536,7 +536,7 @@ class CompanionAssetsInstaller {
     final marker = File('${target.path}.version');
     if (!marker.existsSync()) return false;
     final installed = marker.readAsStringSync().trim();
-    return installed == (entry.versionMarker ?? '') || installed == entry.tag;
+    return installed == (entry.versionMarker ?? '');
   }
 
   Future<bool> _installDictionary(
