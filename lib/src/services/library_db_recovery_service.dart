@@ -149,19 +149,11 @@ class LibraryDbRecoveryService {
 
   /// מסמן שה-DB הגיע ל-[version] בהחלה שה-hash שלה **לא** חושב.
   ///
-  /// שרשרת patches מאמתת hash פעם אחת, בצעד האחרון — הוא מוכיח את כל השרשרת
-  /// וחוסך קריאה מלאה של ~7.4GB לכל צעד. שרשרת שנקטעה באמצע (ביטול, כשל
-  /// הורדה) משאירה מסד שהוחל נקי אך לא אומת, והסימון הזה הוא מה שמונע ממנו
-  /// להישאר כך בשקט: ההחלה הבאה שמתחילה מ-[version] מפעילה `verifyFromHash`
-  /// ומאמתת אותו לפני שהיא בונה עליו — ראו `LibraryUpdateApplier.applyDelta`.
+  /// נכתב לפני הצעד שלא יאומת, כדי לכסות קריסה אחרי COMMIT.
+  /// כשל כתיבה חייב לעצור את ההחלה לפני שינוי המסד.
   void markUnverified(String dbPath, int version) {
-    try {
-      File(unverifiedMarkerPathFor(dbPath))
-          .writeAsStringSync(jsonEncode({'version': version}), flush: true);
-    } catch (_) {
-      // כשל כתיבה (כונן מלא/לקריאה בלבד) אינו הופך החלה שהצליחה לכישלון;
-      // האימות של הצעד האחרון עוד יתפוס תוכן שגוי בהמשך.
-    }
+    File(unverifiedMarkerPathFor(dbPath))
+        .writeAsStringSync(jsonEncode({'version': version}), flush: true);
   }
 
   /// הגרסה שסומנה כלא-מאומתת, או `null` כשאין סימון (או שאינו קריא).

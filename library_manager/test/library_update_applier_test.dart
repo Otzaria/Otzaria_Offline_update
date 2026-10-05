@@ -906,6 +906,144 @@ void main() {
       expect(recovery.unverifiedVersion(dbPath), isNull);
     });
 
+    test('כשל בדיווח אחרי commit משאיר סימון של הצעד שלא אומת', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final h = buildChainHashes();
+      await expectLater(
+        applier.applyDelta(
+          plan: LibraryUpdatePlan.delta(
+            localVersion: 1,
+            targetVersion: 3,
+            steps: [
+              buildEdge(
+                  from: 1,
+                  to: 2,
+                  upsertRows: [
+                    [2, 'bet']
+                  ],
+                  fromHash: h.h1,
+                  toHash: h.h2),
+              buildEdge(
+                  from: 2,
+                  to: 3,
+                  upsertRows: [
+                    [3, 'gimel']
+                  ],
+                  fromHash: h.h2,
+                  toHash: h.h3),
+            ],
+          ),
+          dbPath: dbPath,
+          onStepApplied: (books, version) =>
+              throw StateError('callback failed'),
+        ),
+        throwsStateError,
+      );
+      expect(hashOf(dbPath), h.h2);
+      expect(recovery.unverifiedVersion(dbPath), 2);
+    });
+
+    test('כשל בשמירת סימון עוצר לפני שינוי המסד', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final h = buildChainHashes();
+      Directory(recovery.unverifiedMarkerPathFor(dbPath)).createSync();
+      await expectLater(
+        applier.applyDelta(
+          plan: LibraryUpdatePlan.delta(
+            localVersion: 1,
+            targetVersion: 3,
+            steps: [
+              buildEdge(
+                  from: 1,
+                  to: 2,
+                  upsertRows: [
+                    [2, 'bet']
+                  ],
+                  fromHash: h.h1,
+                  toHash: h.h2),
+              buildEdge(
+                  from: 2,
+                  to: 3,
+                  upsertRows: [
+                    [3, 'gimel']
+                  ],
+                  fromHash: h.h2,
+                  toHash: h.h3),
+            ],
+          ),
+          dbPath: dbPath,
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(hashOf(dbPath), h.h1);
+    });
+
+    test('סימון פגום אינו פוטר מאימות המקור', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final h = buildChainHashes();
+      File(recovery.unverifiedMarkerPathFor(dbPath)).writeAsStringSync('{');
+      final log = <LibraryApplyProgress>[];
+      await applier.applyDelta(
+        plan: LibraryUpdatePlan.delta(
+          localVersion: 1,
+          targetVersion: 2,
+          steps: [
+            buildEdge(
+                from: 1,
+                to: 2,
+                upsertRows: [
+                  [2, 'bet']
+                ],
+                fromHash: h.h1,
+                toHash: h.h2)
+          ],
+        ),
+        dbPath: dbPath,
+        onProgress: log.add,
+      );
+      expect(stagesRecorder(log)[1], contains('verifyFromHash'));
+      expect(recovery.unverifiedVersion(dbPath), isNull);
+    });
+
+    test('סימון שנכתב לפני rollback מחייב אימות גם בגרסה שונה', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final h = buildChainHashes();
+      recovery.markUnverified(dbPath, 2);
+      final log = <LibraryApplyProgress>[];
+      await applier.applyDelta(
+        plan: LibraryUpdatePlan.delta(
+          localVersion: 1,
+          targetVersion: 2,
+          steps: [
+            buildEdge(
+                from: 1,
+                to: 2,
+                upsertRows: [
+                  [2, 'bet']
+                ],
+                fromHash: h.h1,
+                toHash: h.h2)
+          ],
+        ),
+        dbPath: dbPath,
+        onProgress: log.add,
+      );
+      expect(stagesRecorder(log)[1], contains('verifyFromHash'));
+      expect(recovery.unverifiedVersion(dbPath), isNull);
+    });
+
     test('צעד אחד — מאמת כמו קודם, בלי סימון', () async {
       if (bindings == null) {
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');

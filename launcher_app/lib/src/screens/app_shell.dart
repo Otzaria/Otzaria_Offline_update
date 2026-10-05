@@ -16,6 +16,7 @@ import '../controllers/library_module_controller.dart';
 import '../controllers/online_check.dart';
 import '../controllers/otzaria_module_controller.dart';
 import '../controllers/plugins_module_controller.dart';
+import '../controllers/search_feedback_controller.dart';
 import '../services/app_logger.dart';
 import '../services/byte_size.dart';
 import '../services/elevation.dart';
@@ -35,6 +36,7 @@ import 'home_screen.dart';
 import 'library_screen.dart';
 import 'otzaria_screen.dart';
 import 'plugins/plugins_screen.dart';
+import 'search_feedback_flow.dart';
 import 'settings_screen.dart';
 
 /// המסך הפעיל בסרגל הניווט. "תוכנה" קודם ל"ספרייה" — ראו [_NavRail].
@@ -109,6 +111,7 @@ class _AppShellState extends State<AppShell> {
 
   /// דיווחי טעויות של אוצריא: איסוף לכונן בעלייה, והעלאה מכרטיס ההורדות.
   late final ErrorReportsController _errorReports;
+  late final SearchFeedbackController _searchFeedback;
 
   /// אילו הודעות חד-פעמיות כבר הוצגו במחשב הזה. נכתב ל-`stateDir`, ולכן
   /// עובד גם בכונן לקריאה בלבד.
@@ -238,6 +241,13 @@ class _AppShellState extends State<AppShell> {
       stateDir: widget.stateDir,
       launchPath: () async => _otzaria.launchPath,
     );
+    _searchFeedback = SearchFeedbackController.forDrive(
+      dataDir: widget.dataDir,
+      stateDir: widget.stateDir,
+      launchPath: () async => _otzaria.launchPath,
+      runningLocator: widget.runningLocator,
+    );
+    if (!widget.readOnly) unawaited(_searchFeedback.refreshOutbox());
     if (!widget.readOnly) unawaited(_errorReports.refreshOutbox());
     _errorReportsIntro = _showErrorReportsIntro();
     widget.settings.addListener(_onChange);
@@ -284,6 +294,7 @@ class _AppShellState extends State<AppShell> {
     _customApps.dispose();
     _launcherUpdate.dispose();
     _errorReports.dispose();
+    _searchFeedback.dispose();
     _faq.dispose();
     super.dispose();
   }
@@ -484,6 +495,43 @@ class _AppShellState extends State<AppShell> {
       readOnly: widget.readOnly,
       isOtzariaRunning: refreshProcessState,
     );
+    if (!mounted) return;
+    await offerSearchFeedbackCollection(
+      context,
+      _searchFeedback,
+      readOnly: widget.readOnly,
+    );
+  }
+
+  Future<void> _uploadSearchFeedback() async {
+    if (_blockedByReadOnly() || !mounted) return;
+    await uploadSearchFeedback(context, _searchFeedback);
+  }
+
+  Future<void> _grantSemanticConsent() async {
+    if (await refreshProcessState()) {
+      UiSnack.showError(AppL10n.strings.home.otzariaOpenSnack);
+      return;
+    }
+    if (!mounted) return;
+    final t = context.strings.libraryDomain;
+    final agreed = await showTwoActionsDialog(
+      context: context,
+      title: t.semanticConsentTitle,
+      content: t.semanticConsentText,
+      confirmText: t.semanticConsentConfirm,
+    );
+    if (!agreed || !mounted) return;
+    try {
+      if (!await _searchFeedback.grantConsent()) {
+        UiSnack.showError(t.semanticConsentRequired);
+        return;
+      }
+      await _library.checkForUpdate();
+    } catch (error, stack) {
+      AppLogger.instance.error('כתיבת ההסכמה לחיפוש החכם נכשלה', error, stack);
+      UiSnack.showError(t.semanticFeedbackFailed);
+    }
   }
 
   /// העלאת הדיווחים שעל הכונן — הפעולה היחידה שלהם שפונה לרשת.
@@ -676,6 +724,7 @@ class _AppShellState extends State<AppShell> {
   List<String> get _downloadMirrorDirs => [
         _library.mirrorDir,
         _library.companionsMirrorDir,
+        _library.semanticMirrorDir,
         _otzaria.mirrorDir,
         p.join(widget.dataDir, 'mirror', 'plugins'),
         p.join(widget.dataDir, 'mirror', 'store-app'),
@@ -732,7 +781,16 @@ class _AppShellState extends State<AppShell> {
         );
     // ב"עדכון אישי" היעד נגזר מהגרסה שנרשמה ולא מהחדשה שברשת, ולכן
     // "אין חדש ברשת" אינו אומר שאין מה להוריד.
-    final skipLibrary = s.downloadsLibrary &&
+    final includeSemanticSearch = s.downloadsLibrary &&
+        await showTwoActionsDialog(
+          context: context,
+          title: context.strings.libraryDomain.companionSemanticName,
+          content: context.strings.libraryDomain.semanticDownloadPrompt,
+          confirmText: context.strings.home.downloadNowButton,
+        );
+    if (!mounted || _isDownloading) return;
+    final skipLibrary = !includeSemanticSearch &&
+        s.downloadsLibrary &&
         !_library.personalUpdateMode &&
         provenUpToDateOnline(
           checkedAt: _library.onlineCheckedAt,
@@ -768,7 +826,10 @@ class _AppShellState extends State<AppShell> {
     // הבדיקה בין רכיב לרכיב: ביטול באמצע הספרייה לא אמור להתחיל את התוספים.
     if (s.syncApp && !skipApp) await _otzaria.download(isCancelled: cancelled);
     if (!cancelled() && s.downloadsLibrary && !skipLibrary) {
-      await _library.download(isCancelled: cancelled);
+      await _library.download(
+        includeSemanticSearch: includeSemanticSearch,
+        isCancelled: cancelled,
+      );
     }
     if (!cancelled() && s.syncPlugins && !skipPlugins) {
       await _plugins.sync(isCancelled: cancelled);
@@ -919,6 +980,8 @@ class _AppShellState extends State<AppShell> {
             readOnly: widget.readOnly,
             errorReports: _errorReports,
             onUploadErrorReports: _uploadErrorReports,
+            searchFeedback: _searchFeedback,
+            onUploadSearchFeedback: _uploadSearchFeedback,
           ),
         LauncherScreen.otzaria => OtzariaScreen(
             otzaria: _otzaria,
@@ -940,6 +1003,7 @@ class _AppShellState extends State<AppShell> {
             onCloseOtzaria: closeOtzaria,
             onRequestReindex: requestLibraryReindex,
             onGoToSettings: () => _goTo(LauncherScreen.settings),
+            onGrantSemanticConsent: _grantSemanticConsent,
           ),
         LauncherScreen.plugins => PluginsScreen(
             controller: _plugins,

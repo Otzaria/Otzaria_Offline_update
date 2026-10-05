@@ -3,6 +3,7 @@ import '../models/plugin_version_entry.dart';
 import '../models/plugins_online_status.dart';
 import '../models/store_plugin.dart';
 import 'plugin_mirror_store.dart';
+import 'plugin_mirror_sync.dart';
 import 'plugin_store_client.dart';
 
 /// "יש משהו חדש בחנות?" — קריאת מטא-דאטה אחת מול הקטלוג שכבר במראה, בלי
@@ -34,10 +35,21 @@ class PluginOnlinePeek {
       present[plugin.id] = have;
     }
 
+    final pendingMedia = <String>{};
+    final mirrored = {for (final plugin in local.plugins) plugin.id: plugin};
+    final sync = PluginMirrorSync(client: client, store: store);
+    for (final raw in remote) {
+      final plugin = StorePlugin.fromApi(raw, client.baseUrl);
+      if (await sync.hasPendingMedia(plugin, mirrored[plugin.id])) {
+        pendingMedia.add(plugin.id);
+      }
+    }
+
     return compare(
       remote: remote,
       local: local,
       presentBuilds: present,
+      pendingMedia: pendingMedia,
       baseUrl: client.baseUrl,
       appVersions: appVersions,
     );
@@ -55,6 +67,7 @@ class PluginOnlinePeek {
     required String baseUrl,
     required Map<String, Set<String>> presentBuilds,
     List<String> appVersions = const [],
+    Set<String> pendingMedia = const {},
   }) {
     final mirrored = {for (final plugin in local.plugins) plugin.id: plugin};
     final fresh = <String>[];
@@ -75,14 +88,16 @@ class PluginOnlinePeek {
       if (known == null) {
         // תוסף שאין לו אף בילד שירוץ על מה שבכונן אינו "חדש": סנכרון לא
         // יביא לו כלום, וההצצה חייבת לומר את מה שהסנכרון יעשה.
-        if (targets.isNotEmpty || plugin.remoteDownloadUrl.isEmpty) {
+        if (targets.isNotEmpty ||
+            plugin.remoteDownloadUrl.isEmpty ||
+            pendingMedia.contains(plugin.id)) {
           fresh.add(plugin.name);
         }
         continue;
       }
 
       final have = presentBuilds[plugin.id] ?? const <String>{};
-      final needsWork =
+      final needsWork = pendingMedia.contains(plugin.id) ||
           targets.any((target) => _needsFetch(target, known, have));
       if (!needsWork) continue;
 
@@ -117,9 +132,10 @@ class PluginOnlinePeek {
     if (!have.contains(target.version)) return true;
     final recorded = _recorded(known, target.version);
     // כתובת ריקה ברשומה הקודמת = קטלוג ישן, לא כתובת שהשתנתה.
-    return recorded != null &&
-        recorded.downloadUrl.isNotEmpty &&
-        recorded.downloadUrl != target.downloadUrl;
+    final source = known.localFileFor(target.version)?.sourceUrl ??
+        recorded?.downloadUrl ??
+        '';
+    return source.isNotEmpty && source != target.downloadUrl;
   }
 
   static PluginVersionEntry? _recorded(StorePlugin known, String version) =>

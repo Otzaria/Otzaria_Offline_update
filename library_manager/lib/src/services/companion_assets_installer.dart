@@ -92,6 +92,7 @@ class CompanionAssetsInstaller {
   Future<CompanionInstallReport> install({
     required String mirrorDir,
     required String dbPath,
+    Map<CompanionAsset, String> delivered = const {},
     void Function(String stage)? onStage,
     void Function(String assetName, Object error)? onWarning,
     bool Function()? isCancelled,
@@ -99,7 +100,7 @@ class CompanionAssetsInstaller {
     final manifest = await CompanionMirrorManifest.load(mirrorDir);
     final outcomes = <CompanionAsset, CompanionInstallOutcome>{};
     final errors = <CompanionAsset, Object>{};
-    final delivered = <CompanionAsset, String>{};
+    final deliveredNow = <CompanionAsset, String>{};
     if (manifest == null || manifest.isEmpty) {
       return const CompanionInstallReport({}, {}, {});
     }
@@ -120,6 +121,10 @@ class CompanionAssetsInstaller {
       }
       onStage?.call(strings.companionChecking(name));
       try {
+        if (_wasDelivered(asset, libraryDir, entry, delivered)) {
+          outcomes[asset] = CompanionInstallOutcome.alreadyUpToDate;
+          return;
+        }
         final installed = await body(entry);
         // הפרדיקט הוא בדיוק מה שהבדיקה הבאה תשאל. התקנה שדיווחה הצלחה ולא
         // סיפקה אותו תציע את עצמה שוב בכל פתיחה בלי שדבר ישתנה — ולכן זה כשל
@@ -132,7 +137,7 @@ class CompanionAssetsInstaller {
             : CompanionInstallOutcome.alreadyUpToDate;
         // **רק בהצלחה.** זו הראיה שהמראה הזו כבר נמסרה כאן, ובלעדיה כשל
         // חוזר היה נרשם כאילו הושלם ומעלים עבודה אמיתית.
-        delivered[asset] = mirrorMarkerOf(asset, entry);
+        deliveredNow[asset] = mirrorMarkerOf(asset, entry);
       } catch (error) {
         outcomes[asset] = CompanionInstallOutcome.failed;
         errors[asset] = error;
@@ -156,7 +161,7 @@ class CompanionAssetsInstaller {
       (entry) => _installDictionary(mirrorDir, libraryDir, entry, onStage),
     );
 
-    return CompanionInstallReport(outcomes, errors, delivered);
+    return CompanionInstallReport(outcomes, errors, deliveredNow);
   }
 
   /// מה שממתין בקבצים הנלווים, כדי שהבדיקה תוכל להציע עדכון גם כשהמסד עצמו
@@ -185,8 +190,7 @@ class CompanionAssetsInstaller {
       // המראה הזו כבר נמסרה כאן ומשהו אחר יושב במקומה — לא מציעים שוב.
       // התנאי השני הוא מה שמבדיל בין "הוחלף בגרסה אחרת" לבין "נמחק": פריט
       // שנעלם לגמרי כן צריך לחזור.
-      if (delivered[e.key] == mirrorMarkerOf(e.key, e.value) &&
-          _isInstalledLocally(e.key, libraryDir, e.value)) {
+      if (_wasDelivered(e.key, libraryDir, e.value, delivered)) {
         continue;
       }
       // **קיום אינו שלמות.** רשומה שהקובץ שלה חסר או קטוע במראה אינה הצעה
@@ -204,6 +208,15 @@ class CompanionAssetsInstaller {
     );
   }
 
+  bool _wasDelivered(
+    CompanionAsset asset,
+    String libraryDir,
+    CompanionMirrorEntry entry,
+    Map<CompanionAsset, String> delivered,
+  ) =>
+      delivered[asset] == mirrorMarkerOf(asset, entry) &&
+      _isInstalledLocally(asset, libraryDir, entry);
+
   /// מזהה הגרסה של הפריט **במראה** — המחרוזת שנרשמת כ"נמסר" ונבדקת מולה.
   static String mirrorMarkerOf(
     CompanionAsset asset,
@@ -215,7 +228,9 @@ class CompanionAssetsInstaller {
       case CompanionAsset.catalog:
         return entry.version?.toString() ?? '';
       case CompanionAsset.dictionary:
-        return entry.tag ?? '';
+        return entry.sha256 == null
+            ? entry.tag ?? ''
+            : '${entry.tag ?? ''}|${entry.sha256}';
     }
   }
 
@@ -520,7 +535,8 @@ class CompanionAssetsInstaller {
     if (!target.existsSync() || target.lengthSync() == 0) return false;
     final marker = File('${target.path}.version');
     if (!marker.existsSync()) return false;
-    return marker.readAsStringSync().trim() == (entry.tag ?? '');
+    final installed = marker.readAsStringSync().trim();
+    return installed == (entry.versionMarker ?? '') || installed == entry.tag;
   }
 
   Future<bool> _installDictionary(
@@ -548,7 +564,7 @@ class CompanionAssetsInstaller {
       _deleteQuietly(staged);
       rethrow;
     }
-    File('$target.version').writeAsStringSync(entry.tag ?? '');
+    File('$target.version').writeAsStringSync(entry.versionMarker ?? '');
     return true;
   }
 

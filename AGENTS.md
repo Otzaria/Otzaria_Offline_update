@@ -175,7 +175,7 @@ sits at the repo root (historical — do not move it).
 | `library_manager/` | `library_manager` | Flutter. Wires the root package into the launcher: locate the real `seforim.db`, check versions, apply to the **live** DB, export/consume the mirror. |
 | `plugins_manager/` | `plugins_manager` | Pure Dart. The **offline plugin store**: syncs `otzaria.org/api/plugins` into the mirror, detects what Otzaria has, installs via `otzaria://`. Converted from `Yehuda-Zakesh/Offline-repository-plugin-store` (itself derived from `Otzaria/Otzaria_Website`); details in `plugins_manager/README.md`. |
 | `custom_apps_manager/` | `custom_apps_manager` | Pure Dart. **User-added programs**: a record filled in a form (name, GitHub repo *or* local installer, install location, detection rules) so the drive can carry a program that is not Otzaria. Not a plugin system — no runtime, no WebView, no permissions, and **no importing a record from a file**, so every repo and file was chosen by the user. |
-| `error_reports_manager/` | `error_reports_manager` | Pure Dart. **Otzaria's unsent book-error reports**, carried offline → online: read Otzaria's queue in `user_state.db` directly (Otzaria unchanged), port of its `toApiPayload`, a drive outbox, upload to `otzaria.org` in rate-limited batches. See §5.10. |
+| `error_reports_manager/` | `error_reports_manager` | Pure Dart. **Otzaria's unsent book, app and plugin reports**, carried offline → online: read Otzaria's queues in `user_state.db` directly (Otzaria unchanged), port of its `toApiPayload`, a drive outbox, upload to `otzaria.org` in rate-limited batches. See §5.10. |
 | `launcher_app/` | `launcher_app` | The Flutter desktop app (Windows + macOS) wiring the modules into one dashboard. Depends on the other seven by relative `path:`, so it must stay their sibling. |
 
 Producer vs. consumer: the Kotlin repo `Otzaria/SeforimLibrary` *produces* the DB
@@ -421,10 +421,9 @@ object for the life of the process. Adding to a closed sink throws (like
 matching the *last* step's `toContentHash` proves every step before it; verifying
 each step re-read 7.4GB per patch. `PatchApplier.apply` still defaults to
 `verifyToHash: true` (upstream parity) and `LibraryUpdateApplier.applyDelta` turns
-it off for every step but the last. The gap: a chain interrupted midway leaves a DB
-that applied cleanly but was never verified — so each unverified step records its
-version in `<db>.unverified`, and the next apply from that version runs with
-`verifyFromHash: true`.
+it off for every step but the last. Each unverified step must write its marker
+**before** applying and fail if it cannot. A remaining marker requires
+`verifyFromHash: true` even after rollback or if its contents cannot be parsed.
 
 **The hash verification is never removed, never optional and never a setting.**
 It is the only thing that stops a wrong database silently. A change that drops
@@ -741,8 +740,8 @@ continues.
 its settings.** `DatabaseConstants.getDatabasePath` falls back to `'.'` when
 `key-library-path` is empty; `getDefaultLibraryPath` is only used by *its* own
 download screen. A library we installed at the platform default was therefore
-invisible to it (forum post 39342). `OtzariaSettingsWriter` is the one and only
-thing we write into that Hive box, and only after a **fresh** install: the box is
+invisible to it (forum post 39342). `OtzariaSettingsWriter.pointLibraryAt` writes
+the library location only after a **fresh** install: the box is
 opened in place (there is no other way), `key-library-path` is set to the DB's
 folder with an empty `key-library-folder-name` — exactly what `EmptyLibraryBloc`
 writes — and **only when the setting is still empty**. An existing value is the
@@ -751,6 +750,8 @@ installed, so it already points here unless the user picked a different target.
 A failure returns `false`, `applyUpdate` reports it through
 `onLibraryLocationNotSet`, and the UI tells the user to point Otzaria at the
 folder. Reading stays copy-only — do not turn the reader into an in-place open.
+The writer also records smart-search consent only after its explicit dialog;
+the same Hive safeguards below apply (`grantSearchFeedbackConsent`).
 Five things make that in-place open safe, and each one is a bug that the review
 of this feature caught before it shipped:
 
@@ -1650,7 +1651,7 @@ feel frozen.
 
 ### 5.10 Error reports (offline → online)
 
-Otzaria queues book-error reports it could not send; `error_reports_manager` carries
+Otzaria queues book, app and plugin reports it could not send; this package carries
 them on the drive. **Otzaria is not changed for this**: the launcher reads and writes
 Otzaria's own queue in `user_state.db` directly and builds the request body itself —
 every `sqlite3` call inside `Isolate.run`, the offer after the first frame (§5.9).
@@ -1669,16 +1670,18 @@ It never opens over another dialog and gives up unrecorded after a minute.
 **The request body is a port, and it must be kept in step with Otzaria.**
 `lib/src/port/` translates `toApiPayload`, `apiErrorDetails` (the fallback block, word
 for word), `contentDigest` and OCJ-1 from Otzaria's `lib/models/direct_error_report.dart`
-and `lib/utils/canonical_json.dart`. `port_test.dart` compares against vectors produced
+and `lib/utils/canonical_json.dart`, plus `AppReport` and `PluginReportRecord`.
+`port_test.dart` compares against vectors produced
 by Otzaria's own code (commit named in the fixture); a change there must be re-ported
 and the vectors regenerated, or the server receives a body Otzaria would never send.
 
 **Never write to a DB we do not understand.** `PRAGMA user_version` above
-`UserStateReportQueue.knownSchemaVersion`, a missing `pending_reports` table, a report
-`schemaVersion` above 2, or a still-present `<dataRoot>/error_reports_queue.hive`
+`UserStateReportQueue.knownSchemaVersion`, a missing `pending_reports` table, a
+book report's `schemaVersion` above 2, or a still-present report queue `.hive` file
 (queue not yet migrated out of Hive) all mean "no offer" and no write. The DB and its
 folder are never created. Unsendable reports (`isSendable`, Otzaria's own export filter
-plus the 256KB limit) stay in the queue.
+plus the 256KB book limit), invalid app/plugin records and oversized app requests
+stay in the queue. App attachments travel in the outbox, not the sent history.
 
 **Otzaria must be closed — checked before the offer *and* after the click**
 (`offerErrorReportCollection`). Otzaria keeps `user_state.db` open for the life of every
@@ -1739,6 +1742,7 @@ verify something new.
 | Two-channel download (stable + newer pre-release, chosen offline) | Unit-tested only. Not verified what `fetchChannelReleases` returns against the real repo today, nor whether both installers fit comfortably on a typical drive |
 | Companion assets (mirror against the three real repos, installer into a real library folder) | Unit-tested only |
 | `OtzariaSettingsReader` against a real `app_preferences.hive` | Unit-tested only |
+| Smart search and training feedback | Unit- and widget-tested, including staging with the real pinned model files. Never imported by a real Otzaria install, carried on a USB trip, or uploaded to the production feedback endpoint. See `library_manager/README.md` and `error_reports_manager/README.md` |
 | Combined first install (app wizard → auto-close → library), replacing the FULL package | Unit-tested only — the dialogs and the ordering are covered, but never run against a real wizard on a machine with no Otzaria, and the auto-close path has not been seen working. `otzaria.iss` was read to confirm `/NOLAUNCH=1` cannot clear the finish-page box |
 | Custom title bar (`window_manager` with the native frame hidden) | Unit-tested only, on either platform |
 | Error reports (§5.10) | Unit- and widget-tested only — against a DB built with Otzaria's schema and vectors from Otzaria's own code; never against a real installation's `user_state.db`, nor the real `otzaria.org` endpoint |

@@ -2292,6 +2292,49 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get companionDictionaryName => 'Fuzzy-search dictionary';
   @override
+  String get companionSemanticName => 'Smart search';
+  @override
+  String get semanticConsentTitle => 'Help Improve the Engine';
+  @override
+  String get semanticConsentText =>
+      'This is experimental search, and your searches help improve it. Using it requires consent to send anonymous usage data: search terms, displayed results and their rankings, passages opened or rated (like / dislike) and time spent reading them, plus the app and operating system versions. Names, email addresses, file paths, content from personal books, and other identifying details are not sent. Avoid including personal details in search terms. You can revoke consent at any time in settings; revoking it disables this search mode.\n\nConfirming enables consent in Otzaria settings. On the offline computer we will ask separately to collect the data onto the drive, and on the online computer we will ask permission to send it to Otzaria.';
+  @override
+  String get semanticConsentConfirm => 'I agree';
+  @override
+  String get semanticFeedbackCollectTitle =>
+      'Collect smart search training data';
+  @override
+  String semanticFeedbackCollectBody(int count) =>
+      'Otzaria has $count records of smart search usage data collected with your consent. Transfer them to the drive for sending from the online computer? They will be removed from Otzaria’s queue only after being saved to the drive.';
+  @override
+  String get semanticFeedbackUploadTitle => 'Send training data to Otzaria';
+  @override
+  String semanticFeedbackUploadBody(int count) =>
+      'The drive has $count records of smart search usage data collected with consent. Send them to Otzaria’s server now to improve search?';
+  @override
+  String semanticFeedbackCollected(int count) =>
+      'Collected $count training data records onto the drive';
+  @override
+  String semanticFeedbackUploaded(int sent, int remaining) =>
+      'Sent $sent training data records; $remaining remain on the drive';
+  @override
+  String get semanticFeedbackFailed =>
+      'Training data transfer did not finish. You can try again; details were saved to the log.';
+  @override
+  String get semanticFeedbackUploadAction => 'Send training data';
+  @override
+  String get semanticFeedbackNotCollected =>
+      'No training data was collected. Make sure Otzaria is closed and consent is enabled in its settings.';
+  @override
+  String get semanticDownloadPrompt =>
+      'Download smart search files for the offline computer too? The files may take several gigabytes. Smart search requires consent in Otzaria to collect training data. Downloading does not change that consent.';
+  @override
+  String get semanticConsentRequired =>
+      'Smart search files are on the drive. Installing them requires consent to collect training data. You can agree here while Otzaria is closed, or enable consent in Otzaria settings and check again.';
+  @override
+  String get semanticStagedNotice =>
+      'Smart search files were copied to this computer. Open smart search in Otzaria and start installing its database; the files will be loaded locally without an internet download.';
+  @override
   String companionChecking(String name) => 'Checking $name…';
   @override
   String companionDownloading(String name) => 'Downloading $name…';
@@ -3150,10 +3193,11 @@ class _ErrorReports extends ErrorReportsStrings {
   const _ErrorReports();
 
   @override
-  String get collectDialogTitle => 'Unsent error reports';
+  String get collectDialogTitle => 'Unsent reports';
   @override
   String collectDialogContent(int count) =>
-      'Otzaria has $count open error ${_reports(count)} that have not been '
+      'Otzaria has $count ${_reports(count)} about books, the app and plugins '
+      'that have not been '
       'sent yet.\n\nCollect them to the drive, so they can be sent to Otzaria '
       'from the computer that is online?';
   @override
@@ -3176,15 +3220,15 @@ class _ErrorReports extends ErrorReportsStrings {
       'again next launch';
 
   @override
-  String get introDialogTitle => 'Book error reports';
+  String get introDialogTitle => 'Reports to Otzaria and plugin developers';
   @override
   String get introDialogContent =>
-      'Otzaria keeps book error reports that could not be sent while there '
+      'Otzaria keeps reports about books, app problems and plugins while there '
       'was no network.\n\nThe program can collect them to the drive, and '
       'send them to Otzaria from the computer that is online.';
   @override
   String get introDialogContentReadOnly =>
-      'Otzaria keeps book error reports that could not be sent while there '
+      'Otzaria keeps reports about books, app problems and plugins while there '
       'was no network.\n\nThis drive is locked for writing, so reports '
       'cannot be collected through it.';
   @override
@@ -3194,7 +3238,7 @@ class _ErrorReports extends ErrorReportsStrings {
   String uploadButton(int count) =>
       'Upload $count ${_reports(count)} to Otzaria';
   @override
-  String get uploadLongDialogTitle => 'Uploading error reports';
+  String get uploadLongDialogTitle => 'Uploading reports';
   @override
   String uploadLongDialogContent(int count, int perMinute, int minutes) =>
       'The drive holds $count ${_reports(count)}. The Otzaria server accepts '

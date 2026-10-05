@@ -12,6 +12,7 @@ class PluginLocalFile extends Equatable {
     required this.fileName,
     required this.ext,
     required this.size,
+    this.sourceUrl,
   });
 
   /// יחסי לשורש תיקיית התוספים במראה — כך שהעתקת התיקייה לכונן אחר
@@ -21,11 +22,23 @@ class PluginLocalFile extends Equatable {
   final String ext;
   final int size;
 
+  /// מקור הקובץ שבדיסק, גם כשהקטלוג כבר מציע כתובת חדשה.
+  final String? sourceUrl;
+
+  PluginLocalFile copyWith({String? sourceUrl}) => PluginLocalFile(
+        relativePath: relativePath,
+        fileName: fileName,
+        ext: ext,
+        size: size,
+        sourceUrl: sourceUrl ?? this.sourceUrl,
+      );
+
   Map<String, dynamic> toJson() => {
         'path': relativePath,
         'fileName': fileName,
         'ext': ext,
         'size': size,
+        if (sourceUrl != null) 'sourceUrl': sourceUrl,
       };
 
   static PluginLocalFile? fromJson(Object? json) {
@@ -37,11 +50,13 @@ class PluginLocalFile extends Equatable {
       fileName: json['fileName'] is String ? json['fileName'] as String : path,
       ext: json['ext'] is String ? json['ext'] as String : '',
       size: json['size'] is int ? json['size'] as int : 0,
+      sourceUrl:
+          json['sourceUrl'] is String ? json['sourceUrl'] as String : null,
     );
   }
 
   @override
-  List<Object?> get props => [relativePath, fileName, ext, size];
+  List<Object?> get props => [relativePath, fileName, ext, size, sourceUrl];
 }
 
 /// תוסף בקטלוג המקומי — מיזוג של המטא-דאטה מ-`/api/plugins` עם הנתיבים
@@ -235,6 +250,9 @@ class StorePlugin extends Equatable {
   }
 
   StorePlugin copyWith({
+    String? updatedAt,
+    String? remoteImageUrl,
+    List<String>? remoteScreenshotUrls,
     String? imagePath,
     List<String>? screenshotPaths,
     List<String>? categorySlugs,
@@ -250,7 +268,7 @@ class StorePlugin extends Equatable {
       version: version,
       status: status,
       author: author,
-      updatedAt: updatedAt,
+      updatedAt: updatedAt ?? this.updatedAt,
       originalDate: originalDate,
       compatibleWith: compatibleWith,
       maxAppVersion: maxAppVersion,
@@ -261,8 +279,8 @@ class StorePlugin extends Equatable {
       supportsDirectInstall: supportsDirectInstall,
       isFeatured: isFeatured,
       remoteDownloadUrl: remoteDownloadUrl,
-      remoteImageUrl: remoteImageUrl,
-      remoteScreenshotUrls: remoteScreenshotUrls,
+      remoteImageUrl: remoteImageUrl ?? this.remoteImageUrl,
+      remoteScreenshotUrls: remoteScreenshotUrls ?? this.remoteScreenshotUrls,
       imagePath: imagePath ?? this.imagePath,
       screenshotPaths: screenshotPaths ?? this.screenshotPaths,
       categorySlugs: categorySlugs ?? this.categorySlugs,

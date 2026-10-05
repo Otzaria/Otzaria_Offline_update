@@ -22,6 +22,8 @@ class LibraryUpdateCheckResult {
     this.pendingCompanions = const {},
     this.unavailableCompanions = const {},
     this.mirroredCompanions = const {},
+    this.semanticPending = false,
+    this.semanticConsentGranted = false,
   });
 
   final String? dbPath;
@@ -46,7 +48,12 @@ class LibraryUpdateCheckResult {
   /// ההבחנה הזו "אין מה להתקין" ו"לא הובא דבר" נראו זהים בלוג (issue #33).
   final Set<CompanionAsset> mirroredCompanions;
 
-  bool get companionsPending => pendingCompanions.isNotEmpty;
+  final bool semanticPending;
+  final bool semanticConsentGranted;
+
+  bool get companionsPending =>
+      pendingCompanions.isNotEmpty ||
+      (semanticPending && semanticConsentGranted);
 
   /// הגרסה הגבוהה ביותר שיש במראה — מה שהמסד אמור להגיע אליו.
   final int? latestVersion;

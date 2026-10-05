@@ -65,6 +65,78 @@ void main() {
     expect(outbox.reports, isEmpty);
   });
 
+  test('דיווחי תוכנה ותוספים נשלחים ליעדם עם הגוף והצרופות', () async {
+    final outbox = MemoryOutbox([]);
+    const endpoints = [
+      OutboxReport.appReportingEndpoint,
+      OutboxReport.pluginReportingEndpoint,
+    ];
+    for (var i = 0; i < endpoints.length; i++) {
+      await outbox.write(
+          'r$i',
+          OutboxReport.fileJson(
+            reportId: 'r$i',
+            bookTitle: 'דיווח',
+            createdAt: '2026-10-01T10:00:00Z',
+            endpoint: endpoints[i],
+            body: {
+              'reportId': 'r$i',
+              'details': 'פירוט',
+              if (i == 0)
+                'attachments': {
+                  'images': [
+                    {
+                      'fileName': 'צילום.png',
+                      'mimeType': 'image/png',
+                      'data': 'AQID'
+                    }
+                  ]
+                }
+            },
+          ));
+    }
+    final bodies = outbox.reports.map((r) => r.body).toList();
+    var calls = 0;
+    final result = await uploader((request) async {
+      expect(request.url.toString(), endpoints[calls]);
+      expect(jsonDecode(utf8.decode(request.bodyBytes)), bodies[calls]);
+      calls++;
+      return http.Response('{}', 201);
+    }).upload(outbox);
+    expect(calls, 2);
+    expect(result.sent, 2);
+    expect(outbox.reports, isEmpty);
+  });
+
+  test('דיווח תוכנה עם תמונות מקבל זמן העלאה ארוך יותר', () async {
+    final outbox = MemoryOutbox([]);
+    await outbox.write(
+        'app',
+        OutboxReport.fileJson(
+          reportId: 'app',
+          bookTitle: 'תקלה',
+          createdAt: '2026-10-01T10:00:00Z',
+          endpoint: OutboxReport.appReportingEndpoint,
+          body: {
+            'attachments': {
+              'images': [
+                {'data': 'AQID'}
+              ]
+            }
+          },
+        ));
+    final sender = ErrorReportUploader(
+      requestTimeout: const Duration(milliseconds: 1),
+      requestTimeoutWithImages: const Duration(seconds: 2),
+      httpClient: MockClient((_) async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        return http.Response('{}', 200);
+      }),
+    );
+    addTearDown(sender.close);
+    expect((await sender.upload(outbox)).sent, 1);
+  });
+
   test('כתובת שאינה של אוצריא נדחית בלי שליחה', () async {
     final outbox = MemoryOutbox([]);
     outbox.reports.add(OutboxReport.fromJson(

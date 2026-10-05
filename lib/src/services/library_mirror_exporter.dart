@@ -20,8 +20,7 @@ import 'library_update_discovery.dart';
 import 'local_mirror_library_release_client.dart';
 import 'patch_downloader.dart';
 
-/// The path of [path] relative to [from], always with `/` separators, so a
-/// mirror filled on Windows reads on macOS. [context] defaults to the host's.
+/// נתיב יחסי עם `/`, כדי שמראה שנוצרה ב-Windows תיקרא גם ב-macOS.
 String mirrorRelativePath(String path,
     {required String from, p.Context? context}) {
   final ctx = context ?? p.context;
@@ -307,7 +306,6 @@ class LibraryMirrorExporter {
         mirroredEdges: mirroredEdges,
         edges: edges,
         relevant: relevant,
-        latestVersion: latestVersion,
         onStage: onStage,
       );
     }
@@ -875,35 +873,23 @@ class LibraryMirrorExporter {
     return dropped;
   }
 
-  /// מסיר מהתוכנית כל קשת שהחלתה **לבדה** אצל המשתמש ארוכה מהחלפת המסד
-  /// המלא כולו, ומחזיר כמה נכסים הוסרו. הכלל הוא זמן ולא גודל — ראו
-  /// [ApplyTimeEstimate].
-  ///
-  /// **למה לכל קשת בנפרד:** ההחלטה נמדדה קודם רק על הצעד הזול ביותר אל
-  /// הגרסה האחרונה, ולכן ברגע שיצא release חדש עם patch רגיל, ה-patch הענק
-  /// שכבר נפסל בהורדה הקודמת חזר למראה — ואיתו כל השרשרת שמתחתיו, גיגה-בייטים
-  /// שיורדים מחדש בכל חודש. פסילה שנמדדת על הקשת עצמה נשארת נכונה גם בהורדה
-  /// הבאה, בלי שצריך לזכור דבר בין ריצות.
-  ///
-  /// מה שנעשה מבוי סתום בעקבות הפסילה מוסר ב-[_dropUselessPatches].
+  /// פסילה לפי זמן של כל קשת בנפרד נשמרת גם כשמגיעה גרסה חדשה.
+  /// ההיסטוריה שנעשית מיותרת מוסרת ב-[_dropUselessPatches].
   int _dropSlowPatches({
     required Map<LibraryRelease, Map<String, ReleaseAsset>> neededByRelease,
     required List<MirroredEdge> mirroredEdges,
     required List<({int from, int to})> edges,
     required List<LibraryRelease> relevant,
-    required int latestVersion,
     required void Function(String stage)? onStage,
   }) {
-    // בלי מסד מלא שמגיע **לבדו** ל-latest אין מסלול חלופי, ואז גם קשת איטית
-    // עדיפה על מראה שנעצרת מתחת לגרסה האחרונה.
-    final carrier = _newestFullDbCarrier(relevant, latestVersion);
-    final fullBytes = carrier?.fullDbAsset?.size ?? 0;
-    if (fullBytes <= 0) return 0;
-    final fullSeconds = applyTime.fullRouteSeconds(fullBytes);
-
     final strings = AppL10n.strings.libraryDomain;
     var dropped = 0;
     for (final edge in mirroredEdges) {
+      // המסד צריך להחליף את הקשת הזו; ההמשך לגרסאות חדשות נשמר בנפרד.
+      final carrier = _newestFullDbCarrier(relevant, edge.to);
+      final fullBytes = carrier?.fullDbAsset?.size ?? 0;
+      if (fullBytes <= 0) continue;
+      final fullSeconds = applyTime.fullRouteSeconds(fullBytes);
       final bytes = _plannedEdgeBytes(edge, neededByRelease);
       if (bytes == null) continue;
       final stepSeconds = applyTime.deltaRouteSeconds([bytes]);

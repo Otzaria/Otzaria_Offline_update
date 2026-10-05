@@ -15,6 +15,7 @@ import 'services/library_update_applier.dart';
 import 'services/otzaria_process_guard.dart';
 import 'services/otzaria_settings_reader.dart';
 import 'services/otzaria_settings_writer.dart';
+import 'services/semantic_search_assets.dart';
 
 export 'services/library_update_applier.dart'
     show
@@ -166,6 +167,16 @@ class LibraryManager {
   /// תיקיית המראה של הקבצים הנלווים — לצד מראת הספרייה, תחת אותו שורש.
   String get companionsMirrorDir => p.join(dataDir, 'mirror', 'companions');
 
+  String get semanticMirrorDir => p.join(dataDir, 'mirror', 'semantic');
+
+  Future<bool> semanticConsentGranted() async {
+    final launch = await _locator.otzariaLaunchPath?.call();
+    final root = await _locator.otzariaSettingsRoot(launch);
+    if (root == null) return false;
+    return (await _locator.settingsReader.read(root))?.searchFeedbackGranted ??
+        false;
+  }
+
   Future<void> setCustomDbPath(String dbPath) =>
       _stateStore.saveCustomDbPath(dbPath);
 
@@ -273,6 +284,7 @@ class LibraryManager {
   /// כתבו לאותה שורת מצב היא קפצה בין "מוריד תלמוד" ל"מוריד מסד" בזמן שהמד
   /// מתאר את שניהם יחד. בלעדיו הם חוזרים לערוץ אחד, כמקודם.
   Future<MirrorDownloadOutcome> downloadToMirror({
+    bool includeSemanticSearch = false,
     void Function(String stage)? onStage,
     void Function(String stage)? onCompanionStage,
     void Function(int doneAssets, int totalAssets)? onAssetProgress,
@@ -340,6 +352,28 @@ class LibraryManager {
     // ניקה אותה (ראו `MirrorDownloadUndo`).
     await Future.wait<void>([exportFuture, companionsFuture]);
 
+    if (includeSemanticSearch) {
+      final discovery =
+          await LibraryUpdateDiscovery(client: await _resolveSource())
+              .discover(allowPrerelease: allowPrerelease);
+      final tag = discovery.latestContentTag;
+      if (tag == null) {
+        throw StateError(AppL10n.strings.libraryDomain.companionsMirrorMissing);
+      }
+      final semantic = SemanticSearchAssets();
+      try {
+        await semantic.sync(
+          mirrorDir: semanticMirrorDir,
+          libraryTag: tag,
+          onStage: onStage,
+          onBytesProgress: onBytesProgress,
+          isCancelled: isCancelled,
+        );
+      } finally {
+        semantic.dispose();
+      }
+    }
+
     return MirrorDownloadOutcome(
       personalFromVersion: fromVersion,
       upToDate: !exported,
@@ -391,6 +425,23 @@ class LibraryManager {
   Future<Set<CompanionAsset>> peekPendingCompanions() =>
       _companionsMirror.peekPending(destDir: companionsMirrorDir);
 
+  String? _onlineLibraryTag;
+
+  Future<bool> peekPendingSemanticSearch() async {
+    if (_onlineLibraryTag == null) await peekLatestOnlineVersion();
+    final tag = _onlineLibraryTag;
+    if (tag == null) return false;
+    final semantic = SemanticSearchAssets();
+    try {
+      return await semantic.peekPending(
+        mirrorDir: semanticMirrorDir,
+        libraryTag: tag,
+      );
+    } finally {
+      semantic.dispose();
+    }
+  }
+
   /// בודק מה הגרסה העדכנית ביותר הזמינה ב-GitHub — **פעולת רשת קלה**:
   /// קריאת API יחידה ל-`/releases`, בלי הורדת manifest או asset כלשהו
   /// (בשונה מ-[LibraryUpdateDiscovery.discover], שמוריד גם manifest לכל
@@ -399,6 +450,7 @@ class LibraryManager {
   /// ("יש עדכון חדש ברשת?"); זורקת חריג רשת/HTTP רגיל בכשל — הקורא אמור
   /// להתייחס לכשל כ"אין חיבור כרגע", לא כשגיאה חוסמת.
   Future<int?> peekLatestOnlineVersion() async {
+    _onlineLibraryTag = null;
     final releases = LibraryUpdateDiscovery.eligibleReleases(
       await _cloudClient.fetchReleases(),
       allowPrerelease: allowPrerelease,
@@ -412,7 +464,10 @@ class LibraryManager {
         continue;
       }
       final version = LibraryUpdateDiscovery.releaseVersionOf(release);
-      if (version > latest) latest = version;
+      if (version > latest) {
+        latest = version;
+        _onlineLibraryTag = release.tag;
+      }
     }
     return latest == 0 ? null : latest;
   }
@@ -510,6 +565,19 @@ class LibraryManager {
       blockingPatchFormatVersion: discoveryResult.blockingPatchFormatVersion,
     );
 
+    final semantic = SemanticSearchAssets();
+    final bool semanticPending;
+    try {
+      semanticPending = await semantic.pending(
+        mirrorDir: semanticMirrorDir,
+        dbPath: dbPath,
+        libraryVersion: plan.kind == LibraryUpdatePlanKind.blocked
+            ? local.dbVersion
+            : plan.finalTargetVersion ?? local.dbVersion,
+      );
+    } finally {
+      semantic.dispose();
+    }
     return LibraryUpdateCheckResult(
       dbPath: dbPath,
       localVersion: local,
@@ -520,6 +588,8 @@ class LibraryManager {
       pendingCompanions: companions.pending,
       unavailableCompanions: companions.unavailable,
       mirroredCompanions: companions.mirrored,
+      semanticPending: semanticPending,
+      semanticConsentGranted: await semanticConsentGranted(),
     );
   }
 
@@ -680,6 +750,8 @@ class LibraryManager {
     final companions = await _companionsInstaller.install(
       mirrorDir: companionsMirrorDir,
       dbPath: dbPath,
+      delivered:
+          _deliveredCompanions(await _stateStore.loadDeliveredCompanions()),
       onStage: (stage) => onProgress?.call(LibraryApplyProgress(
         stage: LibraryApplyStage.installingCompanions,
         statusText: stage,
@@ -698,6 +770,38 @@ class LibraryManager {
       onStateWarning?.call(e);
     }
 
+    if (check.semanticPending) {
+      final name = AppL10n.strings.libraryDomain.companionSemanticName;
+      try {
+        if (!await semanticConsentGranted()) {
+          throw StateError(
+              AppL10n.strings.libraryDomain.semanticConsentRequired);
+        }
+        if (await const OtzariaProcessGuard().isAnyRunning(
+          OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
+        )) {
+          throw const OtzariaIsRunningException();
+        }
+        final semantic = SemanticSearchAssets();
+        try {
+          final version = await _versionReader.readInIsolate(dbPath);
+          await semantic.install(
+            mirrorDir: semanticMirrorDir,
+            dbPath: dbPath,
+            libraryVersion: version.dbVersion,
+            onStage: (stage) => onProgress?.call(LibraryApplyProgress(
+              stage: LibraryApplyStage.installingCompanions,
+              statusText: stage,
+            )),
+            isCancelled: isCancelled,
+          );
+        } finally {
+          semantic.dispose();
+        }
+      } catch (error) {
+        onCompanionWarning?.call(name, error);
+      }
+    }
     onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.done));
     return booksTouched;
   }

@@ -152,9 +152,8 @@ class LibraryUpdateApplier {
   /// כולו, ולכן התאמה ל-`toContentHash` של הצעד האחרון מוכיחה את **כל**
   /// השרשרת — ואין טעם לקרוא מסד של ~7.4GB פעם לכל צעד (מי שפספס חמש גרסאות
   /// שילם את זה חמש פעמים). שרשרת שנקטעה באמצע משאירה מסד שהוחל נקי אך לא
-  /// אומת, ולכן היא מסמנת אותו ב-[LibraryDbRecoveryService.markUnverified];
-  /// ההחלה הבאה שמתחילה מאותה גרסה מפעילה `verifyFromHash` ומאמתת אותו לפני
-  /// שהיא בונה עליו. כך אין מצב שבו מסד לא-מאומת נשאר כזה בשקט.
+  /// אומת, ולכן הסימון נכתב לפני כל צעד שאינו האחרון. כל סימון שנותר
+  /// מחייב `verifyFromHash` בהחלה הבאה, גם אם הצעד התגלגל אחורה.
   /// מחזיר את מזהי הספרים שתוכנם השתנה — כפי ש-`PatchApplier` מדווח אותם.
   /// ראו [LibraryManager.applyUpdate] למה נעשה בהם.
   ///
@@ -186,7 +185,8 @@ class LibraryUpdateApplier {
     final booksTouched = <int>{};
 
     // גרסה שנשארה לא-מאומתת משרשרת שנקטעה — ראו doc-comment למעלה.
-    final unverifiedVersion = _recovery.unverifiedVersion(dbPath);
+    final needsSourceVerification =
+        File(_recovery.unverifiedMarkerPathFor(dbPath)).existsSync();
 
     for (var i = 0; i < steps.length; i++) {
       _throwIfCancelled(isCancelled);
@@ -235,6 +235,11 @@ class LibraryUpdateApplier {
       ));
 
       try {
+        // הסימון חייב להיכתב לפני ה-commit: קריסה אחריו אינה משאירה מסד
+        // לא-מאומת ללא סימון, וכשל בכתיבה עוצר לפני שינוי המסד.
+        if (i < steps.length - 1) {
+          _recovery.markUnverified(dbPath, manifest.toVersion);
+        }
         // אסור להחליף את הקריאה הזו ב-`Isolate.run` inline: הבלוק הזה מחזיק
         // גם את סוגר ה-`onProgress` שלמעלה, וה-`Context` המשותף נשלח איתו.
         final result = await _isolateApplyPatch(
@@ -242,9 +247,8 @@ class LibraryUpdateApplier {
           patchPath: patchPath,
           manifest: manifest,
           language: AppL10n.language,
-          // אימות התוצאה רק בצעד האחרון; אימות המקור רק כשהמסד הגיע לגרסתו
-          // בשרשרת שנקטעה ולא אומת.
-          verifyFromHash: i == 0 && unverifiedVersion == manifest.fromVersion,
+          // סימון קיים מחייב אימות גם אם הטרנזקציה הקודמת התגלגלה אחורה.
+          verifyFromHash: i == 0 && needsSourceVerification,
           verifyToHash: i == steps.length - 1,
           verifyTotalBytesHint: verifyTotalHint,
           onStage: (patchStage) {
@@ -279,8 +283,6 @@ class LibraryUpdateApplier {
         // `resultHash != null` פירושו שהצעד הזה אומת בפועל.
         if (result.resultHash != null) {
           _recovery.clearUnverified(dbPath);
-        } else {
-          _recovery.markUnverified(dbPath, manifest.toVersion);
         }
         _recovery.finishSuccess(dbPath);
       } catch (_) {

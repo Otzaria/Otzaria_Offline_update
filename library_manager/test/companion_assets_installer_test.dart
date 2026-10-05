@@ -72,6 +72,56 @@ void main() {
   });
 
   group('מילון החיפוש', () {
+    test('digest חדש באותו תג מותקן ונרשם גם בסימון וגם ברשומת המסירה',
+        () async {
+      const digest =
+          'b42e36626802629fed178068e8cf11f0f034d6f24ae3b72ac9999b9311bf299f';
+      await writeManifest({
+        'dictionary': {
+          'fileName': 'lexical.db',
+          'size': 7,
+          'tag': 'v2',
+          'sha256': digest,
+        },
+      });
+      await File(p.join(libraryDir, 'lexical.db')).writeAsString('OLD');
+      final marker = File(p.join(libraryDir, 'lexical.db.version'));
+      await marker.writeAsString('old-digest');
+      const delivered = {CompanionAsset.dictionary: 'v2'};
+      expect(await pending(delivered), {CompanionAsset.dictionary});
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+        delivered: delivered,
+      );
+      expect(report.outcomes[CompanionAsset.dictionary],
+          CompanionInstallOutcome.installed);
+      expect(await marker.readAsString(), digest);
+      expect(report.delivered[CompanionAsset.dictionary], 'v2|$digest');
+      expect(await pending(report.delivered), isEmpty);
+    });
+
+    test('מילון שאוצריא סימנה ב-digest אינו מוצע או מוחלף שוב', () async {
+      const digest =
+          '554085db9c68f7b44855d0dad42b3a5e41b836d3b0d2ec3b5a5aeea84416a4fb';
+      await writeManifest({
+        'dictionary': {
+          'fileName': 'lexical.db',
+          'size': 7,
+          'tag': 'v0.3.1',
+          'sha256': digest,
+        },
+      });
+      await File(p.join(libraryDir, 'lexical.db')).writeAsString('CURRENT');
+      await File(p.join(libraryDir, 'lexical.db.version'))
+          .writeAsString(digest);
+      expect(await pending(), isEmpty);
+      final report =
+          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
+      expect(report.outcomes[CompanionAsset.dictionary],
+          CompanionInstallOutcome.alreadyUpToDate);
+    });
+
     setUp(() async {
       await File(p.join(mirrorDir, 'lexical.db')).writeAsString('LEXICAL');
       await writeManifest({
@@ -481,6 +531,25 @@ void main() {
       });
     });
 
+    test('עדכון נוסף אינו מחזיר מילון שכבר נמסר לגרסת המראה', () async {
+      await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
+      final target = File(p.join(libraryDir, 'lexical.db'));
+      final marker = File('${target.path}.version');
+      await target.writeAsString('NEW DICTIONARY');
+      await marker.writeAsString('v7');
+
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+        delivered: const {CompanionAsset.dictionary: 'v2'},
+      );
+
+      expect(report.outcomes[CompanionAsset.dictionary],
+          CompanionInstallOutcome.alreadyUpToDate);
+      expect(await target.readAsString(), 'NEW DICTIONARY');
+      expect(await marker.readAsString(), 'v7');
+    });
+
     test('מראה שכבר נמסרה כאן אינה מוצעת שוב אחרי שאוצריא החליפה את הקובץ',
         () async {
       final report =
@@ -504,6 +573,13 @@ void main() {
 
       await File(p.join(libraryDir, 'lexical.db')).delete();
       expect(await pending(delivered), {CompanionAsset.dictionary});
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+        delivered: delivered,
+      );
+      expect(report.outcomes[CompanionAsset.dictionary],
+          CompanionInstallOutcome.installed);
     });
 
     test('מראה חדשה יותר מוצעת גם אחרי שנמסרה קודמת', () async {
@@ -515,6 +591,12 @@ void main() {
       });
 
       expect(await pending(delivered), {CompanionAsset.dictionary});
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+        delivered: delivered,
+      );
+      expect(report.delivered[CompanionAsset.dictionary], 'v3');
     });
   });
 

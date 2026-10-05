@@ -246,6 +246,25 @@ void main() {
   });
 
   group('hasOnlineUpdate נמדד מול המראה', () {
+    test('חיפוש חכם חדש מדליק עדכון גם כשהספרייה והנלווים מעודכנים', () {
+      controller.onlineLatestVersion = 30;
+      controller.targetVersion = 30;
+      controller.onlineSemanticPending = true;
+
+      expect(controller.hasOnlineUpdate, isTrue);
+      expect(controller.onlineUpdateVersion, isNull);
+      expect(controller.onlinePendingCompanionNames,
+          AppL10n.strings.libraryDomain.companionSemanticName);
+    });
+
+    test('כשל בבדיקת החיפוש החכם אינו הוכחה שאין עדכון', () {
+      controller.onlineLatestVersion = 30;
+      controller.targetVersion = 30;
+      controller.onlineSemanticCheckError = 'rate limit';
+
+      expect(controller.onlineProofError, 'rate limit');
+      expect(controller.hasOnlineUpdate, isFalse);
+    });
     test('גרסה גבוהה יותר ברשת מדליקה, שווה/נמוכה מכבה', () {
       controller.onlineLatestVersion = 20;
       controller.targetVersion = 19;

@@ -45,6 +45,7 @@ void main() {
     DownloadScheduler? scheduler,
     Future<void> Function(String assetName)? beforeAsset,
     String dictionaryTag = 'dict-v7',
+    bool dictionaryV2 = false,
     bool apiDown = false,
   }) {
     final fetched = <String>[];
@@ -76,7 +77,11 @@ void main() {
       } else if (url.contains('/repos/Otzaria/SeforimMagicIndexer/')) {
         body = Uint8List.fromList(utf8.encode(jsonEncode({
           'tag_name': dictionaryTag,
-          'assets': [assetJson('lexical.db', 'https://x/lexical.db')],
+          'assets': [
+            assetJson('lexical.db', 'https://x/lexical.db'),
+            if (dictionaryV2)
+              assetJson('lexical-v2.db', 'https://x/lexical-v2.db'),
+          ],
         })));
       } else {
         final name = url.split('/').last;
@@ -99,6 +104,21 @@ void main() {
       fetched: fetched
     );
   }
+
+  test('מילון v2 מועדף ונשמר בשם המקומי שאוצריא קוראת', () async {
+    final legacy = buildMirror();
+    addTearDown(legacy.mirror.dispose);
+    await legacy.mirror.sync(destDir: destDir);
+    final built = buildMirror(dictionaryV2: true);
+    addTearDown(built.mirror.dispose);
+    final manifest = await built.mirror.sync(destDir: destDir);
+    expect(built.fetched, contains('lexical-v2.db'));
+    expect(built.fetched, isNot(contains('lexical.db')));
+    expect(await File(p.join(destDir, 'lexical.db')).readAsBytes(),
+        bodyOf('lexical-v2.db'));
+    expect(manifest.entries[CompanionAsset.dictionary]!.sha256,
+        sha256.convert(bodyOf('lexical-v2.db')).toString());
+  });
 
   test('שלושת הפריטים יורדים ונרשמים ב-companions.json', () async {
     final built = buildMirror();

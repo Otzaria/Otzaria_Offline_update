@@ -216,6 +216,7 @@ class StoreAppExporter {
           fileName: entry.value.fileName,
           ext: entry.value.ext,
           size: entry.value.size,
+          sourceUrl: entry.value.sourceUrl,
         );
       }
 

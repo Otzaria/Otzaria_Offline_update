@@ -100,6 +100,7 @@ class MirrorJunkSweeper {
         keep.add(_key(PatchDownloader.resumeSidecarPath(asset.downloadUrl)));
       }
     }
+    if (keep.isEmpty) return;
 
     await for (final entity in assetsRoot.list(followLinks: false)) {
       if (entity is! Directory) {
@@ -125,7 +126,7 @@ class MirrorJunkSweeper {
       _key(p.join(dir.path, CompanionMirrorManifest.fileName)),
     };
     for (final entry in manifest.entries.values) {
-      if (entry.fileName.isEmpty) continue;
+      if (entry.fileName.isEmpty) return;
       final path = p.join(dir.path, entry.fileName);
       keep.add(_key(path));
       keep.add(_key(PatchDownloader.resumeSidecarPath(path)));
@@ -148,17 +149,20 @@ class MirrorJunkSweeper {
     // הפורמט הישן הוא רשומה בודדת בשורש; החדש — רשומה לכל ערוץ.
     final entries = meta['tagName'] is String
         ? [meta]
-        : [meta['stable'], meta['prerelease']]
-            .whereType<Map<String, dynamic>>();
+        : [meta['stable'], meta['prerelease']].where((entry) => entry != null);
 
     final keptFiles = <String, Set<String>>{};
     for (final entry in entries) {
+      if (entry is! Map<String, dynamic>) return;
       final tag = entry['tagName'];
       final relative = entry['installerPath'];
-      if (tag is! String || tag.isEmpty) continue;
-      keptFiles
-          .putIfAbsent(_key(tag), () => {})
-          .add(relative is String ? _key(_baseName(relative)) : '');
+      if (tag is! String ||
+          tag.isEmpty ||
+          relative is! String ||
+          relative.isEmpty) {
+        return;
+      }
+      keptFiles.putIfAbsent(_key(tag), () => {}).add(_key(_baseName(relative)));
     }
     if (keptFiles.isEmpty) return;
 
@@ -213,11 +217,12 @@ class MirrorJunkSweeper {
     final tag = release['tagName'];
     if (tag is! String || tag.isEmpty) return;
     final relative = meta?['filePath'];
+    if (relative is! String || relative.isEmpty) return;
 
     await _byTagDir(
       root,
       {
-        _key(tag): {relative is String ? _key(_baseName(relative)) : ''},
+        _key(tag): {_key(_baseName(relative))},
       },
       out,
     );

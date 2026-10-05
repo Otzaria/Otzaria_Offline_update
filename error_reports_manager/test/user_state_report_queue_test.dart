@@ -240,6 +240,167 @@ void main() {
     expect(counter(), 3);
   });
 
+  test('שלושת התורים נאספים ליעדיהם עם מונים והיסטוריה נפרדים', () async {
+    final db = create();
+    insert(db, pending, _stored('same'));
+    insert(db, UserStateReportQueue.appPendingKind, {
+      'reportId': 'same',
+      'type': 'bug',
+      'trigger': 'manual',
+      'title': 'תקלה בתוכנה',
+      'description': 'פירוט התקלה',
+      'reporterEmail': 'a@b.co',
+      'appVersion': '1.0',
+      'platform': 'windows',
+      'createdAt': '2026-09-01T10:00:00.000Z',
+      'diagnostics': {'version': '1.0'},
+      'errorLog': 'לוג',
+      'images': [
+        {'fileName': 'צילום.png', 'mimeType': 'image/png', 'data': 'AQID'}
+      ],
+    });
+    insert(db, UserStateReportQueue.pluginPendingKind, {
+      'reportId': 'same',
+      'pluginUid': 'plugin-uid',
+      'pluginName': 'תוסף',
+      'pluginVersion': '2.0',
+      'reportType': 'bug',
+      'details': 'תקלה בתוסף',
+      'platform': 'windows',
+      'createdAt': '2026-09-01T10:00:00.000Z',
+    });
+    db.close();
+
+    final queue = UserStateReportQueue(dbPath);
+    expect(await queue.countSendable(), 3);
+    final outbox = MemoryOutbox(const []);
+    expect((await queue.collectTo(outbox)).collected, 3);
+    expect(outbox.reports.map((r) => r.reportId),
+        ['same', 'app-same', 'plugin-same']);
+    expect(outbox.reports.map((r) => r.endpoint.toString()), [
+      OutboxReport.reportingEndpoint,
+      OutboxReport.appReportingEndpoint,
+      OutboxReport.pluginReportingEndpoint,
+    ]);
+    final app = outbox.reports[1].body;
+    expect(app['reportId'], 'same');
+    expect((app['attachments'] as Map)['images'], [
+      {'fileName': 'צילום.png', 'mimeType': 'image/png', 'data': 'AQID'}
+    ]);
+    expect((app['attachments'] as Map)['errorLog'], 'לוג');
+    expect(outbox.reports[2].body, {
+      'reportId': 'same',
+      'pluginUid': 'plugin-uid',
+      'pluginName': 'תוסף',
+      'pluginVersion': '2.0',
+      'reportType': 'bug',
+      'details': 'תקלה בתוסף',
+      'platform': 'windows',
+    });
+    for (final box in [
+      'error_reports_queue',
+      'app_reports_queue',
+      'plugin_reports_queue'
+    ]) {
+      expect(rows('$box/pending_reports'), isEmpty);
+      final history = rows('$box/sent_reports').single;
+      if (box == 'app_reports_queue') {
+        expect(history.containsKey('images'), isFalse);
+        expect(history.containsKey('diagnostics'), isFalse);
+        expect(history.containsKey('errorLog'), isFalse);
+        expect(history['sentAt'], isNotNull);
+      }
+      final check = sqlite3.open(dbPath);
+      try {
+        expect(
+            jsonDecode(check.select(
+              'SELECT payload_json FROM lists WHERE box = ? AND key = ?',
+              [box, 'sent_reports_total'],
+            ).single['payload_json'] as String),
+            [1]);
+      } finally {
+        check.close();
+      }
+    }
+  });
+
+  test('דיווחי תוכנה ותוספים פגומים נשארים בתור', () async {
+    final db = create();
+    insert(db, UserStateReportQueue.appPendingKind,
+        {'reportId': 'app', 'title': 'תקלה'});
+    insert(db, UserStateReportQueue.pluginPendingKind,
+        {'reportId': 'plugin', 'details': 'תקלה בלי מזהה תוסף'});
+    db.close();
+    final queue = UserStateReportQueue(dbPath);
+    expect(await queue.countSendable(), 0);
+    expect((await queue.collectTo(MemoryOutbox(const []))).collected, 0);
+    expect(rows(UserStateReportQueue.appPendingKind), hasLength(1));
+    expect(rows(UserStateReportQueue.pluginPendingKind), hasLength(1));
+  });
+
+  for (final kind in ['app', 'plugin']) {
+    Map<String, dynamic> stored() {
+      final golden = jsonDecode(File('test/fixtures/other_reports_golden.json')
+          .readAsStringSync()) as Map;
+      final c = (golden['cases'] as List)
+          .cast<Map>()
+          .firstWhere((c) => c['kind'] == kind);
+      return Map<String, dynamic>.from(c['stored'] as Map);
+    }
+
+    final pendingKind = '${kind}_reports_queue/pending_reports';
+    final sentKind = '${kind}_reports_queue/sent_reports';
+
+    test('$kind: עותק כפול נאסף פעם אחת בלי לאבד את הקובץ', () async {
+      final db = create();
+      insert(db, pendingKind, stored());
+      insert(db, pendingKind, stored());
+      db.close();
+      final queue = UserStateReportQueue(dbPath);
+      expect(await queue.countSendable(), 1);
+      final outbox = MemoryOutbox(const []);
+      expect((await queue.collectTo(outbox)).collected, 1);
+      expect(outbox.reports, hasLength(1));
+      expect(rows(pendingKind), isEmpty);
+      expect(rows(sentKind), hasLength(1));
+    });
+
+    test('$kind: כשל בסימון משאיר את התור המקורי בלי קובץ לשליחה', () async {
+      final db = create();
+      insert(db, pendingKind, stored());
+      db.execute('DROP TABLE lists');
+      db.close();
+      final outbox = MemoryOutbox(const []);
+      final result = await UserStateReportQueue(dbPath).collectTo(outbox);
+      expect(result.collected, 0);
+      expect(result.error, isNotNull);
+      expect(outbox.reports, isEmpty);
+      expect(rows(pendingKind), hasLength(1));
+      expect(rows(sentKind), isEmpty);
+    });
+
+    test('$kind: דיווח שנערך לפני הסימון נשאר בתור', () async {
+      final db = create();
+      insert(db, pendingKind, stored());
+      db.close();
+      final outbox = _ChangingOutbox(() {
+        final other = sqlite3.open(dbPath);
+        try {
+          other.execute('UPDATE pending_reports SET payload_json = ?', [
+            jsonEncode({...stored(), 'reportId': 'edited'})
+          ]);
+        } finally {
+          other.close();
+        }
+      });
+      expect(
+          (await UserStateReportQueue(dbPath).collectTo(outbox)).collected, 0);
+      expect(outbox.reports, isEmpty);
+      expect(rows(pendingKind).single['reportId'], 'edited');
+      expect(rows(sentKind), isEmpty);
+    });
+  }
+
   test('דיווח שכבר בהיסטוריה מוחלף, והמונה אינו עולה עליו', () async {
     final db = create();
     insert(db, sent, _stored('a', extra: {'errorDetails': 'ישן'}));

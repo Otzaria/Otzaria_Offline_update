@@ -15,6 +15,8 @@ dependencies:
   path: ^1.9.1
   http: ^1.6.0
   crypto: ^3.0.7
+  pinenacl: ^0.6.0
+  ffi: ^2.2.0
   # קריאה וכתיבה ישירה לתור הדיווחים ב-`user_state.db` של אוצריא.
   sqlite3: ^3.3.3
 

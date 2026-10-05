@@ -238,6 +238,14 @@ void main() {
       final after = await manager.checkForUpdate();
       expect(after.pendingCompanions, isEmpty);
       expect(after.updateAvailable, isFalse);
+
+      await manager.applyUpdate(first);
+      expect(
+        await File(p.join(p.dirname(dbPath), 'lexical.db.version'))
+            .readAsString(),
+        'v7',
+      );
+      expect((await manager.checkForUpdate()).pendingCompanions, isEmpty);
     });
 
     test('רשומה שהקובץ שלה חסר במראה אינה הצעה, אבל כן מדווחת', () async {

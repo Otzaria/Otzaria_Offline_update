@@ -146,6 +146,29 @@ void main() {
   });
 
   group('הורדה', () {
+    test('הורדה קטועה בלי digest נדחית והקובץ החלקי נמחק', () async {
+      final target = p.join(tempMirrorRoot(), 'App.exe');
+      final client = GithubAppClient(
+        httpClient: MockClient(
+          (_) async => http.Response.bytes(List.filled(50, 65), 200),
+        ),
+      );
+      addTearDown(client.dispose);
+
+      await expectLater(
+        client.download(
+          const GithubAsset(
+            name: 'App.exe',
+            downloadUrl: 'https://example.test/App.exe',
+            sizeBytes: 100,
+          ),
+          target,
+        ),
+        throwsA(isA<AppDescriptorException>()),
+      );
+      expect(File(target).existsSync(), isFalse);
+    });
+
     test('הקובץ נכתב ומדווחת התקדמות', () async {
       final root = tempMirrorRoot();
       final client = GithubAppClient(

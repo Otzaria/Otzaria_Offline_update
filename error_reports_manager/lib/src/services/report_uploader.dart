@@ -18,6 +18,7 @@ class ErrorReportUploader {
   ErrorReportUploader({
     http.Client? httpClient,
     this.requestTimeout = const Duration(seconds: 30),
+    this.requestTimeoutWithImages = const Duration(minutes: 2),
     this.batchSize = 8,
     this.batchInterval = const Duration(seconds: 65),
     this.maxRateLimitRetries = 3,
@@ -31,6 +32,7 @@ class ErrorReportUploader {
   final ReportDelay _delay;
   final DateTime Function() _clock;
   final Duration requestTimeout;
+  final Duration requestTimeoutWithImages;
   final int batchSize;
   final Duration batchInterval;
 
@@ -190,9 +192,16 @@ class ErrorReportUploader {
   }
 
   Future<_Attempt> _post(OutboxReport report) async {
+    final attachments = report.body['attachments'];
+    final images = attachments is Map ? attachments['images'] : null;
+    final timeout = report.endpoint.path == '/api/app-reports' &&
+            images is List &&
+            images.isNotEmpty
+        ? requestTimeoutWithImages
+        : requestTimeout;
     final response = await _http
         .post(report.endpoint, headers: _headers, body: jsonEncode(report.body))
-        .timeout(requestTimeout);
+        .timeout(timeout);
     final body = response.body;
     return _Attempt(
       response.statusCode,

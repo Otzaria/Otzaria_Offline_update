@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 
 import '../models/app_descriptor.dart';
 import '../models/stored_installer.dart';
+import 'known_locations_store.dart';
 
 /// תוכנה מותאמת אחת כפי שהיא יושבת על הדיסק: התיאור, ומה שכבר הורד עבורה.
 class CustomAppEntry {
@@ -50,11 +51,16 @@ class CustomAppStore {
   String installerPathFor(String id, StoredInstaller installer) =>
       installerPathNamed(id, installer.fileName);
 
-  /// The path an installer named [fileName] is written to, deleted from and
-  /// run from. Throws [ArgumentError] when it would leave the app folder.
+  /// נתיב המתקין אינו רשאי לצאת מהתיקייה או לדרוס את נתוני התוכנה.
   String installerPathNamed(String id, String fileName) {
     final path = p.join(dirFor(id), fileName);
-    if (!p.isWithin(dirFor(id), path)) {
+    final reserved = {
+      _descriptorFileName,
+      _installerMetaFileName,
+      p.basename(KnownLocationsStore.pathIn(dirFor(id))),
+    };
+    if (!p.isWithin(dirFor(id), path) ||
+        reserved.contains(fileName.toLowerCase())) {
       throw ArgumentError.value(fileName, 'fileName');
     }
     return path;

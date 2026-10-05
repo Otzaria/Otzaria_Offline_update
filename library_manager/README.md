@@ -127,8 +127,9 @@
   כולו, ולכן התאמה ל-`toContentHash` של הצעד האחרון מוכיחה את כל השרשרת —
   ומסד של 7.4GB נקרא פעם אחת במקום פעם לכל patch. מה שמחזיק את זה בטוח הוא
   `<db>.unverified`: שרשרת שנקטעה משאירה מסד שהוחל נקי אך לא אומת, הסימון
-  רושם את גרסתו, וההחלה הבאה משם מפעילה `verifyFromHash` ומאמתת אותו לפני
-  שהיא בונה עליו. ראו `LibraryUpdateApplier.applyDelta`.
+  נכתב לפני כל צעד שאינו האחרון; כשל כתיבה עוצר לפני שינוי המסד. ההחלה
+  הבאה מפעילה `verifyFromHash` כל עוד הסימון קיים, גם אם הצעד התגלגל אחורה
+  או תוכן הסימון נפגם. ראו `LibraryUpdateApplier.applyDelta`.
 - **דיווח תת-שלבים** — `onStage`/`onVerifyProgress` חוזרים דרך `ReceivePort`
   ומגיעים ל-UI (`LibraryApplyProgress.patchStage` / `verifyProgress`), עם
   קובץ hint (`verify_total_bytes.txt`) ל-total מדויק. בלי זה שלב ה-hash
@@ -197,9 +198,9 @@
 | --- | --- | --- | --- |
 | תלמוד בבלי | `Otzaria/otzaria-library`, `talmud_bavli_latest.tar.zst` | `תלמוד בבלי/` | `.version` = digest (או תג) |
 | קטלוג otzar-HB | `Otzaria/otzar-HB_catalog`, `otzar-HB_catalog.db.zst` + `version.txt` | `otzar-HB_catalog.db` | `db_meta.version` |
-| מילון החיפוש | `Otzaria/SeforimMagicIndexer`, הנכס שה-URL שלו מסתיים ב-`/lexical.db` | `lexical.db` | `lexical.db.version` = תג |
+| מילון החיפוש | `Otzaria/SeforimMagicIndexer`, עדיפות ל-`lexical-v2.db`, ובהיעדרו `lexical.db` | `lexical.db` | `lexical.db.version` = digest (או תג) |
 
-**סימון גרסה אינו סדר.** ה-digest של התלמוד והתג של המילון אינם ניתנים
+**סימון גרסה אינו סדר.** סימוני התלמוד והמילון אינם ניתנים
 להשוואה: "שונה ממה שבמראה" אינו "ישן ממה שבמראה". לכן נרשם לכל מחשב מה כבר
 נמסר לו מהמראה (`LibraryStateStore.saveDeliveredCompanions`, פר-מחשב כמו
 `appliedReleases`), ומראה שנמסרה כאן אינה מוצעת שוב — אחרת קובץ שאוצריא
@@ -207,6 +208,10 @@
 אחורה. פריט שנמחק לגמרי כן חוזר להצעה. במקביל, רשומה שהקובץ שלה חסר או קטוע
 במראה אינה הצעה אלא דיווח (`unavailableCompanions`): אי אפשר להשלים אותה
 כאן, וכהצעה היא הייתה חוזרת לנצח.
+
+המילון מזוהה גם לפי digest שאוצריא כתבה וגם לפי תג מהתקנות ישנות.
+רשומת המסירה שלנו כוללת תג ו-digest כשישנו, כדי שמעבר לנכס אחר באותו
+release לא ייחשב כאילו כבר נמסר. שם הקובץ המקומי נשאר `lexical.db`.
 
 הצד המוריד הוא [`CompanionAssetsMirror`](lib/src/services/companion_assets_mirror.dart)
 (רץ בסוף `downloadToMirror`, כותב `companions.json`), והצד המתקין הוא
@@ -244,6 +249,35 @@ best-effort**: כשל באחד לא מפיל את השאר ולא מבטל עד�
 אותה בדיקה נכנסת גם ל-`_isInstalledLocally` ולא רק ל-`_talmudUpToDate`:
 בלעדיה משמר ה-`delivered` היה בולע בדיוק את המקרה הזה, כי "קיים כאן" נמדד
 באותו סימון עצמו.
+
+### החיפוש החכם
+
+בהורדה מוצעת בחירה נפרדת של החיפוש החכם. `SemanticSearchAssets` מביא את
+מודל `meivin-round2-int8-v1` ואת release הווקטורים של תג הספרייה שבמראה,
+ל־`mirror/semantic/`. המודל מאומת מול החתימות הנעוצות באוצריא; מניפסט
+הווקטורים מאומת מול digest שפורסם ב־GitHub, וכל נכס מול הגודל וה־SHA-256
+שלו. קבצים חלקיים אינם מוצעים להתקנה.
+
+בדיקת העדכון וההתקנה מקומיות בלבד. הקבצים מוצעים כחלק מעדכוני הספרייה רק
+לגרסה התואמת, ובהתקנה מועתקים אל `<root>/semantic-import`, כאשר `<root>`
+הוא ההורה של תיקיית מסד הספרים. אוצריא משלימה את ההתקנה כשמפעילים בתוכה
+את החיפוש החכם והתקנת המאגר; אין כאן התקנה עצמאית של מנוע החיפוש.
+
+הבדיקה הקלה ברשת כוללת גם את החיפוש החכם: בקשת API למטא־נתוני release
+הווקטורים של תג הספרייה העדכני, ללא הורדת המניפסט או קובצי החיפוש.
+היא מזהה גם מאגר שהשתנה באותו תג וקבצים חסרים בכונן. כשל רשת אינו נחשב
+הוכחה שאין עדכון, ו־404 פירושו שטרם פורסם מאגר לתג הזה.
+
+`OtzariaSettingsReader` קורא את `key-search-feedback-consent` ואת
+`key-search-feedback-consent-version`. בלי `granted` וגרסה תקפה מוצע דיאלוג
+עם תנאי ההסכמה של אוצריא, ורק אישור מפורש כותב את ההסכמה באמצעות
+`OtzariaSettingsWriter`, כשאוצריא סגורה. נשיאת נתוני האימון מתוארת ב־
+[`error_reports_manager`](../error_reports_manager/README.md).
+
+החוזה נקרא מ־`Otzaria/otzaria`, commit
+`a48593680beaa335bba24d6729b39cccd2f98632`; שינוי המודל או נוסח ההסכמה
+באוצריא דורש עדכון של המודל הנעוץ ושל המלל כאן. הזרימה נבדקה בבדיקות
+יחידה וממשק בלבד, ללא נסיעת כונן והפעלה בהתקנת אוצריא אמיתית.
 
 ### אינדקס החיפוש — נסגר דרך `otzaria://library/reindex`
 

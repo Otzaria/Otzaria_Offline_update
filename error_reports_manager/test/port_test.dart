@@ -1,7 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:error_reports_manager/error_reports_manager.dart';
+import 'package:error_reports_manager/src/port/app_report.dart';
+import 'package:error_reports_manager/src/port/plugin_report_record.dart';
 import 'package:test/test.dart';
 
 // הוקטורים נגזרו מהקוד של אוצריא עצמה, לא נכתבו ביד:
@@ -15,6 +18,41 @@ Map<String, dynamic> _fixture(String name) =>
         as Map<String, dynamic>;
 
 void main() {
+  group('דיווחי תוכנה ותוספים מול המודלים המקוריים של אוצריא', () {
+    final golden = _fixture('other_reports_golden.json');
+    test('המקור מתועד', () {
+      expect(golden['source'],
+          contains('46882aa87d17aaf55783da2b106d74fd587461e5'));
+    });
+    for (final c in (golden['cases'] as List).cast<Map<String, dynamic>>()) {
+      test(c['name'] as String, () {
+        final stored = Map<String, dynamic>.from(c['stored'] as Map);
+        if (c['expandLargeFields'] == true) {
+          stored.addAll({
+            'title': '${'a' * 199}😀truncated',
+            'diagnostics': {'huge': 'א' * 160000},
+            'errorLog': 'א😀' * 50000,
+            'images': [],
+          });
+        }
+        final Map<String, dynamic> body;
+        if (c['kind'] == 'app') {
+          final report = AppReport.fromJson(stored);
+          expect(report.validate() == null, c['valid']);
+          body = report.toApiPayload();
+        } else {
+          body = PluginReportRecord.fromJson(stored).toApiPayload();
+        }
+        if (c['payloadSha256'] != null) {
+          expect(sha256.convert(utf8.encode(jsonEncode(body))).toString(),
+              c['payloadSha256']);
+        } else {
+          expect(jsonDecode(jsonEncode(body)), c['payload']);
+        }
+      });
+    }
+  });
+
   group('OCJ-1 מול ה-fixtures של אוצריא והאתר', () {
     final cases =
         (_fixture('digest_fixtures.json')['cases'] as List).cast<Map>();

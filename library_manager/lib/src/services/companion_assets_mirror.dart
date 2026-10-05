@@ -300,10 +300,13 @@ class CompanionAssetsMirror {
     final strings = AppL10n.strings.libraryDomain;
     final json = await _getJson(dictionaryReleaseApi);
     final tag = (json['tag_name'] as String?)?.trim();
-    // אוצריא מזהה את הנכס לפי סיומת ה-URL ולא לפי שמו.
-    final asset = _assetList(json).where((a) {
-      return a.downloadUrl.endsWith('/$dictionaryFileName');
-    }).firstOrNull;
+    // סדר ההעדפה של `DatabaseConstants.lexicalReleaseAssetFileNames` באוצריא.
+    final assets = _assetList(json);
+    final asset = ['lexical-v2.db', dictionaryFileName]
+        .map((name) =>
+            assets.where((a) => a.downloadUrl.endsWith('/$name')).firstOrNull)
+        .whereType<_GithubAssetRef>()
+        .firstOrNull;
     if (tag == null || tag.isEmpty || asset == null) {
       throw StateError(strings
           .companionAssetMissingInRelease(strings.companionDictionaryName));

@@ -47,16 +47,20 @@ class ErrorReportsController extends ChangeNotifier {
     );
   }
 
-  /// `user_state.db` של ההתקנה הזו, או `null` כשאין מה לגעת בו. קופסת
-  /// `error_reports_queue.hive` שעוד לא הועברה פירושה שהתור עדיין ב-Hive.
+  /// `user_state.db` של ההתקנה הזו, או `null` כשאין מה לגעת בו.
+  /// קופסת דיווחים שעוד לא הועברה פירושה שהתור עדיין ב-Hive.
   static Future<OtzariaReportQueue?> resolveOtzariaReportQueue({
     required String launchPath,
     required LibraryDbLocator locator,
   }) async {
     final dataRoot = await locator.otzariaSettingsRoot(launchPath);
     if (dataRoot == null) return null;
-    if (await File(p.join(dataRoot, 'error_reports_queue.hive')).exists()) {
-      return null;
+    for (final box in [
+      'error_reports_queue',
+      'app_reports_queue',
+      'plugin_reports_queue',
+    ]) {
+      if (await File(p.join(dataRoot, '$box.hive')).exists()) return null;
     }
     final settings = await locator.settingsReader.read(dataRoot);
     final db = await locateUserStateDb(

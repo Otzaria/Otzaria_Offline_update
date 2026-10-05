@@ -174,6 +174,13 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// תיקיית הקבצים הנלווים (תלמוד/קטלוג/מילון), שגם היא נמלאת ב-[download].
   String get companionsMirrorDir => _manager.companionsMirrorDir;
 
+  String get semanticMirrorDir => _manager.semanticMirrorDir;
+
+  bool semanticPending = false;
+  bool semanticConsentGranted = false;
+  bool get semanticConsentRequired =>
+      semanticPending && !semanticConsentGranted;
+
   /// מצב ההורדה מהרשת אל [mirrorDir].
   MirrorDownloadStatus downloadStatus = MirrorDownloadStatus.idle;
   String? downloadStage;
@@ -232,17 +239,25 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
 
   /// הנלווים שהורדה הייתה מביאה עכשיו, לפי הבדיקה הקלה שלהם.
   Set<CompanionAsset> onlinePendingCompanions = const {};
+  bool onlineSemanticPending = false;
+  String? onlineSemanticCheckError;
 
   /// כשל בבדיקת הנלווים בלבד. אינו "אין רשת" למודול, אך שולל את ההוכחה שאין
   /// מה להוריד — ראו [onlineProofError].
   String? onlineCompanionsCheckError;
 
-  /// מה שמונע מ-`provenUpToDateOnline` לדלג על הספרייה: כשל באחת משתי הבדיקות.
+  /// כשל באחת מבדיקות הרכיבים מונע דילוג על הורדת הספרייה.
   String? get onlineProofError =>
-      onlineCheckError ?? onlineCompanionsCheckError;
+      onlineCheckError ??
+      onlineCompanionsCheckError ??
+      onlineSemanticCheckError;
 
-  String get onlinePendingCompanionNames =>
-      _companionNames(onlinePendingCompanions);
+  String get onlinePendingCompanionNames => [
+        if (onlinePendingCompanions.isNotEmpty)
+          _companionNames(onlinePendingCompanions),
+        if (onlineSemanticPending)
+          AppL10n.strings.libraryDomain.companionSemanticName,
+      ].join(', ');
 
   /// `true` אם הבדיקה הקלה מצאה ברשת גרסה גבוהה מזו שיושבת **במראה
   /// המקומית**. [targetVersion] הוא הגרסה האחרונה שבמראה (התוכנית מחזירה
@@ -251,7 +266,9 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   bool get hasOnlineUpdate =>
       // הנלווים מתעדכנים בנפרד מהמסד: בלעדי זה כונן בלי תלמוד, עם מסד עדכני,
       // לא קיבל כפתור הורדה ודולג ב-downloadAll — לנצח (issue #33).
-      _hasOnlineDbUpdate || onlinePendingCompanions.isNotEmpty;
+      _hasOnlineDbUpdate ||
+      onlinePendingCompanions.isNotEmpty ||
+      onlineSemanticPending;
 
   bool get _hasOnlineDbUpdate {
     final online = onlineLatestVersion;
@@ -298,6 +315,16 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       'checkOnline (ספרייה): latest=$onlineLatestVersion '
       'companions=[${_companionNames(onlinePendingCompanions)}]',
     );
+    onlineSemanticCheckError = null;
+    onlineSemanticPending = false;
+    if (onlineCheckError == null) {
+      try {
+        onlineSemanticPending = await _manager.peekPendingSemanticSearch();
+      } catch (e) {
+        onlineSemanticCheckError = e.toString();
+        AppLogger.instance.info('בדיקת החיפוש החכם ברשת לא הצליחה: $e');
+      }
+    }
     onlineCheckedAt = DateTime.now();
     notifyListeners();
   }
@@ -307,7 +334,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   ///
   /// [isCancelled] נבדק לאורך כל ההורדה, כולל באמצע נכס. ביטול אינו שגיאה:
   /// המצב חוזר ל-[MirrorDownloadStatus.idle] בלי [downloadError].
-  Future<void> download({bool Function()? isCancelled}) async {
+  Future<void> download({
+    bool includeSemanticSearch = false,
+    bool Function()? isCancelled,
+  }) async {
     downloadStatus = MirrorDownloadStatus.downloading;
     downloadStage = null;
     downloadCompanionStage = null;
@@ -322,6 +352,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
 
     try {
       final outcome = await _manager.downloadToMirror(
+        includeSemanticSearch: includeSemanticSearch,
         onStage: (stage) {
           downloadStage = stage;
           // **בלי איפוס הבייטים.** הנכסים יורדים במקביל ומדווחים מונה אחד
@@ -434,10 +465,15 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   bool get companionsOnly =>
       status == LibraryModuleStatus.updateAvailable &&
       !(_lastCheck?.dbUpdateAvailable ?? false) &&
-      pendingCompanions.isNotEmpty;
+      (pendingCompanions.isNotEmpty ||
+          (semanticPending && semanticConsentGranted));
 
   /// שמות הפריטים, מופרדים בפסיק — לתצוגה ולדיאלוג.
-  String get pendingCompanionNames => _companionNames(pendingCompanions);
+  String get pendingCompanionNames => [
+        if (pendingCompanions.isNotEmpty) _companionNames(pendingCompanions),
+        if (semanticPending && semanticConsentGranted)
+          AppL10n.strings.libraryDomain.companionSemanticName,
+      ].join(', ');
   String get unavailableCompanionNames =>
       _companionNames(unavailableCompanions);
 
@@ -491,6 +527,8 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       pendingCompanions = check.pendingCompanions;
       unavailableCompanions = check.unavailableCompanions;
       mirroredCompanions = check.mirroredCompanions;
+      semanticPending = check.semanticPending;
+      semanticConsentGranted = check.semanticConsentGranted;
 
       if (check.needsManualDbPath) {
         status = LibraryModuleStatus.needsManualPath;

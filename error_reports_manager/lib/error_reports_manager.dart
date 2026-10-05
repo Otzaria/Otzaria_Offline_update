@@ -7,4 +7,5 @@ export 'src/port/canonical_json.dart';
 export 'src/port/direct_error_report.dart';
 export 'src/services/report_outbox.dart';
 export 'src/services/report_uploader.dart';
+export 'src/services/search_feedback_transport.dart';
 export 'src/services/user_state_report_queue.dart';

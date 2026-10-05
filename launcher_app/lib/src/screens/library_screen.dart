@@ -22,6 +22,7 @@ class LibraryScreen extends StatelessWidget {
     required this.onCloseOtzaria,
     required this.onRequestReindex,
     required this.onGoToSettings,
+    this.onGrantSemanticConsent,
   });
 
   final LibraryModuleController library;
@@ -43,6 +44,7 @@ class LibraryScreen extends StatelessWidget {
   /// מעבירה למסך ההגדרות — שם מכבים "עדכון אישי". ראו
   /// [LibraryModuleStatus.personalTargetElsewhere].
   final VoidCallback onGoToSettings;
+  final Future<void> Function()? onGrantSemanticConsent;
 
   bool get _isBusy =>
       library.status == LibraryModuleStatus.updating || isDownloading;
@@ -87,6 +89,18 @@ class LibraryScreen extends StatelessWidget {
         ),
       ],
       children: [
+        if (c.semanticConsentRequired)
+          SettingsActionTile.text(
+            icon: FluentIcons.info_24_regular,
+            title: context.strings.libraryDomain.companionSemanticName,
+            subtitle: context.strings.libraryDomain.semanticConsentRequired,
+            actions: [
+              ActionButton.recommended(
+                text: context.strings.libraryDomain.semanticConsentConfirm,
+                onPressed: _isBusy ? null : onGrantSemanticConsent,
+              ),
+            ],
+          ),
         InfoStatusRow(
           icon: FluentIcons.database_24_regular,
           title: t.stateRowTitle,
@@ -291,7 +305,16 @@ class LibraryScreen extends StatelessWidget {
     );
     if (!approved) return;
 
+    final installsSemantic = c.semanticPending && c.semanticConsentGranted;
     await c.update();
+    if (installsSemantic && !c.semanticPending && context.mounted) {
+      await showSingleActionDialog(
+        context: context,
+        title: context.strings.libraryDomain.companionSemanticName,
+        content: context.strings.libraryDomain.semanticStagedNotice,
+        confirmText: context.strings.common.close,
+      );
+    }
     if (c.status == LibraryModuleStatus.upToDate) {
       UiSnack.showSuccess(
         AppL10n.strings.home.libraryUpdatedSnack('${c.localVersion}'),

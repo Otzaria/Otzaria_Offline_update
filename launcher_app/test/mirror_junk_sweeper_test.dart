@@ -53,6 +53,18 @@ void main() {
   tearDown(() => temp.deleteSync(recursive: true));
 
   group('ספרייה', () {
+    test('רשומת גרסה ללא נכסים אינה מתירה מחיקת כל הספרייה', () async {
+      json('mirror/library/releases.json', {
+        'releases': [
+          {'tag': 'v27'}
+        ],
+      });
+      file('mirror/library/assets/v27/seforim.db.zst', bytes: 100);
+
+      expect(await sweep(), 0);
+      expect(exists('mirror/library/assets/v27/seforim.db.zst'), isTrue);
+    });
+
     test('גרסה שנפלה מהמניפסט נמחקת, והנוכחית — על קובץ הצד שלה — נשארת',
         () async {
       libraryManifest();
@@ -92,6 +104,37 @@ void main() {
   });
 
   group('תוכנת אוצריא', () {
+    for (final invalidPath in [null, '', 42]) {
+      test('נתיב מתקין פגום ($invalidPath) אינו מתיר מחיקה', () async {
+        json('mirror/app/latest-release.json', {
+          'stable': {'tagName': 'v0.9.97', 'installerPath': invalidPath},
+        });
+        file('mirror/app/installers/v0.9.97/OtzariaSetup.exe');
+        file('mirror/app/installers/v0.9.90/OtzariaSetup.exe');
+
+        expect(await sweep(), 0);
+        expect(
+            exists('mirror/app/installers/v0.9.97/OtzariaSetup.exe'), isTrue);
+        expect(
+            exists('mirror/app/installers/v0.9.90/OtzariaSetup.exe'), isTrue);
+      });
+    }
+
+    test('ערוץ פגום לצד ערוץ תקין אינו מתיר מחיקת המתקין שלו', () async {
+      json('mirror/app/latest-release.json', {
+        'stable': {
+          'tagName': 'v0.9.97',
+          'installerPath': 'installers/v0.9.97/OtzariaSetup.exe',
+        },
+        'prerelease': 'damaged',
+      });
+      file('mirror/app/installers/v0.9.97/OtzariaSetup.exe');
+      file('mirror/app/installers/v0.9.98/OtzariaSetup.exe');
+
+      expect(await sweep(), 0);
+      expect(exists('mirror/app/installers/v0.9.98/OtzariaSetup.exe'), isTrue);
+    });
+
     void appManifest() => json('mirror/app/latest-release.json', {
           'schemaVersion': 2,
           'stable': {
@@ -175,6 +218,17 @@ void main() {
     expect(exists('mirror/companions/otzar-HB_catalog.db'), isFalse);
   });
 
+  test('רשומת נכס נלווה ללא שם אינה מתירה מחיקת הנכסים', () async {
+    json('mirror/companions/companions.json', {
+      'formatVersion': 1,
+      'catalog': {'size': 10},
+    });
+    file('mirror/companions/otzar-HB_catalog.db.zst');
+
+    expect(await sweep(), 0);
+    expect(exists('mirror/companions/otzar-HB_catalog.db.zst'), isTrue);
+  });
+
   test("גרסת לאנצ'ר ישנה נמחקת", () async {
     json('mirror/launcher/latest-release.json', {
       'schemaVersion': 1,
@@ -187,6 +241,18 @@ void main() {
     expect(await sweep(), 90);
     expect(exists('mirror/launcher/files/v0.19/launcher.exe'), isTrue);
     expect(exists('mirror/launcher/files/v0.17'), isFalse);
+  });
+
+  test('נתיב לאנצ\'ר חסר אינו מתיר מחיקת קובצי ההרצה', () async {
+    json('mirror/launcher/latest-release.json', {
+      'release': {'tagName': 'v0.19'},
+    });
+    file('mirror/launcher/files/v0.19/launcher.exe');
+    file('mirror/launcher/files/v0.17/launcher.exe');
+
+    expect(await sweep(), 0);
+    expect(exists('mirror/launcher/files/v0.19/launcher.exe'), isTrue);
+    expect(exists('mirror/launcher/files/v0.17/launcher.exe'), isTrue);
   });
 
   test('תוכנות שהמשתמש הוסיף והתקנה ישנה על הכונן אינן נגעות לעולם', () async {

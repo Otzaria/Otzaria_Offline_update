@@ -16,6 +16,10 @@ class OutboxReport {
   /// הכתובת היחידה שהאיסוף כותב — זו שאוצריא שולחת אליה.
   static const String reportingEndpoint =
       'https://otzaria.org/api/reportingerrors';
+  static const String appReportingEndpoint =
+      'https://otzaria.org/api/app-reports';
+  static const String pluginReportingEndpoint =
+      'https://otzaria.org/api/plugin-reports';
 
   /// תוכן הקובץ שהאיסוף כותב, בפורמט ש-[OutboxReport.fromJson] קורא.
   static Map<String, dynamic> fileJson({
@@ -23,12 +27,13 @@ class OutboxReport {
     required String bookTitle,
     required String createdAt,
     required Map<String, dynamic> body,
+    String endpoint = reportingEndpoint,
   }) =>
       {
         'format': format,
         'version': version,
         'report_id': reportId,
-        'endpoint': reportingEndpoint,
+        'endpoint': endpoint,
         'book_title': bookTitle,
         'created_at': createdAt,
         'body': body,

@@ -444,6 +444,62 @@ void main() {
   group('צירוף קובץ התקנה', () {
     setUp(() async => manager.add(descriptor()));
 
+    for (final name in [
+      'descriptor.json',
+      'INSTALLER.JSON',
+      'locations.json'
+    ]) {
+      test('שם קובץ שמור $name אינו דורס את נתוני התוכנה', () async {
+        final appDir = p.join(root, 'apps', 'org.example.app');
+        final locations = writeFile(p.join(appDir, 'locations.json'), 'known');
+
+        await expectLater(
+          manager.attachInstaller('org.example.app',
+              sourcePath: writeFile(p.join(root, 'dl', name), 'replacement'),
+              version: '1'),
+          throwsArgumentError,
+        );
+
+        expect(await manager.load('org.example.app'), isNotNull);
+        expect(await File(locations).readAsString(), 'known');
+      });
+    }
+
+    test('צירוף העותק שכבר במראה אינו מוחק אותו', () async {
+      await manager.attachInstaller('org.example.app',
+          sourcePath: writeFile(p.join(root, 'dl', 'App.exe'), 'installer'),
+          version: '1');
+      final mirrored = p.join(root, 'apps', 'org.example.app', 'App.exe');
+
+      final stored = await manager.attachInstaller('org.example.app',
+          sourcePath: mirrored, version: '2');
+
+      expect(await File(mirrored).readAsString(), 'installer');
+      expect(stored.version, '2');
+      expect(stored.sizeBytes, 9);
+    });
+
+    test('כשל בהעתקת קובץ חדש שומר את המתקין הקודם', () async {
+      await manager.attachInstaller('org.example.app',
+          sourcePath: writeFile(p.join(root, 'dl', 'App-1.exe'), 'old'),
+          version: '1');
+      final blocked = p.join(root, 'apps', 'org.example.app', 'App-2.exe');
+      await Directory(blocked).create();
+
+      await expectLater(
+        manager.attachInstaller('org.example.app',
+            sourcePath: writeFile(p.join(root, 'dl', 'App-2.exe'), 'new'),
+            version: '2'),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      expect((await manager.load('org.example.app'))!.installer!.version, '1');
+      expect(
+          await File(p.join(root, 'apps', 'org.example.app', 'App-1.exe'))
+              .readAsString(),
+          'old');
+    });
+
     test('קובץ חדש מחליף את הישן ואינו מצטבר על הכונן', () async {
       final first = writeFile(p.join(root, 'dl', 'App-1.0.exe'), 'aaa');
       await manager.attachInstaller('org.example.app',

@@ -830,6 +830,53 @@ void main() {
       expect(plan.finalTargetVersion, 28);
     });
 
+    for (final unsupportedLatest in [false, true]) {
+      test(
+          'קשת כבדה אינה חוזרת כשאין מסד מלא לגרסה החדשה '
+          '(סכמה לא נתמכת: $unsupportedLatest)', () async {
+        final built = buildExporter(
+          [
+            if (unsupportedLatest)
+              release('v31', assets: [
+                'patch-v27-v31.db.zst',
+                'patch-v27-v31.db.zst.manifest.json',
+              ]),
+            release('v28', assets: [
+              'patch-v27-v28.db.zst',
+              'patch-v27-v28.db.zst.manifest.json',
+            ]),
+            release('v27', assets: [
+              'seforim.db.zst',
+              'patch-v23-v27.db.zst',
+              'patch-v23-v27.db.zst.manifest.json',
+            ]),
+            release('v23', assets: [
+              'patch-v22-v23.db.zst',
+              'patch-v22-v23.db.zst.manifest.json',
+            ]),
+          ],
+          assetSizes: {
+            'seforim.db.zst': 4 << 20,
+            'patch-v23-v27.db.zst': 5 << 20,
+            'patch-v27-v28.db.zst': 64 << 10,
+          },
+          schemaByVersion: unsupportedLatest ? {31: 6} : {},
+          applyTime: rewriteScale,
+        );
+        await built.exporter.export(destDir: destDir);
+
+        expect(built.fetched, isNot(contains('patch-v23-v27.db.zst')));
+        expect(built.fetched, isNot(contains('patch-v22-v23.db.zst')));
+        expect(built.fetched, contains('patch-v27-v28.db.zst'));
+        expect(mirroredAssetNames(destDir, 'v27'), ['seforim.db.zst']);
+        expect(mirroredAssetNames(destDir, 'v23'), isEmpty);
+        if (unsupportedLatest) {
+          expect(mirroredAssetNames(destDir, 'v31'),
+              ['patch-v27-v31.db.zst.manifest.json']);
+        }
+      });
+    }
+
     // חודש רגיל: העדכון בקובצי עדכון ארוך במקצת מהמסד המלא — וזה בסדר. הוא
     // חוסך ~1.3GB בהורדה, ולכן הטווח מרשה לו את זה.
     test('בתוך הטווח — ההיסטוריה נשמרת והמסד הישן מנצח', () async {

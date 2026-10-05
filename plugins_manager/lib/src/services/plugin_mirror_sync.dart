@@ -35,6 +35,14 @@ class PluginMirrorSync {
   /// בטור, כך שהתקרה חוסמת גם את מספר החיבורים בפועל.
   final int maxConcurrentPlugins;
 
+  /// אותה בדיקת נכסים לתכנון ולהצצה, כדי שהורדה חסרה לא תידלג בממשק.
+  Future<bool> hasPendingMedia(
+          StorePlugin plugin, StorePlugin? previous) async =>
+      (plugin.remoteImageUrl.isNotEmpty &&
+          !await _imageUnchanged(plugin, previous)) ||
+      (plugin.remoteScreenshotUrls.isNotEmpty &&
+          !await _screenshotsUnchanged(plugin, previous));
+
   /// זורק [PluginStoreException] רק אם רשימת התוספים עצמה לא נטענה. כשל
   /// בנכס בודד מדווח כ-[PluginSyncPhase.warning] והסנכרון ממשיך.
   ///
@@ -363,6 +371,10 @@ class PluginMirrorSync {
         );
         result = result.copyWith(imagePath: store.relativePath(asset.path));
       } catch (e) {
+        result = result.copyWith(
+          updatedAt: plan.previous?.updatedAt,
+          remoteImageUrl: plan.previous?.remoteImageUrl,
+        );
         report(PluginSyncProgress(
           phase: PluginSyncPhase.warning,
           message: AppL10n.strings.pluginsDomain
@@ -382,6 +394,10 @@ class PluginMirrorSync {
           );
           shots.add(store.relativePath(asset.path));
         } catch (e) {
+          result = result.copyWith(
+            updatedAt: plan.previous?.updatedAt,
+            remoteScreenshotUrls: plan.previous?.remoteScreenshotUrls,
+          );
           report(PluginSyncProgress(
             phase: PluginSyncPhase.warning,
             message: AppL10n.strings.pluginsDomain.syncScreenshotFailed(
@@ -450,7 +466,10 @@ class PluginMirrorSync {
     final known = previous?.versionEntries
         .where((entry) => entry.version == target.version)
         .firstOrNull;
-    return known == null || _sameSource(known.downloadUrl, target.downloadUrl);
+    final source = plugin.localFileFor(target.version)?.sourceUrl ??
+        known?.downloadUrl ??
+        '';
+    return _sameSource(source, target.downloadUrl);
   }
 
   /// מוריד את הבילדים שהתכנון סימן — אחד לכל גרסת אוצריא שהכונן נושא
@@ -489,6 +508,7 @@ class PluginMirrorSync {
           fileName: asset.originalName ?? '${plugin.name}${asset.ext}',
           ext: asset.ext,
           size: asset.size,
+          sourceUrl: target.downloadUrl,
         );
         manifestId ??= PluginManifestReader.readId(asset.path);
       } catch (e) {
@@ -509,7 +529,13 @@ class PluginMirrorSync {
       for (final entry in previous.localFiles.entries) {
         if (files.containsKey(entry.key)) continue;
         if (await store.hasAsset(entry.value.relativePath)) {
-          files[entry.key] = entry.value;
+          files[entry.key] = entry.value.copyWith(
+            sourceUrl: entry.value.sourceUrl ??
+                previous.versionEntries
+                    .where((version) => version.version == entry.key)
+                    .firstOrNull
+                    ?.downloadUrl,
+          );
         }
       }
     }

@@ -2138,6 +2138,48 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get companionDictionaryName => 'מילון החיפוש המקורב';
   @override
+  String get companionSemanticName => 'החיפוש החכם';
+  @override
+  String get semanticConsentTitle => 'שיפור המנגנון';
+  @override
+  String get semanticConsentText =>
+      'זהו חיפוש ניסיוני, והחיפושים בו עוזרים לשפר אותו. לכן השימוש בו מותנה בהסכמה לשליחת נתוני שימוש אנונימיים: מילות החיפוש, התוצאות שהוצגו ודירוגן, הקטעים שנפתחו או שסומנו (אהבתי / לא אהבתי) וזמן העיון בהם, וכן גרסת התוכנה ומערכת ההפעלה. לא נשלחים שם, כתובת דוא"ל, נתיבי קבצים, תוכן מספרים אישיים או כל פרט מזהה אחר. מומלץ לא לכלול פרטים אישיים בטקסט החיפוש. אפשר לבטל את ההסכמה בכל עת בהגדרות, והביטול חוסם את מצב החיפוש הזה.\n\nהאישור מפעיל את ההסכמה בהגדרות אוצריא. במחשב הלא־מקוון נציע בנפרד לאסוף את הנתונים לכונן, ובמחשב המקוון נבקש אישור לשליחתם לאוצריא.';
+  @override
+  String get semanticConsentConfirm => 'אני מסכים';
+  @override
+  String get semanticFeedbackCollectTitle => 'איסוף נתוני אימון לחיפוש החכם';
+  @override
+  String semanticFeedbackCollectBody(int count) =>
+      'באוצריא ממתינות $count רשומות נתוני שימוש בחיפוש החכם, שנאספו בהסכמתכם. להעביר אותן לכונן כדי לשלוח לאוצריא מהמחשב המקוון? הנתונים יוסרו מהתור של אוצריא רק לאחר שמירתם בכונן.';
+  @override
+  String get semanticFeedbackUploadTitle => 'שליחת נתוני אימון לאוצריא';
+  @override
+  String semanticFeedbackUploadBody(int count) =>
+      'בכונן ממתינות $count רשומות נתוני שימוש בחיפוש החכם שנאספו בהסכמה. לשלוח אותן כעת לשרת אוצריא כדי לשפר את החיפוש?';
+  @override
+  String semanticFeedbackCollected(int count) =>
+      'נאספו $count רשומות נתוני אימון לכונן';
+  @override
+  String semanticFeedbackUploaded(int sent, int remaining) =>
+      'נשלחו $sent רשומות נתוני אימון; $remaining נשארו בכונן';
+  @override
+  String get semanticFeedbackFailed =>
+      'העברת נתוני האימון לא הושלמה. אפשר לנסות שוב; פרטים נשמרו ביומן.';
+  @override
+  String get semanticFeedbackUploadAction => 'שליחת נתוני אימון';
+  @override
+  String get semanticFeedbackNotCollected =>
+      'לא נאספו נתוני אימון. ודאו שאוצריא סגורה ושההסכמה פעילה בהגדרותיה.';
+  @override
+  String get semanticDownloadPrompt =>
+      'להוריד גם את קובצי החיפוש החכם למחשב הלא־מקוון? הקבצים עשויים לתפוס כמה ג׳יגה־בייט. השימוש בחיפוש מחייב הסכמה באוצריא לאיסוף נתוני אימון. ההורדה אינה משנה את ההסכמה.';
+  @override
+  String get semanticConsentRequired =>
+      'קובצי החיפוש החכם נמצאים בכונן. לפני התקנתם יש לאשר איסוף נתוני אימון. אפשר לאשר כאן כשאוצריא סגורה, או להפעיל את ההסכמה בהגדרות אוצריא ולבדוק שוב.';
+  @override
+  String get semanticStagedNotice =>
+      'קובצי החיפוש החכם הועתקו למחשב. פתחו באוצריא את החיפוש החכם והפעילו את התקנת המאגר; הקבצים ייטענו מקומית ללא הורדה מהאינטרנט.';
+  @override
   String companionChecking(String name) => 'בודק $name...';
   @override
   String companionDownloading(String name) => 'מוריד $name...';
@@ -2943,10 +2985,10 @@ class _ErrorReports extends ErrorReportsStrings {
   const _ErrorReports();
 
   @override
-  String get collectDialogTitle => 'דיווחי טעויות שלא נשלחו';
+  String get collectDialogTitle => 'דיווחים שלא נשלחו';
   @override
   String collectDialogContent(int count) =>
-      'נמצאו באוצריא $count דיווחי טעויות פתוחים שעדיין לא נשלחו.\n\n'
+      'נמצאו באוצריא $count דיווחים על ספרים, התוכנה ותוספים שעדיין לא נשלחו.\n\n'
       'לאסוף אותם לכונן, כדי לשלוח אותם לאוצריא מהמחשב המחובר לרשת?';
   @override
   String get collectConfirm => 'איסוף';
@@ -2965,15 +3007,17 @@ class _ErrorReports extends ErrorReportsStrings {
       'אוצריא פתוחה, ולכן הדיווחים לא נאספו. השאלה תחזור בהפעלה הבאה';
 
   @override
-  String get introDialogTitle => 'דיווחי טעויות בספרים';
+  String get introDialogTitle => 'דיווחים לאוצריא ולמפתחי התוספים';
   @override
   String get introDialogContent =>
-      'אוצריא שומרת דיווחי טעויות בספרים שלא נשלחו כשאין רשת.\n\n'
+      'אוצריא שומרת דיווחי טעויות בספרים, תקלות בתוכנה ודיווחים על תוספים '
+      'שלא נשלחו כשאין רשת.\n\n'
       'התוכנה יכולה לאסוף אותם לכונן, ולשלוח אותם לאוצריא מהמחשב המחובר '
       'לרשת.';
   @override
   String get introDialogContentReadOnly =>
-      'אוצריא שומרת דיווחי טעויות בספרים שלא נשלחו כשאין רשת.\n\n'
+      'אוצריא שומרת דיווחי טעויות בספרים, תקלות בתוכנה ודיווחים על תוספים '
+      'שלא נשלחו כשאין רשת.\n\n'
       'הכונן הזה נעול לכתיבה, ולכן אי אפשר לאסוף דרכו דיווחים.';
   @override
   String get introDialogConfirm => 'הבנתי';
@@ -2981,7 +3025,7 @@ class _ErrorReports extends ErrorReportsStrings {
   @override
   String uploadButton(int count) => 'העלאת $count דיווחים לאוצריא';
   @override
-  String get uploadLongDialogTitle => 'העלאת דיווחי הטעויות';
+  String get uploadLongDialogTitle => 'העלאת הדיווחים';
   @override
   String uploadLongDialogContent(int count, int perMinute, int minutes) =>
       'על הכונן $count דיווחים. השרת של אוצריא מקבל עד $perMinute דיווחים '

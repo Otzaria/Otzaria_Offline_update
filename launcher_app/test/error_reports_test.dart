@@ -483,12 +483,18 @@ void main() {
             p.join(dataRoot, 'databases', 'user_state.db'));
       });
 
-      test('התור עדיין ב-Hive (לא הועבר) — לא נוגעים', () async {
-        File(p.join(dataRoot, 'databases', 'user_state.db'))
-            .createSync(recursive: true);
-        File(p.join(dataRoot, 'error_reports_queue.hive')).createSync();
-        expect(await resolve(), isNull);
-      });
+      for (final box in [
+        'error_reports_queue',
+        'app_reports_queue',
+        'plugin_reports_queue',
+      ]) {
+        test('$box עדיין ב-Hive — לא נוגעים', () async {
+          File(p.join(dataRoot, 'databases', 'user_state.db'))
+              .createSync(recursive: true);
+          File(p.join(dataRoot, '$box.hive')).createSync();
+          expect(await resolve(), isNull);
+        });
+      }
 
       test('אין מסד — null, ושום תיקייה אינה נוצרת', () async {
         expect(await resolve(), isNull);

@@ -7,6 +7,7 @@ import '../controllers/launcher_update_controller.dart';
 import '../controllers/library_module_controller.dart';
 import '../controllers/otzaria_module_controller.dart';
 import '../controllers/plugins_module_controller.dart';
+import '../controllers/search_feedback_controller.dart';
 import '../services/byte_size.dart';
 import '../services/timestamps.dart';
 import '../settings/settings_controller.dart';
@@ -45,6 +46,8 @@ class HomeScreen extends StatelessWidget {
     this.readOnly = false,
     this.errorReports,
     this.onUploadErrorReports,
+    this.searchFeedback,
+    this.onUploadSearchFeedback,
   });
 
   final OtzariaModuleController otzaria;
@@ -97,6 +100,8 @@ class HomeScreen extends StatelessWidget {
   /// היחיד שבו הלאנצ'ר פונה לרשת.
   final ErrorReportsController? errorReports;
   final Future<void> Function()? onUploadErrorReports;
+  final SearchFeedbackController? searchFeedback;
+  final Future<void> Function()? onUploadSearchFeedback;
 
   @override
   Widget build(BuildContext context) {
@@ -295,7 +300,12 @@ class HomeScreen extends StatelessWidget {
     if (!context.mounted) return;
     if (library.status != LibraryModuleStatus.updateAvailable) return;
 
+    final installsSemantic =
+        library.semanticPending && library.semanticConsentGranted;
     await library.update();
+    if (installsSemantic && !library.semanticPending && context.mounted) {
+      await _showSemanticInstalled(context);
+    }
     if (library.status == LibraryModuleStatus.upToDate) {
       UiSnack.showSuccess(t.libraryUpdatedSnack('${library.localVersion}'));
     }
@@ -313,18 +323,24 @@ class HomeScreen extends StatelessWidget {
       icon: FluentIcons.library_24_regular,
       title: context.strings.home.libraryTileTitle,
       statusKind: libraryStatusKind(c.status),
-      statusLabel: libraryStatusLabel(context, c),
+      statusLabel: c.semanticConsentRequired
+          ? context.strings.libraryDomain.semanticConsentRequired
+          : libraryStatusLabel(context, c),
       // עדכון מסד אורך דקות ארוכות; בלי המד כאן האריח אמר "מעדכן" בלבד לכל
       // אורכו, והמשתמש שהתחיל את העדכון מדף הבית לא ידע אם הוא בכלל מתקדם.
       progress: isBusy ? libraryApplyProgressRow(context, c) : null,
       primaryActionText: c.status == LibraryModuleStatus.updateAvailable
           ? (c.isFreshInstall ? common.install : common.update)
-          : null,
+          : c.semanticConsentRequired
+              ? context.strings.libraryDomain.companionSemanticName
+              : null,
       primaryActionIcon: FluentIcons.database_arrow_right_24_regular,
       primaryActionLoading: isBusy,
       onPrimaryAction: c.status == LibraryModuleStatus.updateAvailable
           ? () => _confirmLibraryUpdate(context)
-          : null,
+          : c.semanticConsentRequired
+              ? onGoToLibrary
+              : null,
       onDetails: onGoToLibrary,
     );
   }
@@ -358,7 +374,11 @@ class HomeScreen extends StatelessWidget {
     );
     if (!approved) return;
 
+    final installsSemantic = c.semanticPending && c.semanticConsentGranted;
     await c.update();
+    if (installsSemantic && !c.semanticPending && context.mounted) {
+      await _showSemanticInstalled(context);
+    }
     if (c.status == LibraryModuleStatus.upToDate) {
       UiSnack.showSuccess(
         AppL10n.strings.home.libraryUpdatedSnack('${c.localVersion}'),
@@ -369,6 +389,14 @@ class HomeScreen extends StatelessWidget {
   }
 
   // ── בדיקת עדכונים ברשת (צדדי) ────────────────────────────────────────────
+
+  Future<void> _showSemanticInstalled(BuildContext context) =>
+      showSingleActionDialog(
+        context: context,
+        title: context.strings.libraryDomain.companionSemanticName,
+        content: context.strings.libraryDomain.semanticStagedNotice,
+        confirmText: context.strings.common.close,
+      );
 
   Widget _onlineCheckCard(BuildContext context) {
     final theme = Theme.of(context);
@@ -474,6 +502,34 @@ class HomeScreen extends StatelessWidget {
                   controller: errorReports!,
                   onUpload: onUploadErrorReports,
                 ),
+              if (searchFeedback case final feedback? when !readOnly)
+                AnimatedBuilder(
+                  animation: feedback,
+                  builder: (context, _) => feedback.outboxCount == 0
+                      ? const SizedBox.shrink()
+                      : SettingsActionTile.text(
+                          icon: FluentIcons.arrow_upload_24_regular,
+                          title: context.strings.libraryDomain
+                              .semanticFeedbackUploadTitle,
+                          subtitle: context.strings.libraryDomain
+                              .semanticFeedbackUploadBody(feedback.outboxCount),
+                          actions: [
+                            if (feedback.isUploading)
+                              ActionButton.warning(
+                                text: context.strings.common.cancel,
+                                onPressed: feedback.stop,
+                              ),
+                            ActionButton.neutral(
+                              text: context.strings.libraryDomain
+                                  .semanticFeedbackUploadAction,
+                              isLoading: feedback.isUploading,
+                              onPressed: longTaskRunning || feedback.isUploading
+                                  ? null
+                                  : onUploadSearchFeedback,
+                            ),
+                          ],
+                        ),
+                ),
               if (lastChecked != null) ...[
                 const SizedBox(height: AppTokens.spaceSM),
                 Text(
@@ -524,7 +580,8 @@ class HomeScreen extends StatelessWidget {
     if (libraryOnline && library.hasOnlineUpdate) {
       final version = library.onlineUpdateVersion;
       if (version != null) line(t.onlineLibraryUpdate('$version'));
-      if (library.onlinePendingCompanions.isNotEmpty) {
+      if (library.onlinePendingCompanions.isNotEmpty ||
+          library.onlineSemanticPending) {
         line(t.onlineLibraryCompanions(library.onlinePendingCompanionNames));
       }
       if (!s.downloadsLibrary) line(t.onlineLibrarySyncOff, warn: true);

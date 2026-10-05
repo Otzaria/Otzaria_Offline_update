@@ -620,6 +620,40 @@ void main() {
       expect(second.requestsMatching('/download'), hasLength(1));
     });
 
+    for (final legacy in [false, true]) {
+      test('כשל בהחלפת כתובת באותה גרסה מנסה שוב: קטלוג ישן $legacy', () async {
+        await sync(_Site());
+        if (legacy) {
+          final store = PluginMirrorStore(temp.path);
+          final old = await store.load();
+          final json = old.toJson();
+          for (final plugin in json['plugins'] as List) {
+            for (final file in (plugin['localFiles'] as Map).values) {
+              (file as Map).remove('sourceUrl');
+            }
+          }
+          await store.save(PluginCatalog.fromJson(json));
+        }
+        final failing = _Site()
+          ..plugins.first['downloadUrl'] = '/api/plugins/a/download?v=2'
+          ..failures['/api/plugins/a/download'] = 500;
+        await sync(failing);
+
+        final retry = _Site()
+          ..plugins.first['downloadUrl'] = '/api/plugins/a/download?v=2';
+        final pending = await manager(retry).peekOnlineUpdates();
+        expect(pending.hasUpdates, isTrue);
+        await sync(retry);
+        expect(
+            retry.requestsMatching('/download'), ['/api/plugins/a/download']);
+
+        final unchanged = _Site()
+          ..plugins.first['downloadUrl'] = '/api/plugins/a/download?v=2';
+        await sync(unchanged);
+        expect(unchanged.requestsMatching('/download'), isEmpty);
+      });
+    }
+
     test('הורדה שנכשלה — הבילד שבמראה נשמר, והחדש יורד בסבב הבא', () async {
       await sync(_Site());
 
@@ -635,6 +669,44 @@ void main() {
       final catalog = await sync(retry);
       expect(retry.requestsMatching('/download'), ['/api/plugins/a/download']);
       expect(catalog.plugins.first.localFiles.keys, ['1.1.0']);
+    });
+
+    for (final changedUrl in [false, true]) {
+      test('תמונה שהתחדשה ולא ירדה מנסה שוב: כתובת חדשה $changedUrl', () async {
+        final original = _Site()..plugins.first['updatedAt'] = 'old';
+        await sync(original);
+        final failing = _Site()
+          ..plugins.first['updatedAt'] = changedUrl ? 'old' : 'new'
+          ..plugins.first['image'] =
+              changedUrl ? '/api/plugins/a/new-image' : '/api/plugins/a/image';
+        failing.failures[failing.plugins.first['image'] as String] = 500;
+        final afterFailure = await sync(failing);
+        expect(afterFailure.plugins.first.imagePath, 'files/a/image.png');
+
+        final retry = _Site(plugins: failing.plugins);
+        expect((await manager(retry).peekOnlineUpdates()).hasUpdates, isTrue);
+        await sync(retry);
+        expect(
+            retry.requests, contains(failing.plugins.first['image'] as String));
+        expect((await manager(retry).peekOnlineUpdates()).hasUpdates, isFalse);
+      });
+    }
+
+    test('סדרת צילומים שהתחדשה ונכשלה כולה מנסה שוב', () async {
+      final original = _Site(
+        plugins: _Site.defaultPlugins(screenshots: ['/api/plugins/a/shot-0']),
+      )..plugins.first['updatedAt'] = 'old';
+      await sync(original);
+      final failing = _Site(plugins: original.plugins)
+        ..plugins.first['updatedAt'] = 'new'
+        ..failures['/api/plugins/a/shot-0'] = 500;
+      await sync(failing);
+
+      final retry = _Site(plugins: failing.plugins);
+      expect((await manager(retry).peekOnlineUpdates()).hasUpdates, isTrue);
+      await sync(retry);
+      expect(retry.requests, contains('/api/plugins/a/shot-0'));
+      expect((await manager(retry).peekOnlineUpdates()).hasUpdates, isFalse);
     });
 
     test('גרסה שהשתנתה מורידה מחדש', () async {

@@ -134,6 +134,13 @@ class GithubAppClient {
       await sink.close();
       hasher.close();
 
+      if (asset.sizeBytes > 0 && received != asset.sizeBytes) {
+        throw AppDescriptorException(
+          AppL10n.strings.appDomain
+              .installerSizeMismatch(received, asset.sizeBytes),
+        );
+      }
+
       final actual = digest!.toString();
       if (asset.sha256 case final expected? when expected != actual) {
         throw AppDescriptorException(

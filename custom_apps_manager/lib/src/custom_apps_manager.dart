@@ -220,9 +220,7 @@ class CustomAppsManager {
     final t = AppL10n.strings.customAppsDomain;
     final source = File(sourcePath);
     final fileName = p.basename(sourcePath);
-    // The stored name must load back on another machine (see safeFileName).
-    // Reusing installerFileMissing is intentional: only a name Windows would
-    // alter (a colon, trailing space or dot, e.g. from a Mac) can fail here.
+    // שם הקובץ חייב להישמר ללא שינוי גם במחשב Windows אחר.
     if (safeFileName(fileName) == null || !await source.exists()) {
       throw AppDescriptorException(t.installerFileMissing(sourcePath));
     }
@@ -231,27 +229,31 @@ class CustomAppsManager {
     final entry = await store.load(id);
     if (entry == null) throw AppDescriptorException(t.appNotRegistered(id));
 
-    // הקובץ הישן נמחק לפני ההעתקה, אחרת שינוי שם קובץ היה מותיר את שניהם
-    // בתיקייה והכונן היה מתמלא בגרסאות שאיש לא יקרא.
-    if (entry.installer case final old?) {
-      try {
-        await File(store.installerPathFor(id, old)).delete();
-      } catch (_) {}
-    }
-
     final target = store.installerPathNamed(id, fileName);
     await Directory(store.dirFor(id)).create(recursive: true);
-    await source.copy(target);
+    // מכינים עותק לפני ההחלפה: המקור יכול להיות המתקין שכבר במראה.
+    final temp = File('$target.part');
+    try {
+      await source.copy(temp.path);
+      await temp.rename(target);
+    } finally {
+      if (await temp.exists()) await temp.delete();
+    }
 
     final stored = StoredInstaller(
       fileName: fileName,
       version: version,
-      sizeBytes: await source.length(),
+      sizeBytes: await File(target).length(),
       addedAt: DateTime.now(),
       // מהעותק שבמראה ולא מהמקור — זה הקובץ שייבדק לפני ההתקנה.
       sha256: await sha256OfFile(target),
     );
     await store.saveInstaller(id, stored);
+    if (entry.installer case final old? when old.fileName != fileName) {
+      try {
+        await File(store.installerPathFor(id, old)).delete();
+      } catch (_) {}
+    }
     return stored;
   }
 
