@@ -286,7 +286,7 @@ class LibraryManager {
   Future<MirrorDownloadOutcome> downloadToMirror({
     bool includeSemanticSearch = false,
     void Function(String stage)? onStage,
-    void Function(String stage)? onCompanionStage,
+    void Function(String? stage)? onCompanionStage,
     void Function(int doneAssets, int totalAssets)? onAssetProgress,
     void Function(int downloaded, int? total)? onBytesProgress,
     void Function(String assetName, Object error)? onCompanionWarning,
@@ -341,7 +341,13 @@ class LibraryManager {
     // מילון ישנים. כשל בהם אינו מפיל את ההורדה — ראו [CompanionAssetsMirror].
     final companionsFuture = _companionsMirror.sync(
       destDir: companionsMirrorDir,
-      onStage: onCompanionStage ?? onStage,
+      onStage: (stage) {
+        if (onCompanionStage != null) {
+          onCompanionStage(stage);
+        } else if (stage != null) {
+          onStage?.call(stage);
+        }
+      },
       onBytesProgress: companionBytes.report,
       onWarning: onCompanionWarning,
       isCancelled: isCancelled,

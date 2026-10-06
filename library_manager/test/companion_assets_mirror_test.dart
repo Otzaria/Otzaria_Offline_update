@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:library_manager/library_manager.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
@@ -221,6 +222,53 @@ void main() {
 
     await built.mirror.sync(destDir: destDir);
     expect(peak, 3);
+  });
+
+  test('מילון שסיים יורד מהשלב בזמן שהתלמוד והקטלוג עדיין יורדים', () async {
+    final releaseOthers = Completer<void>();
+    final dictionaryFinished = Completer<void>();
+    final strings = AppL10n.strings.libraryDomain;
+    final stages = <String?>[];
+    var dictionaryStarted = false;
+    final built = buildMirror(beforeAsset: (name) async {
+      if (name != 'lexical.db' && name != 'version.txt') {
+        await releaseOthers.future;
+      }
+    });
+    addTearDown(built.mirror.dispose);
+    final sync = built.mirror.sync(
+      destDir: destDir,
+      onStage: (stage) {
+        stages.add(stage);
+        if (stage?.contains(strings
+                .companionDownloading(strings.companionDictionaryName)) ??
+            false) {
+          dictionaryStarted = true;
+        } else if (dictionaryStarted &&
+            (stage?.contains(strings.companionTalmudName) ?? false) &&
+            !dictionaryFinished.isCompleted) {
+          dictionaryFinished.complete();
+        }
+      },
+    );
+    try {
+      await dictionaryFinished.future.timeout(const Duration(seconds: 2));
+      expect(stages.last, contains(strings.companionTalmudName));
+      expect(stages.last, isNot(contains(strings.companionDictionaryName)));
+    } finally {
+      releaseOthers.complete();
+      await sync;
+    }
+    expect(stages.last, isNull);
+  });
+
+  test('כשל בכל בדיקות הנלווים מנקה את שורת ההתקדמות', () async {
+    final stages = <String?>[];
+    final built = buildMirror(apiDown: true);
+    addTearDown(built.mirror.dispose);
+    await built.mirror.sync(destDir: destDir, onStage: stages.add);
+    expect(stages.whereType<String>(), isNotEmpty);
+    expect(stages.last, isNull);
   });
 
   test('תקרת החיבורים המשותפת נשמרת גם כשהיא נמוכה משלושה', () async {

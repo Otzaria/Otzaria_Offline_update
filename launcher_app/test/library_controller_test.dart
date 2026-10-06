@@ -193,6 +193,31 @@ void main() {
     });
   });
 
+  group('מצב הרשת אחרי הורדה', () {
+    for (final remaining in [
+      <CompanionAsset>{},
+      {CompanionAsset.dictionary}
+    ]) {
+      test('ההורדה מרעננת את הנלווים שנותרו: $remaining', () async {
+        controller.dispose();
+        final manager = _DownloadManager(tempDir.path, remaining);
+        controller = LibraryModuleController(
+          dataDir: tempDir.path,
+          manager: manager,
+        );
+        controller.targetVersion = 30;
+        await controller.checkOnline();
+        expect(controller.hasOnlineUpdate, isTrue);
+
+        await controller.download();
+
+        expect(controller.downloadStatus, MirrorDownloadStatus.done);
+        expect(controller.onlinePendingCompanions, remaining);
+        expect(controller.hasOnlineUpdate, remaining.isNotEmpty);
+      });
+    }
+  });
+
   group('downloadProgress — חישוב המד', () {
     test('בלי שום דיווח אין אחוז', () {
       expect(controller.downloadProgress, isNull);
@@ -246,6 +271,72 @@ void main() {
   });
 
   group('hasOnlineUpdate נמדד מול המראה', () {
+    test('נכס רשום חסר או חלקי דורש הורדה, נכס שלם אינו דורש', () async {
+      final archive = File(p.join(
+          controller.mirrorDir, 'assets', 'v31', 'seforim-schema6.db.zst'));
+      await archive.parent.create(recursive: true);
+      await File(p.join(controller.mirrorDir, 'releases.json'))
+          .writeAsString(jsonEncode({
+        'formatVersion': 1,
+        'releases': [
+          {
+            'tag': 'v31',
+            'assets': [
+              {
+                'name': 'seforim-schema6.db.zst',
+                'downloadUrl': 'assets/v31/seforim-schema6.db.zst',
+                'size': 4,
+              }
+            ],
+          }
+        ],
+      }));
+      await controller.setCustomDbPath(_dbWithVersion(tempDir, 'v31', 31));
+      expect(controller.downloadNeedsRetry, isTrue);
+      await archive.writeAsBytes([1, 2, 3]);
+      await controller.checkForUpdate();
+      expect(controller.downloadNeedsRetry, isTrue);
+      await archive.writeAsBytes([1, 2, 3, 4]);
+      await File('${archive.path}.resume').writeAsString('asset-id\n"etag"');
+      await controller.checkForUpdate();
+      expect(controller.downloadNeedsRetry, isFalse);
+    });
+    test('V31 חלקי מחזיר הצעת הורדה גם כשהגרסה הרשומה מעודכנת', () async {
+      _writeMirror(tempDir, releases: [
+        const _MirrorRelease('v31-20261004170255',
+            patches: [_MirrorPatch(29, 31, toSchema: 6)])
+      ]);
+      final index = File(p.join(controller.mirrorDir, 'releases.json'));
+      final metadata = jsonDecode(await index.readAsString()) as Map;
+      final assets = (metadata['releases'] as List).single['assets'] as List;
+      assets
+          .removeWhere((asset) => !(asset['name'] as String).endsWith('.json'));
+      for (final asset in assets) {
+        asset['size'] = await File(
+                p.join(controller.mirrorDir, asset['downloadUrl'] as String))
+            .length();
+      }
+      await index.writeAsString(jsonEncode(metadata));
+      final partial = File(p.join(controller.mirrorDir, 'assets',
+          'v31-20261004170255', 'seforim-schema6.db.zst'));
+      await partial.parent.create(recursive: true);
+      await partial.writeAsBytes([1, 2, 3]);
+      await File('${partial.path}.resume').writeAsString('610745538\n"etag"');
+      await controller.setCustomDbPath(_dbWithVersion(tempDir, 'v31', 31));
+      controller.onlineLatestVersion = 31;
+
+      expect(controller.hasOnlineUpdate, isTrue);
+
+      await partial.delete();
+      await File('${partial.path}.resume').delete();
+      await controller.checkForUpdate();
+      expect(controller.hasOnlineUpdate, isFalse);
+
+      assets.single['size'] = 0;
+      await index.writeAsString(jsonEncode(metadata));
+      await controller.checkForUpdate();
+      expect(controller.downloadNeedsRetry, isFalse);
+    });
     test('חיפוש חכם חדש מדליק עדכון גם כשהספרייה והנלווים מעודכנים', () {
       controller.onlineLatestVersion = 30;
       controller.targetVersion = 30;
@@ -498,6 +589,42 @@ void main() {
       expect(controller.personalTargetIsThisMachine, isTrue);
     });
   });
+}
+
+class _DownloadManager extends LibraryManager {
+  _DownloadManager(String dataDir, this.remaining) : super(dataDir: dataDir);
+
+  final Set<CompanionAsset> remaining;
+  bool downloaded = false;
+
+  @override
+  Future<LibraryUpdateCheckResult> checkForUpdate() async =>
+      const LibraryUpdateCheckResult(dbPath: null);
+
+  @override
+  Future<int> peekLatestOnlineVersion() async => 30;
+
+  @override
+  Future<Set<CompanionAsset>> peekPendingCompanions() async =>
+      downloaded ? remaining : {CompanionAsset.dictionary};
+
+  @override
+  Future<bool> peekPendingSemanticSearch() async => false;
+
+  @override
+  Future<MirrorDownloadOutcome> downloadToMirror({
+    bool includeSemanticSearch = false,
+    void Function(String stage)? onStage,
+    void Function(String? stage)? onCompanionStage,
+    void Function(int doneAssets, int totalAssets)? onAssetProgress,
+    void Function(int downloaded, int? total)? onBytesProgress,
+    void Function(String assetName, Object error)? onCompanionWarning,
+    void Function(String warning)? onWarning,
+    bool Function()? isCancelled,
+  }) async {
+    downloaded = true;
+    return const MirrorDownloadOutcome();
+  }
 }
 
 /// מסד sqlite אמיתי עם `db_version` — הקורא (`LocalDbVersionReader`) פותח

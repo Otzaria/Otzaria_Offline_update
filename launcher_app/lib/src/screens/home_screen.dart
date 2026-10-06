@@ -471,6 +471,14 @@ class HomeScreen extends StatelessWidget {
                 libraryOnline: libraryOnline,
                 pluginsOnline: pluginsOnline,
               ),
+              if (library.downloadNeedsRetry && !isDownloading)
+                InfoErrorRow(
+                  message: t.downloadFailedSnack(t.libraryTileTitle),
+                  onRetry:
+                      settings.settings.downloadsLibrary && !longTaskRunning
+                          ? onDownloadAll
+                          : null,
+                ),
               if (isOnline && hasUpdate) ...[
                 const SizedBox(height: AppTokens.spaceMD),
                 ActionButton.recommended(

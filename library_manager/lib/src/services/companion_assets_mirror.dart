@@ -72,7 +72,7 @@ class CompanionAssetsMirror {
   /// יותקן, בלי להכשיל את השאר.
   Future<CompanionMirrorManifest> sync({
     required String destDir,
-    void Function(String stage)? onStage,
+    void Function(String? stage)? onStage,
     void Function(int downloaded, int? total)? onBytesProgress,
     void Function(String assetName, Object error)? onWarning,
     bool Function()? isCancelled,
@@ -84,6 +84,16 @@ class CompanionAssetsMirror {
     // כותב `companions.json` ריק ומעלים קבצים שכבר נסעו לכונן.
     final previous = await CompanionMirrorManifest.load(destDir);
     final entries = <CompanionAsset, CompanionMirrorEntry>{};
+    final activeStages = <CompanionAsset, String>{};
+    void reportStage(CompanionAsset asset, String? stage) {
+      if (stage == null) {
+        activeStages.remove(asset);
+      } else {
+        activeStages[asset] = stage;
+      }
+      onStage
+          ?.call(activeStages.isEmpty ? null : activeStages.values.join('\n'));
+    }
 
     Future<void> run(
       CompanionAsset asset,
@@ -106,6 +116,8 @@ class CompanionAssetsMirror {
           entries[asset] = kept;
         }
         onWarning?.call(name, error);
+      } finally {
+        reportStage(asset, null);
       }
     }
 
@@ -120,7 +132,7 @@ class CompanionAssetsMirror {
       Future<_CompanionPlan> Function() body,
     ) =>
         run(asset, name, () async {
-          onStage?.call(strings.companionChecking(name));
+          reportStage(asset, strings.companionChecking(name));
           plans[asset] = await body();
         });
 
@@ -160,7 +172,7 @@ class CompanionAssetsMirror {
         () {
           final plan = plans[entry.key]!;
           return run(entry.key, plan.name, () async {
-            onStage?.call(strings.companionDownloading(plan.name));
+            reportStage(entry.key, strings.companionDownloading(plan.name));
             await _download(
               url: plan.url,
               destPath: plan.destPath,

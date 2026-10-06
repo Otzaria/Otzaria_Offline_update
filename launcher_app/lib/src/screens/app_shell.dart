@@ -882,7 +882,9 @@ class _AppShellState extends State<AppShell> {
     // הורדה שנפלה באמצע השאירה נכסים שהמניפסט עוד לא מכיר, ומחיקתם פירושה
     // להוריד אותם שוב. ראו [MirrorJunkSweeper] למה זה לא מספיק שכל רכיב
     // מנקה אחרי עצמו.
-    if (failed.isEmpty) unawaited(_sweepMirrorJunk());
+    if (failed.isEmpty && !_library.downloadNeedsRetry) {
+      unawaited(_sweepMirrorJunk());
+    }
 
     // הודעה אחת בסוף, לפי [summarizeDownload] — ראו שם למה לא שתיים.
     switch (summarizeDownload(failed: failed, skipped: skipped)) {

@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import '../services/app_logger.dart';
@@ -56,12 +58,14 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     String? stateDir,
     bool allowPrerelease = false,
     Future<String?> Function()? otzariaLaunchPath,
-  }) : _manager = LibraryManager(
-          dataDir: dataDir,
-          stateDir: stateDir,
-          allowPrerelease: allowPrerelease,
-          otzariaLaunchPath: otzariaLaunchPath,
-        );
+    LibraryManager? manager,
+  }) : _manager = manager ??
+            LibraryManager(
+              dataDir: dataDir,
+              stateDir: stateDir,
+              allowPrerelease: allowPrerelease,
+              otzariaLaunchPath: otzariaLaunchPath,
+            );
 
   /// מחליף ערוץ גרסאות — נכנס לתוקף בבדיקה/הורדה הבאה.
   set allowPrerelease(bool value) => _manager.allowPrerelease = value;
@@ -99,8 +103,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   int? applyTotalBytes;
   String? errorMessage;
 
-  /// The last check failed on reading the local DB, before the mirror was
-  /// read, so the screen must not blame the mirror for [errorMessage].
+  /// כשל בקריאת המסד המקומי מובחן מכשל במראה כדי להציג את המקור הנכון.
   bool localDbUnreadable = false;
 
   /// `true` אם checkForUpdate האחרון זיהה שאין DB בכלל עדיין (התקנה
@@ -197,6 +200,9 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   int? downloadReceivedBytes;
   int? downloadTotalBytes;
   String? downloadError;
+  bool _incompleteMirrorDownload = false;
+  bool get downloadNeedsRetry =>
+      downloadError != null || _incompleteMirrorDownload;
   DateTime? lastDownloadedAt;
 
   /// הגרסה שנרשמה כנקודת מוצא להורדה אישית, או `null` אם טרם נרשמה. נקראת
@@ -266,6 +272,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   bool get hasOnlineUpdate =>
       // הנלווים מתעדכנים בנפרד מהמסד: בלעדי זה כונן בלי תלמוד, עם מסד עדכני,
       // לא קיבל כפתור הורדה ודולג ב-downloadAll — לנצח (issue #33).
+      downloadNeedsRetry ||
       _hasOnlineDbUpdate ||
       onlinePendingCompanions.isNotEmpty ||
       onlineSemanticPending;
@@ -393,6 +400,8 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       notifyListeners();
       // עכשיו יש מול מה להשוות — מרעננים את מצב העדכון מהתיקייה החדשה.
       await checkForUpdate();
+      // הנלווים יכולים להיכשל בנפרד; בודקים מה עדיין חסר אחרי ההורדה.
+      if (!(isCancelled?.call() ?? false)) await checkOnline();
       return;
     } catch (e, st) {
       // ביטול של המשתמש אינו תקלה, ולכן אינו נשאר על המסך כשגיאה. השלב
@@ -432,12 +441,10 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     }
   }
 
-  /// Why the last [capturePersonalVersion] failed when it found a DB it could
-  /// not read; `null` means no DB with a version was found.
+  /// סיבת כשל בקריאת הגרסה לרישום אישי; `null` כשלא נמצא מסד עם גרסה.
   String? personalCaptureError;
 
-  /// The SQLite code behind a [LocalDbUnreadableException], for the log only:
-  /// its localized message alone does not say which error it was.
+  /// קוד SQLite ללוג: ההודעה המתורגמת לבדה אינה מזהה את השגיאה.
   static String _sqliteDetail(Object e) => e is LocalDbUnreadableException
       ? ' (${e.reason.name}, SQLite ${e.extendedResultCode}: ${e.detail})'
       : '';
@@ -517,6 +524,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     localDbUnreadable = false;
     try {
       check = await _manager.checkForUpdate();
+      await _checkMirrorDownloadCompleteness();
       _lastCheck = check;
       isFreshInstall = check.isFreshInstall;
       mirrorMissing = false;
@@ -601,6 +609,34 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       'mirrorMissing=$mirrorMissing reindex=$hasPendingReindex db=$dbPath',
     );
     notifyListeners();
+  }
+
+  Future<void> _checkMirrorDownloadCompleteness() async {
+    _incompleteMirrorDownload = false;
+    if (!await File(p.join(mirrorDir, 'releases.json')).exists()) return;
+    final releases = await LocalMirrorLibraryReleaseClient(mirrorDir: mirrorDir)
+        .fetchReleases();
+    final known = <String>{};
+    for (final release in releases) {
+      for (final asset in release.assets) {
+        known.add(asset.downloadUrl);
+        final file = File(asset.downloadUrl);
+        if (!await file.exists() ||
+            (asset.size > 0 && await file.length() != asset.size)) {
+          _incompleteMirrorDownload = true;
+        }
+      }
+    }
+    final assets = Directory(p.join(mirrorDir, 'assets'));
+    if (!await assets.exists()) return;
+    // הורדה שנקטעה אינה נכנסת למניפסט; קובץ ההמשך שומר את עקבותיה.
+    await for (final entry
+        in assets.list(recursive: true, followLinks: false)) {
+      if (entry is File && entry.path.endsWith('.resume')) {
+        final target = entry.path.substring(0, entry.path.length - 7);
+        if (!known.contains(target)) _incompleteMirrorDownload = true;
+      }
+    }
   }
 
   Future<void> setCustomDbPath(String dbPath) async {

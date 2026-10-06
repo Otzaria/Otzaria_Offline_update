@@ -259,6 +259,22 @@ void main() {
     expect(find.text(t.onlineUpdatedPlugins(0)), findsNothing);
   });
 
+  testWidgets('כשל הורדת ספרייה נשאר מוצג אחרי שהטוסט נעלם', (tester) async {
+    final t = stringsOf().home;
+    library.downloadError = 'TimeoutException';
+    library.downloadStatus = MirrorDownloadStatus.error;
+    library.onlineCheckedAt = DateTime(2026, 10, 6);
+    library.onlineLatestVersion = 31;
+    library.targetVersion = 31;
+    await pumpScreen(tester, home());
+    await tester.pump(const Duration(seconds: 10));
+
+    expect(
+        find.text(t.downloadFailedSnack(t.libraryTileTitle)), findsOneWidget);
+    expect(find.text(t.onlineNoUpdates), findsNothing);
+    expect(find.text(t.downloadNowButton), findsOneWidget);
+  });
+
   // ההצעה המשולבת קופצת בלחיצה על "התקנה" בלבד, ולא מעצמה בכניסה לתוכנה.
   testWidgets('מחשב ריק — "התקנה" מציעה גם את הספרייה', (tester) async {
     final t = stringsOf().home;
