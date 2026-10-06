@@ -7,17 +7,17 @@ import '../../controllers/custom_apps_controller.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
 
-/// ניהול הקטגוריות — הוספה, שינוי שם ומחיקה.
-///
-/// יושב בהגדרות ולא במסך, מאותה סיבה שכל שאר הניהול שם: הקטגוריות נקבעות
-/// פעם אחת במחשב המקוון ונוסעות על הכונן.
+/// הקטגוריות נקבעות במחשב המקוון ונוסעות על הכונן.
 Future<void> showCustomAppCategoriesDialog({
   required BuildContext context,
   required CustomAppsController controller,
 }) =>
     showDialog<void>(
       context: context,
-      builder: (_) => _CategoriesDialog(controller: controller),
+      builder: (_) => ListenableBuilder(
+        listenable: controller,
+        builder: (_, child) => _CategoriesDialog(controller: controller),
+      ),
     );
 
 class _CategoriesDialog extends StatefulWidget {
@@ -33,8 +33,7 @@ class _CategoriesDialogState extends State<_CategoriesDialog> {
   final _name = TextEditingController();
   final _description = TextEditingController();
 
-  /// ה-slug שנערך כרגע, או `null` כשהטופס הוא "הוספה". אותו טופס לשניהם:
-  /// מה שאפשר למלא בהוספה חייב להיות גם מה שאפשר לתקן אחריה.
+  /// אותו טופס משמש להוספה ולעריכה; `null` מציין הוספה.
   String? _editingSlug;
 
   bool _busy = false;
