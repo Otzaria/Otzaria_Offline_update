@@ -1,22 +1,29 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:otzaria_search_engine/otzaria_search_engine.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 typedef SemanticAsset = ({String name, int size, String sha256});
 
-/// מכין את נתוני החיפוש לייבוא בידי אוצריא, בלי לשנות את ההסכמה שלה.
+/// מתקין את נתוני החיפוש בנתיבי אוצריא, בלי לשנות את ההסכמה שלה.
 class SemanticSearchAssets {
-  SemanticSearchAssets({http.Client? httpClient})
-      : _client = httpClient ?? http.Client(),
-        _ownsClient = httpClient == null;
+  SemanticSearchAssets({
+    http.Client? httpClient,
+    ExternalLibrary? nativeLibrary,
+  }) : _client = httpClient ?? http.Client(),
+       _nativeLibrary = nativeLibrary,
+       _ownsClient = httpClient == null;
 
   final http.Client _client;
   final bool _ownsClient;
+  final ExternalLibrary? _nativeLibrary;
+  static Future<void>? _nativeInitialization;
   static const manifestFileName = 'semantic.json';
   static const modelFolder = 'meivin-round2-onnx';
   static const modelBaseUrl =
@@ -25,22 +32,26 @@ class SemanticSearchAssets {
     (
       name: 'seforim-embed-round2-int8.onnx',
       size: 42489219,
-      sha256: '659226865abd3a1bc833565ae6b2e2f48abdd7136285824a12966d4d3294cbf8'
+      sha256:
+          '659226865abd3a1bc833565ae6b2e2f48abdd7136285824a12966d4d3294cbf8',
     ),
     (
       name: 'tokenizer.json',
       size: 2191362,
-      sha256: '0664287976ecb078bdfd8f5e5515dc87d8cb7f985a79a481aa1cdf7a7321c0e9'
+      sha256:
+          '0664287976ecb078bdfd8f5e5515dc87d8cb7f985a79a481aa1cdf7a7321c0e9',
     ),
     (
       name: 'model.json',
       size: 656,
-      sha256: 'a27b103ea5dc50be674e6e6696d8f8ea09639ac3808cd1a48dcf2d70a0b47d1c'
+      sha256:
+          'a27b103ea5dc50be674e6e6696d8f8ea09639ac3808cd1a48dcf2d70a0b47d1c',
     ),
     (
       name: 'LICENSE',
       size: 3992,
-      sha256: '92267258dabd9077849cc5ab63a5b0b0b3ca9849e1112fd0d13d9691df7e0739'
+      sha256:
+          '92267258dabd9077849cc5ab63a5b0b0b3ca9849e1112fd0d13d9691df7e0739',
     ),
   ];
   static const tokenizerZip = (
@@ -51,8 +62,8 @@ class SemanticSearchAssets {
 
   String get _name => AppL10n.strings.libraryDomain.companionSemanticName;
   Never _invalid() => throw FormatException(
-        AppL10n.strings.libraryDomain.companionAssetMissingInRelease(_name),
-      );
+    AppL10n.strings.libraryDomain.companionAssetMissingInRelease(_name),
+  );
 
   void dispose() {
     if (_ownsClient) _client.close();
@@ -118,14 +129,17 @@ class SemanticSearchAssets {
     if (version == null) {
       _invalid();
     }
-    final response = await _client.get(
-        Uri.parse(
-          'https://api.github.com/repos/Otzaria/SeforimLibrary/releases/tags/vectors-$libraryTag',
-        ),
-        headers: const {
-          'Accept': 'application/vnd.github+json',
-          'User-Agent': 'otzaria-offline-update',
-        }).timeout(const Duration(seconds: 30));
+    final response = await _client
+        .get(
+          Uri.parse(
+            'https://api.github.com/repos/Otzaria/SeforimLibrary/releases/tags/vectors-$libraryTag',
+          ),
+          headers: const {
+            'Accept': 'application/vnd.github+json',
+            'User-Agent': 'otzaria-offline-update',
+          },
+        )
+        .timeout(const Duration(seconds: 30));
     if (response.statusCode == 404) return false;
     if (response.statusCode != 200) {
       _invalid();
@@ -202,15 +216,18 @@ class SemanticSearchAssets {
     if (version == null) {
       _invalid();
     }
-    onStage?.call(AppL10n.strings.libraryDomain.companionDownloading(_name));
-    final response = await _client.get(
-        Uri.parse(
-          'https://api.github.com/repos/Otzaria/SeforimLibrary/releases/tags/vectors-$libraryTag',
-        ),
-        headers: const {
-          'Accept': 'application/vnd.github+json',
-          'User-Agent': 'otzaria-offline-update',
-        }).timeout(const Duration(seconds: 30));
+    onStage?.call(AppL10n.strings.libraryDomain.semanticDownloading);
+    final response = await _client
+        .get(
+          Uri.parse(
+            'https://api.github.com/repos/Otzaria/SeforimLibrary/releases/tags/vectors-$libraryTag',
+          ),
+          headers: const {
+            'Accept': 'application/vnd.github+json',
+            'User-Agent': 'otzaria-offline-update',
+          },
+        )
+        .timeout(const Duration(seconds: 30));
     _cancel(isCancelled);
     if (response.statusCode != 200) {
       _invalid();
@@ -227,17 +244,22 @@ class SemanticSearchAssets {
         assets[asset['name'] as String] = asset;
       }
     }
-    final manifests = assets.keys.where((name) =>
-        name.startsWith('otzaria-vectors-') && name.endsWith('.manifest.json'));
+    final manifests = assets.keys.where(
+      (name) =>
+          name.startsWith('otzaria-vectors-') &&
+          name.endsWith('.manifest.json'),
+    );
     if (manifests.length != 1) {
       _invalid();
     }
     final manifestName = manifests.single;
     final manifestAsset = assets[manifestName]!;
-    final manifestResponse = await _client.get(
-      _url(manifestAsset['browser_download_url'], libraryTag),
-      headers: const {'User-Agent': 'otzaria-offline-update'},
-    ).timeout(const Duration(seconds: 30));
+    final manifestResponse = await _client
+        .get(
+          _url(manifestAsset['browser_download_url'], libraryTag),
+          headers: const {'User-Agent': 'otzaria-offline-update'},
+        )
+        .timeout(const Duration(seconds: 30));
     _cancel(isCancelled);
     if (manifestResponse.statusCode != 200) {
       _invalid();
@@ -264,8 +286,10 @@ class SemanticSearchAssets {
           publishedSha.substring(7).toLowerCase() != file.sha256) {
         _invalid();
       }
-      vectorUrls[file.name] =
-          _url(asset['browser_download_url'], libraryTag).toString();
+      vectorUrls[file.name] = _url(
+        asset['browser_download_url'],
+        libraryTag,
+      ).toString();
     }
     final metadata = <String, Object?>{
       'libraryTag': libraryTag,
@@ -279,14 +303,18 @@ class SemanticSearchAssets {
         file.name == 'tokenizer.json' ? tokenizerZip : file,
     ];
     final progress = ByteProgressAggregator(
-      totalBytes: [...downloadModels, ...files]
-          .fold<int>(0, (sum, file) => sum + file.size),
+      totalBytes: [
+        ...downloadModels,
+        ...files,
+      ].fold<int>(0, (sum, file) => sum + file.size),
       onProgress: onBytesProgress,
     );
     progress.announce();
     final generation = p.join(mirrorDir, libraryTag);
-    final downloader =
-        PatchDownloader(httpClient: _client, decompress: (_) async => null);
+    final downloader = PatchDownloader(
+      httpClient: _client,
+      decompress: (_) async => null,
+    );
     try {
       _cancel(isCancelled);
       await Directory(p.join(generation, modelFolder)).create(recursive: true);
@@ -295,19 +323,22 @@ class SemanticSearchAssets {
         final slot = progress.slot();
         _cancel(isCancelled);
         await downloader.downloadToFile(
-            url: '$modelBaseUrl/${file.name}',
-            destPath: p.join(generation, modelFolder, file.name),
-            expectedSize: file.size,
-            expectedSha256: file.sha256,
-            resumeToken: file.sha256,
-            onProgress: slot.report,
-            onExistingBytes: slot.markExisting,
-            isCancelled: isCancelled);
+          url: '$modelBaseUrl/${file.name}',
+          destPath: p.join(generation, modelFolder, file.name),
+          expectedSize: file.size,
+          expectedSha256: file.sha256,
+          resumeToken: file.sha256,
+          onProgress: slot.report,
+          onExistingBytes: slot.markExisting,
+          isCancelled: isCancelled,
+        );
         if (file.name == tokenizerZip.name) {
           _cancel(isCancelled);
           final zipped = ZipDecoder().decodeBytes(
-              await File(p.join(generation, modelFolder, file.name))
-                  .readAsBytes());
+            await File(
+              p.join(generation, modelFolder, file.name),
+            ).readAsBytes(),
+          );
           if (zipped.files.length != 1 ||
               zipped.files.single.name != 'tokenizer.json' ||
               !zipped.files.single.isFile ||
@@ -318,8 +349,9 @@ class SemanticSearchAssets {
           if (Sha256Stream.ofBytes(bytes) != modelFiles[1].sha256) {
             _invalid();
           }
-          final target =
-              File(p.join(generation, modelFolder, 'tokenizer.json'));
+          final target = File(
+            p.join(generation, modelFolder, 'tokenizer.json'),
+          );
           final temporary = File('${target.path}.tmp');
           await temporary.writeAsBytes(bytes, flush: true);
           _cancel(isCancelled);
@@ -340,8 +372,9 @@ class SemanticSearchAssets {
         );
       }
       _cancel(isCancelled);
-      await File(p.join(generation, 'vectors', manifestName))
-          .writeAsBytes(manifestBytes, flush: true);
+      await File(
+        p.join(generation, 'vectors', manifestName),
+      ).writeAsBytes(manifestBytes, flush: true);
       final metadataFile = File(p.join(mirrorDir, '$manifestFileName.tmp'));
       await metadataFile.writeAsString(jsonEncode(metadata), flush: true);
       _cancel(isCancelled);
@@ -397,7 +430,8 @@ class SemanticSearchAssets {
   Future<Map<String, dynamic>?> _metadata(String mirrorDir) async {
     try {
       final value = jsonDecode(
-          await File(p.join(mirrorDir, manifestFileName)).readAsString());
+        await File(p.join(mirrorDir, manifestFileName)).readAsString(),
+      );
       if (value is! Map<String, dynamic> ||
           value['libraryTag'] is! String ||
           !_plain(value['libraryTag'] as String) ||
@@ -409,10 +443,12 @@ class SemanticSearchAssets {
           !_sha(value['manifestSha256'] as String)) {
         return null;
       }
-      if (int.tryParse(RegExp(r'^v(\d+)-')
-                  .firstMatch(value['libraryTag'] as String)
-                  ?.group(1) ??
-              '') !=
+      if (int.tryParse(
+            RegExp(
+                  r'^v(\d+)-',
+                ).firstMatch(value['libraryTag'] as String)?.group(1) ??
+                '',
+          ) !=
           value['libraryVersion']) {
         return null;
       }
@@ -427,8 +463,11 @@ class SemanticSearchAssets {
   Future<int?> mirroredVersion(String mirrorDir) async =>
       (await _metadata(mirrorDir))?['libraryVersion'] as int?;
 
-  Future<bool> _matches(String path, SemanticAsset file,
-      [bool Function()? isCancelled]) async {
+  Future<bool> _matches(
+    String path,
+    SemanticAsset file, [
+    bool Function()? isCancelled,
+  ]) async {
     _cancel(isCancelled);
     final source = File(path);
     if (!await source.exists() || await source.length() != file.size) {
@@ -447,20 +486,25 @@ class SemanticSearchAssets {
   }
 
   Future<({Map<String, dynamic> metadata, List<SemanticAsset> files})?> _load(
-      String mirrorDir, int version) async {
+    String mirrorDir,
+    int version,
+  ) async {
     final meta = await _metadata(mirrorDir);
     if (meta == null || meta['libraryVersion'] != version) return null;
     final tag = meta['libraryTag'] as String;
     final manifestFile = (
       name: meta['manifestName'] as String,
       size: meta['manifestSize'] as int,
-      sha256: meta['manifestSha256'] as String
+      sha256: meta['manifestSha256'] as String,
     );
     final path = p.join(mirrorDir, tag, 'vectors', manifestFile.name);
     if (!await _matches(path, manifestFile)) return null;
     try {
-      final files =
-          _vectors(jsonDecode(await File(path).readAsString()), tag, version);
+      final files = _vectors(
+        jsonDecode(await File(path).readAsString()),
+        tag,
+        version,
+      );
       for (final group in [(modelFolder, modelFiles), ('vectors', files)]) {
         for (final file in group.$2) {
           final source = File(p.join(mirrorDir, tag, group.$1, file.name));
@@ -475,48 +519,48 @@ class SemanticSearchAssets {
     }
   }
 
-  Future<bool> pending(
-      {required String mirrorDir,
-      required String dbPath,
-      required int libraryVersion}) async {
+  Future<bool> pending({
+    required String mirrorDir,
+    required String dbPath,
+    required int libraryVersion,
+    String? vectorsRootPath,
+    bool preferencesReady = true,
+  }) async {
     final data = await _load(mirrorDir, libraryVersion);
     if (data == null) return false;
-    final root = p.dirname(p.dirname(dbPath));
+    if (!preferencesReady) return true;
+    final root = vectorsRootPath ?? p.dirname(p.dirname(dbPath));
     final active = await _activeMatches(p.join(root, 'vectors'), data.metadata);
     for (final file in modelFiles) {
       if (!await _matches(
-              p.join(root, 'semantic-import', modelFolder, file.name), file) &&
-          !await _matches(
-              p.join(p.dirname(dbPath), modelFolder, file.name), file)) {
+        p.join(p.dirname(dbPath), modelFolder, file.name),
+        file,
+      )) {
         return true;
       }
     }
-    if (active) return false;
-    for (final file in data.files) {
-      if (!await _matches(
-          p.join(root, 'semantic-import', 'vectors', file.name), file)) {
-        return true;
-      }
-    }
-    return false;
+    return !active;
   }
 
   /// מצביע הדור והמניפסט תואמים למבנה segment_set של מנוע אוצריא.
   Future<bool> _activeMatches(String vectors, Map<String, dynamic> meta) async {
     for (final pointerName in const ['CURRENT', 'PREVIOUS']) {
       try {
-        final pointer =
-            jsonDecode(await File(p.join(vectors, pointerName)).readAsString());
+        final pointer = jsonDecode(
+          await File(p.join(vectors, pointerName)).readAsString(),
+        );
         if (pointer is! Map ||
             pointer['set'] is! String ||
             pointer['set_sha256'] is! String ||
             pointer['generation'] is! int ||
-            !RegExp(r'^gen-[0-9]+/set\.json$')
-                .hasMatch(pointer['set'] as String)) {
+            !RegExp(
+              r'^gen-[0-9]+/set\.json$',
+            ).hasMatch(pointer['set'] as String)) {
           continue;
         }
-        final bytes =
-            await File(p.join(vectors, pointer['set'] as String)).readAsBytes();
+        final bytes = await File(
+          p.join(vectors, pointer['set'] as String),
+        ).readAsBytes();
         if (Sha256Stream.ofBytes(bytes) != pointer['set_sha256']) continue;
         final set = jsonDecode(utf8.decode(bytes));
         if (set is! Map ||
@@ -533,8 +577,9 @@ class SemanticSearchAssets {
         for (final segment in set['segments'] as List) {
           if (segment is! Map ||
               segment['file'] is! String ||
-              !RegExp(r'^segments/[0-9a-f]{32}\.oxv$')
-                  .hasMatch(segment['file'] as String) ||
+              !RegExp(
+                r'^segments/[0-9a-f]{32}\.oxv$',
+              ).hasMatch(segment['file'] as String) ||
               segment['size'] is! int) {
             complete = false;
             break;
@@ -557,20 +602,42 @@ class SemanticSearchAssets {
     return false;
   }
 
-  Future<void> install(
-      {required String mirrorDir,
-      required String dbPath,
-      required int libraryVersion,
-      void Function(String)? onStage,
-      bool Function()? isCancelled}) async {
+  Future<void> _ensureOwnedDirectory(String path) async {
+    final directory = Directory(path);
+    if (await directory.exists()) {
+      var owned = false;
+      for (final marker in const ['.otzaria-semantic', 'CURRENT', 'PREVIOUS']) {
+        if (await File(p.join(path, marker)).exists()) owned = true;
+      }
+      if (!owned && !await directory.list().isEmpty) {
+        throw FileSystemException(
+          AppL10n.strings.libraryDomain.companionsInstallFailed(_name),
+          path,
+        );
+      }
+    }
+    await directory.create(recursive: true);
+    await File(p.join(path, '.otzaria-semantic')).writeAsString('');
+  }
+
+  Future<void> install({
+    required String mirrorDir,
+    required String dbPath,
+    required int libraryVersion,
+    String? vectorsRootPath,
+    Future<void> Function()? beforeActivate,
+    void Function(String)? onStage,
+    bool Function()? isCancelled,
+  }) async {
     _cancel(isCancelled);
     final data = await _load(mirrorDir, libraryVersion);
     if (data == null) {
       _invalid();
     }
-    onStage?.call(AppL10n.strings.libraryDomain.companionInstalling(_name));
-    final root = p.dirname(p.dirname(dbPath));
+    onStage?.call(AppL10n.strings.libraryDomain.semanticInstalling);
+    final root = vectorsRootPath ?? p.dirname(p.dirname(dbPath));
     final generation = p.join(mirrorDir, data.metadata['libraryTag'] as String);
+    // כל המקורות מאומתים לפני ששינוי כלשהו נוגע להתקנה הפעילה.
     for (final group in [(modelFolder, modelFiles), ('vectors', data.files)]) {
       for (final file in group.$2) {
         _cancel(isCancelled);
@@ -578,28 +645,97 @@ class SemanticSearchAssets {
         if (!await _matches(source, file, isCancelled)) {
           _invalid();
         }
-        final target = p.join(root, 'semantic-import', group.$1, file.name);
-        if (await _matches(target, file, isCancelled)) continue;
-        await Directory(p.dirname(target)).create(recursive: true);
-        final temporary = '$target.tmp';
-        await File(source).copy(temporary);
-        _cancel(isCancelled);
-        if (!await _matches(temporary, file, isCancelled)) {
-          _invalid();
-        }
-        await File(temporary).rename(target);
       }
     }
-    _cancel(isCancelled);
-    final stagedVectors = Directory(p.join(root, 'semantic-import', 'vectors'));
-    await for (final entity in stagedVectors.list()) {
-      final name = p.basename(entity.path);
-      if (entity is File &&
-          name.startsWith('otzaria-vectors-') &&
-          name.endsWith('.manifest.json') &&
-          name != data.metadata['manifestName']) {
-        await entity.delete();
+    await beforeActivate?.call();
+    final modelDirectory = p.join(p.dirname(dbPath), modelFolder);
+    await _ensureOwnedDirectory(modelDirectory);
+    await _ensureOwnedDirectory(p.join(root, 'vectors'));
+    for (final file in modelFiles) {
+      _cancel(isCancelled);
+      final source = p.join(generation, modelFolder, file.name);
+      final target = p.join(p.dirname(dbPath), modelFolder, file.name);
+      if (await _matches(target, file, isCancelled)) continue;
+      await Directory(p.dirname(target)).create(recursive: true);
+      final temporary = '$target.tmp';
+      await File(source).copy(temporary);
+      _cancel(isCancelled);
+      if (!await _matches(temporary, file, isCancelled)) {
+        _invalid();
       }
+      await File(temporary).rename(target);
+    }
+    _cancel(isCancelled);
+    await File(
+      p.join(p.dirname(dbPath), modelFolder, '.otzaria-semantic'),
+    ).writeAsString('');
+    final manifestJson = await File(
+      p.join(generation, 'vectors', data.metadata['manifestName'] as String),
+    ).readAsString();
+    final parts = data.files
+        .where((file) => file.name != data.metadata['manifestName'])
+        .toList();
+    final work = await Directory.systemTemp.createTemp(
+      'otzaria-semantic-install-',
+    );
+    SearchEngine? engine;
+    SemanticCancellationToken? cancellation;
+    Timer? poll;
+    try {
+      var segmentPath = p.join(generation, 'vectors', parts.first.name);
+      if (parts.length > 1) {
+        final name = parts.first.name.replaceFirst(RegExp(r'\.part-\d+$'), '');
+        segmentPath = p.join(work.path, name);
+        final sink = File(segmentPath).openWrite();
+        try {
+          for (final part in parts) {
+            await for (final chunk in File(
+              p.join(generation, 'vectors', part.name),
+            ).openRead()) {
+              _cancel(isCancelled);
+              sink.add(chunk);
+              await sink.flush();
+            }
+          }
+        } finally {
+          await sink.close();
+        }
+      }
+      await (_nativeInitialization ??= RustLib.init(
+        externalLibrary: _nativeLibrary,
+      ));
+      _cancel(isCancelled);
+      final index = await Directory(p.join(work.path, 'index')).create();
+      engine = await SearchEngine.newInstance(path: index.path);
+      cancellation = SemanticCancellationToken();
+      final token = cancellation;
+      poll = Timer.periodic(const Duration(milliseconds: 100), (_) {
+        if (isCancelled?.call() ?? false) token.cancel();
+      });
+      await beforeActivate?.call();
+      _cancel(isCancelled);
+      await engine.installSemanticVectors(
+        input: SemanticVectorsInstallInput(
+          vectorsDir: p.join(root, 'vectors'),
+          segmentPath: segmentPath,
+          manifestJson: manifestJson,
+          publishedManifestSha256: data.metadata['manifestSha256'] as String,
+          modelIdentityJson: await File(
+            p.join(p.dirname(dbPath), modelFolder, 'model.json'),
+          ).readAsString(),
+        ),
+        cancellation: token,
+      );
+    } on SemanticError catch (error) {
+      if (error.kind == SemanticErrorKind.cancelled) {
+        throw const PatchDownloadCancelled();
+      }
+      rethrow;
+    } finally {
+      poll?.cancel();
+      cancellation?.dispose();
+      engine?.dispose();
+      await work.delete(recursive: true);
     }
   }
 }

@@ -48,6 +48,41 @@ void main() {
       });
     }
 
+    for (final quantization in <String?>[null, 'int8', 'fp32']) {
+      for (final paused in [false, true]) {
+        test(
+          'installed preferences quantization=$quantization paused=$paused',
+          () async {
+            await writeSettings({
+              OtzariaSettingsReader.keySemanticDataEnabled: true,
+              OtzariaSettingsReader.keySemanticDownloadPaused: paused,
+              if (quantization != null)
+                OtzariaSettingsReader.keySemanticModelQuantization:
+                    quantization,
+            });
+            final settings = (await reader.read(dataRoot.path))!;
+            expect(settings.semanticDataEnabled, isTrue);
+            expect(settings.semanticDownloadPaused, paused);
+            expect(settings.semanticModelQuantization, quantization);
+            expect(
+              settings.semanticSearchReadyPreferences,
+              !paused && quantization != 'fp32',
+            );
+          },
+        );
+      }
+    }
+
+    test('missing enabled preference leaves installation pending', () async {
+      await writeSettings({
+        OtzariaSettingsReader.keySemanticModelQuantization: 'int8',
+      });
+      expect(
+        (await reader.read(dataRoot.path))!.semanticSearchReadyPreferences,
+        isFalse,
+      );
+    });
+
     final deniedCases = <String, Map<String, Object>>{
       'declined': {
         OtzariaSettingsReader.keySearchFeedbackConsent: 'declined',
@@ -93,30 +128,37 @@ void main() {
       expect(await dataRoot.list().toList(), isEmpty);
     });
 
-    test('reading consent preserves the live preferences and directory',
-        () async {
-      await writeSettings({
-        OtzariaSettingsReader.keySearchFeedbackConsent: 'granted',
-        OtzariaSettingsReader.keySearchFeedbackConsentVersion: 1,
-        'unrelated-preference': 'keep this value',
-      });
-      final source = File(
-        p.join(dataRoot.path, OtzariaSettingsReader.boxFileName),
-      );
-      final bytesBefore = await source.readAsBytes();
-      final filesBefore = (await dataRoot.list().toList())
-          .map((file) => p.basename(file.path))
-          .toList()
-        ..sort();
+    test(
+      'reading consent preserves the live preferences and directory',
+      () async {
+        await writeSettings({
+          OtzariaSettingsReader.keySearchFeedbackConsent: 'granted',
+          OtzariaSettingsReader.keySearchFeedbackConsentVersion: 1,
+          'unrelated-preference': 'keep this value',
+        });
+        final source = File(
+          p.join(dataRoot.path, OtzariaSettingsReader.boxFileName),
+        );
+        final bytesBefore = await source.readAsBytes();
+        final filesBefore =
+            (await dataRoot.list().toList())
+                .map((file) => p.basename(file.path))
+                .toList()
+              ..sort();
 
-      expect((await reader.read(dataRoot.path))!.searchFeedbackGranted, isTrue);
+        expect(
+          (await reader.read(dataRoot.path))!.searchFeedbackGranted,
+          isTrue,
+        );
 
-      expect(await source.readAsBytes(), bytesBefore);
-      final filesAfter = (await dataRoot.list().toList())
-          .map((file) => p.basename(file.path))
-          .toList()
-        ..sort();
-      expect(filesAfter, filesBefore);
-    });
+        expect(await source.readAsBytes(), bytesBefore);
+        final filesAfter =
+            (await dataRoot.list().toList())
+                .map((file) => p.basename(file.path))
+                .toList()
+              ..sort();
+        expect(filesAfter, filesBefore);
+      },
+    );
   });
 }

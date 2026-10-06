@@ -112,26 +112,24 @@ void main() {
 }
 
 PatchEdge _edge(int from, int to) => PatchEdge(
-      manifest: DeltaManifest(
-        fromVersion: from,
-        toVersion: to,
-        fromSchemaVersion: 1,
-        toSchemaVersion: 1,
-        fromContentHash: 'a' * 64,
-        toContentHash: 'b' * 64,
-        patchFiles: [
-          PatchFileEntry(
-            file: 'patch-v4-v5.db.zst',
-            compression: 'zstd',
-            sha256: 'c' * 64,
-            size: 512,
-            uncompressedSha256: 'd' * 64,
-            uncompressedSize: 2048,
-          ),
-        ],
+  manifest: DeltaManifest(
+    fromVersion: from,
+    toVersion: to,
+    fromSchemaVersion: 1,
+    toSchemaVersion: 1,
+    fromContentHash: 'a' * 64,
+    toContentHash: 'b' * 64,
+    patchFiles: [
+      PatchFileEntry(
+        file: 'patch-v4-v5.db.zst',
+        compression: 'zstd',
+        sha256: 'c' * 64,
+        size: 512,
+        uncompressedSha256: 'd' * 64,
+        uncompressedSize: 2048,
       ),
-      patchFileUrls: const {
-        'patch-v4-v5.db.zst': 'assets/v5/patch-v4-v5.db.zst'
-      },
-      manifestUrl: 'assets/v5/patch-v4-v5.db.zst.manifest.json',
-    );
+    ],
+  ),
+  patchFileUrls: const {'patch-v4-v5.db.zst': 'assets/v5/patch-v4-v5.db.zst'},
+  manifestUrl: 'assets/v5/patch-v4-v5.db.zst.manifest.json',
+);

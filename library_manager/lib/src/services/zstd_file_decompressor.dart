@@ -58,7 +58,13 @@ abstract final class ZstdFileDecompressor {
     final hashSource = onSourceDigest != null;
     if (onProgress == null && !hashSource && isCancelled == null) {
       final (ok, _) = await _runDecompressIsolate(
-          sourcePath, destPath, language, false, 0, null);
+        sourcePath,
+        destPath,
+        language,
+        false,
+        0,
+        null,
+      );
       return ok;
     }
 
@@ -67,8 +73,9 @@ abstract final class ZstdFileDecompressor {
       if (msg is (int, int)) onProgress?.call(msg.$1, msg.$2);
     });
     // בית בודד בזיכרון נייטיבי — הדבר היחיד ששני ה-isolates יכולים לחלוק.
-    final cancelFlag =
-        isCancelled == null ? nullptr : malloc.allocate<Uint8>(1);
+    final cancelFlag = isCancelled == null
+        ? nullptr
+        : malloc.allocate<Uint8>(1);
     if (cancelFlag != nullptr) cancelFlag.value = 0;
     final poll = isCancelled == null
         ? null
@@ -180,9 +187,7 @@ DynamicLibrary? _openLibrary() {
       return DynamicLibrary.open('zstandard_windows.dll');
     }
     if (Platform.isMacOS) {
-      return DynamicLibrary.open(
-        'zstandard_macos.framework/zstandard_macos',
-      );
+      return DynamicLibrary.open('zstandard_macos.framework/zstandard_macos');
     }
     if (Platform.isLinux) {
       return DynamicLibrary.open('libzstandard_linux.so');
@@ -207,8 +212,9 @@ const int _maxWindowLog = 31;
 ) {
   AppL10n.use(args.$3);
   final progressPort = args.$6;
-  final cancelFlag =
-      args.$5 == 0 ? nullptr : Pointer<Uint8>.fromAddress(args.$5);
+  final cancelFlag = args.$5 == 0
+      ? nullptr
+      : Pointer<Uint8>.fromAddress(args.$5);
   final strings = AppL10n.strings.libraryDomain;
   final library = _openLibrary();
   // לפני כל הקצאה: הקורא נופל למסלול הזיכרון, ואין מה לשחרר.

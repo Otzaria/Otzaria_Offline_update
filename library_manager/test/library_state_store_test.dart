@@ -83,35 +83,43 @@ void main() {
       final key = LibraryStateStore.currentMachineKey();
       await File(statePath).parent.create(recursive: true);
 
-      await File(statePath).writeAsString(jsonEncode({
-        'appliedReleases': {
-          key: {'tag': '', 'dbVersion': 9}
-        }
-      }));
+      await File(statePath).writeAsString(
+        jsonEncode({
+          'appliedReleases': {
+            key: {'tag': '', 'dbVersion': 9},
+          },
+        }),
+      );
       expect(await store.loadAppliedRelease(), isNull);
 
-      await File(statePath).writeAsString(jsonEncode({
-        'appliedReleases': {
-          key: {'tag': 'v9'}
-        }
-      }));
+      await File(statePath).writeAsString(
+        jsonEncode({
+          'appliedReleases': {
+            key: {'tag': 'v9'},
+          },
+        }),
+      );
       expect(await store.loadAppliedRelease(), isNull);
     });
 
     // הבאג של "עדכון מגרסה 22 לגרסה 22": רשומה גלובלית אחת על כונן שנוסע בין
     // מחשבים נקראה מול מסד של מחשב אחר לגמרי.
-    test('רשומה של מחשב אחר אינה נקראת כאן, והישנה הגלובלית מתעלמים ממנה',
-        () async {
-      await File(statePath).parent.create(recursive: true);
-      await File(statePath).writeAsString(jsonEncode({
-        'appliedReleaseTag': 'v21-carrier',
-        'appliedReleases': {
-          'OTHER-PC|someone': {'tag': 'v20', 'dbVersion': 20},
-        },
-      }));
+    test(
+      'רשומה של מחשב אחר אינה נקראת כאן, והישנה הגלובלית מתעלמים ממנה',
+      () async {
+        await File(statePath).parent.create(recursive: true);
+        await File(statePath).writeAsString(
+          jsonEncode({
+            'appliedReleaseTag': 'v21-carrier',
+            'appliedReleases': {
+              'OTHER-PC|someone': {'tag': 'v20', 'dbVersion': 20},
+            },
+          }),
+        );
 
-      expect(await store.loadAppliedRelease(), isNull);
-    });
+        expect(await store.loadAppliedRelease(), isNull);
+      },
+    );
 
     test('כתיבה מסירה מהכונן את הרשומה הגלובלית הישנה', () async {
       await File(statePath).parent.create(recursive: true);
@@ -140,19 +148,20 @@ void main() {
 
       final json = jsonDecode(await File(statePath).readAsString()) as Map;
       expect(json['customDbPath'], isNull);
-      expect(
-        json['customDbPaths'],
-        {LibraryStateStore.currentMachineKey(): dbPath},
-      );
+      expect(json['customDbPaths'], {
+        LibraryStateStore.currentMachineKey(): dbPath,
+      });
     });
 
     test('רשומה של מחשב אחר אינה נקראת כאן', () async {
       await File(statePath).parent.create(recursive: true);
-      await File(statePath).writeAsString(jsonEncode({
-        'customDbPaths': {
-          'OTHER-PC|user': p.join(tempDir.path, 'elsewhere', 'seforim.db'),
-        },
-      }));
+      await File(statePath).writeAsString(
+        jsonEncode({
+          'customDbPaths': {
+            'OTHER-PC|user': p.join(tempDir.path, 'elsewhere', 'seforim.db'),
+          },
+        }),
+      );
 
       expect(await store.loadCustomDbPath(), isNull);
     });
@@ -160,9 +169,11 @@ void main() {
     test('שמירה כאן אינה מוחקת את הרשומה של מחשב אחר', () async {
       final other = p.join(tempDir.path, 'elsewhere', 'seforim.db');
       await File(statePath).parent.create(recursive: true);
-      await File(statePath).writeAsString(jsonEncode({
-        'customDbPaths': {'OTHER-PC|user': other},
-      }));
+      await File(statePath).writeAsString(
+        jsonEncode({
+          'customDbPaths': {'OTHER-PC|user': other},
+        }),
+      );
 
       final mine = p.join(tempDir.path, 'mine', 'seforim.db');
       await store.saveCustomDbPath(mine);
@@ -180,26 +191,26 @@ void main() {
       await living.create(recursive: true);
       await File(statePath).parent.create(recursive: true);
 
-      await File(statePath).writeAsString(jsonEncode({
-        'customDbPath': p.join(living.path, 'seforim.db'),
-      }));
-      expect(
-        await store.loadCustomDbPath(),
-        p.join(living.path, 'seforim.db'),
+      await File(statePath).writeAsString(
+        jsonEncode({'customDbPath': p.join(living.path, 'seforim.db')}),
       );
+      expect(await store.loadCustomDbPath(), p.join(living.path, 'seforim.db'));
 
       // אותה רשומה, אבל התיקייה שייכת למחשב שממנו הכונן הגיע.
-      await File(statePath).writeAsString(jsonEncode({
-        'customDbPath': p.join(tempDir.path, 'no-such-user', 'seforim.db'),
-      }));
+      await File(statePath).writeAsString(
+        jsonEncode({
+          'customDbPath': p.join(tempDir.path, 'no-such-user', 'seforim.db'),
+        }),
+      );
       expect(await store.loadCustomDbPath(), isNull);
     });
 
     test('רשומה גלובלית שאינה נתיב מוחלט בפלטפורמה הזו נדחית', () async {
       await File(statePath).parent.create(recursive: true);
       // ב-POSIX נתיב ווינדוס אינו מוחלט, ו-`dirname` שלו היה מחזיר "." הקיים.
-      final foreign =
-          Platform.isWindows ? '/home/dov/otzaria' : r'C:\Users\user\otzaria';
+      final foreign = Platform.isWindows
+          ? '/home/dov/otzaria'
+          : r'C:\Users\user\otzaria';
       await File(statePath).writeAsString(
         jsonEncode({'customDbPath': p.join(foreign, 'seforim.db')}),
       );
@@ -212,8 +223,9 @@ void main() {
       await Directory(p.dirname(mine)).create(recursive: true);
       await store.saveCustomDbPath(mine);
 
-      final json = jsonDecode(await File(statePath).readAsString())
-          as Map<String, dynamic>;
+      final json =
+          jsonDecode(await File(statePath).readAsString())
+              as Map<String, dynamic>;
       json['customDbPath'] = p.join(tempDir.path, 'legacy', 'seforim.db');
       await Directory(p.join(tempDir.path, 'legacy')).create(recursive: true);
       await File(statePath).writeAsString(jsonEncode(json));
@@ -258,9 +270,9 @@ void main() {
 
     test('ערכים פגומים בקובץ מסוננים ואינם מפילים את הקריאה', () async {
       await File(statePath).parent.create(recursive: true);
-      await File(statePath).writeAsString(
-        '{"knownDbVersions": {"a": 0, "b": "x", "c": 18}}',
-      );
+      await File(
+        statePath,
+      ).writeAsString('{"knownDbVersions": {"a": 0, "b": "x", "c": 18}}');
 
       expect(await store.loadKnownDbVersions(), {'c': 18});
       expect(await store.lowestKnownDbVersion(), 18);

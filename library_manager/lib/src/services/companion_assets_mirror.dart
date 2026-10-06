@@ -18,12 +18,10 @@ import 'zstd_decompressor.dart';
 /// באחד (אין נכס ב-release, שגיאת רשת) לא מפיל את השניים האחרים, בדיוק כמו
 /// שם.
 class CompanionAssetsMirror {
-  CompanionAssetsMirror({
-    http.Client? httpClient,
-    DownloadScheduler? scheduler,
-  })  : _scheduler = scheduler ?? DownloadScheduler(),
-        _httpClient = httpClient ?? http.Client(),
-        _ownsClient = httpClient == null {
+  CompanionAssetsMirror({http.Client? httpClient, DownloadScheduler? scheduler})
+    : _scheduler = scheduler ?? DownloadScheduler(),
+      _httpClient = httpClient ?? http.Client(),
+      _ownsClient = httpClient == null {
     _downloader = PatchDownloader(
       httpClient: _httpClient,
       // רק מוריד לדיסק; החילוץ קורה בהתקנה, לא כאן.
@@ -91,8 +89,9 @@ class CompanionAssetsMirror {
       } else {
         activeStages[asset] = stage;
       }
-      onStage
-          ?.call(activeStages.isEmpty ? null : activeStages.values.join('\n'));
+      onStage?.call(
+        activeStages.isEmpty ? null : activeStages.values.join('\n'),
+      );
     }
 
     Future<void> run(
@@ -130,26 +129,36 @@ class CompanionAssetsMirror {
       CompanionAsset asset,
       String name,
       Future<_CompanionPlan> Function() body,
-    ) =>
-        run(asset, name, () async {
-          reportStage(asset, strings.companionChecking(name));
-          plans[asset] = await body();
-        });
+    ) => run(asset, name, () async {
+      reportStage(asset, strings.companionChecking(name));
+      plans[asset] = await body();
+    });
 
     await Future.wait<void>([
-      plan(CompanionAsset.talmud, strings.companionTalmudName,
-          () => _planTalmud(destDir)),
-      plan(CompanionAsset.catalog, strings.companionCatalogName,
-          () => _planCatalog(destDir)),
-      plan(CompanionAsset.dictionary, strings.companionDictionaryName,
-          () => _planDictionary(destDir)),
+      plan(
+        CompanionAsset.talmud,
+        strings.companionTalmudName,
+        () => _planTalmud(destDir),
+      ),
+      plan(
+        CompanionAsset.catalog,
+        strings.companionCatalogName,
+        () => _planCatalog(destDir),
+      ),
+      plan(
+        CompanionAsset.dictionary,
+        strings.companionDictionaryName,
+        () => _planDictionary(destDir),
+      ),
     ]);
 
     // מונה בייטים אחד לשלושתם: כל פריט מדווח למשבצת משלו, והמד מתאר את
     // הסכום. בלי זה שלוש הורדות מקבילות היו דורסות זו את דיווחי זו.
     final bytes = ByteProgressAggregator(
-      totalBytes: plans.values
-          .fold<int>(0, (sum, plan) => sum + (plan.size > 0 ? plan.size : 0)),
+      totalBytes: plans.values.fold<int>(
+        0,
+        (sum, plan) => sum + (plan.size > 0 ? plan.size : 0),
+      ),
       onProgress: onBytesProgress,
     );
     // התלמוד (~450MB) ראשון: הוא הארוך מכולם, ובתקרה נמוכה מוטב שיתחיל מיד.
@@ -159,7 +168,8 @@ class CompanionAssetsMirror {
     for (final asset in CompanionAsset.values) {
       final plan = plans[asset];
       if (plan == null) continue;
-      final complete = plan.size > 0 &&
+      final complete =
+          plan.size > 0 &&
           await _isCompleteFile(plan.destPath, plan.size, atLeast: true);
       slots[asset] = bytes.slot(existingBytes: complete ? plan.size : 0);
     }
@@ -189,7 +199,8 @@ class CompanionAssetsMirror {
 
     final manifest = CompanionMirrorManifest(entries: entries);
     await File(p.join(destDir, CompanionMirrorManifest.fileName)).writeAsString(
-        const JsonEncoder.withIndent('  ').convert(manifest.toJson()));
+      const JsonEncoder.withIndent('  ').convert(manifest.toJson()),
+    );
     return manifest;
   }
 
@@ -277,18 +288,21 @@ class CompanionAssetsMirror {
     final chosen = compressed ?? plain;
     if (chosen == null) {
       throw StateError(
-          strings.companionAssetMissingInRelease(strings.companionCatalogName));
+        strings.companionAssetMissingInRelease(strings.companionCatalogName),
+      );
     }
 
     final versionAsset = assets[catalogVersionFileName];
     if (versionAsset == null) {
       throw StateError(
-          strings.companionAssetMissingInRelease(strings.companionCatalogName));
+        strings.companionAssetMissingInRelease(strings.companionCatalogName),
+      );
     }
     final version = _parseVersionText(await _getText(versionAsset.downloadUrl));
     if (version == null) {
       throw StateError(
-          strings.companionAssetMissingInRelease(strings.companionCatalogName));
+        strings.companionAssetMissingInRelease(strings.companionCatalogName),
+      );
     }
 
     return _CompanionPlan(
@@ -315,13 +329,16 @@ class CompanionAssetsMirror {
     // סדר ההעדפה של `DatabaseConstants.lexicalReleaseAssetFileNames` באוצריא.
     final assets = _assetList(json);
     final asset = ['lexical-v2.db', dictionaryFileName]
-        .map((name) =>
-            assets.where((a) => a.downloadUrl.endsWith('/$name')).firstOrNull)
+        .map(
+          (name) =>
+              assets.where((a) => a.downloadUrl.endsWith('/$name')).firstOrNull,
+        )
         .whereType<_GithubAssetRef>()
         .firstOrNull;
     if (tag == null || tag.isEmpty || asset == null) {
-      throw StateError(strings
-          .companionAssetMissingInRelease(strings.companionDictionaryName));
+      throw StateError(
+        strings.companionAssetMissingInRelease(strings.companionDictionaryName),
+      );
     }
 
     return _CompanionPlan(
@@ -417,8 +434,9 @@ class CompanionAssetsMirror {
   /// `version.txt` הוא קובץ של בייטים בודדים — קריאה ישירה, בלי המסלול
   /// המאומת של [PatchDownloader] שנועד לנכסים גדולים.
   Future<String> _getText(String url) async {
-    final response = await _httpClient.get(Uri.parse(url),
-        headers: const {'User-Agent': 'otzaria-launcher'}).timeout(timeout);
+    final response = await _httpClient
+        .get(Uri.parse(url), headers: const {'User-Agent': 'otzaria-launcher'})
+        .timeout(timeout);
     if (response.statusCode != 200) {
       throw Exception(
         AppL10n.strings.libraryDomain.releasesRequestFailed(
@@ -466,8 +484,8 @@ class CompanionAssetsMirror {
   }
 
   Map<String, _GithubAssetRef> _assetsOf(Map<String, dynamic> release) => {
-        for (final asset in _assetList(release)) asset.name: asset,
-      };
+    for (final asset in _assetList(release)) asset.name: asset,
+  };
 
   List<_GithubAssetRef> _assetList(Map<String, dynamic> release) {
     final raw = release['assets'];
@@ -554,14 +572,14 @@ class _GithubAssetRef {
   String get identity => '$tag|$size|$id|$updatedAt';
 
   _GithubAssetRef withTag(String value) => _GithubAssetRef(
-        name: name,
-        downloadUrl: downloadUrl,
-        size: size,
-        id: id,
-        updatedAt: updatedAt,
-        sha256: sha256,
-        tag: value,
-      );
+    name: name,
+    downloadUrl: downloadUrl,
+    size: size,
+    id: id,
+    updatedAt: updatedAt,
+    sha256: sha256,
+    tag: value,
+  );
 }
 
 extension _FirstOrNull<T> on Iterable<T> {

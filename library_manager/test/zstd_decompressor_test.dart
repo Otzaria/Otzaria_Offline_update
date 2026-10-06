@@ -35,8 +35,9 @@ void main() {
     });
 
     test('קלט שאינו zstd בכלל מחזיר null', () async {
-      final extracted =
-          await decompress(Uint8List.fromList('לא קובץ דחוס'.codeUnits));
+      final extracted = await decompress(
+        Uint8List.fromList('לא קובץ דחוס'.codeUnits),
+      );
 
       expect(extracted, isNull);
     });
@@ -48,26 +49,31 @@ void main() {
       }
 
       final compressed = compressWithZstd(bindings, pseudoRandomBytes(1 << 18));
-      final truncated =
-          Uint8List.sublistView(compressed, 0, compressed.length ~/ 2);
+      final truncated = Uint8List.sublistView(
+        compressed,
+        0,
+        compressed.length ~/ 2,
+      );
 
       expect(await decompress(truncated), isNull);
     });
 
-    test('קלט ריק מחזיר פלט ריק — הקוראים בודקים isEmpty, לא רק null',
-        () async {
-      // בלי הספרייה כל חילוץ מחזיר null, כולל זה — כמו שאר הבדיקות כאן.
-      if (bindings == null) {
-        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
-        return;
-      }
+    test(
+      'קלט ריק מחזיר פלט ריק — הקוראים בודקים isEmpty, לא רק null',
+      () async {
+        // בלי הספרייה כל חילוץ מחזיר null, כולל זה — כמו שאר הבדיקות כאן.
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
 
-      // חשוב: זה **לא** null. `PatchDownloader` ו-`LibraryUpdateApplier`
-      // בודקים שניהם `== null || isEmpty` בדיוק בגלל זה.
-      final extracted = await decompress(Uint8List(0));
+        // חשוב: זה **לא** null. `PatchDownloader` ו-`LibraryUpdateApplier`
+        // בודקים שניהם `== null || isEmpty` בדיוק בגלל זה.
+        final extracted = await decompress(Uint8List(0));
 
-      expect(extracted, isNotNull);
-      expect(extracted, isEmpty);
-    });
+        expect(extracted, isNotNull);
+        expect(extracted, isEmpty);
+      },
+    );
   });
 }

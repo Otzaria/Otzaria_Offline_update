@@ -16,8 +16,10 @@ void main() {
 
     test('macOS: השם בעברית ראשון, האנגלי כגיבוי', () {
       // `אוצריא` הוא ה-CFBundleExecutable האמיתי של החבילה.
-      expect(
-          OtzariaProcessGuard.processNamesFor('macos'), ['אוצריא', 'otzaria']);
+      expect(OtzariaProcessGuard.processNamesFor('macos'), [
+        'אוצריא',
+        'otzaria',
+      ]);
     });
 
     test('פלטפורמה אחרת: השם הפשוט, בלי סיומת', () {
@@ -86,8 +88,9 @@ void main() {
       // זה הלב: הלאנצ'ר המדומה רץ, ובכל זאת "אוצריא" מדווחת כסגורה.
       expect(await guard.isRunning('otzaria.exe'), isFalse);
       expect(
-        await guard
-            .isAnyRunning(OtzariaProcessGuard.processNamesFor('windows')),
+        await guard.isAnyRunning(
+          OtzariaProcessGuard.processNamesFor('windows'),
+        ),
         isFalse,
       );
     });
@@ -141,11 +144,13 @@ void main() {
 /// תלויות, שמאפשר לבדוק את `tasklist` מול שם קובץ שאנחנו קובעים.
 Future<Process?> _startLongLivedCopyOfPing(String destPath) async {
   try {
-    final source = File(p.join(
-      Platform.environment['SystemRoot'] ?? r'C:\Windows',
-      'System32',
-      'PING.EXE',
-    ));
+    final source = File(
+      p.join(
+        Platform.environment['SystemRoot'] ?? r'C:\Windows',
+        'System32',
+        'PING.EXE',
+      ),
+    );
     if (!source.existsSync()) return null;
     source.copySync(destPath);
     return await Process.start(destPath, const ['-n', '30', '127.0.0.1']);

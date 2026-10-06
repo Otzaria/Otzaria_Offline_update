@@ -93,8 +93,10 @@ void main() {
         ),
         isTrue,
       );
-      expect((await reader.read(dataRoot))?.libraryPath,
-          p.join(dataRoot, 'books'));
+      expect(
+        (await reader.read(dataRoot))?.libraryPath,
+        p.join(dataRoot, 'books'),
+      );
     });
   });
 }

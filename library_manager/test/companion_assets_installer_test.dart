@@ -45,21 +45,22 @@ void main() {
   /// הפריטים שהבדיקה תציע. [delivered] הוא מה שהתקנה קודמת כבר מסרה כאן.
   Future<Set<CompanionAsset>> pending([
     Map<CompanionAsset, String> delivered = const {},
-  ]) async =>
-      (await installer.pendingWork(
-        mirrorDir: mirrorDir,
-        dbPath: dbPath,
-        delivered: delivered,
-      ))
-          .pending;
+  ]) async => (await installer.pendingWork(
+    mirrorDir: mirrorDir,
+    dbPath: dbPath,
+    delivered: delivered,
+  )).pending;
 
   Future<void> writeManifest(Map<String, dynamic> entries) async {
-    await File(p.join(mirrorDir, CompanionMirrorManifest.fileName))
-        .writeAsString(jsonEncode({
-      'formatVersion': 1,
-      'exportedAt': '2026-08-09T00:00:00.000Z',
-      ...entries,
-    }));
+    await File(
+      p.join(mirrorDir, CompanionMirrorManifest.fileName),
+    ).writeAsString(
+      jsonEncode({
+        'formatVersion': 1,
+        'exportedAt': '2026-08-09T00:00:00.000Z',
+        ...entries,
+      }),
+    );
   }
 
   test('אין מראה — דיווח ריק ואין עבודה ממתינה', () async {
@@ -72,34 +73,38 @@ void main() {
   });
 
   group('מילון החיפוש', () {
-    test('digest חדש באותו תג מותקן ונרשם גם בסימון וגם ברשומת המסירה',
-        () async {
-      const digest =
-          'b42e36626802629fed178068e8cf11f0f034d6f24ae3b72ac9999b9311bf299f';
-      await writeManifest({
-        'dictionary': {
-          'fileName': 'lexical.db',
-          'size': 7,
-          'tag': 'v2',
-          'sha256': digest,
-        },
-      });
-      await File(p.join(libraryDir, 'lexical.db')).writeAsString('OLD');
-      final marker = File(p.join(libraryDir, 'lexical.db.version'));
-      await marker.writeAsString('old-digest');
-      const delivered = {CompanionAsset.dictionary: 'v2'};
-      expect(await pending(delivered), {CompanionAsset.dictionary});
-      final report = await installer.install(
-        mirrorDir: mirrorDir,
-        dbPath: dbPath,
-        delivered: delivered,
-      );
-      expect(report.outcomes[CompanionAsset.dictionary],
-          CompanionInstallOutcome.installed);
-      expect(await marker.readAsString(), digest);
-      expect(report.delivered[CompanionAsset.dictionary], 'v2|$digest');
-      expect(await pending(report.delivered), isEmpty);
-    });
+    test(
+      'digest חדש באותו תג מותקן ונרשם גם בסימון וגם ברשומת המסירה',
+      () async {
+        const digest =
+            'b42e36626802629fed178068e8cf11f0f034d6f24ae3b72ac9999b9311bf299f';
+        await writeManifest({
+          'dictionary': {
+            'fileName': 'lexical.db',
+            'size': 7,
+            'tag': 'v2',
+            'sha256': digest,
+          },
+        });
+        await File(p.join(libraryDir, 'lexical.db')).writeAsString('OLD');
+        final marker = File(p.join(libraryDir, 'lexical.db.version'));
+        await marker.writeAsString('old-digest');
+        const delivered = {CompanionAsset.dictionary: 'v2'};
+        expect(await pending(delivered), {CompanionAsset.dictionary});
+        final report = await installer.install(
+          mirrorDir: mirrorDir,
+          dbPath: dbPath,
+          delivered: delivered,
+        );
+        expect(
+          report.outcomes[CompanionAsset.dictionary],
+          CompanionInstallOutcome.installed,
+        );
+        expect(await marker.readAsString(), digest);
+        expect(report.delivered[CompanionAsset.dictionary], 'v2|$digest');
+        expect(await pending(report.delivered), isEmpty);
+      },
+    );
 
     test('סימון תג ישן אינו מסתיר מילון חדש באותו תג עם digest', () async {
       const digest =
@@ -123,8 +128,10 @@ void main() {
         dbPath: dbPath,
         delivered: delivered,
       );
-      expect(report.outcomes[CompanionAsset.dictionary],
-          CompanionInstallOutcome.installed);
+      expect(
+        report.outcomes[CompanionAsset.dictionary],
+        CompanionInstallOutcome.installed,
+      );
       expect(await target.readAsString(), 'LEXICAL');
       expect(await marker.readAsString(), digest);
       expect(await pending(report.delivered), isEmpty);
@@ -142,13 +149,18 @@ void main() {
         },
       });
       await File(p.join(libraryDir, 'lexical.db')).writeAsString('CURRENT');
-      await File(p.join(libraryDir, 'lexical.db.version'))
-          .writeAsString(digest);
+      await File(
+        p.join(libraryDir, 'lexical.db.version'),
+      ).writeAsString(digest);
       expect(await pending(), isEmpty);
-      final report =
-          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
-      expect(report.outcomes[CompanionAsset.dictionary],
-          CompanionInstallOutcome.alreadyUpToDate);
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+      expect(
+        report.outcomes[CompanionAsset.dictionary],
+        CompanionInstallOutcome.alreadyUpToDate,
+      );
     });
 
     setUp(() async {
@@ -161,10 +173,14 @@ void main() {
     test('מותקן לצד המסד עם סימון גרסה, ובריצה שנייה כבר מעודכן', () async {
       expect(await pending(), {CompanionAsset.dictionary});
 
-      final first =
-          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
-      expect(first.outcomes[CompanionAsset.dictionary],
-          CompanionInstallOutcome.installed);
+      final first = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+      expect(
+        first.outcomes[CompanionAsset.dictionary],
+        CompanionInstallOutcome.installed,
+      );
       expect(
         File(p.join(libraryDir, 'lexical.db')).readAsStringSync(),
         'LEXICAL',
@@ -175,10 +191,14 @@ void main() {
         'v2',
       );
 
-      final second =
-          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
-      expect(second.outcomes[CompanionAsset.dictionary],
-          CompanionInstallOutcome.alreadyUpToDate);
+      final second = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+      expect(
+        second.outcomes[CompanionAsset.dictionary],
+        CompanionInstallOutcome.alreadyUpToDate,
+      );
       expect(await pending(), isEmpty);
       // מה שנרשם כ"נמסר כאן" — הראיה שמונעת הצעה חוזרת בהמשך.
       expect(second.delivered[CompanionAsset.dictionary], 'v2');
@@ -191,10 +211,14 @@ void main() {
         'dictionary': {'fileName': 'lexical.db', 'size': 5, 'tag': 'v3'},
       });
 
-      final report =
-          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
-      expect(report.outcomes[CompanionAsset.dictionary],
-          CompanionInstallOutcome.installed);
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+      expect(
+        report.outcomes[CompanionAsset.dictionary],
+        CompanionInstallOutcome.installed,
+      );
       expect(
         File(p.join(libraryDir, 'lexical.db')).readAsStringSync(),
         'NEWER',
@@ -210,10 +234,14 @@ void main() {
         'dictionary': {'fileName': 'lexical.db', 'size': 0, 'tag': 'v9'},
       });
 
-      final report =
-          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
-      expect(report.outcomes[CompanionAsset.dictionary],
-          CompanionInstallOutcome.failed);
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+      expect(
+        report.outcomes[CompanionAsset.dictionary],
+        CompanionInstallOutcome.failed,
+      );
       expect(report.errors[CompanionAsset.dictionary], isNotNull);
       expect(report.delivered, isEmpty);
       // הקובץ שבמראה עצמו קטוע, ולכן זו אינה הצעה שאפשר להשלים כאן: היא
@@ -232,8 +260,10 @@ void main() {
     /// `ExternalCatalogRepository.getCurrentDatabaseVersion`.
     void writeCatalogDb(String path, {int? version}) {
       final db = sqlite3.sqlite3.open(path);
-      db.execute('CREATE TABLE IF NOT EXISTS db_meta '
-          '(key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+      db.execute(
+        'CREATE TABLE IF NOT EXISTS db_meta '
+        '(key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+      );
       if (version != null) {
         db.execute(
           'INSERT OR REPLACE INTO db_meta (key, value) VALUES (?, ?)',
@@ -253,14 +283,20 @@ void main() {
         },
       });
 
-      final report =
-          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
-      expect(report.outcomes[CompanionAsset.catalog],
-          CompanionInstallOutcome.installed);
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+      expect(
+        report.outcomes[CompanionAsset.catalog],
+        CompanionInstallOutcome.installed,
+      );
 
       final installed = p.join(libraryDir, 'otzar-HB_catalog.db');
-      final db =
-          sqlite3.sqlite3.open(installed, mode: sqlite3.OpenMode.readOnly);
+      final db = sqlite3.sqlite3.open(
+        installed,
+        mode: sqlite3.OpenMode.readOnly,
+      );
       final rows = db.select("SELECT value FROM db_meta WHERE key = 'version'");
       db.close();
       expect(rows.first.values.first, '42');
@@ -277,10 +313,14 @@ void main() {
         },
       });
 
-      final report =
-          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
-      expect(report.outcomes[CompanionAsset.catalog],
-          CompanionInstallOutcome.alreadyUpToDate);
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+      expect(
+        report.outcomes[CompanionAsset.catalog],
+        CompanionInstallOutcome.alreadyUpToDate,
+      );
     });
   });
 
@@ -294,9 +334,9 @@ void main() {
         archive.add(ArchiveFile.bytes('תלמוד בבלי/$name', bytes));
       }
       final tar = TarEncoder().encodeBytes(archive);
-      File(path).writeAsBytesSync(
-        compressWithZstd(bindings!, Uint8List.fromList(tar)),
-      );
+      File(
+        path,
+      ).writeAsBytesSync(compressWithZstd(bindings!, Uint8List.fromList(tar)));
     }
 
     test('מחולץ לתיקיית הספרייה, עם סימון הגרסה בסוף', () async {
@@ -304,10 +344,10 @@ void main() {
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
         return;
       }
-      writeTalmudArchive(
-        p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'),
-        ['ברכות.pdf', 'שבת.pdf'],
-      );
+      writeTalmudArchive(p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'), [
+        'ברכות.pdf',
+        'שבת.pdf',
+      ]);
       await writeManifest({
         'talmud': {
           'fileName': 'talmud_bavli_latest.tar.zst',
@@ -318,32 +358,36 @@ void main() {
         },
       });
 
-      final report =
-          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
-      expect(report.outcomes[CompanionAsset.talmud],
-          CompanionInstallOutcome.installed);
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+      expect(
+        report.outcomes[CompanionAsset.talmud],
+        CompanionInstallOutcome.installed,
+      );
 
       final talmudDir = p.join(libraryDir, 'תלמוד בבלי');
       expect(File(p.join(talmudDir, 'ברכות.pdf')).existsSync(), isTrue);
       expect(File(p.join(talmudDir, 'שבת.pdf')).existsSync(), isTrue);
       // הסימון נכתב עם ה-digest, כמו ב-`CompanionAssetsService`.
-      expect(
-        File(p.join(talmudDir, '.version')).readAsStringSync(),
-        'abc123',
-      );
+      expect(File(p.join(talmudDir, '.version')).readAsStringSync(), 'abc123');
       // אין שאריות של ה-tar הזמני.
       expect(
-        Directory(libraryDir)
-            .listSync()
-            .whereType<File>()
-            .map((f) => p.basename(f.path)),
+        Directory(
+          libraryDir,
+        ).listSync().whereType<File>().map((f) => p.basename(f.path)),
         isNot(contains('talmud_bavli_latest.tar.zst.tar')),
       );
 
-      final second =
-          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
-      expect(second.outcomes[CompanionAsset.talmud],
-          CompanionInstallOutcome.alreadyUpToDate);
+      final second = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+      expect(
+        second.outcomes[CompanionAsset.talmud],
+        CompanionInstallOutcome.alreadyUpToDate,
+      );
     });
 
     test('סימון "installing" שנשאר מהתקנה שנקטעה מפעיל התקנה מחדש', () async {
@@ -351,10 +395,9 @@ void main() {
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
         return;
       }
-      writeTalmudArchive(
-        p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'),
-        ['ברכות.pdf'],
-      );
+      writeTalmudArchive(p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'), [
+        'ברכות.pdf',
+      ]);
       await writeManifest({
         'talmud': {
           'fileName': 'talmud_bavli_latest.tar.zst',
@@ -365,14 +408,19 @@ void main() {
       });
       final talmudDir = Directory(p.join(libraryDir, 'תלמוד בבלי'));
       await talmudDir.create(recursive: true);
-      await File(p.join(talmudDir.path, '.version'))
-          .writeAsString('installing');
+      await File(
+        p.join(talmudDir.path, '.version'),
+      ).writeAsString('installing');
 
       expect(await pending(), {CompanionAsset.talmud});
-      final report =
-          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
-      expect(report.outcomes[CompanionAsset.talmud],
-          CompanionInstallOutcome.installed);
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+      expect(
+        report.outcomes[CompanionAsset.talmud],
+        CompanionInstallOutcome.installed,
+      );
     });
 
     /// רשומה בלי digest ובלי תג אינה נושאת מידע גרסה. ההתקנה כתבה עבורה סימון
@@ -382,10 +430,9 @@ void main() {
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
         return;
       }
-      writeTalmudArchive(
-        p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'),
-        ['ברכות.pdf'],
-      );
+      writeTalmudArchive(p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'), [
+        'ברכות.pdf',
+      ]);
       await writeManifest({
         'talmud': {
           'fileName': 'talmud_bavli_latest.tar.zst',
@@ -394,14 +441,22 @@ void main() {
         },
       });
 
-      final first =
-          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
-      expect(first.outcomes[CompanionAsset.talmud],
-          CompanionInstallOutcome.installed);
-      final second =
-          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
-      expect(second.outcomes[CompanionAsset.talmud],
-          CompanionInstallOutcome.alreadyUpToDate);
+      final first = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+      expect(
+        first.outcomes[CompanionAsset.talmud],
+        CompanionInstallOutcome.installed,
+      );
+      final second = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+      expect(
+        second.outcomes[CompanionAsset.talmud],
+        CompanionInstallOutcome.alreadyUpToDate,
+      );
       expect(await pending(), isEmpty);
     });
 
@@ -412,8 +467,9 @@ void main() {
       await talmudDir.create(recursive: true);
       await File(p.join(talmudDir.path, 'ברכות.pdf')).writeAsString('ישן');
       await File(p.join(talmudDir.path, '.version')).writeAsString('old');
-      await File(p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'))
-          .writeAsString('זה בכלל לא zstd');
+      await File(
+        p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'),
+      ).writeAsString('זה בכלל לא zstd');
       await writeManifest({
         'talmud': {
           'fileName': 'talmud_bavli_latest.tar.zst',
@@ -423,12 +479,18 @@ void main() {
         },
       });
 
-      final report =
-          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
-      expect(report.outcomes[CompanionAsset.talmud],
-          CompanionInstallOutcome.failed);
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
       expect(
-          File(p.join(talmudDir.path, 'ברכות.pdf')).readAsStringSync(), 'ישן');
+        report.outcomes[CompanionAsset.talmud],
+        CompanionInstallOutcome.failed,
+      );
+      expect(
+        File(p.join(talmudDir.path, 'ברכות.pdf')).readAsStringSync(),
+        'ישן',
+      );
       expect(
         File(p.join(talmudDir.path, '.version')).readAsStringSync(),
         'old',
@@ -443,10 +505,11 @@ void main() {
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
         return;
       }
-      writeTalmudArchive(
-        p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'),
-        ['ברכות.pdf', 'שבת.pdf', 'בבא בתרא.pdf'],
-      );
+      writeTalmudArchive(p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'), [
+        'ברכות.pdf',
+        'שבת.pdf',
+        'בבא בתרא.pdf',
+      ]);
       await writeManifest({
         'talmud': {
           'fileName': 'talmud_bavli_latest.tar.zst',
@@ -467,10 +530,14 @@ void main() {
       expect(File(p.join(talmudDir, '.version')).readAsStringSync(), 'abc123');
       expect(await pending(delivered), {CompanionAsset.talmud});
 
-      final repair =
-          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
-      expect(repair.outcomes[CompanionAsset.talmud],
-          CompanionInstallOutcome.installed);
+      final repair = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+      expect(
+        repair.outcomes[CompanionAsset.talmud],
+        CompanionInstallOutcome.installed,
+      );
       expect(await pending(delivered), isEmpty);
     });
 
@@ -482,10 +549,9 @@ void main() {
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
         return;
       }
-      writeTalmudArchive(
-        p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'),
-        ['ברכות.pdf'],
-      );
+      writeTalmudArchive(p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'), [
+        'ברכות.pdf',
+      ]);
       await writeManifest({
         'talmud': {
           'fileName': 'talmud_bavli_latest.tar.zst',
@@ -515,8 +581,9 @@ void main() {
 
       setUp(() async {
         // לא ארכיון אמיתי: הבדיקה הזו נוגעת רק בפרדיקט, ואינה מחלצת.
-        await File(p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'))
-            .writeAsBytes(Uint8List(archiveBytes));
+        await File(
+          p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'),
+        ).writeAsBytes(Uint8List(archiveBytes));
         await writeManifest({
           'talmud': {
             'fileName': 'talmud_bavli_latest.tar.zst',
@@ -530,15 +597,17 @@ void main() {
       Future<void> seedTalmudFolder(int bytes) async {
         final dir = Directory(p.join(libraryDir, 'תלמוד בבלי'));
         await dir.create(recursive: true);
-        await File(p.join(dir.path, 'בבא בתרא.pdf'))
-            .writeAsBytes(Uint8List(bytes));
+        await File(
+          p.join(dir.path, 'בבא בתרא.pdf'),
+        ).writeAsBytes(Uint8List(bytes));
         await File(p.join(dir.path, '.version')).writeAsString('abc123');
       }
 
       test('תוכן זעום מול ארכיון גדול חוזר להצעה', () async {
         await seedTalmudFolder(1024);
-        expect(await pending(const {CompanionAsset.talmud: 'abc123'}),
-            {CompanionAsset.talmud});
+        expect(await pending(const {CompanionAsset.talmud: 'abc123'}), {
+          CompanionAsset.talmud,
+        });
       });
 
       test('תוכן בסדר הגודל של הארכיון אינו מוצע', () async {
@@ -573,27 +642,35 @@ void main() {
         delivered: const {CompanionAsset.dictionary: 'v2'},
       );
 
-      expect(report.outcomes[CompanionAsset.dictionary],
-          CompanionInstallOutcome.alreadyUpToDate);
+      expect(
+        report.outcomes[CompanionAsset.dictionary],
+        CompanionInstallOutcome.alreadyUpToDate,
+      );
       expect(await target.readAsString(), 'NEW DICTIONARY');
       expect(await marker.readAsString(), 'v7');
     });
 
-    test('מראה שכבר נמסרה כאן אינה מוצעת שוב אחרי שאוצריא החליפה את הקובץ',
-        () async {
-      final report =
-          await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
-      expect(report.delivered[CompanionAsset.dictionary], 'v2');
-      final delivered = {CompanionAsset.dictionary: 'v2'};
+    test(
+      'מראה שכבר נמסרה כאן אינה מוצעת שוב אחרי שאוצריא החליפה את הקובץ',
+      () async {
+        final report = await installer.install(
+          mirrorDir: mirrorDir,
+          dbPath: dbPath,
+        );
+        expect(report.delivered[CompanionAsset.dictionary], 'v2');
+        final delivered = {CompanionAsset.dictionary: 'v2'};
 
-      // אוצריא הורידה מהרשת מילון אחר וכתבה סימון משלה.
-      await File(p.join(libraryDir, 'lexical.db.version')).writeAsString('v7');
+        // אוצריא הורידה מהרשת מילון אחר וכתבה סימון משלה.
+        await File(
+          p.join(libraryDir, 'lexical.db.version'),
+        ).writeAsString('v7');
 
-      // בלי הרשומה זו הייתה הצעה שחוזרת בכל פתיחה — ולחיצה עליה הייתה
-      // מורידה את המילון בחזרה ל-v2.
-      expect(await pending(), {CompanionAsset.dictionary});
-      expect(await pending(delivered), isEmpty);
-    });
+        // בלי הרשומה זו הייתה הצעה שחוזרת בכל פתיחה — ולחיצה עליה הייתה
+        // מורידה את המילון בחזרה ל-v2.
+        expect(await pending(), {CompanionAsset.dictionary});
+        expect(await pending(delivered), isEmpty);
+      },
+    );
 
     test('פריט שנמחק אחרי שנמסר כן חוזר להצעה', () async {
       await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
@@ -607,8 +684,10 @@ void main() {
         dbPath: dbPath,
         delivered: delivered,
       );
-      expect(report.outcomes[CompanionAsset.dictionary],
-          CompanionInstallOutcome.installed);
+      expect(
+        report.outcomes[CompanionAsset.dictionary],
+        CompanionInstallOutcome.installed,
+      );
     });
 
     test('מראה חדשה יותר מוצעת גם אחרי שנמסרה קודמת', () async {
@@ -672,12 +751,18 @@ void main() {
       'dictionary': {'fileName': 'lexical.db', 'size': 7, 'tag': 'v2'},
     });
 
-    final report =
-        await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
+    final report = await installer.install(
+      mirrorDir: mirrorDir,
+      dbPath: dbPath,
+    );
     expect(
-        report.outcomes[CompanionAsset.talmud], CompanionInstallOutcome.failed);
-    expect(report.outcomes[CompanionAsset.dictionary],
-        CompanionInstallOutcome.installed);
+      report.outcomes[CompanionAsset.talmud],
+      CompanionInstallOutcome.failed,
+    );
+    expect(
+      report.outcomes[CompanionAsset.dictionary],
+      CompanionInstallOutcome.installed,
+    );
     expect(File(p.join(libraryDir, 'lexical.db')).existsSync(), isTrue);
   });
 }

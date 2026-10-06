@@ -300,12 +300,7 @@ class HomeScreen extends StatelessWidget {
     if (!context.mounted) return;
     if (library.status != LibraryModuleStatus.updateAvailable) return;
 
-    final installsSemantic =
-        library.semanticPending && library.semanticConsentGranted;
     await library.update();
-    if (installsSemantic && !library.semanticPending && context.mounted) {
-      await _showSemanticInstalled(context);
-    }
     if (library.status == LibraryModuleStatus.upToDate) {
       UiSnack.showSuccess(t.libraryUpdatedSnack('${library.localVersion}'));
     }
@@ -374,11 +369,7 @@ class HomeScreen extends StatelessWidget {
     );
     if (!approved) return;
 
-    final installsSemantic = c.semanticPending && c.semanticConsentGranted;
     await c.update();
-    if (installsSemantic && !c.semanticPending && context.mounted) {
-      await _showSemanticInstalled(context);
-    }
     if (c.status == LibraryModuleStatus.upToDate) {
       UiSnack.showSuccess(
         AppL10n.strings.home.libraryUpdatedSnack('${c.localVersion}'),
@@ -389,14 +380,6 @@ class HomeScreen extends StatelessWidget {
   }
 
   // ── בדיקת עדכונים ברשת (צדדי) ────────────────────────────────────────────
-
-  Future<void> _showSemanticInstalled(BuildContext context) =>
-      showSingleActionDialog(
-        context: context,
-        title: context.strings.libraryDomain.companionSemanticName,
-        content: context.strings.libraryDomain.semanticStagedNotice,
-        confirmText: context.strings.common.close,
-      );
 
   Widget _onlineCheckCard(BuildContext context) {
     final theme = Theme.of(context);

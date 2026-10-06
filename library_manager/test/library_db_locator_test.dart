@@ -26,10 +26,10 @@ void main() {
     /// ה-OS הנדרס הוא macos, ולכן הנתיבים שהמאתר בונה הם POSIX — גם כשהבדיקה
     /// רצה ב-Windows. הציפיות למטה נבנות ב-[p.posix] מאותה סיבה.
     LibraryDbLocator locatorWithIsolatedDefaults() => LibraryDbLocator(
-          stateStore: stateStore,
-          operatingSystem: 'macos',
-          environment: {'HOME': p.posix.join(tempDir.path, 'home')},
-        );
+      stateStore: stateStore,
+      operatingSystem: 'macos',
+      environment: {'HOME': p.posix.join(tempDir.path, 'home')},
+    );
 
     test('returns null when neither custom nor default DB exists', () async {
       expect(await locatorWithIsolatedDefaults().resolveDbPath(), isNull);
@@ -51,35 +51,53 @@ void main() {
       expect(await locatorWithIsolatedDefaults().resolveDbPath(), defaultPath);
     });
 
-    test('prefers a saved custom path over the default when both could exist',
-        () async {
-      final customDbPath =
-          p.posix.join(tempDir.path, 'my-library', 'seforim.db');
-      await Directory(p.dirname(customDbPath)).create(recursive: true);
-      await File(customDbPath).writeAsString('fake db');
-      await stateStore.saveCustomDbPath(customDbPath);
+    test(
+      'prefers a saved custom path over the default when both could exist',
+      () async {
+        final customDbPath = p.posix.join(
+          tempDir.path,
+          'my-library',
+          'seforim.db',
+        );
+        await Directory(p.dirname(customDbPath)).create(recursive: true);
+        await File(customDbPath).writeAsString('fake db');
+        await stateStore.saveCustomDbPath(customDbPath);
 
-      expect(await locatorWithIsolatedDefaults().resolveDbPath(), customDbPath);
-    });
+        expect(
+          await locatorWithIsolatedDefaults().resolveDbPath(),
+          customDbPath,
+        );
+      },
+    );
 
     test('ignores a saved custom path that no longer exists on disk', () async {
       await stateStore.saveCustomDbPath(
-          p.posix.join(tempDir.path, 'missing', 'seforim.db'));
+        p.posix.join(tempDir.path, 'missing', 'seforim.db'),
+      );
 
       // אין גם default — אז התוצאה הצפויה היא null, לא הנתיב הישן.
       expect(await locatorWithIsolatedDefaults().resolveDbPath(), isNull);
     });
 
-    test('falls back to the system-wide macOS location order, not the reverse',
-        () async {
-      // רק המיקום הפר-משתמשי קיים → הוא זה שנבחר, לפני המערכתי.
-      final userPath = p.posix.join(tempDir.path, 'home', 'Library',
-          'Application Support', 'otzaria', 'books', 'seforim.db');
-      await Directory(p.dirname(userPath)).create(recursive: true);
-      await File(userPath).writeAsString('fake db');
+    test(
+      'falls back to the system-wide macOS location order, not the reverse',
+      () async {
+        // רק המיקום הפר-משתמשי קיים → הוא זה שנבחר, לפני המערכתי.
+        final userPath = p.posix.join(
+          tempDir.path,
+          'home',
+          'Library',
+          'Application Support',
+          'otzaria',
+          'books',
+          'seforim.db',
+        );
+        await Directory(p.dirname(userPath)).create(recursive: true);
+        await File(userPath).writeAsString('fake db');
 
-      expect(await locatorWithIsolatedDefaults().resolveDbPath(), userPath);
-    });
+        expect(await locatorWithIsolatedDefaults().resolveDbPath(), userPath);
+      },
+    );
   });
 
   /// הפער שהיה כאן: אוצריא מחזיקה את נתיב הספרייה **בהגדרות שלה**, ומשתמש
@@ -99,8 +117,13 @@ void main() {
       stateStore = LibraryStateStore(p.join(tempDir.path, 'state.json'));
       dataRoot = Platform.isWindows
           ? p.join(tempDir.path, 'Roaming', 'otzaria')
-          : p.join(tempDir.path, 'home', 'Library', 'Application Support',
-              'otzaria');
+          : p.join(
+              tempDir.path,
+              'home',
+              'Library',
+              'Application Support',
+              'otzaria',
+            );
       await Directory(dataRoot).create(recursive: true);
     });
 
@@ -121,14 +144,13 @@ void main() {
     }
 
     LibraryDbLocator locator({String? launchPath}) => LibraryDbLocator(
-          stateStore: stateStore,
-          operatingSystem: os,
-          environment: Platform.isWindows
-              ? {'APPDATA': p.join(tempDir.path, 'Roaming')}
-              : {'HOME': p.join(tempDir.path, 'home')},
-          otzariaLaunchPath:
-              launchPath == null ? null : (() async => launchPath),
-        );
+      stateStore: stateStore,
+      operatingSystem: os,
+      environment: Platform.isWindows
+          ? {'APPDATA': p.join(tempDir.path, 'Roaming')}
+          : {'HOME': p.join(tempDir.path, 'home')},
+      otzariaLaunchPath: launchPath == null ? null : (() async => launchPath),
+    );
 
     Future<String> createDb(String dir) async {
       await Directory(dir).create(recursive: true);
@@ -142,8 +164,11 @@ void main() {
       // גם בברירת המחדל יש מסד — ובכל זאת זה שבהגדרות הוא הנכון.
       await createDb(p.join(dataRoot, 'books'));
       await writeSettings({
-        OtzariaSettingsReader.keyLibraryPath:
-            p.join(tempDir.path, 'external', 'books'),
+        OtzariaSettingsReader.keyLibraryPath: p.join(
+          tempDir.path,
+          'external',
+          'books',
+        ),
       });
 
       expect(await locator().resolveDbPath(), moved);
@@ -160,14 +185,15 @@ void main() {
     });
 
     test(
-        'key-databases-path נקרא — ממנו דיווחי הטעויות מאתרים את user_state.db',
-        () async {
-      final dbs = p.join(tempDir.path, 'my-databases');
-      await writeSettings({OtzariaSettingsReader.keyDatabasesPath: dbs});
+      'key-databases-path נקרא — ממנו דיווחי הטעויות מאתרים את user_state.db',
+      () async {
+        final dbs = p.join(tempDir.path, 'my-databases');
+        await writeSettings({OtzariaSettingsReader.keyDatabasesPath: dbs});
 
-      final settings = await const OtzariaSettingsReader().read(dataRoot);
-      expect(settings?.databasesPath, dbs);
-    });
+        final settings = await const OtzariaSettingsReader().read(dataRoot);
+        expect(settings?.databasesPath, dbs);
+      },
+    );
 
     test('הגדרה שמצביעה על קובץ שאינו קיים נופלת לברירת המחדל', () async {
       final fallback = await createDb(p.join(dataRoot, 'books'));
@@ -189,8 +215,9 @@ void main() {
           ? installDir
           : p.join(launchPath, 'Contents', 'MacOS');
       await Directory(exeDir).create(recursive: true);
-      await File(p.join(exeDir, LibraryDbLocator.portableMarkerFileName))
-          .writeAsString('');
+      await File(
+        p.join(exeDir, LibraryDbLocator.portableMarkerFileName),
+      ).writeAsString('');
       dataRoot = p.join(exeDir, LibraryDbLocator.portableDataFolderName);
       await Directory(dataRoot).create(recursive: true);
 
@@ -214,10 +241,20 @@ void main() {
     setUp(() async {
       tempDir = await Directory.systemTemp.createTemp('db-locator-win-test-');
       stateStore = LibraryStateStore(p.join(tempDir.path, 'state.json'));
-      appDataDb = p.windows
-          .join(tempDir.path, 'Roaming', 'otzaria', 'books', 'seforim.db');
-      programDataDb = p.windows
-          .join(tempDir.path, 'ProgramData', 'otzaria', 'books', 'seforim.db');
+      appDataDb = p.windows.join(
+        tempDir.path,
+        'Roaming',
+        'otzaria',
+        'books',
+        'seforim.db',
+      );
+      programDataDb = p.windows.join(
+        tempDir.path,
+        'ProgramData',
+        'otzaria',
+        'books',
+        'seforim.db',
+      );
     });
 
     tearDown(() async {
@@ -225,13 +262,13 @@ void main() {
     });
 
     LibraryDbLocator locator() => LibraryDbLocator(
-          stateStore: stateStore,
-          operatingSystem: 'windows',
-          environment: {
-            'APPDATA': p.windows.join(tempDir.path, 'Roaming'),
-            'ProgramData': p.windows.join(tempDir.path, 'ProgramData'),
-          },
-        );
+      stateStore: stateStore,
+      operatingSystem: 'windows',
+      environment: {
+        'APPDATA': p.windows.join(tempDir.path, 'Roaming'),
+        'ProgramData': p.windows.join(tempDir.path, 'ProgramData'),
+      },
+    );
 
     Future<void> createDb(String path) async {
       await Directory(p.dirname(path)).create(recursive: true);
@@ -278,10 +315,12 @@ void main() {
         markTestSkipped('נתיבי Windows אמיתיים נדרשים לבדיקת קיום קובץ');
         return;
       }
-      if (File(p.windows.join(
-        LibraryDbLocator.legacyFallbackLibraryPath,
-        LibraryDbLocator.databaseFileName,
-      )).existsSync()) {
+      if (File(
+        p.windows.join(
+          LibraryDbLocator.legacyFallbackLibraryPath,
+          LibraryDbLocator.databaseFileName,
+        ),
+      ).existsSync()) {
         markTestSkipped('קיימת התקנה ישנה ב-C:\\אוצריא במכונה הזו');
         return;
       }
@@ -306,18 +345,27 @@ void main() {
     });
 
     LibraryDbLocator locator() => LibraryDbLocator(
-          stateStore: stateStore,
-          operatingSystem: 'macos',
-          environment: {'HOME': p.posix.join(tempDir.path, 'home')},
-        );
+      stateStore: stateStore,
+      operatingSystem: 'macos',
+      environment: {'HOME': p.posix.join(tempDir.path, 'home')},
+    );
 
-    String defaultDb() => p.posix.join(tempDir.path, 'home', 'Library',
-        'Application Support', 'otzaria', 'books', 'seforim.db');
+    String defaultDb() => p.posix.join(
+      tempDir.path,
+      'home',
+      'Library',
+      'Application Support',
+      'otzaria',
+      'books',
+      'seforim.db',
+    );
 
-    test('בלי כלום — מיקום ברירת המחדל של אוצריא, שעוד לא קיים על הדיסק',
-        () async {
-      expect(await locator().resolveInstallDbPath(), defaultDb());
-    });
+    test(
+      'בלי כלום — מיקום ברירת המחדל של אוצריא, שעוד לא קיים על הדיסק',
+      () async {
+        expect(await locator().resolveInstallDbPath(), defaultDb());
+      },
+    );
 
     test('בחירת המשתמש מנצחת — גם כשהקובץ עוד לא נוצר', () async {
       // בשונה מ-`resolveDbPath`: בהתקנה טרייה הנתיב שנבחר הוא **היעד**, ולכן
@@ -335,9 +383,11 @@ void main() {
       // לתיקייה שאינה קיימת במחשב הזה ונכשלת בשגיאת גישה.
       final state = File(p.join(tempDir.path, 'state.json'));
       await state.parent.create(recursive: true);
-      await state.writeAsString(jsonEncode({
-        'customDbPath': p.join(tempDir.path, 'other-user', 'seforim.db'),
-      }));
+      await state.writeAsString(
+        jsonEncode({
+          'customDbPath': p.join(tempDir.path, 'other-user', 'seforim.db'),
+        }),
+      );
 
       expect(await locator().resolveInstallDbPath(), defaultDb());
     });
@@ -383,33 +433,43 @@ void main() {
     });
 
     LibraryDbLocator locator() => LibraryDbLocator(
-          stateStore: LibraryStateStore(p.join(tempDir.path, 'state.json')),
-          operatingSystem: 'macos',
-          environment: {'HOME': p.posix.join(tempDir.path, 'home')},
-        );
+      stateStore: LibraryStateStore(p.join(tempDir.path, 'state.json')),
+      operatingSystem: 'macos',
+      environment: {'HOME': p.posix.join(tempDir.path, 'home')},
+    );
 
     test('ברירת המחדל של אוצריא מוכרת לה, ומיקום אחר לא', () async {
-      final defaultDb = p.posix.join(tempDir.path, 'home', 'Library',
-          'Application Support', 'otzaria', 'books', 'seforim.db');
+      final defaultDb = p.posix.join(
+        tempDir.path,
+        'home',
+        'Library',
+        'Application Support',
+        'otzaria',
+        'books',
+        'seforim.db',
+      );
 
       expect(await locator().isKnownToOtzaria(defaultDb), isTrue);
       expect(
-        await locator()
-            .isKnownToOtzaria(p.posix.join(tempDir.path, 'usb', 'seforim.db')),
+        await locator().isKnownToOtzaria(
+          p.posix.join(tempDir.path, 'usb', 'seforim.db'),
+        ),
         isFalse,
       );
     });
 
-    test('הגיבוי הישן בווינדוס נחשב מוכר — אוצריא ישנה עדיין יושבת שם',
-        () async {
-      final windows = LibraryDbLocator(
-        stateStore: LibraryStateStore(p.join(tempDir.path, 'state.json')),
-        operatingSystem: 'windows',
-        environment: const {r'APPDATA': r'C:\Users\dov\AppData\Roaming'},
-      );
+    test(
+      'הגיבוי הישן בווינדוס נחשב מוכר — אוצריא ישנה עדיין יושבת שם',
+      () async {
+        final windows = LibraryDbLocator(
+          stateStore: LibraryStateStore(p.join(tempDir.path, 'state.json')),
+          operatingSystem: 'windows',
+          environment: const {r'APPDATA': r'C:\Users\dov\AppData\Roaming'},
+        );
 
-      expect(await windows.isKnownToOtzaria(r'C:\אוצריא\seforim.db'), isTrue);
-    });
+        expect(await windows.isKnownToOtzaria(r'C:\אוצריא\seforim.db'), isTrue);
+      },
+    );
   });
 
   group('LibraryDbLocator.defaultDbDirs', () {
@@ -486,19 +546,21 @@ void main() {
       );
     });
 
-    test('הגיבוי C:\\אוצריא אינו חלק מברירות המחדל — הוא נבדק אחרון ובנפרד',
-        () {
-      // הוא מיקום גיבוי להתקנות ישנות בלבד; ערבובו בברירות המחדל היה מחזיר
-      // אותו לפני `%APPDATA%`, שהוא המיקום האמיתי.
-      expect(LibraryDbLocator.legacyFallbackLibraryPath, r'C:\אוצריא');
-      expect(
-        LibraryDbLocator.defaultDbDirs(
-          operatingSystem: 'windows',
-          environment: const {'APPDATA': r'C:\a', 'ProgramData': r'C:\b'},
-        ),
-        isNot(contains(LibraryDbLocator.legacyFallbackLibraryPath)),
-      );
-    });
+    test(
+      'הגיבוי C:\\אוצריא אינו חלק מברירות המחדל — הוא נבדק אחרון ובנפרד',
+      () {
+        // הוא מיקום גיבוי להתקנות ישנות בלבד; ערבובו בברירות המחדל היה מחזיר
+        // אותו לפני `%APPDATA%`, שהוא המיקום האמיתי.
+        expect(LibraryDbLocator.legacyFallbackLibraryPath, r'C:\אוצריא');
+        expect(
+          LibraryDbLocator.defaultDbDirs(
+            operatingSystem: 'windows',
+            environment: const {'APPDATA': r'C:\a', 'ProgramData': r'C:\b'},
+          ),
+          isNot(contains(LibraryDbLocator.legacyFallbackLibraryPath)),
+        );
+      },
+    );
 
     test('linux: מיקום ה-XDG, כדי שבדיקות CI לא יקבלו רשימה ריקה', () {
       expect(
@@ -564,18 +626,19 @@ void main() {
 
     test('משתני סביבה חסרים לא מייצרים שורש שבור', () async {
       expect(
-        await locatorFor('windows', const {'APPDATA': '', 'ProgramData': ''})
-            .otzariaDataRoots(null),
+        await locatorFor('windows', const {
+          'APPDATA': '',
+          'ProgramData': '',
+        }).otzariaDataRoots(null),
         isEmpty,
       );
     });
 
     test('פלטפורמה לא מוכרת כן מנסה את XDG — בשונה מ-defaultDbDirs', () async {
       const env = {'HOME': '/home/dov'};
-      expect(
-        await locatorFor('fuchsia', env).otzariaDataRoots(null),
-        ['/home/dov/.local/share/otzaria'],
-      );
+      expect(await locatorFor('fuchsia', env).otzariaDataRoots(null), [
+        '/home/dov/.local/share/otzaria',
+      ]);
       expect(
         LibraryDbLocator.defaultDbDirs(
           operatingSystem: 'fuchsia',
@@ -587,8 +650,9 @@ void main() {
 
     test('linux: מיקום ה-XDG', () async {
       expect(
-        await locatorFor('linux', const {'HOME': '/home/dov'})
-            .otzariaDataRoots(null),
+        await locatorFor('linux', const {
+          'HOME': '/home/dov',
+        }).otzariaDataRoots(null),
         ['/home/dov/.local/share/otzaria'],
       );
     });
@@ -609,16 +673,18 @@ void main() {
 
       test('בלי APPDATA מחזיר null — ולא נופל ל-ProgramData', () async {
         expect(
-          await locatorFor('windows', const {'ProgramData': r'C:\ProgramData'})
-              .otzariaSettingsRoot(null),
+          await locatorFor('windows', const {
+            'ProgramData': r'C:\ProgramData',
+          }).otzariaSettingsRoot(null),
           isNull,
         );
       });
 
       test('macOS: השורש של המשתמש, לא /Library המערכתי', () async {
         expect(
-          await locatorFor('macos', const {'HOME': '/Users/dov'})
-              .otzariaSettingsRoot(null),
+          await locatorFor('macos', const {
+            'HOME': '/Users/dov',
+          }).otzariaSettingsRoot(null),
           '/Users/dov/Library/Application Support/otzaria',
         );
         expect(
@@ -648,8 +714,9 @@ void main() {
       }
       final installDir = p.join(tempDir.path, 'drive');
       await Directory(installDir).create(recursive: true);
-      await File(p.join(installDir, LibraryDbLocator.portableMarkerFileName))
-          .writeAsString('');
+      await File(
+        p.join(installDir, LibraryDbLocator.portableMarkerFileName),
+      ).writeAsString('');
 
       final locator = LibraryDbLocator(
         stateStore: LibraryStateStore(p.join(tempDir.path, 'state.json')),
@@ -678,14 +745,14 @@ void main() {
     });
 
     LibraryDbLocator locator({String? programFiles}) => LibraryDbLocator(
-          stateStore: LibraryStateStore(p.join(tempDir.path, 'state.json')),
-          operatingSystem: 'windows',
-          environment: {
-            'APPDATA': p.join(tempDir.path, 'Roaming'),
-            'ProgramData': p.join(tempDir.path, 'ProgramData'),
-            if (programFiles != null) 'ProgramFiles': programFiles,
-          },
-        );
+      stateStore: LibraryStateStore(p.join(tempDir.path, 'state.json')),
+      operatingSystem: 'windows',
+      environment: {
+        'APPDATA': p.join(tempDir.path, 'Roaming'),
+        'ProgramData': p.join(tempDir.path, 'ProgramData'),
+        if (programFiles != null) 'ProgramFiles': programFiles,
+      },
+    );
 
     /// `true` בווינדוס בלבד — בשאר הפלטפורמות ה-`p.windows` שבמאתר לא יתאים
     /// לנתיבי ה-tempDir, וקיום הקבצים ייבדק על נתיב מעורבב.

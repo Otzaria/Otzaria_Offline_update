@@ -2140,6 +2140,10 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get companionSemanticName => 'החיפוש החכם';
   @override
+  String get semanticDownloading => 'מוריד את קובצי החיפוש החכם';
+  @override
+  String get semanticInstalling => 'מתקין את החיפוש החכם';
+  @override
   String get semanticConsentTitle => 'שיפור המנגנון';
   @override
   String get semanticConsentText =>
@@ -2176,9 +2180,6 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get semanticConsentRequired =>
       'קובצי החיפוש החכם נמצאים בכונן. לפני התקנתם יש לאשר איסוף נתוני אימון. אפשר לאשר כאן כשאוצריא סגורה, או להפעיל את ההסכמה בהגדרות אוצריא ולבדוק שוב.';
-  @override
-  String get semanticStagedNotice =>
-      'קובצי החיפוש החכם הועתקו למחשב. פתחו באוצריא את החיפוש החכם והפעילו את התקנת המאגר; הקבצים ייטענו מקומית ללא הורדה מהאינטרנט.';
   @override
   String companionChecking(String name) => 'בודק $name...';
   @override

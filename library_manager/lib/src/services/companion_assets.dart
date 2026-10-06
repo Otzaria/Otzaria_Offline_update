@@ -35,13 +35,13 @@ class CompanionMirrorEntry {
   String? get versionMarker => sha256 ?? tag;
 
   Map<String, dynamic> toJson() => {
-        'fileName': fileName,
-        'size': size,
-        if (tag != null) 'tag': tag,
-        if (sha256 != null) 'sha256': sha256,
-        if (version != null) 'version': version,
-        if (compressed) 'compressed': true,
-      };
+    'fileName': fileName,
+    'size': size,
+    if (tag != null) 'tag': tag,
+    if (sha256 != null) 'sha256': sha256,
+    if (version != null) 'version': version,
+    if (compressed) 'compressed': true,
+  };
 
   factory CompanionMirrorEntry.fromJson(Map<String, dynamic> json) {
     return CompanionMirrorEntry(
@@ -68,10 +68,10 @@ class CompanionMirrorManifest {
   bool get isEmpty => entries.isEmpty;
 
   Map<String, dynamic> toJson() => {
-        'formatVersion': formatVersion,
-        'exportedAt': (exportedAt ?? DateTime.now()).toIso8601String(),
-        for (final e in entries.entries) e.key.name: e.value.toJson(),
-      };
+    'formatVersion': formatVersion,
+    'exportedAt': (exportedAt ?? DateTime.now()).toIso8601String(),
+    for (final e in entries.entries) e.key.name: e.value.toJson(),
+  };
 
   factory CompanionMirrorManifest.fromJson(Map<String, dynamic> json) {
     final entries = <CompanionAsset, CompanionMirrorEntry>{};

@@ -14,6 +14,9 @@ class OtzariaSettings {
     this.databasesPath,
     this.searchFeedbackConsent,
     this.searchFeedbackConsentVersion,
+    this.semanticDataEnabled,
+    this.semanticDownloadPaused,
+    this.semanticModelQuantization,
   });
 
   final String? libraryPath;
@@ -25,6 +28,15 @@ class OtzariaSettings {
 
   final String? searchFeedbackConsent;
   final int? searchFeedbackConsentVersion;
+  final bool? semanticDataEnabled;
+  final bool? semanticDownloadPaused;
+  final String? semanticModelQuantization;
+
+  bool get semanticSearchReadyPreferences =>
+      semanticDataEnabled == true &&
+      semanticDownloadPaused != true &&
+      (semanticModelQuantization == null ||
+          semanticModelQuantization == 'int8');
 
   bool get searchFeedbackGranted =>
       searchFeedbackConsent == 'granted' &&
@@ -37,8 +49,10 @@ class OtzariaSettings {
   /// נתיב ה-`seforim.db` לפי ההגדרות — תרגום מדויק של
   /// `DatabaseConstants.getDatabasePath` באוצריא: דריסת ה-Android מנצחת,
   /// ואחרת `<libraryPath>/<folderName>/seforim.db` (בלי `folderName` כשהוא ריק).
-  String? resolveDbPath(
-      {required p.Context path, String fileName = 'seforim.db'}) {
+  String? resolveDbPath({
+    required p.Context path,
+    String fileName = 'seforim.db',
+  }) {
     final effective = dbEffectivePath;
     if (effective != null && effective.isNotEmpty) return effective;
 
@@ -72,6 +86,11 @@ class OtzariaSettingsReader {
   static const String keySearchFeedbackConsent = 'key-search-feedback-consent';
   static const String keySearchFeedbackConsentVersion =
       'key-search-feedback-consent-version';
+  static const String keySemanticDataEnabled = 'key-semantic-data-enabled';
+  static const String keySemanticDownloadPaused =
+      'key-semantic-download-paused';
+  static const String keySemanticModelQuantization =
+      'key-semantic-model-quantization';
 
   /// Hive מזהה קופסה פתוחה לפי **שם בלבד** ומתעלם מה-`path` — שתי קריאות
   /// מקבילות על שורשי נתונים שונים היו מקבלות את אותה קופסה, כלומר את
@@ -111,12 +130,22 @@ class OtzariaSettingsReader {
           libraryFolderName: _stringOrNull(box.get(keyLibraryFolderName)),
           dbEffectivePath: _stringOrNull(box.get(keyDbEffectivePath)),
           databasesPath: _stringOrNull(box.get(keyDatabasesPath)),
-          searchFeedbackConsent:
-              _stringOrNull(box.get(keySearchFeedbackConsent)),
+          searchFeedbackConsent: _stringOrNull(
+            box.get(keySearchFeedbackConsent),
+          ),
           searchFeedbackConsentVersion:
               box.get(keySearchFeedbackConsentVersion) is int
-                  ? box.get(keySearchFeedbackConsentVersion) as int
-                  : null,
+              ? box.get(keySearchFeedbackConsentVersion) as int
+              : null,
+          semanticDataEnabled: box.get(keySemanticDataEnabled) is bool
+              ? box.get(keySemanticDataEnabled) as bool
+              : null,
+          semanticDownloadPaused: box.get(keySemanticDownloadPaused) is bool
+              ? box.get(keySemanticDownloadPaused) as bool
+              : null,
+          semanticModelQuantization: _stringOrNull(
+            box.get(keySemanticModelQuantization),
+          ),
         );
       } finally {
         await box.close();

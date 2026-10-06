@@ -253,8 +253,9 @@ class CompanionAssetsInstaller {
   ) {
     switch (asset) {
       case CompanionAsset.talmud:
-        final marker =
-            File(p.join(libraryDir, talmudFolderName, talmudVersionFileName));
+        final marker = File(
+          p.join(libraryDir, talmudFolderName, talmudVersionFileName),
+        );
         if (!marker.existsSync()) return false;
         final installed = marker.readAsStringSync().trim();
         if (installed == talmudInstallingMarker) return false;
@@ -517,12 +518,14 @@ class CompanionAssetsInstaller {
   void _stampCatalogVersion(String path, int version) {
     final db = sqlite3.sqlite3.open(path);
     try {
-      db.execute('CREATE TABLE IF NOT EXISTS db_meta '
-          '(key TEXT PRIMARY KEY, value TEXT NOT NULL)');
       db.execute(
-        'INSERT OR REPLACE INTO db_meta (key, value) VALUES (?, ?)',
-        ['version', '$version'],
+        'CREATE TABLE IF NOT EXISTS db_meta '
+        '(key TEXT PRIMARY KEY, value TEXT NOT NULL)',
       );
+      db.execute('INSERT OR REPLACE INTO db_meta (key, value) VALUES (?, ?)', [
+        'version',
+        '$version',
+      ]);
     } finally {
       db.close();
     }

@@ -50,10 +50,11 @@ class OtzariaProcessGuard {
   }
 
   Future<bool> _isRunningWindows(String processImageName) async {
-    final result = await Process.run(
-      'tasklist',
-      ['/FI', 'IMAGENAME eq $processImageName', '/NH'],
-    );
+    final result = await Process.run('tasklist', [
+      '/FI',
+      'IMAGENAME eq $processImageName',
+      '/NH',
+    ]);
 
     if (result.exitCode != 0) {
       // אם tasklist עצמו נכשל (נדיר), עדיף להניח "כן רץ" ולחסום, ולא

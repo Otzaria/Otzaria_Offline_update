@@ -26,8 +26,8 @@ class LibraryDbLocator {
     this.otzariaLaunchPath,
     String? operatingSystem,
     Map<String, String>? environment,
-  })  : _operatingSystemOverride = operatingSystem,
-        _environmentOverride = environment;
+  }) : _operatingSystemOverride = operatingSystem,
+       _environmentOverride = environment;
 
   final LibraryStateStore stateStore;
 
@@ -145,14 +145,20 @@ class LibraryDbLocator {
         addUnder(user, environment['APPDATA'], const ['otzaria']);
         addUnder(system, environment['ProgramData'], const ['otzaria']);
       case 'macos':
-        addUnder(user, environment['HOME'],
-            const ['Library', 'Application Support', 'otzaria']);
+        addUnder(user, environment['HOME'], const [
+          'Library',
+          'Application Support',
+          'otzaria',
+        ]);
         system.add(path.join('/Library', 'Application Support', 'otzaria'));
       default:
         // הלאנצ'ר לא נבנה ללינוקס, אבל הבדיקות רצות שם ב-CI.
         if (operatingSystem == 'linux' || guessUnknownPlatform) {
-          addUnder(
-              user, environment['HOME'], const ['.local', 'share', 'otzaria']);
+          addUnder(user, environment['HOME'], const [
+            '.local',
+            'share',
+            'otzaria',
+          ]);
         }
     }
 
@@ -178,11 +184,13 @@ class LibraryDbLocator {
     final portable = await portableDataRoot(launchPath);
     if (portable != null) roots.add(portable);
 
-    roots.addAll(_platformDataRoots(
-      operatingSystem: _operatingSystem,
-      environment: _environment,
-      guessUnknownPlatform: true,
-    ));
+    roots.addAll(
+      _platformDataRoots(
+        operatingSystem: _operatingSystem,
+        environment: _environment,
+        guessUnknownPlatform: true,
+      ),
+    );
     return roots;
   }
 
@@ -291,9 +299,14 @@ class LibraryDbLocator {
     final exeDir = exeDirFor(launchPath);
     if (exeDir != null &&
         await File(_path.join(exeDir, portableMarkerFileName)).exists()) {
-      paths.add(_path.joinAll(
-        [exeDir, portableDataFolderName, 'books', databaseFileName],
-      ));
+      paths.add(
+        _path.joinAll([
+          exeDir,
+          portableDataFolderName,
+          'books',
+          databaseFileName,
+        ]),
+      );
     }
 
     for (final dir in defaultDbDirs(

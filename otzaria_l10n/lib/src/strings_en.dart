@@ -2294,6 +2294,10 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get companionSemanticName => 'Smart search';
   @override
+  String get semanticDownloading => 'Downloading smart search files';
+  @override
+  String get semanticInstalling => 'Installing smart search';
+  @override
   String get semanticConsentTitle => 'Help Improve the Engine';
   @override
   String get semanticConsentText =>
@@ -2331,9 +2335,6 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get semanticConsentRequired =>
       'Smart search files are on the drive. Installing them requires consent to collect training data. You can agree here while Otzaria is closed, or enable consent in Otzaria settings and check again.';
-  @override
-  String get semanticStagedNotice =>
-      'Smart search files were copied to this computer. Open smart search in Otzaria and start installing its database; the files will be loaded locally without an internet download.';
   @override
   String companionChecking(String name) => 'Checking $name…';
   @override

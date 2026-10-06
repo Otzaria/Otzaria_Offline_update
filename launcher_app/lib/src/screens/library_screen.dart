@@ -305,16 +305,7 @@ class LibraryScreen extends StatelessWidget {
     );
     if (!approved) return;
 
-    final installsSemantic = c.semanticPending && c.semanticConsentGranted;
     await c.update();
-    if (installsSemantic && !c.semanticPending && context.mounted) {
-      await showSingleActionDialog(
-        context: context,
-        title: context.strings.libraryDomain.companionSemanticName,
-        content: context.strings.libraryDomain.semanticStagedNotice,
-        confirmText: context.strings.common.close,
-      );
-    }
     if (c.status == LibraryModuleStatus.upToDate) {
       UiSnack.showSuccess(
         AppL10n.strings.home.libraryUpdatedSnack('${c.localVersion}'),

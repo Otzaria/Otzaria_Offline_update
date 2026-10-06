@@ -81,33 +81,37 @@ void main() {
       expect(back.$4, AppLanguage.english);
     });
 
-    test('בקרה שלילית: סוגר שתופס אובייקט שאינו ניתן לשליחה אכן נכשל',
-        () async {
-      // מוכיח שהבדיקה שלמעלה באמת מבחינה: סוגר שגורר איתו אובייקט לא-sendable
-      // (כאן ReceivePort) זורק בדיוק את השגיאה שהפילה את המנגנון בעבר.
-      final port = ReceivePort();
-      await expectLater(
-        Isolate.run(() => port.hashCode),
-        throwsArgumentError,
-      );
-      port.close();
-    });
+    test(
+      'בקרה שלילית: סוגר שתופס אובייקט שאינו ניתן לשליחה אכן נכשל',
+      () async {
+        // מוכיח שהבדיקה שלמעלה באמת מבחינה: סוגר שגורר איתו אובייקט לא-sendable
+        // (כאן ReceivePort) זורק בדיוק את השגיאה שהפילה את המנגנון בעבר.
+        final port = ReceivePort();
+        await expectLater(
+          Isolate.run(() => port.hashCode),
+          throwsArgumentError,
+        );
+        port.close();
+      },
+    );
 
-    test('Isolate.run אינו יורש את AppL10n — חייבים להעביר שפה ולהפעילה',
-        () async {
-      AppL10n.use(AppLanguage.english);
+    test(
+      'Isolate.run אינו יורש את AppL10n — חייבים להעביר שפה ולהפעילה',
+      () async {
+        AppL10n.use(AppLanguage.english);
 
-      // בלי העברה מפורשת ההודעה שנוצרת בתוך ה-isolate חוזרת לעברית.
-      expect(
-        await _mirrorMissingInIsolate(null),
-        AppL10n.stringsFor(AppLanguage.hebrew).libraryDomain.mirrorMissing,
-      );
-      // עם `AppL10n.use(language)` בראש הפונקציה — התרגום הנכון.
-      expect(
-        await _mirrorMissingInIsolate(AppLanguage.english),
-        AppL10n.stringsFor(AppLanguage.english).libraryDomain.mirrorMissing,
-      );
-    });
+        // בלי העברה מפורשת ההודעה שנוצרת בתוך ה-isolate חוזרת לעברית.
+        expect(
+          await _mirrorMissingInIsolate(null),
+          AppL10n.stringsFor(AppLanguage.hebrew).libraryDomain.mirrorMissing,
+        );
+        // עם `AppL10n.use(language)` בראש הפונקציה — התרגום הנכון.
+        expect(
+          await _mirrorMissingInIsolate(AppLanguage.english),
+          AppL10n.stringsFor(AppLanguage.english).libraryDomain.mirrorMissing,
+        );
+      },
+    );
   });
 
   group('חסימה כשאוצריא רצה', () {
@@ -248,65 +252,67 @@ void main() {
       );
     });
 
-    test('מחלץ לקובץ צדדי ומחליף ב-rename — ה-DB הישן שלם עד הרגע האחרון',
-        () async {
-      if (bindings == null) {
-        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
-        return;
-      }
+    test(
+      'מחלץ לקובץ צדדי ומחליף ב-rename — ה-DB הישן שלם עד הרגע האחרון',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
 
-      // 3MB — מספיק כדי שהחילוץ יעבור כמה סבבי חוצץ, כלומר מסלול הזרימה
-      // האמיתי ולא one-shot בזיכרון.
-      final payload = pseudoRandomBytes(3 * 1024 * 1024);
-      final compressedPath = writeCompressed('seforim.db.zst', payload);
-      File(dbPath).writeAsStringSync('OLD DB');
-      // שאריות של אוצריא שקרסה — חייבות להיעלם יחד עם ה-DB הישן.
-      File('$dbPath-wal').writeAsStringSync('wal');
-      File('$dbPath-shm').writeAsStringSync('shm');
+        // 3MB — מספיק כדי שהחילוץ יעבור כמה סבבי חוצץ, כלומר מסלול הזרימה
+        // האמיתי ולא one-shot בזיכרון.
+        final payload = pseudoRandomBytes(3 * 1024 * 1024);
+        final compressedPath = writeCompressed('seforim.db.zst', payload);
+        File(dbPath).writeAsStringSync('OLD DB');
+        // שאריות של אוצריא שקרסה — חייבות להיעלם יחד עם ה-DB הישן.
+        File('$dbPath-wal').writeAsStringSync('wal');
+        File('$dbPath-shm').writeAsStringSync('shm');
 
-      final stages = <LibraryApplyStage>[];
-      var stagedFileLength = -1;
-      var dbStillOldWhileStaging = false;
-      await applier.applyFullDownload(
-        plan: fullPlanFor(compressedPath),
-        dbPath: dbPath,
-        onProgress: (progress) {
-          // שלב ההורדה מדווח פר-צ'אנק; מעניין כאן רק סדר השלבים.
-          if (stages.isEmpty || stages.last != progress.stage) {
-            stages.add(progress.stage);
-          }
-          if (progress.stage == LibraryApplyStage.writingFullDb) {
-            // ברגע הזה החילוץ כבר הסתיים אל `<db>.new`, וה-DB הישן עדיין
-            // במקומו — זה מה שהופך את ההחלפה ל-rename ולא לכתיבה על החי.
-            stagedFileLength = File('$dbPath.new').lengthSync();
-            dbStillOldWhileStaging =
-                File(dbPath).readAsStringSync() == 'OLD DB';
-          }
-        },
-      );
+        final stages = <LibraryApplyStage>[];
+        var stagedFileLength = -1;
+        var dbStillOldWhileStaging = false;
+        await applier.applyFullDownload(
+          plan: fullPlanFor(compressedPath),
+          dbPath: dbPath,
+          onProgress: (progress) {
+            // שלב ההורדה מדווח פר-צ'אנק; מעניין כאן רק סדר השלבים.
+            if (stages.isEmpty || stages.last != progress.stage) {
+              stages.add(progress.stage);
+            }
+            if (progress.stage == LibraryApplyStage.writingFullDb) {
+              // ברגע הזה החילוץ כבר הסתיים אל `<db>.new`, וה-DB הישן עדיין
+              // במקומו — זה מה שהופך את ההחלפה ל-rename ולא לכתיבה על החי.
+              stagedFileLength = File('$dbPath.new').lengthSync();
+              dbStillOldWhileStaging =
+                  File(dbPath).readAsStringSync() == 'OLD DB';
+            }
+          },
+        );
 
-      expect(stagedFileLength, payload.length);
-      expect(dbStillOldWhileStaging, isTrue);
-      expect(File(dbPath).readAsBytesSync(), payload);
-      // האימות קודם לכתיבה — מסד פגום נעצר בעוד ה-DB החי שלם, כמו באוצריא.
-      // אין שלב הורדה: המקור מקומי, ומחלצים ממנו ישירות בלי להעתיקו.
-      expect(stages, [
-        LibraryApplyStage.decompressingFullDb,
-        LibraryApplyStage.verifying,
-        LibraryApplyStage.writingFullDb,
-        LibraryApplyStage.done,
-      ]);
+        expect(stagedFileLength, payload.length);
+        expect(dbStillOldWhileStaging, isTrue);
+        expect(File(dbPath).readAsBytesSync(), payload);
+        // האימות קודם לכתיבה — מסד פגום נעצר בעוד ה-DB החי שלם, כמו באוצריא.
+        // אין שלב הורדה: המקור מקומי, ומחלצים ממנו ישירות בלי להעתיקו.
+        expect(stages, [
+          LibraryApplyStage.decompressingFullDb,
+          LibraryApplyStage.verifying,
+          LibraryApplyStage.writingFullDb,
+          LibraryApplyStage.done,
+        ]);
 
-      // המראה עצמה אינה נמחקת — היא הכונן שממנו יתקינו גם במחשב הבא.
-      expect(File(compressedPath).existsSync(), isTrue);
-      // אין שאריות: לא הקובץ הדחוס, לא הצדדי, לא גיבוי/סימון, ולא wal/shm.
-      expect(File('$dbPath.new').existsSync(), isFalse);
-      expect(File('$dbPath.download.zst').existsSync(), isFalse);
-      expect(File('$dbPath.backup').existsSync(), isFalse);
-      expect(File('$dbPath.applying').existsSync(), isFalse);
-      expect(File('$dbPath-wal').existsSync(), isFalse);
-      expect(File('$dbPath-shm').existsSync(), isFalse);
-    });
+        // המראה עצמה אינה נמחקת — היא הכונן שממנו יתקינו גם במחשב הבא.
+        expect(File(compressedPath).existsSync(), isTrue);
+        // אין שאריות: לא הקובץ הדחוס, לא הצדדי, לא גיבוי/סימון, ולא wal/shm.
+        expect(File('$dbPath.new').existsSync(), isFalse);
+        expect(File('$dbPath.download.zst').existsSync(), isFalse);
+        expect(File('$dbPath.backup').existsSync(), isFalse);
+        expect(File('$dbPath.applying').existsSync(), isFalse);
+        expect(File('$dbPath-wal').existsSync(), isFalse);
+        expect(File('$dbPath-shm').existsSync(), isFalse);
+      },
+    );
 
     test('התקנה טרייה: יוצר את התיקייה וכותב DB חדש בלי גיבוי', () async {
       if (bindings == null) {
@@ -329,29 +335,31 @@ void main() {
       expect(File('$freshDbPath.applying').existsSync(), isFalse);
     });
 
-    test('שאריות `<db>.new` מריצה שקרסה נדרסות במקום להיכתב לתוך ה-DB',
-        () async {
-      if (bindings == null) {
-        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
-        return;
-      }
+    test(
+      'שאריות `<db>.new` מריצה שקרסה נדרסות במקום להיכתב לתוך ה-DB',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
 
-      final payload = pseudoRandomBytes(128 * 1024);
-      final compressedPath = writeCompressed('seforim.db.zst', payload);
-      File(dbPath).writeAsStringSync('OLD DB');
-      // בדיוק מה שנשאר אחרי קריסה באמצע apply קודם.
-      File('$dbPath.new').writeAsStringSync('חצי מסד מריצה שקרסה');
-      File('$dbPath.download.zst').writeAsStringSync('הורדה חלקית');
+        final payload = pseudoRandomBytes(128 * 1024);
+        final compressedPath = writeCompressed('seforim.db.zst', payload);
+        File(dbPath).writeAsStringSync('OLD DB');
+        // בדיוק מה שנשאר אחרי קריסה באמצע apply קודם.
+        File('$dbPath.new').writeAsStringSync('חצי מסד מריצה שקרסה');
+        File('$dbPath.download.zst').writeAsStringSync('הורדה חלקית');
 
-      await applier.applyFullDownload(
-        plan: fullPlanFor(compressedPath),
-        dbPath: dbPath,
-      );
+        await applier.applyFullDownload(
+          plan: fullPlanFor(compressedPath),
+          dbPath: dbPath,
+        );
 
-      expect(File(dbPath).readAsBytesSync(), payload);
-      expect(File('$dbPath.new').existsSync(), isFalse);
-      expect(File('$dbPath.download.zst').existsSync(), isFalse);
-    });
+        expect(File(dbPath).readAsBytesSync(), payload);
+        expect(File('$dbPath.new').existsSync(), isFalse);
+        expect(File('$dbPath.download.zst').existsSync(), isFalse);
+      },
+    );
 
     // אין גיבוי בשום שלב — גם לא באמצע ההחלה, כשה-DB הישן עוד קיים.
     test('החלפת DB קיים אינה יוצרת עותק גיבוי בשום שלב', () async {
@@ -381,13 +389,15 @@ void main() {
     test('קובץ דחוס פגום: זורק ומנקה את שני הקבצים הזמניים', () async {
       final compressedPath = p.join(tempDir.path, 'corrupt.db.zst');
       // ראש frame תקין של zstd ואחריו זבל — עובר את בדיקת הגודל ונופל בחילוץ.
-      File(compressedPath).writeAsBytesSync(Uint8List.fromList([
-        0x28,
-        0xB5,
-        0x2F,
-        0xFD,
-        ...List<int>.filled(64, 0x5A),
-      ]));
+      File(compressedPath).writeAsBytesSync(
+        Uint8List.fromList([
+          0x28,
+          0xB5,
+          0x2F,
+          0xFD,
+          ...List<int>.filled(64, 0x5A),
+        ]),
+      );
       File(dbPath).writeAsStringSync('OLD DB');
 
       await expectLater(
@@ -395,10 +405,9 @@ void main() {
           plan: fullPlanFor(compressedPath),
           dbPath: dbPath,
         ),
-        throwsA(anyOf(
-          isA<ZstdStreamException>(),
-          isA<LibraryApplyException>(),
-        )),
+        throwsA(
+          anyOf(isA<ZstdStreamException>(), isA<LibraryApplyException>()),
+        ),
       );
 
       expect(File(dbPath).readAsStringSync(), 'OLD DB');
@@ -418,16 +427,15 @@ void main() {
       final first = pseudoRandomBytes(16 * 1024);
       final second = pseudoRandomBytes(8 * 1024);
       final compressedPath = p.join(tempDir.path, 'multi.db.zst');
-      File(compressedPath).writeAsBytesSync(Uint8List.fromList([
-        ...compressWithZstd(bindings, first),
-        ...compressWithZstd(bindings, second),
-      ]));
+      File(compressedPath).writeAsBytesSync(
+        Uint8List.fromList([
+          ...compressWithZstd(bindings, first),
+          ...compressWithZstd(bindings, second),
+        ]),
+      );
 
       // ההצהרה היא של ה-frame הראשון בלבד — קטנה מהתוכן שייכתב בפועל.
-      expect(
-        ZstdFileDecompressor.contentSizeOf(compressedPath),
-        first.length,
-      );
+      expect(ZstdFileDecompressor.contentSizeOf(compressedPath), first.length);
 
       await applier.applyFullDownload(
         plan: fullPlanFor(compressedPath),
@@ -546,8 +554,10 @@ void main() {
         return;
       }
 
-      final compressedPath =
-          writeCompressed('seforim.db.zst', pseudoRandomBytes(4096));
+      final compressedPath = writeCompressed(
+        'seforim.db.zst',
+        pseudoRandomBytes(4096),
+      );
       File(dbPath).writeAsStringSync('OLD DB');
 
       await expectLater(
@@ -594,8 +604,10 @@ void main() {
         processGuard: const _FakeGuard(false),
         verifyExtractedDb: _fakeVerifier(4),
       );
-      final compressedPath =
-          writeCompressed('seforim.db.zst', pseudoRandomBytes(64 * 1024));
+      final compressedPath = writeCompressed(
+        'seforim.db.zst',
+        pseudoRandomBytes(64 * 1024),
+      );
       File(dbPath).writeAsStringSync('OLD DB');
 
       await expectLater(
@@ -683,8 +695,10 @@ void main() {
         return;
       }
 
-      final compressedPath =
-          writeCompressed('seforim.db.zst', pseudoRandomBytes(64 * 1024));
+      final compressedPath = writeCompressed(
+        'seforim.db.zst',
+        pseudoRandomBytes(64 * 1024),
+      );
       File(dbPath).writeAsStringSync('OLD DB');
 
       await expectLater(
@@ -736,12 +750,17 @@ void main() {
     const recovery = LibraryDbRecoveryService();
     const hasher = LogicalContentHasher();
 
-    String buildDb(String path,
-        {required int version, required List<List> rows}) {
+    String buildDb(
+      String path, {
+      required int version,
+      required List<List> rows,
+    }) {
       final db = sqlite3.sqlite3.open(path);
       db.execute('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT)');
-      db.execute("INSERT INTO schema_meta VALUES ('db_version','$version'),"
-          "('db_schema_version','2')");
+      db.execute(
+        "INSERT INTO schema_meta VALUES ('db_version','$version'),"
+        "('db_schema_version','2')",
+      );
       db.execute('CREATE TABLE source (id INTEGER PRIMARY KEY, name TEXT)');
       for (final row in rows) {
         db.execute('INSERT INTO source VALUES (?,?)', [row[0], row[1]]);
@@ -780,15 +799,20 @@ void main() {
       final raw = p.join(tempDir.path, 'patch_${from}_${to}_${edgeSeq++}.db');
       final db = sqlite3.sqlite3.open(raw);
       db.execute('CREATE TABLE patch_meta (key TEXT PRIMARY KEY, value TEXT)');
-      db.execute("INSERT INTO patch_meta VALUES ('schema_version','2'),"
-          "('from_version','$from'),('to_version','$to')");
       db.execute(
-          'CREATE TABLE migrations (version INTEGER PRIMARY KEY, sql TEXT)');
+        "INSERT INTO patch_meta VALUES ('schema_version','2'),"
+        "('from_version','$from'),('to_version','$to')",
+      );
       db.execute(
-          'CREATE TABLE upsert_schema_meta (key TEXT PRIMARY KEY, value TEXT)');
+        'CREATE TABLE migrations (version INTEGER PRIMARY KEY, sql TEXT)',
+      );
+      db.execute(
+        'CREATE TABLE upsert_schema_meta (key TEXT PRIMARY KEY, value TEXT)',
+      );
       db.execute("INSERT INTO upsert_schema_meta VALUES ('db_version','$to')");
       db.execute(
-          'CREATE TABLE upsert_source (id INTEGER PRIMARY KEY, name TEXT)');
+        'CREATE TABLE upsert_source (id INTEGER PRIMARY KEY, name TEXT)',
+      );
       for (final row in upsertRows) {
         db.execute('INSERT INTO upsert_source VALUES (?,?)', [row[0], row[1]]);
       }
@@ -826,18 +850,30 @@ void main() {
 
     /// שלושת מצבי ה-DB בשרשרת 1→2→3, וה-hashes שלהם.
     ({String h1, String h2, String h3}) buildChainHashes() {
-      final v1 = buildDb(p.join(tempDir.path, 'expect1.db'), version: 1, rows: [
-        [1, 'aleph'],
-      ]);
-      final v2 = buildDb(p.join(tempDir.path, 'expect2.db'), version: 2, rows: [
-        [1, 'aleph'],
-        [2, 'bet'],
-      ]);
-      final v3 = buildDb(p.join(tempDir.path, 'expect3.db'), version: 3, rows: [
-        [1, 'aleph'],
-        [2, 'bet'],
-        [3, 'gimel'],
-      ]);
+      final v1 = buildDb(
+        p.join(tempDir.path, 'expect1.db'),
+        version: 1,
+        rows: [
+          [1, 'aleph'],
+        ],
+      );
+      final v2 = buildDb(
+        p.join(tempDir.path, 'expect2.db'),
+        version: 2,
+        rows: [
+          [1, 'aleph'],
+          [2, 'bet'],
+        ],
+      );
+      final v3 = buildDb(
+        p.join(tempDir.path, 'expect3.db'),
+        version: 3,
+        rows: [
+          [1, 'aleph'],
+          [2, 'bet'],
+          [3, 'gimel'],
+        ],
+      );
       return (h1: hashOf(v1), h2: hashOf(v2), h3: hashOf(v3));
     }
 
@@ -854,9 +890,13 @@ void main() {
 
     setUp(() {
       if (bindings == null) return;
-      buildDb(dbPath, version: 1, rows: [
-        [1, 'aleph'],
-      ]);
+      buildDb(
+        dbPath,
+        version: 1,
+        rows: [
+          [1, 'aleph'],
+        ],
+      );
     });
 
     test('שני צעדים → verifyToHash רק באחרון, והמסד מגיע ליעד', () async {
@@ -873,21 +913,23 @@ void main() {
           targetVersion: 3,
           steps: [
             buildEdge(
-                from: 1,
-                to: 2,
-                upsertRows: [
-                  [2, 'bet']
-                ],
-                fromHash: h.h1,
-                toHash: h.h2),
+              from: 1,
+              to: 2,
+              upsertRows: [
+                [2, 'bet'],
+              ],
+              fromHash: h.h1,
+              toHash: h.h2,
+            ),
             buildEdge(
-                from: 2,
-                to: 3,
-                upsertRows: [
-                  [3, 'gimel']
-                ],
-                fromHash: h.h2,
-                toHash: h.h3),
+              from: 2,
+              to: 3,
+              upsertRows: [
+                [3, 'gimel'],
+              ],
+              fromHash: h.h2,
+              toHash: h.h3,
+            ),
           ],
         ),
         dbPath: dbPath,
@@ -895,10 +937,16 @@ void main() {
       );
 
       final stages = stagesRecorder(log);
-      expect(stages[1], isNot(contains('verifyToHash')),
-          reason: 'הצעד הראשון אינו מאמת');
-      expect(stages[2], contains('verifyToHash'),
-          reason: 'הצעד האחרון כן מאמת');
+      expect(
+        stages[1],
+        isNot(contains('verifyToHash')),
+        reason: 'הצעד הראשון אינו מאמת',
+      );
+      expect(
+        stages[2],
+        contains('verifyToHash'),
+        reason: 'הצעד האחרון כן מאמת',
+      );
       expect(stages[1], isNot(contains('verifyFromHash')));
 
       // ה-hash של הצעד האחרון תואם ⇒ כל השרשרת נכונה.
@@ -919,21 +967,23 @@ void main() {
             targetVersion: 3,
             steps: [
               buildEdge(
-                  from: 1,
-                  to: 2,
-                  upsertRows: [
-                    [2, 'bet']
-                  ],
-                  fromHash: h.h1,
-                  toHash: h.h2),
+                from: 1,
+                to: 2,
+                upsertRows: [
+                  [2, 'bet'],
+                ],
+                fromHash: h.h1,
+                toHash: h.h2,
+              ),
               buildEdge(
-                  from: 2,
-                  to: 3,
-                  upsertRows: [
-                    [3, 'gimel']
-                  ],
-                  fromHash: h.h2,
-                  toHash: h.h3),
+                from: 2,
+                to: 3,
+                upsertRows: [
+                  [3, 'gimel'],
+                ],
+                fromHash: h.h2,
+                toHash: h.h3,
+              ),
             ],
           ),
           dbPath: dbPath,
@@ -960,21 +1010,23 @@ void main() {
             targetVersion: 3,
             steps: [
               buildEdge(
-                  from: 1,
-                  to: 2,
-                  upsertRows: [
-                    [2, 'bet']
-                  ],
-                  fromHash: h.h1,
-                  toHash: h.h2),
+                from: 1,
+                to: 2,
+                upsertRows: [
+                  [2, 'bet'],
+                ],
+                fromHash: h.h1,
+                toHash: h.h2,
+              ),
               buildEdge(
-                  from: 2,
-                  to: 3,
-                  upsertRows: [
-                    [3, 'gimel']
-                  ],
-                  fromHash: h.h2,
-                  toHash: h.h3),
+                from: 2,
+                to: 3,
+                upsertRows: [
+                  [3, 'gimel'],
+                ],
+                fromHash: h.h2,
+                toHash: h.h3,
+              ),
             ],
           ),
           dbPath: dbPath,
@@ -998,13 +1050,14 @@ void main() {
           targetVersion: 2,
           steps: [
             buildEdge(
-                from: 1,
-                to: 2,
-                upsertRows: [
-                  [2, 'bet']
-                ],
-                fromHash: h.h1,
-                toHash: h.h2)
+              from: 1,
+              to: 2,
+              upsertRows: [
+                [2, 'bet'],
+              ],
+              fromHash: h.h1,
+              toHash: h.h2,
+            ),
           ],
         ),
         dbPath: dbPath,
@@ -1028,13 +1081,14 @@ void main() {
           targetVersion: 2,
           steps: [
             buildEdge(
-                from: 1,
-                to: 2,
-                upsertRows: [
-                  [2, 'bet']
-                ],
-                fromHash: h.h1,
-                toHash: h.h2)
+              from: 1,
+              to: 2,
+              upsertRows: [
+                [2, 'bet'],
+              ],
+              fromHash: h.h1,
+              toHash: h.h2,
+            ),
           ],
         ),
         dbPath: dbPath,
@@ -1058,13 +1112,14 @@ void main() {
           targetVersion: 2,
           steps: [
             buildEdge(
-                from: 1,
-                to: 2,
-                upsertRows: [
-                  [2, 'bet']
-                ],
-                fromHash: h.h1,
-                toHash: h.h2),
+              from: 1,
+              to: 2,
+              upsertRows: [
+                [2, 'bet'],
+              ],
+              fromHash: h.h1,
+              toHash: h.h2,
+            ),
           ],
         ),
         dbPath: dbPath,
@@ -1075,208 +1130,231 @@ void main() {
       expect(recovery.unverifiedVersion(dbPath), isNull);
     });
 
-    test('שרשרת שנקטעה מסמנת את המסד כלא-מאומת, וההחלה הבאה מאמתת אותו',
-        () async {
-      if (bindings == null) {
-        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
-        return;
-      }
-      final h = buildChainHashes();
+    test(
+      'שרשרת שנקטעה מסמנת את המסד כלא-מאומת, וההחלה הבאה מאמתת אותו',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        final h = buildChainHashes();
 
-      // הצעד השני מצביע על קובץ שאינו קיים — הראשון מוחל, השני נכשל.
-      await expectLater(
-        applier.applyDelta(
-          plan: LibraryUpdatePlan.delta(
-            localVersion: 1,
-            targetVersion: 3,
-            steps: [
-              buildEdge(
+        // הצעד השני מצביע על קובץ שאינו קיים — הראשון מוחל, השני נכשל.
+        await expectLater(
+          applier.applyDelta(
+            plan: LibraryUpdatePlan.delta(
+              localVersion: 1,
+              targetVersion: 3,
+              steps: [
+                buildEdge(
                   from: 1,
                   to: 2,
                   upsertRows: [
-                    [2, 'bet']
+                    [2, 'bet'],
                   ],
                   fromHash: h.h1,
-                  toHash: h.h2),
-              buildEdge(
-                from: 2,
-                to: 3,
-                upsertRows: [
-                  [3, 'gimel']
-                ],
-                fromHash: h.h2,
-                toHash: h.h3,
-                urlOverride: p.join(tempDir.path, 'missing.db.zst'),
-              ),
-            ],
+                  toHash: h.h2,
+                ),
+                buildEdge(
+                  from: 2,
+                  to: 3,
+                  upsertRows: [
+                    [3, 'gimel'],
+                  ],
+                  fromHash: h.h2,
+                  toHash: h.h3,
+                  urlOverride: p.join(tempDir.path, 'missing.db.zst'),
+                ),
+              ],
+            ),
+            dbPath: dbPath,
           ),
-          dbPath: dbPath,
-        ),
-        throwsA(anything),
-      );
+          throwsA(anything),
+        );
 
-      // הצעד הראשון הוחל אך לא אומת — וזה מתועד.
-      expect(recovery.unverifiedVersion(dbPath), 2);
+        // הצעד הראשון הוחל אך לא אומת — וזה מתועד.
+        expect(recovery.unverifiedVersion(dbPath), 2);
 
-      // ההחלה הבאה מתחילה מאותה גרסה ⇒ מאמתת את המסד לפני שהיא בונה עליו.
-      final log = <LibraryApplyProgress>[];
-      await applier.applyDelta(
-        plan: LibraryUpdatePlan.delta(
-          localVersion: 2,
-          targetVersion: 3,
-          steps: [
-            buildEdge(
-                from: 2,
-                to: 3,
-                upsertRows: [
-                  [3, 'gimel']
-                ],
-                fromHash: h.h2,
-                toHash: h.h3),
-          ],
-        ),
-        dbPath: dbPath,
-        onProgress: log.add,
-      );
-
-      expect(stagesRecorder(log)[1], contains('verifyFromHash'));
-      expect(hashOf(dbPath), h.h3);
-      expect(recovery.unverifiedVersion(dbPath), isNull);
-    });
-
-    test('מסד שסומן כלא-מאומת ותוכנו שגוי נדחה לפני שממשיכים לבנות עליו',
-        () async {
-      if (bindings == null) {
-        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
-        return;
-      }
-      final h = buildChainHashes();
-
-      // מסד בגרסה 2, אבל עם תוכן שאינו מה ש-h2 מתאר — בדיוק המצב שהסימון
-      // קיים בשבילו. בלי `verifyFromHash` היינו בונים עליו בשקט.
-      buildDb(p.join(tempDir.path, 'tampered.db'), version: 2, rows: [
-        [1, 'aleph'],
-        [2, 'WRONG'],
-      ]);
-      File(p.join(tempDir.path, 'tampered.db')).copySync(dbPath);
-      recovery.markUnverified(dbPath, 2);
-
-      await expectLater(
-        applier.applyDelta(
+        // ההחלה הבאה מתחילה מאותה גרסה ⇒ מאמתת את המסד לפני שהיא בונה עליו.
+        final log = <LibraryApplyProgress>[];
+        await applier.applyDelta(
           plan: LibraryUpdatePlan.delta(
             localVersion: 2,
             targetVersion: 3,
             steps: [
               buildEdge(
-                  from: 2,
-                  to: 3,
-                  upsertRows: [
-                    [3, 'gimel']
-                  ],
-                  fromHash: h.h2,
-                  toHash: h.h3),
-            ],
-          ),
-          dbPath: dbPath,
-        ),
-        throwsA(isA<PatchApplyException>().having(
-          (e) => e.message,
-          'message',
-          AppL10n.strings.libraryDomain.contentHashMismatchNeedsFullDownload,
-        )),
-      );
-    });
-
-    // הדיווח פר-צעד הוא מה שמאפשר לקורא לרשום שרשרת שנקטעה באמצע לפי הגרסה
-    // שהושגה בפועל. בלעדיו נרשמה גרסת המסד המלא, והמסד היה בגרסה אחרת.
-    test('onStepApplied מדווח על כל צעד שהוחל, לפי סדרו ועם הגרסה שהושגה',
-        () async {
-      if (bindings == null) {
-        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
-        return;
-      }
-      final h = buildChainHashes();
-      final reported = <(Set<int>, int)>[];
-
-      final booksTouched = await applier.applyDelta(
-        plan: LibraryUpdatePlan.delta(
-          localVersion: 1,
-          targetVersion: 3,
-          steps: [
-            buildEdge(
-                from: 1,
-                to: 2,
-                upsertRows: [
-                  [2, 'bet']
-                ],
-                fromHash: h.h1,
-                toHash: h.h2),
-            buildEdge(
                 from: 2,
                 to: 3,
                 upsertRows: [
-                  [3, 'gimel']
+                  [3, 'gimel'],
                 ],
                 fromHash: h.h2,
-                toHash: h.h3),
+                toHash: h.h3,
+              ),
+            ],
+          ),
+          dbPath: dbPath,
+          onProgress: log.add,
+        );
+
+        expect(stagesRecorder(log)[1], contains('verifyFromHash'));
+        expect(hashOf(dbPath), h.h3);
+        expect(recovery.unverifiedVersion(dbPath), isNull);
+      },
+    );
+
+    test(
+      'מסד שסומן כלא-מאומת ותוכנו שגוי נדחה לפני שממשיכים לבנות עליו',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        final h = buildChainHashes();
+
+        // מסד בגרסה 2, אבל עם תוכן שאינו מה ש-h2 מתאר — בדיוק המצב שהסימון
+        // קיים בשבילו. בלי `verifyFromHash` היינו בונים עליו בשקט.
+        buildDb(
+          p.join(tempDir.path, 'tampered.db'),
+          version: 2,
+          rows: [
+            [1, 'aleph'],
+            [2, 'WRONG'],
           ],
-        ),
-        dbPath: dbPath,
-        onStepApplied: (books, version) => reported.add((books, version)),
-      );
+        );
+        File(p.join(tempDir.path, 'tampered.db')).copySync(dbPath);
+        recovery.markUnverified(dbPath, 2);
 
-      // צעד אחד = דיווח אחד, בסדר השרשרת, עם הגרסה שאותו צעד הגיע אליה.
-      expect(reported.map((r) => r.$2).toList(), [2, 3]);
-      // מה שהקורא מצטבר מהדיווחים הוא בדיוק מה שההחלה מחזירה בסופה.
-      expect(reported.expand((r) => r.$1).toSet(), booksTouched);
-    });
+        await expectLater(
+          applier.applyDelta(
+            plan: LibraryUpdatePlan.delta(
+              localVersion: 2,
+              targetVersion: 3,
+              steps: [
+                buildEdge(
+                  from: 2,
+                  to: 3,
+                  upsertRows: [
+                    [3, 'gimel'],
+                  ],
+                  fromHash: h.h2,
+                  toHash: h.h3,
+                ),
+              ],
+            ),
+            dbPath: dbPath,
+          ),
+          throwsA(
+            isA<PatchApplyException>().having(
+              (e) => e.message,
+              'message',
+              AppL10n
+                  .strings
+                  .libraryDomain
+                  .contentHashMismatchNeedsFullDownload,
+            ),
+          ),
+        );
+      },
+    );
 
-    test('צעד שנכשל אינו מדווח — הדיווח האחרון הוא הגרסה שהמסד הגיע אליה',
-        () async {
-      if (bindings == null) {
-        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
-        return;
-      }
-      final h = buildChainHashes();
-      final reported = <(Set<int>, int)>[];
+    // הדיווח פר-צעד הוא מה שמאפשר לקורא לרשום שרשרת שנקטעה באמצע לפי הגרסה
+    // שהושגה בפועל. בלעדיו נרשמה גרסת המסד המלא, והמסד היה בגרסה אחרת.
+    test(
+      'onStepApplied מדווח על כל צעד שהוחל, לפי סדרו ועם הגרסה שהושגה',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        final h = buildChainHashes();
+        final reported = <(Set<int>, int)>[];
 
-      await expectLater(
-        applier.applyDelta(
+        final booksTouched = await applier.applyDelta(
           plan: LibraryUpdatePlan.delta(
             localVersion: 1,
             targetVersion: 3,
             steps: [
               buildEdge(
-                  from: 1,
-                  to: 2,
-                  upsertRows: [
-                    [2, 'bet']
-                  ],
-                  fromHash: h.h1,
-                  toHash: h.h2),
-              // בדיוק v26 של SeforimLibrary: סכמת יעד שהמחיל אינו יודע להחיל.
+                from: 1,
+                to: 2,
+                upsertRows: [
+                  [2, 'bet'],
+                ],
+                fromHash: h.h1,
+                toHash: h.h2,
+              ),
               buildEdge(
                 from: 2,
                 to: 3,
                 upsertRows: [
-                  [3, 'gimel']
+                  [3, 'gimel'],
                 ],
                 fromHash: h.h2,
                 toHash: h.h3,
-                toSchemaVersion: 6,
               ),
             ],
           ),
           dbPath: dbPath,
           onStepApplied: (books, version) => reported.add((books, version)),
-        ),
-        throwsA(isA<PatchApplyException>()),
-      );
+        );
 
-      // הצעד הראשון דווח, הנכשל לא — ולכן 2 היא הגרסה שמותר לרשום.
-      expect(reported.map((r) => r.$2).toList(), [2]);
-      expect(recovery.unverifiedVersion(dbPath), 2);
-    });
+        // צעד אחד = דיווח אחד, בסדר השרשרת, עם הגרסה שאותו צעד הגיע אליה.
+        expect(reported.map((r) => r.$2).toList(), [2, 3]);
+        // מה שהקורא מצטבר מהדיווחים הוא בדיוק מה שההחלה מחזירה בסופה.
+        expect(reported.expand((r) => r.$1).toSet(), booksTouched);
+      },
+    );
+
+    test(
+      'צעד שנכשל אינו מדווח — הדיווח האחרון הוא הגרסה שהמסד הגיע אליה',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        final h = buildChainHashes();
+        final reported = <(Set<int>, int)>[];
+
+        await expectLater(
+          applier.applyDelta(
+            plan: LibraryUpdatePlan.delta(
+              localVersion: 1,
+              targetVersion: 3,
+              steps: [
+                buildEdge(
+                  from: 1,
+                  to: 2,
+                  upsertRows: [
+                    [2, 'bet'],
+                  ],
+                  fromHash: h.h1,
+                  toHash: h.h2,
+                ),
+                // בדיוק v26 של SeforimLibrary: סכמת יעד שהמחיל אינו יודע להחיל.
+                buildEdge(
+                  from: 2,
+                  to: 3,
+                  upsertRows: [
+                    [3, 'gimel'],
+                  ],
+                  fromHash: h.h2,
+                  toHash: h.h3,
+                  toSchemaVersion: 6,
+                ),
+              ],
+            ),
+            dbPath: dbPath,
+            onStepApplied: (books, version) => reported.add((books, version)),
+          ),
+          throwsA(isA<PatchApplyException>()),
+        );
+
+        // הצעד הראשון דווח, הנכשל לא — ולכן 2 היא הגרסה שמותר לרשום.
+        expect(reported.map((r) => r.$2).toList(), [2]);
+        expect(recovery.unverifiedVersion(dbPath), 2);
+      },
+    );
   });
 }
 
@@ -1291,8 +1369,7 @@ Future<(String, String, DeltaManifest, AppLanguage)> _roundTripThroughIsolate(
 
 (String, String, DeltaManifest, AppLanguage) _echo(
   (String, String, DeltaManifest, AppLanguage) args,
-) =>
-    args;
+) => args;
 
 /// קורא מחרוזת מתורגמת בתוך isolate, עם או בלי הצבת השפה בכניסה.
 Future<String> _mirrorMissingInIsolate(AppLanguage? language) {
@@ -1305,33 +1382,33 @@ String _readMirrorMissing(AppLanguage? language) {
 }
 
 DeltaManifest _manifest() => const DeltaManifest(
-      fromVersion: 4,
-      toVersion: 5,
-      fromSchemaVersion: 1,
-      toSchemaVersion: 1,
-      fromContentHash:
-          '0000000000000000000000000000000000000000000000000000000000000001',
-      toContentHash:
-          '0000000000000000000000000000000000000000000000000000000000000002',
-      patchFiles: [
-        PatchFileEntry(
-          file: 'patch-v4-v5.db.zst',
-          compression: 'zstd',
-          sha256:
-              '0000000000000000000000000000000000000000000000000000000000000003',
-          size: 128,
-          uncompressedSha256:
-              '0000000000000000000000000000000000000000000000000000000000000004',
-          uncompressedSize: 512,
-        ),
-      ],
-    );
+  fromVersion: 4,
+  toVersion: 5,
+  fromSchemaVersion: 1,
+  toSchemaVersion: 1,
+  fromContentHash:
+      '0000000000000000000000000000000000000000000000000000000000000001',
+  toContentHash:
+      '0000000000000000000000000000000000000000000000000000000000000002',
+  patchFiles: [
+    PatchFileEntry(
+      file: 'patch-v4-v5.db.zst',
+      compression: 'zstd',
+      sha256:
+          '0000000000000000000000000000000000000000000000000000000000000003',
+      size: 128,
+      uncompressedSha256:
+          '0000000000000000000000000000000000000000000000000000000000000004',
+      uncompressedSize: 512,
+    ),
+  ],
+);
 
 PatchEdge _edge() => PatchEdge(
-      manifest: _manifest(),
-      patchFileUrls: const {'patch-v4-v5.db.zst': 'patch-v4-v5.db.zst'},
-      manifestUrl: 'manifest.json',
-    );
+  manifest: _manifest(),
+  patchFileUrls: const {'patch-v4-v5.db.zst': 'patch-v4-v5.db.zst'},
+  manifestUrl: 'manifest.json',
+);
 
 /// גרסת "אוצריא רצה?" קבועה — הבדיקה לא אמורה להיות תלויה במה שפתוח על
 /// מכונת המפתח.
@@ -1357,8 +1434,10 @@ ExtractedDbVerifier _fakeVerifier(int version) {
     onStage?.call('dbIntegrity');
     if (expectedVersion != null && version != expectedVersion) {
       throw LibraryApplyException(
-        AppL10n.strings.libraryDomain
-            .versionMismatchAfterWrite(version, expectedVersion),
+        AppL10n.strings.libraryDomain.versionMismatchAfterWrite(
+          version,
+          expectedVersion,
+        ),
       );
     }
   };

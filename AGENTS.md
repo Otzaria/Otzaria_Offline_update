@@ -712,6 +712,13 @@ convention and hide it from a Mac user.
 
 ### 5.4 Updating the library (the offline machine)
 
+**Smart search must be installed into Otzaria's active model and vector set.**
+Staging in `semantic-import` left a manual install step (2026-10-06).
+The model goes beside the DB; the vector root is `dirname(key-library-path)`,
+which differs from the DB's parent when a library folder name is set.
+`SemanticSearchAssets`, `LibraryManager.resolveSemanticVectorsRoot`, and
+`OtzariaSettingsWriter.finishSemanticInstall` install and enable the data.
+
 **The offline machine picks the fastest route it has, and that route can be the full
 database.** `LibraryUpdatePlanner` used to take the delta chain whenever it reached
 at least as high as the full route — but by then both assets sit on the drive, so
@@ -1743,7 +1750,7 @@ verify something new.
 | Two-channel download (stable + newer pre-release, chosen offline) | Unit-tested only. Not verified what `fetchChannelReleases` returns against the real repo today, nor whether both installers fit comfortably on a typical drive |
 | Companion assets (mirror against the three real repos, installer into a real library folder) | Unit-tested only |
 | `OtzariaSettingsReader` against a real `app_preferences.hive` | Unit-tested only |
-| Smart search and training feedback | Unit- and widget-tested, including staging with the real pinned model files. Never imported by a real Otzaria install, carried on a USB trip, or uploaded to the production feedback endpoint. See `library_manager/README.md` and `error_reports_manager/README.md` |
+| Smart search and training feedback | Unit- and widget-tested; active native-engine installation verification is documented in `library_manager/README.md`. Never exercised in a real Otzaria install, carried on a USB trip, or uploaded to the production feedback endpoint. See `error_reports_manager/README.md` |
 | Combined first install (app wizard → auto-close → library), replacing the FULL package | Unit-tested only — the dialogs and the ordering are covered, but never run against a real wizard on a machine with no Otzaria, and the auto-close path has not been seen working. `otzaria.iss` was read to confirm `/NOLAUNCH=1` cannot clear the finish-page box |
 | Custom title bar (`window_manager` with the native frame hidden) | Unit-tested only, on either platform |
 | Error reports (§5.10) | Unit- and widget-tested only — against a DB built with Otzaria's schema and vectors from Otzaria's own code; never against a real installation's `user_state.db`, nor the real `otzaria.org` endpoint |

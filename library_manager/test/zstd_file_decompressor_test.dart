@@ -39,8 +39,9 @@ void main() {
       final original = pseudoRandomBytes(8 * 1024 * 1024);
       final compressedPath = '${tmp.path}/data.zst';
       final destPath = '${tmp.path}/data.bin';
-      File(compressedPath)
-          .writeAsBytesSync(compressWithZstd(bindings, original));
+      File(
+        compressedPath,
+      ).writeAsBytesSync(compressWithZstd(bindings, original));
 
       expect(
         await ZstdFileDecompressor.decompressFileToFile(
@@ -142,27 +143,32 @@ void main() {
       );
     });
 
-    test('frame תקין שתוכנו ריק מפיק קובץ באורך אפס — הקורא הוא שדוחה אותו',
-        () async {
-      if (bindings == null) {
-        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
-        return;
-      }
+    test(
+      'frame תקין שתוכנו ריק מפיק קובץ באורך אפס — הקורא הוא שדוחה אותו',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
 
-      // חשוב להבחנה: זה לא "קובץ ריק" (אין קלט) אלא frame תקין בלי תוכן.
-      // `LibraryUpdateApplier` הוא שבודק אורך-אפס וזורק fullDbExtractionFailed.
-      final compressedPath = '${tmp.path}/empty-frame.zst';
-      final destPath = '${tmp.path}/out.bin';
-      File(compressedPath)
-          .writeAsBytesSync(compressWithZstd(bindings, Uint8List(0)));
+        // חשוב להבחנה: זה לא "קובץ ריק" (אין קלט) אלא frame תקין בלי תוכן.
+        // `LibraryUpdateApplier` הוא שבודק אורך-אפס וזורק fullDbExtractionFailed.
+        final compressedPath = '${tmp.path}/empty-frame.zst';
+        final destPath = '${tmp.path}/out.bin';
+        File(
+          compressedPath,
+        ).writeAsBytesSync(compressWithZstd(bindings, Uint8List(0)));
 
-      expect(
-        await ZstdFileDecompressor.decompressFileToFile(
-            compressedPath, destPath),
-        isTrue,
-      );
-      expect(File(destPath).lengthSync(), 0);
-    });
+        expect(
+          await ZstdFileDecompressor.decompressFileToFile(
+            compressedPath,
+            destPath,
+          ),
+          isTrue,
+        );
+        expect(File(destPath).lengthSync(), 0);
+      },
+    );
 
     test('מקור שאינו קיים זורק ולא מחזיר false בשקט', () async {
       if (bindings == null) {
@@ -181,30 +187,36 @@ void main() {
       );
     });
 
-    test('הודעות השגיאה מגיעות מ-otzaria_l10n בשפה שהועברה ל-isolate',
-        () async {
-      if (bindings == null) {
-        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
-        return;
-      }
+    test(
+      'הודעות השגיאה מגיעות מ-otzaria_l10n בשפה שהועברה ל-isolate',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
 
-      // הבדיקה האמיתית של ה-landmine: `AppL10n` הוא סטטי פר-isolate, ולכן
-      // בלי העברת השפה פנימה ההודעה הייתה יוצאת בעברית גם בממשק באנגלית.
-      AppL10n.use(AppLanguage.english);
-      final emptyPath = '${tmp.path}/empty.zst';
-      File(emptyPath).writeAsBytesSync(Uint8List(0));
+        // הבדיקה האמיתית של ה-landmine: `AppL10n` הוא סטטי פר-isolate, ולכן
+        // בלי העברת השפה פנימה ההודעה הייתה יוצאת בעברית גם בממשק באנגלית.
+        AppL10n.use(AppLanguage.english);
+        final emptyPath = '${tmp.path}/empty.zst';
+        File(emptyPath).writeAsBytesSync(Uint8List(0));
 
-      await expectLater(
-        ZstdFileDecompressor.decompressFileToFile(
-          emptyPath,
-          '${tmp.path}/out.bin',
-        ),
-        throwsA(isA<ZstdStreamException>().having(
-          (e) => e.message,
-          'message',
-          AppL10n.stringsFor(AppLanguage.english).libraryDomain.zstdEmptyInput,
-        )),
-      );
-    });
+        await expectLater(
+          ZstdFileDecompressor.decompressFileToFile(
+            emptyPath,
+            '${tmp.path}/out.bin',
+          ),
+          throwsA(
+            isA<ZstdStreamException>().having(
+              (e) => e.message,
+              'message',
+              AppL10n.stringsFor(
+                AppLanguage.english,
+              ).libraryDomain.zstdEmptyInput,
+            ),
+          ),
+        );
+      },
+    );
   });
 }

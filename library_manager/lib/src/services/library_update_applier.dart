@@ -83,11 +83,12 @@ class LibraryApplyException implements Exception {
 ///
 /// [onStage] מדווח `dbIntegrity`/`dbVersion` — שתי בדיקות שונות שלקחו זמן
 /// תחת אותה מילה "מאמת", ולכן נאמרות בנפרד.
-typedef ExtractedDbVerifier = Future<void> Function(
-  String newDbPath,
-  int? expectedVersion, {
-  void Function(String stage)? onStage,
-});
+typedef ExtractedDbVerifier =
+    Future<void> Function(
+      String newDbPath,
+      int? expectedVersion, {
+      void Function(String stage)? onStage,
+    });
 
 /// מחיל בפועל [LibraryUpdatePlan] (delta או fullDownload) על ה-DB **החי**.
 ///
@@ -102,12 +103,11 @@ class LibraryUpdateApplier {
     OtzariaProcessGuard processGuard = const OtzariaProcessGuard(),
     LibraryDbRecoveryService recovery = const LibraryDbRecoveryService(),
     ExtractedDbVerifier? verifyExtractedDb,
-  })  : _processGuard = processGuard,
-        _recovery = recovery,
-        _verifyExtractedDb = verifyExtractedDb ?? _defaultExtractedDbVerifier,
-        _downloader =
-            PatchDownloader(decompress: const ZstdDecompressor().call),
-        _decompress = const ZstdDecompressor().call;
+  }) : _processGuard = processGuard,
+       _recovery = recovery,
+       _verifyExtractedDb = verifyExtractedDb ?? _defaultExtractedDbVerifier,
+       _downloader = PatchDownloader(decompress: const ZstdDecompressor().call),
+       _decompress = const ZstdDecompressor().call;
 
   final OtzariaProcessGuard _processGuard;
   final LibraryDbRecoveryService _recovery;
@@ -122,13 +122,12 @@ class LibraryUpdateApplier {
     String newDbPath,
     int? expectedVersion, {
     void Function(String stage)? onStage,
-  }) =>
-      _isolateVerifyExtractedDb(
-        newDbPath,
-        expectedVersion,
-        AppL10n.language,
-        onStage: onStage,
-      );
+  }) => _isolateVerifyExtractedDb(
+    newDbPath,
+    expectedVersion,
+    AppL10n.language,
+    onStage: onStage,
+  );
 
   /// הזמן הקצוב לפתיחת חיבור בהורדות של ההחלה — ראו
   /// [PatchDownloader.connectTimeout]. ה-`stallTimeout` נשאר בברירת המחדל
@@ -169,7 +168,8 @@ class LibraryUpdateApplier {
   }) async {
     if (plan.kind != LibraryUpdatePlanKind.delta) {
       throw const LibraryApplyException(
-          'applyDelta נקרא על תוכנית שאינה delta');
+        'applyDelta נקרא על תוכנית שאינה delta',
+      );
     }
     await _guardOtzariaNotRunning();
 
@@ -185,8 +185,9 @@ class LibraryUpdateApplier {
     final booksTouched = <int>{};
 
     // גרסה שנשארה לא-מאומתת משרשרת שנקטעה — ראו doc-comment למעלה.
-    final needsSourceVerification =
-        File(_recovery.unverifiedMarkerPathFor(dbPath)).existsSync();
+    final needsSourceVerification = File(
+      _recovery.unverifiedMarkerPathFor(dbPath),
+    ).existsSync();
 
     for (var i = 0; i < steps.length; i++) {
       _throwIfCancelled(isCancelled);
@@ -228,11 +229,13 @@ class LibraryUpdateApplier {
         timestamp: DateTime.now().toIso8601String(),
       );
 
-      onProgress?.call(LibraryApplyProgress(
-        stage: LibraryApplyStage.applyingPatch,
-        stepIndex: i + 1,
-        stepCount: steps.length,
-      ));
+      onProgress?.call(
+        LibraryApplyProgress(
+          stage: LibraryApplyStage.applyingPatch,
+          stepIndex: i + 1,
+          stepCount: steps.length,
+        ),
+      );
 
       try {
         // הסימון חייב להיכתב לפני ה-commit: קריסה אחריו אינה משאירה מסד
@@ -255,22 +258,28 @@ class LibraryUpdateApplier {
             // נשמר כדי שמד ההתקדמות של ה-hash ידווח את תת-השלב הנכון: מעכשיו
             // ייתכן גם `verifyFromHash`, ולא רק `verifyToHash`.
             lastPatchStage = patchStage;
-            onProgress?.call(LibraryApplyProgress(
-              stage: LibraryApplyStage.applyingPatch,
-              stepIndex: i + 1,
-              stepCount: steps.length,
-              patchStage: patchStage,
-            ));
+            onProgress?.call(
+              LibraryApplyProgress(
+                stage: LibraryApplyStage.applyingPatch,
+                stepIndex: i + 1,
+                stepCount: steps.length,
+                patchStage: patchStage,
+              ),
+            );
           },
           onVerifyProgress: (done, total) {
             lastVerifyDone = done;
-            onProgress?.call(LibraryApplyProgress(
-              stage: LibraryApplyStage.applyingPatch,
-              stepIndex: i + 1,
-              stepCount: steps.length,
-              patchStage: lastPatchStage,
-              verifyProgress: total > 0 ? (done / total).clamp(0.0, 1.0) : null,
-            ));
+            onProgress?.call(
+              LibraryApplyProgress(
+                stage: LibraryApplyStage.applyingPatch,
+                stepIndex: i + 1,
+                stepCount: steps.length,
+                patchStage: lastPatchStage,
+                verifyProgress: total > 0
+                    ? (done / total).clamp(0.0, 1.0)
+                    : null,
+              ),
+            );
           },
         );
         booksTouched.addAll(result.booksTouched);
@@ -314,7 +323,8 @@ class LibraryUpdateApplier {
   }) async {
     if (plan.kind != LibraryUpdatePlanKind.fullDownload) {
       throw const LibraryApplyException(
-          'applyFullDownload נקרא על תוכנית שאינה fullDownload');
+        'applyFullDownload נקרא על תוכנית שאינה fullDownload',
+      );
     }
     final asset = plan.fullDbAsset;
     if (asset == null) {
@@ -331,8 +341,10 @@ class LibraryUpdateApplier {
       // issue #23: חשבון רגיל שאינו יכול ליצור תיקייה תחת C:\Users. השורש
       // תוקן (נתיב פר-מחשב), אבל ההודעה הגולמית לא הפנתה לבורר הידני.
       throw LibraryApplyException(
-        AppL10n.strings.libraryDomain
-            .installDirNotWritable(dir.path, e.osError?.message ?? e.message),
+        AppL10n.strings.libraryDomain.installDirNotWritable(
+          dir.path,
+          e.osError?.message ?? e.message,
+        ),
       );
     }
 
@@ -366,8 +378,11 @@ class LibraryUpdateApplier {
       final size = source.lengthSync();
       if (size != asset.size) {
         throw LibraryApplyException(
-          AppL10n.strings.libraryDomain
-              .localFileSizeMismatch(asset.size, size, compressedPath),
+          AppL10n.strings.libraryDomain.localFileSizeMismatch(
+            asset.size,
+            size,
+            compressedPath,
+          ),
         );
       }
       // שארית מגרסה שעוד העתיקה את הנכס לכאן — אין לה שימוש יותר.
@@ -400,10 +415,12 @@ class LibraryUpdateApplier {
     _throwIfCancelled(isCancelled);
     // המקור המקומי מאומת תוך כדי החילוץ; מקור רשת כבר אומת בהורדה.
     final verifiesWhileExtracting = isLocalSource && expectedSha256 != null;
-    onProgress?.call(LibraryApplyProgress(
-      stage: LibraryApplyStage.decompressingFullDb,
-      verifyStage: verifiesWhileExtracting ? 'sourceHash' : null,
-    ));
+    onProgress?.call(
+      LibraryApplyProgress(
+        stage: LibraryApplyStage.decompressingFullDb,
+        verifyStage: verifiesWhileExtracting ? 'sourceHash' : null,
+      ),
+    );
 
     // מחלצים לקובץ צדדי ורק בסוף מחליפים את ה-DB: כך ה-DB הקיים נשאר שלם
     // עד שהחדש מוכן במלואו, בדיוק כמו במסלול ה-staging של התקנת האפליקציה.
@@ -422,14 +439,17 @@ class LibraryUpdateApplier {
         newFilePath,
         // חילוץ של ~1GB אורך דקות ארוכות; בלי הדיווח הזה המד היה לא-קבוע
         // לאורך כולו. הבייטים הם של הקובץ הדחוס — גודל המסד שייצא אינו ידוע.
-        onProgress: (read, total) => onProgress?.call(LibraryApplyProgress(
-          stage: LibraryApplyStage.decompressingFullDb,
-          verifyStage: verifiesWhileExtracting ? 'sourceHash' : null,
-          bytesDone: read,
-          bytesTotal: total,
-        )),
-        onSourceDigest:
-            verifiesWhileExtracting ? (hex) => sourceDigest = hex : null,
+        onProgress: (read, total) => onProgress?.call(
+          LibraryApplyProgress(
+            stage: LibraryApplyStage.decompressingFullDb,
+            verifyStage: verifiesWhileExtracting ? 'sourceHash' : null,
+            bytesDone: read,
+            bytesTotal: total,
+          ),
+        ),
+        onSourceDigest: verifiesWhileExtracting
+            ? (hex) => sourceDigest = hex
+            : null,
         isCancelled: isCancelled,
       )) {
         // אין streaming בפלטפורמה הזו — מסלול הזיכרון, ראו doc-comment.
@@ -456,8 +476,9 @@ class LibraryUpdateApplier {
     // כבר תופס קלט פגום או קטוע, ולכן זו שכבת הגנה על הקובץ **כפי שהוא על
     // הדיסק**: אנטי-וירוס שקיצר אותו, או מערכת קבצים נשלפת שדיווחה הצלחה.
     // רק `<` נחשב כשל — ארכיון מרובה-frames מפיק יותר מהצהרת ה-frame הראשון.
-    final writtenSize =
-        File(newFilePath).existsSync() ? File(newFilePath).lengthSync() : 0;
+    final writtenSize = File(newFilePath).existsSync()
+        ? File(newFilePath).lengthSync()
+        : 0;
     if (writtenSize == 0 ||
         (extractedSize != null && writtenSize < extractedSize)) {
       _deleteQuietly(newFilePath);
@@ -469,17 +490,20 @@ class LibraryUpdateApplier {
 
     // אימות **לפני** ההחלפה, כמו באוצריא: מסד פגום או בגרסה לא נכונה נעצר
     // כאן, בעוד ה-DB החי עדיין שלם — במקום להחליף ואז לשחזר מגיבוי.
-    onProgress
-        ?.call(const LibraryApplyProgress(stage: LibraryApplyStage.verifying));
+    onProgress?.call(
+      const LibraryApplyProgress(stage: LibraryApplyStage.verifying),
+    );
     try {
       await _verifyExtractedDb(
         newFilePath,
         plan.targetVersion,
         // `quick_check` על מסד מלא לוקח דקות; המשתמש צריך לדעת מה נבדק.
-        onStage: (stage) => onProgress?.call(LibraryApplyProgress(
-          stage: LibraryApplyStage.verifying,
-          verifyStage: stage,
-        )),
+        onStage: (stage) => onProgress?.call(
+          LibraryApplyProgress(
+            stage: LibraryApplyStage.verifying,
+            verifyStage: stage,
+          ),
+        ),
       );
     } catch (_) {
       _deleteQuietly(newFilePath);
@@ -523,7 +547,8 @@ class LibraryUpdateApplier {
     }
 
     onProgress?.call(
-        const LibraryApplyProgress(stage: LibraryApplyStage.writingFullDb));
+      const LibraryApplyProgress(stage: LibraryApplyStage.writingFullDb),
+    );
     // מפנים את השם בשני שלבים במקום למחוק ואז להחליף: rename הוא מיידי ואינו
     // עולה מקום, וכך אין רגע שבו אין מסד כלל. מחיקה-ואז-rename שנקטע באמצע
     // (נעילה של אנטי-וירוס, הפסקת חשמל) הותירה את המשתמש בלי ספרייה.
@@ -678,7 +703,11 @@ class LibraryUpdateApplier {
     });
     try {
       await _runVerifyIsolate(
-          newDbPath, expectedVersion, language, port.sendPort);
+        newDbPath,
+        expectedVersion,
+        language,
+        port.sendPort,
+      );
     } finally {
       await Future<void>.delayed(Duration.zero);
       await sub.cancel();
@@ -694,9 +723,12 @@ class LibraryUpdateApplier {
     SendPort sendPort,
   ) {
     return Isolate.run(
-      () => _verifyExtractedDbInIsolate(
-        (newDbPath, expectedVersion, language, sendPort),
-      ),
+      () => _verifyExtractedDbInIsolate((
+        newDbPath,
+        expectedVersion,
+        language,
+        sendPort,
+      )),
     );
   }
 
@@ -867,8 +899,10 @@ void _verifyExtractedDbInIsolate((String, int?, AppLanguage, SendPort) args) {
     final local = const LocalDbVersionReader().read(args.$1);
     if (local.dbVersion != expectedVersion) {
       throw LibraryApplyException(
-        AppL10n.strings.libraryDomain
-            .versionMismatchAfterWrite(local.dbVersion, expectedVersion),
+        AppL10n.strings.libraryDomain.versionMismatchAfterWrite(
+          local.dbVersion,
+          expectedVersion,
+        ),
       );
     }
   }

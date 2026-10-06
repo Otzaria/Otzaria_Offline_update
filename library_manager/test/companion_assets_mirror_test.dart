@@ -31,13 +31,13 @@ void main() {
       Uint8List.fromList(utf8.encode('payload:$name'));
 
   Map<String, dynamic> assetJson(String name, String url) => {
-        'name': name,
-        'browser_download_url': url,
-        'size': bodyOf(name).length,
-        'id': name.hashCode.abs(),
-        'updated_at': '2026-08-01T00:00:00Z',
-        'digest': 'sha256:${sha256.convert(bodyOf(name))}',
-      };
+    'name': name,
+    'browser_download_url': url,
+    'size': bodyOf(name).length,
+    'id': name.hashCode.abs(),
+    'updated_at': '2026-08-01T00:00:00Z',
+    'digest': 'sha256:${sha256.convert(bodyOf(name))}',
+  };
 
   /// שרת מדומה לשלושת ה-APIs ולנכסים עצמם. [omit] מסלק נכס מסוים כדי לדמות
   /// release חסר.
@@ -58,32 +58,48 @@ void main() {
         return http.StreamedResponse(const Stream.empty(), 403);
       }
       if (url.contains('/repos/Otzaria/otzaria-library/')) {
-        body = Uint8List.fromList(utf8.encode(jsonEncode({
-          'tag_name': 'lib-v9',
-          'assets': [
-            if (!omit.contains('talmud'))
-              assetJson('talmud_bavli_latest.tar.zst',
-                  'https://x/talmud_bavli_latest.tar.zst'),
-          ],
-        })));
+        body = Uint8List.fromList(
+          utf8.encode(
+            jsonEncode({
+              'tag_name': 'lib-v9',
+              'assets': [
+                if (!omit.contains('talmud'))
+                  assetJson(
+                    'talmud_bavli_latest.tar.zst',
+                    'https://x/talmud_bavli_latest.tar.zst',
+                  ),
+              ],
+            }),
+          ),
+        );
       } else if (url.contains('/repos/Otzaria/otzar-HB_catalog/')) {
-        body = Uint8List.fromList(utf8.encode(jsonEncode({
-          'tag_name': 'cat-v3',
-          'assets': [
-            assetJson(
-                'otzar-HB_catalog.db.zst', 'https://x/otzar-HB_catalog.db.zst'),
-            assetJson('version.txt', 'https://x/version.txt'),
-          ],
-        })));
+        body = Uint8List.fromList(
+          utf8.encode(
+            jsonEncode({
+              'tag_name': 'cat-v3',
+              'assets': [
+                assetJson(
+                  'otzar-HB_catalog.db.zst',
+                  'https://x/otzar-HB_catalog.db.zst',
+                ),
+                assetJson('version.txt', 'https://x/version.txt'),
+              ],
+            }),
+          ),
+        );
       } else if (url.contains('/repos/Otzaria/SeforimMagicIndexer/')) {
-        body = Uint8List.fromList(utf8.encode(jsonEncode({
-          'tag_name': dictionaryTag,
-          'assets': [
-            assetJson('lexical.db', 'https://x/lexical.db'),
-            if (dictionaryV2)
-              assetJson('lexical-v2.db', 'https://x/lexical-v2.db'),
-          ],
-        })));
+        body = Uint8List.fromList(
+          utf8.encode(
+            jsonEncode({
+              'tag_name': dictionaryTag,
+              'assets': [
+                assetJson('lexical.db', 'https://x/lexical.db'),
+                if (dictionaryV2)
+                  assetJson('lexical-v2.db', 'https://x/lexical-v2.db'),
+              ],
+            }),
+          ),
+        );
       } else {
         final name = url.split('/').last;
         fetched.add(name);
@@ -102,7 +118,7 @@ void main() {
 
     return (
       mirror: CompanionAssetsMirror(httpClient: client, scheduler: scheduler),
-      fetched: fetched
+      fetched: fetched,
     );
   }
 
@@ -115,10 +131,14 @@ void main() {
     final manifest = await built.mirror.sync(destDir: destDir);
     expect(built.fetched, contains('lexical-v2.db'));
     expect(built.fetched, isNot(contains('lexical.db')));
-    expect(await File(p.join(destDir, 'lexical.db')).readAsBytes(),
-        bodyOf('lexical-v2.db'));
-    expect(manifest.entries[CompanionAsset.dictionary]!.sha256,
-        sha256.convert(bodyOf('lexical-v2.db')).toString());
+    expect(
+      await File(p.join(destDir, 'lexical.db')).readAsBytes(),
+      bodyOf('lexical-v2.db'),
+    );
+    expect(
+      manifest.entries[CompanionAsset.dictionary]!.sha256,
+      sha256.convert(bodyOf('lexical-v2.db')).toString(),
+    );
   });
 
   test('שלושת הפריטים יורדים ונרשמים ב-companions.json', () async {
@@ -161,8 +181,10 @@ void main() {
     );
 
     expect(manifest.entries.containsKey(CompanionAsset.talmud), isFalse);
-    expect(manifest.entries.keys,
-        containsAll([CompanionAsset.catalog, CompanionAsset.dictionary]));
+    expect(
+      manifest.entries.keys,
+      containsAll([CompanionAsset.catalog, CompanionAsset.dictionary]),
+    );
     expect(warnings, isNotEmpty);
   });
 
@@ -189,8 +211,9 @@ void main() {
     final first = buildMirror();
     addTearDown(first.mirror.dispose);
     final before = await first.mirror.sync(destDir: destDir);
-    File(p.join(destDir, before.entries[CompanionAsset.talmud]!.fileName))
-        .deleteSync();
+    File(
+      p.join(destDir, before.entries[CompanionAsset.talmud]!.fileName),
+    ).deleteSync();
 
     final second = buildMirror(omit: {'talmud'});
     addTearDown(second.mirror.dispose);
@@ -213,8 +236,10 @@ void main() {
         inFlight++;
         if (inFlight > peak) peak = inFlight;
         if (inFlight >= 3 && !barrier.isCompleted) barrier.complete();
-        await barrier.future
-            .timeout(const Duration(seconds: 2), onTimeout: () {});
+        await barrier.future.timeout(
+          const Duration(seconds: 2),
+          onTimeout: () {},
+        );
         inFlight--;
       },
     );
@@ -230,18 +255,21 @@ void main() {
     final strings = AppL10n.strings.libraryDomain;
     final stages = <String?>[];
     var dictionaryStarted = false;
-    final built = buildMirror(beforeAsset: (name) async {
-      if (name != 'lexical.db' && name != 'version.txt') {
-        await releaseOthers.future;
-      }
-    });
+    final built = buildMirror(
+      beforeAsset: (name) async {
+        if (name != 'lexical.db' && name != 'version.txt') {
+          await releaseOthers.future;
+        }
+      },
+    );
     addTearDown(built.mirror.dispose);
     final sync = built.mirror.sync(
       destDir: destDir,
       onStage: (stage) {
         stages.add(stage);
-        if (stage?.contains(strings
-                .companionDownloading(strings.companionDictionaryName)) ??
+        if (stage?.contains(
+              strings.companionDownloading(strings.companionDictionaryName),
+            ) ??
             false) {
           dictionaryStarted = true;
         } else if (dictionaryStarted &&
@@ -380,33 +408,32 @@ void main() {
       final second = buildMirror(dictionaryTag: 'dict-v8');
       addTearDown(second.mirror.dispose);
 
-      expect(
-        await second.mirror.peekPending(destDir: destDir),
-        {CompanionAsset.dictionary},
-      );
+      expect(await second.mirror.peekPending(destDir: destDir), {
+        CompanionAsset.dictionary,
+      });
     });
 
     test('קובץ שנעלם מהכונן ממתין, גם כשהרשומה עוד במניפסט', () async {
       final built = buildMirror();
       addTearDown(built.mirror.dispose);
       final manifest = await built.mirror.sync(destDir: destDir);
-      File(p.join(destDir, manifest.entries[CompanionAsset.talmud]!.fileName))
-          .deleteSync();
+      File(
+        p.join(destDir, manifest.entries[CompanionAsset.talmud]!.fileName),
+      ).deleteSync();
 
-      expect(
-        await built.mirror.peekPending(destDir: destDir),
-        {CompanionAsset.talmud},
-      );
+      expect(await built.mirror.peekPending(destDir: destDir), {
+        CompanionAsset.talmud,
+      });
     });
 
     test('נכס שאינו ב-release אינו נספר, והשאר כן', () async {
       final built = buildMirror(omit: {'talmud'});
       addTearDown(built.mirror.dispose);
 
-      expect(
-        await built.mirror.peekPending(destDir: destDir),
-        {CompanionAsset.catalog, CompanionAsset.dictionary},
-      );
+      expect(await built.mirror.peekPending(destDir: destDir), {
+        CompanionAsset.catalog,
+        CompanionAsset.dictionary,
+      });
     });
 
     test('כשל של שלושתם נזרק — "אין רשת" אינו "אין מה להוריד"', () async {

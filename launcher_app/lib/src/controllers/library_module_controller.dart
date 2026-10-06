@@ -737,7 +737,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
         },
       );
       AppLogger.instance.info(
-        'update() הסתיים בהצלחה, נלווים שנכשלו=${companionFailures.length}',
+        'החלת העדכון הסתיימה, נלווים שנכשלו=${companionFailures.length}',
       );
       // מרעננים את מצב הבדיקה עצמו (localVersion/targetVersion/status) —
       // עדיף על קביעה ידנית של upToDate, כי זה קורא בפועל את הגרסה
@@ -747,10 +747,17 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       // "יש עדכון" — והמשתמש קיבל את אותה הצעה בכל פתיחה בלי הודעה ובלי
       // שגיאה. עכשיו נאמר לו מה נכשל, ונדלקת הצעת ההרשאות כשזו הסיבה.
       if (companionFailures.isNotEmpty &&
-          status == LibraryModuleStatus.updateAvailable) {
+          (status == LibraryModuleStatus.updateAvailable ||
+              companionFailures.containsKey(
+                  AppL10n.strings.libraryDomain.companionSemanticName))) {
         errorMessage = AppL10n.strings.libraryDomain
             .companionsInstallFailed(companionFailures.keys.join(', '));
         needsElevation = companionFailures.values.any(Elevation.isAccessDenied);
+        if (companionFailures
+            .containsKey(AppL10n.strings.libraryDomain.companionSemanticName)) {
+          status = LibraryModuleStatus.error;
+          canRetryWithFullDownload = false;
+        }
       }
       // גובר על אזהרת הנלווים: ספרייה שאוצריא לא תמצא בכלל היא התקלה
       // הגדולה מבין השתיים.

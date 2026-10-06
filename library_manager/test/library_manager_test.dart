@@ -63,18 +63,20 @@ void main() {
       });
     }
     await Directory(mirrorDir).create(recursive: true);
-    await File(p.join(mirrorDir, 'releases.json')).writeAsString(jsonEncode({
-      'formatVersion': 1,
-      'exportedAt': DateTime.now().toIso8601String(),
-      'releases': [
-        {
-          'tag': tag,
-          'isPrerelease': prerelease,
-          'isDraft': false,
-          'assets': assets,
-        }
-      ],
-    }));
+    await File(p.join(mirrorDir, 'releases.json')).writeAsString(
+      jsonEncode({
+        'formatVersion': 1,
+        'exportedAt': DateTime.now().toIso8601String(),
+        'releases': [
+          {
+            'tag': tag,
+            'isPrerelease': prerelease,
+            'isDraft': false,
+            'assets': assets,
+          },
+        ],
+      }),
+    );
   }
 
   /// `seforim.db` אמיתי (SQLite עם `schema_meta`) — כדי שהבדיקות ילכו דרך
@@ -117,12 +119,16 @@ void main() {
   /// מסד בסכמה 2 עם טבלת תוכן — הצורה ש-`PatchApplier` יודע להחיל עליה
   /// patches, בשונה מ-[buildRealDb] שנועד רק לקריאת גרסה.
   Uint8List buildPatchableDb(int dbVersion, List<List> rows) {
-    final path =
-        p.join(tempDir.path, 'patchable-$dbVersion-${builtDbCount++}.db');
+    final path = p.join(
+      tempDir.path,
+      'patchable-$dbVersion-${builtDbCount++}.db',
+    );
     final db = sqlite3.sqlite3.open(path);
     db.execute('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT)');
-    db.execute("INSERT INTO schema_meta VALUES ('db_version','$dbVersion'),"
-        "('db_schema_version','2')");
+    db.execute(
+      "INSERT INTO schema_meta VALUES ('db_version','$dbVersion'),"
+      "('db_schema_version','2')",
+    );
     db.execute('CREATE TABLE source (id INTEGER PRIMARY KEY, name TEXT)');
     for (final row in rows) {
       db.execute('INSERT INTO source VALUES (?,?)', [row[0], row[1]]);
@@ -146,15 +152,20 @@ void main() {
     final raw = p.join(tempDir.path, 'patch_${from}_${to}_${edgeSeq++}.db');
     final db = sqlite3.sqlite3.open(raw);
     db.execute('CREATE TABLE patch_meta (key TEXT PRIMARY KEY, value TEXT)');
-    db.execute("INSERT INTO patch_meta VALUES ('schema_version','2'),"
-        "('from_version','$from'),('to_version','$to')");
     db.execute(
-        'CREATE TABLE migrations (version INTEGER PRIMARY KEY, sql TEXT)');
+      "INSERT INTO patch_meta VALUES ('schema_version','2'),"
+      "('from_version','$from'),('to_version','$to')",
+    );
     db.execute(
-        'CREATE TABLE upsert_schema_meta (key TEXT PRIMARY KEY, value TEXT)');
+      'CREATE TABLE migrations (version INTEGER PRIMARY KEY, sql TEXT)',
+    );
+    db.execute(
+      'CREATE TABLE upsert_schema_meta (key TEXT PRIMARY KEY, value TEXT)',
+    );
     db.execute("INSERT INTO upsert_schema_meta VALUES ('db_version','$to')");
     db.execute(
-        'CREATE TABLE upsert_source (id INTEGER PRIMARY KEY, name TEXT)');
+      'CREATE TABLE upsert_source (id INTEGER PRIMARY KEY, name TEXT)',
+    );
     for (final row in upsertRows) {
       db.execute('INSERT INTO upsert_source VALUES (?,?)', [row[0], row[1]]);
     }
@@ -203,15 +214,17 @@ void main() {
       final dir = p.join(dataDir, 'mirror', 'companions');
       await Directory(dir).create(recursive: true);
       await File(p.join(dir, 'lexical.db')).writeAsString(content);
-      await File(p.join(dir, 'companions.json')).writeAsString(jsonEncode({
-        'formatVersion': 1,
-        'exportedAt': DateTime.now().toIso8601String(),
-        'dictionary': {
-          'fileName': 'lexical.db',
-          'size': utf8.encode(content).length,
-          'tag': tag,
-        },
-      }));
+      await File(p.join(dir, 'companions.json')).writeAsString(
+        jsonEncode({
+          'formatVersion': 1,
+          'exportedAt': DateTime.now().toIso8601String(),
+          'dictionary': {
+            'fileName': 'lexical.db',
+            'size': utf8.encode(content).length,
+            'tag': tag,
+          },
+        }),
+      );
     }
 
     test('אחרי התקנה, קובץ שאוצריא החליפה מהרשת אינו מחזיר את ההצעה', () async {
@@ -232,8 +245,9 @@ void main() {
 
       // אוצריא הורידה מהרשת מילון אחר וכתבה סימון משלה. עד עכשיו זה נראה
       // בדיוק כמו מילון ישן: הצעה בכל פתיחה, ולחיצה שמורידה אותו אחורה.
-      await File(p.join(p.dirname(dbPath), 'lexical.db.version'))
-          .writeAsString('v7');
+      await File(
+        p.join(p.dirname(dbPath), 'lexical.db.version'),
+      ).writeAsString('v7');
 
       final after = await manager.checkForUpdate();
       expect(after.pendingCompanions, isEmpty);
@@ -241,8 +255,9 @@ void main() {
 
       await manager.applyUpdate(first);
       expect(
-        await File(p.join(p.dirname(dbPath), 'lexical.db.version'))
-            .readAsString(),
+        await File(
+          p.join(p.dirname(dbPath), 'lexical.db.version'),
+        ).readAsString(),
         'v7',
       );
       expect((await manager.checkForUpdate()).pendingCompanions, isEmpty);
@@ -252,8 +267,9 @@ void main() {
       await installExistingDb(27, appliedTag: 'v27');
       await writeMirror(tag: 'v27');
       await writeCompanionMirror(tag: 'v2', content: 'LEXICAL');
-      await File(p.join(dataDir, 'mirror', 'companions', 'lexical.db'))
-          .delete();
+      await File(
+        p.join(dataDir, 'mirror', 'companions', 'lexical.db'),
+      ).delete();
 
       final manager = LibraryManager(dataDir: dataDir);
       addTearDown(manager.dispose);
@@ -277,10 +293,12 @@ void main() {
       expect(await manager.hasMirror, isFalse);
 
       // תיקייה + נכסים בלי המניפסט = הורדה שנקטעה, לא מראה שמישה.
-      await Directory(p.join(mirrorDir, 'assets', 'v5'))
-          .create(recursive: true);
-      await File(p.join(mirrorDir, 'assets', 'v5', 'seforim.db.zst'))
-          .writeAsString('חלקי');
+      await Directory(
+        p.join(mirrorDir, 'assets', 'v5'),
+      ).create(recursive: true);
+      await File(
+        p.join(mirrorDir, 'assets', 'v5', 'seforim.db.zst'),
+      ).writeAsString('חלקי');
       expect(await manager.hasMirror, isFalse);
 
       await writeMirror(tag: 'v5', compressedDb: Uint8List.fromList([1, 2]));
@@ -290,33 +308,44 @@ void main() {
   });
 
   group('אין נפילה לרשת', () {
-    test('בלי מראה — LibraryMirrorMissingException, בלי שום פנייה לרשת',
-        () async {
-      await _withoutNetwork((created) async {
+    test(
+      'בלי מראה — LibraryMirrorMissingException, בלי שום פנייה לרשת',
+      () async {
+        await _withoutNetwork((created) async {
+          final manager = LibraryManager(dataDir: dataDir);
+          await expectLater(
+            manager.checkForUpdate(),
+            throwsA(
+              isA<LibraryMirrorMissingException>().having(
+                (e) => e.mirrorDir,
+                'mirrorDir',
+                manager.mirrorDir,
+              ),
+            ),
+          );
+          manager.dispose();
+          // הלקוח של GitHub אכן נוצר בבנאי — אבל אף פעולה לא בוצעה דרכו.
+          expect(created(), greaterThan(0));
+        });
+      },
+    );
+
+    test(
+      'גרסת המסד המקומי נקראת גם בלי מראה — בחירה ידנית לפני הורדה',
+      () async {
+        await installExistingDb(17);
         final manager = LibraryManager(dataDir: dataDir);
+        addTearDown(manager.dispose);
+
+        // הבדיקה נכשלת (אין מראה), אבל הגרסה שנקראה מהמסד לא הולכת לאיבוד.
         await expectLater(
           manager.checkForUpdate(),
-          throwsA(isA<LibraryMirrorMissingException>()
-              .having((e) => e.mirrorDir, 'mirrorDir', manager.mirrorDir)),
+          throwsA(isA<LibraryMirrorMissingException>()),
         );
-        manager.dispose();
-        // הלקוח של GitHub אכן נוצר בבנאי — אבל אף פעולה לא בוצעה דרכו.
-        expect(created(), greaterThan(0));
-      });
-    });
 
-    test('גרסת המסד המקומי נקראת גם בלי מראה — בחירה ידנית לפני הורדה',
-        () async {
-      await installExistingDb(17);
-      final manager = LibraryManager(dataDir: dataDir);
-      addTearDown(manager.dispose);
-
-      // הבדיקה נכשלת (אין מראה), אבל הגרסה שנקראה מהמסד לא הולכת לאיבוד.
-      await expectLater(manager.checkForUpdate(),
-          throwsA(isA<LibraryMirrorMissingException>()));
-
-      expect((await manager.readLocalVersion())?.dbVersion, 17);
-    });
+        expect((await manager.readLocalVersion())?.dbVersion, 17);
+      },
+    );
 
     test('בלי מסד כלל — readLocalVersion מחזירה null ולא זורקת', () async {
       if (await ambientDbExists()) {
@@ -370,96 +399,102 @@ void main() {
   });
 
   group('checkForUpdate — קורא מהמראה בלבד', () {
-    test('התקנה טרייה מצביעה על מיקום ברירת המחדל של אוצריא ומתכננת הורדה מלאה',
-        () async {
-      if (bindings == null) {
-        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
-        return;
-      }
-      if (await ambientDbExists()) {
-        markTestSkipped('קיימת אוצריא אמיתית במכונה — הבדיקה אינה מבודדת');
-        return;
-      }
-      await writeMirror(
-        tag: 'v5',
-        compressedDb: compressWithZstd(bindings, buildRealDb(5)),
-      );
-
-      await _withoutNetwork((_) async {
-        final manager = LibraryManager(dataDir: dataDir);
-        final check = await manager.checkForUpdate();
-
-        expect(check.isFreshInstall, isTrue);
-        expect(check.needsManualDbPath, isFalse);
-        // המסד מותקן למיקום שאוצריא עצמה מחפשת בו, **לא** לתיקיית הלאנצ'ר:
-        // לאנצ'ר שרץ מכונן נייד היה מתקין עליו את הספרייה, והיא הייתה
-        // נוסעת איתו ונעלמת מהמחשב ברגע שנשלף.
-        expect(check.dbPath, isNot(startsWith(dataDir)));
-        expect(check.dbPath, await manager.installDbPath());
-        expect(
-          check.dbPath,
-          p.join(
-            LibraryDbLocator.defaultDbDirs(
-              operatingSystem: Platform.operatingSystem,
-              environment: Platform.environment,
-            ).first,
-            'seforim.db',
-          ),
+    test(
+      'התקנה טרייה מצביעה על מיקום ברירת המחדל של אוצריא ומתכננת הורדה מלאה',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        if (await ambientDbExists()) {
+          markTestSkipped('קיימת אוצריא אמיתית במכונה — הבדיקה אינה מבודדת');
+          return;
+        }
+        await writeMirror(
+          tag: 'v5',
+          compressedDb: compressWithZstd(bindings, buildRealDb(5)),
         );
-        expect(check.localVersion!.hasVersionMeta, isFalse);
-        expect(check.plan!.kind, LibraryUpdatePlanKind.fullDownload);
-        expect(check.latestContentTag, 'v5');
-        expect(check.updateAvailable, isTrue);
-        manager.dispose();
-      });
-    });
 
-    test('DB עדכני בלי tag ידוע = "מעודכן" — לא מציעים 1GB על סמך ניחוש',
-        () async {
-      if (bindings == null) {
-        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
-        return;
-      }
-      // מסד שלא הותקן דרך הלאנצ'ר: אין appliedReleaseTag בכלל.
-      await installExistingDb(5);
-      await writeMirror(
-        tag: 'v5-fixed',
-        compressedDb: compressWithZstd(bindings, buildRealDb(5)),
-      );
+        await _withoutNetwork((_) async {
+          final manager = LibraryManager(dataDir: dataDir);
+          final check = await manager.checkForUpdate();
 
-      await _withoutNetwork((_) async {
-        final manager = LibraryManager(dataDir: dataDir);
-        final check = await manager.checkForUpdate();
+          expect(check.isFreshInstall, isTrue);
+          expect(check.needsManualDbPath, isFalse);
+          // המסד מותקן למיקום שאוצריא עצמה מחפשת בו, **לא** לתיקיית הלאנצ'ר:
+          // לאנצ'ר שרץ מכונן נייד היה מתקין עליו את הספרייה, והיא הייתה
+          // נוסעת איתו ונעלמת מהמחשב ברגע שנשלף.
+          expect(check.dbPath, isNot(startsWith(dataDir)));
+          expect(check.dbPath, await manager.installDbPath());
+          expect(
+            check.dbPath,
+            p.join(
+              LibraryDbLocator.defaultDbDirs(
+                operatingSystem: Platform.operatingSystem,
+                environment: Platform.environment,
+              ).first,
+              'seforim.db',
+            ),
+          );
+          expect(check.localVersion!.hasVersionMeta, isFalse);
+          expect(check.plan!.kind, LibraryUpdatePlanKind.fullDownload);
+          expect(check.latestContentTag, 'v5');
+          expect(check.updateAvailable, isTrue);
+          manager.dispose();
+        });
+      },
+    );
 
-        expect(check.isFreshInstall, isFalse);
-        expect(check.localVersion!.dbVersion, 5);
-        expect(check.plan!.kind, LibraryUpdatePlanKind.none);
-        expect(check.updateAvailable, isFalse);
-        manager.dispose();
-      });
-    });
+    test(
+      'DB עדכני בלי tag ידוע = "מעודכן" — לא מציעים 1GB על סמך ניחוש',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        // מסד שלא הותקן דרך הלאנצ'ר: אין appliedReleaseTag בכלל.
+        await installExistingDb(5);
+        await writeMirror(
+          tag: 'v5-fixed',
+          compressedDb: compressWithZstd(bindings, buildRealDb(5)),
+        );
 
-    test('אותה גרסה אבל release אחר, כש-ה-tag ידוע = פרסום מחדש של התוכן',
-        () async {
-      if (bindings == null) {
-        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
-        return;
-      }
-      await installExistingDb(5, appliedTag: 'v5');
-      await writeMirror(
-        tag: 'v5-fixed',
-        compressedDb: compressWithZstd(bindings, buildRealDb(5)),
-      );
+        await _withoutNetwork((_) async {
+          final manager = LibraryManager(dataDir: dataDir);
+          final check = await manager.checkForUpdate();
 
-      await _withoutNetwork((_) async {
-        final manager = LibraryManager(dataDir: dataDir);
-        final check = await manager.checkForUpdate();
+          expect(check.isFreshInstall, isFalse);
+          expect(check.localVersion!.dbVersion, 5);
+          expect(check.plan!.kind, LibraryUpdatePlanKind.none);
+          expect(check.updateAvailable, isFalse);
+          manager.dispose();
+        });
+      },
+    );
 
-        expect(check.plan!.kind, LibraryUpdatePlanKind.fullDownload);
-        expect(check.plan!.fullDbReleaseTag, 'v5-fixed');
-        manager.dispose();
-      });
-    });
+    test(
+      'אותה גרסה אבל release אחר, כש-ה-tag ידוע = פרסום מחדש של התוכן',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        await installExistingDb(5, appliedTag: 'v5');
+        await writeMirror(
+          tag: 'v5-fixed',
+          compressedDb: compressWithZstd(bindings, buildRealDb(5)),
+        );
+
+        await _withoutNetwork((_) async {
+          final manager = LibraryManager(dataDir: dataDir);
+          final check = await manager.checkForUpdate();
+
+          expect(check.plan!.kind, LibraryUpdatePlanKind.fullDownload);
+          expect(check.plan!.fullDbReleaseTag, 'v5-fixed');
+          manager.dispose();
+        });
+      },
+    );
 
     test('אותו tag בדיוק = מעודכן', () async {
       if (bindings == null) {
@@ -504,45 +539,53 @@ void main() {
 
     // A locked live v26 must not read as "no version": that skipped the
     // no-downgrade guard and planned the mirror's older v21 full DB over it.
-    test('locked local DB fails the check instead of planning a downgrade',
-        () async {
-      final dbPath = await installExistingDb(26, appliedTag: 'v26');
-      await writeMirror(
-        tag: 'v21',
-        compressedDb: Uint8List.fromList(const [1, 2, 3]),
-      );
-
-      await _withoutNetwork((_) async {
-        final manager = LibraryManager(
-          dataDir: dataDir,
-          versionReader: const LocalDbVersionReader(
-            busyTimeout: Duration(milliseconds: 50),
-          ),
+    test(
+      'locked local DB fails the check instead of planning a downgrade',
+      () async {
+        final dbPath = await installExistingDb(26, appliedTag: 'v26');
+        await writeMirror(
+          tag: 'v21',
+          compressedDb: Uint8List.fromList(const [1, 2, 3]),
         );
-        addTearDown(manager.dispose);
-        // Unlocked, the guard holds: no plan installs the older v21.
-        final unlocked = await manager.checkForUpdate();
-        expect(unlocked.plan!.kind, isNot(LibraryUpdatePlanKind.fullDownload));
 
-        final writer = sqlite3.sqlite3.open(dbPath);
-        try {
-          writer.execute('BEGIN EXCLUSIVE');
-          writer.execute(
-              "UPDATE schema_meta SET value = '27' WHERE key = 'db_version'");
-          await expectLater(
-            manager.checkForUpdate(),
-            throwsA(isA<LocalDbUnreadableException>().having(
-              (e) => e.reason,
-              'reason',
-              LocalDbUnreadableReason.locked,
-            )),
+        await _withoutNetwork((_) async {
+          final manager = LibraryManager(
+            dataDir: dataDir,
+            versionReader: const LocalDbVersionReader(
+              busyTimeout: Duration(milliseconds: 50),
+            ),
           );
-        } finally {
-          writer.execute('ROLLBACK');
-          writer.close();
-        }
-      });
-    });
+          addTearDown(manager.dispose);
+          // Unlocked, the guard holds: no plan installs the older v21.
+          final unlocked = await manager.checkForUpdate();
+          expect(
+            unlocked.plan!.kind,
+            isNot(LibraryUpdatePlanKind.fullDownload),
+          );
+
+          final writer = sqlite3.sqlite3.open(dbPath);
+          try {
+            writer.execute('BEGIN EXCLUSIVE');
+            writer.execute(
+              "UPDATE schema_meta SET value = '27' WHERE key = 'db_version'",
+            );
+            await expectLater(
+              manager.checkForUpdate(),
+              throwsA(
+                isA<LocalDbUnreadableException>().having(
+                  (e) => e.reason,
+                  'reason',
+                  LocalDbUnreadableReason.locked,
+                ),
+              ),
+            );
+          } finally {
+            writer.execute('ROLLBACK');
+            writer.close();
+          }
+        });
+      },
+    );
 
     test('מראה בלי נכס מסד כלל = blocked, לא קריסה', () async {
       await installExistingDb(4, appliedTag: 'v4');
@@ -615,8 +658,9 @@ void main() {
       final dbPath = p.join(tempDir.path, 'books', 'seforim.db');
       await Directory(p.dirname(dbPath)).create(recursive: true);
       File(dbPath).writeAsStringSync('זה בכלל לא SQLite');
-      await LibraryStateStore(p.join(dataDir, 'library_state.json'))
-          .saveCustomDbPath(dbPath);
+      await LibraryStateStore(
+        p.join(dataDir, 'library_state.json'),
+      ).saveCustomDbPath(dbPath);
       File('$dbPath.applying').writeAsStringSync('{"fromVersion":4}');
       await writeMirror(tag: 'v5', compressedDb: Uint8List.fromList([1, 2]));
 
@@ -624,13 +668,15 @@ void main() {
         final manager = LibraryManager(dataDir: dataDir);
         await expectLater(
           manager.checkForUpdate(),
-          throwsA(isA<StateError>().having(
-            (e) => e.message,
-            'message',
-            AppL10n.strings.libraryDomain.interruptedUpdateNeedsManualFix(
-              AppL10n.strings.libraryDomain.interruptedUpdateFound,
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              AppL10n.strings.libraryDomain.interruptedUpdateNeedsManualFix(
+                AppL10n.strings.libraryDomain.interruptedUpdateFound,
+              ),
             ),
-          )),
+          ),
         );
         manager.dispose();
       });
@@ -638,60 +684,63 @@ void main() {
   });
 
   group('applyUpdate', () {
-    test('סבב אופליין מלא: בדיקה → הורדה מלאה מהמראה → בדיקה חוזרת "מעודכן"',
-        () async {
-      if (bindings == null) {
-        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
-        return;
-      }
-      if (await const OtzariaProcessGuard()
-          .isAnyRunning(OtzariaProcessGuard.processNamesFor(
-        Platform.operatingSystem,
-      ))) {
-        markTestSkipped('אוצריא פתוחה — ההחלה נחסמת בכוונה');
-        return;
-      }
+    test(
+      'סבב אופליין מלא: בדיקה → הורדה מלאה מהמראה → בדיקה חוזרת "מעודכן"',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        if (await const OtzariaProcessGuard().isAnyRunning(
+          OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
+        )) {
+          markTestSkipped('אוצריא פתוחה — ההחלה נחסמת בכוונה');
+          return;
+        }
 
-      // ה-DB "החי" יושב בתיקייה זמנית ומוצבע דרך נתיב מותאם אישית: הבדיקה
-      // לעולם לא נוגעת ב-seforim.db האמיתי של המפתח.
-      await installExistingDb(4, appliedTag: 'v4');
-      final dbBytes = buildRealDb(5);
-      await writeMirror(
-        tag: 'v5',
-        compressedDb: compressWithZstd(bindings, dbBytes),
-      );
-
-      await _withoutNetwork((_) async {
-        final manager = LibraryManager(dataDir: dataDir);
-        final check = await manager.checkForUpdate();
-        expect(check.plan!.kind, LibraryUpdatePlanKind.fullDownload);
-        expect(check.plan!.localVersion, 4);
-
-        final stages = <LibraryApplyStage>[];
-        await manager.applyUpdate(
-          check,
-          onProgress: (progress) {
-            if (stages.isEmpty || stages.last != progress.stage) {
-              stages.add(progress.stage);
-            }
-          },
+        // ה-DB "החי" יושב בתיקייה זמנית ומוצבע דרך נתיב מותאם אישית: הבדיקה
+        // לעולם לא נוגעת ב-seforim.db האמיתי של המפתח.
+        await installExistingDb(4, appliedTag: 'v4');
+        final dbBytes = buildRealDb(5);
+        await writeMirror(
+          tag: 'v5',
+          compressedDb: compressWithZstd(bindings, dbBytes),
         );
 
-        expect(stages.last, LibraryApplyStage.done);
-        expect(File(check.dbPath!).readAsBytesSync(), dbBytes);
+        await _withoutNetwork((_) async {
+          final manager = LibraryManager(dataDir: dataDir);
+          final check = await manager.checkForUpdate();
+          expect(check.plan!.kind, LibraryUpdatePlanKind.fullDownload);
+          expect(check.plan!.localVersion, 4);
 
-        // מה שנרשם ב-state הוא מה שמונע הצעת הורדה חוזרת בכל פתיחה.
-        final store = LibraryStateStore(p.join(dataDir, 'library_state.json'));
-        expect((await store.loadAppliedRelease())?.tag, 'v5');
-        expect(await store.loadCustomDbPath(), check.dbPath);
+          final stages = <LibraryApplyStage>[];
+          await manager.applyUpdate(
+            check,
+            onProgress: (progress) {
+              if (stages.isEmpty || stages.last != progress.stage) {
+                stages.add(progress.stage);
+              }
+            },
+          );
 
-        final recheck = await manager.checkForUpdate();
-        expect(recheck.isFreshInstall, isFalse);
-        expect(recheck.plan!.kind, LibraryUpdatePlanKind.none);
-        expect(recheck.updateAvailable, isFalse);
-        manager.dispose();
-      });
-    });
+          expect(stages.last, LibraryApplyStage.done);
+          expect(File(check.dbPath!).readAsBytesSync(), dbBytes);
+
+          // מה שנרשם ב-state הוא מה שמונע הצעת הורדה חוזרת בכל פתיחה.
+          final store = LibraryStateStore(
+            p.join(dataDir, 'library_state.json'),
+          );
+          expect((await store.loadAppliedRelease())?.tag, 'v5');
+          expect(await store.loadCustomDbPath(), check.dbPath);
+
+          final recheck = await manager.checkForUpdate();
+          expect(recheck.isFreshInstall, isFalse);
+          expect(recheck.plan!.kind, LibraryUpdatePlanKind.none);
+          expect(recheck.updateAvailable, isFalse);
+          manager.dispose();
+        });
+      },
+    );
 
     // המראה שומרת בכוונה מסד מלא ישן מ-latest כשיש ממנו מסלול patches (ראו
     // `LibraryMirrorExporter._chooseFullDbCarrier`), ולכן ההשלמה רצה באותה
@@ -701,10 +750,9 @@ void main() {
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
         return;
       }
-      if (await const OtzariaProcessGuard()
-          .isAnyRunning(OtzariaProcessGuard.processNamesFor(
-        Platform.operatingSystem,
-      ))) {
+      if (await const OtzariaProcessGuard().isAnyRunning(
+        OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
+      )) {
         markTestSkipped('אוצריא פתוחה — ההחלה נחסמת בכוונה');
         return;
       }
@@ -712,8 +760,9 @@ void main() {
       final dbPath = await installExistingDb(3, appliedTag: 'v3');
       final dbBytes = buildRealDb(5);
       final compressed = p.join(tempDir.path, 'old-full.db.zst');
-      File(compressed)
-          .writeAsBytesSync(compressWithZstd(bindings, dbBytes), flush: true);
+      File(
+        compressed,
+      ).writeAsBytesSync(compressWithZstd(bindings, dbBytes), flush: true);
 
       final check = LibraryUpdateCheckResult(
         dbPath: dbPath,
@@ -757,110 +806,123 @@ void main() {
     // המסד המלא הישן הותקן, הצעד הראשון בשרשרת ההשלמה הצליח והשני נדחה.
     // הרישום חייב להיות הגרסה שהמסד באמת הגיע אליה ולא זו של המסד המלא —
     // אחרת ה-state מצהיר על גרסה אחת בעוד המסד בגרסה אחרת.
-    test('שרשרת השלמה שנקטעה נרשמת לפי הצעד שהצליח, לא לפי המסד המלא',
-        () async {
-      if (bindings == null) {
-        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
-        return;
-      }
-      if (await const OtzariaProcessGuard()
-          .isAnyRunning(OtzariaProcessGuard.processNamesFor(
-        Platform.operatingSystem,
-      ))) {
-        markTestSkipped('אוצריא פתוחה — ההחלה נחסמת בכוונה');
-        return;
-      }
+    test(
+      'שרשרת השלמה שנקטעה נרשמת לפי הצעד שהצליח, לא לפי המסד המלא',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        if (await const OtzariaProcessGuard().isAnyRunning(
+          OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
+        )) {
+          markTestSkipped('אוצריא פתוחה — ההחלה נחסמת בכוונה');
+          return;
+        }
 
-      // המסד החי מתקדם מהמסד המלא שבמראה — בדיוק המצב שבו הבאג התגלה.
-      final dbPath = await installExistingDb(23, appliedTag: 'v23');
-      final compressed = p.join(tempDir.path, 'full-21.db.zst');
-      File(compressed).writeAsBytesSync(
-        compressWithZstd(
+        // המסד החי מתקדם מהמסד המלא שבמראה — בדיוק המצב שבו הבאג התגלה.
+        final dbPath = await installExistingDb(23, appliedTag: 'v23');
+        final compressed = p.join(tempDir.path, 'full-21.db.zst');
+        File(compressed).writeAsBytesSync(
+          compressWithZstd(
             bindings,
             buildPatchableDb(21, [
-              [1, 'aleph']
-            ])),
-        flush: true,
-      );
-
-      final check = LibraryUpdateCheckResult(
-        dbPath: dbPath,
-        latestVersion: 26,
-        latestContentTag: 'v26',
-        plan: LibraryUpdatePlan.fullDownload(
-          localVersion: 23,
-          targetVersion: 21,
-          asset: ReleaseAsset(
-            name: 'seforim.db.zst',
-            downloadUrl: compressed,
-            size: File(compressed).lengthSync(),
+              [1, 'aleph'],
+            ]),
           ),
-          releaseTag: 'v21',
-          followUpDelta: LibraryUpdatePlan.delta(
-            localVersion: 21,
-            targetVersion: 26,
-            steps: [
-              buildPatchEdge(from: 21, to: 22, upsertRows: [
-                [2, 'bet']
-              ]),
-              buildPatchEdge(
-                from: 22,
-                to: 26,
-                upsertRows: [
-                  [3, 'gimel']
-                ],
-                toSchemaVersion: 6,
-              ),
-            ],
-          ),
-        ),
-      );
-
-      await _withoutNetwork((_) async {
-        final manager = LibraryManager(dataDir: dataDir);
-        await expectLater(
-          manager.applyUpdate(check),
-          throwsA(isA<PatchApplyException>()),
+          flush: true,
         );
 
-        // המסד נעצר ב-22, וזו הגרסה שנרשמה — 21 כאן היה שקר על הדיסק.
-        expect(const LocalDbVersionReader().read(dbPath).dbVersion, 22);
-        final store = LibraryStateStore(p.join(dataDir, 'library_state.json'));
-        expect((await store.loadAppliedRelease())?.dbVersion, 22);
-        expect(
-          (await manager.pendingReindexRequest(dbPath: dbPath))?.dbVersion,
-          22,
+        final check = LibraryUpdateCheckResult(
+          dbPath: dbPath,
+          latestVersion: 26,
+          latestContentTag: 'v26',
+          plan: LibraryUpdatePlan.fullDownload(
+            localVersion: 23,
+            targetVersion: 21,
+            asset: ReleaseAsset(
+              name: 'seforim.db.zst',
+              downloadUrl: compressed,
+              size: File(compressed).lengthSync(),
+            ),
+            releaseTag: 'v21',
+            followUpDelta: LibraryUpdatePlan.delta(
+              localVersion: 21,
+              targetVersion: 26,
+              steps: [
+                buildPatchEdge(
+                  from: 21,
+                  to: 22,
+                  upsertRows: [
+                    [2, 'bet'],
+                  ],
+                ),
+                buildPatchEdge(
+                  from: 22,
+                  to: 26,
+                  upsertRows: [
+                    [3, 'gimel'],
+                  ],
+                  toSchemaVersion: 6,
+                ),
+              ],
+            ),
+          ),
         );
-        manager.dispose();
-      });
-    });
+
+        await _withoutNetwork((_) async {
+          final manager = LibraryManager(dataDir: dataDir);
+          await expectLater(
+            manager.applyUpdate(check),
+            throwsA(isA<PatchApplyException>()),
+          );
+
+          // המסד נעצר ב-22, וזו הגרסה שנרשמה — 21 כאן היה שקר על הדיסק.
+          expect(const LocalDbVersionReader().read(dbPath).dbVersion, 22);
+          final store = LibraryStateStore(
+            p.join(dataDir, 'library_state.json'),
+          );
+          expect((await store.loadAppliedRelease())?.dbVersion, 22);
+          expect(
+            (await manager.pendingReindexRequest(dbPath: dbPath))?.dbVersion,
+            22,
+          );
+          manager.dispose();
+        });
+      },
+    );
 
     test('תוכנית none / חסרה — לא עושה כלום', () async {
       final manager = LibraryManager(dataDir: dataDir);
       final dbPath = p.join(tempDir.path, 'books', 'seforim.db');
 
       await manager.applyUpdate(LibraryUpdateCheckResult(dbPath: dbPath));
-      await manager.applyUpdate(LibraryUpdateCheckResult(
-        dbPath: dbPath,
-        plan: LibraryUpdatePlan.none(localVersion: 5),
-      ));
-      await manager.applyUpdate(LibraryUpdateCheckResult(
-        dbPath: null,
-        plan: LibraryUpdatePlan.fullDownload(
-          localVersion: 0,
-          asset: const ReleaseAsset(
-            name: 'seforim.db.zst',
-            downloadUrl: 'nowhere.zst',
-            size: 1,
-          ),
-          releaseTag: 'v5',
+      await manager.applyUpdate(
+        LibraryUpdateCheckResult(
+          dbPath: dbPath,
+          plan: LibraryUpdatePlan.none(localVersion: 5),
         ),
-      ));
+      );
+      await manager.applyUpdate(
+        LibraryUpdateCheckResult(
+          dbPath: null,
+          plan: LibraryUpdatePlan.fullDownload(
+            localVersion: 0,
+            asset: const ReleaseAsset(
+              name: 'seforim.db.zst',
+              downloadUrl: 'nowhere.zst',
+              size: 1,
+            ),
+            releaseTag: 'v5',
+          ),
+        ),
+      );
 
       expect(File(dbPath).existsSync(), isFalse);
       expect(
-        await LibraryStateStore(p.join(dataDir, 'library_state.json'))
-            .loadAppliedRelease(),
+        await LibraryStateStore(
+          p.join(dataDir, 'library_state.json'),
+        ).loadAppliedRelease(),
         isNull,
       );
       manager.dispose();
@@ -868,62 +930,64 @@ void main() {
 
     // ההתאוששות מ-issue #19: מסלול דלתא שנכשל (patch שאינו מתאים למסד) אינו
     // מותיר את המשתמש תקוע — אותה בדיקה מותקנת דרך המסד המלא שבמראה.
-    test('useFullDownloadFallback מתקין את המסד המלא במקום ה-patches',
-        () async {
-      if (bindings == null) {
-        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
-        return;
-      }
-      if (await const OtzariaProcessGuard()
-          .isAnyRunning(OtzariaProcessGuard.processNamesFor(
-        Platform.operatingSystem,
-      ))) {
-        markTestSkipped('אוצריא פתוחה — ההחלה נחסמת בכוונה');
-        return;
-      }
+    test(
+      'useFullDownloadFallback מתקין את המסד המלא במקום ה-patches',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        if (await const OtzariaProcessGuard().isAnyRunning(
+          OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
+        )) {
+          markTestSkipped('אוצריא פתוחה — ההחלה נחסמת בכוונה');
+          return;
+        }
 
-      final dbPath = await installExistingDb(4, appliedTag: 'v4');
-      final dbBytes = buildRealDb(5);
-      final compressed = p.join(tempDir.path, 'full.db.zst');
-      File(compressed)
-          .writeAsBytesSync(compressWithZstd(bindings, dbBytes), flush: true);
+        final dbPath = await installExistingDb(4, appliedTag: 'v4');
+        final dbBytes = buildRealDb(5);
+        final compressed = p.join(tempDir.path, 'full.db.zst');
+        File(
+          compressed,
+        ).writeAsBytesSync(compressWithZstd(bindings, dbBytes), flush: true);
 
-      final check = LibraryUpdateCheckResult(
-        dbPath: dbPath,
-        latestVersion: 5,
-        latestContentTag: 'v5',
-        plan: LibraryUpdatePlan.delta(
-          localVersion: 4,
-          targetVersion: 5,
-          steps: const [],
-          fullDownloadFallback: LibraryUpdatePlan.fullDownload(
+        final check = LibraryUpdateCheckResult(
+          dbPath: dbPath,
+          latestVersion: 5,
+          latestContentTag: 'v5',
+          plan: LibraryUpdatePlan.delta(
             localVersion: 4,
             targetVersion: 5,
-            asset: ReleaseAsset(
-              name: 'seforim.db.zst',
-              downloadUrl: compressed,
-              size: File(compressed).lengthSync(),
+            steps: const [],
+            fullDownloadFallback: LibraryUpdatePlan.fullDownload(
+              localVersion: 4,
+              targetVersion: 5,
+              asset: ReleaseAsset(
+                name: 'seforim.db.zst',
+                downloadUrl: compressed,
+                size: File(compressed).lengthSync(),
+              ),
+              releaseTag: 'v5',
             ),
-            releaseTag: 'v5',
           ),
-        ),
-      );
-      expect(check.canFallBackToFullDownload, isTrue);
-
-      await _withoutNetwork((_) async {
-        final manager = LibraryManager(dataDir: dataDir);
-        await manager.applyUpdate(check, useFullDownloadFallback: true);
-
-        expect(File(dbPath).readAsBytesSync(), dbBytes);
-        expect(
-          (await LibraryStateStore(p.join(dataDir, 'library_state.json'))
-                  .loadAppliedRelease())
-              ?.tag,
-          'v5',
         );
-        manager.dispose();
-      });
-    });
+        expect(check.canFallBackToFullDownload, isTrue);
+
+        await _withoutNetwork((_) async {
+          final manager = LibraryManager(dataDir: dataDir);
+          await manager.applyUpdate(check, useFullDownloadFallback: true);
+
+          expect(File(dbPath).readAsBytesSync(), dbBytes);
+          expect(
+            (await LibraryStateStore(
+              p.join(dataDir, 'library_state.json'),
+            ).loadAppliedRelease())?.tag,
+            'v5',
+          );
+          manager.dispose();
+        });
+      },
+    );
 
     test('בקשת מסלול חלופי שאינו קיים נכשלת במקום לא לעשות כלום', () async {
       final manager = LibraryManager(dataDir: dataDir);
@@ -940,11 +1004,13 @@ void main() {
           ),
           useFullDownloadFallback: true,
         ),
-        throwsA(isA<LibraryApplyException>().having(
-          (e) => e.message,
-          'message',
-          AppL10n.strings.libraryDomain.fullDbAssetMissingFromPlan,
-        )),
+        throwsA(
+          isA<LibraryApplyException>().having(
+            (e) => e.message,
+            'message',
+            AppL10n.strings.libraryDomain.fullDbAssetMissingFromPlan,
+          ),
+        ),
       );
       manager.dispose();
     });
@@ -953,16 +1019,23 @@ void main() {
       final manager = LibraryManager(dataDir: dataDir);
 
       await expectLater(
-        manager.applyUpdate(LibraryUpdateCheckResult(
-          dbPath: p.join(tempDir.path, 'seforim.db'),
-          plan: LibraryUpdatePlan.blocked(
-            localVersion: 4,
-            targetVersion: 9,
-            reason: 'אין מסלול',
+        manager.applyUpdate(
+          LibraryUpdateCheckResult(
+            dbPath: p.join(tempDir.path, 'seforim.db'),
+            plan: LibraryUpdatePlan.blocked(
+              localVersion: 4,
+              targetVersion: 9,
+              reason: 'אין מסלול',
+            ),
           ),
-        )),
-        throwsA(isA<LibraryApplyException>()
-            .having((e) => e.message, 'message', 'אין מסלול')),
+        ),
+        throwsA(
+          isA<LibraryApplyException>().having(
+            (e) => e.message,
+            'message',
+            'אין מסלול',
+          ),
+        ),
       );
       manager.dispose();
     });
@@ -994,8 +1067,13 @@ void main() {
     LibraryManager isolatedManager() {
       otzariaRoot = Platform.isWindows
           ? p.join(tempDir.path, 'Roaming', 'otzaria')
-          : p.join(tempDir.path, 'home', 'Library', 'Application Support',
-              'otzaria');
+          : p.join(
+              tempDir.path,
+              'home',
+              'Library',
+              'Application Support',
+              'otzaria',
+            );
       return LibraryManager(
         dataDir: dataDir,
         operatingSystem: Platform.isWindows ? 'windows' : 'macos',
@@ -1043,10 +1121,9 @@ void main() {
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
         return false;
       }
-      if (await const OtzariaProcessGuard()
-          .isAnyRunning(OtzariaProcessGuard.processNamesFor(
-        Platform.operatingSystem,
-      ))) {
+      if (await const OtzariaProcessGuard().isAnyRunning(
+        OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
+      )) {
         markTestSkipped('אוצריא פתוחה — ההחלה נחסמת בכוונה');
         return false;
       }

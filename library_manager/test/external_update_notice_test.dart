@@ -21,10 +21,13 @@ void main() {
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
-  Map<String, dynamic> readNotice() => jsonDecode(
-        File(p.join(tempDir.path, ExternalUpdateNotice.fileName))
-            .readAsStringSync(),
-      ) as Map<String, dynamic>;
+  Map<String, dynamic> readNotice() =>
+      jsonDecode(
+            File(
+              p.join(tempDir.path, ExternalUpdateNotice.fileName),
+            ).readAsStringSync(),
+          )
+          as Map<String, dynamic>;
 
   test('מסלול דלתא רושם את מזהי הספרים שהשתנו, ממוינים', () async {
     await const ExternalUpdateNotice().write(
@@ -43,18 +46,20 @@ void main() {
     expect(json['source'], 'otzaria-launcher');
   });
 
-  test('הורדה מלאה רושמת רשימה ריקה — שם ההשוואה היא לפי טביעות-אצבע',
-      () async {
-    await const ExternalUpdateNotice().write(
-      dbPath: dbPath,
-      route: ExternalUpdateNotice.routeFull,
-      dbVersion: 16,
-    );
+  test(
+    'הורדה מלאה רושמת רשימה ריקה — שם ההשוואה היא לפי טביעות-אצבע',
+    () async {
+      await const ExternalUpdateNotice().write(
+        dbPath: dbPath,
+        route: ExternalUpdateNotice.routeFull,
+        dbVersion: 16,
+      );
 
-    final json = readNotice();
-    expect(json['route'], ExternalUpdateNotice.routeFull);
-    expect(json['booksTouched'], isEmpty);
-  });
+      final json = readNotice();
+      expect(json['route'], ExternalUpdateNotice.routeFull);
+      expect(json['booksTouched'], isEmpty);
+    },
+  );
 
   test('שני עדכונים לפני שאוצריא נפתחה — הספרים מצטברים ולא נדרסים', () async {
     const notice = ExternalUpdateNotice();
@@ -141,35 +146,37 @@ void main() {
       expect(file.existsSync(), isTrue);
     });
 
-    test('מיזוג נשען על read — פורמט לא מוכר אינו נבלע לתוך הסימון החדש',
-        () async {
-      await File(p.join(tempDir.path, ExternalUpdateNotice.fileName))
-          .writeAsString(jsonEncode({
-        'formatVersion': 99,
-        'route': ExternalUpdateNotice.routeFull,
-        'booksTouched': [42],
-      }));
+    test(
+      'מיזוג נשען על read — פורמט לא מוכר אינו נבלע לתוך הסימון החדש',
+      () async {
+        await File(
+          p.join(tempDir.path, ExternalUpdateNotice.fileName),
+        ).writeAsString(
+          jsonEncode({
+            'formatVersion': 99,
+            'route': ExternalUpdateNotice.routeFull,
+            'booksTouched': [42],
+          }),
+        );
 
-      await notice.write(
-        dbPath: dbPath,
-        route: ExternalUpdateNotice.routeDelta,
-        booksTouched: {7},
-      );
+        await notice.write(
+          dbPath: dbPath,
+          route: ExternalUpdateNotice.routeDelta,
+          booksTouched: {7},
+        );
 
-      final json = readNotice();
-      expect(json['route'], ExternalUpdateNotice.routeDelta);
-      expect(json['booksTouched'], [7]);
-    });
+        final json = readNotice();
+        expect(json['route'], ExternalUpdateNotice.routeDelta);
+        expect(json['booksTouched'], [7]);
+      },
+    );
   });
 
   group('clear — רק אחרי שהבקשה נמסרה', () {
     const notice = ExternalUpdateNotice();
 
     test('מוחק את הסימון', () async {
-      await notice.write(
-        dbPath: dbPath,
-        route: ExternalUpdateNotice.routeFull,
-      );
+      await notice.write(dbPath: dbPath, route: ExternalUpdateNotice.routeFull);
       expect(await notice.read(dbPath: dbPath), isNotNull);
 
       await notice.clear(dbPath: dbPath);

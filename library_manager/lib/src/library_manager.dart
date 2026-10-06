@@ -90,13 +90,14 @@ class LibraryManager {
     String? operatingSystem,
     Map<String, String>? environment,
     LocalDbVersionReader versionReader = const LocalDbVersionReader(),
-  })  : _stateStore = LibraryStateStore(
-            p.join(stateDir ?? dataDir, 'library_state.json')),
-        _planner = const LibraryUpdatePlanner(),
-        _versionReader = versionReader,
-        _recovery = const LibraryDbRecoveryService(),
-        _cloudClient = GithubLibraryReleaseClient(),
-        _applier = LibraryUpdateApplier() {
+  }) : _stateStore = LibraryStateStore(
+         p.join(stateDir ?? dataDir, 'library_state.json'),
+       ),
+       _planner = const LibraryUpdatePlanner(),
+       _versionReader = versionReader,
+       _recovery = const LibraryDbRecoveryService(),
+       _cloudClient = GithubLibraryReleaseClient(),
+       _applier = LibraryUpdateApplier() {
     _locator = LibraryDbLocator(
       stateStore: _stateStore,
       otzariaLaunchPath: otzariaLaunchPath,
@@ -155,8 +156,9 @@ class LibraryManager {
   /// חיבורים, אבל אפשר להוריד קבצים שונים בו-זמנית, וזה מה שמאיץ בפועל.
   final DownloadScheduler _scheduler = DownloadScheduler();
 
-  late final CompanionAssetsMirror _companionsMirror =
-      CompanionAssetsMirror(scheduler: _scheduler);
+  late final CompanionAssetsMirror _companionsMirror = CompanionAssetsMirror(
+    scheduler: _scheduler,
+  );
   final CompanionAssetsInstaller _companionsInstaller =
       const CompanionAssetsInstaller();
 
@@ -168,6 +170,19 @@ class LibraryManager {
   String get companionsMirrorDir => p.join(dataDir, 'mirror', 'companions');
 
   String get semanticMirrorDir => p.join(dataDir, 'mirror', 'semantic');
+
+  Future<OtzariaSettings?> _semanticSettings() async {
+    final launch = await _locator.otzariaLaunchPath?.call();
+    final root = await _locator.otzariaSettingsRoot(launch);
+    return root == null ? null : _locator.settingsReader.read(root);
+  }
+
+  Future<String> resolveSemanticVectorsRoot(String dbPath) async {
+    final library = (await _semanticSettings())?.libraryPath;
+    return library != null && library.isNotEmpty
+        ? p.dirname(library)
+        : p.dirname(p.dirname(dbPath));
+  }
 
   Future<bool> semanticConsentGranted() async {
     final launch = await _locator.otzariaLaunchPath?.call();
@@ -264,10 +279,9 @@ class LibraryManager {
   /// `true` אם כבר בוצעה הורדה מוצלחת אחת לפחות. בודק ספציפית את
   /// `releases.json`, שנכתב רק בסוף הורדה מוצלחת — התיקייה עצמה נוצרת מיד
   /// בתחילתה, ולכן קיומה לבדו לא מבטיח תוכן שלם.
-  Future<bool> get hasMirror => File(p.join(
-        mirrorDir,
-        LocalMirrorLibraryReleaseClient.manifestFileName,
-      )).exists();
+  Future<bool> get hasMirror => File(
+    p.join(mirrorDir, LocalMirrorLibraryReleaseClient.manifestFileName),
+  ).exists();
 
   /// מוריד את עדכוני הספרייה מ-GitHub אל [mirrorDir] — **הפעולה הכבדה**
   /// שנוגעת ברשת (המסד המלא ~1GB + קובצי העדכון). מביא את ה-release
@@ -293,8 +307,9 @@ class LibraryManager {
     void Function(String warning)? onWarning,
     bool Function()? isCancelled,
   }) async {
-    final fromVersion =
-        personalUpdateMode ? await recordedPersonalDbVersion() : null;
+    final fromVersion = personalUpdateMode
+        ? await recordedPersonalDbVersion()
+        : null;
     // מצב אישי בלי גרסה מזוהה נופל להורדה הרגילה במקום להיכשל — מוטב מסד
     // מלא מכונן שאין בו כלום. ה-stage אומר זאת, וגם ה-[MirrorDownloadOutcome].
     if (personalUpdateMode && fromVersion == null) {
@@ -359,9 +374,9 @@ class LibraryManager {
     await Future.wait<void>([exportFuture, companionsFuture]);
 
     if (includeSemanticSearch) {
-      final discovery =
-          await LibraryUpdateDiscovery(client: await _resolveSource())
-              .discover(allowPrerelease: allowPrerelease);
+      final discovery = await LibraryUpdateDiscovery(
+        client: await _resolveSource(),
+      ).discover(allowPrerelease: allowPrerelease);
       final tag = discovery.latestContentTag;
       if (tag == null) {
         throw StateError(AppL10n.strings.libraryDomain.companionsMirrorMissing);
@@ -515,7 +530,10 @@ class LibraryManager {
       // hasVersionMeta=false גורמים ל-planner לבחור fullDownload, בדיוק
       // כמו DB ישן-מדי-לפאץ' (ראו LibraryUpdatePlanner._fullOrBlocked).
       local = const LocalDbVersion(
-          dbVersion: 0, schemaVersion: null, hasVersionMeta: false);
+        dbVersion: 0,
+        schemaVersion: null,
+        hasVersionMeta: false,
+      );
     } else {
       // התאוששות מעדכון שנקטע באמצע, לפני שקוראים גרסה מקומית או פותחים
       // DB בכל דרך אחרת.
@@ -539,8 +557,9 @@ class LibraryManager {
 
     final source = await _resolveSource();
     final discoverer = LibraryUpdateDiscovery(client: source);
-    final discoveryResult =
-        await discoverer.discover(allowPrerelease: allowPrerelease);
+    final discoveryResult = await discoverer.discover(
+      allowPrerelease: allowPrerelease,
+    );
 
     // מאיזה release התוכן שעל **המחשב הזה** הגיע, ובאיזו גרסה — בלי זה,
     // release שמפרסם מסד מתוקן באותו db_version נראה כ"מעודכן".
@@ -552,8 +571,9 @@ class LibraryManager {
     final companions = await _companionsInstaller.pendingWork(
       mirrorDir: companionsMirrorDir,
       dbPath: dbPath,
-      delivered:
-          _deliveredCompanions(await _stateStore.loadDeliveredCompanions()),
+      delivered: _deliveredCompanions(
+        await _stateStore.loadDeliveredCompanions(),
+      ),
     );
 
     final plan = _planner.plan(
@@ -580,6 +600,10 @@ class LibraryManager {
         libraryVersion: plan.kind == LibraryUpdatePlanKind.blocked
             ? local.dbVersion
             : plan.finalTargetVersion ?? local.dbVersion,
+        vectorsRootPath: await resolveSemanticVectorsRoot(dbPath),
+        preferencesReady:
+            (await _semanticSettings())?.semanticSearchReadyPreferences ??
+            false,
       );
     } finally {
       semantic.dispose();
@@ -641,8 +665,9 @@ class LibraryManager {
   }) async {
     // מסלול ההתאוששות: אותה בדיקה, אבל עם המסד המלא במקום ה-patches. לא
     // קורה מעצמו — הורדה של ~1.5GB וחילוץ של ~5.5GB היא החלטה של המשתמש.
-    final plan =
-        useFullDownloadFallback ? check.plan?.fullDownloadFallback : check.plan;
+    final plan = useFullDownloadFallback
+        ? check.plan?.fullDownloadFallback
+        : check.plan;
     final dbPath = check.dbPath;
     if (useFullDownloadFallback && plan == null) {
       throw LibraryApplyException(
@@ -756,12 +781,15 @@ class LibraryManager {
     final companions = await _companionsInstaller.install(
       mirrorDir: companionsMirrorDir,
       dbPath: dbPath,
-      delivered:
-          _deliveredCompanions(await _stateStore.loadDeliveredCompanions()),
-      onStage: (stage) => onProgress?.call(LibraryApplyProgress(
-        stage: LibraryApplyStage.installingCompanions,
-        statusText: stage,
-      )),
+      delivered: _deliveredCompanions(
+        await _stateStore.loadDeliveredCompanions(),
+      ),
+      onStage: (stage) => onProgress?.call(
+        LibraryApplyProgress(
+          stage: LibraryApplyStage.installingCompanions,
+          statusText: stage,
+        ),
+      ),
       onWarning: onCompanionWarning,
       isCancelled: isCancelled,
     );
@@ -776,12 +804,13 @@ class LibraryManager {
       onStateWarning?.call(e);
     }
 
-    if (check.semanticPending) {
+    if (check.semanticPending && check.semanticConsentGranted) {
       final name = AppL10n.strings.libraryDomain.companionSemanticName;
       try {
         if (!await semanticConsentGranted()) {
           throw StateError(
-              AppL10n.strings.libraryDomain.semanticConsentRequired);
+            AppL10n.strings.libraryDomain.semanticConsentRequired,
+          );
         }
         if (await const OtzariaProcessGuard().isAnyRunning(
           OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
@@ -795,12 +824,37 @@ class LibraryManager {
             mirrorDir: semanticMirrorDir,
             dbPath: dbPath,
             libraryVersion: version.dbVersion,
-            onStage: (stage) => onProgress?.call(LibraryApplyProgress(
-              stage: LibraryApplyStage.installingCompanions,
-              statusText: stage,
-            )),
+            vectorsRootPath: await resolveSemanticVectorsRoot(dbPath),
+            beforeActivate: () async {
+              if (await const OtzariaProcessGuard().isAnyRunning(
+                OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
+              )) {
+                throw const OtzariaIsRunningException();
+              }
+            },
+            onStage: (stage) => onProgress?.call(
+              LibraryApplyProgress(
+                stage: LibraryApplyStage.installingCompanions,
+                statusText: stage,
+              ),
+            ),
             isCancelled: isCancelled,
           );
+          if (await const OtzariaProcessGuard().isAnyRunning(
+            OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
+          )) {
+            throw const OtzariaIsRunningException();
+          }
+          final launch = await _locator.otzariaLaunchPath?.call();
+          final root = await _locator.otzariaSettingsRoot(launch);
+          if (root == null ||
+              !await const OtzariaSettingsWriter().finishSemanticInstall(
+                dataRootPath: root,
+              )) {
+            throw StateError(
+              AppL10n.strings.libraryDomain.companionsInstallFailed(name),
+            );
+          }
         } finally {
           semantic.dispose();
         }
@@ -884,13 +938,18 @@ class LibraryManager {
     // מול רישום שנעשה בגרסה אחרת (ראו LibraryUpdatePlanner).
     if (tag != null && version != null && version > 0) {
       await record(
-          () => _stateStore.saveAppliedRelease(tag: tag, dbVersion: version));
+        () => _stateStore.saveAppliedRelease(tag: tag, dbVersion: version),
+      );
     }
     // המחשב הזה עלה לגרסה החדשה — בלי העדכון הזה הורדה אישית הבאה עוד
     // הייתה יוצאת מהגרסה הישנה שלו ומביאה patches שכבר הוחלו.
     if (version != null && version > 0) {
-      await record(() => _stateStore.recordKnownDbVersion(
-          LibraryStateStore.currentMachineKey(), version));
+      await record(
+        () => _stateStore.recordKnownDbVersion(
+          LibraryStateStore.currentMachineKey(),
+          version,
+        ),
+      );
     }
     // מה השתנה, לטובת אינדקס החיפוש של אוצריא — ראו [ExternalUpdateNotice].
     await const ExternalUpdateNotice().write(

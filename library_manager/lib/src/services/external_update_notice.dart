@@ -48,16 +48,20 @@ class ExternalUpdateNotice {
       final mergedRoute = (route == routeFull || pending?.route == routeFull)
           ? routeFull
           : route;
-      await file.writeAsString(jsonEncode({
-        'formatVersion': formatVersion,
-        'source': 'otzaria-launcher',
-        'updatedAt': (updatedAt ?? DateTime.now()).toIso8601String(),
-        'route': mergedRoute,
-        if (dbVersion != null) 'dbVersion': dbVersion,
-        if (releaseTag != null) 'releaseTag': releaseTag,
-        'booksTouched':
-            <int>{...?pending?.booksTouched, ...booksTouched}.toList()..sort(),
-      }));
+      await file.writeAsString(
+        jsonEncode({
+          'formatVersion': formatVersion,
+          'source': 'otzaria-launcher',
+          'updatedAt': (updatedAt ?? DateTime.now()).toIso8601String(),
+          'route': mergedRoute,
+          if (dbVersion != null) 'dbVersion': dbVersion,
+          if (releaseTag != null) 'releaseTag': releaseTag,
+          'booksTouched': <int>{
+            ...?pending?.booksTouched,
+            ...booksTouched,
+          }.toList()..sort(),
+        }),
+      );
     } catch (_) {}
   }
 
@@ -77,7 +81,7 @@ class ExternalUpdateNotice {
         updatedAt: DateTime.tryParse(decoded['updatedAt'] as String? ?? ''),
         booksTouched:
             (decoded['booksTouched'] as List?)?.whereType<int>().toSet() ??
-                const <int>{},
+            const <int>{},
       );
     } catch (_) {
       return null;

@@ -27,6 +27,52 @@ void main() {
     return Hive.openBox<dynamic>(OtzariaSettingsReader.boxName, path: root);
   }
 
+  test(
+    'finished installation enables installed int8 without granting consent',
+    () async {
+      final box = await open(tempDir.path);
+      await box.putAll({
+        'key-semantic-model-quantization': 'fp32',
+        'key-semantic-data-enabled': false,
+        'key-semantic-download-paused': true,
+        'key-offline-mode': true,
+        'key-semantic-skipped-vectors-release': 'keep-tag',
+        OtzariaSettingsReader.keySearchFeedbackConsent: 'declined',
+        OtzariaSettingsReader.keySearchFeedbackConsentVersion: 1,
+        'unrelated': 'unchanged',
+      });
+      await box.close();
+
+      expect(
+        await writer.finishSemanticInstall(dataRootPath: tempDir.path),
+        isTrue,
+      );
+
+      final reopened = await open(tempDir.path);
+      expect(reopened.get('key-semantic-model-quantization'), 'int8');
+      expect(reopened.get('key-semantic-data-enabled'), isTrue);
+      expect(reopened.get('key-semantic-download-paused'), isFalse);
+      expect(reopened.get('key-offline-mode'), isTrue);
+      expect(reopened.get('key-semantic-skipped-vectors-release'), 'keep-tag');
+      expect(
+        reopened.get(OtzariaSettingsReader.keySearchFeedbackConsent),
+        'declined',
+      );
+      expect(reopened.get('unrelated'), 'unchanged');
+      await reopened.close();
+      expect(
+        (await reader.read(tempDir.path))!.semanticSearchReadyPreferences,
+        isTrue,
+      );
+    },
+  );
+
+  test('finishing installation cannot create an absent data root', () async {
+    final root = p.join(tempDir.path, 'absent');
+    expect(await writer.finishSemanticInstall(dataRootPath: root), isFalse);
+    expect(await Directory(root).exists(), isFalse);
+  });
+
   test('explicit consent preserves unrelated preferences', () async {
     final box = await open(tempDir.path);
     await box.putAll({
@@ -36,8 +82,10 @@ void main() {
     });
     await box.close();
 
-    expect(await writer.grantSearchFeedbackConsent(dataRootPath: tempDir.path),
-        isTrue);
+    expect(
+      await writer.grantSearchFeedbackConsent(dataRootPath: tempDir.path),
+      isTrue,
+    );
     final settings = await reader.read(tempDir.path);
     expect(settings!.searchFeedbackGranted, isTrue);
     expect(settings.searchFeedbackConsentVersion, 1);
@@ -48,12 +96,20 @@ void main() {
   });
 
   test('corrupt preferences are not repaired or truncated', () async {
-    final source =
-        File(p.join(tempDir.path, OtzariaSettingsReader.boxFileName));
+    final source = File(
+      p.join(tempDir.path, OtzariaSettingsReader.boxFileName),
+    );
     await source.writeAsBytes([1, 2, 3, 4, 5]);
     final before = await source.readAsBytes();
-    expect(await writer.grantSearchFeedbackConsent(dataRootPath: tempDir.path),
-        isFalse);
+    expect(
+      await writer.grantSearchFeedbackConsent(dataRootPath: tempDir.path),
+      isFalse,
+    );
+    expect(await source.readAsBytes(), before);
+    expect(
+      await writer.finishSemanticInstall(dataRootPath: tempDir.path),
+      isFalse,
+    );
     expect(await source.readAsBytes(), before);
   });
 
@@ -67,20 +123,30 @@ void main() {
     final source = File(p.join(otherRoot, OtzariaSettingsReader.boxFileName));
     final before = await source.readAsBytes();
 
-    expect(await writer.grantSearchFeedbackConsent(dataRootPath: targetRoot),
-        isFalse);
+    expect(
+      await writer.grantSearchFeedbackConsent(dataRootPath: targetRoot),
+      isFalse,
+    );
     expect(box.isOpen, isTrue);
     expect(box.get('unrelated'), 'unchanged');
     expect(box.get(OtzariaSettingsReader.keySearchFeedbackConsent), isNull);
     expect(await source.readAsBytes(), before);
     expect(await Directory(targetRoot).list().toList(), isEmpty);
+    expect(
+      await writer.finishSemanticInstall(dataRootPath: targetRoot),
+      isFalse,
+    );
+    expect(box.isOpen, isTrue);
+    expect(await source.readAsBytes(), before);
     await box.close();
   });
 
   test('missing root requires explicit creation permission', () async {
     final root = p.join(tempDir.path, 'not-started');
     expect(
-        await writer.grantSearchFeedbackConsent(dataRootPath: root), isFalse);
+      await writer.grantSearchFeedbackConsent(dataRootPath: root),
+      isFalse,
+    );
     expect(await Directory(root).exists(), isFalse);
     expect(
       await writer.grantSearchFeedbackConsent(
@@ -93,8 +159,10 @@ void main() {
   });
 
   test('existing root can acquire a missing preferences box', () async {
-    expect(await writer.grantSearchFeedbackConsent(dataRootPath: tempDir.path),
-        isTrue);
+    expect(
+      await writer.grantSearchFeedbackConsent(dataRootPath: tempDir.path),
+      isTrue,
+    );
     expect((await reader.read(tempDir.path))!.searchFeedbackGranted, isTrue);
   });
 }

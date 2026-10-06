@@ -1291,9 +1291,10 @@ abstract class LibraryDomainStrings {
   String get companionCatalogName;
   String get companionDictionaryName;
   String get companionSemanticName;
+  String get semanticDownloading;
+  String get semanticInstalling;
   String get semanticDownloadPrompt;
   String get semanticConsentRequired;
-  String get semanticStagedNotice;
   String get semanticConsentTitle;
   String get semanticConsentText;
   String get semanticConsentConfirm;
