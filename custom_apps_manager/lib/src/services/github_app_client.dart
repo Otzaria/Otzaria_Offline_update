@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import 'package:otzaria_downloads/otzaria_downloads.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../models/app_descriptor.dart';
@@ -29,7 +29,6 @@ class GithubAppClient {
   Duration stallTimeout;
 
   static const int _pageSize = 20;
-  static const int _writeBufferBytes = 4 << 20;
 
   /// הגרסה האחרונה שאינה טיוטה. pre-release נבחר רק אם אין שום גרסה
   /// יציבה — GitHub מחזיר מהחדש לישן, ולכן "יציבה ראשונה ברשימה" היא
@@ -88,75 +87,35 @@ class GithubAppClient {
     return null;
   }
 
-  /// מוריד קובץ אל [destinationPath] ומחזיר את ה-sha256 שלו. הקובץ החלקי
-  /// נמחק בכשל, כדי שהריצה הבאה לא תראה אותו כהורדה שהסתיימה.
-  ///
-  /// כשגיטהאב פרסם digest, קובץ שאינו תואם לו נדחה — עדיף לגלות את זה כאן
-  /// מאשר במחשב המנותק, שבו אין מאיפה להוריד שוב.
+  /// מוריד בזרימה ומחזיר SHA-256; חלקי נשמר בנפרד כדי לא להיראות מוכן להתקנה.
+  /// digest שגיטהאב פרסם נבדק כאן, כי במחשב המנותק אין מאיפה להוריד שוב.
   Future<String> download(
     GithubAsset asset,
     String destinationPath, {
     void Function(int received, int total)? onProgress,
   }) async {
-    final request = http.Request('GET', Uri.parse(asset.downloadUrl));
-    final response = await _http.send(request).timeout(timeout);
-    if (response.statusCode != 200) {
-      throw AppDescriptorException(
-        AppL10n.strings.customAppsDomain.downloadFailed(response.statusCode),
-      );
-    }
-
-    final file = File(destinationPath);
-    await file.parent.create(recursive: true);
-    final sink = file.openWrite();
-    var received = 0;
-    var buffered = 0;
-    Digest? digest;
-    final hasher = sha256.startChunkedConversion(
-      ChunkedConversionSink<Digest>.withCallback((d) => digest = d.single),
+    final result = await downloadFile(
+      client: _http,
+      url: asset.downloadUrl,
+      destinationPath: destinationPath,
+      expectedSize: asset.sizeBytes,
+      connectTimeout: timeout,
+      stallTimeout: stallTimeout,
+      onProgress: onProgress,
+      calculateSha256: true,
+      statusError: (status) => AppDescriptorException(
+          AppL10n.strings.customAppsDomain.downloadFailed(status)),
+      sizeError: (actual, expected) => AppDescriptorException(
+          AppL10n.strings.appDomain.installerSizeMismatch(actual, expected)),
     );
-
-    try {
-      await for (final chunk in response.stream.timeout(stallTimeout)) {
-        sink.add(chunk);
-        hasher.add(chunk);
-        received += chunk.length;
-        buffered += chunk.length;
-        onProgress?.call(received, asset.sizeBytes);
-        // `IOSink.add` אינו מפעיל לחץ-נגד: בלי ההמתנה הזו קובץ שיורד מהר
-        // יותר משהכונן הנייד כותב נערם ב-RAM.
-        if (buffered >= _writeBufferBytes) {
-          buffered = 0;
-          await sink.flush();
-        }
-      }
-      await sink.flush();
-      await sink.close();
-      hasher.close();
-
-      if (asset.sizeBytes > 0 && received != asset.sizeBytes) {
-        throw AppDescriptorException(
-          AppL10n.strings.appDomain
-              .installerSizeMismatch(received, asset.sizeBytes),
-        );
-      }
-
-      final actual = digest!.toString();
-      if (asset.sha256 case final expected? when expected != actual) {
-        throw AppDescriptorException(
-          AppL10n.strings.customAppsDomain.downloadDigestMismatch(asset.name),
-        );
-      }
-      return actual;
-    } catch (_) {
-      try {
-        await sink.close();
-      } catch (_) {}
-      try {
-        await file.delete();
-      } catch (_) {}
-      rethrow;
+    final file = File(destinationPath);
+    final actual = result.sha256!;
+    if (asset.sha256 case final expected? when expected != actual) {
+      await file.delete();
+      throw AppDescriptorException(
+          AppL10n.strings.customAppsDomain.downloadDigestMismatch(asset.name));
     }
+    return actual;
   }
 
   void dispose() => _http.close();

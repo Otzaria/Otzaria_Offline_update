@@ -69,6 +69,23 @@ jobs:
       - run: flutter analyze --no-fatal-infos
       - run: flutter test
 
+  otzaria_downloads:
+    name: otzaria_downloads (analyze + test)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: otzaria_downloads
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+      - run: dart pub get
+      - run: dart analyze
+      - run: dart test
+
   otzaria_manager:
     name: otzaria_manager (analyze + test)
     # רץ גם על macOS: המסלול של macOS ב-otzaria_manager מריץ כלי מערכת

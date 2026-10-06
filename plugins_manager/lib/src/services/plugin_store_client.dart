@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:otzaria_downloads/otzaria_downloads.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
@@ -118,15 +119,18 @@ class PluginStoreClient {
     String destPathNoExt, {
     String? preferredExt,
   }) async {
-    final response = await _client
-        .send(http.Request('GET', Uri.parse(absolute(url))))
-        .timeout(timeout);
-    if (response.statusCode != 200) {
-      await _abandonBody(response);
-      throw PluginStoreException(
-        AppL10n.strings.pluginsDomain.httpStatusFor(response.statusCode, url),
-      );
-    }
+    final stagingPath = '$destPathNoExt.download';
+    final response = await downloadFile(
+      client: _client,
+      url: absolute(url),
+      destinationPath: stagingPath,
+      connectTimeout: timeout,
+      stallTimeout: stallTimeout,
+      statusError: (status) => PluginStoreException(
+          AppL10n.strings.pluginsDomain.httpStatusFor(status, url)),
+      sizeError: (actual, expected) => PluginStoreException(
+          AppL10n.strings.appDomain.installerSizeMismatch(actual, expected)),
+    );
 
     final fromDisposition =
         parseContentDisposition(response.headers['content-disposition']);
@@ -143,50 +147,13 @@ class PluginStoreClient {
     }
 
     final destPath = destPathNoExt + ext;
+    await File(stagingPath).rename(destPath);
     return DownloadedAsset(
       path: destPath,
       ext: ext,
-      size: await _streamToFile(response, File(destPath)),
+      size: response.size,
       originalName: originalName,
     );
-  }
-
-  /// כותב את גוף התשובה ל-`.part` ומחליף בו את היעד רק אחרי שנסגר בהצלחה:
-  /// הורדה שנקטעה באמצע לא תשאיר קובץ חלקי שנראה כתוסף תקין, והקובץ הקודם
-  /// שבמראה נשאר שלם עד הרגע האחרון. מחזיר את מספר הבייטים שנכתבו.
-  Future<int> _streamToFile(http.StreamedResponse response, File dest) async {
-    await dest.parent.create(recursive: true);
-    final part = File('${dest.path}.part');
-    final sink = part.openWrite();
-    var size = 0;
-    try {
-      // ה-timeout על הזרם מתאפס בכל מנה — נחתך רק כשאין התקדמות.
-      await for (final chunk in response.stream.timeout(stallTimeout)) {
-        sink.add(chunk);
-        size += chunk.length;
-      }
-      await sink.flush();
-      await sink.close();
-      // ב-Windows handle פתוח חוסם את ההחלפה, ולכן השינוי אחרי הסגירה.
-      await part.rename(dest.path);
-    } catch (_) {
-      try {
-        await sink.close();
-      } catch (_) {}
-      try {
-        await part.delete();
-      } catch (_) {}
-      rethrow;
-    }
-    return size;
-  }
-
-  /// נוטש את גוף התשובה במסלול שגיאה בלי לרוקן אותו — אחרת שרת שממשיך לשדר
-  /// היה מזרים נכס שלם רק כדי שנדווח כשל.
-  Future<void> _abandonBody(http.StreamedResponse response) async {
-    try {
-      await response.stream.listen((_) {}).cancel();
-    } catch (_) {}
   }
 
   /// מתרגמת כשל רשת להודעה למשתמש. `TimeoutException` הוא המקרה השכיח

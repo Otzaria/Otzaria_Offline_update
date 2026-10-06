@@ -29,6 +29,39 @@ void main() {
       );
 
   group('כתובות', () {
+    test('המשך אוטומטי משמר את הסיומת ואת העותק הישן עד להשלמה', () async {
+      final target = p.join(temp.path, 'plugin');
+      final previous = File('$target.otzplugin')..writeAsStringSync('previous');
+      var requests = 0;
+      Stream<List<int>> interrupted() async* {
+        yield utf8.encode('abc');
+        throw http.ClientException('disconnected');
+      }
+
+      final client =
+          PluginStoreClient(client: MockClient.streaming((req, _) async {
+        if (++requests == 1) {
+          return http.StreamedResponse(interrupted(), 200,
+              contentLength: 6,
+              headers: {
+                'etag': '"v1"',
+                'content-disposition': 'attachment; filename=plugin.otzplugin'
+              });
+        }
+        expect(previous.readAsStringSync(), 'previous');
+        expect(req.headers['Range'], 'bytes=3-');
+        return http.StreamedResponse(Stream.value(utf8.encode('def')), 206,
+            contentLength: 3, headers: {'content-range': 'bytes 3-5/6'});
+      }));
+      addTearDown(client.dispose);
+      final result =
+          await client.downloadAsset('https://example.test/plugin', target);
+      expect(result.ext, '.otzplugin');
+      expect(result.size, 6);
+      expect(previous.readAsStringSync(), 'abcdef');
+      expect(requests, 2);
+    });
+
     test('סלאש מיותר בסוף baseUrl נחתך', () {
       final client = clientFor((_) async => jsonResponse(const []));
       expect(

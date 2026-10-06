@@ -185,6 +185,7 @@ class MirrorJunkSweeper {
     final keep = <String>{};
     for (final plugin in catalog.plugins) {
       keptDirs.add(_key(plugin.id));
+      keep.addAll((await store.pendingFilesFor(plugin)).map(_key));
       for (final relative in [
         if (plugin.imagePath case final path?) path,
         ...plugin.screenshotPaths,

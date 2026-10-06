@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -60,6 +61,38 @@ void main() {
   String cachedPath() => p.join(cacheDir, _tag, _assetName);
 
   group('OtzariaInstaller.ensureCached', () {
+    test('ניתוק באמצע ממשיך אוטומטית עם אותו ETag', () async {
+      Stream<List<int>> interrupted() async* {
+        yield utf8.encode(_installerBytes.substring(0, 5));
+        throw http.ClientException('disconnected');
+      }
+
+      final installer = installerWith(MockClient.streaming((request, _) async {
+        if (++requests == 1) {
+          return http.StreamedResponse(interrupted(), 200,
+              contentLength: _installerBytes.length,
+              headers: {'etag': '"installer-v1"'});
+        }
+        expect(request.headers['Range'], 'bytes=5-');
+        expect(request.headers['If-Range'], '"installer-v1"');
+        return http.StreamedResponse(
+          Stream.value(utf8.encode(_installerBytes.substring(5))),
+          206,
+          contentLength: _installerBytes.length - 5,
+          headers: {
+            'content-range':
+                'bytes 5-${_installerBytes.length - 1}/${_installerBytes.length}'
+          },
+        );
+      }));
+      addTearDown(installer.dispose);
+
+      await installer.ensureCached(release: _release());
+      expect(requests, 2);
+      expect(File(cachedPath()).readAsStringSync(), _installerBytes);
+      expect(File('${cachedPath()}.part').existsSync(), isFalse);
+    });
+
     test('מוריד לתת-תיקייה לפי תג, ומדווח התקדמות מול הגודל הצפוי', () async {
       final installer = installerWith(mockDownload(_installerBytes));
       addTearDown(installer.dispose);

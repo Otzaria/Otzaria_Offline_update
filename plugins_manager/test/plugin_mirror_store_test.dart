@@ -156,6 +156,30 @@ void main() {
   });
 
   group('hasFileFor', () {
+    test('ניקוי שומר הורדה חלקית למקור קיים ומוחק חלקי שהתיישן', () async {
+      final entry = plugin('abc');
+      final dir = Directory(store.pluginDir(entry.id))
+        ..createSync(recursive: true);
+      final path = p.join(dir.path, 'plugin-1.0.0.download');
+      File('$path.part').writeAsStringSync('abc');
+      File('$path.resume').writeAsStringSync(jsonEncode({
+        'url': entry.remoteDownloadUrl,
+        'etag': '"v1"',
+        'total': 6,
+      }));
+      expect(await store.pruneUnusedFiles(entry), 0);
+      expect(File('$path.part').existsSync(), isTrue);
+      expect(await store.hasFileFor(entry, '1.0.0'), isFalse);
+
+      File('$path.resume').writeAsStringSync(jsonEncode({
+        'url': 'https://example.test/obsolete',
+        'etag': '"old"',
+        'total': 6,
+      }));
+      expect(await store.pruneUnusedFiles(entry), 2);
+      expect(File('$path.part').existsSync(), isFalse);
+    });
+
     test('רשומה בלי קובץ אינה קובץ קיים', () async {
       expect(await store.hasFileFor(plugin('abc'), '1.0.0'), isFalse);
     });

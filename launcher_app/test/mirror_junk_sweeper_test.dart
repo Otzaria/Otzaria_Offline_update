@@ -279,4 +279,25 @@ void main() {
   test('תיקיית נתונים ריקה אינה שגיאה', () async {
     expect(await sweep(), 0);
   });
+
+  test('ניקוי כללי שומר חלקי תוסף שהורדתו טרם הושלמה', () async {
+    json('mirror/plugins/catalog.json', {
+      'plugins': [
+        {
+          'id': 'a',
+          'version': '1.0',
+          'remoteDownloadUrl': 'https://example.test/plugin',
+        }
+      ],
+    });
+    file('mirror/plugins/files/a/plugin-1.0.download.part', bytes: 3);
+    json('mirror/plugins/files/a/plugin-1.0.download.resume', {
+      'url': 'https://example.test/plugin',
+      'etag': '"v1"',
+      'total': 6,
+    });
+    expect(await sweep(), 0);
+    expect(exists('mirror/plugins/files/a/plugin-1.0.download.part'), isTrue);
+    expect(exists('mirror/plugins/files/a/plugin-1.0.download.resume'), isTrue);
+  });
 }

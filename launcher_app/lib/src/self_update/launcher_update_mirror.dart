@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:otzaria_downloads/otzaria_downloads.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
@@ -50,10 +51,6 @@ class LauncherUpdateMirror {
   static const String _metadataFileName = 'latest-release.json';
   static const String _filesDirName = 'files';
   static const int _schemaVersion = 1;
-
-  /// כמה בייטים מותר לצבור ב-`IOSink` לפני שממתינים לכתיבה בפועל — `add`
-  /// אינו מפעיל לחץ-נגד, וכונן USB איטי היה מצטבר ב-RAM.
-  static const int _writeBufferBytes = 4 << 20;
 
   String get _metadataPath => p.join(mirrorDir, _metadataFileName);
 
@@ -181,54 +178,19 @@ class LauncherUpdateMirror {
     required int expectedSizeBytes,
     void Function(int received, int total)? onProgress,
   }) async {
-    final request = http.Request('GET', Uri.parse(url));
-    final response = await _httpClient.send(request).timeout(connectTimeout);
-
-    if (response.statusCode != 200) {
-      throw LauncherUpdateException(
-        AppL10n.strings.launcherUpdate.downloadFailed(response.statusCode),
-      );
-    }
-
-    final sink = File(destinationPath).openWrite();
-    var received = 0;
-    var buffered = 0;
-    try {
-      // `timeout` על הזרם ולא רק על ה-send: חיבור שנפתח ואז נשתק היה תוקע
-      // את ההורדה בלי גבול.
-      await for (final chunk in response.stream.timeout(stallTimeout)) {
-        sink.add(chunk);
-        received += chunk.length;
-        buffered += chunk.length;
-        onProgress?.call(received, expectedSizeBytes);
-        if (buffered >= _writeBufferBytes) {
-          buffered = 0;
-          await sink.flush();
-        }
-      }
-      await sink.flush();
-      await sink.close();
-    } catch (_) {
-      // קובץ חלקי חייב להיעלם: הריצה הבאה בודקת "כבר יש?" לפי גודל. סוגרים
-      // לפני המחיקה — בווינדוס handle פתוח חוסם אותה.
-      try {
-        await sink.close();
-      } catch (_) {}
-      try {
-        await File(destinationPath).delete();
-      } catch (_) {}
-      rethrow;
-    }
-
-    if (expectedSizeBytes > 0 && received != expectedSizeBytes) {
-      try {
-        await File(destinationPath).delete();
-      } catch (_) {}
-      throw LauncherUpdateException(
-        AppL10n.strings.launcherUpdate
-            .sizeMismatch(received, expectedSizeBytes),
-      );
-    }
+    await downloadFile(
+      client: _httpClient,
+      url: url,
+      destinationPath: destinationPath,
+      expectedSize: expectedSizeBytes,
+      connectTimeout: connectTimeout,
+      stallTimeout: stallTimeout,
+      onProgress: onProgress,
+      statusError: (status) => LauncherUpdateException(
+          AppL10n.strings.launcherUpdate.downloadFailed(status)),
+      sizeError: (actual, expected) => LauncherUpdateException(
+          AppL10n.strings.launcherUpdate.sizeMismatch(actual, expected)),
+    );
   }
 
   void dispose() => _httpClient.close();

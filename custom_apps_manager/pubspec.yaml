@@ -11,6 +11,8 @@ environment:
   sdk: ">=3.2.6 <4.0.0"
 
 dependencies:
+  otzaria_downloads:
+    path: ../otzaria_downloads
   otzaria_l10n:
     path: ../otzaria_l10n
   path: ^1.9.1

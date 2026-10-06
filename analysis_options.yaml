@@ -17,6 +17,7 @@ analyzer:
     # otzaria_l10n/test/strings_completeness_test.dart: הוא קיים ב-SDK של דארט
     # אבל לא בזה של Flutter. מקומית זה נעלם מהעין כי `dart pub get` בחבילה
     # יוצר לה context משלה; ב-CI טרי אין אחד כזה.
+    - otzaria_downloads/**
     - otzaria_l10n/**
     - otzaria_manager/**
     - library_manager/**

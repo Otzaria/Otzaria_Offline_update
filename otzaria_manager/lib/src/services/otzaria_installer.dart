@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
+import 'package:otzaria_downloads/otzaria_downloads.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
@@ -91,13 +92,8 @@ class OtzariaInstaller {
   final http.Client _httpClient;
   final OtzariaAppLocator _appLocator;
 
-  /// Only the wizard path (Windows) uses it, so Windows is the default.
+  /// משמש רק את אשף ההתקנה ב-Windows, ולכן זו ברירת המחדל.
   final InstalledVersionReader _versionReader;
-
-  /// כמה בייטים מותר לצבור ב-`IOSink` לפני שממתינים לכתיבתם בפועל. `IOSink.
-  /// add` אינו מפעיל לחץ-נגד: כשקובץ ההתקנה יורד מהר יותר משהכונן הנייד
-  /// מספיק לכתוב, ההפרש נערם ב-RAM והתוכנה נתקעת באמצע ההורדה.
-  static const int _writeBufferBytes = 4 << 20;
 
   /// כמה להמתין להופעת קובץ ההרצה אחרי שה-installer הוחזר. ראו
   /// [_runSilentInstall] — ב-Inno Setup התהליך שמריצים עשוי להסתיים לפני
@@ -464,61 +460,20 @@ class OtzariaInstaller {
     void Function(int received, int total)? onProgress,
     bool Function()? isCancelled,
   }) async {
-    final request = http.Request('GET', Uri.parse(url));
-    final response = await _httpClient.send(request).timeout(connectTimeout);
-
-    if (response.statusCode != 200) {
-      throw StateError(
-        AppL10n.strings.appDomain.installerDownloadFailed(response.statusCode),
-      );
-    }
-
-    final sink = File(destinationPath).openWrite();
-    var received = 0;
-    var buffered = 0;
-    try {
-      // `timeout` על הזרם ולא רק על ה-send: חיבור שנפתח ואז נשתק היה תוקע
-      // את ההורדה בלי גבול.
-      await for (final chunk in response.stream.timeout(stallTimeout)) {
-        // ביטול באמצע נכס — ה-catch שלמטה מוחק את הקובץ החלקי.
-        _throwIfCancelled(isCancelled);
-        sink.add(chunk);
-        received += chunk.length;
-        buffered += chunk.length;
-        onProgress?.call(received, expectedSizeBytes);
-        // לחץ-נגד — ראו [_writeBufferBytes].
-        if (buffered >= _writeBufferBytes) {
-          buffered = 0;
-          await sink.flush();
-        }
-      }
-      await sink.flush();
-      await sink.close();
-      // ביטול שהתרחש על הצ'אנק האחרון — בלי הבדיקה כאן הוא היה חוזר כהצלחה.
-      _throwIfCancelled(isCancelled);
-    } catch (_) {
-      // קובץ חלקי חייב להיעלם: הריצה הבאה בודקת cache-hit לפי גודל, וקובץ
-      // שנקטע בדיוק בגודל הנכון היה נראה תקין. סוגרים לפני המחיקה — ב-Windows
-      // handle פתוח חוסם אותה.
-      try {
-        await sink.close();
-      } catch (_) {}
-      try {
-        await File(destinationPath).delete();
-      } catch (_) {}
-      rethrow;
-    }
-
-    if (expectedSizeBytes > 0 && received != expectedSizeBytes) {
-      // מוחקים את הקובץ החלקי כדי שניסיון עתידי לא "יראה" cache-hit שגוי.
-      try {
-        await File(destinationPath).delete();
-      } catch (_) {}
-      throw StateError(
-        AppL10n.strings.appDomain
-            .installerSizeMismatch(received, expectedSizeBytes),
-      );
-    }
+    await downloadFile(
+      client: _httpClient,
+      url: url,
+      destinationPath: destinationPath,
+      expectedSize: expectedSizeBytes,
+      connectTimeout: connectTimeout,
+      stallTimeout: stallTimeout,
+      onProgress: onProgress,
+      checkCancelled: () => _throwIfCancelled(isCancelled),
+      statusError: (status) =>
+          StateError(AppL10n.strings.appDomain.installerDownloadFailed(status)),
+      sizeError: (actual, expected) => StateError(
+          AppL10n.strings.appDomain.installerSizeMismatch(actual, expected)),
+    );
   }
 
   // ---------------------------------------------------------------- Windows

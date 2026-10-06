@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:otzaria_downloads/otzaria_downloads.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/plugin_catalog.dart';
@@ -108,6 +109,8 @@ class PluginMirrorStore {
     if (!await dir.exists()) return 0;
 
     final keep = {
+      for (final path in await pendingFilesFor(plugin))
+        p.normalize(path).toLowerCase(),
       for (final file in plugin.localFiles.values)
         p.normalize(absolutePath(file.relativePath)).toLowerCase(),
     };
@@ -126,4 +129,16 @@ class PluginMirrorStore {
     }
     return removed;
   }
+
+  /// החלקיים אינם קובצי התקנה, אבל סנכרון שנכשל צריך לשמור אותם להמשך.
+  Future<Set<String>> pendingFilesFor(StorePlugin plugin) =>
+      pendingDownloadFiles(
+        Directory(pluginDir(plugin.id)),
+        {
+          for (final version in plugin.versionEntries) version.downloadUrl,
+          plugin.remoteDownloadUrl,
+          plugin.remoteImageUrl,
+          ...plugin.remoteScreenshotUrls,
+        },
+      );
 }

@@ -13,7 +13,7 @@ actually been verified on real hardware. Before **adding** anything here, read
 | § | |
 | --- | --- |
 | [1](#1-what-this-software-is-for) | What this software is for — the offline workflow, the data folder |
-| [2](#2-repository-layout) | Repository layout — eight packages |
+| [2](#2-repository-layout) | Repository layout — nine packages |
 | [3](#3-mandatory-workflow-after-every-change) | Format, analyze, test — required after every change |
 | [4](#4-code-style) | Comments, module boundaries, UI components, l10n |
 | [5](#5-landmines--do-not-break-these) | Landmines, grouped by area |
@@ -164,19 +164,20 @@ runs **only** after the write probe failed. An empty locked folder is still
 
 ## 2. Repository layout
 
-Eight Dart/Flutter packages, each with its own `pubspec.yaml`. The main package
+Nine Dart/Flutter packages, each with its own `pubspec.yaml`. The main package
 sits at the repo root (historical — do not move it).
 
 | Path | Package | Role |
 | --- | --- | --- |
-| `otzaria_l10n/` | `otzaria_l10n` | Pure Dart, **no dependencies at all**. Every user-visible string, Hebrew + English. Everything depends on it — including the pure-Dart managers, which is why it cannot use Flutter. See §4. |
+| `otzaria_downloads/` | `otzaria_downloads` | Pure Dart. Shared resumable file transfers for app, launcher, store and custom apps. |
+| `otzaria_l10n/` | `otzaria_l10n` | Pure Dart, **no dependencies at all**. Every user-visible string, Hebrew + English. The updater, managers and launcher depend on it, which is why it cannot use Flutter. See §4. |
 | `.` (root, `lib/`) | `seforim_library_updater` | Flutter. Client side of the `Otzaria/SeforimLibrary` delta format: discover releases, plan a route (delta vs. full), download, verify the logical hash, apply patches atomically. |
 | `otzaria_manager/` | `otzaria_manager` | Pure Dart. The **Otzaria app itself**: check, download, silent install, launch. Windows + macOS. |
 | `library_manager/` | `library_manager` | Flutter. Wires the root package into the launcher: locate the real `seforim.db`, check versions, apply to the **live** DB, export/consume the mirror. |
 | `plugins_manager/` | `plugins_manager` | Pure Dart. The **offline plugin store**: syncs `otzaria.org/api/plugins` into the mirror, detects what Otzaria has, installs via `otzaria://`. Converted from `Yehuda-Zakesh/Offline-repository-plugin-store` (itself derived from `Otzaria/Otzaria_Website`); details in `plugins_manager/README.md`. |
 | `custom_apps_manager/` | `custom_apps_manager` | Pure Dart. **User-added programs**: a record filled in a form (name, GitHub repo *or* local installer, install location, detection rules) so the drive can carry a program that is not Otzaria. Not a plugin system — no runtime, no WebView, no permissions, and **no importing a record from a file**, so every repo and file was chosen by the user. |
 | `error_reports_manager/` | `error_reports_manager` | Pure Dart. **Otzaria's unsent book, app and plugin reports**, carried offline → online: read Otzaria's queues in `user_state.db` directly (Otzaria unchanged), port of its `toApiPayload`, a drive outbox, upload to `otzaria.org` in rate-limited batches. See §5.10. |
-| `launcher_app/` | `launcher_app` | The Flutter desktop app (Windows + macOS) wiring the modules into one dashboard. Depends on the other seven by relative `path:`, so it must stay their sibling. |
+| `launcher_app/` | `launcher_app` | The Flutter desktop app (Windows + macOS) wiring the modules into one dashboard. Depends on the other eight by relative `path:`, so it must stay their sibling. |
 
 Producer vs. consumer: the Kotlin repo `Otzaria/SeforimLibrary` *produces* the DB
 and the patches; this repo only *consumes* them.
@@ -200,7 +201,7 @@ Run these in the package(s) you touched. Not optional, not deferred to CI.
 dart format .
 
 flutter analyze --no-fatal-infos   # root, library_manager, launcher_app
-dart analyze                       # otzaria_l10n, otzaria_manager, plugins_manager, custom_apps_manager, error_reports_manager
+dart analyze                       # all pure-Dart packages, including otzaria_downloads
 ```
 
 - **Analyze inside each package you changed.** The root `analysis_options.yaml`
@@ -211,12 +212,12 @@ dart analyze                       # otzaria_l10n, otzaria_manager, plugins_mana
   A **new** package must also be added to that root `exclude:` list — locally the
   package's own `.dart_tool` hides the omission, but a fresh CI checkout fails the
   root job with "Target of URI doesn't exist".
-- **Each of the eight includes two things:** its base rule set
+- **Each of the nine includes two things:** its base rule set
   (`flutter_lints` or `lints/recommended`) and the root
   `analysis_options_shared.yaml`, which holds every repo-wide tightening. A rule
   added to one package only silently does not apply to the rest (that is what
   happened to `prefer_single_quotes`); `otzaria_l10n/test/shared_lint_config_test.dart`
-  asserts all eight import it. Measure a new rule in **all eight** — one that is
+  asserts all nine import it. Measure a new rule in **all nine** — one that is
   clean in five and fails in the sixth turns CI red. Note `dart analyze`
   right-aligns severity, so `warning` lines have **no** leading space while `info`
   lines do; a grep assuming indentation misses every warning.
@@ -1738,6 +1739,7 @@ verify something new.
 
 | Area | Status |
 | --- | --- |
+| `otzaria_downloads` | Unit-tested plus real local HTTP transport on Windows. Interrupted transfers resume and cancellation is bounded. Not verified against production servers or on a removable drive. |
 | `WindowsExeVersionReader`, `WindowsInstallRegistry` | **Run against a real install** (`otzaria.exe` 0.9.96+90960, Windows 11, 2026-08-10) |
 | `otzaria_manager` on macOS + launcher build/run there | **Verified** against a real `otzaria-macos.zip` — but that predates the custom title bar and `RunningOtzariaLocator._probeMac` |
 | `ZstdFileDecompressor` | Verified against real libzstd on Windows (`library_manager/test/zstd_file_decompressor_test.dart`, self-skipping) — **not** on a full ~1GB DB |

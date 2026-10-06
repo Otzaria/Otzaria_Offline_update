@@ -18,6 +18,7 @@ const _sharedFileName = 'analysis_options_shared.yaml';
 /// כל החבילות בריפו, לפי §2 ב-AGENTS.md. `.` הוא חבילת השורש.
 const _packages = [
   '.',
+  'otzaria_downloads',
   'otzaria_l10n',
   'otzaria_manager',
   'library_manager',
@@ -33,6 +34,7 @@ const _expectedBase = {
   '.': 'package:flutter_lints/flutter.yaml',
   'library_manager': 'package:flutter_lints/flutter.yaml',
   'launcher_app': 'package:flutter_lints/flutter.yaml',
+  'otzaria_downloads': 'package:lints/recommended.yaml',
   'otzaria_l10n': 'package:lints/recommended.yaml',
   'otzaria_manager': 'package:lints/recommended.yaml',
   'plugins_manager': 'package:lints/recommended.yaml',

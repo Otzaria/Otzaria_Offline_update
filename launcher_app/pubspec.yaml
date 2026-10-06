@@ -10,6 +10,8 @@ environment:
   sdk: ">=3.2.6 <4.0.0"
 
 dependencies:
+  otzaria_downloads:
+    path: ../otzaria_downloads
   flutter:
     sdk: flutter
   flutter_localizations:
