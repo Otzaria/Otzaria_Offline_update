@@ -100,7 +100,7 @@ class SearchFeedbackController extends ChangeNotifier {
     _offered = true;
     try {
       final source = await resolveSource();
-      return source == null ? 0 : await transport.pending(source);
+      return source == null ? 0 : await transport.pendingForCollection(source);
     } catch (error) {
       AppLogger.maybeInstance?.error('קריאת משוב החיפוש באוצריא נכשלה', error);
       return 0;

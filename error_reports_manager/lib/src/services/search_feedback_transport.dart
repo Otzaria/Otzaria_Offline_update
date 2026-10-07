@@ -38,6 +38,27 @@ class SearchFeedbackTransport {
     return queue.eventCount;
   }
 
+  /// ההצעה כוללת רק אירועים קריאים עם מפתח שמאפשר איסוף.
+  Future<int> pendingForCollection(String sourceDirectory) async {
+    final identity = await SearchFeedbackIdentityStore(
+      () async => Directory(sourceDirectory),
+    ).load();
+    if (identity == null || identity.blocked) return 0;
+    final carried = await SearchFeedbackIdentityStore(
+      () async => Directory(p.join(directory, identity.keyId)),
+    ).load();
+    if (carried?.blocked == true) return 0;
+    if (!await Directory(sourceDirectory).exists()) return 0;
+    final queue = _queue(sourceDirectory);
+    var count = 0;
+    await for (final file in Directory(sourceDirectory).list()) {
+      if (file is! File) continue;
+      final batch = await queue.read(p.basename(file.path));
+      count += batch?.eventLines.length ?? 0;
+    }
+    return count;
+  }
+
   /// חסימת שרת אינה נעקפת בהסכמה חדשה של המשתמש.
   Future<bool> resumeAfterConsent(String sourceDirectory) async {
     if (!await Directory(sourceDirectory).parent.exists()) return false;

@@ -475,6 +475,13 @@ class _DiskQueue {
         final state = jsonDecode(await metadata.readAsString()) as Map;
         for (final row in state['segments'] as List) {
           if (!_isSegmentName(row['name'] as String)) continue;
+          final stat =
+              await File(p.join(dir.path, row['name'] as String)).stat();
+          // ספירה שמורה תקפה רק כל עוד קובץ האירועים תואם לה.
+          if (stat.type != FileSystemEntityType.file ||
+              stat.size != row['bytes']) {
+            throw const FormatException('stale queue metadata');
+          }
           _segments.add(
             SearchFeedbackSegment(
               row['name'] as String,

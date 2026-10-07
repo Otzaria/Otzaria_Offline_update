@@ -34,6 +34,10 @@ class _MemoryFeedback extends SearchFeedbackTransport {
   Future<int> pending(String sourceDirectory) async => sourceEvents;
 
   @override
+  Future<int> pendingForCollection(String sourceDirectory) async =>
+      sourceEvents;
+
+  @override
   Future<int> count() async => carriedEvents;
 
   @override
@@ -95,6 +99,16 @@ void main() {
   });
 
   tearDown(() => controller.dispose());
+
+  testWidgets('empty feedback does not show a collection offer',
+      (tester) async {
+    transport.sourceEvents = 0;
+    final context = await _host(tester);
+    await offerSearchFeedbackCollection(context, controller);
+    await tester.pumpAndSettle();
+    expect(find.text(strings.libraryDomain.semanticFeedbackCollectTitle),
+        findsNothing);
+  });
 
   testWidgets('declining collection keeps source and does not offer again',
       (tester) async {

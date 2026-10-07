@@ -39,6 +39,50 @@ void main() {
 
   tearDown(() async => temporary.delete(recursive: true));
 
+  for (final contents in <String?>[null, '{"app":"otzaria"}\n']) {
+    test('pending ignores stale metadata for segment contents $contents',
+        () async {
+      final name = (await queue.sealAndList()).single;
+      final file = File(p.join(source, name));
+      if (contents == null) {
+        await file.delete();
+      } else {
+        await file.writeAsString(contents);
+      }
+      final transport = SearchFeedbackTransport(destination);
+      addTearDown(transport.close);
+      expect(await transport.pending(source), 0);
+    });
+  }
+
+  for (final kind in ['missing', 'blocked', 'carriedBlocked']) {
+    test('collection offer ignores $kind identity', () async {
+      if (kind == 'missing') {
+        await SearchFeedbackIdentityStore(() async => Directory(source))
+            .delete();
+      } else {
+        identity.blocked = true;
+        await SearchFeedbackIdentityStore(() async => Directory(
+            kind == 'blocked'
+                ? source
+                : p.join(destination, identity.keyId))).save(identity);
+      }
+      final transport = SearchFeedbackTransport(destination);
+      addTearDown(transport.close);
+      expect(await transport.pendingForCollection(source), 0);
+      expect(await transport.pending(source), 1);
+    });
+  }
+
+  test('collection offer ignores batches without readable events', () async {
+    final name = (await queue.sealAndList()).single;
+    await File(p.join(source, name))
+        .writeAsString('{"app":"otzaria"}\ninvalid\n');
+    final transport = SearchFeedbackTransport(destination);
+    addTearDown(transport.close);
+    expect(await transport.pendingForCollection(source), 0);
+  });
+
   test('persisted paths cannot expose or remove files outside the queue',
       () async {
     final victim = File(p.join(temporary.path, 'seg-victim.jsonl'));
