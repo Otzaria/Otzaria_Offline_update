@@ -372,7 +372,7 @@ class PluginMirrorSync {
         result = result.copyWith(imagePath: store.relativePath(asset.path));
       } catch (e) {
         result = result.copyWith(
-          updatedAt: plan.previous?.updatedAt,
+          mediaVersion: plan.previousMediaVersion,
           remoteImageUrl: plan.previous?.remoteImageUrl,
         );
         report(PluginSyncProgress(
@@ -395,7 +395,7 @@ class PluginMirrorSync {
           shots.add(store.relativePath(asset.path));
         } catch (e) {
           result = result.copyWith(
-            updatedAt: plan.previous?.updatedAt,
+            mediaVersion: plan.previousMediaVersion,
             remoteScreenshotUrls: plan.previous?.remoteScreenshotUrls,
           );
           report(PluginSyncProgress(
@@ -411,19 +411,23 @@ class PluginMirrorSync {
     return result;
   }
 
-  /// אותה כתובת, אותו `updatedAt`, והקובץ עדיין על הדיסק. `updatedAt` נדרש
-  /// כי האתר יכול להחליף את תוכן התמונה מתחת לאותה כתובת.
+  /// אותה כתובת, אותה גרסת תוסף, והקובץ עדיין על הדיסק. הגרסה נדרשת כי האתר
+  /// יכול להחליף את תוכן התמונה מתחת לאותה כתובת.
   Future<bool> _imageUnchanged(
           StorePlugin plugin, StorePlugin? previous) async =>
       previous != null &&
       _sameSource(previous.remoteImageUrl, plugin.remoteImageUrl) &&
-      previous.updatedAt == plugin.updatedAt &&
+      mediaStampOf(previous) == plugin.mediaVersion &&
       await store.hasAsset(previous.imagePath);
+
+  /// הגרסה שהתמונות שבמראה שייכות לה. קטלוג ישן בלי השדה נופל לגרסת התוסף
+  /// שבו — כך הסנכרון הראשון אחרי העדכון אינו מוריד את כל החנות מחדש.
+  static String mediaStampOf(StorePlugin plugin) =>
+      plugin.mediaVersion.isNotEmpty ? plugin.mediaVersion : plugin.version;
 
   /// כתובת ריקה בצד הקודם היא **קטלוג ישן** שנכתב לפני שהשדה נוסף, לא
   /// כתובת שהשתנתה. בלי החריג הזה הסנכרון הראשון אחרי העדכון היה מוריד את
-  /// כל תמונות החנות מחדש רק כדי למלא שדה — בדיוק ההתנהגות שבאנו לבטל.
-  /// `updatedAt` הוא מה שמכריע שם, והשדה נכתב לקטלוג גם בלי הורדה.
+  /// כל תמונות החנות מחדש רק כדי למלא שדה; השדה נכתב לקטלוג גם בלי הורדה.
   static bool _sameSource(String previous, String current) =>
       previous.isEmpty || previous == current;
 
@@ -432,7 +436,7 @@ class PluginMirrorSync {
     StorePlugin? previous,
   ) async {
     if (previous == null ||
-        previous.updatedAt != plugin.updatedAt ||
+        mediaStampOf(previous) != plugin.mediaVersion ||
         !(previous.remoteScreenshotUrls.isEmpty ||
             _sameUrls(
                 previous.remoteScreenshotUrls, plugin.remoteScreenshotUrls)) ||
@@ -564,6 +568,12 @@ class _PluginPlan {
   /// שלה מכילים כבר רק את הבילדים המבוקשים שנמצאו על הדיסק.
   final StorePlugin plugin;
   final StorePlugin? previous;
+
+  /// מה שנרשם בכשל תמונה, כדי שהסנכרון הבא ינסה שוב.
+  String? get previousMediaVersion {
+    final old = previous;
+    return old == null ? null : PluginMirrorSync.mediaStampOf(old);
+  }
 
   final bool needsImage;
   final bool needsScreenshots;

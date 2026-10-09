@@ -10,6 +10,21 @@ import 'package:test/test.dart';
 
 import 'support.dart';
 
+/// מדמה קטלוג שנכתב לפני שהשדה `mediaVersion` נוסף.
+Future<void> _dropMediaVersion(String root) async {
+  final store = PluginMirrorStore(root);
+  final old = await store.load();
+  await store.save(PluginCatalog(
+    lastSync: old.lastSync,
+    categories: old.categories,
+    home: old.home,
+    plugins: [
+      for (final plugin in old.plugins)
+        StorePlugin.fromJson(plugin.toJson()..remove('mediaVersion')),
+    ],
+  ));
+}
+
 /// אתר מדומה של החנות. כל נתיב יכול לקבל סטטוס שגיאה בנפרד, כדי לבדוק
 /// שכשל בחלק אחד אינו מפיל את השאר.
 class _Site {
@@ -570,14 +585,56 @@ void main() {
       expect(catalog.plugins.first.imagePath, 'files/a/image.png');
     });
 
-    test('updatedAt שהשתנה מוריד את התמונה מחדש מאותה כתובת', () async {
+    // האתר מקדם את `updatedAt` של כל התוספים מדי יום — כל החנות ירדה מחדש.
+    test('updatedAt שהשתנה לבדו אינו מוריד תמונות', () async {
+      await sync(_Site(
+        plugins: _Site.defaultPlugins(screenshots: ['/api/plugins/a/shot-0']),
+      )..plugins.first['updatedAt'] = '2026-10-08');
+
+      final second = _Site(
+        plugins: _Site.defaultPlugins(screenshots: ['/api/plugins/a/shot-0']),
+      )..plugins.first['updatedAt'] = '2026-10-09';
+      expect((await manager(second).peekOnlineUpdates()).hasUpdates, isFalse);
+      final outcome = await syncOutcome(second);
+
+      expect(second.requestsMatching('/image'), isEmpty);
+      expect(second.requestsMatching('shot-'), isEmpty);
+      expect(outcome.fetched, 0);
+    });
+
+    test('גרסה שהשתנתה מורידה את התמונה מחדש מאותה כתובת', () async {
       await sync(_Site());
 
-      final second = _Site()..plugins.first['updatedAt'] = '2026-08-13';
+      final second = _Site(plugins: _Site.defaultPlugins(versionA: '1.1.0'));
       await sync(second);
 
       expect(second.requestsMatching('/image'), hasLength(1));
-      expect(second.requestsMatching('/download'), isEmpty);
+    });
+
+    test('קטלוג בלי mediaVersion אינו מוריד תמונות, ונרשמת הגרסה', () async {
+      await sync(_Site());
+      await _dropMediaVersion(temp.path);
+
+      final second = _Site()..plugins.first['updatedAt'] = 'new';
+      final catalog = await sync(second);
+
+      expect(second.requestsMatching('/image'), isEmpty);
+      expect(catalog.plugins.first.mediaVersion, '1.0.0');
+    });
+
+    test('קטלוג בלי mediaVersion: גרסה חדשה שתמונתה נכשלה מנסה שוב', () async {
+      await sync(_Site());
+      await _dropMediaVersion(temp.path);
+
+      final failing = _Site(plugins: _Site.defaultPlugins(versionA: '1.1.0'))
+        ..failures['/api/plugins/a/image'] = 500;
+      await sync(failing);
+
+      final retry = _Site(plugins: _Site.defaultPlugins(versionA: '1.1.0'));
+      expect((await manager(retry).peekOnlineUpdates()).hasUpdates, isTrue);
+      await sync(retry);
+      expect(retry.requestsMatching('/image'), hasLength(1));
+      expect((await manager(retry).peekOnlineUpdates()).hasUpdates, isFalse);
     });
 
     test('תמונה שנמחקה מהמראה יורדת שוב', () async {
@@ -673,10 +730,10 @@ void main() {
 
     for (final changedUrl in [false, true]) {
       test('תמונה שהתחדשה ולא ירדה מנסה שוב: כתובת חדשה $changedUrl', () async {
-        final original = _Site()..plugins.first['updatedAt'] = 'old';
+        final original = _Site();
         await sync(original);
         final failing = _Site()
-          ..plugins.first['updatedAt'] = changedUrl ? 'old' : 'new'
+          ..plugins.first['version'] = changedUrl ? '1.0.0' : '1.1.0'
           ..plugins.first['image'] =
               changedUrl ? '/api/plugins/a/new-image' : '/api/plugins/a/image';
         failing.failures[failing.plugins.first['image'] as String] = 500;
@@ -695,10 +752,10 @@ void main() {
     test('סדרת צילומים שהתחדשה ונכשלה כולה מנסה שוב', () async {
       final original = _Site(
         plugins: _Site.defaultPlugins(screenshots: ['/api/plugins/a/shot-0']),
-      )..plugins.first['updatedAt'] = 'old';
+      );
       await sync(original);
       final failing = _Site(plugins: original.plugins)
-        ..plugins.first['updatedAt'] = 'new'
+        ..plugins.first['version'] = '1.1.0'
         ..failures['/api/plugins/a/shot-0'] = 500;
       await sync(failing);
 

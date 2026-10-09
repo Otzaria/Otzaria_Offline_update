@@ -139,8 +139,10 @@ class PatchDownloader {
   /// [resumeToken] הוא תנאי להמשך (resume): רק כשהוא אינו null נעשה שימוש בקובץ
   /// חלקי קיים כנקודת המשך. הטוקן נשמר בקובץ צד `<destPath>.resume` בתחילת הורדה,
   /// ונבדק בכניסה: אם קיים קובץ חלקי אך קובץ הצד חסר או תוכנו שונה מ-[resumeToken]
-  /// — החלקי נמחק וההורדה מתחילה מאפס. כך נמנעים מ"פרנקנשטיין" (חלקי מגרסה N
-  /// שממשיך עם בייטים מ-N+1) ומקובץ שלם ישן שעובר את בדיקת ה-alreadyComplete.
+  /// — החלקי נמחק וההורדה מתחילה מאפס, אלא אם הוא שלם ובאותו sha256 (נכס שפורסם
+  /// מחדש בתג חדש) ואז הוא נקשר לטוקן החדש, ראו [_adoptSameContent]. כך
+  /// נמנעים מ"פרנקנשטיין" (חלקי מגרסה N שממשיך עם בייטים מ-N+1) ומקובץ שלם
+  /// ישן שעובר את בדיקת ה-alreadyComplete.
   /// כש-null אין זהות יציבה לנכס — כל קובץ קיים ב-[destPath] נמחק בכניסה וההורדה
   /// מתחילה מאפס (אין המשך על URL שתוכנו עלול להשתנות).
   ///
@@ -159,8 +161,8 @@ class PatchDownloader {
   /// מהשרת, או כתיבה כלשהי לקובץ מבטלים את החתימה ומחזירים אימות מלא.
   ///
   /// קובץ הצד חי ומת יחד עם הנתונים: הוא נמחק רק היכן ש-[destPath] עצמו נמחק
-  /// (אי-התאמת טוקן, כשלי אימות, חריגת גודל). הורדה מוצלחת **אינה** מוחקת אותו —
-  /// אחרת ביטול בזמן החילוץ אצל הצרכן היה משאיר קובץ שלם בלי קובץ צד, ובריצה
+  /// (אי-התאמת טוקן שאינה אותו תוכן, כשלי אימות, חריגת גודל). הורדה מוצלחת
+  /// **אינה** מוחקת אותו — אחרת ביטול בזמן החילוץ אצל הצרכן היה משאיר קובץ שלם בלי קובץ צד, ובריצה
   /// הבאה כלל אי-ההתאמה מוחק 1.1GB לחינם. הצרכן שמוחק את הקובץ לאחר חילוץ מוצלח
   /// (או בכשל חילוץ) מנקה גם את קובץ הצד דרך [resumeSidecarPath].
   Future<void> downloadToFile({
@@ -192,6 +194,8 @@ class PatchDownloader {
 
     final file = File(destPath);
     final sidecarPath = resumeSidecarPath(destPath);
+    // ביטול באמצע ה-hash של האימוץ אינו סיבה למחוק קובץ שלא נגענו בו.
+    var adopting = false;
 
     try {
       // resume מותנה בטוקן: בלי טוקן אין זהות יציבה, ולכן כל קובץ קיים נמחק
@@ -207,9 +211,27 @@ class PatchDownloader {
         );
         _deleteQuietly(sidecarPath);
       } else if (file.existsSync()) {
-        // כבילת החלקי לגרסת הנכס — חלקי בלי טוקן תואם נזרק כדי למנוע frankenfile.
+        // כבילת החלקי לגרסת הנכס — חלקי בלי טוקן תואם נזרק כדי למנוע frankenfile,
+        // אלא אם זה אותו תוכן בדיוק (ראו [_adoptSameContent]).
         final sidecar = _readSidecar(sidecarPath);
-        if (sidecar?.token != resumeToken) {
+        adopting = sidecar?.token != resumeToken;
+        final adopted = !adopting
+            ? null
+            : await _adoptSameContent(
+                file,
+                sidecarPath,
+                sidecar?.verified,
+                resumeToken,
+                expectedSize,
+                expectedSha256,
+                isCancelled,
+                onVerifyProgress,
+              );
+        if (adopted != null) {
+          adopting = false;
+          storedVerified = adopted;
+        } else if (adopting) {
+          adopting = false;
           // מחיקה היא תנאי תקינות: כשל שקט היה כובל תוכן ישן לטוקן החדש.
           _deleteRequired(
             destPath,
@@ -307,8 +329,9 @@ class PatchDownloader {
       // חלקי נשמר להמשך רק אם הוא באמת ניתן-לחידוש: יש validator חזק בקובץ הצד
       // (או שהקובץ כבר שלם). אחרת כלל ה-entry ימחק אותו ממילא בריצה הבאה, והוא
       // רק תופס עד 1.5GB עד אז — מוחקים מיד.
-      if (!_partialIsResumable(
-          destPath, sidecarPath, expectedSize, resumeToken)) {
+      if (!adopting &&
+          !_partialIsResumable(
+              destPath, sidecarPath, expectedSize, resumeToken)) {
         _deleteQuietly(destPath);
         // קובץ הצד חי ומת עם הנתונים: נמחק רק אם הקובץ עצמו אכן נעלם.
         if (!file.existsSync()) _deleteQuietly(sidecarPath);
@@ -1005,6 +1028,34 @@ class PatchDownloader {
       _writeSidecar(sidecarPath, token, _readSidecar(sidecarPath)?.etag,
           verified: mark);
     } catch (_) {}
+  }
+
+  /// נכס שפורסם מחדש בזהות חדשה אך בתוכן זהה (תג חדש, אותו sha256) — נקשר
+  /// לטוקן החדש במקום להימחק. מחזיר את סימון האימות, או null אם אינו זהה.
+  Future<String?> _adoptSameContent(
+    File file,
+    String sidecarPath,
+    String? storedVerified,
+    String resumeToken,
+    int? expectedSize,
+    String? expectedSha256,
+    bool Function()? isCancelled,
+    void Function(int verified, int total)? onVerifyProgress,
+  ) async {
+    if (expectedSha256 == null ||
+        expectedSize == null ||
+        file.lengthSync() != expectedSize) {
+      return null;
+    }
+    final expected = expectedSha256.toLowerCase();
+    if (!_matchesVerifiedMark(storedVerified, file, expected)) {
+      final actual = await _hashFileDigest(file, isCancelled, onVerifyProgress);
+      if (actual.toString() != expected) return null;
+    }
+    final mark = _verifiedMarkFor(file, expected);
+    if (mark == null) return null;
+    _writeSidecar(sidecarPath, resumeToken, null, verified: mark);
+    return mark;
   }
 
   /// מחזיר את ה-ETag רק אם הוא חזק (ללא קידומת `W/`) — ETag חלש אינו שמיש עם

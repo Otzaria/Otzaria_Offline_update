@@ -1414,12 +1414,17 @@ void main() {
           expect(sidecarIdentity(dest), 'v-1\n"e1"');
         });
 
-        test('טוקן שונה → הסימון אינו נאמן, והקובץ יורד מחדש', () async {
-          final dest = '${tmp.path}/seforim.db.zst';
-          File(dest).writeAsBytesSync(full);
-          File('$dest.resume')
-              .writeAsStringSync('v-old\n"e1"\n${markFor(dest, fullHash)}');
+        /// נכס שלם תחת טוקן ישן, מול טוקן חדש — מה שפרסום מחדש של אותו
+        /// תוכן (תג חדש) מייצר. מחזיר את הבקשות ואת דיווחי האימות.
+        Future<(List<http.BaseRequest>, List<(int, int)>)> runRetagged(
+          String dest,
+          List<int> onDisk,
+          String Function(String dest) sidecar,
+        ) async {
+          File(dest).writeAsBytesSync(onDisk);
+          File('$dest.resume').writeAsStringSync(sidecar(dest));
           final captured = <http.BaseRequest>[];
+          final reports = <(int, int)>[];
           await downloaderThatCaptures(
             captured,
             handler: (req) async => http.StreamedResponse(
@@ -1433,7 +1438,86 @@ void main() {
             expectedSize: full.length,
             expectedSha256: fullHash,
             resumeToken: 'v-new',
+            onVerifyProgress: (v, t) => reports.add((v, t)),
           );
+          return (captured, reports);
+        }
+
+        test('טוקן שונה, אותו תוכן מסומן → נקשר לטוקן החדש בלי רשת ובלי hash',
+            () async {
+          final dest = '${tmp.path}/seforim.db.zst';
+          final (captured, reports) = await runRetagged(
+              dest, full, (d) => 'v-old\n"e1"\n${markFor(d, fullHash)}');
+          expect(captured, isEmpty);
+          expect(reports, isEmpty);
+          expect(File(dest).readAsBytesSync(), full);
+          expect(sidecarIdentity(dest), 'v-new');
+        });
+
+        test('טוקן שונה, אותו תוכן בלי סימון → hash אחד, בלי רשת', () async {
+          final dest = '${tmp.path}/seforim.db.zst';
+          final (captured, reports) =
+              await runRetagged(dest, full, (_) => 'v-old');
+          expect(captured, isEmpty);
+          expect(reports, isNotEmpty);
+          expect(sidecarIdentity(dest), 'v-new');
+        });
+
+        test('ביטול באמצע ה-hash של האימוץ אינו מוחק את הקובץ', () async {
+          final dest = '${tmp.path}/seforim.db.zst';
+          File(dest).writeAsBytesSync(full);
+          File('$dest.resume').writeAsStringSync('v-old');
+          // הבדיקה הראשונה היא בכניסה; השנייה כבר בתוך ה-hash של האימוץ.
+          var checks = 0;
+          final captured = <http.BaseRequest>[];
+          await expectLater(
+            downloaderThatCaptures(
+              captured,
+              handler: (req) async =>
+                  http.StreamedResponse(const Stream.empty(), 500),
+            ).downloadToFile(
+              url: 'https://x/seforim.db.zst',
+              destPath: dest,
+              expectedSize: full.length,
+              expectedSha256: fullHash,
+              resumeToken: 'v-new',
+              isCancelled: () => ++checks > 1,
+            ),
+            throwsA(isA<PatchDownloadCancelled>()),
+          );
+          expect(checks, 2);
+          expect(captured, isEmpty);
+          expect(File(dest).readAsBytesSync(), full);
+          expect(sidecarIdentity(dest), 'v-old');
+        });
+
+        test('טוקן שונה, קובץ גדול מהצפוי → אינו מאומץ ויורד מחדש', () async {
+          final dest = '${tmp.path}/seforim.db.zst';
+          final (captured, reports) =
+              await runRetagged(dest, [...full, 1], (_) => 'v-old');
+          expect(reports, isEmpty);
+          expect(captured, hasLength(1));
+          expect(File(dest).readAsBytesSync(), full);
+        });
+
+        test('טוקן שונה, תוכן אחר באותו אורך → יורד מחדש', () async {
+          final dest = '${tmp.path}/seforim.db.zst';
+          final other = List<int>.filled(full.length, 7);
+          final (captured, _) = await runRetagged(dest, other, (_) => 'v-old');
+          expect(captured, hasLength(1));
+          expect(captured.single.headers.containsKey('Range'), isFalse);
+          expect(File(dest).readAsBytesSync(), full);
+        });
+
+        test('טוקן שונה, סימון ישן לקובץ שהוחלף → hash מלא ואז הורדה',
+            () async {
+          final dest = '${tmp.path}/seforim.db.zst';
+          // אותו digest ואורך, זמן-שינוי אחר: הקובץ נכתב מחדש אחרי הסימון.
+          final staleMark = '$fullHash|${full.length}|1';
+          final other = List<int>.filled(full.length, 7);
+          final (captured, reports) =
+              await runRetagged(dest, other, (_) => 'v-old\n"e1"\n$staleMark');
+          expect(reports, isNotEmpty);
           expect(captured, hasLength(1));
           expect(File(dest).readAsBytesSync(), full);
         });

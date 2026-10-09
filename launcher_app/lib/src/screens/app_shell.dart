@@ -782,6 +782,7 @@ class _AppShellState extends State<AppShell> {
     // ב"עדכון אישי" היעד נגזר מהגרסה שנרשמה ולא מהחדשה שברשת, ולכן
     // "אין חדש ברשת" אינו אומר שאין מה להוריד.
     final includeSemanticSearch = s.downloadsLibrary &&
+        _library.shouldOfferSemanticDownload &&
         await showTwoActionsDialog(
           context: context,
           title: context.strings.libraryDomain.companionSemanticName,

@@ -9,6 +9,7 @@ import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import '../services/app_logger.dart';
 import '../services/elevation.dart';
+import 'online_check.dart';
 import 'progress_notifier.dart';
 import 'stage_clock.dart';
 
@@ -257,6 +258,14 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       onlineCheckError ??
       onlineCompanionsCheckError ??
       onlineSemanticCheckError;
+
+  /// לשאול על הורדת החיפוש החכם רק כשהבדיקה לא הוכיחה שהכונן כבר מחזיק אותו —
+  /// אחרת "כן" מריץ את כל הורדת הספרייה בלי שום דבר חדש להביא.
+  bool get shouldOfferSemanticDownload => !provenUpToDateOnline(
+        checkedAt: onlineCheckedAt,
+        error: onlineCheckError ?? onlineSemanticCheckError,
+        hasUpdate: onlineSemanticPending,
+      );
 
   String get onlinePendingCompanionNames => [
         if (onlinePendingCompanions.isNotEmpty)

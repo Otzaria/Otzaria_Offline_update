@@ -46,6 +46,7 @@ void main() {
     DownloadScheduler? scheduler,
     Future<void> Function(String assetName)? beforeAsset,
     String dictionaryTag = 'dict-v7',
+    String talmudTag = 'lib-v9',
     bool dictionaryV2 = false,
     bool apiDown = false,
   }) {
@@ -61,7 +62,7 @@ void main() {
         body = Uint8List.fromList(
           utf8.encode(
             jsonEncode({
-              'tag_name': 'lib-v9',
+              'tag_name': talmudTag,
               'assets': [
                 if (!omit.contains('talmud'))
                   assetJson(
@@ -376,6 +377,25 @@ void main() {
 
     expect(lastReceived, 0);
     expect(lastTotal, 0);
+  });
+
+  // התלמוד פורסם מחדש בתג חדש ובתוכן זהה — וירדו שוב 472MB לחינם.
+  test('נלווה שפורסם מחדש בתג חדש ובאותו sha256 אינו יורד שוב', () async {
+    final first = buildMirror();
+    addTearDown(first.mirror.dispose);
+    await first.mirror.sync(destDir: destDir);
+
+    final retagged = buildMirror(talmudTag: 'lib-v10');
+    addTearDown(retagged.mirror.dispose);
+    expect(await retagged.mirror.peekPending(destDir: destDir), isEmpty);
+    final manifest = await retagged.mirror.sync(destDir: destDir);
+
+    expect(retagged.fetched, isNot(contains('talmud_bavli_latest.tar.zst')));
+    expect(manifest.entries[CompanionAsset.talmud]!.tag, 'lib-v10');
+    expect(
+      await File(p.join(destDir, 'talmud_bavli_latest.tar.zst')).readAsBytes(),
+      bodyOf('talmud_bavli_latest.tar.zst'),
+    );
   });
 
   // issue #33: הנלווים מתעדכנים בלי קשר למסד, ובלי בדיקה קלה משלהם כונן

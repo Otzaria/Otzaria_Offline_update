@@ -90,6 +90,7 @@ class StorePlugin extends Equatable {
     required this.remoteDownloadUrl,
     this.remoteImageUrl = '',
     this.remoteScreenshotUrls = const [],
+    this.mediaVersion = '',
     this.imagePath,
     this.screenshotPaths = const [],
     this.categorySlugs = const [],
@@ -150,6 +151,11 @@ class StorePlugin extends Equatable {
   /// הבא ידע אם התמונה בכלל השתנתה — אחרת כל סנכרון הוריד את כולן מחדש.
   final String remoteImageUrl;
   final List<String> remoteScreenshotUrls;
+
+  /// גרסת התוסף שהתמונות שבמראה שייכות לה. `updatedAt` של האתר זז מדי יום
+  /// לכל התוספים, ולכן אינו מעיד על החלפת תמונה. ריק = קטלוג ישן, ראו
+  /// `PluginMirrorSync.mediaStampOf`.
+  final String mediaVersion;
 
   final String? imagePath;
   final List<String> screenshotPaths;
@@ -253,6 +259,7 @@ class StorePlugin extends Equatable {
     String? updatedAt,
     String? remoteImageUrl,
     List<String>? remoteScreenshotUrls,
+    String? mediaVersion,
     String? imagePath,
     List<String>? screenshotPaths,
     List<String>? categorySlugs,
@@ -281,6 +288,7 @@ class StorePlugin extends Equatable {
       remoteDownloadUrl: remoteDownloadUrl,
       remoteImageUrl: remoteImageUrl ?? this.remoteImageUrl,
       remoteScreenshotUrls: remoteScreenshotUrls ?? this.remoteScreenshotUrls,
+      mediaVersion: mediaVersion ?? this.mediaVersion,
       imagePath: imagePath ?? this.imagePath,
       screenshotPaths: screenshotPaths ?? this.screenshotPaths,
       categorySlugs: categorySlugs ?? this.categorySlugs,
@@ -331,6 +339,7 @@ class StorePlugin extends Equatable {
         for (final url in _stringList(json['screenshots']))
           if (url.isNotEmpty) url,
       ],
+      mediaVersion: _string(json['version']),
     );
   }
 
@@ -359,6 +368,7 @@ class StorePlugin extends Equatable {
         'remoteDownloadUrl': remoteDownloadUrl,
         'remoteImageUrl': remoteImageUrl,
         'remoteScreenshotUrls': remoteScreenshotUrls,
+        'mediaVersion': mediaVersion,
         'image': imagePath,
         'screenshots': screenshotPaths,
         'categories': categorySlugs,
@@ -403,6 +413,7 @@ class StorePlugin extends Equatable {
       remoteDownloadUrl: _string(json['remoteDownloadUrl']),
       remoteImageUrl: _string(json['remoteImageUrl']),
       remoteScreenshotUrls: _stringList(json['remoteScreenshotUrls']),
+      mediaVersion: _string(json['mediaVersion']),
       imagePath: json['image'] is String ? json['image'] as String : null,
       screenshotPaths: _stringList(json['screenshots']),
       categorySlugs: _stringList(json['categories']),

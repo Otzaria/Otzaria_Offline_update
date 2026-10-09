@@ -170,6 +170,17 @@ void main() {
       );
     });
 
+    test('mediaVersion: מהאתר היא הגרסה, ונשמרת בקטלוג', () {
+      final remote = StorePlugin.fromApi(
+          const {'id': 'x', 'version': '1.2.0'}, 'https://site');
+      expect(remote.mediaVersion, '1.2.0');
+
+      final saved =
+          StorePlugin.fromJson(remote.copyWith(mediaVersion: '1.1.0').toJson());
+      expect(saved.mediaVersion, '1.1.0');
+      expect(StorePlugin.fromJson(const {'id': 'x'}).mediaVersion, '');
+    });
+
     test('copyWith אינו מאפס שדות קיימים', () {
       final plugin = StorePlugin.fromJson(const {
         'id': 'x',

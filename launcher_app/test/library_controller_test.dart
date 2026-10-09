@@ -348,6 +348,26 @@ void main() {
           AppL10n.strings.libraryDomain.companionSemanticName);
     });
 
+    // חיפוש חכם שכבר בכונן הוצע בכל הורדה, ו"כן" הוריד מחדש את כל הספרייה.
+    test('שאלת החיפוש החכם רק כשהבדיקה לא הוכיחה שהוא בכונן', () {
+      expect(controller.shouldOfferSemanticDownload, isTrue,
+          reason: 'בדיקה שלא רצה אינה הוכחה');
+
+      controller.onlineCheckedAt = DateTime.now();
+      expect(controller.shouldOfferSemanticDownload, isFalse);
+
+      controller.onlineSemanticPending = true;
+      expect(controller.shouldOfferSemanticDownload, isTrue);
+
+      controller.onlineSemanticPending = false;
+      controller.onlineSemanticCheckError = 'rate limit';
+      expect(controller.shouldOfferSemanticDownload, isTrue);
+
+      controller.onlineSemanticCheckError = null;
+      controller.onlineCheckError = 'offline';
+      expect(controller.shouldOfferSemanticDownload, isTrue);
+    });
+
     test('כשל בבדיקת החיפוש החכם אינו הוכחה שאין עדכון', () {
       controller.onlineLatestVersion = 30;
       controller.targetVersion = 30;
