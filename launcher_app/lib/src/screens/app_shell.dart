@@ -178,6 +178,9 @@ class _AppShellState extends State<AppShell> {
   /// הבדיקה הקלה ("יש עדכון ברשת?") — נפרדת לגמרי מ-[_isDownloading].
   bool _isCheckingOnline = false;
 
+  /// הבדיקה שלפני ההורדה ב-[downloadAll], לפני ש-[_isDownloading] נדלק.
+  bool _isPreparingDownload = false;
+
   @override
   void initState() {
     super.initState();
@@ -471,21 +474,23 @@ class _AppShellState extends State<AppShell> {
     if (_offeredElevation || !Platform.isWindows) return;
     if (!_library.needsElevation && !_otzaria.needsElevation) return;
     _offeredElevation = true;
-
     // יציאה מה-tick של ההודעה לפני פתיחת דיאלוג: קונטרולר שמודיע בתוך
     // בנייה היה מפיל את `showDialog`.
     await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
 
     final t = AppL10n.strings.elevation;
-    final approved = await showTwoActionsDialog(
-      context: context,
-      title: t.dialogTitle,
-      content: t.dialogContent,
-      cancelText: t.dialogCancel,
-      confirmText: t.dialogConfirm,
+    final approved = await _withDialogSlot(
+      () => showTwoActionsDialog(
+        context: context,
+        title: t.dialogTitle,
+        content: t.dialogContent,
+        cancelText: t.dialogCancel,
+        confirmText: t.dialogConfirm,
+      ),
     );
-    if (!approved) return;
+    if (approved == null) _offeredElevation = false;
+    if (approved != true) return;
 
     // הצלחה → התהליך הזה נסגר ואיננו חוזרים לכאן בכלל.
     final failure = await Elevation.restartElevated();
@@ -580,18 +585,21 @@ class _AppShellState extends State<AppShell> {
     // ההסבר קודם להצעה: מי שנשאל "לאסוף?" צריך לדעת קודם על מה מדובר.
     await _errorReportsIntro;
     if (!mounted || _otzaria.launchPath == null) return;
-    await offerErrorReportCollection(
-      context,
-      _errorReports,
-      readOnly: widget.readOnly,
-      isOtzariaRunning: refreshProcessState,
-    );
-    if (!mounted) return;
-    await offerSearchFeedbackCollection(
-      context,
-      _searchFeedback,
-      readOnly: widget.readOnly,
-    );
+    // בתור הדיאלוגים: ההצעה לא עולה מעל דיאלוג אחר, והיא לא נצרכת אם לא הוצגה.
+    await _withDialogSlot(() async {
+      await offerErrorReportCollection(
+        context,
+        _errorReports,
+        readOnly: widget.readOnly,
+        isOtzariaRunning: refreshProcessState,
+      );
+      if (!mounted) return;
+      await offerSearchFeedbackCollection(
+        context,
+        _searchFeedback,
+        readOnly: widget.readOnly,
+      );
+    });
   }
 
   Future<void> _uploadSearchFeedback() async {
@@ -663,18 +671,21 @@ class _AppShellState extends State<AppShell> {
 
     final t = context.strings.launcherUpdate;
     final whatsNew = c.onlineWhatsNew;
-    final approved = await showTwoActionsDialog(
-      context: context,
-      title: t.availableDialogTitle,
-      content: '${t.availableDialogContent(release.version)}\n\n'
-          '${t.availableDialogDetail(formatBytes(release.sizeBytes))}',
-      customContent: whatsNew == null
-          ? null
-          : WhatsNewSection(heading: t.whatsNewHeading, markdown: whatsNew),
-      cancelText: t.availableDialogCancel,
-      confirmText: t.availableDialogConfirm,
+    final approved = await _withDialogSlot(
+      () => showTwoActionsDialog(
+        context: context,
+        title: t.availableDialogTitle,
+        content: '${t.availableDialogContent(release.version)}\n\n'
+            '${t.availableDialogDetail(formatBytes(release.sizeBytes))}',
+        customContent: whatsNew == null
+            ? null
+            : WhatsNewSection(heading: t.whatsNewHeading, markdown: whatsNew),
+        cancelText: t.availableDialogCancel,
+        confirmText: t.availableDialogConfirm,
+      ),
     );
-    if (!approved || !mounted) return;
+    if (approved == null) _askedAboutLauncherUpdate = false;
+    if (approved != true || !mounted) return;
     _whatsNewAlreadyShown = whatsNew != null;
     try {
       await downloadLauncherUpdate();
@@ -849,6 +860,18 @@ class _AppShellState extends State<AppShell> {
   /// רכיב — שם היא גם הועילה בפועל; ראו `DownloadScheduler`.
   Future<void> downloadAll() async {
     if (_blockedByReadOnly()) return;
+    if (_isPreparingDownload) return;
+    // הדגל מכסה גם את הבדיקה והשאלה שלפני [_isDownloading] — לחיצה שנייה
+    // שם הייתה מציגה את השאלה פעמיים.
+    _isPreparingDownload = true;
+    try {
+      await _downloadAll();
+    } finally {
+      _isPreparingDownload = false;
+    }
+  }
+
+  Future<void> _downloadAll() async {
     final s = widget.settings.settings;
     if (!s.hasSyncSelection ||
         _isDownloading ||
@@ -870,6 +893,14 @@ class _AppShellState extends State<AppShell> {
           error: _otzaria.onlineCheckError,
           hasUpdate: _otzaria.hasOnlineUpdate,
         );
+    // בלי בדיקה שהצליחה "כבר בכונן" אינו ידוע, והשאלה הייתה קופצת על מה שכבר
+    // שם. בדיקה אחת קלה לפניה; כשל שלה משאיר את השאלה, כמו קודם.
+    if (s.downloadsLibrary &&
+        (_library.onlineCheckedAt == null ||
+            _library.onlineCheckError != null)) {
+      await _library.checkOnline();
+      if (!mounted) return;
+    }
     // ב"עדכון אישי" היעד נגזר מהגרסה שנרשמה ולא מהחדשה שברשת, ולכן
     // "אין חדש ברשת" אינו אומר שאין מה להוריד.
     final includeSemanticSearch = s.downloadsLibrary &&
