@@ -255,6 +255,8 @@ void main() {
       'createdAt': '2026-09-01T10:00:00.000Z',
       'diagnostics': {'version': '1.0'},
       'errorLog': 'לוג',
+      // דיווח מהתור של אוצריא לעולם לא מנותב כדיווח של הלאנצ'ר.
+      'product': AppReport.offlineUpdateProduct,
       'images': [
         {'fileName': 'צילום.png', 'mimeType': 'image/png', 'data': 'AQID'}
       ],
@@ -284,6 +286,7 @@ void main() {
     ]);
     final app = outbox.reports[1].body;
     expect(app['reportId'], 'same');
+    expect(app.containsKey('product'), isFalse);
     expect((app['attachments'] as Map)['images'], [
       {'fileName': 'צילום.png', 'mimeType': 'image/png', 'data': 'AQID'}
     ]);

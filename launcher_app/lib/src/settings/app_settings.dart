@@ -1,5 +1,7 @@
 import 'dart:ui' show Color, PlatformDispatcher;
 
+import 'package:error_reports_manager/error_reports_manager.dart'
+    show AppCrashReportMode;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../theme/app_seed_colors.dart';
@@ -64,7 +66,8 @@ class AppSettings {
   /// 10: `protection` — מצב סייפר: נעילת ההגדרות בסיסמה.
   /// 11: `automation` — שני דגלים במקום ארבעה: בדיקה והתקנה, כל אחד
   ///     לתוכנה ולספרייה גם יחד.
-  static const int schemaVersion = 11;
+  /// 12: `reports` — מצב הדיווח אחרי קריסה וכתובת הדואר שנזכרת בטופס.
+  static const int schemaVersion = 12;
 
   /// בדיקת עדכונים בפתיחה — גם מקומית (התיקייה שלצד התוכנה) וגם קלה מול
   /// GitHub כשיש רשת: מטא-דאטה בלבד, בלי הורדה, וכשל (אין רשת) נבלע בשקט.
@@ -118,6 +121,14 @@ class AppSettings {
   /// סיסמה על שני כוננים אינה נראית אותו דבר בקובץ.
   final String saferModePassword;
 
+  // ── דיווח על תקלות ──────────────────────────────────────────────────────
+  /// מה לעשות אחרי סגירה לא צפויה — כמו `keyAppCrashReportMode` באוצריא.
+  final AppCrashReportMode crashReportMode;
+
+  /// הכתובת האחרונה שנשלחה בטופס (כמו `savedSenderEmail` באוצריא), לפי שם
+  /// המחשב: ההגדרות נוסעות על הכונן, וכתובת אישית לא אמורה לצוץ במחשב אחר.
+  final Map<String, String> reportSenderEmails;
+
   /// השפה שבה הממשק מוצג בפועל: [languagePreference] אחרי פתירת "אוטומטי".
   AppLanguage get language => languagePreference.resolve();
 
@@ -137,6 +148,8 @@ class AppSettings {
     this.showFaqButton = true,
     this.saferModeEnabled = false,
     this.saferModePassword = '',
+    this.crashReportMode = AppCrashReportMode.ask,
+    this.reportSenderEmails = const {},
   });
 
   /// האם ההורדה מביאה את הספרייה בפועל. "עדכון אישי" כופה אותה, בלי לדרוס
@@ -176,6 +189,8 @@ class AppSettings {
     bool? showFaqButton,
     bool? saferModeEnabled,
     String? saferModePassword,
+    AppCrashReportMode? crashReportMode,
+    Map<String, String>? reportSenderEmails,
   }) {
     return AppSettings(
       autoCheckUpdates: autoCheckUpdates ?? this.autoCheckUpdates,
@@ -193,6 +208,8 @@ class AppSettings {
       showFaqButton: showFaqButton ?? this.showFaqButton,
       saferModeEnabled: saferModeEnabled ?? this.saferModeEnabled,
       saferModePassword: saferModePassword ?? this.saferModePassword,
+      crashReportMode: crashReportMode ?? this.crashReportMode,
+      reportSenderEmails: reportSenderEmails ?? this.reportSenderEmails,
     );
   }
 
@@ -224,6 +241,10 @@ class AppSettings {
           'enabled': saferModeEnabled,
           'password': saferModePassword,
         },
+        'reports': {
+          'crashMode': crashReportMode.wireName,
+          'senderEmails': reportSenderEmails,
+        },
       };
 
   /// קורא הגדרות מ-JSON. שדה חסר או פגום נופל לברירת המחדל שלו — קובץ
@@ -240,6 +261,7 @@ class AppSettings {
     final sync = section('sync');
     final ui = section('ui');
     final protection = section('protection');
+    final reports = section('reports');
     const defaults = AppSettings();
 
     bool flag(Map<String, dynamic> from, String key, bool fallback) {
@@ -311,6 +333,13 @@ class AppSettings {
       saferModePassword: protection['password'] is String
           ? protection['password'] as String
           : defaults.saferModePassword,
+      crashReportMode: AppCrashReportMode.parse(reports['crashMode']),
+      reportSenderEmails: {
+        if (reports['senderEmails'] case final Map<dynamic, dynamic> emails)
+          for (final entry in emails.entries)
+            if (entry.key is String && entry.value is String)
+              entry.key as String: entry.value as String,
+      },
     );
   }
 }

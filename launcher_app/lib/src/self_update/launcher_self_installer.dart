@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
+import '../app_report/launcher_crash_session.dart';
 import 'launcher_install_layout.dart';
 import 'launcher_release_client.dart';
 
@@ -258,5 +259,5 @@ class LauncherSelfInstaller {
     );
   }
 
-  static void _defaultQuit() => exit(0);
+  static void _defaultQuit() => LauncherCrashSession.exitCleanly();
 }

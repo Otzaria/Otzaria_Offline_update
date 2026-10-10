@@ -69,6 +69,7 @@ void main() {
         'sync',
         'ui',
         'protection',
+        'reports',
       });
       expect(allKeys(json), {
         'schemaVersion',
@@ -92,6 +93,9 @@ void main() {
         'protection',
         'enabled',
         'password',
+        'reports',
+        'crashMode',
+        'senderEmails',
       });
       expect(json['schemaVersion'], AppSettings.schemaVersion);
     });

@@ -1,6 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
 
 import 'app_report_image.dart';
+import 'app_report_redactor.dart';
 import 'crash_signature.dart';
 
 /// סוג דיווח על התוכנה, בערכי החוזה מול השרת.
@@ -36,8 +39,8 @@ enum AppReportTrigger {
       );
 }
 
-/// פענוח תור דיווחי התוכנה ובניית גוף הבקשה, לפי המודל של אוצריא.
-
+/// דיווח על התוכנה — גוף הבקשה ל-`/api/app-reports` ורשומת התור/ההיסטוריה.
+/// פורט של המודל של אוצריא; [product] הוא התוספת היחידה.
 class AppReport {
   const AppReport({
     required this.reportId,
@@ -57,9 +60,20 @@ class AppReport {
     this.diagnostics,
     this.errorLog,
     this.images = const [],
+    this.product,
+    this.issueNumber,
+    this.issueUrl,
+    this.merged = false,
+    this.duplicate = false,
+    this.issuePending = false,
+    this.sentAt,
   });
 
   static const int schemaVersion = 1;
+
+  /// ערך `product` בדיווחים של הלאנצ'ר על עצמו — האתר מנתב לפיו לריפו שלו.
+  /// דיווח בלעדיו הוא של אוצריא, ולכן דיווחים שנאספו מאוצריא לא מקבלים אותו.
+  static const String offlineUpdateProduct = 'offline-update';
   static const int maxTitleLength = 200;
   static const int maxDescriptionLength = 10000;
   static const int maxStepsLength = 5000;
@@ -105,7 +119,40 @@ class AppReport {
   /// צילומי המסך. לא עוברים הסתרת מידע ונשמרים באתר בלבד, לא ב-GitHub.
   final List<AppReportImage> images;
 
+  /// המוצר שעליו הדיווח; `null` = אוצריא.
+  final String? product;
+
+  // ── שדות הרשומה המקומית, אחרי שליחה ──
+  final int? issueNumber;
+  final String? issueUrl;
+  final bool merged;
+  final bool duplicate;
+  final bool issuePending;
+  final DateTime? sentAt;
+
+  static final Random _random = Random.secure();
+
+  /// מזהה UUID v4 חדש לדיווח.
+  static String generateReportId() {
+    final bytes = List<int>.generate(16, (_) => _random.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
+        '${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+  }
+
+  /// שם הפלטפורמה בערכי החוזה (`other` לפלטפורמה לא מוכרת).
+  static String currentPlatform() {
+    final os = Platform.operatingSystem;
+    return platforms.contains(os) ? os : 'other';
+  }
+
+  /// אורך כתובת דואר לפי RFC 5321; ארוכה מזה השרת היה דוחה ב-422.
+  static const int maxEmailLength = 254;
+
   static bool isValidEmail(String email) =>
+      email.trim().length <= maxEmailLength &&
       RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email.trim());
 
   /// שם השדה הראשון שהשרת ידחה (422), או null כשהדיווח תקין לשליחה.
@@ -177,6 +224,7 @@ class AppReport {
     final email = reporterEmail.trim();
     return {
       'schema': schemaVersion,
+      if (product != null && product!.isNotEmpty) 'product': product,
       'reportId': reportId,
       'type': type.name,
       'trigger': trigger.wireName,
@@ -235,6 +283,129 @@ class AppReport {
       images: [
         if (json['images'] case final List<dynamic> images)
           ...images.map(AppReportImage.fromJson).whereType<AppReportImage>(),
+      ],
+      product: json['product'] is String ? json['product'] as String : null,
+      issueNumber:
+          json['issueNumber'] is int ? json['issueNumber'] as int : null,
+      issueUrl: json['issueUrl'] is String ? json['issueUrl'] as String : null,
+      merged: json['merged'] == true,
+      duplicate: json['duplicate'] == true,
+      issuePending: json['issuePending'] == true,
+      sentAt: DateTime.tryParse(_string(json['sentAt'])),
+    );
+  }
+
+  /// הרשומה המלאה לתור המקומי, כולל שדות התוצאה.
+  Map<String, dynamic> toJson() => {
+        'reportId': reportId,
+        'type': type.name,
+        'trigger': trigger.wireName,
+        'title': title,
+        'description': description,
+        'stepsToReproduce': stepsToReproduce,
+        'reporterEmail': reporterEmail,
+        'appVersion': appVersion,
+        'platform': platform,
+        if (osVersion != null) 'osVersion': osVersion,
+        if (arch != null) 'arch': arch,
+        if (signature != null) 'signature': signature!.toJson(),
+        if (sentryEventId != null) 'sentryEventId': sentryEventId,
+        'createdAt': createdAt.toUtc().toIso8601String(),
+        if (diagnostics != null) 'diagnostics': diagnostics,
+        if (errorLog != null) 'errorLog': errorLog,
+        if (images.isNotEmpty)
+          'images': [for (final image in images) image.toJson()],
+        if (product != null) 'product': product,
+        if (issueNumber != null) 'issueNumber': issueNumber,
+        if (issueUrl != null) 'issueUrl': issueUrl,
+        'merged': merged,
+        'duplicate': duplicate,
+        'issuePending': issuePending,
+        if (sentAt != null) 'sentAt': sentAt!.toUtc().toIso8601String(),
+      };
+
+  static const Object _unset = Object();
+
+  AppReport copyWith({
+    String? reportId,
+    AppReportType? type,
+    String? title,
+    String? description,
+    String? stepsToReproduce,
+    String? reporterEmail,
+    Object? signature = _unset,
+    Object? diagnostics = _unset,
+    Object? errorLog = _unset,
+    List<AppReportImage>? images,
+    Object? product = _unset,
+    Object? issueNumber = _unset,
+    Object? issueUrl = _unset,
+    bool? merged,
+    bool? duplicate,
+    bool? issuePending,
+    Object? sentAt = _unset,
+  }) {
+    return AppReport(
+      reportId: reportId ?? this.reportId,
+      type: type ?? this.type,
+      trigger: trigger,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      stepsToReproduce: stepsToReproduce ?? this.stepsToReproduce,
+      reporterEmail: reporterEmail ?? this.reporterEmail,
+      appVersion: appVersion,
+      platform: platform,
+      osVersion: osVersion,
+      arch: arch,
+      signature: identical(signature, _unset)
+          ? this.signature
+          : signature as CrashSignature?,
+      sentryEventId: sentryEventId,
+      createdAt: createdAt,
+      diagnostics: identical(diagnostics, _unset)
+          ? this.diagnostics
+          : diagnostics as Map<String, dynamic>?,
+      errorLog:
+          identical(errorLog, _unset) ? this.errorLog : errorLog as String?,
+      images: images ?? this.images,
+      product: identical(product, _unset) ? this.product : product as String?,
+      issueNumber: identical(issueNumber, _unset)
+          ? this.issueNumber
+          : issueNumber as int?,
+      issueUrl:
+          identical(issueUrl, _unset) ? this.issueUrl : issueUrl as String?,
+      merged: merged ?? this.merged,
+      duplicate: duplicate ?? this.duplicate,
+      issuePending: issuePending ?? this.issuePending,
+      sentAt: identical(sentAt, _unset) ? this.sentAt : sentAt as DateTime?,
+    );
+  }
+
+  /// רשומת היסטוריה: בלי הצרופות הכבדות, כדי שמאה דיווחים לא ינפחו את הקובץ.
+  AppReport withoutAttachments() =>
+      copyWith(diagnostics: null, errorLog: null, images: const []);
+
+  /// מסתיר מידע אישי בכל הטקסטים שנשלחים, מלבד שדה המייל של המדווח.
+  AppReport redactedWith(AppReportRedactor redactor) {
+    final sig = signature;
+    final diag = diagnostics;
+    return copyWith(
+      title: redactor.redactText(title),
+      description: redactor.redactText(description),
+      stepsToReproduce: redactor.redactText(stepsToReproduce),
+      signature: sig == null
+          ? null
+          : CrashSignature(
+              exceptionType: redactor.redactText(sig.exceptionType),
+              frames: sig.frames.map(redactor.redactText).toList(),
+            ),
+      diagnostics: diag == null
+          ? null
+          : Map<String, dynamic>.from(redactor.redactJson(diag) as Map),
+      errorLog: errorLog == null ? null : redactor.redactText(errorLog!),
+      images: [
+        for (final image in images)
+          image.withFileName(redactor.redactText(image.fileName)),
       ],
     );
   }

@@ -7,6 +7,7 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
 
+import '../controllers/app_reports_controller.dart';
 import '../controllers/custom_apps_controller.dart';
 import '../controllers/download_summary.dart';
 import '../controllers/error_reports_controller.dart';
@@ -29,6 +30,7 @@ import '../settings/safer_mode.dart';
 import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/widgets_exports.dart';
+import 'app_report/crash_prompt_dialog.dart';
 import 'custom_apps/custom_apps_screen.dart';
 import 'error_reports_flow.dart';
 import 'faq/faq_floating_button.dart';
@@ -57,6 +59,7 @@ class AppShell extends StatefulWidget {
     this.runningLocator = const RunningOtzariaLocator(),
     this.showWindowButtons,
     this.noticesStore,
+    this.appReports,
   }) : _stateDir = stateDir;
 
   /// התיקייה שלצד התוכנה — המראה, כלומר המקור שממנו קוראים ומתקינים.
@@ -84,6 +87,10 @@ class AppShell extends StatefulWidget {
   /// "אילו הודעות הוצגו". מוזרק בבדיקות: קריאת דיסק אמיתית אינה מסתיימת
   /// בתוך ה-fake-async, ובלי זה הודעה יכולה לצוץ באמצע בדיקה שאינה שלה.
   final NoticesSeenStore? noticesStore;
+
+  /// הדיווחים של הלאנצ'ר על עצמו — נוצר ב-`main`, ו-`null` בבדיקות: הוא
+  /// מפעיל טיימר שליחה ופונה לרשת.
+  final AppReportsController? appReports;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -271,6 +278,10 @@ class _AppShellState extends State<AppShell> {
         unawaited(_otzaria.ensureChecked().then((_) => _offerErrorReports()));
       });
     }
+    if (widget.appReports case final reports?) {
+      reports.stateProvider = _reportState;
+      unawaited(_startReports(reports));
+    }
     // בדיקה קלה ברשת (מטא-דאטה בלבד) — פעם אחת בהפעלה, לא טיימר מחזורי.
     // כשל (אין רשת) נבלע בתוך הקונטרולרים ולא מוצג כשגיאה.
     if (s.autoCheckUpdates) {
@@ -280,6 +291,8 @@ class _AppShellState extends State<AppShell> {
 
   @override
   void dispose() {
+    _pauseTimer?.cancel();
+    if (_pauseDone case final done? when !done.isCompleted) done.complete();
     _runningPoll?.cancel();
     unawaited(_installDone.cancel());
     widget.settings.removeListener(_onChange);
@@ -324,52 +337,130 @@ class _AppShellState extends State<AppShell> {
     // אחרי הפריים, ובלי לעלות מעל דיאלוג אחר שכבר פתוח (עדכון לאנצ'ר,
     // הצעת דיווחים). מוותרים אחרי דקה — ההודעה לא נרשמה, ותחזור בהרצה הבאה.
     await WidgetsBinding.instance.endOfFrame;
-    var waits = 0;
-    while (mounted && !(ModalRoute.of(context)?.isCurrent ?? true)) {
-      if (++waits > 120) return;
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-    }
-    if (!mounted) return;
+    await _withDialogSlot(() async {
+      final t = context.strings.plugins;
+      final message = hasUpdates && fresh.isNotEmpty
+          ? t.homeNoticeUpdatesAndNew
+          : hasUpdates
+              ? t.homeNoticeUpdates
+              : fresh.length == 1
+                  ? t.homeNoticeNewOne
+                  : t.homeNoticeNewMany(fresh.length);
 
-    final t = context.strings.plugins;
-    final message = hasUpdates && fresh.isNotEmpty
-        ? t.homeNoticeUpdatesAndNew
-        : hasUpdates
-            ? t.homeNoticeUpdates
-            : fresh.length == 1
-                ? t.homeNoticeNewOne
-                : t.homeNoticeNewMany(fresh.length);
-
-    unawaited(_plugins.markHomeNotified(fresh));
-    final open = await showTwoActionsDialog(
-      context: context,
-      title: t.homeNoticeTitle,
-      content: message,
-      cancelText: context.strings.common.close,
-      confirmText: t.homeNoticeOpenButton,
-    );
-    if (open && mounted) await _goTo(LauncherScreen.plugins);
+      unawaited(_plugins.markHomeNotified(fresh));
+      final open = await showTwoActionsDialog(
+        context: context,
+        title: t.homeNoticeTitle,
+        content: message,
+        cancelText: context.strings.common.close,
+        confirmText: t.homeNoticeOpenButton,
+      );
+      if (open && mounted) await _goTo(LauncherScreen.plugins);
+    });
   }
 
-  /// ממתין עד שאין דיאלוג אחר פתוח, כדי לא לעלות מעליו. מוותרים אחרי דקה.
-  Future<bool> _waitUntilNoDialog() async {
+  /// ממתין עד שאין דיאלוג אחר פתוח, כדי לא לעלות מעליו. מוותרים אחרי דקה,
+  /// אלא אם [forever] — ראיה לקריסה אינה נשמרת בשום מקום אחר.
+  Future<bool> _waitUntilNoDialog({bool forever = false}) async {
     var waits = 0;
     while (mounted && !(ModalRoute.of(context)?.isCurrent ?? true)) {
-      if (++waits > 120) return false;
-      await Future<void>.delayed(const Duration(milliseconds: 500));
+      if (!forever && ++waits > 120) return false;
+      await _pause(const Duration(milliseconds: 500));
     }
     return mounted;
+  }
+
+  Timer? _pauseTimer;
+  Completer<void>? _pauseDone;
+
+  /// השהיה שאפשר לבטל: ב-`dispose` הטיימר נעצר וההמתנה מתעוררת, כך שלולאת
+  /// ההמתנה אינה נשארת תלויה אחרי שהמסגרת נסגרה.
+  Future<void> _pause(Duration duration) {
+    final done = _pauseDone = Completer<void>();
+    _pauseTimer = Timer(duration, () {
+      if (!done.isCompleted) done.complete();
+    });
+    return done.future;
+  }
+
+  /// סוף התור של הדיאלוגים שמופיעים מעצמם בעלייה.
+  Future<void> _dialogTail = Future<void>.value();
+
+  /// מריץ [body] — שמציג דיאלוג — כשאין אחר פתוח, וגם כשאין עוד אחד שממתין
+  /// באותו רגע: הבדיקה וההצגה בתור אחד, כך ששני דיאלוגים לא יעלו יחד. מחזיר
+  /// `null` כשלא ניתן היה להציג (ההודעה לא נרשמה ותחזור בהרצה הבאה).
+  Future<T?> _withDialogSlot<T>(
+    Future<T> Function() body, {
+    bool forever = false,
+  }) async {
+    final previous = _dialogTail;
+    final done = Completer<void>();
+    _dialogTail = done.future;
+    try {
+      await previous;
+      if (!await _waitUntilNoDialog(forever: forever)) return null;
+      return await body();
+    } finally {
+      done.complete();
+    }
   }
 
   /// ההסבר החד-פעמי על דיווחי הטעויות, ראו [showErrorReportsIntroOnce].
   Future<void> _showErrorReportsIntro() async {
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted) return;
-    await showErrorReportsIntroOnce(
-      context,
-      _notices,
-      readOnly: widget.readOnly,
-      waitUntilFree: _waitUntilNoDialog,
+    await _withDialogSlot(
+      () => showErrorReportsIntroOnce(
+        context,
+        _notices,
+        readOnly: widget.readOnly,
+      ),
+    );
+  }
+
+  /// מצב המודולים לאבחון הדיווח — בלי נתיבים ושמות קבצים של המשתמש.
+  Map<String, dynamic> _reportState() {
+    final s = widget.settings.settings;
+    return {
+      'readOnly': widget.readOnly,
+      'otzaria': _otzaria.status.name,
+      'otzariaRunning': _otzariaIsRunning,
+      'library': _library.status.name,
+      'plugins': _plugins.status.name,
+      'customApps': _customApps.hasApps,
+      'launcherUpdateReady': _launcherUpdate.hasUpdateReady,
+      'autoCheckUpdates': s.autoCheckUpdates,
+      'autoInstall': s.autoInstall,
+      'personalUpdateMode': s.personalUpdateMode,
+      'crashReportMode': s.crashReportMode.wireName,
+      'language': s.language.name,
+    };
+  }
+
+  /// הדיווחים של הלאנצ'ר — הכול אחרי הפריים הראשון (§5.9): קריאת התור
+  /// ושליחתו, וזיהוי הקריסה של ההפעלה הקודמת. ההצעה לא עולה מעל דיאלוג אחר.
+  Future<void> _startReports(AppReportsController reports) async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    // חריג מכוון ל"רשת רק בלחיצה" (AGENTS §1): תור הדיווחים נשלח לבד.
+    reports.startBackground();
+    await reports.runCrashCheck(
+      showPrompt: (candidate) async {
+        final shown = await _withDialogSlot(
+          () async {
+            await showCrashPromptDialog(
+              context,
+              reports: reports,
+              candidate: candidate,
+              saferMode: _saferMode,
+            );
+            return true;
+          },
+          // הנעילה כבר נדרסה: מי שוויתר כאן מאבד את הקריסה לצמיתות.
+          forever: true,
+        );
+        return shown ?? false;
+      },
     );
   }
 
@@ -1020,6 +1111,7 @@ class _AppShellState extends State<AppShell> {
             saferMode: _saferMode,
             customApps: _customApps,
             readOnly: widget.readOnly,
+            appReports: widget.appReports,
           ),
       };
 

@@ -31,6 +31,8 @@ class HebrewStrings extends AppStrings {
   @override
   ErrorReportsStrings get errorReports => const _ErrorReports();
   @override
+  AppReportsStrings get appReports => const _AppReports();
+  @override
   SetupErrorStrings get setupError => const _SetupError();
   @override
   ReadOnlyDriveStrings get readOnlyDrive => const _ReadOnlyDrive();
@@ -3069,4 +3071,270 @@ class _ErrorReportsDomain extends ErrorReportsDomainStrings {
   @override
   String outboxUnreadable(String error) =>
       'לא ניתן לקרוא את הדיווחים שעל הכונן: $error';
+}
+
+class _AppReports extends AppReportsStrings {
+  const _AppReports();
+
+  @override
+  String get cardTitle => 'דיווח על תקלות';
+  @override
+  String get reportTileTitle => 'דווח על תקלה בתוכנה';
+  @override
+  String get reportTileSubtitle => 'תקלה, קריסה, בעיית ביצועים או הצעה לשיפור';
+  @override
+  String get openFormButton => 'פתח טופס דיווח';
+  @override
+  String get crashModeTitle => 'דיווח אחרי סגירה לא צפויה';
+  @override
+  String get crashModeSubtitle =>
+      'מה לעשות כשהתוכנה מזהה שנסגרה בלי סגירה מסודרת';
+  @override
+  String get crashModeAsk => 'שאל אותי';
+  @override
+  String get crashModeAlways => 'שלח אוטומטית';
+  @override
+  String get crashModeNever => 'לעולם לא';
+  @override
+  String get manageTileTitle => 'הדיווחים שלך';
+  @override
+  String manageTileSubtitle(int pending, int sent) => pending == 0
+      ? 'אין דיווחים שמורים בתור · $sent נשלחו'
+      : '$pending שמורים בתור · $sent נשלחו';
+  @override
+  String get manageButton => 'הצג דיווחים';
+
+  @override
+  String get manageDialogTitle => 'הדיווחים שלך';
+  @override
+  String get manageDialogIntro =>
+      'דיווח על תקלות בתוכנה עצמה. הדיווח נפתח כדיווח ציבורי ב-GitHub, וקובצי '
+      'האבחון גלויים למפתחים בלבד. דיווח שלא נשלח נשמר ויישלח כשיש חיבור.';
+  @override
+  String get pendingSectionTitle => 'דיווחים שמורים';
+  @override
+  String get pendingEmpty => 'אין כרגע דיווחים שמורים בתור';
+  @override
+  String pendingCount(int count) => count == 1
+      ? 'יש כרגע $count דיווח שמור בתור'
+      : 'יש כרגע $count דיווחים שמורים בתור';
+  @override
+  String get sendNowButton => 'שלח עכשיו';
+  @override
+  String get clearPendingButton => 'נקה דיווחים';
+  @override
+  String get sendOneButton => 'שלח';
+  @override
+  String get deleteButton => 'מחק';
+  @override
+  String get detailsButton => 'פרטים';
+  @override
+  String get sentSectionTitle => 'דיווחים שנשלחו';
+  @override
+  String get sentEmpty => 'עדיין לא נשלחו דיווחים';
+  @override
+  String sentSummary(int shown, int total) => shown == total
+      ? (total == 1 ? 'נשלח $total דיווח' : 'נשלחו $total דיווחים')
+      : 'נשלחו $total דיווחים; מוצגים $shown האחרונים';
+  @override
+  String get clearSentButton => 'נקה את כל ההיסטוריה';
+  @override
+  String openIssueButton(int? number) =>
+      number == null ? 'פתח ב-GitHub' : 'פתח דיווח #$number';
+  @override
+  String get mergedLabel => 'צורף לדיווח קיים';
+  @override
+  String get detailsPendingTitle => 'פרטי דיווח שמור';
+  @override
+  String get detailsSentTitle => 'פרטי דיווח שנשלח';
+  @override
+  String get stepsHeading => 'שלבים לשחזור:';
+  @override
+  String get clearPendingDialogTitle => 'למחוק את הדיווחים השמורים?';
+  @override
+  String get clearPendingDialogContent =>
+      'הדיווחים שבתור לא יישלחו. אי אפשר לבטל את הפעולה.';
+  @override
+  String get clearSentDialogTitle => 'לנקות את היסטוריית הדיווחים?';
+  @override
+  String get clearSentDialogContent =>
+      'הפעולה לא מוחקת דיווחים שכבר נשלחו למפתחים.';
+  @override
+  String flushSentSnack(int count) =>
+      count == 1 ? 'נשלח $count דיווח' : 'נשלחו $count דיווחים';
+  @override
+  String flushFailedSnack(int pending) => pending == 1
+      ? 'לא ניתן לשלוח כרגע. $pending דיווח עדיין שמור בתור, והוא יישלח '
+          'אוטומטית כשיהיה חיבור.'
+      : 'לא ניתן לשלוח כרגע. עדיין שמורים בתור $pending דיווחים, והם יישלחו '
+          'אוטומטית כשיהיה חיבור.';
+  @override
+  String flushErrorSnack(int failed) => failed == 1
+      ? 'השליחה נכשלה בגלל שגיאה במחשב הזה ($failed דיווח). הדיווח נשאר '
+          'בתור, והפרטים ביומן.'
+      : 'השליחה נכשלה בגלל שגיאה במחשב הזה ($failed דיווחים). הדיווחים נשארו '
+          'בתור, והפרטים ביומן.';
+  @override
+  String flushPartialSnack(int sent, int failed) =>
+      '${flushSentSnack(sent)}. ${failed == 1 ? '$failed דיווח לא נשלח בגלל '
+          'שגיאה במחשב הזה ונשאר בתור' : '$failed דיווחים לא נשלחו בגלל שגיאה '
+          'במחשב הזה ונשארו בתור'}; הפרטים ביומן.';
+  @override
+  String flushDroppedSnack(int sent, int dropped) =>
+      '${flushSentSnack(sent)}. ${dropped == 1 ? '$dropped דיווח נדחה על ידי '
+          'השרת והוסר מהתור' : '$dropped דיווחים נדחו על ידי השרת והוסרו '
+          'מהתור'}.';
+  @override
+  String flushRemainingSnack(int sent, int remaining) =>
+      '${flushSentSnack(sent)}. ${remaining == 1 ? 'נשאר עוד $remaining '
+          'דיווח בתור — הוא יישלח' : 'נשארו עוד $remaining דיווחים בתור — הם '
+          'יישלחו'} אוטומטית, או שאפשר ללחוץ שוב.';
+  @override
+  String get notPendingSnack =>
+      'הדיווח כבר אינו בתור (נשלח או הוסר), ולכן לא נשלח שוב.';
+  @override
+  String get removedFromQueueSnack => 'הדיווח הוסר מהתור';
+  @override
+  String get deletedFromHistorySnack => 'הדיווח נמחק מההיסטוריה';
+  @override
+  String get pendingClearedSnack => 'הדיווחים השמורים נמחקו';
+  @override
+  String get historyClearedSnack => 'ההיסטוריה נוקתה';
+
+  @override
+  String get typeBug => 'תקלה';
+  @override
+  String get typeCrash => 'קריסה';
+  @override
+  String get typePerformance => 'ביצועים';
+  @override
+  String get typeSuggestion => 'הצעה';
+
+  @override
+  String get dialogTitle => 'דיווח על תקלה בתוכנה';
+  @override
+  String get dialogSubtitle =>
+      'ככל שהתיאור מדויק יותר, כך קל יותר לאתר את התקלה ולתקן אותה';
+  @override
+  String get typeLabel => 'סוג הדיווח';
+  @override
+  String get titleLabel => 'כותרת';
+  @override
+  String get titleHint => 'משפט אחד שמתאר את הבעיה';
+  @override
+  String get titleRequired => 'יש למלא כותרת';
+  @override
+  String get descriptionLabel => 'מה קרה?';
+  @override
+  String get descriptionHint => 'מה ציפית שיקרה, ומה קרה בפועל';
+  @override
+  String get descriptionRequired => 'יש לתאר את התקלה';
+  @override
+  String get stepsLabel => 'שלבים לשחזור';
+  @override
+  String get stepsHint => 'מה עשית לפני שהתקלה הופיעה';
+  @override
+  String get optionalHint => '(לא חובה)';
+  @override
+  String get emailLabel => 'דואר אלקטרוני לחזרה אליך';
+  @override
+  String get emailInvalid => 'נדרשת כתובת תקינה';
+  @override
+  String get sendButton => 'שלח';
+
+  @override
+  String get imagesPrompt => 'הקליקו לבחירת צילום מסך';
+  @override
+  String get imagesPickDialogTitle => 'בחירת צילומי מסך לדיווח';
+  @override
+  String get removeImageTooltip => 'הסרת התמונה';
+  @override
+  String imageTooLarge(int megabytes) =>
+      'תמונה גדולה מ-$megabytes MB לא צורפה.';
+  @override
+  String tooManyImages(int count) => 'ניתן לצרף עד $count תמונות לדיווח.';
+  @override
+  String imagesTotalTooLarge(int megabytes) =>
+      'הגודל הכולל של התמונות מוגבל ל-$megabytes MB.';
+  @override
+  String get imageReadFailed => 'לא ניתן היה לקרוא את התמונה.';
+
+  @override
+  String get attachmentsHeading => 'מה נשלח יחד עם הדיווח';
+  @override
+  String get includeDiagnostics => 'לצרף מידע אבחון על התוכנה והמערכת';
+  @override
+  String get diagnosticsUnavailable => 'לא ניתן היה לאסוף מידע אבחון';
+  @override
+  String get includeLog => 'לצרף קטע מיומן הפעילות';
+  @override
+  String get logEmpty => 'אין רשומות ביומן הפעילות';
+  @override
+  String get showPreviewButton => 'הצג את מה שיישלח';
+  @override
+  String get hidePreviewButton => 'הסתר את מה שיישלח';
+  @override
+  String get privacyNote =>
+      'הכותרת, התיאור, פרטי הגרסה וצילומי המסך נכנסים למעקב התקלות של '
+      'התוכנה ב-GitHub. מידע האבחון, יומן הפעילות וכתובת הדואר נשארים אצל '
+      'צוות אוצריא בלבד. נתיבים, שם המשתמש וכתובות דואר מוסתרים לפני השליחה.';
+
+  @override
+  String sentSnack(int? issueNumber) => issueNumber == null
+      ? 'הדיווח נקלט. תודה!'
+      : 'הדיווח נקלט ונפתח עבורו דיווח מספר $issueNumber. תודה!';
+  @override
+  String mergedSnack(int? issueNumber) => issueNumber == null
+      ? 'הדיווח צורף לדיווח קיים על אותה תקלה. תודה!'
+      : 'הדיווח צורף לדיווח קיים מספר $issueNumber על אותה תקלה. תודה!';
+  @override
+  String get queuedSnack =>
+      'לא ניתן לשלוח כעת. הדיווח נשמר ויישלח אוטומטית כשיהיה חיבור. '
+      'ניתן לנהל את הדיווחים השמורים בהגדרות.';
+  @override
+  String rejectedSnack(String? field) => field == null
+      ? 'השרת דחה את הדיווח, ולכן הוא לא נשמר לשליחה חוזרת.'
+      : 'השרת דחה את הדיווח בגלל השדה "$field", ולכן הוא לא נשמר לשליחה '
+          'חוזרת.';
+  @override
+  String get titleRequiredSnack => 'יש למלא כותרת לדיווח.';
+  @override
+  String get descriptionRequiredSnack => 'יש לתאר את התקלה כדי שנוכל לטפל בה.';
+  @override
+  String get emailRequiredSnack =>
+      'יש למלא כתובת דואר אלקטרוני תקינה — בלעדיה לא נוכל לחזור אליכם.';
+  @override
+  String get invalidEmailSnack => 'כתובת הדואר האלקטרוני אינה תקינה.';
+  @override
+  String get cannotOpenIssueSnack => 'לא ניתן לפתוח את הדיווח בדפדפן.';
+  @override
+  String get sendFailedSnack => 'שליחת הדיווח נכשלה.';
+
+  @override
+  String get crashTitle => 'התוכנה נסגרה באופן לא צפוי';
+  @override
+  String get crashBody =>
+      'בהפעלה הקודמת התוכנה נסגרה בלי סגירה מסודרת. שליחת דיווח תעזור לנו '
+      'למצוא את הסיבה ולתקן אותה.';
+  @override
+  String get crashDescriptionLabel => 'מה עשית לפני הסגירה? (לא חובה)';
+  @override
+  String get crashEmailLabel => 'דואר אלקטרוני (לא חובה)';
+  @override
+  String get crashNextTimeLabel => 'בפעם הבאה שזה יקרה:';
+  @override
+  String get crashNextAsk => 'שאל אותי';
+  @override
+  String get crashNextAlways => 'תמיד לשלוח אוטומטית';
+  @override
+  String get crashNextNever => 'אל תשאל שוב';
+  @override
+  String get crashDismissButton => 'אל תשלח';
+  @override
+  String get crashSendButton => 'שלח דיווח';
+  @override
+  String get crashDismissedSnack =>
+      'הדיווח על הקריסה לא נשלח. ניתן לדווח בכל עת דרך ההגדרות.';
+  @override
+  String get crashFallbackTitle => 'סגירה לא צפויה';
 }

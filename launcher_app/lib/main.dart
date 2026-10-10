@@ -1,11 +1,16 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show PlatformDispatcher;
 
+import 'package:error_reports_manager/error_reports_manager.dart'
+    show LauncherLogFormat;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'src/app_report/launcher_crash_session.dart';
+import 'src/controllers/app_reports_controller.dart';
 import 'src/screens/app_shell.dart';
 import 'src/screens/payload_mismatch_screen.dart';
 import 'src/screens/setup_error_screen.dart';
@@ -21,6 +26,9 @@ import 'src/theme/theme_exports.dart';
 import 'src/widgets/widgets_exports.dart';
 
 void main() {
+  // מה שהעלייה הזו כותבת ליומן לפני בדיקת הקריסה אינו ראיה נגד ההפעלה הקודמת.
+  LauncherCrashSession.processStartedAt = DateTime.now();
+
   // ה-logger נוצר בתוך ה-zone אבל נדרש גם למטפל השגיאות שלו — ולכן מוחזק
   // כאן, מחוץ. nullable כי שגיאה יכולה לקרות עוד לפני שהוא נבנה.
   AppLogger? logger;
@@ -57,11 +65,27 @@ void main() {
       // תופס שגיאות שה-widgets framework עצמו זורק (למשל בתוך build/layout).
       FlutterError.onError = (details) {
         report(
-          'FlutterError: ${details.exceptionAsString()}',
+          LauncherLogFormat.uncaughtMessage(
+            LauncherLogFormat.flutterError,
+            details.exception,
+          ),
           details.exception,
           details.stack,
         );
         FlutterError.presentError(details);
+      };
+      // שגיאות שאינן עוברות ב-zone (קריאות חוזרות מהפלטפורמה). הכותרת היא
+      // ראיה לקריסה בזיהוי היציאה הלא נקייה — ראו `LauncherLogFormat`.
+      PlatformDispatcher.instance.onError = (error, stack) {
+        report(
+          LauncherLogFormat.uncaughtMessage(
+            LauncherLogFormat.platformError,
+            error,
+          ),
+          error,
+          stack,
+        );
+        return true;
       };
 
       await _prepareWindow();
@@ -134,12 +158,34 @@ void main() {
         return;
       }
 
-      runApp(LauncherApp(paths: paths, settings: settings));
+      // נעילת ההפעלה ויומן הלאנצ'ר באותה תיקייה — ראו `LauncherCrashSession`.
+      final appReports = AppReportsController.forState(
+        stateDir: paths.stateDir,
+        logsDirectory: AppLogger.instance.logDir,
+        settings: settings,
+      );
+      // הנעילה נפתחת כאן, לא אחרי הפריים: עלייה שנתקעת לפניו תישאר עם ראיה.
+      // הזיהוי והכתיבה אסינכרוניים ואינם עוצרים את הפריים (§5.9).
+      unawaited(
+        LauncherCrashSession.begin(
+          logsDirectory: AppLogger.instance.logDir,
+          version: launcherVersion,
+        ),
+      );
+      await LauncherCrashSession.installCloseHooks();
+
+      runApp(
+        LauncherApp(paths: paths, settings: settings, appReports: appReports),
+      );
     },
     // תופס שגיאות אסינכרוניות שלא נתפסו ע"י שום try/catch — רשת חיצונית
     // (defense in depth): גם אם ניצור בעתיד בטעות עוד קריסת isolate/async
     // שבורחת מהטיפול הרגיל, היא עדיין תיכתב ללוג במקום להיעלם בשקט.
-    (error, stackTrace) => report('Uncaught zone error', error, stackTrace),
+    (error, stackTrace) => report(
+      LauncherLogFormat.uncaughtMessage(LauncherLogFormat.zoneError, error),
+      error,
+      stackTrace,
+    ),
   );
 }
 
@@ -172,10 +218,12 @@ class LauncherApp extends StatelessWidget {
     super.key,
     required this.paths,
     required this.settings,
+    this.appReports,
   });
 
   final AppPaths paths;
   final SettingsController settings;
+  final AppReportsController? appReports;
 
   @override
   Widget build(BuildContext context) {
@@ -199,6 +247,7 @@ class LauncherApp extends StatelessWidget {
             stateDir: paths.stateDir,
             readOnly: paths.readOnly,
             settings: settings,
+            appReports: appReports,
           ),
         );
       },

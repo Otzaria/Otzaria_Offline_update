@@ -3,6 +3,8 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:ui' show FrameTiming, PlatformDispatcher, TimingsCallback;
 
+import 'package:error_reports_manager/error_reports_manager.dart'
+    show LauncherLogFormat;
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
@@ -60,10 +62,12 @@ class StartupDiagnostics {
     _onTimings = onTimings;
     binding.addTimingsCallback(onTimings);
 
+    // הקידומת היא מה שזיהוי הקריסה מחפש: הפעלה שנהרגה במצב הזה היא תקיעה.
+    const tag = LauncherLogFormat.startupStallTag;
     _timeout = Timer(presentTimeout, () {
       if (_presented) return;
       AppLogger.maybeInstance?.warn(
-        'עברו ${presentTimeout.inSeconds} שניות ואף פריים לא הוצג — הציור '
+        '$tag עברו ${presentTimeout.inSeconds} שניות ואף פריים לא הוצג — הציור '
         'אינו מגיע למסך',
       );
     });

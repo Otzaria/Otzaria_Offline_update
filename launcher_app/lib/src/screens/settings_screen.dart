@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
+import '../controllers/app_reports_controller.dart';
 import '../controllers/custom_apps_controller.dart';
 import '../self_update/launcher_changelog.dart';
 import '../services/app_paths.dart';
@@ -12,6 +13,7 @@ import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
+import 'app_report/app_reports_settings_card.dart';
 import 'custom_apps/custom_apps_settings_card.dart';
 
 /// מסך ההגדרות — שפה ומראה, אוטומציה, הורדה ותמיכה.
@@ -32,6 +34,7 @@ class SettingsScreen extends StatelessWidget {
     this.customApps,
     this.readOnly = false,
     this.saferMode,
+    this.appReports,
   });
 
   final SettingsController controller;
@@ -52,6 +55,9 @@ class SettingsScreen extends StatelessWidget {
   /// בבדיקות שאינן נוגעות בנעילה.
   final SaferModeGate? saferMode;
 
+  /// הדיווחים של הלאנצ'ר על עצמו. `null` בבדיקות שאינן נוגעות בהם.
+  final AppReportsController? appReports;
+
   AppSettings get _s => controller.settings;
 
   Future<void> _set(AppSettings next) => controller.update(next);
@@ -70,6 +76,8 @@ class SettingsScreen extends StatelessWidget {
         if (customApps case final controller?)
           CustomAppsSettingsCard(controller: controller, readOnly: readOnly),
         _saferModeCard(context),
+        if (appReports case final reports?)
+          AppReportsSettingsCard(reports: reports),
         _supportCard(context),
       ],
     );

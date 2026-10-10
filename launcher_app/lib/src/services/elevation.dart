@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
+import '../app_report/launcher_crash_session.dart';
+
 /// שגיאות "אין הרשאה", וההרמה שפותרת אותן.
 ///
 /// למה זה כאן: אוצריא מותקנת לא פעם ב-`Program Files`, ואז גם עדכון המסד
@@ -102,5 +104,5 @@ class Elevation {
     );
   }
 
-  static void _defaultQuit() => exit(0);
+  static void _defaultQuit() => LauncherCrashSession.exitCleanly();
 }

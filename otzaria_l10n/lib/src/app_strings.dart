@@ -21,6 +21,7 @@ abstract class AppStrings {
   FaqStrings get faq;
   CustomAppsStrings get customApps;
   ErrorReportsStrings get errorReports;
+  AppReportsStrings get appReports;
   SetupErrorStrings get setupError;
   ReadOnlyDriveStrings get readOnlyDrive;
   ElevationStrings get elevation;
@@ -1869,4 +1870,146 @@ abstract class ErrorReportsDomainStrings {
   String get uploadTimedOut;
   String uploadNetworkError(String error);
   String outboxUnreadable(String error);
+}
+
+// ── דיווחים של הלאנצ'ר על עצמו ──────────────────────────────────────────────
+
+/// דיווח על תקלה בלאנצ'ר עצמו — פורט של "דיווח על התוכנה" של אוצריא: כרטיס
+/// בהגדרות, טופס, ניהול התור וההיסטוריה, וההצעה לדווח אחרי סגירה לא צפויה.
+abstract class AppReportsStrings {
+  const AppReportsStrings();
+
+  // ── הכרטיס בהגדרות ──
+  String get cardTitle;
+  String get reportTileTitle;
+  String get reportTileSubtitle;
+  String get openFormButton;
+  String get crashModeTitle;
+  String get crashModeSubtitle;
+  String get crashModeAsk;
+  String get crashModeAlways;
+  String get crashModeNever;
+  String get manageTileTitle;
+  String manageTileSubtitle(int pending, int sent);
+  String get manageButton;
+
+  // ── חלון הניהול ──
+  String get manageDialogTitle;
+  String get manageDialogIntro;
+  String get pendingSectionTitle;
+  String get pendingEmpty;
+  String pendingCount(int count);
+  String get sendNowButton;
+  String get clearPendingButton;
+  String get sendOneButton;
+  String get deleteButton;
+  String get detailsButton;
+  String get sentSectionTitle;
+  String get sentEmpty;
+  String sentSummary(int shown, int total);
+  String get clearSentButton;
+
+  /// מספר ה-issue, או `null` כשהשרת עוד לא פתח אותו.
+  String openIssueButton(int? number);
+  String get mergedLabel;
+  String get detailsPendingTitle;
+  String get detailsSentTitle;
+  String get stepsHeading;
+  String get clearPendingDialogTitle;
+  String get clearPendingDialogContent;
+  String get clearSentDialogTitle;
+  String get clearSentDialogContent;
+  String flushSentSnack(int count);
+  String flushFailedSnack(int pending);
+
+  /// שגיאה מקומית (דיסק, תור לא קריא) — לא רשת — ולא נשלח דבר.
+  String flushErrorSnack(int failed);
+
+  /// חלק נשלחו, ואחרים נכשלו בשגיאה מקומית ונשארו בתור.
+  String flushPartialSnack(int sent, int failed);
+
+  /// חלק נשלחו, וחלק נדחו על ידי השרת והוסרו.
+  String flushDroppedSnack(int sent, int dropped);
+
+  /// הסבב הגיע לתקרה ויש עוד בתור.
+  String flushRemainingSnack(int sent, int remaining);
+
+  /// הדיווח כבר אינו בתור (נשלח ברקע או הוסר), ולכן לא נשלח שוב.
+  String get notPendingSnack;
+  String get removedFromQueueSnack;
+  String get deletedFromHistorySnack;
+  String get pendingClearedSnack;
+  String get historyClearedSnack;
+
+  // ── סוגי דיווח ──
+  String get typeBug;
+  String get typeCrash;
+  String get typePerformance;
+  String get typeSuggestion;
+
+  // ── הטופס ──
+  String get dialogTitle;
+  String get dialogSubtitle;
+  String get typeLabel;
+  String get titleLabel;
+  String get titleHint;
+  String get titleRequired;
+  String get descriptionLabel;
+  String get descriptionHint;
+  String get descriptionRequired;
+  String get stepsLabel;
+  String get stepsHint;
+  String get optionalHint;
+  String get emailLabel;
+  String get emailInvalid;
+  String get sendButton;
+
+  // ── תמונות ──
+  String get imagesPrompt;
+  String get imagesPickDialogTitle;
+  String get removeImageTooltip;
+  String imageTooLarge(int megabytes);
+  String tooManyImages(int count);
+  String imagesTotalTooLarge(int megabytes);
+  String get imageReadFailed;
+
+  // ── מה נשלח ──
+  String get attachmentsHeading;
+  String get includeDiagnostics;
+  String get diagnosticsUnavailable;
+  String get includeLog;
+  String get logEmpty;
+  String get showPreviewButton;
+  String get hidePreviewButton;
+  String get privacyNote;
+
+  // ── תוצאה ──
+  String sentSnack(int? issueNumber);
+  String mergedSnack(int? issueNumber);
+  String get queuedSnack;
+
+  /// השדה שהשרת דחה, או `null` כשלא אמר.
+  String rejectedSnack(String? field);
+  String get titleRequiredSnack;
+  String get descriptionRequiredSnack;
+  String get emailRequiredSnack;
+  String get invalidEmailSnack;
+  String get cannotOpenIssueSnack;
+  String get sendFailedSnack;
+
+  // ── אחרי סגירה לא צפויה ──
+  String get crashTitle;
+  String get crashBody;
+  String get crashDescriptionLabel;
+  String get crashEmailLabel;
+  String get crashNextTimeLabel;
+  String get crashNextAsk;
+  String get crashNextAlways;
+  String get crashNextNever;
+  String get crashDismissButton;
+  String get crashSendButton;
+  String get crashDismissedSnack;
+
+  /// כותרת הדיווח על קריסה שאין לה חתימה.
+  String get crashFallbackTitle;
 }

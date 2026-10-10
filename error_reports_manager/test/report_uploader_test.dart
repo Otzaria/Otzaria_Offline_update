@@ -52,6 +52,24 @@ void main() {
     expect(jsonDecode(first.body), {'id': 'a', 'text': 'טעות'});
   });
 
+  test('product בקובץ מהכונן אינו נשלח (דיווח של אוצריא)', () async {
+    final json = reportJson(
+      'app1',
+      endpoint: 'https://otzaria.org/api/app-reports',
+    );
+    (json['body'] as Map<String, dynamic>)['product'] = 'offline-update';
+    final outbox = MemoryOutbox(const []);
+    outbox.reports.add(OutboxReport.fromJson(json, filePath: 'app1.json'));
+    Map<String, dynamic>? sent;
+    await uploader((req) async {
+      sent = jsonDecode(req.body) as Map<String, dynamic>;
+      return http.Response('{}', 200);
+    }).upload(outbox);
+    expect(sent, isNotNull);
+    expect(sent!.containsKey('product'), isFalse);
+    expect(sent!['id'], 'app1');
+  });
+
   test('דחייה סופית (400/409/413/422) נמחקת ונספרת', () async {
     final outbox = MemoryOutbox(['a', 'b', 'c', 'd', 'e']);
     const codes = [400, 409, 413, 422, 200];

@@ -32,6 +32,8 @@ class EnglishStrings extends AppStrings {
   @override
   ErrorReportsStrings get errorReports => const _ErrorReports();
   @override
+  AppReportsStrings get appReports => const _AppReports();
+  @override
   SetupErrorStrings get setupError => const _SetupError();
   @override
   ReadOnlyDriveStrings get readOnlyDrive => const _ReadOnlyDrive();
@@ -3285,4 +3287,281 @@ class _ErrorReportsDomain extends ErrorReportsDomainStrings {
   @override
   String outboxUnreadable(String error) =>
       'Cannot read the reports on the drive: $error';
+}
+
+class _AppReports extends AppReportsStrings {
+  const _AppReports();
+
+  @override
+  String get cardTitle => 'Problem reports';
+  @override
+  String get reportTileTitle => 'Report a problem with this app';
+  @override
+  String get reportTileSubtitle =>
+      'A bug, a crash, a performance problem or a suggestion';
+  @override
+  String get openFormButton => 'Open report form';
+  @override
+  String get crashModeTitle => 'Reporting after an unexpected exit';
+  @override
+  String get crashModeSubtitle =>
+      'What to do when the app finds it did not close properly';
+  @override
+  String get crashModeAsk => 'Ask me';
+  @override
+  String get crashModeAlways => 'Send automatically';
+  @override
+  String get crashModeNever => 'Never';
+  @override
+  String get manageTileTitle => 'Your reports';
+  @override
+  String manageTileSubtitle(int pending, int sent) => pending == 0
+      ? 'No reports waiting · $sent sent'
+      : '$pending waiting · $sent sent';
+  @override
+  String get manageButton => 'Show reports';
+
+  @override
+  String get manageDialogTitle => 'Your reports';
+  @override
+  String get manageDialogIntro =>
+      'Reports about problems in this app. A report becomes a public issue on '
+      'GitHub; diagnostic files are visible to the developers only. A report '
+      'that could not be sent is kept and sent once there is a connection.';
+  @override
+  String get pendingSectionTitle => 'Waiting reports';
+  @override
+  String get pendingEmpty => 'No reports are waiting right now';
+  @override
+  String pendingCount(int count) => count == 1
+      ? '1 report is waiting to be sent'
+      : '$count reports are waiting to be sent';
+  @override
+  String get sendNowButton => 'Send now';
+  @override
+  String get clearPendingButton => 'Clear reports';
+  @override
+  String get sendOneButton => 'Send';
+  @override
+  String get deleteButton => 'Delete';
+  @override
+  String get detailsButton => 'Details';
+  @override
+  String get sentSectionTitle => 'Sent reports';
+  @override
+  String get sentEmpty => 'No reports have been sent yet';
+  @override
+  String sentSummary(int shown, int total) =>
+      shown == total ? '$total sent' : '$total sent; showing the latest $shown';
+  @override
+  String get clearSentButton => 'Clear all history';
+  @override
+  String openIssueButton(int? number) =>
+      number == null ? 'Open on GitHub' : 'Open issue #$number';
+  @override
+  String get mergedLabel => 'Added to an existing report';
+  @override
+  String get detailsPendingTitle => 'Waiting report';
+  @override
+  String get detailsSentTitle => 'Sent report';
+  @override
+  String get stepsHeading => 'Steps to reproduce:';
+  @override
+  String get clearPendingDialogTitle => 'Delete the waiting reports?';
+  @override
+  String get clearPendingDialogContent =>
+      'The waiting reports will not be sent. This cannot be undone.';
+  @override
+  String get clearSentDialogTitle => 'Clear the report history?';
+  @override
+  String get clearSentDialogContent =>
+      'This does not delete reports that were already sent to the developers.';
+  @override
+  String flushSentSnack(int count) =>
+      count == 1 ? '1 report sent' : '$count reports sent';
+  @override
+  String flushFailedSnack(int pending) => pending == 1
+      ? 'Cannot send right now. 1 report is still waiting and will be '
+          'sent automatically once there is a connection.'
+      : 'Cannot send right now. $pending reports are still waiting and '
+          'will be sent automatically once there is a connection.';
+  @override
+  String flushErrorSnack(int failed) =>
+      'Sending failed because of an error on this computer ($failed). The '
+      'reports stay queued; details are in the log.';
+  @override
+  String flushPartialSnack(int sent, int failed) =>
+      '${sent == 1 ? '1 report was' : '$sent reports were'} sent. '
+      '${failed == 1 ? '1 report was' : '$failed reports were'} not sent '
+      'because of an error on this computer and stayed queued; see the log.';
+  @override
+  String flushDroppedSnack(int sent, int dropped) =>
+      '${sent == 1 ? '1 report was' : '$sent reports were'} sent, and '
+      '${dropped == 1 ? '1 was' : '$dropped were'} rejected by the server '
+      'and removed from the queue.';
+  @override
+  String flushRemainingSnack(int sent, int remaining) =>
+      '${sent == 1 ? '1 report was' : '$sent reports were'} sent. '
+      '${remaining == 1 ? '1 more is' : '$remaining more are'} still queued — '
+      'they will be sent automatically, or press again.';
+  @override
+  String get notPendingSnack =>
+      'The report is no longer queued (it was sent or removed), so it was '
+      'not sent again.';
+  @override
+  String get removedFromQueueSnack => 'The report was removed from the queue';
+  @override
+  String get deletedFromHistorySnack => 'The report was deleted from history';
+  @override
+  String get pendingClearedSnack => 'The waiting reports were deleted';
+  @override
+  String get historyClearedSnack => 'History cleared';
+
+  @override
+  String get typeBug => 'Bug';
+  @override
+  String get typeCrash => 'Crash';
+  @override
+  String get typePerformance => 'Performance';
+  @override
+  String get typeSuggestion => 'Suggestion';
+
+  @override
+  String get dialogTitle => 'Report a problem';
+  @override
+  String get dialogSubtitle =>
+      'The more precise the description, the easier it is to find and fix';
+  @override
+  String get typeLabel => 'Report type';
+  @override
+  String get titleLabel => 'Title';
+  @override
+  String get titleHint => 'One sentence describing the problem';
+  @override
+  String get titleRequired => 'A title is required';
+  @override
+  String get descriptionLabel => 'What happened?';
+  @override
+  String get descriptionHint => 'What you expected, and what happened instead';
+  @override
+  String get descriptionRequired => 'Please describe the problem';
+  @override
+  String get stepsLabel => 'Steps to reproduce';
+  @override
+  String get stepsHint => 'What you did before the problem appeared';
+  @override
+  String get optionalHint => '(optional)';
+  @override
+  String get emailLabel => 'Email, so we can get back to you';
+  @override
+  String get emailInvalid => 'A valid address is required';
+  @override
+  String get sendButton => 'Send';
+
+  @override
+  String get imagesPrompt => 'Click to choose a screenshot';
+  @override
+  String get imagesPickDialogTitle => 'Choose screenshots for the report';
+  @override
+  String get removeImageTooltip => 'Remove image';
+  @override
+  String imageTooLarge(int megabytes) =>
+      'An image larger than $megabytes MB was not attached.';
+  @override
+  String tooManyImages(int count) =>
+      'Up to $count images can be attached to a report.';
+  @override
+  String imagesTotalTooLarge(int megabytes) =>
+      'The images are limited to $megabytes MB in total.';
+  @override
+  String get imageReadFailed => 'The image could not be read.';
+
+  @override
+  String get attachmentsHeading => 'What is sent with the report';
+  @override
+  String get includeDiagnostics =>
+      'Attach diagnostic information about the app and the system';
+  @override
+  String get diagnosticsUnavailable =>
+      'Diagnostic information could not be collected';
+  @override
+  String get includeLog => 'Attach an excerpt of the activity log';
+  @override
+  String get logEmpty => 'The activity log has no entries';
+  @override
+  String get showPreviewButton => 'Show what will be sent';
+  @override
+  String get hidePreviewButton => 'Hide what will be sent';
+  @override
+  String get privacyNote =>
+      'The title, description, version details and screenshots go into the '
+      "app's issue tracker on GitHub. Diagnostics, the activity log and your "
+      'email stay with the Otzaria team only. Paths, the user name and email '
+      'addresses are masked before sending.';
+
+  @override
+  String sentSnack(int? issueNumber) => issueNumber == null
+      ? 'The report was received. Thank you!'
+      : 'The report was received as issue $issueNumber. Thank you!';
+  @override
+  String mergedSnack(int? issueNumber) => issueNumber == null
+      ? 'The report was added to an existing report of the same problem. '
+          'Thank you!'
+      : 'The report was added to existing issue $issueNumber about the same '
+          'problem. Thank you!';
+  @override
+  String get queuedSnack =>
+      'Cannot send right now. The report was saved and will be sent '
+      'automatically once there is a connection. Manage saved reports in '
+      'Settings.';
+  @override
+  String rejectedSnack(String? field) => field == null
+      ? 'The server rejected the report, so it was not kept for another try.'
+      : 'The server rejected the report because of the field "$field", so it '
+          'was not kept for another try.';
+  @override
+  String get titleRequiredSnack => 'Please fill in a title for the report.';
+  @override
+  String get descriptionRequiredSnack =>
+      'Please describe the problem so we can handle it.';
+  @override
+  String get emailRequiredSnack =>
+      'Please enter a valid email address — without it we cannot get back '
+      'to you.';
+  @override
+  String get invalidEmailSnack => 'The email address is not valid.';
+  @override
+  String get cannotOpenIssueSnack => 'Cannot open the issue in the browser.';
+  @override
+  String get sendFailedSnack => 'Sending the report failed.';
+
+  @override
+  String get crashTitle => 'The app closed unexpectedly';
+  @override
+  String get crashBody =>
+      'Last time the app did not close properly. Sending a report helps us '
+      'find the cause and fix it.';
+  @override
+  String get crashDescriptionLabel =>
+      'What were you doing before it closed? (optional)';
+  @override
+  String get crashEmailLabel => 'Email (optional)';
+  @override
+  String get crashNextTimeLabel => 'Next time this happens:';
+  @override
+  String get crashNextAsk => 'Ask me';
+  @override
+  String get crashNextAlways => 'Always send automatically';
+  @override
+  String get crashNextNever => "Don't ask again";
+  @override
+  String get crashDismissButton => "Don't send";
+  @override
+  String get crashSendButton => 'Send report';
+  @override
+  String get crashDismissedSnack =>
+      'The crash report was not sent. You can report at any time from '
+      'Settings.';
+  @override
+  String get crashFallbackTitle => 'Unexpected exit';
 }

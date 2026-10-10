@@ -19,6 +19,10 @@ class RtlTextField extends StatelessWidget {
 
   /// מסתיר את התווים — שדה סיסמה. ראו `SaferModePasswordDialog`.
   final bool obscureText;
+
+  /// כיוון קבוע לתוכן שהוא LTR מעצם טבעו (כתובת דואר), כמו הכלל ב-`Text`.
+  final TextDirection? textDirection;
+  final TextInputType? keyboardType;
   final bool autofocus;
 
   /// שורה אחת כברירת מחדל, כמו במקור. יותר מזה נדרש למי שמקליד פסקה — תשובה
@@ -35,6 +39,8 @@ class RtlTextField extends StatelessWidget {
     this.onSubmitted,
     this.enabled = true,
     this.obscureText = false,
+    this.textDirection,
+    this.keyboardType,
     this.autofocus = false,
     this.minLines = 1,
     this.maxLines = 1,
@@ -51,7 +57,8 @@ class RtlTextField extends StatelessWidget {
       enabled: enabled,
       obscureText: obscureText,
       autofocus: autofocus,
-      textDirection: Directionality.of(context),
+      textDirection: textDirection ?? Directionality.of(context),
+      keyboardType: keyboardType,
       textAlign: TextAlign.start,
       minLines: minLines,
       maxLines: maxLines,

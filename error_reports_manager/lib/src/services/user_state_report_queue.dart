@@ -237,7 +237,9 @@ class UserStateReportQueue implements OtzariaReportQueue {
               createdAt = decoded['createdAt'] as String;
               body = report.toApiPayload();
             case _ReportKind.app:
-              final report = AppReport.fromJson(decoded);
+              // דיווח מהתור של אוצריא הוא על אוצריא — `product` לעולם לא עובר.
+              final report =
+                  AppReport.fromJson(decoded).copyWith(product: null);
               if (report.validate() != null) continue;
               id = report.reportId;
               title = report.title;

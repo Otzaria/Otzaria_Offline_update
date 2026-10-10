@@ -87,7 +87,9 @@ This repository is the updater/launcher for those users:
 network, so this launcher deliberately offers no "just update from the internet"
 path. Every check and every install reads the local folder, always — even when
 the machine is online. Two clicks touch the network: the download step, and
-uploading the error reports the drive collected (§5.10).
+uploading the error reports the drive collected (§5.10). The one deliberate
+exception is the launcher's **own** problem reports, sent without a click
+(§5.10).
 
 | Step | API | Network |
 | --- | --- | --- |
@@ -102,6 +104,7 @@ uploading the error reports the drive collected (§5.10).
 | Read the store / install a plugin | `PluginsManager.load()` / `.directInstall()` | no |
 | Collect Otzaria's unsent error reports to the drive | `ErrorReportsController.collect()` | no |
 | Upload the collected error reports | `ErrorReportUploader.upload()` | **yes**, light — a click only |
+| Send / retry the launcher's own reports | `AppReportService.send()` / `.startAutomaticFlush()` | **yes**, light — background, see §5.10 |
 
 The "peek" calls exist only for the optional, one-shot, on-launch "is there
 anything new online?" nudge (`AppShell.checkOnline()`,
@@ -176,7 +179,7 @@ sits at the repo root (historical — do not move it).
 | `library_manager/` | `library_manager` | Flutter. Wires the root package into the launcher: locate the real `seforim.db`, check versions, apply to the **live** DB, export/consume the mirror. |
 | `plugins_manager/` | `plugins_manager` | Pure Dart. The **offline plugin store**: syncs `otzaria.org/api/plugins` into the mirror, detects what Otzaria has, installs via `otzaria://`. Converted from `Yehuda-Zakesh/Offline-repository-plugin-store` (itself derived from `Otzaria/Otzaria_Website`); details in `plugins_manager/README.md`. |
 | `custom_apps_manager/` | `custom_apps_manager` | Pure Dart. **User-added programs**: a record filled in a form (name, GitHub repo *or* local installer, install location, detection rules) so the drive can carry a program that is not Otzaria. Not a plugin system — no runtime, no WebView, no permissions, and **no importing a record from a file**, so every repo and file was chosen by the user. |
-| `error_reports_manager/` | `error_reports_manager` | Pure Dart. **Otzaria's unsent book, app and plugin reports**, carried offline → online: read Otzaria's queues in `user_state.db` directly (Otzaria unchanged), port of its `toApiPayload`, a drive outbox, upload to `otzaria.org` in rate-limited batches. See §5.10. |
+| `error_reports_manager/` | `error_reports_manager` | Pure Dart. **Otzaria's unsent book, app and plugin reports**, carried offline → online: read Otzaria's queues in `user_state.db` directly (Otzaria unchanged), port of its `toApiPayload`, a drive outbox, upload to `otzaria.org` in rate-limited batches — **and the launcher's own problem reports** (a port of Otzaria's app reports, routed by `product`), with their queue and crash detection. See §5.10. |
 | `launcher_app/` | `launcher_app` | The Flutter desktop app (Windows + macOS) wiring the modules into one dashboard. Depends on the other eight by relative `path:`, so it must stay their sibling. |
 
 Producer vs. consumer: the Kotlin repo `Otzaria/SeforimLibrary` *produces* the DB
@@ -1664,9 +1667,38 @@ Otzaria queues book, app and plugin reports it could not send; this package carr
 them on the drive. **Otzaria is not changed for this**: the launcher reads and writes
 Otzaria's own queue in `user_state.db` directly and builds the request body itself —
 every `sqlite3` call inside `Isolate.run`, the offer after the first frame (§5.9).
-UI is deliberately one startup dialog plus one button in the download card — no screen,
-no nav item, no setting. Paths, table layout and the transaction are tabulated in
+UI for *Otzaria's* reports is deliberately one startup dialog plus one button
+in the download card — no screen, no nav item, no setting. Paths, table
+layout and the transaction are tabulated in `error_reports_manager/README.md`.
+
+**The launcher's own reports are a port of Otzaria's app reports, told apart
+by `product`.** `AppReportService` stamps `"product": "offline-update"` on
+its bodies; the site routes on it, and a report without it is Otzaria's — so
+`UserStateReportQueue` and `ErrorReportUploader` strip it. Unlike everything
+else here it uses the network unprompted (maintainer decision, 2026-10-09).
+The queue is `<stateDir>/reports/launcher`, never under `mirror/` (on a
+read-only drive it stays on that machine); a transient failure keeps it
+queued. Code: `lib/src/launcher_report/`, `launcher_app/lib/src/app_report/`.
+
+**A crash is a leftover `logs/session.lock` plus fatal evidence in
+`launcher.log`.** The lock is opened early (`LauncherCrashSession.begin`,
+also when detection fails) and every orderly exit must clear it
+(`closeWindow`, `exitCleanly`, `onExitRequested`) — miss one and every run
+looks like a crash. A lock from another `host` is overwritten, never
+prompted. The prompt waits for a free dialog without a time limit. Evidence
+rules and **known limitations** (Windows logoff, native crashes):
 `error_reports_manager/README.md`.
+
+**The background flush must never fail loudly.** A disk error goes to the
+injected `log`, never an uncaught error — that line is itself crash
+evidence. History is saved before the queue file is deleted, a `sent.json`
+read error aborts the write instead of meaning "empty", and queue
+JSON/base64 runs in `Isolate.run` (§5.9). The rest (quota, joining, 409
+limit): the same README.
+
+**What leaves the machine is redacted, and the preview is the sent report.**
+The README lists what is masked and that file names can still appear in the
+log excerpt.
 
 **The one-time explainer is separate from the offer, and shown before it.** The
 offer needs pending reports; the explainer (`showErrorReportsIntroOnce`) is for
@@ -1756,6 +1788,7 @@ verify something new.
 | Combined first install (app wizard → auto-close → library), replacing the FULL package | Unit-tested only — the dialogs and the ordering are covered, but never run against a real wizard on a machine with no Otzaria, and the auto-close path has not been seen working. `otzaria.iss` was read to confirm `/NOLAUNCH=1` cannot clear the finish-page box |
 | Custom title bar (`window_manager` with the native frame hidden) | Unit-tested only, on either platform |
 | Error reports (§5.10) | Unit- and widget-tested only — against a DB built with Otzaria's schema and vectors from Otzaria's own code; never against a real installation's `user_state.db`, nor the real `otzaria.org` endpoint |
+| The launcher's own reports and crash detection (§5.10) | Unit- and widget-tested only — `MockClient`, temp dirs; never sent to the real endpoint, and the close hooks (`setPreventClose`, `onExitRequested`) never run on real Windows or macOS |
 
 **The macOS pass of 2026-09-14 is analyzer-clean and unit-tested only.** It closed six
 places where a Windows fix had no macOS twin — the data folder landing inside the

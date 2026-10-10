@@ -33,4 +33,30 @@ abstract final class FileReveal {
       return false;
     }
   }
+
+  /// פותח בדפדפן קישור שהשרת החזיר (issue של דיווח). רק `https://github.com/`
+  /// — כתובת מהרשת אינה עוברת ל-shell בלי בדיקה. מחזיר false בכשל.
+  static Future<bool> openGithubUrl(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.host != 'github.com' ||
+        uri.userInfo.isNotEmpty) {
+      return false;
+    }
+    try {
+      if (Platform.isWindows) {
+        // כמו בתיקייה: explorer.exe מחזיר 1 גם בהצלחה.
+        await Process.run('explorer.exe', [uri.toString()]);
+        return true;
+      }
+      if (Platform.isMacOS) {
+        final result = await Process.run('/usr/bin/open', [uri.toString()]);
+        return result.exitCode == 0;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
 }

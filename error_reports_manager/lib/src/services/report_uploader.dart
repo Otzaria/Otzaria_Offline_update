@@ -200,7 +200,8 @@ class ErrorReportUploader {
         ? requestTimeoutWithImages
         : requestTimeout;
     final response = await _http
-        .post(report.endpoint, headers: _headers, body: jsonEncode(report.body))
+        .post(report.endpoint,
+            headers: _headers, body: jsonEncode(_withoutProduct(report.body)))
         .timeout(timeout);
     final body = response.body;
     return _Attempt(
@@ -208,6 +209,11 @@ class ErrorReportUploader {
       body.length > 200 ? body.substring(0, 200) : body,
     );
   }
+
+  /// דיווח מהכונן הוא של אוצריא גם אם קובץ זר טוען אחרת — `product` מנתב
+  /// לריפו של הלאנצ'ר ונשלח רק מ-`AppReportService` (§5.10).
+  static Map<String, dynamic> _withoutProduct(Map<String, dynamic> body) =>
+      body.containsKey('product') ? (Map.of(body)..remove('product')) : body;
 
   static Future<void> _removeQuietly(
     ReportOutbox outbox,
