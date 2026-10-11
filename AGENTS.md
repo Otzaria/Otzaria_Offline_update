@@ -1342,11 +1342,20 @@ load-bearing details:
   name match, since browsers and system updaters rewrite entries in the background;
   and any name match beats a nameless guess, so the "single fresh entry" fallback runs
   *last*, or a companion entry dragged along by the installer would be adopted over
-  the program's own updated entry.
+  the program's own updated entry. The name match runs both ways (`KleiKodesh` is a
+  prefix of the repo hint `kleikodeshproject`), but the reverse direction counts only
+  as a prefix covering more than half the hint, or `Git` would match `digital`.
 - **Exit code 0 does not mean the install finished.** Inno's `setup.exe` extracts a
   temp copy and launches a second process (certainly when it elevates), so the entry
   can be written after the process we ran returned. Hence a **bounded re-poll** (60s,
-  backing off from 500ms to 4s, because the scan itself costs ~200ms). "No entry
+  backing off from 500ms to 4s, because the scan itself costs ~200ms). Only a **born
+  key whose name matches** ends the poll at once; a changed key, an existing key or a
+  nameless single fresh key is held for a **settle window** (10s) first, or an
+  already-installed program whose name overlaps would win the first poll before the
+  late-registering installer writes its own key. The held candidate is re-picked
+  on every poll, never carried over: a second fresh key with no name match disproves
+  the single-fresh guess, and the poll then gives up rather than adopt it. A scan that
+  throws mid-poll learns nothing: the held candidate has not settled yet. "No entry
   appeared" is normal — a portable program registers none.
 - **The learned directory is never written to the record.** `descriptor.json` travels
   on the drive, so an absolute path in it is exactly the `otzaria_install_state.json`

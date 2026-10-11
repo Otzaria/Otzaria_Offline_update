@@ -27,13 +27,13 @@ void main() {
     List<List<UninstallEntry>> rounds = const [],
     String? exe,
     void Function()? onStart,
+    Future<void> Function(Duration)? sleep,
   }) {
     var call = 0;
     return InstallLearner(
       onStart: onStart,
-      sleep: noSleep,
+      sleep: sleep ?? noSleep,
       lookupUninstallEntries: () async {
-        // הסבב האחרון חוזר על עצמו — כך "לא הופיע כלום" מגיע לפסק הזמן.
         final index = call < rounds.length ? call : rounds.length - 1;
         call++;
         return rounds.isEmpty ? const [] : rounds[index];
@@ -116,6 +116,81 @@ void main() {
       expect(learned.rules, isNotNull);
       expect(learned.rules!.registryDisplayName, isNotNull);
       expect(learned.installDir, r'C:\MyApp');
+    });
+
+    test('מפתח שנולד בסבב מאוחר גובר על מפתח קיים שהתאים כבר בסבב הראשון',
+        () async {
+      final old = entry('{OLD}', 'MyApp Legacy', installDir: r'C:\Old');
+      final learned = await learnerWith(
+        rounds: [
+          [old],
+          [old, entry('{NEW}_is1', 'MyApp 2.0', installDir: r'C:\New')],
+        ],
+      ).learn(
+        descriptor: descriptor(name: 'MyApp'),
+        before: [old],
+      );
+
+      expect(learned.installDir, r'C:\New');
+    });
+
+    test('מפתח קיים ששמו מתאים מתקבל אחרי חלון ההמתנה, לא אחרי פסק הזמן',
+        () async {
+      final old = entry('{APP}', 'MyApp 1.0', installDir: r'C:\App');
+      var slept = Duration.zero;
+      final learned = await learnerWith(
+        rounds: [
+          [old],
+        ],
+        sleep: (d) async => slept += d,
+      ).learn(
+        descriptor: descriptor(name: 'MyApp'),
+        before: [old],
+      );
+
+      expect(learned.installDir, r'C:\App');
+      expect(slept, greaterThanOrEqualTo(InstallLearner.defaultSettle));
+      expect(slept, lessThan(InstallLearner.defaultTimeout));
+    });
+
+    test('מפתח חדש יחיד שנשלל בסבב מאוחר בידי מפתח חדש שני אינו נלמד',
+        () async {
+      final vc = entry(
+        '{VC}',
+        'Microsoft Visual C++ 2015 Redistributable (x64)',
+        installDir: r'C:\VC',
+      );
+      final app = entry('{APP}_is1', 'Zzz Tool 1.0', installDir: r'C:\Zzz');
+      final learned = await learnerWith(
+        rounds: [
+          [vc],
+          [vc, app],
+        ],
+      ).learn(
+        descriptor: descriptor(name: 'MyApp'),
+        before: const [],
+      );
+
+      expect(learned.rules, isNull);
+      expect(learned.installDir, isNull);
+    });
+
+    test('כשל בסריקה לפני חלון ההמתנה אינו מאמץ את המועמד החלש', () async {
+      final old = entry('{OLD}', 'MyApp Legacy', installDir: r'C:\Old');
+      var call = 0;
+      final learned = await InstallLearner(
+        sleep: noSleep,
+        lookupUninstallEntries: () async {
+          if (call++ == 0) return [old];
+          throw StateError('אין הרשאה');
+        },
+      ).learn(
+        descriptor: descriptor(name: 'MyApp'),
+        before: [old],
+      );
+
+      expect(learned.rules, isNull);
+      expect(learned.installDir, isNull);
     });
 
     test('אף רישום לא הופיע — ריק, וזה מצב תקין ולא שגיאה', () async {
@@ -279,6 +354,28 @@ void main() {
         InstallLearner.nameHintsFor(name: 'x', repo: 'KleiKodeshProject'),
       );
       expect(chosen!.keyName, '{K}');
+    });
+
+    test('שם קצר אינו מתאים לרמז שרק מכיל אותו באמצע', () {
+      final entries = [entry('{GIT}', 'Git', installDir: r'C:\Git')];
+
+      final chosen = InstallLearner.pickEntry(
+        entries,
+        entries,
+        InstallLearner.nameHintsFor(name: 'Digital Library'),
+      );
+      expect(chosen, isNull);
+    });
+
+    test('שם קצר שאינו מכסה יותר ממחצית הרמז אינו מתאים', () {
+      final entries = [entry('{GIT}', 'Git')];
+
+      final chosen = InstallLearner.pickEntry(
+        entries,
+        entries,
+        InstallLearner.nameHintsFor(name: 'GitHub Desktop'),
+      );
+      expect(chosen, isNull);
     });
 
     // בשכבה 3 אין קבלה של "רישום בודד" — היא הייתה מאמצת תוכנה אקראית.

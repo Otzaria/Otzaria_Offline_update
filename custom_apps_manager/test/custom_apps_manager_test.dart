@@ -371,26 +371,29 @@ void main() {
       expect(outcome.learned!.registryDisplayName, isNotNull);
     });
 
-    /// ⚠️ הרגרסיה שבגללה תוכנה דיווחה "אינה מותקנת" מיד אחרי התקנה מוצלחת.
-    /// הלמידה ידעה בדיוק לאן המתקין כתב, אבל זרקה את התיקייה והשאירה את
-    /// הזיהוי לגזור אותה שוב מהרג'יסטרי — וכאן הגזירה אינה מחזירה כלום.
     test('התיקייה שהתגלתה שורדת גם כשהרג׳יסטרי לא יחזיר אותה שוב', () async {
+      Future<List<UninstallEntry>> entries() async => [
+            UninstallEntry(
+              keyName: '{NEW}_is1',
+              displayName: 'MyApp 1.4.2',
+              installDir: installedDir,
+            ),
+          ];
+      Future<String?> exe(String dir, List<String> _) async =>
+          p.join(dir, 'myapp.exe');
       final m = CustomAppsManager(
         resolveMirrorDir: () async => root,
         readVersion: (_) => '1.4.2',
         processRunner: (_, __) async => ProcessResult(1, 0, '', ''),
         downloadsDir: p.join(root, 'Downloads'),
-        lookupUninstallEntries: () async => [
-          UninstallEntry(
-            keyName: '{NEW}_is1',
-            displayName: 'MyApp 1.4.2',
-            installDir: installedDir,
-          ),
-        ],
-        // הערוץ שהזיהוי נשען עליו שותק — בדיוק כמו רישום הסרה שה-
-        // `InstallLocation` שלו ריק וה-`UninstallString` אינו נפתר לתיקייה.
+        lookupUninstallEntries: entries,
         lookupUninstallDirs: (_) => const [],
-        lookupInstalledExe: (dir, _) async => p.join(dir, 'myapp.exe'),
+        lookupInstalledExe: exe,
+        learner: InstallLearner(
+          lookupUninstallEntries: entries,
+          lookupExe: exe,
+          sleep: (_) async {},
+        ),
       );
       await installFresh(m);
 

@@ -62,6 +62,7 @@ class InstallLearner {
     this.timeout = defaultTimeout,
     this.firstPollDelay = defaultFirstPollDelay,
     this.maxPollDelay = defaultMaxPollDelay,
+    this.settle = defaultSettle,
   }) : _sleep = sleep;
 
   /// נקרא כשהלמידה מתחילה בפועל — כלומר יש מה ללמוד ומתחילה ההמתנה לרישום.
@@ -88,10 +89,12 @@ class InstallLearner {
   /// צמודה על פני דקה הייתה שורפת שניות CPU על תשובה שברוב הזמן לא השתנתה.
   final Duration firstPollDelay;
   final Duration maxPollDelay;
+  final Duration settle;
 
   static const Duration defaultTimeout = Duration(seconds: 60);
   static const Duration defaultFirstPollDelay = Duration(milliseconds: 500);
   static const Duration defaultMaxPollDelay = Duration(seconds: 4);
+  static const Duration defaultSettle = Duration(seconds: 10);
 
   /// מה שיש **לפני** ההתקנה. רשימה ריקה כשאין תפר — אז [learn] מדלג ישר
   /// למסלול הגיבוי לפי תיקיית ההתקנה המוצהרת.
@@ -156,10 +159,6 @@ class InstallLearner {
     );
   }
 
-  /// הרישום החדש שהופיע, או `null` כשאף אחד לא הופיע בתוך [timeout].
-  ///
-  /// "לא הופיע" הוא תוצאה תקינה לגמרי: תוכנה ניידת אינה רושמת הסרה, והמשתמש
-  /// עשוי לבטל אשף `interactive` באמצע.
   Future<UninstallEntry?> _awaitFreshEntry(
     List<UninstallEntry> before,
     List<String> hints,
@@ -177,10 +176,13 @@ class InstallLearner {
       } catch (_) {
         return null;
       }
-      final chosen = pickEntry(now, before, hints);
-      if (chosen != null) return chosen;
+      final (fresh, changed) = _diff(now, before);
+      final born = _matchByHints(fresh, hints);
+      if (born != null) return born;
+      final tentative = _pickWeak(now, fresh, changed, hints);
 
-      if (waited >= timeout) return null;
+      if (tentative != null && waited >= settle) return tentative;
+      if (waited >= timeout) return tentative;
       await _delay(delay);
       waited += delay;
       final doubled = delay * 2;
@@ -202,29 +204,20 @@ class InstallLearner {
     }
   }
 
-  /// איזה מהרישומים הוא התוכנה שלנו — בשלוש שכבות, מהעדות החזקה לחלשה.
-  ///
-  /// ⚠️ **התקנה חוזרת אינה יוצרת מפתח חדש.** זה לא מקרה קצה אלא המקרה
-  /// הנפוץ: מי שכבר מותקנת אצלו התוכנה ומתקין גרסה חדשה מעדכן את אותו מפתח
-  /// בדיוק. גרסה שדרשה מפתח חדש בלבד לא למדה כלום בדיוק אצל מי שהתוכנה
-  /// כבר עבדה אצלו (אומת מול `KleiKodesh` על מחשב אמיתי).
-  ///
-  /// 1. **מפתח שנולד** — העדות החזקה. כאן, ורק כאן, מתקבל גם רישום בודד בלי
-  ///    התאמת שם: מפתח הסרה חדש לגמרי מיד אחרי שהרצנו מתקין אינו צירוף
-  ///    מקרים. כשיש כמה חדשים ואף אחד אינו מזכיר את התוכנה — מוותרים,
-  ///    כי מתקין שגורר VC++ Redistributable מייצר שני רישומים.
-  /// 2. **מפתח שהשתנה** — שם או תיקייה שזזו בזמן שהתקנו. דורש התאמת שם:
-  ///    דפדפנים ומעדכני מערכת משנים רישומים ברקע בלי קשר אלינו.
-  /// 3. **מפתח קיים ששמו מתאים** — התוכנה כבר הייתה רשומה. עדות חלשה יותר,
-  ///    אבל היא בדיוק מה שערוץ הרג'יסטרי נועד לו, ודרישת התאמת השם היא מה
-  ///    שמונע ממנה לאמץ תוכנה אקראית. גם כאן **אין** קבלה של רישום בודד.
   static UninstallEntry? pickEntry(
     List<UninstallEntry> now,
     List<UninstallEntry> before,
     List<String> hints,
   ) {
     if (now.isEmpty) return null;
+    final (fresh, changed) = _diff(now, before);
+    return _matchByHints(fresh, hints) ?? _pickWeak(now, fresh, changed, hints);
+  }
 
+  static (List<UninstallEntry>, List<UninstallEntry>) _diff(
+    List<UninstallEntry> now,
+    List<UninstallEntry> before,
+  ) {
     final previous = {
       for (final entry in before) entry.keyName.toLowerCase(): entry,
     };
@@ -240,22 +233,19 @@ class InstallLearner {
         changed.add(entry);
       }
     }
-
-    // כל התאמת-שם גוברת על ניחוש חסר-שם, ולכן "רישום בודד" הוא אחרון ולא
-    // מיד אחרי שכבה 1: מתקין שגרר איתו רישום נלווה יחיד היה נבחר על פני
-    // הרישום של התוכנה עצמה, שרק התעדכן במקום להיוולד.
-    return _matchByHints(fresh, hints) ??
-        _matchByHints(changed, hints) ??
-        _matchByHints(now, hints) ??
-        (fresh.length == 1 ? fresh.single : null);
+    return (fresh, changed);
   }
 
-  /// הרמזים נבדקים **מהארוך לקצר**, ולא הרישומים מהראשון לאחרון: רמז קצר
-  /// היה מאמץ את הרישום הראשון שבמקרה מכיל אותו.
-  ///
-  /// ההשוואה דו-כיוונית — `DisplayName` הוא לעיתים קרובות קידומת של הרמז
-  /// ולא להפך: הרישום `KleiKodesh` מול הרמז `kleikodeshproject` שנגזר משם
-  /// הריפו. בדיקה בכיוון אחד בלבד הייתה מחמיצה אותו.
+  static UninstallEntry? _pickWeak(
+    List<UninstallEntry> now,
+    List<UninstallEntry> fresh,
+    List<UninstallEntry> changed,
+    List<String> hints,
+  ) =>
+      _matchByHints(changed, hints) ??
+      _matchByHints(now, hints) ??
+      (fresh.length == 1 ? fresh.single : null);
+
   static UninstallEntry? _matchByHints(
     List<UninstallEntry> candidates,
     List<String> hints,
@@ -267,11 +257,18 @@ class InstallLearner {
       for (final entry in candidates) {
         final name = normalize(entry.displayName);
         if (name.isEmpty) continue;
-        if (name.contains(hint) || hint.contains(name)) return entry;
+        if (name.contains(hint) || _namePrefixesHint(name, hint)) {
+          return entry;
+        }
       }
     }
     return null;
   }
+
+  static bool _namePrefixesHint(String name, String hint) =>
+      name.length >= _minTokenLength &&
+      name.length * 2 > hint.length &&
+      hint.startsWith(name);
 
   /// הרמזים שמזהים את התוכנה בטקסט חופשי: השם שהמשתמש נתן לה, שם הריפו, וגם
   /// שם קובץ ההתקנה — `MyApp-Setup-1.4.2.exe` מזכיר את `MyApp` גם כשהמשתמש
