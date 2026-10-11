@@ -924,6 +924,126 @@ void main() {
       expect(result.deletes, isEmpty);
       expect(result.migrations, 0);
     });
+    test('booksTouched ממפה שינוי תוכן בלבד ב-line_content (סכמה 6)', () {
+      void createTables(sqlite3.Database db) {
+        db.execute('CREATE TABLE book (id INTEGER PRIMARY KEY, title TEXT)');
+        db.execute(
+            'CREATE TABLE line (id INTEGER PRIMARY KEY, bookId INTEGER, heRef TEXT)');
+        db.execute(
+            'CREATE TABLE line_content (id INTEGER PRIMARY KEY, content TEXT NOT NULL)');
+        db.execute("INSERT INTO book VALUES (1,'א'),(2,'ב')");
+        db.execute("INSERT INTO line VALUES (10,1,'א א'),(20,2,'ב א')");
+      }
+
+      final base = buildBaseDb(version: 1, sourceRows: []);
+      final bdb = sqlite3.sqlite3.open(base);
+      createTables(bdb);
+      bdb.execute("INSERT INTO line_content VALUES (10,'x'),(20,'y')");
+      bdb.close();
+
+      final patch = buildPatchDb(from: 1, to: 2);
+      final pdb = sqlite3.sqlite3.open(patch);
+      pdb.execute(
+          'CREATE TABLE upsert_line_content (id INTEGER PRIMARY KEY, content TEXT NOT NULL)');
+      pdb.execute("INSERT INTO upsert_line_content VALUES (20,'Y2')");
+      pdb.close();
+
+      final expected = buildBaseDb(version: 2, sourceRows: []);
+      final edb = sqlite3.sqlite3.open(expected);
+      createTables(edb);
+      edb.execute("INSERT INTO line_content VALUES (10,'x'),(20,'Y2')");
+      edb.close();
+
+      final manifest = _manifest(
+        from: 1,
+        to: 2,
+        fromHash: _hashOf(base),
+        toHash: _hashOf(expected),
+      );
+      final result =
+          _applier.apply(dbPath: base, patchPath: patch, manifest: manifest);
+      expect(result.booksTouched, {2});
+      expect(result.hasChangesOutsideBooksTouched, isFalse);
+    });
+
+    test('דלתא 6→6: עדכון line לא מוחק את line_content, ומחיקה מתגלגלת', () {
+      void createTables(sqlite3.Database db) {
+        db.execute("UPDATE schema_meta SET value = '6' "
+            "WHERE key = 'db_schema_version'");
+        db.execute('CREATE TABLE line (id INTEGER PRIMARY KEY, '
+            'bookId INTEGER NOT NULL, lineIndex INTEGER NOT NULL, heRef TEXT)');
+        db.execute('CREATE TABLE line_content (id INTEGER PRIMARY KEY, '
+            'content TEXT NOT NULL, '
+            'FOREIGN KEY (id) REFERENCES line(id) ON DELETE CASCADE)');
+        db.execute('CREATE TABLE version_line (versionId INTEGER NOT NULL, '
+            'lineId INTEGER NOT NULL, content TEXT, '
+            'charCount INTEGER NOT NULL DEFAULT 0, '
+            'PRIMARY KEY (versionId, lineId), '
+            'FOREIGN KEY (lineId) REFERENCES line(id) ON DELETE CASCADE)');
+      }
+
+      final base = buildBaseDb(version: 1, sourceRows: []);
+      final bdb = sqlite3.sqlite3.open(base);
+      createTables(bdb);
+      bdb.execute("INSERT INTO line VALUES (10,1,0,'a'),(20,1,1,'b')");
+      bdb.execute("INSERT INTO line_content VALUES (10,'x'),(20,'y')");
+      bdb.execute("INSERT INTO version_line VALUES (1,10,NULL,1),(1,20,'v',1)");
+      bdb.close();
+
+      final patch = buildPatchDb(from: 1, to: 2, schemaVersion: 4);
+      final pdb = sqlite3.sqlite3.open(patch);
+      pdb.execute('CREATE TABLE upsert_line (id INTEGER PRIMARY KEY, '
+          'bookId INTEGER, lineIndex INTEGER, heRef TEXT)');
+      pdb.execute("INSERT INTO upsert_line VALUES (10,1,0,'a2'),(30,1,1,'c')");
+      pdb.execute('CREATE TABLE upsert_line_content '
+          '(id INTEGER PRIMARY KEY, content TEXT NOT NULL)');
+      pdb.execute("INSERT INTO upsert_line_content VALUES (30,'z')");
+      pdb.execute('CREATE TABLE upsert_version_line (versionId INTEGER, '
+          'lineId INTEGER, content TEXT, charCount INTEGER, '
+          'PRIMARY KEY (versionId, lineId))');
+      pdb.execute('INSERT INTO upsert_version_line VALUES (1,30,NULL,1)');
+      pdb.execute('CREATE TABLE delete_line (id INTEGER PRIMARY KEY)');
+      pdb.execute('INSERT INTO delete_line VALUES (20)');
+      pdb.close();
+
+      final expected = buildBaseDb(version: 2, sourceRows: []);
+      final edb = sqlite3.sqlite3.open(expected);
+      createTables(edb);
+      edb.execute("INSERT INTO line VALUES (10,1,0,'a2'),(30,1,1,'c')");
+      edb.execute("INSERT INTO line_content VALUES (10,'x'),(30,'z')");
+      edb.execute(
+          'INSERT INTO version_line VALUES (1,10,NULL,1),(1,30,NULL,1)');
+      edb.close();
+
+      final manifest = _manifest(
+        from: 1,
+        to: 2,
+        fromSchema: 6,
+        toSchema: 6,
+        fromHash: _hashOf(base, tableOrder: kHashTableOrderSchema6),
+        toHash: _hashOf(expected, tableOrder: kHashTableOrderSchema6),
+      );
+      // אין delete_line_content ואין delete_version_line: ה-cascade מוחק אותן.
+      final result =
+          _applier.apply(dbPath: base, patchPath: patch, manifest: manifest);
+      expect(result.resultHash, manifest.toContentHash);
+      final db = sqlite3.sqlite3.open(base, mode: sqlite3.OpenMode.readOnly);
+      try {
+        expect(
+            db
+                .select('SELECT id FROM line_content ORDER BY id')
+                .map((r) => r['id']),
+            [10, 30]);
+        expect(
+            db
+                .select(
+                    'SELECT lineId, content FROM version_line ORDER BY lineId')
+                .map((r) => (r['lineId'], r['content'])),
+            [(10, null), (30, null)]);
+      } finally {
+        db.close();
+      }
+    });
   });
 
   // הציר השני של החוזה: `patch_meta.schema_version` הוא פורמט ה-patch, לא
@@ -1070,7 +1190,7 @@ void main() {
     test('גרסת סכמה לא מוכרת → זורק PatchApplyException', () {
       expect(() => hashTableOrderForSchemaVersion(0),
           throwsA(isA<PatchApplyException>()));
-      expect(() => hashTableOrderForSchemaVersion(6),
+      expect(() => hashTableOrderForSchemaVersion(7),
           throwsA(isA<PatchApplyException>()));
     });
   });

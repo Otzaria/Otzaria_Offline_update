@@ -43,7 +43,8 @@ class PatchEdge extends Equatable {
   /// האם אפשר להחיל את הקשת בכלל — **שני** צירי היכולת. קשת שאינה כזו
   /// מסוננת ב-`LibraryUpdateDiscovery` ואינה נכנסת למראה: המסלול לגרסה כזו
   /// הוא מסד מלא, לא קובצי עדכון.
-  bool get isApplicable => hasSupportedSchema && hasSupportedPatchFormat;
+  bool get isApplicable =>
+      !manifest.fullRebase && hasSupportedSchema && hasSupportedPatchFormat;
 
   @override
   List<Object?> get props => [manifest, patchFileUrls, manifestUrl];

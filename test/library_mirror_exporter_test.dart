@@ -41,8 +41,10 @@ Map<String, dynamic> manifestBody(
   int fromSchema = 2,
   int toSchema = 2,
   int? patchFormat,
+  bool fullRebase = false,
 }) =>
     {
+      if (fullRebase) 'fullRebase': true,
       'fromVersion': from,
       'toVersion': to,
       'fromSchemaVersion': fromSchema,
@@ -94,6 +96,7 @@ void main() {
     Map<String, int> assetSizes = const {},
     Map<int, int> schemaByVersion = const {},
     int? patchFormat,
+    bool fullRebase = false,
     Future<void> Function(String assetName)? beforeAsset,
   }) {
     Uint8List bodyFor(String name) {
@@ -114,6 +117,7 @@ void main() {
         fromSchema: schemaByVersion[from] ?? 2,
         toSchema: schemaByVersion[to] ?? 2,
         patchFormat: patchFormat,
+        fullRebase: fullRebase,
       ))));
     }
 
@@ -528,6 +532,43 @@ void main() {
   // ורק אחרי ~1.5GB הורדה ו-~5.5GB חילוץ נפסלו — על מסד v23 חי שכבר הוחלף.
   // סכמה 4 נתמכת מאז; הבדיקות כאן משתמשות בסכמה עתידית כדי לשמר את התרחיש.
   group('export — patches בסכמה שאי אפשר להחיל', () {
+    // מחסום מעבר סכמה: ה-manifest נשמר (הגרסה נשארת ב-latest), אין קובץ
+    // להעתיק, ואין אזהרה או הודעת "נדרש מסד מלא" בגללו.
+    test('fullRebase — manifest נשמר, בלי patch, בלי אזהרה', () async {
+      final warnings = <String>[];
+      final stages = <String>[];
+      final built = buildExporter(
+        [
+          release('v26', assets: [
+            'seforim.db.zst',
+            'patch-v25-v26.db.zst',
+            'patch-v25-v26.db.zst.manifest.json',
+          ]),
+        ],
+        schemaByVersion: {25: 5, 26: 6},
+        patchFormat: 999,
+        fullRebase: true,
+      );
+      await built.exporter.export(
+        destDir: destDir,
+        onWarning: warnings.add,
+        onStage: stages.add,
+      );
+
+      expect(
+        assetOnDisk(destDir, 'v26', 'patch-v25-v26.db.zst.manifest.json'),
+        isTrue,
+      );
+      expect(assetOnDisk(destDir, 'v26', 'patch-v25-v26.db.zst'), isFalse);
+      expect(built.fetched, isNot(contains('patch-v25-v26.db.zst')));
+      expect(warnings, isEmpty);
+      expect(
+        stages,
+        isNot(contains(AppL10n.strings.libraryDomain
+            .exportFullDbRequiredByPatchFormat(999, 26))),
+      );
+    });
+
     test('ה-manifest נשמר, קובץ ה-patch עצמו לא', () async {
       final warnings = <String>[];
       final built = buildExporter(
@@ -538,7 +579,7 @@ void main() {
             'patch-v25-v26.db.zst.manifest.json',
           ]),
         ],
-        schemaByVersion: {26: 6},
+        schemaByVersion: {26: 7},
       );
       await built.exporter.export(destDir: destDir, onWarning: warnings.add);
 
@@ -563,7 +604,7 @@ void main() {
         contains(AppL10n.strings.libraryDomain.exportSkippingUnappliablePatch(
           'v26',
           'patch-v25-v26.db.zst',
-          6,
+          7,
         )),
       );
     });
@@ -584,7 +625,7 @@ void main() {
           ]),
           release('v21', assets: ['seforim.db.zst']),
         ],
-        schemaByVersion: {26: 6},
+        schemaByVersion: {26: 7},
       );
       await second.exporter.export(destDir: destDir);
 
@@ -610,7 +651,7 @@ void main() {
             'patch-v25-v26.db.zst.manifest.json',
           ]),
         ],
-        schemaByVersion: {26: 6},
+        schemaByVersion: {26: 7},
       ).exporter.export(destDir: destDir);
 
       expect(stale.existsSync(), isFalse);
@@ -631,7 +672,7 @@ void main() {
             'patch-v25-v26.db.zst.manifest.json',
           ]),
         ],
-        schemaByVersion: {26: 6},
+        schemaByVersion: {26: 7},
       );
       await built.exporter.export(
         destDir: destDir,
@@ -901,7 +942,7 @@ void main() {
             'patch-v23-v27.db.zst': 5 << 20,
             'patch-v27-v28.db.zst': 64 << 10,
           },
-          schemaByVersion: unsupportedLatest ? {31: 6} : {},
+          schemaByVersion: unsupportedLatest ? {31: 7} : {},
           applyTime: rewriteScale,
         );
         await built.exporter.export(destDir: destDir);

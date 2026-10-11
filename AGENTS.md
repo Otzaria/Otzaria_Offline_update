@@ -387,7 +387,7 @@ surfaces as `LocalDbUnreadableException` and the check fails instead of planning
 
 **Two version axes, never one constant.** `patch_meta.schema_version` is the
 **patch.db format** version, not the logical DB schema. They travelled together
-until DB schema 5 shipped in patch format 4, so `kSupportedDbSchemaVersion` (5) and
+until DB schema 5 shipped in patch format 4, so `kSupportedDbSchemaVersion` (6) and
 `kSupportedPatchFormatVersion` (4) are separate constants with separate predicates
 (`isSupportedSchemaVersion` / `isSupportedPatchFormatVersion`) and separate filters. Collapsing them makes `PatchApplier` silently accept a format
 it cannot apply. `patchFormatVersion` stays **optional** in the manifest even where
@@ -395,6 +395,14 @@ the producer always writes it: a manifest that fails to parse disappears from th
 graph, and with it the version it leads to, so the offline machine reads "up to
 date" forever. One download rejected at preflight is the cheaper failure — a
 deliberate divergence from upstream, which fails closed.
+
+**A producer schema this client lacks silently turns every patch into a full
+download.** DB schema 6 (v31, `line_content` + `zstd_dict`) shipped while the
+map stopped at 5: the 120MB v31→v32 patch was filtered at discovery and the
+mirror pulled the 1.85GB full DB (2026-10-11). Port new schemas from
+`Otzaria/otzaria_library_updater` the day the producer ships them, and verify
+the frozen order against a real DB's `toContentHash` (`tool/compute_hash.dart`).
+A `fullRebase` manifest is a barrier, never a step (`PatchEdge.isApplicable`).
 
 **Adding a schema is one line in the map — plus the frozen list.** Freeze the
 previous order as `kHashTableOrderSchemaN` before extending `kHashTableOrder`, and

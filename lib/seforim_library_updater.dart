@@ -23,6 +23,8 @@ export 'src/models/patch_table_spec.dart'
         kHashTableOrderSchema2,
         kHashTableOrderSchema3,
         kHashTableOrderSchema4,
+        kHashTableOrderSchema5,
+        kHashTableOrderSchema6,
         kSupportedDbSchemaVersion,
         kSupportedPatchFormatVersion,
         isSupportedSchemaVersion,

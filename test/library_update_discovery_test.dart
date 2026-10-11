@@ -36,6 +36,7 @@ String _manifestJson(
   int fromSchema = 1,
   int toSchema = 1,
   int? patchFormat,
+  bool fullRebase = false,
 }) =>
     jsonEncode({
       'fromVersion': from,
@@ -44,6 +45,7 @@ String _manifestJson(
       'toSchemaVersion': toSchema,
       if (patchFormat != null || toSchema >= 4)
         'patchFormatVersion': patchFormat ?? 4,
+      if (fullRebase) 'fullRebase': true,
       'fromContentHash': 'hash$from',
       'toContentHash': 'hash$to',
       'patchFiles': [
@@ -424,7 +426,10 @@ void main() {
   group('discover — סכמה שאין לה סדר hash', () {
     /// גרף כמו בשטח: v26 (patch 22→26), v22 (patch 21→22), v21 (מסד מלא).
     /// [toSchemaOf26] קובע לאיזו סכמה ה-patch של v26 מצהיר שהוא מוביל.
-    LibraryUpdateDiscovery buildDiscovery({required int toSchemaOf26}) {
+    LibraryUpdateDiscovery buildDiscovery({
+      required int toSchemaOf26,
+      bool barrier = false,
+    }) {
       final releases = jsonEncode([
         {
           'tag_name': 'v26',
@@ -474,7 +479,8 @@ void main() {
         if (url.contains('/releases')) return http.Response(releases, 200);
         if (url.endsWith('patch-v22-v26.db.zst.manifest.json')) {
           return http.Response(
-            _manifestJson(22, 26, fromSchema: 2, toSchema: toSchemaOf26),
+            _manifestJson(22, 26,
+                fromSchema: 2, toSchema: toSchemaOf26, fullRebase: barrier),
             200,
           );
         }
@@ -492,7 +498,7 @@ void main() {
 
     test('הקשת שחוצה את הסכמה מסוננת, אך הגרסה נשארת ה-latest', () async {
       final result =
-          await buildDiscovery(toSchemaOf26: 6).discover(allowPrerelease: true);
+          await buildDiscovery(toSchemaOf26: 7).discover(allowPrerelease: true);
 
       // הגרסה נגזרת מכל הקשתות, גם מזו שאיננו יודעים להחיל: אחרת v26 היה
       // נראה כ"מעודכן" והמשתמש לא היה יודע שיש חדש בכלל.
@@ -501,11 +507,27 @@ void main() {
         result.edges.map((e) => '${e.fromVersion}-${e.toVersion}'),
         ['21-22'],
       );
-      expect(result.unsupportedSchemaVersions, {6});
-      expect(result.blockingSchemaVersion, 6);
+      expect(result.unsupportedSchemaVersions, {7});
+      expect(result.blockingSchemaVersion, 7);
       // וה-fallback היחיד שנשאר הוא המסד המלא של v21.
       expect(result.fullDbReleaseTag, 'v21');
       expect(result.latestFullDbVersion, 21);
+    });
+
+    // מחסום מעבר סכמה הוא מסלול של מסד מלא ולא "יכולת חסרה": אין הודעת
+    // "נדרש עדכון תוכנה", אבל הגרסה שהוא מוביל אליה נשארת ה-latest.
+    test('fullRebase — לא קשת, לא חסימה, והגרסה נשארת ה-latest', () async {
+      final result = await buildDiscovery(toSchemaOf26: 6, barrier: true)
+          .discover(allowPrerelease: true);
+
+      expect(result.latestVersion, 26);
+      expect(
+        result.edges.map((e) => '${e.fromVersion}-${e.toVersion}'),
+        ['21-22'],
+      );
+      expect(result.unsupportedSchemaVersions, isEmpty);
+      expect(result.unsupportedPatchFormatVersions, isEmpty);
+      expect(result.blockingSchemaVersion, isNull);
     });
 
     test('כשכל הסכמות מוכרות — אין חסימה ואין קשת מסוננת', () async {
@@ -564,10 +586,10 @@ void main() {
     test('קובץ patch חסר בסכמה שאינה נתמכת → קשת מטא-דאטה שנספרת ל-latest',
         () async {
       final result =
-          await manifestOnly(toSchema: 6).discover(allowPrerelease: true);
+          await manifestOnly(toSchema: 7).discover(allowPrerelease: true);
       expect(result.latestVersion, 26);
       expect(result.edges, isEmpty); // מסוננת מהתכנון
-      expect(result.blockingSchemaVersion, 6);
+      expect(result.blockingSchemaVersion, 7);
     });
   });
 

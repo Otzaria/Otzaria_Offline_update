@@ -39,8 +39,8 @@ void main() {
   group('חוזה טבלאות ה-patch', () {
     const fixturePath = 'test/patch_tables_contract.json';
 
-    // ה-fixture מתאר את החוזה הנוכחי (סכמה-5): hashOrder = 37 הטבלאות.
-    // הסדרים הקפואים של סכמות 1–4 הם היסטוריה — אינם נכנסים ל-fixture.
+    // ה-fixture מתאר את החוזה הנוכחי (סכמה 6): hashOrder = 39 הטבלאות.
+    // הסדרים הקפואים של סכמות 1–5 הם היסטוריה — אינם נכנסים ל-fixture.
     test('הסריאליזציה הקנונית תואמת ל-fixture המקומי', () {
       final expected = File(fixturePath).readAsStringSync();
       final actual = canonicalContract(
@@ -55,7 +55,7 @@ void main() {
     // שני הצירים חייבים להישאר נפרדים: קבוע אחד לשניהם שולח את ה-applier
     // להחיל פורמט patch שאינו מכיר, או פוסל סכמת DB שהוא כן יודע לגבב.
     test('יכולת סכמת ה-DB ויכולת פורמט ה-patch מוצהרות בנפרד', () {
-      expect(kSupportedDbSchemaVersion, 5);
+      expect(kSupportedDbSchemaVersion, 6);
       expect(kSupportedPatchFormatVersion, 4);
       expect(
         const PatchApplier().supportedPatchFormatVersion,

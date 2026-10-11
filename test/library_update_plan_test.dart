@@ -106,6 +106,28 @@ void main() {
       expect(edge(1, 2), isNot(edge(1, 3)));
     });
 
+    // מחסום מעבר סכמה אינו patch גם כשסכמתו ופורמטו מוכרים.
+    test('fullRebase — אינו קביל', () {
+      final base = edge(28, 32, fromSchema: 5, toSchema: 6, patchFormat: 4);
+      final barrier = PatchEdge(
+        manifest: DeltaManifest(
+          fromVersion: 28,
+          toVersion: 32,
+          fromSchemaVersion: 5,
+          toSchemaVersion: 6,
+          patchFormatVersion: 4,
+          fromContentHash: 'full-rebase',
+          toContentHash: 'full-rebase',
+          patchFiles: base.manifest.patchFiles,
+          fullRebase: true,
+        ),
+        patchFileUrls: base.patchFileUrls,
+        manifestUrl: base.manifestUrl,
+      );
+      expect(base.isApplicable, isTrue);
+      expect(barrier.isApplicable, isFalse);
+    });
+
     // ⚠️ הבאג בשטח: release שהצהיר `toSchemaVersion: 4` נכשל רק בתוך
     // `PatchApplier.apply` — אחרי שהמסד החי כבר הוחלף במסד ישן יותר.
     // הדגלים האלה הם מה שמוציא קשת כזו מהגרף עוד לפני התכנון.
@@ -121,13 +143,13 @@ void main() {
             isTrue);
       });
 
-      test('סכמת יעד שאין לה סדר hash (5→6) — לא נתמך', () {
-        expect(edge(27, 28, fromSchema: 5, toSchema: 6).hasSupportedSchema,
+      test('סכמת יעד שאין לה סדר hash (6→7) — לא נתמך', () {
+        expect(edge(27, 28, fromSchema: 6, toSchema: 7).hasSupportedSchema,
             isFalse);
       });
 
-      test('שני הקצות לא מוכרים (6→7) — לא נתמך', () {
-        expect(edge(28, 29, fromSchema: 6, toSchema: 7).hasSupportedSchema,
+      test('שני הקצות לא מוכרים (7→8) — לא נתמך', () {
+        expect(edge(28, 29, fromSchema: 7, toSchema: 8).hasSupportedSchema,
             isFalse);
       });
     });

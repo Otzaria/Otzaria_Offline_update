@@ -304,7 +304,7 @@ void main() {
     test('V31 חלקי מחזיר הצעת הורדה גם כשהגרסה הרשומה מעודכנת', () async {
       _writeMirror(tempDir, releases: [
         const _MirrorRelease('v31-20261004170255',
-            patches: [_MirrorPatch(29, 31, toSchema: 6)])
+            patches: [_MirrorPatch(29, 31, toSchema: 7)])
       ]);
       final index = File(p.join(controller.mirrorDir, 'releases.json'));
       final metadata = jsonDecode(await index.readAsString()) as Map;
@@ -511,7 +511,7 @@ void main() {
         const _MirrorRelease('v21', hasFullDb: true),
         const _MirrorRelease('v22', patches: [_MirrorPatch(21, 22)]),
         const _MirrorRelease('v26',
-            patches: [_MirrorPatch(22, 26, toSchema: 6)]),
+            patches: [_MirrorPatch(22, 26, toSchema: 7)]),
       ]);
       await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 23));
 
@@ -526,7 +526,7 @@ void main() {
       _writeMirror(tempDir, releases: [
         const _MirrorRelease('v21', hasFullDb: true),
         const _MirrorRelease('v26',
-            patches: [_MirrorPatch(22, 26, toSchema: 6)], hasFullDb: true),
+            patches: [_MirrorPatch(22, 26, toSchema: 7)], hasFullDb: true),
       ]);
       await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 23));
 
@@ -534,7 +534,7 @@ void main() {
       expect(controller.targetVersion, 26);
       expect(
         controller.updateRouteNote,
-        AppL10n.strings.libraryDomain.planNewSchemaNeedsFullDb(26, 6),
+        AppL10n.strings.libraryDomain.planNewSchemaNeedsFullDb(26, 7),
       );
     });
 
@@ -546,7 +546,7 @@ void main() {
         const _MirrorRelease('v23',
             patches: [_MirrorPatch(21, 23), _MirrorPatch(22, 23)]),
         const _MirrorRelease('v26',
-            patches: [_MirrorPatch(22, 26, toSchema: 6)]),
+            patches: [_MirrorPatch(22, 26, toSchema: 7)]),
       ]);
       await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 22));
 
@@ -554,7 +554,7 @@ void main() {
       expect(controller.targetVersion, 23);
       expect(
         controller.updateRouteNote,
-        AppL10n.strings.libraryDomain.planPartialDeltaSchemaStop(23, 26, 6),
+        AppL10n.strings.libraryDomain.planPartialDeltaSchemaStop(23, 26, 7),
       );
     });
 

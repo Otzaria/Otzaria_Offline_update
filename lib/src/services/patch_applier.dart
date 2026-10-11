@@ -12,10 +12,11 @@ import 'logical_content_hasher.dart';
 ///
 /// `line_ref` ו-`line_dh` (סכמה 4) מוחרגות במכוון: הן אינדקסים נגזרים
 /// (הפניה→שורה, דיבור-המתחיל→שורה) ולא תוכן שנכנס לאינדקס החיפוש — שינוי
-/// תוכן אמיתי מגיע תמיד דרך שורות `line` שכבר מכוסות.
+/// תוכן אמיתי מגיע תמיד דרך `line` / `line_content` שכבר מכוסות.
 const Set<String> kBooksTouchedTables = {
   'book',
   'line',
+  'line_content',
   'tocEntry',
   'line_toc',
   'tocText',
@@ -430,6 +431,12 @@ class PatchApplier {
       collect(
           '${op}_line',
           'SELECT DISTINCT l.bookId FROM patch.${op}_line p '
+              'JOIN main.line l ON l.id = p.id',
+          joins: const ['line']);
+      // סכמה 6: תוכן השורה ב-line_content, באותו id של line.
+      collect(
+          '${op}_line_content',
+          'SELECT DISTINCT l.bookId FROM patch.${op}_line_content p '
               'JOIN main.line l ON l.id = p.id',
           joins: const ['line']);
       collect(

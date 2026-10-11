@@ -125,6 +125,9 @@ class LibraryUpdateDiscovery {
         edges.add(edge);
         continue;
       }
+      // מחסום סכמה אינו "יכולת חסרה": המסלול אליו הוא מסד מלא, בלי הודעת
+      // "נדרש עדכון תוכנה".
+      if (edge.manifest.fullRebase) continue;
       for (final schema in [
         edge.manifest.fromSchemaVersion,
         edge.manifest.toSchemaVersion,

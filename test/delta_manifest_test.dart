@@ -75,6 +75,21 @@ void main() {
       expect(() => DeltaManifest.fromJson(json), throwsFormatException);
     });
 
+    group('fullRebase', () {
+      test('ברירת מחדל false, ונקרא כשהוא מוצהר', () {
+        final json = jsonDecode(validJson) as Map<String, dynamic>;
+        expect(DeltaManifest.fromJson(json).fullRebase, isFalse);
+        json['fullRebase'] = true;
+        expect(DeltaManifest.fromJson(json).fullRebase, isTrue);
+      });
+
+      test('ערך שאינו בוליאני הוא מניפסט פגום', () {
+        final json = jsonDecode(validJson) as Map<String, dynamic>;
+        json['fullRebase'] = 'yes';
+        expect(() => DeltaManifest.fromJson(json), throwsFormatException);
+      });
+    });
+
     group('patchFormatVersion', () {
       test('נקרא כשהוא מוצהר', () {
         final json = jsonDecode(validJson) as Map<String, dynamic>;

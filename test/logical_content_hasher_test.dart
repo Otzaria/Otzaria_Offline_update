@@ -117,10 +117,10 @@ void main() {
       db.execute('CREATE TABLE source (id INTEGER PRIMARY KEY, name TEXT)');
       db.execute("INSERT INTO source VALUES (1,'aleph'),(2,'bet'),(3,'gimel')");
       expect(
-        _hasher.compute(db),
-        // 37 טבלאות ב-kHashTableOrder (סכמה 4/5) — כל שם נכתב כ-marker גם
+        _hasher.compute(db, tableOrder: kHashTableOrder),
+        // 39 טבלאות ב-kHashTableOrder (סכמה 6) — כל שם נכתב כ-marker גם
         // כשהטבלה נעדרת, לכן ה-golden מתעדכן עם סנכרון הרשימה.
-        '493bda433e8a8a154b69645c148240159365bca99d3386afd8e113c75b1d59ed',
+        '64b1814ecabdb19afbdccb938fc22a4828a591bff8a253fbd4a01a2563753199',
       );
       // הסדרים הקפואים חייבים להמשיך לשחזר את ה-goldens ההיסטוריים —
       // מוכיח שההקפאה נאמנה בית-בבית לרשימות שקדמו להוספת הטבלאות. שני
@@ -241,7 +241,7 @@ void main() {
           '(ancestorId INTEGER, descendantId INTEGER)');
       db.execute('INSERT INTO category_closure VALUES (2,3),(1,2),(1,3)');
       expect(
-        _hasher.compute(db),
+        _hasher.compute(db, tableOrder: kHashTableOrder),
         sha256.convert(referenceStream(db, kHashTableOrder)).toString(),
       );
       db.close();
@@ -256,7 +256,7 @@ void main() {
       db.execute('INSERT INTO source VALUES (2,?)', ['א' * 1200000]);
       db.execute('INSERT INTO source VALUES (3,?)', ['אחרי']);
       expect(
-        _hasher.compute(db),
+        _hasher.compute(db, tableOrder: kHashTableOrder),
         sha256.convert(referenceStream(db, kHashTableOrder)).toString(),
       );
       db.close();
@@ -274,7 +274,7 @@ void main() {
         db.execute('INSERT INTO source VALUES (?,?)', [i, 'x' * len]);
       }
       expect(
-        _hasher.compute(db),
+        _hasher.compute(db, tableOrder: kHashTableOrder),
         sha256.convert(referenceStream(db, kHashTableOrder)).toString(),
       );
       db.close();
@@ -329,7 +329,7 @@ void main() {
       test('טבלה בת-$n עמודות — זהה למימוש-העד', () {
         final db = wide(n);
         expect(
-          _hasher.compute(db),
+          _hasher.compute(db, tableOrder: kHashTableOrder),
           sha256.convert(referenceStream(db, kHashTableOrder)).toString(),
         );
         db.close();
@@ -346,7 +346,7 @@ void main() {
         ..sort();
       expect(cols.take(3), ['c0', 'c1', 'c10']);
       expect(
-        _hasher.compute(db),
+        _hasher.compute(db, tableOrder: kHashTableOrder),
         sha256.convert(referenceStream(db, kHashTableOrder)).toString(),
       );
       db.close();
@@ -365,7 +365,7 @@ void main() {
       db.execute('INSERT INTO source VALUES (2,?,?,?,?)',
           [1.5, -0.0, double.infinity, double.nan]);
       expect(
-        _hasher.compute(db),
+        _hasher.compute(db, tableOrder: kHashTableOrder),
         sha256.convert(referenceStream(db, kHashTableOrder)).toString(),
       );
       db.close();

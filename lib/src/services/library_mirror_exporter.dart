@@ -212,6 +212,8 @@ class LibraryMirrorExporter {
           onWarning: onWarning,
         );
         if (manifest == null) continue;
+        // מחסום סכמה: אין מה להעתיק ואין מה להזהיר עליו, ה-manifest נשמר.
+        if (manifest.fullRebase) continue;
         // patch שסכמתו אינה מוכרת ייכשל ב-preflight של `PatchApplier`, ולכן
         // קובציו (מאות MB) אינם נכנסים למראה ו-`_pruneStaleAssets` מוציא גם
         // כאלה שכבר עליה. ה-manifest עצמו (מאות בתים) כן נשמר — בלעדיו

@@ -83,6 +83,10 @@ class DeltaManifest extends Equatable {
   /// קבצי ה-patch להורדה והחלה (כרגע תמיד קובץ אחד).
   final List<PatchFileEntry> patchFiles;
 
+  /// מניפסט "מחסום" של מעבר סכמה: אינו patch אמיתי ולעולם אינו שלב במסלול
+  /// דלתא — המעבר מ-[fromVersion] מחייב מסד מלא.
+  final bool fullRebase;
+
   /// שדות אופציונליים עתידיים — נשמרים אם קיימים, אך אינם חובה.
   final List<int> booksTouched;
   final String? catalogBlobName;
@@ -96,6 +100,7 @@ class DeltaManifest extends Equatable {
     required this.fromContentHash,
     required this.toContentHash,
     required this.patchFiles,
+    this.fullRebase = false,
     this.booksTouched = const [],
     this.catalogBlobName,
   });
@@ -126,6 +131,7 @@ class DeltaManifest extends Equatable {
       patchFiles: patchFilesRaw
           .map((e) => PatchFileEntry.fromJson(e as Map<String, dynamic>))
           .toList(growable: false),
+      fullRebase: _optionalBool(json, 'fullRebase') ?? false,
       booksTouched: booksTouchedRaw is List
           ? booksTouchedRaw.map((e) => (e as num).toInt()).toList()
           : const [],
@@ -147,6 +153,7 @@ class DeltaManifest extends Equatable {
         fromContentHash,
         toContentHash,
         patchFiles,
+        fullRebase,
         booksTouched,
         catalogBlobName,
       ];
@@ -170,6 +177,18 @@ int _requireInt(Map<String, dynamic> json, String key) {
     );
   }
   return value.toInt();
+}
+
+/// שדה בוליאני אופציונלי; ערך מסוג אחר הוא מניפסט פגום.
+bool? _optionalBool(Map<String, dynamic> json, String key) {
+  if (!json.containsKey(key) || json[key] == null) return null;
+  final value = json[key];
+  if (value is! bool) {
+    throw FormatException(
+      AppL10n.strings.libraryDomain.manifestMissingField(key),
+    );
+  }
+  return value;
 }
 
 /// שדה מספרי אופציונלי: חסר או `null` ⇒ `null`, אך ערך מסוג אחר הוא מניפסט

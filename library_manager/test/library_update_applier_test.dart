@@ -1340,7 +1340,7 @@ void main() {
                   ],
                   fromHash: h.h2,
                   toHash: h.h3,
-                  toSchemaVersion: 6,
+                  toSchemaVersion: 7,
                 ),
               ],
             ),
