@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:custom_apps_manager/custom_apps_manager.dart';
+import 'package:custom_apps_manager/src/services/atomic_file.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 /// תיקייה זמנית שנמחקת בסוף הבדיקה. הבדיקות כאן נוגעות בדיסק אמיתי
@@ -39,4 +41,29 @@ String writeFile(String path, [String content = 'x']) {
   file.parent.createSync(recursive: true);
   file.writeAsStringSync(content);
   return path;
+}
+
+void makeReadOnly(String dir) {
+  Process.runSync('chmod', ['-R', 'a-w', dir]);
+  addTearDown(() => Process.runSync('chmod', ['-R', 'u+w', dir]));
+}
+
+final Object skipWithoutChmod =
+    Platform.isWindows ? 'chmod is not available on Windows' : false;
+
+void blockAtomicWrites(String dir, List<String> fileNames) {
+  atomicTempPathFor = (path) => '$path.tmp';
+  addTearDown(() => atomicTempPathFor = uniqueTempPath);
+  for (final name in fileNames) {
+    Directory(p.join(dir, '$name.tmp')).createSync(recursive: true);
+  }
+}
+
+void blockReplaceInto(String target) {
+  final original = replaceFile;
+  replaceFile = (from, to) async {
+    if (p.equals(to, target)) throw FileSystemException('blocked', to);
+    await original(from, to);
+  };
+  addTearDown(() => replaceFile = original);
 }

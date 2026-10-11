@@ -14,6 +14,7 @@ import 'models/github_release.dart';
 import 'models/github_source.dart';
 import 'models/safe_file_name.dart';
 import 'models/stored_installer.dart';
+import 'services/atomic_file.dart';
 import 'services/custom_app_categories_store.dart';
 import 'services/custom_app_installer.dart';
 import 'services/custom_app_locator.dart';
@@ -59,7 +60,9 @@ class CustomAppsManager {
     String? downloadsDir,
     GithubAppClient? githubClient,
     InstallLearner? learner,
-  })  : _locator = CustomAppLocator(
+    void Function(String id, FileSystemException error)? onLearnedRulesNotSaved,
+  })  : _onLearnedRulesNotSaved = onLearnedRulesNotSaved,
+        _locator = CustomAppLocator(
           readVersion: readVersion,
           lookupUninstallDirs: lookupUninstallDirs,
           lookupRunningProcess: lookupRunningProcess,
@@ -87,6 +90,8 @@ class CustomAppsManager {
   final CustomAppLocator _locator;
   final CustomAppInstaller _installer;
   final InstallLearner _learner;
+  final void Function(String id, FileSystemException error)?
+      _onLearnedRulesNotSaved;
 
   /// לאן מגיעה תוכנה מסוג ארכיון.
   String get downloadsDir => _installer.downloadsDir;
@@ -231,28 +236,99 @@ class CustomAppsManager {
     final target = store.installerPathNamed(id, fileName);
     await Directory(store.dirFor(id)).create(recursive: true);
     final temp = File('$target.part');
+    final StoredInstaller stored;
     try {
       await source.copy(temp.path);
-      await temp.rename(target);
-    } finally {
-      if (await temp.exists()) await temp.delete();
+      stored = StoredInstaller(
+        fileName: fileName,
+        version: version,
+        sizeBytes: await temp.length(),
+        addedAt: DateTime.now(),
+        sha256: await sha256OfFile(temp.path),
+      );
+    } catch (_) {
+      await _deleteQuietly(temp);
+      rethrow;
     }
 
-    final stored = StoredInstaller(
-      fileName: fileName,
-      version: version,
-      sizeBytes: await File(target).length(),
-      addedAt: DateTime.now(),
-      sha256: await sha256OfFile(target),
-    );
-    await store.saveInstaller(id, stored);
-    if (entry.installer case final old? when old.fileName != fileName) {
-      try {
-        await File(store.installerPathFor(id, old)).delete();
-      } catch (_) {}
-    }
+    await _commitInstaller(store, id, entry.installer, stored);
     await _sweepPartials(store, id, keep: fileName);
     return stored;
+  }
+
+  Future<void> _commitInstaller(
+    CustomAppStore store,
+    String id,
+    StoredInstaller? old,
+    StoredInstaller stored,
+  ) async {
+    final target = store.installerPathNamed(id, stored.fileName);
+    final temp = File('$target.part');
+    if (old != null &&
+        await _isSameInstallerFile(store, id, old, stored.fileName)) {
+      try {
+        await store.saveInstaller(id, stored);
+      } catch (_) {
+        await _deleteQuietly(temp);
+        rethrow;
+      }
+      try {
+        await replaceFile(temp.path, target);
+      } catch (_) {
+        try {
+          await store.saveInstaller(id, old);
+          await _deleteQuietly(temp);
+        } catch (_) {}
+        rethrow;
+      }
+      return;
+    }
+
+    try {
+      await replaceFile(temp.path, target);
+    } catch (_) {
+      await _deleteQuietly(temp);
+      rethrow;
+    }
+    try {
+      await store.saveInstaller(id, stored);
+    } catch (_) {
+      await _deleteQuietly(File(target));
+      rethrow;
+    }
+    if (old != null) {
+      final oldPath = store.installerPathFor(id, old);
+      await _deleteQuietly(File(oldPath));
+      if ('${old.fileName}.part'.toLowerCase() !=
+          stored.fileName.toLowerCase()) {
+        await _deleteQuietly(File('$oldPath.part'));
+      }
+    }
+  }
+
+  Future<bool> _isSameInstallerFile(
+    CustomAppStore store,
+    String id,
+    StoredInstaller old,
+    String current,
+  ) async {
+    if (old.fileName.toLowerCase() == current.toLowerCase()) return true;
+    try {
+      return await FileSystemEntity.identical(
+        store.installerPathFor(id, old),
+        store.installerPathNamed(id, current),
+      );
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  Future<void> _deleteQuietly(File file) async {
+    try {
+      if (await file.exists()) await file.delete();
+    } on FileSystemException {
+      return;
+    }
   }
 
   Future<GithubRelease?> peekLatestOnline(AppDescriptor descriptor) async {
@@ -294,23 +370,22 @@ class CustomAppsManager {
 
     final target = store.installerPathNamed(id, asset.name);
     final temp = '$target.part';
-    final digest = await github.download(asset, temp, onProgress: onProgress);
-
-    if (entry.installer case final old? when old.fileName != asset.name) {
-      try {
-        await File(store.installerPathFor(id, old)).delete();
-      } catch (_) {}
+    final StoredInstaller stored;
+    try {
+      final digest = await github.download(asset, temp, onProgress: onProgress);
+      stored = StoredInstaller(
+        fileName: asset.name,
+        version: latest.version,
+        sizeBytes: await File(temp).length(),
+        addedAt: DateTime.now(),
+        sha256: digest,
+      );
+    } catch (_) {
+      await _deleteQuietly(File(temp));
+      rethrow;
     }
-    await File(temp).rename(target);
 
-    final stored = StoredInstaller(
-      fileName: asset.name,
-      version: latest.version,
-      sizeBytes: await File(target).length(),
-      addedAt: DateTime.now(),
-      sha256: digest,
-    );
-    await store.saveInstaller(id, stored);
+    await _commitInstaller(store, id, entry.installer, stored);
     await _sweepPartials(store, id, keep: stored.fileName);
     return stored;
   }
@@ -339,15 +414,6 @@ class CustomAppsManager {
     return asset;
   }
 
-  /// מתקין מהקובץ ששמור במראה. **לא נוגע ברשת** — זה מה שעובד במחשב
-  /// המנותק.
-  ///
-  /// מיד אחרי ההתקנה **נלמד כיצד לזהות את התוכנה** (ראו [InstallLearner]):
-  /// זו הדרך שבה שם קובץ ההרצה ותבנית ה-`DisplayName` נכנסים לרשומה בלי
-  /// שהמשתמש ייענה על שאלות שלא יכול היה לענות עליהן במחשב המקוון, שבו
-  /// התוכנה כלל לא הייתה מותקנת.
-  /// [copyToDir] רלוונטי רק לתוכנה שהקובץ שלה הוא **התוכנה עצמה**
-  /// ([AppDescriptor.portableFile]) — הממשק שואל לאן להעתיק ומעביר לכאן.
   Future<CustomInstallOutcome> install(String id, {String? copyToDir}) async {
     final t = AppL10n.strings.customAppsDomain;
     final store = await _store();
@@ -359,27 +425,20 @@ class CustomAppsManager {
       throw AppDescriptorException(t.noInstallerInMirror);
     }
 
-    // קובץ שנפגם על הכונן (העתקה שנקטעה, סקטור רע) לא ירוץ: מתקין קטוע
-    // עלול להשאיר התקנה חצויה. קובץ שחסר נשאר להודעה של ה-installer.
     final installerPath = store.installerPathFor(id, installer);
-    if (installer.sha256 case final expected?
-        when await File(installerPath).exists() &&
-            await sha256OfFile(installerPath) != expected) {
-      throw AppDescriptorException(t.installerDigestMismatch);
+    final staged = await _stageInstaller(installerPath, installer);
+    final CustomInstallOutcome outcome;
+    final List<UninstallEntry> before;
+    try {
+      before = await _learner.snapshot();
+      outcome = await _installer.install(
+        descriptor: entry.descriptor,
+        installerPath: staged?.path ?? installerPath,
+        copyToDir: copyToDir,
+      );
+    } finally {
+      if (staged != null) await _deleteDirQuietly(staged.parent);
     }
-
-    // הצילום נלקח **לפני** ההרצה: אחריה אין דרך לדעת איזה רישום הסרה היה
-    // כאן קודם ואיזה נולד עכשיו.
-    final before = await _learner.snapshot();
-
-    final outcome = await _installer.install(
-      descriptor: entry.descriptor,
-      installerPath: installerPath,
-      copyToDir: copyToDir,
-    );
-    // כשרק העתקנו קובץ, שום מתקין לא רץ ולכן אין רישום הסרה ללמוד ממנו.
-    // אבל בקובץ נייד ידוע **בדיוק** לאן הוא הלך, וזו עדות חזקה יותר מכל
-    // סריקה — ראו [_learnFromCopiedFile].
     if (outcome.isCopyOnly) {
       if (outcome.kind != CustomInstallerKind.portableFile) return outcome;
       return _learnFromCopiedFile(store, entry.descriptor, outcome);
@@ -391,11 +450,6 @@ class CustomAppsManager {
       installerFileName: installer.fileName,
     );
 
-    // ⚠️ התיקייה נרשמת **לפני** הזיהוי ובלי תלות בהצלחתו. היא העדות הישירה
-    // למקום שאליו המתקין הרגע כתב, בעוד שהזיהוי נאלץ לגזור אותה שוב
-    // מהרג'יסטרי — ורישום הסרה בלי `InstallLocation` תקין אינו מחזיר תיקייה
-    // כלל. בלי השורה הזו התוכנה דיווחה "אינה מותקנת" לנצח, אף שרגע קודם
-    // ידענו בדיוק היכן היא.
     if (learned.installDir case final dir?) {
       await _locations(store, id).record(dir);
     }
@@ -404,9 +458,7 @@ class CustomAppsManager {
     if (rules == null) return outcome;
 
     final updated = entry.descriptor.copyWith(detect: rules);
-    await store.saveDescriptor(updated);
-    // זיהוי מיד אחרי הלמידה מאמת שמה שנלמד באמת מוצא את התוכנה, ומרענן את
-    // המיקום — שהוא פר-מחשב, ולכן המקום היחיד שנתיב מוחלט מותר לשכון בו.
+    await _saveLearnedDescriptor(store, updated);
     await detectInstalled(updated);
     return CustomInstallOutcome(
       kind: outcome.kind,
@@ -415,17 +467,12 @@ class CustomAppsManager {
     );
   }
 
-  /// קובץ נייד אינו רושם הסרה ואינו מותקן לשום מקום — אבל אנחנו עצמנו
-  /// העתקנו אותו, ולכן שם קובץ ההרצה והתיקייה ידועים בוודאות. רישום
-  /// שניהם הוא מה שגורם לכרטיס לומר "מותקן" ולהציע "הפעלה" מיד.
   Future<CustomInstallOutcome> _learnFromCopiedFile(
     CustomAppStore store,
     AppDescriptor descriptor,
     CustomInstallOutcome outcome,
   ) async {
     final copied = outcome.copiedPath;
-    // רק קובץ הרצה: `launch` מריץ את מה שנרשם כאן, ותמונה או PDF שנרשמו
-    // כ"קובץ ההרצה" היו הופכים את כפתור ההפעלה לשגיאה.
     if (copied == null || p.extension(copied).toLowerCase() != '.exe') {
       return outcome;
     }
@@ -436,15 +483,82 @@ class CustomAppsManager {
       dirs: descriptor.detect.dirs,
     );
     final updated = descriptor.copyWith(detect: learned);
-    await store.saveDescriptor(updated);
-    // אותו תפקיד כמו ה-`detectInstalled` שאחרי הלמידה הרגילה: מאמת שמה
-    // שנרשם באמת מוצא את הקובץ, ורושם את התיקייה ל-`locations.json`.
+    await _saveLearnedDescriptor(store, updated);
     await adoptInstallDir(updated, p.dirname(copied));
     return CustomInstallOutcome(
       kind: outcome.kind,
       copiedPath: copied,
       learned: learned,
     );
+  }
+
+  Future<void> _saveLearnedDescriptor(
+    CustomAppStore store,
+    AppDescriptor descriptor,
+  ) async {
+    try {
+      await store.saveDescriptor(descriptor);
+    } on FileSystemException catch (e) {
+      _onLearnedRulesNotSaved?.call(descriptor.id, e);
+    }
+  }
+
+  Future<File?> _stageInstaller(
+    String installerPath,
+    StoredInstaller installer,
+  ) async {
+    final t = AppL10n.strings.customAppsDomain;
+    final expected = installer.sha256;
+    if (expected == null) return null;
+    final present = await File(installerPath).exists();
+    if (present && await sha256OfFile(installerPath) == expected) return null;
+
+    final pending = File('$installerPath.part');
+    if (!await _hasDigest(pending, expected)) {
+      if (present) throw AppDescriptorException(t.installerDigestMismatch);
+      return null;
+    }
+    try {
+      await replaceFile(pending.path, installerPath);
+      return null;
+    } on FileSystemException {
+      return _copyOutOfMirror(pending, installer.fileName, expected);
+    }
+  }
+
+  Future<File> _copyOutOfMirror(
+    File pending,
+    String fileName,
+    String expected,
+  ) async {
+    final t = AppL10n.strings.customAppsDomain;
+    final dir = await Directory.systemTemp.createTemp('custom-app-');
+    try {
+      final copy = await pending.copy(p.join(dir.path, fileName));
+      if (await sha256OfFile(copy.path) != expected) {
+        throw AppDescriptorException(t.installerDigestMismatch);
+      }
+      return copy;
+    } catch (_) {
+      await _deleteDirQuietly(dir);
+      rethrow;
+    }
+  }
+
+  Future<bool> _hasDigest(File file, String expected) async {
+    try {
+      return await file.exists() && await sha256OfFile(file.path) == expected;
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  Future<void> _deleteDirQuietly(Directory dir) async {
+    try {
+      if (await dir.exists()) await dir.delete(recursive: true);
+    } on FileSystemException {
+      return;
+    }
   }
 
   /// מה מותקן על המחשב **הזה**, או `null` כשלא נמצאה התקנה.

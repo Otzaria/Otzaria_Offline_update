@@ -19,6 +19,7 @@ import 'package:launcher_app/src/screens/store_kit/store_kit.dart';
 import 'package:launcher_app/src/services/announced_apps_store.dart';
 import 'package:launcher_app/src/services/custom_app_detection_snapshot.dart';
 import 'package:launcher_app/src/services/byte_size.dart';
+import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
@@ -349,6 +350,25 @@ void main() {
         ),
       );
       expect(p.basename(found!), 'myapp.exe');
+    });
+
+    test('כללים שנלמדו ולא נשמרו נרשמים כאזהרה בלוג', () async {
+      AppLogger.resetForTest();
+      final logger = await AppLogger.init(tempDir.path);
+      addTearDown(AppLogger.resetForTest);
+
+      CustomAppsController.logLearnedRulesNotSaved(
+        'org.example.app',
+        const FileSystemException('read-only', r'E:\apps\descriptor.json'),
+      );
+      await logger.flush();
+
+      final warning = File(logger.filePath)
+          .readAsLinesSync()
+          .where((line) => line.contains('WARN'))
+          .single;
+      expect(warning, contains('org.example.app'));
+      expect(warning, contains('read-only'));
     });
   });
 

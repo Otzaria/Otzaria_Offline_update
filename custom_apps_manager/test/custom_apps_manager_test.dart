@@ -493,12 +493,12 @@ void main() {
   group('למידה אחרי התקנה', () {
     late String installedDir;
 
-    /// מנהל עם שני התפרים של הלמידה. [freshEntry] הוא הרישום שיופיע אחרי
-    /// ההתקנה, כמו שמתקין אמיתי היה כותב.
     CustomAppsManager managerLearning({
       required String displayName,
       String? exeName = 'myapp.exe',
       bool withInstallDir = true,
+      void Function(String id, FileSystemException error)?
+          onLearnedRulesNotSaved,
     }) {
       var installed = false;
       List<UninstallEntry> entries() => [
@@ -520,9 +520,6 @@ void main() {
         },
         downloadsDir: p.join(root, 'Downloads'),
         lookupUninstallEntries: () async => entries(),
-        // ⚠️ שני התפרים נחוצים יחד: הראשון **לומד** את התבנית, והשני הוא
-        // מה שהופך אותה לזיהוי בפועל. עם אחד מהם בלבד הרשומה מתעדכנת אבל
-        // ממשיכה לדווח "אינה מותקנת" — כמו הלאנצ'ר, ששניהם יושבים בו.
         lookupUninstallDirs: (pattern) => [
           for (final entry in entries())
             if (pattern.hasMatch(entry.displayName) && entry.installDir != null)
@@ -530,6 +527,7 @@ void main() {
         ],
         lookupInstalledExe: (dir, _) async =>
             exeName == null ? null : p.join(dir, exeName),
+        onLearnedRulesNotSaved: onLearnedRulesNotSaved,
       );
     }
 
@@ -658,6 +656,56 @@ void main() {
       expect(state!.installDir, installedDir);
     });
 
+    test('כונן נעול: ההתקנה מצליחה גם כשאי אפשר לכתוב למראה', () async {
+      final m = managerLearning(displayName: 'MyApp 1.4.2');
+      await m.add(descriptor(name: 'MyApp'));
+      await m.attachInstaller('org.example.app',
+          sourcePath: innoInstaller(), version: '1.4.2');
+      makeReadOnly(p.join(root, 'apps'));
+
+      final outcome = await m.install('org.example.app');
+
+      expect(outcome.didLearn, isTrue);
+      expect(
+        File(p.join(root, 'apps', 'org.example.app', 'locations.json'))
+            .existsSync(),
+        isFalse,
+      );
+    }, skip: skipWithoutChmod);
+
+    test('כשל בכתיבה למראה: ההתקנה מצליחה והכשל מדווח', () async {
+      final failures = <String>[];
+      final m = managerLearning(
+        displayName: 'MyApp 1.4.2',
+        onLearnedRulesNotSaved: (id, _) => failures.add(id),
+      );
+      await m.add(descriptor(name: 'MyApp'));
+      await m.attachInstaller('org.example.app',
+          sourcePath: innoInstaller(), version: '1.4.2');
+      final appDir = p.join(root, 'apps', 'org.example.app');
+      blockAtomicWrites(appDir, ['descriptor.json', 'locations.json']);
+
+      final outcome = await m.install('org.example.app');
+
+      expect(outcome.didLearn, isTrue);
+      expect(failures, ['org.example.app']);
+      expect(File(p.join(appDir, 'locations.json')).existsSync(), isFalse);
+      expect(
+        (await m.load('org.example.app'))!.descriptor.detect.isEmpty,
+        isTrue,
+      );
+    });
+
+    test('שמירה מוצלחת של הכללים אינה מדווחת ככשל', () async {
+      final failures = <String>[];
+      final m = managerLearning(
+        displayName: 'MyApp 1.4.2',
+        onLearnedRulesNotSaved: (id, _) => failures.add(id),
+      );
+      await installFresh(m);
+      expect(failures, isEmpty);
+    });
+
     /// ⚠️ הלמידה סורקת דרך `OtzariaAppLocator` (עומק 3) והזיהוי סורק בעצמו.
     /// כששני העומקים אינם שווים, exe עמוק נלמד ואז אינו נמצא לעולם.
     test('exe שתי רמות מתחת לתיקיית ההתקנה — נלמד וגם נמצא', () async {
@@ -705,7 +753,9 @@ void main() {
     for (final name in [
       'descriptor.json',
       'INSTALLER.JSON',
-      'locations.json'
+      'locations.json',
+      'Installer.json.tmp',
+      'descriptor.json.123-456-0.tmp',
     ]) {
       test('שם קובץ שמור $name אינו דורס את נתוני התוכנה', () async {
         final appDir = p.join(root, 'apps', 'org.example.app');
@@ -779,6 +829,265 @@ void main() {
           (await manager.load('org.example.app'))!.installer!.version, '2.0');
     });
 
+    test('שינוי רישיות בלבד בשם הקובץ אינו מוחק את המתקין החדש', () async {
+      await manager.attachInstaller('org.example.app',
+          sourcePath: writeFile(p.join(root, 'dl-1', 'Setup.exe'), 'old'),
+          version: '1');
+
+      final stored = await manager.attachInstaller('org.example.app',
+          sourcePath: writeFile(p.join(root, 'dl-2', 'setup.exe'), 'new'),
+          version: '2');
+
+      final entry = (await manager.load('org.example.app'))!;
+      expect(entry.installer!.version, '2');
+      expect(entry.installer!.sha256, stored.sha256);
+      expect(
+        await File(p.join(root, 'apps', 'org.example.app', 'setup.exe'))
+            .readAsString(),
+        'new',
+      );
+    });
+
+    test('כשל בכתיבת installer.json משאיר את המתקין הקודם שמיש', () async {
+      await manager.attachInstaller('org.example.app',
+          sourcePath: writeFile(p.join(root, 'dl', 'App-1.exe'), 'old'),
+          version: '1');
+      blockAtomicWrites(
+          p.join(root, 'apps', 'org.example.app'), ['installer.json']);
+
+      await expectLater(
+        manager.attachInstaller('org.example.app',
+            sourcePath: writeFile(p.join(root, 'dl', 'App-2.exe'), 'new'),
+            version: '2'),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      expect((await manager.load('org.example.app'))!.installer!.version, '1');
+      expect(
+          await File(p.join(root, 'apps', 'org.example.app', 'App-1.exe'))
+              .readAsString(),
+          'old');
+      expect(
+          File(p.join(root, 'apps', 'org.example.app', 'App-2.exe'))
+              .existsSync(),
+          isFalse);
+    });
+
+    test('אותו שם קובץ: כשל בכתיבת installer.json משאיר את הישן שמיש',
+        () async {
+      final appDir = p.join(root, 'apps', 'org.example.app');
+      await manager.attachInstaller('org.example.app',
+          sourcePath:
+              writeFile(p.join(root, 'dl-1', 'Setup.exe'), 'MZ Inno Setup'),
+          version: '1');
+      blockAtomicWrites(appDir, ['installer.json']);
+
+      await expectLater(
+        manager.attachInstaller('org.example.app',
+            sourcePath: writeFile(p.join(root, 'dl-2', 'Setup.exe'), 'new'),
+            version: '2'),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      expect((await manager.load('org.example.app'))!.installer!.version, '1');
+      expect(await File(p.join(appDir, 'Setup.exe')).readAsString(),
+          'MZ Inno Setup');
+      expect(File(p.join(appDir, 'Setup.exe.part')).existsSync(), isFalse);
+      await manager.install('org.example.app');
+      expect(runner.calls, hasLength(1));
+    });
+
+    test('אותו שם קובץ: כונן שנשלף לפני ההחלפה משלים אותה בהתקנה', () async {
+      final appDir = p.join(root, 'apps', 'org.example.app');
+      await manager.attachInstaller('org.example.app',
+          sourcePath: writeFile(p.join(root, 'dl-1', 'Setup.exe'), 'old'),
+          version: '1');
+      await manager.attachInstaller('org.example.app',
+          sourcePath:
+              writeFile(p.join(root, 'dl-2', 'Setup.exe'), 'MZ Inno Setup'),
+          version: '2');
+      File(p.join(appDir, 'Setup.exe'))
+          .copySync(p.join(appDir, 'Setup.exe.part'));
+      writeFile(p.join(appDir, 'Setup.exe'), 'old');
+
+      await manager.install('org.example.app');
+
+      expect(runner.calls, hasLength(1));
+      expect(await File(p.join(appDir, 'Setup.exe')).readAsString(),
+          'MZ Inno Setup');
+      expect(File(p.join(appDir, 'Setup.exe.part')).existsSync(), isFalse);
+    });
+
+    test('אותו שם קובץ: part שאינו תואם אינו מחליף את המתקין', () async {
+      final appDir = p.join(root, 'apps', 'org.example.app');
+      await manager.attachInstaller('org.example.app',
+          sourcePath:
+              writeFile(p.join(root, 'dl', 'Setup.exe'), 'MZ Inno Setup'),
+          version: '1');
+      writeFile(p.join(appDir, 'Setup.exe'), 'MZ Inno');
+      writeFile(p.join(appDir, 'Setup.exe.part'), 'other');
+
+      await expectLater(
+        manager.install('org.example.app'),
+        throwsA(isA<AppDescriptorException>()),
+      );
+      expect(runner.calls, isEmpty);
+      expect(await File(p.join(appDir, 'Setup.exe')).readAsString(), 'MZ Inno');
+    });
+
+    test('אותו שם קובץ: כונן נעול אחרי השליפה — המתקין רץ מעותק זמני',
+        () async {
+      final appDir = p.join(root, 'apps', 'org.example.app');
+      await manager.attachInstaller('org.example.app',
+          sourcePath: writeFile(p.join(root, 'dl-1', 'Setup.exe'), 'old'),
+          version: '1');
+      await manager.attachInstaller('org.example.app',
+          sourcePath:
+              writeFile(p.join(root, 'dl-2', 'Setup.exe'), 'MZ Inno Setup'),
+          version: '2');
+      File(p.join(appDir, 'Setup.exe'))
+          .copySync(p.join(appDir, 'Setup.exe.part'));
+      writeFile(p.join(appDir, 'Setup.exe'), 'old');
+      blockReplaceInto(p.join(appDir, 'Setup.exe'));
+      final staged = <String>[];
+      final m = CustomAppsManager(
+        resolveMirrorDir: () async => root,
+        readVersion: (_) => '1.4.2',
+        processRunner: (executable, arguments) async {
+          staged.add(await File(executable).readAsString());
+          return runner.call(executable, arguments);
+        },
+        downloadsDir: p.join(root, 'Downloads'),
+      );
+
+      await m.install('org.example.app');
+
+      final executable = runner.calls.single.executable;
+      expect(runner.calls.single.arguments, contains('/VERYSILENT'));
+      expect(p.basename(executable), 'Setup.exe');
+      expect(p.isWithin(root, executable), isFalse);
+      expect(staged, ['MZ Inno Setup']);
+      expect(File(executable).existsSync(), isFalse);
+      expect(File(executable).parent.existsSync(), isFalse);
+      expect(await File(p.join(appDir, 'Setup.exe')).readAsString(), 'old');
+      expect(
+        await File(p.join(appDir, 'Setup.exe.part')).readAsString(),
+        'MZ Inno Setup',
+      );
+    });
+
+    test('מתקין שחסר ולצידו part תואם — נטען ומותקן', () async {
+      final appDir = p.join(root, 'apps', 'org.example.app');
+      await manager.attachInstaller('org.example.app',
+          sourcePath:
+              writeFile(p.join(root, 'dl', 'Setup.exe'), 'MZ Inno Setup'),
+          version: '2');
+      File(p.join(appDir, 'Setup.exe'))
+          .renameSync(p.join(appDir, 'Setup.exe.part'));
+
+      expect((await manager.load('org.example.app'))!.installer!.version, '2');
+      await manager.install('org.example.app');
+
+      expect(runner.calls.single.executable, p.join(appDir, 'Setup.exe'));
+      expect(await File(p.join(appDir, 'Setup.exe')).readAsString(),
+          'MZ Inno Setup');
+      expect(File(p.join(appDir, 'Setup.exe.part')).existsSync(), isFalse);
+    });
+
+    test('מתקין שחסר ולצידו part תואם בכונן נעול — רץ מעותק זמני', () async {
+      final appDir = p.join(root, 'apps', 'org.example.app');
+      await manager.attachInstaller('org.example.app',
+          sourcePath:
+              writeFile(p.join(root, 'dl', 'Setup.exe'), 'MZ Inno Setup'),
+          version: '2');
+      File(p.join(appDir, 'Setup.exe'))
+          .renameSync(p.join(appDir, 'Setup.exe.part'));
+      blockReplaceInto(p.join(appDir, 'Setup.exe'));
+
+      await manager.install('org.example.app');
+
+      final executable = runner.calls.single.executable;
+      expect(p.basename(executable), 'Setup.exe');
+      expect(p.isWithin(root, executable), isFalse);
+      expect(File(p.join(appDir, 'Setup.exe')).existsSync(), isFalse);
+      expect(File(p.join(appDir, 'Setup.exe.part')).existsSync(), isTrue);
+    });
+
+    test('מתקין שחסר ולצידו part שאינו תואם — אין מתקין', () async {
+      final appDir = p.join(root, 'apps', 'org.example.app');
+      await manager.attachInstaller('org.example.app',
+          sourcePath:
+              writeFile(p.join(root, 'dl', 'Setup.exe'), 'MZ Inno Setup'),
+          version: '2');
+      File(p.join(appDir, 'Setup.exe')).deleteSync();
+      writeFile(p.join(appDir, 'Setup.exe.part'), 'MZ Inno');
+
+      expect((await manager.load('org.example.app'))!.installer, isNull);
+      await expectLater(
+        manager.install('org.example.app'),
+        throwsA(isA<AppDescriptorException>()),
+      );
+      expect(runner.calls, isEmpty);
+    });
+
+    test('אותו שם קובץ: כשל בהחלפה מחזיר את installer.json הקודם', () async {
+      final appDir = p.join(root, 'apps', 'org.example.app');
+      final before = await manager.attachInstaller('org.example.app',
+          sourcePath: writeFile(p.join(root, 'dl-1', 'Setup.exe'), 'old'),
+          version: '1');
+      blockReplaceInto(p.join(appDir, 'Setup.exe'));
+
+      await expectLater(
+        manager.attachInstaller('org.example.app',
+            sourcePath: writeFile(p.join(root, 'dl-2', 'Setup.exe'), 'new'),
+            version: '2'),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      final kept = (await manager.load('org.example.app'))!.installer!;
+      expect(kept.version, '1');
+      expect(kept.sha256, before.sha256);
+      expect(await File(p.join(appDir, 'Setup.exe')).readAsString(), 'old');
+      expect(File(p.join(appDir, 'Setup.exe.part')).existsSync(), isFalse);
+    });
+
+    test('שם שונה: part שנתקע מהמתקין הקודם נמחק בהחלפה', () async {
+      final appDir = p.join(root, 'apps', 'org.example.app');
+      await manager.attachInstaller('org.example.app',
+          sourcePath:
+              writeFile(p.join(root, 'dl', 'App-1.exe'), 'MZ Inno Setup'),
+          version: '1');
+      File(p.join(appDir, 'App-1.exe'))
+          .renameSync(p.join(appDir, 'App-1.exe.part'));
+
+      await manager.attachInstaller('org.example.app',
+          sourcePath: writeFile(p.join(root, 'dl', 'App-2.exe'), 'new'),
+          version: '2');
+
+      expect(
+        Directory(appDir)
+            .listSync()
+            .map((e) => p.basename(e.path))
+            .where((name) => name.startsWith('App-')),
+        ['App-2.exe'],
+      );
+    });
+
+    test('מתקין חדש ששמו כשם ה-part של הקודם אינו נמחק', () async {
+      final appDir = p.join(root, 'apps', 'org.example.app');
+      await manager.attachInstaller('org.example.app',
+          sourcePath: writeFile(p.join(root, 'dl', 'App.exe'), 'old'),
+          version: '1');
+
+      await manager.attachInstaller('org.example.app',
+          sourcePath: writeFile(p.join(root, 'dl', 'App.exe.part'), 'new'),
+          version: '2');
+
+      expect((await manager.load('org.example.app'))!.installer!.version, '2');
+      expect(await File(p.join(appDir, 'App.exe.part')).readAsString(), 'new');
+      expect(File(p.join(appDir, 'App.exe')).existsSync(), isFalse);
+    });
+
     test('ה-sha256 נרשם, וקובץ שנפגם על הכונן אינו מורץ', () async {
       final setup = writeFile(p.join(root, 'dl', 'App.exe'), 'MZ Inno Setup');
       final stored = await manager.attachInstaller('org.example.app',
@@ -809,6 +1118,161 @@ void main() {
         throwsA(isA<AppDescriptorException>()),
       );
     });
+  });
+
+  group('הורדה מגיטהאב', () {
+    final bytes = List.filled(50, 65);
+    String appDir() => p.join(root, 'apps', 'org.example.gh');
+
+    Future<CustomAppsManager> withInstaller({
+      required String oldName,
+      required String assetName,
+    }) async {
+      final m = CustomAppsManager(
+        resolveMirrorDir: () async => root,
+        readVersion: (_) => '1',
+        processRunner: runner.call,
+        githubClient: GithubAppClient(
+          httpClient: MockClient((request) async {
+            if (request.url.host == 'example.test') {
+              return http.Response.bytes(bytes, 200);
+            }
+            return http.Response(
+              jsonEncode([
+                {
+                  'tag_name': 'v2',
+                  'prerelease': false,
+                  'draft': false,
+                  'published_at': '2026-08-13T10:00:00Z',
+                  'assets': [
+                    {
+                      'name': assetName,
+                      'browser_download_url': 'https://example.test/$assetName',
+                      'size': bytes.length,
+                    },
+                  ],
+                },
+              ]),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }),
+        ),
+      );
+      await m.add(
+        const AppDescriptor(
+          id: 'org.example.gh',
+          name: 'gh',
+          sourceKind: AppSourceKind.github,
+          github: GithubSource(owner: 'o', repo: 'r', assetPattern: r'\.exe$'),
+        ),
+      );
+      await m.attachInstaller('org.example.gh',
+          sourcePath: writeFile(p.join(root, 'dl', oldName), 'old'),
+          version: '1');
+      return m;
+    }
+
+    test('קובץ חדש מחליף את הישן, והישן נמחק', () async {
+      final m =
+          await withInstaller(oldName: 'App-1.exe', assetName: 'App-2.exe');
+
+      final stored = await m.downloadFromGithub('org.example.gh');
+
+      final entry = (await m.load('org.example.gh'))!;
+      expect(entry.installer!.fileName, 'App-2.exe');
+      expect(entry.installer!.sha256, stored.sha256);
+      expect(File(p.join(appDir(), 'App-1.exe')).existsSync(), isFalse);
+    });
+
+    test('כשל בכתיבת installer.json משאיר את המתקין הקודם שמיש', () async {
+      final m =
+          await withInstaller(oldName: 'App-1.exe', assetName: 'App-2.exe');
+      blockAtomicWrites(appDir(), ['installer.json']);
+
+      await expectLater(
+        m.downloadFromGithub('org.example.gh'),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      final entry = (await m.load('org.example.gh'))!;
+      expect(entry.installer!.fileName, 'App-1.exe');
+      expect(await File(p.join(appDir(), 'App-1.exe')).readAsString(), 'old');
+      expect(File(p.join(appDir(), 'App-2.exe')).existsSync(), isFalse);
+      expect(File(p.join(appDir(), 'App-2.exe.part')).existsSync(), isFalse);
+    });
+
+    test('אותו שם קובץ: כשל בכתיבת installer.json משאיר את הישן שמיש',
+        () async {
+      final m = await withInstaller(oldName: 'App.exe', assetName: 'App.exe');
+      final before = (await m.load('org.example.gh'))!.installer!;
+      blockAtomicWrites(appDir(), ['installer.json']);
+
+      await expectLater(
+        m.downloadFromGithub('org.example.gh'),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      final entry = (await m.load('org.example.gh'))!;
+      expect(entry.installer!.sha256, before.sha256);
+      expect(await File(p.join(appDir(), 'App.exe')).readAsString(), 'old');
+      expect(File(p.join(appDir(), 'App.exe.part')).existsSync(), isFalse);
+    });
+
+    test('אותו שם קובץ: ההורדה מחליפה את התוכן ואת ה-sha256', () async {
+      final m = await withInstaller(oldName: 'App.exe', assetName: 'App.exe');
+
+      final stored = await m.downloadFromGithub('org.example.gh');
+
+      final entry = (await m.load('org.example.gh'))!;
+      expect(entry.installer!.sha256, stored.sha256);
+      expect(entry.installer!.version, stored.version);
+      expect(await File(p.join(appDir(), 'App.exe')).readAsBytes(), bytes);
+    });
+
+    test('שינוי רישיות בלבד בשם הקובץ אינו מוחק את המתקין החדש', () async {
+      final m = await withInstaller(oldName: 'app.exe', assetName: 'App.exe');
+
+      await m.downloadFromGithub('org.example.gh');
+
+      final entry = (await m.load('org.example.gh'))!;
+      expect(entry.installer!.fileName, 'App.exe');
+      expect(await File(p.join(appDir(), 'App.exe')).readAsBytes(), bytes);
+    });
+  });
+
+  test('כונן נעול: התקנה שנמצאה מדווחת גם כשהמיקום אינו נרשם', () async {
+    final dir = p.join(root, 'Installed');
+    writeFile(p.join(dir, 'myapp.exe'));
+    await manager.add(
+      descriptor(detect: AppDetectRules(exeName: 'myapp.exe', dirs: [dir])),
+    );
+    makeReadOnly(p.join(root, 'apps'));
+
+    final state = await manager.detectInstalled(
+      (await manager.load('org.example.app'))!.descriptor,
+    );
+
+    expect(state, isNotNull);
+    expect(state!.installDir, dir);
+  }, skip: skipWithoutChmod);
+
+  test('כשל בכתיבה למראה: התקנה שנמצאה מדווחת גם כשהמיקום אינו נרשם', () async {
+    final dir = p.join(root, 'Installed');
+    writeFile(p.join(dir, 'myapp.exe'));
+    await manager.add(
+      descriptor(detect: AppDetectRules(exeName: 'myapp.exe', dirs: [dir])),
+    );
+    final appDir = p.join(root, 'apps', 'org.example.app');
+    blockAtomicWrites(appDir, ['locations.json']);
+
+    final state = await manager.detectInstalled(
+      (await manager.load('org.example.app'))!.descriptor,
+    );
+
+    expect(state, isNotNull);
+    expect(state!.installDir, dir);
+    expect(File(p.join(appDir, 'locations.json')).existsSync(), isFalse);
   });
 
   group('עריכה', () {

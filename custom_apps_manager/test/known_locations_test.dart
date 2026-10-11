@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -68,6 +70,22 @@ void main() {
     test('קובץ פגום אינו שובר את הזיהוי', () async {
       writeFile(KnownLocationsStore.pathIn(root), 'לא JSON');
       expect(await store.load(), isEmpty);
+    });
+
+    test('תיקייה שאינה ניתנת לכתיבה אינה שגיאה', () async {
+      makeReadOnly(root);
+      await store.record(r'C:\Apps\X', hostName: 'PC-1');
+      expect(await store.load(), isEmpty);
+    }, skip: skipWithoutChmod);
+
+    test('כשל בכתיבת הקובץ אינו שגיאה, ואינו משאיר קובץ זמני', () async {
+      blockAtomicWrites(root, ['locations.json']);
+      await store.record(r'C:\Apps\X', hostName: 'PC-1');
+      expect(await store.load(), isEmpty);
+      expect(
+        Directory(root).listSync().map((e) => p.basename(e.path)),
+        ['locations.json.tmp'],
+      );
     });
 
     test('הקובץ יושב בתוך תיקיית התוכנה', () {

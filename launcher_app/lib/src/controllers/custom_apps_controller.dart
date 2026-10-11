@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:flutter/foundation.dart';
@@ -121,8 +122,14 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
           lookupUninstallEntries: _uninstallEntries,
           lookupInstalledExe: findInstalledExe,
           onLearningStarted: _markLearning,
+          onLearnedRulesNotSaved: logLearnedRulesNotSaved,
         );
   }
+
+  @visibleForTesting
+  static void logLearnedRulesNotSaved(String id, FileSystemException error) =>
+      AppLogger.maybeInstance
+          ?.warn('שמירת כללי הזיהוי שנלמדו עבור $id נכשלה: $error');
 
   void _markLearning() {
     isLearning = true;

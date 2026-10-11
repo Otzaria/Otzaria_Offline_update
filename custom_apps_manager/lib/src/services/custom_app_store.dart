@@ -6,6 +6,8 @@ import 'package:path/path.dart' as p;
 
 import '../models/app_descriptor.dart';
 import '../models/stored_installer.dart';
+import 'atomic_file.dart';
+import 'file_digest.dart';
 import 'known_locations_store.dart';
 
 /// תוכנה מותאמת אחת כפי שהיא יושבת על הדיסק: התיאור, ומה שכבר הורד עבורה.
@@ -51,16 +53,19 @@ class CustomAppStore {
   String installerPathFor(String id, StoredInstaller installer) =>
       installerPathNamed(id, installer.fileName);
 
-  /// נתיב המתקין אינו רשאי לצאת מהתיקייה או לדרוס את נתוני התוכנה.
   String installerPathNamed(String id, String fileName) {
     final path = p.join(dirFor(id), fileName);
-    final reserved = {
+    final reserved = [
       _descriptorFileName,
       _installerMetaFileName,
       p.basename(KnownLocationsStore.pathIn(dirFor(id))),
-    };
+    ];
     if (!p.isWithin(dirFor(id), path) ||
-        reserved.contains(fileName.toLowerCase())) {
+        reserved.any(
+          (name) =>
+              name == fileName.toLowerCase() ||
+              isAtomicTempNameOf(fileName, name),
+        )) {
       throw ArgumentError.value(fileName, 'fileName');
     }
     return path;
@@ -116,9 +121,16 @@ class CustomAppStore {
       final json = jsonDecode(await meta.readAsString());
       if (json is! Map<String, dynamic>) return null;
       final installer = StoredInstaller.fromJson(json);
-      // המטא-דאטה בלי הקובץ עצמו היא שקר — כך נראית תיקייה שהועתקה חלקית.
-      if (!await File(installerPathFor(id, installer)).exists()) return null;
-      return installer;
+      final path = installerPathFor(id, installer);
+      if (await File(path).exists()) return installer;
+      final expected = installer.sha256;
+      final pending = File('$path.part');
+      if (expected != null &&
+          await pending.exists() &&
+          await sha256OfFile(pending.path) == expected) {
+        return installer;
+      }
+      return null;
     } catch (_) {
       return null;
     }
@@ -135,15 +147,18 @@ class CustomAppStore {
 
   Future<void> saveDescriptor(AppDescriptor descriptor) async {
     await Directory(dirFor(descriptor.id)).create(recursive: true);
-    await File(descriptorPathFor(descriptor.id))
-        .writeAsString(descriptor.encode());
+    await writeStringAtomically(
+      descriptorPathFor(descriptor.id),
+      descriptor.encode(),
+    );
   }
 
-  /// רושם קובץ התקנה שכבר הועתק לתיקיית התוכנה.
   Future<void> saveInstaller(String id, StoredInstaller installer) async {
     await Directory(dirFor(id)).create(recursive: true);
-    await File(p.join(dirFor(id), _installerMetaFileName))
-        .writeAsString(jsonEncode(installer.toJson()));
+    await writeStringAtomically(
+      p.join(dirFor(id), _installerMetaFileName),
+      jsonEncode(installer.toJson()),
+    );
   }
 
   /// מסיר תוכנה מהמרשם, על קובץ ההתקנה שלה. **אינו נוגע בתוכנה המותקנת

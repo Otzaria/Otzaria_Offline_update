@@ -55,6 +55,18 @@ void main() {
     expect((await store.load('org.example.app'))!.descriptor.name, 'חדש');
   });
 
+  test('כתיבה שנכשלה באמצע אינה פוגעת בתיאור הקיים', () async {
+    await store.add(descriptor(name: 'תוכנה א'));
+    blockAtomicWrites(
+        p.join(root, 'apps', 'org.example.app'), ['descriptor.json']);
+
+    await expectLater(
+      store.saveDescriptor(descriptor(name: 'תוכנה ב')),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect((await store.load('org.example.app'))!.descriptor.name, 'תוכנה א');
+  });
+
   test('הרשימה ממוינת לפי שם', () async {
     await store.add(descriptor(id: 'c', name: 'גימל'));
     await store.add(descriptor(id: 'a', name: 'אלף'));

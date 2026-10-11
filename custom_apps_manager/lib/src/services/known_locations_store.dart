@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'atomic_file.dart';
+
 /// זוכר **איפה נמצאה התוכנה בכל מחשב** שהכונן ביקר בו, ומדרג את המיקומים
 /// לפי כמה מחשבים ראו אותם.
 ///
@@ -40,7 +42,6 @@ class KnownLocationsStore {
     }
   }
 
-  /// רושם שהתוכנה נמצאה ב-[installDir] במחשב הזה.
   Future<void> record(String installDir, {String? hostName}) async {
     final host = hostName ?? _hostName();
     if (host.isEmpty) return;
@@ -49,9 +50,12 @@ class KnownLocationsStore {
     if (seen[host] == installDir) return;
 
     seen[host] = installDir;
-    final file = File(filePath);
-    await file.parent.create(recursive: true);
-    await file.writeAsString(jsonEncode({'seen': seen}));
+    try {
+      await File(filePath).parent.create(recursive: true);
+      await writeStringAtomically(filePath, jsonEncode({'seen': seen}));
+    } on FileSystemException {
+      return;
+    }
   }
 
   /// המיקומים שנלמדו, **מהנפוץ לנדיר**: תיקייה שנמצאה בשלושה מחשבים
