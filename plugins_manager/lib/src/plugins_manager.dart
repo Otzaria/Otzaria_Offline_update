@@ -225,19 +225,16 @@ class PluginsManager {
     return (await _store()).absolutePath(relativePath);
   }
 
-  /// מעתיק את קובץ ה-`.otzplugin` ליעד שהמשתמש בחר. הבחירה עצמה נעשית
-  /// בשכבת ה-UI (file picker), כי היא תלוית-Flutter.
   Future<PluginInstallResult> saveCopy(
     StorePlugin plugin,
     String destPath, {
     String? appVersion,
   }) async {
     final store = await _store();
-    final local = plugin.localFileFor(
-      plugin.installTarget(appVersion)?.version,
-    );
+    final version = plugin.installTarget(appVersion)?.version;
+    final local = plugin.localFileFor(version);
     final strings = AppL10n.strings.pluginsDomain;
-    if (local == null || !await store.hasAsset(local.relativePath)) {
+    if (local == null || !await store.hasFileFor(plugin, version)) {
       return PluginInstallResult.failure(strings.fileNotAvailableSyncFirst);
     }
 
@@ -271,7 +268,7 @@ class PluginsManager {
     }
 
     var local = plugin.localFileFor(target.version);
-    if (local == null || !await store.hasAsset(local.relativePath)) {
+    if (local == null || !await store.hasFileFor(plugin, target.version)) {
       local = await _fetchMissingFile(store, plugin, target, onPluginUpdated);
       if (local == null) {
         return PluginInstallResult.failure(strings.pluginFileNotAvailable);
@@ -297,7 +294,8 @@ class PluginsManager {
       final asset = await _client.downloadAsset(
         target.downloadUrl,
         store.pluginFilePathNoExt(plugin.id, target.version),
-        preferredExt: '.otzplugin',
+        preferredExt: PluginMirrorStore.pluginFileExt,
+        requiredExt: PluginMirrorStore.pluginFileExt,
         expectedSize: target.fileSize,
         isValid: (path) => PluginManifestReader.read(path) != null,
       );

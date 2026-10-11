@@ -29,8 +29,8 @@ class PluginStoreClient {
     http.Client? client,
     this.timeout = const Duration(seconds: 20),
     this.stallTimeout = const Duration(seconds: 30),
-  })  : baseUrl = _trimTrailingSlash(baseUrl),
-        _client = client ?? http.Client();
+  }) : baseUrl = _trimTrailingSlash(baseUrl),
+       _client = client ?? http.Client();
 
   static const String defaultBaseUrl = 'https://otzaria.org';
 
@@ -66,20 +66,20 @@ class PluginStoreClient {
   /// שולף את דף הבית האצור של החנות — טקסטים, תוספים נבחרים וסיכומי
   /// הקטגוריות, הכול בקריאה אחת.
   Future<Map<String, dynamic>> fetchStoreHome() async => _asMap(
-        await _getJson(
-          '/api/plugins/store-home',
-          AppL10n.strings.pluginsDomain.whatStoreStructure,
-        ),
-      );
+    await _getJson(
+      '/api/plugins/store-home',
+      AppL10n.strings.pluginsDomain.whatStoreStructure,
+    ),
+  );
 
   /// שולף דף קטגוריה שלם — כל התוספים המשובצים בה, בסדר שנקבע באתר.
   /// בלי `limit` האתר מחזיר את כל הרשימה, וזה מה שנדרש למראה.
   Future<Map<String, dynamic>> fetchCategory(String slug) async => _asMap(
-        await _getJson(
-          '/api/plugins/categories/${Uri.encodeComponent(slug)}',
-          AppL10n.strings.pluginsDomain.whatCategory(slug),
-        ),
-      );
+    await _getJson(
+      '/api/plugins/categories/${Uri.encodeComponent(slug)}',
+      AppL10n.strings.pluginsDomain.whatCategory(slug),
+    ),
+  );
 
   /// GET + פענוח JSON עם הודעות שגיאה למשתמש. [what] נכנס להודעה.
   Future<Object?> _getJson(String path, String what) async {
@@ -91,9 +91,7 @@ class PluginStoreClient {
       throw PluginStoreException(strings.siteUnreachable(describeError(e)));
     }
     if (response.statusCode != 200) {
-      throw PluginStoreException(
-        strings.loadFailed(what, response.statusCode),
-      );
+      throw PluginStoreException(strings.loadFailed(what, response.statusCode));
     }
     try {
       return jsonDecode(utf8.decode(response.bodyBytes));
@@ -112,6 +110,7 @@ class PluginStoreClient {
     String url,
     String destPathNoExt, {
     String? preferredExt,
+    String? requiredExt,
     int? expectedSize,
     void Function()? checkCancelled,
     bool Function(String path)? isValid,
@@ -126,20 +125,26 @@ class PluginStoreClient {
       expectedSize: expectedSize,
       checkCancelled: checkCancelled,
       statusError: (status) => PluginStoreException(
-          AppL10n.strings.pluginsDomain.httpStatusFor(status, url)),
+        AppL10n.strings.pluginsDomain.httpStatusFor(status, url),
+      ),
       sizeError: (actual, expected) => PluginStoreException(
-          AppL10n.strings.appDomain.installerSizeMismatch(actual, expected)),
+        AppL10n.strings.appDomain.installerSizeMismatch(actual, expected),
+      ),
     );
     if (isValid != null && !isValid(stagingPath)) {
       await File(stagingPath).delete();
       throw PluginStoreException(
-          AppL10n.strings.pluginsDomain.downloadedFileNotPlugin);
+        AppL10n.strings.pluginsDomain.downloadedFileNotPlugin,
+      );
     }
 
-    final fromDisposition =
-        parseContentDisposition(response.headers['content-disposition']);
-    final contentType =
-        (response.headers['content-type'] ?? '').split(';').first.trim();
+    final fromDisposition = parseContentDisposition(
+      response.headers['content-disposition'],
+    );
+    final contentType = (response.headers['content-type'] ?? '')
+        .split(';')
+        .first
+        .trim();
 
     var ext = preferredExt ?? '';
     String? originalName;
@@ -148,6 +153,12 @@ class PluginStoreClient {
       originalName = fromDisposition.name;
     } else if (extByContentType.containsKey(contentType)) {
       ext = extByContentType[contentType]!;
+    }
+    if (requiredExt != null) {
+      ext = requiredExt;
+      if (originalName != null) {
+        originalName = p.setExtension(originalName, requiredExt);
+      }
     }
 
     final destPath = destPathNoExt + ext;
@@ -168,8 +179,8 @@ class PluginStoreClient {
 
   String absolute(String url) =>
       (url.startsWith('http://') || url.startsWith('https://'))
-          ? url
-          : '$baseUrl$url';
+      ? url
+      : '$baseUrl$url';
 
   void dispose() => _client.close();
 
@@ -187,8 +198,10 @@ class PluginStoreClient {
   static ContentDispositionName? parseContentDisposition(String? header) {
     if (header == null || header.isEmpty) return null;
 
-    final utf8Match = RegExp(r"filename\*=UTF-8''([^;]+)", caseSensitive: false)
-        .firstMatch(header);
+    final utf8Match = RegExp(
+      r"filename\*=UTF-8''([^;]+)",
+      caseSensitive: false,
+    ).firstMatch(header);
     if (utf8Match != null) {
       try {
         final name = Uri.decodeComponent(utf8Match.group(1)!);
@@ -198,8 +211,10 @@ class PluginStoreClient {
       }
     }
 
-    final plainMatch = RegExp(r'filename="?([^";]+)"?', caseSensitive: false)
-        .firstMatch(header);
+    final plainMatch = RegExp(
+      r'filename="?([^";]+)"?',
+      caseSensitive: false,
+    ).firstMatch(header);
     if (plainMatch != null) {
       final name = plainMatch.group(1)!;
       return ContentDispositionName(name, p.extension(name));

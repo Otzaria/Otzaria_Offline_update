@@ -21,12 +21,11 @@ void main() {
   PluginStoreClient clientFor(
     Future<http.Response> Function(http.Request request) handler, {
     Duration timeout = const Duration(seconds: 20),
-  }) =>
-      PluginStoreClient(
-        baseUrl: 'https://otzaria.test',
-        client: MockClient(handler),
-        timeout: timeout,
-      );
+  }) => PluginStoreClient(
+    baseUrl: 'https://otzaria.test',
+    client: MockClient(handler),
+    timeout: timeout,
+  );
 
   group('כתובות', () {
     test('המשך אוטומטי משמר את הסיומת ואת העותק הישן עד להשלמה', () async {
@@ -38,24 +37,34 @@ void main() {
         throw http.ClientException('disconnected');
       }
 
-      final client =
-          PluginStoreClient(client: MockClient.streaming((req, _) async {
-        if (++requests == 1) {
-          return http.StreamedResponse(interrupted(), 200,
+      final client = PluginStoreClient(
+        client: MockClient.streaming((req, _) async {
+          if (++requests == 1) {
+            return http.StreamedResponse(
+              interrupted(),
+              200,
               contentLength: 6,
               headers: {
                 'etag': '"v1"',
-                'content-disposition': 'attachment; filename=plugin.otzplugin'
-              });
-        }
-        expect(previous.readAsStringSync(), 'previous');
-        expect(req.headers['Range'], 'bytes=3-');
-        return http.StreamedResponse(Stream.value(utf8.encode('def')), 206,
-            contentLength: 3, headers: {'content-range': 'bytes 3-5/6'});
-      }));
+                'content-disposition': 'attachment; filename=plugin.otzplugin',
+              },
+            );
+          }
+          expect(previous.readAsStringSync(), 'previous');
+          expect(req.headers['Range'], 'bytes=3-');
+          return http.StreamedResponse(
+            Stream.value(utf8.encode('def')),
+            206,
+            contentLength: 3,
+            headers: {'content-range': 'bytes 3-5/6'},
+          );
+        }),
+      );
       addTearDown(client.dispose);
-      final result =
-          await client.downloadAsset('https://example.test/plugin', target);
+      final result = await client.downloadAsset(
+        'https://example.test/plugin',
+        target,
+      );
       expect(result.ext, '.otzplugin');
       expect(result.size, 6);
       expect(previous.readAsStringSync(), 'abcdef');
@@ -105,11 +114,13 @@ void main() {
 
       expect(
         () => client.fetchCatalog(),
-        throwsA(isA<PluginStoreException>().having(
-          (e) => e.message,
-          'message',
-          strings.responseNotPluginList,
-        )),
+        throwsA(
+          isA<PluginStoreException>().having(
+            (e) => e.message,
+            'message',
+            strings.responseNotPluginList,
+          ),
+        ),
       );
     });
 
@@ -118,11 +129,13 @@ void main() {
 
       expect(
         () => client.fetchCatalog(),
-        throwsA(isA<PluginStoreException>().having(
-          (e) => e.message,
-          'message',
-          strings.loadFailed(strings.whatPluginList, 503),
-        )),
+        throwsA(
+          isA<PluginStoreException>().having(
+            (e) => e.message,
+            'message',
+            strings.loadFailed(strings.whatPluginList, 503),
+          ),
+        ),
       );
     });
 
@@ -131,11 +144,13 @@ void main() {
 
       expect(
         () => client.fetchCatalog(),
-        throwsA(isA<PluginStoreException>().having(
-          (e) => e.message,
-          'message',
-          strings.responseNotJson(strings.whatPluginList),
-        )),
+        throwsA(
+          isA<PluginStoreException>().having(
+            (e) => e.message,
+            'message',
+            strings.responseNotJson(strings.whatPluginList),
+          ),
+        ),
       );
     });
 
@@ -146,41 +161,46 @@ void main() {
 
       expect(
         () => client.fetchCatalog(),
-        throwsA(isA<PluginStoreException>().having(
-          (e) => e.message,
-          'message',
-          startsWith(strings.siteUnreachable('')),
-        )),
+        throwsA(
+          isA<PluginStoreException>().having(
+            (e) => e.message,
+            'message',
+            startsWith(strings.siteUnreachable('')),
+          ),
+        ),
       );
     });
 
     test('בקשה שנתקעת נחתכת לפי ה-timeout, בהודעה מתורגמת', () async {
-      final client = clientFor(
-        (_) async {
-          await Future<void>.delayed(const Duration(milliseconds: 300));
-          return jsonResponse(const []);
-        },
-        timeout: const Duration(milliseconds: 20),
-      );
+      final client = clientFor((_) async {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        return jsonResponse(const []);
+      }, timeout: const Duration(milliseconds: 20));
 
       expect(
         () => client.fetchCatalog(),
-        throwsA(isA<PluginStoreException>().having(
-          (e) => e.message,
-          'message',
-          // ולא "TimeoutException after ...: Future not completed".
-          strings.siteUnreachable(strings.networkTimedOut),
-        )),
+        throwsA(
+          isA<PluginStoreException>().having(
+            (e) => e.message,
+            'message',
+            // ולא "TimeoutException after ...: Future not completed".
+            strings.siteUnreachable(strings.networkTimedOut),
+          ),
+        ),
       );
     });
 
     test('גוף התשובה מפוענח כ-UTF-8 גם בלי charset בכותרת', () async {
-      final client = clientFor((_) async => http.Response.bytes(
-            utf8.encode(jsonEncode([
-              {'id': 'a', 'name': 'מפרשים'}
-            ])),
-            200,
-          ));
+      final client = clientFor(
+        (_) async => http.Response.bytes(
+          utf8.encode(
+            jsonEncode([
+              {'id': 'a', 'name': 'מפרשים'},
+            ]),
+          ),
+          200,
+        ),
+      );
 
       expect((await client.fetchCatalog()).single['name'], 'מפרשים');
     });
@@ -193,7 +213,7 @@ void main() {
         return jsonResponse({
           'settings': {'homeTitle': 'החנות', 'homeSubtitle': 'תקציר'},
           'categories': [
-            {'slug': 'study', 'name': 'כלי לימוד'}
+            {'slug': 'study', 'name': 'כלי לימוד'},
           ],
         });
       });
@@ -203,30 +223,36 @@ void main() {
       expect((home['categories'] as List).length, 1);
     });
 
-    test('אתר ישן בלי הנתיב מחזיר 404 — הלקוח זורק, הסנכרון הוא שסופג',
-        () async {
-      final client = clientFor((_) async => http.Response('Not found', 404));
+    test(
+      'אתר ישן בלי הנתיב מחזיר 404 — הלקוח זורק, הסנכרון הוא שסופג',
+      () async {
+        final client = clientFor((_) async => http.Response('Not found', 404));
 
-      expect(
-        () => client.fetchStoreHome(),
-        throwsA(isA<PluginStoreException>().having(
-          (e) => e.message,
-          'message',
-          strings.loadFailed(strings.whatStoreStructure, 404),
-        )),
-      );
-    });
+        expect(
+          () => client.fetchStoreHome(),
+          throwsA(
+            isA<PluginStoreException>().having(
+              (e) => e.message,
+              'message',
+              strings.loadFailed(strings.whatStoreStructure, 404),
+            ),
+          ),
+        );
+      },
+    );
 
     test('תשובה שאינה אובייקט זורקת', () async {
       final client = clientFor((_) async => jsonResponse(const []));
 
       expect(
         () => client.fetchStoreHome(),
-        throwsA(isA<PluginStoreException>().having(
-          (e) => e.message,
-          'message',
-          strings.responseUnexpectedShape,
-        )),
+        throwsA(
+          isA<PluginStoreException>().having(
+            (e) => e.message,
+            'message',
+            strings.responseUnexpectedShape,
+          ),
+        ),
       );
     });
 
@@ -260,11 +286,13 @@ void main() {
 
       expect(
         () => client.fetchCategory('study'),
-        throwsA(isA<PluginStoreException>().having(
-          (e) => e.message,
-          'message',
-          strings.loadFailed(strings.whatCategory('study'), 500),
-        )),
+        throwsA(
+          isA<PluginStoreException>().having(
+            (e) => e.message,
+            'message',
+            strings.loadFailed(strings.whatCategory('study'), 500),
+          ),
+        ),
       );
     });
   });
@@ -277,20 +305,20 @@ void main() {
     PluginStoreClient streamingClientFor(
       Stream<List<int>> body, {
       required Duration stallTimeout,
-    }) =>
-        PluginStoreClient(
-          baseUrl: 'https://otzaria.test',
-          client: MockClient.streaming(
-            (_, __) async => http.StreamedResponse(body, 200),
-          ),
-          stallTimeout: stallTimeout,
-        );
+    }) => PluginStoreClient(
+      baseUrl: 'https://otzaria.test',
+      client: MockClient.streaming(
+        (_, __) async => http.StreamedResponse(body, 200),
+      ),
+      stallTimeout: stallTimeout,
+    );
 
     test('הסיומת נלקחת מ-Content-Disposition, כולל שם עברי', () async {
-      final client = clientFor((_) async => asset(pluginBytes('{"id":"x"}'), {
-            'content-disposition':
-                "attachment; filename*=UTF-8''%D7%9E%D7%A4%D7%A8%D7%A9%D7%99%D7%9D.otzplugin",
-          }));
+      final client = clientFor(
+        (_) async => asset(pluginBytes('{"id":"x"}'), {
+          'content-disposition': "attachment; filename*=UTF-8''%D7%9E%D7%A4%D7%A8%D7%A9%D7%99%D7%9D.otzplugin",
+        }),
+      );
 
       final downloaded = await client.downloadAsset(
         '/api/plugins/a/download',
@@ -303,6 +331,41 @@ void main() {
       expect(downloaded.path, p.join(temp.path, 'plugin.otzplugin'));
       expect(File(downloaded.path).existsSync(), isTrue);
       expect(downloaded.size, File(downloaded.path).lengthSync());
+    });
+
+    test('requiredExt גובר על הסיומת שב-Content-Disposition', () async {
+      final client = clientFor(
+        (_) async => asset(pluginBytes('{"id":"x"}'), {
+          'content-disposition': 'attachment; filename="plugin.zip"',
+        }),
+      );
+
+      final downloaded = await client.downloadAsset(
+        '/api/plugins/a/download',
+        p.join(temp.path, 'plugin'),
+        requiredExt: '.otzplugin',
+      );
+
+      expect(downloaded.ext, '.otzplugin');
+      expect(downloaded.originalName, 'plugin.otzplugin');
+      expect(downloaded.path, p.join(temp.path, 'plugin.otzplugin'));
+      expect(File(downloaded.path).existsSync(), isTrue);
+      expect(File(p.join(temp.path, 'plugin.zip')).existsSync(), isFalse);
+    });
+
+    test('requiredExt גובר גם על Content-Type', () async {
+      final client = clientFor(
+        (_) async => asset(const [1], {'content-type': 'image/png'}),
+      );
+
+      final downloaded = await client.downloadAsset(
+        '/x',
+        p.join(temp.path, 'a'),
+        requiredExt: '.otzplugin',
+      );
+
+      expect(downloaded.ext, '.otzplugin');
+      expect(downloaded.originalName, isNull);
     });
 
     test('בלי Content-Disposition הסיומת נגזרת מ-Content-Type', () async {
@@ -322,10 +385,10 @@ void main() {
     });
 
     test('Content-Type עם charset עדיין ממופה', () async {
-      final client = clientFor((_) async => asset(
-            const [1, 2],
-            {'content-type': 'image/jpeg; charset=binary'},
-          ));
+      final client = clientFor(
+        (_) async =>
+            asset(const [1, 2], {'content-type': 'image/jpeg; charset=binary'}),
+      );
 
       final downloaded = await client.downloadAsset(
         '/x',
@@ -344,8 +407,7 @@ void main() {
           '/x',
           p.join(temp.path, 'a'),
           preferredExt: '.otzplugin',
-        ))
-            .ext,
+        )).ext,
         '.otzplugin',
       );
       expect(
@@ -372,35 +434,43 @@ void main() {
 
       expect(
         () => client.downloadAsset(
-            '/api/plugins/a/image', p.join(temp.path, 'i')),
-        throwsA(isA<PluginStoreException>().having(
-          (e) => e.message,
-          'message',
-          strings.httpStatusFor(404, '/api/plugins/a/image'),
-        )),
+          '/api/plugins/a/image',
+          p.join(temp.path, 'i'),
+        ),
+        throwsA(
+          isA<PluginStoreException>().having(
+            (e) => e.message,
+            'message',
+            strings.httpStatusFor(404, '/api/plugins/a/image'),
+          ),
+        ),
       );
     });
 
-    test('הורדה איטית שמתקדמת אינה נחתכת — הקצוב הוא על תקיעה, לא על משך',
-        () async {
-      Stream<List<int>> trickle() async* {
-        for (var i = 0; i < 5; i++) {
-          await Future<void>.delayed(const Duration(milliseconds: 40));
-          yield [i];
+    test(
+      'הורדה איטית שמתקדמת אינה נחתכת — הקצוב הוא על תקיעה, לא על משך',
+      () async {
+        Stream<List<int>> trickle() async* {
+          for (var i = 0; i < 5; i++) {
+            await Future<void>.delayed(const Duration(milliseconds: 40));
+            yield [i];
+          }
         }
-      }
 
-      final client = streamingClientFor(
-        trickle(),
-        stallTimeout: const Duration(milliseconds: 150),
-      );
+        final client = streamingClientFor(
+          trickle(),
+          stallTimeout: const Duration(milliseconds: 150),
+        );
 
-      // 200ms סה"כ מול קצוב של 150ms — לפני התיקון זה היה נכשל.
-      final downloaded =
-          await client.downloadAsset('/x', p.join(temp.path, 'a'));
-      expect(downloaded.size, 5);
-      expect(File(downloaded.path).lengthSync(), 5);
-    });
+        // 200ms סה"כ מול קצוב של 150ms — לפני התיקון זה היה נכשל.
+        final downloaded = await client.downloadAsset(
+          '/x',
+          p.join(temp.path, 'a'),
+        );
+        expect(downloaded.size, 5);
+        expect(File(downloaded.path).lengthSync(), 5);
+      },
+    );
 
     test('גוף שנתקע נחתך, בלי קובץ חלקי ובלי לפגוע בקובץ הקודם', () async {
       final stuck = StreamController<List<int>>();

@@ -61,6 +61,9 @@ class _Site {
 
   List<Map<String, dynamic>> plugins;
 
+  String downloadFileName = 'plugin.otzplugin';
+
+  /// דף הבית מחזיר תוספים רק לקטגוריות שמסומנות להצגה בו.
   Map<String, dynamic> storeHome = {
     'settings': {
       'homeTitle': 'חנות התוספים של אוצריא',
@@ -131,7 +134,7 @@ class _Site {
         200,
         headers: {
           'content-disposition':
-              "attachment; filename*=UTF-8''plugin.otzplugin",
+              "attachment; filename*=UTF-8''$downloadFileName",
         },
       );
     }
@@ -516,6 +519,62 @@ void main() {
         warningsOf(events),
         contains(strings.syncStructureFailed(strings.syncStructureEmpty)),
       );
+    });
+  });
+
+  group('סיומת קובץ הבילד', () {
+    test('בילד שהאתר שולח בשם .zip נשמר כ-.otzplugin', () async {
+      final catalog = await sync(_Site()..downloadFileName = 'plugin.zip');
+
+      final file = catalog.plugins.first.localFileFor('1.0.0')!;
+      expect(file.relativePath, 'files/a/plugin-1.0.0.otzplugin');
+      expect(file.ext, '.otzplugin');
+      expect(file.fileName, 'plugin.otzplugin');
+      final store = PluginMirrorStore(temp.path);
+      expect(await store.hasFileFor(catalog.plugins.first, '1.0.0'), isTrue);
+    });
+
+    test('רשומה ישנה של בילד .zip יורדת מחדש כ-.otzplugin', () async {
+      await sync(_Site());
+      final store = PluginMirrorStore(temp.path);
+      final old = await store.load();
+      final zipPath = store.absolutePath('files/a/plugin-1.0.0.zip');
+      File(store.absolutePath('files/a/plugin-1.0.0.otzplugin'))
+          .renameSync(zipPath);
+      await store.save(
+        PluginCatalog(
+          lastSync: old.lastSync,
+          categories: old.categories,
+          home: old.home,
+          plugins: [
+            for (final plugin in old.plugins)
+              plugin.id == 'a'
+                  ? plugin.copyWith(
+                      localFiles: {
+                        '1.0.0': PluginLocalFile(
+                          relativePath: 'files/a/plugin-1.0.0.zip',
+                          fileName: 'plugin.zip',
+                          ext: '.zip',
+                          size: File(zipPath).lengthSync(),
+                          sourceUrl:
+                              'https://otzaria.test/api/plugins/a/download',
+                        ),
+                      },
+                    )
+                  : plugin,
+          ],
+        ),
+      );
+
+      final second = _Site();
+      final catalog = await sync(second);
+
+      expect(second.requestsMatching('/a/download'), hasLength(1));
+      expect(
+        catalog.plugins.first.localFileFor('1.0.0')!.relativePath,
+        'files/a/plugin-1.0.0.otzplugin',
+      );
+      expect(File(zipPath).existsSync(), isFalse);
     });
   });
 

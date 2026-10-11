@@ -19,10 +19,11 @@ void main() {
     });
 
     test('תוסף שקובץ ההתקנה שלו עוד לא ירד הוא unknown, וזה מצב תקין', () {
-      final notDownloaded = StorePlugin.fromApi(
-        const {'id': 'a', 'name': 'אלף', 'version': '1.0.0'},
-        'https://otzaria.org',
-      );
+      final notDownloaded = StorePlugin.fromApi(const {
+        'id': 'a',
+        'name': 'אלף',
+        'version': '1.0.0',
+      }, 'https://otzaria.org');
 
       expect(notDownloaded.localFiles, isEmpty);
       expect(notDownloaded.manifestId, isNull);
@@ -97,10 +98,10 @@ void main() {
 
   group('StorePlugin.fromApi', () {
     test('הופך downloadUrl יחסי לכתובת מוחלטת', () {
-      final plugin = StorePlugin.fromApi(
-        {'id': 'x', 'downloadUrl': '/api/plugins/x/download'},
-        'https://otzaria.org',
-      );
+      final plugin = StorePlugin.fromApi({
+        'id': 'x',
+        'downloadUrl': '/api/plugins/x/download',
+      }, 'https://otzaria.org');
       expect(
         plugin.remoteDownloadUrl,
         'https://otzaria.org/api/plugins/x/download',
@@ -108,10 +109,10 @@ void main() {
     });
 
     test('כתובת מוחלטת נשארת כמו שהיא', () {
-      final plugin = StorePlugin.fromApi(
-        {'id': 'x', 'downloadUrl': 'https://cdn.example/x.otzplugin'},
-        'https://otzaria.org',
-      );
+      final plugin = StorePlugin.fromApi({
+        'id': 'x',
+        'downloadUrl': 'https://cdn.example/x.otzplugin',
+      }, 'https://otzaria.org');
       expect(plugin.remoteDownloadUrl, 'https://cdn.example/x.otzplugin');
     });
 
@@ -151,10 +152,10 @@ void main() {
     });
 
     test('tags שאינו רשימה מוחזר ריק', () {
-      final plugin = StorePlugin.fromApi(
-        const {'id': 'x', 'tags': 'לימוד'},
-        'https://otzaria.org',
-      );
+      final plugin = StorePlugin.fromApi(const {
+        'id': 'x',
+        'tags': 'לימוד',
+      }, 'https://otzaria.org');
       expect(plugin.tags, isEmpty);
     });
   });
@@ -162,8 +163,9 @@ void main() {
   group('StorePlugin.fromJson / toJson', () {
     test('manifestId ריק נקרא כ-null', () {
       expect(
-          StorePlugin.fromJson(const {'id': 'x', 'manifestId': ''}).manifestId,
-          isNull);
+        StorePlugin.fromJson(const {'id': 'x', 'manifestId': ''}).manifestId,
+        isNull,
+      );
       expect(
         StorePlugin.fromJson(const {'id': 'x', 'manifestId': 7}).manifestId,
         isNull,
@@ -171,21 +173,27 @@ void main() {
     });
 
     test('mediaVersion: מהאתר היא הגרסה, ונשמרת בקטלוג', () {
-      final remote = StorePlugin.fromApi(
-          const {'id': 'x', 'version': '1.2.0'}, 'https://site');
+      final remote = StorePlugin.fromApi(const {
+        'id': 'x',
+        'version': '1.2.0',
+      }, 'https://site');
       expect(remote.mediaVersion, '1.2.0');
 
-      final saved =
-          StorePlugin.fromJson(remote.copyWith(mediaVersion: '1.1.0').toJson());
+      final saved = StorePlugin.fromJson(
+        remote.copyWith(mediaVersion: '1.1.0').toJson(),
+      );
       expect(saved.mediaVersion, '1.1.0');
       expect(StorePlugin.fromJson(const {'id': 'x'}).mediaVersion, '');
       expect(remote.screenshotsMediaVersion, '1.2.0');
       final shots = StorePlugin.fromJson(
-          remote.copyWith(screenshotsMediaVersion: '1.0.0').toJson());
+        remote.copyWith(screenshotsMediaVersion: '1.0.0').toJson(),
+      );
       expect(shots.screenshotsMediaVersion, '1.0.0');
       expect(shots.mediaVersion, '1.2.0');
       expect(
-          StorePlugin.fromJson(const {'id': 'x'}).screenshotsMediaVersion, '');
+        StorePlugin.fromJson(const {'id': 'x'}).screenshotsMediaVersion,
+        '',
+      );
     });
 
     test('copyWith אינו מאפס שדות קיימים', () {
@@ -199,6 +207,16 @@ void main() {
       expect(copy.imagePath, 'files/x/image.png');
       expect(copy.manifestId, 'real');
       expect(copy.categorySlugs, ['study']);
+    });
+
+    test('copyWith עם clearImagePath מאפס את התמונה', () {
+      final plugin = StorePlugin.fromJson(const {
+        'id': 'x',
+        'image': 'files/x/image.png',
+      });
+
+      expect(plugin.copyWith(clearImagePath: true).imagePath, isNull);
+      expect(plugin.copyWith(imagePath: null).imagePath, 'files/x/image.png');
     });
 
     test('שוויון נקבע לפי הזהות והמצב המקומי', () {
@@ -312,8 +330,7 @@ void main() {
             'isPinned': true,
             'downloadCount': 42,
             'downloadUrl': '/api/plugins/abc/download',
-          }, 'https://otzaria.org')
-              .copyWith(
+          }, 'https://otzaria.org').copyWith(
             imagePath: 'files/abc/image.png',
             screenshotPaths: ['files/abc/screenshot-0.png'],
             localFiles: const {
@@ -536,15 +553,17 @@ void main() {
       expect(home.isEmpty, isFalse);
     });
 
-    test('שדות חסרים או מטיפוס אחר נותנים ריק — הממשק הוא שנופל לברירת מחדל',
-        () {
-      expect(PluginStoreHome.fromApi(const {}), PluginStoreHome.empty);
-      expect(
-        PluginStoreHome.fromApi(const {'homeTitle': 7}),
-        PluginStoreHome.empty,
-      );
-      expect(PluginStoreHome.empty.isEmpty, isTrue);
-    });
+    test(
+      'שדות חסרים או מטיפוס אחר נותנים ריק — הממשק הוא שנופל לברירת מחדל',
+      () {
+        expect(PluginStoreHome.fromApi(const {}), PluginStoreHome.empty);
+        expect(
+          PluginStoreHome.fromApi(const {'homeTitle': 7}),
+          PluginStoreHome.empty,
+        );
+        expect(PluginStoreHome.empty.isEmpty, isTrue);
+      },
+    );
 
     test('fromJson של ערך שאינו אובייקט מחזיר ריק', () {
       expect(PluginStoreHome.fromJson(null), PluginStoreHome.empty);
@@ -591,10 +610,10 @@ void main() {
 
   group('תאימות לאחור של "תוסף נבחר"', () {
     test('האתר עדיין שולח isPinned, ומשמעותו נבחר', () {
-      final plugin = StorePlugin.fromApi(
-        const {'id': 'x', 'isPinned': true},
-        'https://otzaria.org',
-      );
+      final plugin = StorePlugin.fromApi(const {
+        'id': 'x',
+        'isPinned': true,
+      }, 'https://otzaria.org');
       expect(plugin.isFeatured, isTrue);
     });
 

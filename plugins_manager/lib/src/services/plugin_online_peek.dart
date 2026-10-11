@@ -27,7 +27,10 @@ class PluginOnlinePeek {
     for (final plugin in local.plugins) {
       final have = <String>{};
       for (final entry in plugin.localFiles.entries) {
-        if (await store.hasBuild(entry.value)) have.add(entry.key);
+        if (await store.hasFileFor(plugin, entry.key) &&
+            await store.hasBuild(entry.value)) {
+          have.add(entry.key);
+        }
       }
       present[plugin.id] = have;
     }
@@ -96,7 +99,8 @@ class PluginOnlinePeek {
       }
 
       final have = presentBuilds[plugin.id] ?? const <String>{};
-      final needsWork = pendingMedia.contains(plugin.id) ||
+      final needsWork =
+          pendingMedia.contains(plugin.id) ||
           targets.any((target) => _needsFetch(target, known, have));
       if (!needsWork) continue;
 
@@ -104,9 +108,11 @@ class PluginOnlinePeek {
       // למשתמש ולכן נספרים בנפרד: בילד שהמראה כבר מתארת כשלה (הגרסה שנרשמה
       // בקטלוג, או בילד שנרשם לו קובץ) ואינו על הדיסק הוא חוסר — נמחק, לא
       // הועתק, או הורדה שנכשלה. כל בילד אחר הוא גרסה חדשה.
-      final describes = targets.any((target) =>
-          target.version == known.version ||
-          known.localFiles.containsKey(target.version));
+      final describes = targets.any(
+        (target) =>
+            target.version == known.version ||
+            known.localFiles.containsKey(target.version),
+      );
       if (describes) {
         missing.add(plugin.name);
       } else {

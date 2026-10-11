@@ -36,7 +36,9 @@ class PluginMirrorSync {
   final int maxConcurrentPlugins;
 
   Future<bool> hasPendingMedia(
-          StorePlugin plugin, StorePlugin? previous) async =>
+    StorePlugin plugin,
+    StorePlugin? previous,
+  ) async =>
       (plugin.remoteImageUrl.isEmpty && previous?.imagePath != null) ||
       (plugin.remoteScreenshotUrls.isEmpty &&
           (previous?.screenshotPaths.isNotEmpty ?? false)) ||
@@ -56,10 +58,12 @@ class PluginMirrorSync {
     final strings = AppL10n.strings.pluginsDomain;
 
     await store.ensureDirs();
-    report(PluginSyncProgress(
-      phase: PluginSyncPhase.start,
-      message: strings.syncLoadingCatalog,
-    ));
+    report(
+      PluginSyncProgress(
+        phase: PluginSyncPhase.start,
+        message: strings.syncLoadingCatalog,
+      ),
+    );
 
     final remote = await client.fetchCatalog();
     final previousCatalog = await store.load();
@@ -83,35 +87,38 @@ class PluginMirrorSync {
     final total = todo.where((plan) => plan.needsNetwork).length;
     var done = 0;
 
-    await runPooled(
-      [
-        for (final plan in todo)
-          () async {
-            if (isCancelled?.call() ?? false) return;
+    await runPooled([
+      for (final plan in todo)
+        () async {
+          if (isCancelled?.call() ?? false) return;
 
-            var plugin = plan.plugin;
-            if (plan.needsNetwork) {
-              done++;
-              report(PluginSyncProgress(
+          var plugin = plan.plugin;
+          if (plan.needsNetwork) {
+            done++;
+            report(
+              PluginSyncProgress(
                 phase: PluginSyncPhase.plugin,
                 message: strings.syncPlugin(plugin.name, done, total),
                 current: done,
                 total: total,
-              ));
-            }
+              ),
+            );
+          }
 
-            await Directory(store.pluginDir(plugin.id)).create(recursive: true);
-            plugin = await _syncImages(plan, plugin, report, cancelRequested);
-            final files =
-                await _syncPluginFiles(plan, plugin, report, cancelRequested);
-            plugin = files.plugin;
+          await Directory(store.pluginDir(plugin.id)).create(recursive: true);
+          plugin = await _syncImages(plan, plugin, report, cancelRequested);
+          final files = await _syncPluginFiles(
+            plan,
+            plugin,
+            report,
+            cancelRequested,
+          );
+          plugin = files.plugin;
 
-            fetched[plugin.id] = plugin;
-            if (!files.ok) failed.add(plugin.name);
-          },
-      ],
-      maxConcurrent: maxConcurrentPlugins,
-    );
+          fetched[plugin.id] = plugin;
+          if (!files.ok) failed.add(plugin.name);
+        },
+    ], maxConcurrent: maxConcurrentPlugins);
 
     final cancelled = isCancelled?.call() ?? false;
 
@@ -149,12 +156,14 @@ class PluginMirrorSync {
     }
 
     final skipped = plans.length - done;
-    report(PluginSyncProgress(
-      phase: PluginSyncPhase.done,
-      message: strings.syncDoneCounts(done, skipped),
-      current: done,
-      total: total,
-    ));
+    report(
+      PluginSyncProgress(
+        phase: PluginSyncPhase.done,
+        message: strings.syncDoneCounts(done, skipped),
+        current: done,
+        total: total,
+      ),
+    );
     return PluginSyncOutcome(
       catalog: catalog,
       fetched: done,
@@ -221,9 +230,11 @@ class PluginMirrorSync {
     return _PluginPlan(
       plugin: plugin,
       previous: previous,
-      needsImage: plugin.remoteImageUrl.isNotEmpty &&
+      needsImage:
+          plugin.remoteImageUrl.isNotEmpty &&
           !await _imageUnchanged(plugin, previous),
-      needsScreenshots: plugin.remoteScreenshotUrls.isNotEmpty &&
+      needsScreenshots:
+          plugin.remoteScreenshotUrls.isNotEmpty &&
           !await _screenshotsUnchanged(plugin, previous),
       missingBuilds: missing,
       isIncompatible: targets.isEmpty && plugin.remoteDownloadUrl.isNotEmpty,
@@ -241,20 +252,25 @@ class PluginMirrorSync {
     void Function(PluginSyncProgress) report,
   ) async {
     final strings = AppL10n.strings.pluginsDomain;
-    report(PluginSyncProgress(
-      phase: PluginSyncPhase.plugin,
-      message: strings.syncCategories,
-    ));
+    report(
+      PluginSyncProgress(
+        phase: PluginSyncPhase.plugin,
+        message: strings.syncCategories,
+      ),
+    );
 
     late final Map<String, dynamic> home;
     try {
       home = await client.fetchStoreHome();
     } catch (e) {
-      report(PluginSyncProgress(
-        phase: PluginSyncPhase.warning,
-        message:
-            strings.syncStructureFailed(PluginStoreClient.describeError(e)),
-      ));
+      report(
+        PluginSyncProgress(
+          phase: PluginSyncPhase.warning,
+          message: strings.syncStructureFailed(
+            PluginStoreClient.describeError(e),
+          ),
+        ),
+      );
       return _StoreStructure(
         home: previous.home,
         categories: previous.categories,
@@ -267,21 +283,25 @@ class PluginMirrorSync {
     if (rawCategories is List) {
       for (final raw in rawCategories) {
         if (raw is! Map) continue;
-        final summary =
-            PluginStoreCategory.fromApi(Map<String, dynamic>.from(raw));
+        final summary = PluginStoreCategory.fromApi(
+          Map<String, dynamic>.from(raw),
+        );
         if (summary.slug.isEmpty) continue;
-        categories
-            .add(await _categoryMembers(summary, syncedIds, previous, report));
+        categories.add(
+          await _categoryMembers(summary, syncedIds, previous, report),
+        );
       }
     }
 
     // תשובה תקינה אך חסרת מבנה (אתר ישן, שדה שהשתנה) אינה עילה למחוק את מה
     // שכבר במראה — אותו כלל בדיוק כמו בכשל הבקשה עצמה, למעלה.
     if (categories.isEmpty && previous.categories.isNotEmpty) {
-      report(PluginSyncProgress(
-        phase: PluginSyncPhase.warning,
-        message: strings.syncStructureFailed(strings.syncStructureEmpty),
-      ));
+      report(
+        PluginSyncProgress(
+          phase: PluginSyncPhase.warning,
+          message: strings.syncStructureFailed(strings.syncStructureEmpty),
+        ),
+      );
       return _StoreStructure(
         home: previous.home,
         categories: previous.categories,
@@ -310,11 +330,15 @@ class PluginMirrorSync {
         await client.fetchCategory(summary.slug),
       ).pluginIds;
     } catch (e) {
-      report(PluginSyncProgress(
-        phase: PluginSyncPhase.warning,
-        message: AppL10n.strings.pluginsDomain.syncCategoryFailed(
-            summary.name, PluginStoreClient.describeError(e)),
-      ));
+      report(
+        PluginSyncProgress(
+          phase: PluginSyncPhase.warning,
+          message: AppL10n.strings.pluginsDomain.syncCategoryFailed(
+            summary.name,
+            PluginStoreClient.describeError(e),
+          ),
+        ),
+      );
       final known = previous.categoryBySlug(summary.slug);
       if (known != null) ids = known.pluginIds;
     }
@@ -352,11 +376,15 @@ class PluginMirrorSync {
           remoteImageUrl: plan.previous?.remoteImageUrl,
         );
         if (!cancelled()) {
-          report(PluginSyncProgress(
-            phase: PluginSyncPhase.warning,
-            message: AppL10n.strings.pluginsDomain.syncImageFailed(
-                plugin.name, PluginStoreClient.describeError(e)),
-          ));
+          report(
+            PluginSyncProgress(
+              phase: PluginSyncPhase.warning,
+              message: AppL10n.strings.pluginsDomain.syncImageFailed(
+                plugin.name,
+                PluginStoreClient.describeError(e),
+              ),
+            ),
+          );
         }
       }
     }
@@ -382,11 +410,15 @@ class PluginMirrorSync {
             interrupted = true;
             break;
           }
-          report(PluginSyncProgress(
-            phase: PluginSyncPhase.warning,
-            message: AppL10n.strings.pluginsDomain.syncScreenshotFailed(
-                plugin.name, PluginStoreClient.describeError(e)),
-          ));
+          report(
+            PluginSyncProgress(
+              phase: PluginSyncPhase.warning,
+              message: AppL10n.strings.pluginsDomain.syncScreenshotFailed(
+                plugin.name,
+                PluginStoreClient.describeError(e),
+              ),
+            ),
+          );
         }
       }
       if (shots.isNotEmpty && !interrupted) {
@@ -400,7 +432,9 @@ class PluginMirrorSync {
   /// אותה כתובת, אותה גרסת תוסף, והקובץ עדיין על הדיסק. הגרסה נדרשת כי האתר
   /// יכול להחליף את תוכן התמונה מתחת לאותה כתובת.
   Future<bool> _imageUnchanged(
-          StorePlugin plugin, StorePlugin? previous) async =>
+    StorePlugin plugin,
+    StorePlugin? previous,
+  ) async =>
       previous != null &&
       _sameSource(previous.remoteImageUrl, plugin.remoteImageUrl) &&
       mediaStampOf(previous) == plugin.mediaVersion &&
@@ -413,8 +447,8 @@ class PluginMirrorSync {
 
   static String screenshotsStampOf(StorePlugin plugin) =>
       plugin.screenshotsMediaVersion.isNotEmpty
-          ? plugin.screenshotsMediaVersion
-          : mediaStampOf(plugin);
+      ? plugin.screenshotsMediaVersion
+      : mediaStampOf(plugin);
 
   /// כתובת ריקה בצד הקודם היא **קטלוג ישן** שנכתב לפני שהשדה נוסף, לא
   /// כתובת שהשתנתה. בלי החריג הזה הסנכרון הראשון אחרי העדכון היה מוריד את
@@ -430,7 +464,9 @@ class PluginMirrorSync {
         screenshotsStampOf(previous) != plugin.screenshotsMediaVersion ||
         !(previous.remoteScreenshotUrls.isEmpty ||
             _sameUrls(
-                previous.remoteScreenshotUrls, plugin.remoteScreenshotUrls)) ||
+              previous.remoteScreenshotUrls,
+              plugin.remoteScreenshotUrls,
+            )) ||
         previous.screenshotPaths.length != plugin.remoteScreenshotUrls.length) {
       return false;
     }
@@ -454,7 +490,10 @@ class PluginMirrorSync {
     StorePlugin? previous,
   ) async {
     final local = plugin.localFileFor(target.version);
-    if (!await store.hasBuild(local)) return false;
+    if (!await store.hasFileFor(plugin, target.version) ||
+        !await store.hasBuild(local)) {
+      return false;
+    }
     final known = previous?.versionEntries
         .where((entry) => entry.version == target.version)
         .firstOrNull;
@@ -476,7 +515,10 @@ class PluginMirrorSync {
       _sameBuildSource(recordedSource, target.downloadUrl, target.version);
 
   static bool _sameBuildSource(
-      String recorded, String current, String version) {
+    String recorded,
+    String current,
+    String version,
+  ) {
     if (_sameSource(recorded, current)) return true;
     const suffix = '/download';
     if (!recorded.endsWith(suffix) || !current.endsWith(suffix)) return false;
@@ -500,8 +542,9 @@ class PluginMirrorSync {
     if (plan.missingBuilds.isEmpty) {
       final known = plugin.anyLocalFile;
       if (plan.needsManifestId && known != null) {
-        final id =
-            PluginManifestReader.readId(store.absolutePath(known.relativePath));
+        final id = PluginManifestReader.readId(
+          store.absolutePath(known.relativePath),
+        );
         if (id != null) {
           return (plugin: plugin.copyWith(manifestId: id), ok: true);
         }
@@ -519,7 +562,8 @@ class PluginMirrorSync {
         final asset = await client.downloadAsset(
           target.downloadUrl,
           store.pluginFilePathNoExt(plugin.id, target.version),
-          preferredExt: '.otzplugin',
+          preferredExt: PluginMirrorStore.pluginFileExt,
+          requiredExt: PluginMirrorStore.pluginFileExt,
           expectedSize: target.fileSize,
           checkCancelled: () => _throwIfCancelled(cancelled),
           isValid: (path) => PluginManifestReader.read(path) != null,
@@ -538,11 +582,15 @@ class PluginMirrorSync {
           break;
         }
         ok = false;
-        report(PluginSyncProgress(
-          phase: PluginSyncPhase.warning,
-          message: AppL10n.strings.pluginsDomain.syncPluginFileFailed(
-              plugin.name, PluginStoreClient.describeError(e)),
-        ));
+        report(
+          PluginSyncProgress(
+            phase: PluginSyncPhase.warning,
+            message: AppL10n.strings.pluginsDomain.syncPluginFileFailed(
+              plugin.name,
+              PluginStoreClient.describeError(e),
+            ),
+          ),
+        );
       }
     }
 
@@ -552,7 +600,8 @@ class PluginMirrorSync {
         if (files.containsKey(entry.key)) continue;
         if (await store.hasAsset(entry.value.relativePath)) {
           files[entry.key] = entry.value.copyWith(
-            sourceUrl: entry.value.sourceUrl ??
+            sourceUrl:
+                entry.value.sourceUrl ??
                 previous.versionEntries
                     .where((version) => version.version == entry.key)
                     .firstOrNull

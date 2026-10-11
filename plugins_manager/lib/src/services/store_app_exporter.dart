@@ -126,13 +126,14 @@ class StoreAppExporter {
       String message, [
       int? current,
       int? total,
-    ]) =>
-        onProgress?.call(StoreAppExportProgress(
-          phase: phase,
-          message: message,
-          current: current,
-          total: total,
-        ));
+    ]) => onProgress?.call(
+      StoreAppExportProgress(
+        phase: phase,
+        message: message,
+        current: current,
+        total: total,
+      ),
+    );
 
     report(StoreAppExportPhase.start, strings.exportPreparing);
 
@@ -140,9 +141,11 @@ class StoreAppExporter {
     if (mirrored == null) {
       // "הורדת ומשהו מחק" ו"עוד לא הורדת" דורשים פעולה הפוכה מהמשתמש:
       // בראשון הורדה חוזרת רק תימחק שוב.
-      throw PluginStoreException(await appMirror.wasRemoved
-          ? strings.exportAppRemovedFromMirror
-          : strings.exportAppMissing);
+      throw PluginStoreException(
+        await appMirror.wasRemoved
+            ? strings.exportAppRemovedFromMirror
+            : strings.exportAppMissing,
+      );
     }
 
     final catalog = await store.load();
@@ -221,11 +224,14 @@ class StoreAppExporter {
       }
 
       if (missing) skipped.add(plugin.name);
-      exported.add(plugin.copyWith(
-        imagePath: imagePath,
-        screenshotPaths: screenshots,
-        localFiles: localFiles,
-      ));
+      exported.add(
+        plugin.copyWith(
+          imagePath: imagePath,
+          clearImagePath: imagePath == null,
+          screenshotPaths: screenshots,
+          localFiles: localFiles,
+        ),
+      );
     }
 
     // ── הקטלוג, אחרון ──────────────────────────────────────────────────────

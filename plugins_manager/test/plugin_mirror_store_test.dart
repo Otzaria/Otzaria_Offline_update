@@ -18,10 +18,11 @@ void main() {
   tearDown(() => deleteTempDir(temp));
 
   StorePlugin plugin(String id, {String name = 'תוסף', String? relativePath}) =>
-      StorePlugin.fromApi(
-        {'id': id, 'name': name, 'version': '1.0.0'},
-        'https://otzaria.org',
-      ).copyWith(
+      StorePlugin.fromApi({
+        'id': id,
+        'name': name,
+        'version': '1.0.0',
+      }, 'https://otzaria.org').copyWith(
         localFiles: relativePath == null
             ? const {}
             : {
@@ -95,16 +96,18 @@ void main() {
 
     test('קטלוג חצי-פגום שומר את הרשומות התקינות', () async {
       await store.ensureDirs();
-      File(store.catalogPath).writeAsStringSync(jsonEncode({
-        'plugins': [
-          'לא אובייקט',
-          {'id': 'ok', 'name': 'תקין'},
-        ],
-        'categories': [
-          {'name': 'בלי slug'},
-          {'slug': 'study', 'name': 'כלי לימוד'},
-        ],
-      }));
+      File(store.catalogPath).writeAsStringSync(
+        jsonEncode({
+          'plugins': [
+            'לא אובייקט',
+            {'id': 'ok', 'name': 'תקין'},
+          ],
+          'categories': [
+            {'name': 'בלי slug'},
+            {'slug': 'study', 'name': 'כלי לימוד'},
+          ],
+        }),
+      );
 
       final catalog = await store.load();
       expect(catalog.plugins.single.id, 'ok');
@@ -184,20 +187,24 @@ void main() {
         ..createSync(recursive: true);
       final path = p.join(dir.path, 'plugin-1.0.0.download');
       File('$path.part').writeAsStringSync('abc');
-      File('$path.resume').writeAsStringSync(jsonEncode({
-        'url': entry.remoteDownloadUrl,
-        'etag': '"v1"',
-        'total': 6,
-      }));
+      File('$path.resume').writeAsStringSync(
+        jsonEncode({
+          'url': entry.remoteDownloadUrl,
+          'etag': '"v1"',
+          'total': 6,
+        }),
+      );
       expect(await store.pruneUnusedFiles(entry), 0);
       expect(File('$path.part').existsSync(), isTrue);
       expect(await store.hasFileFor(entry, '1.0.0'), isFalse);
 
-      File('$path.resume').writeAsStringSync(jsonEncode({
-        'url': 'https://example.test/obsolete',
-        'etag': '"old"',
-        'total': 6,
-      }));
+      File('$path.resume').writeAsStringSync(
+        jsonEncode({
+          'url': 'https://example.test/obsolete',
+          'etag': '"old"',
+          'total': 6,
+        }),
+      );
       expect(await store.pruneUnusedFiles(entry), 2);
       expect(File('$path.part').existsSync(), isFalse);
     });
@@ -210,12 +217,24 @@ void main() {
       final entry = plugin('abc', relativePath: 'files/abc/plugin.otzplugin');
       expect(await store.hasFileFor(entry, '1.0.0'), isFalse);
 
-      final file =
-          File(store.absolutePath(entry.localFileFor('1.0.0')!.relativePath));
+      final file = File(
+        store.absolutePath(entry.localFileFor('1.0.0')!.relativePath),
+      );
       file.parent.createSync(recursive: true);
       file.writeAsBytesSync(pluginBytes('{"id":"real"}'));
 
       expect(await store.hasFileFor(entry, '1.0.0'), isTrue);
+    });
+
+    test('בילד שנשמר בסיומת אחרת מ-.otzplugin נחשב חסר', () async {
+      final entry = plugin('abc', relativePath: 'files/abc/plugin-1.0.0.zip');
+      final file = File(
+        store.absolutePath(entry.localFileFor('1.0.0')!.relativePath),
+      );
+      file.parent.createSync(recursive: true);
+      file.writeAsBytesSync(pluginBytes('{"id":"real"}'));
+
+      expect(await store.hasFileFor(entry, '1.0.0'), isFalse);
     });
 
     test('קובץ תחת תיקייה בעברית נמצא', () async {
@@ -223,8 +242,9 @@ void main() {
         'מפרשים',
         relativePath: 'files/מפרשים/plugin.otzplugin',
       );
-      final file =
-          File(store.absolutePath(entry.localFileFor('1.0.0')!.relativePath));
+      final file = File(
+        store.absolutePath(entry.localFileFor('1.0.0')!.relativePath),
+      );
       file.parent.createSync(recursive: true);
       file.writeAsBytesSync(pluginBytes('{"id":"real"}'));
 

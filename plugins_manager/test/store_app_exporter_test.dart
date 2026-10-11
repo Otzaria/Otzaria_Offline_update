@@ -13,8 +13,9 @@ import 'support.dart';
 ({PluginMirrorStore store, StoreAppMirror appMirror}) _mirrors(Directory dir) =>
     (
       store: PluginMirrorStore(p.join(dir.path, 'mirror')),
-      appMirror:
-          StoreAppMirror(mirrorDir: p.join(dir.path, 'mirror', 'store-app')),
+      appMirror: StoreAppMirror(
+        mirrorDir: p.join(dir.path, 'mirror', 'store-app'),
+      ),
     );
 
 /// כותב קובץ הרצה מזויף ואת המטא-דאטה שמצביעה עליו — בדיוק מה ש-`sync`
@@ -50,30 +51,29 @@ StorePlugin _plugin({
   String? imagePath,
   List<String> screenshots = const [],
   Map<String, PluginLocalFile> localFiles = const {},
-}) =>
-    StorePlugin(
-      id: id,
-      name: name,
-      shortDescription: '',
-      description: '',
-      version: '1.0.0',
-      status: 'stable',
-      author: '',
-      updatedAt: '',
-      originalDate: '',
-      compatibleWith: '',
-      maxAppVersion: null,
-      requiresNetwork: false,
-      tags: const [],
-      homepage: '',
-      downloadCount: 0,
-      supportsDirectInstall: true,
-      isFeatured: false,
-      remoteDownloadUrl: '',
-      imagePath: imagePath,
-      screenshotPaths: screenshots,
-      localFiles: localFiles,
-    );
+}) => StorePlugin(
+  id: id,
+  name: name,
+  shortDescription: '',
+  description: '',
+  version: '1.0.0',
+  status: 'stable',
+  author: '',
+  updatedAt: '',
+  originalDate: '',
+  compatibleWith: '',
+  maxAppVersion: null,
+  requiresNetwork: false,
+  tags: const [],
+  homepage: '',
+  downloadCount: 0,
+  supportsDirectInstall: true,
+  isFeatured: false,
+  remoteDownloadUrl: '',
+  imagePath: imagePath,
+  screenshotPaths: screenshots,
+  localFiles: localFiles,
+);
 
 void main() {
   late Directory temp;
@@ -93,34 +93,40 @@ void main() {
       File(p.join(dir.path, 'screenshot-0.png')).writeAsStringSync('shot');
       File(p.join(dir.path, 'plugin-1.0.0.otzplugin')).writeAsStringSync('zip');
 
-      await store.save(PluginCatalog(
-        lastSync: DateTime.utc(2026, 9, 1),
-        plugins: [
-          _plugin(
-            id: 'abc',
-            name: 'תוסף',
-            imagePath: 'files/abc/image.png',
-            screenshots: const ['files/abc/screenshot-0.png'],
-            localFiles: const {
-              '1.0.0': PluginLocalFile(
-                relativePath: 'files/abc/plugin-1.0.0.otzplugin',
-                fileName: 'plugin.otzplugin',
-                ext: '.otzplugin',
-                size: 3,
-              ),
-            },
-          ),
-        ],
-      ));
+      await store.save(
+        PluginCatalog(
+          lastSync: DateTime.utc(2026, 9, 1),
+          plugins: [
+            _plugin(
+              id: 'abc',
+              name: 'תוסף',
+              imagePath: 'files/abc/image.png',
+              screenshots: const ['files/abc/screenshot-0.png'],
+              localFiles: const {
+                '1.0.0': PluginLocalFile(
+                  relativePath: 'files/abc/plugin-1.0.0.otzplugin',
+                  fileName: 'plugin.otzplugin',
+                  ext: '.otzplugin',
+                  size: 3,
+                ),
+              },
+            ),
+          ],
+        ),
+      );
 
       final dest = p.join(temp.path, 'dest');
-      final outcome = await StoreAppExporter(store: store, appMirror: appMirror)
-          .exportTo(dest);
+      final outcome = await StoreAppExporter(
+        store: store,
+        appMirror: appMirror,
+      ).exportTo(dest);
 
       expect(outcome.plugins, 1);
       expect(outcome.skipped, isEmpty);
       expect(
-          File(p.join(dest, 'Otzaria-Plugin-Store.exe')).existsSync(), isTrue);
+        File(p.join(dest, 'Otzaria-Plugin-Store.exe')).existsSync(),
+        isTrue,
+      );
 
       // הקבצים יושבים תחת `Data\plugins\<id>\`, בלי שכבת `files`.
       final pluginDir = p.join(dest, 'Data', 'plugins', 'abc');
@@ -133,9 +139,11 @@ void main() {
       expect(Directory(p.join(dest, 'Data', 'files')).existsSync(), isFalse);
 
       // והקטלוג מצביע עליהם באותה צורה שהחנות כותבת בעצמה.
-      final catalog = PluginCatalog.fromJson(jsonDecode(
-        File(p.join(dest, 'Data', 'catalog.json')).readAsStringSync(),
-      ) as Map<String, dynamic>);
+      final catalog = PluginCatalog.fromJson(
+        jsonDecode(
+          File(p.join(dest, 'Data', 'catalog.json')).readAsStringSync(),
+        ) as Map<String, dynamic>,
+      );
       final exported = catalog.plugins.single;
       expect(exported.imagePath, 'abc/image.png');
       expect(exported.screenshotPaths, ['abc/screenshot-0.png']);
@@ -156,46 +164,59 @@ void main() {
       File(p.join(store.pluginDir('ok'), 'plugin-1.0.0.otzplugin'))
           .writeAsStringSync('zip');
 
-      await store.save(PluginCatalog(plugins: [
-        _plugin(
-          id: 'ok',
-          name: 'קיים',
-          localFiles: const {
-            '1.0.0': PluginLocalFile(
-              relativePath: 'files/ok/plugin-1.0.0.otzplugin',
-              fileName: 'a.otzplugin',
-              ext: '.otzplugin',
-              size: 3,
+      await store.save(
+        PluginCatalog(
+          plugins: [
+            _plugin(
+              id: 'ok',
+              name: 'קיים',
+              localFiles: const {
+                '1.0.0': PluginLocalFile(
+                  relativePath: 'files/ok/plugin-1.0.0.otzplugin',
+                  fileName: 'a.otzplugin',
+                  ext: '.otzplugin',
+                  size: 3,
+                ),
+              },
             ),
-          },
-        ),
-        _plugin(
-          id: 'gone',
-          name: 'חסר',
-          localFiles: const {
-            '1.0.0': PluginLocalFile(
-              relativePath: 'files/gone/plugin-1.0.0.otzplugin',
-              fileName: 'b.otzplugin',
-              ext: '.otzplugin',
-              size: 3,
+            _plugin(
+              id: 'gone',
+              name: 'חסר',
+              imagePath: 'files/gone/image.png',
+              localFiles: const {
+                '1.0.0': PluginLocalFile(
+                  relativePath: 'files/gone/plugin-1.0.0.otzplugin',
+                  fileName: 'b.otzplugin',
+                  ext: '.otzplugin',
+                  size: 3,
+                ),
+              },
             ),
-          },
+          ],
         ),
-      ]));
+      );
 
       final dest = p.join(temp.path, 'dest');
-      final outcome = await StoreAppExporter(store: store, appMirror: appMirror)
-          .exportTo(dest);
+      final outcome = await StoreAppExporter(
+        store: store,
+        appMirror: appMirror,
+      ).exportTo(dest);
 
       expect(outcome.skipped, ['חסר']);
       // הרשומה נשארת בקטלוג בלי קובץ — בדיוק כמו במראה שלנו.
-      final catalog = PluginCatalog.fromJson(jsonDecode(
-        File(p.join(dest, 'Data', 'catalog.json')).readAsStringSync(),
-      ) as Map<String, dynamic>);
+      final catalog = PluginCatalog.fromJson(
+        jsonDecode(
+          File(p.join(dest, 'Data', 'catalog.json')).readAsStringSync(),
+        ) as Map<String, dynamic>,
+      );
       expect(catalog.plugins.length, 2);
       expect(
         catalog.plugins.firstWhere((x) => x.id == 'gone').localFiles,
         isEmpty,
+      );
+      expect(
+        catalog.plugins.firstWhere((x) => x.id == 'gone').imagePath,
+        isNull,
       );
     });
 
@@ -206,15 +227,27 @@ void main() {
         ..parent.createSync(recursive: true)
         ..writeAsStringSync('nope');
 
-      await store.save(PluginCatalog(plugins: [
-        _plugin(id: 'evil', name: 'רע', imagePath: '../secret.txt'),
-      ]));
+      await store.save(
+        PluginCatalog(
+          plugins: [
+            _plugin(id: 'evil', name: 'רע', imagePath: '../secret.txt'),
+          ],
+        ),
+      );
 
       final dest = p.join(temp.path, 'dest');
-      final outcome = await StoreAppExporter(store: store, appMirror: appMirror)
-          .exportTo(dest);
+      final outcome = await StoreAppExporter(
+        store: store,
+        appMirror: appMirror,
+      ).exportTo(dest);
 
       expect(outcome.skipped, ['רע']);
+      final catalog = PluginCatalog.fromJson(
+        jsonDecode(
+          File(p.join(dest, 'Data', 'catalog.json')).readAsStringSync(),
+        ) as Map<String, dynamic>,
+      );
+      expect(catalog.plugins.single.imagePath, isNull);
       expect(File(p.join(dest, 'Data', 'secret.txt')).existsSync(), isFalse);
       expect(
         File(p.join(dest, 'Data', 'plugins', 'secret.txt')).existsSync(),
@@ -245,10 +278,13 @@ void main() {
       // מדמה אנטי-וירוס: הקובץ נמחק בזמן שהייצוא ממשיך הלאה. נתלים
       // ב-callback של ההתקדמות, שרץ בין העתקת ה-exe לכתיבת הקטלוג.
       await expectLater(
-        exporter.exportTo(dest, onProgress: (progress) {
-          if (progress.phase != StoreAppExportPhase.catalog) return;
-          File(p.join(dest, release.assetName)).deleteSync();
-        }),
+        exporter.exportTo(
+          dest,
+          onProgress: (progress) {
+            if (progress.phase != StoreAppExportPhase.catalog) return;
+            File(p.join(dest, release.assetName)).deleteSync();
+          },
+        ),
         throwsA(isA<PluginStoreException>()),
       );
     });
@@ -323,53 +359,54 @@ void main() {
       String asset = 'Otzaria-Plugin-Store.exe',
       bool draft = false,
       bool prerelease = false,
-    }) =>
+    }) => {
+      'tag_name': tag,
+      'draft': draft,
+      'prerelease': prerelease,
+      'assets': [
         {
-          'tag_name': tag,
-          'draft': draft,
-          'prerelease': prerelease,
-          'assets': [
-            {
-              'name': asset,
-              'browser_download_url': 'https://x/$tag/$asset',
-              'size': 100,
-            },
-          ],
-        };
+          'name': asset,
+          'browser_download_url': 'https://x/$tag/$asset',
+          'size': 100,
+        },
+      ],
+    };
 
-    test('fetchLatestStable מדלג על draft, prerelease ו-bundle ובוחר את הגבוה',
-        () async {
-      final requests = <http.Request>[];
-      final client = StoreAppReleaseClient(
-        httpClient: MockClient((request) async {
-          requests.add(request);
-          return jsonResponse([
-            releaseJson('v9', draft: true),
-            releaseJson('v8', prerelease: true),
-            releaseJson('bundle'),
-            releaseJson('v7', asset: 'Otzaria-Plugin-Store-Full.exe'),
-            releaseJson('v5'),
-            releaseJson('v6'),
-            'not a release',
-          ]);
-        }),
-      );
-      try {
-        final latest = await client.fetchLatestStable();
-        expect(latest!.tagName, 'v6');
-        expect(latest.version, 6);
-        expect(latest.downloadUrl, 'https://x/v6/Otzaria-Plugin-Store.exe');
-        expect(latest.pageUrl, StoreAppReleaseClient.releasesPageUrl);
-      } finally {
-        client.dispose();
-      }
-      expect(requests, hasLength(1));
-      expect(
-        requests.single.url.path,
-        '/repos/Otzaria/otzaria-plugin-store/releases',
-      );
-      expect(requests.single.headers['User-Agent'], 'otzaria-launcher');
-    });
+    test(
+      'fetchLatestStable מדלג על draft, prerelease ו-bundle ובוחר את הגבוה',
+      () async {
+        final requests = <http.Request>[];
+        final client = StoreAppReleaseClient(
+          httpClient: MockClient((request) async {
+            requests.add(request);
+            return jsonResponse([
+              releaseJson('v9', draft: true),
+              releaseJson('v8', prerelease: true),
+              releaseJson('bundle'),
+              releaseJson('v7', asset: 'Otzaria-Plugin-Store-Full.exe'),
+              releaseJson('v5'),
+              releaseJson('v6'),
+              'not a release',
+            ]);
+          }),
+        );
+        try {
+          final latest = await client.fetchLatestStable();
+          expect(latest!.tagName, 'v6');
+          expect(latest.version, 6);
+          expect(latest.downloadUrl, 'https://x/v6/Otzaria-Plugin-Store.exe');
+          expect(latest.pageUrl, StoreAppReleaseClient.releasesPageUrl);
+        } finally {
+          client.dispose();
+        }
+        expect(requests, hasLength(1));
+        expect(
+          requests.single.url.path,
+          '/repos/Otzaria/otzaria-plugin-store/releases',
+        );
+        expect(requests.single.headers['User-Agent'], 'otzaria-launcher');
+      },
+    );
 
     test('fetchLatestStable מחזיר null כשאין release יציב מתאים', () async {
       final client = StoreAppReleaseClient(
@@ -387,24 +424,26 @@ void main() {
       }
     });
 
-    test('fetchLatestStable: סטטוס שגוי, תשובה שאינה רשימה וכשל רשת זורקים',
-        () async {
-      for (final handler in <MockClientHandler>[
-        (_) async => http.Response('nope', 503),
-        (_) async => jsonResponse({'message': 'Not Found'}),
-        (request) async => throw http.ClientException('offline', request.url),
-      ]) {
-        final client = StoreAppReleaseClient(httpClient: MockClient(handler));
-        try {
-          await expectLater(
-            client.fetchLatestStable(),
-            throwsA(isA<PluginStoreException>()),
-          );
-        } finally {
-          client.dispose();
+    test(
+      'fetchLatestStable: סטטוס שגוי, תשובה שאינה רשימה וכשל רשת זורקים',
+      () async {
+        for (final handler in <MockClientHandler>[
+          (_) async => http.Response('nope', 503),
+          (_) async => jsonResponse({'message': 'Not Found'}),
+          (request) async => throw http.ClientException('offline', request.url),
+        ]) {
+          final client = StoreAppReleaseClient(httpClient: MockClient(handler));
+          try {
+            await expectLater(
+              client.fetchLatestStable(),
+              throwsA(isA<PluginStoreException>()),
+            );
+          } finally {
+            client.dispose();
+          }
         }
-      }
-    });
+      },
+    );
   });
 
   group('StoreAppMirror', () {
@@ -434,12 +473,12 @@ void main() {
     });
 
     StoreAppRelease v7({int? sizeBytes}) => StoreAppRelease(
-          tagName: 'v7',
-          version: 7,
-          assetName: 'Otzaria-Plugin-Store.exe',
-          downloadUrl: 'https://example.invalid/v7.exe',
-          sizeBytes: sizeBytes ?? 'MZ-v7-bytes'.length,
-        );
+      tagName: 'v7',
+      version: 7,
+      assetName: 'Otzaria-Plugin-Store.exe',
+      downloadUrl: 'https://example.invalid/v7.exe',
+      sizeBytes: sizeBytes ?? 'MZ-v7-bytes'.length,
+    );
 
     test('sync מוריד, כותב מטא-דאטה ומנקה את הגרסה הקודמת', () async {
       final mirrorDir = p.join(temp.path, 'mirror', 'store-app');

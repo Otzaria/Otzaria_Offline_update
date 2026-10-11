@@ -31,6 +31,7 @@ class PluginMirrorStore {
   final String mirrorDir;
 
   static const String catalogFileName = 'catalog.json';
+  static const String pluginFileExt = '.otzplugin';
 
   String get pluginsDir => p.join(mirrorDir, 'plugins');
   String get filesDir => p.join(pluginsDir, 'files');
@@ -84,9 +85,12 @@ class PluginMirrorStore {
       relativePath.isNotEmpty &&
       await File(absolutePath(relativePath)).exists();
 
-  /// האם הקובץ של בילד מסוים קיים בפועל על הדיסק.
-  Future<bool> hasFileFor(StorePlugin plugin, String? version) =>
-      hasAsset(plugin.localFileFor(version)?.relativePath);
+  Future<bool> hasFileFor(StorePlugin plugin, String? version) async {
+    final relativePath = plugin.localFileFor(version)?.relativePath;
+    return relativePath != null &&
+        relativePath.toLowerCase().endsWith(pluginFileExt) &&
+        await hasAsset(relativePath);
+  }
 
   Future<bool> hasBuild(PluginLocalFile? file) async {
     if (file == null || !await hasAsset(file.relativePath)) return false;
@@ -135,13 +139,10 @@ class PluginMirrorStore {
 
   /// החלקיים אינם קובצי התקנה, אבל סנכרון שנכשל צריך לשמור אותם להמשך.
   Future<Set<String>> pendingFilesFor(StorePlugin plugin) =>
-      pendingDownloadFiles(
-        Directory(pluginDir(plugin.id)),
-        {
-          for (final version in plugin.versionEntries) version.downloadUrl,
-          plugin.remoteDownloadUrl,
-          plugin.remoteImageUrl,
-          ...plugin.remoteScreenshotUrls,
-        },
-      );
+      pendingDownloadFiles(Directory(pluginDir(plugin.id)), {
+        for (final version in plugin.versionEntries) version.downloadUrl,
+        plugin.remoteDownloadUrl,
+        plugin.remoteImageUrl,
+        ...plugin.remoteScreenshotUrls,
+      });
 }

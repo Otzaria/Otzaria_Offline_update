@@ -260,59 +260,85 @@ void main() {
     });
 
     test('קובץ חסר מושלם ונרשם בקטלוג לפני ההתקנה', () async {
-      // האתר מחזיר סיומת .zip, ולכן ההתקנה נעצרת מיד אחרי ההשלמה —
-      // כך אפשר לאמת את ההשלמה בלי להפעיל מטפל פרוטוקול אמיתי.
       final entry = plugin(downloadUrl: '/api/plugins/a/download');
       await store.save(PluginCatalog(plugins: [entry]));
-
+      var reachedInstall = false;
       final reported = <StorePlugin>[];
-      final result = await manager(
-        client: MockClient(
-          (_) async => http.Response.bytes(
-            pluginBytes('{"id":"manifest-a"}'),
-            200,
-            headers: {
-              'content-disposition': 'attachment; filename="plugin.zip"',
-            },
-          ),
-        ),
-      ).directInstall(entry, onPluginUpdated: reported.add);
 
-      expect(result.error, strings.badPluginExtension);
+      await expectLater(
+        PluginsManager(
+          resolveMirrorDir: () async => temp.path,
+          resolvePluginsDir: () async =>
+              p.join(temp.path, 'otzaria', 'plugins'),
+          baseUrl: 'https://otzaria.test',
+          httpClient: MockClient(
+            (_) async => http.Response.bytes(
+              pluginBytes('{"id":"manifest-a"}'),
+              200,
+              headers: {
+                'content-disposition': 'attachment; filename="plugin.zip"',
+              },
+            ),
+          ),
+          otzariaLaunchPath: () async {
+            reachedInstall = true;
+            throw const _StopBeforeLaunch();
+          },
+        ).directInstall(entry, onPluginUpdated: reported.add),
+        throwsA(isA<_StopBeforeLaunch>()),
+      );
+
+      expect(reachedInstall, isTrue);
       expect(reported, hasLength(1));
       expect(reported.single.manifestId, 'manifest-a');
       expect(
         reported.single.localFileFor('1.0.0')?.relativePath,
-        'files/a/plugin-1.0.0.zip',
+        'files/a/plugin-1.0.0.otzplugin',
       );
-
       final saved = (await store.load()).plugins.single;
-      expect(saved.anyLocalFile?.relativePath, 'files/a/plugin-1.0.0.zip');
+      expect(
+        saved.anyLocalFile?.relativePath,
+        'files/a/plugin-1.0.0.otzplugin',
+      );
+      expect(saved.anyLocalFile?.fileName, 'plugin.otzplugin');
       expect(saved.manifestId, 'manifest-a');
+      expect(await store.hasFileFor(saved, '1.0.0'), isTrue);
       expect(
         File(store.absolutePath(saved.anyLocalFile!.relativePath)).existsSync(),
         isTrue,
       );
     });
 
-    test('קטלוג פגום אינו נדרס בקטלוג ריק אחרי השלמת קובץ', () async {
+    test('קטלוג פגום נשמר אחרי השלמת קובץ בסיומת התקינה', () async {
       const torn = '{"plugins": [{"id": "a", "na';
       await store.ensureDirs();
       File(store.catalogPath).writeAsStringSync(torn);
 
-      final result = await manager(
-        client: MockClient(
-          (_) async => http.Response.bytes(
-            pluginBytes('{"id":"manifest-a"}'),
-            200,
-            headers: {
-              'content-disposition': 'attachment; filename="plugin.zip"',
-            },
+      await expectLater(
+        PluginsManager(
+          resolveMirrorDir: () async => temp.path,
+          resolvePluginsDir: () async =>
+              p.join(temp.path, 'otzaria', 'plugins'),
+          baseUrl: 'https://otzaria.test',
+          httpClient: MockClient(
+            (_) async => http.Response.bytes(
+              pluginBytes('{"id":"manifest-a"}'),
+              200,
+              headers: {
+                'content-disposition': 'attachment; filename="plugin.zip"',
+              },
+            ),
           ),
-        ),
-      ).directInstall(plugin(downloadUrl: '/api/plugins/a/download'));
+          otzariaLaunchPath: () async => throw const _StopBeforeLaunch(),
+        ).directInstall(plugin(downloadUrl: '/api/plugins/a/download')),
+        throwsA(isA<_StopBeforeLaunch>()),
+      );
 
-      expect(result.error, strings.badPluginExtension);
+      expect(
+        File(p.join(store.pluginDir('a'), 'plugin-1.0.0.otzplugin'))
+            .existsSync(),
+        isTrue,
+      );
       expect(File(store.catalogPath).readAsStringSync(), torn);
     });
   });
@@ -372,4 +398,8 @@ void main() {
       );
     });
   });
+}
+
+class _StopBeforeLaunch implements Exception {
+  const _StopBeforeLaunch();
 }
