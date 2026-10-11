@@ -13,6 +13,7 @@ class PluginLocalFile extends Equatable {
     required this.ext,
     required this.size,
     this.sourceUrl,
+    this.targetedAt,
   });
 
   /// יחסי לשורש תיקיית התוספים במראה — כך שהעתקת התיקייה לכונן אחר
@@ -21,17 +22,19 @@ class PluginLocalFile extends Equatable {
   final String fileName;
   final String ext;
   final int size;
-
-  /// מקור הקובץ שבדיסק, גם כשהקטלוג כבר מציע כתובת חדשה.
   final String? sourceUrl;
 
-  PluginLocalFile copyWith({String? sourceUrl}) => PluginLocalFile(
-    relativePath: relativePath,
-    fileName: fileName,
-    ext: ext,
-    size: size,
-    sourceUrl: sourceUrl ?? this.sourceUrl,
-  );
+  final DateTime? targetedAt;
+
+  PluginLocalFile copyWith({String? sourceUrl, DateTime? targetedAt}) =>
+      PluginLocalFile(
+        relativePath: relativePath,
+        fileName: fileName,
+        ext: ext,
+        size: size,
+        sourceUrl: sourceUrl ?? this.sourceUrl,
+        targetedAt: targetedAt ?? this.targetedAt,
+      );
 
   Map<String, dynamic> toJson() => {
     'path': relativePath,
@@ -39,6 +42,7 @@ class PluginLocalFile extends Equatable {
     'ext': ext,
     'size': size,
     if (sourceUrl != null) 'sourceUrl': sourceUrl,
+    if (targetedAt != null) 'targetedAt': targetedAt!.toUtc().toIso8601String(),
   };
 
   static PluginLocalFile? fromJson(Object? json) {
@@ -53,11 +57,21 @@ class PluginLocalFile extends Equatable {
       sourceUrl: json['sourceUrl'] is String
           ? json['sourceUrl'] as String
           : null,
+      targetedAt: json['targetedAt'] is String
+          ? DateTime.tryParse(json['targetedAt'] as String)
+          : null,
     );
   }
 
   @override
-  List<Object?> get props => [relativePath, fileName, ext, size, sourceUrl];
+  List<Object?> get props => [
+    relativePath,
+    fileName,
+    ext,
+    size,
+    sourceUrl,
+    targetedAt,
+  ];
 }
 
 /// תוסף בקטלוג המקומי — מיזוג של המטא-דאטה מ-`/api/plugins` עם הנתיבים

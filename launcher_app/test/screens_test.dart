@@ -70,31 +70,30 @@ void main() {
     Future<void> Function()? onCancelDownload,
     bool readOnly = false,
     bool driveFull = false,
-  }) =>
-      HomeScreen(
-        readOnly: readOnly,
-        driveFull: driveFull,
-        otzaria: otzaria,
-        library: library,
-        plugins: plugins,
-        launcherUpdate: launcherUpdate,
-        settings: settings,
-        otzariaIsRunning: otzariaIsRunning,
-        onCloseOtzaria: onCloseOtzaria ?? () async => true,
-        isDownloading: isDownloading,
-        isCancellingDownload: isCancellingDownload,
-        isCheckingOnline: isCheckingOnline,
-        longTaskRunning: longTaskRunning,
-        onProcessStateChanged: onProcessStateChanged ?? () async => false,
-        onCheckOnline: () async {},
-        onDownloadAll: () async {},
-        onCancelDownload: onCancelDownload ?? () async {},
-        onDownloadLauncherUpdate: () async {},
-        onInstallLauncherUpdate: () async {},
-        onRequestReindex: () async {},
-        onGoToOtzaria: () {},
-        onGoToLibrary: () {},
-      );
+  }) => HomeScreen(
+    readOnly: readOnly,
+    driveFull: driveFull,
+    otzaria: otzaria,
+    library: library,
+    plugins: plugins,
+    launcherUpdate: launcherUpdate,
+    settings: settings,
+    otzariaIsRunning: otzariaIsRunning,
+    onCloseOtzaria: onCloseOtzaria ?? () async => true,
+    isDownloading: isDownloading,
+    isCancellingDownload: isCancellingDownload,
+    isCheckingOnline: isCheckingOnline,
+    longTaskRunning: longTaskRunning,
+    onProcessStateChanged: onProcessStateChanged ?? () async => false,
+    onCheckOnline: () async {},
+    onDownloadAll: () async {},
+    onCancelDownload: onCancelDownload ?? () async {},
+    onDownloadLauncherUpdate: () async {},
+    onInstallLauncherUpdate: () async {},
+    onRequestReindex: () async {},
+    onGoToOtzaria: () {},
+    onGoToLibrary: () {},
+  );
 
   tearDown(() {
     otzaria.dispose();
@@ -105,8 +104,9 @@ void main() {
     tempDir.deleteSync(recursive: true);
   });
 
-  testWidgets('דף הבית מציג שני אריחים ובדיקת עדכונים, ואינו טוען שמצב נבדק',
-      (tester) async {
+  testWidgets('דף הבית מציג שני אריחים ובדיקת עדכונים, ואינו טוען שמצב נבדק', (
+    tester,
+  ) async {
     await pumpScreen(tester, home());
 
     expect(find.text('תוכנת אוצריא'), findsWidgets);
@@ -119,29 +119,56 @@ void main() {
     expect(find.text('חנות התוספים'), findsNothing);
   });
 
-  testWidgets('כפתור "הורד עכשיו" מופיע רק כשנמצא עדכון ברשת ומושבת בלי בחירה',
-      (tester) async {
-    await tester.runAsync(() => settings.update(const AppSettings(
-          syncApp: false,
-          syncLibrary: false,
-          syncPlugins: false,
-        )));
-    await pumpScreen(tester, home());
-    expect(find.text('הורד עכשיו'), findsNothing);
+  testWidgets(
+    'כפתור "הורד עכשיו" מופיע רק כשנמצא עדכון ברשת ומושבת בלי בחירה',
+    (tester) async {
+      await tester.runAsync(
+        () => settings.update(
+          const AppSettings(
+            syncApp: false,
+            syncLibrary: false,
+            syncPlugins: false,
+          ),
+        ),
+      );
+      await pumpScreen(tester, home());
+      expect(find.text('הורד עכשיו'), findsNothing);
 
-    // מדמה בדיקה קלה שמצאה עדכון — בלי לגעת ברשת בפועל.
+      // מדמה בדיקה קלה שמצאה עדכון — בלי לגעת ברשת בפועל.
+      library.onlineLatestVersion = 99;
+      library.onlineCheckedAt = DateTime(2026, 1, 1);
+      await pumpScreen(tester, home());
+
+      final button = tester.widget<ActionButton>(
+        find.widgetWithText(ActionButton, 'הורד עכשיו'),
+      );
+      expect(button.onPressed, isNull);
+    },
+  );
+
+  testWidgets('"הורד עכשיו" מושבת בזמן בדיקה ברשת, כולל זו שלפני ההורדה', (
+    tester,
+  ) async {
     library.onlineLatestVersion = 99;
     library.onlineCheckedAt = DateTime(2026, 1, 1);
-    await pumpScreen(tester, home());
 
-    final button = tester.widget<ActionButton>(
+    await pumpScreen(tester, home(isCheckingOnline: true));
+    expect(find.text('בודק אם יש עדכונים ברשת...'), findsOneWidget);
+    final checking = tester.widget<ActionButton>(
       find.widgetWithText(ActionButton, 'הורד עכשיו'),
     );
-    expect(button.onPressed, isNull);
+    expect(checking.onPressed, isNull);
+
+    await pumpScreen(tester, home());
+    final idle = tester.widget<ActionButton>(
+      find.widgetWithText(ActionButton, 'הורד עכשיו'),
+    );
+    expect(idle.onPressed, isNotNull);
   });
 
-  testWidgets('כונן מוגן-כתיבה: הסבר במקום כרטיס ההורדה (בעיה #25)',
-      (tester) async {
+  testWidgets('כונן מוגן-כתיבה: הסבר במקום כרטיס ההורדה (בעיה #25)', (
+    tester,
+  ) async {
     final t = stringsOf().readOnlyDrive;
     // נמצא עדכון ברשת — בהרצה רגילה זה בדיוק מה שמציג את "הורד עכשיו".
     library.onlineLatestVersion = 99;
@@ -168,8 +195,9 @@ void main() {
     expect(find.text(t.bannerSubtitle), findsNothing);
   });
 
-  testWidgets('כפתור ביטול ההורדה מופיע רק בזמן הורדה, ומבקש את הביטול',
-      (tester) async {
+  testWidgets('כפתור ביטול ההורדה מופיע רק בזמן הורדה, ומבקש את הביטול', (
+    tester,
+  ) async {
     final t = stringsOf().home;
     await pumpScreen(tester, home());
     expect(find.text(t.cancelDownloadButton), findsNothing);
@@ -195,8 +223,9 @@ void main() {
     expect(pending.onPressed, isNull);
   });
 
-  testWidgets('תוסף חדש או מעודכן בחנות נספר כ"יש עדכונים ברשת"',
-      (tester) async {
+  testWidgets('תוסף חדש או מעודכן בחנות נספר כ"יש עדכונים ברשת"', (
+    tester,
+  ) async {
     final t = stringsOf().home;
     plugins.onlineStatus = const PluginsOnlineStatus(
       newPlugins: ['תוסף חדש'],
@@ -298,7 +327,9 @@ void main() {
     await tester.pump(const Duration(seconds: 10));
 
     expect(
-        find.text(t.downloadFailedSnack(t.libraryTileTitle)), findsOneWidget);
+      find.text(t.downloadFailedSnack(t.libraryTileTitle)),
+      findsOneWidget,
+    );
     expect(find.text(t.onlineNoUpdates), findsNothing);
     expect(find.text(t.downloadNowButton), findsOneWidget);
   });
@@ -320,8 +351,9 @@ void main() {
     expect(find.text(t.firstInstallDialogTitle), findsOneWidget);
   });
 
-  testWidgets('אוצריא מותקנת — "התקנה" היא דיאלוג העדכון הרגיל',
-      (tester) async {
+  testWidgets('אוצריא מותקנת — "התקנה" היא דיאלוג העדכון הרגיל', (
+    tester,
+  ) async {
     otzaria.status = OtzariaModuleStatus.updateAvailable;
     otzaria.currentVersion = '0.9.95';
     otzaria.latestVersion = '0.9.96';
@@ -394,8 +426,9 @@ void main() {
     expect(find.text(t.installButton), findsNothing);
   });
 
-  testWidgets('נמצאה גרסה חדשה ברשת — הכרטיס מציע להוריד, ולא להתקין',
-      (tester) async {
+  testWidgets('נמצאה גרסה חדשה ברשת — הכרטיס מציע להוריד, ולא להתקין', (
+    tester,
+  ) async {
     final t = stringsOf().launcherUpdate;
     // מדמה בדיקה קלה שמצאה עדכון, בלי לגעת ברשת.
     launcherUpdate.onlineRelease = const LauncherRelease(
@@ -439,8 +472,10 @@ void main() {
       findsNothing,
     );
     // אין בתיקייה מה להתקין — היא מחזיקה את הגרסה שכבר רצה.
-    expect(find.text(t.downloadedVersion(launcherUpdate.currentVersion)),
-        findsNothing);
+    expect(
+      find.text(t.downloadedVersion(launcherUpdate.currentVersion)),
+      findsNothing,
+    );
   });
 
   testWidgets('גרסה שהורדה — הכרטיס מציע התקנה, וגם בלי רשת', (tester) async {
@@ -457,8 +492,9 @@ void main() {
     expect(find.text(t.downloadButton), findsNothing);
   });
 
-  testWidgets('בלי נתיב לקובץ ההרצה אין כפתור התקנה שייכשל בלחיצה',
-      (tester) async {
+  testWidgets('בלי נתיב לקובץ ההרצה אין כפתור התקנה שייכשל בלחיצה', (
+    tester,
+  ) async {
     final t = stringsOf().launcherUpdate;
     launcherUpdate.status = LauncherUpdateStatus.readyToInstall;
     launcherUpdate.downloadedVersion = '9.9.9';
@@ -499,8 +535,9 @@ void main() {
     library.targetVersion = 2;
   }
 
-  testWidgets('עדכון הספרייה נחסם לפי בדיקה טרייה — לא לפי מה שמוצג במסך',
-      (tester) async {
+  testWidgets('עדכון הספרייה נחסם לפי בדיקה טרייה — לא לפי מה שמוצג במסך', (
+    tester,
+  ) async {
     fakeLibraryUpdateAvailable();
     var checks = 0;
     // המסך עלה כשאוצריא הייתה פתוחה, ומאז היא נסגרה. קודם לחיצה על "עדכון"
@@ -525,8 +562,9 @@ void main() {
     expect(find.text('עדכן עכשיו'), findsOneWidget);
   });
 
-  testWidgets('אוצריא שנפתחה מאז הבנייה כן חוסמת — הבדיקה הטרייה קובעת',
-      (tester) async {
+  testWidgets('אוצריא שנפתחה מאז הבנייה כן חוסמת — הבדיקה הטרייה קובעת', (
+    tester,
+  ) async {
     fakeLibraryUpdateAvailable();
     var checks = 0;
     await pumpScreen(
@@ -552,8 +590,9 @@ void main() {
     expect(find.text('עדכן עכשיו'), findsNothing);
   });
 
-  testWidgets('אריח הספרייה בדף הבית מציג התקדמות ולא רק "מעדכן"',
-      (tester) async {
+  testWidgets('אריח הספרייה בדף הבית מציג התקדמות ולא רק "מעדכן"', (
+    tester,
+  ) async {
     library.status = LibraryModuleStatus.updating;
     library.stageText = 'מאמת את תוצאת העדכון (2/3)...';
     library.applyProgress = 0.37;
@@ -581,8 +620,9 @@ void main() {
     );
   });
 
-  testWidgets('שורות ההתקדמות בדף הבית מתעדכנות מדיווח התקדמות בלבד',
-      (tester) async {
+  testWidgets('שורות ההתקדמות בדף הבית מתעדכנות מדיווח התקדמות בלבד', (
+    tester,
+  ) async {
     library.status = LibraryModuleStatus.updating;
     library.applyProgress = 0.1;
     otzaria.downloadStatus = OtzariaDownloadStatus.downloading;
@@ -612,8 +652,9 @@ void main() {
     expect(stateNotifications, 0);
   });
 
-  testWidgets('שורת הורדת הספרייה בדף הבית מתעדכנת מדיווח התקדמות בלבד',
-      (tester) async {
+  testWidgets('שורת הורדת הספרייה בדף הבית מתעדכנת מדיווח התקדמות בלבד', (
+    tester,
+  ) async {
     library.downloadStatus = MirrorDownloadStatus.downloading;
     library.downloadStage = 'stage 1';
     library.downloadReceivedBytes = 10;
@@ -639,8 +680,9 @@ void main() {
     expect(stateNotifications, 0);
   });
 
-  testWidgets('שורת סנכרון התוספים בדף הבית מתעדכנת מדיווח התקדמות בלבד',
-      (tester) async {
+  testWidgets('שורת סנכרון התוספים בדף הבית מתעדכנת מדיווח התקדמות בלבד', (
+    tester,
+  ) async {
     plugins.status = PluginsModuleStatus.syncing;
     plugins.syncMessage = 'sync 1';
     plugins.syncProgress = 0.2;
@@ -687,8 +729,9 @@ void main() {
     expect(find.text('הגרסה שתותקן'), findsNothing);
   });
 
-  testWidgets('אוצריא מותקנת ומעודכנת — כפתור ההתקנה מחדש פעיל',
-      (tester) async {
+  testWidgets('אוצריא מותקנת ומעודכנת — כפתור ההתקנה מחדש פעיל', (
+    tester,
+  ) async {
     otzaria.status = OtzariaModuleStatus.upToDate;
     otzaria.currentVersion = '0.9.96';
     otzaria.latestVersion = '0.9.96';
@@ -714,8 +757,9 @@ void main() {
     expect(find.textContaining('כבר מותקנת ומעודכנת'), findsOneWidget);
   });
 
-  testWidgets('המותקן חדש מהתיקייה — הכפתור פעיל ואומר שזו נסיגת גרסה',
-      (tester) async {
+  testWidgets('המותקן חדש מהתיקייה — הכפתור פעיל ואומר שזו נסיגת גרסה', (
+    tester,
+  ) async {
     otzaria.status = OtzariaModuleStatus.installedIsNewer;
     otzaria.currentVersion = '0.9.97';
     otzaria.latestVersion = '0.9.96';
@@ -754,8 +798,9 @@ void main() {
     expect(button.onPressed, isNull);
   });
 
-  testWidgets('בחירת ערוץ מוצגת רק כשיש שתי גרסאות, ונשמרת בהגדרות',
-      (tester) async {
+  testWidgets('בחירת ערוץ מוצגת רק כשיש שתי גרסאות, ונשמרת בהגדרות', (
+    tester,
+  ) async {
     // מדמה מראה עם שתי גרסאות — בלי לגעת בדיסק או ברשת.
     otzaria.hasChannelChoice = true;
     otzaria.stableVersion = '0.9.90';
@@ -781,8 +826,9 @@ void main() {
     expect(settings.settings.preferAppPrerelease, isTrue);
   });
 
-  testWidgets('בורר הערוץ נעול במצב סייפר — הוא ההגדרה היחידה שמחוץ למסך',
-      (tester) async {
+  testWidgets('בורר הערוץ נעול במצב סייפר — הוא ההגדרה היחידה שמחוץ למסך', (
+    tester,
+  ) async {
     otzaria.hasChannelChoice = true;
     otzaria.stableVersion = '0.9.90';
     otzaria.prereleaseVersion = '0.9.97';
@@ -843,8 +889,9 @@ void main() {
     expect(settings.settings.preferAppPrerelease, isFalse);
   });
 
-  testWidgets('בחירת מיקום ידנית לאוצריא לא מושבתת בגלל הורדה של רכיב אחר',
-      (tester) async {
+  testWidgets('בחירת מיקום ידנית לאוצריא לא מושבתת בגלל הורדה של רכיב אחר', (
+    tester,
+  ) async {
     await pumpScreen(
       tester,
       OtzariaScreen(
@@ -861,8 +908,9 @@ void main() {
     expect(button.onPressed, isNotNull);
   });
 
-  testWidgets('בחירת רכיבי ההורדה היא שורת סימון אחת, והיא נשמרת',
-      (tester) async {
+  testWidgets('בחירת רכיבי ההורדה היא שורת סימון אחת, והיא נשמרת', (
+    tester,
+  ) async {
     final t = stringsOf().settings;
     await pumpScreen(
       tester,
@@ -1000,12 +1048,13 @@ void main() {
 
   /// הכפתורים ישבו כשורה בתוך [AppCard.section], ולכן על משטח הכרטיס הלבן.
   /// מקומם מתחתיו, על רקע הלוח.
-  testWidgets('כפתורי הפעולה של הכרטיס אינם יושבים על משטח הכרטיס',
-      (tester) async {
+  testWidgets('כפתורי הפעולה של הכרטיס אינם יושבים על משטח הכרטיס', (
+    tester,
+  ) async {
     Finder actionsInsideCard() => find.descendant(
-          of: find.byType(AppCard),
-          matching: find.byType(CardActionsRow),
-        );
+      of: find.byType(AppCard),
+      matching: find.byType(CardActionsRow),
+    );
 
     await pumpScreen(
       tester,
@@ -1083,8 +1132,9 @@ void main() {
     );
   });
 
-  testWidgets('מסך הספרייה חוסם לפי בדיקה טרייה — לא לפי מה שמוצג',
-      (tester) async {
+  testWidgets('מסך הספרייה חוסם לפי בדיקה טרייה — לא לפי מה שמוצג', (
+    tester,
+  ) async {
     fakeLibraryUpdateAvailable();
     var checks = 0;
     // אותו תיקון כמו בדף הבית, ובמסך אחר: המסך עלה כשאוצריא הייתה פתוחה,
@@ -1140,8 +1190,9 @@ void main() {
 
   // issue #19: patch שאינו מתאים למסד המקומי הותיר את המשתמש תקוע — אין
   // בממשק שום דרך להתקין במקומו את המסד המלא שממילא יושב במראה.
-  testWidgets('כפתור הספרייה המלאה מופיע רק אחרי כשל, ופותח דיאלוג אישור',
-      (tester) async {
+  testWidgets('כפתור הספרייה המלאה מופיע רק אחרי כשל, ופותח דיאלוג אישור', (
+    tester,
+  ) async {
     final t = stringsOf().libraryScreen;
     fakeLibraryUpdateAvailable();
 
@@ -1180,39 +1231,39 @@ void main() {
       ),
     );
 
-    await tester
-        .tap(find.widgetWithText(ActionButton, t.fullDownloadInsteadButton));
+    await tester.tap(
+      find.widgetWithText(ActionButton, t.fullDownloadInsteadButton),
+    );
     await tester.pumpAndSettle();
 
     // הדיאלוג בלבד — ההתקנה עצמה נוגעת בדיסק ואינה חלק מבדיקת המסך.
     // הגודל לא ידוע כאן (אין בדיקה אמיתית מאחור), וזה בדיוק מה שמוצג.
     expect(
-      find.text(
-        t.fullDownloadInsteadPrompt(stringsOf().common.unknownValue),
-      ),
+      find.text(t.fullDownloadInsteadPrompt(stringsOf().common.unknownValue)),
       findsOneWidget,
     );
   });
 
   // עדכון מסד שנעשה מכאן משאיר את אינדקס החיפוש של אוצריא על התוכן הישן,
   // והבקשה לתקן זאת חייבת להיות נגישה גם אחרי שהמשתמש דחה אותה פעם אחת.
-  testWidgets('אריח בקשת עדכון האינדקס מופיע רק כשיש בקשה ממתינה',
-      (tester) async {
+  testWidgets('אריח בקשת עדכון האינדקס מופיע רק כשיש בקשה ממתינה', (
+    tester,
+  ) async {
     final t = stringsOf().libraryScreen;
     var requests = 0;
 
     Future<void> pumpLibrary() => pumpScreen(
-          tester,
-          LibraryScreen(
-            library: library,
-            otzariaIsRunning: false,
-            onCloseOtzaria: () async => true,
-            isDownloading: false,
-            onProcessStateChanged: () async => false,
-            onRequestReindex: () async => requests++,
-            onGoToSettings: () {},
-          ),
-        );
+      tester,
+      LibraryScreen(
+        library: library,
+        otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
+        isDownloading: false,
+        onProcessStateChanged: () async => false,
+        onRequestReindex: () async => requests++,
+        onGoToSettings: () {},
+      ),
+    );
 
     await pumpLibrary();
     expect(find.text(t.reindexTitle), findsNothing);
@@ -1281,7 +1332,9 @@ void main() {
 
   testWidgets('מסך החנות מציג כרטיס תוסף מהקטלוג המקומי', (tester) async {
     final store = PluginMirrorStore(tempDir.path);
-    await tester.runAsync(() => store.save(PluginCatalog(
+    await tester.runAsync(
+      () => store.save(
+        PluginCatalog(
           lastSync: DateTime.utc(2026, 8, 6),
           plugins: [
             StorePlugin.fromApi(const {
@@ -1298,7 +1351,9 @@ void main() {
               'downloadUrl': '/api/plugins/abc/download',
             }, 'https://otzaria.org'),
           ],
-        )));
+        ),
+      ),
+    );
 
     await tester.runAsync(plugins.load);
     // הסריקה שב-load קוראת מההתקנה האמיתית של אוצריא במחשב הזה; הבדיקה
@@ -1319,14 +1374,17 @@ void main() {
     expect(find.textContaining('ט"ו בניסן'), findsOneWidget);
   });
 
-  testWidgets('כרטיס עמוס בכרטיס הצר ביותר אינו גולש — בכל הגדלה ובשתי השפות',
-      (tester) async {
+  testWidgets('כרטיס עמוס בכרטיס הצר ביותר אינו גולש — בכל הגדלה ובשתי השפות', (
+    tester,
+  ) async {
     // המקרה הגרוע: שם ארוך, תקציר ארוך, ארבע תגיות עבריות ארוכות, מונה
     // הורדות בן שש ספרות, גלולת דירוג ושבב "עדכון זמין" (שמופיע רק
     // כשמותקנת גרסה ישנה) — כל אלה מרחיבים את שורות הגלולות שהכרטיס
     // תוקצב עבורן.
     final store = PluginMirrorStore(tempDir.path);
-    await tester.runAsync(() => store.save(PluginCatalog(
+    await tester.runAsync(
+      () => store.save(
+        PluginCatalog(
           lastSync: DateTime.utc(2026, 8, 6),
           plugins: [
             for (var i = 0; i < 5; i++)
@@ -1335,7 +1393,7 @@ void main() {
                 'name': 'שם ארוך במיוחד לתוסף שנועד לתפוס שתי שורות שלמות',
                 'shortDescription':
                     'תקציר ארוך שנמשך על פני כמה שורות כדי לבדוק שהכרטיס '
-                        'אינו גולש גם כשהטקסט מגיע למקסימום השורות המותר בו',
+                    'אינו גולש גם כשהטקסט מגיע למקסימום השורות המותר בו',
                 'version': '10.20.30',
                 'status': 'experimental',
                 'downloadCount': 123456,
@@ -1350,11 +1408,13 @@ void main() {
                 ],
                 'supportsDirectInstall': true,
               }, 'https://otzaria.org')
-                  // התוסף האחרון נשאר בלי manifestId: קובץ שטרם הורד מדווח
-                  // PluginInstallStatus.unknown, וזה מצב תקין ולא שגיאה.
-                  .copyWith(manifestId: i == 4 ? null : 'id-$i'),
+              // התוסף האחרון נשאר בלי manifestId: קובץ שטרם הורד מדווח
+              // PluginInstallStatus.unknown, וזה מצב תקין ולא שגיאה.
+              .copyWith(manifestId: i == 4 ? null : 'id-$i'),
           ],
-        )));
+        ),
+      ),
+    );
 
     await tester.runAsync(plugins.load);
     // סריקת ההתקנה האמיתית מגיעה מתיקיית אוצריא של המכונה; כאן מזריקים
@@ -1402,10 +1462,13 @@ void main() {
     }
   });
 
-  testWidgets('מתג "רק מה שלא מותקן" בשורה העליונה חל גם על דף הבית',
-      (tester) async {
+  testWidgets('מתג "רק מה שלא מותקן" בשורה העליונה חל גם על דף הבית', (
+    tester,
+  ) async {
     final store = PluginMirrorStore(tempDir.path);
-    await tester.runAsync(() => store.save(PluginCatalog(
+    await tester.runAsync(
+      () => store.save(
+        PluginCatalog(
           lastSync: DateTime.utc(2026, 8, 6),
           plugins: [
             StorePlugin.fromApi(const {
@@ -1414,8 +1477,7 @@ void main() {
               'version': '1.0.0',
               'status': 'stable',
               'isPinned': true,
-            }, 'https://otzaria.org')
-                .copyWith(manifestId: 'id-a'),
+            }, 'https://otzaria.org').copyWith(manifestId: 'id-a'),
             StorePlugin.fromApi(const {
               'id': 'b',
               'name': 'תוסף שאינו מותקן',
@@ -1424,7 +1486,9 @@ void main() {
               'isPinned': true,
             }, 'https://otzaria.org'),
           ],
-        )));
+        ),
+      ),
+    );
 
     await tester.runAsync(plugins.load);
     plugins.installed = {'id-a': '1.0.0'};
@@ -1445,7 +1509,9 @@ void main() {
 
   testWidgets('הרשת מציגה שלושה כרטיסים בשורה בחלון בינוני', (tester) async {
     final store = PluginMirrorStore(tempDir.path);
-    await tester.runAsync(() => store.save(PluginCatalog(
+    await tester.runAsync(
+      () => store.save(
+        PluginCatalog(
           lastSync: DateTime.utc(2026, 8, 6),
           plugins: [
             for (var i = 0; i < 6; i++)
@@ -1458,7 +1524,9 @@ void main() {
                 'supportsDirectInstall': true,
               }, 'https://otzaria.org'),
           ],
-        )));
+        ),
+      ),
+    );
 
     // חלון בינוני — בדיוק המקרה שבו האתר כבר מציג שלוש עמודות.
     tester.view.physicalSize = const Size(1000, 1200);
@@ -1475,8 +1543,9 @@ void main() {
         .widgetList<PluginStoreCard>(find.byType(PluginStoreCard))
         .toList();
     expect(cards.length, greaterThanOrEqualTo(3));
-    final firstRowTop =
-        tester.getTopLeft(find.byType(PluginStoreCard).first).dy;
+    final firstRowTop = tester
+        .getTopLeft(find.byType(PluginStoreCard).first)
+        .dy;
     final inFirstRow = [
       for (var i = 0; i < cards.length; i++)
         if (tester.getTopLeft(find.byType(PluginStoreCard).at(i)).dy ==
@@ -1486,20 +1555,25 @@ void main() {
     expect(inFirstRow.length, 3);
   });
 
-  testWidgets('החנות נפתחת בדף הבית האצור, ומשם לדף קטגוריה ולכל התוספים',
-      (tester) async {
-    StorePlugin plugin(String id, String name,
-            {bool featured = false, List<String> categories = const []}) =>
-        StorePlugin.fromApi({
-          'id': id,
-          'name': name,
-          'status': 'stable',
-          'isPinned': featured,
-        }, 'https://otzaria.org')
-            .copyWith(categorySlugs: categories);
+  testWidgets('החנות נפתחת בדף הבית האצור, ומשם לדף קטגוריה ולכל התוספים', (
+    tester,
+  ) async {
+    StorePlugin plugin(
+      String id,
+      String name, {
+      bool featured = false,
+      List<String> categories = const [],
+    }) => StorePlugin.fromApi({
+      'id': id,
+      'name': name,
+      'status': 'stable',
+      'isPinned': featured,
+    }, 'https://otzaria.org').copyWith(categorySlugs: categories);
 
     final store = PluginMirrorStore(tempDir.path);
-    await tester.runAsync(() => store.save(PluginCatalog(
+    await tester.runAsync(
+      () => store.save(
+        PluginCatalog(
           lastSync: DateTime.utc(2026, 8, 6),
           plugins: [
             plugin('a', 'תוסף נבחר', featured: true, categories: ['study']),
@@ -1518,7 +1592,9 @@ void main() {
             title: 'החנות של אוצריא',
             subtitle: 'תוספים שמרחיבים את הלימוד',
           ),
-        )));
+        ),
+      ),
+    );
 
     await tester.runAsync(plugins.load);
     // הסריקה שב-load קוראת מההתקנה האמיתית של אוצריא במחשב הזה; הבדיקה
@@ -1603,17 +1679,18 @@ void main() {
     await tester.ensureVisible(find.text('יומן שינויים'));
     await tester.tap(find.text('יומן שינויים'));
     // טעינת הנכס היא I/O אמיתי — ראו AGENTS.md §3.
-    await tester.runAsync(() => Future<void>.delayed(
-          const Duration(milliseconds: 200),
-        ));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 200)),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('יומן שינויים בתוכנה'), findsOneWidget);
     expect(find.text('לא נמצא קובץ יומן שינויים.'), findsNothing);
   });
 
-  testWidgets('מסך ההגדרות באנגלית — הכול מתורגם והכיוון מתהפך',
-      (tester) async {
+  testWidgets('מסך ההגדרות באנגלית — הכול מתורגם והכיוון מתהפך', (
+    tester,
+  ) async {
     await pumpScreen(
       tester,
       SettingsScreen(
@@ -1633,8 +1710,10 @@ void main() {
     expect(find.text(en.settings.appearanceCardTitle), findsOneWidget);
     expect(find.text(en.settings.supportCardTitle), findsOneWidget);
     expect(find.text(en.settings.languageTitle), findsOneWidget);
-    expect(find.text(const HebrewStrings().settings.automationCardTitle),
-        findsNothing);
+    expect(
+      find.text(const HebrewStrings().settings.automationCardTitle),
+      findsNothing,
+    );
 
     final direction = Directionality.of(
       tester.element(find.text(en.settings.automationCardTitle)),
@@ -1721,10 +1800,12 @@ void main() {
     expect(settings.settings.darkSeedColor, AppSeedColors.defaultDark);
 
     // "איפוס" מופיע גם בכרטיס התמיכה, ולכן דווקא זה שבתוך הפלטה.
-    await tester.tap(find.descendant(
-      of: find.byType(SeedColorPalette),
-      matching: find.text(t.seedColorResetButton),
-    ));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SeedColorPalette),
+        matching: find.text(t.seedColorResetButton),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(settings.settings.seedColor, AppSeedColors.defaultLight);
@@ -1775,7 +1856,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-        find.text(stringsOf().settings.autoInstallDialogTitle), findsOneWidget);
+      find.text(stringsOf().settings.autoInstallDialogTitle),
+      findsOneWidget,
+    );
     // ביטול משאיר את ההגדרה כבויה.
     await tester.tap(find.text('ביטול'));
     await tester.pumpAndSettle();
@@ -1791,8 +1874,9 @@ void main() {
 
   // ── מסך השגיאה שמחליף את האפליקציה ────────────────────────────────────────
 
-  testWidgets('מסך "התוכנה במקום הלא נכון" מוצג ואינו מציע דרך להמשיך',
-      (tester) async {
+  testWidgets('מסך "התוכנה במקום הלא נכון" מוצג ואינו מציע דרך להמשיך', (
+    tester,
+  ) async {
     final t = stringsOf().setupError;
     const error = AppPathsException(
       message: 'Access is denied',
@@ -1821,8 +1905,9 @@ void main() {
     );
   });
 
-  testWidgets('מסך "הקבצים אינם תואמים" מציג את שתי הגרסאות ורק סגירה',
-      (tester) async {
+  testWidgets('מסך "הקבצים אינם תואמים" מציג את שתי הגרסאות ורק סגירה', (
+    tester,
+  ) async {
     final t = stringsOf().payloadMismatch;
     var closed = false;
 
@@ -1863,8 +1948,9 @@ void main() {
       stringsOf().setupError.appTranslocated,
     ),
   ]) {
-    testWidgets('מסך השגיאה עבור ${kind.name}: כותרת והנחיה ייעודיות בלבד',
-        (tester) async {
+    testWidgets('מסך השגיאה עבור ${kind.name}: כותרת והנחיה ייעודיות בלבד', (
+      tester,
+    ) async {
       final t = stringsOf().setupError;
 
       await pumpScreen(
@@ -1907,8 +1993,9 @@ void main() {
 
   // ── מסך התוכנה: ערוצים ────────────────────────────────────────────────────
 
-  testWidgets('pre-release כגרסה היחידה מוצג בלי פקד בחירת ערוץ',
-      (tester) async {
+  testWidgets('pre-release כגרסה היחידה מוצג בלי פקד בחירת ערוץ', (
+    tester,
+  ) async {
     // אין יציבה בעמוד הראשון של ה-API — רק ה-pre-release ירד למראה.
     final t = stringsOf().appScreen;
     otzaria.hasChannelChoice = false;
@@ -1956,8 +2043,9 @@ void main() {
 
   // שני המסכים עיצבו את "הורד לאחרונה" בעצמם דרך `DateTime.toString`, וכך
   // הוצג בעברית תאריך ISO בזמן ש"סונכרן ב־" שבחנות הוצג ב-dd.mm.yyyy.
-  testWidgets('"הורד לאחרונה" בשני המסכים באותו פורמט של formatTimestamp',
-      (tester) async {
+  testWidgets('"הורד לאחרונה" בשני המסכים באותו פורמט של formatTimestamp', (
+    tester,
+  ) async {
     final at = DateTime(2026, 8, 12, 9, 5, 7);
     final expected = formatTimestamp(at);
     expect(expected, '12.08.2026, 09:05:07');
@@ -2007,8 +2095,9 @@ void main() {
     expect(find.text(t.downloadNowButton), findsNothing);
   });
 
-  testWidgets('בזמן בדיקה ברשת הכפתור הופך למחוון והמצב "בודק"',
-      (tester) async {
+  testWidgets('בזמן בדיקה ברשת הכפתור הופך למחוון והמצב "בודק"', (
+    tester,
+  ) async {
     final t = stringsOf().home;
 
     await pumpScreen(tester, home(isCheckingOnline: true));
@@ -2050,8 +2139,9 @@ void main() {
 
   // A local DB that could not be read stopped the check before the mirror,
   // so the mirror row must not say the mirror is unreadable.
-  testWidgets('a local-DB read error does not blame the mirror',
-      (tester) async {
+  testWidgets('a local-DB read error does not blame the mirror', (
+    tester,
+  ) async {
     final t = stringsOf().libraryScreen;
     library.status = LibraryModuleStatus.error;
     library.localDbUnreadable = true;
@@ -2081,14 +2171,14 @@ void main() {
     final t = stringsOf().libraryScreen;
 
     Widget screen() => LibraryScreen(
-          library: library,
-          otzariaIsRunning: false,
-          onCloseOtzaria: () async => true,
-          isDownloading: false,
-          onProcessStateChanged: () async => false,
-          onRequestReindex: () async {},
-          onGoToSettings: () {},
-        );
+      library: library,
+      otzariaIsRunning: false,
+      onCloseOtzaria: () async => true,
+      isDownloading: false,
+      onProcessStateChanged: () async => false,
+      onRequestReindex: () async {},
+      onGoToSettings: () {},
+    );
 
     await pumpScreen(tester, screen());
     expect(find.text(t.personalVersionTitle), findsNothing);
@@ -2161,8 +2251,9 @@ void main() {
     expect(settings.settings.personalUpdateMode, isTrue);
   });
 
-  testWidgets('מסך הספרייה מציג התקדמות בזמן עדכון וחוסם פעולות',
-      (tester) async {
+  testWidgets('מסך הספרייה מציג התקדמות בזמן עדכון וחוסם פעולות', (
+    tester,
+  ) async {
     library.status = LibraryModuleStatus.updating;
     library.stageText = 'מחיל תיקון 3 מתוך 7';
     library.applyProgress = 0.42;

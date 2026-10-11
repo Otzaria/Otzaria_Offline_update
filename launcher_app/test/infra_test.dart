@@ -366,6 +366,64 @@ void main() {
     });
   });
 
+  group('onlineCheckNeedsRefresh — בדיקה ישנה אינה הוכחה לדילוג', () {
+    final now = DateTime(2026, 8, 13, 15);
+
+    test('בדיקה טרייה שהצליחה — אין צורך לבדוק שוב', () {
+      expect(
+        onlineCheckNeedsRefresh(
+          checkedAt: now.subtract(const Duration(minutes: 5)),
+          error: null,
+          now: now,
+        ),
+        isFalse,
+      );
+    });
+
+    test('בדיקה מהבוקר — בודקים שוב לפני שמדלגים', () {
+      expect(
+        onlineCheckNeedsRefresh(
+          checkedAt: now.subtract(const Duration(hours: 6)),
+          error: null,
+          now: now,
+        ),
+        isTrue,
+      );
+    });
+
+    test('גבול הגיל — עד הסף טרייה, אחריו ישנה', () {
+      expect(
+        onlineCheckNeedsRefresh(
+          checkedAt: now.subtract(onlineCheckMaxAge),
+          error: null,
+          now: now,
+        ),
+        isFalse,
+      );
+      expect(
+        onlineCheckNeedsRefresh(
+          checkedAt: now.subtract(
+            onlineCheckMaxAge + const Duration(seconds: 1),
+          ),
+          error: null,
+          now: now,
+        ),
+        isTrue,
+      );
+    });
+
+    test('בדיקה שלא רצה או שנכשלה — בודקים שוב', () {
+      expect(
+        onlineCheckNeedsRefresh(checkedAt: null, error: null, now: now),
+        isTrue,
+      );
+      expect(
+        onlineCheckNeedsRefresh(checkedAt: now, error: 'אין חיבור', now: now),
+        isTrue,
+      );
+    });
+  });
+
   group('summarizeDownload — ההודעה האחת שבסוף ההורדה', () {
     test('לא נכשל ולא דולג — ההורדה הצליחה, ואומרים את זה', () {
       expect(

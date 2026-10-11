@@ -544,17 +544,54 @@ void main() {
     });
   });
 
-  group('_downloadAll — דילוג על הספרייה', () {
+  group('_downloadAll', () {
     final source = File('lib/src/screens/app_shell.dart').readAsStringSync();
     final start = source.indexOf('Future<void> _downloadAll() async {');
     final body = source.substring(
       start,
-      source.indexOf('final skipPlugins', start),
+      source.indexOf('\n    setState(() {\n      _isDownloading', start),
+    );
+    final refresh = source.indexOf('_refreshStaleOnlineChecks(AppSettings s)');
+    final refreshBody = source.substring(
+      refresh,
+      source.indexOf('Future<void> _downloadAll()', refresh),
     );
 
-    test('גוף המתודה נמצא', () {
+    test('גופי המתודות נמצאו', () {
       expect(start, greaterThan(-1));
+      expect(refresh, greaterThan(-1));
       expect(body, contains('final skipLibrary'));
+      expect(body, contains('final skipStoreApp'));
+    });
+
+    test('בדיקה מקוונת ישנה מתרעננת לפני חישוב הדילוגים', () {
+      final call = body.indexOf('await _refreshStaleOnlineChecks(s);');
+      expect(call, greaterThan(-1));
+      for (final skip in [
+        'final skipApp',
+        'final skipLibrary',
+        'final skipPlugins',
+        'final skipStoreApp',
+      ]) {
+        expect(call, lessThan(body.indexOf(skip)), reason: skip);
+      }
+    });
+
+    test('רק רכיבים שנבחרו נבדקים שוב ולפי גיל הבדיקה', () {
+      expect(refreshBody, contains('s.syncApp &&'));
+      expect(refreshBody, contains('s.downloadsLibrary &&'));
+      expect(refreshBody, contains('s.syncPlugins &&'));
+      expect(refreshBody, contains('onlineCheckNeedsRefresh('));
+      expect(refreshBody, contains('if (refreshApp) _otzaria.checkOnline()'));
+      expect(
+        refreshBody,
+        contains('if (refreshLibrary) _library.checkOnline()'),
+      );
+      expect(
+        refreshBody,
+        contains('if (refreshPlugins) _plugins.checkOnline()'),
+      );
+      expect(refreshBody, contains('_plugins.storeAppCheckedAt'));
     });
 
     test('סירוב לחיפוש החכם אינו מונע דילוג על ספרייה מעודכנת', () {
@@ -566,6 +603,9 @@ void main() {
       expect(skip, isNot(contains('_library.onlineProofError')));
     });
   });
+
+  // ההחלפה מסתיימת ב-`exit(0)`, ולכן היא נחסמת בזמן פעולה ארוכה — גם
+  // כשהכפתור מנוטרל: [downloadLauncherUpdate] מגיע לכאן בלי כפתור בכלל.
   group('installLauncherUpdate', () {
     final source = File('lib/src/screens/app_shell.dart').readAsStringSync();
     final start = source.indexOf('Future<void> installLauncherUpdate()');

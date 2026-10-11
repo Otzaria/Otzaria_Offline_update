@@ -519,7 +519,11 @@ copied plus ~5.5GB extracted is the user's decision.
 run all three every time, so two new plugins also re-ran the app and library
 downloads — minutes of progress bars for nothing. A component is skipped when
 `provenUpToDateOnline` (`controllers/online_check.dart`) says the light check
-*proved* there is nothing new: checked, no error, no update. A check that never ran
+*proved* there is nothing new: checked, no error, no update. Before deciding,
+`AppShell._refreshStaleOnlineChecks` re-runs, in parallel, the check of every
+selected component that `onlineCheckNeedsRefresh` calls stale (never ran, failed,
+or older than `onlineCheckMaxAge`, 15 minutes): a morning check must not skip an
+app released at noon. A check that never ran
 or that failed proves nothing and never skips — "no network" is not "no update".
 The library is never skipped in personal-update mode, where the target comes from
 the recorded DB version. The skip is announced in a snackbar; a silent one produced
@@ -1275,8 +1279,14 @@ newer Otzaria than the latest stable when this was written.
   means "nothing to filter against" and falls back to the live build, which is what a
   drive with no app mirror gets.
 - **One file per build**, `files/<pluginId>/plugin-<version>.otzplugin`, with
-  `StorePlugin.localFiles` a `version -> file` map. A build no longer targeted is
-  deleted (`pruneUnusedFiles`) so the drive does not accumulate a layer per Otzaria
+  `StorePlugin.localFiles` a `version -> file` map. Every sync stamps the builds it
+  targets with `targetedAt`. A build this sync does not target is kept while it is
+  still published and some sync targeted it within
+  `PluginMirrorSync.untargetedBuildRetention` (60 days): the installed version is a
+  per-machine fact, and two online machines on different Otzaria versions sharing a
+  drive would otherwise prune each other's build and re-download their own on every
+  sync. Past that window (or with no stamp, from an older catalog) it is deleted
+  (`pruneUnusedFiles`) so the drive does not accumulate a layer per Otzaria
   update — but **never on a cancelled sync**, where the catalog is still the old one
   and the cleanup would delete what did come down. A failed download keeps the older
   build: an old build that runs beats nothing.

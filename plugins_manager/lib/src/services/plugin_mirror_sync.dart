@@ -28,6 +28,8 @@ class PluginMirrorSync {
   /// על סיבובי הלוך-חזור, ולכן זה בדיוק המקום שבו מקביליות משתלמת.
   static const int defaultMaxConcurrentPlugins = 4;
 
+  static const Duration untargetedBuildRetention = Duration(days: 60);
+
   final PluginStoreClient client;
   final PluginMirrorStore store;
 
@@ -74,8 +76,9 @@ class PluginMirrorSync {
       for (final plugin in previousCatalog.plugins) plugin.id: plugin,
     };
 
+    final now = DateTime.now();
     final plans = [
-      for (final raw in remote) await _plan(raw, existing, appVersions),
+      for (final raw in remote) await _plan(raw, existing, appVersions, now),
     ];
     final todo = [
       for (final plan in plans)
@@ -111,6 +114,7 @@ class PluginMirrorSync {
             plan,
             plugin,
             report,
+            now,
             cancelRequested,
           );
           plugin = files.plugin;
@@ -181,6 +185,7 @@ class PluginMirrorSync {
     Map<String, dynamic> raw,
     Map<String, StorePlugin> existing,
     List<String> appVersions,
+    DateTime now,
   ) async {
     final remote = StorePlugin.fromApi(raw, client.baseUrl);
     final previous = existing[remote.id];
@@ -202,7 +207,7 @@ class PluginMirrorSync {
       if (await _buildUnchanged(target, plugin, previous)) {
         keep[target.version] = plugin
             .localFileFor(target.version)!
-            .copyWith(sourceUrl: target.downloadUrl);
+            .copyWith(sourceUrl: target.downloadUrl, targetedAt: now);
       } else {
         missing.add(target);
       }
@@ -213,11 +218,14 @@ class PluginMirrorSync {
           keep[entry.key] = entry.value;
         }
       }
-    } else if (appVersions.isEmpty && previous != null) {
+    } else if (previous != null) {
       final published = {for (final v in plugin.versionEntries) v.version};
       final wanted = {for (final t in targets) t.version};
       for (final entry in previous.localFiles.entries) {
         if (wanted.contains(entry.key) || !published.contains(entry.key)) {
+          continue;
+        }
+        if (appVersions.isNotEmpty && !_recentlyTargeted(entry.value, now)) {
           continue;
         }
         if (await store.hasAsset(entry.value.relativePath)) {
@@ -429,6 +437,12 @@ class PluginMirrorSync {
     return result;
   }
 
+  static bool _recentlyTargeted(PluginLocalFile file, DateTime now) {
+    final targetedAt = file.targetedAt;
+    return targetedAt != null &&
+        now.difference(targetedAt).abs() <= untargetedBuildRetention;
+  }
+
   /// אותה כתובת, אותה גרסת תוסף, והקובץ עדיין על הדיסק. הגרסה נדרשת כי האתר
   /// יכול להחליף את תוכן התמונה מתחת לאותה כתובת.
   Future<bool> _imageUnchanged(
@@ -537,6 +551,7 @@ class PluginMirrorSync {
     _PluginPlan plan,
     StorePlugin plugin,
     void Function(PluginSyncProgress) report,
+    DateTime now,
     bool Function() cancelled,
   ) async {
     if (plan.missingBuilds.isEmpty) {
@@ -574,6 +589,7 @@ class PluginMirrorSync {
           ext: asset.ext,
           size: asset.size,
           sourceUrl: target.downloadUrl,
+          targetedAt: now,
         );
         manifestId ??= PluginManifestReader.readId(asset.path);
       } catch (e) {

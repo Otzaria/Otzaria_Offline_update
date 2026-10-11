@@ -202,9 +202,10 @@ class HomeScreen extends StatelessWidget {
         OtzariaModuleStatus.upToDate => common.upToDate,
         OtzariaModuleStatus.updateAvailable => common.updateAvailable,
         OtzariaModuleStatus.installing => common.installing,
-        OtzariaModuleStatus.needsDownload => c.currentVersion == null
-            ? t.appNoInstallFound
-            : t.appNothingDownloaded,
+        OtzariaModuleStatus.needsDownload =>
+          c.currentVersion == null
+              ? t.appNoInstallFound
+              : t.appNothingDownloaded,
         OtzariaModuleStatus.installedIsNewer => common.installedIsNewer,
         OtzariaModuleStatus.error => common.error,
       },
@@ -220,8 +221,8 @@ class HomeScreen extends StatelessWidget {
       primaryActionLoading: isBusy,
       onPrimaryAction: switch (c.status) {
         OtzariaModuleStatus.updateAvailable => () => _confirmAppInstall(
-              context,
-            ),
+          context,
+        ),
         _ => c.canLaunch ? c.launch : null,
       },
       onDetails: onGoToOtzaria,
@@ -325,15 +326,15 @@ class HomeScreen extends StatelessWidget {
       primaryActionText: c.status == LibraryModuleStatus.updateAvailable
           ? (c.isFreshInstall ? common.install : common.update)
           : c.semanticConsentRequired
-              ? context.strings.libraryDomain.companionSemanticName
-              : null,
+          ? context.strings.libraryDomain.companionSemanticName
+          : null,
       primaryActionIcon: FluentIcons.database_arrow_right_24_regular,
       primaryActionLoading: isBusy,
       onPrimaryAction: c.status == LibraryModuleStatus.updateAvailable
           ? (isDownloading ? null : () => _confirmLibraryUpdate(context))
           : c.semanticConsentRequired
-              ? onGoToLibrary
-              : null,
+          ? onGoToLibrary
+          : null,
       onDetails: onGoToLibrary,
     );
   }
@@ -356,10 +357,13 @@ class HomeScreen extends StatelessWidget {
       // "עדכון מגרסה 27 לגרסה 27" הוא מה שהמשתמש קרא כתקלה כשההצעה נבעה
       // מקובץ נלווה בלבד. עכשיו הדיאלוג אומר בדיוק מה יותקן.
       content: switch (c) {
-        _ when c.isFreshInstall =>
-          t.libraryFreshInstallPrompt('${c.targetVersion}'),
-        _ when c.companionsOnly => AppL10n.strings.libraryDomain
-            .companionsOnlyPrompt(c.pendingCompanionNames),
+        _ when c.isFreshInstall => t.libraryFreshInstallPrompt(
+          '${c.targetVersion}',
+        ),
+        _ when c.companionsOnly =>
+          AppL10n.strings.libraryDomain.companionsOnlyPrompt(
+            c.pendingCompanionNames,
+          ),
         _ => t.libraryUpdatePrompt('${c.localVersion}', '${c.targetVersion}'),
       },
       subtitle: t.doNotRemoveDriveWarning,
@@ -388,19 +392,21 @@ class HomeScreen extends StatelessWidget {
     final everChecked = otzariaChecked || libraryChecked || pluginsChecked;
     // המאוחרת מבין השלוש. קודם הוצג תמיד זמן הבדיקה של אוצריא, גם כשבדיקת
     // הספרייה רצה אחריה — "נבדק לאחרונה" הראה אז זמן מוקדם מהאמת.
-    final lastChecked = [
-      if (otzariaChecked) otzaria.onlineCheckedAt!,
-      if (libraryChecked) library.onlineCheckedAt!,
-      if (pluginsChecked) plugins.onlineCheckedAt!,
-    ].fold<DateTime?>(
-      null,
-      (latest, at) => latest == null || at.isAfter(latest) ? at : latest,
-    );
+    final lastChecked =
+        [
+          if (otzariaChecked) otzaria.onlineCheckedAt!,
+          if (libraryChecked) library.onlineCheckedAt!,
+          if (pluginsChecked) plugins.onlineCheckedAt!,
+        ].fold<DateTime?>(
+          null,
+          (latest, at) => latest == null || at.isAfter(latest) ? at : latest,
+        );
     final otzariaOnline = otzariaChecked && otzaria.onlineCheckError == null;
     final libraryOnline = libraryChecked && library.onlineCheckError == null;
     final pluginsOnline = pluginsChecked && plugins.onlineCheckError == null;
     final isOnline = otzariaOnline || libraryOnline || pluginsOnline;
-    final hasUpdate = otzaria.hasOnlineUpdate ||
+    final hasUpdate =
+        otzaria.hasOnlineUpdate ||
         library.hasOnlineUpdate ||
         plugins.hasOnlineUpdate;
 
@@ -456,9 +462,11 @@ class HomeScreen extends StatelessWidget {
                 InfoErrorRow(
                   message: t.downloadFailedSnack(t.libraryTileTitle),
                   onRetry:
-                      settings.settings.downloadsLibrary && !longTaskRunning
-                          ? onDownloadAll
-                          : null,
+                      settings.settings.downloadsLibrary &&
+                          !longTaskRunning &&
+                          !isCheckingOnline
+                      ? onDownloadAll
+                      : null,
                 ),
               if (isOnline && hasUpdate) ...[
                 const SizedBox(height: AppTokens.spaceMD),
@@ -467,9 +475,11 @@ class HomeScreen extends StatelessWidget {
                   icon: FluentIcons.arrow_download_24_regular,
                   isLoading: isDownloading,
                   onPressed:
-                      settings.settings.hasSyncSelection && !longTaskRunning
-                          ? () => onDownloadAll()
-                          : null,
+                      settings.settings.hasSyncSelection &&
+                          !longTaskRunning &&
+                          !isCheckingOnline
+                      ? () => onDownloadAll()
+                      : null,
                 ),
               ],
               if (isDownloading) ...[
@@ -498,7 +508,9 @@ class HomeScreen extends StatelessWidget {
                       ? const SizedBox.shrink()
                       : SettingsActionTile.text(
                           icon: FluentIcons.arrow_upload_24_regular,
-                          title: context.strings.libraryDomain
+                          title: context
+                              .strings
+                              .libraryDomain
                               .semanticFeedbackUploadTitle,
                           subtitle: context.strings.libraryDomain
                               .semanticFeedbackUploadBody(feedback.outboxCount),
@@ -509,7 +521,9 @@ class HomeScreen extends StatelessWidget {
                                 onPressed: feedback.stop,
                               ),
                             ActionButton.neutral(
-                              text: context.strings.libraryDomain
+                              text: context
+                                  .strings
+                                  .libraryDomain
                                   .semanticFeedbackUploadAction,
                               isLoading: feedback.isUploading,
                               onPressed: longTaskRunning || feedback.isUploading
@@ -549,8 +563,9 @@ class HomeScreen extends StatelessWidget {
     final theme = Theme.of(context);
     final t = context.strings.home;
     final s = settings.settings;
-    final style = theme.textTheme.bodySmall
-        ?.copyWith(color: theme.colorScheme.onSurfaceVariant);
+    final style = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
     final warnStyle = style?.copyWith(color: theme.colorScheme.error);
 
     final widgets = <Widget>[];
@@ -601,11 +616,13 @@ class HomeScreen extends StatelessWidget {
   }
 
   Widget _downloadProgress(BuildContext context) => ListenableBuilder(
-        listenable: Listenable.merge(
-          [otzaria.progress, library.progress, plugins.progress],
-        ),
-        builder: (context, _) => _downloadProgressRow(context),
-      );
+    listenable: Listenable.merge([
+      otzaria.progress,
+      library.progress,
+      plugins.progress,
+    ]),
+    builder: (context, _) => _downloadProgressRow(context),
+  );
 
   Widget _downloadProgressRow(BuildContext context) {
     final t = context.strings.home;
@@ -661,30 +678,31 @@ class HomeScreen extends StatelessWidget {
 
     final (StatusKind kind, String label) = switch (c.status) {
       LauncherUpdateStatus.downloading => (
-          StatusKind.working,
-          t.statusDownloading
-        ),
+        StatusKind.working,
+        t.statusDownloading,
+      ),
       LauncherUpdateStatus.installing => (
-          StatusKind.working,
-          t.statusInstalling
-        ),
+        StatusKind.working,
+        t.statusInstalling,
+      ),
       LauncherUpdateStatus.error => (
-          StatusKind.error,
-          context.strings.common.error
-        ),
+        StatusKind.error,
+        context.strings.common.error,
+      ),
       LauncherUpdateStatus.readyToInstall => (
-          StatusKind.updateAvailable,
-          t.statusReadyToInstall
-        ),
+        StatusKind.updateAvailable,
+        t.statusReadyToInstall,
+      ),
       _ when c.hasOnlineUpdate => (
-          StatusKind.updateAvailable,
-          t.statusUpdateAvailable
-        ),
+        StatusKind.updateAvailable,
+        t.statusUpdateAvailable,
+      ),
       _ => (StatusKind.ok, t.statusUpToDate),
     };
 
-    final detail = theme.textTheme.bodySmall
-        ?.copyWith(color: theme.colorScheme.onSurfaceVariant);
+    final detail = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
 
     return SettingsCard(
       title: t.cardTitle,
@@ -716,7 +734,9 @@ class HomeScreen extends StatelessWidget {
                         ? (c.downloadReceived ?? 0) / c.downloadTotal!
                         : null,
                     detail: formatBytesProgress(
-                        c.downloadReceived, c.downloadTotal),
+                      c.downloadReceived,
+                      c.downloadTotal,
+                    ),
                   ),
                 ),
               ],
@@ -761,16 +781,16 @@ class HomeScreen extends StatelessWidget {
 // ── תרגום מצב הספרייה לתצוגה — משותף לדף הבית ולמסך הספרייה ──────────────────
 
 StatusKind libraryStatusKind(LibraryModuleStatus status) => switch (status) {
-      LibraryModuleStatus.idle => StatusKind.unknown,
-      LibraryModuleStatus.checking => StatusKind.working,
-      LibraryModuleStatus.upToDate => StatusKind.ok,
-      LibraryModuleStatus.updateAvailable => StatusKind.updateAvailable,
-      LibraryModuleStatus.updating => StatusKind.working,
-      LibraryModuleStatus.error => StatusKind.error,
-      LibraryModuleStatus.needsDownload => StatusKind.needsAction,
-      LibraryModuleStatus.needsManualPath => StatusKind.needsAction,
-      LibraryModuleStatus.personalTargetElsewhere => StatusKind.needsAction,
-    };
+  LibraryModuleStatus.idle => StatusKind.unknown,
+  LibraryModuleStatus.checking => StatusKind.working,
+  LibraryModuleStatus.upToDate => StatusKind.ok,
+  LibraryModuleStatus.updateAvailable => StatusKind.updateAvailable,
+  LibraryModuleStatus.updating => StatusKind.working,
+  LibraryModuleStatus.error => StatusKind.error,
+  LibraryModuleStatus.needsDownload => StatusKind.needsAction,
+  LibraryModuleStatus.needsManualPath => StatusKind.needsAction,
+  LibraryModuleStatus.personalTargetElsewhere => StatusKind.needsAction,
+};
 
 String libraryStatusLabel(BuildContext context, LibraryModuleController c) {
   final common = context.strings.common;
@@ -781,11 +801,13 @@ String libraryStatusLabel(BuildContext context, LibraryModuleController c) {
     LibraryModuleStatus.checking => common.checking,
     LibraryModuleStatus.upToDate => common.upToDate,
     LibraryModuleStatus.updateAvailable => switch (c) {
-        _ when c.isFreshInstall => t.libraryNotInstalledYet,
-        _ when c.companionsOnly => AppL10n.strings.libraryDomain
-            .companionsOnlyPending(c.pendingCompanionNames),
-        _ => common.updateAvailable,
-      },
+      _ when c.isFreshInstall => t.libraryNotInstalledYet,
+      _ when c.companionsOnly =>
+        AppL10n.strings.libraryDomain.companionsOnlyPending(
+          c.pendingCompanionNames,
+        ),
+      _ => common.updateAvailable,
+    },
     LibraryModuleStatus.updating => t.libraryUpdating,
     LibraryModuleStatus.error => common.error,
     LibraryModuleStatus.needsDownload => t.libraryNothingDownloaded,
@@ -798,16 +820,15 @@ String libraryStatusLabel(BuildContext context, LibraryModuleController c) {
 Widget libraryApplyProgressRow(
   BuildContext context,
   LibraryModuleController c,
-) =>
-    ListenableBuilder(
-      listenable: c.progress,
-      builder: (context, _) => InfoProgressRow(
-        stage: c.stageText ?? context.strings.libraryScreen.updatingProgress,
-        progress: c.applyProgress,
-        detail: formatBytesProgress(c.applyReceivedBytes, c.applyTotalBytes),
-        warning: context.strings.home.doNotRemoveDriveWarning,
-      ),
-    );
+) => ListenableBuilder(
+  listenable: c.progress,
+  builder: (context, _) => InfoProgressRow(
+    stage: c.stageText ?? context.strings.libraryScreen.updatingProgress,
+    progress: c.applyProgress,
+    detail: formatBytesProgress(c.applyReceivedBytes, c.applyTotalBytes),
+    warning: context.strings.home.doNotRemoveDriveWarning,
+  ),
+);
 
 // ── אריח בית — עיצוב אחיד לשני הרכיבים ────────────────────────────────────────
 
@@ -866,8 +887,9 @@ class _HomeTile extends StatelessWidget {
               Expanded(
                 child: Text(
                   title,
-                  style: theme.textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ],
@@ -888,8 +910,9 @@ class _HomeTile extends StatelessWidget {
           else if (progress == null)
             Text(
               context.strings.home.noActionAvailable,
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: cs.onSurfaceVariant),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
             ),
           const SizedBox(height: AppTokens.spaceSM),
           ActionButton.ghost(

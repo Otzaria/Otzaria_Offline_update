@@ -306,6 +306,7 @@ class PluginsManager {
         ext: asset.ext,
         size: asset.size,
         sourceUrl: target.downloadUrl,
+        targetedAt: DateTime.now(),
       );
       final updated = plugin.copyWith(
         localFiles: {...plugin.localFiles, target.version: file},

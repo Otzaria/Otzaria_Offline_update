@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:plugins_manager/plugins_manager.dart';
+import 'package:plugins_manager/src/services/plugin_mirror_sync.dart';
 import 'package:test/test.dart';
 
 import 'support.dart';
@@ -32,6 +33,30 @@ Future<void> _dropMediaVersion(String root) async {
   );
 }
 
+Future<void> _ageTargets(String root, Duration age) async {
+  final store = PluginMirrorStore(root);
+  final old = await store.load();
+  final when = DateTime.now().subtract(age);
+  await store.save(
+    PluginCatalog(
+      lastSync: old.lastSync,
+      categories: old.categories,
+      home: old.home,
+      plugins: [
+        for (final plugin in old.plugins)
+          plugin.copyWith(
+            localFiles: {
+              for (final entry in plugin.localFiles.entries)
+                entry.key: entry.value.copyWith(targetedAt: when),
+            },
+          ),
+      ],
+    ),
+  );
+}
+
+/// אתר מדומה של החנות. כל נתיב יכול לקבל סטטוס שגיאה בנפרד, כדי לבדוק
+/// שכשל בחלק אחד אינו מפיל את השאר.
 class _Site {
   _Site({List<Map<String, dynamic>>? plugins})
     : plugins = plugins ?? defaultPlugins();
@@ -1408,11 +1433,15 @@ void main() {
       expect(outcome.incompatible, ['אלף (0.9.95)']);
     });
 
-    test('אוצריא שעודכנה — הבילד הישן נמחק מהכונן', () async {
+    test('אוצריא שעודכנה — בילד שאיש לא ביקש זמן רב נמחק מהכונן', () async {
       await sync(_Site(plugins: versioned()), appVersions: ['0.9.96']);
       final store = PluginMirrorStore(temp.path);
       final old = File(store.absolutePath('files/a/plugin-1.5.0.otzplugin'));
       expect(old.existsSync(), isTrue);
+      await _ageTargets(
+        temp.path,
+        PluginMirrorSync.untargetedBuildRetention + const Duration(days: 1),
+      );
 
       final catalog = await sync(
         _Site(plugins: versioned()),
@@ -1424,6 +1453,125 @@ void main() {
       expect(
         File(store.absolutePath('files/a/plugin-2.0.0.otzplugin')).existsSync(),
         isTrue,
+      );
+    });
+
+    test('אוצריא שעודכנה זה עתה — הבילד הקודם נשאר לתקופת החסד', () async {
+      await sync(_Site(plugins: versioned()), appVersions: ['0.9.96']);
+      final store = PluginMirrorStore(temp.path);
+      final old = File(store.absolutePath('files/a/plugin-1.5.0.otzplugin'));
+
+      final catalog = await sync(
+        _Site(plugins: versioned()),
+        appVersions: ['0.9.97'],
+      );
+
+      expect(catalog.plugins.single.localFiles.keys.toSet(), {
+        '1.5.0',
+        '2.0.0',
+      });
+      expect(old.existsSync(), isTrue);
+    });
+
+    test(
+      'שני מחשבים מקוונים לסירוגין — בילד של השני אינו נמחק ויורד שוב',
+      () async {
+        final home = ['0.9.97', '0.9.96'];
+        final office = ['0.9.97'];
+        final first = _Site(plugins: versioned());
+        await sync(first, appVersions: home);
+        expect(first.requestsMatching('/download').length, 2);
+
+        final atOffice = _Site(plugins: versioned());
+        final catalog = await sync(atOffice, appVersions: office);
+        expect(atOffice.requestsMatching('/download'), isEmpty);
+        expect(catalog.plugins.single.localFiles.keys.toSet(), {
+          '1.5.0',
+          '2.0.0',
+        });
+
+        final backHome = _Site(plugins: versioned());
+        await sync(backHome, appVersions: home);
+        expect(backHome.requestsMatching('/download'), isEmpty);
+
+        final reloaded = await PluginMirrorStore(temp.path).load();
+        expect(
+          reloaded.plugins.single.localFiles.values.map((f) => f.targetedAt),
+          everyElement(isNotNull),
+        );
+      },
+    );
+
+    test('בילד שהורד לפי דרישה אינו נמחק בסנכרון שאינו מבקש אותו', () async {
+      await sync(_Site(plugins: versioned()), appVersions: ['0.9.97']);
+      final store = PluginMirrorStore(temp.path);
+      final before = (await store.load()).plugins.single;
+      expect(before.localFiles.keys, ['2.0.0']);
+
+      final onDemand = PluginsManager(
+        resolveMirrorDir: () async => temp.path,
+        resolvePluginsDir: () async => p.join(temp.path, 'otzaria', 'plugins'),
+        baseUrl: 'https://otzaria.test',
+        httpClient: MockClient(
+          (_) async => http.Response.bytes(
+            pluginBytes('{"id":"manifest-a"}'),
+            200,
+            headers: {
+              'content-disposition': 'attachment; filename="plugin.zip"',
+            },
+          ),
+        ),
+      );
+      final result = await onDemand.directInstall(before, appVersion: '0.9.96');
+      expect(result.error, strings.badPluginExtension);
+
+      final fetched = (await store.load()).plugins.single.localFiles['1.5.0'];
+      expect(fetched?.targetedAt, isNotNull);
+      final file = File(store.absolutePath(fetched!.relativePath));
+      expect(file.existsSync(), isTrue);
+
+      final atOffice = _Site(plugins: versioned());
+      final catalog = await sync(atOffice, appVersions: ['0.9.97']);
+
+      expect(catalog.plugins.single.localFiles.keys.toSet(), {
+        '1.5.0',
+        '2.0.0',
+      });
+      expect(file.existsSync(), isTrue);
+      expect(atOffice.requestsMatching('/download'), isEmpty);
+    });
+
+    test('בילד מקטלוג ישן בלי חותמת בקשה נמחק כשאינו מבוקש', () async {
+      await sync(_Site(plugins: versioned()), appVersions: ['0.9.96']);
+      final store = PluginMirrorStore(temp.path);
+      final old = await store.load();
+      await store.save(
+        PluginCatalog(
+          lastSync: old.lastSync,
+          categories: old.categories,
+          home: old.home,
+          plugins: [
+            for (final plugin in old.plugins)
+              StorePlugin.fromJson(
+                plugin.toJson()
+                  ..['localFiles'] = {
+                    for (final entry in plugin.localFiles.entries)
+                      entry.key: entry.value.toJson()..remove('targetedAt'),
+                  },
+              ),
+          ],
+        ),
+      );
+
+      final catalog = await sync(
+        _Site(plugins: versioned()),
+        appVersions: ['0.9.97'],
+      );
+
+      expect(catalog.plugins.single.localFiles.keys, ['2.0.0']);
+      expect(
+        File(store.absolutePath('files/a/plugin-1.5.0.otzplugin')).existsSync(),
+        isFalse,
       );
     });
 

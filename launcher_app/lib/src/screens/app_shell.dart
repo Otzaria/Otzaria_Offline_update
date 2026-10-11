@@ -909,6 +909,34 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
+  Future<void> _refreshStaleOnlineChecks(AppSettings s) async {
+    bool stale(DateTime? checkedAt, String? error) =>
+        onlineCheckNeedsRefresh(checkedAt: checkedAt, error: error);
+    final refreshApp =
+        s.syncApp && stale(_otzaria.onlineCheckedAt, _otzaria.onlineCheckError);
+    final refreshLibrary =
+        s.downloadsLibrary &&
+        stale(_library.onlineCheckedAt, _library.onlineCheckError);
+    final refreshPlugins =
+        s.syncPlugins &&
+        (stale(_plugins.onlineCheckedAt, _plugins.onlineCheckError) ||
+            stale(_plugins.storeAppCheckedAt, _plugins.storeAppCheckError));
+    if (!refreshApp && !refreshLibrary && !refreshPlugins) return;
+    final ownsCheckingFlag = !_isCheckingOnline;
+    if (ownsCheckingFlag) setState(() => _isCheckingOnline = true);
+    try {
+      await Future.wait([
+        if (refreshApp) _otzaria.checkOnline(),
+        if (refreshLibrary) _library.checkOnline(),
+        if (refreshPlugins) _plugins.checkOnline(),
+      ]);
+    } finally {
+      if (ownsCheckingFlag && mounted) {
+        setState(() => _isCheckingOnline = false);
+      }
+    }
+  }
+
   Future<void> _downloadAll() async {
     if (_mirrorSweep case final sweep?) {
       await sweep;
@@ -920,6 +948,9 @@ class _AppShellState extends State<AppShell> {
         _launcherUpdate.isDownloading) {
       return;
     }
+
+    await _refreshStaleOnlineChecks(s);
+    if (!mounted) return;
 
     // רכיב שהבדיקה אמרה עליו "אין חדש" לא מורץ בכלל: ההורדה שלו אורכת
     // דקות ומציגה מד התקדמות, ולא הייתה מביאה כלום. הכפתור עצמו מופיע רק
@@ -936,14 +967,6 @@ class _AppShellState extends State<AppShell> {
           error: _otzaria.onlineCheckError,
           hasUpdate: _otzaria.hasOnlineUpdate,
         );
-    // בלי בדיקה שהצליחה "כבר בכונן" אינו ידוע, והשאלה הייתה קופצת על מה שכבר
-    // שם. בדיקה אחת קלה לפניה; כשל שלה משאיר את השאלה, כמו קודם.
-    if (s.downloadsLibrary &&
-        (_library.onlineCheckedAt == null ||
-            _library.onlineCheckError != null)) {
-      await _library.checkOnline();
-      if (!mounted) return;
-    }
     // ב"עדכון אישי" היעד נגזר מהגרסה שנרשמה ולא מהחדשה שברשת, ולכן
     // "אין חדש ברשת" אינו אומר שאין מה להוריד.
     final includeSemanticSearch =
