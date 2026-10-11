@@ -90,6 +90,8 @@ class UncleanExitDetector {
   /// כל קובץ יומן נקרא רק עד הגודל הזה מסופו.
   static const int maxLogReadBytes = 4 * 1000 * 1000;
 
+  static const Duration _logModifiedSlack = Duration(hours: 1, seconds: 2);
+
   final String logsDirectory;
   final bool Function(int pid) _isProcessAlive;
   final int _currentPid;
@@ -141,19 +143,19 @@ class UncleanExitDetector {
     }
   }
 
-  /// נעילה של תהליך אחר שייכת להפעלה שטרם נבדקה — מחיקתה תאבד את הקריסה.
   bool _ownsLock(File file) {
     try {
       if (!file.existsSync()) return false;
       final lock = SessionLock.tryParse(file.readAsStringSync());
-      return lock == null || lock.pid == _currentPid;
+      return lock == null || _isCurrentSession(lock);
     } catch (_) {
       return false;
     }
   }
 
-  /// מחזיר מועמד לקריסה רק כשנשארה נעילה של תהליך שאינו חי, ויש ראיה לקריסה:
-  /// שגיאה שלא נתפסה מאז תחילתו, או תקיעה בעלייה.
+  bool _isCurrentSession(SessionLock lock) =>
+      lock.pid == _currentPid && !lock.startedAt.isBefore(_processStartedAt);
+
   Future<CrashCandidate?> detectPreviousCrash() async {
     final SessionLock lock;
     try {
@@ -166,10 +168,8 @@ class UncleanExitDetector {
       return null;
     }
 
-    // נעילה ממחשב אחר: היומן המשותף אינו קשור למערכת ולאבחון של המחשב הזה,
-    // ולכן אין הצעה ואין שליחה — startSession פשוט דורס אותה.
     if (lock.host != null && lock.host != _currentHost) return null;
-    if (lock.pid == _currentPid) return null;
+    if (_isCurrentSession(lock)) return null;
     if (_isStillRunning(lock)) return null;
 
     final blocks = await _blocksSince(lock.startedAt);
@@ -185,10 +185,10 @@ class UncleanExitDetector {
   }
 
   bool _isStillRunning(SessionLock lock) {
+    if (lock.pid == _currentPid) return false;
     try {
       return _isProcessAlive(lock.pid);
     } catch (_) {
-      // בלי בדיקה אמינה: נעילה שנכתבה לפני שהתהליך הזה עלה שייכת להפעלה קודמת.
       return !lock.startedAt.isBefore(_processStartedAt);
     }
   }
@@ -199,11 +199,10 @@ class UncleanExitDetector {
       try {
         final file = File(p.join(logsDirectory, name));
         if (!await file.exists()) continue;
-        if ((await file.stat()).modified.isBefore(since)) continue;
+        final modified = (await file.stat()).modified;
+        if (modified.isBefore(since.subtract(_logModifiedSlack))) continue;
         parts.add(await readTail(file, maxLogReadBytes));
-      } catch (_) {
-        // קובץ נעול או חסר אינו ראיה.
-      }
+      } catch (_) {}
     }
     if (parts.isEmpty) return const [];
     return _blocksInIsolate(parts.join('\n'), since, _processStartedAt);

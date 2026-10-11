@@ -793,8 +793,49 @@ error: A RenderFlex overflowed by 4 pixels
     });
 
     test('נעילה של התהליך הנוכחי אינה קריסה', () async {
+      writeLock(pid: 2000, startedAt: thisStart);
+      writeLog(uncaught(previousStart.add(const Duration(hours: 1))));
+      expect(await detector().detectPreviousCrash(), isNull);
+    });
+
+    test('נעילה ישנה עם pid שמוחזר לתהליך הנוכחי היא קריסה', () async {
       writeLock(pid: 2000);
       writeLog(uncaught(previousStart.add(const Duration(hours: 1))));
+      final probed = <int>[];
+      final candidate = await detector(
+        alive: (pid) {
+          probed.add(pid);
+          return true;
+        },
+      ).detectPreviousCrash();
+      expect(candidate, isNotNull);
+      expect(candidate!.previousSession.pid, 2000);
+      expect(probed, isEmpty);
+    });
+
+    test('markCleanExit אינו מוחק נעילה ישנה עם pid ממוחזר', () async {
+      writeLock(pid: 2000);
+      final d = detector();
+      d.markCleanExitSync();
+      await d.markCleanExit();
+      expect(File(d.lockPath).existsSync(), isTrue);
+    });
+
+    test('יומן ש-mtime שלו מעוגל אחורה (FAT) עדיין נקרא', () async {
+      writeLock();
+      writeLog(uncaught(previousStart.add(const Duration(seconds: 1))));
+      File(p.join(logs.path, 'launcher.log')).setLastModifiedSync(
+        previousStart.subtract(const Duration(seconds: 1)),
+      );
+      expect(await detector().detectPreviousCrash(), isNotNull);
+    });
+
+    test('יומן ש-mtime שלו ישן בהרבה מהנעילה אינו נקרא', () async {
+      writeLock();
+      writeLog(uncaught(previousStart.add(const Duration(seconds: 1))));
+      File(p.join(logs.path, 'launcher.log')).setLastModifiedSync(
+        previousStart.subtract(const Duration(hours: 2)),
+      );
       expect(await detector().detectPreviousCrash(), isNull);
     });
 
