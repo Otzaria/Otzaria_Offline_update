@@ -309,6 +309,57 @@ void main() {
     expect(requests, 0);
   });
 
+  test('model file is reused from a previous generation', () async {
+    final bytes = [9, 8, 7];
+    final asset = (name: 'm.bin', size: 3, sha256: Sha256Stream.ofBytes(bytes));
+    const old = 'v29-20260920000000';
+    final source = File(
+      p.join(mirror, old, SemanticSearchAssets.modelFolder, 'm.bin'),
+    );
+    await source.parent.create(recursive: true);
+    await source.writeAsBytes(bytes);
+    expect(
+      await assets.reusableModelSource(
+        mirrorDir: mirror,
+        libraryTag: tag,
+        file: asset,
+      ),
+      source.path,
+    );
+    await source.writeAsBytes([1, 1, 1]);
+    expect(
+      await assets.reusableModelSource(
+        mirrorDir: mirror,
+        libraryTag: tag,
+        file: asset,
+      ),
+      isNull,
+    );
+  });
+
+  test('pruning keeps only the current generation', () async {
+    for (final name in ['v29-20260920000000', tag, 'v31-20261004170255']) {
+      final file = File(p.join(mirror, name, 'vectors', 'x'));
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes([1]);
+    }
+    await File(p.join(mirror, 'semantic.json')).writeAsString('{}');
+    await Directory(p.join(mirror, 'other')).create();
+    await assets.pruneOldGenerations(mirror, tag);
+    expect(await Directory(p.join(mirror, tag)).exists(), isTrue);
+    expect(
+      await Directory(p.join(mirror, 'v29-20260920000000')).exists(),
+      isFalse,
+    );
+    expect(
+      await Directory(p.join(mirror, 'v31-20261004170255')).exists(),
+      isFalse,
+    );
+    expect(await Directory(p.join(mirror, 'other')).exists(), isTrue);
+    expect(await File(p.join(mirror, 'semantic.json')).exists(), isTrue);
+    await assets.pruneOldGenerations(p.join(temp.path, 'missing'), tag);
+  });
+
   Future<void> rejectRelease({
     String? digest,
     String file = 'segment.oxv.zst',

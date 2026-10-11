@@ -304,9 +304,22 @@ class SemanticSearchAssets {
       'manifestSize': manifestBytes.length,
       'manifestSha256': digest,
     };
+    final generation = p.join(mirrorDir, libraryTag);
+    // קובץ מודל זהה מדור קודם מועתק במקום להוריד שוב (~43MB בכל גרסה).
+    final reused = <String, String>{};
+    for (final file in modelFiles) {
+      final source = await reusableModelSource(
+        mirrorDir: mirrorDir,
+        libraryTag: libraryTag,
+        file: file,
+        isCancelled: isCancelled,
+      );
+      if (source != null) reused[file.name] = source;
+    }
     final downloadModels = [
       for (final file in modelFiles)
-        file.name == 'tokenizer.json' ? tokenizerZip : file,
+        if (!reused.containsKey(file.name))
+          file.name == 'tokenizer.json' ? tokenizerZip : file,
     ];
     final progress = ByteProgressAggregator(
       totalBytes: [
@@ -316,7 +329,6 @@ class SemanticSearchAssets {
       onProgress: onBytesProgress,
     );
     progress.announce();
-    final generation = p.join(mirrorDir, libraryTag);
     final downloader = PatchDownloader(
       httpClient: _client,
       decompress: (_) async => null,
@@ -325,6 +337,14 @@ class SemanticSearchAssets {
       _cancel(isCancelled);
       await Directory(p.join(generation, modelFolder)).create(recursive: true);
       await Directory(p.join(generation, 'vectors')).create(recursive: true);
+      for (final entry in reused.entries) {
+        final target = p.join(generation, modelFolder, entry.key);
+        if (p.equals(entry.value, target)) continue;
+        _cancel(isCancelled);
+        final temporary = '$target.tmp';
+        await File(entry.value).copy(temporary);
+        await File(temporary).rename(target);
+      }
       for (final file in downloadModels) {
         final slot = progress.slot();
         _cancel(isCancelled);
@@ -385,8 +405,58 @@ class SemanticSearchAssets {
       await metadataFile.writeAsString(jsonEncode(metadata), flush: true);
       _cancel(isCancelled);
       await metadataFile.rename(p.join(mirrorDir, manifestFileName));
+      await pruneOldGenerations(mirrorDir, libraryTag);
     } finally {
       downloader.dispose();
+    }
+  }
+
+  static final _generationName = RegExp(r'^v\d+-[A-Za-z0-9._+-]+$');
+
+  /// קובץ מודל תקין (גודל+sha) בדור הנוכחי או בדור קודם, או `null`. פומבי לטסטים.
+  Future<String?> reusableModelSource({
+    required String mirrorDir,
+    required String libraryTag,
+    required SemanticAsset file,
+    bool Function()? isCancelled,
+  }) async {
+    final root = Directory(mirrorDir);
+    if (!await root.exists()) return null;
+    final names = <String>[libraryTag];
+    await for (final entry in root.list(followLinks: false)) {
+      final name = p.basename(entry.path);
+      if (entry is Directory &&
+          name != libraryTag &&
+          _generationName.hasMatch(name)) {
+        names.add(name);
+      }
+    }
+    for (final name in names) {
+      final path = p.join(mirrorDir, name, modelFolder, file.name);
+      if (await _matches(path, file, isCancelled)) return path;
+    }
+    return null;
+  }
+
+  /// מוחק דורות ישנים אחרי sync מוצלח; כשל מחיקה (כונן לקריאה בלבד) אינו כשל.
+  /// פומבי לטסטים.
+  Future<void> pruneOldGenerations(String mirrorDir, String keepTag) async {
+    try {
+      await for (final entry in Directory(mirrorDir).list(followLinks: false)) {
+        final name = p.basename(entry.path);
+        if (entry is! Directory ||
+            name == keepTag ||
+            !_generationName.hasMatch(name)) {
+          continue;
+        }
+        try {
+          await entry.delete(recursive: true);
+        } on FileSystemException {
+          continue;
+        }
+      }
+    } on FileSystemException {
+      return;
     }
   }
 

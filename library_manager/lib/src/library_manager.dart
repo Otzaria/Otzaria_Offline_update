@@ -376,10 +376,18 @@ class LibraryManager {
     if (includeSemanticSearch) {
       final semantic = SemanticSearchAssets();
       try {
-        final discovery = await LibraryUpdateDiscovery(
-          client: await _resolveSource(),
-        ).discover(allowPrerelease: allowPrerelease);
-        final tag = discovery.latestContentTag;
+        String? tag;
+        if (exported) {
+          final discovery = await LibraryUpdateDiscovery(
+            client: await _resolveSource(),
+          ).discover(allowPrerelease: allowPrerelease);
+          tag = discovery.latestContentTag;
+        } else {
+          // המראה לא התרעננה (עדכון אישי), ותגה ישן — הווקטורים חייבים להתאים
+          // לגרסה המקוונת, כמו שההצעה ב-peekPendingSemanticSearch בודקת.
+          await peekLatestOnlineVersion();
+          tag = _onlineLibraryTag;
+        }
         if (tag == null) {
           throw StateError(
             AppL10n.strings.libraryDomain.companionsMirrorMissing,
