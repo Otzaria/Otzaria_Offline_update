@@ -132,6 +132,14 @@ void main() {
     expect(stubC, contains('PAYLOAD_VERSION_W'));
   });
 
+  test('ה-InternalName שב-VERSIONINFO של ה-stub הוא זה שהאיתור מחפש', () {
+    expect(
+      stubRc,
+      contains('VALUE "InternalName", '
+          '"${LauncherInstallLayout.stubInternalName}"'),
+    );
+  });
+
   test('שם המרקר שהלאנצ\'ר מוחק הוא זה שה-stub כותב', () {
     expect(
       stubC,

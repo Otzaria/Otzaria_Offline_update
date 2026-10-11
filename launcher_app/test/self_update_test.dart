@@ -7,6 +7,7 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -526,22 +527,147 @@ void main() {
       expect(layout?.executableDir, temp.path);
     });
 
+    List<int> utf16(String text) => [
+          for (final unit in text.codeUnits) ...[unit, 0],
+        ];
+
+    List<int> stubVersionInfo() => [
+          ...utf16('InternalName'),
+          0,
+          0,
+          ...utf16(LauncherInstallLayout.stubInternalName),
+          0,
+          0,
+        ];
+
+    Uint8List portableExecutable({
+      required List<int> payload,
+      required List<int> versionInfo,
+    }) {
+      const sectionRva = 0x1000;
+      const sectionFileOffset = 0x400;
+      const payloadAt = 0x80;
+      final versionAt = payloadAt + payload.length;
+      final rsrcSize = versionAt + versionInfo.length;
+      final bytes = ByteData(sectionFileOffset + rsrcSize);
+      void u16(int at, int value) => bytes.setUint16(at, value, Endian.little);
+      void u32(int at, int value) => bytes.setUint32(at, value, Endian.little);
+
+      u16(0, 0x5A4D);
+      u32(0x3C, 0x40);
+      u32(0x40, 0x00004550);
+      u16(0x44, 0x8664);
+      u16(0x46, 1);
+      u16(0x54, 240);
+      const optional = 0x58;
+      u16(optional, 0x20b);
+      u32(optional + 108, 16);
+      u32(optional + 112 + 16, sectionRva);
+      u32(optional + 112 + 20, rsrcSize);
+      const section = optional + 240;
+      bytes.setUint8(section, 0x2E);
+      u32(section + 8, rsrcSize);
+      u32(section + 12, sectionRva);
+      u32(section + 16, rsrcSize);
+      u32(section + 20, sectionFileOffset);
+
+      void directory(int at, int id, int target) {
+        u16(sectionFileOffset + at + 14, 1);
+        u32(sectionFileOffset + at + 16, id);
+        u32(sectionFileOffset + at + 20, target);
+      }
+
+      u16(sectionFileOffset + 14, 2);
+      u32(sectionFileOffset + 16, 10);
+      u32(sectionFileOffset + 20, 0x80000000 | 0x20);
+      u32(sectionFileOffset + 24, 16);
+      u32(sectionFileOffset + 28, 0x80000000 | 0x38);
+      directory(0x20, 100, 0x60);
+      directory(0x38, 1, 0x80000000 | 0x48);
+      directory(0x48, 0x409, 0x70);
+      u32(sectionFileOffset + 0x60, sectionRva + payloadAt);
+      u32(sectionFileOffset + 0x64, payload.length);
+      u32(sectionFileOffset + 0x70, sectionRva + versionAt);
+      u32(sectionFileOffset + 0x74, versionInfo.length);
+
+      final out = bytes.buffer.asUint8List();
+      out.setRange(
+        sectionFileOffset + payloadAt,
+        sectionFileOffset + versionAt,
+        payload,
+      );
+      out.setRange(sectionFileOffset + versionAt, out.length, versionInfo);
+      return out;
+    }
+
+    LauncherInstallLayout? resolveBeside(Directory temp) =>
+        LauncherInstallLayout.resolve(
+          isWindows: true,
+          isMacOS: false,
+          resolvedExecutable:
+              p.join(temp.path, 'app-files', 'launcher_app.exe'),
+          environment: const {},
+        );
+
     test('בלי המשתנה — ה-exe הבודד שליד app-files (stub מגרסה קודמת)',
         () async {
       final temp = await Directory.systemTemp.createTemp('launcher-layout');
       addTearDown(() => deleteTempDir(temp));
       await Directory(p.join(temp.path, 'app-files')).create();
       final stub = File(p.join(temp.path, 'משהו אחר.exe'));
-      await stub.writeAsString('stub');
-
-      final layout = LauncherInstallLayout.resolve(
-        isWindows: true,
-        isMacOS: false,
-        resolvedExecutable: p.join(temp.path, 'app-files', 'launcher_app.exe'),
-        environment: const {},
+      await stub.writeAsBytes(
+        portableExecutable(
+          payload: List<int>.filled(3 << 20, 0x41),
+          versionInfo: stubVersionInfo(),
+        ),
       );
 
-      expect(layout?.executablePath, stub.path);
+      expect(resolveBeside(temp)?.executablePath, stub.path);
+    });
+
+    test('בלי המשתנה — exe בודד שאינו ה-stub אינו נבחר', () async {
+      final temp = await Directory.systemTemp.createTemp('launcher-layout');
+      addTearDown(() => deleteTempDir(temp));
+      await Directory(p.join(temp.path, 'app-files')).create();
+      final other = File(p.join(temp.path, 'OtzariaSetup.exe'));
+      await other.writeAsString('MZ installer launcher_stub');
+
+      expect(resolveBeside(temp), isNull);
+      expect(await other.readAsString(), 'MZ installer launcher_stub');
+    });
+
+    test(
+        'בלי המשתנה — exe זר שמחרוזת ה-stub מופיעה בו מחוץ ל-VERSIONINFO '
+        'אינו נבחר', () async {
+      final temp = await Directory.systemTemp.createTemp('launcher-layout');
+      addTearDown(() => deleteTempDir(temp));
+      await Directory(p.join(temp.path, 'app-files')).create();
+      final other = File(p.join(temp.path, 'OtzariaSetup.exe'));
+      final bytes = portableExecutable(
+        payload: [1, 2, ...stubVersionInfo(), 3, 4],
+        versionInfo: [...utf16('InternalName'), 0, 0, ...utf16('setup'), 0, 0],
+      );
+      await other.writeAsBytes(bytes);
+
+      expect(resolveBeside(temp), isNull);
+      expect(await other.readAsBytes(), bytes);
+    });
+
+    test('בלי המשתנה — VERSIONINFO גדול מהתקרה אינו נקרא', () async {
+      final temp = await Directory.systemTemp.createTemp('launcher-layout');
+      addTearDown(() => deleteTempDir(temp));
+      await Directory(p.join(temp.path, 'app-files')).create();
+      await File(p.join(temp.path, 'renamed.exe')).writeAsBytes(
+        portableExecutable(
+          payload: const [0],
+          versionInfo: [
+            ...List<int>.filled(1 << 20, 0x42),
+            ...stubVersionInfo(),
+          ],
+        ),
+      );
+
+      expect(resolveBeside(temp), isNull);
     });
 
     test('כמה exe — נבחר זה שבשם שהאריזה מייצרת', () async {
@@ -732,6 +858,88 @@ void main() {
       expect(bundle.existsSync(), isTrue);
     });
   });
+
+  group('LauncherSelfInstaller ב-macOS', () {
+    late Directory temp;
+    late Directory bundle;
+    late Directory locked;
+    late File zip;
+    late Directory dataDir;
+
+    setUp(() async {
+      temp = await Directory.systemTemp.createTemp('launcher-mac-install');
+      bundle = Directory(p.join(temp.path, 'Otzaria Launcher.app'));
+      locked = Directory(p.join(bundle.path, 'Contents', 'Resources'));
+      await locked.create(recursive: true);
+      await File(p.join(locked.path, 'old.txt')).writeAsString('ישן');
+      await Process.run('chmod', ['555', locked.path]);
+      dataDir = Directory(p.join(temp.path, 'OtzariaData'));
+      await dataDir.create();
+      await File(p.join(dataDir.path, 'launcher_settings.json'))
+          .writeAsString('{"keep":true}');
+
+      final source =
+          Directory(p.join(temp.path, 'src', 'Otzaria Launcher.app'));
+      await Directory(p.join(source.path, 'Contents')).create(recursive: true);
+      await File(p.join(source.path, 'Contents', 'new.txt'))
+          .writeAsString('חדש');
+      await Process.run('/usr/bin/xattr', [
+        '-w',
+        'com.apple.quarantine',
+        '0081;00000000;Safari;',
+        p.join(source.path, 'Contents', 'new.txt'),
+      ]);
+      zip = File(p.join(temp.path, 'update.zip'));
+      final zipped = await Process.run('/usr/bin/ditto', [
+        '-c',
+        '-k',
+        '--sequesterRsrc',
+        '--keepParent',
+        source.path,
+        zip.path,
+      ]);
+      expect(zipped.exitCode, 0, reason: '${zipped.stderr}');
+    });
+
+    tearDown(() async {
+      for (final dir in [locked.path, '${bundle.path}.previous']) {
+        await Process.run('chmod', ['-R', 'u+w', dir]);
+      }
+      await deleteTempDir(temp);
+    });
+
+    test(
+        'חבילה קודמת שאי אפשר למחוק אינה הופכת החלפה שהצליחה לכישלון, '
+        'וה-quarantine מוסר', () async {
+      final restarted = await LauncherSelfInstaller(
+        startDetached: (_, __) async {},
+        quit: () {},
+      ).apply(
+        layout: LauncherInstallLayout(executablePath: bundle.path),
+        downloadedFilePath: zip.path,
+      );
+
+      expect(restarted, isFalse);
+      final newFile = File(p.join(bundle.path, 'Contents', 'new.txt'));
+      expect(await newFile.readAsString(), 'חדש');
+      final quarantine = await Process.run(
+        '/usr/bin/xattr',
+        ['-p', 'com.apple.quarantine', newFile.path],
+      );
+      expect(quarantine.exitCode, isNot(0));
+      expect(Directory('${bundle.path}.previous').existsSync(), isTrue);
+      expect(
+        Directory(p.join(temp.path, LauncherSelfInstaller.macStagingDirName))
+            .existsSync(),
+        isFalse,
+      );
+      expect(
+        await File(p.join(dataDir.path, 'launcher_settings.json'))
+            .readAsString(),
+        '{"keep":true}',
+      );
+    });
+  }, skip: !Platform.isMacOS);
 
   group('LauncherSelfUpdater', () {
     late Directory temp;

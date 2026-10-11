@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
@@ -56,34 +58,48 @@ class LauncherInstallLayout {
 
   static const Set<String> _ourExeNames = {packagedExeName, publishedExeName};
 
+  static const String stubInternalName = 'launcher_stub';
+
   /// הדגל שבו מריצים את ה-stub החדש אחרי החלפה: הוא ממתין שהתהליך הזה
   /// ייסגר לפני שהוא מחלץ מחדש ל-`app-files`.
   static const String afterUpdateFlag = '--after-update';
 
-  /// מאתר את המבנה, או `null` כשאין מה להחליף — הרצה מ-`flutter run`, בנייה
-  /// לא ארוזה, או פלטפורמה שאינה נתמכת. `null` אינו שגיאה: הוא פשוט אומר
-  /// שהעדכון העצמי אינו זמין בהרצה הזאת.
+  static LauncherInstallLayout? _processLayout;
+  static bool _processLayoutResolved = false;
+
   static LauncherInstallLayout? resolve({
     String? resolvedExecutable,
     Map<String, String>? environment,
     bool? isWindows,
     bool? isMacOS,
   }) {
+    final injected = resolvedExecutable != null ||
+        environment != null ||
+        isWindows != null ||
+        isMacOS != null;
+    if (!injected && _processLayoutResolved) return _processLayout;
+
     final exe = resolvedExecutable ?? Platform.resolvedExecutable;
     final env = environment ?? Platform.environment;
     final windows = isWindows ?? Platform.isWindows;
     final macOS = isMacOS ?? Platform.isMacOS;
 
-    if (windows) return _resolveWindows(exe, env);
-    if (macOS) return _resolveMacOS(exe);
-    return null;
+    final layout = windows
+        ? _resolveWindows(exe, env)
+        : macOS
+            ? _resolveMacOS(exe)
+            : null;
+    if (!injected) {
+      _processLayout = layout;
+      _processLayoutResolved = true;
+    }
+    return layout;
   }
 
   static LauncherInstallLayout? _resolveWindows(
     String resolvedExecutable,
     Map<String, String> environment,
   ) {
-    // מה-stub עצמו: הנתיב המדויק, גם אם המשתמש שינה את שם הקובץ.
     final fromStub = environment[stubPathEnvVar];
     if (fromStub != null &&
         fromStub.isNotEmpty &&
@@ -91,8 +107,6 @@ class LauncherInstallLayout {
       return LauncherInstallLayout(executablePath: fromStub);
     }
 
-    // גיבוי ל-stub מגרסה שעוד לא הציבה את המשתנה — בלעדיו העדכון הראשון
-    // אחרי הוספת המנגנון לא היה אפשרי בכלל.
     final appFilesDir = p.dirname(resolvedExecutable);
     if (p.basename(appFilesDir).toLowerCase() != payloadDirName) return null;
 
@@ -108,16 +122,139 @@ class LauncherInstallLayout {
       return null;
     }
 
-    if (exes.length == 1) {
-      return LauncherInstallLayout(executablePath: exes.single);
-    }
     for (final exe in exes) {
       if (_ourExeNames.contains(p.basename(exe))) {
         return LauncherInstallLayout(executablePath: exe);
       }
     }
-    // כמה exe ואף אחד מהם אינו שלנו — עדיף לא לגעת בכלום.
+    if (exes.length == 1 && _carriesStubVersionInfo(exes.single)) {
+      return LauncherInstallLayout(executablePath: exes.single);
+    }
     return null;
+  }
+
+  static const int _maxVersionInfoBytes = 64 * 1024;
+  static const int _maxSections = 96;
+  static const int _maxResourceEntries = 1024;
+  static const int _rtVersion = 16;
+  static const int _subdirectoryBit = 0x80000000;
+
+  static bool _carriesStubVersionInfo(String path) {
+    final marker = <int>[
+      for (final unit in stubInternalName.codeUnits) ...[unit, 0],
+    ];
+    RandomAccessFile? file;
+    try {
+      file = File(path).openSync();
+      final versionInfo = _readVersionResource(file);
+      return versionInfo != null &&
+          _indexOf(versionInfo, versionInfo.length, marker) >= 0;
+    } on FileSystemException {
+      return false;
+    } finally {
+      try {
+        file?.closeSync();
+      } catch (_) {}
+    }
+  }
+
+  static Uint8List? _readVersionResource(RandomAccessFile file) {
+    final length = file.lengthSync();
+    ByteData? read(int offset, int count) {
+      if (offset < 0 || count <= 0 || offset + count > length) return null;
+      file.setPositionSync(offset);
+      final bytes = file.readSync(count);
+      if (bytes.length != count) return null;
+      return ByteData.sublistView(bytes);
+    }
+
+    const le = Endian.little;
+    final dos = read(0, 64);
+    if (dos == null || dos.getUint16(0, le) != 0x5A4D) return null;
+    final peOffset = dos.getUint32(0x3C, le);
+    final coff = read(peOffset, 24);
+    if (coff == null || coff.getUint32(0, le) != 0x00004550) return null;
+    final sectionCount = coff.getUint16(6, le);
+    final optionalSize = coff.getUint16(20, le);
+    if (sectionCount == 0 || sectionCount > _maxSections) return null;
+
+    final optional = read(peOffset + 24, optionalSize);
+    if (optional == null || optionalSize < 2) return null;
+    final directoriesAt = switch (optional.getUint16(0, le)) {
+      0x10b => 96,
+      0x20b => 112,
+      _ => -1,
+    };
+    if (directoriesAt < 0 || optionalSize < directoriesAt + 24) return null;
+    if (optional.getUint32(directoriesAt - 4, le) < 3) return null;
+    final resourceRva = optional.getUint32(directoriesAt + 16, le);
+    if (resourceRva == 0) return null;
+
+    final sections = read(peOffset + 24 + optionalSize, sectionCount * 40);
+    if (sections == null) return null;
+    int? toFileOffset(int rva) {
+      for (var i = 0; i < sectionCount; i++) {
+        final base = i * 40;
+        final virtualSize = sections.getUint32(base + 8, le);
+        final virtualAddress = sections.getUint32(base + 12, le);
+        final rawSize = sections.getUint32(base + 16, le);
+        final rawPointer = sections.getUint32(base + 20, le);
+        final span = max(virtualSize, rawSize);
+        if (rva < virtualAddress || rva >= virtualAddress + span) continue;
+        final delta = rva - virtualAddress;
+        return delta < rawSize ? rawPointer + delta : null;
+      }
+      return null;
+    }
+
+    final resourceBase = toFileOffset(resourceRva);
+    if (resourceBase == null) return null;
+    int? entry(int directoryOffset, {int? id}) {
+      final header = read(resourceBase + directoryOffset, 16);
+      if (header == null) return null;
+      final total = header.getUint16(12, le) + header.getUint16(14, le);
+      if (total == 0 || total > _maxResourceEntries) return null;
+      final entries = read(resourceBase + directoryOffset + 16, total * 8);
+      if (entries == null) return null;
+      for (var i = 0; i < total; i++) {
+        if (id == null || entries.getUint32(i * 8, le) == id) {
+          return entries.getUint32(i * 8 + 4, le);
+        }
+      }
+      return null;
+    }
+
+    final typeDirectory = entry(0, id: _rtVersion);
+    if (typeDirectory == null || typeDirectory & _subdirectoryBit == 0) {
+      return null;
+    }
+    final nameDirectory = entry(typeDirectory & ~_subdirectoryBit);
+    if (nameDirectory == null || nameDirectory & _subdirectoryBit == 0) {
+      return null;
+    }
+    final dataEntry = entry(nameDirectory & ~_subdirectoryBit);
+    if (dataEntry == null || dataEntry & _subdirectoryBit != 0) return null;
+    final leaf = read(resourceBase + dataEntry, 16);
+    if (leaf == null) return null;
+    final dataOffset = toFileOffset(leaf.getUint32(0, le));
+    final size = leaf.getUint32(4, le);
+    if (dataOffset == null || size > _maxVersionInfoBytes) return null;
+    final data = read(dataOffset, size);
+    return data?.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+  }
+
+  static int _indexOf(Uint8List haystack, int length, List<int> needle) {
+    final first = needle.first;
+    final last = length - needle.length;
+    outer:
+    for (var i = 0; i <= last; i++) {
+      if (haystack[i] != first) continue;
+      for (var j = 1; j < needle.length; j++) {
+        if (haystack[i + j] != needle[j]) continue outer;
+      }
+      return i;
+    }
+    return -1;
   }
 
   /// חבילת ה-`.app` שבתוכה רץ ה-exe. `OtzariaData/` יושבת **לצד** החבילה

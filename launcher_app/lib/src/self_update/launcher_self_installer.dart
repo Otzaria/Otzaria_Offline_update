@@ -162,8 +162,7 @@ class LauncherSelfInstaller {
     return true;
   }
 
-  /// ⚠️ לא נבדק על חומרה אמיתית. `ditto` ולא `unzip`: הבנייה שלנו ל-macOS
-  /// חתומה ad-hoc, ו-`unzip` הורס symlinks ו-xattrs ואיתם את החתימה.
+
   Future<void> _replaceMacBundle({
     required LauncherInstallLayout layout,
     required String zipPath,
@@ -212,11 +211,6 @@ class LauncherSelfInstaller {
           AppL10n.strings.launcherUpdate.replaceFailed('$e'),
         );
       }
-      await previous.delete(recursive: true);
-
-      // אותו שיקול שב-`OtzariaInstaller`: הורדה דרך dart:io אינה מסמנת
-      // quarantine, אבל zip שהגיע לכונן מדפדפן או מ-AirDrop כן — ואז
-      // Gatekeeper חוסם את הגרסה החדשה, במחשב שאין בו אינטרנט לתקן בו.
       await _stripQuarantineQuietly(layout.executablePath);
     } on FileSystemException catch (e) {
       throw LauncherUpdateException(
