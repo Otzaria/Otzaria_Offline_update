@@ -101,10 +101,87 @@ void main() {
           CompanionInstallOutcome.installed,
         );
         expect(await marker.readAsString(), digest);
-        expect(report.delivered[CompanionAsset.dictionary], 'v2|$digest');
+        expect(report.delivered[CompanionAsset.dictionary], digest);
         expect(await pending(report.delivered), isEmpty);
       },
     );
+
+    test('פרסום מחדש בתג אחר ובאותו digest אינו מוצע שוב', () async {
+      const digest =
+          'b42e36626802629fed178068e8cf11f0f034d6f24ae3b72ac9999b9311bf299f';
+      await writeManifest({
+        'dictionary': {
+          'fileName': 'lexical.db',
+          'size': 7,
+          'tag': 'v2',
+          'sha256': digest,
+        },
+      });
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+      expect(report.delivered[CompanionAsset.dictionary], digest);
+
+      await writeManifest({
+        'dictionary': {
+          'fileName': 'lexical.db',
+          'size': 7,
+          'tag': 'v3',
+          'sha256': digest,
+        },
+      });
+      await File(p.join(libraryDir, 'lexical.db')).writeAsString('NEWER');
+      await File(
+        p.join(libraryDir, 'lexical.db.version'),
+      ).writeAsString('otzaria-digest');
+
+      expect(await pending(), {CompanionAsset.dictionary});
+      expect(await pending(report.delivered), isEmpty);
+      expect(
+        await pending(const {CompanionAsset.dictionary: 'v2|$digest'}),
+        isEmpty,
+      );
+    });
+
+    test('מילון שאוצריא השאירה ממתין (.next) נמחק בהתקנה', () async {
+      final target = File(p.join(libraryDir, 'lexical.db'));
+      final staged = File('${target.path}.next');
+      final stagedMarker = File('${staged.path}.version');
+      await staged.writeAsString('STALE');
+      await stagedMarker.writeAsString('v1');
+
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+
+      expect(
+        report.outcomes[CompanionAsset.dictionary],
+        CompanionInstallOutcome.installed,
+      );
+      expect(await target.readAsString(), 'LEXICAL');
+      expect(staged.existsSync(), isFalse);
+      expect(stagedMarker.existsSync(), isFalse);
+    });
+
+    test('ממתין של אוצריא שאי אפשר למחוק מכשיל את ההתקנה', () async {
+      final target = File(p.join(libraryDir, 'lexical.db'));
+      await target.writeAsString('OLD');
+      await Directory('${target.path}.next.version').create();
+
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+
+      expect(
+        report.outcomes[CompanionAsset.dictionary],
+        CompanionInstallOutcome.failed,
+      );
+      expect(report.delivered, isEmpty);
+      expect(await target.readAsString(), 'OLD');
+    });
 
     test('סימון תג ישן אינו מסתיר מילון חדש באותו תג עם digest', () async {
       const digest =
@@ -388,6 +465,49 @@ void main() {
         second.outcomes[CompanionAsset.talmud],
         CompanionInstallOutcome.alreadyUpToDate,
       );
+    });
+
+    test('מפרט התוכן נמדד מהארכיון ולא ממה שכבר ישב בתיקייה', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      writeTalmudArchive(p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'), [
+        'ברכות.pdf',
+        'שבת.pdf',
+      ]);
+      await writeManifest({
+        'talmud': {
+          'fileName': 'talmud_bavli_latest.tar.zst',
+          'size': mirrorSize('talmud_bavli_latest.tar.zst'),
+          'sha256': 'abc123',
+          'compressed': true,
+        },
+      });
+      final talmudDir = p.join(libraryDir, 'תלמוד בבלי');
+      final leftover = File(p.join(talmudDir, 'ישן', 'שריד.pdf'));
+      await leftover.create(recursive: true);
+      await leftover.writeAsBytes(Uint8List(4096));
+
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+      expect(
+        report.outcomes[CompanionAsset.talmud],
+        CompanionInstallOutcome.installed,
+      );
+      final contents = jsonDecode(
+        File(p.join(talmudDir, '.version.contents')).readAsStringSync(),
+      );
+      expect(contents['files'], 2);
+      expect(
+        contents['bytes'],
+        utf8.encode('pdf:ברכות.pdf').length + utf8.encode('pdf:שבת.pdf').length,
+      );
+
+      leftover.deleteSync();
+      expect(await pending(const {CompanionAsset.talmud: 'abc123'}), isEmpty);
     });
 
     test('סימון "installing" שנשאר מהתקנה שנקטעה מפעיל התקנה מחדש', () async {

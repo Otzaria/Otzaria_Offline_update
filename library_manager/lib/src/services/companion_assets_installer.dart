@@ -5,6 +5,8 @@ import 'dart:isolate';
 import 'package:archive/archive_io.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
+import 'package:seforim_library_updater/seforim_library_updater.dart'
+    show DiskSpaceProbe;
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 import 'companion_assets.dart';
@@ -214,24 +216,27 @@ class CompanionAssetsInstaller {
     String libraryDir,
     CompanionMirrorEntry entry,
     Map<CompanionAsset, String> delivered,
-  ) =>
-      delivered[asset] == mirrorMarkerOf(asset, entry) &&
-      _isInstalledLocally(asset, libraryDir, entry);
+  ) {
+    final recorded = delivered[asset];
+    if (recorded == null) return false;
+    final matches =
+        recorded == mirrorMarkerOf(asset, entry) ||
+        (asset == CompanionAsset.dictionary &&
+            entry.sha256 != null &&
+            recorded.endsWith('|${entry.sha256}'));
+    return matches && _isInstalledLocally(asset, libraryDir, entry);
+  }
 
-  /// מזהה הגרסה של הפריט **במראה** — המחרוזת שנרשמת כ"נמסר" ונבדקת מולה.
   static String mirrorMarkerOf(
     CompanionAsset asset,
     CompanionMirrorEntry entry,
   ) {
     switch (asset) {
       case CompanionAsset.talmud:
+      case CompanionAsset.dictionary:
         return entry.versionMarker ?? '';
       case CompanionAsset.catalog:
         return entry.version?.toString() ?? '';
-      case CompanionAsset.dictionary:
-        return entry.sha256 == null
-            ? entry.tag ?? ''
-            : '${entry.tag ?? ''}|${entry.sha256}';
     }
   }
 
@@ -370,11 +375,12 @@ class CompanionAssetsInstaller {
     }
   }
 
-  /// **best-effort בכוונה.** כשל כתיבה כאן אינו מבטל חילוץ שהצליח; בהיעדר
-  /// המפרט הבדיקה נופלת לרצפה, שהתקנה שלמה עוברת ממילא.
-  void _writeTalmudContents(Directory dir, String marker) {
+  void _writeTalmudContents(
+    Directory dir,
+    String marker,
+    ({int files, int bytes}) stats,
+  ) {
     try {
-      final stats = _talmudFolderStats(dir);
       File(p.join(dir.path, talmudContentsFileName)).writeAsStringSync(
         jsonEncode({
           'marker': marker,
@@ -404,6 +410,8 @@ class CompanionAssetsInstaller {
     final marker = File(p.join(targetDir.path, talmudVersionFileName));
 
     final tarPath = p.join(libraryDir, '${entry.fileName}.tar');
+    final Map<String, int> expected;
+    final ({int files, int bytes}) expectedStats;
     try {
       if (!await ZstdFileDecompressor.decompressFileToFile(
         archive.path,
@@ -413,6 +421,15 @@ class CompanionAssetsInstaller {
           strings.companionExtractionFailed(strings.companionTalmudName),
         );
       }
+      expected = _talmudArchiveFiles(tarPath);
+      expectedStats = (
+        files: expected.length,
+        bytes: expected.values.fold<int>(0, (sum, size) => sum + size),
+      );
+      _ensureSpaceForTalmud(
+        libraryDir,
+        expectedStats.bytes - _talmudFolderStats(targetDir).bytes,
+      );
       marker.writeAsStringSync(talmudInstallingMarker);
       for (final entity in targetDir.listSync()) {
         if (entity is File &&
@@ -425,14 +442,69 @@ class CompanionAssetsInstaller {
       _deleteQuietly(tarPath);
     }
 
+    for (final file in expected.entries) {
+      final extracted = File(p.join(libraryDir, file.key));
+      if (!extracted.existsSync() || extracted.lengthSync() != file.value) {
+        throw StateError(
+          strings.companionExtractionFailed(strings.companionTalmudName),
+        );
+      }
+    }
+
     final installed = entry.versionMarker ?? '';
-    _writeTalmudContents(targetDir, installed);
+    _writeTalmudContents(
+      targetDir,
+      installed,
+      expected.isEmpty ? _talmudFolderStats(targetDir) : expectedStats,
+    );
     marker.writeAsStringSync(installed);
     return true;
   }
 
   static Future<void> _extractTarInIsolate(String tarPath, String outputDir) =>
       Isolate.run(() => extractFileToDisk(tarPath, outputDir));
+
+  Map<String, int> _talmudArchiveFiles(String tarPath) {
+    final files = <String, int>{};
+    final input = InputFileStream(tarPath);
+    try {
+      final archive = TarDecoder().decodeStream(input);
+      for (final entry in archive) {
+        if (!entry.isFile || entry.isSymbolicLink) continue;
+        final parts = p.split(p.normalize(entry.name));
+        if (parts.length < 2 || parts.first != talmudFolderName) continue;
+        final name = parts.last;
+        if (name == talmudVersionFileName || name == talmudContentsFileName) {
+          continue;
+        }
+        files[p.joinAll(parts)] = entry.size;
+      }
+    } finally {
+      input.closeSync();
+    }
+    return files;
+  }
+
+  void _ensureSpaceForTalmud(String libraryDir, int needed) {
+    if (needed <= 0 ||
+        !DiskSpaceProbe.isKnownInsufficient(libraryDir, needed)) {
+      return;
+    }
+    throw StateError(
+      AppL10n.strings.libraryDomain.notEnoughDiskSpace(
+        libraryDir,
+        _formatBytes(needed),
+        _formatBytes(DiskSpaceProbe.freeBytesFor(libraryDir) ?? 0),
+      ),
+    );
+  }
+
+  static String _formatBytes(int bytes) {
+    const gb = 1 << 30;
+    const mb = 1 << 20;
+    if (bytes >= gb) return '${(bytes / gb).toStringAsFixed(1)} GB';
+    return '${(bytes / mb).round()} MB';
+  }
 
   // ── קטלוג otzar-HB ────────────────────────────────────────────────────
 
@@ -552,6 +624,7 @@ class CompanionAssetsInstaller {
 
     onStage?.call(strings.companionInstalling(strings.companionDictionaryName));
     final target = p.join(libraryDir, dictionaryFileName);
+    _discardOtzariaStagedDictionary(target);
     final staged = '$target.new';
     _deleteQuietly(staged);
     try {
@@ -564,6 +637,15 @@ class CompanionAssetsInstaller {
     }
     File('$target.version').writeAsStringSync(entry.versionMarker ?? '');
     return true;
+  }
+
+  void _discardOtzariaStagedDictionary(String target) {
+    for (final path in ['$target.next.version', '$target.next']) {
+      if (FileSystemEntity.typeSync(path, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        File(path).deleteSync();
+      }
+    }
   }
 
   void _deleteQuietly(String path) {

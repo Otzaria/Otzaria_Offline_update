@@ -27,16 +27,20 @@ void main() {
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
-  Uint8List bodyOf(String name) =>
-      Uint8List.fromList(utf8.encode('payload:$name'));
+  Uint8List bodyOf(String name, [String revision = '']) =>
+      Uint8List.fromList(utf8.encode('payload:$name$revision'));
 
-  Map<String, dynamic> assetJson(String name, String url) => {
+  Map<String, dynamic> assetJson(
+    String name,
+    String url, [
+    String revision = '',
+  ]) => {
     'name': name,
     'browser_download_url': url,
-    'size': bodyOf(name).length,
+    'size': bodyOf(name, revision).length,
     'id': name.hashCode.abs(),
     'updated_at': '2026-08-01T00:00:00Z',
-    'digest': 'sha256:${sha256.convert(bodyOf(name))}',
+    'digest': 'sha256:${sha256.convert(bodyOf(name, revision))}',
   };
 
   /// שרת מדומה לשלושת ה-APIs ולנכסים עצמם. [omit] מסלק נכס מסוים כדי לדמות
@@ -46,6 +50,7 @@ void main() {
     DownloadScheduler? scheduler,
     Future<void> Function(String assetName)? beforeAsset,
     String dictionaryTag = 'dict-v7',
+    String dictionaryRevision = '',
     String talmudTag = 'lib-v9',
     bool dictionaryV2 = false,
     bool apiDown = false,
@@ -94,7 +99,11 @@ void main() {
             jsonEncode({
               'tag_name': dictionaryTag,
               'assets': [
-                assetJson('lexical.db', 'https://x/lexical.db'),
+                assetJson(
+                  'lexical.db',
+                  'https://x/lexical.db',
+                  dictionaryRevision,
+                ),
                 if (dictionaryV2)
                   assetJson('lexical-v2.db', 'https://x/lexical-v2.db'),
               ],
@@ -107,7 +116,7 @@ void main() {
         if (beforeAsset != null) await beforeAsset(name);
         body = name == 'version.txt'
             ? Uint8List.fromList(utf8.encode('55'))
-            : bodyOf(name);
+            : bodyOf(name, name == 'lexical.db' ? dictionaryRevision : '');
       }
 
       return http.StreamedResponse(
@@ -398,6 +407,20 @@ void main() {
     );
   });
 
+  test('מילון שפורסם מחדש בתג חדש ובאותו sha256 אינו ממתין', () async {
+    final first = buildMirror();
+    addTearDown(first.mirror.dispose);
+    await first.mirror.sync(destDir: destDir);
+
+    final retagged = buildMirror(dictionaryTag: 'dict-v8');
+    addTearDown(retagged.mirror.dispose);
+    expect(await retagged.mirror.peekPending(destDir: destDir), isEmpty);
+    final manifest = await retagged.mirror.sync(destDir: destDir);
+
+    expect(retagged.fetched, isNot(contains('lexical.db')));
+    expect(manifest.entries[CompanionAsset.dictionary]!.tag, 'dict-v8');
+  });
+
   // issue #33: הנלווים מתעדכנים בלי קשר למסד, ובלי בדיקה קלה משלהם כונן
   // שלא קיבל אותם פעם אחת לא הציע את ההורדה שמביאה אותם לעולם.
   group('peekPending — הבדיקה הקלה של הנלווים', () {
@@ -425,7 +448,10 @@ void main() {
       addTearDown(first.mirror.dispose);
       await first.mirror.sync(destDir: destDir);
 
-      final second = buildMirror(dictionaryTag: 'dict-v8');
+      final second = buildMirror(
+        dictionaryTag: 'dict-v8',
+        dictionaryRevision: 'v8',
+      );
       addTearDown(second.mirror.dispose);
 
       expect(await second.mirror.peekPending(destDir: destDir), {
