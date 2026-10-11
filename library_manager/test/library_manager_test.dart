@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -657,6 +658,45 @@ void main() {
         manager.dispose();
       });
     });
+  });
+
+  group('checkForUpdate בזמן החלה', () {
+    test(
+      'אינו מריץ התאוששות מתחת להחלה חיה, ומריץ אותה אחרי שהסתיימה',
+      () async {
+        final dbPath = await installExistingDb(4, appliedTag: 'v4');
+        final dbBytes = buildRealDb(5);
+        await writeMirror(tag: 'v5', compressedDb: Uint8List.fromList([1, 2]));
+        final applier = _GatedApplier(dbBytes);
+
+        await _withoutNetwork((_) async {
+          final manager = LibraryManager(dataDir: dataDir, applier: applier);
+          final check = await manager.checkForUpdate();
+          expect(check.plan!.kind, LibraryUpdatePlanKind.fullDownload);
+
+          final apply = manager.applyUpdate(check);
+          await applier.staged.future;
+
+          final midApply = await manager.checkForUpdate();
+          expect(midApply.localVersion!.dbVersion, 4);
+          expect(File('$dbPath.new').existsSync(), isTrue);
+          expect(File('$dbPath.applying').existsSync(), isTrue);
+          expect(File('$dbPath.download.zst').existsSync(), isTrue);
+
+          applier.gate.complete();
+          await apply;
+          expect(File(dbPath).readAsBytesSync(), dbBytes);
+          expect(File('$dbPath.new').existsSync(), isFalse);
+          expect(File('$dbPath.applying').existsSync(), isFalse);
+          expect(File('$dbPath.download.zst').existsSync(), isTrue);
+
+          final after = await manager.checkForUpdate();
+          expect(after.localVersion!.dbVersion, 5);
+          expect(File('$dbPath.download.zst').existsSync(), isFalse);
+          manager.dispose();
+        });
+      },
+    );
   });
 
   group('applyUpdate', () {
@@ -1470,5 +1510,29 @@ class _NoNetworkHttpClient implements HttpClient {
   dynamic noSuchMethod(Invocation invocation) {
     if (invocation.isSetter || invocation.memberName == #close) return null;
     throw StateError('הבדיקה ניגשה לרשת: ${invocation.memberName}');
+  }
+}
+
+class _GatedApplier extends LibraryUpdateApplier {
+  _GatedApplier(this.newDbBytes);
+
+  final Uint8List newDbBytes;
+  final staged = Completer<void>();
+  final gate = Completer<void>();
+
+  @override
+  Future<void> applyFullDownload({
+    required LibraryUpdatePlan plan,
+    required String dbPath,
+    void Function(LibraryApplyProgress progress)? onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    File('$dbPath.new').writeAsBytesSync(newDbBytes);
+    File('$dbPath.applying').writeAsStringSync('{"fromVersion":4}');
+    File('$dbPath.download.zst').writeAsStringSync('staged');
+    staged.complete();
+    await gate.future;
+    File('$dbPath.new').renameSync(dbPath);
+    File('$dbPath.applying').deleteSync();
   }
 }

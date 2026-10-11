@@ -330,7 +330,7 @@ class HomeScreen extends StatelessWidget {
       primaryActionIcon: FluentIcons.database_arrow_right_24_regular,
       primaryActionLoading: isBusy,
       onPrimaryAction: c.status == LibraryModuleStatus.updateAvailable
-          ? () => _confirmLibraryUpdate(context)
+          ? (isDownloading ? null : () => _confirmLibraryUpdate(context))
           : c.semanticConsentRequired
               ? onGoToLibrary
               : null,
@@ -467,7 +467,7 @@ class HomeScreen extends StatelessWidget {
                   icon: FluentIcons.arrow_download_24_regular,
                   isLoading: isDownloading,
                   onPressed:
-                      settings.settings.hasSyncSelection && !isDownloading
+                      settings.settings.hasSyncSelection && !longTaskRunning
                           ? () => onDownloadAll()
                           : null,
                 ),

@@ -9,6 +9,7 @@ import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
+import 'package:seforim_library_updater/seforim_library_updater.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 import 'test_support.dart';
@@ -668,6 +669,26 @@ void main() {
       expect(controller.personalTargetIsThisMachine, isTrue);
     });
 
+    test('כיבוי המצב בודק מחדש ומסיר את ההסבר', () async {
+      controller.personalUpdateMode = true;
+      writePersonalMirror();
+      await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 23));
+      expect(controller.status, LibraryModuleStatus.personalTargetElsewhere);
+
+      controller.personalUpdateMode = false;
+      expect(controller.status, LibraryModuleStatus.checking);
+      await controller.checkForUpdate();
+
+      expect(controller.status, LibraryModuleStatus.error);
+      expect(controller.personalTargetIsThisMachine, isTrue);
+    });
+
+    test('שינוי המצב לפני בדיקה ראשונה אינו מריץ בדיקה', () {
+      controller.personalUpdateMode = true;
+
+      expect(controller.status, LibraryModuleStatus.idle);
+    });
+
     test('כשהמצב כבוי כל מחשב הוא יעד, והחסימה נשארת שגיאה', () async {
       writePersonalMirror();
       await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 23));
@@ -676,6 +697,167 @@ void main() {
       expect(controller.personalTargetIsThisMachine, isTrue);
     });
   });
+
+  group('החלה שרצה', () {
+    late _ApplyManager manager;
+
+    setUp(() async {
+      controller.dispose();
+      manager = _ApplyManager(tempDir.path);
+      controller = LibraryModuleController(
+        dataDir: tempDir.path,
+        manager: manager,
+      );
+      await controller.checkForUpdate();
+      expect(controller.status, LibraryModuleStatus.updateAvailable);
+    });
+
+    test('בדיקה, החלה שנייה ושינוי מצב אישי אינם נוגעים בה', () async {
+      final gate = manager.applyGate = Completer<void>();
+      final apply = controller.update();
+      expect(controller.isApplying, isTrue);
+      expect(controller.status, LibraryModuleStatus.updating);
+
+      await controller.checkForUpdate();
+      controller.personalUpdateMode = true;
+      await controller.update();
+      await controller.updateWithFullDownload();
+
+      expect(manager.checks, 1);
+      expect(manager.applies, 1);
+      expect(controller.status, LibraryModuleStatus.updating);
+
+      gate.complete();
+      await apply;
+
+      expect(controller.isApplying, isFalse);
+      expect(manager.checks, 2);
+    });
+
+    test('החלה שנלחצה בזמן בדיקה ממתינה לסופה', () async {
+      final checkGate = manager.checkGate = Completer<void>();
+      final check = controller.checkForUpdate();
+      final apply = controller.update();
+      await pumpEventQueue();
+      expect(manager.applies, 0);
+
+      checkGate.complete();
+      await check;
+      await apply;
+
+      expect(manager.applies, 1);
+    });
+
+    test('החלה שהמתינה לבדיקה שנכשלה משחררת את המסך', () async {
+      final checkGate = manager.checkGate = Completer<void>();
+      manager.checkError = StateError('drive');
+      final check = controller.checkForUpdate();
+      final apply = controller.update();
+      await pumpEventQueue();
+      expect(controller.isApplying, isTrue);
+
+      final seen = <bool>[];
+      void listener() => seen.add(controller.isApplying);
+      controller.addListener(listener);
+      checkGate.complete();
+      await check;
+      await apply;
+      controller.removeListener(listener);
+
+      expect(manager.applies, 0);
+      expect(controller.isApplying, isFalse);
+      expect(controller.status, LibraryModuleStatus.error);
+      expect(seen, isNotEmpty);
+      expect(seen.last, isFalse);
+    });
+
+    test('ניסיון המסד המלא מנקה את השגיאה הקודמת כשהוא מתחיל', () async {
+      manager.applyError = StateError('delta');
+      await controller.update();
+      expect(controller.status, LibraryModuleStatus.error);
+      expect(controller.canRetryWithFullDownload, isTrue);
+
+      manager.applyError = null;
+      final gate = manager.applyGate = Completer<void>();
+      final apply = controller.updateWithFullDownload();
+
+      expect(controller.errorMessage, isNull);
+      expect(controller.canRetryWithFullDownload, isFalse);
+      gate.complete();
+      await apply;
+    });
+
+    test('בדיקה שנכשלה מבטלת את הצעת המסד המלא ואת התוכנית הישנה', () async {
+      manager.applyError = StateError('delta');
+      await controller.update();
+      expect(controller.canRetryWithFullDownload, isTrue);
+
+      manager.checkError = StateError('drive');
+      await controller.checkForUpdate();
+
+      expect(controller.status, LibraryModuleStatus.error);
+      expect(controller.canRetryWithFullDownload, isFalse);
+      expect(controller.errorMessage, contains('drive'));
+      expect(controller.fullDownloadFallbackSize, isNull);
+
+      await controller.updateWithFullDownload();
+      expect(manager.applies, 1);
+    });
+  });
+}
+
+LibraryUpdateCheckResult _deltaWithFallback() => LibraryUpdateCheckResult(
+      dbPath: '/db/seforim.db',
+      plan: LibraryUpdatePlan.delta(
+        localVersion: 1,
+        targetVersion: 2,
+        steps: const [],
+        fullDownloadFallback: LibraryUpdatePlan.fullDownload(
+          localVersion: 1,
+          targetVersion: 2,
+          asset: const ReleaseAsset(
+            name: 'seforim.db.zst',
+            downloadUrl: 'seforim.db.zst',
+            size: 10,
+          ),
+          releaseTag: 'v2',
+        ),
+      ),
+    );
+
+class _ApplyManager extends LibraryManager {
+  _ApplyManager(String dataDir) : super(dataDir: dataDir);
+
+  int checks = 0;
+  int applies = 0;
+  Completer<void>? checkGate;
+  Completer<void>? applyGate;
+  Object? checkError;
+  Object? applyError;
+
+  @override
+  Future<LibraryUpdateCheckResult> checkForUpdate() async {
+    checks++;
+    await checkGate?.future;
+    if (checkError case final error?) throw error;
+    return _deltaWithFallback();
+  }
+
+  @override
+  Future<Set<int>> applyUpdate(
+    LibraryUpdateCheckResult check, {
+    void Function(LibraryApplyProgress progress)? onProgress,
+    void Function(String assetName, Object error)? onCompanionWarning,
+    void Function(Object error)? onStateWarning,
+    void Function(String dbPath)? onLibraryLocationNotSet,
+    bool Function()? isCancelled,
+    bool useFullDownloadFallback = false,
+  }) async {
+    applies++;
+    await applyGate?.future;
+    if (applyError case final error?) throw error;
+    return const {};
+  }
 }
 
 class _DownloadManager extends LibraryManager {

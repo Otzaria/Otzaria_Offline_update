@@ -88,12 +88,13 @@ class LibraryManager {
     Map<String, String>? environment,
     LocalDbVersionReader versionReader = const LocalDbVersionReader(),
     OtzariaSettingsReader settingsReader = const OtzariaSettingsReader(),
+    LibraryUpdateApplier? applier,
   }) : _stateStore = LibraryStateStore.inDir(stateDir ?? dataDir),
        _planner = const LibraryUpdatePlanner(),
        _versionReader = versionReader,
        _recovery = const LibraryDbRecoveryService(),
        _cloudClient = RecentLibraryReleasesClient(),
-       _applier = LibraryUpdateApplier() {
+       _applier = applier ?? LibraryUpdateApplier() {
     _locator = LibraryDbLocator(
       stateStore: _stateStore,
       settingsReader: settingsReader,
@@ -524,7 +525,8 @@ class LibraryManager {
   Future<LibraryUpdateCheckResult> checkForUpdate() async {
     final locator = _snapshotLocator();
     var dbPath = await locator.resolveDbPath();
-    if (dbPath == null) {
+    final applying = _appliesInFlight > 0;
+    if (dbPath == null && !applying) {
       final target = await _installDbPath(locator);
       _recovery.restoreRetiredDbIfOrphaned(target);
       dbPath = await locator.resolveDbPath();
@@ -545,13 +547,10 @@ class LibraryManager {
         hasVersionMeta: false,
       );
     } else {
-      // התאוששות מעדכון שנקטע באמצע, לפני שקוראים גרסה מקומית או פותחים
-      // DB בכל דרך אחרת.
-      final recovery = await _recovery.recoverIfNeeded(dbPath);
-      if (recovery.action == RecoveryAction.interrupted) {
-        // אין גיבוי לשחזר ממנו: בודקים תקינות בפועל, לא מניחים תקלה רק
-        // בגלל שהסימון נשאר.
-        // ב-isolate: `quick_check` על ~7GB חוסם דקות, וזה רץ בעליית הלאנצ'ר.
+      final recovery = applying
+          ? null
+          : await _recovery.recoverIfNeeded(dbPath);
+      if (recovery != null && recovery.action == RecoveryAction.interrupted) {
         if (!await _recovery.checkDbHealthAfterCrashAsync(dbPath)) {
           final strings = AppL10n.strings.libraryDomain;
           throw StateError(
@@ -702,6 +701,33 @@ class LibraryManager {
   /// אליה את ההגדרה של אוצריא — ראו [_pointOtzariaAtFreshDb]. בלי להציג
   /// זאת, אוצריא תיפתח על ספרייה ריקה בלי שום רמז למה.
   Future<Set<int>> applyUpdate(
+    LibraryUpdateCheckResult check, {
+    void Function(LibraryApplyProgress progress)? onProgress,
+    void Function(String assetName, Object error)? onCompanionWarning,
+    void Function(Object error)? onStateWarning,
+    void Function(String dbPath)? onLibraryLocationNotSet,
+    bool Function()? isCancelled,
+    bool useFullDownloadFallback = false,
+  }) async {
+    _appliesInFlight++;
+    try {
+      return await _applyUpdate(
+        check,
+        onProgress: onProgress,
+        onCompanionWarning: onCompanionWarning,
+        onStateWarning: onStateWarning,
+        onLibraryLocationNotSet: onLibraryLocationNotSet,
+        isCancelled: isCancelled,
+        useFullDownloadFallback: useFullDownloadFallback,
+      );
+    } finally {
+      _appliesInFlight--;
+    }
+  }
+
+  int _appliesInFlight = 0;
+
+  Future<Set<int>> _applyUpdate(
     LibraryUpdateCheckResult check, {
     void Function(LibraryApplyProgress progress)? onProgress,
     void Function(String assetName, Object error)? onCompanionWarning,

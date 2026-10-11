@@ -47,7 +47,9 @@ class LibraryScreen extends StatelessWidget {
   final Future<void> Function()? onGrantSemanticConsent;
 
   bool get _isBusy =>
-      library.status == LibraryModuleStatus.updating || isDownloading;
+      library.isApplying ||
+      library.status == LibraryModuleStatus.updating ||
+      isDownloading;
 
   @override
   Widget build(BuildContext context) {
@@ -83,7 +85,7 @@ class LibraryScreen extends StatelessWidget {
           text: t.installUpdateButton,
           icon: FluentIcons.database_arrow_right_24_regular,
           isLoading: c.status == LibraryModuleStatus.updating,
-          onPressed: c.status == LibraryModuleStatus.updateAvailable
+          onPressed: c.status == LibraryModuleStatus.updateAvailable && !_isBusy
               ? () => _confirmUpdate(context)
               : null,
         ),
@@ -219,7 +221,10 @@ class LibraryScreen extends StatelessWidget {
             ],
           ),
         if (c.errorMessage != null)
-          InfoErrorRow(message: c.errorMessage!, onRetry: c.checkForUpdate),
+          InfoErrorRow(
+            message: c.errorMessage!,
+            onRetry: _isBusy ? null : c.checkForUpdate,
+          ),
         if (c.status == LibraryModuleStatus.updating)
           libraryApplyProgressRow(context, c),
       ],

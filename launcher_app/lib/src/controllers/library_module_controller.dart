@@ -79,17 +79,21 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// מחליף ערוץ גרסאות — נכנס לתוקף בבדיקה/הורדה הבאה.
   set allowPrerelease(bool value) => _manager.allowPrerelease = value;
 
-  /// מצב "עדכון אישי" — משפיע על [download] בלבד.
-  set personalUpdateMode(bool value) => _manager.personalUpdateMode = value;
+  set personalUpdateMode(bool value) {
+    if (_manager.personalUpdateMode == value) return;
+    _manager.personalUpdateMode = value;
+    if (status == LibraryModuleStatus.idle || _applying) return;
+    unawaited(checkForUpdate());
+  }
+
   bool get personalUpdateMode => _manager.personalUpdateMode;
 
   final LibraryManager _manager;
   LibraryUpdateCheckResult? _lastCheck;
 
-  /// הבדיקה שרצה כרגע — קריאה נוספת מצטרפת אליה במקום להריץ שנייה במקביל.
-  /// שתי בדיקות חופפות דרסו זו את שדות זו ואת `lastResolvedDbPath` המשותף
-  /// של המנהל; זה קורה כשלוחצים "בדוק שוב" בזמן בדיקת העלייה.
   Future<void>? _checkInFlight;
+  bool _applying = false;
+  bool get isApplying => _applying;
 
   LibraryModuleStatus status = LibraryModuleStatus.idle;
   int? localVersion;
@@ -531,8 +535,8 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
         .join(', ');
   }
 
-  /// ראו [_checkInFlight] — קריאה שמגיעה בזמן בדיקה פעילה מצטרפת אליה.
   Future<void> checkForUpdate() {
+    if (_applying) return Future.value();
     final inFlight = _checkInFlight;
     if (inFlight != null) return inFlight;
     final started = _runCheckForUpdate();
@@ -545,6 +549,8 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   Future<void> _runCheckForUpdate() async {
     status = LibraryModuleStatus.checking;
     needsElevation = false;
+    errorMessage = null;
+    canRetryWithFullDownload = false;
     notifyListeners();
 
     // מה שנרשם בלחיצה — כולל במחשב אחר, דרך קובץ ה-state שנוסע על הכונן.
@@ -605,6 +611,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       // ולא מוצג כתקלה.
       status = LibraryModuleStatus.needsDownload;
       mirrorMissing = true;
+      _lastCheck = null;
       pendingCompanions = const {};
       unavailableCompanions = const {};
       mirroredCompanions = const {};
@@ -617,6 +624,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     } catch (e, st) {
       status = LibraryModuleStatus.error;
       errorMessage = e.toString();
+      _lastCheck = null;
       localDbUnreadable = e is LocalDbUnreadableException;
       pendingCompanions = const {};
       unavailableCompanions = const {};
@@ -679,22 +687,34 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       _apply(useFullDownloadFallback: true);
 
   Future<void> _apply({required bool useFullDownloadFallback}) async {
-    if (_lastCheck == null) return;
-    // שמירה מפני כניסה חוזרת: בין הלחיצה לדיאלוג יש בדיקת תהליך אסינכרונית,
-    // והכפתור פעיל בזמנה — שתי החלות במקביל על ה-DB החי הן בדיוק מה שאסור.
-    if (status == LibraryModuleStatus.updating) return;
+    if (_applying) return;
+    _applying = true;
+    final inFlight = _checkInFlight;
+    if (inFlight != null) {
+      notifyListeners();
+      try {
+        await inFlight;
+      } catch (_) {}
+    }
+    final check = _lastCheck;
+    if (check == null) {
+      _applying = false;
+      if (inFlight != null) notifyListeners();
+      return;
+    }
 
     status = LibraryModuleStatus.updating;
     stageText = null;
     applyProgress = null;
     applyReceivedBytes = null;
     applyTotalBytes = null;
+    errorMessage = null;
+    canRetryWithFullDownload = false;
     needsElevation = false;
     notifyListeners();
 
-    final plan = useFullDownloadFallback
-        ? _lastCheck!.plan?.fullDownloadFallback
-        : _lastCheck!.plan;
+    final plan =
+        useFullDownloadFallback ? check.plan?.fullDownloadFallback : check.plan;
     AppLogger.instance.info(
       'update() מתחיל: kind=${plan?.kind} local=${plan?.localVersion} target=${plan?.targetVersion}',
     );
@@ -709,41 +729,42 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     String? locationNotSetFor;
 
     try {
-      await _manager.applyUpdate(
-        _lastCheck!,
-        useFullDownloadFallback: useFullDownloadFallback,
-        onProgress: (p) {
-          stageText = _describeApplyStage(p);
-          // שלב ארוך בלי בייטים ובלי אחוזים מקבל שעון; כל השאר מכבים אותו.
-          if (_isSilentLongStage(p)) {
-            _startStageClock(stageText!);
-            stageText = _stageTextWithElapsed();
-          } else {
-            _stopStageClock();
-          }
-          final done = p.bytesDone;
-          final total = p.bytesTotal;
-          applyReceivedBytes = done;
-          applyTotalBytes = total;
-          applyProgress = (done != null && total != null && total > 0)
-              ? done / total
-              // אימות ה-hash אורך דקות בלי בייטים להציג — בלעדיו המד נראה
-              // תקוע לאורך כל השלב הארוך ביותר בהחלה.
-              : p.verifyProgress;
-          notifyProgress();
-        },
-        onCompanionWarning: (name, error) {
-          companionFailures[name] = error;
-          AppLogger.instance.warn('התקנת הקובץ הנלווה "$name" נכשלה: $error');
-        },
-        onStateWarning: (error) => AppLogger.instance
-            .warn('רישום מצב העדכון נכשל — הבדיקה הבאה תציע שוב: $error'),
-        onLibraryLocationNotSet: (dbPath) {
-          locationNotSetFor = dbPath;
-          AppLogger.instance
-              .warn('מיקום הספרייה לא נכתב להגדרות של אוצריא: $dbPath');
-        },
-      );
+      try {
+        await _manager.applyUpdate(
+          check,
+          useFullDownloadFallback: useFullDownloadFallback,
+          onProgress: (p) {
+            stageText = _describeApplyStage(p);
+            if (_isSilentLongStage(p)) {
+              _startStageClock(stageText!);
+              stageText = _stageTextWithElapsed();
+            } else {
+              _stopStageClock();
+            }
+            final done = p.bytesDone;
+            final total = p.bytesTotal;
+            applyReceivedBytes = done;
+            applyTotalBytes = total;
+            applyProgress = (done != null && total != null && total > 0)
+                ? done / total
+                : p.verifyProgress;
+            notifyProgress();
+          },
+          onCompanionWarning: (name, error) {
+            companionFailures[name] = error;
+            AppLogger.instance.warn('התקנת הקובץ הנלווה "$name" נכשלה: $error');
+          },
+          onStateWarning: (error) => AppLogger.instance
+              .warn('רישום מצב העדכון נכשל — הבדיקה הבאה תציע שוב: $error'),
+          onLibraryLocationNotSet: (dbPath) {
+            locationNotSetFor = dbPath;
+            AppLogger.instance
+                .warn('מיקום הספרייה לא נכתב להגדרות של אוצריא: $dbPath');
+          },
+        );
+      } finally {
+        _applying = false;
+      }
       AppLogger.instance.info(
         'החלת העדכון הסתיימה, נלווים שנכשלו=${companionFailures.length}',
       );
@@ -780,10 +801,8 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       // ההפעלה לבדה אינה אומרת למשתמש מה לעשות.
       errorMessage = Elevation.describe(e);
       needsElevation = Elevation.isAccessDenied(e);
-      // רק אחרי כשל של מסלול הדלתא, ורק אם יש מסד מלא במראה: הצעה שנייה
-      // אחרי כשל של ההורדה המלאה עצמה הייתה לולאה.
       canRetryWithFullDownload =
-          !useFullDownloadFallback && _lastCheck!.canFallBackToFullDownload;
+          !useFullDownloadFallback && check.canFallBackToFullDownload;
       // שרשרת דלתא שנקטעה באמצע כן שינתה ספרים, והסימון נכתב — ולכן גם
       // המסלול הזה מציע את עדכון האינדקס.
       await _refreshPendingReindex();

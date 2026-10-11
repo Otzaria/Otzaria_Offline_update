@@ -726,11 +726,9 @@ class _AppShellState extends State<AppShell> {
     await installLauncherUpdate();
   }
 
-  /// פעולה ארוכה שאסור לקטוע. החלפת קובץ ההרצה מסתיימת ב-`exit(0)`, ותהליך
-  /// שנהרג באמצע הורדה משאיר נכסים חלקיים בלי ש-[MirrorDownloadUndo] ירוץ,
-  /// ובאמצע התקנה — מסד או מתקין שנקטעו.
   bool get _longTaskRunning =>
       _isDownloading ||
+      _library.isApplying ||
       _library.status == LibraryModuleStatus.updating ||
       _otzaria.status == OtzariaModuleStatus.installing;
 
@@ -798,6 +796,7 @@ class _AppShellState extends State<AppShell> {
     var skippedWhileRunning = false;
 
     if (s.autoInstall &&
+        !_isDownloading &&
         !_library.isFreshInstall &&
         _library.status == LibraryModuleStatus.updateAvailable) {
       if (await refreshProcessState()) {
@@ -909,7 +908,7 @@ class _AppShellState extends State<AppShell> {
     }
     final s = widget.settings.settings;
     if (!s.hasSyncSelection ||
-        _isDownloading ||
+        _longTaskRunning ||
         _launcherUpdate.isDownloading) {
       return;
     }
@@ -946,7 +945,7 @@ class _AppShellState extends State<AppShell> {
           content: context.strings.libraryDomain.semanticDownloadPrompt,
           confirmText: context.strings.home.downloadNowButton,
         );
-    if (!mounted || _isDownloading || _launcherUpdate.isDownloading) return;
+    if (!mounted || _longTaskRunning || _launcherUpdate.isDownloading) return;
     final skipLibrary = !includeSemanticSearch &&
         s.downloadsLibrary &&
         !_library.personalUpdateMode &&
