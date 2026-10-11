@@ -1,23 +1,14 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
-import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/otzaria_module_controller.dart';
+import '../flows/otzaria_flows.dart';
 import '../services/native_file_dialogs.dart';
 import '../services/timestamps.dart';
 import '../settings/safer_mode.dart';
 import '../settings/settings_controller.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
-
-/// נוסח דיאלוג ההתקנה — משותף למסך הזה ולאריח בדף הבית, כדי שהאזהרה על
-/// גרסה לא-יציבה תופיע בשניהם.
-String appInstallPrompt(BuildContext context, OtzariaModuleController c) =>
-    context.strings.appScreen.installPrompt(
-      latestVersion: c.latestVersion,
-      currentVersion: c.currentVersion,
-      prereleaseNote: c.hasChannelChoice && c.preferPrerelease,
-    );
 
 /// מה הלחיצה על כפתור ההתקנה עושה בפועל. שלושתן מריצות את אותו מתקין
 /// מהתיקייה המקומית — ההבדל הוא מה נאמר למשתמש לפני כן.
@@ -79,7 +70,6 @@ class OtzariaScreen extends StatelessWidget {
   Widget _stateCard(BuildContext context) {
     final c = otzaria;
     final t = context.strings.appScreen;
-    final common = context.strings.common;
     final action = switch (c.status) {
       OtzariaModuleStatus.updateAvailable => _Install.update,
       OtzariaModuleStatus.upToDate => _Install.reinstall,
@@ -112,26 +102,13 @@ class OtzariaScreen extends StatelessWidget {
         InfoStatusRow(
           icon: FluentIcons.desktop_24_regular,
           title: t.stateRowTitle,
-          kind: switch (c.status) {
-            OtzariaModuleStatus.idle => StatusKind.unknown,
-            OtzariaModuleStatus.checking => StatusKind.working,
-            OtzariaModuleStatus.upToDate => StatusKind.ok,
-            OtzariaModuleStatus.updateAvailable => StatusKind.updateAvailable,
-            OtzariaModuleStatus.installing => StatusKind.working,
-            OtzariaModuleStatus.needsDownload => StatusKind.needsAction,
-            OtzariaModuleStatus.installedIsNewer => StatusKind.ok,
-            OtzariaModuleStatus.error => StatusKind.error,
-          },
-          label: switch (c.status) {
-            OtzariaModuleStatus.idle => common.notCheckedYet,
-            OtzariaModuleStatus.checking => common.checking,
-            OtzariaModuleStatus.upToDate => common.upToDate,
-            OtzariaModuleStatus.updateAvailable => t.readyToInstall,
-            OtzariaModuleStatus.installing => common.installing,
-            OtzariaModuleStatus.needsDownload => t.nothingDownloadedYet,
-            OtzariaModuleStatus.installedIsNewer => common.installedIsNewer,
-            OtzariaModuleStatus.error => common.error,
-          },
+          kind: otzariaStatusKind(c.status),
+          label: otzariaStatusLabel(
+            context,
+            c.status,
+            updateAvailable: t.readyToInstall,
+            needsDownload: t.nothingDownloadedYet,
+          ),
         ),
         SettingsActionTile.text(
           icon: FluentIcons.tag_24_regular,
@@ -229,8 +206,9 @@ class OtzariaScreen extends StatelessWidget {
   Future<void> _confirmInstall(BuildContext context, _Install action) async {
     final t = context.strings.appScreen;
     final home = context.strings.home;
-    final approved = await showTwoActionsDialog(
-      context: context,
+    await confirmOtzariaInstall(
+      context,
+      otzaria: otzaria,
       title: switch (action) {
         _Install.update => home.appInstallDialogTitle,
         _Install.reinstall => t.reinstallDialogTitle,
@@ -250,21 +228,6 @@ class OtzariaScreen extends StatelessWidget {
         _Install.older => t.installOlderButton,
       },
     );
-    if (!approved) return;
-    await otzaria.install();
-    // ההודעה נבדקת לפני המצב: בהתקנה חוזרת המצב נשאר "מעודכן" גם כשהמשתמש
-    // ביטל באשף, ולפי המצב לבדו זה היה נקרא הצלחה.
-    final notice = otzaria.noticeMessage;
-    if (notice != null) {
-      // ביטול באשף, או אשף שעוד פתוח — הודעה רגילה ולא שגיאה.
-      UiSnack.show(notice);
-      return;
-    }
-    if (otzaria.status == OtzariaModuleStatus.upToDate) {
-      UiSnack.showSuccess(
-        AppL10n.strings.home.appInstalledSnack('${otzaria.currentVersion}'),
-      );
-    }
   }
 
   // ── מה התחדש ──────────────────────────────────────────────────────────────

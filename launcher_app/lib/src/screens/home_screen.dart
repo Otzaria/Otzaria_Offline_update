@@ -1,6 +1,5 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
-import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/error_reports_controller.dart';
 import '../controllers/launcher_update_controller.dart';
@@ -8,6 +7,8 @@ import '../controllers/library_module_controller.dart';
 import '../controllers/otzaria_module_controller.dart';
 import '../controllers/plugins_module_controller.dart';
 import '../controllers/search_feedback_controller.dart';
+import '../flows/library_flows.dart';
+import '../flows/otzaria_flows.dart';
 import '../services/byte_size.dart';
 import '../services/timestamps.dart';
 import '../settings/settings_controller.dart';
@@ -15,7 +16,6 @@ import '../theme/theme_exports.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
 import 'error_reports_upload_section.dart';
-import 'otzaria_screen.dart';
 
 /// דף הבית — שני אריחים בלבד: עדכון/התקנת תוכנת אוצריא, ועדכון הספרייה.
 /// כל פרט טכני נוסף (סנכרון, נתיבים, מספרי גרסה) נמצא במסכים המפורטים
@@ -185,29 +185,15 @@ class HomeScreen extends StatelessWidget {
     return _HomeTile(
       icon: FluentIcons.desktop_24_regular,
       title: t.appTileTitle,
-      statusKind: switch (c.status) {
-        OtzariaModuleStatus.idle => StatusKind.unknown,
-        OtzariaModuleStatus.checking => StatusKind.working,
-        OtzariaModuleStatus.upToDate => StatusKind.ok,
-        OtzariaModuleStatus.updateAvailable => StatusKind.updateAvailable,
-        OtzariaModuleStatus.installing => StatusKind.working,
-        OtzariaModuleStatus.needsDownload => StatusKind.needsAction,
-        // ההתקנה תקינה ומעודכנת — רק המראה מפגרת אחריה.
-        OtzariaModuleStatus.installedIsNewer => StatusKind.ok,
-        OtzariaModuleStatus.error => StatusKind.error,
-      },
-      statusLabel: switch (c.status) {
-        OtzariaModuleStatus.idle => common.notCheckedYet,
-        OtzariaModuleStatus.checking => common.checking,
-        OtzariaModuleStatus.upToDate => common.upToDate,
-        OtzariaModuleStatus.updateAvailable => common.updateAvailable,
-        OtzariaModuleStatus.installing => common.installing,
-        OtzariaModuleStatus.needsDownload => c.currentVersion == null
+      statusKind: otzariaStatusKind(c.status),
+      statusLabel: otzariaStatusLabel(
+        context,
+        c.status,
+        updateAvailable: common.updateAvailable,
+        needsDownload: c.currentVersion == null
             ? t.appNoInstallFound
             : t.appNothingDownloaded,
-        OtzariaModuleStatus.installedIsNewer => common.installedIsNewer,
-        OtzariaModuleStatus.error => common.error,
-      },
+      ),
       primaryActionText: switch (c.status) {
         OtzariaModuleStatus.updateAvailable => common.install,
         _ => c.canLaunch ? common.launch : null,
@@ -228,21 +214,17 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  /// **אין במחשב אוצריא, ועל הכונן יש גם ספרייה** — ואז אותה לחיצה על
-  /// "התקנה" מציעה את שתיהן. זה מה שהחליף את חבילת ה-FULL: אותה תוצאה
-  /// בדיוק, בלי 2GB כפולים על הכונן.
   bool get _offersLibraryToo =>
       otzaria.currentVersion == null &&
       library.isFreshInstall &&
       library.status == LibraryModuleStatus.updateAvailable;
 
-  /// לחיצה על "התקנה". ההצעה המשולבת יושבת כאן ולא בעלייה: דיאלוג שקופץ
-  /// מעצמו בכניסה מקדים את המשתמש לפני שביקש להתקין בכלל.
   Future<void> _confirmAppInstall(BuildContext context) async {
     final t = context.strings.home;
     final withLibrary = _offersLibraryToo;
-    final approved = await showTwoActionsDialog(
-      context: context,
+    final installed = await confirmOtzariaInstall(
+      context,
+      otzaria: otzaria,
       title: withLibrary ? t.firstInstallDialogTitle : t.appInstallDialogTitle,
       content: withLibrary
           ? t.firstInstallPrompt(
@@ -252,35 +234,17 @@ class HomeScreen extends StatelessWidget {
           : appInstallPrompt(context, otzaria),
       confirmText: withLibrary ? t.firstInstallConfirm : t.appInstallConfirm,
     );
-    if (!approved) return;
-    await otzaria.install();
-    if (otzaria.status != OtzariaModuleStatus.upToDate) {
-      // ביטול באשף, או אשף שעוד פתוח — הודעה רגילה ולא שגיאה.
-      final notice = otzaria.noticeMessage;
-      if (notice != null) UiSnack.show(notice);
+    if (!withLibrary || !context.mounted) return;
+    if (!installed) {
+      if (otzaria.currentVersion != null) await library.checkForUpdate();
       return;
     }
-    UiSnack.showSuccess(t.appInstalledSnack('${otzaria.currentVersion}'));
-    if (!withLibrary || !context.mounted) return;
 
-    // **בדיקה מחדש אחרי האשף, ולא לפניו.** לאן המסד הולך נגזר ממה שנבחר
-    // שם — התקנה ניידת שומרת אותו ליד ה-exe ורגילה ב-%APPDATA% — ורק
-    // עכשיו יש exe ש-`LibraryDbLocator` יכול להיתלות בו.
     await library.checkForUpdate();
     if (!context.mounted) return;
     await _installLibraryAfterApp(context);
   }
 
-  /// הספרייה, מיד אחרי שהתוכנה הותקנה.
-  ///
-  /// **אוצריא נפתחת בסוף האשף** — תיבת "הפעל את אוצריא" בעמוד הסיום מסומנת
-  /// כברירת מחדל, ואין דגל שמכבה אותה (`/NOLAUNCH=1` ב-`otzaria.iss` נבדק
-  /// רק תחת `WizardSilent`). אוצריא פתוחה נועלת את `seforim.db`, ולכן היא
-  /// נסגרת כאן מעצמה.
-  ///
-  /// **הסגירה בטוחה דווקא כאן.** `OtzariaProcessCloser` מבקש ולא הורג
-  /// (`taskkill` בלי `/F`), ואוצריא שנפתחה לפני שתי שניות מדף הסיום עוד לא
-  /// פתחה שום ספר — אין מה לאבד. רק אם היא שרדה את הבקשה מבקשים מהמשתמש.
   Future<void> _installLibraryAfterApp(BuildContext context) async {
     final t = context.strings.home;
     while (await onProcessStateChanged()) {
@@ -292,17 +256,16 @@ class HomeScreen extends StatelessWidget {
         content: t.closeOtzariaForLibraryPrompt,
         confirmText: context.strings.common.retry,
       );
-      // דילג — כרטיס הספרייה נשאר עם כפתור ההתקנה שלו.
       if (!retry) return;
     }
     if (!context.mounted) return;
     if (library.status != LibraryModuleStatus.updateAvailable) return;
 
-    await library.update();
-    if (library.status == LibraryModuleStatus.upToDate) {
-      UiSnack.showSuccess(t.libraryUpdatedSnack('${library.localVersion}'));
-    }
-    await onRequestReindex();
+    await applyLibraryAndReport(
+      library,
+      library.update,
+      onRequestReindex: onRequestReindex,
+    );
   }
 
   // ── אריח הספרייה ──────────────────────────────────────────────────────────
@@ -338,47 +301,14 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _confirmLibraryUpdate(BuildContext context) async {
-    // בודקים עכשיו ולא מסתמכים על [otzariaIsRunning]: אם אוצריא נסגרה מאז
-    // הבדיקה האחרונה, ההסתמכות על הערך הלכוד הייתה חוסמת את העדכון עד
-    // להפעלה מחדש של הלאנצ'ר.
-    if (await onProcessStateChanged()) {
-      UiSnack.showError(AppL10n.strings.home.otzariaOpenSnack);
-      return;
-    }
-    if (!context.mounted) return;
-    final t = context.strings.home;
-
-    final c = library;
-    final approved = await showTwoActionsDialog(
-      context: context,
-      title: t.libraryUpdateDialogTitle,
-      // "עדכון מגרסה 27 לגרסה 27" הוא מה שהמשתמש קרא כתקלה כשההצעה נבעה
-      // מקובץ נלווה בלבד. עכשיו הדיאלוג אומר בדיוק מה יותקן.
-      content: switch (c) {
-        _ when c.isFreshInstall => t.libraryFreshInstallPrompt(
-            '${c.targetVersion}',
-          ),
-        _ when c.companionsOnly =>
-          AppL10n.strings.libraryDomain.companionsOnlyPrompt(
-            c.pendingCompanionNames,
-          ),
-        _ => t.libraryUpdatePrompt('${c.localVersion}', '${c.targetVersion}'),
-      },
-      subtitle: t.doNotRemoveDriveWarning,
-      confirmText: t.libraryUpdateConfirm,
-    );
-    if (!approved) return;
-
-    await c.update();
-    if (c.status == LibraryModuleStatus.upToDate) {
-      UiSnack.showSuccess(
-        AppL10n.strings.home.libraryUpdatedSnack('${c.localVersion}'),
+  Future<void> _confirmLibraryUpdate(BuildContext context) =>
+      confirmLibraryUpdate(
+        context,
+        library: library,
+        dialogTitle: (strings) => strings.home.libraryUpdateDialogTitle,
+        isOtzariaRunning: onProcessStateChanged,
+        onRequestReindex: onRequestReindex,
       );
-    }
-    // המסד התחלף, ולכן אינדקס החיפוש של אוצריא מיושן — מציעים לתקן מיד.
-    await onRequestReindex();
-  }
 
   // ── בדיקת עדכונים ברשת (צדדי) ────────────────────────────────────────────
 
@@ -768,59 +698,6 @@ class HomeScreen extends StatelessWidget {
     );
   }
 }
-
-// ── תרגום מצב הספרייה לתצוגה — משותף לדף הבית ולמסך הספרייה ──────────────────
-
-StatusKind libraryStatusKind(LibraryModuleStatus status) => switch (status) {
-      LibraryModuleStatus.idle => StatusKind.unknown,
-      LibraryModuleStatus.checking => StatusKind.working,
-      LibraryModuleStatus.upToDate => StatusKind.ok,
-      LibraryModuleStatus.updateAvailable => StatusKind.updateAvailable,
-      LibraryModuleStatus.updating => StatusKind.working,
-      LibraryModuleStatus.error => StatusKind.error,
-      LibraryModuleStatus.needsDownload => StatusKind.needsAction,
-      LibraryModuleStatus.needsManualPath => StatusKind.needsAction,
-      LibraryModuleStatus.personalTargetElsewhere => StatusKind.needsAction,
-    };
-
-String libraryStatusLabel(BuildContext context, LibraryModuleController c) {
-  final common = context.strings.common;
-  final t = context.strings.home;
-
-  return switch (c.status) {
-    LibraryModuleStatus.idle => common.notCheckedYet,
-    LibraryModuleStatus.checking => common.checking,
-    LibraryModuleStatus.upToDate => common.upToDate,
-    LibraryModuleStatus.updateAvailable => switch (c) {
-        _ when c.isFreshInstall => t.libraryNotInstalledYet,
-        _ when c.companionsOnly =>
-          AppL10n.strings.libraryDomain.companionsOnlyPending(
-            c.pendingCompanionNames,
-          ),
-        _ => common.updateAvailable,
-      },
-    LibraryModuleStatus.updating => t.libraryUpdating,
-    LibraryModuleStatus.error => common.error,
-    LibraryModuleStatus.needsDownload => t.libraryNothingDownloaded,
-    LibraryModuleStatus.needsManualPath => t.libraryNeedsManualPath,
-    LibraryModuleStatus.personalTargetElsewhere =>
-      t.libraryPersonalOtherMachine,
-  };
-}
-
-Widget libraryApplyProgressRow(
-  BuildContext context,
-  LibraryModuleController c,
-) =>
-    ListenableBuilder(
-      listenable: c.progress,
-      builder: (context, _) => InfoProgressRow(
-        stage: c.stageText ?? context.strings.libraryScreen.updatingProgress,
-        progress: c.applyProgress,
-        detail: formatBytesProgress(c.applyReceivedBytes, c.applyTotalBytes),
-        warning: context.strings.home.doNotRemoveDriveWarning,
-      ),
-    );
 
 // ── אריח בית — עיצוב אחיד לשני הרכיבים ────────────────────────────────────────
 

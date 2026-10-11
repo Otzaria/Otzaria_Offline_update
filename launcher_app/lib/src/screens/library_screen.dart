@@ -3,12 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/library_module_controller.dart';
-import '../services/byte_size.dart';
+import '../flows/library_flows.dart';
 import '../services/native_file_dialogs.dart';
 import '../services/timestamps.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
-import 'home_screen.dart';
 
 /// מסך עדכון הספרייה — מציג את ה-DB שזוהה בפועל ומחיל עליו עדכון מהתיקייה
 /// שלצד התוכנה. אין כאן בחירת מקור: המקור תמיד אותה תיקייה.
@@ -282,77 +281,21 @@ class LibraryScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _confirmUpdate(BuildContext context) async {
-    // התוצאה **המוחזרת** ולא [otzariaIsRunning]: המסך הוא `StatelessWidget`,
-    // והשדה נלכד בבנייה — אחרי הרענון הוא עדיין "פתוחה", וכך העדכון נחסם
-    // לנצח גם אחרי שאוצריא נסגרה.
-    if (await onProcessStateChanged()) {
-      UiSnack.showError(AppL10n.strings.home.otzariaOpenSnack);
-      return;
-    }
-    if (!context.mounted) return;
-    final home = context.strings.home;
-
-    final c = library;
-    final approved = await showTwoActionsDialog(
-      context: context,
-      title: context.strings.libraryScreen.updateDialogTitle,
-      content: switch (c) {
-        _ when c.isFreshInstall =>
-          home.libraryFreshInstallPrompt('${c.targetVersion}'),
-        _ when c.companionsOnly => AppL10n.strings.libraryDomain
-            .companionsOnlyPrompt(c.pendingCompanionNames),
-        _ =>
-          home.libraryUpdatePrompt('${c.localVersion}', '${c.targetVersion}'),
-      },
-      subtitle: home.doNotRemoveDriveWarning,
-      confirmText: home.libraryUpdateConfirm,
-    );
-    if (!approved) return;
-
-    await c.update();
-    if (c.status == LibraryModuleStatus.upToDate) {
-      UiSnack.showSuccess(
-        AppL10n.strings.home.libraryUpdatedSnack('${c.localVersion}'),
+  Future<void> _confirmUpdate(BuildContext context) => confirmLibraryUpdate(
+        context,
+        library: library,
+        dialogTitle: (strings) => strings.libraryScreen.updateDialogTitle,
+        isOtzariaRunning: onProcessStateChanged,
+        onRequestReindex: onRequestReindex,
       );
-    }
-    // מציעים את עדכון האינדקס מיד — הרגע שבו המשתמש כאן ממילא. סירוב אינו
-    // מוחק את הסימון: האריח בכרטיס וההפעלה הבאה של אוצריא יציעו שוב.
-    await onRequestReindex();
-  }
 
-  /// המסלול החלופי: המסד המלא מהמראה, אחרי שמסלול הדלתא נכשל.
-  Future<void> _confirmFullDownload(BuildContext context) async {
-    if (await onProcessStateChanged()) {
-      UiSnack.showError(AppL10n.strings.home.otzariaOpenSnack);
-      return;
-    }
-    if (!context.mounted) return;
-    final t = context.strings.libraryScreen;
-
-    final c = library;
-    final size = c.fullDownloadFallbackSize;
-    final approved = await showTwoActionsDialog(
-      context: context,
-      title: t.fullDownloadInsteadDialogTitle,
-      content: t.fullDownloadInsteadPrompt(
-        size != null && size > 0
-            ? formatBytes(size)
-            : context.strings.common.unknownValue,
-      ),
-      subtitle: context.strings.home.doNotRemoveDriveWarning,
-      confirmText: context.strings.common.install,
-    );
-    if (!approved) return;
-
-    await c.updateWithFullDownload();
-    if (c.status == LibraryModuleStatus.upToDate) {
-      UiSnack.showSuccess(
-        AppL10n.strings.home.libraryUpdatedSnack('${c.localVersion}'),
+  Future<void> _confirmFullDownload(BuildContext context) =>
+      confirmLibraryFullDownload(
+        context,
+        library: library,
+        isOtzariaRunning: onProcessStateChanged,
+        onRequestReindex: onRequestReindex,
       );
-    }
-    await onRequestReindex();
-  }
 
   // ── התיקייה שממנה מעדכנים ─────────────────────────────────────────────────
 
