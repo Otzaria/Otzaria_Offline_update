@@ -151,21 +151,20 @@ class LibraryUpdateDiscovery {
       }
     }
 
-    // ה-DB המלא ל-fallback: מה-release בעל הגרסה הגבוהה ביותר שיש לו
-    // seforim.db.zst.
-    ReleaseAsset? latestFull;
-    String? latestTag;
+    LibraryRelease? fullRelease;
     var bestFullVersion = -1;
     for (final release in releases) {
-      final full = release.fullDbAsset;
-      if (full == null) continue;
+      if (release.fullDbAsset == null) continue;
       final version = releaseVersionOf(release);
-      if (version > bestFullVersion) {
+      if (version > bestFullVersion ||
+          (version == bestFullVersion &&
+              _publishedAfter(release, fullRelease))) {
         bestFullVersion = version;
-        latestFull = full;
-        latestTag = release.tag;
+        fullRelease = release;
       }
     }
+    final latestFull = fullRelease?.fullDbAsset;
+    final latestTag = fullRelease?.tag;
 
     // ה-latest הוא הגבוה מבין ה-edges וה-DB המלא — כך release חדש שיצא עם DB
     // מלא בלבד (טרם נוצרו לו patches) עדיין נחשב latest, ויפעיל full fallback.

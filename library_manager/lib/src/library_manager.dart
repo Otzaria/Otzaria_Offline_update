@@ -736,21 +736,15 @@ class LibraryManager {
             onProgress: onProgress,
             isCancelled: isCancelled,
           );
-          // המסד המלא שבמראה עשוי להיות ישן מ-latest בכוונה (המראה מעדיפה
-          // אותו על פני הורדת ~1.1GB חדשים); ה-patches מכאן ולמעלה כבר על
-          // הכונן, ולכן הרצף מסתיים בגרסה האחרונה ולא בבדיקה נוספת.
+          appliedTag = plan.fullDbReleaseTag;
           final followUp = plan.followUpDelta;
           if (followUp != null) {
-            // כשל כאן אינו מבטל את המסד המלא שכבר הותקן בהצלחה: רושמים את מה
-            // שהושג, והבדיקה הבאה תציע את השרשרת מחדש מהגרסה הזו.
             try {
               booksTouched = await _applier.applyDelta(
                 plan: followUp,
                 dbPath: dbPath,
                 onProgress: onProgress,
                 isCancelled: isCancelled,
-                // שרשרת שנקטעה באמצע השאירה את המסד בגרסת הצעד האחרון
-                // שהצליח, לא בזו של המסד המלא — וזה מה שנרשם ב-catch.
                 onStepApplied: (_, version) {
                   appliedVersion = version;
                   appliedTag = _contentTagFor(check, version);

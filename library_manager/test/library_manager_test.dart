@@ -802,6 +802,54 @@ void main() {
       });
     });
 
+    test('הורדה מלאה בלי השלמה נרשמת לפי ה-release של המסד המלא', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      if (await const OtzariaProcessGuard().isAnyRunning(
+        OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
+      )) {
+        markTestSkipped('אוצריא פתוחה — ההחלה נחסמת בכוונה');
+        return;
+      }
+
+      final dbPath = await installExistingDb(4, appliedTag: 'v4');
+      final dbBytes = buildRealDb(5);
+      final compressed = p.join(tempDir.path, 'full-5a.db.zst');
+      File(
+        compressed,
+      ).writeAsBytesSync(compressWithZstd(bindings, dbBytes), flush: true);
+
+      final check = LibraryUpdateCheckResult(
+        dbPath: dbPath,
+        latestVersion: 5,
+        latestContentTag: 'v5-b',
+        plan: LibraryUpdatePlan.fullDownload(
+          localVersion: 4,
+          targetVersion: 5,
+          asset: ReleaseAsset(
+            name: 'seforim.db.zst',
+            downloadUrl: compressed,
+            size: File(compressed).lengthSync(),
+          ),
+          releaseTag: 'v5-a',
+        ),
+      );
+
+      await _withoutNetwork((_) async {
+        final manager = LibraryManager(dataDir: dataDir);
+        await manager.applyUpdate(check);
+
+        final applied = await LibraryStateStore(
+          p.join(dataDir, 'library_state.json'),
+        ).loadAppliedRelease();
+        expect(applied?.tag, 'v5-a');
+        expect(applied?.dbVersion, 5);
+        manager.dispose();
+      });
+    });
+
     // v26 של SeforimLibrary פורסמה עם patches בסכמה שהמחיל אינו יודע להחיל:
     // המסד המלא הישן הותקן, הצעד הראשון בשרשרת ההשלמה הצליח והשני נדחה.
     // הרישום חייב להיות הגרסה שהמסד באמת הגיע אליה ולא זו של המסד המלא —

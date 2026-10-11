@@ -317,6 +317,42 @@ void main() {
       expect(result.latestContentTag, 'v22-latest');
     });
 
+    test('שני מסדים מלאים באותה גרסה — הנשא הוא ה-release שפורסם אחרון',
+        () async {
+      Map<String, Object> fullRelease(String tag, String publishedAt) => {
+            'tag_name': tag,
+            'published_at': publishedAt,
+            'assets': [
+              {
+                'name': 'seforim.db.zst',
+                'browser_download_url': 'https://x/$tag/seforim.db.zst',
+                'size': 1200000000
+              },
+            ],
+          };
+      final releases = jsonEncode([
+        fullRelease('v26-a', '2026-09-01T10:00:00Z'),
+        fullRelease('v26-b', '2026-09-05T10:00:00Z'),
+      ]);
+      final mock = MockClient((request) async {
+        if (request.url.toString().contains('/releases')) {
+          return http.Response(releases, 200);
+        }
+        return http.Response('not found', 404);
+      });
+      final result = await LibraryUpdateDiscovery(
+        client: GithubLibraryReleaseClient(httpClient: mock),
+      ).discover(allowPrerelease: false);
+
+      expect(result.latestVersion, 26);
+      expect(result.latestContentTag, 'v26-b');
+      expect(result.fullDbReleaseTag, 'v26-b');
+      expect(
+        result.latestFullDbAsset?.downloadUrl,
+        'https://x/v26-b/seforim.db.zst',
+      );
+    });
+
     test('ללא releases כלל → latestVersion=0, בלי edges ובלי DB מלא', () async {
       final mock = MockClient((_) async => http.Response('[]', 200));
       final discovery = LibraryUpdateDiscovery(

@@ -310,6 +310,43 @@ void main() {
       expect(p.fullDbReleaseTag, 'v22-b');
     });
 
+    test('נושא המסד המלא הוא ה-release המקומי ולא החדש → none', () {
+      final p = plan(
+        local: 26,
+        latest: 26,
+        edges: [],
+        tag: 'v26-a',
+        contentTag: 'v26-b',
+        localTag: 'v26-a',
+      );
+      expect(p.kind, LibraryUpdatePlanKind.none);
+    });
+
+    test('נושא מסד מלא באותה גרסה מ-release ישן שלישי → none', () {
+      final p = plan(
+        local: 26,
+        latest: 26,
+        edges: [],
+        tag: 'v26-a',
+        contentTag: 'v26-c',
+        localTag: 'v26-b',
+      );
+      expect(p.kind, LibraryUpdatePlanKind.none);
+    });
+
+    test('נושא ישן עם השלמה ל-latest אינו נחשב רענון תוכן', () {
+      final p = plan(
+        local: 26,
+        latest: 26,
+        edges: [_edge(25, 26)],
+        tag: 'v25',
+        fullVersion: 25,
+        contentTag: 'v26-b',
+        localTag: 'v26-a',
+      );
+      expect(p.kind, LibraryUpdatePlanKind.none);
+    });
+
     // DB שלא הותקן דרך הלאנצ'ר — אין tag להשוות מולו, ואסור להציע בגללו
     // הורדה של ~1GB בכל פתיחה.
     test('אותה גרסה ו-tag מקומי לא ידוע → none', () {
@@ -517,7 +554,7 @@ void main() {
     });
 
     group('מסד מלא שאינו מקדם', () {
-      test('מסד מלא ישן מהמקומי ובלי השלמה ל-latest → blocked, לא הורדה מלאה',
+      test('מסד מלא שגם עם ההשלמה אינו עובר את המקומי → blocked, לא הורדה מלאה',
           () {
         final p = plan(
           local: 23,
@@ -526,10 +563,9 @@ void main() {
           fullVersion: 21,
         );
         expect(p.kind, LibraryUpdatePlanKind.blocked);
-        // 21 ולא 22: ההשלמה חייבת להגיע ל-latest בדיוק, ואין לה מסלול.
         expect(
           p.reason,
-          AppL10n.strings.libraryDomain.planFullDbWouldNotProgress(21, 23, 26),
+          AppL10n.strings.libraryDomain.planFullDbWouldNotProgress(22, 23, 26),
         );
       });
 
@@ -541,7 +577,70 @@ void main() {
           fullVersion: 21,
         );
         expect(p.kind, LibraryUpdatePlanKind.fullDownload);
-        expect(p.finalTargetVersion, 21);
+        expect(p.finalTargetVersion, 22);
+      });
+
+      test('השלמה חלקית שעוברת את המקומי → הורדה מלאה ולא blocked', () {
+        final p = plan(
+          local: 22,
+          latest: 26,
+          edges: [_edge(21, 23)],
+          fullVersion: 21,
+          blockingSchema: 4,
+        );
+        expect(p.kind, LibraryUpdatePlanKind.fullDownload);
+        expect(p.targetVersion, 21);
+        expect(p.finalTargetVersion, 23);
+        expect(
+          p.reason,
+          AppL10n.strings.libraryDomain.planPartialDeltaSchemaStop(23, 26, 4),
+        );
+      });
+
+      test('התקנה טרייה ממשיכה בקובצי עדכון עד הגרסה הגבוהה שאפשר', () {
+        final p = plan(
+          local: 0,
+          latest: 29,
+          edges: [_edge(26, 27), _edge(27, 28)],
+          hasMeta: false,
+          fullVersion: 26,
+          blockingSchema: 5,
+        );
+        expect(p.kind, LibraryUpdatePlanKind.fullDownload);
+        expect(p.targetVersion, 26);
+        expect(p.finalTargetVersion, 28);
+        expect(p.followUpDelta!.deltaSteps, hasLength(2));
+        expect(
+          p.reason,
+          AppL10n.strings.libraryDomain.planPartialDeltaSchemaStop(28, 29, 5),
+        );
+      });
+
+      test('מסלול חלופי שאינו מקדם את המקומי אינו מוצע לתוכנית דלתא', () {
+        final p = plan(
+          local: 24,
+          latest: 26,
+          edges: [_edge(24, 25)],
+          fullVersion: 21,
+          blockingSchema: 4,
+        );
+        expect(p.kind, LibraryUpdatePlanKind.delta);
+        expect(p.finalTargetVersion, 25);
+        expect(p.fullDownloadFallback, isNull);
+      });
+
+      test('מסלול חלופי שההשלמה שלו עוברת את המקומי נשמר', () {
+        final p = plan(
+          local: 24,
+          latest: 26,
+          edges: [_edge(24, 25), _edge(21, 25)],
+          fullVersion: 21,
+          blockingSchema: 4,
+        );
+        expect(p.kind, LibraryUpdatePlanKind.delta);
+        final fallback = p.fullDownloadFallback!;
+        expect(fallback.targetVersion, 21);
+        expect(fallback.finalTargetVersion, 25);
       });
 
       // אין גרסה מקומית אמינה להגן עליה — וזה גם מסלול ההתקנה הטרייה.

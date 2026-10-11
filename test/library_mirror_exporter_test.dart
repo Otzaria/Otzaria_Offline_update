@@ -818,6 +818,48 @@ void main() {
       expect(built.fetched, isNot(contains('patch-v21-v23.db.zst')));
     });
 
+    test('השלמה חלקית מעל המסד המלא קובעת את היעד של המסלול המלא', () async {
+      final built = buildExporter(
+        [
+          release('v26', assets: ['seforim.db.zst']),
+          release('v27', assets: [
+            'patch-v25-v27.db.zst',
+            'patch-v25-v27.db.zst.manifest.json',
+          ]),
+          release('v28', assets: [
+            'patch-v26-v28.db.zst',
+            'patch-v26-v28.db.zst.manifest.json',
+          ]),
+          release('v29', assets: [
+            'patch-v28-v29.db.zst',
+            'patch-v28-v29.db.zst.manifest.json',
+          ]),
+        ],
+        schemaByVersion: {29: 99},
+      );
+      await built.exporter.export(destDir: destDir);
+
+      expect(built.fetched, contains('seforim.db.zst'));
+      expect(built.fetched, contains('patch-v26-v28.db.zst'));
+      expect(built.fetched, isNot(contains('patch-v25-v27.db.zst')));
+
+      final result = await LibraryUpdateDiscovery(
+        client: LocalMirrorLibraryReleaseClient(mirrorDir: destDir),
+      ).discover(allowPrerelease: false);
+      final plan = const LibraryUpdatePlanner().plan(
+        localVersion: 0,
+        hasLocalVersionMeta: false,
+        latestVersion: result.latestVersion,
+        edges: result.edges,
+        latestFullDbAsset: result.latestFullDbAsset,
+        fullDbReleaseTag: result.fullDbReleaseTag,
+        latestFullDbVersion: result.latestFullDbVersion,
+      );
+      expect(plan.kind, LibraryUpdatePlanKind.fullDownload);
+      expect(plan.targetVersion, 26);
+      expect(plan.finalTargetVersion, 28);
+    });
+
     test('כשכל הסכמות נתמכות — אין אזהרות והמסד הישן נשמר', () async {
       await buildExporter([
         release('v21', assets: ['seforim.db.zst']),

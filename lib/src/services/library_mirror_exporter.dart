@@ -308,8 +308,6 @@ class LibraryMirrorExporter {
       }
     }
 
-    final latestVersion = _latestVersionOf(relevant);
-
     // הפסילה של קובץ עדכון איטי נעשית **לפני** בחירת הנשא: נשא ישן נשמר
     // במראה לפי הקשתות שממנו ל-latest, ואסור שקשת פסולה תחזיק אותו שם.
     if (!personal) {
@@ -340,17 +338,11 @@ class LibraryMirrorExporter {
       final full = fullDbCarrier.fullDbAsset!;
       neededByRelease[fullDbCarrier]![full.name] = full;
 
-      // **קובצי עדכון שהמסד המלא כבר עוקף אינם נשמרים.** אחרי מעבר סכמה
-      // השרשרת נקטעת מתחת לגרסת המסד המלא, ואז ה-planner באופליין בוחר בו
-      // בכל מקרה — עשרה releases של patches הם מאות MB מתים על הכונן. ראו
-      // `LibraryUpdatePlanner.plan`: דלתא נבחרת רק כשהיא מגיעה גבוה לפחות
-      // כמו המסלול המלא.
       final dropped = _dropUselessPatches(
         neededByRelease: neededByRelease,
         mirroredEdges: mirroredEdges,
         edges: edges,
         carrier: fullDbCarrier,
-        latestVersion: latestVersion,
       );
       if (dropped > 0) {
         onStage?.call(strings.exportSkippingPatchesFullDbWins(
@@ -876,16 +868,11 @@ class LibraryMirrorExporter {
     required List<MirroredEdge> mirroredEdges,
     required List<({int from, int to})> edges,
     required LibraryRelease carrier,
-    required int latestVersion,
   }) {
     final carrierVersion = LibraryUpdateDiscovery.releaseVersionOf(carrier);
-    // היעד של המסלול המלא: המסד המלא, ועוד ההשלמה ב-patches אם היא מגיעה
-    // ל-latest בדיוק (זה מה ש-`LibraryUpdatePlanner._followUpDelta` דורש).
-    final fullRouteTarget = _reaches(edges, carrierVersion, latestVersion)
-        ? latestVersion
-        : carrierVersion;
-
     final reach = _maxReachByVersion(edges);
+    final fullRouteTarget = reach[carrierVersion] ?? carrierVersion;
+
     var dropped = 0;
     for (final edge in mirroredEdges) {
       if ((reach[edge.to] ?? edge.to) >= fullRouteTarget) continue;

@@ -49,22 +49,24 @@ class LibraryUpdatePlanner {
     int? blockingSchemaVersion,
     int? blockingPatchFormatVersion,
   }) {
-    // היעד של הורדה מלאה הוא מה שהנכס מביא, לא מה שקיים ב-releases: אחרת
-    // האימות שאחרי החילוץ דוחה את המסד. הפער נסגר באותה החלה עצמה, דרך
-    // [LibraryUpdatePlan.followUpDelta].
     final fullTargetVersion = latestFullDbVersion ?? latestVersion;
+    final followUp = _followUpDelta(
+      edges,
+      fullTargetVersion,
+      latestVersion,
+      blockingSchemaVersion,
+      blockingPatchFormatVersion,
+    );
 
     if (!hasLocalVersionMeta) {
       return _fullOrBlocked(
         localVersion: localVersion,
         latestVersion: latestVersion,
         fullTargetVersion: fullTargetVersion,
-        edges: edges,
+        followUp: followUp,
         asset: latestFullDbAsset,
         tag: fullDbReleaseTag,
         reason: AppL10n.strings.libraryDomain.planLocalVersionUnknown,
-        // גרסה מקומית לא ידועה — אין מול מה לדרוש התקדמות, וממילא זה גם
-        // המסלול של התקנה טרייה.
         requireProgress: false,
       );
     }
@@ -72,29 +74,23 @@ class LibraryUpdatePlanner {
     if (localVersion >= latestVersion) {
       if (latestFullDbAsset != null &&
           fullDbReleaseTag != null &&
+          fullDbReleaseTag == latestContentTag &&
           _isContentRefresh(
             localTag: localReleaseTag,
             localTagVersion: localReleaseTagVersion,
             latestTag: latestContentTag,
             localVersion: localVersion,
-          )) {
-        final followUp =
-            _followUpDelta(edges, fullTargetVersion, latestVersion);
-        // **רענון תוכן אינו שווה נסיגה.** המראה שומרת בכוונה מסד מלא ישן, וכש-
-        // ה-patches שמעליו נפסלו (סכמה שאיננו מכירים) המסלול הזה הציע להחליף
-        // מסד חי v26 ב-v21 — בשם "עדכון". זו הבדיקה שכל שאר המסלולים עושים
-        // דרך `requireProgress`, והענף הזה היה היחיד בלעדיה.
-        if ((followUp?.targetVersion ?? fullTargetVersion) >= localVersion) {
-          return LibraryUpdatePlan.fullDownload(
-            localVersion: localVersion,
-            targetVersion: fullTargetVersion,
-            asset: latestFullDbAsset,
-            releaseTag: fullDbReleaseTag,
-            followUpDelta: followUp,
-            reason: AppL10n.strings.libraryDomain
-                .planContentChangedWithoutVersionBump(latestContentTag!),
-          );
-        }
+          ) &&
+          (followUp?.targetVersion ?? fullTargetVersion) >= localVersion) {
+        return LibraryUpdatePlan.fullDownload(
+          localVersion: localVersion,
+          targetVersion: fullTargetVersion,
+          asset: latestFullDbAsset,
+          releaseTag: fullDbReleaseTag,
+          followUpDelta: followUp,
+          reason: AppL10n.strings.libraryDomain
+              .planContentChangedWithoutVersionBump(fullDbReleaseTag),
+        );
       }
       return LibraryUpdatePlan.none(
         localVersion: localVersion,
@@ -102,25 +98,14 @@ class LibraryUpdatePlanner {
       );
     }
 
-    // המסלול בקובצי עדכון — עד latest אם אפשר, ואחרת עד הגרסה הגבוהה שהם
-    // כן מגיעים אליה. מעבר סכמה חותך את הגרף באמצע, ואז חצי הדרך בעשרות MB
-    // עדיפה גם על הישארות במקום וגם על ~1.5GB שנוחתים נמוך יותר.
     final path = _bestReachablePath(edges, localVersion, latestVersion);
     final deltaTarget = path == null ? localVersion : path.last.toVersion;
 
-    // הגרסה שההורדה המלאה מגיעה אליה בסוף, או `localVersion` כשאין מסד מלא
-    // בכלל — כלומר "אין מולה מה להשוות".
     final fullAvailable = latestFullDbAsset != null && fullDbReleaseTag != null;
     final fullRouteTarget = fullAvailable
-        ? (_followUpDelta(edges, fullTargetVersion, latestVersion)
-                ?.targetVersion ??
-            fullTargetVersion)
+        ? (followUp?.targetVersion ?? fullTargetVersion)
         : localVersion;
 
-    // **המסלול המהיר מנצח, גם כשהוא החלפת המסד כולו.** שתי הדרכים יושבות
-    // כבר על הכונן, ולכן מה שנשאר להשוות הוא רק הזמן שהמשתמש מחכה: כל צעד
-    // דלתא משלם סריקת-hash של המסד כולו, ושרשרת ארוכה (או צעד שכתב את המסד
-    // מחדש) הגיעה לשעה מול שתי דקות של החלפה. ראו [ApplyTimeEstimate].
     if (fullAvailable &&
         path != null &&
         path.isNotEmpty &&
@@ -129,7 +114,6 @@ class LibraryUpdatePlanner {
         latestFullDbAsset.size > 0) {
       final deltaSeconds =
           applyTime.deltaRouteSeconds(path.map((e) => e.compressedSize));
-      final followUp = _followUpDelta(edges, fullTargetVersion, latestVersion);
       final fullSeconds = applyTime.fullRouteSeconds(latestFullDbAsset.size) +
           applyTime.deltaRouteSeconds(
               followUp?.deltaSteps.map((e) => e.compressedSize) ?? const []);
@@ -154,8 +138,6 @@ class LibraryUpdatePlanner {
         localVersion: localVersion,
         targetVersion: deltaTarget,
         steps: path,
-        // מסלול שנעצר מתחת ל-latest אומר למה — אחרת המסך מציג יעד 23 בזמן
-        // שקיימת 26, בלי הסבר.
         reason: deltaTarget >= latestVersion
             ? null
             : _partialStopReason(
@@ -164,31 +146,26 @@ class LibraryUpdatePlanner {
                 blockingSchemaVersion,
                 blockingPatchFormatVersion,
               ),
-        // ההתאוששות כש-patch נכשל על המסד הזה — ראו
-        // [LibraryUpdatePlan.fullDownloadFallback].
-        fullDownloadFallback:
-            latestFullDbAsset != null && fullDbReleaseTag != null
-                ? LibraryUpdatePlan.fullDownload(
-                    localVersion: localVersion,
-                    targetVersion: fullTargetVersion,
-                    asset: latestFullDbAsset,
-                    releaseTag: fullDbReleaseTag,
-                    followUpDelta:
-                        _followUpDelta(edges, fullTargetVersion, latestVersion),
-                  )
-                : null,
+        fullDownloadFallback: latestFullDbAsset != null &&
+                fullDbReleaseTag != null &&
+                fullRouteTarget > localVersion
+            ? LibraryUpdatePlan.fullDownload(
+                localVersion: localVersion,
+                targetVersion: fullTargetVersion,
+                asset: latestFullDbAsset,
+                releaseTag: fullDbReleaseTag,
+                followUpDelta: followUp,
+              )
+            : null,
       );
     }
 
-    // אין מסלול patches — או שאין קשתות, או שהן נפסלו בגלל יכולת שאיננו
-    // מכירים. ההסבר נבדל, כי במקרה השני ההורדה המלאה היא **המסלול המתוכנן**
-    // ולא נפילה לאחור, וכך זה גם באוצריא עצמה.
     final strings = AppL10n.strings.libraryDomain;
     return _fullOrBlocked(
       localVersion: localVersion,
       latestVersion: latestVersion,
       fullTargetVersion: fullTargetVersion,
-      edges: edges,
+      followUp: followUp,
       asset: latestFullDbAsset,
       tag: fullDbReleaseTag,
       reason: blockingSchemaVersion != null
@@ -253,30 +230,37 @@ class LibraryUpdatePlanner {
       localTagVersion == localVersion &&
       localTag != latestTag;
 
-  /// שרשרת ה-patches שמשלימה הורדה מלאה שנוחתת מתחת ל-latest. `null` כשהמסד
-  /// המלא כבר בגרסה האחרונה או שאין מסלול משם — ואז מה שהורד הוא כל מה שיש.
   LibraryUpdatePlan? _followUpDelta(
     List<PatchEdge> edges,
     int fullTargetVersion,
     int latestVersion,
+    int? blockingSchemaVersion,
+    int? blockingPatchFormatVersion,
   ) {
     if (fullTargetVersion >= latestVersion) return null;
-    final path = _findBestPath(edges, fullTargetVersion, latestVersion);
-    if (path == null || path.isEmpty) return null;
+    final path = _bestReachablePath(edges, fullTargetVersion, latestVersion);
+    if (path == null) return null;
+    final reached = path.last.toVersion;
     return LibraryUpdatePlan.delta(
       localVersion: fullTargetVersion,
-      targetVersion: latestVersion,
+      targetVersion: reached,
       steps: path,
+      reason: reached >= latestVersion
+          ? null
+          : _partialStopReason(
+              reached,
+              latestVersion,
+              blockingSchemaVersion,
+              blockingPatchFormatVersion,
+            ),
     );
   }
 
-  /// [requireProgress] — לדרוש שהתוכנית תעבור את הגרסה המקומית. כבוי רק
-  /// כשאין גרסה מקומית להשוות אליה (התקנה טרייה / מסד בלי `schema_meta`).
   LibraryUpdatePlan _fullOrBlocked({
     required int localVersion,
     required int latestVersion,
     required int fullTargetVersion,
-    required List<PatchEdge> edges,
+    required LibraryUpdatePlan? followUp,
     required ReleaseAsset? asset,
     required String? tag,
     required String reason,
@@ -286,11 +270,7 @@ class LibraryUpdatePlanner {
   }) {
     final strings = AppL10n.strings.libraryDomain;
     if (asset != null && tag != null) {
-      final followUp = _followUpDelta(edges, fullTargetVersion, latestVersion);
       final finalTarget = followUp?.targetVersion ?? fullTargetVersion;
-      // מסד מלא שגם עם ההשלמה ב-patches אינו עובר את הגרסה המקומית אינו
-      // עדכון אלא נסיגה — זה בדיוק המסלול שהחליף מסד v23 במסד v21 ואז נכשל,
-      // כשגרסה חדשה עברה לסכמה שאיננו מכירים. עדיף לומר זאת מלגעת במסד.
       if (requireProgress && finalTarget <= localVersion) {
         return LibraryUpdatePlan.blocked(
           localVersion: localVersion,
@@ -312,19 +292,18 @@ class LibraryUpdatePlanner {
         targetVersion: fullTargetVersion,
         asset: asset,
         releaseTag: tag,
-        // סכמה חדשה אינה "נפילה לאחור": הורדת המסד המלא היא המסלול המתוכנן,
-        // ולכן ההסבר אומר את זה ולא את "אין מסלול דלתא".
-        reason: blockingSchemaVersion != null
-            ? strings.planNewSchemaNeedsFullDb(
-                latestVersion,
-                blockingSchemaVersion,
-              )
-            : blockingPatchFormatVersion != null
-                ? strings.planPatchFormatTooNew(
-                    blockingPatchFormatVersion,
+        reason: followUp?.reason ??
+            (blockingSchemaVersion != null
+                ? strings.planNewSchemaNeedsFullDb(
                     latestVersion,
+                    blockingSchemaVersion,
                   )
-                : reason,
+                : blockingPatchFormatVersion != null
+                    ? strings.planPatchFormatTooNew(
+                        blockingPatchFormatVersion,
+                        latestVersion,
+                      )
+                    : reason),
         followUpDelta: followUp,
       );
     }
