@@ -1003,4 +1003,139 @@ void main() {
     },
     skip: modelSkip,
   );
+
+  test(
+    'missing active vectors decide pending without reading local models',
+    () async {
+      await writeMirror();
+      final model = File(
+        p.join(
+          p.dirname(db),
+          SemanticSearchAssets.modelFolder,
+          SemanticSearchAssets.modelFiles[0].name,
+        ),
+      );
+      await model.parent.create(recursive: true);
+      final handle = await model.open(mode: FileMode.write);
+      try {
+        await handle.truncate(SemanticSearchAssets.modelFiles[0].size);
+      } finally {
+        await handle.close();
+      }
+      await Process.run('chmod', ['000', model.path]);
+      addTearDown(() => Process.run('chmod', ['644', model.path]));
+      expect(
+        await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+        isTrue,
+      );
+    },
+    skip: Platform.isWindows ? 'relies on POSIX file permissions' : false,
+  );
+
+  Future<List<int>> writePartedMirror({bool corruptLast = false}) async {
+    final parts = {
+      'segment.oxv.part-000': List<int>.generate(70000, (i) => i % 251),
+      'segment.oxv.part-001': List<int>.generate(50000, (i) => i % 241),
+    };
+    final value = manifest();
+    value['files'] = [
+      for (final entry in parts.entries)
+        {
+          'file': entry.key,
+          'size': entry.value.length,
+          'sha256': Sha256Stream.ofBytes(entry.value),
+        },
+    ];
+    final bytes = utf8.encode(jsonEncode(value));
+    final vectors = Directory(p.join(mirror, tag, 'vectors'));
+    await vectors.create(recursive: true);
+    await File(p.join(vectors.path, manifestName)).writeAsBytes(bytes);
+    for (final entry in parts.entries) {
+      final content = [...entry.value];
+      if (corruptLast && entry.key == parts.keys.last) content[0] ^= 1;
+      await File(p.join(vectors.path, entry.key)).writeAsBytes(content);
+    }
+    for (final model in SemanticSearchAssets.modelFiles) {
+      final target = File(
+        p.join(mirror, tag, SemanticSearchAssets.modelFolder, model.name),
+      );
+      await target.parent.create(recursive: true);
+      await File(p.join(modelFixture!, model.name)).copy(target.path);
+    }
+    await File(
+      p.join(mirror, SemanticSearchAssets.manifestFileName),
+    ).writeAsString(
+      jsonEncode({
+        'libraryTag': tag,
+        'libraryVersion': 30,
+        'manifestName': manifestName,
+        'manifestSize': bytes.length,
+        'manifestSha256': Sha256Stream.ofBytes(bytes),
+      }),
+    );
+    return [for (final part in parts.values) ...part];
+  }
+
+  test(
+    'a corrupt vector part is rejected while joining, before any install write',
+    () async {
+      await writePartedMirror(corruptLast: true);
+      final root = Directory(p.join(temp.path, 'library-parent'));
+      var activations = 0;
+      await expectLater(
+        assets.install(
+          mirrorDir: mirror,
+          dbPath: db,
+          libraryVersion: 30,
+          vectorsRootPath: root.path,
+          beforeActivate: () async => activations++,
+        ),
+        throwsFormatException,
+      );
+      expect(activations, 0);
+      expect(await root.exists(), isFalse);
+      expect(await Directory(p.dirname(db)).exists(), isFalse);
+      expect(requests, 0);
+    },
+    skip: modelSkip,
+  );
+
+  test(
+    'vector parts are joined in a system temp work directory before activation',
+    () async {
+      final expected = await writePartedMirror();
+      final root = Directory(p.join(temp.path, 'library-parent'));
+      await root.create();
+      Future<Set<String>> workDirectories() => Directory.systemTemp
+          .list()
+          .where(
+            (entry) =>
+                p.basename(entry.path).startsWith('otzaria-semantic-install-'),
+          )
+          .map((entry) => entry.path)
+          .toSet();
+      final before = await workDirectories();
+      String? workPath;
+      List<int>? joined;
+      await expectLater(
+        assets.install(
+          mirrorDir: mirror,
+          dbPath: db,
+          libraryVersion: 30,
+          vectorsRootPath: root.path,
+          beforeActivate: () async {
+            workPath = (await workDirectories()).difference(before).single;
+            joined = await File(p.join(workPath!, 'segment.oxv')).readAsBytes();
+            throw StateError('stop before activation');
+          },
+        ),
+        throwsStateError,
+      );
+      expect(joined, expected);
+      expect(await Directory(workPath!).exists(), isFalse);
+      expect(await root.list().toList(), isEmpty);
+      expect(await Directory(p.dirname(db)).exists(), isFalse);
+    },
+    skip: modelSkip,
+  );
 }

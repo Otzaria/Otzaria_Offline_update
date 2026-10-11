@@ -76,6 +76,90 @@ void main() {
     );
   });
 
+  final downloadable = {
+    ...asset(),
+    'browser_download_url':
+        'https://github.com/Otzaria/SeforimLibrary/releases/download/vectors-$tag/$name',
+  };
+  final malformedForSync = <String, List<Object?>>{
+    'duplicate assets': [downloadable, downloadable],
+    'traversal name beside the manifest': [
+      downloadable,
+      {'name': '../segment.oxv', 'size': 3},
+    ],
+    'negative size beside the manifest': [
+      downloadable,
+      {'name': 'segment.oxv', 'size': -1},
+    ],
+    'non-record beside the manifest': [downloadable, 'file'],
+  };
+  for (final entry in malformedForSync.entries) {
+    test('sync rejects ${entry.key} before downloading the manifest', () async {
+      var calls = 0;
+      final client = MockClient((request) async {
+        calls++;
+        expect(request.url.host, 'api.github.com');
+        return http.Response(
+          jsonEncode({...release(), 'assets': entry.value}),
+          200,
+        );
+      });
+      addTearDown(client.close);
+      final assets = SemanticSearchAssets(httpClient: client);
+      addTearDown(assets.dispose);
+      await expectLater(
+        assets.sync(mirrorDir: mirror, libraryTag: tag),
+        throwsFormatException,
+      );
+      expect(calls, 1);
+      expect(await existing.readAsString(), 'existing mirror must survive');
+    });
+  }
+
+  test(
+    'sync rejects conflicting release digests before the manifest',
+    () async {
+      var calls = 0;
+      final client = MockClient((request) async {
+        calls++;
+        expect(request.url.host, 'api.github.com');
+        return http.Response(
+          jsonEncode({
+            ...release(),
+            'body': '$name ${List.filled(64, '2').join()}',
+            'assets': [downloadable],
+          }),
+          200,
+        );
+      });
+      addTearDown(client.close);
+      final assets = SemanticSearchAssets(httpClient: client);
+      addTearDown(assets.dispose);
+      await expectLater(
+        assets.sync(mirrorDir: mirror, libraryTag: tag),
+        throwsFormatException,
+      );
+      expect(calls, 1);
+    },
+  );
+
+  test('sync reports an unpublished vectors release with its code', () async {
+    final client = MockClient((_) async => http.Response('', 404));
+    addTearDown(client.close);
+    final assets = SemanticSearchAssets(httpClient: client);
+    addTearDown(assets.dispose);
+    await expectLater(
+      assets.sync(mirrorDir: mirror, libraryTag: tag),
+      throwsA(
+        isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          contains('HTTP 404'),
+        ),
+      ),
+    );
+  });
+
   for (final value in [null, [], 'text', 1, {}]) {
     test(
       'non-release metadata $value fails without replacing the mirror',
