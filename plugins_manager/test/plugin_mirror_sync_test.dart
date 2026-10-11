@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -25,8 +26,6 @@ Future<void> _dropMediaVersion(String root) async {
   ));
 }
 
-/// אתר מדומה של החנות. כל נתיב יכול לקבל סטטוס שגיאה בנפרד, כדי לבדוק
-/// שכשל בחלק אחד אינו מפיל את השאר.
 class _Site {
   _Site({List<Map<String, dynamic>>? plugins})
       : plugins = plugins ?? defaultPlugins();
@@ -57,7 +56,6 @@ class _Site {
 
   List<Map<String, dynamic>> plugins;
 
-  /// דף הבית מחזיר תוספים רק לקטגוריות שמסומנות להצגה בו.
   Map<String, dynamic> storeHome = {
     'settings': {
       'homeTitle': 'חנות התוספים של אוצריא',
@@ -81,7 +79,6 @@ class _Site {
     'totalPublicPlugins': 2,
   };
 
-  /// דף הקטגוריה — הסדר הידני המלא, כולל מזהה "רפאים" שאינו בקטלוג.
   Map<String, dynamic> category = {
     'slug': 'study',
     'name': 'כלי לימוד',
@@ -93,14 +90,12 @@ class _Site {
     'total': 3,
   };
 
-  /// נתיב -> סטטוס שגיאה שיוחזר במקום התשובה התקינה.
   final Map<String, int> failures = {};
+  final Map<String, List<int>> bodies = {};
 
-  /// נתיבים שהתשובה עליהם מתמהמהת — לבדיקת הזמן הקצוב.
   final Set<String> stalls = {};
   final List<String> requests = [];
 
-  /// נקרא לפני כל תשובה — לבדיקת מקביליות.
   Future<void> Function(String path)? beforeResponse;
 
   List<String> requestsMatching(String suffix) =>
@@ -112,6 +107,8 @@ class _Site {
 
         final failure = failures[path];
         if (failure != null) return http.Response('nope', failure);
+        final body = bodies[path];
+        if (body != null) return http.Response.bytes(body, 200);
 
         if (stalls.contains(path)) {
           await Future<void>.delayed(const Duration(milliseconds: 300));
@@ -133,7 +130,6 @@ class _Site {
             },
           );
         }
-        // תמונות וצילומי מסך.
         return http.Response.bytes(
           const [137, 80, 78, 71],
           200,
@@ -834,7 +830,195 @@ void main() {
     });
   });
 
+  group('קובץ בילד פגום', () {
+    test('דף HTML שחזר ב-200 אינו נרשם, ויורד שוב בסנכרון הבא', () async {
+      final site = _Site()
+        ..bodies['/api/plugins/a/download'] =
+            utf8.encode('<html>maintenance</html>');
+      final events = <PluginSyncProgress>[];
+      final outcome = await syncOutcome(site, events: events);
+
+      expect(outcome.catalog.plugins.first.localFiles, isEmpty);
+      expect(outcome.failed, ['אלף']);
+      expect(
+        warningsOf(events).single,
+        strings.syncPluginFileFailed('אלף', strings.downloadedFileNotPlugin),
+      );
+      final store = PluginMirrorStore(temp.path);
+      expect(
+        File(store.absolutePath('files/a/plugin-1.0.0.otzplugin')).existsSync(),
+        isFalse,
+      );
+
+      final retry = _Site();
+      final catalog = await sync(retry);
+      expect(retry.requestsMatching('/download'), ['/api/plugins/a/download']);
+      expect(catalog.plugins.first.localFiles.keys, ['1.0.0']);
+      expect(catalog.plugins.first.manifestId, 'manifest-a');
+    });
+
+    test('HTML במקום בילד שכבר במראה אינו דורס את הקובץ הקיים', () async {
+      await sync(_Site());
+      final store = PluginMirrorStore(temp.path);
+      final file = File(store.absolutePath('files/a/plugin-1.0.0.otzplugin'));
+      final original = file.readAsBytesSync();
+
+      final failing = _Site()
+        ..plugins.first['downloadUrl'] = '/api/plugins/a/download?v=2'
+        ..bodies['/api/plugins/a/download'] = utf8.encode('<html></html>');
+      final catalog = await sync(failing);
+
+      expect(file.readAsBytesSync(), original);
+      expect(catalog.plugins.first.localFiles.keys, ['1.0.0']);
+    });
+
+    test('בילד קטוע על הכונן יורד שוב, וההצצה מדווחת עליו כחסר', () async {
+      await sync(_Site());
+      final store = PluginMirrorStore(temp.path);
+      final file = File(store.absolutePath('files/a/plugin-1.0.0.otzplugin'));
+      final bytes = file.readAsBytesSync();
+      file.writeAsBytesSync(bytes.sublist(0, bytes.length ~/ 2));
+
+      final second = _Site();
+      final status = await manager(second).peekOnlineUpdates();
+      expect(status.missingPlugins, ['אלף']);
+      await sync(second);
+
+      expect(second.requestsMatching('/download'), ['/api/plugins/a/download']);
+      expect(file.readAsBytesSync(), bytes);
+      expect((await manager(_Site()).peekOnlineUpdates()).hasUpdates, isFalse);
+    });
+
+    List<Map<String, dynamic>> sized(int size) => [
+          {
+            'id': 'a',
+            'name': 'אלף',
+            'version': '1.0.0',
+            'downloadUrl': '/api/plugins/a/download',
+            'versions': [
+              {
+                'version': '1.0.0',
+                'downloadUrl': '/api/plugins/a/download',
+                'pluginFileSize': size,
+                'isLatest': true,
+              },
+            ],
+          },
+        ];
+
+    test('הגודל שהאתר מצהיר עליו קובע אם הבילד שבמראה תקין', () async {
+      await sync(_Site(plugins: sized(0)));
+      final store = PluginMirrorStore(temp.path);
+      final file = File(store.absolutePath('files/a/plugin-1.0.0.otzplugin'));
+      final size = file.lengthSync();
+
+      final matching = _Site(plugins: sized(size));
+      expect(
+        (await manager(matching).peekOnlineUpdates()).hasUpdates,
+        isFalse,
+      );
+      await sync(matching);
+      expect(matching.requestsMatching('/download'), isEmpty);
+
+      final declared = size + 1;
+      final mismatch = _Site(plugins: sized(declared));
+      expect(
+        (await manager(mismatch).peekOnlineUpdates()).missingPlugins,
+        ['אלף'],
+      );
+      final events = <PluginSyncProgress>[];
+      final outcome = await syncOutcome(mismatch, events: events);
+
+      expect(mismatch.requestsMatching('/download'), hasLength(1));
+      expect(outcome.failed, ['אלף']);
+      expect(
+        warningsOf(events).single,
+        strings.syncPluginFileFailed(
+          'אלף',
+          AppL10n.strings.appDomain.installerSizeMismatch(size, declared),
+        ),
+      );
+      expect(outcome.catalog.plugins.single.localFiles.keys, ['1.0.0']);
+      expect(file.lengthSync(), size);
+    });
+  });
+
   group('ביטול', () {
+    test('ביטול באמצע הורדת בילד עוצר אותה ואינו נרשם ככשל', () async {
+      await sync(_Site());
+
+      final bumped = _Site.defaultPlugins(versionA: '1.1.0');
+      bumped[1]['version'] = '2.1.0';
+      final site = _Site(plugins: bumped);
+      var cancelled = false;
+      site.beforeResponse = (path) async {
+        if (path.endsWith('/download')) cancelled = true;
+      };
+      final events = <PluginSyncProgress>[];
+      final outcome = await syncOutcome(
+        site,
+        events: events,
+        isCancelled: () => cancelled,
+      );
+
+      expect(warningsOf(events), isEmpty);
+      expect(outcome.failed, isEmpty);
+      final byId = {for (final p in outcome.catalog.plugins) p.id: p};
+      expect(byId['a']!.localFiles.keys, ['1.0.0']);
+      expect(byId['b']!.localFiles.keys, ['2.0.0']);
+      final store = PluginMirrorStore(temp.path);
+      expect(
+        File(store.absolutePath('files/a/plugin-1.1.0.otzplugin')).existsSync(),
+        isFalse,
+      );
+      expect(
+        File(store.absolutePath('files/b/plugin-2.1.0.otzplugin')).existsSync(),
+        isFalse,
+      );
+      expect(
+        File(store.absolutePath('files/a/plugin-1.0.0.otzplugin')).existsSync(),
+        isTrue,
+      );
+    });
+
+    test('ביטול באמצע צילומי המסך משאיר את רשימת הצילומים הקודמת', () async {
+      final shots = [
+        '/api/plugins/a/shot-0',
+        '/api/plugins/a/shot-1',
+        '/api/plugins/a/shot-2',
+      ];
+      final first = await sync(
+        _Site(plugins: _Site.defaultPlugins(screenshots: shots)),
+      );
+      final previousShots = first.plugins.first.screenshotPaths;
+      expect(previousShots, hasLength(3));
+
+      final site = _Site(
+        plugins: _Site.defaultPlugins(versionA: '1.1.0', screenshots: shots),
+      );
+      var cancelled = false;
+      site.beforeResponse = (path) async {
+        if (path.endsWith('/shot-1')) cancelled = true;
+      };
+      final events = <PluginSyncProgress>[];
+      final outcome = await syncOutcome(
+        site,
+        events: events,
+        isCancelled: () => cancelled,
+      );
+
+      expect(site.requests.where((r) => r.contains('shot-')),
+          ['/api/plugins/a/shot-0', '/api/plugins/a/shot-1']);
+      expect(warningsOf(events), isEmpty);
+      final a = outcome.catalog.plugins.firstWhere((p) => p.id == 'a');
+      expect(a.screenshotPaths, previousShots);
+      expect(a.mediaVersion, '1.0.0');
+      final store = PluginMirrorStore(temp.path);
+      for (final path in previousShots) {
+        expect(File(store.absolutePath(path)).existsSync(), isTrue);
+      }
+    });
+
     test('סנכרון שבוטל אינו מושך מבנה חדש ושומר את הקודם', () async {
       await sync(_Site());
 
@@ -1160,6 +1344,44 @@ void main() {
       expect(file('1.5.0').existsSync(), isTrue);
       expect(file('1.0.0').existsSync(), isFalse);
     });
+    test('בילד שעבר מהכתובת החיה לכתובת עם גרסה אינו יורד שוב', () async {
+      await sync(_Site(plugins: versioned()), appVersions: ['0.9.97']);
+
+      final moved = [
+        {
+          'id': 'a',
+          'name': 'אלף',
+          'version': '3.0.0',
+          'compatibleWith': '0.9.98',
+          'downloadUrl': '/api/plugins/a/download',
+          'versions': [
+            {
+              'version': '3.0.0',
+              'compatibleWith': '0.9.98',
+              'downloadUrl': '/api/plugins/a/download',
+              'isLatest': true,
+            },
+            {
+              'version': '2.0.0',
+              'compatibleWith': '0.9.97',
+              'downloadUrl': '/api/plugins/a@2.0.0/download',
+            },
+          ],
+        },
+      ];
+      final site = _Site(plugins: moved);
+      final status =
+          await manager(site).peekOnlineUpdates(appVersions: ['0.9.97']);
+      expect(status.hasUpdates, isFalse);
+
+      final catalog = await sync(site, appVersions: ['0.9.97']);
+      expect(site.requestsMatching('/download'), isEmpty);
+      expect(
+        catalog.plugins.single.localFileFor('2.0.0')?.sourceUrl,
+        'https://otzaria.test/api/plugins/a@2.0.0/download',
+      );
+    });
+
     test('הבילד שכבר במראה אינו יורד שוב', () async {
       await sync(_Site(plugins: versioned()), appVersions: ['0.9.96']);
 

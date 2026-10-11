@@ -43,25 +43,13 @@ class PluginMirrorSync {
       (plugin.remoteScreenshotUrls.isNotEmpty &&
           !await _screenshotsUnchanged(plugin, previous));
 
-  /// זורק [PluginStoreException] רק אם רשימת התוספים עצמה לא נטענה. כשל
-  /// בנכס בודד מדווח כ-[PluginSyncPhase.warning] והסנכרון ממשיך.
-  ///
-  /// **הסנכרון מתוכנן לפני שהוא מתחיל**: קודם נקבע לכל תוסף מה בכלל חסר
-  /// במראה (השוואת מטא-דאטה + בדיקת קיום קבצים, בלי רשת), ורק מי שחסר לו
-  /// משהו נכנס ללולאה. תוסף שכבר מעודכן אינו נוגע ברשת, אינו מדווח
-  /// התקדמות, ואינו נספר במונה — כך "3 מתוך 3" הוא באמת מה שיורד עכשיו,
-  /// ולא "3 מתוך 40" שרובם רק נבדקים.
-  ///
-  /// [appVersions] הן גרסאות אוצריא שהכונן נושא (היציבה, ואיתה הלא-יציבה
-  /// כשהיא חדשה ממנה). לכל אחת יורד הבילד שתואם לה — ראו
-  /// `plugin_compatibility.dart`. רשימה ריקה = אין מול מה לסנן, ואז יורד
-  /// הבילד החי, כמו לפני שהתאימות נכנסה.
   Future<PluginSyncOutcome> sync({
     List<String> appVersions = const [],
     void Function(PluginSyncProgress progress)? onProgress,
     bool Function()? isCancelled,
   }) async {
     void report(PluginSyncProgress progress) => onProgress?.call(progress);
+    bool cancelRequested() => isCancelled?.call() ?? false;
 
     final strings = AppL10n.strings.pluginsDomain;
 
@@ -73,9 +61,6 @@ class PluginMirrorSync {
 
     final remote = await client.fetchCatalog();
     final previousCatalog = await store.load();
-    // רשימה ריקה היא JSON תקין, ולכן `fetchCatalog` לא זורק עליה — אבל
-    // לכתוב אותה על קטלוג קיים פירושו למחוק חנות שלמה ממחשב לא-מקוון בגלל
-    // תקלה זמנית באתר. נכשלים במקום, והמראה נשארת כפי שהיא.
     if (remote.isEmpty && previousCatalog.plugins.isNotEmpty) {
       throw StateError(strings.syncEmptyCatalogRejected);
     }
@@ -93,15 +78,9 @@ class PluginMirrorSync {
 
     final fetched = <String, StorePlugin>{};
     final failed = <String>[];
-    // **נספרים רק תוספים שנוגעים ברשת.** תוסף שכל עבודתו היא חילוץ
-    // `manifestId` מקובץ שכבר במראה נכנס ל-[todo] אבל אינו מוריד דבר, ואילו
-    // נספר — הסנכרון הראשון אחרי שהשדה נוסף לקטלוג הציג את כל החנות כיורדת.
     final total = todo.where((plan) => plan.needsNetwork).length;
     var done = 0;
 
-    // התוספים מסונכרנים במקביל: כל אחד הוא כמה קבצים קטנים שרובם המתנה
-    // לשרת, ובטור ההמתנות האלה מצטברות לרוב זמן הסנכרון. בדיקת הביטול
-    // עברה לתוך המשימה — משימה שממתינה בתור בזמן שבוטלה פשוט לא מתחילה.
     await runPooled(
       [
         for (final plan in todo)
@@ -120,8 +99,9 @@ class PluginMirrorSync {
             }
 
             await Directory(store.pluginDir(plugin.id)).create(recursive: true);
-            plugin = await _syncImages(plan, plugin, report);
-            final files = await _syncPluginFiles(plan, plugin, report);
+            plugin = await _syncImages(plan, plugin, report, cancelRequested);
+            final files =
+                await _syncPluginFiles(plan, plugin, report, cancelRequested);
             plugin = files.plugin;
 
             fetched[plugin.id] = plugin;
@@ -133,9 +113,6 @@ class PluginMirrorSync {
 
     final cancelled = isCancelled?.call() ?? false;
 
-    // תוסף שלא הגיע תורו בביטול חייב להישאר על הרשומה הקודמת: הרשומה
-    // החדשה מתארת גרסה שקובץ שלה לא ירד, וזה בדיוק מה שהיה גורם לסנכרון
-    // הבא לדלג עליו לנצח.
     final plugins = <StorePlugin>[
       for (final plan in plans)
         fetched[plan.plugin.id] ??
@@ -145,8 +122,6 @@ class PluginMirrorSync {
     ];
     final syncedIds = {for (final plugin in plugins) plugin.id};
 
-    // סנכרון שבוטל באמצע לא מושך מבנה חדש — המבנה הקודם נשאר תואם למה
-    // שכבר במראה יותר מרשימה חלקית שנבנתה על חצי קטלוג.
     final structure = cancelled
         ? _StoreStructure(
             home: previousCatalog.home,
@@ -165,9 +140,6 @@ class PluginMirrorSync {
     );
     await store.save(catalog);
 
-    // בילד שכבר אינו בקטלוג (גרסת אוצריא שבכונן זזה) נמחק מהדיסק — אחרת
-    // כל עדכון של אוצריא היה מוסיף שכבת בילדים ישנים על הכונן הנייד.
-    // **לא בביטול**: שם הקטלוג הוא הישן, והניקוי היה מוחק את מה שכן ירד.
     if (!cancelled) {
       for (final plugin in catalog.plugins) {
         await store.pruneUnusedFiles(plugin);
@@ -186,7 +158,6 @@ class PluginMirrorSync {
       fetched: done,
       skipped: skipped,
       failed: failed,
-      // ליומן בלבד — ראו [PluginSyncOutcome.incompatible].
       incompatible: [
         for (final plan in plans)
           if (plan.isIncompatible)
@@ -195,8 +166,6 @@ class PluginMirrorSync {
     );
   }
 
-  /// מה חסר לתוסף הזה במראה — כל ההחלטות במקום אחד, ובלי רשת. השלבים
-  /// שמורידים בפועל רק מבצעים את מה שנקבע כאן.
   Future<_PluginPlan> _plan(
     Map<String, dynamic> raw,
     Map<String, StorePlugin> existing,
@@ -205,7 +174,6 @@ class PluginMirrorSync {
     final remote = StorePlugin.fromApi(raw, client.baseUrl);
     final previous = existing[remote.id];
 
-    // שומרים על מה שכבר יש מקומית, ומעדכנים רק את מה שבאמת ירד עכשיו.
     var plugin = remote.copyWith(
       imagePath: previous?.imagePath,
       screenshotPaths: previous?.screenshotPaths ?? const [],
@@ -213,27 +181,19 @@ class PluginMirrorSync {
       manifestId: previous?.manifestId,
     );
 
-    // בילד לכל גרסת אוצריא שהכונן נושא. בילד שכבר במראה נשמר, וזה שאינו
-    // מבוקש עוד נושר מהקטלוג — הקובץ שלו נמחק בסוף הסנכרון.
     final keep = <String, PluginLocalFile>{};
     final missing = <PluginVersionEntry>[];
     final targets = plugin.targetsFor(appVersions);
     for (final target in targets) {
       if (target.downloadUrl.isEmpty) continue;
       if (await _buildUnchanged(target, plugin, previous)) {
-        keep[target.version] = plugin.localFileFor(target.version)!;
+        keep[target.version] = plugin
+            .localFileFor(target.version)!
+            .copyWith(sourceUrl: target.downloadUrl);
       } else {
         missing.add(target);
       }
     }
-    // אין אף בילד תואם לגרסאות שהכונן נושא — ואז הרשומה יוצאת ריקה,
-    // התוסף אינו נכנס ללולאת ההורדה, ו-`pruneUnusedFiles` מוחקת את מה
-    // שכבר על הכונן. אבל מחשב מנותק אחר עשוי לרוץ על גרסה ישנה יותר
-    // מאלה שברשימה, ובילד ישן שכבר שם עדיף לו על כלום — בדיוק כמו בילד
-    // שהורדתו נכשלה, למטה.
-    //
-    // גרסאות ריקות (אוצריא לא ידועה) אינן בסיס לקבוע מה אינו בשימוש: בילד
-    // שעדיין מפורסם נשמר, ולא נמחק כדי לרדת שוב בסנכרון הבא.
     if (targets.isEmpty && previous != null) {
       for (final entry in previous.localFiles.entries) {
         if (await store.hasAsset(entry.value.relativePath)) {
@@ -262,10 +222,7 @@ class PluginMirrorSync {
       needsScreenshots: plugin.remoteScreenshotUrls.isNotEmpty &&
           !await _screenshotsUnchanged(plugin, previous),
       missingBuilds: missing,
-      // אין אף בילד תואם — לא כשל, אבל כן דבר שכדאי שיהיה ביומן.
       isIncompatible: targets.isEmpty && plugin.remoteDownloadUrl.isNotEmpty,
-      // תוסף שסונכרן לפני שה-manifestId נכנס לקטלוג — מחלצים אותו מהקובץ
-      // הקיים בלי להוריד מחדש. קריאת ZIP מקומית, לא רשת.
       needsManifestId: plugin.manifestId == null && keep.isNotEmpty,
     );
   }
@@ -368,11 +325,11 @@ class PluginMirrorSync {
     );
   }
 
-  /// מוריד את מה שהתכנון סימן — התמונה וצילומי המסך, כל אחד בנפרד.
   Future<StorePlugin> _syncImages(
     _PluginPlan plan,
     StorePlugin plugin,
     void Function(PluginSyncProgress) report,
+    bool Function() cancelled,
   ) async {
     var result = plugin;
     final dir = store.pluginDir(plugin.id);
@@ -382,6 +339,7 @@ class PluginMirrorSync {
         final asset = await client.downloadAsset(
           plugin.remoteImageUrl,
           p.join(dir, 'image'),
+          checkCancelled: () => _throwIfCancelled(cancelled),
         );
         result = result.copyWith(imagePath: store.relativePath(asset.path));
       } catch (e) {
@@ -389,22 +347,26 @@ class PluginMirrorSync {
           mediaVersion: plan.previousMediaVersion,
           remoteImageUrl: plan.previous?.remoteImageUrl,
         );
-        report(PluginSyncProgress(
-          phase: PluginSyncPhase.warning,
-          message: AppL10n.strings.pluginsDomain
-              .syncImageFailed(plugin.name, PluginStoreClient.describeError(e)),
-        ));
+        if (!cancelled()) {
+          report(PluginSyncProgress(
+            phase: PluginSyncPhase.warning,
+            message: AppL10n.strings.pluginsDomain.syncImageFailed(
+                plugin.name, PluginStoreClient.describeError(e)),
+          ));
+        }
       }
     }
 
     if (plan.needsScreenshots) {
       final shotUrls = plugin.remoteScreenshotUrls;
       final shots = <String>[];
+      var interrupted = false;
       for (var i = 0; i < shotUrls.length; i++) {
         try {
           final asset = await client.downloadAsset(
             shotUrls[i],
             p.join(dir, 'screenshot-$i'),
+            checkCancelled: () => _throwIfCancelled(cancelled),
           );
           shots.add(store.relativePath(asset.path));
         } catch (e) {
@@ -412,6 +374,10 @@ class PluginMirrorSync {
             mediaVersion: plan.previousMediaVersion,
             remoteScreenshotUrls: plan.previous?.remoteScreenshotUrls,
           );
+          if (cancelled()) {
+            interrupted = true;
+            break;
+          }
           report(PluginSyncProgress(
             phase: PluginSyncPhase.warning,
             message: AppL10n.strings.pluginsDomain.syncScreenshotFailed(
@@ -419,7 +385,9 @@ class PluginMirrorSync {
           ));
         }
       }
-      if (shots.isNotEmpty) result = result.copyWith(screenshotPaths: shots);
+      if (shots.isNotEmpty && !interrupted) {
+        result = result.copyWith(screenshotPaths: shots);
+      }
     }
 
     return result;
@@ -473,32 +441,56 @@ class PluginMirrorSync {
     return true;
   }
 
-  /// הבילד הזה כבר במראה: קובץ רשום לגרסה שלו, הקובץ עדיין על הדיסק,
-  /// והכתובת שממנה הוא ירד לא השתנתה מתחתיו — ראו [_sameSource].
   Future<bool> _buildUnchanged(
     PluginVersionEntry target,
     StorePlugin plugin,
     StorePlugin? previous,
   ) async {
-    if (!await store.hasFileFor(plugin, target.version)) return false;
+    final local = plugin.localFileFor(target.version);
+    if (!await store.hasBuild(local)) return false;
     final known = previous?.versionEntries
         .where((entry) => entry.version == target.version)
         .firstOrNull;
-    final source = plugin.localFileFor(target.version)?.sourceUrl ??
-        known?.downloadUrl ??
-        '';
-    return _sameSource(source, target.downloadUrl);
+    return buildMatches(
+      target,
+      local!.sourceUrl ?? known?.downloadUrl ?? '',
+      local.size,
+    );
   }
 
-  /// מוריד את הבילדים שהתכנון סימן — אחד לכל גרסת אוצריא שהכונן נושא
-  /// ושהבילד שלה עוד לא במראה. `ok: false` = לפחות אחד מהם נכשל.
+  static bool buildMatches(
+    PluginVersionEntry target,
+    String recordedSource,
+    int recordedSize,
+  ) =>
+      (target.fileSize <= 0 ||
+          recordedSize <= 0 ||
+          recordedSize == target.fileSize) &&
+      _sameBuildSource(recordedSource, target.downloadUrl, target.version);
+
+  static bool _sameBuildSource(
+      String recorded, String current, String version) {
+    if (_sameSource(recorded, current)) return true;
+    const suffix = '/download';
+    if (!recorded.endsWith(suffix) || !current.endsWith(suffix)) return false;
+    final before = recorded.substring(0, recorded.length - suffix.length);
+    final after = current.substring(0, current.length - suffix.length);
+    return after == '$before@$version' || before == '$after@$version';
+  }
+
+  static void _throwIfCancelled(bool Function() cancelled) {
+    if (cancelled()) {
+      throw PluginStoreException(AppL10n.strings.appDomain.downloadCancelled);
+    }
+  }
+
   Future<({StorePlugin plugin, bool ok})> _syncPluginFiles(
     _PluginPlan plan,
     StorePlugin plugin,
     void Function(PluginSyncProgress) report,
+    bool Function() cancelled,
   ) async {
     if (plan.missingBuilds.isEmpty) {
-      // קטלוג ישן בלי manifestId — מחלצים מקובץ שכבר במראה, בלי רשת.
       final known = plugin.anyLocalFile;
       if (plan.needsManifestId && known != null) {
         final id =
@@ -513,6 +505,7 @@ class PluginMirrorSync {
     final files = Map.of(plugin.localFiles);
     var manifestId = plugin.manifestId;
     var ok = true;
+    var interrupted = false;
 
     for (final target in plan.missingBuilds) {
       try {
@@ -520,6 +513,9 @@ class PluginMirrorSync {
           target.downloadUrl,
           store.pluginFilePathNoExt(plugin.id, target.version),
           preferredExt: '.otzplugin',
+          expectedSize: target.fileSize,
+          checkCancelled: () => _throwIfCancelled(cancelled),
+          isValid: (path) => PluginManifestReader.read(path) != null,
         );
         files[target.version] = PluginLocalFile(
           relativePath: store.relativePath(asset.path),
@@ -530,6 +526,10 @@ class PluginMirrorSync {
         );
         manifestId ??= PluginManifestReader.readId(asset.path);
       } catch (e) {
+        if (cancelled()) {
+          interrupted = true;
+          break;
+        }
         ok = false;
         report(PluginSyncProgress(
           phase: PluginSyncPhase.warning,
@@ -539,11 +539,8 @@ class PluginMirrorSync {
       }
     }
 
-    // בילד שנכשל אינו נרשם, ולכן הסנכרון הבא ינסה אותו שוב. אבל אז גם אין
-    // מה להתקין — ולכן בילד ישן שכבר יושב במראה נשאר בקטלוג במקום להימחק
-    // ב-[PluginMirrorStore.pruneUnusedFiles]. עדיף בילד ישן שרץ מכלום.
     final previous = plan.previous;
-    if (!ok && previous != null) {
+    if ((!ok || interrupted) && previous != null) {
       for (final entry in previous.localFiles.entries) {
         if (files.containsKey(entry.key)) continue;
         if (await store.hasAsset(entry.value.relativePath)) {

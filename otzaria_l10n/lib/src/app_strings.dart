@@ -1465,6 +1465,7 @@ abstract class PluginsDomainStrings {
   String syncImageFailed(String name, String error);
   String syncScreenshotFailed(String name, String error);
   String syncPluginFileFailed(String name, String error);
+  String get downloadedFileNotPlugin;
 
   String get whatPluginList;
   String get whatStoreStructure;

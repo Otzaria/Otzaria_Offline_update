@@ -237,6 +237,25 @@ void main() {
       expect(result.error, strings.pluginFileNotAvailable);
     });
 
+    test('דף HTML במקום קובץ תוסף אינו נרשם בקטלוג ואינו נשאר בדיסק', () async {
+      final entry = plugin(downloadUrl: '/api/plugins/a/download');
+      await store.save(PluginCatalog(plugins: [entry]));
+
+      final result = await manager(
+        client: MockClient((_) async => http.Response('<html></html>', 200)),
+      ).directInstall(entry);
+
+      expect(result.success, isFalse);
+      expect(result.error, strings.pluginFileNotAvailable);
+      expect((await store.load()).plugins.single.localFiles, isEmpty);
+      expect(
+        Directory(store.pluginDir('a'))
+            .listSync()
+            .where((e) => p.basename(e.path).startsWith('plugin-1.0.0')),
+        isEmpty,
+      );
+    });
+
     test('קובץ חסר מושלם ונרשם בקטלוג לפני ההתקנה', () async {
       // האתר מחזיר סיומת .zip, ולכן ההתקנה נעצרת מיד אחרי ההשלמה —
       // כך אפשר לאמת את ההשלמה בלי להפעיל מטפל פרוטוקול אמיתי.

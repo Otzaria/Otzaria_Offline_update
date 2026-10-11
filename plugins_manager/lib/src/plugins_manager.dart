@@ -283,7 +283,6 @@ class PluginsManager {
     );
   }
 
-  /// מוריד בילד חסר ומעדכן את הקטלוג. מחזיר null אם לא הצליח.
   Future<PluginLocalFile?> _fetchMissingFile(
     PluginMirrorStore store,
     StorePlugin plugin,
@@ -297,6 +296,8 @@ class PluginsManager {
         target.downloadUrl,
         store.pluginFilePathNoExt(plugin.id, target.version),
         preferredExt: '.otzplugin',
+        expectedSize: target.fileSize,
+        isValid: (path) => PluginManifestReader.read(path) != null,
       );
 
       final file = PluginLocalFile(
@@ -312,8 +313,6 @@ class PluginsManager {
             plugin.manifestId ?? PluginManifestReader.readId(asset.path),
       );
 
-      // הקטגוריות וטקסטי דף הבית **חייבים** לנסוע איתם: בלעדיהם השמירה הזו
-      // מוחקת את כל מבנה החנות מהמראה בגלל הורדה של קובץ בודד.
       final catalog = await store.load();
       await store.save(PluginCatalog(
         lastSync: catalog.lastSync,

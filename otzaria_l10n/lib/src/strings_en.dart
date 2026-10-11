@@ -2636,6 +2636,9 @@ class _PluginsDomain extends PluginsDomainStrings {
   @override
   String syncPluginFileFailed(String name, String error) =>
       'Could not download the plugin file for $name: $error';
+  @override
+  String get downloadedFileNotPlugin =>
+      'the downloaded file is not a valid plugin';
 
   @override
   String get whatPluginList => 'the plugin list';

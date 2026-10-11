@@ -2464,6 +2464,8 @@ class _PluginsDomain extends PluginsDomainStrings {
   @override
   String syncPluginFileFailed(String name, String error) =>
       'לא ניתן להוריד את קובץ התוסף $name: $error';
+  @override
+  String get downloadedFileNotPlugin => 'הקובץ שירד אינו קובץ תוסף תקין';
 
   @override
   String get whatPluginList => 'רשימת התוספים';

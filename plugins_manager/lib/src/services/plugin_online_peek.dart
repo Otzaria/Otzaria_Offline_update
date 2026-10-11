@@ -23,14 +23,11 @@ class PluginOnlinePeek {
     final remote = await client.fetchCatalog();
     final local = await store.load();
 
-    // הקטלוג אינו עדות לקיום הקובץ: מחיקה ידנית, העתקה חלקית של הכונן או
-    // הורדה שנכשלה משאירות רשומה מלאה בלי קובץ. `PluginMirrorSync` בודק
-    // דיסק לפני שהוא מוריד, וההצצה חייבת לשאול בדיוק אותה שאלה.
     final present = <String, Set<String>>{};
     for (final plugin in local.plugins) {
       final have = <String>{};
       for (final entry in plugin.localFiles.entries) {
-        if (await store.hasAsset(entry.value.relativePath)) have.add(entry.key);
+        if (await store.hasBuild(entry.value)) have.add(entry.key);
       }
       present[plugin.id] = have;
     }
@@ -123,19 +120,18 @@ class PluginOnlinePeek {
     );
   }
 
-  /// המקבילה של `PluginMirrorSync._buildUnchanged`, בלי גישה לדיסק.
   static bool _needsFetch(
     PluginVersionEntry target,
     StorePlugin known,
     Set<String> have,
   ) {
     if (!have.contains(target.version)) return true;
-    final recorded = _recorded(known, target.version);
-    // כתובת ריקה ברשומה הקודמת = קטלוג ישן, לא כתובת שהשתנתה.
-    final source = known.localFileFor(target.version)?.sourceUrl ??
-        recorded?.downloadUrl ??
-        '';
-    return source.isNotEmpty && source != target.downloadUrl;
+    final local = known.localFileFor(target.version);
+    return !PluginMirrorSync.buildMatches(
+      target,
+      local?.sourceUrl ?? _recorded(known, target.version)?.downloadUrl ?? '',
+      local?.size ?? 0,
+    );
   }
 
   static PluginVersionEntry? _recorded(StorePlugin known, String version) =>

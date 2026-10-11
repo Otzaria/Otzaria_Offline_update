@@ -91,6 +91,12 @@ class PluginMirrorStore {
   Future<bool> hasFileFor(StorePlugin plugin, String? version) =>
       hasAsset(plugin.localFileFor(version)?.relativePath);
 
+  Future<bool> hasBuild(PluginLocalFile? file) async {
+    if (file == null || !await hasAsset(file.relativePath)) return false;
+    return file.size <= 0 ||
+        await File(absolutePath(file.relativePath)).length() == file.size;
+  }
+
   /// שם הקובץ (בלי סיומת) של בילד מסוים בתוך תיקיית התוסף. הגרסה נכנסת
   /// לשם כדי ששני בילדים של אותו תוסף יוכלו לשכון זה לצד זה.
   String pluginFilePathNoExt(String pluginId, String version) =>

@@ -108,16 +108,13 @@ class PluginStoreClient {
           AppL10n.strings.pluginsDomain.responseUnexpectedShape,
         );
 
-  /// מוריד נכס יחיד אל [destPathNoExt] + הסיומת שהוסקה. סדר ההסקה זהה
-  /// למקור: `Content-Disposition`, אחר כך `Content-Type`, ולבסוף
-  /// [preferredExt].
-  ///
-  /// יורד בזרימה ולא לזיכרון: הזמן הקצוב חל על חוסר התקדמות ([stallTimeout])
-  /// ולא על משך ההורדה, ותוסף של עשרות MB אינו יושב כולו ב-RAM.
   Future<DownloadedAsset> downloadAsset(
     String url,
     String destPathNoExt, {
     String? preferredExt,
+    int? expectedSize,
+    void Function()? checkCancelled,
+    bool Function(String path)? isValid,
   }) async {
     final stagingPath = '$destPathNoExt.download';
     final response = await downloadFile(
@@ -126,11 +123,18 @@ class PluginStoreClient {
       destinationPath: stagingPath,
       connectTimeout: timeout,
       stallTimeout: stallTimeout,
+      expectedSize: expectedSize,
+      checkCancelled: checkCancelled,
       statusError: (status) => PluginStoreException(
           AppL10n.strings.pluginsDomain.httpStatusFor(status, url)),
       sizeError: (actual, expected) => PluginStoreException(
           AppL10n.strings.appDomain.installerSizeMismatch(actual, expected)),
     );
+    if (isValid != null && !isValid(stagingPath)) {
+      await File(stagingPath).delete();
+      throw PluginStoreException(
+          AppL10n.strings.pluginsDomain.downloadedFileNotPlugin);
+    }
 
     final fromDisposition =
         parseContentDisposition(response.headers['content-disposition']);
