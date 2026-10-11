@@ -349,8 +349,12 @@ otzaria://library/reindex
   סימון עדכון-שנקטע, בדיקת "אוצריא רצה").
 - `services/otzaria_process_guard.dart` — בדיקת תהליך אוצריא פעיל: `otzaria.exe` דרך `tasklist` בווינדוס, `אוצריא` דרך `pgrep -x` ב-macOS.
 - `services/zstd_decompressor.dart` — חילוץ zstd **בזיכרון**. מוזרק
-  ל-`PatchDownloader` (קובצי patch, עשרות MB — סביר בזיכרון), וגם משמש כמסלול
-  גיבוי לחילוץ ה-DB המלא.
+  ל-`PatchDownloader`, ומשמש רק ל-patch שמגיע מהרשת ולמסלול הגיבוי כשאין
+  ספריית zstd לטעינה. patch ממראה מקומית מחולץ בזרימה
+  (`LibraryUpdateApplier._extractLocalPatch`), עם sha256 וגודל של המקור
+  והפלט באותו מעבר: patches של מאות MB בזיכרון הקפיאו את הממשק ועלולים היו
+  להיכשל בהקצאה. `uncompressedSize` מה-manifest מועבר כ-`maxOutputBytes`,
+  והחילוץ נעצר ברגע שהפלט חורג ממנו, לפני שנכתב בית מעבר לתקרה.
 - `services/zstd_file_decompressor.dart` — חילוץ zstd **בזרימה**, קובץ-לקובץ,
   דרך `ZSTD_decompressStream` של libzstd (ה-bindings של `zstandard_native`).
   זה המסלול הרגיל של ה-DB המלא: שיא הזיכרון הוא חוצצים בודדים ולא ~1.1GB.

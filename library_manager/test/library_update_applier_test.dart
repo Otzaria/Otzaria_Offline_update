@@ -793,8 +793,10 @@ void main() {
       required String fromHash,
       required String toHash,
       String? urlOverride,
-      // סכמה שאינה נתמכת (כמו v26 האמיתית) — הצעד נדחה לפני שנגע במסד.
       int toSchemaVersion = 2,
+      String? sha256Override,
+      String? uncompressedSha256Override,
+      int? uncompressedSizeOverride,
     }) {
       final raw = p.join(tempDir.path, 'patch_${from}_${to}_${edgeSeq++}.db');
       final db = sqlite3.sqlite3.open(raw);
@@ -836,10 +838,12 @@ void main() {
             PatchFileEntry(
               file: fileName,
               compression: 'zstd',
-              sha256: sha256.convert(compressed).toString(),
+              sha256: sha256Override ?? sha256.convert(compressed).toString(),
               size: compressed.length,
-              uncompressedSha256: sha256.convert(rawBytes).toString(),
-              uncompressedSize: rawBytes.length,
+              uncompressedSha256:
+                  uncompressedSha256Override ??
+                  sha256.convert(rawBytes).toString(),
+              uncompressedSize: uncompressedSizeOverride ?? rawBytes.length,
             ),
           ],
         ),
@@ -1353,6 +1357,377 @@ void main() {
         // הצעד הראשון דווח, הנכשל לא — ולכן 2 היא הגרסה שמותר לרשום.
         expect(reported.map((r) => r.$2).toList(), [2]);
         expect(recovery.unverifiedVersion(dbPath), 2);
+      },
+    );
+
+    test('patch ממראה מקומית מחולץ בזרימה, קובץ-לקובץ, ומגיע ליעד', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final h = buildChainHashes();
+      final big = pseudoRandomBytes(
+        600 * 1024,
+      ).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+      final expected = buildDb(
+        p.join(tempDir.path, 'expect-big.db'),
+        version: 2,
+        rows: [
+          [1, 'aleph'],
+          [2, big],
+        ],
+      );
+      final edge = buildEdge(
+        from: 1,
+        to: 2,
+        upsertRows: [
+          [2, big],
+        ],
+        fromHash: h.h1,
+        toHash: hashOf(expected),
+      );
+      final log = <LibraryApplyProgress>[];
+
+      await applier.applyDelta(
+        plan: LibraryUpdatePlan.delta(
+          localVersion: 1,
+          targetVersion: 2,
+          steps: [edge],
+        ),
+        dbPath: dbPath,
+        onProgress: log.add,
+      );
+
+      final reads = log
+          .where((e) => e.stage == LibraryApplyStage.downloadingPatch)
+          .toList();
+      expect(reads.length, greaterThan(1));
+      expect(reads.last.bytesDone, edge.manifest.patchFiles.first.size);
+      expect(hashOf(dbPath), hashOf(expected));
+    });
+
+    test('patch מקומי שה-sha256 המחולץ שלו שגוי נדחה, והמחולץ נמחק', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final h = buildChainHashes();
+      final tmpDir = p.join(p.dirname(dbPath), '.seforim-update-tmp');
+
+      await expectLater(
+        applier.applyDelta(
+          plan: LibraryUpdatePlan.delta(
+            localVersion: 1,
+            targetVersion: 2,
+            steps: [
+              buildEdge(
+                from: 1,
+                to: 2,
+                upsertRows: [
+                  [2, 'bet'],
+                ],
+                fromHash: h.h1,
+                toHash: h.h2,
+                uncompressedSha256Override: '0' * 64,
+              ),
+            ],
+          ),
+          dbPath: dbPath,
+        ),
+        throwsA(
+          isA<PatchDownloadException>().having(
+            (e) => e.message,
+            'message',
+            AppL10n.strings.libraryDomain.checksumMismatch(
+              AppL10n.strings.libraryDomain.extractedFileHashLabel,
+            ),
+          ),
+        ),
+      );
+
+      expect(File(p.join(tmpDir, 'patch_1-2.db')).existsSync(), isFalse);
+      expect(hashOf(dbPath), h.h1);
+    });
+
+    test('patch מקומי בגודל שאינו כמובטח נדחה לפני החילוץ', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final h = buildChainHashes();
+      final edge = buildEdge(
+        from: 1,
+        to: 2,
+        upsertRows: [
+          [2, 'bet'],
+        ],
+        fromHash: h.h1,
+        toHash: h.h2,
+      );
+      final zst = edge.patchFileUrls.values.single;
+      File(zst).writeAsBytesSync([0], mode: FileMode.append);
+
+      await expectLater(
+        applier.applyDelta(
+          plan: LibraryUpdatePlan.delta(
+            localVersion: 1,
+            targetVersion: 2,
+            steps: [edge],
+          ),
+          dbPath: dbPath,
+        ),
+        throwsA(isA<PatchDownloadException>()),
+      );
+
+      expect(
+        File(
+          p.join(p.dirname(dbPath), '.seforim-update-tmp', 'patch_1-2.db'),
+        ).existsSync(),
+        isFalse,
+      );
+      expect(hashOf(dbPath), h.h1);
+    });
+
+    test('patch מקומי שה-sha256 הדחוס שלו שגוי נדחה, והמחולץ נמחק', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final h = buildChainHashes();
+
+      await expectLater(
+        applier.applyDelta(
+          plan: LibraryUpdatePlan.delta(
+            localVersion: 1,
+            targetVersion: 2,
+            steps: [
+              buildEdge(
+                from: 1,
+                to: 2,
+                upsertRows: [
+                  [2, 'bet'],
+                ],
+                fromHash: h.h1,
+                toHash: h.h2,
+                sha256Override: 'f' * 64,
+              ),
+            ],
+          ),
+          dbPath: dbPath,
+        ),
+        throwsA(
+          isA<PatchDownloadException>().having(
+            (e) => e.message,
+            'message',
+            AppL10n.strings.libraryDomain.checksumMismatch(
+              AppL10n.strings.libraryDomain.compressedFileHashLabel,
+            ),
+          ),
+        ),
+      );
+
+      expect(
+        File(
+          p.join(p.dirname(dbPath), '.seforim-update-tmp', 'patch_1-2.db'),
+        ).existsSync(),
+        isFalse,
+      );
+      expect(hashOf(dbPath), h.h1);
+    });
+
+    test(
+      'patch מקומי שמתנפח מעבר ל-uncompressedSize נעצר בתקרה ונדחה',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        final h = buildChainHashes();
+        const limit = 1024;
+        final strings = AppL10n.strings.libraryDomain;
+
+        await expectLater(
+          applier.applyDelta(
+            plan: LibraryUpdatePlan.delta(
+              localVersion: 1,
+              targetVersion: 2,
+              steps: [
+                buildEdge(
+                  from: 1,
+                  to: 2,
+                  upsertRows: [
+                    [2, 'bet'],
+                  ],
+                  fromHash: h.h1,
+                  toHash: h.h2,
+                  uncompressedSizeOverride: limit,
+                ),
+              ],
+            ),
+            dbPath: dbPath,
+          ),
+          throwsA(
+            isA<PatchDownloadException>().having(
+              (e) => e.message,
+              'message',
+              strings.checksumMismatchDetailed(
+                strings.extractedFileSizeLabel,
+                '$limit',
+                '> $limit',
+              ),
+            ),
+          ),
+        );
+
+        expect(
+          File(
+            p.join(p.dirname(dbPath), '.seforim-update-tmp', 'patch_1-2.db'),
+          ).existsSync(),
+          isFalse,
+        );
+        expect(hashOf(dbPath), h.h1);
+      },
+    );
+
+    test('ביטול בזמן חילוץ patch מקומי מדווח כביטול, והמחולץ נמחק', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final h = buildChainHashes();
+      final extracted = p.join(
+        p.dirname(dbPath),
+        '.seforim-update-tmp',
+        'patch_1-2.db',
+      );
+      var cancelled = false;
+      var streamCalls = 0;
+      final cancelling = LibraryUpdateApplier(
+        processGuard: const _FakeGuard(false),
+        streamFile:
+            (
+              sourcePath,
+              destPath, {
+              onProgress,
+              onSourceDigest,
+              onOutputDigest,
+              isCancelled,
+              maxOutputBytes,
+            }) {
+              streamCalls++;
+              cancelled = true;
+              return ZstdFileDecompressor.decompressFileToFile(
+                sourcePath,
+                destPath,
+                onProgress: onProgress,
+                onSourceDigest: onSourceDigest,
+                onOutputDigest: onOutputDigest,
+                isCancelled: isCancelled,
+                maxOutputBytes: maxOutputBytes,
+              );
+            },
+      );
+      addTearDown(cancelling.dispose);
+
+      await expectLater(
+        cancelling.applyDelta(
+          plan: LibraryUpdatePlan.delta(
+            localVersion: 1,
+            targetVersion: 2,
+            steps: [
+              buildEdge(
+                from: 1,
+                to: 2,
+                upsertRows: [
+                  [2, 'bet'],
+                ],
+                fromHash: h.h1,
+                toHash: h.h2,
+              ),
+            ],
+          ),
+          dbPath: dbPath,
+          isCancelled: () => cancelled,
+        ),
+        throwsA(
+          isA<LibraryApplyException>().having(
+            (e) => e.message,
+            'message',
+            AppL10n.strings.libraryDomain.updateCancelled,
+          ),
+        ),
+      );
+
+      expect(streamCalls, 1);
+      expect(File(extracted).existsSync(), isFalse);
+      expect(hashOf(dbPath), h.h1);
+    });
+
+    test(
+      'בלי ספריית zstd לזרימה (streamed == false) נופלים למסלול הזיכרון',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        final h = buildChainHashes();
+        final edge = buildEdge(
+          from: 1,
+          to: 2,
+          upsertRows: [
+            [2, 'bet'],
+          ],
+          fromHash: h.h1,
+          toHash: h.h2,
+        );
+        final zst = edge.patchFileUrls.values.single;
+        final raw = File(zst.substring(0, zst.length - 4)).readAsBytesSync();
+        var streamCalls = 0;
+        var memoryCalls = 0;
+        final fallback = LibraryUpdateApplier(
+          processGuard: const _FakeGuard(false),
+          streamFile:
+              (
+                sourcePath,
+                destPath, {
+                onProgress,
+                onSourceDigest,
+                onOutputDigest,
+                isCancelled,
+                maxOutputBytes,
+              }) async {
+                streamCalls++;
+                return false;
+              },
+          decompress: (_) async {
+            memoryCalls++;
+            return raw;
+          },
+        );
+        addTearDown(fallback.dispose);
+        final log = <LibraryApplyProgress>[];
+
+        await fallback.applyDelta(
+          plan: LibraryUpdatePlan.delta(
+            localVersion: 1,
+            targetVersion: 2,
+            steps: [edge],
+          ),
+          dbPath: dbPath,
+          onProgress: log.add,
+        );
+
+        final size = edge.manifest.patchFiles.first.size;
+        expect(streamCalls, 1);
+        expect(memoryCalls, 1);
+        expect(
+          log
+              .where((e) => e.stage == LibraryApplyStage.downloadingPatch)
+              .map((e) => (e.bytesDone, e.bytesTotal))
+              .toList(),
+          [(size, size)],
+        );
+        expect(hashOf(dbPath), h.h2);
       },
     );
   });

@@ -1171,8 +1171,6 @@ class PatchDownloader {
   static bool isRemoteUrl(String url) =>
       url.startsWith('http://') || url.startsWith('https://');
 
-  /// קורא קובץ מקומי במקום להוריד — משמש כשה-`url` הוא בעצם נתיב על הדיסק
-  /// (מקור offline). נכשל אם הקובץ חסר או חורג מ-[maxBytes].
   Future<Uint8List> _readLocalFile(
     String path, {
     required int maxBytes,
@@ -1186,6 +1184,11 @@ class PatchDownloader {
       );
     }
     _throwIfCancelled(isCancelled);
+    if (await file.length() > maxBytes) {
+      throw PatchDownloadException(
+        AppL10n.strings.libraryDomain.localFileTooLarge(maxBytes, path),
+      );
+    }
     final bytes = await file.readAsBytes();
     if (bytes.length > maxBytes) {
       throw PatchDownloadException(

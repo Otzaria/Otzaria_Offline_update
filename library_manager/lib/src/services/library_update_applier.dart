@@ -78,11 +78,17 @@ class LibraryApplyException implements Exception {
   String toString() => 'LibraryApplyException: $message';
 }
 
-/// אימות המסד המחולץ לפני שהוא מחליף את החי — `quick_check` וגרסה. מוזרק
-/// כדי שבדיקות יוכלו לרוץ על מטען שאינו מסד sqlite אמיתי.
-///
-/// [onStage] מדווח `dbIntegrity`/`dbVersion` — שתי בדיקות שונות שלקחו זמן
-/// תחת אותה מילה "מאמת", ולכן נאמרות בנפרד.
+typedef ZstdFileStreamer =
+    Future<bool> Function(
+      String sourcePath,
+      String destPath, {
+      void Function(int bytesRead, int totalBytes)? onProgress,
+      void Function(String sha256Hex)? onSourceDigest,
+      void Function(String sha256Hex, int bytesWritten)? onOutputDigest,
+      bool Function()? isCancelled,
+      int? maxOutputBytes,
+    });
+
 typedef ExtractedDbVerifier =
     Future<void> Function(
       String newDbPath,
@@ -103,15 +109,21 @@ class LibraryUpdateApplier {
     OtzariaProcessGuard processGuard = const OtzariaProcessGuard(),
     LibraryDbRecoveryService recovery = const LibraryDbRecoveryService(),
     ExtractedDbVerifier? verifyExtractedDb,
+    ZstdFileStreamer? streamFile,
+    Future<Uint8List?> Function(Uint8List compressed)? decompress,
   }) : _processGuard = processGuard,
        _recovery = recovery,
        _verifyExtractedDb = verifyExtractedDb ?? _defaultExtractedDbVerifier,
-       _downloader = PatchDownloader(decompress: const ZstdDecompressor().call),
-       _decompress = const ZstdDecompressor().call;
+       _streamFile = streamFile ?? ZstdFileDecompressor.decompressFileToFile,
+       _downloader = PatchDownloader(
+         decompress: decompress ?? const ZstdDecompressor().call,
+       ),
+       _decompress = decompress ?? const ZstdDecompressor().call;
 
   final OtzariaProcessGuard _processGuard;
   final LibraryDbRecoveryService _recovery;
   final ExtractedDbVerifier _verifyExtractedDb;
+  final ZstdFileStreamer _streamFile;
   final PatchDownloader _downloader;
   final Future<Uint8List?> Function(Uint8List) _decompress;
 
@@ -140,25 +152,6 @@ class LibraryUpdateApplier {
   static final List<String> _otzariaProcessNames =
       OtzariaProcessGuard.processNamesFor(Platform.operatingSystem);
 
-  /// מחיל שרשרת patches דלתאיים ברצף, אחד־אחד, על [dbPath].
-  ///
-  /// כל שלב אטומי בפני עצמו (transaction יחיד ב-SQLite) — אם שלב N נכשל,
-  /// ה-DB נשאר תקין בגרסה שלפני השלב הזה (השלבים 1..N-1 כבר הוחלו והצליחו).
-  /// אין גיבוי מלא של הקובץ במסלול הזה — הוא לא נחוץ, ו-DB מלא יכול להיות
-  /// גדול מדי לגיבוי חוזר על כל patch.
-  ///
-  /// **אימות ה-hash רץ פעם אחת, בצעד האחרון.** ה-hash הלוגי הוא על תוכן ה-DB
-  /// כולו, ולכן התאמה ל-`toContentHash` של הצעד האחרון מוכיחה את **כל**
-  /// השרשרת — ואין טעם לקרוא מסד של ~7.4GB פעם לכל צעד (מי שפספס חמש גרסאות
-  /// שילם את זה חמש פעמים). שרשרת שנקטעה באמצע משאירה מסד שהוחל נקי אך לא
-  /// אומת, ולכן הסימון נכתב לפני כל צעד שאינו האחרון. כל סימון שנותר
-  /// מחייב `verifyFromHash` בהחלה הבאה, גם אם הצעד התגלגל אחורה.
-  /// מחזיר את מזהי הספרים שתוכנם השתנה — כפי ש-`PatchApplier` מדווח אותם.
-  /// ראו [LibraryManager.applyUpdate] למה נעשה בהם.
-  ///
-  /// [onStepApplied] נקרא אחרי **כל** שלב שהוחל בהצלחה, עם הספרים שהשלב
-  /// הזה נגע בהם והגרסה שהמסד הגיע אליה — כדי שהקורא יוכל לרשום גם שרשרת
-  /// שנקטעה באמצע, ולא יעד שלא הושג.
   Future<Set<int>> applyDelta({
     required LibraryUpdatePlan plan,
     required String dbPath,
@@ -176,15 +169,12 @@ class LibraryUpdateApplier {
     final tmpDir = Directory(p.join(p.dirname(dbPath), '.seforim-update-tmp'));
     final steps = plan.deltaSteps;
 
-    // סך-הבתים שנכנסו ל-hash בריצה הקודמת — total מדויק למד ההתקדמות. גודל
-    // הקובץ (ברירת המחדל בלעדיו) הוא הערכת-יתר של עשרות אחוזים.
     final hintFile = File(p.join(tmpDir.path, _verifyHintFileName));
     var verifyTotalHint = _readIntQuietly(hintFile);
     var lastVerifyDone = 0;
     var lastPatchStage = 'verifyToHash';
     final booksTouched = <int>{};
 
-    // גרסה שנשארה לא-מאומתת משרשרת שנקטעה — ראו doc-comment למעלה.
     final needsSourceVerification = File(
       _recovery.unverifiedMarkerPathFor(dbPath),
     ).existsSync();
@@ -201,14 +191,11 @@ class LibraryUpdateApplier {
         );
       }
 
-      // בדיקה חוזרת לפני **כל** צעד, מאותה סיבה שהיא רצה שוב לפני ההחלפה
-      // במסלול המלא: הצעד האחרון לבדו קורא ~7GB באימות ה-hash ולוקח דקות,
-      // ואוצריא יכולה להיפתח בינתיים ולכתוב לאותו מסד שאנחנו פותחים לכתיבה.
       if (i > 0) await _guardOtzariaNotRunning();
 
-      final patchPath = await _downloader.downloadAndExtract(
+      final patchPath = await _fetchPatch(
         patchFile: patchFile,
-        downloadUrl: url,
+        url: url,
         destDir: tmpDir,
         onProgress: (downloaded, total) => onProgress?.call(
           LibraryApplyProgress(
@@ -238,25 +225,18 @@ class LibraryUpdateApplier {
       );
 
       try {
-        // הסימון חייב להיכתב לפני ה-commit: קריסה אחריו אינה משאירה מסד
-        // לא-מאומת ללא סימון, וכשל בכתיבה עוצר לפני שינוי המסד.
         if (i < steps.length - 1) {
           _recovery.markUnverified(dbPath, manifest.toVersion);
         }
-        // אסור להחליף את הקריאה הזו ב-`Isolate.run` inline: הבלוק הזה מחזיק
-        // גם את סוגר ה-`onProgress` שלמעלה, וה-`Context` המשותף נשלח איתו.
         final result = await _isolateApplyPatch(
           dbPath: dbPath,
           patchPath: patchPath,
           manifest: manifest,
           language: AppL10n.language,
-          // סימון קיים מחייב אימות גם אם הטרנזקציה הקודמת התגלגלה אחורה.
           verifyFromHash: i == 0 && needsSourceVerification,
           verifyToHash: i == steps.length - 1,
           verifyTotalBytesHint: verifyTotalHint,
           onStage: (patchStage) {
-            // נשמר כדי שמד ההתקדמות של ה-hash ידווח את תת-השלב הנכון: מעכשיו
-            // ייתכן גם `verifyFromHash`, ולא רק `verifyToHash`.
             lastPatchStage = patchStage;
             onProgress?.call(
               LibraryApplyProgress(
@@ -284,18 +264,15 @@ class LibraryUpdateApplier {
         );
         booksTouched.addAll(result.booksTouched);
         onStepApplied?.call(result.booksTouched, manifest.toVersion);
-        // הדיווח האחרון הוא הסך המדויק — ה-total לריצות הבאות.
         if (lastVerifyDone > 0) {
           verifyTotalHint = lastVerifyDone;
           _writeIntQuietly(hintFile, lastVerifyDone);
         }
-        // `resultHash != null` פירושו שהצעד הזה אומת בפועל.
         if (result.resultHash != null) {
           _recovery.clearUnverified(dbPath);
         }
         _recovery.finishSuccess(dbPath);
       } catch (_) {
-        // apply אטומי: אם זרק, ה-DB כלל לא השתנה. רק מנקים את הסימון.
         _recovery.clearStaleArtifacts(dbPath);
         rethrow;
       } finally {
@@ -305,6 +282,111 @@ class LibraryUpdateApplier {
 
     onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.done));
     return booksTouched;
+  }
+
+  Future<String> _fetchPatch({
+    required PatchFileEntry patchFile,
+    required String url,
+    required Directory destDir,
+    void Function(int done, int? total)? onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    if (!PatchDownloader.isRemoteUrl(url)) {
+      final extracted = await _extractLocalPatch(
+        patchFile: patchFile,
+        sourcePath: url,
+        destDir: destDir,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      );
+      if (extracted != null) return extracted;
+    }
+    return _downloader.downloadAndExtract(
+      patchFile: patchFile,
+      downloadUrl: url,
+      destDir: destDir,
+      onProgress: onProgress,
+      isCancelled: isCancelled,
+    );
+  }
+
+  Future<String?> _extractLocalPatch({
+    required PatchFileEntry patchFile,
+    required String sourcePath,
+    required Directory destDir,
+    void Function(int done, int? total)? onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    final strings = AppL10n.strings.libraryDomain;
+    final source = File(sourcePath);
+    if (!source.existsSync()) {
+      throw PatchDownloadException(strings.localFileNotFound(sourcePath));
+    }
+    final size = source.lengthSync();
+    if (size != patchFile.size) {
+      throw PatchDownloadException(
+        strings.checksumMismatchDetailed(
+          strings.compressedFileSizeLabel,
+          '${patchFile.size}',
+          '$size',
+        ),
+      );
+    }
+    _throwIfCancelled(isCancelled);
+    if (!destDir.existsSync()) destDir.createSync(recursive: true);
+    final extractedPath = p.join(
+      destDir.path,
+      patchFile.file.endsWith('.zst')
+          ? patchFile.file.substring(0, patchFile.file.length - 4)
+          : '${patchFile.file}.db',
+    );
+    String? sourceDigest;
+    String? outputDigest;
+    var outputBytes = 0;
+    try {
+      final streamed = await _streamFile(
+        sourcePath,
+        extractedPath,
+        onProgress: onProgress,
+        onSourceDigest: (hex) => sourceDigest = hex,
+        onOutputDigest: (hex, written) {
+          outputDigest = hex;
+          outputBytes = written;
+        },
+        isCancelled: isCancelled,
+        maxOutputBytes: patchFile.uncompressedSize,
+      );
+      if (!streamed) return null;
+      if (sourceDigest?.toLowerCase() != patchFile.sha256.toLowerCase()) {
+        throw PatchDownloadException(
+          strings.checksumMismatch(strings.compressedFileHashLabel),
+        );
+      }
+      if (outputBytes != patchFile.uncompressedSize) {
+        throw PatchDownloadException(
+          strings.checksumMismatchDetailed(
+            strings.extractedFileSizeLabel,
+            '${patchFile.uncompressedSize}',
+            '$outputBytes',
+          ),
+        );
+      }
+      if (outputDigest?.toLowerCase() !=
+          patchFile.uncompressedSha256.toLowerCase()) {
+        throw PatchDownloadException(
+          strings.checksumMismatch(strings.extractedFileHashLabel),
+        );
+      }
+      return extractedPath;
+    } on ZstdOutputLimitExceeded catch (e) {
+      _deleteQuietly(extractedPath);
+      _throwIfCancelled(isCancelled);
+      throw PatchDownloadException(e.message);
+    } catch (_) {
+      _deleteQuietly(extractedPath);
+      _throwIfCancelled(isCancelled);
+      rethrow;
+    }
   }
 
   /// מוריד ומתקין DB מלא — עבור התקנה טרייה (אין DB קיים) או כש-planner
@@ -426,19 +508,15 @@ class LibraryUpdateApplier {
     // עד שהחדש מוכן במלואו, בדיוק כמו במסלול ה-staging של התקנת האפליקציה.
     final newFilePath = '$dbPath.new';
     _deleteQuietly(newFilePath);
-    // גודל החילוץ המדויק קריא מכותרת ה-frame — בדיקה מדויקת ולא הערכה,
-    // לפני שמתחילים לכתוב ~7GB.
     final extractedSize = ZstdFileDecompressor.contentSizeOf(compressedPath);
     if (extractedSize != null) {
       _ensureSpaceFor(dir.path, extractedSize);
     }
     String? sourceDigest;
     try {
-      if (!await ZstdFileDecompressor.decompressFileToFile(
+      if (!await _streamFile(
         compressedPath,
         newFilePath,
-        // חילוץ של ~1GB אורך דקות ארוכות; בלי הדיווח הזה המד היה לא-קבוע
-        // לאורך כולו. הבייטים הם של הקובץ הדחוס — גודל המסד שייצא אינו ידוע.
         onProgress: (read, total) => onProgress?.call(
           LibraryApplyProgress(
             stage: LibraryApplyStage.decompressingFullDb,
@@ -452,7 +530,6 @@ class LibraryUpdateApplier {
             : null,
         isCancelled: isCancelled,
       )) {
-        // אין streaming בפלטפורמה הזו — מסלול הזיכרון, ראו doc-comment.
         await _decompressInMemoryTo(
           compressedPath,
           newFilePath,
@@ -460,7 +537,6 @@ class LibraryUpdateApplier {
         );
       } else if (verifiesWhileExtracting &&
           sourceDigest?.toLowerCase() != expectedSha256.toLowerCase()) {
-        // אותה הודעה ואותו טיפוס שהעתקת המקור המקומית הייתה זורקת.
         throw PatchDownloadException(
           AppL10n.strings.libraryDomain.localFileHashMismatch(compressedPath),
         );
@@ -468,7 +544,6 @@ class LibraryUpdateApplier {
     } catch (_) {
       _deleteQuietly(newFilePath);
       deleteStaged();
-      // ביטול באמצע החילוץ מדווח כביטול ולא ככשל חילוץ.
       _throwIfCancelled(isCancelled);
       rethrow;
     }

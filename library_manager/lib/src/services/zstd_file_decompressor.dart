@@ -8,61 +8,32 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 import 'package:zstandard_native/zstandard_native_bindings.dart';
 
-/// מחלץ קובץ `.zst` **בזרימה**, קובץ-לקובץ, בלי להחזיק את התוכן בזיכרון.
-///
-/// למה זה קיים: `package:zstandard` חושף רק `decompress(Uint8List)` — כלומר
-/// קלט מלא ופלט מלא ב-RAM. במסלול ההורדה המלאה של הספרייה זה אומר את הקובץ
-/// הדחוס (מאות MB) **ועוד** את ה-DB המחולץ (~1.1GB) בבת אחת, ואז עוד העתק
-/// שלו כשה-Uint8List נשלח ל-isolate שכותב אותו. על מחשב עם 4GB זה פשוט נגמר
-/// בכשל הקצאה. כאן קוראים חוצץ קלט קטן, מחלצים לחוצץ פלט קטן וכותבים —
-/// שיא הזיכרון הוא סדר גודל של מגה-בייטים בודדים, ללא תלות בגודל ה-DB.
-///
-/// המימוש נשען על ה-bindings שחבילת ה-zstd של אוצריא כבר מביאה איתה
-/// (`zstandard_native`) ועל ה-DLL/framework שהפלאגין של הפלטפורמה טוען —
-/// ולכן אין כאן תלות native חדשה, רק שימוש ב-streaming API של libzstd
-/// (`ZSTD_decompressStream`) במקום ב-one-shot.
-///
-/// כשלא ניתן לטעון את הספרייה (פלטפורמה שאין לה פלאגין, למשל בבדיקות על
-/// לינוקס) [decompressFileToFile] מחזיר `false` והקורא נופל למסלול הזיכרון
-/// הקודם. כלומר זו אופטימיזציה, לא דרישה.
 abstract final class ZstdFileDecompressor {
-  /// מחלץ [sourcePath] אל [destPath]. מחזיר `false` אם החילוץ בזרימה אינו
-  /// זמין בפלטפורמה הזו (ואז יש להשתמש במסלול החלופי); זורק [ZstdStreamException]
-  /// אם הוא זמין אך הקובץ פגום.
-  ///
-  /// רץ ב-isolate נפרד: אלה קריאות native סינכרוניות על מאות MB, והן היו
-  /// חוסמות את ה-UI. הפונקציה שנשלחת היא top-level ומקבלת ערכים ניתנים-
-  /// לשליחה בלבד — ראו האזהרה על closures ב-`LibraryUpdateApplier`.
-  ///
-  /// [onProgress] מדווח כמה נקרא מהקובץ **הדחוס** מתוך גודלו — גודל המסד
-  /// שייצא אינו ידוע מראש. הדיווח חוזר דרך [ReceivePort] כדי שה-callback
-  /// עצמו לא ייכנס ל-`Context` של סוגר ה-`Isolate.run`.
-  ///
-  /// [onSourceDigest] מבקש את ה-sha256 של קובץ **המקור**, מחושב על אותם בתים
-  /// שנקראו לחילוץ. זה מה שמאפשר לחלץ ישירות מהמראה בלי להעתיק אותה קודם:
-  /// האימות רוכב על הקריאה היחידה, במקום לדרוש מעבר נוסף על ~1.5GB.
-  ///
-  /// [isCancelled] נבדק כאן ומועבר ל-isolate כדגל בזיכרון נייטיבי: סוגר אינו
-  /// יכול לחצות isolate, והלולאה שם סינכרונית ולא תריץ מאזין על פורט.
-  ///
-  /// השפה מועברת במפורש כי משתנים סטטיים אינם משותפים בין isolates — בלעדיה
-  /// הודעות ה-[ZstdStreamException] היו יוצאות תמיד בברירת המחדל (עברית).
   static Future<bool> decompressFileToFile(
     String sourcePath,
     String destPath, {
     void Function(int bytesRead, int totalBytes)? onProgress,
     void Function(String sha256Hex)? onSourceDigest,
+    void Function(String sha256Hex, int bytesWritten)? onOutputDigest,
     bool Function()? isCancelled,
+    int? maxOutputBytes,
   }) async {
     final language = AppL10n.language;
+    final outputLimit = maxOutputBytes ?? -1;
     final hashSource = onSourceDigest != null;
-    if (onProgress == null && !hashSource && isCancelled == null) {
-      final (ok, _) = await _runDecompressIsolate(
+    final hashOutput = onOutputDigest != null;
+    if (onProgress == null &&
+        !hashSource &&
+        !hashOutput &&
+        isCancelled == null) {
+      final (ok, _, _, _) = await _runDecompressIsolate(
         sourcePath,
         destPath,
         language,
         false,
+        false,
         0,
+        outputLimit,
         null,
       );
       return ok;
@@ -72,33 +43,36 @@ abstract final class ZstdFileDecompressor {
     final sub = port.listen((msg) {
       if (msg is (int, int)) onProgress?.call(msg.$1, msg.$2);
     });
-    // בית בודד בזיכרון נייטיבי — הדבר היחיד ששני ה-isolates יכולים לחלוק.
     final cancelFlag = isCancelled == null
         ? nullptr
         : malloc.allocate<Uint8>(1);
-    if (cancelFlag != nullptr) cancelFlag.value = 0;
+    if (isCancelled != null) cancelFlag.value = isCancelled() ? 1 : 0;
     final poll = isCancelled == null
         ? null
         : Timer.periodic(const Duration(milliseconds: 200), (_) {
             if (isCancelled()) cancelFlag.value = 1;
           });
     try {
-      // ה-digest חוזר בערך ההחזרה ולא דרך הפורט: הודעה אחרונה שנשלחת רגע
-      // לפני יציאת ה-isolate אינה מובטחת להגיע לפני שההמתנה מסתיימת.
-      final (ok, digest) = await _runDecompressIsolate(
+      final (
+        ok,
+        sourceDigest,
+        outputDigest,
+        written,
+      ) = await _runDecompressIsolate(
         sourcePath,
         destPath,
         language,
         hashSource,
+        hashOutput,
         cancelFlag.address,
+        outputLimit,
         port.sendPort,
       );
-      if (digest != null) onSourceDigest?.call(digest);
+      if (sourceDigest != null) onSourceDigest?.call(sourceDigest);
+      if (outputDigest != null) onOutputDigest?.call(outputDigest, written);
       return ok;
     } finally {
       poll?.cancel();
-      // ההודעה האחרונה עדיין בתור כש-`Isolate.run` חוזר — בלי המתנה לסבב
-      // אירועים אחד המד היה נתקע לפני הסוף.
       await Future<void>.delayed(Duration.zero);
       await sub.cancel();
       port.close();
@@ -106,14 +80,14 @@ abstract final class ZstdFileDecompressor {
     }
   }
 
-  /// מתודה נפרדת: כאן נוצר סוגר ה-`Isolate.run`, ולכן היא מקבלת **רק** ערכים
-  /// ניתנים-לשליחה — ראו האזהרה ב-`LibraryUpdateApplier`.
-  static Future<(bool, String?)> _runDecompressIsolate(
+  static Future<(bool, String?, String?, int)> _runDecompressIsolate(
     String sourcePath,
     String destPath,
     AppLanguage language,
     bool hashSource,
+    bool hashOutput,
     int cancelFlagAddress,
+    int maxOutputBytes,
     SendPort? sendPort,
   ) {
     return Isolate.run(
@@ -122,35 +96,25 @@ abstract final class ZstdFileDecompressor {
         destPath,
         language,
         hashSource,
+        hashOutput,
         cancelFlagAddress,
+        maxOutputBytes,
         sendPort,
       )),
     );
   }
 
-  /// ה-bindings הטעונים, או `null` אם אין ספריית zstd לטעינה בסביבה הזו.
-  ///
-  /// הקוד הרגיל לא צריך את זה — [decompressFileToFile] מחזיר `false` מעצמו.
-  /// זה קיים כדי שהבדיקה תדע אם לדלג, ותוכל לייצר קובץ `.zst` אמיתי לבדיקה
-  /// באותה ספרייה בדיוק (במקום לשכפל את שמות הספריות לכל פלטפורמה).
   static ZstandardNativeBindings? bindingsOrNull() {
     final library = _openLibrary();
     return library == null ? null : ZstandardNativeBindings(library);
   }
 
-  /// הגודל **המחולץ** של קובץ ה-`.zst` לפי כותרת ה-frame שלו, או `null` כשהוא
-  /// אינו רשום שם או שאין ספריית zstd. עולה קריאה של 18 בתים.
-  ///
-  /// זה מה שמאפשר לבדוק מקום פנוי לפני חילוץ של ~7GB במקום להתנגש בדיסק מלא
-  /// באמצע. הנכס האמיתי של המסד אכן נושא את הגודל בכותרת (נמדד); patch אינו,
-  /// ואז התשובה `null` והקורא פשוט אינו בודק.
   static int? contentSizeOf(String sourcePath) {
     final bindings = bindingsOrNull();
     if (bindings == null) return null;
     final file = File(sourcePath);
     if (!file.existsSync()) return null;
 
-    // ZSTD_frameHeaderSize_max הוא 18 — די בו כדי לקרוא את הגודל.
     const headerMax = 18;
     final raf = file.openSync();
     final buffer = malloc.allocate<Uint8>(headerMax);
@@ -159,7 +123,6 @@ abstract final class ZstdFileDecompressor {
       final read = raf.readIntoSync(view, 0, headerMax);
       if (read <= 0) return null;
       final size = bindings.ZSTD_getFrameContentSize(buffer.cast(), read);
-      // -1 = הגודל אינו בכותרת, -2 = שגיאה. שניהם "לא יודע".
       if (size < 0) return null;
       return size;
     } catch (_) {
@@ -178,9 +141,13 @@ class ZstdStreamException implements Exception {
   String toString() => 'ZstdStreamException: $message';
 }
 
-/// שם הספרייה הדינמית שפלאגין ה-zstd מספק לכל פלטפורמה. אלה אותם שמות
-/// ש-`zstandard_windows`/`zstandard_macos` פותחים בעצמם, ולכן ברוב המקרים
-/// הספרייה כבר טעונה בתהליך וה-`open` רק מחזיר אליה handle.
+class ZstdOutputLimitExceeded extends ZstdStreamException {
+  const ZstdOutputLimitExceeded(this.limit, super.message);
+  final int limit;
+  @override
+  String toString() => 'ZstdOutputLimitExceeded: $message';
+}
+
 DynamicLibrary? _openLibrary() {
   try {
     if (Platform.isWindows) {
@@ -193,62 +160,65 @@ DynamicLibrary? _openLibrary() {
       return DynamicLibrary.open('libzstandard_linux.so');
     }
   } catch (_) {
-    // אין ספרייה זמינה — הקורא נופל למסלול הזיכרון.
+    return null;
   }
   return null;
 }
 
-/// גבול חלון הפענוח. 31 הוא המקסימום שהפורמט מגדיר, ומרווח הוא כל העניין:
-/// קלט שנדחס ב-`--long` היה נדחה בברירת המחדל (27).
 const int _maxWindowLog = 31;
 
-/// גוף החילוץ. top-level ומקבל רק ערכים ניתנים-לשליחה, כדי שלא ייתפס שום
-/// `this` בדרך ל-isolate. [args]: `($1: מקור, $2: יעד, $3: שפה, $4: לחשב
-/// sha256 של המקור, $5: כתובת דגל הביטול או 0, $6: יציאת הדיווח או null)`.
-///
-/// מחזיר `(האם חולץ בזרימה, ה-sha256 של המקור או null)`.
-(bool, String?) _decompressInIsolate(
-  (String, String, AppLanguage, bool, int, SendPort?) args,
+(bool, String?, String?, int) _decompressInIsolate(
+  (String, String, AppLanguage, bool, bool, int, int, SendPort?) args,
 ) {
   AppL10n.use(args.$3);
-  final progressPort = args.$6;
-  final cancelFlag = args.$5 == 0
+  final progressPort = args.$8;
+  final maxOutputBytes = args.$7;
+  final cancelFlag = args.$6 == 0
       ? nullptr
-      : Pointer<Uint8>.fromAddress(args.$5);
+      : Pointer<Uint8>.fromAddress(args.$6);
   final strings = AppL10n.strings.libraryDomain;
   final library = _openLibrary();
-  // לפני כל הקצאה: הקורא נופל למסלול הזיכרון, ואין מה לשחרר.
-  if (library == null) return (false, null);
+  if (library == null) return (false, null, null, 0);
   final zstd = ZstandardNativeBindings(library);
-  final hasher = args.$4 ? Sha256Stream() : null;
 
-  final inCapacity = zstd.ZSTD_DStreamInSize();
-  final outCapacity = zstd.ZSTD_DStreamOutSize();
-
-  final dctx = zstd.ZSTD_createDCtx();
-  if (dctx == nullptr) {
-    throw ZstdStreamException(strings.zstdContextCreationFailed);
-  }
-  final inPtr = malloc.allocate<Uint8>(inCapacity);
-  final outPtr = malloc.allocate<Uint8>(outCapacity);
-  final inBuffer = malloc<ZSTD_inBuffer>();
-  final outBuffer = malloc<ZSTD_outBuffer>();
-
-  final source = File(args.$1).openSync();
-  final totalBytes = source.lengthSync();
-  final dest = File(args.$2).openSync(mode: FileMode.write);
-  // view על הזיכרון ה-native — אין העתקה, רק גישה מ-Dart לאותם בתים.
-  final inView = inPtr.asTypedList(inCapacity);
-  final outView = outPtr.asTypedList(outCapacity);
+  Sha256Stream? hasher;
+  Sha256Stream? outHasher;
+  Pointer<ZSTD_DCtx> dctx = nullptr;
+  Pointer<Uint8> inPtr = nullptr;
+  Pointer<Uint8> outPtr = nullptr;
+  Pointer<ZSTD_inBuffer> inBuffer = nullptr;
+  Pointer<ZSTD_outBuffer> outBuffer = nullptr;
+  RandomAccessFile? source;
+  RandomAccessFile? dest;
 
   try {
+    hasher = args.$4 ? Sha256Stream() : null;
+    outHasher = args.$5 ? Sha256Stream() : null;
+
+    final inCapacity = zstd.ZSTD_DStreamInSize();
+    final outCapacity = zstd.ZSTD_DStreamOutSize();
+
+    dctx = zstd.ZSTD_createDCtx();
+    if (dctx == nullptr) {
+      throw ZstdStreamException(strings.zstdContextCreationFailed);
+    }
+    inPtr = malloc.allocate<Uint8>(inCapacity);
+    outPtr = malloc.allocate<Uint8>(outCapacity);
+    inBuffer = malloc<ZSTD_inBuffer>();
+    outBuffer = malloc<ZSTD_outBuffer>();
+
+    final input = File(args.$1).openSync();
+    source = input;
+    final totalBytes = input.lengthSync();
+    final output = File(args.$2).openSync(mode: FileMode.write);
+    dest = output;
+    final inView = inPtr.asTypedList(inCapacity);
+    final outView = outPtr.asTypedList(outCapacity);
+
     final init = zstd.ZSTD_initDStream(dctx);
     if (zstd.ZSTD_isError(init) != 0) {
       throw ZstdStreamException(strings.zstdContextCreationFailed);
     }
-    // ברירת המחדל של libzstd היא windowLogMax=27 (128MB), וה-patches שהמאגר
-    // מפרסם יושבים בדיוק על 27 — עובר, בלי מרווח. שינוי אחד בהגדרות הדחיסה
-    // אצל המפיק (`--long`, `--ultra`) היה מפיל כל patch ב-windowTooLarge.
     zstd.ZSTD_DCtx_setParameter(
       dctx,
       ZSTD_dParameter.ZSTD_d_windowLogMax,
@@ -260,26 +230,21 @@ const int _maxWindowLog = 31;
     var lastResult = 0;
     var sawInput = false;
     var bytesRead = 0;
+    var bytesWritten = 0;
     while (true) {
-      // נבדק פעם בחוצץ קלט (~128KB) — קריאת בית אחד מול דקות של חילוץ.
       if (cancelFlag != nullptr && cancelFlag.value != 0) {
         throw ZstdStreamException(strings.updateCancelled);
       }
-      final read = source.readIntoSync(inView, 0, inCapacity);
+      final read = input.readIntoSync(inView, 0, inCapacity);
       if (read == 0) break;
       sawInput = true;
       bytesRead += read;
-      // אותם בתים בדיוק שנקראו לחילוץ — זה מה שחוסך מעבר שני על הקובץ.
       hasher?.addSlice(inView, 0, read);
-      // חוצץ הקלט הוא ~128KB, כלומר אלפי דיווחים על קובץ של ~1GB. הצד המקבל
-      // מדלל אותם (`ProgressNotifier`), וכאן זה עדיין זול משמעותית מה-I/O.
       progressPort?.send((bytesRead, totalBytes));
 
       inBuffer.ref.size = read;
       inBuffer.ref.pos = 0;
 
-      // frame בודד יכול להתפרס על פני כמה חוצצי קלט, וחוצץ קלט בודד יכול
-      // להפיק יותר מחוצץ פלט אחד — ולכן לולאה פנימית עד שהקלט נצרך כולו.
       while (inBuffer.ref.pos < inBuffer.ref.size) {
         outBuffer.ref.size = outCapacity;
         outBuffer.ref.pos = 0;
@@ -291,7 +256,19 @@ const int _maxWindowLog = 31;
         }
         final produced = outBuffer.ref.pos;
         if (produced > 0) {
-          dest.writeFromSync(outView, 0, produced);
+          if (maxOutputBytes >= 0 && bytesWritten + produced > maxOutputBytes) {
+            throw ZstdOutputLimitExceeded(
+              maxOutputBytes,
+              strings.checksumMismatchDetailed(
+                strings.extractedFileSizeLabel,
+                '$maxOutputBytes',
+                '> $maxOutputBytes',
+              ),
+            );
+          }
+          output.writeFromSync(outView, 0, produced);
+          outHasher?.addSlice(outView, 0, produced);
+          bytesWritten += produced;
         }
       }
     }
@@ -299,23 +276,21 @@ const int _maxWindowLog = 31;
     if (!sawInput) {
       throw ZstdStreamException(strings.zstdEmptyInput);
     }
-    // `0` = ה-frame נסגר כהלכה. כל ערך אחר אומר שהקלט נגמר באמצע frame,
-    // כלומר קובץ קטוע — בדיוק המצב שאסור לכתוב ממנו DB.
     if (lastResult != 0) {
       throw ZstdStreamException(strings.zstdTruncatedFrame);
     }
-    dest.flushSync();
-    // רק אחרי שהחילוץ הצליח: digest של קלט שנדחה ממילא אינו מעניין איש.
-    return (true, hasher?.close());
+    output.flushSync();
+    return (true, hasher?.close(), outHasher?.close(), bytesWritten);
   } finally {
     hasher?.dispose();
-    source.closeSync();
-    dest.closeSync();
-    malloc.free(inBuffer);
-    malloc.free(outBuffer);
-    malloc.free(inPtr);
-    malloc.free(outPtr);
-    zstd.ZSTD_freeDCtx(dctx);
+    outHasher?.dispose();
+    source?.closeSync();
+    dest?.closeSync();
+    if (inBuffer != nullptr) malloc.free(inBuffer);
+    if (outBuffer != nullptr) malloc.free(outBuffer);
+    if (inPtr != nullptr) malloc.free(inPtr);
+    if (outPtr != nullptr) malloc.free(outPtr);
+    if (dctx != nullptr) zstd.ZSTD_freeDCtx(dctx);
   }
 }
 

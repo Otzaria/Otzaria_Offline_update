@@ -10,9 +10,6 @@ import 'package:test/test.dart';
 
 LibraryDomainStrings get strings => AppL10n.strings.libraryDomain;
 
-/// המסלול המקומי של [PatchDownloader] — כש-`url` הוא נתיב על הדיסק ולא כתובת
-/// HTTP. זה המסלול היחיד שרץ בפועל בעדכון ממראה offline (AGENTS §5: אין נפילה
-/// לרשת בזרימת הבדיקה/החלה), ולכן הוא נבדק כאן בנפרד ממסלול ה-HTTP.
 void main() {
   late Directory tmp;
   final uncompressed = Uint8List.fromList(List.generate(64, (i) => i));
@@ -26,7 +23,6 @@ void main() {
 
   String path(String name) => '${tmp.path}${Platform.pathSeparator}$name';
 
-  // כל בקשת רשת כאן היא באג בפני עצמה — המסלול המקומי לא אמור לגעת ב-HTTP.
   PatchDownloader downloader({Uint8List? extracted}) => PatchDownloader(
         httpClient: MockClient((_) async =>
             throw StateError('המסלול המקומי אינו אמור לפנות לרשת')),
@@ -82,6 +78,24 @@ void main() {
       );
     });
 
+    test('קובץ גדול מהצפוי נדחה לפי האורך, בלי לקרוא את תוכנו', () async {
+      final src = path('unreadable.zst');
+      File(src).writeAsBytesSync(Uint8List(compressed.length + 1));
+      final chmod = await Process.run('chmod', ['000', src]);
+      expect(chmod.exitCode, 0);
+      addTearDown(() => Process.runSync('chmod', ['600', src]));
+
+      await expectLater(
+        downloader().downloadAndExtract(
+          patchFile: entry(),
+          downloadUrl: src,
+          destDir: tmp,
+        ),
+        throwsA(isA<PatchDownloadException>().having((e) => e.message,
+            'message', strings.localFileTooLarge(compressed.length, src))),
+      );
+    }, skip: Platform.isWindows ? 'chmod אינו זמין ב-Windows' : false);
+
     test('קובץ מקומי עם תוכן שגוי → כשל sha256, בלי כתיבת .db', () async {
       final src = path('patch-v1-v2.db.zst');
       File(src).writeAsBytesSync(Uint8List(compressed.length));
@@ -129,8 +143,6 @@ void main() {
     late String src;
 
     setUp(() {
-      // מעל גודל ה-chunk של openRead (64KB) — כדי שהעתקה תהיה רב-שלבית ובדיקת
-      // הביטול תתפוס אותה באמצע, כמו בהעתקת ה-DB האמיתי.
       payload = Uint8List.fromList(List.generate(300000, (i) => i % 256));
       src = path('seforim.db.zst');
       File(src).writeAsBytesSync(payload);
@@ -239,7 +251,6 @@ void main() {
       expect(File(dest).readAsBytesSync(), payload);
     });
 
-    // העתקה מקומית מהירה מספיק שאין בה resume — ולכן אין קובץ צד לנקות.
     test('אין קובץ צד (.resume) במסלול המקומי', () async {
       final dest = path('copy.zst');
       await downloader().downloadToFile(

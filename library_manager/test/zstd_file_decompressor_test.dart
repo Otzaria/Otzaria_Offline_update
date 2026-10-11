@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:library_manager/src/services/zstd_file_decompressor.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -51,6 +52,158 @@ void main() {
         isTrue,
       );
       expect(File(destPath).readAsBytesSync(), original);
+    });
+
+    test('מחשב sha256 ומספר בתים של הפלט על אותו מעבר', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+
+      final original = pseudoRandomBytes(3 * 1024 * 1024 + 17);
+      final compressed = compressWithZstd(bindings, original);
+      final compressedPath = '${tmp.path}/data.zst';
+      File(compressedPath).writeAsBytesSync(compressed);
+
+      String? sourceDigest;
+      String? outputDigest;
+      int? written;
+      expect(
+        await ZstdFileDecompressor.decompressFileToFile(
+          compressedPath,
+          '${tmp.path}/data.bin',
+          onSourceDigest: (hex) => sourceDigest = hex,
+          onOutputDigest: (hex, bytes) {
+            outputDigest = hex;
+            written = bytes;
+          },
+        ),
+        isTrue,
+      );
+
+      expect(sourceDigest, sha256.convert(compressed).toString());
+      expect(outputDigest, sha256.convert(original).toString());
+      expect(written, original.length);
+    });
+
+    test('פלט שחורג מ-maxOutputBytes נעצר לפני שנכתב מעבר לתקרה', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+
+      final original = pseudoRandomBytes(4 * 1024 * 1024);
+      final compressedPath = '${tmp.path}/data.zst';
+      final destPath = '${tmp.path}/data.bin';
+      File(
+        compressedPath,
+      ).writeAsBytesSync(compressWithZstd(bindings, original));
+      const limit = 300 * 1024;
+      final reports = <int>[];
+
+      await expectLater(
+        ZstdFileDecompressor.decompressFileToFile(
+          compressedPath,
+          destPath,
+          onProgress: (read, _) => reports.add(read),
+          maxOutputBytes: limit,
+        ),
+        throwsA(
+          isA<ZstdOutputLimitExceeded>()
+              .having((e) => e.limit, 'limit', limit)
+              .having(
+                (e) => e.message,
+                'message',
+                AppL10n.strings.libraryDomain.checksumMismatchDetailed(
+                  AppL10n.strings.libraryDomain.extractedFileSizeLabel,
+                  '$limit',
+                  '> $limit',
+                ),
+              ),
+        ),
+      );
+
+      expect(File(destPath).lengthSync(), lessThanOrEqualTo(limit));
+      expect(reports.last, lessThan(File(compressedPath).lengthSync()));
+    });
+
+    test('פלט בגודל maxOutputBytes בדיוק מתקבל', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+
+      final original = pseudoRandomBytes(1024 * 1024 + 3);
+      final compressedPath = '${tmp.path}/data.zst';
+      final destPath = '${tmp.path}/data.bin';
+      File(
+        compressedPath,
+      ).writeAsBytesSync(compressWithZstd(bindings, original));
+
+      expect(
+        await ZstdFileDecompressor.decompressFileToFile(
+          compressedPath,
+          destPath,
+          maxOutputBytes: original.length,
+        ),
+        isTrue,
+      );
+      expect(File(destPath).readAsBytesSync(), original);
+    });
+
+    test('ביטול שכבר חל בכניסה עוצר לפני חילוץ כלשהו', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+
+      final compressedPath = '${tmp.path}/data.zst';
+      final destPath = '${tmp.path}/data.bin';
+      File(compressedPath).writeAsBytesSync(
+        compressWithZstd(bindings, pseudoRandomBytes(1 << 20)),
+      );
+      final reports = <int>[];
+
+      await expectLater(
+        ZstdFileDecompressor.decompressFileToFile(
+          compressedPath,
+          destPath,
+          onProgress: (read, _) => reports.add(read),
+          isCancelled: () => true,
+        ),
+        throwsA(
+          isA<ZstdStreamException>().having(
+            (e) => e.message,
+            'message',
+            AppL10n.strings.libraryDomain.updateCancelled,
+          ),
+        ),
+      );
+
+      expect(reports, isEmpty);
+      expect(File(destPath).lengthSync(), 0);
+    });
+
+    test('כשל בפתיחת היעד אחרי יצירת ה-hashers זורק כרגיל', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+
+      final compressedPath = '${tmp.path}/data.zst';
+      File(
+        compressedPath,
+      ).writeAsBytesSync(compressWithZstd(bindings, pseudoRandomBytes(4096)));
+
+      await expectLater(
+        ZstdFileDecompressor.decompressFileToFile(
+          compressedPath,
+          '${tmp.path}/missing-dir/out.bin',
+          onSourceDigest: (_) {},
+          onOutputDigest: (_, _) {},
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
     });
 
     test('החילוץ מדווח התקדמות עולה עד סך הקובץ הדחוס', () async {
