@@ -99,8 +99,8 @@ void main() {
         resolveQueue: () async =>
             _FakeQueue(pending, partialError: partialError),
         uploader: ErrorReportUploader(
-          httpClient:
-              client ?? MockClient((_) async => http.Response('{}', 200)),
+          httpClient: client ??
+              MockClient((_) async => http.Response('{"success":true}', 200)),
           // המתנה אמיתית בתוך ה-fake-async: `pump` מקדם אותה, והשעון איתה.
           delay: delay ??
               (d) async {
@@ -544,7 +544,8 @@ void main() {
         outbox: _BrokenOutbox(),
         resolveQueue: () async => null,
         uploader: ErrorReportUploader(
-          httpClient: MockClient((_) async => http.Response('{}', 200)),
+          httpClient:
+              MockClient((_) async => http.Response('{"success":true}', 200)),
         ),
       );
       final result = await c.upload();
@@ -556,7 +557,8 @@ void main() {
 }
 
 class _TrackingClient extends MockClient {
-  _TrackingClient() : super((_) async => http.Response('{}', 200));
+  _TrackingClient()
+      : super((_) async => http.Response('{"success":true}', 200));
 
   var closed = false;
 

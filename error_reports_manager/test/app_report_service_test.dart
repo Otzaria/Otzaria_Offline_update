@@ -247,7 +247,8 @@ void main() {
   test('flush מסיר כפילות pending שכבר קיימת בהיסטוריה בלי לשלוח', () async {
     var requests = 0;
     final report = _report();
-    final online = build(MockClient((_) async => _json(200, {})));
+    final online =
+        build(MockClient((_) async => _json(200, {'success': true})));
     expect((await online.send(report)).isSent, isTrue);
 
     final service = build(
@@ -285,7 +286,7 @@ void main() {
     final service = build(
       MockClient((_) async {
         requests++;
-        return _json(200, {'issueNumber': 3});
+        return _json(200, {'success': true, 'issueNumber': 3});
       }),
     );
     final report = _report();
@@ -298,7 +299,8 @@ void main() {
   });
 
   test('ההיסטוריה נחתכת ל-100, והמונה סופר את כולם', () async {
-    final service = build(MockClient((_) async => _json(200, {})));
+    final service =
+        build(MockClient((_) async => _json(200, {'success': true})));
     for (var i = 0; i < AppReportService.maxSentReportsToKeep + 3; i++) {
       await service.send(_report(title: 'r$i'));
     }
@@ -317,7 +319,8 @@ void main() {
   });
 
   test('שליחות מקבילות של דיווחים שונים אינן דורסות זו את ההיסטוריה', () async {
-    final service = build(MockClient((_) async => _json(200, {})));
+    final service =
+        build(MockClient((_) async => _json(200, {'success': true})));
     await Future.wait([for (var i = 0; i < 10; i++) service.send(_report())]);
     expect(await service.getSentReports(), hasLength(10));
     expect(await service.getSentReportsTotal(), 10);
@@ -414,7 +417,8 @@ void main() {
 
   group('חוסן ומכסות', () {
     test('כתיבת היסטוריה שנכשלה: הרשומה נשארת בתור ואינה אובדת', () async {
-      final service = build(MockClient((_) async => _json(200, {})));
+      final service =
+          build(MockClient((_) async => _json(200, {'success': true})));
       await service.queueReport(_report());
       // תיקייה במקום sent.json: ה-rename של הכתיבה נכשל.
       Directory(p.join(AppReportService.dirIn(tmp.path), 'sent.json'))
@@ -422,7 +426,7 @@ void main() {
       final logs = <String>[];
       final logged = AppReportService(
         directory: AppReportService.dirIn(tmp.path),
-        client: MockClient((_) async => _json(200, {})),
+        client: MockClient((_) async => _json(200, {'success': true})),
         log: logs.add,
       );
       services.add(logged);
@@ -450,7 +454,7 @@ void main() {
       final manual = service.flush(
         maxRequests: AppReportService.maxManualFlushPerRun,
       );
-      gate.complete(_json(200, {'issueNumber': 1}));
+      gate.complete(_json(200, {'success': true, 'issueNumber': 1}));
 
       expect((await background).sent, 1);
       expect((await manual).sent, 1);
@@ -462,7 +466,7 @@ void main() {
       final service = build(
         MockClient((_) async {
           requests++;
-          return _json(200, {});
+          return _json(200, {'success': true});
         }),
       );
       for (var i = 0; i < 6; i++) {
@@ -519,7 +523,7 @@ void main() {
       await started.future;
       expect(await service.getPendingReportsCount(), 1);
 
-      gate.complete(_json(200, {'issueNumber': 5}));
+      gate.complete(_json(200, {'success': true, 'issueNumber': 5}));
       expect((await submission).isSent, isTrue);
       expect(await service.getPendingReportsCount(), 0);
       expect((await service.getSentReports()).single.issueNumber, 5);
@@ -546,7 +550,7 @@ void main() {
         MockClient((request) async {
           body = jsonDecode(utf8.decode(request.bodyBytes))
               as Map<String, dynamic>;
-          return _json(200, {});
+          return _json(200, {'success': true});
         }),
       );
       final report = _report().copyWith(
@@ -585,7 +589,8 @@ void main() {
       Directory(dir).createSync(recursive: true);
       final sent = File(p.join(dir, 'sent.json'))
         ..writeAsStringSync('{not json');
-      final service = build(MockClient((_) async => _json(200, {})));
+      final service =
+          build(MockClient((_) async => _json(200, {'success': true})));
       expect(await service.getSentReports(), isEmpty);
       await service.send(_report());
       expect(File('${sent.path}.bad').existsSync(), isTrue);
@@ -594,7 +599,8 @@ void main() {
 
     test('כשל קריאה זמני של היסטוריה אינו מוחק אותה ואת המונה', () async {
       if (!Platform.isWindows) return; // נעילת קובץ נאכפת רק ב-Windows
-      final service = build(MockClient((_) async => _json(200, {})));
+      final service =
+          build(MockClient((_) async => _json(200, {'success': true})));
       await service.send(_report());
       await service.send(_report());
       final file = File(p.join(AppReportService.dirIn(tmp.path), 'sent.json'));
@@ -639,7 +645,7 @@ void main() {
       final logs = <String>[];
       final service = AppReportService(
         directory: AppReportService.dirIn(tmp.path),
-        client: MockClient((_) async => _json(200, {})),
+        client: MockClient((_) async => _json(200, {'success': true})),
         log: logs.add,
       );
       services.add(service);
@@ -672,7 +678,8 @@ void main() {
     });
 
     test('כשל דיסק בכל הרשומות נספר כ-failed', () async {
-      final service = build(MockClient((_) async => _json(200, {})));
+      final service =
+          build(MockClient((_) async => _json(200, {'success': true})));
       await service.queueReport(_report());
       await service.queueReport(_report());
       Directory(p.join(AppReportService.dirIn(tmp.path), 'sent.json'))
@@ -694,7 +701,8 @@ void main() {
     });
 
     test('דיווח שכבר בהיסטוריה וקובץ פגום נספרים כ-skipped', () async {
-      final service = build(MockClient((_) async => _json(200, {})));
+      final service =
+          build(MockClient((_) async => _json(200, {'success': true})));
       final done = _report();
       await service.send(done);
       // send מפעיל סבב ברקע; ממתינים לו, כדי שלא יספור את הקבצים שלהלן.
@@ -714,7 +722,8 @@ void main() {
     });
 
     test('הצלחה מלאה: אפסים', () async {
-      final service = build(MockClient((_) async => _json(200, {})));
+      final service =
+          build(MockClient((_) async => _json(200, {'success': true})));
       await service.queueReport(_report());
       final outcome = await service.flush();
       expect(
@@ -736,7 +745,8 @@ void main() {
           ],
         }),
       );
-    final service = build(MockClient((_) async => _json(200, {})));
+    final service =
+        build(MockClient((_) async => _json(200, {'success': true})));
     final result = await service.send(_report());
     expect(result.isSent, isTrue);
     expect(File('${sent.path}.bad').existsSync(), isTrue);
@@ -750,7 +760,8 @@ void main() {
     Directory(dir).createSync(recursive: true);
     final sentFile = File(p.join(dir, 'sent.json'))
       ..writeAsStringSync('{corrupt');
-    final service = build(MockClient((_) async => _json(200, {})));
+    final service =
+        build(MockClient((_) async => _json(200, {'success': true})));
 
     await Future.wait([
       service.send(_report()),
@@ -775,7 +786,7 @@ void main() {
     final service = build(
       MockClient((_) async {
         requests++;
-        return _json(200, {});
+        return _json(200, {'success': true});
       }),
     );
     final result = await service.submitPendingReport(_report());
@@ -815,6 +826,14 @@ void main() {
       'reporterEmail',
     );
     expect(_report().validate(), isNull);
+  });
+
+  test('200 שאינו תשובת השרת (דף סינון) נשאר בתור', () async {
+    final service = build(
+        MockClient((_) async => http.Response('<html>blocked</html>', 200)));
+    final result = await service.send(_report());
+    expect(result.isQueued, isTrue);
+    expect(await service.getPendingReportsCount(), 1);
   });
 }
 

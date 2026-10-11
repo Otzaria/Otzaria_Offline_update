@@ -40,9 +40,13 @@ class DirectoryReportOutbox implements ReportOutbox {
     if (!await dir.exists()) return const [];
     final out = <OutboxReport>[];
     await for (final entity in dir.list()) {
-      if (entity is! File || !entity.path.toLowerCase().endsWith('.json')) {
+      if (entity is! File) continue;
+      final lower = entity.path.toLowerCase();
+      if (lower.endsWith('.json.tmp')) {
+        await _deleteIfStale(entity);
         continue;
       }
+      if (!lower.endsWith('.json')) continue;
       try {
         final json = jsonDecode(await entity.readAsString());
         if (json is! Map<String, dynamic>) {
@@ -81,16 +85,30 @@ class DirectoryReportOutbox implements ReportOutbox {
   Future<void> write(String reportId, Map<String, dynamic> fileJson) async {
     await Directory(directory).create(recursive: true);
     final target = File(_pathFor(reportId));
-    // זמני ואז rename: קובץ חצוי היה נדחה כפגום, והדיווח כבר סומן כנשלח.
-    final temp = File('${target.path}.tmp');
+    final temp = File(_tempFor(target.path));
     await temp.writeAsString(jsonEncode(fileJson), flush: true);
     await temp.rename(target.path);
   }
 
   @override
   Future<void> discard(String reportId) async {
-    final file = File(_pathFor(reportId));
-    if (await file.exists()) await file.delete();
+    final path = _pathFor(reportId);
+    for (final file in [File(path), File(_tempFor(path))]) {
+      if (await file.exists()) await file.delete();
+    }
+  }
+
+  static const staleTempAge = Duration(hours: 1);
+
+  static String _tempFor(String path) => '$path.tmp';
+
+  static Future<void> _deleteIfStale(File temp) async {
+    try {
+      final age = DateTime.now().difference(await temp.lastModified());
+      if (age > staleTempAge) await temp.delete();
+    } on FileSystemException {
+      return;
+    }
   }
 
   /// המזהה מגיע ממסד של אוצריא — רק תווים בטוחים לשם קובץ.

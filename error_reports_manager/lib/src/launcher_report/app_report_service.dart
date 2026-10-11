@@ -738,7 +738,6 @@ class AppReportService {
     }
 
     try {
-      // לא דרך post(): הוא עוטף רשימה ב-cast ומעתיק את הגוף בית-בית.
       final request = http.Request('POST', endpoint)
         ..headers.addAll(const {
           'Content-Type': 'application/json; charset=utf-8',
@@ -752,7 +751,7 @@ class AppReportService {
       final status = response.statusCode;
       final decoded = _decodeBody(response.bodyBytes);
 
-      if (status >= 200 && status < 300) {
+      if (status >= 200 && status < 300 && decoded?['success'] == true) {
         final issueNumber = decoded?['issueNumber'];
         final issueUrl = decoded?['issueUrl'];
         return _Attempt(
@@ -782,7 +781,6 @@ class AppReportService {
     } on TimeoutException {
       return const _Attempt(_AttemptKind.transient);
     } catch (e) {
-      // SocketException / ClientException ודומיהם — כשל רשת זמני.
       log?.call('App report send error: $e');
       return const _Attempt(_AttemptKind.transient);
     }

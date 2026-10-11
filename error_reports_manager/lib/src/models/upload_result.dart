@@ -86,19 +86,19 @@ class ReportUploadCancellation {
   int get listenerCount => _listeners.length;
 }
 
-/// [future] או עצירה, המוקדם מביניהם. `null` = נעצר.
 Future<T?> raceCancellation<T>(
   Future<T> future,
-  ReportUploadCancellation? cancellation,
-) {
+  ReportUploadCancellation? cancellation, {
+  Completer<void>? abort,
+}) {
   if (cancellation == null) return future;
   final completer = Completer<T?>();
   void onCancel() {
     if (!completer.isCompleted) completer.complete(null);
+    if (abort != null && !abort.isCompleted) abort.complete();
   }
 
   cancellation._listen(onCancel);
-  // בלי ההסרה, כל בקשה וכל שנייה של המתנה השאירו מאזין עד סוף הריצה.
   future.then(
     (value) {
       cancellation._unlisten(onCancel);

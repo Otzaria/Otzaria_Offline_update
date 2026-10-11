@@ -213,4 +213,43 @@ void main() {
     expect(result.strike, SearchFeedbackStrike.none);
     pending.complete(http.Response('{"accepted":1}', 200));
   });
+
+  test('abortTrigger aborts the request while it is in flight', () async {
+    final started = Completer<void>();
+    final abort = Completer<void>();
+    var aborted = false;
+    final client = MockClient.streaming((request, _) async {
+      started.complete();
+      await (request as http.Abortable).abortTrigger;
+      aborted = true;
+      throw http.RequestAbortedException(request.url);
+    });
+    addTearDown(client.close);
+    final future = sender(client).sendEvents(
+        identity: identity(),
+        body: '{}',
+        appVersion: '1.2',
+        abortTrigger: abort.future);
+    await started.future;
+    abort.complete();
+    final result = await future;
+    expect(aborted, isTrue);
+    expect(result.kind, SearchFeedbackOutcomeKind.retryLater);
+    expect(result.strike, SearchFeedbackStrike.none);
+  });
+
+  test('a timed-out request is aborted, not left running', () async {
+    final aborted = Completer<void>();
+    final client = MockClient.streaming((request, _) async {
+      await (request as http.Abortable).abortTrigger;
+      aborted.complete();
+      throw http.RequestAbortedException(request.url);
+    });
+    addTearDown(client.close);
+    final result =
+        await sender(client, timeout: const Duration(milliseconds: 20))
+            .sendEvents(identity: identity(), body: '{}', appVersion: '1.2');
+    expect(result.kind, SearchFeedbackOutcomeKind.retryLater);
+    await aborted.future.timeout(const Duration(seconds: 5));
+  });
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -313,5 +314,36 @@ void main() {
     await transport.collect(source, mayCollect: () async => true);
     expect(await transport.upload(), (sent: 0, rejected: 0, remaining: 0));
     expect(requests, 0);
+  });
+
+  test('stop aborts the in-flight request without deferring the next run',
+      () async {
+    identity.registeredKeyId = identity.keyId;
+    await SearchFeedbackIdentityStore(() async => Directory(source))
+        .save(identity);
+    final started = Completer<void>();
+    var aborted = false;
+    var calls = 0;
+    final client = MockClient.streaming((request, body) async {
+      await body.drain<void>();
+      if (calls++ > 0) {
+        return http.StreamedResponse(
+            Stream.value(utf8.encode('{"accepted":1,"rejected":0}')), 200);
+      }
+      started.complete();
+      await (request as http.Abortable).abortTrigger;
+      aborted = true;
+      throw http.RequestAbortedException(request.url);
+    });
+    final transport = SearchFeedbackTransport(destination, client: client);
+    addTearDown(transport.close);
+    await transport.collect(source, mayCollect: () async => true);
+    final run = transport.upload();
+    await started.future;
+    transport.stop();
+    expect(await run, (sent: 0, rejected: 0, remaining: 1));
+    expect(aborted, isTrue);
+    expect(await File(p.join(destination, 'retry-at.txt')).exists(), isFalse);
+    expect(await transport.upload(), (sent: 1, rejected: 0, remaining: 0));
   });
 }

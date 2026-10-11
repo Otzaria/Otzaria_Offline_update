@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -22,6 +23,7 @@ class SearchFeedbackTransport {
   final http.Client _client;
   final Uri _baseUrl;
   bool _stopped = false;
+  Completer<void> _abort = Completer<void>();
   int _backoffStep = 0;
 
   static String dirIn(String dataDir) => p.join(dataDir, 'search-feedback');
@@ -139,15 +141,19 @@ class SearchFeedbackTransport {
     }
   }
 
-  void stop() => _stopped = true;
+  void stop() {
+    _stopped = true;
+    if (!_abort.isCompleted) _abort.complete();
+  }
+
   void close() {
     stop();
     _client.close();
   }
 
-  /// העלאה מפורשת בלבד, עם החתימה והפרוטוקול המקוריים של אוצריא.
   Future<SearchFeedbackUploadResult> upload() async {
     _stopped = false;
+    _abort = Completer<void>();
     var sent = 0, rejected = 0;
     await Directory(directory).create(recursive: true);
     final lock = await SearchFeedbackQueueLock.acquire(
@@ -163,6 +169,7 @@ class SearchFeedbackTransport {
         }
       }
       Future<void> defer(SearchFeedbackOutcome outcome) async {
+        if (_stopped) return;
         _stopped = true;
         _backoffStep++;
         var delay = outcome.retryAfter;
@@ -236,6 +243,7 @@ class SearchFeedbackTransport {
               }),
               appVersion: version,
               canSend: () => !_stopped,
+              abortTrigger: _abort.future,
             );
             if (outcome.kind == SearchFeedbackOutcomeKind.keyBlocked) {
               identity.blocked = true;
@@ -261,6 +269,7 @@ class SearchFeedbackTransport {
                     '"events":[${batch.eventLines.join(',')}]}',
                 appVersion: version,
                 canSend: () => !_stopped,
+                abortTrigger: _abort.future,
               );
           var outcome = await post();
           if (outcome.kind == SearchFeedbackOutcomeKind.unknownKey) {
@@ -289,7 +298,6 @@ class SearchFeedbackTransport {
               _stopped = true;
             case SearchFeedbackOutcomeKind.unknownKey:
             case SearchFeedbackOutcomeKind.retryLater:
-              // לא מוחקים נתונים כשמסנן מחזיר דף חסימה או כשאין רשת.
               if (outcome.strike == SearchFeedbackStrike.serverError) {
                 final record = await queue.addStrike(
                   claimed,

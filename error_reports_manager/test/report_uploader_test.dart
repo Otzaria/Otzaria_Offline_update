@@ -18,6 +18,8 @@ class _FakeTime {
   }
 }
 
+const _ok = '{"success":true}';
+
 List<String> _ids(int n) => [for (var i = 0; i < n; i++) 'r$i'];
 
 void main() {
@@ -37,7 +39,8 @@ void main() {
     final result = await uploader((req) async {
       requests.add(req);
       return http.Response(
-          jsonEncode({'ok': true, 'duplicate': requests.length == 2}), 200);
+          jsonEncode({'success': true, 'duplicate': requests.length == 2}),
+          200);
     }).upload(outbox);
 
     expect(result.sent, 2);
@@ -63,7 +66,7 @@ void main() {
     Map<String, dynamic>? sent;
     await uploader((req) async {
       sent = jsonDecode(req.body) as Map<String, dynamic>;
-      return http.Response('{}', 200);
+      return http.Response(_ok, 200);
     }).upload(outbox);
     expect(sent, isNotNull);
     expect(sent!.containsKey('product'), isFalse);
@@ -74,7 +77,7 @@ void main() {
     final outbox = MemoryOutbox(['a', 'b', 'c', 'd', 'e']);
     const codes = [400, 409, 413, 422, 200];
     var i = 0;
-    final result = await uploader((_) async => http.Response('bad', codes[i++]))
+    final result = await uploader((_) async => http.Response(_ok, codes[i++]))
         .upload(outbox);
     expect(result.rejected, 4);
     expect(result.sent, 1);
@@ -119,7 +122,7 @@ void main() {
       expect(request.url.toString(), endpoints[calls]);
       expect(jsonDecode(utf8.decode(request.bodyBytes)), bodies[calls]);
       calls++;
-      return http.Response('{}', 201);
+      return http.Response(_ok, 201);
     }).upload(outbox);
     expect(calls, 2);
     expect(result.sent, 2);
@@ -148,7 +151,7 @@ void main() {
       requestTimeoutWithImages: const Duration(seconds: 2),
       httpClient: MockClient((_) async {
         await Future<void>.delayed(const Duration(milliseconds: 30));
-        return http.Response('{}', 200);
+        return http.Response(_ok, 200);
       }),
     );
     addTearDown(sender.close);
@@ -174,7 +177,7 @@ void main() {
     final outbox = MemoryOutbox(['a', 'b', 'c']);
     var i = 0;
     final result =
-        await uploader((_) async => http.Response('', i++ == 0 ? 200 : 503))
+        await uploader((_) async => http.Response(_ok, i++ == 0 ? 200 : 503))
             .upload(outbox);
     expect(result.sent, 1);
     expect(result.remaining, 2);
@@ -203,7 +206,7 @@ void main() {
     final progress = <ReportUploadProgress>[];
     final result = await uploader((_) async {
       sentAt.add(time.now);
-      return http.Response('{}', 200);
+      return http.Response(_ok, 200);
     }).upload(outbox, onProgress: progress.add);
 
     expect(result.sent, 20);
@@ -218,7 +221,7 @@ void main() {
   test('עצירה באמצע ההמתנה — מיידית, והמשך ממתין לסוף החלון', () async {
     final outbox = MemoryOutbox(_ids(10));
     final cancellation = ReportUploadCancellation();
-    final up = uploader((_) async => http.Response('{}', 200));
+    final up = uploader((_) async => http.Response(_ok, 200));
 
     final result =
         await up.upload(outbox, cancellation: cancellation, onProgress: (p) {
@@ -263,7 +266,7 @@ void main() {
         first = false;
         return http.Response('slow down', 429);
       }
-      return http.Response('{}', 200);
+      return http.Response(_ok, 200);
     }).upload(outbox);
 
     expect(result.error, isNull);
@@ -291,7 +294,7 @@ void main() {
       sentAt.add(time.now);
       // כל בקשה "אורכת" 2 שניות לפי השעון המדומה.
       time.now = time.now.add(const Duration(seconds: 2));
-      return http.Response('{}', 200);
+      return http.Response(_ok, 200);
     }).upload(outbox);
     expect(result.sent, 9);
     final lastEnd = sentAt[7].add(const Duration(seconds: 2));
@@ -304,7 +307,7 @@ void main() {
         reportJson('x', endpoint: 'http://otzaria.org/api'),
         filePath: 'x'));
     final result =
-        await uploader((_) async => http.Response('{}', 200)).upload(outbox);
+        await uploader((_) async => http.Response(_ok, 200)).upload(outbox);
     expect(result.sent, 8);
     expect(result.rejected, 1);
     expect(time.waits, isEmpty);
@@ -313,7 +316,7 @@ void main() {
   test('מאזיני העצירה אינם מצטברים לאורך ריצה', () async {
     final outbox = MemoryOutbox(_ids(20));
     final cancellation = ReportUploadCancellation();
-    await uploader((_) async => http.Response('{}', 200))
+    await uploader((_) async => http.Response(_ok, 200))
         .upload(outbox, cancellation: cancellation);
     expect(cancellation.listenerCount, 0);
   });
@@ -325,5 +328,64 @@ void main() {
     expect(up.estimateMinutes(8), 1);
     expect(up.estimateMinutes(9), 2);
     expect(up.estimateMinutes(40), 5);
+  });
+
+  for (final body in ['<html>blocked</html>', '{}', '{"success":false}']) {
+    test('2xx בלי תשובת פרוטוקול ($body) אינו מוחק את הקובץ', () async {
+      final outbox = MemoryOutbox(['a', 'b']);
+      var calls = 0;
+      final result = await uploader((_) async {
+        calls++;
+        return http.Response(body, 200);
+      }).upload(outbox);
+      expect(calls, 1);
+      expect(result.sent, 0);
+      expect(result.remaining, 2);
+      expect(result.error, isNotNull);
+      expect(outbox.reports.map((r) => r.reportId), ['a', 'b']);
+    });
+  }
+
+  test('עצירה באמצע בקשה מבטלת אותה ברשת', () async {
+    final outbox = MemoryOutbox(['a']);
+    final cancellation = ReportUploadCancellation();
+    final started = Completer<void>();
+    var aborted = false;
+    final up = ErrorReportUploader(
+      httpClient: MockClient.streaming((request, body) async {
+        await body.drain<void>();
+        started.complete();
+        await (request as http.Abortable).abortTrigger;
+        aborted = true;
+        throw http.RequestAbortedException(request.url);
+      }),
+      delay: time.delay,
+      clock: () => time.now,
+    );
+    final future = up.upload(outbox, cancellation: cancellation);
+    await started.future;
+    cancellation.cancel();
+    final result = await future;
+    await Future<void>.delayed(Duration.zero);
+    expect(result.cancelled, isTrue);
+    expect(aborted, isTrue);
+    expect(outbox.reports, hasLength(1));
+  });
+
+  test('בקשה שחרגה מהזמן מבוטלת ברשת', () async {
+    final outbox = MemoryOutbox(['a']);
+    final aborted = Completer<void>();
+    final result = await ErrorReportUploader(
+      httpClient: MockClient.streaming((request, body) async {
+        await body.drain<void>();
+        await (request as http.Abortable).abortTrigger;
+        aborted.complete();
+        throw http.RequestAbortedException(request.url);
+      }),
+      requestTimeout: const Duration(milliseconds: 10),
+    ).upload(outbox);
+    expect(result.error, isNotNull);
+    expect(outbox.reports, hasLength(1));
+    await aborted.future.timeout(const Duration(seconds: 5));
   });
 }

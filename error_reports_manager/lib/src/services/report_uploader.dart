@@ -91,7 +91,6 @@ class ErrorReportUploader {
         ));
 
     for (final item in reports) {
-      // כתובת אסורה אינה בקשה לשרת — ולכן אינה ממתינה לחלון ואינה נספרת בו.
       if (!item.isAllowedEndpoint) {
         await _removeQuietly(outbox, item);
         rejected++;
@@ -109,8 +108,13 @@ class ErrorReportUploader {
         report(null);
 
         final _Attempt? attempt;
+        final abort = Completer<void>();
         try {
-          attempt = await raceCancellation(_post(item), cancellation);
+          attempt = await raceCancellation(
+            _post(item, abort),
+            cancellation,
+            abort: abort,
+          );
         } on TimeoutException {
           _requestFinished();
           return finish(
@@ -124,17 +128,15 @@ class ErrorReportUploader {
           );
         }
         _requestFinished();
-        // נעצר באמצע בקשה: הקובץ נשאר, ושליחה חוזרת תחזור `duplicate`.
         if (attempt == null) return finish(cancelled: true);
 
         final status = attempt.statusCode;
         if (status == 429 && retries < maxRateLimitRetries) {
-          // השרת אומר "יותר מדי" — חלון שלם של המתנה, ואז אותו דיווח שוב.
           retries++;
           _windowCount = batchSize;
           continue;
         }
-        if (status >= 200 && status < 300) {
+        if (status >= 200 && status < 300 && attempt.accepted) {
           await _removeQuietly(outbox, item);
           sent++;
         } else if (_rejectStatuses.contains(status)) {
@@ -191,7 +193,7 @@ class ErrorReportUploader {
     return true;
   }
 
-  Future<_Attempt> _post(OutboxReport report) async {
+  Future<_Attempt> _post(OutboxReport report, Completer<void> abort) async {
     final attachments = report.body['attachments'];
     final images = attachments is Map ? attachments['images'] : null;
     final timeout = report.endpoint.path == '/api/app-reports' &&
@@ -199,15 +201,38 @@ class ErrorReportUploader {
             images.isNotEmpty
         ? requestTimeoutWithImages
         : requestTimeout;
-    final response = await _http
-        .post(report.endpoint,
-            headers: _headers, body: jsonEncode(_withoutProduct(report.body)))
-        .timeout(timeout);
+    final request = http.AbortableRequest(
+      'POST',
+      report.endpoint,
+      abortTrigger: abort.future,
+    )
+      ..headers.addAll(_headers)
+      ..body = jsonEncode(_withoutProduct(report.body));
+    final http.Response response;
+    try {
+      response = await _http
+          .send(request)
+          .then(http.Response.fromStream)
+          .timeout(timeout);
+    } on TimeoutException {
+      if (!abort.isCompleted) abort.complete();
+      rethrow;
+    }
     final body = response.body;
     return _Attempt(
       response.statusCode,
       body.length > 200 ? body.substring(0, 200) : body,
+      accepted: _isProtocolSuccess(body),
     );
+  }
+
+  static bool _isProtocolSuccess(String body) {
+    try {
+      final json = jsonDecode(body);
+      return json is Map && json['success'] == true;
+    } on FormatException {
+      return false;
+    }
   }
 
   /// דיווח מהכונן הוא של אוצריא גם אם קובץ זר טוען אחרת — `product` מנתב
@@ -235,8 +260,9 @@ class ErrorReportUploader {
 }
 
 class _Attempt {
-  const _Attempt(this.statusCode, this.excerpt);
+  const _Attempt(this.statusCode, this.excerpt, {required this.accepted});
 
   final int statusCode;
   final String excerpt;
+  final bool accepted;
 }

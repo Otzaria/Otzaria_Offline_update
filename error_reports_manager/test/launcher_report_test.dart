@@ -935,7 +935,7 @@ error: A RenderFlex overflowed by 4 pixels
         directory: AppReportService.dirIn(tmp.path),
         client: MockClient((request) async {
           bodies.add(jsonDecode(request.body) as Map<String, dynamic>);
-          return http.Response('{"issueNumber":42}', 200);
+          return http.Response('{"success":true,"issueNumber":42}', 200);
         }),
       );
     });

@@ -1780,9 +1780,11 @@ stop.** The server allows 8 a minute per IP; timing from the batch's start let o
 request shorten the real gap. `ErrorReportUploader` keeps `_lastRequestEnd` for the
 session, so "stop, resume at once" still waits. A 429 anyway waits a full window and
 retries the same report (`maxRateLimitRetries`). Stop is immediate, mid-wait and
-mid-request; an abandoned request keeps its file and the re-send answers `duplicate`.
+mid-request: the in-flight POST is aborted (`AbortableRequest`, also on timeout), the
+file stays, and a re-send of what the server already got answers `duplicate`.
 
-**Only 2xx deletes a file as sent; 400/409/413/422 and a non-`https://otzaria.org`
+**Only a 2xx whose body is a JSON object with `success:true` deletes a file as sent
+(a filter's 200 HTML page must not); 400/409/413/422 and a non-`https://otzaria.org`
 endpoint delete it as rejected; anything else keeps it and stops the run.** A drive
 file can come from anywhere, so the endpoint is checked before any POST — and before
 the rate-limit wait, since it is not a request. Rejection reasons go to the log only.

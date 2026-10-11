@@ -79,5 +79,29 @@ void main() {
       await outbox.remove(list.first);
       expect((await outbox.list()).map((r) => r.reportId), ['a']);
     });
+
+    test('discard מוחק גם את הקובץ הזמני של כתיבה שנכשלה', () async {
+      final outbox = DirectoryReportOutbox(dir);
+      await outbox.write('r1', reportJson('r1'));
+      final temp = File(p.join(dir, 'r1.json.tmp'))..writeAsStringSync('{');
+      await outbox.discard('r1');
+      expect(File(p.join(dir, 'r1.json')).existsSync(), isFalse);
+      expect(temp.existsSync(), isFalse);
+    });
+
+    test('list מוחק קובץ זמני ישן ומשאיר כתיבה שעוד רצה', () async {
+      Directory(dir).createSync(recursive: true);
+      final stale = File(p.join(dir, 'old.json.tmp'))..writeAsStringSync('{');
+      stale.setLastModifiedSync(
+          DateTime.now().subtract(const Duration(days: 2)));
+      final fresh = File(p.join(dir, 'new.json.tmp'))..writeAsStringSync('{');
+      final invalid = <String>[];
+      final list = await DirectoryReportOutbox(dir,
+          onInvalid: (path, _) => invalid.add(path)).list();
+      expect(list, isEmpty);
+      expect(invalid, isEmpty);
+      expect(stale.existsSync(), isFalse);
+      expect(fresh.existsSync(), isTrue);
+    });
   });
 }

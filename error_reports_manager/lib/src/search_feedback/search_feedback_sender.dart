@@ -87,6 +87,7 @@ class SearchFeedbackSender {
     required String body,
     required String appVersion,
     bool Function()? canSend,
+    Future<void>? abortTrigger,
   }) =>
       _post(
         '/api/search-feedback/register',
@@ -94,6 +95,7 @@ class SearchFeedbackSender {
         body: body,
         appVersion: appVersion,
         canSend: canSend,
+        abortTrigger: abortTrigger,
         includeKeyId: false,
       );
 
@@ -102,6 +104,7 @@ class SearchFeedbackSender {
     required String body,
     required String appVersion,
     bool Function()? canSend,
+    Future<void>? abortTrigger,
   }) =>
       _post(
         '/api/search-feedback/events',
@@ -109,6 +112,7 @@ class SearchFeedbackSender {
         body: body,
         appVersion: appVersion,
         canSend: canSend,
+        abortTrigger: abortTrigger,
         includeKeyId: true,
       );
 
@@ -119,6 +123,7 @@ class SearchFeedbackSender {
     required String appVersion,
     required bool includeKeyId,
     bool Function()? canSend,
+    Future<void>? abortTrigger,
   }) async {
     if (canSend != null && !canSend()) return SearchFeedbackOutcome.network;
     final signed = await _signBody(identity, body);
@@ -130,9 +135,23 @@ class SearchFeedbackSender {
       if (includeKeyId) 'X-Otzaria-Key-Id': identity.keyId,
       'User-Agent': 'otzaria-search-feedback/$appVersion',
     };
+    final abort = Completer<void>();
+    void stop() {
+      if (!abort.isCompleted) abort.complete();
+    }
+
+    if (abortTrigger != null) unawaited(abortTrigger.then((_) => stop()));
+    final request = http.AbortableRequest(
+      'POST',
+      _baseUrl.resolve(path),
+      abortTrigger: abort.future,
+    )
+      ..headers.addAll(headers)
+      ..bodyBytes = bytes;
     try {
       final response = await _client()
-          .post(_baseUrl.resolve(path), headers: headers, body: bytes)
+          .send(request)
+          .then(http.Response.fromStream)
           .timeout(timeout);
       return classify(
         response.statusCode,
@@ -141,6 +160,7 @@ class SearchFeedbackSender {
         now: _clock(),
       );
     } on TimeoutException {
+      stop();
       return SearchFeedbackOutcome.network;
     } on SocketException {
       return SearchFeedbackOutcome.network;
