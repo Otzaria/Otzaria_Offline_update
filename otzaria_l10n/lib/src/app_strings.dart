@@ -253,7 +253,6 @@ abstract class AppScreenStrings {
 
   String get processTitle;
   String get processRunning;
-  String get processStopped;
 
   String get installingProgress;
   String get launchButton;
@@ -718,9 +717,6 @@ abstract class PluginsStrings {
   /// שורה שהמסירה שלה לאוצריא הצליחה — ההתקנה עצמה נעשית שם.
   String get updatesDialogSentLabel;
   String get updatesDialogDoneLabel;
-
-  /// תוסף שאין לו התקנה ישירה — יש להתקינו מדף התוסף.
-  String get updatesDialogManualOnly;
 
   /// למה השורות עדיין לא הפכו ל"עודכן" — והבטחה שאין מה ללחוץ.
   String get updatesDialogPendingNote;
@@ -1448,7 +1444,6 @@ abstract class PluginsDomainStrings {
   /// [total] הוא מספר התוספים שיש בהם מה להוריד, לא גודל החנות — הסנכרון
   /// מדלג לגמרי על מה שכבר מעודכן.
   String syncPlugin(String name, int done, int total);
-  String get syncDone;
 
   /// סיום מפורט: כמה ירדו וכמה דולגו. בלעדיו "הסתיים" נראה זהה בין
   /// "הכול כבר היה מעודכן" לבין סנכרון שבאמת הביא משהו.
@@ -1527,7 +1522,6 @@ abstract class CustomAppsStrings {
   String get aboutPanelTitle;
   String get infoPanelTitle;
   String get screenshotsPanelTitle;
-  String get categoriesPanelTitle;
 
   // ── שדות "מידע כללי" בדף התוכנה ──
   String get infoSource;
@@ -1636,15 +1630,12 @@ abstract class CustomAppsStrings {
   String get githubUrlHint;
   String get githubUrlInvalid;
   String get fetchAssetsButton;
-  String get fetchingAssets;
-  String get assetLabel;
   String get assetHint;
   String get noAssetsFound;
   String assetsFromRelease(String tagName);
 
   String get pickInstallerButton;
   String get pickInstallerDialogTitle;
-  String get installerKindLabel;
   String installerKindSniffed(String kind);
 
   /// "הקובץ הוא התוכנה עצמה". השאלה היחידה על הקובץ שכן נשאלת, כי
@@ -1734,7 +1725,6 @@ abstract class CustomAppsStrings {
   String onlineVersionAvailable(String version);
   String get onlineUpToDate;
   String get onlineUnavailable;
-  String get replaceInstallerButton;
 
   /// "בחירת מיקום ידנית" — הנפילה חזרה כשהזיהוי האוטומטי לא מצא.
   String get pickLocationButton;
@@ -1776,7 +1766,6 @@ abstract class CustomAppsDomainStrings {
   String descriptorUnsupportedSchema(int found, int supported);
   String descriptorMissingField(String field);
   String descriptorInvalidId(String id);
-  String descriptorUnknownInstallerKind(String found, String allowed);
   String descriptorUnknownSourceKind(String found, String allowed);
 
   // ── המרשם ──

@@ -31,6 +31,32 @@ void main() {
       environment: {'HOME': p.posix.join(tempDir.path, 'home')},
     );
 
+    test(
+      'forLaunch reads library_state.json in stateDir and the given launch',
+      () async {
+        final stateDir = p.join(tempDir.path, 'drive-state');
+        final customDb = p.join(tempDir.path, 'custom', 'seforim.db');
+        await Directory(p.dirname(customDb)).create(recursive: true);
+        await File(customDb).writeAsString('fake db');
+        await LibraryStateStore(
+          p.join(stateDir, 'library_state.json'),
+        ).saveCustomDbPath(customDb);
+        final launch = p.join(tempDir.path, 'otzaria.exe');
+
+        final locator = LibraryDbLocator.forLaunch(
+          stateDir: stateDir,
+          launchPath: launch,
+        );
+
+        expect(
+          locator.stateStore.stateFilePath,
+          p.join(stateDir, 'library_state.json'),
+        );
+        expect(await locator.otzariaLaunchPath!(), launch);
+        expect(await locator.stateStore.loadCustomDbPath(), customDb);
+      },
+    );
+
     test('returns null when neither custom nor default DB exists', () async {
       expect(await locatorWithIsolatedDefaults().resolveDbPath(), isNull);
     });

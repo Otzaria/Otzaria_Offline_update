@@ -77,10 +77,6 @@ class MirrorDownloadOutcome {
 /// }
 /// ```
 class LibraryManager {
-  /// [operatingSystem] ו-[environment] הן דריסות **לבדיקות בלבד**, והן
-  /// נמסרות ל-[LibraryDbLocator]: בלעדיהן בדיקה של התקנה טרייה הייתה כותבת
-  /// את מיקום הספרייה להגדרות האמיתיות של אוצריא שעל מכונת המפתח.
-  /// [versionReader] lets tests shorten the busy timeout.
   LibraryManager({
     required this.dataDir,
     String? stateDir,
@@ -90,9 +86,7 @@ class LibraryManager {
     String? operatingSystem,
     Map<String, String>? environment,
     LocalDbVersionReader versionReader = const LocalDbVersionReader(),
-  }) : _stateStore = LibraryStateStore(
-         p.join(stateDir ?? dataDir, 'library_state.json'),
-       ),
+  }) : _stateStore = LibraryStateStore.inDir(stateDir ?? dataDir),
        _planner = const LibraryUpdatePlanner(),
        _versionReader = versionReader,
        _recovery = const LibraryDbRecoveryService(),

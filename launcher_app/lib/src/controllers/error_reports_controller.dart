@@ -21,7 +21,6 @@ class ErrorReportsController extends ChangeNotifier {
   })  : _resolveQueue = resolveQueue,
         _uploader = uploader ?? ErrorReportUploader();
 
-  /// התיבה ב-`<stateDir>/reports/outbox`, והתור נמצא כמו שאוצריא מוצאת אותו.
   factory ErrorReportsController.forDrive({
     required String stateDir,
     String? stateFilesDir,
@@ -38,11 +37,9 @@ class ErrorReportsController extends ChangeNotifier {
         if (launch == null) return null;
         return resolveOtzariaReportQueue(
           launchPath: launch,
-          locator: LibraryDbLocator(
-            stateStore: LibraryStateStore(
-              p.join(stateFilesDir ?? stateDir, 'library_state.json'),
-            ),
-            otzariaLaunchPath: () async => launch,
+          locator: LibraryDbLocator.forLaunch(
+            stateDir: stateFilesDir ?? stateDir,
+            launchPath: launch,
           ),
         );
       },

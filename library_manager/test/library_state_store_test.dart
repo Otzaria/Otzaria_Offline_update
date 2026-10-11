@@ -30,6 +30,18 @@ void main() {
       expect(File(statePath).existsSync(), isFalse);
     });
 
+    test('inDir יושב על library_state.json — השם שעל הכונן', () async {
+      final dir = p.dirname(statePath);
+      expect(LibraryStateStore.fileName, 'library_state.json');
+      expect(LibraryStateStore.inDir(dir).stateFilePath, statePath);
+
+      await store.saveAppliedRelease(tag: 'v7', dbVersion: 7);
+      expect(
+        (await LibraryStateStore.inDir(dir).loadAppliedRelease())?.tag,
+        'v7',
+      );
+    });
+
     test('סבב כתיבה/קריאה של נתיב מותאם אישית, כולל יצירת התיקייה', () async {
       final dbPath = p.join(tempDir.path, 'lib', 'seforim.db');
       await store.saveCustomDbPath(dbPath);

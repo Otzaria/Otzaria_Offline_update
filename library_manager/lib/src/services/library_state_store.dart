@@ -25,6 +25,10 @@ class AppliedRelease {
 class LibraryStateStore {
   const LibraryStateStore(this.stateFilePath);
 
+  LibraryStateStore.inDir(String dir) : stateFilePath = p.join(dir, fileName);
+
+  static const String fileName = 'library_state.json';
+
   final String stateFilePath;
 
   /// מזהה המחשב+החשבון שרשומות פר-מחשב נשמרות תחתיו. שם המחשב לבדו אינו

@@ -381,8 +381,6 @@ class _AppScreen extends AppScreenStrings {
   @override
   String get processRunning =>
       'Running — database updates are blocked until you close it';
-  @override
-  String get processStopped => 'Not running';
 
   @override
   String get installingProgress => 'Installing Otzaria…';
@@ -1222,8 +1220,6 @@ class _Plugins extends PluginsStrings {
   String get updatesDialogSentLabel => 'Sent to Otzaria';
   @override
   String get updatesDialogDoneLabel => 'Updated';
-  @override
-  String get updatesDialogManualOnly => 'Install from the plugin page';
   @override
   String get updatesDialogPendingNote =>
       'The installation itself happens inside Otzaria. This list updates by '
@@ -2608,8 +2604,6 @@ class _PluginsDomain extends PluginsDomainStrings {
   String syncPlugin(String name, int done, int total) =>
       'Syncing: $name ($done/$total)';
   @override
-  String get syncDone => 'Sync complete';
-  @override
   String syncDoneCounts(int fetched, int skipped) =>
       'Sync complete: $fetched plugins updated, $skipped already up to date';
   @override
@@ -2714,9 +2708,6 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
       'The id "$id" is not valid. Only lowercase letters, digits, dots, '
       'hyphens and underscores are allowed';
   @override
-  String descriptorUnknownInstallerKind(String found, String allowed) =>
-      'Installer type "$found" is not supported. Supported types: $allowed';
-  @override
   String descriptorUnknownSourceKind(String found, String allowed) =>
       'Version source "$found" is not supported. Supported sources: $allowed';
 
@@ -2809,8 +2800,6 @@ class _CustomApps extends CustomAppsStrings {
   String get infoPanelTitle => 'General information';
   @override
   String get screenshotsPanelTitle => 'Screenshots';
-  @override
-  String get categoriesPanelTitle => 'Categories';
   @override
   String get infoSource => 'Source';
   @override
@@ -3006,10 +2995,6 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get fetchAssetsButton => 'Show The Files';
   @override
-  String get fetchingAssets => 'Fetching the file list…';
-  @override
-  String get assetLabel => 'Which file to download';
-  @override
   String get assetHint =>
       'A release usually holds several files. Pick the one that fits your '
       'computer.';
@@ -3022,8 +3007,6 @@ class _CustomApps extends CustomAppsStrings {
   String get pickInstallerButton => 'Choose File';
   @override
   String get pickInstallerDialogTitle => 'Choose the installer file';
-  @override
-  String get installerKindLabel => 'Installer type';
   @override
   String installerKindSniffed(String kind) => 'Detected from the file: $kind';
   @override
@@ -3160,8 +3143,6 @@ class _CustomApps extends CustomAppsStrings {
   String get onlineUpToDate => 'What is on the drive is the latest version';
   @override
   String get onlineUnavailable => 'No internet connection right now';
-  @override
-  String get replaceInstallerButton => 'Replace The File';
   @override
   String get pickLocationButton => 'Choose Location Manually';
   @override

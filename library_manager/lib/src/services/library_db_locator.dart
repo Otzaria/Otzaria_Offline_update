@@ -29,6 +29,14 @@ class LibraryDbLocator {
   }) : _operatingSystemOverride = operatingSystem,
        _environmentOverride = environment;
 
+  factory LibraryDbLocator.forLaunch({
+    required String stateDir,
+    required String launchPath,
+  }) => LibraryDbLocator(
+    stateStore: LibraryStateStore.inDir(stateDir),
+    otzariaLaunchPath: () async => launchPath,
+  );
+
   final LibraryStateStore stateStore;
 
   /// קורא את קופסת ההגדרות של אוצריא. best-effort — ראו [OtzariaSettingsReader].
