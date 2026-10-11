@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:library_manager/src/services/zstd_file_decompressor.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -1232,6 +1234,101 @@ void main() {
         expect(check.plan!.kind, LibraryUpdatePlanKind.none);
         manager.dispose();
       });
+    });
+
+    Map<String, Object?> release(
+      String tag,
+      List<String> assets, {
+      bool draft = false,
+      bool prerelease = false,
+    }) => {
+      'tag_name': tag,
+      'draft': draft,
+      'prerelease': prerelease,
+      'assets': [
+        for (final name in assets)
+          {
+            'name': name,
+            'size': 10,
+            'browser_download_url': 'https://example.invalid/$tag/$name',
+          },
+      ],
+    };
+
+    Future<List<String>> withReleases(
+      List<Map<String, Object?>> releases,
+      Future<void> Function() body,
+    ) async {
+      final vectorTags = <String>[];
+      await http.runWithClient(
+        body,
+        () => MockClient((request) async {
+          final path = request.url.path;
+          if (path == '/repos/Otzaria/SeforimLibrary/releases') {
+            return http.Response(jsonEncode(releases), 200);
+          }
+          const vectorsPrefix =
+              '/repos/Otzaria/SeforimLibrary/releases/tags/vectors-';
+          if (path.startsWith(vectorsPrefix)) {
+            vectorTags.add(path.substring(vectorsPrefix.length));
+            return http.Response('', 404);
+          }
+          fail('unexpected request ${request.url}');
+        }),
+      );
+      return vectorTags;
+    }
+
+    test(
+      'הגרסה הגבוהה שנושאת תוכן מסד נבחרת, והתג שלה עובר לחיפוש החכם',
+      () async {
+        final vectorTags = await withReleases(
+          [
+            release('v40-20261010000000', ['seforim.db.zst'], draft: true),
+            release('v35-20261005000000', ['notes.txt']),
+            release('lines-snapshot-sha256-abc', ['lines.json']),
+            release('v33-20261003000000', [
+              'patch-v31-v33.db.zst.manifest.json',
+            ], prerelease: true),
+            release('v29-20260920000000', ['seforim.db.zst']),
+            release('v30-20260930165019', [
+              'patch-v30-v31.db.zst.manifest.json',
+            ]),
+          ],
+          () async {
+            final manager = LibraryManager(dataDir: dataDir);
+            try {
+              expect(await manager.peekLatestOnlineVersion(), 31);
+              expect(await manager.peekPendingSemanticSearch(), isFalse);
+              manager.allowPrerelease = true;
+              expect(await manager.peekLatestOnlineVersion(), 33);
+              expect(await manager.peekPendingSemanticSearch(), isFalse);
+            } finally {
+              manager.dispose();
+            }
+          },
+        );
+        expect(vectorTags, ['v30-20260930165019', 'v33-20261003000000']);
+      },
+    );
+
+    test('בלי release שנושא תוכן מסד — null, ואין בדיקת חיפוש חכם', () async {
+      final vectorTags = await withReleases(
+        [
+          release('v35-20261005000000', ['notes.txt']),
+          release('v34-20261004000000', ['seforim.db.zst'], draft: true),
+        ],
+        () async {
+          final manager = LibraryManager(dataDir: dataDir);
+          try {
+            expect(await manager.peekLatestOnlineVersion(), isNull);
+            expect(await manager.peekPendingSemanticSearch(), isFalse);
+          } finally {
+            manager.dispose();
+          }
+        },
+      );
+      expect(vectorTags, isEmpty);
     });
   });
 }

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:archive/archive_io.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -402,13 +403,8 @@ class CompanionAssetsInstaller {
     await targetDir.create(recursive: true);
     final marker = File(p.join(targetDir.path, talmudVersionFileName));
 
-    // הארכיון מכיל את התיקייה 'תלמוד בבלי/' עצמה — מחולץ לתיקיית האב.
     final tarPath = p.join(libraryDir, '${entry.fileName}.tar');
     try {
-      // **הפרישה קודמת למחיקה.** ארכיון קטוע או כונן מלא נכשלים בשלב הזה,
-      // ומחיקה לפניו הותירה את המשתמש בלי התלמוד שכבר היה לו — ועם סימון
-      // 'installing' שמזמין את אותו כשל בכל פתיחה. המחיר הוא שיא אחסון גבוה
-      // יותר לרגע: ה-tar לצד הקבצים הישנים.
       if (!await ZstdFileDecompressor.decompressFileToFile(
         archive.path,
         tarPath,
@@ -417,8 +413,6 @@ class CompanionAssetsInstaller {
           strings.companionExtractionFailed(strings.companionTalmudName),
         );
       }
-      // הסימון נכתב לפני החילוץ: קטיעה באמצע משאירה התקנה חלקית **מסומנת**,
-      // ואוצריא מתעלמת ממנה במקום להציג ספרים חסרים.
       marker.writeAsStringSync(talmudInstallingMarker);
       for (final entity in targetDir.listSync()) {
         if (entity is File &&
@@ -426,18 +420,19 @@ class CompanionAssetsInstaller {
           entity.deleteSync();
         }
       }
-      await extractFileToDisk(tarPath, libraryDir);
+      await _extractTarInIsolate(tarPath, libraryDir);
     } finally {
       _deleteQuietly(tarPath);
     }
 
-    // המפרט לפני הסימון: סימון בלי מפרט נופל לרצפה, מפרט בלי סימון מתעלמים
-    // ממנו ממילא.
     final installed = entry.versionMarker ?? '';
     _writeTalmudContents(targetDir, installed);
     marker.writeAsStringSync(installed);
     return true;
   }
+
+  static Future<void> _extractTarInIsolate(String tarPath, String outputDir) =>
+      Isolate.run(() => extractFileToDisk(tarPath, outputDir));
 
   // ── קטלוג otzar-HB ────────────────────────────────────────────────────
 

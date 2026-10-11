@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:plugins_manager/plugins_manager.dart';
 import 'package:test/test.dart';
@@ -315,6 +317,94 @@ void main() {
       expect(release.sizeBytes, 627200);
       expect(release.publishedAt, DateTime.utc(2026, 9, 4, 14, 9, 33));
     });
+
+    Map<String, Object?> releaseJson(
+      String tag, {
+      String asset = 'Otzaria-Plugin-Store.exe',
+      bool draft = false,
+      bool prerelease = false,
+    }) =>
+        {
+          'tag_name': tag,
+          'draft': draft,
+          'prerelease': prerelease,
+          'assets': [
+            {
+              'name': asset,
+              'browser_download_url': 'https://x/$tag/$asset',
+              'size': 100,
+            },
+          ],
+        };
+
+    test('fetchLatestStable מדלג על draft, prerelease ו-bundle ובוחר את הגבוה',
+        () async {
+      final requests = <http.Request>[];
+      final client = StoreAppReleaseClient(
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          return jsonResponse([
+            releaseJson('v9', draft: true),
+            releaseJson('v8', prerelease: true),
+            releaseJson('bundle'),
+            releaseJson('v7', asset: 'Otzaria-Plugin-Store-Full.exe'),
+            releaseJson('v5'),
+            releaseJson('v6'),
+            'not a release',
+          ]);
+        }),
+      );
+      try {
+        final latest = await client.fetchLatestStable();
+        expect(latest!.tagName, 'v6');
+        expect(latest.version, 6);
+        expect(latest.downloadUrl, 'https://x/v6/Otzaria-Plugin-Store.exe');
+        expect(latest.pageUrl, StoreAppReleaseClient.releasesPageUrl);
+      } finally {
+        client.dispose();
+      }
+      expect(requests, hasLength(1));
+      expect(
+        requests.single.url.path,
+        '/repos/Otzaria/otzaria-plugin-store/releases',
+      );
+      expect(requests.single.headers['User-Agent'], 'otzaria-launcher');
+    });
+
+    test('fetchLatestStable מחזיר null כשאין release יציב מתאים', () async {
+      final client = StoreAppReleaseClient(
+        httpClient: MockClient(
+          (_) async => jsonResponse([
+            releaseJson('v8', prerelease: true),
+            releaseJson('bundle'),
+          ]),
+        ),
+      );
+      try {
+        expect(await client.fetchLatestStable(), isNull);
+      } finally {
+        client.dispose();
+      }
+    });
+
+    test('fetchLatestStable: סטטוס שגוי, תשובה שאינה רשימה וכשל רשת זורקים',
+        () async {
+      for (final handler in <MockClientHandler>[
+        (_) async => http.Response('nope', 503),
+        (_) async => jsonResponse({'message': 'Not Found'}),
+        (request) async => throw http.ClientException('offline', request.url),
+      ]) {
+        final client = StoreAppReleaseClient(httpClient: MockClient(handler));
+        try {
+          await expectLater(
+            client.fetchLatestStable(),
+            throwsA(isA<PluginStoreException>()),
+          );
+        } finally {
+          client.dispose();
+        }
+      }
+    });
   });
 
   group('StoreAppMirror', () {
@@ -341,6 +431,75 @@ void main() {
           .deleteSync();
       expect(await appMirror.load(), isNull);
       expect(await appMirror.wasRemoved, isTrue);
+    });
+
+    StoreAppRelease v7({int? sizeBytes}) => StoreAppRelease(
+          tagName: 'v7',
+          version: 7,
+          assetName: 'Otzaria-Plugin-Store.exe',
+          downloadUrl: 'https://example.invalid/v7.exe',
+          sizeBytes: sizeBytes ?? 'MZ-v7-bytes'.length,
+        );
+
+    test('sync מוריד, כותב מטא-דאטה ומנקה את הגרסה הקודמת', () async {
+      final mirrorDir = p.join(temp.path, 'mirror', 'store-app');
+      await _seedApp(StoreAppMirror(mirrorDir: mirrorDir));
+      var requests = 0;
+      final mirror = StoreAppMirror(
+        mirrorDir: mirrorDir,
+        httpClient: MockClient((request) async {
+          requests++;
+          expect(request.url.toString(), 'https://example.invalid/v7.exe');
+          return http.Response.bytes(utf8.encode('MZ-v7-bytes'), 200);
+        }),
+      );
+      try {
+        final progress = <int>[];
+        final synced = await mirror.sync(
+          v7(),
+          onProgress: (received, _) => progress.add(received),
+        );
+        expect(File(synced.filePath).readAsStringSync(), 'MZ-v7-bytes');
+        expect(progress.last, 'MZ-v7-bytes'.length);
+
+        final loaded = await mirror.load();
+        expect(loaded!.release.tagName, 'v7');
+        expect(loaded.filePath, synced.filePath);
+        expect(
+          Directory(p.join(mirrorDir, 'files', 'v6')).existsSync(),
+          isFalse,
+        );
+        final metadata = jsonDecode(
+          File(p.join(mirrorDir, 'latest-release.json')).readAsStringSync(),
+        ) as Map<String, dynamic>;
+        expect(metadata['filePath'], 'files/v7/Otzaria-Plugin-Store.exe');
+
+        await mirror.sync(v7());
+        expect(requests, 1);
+      } finally {
+        mirror.dispose();
+      }
+    });
+
+    test('sync שהקובץ שלו בגודל שגוי נכשל ומשאיר את המראה הקודמת', () async {
+      final mirrorDir = p.join(temp.path, 'mirror', 'store-app');
+      await _seedApp(StoreAppMirror(mirrorDir: mirrorDir));
+      final mirror = StoreAppMirror(
+        mirrorDir: mirrorDir,
+        httpClient: MockClient(
+          (_) async => http.Response.bytes(utf8.encode('short'), 200),
+        ),
+      );
+      try {
+        await expectLater(
+          mirror.sync(v7(sizeBytes: 4096)),
+          throwsA(isA<PluginStoreException>()),
+        );
+        expect((await mirror.load())!.release.tagName, 'v6');
+        expect(await mirror.wasRemoved, isFalse);
+      } finally {
+        mirror.dispose();
+      }
     });
   });
 }

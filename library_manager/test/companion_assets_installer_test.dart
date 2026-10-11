@@ -497,6 +497,63 @@ void main() {
       );
     });
 
+    test('חילוץ שנכשל באמצע משאיר סימון installing ומחזיר להצעה', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      writeTalmudArchive(p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'), [
+        'ברכות.pdf',
+        'שבת.pdf',
+      ]);
+      await writeManifest({
+        'talmud': {
+          'fileName': 'talmud_bavli_latest.tar.zst',
+          'size': mirrorSize('talmud_bavli_latest.tar.zst'),
+          'sha256': 'new-digest',
+          'compressed': true,
+        },
+      });
+      final talmudDir = Directory(p.join(libraryDir, 'תלמוד בבלי'));
+      await talmudDir.create(recursive: true);
+      await File(p.join(talmudDir.path, 'ברכות.pdf')).writeAsString('ישן');
+      await File(p.join(talmudDir.path, '.version')).writeAsString('old');
+      await File(
+        p.join(talmudDir.path, 'שבת.pdf', 'חוסם'),
+      ).create(recursive: true);
+
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+
+      expect(
+        report.outcomes[CompanionAsset.talmud],
+        CompanionInstallOutcome.failed,
+      );
+      expect(report.errors[CompanionAsset.talmud], isNotNull);
+      expect(
+        File(p.join(talmudDir.path, 'ברכות.pdf')).readAsStringSync(),
+        'pdf:ברכות.pdf',
+      );
+      expect(report.delivered, isNot(contains(CompanionAsset.talmud)));
+      expect(
+        File(p.join(talmudDir.path, '.version')).readAsStringSync(),
+        'installing',
+      );
+      expect(
+        File(p.join(talmudDir.path, '.version.contents')).existsSync(),
+        isFalse,
+      );
+      expect(
+        File(
+          p.join(libraryDir, 'talmud_bavli_latest.tar.zst.tar'),
+        ).existsSync(),
+        isFalse,
+      );
+      expect(await pending(), contains(CompanionAsset.talmud));
+    });
+
     /// **issue #33.** הפרדיקט שאל רק את `.version`, ולכן תיקייה שנשאר בה
     /// קובץ אחד מתוך כל הש"ס נקראה "מעודכנת" — ומשמר ה-`delivered` בלע גם
     /// את זה, כי "קיים" נמדד באותו סימון עצמו.
