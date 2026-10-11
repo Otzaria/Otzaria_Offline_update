@@ -100,20 +100,17 @@ class DeltaManifest extends Equatable {
     this.catalogBlobName,
   });
 
-  /// בונה [DeltaManifest] מ-JSON. זורק [FormatException] אם חסר שדה חובה.
-  /// שדות לא מוכרים מתעלמים מהם בשקט (תאימות קדימה).
   factory DeltaManifest.fromJson(Map<String, dynamic> json) {
     final patchFilesRaw = json['patchFiles'];
-    if (patchFilesRaw is! List || patchFilesRaw.isEmpty) {
+    if (patchFilesRaw is! List ||
+        patchFilesRaw.isEmpty ||
+        patchFilesRaw.any((e) => e is! Map<String, dynamic>)) {
       throw FormatException(
         AppL10n.strings.libraryDomain.manifestMissingPatchFiles,
       );
     }
     final booksTouchedRaw = json['booksTouched'];
-    // **השדה נשאר אופציונלי בכוונה**, גם מסכמה 4 שבה היצרן כותב אותו תמיד:
-    // מניפסט שנפסל בפענוח נעלם מהגרף, ואיתו נעלמת הגרסה שהוא מוביל אליה —
-    // המחשב הלא-מקוון היה רואה "מעודכן" ונתקע שם. בלי הצהרה, ה-preflight של
-    // `PatchApplier` נשאר השער, במחיר של הורדה אחת שתידחה.
+    final catalogBlobName = json['catalogBlobName'];
     final patchFormatVersion = _optionalInt(json, 'patchFormatVersion');
     return DeltaManifest(
       fromVersion: _requireInt(json, 'fromVersion'),
@@ -124,13 +121,14 @@ class DeltaManifest extends Equatable {
       fromContentHash: _requireString(json, 'fromContentHash'),
       toContentHash: _requireString(json, 'toContentHash'),
       patchFiles: patchFilesRaw
-          .map((e) => PatchFileEntry.fromJson(e as Map<String, dynamic>))
+          .cast<Map<String, dynamic>>()
+          .map(PatchFileEntry.fromJson)
           .toList(growable: false),
       fullRebase: _optionalBool(json, 'fullRebase') ?? false,
       booksTouched: booksTouchedRaw is List
-          ? booksTouchedRaw.map((e) => (e as num).toInt()).toList()
+          ? booksTouchedRaw.whereType<num>().map((e) => e.toInt()).toList()
           : const [],
-      catalogBlobName: json['catalogBlobName'] as String?,
+      catalogBlobName: catalogBlobName is String ? catalogBlobName : null,
     );
   }
 

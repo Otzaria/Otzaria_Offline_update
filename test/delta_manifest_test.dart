@@ -82,6 +82,20 @@ void main() {
         expect(() => DeltaManifest.fromJson(json), throwsFormatException);
       });
     }
+    test('איבר patchFiles שאינו אובייקט → FormatException ולא TypeError', () {
+      final json = jsonDecode(validJson) as Map<String, dynamic>;
+      json['patchFiles'] = ['patch-v1-v2.db.zst'];
+      expect(() => DeltaManifest.fromJson(json), throwsFormatException);
+    });
+
+    test('booksTouched ו-catalogBlobName מסוג שגוי נקראים בסלחנות', () {
+      final json = jsonDecode(validJson) as Map<String, dynamic>;
+      json['booksTouched'] = ['123', 7, null, 8.0];
+      json['catalogBlobName'] = 42;
+      final m = DeltaManifest.fromJson(json);
+      expect(m.booksTouched, [7, 8]);
+      expect(m.catalogBlobName, isNull);
+    });
 
     // פענוח שנכשל היה מעלים את הגרסה מהגרף; הפסילה נעשית ב-PatchEdge.
     test('compression שאינו zstd נקרא, ומסומן כלא נתמך', () {

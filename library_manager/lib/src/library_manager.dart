@@ -378,7 +378,7 @@ class LibraryManager {
           final discovery = await LibraryUpdateDiscovery(
             client: await _resolveSource(),
           ).discover(allowPrerelease: allowPrerelease);
-          tag = discovery.latestContentTag;
+          tag = discovery.newestReleaseTag;
         } else {
           final latest = _latestOnline(await _cloudClient.fetchReleases());
           _onlineLibraryTag = latest.tag;

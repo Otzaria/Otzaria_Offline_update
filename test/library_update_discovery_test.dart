@@ -4,8 +4,10 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:seforim_library_updater/src/models/library_release.dart';
+import 'package:seforim_library_updater/src/models/library_update_plan.dart';
 import 'package:seforim_library_updater/src/services/github_library_release_client.dart';
 import 'package:seforim_library_updater/src/services/library_update_discovery.dart';
+import 'package:seforim_library_updater/src/services/library_update_planner.dart';
 import 'package:seforim_library_updater/src/services/local_mirror_library_release_client.dart';
 import 'package:test/test.dart';
 
@@ -410,6 +412,7 @@ void main() {
       expect(
           result.edges.map((e) => '${e.fromVersion}-${e.toVersion}'), ['2-3']);
       expect(result.latestVersion, 3);
+      expect(result.unreadableManifests, ['patch-v1-v3.db.zst.manifest.json']);
     });
 
     test('קובץ patch שה-manifest מצביע עליו חסר → ה-edge מדולג', () async {
@@ -1024,6 +1027,284 @@ void main() {
       expect(result.edges, isEmpty);
       expect(result.latestVersion, 3);
       expect(result.latestFullDbAsset, isNotNull);
+    });
+
+    test('manifest פגום בלבד ב-release האחרון — יש תג לחיפוש החכם', () async {
+      write('patch-v26-v27.db.zst.manifest.json', '{{{ broken');
+      write('seforim.db.zst', 'y');
+      write(
+        'releases.json',
+        jsonEncode({
+          'releases': [
+            {
+              'tag': 'v27-b',
+              'publishedAt': '2026-06-27T10:00:00Z',
+              'assets': [
+                {
+                  'name': 'patch-v26-v27.db.zst.manifest.json',
+                  'downloadUrl': 'patch-v26-v27.db.zst.manifest.json',
+                  'size': 10
+                },
+              ],
+            },
+            {
+              'tag': 'v26-a',
+              'publishedAt': '2026-06-26T10:00:00Z',
+              'assets': [
+                {
+                  'name': 'seforim.db.zst',
+                  'downloadUrl': 'seforim.db.zst',
+                  'size': 1
+                },
+              ],
+            },
+          ],
+        }),
+      );
+      final discovery = LibraryUpdateDiscovery(
+          client: LocalMirrorLibraryReleaseClient(mirrorDir: tmp.path));
+      final result = await discovery.discover(allowPrerelease: true);
+      expect(result.latestVersion, 27);
+      expect(result.latestContentTag, isNull);
+      expect(result.fullDbReleaseTag, 'v26-a');
+      expect(result.newestReleaseTag, 'v27-b');
+    });
+  });
+
+  group('latestContentTag רק מ-release שתרם ל-latestVersion', () {
+    LibraryUpdateDiscovery buildDiscovery(
+      List<({String tag, String? published, List<String> assets})> releases, {
+      Map<String, String> manifestBodies = const {},
+    }) {
+      final json = jsonEncode([
+        for (final release in releases)
+          {
+            'tag_name': release.tag,
+            if (release.published != null) 'published_at': release.published,
+            'assets': [
+              for (final name in release.assets)
+                {
+                  'name': name,
+                  'browser_download_url': 'https://x/${release.tag}/$name',
+                  'size': 100,
+                },
+            ],
+          },
+      ]);
+      final mock = MockClient((request) async {
+        final url = request.url.toString();
+        if (url.contains('/releases')) return http.Response(json, 200);
+        final name = url.split('/').last;
+        final override = manifestBodies[name];
+        if (override != null) return http.Response(override, 200);
+        final match = RegExp(r'patch-v(\d+)-v(\d+)').firstMatch(name);
+        if (match == null) return http.Response('not found', 404);
+        return http.Response(
+          _manifestJson(int.parse(match.group(1)!), int.parse(match.group(2)!)),
+          200,
+        );
+      });
+      return LibraryUpdateDiscovery(
+          client: GithubLibraryReleaseClient(httpClient: mock));
+    }
+
+    const v26 = (
+      tag: 'v26-a',
+      published: '2026-06-26T10:00:00Z',
+      assets: [
+        'seforim.db.zst',
+        'patch-v25-v26.db.zst',
+        'patch-v25-v26.db.zst.manifest.json',
+      ],
+    );
+
+    test('release עם manifest בלבד (העלאה באמצע) אינו latestContentTag',
+        () async {
+      final result = await buildDiscovery([
+        (
+          tag: 'v27',
+          published: '2026-06-27T10:00:00Z',
+          assets: ['patch-v26-v27.db.zst.manifest.json'],
+        ),
+        v26,
+      ]).discover(allowPrerelease: true);
+
+      expect(result.latestVersion, 26);
+      expect(result.latestContentTag, 'v26-a');
+      expect(result.unreadableManifests, isEmpty);
+
+      final plan = const LibraryUpdatePlanner().plan(
+        localVersion: 26,
+        hasLocalVersionMeta: true,
+        latestVersion: result.latestVersion,
+        edges: result.edges,
+        latestFullDbAsset: result.latestFullDbAsset,
+        fullDbReleaseTag: result.fullDbReleaseTag,
+        latestFullDbVersion: result.latestFullDbVersion,
+        latestContentTag: result.latestContentTag,
+        localReleaseTag: 'v26-a',
+        localReleaseTagVersion: 26,
+      );
+      expect(plan.kind, LibraryUpdatePlanKind.none);
+    });
+
+    test('כל נכסי ה-release עדיין בהעלאה — התג נשאר של הגרסה הקיימת', () async {
+      final result = await buildDiscovery([
+        (
+          tag: 'v27',
+          published: '2026-06-27T10:00:00Z',
+          assets: [
+            'patch-v25-v27.db.zst.manifest.json',
+            'patch-v26-v27.db.zst.manifest.json',
+          ],
+        ),
+        v26,
+      ]).discover(allowPrerelease: true);
+
+      expect(result.latestVersion, 26);
+      expect(result.edges.map((e) => e.toVersion), [26]);
+      expect(result.latestContentTag, 'v26-a');
+    });
+
+    test('פרסום מחדש באותה גרסה — התג של ה-release החדש מבין התורמים',
+        () async {
+      final result = await buildDiscovery([
+        (
+          tag: 'v27',
+          published: '2026-06-28T10:00:00Z',
+          assets: ['patch-v26-v27.db.zst.manifest.json'],
+        ),
+        (
+          tag: 'v26-b',
+          published: '2026-06-27T10:00:00Z',
+          assets: ['seforim.db.zst'],
+        ),
+        v26,
+      ]).discover(allowPrerelease: true);
+
+      expect(result.latestVersion, 26);
+      expect(result.latestContentTag, 'v26-b');
+    });
+
+    test('release שגרסתו מה-tag בלבד, בלי מסד ובלי קשת, אינו תורם', () async {
+      final result = await buildDiscovery([
+        (tag: 'v30', published: '2026-06-30T10:00:00Z', assets: []),
+        v26,
+      ]).discover(allowPrerelease: true);
+
+      expect(result.latestVersion, 26);
+      expect(result.latestContentTag, 'v26-a');
+      expect(result.newestReleaseTag, 'v26-a');
+    });
+
+    test('manifest שחסר בו שדה חובה — הגרסה שלו נספרת ומדווחת', () async {
+      final result = await buildDiscovery(
+        [
+          (
+            tag: 'v27',
+            published: '2026-06-27T10:00:00Z',
+            assets: [
+              'patch-v26-v27.db.zst',
+              'patch-v26-v27.db.zst.manifest.json',
+            ],
+          ),
+          v26,
+        ],
+        manifestBodies: {
+          'patch-v26-v27.db.zst.manifest.json': jsonEncode(
+            (jsonDecode(_manifestJson(26, 27)) as Map<String, dynamic>)
+              ..remove('toContentHash'),
+          ),
+        },
+      ).discover(allowPrerelease: true);
+
+      expect(result.edges.map((e) => e.toVersion), [26]);
+      expect(result.latestVersion, 27);
+      expect(
+          result.unreadableManifests, ['patch-v26-v27.db.zst.manifest.json']);
+      expect(result.latestContentTag, isNull);
+      expect(result.newestReleaseTag, 'v27');
+
+      final plan = const LibraryUpdatePlanner().plan(
+        localVersion: 26,
+        hasLocalVersionMeta: true,
+        latestVersion: result.latestVersion,
+        edges: result.edges,
+        latestFullDbAsset: result.latestFullDbAsset,
+        fullDbReleaseTag: result.fullDbReleaseTag,
+        latestFullDbVersion: result.latestFullDbVersion,
+        latestContentTag: result.latestContentTag,
+        localReleaseTag: 'v26-a',
+        localReleaseTagVersion: 26,
+      );
+      expect(plan.kind, isNot(LibraryUpdatePlanKind.none));
+      expect(plan.kind, isNot(LibraryUpdatePlanKind.fullDownload));
+    });
+
+    test('release מאוחר באותה גרסה עם manifest פגום בלבד אינו latestContentTag',
+        () async {
+      final result = await buildDiscovery(
+        [
+          (
+            tag: 'v27-b',
+            published: '2026-06-28T10:00:00Z',
+            assets: ['patch-v25-v27.db.zst.manifest.json'],
+          ),
+          (
+            tag: 'v27-a',
+            published: '2026-06-27T10:00:00Z',
+            assets: [
+              'seforim.db.zst',
+              'patch-v26-v27.db.zst',
+              'patch-v26-v27.db.zst.manifest.json',
+            ],
+          ),
+          v26,
+        ],
+        manifestBodies: {'patch-v25-v27.db.zst.manifest.json': '{{{ broken'},
+      ).discover(allowPrerelease: true);
+
+      expect(result.latestVersion, 27);
+      expect(
+          result.unreadableManifests, ['patch-v25-v27.db.zst.manifest.json']);
+      expect(result.fullDbReleaseTag, 'v27-a');
+      expect(result.latestContentTag, 'v27-a');
+
+      final plan = const LibraryUpdatePlanner().plan(
+        localVersion: 27,
+        hasLocalVersionMeta: true,
+        latestVersion: result.latestVersion,
+        edges: result.edges,
+        latestFullDbAsset: result.latestFullDbAsset,
+        fullDbReleaseTag: result.fullDbReleaseTag,
+        latestFullDbVersion: result.latestFullDbVersion,
+        latestContentTag: result.latestContentTag,
+        localReleaseTag: 'v27-a',
+        localReleaseTagVersion: 27,
+      );
+      expect(plan.kind, LibraryUpdatePlanKind.none);
+    });
+
+    test('manifest פגום בגרסה ישנה אינו משנה את ה-latest', () async {
+      final result = await buildDiscovery(
+        [
+          (
+            tag: 'v25',
+            published: '2026-06-25T10:00:00Z',
+            assets: [
+              'patch-v24-v25.db.zst',
+              'patch-v24-v25.db.zst.manifest.json',
+            ],
+          ),
+          v26,
+        ],
+        manifestBodies: {'patch-v24-v25.db.zst.manifest.json': '{{{ broken'},
+      ).discover(allowPrerelease: true);
+
+      expect(result.latestVersion, 26);
+      expect(
+          result.unreadableManifests, ['patch-v24-v25.db.zst.manifest.json']);
+      expect(result.latestContentTag, 'v26-a');
     });
   });
 }

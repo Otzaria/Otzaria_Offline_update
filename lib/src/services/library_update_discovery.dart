@@ -34,6 +34,10 @@ class LibraryDiscoveryResult {
   /// אותה פסילה, ראו [isSupportedPatchFormatVersion].
   final Set<int> unsupportedPatchFormatVersions;
 
+  final List<String> unreadableManifests;
+
+  final String? newestReleaseTag;
+
   /// גרסת הסכמה הגבוהה שנראתה ואינה נתמכת, או null כשהכל נתמך. זו הגרסה
   /// שמוצגת למשתמש כהסבר למה מורידים מסד שלם.
   int? get blockingSchemaVersion => _highest(unsupportedSchemaVersions);
@@ -55,6 +59,8 @@ class LibraryDiscoveryResult {
     this.latestFullDbVersion,
     this.unsupportedSchemaVersions = const {},
     this.unsupportedPatchFormatVersions = const {},
+    this.unreadableManifests = const [],
+    this.newestReleaseTag,
   });
 }
 
@@ -107,7 +113,6 @@ class LibraryUpdateDiscovery {
     return int.tryParse(match.group(1)!);
   }
 
-  /// סורק את כל ה-releases ומחזיר את ה-edges, הגרסה האחרונה וה-DB המלא.
   Future<LibraryDiscoveryResult> discover({
     required bool allowPrerelease,
   }) async {
@@ -116,29 +121,39 @@ class LibraryUpdateDiscovery {
       allowPrerelease: allowPrerelease,
     );
 
-    // כל הקשתות שנבנו, כולל כאלה שאיננו יודעים להחיל: הן קובעות מהי הגרסה
-    // האחרונה שקיימת בכלל, גם כשהמסלול אליה אינו patches.
     final allEdges = <PatchEdge>[];
     final edgeRelease = <PatchEdge, LibraryRelease>{};
+    final unreadableManifests = <String>[];
+    final contributed = <LibraryRelease, int>{};
+    void contribute(LibraryRelease release, int version) {
+      if (version > (contributed[release] ?? -1)) {
+        contributed[release] = version;
+      }
+    }
+
+    var maxManifestVersion = 0;
     for (final release in releases) {
       for (final manifestAsset in release.deltaManifestAssets) {
-        final edge = await _buildEdge(release, manifestAsset);
-        if (edge != null) {
-          allEdges.add(edge);
-          edgeRelease[edge] = release;
+        final PatchEdge? edge;
+        try {
+          edge = await _buildEdge(release, manifestAsset);
+        } catch (_) {
+          unreadableManifests.add(manifestAsset.name);
+          final version = _manifestToVersion(manifestAsset.name) ??
+              releaseVersionOf(release);
+          if (version > maxManifestVersion) maxManifestVersion = version;
+          continue;
+        }
+        if (edge == null) continue;
+        allEdges.add(edge);
+        edgeRelease[edge] = release;
+        contribute(release, edge.toVersion);
+        if (edge.toVersion > maxManifestVersion) {
+          maxManifestVersion = edge.toVersion;
         }
       }
     }
 
-    var maxEdgeVersion = 0;
-    for (final edge in allEdges) {
-      if (edge.toVersion > maxEdgeVersion) maxEdgeVersion = edge.toVersion;
-    }
-
-    // **הסינון המרכזי:** patch שסכמתו או שפורמטו אינם מוכרים ייכשל
-    // ב-preflight של `PatchApplier` — אחרי הורדה, חילוץ, והחלפת המסד החי
-    // במסלול המלא. לכן הוא יוצא מהגרף כאן, וה-planner בונה תוכנית רק ממה
-    // שאפשר להחיל.
     final unsupportedSchemas = <int>{};
     final unsupportedFormats = <int>{};
     final edges = <PatchEdge>[];
@@ -147,8 +162,6 @@ class LibraryUpdateDiscovery {
         edges.add(edge);
         continue;
       }
-      // מחסום סכמה אינו "יכולת חסרה": המסלול אליו הוא מסד מלא, בלי הודעת
-      // "נדרש עדכון תוכנה".
       if (edge.manifest.fullRebase) {
         final target = edge.manifest.toSchemaVersion;
         if (!isSupportedSchemaVersion(target) &&
@@ -174,6 +187,7 @@ class LibraryUpdateDiscovery {
     for (final release in releases) {
       if (release.fullDbAsset == null) continue;
       final version = releaseVersionOf(release);
+      contribute(release, version);
       if (version > bestFullVersion ||
           (version == bestFullVersion &&
               _publishedAfter(release, fullRelease))) {
@@ -184,10 +198,9 @@ class LibraryUpdateDiscovery {
     final latestFull = fullRelease?.fullDbAsset;
     final latestTag = fullRelease?.tag;
 
-    // ה-latest הוא הגבוה מבין ה-edges וה-DB המלא — כך release חדש שיצא עם DB
-    // מלא בלבד (טרם נוצרו לו patches) עדיין נחשב latest, ויפעיל full fallback.
-    var latestVersion =
-        maxEdgeVersion > bestFullVersion ? maxEdgeVersion : bestFullVersion;
+    var latestVersion = maxManifestVersion > bestFullVersion
+        ? maxManifestVersion
+        : bestFullVersion;
 
     for (final release in releases) {
       final schema = release.unsupportedFullDbSchema;
@@ -196,6 +209,7 @@ class LibraryUpdateDiscovery {
       if (version < latestVersion) continue;
       latestVersion = version;
       unsupportedSchemas.add(schema);
+      contribute(release, version);
     }
 
     return LibraryDiscoveryResult(
@@ -203,20 +217,24 @@ class LibraryUpdateDiscovery {
       edges: edges,
       latestFullDbAsset: latestFull,
       fullDbReleaseTag: latestTag,
-      latestContentTag: _newestReleaseTag(releases),
+      latestContentTag: _newestReleaseTag(
+        releases.where((r) => contributed[r] == latestVersion),
+      ),
       latestFullDbVersion: latestFull == null ? null : bestFullVersion,
       unsupportedSchemaVersions: unsupportedSchemas,
       unsupportedPatchFormatVersions: unsupportedFormats,
+      unreadableManifests: unreadableManifests,
+      newestReleaseTag: _newestContentRelease(releases)?.tag,
     );
   }
 
-  /// ה-tag של ה-release בעל הגרסה הגבוהה ביותר; שוויון נשבר לפי תאריך
-  /// הפרסום. זה ה-release שמסד מעודכן "מגיע ממנו" — ולכן זה מה שנרשם אחרי
-  /// החלה מוצלחת, ולא נושא המסד המלא.
-  static String? _newestReleaseTag(List<LibraryRelease> releases) {
+  static LibraryRelease? _newestContentRelease(List<LibraryRelease> releases) {
     LibraryRelease? newest;
     var newestVersion = -1;
     for (final release in releases) {
+      if (release.deltaManifestAssets.isEmpty && release.fullDbAsset == null) {
+        continue;
+      }
       final version = releaseVersionOf(release);
       if (version > newestVersion ||
           (version == newestVersion && _publishedAfter(release, newest))) {
@@ -224,49 +242,52 @@ class LibraryUpdateDiscovery {
         newest = release;
       }
     }
+    return newest;
+  }
+
+  static String? _newestReleaseTag(Iterable<LibraryRelease> candidates) {
+    LibraryRelease? newest;
+    for (final release in candidates) {
+      if (_publishedAfter(release, newest)) newest = release;
+    }
     return newest?.tag;
   }
 
   static bool _publishedAfter(LibraryRelease candidate, LibraryRelease? best) {
-    final bestDate = best?.publishedAt;
+    if (best == null) return true;
+    final bestDate = best.publishedAt;
     if (bestDate == null) return true;
     final own = candidate.publishedAt;
     return own != null && own.isAfter(bestDate);
   }
 
-  /// בונה [PatchEdge] מ-manifest asset. מחזיר null אם ה-manifest פגום או אם
-  /// קובץ patch הנדרש חסר ב-release — מתעלמים מ-edge כזה בלי להכשיל הכל.
+  static int? _manifestToVersion(String name) {
+    final match = _manifestVersionPattern.firstMatch(name);
+    return match == null ? null : int.parse(match.group(2)!);
+  }
+
   Future<PatchEdge?> _buildEdge(
     LibraryRelease release,
     ReleaseAsset manifestAsset,
   ) async {
-    try {
-      final manifest = await client.fetchManifest(manifestAsset.downloadUrl);
-      final urls = <String, String>{};
-      var missingFile = false;
-      for (final patchFile in manifest.patchFiles) {
-        final asset = release.assetByName(patchFile.file);
-        if (asset == null) {
-          missingFile = true;
-        } else {
-          urls[patchFile.file] = asset.downloadUrl;
-        }
+    final manifest = await client.fetchManifest(manifestAsset.downloadUrl);
+    final urls = <String, String>{};
+    var missingFile = false;
+    for (final patchFile in manifest.patchFiles) {
+      final asset = release.assetByName(patchFile.file);
+      if (asset == null) {
+        missingFile = true;
+      } else {
+        urls[patchFile.file] = asset.downloadUrl;
       }
-      final edge = PatchEdge(
-        manifest: manifest,
-        patchFileUrls: urls,
-        manifestUrl: manifestAsset.downloadUrl,
-      );
-      // קובץ patch חסר ⇒ הקשת אינה שמישה, ומתעלמים ממנה בלי להכשיל הכל.
-      // היוצא היחיד: יכולת שאיננו מכירים (סכמה או פורמט), שממנה המראה שומרת
-      // את ה-manifest בלבד (`LibraryMirrorExporter`). שם הקשת נשמרת כמטא-דאטה
-      // כדי שהגרסה החדשה תישאר ידועה ומנומקת ולא תיראה כ"מעודכן" — היא
-      // מסוננת מיד ב-[discover] ולעולם אינה מגיעה לתוכנית.
-      if (missingFile && edge.isApplicable) return null;
-      return edge;
-    } catch (_) {
-      return null;
     }
+    final edge = PatchEdge(
+      manifest: manifest,
+      patchFileUrls: urls,
+      manifestUrl: manifestAsset.downloadUrl,
+    );
+    if (missingFile && edge.isApplicable) return null;
+    return edge;
   }
 
   /// גרסת ה-release לפי שמות ה-manifest assets, או לפי ה-tag כ-fallback.

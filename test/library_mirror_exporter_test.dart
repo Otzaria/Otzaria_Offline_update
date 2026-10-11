@@ -86,6 +86,7 @@ void main() {
   ({LibraryMirrorExporter exporter, List<String> fetched}) buildExporter(
     List<ReleaseSpec> releases, {
     Set<String> corruptManifests = const {},
+    Map<String, Map<String, Object>> manifestOverrides = const {},
     String? failAsset,
     int historyDepth = LibraryMirrorExporter.defaultHistoryDepth,
     ApplyTimeEstimate applyTime = const ApplyTimeEstimate(),
@@ -112,15 +113,18 @@ void main() {
       final match = RegExp(r'patch-v(\d+)-v(\d+)').firstMatch(name)!;
       final from = int.parse(match.group(1)!);
       final to = int.parse(match.group(2)!);
-      return Uint8List.fromList(utf8.encode(jsonEncode(manifestBody(
-        from,
-        to,
-        fromSchema: schemaByVersion[from] ?? 2,
-        toSchema: schemaByVersion[to] ?? 2,
-        patchFormat: patchFormat,
-        fullRebase: fullRebase,
-        compression: compressionByVersion[to] ?? 'zstd',
-      ))));
+      return Uint8List.fromList(utf8.encode(jsonEncode({
+        ...manifestBody(
+          from,
+          to,
+          fromSchema: schemaByVersion[from] ?? 2,
+          toSchema: schemaByVersion[to] ?? 2,
+          patchFormat: patchFormat,
+          fullRebase: fullRebase,
+          compression: compressionByVersion[to] ?? 'zstd',
+        ),
+        ...?manifestOverrides[name],
+      })));
     }
 
     final releasesJson = releases
@@ -1530,6 +1534,51 @@ void main() {
           isTrue);
       // קובץ ה-patch עצמו לא נדרש — ה-manifest שמצביע עליו לא נקרא.
       expect(assetOnDisk(destDir, 'v3', 'patch-v2-v3.db.zst'), isFalse);
+    });
+
+    test('manifest במבנה שגוי מדולג עם אזהרה ואינו מפיל את הייצוא', () async {
+      final warnings = <String>[];
+      final built = buildExporter(
+        [
+          release('v3', assets: [
+            'seforim.db.zst',
+            'patch-v2-v3.db.zst',
+            'patch-v2-v3.db.zst.manifest.json',
+          ]),
+        ],
+        manifestOverrides: {
+          'patch-v2-v3.db.zst.manifest.json': {
+            'patchFiles': ['patch-v2-v3.db.zst'],
+          },
+        },
+      );
+      await built.exporter.export(destDir: destDir, onWarning: warnings.add);
+      expect(
+          warnings.where((w) => w.contains('patch-v2-v3.db.zst.manifest.json')),
+          hasLength(1));
+      expect(assetOnDisk(destDir, 'v3', 'patch-v2-v3.db.zst.manifest.json'),
+          isTrue);
+      expect(assetOnDisk(destDir, 'v3', 'patch-v2-v3.db.zst'), isFalse);
+    });
+
+    test('שדות אופציונליים מסוג שגוי אינם פוסלים את הקשת', () async {
+      final built = buildExporter(
+        [
+          release('v3', assets: [
+            'seforim.db.zst',
+            'patch-v2-v3.db.zst',
+            'patch-v2-v3.db.zst.manifest.json',
+          ]),
+        ],
+        manifestOverrides: {
+          'patch-v2-v3.db.zst.manifest.json': {
+            'booksTouched': ['123'],
+            'catalogBlobName': 5,
+          },
+        },
+      );
+      await built.exporter.export(destDir: destDir);
+      expect(assetOnDisk(destDir, 'v3', 'patch-v2-v3.db.zst'), isTrue);
     });
 
     test('כשל HTTP בנכס מפיל את הייצוא (לא מראה חלקית בשקט)', () {
