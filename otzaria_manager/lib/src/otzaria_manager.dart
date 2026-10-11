@@ -57,16 +57,17 @@ class OtzariaManager {
     WindowsInstallRegistry installRegistry = const WindowsInstallRegistry(),
     OtzariaLauncher launcher = const OtzariaLauncher(),
     this.preferPrerelease = false,
-  })  : _platform =
-            platform ?? OtzariaTargetPlatform.detect(Platform.operatingSystem),
-        _environment = environment ?? Platform.environment,
-        _runningLocator = runningLocator,
-        _installRegistry = installRegistry,
-        _stateStore = OtzariaStateStore(
-            p.join(stateDir ?? dataDir, 'otzaria_install_state.json')),
-        _launcher = launcher,
-        _managedInstallDir = p.join(dataDir, 'otzaria-app'),
-        mirrorDir = p.join(dataDir, 'mirror', 'app') {
+  }) : _platform =
+           platform ?? OtzariaTargetPlatform.detect(Platform.operatingSystem),
+       _environment = environment ?? Platform.environment,
+       _runningLocator = runningLocator,
+       _installRegistry = installRegistry,
+       _stateStore = OtzariaStateStore(
+         p.join(stateDir ?? dataDir, 'otzaria_install_state.json'),
+       ),
+       _launcher = launcher,
+       _managedInstallDir = p.join(dataDir, 'otzaria-app'),
+       mirrorDir = p.join(dataDir, 'mirror', 'app') {
     // הכול נבנה בגוף ה-constructor ולא ברשימת האתחול, כדי שכולם יקבלו את
     // [_platform] שכבר נפתר — במקום לפתור את `Platform.operatingSystem`
     // מחדש בכל אחד מהם.
@@ -230,51 +231,38 @@ class OtzariaManager {
   /// (2.12.0), להכריז installedIsNewer ולסרב להתקין אוצריא בכלל. בתיקייה
   /// ייעודית (`{autopf}\Otzaria`) הניחוש בטוח, וה-fallback נשאר.
   List<({String dir, bool sharedDir, bool verifyIdentity})>
-      get _autoDetectDirs => switch (_platform) {
-            OtzariaTargetPlatform.windows => [
-                (
-                  dir: _managedInstallDir,
-                  sharedDir: false,
-                  verifyIdentity: false
-                ),
-                for (final dir in _installRegistry.installDirs())
-                  (dir: dir, sharedDir: false, verifyIdentity: true),
-                for (final candidate in _windowsRealDefaultDirs)
-                  (
-                    dir: candidate.dir,
-                    sharedDir: candidate.sharedDir,
-                    verifyIdentity: false
-                  ),
-              ],
-            OtzariaTargetPlatform.macos => [
-                (
-                  dir: _managedInstallDir,
-                  sharedDir: false,
-                  verifyIdentity: false
-                ),
-                (
-                  dir: _macApplicationsDir,
-                  sharedDir: true,
-                  verifyIdentity: false
-                ),
-                // שתי היעדים שאליהם אנחנו מתקינים, בסדר שבו נבחרים ביניהם.
-                if (_userApplicationsDir case final dir?)
-                  (dir: dir, sharedDir: true, verifyIdentity: false),
-              ],
-          };
+  get _autoDetectDirs => switch (_platform) {
+    OtzariaTargetPlatform.windows => [
+      (dir: _managedInstallDir, sharedDir: false, verifyIdentity: false),
+      for (final dir in _installRegistry.installDirs())
+        (dir: dir, sharedDir: false, verifyIdentity: true),
+      for (final candidate in _windowsRealDefaultDirs)
+        (
+          dir: candidate.dir,
+          sharedDir: candidate.sharedDir,
+          verifyIdentity: false,
+        ),
+    ],
+    OtzariaTargetPlatform.macos => [
+      (dir: _managedInstallDir, sharedDir: false, verifyIdentity: false),
+      (dir: _macApplicationsDir, sharedDir: true, verifyIdentity: false),
+      // שתי היעדים שאליהם אנחנו מתקינים, בסדר שבו נבחרים ביניהם.
+      if (_userApplicationsDir case final dir?)
+        (dir: dir, sharedDir: true, verifyIdentity: false),
+    ],
+  };
 
   Future<void> downloadToMirror({
     OtzariaChannelReleases? online,
     void Function(int received, int total)? onProgress,
     void Function(OtzariaReleaseChannel channel)? onChannel,
     bool Function()? isCancelled,
-  }) =>
-      _mirror.sync(
-        online: online,
-        onDownloadProgress: onProgress,
-        onChannelStart: onChannel,
-        isCancelled: isCancelled,
-      );
+  }) => _mirror.sync(
+    online: online,
+    onDownloadProgress: onProgress,
+    onChannelStart: onChannel,
+    isCancelled: isCancelled,
+  );
 
   /// בודק מה הגרסה העדכנית ביותר ב-GitHub **בערוץ שהמשתמש בחר** —
   /// **פעולת רשת קלה**: קריאת API יחידה, בלי הורדת קובץ ההתקנה. מיועדת
@@ -286,8 +274,9 @@ class OtzariaManager {
   /// (`OtzariaChangelogClient`) כשהגרסה מופיעה בו, ונופל חזרה לתיאור
   /// ה-release הגולמי מ-GitHub אם לא.
   Future<OtzariaRelease> peekLatestOnlineRelease() async {
-    final release =
-        (await peekOnlineChannels()).select(preferPrerelease: preferPrerelease);
+    final release = (await peekOnlineChannels()).select(
+      preferPrerelease: preferPrerelease,
+    );
     if (release == null) {
       throw StateError(
         AppL10n.strings.appDomain.noInstallableReleaseForPlatform,
@@ -379,14 +368,11 @@ class OtzariaManager {
       throw StateError(AppL10n.strings.appDomain.mirrorEmptyRunDownload);
     }
 
-    final keepCachedTagNames = {
-      for (final entry in mirrored.all) entry.release.tagName,
-    };
-
     await _refuseIfRunningOnMac();
 
     final installDir = await _installDirFor(check.currentState);
-    final state = useWizard &&
+    final state =
+        useWizard &&
             selected.release.installerKind ==
                 OtzariaInstallerKind.windowsSetupExe &&
             OtzariaInstaller.windowsInstallScopeOf(installDir) !=
@@ -394,16 +380,14 @@ class OtzariaManager {
         ? await _installer.installWithWizard(
             release: selected.release,
             installerPath: selected.installerPath,
-            locateInstalled: _detectInKnownDirs,
+            locateInstalled: (accept) => _detectInKnownDirs(accept: accept),
             installDir: installDir,
-            keepCachedTagNames: keepCachedTagNames,
           )
         : await _installer.installFromFile(
             release: selected.release,
             installerPath: selected.installerPath,
             installDir: installDir,
             locateInstalled: _detectInKnownDirs,
-            keepCachedTagNames: keepCachedTagNames,
           );
     await _stateStore.save(state);
     return state;
@@ -505,7 +489,9 @@ class OtzariaManager {
     final version = OtzariaUpdateCheckResult.normalizeVersion(onDisk);
     if (stored.appVersion == null &&
         OtzariaUpdateCheckResult.sameVersion(
-            version, stored.installedTagName)) {
+          version,
+          stored.installedTagName,
+        )) {
       return OtzariaInstallState(
         installedTagName: stored.installedTagName,
         installDir: stored.installDir,
@@ -538,14 +524,17 @@ class OtzariaManager {
   }
 
   /// ההתקנה הראשונה שנמצאת ב-[_autoDetectDirs], או null. אינה נשמרת.
-  Future<OtzariaInstallState?> _detectInKnownDirs() async {
+  Future<OtzariaInstallState?> _detectInKnownDirs({
+    bool Function(OtzariaInstallState detected)? accept,
+  }) async {
     for (final candidate in _autoDetectDirs) {
       final detected = await detectExistingInstall(
         customDir: candidate.dir,
         isSharedDir: candidate.sharedDir,
         verifyIdentity: candidate.verifyIdentity,
       );
-      if (detected != null) return detected;
+      if (detected != null && (accept == null || accept(detected)))
+        return detected;
     }
     return null;
   }
@@ -641,13 +630,12 @@ class OtzariaManager {
     required String launchPath,
     required String installDir,
     required String version,
-  }) =>
-      OtzariaInstallState(
-        installedTagName: OtzariaUpdateCheckResult.normalizeVersion(version),
-        installDir: installDir,
-        launchPath: launchPath,
-        appVersion: version,
-      );
+  }) => OtzariaInstallState(
+    installedTagName: OtzariaUpdateCheckResult.normalizeVersion(version),
+    installDir: installDir,
+    launchPath: launchPath,
+    appVersion: version,
+  );
 
   bool _verifyIsOtzaria(String candidatePath) {
     if (OtzariaAppLocator.nameLooksLikeOtzaria(candidatePath)) return true;
@@ -655,8 +643,9 @@ class OtzariaManager {
     if (_platform == OtzariaTargetPlatform.macos) {
       if (!_isFlutterMacBundle(candidatePath)) return false;
       try {
-        final id =
-            const MacAppVersionReader().readBundleIdentifier(candidatePath);
+        final id = const MacAppVersionReader().readBundleIdentifier(
+          candidatePath,
+        );
         return id != null && id.toLowerCase().endsWith('.otzaria');
       } catch (_) {
         return false;

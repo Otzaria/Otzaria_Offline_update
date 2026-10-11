@@ -62,50 +62,68 @@ void main() {
       expect(controller.localVersion, 18);
     });
 
-    test('locked local DB is an error flagged as local, not a mirror fault',
-        () async {
-      final dbPath = _dbWithVersion(tempDir, 'locked', 26);
-      await controller.setCustomDbPath(dbPath);
-      expect(controller.localDbUnreadable, isFalse);
-
-      final writer = sqlite3.sqlite3.open(dbPath);
-      try {
-        writer.execute('BEGIN EXCLUSIVE');
-        writer.execute(
-            "UPDATE schema_meta SET value = '27' WHERE key = 'db_version'");
-        await controller.checkForUpdate();
-      } finally {
-        writer.execute('ROLLBACK');
-        writer.close();
-      }
-      expect(controller.status, LibraryModuleStatus.error);
-      expect(controller.localDbUnreadable, isTrue);
-      expect(controller.needsElevation, isFalse);
-      expect(
-          controller.errorMessage, AppL10n.strings.libraryDomain.localDbLocked);
-
-      await controller.checkForUpdate();
-      expect(controller.localDbUnreadable, isFalse);
-      expect(controller.status, LibraryModuleStatus.needsDownload);
-    });
+    void useShortBusyTimeout() {
+      controller.dispose();
+      controller = LibraryModuleController(
+        dataDir: tempDir.path,
+        manager: LibraryManager(
+          dataDir: tempDir.path,
+          versionReader: const LocalDbVersionReader(
+            busyTimeout: Duration(milliseconds: 50),
+          ),
+        ),
+      );
+    }
 
     test(
-        'only a write-protected location offers elevation, not a hot '
+      'locked local DB is an error flagged as local, not a mirror fault',
+      () async {
+        useShortBusyTimeout();
+        final dbPath = _dbWithVersion(tempDir, 'locked', 26);
+        await controller.setCustomDbPath(dbPath);
+        expect(controller.localDbUnreadable, isFalse);
+
+        final writer = sqlite3.sqlite3.open(dbPath);
+        try {
+          writer.execute('BEGIN EXCLUSIVE');
+          writer.execute(
+            "UPDATE schema_meta SET value = '27' WHERE key = 'db_version'",
+          );
+          await controller.checkForUpdate();
+        } finally {
+          writer.execute('ROLLBACK');
+          writer.close();
+        }
+        expect(controller.status, LibraryModuleStatus.error);
+        expect(controller.localDbUnreadable, isTrue);
+        expect(controller.needsElevation, isFalse);
+        expect(
+          controller.errorMessage,
+          AppL10n.strings.libraryDomain.localDbLocked,
+        );
+
+        await controller.checkForUpdate();
+        expect(controller.localDbUnreadable, isFalse);
+        expect(controller.status, LibraryModuleStatus.needsDownload);
+      },
+    );
+
+    test('only a write-protected location offers elevation, not a hot '
         'journal the read-only reader hit or a lock', () {
       bool offers(LocalDbUnreadableReason reason) =>
           LibraryModuleController.unreadableDbNeedsElevation(
-              LocalDbUnreadableException(reason, 0, ''));
+            LocalDbUnreadableException(reason, 0, ''),
+          );
       expect(offers(LocalDbUnreadableReason.interruptedWrite), isFalse);
       expect(offers(LocalDbUnreadableReason.readOnlyLocation), isTrue);
       expect(offers(LocalDbUnreadableReason.locked), isFalse);
       expect(
-          LibraryModuleController.unreadableDbNeedsElevation(
-              StateError('other')),
-          isFalse);
+        LibraryModuleController.unreadableDbNeedsElevation(StateError('other')),
+        isFalse,
+      );
     });
 
-    test(
-        'a hot journal offers elevation only when the read-write health '
+    test('a hot journal offers elevation only when the read-write health '
         'check hit it on a write-protected DB', () {
       final crashed = _hotJournalDb(tempDir);
       Object thrownBy(void Function() body) {
@@ -117,54 +135,74 @@ void main() {
         fail('expected an exception');
       }
 
-      final fromReader =
-          thrownBy(() => const LocalDbVersionReader().read(crashed));
+      final fromReader = thrownBy(
+        () => const LocalDbVersionReader().read(crashed),
+      );
       expect(
-          fromReader,
-          isA<LocalDbUnreadableException>().having((e) => e.reason, 'reason',
-              LocalDbUnreadableReason.interruptedWrite));
-      expect(LibraryModuleController.unreadableDbNeedsElevation(fromReader),
-          isFalse);
+        fromReader,
+        isA<LocalDbUnreadableException>().having(
+          (e) => e.reason,
+          'reason',
+          LocalDbUnreadableReason.interruptedWrite,
+        ),
+      );
+      expect(
+        LibraryModuleController.unreadableDbNeedsElevation(fromReader),
+        isFalse,
+      );
 
       _setReadOnly(crashed, true);
       try {
-        final fromHealthCheck = thrownBy(() =>
-            const LibraryDbRecoveryService().checkDbHealthAfterCrash(crashed));
+        final fromHealthCheck = thrownBy(
+          () =>
+              const LibraryDbRecoveryService().checkDbHealthAfterCrash(crashed),
+        );
         expect(
-            fromHealthCheck,
-            isA<LocalDbUnreadableException>().having((e) => e.reason, 'reason',
-                LocalDbUnreadableReason.readOnlyLocation));
+          fromHealthCheck,
+          isA<LocalDbUnreadableException>().having(
+            (e) => e.reason,
+            'reason',
+            LocalDbUnreadableReason.readOnlyLocation,
+          ),
+        );
         expect(
-            LibraryModuleController.unreadableDbNeedsElevation(fromHealthCheck),
-            isTrue);
+          LibraryModuleController.unreadableDbNeedsElevation(fromHealthCheck),
+          isTrue,
+        );
       } finally {
         _setReadOnly(crashed, false);
       }
     });
 
     // "No DB found" would be wrong here: the DB exists but is locked.
-    test('capturing from a locked DB reports the lock, not "not found"',
-        () async {
-      final dbPath = _dbWithVersion(tempDir, 'locked-capture', 26);
-      await controller.setCustomDbPath(dbPath);
+    test(
+      'capturing from a locked DB reports the lock, not "not found"',
+      () async {
+        useShortBusyTimeout();
+        final dbPath = _dbWithVersion(tempDir, 'locked-capture', 26);
+        await controller.setCustomDbPath(dbPath);
 
-      final writer = sqlite3.sqlite3.open(dbPath);
-      try {
-        writer.execute('BEGIN EXCLUSIVE');
-        writer.execute(
-            "UPDATE schema_meta SET value = '27' WHERE key = 'db_version'");
-        expect(await controller.capturePersonalVersion(), isFalse);
-      } finally {
-        writer.execute('ROLLBACK');
-        writer.close();
-      }
-      expect(controller.personalCaptureError,
-          AppL10n.strings.libraryDomain.localDbLocked);
-      expect(controller.personalFromVersion, isNull);
+        final writer = sqlite3.sqlite3.open(dbPath);
+        try {
+          writer.execute('BEGIN EXCLUSIVE');
+          writer.execute(
+            "UPDATE schema_meta SET value = '27' WHERE key = 'db_version'",
+          );
+          expect(await controller.capturePersonalVersion(), isFalse);
+        } finally {
+          writer.execute('ROLLBACK');
+          writer.close();
+        }
+        expect(
+          controller.personalCaptureError,
+          AppL10n.strings.libraryDomain.localDbLocked,
+        );
+        expect(controller.personalFromVersion, isNull);
 
-      expect(await controller.capturePersonalVersion(), isTrue);
-      expect(controller.personalCaptureError, isNull);
-    });
+        expect(await controller.capturePersonalVersion(), isTrue);
+        expect(controller.personalCaptureError, isNull);
+      },
+    );
 
     test('נתיב ה-DB מתגלה ונשמר — לא מונח מראש', () async {
       await controller.setCustomDbPath(fakeDb.path);
@@ -213,19 +251,21 @@ void main() {
   });
 
   group('checkOnline — כשל רשת נבלע', () {
-    test('אין חיבור: נשמר ב-onlineCheckError ואינו הופך לשגיאת מודול',
-        () async {
-      await controller.checkOnline();
+    test(
+      'אין חיבור: נשמר ב-onlineCheckError ואינו הופך לשגיאת מודול',
+      () async {
+        await controller.checkOnline();
 
-      expect(controller.onlineLatestVersion, isNull);
-      expect(controller.onlineCheckError, isNotNull);
-      expect(controller.onlineCheckedAt, isNotNull);
-      expect(controller.status, LibraryModuleStatus.idle);
-      expect(controller.errorMessage, isNull);
-      expect(controller.hasOnlineUpdate, isFalse);
-      expect(controller.onlineCompanionsCheckError, isNotNull);
-      expect(controller.onlinePendingCompanions, isEmpty);
-    });
+        expect(controller.onlineLatestVersion, isNull);
+        expect(controller.onlineCheckError, isNotNull);
+        expect(controller.onlineCheckedAt, isNotNull);
+        expect(controller.status, LibraryModuleStatus.idle);
+        expect(controller.errorMessage, isNull);
+        expect(controller.hasOnlineUpdate, isFalse);
+        expect(controller.onlineCompanionsCheckError, isNotNull);
+        expect(controller.onlinePendingCompanions, isEmpty);
+      },
+    );
 
     test('מראה בלי אף נלווה נאמרת, ומראה חסרה — לא', () {
       controller.status = LibraryModuleStatus.upToDate;
@@ -277,7 +317,9 @@ void main() {
       expect(controller.onlineCheckError, contains('version down'));
       expect(controller.onlinePendingCompanions, isEmpty);
       expect(
-          controller.onlineCompanionsCheckError, contains('companions down'));
+        controller.onlineCompanionsCheckError,
+        contains('companions down'),
+      );
       expect(controller.onlineSemanticPending, isFalse);
       expect(controller.onlineCheckedAt, isNotNull);
     });
@@ -286,7 +328,7 @@ void main() {
   group('מצב הרשת אחרי הורדה', () {
     for (final remaining in [
       <CompanionAsset>{},
-      {CompanionAsset.dictionary}
+      {CompanionAsset.dictionary},
     ]) {
       test('ההורדה מרעננת את הנלווים שנותרו: $remaining', () async {
         controller.dispose();
@@ -362,25 +404,27 @@ void main() {
 
   group('hasOnlineUpdate נמדד מול המראה', () {
     test('נכס רשום חסר או חלקי דורש הורדה, נכס שלם אינו דורש', () async {
-      final archive = File(p.join(
-          controller.mirrorDir, 'assets', 'v31', 'seforim-schema6.db.zst'));
+      final archive = File(
+        p.join(controller.mirrorDir, 'assets', 'v31', 'seforim-schema6.db.zst'),
+      );
       await archive.parent.create(recursive: true);
-      await File(p.join(controller.mirrorDir, 'releases.json'))
-          .writeAsString(jsonEncode({
-        'formatVersion': 1,
-        'releases': [
-          {
-            'tag': 'v31',
-            'assets': [
-              {
-                'name': 'seforim-schema6.db.zst',
-                'downloadUrl': 'assets/v31/seforim-schema6.db.zst',
-                'size': 4,
-              }
-            ],
-          }
-        ],
-      }));
+      await File(p.join(controller.mirrorDir, 'releases.json')).writeAsString(
+        jsonEncode({
+          'formatVersion': 1,
+          'releases': [
+            {
+              'tag': 'v31',
+              'assets': [
+                {
+                  'name': 'seforim-schema6.db.zst',
+                  'downloadUrl': 'assets/v31/seforim-schema6.db.zst',
+                  'size': 4,
+                },
+              ],
+            },
+          ],
+        }),
+      );
       await controller.setCustomDbPath(_dbWithVersion(tempDir, 'v31', 31));
       expect(controller.downloadNeedsRetry, isTrue);
       await archive.writeAsBytes([1, 2, 3]);
@@ -392,23 +436,35 @@ void main() {
       expect(controller.downloadNeedsRetry, isFalse);
     });
     test('V31 חלקי מחזיר הצעת הורדה גם כשהגרסה הרשומה מעודכנת', () async {
-      _writeMirror(tempDir, releases: [
-        const _MirrorRelease('v31-20261004170255',
-            patches: [_MirrorPatch(29, 31, toSchema: 7)])
-      ]);
+      _writeMirror(
+        tempDir,
+        releases: [
+          const _MirrorRelease(
+            'v31-20261004170255',
+            patches: [_MirrorPatch(29, 31, toSchema: 7)],
+          ),
+        ],
+      );
       final index = File(p.join(controller.mirrorDir, 'releases.json'));
       final metadata = jsonDecode(await index.readAsString()) as Map;
       final assets = (metadata['releases'] as List).single['assets'] as List;
-      assets
-          .removeWhere((asset) => !(asset['name'] as String).endsWith('.json'));
+      assets.removeWhere(
+        (asset) => !(asset['name'] as String).endsWith('.json'),
+      );
       for (final asset in assets) {
         asset['size'] = await File(
-                p.join(controller.mirrorDir, asset['downloadUrl'] as String))
-            .length();
+          p.join(controller.mirrorDir, asset['downloadUrl'] as String),
+        ).length();
       }
       await index.writeAsString(jsonEncode(metadata));
-      final partial = File(p.join(controller.mirrorDir, 'assets',
-          'v31-20261004170255', 'seforim-schema6.db.zst'));
+      final partial = File(
+        p.join(
+          controller.mirrorDir,
+          'assets',
+          'v31-20261004170255',
+          'seforim-schema6.db.zst',
+        ),
+      );
       await partial.parent.create(recursive: true);
       await partial.writeAsBytes([1, 2, 3]);
       await File('${partial.path}.resume').writeAsString('610745538\n"etag"');
@@ -434,14 +490,19 @@ void main() {
 
       expect(controller.hasOnlineUpdate, isTrue);
       expect(controller.onlineUpdateVersion, isNull);
-      expect(controller.onlinePendingCompanionNames,
-          AppL10n.strings.libraryDomain.companionSemanticName);
+      expect(
+        controller.onlinePendingCompanionNames,
+        AppL10n.strings.libraryDomain.companionSemanticName,
+      );
     });
 
     // חיפוש חכם שכבר בכונן הוצע בכל הורדה, ו"כן" הוריד מחדש את כל הספרייה.
     test('שאלת החיפוש החכם רק כשהבדיקה לא הוכיחה שהוא בכונן', () {
-      expect(controller.shouldOfferSemanticDownload, isTrue,
-          reason: 'בדיקה שלא רצה אינה הוכחה');
+      expect(
+        controller.shouldOfferSemanticDownload,
+        isTrue,
+        reason: 'בדיקה שלא רצה אינה הוכחה',
+      );
 
       controller.onlineCheckedAt = DateTime.now();
       expect(controller.shouldOfferSemanticDownload, isFalse);
@@ -555,14 +616,14 @@ void main() {
   /// והסימון שלצד המסד הוא מה שמזכיר לנו לבקש ממנה לתקן. ראו AGENTS §5.
   group('בקשת עדכון האינדקס שממתינה', () {
     /// כותב סימון "אמיתי" — דרך אותו שירות שכותב אותו ב-`applyUpdate`.
-    Future<void> writeNotice(
-            {String route = ExternalUpdateNotice.routeDelta}) =>
-        const ExternalUpdateNotice().write(
-          dbPath: fakeDb.path,
-          route: route,
-          booksTouched: {4, 11},
-          dbVersion: 30,
-        );
+    Future<void> writeNotice({
+      String route = ExternalUpdateNotice.routeDelta,
+    }) => const ExternalUpdateNotice().write(
+      dbPath: fakeDb.path,
+      route: route,
+      booksTouched: {4, 11},
+      dbVersion: 30,
+    );
 
     test('בלי סימון אין בקשה ממתינה', () async {
       await controller.setCustomDbPath(fakeDb.path);
@@ -627,12 +688,17 @@ void main() {
   // לשמר את התרחיש. ראו CHANGELOG.
   group('סכמה שאיננו יודעים להחיל', () {
     test('מסד מלא ישן מזה שמותקן וסכמה חוסמת: חסימה עם הסבר הסכמה', () async {
-      _writeMirror(tempDir, releases: [
-        const _MirrorRelease('v21', hasFullDb: true),
-        const _MirrorRelease('v22', patches: [_MirrorPatch(21, 22)]),
-        const _MirrorRelease('v26',
-            patches: [_MirrorPatch(22, 26, toSchema: 7)]),
-      ]);
+      _writeMirror(
+        tempDir,
+        releases: [
+          const _MirrorRelease('v21', hasFullDb: true),
+          const _MirrorRelease('v22', patches: [_MirrorPatch(21, 22)]),
+          const _MirrorRelease(
+            'v26',
+            patches: [_MirrorPatch(22, 26, toSchema: 7)],
+          ),
+        ],
+      );
       await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 23));
 
       expect(controller.status, LibraryModuleStatus.error);
@@ -643,11 +709,17 @@ void main() {
     });
 
     test('מסד מלא של הגרסה החדשה מורד, עם נימוק שמוצג למשתמש', () async {
-      _writeMirror(tempDir, releases: [
-        const _MirrorRelease('v21', hasFullDb: true),
-        const _MirrorRelease('v26',
-            patches: [_MirrorPatch(22, 26, toSchema: 7)], hasFullDb: true),
-      ]);
+      _writeMirror(
+        tempDir,
+        releases: [
+          const _MirrorRelease('v21', hasFullDb: true),
+          const _MirrorRelease(
+            'v26',
+            patches: [_MirrorPatch(22, 26, toSchema: 7)],
+            hasFullDb: true,
+          ),
+        ],
+      );
       await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 23));
 
       expect(controller.status, LibraryModuleStatus.updateAvailable);
@@ -661,13 +733,20 @@ void main() {
     // צורת המראה שעל הכונן בפועל: מסד מלא של v21, קובצי עדכון עד v23,
     // ומעליהם גרסה בסכמה שאיננו מכירים. מסד v22 חייב לטפס ל-23, לא להיחסם.
     test('מסד שיכול לטפס בקובצי עדכון עושה זאת, ומקבל הסבר', () async {
-      _writeMirror(tempDir, releases: [
-        const _MirrorRelease('v21', hasFullDb: true),
-        const _MirrorRelease('v23',
-            patches: [_MirrorPatch(21, 23), _MirrorPatch(22, 23)]),
-        const _MirrorRelease('v26',
-            patches: [_MirrorPatch(22, 26, toSchema: 7)]),
-      ]);
+      _writeMirror(
+        tempDir,
+        releases: [
+          const _MirrorRelease('v21', hasFullDb: true),
+          const _MirrorRelease(
+            'v23',
+            patches: [_MirrorPatch(21, 23), _MirrorPatch(22, 23)],
+          ),
+          const _MirrorRelease(
+            'v26',
+            patches: [_MirrorPatch(22, 26, toSchema: 7)],
+          ),
+        ],
+      );
       await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 22));
 
       expect(controller.status, LibraryModuleStatus.updateAvailable);
@@ -679,10 +758,13 @@ void main() {
     });
 
     test('כשכל הסכמות מוכרות אין נימוק מיוחד — מסלול דלתא רגיל', () async {
-      _writeMirror(tempDir, releases: [
-        const _MirrorRelease('v21', hasFullDb: true),
-        const _MirrorRelease('v24', patches: [_MirrorPatch(23, 24)]),
-      ]);
+      _writeMirror(
+        tempDir,
+        releases: [
+          const _MirrorRelease('v21', hasFullDb: true),
+          const _MirrorRelease('v24', patches: [_MirrorPatch(23, 24)]),
+        ],
+      );
       await controller.setCustomDbPath(_dbWithVersion(tempDir, 'live', 23));
 
       expect(controller.status, LibraryModuleStatus.updateAvailable);
@@ -695,9 +777,12 @@ void main() {
   // שמתאים לו. זו הייתה הודעה אדומה שהבהילה בלי סיבה.
   group('עדכון אישי שנבנה למחשב אחר', () {
     /// מראה של עדכון אישי: קובצי עדכון מגרסה 30 בלבד, בלי מסד מלא.
-    void writePersonalMirror() => _writeMirror(tempDir, releases: [
-          const _MirrorRelease('v31', patches: [_MirrorPatch(30, 31)]),
-        ]);
+    void writePersonalMirror() => _writeMirror(
+      tempDir,
+      releases: [
+        const _MirrorRelease('v31', patches: [_MirrorPatch(30, 31)]),
+      ],
+    );
 
     test('מחשב שלא נרשם מקבל מצב מוסבר, לא שגיאה', () async {
       controller.personalUpdateMode = true;
@@ -859,23 +944,23 @@ void main() {
 }
 
 LibraryUpdateCheckResult _deltaWithFallback() => LibraryUpdateCheckResult(
-      dbPath: '/db/seforim.db',
-      plan: LibraryUpdatePlan.delta(
-        localVersion: 1,
-        targetVersion: 2,
-        steps: const [],
-        fullDownloadFallback: LibraryUpdatePlan.fullDownload(
-          localVersion: 1,
-          targetVersion: 2,
-          asset: const ReleaseAsset(
-            name: 'seforim.db.zst',
-            downloadUrl: 'seforim.db.zst',
-            size: 10,
-          ),
-          releaseTag: 'v2',
-        ),
+  dbPath: '/db/seforim.db',
+  plan: LibraryUpdatePlan.delta(
+    localVersion: 1,
+    targetVersion: 2,
+    steps: const [],
+    fullDownloadFallback: LibraryUpdatePlan.fullDownload(
+      localVersion: 1,
+      targetVersion: 2,
+      asset: const ReleaseAsset(
+        name: 'seforim.db.zst',
+        downloadUrl: 'seforim.db.zst',
+        size: 10,
       ),
-    );
+      releaseTag: 'v2',
+    ),
+  ),
+);
 
 class _ApplyManager extends LibraryManager {
   _ApplyManager(String dataDir) : super(dataDir: dataDir);
@@ -950,7 +1035,7 @@ class _DownloadManager extends LibraryManager {
 
 class _ConcurrentPeekManager extends LibraryManager {
   _ConcurrentPeekManager(String dataDir, {this.fail = false})
-      : super(dataDir: dataDir);
+    : super(dataDir: dataDir);
 
   final bool fail;
   final _versionStarted = Completer<void>();
@@ -991,10 +1076,7 @@ String _dbWithVersion(Directory tempDir, String folder, int version) {
 /// כותב מראה מקומית מינימלית תחת `<dataDir>/mirror/library`: `releases.json`
 /// וקובצי ה-manifest שהוא מצביע עליהם. קובצי ה-patch עצמם אינם נדרשים —
 /// הבדיקה עוצרת בתכנון ולא מחילה דבר.
-void _writeMirror(
-  Directory tempDir, {
-  required List<_MirrorRelease> releases,
-}) {
+void _writeMirror(Directory tempDir, {required List<_MirrorRelease> releases}) {
   final root = Directory(p.join(tempDir.path, 'mirror', 'library'))
     ..createSync(recursive: true);
   final json = <Map<String, Object?>>[];
@@ -1046,11 +1128,13 @@ void _writeMirror(
       'assets': assets,
     });
   }
-  File(p.join(root.path, 'releases.json')).writeAsStringSync(jsonEncode({
-    'formatVersion': 1,
-    'exportedAt': DateTime.now().toIso8601String(),
-    'releases': json,
-  }));
+  File(p.join(root.path, 'releases.json')).writeAsStringSync(
+    jsonEncode({
+      'formatVersion': 1,
+      'exportedAt': DateTime.now().toIso8601String(),
+      'releases': json,
+    }),
+  );
 }
 
 class _MirrorPatch {
