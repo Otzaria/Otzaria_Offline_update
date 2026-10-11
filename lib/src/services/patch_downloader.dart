@@ -73,11 +73,15 @@ class PatchDownloader {
     if (!destDir.existsSync()) {
       destDir.createSync(recursive: true);
     }
-    // שם הקובץ המחולץ: הסרת סיומת .zst
     final extractedName = patchFile.file.endsWith('.zst')
         ? patchFile.file.substring(0, patchFile.file.length - 4)
         : '${patchFile.file}.db';
     final extractedPath = p.join(destDir.path, extractedName);
+    if (!p.isWithin(destDir.path, extractedPath)) {
+      throw PatchDownloadException(
+        AppL10n.strings.libraryDomain.manifestMissingField('file'),
+      );
+    }
 
     try {
       final compressed = await _download(
@@ -747,6 +751,29 @@ class PatchDownloader {
     } catch (_) {}
   }
 
+  Future<http.StreamedResponse> _sendGet(
+    Uri uri,
+    Map<String, String> headers, {
+    bool followRedirects = true,
+  }) async {
+    final abort = Completer<void>();
+    final request = http.AbortableRequest(
+      'GET',
+      uri,
+      abortTrigger: abort.future,
+    )
+      ..followRedirects = followRedirects
+      ..headers.addAll(headers);
+    final pending = _httpClient.send(request);
+    try {
+      return await pending.timeout(connectTimeout);
+    } on TimeoutException {
+      abort.complete();
+      unawaited(pending.then(_abandonBody, onError: (Object _) {}));
+      rethrow;
+    }
+  }
+
   /// כותב את גוף התגובה לקובץ מ-[resumeOffset] ומחזיר את הגודל הכולל שנכתב,
   /// עם דגל `overrun` כשהגוף חרג מ-[maxRoundBytes] (נעצר לפני הכתיבה החורגת).
   /// ה-hasher (אם קיים) כבר הוזן בתחילית ע"י [_streamToFile]; כאן מוסיפים רק
@@ -854,16 +881,12 @@ class PatchDownloader {
     var uri = Uri.parse(url);
     const maxHops = 6;
     for (var hop = 0; hop <= maxHops; hop++) {
-      final request = http.Request('GET', uri)..followRedirects = false;
-      request.headers.addAll(headers);
-      final response = await _httpClient.send(request).timeout(connectTimeout);
+      final response = await _sendGet(uri, headers, followRedirects: false);
       if (_isRedirect(response.statusCode)) {
         final location = response.headers['location'];
-        if (location == null) return response; // ללא Location → יטופל כשגיאה
-        // נטישה מיידית ולא drain: גוף redirect גדול/זורם היה מעכב את ההפניה
-        // בלי גבול ומבזבז רוחב פס.
+        if (location == null) return response;
         await _abandonBody(response);
-        uri = uri.resolve(location); // resolve תומך ב-Location יחסי
+        uri = uri.resolve(location);
         continue;
       }
       return response;
@@ -1113,9 +1136,10 @@ class PatchDownloader {
         isCancelled: isCancelled,
       );
     }
-    final request = http.Request('GET', Uri.parse(url))
-      ..headers['Accept'] = 'application/octet-stream';
-    final response = await _httpClient.send(request).timeout(connectTimeout);
+    final response = await _sendGet(
+      Uri.parse(url),
+      const {'Accept': 'application/octet-stream'},
+    );
     if (response.statusCode != 200) {
       await _abandonBody(response);
       throw PatchDownloadException(
@@ -1128,7 +1152,6 @@ class PatchDownloader {
     var downloaded = 0;
     await for (final chunk in response.stream.timeout(stallTimeout)) {
       _throwIfCancelled(isCancelled);
-      // בדיקה לפני הצבירה — לא צוברים לזיכרון בייטים שחורגים מהגודל הצפוי.
       if (downloaded + chunk.length > maxBytes) {
         throw PatchDownloadException(
           AppL10n.strings.libraryDomain.downloadExceedsExpectedSize(maxBytes),

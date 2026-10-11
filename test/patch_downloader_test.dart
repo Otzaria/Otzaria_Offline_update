@@ -133,6 +133,74 @@ void main() {
     expect(chunksServed, lessThan(10));
   });
 
+  for (final name in ['../seforim.db.zst', '..zst', '...zst']) {
+    test('שם patch שיוצא מתיקיית היעד נדחה בלי לגעת בקובץ שמחוץ לה: $name',
+        () async {
+      final live = File('${tmp.path}/seforim.db')..writeAsStringSync('LIVE');
+      var requests = 0;
+      final downloader = PatchDownloader(
+        httpClient: MockClient.streaming((request, bodyStream) async {
+          requests++;
+          return http.StreamedResponse(Stream.value(compressed), 200,
+              contentLength: compressed.length);
+        }),
+        decompress: (c) async => uncompressed,
+      );
+
+      await expectLater(
+        downloader.downloadAndExtract(
+          patchFile: PatchFileEntry(
+            file: name,
+            compression: 'zstd',
+            sha256: 'deadbeef',
+            size: compressed.length,
+            uncompressedSha256: sha256.convert(uncompressed).toString(),
+            uncompressedSize: uncompressed.length,
+          ),
+          downloadUrl: 'https://x/p',
+          destDir: Directory('${tmp.path}/.seforim-update-tmp'),
+        ),
+        throwsA(isA<PatchDownloadException>()),
+      );
+      expect(requests, 0);
+      expect(live.readAsStringSync(), 'LIVE');
+      expect(Directory(tmp.path).existsSync(), isTrue);
+    });
+  }
+
+  test('בקשה שחרגה מזמן ההתחברות מבוטלת, ותגובה מאוחרת ננטשת', () async {
+    final pending = Completer<http.StreamedResponse>();
+    final aborted = Completer<void>();
+    var lateBodyCancelled = false;
+    final downloader = PatchDownloader(
+      httpClient: MockClient.streaming((request, bodyStream) {
+        unawaited((request as http.AbortableRequest)
+            .abortTrigger!
+            .then((_) => aborted.complete()));
+        return pending.future;
+      }),
+      decompress: (c) async => uncompressed,
+      connectTimeout: const Duration(milliseconds: 20),
+    );
+
+    await expectLater(
+      downloader.downloadAndExtract(
+        patchFile: entry(),
+        downloadUrl: 'https://x/patch-v1-v2.db.zst',
+        destDir: tmp,
+      ),
+      throwsA(isA<TimeoutException>()),
+    );
+    await aborted.future.timeout(const Duration(seconds: 5));
+
+    final late = StreamController<List<int>>(
+      onCancel: () => lateBodyCancelled = true,
+    );
+    pending.complete(http.StreamedResponse(late.stream, 200));
+    await pumpEventQueue();
+    expect(lateBodyCancelled, isTrue);
+  });
+
   test('resumeSidecarPath מחזיר <dest>.resume', () {
     expect(
       PatchDownloader.resumeSidecarPath('/tmp/seforim.db.zst'),

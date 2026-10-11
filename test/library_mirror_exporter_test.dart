@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/src/models/library_update_plan.dart';
 import 'package:seforim_library_updater/src/models/patch_table_spec.dart';
 import 'package:seforim_library_updater/src/services/apply_time_estimate.dart';
+import 'package:seforim_library_updater/src/services/disk_space_probe.dart';
 import 'package:seforim_library_updater/src/services/download_scheduler.dart';
 import 'package:seforim_library_updater/src/services/github_library_release_client.dart';
 import 'package:seforim_library_updater/src/services/library_mirror_exporter.dart';
@@ -97,6 +98,7 @@ void main() {
     Future<void> Function(String assetName)? beforeAsset,
     http.StreamedResponse? Function(http.BaseRequest request, Uint8List body)?
         respond,
+    int? Function(String path)? freeBytesFor,
   }) {
     Uint8List bodyFor(String name) {
       if (!name.endsWith('.manifest.json')) {
@@ -174,6 +176,7 @@ void main() {
         historyDepth: historyDepth,
         applyTime: applyTime,
         scheduler: scheduler,
+        freeBytesFor: freeBytesFor,
       ),
       fetched: fetched,
     );
@@ -1635,6 +1638,83 @@ void main() {
 
   // ה-CDN של GitHub מתעלם מ-`Range`, ולכן אי אפשר לפצל קובץ בודד לכמה
   // חיבורים; מה שכן מאיץ הוא להוריד נכסים **שונים** בו-זמנית.
+  group('export — בדיקת מקום פנוי לפני ההורדה', () {
+    const assetSize = 3 << 20;
+    final releases = [
+      release('v3', assets: ['seforim.db.zst']),
+    ];
+
+    test('חוסר ידוע במקום עוצר לפני כל הורדה, עם הדרוש והפנוי בהודעה',
+        () async {
+      final probed = <String>[];
+      final built = buildExporter(
+        releases,
+        assetSizes: const {'seforim.db.zst': assetSize},
+        freeBytesFor: (path) {
+          probed.add(path);
+          return 1 << 20;
+        },
+      );
+      await expectLater(
+        built.exporter.export(destDir: destDir),
+        throwsA(isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          AppL10n.strings.libraryDomain
+              .mirrorNotEnoughDiskSpace(destDir, '3 MB', '1 MB'),
+        )),
+      );
+      expect(probed, [destDir]);
+      expect(built.fetched, isEmpty);
+      expect(assetOnDisk(destDir, 'v3', 'seforim.db.zst'), isFalse);
+    });
+
+    test('הרזרבה נספרת בדיוק: בייט אחד פחות חוסם, הסכום המדויק עובר', () async {
+      const exact = assetSize + DiskSpaceProbe.defaultHeadroomBytes;
+      await expectLater(
+        buildExporter(
+          releases,
+          assetSizes: const {'seforim.db.zst': assetSize},
+          freeBytesFor: (_) => exact - 1,
+        ).exporter.export(destDir: destDir),
+        throwsA(isA<StateError>()),
+      );
+      await buildExporter(
+        releases,
+        assetSizes: const {'seforim.db.zst': assetSize},
+        freeBytesFor: (_) => exact,
+      ).exporter.export(destDir: destDir);
+      expect(assetOnDisk(destDir, 'v3', 'seforim.db.zst'), isTrue);
+    });
+
+    test('מדידה שנכשלה (null) אינה חוסמת', () async {
+      await buildExporter(
+        releases,
+        assetSizes: const {'seforim.db.zst': assetSize},
+        freeBytesFor: (_) => null,
+      ).exporter.export(destDir: destDir);
+      expect(assetOnDisk(destDir, 'v3', 'seforim.db.zst'), isTrue);
+    });
+
+    test('נכס שכבר שלם על הכונן אינו דורש מקום ואינו מודד', () async {
+      await buildExporter(
+        releases,
+        assetSizes: const {'seforim.db.zst': assetSize},
+        freeBytesFor: (_) => null,
+      ).exporter.export(destDir: destDir);
+      var probes = 0;
+      await buildExporter(
+        releases,
+        assetSizes: const {'seforim.db.zst': assetSize},
+        freeBytesFor: (_) {
+          probes++;
+          return 0;
+        },
+      ).exporter.export(destDir: destDir);
+      expect(probes, 0);
+    });
+  });
+
   group('export — הורדה מקבילה', () {
     /// שלושה releases: אחד עם מסד מלא גדול, והשאר patches קטנים.
     List<ReleaseSpec> parallelReleases() => [

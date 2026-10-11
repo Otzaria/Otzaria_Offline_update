@@ -111,7 +111,9 @@ class LibraryUpdateApplier {
     ExtractedDbVerifier? verifyExtractedDb,
     ZstdFileStreamer? streamFile,
     Future<Uint8List?> Function(Uint8List compressed)? decompress,
+    int? Function(String path)? freeBytesFor,
   }) : _processGuard = processGuard,
+       _freeBytesFor = freeBytesFor ?? DiskSpaceProbe.freeBytesFor,
        _recovery = recovery,
        _verifyExtractedDb = verifyExtractedDb ?? _defaultExtractedDbVerifier,
        _streamFile = streamFile ?? ZstdFileDecompressor.decompressFileToFile,
@@ -124,6 +126,7 @@ class LibraryUpdateApplier {
   final LibraryDbRecoveryService _recovery;
   final ExtractedDbVerifier _verifyExtractedDb;
   final ZstdFileStreamer _streamFile;
+  final int? Function(String path) _freeBytesFor;
   final PatchDownloader _downloader;
   final Future<Uint8List?> Function(Uint8List) _decompress;
 
@@ -865,8 +868,8 @@ class LibraryUpdateApplier {
   /// זורק הודעה שאומרת כמה לפנות ואיפה, כשידוע בוודאות שאין מקום ל-[needed]
   /// תחת [dir]. מדידה שנכשלה אינה חוסמת — ראו [DiskSpaceProbe].
   void _ensureSpaceFor(String dir, int needed) {
-    if (!DiskSpaceProbe.isKnownInsufficient(dir, needed)) return;
-    final free = DiskSpaceProbe.freeBytesFor(dir) ?? 0;
+    final free = _freeBytesFor(dir);
+    if (free == null || !DiskSpaceProbe.lacksSpace(free, needed)) return;
     throw LibraryApplyException(
       AppL10n.strings.libraryDomain.notEnoughDiskSpace(
         dir,

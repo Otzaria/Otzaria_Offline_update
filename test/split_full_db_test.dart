@@ -10,6 +10,7 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/src/models/library_release.dart';
 import 'package:seforim_library_updater/src/models/split_archive_manifest.dart';
+import 'package:seforim_library_updater/src/services/disk_space_probe.dart';
 import 'package:seforim_library_updater/src/services/github_library_release_client.dart';
 import 'package:seforim_library_updater/src/services/library_mirror_exporter.dart';
 import 'package:seforim_library_updater/src/services/local_mirror_library_release_client.dart';
@@ -225,6 +226,7 @@ void main() {
       Set<String> failOnce = const {},
       Future<void> Function(String name)? beforeAsset,
       bool withBrokenOldRelease = false,
+      int? Function(String path)? freeBytesFor,
     }) {
       final manifestBytes = Uint8List.fromList(
           utf8.encode(jsonEncode(manifest ?? manifestJson())));
@@ -285,6 +287,7 @@ void main() {
           client: GithubLibraryReleaseClient(httpClient: mock),
           httpClient: mock,
           historyDepth: withBrokenOldRelease ? 1 : 10,
+          freeBytesFor: freeBytesFor,
         ),
         fetched: fetched,
       );
@@ -317,6 +320,26 @@ void main() {
       // רק הנכס המורכב נכתב — לא החלקים ולא המניפסט שלהם.
       expect(mirrored.single.assets.map((a) => a.name), [_archive]);
       exporter.dispose();
+    });
+
+    test('בדיקת המקום סופרת גם את החלקים וגם את הקובץ המורכב', () async {
+      final needed = 2 * whole.length;
+      final short = build(
+        freeBytesFor: (_) => needed + DiskSpaceProbe.defaultHeadroomBytes - 1,
+      );
+      await expectLater(
+        short.exporter.export(destDir: destDir),
+        throwsA(isA<StateError>()),
+      );
+      expect(short.fetched, isNot(contains('$_archive.part-000')));
+      short.exporter.dispose();
+
+      final enough = build(
+        freeBytesFor: (_) => needed + DiskSpaceProbe.defaultHeadroomBytes,
+      );
+      expect(await enough.exporter.export(destDir: destDir), isTrue);
+      expect(File(assembledPath()).readAsBytesSync(), whole);
+      enough.exporter.dispose();
     });
 
     test('החלקים יורדים במקביל', () async {

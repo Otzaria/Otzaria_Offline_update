@@ -39,7 +39,7 @@ class PatchFileEntry extends Equatable {
   factory PatchFileEntry.fromJson(Map<String, dynamic> json) {
     final compression = _requireString(json, 'compression');
     return PatchFileEntry(
-      file: _requireString(json, 'file'),
+      file: _requireFileName(json, 'file'),
       compression: compression,
       sha256: _requireString(json, 'sha256'),
       size: _requireInt(json, 'size'),
@@ -161,6 +161,19 @@ class DeltaManifest extends Equatable {
 String _requireString(Map<String, dynamic> json, String key) {
   final value = json[key];
   if (value is! String || value.isEmpty) {
+    throw FormatException(
+      AppL10n.strings.libraryDomain.manifestMissingField(key),
+    );
+  }
+  return value;
+}
+
+String _requireFileName(Map<String, dynamic> json, String key) {
+  final value = _requireString(json, key);
+  if (value.contains('/') ||
+      value.contains(r'\') ||
+      value == '.' ||
+      value == '..') {
     throw FormatException(
       AppL10n.strings.libraryDomain.manifestMissingField(key),
     );

@@ -590,6 +590,99 @@ void main() {
     });
   });
 
+  group('applyFullDownload — בדיקת מקום פנוי לפני החילוץ', () {
+    const payloadSize = 3 * 1024 * 1024;
+
+    LibraryUpdateApplier withFreeBytes(int? Function(String path) probe) =>
+        applier = LibraryUpdateApplier(
+          processGuard: const _FakeGuard(false),
+          verifyExtractedDb: _fakeVerifier(5),
+          freeBytesFor: probe,
+        );
+
+    test('חוסר ידוע במקום עוצר לפני החילוץ, עם הדרוש והפנוי בהודעה', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final compressedPath = writeCompressed(
+        'seforim.db.zst',
+        pseudoRandomBytes(payloadSize),
+      );
+      File(dbPath).writeAsStringSync('OLD DB');
+      final probed = <String>[];
+      withFreeBytes((path) {
+        probed.add(path);
+        return 1 << 20;
+      });
+
+      await expectLater(
+        applier.applyFullDownload(
+          plan: fullPlanFor(compressedPath),
+          dbPath: dbPath,
+        ),
+        throwsA(
+          isA<LibraryApplyException>().having(
+            (e) => e.message,
+            'message',
+            AppL10n.strings.libraryDomain.notEnoughDiskSpace(
+              p.dirname(dbPath),
+              '3 MB',
+              '1 MB',
+            ),
+          ),
+        ),
+      );
+      expect(probed, [p.dirname(dbPath)]);
+      expect(File(dbPath).readAsStringSync(), 'OLD DB');
+      expect(File('$dbPath.new').existsSync(), isFalse);
+      expect(File(compressedPath).existsSync(), isTrue);
+    });
+
+    test('הרזרבה נספרת בדיוק: בייט אחד פחות חוסם, הסכום המדויק עובר', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final payload = pseudoRandomBytes(payloadSize);
+      final compressedPath = writeCompressed('seforim.db.zst', payload);
+      const exact = payloadSize + DiskSpaceProbe.defaultHeadroomBytes;
+
+      withFreeBytes((_) => exact - 1);
+      await expectLater(
+        applier.applyFullDownload(
+          plan: fullPlanFor(compressedPath),
+          dbPath: dbPath,
+        ),
+        throwsA(isA<LibraryApplyException>()),
+      );
+      applier.dispose();
+
+      withFreeBytes((_) => exact);
+      await applier.applyFullDownload(
+        plan: fullPlanFor(compressedPath),
+        dbPath: dbPath,
+      );
+      expect(File(dbPath).readAsBytesSync(), payload);
+    });
+
+    test('מדידה שנכשלה (null) אינה חוסמת', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final payload = pseudoRandomBytes(64 * 1024);
+      final compressedPath = writeCompressed('seforim.db.zst', payload);
+      withFreeBytes((_) => null);
+
+      await applier.applyFullDownload(
+        plan: fullPlanFor(compressedPath),
+        dbPath: dbPath,
+      );
+      expect(File(dbPath).readAsBytesSync(), payload);
+    });
+  });
+
   group('applyFullDownload — אימות לפני ההחלפה', () {
     test('גרסה שאינה תואמת נעצרת וה-DB הישן נשאר במקומו', () async {
       if (bindings == null) {

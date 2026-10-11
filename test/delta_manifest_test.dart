@@ -69,6 +69,20 @@ void main() {
       expect(() => DeltaManifest.fromJson(json), throwsFormatException);
     });
 
+    for (final name in [
+      '../seforim.db.zst',
+      r'..\seforim.db.zst',
+      'sub/patch-v1-v2.db.zst',
+      '.',
+      '..',
+    ]) {
+      test('שם קובץ patch שאינו שם פשוט נדחה: $name', () {
+        final json = jsonDecode(validJson) as Map<String, dynamic>;
+        (json['patchFiles'] as List).first['file'] = name;
+        expect(() => DeltaManifest.fromJson(json), throwsFormatException);
+      });
+    }
+
     // פענוח שנכשל היה מעלים את הגרסה מהגרף; הפסילה נעשית ב-PatchEdge.
     test('compression שאינו zstd נקרא, ומסומן כלא נתמך', () {
       final json = jsonDecode(validJson) as Map<String, dynamic>;

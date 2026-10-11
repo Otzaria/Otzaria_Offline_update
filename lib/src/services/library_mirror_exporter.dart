@@ -64,7 +64,9 @@ class LibraryMirrorExporter {
     this.historyDepth = defaultHistoryDepth,
     this.applyTime = const ApplyTimeEstimate(),
     DownloadScheduler? scheduler,
+    int? Function(String path)? freeBytesFor,
   })  : _scheduler = scheduler ?? DownloadScheduler(),
+        _freeBytesFor = freeBytesFor ?? DiskSpaceProbe.freeBytesFor,
         _client = client ?? GithubLibraryReleaseClient(),
         _ownsClient = client == null,
         _httpClient = httpClient ?? http.Client(),
@@ -98,6 +100,8 @@ class LibraryMirrorExporter {
   /// ההאצה היחידה שאפשרית מול GitHub. ניתן להזרקה כדי שהקבצים הנלווים
   /// יחלקו את אותה תקרת חיבורים ולא יפתחו תקרה משלהם.
   final DownloadScheduler _scheduler;
+
+  final int? Function(String path) _freeBytesFor;
 
   /// ההורדה עוברת דרך [PatchDownloader] ולא דרך `http` ישר. זה לא ניקיון קוד:
   /// המוריד הזה כבר מביא זמן קצוב, אימות גודל ו-sha256, חידוש הורדה (Range +
@@ -630,7 +634,6 @@ class LibraryMirrorExporter {
         final missing = asset.size - have;
         if (missing <= 0) continue;
         needed += missing;
-        // מפוצל: החלקים והמורכב יושבים יחד על הכונן עד סוף ההרכבה.
         if (asset.isSplit) {
           final partsDir = splitPartsDir(existing.path);
           for (final part in asset.parts) {
@@ -642,8 +645,8 @@ class LibraryMirrorExporter {
       }
     }
     if (needed == 0) return;
-    if (!DiskSpaceProbe.isKnownInsufficient(destDir, needed)) return;
-    final free = DiskSpaceProbe.freeBytesFor(destDir) ?? 0;
+    final free = _freeBytesFor(destDir);
+    if (free == null || !DiskSpaceProbe.lacksSpace(free, needed)) return;
     throw StateError(AppL10n.strings.libraryDomain.mirrorNotEnoughDiskSpace(
       destDir,
       _formatBytes(needed),

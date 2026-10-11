@@ -175,18 +175,19 @@ abstract final class DiskSpaceProbe {
     }
   }
 
-  /// `true` כשידוע בוודאות שחסר מקום ל-[neededBytes] תחת [path].
-  /// מדידה שנכשלה מחזירה `false` — "לא יודע" אינו "אין".
-  ///
-  /// [headroomBytes] הוא רזרבה מעל הדרוש: כתיבה שממלאת נפח עד הבייט האחרון
-  /// מפילה גם דברים אחרים במחשב, ו-NTFS/exFAT צריכים מקום למטא-דאטה.
+  static const int defaultHeadroomBytes = 256 << 20;
+
+  static bool lacksSpace(
+    int? freeBytes,
+    int neededBytes, {
+    int headroomBytes = defaultHeadroomBytes,
+  }) =>
+      freeBytes != null && freeBytes < neededBytes + headroomBytes;
+
   static bool isKnownInsufficient(
     String path,
     int neededBytes, {
-    int headroomBytes = 256 << 20,
-  }) {
-    final free = freeBytesFor(path);
-    if (free == null) return false;
-    return free < neededBytes + headroomBytes;
-  }
+    int headroomBytes = defaultHeadroomBytes,
+  }) =>
+      lacksSpace(freeBytesFor(path), neededBytes, headroomBytes: headroomBytes);
 }
