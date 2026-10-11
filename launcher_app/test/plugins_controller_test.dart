@@ -698,6 +698,34 @@ void main() {
       expect(controller.errorMessage, isNotNull);
       expect(controller.syncWarnings, isEmpty);
     });
+
+    test('plugin files that did not download count as a failed sync', () {
+      expect(controller.lastSyncFailed, isFalse);
+
+      controller.lastSyncOutcome = const PluginSyncOutcome(
+        catalog: PluginCatalog.empty,
+        fetched: 0,
+        skipped: 0,
+        failed: ['a', 'b', 'c'],
+      );
+
+      expect(controller.errorMessage, isNull);
+      expect(controller.lastSyncFailed, isTrue);
+    });
+
+    test('a new sync drops the previous outcome', () async {
+      controller.lastSyncOutcome = const PluginSyncOutcome(
+        catalog: PluginCatalog.empty,
+        fetched: 0,
+        skipped: 0,
+        failed: ['a'],
+      );
+
+      await controller.sync();
+
+      expect(controller.lastSyncOutcome, isNull);
+      expect(controller.lastSyncFailed, isTrue);
+    });
   });
 
   group('checkOnline — בדיקה קלה, כשל בה אינו שגיאה', () {

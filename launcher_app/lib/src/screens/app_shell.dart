@@ -8,6 +8,7 @@ import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
 
 import '../controllers/app_reports_controller.dart';
+import '../controllers/cancelled_download_refresh.dart';
 import '../controllers/custom_apps_controller.dart';
 import '../controllers/download_summary.dart';
 import '../controllers/error_reports_controller.dart';
@@ -947,8 +948,10 @@ class _AppShellState extends State<AppShell> {
       _cancelDownload = false;
     });
 
-    // צילום לפני הבייט הראשון: זה מה שמאפשר לביטול למחוק בדיוק את מה
-    // שההורדה הזו הביאה — ראו [MirrorDownloadUndo].
+    final before = OnlineAnswersBeforeDownload.capture(
+      library: _library,
+      plugins: _plugins,
+    );
     final undo = await MirrorDownloadUndo.capture(_downloadMirrorDirs);
     bool cancelled() => _cancelDownload;
 
@@ -972,8 +975,12 @@ class _AppShellState extends State<AppShell> {
 
     if (cancelled()) {
       await undo.revert();
-      // הקטלוג שבזיכרון נטען לפני הניקוי ומצביע על קבצים שנמחקו זה עתה.
-      await _plugins.load();
+      await refreshAfterCancelledDownload(
+        otzaria: _otzaria,
+        library: _library,
+        plugins: _plugins,
+        before: before,
+      );
       if (!mounted) return;
       setState(() {
         _isDownloading = false;
@@ -995,15 +1002,12 @@ class _AppShellState extends State<AppShell> {
       if (skipPlugins) t.shell.navPlugins,
     ];
 
-    // כשל הורדה נשמר בבקרים ולא נזרק, וקודם לכן גם לא הוצג בשום מקום: מד
-    // ההתקדמות פשוט נעלם אחרי 40 דקות והכרטיס המשיך לומר "יש עדכונים".
-    // זה מה שהיה מייצר "כתוב שהוריד אבל הכונן ריק".
     final failed = [
       if (s.syncApp && !skipApp && _otzaria.downloadError != null)
         t.home.appTileTitle,
       if (s.downloadsLibrary && !skipLibrary && _library.downloadError != null)
         t.home.libraryTileTitle,
-      if (s.syncPlugins && !skipPlugins && _plugins.errorMessage != null)
+      if (s.syncPlugins && !skipPlugins && _plugins.lastSyncFailed)
         t.shell.navPlugins,
     ];
 

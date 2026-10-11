@@ -35,6 +35,16 @@ enum LibraryModuleStatus {
 /// הורדה יכולה לרוץ גם כשהמסד המקומי מעודכן (מורידים בשביל המחשב האחר).
 enum MirrorDownloadStatus { idle, downloading, done, error }
 
+typedef LibraryOnlineAnswers = ({
+  int? latestVersion,
+  String? checkError,
+  DateTime? checkedAt,
+  Set<CompanionAsset> pendingCompanions,
+  String? companionsCheckError,
+  bool semanticPending,
+  String? semanticCheckError,
+});
+
 /// מה ההורדה האחרונה עשתה במצב "עדכון אישי".
 enum LibraryPersonalDownloadNote {
   /// ירדו קובצי עדכון מהגרסה שנרשמה ומעלה.
@@ -273,6 +283,27 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
         if (onlineSemanticPending)
           AppL10n.strings.libraryDomain.companionSemanticName,
       ].join(', ');
+
+  LibraryOnlineAnswers get onlineAnswers => (
+        latestVersion: onlineLatestVersion,
+        checkError: onlineCheckError,
+        checkedAt: onlineCheckedAt,
+        pendingCompanions: onlinePendingCompanions,
+        companionsCheckError: onlineCompanionsCheckError,
+        semanticPending: onlineSemanticPending,
+        semanticCheckError: onlineSemanticCheckError,
+      );
+
+  void restoreOnlineAnswers(LibraryOnlineAnswers answers) {
+    onlineLatestVersion = answers.latestVersion;
+    onlineCheckError = answers.checkError;
+    onlineCheckedAt = answers.checkedAt;
+    onlinePendingCompanions = answers.pendingCompanions;
+    onlineCompanionsCheckError = answers.companionsCheckError;
+    onlineSemanticPending = answers.semanticPending;
+    onlineSemanticCheckError = answers.semanticCheckError;
+    notifyListeners();
+  }
 
   /// `true` אם הבדיקה הקלה מצאה ברשת גרסה גבוהה מזו שיושבת **במראה
   /// המקומית**. [targetVersion] הוא הגרסה האחרונה שבמראה (התוכנית מחזירה

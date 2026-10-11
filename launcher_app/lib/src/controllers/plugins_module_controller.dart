@@ -11,6 +11,18 @@ import 'progress_notifier.dart';
 
 enum PluginsModuleStatus { idle, loading, ready, syncing, error }
 
+typedef PluginsCatalogOnlineAnswers = ({
+  PluginsOnlineStatus? status,
+  String? checkError,
+  DateTime? checkedAt,
+});
+
+typedef StoreAppOnlineAnswers = ({
+  StoreAppRelease? release,
+  String? checkError,
+  DateTime? checkedAt,
+});
+
 /// סינון לפי סטטוס התוסף בחנות (`stable` / `beta` / `experimental`).
 enum PluginStatusFilter { all, stable, beta, experimental }
 
@@ -185,11 +197,40 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   /// את כפתור ההורדה.
   bool get hasOnlineUpdate => hasCatalogOnlineUpdate || hasStoreAppOnlineUpdate;
 
+  PluginsCatalogOnlineAnswers get catalogOnlineAnswers => (
+        status: onlineStatus,
+        checkError: onlineCheckError,
+        checkedAt: onlineCheckedAt,
+      );
+
+  void restoreCatalogOnlineAnswers(PluginsCatalogOnlineAnswers answers) {
+    onlineStatus = answers.status;
+    onlineCheckError = answers.checkError;
+    onlineCheckedAt = answers.checkedAt;
+    notifyListeners();
+  }
+
+  StoreAppOnlineAnswers get storeAppOnlineAnswers => (
+        release: storeAppOnline,
+        checkError: storeAppCheckError,
+        checkedAt: storeAppCheckedAt,
+      );
+
+  void restoreStoreAppOnlineAnswers(StoreAppOnlineAnswers answers) {
+    storeAppOnline = answers.release;
+    storeAppCheckError = answers.checkError;
+    storeAppCheckedAt = answers.checkedAt;
+    notifyListeners();
+  }
+
   // ── סנכרון ────────────────────────────────────────────────────────────────
 
   /// מה הסנכרון האחרון באמת עשה (כמה ירדו, כמה דולגו), או `null` לפני
   /// שרץ אחד בהרצה הזו.
   PluginSyncOutcome? lastSyncOutcome;
+
+  bool get lastSyncFailed =>
+      errorMessage != null || (lastSyncOutcome?.hasFailures ?? false);
 
   String? syncMessage;
   double? syncProgress;
@@ -390,6 +431,7 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   Future<void> sync({bool Function()? isCancelled}) async {
     status = PluginsModuleStatus.syncing;
     errorMessage = null;
+    lastSyncOutcome = null;
     syncMessage = AppL10n.strings.plugins.syncingOverlayStarting;
     syncProgress = null;
     syncWarnings.clear();
