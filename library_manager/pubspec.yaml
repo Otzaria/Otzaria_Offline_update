@@ -35,12 +35,12 @@ dependencies:
   # פריסת ה-tar של ארכיון התלמוד (`talmud_bavli_latest.tar.zst`) — אותה
   # חבילה שאוצריא משתמשת בה ב-`extractTarZstToDir`.
   archive: ^4.0.9
+  crypto: ^3.0.6
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   test: ^1.30.1
-  crypto: ^3.0.6
   zstandard_platform_interface: ^1.5.0
   # flutter_lints ולא lints: זו חבילת Flutter, ואותה ערכה כמו בשורש הריפו
   # וב-launcher_app (ראו analysis_options.yaml).

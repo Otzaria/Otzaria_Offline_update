@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import 'atomic_file.dart';
@@ -15,34 +16,112 @@ class AppliedRelease {
   final int dbVersion;
 }
 
-/// שומר/טוען הגדרות מתמשכות של מודול הספרייה: נתיב DB מותאם אישית (למקרה
-/// שהמשתמש הצביע ידנית על תיקיית ספרייה שאינה ברירת המחדל של אוצריא), וכן
-/// נתיב "מראה מקומית" (offline) אם המשתמש בחר לעדכן מתיקייה מקומית/USB
-/// במקום מהענן. קובץ state נפרד מזה של [OtzariaStateStore] — שני מודולים
-/// שונים, שני קבצים.
-///
-/// **הקובץ יושב ב-`OtzariaData/`, כלומר על הכונן הנייד, ולכן הוא נוסע לכל
-/// מחשב שהכונן מגיע אליו.** כל נתיב מוחלט שנשמר בו הוא לכן פר-מחשב — ראו
-/// [loadCustomDbPath].
 class LibraryStateStore {
-  const LibraryStateStore(this.stateFilePath);
+  const LibraryStateStore(this.stateFilePath, {this.dataDir});
 
   LibraryStateStore.inDir(String dir) : stateFilePath = p.join(dir, fileName);
 
   static const String fileName = 'library_state.json';
 
   final String stateFilePath;
+  final String? dataDir;
 
-  /// מזהה המחשב+החשבון שרשומות פר-מחשב נשמרות תחתיו. שם המחשב לבדו אינו
-  /// מספיק: שני חשבונות באותו מחשב הם שני `%APPDATA%` שונים.
-  static String currentMachineKey() {
-    var host = 'unknown';
+  static Future<String>? _machineKey;
+
+  static Future<String> currentMachineKey() =>
+      _machineKey ??= _resolveMachineKey();
+
+  static String legacyMachineKey() => '${_hostname()}|${_account()}';
+
+  static String _hostname() {
     try {
-      host = Platform.localHostname;
-    } catch (_) {}
+      return Platform.localHostname;
+    } catch (_) {
+      return 'unknown';
+    }
+  }
+
+  static String _account() {
     final env = Platform.environment;
-    final account = env['USERNAME'] ?? env['USER'] ?? '';
-    return '$host|$account';
+    return env['USERNAME'] ?? env['USER'] ?? '';
+  }
+
+  static Future<String> _resolveMachineKey() async => machineKeyFor(
+    machineId: await _readMachineId(),
+    hostname: _hostname(),
+    account: _account(),
+    hostnameIsStable: !Platform.isMacOS,
+  );
+
+  static String machineKeyFor({
+    required String? machineId,
+    required String hostname,
+    required String account,
+    required bool hostnameIsStable,
+  }) {
+    if (machineId == null || machineId.trim().isEmpty) {
+      return '$hostname|$account';
+    }
+    final digest = machineIdDigest(
+      machineId,
+      hostname: hostnameIsStable ? hostname : null,
+    );
+    return '$digest|$account';
+  }
+
+  static String machineIdDigest(String machineId, {String? hostname}) {
+    final source = [
+      machineId.trim().toLowerCase(),
+      if (hostname != null) hostname.trim().toLowerCase(),
+    ].join('\n');
+    return sha256.convert(utf8.encode(source)).toString().substring(0, 16);
+  }
+
+  static final RegExp _digestKeyPattern = RegExp(r'^[0-9a-f]{16}\|');
+
+  static bool isHostnameKey(String key) => !_digestKeyPattern.hasMatch(key);
+
+  static Duration staleAfter(String key) =>
+      Duration(days: isHostnameKey(key) ? 180 : 365);
+
+  static final RegExp _machineIdPattern = RegExp(
+    r'(?:MachineGuid\s+REG_SZ\s+|"IOPlatformUUID"\s*=\s*")'
+    r'([0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12})',
+  );
+
+  static String? parseMachineId(String output) =>
+      _machineIdPattern.firstMatch(output)?.group(1);
+
+  static Future<String?> _readMachineId() async {
+    try {
+      if (Platform.isWindows) {
+        final result = await Process.run('reg', [
+          'query',
+          r'HKLM\SOFTWARE\Microsoft\Cryptography',
+          '/v',
+          'MachineGuid',
+          '/reg:64',
+        ]);
+        if (result.exitCode != 0) return null;
+        return parseMachineId(result.stdout.toString());
+      }
+      if (Platform.isMacOS) {
+        final result = await Process.run('/usr/sbin/ioreg', [
+          '-rd1',
+          '-c',
+          'IOPlatformExpertDevice',
+        ]);
+        if (result.exitCode != 0) return null;
+        return parseMachineId(result.stdout.toString());
+      }
+      for (final path in ['/etc/machine-id', '/var/lib/dbus/machine-id']) {
+        final file = File(path);
+        if (!await file.exists()) continue;
+        final id = (await file.readAsString()).trim();
+        if (id.isNotEmpty) return id;
+      }
+    } catch (_) {}
+    return null;
   }
 
   Future<Map<String, dynamic>> _readAll({bool forWrite = false}) async {
@@ -73,29 +152,26 @@ class LibraryStateStore {
     await writeStringAtomically(stateFilePath, jsonEncode(json));
   }
 
-  /// הנתיב שנבחר **במחשב הזה**, או null כשלא הוגדר (וגם כשהקובץ פגום/לא
-  /// קריא — מתייחסים לזה כ"לא הוגדר" ולא זורקים).
-  ///
-  /// **פר-מחשב, כי הקובץ נוסע עם הכונן** (issue #23): רשומה גלובלית אחת
-  /// הצביעה במחשב השני על `C:\Users\<שם המשתמש של המחשב הראשון>`, ושם אי אפשר
-  /// ליצור תיקייה — הספרייה סירבה להותקן עד שנבחר מיקום ידנית.
-  ///
-  /// רשומה מגרסה קודמת (מפתח יחיד, בלי מזהה מחשב) נחשבת רק אם היא נתיב מוחלט
-  /// **בפלטפורמה הזו**, תיקיית האם שלו קיימת כאן, **והוא אינו יושב בתוך תיקיית
-  /// הנתונים שעל הכונן**. התנאי האחרון הוא מה שסוגר את הכוננים שכבר בשטח:
-  /// גרסאות עד 0.1.8 רשמו כאן, אחרי כל התקנה טרייה, את
-  /// `<dataDir>/library/seforim.db` — ותיקיית האם של נתיב כזה נוסעת עם הכונן
-  /// ולכן קיימת *תמיד*, כך שמסננת ה"תיקיית האם קיימת" לא פסלה אותה. התוצאה
-  /// הייתה ~5.5GB שממשיכים להיכתב על הכונן, בזמן שאוצריא קוראת מ-`%APPDATA%`
-  /// ואינה רואה דבר.
+  static Future<Object?> _ownRecord(Object? all) async {
+    if (all is! Map) return null;
+    return all[await currentMachineKey()] ?? all[legacyMachineKey()];
+  }
+
+  static Future<void> _putOwnRecord(
+    Map<String, dynamic> records,
+    Object value,
+  ) async {
+    final key = await currentMachineKey();
+    final legacy = legacyMachineKey();
+    if (legacy != key) records.remove(legacy);
+    records[key] = value;
+  }
+
   Future<String?> loadCustomDbPath() async {
     final json = await _readAll();
 
-    final perMachine = json['customDbPaths'];
-    if (perMachine is Map) {
-      final own = perMachine[currentMachineKey()];
-      if (own is String && own.isNotEmpty) return own;
-    }
+    final own = await _ownRecord(json['customDbPaths']);
+    if (own is String && own.isNotEmpty) return own;
 
     final legacy = json['customDbPath'];
     if (legacy is! String || legacy.isEmpty || !p.isAbsolute(legacy)) {
@@ -105,14 +181,12 @@ class LibraryStateStore {
     return await Directory(p.dirname(legacy)).exists() ? legacy : null;
   }
 
-  /// `true` אם [path] יושב בתוך תיקיית הנתונים שקובץ ה-state הזה חי בה —
-  /// כלומר על הכונן הנייד עצמו. ציבורי כדי שבדיקות יוכלו לפנות אליו ישירות.
   bool isInsideDataDir(String path) {
-    final dataDir = p.dirname(stateFilePath);
+    final root = dataDir ?? p.dirname(stateFilePath);
     final context = Platform.isWindows ? p.windows : p.posix;
     try {
-      return context.equals(dataDir, path) ||
-          context.isWithin(dataDir, context.normalize(path));
+      return context.equals(root, path) ||
+          context.isWithin(root, context.normalize(path));
     } catch (_) {
       return false;
     }
@@ -127,28 +201,14 @@ class LibraryStateStore {
         if (key is String && value is String) paths[key] = value;
       });
     }
-    paths[currentMachineKey()] = dbPath;
+    await _putOwnRecord(paths, dbPath);
     json['customDbPaths'] = paths;
     await _writeAll(json);
   }
 
-  /// ה-release שממנו הגיע תוכן ה-DB **של המחשב הזה**, יחד עם גרסת ה-DB
-  /// שנרשמה איתו. מאפשר לזהות מסד שפורסם מחדש באותו `db_version` — ראו
-  /// `LibraryUpdatePlanner`.
-  ///
-  /// **פר-מחשב, כי הקובץ נוסע עם הכונן**, בדיוק כמו [loadCustomDbPath]:
-  /// רשומה גלובלית אחת נדרסה בין המחשבים, וה-tag של מחשב אחד נבדק מול המסד
-  /// של השני — מה שהכריז על "עדכון" מגרסה X לאותה גרסה X.
-  ///
-  /// הרשומה הגלובלית הישנה (`appliedReleaseTag`) **אינה** נקראת: היא החזיקה
-  /// את ה-tag של נושא המסד המלא, לא של ה-release שהתוכן הגיע ממנו, ולכן
-  /// אינה בת-השוואה. אין מה לאבד — לכל היותר פרסום-מחדש אחד לא יזוהה, עד
-  /// שהעדכון הבא יכתוב רשומה תקינה.
   Future<AppliedRelease?> loadAppliedRelease() async {
     final json = await _readAll();
-    final all = json['appliedReleases'];
-    if (all is! Map) return null;
-    final own = all[currentMachineKey()];
+    final own = await _ownRecord(json['appliedReleases']);
     if (own is! Map) return null;
     final tag = own['tag'];
     final version = own['dbVersion'];
@@ -168,23 +228,15 @@ class LibraryStateStore {
         if (key is String && value is Map) records[key] = value;
       });
     }
-    records[currentMachineKey()] = {'tag': tag, 'dbVersion': dbVersion};
+    await _putOwnRecord(records, {'tag': tag, 'dbVersion': dbVersion});
     json['appliedReleases'] = records;
     json.remove('appliedReleaseTag');
     await _writeAll(json);
   }
 
-  /// מזהי הגרסה של הקבצים הנלווים ש**נמסרו למחשב הזה** מהמראה, לפי שם
-  /// הפריט. זה מה שמבדיל בין "המראה חדשה ממה שמותקן" לבין "מישהו אחר —
-  /// אוצריא עצמה, מהרשת — החליף את הקובץ אחרינו": בלי הרשומה הזו כל קובץ
-  /// נלווה שלא הגיע מהמראה נראה כישן, וההצעה חזרה בכל פתיחה.
-  ///
-  /// **פר-מחשב, כי הקובץ נוסע עם הכונן**, בדיוק כמו [loadAppliedRelease].
   Future<Map<String, String>> loadDeliveredCompanions() async {
     final json = await _readAll();
-    final all = json['deliveredCompanions'];
-    if (all is! Map) return const {};
-    final own = all[currentMachineKey()];
+    final own = await _ownRecord(json['deliveredCompanions']);
     if (own is! Map) return const {};
     final markers = <String, String>{};
     own.forEach((key, value) {
@@ -193,8 +245,6 @@ class LibraryStateStore {
     return markers;
   }
 
-  /// ממזג [markers] לרשומה של המחשב הזה. מיזוג ולא דריסה: התקנה שבה פריט
-  /// אחד נכשל אינה מוחקת את מה שנמסר בהתקנות קודמות.
   Future<void> saveDeliveredCompanions(Map<String, String> markers) async {
     if (markers.isEmpty) return;
     final json = await _readAll(forWrite: true);
@@ -206,33 +256,22 @@ class LibraryStateStore {
       });
     }
     final own = <String, dynamic>{};
-    final previous = records[currentMachineKey()];
+    final previous = await _ownRecord(records);
     if (previous is Map) {
       previous.forEach((key, value) {
         if (key is String && value is String) own[key] = value;
       });
     }
     own.addAll(markers);
-    records[currentMachineKey()] = own;
+    await _putOwnRecord(records, own);
     json['deliveredCompanions'] = records;
     await _writeAll(json);
   }
 
-  /// גרסת ה-DB של כל מחשב שנרשמה בו גרסה, לפי מזהה מחשב. נכתבת **רק** בלחיצה
-  /// על "זהה את גרסת המסד שלי" ואחרי עדכון שהוחל כאן — לא בבדיקה שגרתית.
-  /// נוסעת עם הכונן, וזה מה שמאפשר למחשב **המקוון** לדעת מאיזו גרסה להוריד
-  /// במצב "עדכון אישי", בלי לקרוא שום מסד אצלו.
-  ///
-  /// **רשומה לכל מחשב, ולא מספר אחד:** מי שלחץ גם במחשב הלא-מקוון (גרסה 20)
-  /// וגם במקוון (גרסה 22) היה דורס מספר בודד ל-22, ההורדה הייתה מביאה patches
-  /// מ-22 ומעלה, והמחשב הלא-מקוון היה נשאר בלי מסלול. לכן כל מחשב שומר את
-  /// שלו, וההורדה יוצאת מהנמוכה שבהן — ראו [lowestKnownDbVersion].
-  ///
-  /// לא נסמכים על זה לשום החלטה על ה-DB עצמו: שם הגרסה נקראת מהקובץ בפועל.
   Future<Map<String, int>> loadKnownDbVersions() async =>
-      _knownDbVersionsIn(await _readAll());
+      _knownVersions(await _readAll());
 
-  Map<String, int> _knownDbVersionsIn(Map<String, dynamic> json) {
+  static Map<String, int> _knownVersions(Map<String, dynamic> json) {
     final raw = json['knownDbVersions'];
     if (raw is! Map) return const {};
     final versions = <String, int>{};
@@ -242,33 +281,130 @@ class LibraryStateStore {
     return versions;
   }
 
-  /// הגרסה הנמוכה מבין כל המחשבים שנרשמו, או `null` כשאין רשומה כלל.
-  /// זו הגרסה שהורדה במצב אישי חייבת לצאת ממנה, כדי שתשרת את כולם.
-  Future<int?> lowestKnownDbVersion() async {
-    final versions = await loadKnownDbVersions();
-    if (versions.isEmpty) return null;
-    return versions.values.reduce((a, b) => a < b ? a : b);
+  Future<Map<String, int>> _liveKnownVersions() async {
+    final json = await _readAll();
+    final versions = _knownVersions(json);
+    final seen = _stamps(json, _seenField);
+    final clock = _newest(versions.keys.map((key) => seen[key]));
+    if (clock == null) return versions;
+    return Map.fromEntries(
+      versions.entries.where((e) => !_isStale(e.key, seen[e.key], clock)),
+    );
   }
 
-  /// רושם/מעדכן את הגרסה של [machineKey]. דריסה של אותו מפתח היא הכוונה:
-  /// מחשב שמעדכן את המסד שלו מפסיק למשוך את המינימום למטה בהרצה הבאה שלו.
-  ///
-  /// רשומות מגרסה קודמת של אותו מחשב נמחקות כאן. הן היו ממופתחות בנתיב המסד
-  /// המוחלט, ולכן מסד שעבר מקום (בחירה ידנית, שינוי בהגדרות אוצריא) יצר רשומה
-  /// **שנייה** לאותו מחשב, הישנה נשארה לנצח, ו"הנמוכה מנצחת" הקפיא את ההורדה
-  /// האישית על גרסה שהמחשב מזמן עבר. בדרך זה גם מוציא מהקובץ שנוסע על הכונן
-  /// נתיב מוחלט שכולל את שם החשבון.
-  Future<void> recordKnownDbVersion(String machineKey, int version) async {
+  Future<int?> lowestKnownDbVersion() async {
+    final live = (await _liveKnownVersions()).values;
+    if (live.isEmpty) return null;
+    return live.reduce((a, b) => a < b ? a : b);
+  }
+
+  static const _seenField = 'knownDbVersionsSeen';
+  static const _localTimeField = 'knownDbVersionsLocalTime';
+  static const maxClockStep = Duration(days: 30);
+
+  static Map<String, DateTime> _stamps(
+    Map<String, dynamic> json,
+    String field,
+  ) {
+    final raw = json[field];
+    final stamps = <String, DateTime>{};
+    if (raw is! Map) return stamps;
+    raw.forEach((key, value) {
+      if (key is! String || value is! String) return;
+      final parsed = DateTime.tryParse(value);
+      if (parsed != null) stamps[key] = parsed.toUtc();
+    });
+    return stamps;
+  }
+
+  static DateTime? _newest(Iterable<DateTime?> stamps) {
+    DateTime? newest;
+    for (final stamp in stamps) {
+      if (stamp != null && (newest == null || stamp.isAfter(newest))) {
+        newest = stamp;
+      }
+    }
+    return newest;
+  }
+
+  static bool _isStale(String key, DateTime? seen, DateTime clock) =>
+      seen != null && clock.difference(seen) > staleAfter(key);
+
+  static DateTime _logicalNow({
+    required DateTime? clock,
+    required DateTime? ownSeen,
+    required DateTime? ownLocalTime,
+    required DateTime now,
+  }) {
+    if (clock == null) return now;
+    if (ownSeen == null || ownLocalTime == null) return clock;
+    var elapsed = now.difference(ownLocalTime);
+    if (elapsed.isNegative) elapsed = Duration.zero;
+    if (elapsed > maxClockStep) elapsed = maxClockStep;
+    final advanced = ownSeen.add(elapsed);
+    return advanced.isAfter(clock) ? advanced : clock;
+  }
+
+  Future<bool> hasOwnKnownDbVersion() async =>
+      await _ownRecord(await _liveKnownVersions()) != null;
+
+  Future<void> recordOwnDbVersion(int version) async => recordKnownDbVersion(
+    await currentMachineKey(),
+    version,
+    aliases: [legacyMachineKey()],
+  );
+
+  Future<void> recordKnownDbVersion(
+    String machineKey,
+    int version, {
+    Iterable<String> aliases = const [],
+  }) async {
     final json = await _readAll(forWrite: true);
-    final existing = _knownDbVersionsIn(json);
-    final host = machineKey.split('|').first;
+    final existing = _knownVersions(json);
+    final previousSeen = _stamps(json, _seenField);
+    final previousLocalTime = _stamps(json, _localTimeField);
+    final ownKeys = [machineKey, ...aliases];
+    final ownPrevious = ownKeys.firstWhere(
+      (key) => previousSeen[key] != null && previousLocalTime[key] != null,
+      orElse: () => machineKey,
+    );
+    final now = DateTime.now().toUtc();
+    final logicalNow = _logicalNow(
+      clock: _newest(existing.keys.map((key) => previousSeen[key])),
+      ownSeen: previousSeen[ownPrevious],
+      ownLocalTime: previousLocalTime[ownPrevious],
+      now: now,
+    );
+    final own = ownKeys.toSet();
+    final hosts = own.map((key) => key.split('|').first).toSet();
     final versions = <String, dynamic>{};
+    final seen = <String, dynamic>{};
+    final localTime = <String, dynamic>{};
     existing.forEach((key, value) {
-      final sameMachine = key == machineKey || key.startsWith('$host|');
-      if (!sameMachine) versions[key] = value;
+      if (own.contains(key) || _isLegacyPathKey(key, hosts)) return;
+      final stamp = previousSeen[key] ?? logicalNow;
+      if (_isStale(key, stamp, logicalNow)) return;
+      versions[key] = value;
+      seen[key] = stamp.toIso8601String();
+      final writerTime = previousLocalTime[key];
+      if (writerTime != null) localTime[key] = writerTime.toIso8601String();
     });
     versions[machineKey] = version;
+    seen[machineKey] = logicalNow.toIso8601String();
+    localTime[machineKey] = now.toIso8601String();
     json['knownDbVersions'] = versions;
+    json[_seenField] = seen;
+    json[_localTimeField] = localTime;
     await _writeAll(json);
+  }
+
+  static bool _isLegacyPathKey(String key, Set<String> hosts) {
+    final separator = key.indexOf('|');
+    if (separator < 0) return false;
+    if (!hosts.contains(key.substring(0, separator))) return false;
+    final rest = key.substring(separator + 1);
+    return rest.contains('/') ||
+        rest.contains(r'\') ||
+        rest.toLowerCase().endsWith('.db');
   }
 }

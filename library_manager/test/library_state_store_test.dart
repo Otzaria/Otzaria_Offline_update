@@ -92,7 +92,7 @@ void main() {
     });
 
     test('רשומה חסרת tag או חסרת גרסה נחשבת "לא ידוע" — לא מנחשים', () async {
-      final key = LibraryStateStore.currentMachineKey();
+      final key = await LibraryStateStore.currentMachineKey();
       await File(statePath).parent.create(recursive: true);
 
       await File(statePath).writeAsString(
@@ -244,7 +244,7 @@ void main() {
       final json = jsonDecode(await File(statePath).readAsString()) as Map;
       expect(json['customDbPath'], isNull);
       expect(json['customDbPaths'], {
-        LibraryStateStore.currentMachineKey(): dbPath,
+        await LibraryStateStore.currentMachineKey(): dbPath,
       });
     });
 
@@ -276,7 +276,7 @@ void main() {
       final json = jsonDecode(await File(statePath).readAsString()) as Map;
       expect(json['customDbPaths'], {
         'OTHER-PC|user': other,
-        LibraryStateStore.currentMachineKey(): mine,
+        await LibraryStateStore.currentMachineKey(): mine,
       });
       expect(await store.loadCustomDbPath(), mine);
     });
@@ -318,14 +318,172 @@ void main() {
       await Directory(p.dirname(mine)).create(recursive: true);
       await store.saveCustomDbPath(mine);
 
-      final json =
-          jsonDecode(await File(statePath).readAsString())
-              as Map<String, dynamic>;
+      final json = jsonDecode(
+        await File(statePath).readAsString(),
+      ) as Map<String, dynamic>;
       json['customDbPath'] = p.join(tempDir.path, 'legacy', 'seforim.db');
       await Directory(p.join(tempDir.path, 'legacy')).create(recursive: true);
       await File(statePath).writeAsString(jsonEncode(json));
 
       expect(await store.loadCustomDbPath(), mine);
+    });
+
+    test('רשומה גלובלית על הכונן נדחית גם כשהמצב יושב ב-logs', () async {
+      final dataDir = p.join(tempDir.path, 'OtzariaData');
+      final logsState = p.join(dataDir, 'logs', 'library_state.json');
+      final onDrive = p.join(dataDir, 'library', 'seforim.db');
+      await Directory(p.dirname(onDrive)).create(recursive: true);
+      await File(logsState).parent.create(recursive: true);
+      await File(logsState)
+          .writeAsString(jsonEncode({'customDbPath': onDrive}));
+
+      final drive = LibraryStateStore(logsState, dataDir: dataDir);
+      expect(drive.isInsideDataDir(onDrive), isTrue);
+      expect(await drive.loadCustomDbPath(), isNull);
+    });
+
+    test('רשומה גלובלית מחוץ לתיקיית הנתונים עדיין נקראת', () async {
+      final dataDir = p.join(tempDir.path, 'OtzariaData');
+      final logsState = p.join(dataDir, 'logs', 'library_state.json');
+      final elsewhere = p.join(tempDir.path, 'books', 'seforim.db');
+      await Directory(p.dirname(elsewhere)).create(recursive: true);
+      await File(logsState).parent.create(recursive: true);
+      await File(logsState)
+          .writeAsString(jsonEncode({'customDbPath': elsewhere}));
+
+      expect(
+        await LibraryStateStore(logsState, dataDir: dataDir).loadCustomDbPath(),
+        elsewhere,
+      );
+    });
+  });
+
+  group('LibraryStateStore — מזהה המחשב', () {
+    test('MachineGuid נקרא מהפלט של reg query', () {
+      const output =
+          'HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Cryptography\r\n'
+          '    MachineGuid    REG_SZ    3f2504e0-4f89-11d3-9a0c-0305e82c3301\r\n';
+      expect(
+        LibraryStateStore.parseMachineId(output),
+        '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+      );
+    });
+
+    test('IOPlatformUUID נקרא מהפלט של ioreg', () {
+      const output =
+          '+-o J314sAP  <class IOPlatformExpertDevice>\n'
+          '    "IOPlatformSerialNumber" = "C02XXXXXXXXX"\n'
+          '    "IOPlatformUUID" = "A1B2C3D4-E5F6-7890-ABCD-EF0123456789"\n';
+      expect(
+        LibraryStateStore.parseMachineId(output),
+        'A1B2C3D4-E5F6-7890-ABCD-EF0123456789',
+      );
+    });
+
+    test('פלט לא מוכר אינו מניב מזהה', () {
+      expect(LibraryStateStore.parseMachineId('ERROR: not found'), isNull);
+    });
+
+    test('התקציר יציב, אינו תלוי רישיות ואינו חושף את המזהה', () {
+      const id = 'A1B2C3D4-E5F6-7890-ABCD-EF0123456789';
+      final digest = LibraryStateStore.machineIdDigest(id);
+      expect(digest, LibraryStateStore.machineIdDigest(id.toLowerCase()));
+      expect(digest, hasLength(16));
+      expect(digest.toUpperCase().contains('A1B2C3D4'), isFalse);
+    });
+
+    test('מחשבים משוכפלים עם אותו מזהה ושמות שונים נשארים נפרדים', () {
+      const id = '3f2504e0-4f89-11d3-9a0c-0305e82c3301';
+      final a = LibraryStateStore.machineKeyFor(
+        machineId: id,
+        hostname: 'LAB-01',
+        account: 'student',
+        hostnameIsStable: true,
+      );
+      final b = LibraryStateStore.machineKeyFor(
+        machineId: id,
+        hostname: 'LAB-02',
+        account: 'student',
+        hostnameIsStable: true,
+      );
+      expect(a, isNot(b));
+      expect(a.endsWith('|student'), isTrue);
+      expect(LibraryStateStore.isHostnameKey(a), isFalse);
+      expect(a.contains('LAB-01'), isFalse);
+    });
+
+    test('ב-macOS שם המחשב אינו חלק מהמפתח', () {
+      const id = 'A1B2C3D4-E5F6-7890-ABCD-EF0123456789';
+      final before = LibraryStateStore.machineKeyFor(
+        machineId: id,
+        hostname: 'Johns-MBP',
+        account: 'me',
+        hostnameIsStable: false,
+      );
+      final after = LibraryStateStore.machineKeyFor(
+        machineId: id,
+        hostname: 'MacBook-Pro-3',
+        account: 'me',
+        hostnameIsStable: false,
+      );
+      expect(before, after);
+    });
+
+    test('בלי מזהה המפתח נופל לשם המחשב', () {
+      final key = LibraryStateStore.machineKeyFor(
+        machineId: null,
+        hostname: 'PC',
+        account: 'me',
+        hostnameIsStable: true,
+      );
+      expect(key, 'PC|me');
+      expect(LibraryStateStore.isHostnameKey(key), isTrue);
+    });
+
+    test('המפתח יציב בתוך הרצה ומסתיים בשם החשבון', () async {
+      final key = await LibraryStateStore.currentMachineKey();
+      expect(await LibraryStateStore.currentMachineKey(), key);
+      final account = LibraryStateStore.legacyMachineKey().split('|').last;
+      expect(key.split('|').last, account);
+    });
+
+    test('רשומות לפי שם המחשב נקראות ועוברות למפתח החדש בכתיבה', () async {
+      final legacy = LibraryStateStore.legacyMachineKey();
+      final current = await LibraryStateStore.currentMachineKey();
+      final dbPath = p.join(tempDir.path, 'lib', 'seforim.db');
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsString(
+        jsonEncode({
+          'customDbPaths': {legacy: dbPath, 'OTHER-PC|user': 'x'},
+          'appliedReleases': {
+            legacy: {'tag': 'v20', 'dbVersion': 20},
+          },
+          'deliveredCompanions': {
+            legacy: {'a': '1'},
+          },
+          'knownDbVersions': {legacy: 20, 'OTHER-PC|user': 22},
+        }),
+      );
+
+      expect(await store.loadCustomDbPath(), dbPath);
+      expect((await store.loadAppliedRelease())?.tag, 'v20');
+      expect(await store.loadDeliveredCompanions(), {'a': '1'});
+      expect(await store.hasOwnKnownDbVersion(), isTrue);
+
+      await store.saveCustomDbPath(dbPath);
+      await store.saveAppliedRelease(tag: 'v21', dbVersion: 21);
+      await store.saveDeliveredCompanions({'b': '2'});
+      await store.recordOwnDbVersion(21);
+
+      final json = jsonDecode(await File(statePath).readAsString()) as Map;
+      expect(json['customDbPaths'], {'OTHER-PC|user': 'x', current: dbPath});
+      expect(json['appliedReleases'], {
+        current: {'tag': 'v21', 'dbVersion': 21},
+      });
+      expect(json['deliveredCompanions'], {
+        current: {'a': '1', 'b': '2'},
+      });
+      expect(json['knownDbVersions'], {'OTHER-PC|user': 22, current: 21});
     });
   });
 
@@ -363,11 +521,286 @@ void main() {
       expect(await store.loadCustomDbPath(), r'C:\lib\seforim.db');
     });
 
+    test('חשבון אחר באותו מחשב שומר על הרשומה שלו', () async {
+      await store.recordKnownDbVersion('PC|student', 20);
+      await store.recordKnownDbVersion('PC|teacher', 22);
+
+      expect(await store.loadKnownDbVersions(), {
+        'PC|student': 20,
+        'PC|teacher': 22,
+      });
+      expect(await store.lowestKnownDbVersion(), 20);
+
+      await store.recordKnownDbVersion('PC|student', 22);
+      expect(await store.loadKnownDbVersions(), {
+        'PC|student': 22,
+        'PC|teacher': 22,
+      });
+    });
+
+    test('רשומות ישנות לפי נתיב המסד של המחשב הזה נמחקות', () async {
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsString(
+        jsonEncode({
+          'knownDbVersions': {
+            r'PC|C:\Users\a\seforim.db': 18,
+            'PC|/home/a/otzaria/seforim.db': 17,
+            'PC|student': 20,
+            r'OTHER|D:\b\seforim.db': 19,
+          },
+        }),
+      );
+
+      await store.recordKnownDbVersion('PC|teacher', 22);
+
+      expect(await store.loadKnownDbVersions(), {
+        'PC|student': 20,
+        r'OTHER|D:\b\seforim.db': 19,
+        'PC|teacher': 22,
+      });
+    });
+
+    test('כינוי ישן של המחשב הזה מוחלף במפתח שלו', () async {
+      await store.recordKnownDbVersion('OLD-HOST|me', 20);
+      await store.recordKnownDbVersion('OTHER|me', 21);
+      await store.recordKnownDbVersion('id|me', 22, aliases: ['OLD-HOST|me']);
+
+      expect(await store.loadKnownDbVersions(), {'OTHER|me': 21, 'id|me': 22});
+    });
+
+    test('רשומה לפי שם מחשב שלא חודשה זמן רב מתעלמים ממנה וגוזמים', () async {
+      final fresh = DateTime.now().toUtc();
+      final old = fresh.subtract(const Duration(days: 200));
+      final digestKey =
+          '${LibraryStateStore.machineIdDigest('x', hostname: 'h')}|me';
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsString(
+        jsonEncode({
+          'knownDbVersions': {'Johns-MBP|me': 20, digestKey: 21, 'NEW|me': 23},
+          'knownDbVersionsSeen': {
+            'Johns-MBP|me': old.toIso8601String(),
+            digestKey: old.toIso8601String(),
+            'NEW|me': fresh.toIso8601String(),
+          },
+        }),
+      );
+
+      expect(await store.lowestKnownDbVersion(), 21);
+
+      await store.recordKnownDbVersion('OTHER|me', 22);
+
+      final json = jsonDecode(await File(statePath).readAsString()) as Map;
+      expect(json['knownDbVersions'], {
+        digestKey: 21,
+        'NEW|me': 23,
+        'OTHER|me': 22,
+      });
+      expect((json['knownDbVersionsSeen'] as Map).keys.toSet(), {
+        digestKey,
+        'NEW|me',
+        'OTHER|me',
+      });
+      expect(json['knownDbVersionsSeen'][digestKey], old.toIso8601String());
+    });
+
+    test('רשומה לפי מזהה מחשב פגה רק אחרי שנה', () async {
+      final fresh = DateTime.now().toUtc();
+      final old = fresh.subtract(const Duration(days: 400));
+      final digestKey =
+          '${LibraryStateStore.machineIdDigest('x', hostname: 'h')}|me';
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsString(
+        jsonEncode({
+          'knownDbVersions': {digestKey: 18, 'PC|me': 22},
+          'knownDbVersionsSeen': {
+            digestKey: old.toIso8601String(),
+            'PC|me': fresh.toIso8601String(),
+          },
+        }),
+      );
+
+      expect(await store.lowestKnownDbVersion(), 22);
+    });
+
+    test('רשומה של המחשב הזה שפגה אינה נחשבת רישום', () async {
+      final own = await LibraryStateStore.currentMachineKey();
+      final fresh = DateTime.now().toUtc();
+      final old = fresh.subtract(const Duration(days: 400));
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsString(
+        jsonEncode({
+          'knownDbVersions': {own: 20, 'OTHER|me': 22},
+          'knownDbVersionsSeen': {
+            own: old.toIso8601String(),
+            'OTHER|me': fresh.toIso8601String(),
+          },
+        }),
+      );
+
+      expect(await store.hasOwnKnownDbVersion(), isFalse);
+      expect(await store.lowestKnownDbVersion(), 22);
+
+      await store.recordOwnDbVersion(21);
+      expect(await store.hasOwnKnownDbVersion(), isTrue);
+      expect(await store.lowestKnownDbVersion(), 21);
+    });
+
+    test('רשומה ישנה בלי חותמת נספרת ומקבלת חותמת בכתיבה הבאה', () async {
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsString(
+        jsonEncode({
+          'knownDbVersions': {'OLD|me': 20},
+        }),
+      );
+
+      expect(await store.lowestKnownDbVersion(), 20);
+
+      await store.recordKnownDbVersion('PC|me', 22);
+
+      final json = jsonDecode(await File(statePath).readAsString()) as Map;
+      expect(json['knownDbVersions'], {'OLD|me': 20, 'PC|me': 22});
+      final stamp = DateTime.parse(
+        json['knownDbVersionsSeen']['OLD|me'] as String,
+      );
+      expect(DateTime.now().toUtc().difference(stamp).inMinutes, lessThan(5));
+      expect(await store.lowestKnownDbVersion(), 20);
+    });
+
+    test('התפוגה נמדדת מול החותמת החדשה בקובץ ולא מול השעון המקומי', () async {
+      final old = DateTime.now().toUtc().subtract(const Duration(days: 800));
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsString(
+        jsonEncode({
+          'knownDbVersions': {'A|me': 20, 'B|me': 21},
+          'knownDbVersionsSeen': {
+            'A|me': old.toIso8601String(),
+            'B|me': old.toIso8601String(),
+          },
+        }),
+      );
+
+      expect(await store.lowestKnownDbVersion(), 20);
+      expect(await store.hasOwnKnownDbVersion(), isFalse);
+    });
+
+    test('מחשב ששעונו מפגר אינו כותב לעצמו חותמת פגה', () async {
+      final ahead = DateTime.now().toUtc().add(const Duration(days: 800));
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsString(
+        jsonEncode({
+          'knownDbVersions': {'OTHER|me': 22},
+          'knownDbVersionsSeen': {'OTHER|me': ahead.toIso8601String()},
+          'knownDbVersionsLocalTime': {'OTHER|me': ahead.toIso8601String()},
+        }),
+      );
+
+      await store.recordKnownDbVersion('LAG|me', 20);
+
+      final json = jsonDecode(await File(statePath).readAsString()) as Map;
+      expect(
+        DateTime.parse(json['knownDbVersionsSeen']['LAG|me'] as String),
+        ahead,
+      );
+      expect(await store.loadKnownDbVersions(), {'OTHER|me': 22, 'LAG|me': 20});
+      expect(await store.lowestKnownDbVersion(), 20);
+
+      await store.recordKnownDbVersion('LAG|me', 21);
+      expect(await store.lowestKnownDbVersion(), 21);
+    });
+
+    test('מחשב ששעונו מקדים אינו גוזם את רשומות האחרים', () async {
+      final behind = DateTime.now().toUtc().subtract(const Duration(days: 800));
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsString(
+        jsonEncode({
+          'knownDbVersions': {'A|me': 20, 'B|me': 21},
+          'knownDbVersionsSeen': {
+            'A|me': behind.toIso8601String(),
+            'B|me': behind.toIso8601String(),
+          },
+          'knownDbVersionsLocalTime': {
+            'A|me': behind.toIso8601String(),
+            'B|me': behind.toIso8601String(),
+          },
+        }),
+      );
+
+      await store.recordKnownDbVersion('FAST|me', 22);
+      await store.recordKnownDbVersion('FAST|me', 23);
+
+      final json = jsonDecode(await File(statePath).readAsString()) as Map;
+      expect(json['knownDbVersions'], {'A|me': 20, 'B|me': 21, 'FAST|me': 23});
+      final fastSeen = DateTime.parse(
+        json['knownDbVersionsSeen']['FAST|me'] as String,
+      );
+      expect(fastSeen.difference(behind).inMinutes, lessThan(1));
+      expect(await store.lowestKnownDbVersion(), 20);
+    });
+
+    test('השעון הלוגי מתקדם לפי הזמן שעבר בשעון של הכותב עצמו', () async {
+      final now = DateTime.now().toUtc();
+      final logical = now.subtract(const Duration(days: 1000));
+      Future<DateTime> advanceFrom(DateTime ownLocalTime) async {
+        await File(statePath).parent.create(recursive: true);
+        await File(statePath).writeAsString(
+          jsonEncode({
+            'knownDbVersions': {'PC|me': 20, 'OTHER|me': 21},
+            'knownDbVersionsSeen': {
+              'PC|me': logical.toIso8601String(),
+              'OTHER|me': logical.toIso8601String(),
+            },
+            'knownDbVersionsLocalTime': {
+              'PC|me': ownLocalTime.toIso8601String(),
+            },
+          }),
+        );
+        await store.recordKnownDbVersion('PC|me', 22);
+        final json = jsonDecode(await File(statePath).readAsString()) as Map;
+        return DateTime.parse(json['knownDbVersionsSeen']['PC|me'] as String);
+      }
+
+      final tenDays = await advanceFrom(now.subtract(const Duration(days: 10)));
+      expect(
+        tenDays.difference(logical).inHours,
+        closeTo(const Duration(days: 10).inHours, 1),
+      );
+      expect(
+        await advanceFrom(now.subtract(const Duration(days: 3000))),
+        logical.add(LibraryStateStore.maxClockStep),
+      );
+      expect(await advanceFrom(now.add(const Duration(days: 3000))), logical);
+    });
+
+    test('הגיזום בכתיבה נמדד מול השעון הלוגי', () async {
+      final now = DateTime.now().toUtc();
+      final logical = now.subtract(const Duration(days: 1000));
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsString(
+        jsonEncode({
+          'knownDbVersions': {'PC|me': 22, 'ORPHAN|me': 18},
+          'knownDbVersionsSeen': {
+            'PC|me': logical.toIso8601String(),
+            'ORPHAN|me': logical
+                .subtract(const Duration(days: 170))
+                .toIso8601String(),
+          },
+          'knownDbVersionsLocalTime': {
+            'PC|me': now.subtract(const Duration(days: 20)).toIso8601String(),
+          },
+        }),
+      );
+
+      expect(await store.lowestKnownDbVersion(), 18);
+
+      await store.recordKnownDbVersion('PC|me', 22);
+
+      expect(await store.loadKnownDbVersions(), {'PC|me': 22});
+    });
+
     test('ערכים פגומים בקובץ מסוננים ואינם מפילים את הקריאה', () async {
       await File(statePath).parent.create(recursive: true);
-      await File(
-        statePath,
-      ).writeAsString('{"knownDbVersions": {"a": 0, "b": "x", "c": 18}}');
+      await File(statePath)
+          .writeAsString('{"knownDbVersions": {"a": 0, "b": "x", "c": 18}}');
 
       expect(await store.loadKnownDbVersions(), {'c': 18});
       expect(await store.lowestKnownDbVersion(), 18);

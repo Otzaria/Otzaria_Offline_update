@@ -262,6 +262,7 @@ class _AppShellState extends State<AppShell> {
     unawaited(_faq.load());
     _errorReports = ErrorReportsController.forDrive(
       stateDir: widget.stateDir,
+      dataDir: widget.dataDir,
       stateFilesDir: widget.stateFilesDir,
       launchPath: () async => _otzaria.launchPath,
     )..addListener(_onReportsChange);
@@ -369,10 +370,10 @@ class _AppShellState extends State<AppShell> {
       final message = hasUpdates && fresh.isNotEmpty
           ? t.homeNoticeUpdatesAndNew
           : hasUpdates
-              ? t.homeNoticeUpdates
-              : fresh.length == 1
-                  ? t.homeNoticeNewOne
-                  : t.homeNoticeNewMany(fresh.length);
+          ? t.homeNoticeUpdates
+          : fresh.length == 1
+          ? t.homeNoticeNewOne
+          : t.homeNoticeNewMany(fresh.length);
 
       unawaited(_plugins.markHomeNotified(fresh));
       final open = await showTwoActionsDialog(
@@ -573,9 +574,11 @@ class _AppShellState extends State<AppShell> {
   bool _blockedByReadOnly() {
     if (!widget.readOnly) return false;
     final t = AppL10n.strings.readOnlyDrive;
-    UiSnack.show(widget.driveFull
-        ? t.downloadsDisabledSnackDriveFull
-        : t.downloadsDisabledSnack);
+    UiSnack.show(
+      widget.driveFull
+          ? t.downloadsDisabledSnackDriveFull
+          : t.downloadsDisabledSnack,
+    );
     return true;
   }
 
@@ -699,7 +702,8 @@ class _AppShellState extends State<AppShell> {
       () => showTwoActionsDialog(
         context: context,
         title: t.availableDialogTitle,
-        content: '${t.availableDialogContent(release.version)}\n\n'
+        content:
+            '${t.availableDialogContent(release.version)}\n\n'
             '${t.availableDialogDetail(formatBytes(release.sizeBytes))}',
         customContent: whatsNew == null
             ? null
@@ -733,8 +737,9 @@ class _AppShellState extends State<AppShell> {
     if (!downloaded || !mounted || !_launcherUpdate.hasUpdateReady) return;
 
     UiSnack.showSuccess(
-      AppL10n.strings.launcherUpdate
-          .downloadedSnack('${_launcherUpdate.downloadedVersion}'),
+      AppL10n.strings.launcherUpdate.downloadedSnack(
+        '${_launcherUpdate.downloadedVersion}',
+      ),
     );
     await installLauncherUpdate();
   }
@@ -770,8 +775,9 @@ class _AppShellState extends State<AppShell> {
     if (version == null || !_launcherUpdate.canInstall) return;
 
     final t = context.strings.launcherUpdate;
-    final whatsNew =
-        _whatsNewAlreadyShown ? null : _launcherUpdate.downloadedWhatsNew;
+    final whatsNew = _whatsNewAlreadyShown
+        ? null
+        : _launcherUpdate.downloadedWhatsNew;
     final approved = await showTwoActionsDialog(
       context: context,
       title: t.readyDialogTitle,
@@ -839,13 +845,13 @@ class _AppShellState extends State<AppShell> {
   /// (תוכנות שהמשתמש הוסיף) ו-`mirror/launcher` אינן כאן בכוונה: אף הורדה
   /// מכאן אינה נוגעת בהן.
   List<String> get _downloadMirrorDirs => [
-        _library.mirrorDir,
-        _library.companionsMirrorDir,
-        _library.semanticMirrorDir,
-        _otzaria.mirrorDir,
-        p.join(widget.dataDir, 'mirror', 'plugins'),
-        p.join(widget.dataDir, 'mirror', 'store-app'),
-      ];
+    _library.mirrorDir,
+    _library.companionsMirrorDir,
+    _library.semanticMirrorDir,
+    _otzaria.mirrorDir,
+    p.join(widget.dataDir, 'mirror', 'plugins'),
+    p.join(widget.dataDir, 'mirror', 'store-app'),
+  ];
 
   /// מבקש מהמשתמש אישור ואז מסמן ביטול להורדה שרצה. הדגל בלבד — ההורדה
   /// עצמה יוצאת מהלולאות שלה, ו-[downloadAll] הוא שמנקה אחריה.
@@ -922,7 +928,8 @@ class _AppShellState extends State<AppShell> {
     // חריג אחד: על הכונן יושבת עדיין חבילת FULL מגרסה ישנה. מודול התוכנה
     // הוא זה שמוחק אותה, ובלי החריג "אין גרסה חדשה" היה מדלג עליו — ו-2GB
     // היו נשארים שם לנצח.
-    final skipApp = s.syncApp &&
+    final skipApp =
+        s.syncApp &&
         !_otzaria.hasStaleFullPackage &&
         provenUpToDateOnline(
           checkedAt: _otzaria.onlineCheckedAt,
@@ -939,7 +946,8 @@ class _AppShellState extends State<AppShell> {
     }
     // ב"עדכון אישי" היעד נגזר מהגרסה שנרשמה ולא מהחדשה שברשת, ולכן
     // "אין חדש ברשת" אינו אומר שאין מה להוריד.
-    final includeSemanticSearch = s.downloadsLibrary &&
+    final includeSemanticSearch =
+        s.downloadsLibrary &&
         _library.shouldOfferSemanticDownload &&
         await showTwoActionsDialog(
           context: context,
@@ -948,7 +956,8 @@ class _AppShellState extends State<AppShell> {
           confirmText: context.strings.home.downloadNowButton,
         );
     if (!mounted || _longTaskRunning || _launcherUpdate.isDownloading) return;
-    final skipLibrary = !includeSemanticSearch &&
+    final skipLibrary =
+        !includeSemanticSearch &&
         s.downloadsLibrary &&
         !_library.personalUpdateMode &&
         provenUpToDateOnline(
@@ -956,7 +965,8 @@ class _AppShellState extends State<AppShell> {
           error: _library.onlineLibraryProofError,
           hasUpdate: _library.hasOnlineLibraryUpdate,
         );
-    final skipPlugins = s.syncPlugins &&
+    final skipPlugins =
+        s.syncPlugins &&
         provenUpToDateOnline(
           checkedAt: _plugins.onlineCheckedAt,
           error: _plugins.onlineCheckError,
@@ -964,7 +974,8 @@ class _AppShellState extends State<AppShell> {
         );
     // נפרד מהקטלוג: הוא מגיע מגיטהאב ולא מ-otzaria.org, ובדיקה שנכשלה
     // באחד מהם אינה אומרת דבר על השני.
-    final skipStoreApp = s.syncPlugins &&
+    final skipStoreApp =
+        s.syncPlugins &&
         provenUpToDateOnline(
           checkedAt: _plugins.storeAppCheckedAt,
           error: _plugins.storeAppCheckError,
@@ -1119,73 +1130,73 @@ class _AppShellState extends State<AppShell> {
   }
 
   Widget _screenWidget(LauncherScreen screen) => switch (screen) {
-        LauncherScreen.home => HomeScreen(
-            otzaria: _otzaria,
-            library: _library,
-            plugins: _plugins,
-            launcherUpdate: _launcherUpdate,
-            settings: widget.settings,
-            otzariaIsRunning: _otzariaIsRunning,
-            isDownloading: _isDownloading,
-            isCancellingDownload: _cancelDownload,
-            isCheckingOnline: _isCheckingOnline,
-            longTaskRunning: _longTaskRunning,
-            onProcessStateChanged: refreshProcessState,
-            onCloseOtzaria: closeOtzaria,
-            onCheckOnline: checkOnline,
-            onDownloadAll: downloadAll,
-            onCancelDownload: cancelDownload,
-            onDownloadLauncherUpdate: downloadLauncherUpdate,
-            onInstallLauncherUpdate: installLauncherUpdate,
-            onRequestReindex: requestLibraryReindex,
-            onGoToOtzaria: () => _goTo(LauncherScreen.otzaria),
-            onGoToLibrary: () => _goTo(LauncherScreen.library),
-            readOnly: widget.readOnly,
-            driveFull: widget.driveFull,
-            errorReports: _errorReports,
-            onUploadErrorReports: _uploadErrorReports,
-            searchFeedback: _searchFeedback,
-            onUploadSearchFeedback: _uploadSearchFeedback,
-          ),
-        LauncherScreen.otzaria => OtzariaScreen(
-            otzaria: _otzaria,
-            settings: widget.settings,
-            otzariaIsRunning: _otzariaIsRunning,
-            onCloseOtzaria: closeOtzaria,
-            onInstallAdopted: _plugins.refreshInstalled,
-            saferMode: _saferMode,
-          ),
-        LauncherScreen.customApps => CustomAppsScreen(
-            controller: _customApps,
-            readOnly: widget.readOnly,
-          ),
-        LauncherScreen.library => LibraryScreen(
-            library: _library,
-            otzariaIsRunning: _otzariaIsRunning,
-            isDownloading: _isDownloading,
-            onProcessStateChanged: refreshProcessState,
-            onCloseOtzaria: closeOtzaria,
-            onRequestReindex: requestLibraryReindex,
-            onGoToSettings: () => _goTo(LauncherScreen.settings),
-            onGrantSemanticConsent: _grantSemanticConsent,
-          ),
-        LauncherScreen.plugins => PluginsScreen(
-            controller: _plugins,
-            onRequestFocus: () => _goTo(LauncherScreen.plugins),
-            readOnly: widget.readOnly,
-            driveFull: widget.driveFull,
-          ),
-        LauncherScreen.settings => SettingsScreen(
-            controller: widget.settings,
-            onOpenLog: _openLogFolder,
-            launcherVersion: _launcherUpdate.currentVersion,
-            saferMode: _saferMode,
-            customApps: _customApps,
-            readOnly: widget.readOnly,
-            driveFull: widget.driveFull,
-            appReports: widget.appReports,
-          ),
-      };
+    LauncherScreen.home => HomeScreen(
+      otzaria: _otzaria,
+      library: _library,
+      plugins: _plugins,
+      launcherUpdate: _launcherUpdate,
+      settings: widget.settings,
+      otzariaIsRunning: _otzariaIsRunning,
+      isDownloading: _isDownloading,
+      isCancellingDownload: _cancelDownload,
+      isCheckingOnline: _isCheckingOnline,
+      longTaskRunning: _longTaskRunning,
+      onProcessStateChanged: refreshProcessState,
+      onCloseOtzaria: closeOtzaria,
+      onCheckOnline: checkOnline,
+      onDownloadAll: downloadAll,
+      onCancelDownload: cancelDownload,
+      onDownloadLauncherUpdate: downloadLauncherUpdate,
+      onInstallLauncherUpdate: installLauncherUpdate,
+      onRequestReindex: requestLibraryReindex,
+      onGoToOtzaria: () => _goTo(LauncherScreen.otzaria),
+      onGoToLibrary: () => _goTo(LauncherScreen.library),
+      readOnly: widget.readOnly,
+      driveFull: widget.driveFull,
+      errorReports: _errorReports,
+      onUploadErrorReports: _uploadErrorReports,
+      searchFeedback: _searchFeedback,
+      onUploadSearchFeedback: _uploadSearchFeedback,
+    ),
+    LauncherScreen.otzaria => OtzariaScreen(
+      otzaria: _otzaria,
+      settings: widget.settings,
+      otzariaIsRunning: _otzariaIsRunning,
+      onCloseOtzaria: closeOtzaria,
+      onInstallAdopted: _plugins.refreshInstalled,
+      saferMode: _saferMode,
+    ),
+    LauncherScreen.customApps => CustomAppsScreen(
+      controller: _customApps,
+      readOnly: widget.readOnly,
+    ),
+    LauncherScreen.library => LibraryScreen(
+      library: _library,
+      otzariaIsRunning: _otzariaIsRunning,
+      isDownloading: _isDownloading,
+      onProcessStateChanged: refreshProcessState,
+      onCloseOtzaria: closeOtzaria,
+      onRequestReindex: requestLibraryReindex,
+      onGoToSettings: () => _goTo(LauncherScreen.settings),
+      onGrantSemanticConsent: _grantSemanticConsent,
+    ),
+    LauncherScreen.plugins => PluginsScreen(
+      controller: _plugins,
+      onRequestFocus: () => _goTo(LauncherScreen.plugins),
+      readOnly: widget.readOnly,
+      driveFull: widget.driveFull,
+    ),
+    LauncherScreen.settings => SettingsScreen(
+      controller: widget.settings,
+      onOpenLog: _openLogFolder,
+      launcherVersion: _launcherUpdate.currentVersion,
+      saferMode: _saferMode,
+      customApps: _customApps,
+      readOnly: widget.readOnly,
+      driveFull: widget.driveFull,
+      appReports: widget.appReports,
+    ),
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -1219,8 +1230,10 @@ class _AppShellState extends State<AppShell> {
                     // החד-פעמיים היו חוזרים בכל חזרה לדף הבית.
                     child: Offstage(
                       offstage: _screen != LauncherScreen.home,
-                      child:
-                          FaqFloatingButton(faq: _faq, saferMode: _saferMode),
+                      child: FaqFloatingButton(
+                        faq: _faq,
+                        saferMode: _saferMode,
+                      ),
                     ),
                   ),
               ],
@@ -1232,33 +1245,33 @@ class _AppShellState extends State<AppShell> {
   }
 
   Widget _shellRow(BuildContext context) => Row(
-        children: [
-          _NavRail(
-            current: _screen,
-            onSelect: _goTo,
-            showCustomApps: _customApps.hasApps,
-          ),
-          VerticalDivider(
-            width: 1,
-            thickness: 1,
-            color: AppSurfaces.shellDivider(context),
-          ),
-          Expanded(
-            child: IndexedStack(
-              index: _screen.index,
-              children: [
-                for (final screen in LauncherScreen.values)
-                  _builtScreens.contains(screen)
-                      ? TickerMode(
-                          enabled: screen == _screen,
-                          child: _screenWidget(screen),
-                        )
-                      : const SizedBox.shrink(),
-              ],
-            ),
-          ),
-        ],
-      );
+    children: [
+      _NavRail(
+        current: _screen,
+        onSelect: _goTo,
+        showCustomApps: _customApps.hasApps,
+      ),
+      VerticalDivider(
+        width: 1,
+        thickness: 1,
+        color: AppSurfaces.shellDivider(context),
+      ),
+      Expanded(
+        child: IndexedStack(
+          index: _screen.index,
+          children: [
+            for (final screen in LauncherScreen.values)
+              _builtScreens.contains(screen)
+                  ? TickerMode(
+                      enabled: screen == _screen,
+                      child: _screenWidget(screen),
+                    )
+                  : const SizedBox.shrink(),
+          ],
+        ),
+      ),
+    ],
+  );
 }
 
 // ── סרגל הניווט ───────────────────────────────────────────────────────────────

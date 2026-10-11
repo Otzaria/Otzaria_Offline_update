@@ -195,9 +195,8 @@ void main() {
 
       // אוצריא הורידה מהרשת מילון אחר וכתבה סימון משלה. עד עכשיו זה נראה
       // בדיוק כמו מילון ישן: הצעה בכל פתיחה, ולחיצה שמורידה אותו אחורה.
-      await File(
-        p.join(p.dirname(dbPath), 'lexical.db.version'),
-      ).writeAsString('v7');
+      await File(p.join(p.dirname(dbPath), 'lexical.db.version'))
+          .writeAsString('v7');
 
       final after = await manager.checkForUpdate();
       expect(after.pendingCompanions, isEmpty);
@@ -205,9 +204,8 @@ void main() {
 
       await manager.applyUpdate(first);
       expect(
-        await File(
-          p.join(p.dirname(dbPath), 'lexical.db.version'),
-        ).readAsString(),
+        await File(p.join(p.dirname(dbPath), 'lexical.db.version'))
+            .readAsString(),
         'v7',
       );
       expect((await manager.checkForUpdate()).pendingCompanions, isEmpty);
@@ -217,9 +215,8 @@ void main() {
       await installExistingDb(27, appliedTag: 'v27');
       await writeMirror(tag: 'v27');
       await writeCompanionMirror(tag: 'v2', content: 'LEXICAL');
-      await File(
-        p.join(dataDir, 'mirror', 'companions', 'lexical.db'),
-      ).delete();
+      await File(p.join(dataDir, 'mirror', 'companions', 'lexical.db'))
+          .delete();
 
       final manager = LibraryManager(dataDir: dataDir);
       addTearDown(manager.dispose);
@@ -243,12 +240,10 @@ void main() {
       expect(await manager.hasMirror, isFalse);
 
       // תיקייה + נכסים בלי המניפסט = הורדה שנקטעה, לא מראה שמישה.
-      await Directory(
-        p.join(mirrorDir, 'assets', 'v5'),
-      ).create(recursive: true);
-      await File(
-        p.join(mirrorDir, 'assets', 'v5', 'seforim.db.zst'),
-      ).writeAsString('חלקי');
+      await Directory(p.join(mirrorDir, 'assets', 'v5'))
+          .create(recursive: true);
+      await File(p.join(mirrorDir, 'assets', 'v5', 'seforim.db.zst'))
+          .writeAsString('חלקי');
       expect(await manager.hasMirror, isFalse);
 
       await writeMirror(tag: 'v5', compressedDb: Uint8List.fromList([1, 2]));
@@ -635,9 +630,8 @@ void main() {
       final dbPath = p.join(tempDir.path, 'books', 'seforim.db');
       await Directory(p.dirname(dbPath)).create(recursive: true);
       File(dbPath).writeAsStringSync('זה בכלל לא SQLite');
-      await LibraryStateStore(
-        p.join(dataDir, 'library_state.json'),
-      ).saveCustomDbPath(dbPath);
+      await LibraryStateStore(p.join(dataDir, 'library_state.json'))
+          .saveCustomDbPath(dbPath);
       File('$dbPath.applying').writeAsStringSync('{"fromVersion":4}');
       await writeMirror(tag: 'v5', compressedDb: Uint8List.fromList([1, 2]));
 
@@ -696,9 +690,8 @@ void main() {
       final home = p.join(tempDir.path, 'home');
       final exeDir = p.join(tempDir.path, 'portable-otzaria');
       await Directory(exeDir).create(recursive: true);
-      File(
-        p.join(exeDir, LibraryDbLocator.portableMarkerFileName),
-      ).writeAsStringSync('');
+      File(p.join(exeDir, LibraryDbLocator.portableMarkerFileName))
+          .writeAsStringSync('');
       final livedAt = p.join(
         home,
         '.local',
@@ -847,9 +840,8 @@ void main() {
       final dbPath = await installExistingDb(3, appliedTag: 'v3');
       final dbBytes = buildRealDb(5);
       final compressed = p.join(tempDir.path, 'old-full.db.zst');
-      File(
-        compressed,
-      ).writeAsBytesSync(compressWithZstd(bindings, dbBytes), flush: true);
+      File(compressed)
+          .writeAsBytesSync(compressWithZstd(bindings, dbBytes), flush: true);
 
       final check = LibraryUpdateCheckResult(
         dbPath: dbPath,
@@ -904,9 +896,8 @@ void main() {
       final dbPath = await installExistingDb(4, appliedTag: 'v4');
       final dbBytes = buildRealDb(5);
       final compressed = p.join(tempDir.path, 'full-5a.db.zst');
-      File(
-        compressed,
-      ).writeAsBytesSync(compressWithZstd(bindings, dbBytes), flush: true);
+      File(compressed)
+          .writeAsBytesSync(compressWithZstd(bindings, dbBytes), flush: true);
 
       final check = LibraryUpdateCheckResult(
         dbPath: dbPath,
@@ -1055,9 +1046,8 @@ void main() {
 
       expect(File(dbPath).existsSync(), isFalse);
       expect(
-        await LibraryStateStore(
-          p.join(dataDir, 'library_state.json'),
-        ).loadAppliedRelease(),
+        await LibraryStateStore(p.join(dataDir, 'library_state.json'))
+            .loadAppliedRelease(),
         isNull,
       );
       manager.dispose();
@@ -1082,9 +1072,8 @@ void main() {
         final dbPath = await installExistingDb(4, appliedTag: 'v4');
         final dbBytes = buildRealDb(5);
         final compressed = p.join(tempDir.path, 'full.db.zst');
-        File(
-          compressed,
-        ).writeAsBytesSync(compressWithZstd(bindings, dbBytes), flush: true);
+        File(compressed)
+            .writeAsBytesSync(compressWithZstd(bindings, dbBytes), flush: true);
 
         final check = LibraryUpdateCheckResult(
           dbPath: dbPath,
@@ -1141,9 +1130,8 @@ void main() {
         final dbPath = await installExistingDb(4, appliedTag: 'v4');
         final dbBytes = buildRealDb(5);
         final compressed = p.join(tempDir.path, 'full-below-latest.db.zst');
-        File(
-          compressed,
-        ).writeAsBytesSync(compressWithZstd(bindings, dbBytes), flush: true);
+        File(compressed)
+            .writeAsBytesSync(compressWithZstd(bindings, dbBytes), flush: true);
 
         final check = LibraryUpdateCheckResult(
           dbPath: dbPath,
@@ -1349,6 +1337,28 @@ void main() {
 
       expect(await manager.currentDbPath(), dbPath);
       manager.dispose();
+    });
+
+    test('נתיב ישן על הכונן נדחה גם כשקובץ המצב ב-logs', () async {
+      final onDrive = p.join(dataDir, 'library', 'seforim.db');
+      await Directory(p.dirname(onDrive)).create(recursive: true);
+      File(onDrive).writeAsBytesSync(buildRealDb(20));
+      final logsDir = p.join(dataDir, 'logs');
+      await Directory(logsDir).create(recursive: true);
+      await File(p.join(logsDir, 'library_state.json'))
+          .writeAsString(jsonEncode({'customDbPath': onDrive}));
+
+      final manager = LibraryManager(
+        dataDir: dataDir,
+        stateDir: logsDir,
+        operatingSystem: Platform.isWindows ? 'windows' : 'macos',
+        environment: Platform.isWindows
+            ? {'APPDATA': p.join(tempDir.path, 'Roaming')}
+            : {'HOME': p.join(tempDir.path, 'home')},
+      );
+      addTearDown(manager.dispose);
+
+      expect(await manager.currentDbPath(), isNot(onDrive));
     });
   });
 

@@ -610,9 +610,27 @@ post 33695). Four things hold it together:
   may hold its own newer Otzaria, and recording that would aim the download at v22
   while the offline machine sat at v20, with no patch route at all.
 - **One record per machine, and the lowest wins**
-  (`LibraryStateStore.knownDbVersions`, keyed by hostname + account). Someone who
+  (`LibraryStateStore.knownDbVersions`, keyed by `currentMachineKey()`). Someone who
   clicks on two machines gets a download serving both; `applyUpdate` raises that
   machine's entry so a machine that catches up stops dragging the floor down.
+  Recording replaces only this machine's own entries (its key, its legacy hostname
+  key, and the old `host|<db path>` keys); another account on the same host keeps
+  its record, because each account is its own library. Each write also stamps every
+  entry's last-seen time in `knownDbVersionsSeen` (a separate map, so older launchers
+  still read `knownDbVersions` as plain ints; an entry with no stamp is stamped when
+  first seen). An entry not refreshed for 180 days (hostname-form keys, which orphan
+  easily) or 365 days (machine-id keys) is ignored by `lowestKnownDbVersion` and
+  pruned on the next write, so an orphan stops pinning the floor; a machine that
+  sat idle that long re-registers with the button.
+  **The stamps are a logical clock, never compared with the local clock.** Offline
+  machines have no time sync and their clocks are often years off (dead CMOS
+  battery), so a reader measures age against the newest stamp in the file, and a
+  writer stamps `max(newest stamp, its own previous stamp + time elapsed on its own
+  clock)`. The elapsed time comes from its previous local time in
+  `knownDbVersionsLocalTime`, is clamped to 0..`maxClockStep` (30 days), and a writer
+  with no previous record of its own takes the newest stamp as is. A constant clock
+  offset therefore cancels out: a lagging clock never writes itself an expired stamp,
+  and a fast clock never expires everyone else's records.
 - **A machine that never registered is not a failed update.** The mirror is built
   for the registered machines' versions, so the *online* one — which only
   downloaded — has no route and the planner returns `blocked`; shown as a red
@@ -736,10 +754,23 @@ at the next machine still pointing at `C:\Users\user\AppData\Roaming\otzaria\boo
 a standard account cannot create a folder under `C:\Users`, so
 `applyFullDownload`'s `createSync(recursive: true)` failed and the only way out was
 picking a location by hand (issue #23). `LibraryStateStore` keys it under
-`currentMachineKey()` — hostname **and** account name, since two accounts are two
-`%APPDATA%` roots. A legacy global record is honoured only when it is absolute *for
-this platform* and its parent exists here, which repairs drives in the field without
-discarding the choice on the machine that wrote it.
+`currentMachineKey()` — a machine digest **and** the account name, since two
+accounts are two `%APPDATA%` roots. The digest is a truncated SHA-256 of
+`MachineGuid` (Windows) or `/etc/machine-id` (Linux) together with the hostname,
+and of `IOPlatformUUID` alone on macOS. The hostname is left out on macOS because
+it hands out DHCP hostnames, and a key that changes orphans the old record; it is
+kept in on Windows and Linux because machines cloned from one image without sysprep
+share `MachineGuid` / `machine-id`, and often the account name too, so the id alone
+would merge a whole lab into one record. When no id can be read the key falls
+back to the hostname. Records under the legacy `hostname|account` key are still read
+and are moved to the new key on the next write — only while the hostname is
+unchanged; a legacy record whose hostname already changed is left to the
+`knownDbVersionsSeen` expiry (§ "lowest wins" above). A legacy global record is honoured
+only when it is absolute *for this platform*, its parent exists here, and it is not
+inside the drive's data folder — `LibraryStateStore` gets that folder as `dataDir`
+explicitly, because the state file itself lives in `<dataDir>/logs`, so its parent
+is not the data folder. This repairs drives in the field without discarding the
+choice on the machine that wrote it.
 
 **The applied release tag is per machine too** (`appliedReleases`, keyed the same
 way — see §5.4). The legacy global field is ignored on read and deleted on write.

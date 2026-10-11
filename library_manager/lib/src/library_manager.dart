@@ -89,7 +89,10 @@ class LibraryManager {
     LocalDbVersionReader versionReader = const LocalDbVersionReader(),
     OtzariaSettingsReader settingsReader = const OtzariaSettingsReader(),
     LibraryUpdateApplier? applier,
-  }) : _stateStore = LibraryStateStore.inDir(stateDir ?? dataDir),
+  }) : _stateStore = LibraryStateStore(
+         p.join(stateDir ?? dataDir, LibraryStateStore.fileName),
+         dataDir: dataDir,
+       ),
        _planner = const LibraryUpdatePlanner(),
        _versionReader = versionReader,
        _recovery = const LibraryDbRecoveryService(),
@@ -276,9 +279,9 @@ class LibraryManager {
   /// `true` אם כבר בוצעה הורדה מוצלחת אחת לפחות. בודק ספציפית את
   /// `releases.json`, שנכתב רק בסוף הורדה מוצלחת — התיקייה עצמה נוצרת מיד
   /// בתחילתה, ולכן קיומה לבדו לא מבטיח תוכן שלם.
-  Future<bool> get hasMirror => File(
-    p.join(mirrorDir, LocalMirrorLibraryReleaseClient.manifestFileName),
-  ).exists();
+  Future<bool> get hasMirror =>
+      File(p.join(mirrorDir, LocalMirrorLibraryReleaseClient.manifestFileName))
+          .exists();
 
   /// מוריד את עדכוני הספרייה מ-GitHub אל [mirrorDir] — **הפעולה הכבדה**
   /// שנוגעת ברשת (המסד המלא ~1GB + קובצי העדכון). מביא את ה-release
@@ -429,32 +432,16 @@ class LibraryManager {
   Future<int?> recordedPersonalDbVersion() =>
       _stateStore.lowestKnownDbVersion();
 
-  /// `true` אם **המחשב הזה** נרשם כיעד לעדכון אישי, כלומר נלחץ בו
-  /// [captureLocalDbVersion]. זה מה שמבדיל תקלה ("אין מסלול קובצי עדכון")
-  /// ממראה שנבנתה בשביל מחשב אחר, ולכן ממילא אינה אמורה להתאים כאן.
-  Future<bool> isRegisteredForPersonalUpdate() async {
-    final versions = await _stateStore.loadKnownDbVersions();
-    return versions.containsKey(LibraryStateStore.currentMachineKey());
-  }
+  Future<bool> isRegisteredForPersonalUpdate() =>
+      _stateStore.hasOwnKnownDbVersion();
 
-  /// קורא את גרסת המסד של המחשב **הזה** ורושם אותה כנקודת המוצא להורדה
-  /// אישית. מחזיר `null` כשלא נמצא מסד, או שנמצא בלי `schema_meta.db_version`.
-  ///
-  /// זו הפעולה שמאחורי הכפתור במסך הספרייה — הדרך היחידה שגרסה נרשמת מקריאת
-  /// מסד. ראו [recordedPersonalDbVersion].
   Future<int?> captureLocalDbVersion() async {
     final path = await currentDbPath();
     if (path == null) return null;
     _lastResolvedDbPath = path;
     final local = await _versionReader.readInIsolate(path);
     if (!local.hasVersionMeta || local.dbVersion <= 0) return null;
-    // המפתח הוא מחשב+חשבון, בלי נתיב המסד: הנתיב כלל שם חשבון בקובץ שנוסע על
-    // הכונן, ומסד שעבר מקום יצר רשומה שנייה שנשארה לנצח ומשכה את "הנמוכה
-    // מנצחת" למטה. ראו [LibraryStateStore.recordKnownDbVersion].
-    await _stateStore.recordKnownDbVersion(
-      LibraryStateStore.currentMachineKey(),
-      local.dbVersion,
-    );
+    await _stateStore.recordOwnDbVersion(local.dbVersion);
     return local.dbVersion;
   }
 
@@ -550,7 +537,9 @@ class LibraryManager {
     if (isFreshInstall) {
       local = unknownVersion;
     } else {
-      final recovery = applying ? null : await _recovery.recoverIfNeeded(dbPath);
+      final recovery = applying
+          ? null
+          : await _recovery.recoverIfNeeded(dbPath);
       final interrupted = recovery?.action == RecoveryAction.interrupted;
       if (interrupted &&
           !await _recovery.checkDbHealthAfterCrashAsync(dbPath)) {
@@ -635,7 +624,6 @@ class LibraryManager {
       semanticPending: semanticPending,
       semanticConsentGranted: await semanticConsentGranted(),
       mirrorDownloadIncomplete: mirrorDownloadIncomplete,
-
     );
   }
 
@@ -1002,15 +990,8 @@ class LibraryManager {
         () => _stateStore.saveAppliedRelease(tag: tag, dbVersion: version),
       );
     }
-    // המחשב הזה עלה לגרסה החדשה — בלי העדכון הזה הורדה אישית הבאה עוד
-    // הייתה יוצאת מהגרסה הישנה שלו ומביאה patches שכבר הוחלו.
     if (version != null && version > 0) {
-      await record(
-        () => _stateStore.recordKnownDbVersion(
-          LibraryStateStore.currentMachineKey(),
-          version,
-        ),
-      );
+      await record(() => _stateStore.recordOwnDbVersion(version));
     }
     // מה השתנה, לטובת אינדקס החיפוש של אוצריא — ראו [ExternalUpdateNotice].
     await const ExternalUpdateNotice().write(

@@ -33,9 +33,8 @@ class _FakeGithub {
       requests.where((u) => u.path.endsWith('/version.txt')).length;
 
   Uint8List _body(String name) {
-    final match = RegExp(
-      r'^patch-v(\d+)-v(\d+)\.db\.zst\.manifest\.json$',
-    ).firstMatch(name);
+    final match = RegExp(r'^patch-v(\d+)-v(\d+)\.db\.zst\.manifest\.json$')
+        .firstMatch(name);
     if (match != null) {
       final from = int.parse(match.group(1)!);
       final to = int.parse(match.group(2)!);
@@ -350,7 +349,7 @@ void main() {
       await online(() async {
         await LibraryStateStore(
           p.join(dataDir, 'library_state.json'),
-        ).recordKnownDbVersion(LibraryStateStore.currentMachineKey(), 2);
+        ).recordKnownDbVersion(await LibraryStateStore.currentMachineKey(), 2);
         final manager = LibraryManager(
           dataDir: dataDir,
           personalUpdateMode: true,

@@ -21,15 +21,19 @@ class SearchFeedbackController extends ChangeNotifier {
     required Future<String?> Function() launchPath,
     RunningOtzariaLocator runningLocator = const RunningOtzariaLocator(),
   }) {
-    final transport =
-        SearchFeedbackTransport(SearchFeedbackTransport.dirIn(dataDir));
+    final transport = SearchFeedbackTransport(
+      SearchFeedbackTransport.dirIn(dataDir),
+    );
     Future<({LibraryDbLocator locator, String root})?> locate() async {
       if ((await runningLocator.probe()).isRunning) return null;
       final launch = await launchPath();
       if (launch == null) return null;
-      final locator = LibraryDbLocator.forLaunch(
-        stateDir: stateFilesDir ?? stateDir,
-        launchPath: launch,
+      final locator = LibraryDbLocator(
+        stateStore: LibraryStateStore(
+          p.join(stateFilesDir ?? stateDir, LibraryStateStore.fileName),
+          dataDir: dataDir,
+        ),
+        otzariaLaunchPath: () async => launch,
       );
       final root = await locator.otzariaSettingsRoot(launch);
       return root == null ? null : (locator: locator, root: root);
@@ -40,8 +44,9 @@ class SearchFeedbackController extends ChangeNotifier {
       resolveSource: () async {
         final location = await locate();
         if (location == null) return null;
-        final settings =
-            await location.locator.settingsReader.read(location.root);
+        final settings = await location.locator.settingsReader.read(
+          location.root,
+        );
         if (settings?.searchFeedbackGranted != true) return null;
         return p.join(location.root, 'search_feedback');
       },
@@ -115,8 +120,10 @@ class SearchFeedbackController extends ChangeNotifier {
     try {
       final source = await resolveSource();
       if (source == null) return 0;
-      return await transport.collect(source,
-          mayCollect: () async => await resolveSource() == source);
+      return await transport.collect(
+        source,
+        mayCollect: () async => await resolveSource() == source,
+      );
     } finally {
       isCollecting = false;
       await refreshOutbox();

@@ -18,11 +18,12 @@ class ErrorReportsController extends ChangeNotifier {
     required this.outbox,
     required Future<OtzariaReportQueue?> Function() resolveQueue,
     ErrorReportUploader? uploader,
-  })  : _resolveQueue = resolveQueue,
-        _uploader = uploader ?? ErrorReportUploader();
+  }) : _resolveQueue = resolveQueue,
+       _uploader = uploader ?? ErrorReportUploader();
 
   factory ErrorReportsController.forDrive({
     required String stateDir,
+    String? dataDir,
     String? stateFilesDir,
     required Future<String?> Function() launchPath,
   }) {
@@ -37,9 +38,12 @@ class ErrorReportsController extends ChangeNotifier {
         if (launch == null) return null;
         return resolveOtzariaReportQueue(
           launchPath: launch,
-          locator: LibraryDbLocator.forLaunch(
-            stateDir: stateFilesDir ?? stateDir,
-            launchPath: launch,
+          locator: LibraryDbLocator(
+            stateStore: LibraryStateStore(
+              p.join(stateFilesDir ?? stateDir, LibraryStateStore.fileName),
+              dataDir: dataDir ?? stateDir,
+            ),
+            otzariaLaunchPath: () async => launch,
           ),
         );
       },
@@ -177,8 +181,9 @@ class ErrorReportsController extends ChangeNotifier {
         },
       );
       for (final r in result.rejections) {
-        AppLogger.maybeInstance
-            ?.warn('דיווח ${r.reportId} (${r.bookTitle}) נדחה: ${r.reason}');
+        AppLogger.maybeInstance?.warn(
+          'דיווח ${r.reportId} (${r.bookTitle}) נדחה: ${r.reason}',
+        );
       }
       return result;
     } catch (e) {
