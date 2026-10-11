@@ -1115,8 +1115,7 @@ abstract class LibraryDomainStrings {
   /// אינו קיים, ומסד מלא אחר נבחר במקומו.
   String exportSplitFullDbSkipped(String tag, String detail);
 
-  /// הקובץ שהורכב מחלקים שעברו כל אחד אימות, ובכל זאת אינו תואם למניפסט.
-  String exportAssembledHashMismatch(String asset);
+  String exportSplitPartCorrupted(String asset, String parts);
 
   /// הקובץ המורכב לא הועבר למקומו — בדרך כלל יעד נעול.
   String exportAssembledReplaceFailed(String path, String detail);
@@ -1157,6 +1156,8 @@ abstract class LibraryDomainStrings {
     int patchFormatVersion,
     int latestVersion,
   );
+
+  String exportFullDbSchemaUnsupported(String tag, int schemaVersion);
 
   /// קובצי עדכון שהושמטו מהמראה כי המסד המלא מגיע גבוה מהם ממילא.
   String exportSkippingPatchesFullDbWins(int fileCount, int fullDbVersion);

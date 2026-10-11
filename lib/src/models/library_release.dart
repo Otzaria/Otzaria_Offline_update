@@ -241,7 +241,7 @@ class LibraryRelease extends Equatable {
     int? highest;
     for (final asset in assets) {
       final schema = ReleaseAsset.fullDbSchemaOfName(asset.name);
-      if (schema == null) continue;
+      if (schema == null || schema <= kSupportedDbSchemaVersion) continue;
       if (highest == null || schema > highest) highest = schema;
     }
     return highest;
@@ -253,7 +253,7 @@ class LibraryRelease extends Equatable {
     var bestSchema = -1;
     for (final asset in assets) {
       final schema = ReleaseAsset.fullDbSchemaOfName(asset.name);
-      if (schema == null) continue;
+      if (schema == null || asset.size <= 0) continue;
       if (schema <= maxSchemaVersion) {
         if (schema > bestSchema) {
           best = asset;

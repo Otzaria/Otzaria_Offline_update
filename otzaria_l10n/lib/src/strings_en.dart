@@ -1951,10 +1951,11 @@ class _LibraryDomain extends LibraryDomainStrings {
       'the parts is damaged or does not match them, so it was not downloaded '
       '($detail)';
   @override
-  String exportAssembledHashMismatch(String asset) =>
-      'The file $asset assembled from its parts does not match the sha256 in '
-      'its manifest. The download stopped and nothing was written to the '
-      'mirror.';
+  String exportSplitPartCorrupted(String asset, String parts) =>
+      'Parts of $asset read back from the drive differ from what was '
+      'downloaded ($parts) — the drive may be faulty. Those parts were '
+      'deleted and nothing was written to the mirror; try again and they '
+      'will be downloaded again.';
   @override
   String exportAssembledReplaceFailed(String path, String detail) =>
       'Could not save $path after assembling it from its parts — another '
@@ -2012,6 +2013,12 @@ class _LibraryDomain extends LibraryDomainStrings {
   ) =>
       'The update files of version $latestVersion are built in a new format '
       '($patchFormatVersion): downloading the full database instead';
+  @override
+  String exportFullDbSchemaUnsupported(String tag, int schemaVersion) =>
+      'The full database of $tag was published only in schema $schemaVersion, '
+      'which this version of the software cannot install — it was not '
+      'downloaded, and the offline computer will show that a software update '
+      'is needed';
   @override
   String exportSkippingPatchesFullDbWins(int fileCount, int fullDbVersion) =>
       'Skipping $fileCount update files: the full database (version '

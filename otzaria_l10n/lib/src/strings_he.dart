@@ -1833,9 +1833,9 @@ class _LibraryDomain extends LibraryDomainStrings {
       'המסד המלא של $tag פורסם בחלקים, אבל המניפסט של החלקים פגום או אינו '
       'תואם להם — ולכן הוא לא ירד ($detail)';
   @override
-  String exportAssembledHashMismatch(String asset) =>
-      'הקובץ $asset שהורכב מחלקיו אינו תואם ל-sha256 שבמניפסט. ההורדה נעצרה '
-      'ולא נכתב דבר למראה.';
+  String exportSplitPartCorrupted(String asset, String parts) =>
+      'חלקים של $asset נקראו מהכונן שונים ממה שירד ($parts) — ייתכן שהכונן '
+      'פגום. החלקים האלה נמחקו ולא נכתב דבר למראה; נסו שוב, והם יורדו מחדש.';
   @override
   String exportAssembledReplaceFailed(String path, String detail) =>
       'לא ניתן היה לשמור את $path אחרי שהורכב מחלקיו — ייתכן שתוכנה אחרת '
@@ -1887,6 +1887,11 @@ class _LibraryDomain extends LibraryDomainStrings {
   ) =>
       'קובצי העדכון של גרסה $latestVersion בנויים בפורמט חדש '
       '($patchFormatVersion): מוריד את המסד המלא במקומם';
+  @override
+  String exportFullDbSchemaUnsupported(String tag, int schemaVersion) =>
+      'המסד המלא של $tag פורסם רק בסכמה $schemaVersion, שגרסה זו של התוכנה '
+      'אינה יודעת להתקין — הוא לא ירד, והמחשב הלא-מקוון יציג שנדרש עדכון '
+      'תוכנה';
   @override
   String exportSkippingPatchesFullDbWins(int fileCount, int fullDbVersion) =>
       'מדלג על $fileCount קובצי עדכון: המסד המלא (גרסה $fullDbVersion) מגיע '

@@ -382,10 +382,11 @@ adding a schema is one line. Everything downstream reads it:
 `PatchEdge.hasSupportedSchema`, `LibraryUpdateDiscovery.discover` (drops those
 edges but still counts them toward `latestVersion`, so a new release never reads
 as "up to date"), `LibraryUpdatePlanner`, `LibraryMirrorExporter` (keeps the tiny
-`.manifest.json` but not the patch files). Do not move the check back into
-`PatchApplier`: SeforimLibrary shipped v26 in schema 4, and a rejection inside
-`apply` meant the launcher had already replaced a live v23 DB with the mirror's
-v21 one — the user ended up on v22.
+`.manifest.json` but not the patch files, and a full DB in an unknown schema as a
+zero-byte name-only marker that `fullDbAsset` never selects). Do not move the
+check back into `PatchApplier`: SeforimLibrary shipped v26 in schema 4, and a
+rejection inside `apply` meant the launcher had already replaced a live v23 DB
+with the mirror's v21 one — the user ended up on v22.
 
 **A plan whose final version is not higher than the local one is `blocked`, with a
 reason** — never an "update" that installs an older library (`followUpDelta` counts
@@ -543,6 +544,10 @@ mirror — the ~1.5GB DB from an earlier run is exactly what must survive a canc
 `mirror/apps` and `mirror/launcher` are deliberately outside the snapshot.
 A root in which a captured file went missing is left in its new state: components
 prune only after writing their manifest, so the old one would name deleted files.
+`rejected-split-archives.json` (`LibraryMirrorExporter.rejectedSplitsFileName`) at a
+root is never deleted or restored, even in a root that did not exist at capture: it
+records a verdict, not a download, and losing it re-downloads ~2GB of known-bad parts.
+The exporter reads it best-effort — an unreadable record counts as empty.
 
 **The mirror keeps the last ten releases, not the whole patch history**
 (`LibraryMirrorExporter.recentReleases` / `defaultHistoryDepth`). The full history
@@ -575,10 +580,13 @@ full DB included.
   0). The v31→v32 patch (114MiB vs a 1.85GB full DB) used to survive by 24s, so a
   patch 4% larger was dropped and the user downloaded 1.73GB; with the credit
   patches up to ~250MiB stay. No saving means no credit — v27 (patches summing to
-  2.15GB against a 1.31GB full DB) is still dropped. The fixed hash-scan cost
-  (`stepFixedSeconds`) is paid **once per chain**, matching the applier (source
-  hash only on the first step, target hash only on the last); intermediate steps pay
-  a small `stepIntermediateSeconds` (60s — an estimate, not measured).
+  2.15GB against a 1.31GB full DB) is still dropped, and so is an edge at or below
+  the chosen carrier (`_dropSlowPatches(noCreditUpTo:)`): that DB ships anyway, and
+  crediting it re-downloaded a dropped patch whenever an older carrier was reused.
+  The fixed hash-scan cost (`stepFixedSeconds`) is paid **once per chain**,
+  matching the applier (source hash only on the first step, target hash only on the
+  last); intermediate steps pay a small `stepIntermediateSeconds` (60s — an
+  estimate, not measured).
 - **The verdict must be re-derivable, not remembered.** The first version measured
   only the cheapest single step into the latest version, so the decision survived in
   nothing but the deleted files; a month later an ordinary patch landed at the end

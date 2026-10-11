@@ -189,6 +189,53 @@ void main() {
     expect(file('assets/v2/seforim.db.zst.part').existsSync(), isTrue);
   });
 
+  test('a split-DB rejection recorded during the download survives a cancel',
+      () async {
+    write('releases.json', '{"releases":["v4"]}');
+    write('assets/v4/seforim.db.zst', 'carrier');
+
+    final undo = await MirrorDownloadUndo.capture([mirrorDir]);
+    write('rejected-split-archives.json', '["abc:def"]');
+    write('assets/v6/seforim.db.zst', 'replacement partial');
+    write('releases.json', '{"releases":["v4","v6"]}');
+
+    await undo.revert();
+
+    expect(
+        file('rejected-split-archives.json').readAsStringSync(), '["abc:def"]');
+    expect(file('assets/v6/seforim.db.zst').existsSync(), isFalse);
+    expect(file('releases.json').readAsStringSync(), '{"releases":["v4"]}');
+  });
+
+  test('a rewritten rejection record keeps its new content on cancel',
+      () async {
+    write('rejected-split-archives.json', '["old"]');
+
+    final undo = await MirrorDownloadUndo.capture([mirrorDir]);
+    write('rejected-split-archives.json', '["new","old"]');
+
+    await undo.revert();
+
+    expect(file('rejected-split-archives.json').readAsStringSync(),
+        '["new","old"]');
+  });
+
+  test('a fresh mirror keeps only the rejection record on cancel', () async {
+    final undo = await MirrorDownloadUndo.capture([mirrorDir]);
+    write('assets/v5/seforim.db.zst.parts/seforim.db.zst.part-000', 'part');
+    write('rejected-split-archives.json', '["abc:def"]');
+    write('assets/v4/seforim.db.zst', 'replacement partial');
+
+    await undo.revert();
+
+    expect(
+        file('rejected-split-archives.json').readAsStringSync(), '["abc:def"]');
+    expect(Directory(p.join(mirrorDir, 'assets')).existsSync(), isFalse);
+    expect(
+        Directory(mirrorDir).listSync().map((e) => p.basename(e.path)).toList(),
+        ['rejected-split-archives.json']);
+  });
+
   test('ביטול שלא הביא כלום אינו נוגע בדבר', () async {
     write('releases.json', '{"releases":["v1"]}');
     write('assets/v1/patch.zst', 'קובץ קודם');

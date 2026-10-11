@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
+import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import 'app_logger.dart';
 
@@ -78,26 +79,18 @@ class MirrorDownloadUndo {
       _rememberedExtensions.contains(p.extension(path).toLowerCase()) &&
       length <= _rememberedContentLimit;
 
-  /// מחזיר את התיקיות למצב שבו היו: קובץ שנוצר נמחק, קובץ שנכתב מחדש
-  /// (מניפסט) מוחזר לתוכנו, וקובץ שההורדה רק הוסיפה לסופו (נכס חלקי שהמשיכה)
-  /// נחתך חזרה לאורכו — כך שהוא נשאר ניתן לחידוש בהורדה הבאה. נכס שההורדה
-  /// מחקה והתחילה מאפס נמחק, כי תוכנו הקודם אינו ניתן לשחזור.
-  ///
-  /// כל פעולה היא best-effort: קובץ נעול לא מפיל את שאר הניקוי.
-  ///
-  /// A root where a captured file went missing is kept as is: components
-  /// prune only after writing their manifest.
   Future<void> revert() async {
     for (final root in _roots) {
       final dir = Directory(root.path);
       if (!dir.existsSync()) continue;
       if (!root.existed) {
-        // לא הייתה כאן תיקייה בכלל לפני ההורדה — כל מה שבתוכה ירד בה.
-        _quietly(() => dir.deleteSync(recursive: true), root.path);
+        if (_keepsFileUnder(root.path)) {
+          await _revertInto(dir);
+        } else {
+          _quietly(() => dir.deleteSync(recursive: true), root.path);
+        }
         continue;
       }
-      // A file gone since capture was pruned by a completed step; it cannot
-      // be restored, so reverting would leave the old manifest naming nothing.
       if (_lostFileUnder(root.path) case final lost?) {
         AppLogger.instance.info('Cancel keeps ${root.path}: $lost was pruned');
         continue;
@@ -113,9 +106,18 @@ class MirrorDownloadUndo {
     return null;
   }
 
+  static const Set<String> _keptFileNames = {
+    LibraryMirrorExporter.rejectedSplitsFileName,
+  };
+
+  static bool _isKept(Directory root, String path) =>
+      p.equals(p.dirname(path), root.path) &&
+      _keptFileNames.contains(p.basename(path));
+
+  bool _keepsFileUnder(String rootPath) =>
+      _keptFileNames.any((name) => File(p.join(rootPath, name)).existsSync());
+
   Future<void> _revertInto(Directory root) async {
-    // אוספים קודם ומוחקים אחר כך: מחיקה בתוך `list` שעוד זורם היא בדיוק
-    // המקום שבו מערכת הקבצים של ווינדוס מפתיעה.
     final files = <File>[];
     final newDirs = <String>[];
     await for (final entity in root.list(recursive: true, followLinks: false)) {
@@ -127,7 +129,7 @@ class MirrorDownloadUndo {
     }
 
     for (final file in files) {
-      if (_untouched.contains(file.path)) continue;
+      if (_untouched.contains(file.path) || _isKept(root, file.path)) continue;
       final before = _files[file.path];
       if (before == null) {
         _quietly(() => file.deleteSync(), file.path);
@@ -136,8 +138,6 @@ class MirrorDownloadUndo {
       _quietly(() => before.restoreInto(file), file.path);
     }
 
-    // תיקיות שההורדה יצרה. מהעמוקה לרדודה, וב-`recursive` כי גם תיקייה
-    // ריקה־למראה עלולה להחזיק קובץ שהמחיקה שלמעלה לא הצליחה למחוק.
     newDirs.sort((a, b) => b.length.compareTo(a.length));
     for (final dir in newDirs) {
       _quietly(() => Directory(dir).deleteSync(recursive: true), dir);

@@ -110,6 +110,10 @@ class LibraryMirrorExporter {
   /// גבול — וזה בדיוק המסלול שהמשתמש מריץ פעם אחת על מחשב מקוון.
   late final PatchDownloader _downloader;
 
+  static const String rejectedSplitsFileName = 'rejected-split-archives.json';
+
+  final Set<String> _rejectedSplits = {};
+
   /// בונה מראה מלאה תחת [destDir] (נוצרת אם חסרה). מוריד את כל ה-releases
   /// הרלוונטיים (כאלה עם delta manifests ו/או DB מלא), כולל כל קובצי ה-patch
   /// שכל manifest מצביע עליהם, וכותב `releases.json` בסוף.
@@ -131,6 +135,7 @@ class LibraryMirrorExporter {
     bool Function()? isCancelled,
   }) async {
     final strings = AppL10n.strings.libraryDomain;
+    _rejectedSplits.addAll(_readRejectedSplits(destDir));
 
     onStage?.call(strings.exportLoadingReleases);
     final all = await _client.fetchReleases();
@@ -296,29 +301,24 @@ class LibraryMirrorExporter {
     // באופליין בוחר תמיד את הנכס של הגרסה הגבוהה ביותר שנושאת אותו (ראו
     // LibraryUpdateDiscovery.discover), ולכן עותק לכל release היה מוסיף כ-1.5GB
     // מתים לכל אחד מהם. במצב אישי הוא נשמט לגמרי — זה כל החיסכון שבמצב הזה.
+    final latestVersion = _latestVersionOf(relevant.where(_hasDbContent));
     if (blockingSchema > 0 || blockingFormat > 0) {
-      final latestSeen = _latestVersionOf(relevant);
-      // המסלול לגרסה כזו הוא המסד המלא ולא קובצי עדכון, בדיוק כמו באוצריא
-      // המקוונת. במצב אישי ההכרזה נדחית לענף שלהלן: אם יש מסד מלא הוא ירד
-      // (למרות שהמצב הזה נבנה כדי לדלג עליו), ואם אין — זו אזהרה.
       if (personal) {
         if (personalCarrier == null) {
           onWarning?.call(
-              strings.exportPersonalNoFullDbEither(fromVersion, latestSeen));
+              strings.exportPersonalNoFullDbEither(fromVersion, latestVersion));
         }
       } else if (blockingSchema > 0) {
-        onStage?.call(
-            strings.exportFullDbRequiredBySchema(blockingSchema, latestSeen));
+        onStage?.call(strings.exportFullDbRequiredBySchema(
+            blockingSchema, latestVersion));
       } else {
         onStage?.call(strings.exportFullDbRequiredByPatchFormat(
           blockingFormat,
-          latestSeen,
+          latestVersion,
         ));
       }
     }
 
-    // הפסילה של קובץ עדכון איטי נעשית **לפני** בחירת הנשא: נשא ישן נשמר
-    // במראה לפי הקשתות שממנו ל-latest, ואסור שקשת פסולה תחזיק אותו שם.
     if (!personal) {
       _dropSlowPatches(
         neededByRelease: neededByRelease,
@@ -332,15 +332,14 @@ class LibraryMirrorExporter {
     final fullDbCarrier = personal
         ? null
         : _chooseFullDbCarrier(relevant, edges, assetsRoot.path, onStage);
-    if (fullDbCarrier != null &&
-        identical(fullDbCarrier, _newestFullDbCarrier(relevant, 0))) {
+    if (fullDbCarrier != null) {
       _dropSlowPatches(
         neededByRelease: neededByRelease,
         mirroredEdges: mirroredEdges,
         edges: edges,
         relevant: relevant,
         onStage: onStage,
-        creditDownload: false,
+        noCreditUpTo: LibraryUpdateDiscovery.releaseVersionOf(fullDbCarrier),
       );
     }
     if (fullDbCarrier != null) {
@@ -393,6 +392,20 @@ class LibraryMirrorExporter {
 
     final totalAssets =
         plannedByRelease.values.fold<int>(0, (n, l) => n + l.length);
+
+    final schemaMarkers = <LibraryRelease, ReleaseAsset>{};
+    for (final release in plannedByRelease.keys) {
+      final schema = release.unsupportedFullDbSchema;
+      if (schema == null) continue;
+      schemaMarkers[release] = _fullDbSchemaMarker(
+        release,
+        schema,
+        assetsRootPath: assetsRoot.path,
+        destDir: destDir,
+      );
+      onWarning
+          ?.call(strings.exportFullDbSchemaUnsupported(release.tag, schema));
+    }
 
     // DB מפוצל: המניפסט הוא מקור ה-sha256 של כל חלק ושל הקובץ המורכב.
     final splits = <_SplitJob>[];
@@ -546,11 +559,32 @@ class LibraryMirrorExporter {
         },
     ]);
 
+    var rejectedSplit = false;
     for (final split in splits) {
       if (assembled.contains(split)) continue;
-      await _assembleSplit(split, onStage: onStage, isCancelled: isCancelled);
+      if (!await _assembleSplit(
+        split,
+        destDir: destDir,
+        onStage: onStage,
+        isCancelled: isCancelled,
+      )) {
+        rejectedSplit = true;
+        continue;
+      }
       doneAssets++;
       onAssetProgress?.call(doneAssets, totalAssets);
+    }
+    if (rejectedSplit) {
+      return export(
+        destDir: destDir,
+        allowPrerelease: allowPrerelease,
+        fromVersion: fromVersion,
+        onStage: onStage,
+        onAssetProgress: onAssetProgress,
+        onBytesProgress: onBytesProgress,
+        onWarning: onWarning,
+        isCancelled: isCancelled,
+      );
     }
     // במראה המסד המפוצל הוא קובץ אחד רגיל, עם ה-sha256 של המורכב.
     final splitDigests = {
@@ -584,9 +618,17 @@ class LibraryMirrorExporter {
                 updatedAt: asset.updatedAt,
                 digest: splitDigests[asset] ?? asset.digest,
               ),
+            if (schemaMarkers[entry.key] case final marker?) marker,
           ],
         ),
     ];
+    for (final entry in schemaMarkers.entries) {
+      await File(p.join(
+        assetsRoot.path,
+        _safeDirName(entry.key.tag),
+        entry.value.name,
+      )).writeAsBytes(const [], flush: true);
+    }
 
     onStage?.call(
       strings.exportWritingManifest(
@@ -609,9 +651,13 @@ class LibraryMirrorExporter {
     );
     await manifestTmp.rename(manifestPath);
 
-    // רק אחרי שהמניפסט החדש בתוקף: נכסים שאינם בו לא ייקראו לעולם ורק תופסים
-    // מקום. בלי הניקוי כל release שנפל מחלון ההיסטוריה נשאר על הכונן לעד.
-    await _pruneStaleAssets(assetsRoot, plannedByRelease);
+    await _pruneStaleAssets(assetsRoot, {
+      for (final entry in plannedByRelease.entries)
+        entry.key: [
+          ...entry.value,
+          if (schemaMarkers[entry.key] case final marker?) marker,
+        ],
+    });
 
     onStage?.call(strings.exportDone);
     return true;
@@ -789,7 +835,7 @@ class LibraryMirrorExporter {
   /// במראה תמיד.
   List<LibraryRelease> recentReleases(List<LibraryRelease> eligible) {
     final withDbContent = eligible
-        .where((r) => r.deltaManifestAssets.isNotEmpty || r.fullDbAsset != null)
+        .where((r) => _hasDbContent(r) || r.unsupportedFullDbSchema != null)
         .toList()
       ..sort((a, b) => LibraryUpdateDiscovery.releaseVersionOf(b)
           .compareTo(LibraryUpdateDiscovery.releaseVersionOf(a)));
@@ -822,9 +868,32 @@ class LibraryMirrorExporter {
   ) {
     return eligible
         .where((r) =>
-            r.deltaManifestAssets.isNotEmpty &&
+            (r.deltaManifestAssets.isNotEmpty ||
+                r.unsupportedFullDbSchema != null) &&
             LibraryUpdateDiscovery.releaseVersionOf(r) > fromVersion)
         .toList(growable: false);
+  }
+
+  static bool _hasDbContent(LibraryRelease release) =>
+      release.deltaManifestAssets.isNotEmpty || release.fullDbAsset != null;
+
+  ReleaseAsset _fullDbSchemaMarker(
+    LibraryRelease release,
+    int schema, {
+    required String assetsRootPath,
+    required String destDir,
+  }) {
+    final name = release.assets
+        .firstWhere((a) => ReleaseAsset.fullDbSchemaOfName(a.name) == schema)
+        .name;
+    return ReleaseAsset(
+      name: name,
+      downloadUrl: mirrorRelativePath(
+        p.join(assetsRootPath, _safeDirName(release.tag), name),
+        from: destDir,
+      ),
+      size: 0,
+    );
   }
 
   /// ה-release שממנו מורידים את ה-DB המלא. ברירת המחדל היא הגרסה הגבוהה
@@ -925,20 +994,17 @@ class LibraryMirrorExporter {
     return dropped;
   }
 
-  /// פסילה לפי זמן של כל קשת בנפרד נשמרת גם כשמגיעה גרסה חדשה.
-  /// ההיסטוריה שנעשית מיותרת מוסרת ב-[_dropUselessPatches].
   int _dropSlowPatches({
     required Map<LibraryRelease, Map<String, ReleaseAsset>> neededByRelease,
     required List<MirroredEdge> mirroredEdges,
     required List<({int from, int to})> edges,
     required List<LibraryRelease> relevant,
     required void Function(String stage)? onStage,
-    bool creditDownload = true,
+    int? noCreditUpTo,
   }) {
     final strings = AppL10n.strings.libraryDomain;
     var dropped = 0;
     for (final edge in mirroredEdges) {
-      // המסד צריך להחליף את הקשת הזו; ההמשך לגרסאות חדשות נשמר בנפרד.
       final carrier = _newestFullDbCarrier(relevant, edge.to);
       final fullBytes = carrier?.fullDbAsset?.size ?? 0;
       if (fullBytes <= 0) continue;
@@ -949,7 +1015,9 @@ class LibraryMirrorExporter {
       if (!applyTime.isOutOfRange(
         stepSeconds,
         fullSeconds,
-        savedDownloadBytes: creditDownload ? fullBytes - bytes : 0,
+        savedDownloadBytes: noCreditUpTo != null && edge.to <= noCreditUpTo
+            ? 0
+            : fullBytes - bytes,
       )) {
         continue;
       }
@@ -968,8 +1036,6 @@ class LibraryMirrorExporter {
     }
     if (dropped == 0) return 0;
 
-    // בחירת הנשא ובדיקות ההגעה קוראות את [edges], ולכן קשת שיצאה מהתוכנית
-    // חייבת לצאת גם משם — אחרת מסד מלא ישן נשמר על סמך מסלול שלא ירד.
     edges
       ..clear()
       ..addAll(mirroredEdges
@@ -1065,7 +1131,7 @@ class LibraryMirrorExporter {
   }
 
   /// הגרסה הגבוהה ביותר מבין [releases], 0 כשאין אף אחת.
-  int _latestVersionOf(List<LibraryRelease> releases) {
+  int _latestVersionOf(Iterable<LibraryRelease> releases) {
     var latest = 0;
     for (final release in releases) {
       final version = LibraryUpdateDiscovery.releaseVersionOf(release);
@@ -1255,7 +1321,10 @@ class LibraryMirrorExporter {
               full.splitManifest!,
               _client.fetchSplitManifest,
             );
-            final problem = _splitMismatch(full, manifest);
+            final problem = _splitMismatch(full, manifest) ??
+                (_rejectedSplits.contains(_splitKey(manifest))
+                    ? 'sha256 ${manifest.sha256}'
+                    : null);
             if (problem == null) manifests[full] = manifest;
             return problem;
           } on FormatException catch (e) {
@@ -1303,10 +1372,9 @@ class LibraryMirrorExporter {
     return null;
   }
 
-  /// מחבר את החלקים (כל אחד כבר אומת) לקובץ אחד לצד המראה, ומחליף את
-  /// היעד רק אחרי שה-sha256 של כולו תואם. החלקים נמחקים בסוף.
-  Future<void> _assembleSplit(
+  Future<bool> _assembleSplit(
     _SplitJob split, {
+    required String destDir,
     void Function(String stage)? onStage,
     bool Function()? isCancelled,
   }) async {
@@ -1314,40 +1382,56 @@ class LibraryMirrorExporter {
     final manifest = split.manifest;
     final tmp = File(p.join(split.partsDir, '${split.asset.name}.assembling'));
     final hasher = Sha256Stream();
+    final corruptParts = <String>[];
     RandomAccessFile? out;
     try {
       out = await tmp.open(mode: FileMode.write);
       var written = 0;
       var lastPercent = -1;
       for (final part in manifest.parts) {
-        await for (final chunk
-            in File(p.join(split.partsDir, part.name)).openRead()) {
-          _throwIfCancelled(isCancelled);
-          hasher.add(chunk);
-          await out.writeFrom(chunk);
-          written += chunk.length;
-          final percent = (written * 100 ~/ manifest.size).clamp(0, 100);
-          if (percent != lastPercent) {
-            lastPercent = percent;
-            onStage?.call(strings.exportAssembling(
-                split.release.tag, split.asset.name, percent));
+        final partHasher = Sha256Stream();
+        try {
+          await for (final chunk
+              in File(p.join(split.partsDir, part.name)).openRead()) {
+            _throwIfCancelled(isCancelled);
+            hasher.add(chunk);
+            partHasher.add(chunk);
+            await out.writeFrom(chunk);
+            written += chunk.length;
+            final percent = (written * 100 ~/ manifest.size).clamp(0, 100);
+            if (percent != lastPercent) {
+              lastPercent = percent;
+              onStage?.call(strings.exportAssembling(
+                  split.release.tag, split.asset.name, percent));
+            }
           }
+          if (partHasher.close() != part.sha256) corruptParts.add(part.name);
+        } finally {
+          partHasher.dispose();
         }
       }
       await out.flush();
       await out.close();
       out = null;
+      if (corruptParts.isNotEmpty) {
+        _deleteQuietly(tmp.path);
+        for (final name in corruptParts) {
+          final path = p.join(split.partsDir, name);
+          _deleteQuietly(path);
+          _deleteQuietly(PatchDownloader.resumeSidecarPath(path));
+        }
+        throw StateError(strings.exportSplitPartCorrupted(
+            split.asset.name, corruptParts.join(', ')));
+      }
       if (hasher.close() != manifest.sha256) {
-        // החלקים תואמים למניפסט, ולכן ריצה חוזרת תיכשל שוב — לא משאירים
-        // גיגה-בייטים תקועים על הכונן.
         await _deleteDirQuietly(split.partsDir);
-        throw StateError(strings.exportAssembledHashMismatch(split.asset.name));
+        await _rejectSplit(destDir, manifest);
+        return false;
       }
       _deleteQuietly(split.dest);
       try {
         await tmp.rename(split.dest);
       } on FileSystemException catch (e) {
-        // יעד נעול (אנטי-וירוס) — הודעה מתורגמת ולא חריג גולמי באנגלית.
         throw StateError(strings.exportAssembledReplaceFailed(
             split.dest, e.osError?.message ?? e.message));
       }
@@ -1362,8 +1446,38 @@ class LibraryMirrorExporter {
         await out?.close();
       } catch (_) {}
     }
-    // מקום מבוזבז בלבד אם נכשל; ה-prune בסוף הייצוא ינסה שוב.
     await _deleteDirQuietly(split.partsDir);
+    return true;
+  }
+
+  String _splitKey(SplitArchiveManifest manifest) => [
+        manifest.sha256,
+        for (final part in manifest.parts) part.sha256,
+      ].join(':');
+
+  Set<String> _readRejectedSplits(String destDir) {
+    final file = File(p.join(destDir, rejectedSplitsFileName));
+    try {
+      if (!file.existsSync()) return const {};
+      final decoded = jsonDecode(file.readAsStringSync());
+      return decoded is List ? decoded.whereType<String>().toSet() : const {};
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  Future<void> _rejectSplit(
+    String destDir,
+    SplitArchiveManifest manifest,
+  ) async {
+    _rejectedSplits.add(_splitKey(manifest));
+    final path = p.join(destDir, rejectedSplitsFileName);
+    final tmp = File('$path.tmp');
+    await tmp.writeAsString(
+      jsonEncode(_rejectedSplits.toList()..sort()),
+      flush: true,
+    );
+    await tmp.rename(path);
   }
 
   Future<void> _deleteDirQuietly(String path) async {

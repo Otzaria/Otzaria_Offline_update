@@ -685,6 +685,55 @@ void main() {
       );
     });
 
+    for (final personal in [false, true]) {
+      test(
+          'מסד מלא בסכמה לא נתמכת בלבד נשמר כסמן, והאופליין דורש עדכון תוכנה '
+          '(אישי: $personal)', () async {
+        final warnings = <String>[];
+        final built = buildExporter([
+          release('v26', assets: ['seforim-schema7.db.zst']),
+          release('v25', assets: [
+            'seforim.db.zst',
+            'patch-v24-v25.db.zst',
+            'patch-v24-v25.db.zst.manifest.json',
+          ]),
+        ]);
+        expect(
+          await built.exporter.export(
+            destDir: destDir,
+            fromVersion: personal ? 25 : null,
+            onWarning: warnings.add,
+          ),
+          isTrue,
+        );
+
+        expect(built.fetched, isNot(contains('seforim-schema7.db.zst')));
+        expect(mirroredAssetNames(destDir, 'v26'), ['seforim-schema7.db.zst']);
+        expect(
+          warnings,
+          contains(AppL10n.strings.libraryDomain
+              .exportFullDbSchemaUnsupported('v26', 7)),
+        );
+        final mirrored =
+            await LocalMirrorLibraryReleaseClient(mirrorDir: destDir)
+                .fetchReleases();
+        for (final asset in mirrored.expand((r) => r.assets)) {
+          expect(File(asset.downloadUrl).existsSync(), isTrue,
+              reason: asset.name);
+        }
+
+        final discovery = await LibraryUpdateDiscovery(
+          client: LocalMirrorLibraryReleaseClient(mirrorDir: destDir),
+        ).discover(allowPrerelease: false);
+        expect(discovery.latestVersion, 26);
+        expect(discovery.blockingSchemaVersion, 7);
+        expect(
+          discovery.latestFullDbAsset?.name,
+          personal ? isNull : 'seforim.db.zst',
+        );
+      });
+    }
+
     // כאן היה הנזק האמיתי: השרשרת שחוצה את הסכמה נראתה כמסלול תקף, ולכן
     // המסד המלא של v21 נשמר במקום זה של v26 — ואז ההחלה נכשלה.
     test('מסלול שחוצה שינוי סכמה אינו שומר על המסד המלא הישן', () async {
@@ -1156,6 +1205,50 @@ void main() {
       expect(built.fetched, contains('seforim.db.zst'));
       expect(built.fetched, isNot(contains('patch-v23-v24.db.zst')));
       expect(assetOnDisk(destDir, 'v24', 'patch-v23-v24.db.zst'), isFalse);
+    });
+
+    test('patch שנפסל אינו חוזר כשנשא ישן בכונן נבחר בריצה הבאה', () async {
+      const sizes = {
+        'seforim.db.zst': 4 << 20,
+        'patch-v30-v31.db.zst': 3 << 20,
+        'patch-v31-v32.db.zst': 64 << 10,
+      };
+      final v31 = release('v31', assets: [
+        'seforim.db.zst',
+        'patch-v30-v31.db.zst',
+        'patch-v30-v31.db.zst.manifest.json',
+      ]);
+      final v30 = release('v30', assets: ['seforim.db.zst']);
+
+      final first = buildExporter(
+        [v31, v30],
+        assetSizes: sizes,
+        applyTime: creditScale,
+      );
+      await first.exporter.export(destDir: destDir);
+      expect(first.fetched, isNot(contains('patch-v30-v31.db.zst')));
+      expect(assetOnDisk(destDir, 'v31', 'seforim.db.zst'), isTrue);
+
+      final second = buildExporter(
+        [
+          release('v32', assets: [
+            'seforim.db.zst',
+            'patch-v31-v32.db.zst',
+            'patch-v31-v32.db.zst.manifest.json',
+          ]),
+          v31,
+          v30,
+        ],
+        assetSizes: sizes,
+        applyTime: creditScale,
+      );
+      await second.exporter.export(destDir: destDir);
+
+      expect(second.fetched, contains('patch-v31-v32.db.zst'));
+      expect(second.fetched, isNot(contains('seforim.db.zst')));
+      expect(second.fetched, isNot(contains('patch-v30-v31.db.zst')));
+      expect(assetOnDisk(destDir, 'v31', 'patch-v30-v31.db.zst'), isFalse);
+      expect(mirroredAssetNames(destDir, 'v31'), ['seforim.db.zst']);
     });
 
     // בלי מסד מלא שמגיע **לבדו** ל-latest, מחיקת הקשתות הייתה עוצרת את
