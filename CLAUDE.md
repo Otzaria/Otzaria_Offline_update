@@ -15,10 +15,9 @@ The three rules that apply to *every* change:
    sub-packages, so analyzing from the root does not cover them.
 2. **Push only to `main`**, unless the maintainer explicitly asks for another
    branch. No feature branches on your own initiative.
-3. **Keep code comments short** — one or two lines, explaining *why*. Longer
-   explanations belong in the package README or CHANGELOG. Comments and
-   doc-comments are written in Hebrew, matching the existing code.
-3. **QA before calling it done.** When a feature or PR is finished, a separate
+3. **No comments in code.** Put the explanation in the commit message summary
+   instead. Whenever you find a comment in code you touch, delete it.
+4. **QA before calling it done.** When a feature or PR is finished, a separate
    read-only QA agent reviews it: bugs, races, security, this repo's rules, and
    test gaps. Fix what it finds, then run another QA pass on the fixes until it
    comes back clean. Only then push, open the PR, or report the work as done.
