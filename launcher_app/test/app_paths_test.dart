@@ -42,9 +42,8 @@ void main() {
 
       expect(paths.dataDir, expectedDataDir());
       expect(overrides.createdDirs, contains(expectedDataDir()));
-      // קובץ הבדיקה נכתב **ונמחק** — תיקייה שנוצרה לבדה אינה הוכחה לכתיבה.
-      expect(
-          overrides.createdFiles, [p.join(expectedDataDir(), '.write-test')]);
+      expect(overrides.createdFiles,
+          [p.join(expectedDataDir(), '.write-test-$pid')]);
       expect(sandbox.listSync(), isEmpty);
     });
 
@@ -574,8 +573,9 @@ final class _LockedDriveIOOverrides extends IOOverrides {
   @override
   File createFile(String path) {
     if (!_onDrive(path)) return _realFile(path);
-    if (p.basename(path) == '.write-test') {
+    if (p.basename(path).startsWith('.write-test')) {
       return _UnwritableFile(path, 'The media is write protected', osError);
+
     }
     return _realFile(_mapped(path));
   }

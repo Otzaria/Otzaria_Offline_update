@@ -8,13 +8,13 @@ import 'package:path/path.dart' as p;
 import '../services/app_logger.dart';
 import 'app_settings.dart';
 
-/// מחזיק את [AppSettings] הפעילות וכותב אותן לדיסק. הכתיבה אטומית (קובץ
-/// זמני + rename) כדי שהפסקת חשמל לא תשאיר JSON חצי־כתוב (תכנון §10.1).
 class SettingsController extends ChangeNotifier {
   SettingsController({required String dataDir})
       : _file = File(p.join(dataDir, 'launcher_settings.json'));
 
   final File _file;
+
+  Future<void> _saving = Future.value();
 
   AppSettings _settings = const AppSettings();
   AppSettings get settings => _settings;
@@ -47,7 +47,9 @@ class SettingsController extends ChangeNotifier {
     _settings = next;
     _applyLanguage();
     notifyListeners();
-    await _save();
+    final save = _saving.catchError((Object _) {}).then((_) => _save());
+    _saving = save;
+    await save;
   }
 
   /// מזליג את השפה למצב הגלובלי של `otzaria_l10n` — משם קוראות אותה חבילות

@@ -145,7 +145,7 @@ class AppPaths {
     final File probe;
     try {
       await Directory(dir).create(recursive: true);
-      probe = File(p.join(dir, '.write-test'));
+      probe = File(p.join(dir, '.write-test-$pid'));
       await probe.writeAsString('ok', flush: true);
     } on FileSystemException catch (e) {
       return e;

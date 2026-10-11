@@ -1781,6 +1781,18 @@ prompted. The prompt waits for a free dialog without a time limit. Evidence
 rules and **known limitations** (Windows logoff, native crashes):
 `error_reports_manager/README.md`.
 
+**One launcher per state folder: `logs/instance.lock`.** `main` takes an
+exclusive OS lock on it (`InstanceLock`) right after `AppPaths.resolve`, before
+any state is read; a second launcher on the same `stateDir` focuses the first
+one's window and exits before it touches anything. Without it, the second one's
+startup recovery deleted the first one's `<db>.new` mid-extraction and its sweep
+deleted in-flight assets. The OS drops the lock when the process dies, so a crash
+never blocks the next run; the attempt retries for ~2s so a self-relaunch
+(`restartElevated`) is not mistaken for a duplicate. Only a real contention code
+(`isContention`) counts as "already running": a drive whose filesystem cannot
+lock runs unguarded rather than refusing to start. The write probe in
+`AppPaths` is per-process (`.write-test-<pid>`) for the same reason.
+
 **The background flush must never fail loudly.** A disk error goes to the
 injected `log`, never an uncaught error — that line is itself crash
 evidence. History is saved before the queue file is deleted, a `sent.json`

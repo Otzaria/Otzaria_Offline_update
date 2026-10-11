@@ -19,6 +19,7 @@ import 'src/self_update/launcher_version.dart';
 import 'src/self_update/payload_check.dart';
 import 'src/services/app_logger.dart';
 import 'src/services/app_paths.dart';
+import 'src/services/instance_lock.dart';
 import 'src/services/startup_diagnostics.dart';
 import 'src/settings/app_settings.dart';
 import 'src/settings/settings_controller.dart';
@@ -114,6 +115,13 @@ void main() {
         runApp(SetupErrorApp(error: e));
         return;
       }
+      final instanceLock = await InstanceLock.acquire(paths.stateFilesDir);
+      if (instanceLock == InstanceLockResult.heldElsewhere) {
+        debugPrint(
+            '${InstanceLock.fileName} held by another launcher, exiting');
+        InstanceLock.focusOtherInstance();
+        exit(0);
+      }
       // לפני טעינת ההגדרות: במצב קריאה הן נקראות מתיקיית המחשב, ובלי
       // ההעתקה הזו הרצה ראשונה שם הייתה מתחילה מברירות המחדל.
       await paths.seedPreferences();
@@ -135,6 +143,11 @@ void main() {
       // מיד אחרי שיש לוג: משם והלאה כל שלב בעלייה מותיר עקבות, כולל הפריים
       // הראשון שהוצג — בלעדיו "מסך שחור" ו"תקוע" נראים אותו דבר (issue #28).
       StartupDiagnostics.start();
+      if (instanceLock == InstanceLockResult.unavailable) {
+        AppLogger.instance.warn(
+          '${InstanceLock.fileName} unavailable, running without the single-instance guard',
+        );
+      }
 
       if (paths.readOnly) {
         final where = 'dataDir=${paths.dataDir} stateDir=${paths.stateDir}';

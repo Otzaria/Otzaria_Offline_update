@@ -361,6 +361,20 @@ void main() {
       expect(reloaded.settings.preferAppPrerelease, isTrue);
     });
 
+    test('שמירות חופפות עוברות בטור: הקובץ תקין ונושא את האחרונה', () async {
+      final scales = [for (var i = 0; i < 30; i++) 1.0 + i / 100];
+
+      await Future.wait([
+        for (final scale in scales)
+          controller.update(AppSettings(textScale: scale)),
+      ]);
+
+      expect(File('${settingsFile().path}.tmp').existsSync(), isFalse);
+      final onDisk =
+          jsonDecode(settingsFile().readAsStringSync()) as Map<String, dynamic>;
+      expect(AppSettings.fromJson(onDisk).textScale, scales.last);
+    });
+
     test('update מודיע למאזינים לפני שהכתיבה הסתיימה', () async {
       var notifications = 0;
       controller.addListener(() => notifications++);
