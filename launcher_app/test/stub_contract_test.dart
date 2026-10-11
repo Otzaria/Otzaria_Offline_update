@@ -110,6 +110,27 @@ void main() {
     );
   });
 
+  test('בניית CI שאינה release אינה נושאת את גרסת ה-release, ומסומנת בקומיט',
+      () {
+    final ci = read('../.github/workflows/ci.yml');
+    final steps = ci.split(RegExp(r'\n(?=      - )'));
+    final versionSteps =
+        steps.where((step) => step.contains('set_launcher_version.sh'));
+
+    expect(versionSteps, isNotEmpty);
+    for (final step in versionSteps) {
+      expect(step, contains('if: inputs.release'), reason: step);
+    }
+    final packageStep =
+        steps.singleWhere((step) => step.contains('package.ps1'));
+    expect(packageStep, contains(r'PAYLOAD_BUILD_ID: ${{ github.sha }}'));
+    expect(
+      read('../.github/workflows/release.yml'),
+      matches(RegExp(r'uses: \./\.github/workflows/ci\.yml\s+with:\s+'
+          r'release: true')),
+    );
+  });
+
   test('גרסת ה-payload נלקחת מ-pubspec ומיוצרת אל version.h', () {
     expect(buildStubPs1, contains('pubspec.yaml'));
     expect(buildStubPs1, contains('PAYLOAD_VERSION_A'));

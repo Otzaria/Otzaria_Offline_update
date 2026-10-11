@@ -7,6 +7,10 @@ on:
     branches: ["**"]
   workflow_dispatch:
   workflow_call:
+    inputs:
+      release:
+        type: boolean
+        default: false
     outputs:
       version:
         description: מספר הגרסה שהוצב בקבצים שנבנו
@@ -140,6 +144,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set the release version
+        if: inputs.release
         shell: bash
         run: bash ../tool/set_launcher_version.sh "${{ needs.version.outputs.version }}"
       - uses: subosito/flutter-action@v2
@@ -156,6 +161,8 @@ jobs:
       - name: Package portable build
         shell: pwsh
         run: .\windows_stub\package.ps1
+        env:
+          PAYLOAD_BUILD_ID: ${{ github.sha }}
       - uses: actions/upload-artifact@v4
         with:
           name: launcher_app-windows-portable-ci
@@ -173,6 +180,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set the release version
+        if: inputs.release
         run: bash ../tool/set_launcher_version.sh "${{ needs.version.outputs.version }}"
       - uses: subosito/flutter-action@v2
         with:
@@ -181,6 +189,7 @@ jobs:
       - run: flutter config --enable-macos-desktop
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos
+      - run: flutter test
       - run: flutter build macos --release
       - name: Zip the .app bundle
         run: |

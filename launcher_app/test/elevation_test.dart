@@ -76,13 +76,13 @@ void main() {
 
   group('Elevation.describe', () {
     test('שגיאת הרשאות מקבלת את ההסבר, וההודעה המקורית נשמרת', () {
-      final denied = FileSystemException(
+      const denied = FileSystemException(
         'Access is denied',
         r'C:\Program Files\Otzaria',
-        OSError('Access is denied', Platform.isWindows ? 5 : 13),
+        OSError('Access is denied', 5),
       );
 
-      final described = Elevation.describe(denied);
+      final described = Elevation.describe(denied, isMacOS: false);
 
       expect(described, contains('Access is denied'));
       expect(described, contains(AppL10n.strings.elevation.hint));
@@ -122,14 +122,14 @@ void main() {
 
     test('ההסבר מגיע מ-otzaria_l10n בשפה שנבחרה', () {
       AppL10n.use(AppLanguage.english);
-      final denied = FileSystemException(
+      const denied = FileSystemException(
         'denied',
         '/x',
-        OSError('denied', Platform.isWindows ? 5 : 13),
+        OSError('denied', 5),
       );
 
       expect(
-        Elevation.describe(denied),
+        Elevation.describe(denied, isMacOS: false),
         contains(AppL10n.stringsFor(AppLanguage.english).elevation.hint),
       );
     });

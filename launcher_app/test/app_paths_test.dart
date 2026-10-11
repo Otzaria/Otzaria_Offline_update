@@ -106,10 +106,10 @@ void main() {
       test('ווינדוס: תיקיית ה-exe, גם כשהנתיב מזכיר .app', () {
         expect(
           AppPaths.executableRoot(
-            r'C:\key\app-files\launcher_app.exe',
+            p.join(bundle, 'app-files', 'launcher_app.exe'),
             isMacOS: false,
           ),
-          r'C:\key\app-files',
+          p.join(bundle, 'app-files'),
         );
       });
     });
@@ -244,10 +244,10 @@ void main() {
     late Directory drive;
     late Directory machine;
 
-    /// שני המפתחות יחד, כדי שהבדיקה לא תהיה תלויה בפלטפורמה שהיא רצה בה.
     Map<String, String> env() => {
           'LOCALAPPDATA': machine.path,
           'XDG_DATA_HOME': machine.path,
+          'HOME': machine.path,
         };
 
     setUp(() async {
@@ -280,10 +280,16 @@ void main() {
       );
 
       expect(paths.readOnly, isTrue);
-      // המראה נשארת על הכונן — ממנה קוראים ומתקינים.
       expect(paths.dataDir, expectedDataDir());
-      // ...והכתיבה עוברת לתיקיית המשתמש שבמחשב הזה.
-      expect(paths.stateDir, p.join(machine.path, AppPaths.machineDirName));
+      expect(
+        paths.stateDir,
+        AppPaths.machineStateDir(
+          env(),
+          isWindows: Platform.isWindows,
+          isMacOS: Platform.isMacOS,
+        ),
+      );
+      expect(p.isWithin(machine.path, paths.stateDir), isTrue);
       expect(p.isWithin(paths.dataDir, paths.stateDir), isFalse);
     });
 

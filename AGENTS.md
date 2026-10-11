@@ -1598,7 +1598,13 @@ exe into `mirror/launcher/`, copies it over the stub (two renames, rollback on f
   numerically, and a test asserts it. A tag disagreeing with those two would ship a
   launcher that reports the old number and offers itself the same update forever, so
   nothing sets them by hand: `tool/set_launcher_version.sh` writes both, and CI runs it
-  in the build jobs *and* in `publish` with the same value, before tagging.
+  in the build jobs *and* in `publish` with the same value, before tagging — but only
+  in a release run (`release.yml` calls `ci.yml` with `release: true`). A push or PR
+  build keeps the `pubspec.yaml` version, so a tester's exe never claims the number of
+  the release that has not shipped yet (it would then never be offered that release).
+  Every CI Windows build also sets `PAYLOAD_BUILD_ID` to the commit, like
+  `build-exe.yml`, so its `.ready` marker differs from an installed build of the same
+  version and the stub re-extracts.
 - **Versions have two parts (`0.2` → `0.3`); only the second moves.** `pubspec.yaml`
   holds `0.2.0` because pub rejects anything that is not MAJOR.MINOR.PATCH — that
   trailing `.0` never reaches the user or `launcherVersion`. Hence `PayloadCheck`
@@ -1909,7 +1915,8 @@ places where a Windows fix had no macOS twin — the data folder landing inside 
 drawn on a Mac, a window opening below its own minimum size, a bundle swap under a
 running Otzaria, and Windows-only advice on a permission failure — plus the self-update
 leftovers and the cross-platform mirror reads. Every one is covered by tests that run on
-any host (the platform is injected), and **not one has run on real Apple hardware.**
+any host (the platform is injected, and the launcher suite runs in the macOS CI job as
+well as on Windows), and **not one has run on real Apple hardware.**
 Treat the whole list as "should be right", not "was seen working".
 
 ---

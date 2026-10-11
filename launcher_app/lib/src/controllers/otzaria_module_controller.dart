@@ -39,12 +39,9 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     RunningOtzariaLocator runningLocator = const RunningOtzariaLocator(),
     Future<String?> Function()? pendingLaunchUri,
     Future<void> Function()? onLaunchUriDelivered,
-    // תפר לבדיקות: בלעדיו כל בדיקה שנוגעת ב-[launch] מפעילה את אוצריא
-    // האמיתית של מי שמריץ אותה.
     OtzariaLauncher launcher = const OtzariaLauncher(),
-    // תפר לבדיקות גם כאן: בלעדיו בדיקה שנוגעת ב-[closeRunning] סוגרת את
-    // אוצריא האמיתית של מי שמריץ אותה.
     OtzariaProcessCloser? processCloser,
+    OtzariaTargetPlatform? platform,
   })  : _preferPrerelease = preferPrerelease,
         _pendingLaunchUri = pendingLaunchUri,
         _onLaunchUriDelivered = onLaunchUriDelivered,
@@ -54,6 +51,7 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
         _manager = OtzariaManager(
           dataDir: dataDir,
           stateDir: stateDir,
+          platform: platform,
           preferPrerelease: preferPrerelease,
           runningLocator: runningLocator,
           launcher: launcher,

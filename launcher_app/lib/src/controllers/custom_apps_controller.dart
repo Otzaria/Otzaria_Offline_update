@@ -239,17 +239,12 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
 
   static bool _any(String _) => true;
 
-  /// קובץ ההרצה של תוכנה בתוך [dir], לפי רמזי שם.
-  ///
-  /// מממש דרך `OtzariaAppLocator` ולא דרך סורק חדש: הוא כבר יודע לפסול
-  /// `unins*.exe`, עזרי Flutter (`crashpad_handler.exe`) ואת קובצי ההרצה של
-  /// הלאנצ'ר עצמו, וסורק לרוחב כדי שהתשובה תהיה זהה בכל מחשב. **"ה-exe
-  /// הראשון בתיקייה" הוא באג מתועד בריפו הזה.**
   static Future<String?> findInstalledExe(
     String dir,
-    List<String> nameHints,
-  ) =>
-      const OtzariaAppLocator().findIn(
+    List<String> nameHints, {
+    OtzariaTargetPlatform? platform,
+  }) =>
+      OtzariaAppLocator(platform: platform).findIn(
         dir,
         nameMatches: (candidate) => _nameMatchesHint(candidate, nameHints),
       );

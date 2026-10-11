@@ -312,9 +312,6 @@ void main() {
       expect(find.textContaining('אפשר להשאיר ריק'), findsNWidgets(2));
     });
 
-    /// ⚠️ הבאג שהיה כאן: הצעת שם ה-exe לקחה את **הראשון** מ-`listSync()` —
-    /// סדר לא מובטח, בלי לפסול `unins000.exe` ובלי לפסול עזרי Flutter.
-    /// בתיקייה של אפליקציית Flutter זה מחזיר את `crashpad_handler.exe`.
     testWidgets('סורק ה-exe אינו בוחר עזר של Flutter או uninstaller',
         (tester) async {
       final dir = Directory(p.join(tempDir.path, 'Installed'))
@@ -328,7 +325,11 @@ void main() {
       }
 
       final found = await tester.runAsync(
-        () => CustomAppsController.findInstalledExe(dir.path, const []),
+        () => CustomAppsController.findInstalledExe(
+          dir.path,
+          const [],
+          platform: OtzariaTargetPlatform.windows,
+        ),
       );
       expect(p.basename(found!), 'realapp.exe');
     });
@@ -344,6 +345,7 @@ void main() {
         () => CustomAppsController.findInstalledExe(
           dir.path,
           InstallLearner.nameHintsFor(name: 'MyApp'),
+          platform: OtzariaTargetPlatform.windows,
         ),
       );
       expect(p.basename(found!), 'myapp.exe');

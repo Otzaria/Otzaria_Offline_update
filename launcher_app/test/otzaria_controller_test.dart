@@ -84,6 +84,7 @@ void main() {
       dataDir: tempDir.path,
       preferPrerelease: preferPrerelease,
       runningLocator: runningLocator,
+      platform: OtzariaTargetPlatform.windows,
     );
     addTearDown(controller.dispose);
     return controller;
@@ -425,8 +426,7 @@ void main() {
       final delivered = <bool>[];
       final controller = OtzariaModuleController(
         dataDir: tempDir.path,
-        runningLocator: const _NeverRunningLocator(),
-        launcher: launcher,
+          launcher: launcher,
         pendingLaunchUri: () async => uri,
         onLaunchUriDelivered: () async => delivered.add(true),
       );

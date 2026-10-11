@@ -38,6 +38,8 @@ jobs:
   ci:
     needs: guard
     uses: ./.github/workflows/ci.yml
+    with:
+      release: true
 
   # מקדמים את הגרסה בקוד, מתייגים, ומעלים release עם ה-exe וה-zip. משם
   # העדכון העצמי של הלאנצ'ר מוצא אותו מעצמו (`LauncherReleaseClient`).

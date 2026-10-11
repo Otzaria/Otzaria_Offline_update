@@ -765,7 +765,7 @@ BOM ומכילים עברית, ולכן חייבים `pwsh` (7+) ולא Windows 
 | --- | --- |
 | מי מריץ | Actions → Release → Run workflow. הריצה מפעילה את `ci.yml` במלואו ורק אחריו מפרסמת |
 | מי מחשב את המספר | הג'וב `version` ב-`ci.yml`: minor+1, ואם התג כבר קיים (ריצה חוזרת) מתקדם לפנוי הבא |
-| מי כותב אותו לקוד | [`tool/set_launcher_version.sh`](../tool/set_launcher_version.sh), באותה ריצה, גם בג'ובים שבונים וגם ב-`publish` — כך שה-exe מדווח בדיוק את מה שבתג |
+| מי כותב אותו לקוד | [`tool/set_launcher_version.sh`](../tool/set_launcher_version.sh), באותה ריצה, גם בג'ובים שבונים וגם ב-`publish` — כך שה-exe מדווח בדיוק את מה שבתג. רק בריצת release (`release: true`): בנייה של push או PR נשארת בגרסה שב-pubspec, ומרקר ה-`.ready` שלה נושא את הקומיט (`PAYLOAD_BUILD_ID`) |
 | מה נבנה | שום דבר נוסף: ה-release מקבל את הארטיפקטים של ג'ובי הבדיקה של אותה ריצה, כלומר בדיוק מה שנבדק |
 | מה קורה בכשל | אין תג ואין release. הבנייה מתה לפני שנוצר משהו — הגרסה שב-`main` נשארת כשהייתה |
 | הקומיט של הגרסה | נדחף ע"י `github-actions[bot]` עם `[skip ci]`. דחיפה עם `GITHUB_TOKEN` אינה מפעילה workflow חדש, ולכן אין לופ |
