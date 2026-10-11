@@ -18,13 +18,17 @@ import 'zstd_decompressor.dart';
 /// באחד (אין נכס ב-release, שגיאת רשת) לא מפיל את השניים האחרים, בדיוק כמו
 /// שם.
 class CompanionAssetsMirror {
-  CompanionAssetsMirror({http.Client? httpClient, DownloadScheduler? scheduler})
-    : _scheduler = scheduler ?? DownloadScheduler(),
-      _httpClient = httpClient ?? http.Client(),
-      _ownsClient = httpClient == null {
+  CompanionAssetsMirror({
+    http.Client? httpClient,
+    DownloadScheduler? scheduler,
+    this.planReuseWindow = const Duration(minutes: 10),
+    DateTime Function()? clock,
+  }) : _scheduler = scheduler ?? DownloadScheduler(),
+       _httpClient = httpClient ?? http.Client(),
+       _ownsClient = httpClient == null,
+       _clock = clock ?? DateTime.now {
     _downloader = PatchDownloader(
       httpClient: _httpClient,
-      // רק מוריד לדיסק; החילוץ קורה בהתקנה, לא כאן.
       decompress: const ZstdDecompressor().call,
     );
   }
@@ -63,6 +67,20 @@ class CompanionAssetsMirror {
 
   Duration timeout = const Duration(seconds: 30);
 
+  final Duration planReuseWindow;
+  final DateTime Function() _clock;
+  ({String destDir, DateTime at, Map<CompanionAsset, _CompanionPlan> plans})?
+  _peekedPlans;
+
+  Map<CompanionAsset, _CompanionPlan> _takePeekedPlans(String destDir) {
+    final peeked = _peekedPlans;
+    _peekedPlans = null;
+    if (peeked == null || peeked.destDir != destDir) return const {};
+    final age = _clock().difference(peeked.at);
+    if (age.isNegative || age >= planReuseWindow) return const {};
+    return peeked.plans;
+  }
+
   set connectTimeout(Duration value) => _downloader.connectTimeout = value;
 
   /// ממלא את [destDir] בשלושת הקבצים וכותב `companions.json`. מחזיר את
@@ -77,10 +95,8 @@ class CompanionAssetsMirror {
   }) async {
     await Directory(destDir).create(recursive: true);
     final strings = AppL10n.strings.libraryDomain;
-    // מה שכבר יושב במראה: פריט שנכשל עכשיו שומר את רשומתו הקודמת כל עוד
-    // הקובץ שלה עדיין שם. בלי זה סנכרון חוזר שנכשל (רשת/rate limit) היה
-    // כותב `companions.json` ריק ומעלים קבצים שכבר נסעו לכונן.
     final previous = await CompanionMirrorManifest.load(destDir);
+    final reusable = _takePeekedPlans(destDir);
     final entries = <CompanionAsset, CompanionMirrorEntry>{};
     final activeStages = <CompanionAsset, String>{};
     void reportStage(CompanionAsset asset, String? stage) {
@@ -131,7 +147,7 @@ class CompanionAssetsMirror {
       Future<_CompanionPlan> Function() body,
     ) => run(asset, name, () async {
       reportStage(asset, strings.companionChecking(name));
-      plans[asset] = await body();
+      plans[asset] = reusable[asset] ?? await body();
     });
 
     await Future.wait<void>([
@@ -212,6 +228,7 @@ class CompanionAssetsMirror {
   Future<Set<CompanionAsset>> peekPending({required String destDir}) async {
     final previous = await CompanionMirrorManifest.load(destDir);
     final pending = <CompanionAsset>{};
+    final plans = <CompanionAsset, _CompanionPlan>{};
     final errors = <Object>[];
 
     Future<void> check(
@@ -220,6 +237,7 @@ class CompanionAssetsMirror {
     ) async {
       try {
         final planned = await plan();
+        plans[asset] = planned;
         final held = await _mirrorHolds(
           destDir,
           asset,
@@ -237,6 +255,7 @@ class CompanionAssetsMirror {
       check(CompanionAsset.catalog, () => _planCatalog(destDir)),
       check(CompanionAsset.dictionary, () => _planDictionary(destDir)),
     ]);
+    _peekedPlans = (destDir: destDir, at: _clock(), plans: plans);
     if (errors.length == CompanionAsset.values.length) throw errors.first;
     return pending;
   }

@@ -15,6 +15,7 @@ import 'services/library_update_applier.dart';
 import 'services/otzaria_process_guard.dart';
 import 'services/otzaria_settings_reader.dart';
 import 'services/otzaria_settings_writer.dart';
+import 'services/recent_library_releases_client.dart';
 import 'services/semantic_search_assets.dart';
 
 export 'services/library_update_applier.dart'
@@ -96,7 +97,7 @@ class LibraryManager {
        _planner = const LibraryUpdatePlanner(),
        _versionReader = versionReader,
        _recovery = const LibraryDbRecoveryService(),
-       _cloudClient = GithubLibraryReleaseClient(),
+       _cloudClient = RecentLibraryReleasesClient(),
        _applier = LibraryUpdateApplier() {
     _locator = LibraryDbLocator(
       stateStore: _stateStore,
@@ -141,9 +142,7 @@ class LibraryManager {
   /// כותב/מחיל דבר בעצמו.
   final LibraryDbRecoveryService _recovery;
 
-  /// לקוח ה-cloud (GitHub) — משמש **רק** את [downloadToMirror]. בדיקה והחלה
-  /// לא נוגעות בו לעולם; ראו [_resolveSource].
-  final GithubLibraryReleaseClient _cloudClient;
+  final RecentLibraryReleasesClient _cloudClient;
 
   /// מבצע את ההחלה בפועל של תוכנית עדכון (delta/fullDownload) על ה-DB החי —
   /// ראו [applyUpdate].
@@ -344,9 +343,10 @@ class LibraryManager {
           onWarning: onWarning,
           isCancelled: isCancelled,
         );
+      } catch (_) {
+        _cloudClient.forgetReleases();
+        rethrow;
       } finally {
-        // ה-exporter נוצר כאן בכל הורדה ומחזיק HttpClient משלו; בלי הסגירה
-        // הזו כל לחיצה על "הורדה" משאירה connection pool פתוח.
         exporter.dispose();
       }
     }();
@@ -383,10 +383,9 @@ class LibraryManager {
           ).discover(allowPrerelease: allowPrerelease);
           tag = discovery.latestContentTag;
         } else {
-          // המראה לא התרעננה (עדכון אישי), ותגה ישן — הווקטורים חייבים להתאים
-          // לגרסה המקוונת, כמו שההצעה ב-peekPendingSemanticSearch בודקת.
-          await peekLatestOnlineVersion();
-          tag = _onlineLibraryTag;
+          final latest = _latestOnline(await _cloudClient.fetchReleases());
+          _onlineLibraryTag = latest.tag;
+          tag = latest.tag;
         }
         if (tag == null) {
           throw StateError(
@@ -483,34 +482,31 @@ class LibraryManager {
     }
   }
 
-  /// בודק מה הגרסה העדכנית ביותר הזמינה ב-GitHub — **פעולת רשת קלה**:
-  /// קריאת API יחידה ל-`/releases`, בלי הורדת manifest או asset כלשהו
-  /// (בשונה מ-[LibraryUpdateDiscovery.discover], שמוריד גם manifest לכל
-  /// release כדי לבנות את גרף ה-patches — יקר יותר ממה שצריך כאן).
-  /// מחזיר `null` אם אין release כשיר בערוץ הנבחר. מיועדת לבדיקה צדדית
-  /// ("יש עדכון חדש ברשת?"); זורקת חריג רשת/HTTP רגיל בכשל — הקורא אמור
-  /// להתייחס לכשל כ"אין חיבור כרגע", לא כשגיאה חוסמת.
   Future<int?> peekLatestOnlineVersion() async {
     _onlineLibraryTag = null;
+    final latest = _latestOnline(await _cloudClient.fetchFreshReleases());
+    _onlineLibraryTag = latest.tag;
+    return latest.version;
+  }
+
+  ({int? version, String? tag}) _latestOnline(List<LibraryRelease> all) {
     final releases = LibraryUpdateDiscovery.eligibleReleases(
-      await _cloudClient.fetchReleases(),
+      all,
       allowPrerelease: allowPrerelease,
     );
     var latest = 0;
+    String? tag;
     for (final release in releases) {
-      // רק release שנושא תוכן מסד יורד בפועל למראה (ראו
-      // `LibraryMirrorExporter._latestOnly`), ורק הוא נספר גם ב-`discover`.
-      // ספירת release אחר כאן הציגה "יש עדכון ברשת" שאף הורדה לא מסלקת.
       if (release.deltaManifestAssets.isEmpty && release.fullDbAsset == null) {
         continue;
       }
       final version = LibraryUpdateDiscovery.releaseVersionOf(release);
       if (version > latest) {
         latest = version;
-        _onlineLibraryTag = release.tag;
+        tag = release.tag;
       }
     }
-    return latest == 0 ? null : latest;
+    return (version: latest == 0 ? null : latest, tag: tag);
   }
 
   /// המראה המקומית כמקור releases. זורק [LibraryMirrorMissingException] אם
