@@ -5,16 +5,18 @@ import '../../controllers/plugins_module_controller.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
 
-/// שכבת חסימה בזמן סנכרון — הודעת שלב, מד התקדמות ורשימת אזהרות.
-/// כשל בקובץ בודד אינו עוצר את הסנכרון, ולכן האזהרות נאספות לרשימה
-/// במקום להפיל את הפעולה.
 class PluginSyncOverlay extends StatelessWidget {
   const PluginSyncOverlay({super.key, required this.controller});
 
   final PluginsModuleController controller;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: controller.progress,
+        builder: (context, _) => _overlay(context),
+      );
+
+  Widget _overlay(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final t = context.strings.plugins;
@@ -39,7 +41,6 @@ class PluginSyncOverlay extends StatelessWidget {
                         ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: AppTokens.spaceXS),
-                  // בלי זה המונה שרץ נראה כאילו כל החנות יורדת מחדש.
                   Text(
                     t.syncingOverlaySubtitle,
                     textAlign: TextAlign.center,

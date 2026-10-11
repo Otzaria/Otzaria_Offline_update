@@ -7,6 +7,7 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
 import '../services/app_logger.dart';
+import '../services/coalescing_loader.dart';
 import '../services/known_plugins_store.dart';
 import '../services/store_app_destination_store.dart';
 import 'progress_notifier.dart';
@@ -288,17 +289,19 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
   }
 
-  /// סורק מחדש **רק** את התוספים המותקנים, בלי לטעון את הקטלוג ובלי להעביר
-  /// את המסך למצב טעינה. נקרא אחרי שזיהוי אוצריא התעדכן: תיקיית התוספים
-  /// נגזרת מנתיב ההתקנה, וסריקה שרצה לפניו הסתכלה במקום אחר.
-  Future<void> refreshInstalled() async {
+  late final CoalescingLoader _installedScan = CoalescingLoader(
+    _refreshInstalled,
+    isActive: () => !_installDone.isClosed,
+  );
+
+  Future<void> refreshInstalled() => _installedScan.run();
+
+  Future<void> _refreshInstalled() async {
     await _loading;
     if (status != PluginsModuleStatus.ready) return;
 
     try {
       final scanned = await _manager.scanInstalled();
-      // גם הגרסה מתעדכנת כאן: היא נקראת מאותה התקנה שזה עתה זוהתה, ובלעדיה
-      // החנות הייתה ממשיכה להציג בילדים לפי גרסה שכבר לא נכונה.
       final version = await installedAppVersion?.call();
       if (!mapEquals(installed, scanned) || version != appVersion) {
         appVersion = version;
@@ -306,11 +309,8 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
         _invalidateDerived();
         notifyListeners();
       }
-      // אחרי ההצבה, לא לפניה: מי שמאזין להודעת הסיום קורא מיד את המפה
-      // החדשה. גם סריקה שלא שינתה כלום מגיעה לכאן — פסק הזמן נסגר בה.
       _settleInstallWatch(scanned);
     } catch (e, st) {
-      // כישלון כאן אינו הופך את החנות לשגויה — היא כבר טעונה ומוצגת.
       AppLogger.instance.error('סריקת התוספים המותקנים נכשלה', e, st);
     }
   }

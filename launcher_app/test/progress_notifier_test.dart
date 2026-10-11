@@ -20,7 +20,7 @@ void main() {
       fakeAsync((async) {
         final notifier = _Counter();
         var notifications = 0;
-        notifier.addListener(() => notifications++);
+        notifier.progress.addListener(() => notifications++);
 
         for (var i = 1; i <= 5000; i++) {
           notifier.value = i;
@@ -41,11 +41,30 @@ void main() {
       });
     });
 
+    test('דיווח התקדמות מעיר רק את מאזיני ההתקדמות, לא את מאזיני המצב', () {
+      fakeAsync((async) {
+        final notifier = _Counter();
+        var state = 0;
+        var progress = 0;
+        notifier.addListener(() => state++);
+        notifier.progress.addListener(() => progress++);
+
+        notifier.value = 1;
+        notifier.value = 2;
+        async.elapse(ProgressNotifier.interval);
+
+        expect(progress, 2);
+        expect(state, 0);
+
+        notifier.dispose();
+      });
+    });
+
     test('גם המתנה ארוכה אינה מייצרת הודעה נוספת אחרי האחרונה', () {
       fakeAsync((async) {
         final notifier = _Counter();
         var notifications = 0;
-        notifier.addListener(() => notifications++);
+        notifier.progress.addListener(() => notifications++);
 
         notifier.value = 1;
         notifier.value = 2;
@@ -62,7 +81,7 @@ void main() {
       fakeAsync((async) {
         final notifier = _Counter();
         var notifications = 0;
-        notifier.addListener(() => notifications++);
+        notifier.progress.addListener(() => notifications++);
 
         for (var i = 1; i <= 1000; i++) {
           notifier.value = i;
@@ -86,7 +105,7 @@ void main() {
       fakeAsync((async) {
         final notifier = _Counter();
         var notifications = 0;
-        notifier.addListener(() => notifications++);
+        notifier.progress.addListener(() => notifications++);
 
         notifier.value = 1;
         notifier.value = 2; // משאיר טיימר תלוי
@@ -128,7 +147,7 @@ void main() {
 /// ChangeNotifier מינימלי שמדווח דרך [ProgressNotifier.notifyProgress].
 class _Counter extends ChangeNotifier with ProgressNotifier {
   _Counter() {
-    addListener(() => lastSeen = _value);
+    progress.addListener(() => lastSeen = _value);
   }
 
   int _value = 0;

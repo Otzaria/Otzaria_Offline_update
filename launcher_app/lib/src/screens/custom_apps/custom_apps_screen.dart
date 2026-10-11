@@ -264,8 +264,6 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
                 style: theme.textTheme.titleMedium
                     ?.copyWith(fontWeight: FontWeight.bold),
               ),
-              // שתיהן נוגעות ברשת, וההורדה כותבת לכונן — ולכן אינן במצב
-              // קריאה, ואינן קיימות כשאין אף תוכנה עם מקור מקוון.
               if (controller.hasOnlineSources && !widget.readOnly) ...[
                 ActionButton.neutral(
                   text: t.checkAllOnlineButton,
@@ -296,27 +294,26 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
                   : null,
             ),
           ],
-          // מונה התוכנות, ומתחתיו ההתקדמות של הקובץ שיורד כרגע — בלעדיה
-          // הורדה של מאות מגה־בייט נראית תקועה.
           if (controller.isDownloadingAll) ...[
             const SizedBox(height: AppTokens.spaceSM),
-            InfoProgressRow(
-              stage: t.downloadingAllLabel(
-                controller.downloadAllDone ?? 0,
-                controller.downloadAllTotal ?? 0,
-              ),
-              progress: (controller.downloadAllTotal ?? 0) > 0
-                  ? (controller.downloadAllDone ?? 0) /
-                      controller.downloadAllTotal!
-                  : null,
-              detail: formatBytesProgress(
-                controller.downloadReceived,
-                controller.downloadTotal,
+            ListenableBuilder(
+              listenable: controller.progress,
+              builder: (context, _) => InfoProgressRow(
+                stage: t.downloadingAllLabel(
+                  controller.downloadAllDone ?? 0,
+                  controller.downloadAllTotal ?? 0,
+                ),
+                progress: (controller.downloadAllTotal ?? 0) > 0
+                    ? (controller.downloadAllDone ?? 0) /
+                        controller.downloadAllTotal!
+                    : null,
+                detail: formatBytesProgress(
+                  controller.downloadReceived,
+                  controller.downloadTotal,
+                ),
               ),
             ),
           ],
-          // הלמידה שאחרי ההתקנה יכולה להימשך עד דקה — ראו `InstallLearner`.
-          // בלי השורה הזו זה נראה כתקיעה.
           if (controller.isLearning) ...[
             const SizedBox(height: AppTokens.spaceSM),
             InfoProgressRow(stage: t.learningLabel),

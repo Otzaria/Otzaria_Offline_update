@@ -1234,7 +1234,6 @@ class _AppShellState extends State<AppShell> {
             onSelect: _goTo,
             showCustomApps: _customApps.hasApps,
           ),
-          // הסרגל והתוכן חולקים רקע — הקו הזה הוא ההפרדה היחידה ביניהם.
           VerticalDivider(
             width: 1,
             thickness: 1,
@@ -1246,7 +1245,10 @@ class _AppShellState extends State<AppShell> {
               children: [
                 for (final screen in LauncherScreen.values)
                   _builtScreens.contains(screen)
-                      ? _screenWidget(screen)
+                      ? TickerMode(
+                          enabled: screen == _screen,
+                          child: _screenWidget(screen),
+                        )
                       : const SizedBox.shrink(),
               ],
             ),

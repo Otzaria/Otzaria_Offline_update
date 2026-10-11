@@ -194,7 +194,6 @@ class CustomAppDetailView extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // שם ותיאור הם תוכן שהמשתמש כתב — לא מתורגמים.
         Text(_descriptor.name, style: theme.textTheme.headlineMedium),
         if (_descriptor.description case final text?) ...[
           const SizedBox(height: AppTokens.spaceSM),
@@ -229,22 +228,24 @@ class CustomAppDetailView extends StatelessWidget {
             ],
           ),
         ],
-        // הלמידה שאחרי ההתקנה יכולה להימשך עד דקה — ראו `InstallLearner`.
-        // בלי השורה הזו זה נראה כתקיעה.
         if (controller.isLearning) ...[
           const SizedBox(height: AppTokens.spaceMD),
           InfoProgressRow(stage: t.learningLabel),
         ],
         if (_isDownloading) ...[
           const SizedBox(height: AppTokens.spaceMD),
-          InfoProgressRow(
-            stage: t.downloadingLabel,
-            progress: (controller.downloadTotal ?? 0) > 0
-                ? (controller.downloadReceived ?? 0) / controller.downloadTotal!
-                : null,
-            detail: formatBytesProgress(
-              controller.downloadReceived,
-              controller.downloadTotal,
+          ListenableBuilder(
+            listenable: controller.progress,
+            builder: (context, _) => InfoProgressRow(
+              stage: t.downloadingLabel,
+              progress: (controller.downloadTotal ?? 0) > 0
+                  ? (controller.downloadReceived ?? 0) /
+                      controller.downloadTotal!
+                  : null,
+              detail: formatBytesProgress(
+                controller.downloadReceived,
+                controller.downloadTotal,
+              ),
             ),
           ),
         ],

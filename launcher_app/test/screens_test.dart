@@ -22,6 +22,7 @@ import 'package:launcher_app/src/self_update/launcher_release.dart';
 import 'package:launcher_app/src/self_update/launcher_version.dart';
 import 'package:launcher_app/src/self_update/payload_check.dart';
 import 'package:launcher_app/src/services/app_paths.dart';
+import 'package:launcher_app/src/services/byte_size.dart';
 import 'package:launcher_app/src/services/timestamps.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/settings/safer_mode.dart';
@@ -578,6 +579,86 @@ void main() {
       ),
       findsNothing,
     );
+  });
+
+  testWidgets('שורות ההתקדמות בדף הבית מתעדכנות מדיווח התקדמות בלבד',
+      (tester) async {
+    library.status = LibraryModuleStatus.updating;
+    library.applyProgress = 0.1;
+    otzaria.downloadStatus = OtzariaDownloadStatus.downloading;
+    launcherUpdate.status = LauncherUpdateStatus.downloading;
+    var stateNotifications = 0;
+    void count() => stateNotifications++;
+    library.addListener(count);
+    otzaria.addListener(count);
+    launcherUpdate.addListener(count);
+
+    await pumpScreen(tester, home(isDownloading: true));
+    expect(find.text('10%'), findsOneWidget);
+
+    library.applyProgress = 0.42;
+    library.notifyProgress();
+    otzaria.downloadReceived = 30;
+    otzaria.downloadTotal = 100;
+    otzaria.notifyProgress();
+    launcherUpdate.downloadReceived = 70;
+    launcherUpdate.downloadTotal = 100;
+    launcherUpdate.notifyProgress();
+    await tester.pump();
+
+    expect(find.text('42%'), findsOneWidget);
+    expect(find.text('30%'), findsOneWidget);
+    expect(find.text('70%'), findsOneWidget);
+    expect(stateNotifications, 0);
+  });
+
+  testWidgets('שורת הורדת הספרייה בדף הבית מתעדכנת מדיווח התקדמות בלבד',
+      (tester) async {
+    library.downloadStatus = MirrorDownloadStatus.downloading;
+    library.downloadStage = 'stage 1';
+    library.downloadReceivedBytes = 10;
+    library.downloadTotalBytes = 100;
+    var stateNotifications = 0;
+    library.addListener(() => stateNotifications++);
+
+    await pumpScreen(tester, home(isDownloading: true));
+    expect(find.text('stage 1'), findsOneWidget);
+    expect(find.text('10%'), findsOneWidget);
+
+    library.downloadStage = 'stage 2';
+    library.downloadCompanionStage = 'companion 2';
+    library.downloadReceivedBytes = 2048;
+    library.downloadTotalBytes = 4096;
+    library.notifyProgress();
+    await tester.pump();
+
+    expect(find.text('stage 2'), findsOneWidget);
+    expect(find.text('companion 2'), findsOneWidget);
+    expect(find.text('50%'), findsOneWidget);
+    expect(find.text(formatBytesProgress(2048, 4096)!), findsOneWidget);
+    expect(stateNotifications, 0);
+  });
+
+  testWidgets('שורת סנכרון התוספים בדף הבית מתעדכנת מדיווח התקדמות בלבד',
+      (tester) async {
+    plugins.status = PluginsModuleStatus.syncing;
+    plugins.syncMessage = 'sync 1';
+    plugins.syncProgress = 0.2;
+    var stateNotifications = 0;
+    plugins.addListener(() => stateNotifications++);
+
+    await pumpScreen(tester, home(isDownloading: true));
+    expect(find.text('sync 1'), findsOneWidget);
+    expect(find.text('20%'), findsOneWidget);
+
+    plugins.syncMessage = 'sync 2';
+    plugins.syncProgress = 0.8;
+    plugins.notifyProgress();
+    await tester.pump();
+
+    expect(find.text('sync 2'), findsOneWidget);
+    expect(find.text('80%'), findsOneWidget);
+    expect(stateNotifications, 0);
   });
 
   testWidgets('מסך תוכנה מציג מצב ו"מה התחדש"', (tester) async {

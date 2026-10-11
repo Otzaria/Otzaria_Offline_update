@@ -215,15 +215,18 @@ Future<void> _showDoneDialog(
   );
 }
 
-/// שכבת חסימה בזמן ההעתקה. נפרדת מ-`PluginSyncOverlay` בכוונה: שם יש
-/// אזהרות מצטברות ושם מדובר ברשת, וכאן דווקא חשוב לומר שאין.
 class StoreAppExportOverlay extends StatelessWidget {
   const StoreAppExportOverlay({super.key, required this.controller});
 
   final PluginsModuleController controller;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: controller.progress,
+        builder: (context, _) => _overlay(context),
+      );
+
+  Widget _overlay(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final t = context.strings.plugins;

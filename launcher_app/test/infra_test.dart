@@ -21,7 +21,7 @@ void main() {
     test('סופר דיווחים רבים לכדי מעט הודעות, ומוסר את האחרון', () async {
       final notifier = _Counter();
       var notifications = 0;
-      notifier.addListener(() => notifications++);
+      notifier.progress.addListener(() => notifications++);
 
       // 1000 דיווחים באותו tick — כמו הורדה של 1GB בצ׳אנקים.
       for (var i = 1; i <= 1000; i++) {
@@ -419,6 +419,6 @@ class _Counter extends ChangeNotifier with ProgressNotifier {
   }
 
   _Counter() {
-    addListener(() => lastSeen = _value);
+    progress.addListener(() => lastSeen = _value);
   }
 }

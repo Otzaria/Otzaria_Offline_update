@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 
 import '../services/announced_apps_store.dart';
 import '../services/app_logger.dart';
+import '../services/coalescing_loader.dart';
 import '../services/custom_app_detection_snapshot.dart';
 import '../services/exe_icon_extractor.dart';
 import 'progress_notifier.dart';
@@ -263,7 +264,17 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     return false;
   }
 
-  Future<void> load({String? redetect}) async {
+  final Set<String> _pendingRedetectIds = {};
+  late final CoalescingLoader _loader = CoalescingLoader(_load);
+
+  Future<void> load({String? redetect}) {
+    if (redetect != null) _pendingRedetectIds.add(redetect);
+    return _loader.run();
+  }
+
+  Future<void> _load() async {
+    final redetectIds = Set<String>.of(_pendingRedetectIds);
+    _pendingRedetectIds.clear();
     try {
       if (_announced != null) _announcedIds = await _announced.load();
       categories = await _manager.loadCategories();
@@ -278,7 +289,7 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
               entry: entry,
               installed: switch (previous[entry.descriptor.id]) {
                 final before?
-                    when entry.descriptor.id != redetect &&
+                    when !redetectIds.contains(entry.descriptor.id) &&
                         _sameDetection(before.descriptor, entry.descriptor) =>
                   before.installed,
                 _ => await _detectQuietly(entry.descriptor),

@@ -600,9 +600,14 @@ class HomeScreen extends StatelessWidget {
     return widgets;
   }
 
-  /// שורת התקדמות אחת לרכיב שמוריד כרגע — ההורדות רצות בטור, ולכן לכל
-  /// היותר אחת מהן פעילה.
-  Widget _downloadProgress(BuildContext context) {
+  Widget _downloadProgress(BuildContext context) => ListenableBuilder(
+        listenable: Listenable.merge(
+          [otzaria.progress, library.progress, plugins.progress],
+        ),
+        builder: (context, _) => _downloadProgressRow(context),
+      );
+
+  Widget _downloadProgressRow(BuildContext context) {
     final t = context.strings.home;
 
     if (otzaria.downloadStatus == OtzariaDownloadStatus.downloading) {
@@ -693,9 +698,6 @@ class HomeScreen extends StatelessWidget {
               StatusChip(kind: kind, label: label),
               const SizedBox(height: AppTokens.spaceMD),
               Text(t.installedVersion(c.currentVersion), style: detail),
-              // שתי שורות נפרדות, ולא "הגרסה החדשה ביותר": מה שיושב בתיקייה
-              // ומה שנמצא ברשת אינם אותו דבר — אחרי עדכון עצמי התיקייה
-              // מחזיקה בדיוק את הגרסה שרצה, וזו הוצגה כ"נמצאה ברשת".
               if (c.hasUpdateReady && c.downloadedVersion != null) ...[
                 const SizedBox(height: AppTokens.spaceXS),
                 Text(t.downloadedVersion(c.downloadedVersion!), style: detail),
@@ -706,18 +708,18 @@ class HomeScreen extends StatelessWidget {
               ],
               if (c.isDownloading) ...[
                 const SizedBox(height: AppTokens.spaceMD),
-                InfoProgressRow(
-                  stage: t.statusDownloading,
-                  progress: (c.downloadTotal ?? 0) > 0
-                      ? (c.downloadReceived ?? 0) / c.downloadTotal!
-                      : null,
-                  detail:
-                      formatBytesProgress(c.downloadReceived, c.downloadTotal),
+                ListenableBuilder(
+                  listenable: c.progress,
+                  builder: (context, _) => InfoProgressRow(
+                    stage: t.statusDownloading,
+                    progress: (c.downloadTotal ?? 0) > 0
+                        ? (c.downloadReceived ?? 0) / c.downloadTotal!
+                        : null,
+                    detail: formatBytesProgress(
+                        c.downloadReceived, c.downloadTotal),
+                  ),
                 ),
               ],
-              // ההתקנה זמינה גם בלי רשת, ולכן היא מוצגת לפני ההורדה: במחשב
-              // המנותק זו הפעולה היחידה שאפשר בכלל ללחוץ עליה. מנוטרלת בזמן
-              // הורדה או התקנה — היא מסתיימת ב-`exit(0)` ותקטע אותן.
               if (c.hasUpdateReady && c.canInstall) ...[
                 const SizedBox(height: AppTokens.spaceMD),
                 ActionButton.recommended(
@@ -729,8 +731,6 @@ class HomeScreen extends StatelessWidget {
                       : onInstallLauncherUpdate,
                 ),
               ],
-              // גרסה מוכנה שאין לנו איך להתקין — בלי השורה הזאת הכרטיס הכריז
-              // "מוכן להתקנה" ולא הציג אף כפתור.
               if (c.hasUpdateReady && !c.canInstall) ...[
                 const SizedBox(height: AppTokens.spaceSM),
                 Text(t.installUnavailableNotice, style: detail),
@@ -746,8 +746,6 @@ class HomeScreen extends StatelessWidget {
                       : onDownloadLauncherUpdate,
                 ),
               ],
-              // גם כשהמצב חזר ל"מוכן להתקנה" אחרי כשל התקנה — ההודעה היא מה
-              // שמסביר למה הכפתור עדיין שם.
               if (c.errorMessage != null) ...[
                 const SizedBox(height: AppTokens.spaceSM),
                 InfoErrorRow(message: c.errorMessage!),
@@ -797,18 +795,18 @@ String libraryStatusLabel(BuildContext context, LibraryModuleController c) {
   };
 }
 
-/// שורת ההתקדמות של החלת עדכון על המסד — שלב, אחוז, וכמה בייטים מתוך כמה.
-/// משותפת לדף הבית ולמסך הספרייה כדי ששניהם יראו בדיוק את אותו חיווי.
 Widget libraryApplyProgressRow(
   BuildContext context,
   LibraryModuleController c,
 ) =>
-    InfoProgressRow(
-      stage: c.stageText ?? context.strings.libraryScreen.updatingProgress,
-      progress: c.applyProgress,
-      detail: formatBytesProgress(c.applyReceivedBytes, c.applyTotalBytes),
-      // נשארת על המסך לכל אורך ההחלה — הרגע שבו שליפת הכונן מזיקה.
-      warning: context.strings.home.doNotRemoveDriveWarning,
+    ListenableBuilder(
+      listenable: c.progress,
+      builder: (context, _) => InfoProgressRow(
+        stage: c.stageText ?? context.strings.libraryScreen.updatingProgress,
+        progress: c.applyProgress,
+        detail: formatBytesProgress(c.applyReceivedBytes, c.applyTotalBytes),
+        warning: context.strings.home.doNotRemoveDriveWarning,
+      ),
     );
 
 // ── אריח בית — עיצוב אחיד לשני הרכיבים ────────────────────────────────────────

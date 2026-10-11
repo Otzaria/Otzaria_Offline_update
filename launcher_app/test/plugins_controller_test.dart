@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -631,6 +632,40 @@ void main() {
       final loading = c.load();
       await Future.wait([loading, c.refreshInstalled()]);
 
+      expect(c.installed[pluginId], '1.4.0');
+    });
+
+    test('סריקות חופפות מתאחדות לסריקה אחת ועוד אחת, ולא נערמות', () async {
+      launchPath = exe;
+      Completer<void>? gate;
+      var calls = 0;
+      var inFlight = 0;
+      var maxInFlight = 0;
+      final c = PluginsModuleController(
+        mirrorRootDir: p.join(tempDir.path, 'mirror'),
+        otzariaLaunchPath: () async => launchPath,
+        installedAppVersion: () async {
+          calls++;
+          inFlight++;
+          if (inFlight > maxInFlight) maxInFlight = inFlight;
+          await gate?.future;
+          inFlight--;
+          return null;
+        },
+      );
+      addTearDown(c.dispose);
+      await c.load();
+      calls = 0;
+      maxInFlight = 0;
+
+      final release = gate = Completer<void>();
+      final scans = [for (var i = 0; i < 5; i++) c.refreshInstalled()];
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      release.complete();
+      await Future.wait(scans);
+
+      expect(maxInFlight, 1);
+      expect(calls, 2);
       expect(c.installed[pluginId], '1.4.0');
     });
   });

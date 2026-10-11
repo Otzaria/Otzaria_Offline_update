@@ -167,6 +167,23 @@ void main() {
     expect(screen(HomeScreen), findsOneWidget);
   });
 
+  testWidgets('מסך מוסתר אינו מריץ אנימציות — רק המוצג מקבל טיקרים',
+      (tester) async {
+    await pumpShell(tester);
+    bool ticking(Type type) =>
+        TickerMode.valuesOf(tester.element(screen(type))).enabled;
+
+    expect(ticking(HomeScreen), isTrue);
+
+    await tapNav(tester, shell.navPlugins);
+    expect(ticking(PluginsScreen), isTrue);
+    expect(ticking(HomeScreen), isFalse);
+
+    await tapNav(tester, shell.navHome);
+    expect(ticking(HomeScreen), isTrue);
+    expect(ticking(PluginsScreen), isFalse);
+  });
+
   testWidgets('כל חמשת המסכים נבנים אחרי ביקור בכולם', (tester) async {
     await pumpShell(tester);
 

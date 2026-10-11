@@ -20,6 +20,7 @@ import 'package:launcher_app/src/screens/plugins/plugin_sync_overlay.dart';
 import 'package:launcher_app/src/screens/plugins/plugin_updates_dialog.dart';
 import 'package:launcher_app/src/screens/plugins/plugin_visuals.dart';
 import 'package:launcher_app/src/screens/plugins/plugins_screen.dart';
+import 'package:launcher_app/src/screens/plugins/store_app_export_flow.dart';
 import 'package:launcher_app/src/screens/store_kit/store_kit.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
@@ -800,6 +801,49 @@ void main() {
 
     expect(find.text(t.syncingOverlayStarting), findsOneWidget);
     expect(find.textContaining('%'), findsNothing);
+  });
+
+  testWidgets('שכבת הסנכרון מתעדכנת מדיווח התקדמות בלי בנייה מחדש מבחוץ',
+      (tester) async {
+    plugins.status = PluginsModuleStatus.syncing;
+    var stateNotifications = 0;
+    plugins.addListener(() => stateNotifications++);
+
+    await pumpScreen(tester, PluginSyncOverlay(controller: plugins));
+    await tester.pump();
+
+    plugins.syncMessage = 'step 2';
+    plugins.syncProgress = 0.5;
+    plugins.syncWarnings.add('warning 1');
+    plugins.notifyProgress();
+    await tester.pump();
+
+    expect(find.text('step 2'), findsOneWidget);
+    expect(find.text('50%'), findsOneWidget);
+    expect(find.text('warning 1'), findsOneWidget);
+    expect(stateNotifications, 0);
+  });
+
+  testWidgets('שכבת הייצוא מתעדכנת מדיווח התקדמות בלי בנייה מחדש מבחוץ',
+      (tester) async {
+    plugins.isExporting = true;
+    plugins.exportMessage = 'step 1';
+    plugins.exportProgress = 0.1;
+    var stateNotifications = 0;
+    plugins.addListener(() => stateNotifications++);
+
+    await pumpScreen(tester, StoreAppExportOverlay(controller: plugins));
+    await tester.pump();
+    expect(find.text('10%'), findsOneWidget);
+
+    plugins.exportMessage = 'step 2';
+    plugins.exportProgress = 0.6;
+    plugins.notifyProgress();
+    await tester.pump();
+
+    expect(find.text('step 2'), findsOneWidget);
+    expect(find.text('60%'), findsOneWidget);
+    expect(stateNotifications, 0);
   });
 
   // ── דיאלוג העדכונים ──────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/custom_apps_controller.dart';
+import 'package:launcher_app/src/screens/custom_apps/custom_app_detail_view.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_app_store_card.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_apps_screen.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_apps_settings_card.dart';
@@ -17,6 +18,7 @@ import 'package:launcher_app/src/screens/custom_apps/installer_kind_label.dart';
 import 'package:launcher_app/src/screens/store_kit/store_kit.dart';
 import 'package:launcher_app/src/services/announced_apps_store.dart';
 import 'package:launcher_app/src/services/custom_app_detection_snapshot.dart';
+import 'package:launcher_app/src/services/byte_size.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
@@ -236,6 +238,65 @@ void main() {
       await pumpScreen(tester, CustomAppsScreen(controller: controller));
 
       expect(find.textContaining('מזהה את ההתקנה'), findsNothing);
+    });
+
+    testWidgets('שורת ההורדה בדף התוכנה מתעדכנת מדיווח התקדמות בלבד',
+        (tester) async {
+      await addApp(tester, id: 'gh', source: AppSourceKind.github);
+      controller.downloadingId = 'gh';
+      controller.downloadReceived = 10;
+      controller.downloadTotal = 100;
+      var stateNotifications = 0;
+      controller.addListener(() => stateNotifications++);
+
+      await pumpScreen(
+        tester,
+        CustomAppDetailView(
+          controller: controller,
+          app: controller.apps.single,
+          readOnly: false,
+          onBack: () {},
+          onInstall: () {},
+          onLaunch: () {},
+          onDownload: () {},
+          onPickLocation: () {},
+          onCategorySelected: (_) {},
+        ),
+      );
+      expect(find.text('10%'), findsOneWidget);
+
+      controller.downloadReceived = 2048;
+      controller.downloadTotal = 4096;
+      controller.notifyProgress();
+      await tester.pump();
+
+      expect(find.text('50%'), findsOneWidget);
+      expect(find.text(formatBytesProgress(2048, 4096)!), findsOneWidget);
+      expect(stateNotifications, 0);
+    });
+
+    testWidgets('שורת "הורדת הכול" מתעדכנת מדיווח התקדמות בלבד',
+        (tester) async {
+      await addApp(tester, id: 'gh', source: AppSourceKind.github);
+      controller.downloadAllTotal = 4;
+      controller.downloadAllDone = 1;
+      var stateNotifications = 0;
+      controller.addListener(() => stateNotifications++);
+
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      expect(find.text('25%'), findsOneWidget);
+
+      final t = stringsOf().customApps;
+      controller.downloadAllDone = 3;
+      controller.downloadReceived = 2048;
+      controller.downloadTotal = 4096;
+      controller.notifyProgress();
+      await tester.pump();
+
+      expect(find.text(t.downloadingAllLabel(3, 4)), findsOneWidget);
+      expect(find.text('75%'), findsOneWidget);
+      expect(find.text(formatBytesProgress(2048, 4096)!), findsOneWidget);
+      expect(stateNotifications, 0);
     });
   });
 
@@ -1562,6 +1623,68 @@ void main() {
       expect(built.controller.apps.single.descriptor.iconFile, isNull);
     });
   });
+
+  group('טעינות חופפות', () {
+    test('טעינה שמתחילה באמצע אחרת מצטרפת אליה, והרשימה האחרונה גוברת',
+        () async {
+      final root = p.join(tempDir.path, 'gated-mirror');
+      final gated = _GatedManager(root);
+      final c = CustomAppsController(mirrorRootDir: root, manager: gated);
+      addTearDown(c.dispose);
+
+      final release = gated.gate = Completer<void>();
+      final stale = c.load();
+      while (gated.calls == 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      await gated.add(
+        const AppDescriptor(
+          id: 'late',
+          name: 'late',
+          sourceKind: AppSourceKind.github,
+          github: GithubSource(
+            owner: 'someone',
+            repo: 'their-app',
+            assetPattern: r'^App\-\d+\.exe$',
+          ),
+          detect: AppDetectRules(),
+        ),
+      );
+      final fresh = c.load();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      release.complete();
+      await Future.wait([stale, fresh]);
+
+      expect(gated.maxInFlight, 1);
+      expect(c.apps.map((a) => a.descriptor.id), ['late']);
+    });
+  });
+}
+
+class _GatedManager extends CustomAppsManager {
+  _GatedManager(String mirrorRootDir)
+      : super(
+          resolveMirrorDir: () async => mirrorRootDir,
+          readVersion: _FakeManager._noVersion,
+        );
+
+  Completer<void>? gate;
+  int calls = 0;
+  int inFlight = 0;
+  int maxInFlight = 0;
+
+  @override
+  Future<List<CustomAppEntry>> loadAll() async {
+    final snapshot = await super.loadAll();
+    calls++;
+    inFlight++;
+    if (inFlight > maxInFlight) maxInFlight = inFlight;
+    final pending = gate;
+    gate = null;
+    await pending?.future;
+    inFlight--;
+    return snapshot;
+  }
 }
 
 /// מנהל שהרשת שלו מזויפת: [peekLatestOnline] מחזיר את מה שהבדיקה אמורה

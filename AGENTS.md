@@ -1716,12 +1716,19 @@ per chunk — tens of thousands of calls for a 1GB download, each of which used 
 rebuild the whole widget tree and cost more CPU than the download itself. Module
 controllers route progress through `ProgressNotifier.notifyProgress()` (coalesced to
 ~10/s, last value always delivered). Use plain `notifyListeners` for *state* only.
+`notifyProgress` fires the controller's separate `progress` Listenable, not its main
+listeners, so `AppShell` no longer rebuilds per tick. Any widget that renders a field
+written before `notifyProgress` (byte counters, stage text, sync message/warnings,
+export progress) must sit inside `ListenableBuilder(listenable: controller.progress)`,
+or it freezes until the next state change.
 
 **`AppShell` builds screens lazily.** `IndexedStack` builds every child, so the plugin
 store — a card grid with one `Image.file` per plugin — was built and decoded at launch,
 before the user opened that tab. Screens are created on first visit (`_builtScreens`)
 and kept after. Consequence: the "plugin updates available" dialog fires on first visit
-to the plugins tab, not at launch.
+to the plugins tab, not at launch. `IndexedStack` does not disable tickers, so each
+built screen is wrapped in `TickerMode(enabled: screen == _screen)`; otherwise a hidden
+screen's spinner keeps requesting frames for the whole operation.
 
 **Store images must pass `cacheWidth`.** Without it Flutter decodes at source
 resolution; a 1200×800 catalogue image is ~3.8MB of RAM, times every plugin. See
