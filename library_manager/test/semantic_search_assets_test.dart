@@ -731,4 +731,276 @@ void main() {
         ? 'Set real model and native OXV fixture paths to exercise the production engine'
         : false,
   );
+
+  const oldTag = 'v29-20260920000000';
+  const partialTag = 'v28-20260910000000';
+  final modelSkip = modelFixture == null
+      ? 'Set OTZARIA_SEMANTIC_MODEL_FIXTURE to the real pinned model release'
+      : false;
+
+  Future<void> seedGeneration(
+    String name, {
+    bool models = false,
+    bool vectors = true,
+  }) async {
+    if (vectors) {
+      final file = File(p.join(mirror, name, 'vectors', 'old.bin'));
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes([5, 5, 5]);
+    }
+    if (!models) return;
+    for (final model in SemanticSearchAssets.modelFiles) {
+      final target = File(
+        p.join(mirror, name, SemanticSearchAssets.modelFolder, model.name),
+      );
+      await target.parent.create(recursive: true);
+      await File(p.join(modelFixture!, model.name)).copy(target.path);
+    }
+  }
+
+  Future<void> writeOldPointer() => File(
+    p.join(mirror, SemanticSearchAssets.manifestFileName),
+  ).writeAsString(jsonEncode({'libraryTag': oldTag, 'stale': true}));
+
+  Future<String> pointerTag() async =>
+      (jsonDecode(
+                await File(
+                  p.join(mirror, SemanticSearchAssets.manifestFileName),
+                ).readAsString(),
+              )
+              as Map)['libraryTag']
+          as String;
+
+  MockClient releaseClient({
+    required List<Uri> modelRequests,
+    int segmentStatus = 200,
+  }) {
+    final bytes = utf8.encode(jsonEncode(manifest()));
+    return MockClient((request) async {
+      if (request.url.host == 'api.github.com') {
+        return http.Response(
+          jsonEncode({
+            'tag_name': 'vectors-$tag',
+            'assets': [
+              {
+                'name': manifestName,
+                'size': bytes.length,
+                'digest': 'sha256:${Sha256Stream.ofBytes(bytes)}',
+                'browser_download_url':
+                    'https://github.com/Otzaria/SeforimLibrary/releases/download/vectors-$tag/$manifestName',
+              },
+              {
+                'name': 'segment.oxv.zst',
+                'size': 3,
+                'browser_download_url':
+                    'https://github.com/Otzaria/SeforimLibrary/releases/download/vectors-$tag/segment.oxv.zst',
+              },
+            ],
+          }),
+          200,
+        );
+      }
+      final name = request.url.pathSegments.last;
+      if (name == manifestName) return http.Response.bytes(bytes, 200);
+      if (name == 'segment.oxv.zst') {
+        return segmentStatus == 200
+            ? http.Response.bytes([1, 2, 3], 200)
+            : http.Response('', segmentStatus);
+      }
+      modelRequests.add(request.url);
+      return http.Response('', 404);
+    });
+  }
+
+  Future<void> runSync(
+    MockClient client, {
+    bool Function()? isCancelled,
+  }) async {
+    final online = SemanticSearchAssets(httpClient: client);
+    try {
+      await online.sync(
+        mirrorDir: mirror,
+        libraryTag: tag,
+        isCancelled: isCancelled,
+      );
+    } finally {
+      online.dispose();
+      client.close();
+    }
+  }
+
+  test(
+    'sync copies models from the old generation, then prunes it and repoints',
+    () async {
+      await seedGeneration(oldTag, models: true);
+      await File(
+        p.join(mirror, partialTag, 'vectors', 'half.part'),
+      ).create(recursive: true);
+      await Directory(p.join(mirror, 'other')).create();
+      await writeOldPointer();
+      final modelRequests = <Uri>[];
+      await runSync(releaseClient(modelRequests: modelRequests));
+      expect(modelRequests, isEmpty);
+      expect(await pointerTag(), tag);
+      expect(await Directory(p.join(mirror, oldTag)).exists(), isFalse);
+      expect(await Directory(p.join(mirror, partialTag)).exists(), isFalse);
+      expect(await Directory(p.join(mirror, 'other')).exists(), isTrue);
+      for (final model in SemanticSearchAssets.modelFiles) {
+        final copied = File(
+          p.join(mirror, tag, SemanticSearchAssets.modelFolder, model.name),
+        );
+        expect(Sha256Stream.ofBytes(await copied.readAsBytes()), model.sha256);
+        expect(File('${copied.path}.tmp').existsSync(), isFalse);
+      }
+      expect(
+        await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+        isTrue,
+      );
+    },
+    skip: modelSkip,
+  );
+
+  test(
+    'a failed prune does not fail a successful sync',
+    () async {
+      await seedGeneration(oldTag, models: true);
+      await writeOldPointer();
+      final locked = await File(
+        p.join(mirror, oldTag, 'vectors', 'old.bin'),
+      ).open();
+      try {
+        await runSync(releaseClient(modelRequests: <Uri>[]));
+        expect(await pointerTag(), tag);
+        expect(
+          File(p.join(mirror, oldTag, 'vectors', 'old.bin')).existsSync(),
+          isTrue,
+        );
+      } finally {
+        await locked.close();
+      }
+      await assets.pruneOldGenerations(mirror, tag);
+      expect(await Directory(p.join(mirror, oldTag)).exists(), isFalse);
+    },
+    skip: !Platform.isWindows
+        ? 'file locking by an open handle is Windows-specific'
+        : modelSkip,
+  );
+
+  test(
+    'pruneOldGenerations survives a locked generation and removes the rest',
+    () async {
+      await seedGeneration(oldTag);
+      await seedGeneration(partialTag);
+      final locked = await File(
+        p.join(mirror, oldTag, 'vectors', 'old.bin'),
+      ).open();
+      try {
+        await assets.pruneOldGenerations(mirror, tag);
+        expect(await Directory(p.join(mirror, oldTag)).exists(), isTrue);
+        expect(await Directory(p.join(mirror, partialTag)).exists(), isFalse);
+      } finally {
+        await locked.close();
+      }
+    },
+    skip: !Platform.isWindows
+        ? 'file locking by an open handle is Windows-specific'
+        : false,
+  );
+
+  test(
+    'sync failing at the model download keeps old and partial generations',
+    () async {
+      await seedGeneration(oldTag);
+      await File(
+        p.join(mirror, partialTag, 'vectors', 'half.part'),
+      ).create(recursive: true);
+      await writeOldPointer();
+      final modelRequests = <Uri>[];
+      await expectLater(
+        runSync(releaseClient(modelRequests: modelRequests)),
+        throwsA(anything),
+      );
+      expect(modelRequests, isNotEmpty);
+      expect(await pointerTag(), oldTag);
+      expect(
+        File(p.join(mirror, oldTag, 'vectors', 'old.bin')).existsSync(),
+        isTrue,
+      );
+      expect(
+        File(p.join(mirror, partialTag, 'vectors', 'half.part')).existsSync(),
+        isTrue,
+      );
+    },
+  );
+
+  test('sync failing at the vector download keeps old generations', () async {
+    await seedGeneration(oldTag, models: true);
+    await File(
+      p.join(mirror, partialTag, 'vectors', 'half.part'),
+    ).create(recursive: true);
+    await writeOldPointer();
+    await expectLater(
+      runSync(releaseClient(modelRequests: <Uri>[], segmentStatus: 500)),
+      throwsA(anything),
+    );
+    expect(await pointerTag(), oldTag);
+    expect(Directory(p.join(mirror, oldTag)).existsSync(), isTrue);
+    expect(Directory(p.join(mirror, partialTag)).existsSync(), isTrue);
+  }, skip: modelSkip);
+
+  test(
+    'cancelling between model copies leaves no model-looking temp file',
+    () async {
+      await seedGeneration(oldTag, models: true);
+      await writeOldPointer();
+      final target = Directory(
+        p.join(mirror, tag, SemanticSearchAssets.modelFolder),
+      );
+      final stale = File(
+        p.join(target.path, '${SemanticSearchAssets.modelFiles[0].name}.tmp'),
+      );
+      await stale.create(recursive: true);
+      await stale.writeAsBytes([1, 2, 3]);
+      var copied = 0;
+      bool cancelAfterFirstCopy() {
+        copied = target
+            .listSync()
+            .where((e) => e is File && !e.path.endsWith('.tmp'))
+            .length;
+        return copied >= 1;
+      }
+
+      await expectLater(
+        runSync(
+          releaseClient(modelRequests: <Uri>[]),
+          isCancelled: cancelAfterFirstCopy,
+        ),
+        throwsA(isA<PatchDownloadCancelled>()),
+      );
+      expect(copied, 1);
+      expect(await pointerTag(), oldTag);
+      expect(Directory(p.join(mirror, oldTag)).existsSync(), isTrue);
+      for (final model in SemanticSearchAssets.modelFiles) {
+        final found = await assets.reusableModelSource(
+          mirrorDir: mirror,
+          libraryTag: tag,
+          file: model,
+        );
+        expect(found, isNot(endsWith('.tmp')));
+      }
+      expect(
+        await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+        isFalse,
+      );
+      await runSync(releaseClient(modelRequests: <Uri>[]));
+      expect(await pointerTag(), tag);
+      expect(
+        target.listSync().whereType<File>().where(
+          (f) => f.path.endsWith('.tmp'),
+        ),
+        isEmpty,
+      );
+    },
+    skip: modelSkip,
+  );
 }

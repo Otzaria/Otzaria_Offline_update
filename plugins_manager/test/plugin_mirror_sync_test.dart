@@ -1086,6 +1086,80 @@ void main() {
       expect(third.requestsMatching('/download'), isEmpty);
     });
 
+    List<Map<String, dynamic>> published(Map<String, String> builds) {
+      final entries = [
+        for (final e in builds.entries)
+          {
+            'version': e.key,
+            'compatibleWith': e.value,
+            'downloadUrl': '/api/plugins/a@${e.key}/download',
+            if (e.key == builds.keys.first) 'isLatest': true,
+          },
+      ];
+      return [
+        {
+          'id': 'a',
+          'name': 'אלף',
+          'version': builds.keys.first,
+          'compatibleWith': builds.values.first,
+          'downloadUrl': '/api/plugins/a@${builds.keys.first}/download',
+          'versions': entries,
+        },
+      ];
+    }
+
+    test('רשימת גרסאות ריקה מוחקת בילד שכבר אינו מפורסם באתר', () async {
+      await sync(
+        _Site(plugins: published({'2.0.0': '0.9.97', '1.5.0': '0.9.95'})),
+        appVersions: ['0.9.96'],
+      );
+      final store = PluginMirrorStore(temp.path);
+      final old = File(store.absolutePath('files/a/plugin-1.5.0.otzplugin'));
+      expect(old.existsSync(), isTrue);
+
+      final site = _Site(plugins: published({'2.0.0': '0.9.97'}));
+      final catalog = await sync(site);
+
+      expect(catalog.plugins.single.localFiles.keys, ['2.0.0']);
+      expect(old.existsSync(), isFalse);
+      expect(
+        File(store.absolutePath('files/a/plugin-2.0.0.otzplugin')).existsSync(),
+        isTrue,
+      );
+    });
+
+    test('רשימת גרסאות ריקה שומרת מפורסמים ומוחקת רק את שהוסר', () async {
+      final all = {
+        '3.0.0': '0.9.98',
+        '2.0.0': '0.9.97',
+        '1.5.0': '0.9.95',
+        '1.0.0': '0.9.90',
+      };
+      await sync(
+        _Site(plugins: published(all)),
+        appVersions: ['0.9.96', '0.9.97', '0.9.91'],
+      );
+      final store = PluginMirrorStore(temp.path);
+      File file(String v) =>
+          File(store.absolutePath('files/a/plugin-$v.otzplugin'));
+      for (final v in ['1.0.0', '1.5.0', '2.0.0']) {
+        expect(file(v).existsSync(), isTrue, reason: v);
+      }
+
+      final site = _Site(plugins: published({...all}..remove('1.0.0')));
+      final catalog = await sync(site);
+
+      expect(site.requestsMatching('/download'),
+          ['/api/plugins/a@3.0.0/download']);
+      expect(
+        catalog.plugins.single.localFiles.keys.toSet(),
+        {'3.0.0', '2.0.0', '1.5.0'},
+      );
+      expect(file('3.0.0').existsSync(), isTrue);
+      expect(file('2.0.0').existsSync(), isTrue);
+      expect(file('1.5.0').existsSync(), isTrue);
+      expect(file('1.0.0').existsSync(), isFalse);
+    });
     test('הבילד שכבר במראה אינו יורד שוב', () async {
       await sync(_Site(plugins: versioned()), appVersions: ['0.9.96']);
 
