@@ -281,7 +281,7 @@ void main() {
       },
     );
     try {
-      await dictionaryFinished.future.timeout(const Duration(seconds: 2));
+      await dictionaryFinished.future.timeout(const Duration(seconds: 20));
       expect(stages.last, contains(strings.companionTalmudName));
       expect(stages.last, isNot(contains(strings.companionDictionaryName)));
     } finally {

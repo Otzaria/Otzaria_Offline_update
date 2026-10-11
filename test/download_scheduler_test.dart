@@ -218,6 +218,21 @@ void main() {
       expect(lastReceived, 500);
     });
 
+    test('קובץ שנמחק אחרי שדווח שלם יורד מחדש ונספר מאפס', () {
+      var lastReceived = -1;
+      final aggregator = ByteProgressAggregator(
+        totalBytes: 1000,
+        onProgress: (received, _) => lastReceived = received,
+      );
+
+      final slot = aggregator.slot(existingBytes: 1000);
+      slot.report(1000, 1000);
+      slot.markExisting(0);
+      expect(lastReceived, 0);
+      slot.report(400, 1000);
+      expect(lastReceived, 400);
+    });
+
     test('תחילית שנזרקה (שרת שהתעלם מ-Range) חוזרת להיספר', () {
       var lastReceived = -1;
       int? lastTotal;

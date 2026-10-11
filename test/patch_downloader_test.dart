@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:seforim_library_updater/src/models/delta_manifest.dart';
+import 'package:seforim_library_updater/src/services/download_scheduler.dart';
 import 'package:seforim_library_updater/src/services/patch_downloader.dart';
 import 'package:test/test.dart';
 
@@ -714,6 +715,124 @@ void main() {
       );
       expect(File(dest).existsSync(), isFalse);
       expect(File('$dest.resume').existsSync(), isFalse);
+    });
+
+    group('קובץ שלם על הכונן שאינו הנכס', () {
+      Future<(List<http.BaseRequest>, int)> runPreCredited(
+        String dest, {
+        required String? resumeToken,
+        List<int>? served,
+      }) async {
+        final captured = <http.BaseRequest>[];
+        var lastReceived = -1;
+        final bytes = ByteProgressAggregator(
+          totalBytes: full.length,
+          onProgress: (received, _) => lastReceived = received,
+        );
+        final slot = bytes.slot(existingBytes: full.length);
+        await downloaderThatCaptures(
+          captured,
+          handler: (req) async => http.StreamedResponse(
+            Stream.value(served ?? full),
+            200,
+            contentLength: (served ?? full).length,
+          ),
+        ).downloadToFile(
+          url: 'https://x/seforim.db.zst',
+          destPath: dest,
+          expectedSize: full.length,
+          expectedSha256: fullHash,
+          resumeToken: resumeToken,
+          onProgress: slot.report,
+          onExistingBytes: slot.markExisting,
+        );
+        return (captured, lastReceived);
+      }
+
+      test('נמחק בכניסה (טוקן אחר, תוכן אחר) → ההורדה המלאה נספרת במד',
+          () async {
+        final dest = '${tmp.path}/seforim.db.zst';
+        File(dest).writeAsBytesSync(List.filled(full.length, 7));
+        File('$dest.resume').writeAsStringSync('v-old');
+        final (captured, received) =
+            await runPreCredited(dest, resumeToken: 'v-new');
+        expect(captured, hasLength(1));
+        expect(received, full.length);
+        expect(File(dest).readAsBytesSync(), full);
+      });
+
+      test('נמחק בכניסה (בלי טוקן) → ההורדה המלאה נספרת במד', () async {
+        final dest = '${tmp.path}/seforim.db.zst';
+        File(dest).writeAsBytesSync(full);
+        final (captured, received) =
+            await runPreCredited(dest, resumeToken: null);
+        expect(captured, hasLength(1));
+        expect(received, full.length);
+      });
+
+      test('אותו טוקן, תוכן פגום → יורד מחדש מאפס ולא נכשל', () async {
+        final dest = '${tmp.path}/seforim.db.zst';
+        File(dest).writeAsBytesSync(List.filled(full.length, 7));
+        File('$dest.resume').writeAsStringSync('v-1\n"e1"');
+        final (captured, received) =
+            await runPreCredited(dest, resumeToken: 'v-1');
+        expect(captured, hasLength(1));
+        expect(captured.single.headers.containsKey('Range'), isFalse);
+        expect(received, full.length);
+        expect(File(dest).readAsBytesSync(), full);
+        expect(sidecarIdentity(dest), 'v-1');
+      });
+
+      test('אותו טוקן, קובץ גדול מהצפוי → יורד מחדש מאפס ולא נכשל', () async {
+        final dest = '${tmp.path}/seforim.db.zst';
+        File(dest).writeAsBytesSync([...full, 1]);
+        File('$dest.resume').writeAsStringSync('v-1\n"e1"');
+        final (captured, received) =
+            await runPreCredited(dest, resumeToken: 'v-1');
+        expect(captured, hasLength(1));
+        expect(received, full.length);
+        expect(File(dest).readAsBytesSync(), full);
+      });
+
+      test('אותו טוקן, תוכן פגום וגם ההורדה החדשה פגומה → נזרק והקובץ נמחק',
+          () async {
+        final dest = '${tmp.path}/seforim.db.zst';
+        File(dest).writeAsBytesSync(List.filled(full.length, 7));
+        File('$dest.resume').writeAsStringSync('v-1\n"e1"');
+        await expectLater(
+          runPreCredited(
+            dest,
+            resumeToken: 'v-1',
+            served: List.filled(full.length, 9),
+          ),
+          throwsA(isA<PatchDownloadException>()),
+        );
+        expect(File(dest).existsSync(), isFalse);
+        expect(File('$dest.resume').existsSync(), isFalse);
+      });
+
+      test('קובץ שאי אפשר לסנכרן לדיסק אינו מקבל סימון אימות', () async {
+        final dest = '${tmp.path}/seforim.db.zst';
+        File(dest).writeAsBytesSync(full);
+        File('$dest.resume').writeAsStringSync('v-1\n"e1"');
+        Process.runSync('chmod', ['444', dest]);
+        addTearDown(() => Process.runSync('chmod', ['644', dest]));
+        final reports = <(int, int)>[];
+        await downloaderThatCaptures(
+          [],
+          handler: (req) async =>
+              http.StreamedResponse(const Stream.empty(), 416),
+        ).downloadToFile(
+          url: 'https://x/seforim.db.zst',
+          destPath: dest,
+          expectedSize: full.length,
+          expectedSha256: fullHash,
+          resumeToken: 'v-1',
+          onVerifyProgress: (v, t) => reports.add((v, t)),
+        );
+        expect(reports, isNotEmpty);
+        expect(File('$dest.resume').readAsStringSync(), 'v-1\n"e1"');
+      }, skip: Platform.isWindows);
     });
 
     test('sha256 שגוי בקובץ שלם → הקובץ נמחק', () async {

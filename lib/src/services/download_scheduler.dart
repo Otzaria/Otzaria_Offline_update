@@ -140,8 +140,10 @@ class ByteProgressAggregator {
 
   void _markExisting(int index, int bytes) {
     final value = bytes < 0 ? 0 : bytes;
-    if (_existing[index] == value) return;
+    final received = _received[index] > value ? value : _received[index];
+    if (_existing[index] == value && _received[index] == received) return;
     _existing[index] = value;
+    _received[index] = received;
     _resum();
     _emit();
   }

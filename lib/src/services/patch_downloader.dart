@@ -260,35 +260,50 @@ class PatchDownloader {
         offset = 0;
       }
 
-      var downloaded = offset;
-      Digest? streamDigest;
       // התחילית שכבר על הדיסק אינה עוברת ברשת ואינה נספרת במד.
       if (offset > 0) onExistingBytes?.call(offset);
-      if (!alreadyComplete) {
-        if (resumeToken != null) {
-          _writeSidecar(sidecarPath, resumeToken, storedValidator);
+      if (alreadyComplete) {
+        onProgress?.call(offset, offset);
+        if (offset == expectedSize &&
+            await _completeFileVerified(
+                file,
+                sidecarPath,
+                resumeToken,
+                expectedSha256,
+                storedVerified,
+                isCancelled,
+                onVerifyProgress)) {
+          _throwIfCancelled(isCancelled);
+          return;
         }
-        final outcome = await _streamToFile(
-          url: url,
-          file: file,
-          offset: offset,
-          expectedSize: expectedSize,
-          computeHash: expectedSha256 != null,
-          validator: storedValidator,
-          sidecarPath: resumeToken != null ? sidecarPath : null,
-          resumeToken: resumeToken,
-          onProgress: onProgress,
-          onVerifyProgress: onVerifyProgress,
-          onExistingBytes: onExistingBytes,
-          isCancelled: isCancelled,
+        _deleteRequired(
+          destPath,
+          AppL10n.strings.libraryDomain.deletePartialBeforeRetryFailed,
         );
-        downloaded = outcome.downloaded;
-        streamDigest = outcome.digest;
-      } else {
-        // _streamToFile לא רץ ולא דיווח — מקדמים ל-100%. האימות שאחרי זה
-        // מדווח בנפרד דרך [onVerifyProgress], אחרת המד נראה תקוע דקה שלמה.
-        onProgress?.call(downloaded, downloaded);
+        _deleteQuietly(sidecarPath);
+        storedValidator = null;
+        offset = 0;
+        onExistingBytes?.call(0);
       }
+
+      if (resumeToken != null) {
+        _writeSidecar(sidecarPath, resumeToken, storedValidator);
+      }
+      final outcome = await _streamToFile(
+        url: url,
+        file: file,
+        offset: offset,
+        expectedSize: expectedSize,
+        computeHash: expectedSha256 != null,
+        validator: storedValidator,
+        sidecarPath: resumeToken != null ? sidecarPath : null,
+        resumeToken: resumeToken,
+        onProgress: onProgress,
+        onVerifyProgress: onVerifyProgress,
+        onExistingBytes: onExistingBytes,
+        isCancelled: isCancelled,
+      );
+      final downloaded = outcome.downloaded;
 
       if (expectedSize != null && downloaded != expectedSize) {
         _deleteQuietly(destPath);
@@ -300,30 +315,20 @@ class PatchDownloader {
       }
       if (expectedSha256 != null) {
         final expected = expectedSha256.toLowerCase();
-        // נכס שלם שכבר אומת ולא נגעו בו מאז — הסימון בקובץ הצד חוסך קריאה
-        // חוזרת של ~1.5GB מכונן נייד בכל לחיצה על "הורדה".
-        if (!(alreadyComplete &&
-            _matchesVerifiedMark(storedVerified, file, expected))) {
-          // ה-hash חושב בזרימה תוך כדי ההורדה; רק במסלול alreadyComplete (אין
-          // זרם) קוראים את הקובץ מהדיסק.
-          final actual = (streamDigest ??
-                  await _hashFileDigest(file, isCancelled, onVerifyProgress))
-              .toString();
-          if (actual != expected) {
-            _deleteQuietly(destPath);
-            _deleteQuietly(sidecarPath);
-            throw PatchDownloadException(
-              AppL10n.strings.libraryDomain.fullDbHashMismatch,
-            );
-          }
-          // בלי טוקן אין קובץ צד לרשום בו (הוא נמחק בכניסה).
-          if (resumeToken != null) {
-            _markVerified(sidecarPath, resumeToken, expected, file);
-          }
+        final actual = (outcome.digest ??
+                await _hashFileDigest(file, isCancelled, onVerifyProgress))
+            .toString();
+        if (actual != expected) {
+          _deleteQuietly(destPath);
+          _deleteQuietly(sidecarPath);
+          throw PatchDownloadException(
+            AppL10n.strings.libraryDomain.fullDbHashMismatch,
+          );
+        }
+        if (resumeToken != null) {
+          await _markVerified(sidecarPath, resumeToken, expected, file);
         }
       }
-      // ביטול שהתרחש אחרי שכל הבייטים הגיעו — הקובץ שלם ונשמר (עם resumeToken);
-      // הריצה הבאה תזהה alreadyComplete. עקביות: מאותת ביטול, לא הצלחה שקטה.
       _throwIfCancelled(isCancelled);
     } catch (_) {
       // חלקי נשמר להמשך רק אם הוא באמת ניתן-לחידוש: יש validator חזק בקובץ הצד
@@ -1017,11 +1022,38 @@ class PatchDownloader {
   bool _matchesVerifiedMark(String? mark, File file, String expectedSha256) =>
       mark != null && mark == _verifiedMarkFor(file, expectedSha256);
 
-  /// רושם בקובץ הצד שהנכס אומת, בלי לאבד את ה-ETag ששמור בו (הוא נכתב שם תוך
-  /// כדי ההורדה). כשל כתיבה כאן אינו מפיל הורדה שהצליחה — הריצה הבאה פשוט
-  /// תאמת שוב, וזו בדיוק העלות שהסימון בא לחסוך.
-  void _markVerified(
-      String sidecarPath, String token, String digest, File file) {
+  Future<bool> _completeFileVerified(
+    File file,
+    String sidecarPath,
+    String? resumeToken,
+    String? expectedSha256,
+    String? storedVerified,
+    bool Function()? isCancelled,
+    void Function(int verified, int total)? onVerifyProgress,
+  ) async {
+    if (expectedSha256 == null) return true;
+    final expected = expectedSha256.toLowerCase();
+    if (_matchesVerifiedMark(storedVerified, file, expected)) return true;
+    final actual = await _hashFileDigest(file, isCancelled, onVerifyProgress);
+    if (actual.toString() != expected) return false;
+    if (resumeToken != null) {
+      await _markVerified(sidecarPath, resumeToken, expected, file);
+    }
+    return true;
+  }
+
+  Future<void> _markVerified(
+      String sidecarPath, String token, String digest, File file) async {
+    try {
+      final handle = await file.open(mode: FileMode.append);
+      try {
+        await handle.flush();
+      } finally {
+        await handle.close();
+      }
+    } catch (_) {
+      return;
+    }
     final mark = _verifiedMarkFor(file, digest);
     if (mark == null) return;
     try {
