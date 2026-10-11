@@ -1,0 +1,861 @@
+import 'dart:async';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:launcher_app/src/controllers/auto_install_flow.dart';
+import 'package:launcher_app/src/controllers/download_plan.dart';
+import 'package:launcher_app/src/controllers/launcher_update_flow.dart';
+import 'package:launcher_app/src/controllers/mirror_download_flow.dart';
+import 'package:launcher_app/src/settings/app_settings.dart';
+
+final _checkedAt = DateTime.now();
+final _proven =
+    OnlineProof(checkedAt: _checkedAt, error: null, hasUpdate: false);
+final _hasNew =
+    OnlineProof(checkedAt: _checkedAt, error: null, hasUpdate: true);
+
+class _FakeApp implements AppMirrorModule, AutoInstallApp {
+  _FakeApp(this.log);
+
+  final List<String> log;
+
+  @override
+  bool hasStaleFullPackage = false;
+  @override
+  OnlineProof onlineProof = _hasNew;
+  @override
+  bool downloadFailed = false;
+  @override
+  bool isInstalled = true;
+  @override
+  bool hasUpdateAvailable = true;
+
+  Future<void> Function()? onDownload;
+  bool? installedWithWizard;
+
+  @override
+  Future<void> download({required bool Function() isCancelled}) async {
+    log.add('app');
+    await onDownload?.call();
+  }
+
+  @override
+  Future<void> install({required bool useWizard}) async {
+    installedWithWizard = useWizard;
+    log.add('install app');
+  }
+}
+
+class _FakeLibrary implements LibraryMirrorModule, AutoInstallLibrary {
+  _FakeLibrary(this.log);
+
+  final List<String> log;
+
+  @override
+  bool shouldOfferSemanticDownload = false;
+  @override
+  bool personalUpdateMode = false;
+  @override
+  OnlineProof libraryOnlineProof = _hasNew;
+  @override
+  bool downloadFailed = false;
+  @override
+  bool downloadNeedsRetry = false;
+  @override
+  bool isFreshInstall = false;
+  @override
+  bool hasUpdateAvailable = true;
+
+  bool? includedSemanticSearch;
+  Future<void> Function()? onUpdate;
+
+  @override
+  Future<void> download({
+    required bool includeSemanticSearch,
+    required bool Function() isCancelled,
+  }) async {
+    includedSemanticSearch = includeSemanticSearch;
+    log.add('library');
+  }
+
+  @override
+  Future<void> update() async {
+    log.add('update library');
+    await onUpdate?.call();
+  }
+}
+
+class _FakePlugins implements PluginsMirrorModule {
+  _FakePlugins(this.log);
+
+  final List<String> log;
+
+  @override
+  OnlineProof catalogOnlineProof = _hasNew;
+  @override
+  OnlineProof storeAppOnlineProof = _hasNew;
+  @override
+  bool lastSyncFailed = false;
+
+  @override
+  Future<void> sync({required bool Function() isCancelled}) async {
+    log.add('plugins');
+  }
+
+  @override
+  Future<void> syncStoreApp() async {
+    log.add('store app');
+  }
+}
+
+class _FakeRollback implements DownloadRollback {
+  _FakeRollback(this.log);
+
+  final List<String> log;
+  Completer<void>? gate;
+
+  @override
+  Future<void> rollback() async {
+    log.add('rollback');
+    await gate?.future;
+  }
+}
+
+class _FakeDownloadHost implements MirrorDownloadHost {
+  _FakeDownloadHost(this.log) : rollback = _FakeRollback(log);
+
+  final List<String> log;
+  final _FakeRollback rollback;
+  MirrorDownloadFlow? flow;
+
+  @override
+  bool isActive = true;
+  @override
+  bool isBlocked = false;
+  @override
+  bool launcherDownloading = false;
+  @override
+  AppSettings settings = const AppSettings();
+
+  Future<void> Function(AppSettings s)? onRefresh;
+  Future<bool> Function()? onConfirmSemantic;
+  Completer<void>? sweepGate;
+  int sweeps = 0;
+  List<MirrorComponent>? failed;
+  List<MirrorComponent>? skipped;
+
+  @override
+  Future<void> refreshStaleOnlineChecks(AppSettings s) async {
+    log.add('refresh');
+    await onRefresh?.call(s);
+  }
+
+  @override
+  Future<bool> confirmSemanticSearch() async {
+    log.add('ask semantic');
+    return await onConfirmSemantic?.call() ?? false;
+  }
+
+  @override
+  Future<DownloadRollback> captureRollback() async {
+    log.add('capture');
+    return rollback;
+  }
+
+  @override
+  Future<void> sweepMirror() async {
+    sweeps++;
+    log.add('sweep');
+    await sweepGate?.future;
+  }
+
+  @override
+  void stateChanged() => log.add(
+        'changed downloading=${flow?.isDownloading} '
+        'cancelling=${flow?.isCancelling}',
+      );
+
+  @override
+  void downloadCancelled() => log.add('cancelled');
+
+  @override
+  void downloadEnded() => log.add('ended');
+
+  @override
+  void downloadFinished({
+    required List<MirrorComponent> failed,
+    required List<MirrorComponent> skipped,
+  }) {
+    log.add('finished');
+    this.failed = failed;
+    this.skipped = skipped;
+  }
+}
+
+class _FakeLauncher implements LauncherUpdateTarget {
+  _FakeLauncher(this.log);
+
+  final List<String> log;
+
+  @override
+  bool isDownloading = false;
+  @override
+  bool isInstalling = false;
+  @override
+  bool hasUpdateReady = true;
+  @override
+  bool canInstall = true;
+  @override
+  String? downloadedVersion = '2.0.0';
+  @override
+  String? errorMessage;
+
+  bool downloadResult = true;
+  bool restarted = true;
+  Completer<void>? checkGate;
+  int checks = 0;
+
+  @override
+  Future<void> checkForUpdate() async {
+    checks++;
+    log.add('mirror check');
+    await checkGate?.future;
+  }
+
+  @override
+  Future<bool> download() async {
+    log.add('launcher download');
+    return downloadResult;
+  }
+
+  @override
+  Future<bool> install() async {
+    log.add('launcher install');
+    return restarted;
+  }
+}
+
+class _FakeLauncherHost implements LauncherUpdateHost {
+  _FakeLauncherHost(this.log);
+
+  final List<String> log;
+
+  @override
+  bool isActive = true;
+  @override
+  bool isReadOnly = false;
+  @override
+  bool wouldInterrupt = false;
+
+  bool approve = true;
+  void Function()? whileDialogOpen;
+
+  @override
+  bool blockedByReadOnly() => isReadOnly;
+
+  @override
+  Future<bool> confirmInstall(String version) async {
+    log.add('confirm $version');
+    whileDialogOpen?.call();
+    return approve;
+  }
+
+  @override
+  void notify(LauncherUpdateNotice notice, {String? detail}) =>
+      log.add(detail == null ? notice.name : '${notice.name} $detail');
+}
+
+void main() {
+  late List<String> log;
+  late _FakeApp app;
+  late _FakeLibrary library;
+  late _FakePlugins plugins;
+  late _FakeDownloadHost host;
+  late MirrorDownloadFlow flow;
+
+  setUp(() {
+    log = [];
+    app = _FakeApp(log);
+    library = _FakeLibrary(log);
+    plugins = _FakePlugins(log);
+    host = _FakeDownloadHost(log);
+    flow = MirrorDownloadFlow(
+      app: app,
+      library: library,
+      plugins: plugins,
+      host: host,
+    );
+    host.flow = flow;
+  });
+
+  List<String> componentsRun() => [
+        for (final entry in log)
+          if (const ['app', 'library', 'plugins', 'store app'].contains(entry))
+            entry,
+      ];
+
+  group('MirrorDownloadFlow', () {
+    test('runs every component in order and ends with one sweep', () async {
+      await flow.downloadAll();
+
+      expect(log, [
+        'refresh',
+        'changed downloading=true cancelling=false',
+        'capture',
+        'app',
+        'library',
+        'plugins',
+        'store app',
+        'changed downloading=false cancelling=false',
+        'ended',
+        'sweep',
+        'finished',
+      ]);
+      expect(host.failed, isEmpty);
+      expect(host.skipped, isEmpty);
+      expect(flow.isDownloading, isFalse);
+      expect(flow.isPreparing, isFalse);
+      await pumpEventQueue();
+      expect(flow.pendingSweep, isNull);
+    });
+
+    test('a component proven up to date does not run and is reported',
+        () async {
+      app.onlineProof = _proven;
+      plugins.catalogOnlineProof = _proven;
+
+      await flow.downloadAll();
+
+      expect(componentsRun(), ['library', 'store app']);
+      expect(host.skipped, [MirrorComponent.app, MirrorComponent.plugins]);
+    });
+
+    test('the store app runs on its own check even when plugins skip',
+        () async {
+      plugins.catalogOnlineProof = _proven;
+      plugins.storeAppOnlineProof = _hasNew;
+      await flow.downloadAll();
+      expect(componentsRun(), contains('store app'));
+      expect(componentsRun(), isNot(contains('plugins')));
+
+      log.clear();
+      plugins.catalogOnlineProof = _hasNew;
+      plugins.storeAppOnlineProof = _proven;
+      await flow.downloadAll();
+      expect(componentsRun(), contains('plugins'));
+      expect(componentsRun(), isNot(contains('store app')));
+    });
+
+    test('stale online checks are refreshed before the skips are decided',
+        () async {
+      app.onlineProof = _proven;
+      library.libraryOnlineProof = _proven;
+      host.onRefresh = (_) async {
+        app.onlineProof = _hasNew;
+        library.libraryOnlineProof = _hasNew;
+      };
+
+      await flow.downloadAll();
+
+      expect(componentsRun(), containsAllInOrder(['app', 'library']));
+      expect(host.skipped, isEmpty);
+    });
+
+    test('a stale full package keeps the app module running', () async {
+      app.onlineProof = _proven;
+      app.hasStaleFullPackage = true;
+      await flow.downloadAll();
+      expect(componentsRun(), contains('app'));
+    });
+
+    test('a declined smart search still skips an up-to-date library', () async {
+      library.shouldOfferSemanticDownload = true;
+      library.libraryOnlineProof = _proven;
+      host.onConfirmSemantic = () async => false;
+
+      await flow.downloadAll();
+
+      expect(log.where((e) => e == 'ask semantic'), hasLength(1));
+      expect(componentsRun(), isNot(contains('library')));
+      expect(host.skipped, [MirrorComponent.library]);
+    });
+
+    test('an accepted smart search runs the library with it', () async {
+      library.shouldOfferSemanticDownload = true;
+      library.libraryOnlineProof = _proven;
+      host.onConfirmSemantic = () async => true;
+
+      await flow.downloadAll();
+
+      expect(componentsRun(), contains('library'));
+      expect(library.includedSemanticSearch, isTrue);
+    });
+
+    test('smart search is not offered when the library is not selected',
+        () async {
+      library.shouldOfferSemanticDownload = true;
+      host.settings = const AppSettings(syncLibrary: false);
+      await flow.downloadAll();
+      expect(log, isNot(contains('ask semantic')));
+      expect(componentsRun(), isNot(contains('library')));
+    });
+
+    test('personal update mode never skips the library', () async {
+      library.libraryOnlineProof = _proven;
+      library.personalUpdateMode = true;
+      await flow.downloadAll();
+      expect(componentsRun(), contains('library'));
+    });
+
+    test('unselected components neither run nor count as skipped', () async {
+      host.settings = const AppSettings(syncApp: false, syncPlugins: false);
+      app.onlineProof = _proven;
+      plugins.catalogOnlineProof = _proven;
+      await flow.downloadAll();
+      expect(componentsRun(), ['library']);
+      expect(host.skipped, isEmpty);
+    });
+
+    test('nothing starts without a selection or while blocked', () async {
+      host.settings = const AppSettings(
+        syncApp: false,
+        syncLibrary: false,
+        syncPlugins: false,
+      );
+      await flow.downloadAll();
+      expect(log, isEmpty);
+
+      host.settings = const AppSettings();
+      host.isBlocked = true;
+      await flow.downloadAll();
+      expect(log, isEmpty);
+    });
+
+    test('blocked again after the smart-search dialog: nothing downloads',
+        () async {
+      library.shouldOfferSemanticDownload = true;
+      host.onConfirmSemantic = () async {
+        host.isBlocked = true;
+        return true;
+      };
+
+      await flow.downloadAll();
+
+      expect(log, ['refresh', 'ask semantic']);
+      expect(flow.isDownloading, isFalse);
+    });
+
+    test('an unmounted shell after the refresh stops before any download',
+        () async {
+      host.onRefresh = (_) async => host.isActive = false;
+      await flow.downloadAll();
+      expect(log, ['refresh']);
+    });
+
+    test('cancel stops before the next component and rolls back', () async {
+      app.onDownload = () async {
+        expect(flow.isDownloading, isTrue);
+        flow.requestCancel();
+      };
+
+      await flow.downloadAll();
+
+      expect(componentsRun(), ['app']);
+      expect(log.sublist(log.indexOf('app')), [
+        'app',
+        'changed downloading=true cancelling=true',
+        'rollback',
+        'changed downloading=false cancelling=false',
+        'cancelled',
+      ]);
+      expect(host.sweeps, 0);
+      expect(flow.pendingSweep, isNull);
+      expect(log, isNot(contains('finished')));
+    });
+
+    test('an unmounted shell after the rollback leaves no notification',
+        () async {
+      app.onDownload = () async => flow.requestCancel();
+      host.rollback.gate = Completer<void>();
+      final run = flow.downloadAll();
+      await pumpEventQueue();
+      host.isActive = false;
+      host.rollback.gate!.complete();
+      await run;
+      expect(log, isNot(contains('cancelled')));
+    });
+
+    test('closing the window cancels and waits for the rollback', () async {
+      final appGate = Completer<void>();
+      app.onDownload = () => appGate.future;
+      host.rollback.gate = Completer<void>();
+      final run = flow.downloadAll();
+      await pumpEventQueue();
+      expect(flow.isDownloading, isTrue);
+
+      var closed = false;
+      final close = flow.cancelAndWait().then((_) => closed = true);
+      expect(flow.isCancelling, isTrue);
+      appGate.complete();
+      await pumpEventQueue();
+      expect(log, contains('rollback'));
+      expect(closed, isFalse);
+
+      host.rollback.gate!.complete();
+      await close;
+      await run;
+      expect(closed, isTrue);
+      expect(componentsRun(), ['app']);
+    });
+
+    test('closing the window with no download running does not cancel',
+        () async {
+      await flow.cancelAndWait();
+      expect(flow.isCancelling, isFalse);
+      expect(log, isEmpty);
+    });
+
+    test('a failed component is reported and the mirror is not swept',
+        () async {
+      plugins.lastSyncFailed = true;
+      await flow.downloadAll();
+      expect(host.failed, [MirrorComponent.plugins]);
+      expect(host.sweeps, 0);
+    });
+
+    test('a failure of a skipped component is not reported', () async {
+      app.onlineProof = _proven;
+      app.downloadFailed = true;
+      await flow.downloadAll();
+      expect(host.failed, isEmpty);
+      expect(host.skipped, [MirrorComponent.app]);
+      expect(host.sweeps, 1);
+    });
+
+    test('no sweep while the library still needs a retry', () async {
+      library.downloadNeedsRetry = true;
+      await flow.downloadAll();
+      expect(host.failed, isEmpty);
+      expect(host.sweeps, 0);
+    });
+
+    test('no sweep while a launcher download runs', () async {
+      host.launcherDownloading = true;
+      await flow.downloadAll();
+      expect(host.sweeps, 0);
+    });
+
+    test('the next download waits for the sweep before it starts', () async {
+      host.sweepGate = Completer<void>();
+      await flow.downloadAll();
+      expect(flow.pendingSweep, isNotNull);
+
+      log.clear();
+      final next = flow.downloadAll();
+      await pumpEventQueue();
+      expect(log, isEmpty);
+
+      host.sweepGate!.complete();
+      host.sweepGate = null;
+      await next;
+      expect(log.first, 'refresh');
+    });
+
+    test('a second press while preparing is ignored', () async {
+      final refreshGate = Completer<void>();
+      host.onRefresh = (_) => refreshGate.future;
+      final first = flow.downloadAll();
+      expect(flow.isPreparing, isTrue);
+
+      await flow.downloadAll();
+      expect(log.where((e) => e == 'refresh'), hasLength(1));
+
+      refreshGate.complete();
+      await first;
+      expect(flow.isPreparing, isFalse);
+      expect(componentsRun(), hasLength(4));
+    });
+  });
+
+  group('AutoInstallFlow', () {
+    late List<bool> otzariaOpen;
+    late int processChecks;
+    late bool downloading;
+    late bool exitPending;
+    late bool active;
+
+    AutoInstallFlow autoInstall() => AutoInstallFlow(
+          library: library,
+          app: app,
+          isOtzariaRunning: () async {
+            processChecks++;
+            log.add('process check');
+            return otzariaOpen.isEmpty ? false : otzariaOpen.removeAt(0);
+          },
+          isDownloading: () => downloading,
+          exitPending: () => exitPending,
+          isActive: () => active,
+        );
+
+    setUp(() {
+      otzariaOpen = [];
+      processChecks = 0;
+      downloading = false;
+      exitPending = false;
+      active = true;
+    });
+
+    test('the library update comes before the silent app install', () async {
+      final skipped = await autoInstall().run(enabled: true);
+
+      expect(skipped, isFalse);
+      expect(log, [
+        'process check',
+        'update library',
+        'process check',
+        'install app',
+      ]);
+      expect(app.installedWithWizard, isFalse);
+    });
+
+    test('disabled: nothing is checked or installed', () async {
+      expect(await autoInstall().run(enabled: false), isFalse);
+      expect(log, isEmpty);
+    });
+
+    test('Otzaria open skips both and is reported', () async {
+      otzariaOpen = [true, true];
+      expect(await autoInstall().run(enabled: true), isTrue);
+      expect(log, ['process check', 'process check']);
+    });
+
+    test('each path asks for a fresh process state', () async {
+      otzariaOpen = [false, true];
+      expect(await autoInstall().run(enabled: true), isTrue);
+      expect(log, ['process check', 'update library', 'process check']);
+      expect(processChecks, 2);
+    });
+
+    test('a fresh install does not get its database auto-updated', () async {
+      library.isFreshInstall = true;
+      await autoInstall().run(enabled: true);
+      expect(log, isNot(contains('update library')));
+      expect(log, contains('install app'));
+    });
+
+    test('the app is installed only where it is already installed', () async {
+      app.isInstalled = false;
+      await autoInstall().run(enabled: true);
+      expect(log, isNot(contains('install app')));
+      expect(log, contains('update library'));
+    });
+
+    test('nothing without an available update', () async {
+      library.hasUpdateAvailable = false;
+      app.hasUpdateAvailable = false;
+      await autoInstall().run(enabled: true);
+      expect(log, isEmpty);
+    });
+
+    test('a running download holds the library update only', () async {
+      downloading = true;
+      await autoInstall().run(enabled: true);
+      expect(log, ['process check', 'install app']);
+    });
+
+    test('nothing starts while the exe is replaced or UAC is awaited',
+        () async {
+      exitPending = true;
+      expect(await autoInstall().run(enabled: true), isFalse);
+      expect(log, ['process check', 'process check']);
+    });
+
+    test('an unmounted shell after the library update stops there', () async {
+      library.onUpdate = () async => active = false;
+      otzariaOpen = [false, true];
+      expect(await autoInstall().run(enabled: true), isFalse);
+      expect(log, ['process check', 'update library']);
+    });
+  });
+
+  group('LauncherUpdateFlow', () {
+    late _FakeLauncher launcher;
+    late _FakeLauncherHost launcherHost;
+    late LauncherUpdateFlow launcherFlow;
+
+    setUp(() {
+      launcher = _FakeLauncher(log);
+      launcherHost = _FakeLauncherHost(log);
+      launcherFlow = LauncherUpdateFlow(
+        launcher: launcher,
+        downloads: flow,
+        host: launcherHost,
+      );
+    });
+
+    test('install asks, announces and replaces the exe', () async {
+      await launcherFlow.install();
+      expect(log, ['confirm 2.0.0', 'installing', 'launcher install']);
+    });
+
+    test('install is refused before the dialog during a long task', () async {
+      launcherHost.wouldInterrupt = true;
+      await launcherFlow.install();
+      expect(log, ['busy']);
+    });
+
+    test('install checks again after the confirmation dialog', () async {
+      launcherHost.whileDialogOpen = () => launcherHost.wouldInterrupt = true;
+      await launcherFlow.install();
+      expect(log, ['confirm 2.0.0', 'busy']);
+    });
+
+    test('install does nothing when declined, unmounted or read-only',
+        () async {
+      launcherHost.approve = false;
+      await launcherFlow.install();
+      expect(log, ['confirm 2.0.0']);
+
+      log.clear();
+      launcherHost
+        ..approve = true
+        ..whileDialogOpen = () => launcherHost.isActive = false;
+      await launcherFlow.install();
+      expect(log, ['confirm 2.0.0']);
+
+      log.clear();
+      launcherHost
+        ..isActive = true
+        ..whileDialogOpen = null
+        ..isReadOnly = true;
+      await launcherFlow.install();
+      expect(log, isEmpty);
+    });
+
+    test('install needs a downloaded version it can install', () async {
+      launcher.downloadedVersion = null;
+      await launcherFlow.install();
+      launcher
+        ..downloadedVersion = '2.0.0'
+        ..canInstall = false;
+      await launcherFlow.install();
+      expect(log, isEmpty);
+    });
+
+    test('install that did not restart reports the error or a restart',
+        () async {
+      launcher
+        ..restarted = false
+        ..errorMessage = 'denied';
+      await launcherFlow.install();
+      expect(log.last, 'installFailed denied');
+
+      log.clear();
+      launcher.errorMessage = null;
+      await launcherFlow.install();
+      expect(log.last, 'manualRestart');
+    });
+
+    test('download announces the version and offers the install', () async {
+      await launcherFlow.download();
+      expect(log, [
+        'launcher download',
+        'downloaded 2.0.0',
+        'confirm 2.0.0',
+        'installing',
+        'launcher install',
+      ]);
+    });
+
+    test('a failed or not-ready download offers nothing', () async {
+      launcher.downloadResult = false;
+      await launcherFlow.download();
+      expect(log, ['launcher download']);
+
+      log.clear();
+      launcher
+        ..downloadResult = true
+        ..hasUpdateReady = false;
+      await launcherFlow.download();
+      expect(log, ['launcher download']);
+    });
+
+    test('download is refused on a read-only drive', () async {
+      launcherHost.isReadOnly = true;
+      await launcherFlow.download();
+      expect(log, isEmpty);
+    });
+
+    test('download waits for the mirror sweep first', () async {
+      host.sweepGate = Completer<void>();
+      await flow.downloadAll();
+      log.clear();
+
+      final download = launcherFlow.download();
+      await pumpEventQueue();
+      expect(log, isEmpty);
+
+      host.sweepGate!.complete();
+      await download;
+      expect(log.first, 'launcher download');
+    });
+
+    test('download waits for a running mirror check first', () async {
+      launcher.checkGate = Completer<void>();
+      unawaited(launcherFlow.checkMirror());
+      final download = launcherFlow.download();
+      await pumpEventQueue();
+      expect(log, ['mirror check']);
+
+      launcher.checkGate!.complete();
+      await download;
+      expect(log[1], 'launcher download');
+    });
+
+    test('download does not start while the mirror download prepares',
+        () async {
+      final refreshGate = Completer<void>();
+      host.onRefresh = (_) => refreshGate.future;
+      final mirror = flow.downloadAll();
+
+      await launcherFlow.download();
+      expect(log, isNot(contains('launcher download')));
+
+      refreshGate.complete();
+      await mirror;
+    });
+
+    test('download does not start while another launcher download runs',
+        () async {
+      launcher.isDownloading = true;
+      await launcherFlow.download();
+      expect(log, isEmpty);
+    });
+
+    test('the mirror check is shared, and skipped when it cannot apply',
+        () async {
+      launcher.checkGate = Completer<void>();
+      final first = launcherFlow.checkMirror();
+      final second = launcherFlow.checkMirror();
+      expect(launcher.checks, 1);
+      expect(launcherFlow.pendingMirrorCheck, isNotNull);
+      launcher.checkGate!.complete();
+      await Future.wait([first, second]);
+      expect(launcherFlow.pendingMirrorCheck, isNull);
+
+      launcher.checkGate = null;
+      await launcherFlow.checkMirror();
+      expect(launcher.checks, 2);
+
+      launcherHost.isReadOnly = true;
+      await launcherFlow.checkMirror();
+      launcherHost.isReadOnly = false;
+      launcher.isDownloading = true;
+      await launcherFlow.checkMirror();
+      launcher
+        ..isDownloading = false
+        ..isInstalling = true;
+      await launcherFlow.checkMirror();
+      expect(launcher.checks, 2);
+    });
+  });
+}

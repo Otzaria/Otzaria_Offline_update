@@ -538,8 +538,9 @@ never got it, and `companions=[]` on the offline machine hid it (issue #33).
 feeds `hasOnlineUpdate`; its failure blocks the skip via `onlineProofError`.
 
 **Cancelling a download deletes what *that* download brought.** The button appears
-next to the progress row only while a download runs, and `AppShell._cancelDownload`
-rides the `isCancelled` callback every layer already takes, so it lands mid-asset.
+next to the progress row only while a download runs, and
+`MirrorDownloadFlow.requestCancel` rides the `isCancelled` callback every layer
+already takes, so it lands mid-asset.
 `MirrorDownloadUndo` snapshots `mirror/library`, `mirror/companions`, `mirror/app`
 and `mirror/plugins` before the first byte; on cancel it deletes created files,
 restores any rewritten `.json` manifest (a new `releases.json` over deleted assets
@@ -676,10 +677,10 @@ A manifest that cannot be read means skipping that area, an empty keep-set being
 manifest does not know yet); and `mirror/apps` and `otzaria-app/` are never
 touched. It is silent by design — the freed bytes go to the log only. It is not
 awaited, but the next `downloadAll` and every launcher download wait for it
-(`AppShell._mirrorSweep`): a launcher tag directory not yet named in
+(`MirrorDownloadFlow.pendingSweep`): a launcher tag directory not yet named in
 `latest-release.json` is junk to it. The other way round holds too: the sweep is
 skipped while a launcher download runs, and neither download starts while the
-other is running or preparing (`_isPreparingDownload`).
+other is running or preparing (`MirrorDownloadFlow.isPreparing`).
 
 **A re-run does not re-hash an asset it already proved.** Skipping the download is
 not skipping the check: `downloadToFile` still verified `expectedSha256`, and on the
@@ -1084,7 +1085,7 @@ needs Setup's uninstall record, which a portable or manually-adopted install lac
 The dir we passed also **outranks detection** when deciding what got installed; only
 if no executable is there does detection answer.
 
-**Auto-install stays silent** (`_autoInstallIfEnabled` passes `useWizard: false`): a
+**Auto-install stays silent** (`AutoInstallFlow.run` passes `useWizard: false`): a
 wizard waiting for a click is not "install by itself", and that is the only path where
 `/MERGETASKS=desktopicon` still does anything.
 
@@ -1114,20 +1115,20 @@ compensating for the finish-page one that `skipifsilent` drops — so a silent i
 opened Otzaria, which locks `seforim.db`, which blocked the library update right
 after it (`OtzariaIsRunningException`). The flag is the iss's own kill switch, and it
 gates **only** that entry: the finish-page one has no `Check:`, so an install run with
-the wizard launches Otzaria whatever we pass. `_autoInstallIfEnabled` therefore runs
+the wizard launches Otzaria whatever we pass. `AutoInstallFlow.run` therefore runs
 the **library before** the installer and re-probes with `refreshProcessState()` before
 each of its two actions — `_otzariaIsRunning` is a value captured earlier, and the
 periodic refresh only runs while Otzaria is already open.
 
 **A skipped auto-install is announced.** Otzaria being open blocks both paths, and the
 skip used to be silent — which reads as a setting that does not work.
-`_autoInstallIfEnabled` collects `skippedWhileRunning` and ends in a
-`showSingleActionDialog`; a startup snackbar disappears before it is read, and this one
+`AutoInstallFlow.run` returns `skippedWhileRunning` and `_autoInstallIfEnabled` ends in
+a `showSingleActionDialog`; a startup snackbar disappears before it is read, and this one
 asks the user to do something.
 
 **Auto-install only ever *updates*; a first install is never automatic.** Both paths
 are gated (`!isFreshInstall` for the library, `currentVersion != null` for the app) and
-the combined first install is not in `_autoInstallIfEnabled` at all — it opens a wizard
+the combined first install is not in `AutoInstallFlow` at all — it opens a wizard
 and waits for Otzaria to close, so it is a user click only. The reason is the *target*:
 a first install has no certain one. `LibraryDbLocator` finds a moved library only
 through Otzaria's `app_preferences.hive`, and `OtzariaSettingsReader` returns `null` on
@@ -1720,7 +1721,7 @@ exe into `mirror/launcher/`, copies it over the stub (two renames, rollback on f
   cancelled and `MirrorDownloadUndo` reverts it before the process exits; an install
   can only be warned about. A guard that throws still closes — X must never go inert.
 - **The mirror is checked on every writable start, also with `autoCheckUpdates` off**,
-  and again before each `checkOnline` (`AppShell._checkLauncherMirror`). It is a disk
+  and again before each `checkOnline` (`LauncherUpdateFlow.checkMirror`). It is a disk
   read, and on the offline machine it is the only way to see a launcher the online
   one downloaded.
 

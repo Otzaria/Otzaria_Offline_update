@@ -9,23 +9,26 @@ import 'package:path/path.dart' as p;
 
 import '../app_report/launcher_crash_session.dart';
 import '../controllers/app_reports_controller.dart';
-import '../controllers/cancelled_download_refresh.dart';
+import '../controllers/auto_install_flow.dart';
 import '../controllers/custom_apps_controller.dart';
+import '../controllers/download_plan.dart';
 import '../controllers/download_summary.dart';
 import '../controllers/error_reports_controller.dart';
 import '../controllers/faq_controller.dart';
 import '../controllers/launcher_update_controller.dart';
+import '../controllers/launcher_update_flow.dart';
 import '../controllers/library_module_controller.dart';
-import '../controllers/online_check.dart';
+import '../controllers/mirror_download_flow.dart';
 import '../controllers/otzaria_module_controller.dart';
 import '../controllers/plugins_module_controller.dart';
 import '../controllers/search_feedback_controller.dart';
+import '../controllers/shell_module_ports.dart';
 import '../services/app_logger.dart';
 import '../services/app_paths.dart';
 import '../services/byte_size.dart';
+import '../services/dialog_queue.dart';
 import '../services/elevation.dart';
 import '../services/file_reveal.dart';
-import '../services/mirror_download_undo.dart';
 import '../services/mirror_junk_sweeper.dart';
 import '../services/notices_seen_store.dart';
 import '../settings/app_settings.dart';
@@ -172,26 +175,40 @@ class _AppShellState extends State<AppShell> {
   /// כאן כל מסך נבנה בכניסה הראשונה אליו, ומאותו רגע נשאר בעץ עם המצב שלו.
   final Set<LauncherScreen> _builtScreens = {LauncherScreen.home};
 
-  /// הורדה אחת בכל רגע — [downloadAll] מריץ את הרכיבים בטור.
-  bool _isDownloading = false;
-
-  /// בקשת ביטול להורדה שרצה. נקראת דרך `isCancelled` בכל שכבות ההורדה, ולכן
-  /// נכנסת לתוקף באמצע נכס ולא רק בין רכיב לרכיב — ראו [cancelDownload].
-  bool _cancelDownload = false;
-
-  /// חלון "יש עדכונים / תוספים חדשים" נבדק פעם אחת בהרצה — ראו
-  /// [_maybeAnnouncePlugins].
   bool _announcedPlugins = false;
 
-  /// הבדיקה הקלה ("יש עדכון ברשת?") — נפרדת לגמרי מ-[_isDownloading].
   bool _isCheckingOnline = false;
 
-  /// הבדיקה שלפני ההורדה ב-[downloadAll], לפני ש-[_isDownloading] נדלק.
-  bool _isPreparingDownload = false;
+  late final OtzariaModulePort _otzariaPort = OtzariaModulePort(_otzaria);
+  late final LibraryModulePort _libraryPort = LibraryModulePort(_library);
 
-  Future<void>? _downloadRun;
-  Future<void>? _mirrorSweep;
-  Future<void>? _launcherMirrorCheck;
+  late final MirrorDownloadFlow _downloads = MirrorDownloadFlow(
+    app: _otzariaPort,
+    library: _libraryPort,
+    plugins: PluginsModulePort(_plugins),
+    host: _ShellDownloadHost(this),
+  );
+
+  late final LauncherUpdateFlow _launcherFlow = LauncherUpdateFlow(
+    launcher: LauncherUpdatePort(_launcherUpdate),
+    downloads: _downloads,
+    host: _ShellLauncherHost(this),
+  );
+
+  late final AutoInstallFlow _autoInstall = AutoInstallFlow(
+    library: _libraryPort,
+    app: _otzariaPort,
+    isOtzariaRunning: refreshProcessState,
+    isDownloading: () => _downloads.isDownloading,
+    exitPending: () => _exitPending,
+    isActive: () => mounted,
+  );
+
+  late final DialogQueue _dialogs = DialogQueue(
+    isActive: () => mounted,
+    isBlocked: () =>
+        _exitPending || !(ModalRoute.of(context)?.isCurrent ?? true),
+  );
 
   @override
   void initState() {
@@ -201,12 +218,8 @@ class _AppShellState extends State<AppShell> {
     _otzaria = OtzariaModuleController(
       dataDir: widget.dataDir,
       stateDir: widget.stateFilesDir,
-      // ההורדה מביאה תמיד את שתי הגרסאות; זו רק הבחירה איזו מהן מותקנת.
       preferPrerelease: s.preferAppPrerelease,
       runningLocator: widget.runningLocator,
-      // עדכון מסד שנעשה כאן משאיר את אינדקס החיפוש של אוצריא על התוכן הישן.
-      // הבקשה לתקן זאת נוסעת עם ההפעלה הרגילה של אוצריא, ונמחקת רק אחרי
-      // שנמסרה בפועל — ראו [requestLibraryReindex].
       pendingLaunchUri: () async =>
           _library.hasPendingReindex ? OtzariaDeepLinks.libraryReindex : null,
       onLaunchUriDelivered: () => _library.markReindexRequestDelivered(),
@@ -214,37 +227,21 @@ class _AppShellState extends State<AppShell> {
     _library = LibraryModuleController(
       dataDir: widget.dataDir,
       stateDir: widget.stateFilesDir,
-      // נתיב ההתקנה של אוצריא מזהה התקנה ניידת/ספרייה מצורפת, ששם המסד לא
-      // יושב ב-`%APPDATA%`. `null` לפני הבדיקה הראשונה — ראו [checkAll].
       otzariaLaunchPath: () async => _otzaria.launchPath,
     )..addListener(_onChange);
     _plugins = PluginsModuleController(
-      // כל המראות יושבות תחת אותו שורש שלצד התוכנה, כך שהכול נוסע יחד.
       mirrorRootDir: p.join(widget.dataDir, 'mirror'),
-      // "אילו תוספים כבר נראו" הוא נתון של המחשב הזה, ולכן בתיקיית הכתיבה.
       stateDir: widget.stateFilesDir,
-      // אותו נתיב התקנה שמודול הספרייה מקבל: התקנה ניידת מחזיקה גם את
-      // התוספים לידה, ואליה גם נמסרת ההתקנה הישירה של תוסף.
       otzariaLaunchPath: () async => _otzaria.launchPath,
       locatePluginsDb: PluginsModuleController.locateOtzariaPluginsDb,
-      // ההורדה מביאה בילד תוסף לכל גרסת אוצריא שהכונן נושא — שתיהן, בדיוק
-      // כמו מראת התוכנה עצמה. נקרא **בזמן** הסנכרון, שרץ אחרי הורדת
-      // התוכנה, ולכן משקף גם גרסה שזה עתה ירדה.
       mirroredAppVersions: () async => [
         if (_otzaria.stableVersion != null) _otzaria.stableVersion!,
         if (_otzaria.prereleaseVersion != null) _otzaria.prereleaseVersion!,
       ],
-      // ומה שמותקן כאן בפועל הוא שקובע איזה בילד מוצג ומותקן. כשאין
-      // התקנה — הגרסה שעומדת להיות מותקנת מהכונן.
       installedAppVersion: () async =>
           _otzaria.currentVersion ?? _otzaria.latestVersion,
-      // ההצצה ברשת יוצאת בעלייה **במקביל** לבדיקה המקומית, ושתי הקריאות
-      // שמעליי עונות ממנה. בלי ההמתנה הזו הן החזירו ריק, וההצצה שאלה על
-      // הבילד החי של כל תוסף במקום על התואם.
       ensureAppVersionsKnown: _otzaria.ensureChecked,
     )..addListener(_onChange);
-    // כאן ולא במסך החנות: ההתקנה נגמרת בחלון של אוצריא, והמשתמש עשוי
-    // לחזור בינתיים לכל מסך אחר — ההודעה צריכה למצוא אותו גם שם.
     _installDone = _plugins.installCompletions.listen((name) {
       if (mounted) {
         UiSnack.showSuccess(AppL10n.strings.plugins.installDoneSnack(name));
@@ -252,12 +249,10 @@ class _AppShellState extends State<AppShell> {
     });
     _customApps = CustomAppsController(
       mirrorRootDir: p.join(widget.dataDir, 'mirror'),
-      // תיקיית הכתיבה, כי "על מה כבר הודענו" הוא נתון של המחשב הזה.
       stateDir: widget.stateFilesDir,
     )..addListener(_onChange);
     _launcherUpdate = LauncherUpdateController(dataDir: widget.dataDir)
       ..addListener(_onChange);
-    // בלי `addListener`: הדיאלוג עצמו מאזין לו, והמסגרת אינה מציגה ממנו כלום.
     _faq = FaqController(dataDir: widget.stateDir);
     unawaited(_faq.load());
     _errorReports = ErrorReportsController.forDrive(
@@ -280,17 +275,12 @@ class _AppShellState extends State<AppShell> {
     _applySettings(s);
 
     unawaited(_plugins.load());
-    // קריאת דיסק בלבד, ובדרך כלל של תיקייה שאינה קיימת — זולה.
     unawaited(_customApps.load());
-    // בדיקה מקומית בלבד — קוראת מהתיקייה שלצד התוכנה ולא נוגעת ברשת.
-    // הורדה תמיד יזומה בלחיצה.
     if (s.autoCheckUpdates) {
-      // `checkAll` כבר מרענן את מצב התהליך בעצמו — קריאה נפרדת כאן הייתה
-      // מריצה `tasklist` פעמיים בעלייה.
       unawaited(checkAll());
     } else {
       unawaited(refreshProcessState());
-      unawaited(_checkLauncherMirror());
+      unawaited(_launcherFlow.checkMirror());
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         unawaited(_otzaria.ensureChecked().then((_) => _offerErrorReports()));
@@ -300,8 +290,6 @@ class _AppShellState extends State<AppShell> {
       reports.stateProvider = _reportState;
       unawaited(_startReports(reports));
     }
-    // בדיקה קלה ברשת (מטא-דאטה בלבד) — פעם אחת בהפעלה, לא טיימר מחזורי.
-    // כשל (אין רשת) נבלע בתוך הקונטרולרים ולא מוצג כשגיאה.
     if (s.autoCheckUpdates) {
       unawaited(checkOnline());
     }
@@ -313,8 +301,7 @@ class _AppShellState extends State<AppShell> {
     if (LauncherCrashSession.closeGuard == _confirmClose) {
       LauncherCrashSession.closeGuard = null;
     }
-    _pauseTimer?.cancel();
-    if (_pauseDone case final done? when !done.isCompleted) done.complete();
+    _dialogs.dispose();
     _runningPoll?.cancel();
     unawaited(_installDone.cancel());
     widget.settings.removeListener(_onChange);
@@ -349,9 +336,6 @@ class _AppShellState extends State<AppShell> {
     if (mounted) unawaited(_maybeOfferElevation());
   }
 
-  /// "יש עדכונים / יש תוספים חדשים" — חלון אחד בעלייה, כמו התראת הרקע של
-  /// החנות הרשמית. **פעם אחת בהרצה**, ורק כשהקטלוג המקומי נטען: הבדיקה
-  /// קוראת מהמראה ולא מהרשת. תוסף חדש מוזכר כאן פעם אחת במחשב הזה.
   Future<void> _maybeAnnouncePlugins() async {
     if (_announcedPlugins || _plugins.status != PluginsModuleStatus.ready) {
       return;
@@ -362,10 +346,8 @@ class _AppShellState extends State<AppShell> {
     final hasUpdates = _plugins.updatablePlugins.isNotEmpty;
     if (fresh.isEmpty && !hasUpdates) return;
 
-    // אחרי הפריים, ובלי לעלות מעל דיאלוג אחר שכבר פתוח (עדכון לאנצ'ר,
-    // הצעת דיווחים). מוותרים אחרי דקה — ההודעה לא נרשמה, ותחזור בהרצה הבאה.
     await WidgetsBinding.instance.endOfFrame;
-    await _withDialogSlot(() async {
+    await _dialogs.run(() async {
       final t = context.strings.plugins;
       final message = hasUpdates && fresh.isNotEmpty
           ? t.homeNoticeUpdatesAndNew
@@ -387,55 +369,10 @@ class _AppShellState extends State<AppShell> {
     });
   }
 
-  Future<bool> _waitUntilNoDialog({bool forever = false}) async {
-    var waits = 0;
-    while (mounted &&
-        (_exitPending || !(ModalRoute.of(context)?.isCurrent ?? true))) {
-      if (!forever && ++waits > 120) return false;
-      await _pause(const Duration(milliseconds: 500));
-    }
-    return mounted;
-  }
-
-  Timer? _pauseTimer;
-  Completer<void>? _pauseDone;
-
-  /// השהיה שאפשר לבטל: ב-`dispose` הטיימר נעצר וההמתנה מתעוררת, כך שלולאת
-  /// ההמתנה אינה נשארת תלויה אחרי שהמסגרת נסגרה.
-  Future<void> _pause(Duration duration) {
-    final done = _pauseDone = Completer<void>();
-    _pauseTimer = Timer(duration, () {
-      if (!done.isCompleted) done.complete();
-    });
-    return done.future;
-  }
-
-  /// סוף התור של הדיאלוגים שמופיעים מעצמם בעלייה.
-  Future<void> _dialogTail = Future<void>.value();
-
-  /// מריץ [body] — שמציג דיאלוג — כשאין אחר פתוח, וגם כשאין עוד אחד שממתין
-  /// באותו רגע: הבדיקה וההצגה בתור אחד, כך ששני דיאלוגים לא יעלו יחד. מחזיר
-  /// `null` כשלא ניתן היה להציג (ההודעה לא נרשמה ותחזור בהרצה הבאה).
-  Future<T?> _withDialogSlot<T>(
-    Future<T> Function() body, {
-    bool forever = false,
-  }) async {
-    final previous = _dialogTail;
-    final done = Completer<void>();
-    _dialogTail = done.future;
-    try {
-      await previous;
-      if (!await _waitUntilNoDialog(forever: forever)) return null;
-      return await body();
-    } finally {
-      done.complete();
-    }
-  }
-
   Future<void> _showErrorReportsIntro() async {
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted) return;
-    await _withDialogSlot(
+    await _dialogs.run(
       () => showErrorReportsIntroOnce(
         context,
         _notices,
@@ -464,16 +401,13 @@ class _AppShellState extends State<AppShell> {
     };
   }
 
-  /// הדיווחים של הלאנצ'ר — הכול אחרי הפריים הראשון (§5.9): קריאת התור
-  /// ושליחתו, וזיהוי הקריסה של ההפעלה הקודמת. ההצעה לא עולה מעל דיאלוג אחר.
   Future<void> _startReports(AppReportsController reports) async {
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted) return;
-    // חריג מכוון ל"רשת רק בלחיצה" (AGENTS §1): תור הדיווחים נשלח לבד.
     reports.startBackground();
     await reports.runCrashCheck(
       showPrompt: (candidate) async {
-        final shown = await _withDialogSlot(
+        final shown = await _dialogs.run(
           () async {
             await showCrashPromptDialog(
               context,
@@ -483,7 +417,6 @@ class _AppShellState extends State<AppShell> {
             );
             return true;
           },
-          // הנעילה כבר נדרסה: מי שוויתר כאן מאבד את הקריסה לצמיתות.
           forever: true,
         );
         return shown ?? false;
@@ -500,7 +433,7 @@ class _AppShellState extends State<AppShell> {
     if (!mounted) return;
 
     final t = AppL10n.strings.elevation;
-    final approved = await _withDialogSlot(
+    final approved = await _dialogs.run(
       () => showTwoActionsDialog(
         context: context,
         title: t.dialogTitle,
@@ -583,7 +516,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> checkAll() async {
-    await _checkLauncherMirror();
+    await _launcherFlow.checkMirror();
     if (!mounted) return;
 
     await _otzaria.checkForUpdate();
@@ -597,27 +530,11 @@ class _AppShellState extends State<AppShell> {
     await _offerErrorReports();
   }
 
-  Future<void> _checkLauncherMirror() {
-    if (widget.readOnly ||
-        _launcherUpdate.isDownloading ||
-        _launcherUpdate.isInstalling) {
-      return Future.value();
-    }
-    return _launcherMirrorCheck ??= _launcherUpdate
-        .checkForUpdate()
-        .whenComplete(() => _launcherMirrorCheck = null);
-  }
-
-  /// "נמצאו דיווחים שלא נשלחו — לאסוף?". אוצריא פתוחה נבדקת בזרימה עצמה,
-  /// לפני ההצעה ואחרי האישור: המאגר שלה עלול להיות נעול.
   Future<void> _offerErrorReports() async {
-    // גם מ-`checkAll` שהתחיל ב-`initState`: הדיאלוג והקריאה מהמסד — אחרי פריים.
     await WidgetsBinding.instance.endOfFrame;
-    // ההסבר קודם להצעה: מי שנשאל "לאסוף?" צריך לדעת קודם על מה מדובר.
     await _errorReportsIntro;
     if (!mounted || _otzaria.launchPath == null) return;
-    // בתור הדיאלוגים: ההצעה לא עולה מעל דיאלוג אחר, והיא לא נצרכת אם לא הוצגה.
-    await _withDialogSlot(() async {
+    await _dialogs.run(() async {
       await offerErrorReportCollection(
         context,
         _errorReports,
@@ -673,7 +590,7 @@ class _AppShellState extends State<AppShell> {
   Future<void> checkOnline() async {
     if (widget.readOnly || _isCheckingOnline) return;
     setState(() => _isCheckingOnline = true);
-    await _checkLauncherMirror();
+    await _launcherFlow.checkMirror();
     if (!mounted) return;
     await Future.wait([
       _otzaria.checkOnline(),
@@ -686,8 +603,6 @@ class _AppShellState extends State<AppShell> {
     await _promptLauncherUpdate();
   }
 
-  /// "גירסה X זמינה, להוריד עכשיו?" — פעם אחת בהרצה, ורק כשהבדיקה הקלה מצאה
-  /// ברשת גרסה חדשה מזו שכבר יושבת בתיקייה.
   Future<void> _promptLauncherUpdate() async {
     if (!mounted || widget.readOnly) return;
     final c = _launcherUpdate;
@@ -698,7 +613,7 @@ class _AppShellState extends State<AppShell> {
 
     final t = context.strings.launcherUpdate;
     final whatsNew = c.onlineWhatsNew;
-    final approved = await _withDialogSlot(
+    final approved = await _dialogs.run(
       () => showTwoActionsDialog(
         context: context,
         title: t.availableDialogTitle,
@@ -721,30 +636,10 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
-  Future<void> downloadLauncherUpdate() async {
-    if (_blockedByReadOnly()) return;
-    if (_mirrorSweep case final sweep?) await sweep;
-    if (_launcherMirrorCheck case final check?) await check;
-    if (!mounted ||
-        _isPreparingDownload ||
-        _isDownloading ||
-        _launcherUpdate.isDownloading) {
-      return;
-    }
-
-    final downloaded = await _launcherUpdate.download();
-    if (!downloaded || !mounted || !_launcherUpdate.hasUpdateReady) return;
-
-    UiSnack.showSuccess(
-      AppL10n.strings.launcherUpdate.downloadedSnack(
-        '${_launcherUpdate.downloadedVersion}',
-      ),
-    );
-    await installLauncherUpdate();
-  }
+  Future<void> downloadLauncherUpdate() => _launcherFlow.download();
 
   bool get _longTaskRunning =>
-      _isDownloading ||
+      _downloads.isDownloading ||
       _library.isApplying ||
       _library.status == LibraryModuleStatus.updating ||
       _otzaria.status == OtzariaModuleStatus.installing ||
@@ -763,20 +658,13 @@ class _AppShellState extends State<AppShell> {
       _searchFeedback.isCollecting ||
       _searchFeedback.isUploading;
 
-  Future<void> installLauncherUpdate() async {
-    if (_blockedByReadOnly()) return;
-    if (!mounted) return;
-    if (_exitWouldInterrupt) {
-      UiSnack.show(AppL10n.strings.launcherUpdate.busyNotice);
-      return;
-    }
-    final version = _launcherUpdate.downloadedVersion;
-    if (version == null || !_launcherUpdate.canInstall) return;
+  Future<void> installLauncherUpdate() => _launcherFlow.install();
 
+  Future<bool> _confirmLauncherInstall(String version) {
     final t = context.strings.launcherUpdate;
     final whatsNew =
         _whatsNewAlreadyShown ? null : _launcherUpdate.downloadedWhatsNew;
-    final approved = await showTwoActionsDialog(
+    return showTwoActionsDialog(
       context: context,
       title: t.readyDialogTitle,
       content: t.readyDialogContent(version),
@@ -785,51 +673,28 @@ class _AppShellState extends State<AppShell> {
           : WhatsNewSection(heading: t.whatsNewHeading, markdown: whatsNew),
       confirmText: t.readyDialogConfirm,
     );
-    if (!approved || !mounted) return;
-    if (_exitWouldInterrupt) {
-      UiSnack.show(AppL10n.strings.launcherUpdate.busyNotice);
-      return;
-    }
+  }
 
-    UiSnack.show(AppL10n.strings.launcherUpdate.installingSnack);
-    final restarted = await _launcherUpdate.install();
-    if (restarted || !mounted) return;
-
-    final error = _launcherUpdate.errorMessage;
-    if (error != null) {
-      UiSnack.showError(error);
-      return;
+  void _notifyLauncherUpdate(LauncherUpdateNotice notice, String detail) {
+    final t = AppL10n.strings.launcherUpdate;
+    switch (notice) {
+      case LauncherUpdateNotice.downloaded:
+        UiSnack.showSuccess(t.downloadedSnack(detail));
+      case LauncherUpdateNotice.busy:
+        UiSnack.show(t.busyNotice);
+      case LauncherUpdateNotice.installing:
+        UiSnack.show(t.installingSnack);
+      case LauncherUpdateNotice.installFailed:
+        UiSnack.showError(detail);
+      case LauncherUpdateNotice.manualRestart:
+        UiSnack.show(t.manualRestartNotice);
     }
-    UiSnack.show(AppL10n.strings.launcherUpdate.manualRestartNotice);
   }
 
   Future<void> _autoInstallIfEnabled() async {
-    final s = widget.settings.settings;
-
-    var skippedWhileRunning = false;
-
-    if (s.autoInstall &&
-        !_isDownloading &&
-        !_library.isFreshInstall &&
-        _library.status == LibraryModuleStatus.updateAvailable) {
-      if (await refreshProcessState()) {
-        skippedWhileRunning = true;
-      } else if (!_exitPending) {
-        await _library.update();
-        if (!mounted) return;
-      }
-    }
-
-    if (s.autoInstall &&
-        _otzaria.currentVersion != null &&
-        _otzaria.status == OtzariaModuleStatus.updateAvailable) {
-      if (await refreshProcessState()) {
-        skippedWhileRunning = true;
-      } else if (!_exitPending) {
-        await _otzaria.install(useWizard: false);
-      }
-    }
-
+    final skippedWhileRunning = await _autoInstall.run(
+      enabled: widget.settings.settings.autoInstall,
+    );
     if (!skippedWhileRunning || !mounted) return;
     final t = context.strings.home;
     await showSingleActionDialog(
@@ -839,9 +704,6 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
-  /// התיקיות ש-[downloadAll] ממלא, ולכן אלה שביטול מנקה. `mirror/apps`
-  /// (תוכנות שהמשתמש הוסיף) ו-`mirror/launcher` אינן כאן בכוונה: אף הורדה
-  /// מכאן אינה נוגעת בהן.
   @visibleForTesting
   List<String> get downloadMirrorDirs => [
         _library.mirrorDir,
@@ -851,10 +713,10 @@ class _AppShellState extends State<AppShell> {
         ..._plugins.mirrorDirs,
       ];
 
-  /// מבקש מהמשתמש אישור ואז מסמן ביטול להורדה שרצה. הדגל בלבד — ההורדה
-  /// עצמה יוצאת מהלולאות שלה, ו-[downloadAll] הוא שמנקה אחריה.
   Future<void> cancelDownload() async {
-    if (!_isDownloading || _cancelDownload || !mounted) return;
+    if (!_downloads.isDownloading || _downloads.isCancelling || !mounted) {
+      return;
+    }
 
     final t = context.strings.home;
     final approved = await showWarningDialog(
@@ -864,16 +726,14 @@ class _AppShellState extends State<AppShell> {
       cancelText: t.cancelDownloadKeepGoing,
       confirmText: t.cancelDownloadButton,
     );
-    // ההורדה יכולה להסתיים בזמן שהדיאלוג פתוח — ואז אין מה לבטל, ובעיקר אין
-    // מה למחוק: היא הצליחה.
-    if (!approved || !mounted || !_isDownloading) return;
-    setState(() => _cancelDownload = true);
+    if (!approved || !mounted || !_downloads.isDownloading) return;
+    _downloads.requestCancel();
   }
 
   Future<bool> _confirmClose() async {
     if (!mounted || !_longTaskRunning) return true;
     final t = context.strings.shell;
-    final downloading = _isDownloading;
+    final downloading = _downloads.isDownloading;
     final approved = await showWarningDialog(
       context: context,
       title: t.closeWhileBusyTitle,
@@ -887,44 +747,43 @@ class _AppShellState extends State<AppShell> {
     );
     if (!approved) return false;
     if (!mounted) return true;
-    if (_downloadRun case final run? when _isDownloading) {
-      setState(() => _cancelDownload = true);
-      await run;
-    }
+    await _downloads.cancelAndWait();
     return true;
   }
 
   Future<void> downloadAll() async {
     if (_blockedByReadOnly()) return;
-    if (_isPreparingDownload) return;
-    _isPreparingDownload = true;
-    final run = _downloadRun = _downloadAll();
-    try {
-      await run;
-    } finally {
-      _isPreparingDownload = false;
-      _downloadRun = null;
-    }
+    await _downloads.downloadAll();
   }
 
   Future<void> _refreshStaleOnlineChecks(AppSettings s) async {
-    bool stale(DateTime? checkedAt, String? error) =>
-        onlineCheckNeedsRefresh(checkedAt: checkedAt, error: error);
-    final refreshApp =
-        s.syncApp && stale(_otzaria.onlineCheckedAt, _otzaria.onlineCheckError);
-    final refreshLibrary = s.downloadsLibrary &&
-        stale(_library.onlineCheckedAt, _library.onlineCheckError);
-    final refreshPlugins = s.syncPlugins &&
-        (stale(_plugins.onlineCheckedAt, _plugins.onlineCheckError) ||
-            stale(_plugins.storeAppCheckedAt, _plugins.storeAppCheckError));
-    if (!refreshApp && !refreshLibrary && !refreshPlugins) return;
+    final stale = StaleOnlineChecks.of(
+      s,
+      app: OnlineCheckStamp(
+        checkedAt: _otzaria.onlineCheckedAt,
+        error: _otzaria.onlineCheckError,
+      ),
+      library: OnlineCheckStamp(
+        checkedAt: _library.onlineCheckedAt,
+        error: _library.onlineCheckError,
+      ),
+      catalog: OnlineCheckStamp(
+        checkedAt: _plugins.onlineCheckedAt,
+        error: _plugins.onlineCheckError,
+      ),
+      storeApp: OnlineCheckStamp(
+        checkedAt: _plugins.storeAppCheckedAt,
+        error: _plugins.storeAppCheckError,
+      ),
+    );
+    if (!stale.any) return;
     final ownsCheckingFlag = !_isCheckingOnline;
     if (ownsCheckingFlag) setState(() => _isCheckingOnline = true);
     try {
       await Future.wait([
-        if (refreshApp) _otzaria.checkOnline(),
-        if (refreshLibrary) _library.checkOnline(),
-        if (refreshPlugins) _plugins.checkOnline(),
+        if (stale.app) _otzaria.checkOnline(),
+        if (stale.library) _library.checkOnline(),
+        if (stale.plugins) _plugins.checkOnline(),
       ]);
     } finally {
       if (ownsCheckingFlag && mounted) {
@@ -933,162 +792,52 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
-  Future<void> _downloadAll() async {
-    if (_mirrorSweep case final sweep?) {
-      await sweep;
-      if (!mounted) return;
-    }
-    final s = widget.settings.settings;
-    if (!s.hasSyncSelection ||
-        _longTaskRunning ||
-        _launcherUpdate.isDownloading) {
-      return;
-    }
-
-    await _refreshStaleOnlineChecks(s);
-    if (!mounted) return;
-
-    // רכיב שהבדיקה אמרה עליו "אין חדש" לא מורץ בכלל: ההורדה שלו אורכת
-    // דקות ומציגה מד התקדמות, ולא הייתה מביאה כלום. הכפתור עצמו מופיע רק
-    // כשמשהו כן התחדש — ולכן זה תמיד "הורד את מה שהתחדש", לא "הורד הכול".
-    //
-    // חריג אחד: על הכונן יושבת עדיין חבילת FULL מגרסה ישנה. מודול התוכנה
-    // הוא זה שמוחק אותה, ובלי החריג "אין גרסה חדשה" היה מדלג עליו — ו-2GB
-    // היו נשארים שם לנצח.
-    final skipApp = s.syncApp &&
-        !_otzaria.hasStaleFullPackage &&
-        provenUpToDateOnline(
-          checkedAt: _otzaria.onlineCheckedAt,
-          error: _otzaria.onlineCheckError,
-          hasUpdate: _otzaria.hasOnlineUpdate,
-        );
-    // ב"עדכון אישי" היעד נגזר מהגרסה שנרשמה ולא מהחדשה שברשת, ולכן
-    // "אין חדש ברשת" אינו אומר שאין מה להוריד.
-    final includeSemanticSearch = s.downloadsLibrary &&
-        _library.shouldOfferSemanticDownload &&
-        await showTwoActionsDialog(
-          context: context,
-          title: context.strings.libraryDomain.companionSemanticName,
-          content: context.strings.libraryDomain.semanticDownloadPrompt,
-          confirmText: context.strings.home.downloadNowButton,
-        );
-    if (!mounted || _longTaskRunning || _launcherUpdate.isDownloading) return;
-    final skipLibrary = !includeSemanticSearch &&
-        s.downloadsLibrary &&
-        !_library.personalUpdateMode &&
-        provenUpToDateOnline(
-          checkedAt: _library.onlineCheckedAt,
-          error: _library.onlineLibraryProofError,
-          hasUpdate: _library.hasOnlineLibraryUpdate,
-        );
-    final skipPlugins = s.syncPlugins &&
-        provenUpToDateOnline(
-          checkedAt: _plugins.onlineCheckedAt,
-          error: _plugins.onlineCheckError,
-          hasUpdate: _plugins.hasCatalogOnlineUpdate,
-        );
-    // נפרד מהקטלוג: הוא מגיע מגיטהאב ולא מ-otzaria.org, ובדיקה שנכשלה
-    // באחד מהם אינה אומרת דבר על השני.
-    final skipStoreApp = s.syncPlugins &&
-        provenUpToDateOnline(
-          checkedAt: _plugins.storeAppCheckedAt,
-          error: _plugins.storeAppCheckError,
-          hasUpdate: _plugins.hasStoreAppOnlineUpdate,
-        );
-
-    setState(() {
-      _isDownloading = true;
-      _cancelDownload = false;
-    });
-
-    final before = OnlineAnswersBeforeDownload.capture(
-      library: _library,
-      plugins: _plugins,
-    );
-    final undo = await MirrorDownloadUndo.capture(downloadMirrorDirs);
-    bool cancelled() => _cancelDownload;
-
-    // הבדיקה בין רכיב לרכיב: ביטול באמצע הספרייה לא אמור להתחיל את התוספים.
-    if (s.syncApp && !skipApp) await _otzaria.download(isCancelled: cancelled);
-    if (!cancelled() && s.downloadsLibrary && !skipLibrary) {
-      await _library.download(
-        includeSemanticSearch: includeSemanticSearch,
-        isCancelled: cancelled,
+  Future<bool> _confirmSemanticSearch() => showTwoActionsDialog(
+        context: context,
+        title: context.strings.libraryDomain.companionSemanticName,
+        content: context.strings.libraryDomain.semanticDownloadPrompt,
+        confirmText: context.strings.home.downloadNowButton,
       );
-    }
-    if (!cancelled() && s.syncPlugins && !skipPlugins) {
-      await _plugins.sync(isCancelled: cancelled);
-    }
-    // גם כשדילגנו על התוספים — לתוכנת החנות בדיקה משלה. `syncStoreApp`
-    // מוריד רק את מה שהבדיקה הקלה כבר מצאה, ולכן דילוג כאן פירושו שאין
-    // שום פנייה לגיטהאב.
-    if (!cancelled() && s.syncPlugins && !skipStoreApp) {
-      await _plugins.syncStoreApp();
-    }
 
-    if (cancelled()) {
-      await undo.revert();
-      await refreshAfterCancelledDownload(
+  Future<DownloadRollback> _captureDownloadRollback() =>
+      CancelledDownloadRollback.capture(
         otzaria: _otzaria,
         library: _library,
         plugins: _plugins,
-        before: before,
+        mirrorDirs: downloadMirrorDirs,
       );
-      if (!mounted) return;
-      setState(() {
-        _isDownloading = false;
-        _cancelDownload = false;
-      });
-      unawaited(_maybeOfferElevation());
-      UiSnack.show(AppL10n.strings.home.downloadCancelledSnack);
-      return;
-    }
-    if (!mounted) return;
 
-    setState(() => _isDownloading = false);
-    unawaited(_maybeOfferElevation());
+  void _rebuild() {
+    if (mounted) setState(() {});
+  }
 
+  void _reportDownload({
+    required List<MirrorComponent> failed,
+    required List<MirrorComponent> skipped,
+  }) {
     final t = context.strings;
-    final skipped = [
-      if (skipApp) t.home.appTileTitle,
-      if (skipLibrary) t.home.libraryTileTitle,
-      if (skipPlugins) t.shell.navPlugins,
-    ];
+    String label(MirrorComponent component) => switch (component) {
+          MirrorComponent.app => t.home.appTileTitle,
+          MirrorComponent.library => t.home.libraryTileTitle,
+          MirrorComponent.plugins => t.shell.navPlugins,
+        };
+    final failedLabels = [for (final c in failed) label(c)];
+    final skippedLabels = [for (final c in skipped) label(c)];
 
-    final failed = [
-      if (s.syncApp && !skipApp && _otzaria.downloadError != null)
-        t.home.appTileTitle,
-      if (s.downloadsLibrary && !skipLibrary && _library.downloadError != null)
-        t.home.libraryTileTitle,
-      if (s.syncPlugins && !skipPlugins && _plugins.lastSyncFailed)
-        t.shell.navPlugins,
-    ];
-
-    if (failed.isEmpty &&
-        !_library.downloadNeedsRetry &&
-        !_launcherUpdate.isDownloading) {
-      _mirrorSweep = _sweepMirrorJunk();
-    }
-
-    // הודעה אחת בסוף, לפי [summarizeDownload] — ראו שם למה לא שתיים.
-    switch (summarizeDownload(failed: failed, skipped: skipped)) {
+    switch (summarizeDownload(failed: failedLabels, skipped: skippedLabels)) {
       case DownloadSummary.failed:
-        UiSnack.show(t.home.downloadFailedSnack(failed.join(', ')));
+        UiSnack.show(t.home.downloadFailedSnack(failedLabels.join(', ')));
       case DownloadSummary.skipped:
-        UiSnack.show(t.home.downloadSkippedSnack(skipped.join(', ')));
+        UiSnack.show(t.home.downloadSkippedSnack(skippedLabels.join(', ')));
       case DownloadSummary.done:
         UiSnack.showSuccess(t.home.downloadDoneSnack);
     }
   }
 
   Future<void> _sweepMirrorJunk() async {
-    try {
-      final freed = await MirrorJunkSweeper(dataDir: widget.dataDir).sweep();
-      if (freed > 0) {
-        AppLogger.instance.info('ניקוי המראה פינה ${formatBytes(freed)}');
-      }
-    } finally {
-      _mirrorSweep = null;
+    final freed = await MirrorJunkSweeper(dataDir: widget.dataDir).sweep();
+    if (freed > 0) {
+      AppLogger.instance.info('ניקוי המראה פינה ${formatBytes(freed)}');
     }
   }
 
@@ -1151,8 +900,8 @@ class _AppShellState extends State<AppShell> {
             launcherUpdate: _launcherUpdate,
             settings: widget.settings,
             otzariaIsRunning: _otzariaIsRunning,
-            isDownloading: _isDownloading,
-            isCancellingDownload: _cancelDownload,
+            isDownloading: _downloads.isDownloading,
+            isCancellingDownload: _downloads.isCancelling,
             isCheckingOnline: _isCheckingOnline,
             longTaskRunning: _longTaskRunning,
             onProcessStateChanged: refreshProcessState,
@@ -1187,7 +936,7 @@ class _AppShellState extends State<AppShell> {
         LauncherScreen.library => LibraryScreen(
             library: _library,
             otzariaIsRunning: _otzariaIsRunning,
-            isDownloading: _isDownloading,
+            isDownloading: _downloads.isDownloading,
             onProcessStateChanged: refreshProcessState,
             onCloseOtzaria: closeOtzaria,
             onRequestReindex: requestLibraryReindex,
@@ -1286,6 +1035,84 @@ class _AppShellState extends State<AppShell> {
           ),
         ],
       );
+}
+
+class _ShellDownloadHost implements MirrorDownloadHost {
+  _ShellDownloadHost(this._shell);
+
+  final _AppShellState _shell;
+
+  @override
+  bool get isActive => _shell.mounted;
+
+  @override
+  bool get isBlocked =>
+      _shell._longTaskRunning || _shell._launcherUpdate.isDownloading;
+
+  @override
+  bool get launcherDownloading => _shell._launcherUpdate.isDownloading;
+
+  @override
+  AppSettings get settings => _shell.widget.settings.settings;
+
+  @override
+  Future<void> refreshStaleOnlineChecks(AppSettings s) =>
+      _shell._refreshStaleOnlineChecks(s);
+
+  @override
+  Future<bool> confirmSemanticSearch() => _shell._confirmSemanticSearch();
+
+  @override
+  Future<DownloadRollback> captureRollback() =>
+      _shell._captureDownloadRollback();
+
+  @override
+  Future<void> sweepMirror() => _shell._sweepMirrorJunk();
+
+  @override
+  void stateChanged() => _shell._rebuild();
+
+  @override
+  void downloadCancelled() {
+    unawaited(_shell._maybeOfferElevation());
+    UiSnack.show(AppL10n.strings.home.downloadCancelledSnack);
+  }
+
+  @override
+  void downloadEnded() => unawaited(_shell._maybeOfferElevation());
+
+  @override
+  void downloadFinished({
+    required List<MirrorComponent> failed,
+    required List<MirrorComponent> skipped,
+  }) =>
+      _shell._reportDownload(failed: failed, skipped: skipped);
+}
+
+class _ShellLauncherHost implements LauncherUpdateHost {
+  _ShellLauncherHost(this._shell);
+
+  final _AppShellState _shell;
+
+  @override
+  bool get isActive => _shell.mounted;
+
+  @override
+  bool get isReadOnly => _shell.widget.readOnly;
+
+  @override
+  bool blockedByReadOnly() => _shell._blockedByReadOnly();
+
+  @override
+  bool get wouldInterrupt => _shell._exitWouldInterrupt;
+
+  @override
+  Future<bool> confirmInstall(String version) =>
+      _shell._confirmLauncherInstall(version);
+
+  @override
+  void notify(LauncherUpdateNotice notice, {String? detail}) =>
+      _shell._notifyLauncherUpdate(notice, detail ?? '');
 }
 
 // ── סרגל הניווט ───────────────────────────────────────────────────────────────

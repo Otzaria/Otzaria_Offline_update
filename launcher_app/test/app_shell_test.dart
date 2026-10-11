@@ -483,157 +483,96 @@ void main() {
     });
   });
 
-  // ההתקנה האוטומטית עצמה אינה נהיגה מבדיקת widget — היא מריצה מתקין אמיתי
-  // ו-`dart:io` שאינו מסתיים ב-fake-async. הסדר, לעומת זאת, הוא כל התיקון,
-  // ולכן הוא מוצמד מהמקור — כמו ב-`faq_test.dart`.
-  group('_autoInstallIfEnabled', () {
+  group('חיווט הזרימות שהוצאו מהמסגרת', () {
     final source = _appShellSource();
-    final start = source.indexOf('_autoInstallIfEnabled() async {');
-    final body = source.substring(
-      start,
-      source.indexOf('downloadMirrorDirs', start),
-    );
 
-    test('גוף המתודה נמצא — אחרת כל השאר כאן בודק מחרוזת ריקה', () {
-      expect(start, greaterThan(-1));
-      expect(body, contains('_library.update()'));
-    });
+    String bodyOf(String signature, String until) {
+      final start = source.indexOf(signature);
+      expect(start, greaterThan(-1), reason: signature);
+      final end = source.indexOf(until, start);
+      expect(end, greaterThan(start), reason: until);
+      return source.substring(start, end);
+    }
 
-    // המתקין של אוצריא משיק אותה בסוף התקנה שקטה, ואוצריא פתוחה נועלת את
-    // המסד — בסדר ההפוך הלאנצ'ר חסם את עדכון המסד שהוא עצמו הריץ.
-    test('עדכון המסד מוקדם להתקנת התוכנה', () {
-      expect(
-        body.indexOf('_library.update()'),
-        lessThan(body.indexOf('_otzaria.install(')),
+    test('ההתקנה האוטומטית נשענת על בדיקת תהליך טרייה ועל חסימת היציאה', () {
+      final wiring = bodyOf(
+        'late final AutoInstallFlow _autoInstall',
+        'late final DialogQueue _dialogs',
       );
+      expect(wiring, contains('isOtzariaRunning: refreshProcessState,'));
+      expect(wiring, contains('isDownloading: () => _downloads.isDownloading'));
+      expect(wiring, contains('exitPending: () => _exitPending'));
+      expect(wiring, isNot(contains('_otzariaIsRunning')));
     });
 
-    test('שני המסלולים נשענים על בדיקת תהליך טרייה', () {
-      expect(
-        'refreshProcessState()'.allMatches(body).length,
-        2,
-        reason: 'עדכון המסד וההתקנה',
+    test('דילוג בגלל אוצריא פתוחה מדווח בדיאלוג', () {
+      final body = bodyOf(
+        'Future<void> _autoInstallIfEnabled() async {',
+        'downloadMirrorDirs',
       );
-      // הערך שנלכד בבנייה הוא בדיוק מה שהיה מיושן כאן.
-      expect(body, isNot(contains('_otzariaIsRunning')));
-    });
-
-    // התקנה ראשונה מנחשת את היעד (`resolveInstallDbPath`), והניחוש נרשם
-    // אחר כך כבחירת המשתמש — מסד שלם במקום הלא נכון, ולנצח.
-    test('עדכון המסד מותנה בכך שיש כבר מסד', () {
-      expect(body, contains('!_library.isFreshInstall'));
-    });
-
-    test('התקנת התוכנה מותנית בכך שאוצריא כבר מותקנת', () {
-      expect(body, contains('_otzaria.currentVersion != null'));
-    });
-
-    // ההתקנה המשולבת פותחת אשף וממתינה לסגירת אוצריא — בדיוק המקרה שאינו
-    // אוטומטי. היא יושבת ב-`HomeScreen`, ואסור שתדלוף לכאן.
-    test('ההתקנה המשולבת אינה רצה אוטומטית', () {
-      expect(body, isNot(contains('_installLibraryAfterApp(')));
+      expect(body, contains('_autoInstall.run('));
+      expect(body, contains('widget.settings.settings.autoInstall'));
+      expect(body, contains('showSingleActionDialog'));
+      expect(body, contains('autoInstallSkippedTitle'));
       expect(body, isNot(contains('useWizard: true')));
     });
 
-    // דילוג שקט נראה בדיוק כמו הגדרה שאינה עובדת.
-    test('דילוג בגלל אוצריא פתוחה מדווח בדיאלוג', () {
-      expect(body, contains('skippedWhileRunning'));
-      expect(body, contains('showSingleActionDialog'));
-      expect(body, contains('autoInstallSkippedTitle'));
+    test('הבדיקה המקוונת שלפני ההורדה מרעננת רק את מה שהתיישן', () {
+      final body = bodyOf(
+        'Future<void> _refreshStaleOnlineChecks(AppSettings s)',
+        'Future<bool> _confirmSemanticSearch()',
+      );
+      expect(body, contains('StaleOnlineChecks.of('));
+      expect(body, contains('if (stale.app) _otzaria.checkOnline()'));
+      expect(body, contains('if (stale.library) _library.checkOnline()'));
+      expect(body, contains('if (stale.plugins) _plugins.checkOnline()'));
+      expect(body, contains('_plugins.storeAppCheckedAt'));
+      expect(body, contains('_library.onlineCheckError'));
     });
 
-    test('אינה מתחילה בזמן החלפת קובץ ההרצה או ההמתנה ל-UAC', () {
-      expect('else if (!_exitPending)'.allMatches(body).length, 2);
-    });
-  });
-
-  group('_downloadAll', () {
-    final source = _appShellSource();
-    final start = source.indexOf('Future<void> _downloadAll() async {');
-    final body = source.substring(
-      start,
-      source.indexOf('\n    setState(() {\n      _isDownloading', start),
-    );
-    final refresh = source.indexOf('_refreshStaleOnlineChecks(AppSettings s)');
-    final refreshBody = source.substring(
-      refresh,
-      source.indexOf('Future<void> _downloadAll()', refresh),
-    );
-
-    test('גופי המתודות נמצאו', () {
-      expect(start, greaterThan(-1));
-      expect(refresh, greaterThan(-1));
-      expect(body, contains('final skipLibrary'));
-      expect(body, contains('final skipStoreApp'));
-    });
-
-    test('בדיקה מקוונת ישנה מתרעננת לפני חישוב הדילוגים', () {
-      final call = body.indexOf('await _refreshStaleOnlineChecks(s);');
-      expect(call, greaterThan(-1));
-      for (final skip in [
-        'final skipApp',
-        'final skipLibrary',
-        'final skipPlugins',
-        'final skipStoreApp',
-      ]) {
-        expect(call, lessThan(body.indexOf(skip)), reason: skip);
-      }
-    });
-
-    test('רק רכיבים שנבחרו נבדקים שוב ולפי גיל הבדיקה', () {
-      expect(refreshBody, contains('s.syncApp &&'));
-      expect(refreshBody, contains('s.downloadsLibrary &&'));
-      expect(refreshBody, contains('s.syncPlugins &&'));
-      expect(refreshBody, contains('onlineCheckNeedsRefresh('));
-      expect(refreshBody, contains('if (refreshApp) _otzaria.checkOnline()'));
-      expect(
-        refreshBody,
-        contains('if (refreshLibrary) _library.checkOnline()'),
+    test("ההורדה נחסמת בפעולה ארוכה ובהורדת הלאנצ'ר, והניקוי נדחה בה", () {
+      final host = bodyOf(
+        'class _ShellDownloadHost implements MirrorDownloadHost',
+        'class _ShellLauncherHost',
       );
       expect(
-        refreshBody,
-        contains('if (refreshPlugins) _plugins.checkOnline()'),
+        host,
+        contains(
+          '_shell._longTaskRunning || _shell._launcherUpdate.isDownloading',
+        ),
       );
-      expect(refreshBody, contains('_plugins.storeAppCheckedAt'));
-    });
-
-    test('סירוב לחיפוש החכם אינו מונע דילוג על ספרייה מעודכנת', () {
-      final skip = body.substring(body.indexOf('final skipLibrary'));
-      expect(skip, contains('!includeSemanticSearch'));
-      expect(skip, contains('_library.hasOnlineLibraryUpdate'));
-      expect(skip, contains('_library.onlineLibraryProofError'));
-      expect(skip, isNot(contains('_library.hasOnlineUpdate')));
-      expect(skip, isNot(contains('_library.onlineProofError')));
-    });
-  });
-
-  // ההחלפה מסתיימת ב-`exit(0)`, ולכן היא נחסמת בזמן פעולה ארוכה — גם
-  // כשהכפתור מנוטרל: [downloadLauncherUpdate] מגיע לכאן בלי כפתור בכלל.
-  group('installLauncherUpdate', () {
-    final source = _appShellSource();
-    final start = source.indexOf('Future<void> installLauncherUpdate()');
-    final body = source.substring(
-      start,
-      source.indexOf('_autoInstallIfEnabled', start),
-    );
-
-    test('גוף המתודה נמצא', () => expect(start, greaterThan(-1)));
-
-    test('נחסמת בזמן הורדה או התקנה, עם הודעה', () {
       expect(
-        body.indexOf('_exitWouldInterrupt'),
-        lessThan(body.indexOf('showTwoActionsDialog')),
+        host,
+        contains(
+          'bool get launcherDownloading => _shell._launcherUpdate.isDownloading',
+        ),
       );
-      expect(body, contains('busyNotice'));
+      expect(host, contains('_shell._refreshStaleOnlineChecks(s)'));
+      expect(host, contains('_shell._sweepMirrorJunk()'));
     });
 
-    test('בודקת שוב אחרי האישור, לפני ההחלפה', () {
-      final afterDialog = body.indexOf(
-        '_exitWouldInterrupt',
-        body.indexOf('showTwoActionsDialog'),
+    test('ההחלפה של קובץ ההרצה נחסמת בכל פעולה שיציאה קוטעת', () {
+      final host = bodyOf(
+        'class _ShellLauncherHost implements LauncherUpdateHost',
+        'class _NavRail',
       );
-      expect(afterDialog, greaterThan(-1));
-      expect(afterDialog, lessThan(body.indexOf('_launcherUpdate.install()')));
+      expect(host, contains('wouldInterrupt => _shell._exitWouldInterrupt'));
+      expect(host, contains('_shell._blockedByReadOnly()'));
+      expect(host, contains('isReadOnly => _shell.widget.readOnly'));
+      final flow = bodyOf(
+        'late final LauncherUpdateFlow _launcherFlow',
+        'late final AutoInstallFlow _autoInstall',
+      );
+      expect(flow, contains('downloads: _downloads,'));
+    });
+
+    test('ביטול משחזר את המראה ומרענן את המודולים', () {
+      final body = bodyOf(
+        'Future<DownloadRollback> _captureDownloadRollback()',
+        'void _rebuild()',
+      );
+      expect(body, contains('CancelledDownloadRollback.capture('));
+      expect(body, contains('mirrorDirs: downloadMirrorDirs'));
     });
   });
 
@@ -720,21 +659,27 @@ void main() {
       () {
         expect(source, contains('absorbing: _exitPending'));
         expect(source, contains('excluding: _exitPending'));
-        final download = source.substring(
-          source.indexOf('Future<void> _downloadAll()'),
-          source.indexOf('setState(() {\n      _isDownloading = true;'),
-        );
-        expect('_longTaskRunning'.allMatches(download).length, 2);
         final guard = source.substring(
           source.indexOf('bool get _longTaskRunning'),
           source.indexOf('bool get _exitPending'),
         );
         expect(guard, contains('_exitPending'));
-        final wait = source.substring(
-          source.indexOf('Future<bool> _waitUntilNoDialog('),
-          source.indexOf('Timer? _pauseTimer;'),
+        final host = source.substring(
+          source.indexOf('class _ShellDownloadHost'),
+          source.indexOf('class _ShellLauncherHost'),
         );
-        expect(wait, contains('_exitPending'));
+        expect(host, contains('bool get isBlocked =>'));
+        expect(host, contains('_shell._longTaskRunning'));
+        final wait = source.substring(
+          source.indexOf('late final DialogQueue _dialogs'),
+          source.indexOf('void initState()'),
+        );
+        expect(
+          wait,
+          contains(
+            '_exitPending || !(ModalRoute.of(context)?.isCurrent ?? true)',
+          ),
+        );
       },
     );
 
@@ -750,11 +695,20 @@ void main() {
     });
 
     test('מוצעת שוב בסוף ההורדה', () {
-      final download = source.substring(
-        source.indexOf('Future<void> downloadAll()'),
-        source.indexOf('Future<void> _sweepMirrorJunk'),
+      final host = source.substring(
+        source.indexOf('class _ShellDownloadHost'),
+        source.indexOf('class _ShellLauncherHost'),
       );
-      expect('_maybeOfferElevation()'.allMatches(download).length, 2);
+      final cancelled = host.substring(
+        host.indexOf('void downloadCancelled()'),
+        host.indexOf('void downloadEnded()'),
+      );
+      final ended = host.substring(
+        host.indexOf('void downloadEnded()'),
+        host.indexOf('void downloadFinished('),
+      );
+      expect(cancelled, contains('_shell._maybeOfferElevation()'));
+      expect(ended, contains('_shell._maybeOfferElevation()'));
     });
   });
 
@@ -889,77 +843,7 @@ void main() {
         source.indexOf('Future.wait', start),
       );
       expect(start, greaterThan(-1));
-      expect(body, contains('await _checkLauncherMirror()'));
-    });
-  });
-
-  group('ניקוי המראה מול הורדות שמתחילות אחריו', () {
-    final source = _appShellSource();
-
-    String bodyOf(String signature, String until) {
-      final start = source.indexOf(signature);
-      expect(start, greaterThan(-1), reason: signature);
-      return source.substring(start, source.indexOf(until, start));
-    }
-
-    test('הניקוי נשמר כ-future ואינו נזרק לרקע', () {
-      expect(source, contains('_mirrorSweep = _sweepMirrorJunk()'));
-      expect(source, isNot(contains('unawaited(_sweepMirrorJunk())')));
-    });
-
-    test("הורדת הלאנצ'ר ממתינה לניקוי לפני שהיא מתחילה", () {
-      final body = bodyOf(
-        'Future<void> downloadLauncherUpdate()',
-        '_launcherUpdate.download()',
-      );
-      expect(body, contains('await sweep'));
-    });
-
-    test('הורדה נוספת ממתינה לניקוי לפני שהיא מתחילה', () {
-      final body = bodyOf(
-        'Future<void> _downloadAll() async {',
-        'MirrorDownloadUndo.capture',
-      );
-      expect(body.indexOf('await sweep'), greaterThan(-1));
-      expect(
-        body.indexOf('await sweep'),
-        lessThan(body.indexOf('widget.settings.settings')),
-      );
-    });
-
-    test("הורדת הלאנצ'ר אינה מתחילה בזמן ההכנה להורדה הכללית", () {
-      final body = bodyOf(
-        'Future<void> downloadLauncherUpdate()',
-        '_launcherUpdate.download()',
-      );
-      expect(
-        body.indexOf('_isPreparingDownload'),
-        greaterThan(body.indexOf('await check')),
-      );
-    });
-
-    test("ההורדה הכללית בודקת שוב את הורדת הלאנצ'ר אחרי ההמתנות", () {
-      final body = bodyOf(
-        'Future<void> _downloadAll() async {',
-        'MirrorDownloadUndo.capture',
-      );
-      final dialog = body.indexOf('showTwoActionsDialog');
-      final recheck = body.indexOf(
-        '_longTaskRunning || _launcherUpdate.isDownloading) return;',
-        dialog,
-      );
-      expect(dialog, greaterThan(-1));
-      expect(recheck, greaterThan(dialog));
-      expect(recheck, lessThan(body.indexOf('_isDownloading = true')));
-    });
-
-    test("הניקוי אינו מתחיל בזמן הורדת הלאנצ'ר", () {
-      final body = bodyOf(
-        'Future<void> _downloadAll() async {',
-        '_mirrorSweep = _sweepMirrorJunk()',
-      );
-      final condition = body.substring(body.lastIndexOf('if ('));
-      expect(condition, contains('!_launcherUpdate.isDownloading'));
+      expect(body, contains('await _launcherFlow.checkMirror()'));
     });
   });
 
@@ -988,9 +872,7 @@ void main() {
     });
 
     test('הורדה מבוטלת ומחכים לשחזור לפני הסגירה', () {
-      expect(body, contains('_cancelDownload = true'));
-      expect(body, contains('await run'));
-      expect(source, contains('_downloadRun = _downloadAll()'));
+      expect(body, contains('await _downloads.cancelAndWait()'));
     });
   });
 }
