@@ -22,8 +22,7 @@ Map<String, Object?> manifest({
   'segment': {'size': 3},
   'identity': {
     'model': {
-      'family_id':
-          'ArieLLL123/judaic-semantic-round2-onnx-zayit@1ec8dc68888bcea774ae9f735b2fe7cd9dc7f3ca',
+      'family_id': 'ArieLLL123/judaic-semantic-round2-onnx-zayit@1ec8dc68888bcea774ae9f735b2fe7cd9dc7f3ca',
       'tokenizer_checksum': SemanticSearchAssets.modelFiles[1].sha256,
     },
   },
@@ -68,9 +67,8 @@ void main() {
     final manifestFile = File(p.join(mirror, tag, 'vectors', manifestName));
     await manifestFile.parent.create(recursive: true);
     await manifestFile.writeAsBytes(corrupt ? [1] : bytes);
-    await File(
-      p.join(mirror, tag, 'vectors', 'segment.oxv.zst'),
-    ).writeAsBytes([1, 2, 3]);
+    await File(p.join(mirror, tag, 'vectors', 'segment.oxv.zst'))
+        .writeAsBytes([1, 2, 3]);
     for (final model in SemanticSearchAssets.modelFiles) {
       final file = File(
         p.join(mirror, tag, SemanticSearchAssets.modelFolder, model.name),
@@ -83,17 +81,16 @@ void main() {
         await handle.close();
       }
     }
-    await File(
-      p.join(mirror, SemanticSearchAssets.manifestFileName),
-    ).writeAsString(
-      jsonEncode({
-        'libraryTag': tag,
-        'libraryVersion': 30,
-        'manifestName': manifestName,
-        'manifestSize': bytes.length,
-        'manifestSha256': Sha256Stream.ofBytes(bytes),
-      }),
-    );
+    await File(p.join(mirror, SemanticSearchAssets.manifestFileName))
+        .writeAsString(
+          jsonEncode({
+            'libraryTag': tag,
+            'libraryVersion': 30,
+            'manifestName': manifestName,
+            'manifestSize': bytes.length,
+            'manifestSha256': Sha256Stream.ofBytes(bytes),
+          }),
+        );
   }
 
   Future<bool> peek({
@@ -167,9 +164,8 @@ void main() {
 
   test('light check detects incomplete model and vector mirrors', () async {
     await writeMirror();
-    await File(
-      p.join(mirror, tag, SemanticSearchAssets.modelFolder, 'LICENSE'),
-    ).writeAsBytes([1]);
+    await File(p.join(mirror, tag, SemanticSearchAssets.modelFolder, 'LICENSE'))
+        .writeAsBytes([1]);
     expect(await peek(), isTrue);
     await writeMirror();
     await File(p.join(mirror, tag, 'vectors', 'segment.oxv.zst')).delete();
@@ -242,9 +238,8 @@ void main() {
 
   test('a mirror with a truncated model is never offered', () async {
     await writeMirror();
-    await File(
-      p.join(mirror, tag, SemanticSearchAssets.modelFolder, 'LICENSE'),
-    ).writeAsBytes([1]);
+    await File(p.join(mirror, tag, SemanticSearchAssets.modelFolder, 'LICENSE'))
+        .writeAsBytes([1]);
     expect(
       await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
       isFalse,
@@ -262,9 +257,8 @@ void main() {
       throwsFormatException,
     );
     expect(
-      await Directory(
-        p.join(p.dirname(p.dirname(db)), 'semantic-import'),
-      ).exists(),
+      await Directory(p.join(p.dirname(p.dirname(db)), 'semantic-import'))
+          .exists(),
       isFalse,
     );
     expect(requests, 0);
@@ -404,9 +398,8 @@ void main() {
       );
       expect(calls, lessThanOrEqualTo(2));
       expect(
-        await File(
-          p.join(mirror, SemanticSearchAssets.manifestFileName),
-        ).exists(),
+        await File(p.join(mirror, SemanticSearchAssets.manifestFileName))
+            .exists(),
         isFalse,
       );
     } finally {
@@ -480,9 +473,8 @@ void main() {
         }
         final name = request.url.pathSegments.last;
         expect(
-          await File(
-            p.join(mirror, SemanticSearchAssets.manifestFileName),
-          ).exists(),
+          await File(p.join(mirror, SemanticSearchAssets.manifestFileName))
+              .exists(),
           isFalse,
         );
         if (name == manifestName) return http.Response.bytes(bytes, 200);
@@ -569,16 +561,11 @@ void main() {
   test(
     'official native engine installs usable vectors at exact app paths',
     () async {
-      final fixture =
-          jsonDecode(
-                await File(
-                  p.join(vectorFixture!, 'release.json'),
-                ).readAsString(),
-              )
-              as Map<String, dynamic>;
-      final segmentBytes = await File(
-        p.join(vectorFixture, 'segment.oxv'),
-      ).readAsBytes();
+      final fixture = jsonDecode(
+        await File(p.join(vectorFixture!, 'release.json')).readAsString(),
+      ) as Map<String, dynamic>;
+      final segmentBytes = await File(p.join(vectorFixture, 'segment.oxv'))
+          .readAsBytes();
       fixture['files'] = [
         {
           'file': 'segment.oxv',
@@ -592,23 +579,20 @@ void main() {
       final manifestBytes = utf8.encode(jsonEncode(fixture));
       final mirrorVectors = Directory(p.join(mirror, tag, 'vectors'));
       await mirrorVectors.create(recursive: true);
-      await File(
-        p.join(mirrorVectors.path, 'segment.oxv'),
-      ).writeAsBytes(segmentBytes);
-      await File(
-        p.join(mirrorVectors.path, manifestName),
-      ).writeAsBytes(manifestBytes);
-      await File(
-        p.join(mirror, SemanticSearchAssets.manifestFileName),
-      ).writeAsString(
-        jsonEncode({
-          'libraryTag': tag,
-          'libraryVersion': 30,
-          'manifestName': manifestName,
-          'manifestSize': manifestBytes.length,
-          'manifestSha256': Sha256Stream.ofBytes(manifestBytes),
-        }),
-      );
+      await File(p.join(mirrorVectors.path, 'segment.oxv'))
+          .writeAsBytes(segmentBytes);
+      await File(p.join(mirrorVectors.path, manifestName))
+          .writeAsBytes(manifestBytes);
+      await File(p.join(mirror, SemanticSearchAssets.manifestFileName))
+          .writeAsString(
+            jsonEncode({
+              'libraryTag': tag,
+              'libraryVersion': 30,
+              'manifestName': manifestName,
+              'manifestSize': manifestBytes.length,
+              'manifestSha256': Sha256Stream.ofBytes(manifestBytes),
+            }),
+          );
       for (final file in SemanticSearchAssets.modelFiles) {
         final target = File(
           p.join(mirror, tag, SemanticSearchAssets.modelFolder, file.name),
@@ -658,9 +642,8 @@ void main() {
           isFalse,
         );
         expect(
-          await Directory(
-            p.join(p.dirname(p.dirname(externalDb)), 'vectors'),
-          ).exists(),
+          await Directory(p.join(p.dirname(p.dirname(externalDb)), 'vectors'))
+              .exists(),
           isFalse,
         );
         expect(
@@ -758,17 +741,15 @@ void main() {
     }
   }
 
-  Future<void> writeOldPointer() => File(
-    p.join(mirror, SemanticSearchAssets.manifestFileName),
-  ).writeAsString(jsonEncode({'libraryTag': oldTag, 'stale': true}));
+  Future<void> writeOldPointer() =>
+      File(p.join(mirror, SemanticSearchAssets.manifestFileName))
+          .writeAsString(jsonEncode({'libraryTag': oldTag, 'stale': true}));
 
   Future<String> pointerTag() async =>
       (jsonDecode(
-                await File(
-                  p.join(mirror, SemanticSearchAssets.manifestFileName),
-                ).readAsString(),
-              )
-              as Map)['libraryTag']
+            await File(p.join(mirror, SemanticSearchAssets.manifestFileName))
+                .readAsString(),
+          ) as Map)['libraryTag']
           as String;
 
   MockClient releaseClient({
@@ -833,9 +814,8 @@ void main() {
     'sync copies models from the old generation, then prunes it and repoints',
     () async {
       await seedGeneration(oldTag, models: true);
-      await File(
-        p.join(mirror, partialTag, 'vectors', 'half.part'),
-      ).create(recursive: true);
+      await File(p.join(mirror, partialTag, 'vectors', 'half.part'))
+          .create(recursive: true);
       await Directory(p.join(mirror, 'other')).create();
       await writeOldPointer();
       final modelRequests = <Uri>[];
@@ -865,9 +845,8 @@ void main() {
     () async {
       await seedGeneration(oldTag, models: true);
       await writeOldPointer();
-      final locked = await File(
-        p.join(mirror, oldTag, 'vectors', 'old.bin'),
-      ).open();
+      final locked = await File(p.join(mirror, oldTag, 'vectors', 'old.bin'))
+          .open();
       try {
         await runSync(releaseClient(modelRequests: <Uri>[]));
         expect(await pointerTag(), tag);
@@ -891,9 +870,8 @@ void main() {
     () async {
       await seedGeneration(oldTag);
       await seedGeneration(partialTag);
-      final locked = await File(
-        p.join(mirror, oldTag, 'vectors', 'old.bin'),
-      ).open();
+      final locked = await File(p.join(mirror, oldTag, 'vectors', 'old.bin'))
+          .open();
       try {
         await assets.pruneOldGenerations(mirror, tag);
         expect(await Directory(p.join(mirror, oldTag)).exists(), isTrue);
@@ -911,9 +889,8 @@ void main() {
     'sync failing at the model download keeps old and partial generations',
     () async {
       await seedGeneration(oldTag);
-      await File(
-        p.join(mirror, partialTag, 'vectors', 'half.part'),
-      ).create(recursive: true);
+      await File(p.join(mirror, partialTag, 'vectors', 'half.part'))
+          .create(recursive: true);
       await writeOldPointer();
       final modelRequests = <Uri>[];
       await expectLater(
@@ -935,9 +912,8 @@ void main() {
 
   test('sync failing at the vector download keeps old generations', () async {
     await seedGeneration(oldTag, models: true);
-    await File(
-      p.join(mirror, partialTag, 'vectors', 'half.part'),
-    ).create(recursive: true);
+    await File(p.join(mirror, partialTag, 'vectors', 'half.part'))
+        .create(recursive: true);
     await writeOldPointer();
     await expectLater(
       runSync(releaseClient(modelRequests: <Uri>[], segmentStatus: 500)),
@@ -1032,6 +1008,174 @@ void main() {
     skip: Platform.isWindows ? 'relies on POSIX file permissions' : false,
   );
 
+  Future<void> syncWithLargeVectors({
+    required DownloadScheduler scheduler,
+    required List<String> requested,
+    void Function(int inFlight)? onInFlight,
+    List<int>? onDisk,
+    void Function(int downloaded, int? total)? onBytesProgress,
+  }) async {
+    const vectorName = 'segment.oxv.zst';
+    const vectorSize = 50000000;
+    final large = manifest();
+    large['files'] = [
+      {'file': vectorName, 'size': vectorSize, 'sha256': '1' * 64},
+      if (onDisk != null)
+        {
+          'file': 'complete.oxv.zst',
+          'size': onDisk.length,
+          'sha256': Sha256Stream.ofBytes(onDisk),
+        },
+    ];
+    if (onDisk != null) {
+      final complete = File(p.join(mirror, tag, 'vectors', 'complete.oxv.zst'));
+      await complete.parent.create(recursive: true);
+      await complete.writeAsBytes(onDisk);
+    }
+    final bytes = utf8.encode(jsonEncode(large));
+    var inFlight = 0;
+    final client = MockClient((request) async {
+      if (request.url.host == 'api.github.com') {
+        return http.Response(
+          jsonEncode({
+            'tag_name': 'vectors-$tag',
+            'assets': [
+              {
+                'name': manifestName,
+                'size': bytes.length,
+                'digest': 'sha256:${Sha256Stream.ofBytes(bytes)}',
+                'browser_download_url':
+                    'https://github.com/Otzaria/SeforimLibrary/releases/download/vectors-$tag/$manifestName',
+              },
+              {
+                'name': vectorName,
+                'size': vectorSize,
+                'browser_download_url':
+                    'https://github.com/Otzaria/SeforimLibrary/releases/download/vectors-$tag/$vectorName',
+              },
+              if (onDisk != null)
+                {
+                  'name': 'complete.oxv.zst',
+                  'size': onDisk.length,
+                  'browser_download_url':
+                      'https://github.com/Otzaria/SeforimLibrary/releases/download/vectors-$tag/complete.oxv.zst',
+                },
+            ],
+          }),
+          200,
+        );
+      }
+      final name = request.url.pathSegments.last;
+      if (name == manifestName) return http.Response.bytes(bytes, 200);
+      requested.add(name);
+      inFlight++;
+      onInFlight?.call(inFlight);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      inFlight--;
+      return http.Response('', 404);
+    });
+    final online = SemanticSearchAssets(
+      httpClient: client,
+      scheduler: scheduler,
+    );
+    try {
+      await expectLater(
+        online.sync(
+          mirrorDir: mirror,
+          libraryTag: tag,
+          onBytesProgress: onBytesProgress,
+        ),
+        throwsA(anything),
+      );
+    } finally {
+      online.dispose();
+      client.close();
+    }
+    expect(
+      await File(p.join(mirror, SemanticSearchAssets.manifestFileName))
+          .exists(),
+      isFalse,
+    );
+  }
+
+  test('sync starts the largest smart-search download first', () async {
+    final requested = <String>[];
+    await syncWithLargeVectors(
+      scheduler: DownloadScheduler(maxConcurrent: 1),
+      requested: requested,
+    );
+    expect(requested, ['segment.oxv.zst']);
+  });
+
+  test(
+    'sync deducts complete files from the total before the first byte',
+    () async {
+      final onDisk = List<int>.generate(4096, (i) => i % 251);
+      final totals = <int?>[];
+      await syncWithLargeVectors(
+        scheduler: DownloadScheduler(maxConcurrent: 1),
+        requested: <String>[],
+        onDisk: onDisk,
+        onBytesProgress: (_, total) => totals.add(total),
+      );
+      final planned = [
+        for (final file in SemanticSearchAssets.modelFiles)
+          file.name == 'tokenizer.json'
+              ? SemanticSearchAssets.tokenizerZip
+              : file,
+      ].fold<int>(50000000, (sum, file) => sum + file.size);
+      expect(totals, isNotEmpty);
+      expect(totals.toSet(), {planned});
+    },
+  );
+
+  test('sync downloads models and vectors in parallel', () async {
+    final requested = <String>[];
+    var peak = 0;
+    await syncWithLargeVectors(
+      scheduler: DownloadScheduler(),
+      requested: requested,
+      onInFlight: (inFlight) {
+        if (inFlight > peak) peak = inFlight;
+      },
+    );
+    expect(peak, greaterThan(1));
+  });
+
+  test(
+    'unreadable smart-search files do not abort the pending check',
+    () async {
+      await writeMirror();
+      final local = File(
+        p.join(
+          p.dirname(db),
+          SemanticSearchAssets.modelFolder,
+          SemanticSearchAssets.modelFiles.first.name,
+        ),
+      );
+      await local.parent.create(recursive: true);
+      final handle = await local.open(mode: FileMode.write);
+      try {
+        await handle.truncate(SemanticSearchAssets.modelFiles.first.size);
+      } finally {
+        await handle.close();
+      }
+      await Process.run('chmod', ['000', local.path]);
+      expect(
+        await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+        isTrue,
+      );
+      final mirrored = File(p.join(mirror, tag, 'vectors', manifestName));
+      await Process.run('chmod', ['000', mirrored.path]);
+      expect(
+        await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+        isFalse,
+      );
+      expect(requests, 0);
+    },
+    skip: Platform.isWindows ? 'chmod permissions are POSIX-specific' : false,
+  );
+
   Future<List<int>> writePartedMirror({bool corruptLast = false}) async {
     final parts = {
       'segment.oxv.part-000': List<int>.generate(70000, (i) => i % 251),
@@ -1062,17 +1206,16 @@ void main() {
       await target.parent.create(recursive: true);
       await File(p.join(modelFixture!, model.name)).copy(target.path);
     }
-    await File(
-      p.join(mirror, SemanticSearchAssets.manifestFileName),
-    ).writeAsString(
-      jsonEncode({
-        'libraryTag': tag,
-        'libraryVersion': 30,
-        'manifestName': manifestName,
-        'manifestSize': bytes.length,
-        'manifestSha256': Sha256Stream.ofBytes(bytes),
-      }),
-    );
+    await File(p.join(mirror, SemanticSearchAssets.manifestFileName))
+        .writeAsString(
+          jsonEncode({
+            'libraryTag': tag,
+            'libraryVersion': 30,
+            'manifestName': manifestName,
+            'manifestSize': bytes.length,
+            'manifestSha256': Sha256Stream.ofBytes(bytes),
+          }),
+        );
     return [for (final part in parts.values) ...part];
   }
 

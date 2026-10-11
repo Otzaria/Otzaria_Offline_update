@@ -706,7 +706,14 @@ one against ~2.1MB/s aggregate on four.
 semaphore on purpose**: `LibraryManager` hands the same instance to
 `LibraryMirrorExporter` and `CompanionAssetsMirror` and runs them concurrently (the
 ~509MB of companions used to queue behind the ~1.55GB DB), so the two stages
-together never open more than four connections. `plugins_manager` cannot depend on
+together never open more than four connections. The smart-search sync
+(`SemanticSearchAssets.sync`) runs after both on the same instance, models and
+vector parts biggest-first, deducts files already complete in the generation
+through `slot(existingBytes:)` before its `announce()`, and reports into a new
+`slot()` of the same outer aggregator, so the bar keeps counting instead of
+resetting when it starts; an
+export that returned "up to date" without ever reporting gets a zero total first,
+or the outer total would stay unknown. `plugins_manager` cannot depend on
 the root package (pure Dart vs. Flutter) and carries its own 40-line `runPooled`;
 keep them in step conceptually, without a cross-package dependency. Three
 load-bearing consequences:

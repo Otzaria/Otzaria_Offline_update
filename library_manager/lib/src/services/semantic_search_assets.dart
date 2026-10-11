@@ -16,11 +16,14 @@ class SemanticSearchAssets {
   SemanticSearchAssets({
     http.Client? httpClient,
     ExternalLibrary? nativeLibrary,
+    DownloadScheduler? scheduler,
   }) : _client = httpClient ?? http.Client(),
        _nativeLibrary = nativeLibrary,
+       _scheduler = scheduler ?? DownloadScheduler(),
        _ownsClient = httpClient == null;
 
   final http.Client _client;
+  final DownloadScheduler _scheduler;
   final bool _ownsClient;
   final ExternalLibrary? _nativeLibrary;
   static Future<void>? _nativeInitialization;
@@ -301,6 +304,25 @@ class SemanticSearchAssets {
       ].fold<int>(0, (sum, file) => sum + file.size),
       onProgress: onBytesProgress,
     );
+    final jobs = <({SemanticAsset file, String url, String dest})>[
+      for (final file in downloadModels)
+        (
+          file: file,
+          url: '$modelBaseUrl/${file.name}',
+          dest: p.join(generation, modelFolder, file.name),
+        ),
+      for (final file in files)
+        (
+          file: file,
+          url: vectorUrls[file.name]!,
+          dest: p.join(generation, 'vectors', file.name),
+        ),
+    ]..sort((a, b) => b.file.size.compareTo(a.file.size));
+    final slots = <ByteProgressSlot>[];
+    for (final job in jobs) {
+      final existing = await _completeLength(job.dest, job.file.size);
+      slots.add(progress.slot(existingBytes: existing));
+    }
     progress.announce();
     final downloader = PatchDownloader(
       httpClient: _client,
@@ -318,62 +340,29 @@ class SemanticSearchAssets {
         await File(entry.value).copy(temporary);
         await File(temporary).rename(target);
       }
-      for (final file in downloadModels) {
-        final slot = progress.slot();
-        _cancel(isCancelled);
-        await downloader.downloadToFile(
-          url: '$modelBaseUrl/${file.name}',
-          destPath: p.join(generation, modelFolder, file.name),
-          expectedSize: file.size,
-          expectedSha256: file.sha256,
-          resumeToken: file.sha256,
-          onProgress: slot.report,
-          onExistingBytes: slot.markExisting,
-          isCancelled: isCancelled,
-        );
-        if (file.name == tokenizerZip.name) {
-          _cancel(isCancelled);
-          final zipped = ZipDecoder().decodeBytes(
-            await File(
-              p.join(generation, modelFolder, file.name),
-            ).readAsBytes(),
-          );
-          if (zipped.files.length != 1 ||
-              zipped.files.single.name != 'tokenizer.json' ||
-              !zipped.files.single.isFile ||
-              zipped.files.single.size != modelFiles[1].size) {
-            _invalid();
-          }
-          final bytes = zipped.files.single.content;
-          if (Sha256Stream.ofBytes(bytes) != modelFiles[1].sha256) {
-            _invalid();
-          }
-          final target = File(
-            p.join(generation, modelFolder, 'tokenizer.json'),
-          );
-          final temporary = File('${target.path}.tmp');
-          await temporary.writeAsBytes(bytes, flush: true);
-          _cancel(isCancelled);
-          await temporary.rename(target.path);
-        }
-      }
-      for (final file in files) {
-        final slot = progress.slot();
-        await downloader.downloadToFile(
-          url: vectorUrls[file.name]!,
-          destPath: p.join(generation, 'vectors', file.name),
-          expectedSize: file.size,
-          expectedSha256: file.sha256,
-          resumeToken: file.sha256,
-          onProgress: slot.report,
-          onExistingBytes: slot.markExisting,
-          isCancelled: isCancelled,
-        );
-      }
+      await _scheduler.run<void>([
+        for (final (index, job) in jobs.indexed)
+          () async {
+            _cancel(isCancelled);
+            final slot = slots[index];
+            await downloader.downloadToFile(
+              url: job.url,
+              destPath: job.dest,
+              expectedSize: job.file.size,
+              expectedSha256: job.file.sha256,
+              resumeToken: job.file.sha256,
+              onProgress: slot.report,
+              onExistingBytes: slot.markExisting,
+              isCancelled: isCancelled,
+            );
+            if (job.file.name == tokenizerZip.name) {
+              await _extractTokenizer(job.dest, isCancelled);
+            }
+          },
+      ]);
       _cancel(isCancelled);
-      await File(
-        p.join(generation, 'vectors', manifestName),
-      ).writeAsBytes(manifestBytes, flush: true);
+      await File(p.join(generation, 'vectors', manifestName))
+          .writeAsBytes(manifestBytes, flush: true);
       final metadataFile = File(p.join(mirrorDir, '$manifestFileName.tmp'));
       await metadataFile.writeAsString(jsonEncode(metadata), flush: true);
       _cancel(isCancelled);
@@ -382,6 +371,39 @@ class SemanticSearchAssets {
     } finally {
       downloader.dispose();
     }
+  }
+
+  Future<int> _completeLength(String path, int expectedSize) async {
+    try {
+      final file = File(path);
+      if (!await file.exists()) return 0;
+      return await file.length() >= expectedSize ? expectedSize : 0;
+    } on FileSystemException {
+      return 0;
+    }
+  }
+
+  Future<void> _extractTokenizer(
+    String zipPath,
+    bool Function()? isCancelled,
+  ) async {
+    _cancel(isCancelled);
+    final zipped = ZipDecoder().decodeBytes(await File(zipPath).readAsBytes());
+    if (zipped.files.length != 1 ||
+        zipped.files.single.name != 'tokenizer.json' ||
+        !zipped.files.single.isFile ||
+        zipped.files.single.size != modelFiles[1].size) {
+      _invalid();
+    }
+    final bytes = zipped.files.single.content;
+    if (Sha256Stream.ofBytes(bytes) != modelFiles[1].sha256) {
+      _invalid();
+    }
+    final target = File(p.join(p.dirname(zipPath), 'tokenizer.json'));
+    final temporary = File('${target.path}.tmp');
+    await temporary.writeAsBytes(bytes, flush: true);
+    _cancel(isCancelled);
+    await temporary.rename(target.path);
   }
 
   static final _generationName = RegExp(r'^v\d+-[A-Za-z0-9._+-]+$');
@@ -493,9 +515,9 @@ class SemanticSearchAssets {
         return null;
       }
       if (int.tryParse(
-            RegExp(
-                  r'^v(\d+)-',
-                ).firstMatch(value['libraryTag'] as String)?.group(1) ??
+            RegExp(r'^v(\d+)-')
+                    .firstMatch(value['libraryTag'] as String)
+                    ?.group(1) ??
                 '',
           ) !=
           value['libraryVersion']) {
@@ -520,24 +542,29 @@ class SemanticSearchAssets {
   ]) async {
     _cancel(isCancelled);
     final source = File(path);
-    if (!await source.exists() || await source.length() != file.size) {
-      return false;
-    }
     final hash = Sha256Stream();
     try {
-      var unflushed = 0;
-      await for (final chunk in source.openRead()) {
-        _cancel(isCancelled);
-        hash.add(chunk);
-        if (copyTo == null) continue;
-        copyTo.add(chunk);
-        unflushed += chunk.length;
-        if (unflushed >= _copyFlushBytes) {
-          unflushed = 0;
-          await copyTo.flush();
+      try {
+        if (!await source.exists() || await source.length() != file.size) {
+          return false;
         }
+        var unflushed = 0;
+        await for (final chunk in source.openRead()) {
+          _cancel(isCancelled);
+          hash.add(chunk);
+          if (copyTo == null) continue;
+          copyTo.add(chunk);
+          unflushed += chunk.length;
+          if (unflushed >= _copyFlushBytes) {
+            unflushed = 0;
+            await copyTo.flush();
+          }
+        }
+        return hash.close() == file.sha256;
+      } on FileSystemException {
+        if (copyTo != null) rethrow;
+        return false;
       }
-      return hash.close() == file.sha256;
     } finally {
       hash.dispose();
     }
@@ -572,6 +599,8 @@ class SemanticSearchAssets {
         }
       }
       return (metadata: meta, files: [...files, manifestFile]);
+    } on FileSystemException {
+      return null;
     } on FormatException {
       return null;
     }
@@ -613,14 +642,12 @@ class SemanticSearchAssets {
             pointer['set'] is! String ||
             pointer['set_sha256'] is! String ||
             pointer['generation'] is! int ||
-            !RegExp(
-              r'^gen-[0-9]+/set\.json$',
-            ).hasMatch(pointer['set'] as String)) {
+            !RegExp(r'^gen-[0-9]+/set\.json$')
+                .hasMatch(pointer['set'] as String)) {
           continue;
         }
-        final bytes = await File(
-          p.join(vectors, pointer['set'] as String),
-        ).readAsBytes();
+        final bytes = await File(p.join(vectors, pointer['set'] as String))
+            .readAsBytes();
         if (Sha256Stream.ofBytes(bytes) != pointer['set_sha256']) continue;
         final set = jsonDecode(utf8.decode(bytes));
         if (set is! Map ||
@@ -637,9 +664,8 @@ class SemanticSearchAssets {
         for (final segment in set['segments'] as List) {
           if (segment is! Map ||
               segment['file'] is! String ||
-              !RegExp(
-                r'^segments/[0-9a-f]{32}\.oxv$',
-              ).hasMatch(segment['file'] as String) ||
+              !RegExp(r'^segments/[0-9a-f]{32}\.oxv$')
+                  .hasMatch(segment['file'] as String) ||
               segment['size'] is! int) {
             complete = false;
             break;
@@ -756,9 +782,8 @@ class SemanticSearchAssets {
         await File(temporary).rename(target);
       }
       _cancel(isCancelled);
-      await File(
-        p.join(p.dirname(dbPath), modelFolder, '.otzaria-semantic'),
-      ).writeAsString('');
+      await File(p.join(p.dirname(dbPath), modelFolder, '.otzaria-semantic'))
+          .writeAsString('');
       final manifestJson = await File(
         p.join(generation, 'vectors', data.metadata['manifestName'] as String),
       ).readAsString();
