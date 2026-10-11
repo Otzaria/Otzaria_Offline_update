@@ -1062,6 +1062,54 @@ void main() {
       expect(assetOnDisk(destDir, 'v23', 'seforim.db.zst'), isTrue);
     });
 
+    const creditScale = ApplyTimeEstimate(
+      fullSecondsPerMb: 100,
+      stepSecondsPerMb: 300,
+      downloadSecondsPerMb: 1000,
+    );
+    final creditReleases = [
+      release('v24', assets: [
+        'seforim.db.zst',
+        'patch-v23-v24.db.zst',
+        'patch-v23-v24.db.zst.manifest.json',
+      ]),
+      release('v23', assets: ['seforim.db.zst']),
+    ];
+    const creditSizes = {
+      'seforim.db.zst': 4 << 20,
+      'patch-v23-v24.db.zst': 3 << 20,
+    };
+
+    test('נשא ישן בכונן — זיכוי ההורדה משאיר את ה-patch', () async {
+      await buildExporter(
+        [creditReleases.last],
+        assetSizes: creditSizes,
+      ).exporter.export(destDir: destDir);
+
+      final second = buildExporter(
+        creditReleases,
+        assetSizes: creditSizes,
+        applyTime: creditScale,
+      );
+      await second.exporter.export(destDir: destDir);
+
+      expect(second.fetched, contains('patch-v23-v24.db.zst'));
+      expect(second.fetched, isNot(contains('seforim.db.zst')));
+    });
+
+    test('המסד המלא החדש נארז בכל מקרה — patch איטי נפסל בלי זיכוי', () async {
+      final built = buildExporter(
+        creditReleases,
+        assetSizes: creditSizes,
+        applyTime: creditScale,
+      );
+      await built.exporter.export(destDir: destDir);
+
+      expect(built.fetched, contains('seforim.db.zst'));
+      expect(built.fetched, isNot(contains('patch-v23-v24.db.zst')));
+      expect(assetOnDisk(destDir, 'v24', 'patch-v23-v24.db.zst'), isFalse);
+    });
+
     // בלי מסד מלא שמגיע **לבדו** ל-latest, מחיקת הקשתות הייתה עוצרת את
     // המראה מתחת לגרסה האחרונה.
     test('מסד מלא שאינו מגיע ל-latest אינו מאפס את המראה', () async {

@@ -581,6 +581,19 @@ void main() {
         );
       });
 
+      test('מסד מלא ישן שאינו מתקדם + סכמה חוסמת → blocked עם הסבר הסכמה', () {
+        final p = plan(
+          local: 27,
+          latest: 28,
+          edges: [],
+          fullVersion: 27,
+          blockingSchema: 7,
+        );
+        final strings = AppL10n.strings.libraryDomain;
+        expect(p.kind, LibraryUpdatePlanKind.blocked);
+        expect(p.reason, strings.planPatchSchemaTooNew(7, 28));
+      });
+
       test('סכמה חוסמת ובלי מסד מלא כלל → blocked', () {
         final p = plan(
           local: 23,

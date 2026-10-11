@@ -101,10 +101,14 @@ class LibraryUpdateDiscovery {
     // כל הקשתות שנבנו, כולל כאלה שאיננו יודעים להחיל: הן קובעות מהי הגרסה
     // האחרונה שקיימת בכלל, גם כשהמסלול אליה אינו patches.
     final allEdges = <PatchEdge>[];
+    final edgeRelease = <PatchEdge, LibraryRelease>{};
     for (final release in releases) {
       for (final manifestAsset in release.deltaManifestAssets) {
         final edge = await _buildEdge(release, manifestAsset);
-        if (edge != null) allEdges.add(edge);
+        if (edge != null) {
+          allEdges.add(edge);
+          edgeRelease[edge] = release;
+        }
       }
     }
 
@@ -127,7 +131,14 @@ class LibraryUpdateDiscovery {
       }
       // מחסום סכמה אינו "יכולת חסרה": המסלול אליו הוא מסד מלא, בלי הודעת
       // "נדרש עדכון תוכנה".
-      if (edge.manifest.fullRebase) continue;
+      if (edge.manifest.fullRebase) {
+        final target = edge.manifest.toSchemaVersion;
+        if (!isSupportedSchemaVersion(target) &&
+            edgeRelease[edge]?.fullDbAsset == null) {
+          unsupportedSchemas.add(target);
+        }
+        continue;
+      }
       for (final schema in [
         edge.manifest.fromSchemaVersion,
         edge.manifest.toSchemaVersion,
@@ -158,8 +169,17 @@ class LibraryUpdateDiscovery {
 
     // ה-latest הוא הגבוה מבין ה-edges וה-DB המלא — כך release חדש שיצא עם DB
     // מלא בלבד (טרם נוצרו לו patches) עדיין נחשב latest, ויפעיל full fallback.
-    final latestVersion =
+    var latestVersion =
         maxEdgeVersion > bestFullVersion ? maxEdgeVersion : bestFullVersion;
+
+    for (final release in releases) {
+      final schema = release.unsupportedFullDbSchema;
+      if (schema == null) continue;
+      final version = releaseVersionOf(release);
+      if (version < latestVersion) continue;
+      latestVersion = version;
+      unsupportedSchemas.add(schema);
+    }
 
     return LibraryDiscoveryResult(
       latestVersion: latestVersion,

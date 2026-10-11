@@ -593,6 +593,111 @@ void main() {
     });
   });
 
+  group('release שמפרסם מסד מלא בסכמה שאיננו קוראים', () {
+    LibraryUpdateDiscovery buildDiscovery(
+        List<Map<String, List<String>>> releases) {
+      final json = jsonEncode([
+        for (final release in releases)
+          {
+            'tag_name': release.keys.single,
+            'assets': [
+              for (final name in release.values.single)
+                {
+                  'name': name,
+                  'browser_download_url':
+                      'https://x/${release.keys.single}/$name',
+                  'size': 100,
+                },
+            ],
+          },
+      ]);
+      final mock = MockClient((request) async {
+        final url = request.url.toString();
+        if (url.contains('/releases')) return http.Response(json, 200);
+        return http.Response(
+          _manifestJson(27, 28, fromSchema: 6, toSchema: 7, fullRebase: true),
+          200,
+        );
+      });
+      return LibraryUpdateDiscovery(
+          client: GithubLibraryReleaseClient(httpClient: mock));
+    }
+
+    test('בלי patches — נספר ל-latest וחוסם בסכמה שלו', () async {
+      final result = await buildDiscovery([
+        {
+          'v28': ['seforim-schema7.db.zst']
+        },
+        {
+          'v27': ['seforim-schema6.db.zst']
+        },
+      ]).discover(allowPrerelease: true);
+
+      expect(result.latestVersion, 28);
+      expect(result.unsupportedSchemaVersions, {7});
+      expect(result.blockingSchemaVersion, 7);
+      expect(result.fullDbReleaseTag, 'v27');
+    });
+
+    test('fullRebase לסכמה 7 עם מסד schema7 — נספר וחוסם', () async {
+      final result = await buildDiscovery([
+        {
+          'v28': [
+            'seforim-schema7.db.zst',
+            'patch-v27-v28.db.zst.manifest.json',
+          ]
+        },
+        {
+          'v27': ['seforim-schema6.db.zst']
+        },
+      ]).discover(allowPrerelease: true);
+
+      expect(result.latestVersion, 28);
+      expect(result.edges, isEmpty);
+      expect(result.blockingSchemaVersion, 7);
+    });
+
+    test('fullRebase לסכמה 7 בלי מסד (כמו במראה) — חוסם', () async {
+      final result = await buildDiscovery([
+        {
+          'v28': ['patch-v27-v28.db.zst.manifest.json']
+        },
+        {
+          'v27': ['seforim-schema6.db.zst']
+        },
+      ]).discover(allowPrerelease: true);
+
+      expect(result.latestVersion, 28);
+      expect(result.blockingSchemaVersion, 7);
+    });
+
+    test('מסד schema6 לצד schema7 — אין חסימה', () async {
+      final result = await buildDiscovery([
+        {
+          'v28': ['seforim-schema7.db.zst', 'seforim-schema6.db.zst']
+        },
+      ]).discover(allowPrerelease: true);
+
+      expect(result.latestVersion, 28);
+      expect(result.blockingSchemaVersion, isNull);
+      expect(result.fullDbReleaseTag, 'v28');
+    });
+
+    test('מסד לא נתמך ב-release ישן מה-latest אינו חוסם', () async {
+      final result = await buildDiscovery([
+        {
+          'v28': ['seforim-schema6.db.zst']
+        },
+        {
+          'v27': ['seforim-schema7.db.zst']
+        },
+      ]).discover(allowPrerelease: true);
+
+      expect(result.latestVersion, 28);
+      expect(result.blockingSchemaVersion, isNull);
+    });
+  });
+
   group('releaseVersionOf', () {
     LibraryRelease withAssets(String tag, List<String> names) =>
         _release(tag: tag, assetNames: names);

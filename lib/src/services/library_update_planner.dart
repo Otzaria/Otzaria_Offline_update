@@ -295,11 +295,16 @@ class LibraryUpdatePlanner {
         return LibraryUpdatePlan.blocked(
           localVersion: localVersion,
           targetVersion: latestVersion,
-          reason: strings.planFullDbWouldNotProgress(
-            finalTarget,
-            localVersion,
-            latestVersion,
-          ),
+          reason: blockingSchemaVersion != null
+              ? strings.planPatchSchemaTooNew(
+                  blockingSchemaVersion,
+                  latestVersion,
+                )
+              : strings.planFullDbWouldNotProgress(
+                  finalTarget,
+                  localVersion,
+                  latestVersion,
+                ),
         );
       }
       return LibraryUpdatePlan.fullDownload(

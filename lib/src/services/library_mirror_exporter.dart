@@ -325,6 +325,17 @@ class LibraryMirrorExporter {
     final fullDbCarrier = personal
         ? null
         : _chooseFullDbCarrier(relevant, edges, assetsRoot.path, onStage);
+    if (fullDbCarrier != null &&
+        identical(fullDbCarrier, _newestFullDbCarrier(relevant, 0))) {
+      _dropSlowPatches(
+        neededByRelease: neededByRelease,
+        mirroredEdges: mirroredEdges,
+        edges: edges,
+        relevant: relevant,
+        onStage: onStage,
+        creditDownload: false,
+      );
+    }
     if (fullDbCarrier != null) {
       final full = fullDbCarrier.fullDbAsset!;
       neededByRelease[fullDbCarrier]![full.name] = full;
@@ -895,6 +906,7 @@ class LibraryMirrorExporter {
     required List<({int from, int to})> edges,
     required List<LibraryRelease> relevant,
     required void Function(String stage)? onStage,
+    bool creditDownload = true,
   }) {
     final strings = AppL10n.strings.libraryDomain;
     var dropped = 0;
@@ -910,7 +922,7 @@ class LibraryMirrorExporter {
       if (!applyTime.isOutOfRange(
         stepSeconds,
         fullSeconds,
-        savedDownloadBytes: fullBytes - bytes,
+        savedDownloadBytes: creditDownload ? fullBytes - bytes : 0,
       )) {
         continue;
       }
