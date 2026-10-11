@@ -30,12 +30,11 @@ void main() {
     await deleteTempDir(tempDir);
   });
 
-  /// כותב מראה מקומית של תוכנת אוצריא: מטא-דאטה + קובצי התקנה בגודל תואם.
   void writeAppMirror({
     String? stableTag,
     String? prereleaseTag,
-    // חבילת FULL שירדה בגרסה ישנה של הלאנצ'ר ונשארה לצד המתקין הרגיל.
     bool staleFullOnDrive = false,
+    OtzariaInstallerKind installerKind = OtzariaInstallerKind.windowsSetupExe,
   }) {
     final mirrorDir = p.join(tempDir.path, 'mirror', 'app');
     Directory(mirrorDir).createSync(recursive: true);
@@ -46,8 +45,6 @@ void main() {
         ..parent.createSync(recursive: true)
         ..writeAsStringSync('installer for $tag');
 
-      // הקובץ בלבד, בלי רישום במטא־דאטה: כך הוא נראה אחרי שהמראה נכתבה
-      // מחדש בגרסה שכבר אינה מכירה חבילות FULL.
       if (staleFullOnDrive && !prerelease) {
         final stale = 'installers/$tag/otzaria-$tag-windows-full.exe';
         File(p.join(mirrorDir, p.joinAll(stale.split('/'))))
@@ -61,7 +58,7 @@ void main() {
         'isPrerelease': prerelease,
         'isDraft': false,
         'publishedAt': '2026-08-01T00:00:00.000Z',
-        'installerKind': OtzariaInstallerKind.windowsSetupExe.name,
+        'installerKind': installerKind.name,
         'installerAssetName': 'otzaria-$tag.exe',
         'installerDownloadUrl': 'https://example.invalid/otzaria-$tag.exe',
         'installerSizeBytes': file.lengthSync(),
@@ -79,18 +76,22 @@ void main() {
     }));
   }
 
-  OtzariaModuleController controllerFor({bool preferPrerelease = false}) {
+  OtzariaModuleController controllerFor({
+    bool preferPrerelease = false,
+    RunningOtzariaLocator runningLocator = const _NeverRunningLocator(),
+  }) {
     final controller = OtzariaModuleController(
       dataDir: tempDir.path,
       preferPrerelease: preferPrerelease,
-      // בלי ההזרקה הזו הבדיקות מריצות `tasklist` אמיתי ו-FFI על התהליכים של
-      // המכונה: אצל מי שאוצריא מותקנת אצלו הן עוברות מהסיבה הלא נכונה,
-      // וכשהיא פתוחה הן מאתרות התקנה אמיתית ונכשלות.
-      runningLocator: const _NeverRunningLocator(),
+      runningLocator: runningLocator,
     );
     addTearDown(controller.dispose);
     return controller;
   }
+
+  final hostInstallerKind = Platform.isMacOS
+      ? OtzariaInstallerKind.macAppZip
+      : OtzariaInstallerKind.windowsSetupExe;
 
   group('checkForUpdate — מהתיקייה המקומית בלבד', () {
     test('מראה ריקה = needsDownload, וזה לא מצב שגיאה', () async {
@@ -223,6 +224,27 @@ void main() {
       expect(c.status, OtzariaModuleStatus.updateAvailable);
     });
 
+    test('החלפת ערוץ בזמן שבדיקה רצה מריצה אותה שוב בערוץ החדש', () async {
+      writeAppMirror(
+        stableTag: '1.0.0',
+        prereleaseTag: '1.1.0-beta',
+        installerKind: hostInstallerKind,
+      );
+      final locator = _GatedLocator();
+      final c = controllerFor(runningLocator: locator);
+
+      final check = c.checkForUpdate();
+      final firstProbe = await locator.next();
+      c.preferPrerelease = true;
+      firstProbe.complete(false);
+      (await locator.next()).complete(false);
+      await check;
+
+      expect(c.latestVersion, '1.1.0-beta');
+      expect(c.status, OtzariaModuleStatus.updateAvailable);
+      expect(locator.requested, 2);
+    });
+
     test('הצבת אותו ערך אינה משנה דבר', () async {
       final c = controllerFor();
       c.preferPrerelease = false;
@@ -254,6 +276,85 @@ void main() {
       expect(c.status, OtzariaModuleStatus.idle);
       expect(notifications, 0);
     });
+
+    test(
+      'בדיקה והחלפת ערוץ באמצע התקנה אינן דורסות את מצב ההתקנה, '
+      'והתקנה שנייה אינה יוצאת',
+      () async {
+        writeAppMirror(
+          stableTag: '1.0.0',
+          prereleaseTag: '1.1.0-beta',
+          installerKind: OtzariaInstallerKind.macAppZip,
+        );
+        final locator = _GatedLocator();
+        final c = controllerFor(runningLocator: locator);
+        final initial = c.checkForUpdate();
+        (await locator.next()).complete(false);
+        await initial;
+        expect(c.status, OtzariaModuleStatus.updateAvailable);
+
+        final install = c.install(useWizard: false);
+        final installProbe = await locator.next();
+        expect(c.status, OtzariaModuleStatus.installing);
+
+        unawaited(c.checkForUpdate());
+        c.preferPrerelease = true;
+        unawaited(c.install(useWizard: false));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        expect(c.status, OtzariaModuleStatus.installing);
+        expect(locator.requested, 2);
+
+        installProbe.complete(true);
+        await install;
+        expect(c.status, OtzariaModuleStatus.error);
+        expect(c.errorMessage, isNotNull);
+
+        final retry = c.checkForUpdate();
+        (await locator.next()).complete(false);
+        await retry;
+
+        expect(c.status, OtzariaModuleStatus.updateAvailable);
+        expect(c.errorMessage, isNull);
+        expect(c.latestVersion, '1.1.0-beta');
+      },
+      testOn: 'mac-os',
+    );
+
+    test(
+      'התקנה שנפתחת בזמן בדיקה ממתינה לה, ושגיאת ההתקנה נשארת',
+      () async {
+        writeAppMirror(
+          stableTag: '1.0.0',
+          installerKind: OtzariaInstallerKind.macAppZip,
+        );
+        final locator = _GatedLocator();
+        final c = controllerFor(runningLocator: locator);
+        final initial = c.checkForUpdate();
+        (await locator.next()).complete(false);
+        await initial;
+        expect(c.status, OtzariaModuleStatus.updateAvailable);
+
+        final check = c.checkForUpdate();
+        final checkProbe = await locator.next();
+        final install = c.install(useWizard: false);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        expect(c.status, OtzariaModuleStatus.checking);
+        expect(locator.requested, 2);
+
+        checkProbe.complete(false);
+        await check;
+        (await locator.next()).complete(true);
+        await install;
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        expect(c.status, OtzariaModuleStatus.error);
+        expect(c.errorMessage, isNotNull);
+        expect(locator.requested, 3);
+      },
+      testOn: 'mac-os',
+    );
 
     test('adoptInstallDir על תיקייה בלי אוצריא מחזיר false בלי לזרוק',
         () async {
@@ -399,6 +500,17 @@ void main() {
 
       expect(await t.controller.requestLibraryReindex(), isFalse);
       expect(t.controller.errorMessage, isNotNull);
+    });
+
+    test('בדיקה שהצליחה מנקה שגיאה קודמת', () async {
+      final t = controllerWith(launchFails: true);
+      await t.controller.launch();
+      expect(t.controller.errorMessage, isNotNull);
+
+      await t.controller.checkForUpdate();
+
+      expect(t.controller.status, isNot(OtzariaModuleStatus.error));
+      expect(t.controller.errorMessage, isNull);
     });
   });
 
@@ -586,5 +698,30 @@ class _ScriptedLocator extends RunningOtzariaLocator {
     final answer = _answers[probes];
     probes++;
     return (isRunning: answer, launchPath: null);
+  }
+}
+
+class _GatedLocator extends RunningOtzariaLocator {
+  final List<Completer<bool>> _probes = [];
+  int _handedOut = 0;
+
+  int get requested => _probes.length;
+
+  @override
+  Future<RunningOtzariaProbe> probe() async {
+    final answer = Completer<bool>();
+    _probes.add(answer);
+    return (isRunning: await answer.future, launchPath: null);
+  }
+
+  Future<Completer<bool>> next() async {
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
+    while (_probes.length <= _handedOut) {
+      if (DateTime.now().isAfter(deadline)) {
+        throw StateError('no probe #${_handedOut + 1} was requested');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    return _probes[_handedOut++];
   }
 }

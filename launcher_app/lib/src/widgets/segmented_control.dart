@@ -88,11 +88,10 @@ class AppMultiSegmentedControl<T> extends StatelessWidget {
   }
 }
 
-/// פקד סגמנטד גנרי — החלופה היחידה לקבוצת RadioButton בין 2–4 אפשרויות.
 class AppSegmentedControl<T> extends StatelessWidget {
   final List<SegmentOption<T>> options;
   final T currentValue;
-  final ValueChanged<T> onChanged;
+  final ValueChanged<T>? onChanged;
   final bool expandToFillWidth;
   final double? height;
 
@@ -188,17 +187,17 @@ class AppSegmentedControl<T> extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isFixed = height != null;
+    final onChanged = this.onChanged;
 
     return SegmentedButton<T>(
       segments: _segments(),
       selected: {currentValue},
       expandedInsets: expandToFillWidth ? EdgeInsets.zero : null,
-      onSelectionChanged: (selection) {
-        if (selection.isNotEmpty) onChanged(selection.first);
-      },
-      // בלי סימן וי על הנבחר: הוא הכריח ריפוד אנכי משלו (16px) שהגובה הקבוע
-      // לא מכסה, כך שהכפתור יצא גבוה מהתיבה והתווית ירדה מתחת למרכזה. הרקע
-      // המלא כבר מסמן איזו אפשרות נבחרה.
+      onSelectionChanged: onChanged == null
+          ? null
+          : (selection) {
+              if (selection.isNotEmpty) onChanged(selection.first);
+            },
       showSelectedIcon: false,
       style: isFixed
           ? _fixedHeightStyle(cs, height!)

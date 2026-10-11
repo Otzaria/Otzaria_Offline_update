@@ -75,19 +75,19 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   final OtzariaProcessCloser _processCloser;
   OtzariaUpdateCheckResult? _lastCheck;
 
-  /// הבדיקה המקומית שרצה כרגע — כדי ש-[ensureChecked] תצטרף אליה במקום
-  /// להריץ שנייה במקביל על אותו כונן.
   Future<void>? _checkInFlight;
+  int _checkInputs = 0;
+  bool _installing = false;
+  bool _recheckAfterInstall = false;
   bool _preferPrerelease;
 
-  /// הערוץ שממנו מתקינים כשיושבות בתיקייה שתי גרסאות. ההורדה מביאה תמיד
-  /// את שתיהן, ולכן החלפה כאן אינה דורשת רשת — רק בדיקה מחדש מהדיסק.
   bool get preferPrerelease => _preferPrerelease;
 
   set preferPrerelease(bool value) {
     if (_preferPrerelease == value) return;
     _preferPrerelease = value;
-    _manager.preferPrerelease = value;
+    _checkInputs++;
+    if (!_installing) _manager.preferPrerelease = value;
     unawaited(checkForUpdate());
   }
 
@@ -369,13 +369,11 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     await (_checkInFlight ?? checkForUpdate());
   }
 
-  /// בודק מה מותקן מול מה שיש בתיקייה המקומית. לא נוגע ברשת.
-  ///
-  /// מצטרפת לבדיקה שכבר באוויר במקום לפתוח שנייה: שתי בדיקות מקבילות
-  /// (למשל מ-`checkAll` ומ-`ensureChecked` בעלייה) היו כותבות בו-זמנית
-  /// לאותו קובץ `.tmp` ב-`OtzariaStateStore.save`, וה-rename של אחת מהן
-  /// נכשל עם `PathNotFoundException` כי השנייה כבר החליפה אותו.
   Future<void> checkForUpdate() {
+    if (_installing) {
+      _recheckAfterInstall = true;
+      return Future.value();
+    }
     final inFlight = _checkInFlight;
     if (inFlight != null) return inFlight;
     final started = _checkForUpdate();
@@ -391,7 +389,12 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
 
     try {
-      final check = await _manager.checkForUpdate();
+      OtzariaUpdateCheckResult check;
+      int inputs;
+      do {
+        inputs = _checkInputs;
+        check = await _manager.checkForUpdate();
+      } while (inputs != _checkInputs);
       _lastCheck = check;
       currentVersion = check.currentState?.installedTagName;
       launchPath = check.currentState?.launchPath;
@@ -407,6 +410,7 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
         _ when check.updateAvailable => OtzariaModuleStatus.updateAvailable,
         _ => OtzariaModuleStatus.upToDate,
       };
+      errorMessage = null;
     } catch (e, st) {
       status = OtzariaModuleStatus.error;
       errorMessage = e.toString();
@@ -416,67 +420,71 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
   }
 
-  /// מתקין את הגרסה שבתיקייה המקומית. לא נוגע ברשת.
-  ///
-  /// [useWizard] = להריץ את המתקין עם האשף שלו.
-  /// האוטומטית מעבירה `false`.
   Future<void> install({bool useWizard = true}) async {
+    if (_lastCheck == null || _installing) return;
+    for (var pending = _checkInFlight;
+        pending != null;
+        pending = _checkInFlight) {
+      await pending;
+      if (_installing) return;
+    }
     final check = _lastCheck;
     if (check == null) return;
 
+    _installing = true;
+    _recheckAfterInstall = false;
     status = OtzariaModuleStatus.installing;
     needsElevation = false;
     noticeMessage = null;
+    errorMessage = null;
     notifyListeners();
     AppLogger.instance.info(
       'התקנת אוצריא מתחילה: ${check.currentState?.installedTagName} -> '
       '${check.latestRelease?.tagName}',
     );
 
+    var recheck = false;
     try {
       final state = await _manager.update(check, useWizard: useWizard);
       currentVersion = state.installedTagName;
       status = OtzariaModuleStatus.upToDate;
       AppLogger.instance.info('התקנת אוצריא הסתיימה בהצלחה');
-      if (useWizard) {
-        // הגרסה נקראת מקובץ ההרצה עצמו. במסלול האשף זה לא ניקיון אלא
-        // תיקון: Inno שמתרומם להרשאות מנהל מחזיר קוד יציאה 0 מהתהליך
-        // שהרצנו, ולכן "הסתיים" עוד לא אומר שהגרסה החדשה על הדיסק.
-        await checkForUpdate();
-        return;
-      }
+      recheck = useWizard;
     } on OtzariaInstallCancelled catch (e) {
       noticeMessage = e.toString();
       AppLogger.instance.info('התקנת אוצריא בוטלה באשף');
-      await checkForUpdate();
-      return;
+      recheck = true;
     } on OtzariaWizardStillOpen catch (e) {
       noticeMessage = e.toString();
       AppLogger.instance.info('אשף ההתקנה עדיין פתוח — ההתקנה לא זוהתה עדיין');
-      await checkForUpdate();
-      return;
+      recheck = true;
     } catch (e, st) {
       status = OtzariaModuleStatus.error;
-      // המתקין עצמו מרים את עצמו; מה שנכשל כאן על הרשאות הוא מה שאנחנו
-      // כותבים סביבו — ולכן ההצעה להפעיל כמנהל שייכת גם למסלול הזה.
       errorMessage = Elevation.describe(e);
       needsElevation = Elevation.isAccessDenied(e);
+      _recheckAfterInstall = false;
       AppLogger.instance.error('התקנת אוצריא נכשלה', e, st);
+    } finally {
+      _installing = false;
+      _manager.preferPrerelease = _preferPrerelease;
+    }
+    if (recheck || _recheckAfterInstall) {
+      _recheckAfterInstall = false;
+      await checkForUpdate();
+      return;
     }
     notifyListeners();
   }
 
-  /// מפעיל את אוצריא. בקשת עדכון אינדקס שממתינה נוסעת עם ההפעלה הזאת: את
-  /// אוצריא המשתמש פותח ממילא, וכך האינדקס מתוקן בלי פעולה נוספת ממנו.
   Future<void> launch() async {
+    if (errorMessage != null && status != OtzariaModuleStatus.error) {
+      errorMessage = null;
+      notifyListeners();
+    }
     final uri = await _pendingLaunchUri?.call();
     try {
       await _manager.launch(withUri: uri);
       if (uri != null) await _onLaunchUriDelivered?.call();
-      // אוצריא נפתחה עכשיו. מציבים ולא דוגמים, כי התהליך עדיין לא בהכרח
-      // מופיע ב-`tasklist` — ואם בכל זאת לא עלה, הרענון המחזורי (שההודעה
-      // הזאת מדליקה) יתקן זאת תוך 3 שניות. בלי זה הלאנצ'ר המשיך להציג
-      // "סגורה" עד לבדיקה מלאה, ולא הציג את האזהרה לפני עדכון מסד.
       if (!isRunning) {
         isRunning = true;
         notifyListeners();

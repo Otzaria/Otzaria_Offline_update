@@ -80,9 +80,6 @@ class OtzariaScreen extends StatelessWidget {
     final c = otzaria;
     final t = context.strings.appScreen;
     final common = context.strings.common;
-    // הכפתור קפוא רק כשאין בתיקייה מה להתקין, או כשעוד לא ידוע מה יש בה.
-    // בכל מצב אחר ההתקנה חוקית — גם על אותה גרסה (התקנה פגומה שצריך לתקן),
-    // וגם כשהמותקן חדש מהתיקייה (חזרה לגרסה שעל הכונן).
     final action = switch (c.status) {
       OtzariaModuleStatus.updateAvailable => _Install.update,
       OtzariaModuleStatus.upToDate => _Install.reinstall,
@@ -122,7 +119,6 @@ class OtzariaScreen extends StatelessWidget {
             OtzariaModuleStatus.updateAvailable => StatusKind.updateAvailable,
             OtzariaModuleStatus.installing => StatusKind.working,
             OtzariaModuleStatus.needsDownload => StatusKind.needsAction,
-            // ההתקנה תקינה ומעודכנת — רק המראה מפגרת אחריה.
             OtzariaModuleStatus.installedIsNewer => StatusKind.ok,
             OtzariaModuleStatus.error => StatusKind.error,
           },
@@ -153,7 +149,6 @@ class OtzariaScreen extends StatelessWidget {
         SettingsActionTile.text(
           icon: FluentIcons.folder_24_regular,
           title: t.mirrorVersionTitle,
-          // כששתיהן בתיקייה מוצגות שתיהן — הפקד שמתחת קובע איזו תותקן.
           subtitle: c.hasChannelChoice
               ? t.channelPair('${c.stableVersion}', '${c.prereleaseVersion}')
               : c.latestVersion ?? t.mirrorEmpty,
@@ -166,8 +161,6 @@ class OtzariaScreen extends StatelessWidget {
             ),
           ],
         ),
-        // מוצג רק כשבתיקייה יושבות שתי גרסאות — כלומר כשה-pre-release חדש
-        // מהיציבה. אחרת אין בחירה אמיתית, ואין טעם להציג פקד.
         if (c.hasChannelChoice)
           SettingsActionTile.segmentedTile<bool>(
             icon: FluentIcons.branch_24_regular,
@@ -180,9 +173,8 @@ class OtzariaScreen extends StatelessWidget {
               SegmentOption(value: true, label: t.channelPrerelease),
             ],
             currentValue: c.preferPrerelease,
-            onChanged: (v) => _setChannel(context, v),
+            onChanged: _isBusy ? null : (v) => _setChannel(context, v),
           ),
-        // מוצג רק כשאוצריא פתוחה — אז זו אזהרה. "סגורה" היא שורה שאין בה מידע.
         if (otzariaIsRunning)
           SettingsActionTile.text(
             icon: FluentIcons.warning_24_regular,

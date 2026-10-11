@@ -326,7 +326,6 @@ class SettingsActionTile extends StatelessWidget {
         width: width,
       );
 
-  /// שורה עם [AppSegmentedControl] — 2–4 אפשרויות מוציאות זו את זו.
   static Widget segmentedTile<T>({
     Key? key,
     IconData? icon,
@@ -335,7 +334,7 @@ class SettingsActionTile extends StatelessWidget {
     String? subtitle,
     required List<SegmentOption<T>> options,
     required T currentValue,
-    required ValueChanged<T> onChanged,
+    required ValueChanged<T>? onChanged,
     double? width,
   }) =>
       _SegmentedTile<T>(
@@ -773,10 +772,8 @@ class _SegmentedTile<T> extends StatelessWidget {
   final String? subtitle;
   final List<SegmentOption<T>> options;
   final T currentValue;
-  final ValueChanged<T> onChanged;
+  final ValueChanged<T>? onChanged;
 
-  /// עוקף את הרוחב המחושב מ-[_segGroupWidth] — לשורות שצריכות להשתוות
-  /// ברוחב לשורה אחרת בכרטיס, בלי קשר לאורך התוויות שלהן.
   final double? width;
 
   const _SegmentedTile({
@@ -791,7 +788,6 @@ class _SegmentedTile<T> extends StatelessWidget {
     this.width,
   });
 
-  /// [subtitle], אם סופק, גובר על תת-הכותרת של האפשרות הנבחרת.
   String? get _resolvedSubtitle {
     if (subtitle != null) return subtitle;
     for (final o in options) {
@@ -820,9 +816,6 @@ class _SegmentedTile<T> extends StatelessWidget {
             title: title,
             subtitle: _resolvedSubtitle,
             actions: [
-              // התיבה כאן והגובה שנכפה על הכפתורים חייבים להיות זהים: תווית
-              // ארוכה מותחת את SegmentedButton, ופער בין השניים מזיז את
-              // התוכן ביחס לתיבה במקום למרכז אותו.
               SizedBox(
                 width: width ?? _segGroupWidth(options),
                 height: _kSegBoxHeight,
@@ -832,7 +825,6 @@ class _SegmentedTile<T> extends StatelessWidget {
           );
         }
 
-        // מסך צר: כותרת ב-ListTile, הפקד מתחתיה ברוחב מלא
         return Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,

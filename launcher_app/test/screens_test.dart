@@ -706,6 +706,35 @@ void main() {
     expect(settings.settings.preferAppPrerelease, isFalse);
   });
 
+  testWidgets('בורר הערוץ נעול בזמן התקנה', (tester) async {
+    final t = stringsOf().appScreen;
+    otzaria.hasChannelChoice = true;
+    otzaria.stableVersion = '0.9.90';
+    otzaria.prereleaseVersion = '0.9.97';
+    otzaria.latestVersion = '0.9.90';
+    otzaria.status = OtzariaModuleStatus.installing;
+
+    await pumpScreen(
+      tester,
+      OtzariaScreen(
+        otzaria: otzaria,
+        settings: settings,
+        otzariaIsRunning: false,
+        onCloseOtzaria: () async => true,
+      ),
+    );
+
+    final selector = tester.widget<SegmentedButton<bool>>(
+      find.byType(SegmentedButton<bool>),
+    );
+    expect(selector.onSelectionChanged, isNull);
+
+    await tester.tap(find.text(t.channelPrerelease), warnIfMissed: false);
+    await tester.pump();
+
+    expect(settings.settings.preferAppPrerelease, isFalse);
+  });
+
   testWidgets('בחירת מיקום ידנית לאוצריא לא מושבתת בגלל הורדה של רכיב אחר',
       (tester) async {
     await pumpScreen(
