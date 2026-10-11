@@ -6,6 +6,7 @@ import 'package:plugins_manager/plugins_manager.dart';
 
 import '../services/app_logger.dart';
 import '../services/known_plugins_store.dart';
+import '../services/store_app_destination_store.dart';
 import 'progress_notifier.dart';
 
 enum PluginsModuleStatus { idle, loading, ready, syncing, error }
@@ -40,13 +41,16 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
           otzariaLaunchPath: otzariaLaunchPath,
         ),
         // תיקיית הכתיבה, כי "מה כבר נראה" הוא נתון של המחשב הזה.
-        _known = stateDir == null ? null : KnownPluginsStore(stateDir);
+        _known = stateDir == null ? null : KnownPluginsStore(stateDir),
+        _destination =
+            stateDir == null ? null : StoreAppDestinationStore(stateDir);
 
   final PluginsManager _manager;
 
   /// זיכרון "אילו תוספים כבר נראו כאן". `null` כשאין תיקיית כתיבה — אז אין
   /// הודעות על תוספים חדשים בכלל, ולא הודעה שחוזרת בכל הרצה.
   final KnownPluginsStore? _known;
+  final StoreAppDestinationStore? _destination;
 
   /// גרסאות אוצריא שהכונן נושא — היציבה, ואיתה הלא-יציבה כשהיא חדשה ממנה.
   /// **ההורדה** מביאה בילד תוסף לכל אחת מהן, כדי שהמחשב המנותק ימצא בילד
@@ -104,6 +108,29 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
 
   /// יש גם תוכנה וגם תוספים — רק אז יש מה להעתיק.
   bool get canExportStoreApp => storeApp != null && plugins.isNotEmpty;
+
+  /// התיקייה שאליה הועתקה החנות במחשב הזה, כל עוד החנות עדיין יושבת בה.
+  String? rememberedStoreDir;
+  String? _rememberedStoreTag;
+
+  /// החנות שהועתקה קודם ישנה מזו שבמראה — אפשר לעדכן אותה במקום.
+  bool get storeAppUpdatePending =>
+      canExportStoreApp &&
+      rememberedStoreDir != null &&
+      _rememberedStoreTag != storeApp!.release.tagName;
+
+  Future<void> _loadStoreDestination() async {
+    rememberedStoreDir = null;
+    final saved = await _destination?.load();
+    // כונן רשת או נייד שנרדם לא יתקע את הטעינה.
+    if (saved == null ||
+        !await StoreAppExporter.hasExistingStore(saved.dir)
+            .timeout(const Duration(seconds: 2), onTimeout: () => false)) {
+      return;
+    }
+    rememberedStoreDir = saved.dir;
+    _rememberedStoreTag = saved.tag;
+  }
 
   /// הגרסה החדשה שהבדיקה הקלה מצאה, או `null` כשאין חדש. **היא לבדה
   /// מרשה להוריד** — ראו [syncStoreApp].
@@ -197,6 +224,7 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
       installed = snapshot.installed;
       pluginsDir = snapshot.pluginsDir;
       storeApp = await _manager.loadStoreApp();
+      await _loadStoreDestination();
       await _loadKnown();
       _invalidateDerived();
       _settleView();
@@ -445,7 +473,7 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
 
     try {
-      return await _manager.exportStoreApp(
+      final outcome = await _manager.exportStoreApp(
         destinationDir,
         onProgress: (progress) {
           exportMessage = progress.message;
@@ -454,6 +482,13 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
           notifyProgress();
         },
       );
+      final tag = storeApp?.release.tagName;
+      if (tag != null) {
+        await _destination?.record(dir: destinationDir, tag: tag);
+        rememberedStoreDir = destinationDir;
+        _rememberedStoreTag = tag;
+      }
+      return outcome;
     } finally {
       isExporting = false;
       exportMessage = null;

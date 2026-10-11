@@ -353,7 +353,7 @@ void main() {
       );
     });
 
-    test('כל חמשת קובצי המצב עוברים, והרצה חוזרת וריקה אינן שוברות', () async {
+    test('כל קובצי המצב עוברים, והרצה חוזרת וריקה אינן שוברות', () async {
       final paths = AppPaths(dataDir: drive.path, stateDir: machine.path);
       await paths.migrateStateFiles();
       for (final name in AppPaths.stateFileNames) {

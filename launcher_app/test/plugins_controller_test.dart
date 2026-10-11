@@ -973,5 +973,75 @@ void main() {
       // הדגל מתאפס גם בהצלחה — אחרת השכבה החוסמת נשארת על המסך.
       expect(controller.isExporting, isFalse);
     });
+
+    group('זכירת תיקיית החנות', () {
+      PluginsModuleController withState() => PluginsModuleController(
+            mirrorRootDir: p.join(tempDir.path, 'mirror'),
+            stateDir: p.join(tempDir.path, 'state'),
+          );
+
+      Future<String> exportOnce(PluginsModuleController c) async {
+        await seedStoreApp();
+        await saveCatalog(PluginCatalog(plugins: [plugin('a', 'תוסף')]));
+        await c.load();
+        final dest = p.join(tempDir.path, 'dest');
+        await c.exportStoreApp(dest);
+        return dest;
+      }
+
+      test('אחרי ייצוא התיקייה נזכרת ואין עדכון ממתין', () async {
+        final c = withState();
+        addTearDown(c.dispose);
+        final dest = await exportOnce(c);
+
+        expect(c.rememberedStoreDir, dest);
+        expect(c.storeAppUpdatePending, isFalse);
+      });
+
+      test('טעינה חדשה זוכרת, וגרסה חדשה במראה מסמנת עדכון', () async {
+        final first = withState();
+        addTearDown(first.dispose);
+        final dest = await exportOnce(first);
+
+        // מראה עם גרסה חדשה יותר.
+        final dir = p.join(tempDir.path, 'mirror', 'store-app');
+        await File(p.join(dir, 'files', 'v6', 'Store.exe'))
+            .copy(p.join(dir, 'files', 'Store7.exe'));
+        await File(p.join(dir, 'latest-release.json')).writeAsString(
+          '{"schemaVersion":1,"release":{"tagName":"v7","version":7,'
+          '"assetName":"Store.exe","downloadUrl":"https://x/v7.exe",'
+          '"sizeBytes":3},"filePath":"files/Store7.exe"}',
+        );
+        final second = withState();
+        addTearDown(second.dispose);
+        await second.load();
+
+        expect(second.rememberedStoreDir, dest);
+        expect(second.storeAppUpdatePending, isTrue);
+      });
+
+      test('תיקייה שנמחקה אינה נזכרת', () async {
+        final first = withState();
+        addTearDown(first.dispose);
+        final dest = await exportOnce(first);
+        Directory(dest).deleteSync(recursive: true);
+
+        final second = withState();
+        addTearDown(second.dispose);
+        await second.load();
+
+        expect(second.rememberedStoreDir, isNull);
+        expect(second.storeAppUpdatePending, isFalse);
+      });
+
+      test('בלי תיקיית מצב אין זיכרון ואין קריסה', () async {
+        await seedStoreApp();
+        await saveCatalog(PluginCatalog(plugins: [plugin('a', 'תוסף')]));
+        await controller.load();
+        await controller.exportStoreApp(p.join(tempDir.path, 'dest'));
+
+        expect(controller.storeAppUpdatePending, isFalse);
+      });
+    });
   });
 }

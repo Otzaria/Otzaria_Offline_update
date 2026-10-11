@@ -170,6 +170,7 @@ class AppPaths {
     'custom_apps_announced.json',
     'plugins_known.json',
     'notices_seen.json',
+    'store_app_destination.json',
   ];
 
   /// היכן נכתבים קובצי המצב. נגזר מ-[stateDir] ולא מהלוגר, שנופל ל-temp.

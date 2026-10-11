@@ -268,6 +268,12 @@ class StoreAppExporter {
   Future<void> _copyApp(MirroredStoreApp mirrored, String appPath) async {
     try {
       await File(mirrored.filePath).copy(appPath);
+    } on FileSystemException catch (e) {
+      // 32 = קובץ בשימוש (החנות רצה): הממשק מציג לכך הודעה משלו.
+      if (e.osError?.errorCode == 32) rethrow;
+      throw PluginStoreException(
+        AppL10n.strings.pluginsDomain.exportAppCopyFailed('$e'),
+      );
     } catch (e) {
       throw PluginStoreException(
         AppL10n.strings.pluginsDomain.exportAppCopyFailed('$e'),

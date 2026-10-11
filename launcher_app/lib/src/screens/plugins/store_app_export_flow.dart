@@ -46,7 +46,9 @@ class StoreAppExportButton extends StatelessWidget {
     // `outlined` ובסמל המסך, כמו הכפתור המקביל באתר: הוא עומד לצד
     // "סנכרון מהאתר" ואינו אמור להתחרות בו על העין.
     final button = ActionButton.outlined(
-      text: t.storeAppButton,
+      text: controller.storeAppUpdatePending
+          ? t.storeAppUpdateButton
+          : t.storeAppButton,
       icon: FluentIcons.desktop_24_regular,
       isLoading: controller.isExporting,
       onPressed: enabled ? () => runStoreAppExport(context, controller) : null,
@@ -64,18 +66,35 @@ Future<void> runStoreAppExport(
   final release = controller.storeApp?.release;
   if (release == null) return;
 
-  if (!await _showIntroDialog(context, release)) return;
-  if (!context.mounted) return;
-
   final t = context.strings.plugins;
-  final destination = await NativeFileDialogs.pickDirectory(
-    dialogTitle: t.storeAppPickFolderTitle,
-  );
-  if (destination == null || !context.mounted) return;
+  // עדכון באותה תיקייה: בלי הסבר ובלי בחירה מחדש, והדריסה כבר מאושרת.
+  String? destination;
+  final remembered = controller.rememberedStoreDir;
+  if (controller.storeAppUpdatePending && remembered != null) {
+    final updateHere = await showTwoActionsDialog(
+      context: context,
+      title: t.storeAppUpdateHereTitle,
+      content: t.storeAppUpdateHereContent(remembered),
+      cancelText: t.storeAppChooseOtherFolder,
+      confirmText: t.storeAppOverwriteConfirm,
+    );
+    if (!context.mounted) return;
+    if (updateHere) destination = remembered;
+  }
+  final updatingHere = destination != null;
+
+  if (!updatingHere) {
+    if (!await _showIntroDialog(context, release)) return;
+    if (!context.mounted) return;
+    destination = await NativeFileDialogs.pickDirectory(
+      dialogTitle: t.storeAppPickFolderTitle,
+    );
+    if (destination == null || !context.mounted) return;
+  }
 
   // דריסה מאושרת מראש: בתיקייה עשויים לשבת `state.json` ויומנים של החנות
   // הקיימת, והם **אינם** נמחקים — רק נדרסים הקבצים שאנחנו כותבים.
-  if (await StoreAppExporter.hasExistingStore(destination)) {
+  if (!updatingHere && await StoreAppExporter.hasExistingStore(destination)) {
     if (!context.mounted) return;
     final approved = await showTwoActionsDialog(
       context: context,
@@ -91,7 +110,9 @@ Future<void> runStoreAppExport(
     outcome = await controller.exportStoreApp(destination);
   } catch (e, st) {
     AppLogger.instance.error('העתקת חנות התוספים נכשלה', e, st);
-    UiSnack.show(t.storeAppFailedSnack('$e'));
+    // 32 = קובץ בשימוש: החנות רצה ולא ניתן לדרוס את קובץ ההרצה שלה.
+    final busy = e is FileSystemException && e.osError?.errorCode == 32;
+    UiSnack.show(busy ? t.storeAppInUseSnack : t.storeAppFailedSnack('$e'));
     return;
   }
 

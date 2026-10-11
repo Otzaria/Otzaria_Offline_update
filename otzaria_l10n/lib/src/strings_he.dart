@@ -1237,6 +1237,17 @@ class _Plugins extends PluginsStrings {
   @override
   String get storeAppOverwriteConfirm => 'עדכון';
   @override
+  String get storeAppUpdateButton => 'עדכון החנות';
+  @override
+  String get storeAppUpdateHereTitle => 'עדכון חנות התוספים';
+  @override
+  String storeAppUpdateHereContent(String path) =>
+      'החנות שהועתקה אל $path אינה מעודכנת. לעדכן אותה שם?';
+  @override
+  String get storeAppChooseOtherFolder => 'בחירת תיקייה אחרת';
+  @override
+  String get storeAppInUseSnack => 'החנות פתוחה כרגע. סגרו אותה ונסו שוב.';
+  @override
   String get storeAppCopyingTitle => 'מעתיק את חנות התוספים';
   @override
   String get storeAppCopyingSubtitle =>

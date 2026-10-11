@@ -767,6 +767,13 @@ abstract class PluginsStrings {
   String storeAppOverwriteContent(String path);
   String get storeAppOverwriteConfirm;
 
+  /// החנות כבר הועתקה לתיקייה ידועה והמראה חדשה ממנה — מציעים לעדכן שם.
+  String get storeAppUpdateButton;
+  String get storeAppUpdateHereTitle;
+  String storeAppUpdateHereContent(String path);
+  String get storeAppChooseOtherFolder;
+  String get storeAppInUseSnack;
+
   String get storeAppCopyingTitle;
   String get storeAppCopyingSubtitle;
 

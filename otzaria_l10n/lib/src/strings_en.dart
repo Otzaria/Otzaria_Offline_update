@@ -1302,6 +1302,18 @@ class _Plugins extends PluginsStrings {
   @override
   String get storeAppOverwriteConfirm => 'Update';
   @override
+  String get storeAppUpdateButton => 'Update the store';
+  @override
+  String get storeAppUpdateHereTitle => 'Update the plugin store';
+  @override
+  String storeAppUpdateHereContent(String path) =>
+      'The store copied to $path is out of date. Update it there?';
+  @override
+  String get storeAppChooseOtherFolder => 'Choose another folder';
+  @override
+  String get storeAppInUseSnack =>
+      'The store is open right now. Close it and try again.';
+  @override
   String get storeAppCopyingTitle => 'Copying the plugin store';
   @override
   String get storeAppCopyingSubtitle =>
