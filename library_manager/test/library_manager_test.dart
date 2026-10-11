@@ -541,6 +541,41 @@ void main() {
       });
     });
 
+    test('הורדה שנקטעה במראה מסומנת בתוצאת הבדיקה', () async {
+      await installExistingDb(5, appliedTag: 'v5');
+      await writeMirror(
+        tag: 'v5',
+        compressedDb: Uint8List.fromList([1, 2, 3, 4]),
+      );
+      final archive = File(p.join(mirrorDir, 'assets', 'v5', 'seforim.db.zst'));
+      final orphan = File(
+        p.join(mirrorDir, 'assets', 'v6', 'seforim.db.zst.resume'),
+      );
+
+      await _withoutNetwork((_) async {
+        final manager = LibraryManager(dataDir: dataDir);
+        Future<bool> incomplete() async =>
+            (await manager.checkForUpdate()).mirrorDownloadIncomplete;
+
+        expect(await incomplete(), isFalse);
+
+        await File('${archive.path}.resume').writeAsString('777\n"etag"');
+        expect(await incomplete(), isFalse);
+
+        await orphan.parent.create(recursive: true);
+        await orphan.writeAsString('778\n"etag"');
+        expect(await incomplete(), isTrue);
+
+        await orphan.delete();
+        await archive.writeAsBytes([1, 2, 3]);
+        expect(await incomplete(), isTrue);
+
+        await archive.delete();
+        expect(await incomplete(), isTrue);
+        manager.dispose();
+      });
+    });
+
     test('ערוץ pre-release: נספר רק כש-allowPrerelease פעיל', () async {
       if (bindings == null) {
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');

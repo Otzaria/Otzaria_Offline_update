@@ -1,10 +1,8 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
-import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import '../services/app_logger.dart';
@@ -263,11 +261,11 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// מה להוריד — ראו [onlineProofError].
   String? onlineCompanionsCheckError;
 
-  /// כשל באחת מבדיקות הרכיבים מונע דילוג על הורדת הספרייה.
   String? get onlineProofError =>
-      onlineCheckError ??
-      onlineCompanionsCheckError ??
-      onlineSemanticCheckError;
+      onlineLibraryProofError ?? onlineSemanticCheckError;
+
+  String? get onlineLibraryProofError =>
+      onlineCheckError ?? onlineCompanionsCheckError;
 
   /// לשאול על הורדת החיפוש החכם רק כשהבדיקה לא הוכיחה שהכונן כבר מחזיק אותו —
   /// אחרת "כן" מריץ את כל הורדת הספרייה בלי שום דבר חדש להביא.
@@ -305,17 +303,16 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
   }
 
-  /// `true` אם הבדיקה הקלה מצאה ברשת גרסה גבוהה מזו שיושבת **במראה
-  /// המקומית**. [targetVersion] הוא הגרסה האחרונה שבמראה (התוכנית מחזירה
-  /// אותה גם כשאין מה לעדכן), ולכן הוא הבסיס להשוואה — לא גרסת המסד החי,
-  /// שההתקנה מעדכנת בשלב נפרד לגמרי מההורדה.
-  bool get hasOnlineUpdate =>
-      // הנלווים מתעדכנים בנפרד מהמסד: בלעדי זה כונן בלי תלמוד, עם מסד עדכני,
-      // לא קיבל כפתור הורדה ודולג ב-downloadAll — לנצח (issue #33).
+  bool get hasOnlineUpdate => hasOnlineLibraryUpdate || onlineSemanticPending;
+
+  bool get hasOnlineLibraryUpdate =>
       downloadNeedsRetry ||
       _hasOnlineDbUpdate ||
-      onlinePendingCompanions.isNotEmpty ||
-      onlineSemanticPending;
+      onlinePendingCompanions.isNotEmpty;
+
+      downloadNeedsRetry ||
+      _hasOnlineDbUpdate ||
+      onlinePendingCompanions.isNotEmpty;
 
   bool get _hasOnlineDbUpdate {
     final online = onlineLatestVersion;
@@ -332,32 +329,31 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   int? get onlineUpdateVersion =>
       _hasOnlineDbUpdate ? onlineLatestVersion : null;
 
-  /// בודק ברשת מה הגרסה העדכנית ביותר — **פעולת רשת קלה**, בלי הורדת
-  /// המסד/patches. כשל (בעיקר "אין חיבור") הוא מצב תקין: נשמר ב-
-  /// [onlineCheckError] ולא נזרק, כדי שבדיקה אוטומטית לא תציג שגיאה
-  /// מפחידה כשפשוט אין רשת כרגע.
   Future<void> checkOnline() async {
     onlineCheckError = null;
+    onlineCompanionsCheckError = null;
     notifyListeners();
 
-    try {
-      onlineLatestVersion = await _manager.peekLatestOnlineVersion();
-    } catch (e) {
-      onlineLatestVersion = null;
-      onlineCheckError = e.toString();
-      // בלי stack trace: "אין רשת" הוא המצב הרגיל במחשב שהתוכנה נועדה לו,
-      // וארבעה traces בכל הפעלה הטביעו את הלוג במקום להסביר משהו.
-      AppLogger.instance.info('בדיקת עדכונים ברשת (ספרייה) לא הצליחה: $e');
-    }
-    // בנפרד: כשל כאן אינו מבטל את תשובת המסד, ולהפך.
-    onlineCompanionsCheckError = null;
-    try {
-      onlinePendingCompanions = await _manager.peekPendingCompanions();
-    } catch (e) {
-      onlinePendingCompanions = const {};
-      onlineCompanionsCheckError = e.toString();
-      AppLogger.instance.info('בדיקת הקבצים הנלווים ברשת לא הצליחה: $e');
-    }
+    await Future.wait<void>([
+      () async {
+        try {
+          onlineLatestVersion = await _manager.peekLatestOnlineVersion();
+        } catch (e) {
+          onlineLatestVersion = null;
+          onlineCheckError = e.toString();
+          AppLogger.instance.info('בדיקת עדכונים ברשת (ספרייה) לא הצליחה: $e');
+        }
+      }(),
+      () async {
+        try {
+          onlinePendingCompanions = await _manager.peekPendingCompanions();
+        } catch (e) {
+          onlinePendingCompanions = const {};
+          onlineCompanionsCheckError = e.toString();
+          AppLogger.instance.info('בדיקת הקבצים הנלווים ברשת לא הצליחה: $e');
+        }
+      }(),
+    ]);
     AppLogger.instance.info(
       'checkOnline (ספרייה): latest=$onlineLatestVersion '
       'companions=[${_companionNames(onlinePendingCompanions)}]',
@@ -564,7 +560,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
     localDbUnreadable = false;
     try {
       check = await _manager.checkForUpdate();
-      await _checkMirrorDownloadCompleteness();
+      _incompleteMirrorDownload = check.mirrorDownloadIncomplete;
       _lastCheck = check;
       isFreshInstall = check.isFreshInstall;
       mirrorMissing = false;
@@ -649,34 +645,6 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       'mirrorMissing=$mirrorMissing reindex=$hasPendingReindex db=$dbPath',
     );
     notifyListeners();
-  }
-
-  Future<void> _checkMirrorDownloadCompleteness() async {
-    _incompleteMirrorDownload = false;
-    if (!await File(p.join(mirrorDir, 'releases.json')).exists()) return;
-    final releases = await LocalMirrorLibraryReleaseClient(mirrorDir: mirrorDir)
-        .fetchReleases();
-    final known = <String>{};
-    for (final release in releases) {
-      for (final asset in release.assets) {
-        known.add(asset.downloadUrl);
-        final file = File(asset.downloadUrl);
-        if (!await file.exists() ||
-            (asset.size > 0 && await file.length() != asset.size)) {
-          _incompleteMirrorDownload = true;
-        }
-      }
-    }
-    final assets = Directory(p.join(mirrorDir, 'assets'));
-    if (!await assets.exists()) return;
-    // הורדה שנקטעה אינה נכנסת למניפסט; קובץ ההמשך שומר את עקבותיה.
-    await for (final entry
-        in assets.list(recursive: true, followLinks: false)) {
-      if (entry is File && entry.path.endsWith('.resume')) {
-        final target = entry.path.substring(0, entry.path.length - 7);
-        if (!known.contains(target)) _incompleteMirrorDownload = true;
-      }
-    }
   }
 
   Future<void> setCustomDbPath(String dbPath) async {

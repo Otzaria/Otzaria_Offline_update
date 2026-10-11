@@ -485,8 +485,29 @@ void main() {
     });
   });
 
-  // ההחלפה מסתיימת ב-`exit(0)`, ולכן היא נחסמת בזמן פעולה ארוכה — גם
-  // כשהכפתור מנוטרל: [downloadLauncherUpdate] מגיע לכאן בלי כפתור בכלל.
+  group('_downloadAll — דילוג על הספרייה', () {
+    final source = File('lib/src/screens/app_shell.dart').readAsStringSync();
+    final start = source.indexOf('Future<void> _downloadAll() async {');
+    final body = source.substring(
+      start,
+      source.indexOf('final skipPlugins', start),
+    );
+
+    test('גוף המתודה נמצא', () {
+      expect(start, greaterThan(-1));
+      expect(body, contains('final skipLibrary'));
+    });
+
+    test('סירוב לחיפוש החכם אינו מונע דילוג על ספרייה מעודכנת', () {
+      final skip = body.substring(body.indexOf('final skipLibrary'));
+      expect(skip, contains('!includeSemanticSearch'));
+      expect(skip, contains('_library.hasOnlineLibraryUpdate'));
+      expect(skip, contains('_library.onlineLibraryProofError'));
+      expect(skip, isNot(contains('_library.hasOnlineUpdate')));
+      expect(skip, isNot(contains('_library.onlineProofError')));
+    });
+  });
+
   group('installLauncherUpdate', () {
     final source = File('lib/src/screens/app_shell.dart').readAsStringSync();
     final start = source.indexOf('Future<void> installLauncherUpdate()');

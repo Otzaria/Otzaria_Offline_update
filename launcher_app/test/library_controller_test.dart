@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/library_module_controller.dart';
+import 'package:launcher_app/src/controllers/online_check.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -191,6 +193,41 @@ void main() {
 
       expect(controller.hasOnlineUpdate, isFalse);
     });
+
+    test('בדיקת המסד ובדיקת הנלווים רצות במקביל', () async {
+      controller.dispose();
+      final manager = _ConcurrentPeekManager(tempDir.path);
+      controller = LibraryModuleController(
+        dataDir: tempDir.path,
+        manager: manager,
+      );
+
+      await controller.checkOnline();
+
+      expect(controller.onlineCheckError, isNull);
+      expect(controller.onlineLatestVersion, 30);
+      expect(controller.onlineCompanionsCheckError, isNull);
+      expect(controller.onlinePendingCompanions, {CompanionAsset.talmud});
+    });
+
+    test('כשל בשתי הבדיקות המקבילות נשמר בכל אחת בנפרד', () async {
+      controller.dispose();
+      final manager = _ConcurrentPeekManager(tempDir.path, fail: true);
+      controller = LibraryModuleController(
+        dataDir: tempDir.path,
+        manager: manager,
+      );
+
+      await controller.checkOnline();
+
+      expect(controller.onlineLatestVersion, isNull);
+      expect(controller.onlineCheckError, contains('version down'));
+      expect(controller.onlinePendingCompanions, isEmpty);
+      expect(
+          controller.onlineCompanionsCheckError, contains('companions down'));
+      expect(controller.onlineSemanticPending, isFalse);
+      expect(controller.onlineCheckedAt, isNotNull);
+    });
   });
 
   group('מצב הרשת אחרי הורדה', () {
@@ -366,6 +403,36 @@ void main() {
       controller.onlineSemanticCheckError = null;
       controller.onlineCheckError = 'offline';
       expect(controller.shouldOfferSemanticDownload, isTrue);
+    });
+
+    test('סירוב לחיפוש החכם מאפשר לדלג על ספרייה שהוכחה כמעודכנת', () {
+      controller.onlineCheckedAt = DateTime.now();
+      controller.onlineLatestVersion = 30;
+      controller.targetVersion = 30;
+      controller.onlineSemanticPending = true;
+
+      expect(controller.hasOnlineUpdate, isTrue);
+      expect(controller.hasOnlineLibraryUpdate, isFalse);
+      expect(
+        provenUpToDateOnline(
+          checkedAt: controller.onlineCheckedAt,
+          error: controller.onlineLibraryProofError,
+          hasUpdate: controller.hasOnlineLibraryUpdate,
+        ),
+        isTrue,
+      );
+
+      controller.onlineSemanticPending = false;
+      controller.onlineSemanticCheckError = 'rate limit';
+      expect(controller.onlineProofError, 'rate limit');
+      expect(controller.onlineLibraryProofError, isNull);
+
+      controller.onlineCompanionsCheckError = 'companions';
+      expect(controller.onlineLibraryProofError, 'companions');
+
+      controller.onlineCompanionsCheckError = null;
+      controller.onlinePendingCompanions = {CompanionAsset.talmud};
+      expect(controller.hasOnlineLibraryUpdate, isTrue);
     });
 
     test('כשל בבדיקת החיפוש החכם אינו הוכחה שאין עדכון', () {
@@ -645,6 +712,34 @@ class _DownloadManager extends LibraryManager {
     downloaded = true;
     return const MirrorDownloadOutcome();
   }
+}
+
+class _ConcurrentPeekManager extends LibraryManager {
+  _ConcurrentPeekManager(String dataDir, {this.fail = false})
+      : super(dataDir: dataDir);
+
+  final bool fail;
+  final _versionStarted = Completer<void>();
+  final _companionsStarted = Completer<void>();
+
+  @override
+  Future<int> peekLatestOnlineVersion() async {
+    _versionStarted.complete();
+    await _companionsStarted.future.timeout(const Duration(seconds: 5));
+    if (fail) throw StateError('version down');
+    return 30;
+  }
+
+  @override
+  Future<Set<CompanionAsset>> peekPendingCompanions() async {
+    _companionsStarted.complete();
+    await _versionStarted.future.timeout(const Duration(seconds: 5));
+    if (fail) throw StateError('companions down');
+    return {CompanionAsset.talmud};
+  }
+
+  @override
+  Future<bool> peekPendingSemanticSearch() async => false;
 }
 
 /// מסד sqlite אמיתי עם `db_version` — הקורא (`LocalDbVersionReader`) פותח

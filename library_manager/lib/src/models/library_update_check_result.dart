@@ -24,6 +24,7 @@ class LibraryUpdateCheckResult {
     this.mirroredCompanions = const {},
     this.semanticPending = false,
     this.semanticConsentGranted = false,
+    this.mirrorDownloadIncomplete = false,
   });
 
   final String? dbPath;
@@ -50,6 +51,7 @@ class LibraryUpdateCheckResult {
 
   final bool semanticPending;
   final bool semanticConsentGranted;
+  final bool mirrorDownloadIncomplete;
 
   bool get companionsPending =>
       pendingCompanions.isNotEmpty ||

@@ -566,10 +566,14 @@ class LibraryManager {
     }
 
     final source = await _resolveSource();
-    final discoverer = LibraryUpdateDiscovery(client: source);
+    final releases = await source.fetchReleases();
+    final discoverer = LibraryUpdateDiscovery(
+      client: _FetchedReleasesSource(source, releases),
+    );
     final discoveryResult = await discoverer.discover(
       allowPrerelease: allowPrerelease,
     );
+    final mirrorDownloadIncomplete = await _mirrorDownloadIncomplete(releases);
 
     // מאיזה release התוכן שעל **המחשב הזה** הגיע, ובאיזו גרסה — בלי זה,
     // release שמפרסם מסד מתוקן באותו db_version נראה כ"מעודכן".
@@ -628,8 +632,42 @@ class LibraryManager {
       unavailableCompanions: companions.unavailable,
       mirroredCompanions: companions.mirrored,
       semanticPending: semanticPending,
-      semanticConsentGranted: settings?.searchFeedbackGranted ?? false,
+      semanticConsentGranted: await semanticConsentGranted(),
+      mirrorDownloadIncomplete: mirrorDownloadIncomplete,
+
     );
+  }
+
+  Future<bool> _mirrorDownloadIncomplete(List<LibraryRelease> releases) async {
+    try {
+      final knownSidecars = <String>{};
+      for (final release in releases) {
+        for (final asset in release.assets) {
+          final file = File(asset.downloadUrl);
+          if (!await file.exists() ||
+              (asset.size > 0 && await file.length() != asset.size)) {
+            return true;
+          }
+          knownSidecars.add(PatchDownloader.resumeSidecarPath(file.path));
+        }
+      }
+      final assets = Directory(p.join(mirrorDir, 'assets'));
+      if (!await assets.exists()) return false;
+      final sidecarSuffix = PatchDownloader.resumeSidecarPath('');
+      await for (final entry in assets.list(
+        recursive: true,
+        followLinks: false,
+      )) {
+        if (entry is File &&
+            entry.path.endsWith(sidecarSuffix) &&
+            !knownSidecars.contains(entry.path)) {
+          return true;
+        }
+      }
+      return false;
+    } on FileSystemException {
+      return true;
+    }
   }
 
   /// מחיל בפועל את [check.plan] על ה-DB **החי** — זה הצעד שחסר עד עכשיו:
@@ -1012,4 +1050,20 @@ class LibraryManager {
     _cloudClient.dispose();
     _applier.dispose();
   }
+}
+
+class _FetchedReleasesSource implements LibraryReleaseSource {
+  _FetchedReleasesSource(this._source, this._releases);
+
+  final LibraryReleaseSource _source;
+  final List<LibraryRelease> _releases;
+
+  @override
+  Future<List<LibraryRelease>> fetchReleases() async => _releases;
+
+  @override
+  Future<DeltaManifest> fetchManifest(String url) => _source.fetchManifest(url);
+
+  @override
+  void dispose() => _source.dispose();
 }
