@@ -1307,4 +1307,143 @@ void main() {
     },
     skip: modelSkip,
   );
+
+  group('concatenateVectorParts', () {
+    late String vectors;
+    late String work;
+
+    setUp(() async {
+      vectors = p.join(temp.path, 'vectors');
+      work = p.join(temp.path, 'work');
+      await Directory(vectors).create(recursive: true);
+      await Directory(work).create(recursive: true);
+    });
+
+    Future<List<SemanticAsset>> writeParts(
+      Map<String, List<int>> parts, {
+      Set<String> corrupt = const {},
+    }) async {
+      final assets = <SemanticAsset>[];
+      for (final entry in parts.entries) {
+        assets.add((
+          name: entry.key,
+          size: entry.value.length,
+          sha256: Sha256Stream.ofBytes(entry.value),
+        ));
+        final content = [...entry.value];
+        if (corrupt.contains(entry.key)) content[content.length - 1] ^= 1;
+        await File(p.join(vectors, entry.key)).writeAsBytes(content);
+      }
+      return assets;
+    }
+
+    test(
+      'joins the parts in order under the name without the part suffix',
+      () async {
+        final first = List<int>.generate(70000, (i) => i % 251);
+        final second = List<int>.generate(50000, (i) => i % 241);
+        final parts = await writeParts({
+          'segment.oxv.part-000': first,
+          'segment.oxv.part-001': second,
+        });
+
+        final joined = await assets.concatenateVectorParts(
+          vectorsDir: vectors,
+          parts: parts,
+          workDir: work,
+        );
+
+        expect(joined, p.join(work, 'segment.oxv'));
+        expect(await File(joined).readAsBytes(), [...first, ...second]);
+        expect(requests, 0);
+      },
+    );
+
+    test('a part above the flush threshold is copied whole', () async {
+      final big = List<int>.generate(17 * 1024 * 1024, (i) => i % 253);
+      final tail = List<int>.generate(1000, (i) => i % 7);
+      final parts = await writeParts({
+        'segment.oxv.part-000': big,
+        'segment.oxv.part-001': tail,
+      });
+
+      final joined = await assets.concatenateVectorParts(
+        vectorsDir: vectors,
+        parts: parts,
+        workDir: work,
+      );
+
+      final bytes = await File(joined).readAsBytes();
+      expect(bytes.length, big.length + tail.length);
+      expect(
+        Sha256Stream.ofBytes(bytes),
+        Sha256Stream.ofBytes([...big, ...tail]),
+      );
+    });
+
+    test('a corrupt later part is rejected while joining', () async {
+      final parts = await writeParts(
+        {
+          'segment.oxv.part-000': List<int>.generate(4000, (i) => i % 251),
+          'segment.oxv.part-001': List<int>.generate(3000, (i) => i % 241),
+        },
+        corrupt: {'segment.oxv.part-001'},
+      );
+
+      await expectLater(
+        assets.concatenateVectorParts(
+          vectorsDir: vectors,
+          parts: parts,
+          workDir: work,
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('a missing or truncated part is rejected', () async {
+      final parts = await writeParts({
+        'segment.oxv.part-000': List<int>.generate(4000, (i) => i % 251),
+        'segment.oxv.part-001': List<int>.generate(3000, (i) => i % 241),
+      });
+      await File(
+        p.join(vectors, 'segment.oxv.part-001'),
+      ).writeAsBytes(List<int>.filled(10, 0));
+
+      await expectLater(
+        assets.concatenateVectorParts(
+          vectorsDir: vectors,
+          parts: parts,
+          workDir: work,
+        ),
+        throwsFormatException,
+      );
+
+      await File(p.join(vectors, 'segment.oxv.part-001')).delete();
+      await expectLater(
+        assets.concatenateVectorParts(
+          vectorsDir: vectors,
+          parts: parts,
+          workDir: work,
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('cancellation stops the join', () async {
+      final parts = await writeParts({
+        'segment.oxv.part-000': List<int>.generate(4000, (i) => i % 251),
+        'segment.oxv.part-001': List<int>.generate(3000, (i) => i % 241),
+      });
+
+      await expectLater(
+        assets.concatenateVectorParts(
+          vectorsDir: vectors,
+          parts: parts,
+          workDir: work,
+          isCancelled: () => true,
+        ),
+        throwsA(isA<PatchDownloadCancelled>()),
+      );
+    });
+  });
 }

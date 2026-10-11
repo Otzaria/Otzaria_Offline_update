@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:launcher_app/src/controllers/dispose_guard.dart';
 import 'package:launcher_app/src/controllers/otzaria_module_controller.dart';
 import 'package:launcher_app/src/controllers/progress_notifier.dart';
 
@@ -144,8 +145,7 @@ void main() {
   });
 }
 
-/// ChangeNotifier מינימלי שמדווח דרך [ProgressNotifier.notifyProgress].
-class _Counter extends ChangeNotifier with ProgressNotifier {
+class _Counter extends ChangeNotifier with DisposeGuard, ProgressNotifier {
   _Counter() {
     progress.addListener(() => lastSeen = _value);
   }

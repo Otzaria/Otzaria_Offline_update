@@ -11,6 +11,7 @@ import '../services/app_logger.dart';
 import '../services/coalescing_loader.dart';
 import '../services/custom_app_detection_snapshot.dart';
 import '../services/exe_icon_extractor.dart';
+import 'dispose_guard.dart';
 import 'progress_notifier.dart';
 
 /// הגרסה המוטבעת בקובץ הרצה, או `null`. ציבורי כי הבונה משתמש בו כדי
@@ -96,11 +97,8 @@ enum CustomAppsPage {
   uncategorized,
 }
 
-/// מצב התוכנות המותאמות עבור הממשק.
-///
-/// **ריק הוא המצב הרגיל.** רוב המשתמשים לא יוסיפו אף תוכנה, והממשק חייב
-/// להיעלם לגמרי כש-[apps] ריקה — ראו [hasApps].
-class CustomAppsController extends ChangeNotifier with ProgressNotifier {
+class CustomAppsController extends ChangeNotifier
+    with DisposeGuard, ProgressNotifier {
   CustomAppsController({
     required String mirrorRootDir,
     String? stateDir,

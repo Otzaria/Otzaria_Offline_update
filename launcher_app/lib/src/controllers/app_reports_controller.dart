@@ -9,11 +9,9 @@ import '../app_report/launcher_report_collector.dart';
 import '../self_update/launcher_version.dart';
 import '../services/app_logger.dart';
 import '../settings/settings_controller.dart';
+import 'dispose_guard.dart';
 
-/// הדיווחים של הלאנצ'ר על עצמו: התור, ההיסטוריה, השליחה ברקע והטיפול
-/// בקריסה של ההפעלה הקודמת — כמו `AppReportService` ו-`CrashReportFlow`
-/// של אוצריא. ראו `error_reports_manager/README.md`.
-class AppReportsController extends ChangeNotifier {
+class AppReportsController extends ChangeNotifier with DisposeGuard {
   AppReportsController({
     required this.service,
     required this.collector,
@@ -70,7 +68,6 @@ class AppReportsController extends ChangeNotifier {
   Map<String, dynamic> Function() stateProvider = () => const {};
 
   late final StreamSubscription<void> _changes;
-  bool _disposed = false;
 
   int _pendingCount = 0;
   int _sentTotal = 0;
@@ -107,7 +104,7 @@ class AppReportsController extends ChangeNotifier {
         service.getPendingReportsCount(),
         service.getSentReportsTotal(),
       ).wait;
-      if (_disposed) return;
+      if (isDisposed) return;
       _pendingCount = pending;
       _sentTotal = sent;
       notifyListeners();
@@ -162,7 +159,6 @@ class AppReportsController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _disposed = true;
     unawaited(_changes.cancel());
     service.dispose();
     super.dispose();

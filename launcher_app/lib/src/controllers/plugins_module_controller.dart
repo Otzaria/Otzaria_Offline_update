@@ -10,6 +10,7 @@ import '../services/app_logger.dart';
 import '../services/coalescing_loader.dart';
 import '../services/known_plugins_store.dart';
 import '../services/store_app_destination_store.dart';
+import 'dispose_guard.dart';
 import 'progress_notifier.dart';
 
 enum PluginsModuleStatus { idle, loading, ready, syncing, error }
@@ -33,12 +34,8 @@ enum PluginStatusFilter { all, stable, beta, experimental }
 /// `/plugins` (דף בית אצור), `/plugins/all` ו-`/plugins/category/<slug>`.
 enum PluginStorePage { home, all, category }
 
-/// עוטף את [PluginsManager] כמצב הניתן לצפייה עבור מסך החנות — טעינת
-/// הקטלוג המקומי, הורדה יזומה מהאתר, סינון, שמירת קובץ והתקנה ישירה.
-///
-/// [load] בלבד נקרא בפתיחה: הוא קורא מהתיקייה המקומית וסורק את ההתקנה של
-/// אוצריא, ולא נוגע ברשת. [sync] היא הפעולה היחידה שדורשת אינטרנט.
-class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
+class PluginsModuleController extends ChangeNotifier
+    with DisposeGuard, ProgressNotifier {
   PluginsModuleController({
     required String mirrorRootDir,
     String? stateDir,

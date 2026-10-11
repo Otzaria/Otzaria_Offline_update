@@ -7,6 +7,7 @@ import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import '../services/app_logger.dart';
 import '../services/elevation.dart';
+import 'dispose_guard.dart';
 import 'online_check.dart';
 import 'progress_notifier.dart';
 import 'stage_clock.dart';
@@ -55,13 +56,8 @@ enum LibraryPersonalDownloadNote {
   upToDate,
 }
 
-/// עוטף את [LibraryManager] כמצב הניתן לצפייה עבור הדשבורד. שתי פעולות
-/// נפרדות לגמרי:
-///  - [download] — מביא עדכונים מהרשת אל התיקייה שלצד התוכנה. **הפעולה
-///    היחידה שדורשת אינטרנט.**
-///  - [checkForUpdate] / [update] — קוראות מהתיקייה המקומית בלבד ומחילות
-///    על ה-DB החי. עובדות במחשב בלי רשת בכלל.
-class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
+class LibraryModuleController extends ChangeNotifier
+    with DisposeGuard, ProgressNotifier {
   LibraryModuleController({
     required String dataDir,
     String? stateDir,

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_search_engine/otzaria_search_engine.dart';
@@ -712,6 +713,30 @@ class SemanticSearchAssets {
 
   static const _copyFlushBytes = 16 * 1024 * 1024;
 
+  @visibleForTesting
+  Future<String> concatenateVectorParts({
+    required String vectorsDir,
+    required List<SemanticAsset> parts,
+    required String workDir,
+    bool Function()? isCancelled,
+  }) async {
+    final name = parts.first.name.replaceFirst(RegExp(r'\.part-\d+$'), '');
+    final segmentPath = p.join(workDir, name);
+    final sink = File(segmentPath).openWrite();
+    try {
+      for (final part in parts) {
+        _cancel(isCancelled);
+        final source = p.join(vectorsDir, part.name);
+        if (!await _matches(source, part, isCancelled, sink)) {
+          _invalid();
+        }
+      }
+    } finally {
+      await sink.close();
+    }
+    return segmentPath;
+  }
+
   Future<void> install({
     required String mirrorDir,
     required String dbPath,
@@ -750,23 +775,14 @@ class SemanticSearchAssets {
     SemanticCancellationToken? cancellation;
     Timer? poll;
     try {
-      var segmentPath = p.join(generation, 'vectors', parts.first.name);
-      if (concatenated.isNotEmpty) {
-        final name = parts.first.name.replaceFirst(RegExp(r'\.part-\d+$'), '');
-        segmentPath = p.join(work.path, name);
-        final sink = File(segmentPath).openWrite();
-        try {
-          for (final part in concatenated) {
-            _cancel(isCancelled);
-            final source = p.join(generation, 'vectors', part.name);
-            if (!await _matches(source, part, isCancelled, sink)) {
-              _invalid();
-            }
-          }
-        } finally {
-          await sink.close();
-        }
-      }
+      final segmentPath = concatenated.isEmpty
+          ? p.join(generation, 'vectors', parts.first.name)
+          : await concatenateVectorParts(
+              vectorsDir: p.join(generation, 'vectors'),
+              parts: concatenated,
+              workDir: work.path,
+              isCancelled: isCancelled,
+            );
       await beforeActivate?.call();
       final modelDirectory = p.join(p.dirname(dbPath), modelFolder);
       await _ensureOwnedDirectory(modelDirectory);

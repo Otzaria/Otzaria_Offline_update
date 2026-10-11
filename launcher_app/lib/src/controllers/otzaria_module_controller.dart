@@ -6,6 +6,7 @@ import 'package:otzaria_manager/otzaria_manager.dart';
 
 import '../services/app_logger.dart';
 import '../services/elevation.dart';
+import 'dispose_guard.dart';
 import 'progress_notifier.dart';
 
 enum OtzariaModuleStatus {
@@ -28,10 +29,8 @@ enum OtzariaModuleStatus {
 /// מצב ההורדה מהרשת אל התיקייה המקומית, נפרד מ-[OtzariaModuleStatus].
 enum OtzariaDownloadStatus { idle, downloading, done, error }
 
-/// עוטף את [OtzariaManager] כמצב הניתן לצפייה עבור הדשבורד. שתי פעולות
-/// נפרדות: [download] מביא גרסה מהרשת אל התיקייה שלצד התוכנה (הפעולה
-/// היחידה שדורשת אינטרנט), ו-[install] מתקין ממנה — גם בלי רשת.
-class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
+class OtzariaModuleController extends ChangeNotifier
+    with DisposeGuard, ProgressNotifier {
   OtzariaModuleController({
     required String dataDir,
     String? stateDir,
@@ -259,9 +258,7 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
   Future<bool> _probeRunning() async {
     try {
       final probe = await _runningLocator.probe();
-      if (_isDisposed) return probe.isRunning;
-      // מודיעים רק על שינוי אמיתי: הרענון חוזר כל 3 שניות כל עוד אוצריא
-      // פתוחה, וכל הודעה בונה מחדש את כל עץ הווידג'טים.
+      if (isDisposed) return probe.isRunning;
       final changed = isRunning != probe.isRunning;
       isRunning = probe.isRunning;
       if (changed) notifyListeners();
@@ -271,20 +268,13 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     }
   }
 
-  /// מבקש מאוצריא הפתוחה להיסגר — הפעולה שמאחורי הכפתור שלצד האזהרה
-  /// "אוצריא פתוחה". בקשת סגירה רגילה, לא הריגה; ראו [OtzariaProcessCloser].
-  ///
-  /// `true` = אוצריא אינה רצה יותר, והמסלול החסום (עדכון מסד, התקנה) פתוח.
-  /// `false` = היא שרדה את הבקשה, והקורא מבקש מהמשתמש לסגור ידנית.
   Future<bool> closeRunning() async {
     if (isClosing) return !isRunning;
     isClosing = true;
     notifyListeners();
     try {
       final closed = await _processCloser.close();
-      if (_isDisposed) return closed;
-      // בדיקה טרייה ולא הצבה של [closed]: התהליך יכול להיעלם אחרי שהבקשה
-      // ויתרה, ומצב "פתוחה" שנשאר על המסך חוסם פעולה שכבר אינה חסומה.
+      if (isDisposed) return closed;
       await refreshRunningState(force: true);
       return closed;
     } catch (e, st) {
@@ -292,7 +282,7 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
       return false;
     } finally {
       isClosing = false;
-      if (!_isDisposed) notifyListeners();
+      if (!isDisposed) notifyListeners();
     }
   }
 
@@ -522,13 +512,8 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     }
   }
 
-  /// רענון התהליך רץ ברקע (טיימר מחזורי בלאנצ'ר) ועלול להסתיים אחרי
-  /// השחרור — `notifyListeners` אחרי `dispose` זורק.
-  bool _isDisposed = false;
-
   @override
   void dispose() {
-    _isDisposed = true;
     _manager.dispose();
     super.dispose();
   }

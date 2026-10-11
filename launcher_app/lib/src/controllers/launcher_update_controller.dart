@@ -5,6 +5,7 @@ import '../self_update/launcher_release.dart';
 import '../self_update/launcher_self_updater.dart';
 import '../self_update/launcher_version.dart';
 import '../services/app_logger.dart';
+import 'dispose_guard.dart';
 import 'progress_notifier.dart';
 
 enum LauncherUpdateStatus {
@@ -21,9 +22,8 @@ enum LauncherUpdateStatus {
   error,
 }
 
-/// עוטף את [LauncherSelfUpdater] כמצב הניתן לצפייה עבור הדשבורד — אותה
-/// חלוקה כמו שאר הקונטרולרים: [download] נוגע ברשת, [install] לא.
-class LauncherUpdateController extends ChangeNotifier with ProgressNotifier {
+class LauncherUpdateController extends ChangeNotifier
+    with DisposeGuard, ProgressNotifier {
   LauncherUpdateController(
       {required String dataDir, LauncherSelfUpdater? updater})
       : _updater = updater ?? LauncherSelfUpdater(dataDir: dataDir);

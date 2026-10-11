@@ -7,13 +7,13 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import '../services/app_logger.dart';
+import 'dispose_guard.dart';
 
 /// תוצאת איסוף: כמה דיווחים הועברו לתיבה, ושגיאה אם הייתה.
 typedef ReportCollectOutcome = ({int collected, String? error});
 
-/// דיווחי הטעויות של אוצריא: איסוף לכונן במחשב הלא-מקוון, ושליחה מהמקוון.
-/// אין לו מסך — דיאלוג בעלייה וכפתור בכרטיס ההורדות (ראו `error_reports_flow`).
-class ErrorReportsController extends ChangeNotifier {
+class ErrorReportsController extends ChangeNotifier
+    with DisposeGuard, SilentAfterDispose {
   ErrorReportsController({
     required this.outbox,
     required Future<OtzariaReportQueue?> Function() resolveQueue,
@@ -90,17 +90,8 @@ class ErrorReportsController extends ChangeNotifier {
   int get batchSize => _uploader.batchSize;
   int estimateMinutes(int count) => _uploader.estimateMinutes(count);
 
-  /// העלאה או איסוף שנגמרים אחרי שהמסגרת נסגרה אינם מודיעים לאיש.
-  bool _disposed = false;
-
-  @override
-  void notifyListeners() {
-    if (!_disposed) super.notifyListeners();
-  }
-
   @override
   void dispose() {
-    _disposed = true;
     stop();
     _uploader.close();
     super.dispose();
@@ -162,9 +153,8 @@ class ErrorReportsController extends ChangeNotifier {
     }
   }
 
-  /// שולח את התיבה. המשך אחרי עצירה הוא פשוט מה שנשאר בה.
   Future<ReportUploadResult?> upload() async {
-    if (isUploading || _disposed) return null;
+    if (isUploading || isDisposed) return null;
     final cancellation = _cancellation = ReportUploadCancellation();
     isUploading = true;
     progress = null;
@@ -185,7 +175,6 @@ class ErrorReportsController extends ChangeNotifier {
       }
       return result;
     } catch (e) {
-      // כונן שנשלף באמצע: אין מה לספור, רק לומר מה קרה.
       AppLogger.maybeInstance?.error('העלאת הדיווחים נכשלה', e);
       return ReportUploadResult(
         total: 0,
@@ -198,7 +187,7 @@ class ErrorReportsController extends ChangeNotifier {
       isUploading = false;
       progress = null;
       _cancellation = null;
-      if (!_disposed) await refreshOutbox();
+      if (!isDisposed) await refreshOutbox();
     }
   }
 

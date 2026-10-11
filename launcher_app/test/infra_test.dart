@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:launcher_app/src/controllers/dispose_guard.dart';
 import 'package:launcher_app/src/controllers/download_summary.dart';
 import 'package:launcher_app/src/controllers/library_module_controller.dart';
 import 'package:launcher_app/src/controllers/online_check.dart';
@@ -466,8 +467,7 @@ void main() {
   });
 }
 
-/// ChangeNotifier מינימלי שמדווח דרך [ProgressNotifier.notifyProgress].
-class _Counter extends ChangeNotifier with ProgressNotifier {
+class _Counter extends ChangeNotifier with DisposeGuard, ProgressNotifier {
   int _value = 0;
   int lastSeen = 0;
 

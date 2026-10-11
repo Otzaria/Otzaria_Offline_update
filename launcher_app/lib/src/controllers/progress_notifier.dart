@@ -2,18 +2,19 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-mixin ProgressNotifier on ChangeNotifier {
+import 'dispose_guard.dart';
+
+mixin ProgressNotifier on DisposeGuard {
   static const Duration interval = Duration(milliseconds: 100);
 
   final _ProgressSignal _progress = _ProgressSignal();
   Stopwatch? _since;
   Timer? _pending;
-  bool _disposed = false;
 
   Listenable get progress => _progress;
 
   void notifyProgress() {
-    if (_disposed) return;
+    if (isDisposed) return;
     final since = _since;
     if (since == null || since.elapsed >= interval) {
       _pending?.cancel();
@@ -24,7 +25,7 @@ mixin ProgressNotifier on ChangeNotifier {
     }
     _pending ??= Timer(interval - since.elapsed, () {
       _pending = null;
-      if (_disposed) return;
+      if (isDisposed) return;
       _since = Stopwatch()..start();
       _progress.fire();
     });
@@ -32,7 +33,6 @@ mixin ProgressNotifier on ChangeNotifier {
 
   @override
   void dispose() {
-    _disposed = true;
     _pending?.cancel();
     _pending = null;
     _progress.dispose();

@@ -5,9 +5,10 @@ import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
 
 import '../services/app_logger.dart';
+import 'dispose_guard.dart';
 
-/// איסוף נעשה רק על סמך הסכמה עדכנית באוצריא וכשהיא סגורה.
-class SearchFeedbackController extends ChangeNotifier {
+class SearchFeedbackController extends ChangeNotifier
+    with DisposeGuard, SilentAfterDispose {
   SearchFeedbackController({
     required this.transport,
     required this.resolveSource,
@@ -68,25 +69,18 @@ class SearchFeedbackController extends ChangeNotifier {
   final Future<String?> Function() resolveSource;
   final Future<bool> Function()? _grantConsent;
   bool _offered = false;
-  bool _disposed = false;
   bool isCollecting = false;
   bool isUploading = false;
   int outboxCount = 0;
 
-  /// הקורא מציג קודם את תנאי ההסכמה; מפתח שנחסם אינו ניתן להפעלה.
   Future<bool> grantConsent() async {
-    if (_disposed || isCollecting || isUploading) return false;
+    if (isDisposed || isCollecting || isUploading) return false;
     try {
       return await _grantConsent?.call() ?? false;
     } catch (error) {
       AppLogger.maybeInstance?.error('כתיבת הסכמת החיפוש נכשלה', error);
       return false;
     }
-  }
-
-  @override
-  void notifyListeners() {
-    if (!_disposed) super.notifyListeners();
   }
 
   Future<void> refreshOutbox() async {
@@ -100,7 +94,7 @@ class SearchFeedbackController extends ChangeNotifier {
   }
 
   Future<int> pendingToOffer() async {
-    if (_offered || _disposed) return 0;
+    if (_offered || isDisposed) return 0;
     _offered = true;
     try {
       final source = await resolveSource();
@@ -112,7 +106,7 @@ class SearchFeedbackController extends ChangeNotifier {
   }
 
   Future<int> collect() async {
-    if (isCollecting || isUploading || _disposed) return 0;
+    if (isCollecting || isUploading || isDisposed) return 0;
     isCollecting = true;
     notifyListeners();
     try {
@@ -129,7 +123,7 @@ class SearchFeedbackController extends ChangeNotifier {
   }
 
   Future<SearchFeedbackUploadResult?> upload() async {
-    if (isCollecting || isUploading || _disposed) return null;
+    if (isCollecting || isUploading || isDisposed) return null;
     isUploading = true;
     notifyListeners();
     try {
@@ -144,7 +138,6 @@ class SearchFeedbackController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _disposed = true;
     transport.close();
     super.dispose();
   }
