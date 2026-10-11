@@ -231,8 +231,22 @@ class PluginMirrorSync {
     // שכבר על הכונן. אבל מחשב מנותק אחר עשוי לרוץ על גרסה ישנה יותר
     // מאלה שברשימה, ובילד ישן שכבר שם עדיף לו על כלום — בדיוק כמו בילד
     // שהורדתו נכשלה, למטה.
+    //
+    // גרסאות ריקות (אוצריא לא ידועה) אינן בסיס לקבוע מה אינו בשימוש: בילד
+    // שעדיין מפורסם נשמר, ולא נמחק כדי לרדת שוב בסנכרון הבא.
     if (targets.isEmpty && previous != null) {
       for (final entry in previous.localFiles.entries) {
+        if (await store.hasAsset(entry.value.relativePath)) {
+          keep[entry.key] = entry.value;
+        }
+      }
+    } else if (appVersions.isEmpty && previous != null) {
+      final published = {for (final v in plugin.versionEntries) v.version};
+      final wanted = {for (final t in targets) t.version};
+      for (final entry in previous.localFiles.entries) {
+        if (wanted.contains(entry.key) || !published.contains(entry.key)) {
+          continue;
+        }
         if (await store.hasAsset(entry.value.relativePath)) {
           keep[entry.key] = entry.value;
         }

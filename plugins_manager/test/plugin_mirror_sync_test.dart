@@ -1069,6 +1069,23 @@ void main() {
       expect(file.existsSync(), isTrue);
     });
 
+    // בלי גרסאות אין בסיס לקבוע מה אינו בשימוש: הבילד התואם שכבר על הכונן
+    // אינו נמחק, והסנכרון הבא אינו מוריד אותו שוב.
+    test('רשימת גרסאות ריקה אינה מוחקת בילד תואם שאינו החי', () async {
+      await sync(_Site(plugins: versioned()), appVersions: ['0.9.96']);
+      final store = PluginMirrorStore(temp.path);
+      final file = File(store.absolutePath('files/a/plugin-1.5.0.otzplugin'));
+      expect(file.existsSync(), isTrue);
+
+      final catalog = await sync(_Site(plugins: versioned()));
+      expect(file.existsSync(), isTrue);
+      expect(catalog.plugins.single.localFiles.keys, containsAll(['1.5.0']));
+
+      final third = _Site(plugins: versioned());
+      await sync(third, appVersions: ['0.9.96']);
+      expect(third.requestsMatching('/download'), isEmpty);
+    });
+
     test('הבילד שכבר במראה אינו יורד שוב', () async {
       await sync(_Site(plugins: versioned()), appVersions: ['0.9.96']);
 
