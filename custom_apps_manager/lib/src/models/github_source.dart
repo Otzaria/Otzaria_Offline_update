@@ -38,6 +38,16 @@ class GithubSource {
         'asset': assetPattern,
       };
 
+  @override
+  bool operator ==(Object other) =>
+      other is GithubSource &&
+      other.owner == owner &&
+      other.repo == repo &&
+      other.assetPattern == assetPattern;
+
+  @override
+  int get hashCode => Object.hash(owner, repo, assetPattern);
+
   /// מפרק כתובת GitHub שהמשתמש הדביק. מקבל גם `https://github.com/a/b`,
   /// גם עם `/releases` בסוף, גם עם `.git`, וגם `a/b` יבש — כי זה מה
   /// שאנשים מדביקים בפועל.

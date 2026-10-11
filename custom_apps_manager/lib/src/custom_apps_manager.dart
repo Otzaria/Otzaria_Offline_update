@@ -11,6 +11,7 @@ import 'models/custom_app_install_state.dart';
 import 'models/custom_install_outcome.dart';
 import 'models/custom_installer_kind.dart';
 import 'models/github_release.dart';
+import 'models/github_source.dart';
 import 'models/safe_file_name.dart';
 import 'models/stored_installer.dart';
 import 'services/custom_app_categories_store.dart';
@@ -266,6 +267,8 @@ class CustomAppsManager {
 
   Future<StoredInstaller> downloadFromGithub(
     String id, {
+    GithubRelease? release,
+    GithubSource? releaseSource,
     void Function(int received, int total)? onProgress,
   }) async {
     final t = AppL10n.strings.customAppsDomain;
@@ -273,15 +276,20 @@ class CustomAppsManager {
     final entry = await store.load(id);
     if (entry == null) throw AppDescriptorException(t.appNotRegistered(id));
 
-    final release = await peekLatestOnline(entry.descriptor);
-    if (release == null) throw AppDescriptorException(t.githubNoReleases);
+    final source = entry.descriptor.github;
+    if (entry.descriptor.sourceKind != AppSourceKind.github || source == null) {
+      throw AppDescriptorException(t.sourceIsNotGithub);
+    }
 
-    final asset = GithubAppClient.selectAsset(
-      release,
-      entry.descriptor.github!.assetPattern,
-    );
-    if (asset == null || safeFileName(asset.name) == null) {
-      throw AppDescriptorException(t.githubNoMatchingAsset(release.tagName));
+    var latest = releaseSource == source ? release : null;
+    var asset = latest == null ? null : _usableAsset(latest, source.assetPattern);
+    if (latest == null || asset == null) {
+      latest = await peekLatestOnline(entry.descriptor);
+      if (latest == null) throw AppDescriptorException(t.githubNoReleases);
+      asset = _usableAsset(latest, source.assetPattern);
+      if (asset == null) {
+        throw AppDescriptorException(t.githubNoMatchingAsset(latest.tagName));
+      }
     }
 
     final target = store.installerPathNamed(id, asset.name);
@@ -297,7 +305,7 @@ class CustomAppsManager {
 
     final stored = StoredInstaller(
       fileName: asset.name,
-      version: release.version,
+      version: latest.version,
       sizeBytes: await File(target).length(),
       addedAt: DateTime.now(),
       sha256: digest,
@@ -323,6 +331,12 @@ class CustomAppsManager {
         } on FileSystemException catch (_) {}
       }
     } on FileSystemException catch (_) {}
+  }
+
+  static GithubAsset? _usableAsset(GithubRelease release, String pattern) {
+    final asset = GithubAppClient.selectAsset(release, pattern);
+    if (asset == null || safeFileName(asset.name) == null) return null;
+    return asset;
   }
 
   /// מתקין מהקובץ ששמור במראה. **לא נוגע ברשת** — זה מה שעובד במחשב

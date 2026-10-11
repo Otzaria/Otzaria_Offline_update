@@ -1,6 +1,7 @@
 // בדיקות לתוכנות נוספות. הכלל שנבדק שוב ושוב כאן הוא **"ריק = בלתי
 // נראה"**: משתמש שלא הוסיף תוכנה לא אמור לפגוש שום סימן לתכונה הזו.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -15,7 +16,9 @@ import 'package:launcher_app/src/screens/custom_apps/custom_apps_settings_card.d
 import 'package:launcher_app/src/screens/custom_apps/installer_kind_label.dart';
 import 'package:launcher_app/src/screens/store_kit/store_kit.dart';
 import 'package:launcher_app/src/services/announced_apps_store.dart';
+import 'package:launcher_app/src/services/custom_app_detection_snapshot.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
 
 import 'test_harness.dart';
@@ -1042,6 +1045,170 @@ void main() {
       expect(result.checked, 1);
       expect(result.downloaded, 1);
     });
+
+    testWidgets('ההורדה מקבלת את ה-release שהבדיקה מצאה ואינה שואלת שוב',
+        (tester) async {
+      late _FakeManager fake;
+      await tester.runAsync(() async {
+        final built = await fakeController({'old': '2.0.0'}, ids: ['old']);
+        fake = built.fake;
+        await built.controller.load();
+        await built.controller.downloadAllOutdated();
+        built.controller.dispose();
+      });
+
+      expect(fake.peeked, ['old']);
+      expect(fake.passedReleases['old']?.tagName, '2.0.0');
+      expect(fake.passedSources['old']?.repo, 'their-app');
+    });
+
+    testWidgets('בדיקה שחזרה אחרי שינוי המקור אינה שומרת את ה-release שלה',
+        (tester) async {
+      late _FakeManager fake;
+      late CustomAppsController c;
+      await tester.runAsync(() async {
+        final built = await fakeController({'old': '2.0.0'}, ids: ['old']);
+        fake = built.fake;
+        c = built.controller;
+        await c.load();
+        final before = c.apps.single.descriptor;
+        final gate = Completer<void>();
+        fake.peekGate = gate;
+        final check = c.checkOnline(before);
+        await c.update(
+          AppDescriptor(
+            id: before.id,
+            name: before.name,
+            sourceKind: AppSourceKind.github,
+            detect: before.detect,
+            github: const GithubSource(
+              owner: 'fork',
+              repo: 'their-app',
+              assetPattern: r'^App\-\d+\.exe$',
+            ),
+          ),
+        );
+        gate.complete();
+        await check;
+        fake.peekGate = null;
+        await c.download('old');
+        c.dispose();
+      });
+
+      expect(c.onlineVersions, isNot(contains('old')));
+      expect(fake.passedReleases['old'], isNull);
+      expect(fake.passedSources['old'], isNull);
+    });
+
+    testWidgets('אחרי עריכה ההורדה אינה נשענת על release ישן', (tester) async {
+      late _FakeManager fake;
+      await tester.runAsync(() async {
+        final built = await fakeController({'old': '2.0.0'}, ids: ['old']);
+        fake = built.fake;
+        await built.controller.load();
+        await built.controller
+            .checkOnline(built.controller.apps.single.descriptor);
+        await built.controller.update(
+            built.controller.apps.single.descriptor.copyWith(name: 'x'));
+        await built.controller.download('old');
+        built.controller.dispose();
+      });
+
+      expect(fake.passedReleases['old'], isNull);
+    });
+  });
+
+  group('זיהוי ההתקנות', () {
+    AppDescriptor detectable(String id, {String? exeName}) => AppDescriptor(
+          id: id,
+          name: id,
+          sourceKind: AppSourceKind.manual,
+          detect: AppDetectRules(
+            exeName: exeName ?? '$id.exe',
+            registryDisplayName: '^$id\\b',
+          ),
+        );
+
+    test('צילום אחד של התהליכים ושל הרג\'יסטרי לכל טעינה', () async {
+      final root = p.join(tempDir.path, 'mirror');
+      final running = File(p.join(tempDir.path, 'running', 'b.exe'))
+        ..createSync(recursive: true);
+      final registered = Directory(p.join(tempDir.path, 'registered', 'c'))
+        ..createSync(recursive: true);
+      File(p.join(registered.path, 'c.exe')).createSync();
+      for (final id in ['a', 'b', 'c']) {
+        await controller.add(detectable(id));
+      }
+
+      var snapshots = 0;
+      var processReads = 0;
+      var registryReads = 0;
+      final built = CustomAppsController(
+        mirrorRootDir: root,
+        detectionSnapshot: () {
+          snapshots++;
+          return CustomAppDetectionSnapshot(
+            runningImagePaths: () {
+              processReads++;
+              return [running.path];
+            },
+            uninstallEntries: () {
+              registryReads++;
+              return [
+                InstallRegistryEntry(
+                  keyName: 'c_is1',
+                  displayName: 'c 1.0',
+                  installDir: registered.path,
+                ),
+              ];
+            },
+          );
+        },
+      );
+      addTearDown(built.dispose);
+
+      await built.load();
+
+      CustomAppInstallState? installedOf(String id) =>
+          built.apps.firstWhere((a) => a.descriptor.id == id).installed;
+      expect(snapshots, 1);
+      expect(processReads, 1);
+      expect(registryReads, 1);
+      expect(installedOf('a'), isNull);
+      expect(installedOf('b')?.launchPath, running.path);
+      expect(installedOf('c')?.installDir, registered.path);
+    });
+
+    test('שינוי שאינו נוגע בזיהוי אינו סורק מחדש', () async {
+      final root = p.join(tempDir.path, 'counting-mirror');
+      final manager = _CountingManager(mirrorRootDir: root);
+      final built = CustomAppsController(mirrorRootDir: root, manager: manager);
+      addTearDown(built.dispose);
+
+      await built.add(detectable('a'));
+      await built.add(detectable('b'));
+      expect(manager.detected, ['a', 'b']);
+
+      manager.detected.clear();
+      final source = File(p.join(tempDir.path, 'Setup.exe'))
+        ..writeAsStringSync('x');
+      await built.attachInstaller('a', sourcePath: source.path, version: '1');
+      await built.addCategory('כלים');
+      await built.update(detectable('b').copyWith(name: 'שם חדש'));
+      expect(manager.detected, isEmpty);
+
+      await built.update(detectable('b', exeName: 'other.exe'));
+      expect(manager.detected, ['b']);
+
+      manager.detected.clear();
+      await built.load();
+      expect(manager.detected, isEmpty);
+
+      final fresh = CustomAppsController(mirrorRootDir: root, manager: manager);
+      addTearDown(fresh.dispose);
+      await fresh.load();
+      expect(manager.detected, ['a', 'b']);
+    });
   });
 
   // הפריסה החדשה: רשת כרטיסים, סרגל קטגוריות ודף לכל תוכנה — אותם
@@ -1421,8 +1588,18 @@ class _FakeManager extends CustomAppsManager {
 
   static String? _noVersion(String _) => null;
 
+  final List<String> peeked = [];
+
+  final Map<String, GithubRelease?> passedReleases = {};
+
+  final Map<String, GithubSource?> passedSources = {};
+
+  Completer<void>? peekGate;
+
   @override
   Future<GithubRelease?> peekLatestOnline(AppDescriptor descriptor) async {
+    peeked.add(descriptor.id);
+    if (peekGate case final gate?) await gate.future;
     if (failFor.contains(descriptor.id)) throw const SocketException('אין רשת');
     final version = online[descriptor.id];
     return version == null
@@ -1437,14 +1614,36 @@ class _FakeManager extends CustomAppsManager {
   @override
   Future<StoredInstaller> downloadFromGithub(
     String id, {
+    GithubRelease? release,
+    GithubSource? releaseSource,
     void Function(int received, int total)? onProgress,
   }) async {
     downloaded.add(id);
+    passedReleases[id] = release;
+    passedSources[id] = releaseSource;
     return attachInstaller(
       id,
       sourcePath: sourceFile.path,
       version: online[id]!,
     );
+  }
+}
+
+class _CountingManager extends CustomAppsManager {
+  _CountingManager({required String mirrorRootDir})
+      : super(
+          resolveMirrorDir: () async => mirrorRootDir,
+          readVersion: _noVersion,
+        );
+
+  final List<String> detected = [];
+
+  static String? _noVersion(String _) => null;
+
+  @override
+  Future<CustomAppInstallState?> detectInstalled(AppDescriptor descriptor) {
+    detected.add(descriptor.id);
+    return super.detectInstalled(descriptor);
   }
 }
 

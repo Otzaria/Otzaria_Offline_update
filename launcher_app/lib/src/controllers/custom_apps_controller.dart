@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:flutter/foundation.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
@@ -5,6 +7,7 @@ import 'package:path/path.dart' as p;
 
 import '../services/announced_apps_store.dart';
 import '../services/app_logger.dart';
+import '../services/custom_app_detection_snapshot.dart';
 import '../services/exe_icon_extractor.dart';
 import 'progress_notifier.dart';
 
@@ -96,27 +99,24 @@ enum CustomAppsPage {
 /// **ריק הוא המצב הרגיל.** רוב המשתמשים לא יוסיפו אף תוכנה, והממשק חייב
 /// להיעלם לגמרי כש-[apps] ריקה — ראו [hasApps].
 class CustomAppsController extends ChangeNotifier with ProgressNotifier {
-  /// נבנה בגוף הבנאי ולא ברשימת האתחול, כי `onLearningStarted` מצביע חזרה
-  /// אל הקונטרולר — ורשימת אתחול אינה יכולה לגעת ב-`this`.
   CustomAppsController({
     required String mirrorRootDir,
     String? stateDir,
     CustomAppsManager? manager,
     ExeIconExtraction? extractIcon,
+    CustomAppDetectionSnapshot Function()? detectionSnapshot,
   }) {
     _mirrorRootDir = mirrorRootDir;
     _extractIcon = extractIcon ?? ExeIconExtractor.extract;
     _announced = stateDir == null ? null : AnnouncedAppsStore(stateDir);
+    _newDetectionSnapshot =
+        detectionSnapshot ?? CustomAppDetectionSnapshot.live;
     _manager = manager ??
         CustomAppsManager(
-          // כל המראות תחת אותו שורש שלצד התוכנה, כך שהכול נוסע יחד.
           resolveMirrorDir: () async => mirrorRootDir,
-          // התפרים שהחבילה עצמה אינה ממשת, כדי להישאר נקייה מ-win32 —
-          // הלאנצ'ר כבר מחזיק את כולם.
           readVersion: _readInstalledVersion,
           lookupUninstallDirs: _lookupUninstallDirs,
           lookupRunningProcess: _findRunningProcess,
-          // שני התפרים של הלמידה שאחרי ההתקנה — ראו `InstallLearner`.
           lookupUninstallEntries: _uninstallEntries,
           lookupInstalledExe: findInstalledExe,
           onLearningStarted: _markLearning,
@@ -129,6 +129,10 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
   }
 
   late final CustomAppsManager _manager;
+
+  late final CustomAppDetectionSnapshot Function() _newDetectionSnapshot;
+
+  static const Symbol _detectionSnapshotKey = #customAppDetectionSnapshot;
 
   /// שורש המראה. נשמר גם כאן ולא רק בתוך ה-manager, כי נתיבי המדיה
   /// נדרשים **סינכרונית** בזמן `build` — התיקייה עצמה קבועה כל ההרצה.
@@ -202,31 +206,15 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     }
   }
 
-  /// נתיב ההרצה של תהליך שרץ כרגע ושמו [exeName].
-  ///
-  /// אותו מנגנון שמאתר את אוצריא (`RunningOtzariaLocator`), רק עם שם אחר:
-  /// `tasklist` נותן את ה-pid, ו-`QueryFullProcessImageNameW` את הנתיב.
-  /// זו העדות החזקה ביותר — היא מוצאת גם התקנה בתיקייה שאיש לא ניחש.
-  static Future<String?> _findRunningProcess(String exeName) async {
-    try {
-      for (final pid in await RunningOtzariaLocator.windowsPidsOf(exeName)) {
-        final path = RunningOtzariaLocator.windowsImagePathOfPid(pid);
-        if (path != null) return path;
-      }
-    } catch (_) {
-      // אין הרשאה, או פלטפורמה אחרת — ממשיכים לחיפוש בתיקיות.
-    }
-    return null;
-  }
+  CustomAppDetectionSnapshot get _detectionSnapshot =>
+      Zone.current[_detectionSnapshotKey] as CustomAppDetectionSnapshot? ??
+      _newDetectionSnapshot();
 
-  static List<String> _lookupUninstallDirs(RegExp displayName) {
-    try {
-      return const WindowsInstallRegistry()
-          .installDirs(matchesDisplayName: displayName.hasMatch);
-    } catch (_) {
-      return const [];
-    }
-  }
+  Future<String?> _findRunningProcess(String exeName) =>
+      _detectionSnapshot.runningProcess(exeName);
+
+  List<String> _lookupUninstallDirs(RegExp displayName) =>
+      _detectionSnapshot.uninstallDirs(displayName);
 
   /// **כל** רישומי ההסרה, בלי סינון — זה מה שהופך צילום לפני/אחרי לאפשרי.
   ///
@@ -275,24 +263,30 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     return false;
   }
 
-  /// טוען את הרשימה וסורק מה מותקן. קריאת דיסק בלבד — לא נוגע ברשת.
-  Future<void> load() async {
+  Future<void> load({String? redetect}) async {
     try {
       if (_announced != null) _announcedIds = await _announced.load();
       categories = await _manager.loadCategories();
       final entries = await _manager.loadAll();
       final folderIds = await _manager.takenIds();
-      final views = <CustomAppView>[];
-      for (final entry in entries) {
-        views.add(
-          CustomAppView(
-            entry: entry,
-            installed: await _detectQuietly(entry.descriptor),
-          ),
-        );
-      }
-      apps = views;
       _folderIds = folderIds;
+      final previous = {for (final app in apps) app.descriptor.id: app};
+      apps = await runZoned(
+        () async => [
+          for (final entry in entries)
+            CustomAppView(
+              entry: entry,
+              installed: switch (previous[entry.descriptor.id]) {
+                final before?
+                    when entry.descriptor.id != redetect &&
+                        _sameDetection(before.descriptor, entry.descriptor) =>
+                  before.installed,
+                _ => await _detectQuietly(entry.descriptor),
+              },
+            ),
+        ],
+        zoneValues: {_detectionSnapshotKey: _newDetectionSnapshot()},
+      );
       errorMessage = null;
     } catch (e) {
       AppLogger.instance.warn('טעינת התוכנות המותאמות נכשלה: $e');
@@ -300,6 +294,12 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     }
     notifyListeners();
   }
+
+  static bool _sameDetection(AppDescriptor a, AppDescriptor b) =>
+      a.installDir == b.installDir &&
+      a.detect.exeName == b.detect.exeName &&
+      a.detect.registryDisplayName == b.detect.registryDisplayName &&
+      listEquals(a.detect.dirs, b.detect.dirs);
 
   Future<CustomAppInstallState?> _detectQuietly(AppDescriptor d) async {
     try {
@@ -316,6 +316,9 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
   /// תוכנות שהבדיקה שלהן ברשת נכשלה (בדרך כלל: אין חיבור). זה **אינו**
   /// מצב שגיאה שיש להתריע עליו — במחשב המנותק הוא הנורמה.
   final Set<String> onlineUnavailable = {};
+
+  final Map<String, ({GithubSource source, GithubRelease release})>
+      _onlineReleases = {};
 
   /// המזהה של התוכנה שמורידה כרגע, או `null`. הורדה אחת בכל רגע: כולן
   /// חולקות את אותו רוחב פס, ובמקביל הן רק היו מאטות זו את זו.
@@ -339,9 +342,8 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     return ok == true;
   }
 
-  /// שומר עריכה של רשומה קיימת. המזהה נשאר כשהיה — ראו
-  /// [CustomAppsManager.update].
   Future<bool> update(AppDescriptor descriptor) async {
+    _onlineReleases.remove(descriptor.id);
     final ok = await _guard(() async {
       await _manager.update(descriptor);
       return true;
@@ -351,6 +353,7 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
   }
 
   Future<bool> remove(String id) async {
+    _onlineReleases.remove(id);
     final ok = await _guard(() async {
       await _manager.remove(id);
       return true;
@@ -399,34 +402,42 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     return stored;
   }
 
-  /// "בחירת מיקום ידנית" — המשתמש מצביע על התיקייה, בדיוק כמו בכפתור
-  /// המקביל של אוצריא. `false` כשקובץ ההרצה אינו שם.
-  ///
-  /// מיקום שנמצא נרשם, ומצטרף למיקומים שייבדקו קודם בכל מחשב שהכונן
-  /// יגיע אליו.
   Future<bool> adoptInstallDir(AppDescriptor descriptor, String dir) async {
     final state = await _guard(
       () => _manager.adoptInstallDir(descriptor, dir),
     );
     if (state == null) return false;
-    await load();
+    await load(redetect: descriptor.id);
     return true;
   }
 
-  /// בדיקה קלה ברשת — קריאת API אחת, בלי הורדת קובץ. כשל נבלע ומסומן
-  /// ב-[onlineUnavailable]: "אין רשת" אינו שגיאה בתוכנה שכל ייעודה לעבוד
-  /// בלעדיה.
   Future<void> checkOnline(AppDescriptor descriptor) async {
-    if (descriptor.sourceKind != AppSourceKind.github) return;
+    final source = descriptor.github;
+    if (descriptor.sourceKind != AppSourceKind.github || source == null) return;
     try {
       final release = await _manager.peekLatestOnline(descriptor);
+      if (!_isCurrentSource(descriptor.id, source)) return;
       onlineUnavailable.remove(descriptor.id);
-      if (release != null) onlineVersions[descriptor.id] = release.version;
+      if (release != null) {
+        onlineVersions[descriptor.id] = release.version;
+        _onlineReleases[descriptor.id] = (source: source, release: release);
+      } else {
+        _onlineReleases.remove(descriptor.id);
+      }
     } catch (_) {
+      if (!_isCurrentSource(descriptor.id, source)) return;
       onlineUnavailable.add(descriptor.id);
+      _onlineReleases.remove(descriptor.id);
     }
     notifyListeners();
   }
+
+  bool _isCurrentSource(String id, GithubSource source) => apps.any(
+        (app) =>
+            app.descriptor.id == id &&
+            app.descriptor.sourceKind == AppSourceKind.github &&
+            app.descriptor.github == source,
+      );
 
   /// כמה תוכנות כבר נבדקו בסבב "בדיקה לכולן", ומתוך כמה. `null` כשאין סבב.
   int? checkAllDone;
@@ -572,8 +583,6 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     );
   }
 
-  /// **הפעולה היחידה כאן שדורשת אינטרנט**: מורידה מהריפו את הקובץ שנבחר
-  /// אל הכונן.
   Future<StoredInstaller?> download(String id) async {
     if (downloadingId != null) return null;
     downloadingId = id;
@@ -581,21 +590,22 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     downloadTotal = null;
     notifyListeners();
 
+    final checked = _onlineReleases[id];
     final stored = await _guard(
       () => _manager.downloadFromGithub(
         id,
+        release: checked?.release,
+        releaseSource: checked?.source,
         onProgress: (received, total) {
           downloadReceived = received;
           downloadTotal = total;
-          // ההתקדמות מגיעה פר-צ'אנק — עשרות אלפי קריאות בהורדה גדולה.
-          // `notifyProgress` מאחד אותן ל-~10 לשנייה; `notifyListeners`
-          // ישיר כאן היה עולה יותר מההורדה עצמה.
           notifyProgress();
         },
       ),
     );
 
     downloadingId = null;
+    _onlineReleases.remove(id);
     if (stored != null) {
       onlineVersions.remove(id);
       await load();
@@ -605,12 +615,6 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     return stored;
   }
 
-  /// מתקין מהעותק שעל הכונן, ואחר כך **לומד כיצד לזהות את התוכנה**.
-  ///
-  /// הלמידה יכולה להימשך עד דקה — קוד יציאה 0 של מתקין אינו אומר שהרישום
-  /// שלו כבר נכתב — ולכן [isLearning] דולק בזמנה והממשק אומר זאת.
-  /// [copyToDir] נמסר רק לתוכנה שהקובץ שלה הוא **התוכנה עצמה** — הממשק
-  /// שואל לאן להעתיק לפני שהוא קורא לכאן.
   Future<({bool ok, String? copiedPath, String? learnedExeName})> install(
     String id, {
     String? copyToDir,
@@ -620,7 +624,7 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     isLearning = false;
 
     final ok = errorMessage == null;
-    if (ok) await load();
+    if (ok) await load(redetect: id);
     notifyListeners();
     return (
       ok: ok,

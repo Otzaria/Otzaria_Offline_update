@@ -279,6 +279,121 @@ void main() {
     });
   });
 
+  group('downloadFromGithub עם release שהבדיקה כבר מצאה', () {
+    final bytes = List.filled(10, 65);
+
+    Map<String, Object> releaseJson(String tag, String assetName) => {
+          'tag_name': tag,
+          'prerelease': false,
+          'draft': false,
+          'assets': [
+            {
+              'name': assetName,
+              'browser_download_url': 'https://example.test/$tag/$assetName',
+              'size': bytes.length,
+            },
+          ],
+        };
+
+    const source = GithubSource(
+      owner: 'o',
+      repo: 'r',
+      assetPattern: r'^App-.*\.exe$',
+    );
+
+    Future<({CustomAppsManager manager, List<Uri> requests})> githubManager(
+      Map<String, Object> latest,
+    ) async {
+      final requests = <Uri>[];
+      final m = CustomAppsManager(
+        resolveMirrorDir: () async => root,
+        readVersion: (_) => '1',
+        githubClient: GithubAppClient(
+          httpClient: MockClient((request) async {
+            requests.add(request.url);
+            if (request.url.host == 'example.test') {
+              return http.Response.bytes(bytes, 200);
+            }
+            return http.Response(
+              jsonEncode([latest]),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }),
+        ),
+      );
+      await m.add(
+        const AppDescriptor(
+          id: 'org.example.gh',
+          name: 'gh',
+          sourceKind: AppSourceKind.github,
+          github: source,
+        ),
+      );
+      return (manager: m, requests: requests);
+    }
+
+    test('אינו שואל את ה-API שוב ומוריד בדיוק את הגרסה שנמצאה', () async {
+      final built = await githubManager(releaseJson('v3.0', 'App-3.0.exe'));
+      final checked =
+          GithubRelease.fromJson(releaseJson('v2.0', 'App-2.0.exe'));
+
+      final stored = await built.manager.downloadFromGithub(
+        'org.example.gh',
+        release: checked,
+        releaseSource: source,
+      );
+
+      expect(built.requests.map((u) => u.host), ['example.test']);
+      expect(stored.version, '2.0');
+      expect(stored.fileName, 'App-2.0.exe');
+    });
+
+    test('release בלי קובץ מתאים נשלף מחדש מהריפו', () async {
+      final built = await githubManager(releaseJson('v3.0', 'App-3.0.exe'));
+      final checked = GithubRelease.fromJson(releaseJson('v2.0', 'Other.zip'));
+
+      final stored = await built.manager.downloadFromGithub(
+        'org.example.gh',
+        release: checked,
+        releaseSource: source,
+      );
+
+      expect(built.requests, hasLength(2));
+      expect(built.requests.first.host, isNot('example.test'));
+      expect(stored.version, '3.0');
+    });
+
+    test('release ממקור אחר נזנח ונשלף מחדש מהמקור הנוכחי', () async {
+      final built = await githubManager(releaseJson('v3.0', 'App-3.0.exe'));
+      final checked =
+          GithubRelease.fromJson(releaseJson('v2.0', 'App-2.0.exe'));
+
+      final stored = await built.manager.downloadFromGithub(
+        'org.example.gh',
+        release: checked,
+        releaseSource: const GithubSource(
+          owner: 'other',
+          repo: 'r',
+          assetPattern: r'^App-.*\.exe$',
+        ),
+      );
+
+      expect(built.requests, hasLength(2));
+      expect(built.requests.first.host, isNot('example.test'));
+      expect(stored.version, '3.0');
+    });
+
+    test('בלי release — שולף כמו קודם', () async {
+      final built = await githubManager(releaseJson('v3.0', 'App-3.0.exe'));
+
+      final stored = await built.manager.downloadFromGithub('org.example.gh');
+
+      expect(built.requests, hasLength(2));
+      expect(stored.version, '3.0');
+    });
+  });
+
   /// ההצהרה "הקובץ הוא התוכנה עצמה" היא הדבר היחיד על הקובץ שאי אפשר
   /// להריח מהבייטים, ולכן היא היחידה שנשמרת ברשומה.
   group('קובץ נייד — התוכנה עצמה', () {

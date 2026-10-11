@@ -142,6 +142,16 @@ void main() {
           await RunningOtzariaLocator.windowsPidsOf(imageName), contains(pid));
     });
 
+    test('windowsRunningImagePaths כולל את התהליך הנוכחי', () {
+      final self = RunningOtzariaLocator.windowsImagePathOfPid(pid)!;
+
+      expect(
+        RunningOtzariaLocator.windowsRunningImagePaths()
+            .map((path) => path.toLowerCase()),
+        contains(self.toLowerCase()),
+      );
+    });
+
     test('שם שאינו קיים מחזיר רשימה ריקה', () async {
       expect(
         await RunningOtzariaLocator.windowsPidsOf('no-such-process-xyz.exe'),

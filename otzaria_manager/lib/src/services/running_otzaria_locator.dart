@@ -139,15 +139,60 @@ class RunningOtzariaLocator {
     return pids;
   }
 
-  /// הנתיב המלא של תהליך לפי [processId], דרך Win32 (`OpenProcess` +
-  /// `QueryFullProcessImageNameW`, package:win32 — כמו ב-
-  /// [WindowsExeVersionReader]).
-  ///
-  /// null כשהפתיחה נכשלה: `PROCESS_QUERY_LIMITED_INFORMATION` מספיק
-  /// לתהליך של אותו משתמש, אך לא לתהליך מוגבה כשאנחנו לא.
   static String? windowsImagePathOfPid(int processId) {
     if (!Platform.isWindows) return null;
 
+    final buffer = malloc<Uint16>(_maxPathChars).cast<Utf16>();
+    final sizePtr = calloc<Uint32>();
+    try {
+      return _imagePathOf(processId, buffer, sizePtr);
+    } finally {
+      malloc.free(buffer);
+      calloc.free(sizePtr);
+    }
+  }
+
+  static List<String> windowsRunningImagePaths() {
+    if (!Platform.isWindows) return const [];
+
+    final paths = <String>[];
+    final buffer = malloc<Uint16>(_maxPathChars).cast<Utf16>();
+    final sizePtr = calloc<Uint32>();
+    try {
+      for (final processId in _windowsAllPids()) {
+        final path = _imagePathOf(processId, buffer, sizePtr);
+        if (path != null) paths.add(path);
+      }
+    } finally {
+      malloc.free(buffer);
+      calloc.free(sizePtr);
+    }
+    return paths;
+  }
+
+  static List<int> _windowsAllPids() {
+    for (var capacity = 1024;; capacity *= 2) {
+      final pids = malloc<Uint32>(capacity);
+      final neededPtr = calloc<Uint32>();
+      try {
+        final bytes = capacity * sizeOf<Uint32>();
+        if (EnumProcesses(pids, bytes, neededPtr) == 0) return const [];
+        if (neededPtr.value < bytes) {
+          final count = neededPtr.value ~/ sizeOf<Uint32>();
+          return [for (var i = 0; i < count; i++) pids[i]];
+        }
+      } finally {
+        malloc.free(pids);
+        calloc.free(neededPtr);
+      }
+    }
+  }
+
+  static String? _imagePathOf(
+    int processId,
+    Pointer<Utf16> buffer,
+    Pointer<Uint32> sizePtr,
+  ) {
     final handle = OpenProcess(
       PROCESS_QUERY_LIMITED_INFORMATION,
       FALSE,
@@ -155,16 +200,13 @@ class RunningOtzariaLocator {
     );
     if (handle == 0) return null;
 
-    final buffer = calloc<Uint16>(_maxPathChars).cast<Utf16>();
-    final sizePtr = calloc<Uint32>()..value = _maxPathChars;
     try {
+      sizePtr.value = _maxPathChars;
       if (QueryFullProcessImageName(handle, 0, buffer, sizePtr) == 0) {
         return null;
       }
-      return buffer.toDartString();
+      return buffer.toDartString(length: sizePtr.value);
     } finally {
-      calloc.free(buffer);
-      calloc.free(sizePtr);
       CloseHandle(handle);
     }
   }
