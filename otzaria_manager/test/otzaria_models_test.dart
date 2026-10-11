@@ -252,6 +252,110 @@ void main() {
     });
   });
 
+  group('channel tags recorded by the launcher', () {
+    test('a recorded stable tag still offers the same-base prerelease', () {
+      final result = OtzariaUpdateCheckResult(
+        stableRelease: _release(tagName: 'v0.2.7'),
+        prereleaseRelease:
+            _release(tagName: 'v0.2.7-dev-118', isPrerelease: true),
+        preferPrerelease: true,
+        currentState: _state('v0.2.7'),
+      );
+
+      expect(result.latestRelease!.tagName, 'v0.2.7-dev-118');
+      expect(result.installedIsNewer, isFalse);
+      expect(result.updateAvailable, isTrue);
+    });
+
+    test('a recorded prerelease tag still offers the same-base stable', () {
+      final result = OtzariaUpdateCheckResult(
+        stableRelease: _release(tagName: 'v0.2.7'),
+        prereleaseRelease:
+            _release(tagName: 'v0.2.7-dev-118', isPrerelease: true),
+        currentState: _state('v0.2.7-dev-118'),
+      );
+
+      expect(result.latestRelease!.tagName, 'v0.2.7');
+      expect(result.installedIsNewer, isFalse);
+      expect(result.updateAvailable, isTrue);
+    });
+
+    test('a recorded tag equal to the selected one is up to date', () {
+      final result = OtzariaUpdateCheckResult(
+        stableRelease: _release(tagName: 'v0.2.7'),
+        prereleaseRelease:
+            _release(tagName: 'v0.2.7-dev-118', isPrerelease: true),
+        preferPrerelease: true,
+        currentState: _state('v0.2.7-dev-118'),
+      );
+
+      expect(result.installedIsNewer, isFalse);
+      expect(result.updateAvailable, isFalse);
+    });
+
+    test('a recorded prerelease tag no longer mirrored still offers the final',
+        () {
+      final result = OtzariaUpdateCheckResult(
+        stableRelease: _release(tagName: 'v0.2.8'),
+        currentState: _state('v0.2.8-dev-5'),
+      );
+
+      expect(result.latestRelease!.tagName, 'v0.2.8');
+      expect(result.installedIsNewer, isFalse);
+      expect(result.updateAvailable, isTrue);
+    });
+
+    test('the suffix is ignored only when the installed side lacks it', () {
+      expect(
+        OtzariaUpdateCheckResult.sameVersion('0.2.8', 'v0.2.8-dev-5'),
+        isTrue,
+      );
+      expect(
+        OtzariaUpdateCheckResult.sameVersion('v0.2.8-dev-5', '0.2.8'),
+        isFalse,
+      );
+    });
+
+    test('an exe-derived version keeps the lenient comparison', () {
+      final result = OtzariaUpdateCheckResult(
+        stableRelease: _release(tagName: 'v0.2.6'),
+        prereleaseRelease:
+            _release(tagName: 'v0.2.7-dev-118', isPrerelease: true),
+        preferPrerelease: true,
+        currentState: _state('0.2.7'),
+      );
+
+      expect(result.updateAvailable, isFalse);
+    });
+  });
+
+  group('channel-switch carve-out', () {
+    test('a newer final release is not downgraded to the stable channel', () {
+      final result = OtzariaUpdateCheckResult(
+        stableRelease: _release(tagName: '0.9.97'),
+        prereleaseRelease:
+            _release(tagName: '0.9.98-dev-3', isPrerelease: true),
+        currentState: _state('0.9.98'),
+      );
+
+      expect(result.latestRelease!.tagName, '0.9.97');
+      expect(result.installedIsNewer, isTrue);
+      expect(result.updateAvailable, isFalse);
+    });
+
+    test('an exe-derived version without build still matches the other tag',
+        () {
+      final result = OtzariaUpdateCheckResult(
+        stableRelease: _release(tagName: '0.9.96+736'),
+        prereleaseRelease: _release(tagName: '0.9.97+740', isPrerelease: true),
+        currentState: _state('0.9.97'),
+      );
+
+      expect(result.installedIsNewer, isFalse);
+      expect(result.updateAvailable, isTrue);
+    });
+  });
+
   group('compareVersions', () {
     test('משווה כמספרים ולא כטקסט', () {
       expect(OtzariaUpdateCheckResult.compareVersions('0.9.97', '0.9.96'), 1);

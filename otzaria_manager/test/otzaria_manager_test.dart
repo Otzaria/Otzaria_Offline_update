@@ -389,6 +389,167 @@ void main() {
     );
   });
 
+  group('hotfix tags whose exe reports only major.minor.patch', () {
+    void writeApp(String appPath, String version) {
+      final contents = Directory(p.join(appPath, 'Contents'))
+        ..createSync(recursive: true);
+      File(p.join(contents.path, 'Info.plist')).writeAsStringSync('''
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>com.example.otzaria</string>
+  <key>CFBundleShortVersionString</key>
+  <string>$version</string>
+</dict>
+</plist>
+''');
+    }
+
+    test(
+      'installing 0.9.97.2+800 over an exe reporting 0.9.97 stays up to date',
+      () async {
+        const tag = '0.9.97.2+800';
+        final source = p.join(dataDir.path, 'source');
+        writeApp(p.join(source, 'Otzaria.app'), '0.9.97');
+        final zip = p.join(dataDir.path, 'otzaria-macos.zip');
+        final zipped = Process.runSync('/usr/bin/ditto', [
+          '-c',
+          '-k',
+          '--keepParent',
+          p.join(source, 'Otzaria.app'),
+          zip,
+        ]);
+        expect(zipped.exitCode, 0, reason: '${zipped.stderr}');
+
+        final release = OtzariaRelease(
+          tagName: tag,
+          name: 'Otzaria $tag',
+          isPrerelease: false,
+          isDraft: false,
+          publishedAt: DateTime.utc(2026, 1, 1),
+          installerKind: OtzariaInstallerKind.macAppZip,
+          installerAssetName: 'otzaria-macos.zip',
+          installerDownloadUrl: 'https://example.invalid/$tag',
+          installerSizeBytes: File(zip).lengthSync(),
+        );
+        final installerDir = Directory(p.join(mirrorDir(), 'installers', tag))
+          ..createSync(recursive: true);
+        File(zip).copySync(p.join(installerDir.path, 'otzaria-macos.zip'));
+        File(p.join(mirrorDir(), 'latest-release.json'))
+            .writeAsStringSync(jsonEncode({
+          'schemaVersion': 2,
+          'stable': release.toJson()
+            ..['installerPath'] = 'installers/$tag/otzaria-macos.zip',
+        }));
+
+        final installDir = p.join(dataDir.path, 'Applications');
+        final launchPath = p.join(installDir, 'Otzaria.app');
+        writeApp(launchPath, '0.9.96');
+        File(p.join(dataDir.path, 'otzaria_install_state.json'))
+            .writeAsStringSync(jsonEncode(OtzariaInstallState(
+          installedTagName: '0.9.96+736',
+          installDir: installDir,
+          launchPath: launchPath,
+          appVersion: '0.9.96',
+        ).toJson()));
+
+        final manager = managerFor(
+          platform: OtzariaTargetPlatform.macos,
+          environment: {'HOME': p.join(dataDir.path, 'home')},
+        );
+        final before = await manager.checkForUpdate();
+        expect(before.updateAvailable, isTrue);
+
+        final installed = await manager.update(before);
+        expect(installed.installedTagName, tag);
+
+        for (var i = 0; i < 2; i++) {
+          final check = await manager.checkForUpdate();
+          expect(check.currentState!.installedTagName, tag);
+          expect(check.currentState!.appVersion, isNull);
+          expect(check.installedIsNewer, isFalse);
+          expect(check.updateAvailable, isFalse);
+        }
+      },
+      testOn: 'mac-os',
+    );
+
+    test(
+      'a stored hotfix tag without fingerprint survives the exe version',
+      () async {
+        if (!File(_systemExe).existsSync()) {
+          markTestSkipped('אין $_systemExe במכונה הזאת');
+          return;
+        }
+        final dir = Directory(p.join(dataDir.path, 'hotfix'))
+          ..createSync(recursive: true);
+        final exe = p.join(dir.path, 'otzaria.exe');
+        await File(_systemExe).copy(exe);
+
+        final onDisk = const WindowsExeVersionReader().readVersion(exe)!;
+        final base = RegExp(r'^\d+\.\d+\.\d+')
+            .firstMatch(OtzariaUpdateCheckResult.normalizeVersion(onDisk))!
+            .group(0)!;
+        final tag = '$base.99999+800';
+        await writeMirror(stable: _release(tag, isPrerelease: false));
+        File(p.join(dataDir.path, 'otzaria_install_state.json'))
+            .writeAsStringSync(jsonEncode(OtzariaInstallState(
+          installedTagName: tag,
+          installDir: dir.path,
+          launchPath: exe,
+        ).toJson()));
+
+        final check = await managerFor().checkForUpdate();
+
+        expect(check.currentState!.installedTagName, tag);
+        expect(check.currentState!.appVersion, isNull);
+        expect(check.updateAvailable, isFalse);
+      },
+      testOn: 'windows',
+    );
+
+    test(
+      'an exe read before a relaunched installer finishes is not locked in',
+      () async {
+        const tag = '0.9.97.2+800';
+        await writeMirror(stable: _release(tag, isPrerelease: false));
+        final installDir = p.join(dataDir.path, 'Applications');
+        final launchPath = p.join(installDir, 'Otzaria.app');
+        writeApp(launchPath, '0.9.97+99700');
+        final statePath = p.join(dataDir.path, 'otzaria_install_state.json');
+        File(statePath).writeAsStringSync(jsonEncode(OtzariaInstallState(
+          installedTagName: tag,
+          installDir: installDir,
+          launchPath: launchPath,
+        ).toJson()));
+
+        final manager = managerFor(
+          platform: OtzariaTargetPlatform.macos,
+          environment: {'HOME': p.join(dataDir.path, 'home')},
+        );
+        final during = await manager.checkForUpdate();
+        expect(during.updateAvailable, isFalse);
+        expect(during.currentState!.appVersion, isNull);
+
+        writeApp(launchPath, '0.9.97+99702');
+
+        for (var i = 0; i < 2; i++) {
+          final check = await manager.checkForUpdate();
+          expect(check.currentState!.installedTagName, tag);
+          expect(check.updateAvailable, isFalse);
+          expect(check.installedIsNewer, isFalse);
+        }
+        final saved = jsonDecode(File(statePath).readAsStringSync())
+            as Map<String, dynamic>;
+        expect(saved['installedTagName'], tag);
+        expect(saved['appVersion'], isNull);
+      },
+      testOn: 'mac-os',
+    );
+  });
+
   group('update / launch ללא מראה או ללא התקנה', () {
     test('update זורק את הודעת ה-l10n כשאין מה להתקין', () async {
       final manager = managerFor();

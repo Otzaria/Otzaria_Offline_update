@@ -516,10 +516,6 @@ class OtzariaManager {
     // גיטהאב מלא — כולל ה-build שלו, שהדיסק אינו יודע לדווח.
     if (onDisk == stored.appVersion) return stored;
 
-    // state שנכתב לפני שהטביעה נשמרה (או על ידי המתקין): כשזו אותה גרסה,
-    // רק חותמים אותה. השוואה מול התג היא על הגרסה בלבד — ה-build שב-exe
-    // אינו אותה ספירה, וכל השוואה בינו לבין התג הכריזה "מותקנת גרסה חדשה
-    // יותר".
     final version = OtzariaUpdateCheckResult.normalizeVersion(onDisk);
     if (stored.appVersion == null &&
         OtzariaUpdateCheckResult.sameVersion(
@@ -531,12 +527,28 @@ class OtzariaManager {
         appVersion: onDisk,
       );
     }
+    if (stored.appVersion == null &&
+        _sameMajorMinorPatch(version, stored.installedTagName)) {
+      return stored;
+    }
 
     return _diskStateAt(
       launchPath: stored.launchPath,
       installDir: stored.installDir,
       version: onDisk,
     );
+  }
+
+  static bool _sameMajorMinorPatch(String diskVersion, String tagName) {
+    final pattern = RegExp(r'^\d+(?:\.\d+){0,2}');
+    final disk = pattern
+        .firstMatch(OtzariaUpdateCheckResult.normalizeVersion(diskVersion))
+        ?.group(0);
+    final tag = pattern
+        .firstMatch(OtzariaUpdateCheckResult.normalizeVersion(tagName))
+        ?.group(0);
+    if (disk == null || tag == null) return false;
+    return OtzariaUpdateCheckResult.compareVersions(disk, tag) == 0;
   }
 
   /// ההתקנה הראשונה שנמצאת ב-[_autoDetectDirs], או null. אינה נשמרת.

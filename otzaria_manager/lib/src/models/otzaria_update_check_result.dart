@@ -59,31 +59,19 @@ class OtzariaUpdateCheckResult {
   /// אין מה להשוות מולו — צריך קודם להריץ הורדה במחשב עם אינטרנט.
   bool get needsDownload => latestRelease == null;
 
-  /// true גם כשאין התקנה קודמת בכלל (currentState == null) — אז "צריך
-  /// עדכון" פשוט אומר "צריך התקנה ראשונית". false כשאין מראה: בלי גרסה
-  /// זמינה בדיסק אין שום דבר להתקין.
-  ///
-  /// תג שונה מהמותקן מספיק — למעט [installedIsNewer]: מעבר מהערוץ הלא-יציב
-  /// חזרה ליציב הוא בדרך כלל *ירידה* בגרסה, וגם אותו צריך להציע כשהמשתמש
-  /// ביקש אותו במפורש, אבל נסיגה שהמשתמש לא ביקש אינה "עדכון".
   bool get updateAvailable {
     final latest = latestRelease;
     if (latest == null) return false;
     final current = currentState;
     if (current == null) return true;
-    if (sameVersion(current.installedTagName, latest.tagName)) return false;
+    final installed = current.installedTagName;
+    if (installed == latest.tagName) return false;
+    if (!_isMirroredTag(installed) && sameVersion(installed, latest.tagName)) {
+      return false;
+    }
     return !installedIsNewer;
   }
 
-  /// המותקן **חדש** ממה שיושב במראה — אין מה להתקין, והצעת התקנה הייתה
-  /// נסיגת גרסה.
-  ///
-  /// דיווח משתמש: אוצריא 0.9.97+90970 מותקנת מול 0.9.96+736 במראה, והלאנצ'ר
-  /// הכריז "מוכן להתקנה" והציע להחזיר אותו ל-0.9.96. הבדיקה השוותה תגים
-  /// בשוויון בלבד, בלי סדר.
-  ///
-  /// מעבר ערוץ יזום אינו נסיגה כזאת: כשהמותקן הוא בדיוק התג של הערוץ השני
-  /// שבמראה, המשתמש בחר את הערוץ הנבחר במפורש — וזה כן מוצע.
   bool get installedIsNewer {
     final latest = latestRelease;
     final current = currentState;
@@ -95,21 +83,19 @@ class OtzariaUpdateCheckResult {
     final other = selectedChannel == OtzariaReleaseChannel.stable
         ? prereleaseRelease
         : stableRelease;
-    if (other != null && sameVersion(installed, other.tagName)) return false;
+    if (other != null && _sameRelease(installed, other.tagName)) return false;
 
     return compareVersions(installed, latest.tagName) > 0;
   }
 
-  /// האם המותקן והתג הם אותה גרסה בפועל.
-  ///
-  /// סיומת pre-release (`-pr-715-146`) מושמטת **רק כשהיא קיימת בצד אחד
-  /// בלבד** — הצד שבלעדיה נקרא מתוך ההתקנה עצמה, ושם היא לעולם לא מופיעה.
-  /// השמטה דו-צדדית הייתה משתקת את המעבר בין הערוצים: `1.0.0-beta` מותקן
-  /// מול `1.0.0` יציב היה נראה "מעודכן" ולא ניתן היה לחזור ליציב.
-  ///
-  /// מספר ה-build שאחרי ה-`+` מכריע גם הוא — ראו [sameBuild].
+  bool _isMirroredTag(String tagName) =>
+      tagName == stableRelease?.tagName ||
+      tagName == prereleaseRelease?.tagName;
+
+  static bool _sameRelease(String a, String b) =>
+      sameBuild(a, b) && normalizeVersion(a) == normalizeVersion(b);
+
   static bool sameVersion(String installedVersion, String tagName) {
-    // build שונה הוא release שונה, גם כשמספר הגרסה זהה לחלוטין.
     if (!sameBuild(installedVersion, tagName)) return false;
     final installed = normalizeVersion(installedVersion);
     final tag = normalizeVersion(tagName);
@@ -118,8 +104,7 @@ class OtzariaUpdateCheckResult {
     final installedBase = _baseVersion(installed);
     final tagBase = _baseVersion(tag);
     if (installedBase != tagBase) return false;
-    // בסיס זהה נחשב לאותה גרסה רק כשבדיוק אחד מהם נושא סיומת.
-    return (installedBase == installed) != (tagBase == tag);
+    return installedBase == installed && tagBase != tag;
   }
 
   /// סדר בין שתי גרסאות: שלילי אם [a] ותיקה מ-[b], חיובי אם חדשה ממנה,
