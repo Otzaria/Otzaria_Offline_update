@@ -179,6 +179,13 @@ void main() {
           StorePlugin.fromJson(remote.copyWith(mediaVersion: '1.1.0').toJson());
       expect(saved.mediaVersion, '1.1.0');
       expect(StorePlugin.fromJson(const {'id': 'x'}).mediaVersion, '');
+      expect(remote.screenshotsMediaVersion, '1.2.0');
+      final shots = StorePlugin.fromJson(
+          remote.copyWith(screenshotsMediaVersion: '1.0.0').toJson());
+      expect(shots.screenshotsMediaVersion, '1.0.0');
+      expect(shots.mediaVersion, '1.2.0');
+      expect(
+          StorePlugin.fromJson(const {'id': 'x'}).screenshotsMediaVersion, '');
     });
 
     test('copyWith אינו מאפס שדות קיימים', () {

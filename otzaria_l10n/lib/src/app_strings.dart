@@ -177,6 +177,7 @@ abstract class HomeStrings {
 
   /// תוספים שהקטלוג מכיר אבל קובץ ההתקנה שלהם חסר בתיקייה.
   String onlineMissingPlugins(int count);
+  String onlineRemovedPlugins(int count);
 
   /// גרסה חדשה של **תוכנת** החנות (הקובץ שמעתיקים למחשב אחר), שאינה
   /// קשורה לקטלוג התוספים ונבדקת מול גיטהאב בנפרד.

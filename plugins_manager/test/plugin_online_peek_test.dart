@@ -160,12 +160,35 @@ void main() {
       );
     });
 
-    test('תוסף שירד מהאתר אינו נחשב עדכון', () async {
+    test('תוסף שירד מהאתר מדווח כהוסר, והסנכרון מוציא אותו מהקטלוג', () async {
       await manager(_Site([_plugin('a', '1.0.0'), _plugin('b', '2.0.0')]))
           .sync();
       final site = _Site([_plugin('a', '1.0.0')]);
 
-      expect((await manager(site).peekOnlineUpdates()).hasUpdates, isFalse);
+      final status = await manager(site).peekOnlineUpdates();
+      expect(status.removedPlugins, ['תוסף b']);
+      expect(status.removedCount, 1);
+      expect(status.newPlugins, isEmpty);
+      expect(status.updatedPlugins, isEmpty);
+      expect(status.missingPlugins, isEmpty);
+      expect(status.hasUpdates, isTrue);
+
+      final outcome = await manager(_Site([_plugin('a', '1.0.0')])).sync();
+      expect(outcome.catalog.plugins.map((p) => p.id), ['a']);
+      expect(
+        (await manager(_Site([_plugin('a', '1.0.0')])).peekOnlineUpdates())
+            .hasUpdates,
+        isFalse,
+      );
+    });
+
+    test('רשימה ריקה מהאתר אינה מדווחת הסרה — הסנכרון דוחה אותה', () async {
+      await manager(_Site([_plugin('a', '1.0.0')])).sync();
+
+      final status = await manager(_Site([])).peekOnlineUpdates();
+
+      expect(status.removedPlugins, isEmpty);
+      expect(status.hasUpdates, isFalse);
     });
 
     test('ההצצה אינה מורידה נכסים ואינה נוגעת במראה', () async {

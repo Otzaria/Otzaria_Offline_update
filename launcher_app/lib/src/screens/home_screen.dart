@@ -588,6 +588,9 @@ class HomeScreen extends StatelessWidget {
       if (status.missingCount > 0) {
         line(t.onlineMissingPlugins(status.missingCount));
       }
+      if (status.removedCount > 0) {
+        line(t.onlineRemovedPlugins(status.removedCount));
+      }
     }
     // תנאי משלה: היא נבדקת מול גיטהאב, ולכן אתר שאינו עונה אינו מעלים
     // אותה — ובלי השורה הזאת "נמצאו עדכונים" היה מופיע בלי שום פירוט.

@@ -20,7 +20,9 @@ Future<void> _dropMediaVersion(String root) async {
     home: old.home,
     plugins: [
       for (final plugin in old.plugins)
-        StorePlugin.fromJson(plugin.toJson()..remove('mediaVersion')),
+        StorePlugin.fromJson(plugin.toJson()
+          ..remove('mediaVersion')
+          ..remove('screenshotsMediaVersion')),
     ],
   ));
 }
@@ -764,6 +766,81 @@ void main() {
       await sync(retry);
       expect(retry.requests, contains('/api/plugins/a/shot-0'));
       expect((await manager(retry).peekOnlineUpdates()).hasUpdates, isFalse);
+    });
+
+    test('צילום מסך שנכשל אינו מוריד שוב את התמונה בסבב הבא', () async {
+      const shots = ['/api/plugins/a/shot-0', '/api/plugins/a/shot-1'];
+      await sync(_Site(plugins: _Site.defaultPlugins(screenshots: shots)));
+
+      final failing = _Site(
+        plugins: _Site.defaultPlugins(versionA: '1.1.0', screenshots: shots),
+      )..failures['/api/plugins/a/shot-1'] = 500;
+      await sync(failing);
+      expect(failing.requestsMatching('/image'), hasLength(1));
+
+      final retry = _Site(
+        plugins: _Site.defaultPlugins(versionA: '1.1.0', screenshots: shots),
+      );
+      expect((await manager(retry).peekOnlineUpdates()).hasUpdates, isTrue);
+      await sync(retry);
+      expect(retry.requestsMatching('/image'), isEmpty);
+      expect(retry.requests.where((r) => r.contains('shot-')), hasLength(2));
+      expect((await manager(retry).peekOnlineUpdates()).hasUpdates, isFalse);
+    });
+
+    test('תמונה שנכשלה אינה מורידה שוב את צילומי המסך בסבב הבא', () async {
+      const shots = ['/api/plugins/a/shot-0'];
+      await sync(_Site(plugins: _Site.defaultPlugins(screenshots: shots)));
+
+      final failing = _Site(
+        plugins: _Site.defaultPlugins(versionA: '1.1.0', screenshots: shots),
+      )..failures['/api/plugins/a/image'] = 500;
+      await sync(failing);
+      expect(failing.requestsMatching('shot-0'), hasLength(1));
+
+      final retry = _Site(
+        plugins: _Site.defaultPlugins(versionA: '1.1.0', screenshots: shots),
+      );
+      await sync(retry);
+      expect(retry.requestsMatching('/image'), hasLength(1));
+      expect(retry.requests.where((r) => r.contains('shot-')), isEmpty);
+      expect((await manager(retry).peekOnlineUpdates()).hasUpdates, isFalse);
+    });
+
+    test('תמונה וצילומי מסך שהוסרו באתר יוצאים מהקטלוג', () async {
+      await sync(_Site(
+        plugins: _Site.defaultPlugins(screenshots: ['/api/plugins/a/shot-0']),
+      ));
+
+      final removed = _Site()..plugins.first['image'] = '';
+      expect((await manager(removed).peekOnlineUpdates()).hasUpdates, isTrue);
+      final catalog = await sync(removed);
+
+      expect(catalog.plugins.first.imagePath, isNull);
+      expect(catalog.plugins.first.screenshotPaths, isEmpty);
+      expect(removed.requestsMatching('/image'), isEmpty);
+      expect(removed.requests.where((r) => r.contains('shot-')), isEmpty);
+      expect((await manager(removed).peekOnlineUpdates()).hasUpdates, isFalse);
+
+      final restored = _Site();
+      final again = await sync(restored);
+      expect(restored.requestsMatching('/image'), hasLength(1));
+      expect(again.plugins.first.imagePath, 'files/a/image.png');
+    });
+
+    test('צילומי מסך שהוסרו באתר מדווחים בהצצה ויוצאים מהקטלוג', () async {
+      await sync(_Site(
+        plugins: _Site.defaultPlugins(screenshots: ['/api/plugins/a/shot-0']),
+      ));
+
+      final removed = _Site();
+      expect((await manager(removed).peekOnlineUpdates()).hasUpdates, isTrue);
+      final catalog = await sync(removed);
+
+      expect(catalog.plugins.first.imagePath, 'files/a/image.png');
+      expect(catalog.plugins.first.screenshotPaths, isEmpty);
+      expect(removed.requestsMatching('/image'), isEmpty);
+      expect((await manager(removed).peekOnlineUpdates()).hasUpdates, isFalse);
     });
 
     test('גרסה שהשתנתה מורידה מחדש', () async {

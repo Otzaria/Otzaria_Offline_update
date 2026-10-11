@@ -35,9 +35,11 @@ class PluginMirrorSync {
   /// בטור, כך שהתקרה חוסמת גם את מספר החיבורים בפועל.
   final int maxConcurrentPlugins;
 
-  /// אותה בדיקת נכסים לתכנון ולהצצה, כדי שהורדה חסרה לא תידלג בממשק.
   Future<bool> hasPendingMedia(
           StorePlugin plugin, StorePlugin? previous) async =>
+      (plugin.remoteImageUrl.isEmpty && previous?.imagePath != null) ||
+      (plugin.remoteScreenshotUrls.isEmpty &&
+          (previous?.screenshotPaths.isNotEmpty ?? false)) ||
       (plugin.remoteImageUrl.isNotEmpty &&
           !await _imageUnchanged(plugin, previous)) ||
       (plugin.remoteScreenshotUrls.isNotEmpty &&
@@ -205,10 +207,11 @@ class PluginMirrorSync {
     final remote = StorePlugin.fromApi(raw, client.baseUrl);
     final previous = existing[remote.id];
 
-    // שומרים על מה שכבר יש מקומית, ומעדכנים רק את מה שבאמת ירד עכשיו.
     var plugin = remote.copyWith(
-      imagePath: previous?.imagePath,
-      screenshotPaths: previous?.screenshotPaths ?? const [],
+      imagePath: remote.remoteImageUrl.isEmpty ? null : previous?.imagePath,
+      screenshotPaths: remote.remoteScreenshotUrls.isEmpty
+          ? const []
+          : previous?.screenshotPaths ?? const [],
       localFiles: previous?.localFiles,
       manifestId: previous?.manifestId,
     );
@@ -409,7 +412,7 @@ class PluginMirrorSync {
           shots.add(store.relativePath(asset.path));
         } catch (e) {
           result = result.copyWith(
-            mediaVersion: plan.previousMediaVersion,
+            screenshotsMediaVersion: plan.previousScreenshotsMediaVersion,
             remoteScreenshotUrls: plan.previous?.remoteScreenshotUrls,
           );
           report(PluginSyncProgress(
@@ -439,6 +442,11 @@ class PluginMirrorSync {
   static String mediaStampOf(StorePlugin plugin) =>
       plugin.mediaVersion.isNotEmpty ? plugin.mediaVersion : plugin.version;
 
+  static String screenshotsStampOf(StorePlugin plugin) =>
+      plugin.screenshotsMediaVersion.isNotEmpty
+          ? plugin.screenshotsMediaVersion
+          : mediaStampOf(plugin);
+
   /// כתובת ריקה בצד הקודם היא **קטלוג ישן** שנכתב לפני שהשדה נוסף, לא
   /// כתובת שהשתנתה. בלי החריג הזה הסנכרון הראשון אחרי העדכון היה מוריד את
   /// כל תמונות החנות מחדש רק כדי למלא שדה; השדה נכתב לקטלוג גם בלי הורדה.
@@ -450,15 +458,13 @@ class PluginMirrorSync {
     StorePlugin? previous,
   ) async {
     if (previous == null ||
-        mediaStampOf(previous) != plugin.mediaVersion ||
+        screenshotsStampOf(previous) != plugin.screenshotsMediaVersion ||
         !(previous.remoteScreenshotUrls.isEmpty ||
             _sameUrls(
                 previous.remoteScreenshotUrls, plugin.remoteScreenshotUrls)) ||
         previous.screenshotPaths.length != plugin.remoteScreenshotUrls.length) {
       return false;
     }
-    // כולם או כלום: צילום אחד שנעלם מהדיסק מחזיר את כל הסדרה להורדה, כי
-    // השמות נגזרים מהאינדקס ברשימה.
     for (final path in previous.screenshotPaths) {
       if (!await store.hasAsset(path)) return false;
     }
@@ -583,10 +589,14 @@ class _PluginPlan {
   final StorePlugin plugin;
   final StorePlugin? previous;
 
-  /// מה שנרשם בכשל תמונה, כדי שהסנכרון הבא ינסה שוב.
   String? get previousMediaVersion {
     final old = previous;
     return old == null ? null : PluginMirrorSync.mediaStampOf(old);
+  }
+
+  String? get previousScreenshotsMediaVersion {
+    final old = previous;
+    return old == null ? null : PluginMirrorSync.screenshotsStampOf(old);
   }
 
   final bool needsImage;

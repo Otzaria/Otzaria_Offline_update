@@ -247,6 +247,20 @@ void main() {
     expect(find.text(t.onlineMissingPlugins(2)), findsOneWidget);
   });
 
+  testWidgets('תוסף שהוסר מהחנות מדווח בכרטיס', (tester) async {
+    final t = stringsOf().home;
+    plugins.onlineStatus = const PluginsOnlineStatus(
+      removedPlugins: ['תוסף א'],
+      totalOnline: 12,
+    );
+    plugins.onlineCheckedAt = DateTime(2026, 8, 13);
+
+    await pumpScreen(tester, home());
+
+    expect(find.text(t.onlineHasUpdates), findsOneWidget);
+    expect(find.text(t.onlineRemovedPlugins(1)), findsOneWidget);
+  });
+
   testWidgets('חנות שאין בה מה חדש אינה מוסיפה שורות לכרטיס', (tester) async {
     final t = stringsOf().home;
     plugins.onlineStatus = PluginsOnlineStatus.empty;

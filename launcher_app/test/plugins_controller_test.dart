@@ -755,6 +755,12 @@ void main() {
       );
       expect(controller.hasOnlineUpdate, isTrue);
 
+      controller.onlineStatus = const PluginsOnlineStatus(
+        removedPlugins: ['תוסף שהוסר'],
+        totalOnline: 3,
+      );
+      expect(controller.hasCatalogOnlineUpdate, isTrue);
+
       controller.onlineStatus = PluginsOnlineStatus.empty;
       expect(controller.hasOnlineUpdate, isFalse);
     });

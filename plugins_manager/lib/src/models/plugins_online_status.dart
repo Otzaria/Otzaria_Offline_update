@@ -5,6 +5,7 @@ class PluginsOnlineStatus {
     this.newPlugins = const [],
     this.updatedPlugins = const [],
     this.missingPlugins = const [],
+    this.removedPlugins = const [],
     this.totalOnline = 0,
   });
 
@@ -21,14 +22,17 @@ class PluginsOnlineStatus {
   /// כי הקטלוג שלם, והמחשב המנותק מגלה את החוסר רק כשמנסים להתקין.
   final List<String> missingPlugins;
 
-  /// כמה תוספים יש בחנות ברשת — לתצוגה בלבד.
+  final List<String> removedPlugins;
+
   final int totalOnline;
 
   int get newCount => newPlugins.length;
   int get updatedCount => updatedPlugins.length;
   int get missingCount => missingPlugins.length;
+  int get removedCount => removedPlugins.length;
   bool get hasUpdates =>
       newPlugins.isNotEmpty ||
       updatedPlugins.isNotEmpty ||
-      missingPlugins.isNotEmpty;
+      missingPlugins.isNotEmpty ||
+      removedPlugins.isNotEmpty;
 }

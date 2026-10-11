@@ -266,6 +266,9 @@ class _Home extends HomeStrings {
   String onlineMissingPlugins(int count) =>
       '$count plugins are missing from the folder — their install file is gone';
   @override
+  String onlineRemovedPlugins(int count) =>
+      '$count plugins were removed from the store';
+  @override
   String onlineStoreAppUpdate(String version) =>
       'Version $version of the plugin store program';
   @override

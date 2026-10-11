@@ -91,6 +91,7 @@ class StorePlugin extends Equatable {
     this.remoteImageUrl = '',
     this.remoteScreenshotUrls = const [],
     this.mediaVersion = '',
+    this.screenshotsMediaVersion = '',
     this.imagePath,
     this.screenshotPaths = const [],
     this.categorySlugs = const [],
@@ -156,6 +157,8 @@ class StorePlugin extends Equatable {
   /// לכל התוספים, ולכן אינו מעיד על החלפת תמונה. ריק = קטלוג ישן, ראו
   /// `PluginMirrorSync.mediaStampOf`.
   final String mediaVersion;
+
+  final String screenshotsMediaVersion;
 
   final String? imagePath;
   final List<String> screenshotPaths;
@@ -260,6 +263,7 @@ class StorePlugin extends Equatable {
     String? remoteImageUrl,
     List<String>? remoteScreenshotUrls,
     String? mediaVersion,
+    String? screenshotsMediaVersion,
     String? imagePath,
     List<String>? screenshotPaths,
     List<String>? categorySlugs,
@@ -289,6 +293,8 @@ class StorePlugin extends Equatable {
       remoteImageUrl: remoteImageUrl ?? this.remoteImageUrl,
       remoteScreenshotUrls: remoteScreenshotUrls ?? this.remoteScreenshotUrls,
       mediaVersion: mediaVersion ?? this.mediaVersion,
+      screenshotsMediaVersion:
+          screenshotsMediaVersion ?? this.screenshotsMediaVersion,
       imagePath: imagePath ?? this.imagePath,
       screenshotPaths: screenshotPaths ?? this.screenshotPaths,
       categorySlugs: categorySlugs ?? this.categorySlugs,
@@ -340,6 +346,7 @@ class StorePlugin extends Equatable {
           if (url.isNotEmpty) url,
       ],
       mediaVersion: _string(json['version']),
+      screenshotsMediaVersion: _string(json['version']),
     );
   }
 
@@ -369,6 +376,7 @@ class StorePlugin extends Equatable {
         'remoteImageUrl': remoteImageUrl,
         'remoteScreenshotUrls': remoteScreenshotUrls,
         'mediaVersion': mediaVersion,
+        'screenshotsMediaVersion': screenshotsMediaVersion,
         'image': imagePath,
         'screenshots': screenshotPaths,
         'categories': categorySlugs,
@@ -414,6 +422,7 @@ class StorePlugin extends Equatable {
       remoteImageUrl: _string(json['remoteImageUrl']),
       remoteScreenshotUrls: _stringList(json['remoteScreenshotUrls']),
       mediaVersion: _string(json['mediaVersion']),
+      screenshotsMediaVersion: _string(json['screenshotsMediaVersion']),
       imagePath: json['image'] is String ? json['image'] as String : null,
       screenshotPaths: _stringList(json['screenshots']),
       categorySlugs: _stringList(json['categories']),
