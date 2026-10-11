@@ -72,6 +72,12 @@ class PatchApplyResult {
   });
 }
 
+const int kDefaultApplyCacheSizeKib = 256 * 1024;
+
+const int kDefaultHashCacheSizeKib = 64 * 1024;
+
+const String kPatchStat1SnapshotTable = 'stat1_snapshot';
+
 /// `SQLITE_CONSTRAINT` — קוד התוצאה הבסיסי של כל הפרת אילוץ (UNIQUE, CHECK,
 /// FK...). ה-extended code הוא זה שמפרט איזה אילוץ, ואין צורך בו כאן.
 const int _sqliteConstraint = 19;
@@ -118,10 +124,17 @@ class PatchApplier {
   /// סכמת ה-DB: זו נבדקת דרך [hashTableOrderForSchemaVersion].
   final int supportedPatchFormatVersion;
 
+  final int cacheSizeKib;
+
+  final int hashCacheSizeKib;
+
   const PatchApplier({
     this.hasher = const LogicalContentHasher(),
     this.supportedPatchFormatVersion = kSupportedPatchFormatVersion,
-  });
+    this.cacheSizeKib = kDefaultApplyCacheSizeKib,
+    this.hashCacheSizeKib = kDefaultHashCacheSizeKib,
+  })  : assert(cacheSizeKib > 0),
+        assert(hashCacheSizeKib > 0);
 
   /// מחיל את ה-patch שב-[patchPath] על ה-DB שב-[dbPath] לפי [manifest].
   ///
@@ -164,9 +177,8 @@ class PatchApplier {
     var inTransaction = false;
     try {
       db.execute('PRAGMA busy_timeout = 5000');
-      // אכיפת FK פעילה (כמו צד הייצור). מחוץ ל-transaction — לא ניתן לשינוי
-      // בתוך transaction. בתוך ה-transaction מוסיפים defer_foreign_keys.
       db.execute('PRAGMA foreign_keys = ON');
+      _tuneConnection(db, cacheSizeKib);
 
       // ── preflight: גרסה וסכמה מקומיות ──
       onStage?.call('preflight');
@@ -190,12 +202,13 @@ class PatchApplier {
       if (verifyFromHash) {
         onStage?.call('verifyFromHash');
         if (verifyProgress != null) refreshTotal();
-        // ה-DB *לפני* apply הוא בסכמת המקור — הסדר נבחר לפי fromSchemaVersion.
+        _setCacheSize(db, hashCacheSizeKib);
         final localHash = hasher.compute(
           db,
           tableOrder: fromOrder,
           onProgress: verifyProgress,
         );
+        _setCacheSize(db, cacheSizeKib);
         if (localHash != manifest.fromContentHash) {
           throw PatchApplyException(
             AppL10n.strings.libraryDomain.contentHashMismatchNeedsFullDownload,
@@ -229,6 +242,8 @@ class PatchApplier {
       onStage?.call('deletes');
       final deletes = _runDeletes(db);
 
+      _applyStat1Snapshot(db);
+
       if (checkForeignKeys) {
         onStage?.call('foreignKeyCheck');
         final postFk = _countFkViolations(db);
@@ -244,7 +259,7 @@ class PatchApplier {
       if (verifyToHash) {
         onStage?.call('verifyToHash');
         if (verifyProgress != null) refreshTotal();
-        // ה-DB *אחרי* apply הוא בסכמת היעד — הסדר נבחר לפי toSchemaVersion.
+        _setCacheSize(db, hashCacheSizeKib);
         resultHash = hasher.compute(
           db,
           tableOrder: toOrder,
@@ -489,6 +504,35 @@ class PatchApplier {
           'SELECT DISTINCT baseBookId FROM patch.${op}_book_base_text');
     }
     return touched;
+  }
+
+  void _tuneConnection(sqlite3.Database db, int cacheKib) {
+    _setCacheSize(db, cacheKib);
+    if (_sqliteHasTempDir()) db.execute('PRAGMA temp_store = FILE');
+  }
+
+  static bool _sqliteHasTempDir() {
+    if (!Platform.isAndroid || sqlite3.sqlite3.tempDirectory != null) {
+      return true;
+    }
+    final env = Platform.environment;
+    return (env['SQLITE_TMPDIR'] ?? env['TMPDIR'] ?? '').isNotEmpty;
+  }
+
+  void _setCacheSize(sqlite3.Database db, int kib) =>
+      db.execute('PRAGMA cache_size = -$kib');
+
+  void _applyStat1Snapshot(sqlite3.Database db) {
+    if (!_hasTable(db, 'patch', kPatchStat1SnapshotTable)) return;
+    if (!_hasTable(db, 'main', 'sqlite_stat1')) {
+      db.execute('ANALYZE main.sqlite_schema');
+    }
+    db.execute('DELETE FROM main.sqlite_stat1');
+    db.execute('INSERT INTO main.sqlite_stat1 (tbl, idx, stat) '
+        'SELECT tbl, idx, stat FROM patch."$kPatchStat1SnapshotTable"');
+    if (_hasTable(db, 'main', 'sqlite_stat4')) {
+      db.execute('DELETE FROM main.sqlite_stat4');
+    }
   }
 
   int _countFkViolations(sqlite3.Database db) {

@@ -480,7 +480,10 @@ disproved (the encoding was free, the sort columns were not the assumed ones,
 over a cold-cache DB reads ~6× slower and looks conclusive, and a benchmark that
 computes byte volume inside the SHA step scans twice and reports SHA as 15× slower
 than it is. A `PRAGMA` sweep was also run and is **not** usable — the machine
-throttled mid-run — so no performance pragma was adopted.
+throttled mid-run. The only pragmas adopted are upstream's, ported as-is:
+`PatchApplier` runs the apply with `cache_size` 256MiB and drops to 64MiB around
+each hash scan (it also sizes the hash's sort memory), with `temp_store = FILE`
+because the `sqlite3` build defaults to memory.
 
 **Blocking work must go to an isolate.** `LogicalContentHasher.compute` and
 `PatchApplier.apply` are synchronous and can take tens of seconds. Wrap them in

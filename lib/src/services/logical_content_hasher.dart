@@ -19,7 +19,6 @@ import 'fast_sha256.dart';
 /// * אם הטבלה קיימת: `"cols:<c1,c2,...>"` (עמודות ממוינות אלפביתית) ואז בית 0x00.
 /// * השורות נקראות לפי `ORDER BY id` (אם יש עמודת id) או לפי כל העמודות.
 /// * לכל תא: בית-סוג ואז הנתונים, ואז מפריד יחידה 0x1F.
-///   null=0, blob=1+bytes, מספר=2+toString().utf8, טקסט=3+toString().utf8.
 /// * אחרי כל שורה: מפריד שורה 0xFF.
 ///
 /// זרם הבתים מוזרם ל-SHA-256 דרך [_BufferedByteSink] שמקבץ ~1MB לפני כל
@@ -157,12 +156,43 @@ class LogicalContentHasher {
       case _blobTag:
         out.addByte(_blobTag);
         out.addBytes(value as Uint8List);
-      default: // _numberTag — 'integer' או 'real'
+      default:
         out.addByte(_numberTag);
-        out.addBytes(utf8.encode(value.toString()));
+        out.addBytes(utf8.encode(
+            value is double ? javaDoubleToString(value) : value.toString()));
     }
     out.addByte(_unitSeparator);
   }
+}
+
+String javaDoubleToString(double value) {
+  if (!value.isFinite || value == 0) return value.toString();
+  final x = value.abs();
+  var sci = x.toStringAsExponential();
+  var digits = sci.substring(0, sci.indexOf('e')).replaceFirst('.', '');
+  if (digits.length == 1) {
+    final twoDigits = x.toStringAsExponential(1);
+    if (double.parse(twoDigits) == x) sci = twoDigits;
+  }
+  final e = sci.indexOf('e');
+  digits = sci.substring(0, e).replaceFirst('.', '');
+  while (digits.length > 1 && digits.endsWith('0')) {
+    digits = digits.substring(0, digits.length - 1);
+  }
+  final exp = int.parse(sci.substring(e + 1));
+  final String body;
+  if (exp >= 0 && exp < 7) {
+    final intLen = exp + 1;
+    body = digits.length > intLen
+        ? '${digits.substring(0, intLen)}.${digits.substring(intLen)}'
+        : '${digits.padRight(intLen, '0')}.0';
+  } else if (exp < 0 && exp >= -3) {
+    body = '0.${'0' * (-exp - 1)}$digits';
+  } else {
+    final frac = digits.length > 1 ? digits.substring(1) : '0';
+    body = '${digits[0]}.${frac}E$exp';
+  }
+  return value < 0 ? '-$body' : body;
 }
 
 /// חוצץ בינארי שמצטבר ומוזרם ל-SHA-256 מדי ~1MB. מחליף מיליוני `add` זעירים

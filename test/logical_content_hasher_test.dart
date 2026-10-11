@@ -46,7 +46,9 @@ List<int> referenceStream(sqlite3.Database db, List<String> tableOrder) {
             out.addAll(value as Uint8List);
           default:
             out.add(0x02);
-            out.addAll(utf8.encode(value.toString()));
+            out.addAll(utf8.encode(value is double
+                ? javaDoubleToString(value)
+                : value.toString()));
         }
         out.add(0x1F);
       }
@@ -493,6 +495,81 @@ void main() {
       expect(
         _hasher.compute(db, tableOrder: kHashTableOrderSchema2),
         isNot(_hasher.compute(db, tableOrder: kHashTableOrderSchema1)),
+      );
+      db.close();
+    });
+  });
+
+  group('REAL כמו Double.toString של Java', () {
+    const golden = <(double, String)>[
+      (0.0005, '5.0E-4'),
+      (1e-4, '1.0E-4'),
+      (1e7, '1.0E7'),
+      (9999999.999999998, '9999999.999999998'),
+      (0.001, '0.001'),
+      (0.0009999999999999998, '9.999999999999998E-4'),
+      (0.002, '0.002'),
+      (1e-5, '1.0E-5'),
+      (1e-7, '1.0E-7'),
+      (-3.0e-5, '-3.0E-5'),
+      (1.2345678e7, '1.2345678E7'),
+      (123456789012345680.0, '1.2345678901234568E17'),
+      (1e16, '1.0E16'),
+      (1e21, '1.0E21'),
+      (8.41e21, '8.41E21'),
+      (1e23, '1.0E23'),
+      (2e23, '2.0E23'),
+      (1.5e300, '1.5E300'),
+      (1e-300, '1.0E-300'),
+      (5e-310, '5.0E-310'),
+      (1.1e-322, '1.1E-322'),
+      (4.9e-324, '4.9E-324'),
+      (1.5e-323, '1.5E-323'),
+      (2.2250738585072014e-308, '2.2250738585072014E-308'),
+      (1.7976931348623157e308, '1.7976931348623157E308'),
+      (0.30000000000000004, '0.30000000000000004'),
+      (0.5, '0.5'),
+      (1.0, '1.0'),
+      (-1.0, '-1.0'),
+      (100.0, '100.0'),
+      (1234567.0, '1234567.0'),
+      (0.0, '0.0'),
+      (-0.0, '-0.0'),
+      (double.infinity, 'Infinity'),
+      (double.negativeInfinity, '-Infinity'),
+    ];
+
+    for (final (value, java) in golden) {
+      test('$value → $java', () {
+        expect(javaDoubleToString(value), java);
+      });
+    }
+
+    test('ערך REAL מחוץ לטווח מקודד בזרם בפורמט של Java', () {
+      final db = sqlite3.sqlite3.openInMemory();
+      db.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, v REAL)');
+      db.execute('INSERT INTO t VALUES (1, 1e7), (2, 0.0005)');
+      final expected = <int>[
+        ...utf8.encode(' table:t cols:id,v'),
+        0x00,
+        0x02,
+        ...utf8.encode('1'),
+        0x1F,
+        0x02,
+        ...utf8.encode('1.0E7'),
+        0x1F,
+        0xFF,
+        0x02,
+        ...utf8.encode('2'),
+        0x1F,
+        0x02,
+        ...utf8.encode('5.0E-4'),
+        0x1F,
+        0xFF,
+      ];
+      expect(
+        _hasher.compute(db, tableOrder: const ['t']),
+        sha256.convert(expected).toString(),
       );
       db.close();
     });

@@ -1316,4 +1316,225 @@ void main() {
       );
     }, timeout: const Timeout(Duration(minutes: 2)));
   });
+
+  group('הגדרות החיבור', () {
+    test('ה-hash רץ עם temp_store=FILE ו-cache_size של שלב ה-hash', () {
+      final base = buildBaseDb(version: 1, sourceRows: [
+        [1, 'a'],
+      ]);
+      final patch = buildPatchDb(from: 1, to: 2, upsertSource: [
+        [1, 'b'],
+      ]);
+      final expected = buildBaseDb(version: 2, sourceRows: [
+        [1, 'b'],
+      ]);
+      final probe = _PragmaProbeHasher();
+      final r = PatchApplier(
+              hasher: probe, cacheSizeKib: 8192, hashCacheSizeKib: 4096)
+          .apply(
+        dbPath: base,
+        patchPath: patch,
+        manifest: _manifest(
+          from: 1,
+          to: 2,
+          fromHash: _hashOf(base),
+          toHash: _hashOf(expected),
+        ),
+      );
+      expect(r.resultHash, _hashOf(expected));
+      expect(probe.seen, everyElement((tempStore: 1, cacheSize: -4096)));
+      expect(probe.seen, hasLength(2));
+    });
+  });
+
+  group('סטטיסטיקות מתכנן (stat1_snapshot)', () {
+    String buildIndexedDb(String name, int version, {bool withStats = false}) {
+      final path = buildBaseDb(version: version, sourceRows: [
+        for (var i = 1; i <= 20; i++) [i, 'n${i % 3}']
+      ]);
+      final target = '${tmp.path}/$name.db';
+      File(path).renameSync(target);
+      final db = sqlite3.sqlite3.open(target);
+      db.execute('CREATE INDEX idx_source_name ON source(name)');
+      if (withStats) {
+        db.execute('ANALYZE');
+        db.execute("UPDATE sqlite_stat1 SET stat = '999 1'");
+      }
+      db.close();
+      return target;
+    }
+
+    String buildStatPatch(String name, {List<List>? stats}) {
+      final path = buildPatchDb(from: 1, to: 2, upsertSource: [
+        [1, 'x'],
+      ]);
+      final target = '${tmp.path}/$name.db';
+      File(path).renameSync(target);
+      if (stats != null) {
+        final db = sqlite3.sqlite3.open(target);
+        db.execute('CREATE TABLE $kPatchStat1SnapshotTable '
+            '(tbl TEXT NOT NULL, idx TEXT, stat TEXT NOT NULL)');
+        for (final s in stats) {
+          db.execute('INSERT INTO $kPatchStat1SnapshotTable VALUES (?,?,?)', s);
+        }
+        db.close();
+      }
+      return target;
+    }
+
+    List<List<Object?>> statsOf(String dbPath) {
+      final db = sqlite3.sqlite3.open(dbPath, mode: sqlite3.OpenMode.readOnly);
+      try {
+        final exists = db.select('SELECT 1 FROM sqlite_master '
+            "WHERE name = 'sqlite_stat1'");
+        if (exists.isEmpty) return const [];
+        return db
+            .select('SELECT tbl, idx, stat FROM sqlite_stat1 ORDER BY tbl, idx')
+            .map((r) => r.values)
+            .toList();
+      } finally {
+        db.close();
+      }
+    }
+
+    const snapshot = [
+      ['source', 'idx_source_name', '20 7'],
+      ['schema_meta', 'sqlite_autoindex_schema_meta_1', '2 1'],
+    ];
+
+    DeltaManifest manifestFor(String base, String expected) => _manifest(
+          from: 1,
+          to: 2,
+          fromHash: _hashOf(base),
+          toHash: _hashOf(expected),
+        );
+
+    String expectedDb() {
+      final e = buildIndexedDb('stat_expected', 2);
+      final db = sqlite3.sqlite3.open(e);
+      db.execute("UPDATE source SET name = 'x' WHERE id = 1");
+      db.close();
+      return e;
+    }
+
+    test('DB בלי sqlite_stat1 מקבל את ה-snapshot, וה-hash לא משתנה', () {
+      final base = buildIndexedDb('stat_base', 1);
+      final expected = expectedDb();
+      final patch = buildStatPatch('stat_patch', stats: snapshot);
+
+      final r = _applier.apply(
+          dbPath: base,
+          patchPath: patch,
+          manifest: manifestFor(base, expected));
+
+      expect(r.resultHash, _hashOf(expected));
+      expect(statsOf(base), [
+        ['schema_meta', 'sqlite_autoindex_schema_meta_1', '2 1'],
+        ['source', 'idx_source_name', '20 7'],
+      ]);
+    });
+
+    test('snapshot מחליף סטטיסטיקות קיימות', () {
+      final base = buildIndexedDb('stat_base_old', 1, withStats: true);
+      final expected = expectedDb();
+      final patch = buildStatPatch('stat_patch2', stats: [snapshot.first]);
+
+      _applier.apply(
+          dbPath: base,
+          patchPath: patch,
+          manifest: manifestFor(base, expected));
+
+      expect(statsOf(base), [
+        ['source', 'idx_source_name', '20 7'],
+      ]);
+    });
+
+    test('snapshot מוחל גם כש-verifyToHash כבוי (צעד ביניים בשרשרת)', () {
+      final base = buildIndexedDb('stat_base_mid', 1);
+      final patch = buildStatPatch('stat_patch_mid', stats: snapshot);
+
+      _applier.apply(
+          dbPath: base,
+          patchPath: patch,
+          verifyToHash: false,
+          manifest: _manifest(
+              from: 1, to: 2, fromHash: _hashOf(base), toHash: 'unused'));
+
+      expect(statsOf(base), hasLength(2));
+    });
+
+    test('snapshot מנקה היסטוגרמות sqlite_stat4 ישנות', () {
+      final base = buildIndexedDb('stat_base_s4', 1, withStats: true);
+      final db = sqlite3.sqlite3.open(base);
+      db.execute('PRAGMA writable_schema = ON');
+      db.execute('CREATE TABLE sqlite_stat4(tbl,idx,neq,nlt,ndlt,sample)');
+      db.execute('PRAGMA writable_schema = OFF');
+      db.execute('INSERT INTO sqlite_stat4 VALUES '
+          "('source','idx_source_name','1','1','1',x'00')");
+      db.close();
+      final expected = expectedDb();
+      final patch = buildStatPatch('stat_patch_s4', stats: snapshot);
+
+      _applier.apply(
+          dbPath: base,
+          patchPath: patch,
+          manifest: manifestFor(base, expected));
+
+      final after = sqlite3.sqlite3.open(base, mode: sqlite3.OpenMode.readOnly);
+      try {
+        expect(after.select('SELECT * FROM sqlite_stat4'), isEmpty);
+      } finally {
+        after.close();
+      }
+    });
+
+    test('patch בלי snapshot משאיר את הסטטיסטיקות הקיימות', () {
+      final base = buildIndexedDb('stat_base_keep', 1, withStats: true);
+      final before = statsOf(base);
+      final expected = expectedDb();
+      final patch = buildStatPatch('stat_patch3');
+
+      _applier.apply(
+          dbPath: base,
+          patchPath: patch,
+          manifest: manifestFor(base, expected));
+
+      expect(before, isNotEmpty);
+      expect(statsOf(base), before);
+    });
+
+    test('כשל toContentHash מגלגל לאחור גם את הסטטיסטיקות', () {
+      final base = buildIndexedDb('stat_base_rb', 1, withStats: true);
+      final before = statsOf(base);
+      final patch = buildStatPatch('stat_patch4', stats: snapshot);
+
+      expect(
+        () => _applier.apply(
+          dbPath: base,
+          patchPath: patch,
+          manifest: _manifest(
+              from: 1, to: 2, fromHash: _hashOf(base), toHash: 'wrong'),
+        ),
+        throwsA(isA<PatchApplyException>()),
+      );
+      expect(statsOf(base), before);
+    });
+  });
+}
+
+class _PragmaProbeHasher extends LogicalContentHasher {
+  final seen = <({int tempStore, int cacheSize})>[];
+
+  void _record(sqlite3.Database db) => seen.add((
+        tempStore: db.select('PRAGMA temp_store').first.values.first as int,
+        cacheSize: db.select('PRAGMA cache_size').first.values.first as int,
+      ));
+
+  @override
+  String compute(sqlite3.Database db,
+      {List<String> tableOrder = kHashTableOrder,
+      void Function(int bytesHashed)? onProgress}) {
+    _record(db);
+    return super.compute(db, tableOrder: tableOrder, onProgress: onProgress);
+  }
 }
