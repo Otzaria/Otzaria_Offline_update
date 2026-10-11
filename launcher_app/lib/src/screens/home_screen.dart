@@ -44,6 +44,7 @@ class HomeScreen extends StatelessWidget {
     required this.onGoToOtzaria,
     required this.onGoToLibrary,
     this.readOnly = false,
+    this.driveFull = false,
     this.errorReports,
     this.onUploadErrorReports,
     this.searchFeedback,
@@ -92,9 +93,8 @@ class HomeScreen extends StatelessWidget {
   final VoidCallback onGoToOtzaria;
   final VoidCallback onGoToLibrary;
 
-  /// הכונן מוגן מפני כתיבה — ראו `AppPaths.readOnly`. במצב הזה מוצגת הודעה
-  /// במקום כרטיס ההורדה: מה שהתחדש ברשת אינו יכול לירד לכאן.
   final bool readOnly;
+  final bool driveFull;
 
   /// דיווחי טעויות שנאספו לכונן. כפתור ההעלאה יושב בכרטיס ההורדות — המקום
   /// היחיד שבו הלאנצ'ר פונה לרשת.
@@ -162,16 +162,14 @@ class HomeScreen extends StatelessWidget {
 
   // ── כונן מוגן-כתיבה ──────────────────────────────────────────────────────
 
-  /// אותו מבנה של אזהרת "אוצריא פתוחה" שלמעלה: כרטיס אחד, אייקון והסבר,
-  /// בלי פעולה — אין כאן מה ללחוץ, וזו הנקודה.
   Widget _readOnlyNoticeCard(BuildContext context) {
     final t = context.strings.readOnlyDrive;
 
     return AppCard(
       child: SettingsActionTile.text(
         icon: FluentIcons.lock_closed_24_regular,
-        title: t.bannerTitle,
-        subtitle: t.bannerSubtitle,
+        title: driveFull ? t.bannerTitleDriveFull : t.bannerTitle,
+        subtitle: driveFull ? t.bannerSubtitleDriveFull : t.bannerSubtitle,
       ),
     );
   }

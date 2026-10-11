@@ -913,6 +913,10 @@ abstract class SetupErrorStrings {
   /// בפועל תמיד בעברית: השגיאה נזרקת לפני שקובץ ההגדרות בכלל נקרא, כי הוא
   /// יושב בתיקייה שנכשלה. מתורגם בכל זאת כדי שלא תישאר מחרוזת בקוד.
   String cannotWriteToDataDir(String osMessage);
+  String get driveFull;
+  String get driveFullTitle;
+  String get appTranslocated;
+  String get appTranslocatedTitle;
 }
 
 // ── כונן מוגן-כתיבה: מצב קריאה ────────────────────────────────────────────────
@@ -930,6 +934,10 @@ abstract class ReadOnlyDriveStrings {
 
   /// Shown on the custom-apps settings card: managing apps writes to the drive.
   String get customAppsManageDisabled;
+  String get bannerTitleDriveFull;
+  String get bannerSubtitleDriveFull;
+  String get downloadsDisabledSnackDriveFull;
+  String get customAppsManageDisabledDriveFull;
 }
 
 // ── הרשאות מנהל ───────────────────────────────────────────────────────────────
@@ -1844,9 +1852,8 @@ abstract class ErrorReportsStrings {
   // ── הסבר חד-פעמי, בהרצה הראשונה במחשב ──
   String get introDialogTitle;
   String get introDialogContent;
-
-  /// בכונן נעול אי אפשר לאסוף — ההסבר אומר זאת במקום להציע.
   String get introDialogContentReadOnly;
+  String get introDialogContentReadOnlyDriveFull;
   String get introDialogConfirm;
 
   // ── העלאה, במחשב המקוון ──

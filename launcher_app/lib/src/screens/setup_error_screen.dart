@@ -5,30 +5,28 @@ import '../services/app_paths.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/widgets_exports.dart';
 
-/// מוצג במקום האפליקציה כשלא ניתן להשתמש בתיקייה שצמודה לתוכנה. אין כאן
-/// "המשך בכל זאת": התוכנה מיועדת לכונן נייד, ומיקום שאי אפשר לכתוב בו הוא
-/// התקנה במקום הלא נכון (ראו [AppPaths]).
 class SetupErrorScreen extends StatelessWidget {
   const SetupErrorScreen(
       {super.key, required this.error, this.showWindowButtons});
 
   final AppPathsException error;
-
-  /// ראו [AppTitleBar.showWindowButtons] — מוזרק `false` בבדיקות widget.
   final bool? showWindowButtons;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final t = context.strings.setupError;
+    final title = switch (error.kind) {
+      AppPathsFailure.cannotWrite => t.title,
+      AppPathsFailure.driveFull => t.driveFullTitle,
+      AppPathsFailure.appTranslocated => t.appTranslocatedTitle,
+    };
+    final generic = error.kind == AppPathsFailure.cannotWrite;
 
     return Scaffold(
       backgroundColor: AppSurfaces.panelBackground(context),
-      // שורת הכותרת חובה גם כאן: מסגרת החלון של המערכת כבר הוסתרה ב-`main`,
-      // ובלעדיה המסך הזה הוא חלון בלי סגירה, בלי מזעור ובלי גרירה.
       body: Column(
         children: [
-          // בלי שם מסך: אין כאן ניווט, והכותרת עצמה מופיעה בכרטיס שמתחת.
           AppTitleBar(screenTitle: '', showWindowButtons: showWindowButtons),
           Expanded(
             child: Center(
@@ -50,7 +48,7 @@ class SetupErrorScreen extends StatelessWidget {
                             const SizedBox(width: AppTokens.spaceSM),
                             Expanded(
                               child: Text(
-                                t.title,
+                                title,
                                 style: theme.textTheme.titleMedium
                                     ?.copyWith(fontWeight: FontWeight.bold),
                               ),
@@ -58,11 +56,18 @@ class SetupErrorScreen extends StatelessWidget {
                           ],
                         ),
                         const SizedBox(height: AppTokens.spaceMD),
-                        Text(t.explanation, style: theme.textTheme.bodyMedium),
-                        const SizedBox(height: AppTokens.spaceMD),
-                        Text(t.whatToDo, style: theme.textTheme.bodyMedium),
-                        const SizedBox(height: AppTokens.spaceMD),
-                        InfoErrorRow(message: error.message),
+                        if (generic) ...[
+                          Text(t.explanation,
+                              style: theme.textTheme.bodyMedium),
+                          const SizedBox(height: AppTokens.spaceMD),
+                          Text(t.whatToDo, style: theme.textTheme.bodyMedium),
+                          const SizedBox(height: AppTokens.spaceMD),
+                          InfoErrorRow(message: error.message),
+                        ] else ...[
+                          SelectableText(error.message,
+                              style: theme.textTheme.bodyMedium),
+                          const SizedBox(height: AppTokens.spaceMD),
+                        ],
                         SettingsActionTile.path(
                           icon: FluentIcons.folder_24_regular,
                           title: t.attemptedDirTitle,

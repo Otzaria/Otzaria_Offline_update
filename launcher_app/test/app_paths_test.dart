@@ -176,6 +176,44 @@ void main() {
       );
     });
 
+    test('קובץ בדיקה שנכתב ולא נמחק (אנטי-וירוס) → כונן כותב, לא מצב קריאה',
+        () async {
+      final overrides = _UndeletableProbeIOOverrides(sandbox.path);
+      final paths = await IOOverrides.runWithIOOverrides(
+        AppPaths.resolve,
+        overrides,
+      );
+
+      expect(overrides.deleteAttempted, isTrue);
+      expect(paths.readOnly, isFalse);
+      expect(paths.stateDir, paths.dataDir);
+    });
+
+    test('macOS App Translocation → הודעה ייעודית, בלי לגעת בדיסק', () async {
+      const executable = '/private/var/folders/ab/xyz/T/AppTranslocation/'
+          '1234-ABCD/d/Otzaria Launcher.app/Contents/MacOS/Otzaria Launcher';
+      final overrides = _RedirectingIOOverrides(sandbox.path);
+
+      await expectLater(
+        IOOverrides.runWithIOOverrides(
+          () => AppPaths.resolve(
+            resolvedExecutable: executable,
+            isMacOS: true,
+          ),
+          overrides,
+        ),
+        throwsA(isA<AppPathsException>()
+            .having(
+              (e) => e.message,
+              'message',
+              AppL10n.strings.setupError.appTranslocated,
+            )
+            .having((e) => e.kind, 'kind', AppPathsFailure.appTranslocated)),
+      );
+      expect(overrides.createdDirs, isEmpty);
+      expect(overrides.createdFiles, isEmpty);
+    });
+
     test('הודעת השגיאה מגיעה מ-otzaria_l10n ולא ממחרוזת בקוד', () async {
       AppL10n.use(AppLanguage.english);
       addTearDown(() => AppL10n.use(AppLanguage.hebrew));
@@ -197,6 +235,7 @@ void main() {
         error!.message,
         AppL10n.strings.setupError.cannotWriteToDataDir('nope'),
       );
+      expect(error.kind, AppPathsFailure.cannotWrite);
       expect(error.toString(), contains(error.attemptedDir));
     });
   });
@@ -271,6 +310,60 @@ void main() {
         ),
         throwsA(isA<AppPathsException>()),
       );
+    });
+
+    OSError noSpace() =>
+        OSError('No space left on device', Platform.isWindows ? 112 : 28);
+
+    test('כונן מלא שנושא מראה → מצב קריאה, מסומן ככונן מלא', () async {
+      fillMirror();
+      final environment = {...env(), 'HOME': machine.path};
+
+      final paths = await IOOverrides.runWithIOOverrides(
+        () => AppPaths.resolve(environment: environment),
+        _LockedDriveIOOverrides(driveRoot: drive.path, osError: noSpace()),
+      );
+
+      expect(paths.readOnly, isTrue);
+      expect(paths.driveFull, isTrue);
+      expect(paths.dataDir, expectedDataDir());
+      expect(
+        paths.stateDir,
+        AppPaths.machineStateDir(
+          environment,
+          isWindows: Platform.isWindows,
+          isMacOS: Platform.isMacOS,
+        ),
+      );
+    });
+
+    test('כונן מלא בלי מראה → הודעת "כונן מלא"', () async {
+      await expectLater(
+        IOOverrides.runWithIOOverrides(
+          () => AppPaths.resolve(environment: {...env(), 'HOME': machine.path}),
+          _LockedDriveIOOverrides(driveRoot: drive.path, osError: noSpace()),
+        ),
+        throwsA(isA<AppPathsException>()
+            .having(
+              (e) => e.message,
+              'message',
+              AppL10n.strings.setupError.driveFull,
+            )
+            .having((e) => e.kind, 'kind', AppPathsFailure.driveFull)),
+      );
+      expect(machine.listSync(), isEmpty);
+    });
+
+    test('כונן נעול שאינו מלא אינו מסומן ככונן מלא', () async {
+      fillMirror();
+
+      final paths = await IOOverrides.runWithIOOverrides(
+        () => AppPaths.resolve(environment: {...env(), 'HOME': machine.path}),
+        _LockedDriveIOOverrides(driveRoot: drive.path),
+      );
+
+      expect(paths.readOnly, isTrue);
+      expect(paths.driveFull, isFalse);
     });
 
     test('הרצה כותבת רגילה נשארת ללא stateDir נפרד', () async {
@@ -460,10 +553,10 @@ final class _FailingIOOverrides extends IOOverrides {
 /// אליהן נכשלת. מה שמחוץ לכונן (תיקיית המשתמש שבמחשב) אמיתי וכותב — זה
 /// בדיוק מה שמצב הקריאה אמור למצוא.
 final class _LockedDriveIOOverrides extends IOOverrides {
-  _LockedDriveIOOverrides({required this.driveRoot});
+  _LockedDriveIOOverrides({required this.driveRoot, this.osError});
 
-  /// התיקייה האמיתית שמחליפה את `<exe>/OtzariaData` שאי אפשר לכתוב אליה.
   final String driveRoot;
+  final OSError? osError;
 
   String get _dataDir =>
       p.join(p.dirname(Platform.resolvedExecutable), AppPaths.dirName);
@@ -481,9 +574,8 @@ final class _LockedDriveIOOverrides extends IOOverrides {
   @override
   File createFile(String path) {
     if (!_onDrive(path)) return _realFile(path);
-    // קובץ הבדיקה הוא הכתיבה היחידה שהכונן חוסם כאן; השאר נקרא כרגיל.
     if (p.basename(path) == '.write-test') {
-      return _UnwritableFile(path, 'The media is write protected');
+      return _UnwritableFile(path, 'The media is write protected', osError);
     }
     return _realFile(_mapped(path));
   }
@@ -505,14 +597,13 @@ class _UnwritableDirectory implements Directory {
 }
 
 class _UnwritableFile implements File {
-  _UnwritableFile(this.path, this._message);
+  _UnwritableFile(this.path, this._message, [this._osError]);
 
   @override
   final String path;
   final String _message;
+  final OSError? _osError;
 
-  /// תיקייה שאי אפשר לכתוב בה גם אינה נושאת מראה — בלי זה בדיקת המראה
-  /// שב-`resolve` הייתה נופלת ל-`noSuchMethod`.
   @override
   Future<bool> exists() async => false;
 
@@ -523,7 +614,55 @@ class _UnwritableFile implements File {
     Encoding encoding = utf8,
     bool flush = false,
   }) =>
-      Future.error(FileSystemException(_message, path));
+      Future.error(FileSystemException(_message, path, _osError));
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _UndeletableProbeIOOverrides extends IOOverrides {
+  _UndeletableProbeIOOverrides(this.sandbox);
+
+  final String sandbox;
+  bool deleteAttempted = false;
+
+  @override
+  Directory createDirectory(String path) => _realDirectory(sandbox);
+
+  @override
+  File createFile(String path) => _UndeletableFile(
+        _realFile(p.join(sandbox, p.basename(path))),
+        () => deleteAttempted = true,
+      );
+}
+
+class _UndeletableFile implements File {
+  _UndeletableFile(this._inner, this._onDelete);
+
+  final File _inner;
+  final void Function() _onDelete;
+
+  @override
+  String get path => _inner.path;
+
+  @override
+  Future<File> writeAsString(
+    String contents, {
+    FileMode mode = FileMode.write,
+    Encoding encoding = utf8,
+    bool flush = false,
+  }) async {
+    await _inner.writeAsString(contents, flush: flush);
+    return this;
+  }
+
+  @override
+  Future<FileSystemEntity> delete({bool recursive = false}) {
+    _onDelete();
+    return Future.error(
+      FileSystemException('The process cannot access the file', path),
+    );
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

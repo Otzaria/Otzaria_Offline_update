@@ -1604,6 +1604,22 @@ class _SetupError extends SetupErrorStrings {
   @override
   String cannotWriteToDataDir(String osMessage) =>
       'Cannot write to the folder next to this program: $osMessage';
+  @override
+  String get driveFull =>
+      'The drive is full — there is no room even for a tiny test file. Free '
+      'up space on the drive and start the program again.';
+  @override
+  String get driveFullTitle => 'The drive has no free space';
+  @override
+  String get appTranslocated =>
+      'macOS is running this program from a temporary read-only copy because '
+      'it is marked as downloaded from the internet, so it cannot see the '
+      'folder next to it. Move the program to another folder and back in '
+      'Finder, or run in Terminal: xattr -dr com.apple.quarantine followed by '
+      'the program dragged in — then open it again.';
+  @override
+  String get appTranslocatedTitle =>
+      'macOS is running this program from a temporary copy';
 }
 
 class _ReadOnlyDrive extends ReadOnlyDriveStrings {
@@ -1625,6 +1641,26 @@ class _ReadOnlyDrive extends ReadOnlyDriveStrings {
   String get customAppsManageDisabled =>
       'The drive is write-protected, so programs cannot be added, edited or '
       'removed here. Programs already on the drive install as usual.';
+  @override
+  String get bannerTitleDriveFull => 'The drive is full — read-only mode';
+  @override
+  String get bannerSubtitleDriveFull =>
+      'Installing and updating Otzaria, the library and the plugins all work '
+      'as usual: they write to this computer, not to the drive. Downloading '
+      'from the internet and updating this program itself are off because the '
+      'drive has no free space. To turn them back on, free up space on the '
+      'drive and restart the program. Meanwhile settings and the log are kept '
+      'on this computer.';
+  @override
+  String get downloadsDisabledSnackDriveFull =>
+      'The drive is full — there is nowhere to download to. Free up space on '
+      'it and restart the program; you can still install what it already '
+      'carries.';
+  @override
+  String get customAppsManageDisabledDriveFull =>
+      'The drive is full, so programs cannot be added, edited or removed here '
+      'until space is freed on it. Programs already on the drive install as '
+      'usual.';
 }
 
 class _Elevation extends ElevationStrings {
@@ -3246,6 +3282,11 @@ class _ErrorReports extends ErrorReportsStrings {
       'Otzaria keeps reports about books, app problems and plugins while there '
       'was no network.\n\nThis drive is locked for writing, so reports '
       'cannot be collected through it.';
+  @override
+  String get introDialogContentReadOnlyDriveFull =>
+      'Otzaria keeps reports about books, app problems and plugins while there '
+      'was no network.\n\nThis drive is full, so reports cannot be collected '
+      'to it until space is freed on it.';
   @override
   String get introDialogConfirm => 'Got it';
 

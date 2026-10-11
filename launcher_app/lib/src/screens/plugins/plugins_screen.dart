@@ -30,7 +30,8 @@ class PluginsScreen extends StatefulWidget {
       {super.key,
       required this.controller,
       this.onRequestFocus,
-      this.readOnly = false});
+      this.readOnly = false,
+      this.driveFull = false});
 
   final PluginsModuleController controller;
 
@@ -39,9 +40,8 @@ class PluginsScreen extends StatefulWidget {
   /// גם להחזיר את הניווט לכאן — אחרת הפרטים נפתחים מאחורי מסך אחר.
   final VoidCallback? onRequestFocus;
 
-  /// הכונן מוגן מפני כתיבה — ראו `AppPaths.readOnly`. החנות עצמה נקראת
-  /// ומותקנת כרגיל; רק הסנכרון (שמוריד אליה) אינו קיים.
   final bool readOnly;
+  final bool driveFull;
 
   @override
   State<PluginsScreen> createState() => _PluginsScreenState();
@@ -176,7 +176,10 @@ class _PluginsScreenState extends State<PluginsScreen> {
 
   Future<void> _sync() async {
     if (widget.readOnly) {
-      UiSnack.show(context.strings.readOnlyDrive.downloadsDisabledSnack);
+      final t = context.strings.readOnlyDrive;
+      UiSnack.show(widget.driveFull
+          ? t.downloadsDisabledSnackDriveFull
+          : t.downloadsDisabledSnack);
       return;
     }
     final t = context.strings.plugins;

@@ -1513,6 +1513,21 @@ class _SetupError extends SetupErrorStrings {
   @override
   String cannotWriteToDataDir(String osMessage) =>
       'לא ניתן לכתוב לתיקייה שלצד התוכנה: $osMessage';
+  @override
+  String get driveFull =>
+      'הכונן מלא — אין בו מקום אפילו לקובץ בדיקה קטן. יש לפנות מקום בכונן '
+      'ולהפעיל את התוכנה שוב.';
+  @override
+  String get driveFullTitle => 'אין מקום פנוי בכונן';
+  @override
+  String get appTranslocated =>
+      'macOS מריץ את התוכנה מעותק זמני לקריאה בלבד, כי היא סומנה כהורדה '
+      'מהאינטרנט, ולכן היא לא רואה את התיקייה שלצידה. יש להעביר ב-Finder את '
+      'התוכנה לתיקייה אחרת ובחזרה, או להריץ במסוף: '
+      'xattr -dr com.apple.quarantine ולגרור אחריו את התוכנה — ואז לפתוח '
+      'אותה שוב.';
+  @override
+  String get appTranslocatedTitle => 'macOS מריץ את התוכנה מעותק זמני';
 }
 
 class _ReadOnlyDrive extends ReadOnlyDriveStrings {
@@ -1532,6 +1547,22 @@ class _ReadOnlyDrive extends ReadOnlyDriveStrings {
   String get customAppsManageDisabled =>
       'הכונן מוגן מפני כתיבה, ולכן אי אפשר להוסיף, לערוך או להסיר כאן '
       'תוכנות. התקנה של תוכנות שכבר יש בכונן עובדת כרגיל.';
+  @override
+  String get bannerTitleDriveFull => 'הכונן מלא — מצב קריאה';
+  @override
+  String get bannerSubtitleDriveFull =>
+      'התקנה ועדכון של אוצריא, הספרייה והתוספים עובדים כרגיל: הם כותבים '
+      'למחשב הזה ולא לכונן. הורדה מהרשת ועדכון התוכנה עצמה כבויים, כי אין '
+      'בכונן מקום. כדי להפעיל אותם שוב יש לפנות מקום בכונן ולהפעיל את התוכנה '
+      'מחדש. ההגדרות והלוג נשמרים בינתיים במחשב הזה.';
+  @override
+  String get downloadsDisabledSnackDriveFull =>
+      'הכונן מלא — אין לאן להוריד. יש לפנות בו מקום ולהפעיל את התוכנה מחדש; '
+      'אפשר להתקין ממה שכבר יש בו.';
+  @override
+  String get customAppsManageDisabledDriveFull =>
+      'הכונן מלא, ולכן אי אפשר להוסיף, לערוך או להסיר כאן תוכנות עד שיתפנה '
+      'בו מקום. התקנה של תוכנות שכבר יש בכונן עובדת כרגיל.';
 }
 
 class _Elevation extends ElevationStrings {
@@ -3033,6 +3064,11 @@ class _ErrorReports extends ErrorReportsStrings {
       'אוצריא שומרת דיווחי טעויות בספרים, תקלות בתוכנה ודיווחים על תוספים '
       'שלא נשלחו כשאין רשת.\n\n'
       'הכונן הזה נעול לכתיבה, ולכן אי אפשר לאסוף דרכו דיווחים.';
+  @override
+  String get introDialogContentReadOnlyDriveFull =>
+      'אוצריא שומרת דיווחי טעויות בספרים, תקלות בתוכנה ודיווחים על תוספים '
+      'שלא נשלחו כשאין רשת.\n\n'
+      'הכונן הזה מלא, ולכן אי אפשר לאסוף אליו דיווחים עד שיתפנה בו מקום.';
   @override
   String get introDialogConfirm => 'הבנתי';
 

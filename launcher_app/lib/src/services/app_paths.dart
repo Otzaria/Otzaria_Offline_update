@@ -3,14 +3,18 @@ import 'dart:io';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
-/// נזרק כשלא ניתן להשתמש בתיקייה שצמודה לתוכנה **וגם לא ניתן להתקין ממנה**
-/// — ראו [AppPaths.resolve].
-class AppPathsException implements Exception {
-  const AppPathsException({required this.message, required this.attemptedDir});
+enum AppPathsFailure { cannotWrite, driveFull, appTranslocated }
 
-  /// הודעה מנוסחת למשתמש — מוצגת ישירות במסך השגיאה.
+class AppPathsException implements Exception {
+  const AppPathsException({
+    required this.message,
+    required this.attemptedDir,
+    this.kind = AppPathsFailure.cannotWrite,
+  });
+
   final String message;
   final String attemptedDir;
+  final AppPathsFailure kind;
 
   @override
   String toString() => 'AppPathsException: $message ($attemptedDir)';
@@ -24,6 +28,7 @@ class AppPaths {
     required this.dataDir,
     required this.stateDir,
     this.readOnly = false,
+    this.driveFull = false,
   });
 
   /// שם התיקייה שנוצרת לצד קובץ ההרצה.
@@ -43,6 +48,8 @@ class AppPaths {
   /// מהרשת ועדכון הלאנצ'ר עצמו לא — אין לאן להוריד.
   final bool readOnly;
 
+  final bool driveFull;
+
   /// שלושת ה-manifest שכל אחד מהם לבדו מוכיח שהמראה נמלאה בפועל.
   static const List<List<String>> _mirrorManifests = [
     ['mirror', 'library', 'releases.json'],
@@ -50,38 +57,30 @@ class AppPaths {
     ['mirror', 'plugins', 'catalog.json'],
   ];
 
-  /// מאתר את התיקייה הצמודה לתוכנה ומוודא שניתן לכתוב בה בפועל.
-  ///
-  /// כשלא ניתן — ויש במקום מראה שכבר נמלאה — חוזר במצב [readOnly] במקום
-  /// לזרוק: כונן שנעל אותו מי שמחלק אותו הוא תרחיש אמיתי (בעיה #25), וכל
-  /// מסלולי ההתקנה כותבים למחשב ולא לכונן, ולכן הם עובדים כך. הלוג והמצב
-  /// עוברים לתיקיית המשתמש שבמחשב — ושם הם גם נכונים יותר: "איזו גרסה
-  /// מותקנת" היא תכונה של המחשב, לא של הכונן.
-  ///
-  /// זורק [AppPathsException] רק כשגם זה לא אפשרי — תיקייה לא-כותבת ובלי
-  /// מראה (למשל התוכנה הועברה ל-`Program Files`). אין נפילה חזרה לתיקיית
-  /// המשתמש עבור המראה עצמה: מיקום שאי אפשר להוריד אליו פירושו שהתוכנה
-  /// הותקנה במקום הלא נכון, וזה מה שצריך להיאמר.
   static Future<AppPaths> resolve({
     Map<String, String>? environment,
     String? resolvedExecutable,
     bool? isMacOS,
   }) async {
     final macOS = isMacOS ?? Platform.isMacOS;
+    final executable = resolvedExecutable ?? Platform.resolvedExecutable;
     final dataDir = p.join(
-      executableRoot(
-        resolvedExecutable ?? Platform.resolvedExecutable,
-        isMacOS: macOS,
-      ),
+      executableRoot(executable, isMacOS: macOS),
       dirName,
     );
+    if (macOS && executable.contains('/AppTranslocation/')) {
+      throw AppPathsException(
+        message: AppL10n.strings.setupError.appTranslocated,
+        attemptedDir: dataDir,
+        kind: AppPathsFailure.appTranslocated,
+      );
+    }
     final failure = await _probeWritable(dataDir);
     if (failure == null) {
       return AppPaths(dataDir: dataDir, stateDir: dataDir);
     }
 
-    // הבדיקה הזו רצה **רק** אחרי כשל כתיבה, כדי שההרצה הרגילה תישאר סבב
-    // I/O אחד.
+    final diskFull = _isDiskFull(failure);
     if (await _hasMirror(dataDir)) {
       final stateDir = machineStateDir(
         environment ?? Platform.environment,
@@ -93,15 +92,25 @@ class AppPaths {
           dataDir: dataDir,
           stateDir: stateDir,
           readOnly: true,
+          driveFull: diskFull,
         );
       }
     }
 
     throw AppPathsException(
-      message: AppL10n.strings.setupError
-          .cannotWriteToDataDir(failure.osError?.message ?? failure.message),
+      message: diskFull
+          ? AppL10n.strings.setupError.driveFull
+          : AppL10n.strings.setupError.cannotWriteToDataDir(
+              failure.osError?.message ?? failure.message),
       attemptedDir: dataDir,
+      kind: diskFull ? AppPathsFailure.driveFull : AppPathsFailure.cannotWrite,
     );
+  }
+
+  static bool _isDiskFull(FileSystemException error) {
+    final code = error.osError?.errorCode;
+    if (code == null) return false;
+    return Platform.isWindows ? code == 39 || code == 112 : code == 28;
   }
 
   /// התיקייה שבה "יושבת" התוכנה מנקודת מבט המשתמש.
@@ -132,19 +141,19 @@ class AppPaths {
     }
   }
 
-  /// יוצר את התיקייה ובודק כתיבה **בפועל** (קובץ בדיקה), ולא רק שהיצירה
-  /// לא זרקה: ב-Windows תיקייה יכולה להיווצר ואז לחסום כתיבה בגלל ACL.
-  /// מחזיר את השגיאה במקום לזרוק — הקורא מחליט אם יש מסלול חלופי.
   static Future<FileSystemException?> _probeWritable(String dir) async {
+    final File probe;
     try {
       await Directory(dir).create(recursive: true);
-      final probe = File(p.join(dir, '.write-test'));
+      probe = File(p.join(dir, '.write-test'));
       await probe.writeAsString('ok', flush: true);
-      await probe.delete();
-      return null;
     } on FileSystemException catch (e) {
       return e;
     }
+    try {
+      await probe.delete();
+    } on FileSystemException catch (_) {}
+    return null;
   }
 
   /// `true` אם המראה נושאת תוכן — קיומו של manifest אחד מספיק. תיקייה ריקה

@@ -216,6 +216,23 @@ void main() {
       expect(store.marked, [key]);
     });
 
+    testWidgets('כונן מלא: מופיע בנוסח שמבקש לפנות מקום ולא בנוסח הנעילה',
+        (tester) async {
+      final store = MemoryNoticesStore();
+      final ctx = await host(tester);
+      unawaited(
+        showErrorReportsIntroOnce(ctx, store, readOnly: true, driveFull: true),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(t.introDialogContentReadOnlyDriveFull), findsOneWidget);
+      expect(find.text(t.introDialogContentReadOnly), findsNothing);
+      expect(find.text(t.introDialogContent), findsNothing);
+      await tester.tap(find.text(t.introDialogConfirm));
+      await tester.pumpAndSettle();
+      expect(store.marked, [key]);
+    });
+
     testWidgets('אי אפשר להציג עכשיו → לא מוצג ולא נרשם', (tester) async {
       final store = MemoryNoticesStore();
       final ctx = await host(tester);
@@ -240,6 +257,10 @@ void main() {
       expect(en.introDialogTitle, isNotEmpty);
       expect(en.introDialogContent, isNot(t.introDialogContent));
       expect(en.introDialogContentReadOnly, isNot(en.introDialogContent));
+      expect(
+        en.introDialogContentReadOnlyDriveFull,
+        isNot(en.introDialogContentReadOnly),
+      );
     });
   });
 

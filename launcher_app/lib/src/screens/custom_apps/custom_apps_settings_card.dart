@@ -15,13 +15,13 @@ class CustomAppsSettingsCard extends StatelessWidget {
     super.key,
     required this.controller,
     this.readOnly = false,
+    this.driveFull = false,
   });
 
   final CustomAppsController controller;
 
-  /// Management writes to mirror/apps on the drive, so a locked drive shows
-  /// the card disabled with an explanation instead of failing on save.
   final bool readOnly;
+  final bool driveFull;
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +38,10 @@ class CustomAppsSettingsCard extends StatelessWidget {
             icon: FluentIcons.box_24_regular,
             title: t.settingsCardTitle,
             subtitle: readOnly
-                ? context.strings.readOnlyDrive.customAppsManageDisabled
+                ? driveFull
+                    ? context
+                        .strings.readOnlyDrive.customAppsManageDisabledDriveFull
+                    : context.strings.readOnlyDrive.customAppsManageDisabled
                 : controller.hasApps
                     ? t.registeredAppCount(controller.apps.length)
                     : t.emptyHint,

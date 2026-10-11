@@ -68,9 +68,11 @@ void main() {
     Future<bool> Function()? onCloseOtzaria,
     Future<void> Function()? onCancelDownload,
     bool readOnly = false,
+    bool driveFull = false,
   }) =>
       HomeScreen(
         readOnly: readOnly,
+        driveFull: driveFull,
         otzaria: otzaria,
         library: library,
         plugins: plugins,
@@ -152,6 +154,17 @@ void main() {
     // האריחים עצמם נשארים: מהם מתקינים, וזו כל הנקודה של מצב הקריאה.
     expect(find.text('תוכנת אוצריא'), findsWidgets);
     expect(find.text('הספרייה'), findsWidgets);
+  });
+
+  testWidgets('כונן מלא: באנר "הכונן מלא" עם הנחיה לפנות מקום', (tester) async {
+    final t = stringsOf().readOnlyDrive;
+
+    await pumpScreen(tester, home(readOnly: true, driveFull: true));
+
+    expect(find.text(t.bannerTitleDriveFull), findsOneWidget);
+    expect(find.text(t.bannerSubtitleDriveFull), findsOneWidget);
+    expect(find.text(t.bannerTitle), findsNothing);
+    expect(find.text(t.bannerSubtitle), findsNothing);
   });
 
   testWidgets('כפתור ביטול ההורדה מופיע רק בזמן הורדה, ומבקש את הביטול',
@@ -1713,6 +1726,44 @@ void main() {
     await tester.tap(find.widgetWithText(ActionButton, t.closeButton));
     expect(closed, isTrue);
   });
+
+  for (final (kind, title, message) in [
+    (
+      AppPathsFailure.driveFull,
+      stringsOf().setupError.driveFullTitle,
+      stringsOf().setupError.driveFull,
+    ),
+    (
+      AppPathsFailure.appTranslocated,
+      stringsOf().setupError.appTranslocatedTitle,
+      stringsOf().setupError.appTranslocated,
+    ),
+  ]) {
+    testWidgets('מסך השגיאה עבור ${kind.name}: כותרת והנחיה ייעודיות בלבד',
+        (tester) async {
+      final t = stringsOf().setupError;
+
+      await pumpScreen(
+        tester,
+        SetupErrorScreen(
+          error: AppPathsException(
+            message: message,
+            attemptedDir: '/Volumes/USB/OtzariaData',
+            kind: kind,
+          ),
+          showWindowButtons: false,
+        ),
+      );
+
+      expect(find.text(title), findsOneWidget);
+      expect(find.text(message), findsOneWidget);
+      expect(find.text(t.title), findsNothing);
+      expect(find.text(t.explanation), findsNothing);
+      expect(find.text(t.whatToDo), findsNothing);
+      expect(find.byType(InfoErrorRow), findsNothing);
+      expect(find.textContaining('OtzariaData'), findsOneWidget);
+    });
+  }
 
   testWidgets('מסך השגיאה מתורגם לאנגלית', (tester) async {
     final t = stringsOf(AppLanguage.english).setupError;

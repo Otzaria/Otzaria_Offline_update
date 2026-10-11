@@ -56,6 +56,7 @@ void main() {
     AppLanguage language = AppLanguage.hebrew,
     MemoryNoticesStore? notices,
     bool readOnly = false,
+    bool driveFull = false,
   }) async {
     useViewSize(tester, const Size(1400, 1000));
     await tester.pumpWidget(
@@ -65,6 +66,7 @@ void main() {
           settings: settings,
           runningLocator: locator,
           readOnly: readOnly,
+          driveFull: driveFull,
           // ברירת המחדל: ההסבר החד-פעמי כבר הוצג, כדי שלא יצוץ באמצע בדיקה
           // שאינה שלו.
           noticesStore: notices ??
@@ -229,6 +231,19 @@ void main() {
       expect(find.text(t.introDialogContent), findsNothing);
     });
 
+    testWidgets('כונן מלא: מופיע בנוסח שמבקש לפנות מקום', (tester) async {
+      await pumpShell(
+        tester,
+        notices: MemoryNoticesStore(),
+        readOnly: true,
+        driveFull: true,
+      );
+      await settleDialog(tester);
+
+      expect(find.text(t.introDialogContentReadOnlyDriveFull), findsOneWidget);
+      expect(find.text(t.introDialogContentReadOnly), findsNothing);
+    });
+
     testWidgets('כבר הוצג במחשב הזה → אין חלון', (tester) async {
       await pumpShell(tester);
       await settleDialog(tester);
@@ -373,6 +388,27 @@ void main() {
       );
     });
   }
+
+  testWidgets('settings custom-apps card on a full drive asks to free space',
+      (tester) async {
+    await pumpShell(tester, readOnly: true, driveFull: true);
+    await tapNav(tester, shell.navSettings);
+
+    final card = find.byType(CustomAppsSettingsCard, skipOffstage: false);
+    final t = stringsOf().readOnlyDrive;
+    expect(
+      find.descendant(
+        of: card,
+        matching: find.text(t.customAppsManageDisabledDriveFull),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+          of: card, matching: find.text(t.customAppsManageDisabled)),
+      findsNothing,
+    );
+  });
 
   // ההתקנה האוטומטית עצמה אינה נהיגה מבדיקת widget — היא מריצה מתקין אמיתי
   // ו-`dart:io` שאינו מסתיים ב-fake-async. הסדר, לעומת זאת, הוא כל התיקון,

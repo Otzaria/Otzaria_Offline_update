@@ -33,6 +33,7 @@ class SettingsScreen extends StatelessWidget {
     required this.launcherVersion,
     this.customApps,
     this.readOnly = false,
+    this.driveFull = false,
     this.saferMode,
     this.appReports,
   });
@@ -47,9 +48,8 @@ class SettingsScreen extends StatelessWidget {
   /// ניהול התוכנות המותאמות. `null` בבדיקות שאינן נוגעות בהן.
   final CustomAppsController? customApps;
 
-  /// הכונן מוגן מפני כתיבה — ראו `AppPaths.readOnly`. כל ניהול המרשם כותב
-  /// אליו, ולכן כרטיס התוכנות הנוספות מוצג מושבת עם הסבר.
   final bool readOnly;
+  final bool driveFull;
 
   /// שומר הסף של מצב הסייפר — נדרש כדי לסמן אימות אחרי בחירת סיסמה. `null`
   /// בבדיקות שאינן נוגעות בנעילה.
@@ -74,7 +74,11 @@ class SettingsScreen extends StatelessWidget {
         _automationCard(context),
         _downloadCard(context),
         if (customApps case final controller?)
-          CustomAppsSettingsCard(controller: controller, readOnly: readOnly),
+          CustomAppsSettingsCard(
+            controller: controller,
+            readOnly: readOnly,
+            driveFull: driveFull,
+          ),
         _saferModeCard(context),
         if (appReports case final reports?)
           AppReportsSettingsCard(reports: reports),

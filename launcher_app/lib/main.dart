@@ -136,14 +136,17 @@ void main() {
       // הראשון שהוצג — בלעדיו "מסך שחור" ו"תקוע" נראים אותו דבר (issue #28).
       StartupDiagnostics.start();
 
-      // הכונן מוגן מכתיבה: המצב והלוג יושבים מעכשיו במחשב הזה, והתיקייה
-      // שעל הכונן קופאת. בלי השורה הזאת אין בלוג שום רמז לאיזה משני
-      // המיקומים הוא שייך.
       if (paths.readOnly) {
-        AppLogger.instance.warn(
-          'הכונן מוגן מכתיבה — מצב והגדרות נשמרים במחשב הזה: '
-          'dataDir=${paths.dataDir} stateDir=${paths.stateDir}',
-        );
+        final where = 'dataDir=${paths.dataDir} stateDir=${paths.stateDir}';
+        if (paths.driveFull) {
+          AppLogger.instance.warn(
+            'הכונן מלא — מצב והגדרות נשמרים במחשב הזה: $where',
+          );
+        } else {
+          AppLogger.instance.warn(
+            'הכונן מוגן מכתיבה — מצב והגדרות נשמרים במחשב הזה: $where',
+          );
+        }
       }
 
       // ערמת קבצים שאינה שייכת לקובץ ההרצה שלצידה קורסת בדרכים שאי אפשר
@@ -247,6 +250,7 @@ class LauncherApp extends StatelessWidget {
             dataDir: paths.dataDir,
             stateDir: paths.stateDir,
             readOnly: paths.readOnly,
+            driveFull: paths.driveFull,
             settings: settings,
             appReports: appReports,
           ),

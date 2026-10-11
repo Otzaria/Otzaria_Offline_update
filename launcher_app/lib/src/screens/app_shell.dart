@@ -57,6 +57,7 @@ class AppShell extends StatefulWidget {
     required this.settings,
     String? stateDir,
     this.readOnly = false,
+    this.driveFull = false,
     this.runningLocator = const RunningOtzariaLocator(),
     this.showWindowButtons,
     this.noticesStore,
@@ -75,9 +76,8 @@ class AppShell extends StatefulWidget {
   /// קובצי המצב יושבים בתיקיית הלוגים — ראו [AppPaths.stateFilesDir].
   String get stateFilesDir => p.join(stateDir, AppPaths.logsDirName);
 
-  /// `true` = הכונן לקריאה בלבד: בדיקות והתקנות עובדות (הן כותבות למחשב),
-  /// והורדות מהרשת ועדכון הלאנצ'ר עצמו כבויים — אין לאן להוריד.
   final bool readOnly;
+  final bool driveFull;
 
   final SettingsController settings;
 
@@ -414,7 +414,6 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
-  /// ההסבר החד-פעמי על דיווחי הטעויות, ראו [showErrorReportsIntroOnce].
   Future<void> _showErrorReportsIntro() async {
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted) return;
@@ -423,6 +422,7 @@ class _AppShellState extends State<AppShell> {
         context,
         _notices,
         readOnly: widget.readOnly,
+        driveFull: widget.driveFull,
       ),
     );
   }
@@ -547,12 +547,12 @@ class _AppShellState extends State<AppShell> {
     return closed;
   }
 
-  /// חוסם, עם הסבר, כל מסלול שכותב **לכונן** — הורדה מהרשת או החלפת קובץ
-  /// ההרצה — כשהכונן מוגן מפני כתיבה. ההתקנות עצמן אינן עוברות כאן: הן
-  /// כותבות למחשב, וזו כל הנקודה של מצב הקריאה.
   bool _blockedByReadOnly() {
     if (!widget.readOnly) return false;
-    UiSnack.show(AppL10n.strings.readOnlyDrive.downloadsDisabledSnack);
+    final t = AppL10n.strings.readOnlyDrive;
+    UiSnack.show(widget.driveFull
+        ? t.downloadsDisabledSnackDriveFull
+        : t.downloadsDisabledSnack);
     return true;
   }
 
@@ -1109,6 +1109,7 @@ class _AppShellState extends State<AppShell> {
             onGoToOtzaria: () => _goTo(LauncherScreen.otzaria),
             onGoToLibrary: () => _goTo(LauncherScreen.library),
             readOnly: widget.readOnly,
+            driveFull: widget.driveFull,
             errorReports: _errorReports,
             onUploadErrorReports: _uploadErrorReports,
             searchFeedback: _searchFeedback,
@@ -1140,6 +1141,7 @@ class _AppShellState extends State<AppShell> {
             controller: _plugins,
             onRequestFocus: () => _goTo(LauncherScreen.plugins),
             readOnly: widget.readOnly,
+            driveFull: widget.driveFull,
           ),
         LauncherScreen.settings => SettingsScreen(
             controller: widget.settings,
@@ -1148,6 +1150,7 @@ class _AppShellState extends State<AppShell> {
             saferMode: _saferMode,
             customApps: _customApps,
             readOnly: widget.readOnly,
+            driveFull: widget.driveFull,
             appReports: widget.appReports,
           ),
       };

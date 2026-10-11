@@ -6,15 +6,11 @@ import '../controllers/error_reports_controller.dart';
 import '../services/notices_seen_store.dart';
 import '../widgets/widgets_exports.dart';
 
-/// ההסבר החד-פעמי על דיווחי הטעויות. נפרד מההצעה לאסוף: זו מופיעה רק כשיש
-/// דיווחים, וההסבר צריך להגיע לכל משתמש, פעם אחת בכל מחשב.
-///
-/// [waitUntilFree] מחזיר `false` כשאי אפשר להציג (למשל דיאלוג אחר פתוח
-/// לאורך זמן). ההודעה לא נרשמת אז, ותחזור בהרצה הבאה.
 Future<bool> showErrorReportsIntroOnce(
   BuildContext context,
   NoticesSeenStore store, {
   bool readOnly = false,
+  bool driveFull = false,
   Future<bool> Function()? waitUntilFree,
 }) async {
   if (await store.hasSeen(NoticesSeenStore.errorReportsIntro)) return false;
@@ -25,11 +21,13 @@ Future<bool> showErrorReportsIntroOnce(
   await showSingleActionDialog(
     context: context,
     title: t.introDialogTitle,
-    content: readOnly ? t.introDialogContentReadOnly : t.introDialogContent,
+    content: !readOnly
+        ? t.introDialogContent
+        : driveFull
+            ? t.introDialogContentReadOnlyDriveFull
+            : t.introDialogContentReadOnly,
     confirmText: t.introDialogConfirm,
   );
-  // נרשם רק אחרי הסגירה — "הבנתי", Esc או לחיצה מחוץ לחלון נחשבים כולם
-  // "נראה". חלון שנסגר עם האפליקציה לא נרשם, ויחזור.
   await store.markSeen(NoticesSeenStore.errorReportsIntro);
   return true;
 }
