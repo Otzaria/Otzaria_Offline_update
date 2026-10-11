@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
@@ -12,8 +10,6 @@ import '../../widgets/widgets_exports.dart';
 import '../store_kit/store_kit.dart';
 import 'custom_app_status.dart';
 
-/// דף התוכנה — התיאור המלא, המידע, הקטגוריות וצילומי המסך, **וכל
-/// הפעולות**. הכרטיס שברשת נושא פעולה אחת בלבד, וכאן יושבות כולן.
 class CustomAppDetailView extends StatelessWidget {
   const CustomAppDetailView({
     super.key,
@@ -31,7 +27,6 @@ class CustomAppDetailView extends StatelessWidget {
   final CustomAppsController controller;
   final CustomAppView app;
 
-  /// ראו `CustomAppsScreen.readOnly`.
   final bool readOnly;
 
   final VoidCallback onBack;
@@ -40,11 +35,7 @@ class CustomAppDetailView extends StatelessWidget {
   final VoidCallback onDownload;
   final VoidCallback onPickLocation;
 
-  /// בחירת קטגוריה מחזירה לרשימה כשהיא מסוננת לאותה קטגוריה.
   final ValueChanged<String> onCategorySelected;
-
-  /// רוחב אריח צילום מסך בגלריה — קבוע, ולכן גם רוחב הפענוח קבוע.
-  static const double _screenshotThumbWidth = 200;
 
   AppDescriptor get _descriptor => app.descriptor;
   bool get _isFromGithub => _descriptor.sourceKind == AppSourceKind.github;
@@ -52,14 +43,11 @@ class CustomAppDetailView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StoreBody(
-      header: _backHeader(context),
-      slivers: [
-        StoreBody.padded(
-          SliverList.list(children: _panels(context)),
-          top: AppTokens.spaceMD,
-        ),
-      ],
+    return StoreDetailPage(
+      backLabel: context.strings.customApps.backToApps,
+      title: _descriptor.name,
+      onBack: onBack,
+      panels: _panels(context),
     );
   }
 
@@ -68,120 +56,32 @@ class CustomAppDetailView extends StatelessWidget {
     final screenshots = controller.shownScreenshotPathsOf(_descriptor);
 
     return [
-      _heroPanel(context),
+      StoreDetailHero(
+        image: StoreThumbnail.icon(
+          imagePath: controller.iconPathOf(_descriptor),
+          placeholderIcon: FluentIcons.box_24_regular,
+        ),
+        imageWidth: 300,
+        imageMaxWidth: 360,
+        details: _heroDetails(context),
+      ),
       if (_descriptor.longDescription case final text?) ...[
         const SizedBox(height: AppTokens.spaceLG),
-        // תוכן שהמשתמש כתב — מוצג כמות שהוא, בלי תרגום.
-        _panel(
-          context,
-          t.aboutPanelTitle,
-          Text(text, style: Theme.of(context).textTheme.bodyMedium),
+        StoreDetailPanel(
+          title: t.aboutPanelTitle,
+          child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
         ),
       ],
       const SizedBox(height: AppTokens.spaceLG),
       _infoPanel(context),
       if (screenshots.isNotEmpty) ...[
         const SizedBox(height: AppTokens.spaceLG),
-        _screenshotsPanel(context, screenshots),
+        StoreScreenshotsPanel(
+          title: t.screenshotsPanelTitle,
+          paths: screenshots,
+        ),
       ],
     ];
-  }
-
-  Widget _backHeader(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: AppSurfaces.card(context),
-        border: Border(
-          bottom: BorderSide(color: theme.colorScheme.outlineVariant),
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(
-        horizontal: StoreBody.horizontalPadding,
-        vertical: AppTokens.spaceSM,
-      ),
-      child: Row(
-        children: [
-          ActionButton.ghost(
-            text: context.strings.customApps.backToApps,
-            icon: context.backArrowIcon,
-            onPressed: onBack,
-          ),
-          const SizedBox(width: AppTokens.spaceMD),
-          Expanded(
-            child: Text(
-              _descriptor.name,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _panel(BuildContext context, String title, Widget child) {
-    return AppCard(
-      child: Padding(
-        padding: const EdgeInsets.all(AppTokens.spaceLG),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: SettingsCard.titleStyleOf(context)),
-            const SizedBox(height: AppTokens.spaceMD),
-            child,
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _heroPanel(BuildContext context) {
-    return AppCard(
-      child: Padding(
-        padding: const EdgeInsets.all(AppTokens.spaceLG),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final narrow = constraints.maxWidth < LayoutBreakpoints.medium;
-            // גם בפריסה הצרה המסגרת חסומה: רוחב מלא פירושו מסגרת גבוהה
-            // שהאייקון מרחף במרכזה — ראו `kStoreIconRatio`.
-            final image = ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 360),
-              child: SizedBox(
-                width: narrow ? double.infinity : 300,
-                child: StoreThumbnail.icon(
-                  imagePath: controller.iconPathOf(_descriptor),
-                  placeholderIcon: FluentIcons.box_24_regular,
-                ),
-              ),
-            );
-            final details = _heroDetails(context);
-
-            if (narrow) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  image,
-                  const SizedBox(height: AppTokens.spaceMD),
-                  details,
-                ],
-              );
-            }
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                image,
-                const SizedBox(width: AppTokens.spaceXL),
-                Expanded(child: details),
-              ],
-            );
-          },
-        ),
-      ),
-    );
   }
 
   Widget _heroDetails(BuildContext context) {
@@ -272,15 +172,12 @@ class CustomAppDetailView extends StatelessWidget {
             icon: FluentIcons.play_24_regular,
             onPressed: controller.isBusy ? null : onLaunch,
           ),
-        // הנפילה חזרה כשהזיהוי לא מצא — בדיוק כמו "בחירת מיקום ידנית"
-        // של אוצריא. מוצגת רק כשיש מה לחפש.
         if (app.canDetect && !app.canLaunch)
           ActionButton.ghost(
             text: t.pickLocationButton,
             icon: FluentIcons.folder_open_24_regular,
             onPressed: controller.isBusy ? null : onPickLocation,
           ),
-        // שתיהן נוגעות ברשת, וההורדה כותבת לכונן — לא במצב קריאה.
         if (_isFromGithub && !readOnly) ...[
           ActionButton.neutral(
             text: t.downloadButton,
@@ -305,136 +202,36 @@ class CustomAppDetailView extends StatelessWidget {
     final t = context.strings.customApps;
     final stored = app.storedInstaller;
 
-    return _panel(
-      context,
-      t.infoPanelTitle,
-      LayoutBuilder(
-        builder: (context, constraints) {
-          final cells = <({String label, String value})>[
-            (
-              label: t.infoSource,
-              value: _isFromGithub ? t.infoSourceGithub : t.infoSourceFile,
-            ),
-            (
-              label: t.infoInstalled,
-              value: customAppInstalledLabel(context, app),
-            ),
-            (label: t.infoStored, value: customAppStoredLabel(context, app)),
-            if (customAppOnlineLabel(context, controller, app)
-                case final online?)
-              (label: t.infoOnline, value: online),
-            if (stored != null) ...[
-              (
-                label: t.infoStoredSize,
-                value: stored.sizeBytes > 0
-                    ? formatBytes(stored.sizeBytes)
-                    : t.valueUnknown,
-              ),
-              (
-                label: t.infoStoredAdded,
-                value: formatTimestamp(stored.addedAt),
-              ),
-            ],
-          ];
-
-          final columns = constraints.maxWidth < 420 ? 1 : 2;
-          final cellWidth =
-              (constraints.maxWidth - AppTokens.spaceSM * (columns - 1)) /
-                  columns;
-
-          return Wrap(
-            spacing: AppTokens.spaceSM,
-            runSpacing: AppTokens.spaceSM,
-            children: [
-              for (final cell in cells)
-                SizedBox(
-                  width: columns == 1 ? constraints.maxWidth : cellWidth,
-                  child: _InfoCell(label: cell.label, value: cell.value),
-                ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _screenshotsPanel(BuildContext context, List<String> paths) {
-    return _panel(
-      context,
-      context.strings.customApps.screenshotsPanelTitle,
-      Wrap(
-        spacing: AppTokens.spaceSM,
-        runSpacing: AppTokens.spaceSM,
-        children: [
-          for (var i = 0; i < paths.length; i++)
-            SizedBox(
-              width: _screenshotThumbWidth,
-              child: AppCard(
-                onTap: () => showStoreScreenshots(
-                  context,
-                  paths: paths,
-                  initialIndex: i,
-                ),
-                child: AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: Image.file(
-                    File(paths[i]),
-                    fit: BoxFit.cover,
-                    // תמונה מוקטנת נשארת מוקטנת גם בזיכרון — ה-lightbox
-                    // פותח את הקובץ במלוא הרזולוציה בנפרד.
-                    cacheWidth: decodeWidthFor(context, _screenshotThumbWidth),
-                    errorBuilder: (context, _, __) => const Center(
-                      child: Icon(FluentIcons.image_off_24_regular),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// תא מידע — תווית קטנה מעל ערך מודגש, על רקע ניטרלי. תאום של זה שבדף
-/// התוסף; שניהם קצרים מכדי להצדיק רכיב משותף.
-class _InfoCell extends StatelessWidget {
-  const _InfoCell({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppTokens.spaceMD,
-        vertical: AppTokens.spaceSM + 2,
-      ),
-      decoration: BoxDecoration(
-        color: AppSurfaces.panelSection(context),
-        borderRadius: AppTokens.borderRadiusAll,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: AppTokens.fontSM,
-              color: cs.onSurfaceVariant,
-            ),
+    return StoreDetailPanel(
+      title: t.infoPanelTitle,
+      child: StoreInfoGrid(
+        entries: [
+          StoreInfoEntry(
+            label: t.infoSource,
+            value: _isFromGithub ? t.infoSourceGithub : t.infoSourceFile,
           ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: AppTokens.fontMD,
-              fontWeight: FontWeight.bold,
-            ),
+          StoreInfoEntry(
+            label: t.infoInstalled,
+            value: customAppInstalledLabel(context, app),
           ),
+          StoreInfoEntry(
+            label: t.infoStored,
+            value: customAppStoredLabel(context, app),
+          ),
+          if (customAppOnlineLabel(context, controller, app) case final online?)
+            StoreInfoEntry(label: t.infoOnline, value: online),
+          if (stored != null) ...[
+            StoreInfoEntry(
+              label: t.infoStoredSize,
+              value: stored.sizeBytes > 0
+                  ? formatBytes(stored.sizeBytes)
+                  : t.valueUnknown,
+            ),
+            StoreInfoEntry(
+              label: t.infoStoredAdded,
+              value: formatTimestamp(stored.addedAt),
+            ),
+          ],
         ],
       ),
     );

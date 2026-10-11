@@ -164,6 +164,7 @@ ZSTD_ROOT="C:/pub-cache/hosted/pub.dev/zstandard_native-1.5.0/src/zstd" \
 | `store_grid.dart` | `StoreGridDelegate` — עמודות וגובה אריח לפי רוחב הרשת |
 | `store_section_header.dart` | כותרת סעיף: עינית, כותרת, תיאור ופעולה |
 | `store_screenshot_lightbox.dart` | גלריית צילומי המסך במסך מלא |
+| `store_detail.dart` | שלד דף הפריט (תוסף / תוכנה): `StoreDetailPage`, `StoreDetailHeader`, `StoreDetailHero`, `StoreDetailPanel`, `StoreInfoGrid` ו-`StoreInfoCell`, `StoreScreenshotsPanel` |
 
 מה שנשאר ייחודי לתוספים נשאר ב-`screens/plugins/plugin_visuals.dart`:
 `PluginInstallChip` (עוטף `StatusChip`), `PluginRatingStars` (חמישה כוכבים
@@ -918,6 +919,7 @@ lib/
         │   ├── store_nav.dart               — סרגל קטגוריות / שורת צ'יפים
         │   ├── store_grid.dart              — פריסת רשת הכרטיסים
         │   ├── store_section_header.dart, store_screenshot_lightbox.dart
+        │   ├── store_detail.dart            — שלד דף הפריט: כותרת, hero, לוחות, מידע, צילומים
         │   └── store_visuals.dart           — גלולה, תגית, תמונה, decodeWidthFor
         ├── custom_apps/               — תוכנות נוספות
         │   ├── custom_apps_screen.dart      — רשת ↔ דף תוכנה, קטגוריות

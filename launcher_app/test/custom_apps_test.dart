@@ -20,6 +20,7 @@ import 'package:launcher_app/src/services/announced_apps_store.dart';
 import 'package:launcher_app/src/services/custom_app_detection_snapshot.dart';
 import 'package:launcher_app/src/services/byte_size.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
+import 'package:launcher_app/src/theme/theme_exports.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
@@ -1508,6 +1509,70 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('צילומי מסך'), findsOneWidget);
+    });
+
+    testWidgets('דף התוכנה: כותרת, תאי מידע ופס צילומי מסך מערכת החנות', (
+      tester,
+    ) async {
+      final t = stringsOf().customApps;
+      await addApp(tester, name: 'תוכנה לבדיקת פריסה', withInstaller: true);
+      await tester.runAsync(() async {
+        final first = File(p.join(tempDir.path, 'first.png'))
+          ..writeAsBytesSync(_onePixelPng);
+        final second = File(p.join(tempDir.path, 'second.png'))
+          ..writeAsBytesSync(_onePixelPng);
+        await controller.saveMedia(
+          'demo',
+          screenshotSources: [first.path, second.path],
+        );
+      });
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      await tester.tap(find.text(t.cardDetailsLink));
+      await tester.pumpAndSettle();
+
+      final header = find.byType(StoreDetailHeader);
+      expect(header, findsOneWidget);
+      expect(
+        find.descendant(of: header, matching: find.text(t.backToApps)),
+        findsOneWidget,
+      );
+      final title = tester.widget<Text>(
+        find.descendant(of: header, matching: find.text('תוכנה לבדיקת פריסה')),
+      );
+      expect(title.overflow, TextOverflow.ellipsis);
+      expect(title.style?.fontWeight, FontWeight.bold);
+
+      final cells = find.byType(StoreInfoCell);
+      expect(cells, findsNWidgets(5));
+      expect(
+        find.descendant(of: cells, matching: find.text(t.infoStoredSize)),
+        findsOneWidget,
+      );
+      final gridWidth = tester.getSize(find.byType(StoreInfoGrid)).width;
+      final halfWidth = (gridWidth - AppTokens.spaceSM) / 2;
+      for (var i = 0; i < 5; i++) {
+        expect(tester.getSize(cells.at(i)).width, closeTo(halfWidth, 0.01));
+      }
+
+      final strip = find.byType(StoreScreenshotsPanel);
+      expect(
+        find.descendant(
+          of: strip,
+          matching: find.text(t.screenshotsPanelTitle),
+        ),
+        findsOneWidget,
+      );
+      final thumbs = find.descendant(of: strip, matching: find.byType(Image));
+      expect(thumbs, findsNWidgets(2));
+      for (var i = 0; i < 2; i++) {
+        final image = tester.widget<Image>(thumbs.at(i));
+        expect((image.image as ResizeImage).width, 256);
+        expect(tester.getSize(thumbs.at(i)), const Size(200, 112.5));
+      }
+
+      await tester.tap(thumbs.first);
+      await tester.pumpAndSettle();
+      expect(find.text('1 / 2'), findsOneWidget);
     });
 
     testWidgets('צילום מסך שנמחק מהכונן נעלם מהגלריה בטעינה הבאה', (

@@ -23,6 +23,7 @@ import 'package:launcher_app/src/screens/plugins/plugins_screen.dart';
 import 'package:launcher_app/src/screens/plugins/store_app_export_flow.dart';
 import 'package:launcher_app/src/screens/store_kit/store_kit.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
+import 'package:launcher_app/src/theme/theme_exports.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
@@ -690,6 +691,94 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     expect(find.text('2 / 2'), findsNothing);
+  });
+
+  testWidgets('עמוד התוסף: כותרת, תאי מידע ופס צילומי מסך מערכת החנות',
+      (tester) async {
+    await seed(tester, catalog: [
+      storePlugin(
+        'a',
+        name: 'תוסף לבדיקת פריסה',
+        withLocalFile: true,
+        screenshots: const ['files/a/s1.png', 'files/a/s2.png'],
+      ),
+    ]);
+
+    await pumpScreen(tester, PluginsScreen(controller: plugins));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(t.cardDetailsLink));
+    await tester.pumpAndSettle();
+
+    final header = find.byType(StoreDetailHeader);
+    expect(header, findsOneWidget);
+    expect(
+      find.descendant(of: header, matching: find.text(t.backToStore)),
+      findsOneWidget,
+    );
+    final title = tester.widget<Text>(
+      find.descendant(of: header, matching: find.text('תוסף לבדיקת פריסה')),
+    );
+    expect(title.overflow, TextOverflow.ellipsis);
+    expect(title.style?.fontWeight, FontWeight.bold);
+
+    final cells = find.byType(StoreInfoCell);
+    expect(cells, findsNWidgets(7));
+    final gridWidth = tester.getSize(find.byType(StoreInfoGrid)).width;
+    final halfWidth = (gridWidth - AppTokens.spaceSM) / 2;
+    for (var i = 0; i < 5; i++) {
+      expect(tester.getSize(cells.at(i)).width, closeTo(halfWidth, 0.01));
+    }
+    for (final label in [t.infoCompatibility, t.infoLocalFile]) {
+      final cell = find.ancestor(
+        of: find.text(label),
+        matching: find.byType(StoreInfoCell),
+      );
+      expect(tester.getSize(cell).width, closeTo(gridWidth, 0.01));
+    }
+    final versionLabel = tester.widget<Text>(find.text(t.infoVersion));
+    expect(versionLabel.style?.fontSize, AppTokens.fontSM);
+
+    final strip = find.byType(StoreScreenshotsPanel);
+    expect(
+      find.descendant(of: strip, matching: find.text(t.screenshotsPanelTitle)),
+      findsOneWidget,
+    );
+    final thumbs = find.descendant(of: strip, matching: find.byType(Image));
+    expect(thumbs, findsNWidgets(2));
+    for (var i = 0; i < 2; i++) {
+      final image = tester.widget<Image>(thumbs.at(i));
+      expect((image.image as ResizeImage).width, 256);
+      expect(tester.getSize(thumbs.at(i)), const Size(200, 112.5));
+    }
+  });
+
+  testWidgets('בעמוד התוסף הצר תאי המידע נערמים לעמודה אחת', (tester) async {
+    await seed(tester, catalog: [storePlugin('a', withLocalFile: true)]);
+
+    await pumpScreen(
+      tester,
+      Scaffold(
+        body: PluginDetailView(
+          plugin: plugins.plugins.single,
+          controller: plugins,
+          onBack: () {},
+          onSave: () {},
+          onInstall: () {},
+          onTagSelected: (_) {},
+          onCategorySelected: (_) {},
+        ),
+      ),
+      size: const Size(440, 2800),
+    );
+    await tester.pumpAndSettle();
+
+    final gridWidth = tester.getSize(find.byType(StoreInfoGrid)).width;
+    expect(gridWidth, lessThan(StoreInfoGrid.singleColumnBelow));
+    final cells = find.byType(StoreInfoCell);
+    expect(cells, findsNWidgets(7));
+    for (var i = 0; i < 7; i++) {
+      expect(tester.getSize(cells.at(i)).width, closeTo(gridWidth, 0.01));
+    }
   });
 
   // ── שורת הסינון ──────────────────────────────────────────────────────────
