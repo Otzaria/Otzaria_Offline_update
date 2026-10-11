@@ -150,15 +150,12 @@ class AppReportService {
         () => _send(report, queued: false, idChanges: 0),
       );
 
-  /// שולח דיווח מהתור, עם הצרופות שבקובץ. הקובץ נמחק רק אחרי תוצאה סופית —
-  /// סגירת חלון באמצע בקשה ארוכה אינה מאבדת דיווח.
   Future<AppReportDeliveryResult> submitPendingReport(AppReport report) =>
       _withReportLock(report.reportId, () async {
         final meta = await _findPending(report.reportId);
-        final read = meta == null ? null : await _readPending(meta, true);
+        final read =
+            meta == null ? null : await _readPending(meta, _PendingDecode.full);
         if (read == null) {
-          // נשלח ברקע או הועבר ל-.bad: הרשומה שבידי הקורא בלי צרופות, ושליחתה
-          // הייתה שולחת דיווח חסר.
           return AppReportDeliveryResult(
             status: AppReportDeliveryStatus.failed,
             report: report,
@@ -259,12 +256,11 @@ class AppReportService {
   Future<int> getPendingReportsCount() async =>
       (await _listPendingMeta()).length;
 
-  /// התור, מהישן לחדש, בלי צרופות: הרשימה בחלון הניהול אינה מפענחת תמונות.
   Future<List<AppReport>> getPendingReports() async {
     final metas = await _listPendingMeta();
     final decoded = await _decodeManyInIsolate(
       [for (final meta in metas) meta.path],
-      false,
+      _PendingDecode.summary,
     );
     final reports = <AppReport>[];
     for (var i = 0; i < metas.length; i++) {
@@ -383,7 +379,7 @@ class AppReportService {
     _PendingMeta meta, {
     required void Function() onRequest,
   }) async {
-    final read = await _readPending(meta, true);
+    final read = await _readPending(meta, _PendingDecode.forSending);
     if (read == null) return _FlushStep.skipped;
     final queued = read.report;
     if (await _sentReport(queued.reportId) != null) {
@@ -391,10 +387,9 @@ class AppReportService {
       return _FlushStep.skipped;
     }
     onRequest();
-    final attempt = await _trySend(queued);
+    final attempt = await _trySend(queued, read.body);
     switch (attempt.kind) {
       case _AttemptKind.success:
-        // קודם ההיסטוריה: אם הכתיבה נכשלת הרשומה נשארת בתור, ואינה אובדת.
         await _saveSentReport(_sentRecord(queued, attempt));
         await _deleteQuietly(File(meta.path));
         return _FlushStep.sent;
@@ -404,8 +399,10 @@ class AppReportService {
           await _deleteQuietly(File(meta.path));
           return _FlushStep.dropped;
         }
+        final full = await _readPending(meta, _PendingDecode.full);
+        if (full == null) return _FlushStep.skipped;
         await _writePending(
-          queued.copyWith(reportId: AppReport.generateReportId()),
+          full.report.copyWith(reportId: AppReport.generateReportId()),
           queuedAt: meta.stamp,
           idChanges: read.idChanges + 1,
         );
@@ -500,14 +497,11 @@ class AppReportService {
     return null;
   }
 
-  /// פענוח בתוך isolate: JSON ו-base64 של תמונות מקפיאים את הממשק.
-  /// קובץ פגום מועבר הצידה — הוא לא יישלח לעולם, ואסור שיתקע את התור.
   Future<_PendingRead?> _readPending(
     _PendingMeta meta,
-    bool withAttachments,
+    _PendingDecode mode,
   ) async {
-    final result =
-        (await _decodeManyInIsolate([meta.path], withAttachments)).single;
+    final result = (await _decodeManyInIsolate([meta.path], mode)).single;
     return _resolveDecoded(meta, result);
   }
 
@@ -527,15 +521,12 @@ class AppReportService {
     return result.read;
   }
 
-  /// סטטית: סגירה בתוך מתודת מופע עלולה ללכוד את `this` שאינו ניתן להעברה.
   static Future<List<_PendingDecoded>> _decodeManyInIsolate(
     List<String> paths,
-    bool withAttachments,
+    _PendingDecode mode,
   ) =>
       Isolate.run(
-        () => [
-          for (final path in paths) _decodePendingFile(path, withAttachments)
-        ],
+        () => [for (final path in paths) _decodePendingFile(path, mode)],
       );
 
   Future<void> _writePending(
@@ -722,12 +713,16 @@ class AppReportService {
 
   // ── הרשת ──────────────────────────────────────────────────────────────
 
-  Future<_Attempt> _trySend(AppReport report) async {
-    final Uint8List body;
+  Future<_Attempt> _trySend(AppReport report, [_EncodedBody? encoded]) async {
+    _EncodedBody payload;
     try {
-      body = await _encodeBody(report);
+      payload = encoded ?? await _encodeBody(report);
     } catch (e) {
-      log?.call('App report payload invalid: $e');
+      payload = _EncodedBody.failed('$e');
+    }
+    final body = payload.bytes;
+    if (body == null) {
+      log?.call('App report payload invalid: ${payload.error}');
       return const _Attempt(_AttemptKind.permanent);
     }
     if (body.length > AppReport.maxRequestBytes) {
@@ -747,7 +742,7 @@ class AppReportService {
       final response = await _client
           .send(request)
           .then(http.Response.fromStream)
-          .timeout(report.images.isEmpty ? timeout : timeoutWithImages);
+          .timeout(payload.heavy ? timeoutWithImages : timeout);
       final status = response.statusCode;
       final decoded = _decodeBody(response.bodyBytes);
 
@@ -786,11 +781,8 @@ class AppReportService {
     }
   }
 
-  /// צילומי מסך מקפיאים את החלון בקידוד; `product` נחתם כאן, בכל שליחה.
-  static Future<Uint8List> _encodeBody(AppReport report) {
-    final stamped = report.copyWith(product: AppReport.offlineUpdateProduct);
-    return Isolate.run(() => utf8.encode(jsonEncode(stamped.toApiPayload())));
-  }
+  static Future<_EncodedBody> _encodeBody(AppReport report) =>
+      Isolate.run(() => _encodeForSending(report));
 
   static Map<String, dynamic>? _decodeBody(List<int> bytes) {
     try {
@@ -834,11 +826,41 @@ class _PendingMeta {
 }
 
 class _PendingRead {
-  const _PendingRead(this.report, this.idChanges);
+  const _PendingRead(this.report, this.idChanges, [this.body]);
 
   final AppReport report;
   final int idChanges;
+  final _EncodedBody? body;
 }
+
+enum _PendingDecode { summary, full, forSending }
+
+class _EncodedBody {
+  const _EncodedBody(Uint8List this.bytes, {required this.heavy})
+      : error = null;
+
+  const _EncodedBody.failed(String this.error)
+      : bytes = null,
+        heavy = false;
+
+  final Uint8List? bytes;
+  final String? error;
+  final bool heavy;
+}
+
+_EncodedBody _encodeForSending(AppReport report) {
+  try {
+    final stamped = report.copyWith(product: AppReport.offlineUpdateProduct);
+    return _EncodedBody(
+      utf8.encode(jsonEncode(stamped.toApiPayload())),
+      heavy: report.images.isNotEmpty || report.minidump != null,
+    );
+  } catch (error) {
+    return _EncodedBody.failed('$error');
+  }
+}
+
+const _attachmentFields = {'diagnostics', 'errorLog', 'images', 'minidump'};
 
 /// תוצאת הפענוח ב-isolate: ערכים פשוטים בלבד, בלי חריגים לחצות את הגבול.
 class _PendingDecoded {
@@ -849,7 +871,7 @@ class _PendingDecoded {
   final bool missing;
 }
 
-_PendingDecoded _decodePendingFile(String path, bool withAttachments) {
+_PendingDecoded _decodePendingFile(String path, _PendingDecode mode) {
   try {
     final file = File(path);
     if (!file.existsSync()) return const _PendingDecoded(missing: true);
@@ -857,13 +879,19 @@ _PendingDecoded _decodePendingFile(String path, bool withAttachments) {
     if (json is! Map || json['report'] is! Map) {
       throw const FormatException('not a pending report');
     }
-    var report = AppReport.fromJson(
-      Map<String, dynamic>.from(json['report'] as Map),
-    );
-    if (!withAttachments) report = report.withoutAttachments();
+    final fields = Map<String, dynamic>.from(json['report'] as Map);
+    if (mode == _PendingDecode.summary) {
+      fields.removeWhere((key, _) => _attachmentFields.contains(key));
+    }
+    var report = AppReport.fromJson(fields);
+    _EncodedBody? body;
+    if (mode == _PendingDecode.forSending) {
+      body = _encodeForSending(report);
+      report = report.withoutAttachments();
+    }
     final changes = json['idChanges'];
     return _PendingDecoded(
-      read: _PendingRead(report, changes is int ? changes : 0),
+      read: _PendingRead(report, changes is int ? changes : 0, body),
     );
   } on FileSystemException {
     return const _PendingDecoded(missing: true);

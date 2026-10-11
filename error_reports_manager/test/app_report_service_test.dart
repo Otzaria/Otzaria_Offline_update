@@ -506,6 +506,69 @@ void main() {
       expect(await service.getSentReports(), isEmpty);
     });
 
+    test('flush שולח מהתור עם הצרופות ו-product, וההיסטוריה בלעדיהן', () async {
+      final image = AppReportImage(
+        bytes: Uint8List.fromList([0x89, 0x50, 0x4e, 0x47, 7]),
+        fileName: 'a.png',
+        mimeType: 'image/png',
+      );
+      Map<String, dynamic>? body;
+      final service = build(
+        MockClient((request) async {
+          body = jsonDecode(utf8.decode(request.bodyBytes))
+              as Map<String, dynamic>;
+          return _json(200, {'issueNumber': 3});
+        }),
+      );
+      final report = _report().copyWith(images: [image]);
+      await service.queueReport(report);
+
+      expect((await service.flush()).sent, 1);
+      expect(body!['product'], AppReport.offlineUpdateProduct);
+      expect(body!['reportId'], report.reportId);
+      final attachments = body!['attachments'] as Map;
+      expect((attachments['images'] as List).single['data'],
+          base64Encode(image.bytes));
+      expect(attachments['errorLog'], 'log');
+      expect(attachments['diagnostics'], {'x': 1});
+      final sent = (await service.getSentReports()).single;
+      expect(sent.issueNumber, 3);
+      expect(sent.images, isEmpty);
+      expect(sent.errorLog, isNull);
+      expect(await service.getPendingReportsCount(), 0);
+    });
+
+    test('409 ב-flush: הרשומה במזהה החדש שומרת את הצרופות', () async {
+      final image = AppReportImage(
+        bytes: Uint8List.fromList([0x89, 0x50, 0x4e, 0x47, 8]),
+        fileName: 'b.png',
+        mimeType: 'image/png',
+      );
+      final bodies = <Map<String, dynamic>>[];
+      final service = build(
+        MockClient((request) async {
+          bodies.add(jsonDecode(utf8.decode(request.bodyBytes))
+              as Map<String, dynamic>);
+          return bodies.length == 1 ? _json(409, {}) : _json(200, {});
+        }),
+      );
+      final report = _report().copyWith(images: [image]);
+      await service.queueReport(report);
+
+      expect((await service.flush()).skipped, 1);
+      final file = Directory(
+        p.join(AppReportService.dirIn(tmp.path), 'pending'),
+      ).listSync().whereType<File>().single;
+      expect(file.readAsStringSync(), contains(base64Encode(image.bytes)));
+
+      expect((await service.flush()).sent, 1);
+      expect(bodies.last['reportId'], isNot(report.reportId));
+      final attachments = bodies.last['attachments'] as Map;
+      expect((attachments['images'] as List).single['data'],
+          base64Encode(image.bytes));
+      expect(attachments['errorLog'], 'log');
+    });
+
     test('submitPendingReport: הקובץ נשאר בזמן הבקשה ונמחק רק בתוצאה סופית',
         () async {
       final started = Completer<void>();

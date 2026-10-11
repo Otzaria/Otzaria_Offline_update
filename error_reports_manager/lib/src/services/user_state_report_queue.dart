@@ -439,6 +439,7 @@ class _MarkRow {
     json.remove('diagnostics');
     json.remove('errorLog');
     json.remove('images');
+    json.remove('minidump');
     json['sentAt'] =
         DateTime.fromMillisecondsSinceEpoch(now, isUtc: true).toIso8601String();
     return jsonEncode(json);

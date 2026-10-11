@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:http/http.dart' as http;
@@ -179,6 +180,193 @@ void main() {
     );
     addTearDown(sender.close);
     expect((await sender.upload(outbox)).sent, 1);
+  });
+
+  Future<MemoryOutbox> dumpOutbox({bool withLog = true}) async {
+    final outbox = MemoryOutbox([]);
+    await outbox.write(
+        'app',
+        OutboxReport.fileJson(
+          reportId: 'app',
+          bookTitle: 'קריסה',
+          createdAt: '2026-10-01T10:00:00Z',
+          endpoint: OutboxReport.appReportingEndpoint,
+          body: {
+            'reportId': 'app',
+            'attachments': {
+              if (withLog) 'errorLog': 'לוג',
+              'minidump': {'fileName': 'crash.dmp', 'data': 'AQID'},
+            },
+          },
+        ));
+    return outbox;
+  }
+
+  test('דיווח תוכנה עם minidump מקבל זמן העלאה ארוך יותר', () async {
+    final outbox = await dumpOutbox();
+    final sender = ErrorReportUploader(
+      requestTimeout: const Duration(milliseconds: 1),
+      requestTimeoutWithImages: const Duration(seconds: 2),
+      httpClient: MockClient((_) async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        return http.Response('{}', 200);
+      }),
+    );
+    addTearDown(sender.close);
+    expect((await sender.upload(outbox)).sent, 1);
+  });
+
+  for (final (status, response) in [
+    (413, 'too large'),
+    (422, jsonEncode({'field': 'attachments.minidump'})),
+  ]) {
+    test('$status על ה-minidump — נשלח שוב בלעדיו, ונספר כנשלח', () async {
+      final outbox = await dumpOutbox();
+      final bodies = <Map<String, dynamic>>[];
+      final result = await uploader((req) async {
+        bodies.add(jsonDecode(req.body) as Map<String, dynamic>);
+        return bodies.length == 1
+            ? http.Response(response, status)
+            : http.Response('{}', 201);
+      }).upload(outbox);
+      expect(bodies, hasLength(2));
+      expect(
+          (bodies.first['attachments'] as Map).containsKey('minidump'), isTrue);
+      expect(bodies.last, {
+        'reportId': 'app',
+        'attachments': {'errorLog': 'לוג'},
+      });
+      expect(result.sent, 1);
+      expect(result.rejected, 0);
+      expect(outbox.reports, isEmpty);
+    });
+  }
+
+  test('minidump בלבד שנדחה — הגוף נשלח שוב בלי attachments', () async {
+    final outbox = await dumpOutbox(withLog: false);
+    final bodies = <Map<String, dynamic>>[];
+    await uploader((req) async {
+      bodies.add(jsonDecode(req.body) as Map<String, dynamic>);
+      return http.Response('', bodies.length == 1 ? 413 : 200);
+    }).upload(outbox);
+    expect(bodies.last, {'reportId': 'app'});
+  });
+
+  test('422 על שדה אחר — נדחה בלי שליחה חוזרת', () async {
+    final outbox = await dumpOutbox();
+    var calls = 0;
+    final result = await uploader((_) async {
+      calls++;
+      return http.Response(jsonEncode({'field': 'title'}), 422);
+    }).upload(outbox);
+    expect(calls, 1);
+    expect(result.rejected, 1);
+    expect(outbox.reports, isEmpty);
+  });
+
+  test('גם השליחה בלי ה-minidump נדחית — הקובץ נמחק כנדחה', () async {
+    final outbox = await dumpOutbox();
+    var calls = 0;
+    final result = await uploader((_) async {
+      calls++;
+      return http.Response('too large', 413);
+    }).upload(outbox);
+    expect(calls, 2);
+    expect(result.rejected, 1);
+    expect(result.sent, 0);
+    expect(outbox.reports, isEmpty);
+  });
+
+  bool hasDump(Map<String, dynamic> body) =>
+      (body['attachments'] as Map?)?.containsKey('minidump') ?? false;
+
+  for (final (name, MockClientHandler second) in [
+    ('500', (_) async => http.Response('oops', 500)),
+    ('שגיאת רשת', (_) async => throw http.ClientException('down')),
+  ]) {
+    test('$name אחרי שה-minidump נדחה — הקובץ נשמר בלי ה-dump', () async {
+      final outbox = await dumpOutbox();
+      final bodies = <Map<String, dynamic>>[];
+      final first = await uploader((req) async {
+        bodies.add(jsonDecode(req.body) as Map<String, dynamic>);
+        if (bodies.length == 1) return http.Response('too large', 413);
+        return second(req);
+      }).upload(outbox);
+      expect(first.error, isNotNull);
+      expect(first.remaining, 1);
+      expect(bodies, hasLength(2));
+      final kept = outbox.reports.single;
+      expect(kept.body, {
+        'reportId': 'app',
+        'attachments': {'errorLog': 'לוג'},
+      });
+      expect(kept.createdAt, DateTime.utc(2026, 10, 1, 10));
+      expect(kept.endpoint.toString(), OutboxReport.appReportingEndpoint);
+      expect(kept.bookTitle, 'קריסה');
+
+      final again = <Map<String, dynamic>>[];
+      final next = await uploader((req) async {
+        again.add(jsonDecode(req.body) as Map<String, dynamic>);
+        return http.Response('{}', 200);
+      }).upload(outbox);
+      expect(again, hasLength(1));
+      expect(hasDump(again.single), isFalse);
+      expect(next.sent, 1);
+      expect(outbox.reports, isEmpty);
+    });
+  }
+
+  test('עצירה בהמתנה לפני השליחה בלי ה-minidump — הקובץ נשמר בלעדיו', () async {
+    final outbox = await dumpOutbox();
+    final cancellation = ReportUploadCancellation();
+    final up = ErrorReportUploader(
+      httpClient: MockClient((_) async => http.Response('too large', 413)),
+      batchSize: 1,
+      delay: time.delay,
+      clock: () => time.now,
+    );
+    final result =
+        await up.upload(outbox, cancellation: cancellation, onProgress: (p) {
+      if (p.isWaiting) cancellation.cancel();
+    });
+    expect(result.cancelled, isTrue);
+    expect(hasDump(outbox.reports.single.body), isFalse);
+  });
+
+  test('כשל זמני בלי דחיית minidump — הקובץ נשאר כמו שהוא', () async {
+    final outbox = await dumpOutbox();
+    final result =
+        await uploader((_) async => http.Response('oops', 503)).upload(outbox);
+    expect(result.error, isNotNull);
+    expect(hasDump(outbox.reports.single.body), isTrue);
+  });
+
+  test('בתיבה על הדיסק — אותו קובץ נדרס בלי ה-dump, בלי כפילות', () async {
+    final dir = await Directory.systemTemp.createTemp('outbox_dump_');
+    addTearDown(() => dir.delete(recursive: true));
+    final outbox = DirectoryReportOutbox(dir.path);
+    final source = await dumpOutbox();
+    final original = source.reports.single;
+    await outbox.write(
+        'app',
+        OutboxReport.fileJson(
+          reportId: 'app',
+          bookTitle: original.bookTitle,
+          createdAt: '2026-10-01T10:00:00Z',
+          endpoint: OutboxReport.appReportingEndpoint,
+          body: original.body,
+        ));
+    var calls = 0;
+    await uploader((_) async {
+      calls++;
+      return http.Response('', calls == 1 ? 413 : 502);
+    }).upload(outbox);
+    final files = dir.listSync().whereType<File>().toList();
+    expect(files, hasLength(1));
+    final kept = (await outbox.list()).single;
+    expect(kept.filePath, files.single.path);
+    expect(hasDump(kept.body), isFalse);
+    expect(kept.body['attachments'], {'errorLog': 'לוג'});
   });
 
   test('כתובת שאינה של אוצריא נדחית בלי שליחה', () async {

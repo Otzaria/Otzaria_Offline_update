@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'app_report_image.dart';
+import 'app_report_minidump.dart';
 import 'app_report_redactor.dart';
 import 'crash_signature.dart';
 
@@ -60,6 +61,7 @@ class AppReport {
     this.diagnostics,
     this.errorLog,
     this.images = const [],
+    this.minidump,
     this.product,
     this.issueNumber,
     this.issueUrl,
@@ -87,9 +89,9 @@ class AppReport {
   static const int maxErrorLogBytes = 250 * 1000;
   static const int maxBodyBytes = 700 * 1000;
 
-  /// גבול הבקשה כולה: הטקסט והצרופות, ועוד צילומי המסך בנפרד.
-  static const int maxRequestBytes =
-      maxBodyBytes + AppReportImage.maxPayloadBytes;
+  static const int maxRequestBytes = maxBodyBytes +
+      AppReportImage.maxPayloadBytes +
+      AppReportMinidump.maxPayloadBytes;
 
   static const Set<String> platforms = {
     'windows',
@@ -118,6 +120,8 @@ class AppReport {
 
   /// צילומי המסך. לא עוברים הסתרת מידע ונשמרים באתר בלבד, לא ב-GitHub.
   final List<AppReportImage> images;
+
+  final AppReportMinidump? minidump;
 
   /// המוצר שעליו הדיווח; `null` = אוצריא.
   final String? product;
@@ -205,13 +209,14 @@ class AppReport {
     return payload;
   }
 
-  /// התמונות מתווספות אחרי הקיצוץ: יש להן תקציב משלהן ב-[maxRequestBytes].
   Map<String, dynamic> _addImages(Map<String, dynamic> payload) {
     final attachments = (payload['attachments'] as Map<String, dynamic>?) ??
         <String, dynamic>{};
     if (images.isNotEmpty) {
       attachments['images'] = [for (final image in images) image.toJson()];
     }
+    final dump = minidump;
+    if (dump != null) attachments['minidump'] = dump.toJson();
     if (attachments.isEmpty) {
       payload.remove('attachments');
     } else {
@@ -284,6 +289,7 @@ class AppReport {
         if (json['images'] case final List<dynamic> images)
           ...images.map(AppReportImage.fromJson).whereType<AppReportImage>(),
       ],
+      minidump: AppReportMinidump.fromJson(json['minidump']),
       product: json['product'] is String ? json['product'] as String : null,
       issueNumber:
           json['issueNumber'] is int ? json['issueNumber'] as int : null,
@@ -315,6 +321,7 @@ class AppReport {
         if (errorLog != null) 'errorLog': errorLog,
         if (images.isNotEmpty)
           'images': [for (final image in images) image.toJson()],
+        if (minidump != null) 'minidump': minidump!.toJson(),
         if (product != null) 'product': product,
         if (issueNumber != null) 'issueNumber': issueNumber,
         if (issueUrl != null) 'issueUrl': issueUrl,
@@ -337,6 +344,7 @@ class AppReport {
     Object? diagnostics = _unset,
     Object? errorLog = _unset,
     List<AppReportImage>? images,
+    Object? minidump = _unset,
     Object? product = _unset,
     Object? issueNumber = _unset,
     Object? issueUrl = _unset,
@@ -368,6 +376,9 @@ class AppReport {
       errorLog:
           identical(errorLog, _unset) ? this.errorLog : errorLog as String?,
       images: images ?? this.images,
+      minidump: identical(minidump, _unset)
+          ? this.minidump
+          : minidump as AppReportMinidump?,
       product: identical(product, _unset) ? this.product : product as String?,
       issueNumber: identical(issueNumber, _unset)
           ? this.issueNumber
@@ -381,9 +392,12 @@ class AppReport {
     );
   }
 
-  /// רשומת היסטוריה: בלי הצרופות הכבדות, כדי שמאה דיווחים לא ינפחו את הקובץ.
-  AppReport withoutAttachments() =>
-      copyWith(diagnostics: null, errorLog: null, images: const []);
+  AppReport withoutAttachments() => copyWith(
+        diagnostics: null,
+        errorLog: null,
+        images: const [],
+        minidump: null,
+      );
 
   /// מסתיר מידע אישי בכל הטקסטים שנשלחים, מלבד שדה המייל של המדווח.
   AppReport redactedWith(AppReportRedactor redactor) {

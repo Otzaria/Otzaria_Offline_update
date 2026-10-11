@@ -10,6 +10,7 @@ export 'src/models/outbox_report.dart';
 export 'src/models/upload_result.dart' hide raceCancellation;
 export 'src/port/app_report.dart';
 export 'src/port/app_report_image.dart';
+export 'src/port/app_report_minidump.dart';
 export 'src/port/app_report_redactor.dart';
 export 'src/port/canonical_json.dart';
 export 'src/port/crash_signature.dart';

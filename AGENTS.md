@@ -1847,6 +1847,13 @@ file stays, and a re-send of what the server already got answers `duplicate`.
 endpoint delete it as rejected; anything else keeps it and stops the run.** A drive
 file can come from anywhere, so the endpoint is checked before any POST — and before
 the rate-limit wait, since it is not a request. Rejection reasons go to the log only.
+One exception, as in Otzaria: an app report carrying the consented crash `minidump`
+that gets a 413, or a 422 naming `attachments.minidump`, is re-sent once without the
+dump (after the window wait), and only that answer decides the file's fate. If the
+run stops after the dump was dropped (a transient answer, a timeout, a network error or
+a stop), the file is rewritten without the dump, so the next run does not upload it
+again. The dump travels in the outbox like the other attachments and never into the
+sent history.
 
 ---
 

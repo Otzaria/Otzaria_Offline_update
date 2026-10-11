@@ -11,6 +11,7 @@ class OutboxReport {
     required this.filePath,
     this.createdAt,
     this.hasImages = false,
+    this.hasMinidump = false,
   });
 
   static const String format = 'otzaria-report';
@@ -49,6 +50,7 @@ class OutboxReport {
   final DateTime? createdAt;
 
   final bool hasImages;
+  final bool hasMinidump;
 
   /// הקובץ בתיבת היציאה — נמחק כשהדיווח נשלח או נדחה סופית.
   final String filePath;
@@ -83,6 +85,7 @@ class OutboxReport {
       createdAt: created is String ? DateTime.tryParse(created) : null,
       filePath: filePath,
       hasImages: images is List && images.isNotEmpty,
+      hasMinidump: attachments is Map && attachments['minidump'] != null,
     );
   }
 

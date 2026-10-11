@@ -92,6 +92,14 @@ class ErrorReportUploader {
         ));
 
     for (final item in reports) {
+      var bodyChanged = false;
+      Future<ReportUploadResult> stop({
+        String? error,
+        bool cancelled = false,
+      }) async {
+        if (bodyChanged) await _rewriteWithoutMinidump(outbox, item);
+        return finish(error: error, cancelled: cancelled);
+      }
       if (!item.isAllowedEndpoint) {
         await _removeQuietly(outbox, item);
         rejected++;
@@ -101,7 +109,7 @@ class ErrorReportUploader {
         continue;
       }
 
-      final Uint8List body;
+      Uint8List body;
       try {
         body = await outbox.requestBody(item);
       } on Object catch (e) {
@@ -113,7 +121,7 @@ class ErrorReportUploader {
       var retries = 0;
       while (true) {
         if (!await _waitForWindow(report, cancellation)) {
-          return finish(cancelled: true);
+          return stop(cancelled: true);
         }
         report(null);
 
@@ -127,24 +135,31 @@ class ErrorReportUploader {
           );
         } on TimeoutException {
           _requestFinished();
-          return finish(
-              error: AppL10n.strings.errorReportsDomain.uploadTimedOut);
+          return stop(error: AppL10n.strings.errorReportsDomain.uploadTimedOut);
         } on Object catch (e) {
           _requestFinished();
-          return finish(
+          return stop(
             error: AppL10n.strings.errorReportsDomain.uploadNetworkError(
               e is SocketException ? e.message : '$e',
             ),
           );
         }
         _requestFinished();
-        if (attempt == null) return finish(cancelled: true);
+        if (attempt == null) return stop(cancelled: true);
 
         final status = attempt.statusCode;
         if (status == 429 && retries < maxRateLimitRetries) {
           retries++;
           _windowCount = batchSize;
           continue;
+        }
+        if (_minidumpRejection(attempt)) {
+          final withoutMinidump = _withoutMinidump(body);
+          if (withoutMinidump != null) {
+            body = withoutMinidump;
+            bodyChanged = true;
+            continue;
+          }
         }
         if (status >= 200 && status < 300 && attempt.accepted) {
           await _removeQuietly(outbox, item);
@@ -154,7 +169,7 @@ class ErrorReportUploader {
           rejected++;
           rejections.add(_rejection(item, '$status ${attempt.excerpt}'));
         } else {
-          return finish(
+          return stop(
             error: AppL10n.strings.errorReportsDomain.uploadHttpStatus(status),
           );
         }
@@ -209,7 +224,7 @@ class ErrorReportUploader {
     Completer<void> abort,
   ) async {
     final timeout = report.endpoint.path == '/api/app-reports' &&
-            report.hasImages
+            (report.hasImages || report.hasMinidump)
         ? requestTimeoutWithImages
         : requestTimeout;
     final request = http.AbortableRequest(
@@ -230,12 +245,14 @@ class ErrorReportUploader {
       rethrow;
     }
     final responseBody = response.body;
+    final status = response.statusCode;
     return _Attempt(
-      response.statusCode,
+      status,
       responseBody.length > 200
           ? responseBody.substring(0, 200)
           : responseBody,
       accepted: _isProtocolSuccess(responseBody),
+      rejectedField: status == 422 ? _rejectedField(responseBody) : null,
     );
   }
 
@@ -245,6 +262,65 @@ class ErrorReportUploader {
       return json is Map && json['success'] == true;
     } on FormatException {
       return false;
+    }
+  }
+
+  static bool _minidumpRejection(_Attempt attempt) =>
+      attempt.statusCode == 413 ||
+      (attempt.statusCode == 422 &&
+          attempt.rejectedField == 'attachments.minidump');
+
+  static Uint8List? _withoutMinidump(Uint8List bytes) {
+    final decoded = jsonDecode(utf8.decode(bytes));
+    if (decoded is! Map<String, dynamic>) return null;
+    final attachments = decoded['attachments'];
+    if (attachments is! Map || attachments['minidump'] == null) return null;
+    final updatedAttachments = Map<String, dynamic>.from(attachments)
+      ..remove('minidump');
+    final updated = Map<String, dynamic>.of(decoded);
+    if (updatedAttachments.isEmpty) {
+      updated.remove('attachments');
+    } else {
+      updated['attachments'] = updatedAttachments;
+    }
+    return Uint8List.fromList(utf8.encode(jsonEncode(updated)));
+  }
+
+  static Future<void> _rewriteWithoutMinidump(
+    ReportOutbox outbox,
+    OutboxReport report,
+  ) async {
+    try {
+      final file = File(report.filePath);
+      final decodedFile = jsonDecode(await file.readAsString());
+      if (decodedFile is! Map<String, dynamic>) return;
+      final queuedBody = decodedFile['body'];
+      if (queuedBody is! Map<String, dynamic>) return;
+      final attachments = queuedBody['attachments'];
+      if (attachments is! Map || attachments['minidump'] == null) return;
+      final updatedAttachments = Map<String, dynamic>.from(attachments)
+        ..remove('minidump');
+      if (updatedAttachments.isEmpty) {
+        queuedBody.remove('attachments');
+      } else {
+        queuedBody['attachments'] = updatedAttachments;
+      }
+      await outbox.write(
+        report.reportId,
+        Uint8List.fromList(utf8.encode(jsonEncode(decodedFile))),
+      );
+    } catch (_) {
+      return;
+    }
+  }
+
+  static String? _rejectedField(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      final field = decoded is Map ? decoded['field'] : null;
+      return field is String ? field : null;
+    } on FormatException {
+      return null;
     }
   }
 
@@ -268,9 +344,11 @@ class ErrorReportUploader {
 }
 
 class _Attempt {
-  const _Attempt(this.statusCode, this.excerpt, {required this.accepted});
+  const _Attempt(this.statusCode, this.excerpt,
+      {required this.accepted, this.rejectedField});
 
   final int statusCode;
   final String excerpt;
   final bool accepted;
+  final String? rejectedField;
 }

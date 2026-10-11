@@ -328,6 +328,38 @@ void main() {
     }
   });
 
+  test('minidump שהמשתמש הסכים לו עובר לתיבה, ולא להיסטוריה', () async {
+    final dump = base64Encode(
+        List<int>.filled(AppReportMinidump.maxRawBytes, 0x41, growable: false));
+    final db = create();
+    insert(db, UserStateReportQueue.appPendingKind, {
+      'reportId': 'crash',
+      'type': 'crash',
+      'trigger': 'crash_prompt',
+      'title': 'קריסה',
+      'appVersion': '1.0',
+      'platform': 'windows',
+      'createdAt': '2026-09-01T10:00:00.000Z',
+      'errorLog': 'לוג',
+      'minidump': {'fileName': 'crash.dmp', 'data': dump},
+    });
+    db.close();
+
+    final queue = UserStateReportQueue(dbPath);
+    expect(await queue.countSendable(), 1);
+    final outbox = MemoryOutbox(const []);
+    expect((await queue.collectTo(outbox)).collected, 1);
+    final attachments = outbox.reports.single.body['attachments'] as Map;
+    expect(attachments['minidump'], {'fileName': 'crash.dmp', 'data': dump});
+    expect(attachments['errorLog'], 'לוג');
+
+    expect(rows(UserStateReportQueue.appPendingKind), isEmpty);
+    final history = rows('app_reports_queue/sent_reports').single;
+    expect(history.containsKey('minidump'), isFalse);
+    expect(history.containsKey('errorLog'), isFalse);
+    expect(history['reportId'], 'crash');
+  });
+
   test('דיווחי תוכנה ותוספים פגומים נשארים בתור', () async {
     final db = create();
     insert(db, UserStateReportQueue.appPendingKind,

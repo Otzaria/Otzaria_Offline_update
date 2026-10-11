@@ -21,7 +21,7 @@ void main() {
     final golden = _fixture('other_reports_golden.json');
     test('המקור מתועד', () {
       expect(golden['source'],
-          contains('46882aa87d17aaf55783da2b106d74fd587461e5'));
+          contains('ab9ec8b7a73bab85c46ae3610269f29616b0cae0'));
     });
     for (final c in (golden['cases'] as List).cast<Map<String, dynamic>>()) {
       test(c['name'] as String, () {
