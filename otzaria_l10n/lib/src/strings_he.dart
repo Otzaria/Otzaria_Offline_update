@@ -1609,6 +1609,10 @@ class _Elevation extends ElevationStrings {
   String restartFailedSnack(String error) =>
       'ההפעלה מחדש כמנהל נכשלה: $error. אפשר לסגור את התוכנה ולהפעיל אותה '
       'שוב בקליק ימני על קובץ ההרצה → "הפעל כמנהל".';
+  @override
+  String get busyNotice =>
+      'ההפעלה מחדש כמנהל סוגרת את התוכנה, ולכן היא תוצע שוב בסיום ההורדה '
+      'או ההתקנה שרצה כרגע.';
 }
 
 class _PayloadMismatch extends PayloadMismatchStrings {

@@ -1712,6 +1712,10 @@ class _Elevation extends ElevationStrings {
       'Restarting as administrator failed: $error. You can close this program '
       'and start it again with a right-click on the executable → "Run as '
       'administrator".';
+  @override
+  String get busyNotice =>
+      'Restarting as administrator closes this program, so it will be offered '
+      'again once the download or install that is running right now finishes.';
 }
 
 class _PayloadMismatch extends PayloadMismatchStrings {

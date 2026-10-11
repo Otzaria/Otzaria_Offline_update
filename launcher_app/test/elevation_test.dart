@@ -136,17 +136,17 @@ void main() {
   });
 
   group('Elevation.restartElevated', () {
-    test('מרים דרך PowerShell עם -Verb RunAs, ורק אז סוגר', () async {
+    test('מרים דרך PowerShell עם -Verb RunAs, ורק אחרי הצלחה סוגר', () async {
       String? executable;
       List<String>? arguments;
       var quit = false;
 
       final failure = await Elevation.restartElevated(
-        startDetached: (exe, args) async {
+        run: (exe, args) async {
           executable = exe;
           arguments = args;
-          // הסגירה חייבת לבוא **אחרי** ההפעלה, אחרת אין מי שיפעיל.
           expect(quit, isFalse);
+          return 0;
         },
         quit: () => quit = true,
       );
@@ -157,19 +157,33 @@ void main() {
       expect(
         arguments!.last,
         allOf(
-          startsWith('Start-Process -FilePath '),
+          contains('Start-Process -FilePath '),
           contains(Platform.resolvedExecutable),
-          endsWith('-Verb RunAs'),
+          contains('-Verb RunAs -ErrorAction Stop'),
+          contains('catch { exit 1 }'),
         ),
       );
       expect(quit, isTrue);
+    }, skip: !Platform.isWindows);
+
+    test('סירוב ל-UAC מוחזר כשגיאה ואינו סוגר את התוכנה', () async {
+      var quit = false;
+
+      final failure = await Elevation.restartElevated(
+        run: (exe, args) async => 1,
+        quit: () => quit = true,
+      );
+
+      expect(failure, isNotNull);
+      expect('$failure', contains('1'));
+      expect(quit, isFalse);
     }, skip: !Platform.isWindows);
 
     test('כשל בהפעלה מוחזר ואינו סוגר את התוכנה', () async {
       var quit = false;
 
       final failure = await Elevation.restartElevated(
-        startDetached: (exe, args) async => throw const ProcessException(
+        run: (exe, args) async => throw const ProcessException(
           'powershell',
           [],
           'חסום',
@@ -185,7 +199,10 @@ void main() {
       var started = false;
 
       final failure = await Elevation.restartElevated(
-        startDetached: (exe, args) async => started = true,
+        run: (exe, args) async {
+          started = true;
+          return 0;
+        },
         quit: () {},
       );
 

@@ -966,6 +966,8 @@ abstract class ElevationStrings {
 
   /// ההרמה עצמה נכשלה (למשל PowerShell חסום) — נשארת הדרך הידנית.
   String restartFailedSnack(String error);
+
+  String get busyNotice;
 }
 
 // ── ערמת קבצים שאינה תואמת ל-exe ──────────────────────────────────────────────

@@ -483,6 +483,10 @@ void main() {
       expect(body, contains('showSingleActionDialog'));
       expect(body, contains('autoInstallSkippedTitle'));
     });
+
+    test('אינה מתחילה בזמן החלפת קובץ ההרצה או ההמתנה ל-UAC', () {
+      expect('else if (!_exitPending)'.allMatches(body).length, 2);
+    });
   });
 
   group('_downloadAll — דילוג על הספרייה', () {
@@ -507,7 +511,6 @@ void main() {
       expect(skip, isNot(contains('_library.onlineProofError')));
     });
   });
-
   group('installLauncherUpdate', () {
     final source = File('lib/src/screens/app_shell.dart').readAsStringSync();
     final start = source.indexOf('Future<void> installLauncherUpdate()');
@@ -517,10 +520,133 @@ void main() {
     test('גוף המתודה נמצא', () => expect(start, greaterThan(-1)));
 
     test('נחסמת בזמן הורדה או התקנה, עם הודעה', () {
-      expect(body, contains('_longTaskRunning'));
+      expect(body.indexOf('_exitWouldInterrupt'),
+          lessThan(body.indexOf('showTwoActionsDialog')));
       expect(body, contains('busyNotice'));
     });
+
+    test('בודקת שוב אחרי האישור, לפני ההחלפה', () {
+      final afterDialog = body.indexOf(
+        '_exitWouldInterrupt',
+        body.indexOf('showTwoActionsDialog'),
+      );
+      expect(afterDialog, greaterThan(-1));
+      expect(afterDialog, lessThan(body.indexOf('_launcherUpdate.install()')));
+    });
   });
+
+  group('פעולות שיציאה מהתהליך קוטעת', () {
+    final source = File('lib/src/screens/app_shell.dart').readAsStringSync();
+    final start = source.indexOf('bool get _longTaskRunning');
+    final getters = source.substring(
+      start,
+      source.indexOf('Future<void> installLauncherUpdate()', start),
+    );
+
+    test('הגטרים נמצאים', () {
+      expect(start, greaterThan(-1));
+      expect(getters, contains('bool get _exitWouldInterrupt'));
+    });
+
+    test('כוללות התקנה, למידה והורדה של תוכנות מותאמות וייצוא החנות', () {
+      expect(getters, contains('_customApps.isBusy'));
+      expect(getters, contains('_customApps.isLearning'));
+      expect(getters, contains('_customApps.isDownloadingAll'));
+      expect(getters, contains('_plugins.isExporting'));
+    });
+
+    test('כוללות את ההמתנה ל-UAC ואת החלפת קובץ ההרצה', () {
+      expect(
+        getters,
+        contains(
+          'bool get _exitPending =>'
+          ' _elevationPending || _launcherUpdate.isInstalling;',
+        ),
+      );
+      expect(
+        getters.substring(0, getters.indexOf('bool get _exitWouldInterrupt')),
+        contains('_exitPending'),
+      );
+    });
+
+    test('כוללות איסוף והעלאה של דיווחים', () {
+      expect(getters, contains('_errorReports.isCollecting'));
+      expect(getters, contains('_errorReports.isUploading'));
+      expect(getters, contains('_searchFeedback.isCollecting'));
+      expect(getters, contains('_searchFeedback.isUploading'));
+    });
+  });
+
+  group('_maybeOfferElevation', () {
+    final source = File('lib/src/screens/app_shell.dart').readAsStringSync();
+    final start = source.indexOf('Future<void> _maybeOfferElevation()');
+    final body = source.substring(
+      start,
+      source.indexOf('void _syncRunningPoll()', start),
+    );
+
+    test('גוף המתודה נמצא', () {
+      expect(start, greaterThan(-1));
+      expect(body, contains('Elevation.restartElevated()'));
+    });
+
+    test('נדחית בזמן פעולה ארוכה, לפני הדיאלוג ואחריו', () {
+      final dialog = body.indexOf('showTwoActionsDialog');
+      final restart = body.indexOf('Elevation.restartElevated()');
+      expect(body.indexOf('_exitWouldInterrupt'), lessThan(dialog));
+      final afterDialog = body.indexOf('_exitWouldInterrupt', dialog);
+      expect(afterDialog, greaterThan(dialog));
+      expect(afterDialog, lessThan(restart));
+      expect(body.substring(afterDialog, restart),
+          contains('_offeredElevation = false'));
+    });
+
+    test('מסמנת המתנה ל-UAC סביב restartElevated ומאפסת בכשל', () {
+      final pending = body.indexOf('setState(() => _elevationPending = true)');
+      final restart = body.indexOf('Elevation.restartElevated()');
+      expect(pending, greaterThan(-1));
+      expect(pending, lessThan(restart));
+      final reset = body.indexOf('_elevationPending = false', restart);
+      expect(reset, greaterThan(restart));
+      expect(body.substring(restart, reset), contains('finally'));
+    });
+
+    test('ממשק המסגרת וההורדה חסומים בזמן ההמתנה ל-UAC או החלפת קובץ ההרצה',
+        () {
+      expect(source, contains('absorbing: _exitPending'));
+      expect(source, contains('excluding: _exitPending'));
+      final download = source.substring(
+        source.indexOf('Future<void> _downloadAll()'),
+        source.indexOf('setState(() {\n      _isDownloading = true;'),
+      );
+      expect('_exitPending'.allMatches(download).length, 2);
+      final wait = source.substring(
+        source.indexOf('Future<bool> _waitUntilNoDialog('),
+        source.indexOf('Timer? _pauseTimer;'),
+      );
+      expect(wait, contains('_exitPending'));
+    });
+
+    test('מוצעת שוב בסיום איסוף או העלאה של דיווחים', () {
+      expect('..addListener(_onReportsChange)'.allMatches(source).length, 2);
+      expect('removeListener(_onReportsChange)'.allMatches(source).length, 2);
+      final listener = source.substring(
+        source.indexOf('void _onReportsChange()'),
+        source.indexOf('Future<void> _maybeAnnouncePlugins()'),
+      );
+      expect(listener, contains('_maybeOfferElevation()'));
+      expect(listener, isNot(contains('setState')));
+    });
+
+    test('מוצעת שוב בסוף ההורדה', () {
+      final download = source.substring(
+        source.indexOf('Future<void> downloadAll()'),
+        source.indexOf('Future<void> _sweepMirrorJunk'),
+      );
+      expect('_maybeOfferElevation()'.allMatches(download).length, 2);
+    });
+  });
+
   group('מצב סייפר — הכניסה להגדרות', () {
     /// מפעיל את הנעילה על ההגדרות שהמסגרת כבר מחזיקה. `runAsync` כי הכתיבה
     /// לדיסק אינה מסתיימת בתוך ה-fake-async.

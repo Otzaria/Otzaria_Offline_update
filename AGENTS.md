@@ -1643,10 +1643,20 @@ exe into `mirror/launcher/`, copies it over the stub (two renames, rollback on f
   in `exit(0)`, so an install pressed during a mirror download killed the process
   mid-asset: `MirrorDownloadUndo` never ran and partial assets stayed next to an
   already-rewritten manifest. `AppShell._longTaskRunning` (download, library `updating`,
-  Otzaria `installing`) disables the card's button **and** guards
-  `installLauncherUpdate` itself — the button is not enough, since
-  `downloadLauncherUpdate` offers the install straight after a download.
-- **Closing the window during a long task asks first.** `AppShell._confirmClose` is
+  Otzaria `installing`, a custom-app install/learning/download, the store-app export)
+  disables the card's button, and `AppShell._exitWouldInterrupt` (that plus error-report
+  and search-feedback collect/upload) guards `installLauncherUpdate` itself — the button
+  is not enough, since `downloadLauncherUpdate` offers the install straight after a
+  download. The guard runs again **after** the confirmation dialog, because the startup
+  auto-install can begin while it is open. While the exe is being copied from the drive
+  or the UAC answer is awaited (`AppShell._exitPending`: `isInstalling` or
+  `_elevationPending`, part of `_longTaskRunning`) the shell is wrapped in
+  `AbsorbPointer`/`ExcludeFocus`, `downloadAll` refuses, queued dialogs wait and the
+  auto-install skips, since `exit(0)` follows. "Restart as administrator" obeys the same
+  guard: the offer is deferred during such a task (and re-offered when a download ends),
+  and `Elevation.restartElevated` waits for PowerShell's `Start-Process -Verb RunAs` and
+  quits only on exit code 0, so a declined UAC leaves the launcher running.
+- **Closing the window during a long task asks first.** AppShell._confirmClose is
   `LauncherCrashSession.closeGuard`, consulted by `onWindowClose` and by the
   `AppLifecycleListener.onExitRequested` that macOS Cmd+Q / Dock > Quit reach
   (a refusal there returns `AppExitResponse.cancel`): a download is

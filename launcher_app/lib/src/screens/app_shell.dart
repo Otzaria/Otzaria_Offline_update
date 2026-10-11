@@ -148,6 +148,8 @@ class _AppShellState extends State<AppShell> {
   /// [_maybeOfferElevation].
   bool _offeredElevation = false;
 
+  bool _elevationPending = false;
+
   LauncherScreen _screen = LauncherScreen.home;
 
   /// שומר הסף של מצב הסייפר. חי לאורך ההרצה, ולכן אימות אחד מלווה גם את
@@ -262,14 +264,14 @@ class _AppShellState extends State<AppShell> {
       stateDir: widget.stateDir,
       stateFilesDir: widget.stateFilesDir,
       launchPath: () async => _otzaria.launchPath,
-    );
+    )..addListener(_onReportsChange);
     _searchFeedback = SearchFeedbackController.forDrive(
       dataDir: widget.dataDir,
       stateDir: widget.stateDir,
       stateFilesDir: widget.stateFilesDir,
       launchPath: () async => _otzaria.launchPath,
       runningLocator: widget.runningLocator,
-    );
+    )..addListener(_onReportsChange);
     if (!widget.readOnly) unawaited(_searchFeedback.refreshOutbox());
     if (!widget.readOnly) unawaited(_errorReports.refreshOutbox());
     _errorReportsIntro = _showErrorReportsIntro();
@@ -320,6 +322,8 @@ class _AppShellState extends State<AppShell> {
     _plugins.removeListener(_onChange);
     _customApps.removeListener(_onChange);
     _launcherUpdate.removeListener(_onChange);
+    _errorReports.removeListener(_onReportsChange);
+    _searchFeedback.removeListener(_onReportsChange);
     _otzaria.dispose();
     _library.dispose();
     _plugins.dispose();
@@ -338,6 +342,10 @@ class _AppShellState extends State<AppShell> {
     setState(() {});
     unawaited(_maybeOfferElevation());
     unawaited(_maybeAnnouncePlugins());
+  }
+
+  void _onReportsChange() {
+    if (mounted) unawaited(_maybeOfferElevation());
   }
 
   /// "יש עדכונים / יש תוספים חדשים" — חלון אחד בעלייה, כמו התראת הרקע של
@@ -378,11 +386,10 @@ class _AppShellState extends State<AppShell> {
     });
   }
 
-  /// ממתין עד שאין דיאלוג אחר פתוח, כדי לא לעלות מעליו. מוותרים אחרי דקה,
-  /// אלא אם [forever] — ראיה לקריסה אינה נשמרת בשום מקום אחר.
   Future<bool> _waitUntilNoDialog({bool forever = false}) async {
     var waits = 0;
-    while (mounted && !(ModalRoute.of(context)?.isCurrent ?? true)) {
+    while (mounted &&
+        (_exitPending || !(ModalRoute.of(context)?.isCurrent ?? true))) {
       if (!forever && ++waits > 120) return false;
       await _pause(const Duration(milliseconds: 500));
     }
@@ -483,15 +490,11 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
-  /// כשל הרשאות בכל אחד מהמודולים מגיע לכאן דרך ה-listener המשותף, ולכן
-  /// ההצעה יושבת במקום אחד ולא בכל מסך בנפרד. **פעם אחת בהרצה**: מי שסירב
-  /// לא צריך לראות אותה שוב בכל ניסיון.
   Future<void> _maybeOfferElevation() async {
     if (_offeredElevation || !Platform.isWindows) return;
     if (!_library.needsElevation && !_otzaria.needsElevation) return;
+    if (_exitWouldInterrupt) return;
     _offeredElevation = true;
-    // יציאה מה-tick של ההודעה לפני פתיחת דיאלוג: קונטרולר שמודיע בתוך
-    // בנייה היה מפיל את `showDialog`.
     await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
 
@@ -506,10 +509,20 @@ class _AppShellState extends State<AppShell> {
       ),
     );
     if (approved == null) _offeredElevation = false;
-    if (approved != true) return;
+    if (approved != true || !mounted) return;
+    if (_exitWouldInterrupt) {
+      _offeredElevation = false;
+      UiSnack.show(t.busyNotice);
+      return;
+    }
 
-    // הצלחה → התהליך הזה נסגר ואיננו חוזרים לכאן בכלל.
-    final failure = await Elevation.restartElevated();
+    setState(() => _elevationPending = true);
+    final Object? failure;
+    try {
+      failure = await Elevation.restartElevated();
+    } finally {
+      if (mounted) setState(() => _elevationPending = false);
+    }
     if (failure != null) {
       UiSnack.showError(t.restartFailedSnack('$failure'));
     }
@@ -730,16 +743,26 @@ class _AppShellState extends State<AppShell> {
       _isDownloading ||
       _library.isApplying ||
       _library.status == LibraryModuleStatus.updating ||
-      _otzaria.status == OtzariaModuleStatus.installing;
+      _otzaria.status == OtzariaModuleStatus.installing ||
+      _customApps.isBusy ||
+      _customApps.isLearning ||
+      _customApps.isDownloadingAll ||
+      _plugins.isExporting ||
+      _exitPending;
 
-  /// מחליף את קובץ ההרצה בגרסה שהורדה ומפעיל מחדש — באישור המשתמש. פעולה
-  /// מקומית לגמרי: היא עובדת גם במחשב בלי רשת.
+  bool get _exitPending => _elevationPending || _launcherUpdate.isInstalling;
+
+  bool get _exitWouldInterrupt =>
+      _longTaskRunning ||
+      _errorReports.isCollecting ||
+      _errorReports.isUploading ||
+      _searchFeedback.isCollecting ||
+      _searchFeedback.isUploading;
+
   Future<void> installLauncherUpdate() async {
     if (_blockedByReadOnly()) return;
     if (!mounted) return;
-    // גם כשהכפתור מנוטרל: לכאן מגיעים גם מסוף [downloadLauncherUpdate], ושם
-    // אין כפתור לנטרל.
-    if (_longTaskRunning) {
+    if (_exitWouldInterrupt) {
       UiSnack.show(AppL10n.strings.launcherUpdate.busyNotice);
       return;
     }
@@ -747,7 +770,6 @@ class _AppShellState extends State<AppShell> {
     if (version == null || !_launcherUpdate.canInstall) return;
 
     final t = context.strings.launcherUpdate;
-    // מהמראה ולא מהרשת: כאן מגיעים גם במחשב המנותק.
     final whatsNew =
         _whatsNewAlreadyShown ? null : _launcherUpdate.downloadedWhatsNew;
     final approved = await showTwoActionsDialog(
@@ -759,12 +781,14 @@ class _AppShellState extends State<AppShell> {
           : WhatsNewSection(heading: t.whatsNewHeading, markdown: whatsNew),
       confirmText: t.readyDialogConfirm,
     );
-    if (!approved) return;
+    if (!approved || !mounted) return;
+    if (_exitWouldInterrupt) {
+      UiSnack.show(AppL10n.strings.launcherUpdate.busyNotice);
+      return;
+    }
 
     UiSnack.show(AppL10n.strings.launcherUpdate.installingSnack);
     final restarted = await _launcherUpdate.install();
-    // `true` = הגרסה החדשה כבר הופעלה והתהליך הזה בדרך להסתיים; אין למי
-    // להציג הודעה.
     if (restarted || !mounted) return;
 
     final error = _launcherUpdate.errorMessage;
@@ -775,24 +799,9 @@ class _AppShellState extends State<AppShell> {
     UiSnack.show(AppL10n.strings.launcherUpdate.manualRestartNotice);
   }
 
-  /// מתקין מהתיקייה המקומית בלי לשאול — אך ורק למי שהדליק זאת במפורש
-  /// בהגדרות (ראו `SettingsScreen._confirmAutoInstall`). לא מוריד דבר.
-  ///
-  /// **מעדכן את מה שכבר מותקן, ולעולם לא מתקין בפעם הראשונה.** ליעד של
-  /// התקנה ראשונה אין מקור ודאי: הוא מנוחש מברירות המחדל בכל פעם שההגדרות
-  /// של אוצריא לא נקראו (`OtzariaSettingsReader` מחזיר `null` על כל כשל),
-  /// והניחוש נרשם אחר כך כבחירת המשתמש — כלומר מסד שלם במקום הלא נכון,
-  /// ולנצח. מי שאין לו התקנה מחליט בעצמו, מהכרטיס שבדף הבית.
   Future<void> _autoInstallIfEnabled() async {
     final s = widget.settings.settings;
 
-    // **המסד לפני המתקין, ולא אחריו.** המתקין של אוצריא משיק אותה בסוף
-    // התקנה שקטה, ואוצריא פתוחה נועלת את המסד — כלומר בסדר ההפוך הלאנצ'ר
-    // עצמו חסם את עדכון המסד שהוא הריץ מיד אחר כך. הבדיקה טרייה ובכפייה:
-    // המצב שנלכד קודם הוא בדיוק מה שהיה מיושן כאן, והרענון המחזורי דולק
-    // רק כשאוצריא כבר הייתה פתוחה.
-    // דילוג בגלל אוצריא פתוחה נאסף ומדווח בסוף: המשתמש ביקש שההתקנה תיעשה
-    // לבדה, ודילוג שקט נראה בדיוק כמו הגדרה שאינה עובדת.
     var skippedWhileRunning = false;
 
     if (s.autoInstall &&
@@ -801,30 +810,23 @@ class _AppShellState extends State<AppShell> {
         _library.status == LibraryModuleStatus.updateAvailable) {
       if (await refreshProcessState()) {
         skippedWhileRunning = true;
-      } else {
+      } else if (!_exitPending) {
         await _library.update();
         if (!mounted) return;
       }
     }
 
-    // גם ההתקנה מדלגת כשאוצריא פתוחה, ולא רק הספרייה: המתקין דורס קבצים
-    // שהתהליך הרץ נועל, ואז נופל באמצע ההתקנה בקוד יציאה סתום (5).
-    //
-    // ההתקנה המשולבת (תוכנה+ספרייה) אינה כאן בכוונה: היא פותחת אשף וממתינה
-    // לסגירת אוצריא, כלומר בדיוק המקרה שאינו אוטומטי.
     if (s.autoInstall &&
         _otzaria.currentVersion != null &&
         _otzaria.status == OtzariaModuleStatus.updateAvailable) {
       if (await refreshProcessState()) {
         skippedWhileRunning = true;
-      } else {
+      } else if (!_exitPending) {
         await _otzaria.install(useWizard: false);
       }
     }
 
     if (!skippedWhileRunning || !mounted) return;
-    // דיאלוג ולא snackbar: זו הודעה שהמשתמש צריך לפעול לפיה, ו-snackbar
-    // בעלייה נעלם לפני שקוראים אותו.
     final t = context.strings.home;
     await showSingleActionDialog(
       context: context,
@@ -1012,15 +1014,15 @@ class _AppShellState extends State<AppShell> {
         _isDownloading = false;
         _cancelDownload = false;
       });
+      unawaited(_maybeOfferElevation());
       UiSnack.show(AppL10n.strings.home.downloadCancelledSnack);
       return;
     }
     if (!mounted) return;
 
     setState(() => _isDownloading = false);
+    unawaited(_maybeOfferElevation());
 
-    // דילוג שקט הוא בדיוק מה שגרם לבלבול "למה הוא לא הוריד תוספים" — אומרים
-    // על מה דילגנו ולמה.
     final t = context.strings;
     final skipped = [
       if (skipApp) t.home.appTileTitle,
@@ -1198,12 +1200,16 @@ class _AppShellState extends State<AppShell> {
             showWindowButtons: widget.showWindowButtons,
           ),
           Expanded(
-            // ההדרכה צפה בפינה התחתונה שרחוקה מסרגל הניווט — `end` ולא
-            // `left`, אחרת באנגלית היא יושבת על כפתור ההגדרות שבסרגל.
             child: Stack(
               fit: StackFit.expand,
               children: [
-                _shellRow(context),
+                AbsorbPointer(
+                  absorbing: _exitPending,
+                  child: ExcludeFocus(
+                    excluding: _exitPending,
+                    child: _shellRow(context),
+                  ),
+                ),
                 if (widget.settings.settings.showFaqButton)
                   PositionedDirectional(
                     end: AppTokens.spaceMD,

@@ -62,46 +62,40 @@ class Elevation {
     return '$error\n\n${macOS ? t.macHint : t.hint}';
   }
 
-  /// מפעיל מחדש את **אותו** קובץ הרצה עם בקשת הרשאות מנהל (UAC), ויוצא.
-  /// מחזיר `null` כשההרמה יצאה לדרך — ואז התהליך הזה כבר נסגר — או את מה
-  /// שמנע אותה, כדי שהמשתמש יקבל סיבה ולא רק "נכשל".
-  ///
-  /// דרך PowerShell כי `-Verb RunAs` הוא הדרך היחידה להרים תהליך בלי FFI;
-  /// `Process.start` רגיל לא מרים. הנתיב נמסר במרכאות יחידות עם הכפלה של
-  /// גרש בתוכו — נתיב עם `'` היה שובר את הפקודה.
   static Future<Object?> restartElevated({
-    Future<void> Function(String executable, List<String> arguments)?
-        startDetached,
+    Future<int> Function(String executable, List<String> arguments)? run,
     void Function()? quit,
   }) async {
     if (!Platform.isWindows) return 'unsupported: ${Platform.operatingSystem}';
-    final start = startDetached ?? _defaultStartDetached;
     final exe = Platform.resolvedExecutable;
+    final int exitCode;
     try {
-      await start('powershell', [
+      exitCode = await (run ?? _defaultRun)('powershell', [
         '-NoProfile',
         '-WindowStyle',
         'Hidden',
         '-Command',
-        "Start-Process -FilePath '${exe.replaceAll("'", "''")}' -Verb RunAs",
+        "try { Start-Process -FilePath '${exe.replaceAll("'", "''")}' "
+            '-Verb RunAs -ErrorAction Stop } catch { exit 1 }',
       ]);
     } catch (e) {
       return e;
     }
+    if (exitCode != 0) return 'exit code $exitCode';
     (quit ?? _defaultQuit)();
     return null;
   }
 
-  static Future<void> _defaultStartDetached(
+  static Future<int> _defaultRun(
     String executable,
     List<String> arguments,
   ) async {
-    await Process.start(
+    final result = await Process.run(
       executable,
       arguments,
       workingDirectory: p.dirname(Platform.resolvedExecutable),
-      mode: ProcessStartMode.detached,
     );
+    return result.exitCode;
   }
 
   static void _defaultQuit() => LauncherCrashSession.exitCleanly();
