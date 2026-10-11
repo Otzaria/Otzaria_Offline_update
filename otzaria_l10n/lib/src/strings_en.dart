@@ -2316,6 +2316,11 @@ class _LibraryDomain extends LibraryDomainStrings {
       'Free up space on that drive and try again, or choose another location '
       'for the database.';
   @override
+  String fileTooLargeForVolume(String dir) =>
+      'The drive holding $dir is formatted as FAT32, which cannot store files '
+      'larger than 4 GB, and the library database is larger than that. Choose '
+      'a location for the database on an NTFS or exFAT drive.';
+  @override
   String installDirNotWritable(String dir, String detail) =>
       'The folder $dir could not be created ($detail). Choose another location '
       'for the database through "Choose location manually" on the library '

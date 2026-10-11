@@ -149,6 +149,69 @@ void main() {
     });
   });
 
+  group('`<db>.old` שנשאר אחרי החלפה שהושלמה', () {
+    void writeLibraryDb(String path) {
+      File(path).deleteSync();
+      final db = sqlite3.sqlite3.open(path);
+      db.execute('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT)');
+      db.execute("INSERT INTO schema_meta VALUES ('db_version','7')");
+      db.close();
+    }
+
+    test('מסד ספרייה תקין ואין סימון → `.old` נמחק', () async {
+      writeLibraryDb(dbPath);
+      File('$dbPath.old').writeAsStringSync('RETIRED');
+
+      final result = await service.recoverIfNeeded(dbPath);
+
+      expect(result.action, RecoveryAction.none);
+      expect(File('$dbPath.old').existsSync(), isFalse);
+      expect(File(dbPath).existsSync(), isTrue);
+    });
+
+    test('יש סימון → `.old` נשאר עד שהתקינות תיבדק', () async {
+      writeLibraryDb(dbPath);
+      File('$dbPath.old').writeAsStringSync('RETIRED');
+      File(service.markerPathFor(dbPath)).writeAsStringSync('{}');
+
+      final result = await service.recoverIfNeeded(dbPath);
+
+      expect(result.action, RecoveryAction.interrupted);
+      expect(File('$dbPath.old').readAsStringSync(), 'RETIRED');
+    });
+
+    test('הקובץ במקום המסד אינו מסד ספרייה → `.old` נשאר', () async {
+      File('$dbPath.old').writeAsStringSync('RETIRED');
+
+      await service.recoverIfNeeded(dbPath);
+
+      expect(File('$dbPath.old').readAsStringSync(), 'RETIRED');
+      expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
+    });
+  });
+
+  group('patch מחולץ שנשאר מהחלה שנקטעה', () {
+    test('קובצי ה-.db בתיקיית העבודה נמחקים וה-hint נשאר', () async {
+      final tmpDir = Directory(service.patchTmpDirFor(dbPath))
+        ..createSync(recursive: true);
+      final patch = File('${tmpDir.path}/patch_1-2.db')
+        ..writeAsStringSync('PATCH');
+      final hint = File('${tmpDir.path}/verify_total_bytes.txt')
+        ..writeAsStringSync('123');
+
+      await service.recoverIfNeeded(dbPath);
+
+      expect(patch.existsSync(), isFalse);
+      expect(hint.readAsStringSync(), '123');
+      expect(File(dbPath).readAsStringSync(), 'ORIGINAL');
+    });
+
+    test('אין תיקיית עבודה → אינו זורק', () async {
+      final result = await service.recoverIfNeeded(dbPath);
+      expect(result.action, RecoveryAction.none);
+    });
+  });
+
   group('סימון ה-apply', () {
     test('הסימון מכיל את הגרסאות ואת חותמת הזמן', () async {
       await service.beginApply(

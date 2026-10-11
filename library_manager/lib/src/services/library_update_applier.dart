@@ -166,7 +166,7 @@ class LibraryUpdateApplier {
     }
     await _guardOtzariaNotRunning();
 
-    final tmpDir = Directory(p.join(p.dirname(dbPath), '.seforim-update-tmp'));
+    final tmpDir = Directory(_recovery.patchTmpDirFor(dbPath));
     final steps = plan.deltaSteps;
 
     final hintFile = File(p.join(tmpDir.path, _verifyHintFileName));
@@ -209,22 +209,22 @@ class LibraryUpdateApplier {
         isCancelled: isCancelled,
       );
 
-      await _recovery.beginApply(
-        dbPath: dbPath,
-        fromVersion: manifest.fromVersion,
-        toVersion: manifest.toVersion,
-        timestamp: DateTime.now().toIso8601String(),
-      );
-
-      onProgress?.call(
-        LibraryApplyProgress(
-          stage: LibraryApplyStage.applyingPatch,
-          stepIndex: i + 1,
-          stepCount: steps.length,
-        ),
-      );
-
       try {
+        await _recovery.beginApply(
+          dbPath: dbPath,
+          fromVersion: manifest.fromVersion,
+          toVersion: manifest.toVersion,
+          timestamp: DateTime.now().toIso8601String(),
+        );
+
+        onProgress?.call(
+          LibraryApplyProgress(
+            stage: LibraryApplyStage.applyingPatch,
+            stepIndex: i + 1,
+            stepCount: steps.length,
+          ),
+        );
+
         if (i < steps.length - 1) {
           _recovery.markUnverified(dbPath, manifest.toVersion);
         }
@@ -510,6 +510,7 @@ class LibraryUpdateApplier {
     _deleteQuietly(newFilePath);
     final extractedSize = ZstdFileDecompressor.contentSizeOf(compressedPath);
     if (extractedSize != null) {
+      _ensureFileFitsVolume(dir.path, extractedSize);
       _ensureSpaceFor(dir.path, extractedSize);
     }
     String? sourceDigest;
@@ -541,10 +542,15 @@ class LibraryUpdateApplier {
           AppL10n.strings.libraryDomain.localFileHashMismatch(compressedPath),
         );
       }
-    } catch (_) {
+    } catch (e) {
       _deleteQuietly(newFilePath);
       deleteStaged();
       _throwIfCancelled(isCancelled);
+      if (_isFileTooLargeError(e)) {
+        throw LibraryApplyException(
+          AppL10n.strings.libraryDomain.fileTooLargeForVolume(dir.path),
+        );
+      }
       rethrow;
     }
     // הגודל שנכתב בפועל מושווה לזה שכותרת ה-frame הצהירה עליו. libzstd עצמו
@@ -869,6 +875,18 @@ class LibraryUpdateApplier {
       ),
     );
   }
+
+  void _ensureFileFitsVolume(String dir, int fileSize) {
+    if (fileSize <= DiskSpaceProbe.fatMaxFileBytes) return;
+    if (!DiskSpaceProbe.isKnownFat(dir)) return;
+    throw LibraryApplyException(
+      AppL10n.strings.libraryDomain.fileTooLargeForVolume(dir),
+    );
+  }
+
+  static bool _isFileTooLargeError(Object error) =>
+      error is FileSystemException &&
+      error.osError?.errorCode == (Platform.isWindows ? 223 : 27);
 
   /// גדלים בג'יגה-בייט בעברית קריאה — ההודעה נועדה לומר לאדם כמה לפנות.
   static String _formatBytes(int bytes) {

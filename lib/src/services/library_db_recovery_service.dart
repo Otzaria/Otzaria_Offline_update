@@ -3,7 +3,10 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
+
+import 'local_db_version_reader.dart';
 
 /// הפעולה שבוצעה (או נדרשת) בעת בדיקת התאוששות בעליית האפליקציה.
 enum RecoveryAction {
@@ -44,22 +47,46 @@ class LibraryDbRecoveryService {
     '.restore.tmp',
   ];
 
-  /// נקרא בעליית האפליקציה, **לפני** פתיחת ה-DB.
-  ///
-  /// סימון קיים → [RecoveryAction.interrupted]; הקורא מריץ
-  /// [checkDbHealthAfterCrash] ומנקה את הסימון. אין סימון → אין מה לעשות.
+  String patchTmpDirFor(String dbPath) =>
+      p.join(p.dirname(dbPath), '.seforim-update-tmp');
+
   Future<RecoveryResult> recoverIfNeeded(String dbPath) async {
     _deleteLegacyArtifacts(dbPath);
     _restoreRetiredDb(dbPath);
     _deleteAbandonedStaging(dbPath);
+    _deleteAbandonedPatches(dbPath);
 
     if (!File(markerPathFor(dbPath)).existsSync()) {
+      _deleteSupersededRetiredDb(dbPath);
       return const RecoveryResult(RecoveryAction.none);
     }
     return RecoveryResult(
       RecoveryAction.interrupted,
       AppL10n.strings.libraryDomain.interruptedUpdateFound,
     );
+  }
+
+  void _deleteSupersededRetiredDb(String dbPath) {
+    try {
+      final retired = File('$dbPath.old');
+      if (!retired.existsSync()) return;
+      final current =
+          const LocalDbVersionReader(busyTimeout: Duration.zero).read(dbPath);
+      if (!current.hasVersionMeta) return;
+      retired.deleteSync();
+    } catch (_) {}
+  }
+
+  void _deleteAbandonedPatches(String dbPath) {
+    try {
+      final dir = Directory(patchTmpDirFor(dbPath));
+      if (!dir.existsSync()) return;
+      for (final entity in dir.listSync()) {
+        if (entity is File && entity.path.endsWith('.db')) {
+          _deleteQuietly(entity.path);
+        }
+      }
+    } catch (_) {}
   }
 
   /// מחזיר את `<db>.old` לשמו כשאין `<db>` בכלל, או כשיושב שם קובץ באורך 0.

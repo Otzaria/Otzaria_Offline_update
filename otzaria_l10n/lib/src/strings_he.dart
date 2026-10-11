@@ -2159,6 +2159,10 @@ class _LibraryDomain extends LibraryDomainStrings {
       'אין מספיק מקום פנוי ב-$dir: נדרשים $needed ופנויים $free. פנו מקום '
       'בכונן הזה ונסו שוב, או בחרו מיקום אחר למסד.';
   @override
+  String fileTooLargeForVolume(String dir) =>
+      'הכונן שבו נמצא $dir מפורמט ב-FAT32, שאינו יכול להכיל קבצים גדולים '
+      'מ-4GB, ומסד הספרייה גדול מזה. בחרו למסד מיקום בכונן NTFS או exFAT.';
+  @override
   String installDirNotWritable(String dir, String detail) =>
       'לא ניתן ליצור את התיקייה $dir ($detail). בחרו מיקום אחר למסד דרך '
       '"בחירת מיקום ידנית" במסך הספרייה.';

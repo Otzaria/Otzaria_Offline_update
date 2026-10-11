@@ -83,6 +83,98 @@ abstract final class DiskSpaceProbe {
     return availableKb * 1024;
   }
 
+  static const int fatMaxFileBytes = 0xFFFFFFFF;
+
+  static bool isKnownFat(String path) {
+    final dir = _nearestExistingDir(path);
+    if (dir == null) return false;
+    try {
+      final String? name;
+      if (Platform.isWindows) {
+        name = _windowsFileSystemName(dir);
+      } else if (Platform.isMacOS || Platform.isLinux) {
+        name = _posixFileSystemName(dir);
+      } else {
+        name = null;
+      }
+      return name != null && isFatFileSystemName(name);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static bool isFatFileSystemName(String name) => const {
+        'fat',
+        'fat12',
+        'fat16',
+        'fat32',
+        'msdos',
+        'vfat',
+      }.contains(name.trim().toLowerCase());
+
+  static String? fileSystemFromMountTable(String mountOutput, String device) {
+    final prefix = '$device on ';
+    for (final line in mountOutput.split('\n')) {
+      if (!line.startsWith(prefix)) continue;
+      final linux = RegExp(r' type (\S+) \(').allMatches(line);
+      if (linux.isNotEmpty) return linux.last.group(1);
+      final options = line.lastIndexOf(' (');
+      if (options < 0) return null;
+      final rest = line.substring(options + 2);
+      final end = rest.indexOf(RegExp('[,)]'));
+      return (end < 0 ? rest : rest.substring(0, end)).trim();
+    }
+    return null;
+  }
+
+  static String? _posixFileSystemName(String dir) {
+    final df = Process.runSync('df', ['-P', '-k', dir]);
+    if (df.exitCode != 0) return null;
+    final lines = (df.stdout as String).trim().split('\n');
+    if (lines.length < 2) return null;
+    final device = lines.last.trim().split(RegExp(r'\s+')).first;
+    if (device.isEmpty) return null;
+    final mount = Process.runSync('mount', const []);
+    if (mount.exitCode != 0) return null;
+    return fileSystemFromMountTable(mount.stdout as String, device);
+  }
+
+  static String? _windowsFileSystemName(String dir) {
+    final kernel32 = DynamicLibrary.open('kernel32.dll');
+    final getVolumePathName = kernel32.lookupFunction<
+        Int32 Function(Pointer<Utf16>, Pointer<Utf16>, Uint32),
+        int Function(
+            Pointer<Utf16>, Pointer<Utf16>, int)>('GetVolumePathNameW');
+    final getVolumeInformation = kernel32.lookupFunction<
+        Int32 Function(Pointer<Utf16>, Pointer<Utf16>, Uint32, Pointer<Uint32>,
+            Pointer<Uint32>, Pointer<Uint32>, Pointer<Utf16>, Uint32),
+        int Function(
+            Pointer<Utf16>,
+            Pointer<Utf16>,
+            int,
+            Pointer<Uint32>,
+            Pointer<Uint32>,
+            Pointer<Uint32>,
+            Pointer<Utf16>,
+            int)>('GetVolumeInformationW');
+
+    const capacity = 1024;
+    final pathPtr = dir.toNativeUtf16();
+    final root = malloc<Uint16>(capacity).cast<Utf16>();
+    final fsName = malloc<Uint16>(capacity).cast<Utf16>();
+    try {
+      if (getVolumePathName(pathPtr, root, capacity) == 0) return null;
+      final ok = getVolumeInformation(
+          root, nullptr, 0, nullptr, nullptr, nullptr, fsName, capacity);
+      if (ok == 0) return null;
+      return fsName.toDartString();
+    } finally {
+      malloc.free(pathPtr);
+      malloc.free(root);
+      malloc.free(fsName);
+    }
+  }
+
   /// `true` כשידוע בוודאות שחסר מקום ל-[neededBytes] תחת [path].
   /// מדידה שנכשלה מחזירה `false` — "לא יודע" אינו "אין".
   ///

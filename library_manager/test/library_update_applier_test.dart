@@ -972,6 +972,42 @@ void main() {
       expect(hashOf(dbPath), h.h1);
     });
 
+    test('כשל בכתיבת סימון ההחלה מוחק את ה-patch שחולץ', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final h = buildChainHashes();
+      Directory(recovery.markerPathFor(dbPath)).createSync();
+      await expectLater(
+        applier.applyDelta(
+          plan: LibraryUpdatePlan.delta(
+            localVersion: 1,
+            targetVersion: 2,
+            steps: [
+              buildEdge(
+                from: 1,
+                to: 2,
+                upsertRows: [
+                  [2, 'bet'],
+                ],
+                fromHash: h.h1,
+                toHash: h.h2,
+              ),
+            ],
+          ),
+          dbPath: dbPath,
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      final tmpDir = Directory(recovery.patchTmpDirFor(dbPath));
+      final leftovers = tmpDir.existsSync()
+          ? tmpDir.listSync().where((e) => e.path.endsWith('.db')).toList()
+          : const <FileSystemEntity>[];
+      expect(leftovers, isEmpty);
+      expect(hashOf(dbPath), h.h1);
+    });
+
     test('סימון פגום אינו פוטר מאימות המקור', () async {
       if (bindings == null) {
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');

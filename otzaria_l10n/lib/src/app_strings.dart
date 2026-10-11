@@ -1288,6 +1288,7 @@ abstract class LibraryDomainStrings {
   /// אין מקום בדיסק. אומרת **כמה** לפנות ו**איפה** — קודם לכן זו הייתה שגיאת
   /// OS באנגלית על נתיב `.new` שהמשתמש אינו מכיר.
   String notEnoughDiskSpace(String dir, String needed, String free);
+  String fileTooLargeForVolume(String dir);
 
   /// תיקיית ההתקנה אינה ניתנת לכתיבה (issue #23) — מפנה לבורר הידני.
   String installDirNotWritable(String dir, String detail);
