@@ -2461,6 +2461,16 @@ class _AppDomain extends AppDomainStrings {
   String githubStatus(int statusCode, String uri) =>
       'GitHub API החזיר סטטוס $statusCode עבור $uri';
   @override
+  String githubRateLimited(int? retryAfterMinutes) {
+    final retry = switch (retryAfterMinutes) {
+      null => 'יש לנסות שוב מאוחר יותר.',
+      1 => 'יש לנסות שוב בעוד כ-1 דקה.',
+      final minutes => 'יש לנסות שוב בעוד כ-$minutes דקות.',
+    };
+    return 'גיטהאב הגביל זמנית את מספר הבקשות מהרשת הזאת. $retry';
+  }
+
+  @override
   String noReleasesAtAll(String repo) => 'לא נמצאו releases בכלל ב-$repo.';
   @override
   String get windowsOnlyReader => 'WindowsExeVersionReader עובד רק בווינדוס.';
@@ -2573,6 +2583,10 @@ class _PluginsDomain extends PluginsDomainStrings {
   String get exportAppRemovedFromMirror =>
       'תוכנת החנות הורדה לכונן ואינה שם יותר. הורדה חוזרת לא תעזור — כנראה '
       'תוכנת אנטי-וירוס מוחקת אותה; יש לאשר אותה שם ואז להוריד שוב.';
+  @override
+  String get exportAppDamaged =>
+      'תוכנת החנות שבכונן פגומה — היא אינה תואמת לחתימה שגיטהאב מפרסם לה. '
+      'יש להוריד אותה מחדש במחשב שיש בו אינטרנט.';
   @override
   String exportPlugin(String name, int done, int total) =>
       'מעתיק את $name ($done מתוך $total)';

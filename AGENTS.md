@@ -179,7 +179,7 @@ sits at the repo root (historical — do not move it).
 
 | Path | Package | Role |
 | --- | --- | --- |
-| `otzaria_downloads/` | `otzaria_downloads` | Pure Dart. Shared resumable file transfers for app, launcher, store and custom apps. |
+| `otzaria_downloads/` | `otzaria_downloads` | Pure Dart. Shared resumable file transfers for app, launcher, store and custom apps, and the one GitHub API transport they use (`githubGet`: headers, timeout, `GithubRateLimitException` with a fail-fast gate). `library_manager` keeps an equivalent internal copy (`github_fetch.dart`) instead of depending on it. |
 | `otzaria_l10n/` | `otzaria_l10n` | Pure Dart, **no dependencies at all**. Every user-visible string, Hebrew + English. The updater, managers and launcher depend on it, which is why it cannot use Flutter. See §4. |
 | `.` (root, `lib/`) | `seforim_library_updater` | Flutter. Client side of the `Otzaria/SeforimLibrary` delta format: discover releases, plan a route (delta vs. full), download, verify the logical hash, apply patches atomically. |
 | `otzaria_manager/` | `otzaria_manager` | Pure Dart. The **Otzaria app itself**: check, download, silent install, launch. Windows + macOS. |

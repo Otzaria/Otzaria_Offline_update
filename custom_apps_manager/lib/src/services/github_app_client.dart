@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -79,29 +78,16 @@ class GithubAppClient {
     return 0;
   }
 
-  /// כל ה-releases האחרונים, מהחדש לישן, בלי טיוטות. משמש את בורר הקבצים
-  /// בטופס — הוא מציג את הקבצים של הגרסה האחרונה.
   Future<List<GithubRelease>> fetchReleases(GithubSource source) async {
     final uri = Uri.parse('${source.releasesApiUrl}?per_page=$_pageSize');
-    final response = await _http.get(
+    final decoded = await githubGetJson(
+      _http,
       uri,
-      headers: const {
-        'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-        // ⚠️ חובה: בלי User-Agent ‏GitHub מחזיר 403 לכל בקשה, בלי קשר
-        // ל-rate limit.
-        'User-Agent': 'otzaria-launcher',
-      },
-    ).timeout(timeout);
-
-    if (response.statusCode != 200) {
-      throw AppDescriptorException(
-        AppL10n.strings.customAppsDomain
-            .githubStatus(response.statusCode, '$uri'),
-      );
-    }
-
-    final decoded = jsonDecode(response.body);
+      timeout: timeout,
+      statusError: (status) => AppDescriptorException(
+        AppL10n.strings.customAppsDomain.githubStatus(status, '$uri'),
+      ),
+    );
     if (decoded is! List) {
       throw AppDescriptorException(
         AppL10n.strings.customAppsDomain.githubBadResponse,

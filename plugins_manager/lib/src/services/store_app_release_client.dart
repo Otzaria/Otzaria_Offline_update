@@ -1,6 +1,5 @@
-import 'dart:convert';
-
 import 'package:http/http.dart' as http;
+import 'package:otzaria_downloads/otzaria_downloads.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../models/store_app_release.dart';
@@ -43,15 +42,9 @@ class StoreAppReleaseClient {
 
     final http.Response response;
     try {
-      response = await _httpClient.get(
-        uri,
-        headers: const {
-          'Accept': 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-          // ⚠️ חובה — גיטהאב מחזיר 403 לכל בקשה בלי User-Agent.
-          'User-Agent': 'otzaria-launcher',
-        },
-      ).timeout(timeout);
+      response = await githubGet(_httpClient, uri, timeout: timeout);
+    } on GithubRateLimitException {
+      rethrow;
     } catch (e) {
       throw PluginStoreException(
         AppL10n.strings.pluginsDomain
@@ -65,7 +58,7 @@ class StoreAppReleaseClient {
       );
     }
 
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    final decoded = decodeGithubJson(response);
     if (decoded is! List) {
       throw PluginStoreException(
         AppL10n.strings.appDomain.noReleasesAtAll('$owner/$repo'),
@@ -84,8 +77,6 @@ class StoreAppReleaseClient {
     return best;
   }
 
-  /// `null` כשה-release אינו נושא תג גרסה או אין בו קובץ הרצה בסיסי —
-  /// ממשיכים לשאר במקום להפיל את הבדיקה כולה. חשוף לבדיקות.
   static StoreAppRelease? parse(Map<String, dynamic> json) {
     final tagName = json['tag_name'];
     if (tagName is! String) return null;
@@ -95,20 +86,18 @@ class StoreAppReleaseClient {
     final assets = json['assets'];
     if (assets is! List) return null;
 
-    for (final asset in assets) {
-      if (asset is! Map) continue;
-      final name = asset['name'];
-      final url = asset['browser_download_url'];
-      final size = asset['size'];
-      if (name is! String || url is! String || size is! int) continue;
-      if (!isBasicAppAsset(name)) continue;
+    for (final raw in assets) {
+      final asset = GithubReleaseAsset.tryParse(raw);
+      if (asset == null || !asset.isReady) continue;
+      if (!isBasicAppAsset(asset.name)) continue;
 
       return StoreAppRelease(
         tagName: tagName,
         version: version,
-        assetName: name,
-        downloadUrl: url,
-        sizeBytes: size,
+        assetName: asset.name,
+        downloadUrl: asset.downloadUrl,
+        sizeBytes: asset.size,
+        sha256: asset.sha256,
         publishedAt: json['published_at'] is String
             ? DateTime.tryParse(json['published_at'] as String)
             : null,

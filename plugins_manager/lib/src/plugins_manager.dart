@@ -83,8 +83,12 @@ class PluginsManager {
 
   final PluginStoreClient _client;
 
-  /// הזמן הקצוב לכל פעולת רשת של החנות — נכנס לתוקף בבקשה הבאה.
-  set networkTimeout(Duration value) => _client.timeout = value;
+  Duration _networkTimeout = const Duration(seconds: 20);
+
+  set networkTimeout(Duration value) {
+    _client.timeout = value;
+    _networkTimeout = value;
+  }
 
   Future<PluginMirrorStore> _store() async =>
       PluginMirrorStore(await resolveMirrorDir());
@@ -147,23 +151,21 @@ class PluginsManager {
         storeAppDirIn(mirrorRootDir),
       ];
 
-  Future<StoreAppMirror> _appMirror() async =>
-      StoreAppMirror(mirrorDir: storeAppDirIn(await resolveMirrorDir()));
+  Future<StoreAppMirror> _appMirror() async => StoreAppMirror(
+        mirrorDir: storeAppDirIn(await resolveMirrorDir()),
+        connectTimeout: _networkTimeout,
+      );
 
-  /// בודק ברשת אם יצאה גרסה חדשה של תוכנת החנות — **בקשה קלה אחת**, בלי
-  /// להוריד קובץ ובלי לגעת במראה. מקבילה של [peekOnlineUpdates], ורצה
-  /// באותה בדיקה קלה: ההורדה עצמה מדלגת כשזו החזירה `null`.
-  ///
-  /// `null` = אין חדש (או שאין release עם קובץ הרצה בסיסי כלל). זורק כשאין
-  /// רשת; המתקשר הוא שמחליט שזה מצב תקין.
   Future<StoreAppRelease?> peekStoreApp() async {
     final mirror = await _appMirror();
-    final client = StoreAppReleaseClient();
+    final client = StoreAppReleaseClient(timeout: _networkTimeout);
     try {
       final latest = await client.fetchLatestStable();
       if (latest == null) return null;
       final current = await mirror.load();
-      if (current != null && current.release.version >= latest.version) {
+      if (current != null &&
+          current.release.version >= latest.version &&
+          await mirror.verify(current)) {
         return null;
       }
       return latest;

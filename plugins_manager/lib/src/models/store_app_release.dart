@@ -28,6 +28,7 @@ class StoreAppRelease {
     required this.assetName,
     required this.downloadUrl,
     required this.sizeBytes,
+    this.sha256,
     this.publishedAt,
     this.pageUrl = '',
   });
@@ -39,6 +40,7 @@ class StoreAppRelease {
   final String assetName;
   final String downloadUrl;
   final int sizeBytes;
+  final String? sha256;
   final DateTime? publishedAt;
 
   /// דף ה-release בגיטהאב, לתצוגה בלבד.
@@ -50,12 +52,11 @@ class StoreAppRelease {
         'assetName': assetName,
         'downloadUrl': downloadUrl,
         'sizeBytes': sizeBytes,
+        if (sha256 != null) 'sha256': sha256,
         'publishedAt': publishedAt?.toIso8601String(),
         'pageUrl': pageUrl,
       };
 
-  /// `null` על רשומה פגומה — הקורא מתייחס לזה כ"אין מה להתקין", בדיוק כמו
-  /// ל"אין קובץ מטא-דאטה".
   static StoreAppRelease? fromJson(Object? json) {
     if (json is! Map) return null;
     final tagName = json['tagName'];
@@ -74,6 +75,7 @@ class StoreAppRelease {
       assetName: assetName,
       downloadUrl: downloadUrl,
       sizeBytes: sizeBytes,
+      sha256: json['sha256'] is String ? json['sha256'] as String : null,
       publishedAt: json['publishedAt'] is String
           ? DateTime.tryParse(json['publishedAt'] as String)
           : null,

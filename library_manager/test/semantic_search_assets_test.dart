@@ -112,7 +112,7 @@ void main() {
         request.url.path,
         '/repos/Otzaria/SeforimLibrary/releases/tags/vectors-$remoteTag',
       );
-      expect(request.headers['User-Agent'], 'otzaria-offline-update');
+      expect(request.headers['User-Agent'], 'otzaria-launcher');
       return http.Response(
         jsonEncode({
           'tag_name': 'vectors-$remoteTag',
@@ -373,7 +373,7 @@ void main() {
     final online = SemanticSearchAssets(
       httpClient: MockClient((request) async {
         calls++;
-        expect(request.headers['User-Agent'], 'otzaria-offline-update');
+        expect(request.headers['User-Agent'], 'otzaria-launcher');
         if (request.url.host == 'api.github.com') {
           return http.Response(
             jsonEncode({

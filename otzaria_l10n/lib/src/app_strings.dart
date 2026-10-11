@@ -1439,6 +1439,7 @@ abstract class AppDomainStrings {
   String launchFileMissing(String launchPath);
   String launchFailed(int exitCode, String stderr);
   String githubStatus(int statusCode, String uri);
+  String githubRateLimited(int? retryAfterMinutes);
   String noReleasesAtAll(String repo);
   String get windowsOnlyReader;
   String get macOnlyReader;
@@ -1514,6 +1515,7 @@ abstract class PluginsDomainStrings {
   /// ההורדה הצליחה והקובץ אינו בכונן יותר. **הודעה נפרדת מ-[exportAppMissing]
   /// בכוונה**: שם הפעולה הנכונה היא להוריד, וכאן הורדה חוזרת רק תימחק שוב.
   String get exportAppRemovedFromMirror;
+  String get exportAppDamaged;
   String exportPlugin(String name, int done, int total);
   String get exportWritingCatalog;
   String exportDone(int plugins);

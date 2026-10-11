@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:http/http.dart' as http;
+import 'package:otzaria_downloads/otzaria_downloads.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import 'launcher_changelog.dart';
@@ -33,37 +34,18 @@ class LauncherReleaseClient {
   final http.Client _httpClient;
   final String _operatingSystem;
 
-  /// הגרסה היציבה **הגבוהה ביותר** שיש בה קובץ הרצה לפלטפורמה הזאת, או
-  /// `null` אם אין כזו בדף הראשון.
-  ///
-  /// pre-release ו-draft נפסלים: את הלאנצ'ר מפיצים למחשבים מנותקים, ושם גרסת
-  /// ניסיון היא בדיוק מה שאין איך לתקן. נפסל גם כל תג שאינו בצורת
-  /// `vX.Y.Z` — ראו [LauncherVersion.isReleaseTag].
-  ///
-  /// הבחירה היא לפי הגרסה ולא לפי הסדר שבו GitHub החזיר: סדר הפרסום אינו
-  /// סדר הגרסאות (release שנערך ידנית, תג ותיק שפורסם מחדש), ובחירת
-  /// "הראשון ברשימה" הייתה הופכת את זה לתלוי־מזל.
   Future<LauncherRelease?> fetchLatestStable() async {
     final uri = Uri.parse(
       '$_apiBase/repos/$_owner/$_repo/releases?per_page=$_pageSize',
     );
-    final response = await _httpClient.get(
+    final decoded = await githubGetJson(
+      _httpClient,
       uri,
-      headers: const {
-        'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-        // ⚠️ חובה — GitHub מחזיר 403 לכל בקשה בלי User-Agent.
-        'User-Agent': 'otzaria-launcher',
-      },
-    ).timeout(timeout);
-
-    if (response.statusCode != 200) {
-      throw LauncherUpdateException(
-        AppL10n.strings.appDomain.githubStatus(response.statusCode, '$uri'),
-      );
-    }
-
-    final decoded = jsonDecode(response.body);
+      timeout: timeout,
+      statusError: (status) => LauncherUpdateException(
+        AppL10n.strings.appDomain.githubStatus(status, '$uri'),
+      ),
+    );
     if (decoded is! List) {
       throw LauncherUpdateException(
         AppL10n.strings.appDomain.noReleasesAtAll('$_owner/$_repo'),
@@ -86,8 +68,6 @@ class LauncherReleaseClient {
     return best;
   }
 
-  /// יומן השינויים כפי שהוא בתג [tagName], או `null` כשאין בתג כזה (תג
-  /// מלפני שנוסף). קובץ טקסט אחד מ-raw — לא API, ולא נספר במכסה שלו.
   Future<String?> fetchChangelog(String tagName) async {
     final uri = Uri(
       scheme: 'https',
@@ -102,10 +82,12 @@ class LauncherReleaseClient {
         ...launcherChangelogAsset.split('/'),
       ],
     );
-    final response = await _httpClient.get(
+    final response = await githubGet(
+      _httpClient,
       uri,
-      headers: const {'User-Agent': 'otzaria-launcher'},
-    ).timeout(timeout);
+      timeout: timeout,
+      headers: githubUserAgentHeaders,
+    );
 
     if (response.statusCode == 404) return null;
     if (response.statusCode != 200) {
@@ -113,12 +95,9 @@ class LauncherReleaseClient {
         AppL10n.strings.appDomain.githubStatus(response.statusCode, '$uri'),
       );
     }
-    // raw מחזיר text/plain בלי charset, ו-`body` היה מפענח latin1.
     return utf8.decode(response.bodyBytes, allowMalformed: true);
   }
 
-  /// `null` כשה-release אינו מתאים (תג שאינו גרסה, או אין אסט לפלטפורמה) —
-  /// ממשיכים לשאר במקום להפיל את הבדיקה כולה.
   LauncherRelease? _parse(Map<String, dynamic> json) {
     final tagName = json['tag_name'];
     if (tagName is! String || !LauncherVersion.isReleaseTag(tagName)) {
@@ -128,30 +107,24 @@ class LauncherReleaseClient {
     final assets = json['assets'];
     if (assets is! List) return null;
 
-    for (final asset in assets) {
-      if (asset is! Map<String, dynamic>) continue;
-      final name = asset['name'];
-      final url = asset['browser_download_url'];
-      final size = asset['size'];
-      if (name is! String || url is! String || size is! int) continue;
-      if (!matchesPlatform(name, _operatingSystem)) continue;
-      final digest = asset['digest'];
+    for (final raw in assets) {
+      final asset = GithubReleaseAsset.tryParse(raw);
+      if (asset == null || !asset.isReady) continue;
+      if (!matchesPlatform(asset.name, _operatingSystem)) continue;
 
       return LauncherRelease(
         tagName: tagName,
         name: json['name'] is String && (json['name'] as String).isNotEmpty
             ? json['name'] as String
             : tagName,
-        assetName: name,
-        downloadUrl: url,
-        sizeBytes: size,
+        assetName: asset.name,
+        downloadUrl: asset.downloadUrl,
+        sizeBytes: asset.size,
         publishedAt: json['published_at'] is String
             ? DateTime.tryParse(json['published_at'] as String)
             : null,
         releaseNotes: json['body'] is String ? json['body'] as String : null,
-        sha256: digest is String && digest.startsWith('sha256:')
-            ? digest.substring('sha256:'.length).toLowerCase()
-            : null,
+        sha256: asset.sha256,
       );
     }
     return null;

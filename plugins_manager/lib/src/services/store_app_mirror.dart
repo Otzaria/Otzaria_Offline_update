@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:otzaria_downloads/otzaria_downloads.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -74,11 +75,8 @@ class StoreAppMirror {
     final release = StoreAppRelease.fromJson(decoded['release']);
     if (release == null) return null;
 
-    final relative = decoded['filePath'];
-    if (relative is! String || relative.isEmpty) return null;
-    // המראה נכתבת ב-POSIX ונקראת גם בווינדוס, כמו `LauncherUpdateMirror`.
-    final filePath =
-        p.joinAll([mirrorDir, ...relative.split(RegExp(r'[/\\]'))]);
+    final filePath = _recordedFilePath(decoded);
+    if (filePath == null) return null;
 
     final downloaded = File(filePath);
     if (!await downloaded.exists()) return null;
@@ -87,20 +85,28 @@ class StoreAppMirror {
     return MirroredStoreApp(release: release, filePath: filePath);
   }
 
-  /// ⚠️ **אין טעם לנסות "להסתיר" את הקובץ מהסורק.**
-  ///
-  /// אומת על חומרה אמיתית (22/09/2026): Defender סימן את
-  /// `Otzaria-Plugin-Store.exe` כ-`Trojan:Win32/Wacatac.B!ml` ומחק אותו
-  /// **שנייה אחת** אחרי שההורדה הסתיימה — גם מהמראה וגם מתיקיית היעד.
-  /// נוסתה שמירה בסיומת נייטרלית (`.bin`), והקובץ נמחק בדיוק אותו דבר:
-  /// הסריקה היא על **תוכן**, לא על שם. הפתרון אינו כאן אלא בריפו של
-  /// החנות — חתימת קוד, ודיווח זיהוי-שווא ל-Microsoft. מה שכן נעשה כאן
-  /// הוא לזהות את המצב ולומר אותו; ראו [wasRemoved].
-  /// מוריד את [release] אל המראה וכותב את המטא-דאטה. **הפעולה היחידה כאן
-  /// שדורשת אינטרנט.**
-  ///
-  /// המטא-דאטה נכתבת רק אחרי שהקובץ כולו בדיסק, ולכן [load] לא רואה מראה
-  /// חצי-מוכנה. קובץ שכבר קיים בגודל הנכון אינו יורד שוב.
+  String? _recordedFilePath(Map<dynamic, dynamic> metadata) {
+    final relative = metadata['filePath'];
+    if (relative is! String || relative.isEmpty) return null;
+    return p.joinAll([mirrorDir, ...relative.split(RegExp(r'[/\\]'))]);
+  }
+
+  Future<void> _forgetMetadataPointingTo(String filePath) async {
+    final file = File(_metadataPath);
+    try {
+      final decoded = jsonDecode(await file.readAsString());
+      if (decoded is! Map) return;
+      final recorded = _recordedFilePath(decoded);
+      if (recorded != null && p.equals(recorded, filePath)) {
+        await file.delete();
+      }
+    } on FileSystemException {
+      return;
+    } on FormatException {
+      return;
+    }
+  }
+
   Future<MirroredStoreApp> sync(
     StoreAppRelease release, {
     void Function(int received, int total)? onProgress,
@@ -108,23 +114,47 @@ class StoreAppMirror {
     final releaseDir = p.join(mirrorDir, _filesDirName, release.tagName);
     final filePath = p.join(releaseDir, release.assetName);
     final file = File(filePath);
+    final expected = release.sha256;
 
-    final alreadyThere =
-        await file.exists() && await file.length() == release.sizeBytes;
+    final alreadyThere = await file.exists() &&
+        await file.length() == release.sizeBytes &&
+        (expected == null || await _sha256Of(filePath) == expected);
     if (!alreadyThere) {
       await Directory(releaseDir).create(recursive: true);
-      await _download(
+      final result = await _download(
         url: release.downloadUrl,
         destinationPath: filePath,
         expectedSizeBytes: release.sizeBytes,
+        calculateSha256: expected != null,
         onProgress: onProgress,
       );
+      if (expected != null && result.sha256 != expected) {
+        await file.delete();
+        await _forgetMetadataPointingTo(filePath);
+        throw PluginStoreException(
+          AppL10n.strings.customAppsDomain
+              .downloadDigestMismatch(release.assetName),
+        );
+      }
     }
 
     await _writeMetadata(release: release, filePath: filePath);
     await _pruneExcept(release.tagName);
     return MirroredStoreApp(release: release, filePath: filePath);
   }
+
+  Future<bool> verify(MirroredStoreApp mirrored) async {
+    final expected = mirrored.release.sha256;
+    if (expected == null) return true;
+    try {
+      return await _sha256Of(mirrored.filePath) == expected;
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  static Future<String> _sha256Of(String path) async =>
+      (await sha256.bind(File(path).openRead()).first).toString();
 
   /// גרסאות קודמות של התוכנה אינן שוות מקום על הכונן — מייצאים תמיד את
   /// האחרונה.
@@ -160,13 +190,14 @@ class StoreAppMirror {
     );
   }
 
-  Future<void> _download({
+  Future<FileDownloadResult> _download({
     required String url,
     required String destinationPath,
     required int expectedSizeBytes,
+    required bool calculateSha256,
     void Function(int received, int total)? onProgress,
   }) async {
-    await downloadFile(
+    return downloadFile(
       client: _httpClient,
       url: url,
       destinationPath: destinationPath,
@@ -174,6 +205,7 @@ class StoreAppMirror {
       connectTimeout: connectTimeout,
       stallTimeout: stallTimeout,
       onProgress: onProgress,
+      calculateSha256: calculateSha256,
       statusError: (status) => PluginStoreException(
           AppL10n.strings.pluginsDomain.httpStatusFor(status, url)),
       sizeError: (actual, expected) => PluginStoreException(

@@ -17,6 +17,7 @@ dependencies:
   equatable: ^2.0.8
   path: ^1.9.1
   http: ^1.6.0
+  crypto: ^3.0.7
   # אותה מייג'ור כמו ב-library_manager — שתי החבילות נפתרות יחד ב-launcher_app.
   archive: ^4.0.9
   sqlite3: ^3.3.3

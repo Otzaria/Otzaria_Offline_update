@@ -1,7 +1,7 @@
-import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:http/http.dart' as http;
+import 'package:otzaria_downloads/otzaria_downloads.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../models/otzaria_release.dart';
@@ -85,29 +85,18 @@ class OtzariaReleaseClient {
     return OtzariaChannelReleases(stable: stable, prerelease: prerelease);
   }
 
-  /// ה-releases הגולמיים, מהחדש לישן, בלי draft.
   Future<List<Map<String, dynamic>>> _fetchReleasesJson() async {
     final uri = Uri.parse(
       '$_apiBase/repos/$_owner/$_repo/releases?per_page=$_pageSize',
     );
-    final response = await _httpClient.get(
+    final decoded = await githubGetJson(
+      _httpClient,
       uri,
-      headers: const {
-        'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-        // ⚠️ חובה: GitHub API מחזיר 403 "forbidden by administrative
-        // rules" לכל בקשה בלי User-Agent — ללא קשר ל-rate limit.
-        'User-Agent': 'otzaria-launcher',
-      },
-    ).timeout(timeout);
-
-    if (response.statusCode != 200) {
-      throw GithubApiException(
-        AppL10n.strings.appDomain.githubStatus(response.statusCode, '$uri'),
-      );
-    }
-
-    final decoded = jsonDecode(response.body) as List<dynamic>;
+      timeout: timeout,
+      statusError: (status) => GithubApiException(
+        AppL10n.strings.appDomain.githubStatus(status, '$uri'),
+      ),
+    ) as List<dynamic>;
     if (decoded.isEmpty) {
       throw StateError(
         AppL10n.strings.appDomain.noReleasesAtAll('$_owner/$_repo'),
@@ -122,22 +111,17 @@ class OtzariaReleaseClient {
 
   OtzariaRelease _parseRelease(Map<String, dynamic> json) {
     final tagName = json['tag_name'] as String;
-    // אסט שהעלאתו ל-GitHub טרם הסתיימה מדווח `size: 0` (ו-`state` שאינו
-    // `uploaded`) — וזה בדיוק החלון שבין פרסום ה-release לסיום העלאת
-    // הקבצים. הוא נראה תקין לכל אורך המסלול: אימות הגודל מדלג על 0, ואחר
-    // כך קובץ ריק נחשב cache-hit ולא ינוסה שוב לעולם. לכן הוא נפסל כאן
-    // כאילו אינו קיים, וה-release מדולג לטובת הוותיק ממנו עד שיהיה מוכן.
-    final assets = (json['assets'] as List<dynamic>)
-        .cast<Map<String, dynamic>>()
-        .where(_assetIsReady)
-        .toList(growable: false);
+    final assets = [
+      for (final raw in json['assets'] as List<dynamic>)
+        if (GithubReleaseAsset.tryParse(raw) case final asset?
+            when asset.isReady)
+          asset,
+    ];
 
-    // בחירת האסט לפי פלטפורמת היעד — ראו [OtzariaAssetSelector] להסבר על
-    // כללי ההתאמה (ולמה חבילות ה-FULL של 2GB נפסלות מעצמן).
     final selected = _assetSelector.select(
       platform: _platform,
       assets: assets,
-      nameOf: (asset) => asset['name'] as String,
+      nameOf: (asset) => asset.name,
     );
 
     if (selected == null) {
@@ -159,19 +143,11 @@ class OtzariaReleaseClient {
           ? null
           : DateTime.tryParse(json['published_at'] as String),
       installerKind: installerKind,
-      installerAssetName: asset['name'] as String,
-      installerDownloadUrl: asset['browser_download_url'] as String,
-      installerSizeBytes: asset['size'] as int,
+      installerAssetName: asset.name,
+      installerDownloadUrl: asset.downloadUrl,
+      installerSizeBytes: asset.size,
       releaseNotes: json['body'] as String?,
     );
-  }
-
-  /// ההעלאה של האסט הסתיימה. `state` נבדק רק כשהוא קיים — תשובה בלעדיו
-  /// אינה עילה לפסול אסט שגודלו תקין.
-  static bool _assetIsReady(Map<String, dynamic> asset) {
-    final state = asset['state'];
-    if (state is String && state != 'uploaded') return false;
-    return (asset['size'] as int? ?? 0) > 0;
   }
 
   void dispose() => _httpClient.close();

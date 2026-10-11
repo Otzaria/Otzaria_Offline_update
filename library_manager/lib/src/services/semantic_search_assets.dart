@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import 'atomic_file.dart' show writeStringAtomically;
+import 'github_fetch.dart';
 
 typedef SemanticAsset = ({String name, int size, String sha256});
 
@@ -26,6 +27,7 @@ class SemanticSearchAssets {
        _ownsClient = httpClient == null;
 
   final http.Client _client;
+  Duration timeout = const Duration(seconds: 30);
   final DownloadScheduler _scheduler;
   final bool _ownsClient;
   final ExternalLibrary? _nativeLibrary;
@@ -71,7 +73,6 @@ class SemanticSearchAssets {
     AppL10n.strings.libraryDomain.companionAssetMissingInRelease(_name),
   );
 
-  /// כשל HTTP עם הקוד בהודעה — בלי זה 403 של מגבלת קצב נראה כמו "אין קובץ".
   Never _httpFailure(int status) => throw FormatException(
     '${AppL10n.strings.libraryDomain.companionAssetMissingInRelease(_name)}'
     ' (HTTP $status)',
@@ -142,24 +143,20 @@ class SemanticSearchAssets {
 
   Future<({Map<String, Map> assets, Map manifest, String digest})?>
   _fetchVectorsRelease(String libraryTag) async {
-    final response = await _client
-        .get(
-          Uri.parse(
-            'https://api.github.com/repos/Otzaria/SeforimLibrary/releases/tags/vectors-$libraryTag',
-          ),
-          headers: const {
-            'Accept': 'application/vnd.github+json',
-            'User-Agent': 'otzaria-offline-update',
-          },
-        )
-        .timeout(const Duration(seconds: 30));
+    final response = await githubGet(
+      _client,
+      Uri.parse(
+        'https://api.github.com/repos/Otzaria/SeforimLibrary/releases/tags/vectors-$libraryTag',
+      ),
+      timeout: timeout,
+    );
     if (response.statusCode == 404) return null;
     if (response.statusCode != 200) {
       _httpFailure(response.statusCode);
     }
     final Object? release;
     try {
-      release = jsonDecode(response.body);
+      release = decodeGithubJson(response);
     } on FormatException {
       _invalid();
     }
@@ -250,12 +247,12 @@ class SemanticSearchAssets {
     }
     final manifestAsset = fetched.manifest;
     final manifestName = manifestAsset['name'] as String;
-    final manifestResponse = await _client
-        .get(
-          _url(manifestAsset['browser_download_url'], libraryTag),
-          headers: const {'User-Agent': 'otzaria-offline-update'},
-        )
-        .timeout(const Duration(seconds: 30));
+    final manifestResponse = await githubGet(
+      _client,
+      _url(manifestAsset['browser_download_url'], libraryTag),
+      timeout: timeout,
+      headers: githubUserAgentHeaders,
+    );
     _cancel(isCancelled);
     if (manifestResponse.statusCode != 200) {
       _httpFailure(manifestResponse.statusCode);

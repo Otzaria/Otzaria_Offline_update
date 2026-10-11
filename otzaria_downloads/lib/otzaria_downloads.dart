@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 export 'src/atomic_file.dart' show isAtomicTempNameOf, writeStringAtomically;
+export 'src/github_api.dart';
 
 class FileDownloadResult {
   const FileDownloadResult(this.size, this.headers, this.sha256);

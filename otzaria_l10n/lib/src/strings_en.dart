@@ -2639,6 +2639,16 @@ class _AppDomain extends AppDomainStrings {
   String githubStatus(int statusCode, String uri) =>
       'The GitHub API returned status $statusCode for $uri';
   @override
+  String githubRateLimited(int? retryAfterMinutes) {
+    final retry = switch (retryAfterMinutes) {
+      null => 'Try again later.',
+      1 => 'Try again in about 1 minute.',
+      final minutes => 'Try again in about $minutes minutes.',
+    };
+    return 'GitHub has temporarily limited requests from this network. $retry';
+  }
+
+  @override
   String noReleasesAtAll(String repo) => 'No releases at all were found in '
       '$repo.';
   @override
@@ -2765,6 +2775,11 @@ class _PluginsDomain extends PluginsDomainStrings {
       'The store program was downloaded to the drive and is no longer there. '
       'Downloading again will not help — antivirus software is most likely '
       'deleting it; allow it there first, then download again.';
+  @override
+  String get exportAppDamaged =>
+      'The store program on the drive is damaged — it does not match the '
+      'checksum GitHub publishes for it. Download it again on a computer with '
+      'internet.';
   @override
   String exportPlugin(String name, int done, int total) =>
       'Copying $name ($done/$total)';

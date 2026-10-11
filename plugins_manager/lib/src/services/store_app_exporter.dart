@@ -142,13 +142,14 @@ class StoreAppExporter {
 
     final mirrored = await appMirror.load();
     if (mirrored == null) {
-      // "הורדת ומשהו מחק" ו"עוד לא הורדת" דורשים פעולה הפוכה מהמשתמש:
-      // בראשון הורדה חוזרת רק תימחק שוב.
       throw PluginStoreException(
         await appMirror.wasRemoved
             ? strings.exportAppRemovedFromMirror
             : strings.exportAppMissing,
       );
+    }
+    if (!await appMirror.verify(mirrored)) {
+      throw PluginStoreException(strings.exportAppDamaged);
     }
 
     final catalog = await store.load();

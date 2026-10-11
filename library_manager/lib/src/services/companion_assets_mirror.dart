@@ -9,6 +9,7 @@ import 'package:seforim_library_updater/seforim_library_updater.dart';
 import 'atomic_file.dart' show writeStringAtomically;
 import 'companion_assets.dart';
 import 'companion_assets_installer.dart';
+import 'github_fetch.dart';
 import 'zstd_decompressor.dart';
 
 /// מוריד למראה את שלושת הקבצים הנלווים שאוצריא מרעננת בכל עדכון ספרייה,
@@ -48,14 +49,6 @@ class CompanionAssetsMirror {
   static const String catalogDatabaseFileName = 'otzar-HB_catalog.db';
   static const String catalogVersionFileName = 'version.txt';
   static const String dictionaryFileName = 'lexical.db';
-
-  /// GitHub מחזיר 403 לכל בקשה בלי `User-Agent` — ראו
-  /// `GithubLibraryReleaseClient._apiHeaders`.
-  static const Map<String, String> _apiHeaders = {
-    'Accept': 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
-    'User-Agent': 'otzaria-launcher',
-  };
 
   final http.Client _httpClient;
   final bool _ownsClient;
@@ -449,12 +442,13 @@ class CompanionAssetsMirror {
     return asset?.withTag(tag);
   }
 
-  /// `version.txt` הוא קובץ של בייטים בודדים — קריאה ישירה, בלי המסלול
-  /// המאומת של [PatchDownloader] שנועד לנכסים גדולים.
   Future<String> _getText(String url) async {
-    final response = await _httpClient
-        .get(Uri.parse(url), headers: const {'User-Agent': 'otzaria-launcher'})
-        .timeout(timeout);
+    final response = await githubGet(
+      _httpClient,
+      Uri.parse(url),
+      timeout: timeout,
+      headers: githubUserAgentHeaders,
+    );
     if (response.statusCode != 200) {
       throw Exception(
         AppL10n.strings.libraryDomain.releasesRequestFailed(
@@ -465,10 +459,12 @@ class CompanionAssetsMirror {
     return utf8.decode(response.bodyBytes);
   }
 
-  Future<Map<String, dynamic>> _getJson(String url) async {
-    final response = await _httpClient
-        .get(Uri.parse(url), headers: _apiHeaders)
-        .timeout(timeout);
+  Future<Object?> _getApiJson(String url) async {
+    final response = await githubGet(
+      _httpClient,
+      Uri.parse(url),
+      timeout: timeout,
+    );
     if (response.statusCode != 200) {
       throw Exception(
         AppL10n.strings.libraryDomain.releasesRequestFailed(
@@ -476,7 +472,11 @@ class CompanionAssetsMirror {
         ),
       );
     }
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    return decodeGithubJson(response);
+  }
+
+  Future<Map<String, dynamic>> _getJson(String url) async {
+    final decoded = await _getApiJson(url);
     if (decoded is! Map<String, dynamic>) {
       throw FormatException(
         AppL10n.strings.libraryDomain.releasesResponseNotList,
@@ -486,17 +486,7 @@ class CompanionAssetsMirror {
   }
 
   Future<List<Map<String, dynamic>>> _getJsonList(String url) async {
-    final response = await _httpClient
-        .get(Uri.parse(url), headers: _apiHeaders)
-        .timeout(timeout);
-    if (response.statusCode != 200) {
-      throw Exception(
-        AppL10n.strings.libraryDomain.releasesRequestFailed(
-          response.statusCode,
-        ),
-      );
-    }
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    final decoded = await _getApiJson(url);
     if (decoded is! List) return const [];
     return decoded.whereType<Map<String, dynamic>>().toList(growable: false);
   }

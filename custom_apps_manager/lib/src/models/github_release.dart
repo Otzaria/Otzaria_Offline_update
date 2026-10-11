@@ -1,3 +1,5 @@
+import 'package:otzaria_downloads/otzaria_downloads.dart';
+
 /// קובץ בודד בתוך release. **זה מה שהמשתמש בוחר מתוכו** — ראו
 /// [GithubSource].
 class GithubAsset {
@@ -16,17 +18,12 @@ class GithubAsset {
   /// digest — אז ההורדה פשוט אינה נבדקת מולו.
   final String? sha256;
 
-  factory GithubAsset.fromJson(Map<String, dynamic> json) {
-    final digest = json['digest'] as String?;
-    return GithubAsset(
-      name: json['name'] as String,
-      downloadUrl: json['browser_download_url'] as String,
-      sizeBytes: json['size'] as int? ?? 0,
-      sha256: digest != null && digest.startsWith('sha256:')
-          ? digest.substring('sha256:'.length).toLowerCase()
-          : null,
-    );
-  }
+  factory GithubAsset.fromJson(Map<String, dynamic> json) => GithubAsset(
+        name: json['name'] as String,
+        downloadUrl: json['browser_download_url'] as String,
+        sizeBytes: json['size'] as int? ?? 0,
+        sha256: githubAssetSha256(json['digest'] as String?),
+      );
 }
 
 /// גרסה שפורסמה בריפו.
