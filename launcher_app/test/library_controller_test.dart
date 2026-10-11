@@ -506,7 +506,7 @@ void main() {
   // על הצעד שחוצה את הסכמה. סכמה 4 נתמכת מאז; כאן משתמשים בסכמה עתידית כדי
   // לשמר את התרחיש. ראו CHANGELOG.
   group('סכמה שאיננו יודעים להחיל', () {
-    test('מסד מלא ישן מזה שמותקן אינו עדכון אלא חסימה מנומקת', () async {
+    test('מסד מלא ישן מזה שמותקן וסכמה חוסמת: חסימה עם הסבר הסכמה', () async {
       _writeMirror(tempDir, releases: [
         const _MirrorRelease('v21', hasFullDb: true),
         const _MirrorRelease('v22', patches: [_MirrorPatch(21, 22)]),
@@ -518,7 +518,7 @@ void main() {
       expect(controller.status, LibraryModuleStatus.error);
       expect(
         controller.errorMessage,
-        AppL10n.strings.libraryDomain.planFullDbWouldNotProgress(21, 23, 26),
+        AppL10n.strings.libraryDomain.planPatchSchemaTooNew(7, 26),
       );
     });
 

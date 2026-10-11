@@ -65,7 +65,19 @@ void main() {
         exitProcess: codes.add,
       );
       expect(destroyed, 1);
-      expect(codes, isEmpty);
+      expect(codes, [0]);
+    });
+
+    test('היציאה מהתהליך באה אחרי ההשמדה', () async {
+      final order = <String>[];
+      await LauncherCrashSession.closeWindow(
+        destroy: () async => order.add('destroy'),
+        exitProcess: (_) {
+          expect(File(lockPath).existsSync(), isFalse);
+          order.add('exit');
+        },
+      );
+      expect(order, ['destroy', 'exit']);
     });
 
     test('השמדה שנכשלה: יוצאים מהתהליך, ה-X לא הופך לאינרטי', () async {
@@ -111,13 +123,15 @@ void main() {
 
     test('preventClose נדלק, ואירוע close מוחק את הנעילה ומשמיד', () async {
       if (!LauncherCrashSession.isSupported) return;
-      await LauncherCrashSession.installCloseHooks();
+      final codes = <int>[];
+      await LauncherCrashSession.installCloseHooks(exitProcess: codes.add);
       expect(calls, contains('setPreventClose'));
 
       await nativeClose();
       await pumpEventQueue();
       expect(File(lockPath).existsSync(), isFalse);
       expect(calls, contains('destroy'));
+      expect(codes, [0]);
     });
   });
 

@@ -97,17 +97,15 @@ abstract final class LauncherCrashSession {
     }
   }
 
-  /// סגירת החלון (הכפתור, Alt+F4, שורת המשימות) עוברת כאן לפני ההשמדה, ו-Cmd+Q
-  /// במק דרך `onExitRequested`. כיבוי מערכת (WM_ENDSESSION) אינו מגיע ל-Dart —
-  /// מגבלה מתועדת ב-§5.10.
-  static Future<void> installCloseHooks() async {
+  static Future<void> installCloseHooks({
+    void Function(int code)? exitProcess,
+  }) async {
     if (!isSupported || _listener != null) return;
-    final listener = _listener = _CloseListener();
+    final listener = _listener = _CloseListener(exitProcess);
     try {
       windowManager.addListener(listener);
       await windowManager.setPreventClose(true);
     } catch (_) {
-      // בלי תוסף החלון (בדיקות) הסגירה הרגילה נשארת, והנעילה פשוט לא נמחקת.
       windowManager.removeListener(listener);
       _listener = null;
     }
@@ -119,27 +117,26 @@ abstract final class LauncherCrashSession {
     );
   }
 
-  /// הסגירה בפועל. `preventClose` דלוק, ולכן אם ההשמדה נכשלת הכפתור X היה
-  /// הופך לאינרטי — וגם אז יוצאים מהתהליך.
   static Future<void> closeWindow({
     Future<void> Function()? destroy,
     void Function(int code)? exitProcess,
   }) async {
     try {
-      try {
-        markCleanExitSync();
-      } finally {
-        try {
-          await (destroy ?? windowManager.destroy)();
-        } catch (error) {
-          AppLogger.maybeInstance?.warn('סגירת החלון נכשלה: $error');
-          (exitProcess ?? exit)(0);
-        }
-      }
+      markCleanExitSync();
     } catch (error) {
-      // אסור שזו תהיה שגיאה שלא נתפסה: היא נרשמת כראיה לקריסה.
       AppLogger.maybeInstance?.warn('מחיקת נעילת ההפעלה נכשלה: $error');
     }
+    try {
+      await (destroy ?? windowManager.destroy)();
+    } catch (error) {
+      AppLogger.maybeInstance?.warn('סגירת החלון נכשלה: $error');
+    }
+    try {
+      await AppLogger.maybeInstance?.flush().timeout(
+            const Duration(milliseconds: 500),
+          );
+    } catch (_) {}
+    (exitProcess ?? exit)(0);
   }
 
   /// ב-Windows: OpenProcess+GetExitCodeProcess (קריאות kernel זולות, בלי
@@ -179,6 +176,11 @@ abstract final class LauncherCrashSession {
 }
 
 class _CloseListener with WindowListener {
+  _CloseListener(this._exitProcess);
+
+  final void Function(int code)? _exitProcess;
+
   @override
-  void onWindowClose() => unawaited(LauncherCrashSession.closeWindow());
+  void onWindowClose() =>
+      unawaited(LauncherCrashSession.closeWindow(exitProcess: _exitProcess));
 }
