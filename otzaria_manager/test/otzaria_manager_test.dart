@@ -540,6 +540,53 @@ void main() {
       },
       testOn: 'windows',
     );
+
+    test(
+      'macOS: חבילה זרה בתיקייה משותפת נבדקת לפי FlutterMacOS.framework '
+      'לפני plutil',
+      () async {
+        final shared = Directory(p.join(dataDir.path, 'Applications'))
+          ..createSync(recursive: true);
+        final bundle = p.join(shared.path, 'Library Reader.app');
+        Directory(p.join(bundle, 'Contents')).createSync(recursive: true);
+        File(p.join(bundle, 'Contents', 'Info.plist')).writeAsStringSync('''
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>com.example.otzaria</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.9.96</string>
+</dict>
+</plist>
+''');
+        final manager = managerFor(platform: OtzariaTargetPlatform.macos);
+
+        expect(
+          await manager.detectExistingInstall(
+            customDir: shared.path,
+            isSharedDir: true,
+          ),
+          isNull,
+        );
+
+        Directory(p.join(
+          bundle,
+          'Contents',
+          'Frameworks',
+          'FlutterMacOS.framework',
+        )).createSync(recursive: true);
+
+        final detected = await manager.detectExistingInstall(
+          customDir: shared.path,
+          isSharedDir: true,
+        );
+        expect(detected?.launchPath, bundle);
+        expect(detected?.installedTagName, '0.9.96');
+      },
+      testOn: 'mac-os',
+    );
   });
 
   // הזיהוי שמכסה את המשתמש שהתקין את אוצריא במקום שאינו ברשימה: כל עוד

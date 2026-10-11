@@ -35,17 +35,45 @@ class OtzariaChangelogClient {
 
   final http.Client _httpClient;
 
-  /// מחזיר `null` בכל כשל — רשת, סטטוס לא תקין, או שהגרסה עדיין לא מופיעה
-  /// בקובץ. זה תמיד נתיב-רשת קל ואופציונלי; הקורא נופל אז חזרה לתיאור
-  /// ה-release הגולמי.
+  static const Duration _bodyReuseWindow = Duration(minutes: 10);
+
+  Future<String?>? _body;
+  DateTime? _bodyRequestedAt;
+
   Future<String?> notesFor(String tagName) async {
+    final request = _changelogBody();
+    final body = await request;
+    if (body == null) return null;
+    final notes = _extract(body, tagName);
+    if (notes == null && identical(_body, request)) _body = null;
+    return notes;
+  }
+
+  Future<String?> _changelogBody() {
+    final cached = _body;
+    final requestedAt = _bodyRequestedAt;
+    if (cached != null &&
+        requestedAt != null &&
+        DateTime.now().difference(requestedAt) < _bodyReuseWindow) {
+      return cached;
+    }
+
+    final fetch = _fetchBody();
+    _body = fetch;
+    _bodyRequestedAt = DateTime.now();
+    fetch.then((body) {
+      if (body == null && identical(_body, fetch)) _body = null;
+    });
+    return fetch;
+  }
+
+  Future<String?> _fetchBody() async {
     try {
       final response = await _httpClient.get(
         Uri.parse(url),
         headers: const {'User-Agent': 'otzaria-launcher'},
       ).timeout(timeout);
-      if (response.statusCode != 200) return null;
-      return _extract(response.body, tagName);
+      return response.statusCode == 200 ? response.body : null;
     } catch (_) {
       return null;
     }

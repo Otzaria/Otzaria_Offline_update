@@ -209,36 +209,14 @@ class OtzariaAppMirror {
     return found;
   }
 
-  /// מוריד את שתי הגרסאות (יציבה, ו-pre-release כשהוא חדש ממנה) אל
-  /// [mirrorDir] וכותב את המטא־דאטה. **הפעולה היחידה כאן שדורשת אינטרנט.**
-  ///
-  /// היציבה יורדת ראשונה בכוונה: היא ברירת המחדל, וכך כישלון בהורדת
-  /// ה-pre-release לא משאיר את הכונן בלי גרסה להתקין. המטא־דאטה נכתבת
-  /// מחדש אחרי כל הורדה שהסתיימה, וכל פעם רק על מה שכבר בדיסק במלואו —
-  /// כדי ש-[load] לא תראה אף פעם מראה חצי-מוכנה.
-  ///
-  /// [onChannelStart] נקרא לפני כל הורדה, כדי שה-UI יוכל לומר איזו משתיהן
-  /// יורדת כרגע (מד ההתקדמות מתאפס בין השתיים).
-  ///
-  /// חבילת FULL שירדה בגרסה ישנה של הלאנצ'ר **נמחקת כאן** — ראו
-  /// [staleFullPackages].
   Future<MirroredOtzariaReleases> sync({
+    OtzariaChannelReleases? online,
     void Function(int received, int total)? onDownloadProgress,
     void Function(OtzariaReleaseChannel channel)? onChannelStart,
     bool Function()? isCancelled,
   }) async {
-    final online = await _releaseClient.fetchChannelReleases();
+    online ??= await _releaseClient.fetchChannelReleases();
 
-    // מתחילים ממה שכבר על הכונן: ערוץ שההורדה שלו נכשלה חייב להישאר
-    // במטא־דאטה, אחרת הורדה חלקית מוחקת בחירת ערוץ שכבר הייתה למחשב
-    // הלא-מקוון בזמן שקובץ ההתקנה שלה עדיין שם.
-    //
-    // אבל ערוץ שקריאה **מוצלחת** לא החזירה כלל הוא סיפור אחר: הוא כבר לא
-    // קיים ברשת. זה בדיוק מה שקורה כש-pre-release מסומן בהמשך כיציב —
-    // הוא עובר לערוץ היציב וה-API מפסיק להחזיר לא-יציב. השארתו כאן הותירה
-    // בחירת ערוץ מדומה בין שתי רשומות שמצביעות על אותו קובץ, ואת קובצי
-    // ההתקנה הישנים על הכונן לנצח. איפוס כאן, ו-`pruneCacheExcept` שבסוף
-    // מוחק את מה שכבר אינו מוזכר.
     final existing = await load();
     var stable = online.stable == null ? null : existing.stable;
     var prerelease = online.prerelease == null ? null : existing.prerelease;
@@ -255,10 +233,6 @@ class OtzariaAppMirror {
       );
       if (channel == OtzariaReleaseChannel.stable) {
         stable = mirrored;
-        // Stable downloads first, so the prerelease here is still the one
-        // carried over from the drive; if its own download fails it must not
-        // stay beside a newer stable. A freshly downloaded one is never
-        // re-judged: release list order already vetted it.
         if (prerelease != null &&
             _isStalePrerelease(mirrored.release, prerelease.release)) {
           prerelease = null;
@@ -273,16 +247,11 @@ class OtzariaAppMirror {
       stable: stable,
       prerelease: prerelease,
     );
-    // קובצי התקנה של גרסאות שכבר אינן במטא־דאטה אינם שווים את המקום על
-    // הכונן הנייד. קבוצת שמירה ריקה, לעומת זאת, פירושה "מחק את הכול" —
-    // ותשובת API ריקה (דף שכולו טיוטות) אינה עילה לרוקן כונן.
     if (result.all.isNotEmpty) {
       await _installer.pruneCacheExcept(
         keepTagNames: {for (final e in result.all) e.release.tagName},
       );
     }
-    // `pruneCacheExcept` מנקה תגים שלמים בלבד, וחבילת FULL ישנה יושבת
-    // דווקא בתג שנשמר — לצד המתקין הרגיל.
     for (final path in await staleFullPackages()) {
       await _deleteQuietly(path);
     }

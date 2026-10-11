@@ -133,6 +133,23 @@ void main() {
         isNull,
       );
     });
+
+    test('ארכיון גדול נקרא, והקובץ משוחרר מיד אחרי הקריאה', () {
+      final manifest = utf8.encode('{"id":"big"}');
+      final payload = List<int>.generate(8 << 20, (i) => (i * 7919) & 0xff);
+      final archive = Archive()
+        ..addFile(ArchiveFile('assets/blob.bin', payload.length, payload))
+        ..addFile(ArchiveFile('manifest.json', manifest.length, manifest));
+      final path = p.join(temp.path, 'big.otzplugin');
+      File(path).writeAsBytesSync(ZipEncoder().encode(archive));
+
+      expect(PluginManifestReader.readId(path), 'big');
+      expect(PluginManifestReader.readId(path), 'big');
+
+      final moved = File(path).renameSync(p.join(temp.path, 'moved.otzplugin'));
+      moved.deleteSync();
+      expect(moved.existsSync(), isFalse);
+    });
   });
 
   group('read', () {

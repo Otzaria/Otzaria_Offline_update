@@ -309,10 +309,17 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
     return true;
   }
 
-  /// מוריד את הגרסה האחרונה מהרשת אל התיקייה המקומית. לא מתקין.
-  ///
-  /// ביטול דרך [isCancelled] אינו שגיאה: המצב חוזר ל-
-  /// [OtzariaDownloadStatus.idle] בלי [downloadError].
+  static const Duration _onlineReuseWindow = Duration(minutes: 10);
+
+  OtzariaChannelReleases? get _freshOnlineChannels {
+    final checkedAt = onlineCheckedAt;
+    if (checkedAt == null ||
+        DateTime.now().difference(checkedAt) >= _onlineReuseWindow) {
+      return null;
+    }
+    return onlineChannels;
+  }
+
   Future<void> download({bool Function()? isCancelled}) async {
     downloadStatus = OtzariaDownloadStatus.downloading;
     downloadReceived = null;
@@ -323,6 +330,7 @@ class OtzariaModuleController extends ChangeNotifier with ProgressNotifier {
 
     try {
       await _manager.downloadToMirror(
+        online: _freshOnlineChannels,
         onProgress: (received, total) {
           downloadReceived = received;
           downloadTotal = total;

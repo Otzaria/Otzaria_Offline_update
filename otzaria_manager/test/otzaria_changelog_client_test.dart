@@ -172,5 +172,60 @@ void main() {
 
       expect(client.dispose, returnsNormally);
     });
+
+    test('כמה גרסאות, גם במקביל, נענות מהורדה אחת של הקובץ', () async {
+      var requests = 0;
+      final client = OtzariaChangelogClient(
+        httpClient: MockClient((_) async {
+          requests++;
+          return http.Response(_fakeChangelog, 200, headers: _utf8TextHeaders);
+        }),
+      );
+
+      final parallel = await Future.wait([
+        client.notesFor('0.9.96'),
+        client.notesFor('0.9.95'),
+      ]);
+      final later = await client.notesFor('0.9.90');
+
+      expect(parallel[0], contains('שורה א של 0.9.96'));
+      expect(parallel[1], contains('שורה א של 0.9.95'));
+      expect(later, contains('שורה ישנה'));
+      expect(requests, 1);
+    });
+
+    test('כשל אינו נשמר: הקריאה הבאה מנסה שוב', () async {
+      var requests = 0;
+      final client = OtzariaChangelogClient(
+        httpClient: MockClient((_) async {
+          requests++;
+          return requests == 1
+              ? http.Response('', 503)
+              : http.Response(_fakeChangelog, 200, headers: _utf8TextHeaders);
+        }),
+      );
+
+      expect(await client.notesFor('0.9.96'), isNull);
+      expect(await client.notesFor('0.9.96'), contains('שורה א של 0.9.96'));
+      expect(requests, 2);
+    });
+
+    test('קובץ שעוד אין בו את הגרסה אינו נשמר: הקריאה הבאה מורידה שוב',
+        () async {
+      var requests = 0;
+      final client = OtzariaChangelogClient(
+        httpClient: MockClient((_) async {
+          requests++;
+          return requests == 1
+              ? http.Response('* **0.9.80**\n- ישן\n', 200,
+                  headers: _utf8TextHeaders)
+              : http.Response(_fakeChangelog, 200, headers: _utf8TextHeaders);
+        }),
+      );
+
+      expect(await client.notesFor('0.9.96'), isNull);
+      expect(await client.notesFor('0.9.96'), contains('שורה א של 0.9.96'));
+      expect(requests, 2);
+    });
   });
 }

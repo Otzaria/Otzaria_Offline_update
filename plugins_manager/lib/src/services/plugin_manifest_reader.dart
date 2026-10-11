@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:archive/archive.dart';
 
@@ -20,25 +19,25 @@ abstract final class PluginManifestReader {
     return id is String && id.trim().isNotEmpty ? id.trim() : null;
   }
 
-  /// קורא את ה-manifest כולו. מחזיר `null` באותם מקרים כמו [readId].
   static Map<String, dynamic>? read(String pluginFilePath) {
+    InputFileStream? input;
     try {
-      final bytes = File(pluginFilePath).readAsBytesSync();
-      final archive = ZipDecoder().decodeBytes(bytes, verify: false);
+      input = InputFileStream(pluginFilePath);
+      final archive = ZipDecoder().decodeStream(input, verify: false);
       final entry = archive.files.where(
         (f) => f.isFile && f.name == _manifestEntryName,
       );
       if (entry.isEmpty) return null;
 
-      // הסרת BOM: עורכים בווינדוס שומרים לעיתים JSON עם U+FEFF מוביל,
-      // ו-jsonDecode נופל עליו.
       final text = utf8
-          .decode(entry.first.content as List<int>, allowMalformed: true)
-          .replaceFirst('﻿', '');
+          .decode(entry.first.content, allowMalformed: true)
+          .replaceFirst('\uFEFF', '');
       final decoded = jsonDecode(text);
       return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
     } catch (_) {
       return null;
+    } finally {
+      input?.closeSync();
     }
   }
 }

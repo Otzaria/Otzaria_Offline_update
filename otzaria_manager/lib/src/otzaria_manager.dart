@@ -255,21 +255,14 @@ class OtzariaManager {
               ],
           };
 
-  /// מוריד את הגרסאות האחרונות אל המראה המקומית — **הפעולה הכבדה** שנוגעת
-  /// ברשת (מוריד את קובצי ההתקנה עצמם). לא מתקין כלום.
-  ///
-  /// מוריד **את שתי הגרסאות**: היציבה, ובנוסף ה-pre-release כשהוא חדש
-  /// ממנה. כך במחשב המנותק אפשר לבחור ביניהן בלי לחזור לרשת.
-  ///
-  /// [isCancelled] נבדק גם באמצע נכס: הביטול הוא של המשתמש, וקובץ ההתקנה
-  /// (~70MB) אינו משהו שכדאי לחכות לסופו. קובץ חלקי נמחק, ונזרק
-  /// [OtzariaDownloadCancelled].
   Future<void> downloadToMirror({
+    OtzariaChannelReleases? online,
     void Function(int received, int total)? onProgress,
     void Function(OtzariaReleaseChannel channel)? onChannel,
     bool Function()? isCancelled,
   }) =>
       _mirror.sync(
+        online: online,
         onDownloadProgress: onProgress,
         onChannelStart: onChannel,
         isCancelled: isCancelled,
@@ -651,16 +644,11 @@ class OtzariaManager {
         appVersion: version,
       );
 
-  /// האם [candidatePath] הוא בכלל אוצריא. נבדק לפי שם החבילה, ואם זה לא
-  /// מכריע — לפי `CFBundleIdentifier` ב-macOS (`com.example.otzaria` בבנייה
-  /// הנוכחית; ההשוואה היא על הסיומת `.otzaria` כדי שגם תיקון עתידי של
-  /// המזהה, למשל ל-`org.otzaria.otzaria`, ימשיך לעבוד).
   bool _verifyIsOtzaria(String candidatePath) {
     if (OtzariaAppLocator.nameLooksLikeOtzaria(candidatePath)) return true;
 
     if (_platform == OtzariaTargetPlatform.macos) {
-      // כמו ב-[_readVersionQuietly]: הקורא זורק כשאין `plutil`, וזיהוי
-      // שנכשל פירושו "לא הוכח שזו אוצריא" — לא תקלה.
+      if (!_isFlutterMacBundle(candidatePath)) return false;
       try {
         final id =
             const MacAppVersionReader().readBundleIdentifier(candidatePath);
@@ -670,6 +658,16 @@ class OtzariaManager {
       }
     }
     return false;
+  }
+
+  static bool _isFlutterMacBundle(String candidatePath) {
+    final bundle = MacAppVersionReader.bundleRootOf(candidatePath);
+    if (bundle == null) return false;
+    return FileSystemEntity.typeSync(
+          p.join(bundle, 'Contents', 'Frameworks', 'FlutterMacOS.framework'),
+          followLinks: false,
+        ) !=
+        FileSystemEntityType.notFound;
   }
 
   /// "מאמץ" התקנה קיימת שהתגלתה על ידי [detectExistingInstall] — שומר

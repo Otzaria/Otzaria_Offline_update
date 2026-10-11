@@ -762,5 +762,40 @@ void main() {
       expect(reloaded.selectedChannel(preferPrerelease: false),
           OtzariaReleaseChannel.prerelease);
     });
+
+    test('ערוצים שכבר נשלפו בבדיקה אינם נשלפים שוב מה-API', () async {
+      final tempDir =
+          await Directory.systemTemp.createTemp('otzaria-mirror-sync-test');
+      addTearDown(() => tempDir.delete(recursive: true));
+
+      var releaseRequests = 0;
+      final mirror = await mirrorFor(
+        releasesHttpClient: MockClient((_) async {
+          releaseRequests++;
+          return http.Response('', 500);
+        }),
+        changelogHttpClient: MockClient((_) async => http.Response('', 404)),
+        tempDir: tempDir,
+      );
+      final online = OtzariaChannelReleases(
+        stable: _release(
+          tagName: '0.9.96',
+          isPrerelease: false,
+          size: installerBytes.length,
+        ),
+        prerelease: _release(
+          tagName: '0.9.97',
+          publishedAt: DateTime.utc(2026, 2, 1),
+          size: installerBytes.length,
+        ),
+      );
+
+      final result = await mirror.sync(online: online);
+
+      expect(releaseRequests, 0);
+      expect(result.stable!.release.tagName, '0.9.96');
+      expect(result.prerelease!.release.tagName, '0.9.97');
+      expect((await mirror.load()).hasChoice, isTrue);
+    });
   });
 }

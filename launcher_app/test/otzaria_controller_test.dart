@@ -526,6 +526,50 @@ void main() {
     });
   });
 
+  group('download — משתמשת בתוצאת הבדיקה הקלה כשהיא טרייה', () {
+    OtzariaChannelReleases cachedOnline(String tag) {
+      const bytes = 'installer bytes';
+      final assetName = 'otzaria-$tag.exe';
+      File(p.join(tempDir.path, 'mirror', 'app', 'installers', tag, assetName))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(bytes);
+      return OtzariaChannelReleases(
+        stable: OtzariaRelease(
+          tagName: tag,
+          name: 'אוצריא $tag',
+          isPrerelease: false,
+          isDraft: false,
+          publishedAt: DateTime.utc(2026, 8, 1),
+          installerKind: OtzariaInstallerKind.windowsSetupExe,
+          installerAssetName: assetName,
+          installerDownloadUrl: 'https://example.invalid/$assetName',
+          installerSizeBytes: bytes.length,
+        ),
+      );
+    }
+
+    test('בדיקה טרייה: ההורדה אינה שולפת שוב את רשימת ה-releases', () async {
+      final c = controllerFor();
+      c.onlineChannels = cachedOnline('1.0.0');
+      c.onlineCheckedAt = DateTime.now();
+
+      await c.download();
+
+      expect(c.downloadError, isNull);
+      expect(c.downloadStatus, OtzariaDownloadStatus.done);
+    });
+
+    test('בדיקה ישנה אינה משמשת: ההורדה פונה לרשת מחדש', () async {
+      final c = controllerFor();
+      c.onlineChannels = cachedOnline('1.0.0');
+      c.onlineCheckedAt = DateTime.now().subtract(const Duration(minutes: 11));
+
+      await c.download();
+
+      expect(c.downloadStatus, OtzariaDownloadStatus.error);
+    });
+  });
+
   group('חבילת FULL שנשארה מגרסה ישנה', () {
     test('מראה רגילה — אין מה לנקות', () async {
       writeAppMirror(stableTag: '0.9.96');
