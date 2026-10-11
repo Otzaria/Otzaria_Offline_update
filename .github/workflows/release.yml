@@ -52,6 +52,8 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: assets
+          # רק ארטיפקטים של הלאנצ'ר — לא דוחות הכיסוי של ה-CI.
+          pattern: launcher_app-*
           merge-multiple: true
       - name: Bump the version in the repository
         run: |

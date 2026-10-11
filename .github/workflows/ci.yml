@@ -84,7 +84,9 @@ jobs:
       - uses: dart-lang/setup-dart@v1
       - run: dart pub get
       - run: dart analyze
-      - run: dart test
+      # ב-Windows הבדיקות רצות בג'וב coverage — כאן רק analyze.
+      - if: runner.os != 'Windows'
+        run: dart test
 
   otzaria_manager:
     name: otzaria_manager (analyze + test)
@@ -198,7 +200,7 @@ jobs:
       - run: flutter create --platforms=windows .
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos
-      - run: flutter test
+      # הבדיקות של הלאנצ'ר ב-Windows רצות בג'וב coverage.
       - run: flutter build windows --release
       # אין מתקין — exe בודד ונייד (זהה ל-build-exe.yml): ה-stub נושא את
       # ערמת הקבצים כ-resource ומחלץ אותה ל-app-files לידו בהרצה הראשונה,
@@ -232,7 +234,7 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos
       # ⚠️ אין כאן `flutter test` בכוונה. מערך הבדיקות של הלאנצ'ר רץ במלואו
-      # בג'וב של ווינדוס, והוא גם היעד האמיתי של החלקים תלויי-הפלטפורמה שבו
+      # בג'וב ה-coverage של ווינדוס, והוא גם היעד האמיתי של החלקים תלויי-הפלטפורמה שבו
       # (סריקת `exe`, הרישום, `tasklist`) — ב-macOS הם מחזירים null ומפילים
       # את הג'וב על משהו שאינו מייצג תקלה. הג'וב הזה קיים כדי **לבנות**.
       # ה-.app הוא ההפצה עצמה — אין מתקין ל-macOS (גוררים ל-Applications).
@@ -247,4 +249,29 @@ jobs:
         with:
           name: launcher_app-macos
           path: launcher_app/launcher_app-macos.zip
+          if-no-files-found: error
+
+  # כל הבדיקות של הפרויקט ב-Windows, עם מדידת כיסוי ורף מינימום. הוא
+  # מחליף את coverage.yml הנפרד, שהריץ את אותן בדיקות פעם שנייה.
+  coverage:
+    name: tests + coverage (windows)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: dart pub global activate coverage 1.15.1
+      - run: dart tool/coverage.dart --collect --min=60 --target=80
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-coverage
+          path: |
+            build/coverage/lcov.info
+            build/coverage/run.log
+            build/coverage/summary.json
+            */build/coverage/lcov.info
+            */build/coverage/run.log
           if-no-files-found: error
