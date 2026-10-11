@@ -176,6 +176,34 @@ void main() {
         expect(e.isApplicable, isFalse);
       });
     });
+
+    // הציר השלישי: דחיסה שאיננו מכירים נפסלת בתכנון ולא בפענוח.
+    test('דחיסה שאינה zstd — הקשת נפסלת', () {
+      const entry = PatchFileEntry(
+        file: 'patch-v1-v2.db.zst',
+        compression: 'gzip',
+        sha256: 'c',
+        size: 1,
+        uncompressedSha256: 'u',
+        uncompressedSize: 2,
+      );
+      const e = PatchEdge(
+        manifest: DeltaManifest(
+          fromVersion: 1,
+          toVersion: 2,
+          fromSchemaVersion: 2,
+          toSchemaVersion: 2,
+          fromContentHash: 'a',
+          toContentHash: 'b',
+          patchFiles: [entry],
+        ),
+        patchFileUrls: {},
+        manifestUrl: 'm',
+      );
+      expect(e.hasSupportedSchema, isTrue);
+      expect(e.hasSupportedCompression, isFalse);
+      expect(e.isApplicable, isFalse);
+    });
   });
 
   group('LibraryUpdatePlan', () {

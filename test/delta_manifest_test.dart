@@ -69,10 +69,19 @@ void main() {
       expect(() => DeltaManifest.fromJson(json), throwsFormatException);
     });
 
-    test('זורק על compression שאינו zstd', () {
+    // פענוח שנכשל היה מעלים את הגרסה מהגרף; הפסילה נעשית ב-PatchEdge.
+    test('compression שאינו zstd נקרא, ומסומן כלא נתמך', () {
       final json = jsonDecode(validJson) as Map<String, dynamic>;
       (json['patchFiles'] as List).first['compression'] = 'gzip';
-      expect(() => DeltaManifest.fromJson(json), throwsFormatException);
+      final manifest = DeltaManifest.fromJson(json);
+      expect(manifest.patchFiles.first.compression, 'gzip');
+      expect(manifest.hasSupportedCompression, isFalse);
+    });
+
+    test('compression zstd נתמך', () {
+      final manifest =
+          DeltaManifest.fromJson(jsonDecode(validJson) as Map<String, dynamic>);
+      expect(manifest.hasSupportedCompression, isTrue);
     });
 
     group('fullRebase', () {

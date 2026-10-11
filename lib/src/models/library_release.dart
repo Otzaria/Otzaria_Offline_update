@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 
+import 'patch_table_spec.dart';
 import 'split_archive_manifest.dart';
 
 /// קובץ מצורף בודד ב-release של GitHub.
@@ -80,9 +81,24 @@ class ReleaseAsset extends Equatable {
       name.startsWith('patch-') && name.endsWith('.db.zst.manifest.json');
 
   /// מסד מלא רגיל או מסד ששמו כולל את גרסת הסכמה.
-  bool get isFullDbArchive =>
-      name == fullDbArchiveName ||
-      RegExp(r'^seforim-schema[1-9]\d*\.db\.zst$').hasMatch(name);
+  bool get isFullDbArchive => isFullDbName(name);
+
+  static final RegExp _schemaNamePattern =
+      RegExp(r'^seforim-schema([1-9]\d*)\.db\.zst$');
+
+  /// האם [name] הוא שם של מסד מלא דחוס (רגיל או עם סכמה בשם).
+  static bool isFullDbName(String name) =>
+      name == fullDbArchiveName || _schemaNamePattern.hasMatch(name);
+
+  /// סכמת המסד לפי השם: `seforim.db.zst` נחשב סכמה 5 ומטה (שם שמור ללקוחות
+  /// ישנים); שם שאינו מסד מלא ⇒ null.
+  static int? fullDbSchemaOfName(String name) {
+    if (name == fullDbArchiveName) return _legacySchemaCeiling;
+    final match = _schemaNamePattern.firstMatch(name);
+    return match == null ? null : int.tryParse(match.group(1)!);
+  }
+
+  static const int _legacySchemaCeiling = 5;
 
   @override
   List<Object?> get props =>
@@ -141,43 +157,47 @@ class LibraryRelease extends Equatable {
     return state == null || state == uploadedAssetState;
   }
 
-  /// מוסיף נכס `seforim.db.zst` וירטואלי כשה-DB פורסם מפוצל, כדי שכל
-  /// ה-planning יראה DB מלא רגיל. חלק חסר (עוד עולה) = אין DB מלא, כמו היום.
+  /// מוסיף נכס וירטואלי לכל מסד מלא (`seforim.db.zst` או
+  /// `seforim-schema<N>.db.zst`) שפורסם מפוצל, כדי שכל ה-planning יראה DB מלא
+  /// רגיל. חלק חסר (עוד עולה) = אין DB מלא בשם הזה, כמו היום.
   static List<ReleaseAsset> _withAssembledFullDb(
     List<ReleaseAsset> assets, {
     required Set<String> pending,
   }) {
-    const archive = ReleaseAsset.fullDbArchiveName;
     final byName = {for (final a in assets) a.name: a};
-    if (byName.containsKey(archive)) return assets;
-    // חלק או מניפסט שעדיין עולים: החלקים שכבר עלו אינם הקובץ כולו.
-    if (pending.any((name) => name.startsWith('$archive.'))) return assets;
-    final manifest = byName['$archive${SplitArchiveManifest.fileSuffix}'];
-    if (manifest == null) return assets;
+    final assembled = <ReleaseAsset>[];
+    for (final manifest in assets) {
+      if (!manifest.name.endsWith(SplitArchiveManifest.fileSuffix)) continue;
+      final archive = manifest.name.substring(
+          0, manifest.name.length - SplitArchiveManifest.fileSuffix.length);
+      if (!ReleaseAsset.isFullDbName(archive)) continue;
+      if (byName.containsKey(archive)) continue;
+      // חלק או מניפסט שעדיין עולים: החלקים שכבר עלו אינם הקובץ כולו.
+      if (pending.any((name) => name.startsWith('$archive.'))) continue;
 
-    final parts = <ReleaseAsset>[];
-    for (var i = 0;; i++) {
-      final part = byName[SplitArchiveManifest.partName(archive, i)];
-      if (part == null) break;
-      parts.add(part);
-    }
-    final partCount =
-        assets.where((a) => a.name.startsWith('$archive.part-')).length;
-    // פער ברצף (חלק שעדיין עולה) — הרכבה הייתה חסרה, ולכן אין DB מלא.
-    if (parts.isEmpty || parts.length != partCount) return assets;
-    if (parts.any((part) => part.size <= 0)) return assets;
+      final parts = <ReleaseAsset>[];
+      for (var i = 0;; i++) {
+        final part = byName[SplitArchiveManifest.partName(archive, i)];
+        if (part == null) break;
+        parts.add(part);
+      }
+      final partCount =
+          assets.where((a) => a.name.startsWith('$archive.part-')).length;
+      // פער ברצף (חלק שעדיין עולה) — הרכבה הייתה חסרה, ולכן אין DB מלא.
+      if (parts.isEmpty || parts.length != partCount) continue;
+      if (parts.any((part) => part.size <= 0)) continue;
 
-    return List.unmodifiable([
-      ...assets,
-      ReleaseAsset(
+      assembled.add(ReleaseAsset(
         name: archive,
         downloadUrl: '',
         size: parts.fold<int>(0, (sum, part) => sum + part.size),
         updatedAt: manifest.updatedAt,
         parts: List.unmodifiable(parts),
         splitManifest: manifest,
-      ),
-    ]);
+      ));
+    }
+    if (assembled.isEmpty) return assets;
+    return List.unmodifiable([...assets, ...assembled]);
   }
 
   /// סריאליזציה לפורמט המראה המקומית (offline) — ראו
@@ -210,12 +230,27 @@ class LibraryRelease extends Equatable {
   List<ReleaseAsset> get deltaManifestAssets =>
       assets.where((a) => a.isDeltaManifest).toList(growable: false);
 
-  /// ה-DB המלא הדחוס ב-release זה, אם קיים.
-  ReleaseAsset? get fullDbAsset {
+  /// ה-DB המלא הדחוס ב-release זה, אם קיים: הסכמה הגבוהה ביותר שאינה עולה על
+  /// [kSupportedDbSchemaVersion]; בתיקו הראשון. מסד בסכמה שאיננו קוראים לא
+  /// נבחר — הורדה של ~2GB שאי אפשר להתקין היא בזבוז.
+  ReleaseAsset? get fullDbAsset =>
+      fullDbAssetFor(maxSchemaVersion: kSupportedDbSchemaVersion);
+
+  /// כמו [fullDbAsset] עבור צרכן שמכיר סכמות עד [maxSchemaVersion].
+  ReleaseAsset? fullDbAssetFor({required int maxSchemaVersion}) {
+    ReleaseAsset? best;
+    var bestSchema = -1;
     for (final asset in assets) {
-      if (asset.isFullDbArchive) return asset;
+      final schema = ReleaseAsset.fullDbSchemaOfName(asset.name);
+      if (schema == null) continue;
+      if (schema <= maxSchemaVersion) {
+        if (schema > bestSchema) {
+          best = asset;
+          bestSchema = schema;
+        }
+      }
     }
-    return null;
+    return best;
   }
 
   /// מאתר asset לפי שם מדויק.

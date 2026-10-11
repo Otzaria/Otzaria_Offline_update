@@ -18,25 +18,36 @@
 /// | דלתא | patch 6.8MB | 133s / 734s | 337s |
 /// | דלתא | patch 8.5MB | 214s / 790s / 1039s | 347s |
 /// | דלתא | patch 585MB | **3,864s** | 3,517s |
+/// | דלתא | patch 114MiB (v31→v32) | לא נמדד | 927s |
 ///
 /// הפיזור בין מכונות הוא פי 3–5, ולכן האומדן אינו מבטיח שניות אלא **סדר
 /// גודל והשוואה בין שני המסלולים** על אותה מכונה. זה גם כל מה שנדרש ממנו.
+///
+/// **זיכוי הורדה:** הטווח מורחב בשווי ההורדה שנחסכת במחשב המקוון
+/// ([downloadSecondsPerMb]) — patch של 114MiB מול מסד של 1.73GB חוסך ~1.6GB,
+/// וזה שווה כ-14 דקות. בלי הזיכוי patch גדול ב-4% בלבד היה נפסל.
 class ApplyTimeEstimate {
   const ApplyTimeEstimate({
     this.fullSecondsPerMb = 0.2,
     this.stepFixedSeconds = 300,
+    this.stepIntermediateSeconds = 60,
     this.stepSecondsPerMb = 5.5,
     this.slowRouteRatio = 2.0,
     this.slowRouteMarginSeconds = 600,
+    this.downloadSecondsPerMb = 0.5,
   });
 
   /// חילוץ ה-zstd וכתיבת המסד, לכל MB **דחוס** של `seforim.db.zst`.
   final double fullSecondsPerMb;
 
-  /// המחיר הקבוע של צעד דלתא אחד, בלי קשר לגודל הקובץ: סריקת ה-hash הלוגי
-  /// על כל המסד (~5.9GB לוגיים ב-23MB/s). זה מה שהופך שרשרת של חמישה צעדים
-  /// לחמש פעמים המחיר הזה.
+  /// המחיר הקבוע של שרשרת דלתא, בלי קשר לגודל הקבצים: סריקת ה-hash הלוגי
+  /// על כל המסד (~5.9GB לוגיים ב-23MB/s). נגבה **פעם אחת לשרשרת** — ה-applier
+  /// מאמת hash מקור רק בצעד הראשון ויעד רק באחרון.
   final double stepFixedSeconds;
+
+  /// מחיר קבוע קטן לכל צעד ביניים בשרשרת (פתיחת ה-patch ומעבר צעד).
+  /// **אומדן ולא נמדד.**
+  final double stepIntermediateSeconds;
 
   /// החלק שגדל עם הקובץ: חילוץ ה-patch והחלתו, לכל MB דחוס.
   final double stepSecondsPerMb;
@@ -50,26 +61,54 @@ class ApplyTimeEstimate {
   /// על עדכון של שתי דקות היה גורר הורדה של 1.3GB בשביל דקה.
   final double slowRouteMarginSeconds;
 
+  /// שווי שנייה-הורדה לכל MB שנחסך במחשב המקוון: ~2MB/s אגרגטי של GitHub.
+  final double downloadSecondsPerMb;
+
   static const int _mb = 1 << 20;
 
   /// זמן החלפת המסד המלא: חילוץ [compressedBytes] וכתיבת המסד.
   double fullRouteSeconds(int compressedBytes) =>
       (compressedBytes / _mb) * fullSecondsPerMb;
 
-  /// זמן החלת שרשרת דלתא, לפי הגודל הדחוס של כל צעד בה.
+  /// זמן החלת שרשרת דלתא: מחיר קבוע מלא פעם אחת, מחיר ביניים קטן לכל צעד
+  /// נוסף, והחלק שגדל עם הגודל הדחוס של כל צעד.
   double deltaRouteSeconds(Iterable<int> stepCompressedBytes) {
     var seconds = 0.0;
+    var first = true;
     for (final bytes in stepCompressedBytes) {
-      seconds += stepFixedSeconds + (bytes / _mb) * stepSecondsPerMb;
+      seconds += (first ? stepFixedSeconds : stepIntermediateSeconds) +
+          (bytes / _mb) * stepSecondsPerMb;
+      first = false;
     }
     return seconds;
   }
 
+  /// עלות צעד בשרשרת שנבנית בהדרגה (תכנון דינמי): כמו צעד ביניים. את
+  /// ההפרש עד המחיר הקבוע המלא מוסיפים פעם אחת — [chainStartExtraSeconds].
+  double intermediateStepSeconds(int compressedBytes) =>
+      stepIntermediateSeconds + (compressedBytes / _mb) * stepSecondsPerMb;
+
+  /// התוספת על סכום [intermediateStepSeconds] של שרשרת לא ריקה.
+  double get chainStartExtraSeconds =>
+      stepFixedSeconds - stepIntermediateSeconds;
+
   /// האם מסלול הדלתא יצא **מחוץ לטווח** — איטי מהמסלול המלא גם ביחס וגם
   /// בהפרש מוחלט. רק אז שווה לוותר על היסטוריית ה-patches.
-  bool isOutOfRange(double deltaSeconds, double fullSeconds) =>
-      deltaSeconds > fullSeconds * slowRouteRatio &&
-      deltaSeconds - fullSeconds >= slowRouteMarginSeconds;
+  ///
+  /// [savedDownloadBytes] — כמה בייטים ההורדה בדלתא חוסכת מול המסד המלא
+  /// (מלא פחות גודל מסלול ה-patch, לא פחות מ-0); שווים נוסף על ההפרש הנדרש.
+  /// כשאין חיסכון (patches שסכומם עולה על המסד) אין זיכוי.
+  bool isOutOfRange(
+    double deltaSeconds,
+    double fullSeconds, {
+    int savedDownloadBytes = 0,
+  }) {
+    final saved = savedDownloadBytes < 0 ? 0 : savedDownloadBytes;
+    final margin =
+        slowRouteMarginSeconds + (saved / _mb) * downloadSecondsPerMb;
+    return deltaSeconds > fullSeconds * slowRouteRatio &&
+        deltaSeconds - fullSeconds >= margin;
+  }
 
   /// דקות מעוגלות כלפי מעלה, להצגה למשתמש — 0 דקות אינו זמן.
   static int minutesOf(double seconds) {

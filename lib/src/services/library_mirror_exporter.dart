@@ -239,6 +239,16 @@ class LibraryMirrorExporter {
           ));
           continue;
         }
+        // הציר השלישי: דחיסה שאיננו יודעים לחלץ. ה-manifest נשמר (והגרסה
+        // נספרת ל-latest), הקבצים לא.
+        if (!manifest.hasSupportedCompression) {
+          final unknown = manifest.patchFiles
+              .map((f) => f.compression)
+              .firstWhere(
+                  (c) => !PatchFileEntry.supportedCompressions.contains(c));
+          onWarning?.call(strings.unsupportedPatchCompression(unknown));
+          continue;
+        }
         var complete = true;
         final fileNames = <String>[];
         for (final patchFile in manifest.patchFiles) {
@@ -810,6 +820,8 @@ class LibraryMirrorExporter {
     for (final candidate in carriers.skip(1)) {
       if (!_isCompleteOnDisk(assetsRootPath, candidate)) continue;
       final version = LibraryUpdateDiscovery.releaseVersionOf(candidate);
+      // אותה גרסה ב-tag אחר = פרסום מחדש עם תיקון; המסד הישן אינו התוכן הנכון.
+      if (version == latest && candidate.tag != newest.tag) continue;
       if (!_reaches(edges, version, latest)) continue;
       onStage?.call(AppL10n.strings.libraryDomain
           .exportReusingFullDb(version, candidate.tag));
@@ -895,7 +907,13 @@ class LibraryMirrorExporter {
       final bytes = _plannedEdgeBytes(edge, neededByRelease);
       if (bytes == null) continue;
       final stepSeconds = applyTime.deltaRouteSeconds([bytes]);
-      if (!applyTime.isOutOfRange(stepSeconds, fullSeconds)) continue;
+      if (!applyTime.isOutOfRange(
+        stepSeconds,
+        fullSeconds,
+        savedDownloadBytes: fullBytes - bytes,
+      )) {
+        continue;
+      }
       final needed = neededByRelease[edge.release]!;
       var files = 0;
       for (final name in edge.assetNames) {
@@ -957,7 +975,7 @@ class LibraryMirrorExporter {
     final fullBytes = carrier.fullDbAsset!.size;
     if (fullBytes <= 0) return null;
 
-    final route = _cheapestRouteSeconds(
+    final route = _cheapestRoute(
       to: latestVersion,
       from: fromVersion,
       neededByRelease: neededByRelease,
@@ -966,10 +984,18 @@ class LibraryMirrorExporter {
     if (route == null) {
       return (carrier: carrier, routeSeconds: null, fromVersion: fromVersion);
     }
-    if (!applyTime.isOutOfRange(route, applyTime.fullRouteSeconds(fullBytes))) {
+    if (!applyTime.isOutOfRange(
+      route.seconds,
+      applyTime.fullRouteSeconds(fullBytes),
+      savedDownloadBytes: fullBytes - route.bytes,
+    )) {
       return null;
     }
-    return (carrier: carrier, routeSeconds: route, fromVersion: fromVersion);
+    return (
+      carrier: carrier,
+      routeSeconds: route.seconds,
+      fromVersion: fromVersion,
+    );
   }
 
   /// מחליף את התוכנית ל**מסד מלא בלבד** ומכריז על כך. `routeSeconds` ריק
@@ -1029,9 +1055,9 @@ class LibraryMirrorExporter {
     return newestVersion < latestVersion ? null : newest;
   }
 
-  /// זמן השרשרת הזולה ביותר בקובצי עדכון מ-[from] ל-[to], בשניות.
-  /// `null` = אין מסלול כזה בתוכנית.
-  double? _cheapestRouteSeconds({
+  /// השרשרת הזולה ביותר בקובצי עדכון מ-[from] ל-[to]: זמן בשניות וגודל
+  /// הורדה בבייטים. `null` = אין מסלול כזה בתוכנית.
+  ({double seconds, int bytes})? _cheapestRoute({
     required int to,
     required int from,
     required Map<LibraryRelease, Map<String, ReleaseAsset>> neededByRelease,
@@ -1047,19 +1073,30 @@ class LibraryMirrorExporter {
 
     // הקשתות מתקדמות תמיד קדימה, ולכן מעבר על הגרסאות בסדר עולה הוא סדר
     // טופולוגי תקין — אין צורך ב-Dijkstra.
-    final best = <int, double>{from: 0};
+    final best = <int, ({double seconds, int bytes})>{
+      from: (seconds: 0, bytes: 0),
+    };
     final starts = steps.map((s) => s.from).toSet().toList()..sort();
     for (final version in starts) {
       final base = best[version];
       if (base == null) continue;
       for (final step in steps) {
         if (step.from != version) continue;
-        final cost = base + applyTime.deltaRouteSeconds([step.bytes]);
+        final cost =
+            base.seconds + applyTime.intermediateStepSeconds(step.bytes);
         final known = best[step.to];
-        if (known == null || cost < known) best[step.to] = cost;
+        if (known == null || cost < known.seconds) {
+          best[step.to] = (seconds: cost, bytes: base.bytes + step.bytes);
+        }
       }
     }
-    return best[to];
+    final total = best[to];
+    if (total == null || to == from) return total;
+    // המחיר הקבוע המלא נגבה פעם אחת לשרשרת — ראו ApplyTimeEstimate.
+    return (
+      seconds: total.seconds + applyTime.chainStartExtraSeconds,
+      bytes: total.bytes,
+    );
   }
 
   /// הגודל הדחוס של קשת שנשארה בתוכנית, או `null` אם נכס שלה כבר אינו בה.

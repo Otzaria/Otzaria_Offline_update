@@ -97,6 +97,46 @@ void main() {
       ]);
       expect(release.fullDbAsset, isNull);
     });
+
+    test('מסד סכמה 6 מפוצל מורכב בשמו ולא כ-seforim.db.zst', () {
+      const name = 'seforim-schema6.db.zst';
+      final release = parse([
+        _asset('$name.part-000', 100),
+        _asset('$name.part-001', 40),
+        _asset('$name.manifest.json', 600),
+      ]);
+      final full = release.fullDbAsset!;
+      expect(full.name, name);
+      expect(full.isSplit, isTrue);
+      expect(full.size, 140);
+      expect(release.assetByName(_archive), isNull);
+    });
+
+    test('סכמה 6 מפוצלת עם חלק שעולה — אין DB מלא', () {
+      const name = 'seforim-schema6.db.zst';
+      final release = parse([
+        _asset('$name.part-000', 100),
+        {..._asset('$name.part-001', 0), 'state': 'uploading'},
+        _asset('$name.manifest.json', 600),
+      ]);
+      expect(release.fullDbAsset, isNull);
+    });
+
+    test('בחירת מסד: הסכמה הנתמכת הגבוהה גוברת, וסכמה גבוהה מהנתמכת לא', () {
+      final release = parse([
+        _asset('seforim-schema7.db.zst', 10),
+        _asset(_archive, 10),
+      ]);
+      expect(release.fullDbAsset!.name, _archive);
+      expect(release.fullDbAssetFor(maxSchemaVersion: 7)!.name,
+          'seforim-schema7.db.zst');
+      expect(release.fullDbAssetFor(maxSchemaVersion: 6)!.name, _archive);
+    });
+
+    test('מסד בסכמה גבוהה מהנתמכת אינו נבחר גם כשאין אחר', () {
+      final release = parse([_asset('seforim-schema7.db.zst', 10)]);
+      expect(release.fullDbAsset, isNull);
+    });
   });
 
   group('SplitArchiveManifest.fromJson', () {

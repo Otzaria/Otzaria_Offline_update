@@ -42,6 +42,7 @@ Map<String, dynamic> manifestBody(
   int toSchema = 2,
   int? patchFormat,
   bool fullRebase = false,
+  String compression = 'zstd',
 }) =>
     {
       if (fullRebase) 'fullRebase': true,
@@ -57,7 +58,7 @@ Map<String, dynamic> manifestBody(
       'patchFiles': [
         {
           'file': 'patch-v$from-v$to.db.zst',
-          'compression': 'zstd',
+          'compression': compression,
           // הייצוא קורא מכאן רק את שם הקובץ; ה-hash/size מאומתים מול מטא-דאטה
           // של ה-asset, לא מול ה-manifest.
           'sha256': 'unused',
@@ -97,6 +98,7 @@ void main() {
     Map<int, int> schemaByVersion = const {},
     int? patchFormat,
     bool fullRebase = false,
+    Map<int, String> compressionByVersion = const {},
     Future<void> Function(String assetName)? beforeAsset,
   }) {
     Uint8List bodyFor(String name) {
@@ -118,6 +120,7 @@ void main() {
         toSchema: schemaByVersion[to] ?? 2,
         patchFormat: patchFormat,
         fullRebase: fullRebase,
+        compression: compressionByVersion[to] ?? 'zstd',
       ))));
     }
 
@@ -531,6 +534,73 @@ void main() {
   // להחיל. עד התיקון ה-patches שלה נכנסו למראה, הצדיקו שמירה של מסד מלא ישן,
   // ורק אחרי ~1.5GB הורדה ו-~5.5GB חילוץ נפסלו — על מסד v23 חי שכבר הוחלף.
   // סכמה 4 נתמכת מאז; הבדיקות כאן משתמשות בסכמה עתידית כדי לשמר את התרחיש.
+  group('export — patch בדחיסה שאיננו מכירים', () {
+    // מניפסט שנפסל בפענוח היה מעלים את הגרסה והמשתמש היה רואה "מעודכן".
+    test('ה-manifest נשמר, הקובץ לא, והגרסה נספרת ל-latest', () async {
+      final warnings = <String>[];
+      final built = buildExporter(
+        [
+          release('v26', assets: [
+            'patch-v25-v26.db.zst',
+            'patch-v25-v26.db.zst.manifest.json',
+          ]),
+          release('v25', assets: ['seforim.db.zst']),
+        ],
+        compressionByVersion: {26: 'gzip'},
+      );
+      await built.exporter.export(destDir: destDir, onWarning: warnings.add);
+
+      expect(
+        assetOnDisk(destDir, 'v26', 'patch-v25-v26.db.zst.manifest.json'),
+        isTrue,
+      );
+      expect(assetOnDisk(destDir, 'v26', 'patch-v25-v26.db.zst'), isFalse);
+      expect(
+        warnings,
+        contains(AppL10n.strings.libraryDomain.unsupportedPatchCompression(
+          'gzip',
+        )),
+      );
+      final discovery = await LibraryUpdateDiscovery(
+        client: LocalMirrorLibraryReleaseClient(mirrorDir: destDir),
+      ).discover(allowPrerelease: false);
+      expect(discovery.latestVersion, 26);
+      expect(discovery.edges, isEmpty);
+    });
+  });
+
+  group('בחירת נשא המסד המלא', () {
+    // v32 שפורסם מחדש עם תיקון: אותה גרסה, tag אחר. המסד הישן עובר
+    // _reaches(32, 32) טריוויאלית, אך אינו התוכן המתוקן.
+    test('מסד של tag ישן באותה גרסה אינו מחליף את המתוקן', () async {
+      await buildExporter([
+        release('v32-old', assets: [
+          'seforim.db.zst',
+          'patch-v31-v32.db.zst',
+          'patch-v31-v32.db.zst.manifest.json',
+        ]),
+      ]).exporter.export(destDir: destDir);
+      expect(assetOnDisk(destDir, 'v32-old', 'seforim.db.zst'), isTrue);
+
+      final second = buildExporter([
+        release('v32-fixed', assets: [
+          'seforim.db.zst',
+          'patch-v31-v32.db.zst',
+          'patch-v31-v32.db.zst.manifest.json',
+        ]),
+        release('v32-old', assets: [
+          'seforim.db.zst',
+          'patch-v31-v32.db.zst',
+          'patch-v31-v32.db.zst.manifest.json',
+        ]),
+      ]);
+      await second.exporter.export(destDir: destDir);
+
+      expect(assetOnDisk(destDir, 'v32-fixed', 'seforim.db.zst'), isTrue);
+      expect(second.fetched, contains('seforim.db.zst'));
+    });
+  });
+
   group('export — patches בסכמה שאי אפשר להחיל', () {
     // מחסום מעבר סכמה: ה-manifest נשמר (הגרסה נשארת ב-latest), אין קובץ
     // להעתיק, ואין אזהרה או הודעת "נדרש מסד מלא" בגללו.

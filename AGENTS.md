@@ -538,7 +538,7 @@ anything older falls back to the full-DB route, always present in the mirror.
 
 **What goes into the mirror is decided by how long the update will take on the
 *offline* machine, not by which files are smaller.** A patch pays a full-database
-hash scan **per step** on top of the apply; the full route is one decompress.
+hash scan **per chain** on top of the apply; the full route is one decompress.
 v27 (September 2026) forced this: the library rewrote the DB end to end, its
 patches came out at ~500MB each, and the mirror — which prefers keeping an existing
 full DB — pulled **2.15GB** of them instead of a fresh 1.31GB full DB. The user paid
@@ -554,6 +554,18 @@ full DB included.
   than twice as slow **and** at least ten minutes slower. Do not simplify back to a
   size comparison — an 8.5MB patch and a 585MB one start from the same fixed cost,
   which is what a size rule cannot see.
+  **The ten minutes are widened by a download credit** (on the exporter side only —
+  once both files are on the drive the download is sunk, so `LibraryUpdatePlanner`
+  passes none): `isOutOfRange(..., savedDownloadBytes:)` adds
+  `downloadSecondsPerMb` (0.5, ~2MB/s aggregate from GitHub) for every byte the
+  patch route saves against the full DB (full size minus the patch route, floored at
+  0). The v31→v32 patch (114MiB vs a 1.85GB full DB) used to survive by 24s, so a
+  patch 4% larger was dropped and the user downloaded 1.73GB; with the credit
+  patches up to ~250MiB stay. No saving means no credit — v27 (patches summing to
+  2.15GB against a 1.31GB full DB) is still dropped. The fixed hash-scan cost
+  (`stepFixedSeconds`) is paid **once per chain**, matching the applier (source
+  hash only on the first step, target hash only on the last); intermediate steps pay
+  a small `stepIntermediateSeconds` (60s — an estimate, not measured).
 - **The verdict must be re-derivable, not remembered.** The first version measured
   only the cheapest single step into the latest version, so the decision survived in
   nothing but the deleted files; a month later an ordinary patch landed at the end

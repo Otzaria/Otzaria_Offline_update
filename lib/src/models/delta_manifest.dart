@@ -31,18 +31,13 @@ class PatchFileEntry extends Equatable {
     required this.uncompressedSize,
   });
 
-  /// סוגי הדחיסה הנתמכים. patch בעל דחיסה אחרת ייכשל ב-parse.
+  /// סוגי הדחיסה הנתמכים. דחיסה אחרת נקראת בסלחנות והקשת נפסלת בתכנון
+  /// ([DeltaManifest.hasSupportedCompression]) — כשל בפענוח היה מעלים גרסה.
   static const Set<String> supportedCompressions = {'zstd'};
 
-  /// בונה [PatchFileEntry] מ-JSON. זורק [FormatException] אם חסר שדה חובה
-  /// או אם סוג הדחיסה אינו נתמך.
+  /// בונה [PatchFileEntry] מ-JSON. זורק [FormatException] אם חסר שדה חובה.
   factory PatchFileEntry.fromJson(Map<String, dynamic> json) {
     final compression = _requireString(json, 'compression');
-    if (!supportedCompressions.contains(compression)) {
-      throw FormatException(
-        AppL10n.strings.libraryDomain.unsupportedPatchCompression(compression),
-      );
-    }
     return PatchFileEntry(
       file: _requireString(json, 'file'),
       compression: compression,
@@ -138,6 +133,10 @@ class DeltaManifest extends Equatable {
       catalogBlobName: json['catalogBlobName'] as String?,
     );
   }
+
+  /// האם כל קבצי ה-patch בדחיסה שאנו יודעים לחלץ.
+  bool get hasSupportedCompression => patchFiles.every(
+      (f) => PatchFileEntry.supportedCompressions.contains(f.compression));
 
   /// סכום הגדלים הדחוסים של כל קבצי ה-patch (לתצוגת גודל הורדה).
   int get totalCompressedSize =>

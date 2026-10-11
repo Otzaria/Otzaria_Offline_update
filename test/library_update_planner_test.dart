@@ -423,11 +423,18 @@ void main() {
         );
       });
 
-      test('שרשרת ארוכה מפסידה', () {
+      // צעדים כבדים: המחיר הקבוע משולם פעם אחת לשרשרת, ולכן שרשרת של
+      // קבצים קטנים אינה מפסידה — רק זו שהחלק הגדל עם הגודל שלה כבד.
+      test('שרשרת ארוכה וכבדה מפסידה', () {
         final p = plan(
           local: 1,
           latest: 5,
-          edges: [_edge(1, 2), _edge(2, 3), _edge(3, 4), _edge(4, 5)],
+          edges: [
+            _edge(1, 2, size: 100 << 20),
+            _edge(2, 3, size: 100 << 20),
+            _edge(3, 4, size: 100 << 20),
+            _edge(4, 5, size: 100 << 20),
+          ],
         );
         expect(p.kind, LibraryUpdatePlanKind.fullDownload);
         expect(p.finalTargetVersion, 5);

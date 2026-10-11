@@ -40,11 +40,17 @@ class PatchEdge extends Equatable {
     return format == null || isSupportedPatchFormatVersion(format);
   }
 
-  /// האם אפשר להחיל את הקשת בכלל — **שני** צירי היכולת. קשת שאינה כזו
+  /// האם סוג הדחיסה של קבצי ה-patch מוכר.
+  bool get hasSupportedCompression => manifest.hasSupportedCompression;
+
+  /// האם אפשר להחיל את הקשת בכלל — **שלושת** צירי היכולת. קשת שאינה כזו
   /// מסוננת ב-`LibraryUpdateDiscovery` ואינה נכנסת למראה: המסלול לגרסה כזו
   /// הוא מסד מלא, לא קובצי עדכון.
   bool get isApplicable =>
-      !manifest.fullRebase && hasSupportedSchema && hasSupportedPatchFormat;
+      !manifest.fullRebase &&
+      hasSupportedSchema &&
+      hasSupportedPatchFormat &&
+      hasSupportedCompression;
 
   @override
   List<Object?> get props => [manifest, patchFileUrls, manifestUrl];
