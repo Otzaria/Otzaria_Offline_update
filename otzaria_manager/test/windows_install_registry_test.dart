@@ -289,4 +289,51 @@ void main() {
       );
     });
   });
+
+  group('dedup across hives', () {
+    const staleUser = InstallRegistryEntry(
+      keyName: '{OTZARIA}_is1',
+      displayName: 'Otzaria 1.0',
+    );
+    const realMachine = InstallRegistryEntry(
+      keyName: '{otzaria}_IS1',
+      displayName: 'Otzaria 1.0',
+      installDir: r'D:\Tools\Otzaria',
+    );
+    const sameDirOtherKey = InstallRegistryEntry(
+      keyName: 'other',
+      displayName: 'Otzaria 1.0',
+      installDir: r'd:\tools\otzaria',
+    );
+
+    test('a stale per-user key does not hide the machine-wide folder', () {
+      expect(
+        WindowsInstallRegistry.uniqueInstallDirs(
+          [staleUser, realMachine, sameDirOtherKey],
+        ),
+        [r'D:\Tools\Otzaria'],
+      );
+    });
+
+    test('entries keep one row per key, preferring the one with a folder', () {
+      final unique = WindowsInstallRegistry.uniqueEntries(
+        [staleUser, realMachine, sameDirOtherKey],
+      );
+
+      expect(unique, [realMachine, sameDirOtherKey]);
+    });
+
+    test('the first row with a folder wins over later ones', () {
+      const laterMachine = InstallRegistryEntry(
+        keyName: '{OTZARIA}_is1',
+        displayName: 'Otzaria 1.0',
+        installDir: r'E:\Otzaria',
+      );
+
+      expect(
+        WindowsInstallRegistry.uniqueEntries([realMachine, laterMachine]),
+        [realMachine],
+      );
+    });
+  });
 }

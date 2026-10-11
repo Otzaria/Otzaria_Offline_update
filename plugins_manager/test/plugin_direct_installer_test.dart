@@ -243,6 +243,34 @@ void main() {
       expect(File(later).existsSync(), isTrue);
       expect(handoff.listSync(), hasLength(1));
     });
+  group('openProtocolUrl', () {
+    test(
+      'runs the known install from its own folder, not the launcher working dir',
+      () async {
+        final appDir = Directory(p.join(temp.path, 'app'))..createSync();
+        final script = File(p.join(appDir.path, 'otzaria'))
+          ..writeAsStringSync('#!/bin/sh\npwd -P > "\$1"\n');
+        await Process.run('chmod', ['+x', script.path]);
+        final output = File(p.join(temp.path, 'cwd.txt'));
+
+        final result = await PluginDirectInstaller.openProtocolUrl(
+          output.path,
+          otzariaLaunchPath: script.path,
+        );
+
+        expect(result.success, isTrue);
+        final deadline = DateTime.now().add(const Duration(seconds: 10));
+        while (!output.existsSync() || output.readAsStringSync().isEmpty) {
+          if (DateTime.now().isAfter(deadline)) fail('the process never ran');
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        expect(
+          output.readAsStringSync().trim(),
+          appDir.resolveSymbolicLinksSync(),
+        );
+      },
+      testOn: '!windows',
+    );
   });
 
   group('PluginDirectInstaller.install', () {

@@ -213,11 +213,10 @@ abstract final class PluginDirectInstaller {
       return const PluginInstallResult.ok();
     }
 
-    // מנותק: אוצריא נשארת פתוחה אחרי שהלאנצ'ר ייסגר, ו-`Process.run` היה
-    // ממתין לה עד אז.
     await Process.start(
       launchPath,
       [url],
+      workingDirectory: p.dirname(launchPath),
       mode: ProcessStartMode.detached,
     );
     return const PluginInstallResult.ok();

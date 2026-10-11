@@ -64,6 +64,30 @@ void main() {
     });
 
     test(
+      'runs the executable from its own folder, not the launcher working dir',
+      () async {
+        final appDir = Directory(p.join(tempDir.path, 'app'))..createSync();
+        final script = File(p.join(appDir.path, 'otzaria'))
+          ..writeAsStringSync('#!/bin/sh\npwd -P > "\$1"\n');
+        await Process.run('chmod', ['+x', script.path]);
+        final output = File(p.join(tempDir.path, 'cwd.txt'));
+
+        await launcher.launch(script.path, withUri: output.path);
+
+        final deadline = DateTime.now().add(const Duration(seconds: 10));
+        while (!output.existsSync() || output.readAsStringSync().isEmpty) {
+          if (DateTime.now().isAfter(deadline)) fail('the process never ran');
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        expect(
+          output.readAsStringSync().trim(),
+          appDir.resolveSymbolicLinksSync(),
+        );
+      },
+      testOn: '!windows',
+    );
+
+    test(
       'finds an existing .app bundle (a directory) and hands it to open',
       () async {
         // הרגרסיה שהבדיקה הזאת שומרת עליה: חבילת .app היא **תיקייה**, ולכן

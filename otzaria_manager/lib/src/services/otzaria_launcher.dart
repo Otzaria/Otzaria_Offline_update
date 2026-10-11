@@ -54,6 +54,7 @@ class OtzariaLauncher {
     await Process.start(
       launchPath,
       [if (withUri != null) withUri],
+      workingDirectory: p.dirname(launchPath),
       mode: ProcessStartMode.detached,
     );
   }

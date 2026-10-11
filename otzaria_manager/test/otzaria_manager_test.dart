@@ -842,6 +842,127 @@ void main() {
     );
   });
 
+  group('running Otzaria from a read-only location on macOS', () {
+    Future<String> bundleIn(String dir) async {
+      final contents = Directory(p.join(dir, 'Otzaria.app', 'Contents'));
+      await contents.create(recursive: true);
+      await File(p.join(contents.path, 'Info.plist')).writeAsString(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<plist version="1.0"><dict>'
+        '<key>CFBundleShortVersionString</key><string>0.9.97</string>'
+        '</dict></plist>\n',
+      );
+      return p.dirname(contents.path);
+    }
+
+    Future<void> setWritable(String dir, {required bool writable}) async {
+      await Process.run('chmod', [writable ? '755' : '555', dir]);
+    }
+
+    test(
+      'a mounted image is neither adopted nor persisted',
+      () async {
+        final volume = p.join(dataDir.path, 'Volumes', 'Otzaria');
+        final bundle = await bundleIn(volume);
+        await setWritable(volume, writable: false);
+        addTearDown(() => setWritable(volume, writable: true));
+
+        final environment = {'HOME': p.join(dataDir.path, 'home')};
+        final whileRunning = await managerFor(
+          platform: OtzariaTargetPlatform.macos,
+          environment: environment,
+          runningOtzariaPath: bundle,
+        ).checkForUpdate();
+        final afterClose = await managerFor(
+          platform: OtzariaTargetPlatform.macos,
+          environment: environment,
+        ).checkForUpdate();
+
+        expect(whileRunning.currentState?.installDir, isNot(volume));
+        expect(afterClose.currentState?.installDir, isNot(volume));
+      },
+      testOn: 'mac-os',
+    );
+
+    test(
+      'a writable location is still adopted and persisted',
+      () async {
+        final folder = p.join(dataDir.path, 'My Apps');
+        final bundle = await bundleIn(folder);
+
+        final environment = {'HOME': p.join(dataDir.path, 'home')};
+        await managerFor(
+          platform: OtzariaTargetPlatform.macos,
+          environment: environment,
+          runningOtzariaPath: bundle,
+        ).checkForUpdate();
+        final afterClose = await managerFor(
+          platform: OtzariaTargetPlatform.macos,
+          environment: environment,
+        ).checkForUpdate();
+
+        expect(afterClose.currentState?.launchPath, bundle);
+      },
+      testOn: 'mac-os',
+    );
+
+    test(
+      'an App Translocation copy is neither adopted nor persisted',
+      () async {
+        final translocated = p.join(
+          dataDir.path,
+          'private',
+          'var',
+          'folders',
+          'AppTranslocation',
+          'ABCD-1234',
+          'd',
+        );
+        final bundle = await bundleIn(translocated);
+
+        final environment = {'HOME': p.join(dataDir.path, 'home')};
+        final whileRunning = await managerFor(
+          platform: OtzariaTargetPlatform.macos,
+          environment: environment,
+          runningOtzariaPath: bundle,
+        ).checkForUpdate();
+        final afterClose = await managerFor(
+          platform: OtzariaTargetPlatform.macos,
+          environment: environment,
+        ).checkForUpdate();
+
+        expect(whileRunning.currentState?.installDir, isNot(translocated));
+        expect(afterClose.currentState?.installDir, isNot(translocated));
+      },
+      testOn: 'mac-os',
+    );
+
+    test(
+      'a read-only folder outside /Volumes and the known dirs is still adopted',
+      () async {
+        final folder = p.join(dataDir.path, 'opt', 'apps');
+        final bundle = await bundleIn(folder);
+        await setWritable(folder, writable: false);
+        addTearDown(() => setWritable(folder, writable: true));
+
+        final environment = {'HOME': p.join(dataDir.path, 'home')};
+        final whileRunning = await managerFor(
+          platform: OtzariaTargetPlatform.macos,
+          environment: environment,
+          runningOtzariaPath: bundle,
+        ).checkForUpdate();
+        final afterClose = await managerFor(
+          platform: OtzariaTargetPlatform.macos,
+          environment: environment,
+        ).checkForUpdate();
+
+        expect(whileRunning.currentState?.launchPath, bundle);
+        expect(afterClose.currentState?.launchPath, bundle);
+      },
+      testOn: 'mac-os',
+    );
+  });
+
   // סדר החיפוש מ-AGENTS.md §5: התיקייה המנוהלת קודם, ואחריה מיקומי
   // ברירת המחדל האמיתיים של ה-installer של אוצריא.
   group('זיהוי אוטומטי — סדר תיקיות ברירת המחדל בווינדוס', () {

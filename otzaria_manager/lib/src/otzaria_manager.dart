@@ -207,6 +207,14 @@ class OtzariaManager {
     }
   }
 
+  Future<bool> _isDurableInstallDir(String dir) async {
+    if (_platform != OtzariaTargetPlatform.macos) return true;
+    final segments = p.split(dir);
+    if (segments.contains('AppTranslocation')) return false;
+    if (segments.contains('Volumes')) return _isWritableDir(dir);
+    return true;
+  }
+
   /// התיקיות שבהן מחפשים התקנה קיימת כשאין עדיין state שמור, לפי סדר
   /// עדיפות. התיקייה המנוהלת הישנה של הלאנצ'ר תמיד ראשונה (אם הלאנצ'ר עצמו
   /// התקין לשם בגרסה קודמת, זה המקור הסמכותי); אחריה, בווינדוס, מה שרשום
@@ -338,13 +346,13 @@ class OtzariaManager {
     var current = stored == null ? null : _verifyStoredState(stored);
     if (current != null && current != stored) await _stateStore.save(current);
 
-    // התהליך הרץ קודם לרשימת התיקיות: הוא אינו ניחוש אלא העותק שהמשתמש
-    // מפעיל בפועל — כולל התקנה במיקום שאינו ברשימה. זו גם תצפית **חולפת**,
-    // ולכן נשמרת: אחרת המידע היה נעלם בדיוק כשמבקשים מהמשתמש לסגור את
-    // אוצריא. זיהוי לפי תיקייה, לעומת זאת, חוזר על עצמו בכל בדיקה.
     if (current == null) {
-      current = _installStateAt(running.launchPath);
-      if (current != null) await _stateStore.save(current);
+      final runningState = _installStateAt(running.launchPath);
+      if (runningState != null &&
+          await _isDurableInstallDir(runningState.installDir)) {
+        current = runningState;
+        await _stateStore.save(runningState);
+      }
     }
 
     // רק כשעדיין לא ידוע כלום: בניית הרשימה עצמה סורקת את הרג'יסטרי

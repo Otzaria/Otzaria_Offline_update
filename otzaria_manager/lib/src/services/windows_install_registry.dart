@@ -66,46 +66,52 @@ class WindowsInstallRegistry {
   /// חוצץ לקריאת ערך. נתיב התקנה לא מתקרב לזה, ומפתח חריג שכן — מדולג.
   static const int _maxValueBytes = 8192;
 
-  /// תיקיות ההתקנה הרשומות, בלי כפילויות ולפי סדר העדיפות של [_roots].
-  /// רשימה ריקה = אין רישום (או שלא רצים על ווינדוס), לא שגיאה.
-  ///
-  /// [matchesDisplayName] בוחר אילו רישומים נחשבים. ברירת המחדל היא אוצריא,
-  /// ולכן כל הקוראים הקיימים אינם מושפעים; תוכנה מותאמת מעבירה לכאן את
-  /// התבנית שהתוסף שלה הצהיר עליה. הסינון נשאר על ה-`DisplayName` **בלבד**
-  /// — ראו [_dirOfEntry] להסבר למה `InstallLocation` אינו סימן זהות.
   List<String> installDirs({
     bool Function(String displayName)? matchesDisplayName,
-  }) {
+  }) =>
+      uniqueInstallDirs(_allEntries(matchesDisplayName));
+
+  static List<String> uniqueInstallDirs(
+    Iterable<InstallRegistryEntry> entries,
+  ) {
     final dirs = <String>[];
     final seen = <String>{};
-    for (final entry in entries(matchesDisplayName: matchesDisplayName)) {
+    for (final entry in entries) {
       final dir = entry.installDir;
       if (dir != null && seen.add(dir.toLowerCase())) dirs.add(dir);
     }
     return dirs;
   }
 
-  /// רישומי ההסרה עצמם, עם ה-`DisplayName` ושם המפתח — מה ש-[installDirs]
-  /// זורק. רשומה בלי תיקייה מוחלטת שקיימת מוחזרת עם `installDir` שהוא `null`
-  /// ואינה מסוננת: לזיהוי היא חסרת תועלת, אבל ל**למידה** היא בדיוק העדות
-  /// שמחפשים ("איזה רישום חדש הופיע כאן עכשיו").
-  ///
-  /// בלי כפילויות לפי שם המפתח, לפי סדר העדיפות של [_roots] — אותה תוכנה
-  /// עשויה להיות רשומה גם למשתמש וגם לכלל המחשב.
   List<InstallRegistryEntry> entries({
     bool Function(String displayName)? matchesDisplayName,
-  }) {
-    if (!Platform.isWindows) return const [];
+  }) =>
+      uniqueEntries(_allEntries(matchesDisplayName));
 
-    final matches = matchesDisplayName ?? OtzariaAppLocator.mentionsOtzaria;
-    final result = <InstallRegistryEntry>[];
-    final seen = <String>{};
-    for (final root in _roots) {
-      for (final entry in _entriesUnder(root.hive, root.access, matches)) {
-        if (seen.add(entry.keyName.toLowerCase())) result.add(entry);
+  static List<InstallRegistryEntry> uniqueEntries(
+    Iterable<InstallRegistryEntry> entries,
+  ) {
+    final byKey = <String, InstallRegistryEntry>{};
+    for (final entry in entries) {
+      final key = entry.keyName.toLowerCase();
+      final known = byKey[key];
+      if (known == null ||
+          (known.installDir == null && entry.installDir != null)) {
+        byKey[key] = entry;
       }
     }
-    return result;
+    return byKey.values.toList();
+  }
+
+  Iterable<InstallRegistryEntry> _allEntries(
+    bool Function(String displayName)? matchesDisplayName,
+  ) sync* {
+    if (!Platform.isWindows) return;
+
+    final matches = matchesDisplayName ?? OtzariaAppLocator.mentionsOtzaria;
+    for (final root in _roots) {
+      yield* _entriesUnder(root.hive, root.access, matches);
+    }
   }
 
   List<InstallRegistryEntry> _entriesUnder(
