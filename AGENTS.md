@@ -637,7 +637,12 @@ drive ended up carrying full DBs of v20 *and* v21, and 5GB after a version bump.
 A manifest that cannot be read means skipping that area, an empty keep-set being
 "delete everything"; the sweep does not run after a failed download (assets the
 manifest does not know yet); and `mirror/apps` and `otzaria-app/` are never
-touched. It is silent by design — the freed bytes go to the log only.
+touched. It is silent by design — the freed bytes go to the log only. It is not
+awaited, but the next `downloadAll` and every launcher download wait for it
+(`AppShell._mirrorSweep`): a launcher tag directory not yet named in
+`latest-release.json` is junk to it. The other way round holds too: the sweep is
+skipped while a launcher download runs, and neither download starts while the
+other is running or preparing (`_isPreparingDownload`).
 
 **A re-run does not re-hash an asset it already proved.** Skipping the download is
 not skipping the check: `downloadToFile` still verified `expectedSha256`, and on the
@@ -1583,6 +1588,16 @@ exe into `mirror/launcher/`, copies it over the stub (two renames, rollback on f
   Otzaria `installing`) disables the card's button **and** guards
   `installLauncherUpdate` itself — the button is not enough, since
   `downloadLauncherUpdate` offers the install straight after a download.
+- **Closing the window during a long task asks first.** `AppShell._confirmClose` is
+  `LauncherCrashSession.closeGuard`, consulted by `onWindowClose` and by the
+  `AppLifecycleListener.onExitRequested` that macOS Cmd+Q / Dock > Quit reach
+  (a refusal there returns `AppExitResponse.cancel`): a download is
+  cancelled and `MirrorDownloadUndo` reverts it before the process exits; an install
+  can only be warned about. A guard that throws still closes — X must never go inert.
+- **The mirror is checked on every writable start, also with `autoCheckUpdates` off**,
+  and again before each `checkOnline` (`AppShell._checkLauncherMirror`). It is a disk
+  read, and on the offline machine it is the only way to see a launcher the online
+  one downloaded.
 
 **"What's new" travels inside `latest-release.json`, not as its own file.**
 The offline machine runs the *old* exe, whose bundled changelog lacks the new

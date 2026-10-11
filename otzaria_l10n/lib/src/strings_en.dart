@@ -136,6 +136,22 @@ class _Shell extends ShellStrings {
   String get navSettings => 'Settings';
   @override
   String logPathFallback(String path) => 'Activity log: $path';
+  @override
+  String get closeWhileBusyTitle => 'Close in the middle of this?';
+  @override
+  String get closeWhileDownloadingPrompt =>
+      'A download is running. Closing now cancels it, and the files it '
+      'fetched are deleted before the program closes.';
+  @override
+  String get closeWhileDownloadingConfirm => 'Cancel and close';
+  @override
+  String get closeWhileInstallingPrompt =>
+      'An install is running. Closing in the middle may leave it unfinished, '
+      'and it will need to run again.';
+  @override
+  String get closeWhileInstallingConfirm => 'Close anyway';
+  @override
+  String get closeWhileBusyKeepGoing => 'Keep going';
 }
 
 class _Home extends HomeStrings {

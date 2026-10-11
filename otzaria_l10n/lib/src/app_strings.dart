@@ -96,6 +96,13 @@ abstract class ShellStrings {
 
   /// נאמר כשלא ניתן לפתוח את תיקיית הלוגים בסייר הקבצים.
   String logPathFallback(String path);
+
+  String get closeWhileBusyTitle;
+  String get closeWhileDownloadingPrompt;
+  String get closeWhileDownloadingConfirm;
+  String get closeWhileInstallingPrompt;
+  String get closeWhileInstallingConfirm;
+  String get closeWhileBusyKeepGoing;
 }
 
 // ── דף הבית ───────────────────────────────────────────────────────────────────

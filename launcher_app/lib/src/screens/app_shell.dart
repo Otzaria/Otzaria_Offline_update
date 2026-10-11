@@ -7,6 +7,7 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
 
+import '../app_report/launcher_crash_session.dart';
 import '../controllers/app_reports_controller.dart';
 import '../controllers/custom_apps_controller.dart';
 import '../controllers/download_summary.dart';
@@ -185,6 +186,10 @@ class _AppShellState extends State<AppShell> {
   /// הבדיקה שלפני ההורדה ב-[downloadAll], לפני ש-[_isDownloading] נדלק.
   bool _isPreparingDownload = false;
 
+  Future<void>? _downloadRun;
+  Future<void>? _mirrorSweep;
+  Future<void>? _launcherMirrorCheck;
+
   @override
   void initState() {
     super.initState();
@@ -280,8 +285,7 @@ class _AppShellState extends State<AppShell> {
       unawaited(checkAll());
     } else {
       unawaited(refreshProcessState());
-      // ההצעה לאסוף דיווחים אוטומטית גם בלי בדיקה בעלייה: היא צריכה רק את
-      // נתיב ההפעלה. אחרי הפריים הראשון — ראו AGENTS §5.9.
+      unawaited(_checkLauncherMirror());
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         unawaited(_otzaria.ensureChecked().then((_) => _offerErrorReports()));
@@ -296,10 +300,14 @@ class _AppShellState extends State<AppShell> {
     if (s.autoCheckUpdates) {
       unawaited(checkOnline());
     }
+    LauncherCrashSession.closeGuard = _confirmClose;
   }
 
   @override
   void dispose() {
+    if (LauncherCrashSession.closeGuard == _confirmClose) {
+      LauncherCrashSession.closeGuard = null;
+    }
     _pauseTimer?.cancel();
     if (_pauseDone case final done? when !done.isCompleted) done.complete();
     _runningPoll?.cancel();
@@ -556,24 +564,12 @@ class _AppShellState extends State<AppShell> {
     return true;
   }
 
-  /// בודק גרסאות בשני המודולים **מהתיקייה המקומית בלבד**. לא נוגע ברשת,
-  /// לא מוריד ולא מתקין דבר.
   Future<void> checkAll() async {
-    // העדכון של הלאנצ'ר עצמו קודם: הוא קריאת דיסק זולה ואינו תלוי בכלום,
-    // וכשיש גרסה מוכנה זה מה שכדאי שהמשתמש יראה קודם. במצב קריאה הוא נדלג:
-    // ההחלפה כותבת את ה-exe החדש על הכונן, ולכן אין מה להציע.
-    if (!widget.readOnly) {
-      await _launcherUpdate.checkForUpdate();
-      if (!mounted) return;
-    }
+    await _checkLauncherMirror();
+    if (!mounted) return;
 
-    // בטור ולא במקביל: בדיקת הספרייה משתמשת בנתיב ההתקנה של אוצריא כדי לאתר
-    // את המסד (התקנה ניידת/ספרייה מצורפת), והוא ידוע רק אחרי הבדיקה שלה.
-    // מצב התהליך מתעדכן בתוכה, ו-[_otzariaIsRunning] נגזר ממנו.
     await _otzaria.checkForUpdate();
     if (!mounted) return;
-    // נתיב ההתקנה התברר עכשיו — ותיקיית התוספים נגזרת ממנו. הסריקה
-    // שבפתיחה רצה לפניו, ובהתקנה ניידת הסתכלה על `%APPDATA%` הלא נכון.
     unawaited(_plugins.refreshInstalled());
 
     await _library.checkForUpdate();
@@ -581,6 +577,17 @@ class _AppShellState extends State<AppShell> {
     await _autoInstallIfEnabled();
     if (!mounted) return;
     await _offerErrorReports();
+  }
+
+  Future<void> _checkLauncherMirror() {
+    if (widget.readOnly ||
+        _launcherUpdate.isDownloading ||
+        _launcherUpdate.isInstalling) {
+      return Future.value();
+    }
+    return _launcherMirrorCheck ??= _launcherUpdate
+        .checkForUpdate()
+        .whenComplete(() => _launcherMirrorCheck = null);
   }
 
   /// "נמצאו דיווחים שלא נשלחו — לאסוף?". אוצריא פתוחה נבדקת בזרימה עצמה,
@@ -645,13 +652,11 @@ class _AppShellState extends State<AppShell> {
     await uploadErrorReports(context, _errorReports);
   }
 
-  /// בדיקה קלה ברשת ("יש עדכון חדש?") לכל הרכיבים — מטא-דאטה בלבד, בלי
-  /// הורדת installer/מסד/קובץ תוסף. כשל (אין רשת) נבלע בתוך הקונטרולרים עצמם.
   Future<void> checkOnline() async {
-    // במצב קריאה אין מה לעשות בתשובה: מה שהתחדש ברשת אינו יכול לירד לכונן,
-    // ו"יש עדכון" בלי דרך להביא אותו הוא נדנוד ולא מידע.
     if (widget.readOnly || _isCheckingOnline) return;
     setState(() => _isCheckingOnline = true);
+    await _checkLauncherMirror();
+    if (!mounted) return;
     await Future.wait([
       _otzaria.checkOnline(),
       _library.checkOnline(),
@@ -660,8 +665,6 @@ class _AppShellState extends State<AppShell> {
     ]);
     if (!mounted) return;
     setState(() => _isCheckingOnline = false);
-    // עדכון ללאנצ'ר עצמו הוא היחיד שמוצע ביוזמתנו בדיאלוג: אחרי החלפת קובץ
-    // ההרצה התוכנה נסגרת ונפתחת מחדש, וזה לא משהו שנעשה בשקט ברקע.
     await _promptLauncherUpdate();
   }
 
@@ -700,13 +703,16 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
-  /// מוריד את הגרסה החדשה של הלאנצ'ר אל התיקייה שלצד התוכנה, ומיד אחר כך
-  /// מציע להתקין — זה מה שהופך את ההורדה למשהו שאפשר לסיים מכאן.
   Future<void> downloadLauncherUpdate() async {
     if (_blockedByReadOnly()) return;
-    // ההורדה הכבדה (מסד/התקנה/תוספים) והורדת הלאנצ'ר חולקות רוחב פס; שתיהן
-    // יחד רק היו מאטות זו את זו.
-    if (_isDownloading || _launcherUpdate.isDownloading) return;
+    if (_mirrorSweep case final sweep?) await sweep;
+    if (_launcherMirrorCheck case final check?) await check;
+    if (!mounted ||
+        _isPreparingDownload ||
+        _isDownloading ||
+        _launcherUpdate.isDownloading) {
+      return;
+    }
 
     await _launcherUpdate.download();
     if (!mounted || !_launcherUpdate.hasUpdateReady) return;
@@ -857,27 +863,48 @@ class _AppShellState extends State<AppShell> {
     setState(() => _cancelDownload = true);
   }
 
-  /// מוריד מהרשת אל התיקייה שלצד התוכנה — רק את הרכיבים שסומנו בהגדרות,
-  /// ומתוכם רק אלה שיש בהם באמת מה להביא. זו הפעולה היחידה בכל האפליקציה
-  /// שדורשת אינטרנט.
-  ///
-  /// **הרכיבים** (תוכנה, ספרייה, תוספים) מורדים בזה אחר זה, כי לכל אחד מד
-  /// התקדמות משלו ובמקביל התצוגה הייתה מתבלבלת. המקביליות יושבת **בתוך** כל
-  /// רכיב — שם היא גם הועילה בפועל; ראו `DownloadScheduler`.
+  Future<bool> _confirmClose() async {
+    if (!mounted || !_longTaskRunning) return true;
+    final t = context.strings.shell;
+    final downloading = _isDownloading;
+    final approved = await showWarningDialog(
+      context: context,
+      title: t.closeWhileBusyTitle,
+      content: downloading
+          ? t.closeWhileDownloadingPrompt
+          : t.closeWhileInstallingPrompt,
+      cancelText: t.closeWhileBusyKeepGoing,
+      confirmText: downloading
+          ? t.closeWhileDownloadingConfirm
+          : t.closeWhileInstallingConfirm,
+    );
+    if (!approved) return false;
+    if (!mounted) return true;
+    if (_downloadRun case final run? when _isDownloading) {
+      setState(() => _cancelDownload = true);
+      await run;
+    }
+    return true;
+  }
+
   Future<void> downloadAll() async {
     if (_blockedByReadOnly()) return;
     if (_isPreparingDownload) return;
-    // הדגל מכסה גם את הבדיקה והשאלה שלפני [_isDownloading] — לחיצה שנייה
-    // שם הייתה מציגה את השאלה פעמיים.
     _isPreparingDownload = true;
+    final run = _downloadRun = _downloadAll();
     try {
-      await _downloadAll();
+      await run;
     } finally {
       _isPreparingDownload = false;
+      _downloadRun = null;
     }
   }
 
   Future<void> _downloadAll() async {
+    if (_mirrorSweep case final sweep?) {
+      await sweep;
+      if (!mounted) return;
+    }
     final s = widget.settings.settings;
     if (!s.hasSyncSelection ||
         _isDownloading ||
@@ -917,7 +944,7 @@ class _AppShellState extends State<AppShell> {
           content: context.strings.libraryDomain.semanticDownloadPrompt,
           confirmText: context.strings.home.downloadNowButton,
         );
-    if (!mounted || _isDownloading) return;
+    if (!mounted || _isDownloading || _launcherUpdate.isDownloading) return;
     final skipLibrary = !includeSemanticSearch &&
         s.downloadsLibrary &&
         !_library.personalUpdateMode &&
@@ -1007,12 +1034,10 @@ class _AppShellState extends State<AppShell> {
         t.shell.navPlugins,
     ];
 
-    // ניקוי שקט של מה שאף מניפסט אינו מזכיר עוד. **רק כששום רכיב לא נכשל**:
-    // הורדה שנפלה באמצע השאירה נכסים שהמניפסט עוד לא מכיר, ומחיקתם פירושה
-    // להוריד אותם שוב. ראו [MirrorJunkSweeper] למה זה לא מספיק שכל רכיב
-    // מנקה אחרי עצמו.
-    if (failed.isEmpty && !_library.downloadNeedsRetry) {
-      unawaited(_sweepMirrorJunk());
+    if (failed.isEmpty &&
+        !_library.downloadNeedsRetry &&
+        !_launcherUpdate.isDownloading) {
+      _mirrorSweep = _sweepMirrorJunk();
     }
 
     // הודעה אחת בסוף, לפי [summarizeDownload] — ראו שם למה לא שתיים.
@@ -1026,12 +1051,14 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
-  /// מנקה, ומדווח **ללוג בלבד**: זו תחזוקה ולא פעולה של המשתמש, ושורה על
-  /// המסך הייתה רק מעוררת את השאלה מה נמחק.
   Future<void> _sweepMirrorJunk() async {
-    final freed = await MirrorJunkSweeper(dataDir: widget.dataDir).sweep();
-    if (freed > 0) {
-      AppLogger.instance.info('ניקוי המראה פינה ${formatBytes(freed)}');
+    try {
+      final freed = await MirrorJunkSweeper(dataDir: widget.dataDir).sweep();
+      if (freed > 0) {
+        AppLogger.instance.info('ניקוי המראה פינה ${formatBytes(freed)}');
+      }
+    } finally {
+      _mirrorSweep = null;
     }
   }
 

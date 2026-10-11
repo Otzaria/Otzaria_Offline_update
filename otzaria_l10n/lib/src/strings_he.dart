@@ -134,6 +134,22 @@ class _Shell extends ShellStrings {
   String get navSettings => 'הגדרות';
   @override
   String logPathFallback(String path) => 'נתיב יומן הפעילות: $path';
+  @override
+  String get closeWhileBusyTitle => 'לסגור באמצע הפעולה?';
+  @override
+  String get closeWhileDownloadingPrompt =>
+      'הורדה רצה כרגע. סגירה עכשיו תבטל אותה, והקבצים שירדו בה יימחקו לפני '
+      'שהתוכנה תיסגר.';
+  @override
+  String get closeWhileDownloadingConfirm => 'בטל וסגור';
+  @override
+  String get closeWhileInstallingPrompt =>
+      'התקנה רצה כרגע. סגירה באמצעה עלולה להשאיר אותה חלקית, ויהיה צורך '
+      'להריץ אותה שוב.';
+  @override
+  String get closeWhileInstallingConfirm => 'סגור בכל זאת';
+  @override
+  String get closeWhileBusyKeepGoing => 'המשך';
 }
 
 class _Home extends HomeStrings {

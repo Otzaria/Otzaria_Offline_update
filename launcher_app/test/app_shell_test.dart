@@ -10,6 +10,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:launcher_app/src/app_report/launcher_crash_session.dart';
+import 'package:launcher_app/src/controllers/launcher_update_controller.dart';
 import 'package:launcher_app/src/screens/app_shell.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_apps_settings_card.dart';
 import 'package:launcher_app/src/screens/faq/faq_floating_button.dart';
@@ -538,6 +540,146 @@ void main() {
 
       expect(find.text(stringsOf().saferMode.verifyTitle), findsNothing);
       expect(screen(SettingsScreen), findsOneWidget);
+    });
+  });
+
+  group("בדיקת עדכון הלאנצ'ר מהמראה", () {
+    Future<LauncherUpdateStatus> statusAfterStart(WidgetTester tester) async {
+      LauncherUpdateController launcher() =>
+          tester.widget<HomeScreen>(screen(HomeScreen)).launcherUpdate;
+      for (var i = 0;
+          i < 40 && launcher().status == LauncherUpdateStatus.idle;
+          i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+      }
+      return launcher().status;
+    }
+
+    testWidgets('רצה בעלייה גם כשבדיקת העדכונים האוטומטית כבויה',
+        (tester) async {
+      await pumpShell(tester);
+      expect(
+        await statusAfterStart(tester),
+        isNot(LauncherUpdateStatus.idle),
+      );
+    });
+
+    testWidgets('כונן לקריאה בלבד: אינה רצה', (tester) async {
+      await pumpShell(tester, readOnly: true);
+      expect(await statusAfterStart(tester), LauncherUpdateStatus.idle);
+    });
+
+    final source = File('lib/src/screens/app_shell.dart').readAsStringSync();
+
+    test('הבדיקה הידנית ברשת קוראת גם את המראה, לפני ההצצה', () {
+      final start = source.indexOf('Future<void> checkOnline() async {');
+      final body =
+          source.substring(start, source.indexOf('Future.wait', start));
+      expect(start, greaterThan(-1));
+      expect(body, contains('await _checkLauncherMirror()'));
+    });
+  });
+
+  group('ניקוי המראה מול הורדות שמתחילות אחריו', () {
+    final source = File('lib/src/screens/app_shell.dart').readAsStringSync();
+
+    String bodyOf(String signature, String until) {
+      final start = source.indexOf(signature);
+      expect(start, greaterThan(-1), reason: signature);
+      return source.substring(start, source.indexOf(until, start));
+    }
+
+    test('הניקוי נשמר כ-future ואינו נזרק לרקע', () {
+      expect(source, contains('_mirrorSweep = _sweepMirrorJunk()'));
+      expect(source, isNot(contains('unawaited(_sweepMirrorJunk())')));
+    });
+
+    test("הורדת הלאנצ'ר ממתינה לניקוי לפני שהיא מתחילה", () {
+      final body = bodyOf(
+        'Future<void> downloadLauncherUpdate()',
+        '_launcherUpdate.download()',
+      );
+      expect(body, contains('await sweep'));
+    });
+
+    test('הורדה נוספת ממתינה לניקוי לפני שהיא מתחילה', () {
+      final body = bodyOf(
+        'Future<void> _downloadAll() async {',
+        'MirrorDownloadUndo.capture',
+      );
+      expect(body.indexOf('await sweep'), greaterThan(-1));
+      expect(
+        body.indexOf('await sweep'),
+        lessThan(body.indexOf('widget.settings.settings')),
+      );
+    });
+
+    test("הורדת הלאנצ'ר אינה מתחילה בזמן ההכנה להורדה הכללית", () {
+      final body = bodyOf(
+        'Future<void> downloadLauncherUpdate()',
+        '_launcherUpdate.download()',
+      );
+      expect(
+        body.indexOf('_isPreparingDownload'),
+        greaterThan(body.indexOf('await check')),
+      );
+    });
+
+    test("ההורדה הכללית בודקת שוב את הורדת הלאנצ'ר אחרי ההמתנות", () {
+      final body = bodyOf(
+        'Future<void> _downloadAll() async {',
+        'MirrorDownloadUndo.capture',
+      );
+      final dialog = body.indexOf('showTwoActionsDialog');
+      final recheck = body.indexOf(
+        '_isDownloading || _launcherUpdate.isDownloading) return;',
+        dialog,
+      );
+      expect(dialog, greaterThan(-1));
+      expect(recheck, greaterThan(dialog));
+      expect(recheck, lessThan(body.indexOf('_isDownloading = true')));
+    });
+
+    test("הניקוי אינו מתחיל בזמן הורדת הלאנצ'ר", () {
+      final body = bodyOf(
+        'Future<void> _downloadAll() async {',
+        '_mirrorSweep = _sweepMirrorJunk()',
+      );
+      final condition = body.substring(body.lastIndexOf('if ('));
+      expect(condition, contains('!_launcherUpdate.isDownloading'));
+    });
+  });
+
+  group('סגירת החלון בזמן פעולה ארוכה', () {
+    testWidgets('המסגרת רושמת שומר סגירה שמאשר כשאין פעולה, ומסירה בפירוק',
+        (tester) async {
+      await pumpShell(tester);
+      final guard = LauncherCrashSession.closeGuard;
+      expect(guard, isNotNull);
+      expect(await guard!(), isTrue);
+
+      await tester.pumpWidget(const SizedBox());
+      expect(LauncherCrashSession.closeGuard, isNull);
+    });
+
+    final source = File('lib/src/screens/app_shell.dart').readAsStringSync();
+    final start = source.indexOf('Future<bool> _confirmClose() async {');
+    final body = source.substring(start, source.indexOf('\n  }\n', start));
+
+    test('גוף השומר נמצא', () => expect(start, greaterThan(-1)));
+
+    test('שואל רק בזמן פעולה ארוכה', () {
+      expect(body, contains('!_longTaskRunning) return true'));
+      expect(body, contains('showWarningDialog'));
+    });
+
+    test('הורדה מבוטלת ומחכים לשחזור לפני הסגירה', () {
+      expect(body, contains('_cancelDownload = true'));
+      expect(body, contains('await run'));
+      expect(source, contains('_downloadRun = _downloadAll()'));
     });
   });
 }

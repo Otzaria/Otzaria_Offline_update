@@ -26,6 +26,9 @@ abstract final class LauncherCrashSession {
   /// הבדיקה אינן ראיה לקריסה של ההפעלה הקודמת.
   static DateTime processStartedAt = DateTime.now();
 
+  static Future<bool> Function()? closeGuard;
+  static bool _closeGuardRunning = false;
+
   static bool get isSupported =>
       Platform.isWindows || Platform.isMacOS || Platform.isLinux;
 
@@ -111,10 +114,34 @@ abstract final class LauncherCrashSession {
     }
     _lifecycle = AppLifecycleListener(
       onExitRequested: () async {
+        if (!await _guardAllowsClose()) return AppExitResponse.cancel;
         markCleanExitSync();
         return AppExitResponse.exit;
       },
     );
+  }
+
+  static Future<void> requestClose({
+    Future<void> Function()? destroy,
+    void Function(int code)? exitProcess,
+  }) async {
+    if (!await _guardAllowsClose()) return;
+    await closeWindow(destroy: destroy, exitProcess: exitProcess);
+  }
+
+  static Future<bool> _guardAllowsClose() async {
+    final guard = closeGuard;
+    if (guard == null) return true;
+    if (_closeGuardRunning) return false;
+    _closeGuardRunning = true;
+    try {
+      return await guard();
+    } catch (error) {
+      AppLogger.maybeInstance?.warn('בדיקת הסגירה נכשלה: $error');
+      return true;
+    } finally {
+      _closeGuardRunning = false;
+    }
   }
 
   static Future<void> closeWindow({
@@ -167,6 +194,8 @@ abstract final class LauncherCrashSession {
     _detector = null;
     _begun = null;
     _cleanExitRequested = false;
+    closeGuard = null;
+    _closeGuardRunning = false;
     _lifecycle?.dispose();
     _lifecycle = null;
     final listener = _listener;
@@ -182,5 +211,5 @@ class _CloseListener with WindowListener {
 
   @override
   void onWindowClose() =>
-      unawaited(LauncherCrashSession.closeWindow(exitProcess: _exitProcess));
+      unawaited(LauncherCrashSession.requestClose(exitProcess: _exitProcess));
 }

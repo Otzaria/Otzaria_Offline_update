@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/app_report/launcher_crash_session.dart';
 import 'package:path/path.dart' as p;
@@ -91,6 +94,78 @@ void main() {
     });
   });
 
+  group('requestClose', () {
+    test('בלי שומר: נסגר מיד', () async {
+      final codes = <int>[];
+      await LauncherCrashSession.requestClose(
+        destroy: () async {},
+        exitProcess: codes.add,
+      );
+      expect(File(lockPath).existsSync(), isFalse);
+      expect(codes, [0]);
+    });
+
+    test('שומר שמסרב: החלון נשאר, הנעילה נשארת', () async {
+      LauncherCrashSession.closeGuard = () async => false;
+      var destroyed = 0;
+      final codes = <int>[];
+      await LauncherCrashSession.requestClose(
+        destroy: () async => destroyed++,
+        exitProcess: codes.add,
+      );
+      expect(destroyed, 0);
+      expect(codes, isEmpty);
+      expect(File(lockPath).existsSync(), isTrue);
+    });
+
+    test('שומר שמאשר: נסגר רק אחרי שהוא סיים', () async {
+      final order = <String>[];
+      LauncherCrashSession.closeGuard = () async {
+        await Future<void>.delayed(Duration.zero);
+        order.add('guard');
+        return true;
+      };
+      await LauncherCrashSession.requestClose(
+        destroy: () async => order.add('destroy'),
+        exitProcess: (_) => order.add('exit'),
+      );
+      expect(order, ['guard', 'destroy', 'exit']);
+    });
+
+    test('שומר שנכשל: נסגר בכל זאת', () async {
+      LauncherCrashSession.closeGuard = () async => throw StateError('x');
+      final codes = <int>[];
+      await LauncherCrashSession.requestClose(
+        destroy: () async {},
+        exitProcess: codes.add,
+      );
+      expect(codes, [0]);
+    });
+
+    test('לחיצה שנייה בזמן שהשומר ממתין אינה פותחת שאלה נוספת', () async {
+      final answer = Completer<bool>();
+      var asked = 0;
+      LauncherCrashSession.closeGuard = () {
+        asked++;
+        return answer.future;
+      };
+      final codes = <int>[];
+      final first = LauncherCrashSession.requestClose(
+        destroy: () async {},
+        exitProcess: codes.add,
+      );
+      await LauncherCrashSession.requestClose(
+        destroy: () async {},
+        exitProcess: codes.add,
+      );
+      expect(asked, 1);
+      expect(codes, isEmpty);
+      answer.complete(false);
+      await first;
+      expect(codes, isEmpty);
+    });
+  });
+
   group('installCloseHooks', () {
     const channel = MethodChannel('window_manager');
     final calls = <String>[];
@@ -132,6 +207,73 @@ void main() {
       expect(File(lockPath).existsSync(), isFalse);
       expect(calls, contains('destroy'));
       expect(codes, [0]);
+    });
+
+    test('אירוע close עובר דרך השומר: סירוב משאיר את החלון', () async {
+      if (!LauncherCrashSession.isSupported) return;
+      final codes = <int>[];
+      await LauncherCrashSession.installCloseHooks(exitProcess: codes.add);
+      var asked = 0;
+      LauncherCrashSession.closeGuard = () async {
+        asked++;
+        return false;
+      };
+
+      await nativeClose();
+      await pumpEventQueue();
+      expect(asked, 1);
+      expect(calls, isNot(contains('destroy')));
+      expect(codes, isEmpty);
+      expect(File(lockPath).existsSync(), isTrue);
+    });
+
+    test('בקשת יציאה (Cmd+Q) עוברת דרך השומר: סירוב מבטל', () async {
+      if (!LauncherCrashSession.isSupported) return;
+      await LauncherCrashSession.installCloseHooks(exitProcess: (_) {});
+      var asked = 0;
+      LauncherCrashSession.closeGuard = () async {
+        asked++;
+        return false;
+      };
+
+      final response = await WidgetsBinding.instance.handleRequestAppExit();
+      expect(asked, 1);
+      expect(response, AppExitResponse.cancel);
+      expect(File(lockPath).existsSync(), isTrue);
+    });
+
+    test('בקשת יציאה עם שומר שמאשר: נמחקת הנעילה ויוצאים', () async {
+      if (!LauncherCrashSession.isSupported) return;
+      await LauncherCrashSession.installCloseHooks(exitProcess: (_) {});
+      LauncherCrashSession.closeGuard = () async => true;
+
+      final response = await WidgetsBinding.instance.handleRequestAppExit();
+      expect(response, AppExitResponse.exit);
+      expect(File(lockPath).existsSync(), isFalse);
+    });
+
+    test('בקשת יציאה בזמן שהשומר של X ממתין: מבוטלת בלי שאלה נוספת', () async {
+      if (!LauncherCrashSession.isSupported) return;
+      final codes = <int>[];
+      await LauncherCrashSession.installCloseHooks(exitProcess: codes.add);
+      final answer = Completer<bool>();
+      var asked = 0;
+      LauncherCrashSession.closeGuard = () {
+        asked++;
+        return answer.future;
+      };
+
+      final first = LauncherCrashSession.requestClose(
+        destroy: () async {},
+        exitProcess: codes.add,
+      );
+      final response = await WidgetsBinding.instance.handleRequestAppExit();
+      expect(asked, 1);
+      expect(response, AppExitResponse.cancel);
+      expect(File(lockPath).existsSync(), isTrue);
+      answer.complete(false);
+      await first;
+      expect(codes, isEmpty);
     });
   });
 
