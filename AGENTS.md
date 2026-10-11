@@ -1022,6 +1022,26 @@ if no executable is there does detection answer.
 wizard waiting for a click is not "install by itself", and that is the only path where
 `/MERGETASKS=desktopicon` still does anything.
 
+**A silent update must keep the install's scope.** Under `WizardSilent`,
+`otzaria.iss` returns from `InitializeSetup` before any scope detection, and its
+`[InstallDelete]` removes `portable.marker` unless `/PORTABLE` was passed and
+`system_install.marker` unless it runs in admin mode. So
+`OtzariaInstaller.windowsInstallScopeOf` reads the install folder: `portable.marker`
+adds `/PORTABLE` (and drops `/MERGETASKS`); `system_install.marker`, or a folder under
+Program Files, adds `/ALLUSERS`, which makes Inno itself ask for UAC (a refusal, 1223,
+is `OtzariaInstallCancelled`). Without them a portable install silently became a
+regular one (Otzaria's data moved to `%APPDATA%`), and an all-users one either failed
+on every launch or lost its marker. A **portable** install is updated through the
+silent path even on a user click: with `/PORTABLE` the wizard replaces `/DIR` with
+`{userdocs}\OtzariaPortable` (`ApplyInstallModeChoice`), and without it the wizard
+turns the folder into a regular install.
+
+**Exit 1 from the wizard is not proof of anything.** `InitializeSetup` returns False
+both after relaunching itself (elevated, or silent for a 0.9.88+ upgrade) and after the
+user refused UAC. So after exit 1 the exe that was in `installDir` counts as the update
+only once it changed (version, size or timestamp); an untouched exe, including a
+reinstall of the same build, ends as `OtzariaWizardStillOpen`, never as "installed".
+
 **A silent install must pass `/NOLAUNCH=1`, and the library goes first.**
 `otzaria.iss` carries a *second* `[Run]` entry firing **only** under `WizardSilent`,
 compensating for the finish-page one that `skipifsilent` drops — so a silent install

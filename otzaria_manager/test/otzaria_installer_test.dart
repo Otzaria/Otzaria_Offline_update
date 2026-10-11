@@ -13,16 +13,16 @@ const String _tag = '0.9.96+736';
 const String _assetName = 'otzaria-0.9.96-windows.exe';
 
 OtzariaRelease _release({int? size, String tag = _tag}) => OtzariaRelease(
-      tagName: tag,
-      name: 'Otzaria $tag',
-      isPrerelease: false,
-      isDraft: false,
-      publishedAt: null,
-      installerKind: OtzariaInstallerKind.windowsSetupExe,
-      installerAssetName: _assetName,
-      installerDownloadUrl: 'https://example/$_assetName',
-      installerSizeBytes: size ?? _installerBytes.length,
-    );
+  tagName: tag,
+  name: 'Otzaria $tag',
+  isPrerelease: false,
+  isDraft: false,
+  publishedAt: null,
+  installerKind: OtzariaInstallerKind.windowsSetupExe,
+  installerAssetName: _assetName,
+  installerDownloadUrl: 'https://example/$_assetName',
+  installerSizeBytes: size ?? _installerBytes.length,
+);
 
 void main() {
   late Directory tempDir;
@@ -40,11 +40,12 @@ void main() {
   });
 
   OtzariaInstaller installerWith(http.Client client) => OtzariaInstaller(
-        cacheDir: cacheDir,
-        httpClient: client,
-        appLocator:
-            const OtzariaAppLocator(platform: OtzariaTargetPlatform.windows),
-      );
+    cacheDir: cacheDir,
+    httpClient: client,
+    appLocator: const OtzariaAppLocator(
+      platform: OtzariaTargetPlatform.windows,
+    ),
+  );
 
   http.Client mockDownload(String body, {int status = 200}) =>
       MockClient((_) async {
@@ -54,9 +55,9 @@ void main() {
 
   /// לקוח שכל פנייה אליו היא כישלון הבדיקה — כך "לא ניגשנו לרשת" נאכף.
   http.Client mustNotBeUsed() => MockClient((_) async {
-        requests++;
-        fail('לא הייתה אמורה להיות פנייה לרשת');
-      });
+    requests++;
+    fail('לא הייתה אמורה להיות פנייה לרשת');
+  });
 
   String cachedPath() => p.join(cacheDir, _tag, _assetName);
 
@@ -67,24 +68,29 @@ void main() {
         throw http.ClientException('disconnected');
       }
 
-      final installer = installerWith(MockClient.streaming((request, _) async {
-        if (++requests == 1) {
-          return http.StreamedResponse(interrupted(), 200,
+      final installer = installerWith(
+        MockClient.streaming((request, _) async {
+          if (++requests == 1) {
+            return http.StreamedResponse(
+              interrupted(),
+              200,
               contentLength: _installerBytes.length,
-              headers: {'etag': '"installer-v1"'});
-        }
-        expect(request.headers['Range'], 'bytes=5-');
-        expect(request.headers['If-Range'], '"installer-v1"');
-        return http.StreamedResponse(
-          Stream.value(utf8.encode(_installerBytes.substring(5))),
-          206,
-          contentLength: _installerBytes.length - 5,
-          headers: {
-            'content-range':
-                'bytes 5-${_installerBytes.length - 1}/${_installerBytes.length}'
-          },
-        );
-      }));
+              headers: {'etag': '"installer-v1"'},
+            );
+          }
+          expect(request.headers['Range'], 'bytes=5-');
+          expect(request.headers['If-Range'], '"installer-v1"');
+          return http.StreamedResponse(
+            Stream.value(utf8.encode(_installerBytes.substring(5))),
+            206,
+            contentLength: _installerBytes.length - 5,
+            headers: {
+              'content-range':
+                  'bytes 5-${_installerBytes.length - 1}/${_installerBytes.length}',
+            },
+          );
+        }),
+      );
       addTearDown(installer.dispose);
 
       await installer.ensureCached(release: _release());
@@ -158,8 +164,11 @@ void main() {
       await expectLater(
         installer.ensureCached(release: _release()),
         throwsA(
-          isA<StateError>().having((e) => e.message, 'message',
-              AppL10n.strings.appDomain.installerDownloadFailed(404)),
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            AppL10n.strings.appDomain.installerDownloadFailed(404),
+          ),
         ),
       );
       expect(File(cachedPath()).existsSync(), isFalse);
@@ -178,11 +187,9 @@ void main() {
       // השני, אחרת החלפת ערוץ הייתה דורשת חזרה לרשת.
       await installer.pruneCacheExcept(keepTagNames: {'0.9.96+736', '0.9.97'});
 
-      final remaining = Directory(cacheDir)
-          .listSync()
-          .map((e) => p.basename(e.path))
-          .toList()
-        ..sort();
+      final remaining = Directory(
+        cacheDir,
+      ).listSync().map((e) => p.basename(e.path)).toList()..sort();
       expect(remaining, ['0.9.96+736', '0.9.97']);
     });
 
@@ -220,9 +227,9 @@ void main() {
   // הלנדמיין מ-AGENTS.md: החתימה ה-ad-hoc של ה-.app שורדת רק חילוץ עם
   // `ditto`. אין דרך להריץ את המסלול הזה בווינדוס, ולכן נאכף על הקוד עצמו.
   group('מסלול macOS משתמש ב-ditto בלבד', () {
-    final source =
-        File(p.join('lib', 'src', 'services', 'otzaria_installer.dart'))
-            .readAsStringSync();
+    final source = File(
+      p.join('lib', 'src', 'services', 'otzaria_installer.dart'),
+    ).readAsStringSync();
     // ההערות בקובץ מזכירות את unzip דווקא כדי להסביר למה לא — לכן משווים
     // מול הקוד בלבד.
     final code = source
@@ -258,8 +265,10 @@ void main() {
     );
 
     test('התקנה שקטה, בלי תיבות הודעה ובלי הפעלה מחדש', () {
-      expect(args,
-          containsAll(['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART']));
+      expect(
+        args,
+        containsAll(['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART']),
+      );
     });
 
     test('נתיב ההתקנה והלוג נמסרים כדגלים משורשרים', () {
@@ -301,6 +310,126 @@ void main() {
       );
 
       expect(args, contains(r'/DIR=D:\אוצריא'));
+    });
+  });
+
+  group('OtzariaInstaller.windowsSilentArgs - install scope', () {
+    const logPath = r'C:\Temp\otzaria-install.log';
+
+    test('current user - neither /PORTABLE nor /ALLUSERS', () {
+      final args = OtzariaInstaller.windowsSilentArgs(
+        installDir: r'C:\Users\u\AppData\Local\Programs\Otzaria',
+        logPath: logPath,
+      );
+
+      expect(args, isNot(contains('/PORTABLE')));
+      expect(args, isNot(contains('/ALLUSERS')));
+    });
+
+    test('portable - /PORTABLE with /DIR=, no desktop shortcut task', () {
+      final args = OtzariaInstaller.windowsSilentArgs(
+        installDir: r'D:\OtzariaPortable',
+        logPath: logPath,
+        scope: OtzariaWindowsInstallScope.portable,
+      );
+
+      expect(args, containsAll([r'/DIR=D:\OtzariaPortable', '/PORTABLE']));
+      expect(args.where((a) => a.startsWith('/MERGETASKS')), isEmpty);
+      expect(args, isNot(contains('/ALLUSERS')));
+    });
+
+    test('all users - /ALLUSERS keeps the admin install mode', () {
+      final args = OtzariaInstaller.windowsSilentArgs(
+        installDir: r'C:\Program Files\Otzaria',
+        logPath: logPath,
+        scope: OtzariaWindowsInstallScope.allUsers,
+      );
+
+      expect(args, containsAll(['/ALLUSERS', '/MERGETASKS=desktopicon']));
+      expect(args, isNot(contains('/PORTABLE')));
+    });
+  });
+
+  group('OtzariaInstaller.windowsInstallScopeOf', () {
+    late String dir;
+
+    setUp(() async {
+      dir = p.join(tempDir.path, 'install');
+      await Directory(dir).create(recursive: true);
+    });
+
+    test('no folder - current user', () {
+      expect(
+        OtzariaInstaller.windowsInstallScopeOf(null, environment: const {}),
+        OtzariaWindowsInstallScope.currentUser,
+      );
+    });
+
+    test('plain folder - current user', () {
+      expect(
+        OtzariaInstaller.windowsInstallScopeOf(dir, environment: const {}),
+        OtzariaWindowsInstallScope.currentUser,
+      );
+    });
+
+    test('portable.marker - portable', () async {
+      await File(p.join(dir, OtzariaInstaller.portableMarkerFileName))
+          .writeAsString('');
+
+      expect(
+        OtzariaInstaller.windowsInstallScopeOf(dir, environment: const {}),
+        OtzariaWindowsInstallScope.portable,
+      );
+    });
+
+    test('system_install.marker - all users', () async {
+      await File(p.join(dir, OtzariaInstaller.systemInstallMarkerFileName))
+          .writeAsString('');
+
+      expect(
+        OtzariaInstaller.windowsInstallScopeOf(dir, environment: const {}),
+        OtzariaWindowsInstallScope.allUsers,
+      );
+    });
+
+    test('both markers - portable wins', () async {
+      await File(p.join(dir, OtzariaInstaller.portableMarkerFileName))
+          .writeAsString('');
+      await File(p.join(dir, OtzariaInstaller.systemInstallMarkerFileName))
+          .writeAsString('');
+
+      expect(
+        OtzariaInstaller.windowsInstallScopeOf(dir, environment: const {}),
+        OtzariaWindowsInstallScope.portable,
+      );
+    });
+
+    test('under Program Files without a marker - all users', () {
+      const environment = {
+        'ProgramFiles': r'C:\Program Files',
+        'ProgramFiles(x86)': r'C:\Program Files (x86)',
+      };
+
+      for (final installDir in [
+        r'C:\Program Files\אוצריא',
+        r'c:\program files (x86)\Otzaria',
+      ]) {
+        expect(
+          OtzariaInstaller.windowsInstallScopeOf(
+            installDir,
+            environment: environment,
+          ),
+          OtzariaWindowsInstallScope.allUsers,
+          reason: installDir,
+        );
+      }
+      expect(
+        OtzariaInstaller.windowsInstallScopeOf(
+          r'C:\Users\u\AppData\Local\Programs\Otzaria',
+          environment: environment,
+        ),
+        OtzariaWindowsInstallScope.currentUser,
+      );
     });
   });
 
@@ -350,12 +479,14 @@ void main() {
 
     // מאתר במצב ווינדוס במפורש: זה מסלול ווינדוס, ובלי ההזרקה המאתר גזר את
     // הפלטפורמה מהמכונה שמריצה את הבדיקות וחיפש חבילת `.app` במקום `.exe`.
-    setUp(() => installer = OtzariaInstaller(
-          cacheDir: cacheDir,
-          appLocator: const OtzariaAppLocator(
-            platform: OtzariaTargetPlatform.windows,
-          ),
-        ));
+    setUp(
+      () => installer = OtzariaInstaller(
+        cacheDir: cacheDir,
+        appLocator: const OtzariaAppLocator(
+          platform: OtzariaTargetPlatform.windows,
+        ),
+      ),
+    );
 
     // המתקין שמורץ כאן הוא סקריפט אמיתי שיוצא בקוד 0 בלי לעשות כלום —
     // כלומר "האשף נסגר וההתקנה לא נמצאה", המצב של משתמש שעוד באמצע.
@@ -465,24 +596,26 @@ void main() {
       expect(state.launchPath, existingExe);
     });
 
-    test('תיקייה שנמסרה וריקה — נופלים לזיהוי (המשתמש שינה יעד באשף)',
-        () async {
-      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 0);
-      final chosenElsewhere = OtzariaInstallState(
-        installedTagName: '0.1.0',
-        installDir: r'D:\אוצריא',
-        launchPath: r'D:\אוצריא\otzaria.exe',
-      );
+    test(
+      'תיקייה שנמסרה וריקה — נופלים לזיהוי (המשתמש שינה יעד באשף)',
+      () async {
+        final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 0);
+        final chosenElsewhere = OtzariaInstallState(
+          installedTagName: '0.1.0',
+          installDir: r'D:\אוצריא',
+          launchPath: r'D:\אוצריא\otzaria.exe',
+        );
 
-      final state = await installer.installWithWizard(
-        release: _release(),
-        installerPath: fakeInstaller,
-        installDir: p.join(tempDir.path, 'תיקייה שאינה קיימת'),
-        locateInstalled: () async => chosenElsewhere,
-      );
+        final state = await installer.installWithWizard(
+          release: _release(),
+          installerPath: fakeInstaller,
+          installDir: p.join(tempDir.path, 'תיקייה שאינה קיימת'),
+          locateInstalled: () async => chosenElsewhere,
+        );
 
-      expect(state.installDir, chosenElsewhere.installDir);
-    });
+        expect(state.installDir, chosenElsewhere.installDir);
+      },
+    );
   });
 
   // Issue #26 on an update: the installer relaunched itself (exit 1) and the
@@ -491,6 +624,12 @@ void main() {
     late OtzariaInstaller installer;
     late String installDir;
     late String exe;
+
+    OtzariaInstallState installedAt(String launchPath) => OtzariaInstallState(
+      installedTagName: _tag,
+      installDir: p.dirname(launchPath),
+      launchPath: launchPath,
+    );
 
     setUp(() async {
       installer = OtzariaInstaller(
@@ -542,29 +681,31 @@ void main() {
       expect(state.installedTagName, _tag);
     });
 
-    test('destination changed in the wizard - the new install is found',
-        () async {
-      await File(exe).writeAsString('0.9.90+90900');
-      final otherDir = p.join(tempDir.path, 'chosen elsewhere');
-      final otherExe = p.join(otherDir, 'otzaria.exe');
-      await Directory(otherDir).create(recursive: true);
-      await File(otherExe).writeAsString('0.9.96+99600');
-      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+    test(
+      'destination changed in the wizard - the new install is found',
+      () async {
+        await File(exe).writeAsString('0.9.90+90900');
+        final otherDir = p.join(tempDir.path, 'chosen elsewhere');
+        final otherExe = p.join(otherDir, 'otzaria.exe');
+        await Directory(otherDir).create(recursive: true);
+        await File(otherExe).writeAsString('0.9.96+99600');
+        final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
 
-      final state = await installer.installWithWizard(
-        release: _release(),
-        installerPath: fakeInstaller,
-        installDir: installDir,
-        locateInstalled: () async => OtzariaInstallState(
-          installedTagName: _tag,
-          installDir: otherDir,
-          launchPath: otherExe,
-        ),
-        detectTimeout: Duration.zero,
-      );
+        final state = await installer.installWithWizard(
+          release: _release(),
+          installerPath: fakeInstaller,
+          installDir: installDir,
+          locateInstalled: () async => OtzariaInstallState(
+            installedTagName: _tag,
+            installDir: otherDir,
+            launchPath: otherExe,
+          ),
+          detectTimeout: Duration.zero,
+        );
 
-      expect(state.launchPath, otherExe);
-    });
+        expect(state.launchPath, otherExe);
+      },
+    );
 
     test('detection returning the same old exe - still open', () async {
       await File(exe).writeAsString('0.9.90+90900');
@@ -586,114 +727,180 @@ void main() {
       );
     });
 
-    test('detection finding an even older install elsewhere - still open',
-        () async {
-      await File(exe).writeAsString('0.9.90+90900');
-      final otherDir = p.join(tempDir.path, 'older install');
-      final otherExe = p.join(otherDir, 'otzaria.exe');
-      await Directory(otherDir).create(recursive: true);
-      await File(otherExe).writeAsString('0.9.80+98000');
-      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+    test(
+      'detection finding an even older install elsewhere - still open',
+      () async {
+        await File(exe).writeAsString('0.9.90+90900');
+        final otherDir = p.join(tempDir.path, 'older install');
+        final otherExe = p.join(otherDir, 'otzaria.exe');
+        await Directory(otherDir).create(recursive: true);
+        await File(otherExe).writeAsString('0.9.80+98000');
+        final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
 
-      await expectLater(
-        installer.installWithWizard(
-          release: _release(),
-          installerPath: fakeInstaller,
-          installDir: installDir,
-          locateInstalled: () async => OtzariaInstallState(
-            installedTagName: _tag,
-            installDir: otherDir,
-            launchPath: otherExe,
+        await expectLater(
+          installer.installWithWizard(
+            release: _release(),
+            installerPath: fakeInstaller,
+            installDir: installDir,
+            locateInstalled: () async => OtzariaInstallState(
+              installedTagName: _tag,
+              installDir: otherDir,
+              launchPath: otherExe,
+            ),
+            detectTimeout: Duration.zero,
           ),
-          detectTimeout: Duration.zero,
-        ),
-        throwsA(isA<OtzariaWizardStillOpen>()),
-      );
-    });
+          throwsA(isA<OtzariaWizardStillOpen>()),
+        );
+      },
+    );
 
-    test('version unreadable while the exe is replaced - not done yet',
-        () async {
-      await File(exe).writeAsString('0.9.90+90900');
+    test(
+      'version unreadable while the exe is replaced - not done yet',
+      () async {
+        await File(exe).writeAsString('0.9.90+90900');
+        final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+        Future<void>.delayed(const Duration(milliseconds: 500), () async {
+          await File(exe).writeAsString('?');
+        });
+
+        await expectLater(
+          installer.installWithWizard(
+            release: _release(),
+            installerPath: fakeInstaller,
+            installDir: installDir,
+            locateInstalled: () async => null,
+            detectTimeout: const Duration(seconds: 3),
+          ),
+          throwsA(isA<OtzariaWizardStillOpen>()),
+        );
+      },
+    );
+
+    test(
+      'same-base hotfix with the exe untouched (UAC refused) - still open',
+      () async {
+        await File(exe).writeAsString('0.9.97+99701');
+        final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+
+        await expectLater(
+          installer.installWithWizard(
+            release: _release(tag: '0.9.97.2+800'),
+            installerPath: fakeInstaller,
+            installDir: installDir,
+            locateInstalled: () async => installedAt(exe),
+            detectTimeout: Duration.zero,
+          ),
+          throwsA(isA<OtzariaWizardStillOpen>()),
+        );
+      },
+    );
+
+    test(
+      'reinstall with the exe untouched - still open, not installed',
+      () async {
+        await File(exe).writeAsString('0.9.96+99600');
+        final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+
+        await expectLater(
+          installer.installWithWizard(
+            release: _release(),
+            installerPath: fakeInstaller,
+            installDir: installDir,
+            locateInstalled: () async => null,
+            detectTimeout: Duration.zero,
+          ),
+          throwsA(isA<OtzariaWizardStillOpen>()),
+        );
+      },
+    );
+
+    test('same-base hotfix - done once the exe build changes', () async {
+      await File(exe).writeAsString('0.9.97+99701');
       final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
-      Future<void>.delayed(const Duration(milliseconds: 500), () async {
-        await File(exe).writeAsString('?');
+      Future<void>.delayed(const Duration(seconds: 1), () async {
+        await File(exe).writeAsString('0.9.97+99702');
       });
-
-      await expectLater(
-        installer.installWithWizard(
-          release: _release(),
-          installerPath: fakeInstaller,
-          installDir: installDir,
-          locateInstalled: () async => null,
-          detectTimeout: const Duration(seconds: 3),
-        ),
-        throwsA(isA<OtzariaWizardStillOpen>()),
-      );
-    });
-
-    // Inno keeps the build's file timestamps, so a reinstall of the same
-    // build leaves nothing to tell the new exe from the old one.
-    test('reinstall of the installed version - success right away', () async {
-      await File(exe).writeAsString('0.9.96+99600');
-      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
-
-      final state = await installer.installWithWizard(
-        release: _release(),
-        installerPath: fakeInstaller,
-        installDir: installDir,
-        locateInstalled: () async => null,
-        detectTimeout: Duration.zero,
-      );
-
-      expect(state.launchPath, exe);
-    });
-
-    // Hotfix tags have a 4th part the exe never reports, so the exe looks
-    // the same before and after; this must not end as "still open".
-    test('hotfix tag 0.9.97.2 over exe 0.9.97 - success, not still open',
-        () async {
-      await File(exe).writeAsString('0.9.97+99702');
-      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
 
       final state = await installer.installWithWizard(
         release: _release(tag: '0.9.97.2+800'),
         installerPath: fakeInstaller,
         installDir: installDir,
         locateInstalled: () async => null,
-        detectTimeout: Duration.zero,
+        detectTimeout: const Duration(seconds: 10),
       );
 
       expect(state.launchPath, exe);
       expect(state.installedTagName, '0.9.97.2+800');
     });
 
-    test('update 0.9.96 -> 0.9.97 is stale until the exe is replaced',
-        () async {
-      await File(exe).writeAsString('0.9.96+99600');
+    test('same version string - done once the exe timestamp changes', () async {
+      await File(exe).writeAsString('0.9.97+99702');
+      File(exe).setLastModifiedSync(DateTime(2026, 1, 1));
       final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+      Future<void>.delayed(const Duration(seconds: 1), () {
+        File(exe).setLastModifiedSync(DateTime(2026, 2, 1));
+      });
 
-      await expectLater(
-        installer.installWithWizard(
-          release: _release(tag: '0.9.97+740'),
+      final state = await installer.installWithWizard(
+        release: _release(tag: '0.9.97.2+800'),
+        installerPath: fakeInstaller,
+        installDir: installDir,
+        locateInstalled: () async => null,
+        detectTimeout: const Duration(seconds: 10),
+      );
+
+      expect(state.launchPath, exe);
+    });
+
+    test(
+      'exit 0 with the exe untouched - finished, no change required',
+      () async {
+        await File(exe).writeAsString('0.9.96+99600');
+        final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 0);
+
+        final state = await installer.installWithWizard(
+          release: _release(),
           installerPath: fakeInstaller,
           installDir: installDir,
           locateInstalled: () async => null,
           detectTimeout: Duration.zero,
-        ),
-        throwsA(isA<OtzariaWizardStillOpen>()),
-      );
-    });
+        );
+
+        expect(state.launchPath, exe);
+      },
+    );
+
+    test(
+      'update 0.9.96 -> 0.9.97 is stale until the exe is replaced',
+      () async {
+        await File(exe).writeAsString('0.9.96+99600');
+        final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 1);
+
+        await expectLater(
+          installer.installWithWizard(
+            release: _release(tag: '0.9.97+740'),
+            installerPath: fakeInstaller,
+            installDir: installDir,
+            locateInstalled: () async => null,
+            detectTimeout: Duration.zero,
+          ),
+          throwsA(isA<OtzariaWizardStillOpen>()),
+        );
+      },
+    );
   });
 
   group('OtzariaInstaller.installFromFile (silent, Windows)', () {
     late OtzariaInstaller installer;
 
-    setUp(() => installer = OtzariaInstaller(
-          cacheDir: cacheDir,
-          appLocator: const OtzariaAppLocator(
-            platform: OtzariaTargetPlatform.windows,
-          ),
-        ));
+    setUp(
+      () => installer = OtzariaInstaller(
+        cacheDir: cacheDir,
+        appLocator: const OtzariaAppLocator(
+          platform: OtzariaTargetPlatform.windows,
+        ),
+      ),
+    );
 
     // Under /VERYSILENT the installer never relaunches itself, so exit 1 is a
     // real init failure (e.g. unsupported architecture).
@@ -707,27 +914,94 @@ void main() {
           installDir: null,
           locateInstalled: () async => throw StateError('must not be called'),
         ),
-        throwsA(isA<StateError>().having((e) => e.message, 'message',
-            startsWith(AppL10n.strings.appDomain.installerExitCode(1, '')))),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            startsWith(AppL10n.strings.appDomain.installerExitCode(1, '')),
+          ),
+        ),
       );
     });
 
-    test('update, exit 0 - the exe in installDir counts as installed',
-        () async {
-      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 0);
-      final dir = p.join(tempDir.path, 'existing install');
-      await Directory(dir).create(recursive: true);
-      await File(p.join(dir, 'otzaria.exe')).writeAsString('exe');
+    test('UAC refused (1223) - cancelled by the user, not a failure', () async {
+      final fakeInstaller = await _writeExitScript(
+        tempDir.path,
+        exitCode: 1223,
+      );
 
-      final state = await installer.installFromFile(
+      await expectLater(
+        installer.installFromFile(
+          release: _release(),
+          installerPath: fakeInstaller,
+          installDir: null,
+          locateInstalled: () async => throw StateError('must not be called'),
+        ),
+        throwsA(isA<OtzariaInstallCancelled>()),
+      );
+    }, testOn: 'windows');
+
+    Future<List<String>> silentArgsFor(String dir) async {
+      await File(p.join(dir, 'otzaria.exe')).writeAsString('exe');
+      final argsFile = p.join(tempDir.path, 'args.txt');
+      final fakeInstaller = await _writeArgsRecordingScript(
+        tempDir.path,
+        argsFile: argsFile,
+      );
+
+      await installer.installFromFile(
         release: _release(),
         installerPath: fakeInstaller,
         installDir: dir,
         appAppearTimeout: const Duration(seconds: 5),
       );
+      return _rejoinCmdEqualsSplit(
+        File(argsFile).readAsLinesSync().map((line) => line.trim()).toList(),
+      );
+    }
 
-      expect(state.launchPath, p.join(dir, 'otzaria.exe'));
+    test('portable install - updated with /PORTABLE, marker kept', () async {
+      final dir = p.join(tempDir.path, 'OtzariaPortable');
+      await Directory(dir).create(recursive: true);
+      await File(p.join(dir, OtzariaInstaller.portableMarkerFileName))
+          .writeAsString('');
+
+      final args = await silentArgsFor(dir);
+
+      expect(args, containsAll(['/VERYSILENT', '/DIR=$dir', '/PORTABLE']));
+      expect(args, isNot(contains('/ALLUSERS')));
     });
+
+    test('all-users install - updated with /ALLUSERS', () async {
+      final dir = p.join(tempDir.path, 'admin install');
+      await Directory(dir).create(recursive: true);
+      await File(p.join(dir, OtzariaInstaller.systemInstallMarkerFileName))
+          .writeAsString('');
+
+      final args = await silentArgsFor(dir);
+
+      expect(args, containsAll(['/VERYSILENT', '/DIR=$dir', '/ALLUSERS']));
+      expect(args, isNot(contains('/PORTABLE')));
+    });
+
+    test(
+      'update, exit 0 - the exe in installDir counts as installed',
+      () async {
+        final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 0);
+        final dir = p.join(tempDir.path, 'existing install');
+        await Directory(dir).create(recursive: true);
+        await File(p.join(dir, 'otzaria.exe')).writeAsString('exe');
+
+        final state = await installer.installFromFile(
+          release: _release(),
+          installerPath: fakeInstaller,
+          installDir: dir,
+          appAppearTimeout: const Duration(seconds: 5),
+        );
+
+        expect(state.launchPath, p.join(dir, 'otzaria.exe'));
+      },
+    );
   });
 }
 
@@ -743,6 +1017,45 @@ class _FileContentVersionReader implements InstalledVersionReader {
     // '?' stands for an exe whose version resource cannot be read yet.
     return content == '?' ? null : content;
   }
+}
+
+List<String> _rejoinCmdEqualsSplit(List<String> tokens) {
+  if (!Platform.isWindows) return tokens;
+  final joined = <String>[];
+  for (var i = 0; i < tokens.length; i++) {
+    final token = tokens[i];
+    final next = i + 1 < tokens.length ? tokens[i + 1] : null;
+    if (token.startsWith('/') &&
+        !token.contains('=') &&
+        next != null &&
+        !next.startsWith('/')) {
+      joined.add('$token=$next');
+      i++;
+    } else {
+      joined.add(token);
+    }
+  }
+  return joined;
+}
+
+Future<String> _writeArgsRecordingScript(
+  String dir, {
+  required String argsFile,
+}) async {
+  if (Platform.isWindows) {
+    final path = p.join(dir, 'fake-setup-args.bat');
+    await File(path).writeAsString(
+      '@echo off\r\n(for %%a in (%*) do @echo %%~a) > "$argsFile"\r\n'
+      'exit /b 0\r\n',
+    );
+    return path;
+  }
+  final path = p.join(dir, 'fake-setup-args.sh');
+  await File(path).writeAsString(
+    '#!/bin/sh\nfor a in "\$@"; do echo "\$a"; done > "$argsFile"\n',
+  );
+  await Process.run('chmod', ['+x', path]);
+  return path;
 }
 
 /// כותב "מתקין" מדומה שכל תפקידו לצאת בקוד נתון. `.bat` בווינדוס ו-`sh`

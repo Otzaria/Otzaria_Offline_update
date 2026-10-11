@@ -368,18 +368,6 @@ class OtzariaManager {
     );
   }
 
-  /// מתקין את הגרסה שיושבת במראה המקומית **בערוץ שנבחר**
-  /// ([preferPrerelease]). אם יש כבר מצב מוכר (מותקן/מאומץ קודם), מעדכן
-  /// **באותה תיקייה** — לא יוצר התקנה שנייה; ואם אין, נותן למתקין להתקין
-  /// לברירת המחדל שלו (ראו [_installDirFor]) ומזהה אחר כך לאן זה הלך.
-  /// שומר את מצב ההתקנה החדש לשימוש עתידי.
-  ///
-  /// לא נוגע ברשת. זורק [StateError] אם אין מראה — כלומר לא בוצעה הורדה.
-  ///
-  /// [useWizard] — לחיצה של המשתמש פותחת את
-  /// האשף של המתקין, וההתקנה האוטומטית נשארת שקטה. גם בעדכון יש מה לבחור
-  /// שם (קיצור דרך, ובמחשב נקי גם התיקייה), ובעדכון של התקנה קיימת Inno
-  /// ממילא ממלא מראש את התיקייה שלה (`UsePreviousAppDir`) ומדלג על העמוד.
   Future<OtzariaInstallState> update(
     OtzariaUpdateCheckResult check, {
     bool useWizard = false,
@@ -390,32 +378,29 @@ class OtzariaManager {
       throw StateError(AppL10n.strings.appDomain.mirrorEmptyRunDownload);
     }
 
-    // שתי הגרסאות נשארות בכונן: התקנת אחת מהן לא מוחקת את קובץ ההתקנה
-    // של השנייה, כדי שאפשר יהיה להחליף ערוץ בלי הורדה מחדש.
     final keepCachedTagNames = {
       for (final entry in mirrored.all) entry.release.tagName,
     };
 
     await _refuseIfRunningOnMac();
 
-    // אשף רק במתקין של ווינדוס — ב-macOS ההתקנה היא חילוץ bundle, ואין שם
-    // אשף בכלל.
+    final installDir = await _installDirFor(check.currentState);
     final state = useWizard &&
             selected.release.installerKind ==
-                OtzariaInstallerKind.windowsSetupExe
+                OtzariaInstallerKind.windowsSetupExe &&
+            OtzariaInstaller.windowsInstallScopeOf(installDir) !=
+                OtzariaWindowsInstallScope.portable
         ? await _installer.installWithWizard(
             release: selected.release,
             installerPath: selected.installerPath,
             locateInstalled: _detectInKnownDirs,
-            // אותה תיקייה שההתקנה הקיימת יושבת בה — עדכון במקום, לא התקנה
-            // שנייה לצדה. `null` בהתקנה חדשה.
-            installDir: check.currentState?.installDir,
+            installDir: installDir,
             keepCachedTagNames: keepCachedTagNames,
           )
         : await _installer.installFromFile(
             release: selected.release,
             installerPath: selected.installerPath,
-            installDir: await _installDirFor(check.currentState),
+            installDir: installDir,
             locateInstalled: _detectInKnownDirs,
             keepCachedTagNames: keepCachedTagNames,
           );

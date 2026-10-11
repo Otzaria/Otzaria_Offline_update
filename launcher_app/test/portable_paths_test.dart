@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:library_manager/library_manager.dart';
+import 'package:otzaria_manager/otzaria_manager.dart' show OtzariaInstaller;
 import 'package:plugins_manager/plugins_manager.dart';
 
 /// שתי חבילות גוזרות נתיבים מאותה **התקנה ניידת** של אוצריא:
@@ -19,6 +20,17 @@ void main() {
     expect(
       InstalledPluginsScanner.portableDataFolderName,
       LibraryDbLocator.portableDataFolderName,
+    );
+  });
+
+  test('the Otzaria installer reads the same install markers', () {
+    expect(
+      OtzariaInstaller.portableMarkerFileName,
+      LibraryDbLocator.portableMarkerFileName,
+    );
+    expect(
+      OtzariaInstaller.systemInstallMarkerFileName,
+      LibraryDbLocator.systemInstallMarkerFileName,
     );
   });
 }

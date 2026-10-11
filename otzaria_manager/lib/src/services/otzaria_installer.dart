@@ -46,6 +46,15 @@ class OtzariaWizardStillOpen implements Exception {
 /// [OtzariaInstaller.wizardOutcomeFor].
 enum OtzariaWizardOutcome { finished, relaunched, cancelled, failed }
 
+enum OtzariaWindowsInstallScope { currentUser, allUsers, portable }
+
+typedef _ExeSnapshot = ({
+  String path,
+  String? version,
+  int size,
+  DateTime modified,
+});
+
 /// מוריד את חבילת ההתקנה של אוצריא ומתקין אותה לתוך תיקייה נתונה, בשקט,
 /// לפי הפלטפורמה:
 ///
@@ -232,25 +241,6 @@ class OtzariaInstaller {
     return installed;
   }
 
-  /// מריץ את המתקין **עם האשף שלו** — בלי שום דגל שקט, כך שהמשתמש רואה את
-  /// אותם עמודי בחירה שהוא רואה בהרצה ידנית (תיקיית יעד, קיצור דרך,
-  /// והאזהרות שה-`[Code]` של המתקין מקפיץ). מיועד למחשב שהמשתמש עומד מולו.
-  ///
-  /// אין `/MERGETASKS` בכוונה: קיצור הדרך הוא בחירה של המשתמש, ולדרוס
-  /// אותה בדגל היה מחזיר בדיוק את מה שהמסלול הזה בא לתקן.
-  ///
-  /// [installDir] = **התיקייה של התקנה קיימת שאנחנו מכירים**, ואז היא
-  /// נמסרת ב-`/DIR=`: הגרסה החדשה נכנסת בדיוק לאותו מקום, ולא נוצרת התקנה
-  /// שנייה לצד הראשונה. זה אינו סותר את האשף — ב-Inno `/DIR=` קובע את
-  /// *ברירת המחדל* של עמוד היעד, והמשתמש עוד יכול לשנותה כשהעמוד מוצג.
-  /// ההסתמכות על `UsePreviousAppDir` של Inno לבדה אינה מספיקה: היא עובדת
-  /// רק כשהוא מוצא את רשומת ההתקנה שלו עצמו, ולא כשהמשתמש הצביע ידנית על
-  /// התקנה שהרשומה שלה חסרה (התקנה ניידת, או כזו שנרשמה למשתמש אחר).
-  /// `null` = התקנה חדשה, ואז המתקין בוחר את ברירת המחדל שלו.
-  ///
-  /// זורק [OtzariaInstallCancelled] כשהמשתמש ביטל (כולל סירוב ל-UAC), ו-
-  /// [StateError] בכשל אמיתי. אחרי סיום מוצלח מחפש את ההתקנה דרך
-  /// [locateInstalled] — הוא היחיד שיודע לאן המשתמש בחר להתקין.
   Future<OtzariaInstallState> installWithWizard({
     required OtzariaRelease release,
     required String installerPath,
@@ -261,7 +251,7 @@ class OtzariaInstaller {
   }) async {
     final logPath =
         p.join(Directory.systemTemp.path, 'otzaria-install-$pid.log');
-    final previousVersion = await _versionIn(installDir);
+    final previousExe = await _exeSnapshotIn(installDir);
     final result = await Process.run(installerPath, [
       if (installDir != null) '/DIR=$installDir',
       '/LOG=$logPath',
@@ -278,32 +268,20 @@ class OtzariaInstaller {
         throw StateError(
           AppL10n.strings.appDomain.installerExitCode(result.exitCode, details),
         );
-      // "שוגר מחדש" מטופל כמו "הסתיים": התהליך שהרצנו פרש בכוונה, והאשף
-      // (או ההתקנה השקטה) ממשיך בתהליך שני שאנחנו לא מחזיקים. הזיהוי
-      // שלמטה הוא שיקבע — ו-OtzariaWizardStillOpen הוא התשובה הנכונה
-      // כשהמשתמש עוד עומד מול האשף המורם.
       case OtzariaWizardOutcome.finished:
       case OtzariaWizardOutcome.relaunched:
         _deleteQuietly(logPath);
     }
 
-    // After a relaunch the old exe is not the update yet. The exe carries only
-    // major.minor.patch, so same-base targets (reinstall, hotfix) are exempt.
-    final staleVersion = outcome == OtzariaWizardOutcome.relaunched &&
-            previousVersion != null &&
-            _isOlderBase(previousVersion, release.tagName)
-        ? previousVersion
-        : null;
+    final unconfirmedExe =
+        outcome == OtzariaWizardOutcome.relaunched ? previousExe : null;
 
-    // התיקייה שמסרנו קודמת לזיהוי: היא מה שהתבקש, והזיהוי הכללי עלול
-    // להחזיר דווקא התקנה אחרת שנשארה במחשב. אם היא ריקה — המשתמש שינה את
-    // היעד באשף, ואז הזיהוי הוא התשובה.
-    // Not ready yet: still an older base (the old exe or another old install),
-    // or unreadable while Inno replaces the file.
     bool isStale(String launchPath) {
-      if (staleVersion == null) return false;
+      if (unconfirmedExe == null) return false;
       final version = _readVersionQuietly(launchPath);
-      return version == null || _isOlderBase(version, release.tagName);
+      return version == null ||
+          _isOlderBase(version, release.tagName) ||
+          _isUnchanged(launchPath, version, unconfirmedExe);
     }
 
     Future<OtzariaInstallState?> locate() async {
@@ -317,7 +295,6 @@ class OtzariaInstaller {
           );
         }
       }
-      // Detection also scans the registry dirs, which may hold the same old exe.
       final found = await locateInstalled();
       return found != null && isStale(found.launchPath) ? null : found;
     }
@@ -328,9 +305,6 @@ class OtzariaInstaller {
     await pruneCacheExcept(
       keepTagNames: keepCachedTagNames ?? {release.tagName},
     );
-    // התג של ה-release ולא הגרסה שנקראה מה-exe — אותה סמנטיקה שהמסלול
-    // השקט שומר, כדי ששני המסלולים לא יכתבו שני דברים שונים לאותו state.
-    // הגרסה שנקראה נשמרת בכל זאת כטביעת אצבע של הקובץ.
     return OtzariaInstallState(
       installedTagName: release.tagName,
       installDir: found.installDir,
@@ -345,21 +319,11 @@ class OtzariaInstaller {
   /// במקום לתלות את התוכנה לחצי שעה.
   static const Duration wizardDetectTimeout = Duration(seconds: 20);
 
-  /// קודי היציאה של Inno Setup: 0 הצלחה; 2 ו-5 ביטול של המשתמש (לפני
-  /// ההתקנה ובאמצעה); 1223 הוא `ERROR_CANCELLED` של Windows — סירוב ל-UAC,
-  /// כלומר גם הוא בחירה ולא תקלה.
-  ///
-  /// **1 אינו כשל במתקין של אוצריא.** זהו קוד היציאה כש-`InitializeSetup`
-  /// החזיר `False`, ו-`otzaria.iss`/`otzaria_full.iss` משתמשים בזה כדי
-  /// לפרוש מהתהליך הנוכחי **אחרי** ששיגרו את המתקין מחדש — מורם ב-UAC
-  /// כשההתקנה הקודמת יושבת בנתיב שדורש מנהל, או שקט בשדרוג מגרסה 0.9.88
-  /// ומעלה. ההתקנה נמשכת בתהליך השני, ולכן [OtzariaWizardOutcome.relaunched]
-  /// ממשיך לזיהוי כמו [OtzariaWizardOutcome.finished].
   static OtzariaWizardOutcome wizardOutcomeFor(int exitCode) =>
       switch (exitCode) {
         0 => OtzariaWizardOutcome.finished,
         1 => OtzariaWizardOutcome.relaunched,
-        2 || 5 || 1223 => OtzariaWizardOutcome.cancelled,
+        2 || 5 || _uacRefusedExitCode => OtzariaWizardOutcome.cancelled,
         _ => OtzariaWizardOutcome.failed,
       };
 
@@ -484,28 +448,10 @@ class OtzariaInstaller {
   /// סימן את התיבה בעצמו. `/MERGETASKS` מוסיף אותה לברירת המחדל.
   static const String _desktopIconTask = 'desktopicon';
 
-  /// דגלי ההתקנה השקטה. פונקציה טהורה כדי שהרשימה תהיה ניתנת לבדיקה —
-  /// הרצת המתקין עצמה אינה.
-  ///
-  /// `/VERYSILENT` + `/SUPPRESSMSGBOXES`: אין UI בכלל, כולל תיבות שגיאה.
-  /// `/NORESTART`: לא להפעיל מחדש את המחשב גם אם ה-installer "רוצה".
-  /// `/LOG=`: ראו [_installFailureOutput]. הדגלים מורכבים בשרשור —
-  /// `p.join` היה מתייחס אליהם כרכיבי נתיב.
-  ///
-  /// **`/NOLAUNCH=1` — אוצריא לא נפתחת בסוף התקנה שקטה.** ב-`otzaria.iss`
-  /// יש רשומת `[Run]` שנייה שרצה **רק** בשקט (`ShouldLaunchAppAfterSilentInstall`),
-  /// כדי לפצות על זו של דף הסיום שמדולגת ב-`/VERYSILENT`. אוצריא שנפתחה
-  /// כך נועלת את `seforim.db`, ולכן עדכון המסד שרץ מיד אחריה נחסם —
-  /// הלאנצ'ר גרם לשגיאה שהוא עצמו דיווח עליה. הדגל הוא מפתח הכיבוי
-  /// שה-iss עצמו מציע.
-  ///
-  /// **`/DIR=` נמסר רק כשיש תיקייה קיימת לעדכן.** בהתקנה חדשה
-  /// ([installDir] = `null`) הוא נעדר בכוונה, והמתקין מתקין ל-
-  /// `DefaultDirName` שלו — ברירת המחדל של אוצריא ולא ניחוש שלנו, שהתיישן
-  /// בעבר. את מקום ההתקנה מוצאים אחר כך בזיהוי (רג'יסטרי ההסרה).
   static List<String> windowsSilentArgs({
     required String? installDir,
     required String logPath,
+    OtzariaWindowsInstallScope scope = OtzariaWindowsInstallScope.currentUser,
   }) =>
       [
         '/VERYSILENT',
@@ -513,17 +459,54 @@ class OtzariaInstaller {
         '/NORESTART',
         '/NOLAUNCH=1',
         if (installDir != null) '/DIR=$installDir',
-        '/MERGETASKS=$_desktopIconTask',
+        if (scope == OtzariaWindowsInstallScope.portable) '/PORTABLE',
+        if (scope == OtzariaWindowsInstallScope.allUsers) '/ALLUSERS',
+        if (scope != OtzariaWindowsInstallScope.portable)
+          '/MERGETASKS=$_desktopIconTask',
         '/LOG=$logPath',
       ];
+
+  static const String portableMarkerFileName = 'portable.marker';
+  static const String systemInstallMarkerFileName = 'system_install.marker';
+  static const int _uacRefusedExitCode = 1223;
+
+  static OtzariaWindowsInstallScope windowsInstallScopeOf(
+    String? installDir, {
+    Map<String, String>? environment,
+  }) {
+    if (installDir == null) return OtzariaWindowsInstallScope.currentUser;
+    if (File(p.join(installDir, portableMarkerFileName)).existsSync()) {
+      return OtzariaWindowsInstallScope.portable;
+    }
+    if (File(p.join(installDir, systemInstallMarkerFileName)).existsSync()) {
+      return OtzariaWindowsInstallScope.allUsers;
+    }
+    final env = environment ?? Platform.environment;
+    final programFilesRoots = [
+      env['ProgramFiles'],
+      env['ProgramFiles(x86)'],
+      env['ProgramW6432'],
+    ].whereType<String>().where((root) => root.isNotEmpty);
+    return programFilesRoots.any((root) => p.windows.isWithin(root, installDir))
+        ? OtzariaWindowsInstallScope.allUsers
+        : OtzariaWindowsInstallScope.currentUser;
+  }
 
   Future<void> _runSilentInstall(
       String installerPath, String? installDir) async {
     final logPath =
         p.join(Directory.systemTemp.path, 'otzaria-install-$pid.log');
-    final args = windowsSilentArgs(installDir: installDir, logPath: logPath);
+    final args = windowsSilentArgs(
+      installDir: installDir,
+      logPath: logPath,
+      scope: windowsInstallScopeOf(installDir),
+    );
 
     final result = await Process.run(installerPath, args);
+    if (result.exitCode == _uacRefusedExitCode) {
+      _deleteQuietly(logPath);
+      throw const OtzariaInstallCancelled();
+    }
     if (result.exitCode != 0) {
       final details = _installFailureOutput(result, logPath);
       _deleteQuietly(logPath);
@@ -532,12 +515,6 @@ class OtzariaInstaller {
       );
     }
     _deleteQuietly(logPath);
-
-    // הערה: ל-installer-ים מבוססי Inno Setup יש לפעמים תהליך "עוטף"
-    // (SetupLdr) שמשגר תהליך-בן ומסתיים מיד, עוד לפני שההתקנה בפועל
-    // הסתיימה — ולכן exitCode==0 כאן לא מבטיח שהקבצים כבר על הדיסק.
-    // בגלל זה יש polling נפרד ב-_waitForInstalledApp במקום להסתמך רק על
-    // סיום התהליך.
   }
 
   /// כמה שורות מסוף לוג ה-Inno נכנסות להודעת השגיאה.
@@ -781,14 +758,28 @@ class OtzariaInstaller {
     );
   }
 
-  Future<String?> _versionIn(String? installDir) async {
+  Future<_ExeSnapshot?> _exeSnapshotIn(String? installDir) async {
     if (installDir == null) return null;
     final launchPath = await _appLocator.findIn(installDir);
-    return launchPath == null ? null : _readVersionQuietly(launchPath);
+    if (launchPath == null) return null;
+    final stat = File(launchPath).statSync();
+    if (stat.type == FileSystemEntityType.notFound) return null;
+    return (
+      path: launchPath,
+      version: _readVersionQuietly(launchPath),
+      size: stat.size,
+      modified: stat.modified,
+    );
   }
 
-  /// Compares only major.minor.patch: `0.9.97.2+800` is a hotfix tag whose
-  /// exe still reports `0.9.97+99702`.
+  bool _isUnchanged(String launchPath, String version, _ExeSnapshot before) {
+    if (!p.equals(launchPath, before.path) || version != before.version) {
+      return false;
+    }
+    final stat = File(launchPath).statSync();
+    return stat.size == before.size && stat.modified == before.modified;
+  }
+
   static bool _isOlderBase(String installed, String tagName) {
     final pattern = RegExp(r'^\d+(?:\.\d+){0,2}');
     final a = pattern

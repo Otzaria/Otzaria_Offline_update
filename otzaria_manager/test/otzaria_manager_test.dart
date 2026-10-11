@@ -901,6 +901,54 @@ void main() {
     });
   });
 
+  test(
+    'a click on a portable install updates it silently with /PORTABLE',
+    () async {
+      final portableDir = p.join(dataDir.path, 'OtzariaPortable');
+      await Directory(portableDir).create(recursive: true);
+      final exe = p.join(portableDir, 'otzaria.exe');
+      await File(exe).writeAsString('exe');
+      await File(p.join(portableDir, OtzariaInstaller.portableMarkerFileName))
+          .writeAsString('');
+      final argsFile = p.join(dataDir.path, 'args.txt');
+      final script =
+          '#!/bin/sh\nfor a in "\$@"; do echo "\$a"; done > "$argsFile"\n';
+      final release = OtzariaRelease(
+        tagName: '0.9.96',
+        name: 'Otzaria 0.9.96',
+        isPrerelease: false,
+        isDraft: false,
+        publishedAt: DateTime.utc(2026, 1, 1),
+        installerKind: OtzariaInstallerKind.windowsSetupExe,
+        installerAssetName: 'otzaria-0.9.96-windows.exe',
+        installerDownloadUrl: 'https://example.invalid/0.9.96',
+        installerSizeBytes: utf8.encode(script).length,
+      );
+      await writeMirror(stable: release);
+      final installerPath = p.join(
+          mirrorDir(), 'installers', '0.9.96', 'otzaria-0.9.96-windows.exe');
+      await File(installerPath).writeAsString(script);
+      await Process.run('chmod', ['+x', installerPath]);
+
+      final state = await managerFor().update(
+        OtzariaUpdateCheckResult(
+          currentState: OtzariaInstallState(
+            installedTagName: '0.9.90',
+            installDir: portableDir,
+            launchPath: exe,
+          ),
+        ),
+        useWizard: true,
+      );
+
+      final args = File(argsFile).readAsLinesSync();
+      expect(
+          args, containsAll(['/VERYSILENT', '/DIR=$portableDir', '/PORTABLE']));
+      expect(state.installDir, portableDir);
+    },
+    testOn: '!windows',
+  );
+
   // לנדמיין שני: להתקנה חדשה בווינדוס אין תיקיית יעד משלנו. אין דרך
   // להזריק לתהליך שהמתקין מריץ, ולכן גם זה נאכף על הקוד עצמו.
   test('התקנה חדשה בווינדוס אינה כופה תיקייה — רק macOS צריך אחת', () {
