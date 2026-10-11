@@ -259,10 +259,10 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
   /// טוען את הרשימה וסורק מה מותקן. קריאת דיסק בלבד — לא נוגע ברשת.
   Future<void> load() async {
     try {
-      // לפני הרשימה: המסך פותח את ההודעה ברגע שהיא מגיעה אליו.
       if (_announced != null) _announcedIds = await _announced.load();
       categories = await _manager.loadCategories();
       final entries = await _manager.loadAll();
+      final folderIds = await _manager.takenIds();
       final views = <CustomAppView>[];
       for (final entry in entries) {
         views.add(
@@ -273,9 +273,9 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
         );
       }
       apps = views;
+      _folderIds = folderIds;
       errorMessage = null;
     } catch (e) {
-      // תקלה כאן לא אמורה לשבש את שאר הלאנצ'ר: זו תוספת, לא ליבה.
       AppLogger.instance.warn('טעינת התוכנות המותאמות נכשלה: $e');
       apps = const [];
     }
@@ -620,8 +620,10 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
     return ok == true;
   }
 
-  /// המזהים התפוסים — הבונה צריך אותם כדי לייצר מזהה פנוי.
-  Set<String> get takenIds => {for (final app in apps) app.descriptor.id};
+  Set<String> _folderIds = const {};
+
+  Set<String> get takenIds =>
+      {..._folderIds, for (final app in apps) app.descriptor.id};
 
   // ── מדיה: אייקון וצילומי מסך ──────────────────────────────────────────
 

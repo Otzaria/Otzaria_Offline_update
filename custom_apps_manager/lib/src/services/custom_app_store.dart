@@ -84,11 +84,22 @@ class CustomAppStore {
 
   Future<CustomAppEntry?> load(String id) => _loadEntry(id);
 
+  Future<Set<String>> takenIds() async {
+    final dir = Directory(appsDir);
+    if (!await dir.exists()) return const {};
+    final ids = <String>{};
+    await for (final child in dir.list()) {
+      if (child is Directory) ids.add(p.basename(child.path).toLowerCase());
+    }
+    return ids;
+  }
+
   Future<CustomAppEntry?> _loadEntry(String id) async {
     try {
       final file = File(descriptorPathFor(id));
       if (!await file.exists()) return null;
       final descriptor = AppDescriptor.parse(await file.readAsString());
+      if (descriptor.id != id) return null;
       return CustomAppEntry(
         descriptor: descriptor,
         installer: await _loadInstaller(id),
@@ -113,10 +124,8 @@ class CustomAppStore {
     }
   }
 
-  /// רושם תוכנה חדשה. זורק כשכבר קיימת תוכנה עם אותו מזהה — עדכון תיאור
-  /// קיים נעשה דרך [saveDescriptor], כדי ש"הוספה" לא תדרוס בשקט.
   Future<void> add(AppDescriptor descriptor) async {
-    if (await load(descriptor.id) != null) {
+    if (await File(descriptorPathFor(descriptor.id)).exists()) {
       throw AppDescriptorException(
         AppL10n.strings.customAppsDomain.appAlreadyRegistered(descriptor.name),
       );

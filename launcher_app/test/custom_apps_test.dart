@@ -394,6 +394,16 @@ void main() {
       expect(controller.apps, hasLength(1));
       expect(controller.apps.single.descriptor.name, 'המקורית');
     });
+
+    testWidgets('תיקייה שלא נטענה תופסת את המזהה שלה', (tester) async {
+      await addApp(tester, id: 'shown', name: 'מוצגת');
+      Directory(p.join(tempDir.path, 'mirror', 'apps', 'Hidden'))
+          .createSync(recursive: true);
+      await tester.runAsync(controller.load);
+
+      expect(controller.apps, hasLength(1));
+      expect(controller.takenIds, containsAll(['shown', 'hidden']));
+    });
   });
 
   /// סדר התצוגה. נשמר ל-`apps/order.json` ונוסע על הכונן, ולכן הבדיקה

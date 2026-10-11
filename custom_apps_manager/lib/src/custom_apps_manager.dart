@@ -103,6 +103,8 @@ class CustomAppsManager {
 
   Future<CustomAppEntry?> load(String id) async => (await _store()).load(id);
 
+  Future<Set<String>> takenIds() async => (await _store()).takenIds();
+
   /// רושם תוכנה חדשה. **התיאור נוצר תמיד כאן, מתוך הטופס** — אין ייבוא
   /// של תיאור מקובץ חיצוני, ולכן אין תיאור שהגיע מגורם שהמשתמש אינו
   /// מכיר. זה מה שמייתר דיאלוג אמון: הוא בחר בעצמו את הריפו ואת הקובץ.

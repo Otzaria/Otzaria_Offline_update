@@ -76,6 +76,34 @@ void main() {
     expect(all.map((e) => e.descriptor.id), ['good']);
   });
 
+  test('עותק של תיקייה בשם אחר אינו מוצג כתוכנה נוספת', () async {
+    await store.add(descriptor(id: 'app', name: 'מקורית'));
+    final copy = Directory(p.join(root, 'apps', 'app - Copy'))
+      ..createSync(recursive: true);
+    File(store.descriptorPathFor('app'))
+        .copySync(p.join(copy.path, 'descriptor.json'));
+
+    expect((await store.loadAll()).map((e) => e.descriptor.id), ['app']);
+    expect(await store.load('app - Copy'), isNull);
+  });
+
+  test('תיאור שלא נקרא אינו נדרס בהוספה מחדש', () async {
+    final file = File(store.descriptorPathFor('app'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync(
+        jsonEncode({...descriptor(id: 'app').toJson(), 'schemaVersion': 99}),
+      );
+    final original = file.readAsStringSync();
+
+    expect(await store.load('app'), isNull);
+    await expectLater(
+      store.add(descriptor(id: 'app')),
+      throwsA(isA<AppDescriptorException>()),
+    );
+    expect(file.readAsStringSync(), original);
+    expect(await store.takenIds(), contains('app'));
+  });
+
   group('קובץ ההתקנה השמור', () {
     test('מטא-דאטה בלי הקובץ עצמו נחשבת כאילו אין — העתקה חלקית', () async {
       await store.add(descriptor());
