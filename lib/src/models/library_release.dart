@@ -236,8 +236,6 @@ class LibraryRelease extends Equatable {
   ReleaseAsset? get fullDbAsset =>
       fullDbAssetFor(maxSchemaVersion: kSupportedDbSchemaVersion);
 
-  /// הסכמה הגבוהה של מסד מלא שה-release מפרסם ואיננו קוראים, כשאין בו מסד
-  /// מלא אחר שאפשר להתקין; אחרת null.
   int? get unsupportedFullDbSchema {
     if (fullDbAsset != null) return null;
     int? highest;
