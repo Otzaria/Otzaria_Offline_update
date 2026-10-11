@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -100,6 +101,15 @@ class ErrorReportUploader {
         continue;
       }
 
+      final Uint8List body;
+      try {
+        body = await outbox.requestBody(item);
+      } on Object catch (e) {
+        return finish(
+          error: AppL10n.strings.errorReportsDomain.outboxUnreadable('$e'),
+        );
+      }
+
       var retries = 0;
       while (true) {
         if (!await _waitForWindow(report, cancellation)) {
@@ -111,7 +121,7 @@ class ErrorReportUploader {
         final abort = Completer<void>();
         try {
           attempt = await raceCancellation(
-            _post(item, abort),
+            _post(item, body, abort),
             cancellation,
             abort: abort,
           );
@@ -193,12 +203,13 @@ class ErrorReportUploader {
     return true;
   }
 
-  Future<_Attempt> _post(OutboxReport report, Completer<void> abort) async {
-    final attachments = report.body['attachments'];
-    final images = attachments is Map ? attachments['images'] : null;
+  Future<_Attempt> _post(
+    OutboxReport report,
+    Uint8List body,
+    Completer<void> abort,
+  ) async {
     final timeout = report.endpoint.path == '/api/app-reports' &&
-            images is List &&
-            images.isNotEmpty
+            report.hasImages
         ? requestTimeoutWithImages
         : requestTimeout;
     final request = http.AbortableRequest(
@@ -207,7 +218,7 @@ class ErrorReportUploader {
       abortTrigger: abort.future,
     )
       ..headers.addAll(_headers)
-      ..body = jsonEncode(_withoutProduct(report.body));
+      ..bodyBytes = body;
     final http.Response response;
     try {
       response = await _http
@@ -218,11 +229,13 @@ class ErrorReportUploader {
       if (!abort.isCompleted) abort.complete();
       rethrow;
     }
-    final body = response.body;
+    final responseBody = response.body;
     return _Attempt(
       response.statusCode,
-      body.length > 200 ? body.substring(0, 200) : body,
-      accepted: _isProtocolSuccess(body),
+      responseBody.length > 200
+          ? responseBody.substring(0, 200)
+          : responseBody,
+      accepted: _isProtocolSuccess(responseBody),
     );
   }
 
@@ -234,11 +247,6 @@ class ErrorReportUploader {
       return false;
     }
   }
-
-  /// דיווח מהכונן הוא של אוצריא גם אם קובץ זר טוען אחרת — `product` מנתב
-  /// לריפו של הלאנצ'ר ונשלח רק מ-`AppReportService` (§5.10).
-  static Map<String, dynamic> _withoutProduct(Map<String, dynamic> body) =>
-      body.containsKey('product') ? (Map.of(body)..remove('product')) : body;
 
   static Future<void> _removeQuietly(
     ReportOutbox outbox,

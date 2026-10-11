@@ -62,7 +62,7 @@ void main() {
     );
     (json['body'] as Map<String, dynamic>)['product'] = 'offline-update';
     final outbox = MemoryOutbox(const []);
-    outbox.reports.add(OutboxReport.fromJson(json, filePath: 'app1.json'));
+    outbox.add(json, filePath: 'app1.json');
     Map<String, dynamic>? sent;
     await uploader((req) async {
       sent = jsonDecode(req.body) as Map<String, dynamic>;
@@ -71,6 +71,29 @@ void main() {
     expect(sent, isNotNull);
     expect(sent!.containsKey('product'), isFalse);
     expect(sent!['id'], 'app1');
+  });
+
+  test('גוף נטען רק לפני הבקשה שלו, אחד בכל פעם', () async {
+    final outbox = MemoryOutbox(['a', 'b', 'c']);
+    final readsAtRequest = <int>[];
+    final result = await uploader((_) async {
+      readsAtRequest.add(outbox.bodyReads.length);
+      return http.Response('{}', 200);
+    }).upload(outbox);
+    expect(result.sent, 3);
+    expect(readsAtRequest, [1, 2, 3]);
+    expect(outbox.bodyReads, ['a', 'b', 'c']);
+  });
+
+  test('גוף שאינו נקרא עוצר את הריצה ושומר את הספירה', () async {
+    final outbox = MemoryOutbox(['a', 'b']);
+    outbox.files.remove('b.json');
+    final result =
+        await uploader((_) async => http.Response('{}', 200)).upload(outbox);
+    expect(result.sent, 1);
+    expect(result.remaining, 1);
+    expect(result.error, isNotNull);
+    expect(outbox.reports.map((r) => r.reportId), ['b']);
   });
 
   test('דחייה סופית (400/409/413/422) נמחקת ונספרת', () async {
@@ -95,7 +118,7 @@ void main() {
     for (var i = 0; i < endpoints.length; i++) {
       await outbox.write(
           'r$i',
-          OutboxReport.fileJson(
+          OutboxReport.encodeFile(OutboxReport.fileJson(
             reportId: 'r$i',
             bookTitle: 'דיווח',
             createdAt: '2026-10-01T10:00:00Z',
@@ -114,9 +137,9 @@ void main() {
                   ]
                 }
             },
-          ));
+          )));
     }
-    final bodies = outbox.reports.map((r) => r.body).toList();
+    final bodies = outbox.reports.map(outbox.bodyOf).toList();
     var calls = 0;
     final result = await uploader((request) async {
       expect(request.url.toString(), endpoints[calls]);
@@ -133,7 +156,7 @@ void main() {
     final outbox = MemoryOutbox([]);
     await outbox.write(
         'app',
-        OutboxReport.fileJson(
+        OutboxReport.encodeFile(OutboxReport.fileJson(
           reportId: 'app',
           bookTitle: 'תקלה',
           createdAt: '2026-10-01T10:00:00Z',
@@ -145,7 +168,7 @@ void main() {
               ]
             }
           },
-        ));
+        )));
     final sender = ErrorReportUploader(
       requestTimeout: const Duration(milliseconds: 1),
       requestTimeoutWithImages: const Duration(seconds: 2),
@@ -160,9 +183,8 @@ void main() {
 
   test('כתובת שאינה של אוצריא נדחית בלי שליחה', () async {
     final outbox = MemoryOutbox([]);
-    outbox.reports.add(OutboxReport.fromJson(
-        reportJson('x', endpoint: 'https://evil.example/api'),
-        filePath: 'x'));
+    outbox.add(reportJson('x', endpoint: 'https://evil.example/api'),
+        filePath: 'x');
     var calls = 0;
     final result = await uploader((_) async {
       calls++;
@@ -303,9 +325,8 @@ void main() {
 
   test('כתובת אסורה אינה ממתינה לחלון', () async {
     final outbox = MemoryOutbox(_ids(8));
-    outbox.reports.add(OutboxReport.fromJson(
-        reportJson('x', endpoint: 'http://otzaria.org/api'),
-        filePath: 'x'));
+    outbox.add(reportJson('x', endpoint: 'http://otzaria.org/api'),
+        filePath: 'x');
     final result =
         await uploader((_) async => http.Response(_ok, 200)).upload(outbox);
     expect(result.sent, 8);

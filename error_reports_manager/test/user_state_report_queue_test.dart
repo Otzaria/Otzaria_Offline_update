@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:path/path.dart' as p;
@@ -231,8 +232,8 @@ void main() {
     final a = outbox.reports.first;
     expect(a.bookTitle, 'ספר a');
     expect(a.isAllowedEndpoint, isTrue);
-    expect(a.body['report_id'], 'a');
-    expect(a.body['schema_version'], 2);
+    expect(outbox.bodyOf(a)['report_id'], 'a');
+    expect(outbox.bodyOf(a)['schema_version'], 2);
 
     expect(rows(pending).map((r) => r['id']), ['newer']);
     expect(rows(sent).map((r) => r['id']), ['old', 'a', 'b']);
@@ -284,14 +285,14 @@ void main() {
       OutboxReport.appReportingEndpoint,
       OutboxReport.pluginReportingEndpoint,
     ]);
-    final app = outbox.reports[1].body;
+    final app = outbox.bodyOf(outbox.reports[1]);
     expect(app['reportId'], 'same');
     expect(app.containsKey('product'), isFalse);
     expect((app['attachments'] as Map)['images'], [
       {'fileName': 'צילום.png', 'mimeType': 'image/png', 'data': 'AQID'}
     ]);
     expect((app['attachments'] as Map)['errorLog'], 'לוג');
-    expect(outbox.reports[2].body, {
+    expect(outbox.bodyOf(outbox.reports[2]), {
       'reportId': 'same',
       'pluginUid': 'plugin-uid',
       'pluginName': 'תוסף',
@@ -608,8 +609,8 @@ class _ChangingOutbox extends MemoryOutbox {
   final void Function() onWrite;
 
   @override
-  Future<void> write(String reportId, Map<String, dynamic> fileJson) async {
-    await super.write(reportId, fileJson);
+  Future<void> write(String reportId, Uint8List fileBytes) async {
+    await super.write(reportId, fileBytes);
     onWrite();
   }
 }
@@ -621,8 +622,8 @@ class _FailingOutbox extends MemoryOutbox {
   final String failFor;
 
   @override
-  Future<void> write(String reportId, Map<String, dynamic> fileJson) async {
+  Future<void> write(String reportId, Uint8List fileBytes) async {
     if (reportId == failFor) throw const FileSystemException('disk full');
-    await super.write(reportId, fileJson);
+    await super.write(reportId, fileBytes);
   }
 }

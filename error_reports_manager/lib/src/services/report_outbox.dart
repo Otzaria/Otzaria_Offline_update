@@ -1,23 +1,21 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
 import '../models/outbox_report.dart';
 
-/// תיבת היציאה: הדיווחים שנאספו וטרם נשלחו. ממשק, כדי שבדיקות הלאנצ'ר
-/// ירוצו בלי `dart:io` (שאינו מסתיים בתוך `testWidgets`).
 abstract interface class ReportOutbox {
-  /// הדיווחים התקינים, מהישן לחדש. קובץ פגום מדולג ואינו זורק.
   Future<List<OutboxReport>> list();
 
-  /// נשלח או נדחה סופית — ולכן יוצא מהתיבה.
+  Future<Uint8List> requestBody(OutboxReport report);
+
   Future<void> remove(OutboxReport report);
 
-  /// כותב (או דורס) את הקובץ של [reportId] — ראו [OutboxReport.fileJson].
-  Future<void> write(String reportId, Map<String, dynamic> fileJson);
+  Future<void> write(String reportId, Uint8List fileBytes);
 
-  /// מוחק קובץ שנכתב אבל לא הועבר באוצריא.
   Future<void> discard(String reportId);
 }
 
@@ -36,10 +34,20 @@ class DirectoryReportOutbox implements ReportOutbox {
 
   @override
   Future<List<OutboxReport>> list() async {
-    final dir = Directory(directory);
-    if (!await dir.exists()) return const [];
+    final dir = directory;
+    if (!await Directory(dir).exists()) return const [];
+    final listed = await Isolate.run(() => _listIn(dir));
+    for (final (path, error) in listed.invalid) {
+      onInvalid?.call(path, error);
+    }
+    return listed.reports;
+  }
+
+  static Future<({List<OutboxReport> reports, List<(String, String)> invalid})>
+      _listIn(String directory) async {
     final out = <OutboxReport>[];
-    await for (final entity in dir.list()) {
+    final invalid = <(String, String)>[];
+    await for (final entity in Directory(directory).list()) {
       if (entity is! File) continue;
       final lower = entity.path.toLowerCase();
       if (lower.endsWith('.json.tmp')) {
@@ -48,17 +56,34 @@ class DirectoryReportOutbox implements ReportOutbox {
       }
       if (!lower.endsWith('.json')) continue;
       try {
-        final json = jsonDecode(await entity.readAsString());
-        if (json is! Map<String, dynamic>) {
-          throw FormatException('not a JSON object', entity.path);
-        }
-        out.add(OutboxReport.fromJson(json, filePath: entity.path));
+        out.add(OutboxReport.fromJson(
+          await _readJson(entity.path),
+          filePath: entity.path,
+        ));
       } catch (e) {
-        onInvalid?.call(entity.path, e);
+        invalid.add((entity.path, '$e'));
       }
     }
     out.sort(compareReports);
-    return out;
+    return (reports: out, invalid: invalid);
+  }
+
+  static Future<Map<String, dynamic>> _readJson(String path) async {
+    final json = jsonDecode(await File(path).readAsString());
+    if (json is! Map<String, dynamic>) {
+      throw FormatException('not a JSON object', path);
+    }
+    return json;
+  }
+
+  @override
+  Future<Uint8List> requestBody(OutboxReport report) {
+    final path = report.filePath;
+    return Isolate.run(() async {
+      final json = await _readJson(path);
+      OutboxReport.fromJson(json, filePath: path);
+      return OutboxReport.requestBodyOf(json);
+    });
   }
 
   /// מהישן לחדש; בלי זמן יצירה — בסוף. שם הקובץ מכריע תיקו, כך שהסדר עקבי.
@@ -82,11 +107,11 @@ class DirectoryReportOutbox implements ReportOutbox {
   }
 
   @override
-  Future<void> write(String reportId, Map<String, dynamic> fileJson) async {
+  Future<void> write(String reportId, Uint8List fileBytes) async {
     await Directory(directory).create(recursive: true);
     final target = File(_pathFor(reportId));
     final temp = File(_tempFor(target.path));
-    await temp.writeAsString(jsonEncode(fileJson), flush: true);
+    await temp.writeAsBytes(fileBytes, flush: true);
     await temp.rename(target.path);
   }
 

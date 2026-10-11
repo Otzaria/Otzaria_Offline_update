@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:path/path.dart' as p;
@@ -26,27 +27,45 @@ void writeReport(String dir, Map<String, dynamic> json, {String? name}) {
       .writeAsStringSync(jsonEncode(json));
 }
 
-/// תיבת יציאה בזיכרון — כמו זו שבבדיקות הלאנצ'ר.
 class MemoryOutbox implements ReportOutbox {
-  MemoryOutbox(Iterable<String> ids)
-      : reports = [
-          for (final id in ids)
-            OutboxReport.fromJson(reportJson(id), filePath: '$id.json'),
-        ];
+  MemoryOutbox(Iterable<String> ids) {
+    for (final id in ids) {
+      add(reportJson(id), filePath: '$id.json');
+    }
+  }
 
-  final List<OutboxReport> reports;
+  final List<OutboxReport> reports = [];
+  final Map<String, Map<String, dynamic>> files = {};
+  final List<String> bodyReads = [];
+
+  void add(Map<String, dynamic> fileJson, {required String filePath}) {
+    reports.add(OutboxReport.fromJson(fileJson, filePath: filePath));
+    files[filePath] = fileJson;
+  }
+
+  Map<String, dynamic> bodyOf(OutboxReport report) =>
+      files[report.filePath]!['body'] as Map<String, dynamic>;
 
   @override
   Future<List<OutboxReport>> list() async => List.of(reports);
+
+  @override
+  Future<Uint8List> requestBody(OutboxReport report) async {
+    bodyReads.add(report.reportId);
+    return OutboxReport.requestBodyOf(files[report.filePath]!);
+  }
 
   @override
   Future<void> remove(OutboxReport report) async =>
       reports.removeWhere((r) => r.reportId == report.reportId);
 
   @override
-  Future<void> write(String reportId, Map<String, dynamic> fileJson) async {
+  Future<void> write(String reportId, Uint8List fileBytes) async {
     await discard(reportId);
-    reports.add(OutboxReport.fromJson(fileJson, filePath: reportId));
+    add(
+      jsonDecode(utf8.decode(fileBytes)) as Map<String, dynamic>,
+      filePath: reportId,
+    );
   }
 
   @override

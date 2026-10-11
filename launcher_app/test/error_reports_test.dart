@@ -3,6 +3,7 @@
 // בזיכרון, התור של אוצריא מזויף והשרת `MockClient`.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:error_reports_manager/error_reports_manager.dart';
@@ -44,13 +45,20 @@ class _MemoryOutbox implements ReportOutbox {
   Future<List<OutboxReport>> list() async => List.of(reports);
 
   @override
+  Future<Uint8List> requestBody(OutboxReport report) async =>
+      OutboxReport.requestBodyOf(_report(report.reportId));
+
+  @override
   Future<void> remove(OutboxReport report) async =>
       reports.removeWhere((r) => r.reportId == report.reportId);
 
   @override
-  Future<void> write(String reportId, Map<String, dynamic> fileJson) async {
+  Future<void> write(String reportId, Uint8List fileBytes) async {
     await discard(reportId);
-    reports.add(OutboxReport.fromJson(fileJson, filePath: reportId));
+    reports.add(OutboxReport.fromJson(
+      jsonDecode(utf8.decode(fileBytes)) as Map<String, dynamic>,
+      filePath: reportId,
+    ));
   }
 
   @override
@@ -72,7 +80,7 @@ class _FakeQueue implements OtzariaReportQueue {
   @override
   Future<QueueCollectResult> collectTo(ReportOutbox outbox) async {
     for (var i = 0; i < pendingCount; i++) {
-      await outbox.write('new$i', _report('new$i'));
+      await outbox.write('new$i', OutboxReport.encodeFile(_report('new$i')));
     }
     return (collected: pendingCount, error: partialError);
   }
@@ -596,10 +604,14 @@ class _BrokenOutbox implements ReportOutbox {
       throw const FileSystemException('drive removed');
 
   @override
+  Future<Uint8List> requestBody(OutboxReport report) async =>
+      throw const FileSystemException('drive removed');
+
+  @override
   Future<void> remove(OutboxReport report) async {}
 
   @override
-  Future<void> write(String reportId, Map<String, dynamic> fileJson) async {}
+  Future<void> write(String reportId, Uint8List fileBytes) async {}
 
   @override
   Future<void> discard(String reportId) async {}

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:error_reports_manager/error_reports_manager.dart';
@@ -82,7 +83,7 @@ void main() {
 
     test('discard מוחק גם את הקובץ הזמני של כתיבה שנכשלה', () async {
       final outbox = DirectoryReportOutbox(dir);
-      await outbox.write('r1', reportJson('r1'));
+      await outbox.write('r1', OutboxReport.encodeFile(reportJson('r1')));
       final temp = File(p.join(dir, 'r1.json.tmp'))..writeAsStringSync('{');
       await outbox.discard('r1');
       expect(File(p.join(dir, 'r1.json')).existsSync(), isFalse);
@@ -102,6 +103,52 @@ void main() {
       expect(invalid, isEmpty);
       expect(stale.existsSync(), isFalse);
       expect(fresh.existsSync(), isTrue);
+    });
+
+    test('כתיבה מבייטים, רשימה בלי גופים, וגוף בקשה בלי product', () async {
+      final outbox = DirectoryReportOutbox(dir);
+      final file = OutboxReport.fileJson(
+        reportId: 'app-1',
+        bookTitle: 'תקלה',
+        createdAt: '2026-10-01T10:00:00Z',
+        endpoint: OutboxReport.appReportingEndpoint,
+        body: {
+          'reportId': '1',
+          'product': 'offline-update',
+          'attachments': {
+            'images': [
+              {'data': 'AQID'}
+            ]
+          },
+        },
+      );
+      await outbox.write('app-1', OutboxReport.encodeFile(file));
+      await outbox.write(
+          'b', OutboxReport.encodeFile({...reportJson('b'), 'body': {}}));
+
+      final list = await outbox.list();
+      expect(list.map((r) => r.reportId), ['b', 'app-1']);
+      expect(list.map((r) => r.hasImages), [false, true]);
+      expect(
+        jsonDecode(File(list.last.filePath).readAsStringSync()),
+        file,
+      );
+      expect(jsonDecode(utf8.decode(await outbox.requestBody(list.last))), {
+        'reportId': '1',
+        'attachments': {
+          'images': [
+            {'data': 'AQID'}
+          ]
+        },
+      });
+    });
+
+    test('גוף של קובץ שנפגם אחרי הרשימה זורק', () async {
+      writeReport(dir, reportJson('a'));
+      final outbox = DirectoryReportOutbox(dir);
+      final report = (await outbox.list()).single;
+      File(report.filePath).writeAsStringSync('{');
+      await expectLater(outbox.requestBody(report), throwsFormatException);
     });
   });
 }

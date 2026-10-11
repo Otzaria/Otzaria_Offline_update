@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -107,37 +108,25 @@ class UserStateReportQueue implements OtzariaReportQueue {
 
   @override
   Future<int> countSendable() {
-    // משתנה מקומי: סגירה שנוגעת בשדה הייתה לוכדת את `this` אל ה-isolate.
     final path = dbPath;
-    return _run(() => _readSendable(path)?.length ?? 0);
+    return _run(() => _readSendable(path, (mark, _) => mark)?.length ?? 0);
   }
 
   @override
   Future<QueueCollectResult> collectTo(ReportOutbox outbox) async {
     final path = dbPath;
-    final rows = await _run(() => _readSendable(path));
+    final rows = await _run(() => _readSendable(path, _PendingRow.encode));
     if (rows == null || rows.isEmpty) return (collected: 0, error: null);
 
     String? error;
-    // הקבצים קודם: קריסה לפני הסימון משאירה דיווח שעדיין ממתין באוצריא,
-    // ובאיסוף הבא הוא נכתב שוב באותו שם — לעולם לא דיווח שאבד.
-    final written = <_PendingRow>[];
+    final written = <_MarkRow>[];
     for (final row in rows) {
       try {
-        await outbox.write(
-          row.outboxId,
-          OutboxReport.fileJson(
-            reportId: row.outboxId,
-            bookTitle: row.bookTitle,
-            createdAt: row.createdAt,
-            body: row.body,
-            endpoint: row.kind.endpoint,
-          ),
-        );
-        written.add(row);
+        await outbox.write(row.mark.outboxId, row.fileBytes);
+        written.add(row.mark);
       } catch (e) {
         error ??= '$e';
-        await _discardQuietly(outbox, row.outboxId);
+        await _discardQuietly(outbox, row.mark.outboxId);
       }
     }
     if (written.isEmpty) return (collected: 0, error: error);
@@ -145,23 +134,20 @@ class UserStateReportQueue implements OtzariaReportQueue {
     final nowMs = _clock().millisecondsSinceEpoch;
     final List<({bool moved, String? error})> marks;
     try {
-      marks = await _run(() => _markAllIn(path, written, nowMs));
+      marks = await _markIsolated(_run, path, written, nowMs);
     } catch (_) {
-      // שום שורה לא סומנה — ולכן אף קובץ לא נשאר, אחרת הדיווח נשלח פעמיים.
       for (final row in written) {
         await _discardQuietly(outbox, row.outboxId);
       }
       rethrow;
     }
 
-    // מזהה שהועבר בריצה הזו — הקובץ שלו לעולם אינו נמחק.
     final moved = {
       for (var i = 0; i < written.length; i++)
         if (marks[i].moved) written[i].outboxId,
     };
     for (var i = 0; i < written.length; i++) {
       if (marks[i].moved) continue;
-      // התיבה משקפת את אוצריא: מה שלא סומן שם אינו נשאר כאן.
       error ??= marks[i].error;
       if (!moved.contains(written[i].outboxId)) {
         await _discardQuietly(outbox, written[i].outboxId);
@@ -169,6 +155,14 @@ class UserStateReportQueue implements OtzariaReportQueue {
     }
     return (collected: moved.length, error: error);
   }
+
+  static Future<List<({bool moved, String? error})>> _markIsolated(
+    IsolateRunner run,
+    String path,
+    List<_MarkRow> rows,
+    int nowMs,
+  ) =>
+      run(() => _markAllIn(path, rows, nowMs));
 
   static Future<void> _discardQuietly(ReportOutbox outbox, String id) async {
     try {
@@ -200,13 +194,14 @@ class UserStateReportQueue implements OtzariaReportQueue {
     }
   }
 
-  /// הממתינים שאפשר לשלוח, אחד לכל מזהה (הראשון): הסימון מוחק את כל השורות
-  /// באותו מזהה, ושורה שנייה הייתה מוחקת את הקובץ שהראשונה כתבה.
-  static List<_PendingRow>? _readSendable(String dbPath) {
+  static List<R>? _readSendable<R>(
+    String dbPath,
+    R Function(_MarkRow mark, Map<String, dynamic> fileJson) toRow,
+  ) {
     final db = _open(dbPath);
     if (db == null) return null;
     try {
-      final out = <_PendingRow>[];
+      final out = <R>[];
       final seen = <String>{};
       final rows = db.select(
         'SELECT id, kind, payload_json FROM pending_reports WHERE kind IN (?, ?, ?) '
@@ -257,19 +252,24 @@ class UserStateReportQueue implements OtzariaReportQueue {
               createdAt = report.createdAt.toIso8601String();
               body = report.toApiPayload();
           }
-          final pending = _PendingRow(
+          final mark = _MarkRow(
             rowId: row['id'] as int,
             payloadJson: json,
             kind: kind,
             reportId: id,
-            bookTitle: title,
-            createdAt: createdAt,
-            body: body,
           );
-          if (seen.add(pending.outboxId)) out.add(pending);
-        } catch (_) {
-          // רשומה שאוצריא עצמה לא הייתה מפענחת — נשארת בתור, לעריכה שם.
-        }
+          if (!seen.add(mark.outboxId)) continue;
+          out.add(toRow(
+            mark,
+            OutboxReport.fileJson(
+              reportId: mark.outboxId,
+              bookTitle: title,
+              createdAt: createdAt,
+              body: body,
+              endpoint: kind.endpoint,
+            ),
+          ));
+        } catch (_) {}
       }
       return out;
     } finally {
@@ -277,11 +277,9 @@ class UserStateReportQueue implements OtzariaReportQueue {
     }
   }
 
-  /// כל שורה בטרנזקציה משלה. `moved: false` בלי `error` = השורה השתנתה מאז
-  /// הקריאה; עם `error` = הסימון נכשל (הטקסט ליומן).
   static List<({bool moved, String? error})> _markAllIn(
     String dbPath,
-    List<_PendingRow> rows,
+    List<_MarkRow> rows,
     int nowMs,
   ) {
     final db = _open(dbPath);
@@ -312,9 +310,7 @@ class UserStateReportQueue implements OtzariaReportQueue {
   static String _field(String fn, String path) =>
       "(CASE WHEN json_valid(payload_json) THEN $fn(payload_json, '$path') END)";
 
-  /// `markPendingReportAsSent` של אוצריא, בטרנזקציה אחת. `false` = השורה
-  /// השתנתה או נעלמה מאז שנקראה, ואז לא נוגעים בכלום.
-  static bool _markAsSent(Database db, _PendingRow row, int now) {
+  static bool _markAsSent(Database db, _MarkRow row, int now) {
     final kind = row.kind;
     final pendingKind = kind.pendingKind;
     final sentKind = '${kind.box}/sent_reports';
@@ -411,20 +407,29 @@ class UserStateReportQueue implements OtzariaReportQueue {
   }
 }
 
-/// שורה ממתינה, כנתונים פשוטים בלבד — היא עוברת בין isolates.
 class _PendingRow {
-  const _PendingRow({
+  const _PendingRow(this.mark, this.fileBytes);
+
+  static _PendingRow encode(_MarkRow mark, Map<String, dynamic> fileJson) =>
+      _PendingRow(mark, OutboxReport.encodeFile(fileJson));
+
+  final _MarkRow mark;
+  final Uint8List fileBytes;
+}
+
+class _MarkRow {
+  const _MarkRow({
     required this.rowId,
     required this.payloadJson,
     required this.reportId,
-    required this.bookTitle,
-    required this.createdAt,
-    required this.body,
     required this.kind,
   });
 
   final int rowId;
   final _ReportKind kind;
+  final String payloadJson;
+  final String reportId;
+
   String get outboxId =>
       kind == _ReportKind.book ? reportId : '${kind.name}-$reportId';
 
@@ -438,13 +443,6 @@ class _PendingRow {
         DateTime.fromMillisecondsSinceEpoch(now, isUtc: true).toIso8601String();
     return jsonEncode(json);
   }
-
-  /// הטקסט המקורי — גם כדי לזהות שינוי, וגם כדי לשמור בהיסטוריה כמות שהוא.
-  final String payloadJson;
-  final String reportId;
-  final String bookTitle;
-  final String createdAt;
-  final Map<String, dynamic> body;
 }
 
 enum _ReportKind {
