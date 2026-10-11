@@ -82,11 +82,6 @@ void main() {
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
-  /// שרת מדומה אחד ל-API, ל-manifests ולנכסים עצמם. הגודל וה-`digest` של כל
-  /// נכס נגזרים מהגוף שמוגש בפועל, כדי שאימות ה-sha256 של [PatchDownloader]
-  /// ירוץ באמת. [corruptManifests] מדמה manifest פגום; [failAsset] מחזיר
-  /// שגיאת HTTP לנכס מסוים. [schemaByVersion] קובע את סכמת ה-DB של גרסה
-  /// מסוימת (ברירת המחדל 2), כדי לדמות release שעבר לסכמה שאיננו מכירים.
   ({LibraryMirrorExporter exporter, List<String> fetched}) buildExporter(
     List<ReleaseSpec> releases, {
     Set<String> corruptManifests = const {},
@@ -100,6 +95,8 @@ void main() {
     bool fullRebase = false,
     Map<int, String> compressionByVersion = const {},
     Future<void> Function(String assetName)? beforeAsset,
+    http.StreamedResponse? Function(http.BaseRequest request, Uint8List body)?
+        respond,
   }) {
     Uint8List bodyFor(String name) {
       if (!name.endsWith('.manifest.json')) {
@@ -161,6 +158,8 @@ void main() {
         }
         if (beforeAsset != null) await beforeAsset(name);
         body = bodyFor(name);
+        final custom = respond?.call(request, body);
+        if (custom != null) return custom;
       }
       return http.StreamedResponse(
         Stream.value(body),
@@ -1762,6 +1761,204 @@ void main() {
             .existsSync(),
         isFalse,
       );
+    });
+  });
+
+  group('export — שליפת manifests', () {
+    List<ReleaseSpec> chainReleases() => [
+          for (var to = 7; to >= 2; to--)
+            release('v$to', assets: [
+              if (to == 7) 'seforim.db.zst',
+              'patch-v${to - 1}-v$to.db.zst',
+              'patch-v${to - 1}-v$to.db.zst.manifest.json',
+            ]),
+        ];
+
+    test('ה-manifests נשלפים במקביל, עד תקרת המקביליות', () async {
+      final barrier = Completer<void>();
+      var inFlight = 0;
+      var peak = 0;
+      final built = buildExporter(
+        chainReleases(),
+        beforeAsset: (name) async {
+          if (!name.endsWith('.manifest.json')) return;
+          inFlight++;
+          if (inFlight > peak) peak = inFlight;
+          if (inFlight >= DownloadScheduler.defaultMaxConcurrent &&
+              !barrier.isCompleted) {
+            barrier.complete();
+          }
+          await barrier.future
+              .timeout(const Duration(seconds: 1), onTimeout: () {});
+          inFlight--;
+        },
+      );
+      await built.exporter.export(destDir: destDir);
+      expect(peak, DownloadScheduler.defaultMaxConcurrent);
+      for (var to = 7; to >= 2; to--) {
+        expect(assetOnDisk(destDir, 'v$to', 'patch-v${to - 1}-v$to.db.zst'),
+            isTrue);
+      }
+    });
+
+    test('כשל חולף ב-manifest מנוסה שוב, והקשת נשמרת במראה', () async {
+      var failures = 0;
+      final built = buildExporter(
+        chainReleases(),
+        respond: (request, body) {
+          if (!request.url.path.endsWith('patch-v3-v4.db.zst.manifest.json') ||
+              failures >= 2) {
+            return null;
+          }
+          failures++;
+          return http.StreamedResponse(const Stream<List<int>>.empty(), 503);
+        },
+      );
+      await built.exporter.export(destDir: destDir);
+      expect(failures, 2);
+      expect(assetOnDisk(destDir, 'v4', 'patch-v3-v4.db.zst'), isTrue);
+      expect(mirroredAssetNames(destDir, 'v4'), contains('patch-v3-v4.db.zst'));
+    });
+
+    test('manifest שנכשל בכל הניסיונות מפיל את הייצוא, גם כשהשאר הצליחו',
+        () async {
+      const broken = 'patch-v3-v4.db.zst.manifest.json';
+      final built = buildExporter(
+        chainReleases(),
+        respond: (request, body) => request.url.path.endsWith(broken)
+            ? http.StreamedResponse(const Stream<List<int>>.empty(), 503)
+            : null,
+      );
+      await expectLater(
+        built.exporter.export(destDir: destDir),
+        throwsA(isA<StateError>()
+            .having((e) => e.message, 'message', contains(broken))),
+      );
+      expect(built.fetched.where((n) => n == broken).length, 3);
+      expect(
+        File('$destDir${Platform.pathSeparator}'
+                '${LocalMirrorLibraryReleaseClient.manifestFileName}')
+            .existsSync(),
+        isFalse,
+      );
+    });
+  });
+
+  group('export — ריצה חוזרת על אותו כונן', () {
+    const dbSize = 65536;
+
+    test('נכס שכבר אומת אינו מגובב שוב בריצה השנייה', () async {
+      final releases = [
+        release('v3', assets: [
+          'seforim.db.zst',
+          'patch-v2-v3.db.zst',
+          'patch-v2-v3.db.zst.manifest.json',
+        ]),
+      ];
+      final strings = AppL10n.strings.libraryDomain;
+      final verifying = {
+        for (final name in releases.single.assets)
+          for (var percent = 0; percent <= 100; percent++)
+            strings.exportVerifying('v3', name, percent),
+      };
+
+      await buildExporter(releases,
+              assetSizes: const {'seforim.db.zst': dbSize})
+          .exporter
+          .export(destDir: destDir);
+
+      final secondStages = <String>[];
+      final second =
+          buildExporter(releases, assetSizes: const {'seforim.db.zst': dbSize});
+      await second.exporter.export(destDir: destDir, onStage: secondStages.add);
+      expect(second.fetched, isNot(contains('seforim.db.zst')));
+      expect(secondStages.where(verifying.contains), isEmpty);
+
+      File([destDir, 'assets', 'v3', 'seforim.db.zst']
+              .join(Platform.pathSeparator))
+          .setLastModifiedSync(DateTime(2020));
+      final thirdStages = <String>[];
+      await buildExporter(releases,
+              assetSizes: const {'seforim.db.zst': dbSize})
+          .exporter
+          .export(destDir: destDir, onStage: thirdStages.add);
+      expect(
+        thirdStages,
+        contains(strings.exportVerifying('v3', 'seforim.db.zst', 100)),
+      );
+    });
+
+    test('הורדה שנקטעה ממשיכה בריצה הבאה מאותו בייט (Range + If-Range)',
+        () async {
+      const cut = 20000;
+      const etag = '"db-v3"';
+      final releases = [
+        release('v3', assets: ['seforim.db.zst']),
+      ];
+      final dbPath = [destDir, 'assets', 'v3', 'seforim.db.zst']
+          .join(Platform.pathSeparator);
+
+      Stream<List<int>> droppedAfterCut(Uint8List body) async* {
+        yield body.sublist(0, cut);
+        throw http.ClientException('connection reset');
+      }
+
+      final first = buildExporter(
+        releases,
+        assetSizes: const {'seforim.db.zst': dbSize},
+        respond: (request, body) => http.StreamedResponse(
+          droppedAfterCut(body),
+          200,
+          contentLength: body.length,
+          headers: {'etag': etag},
+        ),
+      );
+      await expectLater(
+        first.exporter.export(destDir: destDir),
+        throwsA(anything),
+      );
+      expect(File(dbPath).lengthSync(), cut);
+
+      final requests = <Map<String, String>>[];
+      var served = 0;
+      final second = buildExporter(
+        releases,
+        assetSizes: const {'seforim.db.zst': dbSize},
+        respond: (request, body) {
+          requests.add(request.headers);
+          final range = request.headers['Range'];
+          if (range == null) {
+            served += body.length;
+            return http.StreamedResponse(
+              Stream.value(body),
+              200,
+              contentLength: body.length,
+              headers: {'etag': etag},
+            );
+          }
+          final start =
+              int.parse(range.substring('bytes='.length).split('-')[0]);
+          final rest = body.sublist(start);
+          served += rest.length;
+          return http.StreamedResponse(
+            Stream.value(rest),
+            206,
+            contentLength: rest.length,
+            headers: {
+              'etag': etag,
+              'content-range': 'bytes $start-${body.length - 1}/${body.length}',
+            },
+          );
+        },
+      );
+      expect(await second.exporter.export(destDir: destDir), isTrue);
+
+      expect(requests, hasLength(1));
+      expect(requests.single['Range'], 'bytes=$cut-');
+      expect(requests.single['If-Range'], etag);
+      expect(served, dbSize - cut);
+      expect(File(dbPath).lengthSync(), dbSize);
+      expect(mirroredAssetNames(destDir, 'v3'), ['seforim.db.zst']);
     });
   });
 }

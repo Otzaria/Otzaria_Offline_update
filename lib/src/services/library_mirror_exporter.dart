@@ -202,13 +202,18 @@ class LibraryMirrorExporter {
     // ראו [_dropUselessPatches]. ה-manifests של קשתות שנפסלו אינם נכנסים
     // לכאן, ולכן הם נשארים במראה כהסבר.
     final mirroredEdges = <MirroredEdge>[];
+    final prefetched = await _prefetchDeltaManifests(
+      relevant,
+      isCancelled: isCancelled,
+    );
     for (final release in relevant) {
       _throwIfCancelled(isCancelled);
       final needed = <String, ReleaseAsset>{};
       for (final manifestAsset in release.deltaManifestAssets) {
         needed[manifestAsset.name] = manifestAsset;
-        final manifest = await _fetchManifestOrNull(
+        final manifest = _manifestOrNull(
           manifestAsset,
+          prefetched[manifestAsset]!,
           onWarning: onWarning,
         );
         if (manifest == null) continue;
@@ -675,24 +680,16 @@ class LibraryMirrorExporter {
   /// זול — ובלעדיו בקשה אחת רועדת מתוך ~13 מוחקת edge שלם מהמראה.
   static const int _manifestAttempts = 3;
 
-  /// שולף manifest, ומבחין בין שני כשלים שאינם דומים:
-  /// **manifest פגום** ([FormatException]) — נתון קבוע, מדלגים על ה-edge בדיוק
-  /// כמו `LibraryUpdateDiscovery._buildEdge` באופליין; **כשל רשת/HTTP** — נתון
-  /// חולף, ולכן מנסים שוב ואם גם זה נכשל **זורקים**. בליעה שקטה שלו כתבה
-  /// `releases.json` בלי קובצי ה-patch, ואז `_pruneStaleAssets` מחק patch תקין
-  /// שריצה קודמת הורידה — מראה שנראית שלמה וחסר בה edge.
-  Future<DeltaManifest?> _fetchManifestOrNull(
-    ReleaseAsset manifestAsset, {
-    void Function(String warning)? onWarning,
-  }) async {
+  Future<T> _fetchWithRetry<T>(
+    ReleaseAsset manifestAsset,
+    Future<T> Function(String url) fetch,
+  ) async {
     Object? lastError;
     for (var attempt = 1; attempt <= _manifestAttempts; attempt++) {
       try {
-        return await _client.fetchManifest(manifestAsset.downloadUrl);
-      } on FormatException catch (e) {
-        onWarning?.call(AppL10n.strings.libraryDomain
-            .exportManifestUnreadable(manifestAsset.name, e.message));
-        return null;
+        return await fetch(manifestAsset.downloadUrl);
+      } on FormatException {
+        rethrow;
       } catch (e) {
         lastError = e;
         if (attempt < _manifestAttempts) {
@@ -702,6 +699,46 @@ class LibraryMirrorExporter {
     }
     throw StateError(AppL10n.strings.libraryDomain
         .exportManifestFetchFailed(manifestAsset.name, '$lastError'));
+  }
+
+  Future<Map<ReleaseAsset, _ManifestFetch>> _prefetchDeltaManifests(
+    List<LibraryRelease> releases, {
+    bool Function()? isCancelled,
+  }) async {
+    final assets = [
+      for (final release in releases) ...release.deltaManifestAssets,
+    ];
+    final fetched = await DownloadScheduler().run<_ManifestFetch>([
+      for (final asset in assets)
+        () async {
+          _throwIfCancelled(isCancelled);
+          try {
+            final manifest =
+                await _fetchWithRetry(asset, _client.fetchManifest);
+            return (manifest: manifest, error: null, stack: null);
+          } catch (error, stack) {
+            return (manifest: null, error: error, stack: stack);
+          }
+        },
+    ]);
+    return {
+      for (final (index, asset) in assets.indexed) asset: fetched[index],
+    };
+  }
+
+  DeltaManifest? _manifestOrNull(
+    ReleaseAsset manifestAsset,
+    _ManifestFetch fetched, {
+    void Function(String warning)? onWarning,
+  }) {
+    final error = fetched.error;
+    if (error is FormatException) {
+      onWarning?.call(AppL10n.strings.libraryDomain
+          .exportManifestUnreadable(manifestAsset.name, error.message));
+      return null;
+    }
+    if (error != null) Error.throwWithStackTrace(error, fetched.stack!);
+    return fetched.manifest;
   }
 
   /// מוחק מתוך [assetsRoot] כל תיקיית tag ונכס שאינם בתוכנית — best-effort:
@@ -1213,9 +1250,6 @@ class LibraryMirrorExporter {
   String _assembledToken(SplitArchiveManifest manifest) =>
       'split:${manifest.sha256}';
 
-  /// שולף במקביל את מניפסטי הפיצול של [releases] וממלא את [manifests].
-  /// מניפסט פגום או שאינו תואם לחלקים = אזהרה, וה-release מוחלף בעותק בלי
-  /// DB מלא. מוחזרים רק ההחלפות (מקור → עותק).
   Future<Map<LibraryRelease, LibraryRelease>> _resolveSplitFullDbs(
     List<LibraryRelease> releases,
     Map<ReleaseAsset, SplitArchiveManifest> manifests, {
@@ -1227,7 +1261,10 @@ class LibraryMirrorExporter {
         () async {
           final full = release.fullDbAsset!;
           try {
-            final manifest = await _fetchSplitManifest(full.splitManifest!);
+            final manifest = await _fetchWithRetry(
+              full.splitManifest!,
+              _client.fetchSplitManifest,
+            );
             final problem = _splitMismatch(full, manifest);
             if (problem == null) manifests[full] = manifest;
             return problem;
@@ -1254,27 +1291,6 @@ class LibraryMirrorExporter {
       );
     }
     return replaced;
-  }
-
-  /// שולף מניפסט פיצול. [FormatException] עולה כמות שהיא (תוכן קבוע);
-  /// כשל רשת מנוסה שוב ואז זורק — מראה בלי המסד הייתה נראית שלמה.
-  Future<SplitArchiveManifest> _fetchSplitManifest(
-      ReleaseAsset manifestAsset) async {
-    Object? lastError;
-    for (var attempt = 1; attempt <= _manifestAttempts; attempt++) {
-      try {
-        return await _client.fetchSplitManifest(manifestAsset.downloadUrl);
-      } on FormatException {
-        rethrow;
-      } catch (e) {
-        lastError = e;
-        if (attempt < _manifestAttempts) {
-          await Future<void>.delayed(Duration(milliseconds: 400 * attempt));
-        }
-      }
-    }
-    throw StateError(AppL10n.strings.libraryDomain
-        .exportManifestFetchFailed(manifestAsset.name, '$lastError'));
   }
 
   /// מה לא תואם בין המניפסט לחלקים ברשימת הנכסים, או null כשהכול תואם.
@@ -1410,6 +1426,12 @@ typedef _DownloadJob = ({
   String dest,
   String? sha256,
   bool countsAsAsset,
+});
+
+typedef _ManifestFetch = ({
+  DeltaManifest? manifest,
+  Object? error,
+  StackTrace? stack,
 });
 
 /// מסד מפוצל בתוכנית: המניפסט שלו, היעד המורכב ותיקיית החלקים.
