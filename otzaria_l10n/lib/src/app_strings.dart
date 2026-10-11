@@ -1787,19 +1787,17 @@ abstract class CustomAppsDomainStrings {
   String get noInstallerInMirror;
   String installerFileMissing(String path);
   String installerExitCode(int exitCode, String output);
-
-  /// המתקין דורש מנהל, והמשתמש סירב בחלון ה-UAC.
+  String installerElevatedRetryFailed(
+    int firstExitCode,
+    int elevatedExitCode,
+    String output,
+  );
+  String installerElevatedRetryDeclined(int firstExitCode);
   String get installerElevationDeclined;
-
-  /// הקובץ שעל הכונן אינו תואם ל-sha256 שנרשם כשנכנס למראה.
   String get installerDigestMismatch;
-
-  /// כשל בהעתקת קובץ שאין מה להתקין ממנו — ארכיון או קובץ נייד. שום דבר
-  /// כאן אינו מחולץ, ולכן זה "העתקה" ולא "חילוץ".
   String fileCopyFailed(String error);
+  String portableFileInUse(String fileName, String error);
   String launchFileMissing(String launchPath);
-
-  /// התוכנה דורשת מנהל גם בהפעלה, והמשתמש סירב בחלון ה-UAC.
   String get launchElevationDeclined;
 
   // ── מדיה: אייקון וצילומי מסך ──

@@ -218,8 +218,32 @@ void main() {
       );
     });
 
-    // `launch` מריץ את מה שנרשם כאן — ארכיון או PDF היו הופכים את כפתור
-    // ההפעלה לשגיאה.
+    test('עדכון מחליף את הקובץ ושומר את שם ההרצה שנלמד', () async {
+      await register();
+      final target = p.join(root, 'Tools');
+      await manager.install('portable', copyToDir: target);
+
+      await manager.attachInstaller(
+        'portable',
+        sourcePath:
+            writeFile(p.join(root, 'src', 'MyApp-4.0.exe'), 'MZ Inno v4'),
+        version: '4.0',
+      );
+      final outcome = await manager.install('portable', copyToDir: target);
+
+      expect(outcome.copiedPath, p.join(target, 'MyApp.exe'));
+      expect(
+          File(p.join(target, 'MyApp.exe')).readAsStringSync(), 'MZ Inno v4');
+      expect(
+        Directory(target).listSync().map((e) => p.basename(e.path)),
+        ['MyApp.exe'],
+      );
+      expect(
+        (await manager.load('portable'))!.descriptor.detect.exeName,
+        'MyApp.exe',
+      );
+    });
+
     test('קובץ שאינו exe מועתק, אך אינו נרשם כקובץ הרצה', () async {
       await register(fileName: 'manual.pdf');
 

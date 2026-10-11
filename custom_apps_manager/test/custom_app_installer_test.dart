@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:custom_apps_manager/custom_apps_manager.dart';
@@ -57,8 +58,10 @@ void main() {
   late _FakeRunner runner;
   late _FakeShell elevated;
   late CustomAppInstaller installer;
+  late bool alreadyElevated;
 
   setUp(() {
+    alreadyElevated = false;
     root = tempMirrorRoot();
     downloads = p.join(root, 'Downloads');
     runner = _FakeRunner();
@@ -66,6 +69,7 @@ void main() {
     installer = CustomAppInstaller(
       processRunner: runner.call,
       shellRunner: elevated.call,
+      isElevated: () async => alreadyElevated,
       downloadsDir: downloads,
     );
   });
@@ -87,6 +91,47 @@ void main() {
 
   String zipArchive([String name = 'portable.zip']) =>
       writeBytes(name, [0x50, 0x4B, 0x03, 0x04, ...'payload'.codeUnits]);
+
+  String msi() => writeBytes(
+        'app.msi',
+        [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 0, 0],
+      );
+
+  group('קודי הצלחה של MSI', () {
+    for (final code in [3010, 1641]) {
+      test('$code הוא הצלחה שדורשת אתחול', () async {
+        runner.exitCode = code;
+
+        final outcome = await installer.install(
+          descriptor: descriptor(),
+          installerPath: msi(),
+        );
+
+        expect(outcome.kind, CustomInstallerKind.msi);
+        expect(elevated.calls, isEmpty);
+      });
+
+      test('$code אינו הצלחה ב-Inno', () async {
+        runner.exitCode = code;
+
+        await expectLater(
+          installer.install(
+              descriptor: descriptor(), installerPath: innoSetup()),
+          throwsA(isA<AppDescriptorException>()),
+        );
+      });
+    }
+
+    test('3010 מהרצה מורמת הוא הצלחה', () async {
+      runner.exitCode = 1603;
+      elevated.exitCode = 3010;
+
+      final outcome = await installer.install(
+          descriptor: descriptor(), installerPath: msi());
+
+      expect(outcome.kind, CustomInstallerKind.msi);
+    });
+  });
 
   group('סוג ההתקנה נקבע מהקובץ, לא מהרשומה', () {
     test('Inno מזוהה, ומורצות הדגלים השקטים שלו', () async {
@@ -168,8 +213,6 @@ void main() {
     );
   });
 
-  // CreateProcess אינו מקפיץ UAC — מתקין NSIS עם requireAdministrator
-  // נפל בשגיאה 740 בלי שהמשתמש נשאל דבר.
   group('מתקין שדורש מנהל', () {
     test('שגיאה 740 — מורץ שוב עם UAC, באותה פקודה בדיוק', () async {
       runner.requiresElevation = true;
@@ -208,6 +251,101 @@ void main() {
         throwsA(isA<AppDescriptorException>()
             .having((e) => e.message, 'message', contains('1603'))),
       );
+    });
+
+    test('MSI שנכשל ב-1603 בלי הרשאות — מורץ שוב מורם', () async {
+      runner.exitCode = 1603;
+
+      final outcome = await installer.install(
+          descriptor: descriptor(), installerPath: msi());
+
+      expect(runner.calls.single.executable, 'msiexec');
+      expect(elevated.calls.single.executable, 'msiexec');
+      expect(elevated.calls.single.arguments, runner.calls.single.arguments);
+      expect(elevated.calls.single.elevate, isTrue);
+      expect(outcome.kind, CustomInstallerKind.msi);
+    });
+
+    test('MSI שנכשל ב-1625 בלי הרשאות — מורץ שוב מורם', () async {
+      runner.exitCode = 1625;
+
+      final outcome = await installer.install(
+          descriptor: descriptor(), installerPath: msi());
+
+      expect(elevated.calls.single.arguments, runner.calls.single.arguments);
+      expect(elevated.calls.single.elevate, isTrue);
+      expect(outcome.kind, CustomInstallerKind.msi);
+    });
+
+    for (final code in [1603, 1625, 1925]) {
+      test('MSI שנכשל ב-$code כשהתהליך כבר מורם — אינו מורץ שוב', () async {
+        alreadyElevated = true;
+        runner.exitCode = code;
+
+        await expectLater(
+          installer.install(descriptor: descriptor(), installerPath: msi()),
+          throwsA(isA<AppDescriptorException>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('$code'), contains('boom')),
+          )),
+        );
+        expect(elevated.calls, isEmpty);
+      });
+    }
+
+    test('MSI שנכשל גם מורם — נושא את שני קודי היציאה', () async {
+      runner.exitCode = 1925;
+      elevated.exitCode = 1603;
+
+      await expectLater(
+        installer.install(descriptor: descriptor(), installerPath: msi()),
+        throwsA(isA<AppDescriptorException>().having(
+          (e) => e.message,
+          'message',
+          AppL10n.strings.customAppsDomain
+              .installerElevatedRetryFailed(1925, 1603, 'stderr: '),
+        )),
+      );
+    });
+
+    test('MSI ב-1625 שנכשל גם מורם — נושא את שני קודי היציאה', () async {
+      runner.exitCode = 1625;
+      elevated.exitCode = 1625;
+
+      await expectLater(
+        installer.install(descriptor: descriptor(), installerPath: msi()),
+        throwsA(isA<AppDescriptorException>().having(
+          (e) => e.message,
+          'message',
+          AppL10n.strings.customAppsDomain
+              .installerElevatedRetryFailed(1625, 1625, 'stderr: '),
+        )),
+      );
+    });
+
+    test('סירוב ל-UAC בניסיון החוזר של MSI — קוד היציאה הראשון נשמר', () async {
+      runner.exitCode = 1603;
+      elevated.exitCode = ElevatedProcess.cancelledCode;
+
+      await expectLater(
+        installer.install(descriptor: descriptor(), installerPath: msi()),
+        throwsA(isA<AppDescriptorException>().having(
+          (e) => e.message,
+          'message',
+          AppL10n.strings.customAppsDomain.installerElevatedRetryDeclined(1603),
+        )),
+      );
+    });
+
+    test('Inno שנכשל ב-1603 אינו מורץ שוב', () async {
+      runner.exitCode = 1603;
+
+      await expectLater(
+        installer.install(descriptor: descriptor(), installerPath: innoSetup()),
+        throwsA(isA<AppDescriptorException>()),
+      );
+      expect(elevated.calls, isEmpty);
     });
 
     test('שגיאת הרצה אחרת אינה מורמת', () async {
@@ -328,12 +466,118 @@ void main() {
       expect(script, contains('WaitForExit'));
     });
 
+    test('גרש טיפוגרפי בנתיב מוכפל כמו גרש רגיל', () {
+      final script = ElevatedProcess.powershellArgs(
+        'C:\\David\u2019s USB\\setup.exe',
+        const ['/D=C:\\A\u2018b\u201Ac\u201Bd'],
+        rawLastArgument: true,
+        workingDirectory: 'C:\\David\u2019s USB',
+      ).last;
+
+      expect(
+        script,
+        contains("\$i.FileName = 'C:\\David\u2019\u2019s USB\\setup.exe'"),
+      );
+      expect(
+        script,
+        contains(
+            "\$i.Arguments = '/D=C:\\A\u2018\u2018b\u201A\u201Ac\u201B\u201Bd'"),
+      );
+      expect(
+        script,
+        contains("\$i.WorkingDirectory = 'C:\\David\u2019\u2019s USB'"),
+      );
+    });
+
     test('הפעלת תוכנה אינה ממתינה לסגירתה', () {
       final script =
           ElevatedProcess.powershellArgs(r'C:\a.exe', const [], wait: false)
               .last;
 
       expect(script, isNot(contains('WaitForExit')));
+    });
+  });
+
+  group('בדיקת הרשאות מנהל של התהליך', () {
+    setUp(ElevatedProcess.resetElevatedCache);
+    tearDown(ElevatedProcess.resetElevatedCache);
+
+    ProcessResult result(int exitCode, String stdout) =>
+        ProcessResult(0, exitCode, stdout, '');
+
+    test('פענוח הפלט וקוד היציאה', () {
+      expect(ElevatedProcess.parseElevatedResult(0, 'True\r\n'), isTrue);
+      expect(ElevatedProcess.parseElevatedResult(0, ' true '), isTrue);
+      expect(ElevatedProcess.parseElevatedResult(0, 'False\r\n'), isFalse);
+      expect(ElevatedProcess.parseElevatedResult(1, 'True'), isFalse);
+      expect(ElevatedProcess.parseElevatedResult(0, ''), isFalse);
+    });
+
+    test('התשובה נשמרת, והשאילתה רצה פעם אחת גם בקריאות מקבילות', () async {
+      var calls = 0;
+      final gate = Completer<ProcessResult>();
+      Future<ProcessResult> query() {
+        calls++;
+        return gate.future;
+      }
+
+      final first = ElevatedProcess.resolveElevated(query);
+      final second = ElevatedProcess.resolveElevated(query);
+      gate.complete(result(0, 'True'));
+
+      expect(await first, isTrue);
+      expect(await second, isTrue);
+      expect(await ElevatedProcess.resolveElevated(query), isTrue);
+      expect(calls, 1);
+    });
+
+    test('קוד יציאה שאינו אפס נשמר כ-false', () async {
+      var calls = 0;
+      Future<ProcessResult> query() async {
+        calls++;
+        return result(1, 'True');
+      }
+
+      expect(await ElevatedProcess.resolveElevated(query), isFalse);
+      expect(await ElevatedProcess.resolveElevated(query), isFalse);
+      expect(calls, 1);
+    });
+
+    test('חריגה בהרצה מחזירה false ונשמרת', () async {
+      var calls = 0;
+      Future<ProcessResult> query() async {
+        calls++;
+        throw const ProcessException('powershell', [], 'not found', 2);
+      }
+
+      expect(await ElevatedProcess.resolveElevated(query), isFalse);
+      expect(await ElevatedProcess.resolveElevated(query), isFalse);
+      expect(calls, 1);
+    });
+
+    test('PowerShell תקוע — false אחרי ה-timeout, ולא נשמר', () async {
+      var calls = 0;
+      final answers = [
+        Completer<ProcessResult>().future,
+        Future.value(result(0, 'True')),
+      ];
+      Future<ProcessResult> query() => answers[calls++];
+
+      expect(
+        await ElevatedProcess.resolveElevated(
+          query,
+          timeout: const Duration(milliseconds: 20),
+        ),
+        isFalse,
+      );
+      expect(
+        await ElevatedProcess.resolveElevated(
+          query,
+          timeout: const Duration(milliseconds: 20),
+        ),
+        isTrue,
+      );
+      expect(calls, 2);
     });
   });
 
@@ -384,11 +628,7 @@ void main() {
     });
   });
 
-  // ⚠️ הסוג היחיד שאינו מרוחרח מהקובץ, כי אי אפשר להריח אותו: exe נייד
-  // ומתקין לא-מוכר נראים זהים, ושניהם היו נופלים ל-interactive.
   group('קובץ נייד — התוכנה עצמה, ולא מתקין שלה', () {
-    /// exe עם סימן של Inno בגוף — כדי שהבדיקה תוכיח שההצהרה **גוברת** על
-    /// הריחרוח, ולא שהיא רק ממלאת חלל ריק.
     String portableExe() => innoSetup();
 
     test('מועתק ליעד שנבחר, בלי להריץ כלום', () async {
@@ -431,7 +671,157 @@ void main() {
       expect(File(p.join(target, 'setup.exe')).readAsStringSync(), 'הישן');
     });
 
-    // ארכיון מתעלם מהיעד בכוונה: אין לו מיקום התקנה, והוא תמיד להורדות.
+    test('עדכון מחליף את קובץ ההרצה המוכר במקום ליצור עותק', () async {
+      final target = p.join(root, 'Tools');
+      writeFile(p.join(target, 'MyApp.exe'), 'הישן');
+
+      final outcome = await installer.install(
+        descriptor: descriptor(
+          portableFile: true,
+          detect: const AppDetectRules(exeName: 'MyApp.exe'),
+        ),
+        installerPath: portableExe(),
+        copyToDir: target,
+      );
+
+      expect(outcome.copiedPath, p.join(target, 'MyApp.exe'));
+      expect(
+        File(outcome.copiedPath!).readAsBytesSync(),
+        File(portableExe()).readAsBytesSync(),
+      );
+      expect(
+        Directory(target).listSync().map((e) => p.basename(e.path)),
+        ['MyApp.exe'],
+      );
+    });
+
+    test('קובץ מוכר שפתוח כרגע — הודעה ייעודית, וה-.part נמחק', () async {
+      final target = p.join(root, 'Tools');
+      final existing = p.join(target, 'MyApp.exe');
+      writeFile(existing, 'הישן');
+      final locked = CustomAppInstaller(
+        processRunner: runner.call,
+        shellRunner: elevated.call,
+        isElevated: () async => false,
+        replaceFile: (source, to) async => throw FileSystemException(
+          'Cannot rename file to $to',
+          source.path,
+          const OSError('Access is denied.', 5),
+        ),
+        downloadsDir: downloads,
+      );
+
+      await expectLater(
+        locked.install(
+          descriptor: descriptor(
+            portableFile: true,
+            detect: const AppDetectRules(exeName: 'MyApp.exe'),
+          ),
+          installerPath: portableExe(),
+          copyToDir: target,
+        ),
+        throwsA(isA<AppDescriptorException>().having(
+          (e) => e.message,
+          'message',
+          AppL10n.strings.customAppsDomain.portableFileInUse(
+            'MyApp.exe',
+            'Access is denied.',
+          ),
+        )),
+      );
+      expect(File('$existing.part').existsSync(), isFalse);
+      expect(File(existing).readAsStringSync(), 'הישן');
+      expect(
+        Directory(target).listSync().map((e) => p.basename(e.path)),
+        ['MyApp.exe'],
+      );
+    });
+
+    test('קובץ מוכר שנכשל בלי OSError — הודעת החריגה מצורפת', () async {
+      final target = p.join(root, 'Tools');
+      writeFile(p.join(target, 'MyApp.exe'), 'הישן');
+      final failing = CustomAppInstaller(
+        processRunner: runner.call,
+        shellRunner: elevated.call,
+        isElevated: () async => false,
+        replaceFile: (source, to) async =>
+            throw FileSystemException('Cannot rename file', source.path),
+        downloadsDir: downloads,
+      );
+
+      await expectLater(
+        failing.install(
+          descriptor: descriptor(
+            portableFile: true,
+            detect: const AppDetectRules(exeName: 'MyApp.exe'),
+          ),
+          installerPath: portableExe(),
+          copyToDir: target,
+        ),
+        throwsA(isA<AppDescriptorException>().having(
+          (e) => e.message,
+          'message',
+          AppL10n.strings.customAppsDomain.portableFileInUse(
+            'MyApp.exe',
+            'Cannot rename file',
+          ),
+        )),
+      );
+    });
+
+    test('כשל החלפה כשהקובץ המוכר אינו קיים — שגיאת העתקה רגילה', () async {
+      final target = p.join(root, 'Tools');
+      final failing = CustomAppInstaller(
+        processRunner: runner.call,
+        shellRunner: elevated.call,
+        isElevated: () async => false,
+        replaceFile: (source, to) async =>
+            throw FileSystemException('Cannot rename file', source.path),
+        downloadsDir: downloads,
+      );
+
+      await expectLater(
+        failing.install(
+          descriptor: descriptor(
+            portableFile: true,
+            detect: const AppDetectRules(exeName: 'MyApp.exe'),
+          ),
+          installerPath: portableExe(),
+          copyToDir: target,
+        ),
+        throwsA(isA<AppDescriptorException>().having(
+          (e) => e.message,
+          'message',
+          startsWith(AppL10n.strings.customAppsDomain.fileCopyFailed('')),
+        )),
+      );
+      expect(Directory(target).listSync(), isEmpty);
+    });
+
+    test('שם מוכר שאינו exe או נושא תיקייה — רק שם הקובץ נלקח', () async {
+      final target = p.join(root, 'Tools');
+
+      final pdf = await installer.install(
+        descriptor: descriptor(
+          portableFile: true,
+          detect: const AppDetectRules(exeName: 'MyApp.pdf'),
+        ),
+        installerPath: portableExe(),
+        copyToDir: target,
+      );
+      expect(p.basename(pdf.copiedPath!), 'setup.exe');
+
+      final nested = await installer.install(
+        descriptor: descriptor(
+          portableFile: true,
+          detect: const AppDetectRules(exeName: r'..\..\Evil.exe'),
+        ),
+        installerPath: portableExe(),
+        copyToDir: target,
+      );
+      expect(nested.copiedPath, p.join(target, 'Evil.exe'));
+    });
+
     test('היעד אינו חל על ארכיון', () async {
       final outcome = await installer.install(
         descriptor: descriptor(),

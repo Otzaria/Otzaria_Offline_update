@@ -9,14 +9,11 @@ import '../models/custom_installer_kind.dart';
 import 'elevated_process.dart';
 import 'installer_kind_sniffer.dart';
 
-/// מריץ תהליך ומחזיר את תוצאתו. מוזרק כדי שבדיקות לא יריצו installer
-/// אמיתי על המחשב שמריץ את החבילה.
 typedef CustomProcessRunner = Future<ProcessResult> Function(
   String executable,
   List<String> arguments,
 );
 
-/// הרצה דרך ShellExecute — ראו [ElevatedProcess.run]. מוזרק מאותה סיבה.
 typedef CustomShellRunner = Future<ProcessResult> Function(
   String executable,
   List<String> arguments, {
@@ -24,26 +21,29 @@ typedef CustomShellRunner = Future<ProcessResult> Function(
   required bool rawLastArgument,
 });
 
-/// מתקין תוכנה נוספת מקובץ שכבר יושב על הכונן — **בלי לגעת ברשת**.
-///
-/// אותו עיקרון של `OtzariaInstaller`: ההורדה נעשית מראש אל המראה,
-/// וההתקנה קוראת משם גם במחשב שאין בו אינטרנט.
+typedef ElevationCheck = Future<bool> Function();
+
+typedef FileReplacer = Future<void> Function(File source, String target);
+
 class CustomAppInstaller {
   CustomAppInstaller({
     CustomProcessRunner? processRunner,
     CustomShellRunner? shellRunner,
+    ElevationCheck? isElevated,
+    FileReplacer? replaceFile,
     String? downloadsDir,
   })  : _run = processRunner ?? Process.run,
         _runShell = shellRunner ?? ElevatedProcess.run,
+        _isElevated = isElevated ?? ElevatedProcess.isCurrentProcessElevated,
+        _replaceFile = replaceFile ?? _renameOver,
         _downloadsDir = downloadsDir;
 
   final CustomProcessRunner _run;
-
-  /// כש-`Process.run` אינו יכול: מתקין שדורש מנהל, או `/D=` שאסור לצטט.
   final CustomShellRunner _runShell;
+  final ElevationCheck _isElevated;
+  final FileReplacer _replaceFile;
   final String? _downloadsDir;
 
-  /// תיקיית ההורדות של המשתמש — לשם מגיעה תוכנה מסוג ארכיון.
   String get downloadsDir => _downloadsDir ?? _defaultDownloadsDir();
 
   static String _defaultDownloadsDir() {
@@ -53,15 +53,9 @@ class CustomAppInstaller {
     return p.join(home, 'Downloads');
   }
 
-  /// מתקין את [installerPath] לפי הכללים שב-[descriptor].
-  ///
-  /// זורק [AppDescriptorException] עם הודעה מתורגמת בכל כשל — הממשק מציג
-  /// אותה כמות שהיא.
-  ///
-  /// מחזיר את הסוג שזוהה, ואת נתיב היעד כשהקובץ רק הועתק.
-  ///
-  /// [copyToDir] הוא היעד של **קובץ נייד** — מה שהמשתמש בחר בדיאלוג. ארכיון
-  /// מתעלם ממנו והולך לתיקיית ההורדות, כי אין לו יעד טבעי אחר.
+  static Future<void> _renameOver(File source, String target) =>
+      source.rename(target);
+
   Future<CustomInstallOutcome> install({
     required AppDescriptor descriptor,
     required String installerPath,
@@ -73,25 +67,21 @@ class CustomAppInstaller {
       throw AppDescriptorException(t.installerFileMissing(installerPath));
     }
 
-    // **סוג ההתקנה נקבע כאן ולא נשמר ברשומה** — חוץ מהצהרת "זו התוכנה
-    // עצמה", שהיא הדבר היחיד כאן שאי אפשר להריח מהבייטים (ראו
-    // [AppDescriptor.portableFile]). כל השאר נגזר מהקובץ שעומד לרוץ ברגע
-    // זה, ולכן אינו יכול להתיישן, והמשתמש אינו נשאל עליו בכלל.
     final kind = descriptor.portableFile
         ? CustomInstallerKind.portableFile
         : await const InstallerKindSniffer().sniff(installerPath) ??
             CustomInstallerKind.interactive;
 
-    // אין כאן התקנה — רק העתקה. ארכיון מונח בתיקיית ההורדות (אין ל-ZIP
-    // מיקום התקנה טבעי, וניחוש שלנו היה יוצר תיקייה שאיש לא ביקש), וקובץ
-    // נייד מגיע לתיקייה שהמשתמש הצביע עליה.
     if (kind.isCopyOnly) {
       return CustomInstallOutcome(
         kind: kind,
-        copiedPath: await _copyInto(
-          kind.isArchive ? downloadsDir : (copyToDir ?? downloadsDir),
-          installerPath,
-        ),
+        copiedPath: kind.isArchive
+            ? await _copyInto(downloadsDir, installerPath)
+            : await _copyInto(
+                copyToDir ?? downloadsDir,
+                installerPath,
+                replacing: _knownFileName(descriptor, installerPath),
+              ),
       );
     }
 
@@ -101,7 +91,6 @@ class CustomAppInstaller {
     );
     if (command == null) return CustomInstallOutcome(kind: kind);
 
-    // `Process.run` היה עוטף במרכאות, ו-NSIS היה מתקין לנתיב שמסתיים ב-`"`.
     if (command.rawLastArgument &&
         ElevatedProcess.needsQuoting(command.arguments.last)) {
       return _installViaShell(kind, command, elevate: false);
@@ -114,7 +103,15 @@ class CustomAppInstaller {
       if (!ElevatedProcess.isElevationRequired(e)) rethrow;
       return _installViaShell(kind, command, elevate: true);
     }
-    if (result.exitCode != 0) {
+    if (kind.retriesElevatedOn(result.exitCode) && !await _isElevated()) {
+      return _installViaShell(
+        kind,
+        command,
+        elevate: true,
+        firstExitCode: result.exitCode,
+      );
+    }
+    if (!kind.isSuccessExitCode(result.exitCode)) {
       throw AppDescriptorException(
         t.installerExitCode(
           result.exitCode,
@@ -125,12 +122,11 @@ class CustomAppInstaller {
     return CustomInstallOutcome(kind: kind);
   }
 
-  /// דרך ShellExecute, שיודע להקפיץ UAC — `CreateProcess` אינו יודע.
-  /// סירוב ל-UAC מקבל הודעה משלו — אינו "שגיאה בהתקנה".
   Future<CustomInstallOutcome> _installViaShell(
     CustomInstallerKind kind,
     CustomInstallerCommand command, {
     required bool elevate,
+    int? firstExitCode,
   }) async {
     final t = AppL10n.strings.customAppsDomain;
     final result = await _runShell(
@@ -140,34 +136,86 @@ class CustomAppInstaller {
       rawLastArgument: command.rawLastArgument,
     );
     if (result.exitCode == ElevatedProcess.cancelledCode) {
-      throw AppDescriptorException(t.installerElevationDeclined);
-    }
-    if (result.exitCode != 0) {
       throw AppDescriptorException(
-        t.installerExitCode(result.exitCode, 'stderr: ${result.stderr}'),
+        firstExitCode == null
+            ? t.installerElevationDeclined
+            : t.installerElevatedRetryDeclined(firstExitCode),
+      );
+    }
+    if (!kind.isSuccessExitCode(result.exitCode)) {
+      final output = 'stderr: ${result.stderr}';
+      throw AppDescriptorException(
+        firstExitCode == null
+            ? t.installerExitCode(result.exitCode, output)
+            : t.installerElevatedRetryFailed(
+                firstExitCode,
+                result.exitCode,
+                output,
+              ),
       );
     }
     return CustomInstallOutcome(kind: kind);
   }
 
-  /// מעתיק את הקובץ ל-[targetDir], בלי לדרוס קובץ קיים בעל אותו שם.
-  Future<String> _copyInto(String targetDir, String sourcePath) async {
+  Future<String> _copyInto(
+    String targetDir,
+    String sourcePath, {
+    String? replacing,
+  }) async {
+    final t = AppL10n.strings.customAppsDomain;
     try {
       final dir = Directory(targetDir);
       await dir.create(recursive: true);
 
+      if (replacing != null) {
+        final target = p.join(dir.path, replacing);
+        final temp = File('$target.part');
+        try {
+          await File(sourcePath).copy(temp.path);
+          try {
+            await _replaceFile(temp, target);
+          } on FileSystemException catch (e) {
+            if (await File(target).exists()) {
+              final osMessage = e.osError?.message.trim() ?? '';
+              throw AppDescriptorException(
+                t.portableFileInUse(
+                  replacing,
+                  osMessage.isEmpty ? e.message : osMessage,
+                ),
+              );
+            }
+            rethrow;
+          }
+        } catch (_) {
+          try {
+            await temp.delete();
+          } catch (_) {}
+          rethrow;
+        }
+        return target;
+      }
+
       final target = _freeNameIn(dir.path, p.basename(sourcePath));
       await File(sourcePath).copy(target);
       return target;
+    } on AppDescriptorException {
+      rethrow;
     } catch (e) {
-      throw AppDescriptorException(
-        AppL10n.strings.customAppsDomain.fileCopyFailed('$e'),
-      );
+      throw AppDescriptorException(t.fileCopyFailed('$e'));
     }
   }
 
-  /// `app.zip` → `app (2).zip` כשהראשון תפוס. דריסה שקטה של קובץ בתיקיית
-  /// ההורדות היא בדיוק מה שמשתמש לא מצפה לו.
+  static String? _knownFileName(AppDescriptor descriptor, String sourcePath) {
+    final known = descriptor.detect.exeName;
+    if (known == null || known.trim().isEmpty) return null;
+    final name = p.windows.basename(known.trim());
+    final ext = p.extension(name).toLowerCase();
+    if (ext != '.exe' || ext != p.extension(sourcePath).toLowerCase()) {
+      return null;
+    }
+    return name;
+  }
+
   static String _freeNameIn(String dir, String fileName) {
     final base = p.basenameWithoutExtension(fileName);
     final ext = p.extension(fileName);

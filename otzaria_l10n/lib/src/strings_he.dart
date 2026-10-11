@@ -2554,6 +2554,18 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
   String installerExitCode(int exitCode, String output) =>
       'ההתקנה הסתיימה בשגיאה (קוד $exitCode).\n$output';
   @override
+  String installerElevatedRetryFailed(
+    int firstExitCode,
+    int elevatedExitCode,
+    String output,
+  ) =>
+      'ההתקנה הסתיימה בשגיאה (קוד $firstExitCode), וגם הניסיון החוזר '
+      'בהרשאות מנהל נכשל (קוד $elevatedExitCode).\n$output';
+  @override
+  String installerElevatedRetryDeclined(int firstExitCode) =>
+      'ההתקנה הסתיימה בשגיאה (קוד $firstExitCode). ניסיון חוזר בהרשאות '
+      'מנהל לא בוצע, כי הבקשה נדחתה בחלון ההרשאות של ווינדוס.';
+  @override
   String get installerElevationDeclined =>
       'המתקין דורש הרשאות מנהל, והבקשה נדחתה. כדי להתקין, יש לאשר את '
       'חלון ההרשאות של ווינדוס.';
@@ -2563,6 +2575,10 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
       'או לצרף אותו מחדש במחשב שיש בו אינטרנט';
   @override
   String fileCopyFailed(String error) => 'העתקת הקובץ נכשלה: $error';
+  @override
+  String portableFileInUse(String fileName, String error) =>
+      'לא ניתן להחליף את $fileName, כנראה כי התוכנה פתוחה כרגע. יש לסגור '
+      'אותה ולנסות שוב.${error.isEmpty ? '' : '\n$error'}';
   @override
   String launchFileMissing(String launchPath) =>
       'קובץ ההרצה אינו נמצא: $launchPath';

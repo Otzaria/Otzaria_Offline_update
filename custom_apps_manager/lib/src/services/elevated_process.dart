@@ -1,26 +1,83 @@
+import 'dart:async';
 import 'dart:io';
 
-/// הרצה עם הרשאות מנהל, כשווינדוס מסרבת להריץ בלעדיהן.
-///
-/// `Process.run` עובר דרך `CreateProcess`, שאינו יודע להקפיץ UAC: קובץ
-/// שהמניפסט שלו `requireAdministrator` (נפוץ ב-NSIS) נופל בשגיאה 740.
+typedef ElevationQuery = Future<ProcessResult> Function();
+
 class ElevatedProcess {
   const ElevatedProcess._();
 
-  /// `ERROR_ELEVATION_REQUIRED` — הקובץ דורש מנהל ולא הורץ בכלל.
   static const elevationRequiredCode = 740;
 
-  /// `ERROR_CANCELLED` — המשתמש לחץ "לא" בחלון ה-UAC.
   static const cancelledCode = 1223;
+
+  static const elevationQueryTimeout = Duration(seconds: 10);
+
+  static const elevationQueryArgs = [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    '([Security.Principal.WindowsPrincipal]'
+        '[Security.Principal.WindowsIdentity]::GetCurrent())'
+        '.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)',
+  ];
 
   static bool isElevationRequired(Object error) =>
       error is ProcessException && error.errorCode == elevationRequiredCode;
 
-  /// מריץ דרך ShellExecute וממתין לסיום. קוד היציאה הוא של התהליך עצמו, או
-  /// [cancelledCode] כשה-UAC נדחה.
-  ///
-  /// בלי [elevate] אין `runas`, אבל ShellExecute עדיין מקפיץ UAC כשהמניפסט
-  /// דורש — מה שמאפשר [rawLastArgument] גם למתקין שאינו דורש מנהל.
+  static bool? _currentElevated;
+  static Future<bool>? _pendingElevated;
+
+  static Future<bool> isCurrentProcessElevated() {
+    if (!Platform.isWindows) return Future.value(false);
+    return resolveElevated(_runElevationQuery);
+  }
+
+  static Future<bool> resolveElevated(
+    ElevationQuery query, {
+    Duration timeout = elevationQueryTimeout,
+  }) {
+    final cached = _currentElevated;
+    if (cached != null) return Future.value(cached);
+    return _pendingElevated ??= _queryElevated(query, timeout)
+        .whenComplete(() => _pendingElevated = null);
+  }
+
+  static void resetElevatedCache() {
+    _currentElevated = null;
+    _pendingElevated = null;
+  }
+
+  static bool parseElevatedResult(int exitCode, Object? stdout) =>
+      exitCode == 0 && '$stdout'.trim().toLowerCase() == 'true';
+
+  static Future<bool> _queryElevated(
+    ElevationQuery query,
+    Duration timeout,
+  ) async {
+    try {
+      final result = await query().timeout(timeout);
+      return _currentElevated =
+          parseElevatedResult(result.exitCode, result.stdout);
+    } on TimeoutException {
+      return false;
+    } catch (_) {
+      return _currentElevated = false;
+    }
+  }
+
+  static Future<ProcessResult> _runElevationQuery() async {
+    final process = await Process.start('powershell', elevationQueryArgs);
+    final stdout = process.stdout.transform(systemEncoding.decoder).join();
+    unawaited(process.stderr.drain<void>());
+    try {
+      final exitCode = await process.exitCode.timeout(elevationQueryTimeout);
+      return ProcessResult(process.pid, exitCode, await stdout, '');
+    } on TimeoutException {
+      process.kill();
+      rethrow;
+    }
+  }
+
   static Future<ProcessResult> run(
     String executable,
     List<String> arguments, {
@@ -37,7 +94,6 @@ class ElevatedProcess {
         ),
       );
 
-  /// כמו [run], אבל חוזר מיד כשהתהליך עלה — להפעלת תוכנה, לא להתקנה.
   static Future<ProcessResult> start(
     String executable,
     List<String> arguments, {
@@ -53,8 +109,6 @@ class ElevatedProcess {
         ),
       );
 
-  /// חשוף לבדיקות. `Process.Start` ולא `Start-Process`: ב-PowerShell 5.1
-  /// השני בולע את ה-Win32Exception, וסירוב ל-UAC היה יוצא "1" ולא 1223.
   static List<String> powershellArgs(
     String executable,
     List<String> arguments, {
@@ -96,8 +150,6 @@ class ElevatedProcess {
     ];
   }
 
-  /// שורת הפקודה בכללי הציטוט של Dart; עם [rawLastArgument] האחרון נשאר
-  /// גולמי — `/D=` של NSIS עם מרכאות נבלע כחלק מהנתיב.
   static String buildCommandLine(
     List<String> arguments, {
     bool rawLastArgument = false,
@@ -109,12 +161,9 @@ class ElevatedProcess {
               : quoteWindowsArg(arguments[i]),
       ].join(' ');
 
-  /// האם [quoteWindowsArg] היה עוטף את [arg] במרכאות.
   static bool needsQuoting(String arg) =>
       arg.isEmpty || arg.contains(RegExp(r'[ \t"]'));
 
-  /// אותם כללי ציטוט ש-Dart מפעיל בעצמו ב-`Process.run`, כדי שהמתקין יקבל
-  /// שורת פקודה זהה בשני המסלולים.
   static String quoteWindowsArg(String arg) {
     if (!needsQuoting(arg)) return arg;
     final out = StringBuffer('"');
@@ -138,5 +187,6 @@ class ElevatedProcess {
     return out.toString();
   }
 
-  static String _psQuote(String s) => "'${s.replaceAll("'", "''")}'";
+  static String _psQuote(String s) =>
+      "'${s.replaceAllMapped(RegExp("['\u2018-\u201B]"), (m) => m[0]! * 2)}'";
 }

@@ -2735,6 +2735,20 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
   String installerExitCode(int exitCode, String output) =>
       'The installation failed (exit code $exitCode).\n$output';
   @override
+  String installerElevatedRetryFailed(
+    int firstExitCode,
+    int elevatedExitCode,
+    String output,
+  ) =>
+      'The installation failed (exit code $firstExitCode), and the retry '
+      'with administrator rights failed too (exit code $elevatedExitCode).'
+      '\n$output';
+  @override
+  String installerElevatedRetryDeclined(int firstExitCode) =>
+      'The installation failed (exit code $firstExitCode). It was not '
+      'retried with administrator rights, because the Windows permission '
+      'prompt was declined.';
+  @override
   String get installerElevationDeclined =>
       'The installer requires administrator rights, and the request was '
       'declined. To install, approve the Windows permission prompt.';
@@ -2744,6 +2758,10 @@ class _CustomAppsDomain extends CustomAppsDomainStrings {
       'that was stored. Download or add it again on a computer with internet';
   @override
   String fileCopyFailed(String error) => 'Copying the file failed: $error';
+  @override
+  String portableFileInUse(String fileName, String error) =>
+      'Could not replace $fileName, probably because the program is open. '
+      'Close it and try again.${error.isEmpty ? '' : '\n$error'}';
   @override
   String launchFileMissing(String launchPath) =>
       'Executable not found: $launchPath';

@@ -112,9 +112,15 @@ enum CustomInstallerKind {
     };
   }
 
-  /// האם ההתקנה תרוץ בשקט. `false` ל-[interactive] — והממשק חייב לומר
-  /// זאת מראש, כדי שחלון שנפתח לא ייראה כתקלה.
   bool get isSilent => this != CustomInstallerKind.interactive && !isCopyOnly;
+
+  bool isSuccessExitCode(int code) =>
+      code == 0 ||
+      (this == CustomInstallerKind.msi && (code == 3010 || code == 1641));
+
+  bool retriesElevatedOn(int code) =>
+      this == CustomInstallerKind.msi &&
+      (code == 1603 || code == 1625 || code == 1925);
 }
 
 /// פקודת התקנה מוכנה להרצה — מה מריצים ועם אילו ארגומנטים.
