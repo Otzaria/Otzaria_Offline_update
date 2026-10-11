@@ -137,7 +137,6 @@ class MirrorJunkSweeper {
 
   // ── תוכנת אוצריא ──────────────────────────────────────────────────────────
 
-  /// תג שאינו במטא־דאטה, וגם חבילת FULL שנשארה בתג שכן נשמר.
   Future<void> _appJunk(List<MirrorJunk> out) async {
     final root = Directory(p.join(_mirrorDir, 'app', 'installers'));
     if (!await root.exists()) return;
@@ -146,10 +145,19 @@ class MirrorJunkSweeper {
         await _readJson(p.join(_mirrorDir, 'app', 'latest-release.json'));
     if (meta == null) return;
 
-    // הפורמט הישן הוא רשומה בודדת בשורש; החדש — רשומה לכל ערוץ.
-    final entries = meta['tagName'] is String
-        ? [meta]
-        : [meta['stable'], meta['prerelease']].where((entry) => entry != null);
+    final platforms = meta['platforms'] ?? const <String, dynamic>{};
+    if (platforms is! Map<String, dynamic>) return;
+    final entries = [
+      if (meta['tagName'] is String)
+        meta
+      else ...[meta['stable'], meta['prerelease']],
+      for (final channels in platforms.values)
+        if (channels is Map<String, dynamic>) ...[
+          channels['stable'],
+          channels['prerelease']
+        ] else
+          channels,
+    ].where((entry) => entry != null);
 
     final keptFiles = <String, Set<String>>{};
     for (final entry in entries) {
@@ -213,20 +221,23 @@ class MirrorJunkSweeper {
 
     final meta =
         await _readJson(p.join(_mirrorDir, 'launcher', 'latest-release.json'));
-    final release = meta?['release'];
-    if (release is! Map<String, dynamic>) return;
-    final tag = release['tagName'];
-    if (tag is! String || tag.isEmpty) return;
-    final relative = meta?['filePath'];
-    if (relative is! String || relative.isEmpty) return;
+    if (meta == null) return;
+    final platforms = meta['platforms'] ?? const <String, dynamic>{};
+    if (platforms is! Map<String, dynamic>) return;
 
-    await _byTagDir(
-      root,
-      {
-        _key(tag): {_key(_baseName(relative))},
-      },
-      out,
-    );
+    final keptFiles = <String, Set<String>>{};
+    for (final entry in [meta, ...platforms.values]) {
+      if (entry is! Map<String, dynamic>) return;
+      final release = entry['release'];
+      if (release is! Map<String, dynamic>) return;
+      final tag = release['tagName'];
+      if (tag is! String || tag.isEmpty) return;
+      final relative = entry['filePath'];
+      if (relative is! String || relative.isEmpty) return;
+      keptFiles.putIfAbsent(_key(tag), () => {}).add(_key(_baseName(relative)));
+    }
+
+    await _byTagDir(root, keptFiles, out);
   }
 
   // ── עזר ───────────────────────────────────────────────────────────────────

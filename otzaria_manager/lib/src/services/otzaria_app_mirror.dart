@@ -11,18 +11,16 @@ import 'otzaria_changelog_client.dart';
 import 'otzaria_installer.dart';
 import 'otzaria_release_client.dart';
 
-/// גרסת אוצריא שיושבת מוכנה בתיקייה המקומית: המטא־דאטה שלה וקובץ ההתקנה
-/// שכבר הורד.
 class MirroredOtzariaRelease {
   const MirroredOtzariaRelease({
     required this.release,
     required this.installerPath,
+    this.newerThanStableTag,
   });
 
   final OtzariaRelease release;
-
-  /// נתיב מלא לקובץ ההתקנה בדיסק — ההתקנה קוראת מכאן, בלי רשת.
   final String installerPath;
+  final String? newerThanStableTag;
 }
 
 /// הגרסאות שיושבות במראה, לפי ערוץ — ראו [OtzariaChannelPair].
@@ -44,11 +42,12 @@ class OtzariaAppMirror {
     required OtzariaInstaller installer,
     OtzariaChangelogClient? changelogClient,
     OtzariaTargetPlatform? platform,
-  })  : _releaseClient = releaseClient,
-        _installer = installer,
-        _changelogClient = changelogClient ?? OtzariaChangelogClient(),
-        _platform = platform ??
-            OtzariaTargetPlatform.detectOrNull(Platform.operatingSystem);
+  }) : _releaseClient = releaseClient,
+       _installer = installer,
+       _changelogClient = changelogClient ?? OtzariaChangelogClient(),
+       _platform =
+           platform ??
+           OtzariaTargetPlatform.detectOrNull(Platform.operatingSystem);
 
   /// הפלטפורמה שהמראה נקראת בה — ראו [load]. `null` = פלטפורמה שאין לה
   /// מסלול התקנה (לינוקס, שם רצות הבדיקות ב-CI), ואז אין סינון בכלל.
@@ -62,36 +61,20 @@ class OtzariaAppMirror {
   final OtzariaChangelogClient _changelogClient;
 
   static const String _metadataFileName = 'latest-release.json';
+  static const String _platformsKey = 'platforms';
+  static const String _newerThanStableKey = 'newerThanStable';
 
-  /// 2 = שתי גרסאות לפי ערוץ. גרסה 1 (רשומה בודדת בשורש) עדיין נקראת —
-  /// ראו [load].
   static const int _schemaVersion = 2;
 
   String get _metadataPath => p.join(mirrorDir, _metadataFileName);
 
-  /// קורא את הגרסאות שיושבות במראה. ערוץ חוזר ריק כשאין לו רשומה תקינה:
-  /// אין קובץ מטא־דאטה, הוא פגום, או שקובץ ההתקנה שהוא מצביע עליו חסר/
-  /// בגודל שגוי (הורדה שנקטעה). בכל המקרים האלה התשובה הנכונה זהה —
-  /// "צריך להוריד". כל ערוץ נבדק בנפרד, כדי שרשומה פגומה באחד לא תפסול
-  /// את השני.
   Future<MirroredOtzariaReleases> load() async {
-    final file = File(_metadataPath);
-    if (!await file.exists()) return const MirroredOtzariaReleases();
+    final decoded = await _readMetadata();
+    if (decoded == null) return const MirroredOtzariaReleases();
+    final channels = _ownChannels(decoded);
 
-    final Object? decoded;
-    try {
-      decoded = jsonDecode(await file.readAsString());
-    } catch (_) {
-      return const MirroredOtzariaReleases();
-    }
-    if (decoded is! Map<String, dynamic>) {
-      return const MirroredOtzariaReleases();
-    }
-
-    // פורמט ישן: רשומה בודדת בשורש הקובץ. משויכת לערוץ לפי הדגל שלה, כדי
-    // שכונן שנוצר בגרסה קודמת של הלאנצ'ר יישאר שמיש בלי הורדה מחדש.
-    if (decoded['tagName'] is String) {
-      final legacy = await _entryFrom(decoded);
+    if (channels['tagName'] is String) {
+      final legacy = await _entryFrom(channels);
       if (legacy == null) return const MirroredOtzariaReleases();
       return legacy.release.isPrerelease
           ? MirroredOtzariaReleases(prerelease: legacy)
@@ -99,63 +82,114 @@ class OtzariaAppMirror {
     }
 
     return _withoutStalePrerelease(
-      stable: await _entryFrom(decoded[OtzariaReleaseChannel.stable.name]),
-      prerelease:
-          await _entryFrom(decoded[OtzariaReleaseChannel.prerelease.name]),
+      stable: await _entryFrom(channels[OtzariaReleaseChannel.stable.name]),
+      prerelease: await _entryFrom(
+        channels[OtzariaReleaseChannel.prerelease.name],
+      ),
     );
   }
 
-  /// אותו תג בשני הערוצים אינו בחירה אלא רישום כפול — הרשומה הלא-יציבה
-  /// יורדת.
-  ///
-  /// זה מה שנשאר כשגרסה שירדה כלא-יציבה סומנה אחר כך כיציבה וסנכרון אחד
-  /// כתב את הערוץ היציב אך לא הספיק לרוקן את השני (הורדה שנכשלה/בוטלה
-  /// באמצע). הניקוי גם בקריאה ולא רק בכתיבה, כי כונן שכבר נשא מטא־דאטה
-  /// כזאת מגיע למחשב מנותק שלעולם לא יריץ שם סנכרון.
-  ///
-  /// The same holds for a prerelease older than the stable (§5.5): with
-  /// preferPrerelease it would be installed as a silent downgrade.
+  Future<Set<String>> otherPlatformTagNames() async =>
+      _tagNamesIn(_otherPlatforms(await _readMetadata(), _platform));
+
+  Future<Map<String, dynamic>?> _readMetadata() async {
+    final file = File(_metadataPath);
+    if (!await file.exists()) return null;
+    try {
+      final decoded = jsonDecode(await file.readAsString());
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Map<String, dynamic> _ownChannels(Map<String, dynamic> decoded) {
+    final platforms = decoded[_platformsKey];
+    final own = platforms is Map<String, dynamic>
+        ? platforms[_platform?.name]
+        : null;
+    return own is Map<String, dynamic> ? own : decoded;
+  }
+
+  static Map<String, Map<String, dynamic>> _otherPlatforms(
+    Map<String, dynamic>? decoded,
+    OtzariaTargetPlatform? here,
+  ) {
+    final others = <String, Map<String, dynamic>>{};
+    if (decoded == null || here == null) return others;
+
+    final platforms = decoded[_platformsKey];
+    final listed = platforms is Map<String, dynamic>
+        ? platforms
+        : const <String, dynamic>{};
+    for (final MapEntry(:key, :value) in listed.entries) {
+      if (key != here.name && value is Map<String, dynamic>) {
+        others[key] = value;
+      }
+    }
+
+    for (final channel in OtzariaReleaseChannel.values) {
+      final raw = decoded[channel.name];
+      final platform = _targetPlatformOf(raw);
+      if (platform == null ||
+          platform == here ||
+          listed.containsKey(platform.name)) {
+        continue;
+      }
+      (others[platform.name] ??= {})[channel.name] = raw;
+    }
+    return others;
+  }
+
+  static OtzariaTargetPlatform? _targetPlatformOf(Object? raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    try {
+      return OtzariaRelease.fromJson(raw).installerKind.targetPlatform;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Set<String> _tagNamesIn(Map<String, Map<String, dynamic>> platforms) =>
+      {
+        for (final channels in platforms.values)
+          for (final entry in channels.values)
+            if (entry is Map<String, dynamic> && entry['tagName'] is String)
+              entry['tagName'] as String,
+      };
+
   static MirroredOtzariaReleases _withoutStalePrerelease({
     MirroredOtzariaRelease? stable,
     MirroredOtzariaRelease? prerelease,
-  }) =>
-      MirroredOtzariaReleases(
-        stable: stable,
-        prerelease: stable != null &&
-                prerelease != null &&
-                _isStalePrerelease(stable.release, prerelease.release)
-            ? null
-            : prerelease,
-      );
+  }) => MirroredOtzariaReleases(
+    stable: stable,
+    prerelease:
+        stable != null &&
+            prerelease != null &&
+            _isStalePrerelease(stable, prerelease)
+        ? null
+        : prerelease,
+  );
 
-  /// Online, "newer" means listed above the stable (`fetchChannelReleases`),
-  /// which matches publish dates in practice, so the dates decide; tags only
-  /// when a date is missing. Real tag pairs such as
-  /// `v0.2.7` / `v0.2.7-dev-118` rank the prerelease below or equal.
   static bool _isStalePrerelease(
-    OtzariaRelease stable,
-    OtzariaRelease prerelease,
+    MirroredOtzariaRelease stable,
+    MirroredOtzariaRelease prerelease,
   ) {
-    if (prerelease.tagName == stable.tagName) return true;
-    final prereleaseDate = prerelease.publishedAt;
-    final stableDate = stable.publishedAt;
+    final stableTag = stable.release.tagName;
+    if (prerelease.release.tagName == stableTag) return true;
+    if (prerelease.newerThanStableTag == stableTag) return false;
+    final prereleaseDate = prerelease.release.publishedAt;
+    final stableDate = stable.release.publishedAt;
     if (prereleaseDate != null && stableDate != null) {
       return prereleaseDate.isBefore(stableDate);
     }
     return OtzariaUpdateCheckResult.compareVersions(
-          prerelease.tagName,
-          stable.tagName,
+          prerelease.release.tagName,
+          stableTag,
         ) <
         0;
   }
 
-  /// רשומת ערוץ בודדת מתוך המטא־דאטה, או `null` אם היא חסרה/פגומה/מצביעה
-  /// על קובץ התקנה שאינו שם — **או שהיא של פלטפורמה אחרת**.
-  ///
-  /// הכונן נוסע בין מחשבים, ומי שהוריד בווינדוס נושא עליו `.exe` של Inno.
-  /// בלי הפסילה כאן מסלול ההתקנה ב-macOS היה מנסה להריץ אותו ונופל
-  /// ב-ProcessException; "אין מראה — יש להריץ הורדה" היא התשובה הנכונה,
-  /// והממשק כבר יודע לומר אותה.
   Future<MirroredOtzariaRelease?> _entryFrom(Object? raw) async {
     if (raw is! Map<String, dynamic>) return null;
 
@@ -165,10 +199,10 @@ class OtzariaAppMirror {
       release = OtzariaRelease.fromJson(raw);
       final relative = raw['installerPath'];
       if (relative is! String || relative.isEmpty) return null;
-      // המראה נכתבת ב-POSIX ונקראת גם ב-Windows; `\` היסטורי מקובץ שנכתב
-      // בווינדוס עדיין נתמך כדי לא לפסול מראה קיימת.
-      installerPath =
-          p.joinAll([mirrorDir, ...relative.split(RegExp(r'[/\\]'))]);
+      installerPath = p.joinAll([
+        mirrorDir,
+        ...relative.split(RegExp(r'[/\\]')),
+      ]);
     } catch (_) {
       return null;
     }
@@ -182,9 +216,11 @@ class OtzariaAppMirror {
     if (!await installer.exists()) return null;
     if (await installer.length() != release.installerSizeBytes) return null;
 
+    final newerThanStable = raw[_newerThanStableKey];
     return MirroredOtzariaRelease(
       release: release,
       installerPath: installerPath,
+      newerThanStableTag: newerThanStable is String ? newerThanStable : null,
     );
   }
 
@@ -218,7 +254,18 @@ class OtzariaAppMirror {
     online ??= await _releaseClient.fetchChannelReleases();
 
     final existing = await load();
-    var stable = online.stable == null ? null : existing.stable;
+    final here =
+        _platform ??
+        (online.stable ??
+                online.prerelease ??
+                existing.stable?.release ??
+                existing.prerelease?.release)
+            ?.installerKind
+            .targetPlatform;
+    final others = _otherPlatforms(await _readMetadata(), here);
+    var stable = existing.stable?.release.tagName == online.prerelease?.tagName
+        ? null
+        : existing.stable;
     var prerelease = online.prerelease == null ? null : existing.prerelease;
 
     for (final channel in OtzariaReleaseChannel.values) {
@@ -233,14 +280,22 @@ class OtzariaAppMirror {
       );
       if (channel == OtzariaReleaseChannel.stable) {
         stable = mirrored;
-        if (prerelease != null &&
-            _isStalePrerelease(mirrored.release, prerelease.release)) {
+        if (prerelease != null && _isStalePrerelease(mirrored, prerelease)) {
           prerelease = null;
         }
       } else {
-        prerelease = mirrored;
+        prerelease = MirroredOtzariaRelease(
+          release: mirrored.release,
+          installerPath: mirrored.installerPath,
+          newerThanStableTag: online.stable?.tagName,
+        );
       }
-      await _writeMetadata(stable: stable, prerelease: prerelease);
+      await _writeMetadata(
+        stable: stable,
+        prerelease: prerelease,
+        here: here,
+        others: others,
+      );
     }
 
     final result = MirroredOtzariaReleases(
@@ -249,7 +304,10 @@ class OtzariaAppMirror {
     );
     if (result.all.isNotEmpty) {
       await _installer.pruneCacheExcept(
-        keepTagNames: {for (final e in result.all) e.release.tagName},
+        keepTagNames: {
+          for (final e in result.all) e.release.tagName,
+          ..._tagNamesIn(others),
+        },
       );
     }
     for (final path in await staleFullPackages()) {
@@ -264,8 +322,9 @@ class OtzariaAppMirror {
     bool Function()? isCancelled,
   ) async {
     final notes = await _changelogClient.notesFor(release.tagName);
-    final withNotes =
-        notes == null ? release : release.copyWithReleaseNotes(notes);
+    final withNotes = notes == null
+        ? release
+        : release.copyWithReleaseNotes(notes);
 
     final installerPath = await _installer.ensureCached(
       release: withNotes,
@@ -291,25 +350,31 @@ class OtzariaAppMirror {
   Future<void> _writeMetadata({
     MirroredOtzariaRelease? stable,
     MirroredOtzariaRelease? prerelease,
+    OtzariaTargetPlatform? here,
+    Map<String, Map<String, dynamic>> others = const {},
   }) async {
-    // **תמיד עם `/`** — מראה שנבנתה בווינדוס נפתחת גם ב-macOS, בדיוק כמו
-    // הנתיבים בקטלוג התוספים (`PluginMirrorStore.relativePath`).
     String relative(String path) =>
         p.relative(path, from: mirrorDir).replaceAll(r'\', '/');
 
-    Map<String, dynamic> entry(MirroredOtzariaRelease e) =>
-        e.release.toJson()..['installerPath'] = relative(e.installerPath);
+    Map<String, dynamic> entry(MirroredOtzariaRelease e) => e.release.toJson()
+      ..['installerPath'] = relative(e.installerPath)
+      ..addAll({
+        if (e.newerThanStableTag case final tag?) _newerThanStableKey: tag,
+      });
 
     await Directory(mirrorDir).create(recursive: true);
-    final json = <String, dynamic>{
-      'schemaVersion': _schemaVersion,
-      'syncedAt': DateTime.now().toIso8601String(),
+    final channels = <String, dynamic>{
       if (stable != null) OtzariaReleaseChannel.stable.name: entry(stable),
       if (prerelease != null)
         OtzariaReleaseChannel.prerelease.name: entry(prerelease),
     };
+    final json = <String, dynamic>{
+      'schemaVersion': _schemaVersion,
+      'syncedAt': DateTime.now().toIso8601String(),
+      ...channels,
+      _platformsKey: {...others, if (here != null) here.name: channels},
+    };
 
-    // כתיבה אטומית — הפסקת חשמל לא תשאיר JSON חצי־כתוב שייקרא כמראה תקינה.
     final temp = File('$_metadataPath.tmp');
     await temp.writeAsString(
       const JsonEncoder.withIndent('  ').convert(json),

@@ -13,8 +13,10 @@ import 'launcher_release_client.dart';
 /// גרסת לאנצ'ר שיושבת מוכנה בתיקייה שלצד התוכנה: המטא-דאטה שלה, וקובץ
 /// ההרצה שכבר הורד.
 class MirroredLauncherRelease {
-  const MirroredLauncherRelease(
-      {required this.release, required this.filePath});
+  const MirroredLauncherRelease({
+    required this.release,
+    required this.filePath,
+  });
 
   final LauncherRelease release;
 
@@ -35,8 +37,8 @@ class LauncherUpdateMirror {
     String? operatingSystem,
     this.connectTimeout = const Duration(seconds: 20),
     this.stallTimeout = const Duration(seconds: 30),
-  })  : _httpClient = httpClient ?? http.Client(),
-        _operatingSystem = operatingSystem ?? Platform.operatingSystem;
+  }) : _httpClient = httpClient ?? http.Client(),
+       _operatingSystem = operatingSystem ?? Platform.operatingSystem;
 
   /// הפלטפורמה שהמראה נקראת בה — ראו [load]. מוזרקת בבדיקות.
   final String _operatingSystem;
@@ -51,41 +53,25 @@ class LauncherUpdateMirror {
 
   static const String _metadataFileName = 'latest-release.json';
   static const String _filesDirName = 'files';
+  static const String _platformsKey = 'platforms';
   static const int _schemaVersion = 1;
 
   String get _metadataPath => p.join(mirrorDir, _metadataFileName);
 
-  /// הגרסה שיושבת במראה, או `null` כשאין: אין קובץ מטא-דאטה, הוא פגום, או
-  /// שהקובץ שהוא מצביע עליו חסר/בגודל שגוי (הורדה שנקטעה). בכל המקרים
-  /// התשובה הנכונה זהה — "צריך להוריד".
-  ///
-  /// **וגם כשהאסט שבמראה אינו של הפלטפורמה הזאת.** הכונן נוסע בין מחשבים,
-  /// והורדה שנעשתה בווינדוס משאירה שם `.exe`; בלעדי הסינון הזה מק היה מנסה
-  /// לחלץ אותו ב-`ditto` ולהיכשל בהודעה שאינה אומרת דבר. "אין מה להתקין"
-  /// היא התשובה הנכונה, ובדיוק זו שהממשק כבר יודע להציג.
   Future<MirroredLauncherRelease?> load() async {
-    final file = File(_metadataPath);
-    if (!await file.exists()) return null;
-
-    final Object? decoded;
-    try {
-      decoded = jsonDecode(await file.readAsString());
-    } catch (_) {
-      return null;
-    }
-    if (decoded is! Map<String, dynamic>) return null;
+    final decoded = await _readMetadata();
+    if (decoded == null) return null;
+    final own = _ownEntry(decoded);
 
     final LauncherRelease release;
     final String filePath;
     try {
-      final raw = decoded['release'];
+      final raw = own['release'];
       if (raw is! Map<String, dynamic>) return null;
       release = LauncherRelease.fromJson(raw);
 
-      final relative = decoded['filePath'];
+      final relative = own['filePath'];
       if (relative is! String || relative.isEmpty) return null;
-      // המראה נכתבת ב-POSIX ונקראת גם בווינדוס, כמו `installerPath` של
-      // `OtzariaAppMirror`; `\` היסטורי עדיין נתמך.
       filePath = p.joinAll([mirrorDir, ...relative.split(RegExp(r'[/\\]'))]);
     } catch (_) {
       return null;
@@ -114,7 +100,8 @@ class LauncherUpdateMirror {
     final file = File(filePath);
     final expected = release.sha256;
 
-    final alreadyThere = await file.exists() &&
+    final alreadyThere =
+        await file.exists() &&
         await file.length() == release.sizeBytes &&
         (expected == null || await _sha256Of(filePath) == expected);
     if (!alreadyThere) {
@@ -129,12 +116,18 @@ class LauncherUpdateMirror {
       if (expected != null && result.sha256 != expected) {
         await file.delete();
         throw LauncherUpdateException(
-            AppL10n.strings.launcherUpdate.digestMismatch);
+          AppL10n.strings.launcherUpdate.digestMismatch,
+        );
       }
     }
 
-    await _writeMetadata(release: release, filePath: filePath);
-    await _pruneExcept(release.tagName);
+    final others = _otherPlatforms(await _readMetadata());
+    await _writeMetadata(release: release, filePath: filePath, others: others);
+    await _pruneExcept({
+      release.tagName,
+      for (final entry in others.values)
+        if (entry['release'] case {'tagName': final String tag}) tag,
+    });
     return MirroredLauncherRelease(release: release, filePath: filePath);
   }
 
@@ -146,42 +139,90 @@ class LauncherUpdateMirror {
       await File(mirrored.filePath).delete();
     } catch (_) {}
     throw LauncherUpdateException(
-        AppL10n.strings.launcherUpdate.digestMismatch);
+      AppL10n.strings.launcherUpdate.digestMismatch,
+    );
   }
 
   static Future<String> _sha256Of(String path) async =>
       (await sha256.bind(File(path).openRead()).first).toString();
 
-  /// גרסאות לאנצ'ר קודמות אינן שוות מקום על הכונן — הגרסה שרצה כבר על
-  /// הדיסק בתור קובץ ההרצה עצמו.
-  Future<void> _pruneExcept(String keepTagName) async {
+  Future<Map<String, dynamic>?> _readMetadata() async {
+    final file = File(_metadataPath);
+    if (!await file.exists()) return null;
+    try {
+      final decoded = jsonDecode(await file.readAsString());
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Map<String, dynamic> _ownEntry(Map<String, dynamic> decoded) {
+    final platforms = decoded[_platformsKey];
+    final own = platforms is Map<String, dynamic>
+        ? platforms[_operatingSystem]
+        : null;
+    return own is Map<String, dynamic> ? own : decoded;
+  }
+
+  Map<String, Map<String, dynamic>> _otherPlatforms(
+    Map<String, dynamic>? decoded,
+  ) {
+    final others = <String, Map<String, dynamic>>{};
+    if (decoded == null) return others;
+
+    final platforms = decoded[_platformsKey];
+    if (platforms is Map<String, dynamic>) {
+      for (final MapEntry(:key, :value) in platforms.entries) {
+        if (key != _operatingSystem && value is Map<String, dynamic>) {
+          others[key] = value;
+        }
+      }
+    }
+
+    final release = decoded['release'];
+    if (release case {'assetName': final String assetName}) {
+      for (final os in const ['windows', 'macos']) {
+        if (os != _operatingSystem &&
+            !others.containsKey(os) &&
+            LauncherReleaseClient.matchesPlatform(assetName, os)) {
+          others[os] = {'release': release, 'filePath': decoded['filePath']};
+        }
+      }
+    }
+    return others;
+  }
+
+  Future<void> _pruneExcept(Set<String> keepTagNames) async {
     final dir = Directory(p.join(mirrorDir, _filesDirName));
     if (!await dir.exists()) return;
     try {
       await for (final entry in dir.list()) {
-        if (entry is Directory && p.basename(entry.path) != keepTagName) {
+        if (entry is Directory &&
+            !keepTagNames.contains(p.basename(entry.path))) {
           await entry.delete(recursive: true);
         }
       }
-    } catch (_) {
-      // ניקוי best-effort — כישלון כאן לא פוסל הורדה שהצליחה.
-    }
+    } catch (_) {}
   }
 
   Future<void> _writeMetadata({
     required LauncherRelease release,
     required String filePath,
+    Map<String, Map<String, dynamic>> others = const {},
   }) async {
     await Directory(mirrorDir).create(recursive: true);
+    final entry = <String, dynamic>{
+      'release': release.toJson(),
+      'filePath': p.relative(filePath, from: mirrorDir).replaceAll(r'\', '/'),
+    };
     final json = <String, dynamic>{
       'schemaVersion': _schemaVersion,
       'syncedAt': DateTime.now().toIso8601String(),
-      'release': release.toJson(),
-      // **תמיד עם `/`** — מראה שנבנתה בווינדוס נפתחת גם ב-macOS.
-      'filePath': p.relative(filePath, from: mirrorDir).replaceAll(r'\', '/'),
+      ...entry,
+      _platformsKey: {...others, _operatingSystem: entry},
     };
 
-    // כתיבה אטומית — הפסקת חשמל לא תשאיר JSON חצי-כתוב.
     final temp = File('$_metadataPath.tmp');
     await temp.writeAsString(
       const JsonEncoder.withIndent('  ').convert(json),
@@ -207,9 +248,11 @@ class LauncherUpdateMirror {
       onProgress: onProgress,
       calculateSha256: calculateSha256,
       statusError: (status) => LauncherUpdateException(
-          AppL10n.strings.launcherUpdate.downloadFailed(status)),
+        AppL10n.strings.launcherUpdate.downloadFailed(status),
+      ),
       sizeError: (actual, expected) => LauncherUpdateException(
-          AppL10n.strings.launcherUpdate.sizeMismatch(actual, expected)),
+        AppL10n.strings.launcherUpdate.sizeMismatch(actual, expected),
+      ),
     );
   }
 

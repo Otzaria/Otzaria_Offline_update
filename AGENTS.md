@@ -1009,8 +1009,12 @@ and the offline machine picks (`AppSettings.preferAppPrerelease` →
 single-release download. Two consequences to preserve: a pre-release *older* than the
 newest stable is never mirrored (no real choice, wasted space — so `OtzariaScreen`
 shows the choice only when `hasChannelChoice`), and when the first page of 50
-releases holds no plain release at all, only the pre-release is mirrored and is
-offered **labelled** as such (replacing the old `NoStableReleaseException`).
+releases holds no plain release at all, only the pre-release is downloaded: a stable
+already on the drive is **kept** (a stable cannot vanish by promotion, it only fell off
+the page), and with none the pre-release is offered **labelled** as such (replacing the
+old `NoStableReleaseException`). "Newer than the stable" is decided by list order
+online; a pre-release entry written by `sync` records the stable it was listed above
+(`newerThanStable`), and `load` trusts that instead of re-judging by publish date.
 
 **Version strings need normalizing before comparison.** An installed build reports
 `0.9.96` while the tag is `0.9.96+736`; `OtzariaUpdateCheckResult` strips a leading
@@ -1235,7 +1239,11 @@ one, and `LauncherUpdateMirror.load` drops an asset failing
 `LauncherReleaseClient.matchesPlatform` — both then read as "no mirror, run the
 download", which the UI already knows how to say. `OtzariaAppMirror` takes
 `OtzariaTargetPlatform?` and uses `detectOrNull`: the tests run on Linux in CI, where
-`detect` throws.
+`detect` throws. One drive may be filled from both a Windows and a Mac, so both
+`latest-release.json` files keep a `platforms` map with an entry per platform beside
+the top-level entry (the syncing platform's, for older launchers): `sync` preserves the
+other platforms' entries, and sync's prune plus `MirrorJunkSweeper` keep every file any
+platform references.
 
 ### 5.6 Plugins
 

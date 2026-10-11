@@ -154,6 +154,61 @@ void main() {
       expect(exists('mirror/app/installers/v0.9.90'), isFalse);
     });
 
+    test("another platform's installers are kept", () async {
+      json('mirror/app/latest-release.json', {
+        'schemaVersion': 2,
+        'stable': {
+          'tagName': 'v0.9.97',
+          'installerPath': 'installers/v0.9.97/otzaria-macos.zip',
+        },
+        'platforms': {
+          'macos': {
+            'stable': {
+              'tagName': 'v0.9.97',
+              'installerPath': 'installers/v0.9.97/otzaria-macos.zip',
+            },
+          },
+          'windows': {
+            'stable': {
+              'tagName': 'v0.9.97',
+              'installerPath': 'installers/v0.9.97/otzaria-windows.exe',
+            },
+            'prerelease': {
+              'tagName': 'v0.9.98',
+              'installerPath': 'installers/v0.9.98/otzaria-windows.exe',
+            },
+          },
+        },
+      });
+      file('mirror/app/installers/v0.9.97/otzaria-macos.zip');
+      file('mirror/app/installers/v0.9.97/otzaria-windows.exe');
+      file('mirror/app/installers/v0.9.98/otzaria-windows.exe');
+      file('mirror/app/installers/v0.9.90/otzaria-windows.exe', bytes: 60);
+
+      expect(await sweep(), 60);
+      expect(
+          exists('mirror/app/installers/v0.9.97/otzaria-windows.exe'), isTrue);
+      expect(
+          exists('mirror/app/installers/v0.9.98/otzaria-windows.exe'), isTrue);
+      expect(exists('mirror/app/installers/v0.9.97/otzaria-macos.zip'), isTrue);
+    });
+
+    test('a damaged platform entry blocks deletion', () async {
+      json('mirror/app/latest-release.json', {
+        'stable': {
+          'tagName': 'v0.9.97',
+          'installerPath': 'installers/v0.9.97/otzaria-macos.zip',
+        },
+        'platforms': {'windows': 'damaged'},
+      });
+      file('mirror/app/installers/v0.9.97/otzaria-macos.zip');
+      file('mirror/app/installers/v0.9.90/otzaria-windows.exe');
+
+      expect(await sweep(), 0);
+      expect(
+          exists('mirror/app/installers/v0.9.90/otzaria-windows.exe'), isTrue);
+    });
+
     test('הפורמט הישן (רשומה בודדת בשורש) נקרא גם הוא', () async {
       json('mirror/app/latest-release.json', {
         'tagName': 'v0.9.97',
@@ -241,6 +296,32 @@ void main() {
     expect(await sweep(), 90);
     expect(exists('mirror/launcher/files/v0.19/launcher.exe'), isTrue);
     expect(exists('mirror/launcher/files/v0.17'), isFalse);
+  });
+
+  test("another platform's launcher is kept", () async {
+    json('mirror/launcher/latest-release.json', {
+      'schemaVersion': 1,
+      'release': {'tagName': 'v0.19'},
+      'filePath': 'files/v0.19/launcher.zip',
+      'platforms': {
+        'macos': {
+          'release': {'tagName': 'v0.19'},
+          'filePath': 'files/v0.19/launcher.zip',
+        },
+        'windows': {
+          'release': {'tagName': 'v0.18'},
+          'filePath': 'files/v0.18/launcher.exe',
+        },
+      },
+    });
+    file('mirror/launcher/files/v0.19/launcher.zip');
+    file('mirror/launcher/files/v0.19/launcher.exe', bytes: 30);
+    file('mirror/launcher/files/v0.18/launcher.exe');
+    file('mirror/launcher/files/v0.17/launcher.exe', bytes: 90);
+
+    expect(await sweep(), 120);
+    expect(exists('mirror/launcher/files/v0.19/launcher.zip'), isTrue);
+    expect(exists('mirror/launcher/files/v0.18/launcher.exe'), isTrue);
   });
 
   test('נתיב לאנצ\'ר חסר אינו מתיר מחיקת קובצי ההרצה', () async {
