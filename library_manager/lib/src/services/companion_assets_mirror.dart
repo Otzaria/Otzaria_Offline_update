@@ -214,17 +214,16 @@ class CompanionAssetsMirror {
     ]);
 
     final manifest = CompanionMirrorManifest(entries: entries);
-    await File(p.join(destDir, CompanionMirrorManifest.fileName)).writeAsString(
+    final manifestPath = p.join(destDir, CompanionMirrorManifest.fileName);
+    final manifestTmp = File('$manifestPath.tmp');
+    await manifestTmp.writeAsString(
       const JsonEncoder.withIndent('  ').convert(manifest.toJson()),
+      flush: true,
     );
+    await manifestTmp.rename(manifestPath);
     return manifest;
   }
 
-  /// מה ש-[sync] היה מביא אילו רץ עכשיו — **מטא־דאטה בלבד**, בלי בייט
-  /// מהנכסים. בלעדיה נלווה חדש או חסר לא נראה בבדיקה הקלה, וההורדה שמביאה
-  /// אותו לא הוצעה לעולם (issue #33).
-  ///
-  /// פריט שהשאילתה שלו נכשלה אינו נספר; רק כשל של שלושתם נזרק, כ"אין רשת".
   Future<Set<CompanionAsset>> peekPending({required String destDir}) async {
     final previous = await CompanionMirrorManifest.load(destDir);
     final pending = <CompanionAsset>{};
@@ -247,6 +246,7 @@ class CompanionAssetsMirror {
         if (!held) pending.add(asset);
       } catch (error) {
         errors.add(error);
+        if (error is! StateError) pending.add(asset);
       }
     }
 

@@ -54,6 +54,7 @@ void main() {
     String talmudTag = 'lib-v9',
     bool dictionaryV2 = false,
     bool apiDown = false,
+    Set<String> apiDownFor = const {},
   }) {
     final fetched = <String>[];
     final client = MockClient.streaming((request, _) async {
@@ -61,6 +62,9 @@ void main() {
       Uint8List body;
 
       if (apiDown && url.contains('api.github.com')) {
+        return http.StreamedResponse(const Stream.empty(), 403);
+      }
+      if (apiDownFor.any((repo) => url.contains('/repos/Otzaria/$repo/'))) {
         return http.StreamedResponse(const Stream.empty(), 403);
       }
       if (url.contains('/repos/Otzaria/otzaria-library/')) {
@@ -178,6 +182,11 @@ void main() {
     // המניפסט נקרא חזרה מהדיסק — זה מה שהמחשב הלא-מקוון יראה.
     final reloaded = await CompanionMirrorManifest.load(destDir);
     expect(reloaded!.entries.length, 3);
+    expect(
+      File(p.join(destDir, '${CompanionMirrorManifest.fileName}.tmp'))
+          .existsSync(),
+      isFalse,
+    );
   });
 
   test('נכס חסר ב-release אינו מפיל את השאר', () async {
@@ -221,9 +230,8 @@ void main() {
     final first = buildMirror();
     addTearDown(first.mirror.dispose);
     final before = await first.mirror.sync(destDir: destDir);
-    File(
-      p.join(destDir, before.entries[CompanionAsset.talmud]!.fileName),
-    ).deleteSync();
+    File(p.join(destDir, before.entries[CompanionAsset.talmud]!.fileName))
+        .deleteSync();
 
     final second = buildMirror(omit: {'talmud'});
     addTearDown(second.mirror.dispose);
@@ -463,9 +471,8 @@ void main() {
       final built = buildMirror();
       addTearDown(built.mirror.dispose);
       final manifest = await built.mirror.sync(destDir: destDir);
-      File(
-        p.join(destDir, manifest.entries[CompanionAsset.talmud]!.fileName),
-      ).deleteSync();
+      File(p.join(destDir, manifest.entries[CompanionAsset.talmud]!.fileName))
+          .deleteSync();
 
       expect(await built.mirror.peekPending(destDir: destDir), {
         CompanionAsset.talmud,
@@ -479,6 +486,38 @@ void main() {
       expect(await built.mirror.peekPending(destDir: destDir), {
         CompanionAsset.catalog,
         CompanionAsset.dictionary,
+      });
+    });
+
+    test(
+      'כשל רשת בבדיקת נלווה אחד נספר כממתין, והממתינים האמיתיים נשמרים',
+      () async {
+        final first = buildMirror();
+        addTearDown(first.mirror.dispose);
+        final manifest = await first.mirror.sync(destDir: destDir);
+        File(p.join(destDir, manifest.entries[CompanionAsset.talmud]!.fileName))
+            .deleteSync();
+
+        final built = buildMirror(apiDownFor: {'SeforimMagicIndexer'});
+        addTearDown(built.mirror.dispose);
+
+        expect(await built.mirror.peekPending(destDir: destDir), {
+          CompanionAsset.talmud,
+          CompanionAsset.dictionary,
+        });
+      },
+    );
+
+    test('כשל רשת בבדיקת נלווה אחד אינו מוכיח שאין מה להוריד', () async {
+      final first = buildMirror();
+      addTearDown(first.mirror.dispose);
+      await first.mirror.sync(destDir: destDir);
+
+      final built = buildMirror(apiDownFor: {'otzaria-library'});
+      addTearDown(built.mirror.dispose);
+
+      expect(await built.mirror.peekPending(destDir: destDir), {
+        CompanionAsset.talmud,
       });
     });
 

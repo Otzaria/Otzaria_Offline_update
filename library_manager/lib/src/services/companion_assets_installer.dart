@@ -6,7 +6,7 @@ import 'package:archive/archive_io.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart'
-    show DiskSpaceProbe;
+    show DiskSpaceProbe, Sha256Stream;
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 import 'companion_assets.dart';
@@ -399,10 +399,7 @@ class CompanionAssetsInstaller {
   ) async {
     if (_talmudUpToDate(libraryDir, entry)) return false;
     final strings = AppL10n.strings.libraryDomain;
-    final archive = File(p.join(mirrorDir, entry.fileName));
-    if (!await archive.exists()) {
-      throw StateError(strings.companionsMirrorMissing);
-    }
+    final archive = _readyMirrorFile(mirrorDir, entry);
 
     onStage?.call(strings.companionInstalling(strings.companionTalmudName));
     final targetDir = Directory(p.join(libraryDir, talmudFolderName));
@@ -413,14 +410,17 @@ class CompanionAssetsInstaller {
     final Map<String, int> expected;
     final ({int files, int bytes}) expectedStats;
     try {
+      String? digest;
       if (!await ZstdFileDecompressor.decompressFileToFile(
         archive.path,
         tarPath,
+        onSourceDigest: entry.sha256 == null ? null : (hex) => digest = hex,
       )) {
         throw StateError(
           strings.companionExtractionFailed(strings.companionTalmudName),
         );
       }
+      _verifyDigest(entry, digest, strings.companionTalmudName);
       expected = _talmudArchiveFiles(tarPath);
       expectedStats = (
         files: expected.length,
@@ -525,10 +525,7 @@ class CompanionAssetsInstaller {
   ) async {
     if (_catalogUpToDate(libraryDir, entry)) return false;
     final strings = AppL10n.strings.libraryDomain;
-    final source = File(p.join(mirrorDir, entry.fileName));
-    if (!await source.exists()) {
-      throw StateError(strings.companionsMirrorMissing);
-    }
+    final source = _readyMirrorFile(mirrorDir, entry);
 
     onStage?.call(strings.companionInstalling(strings.companionCatalogName));
     final target = p.join(libraryDir, catalogDatabaseFileName);
@@ -536,16 +533,24 @@ class CompanionAssetsInstaller {
     _deleteQuietly(staged);
     try {
       if (entry.compressed) {
+        String? digest;
         if (!await ZstdFileDecompressor.decompressFileToFile(
           source.path,
           staged,
+          onSourceDigest: entry.sha256 == null ? null : (hex) => digest = hex,
         )) {
           throw StateError(
             strings.companionExtractionFailed(strings.companionCatalogName),
           );
         }
+        _verifyDigest(entry, digest, strings.companionCatalogName);
       } else {
-        await source.copy(staged);
+        await _copyVerified(
+          source,
+          staged,
+          entry,
+          strings.companionCatalogName,
+        );
       }
       _deleteQuietly(target);
       File(staged).renameSync(target);
@@ -554,7 +559,6 @@ class CompanionAssetsInstaller {
       rethrow;
     }
 
-    // אוצריא קוראת את הגרסה מ-`db_meta`; בלי החתמה היא הייתה מורידה מחדש.
     final version = entry.version;
     if (version != null) _stampCatalogVersion(target, version);
     return true;
@@ -617,10 +621,7 @@ class CompanionAssetsInstaller {
   ) async {
     if (_dictionaryUpToDate(libraryDir, entry)) return false;
     final strings = AppL10n.strings.libraryDomain;
-    final source = File(p.join(mirrorDir, entry.fileName));
-    if (!await source.exists()) {
-      throw StateError(strings.companionsMirrorMissing);
-    }
+    final source = _readyMirrorFile(mirrorDir, entry);
 
     onStage?.call(strings.companionInstalling(strings.companionDictionaryName));
     final target = p.join(libraryDir, dictionaryFileName);
@@ -628,7 +629,12 @@ class CompanionAssetsInstaller {
     final staged = '$target.new';
     _deleteQuietly(staged);
     try {
-      await source.copy(staged);
+      await _copyVerified(
+        source,
+        staged,
+        entry,
+        strings.companionDictionaryName,
+      );
       _deleteQuietly(target);
       File(staged).renameSync(target);
     } catch (_) {
@@ -645,6 +651,55 @@ class CompanionAssetsInstaller {
           FileSystemEntityType.notFound) {
         File(path).deleteSync();
       }
+    }
+  }
+
+  File _readyMirrorFile(String mirrorDir, CompanionMirrorEntry entry) {
+    if (!_mirrorFileReady(mirrorDir, entry)) {
+      throw StateError(AppL10n.strings.libraryDomain.companionsMirrorMissing);
+    }
+    return File(p.join(mirrorDir, entry.fileName));
+  }
+
+  Future<void> _copyVerified(
+    File source,
+    String destPath,
+    CompanionMirrorEntry entry,
+    String name,
+  ) async {
+    if (entry.sha256 == null) {
+      await source.copy(destPath);
+      return;
+    }
+    final hasher = Sha256Stream();
+    try {
+      final sink = File(destPath).openWrite();
+      try {
+        await for (final chunk in source.openRead()) {
+          hasher.add(chunk);
+          sink.add(chunk);
+        }
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
+      _verifyDigest(entry, hasher.close(), name);
+    } finally {
+      hasher.dispose();
+    }
+  }
+
+  void _verifyDigest(CompanionMirrorEntry entry, String? actual, String name) {
+    final expected = entry.sha256;
+    if (expected == null) return;
+    if (actual == null || actual.toLowerCase() != expected.toLowerCase()) {
+      throw StateError(
+        AppL10n.strings.libraryDomain.checksumMismatchDetailed(
+          name,
+          expected,
+          actual ?? '',
+        ),
+      );
     }
   }
 
