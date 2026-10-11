@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:library_manager/library_manager.dart';
-import 'package:library_manager/src/services/zstd_file_decompressor.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
@@ -20,7 +19,7 @@ import 'support/zstd_fixtures.dart';
 /// בדיקה כאן רצה בתוך [HttpOverrides] שכל שימוש ב-HTTP בתוכו זורק. אם מישהו
 /// יחזיר את הנפילה ל-`GithubLibraryReleaseClient`, הבדיקות כאן ייפלו.
 void main() {
-  final bindings = ZstdFileDecompressor.bindingsOrNull();
+  final bindings = nativeZstd();
 
   late Directory tempDir;
   late String dataDir;

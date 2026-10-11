@@ -15,7 +15,7 @@ import 'support/zstd_fixtures.dart';
 /// שבייצור נופל למסלול הזיכרון. ב-Windows יש להריץ עם התיקייה של
 /// `zstandard_windows.dll` ב-PATH; ראו library_manager/README.md.
 void main() {
-  final bindings = ZstdFileDecompressor.bindingsOrNull();
+  final bindings = nativeZstd();
 
   group('ZstdFileDecompressor', () {
     late Directory tmp;

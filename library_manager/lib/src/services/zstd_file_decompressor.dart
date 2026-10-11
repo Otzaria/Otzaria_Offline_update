@@ -149,22 +149,40 @@ class ZstdOutputLimitExceeded extends ZstdStreamException {
 }
 
 DynamicLibrary? _openLibrary() {
-  try {
-    if (Platform.isWindows) {
-      return DynamicLibrary.open('zstandard_windows.dll');
+  final plugin = _tryOpen(switch (Platform.operatingSystem) {
+    'windows' => 'zstandard_windows.dll',
+    'macos' => 'zstandard_macos.framework/zstandard_macos',
+    'linux' => 'libzstandard_linux.so',
+    _ => null,
+  });
+  if (plugin != null) return plugin;
+  for (final name in [
+    Platform.environment['ZSTD_LIBRARY_PATH'],
+    switch (Platform.operatingSystem) {
+      'macos' => 'libzstd.1.dylib',
+      'linux' => 'libzstd.so.1',
+      _ => null,
+    },
+  ]) {
+    final library = _tryOpen(name);
+    if (library != null && library.providesSymbol('ZSTD_DCtx_setParameter')) {
+      return library;
     }
-    if (Platform.isMacOS) {
-      return DynamicLibrary.open('zstandard_macos.framework/zstandard_macos');
-    }
-    if (Platform.isLinux) {
-      return DynamicLibrary.open('libzstandard_linux.so');
-    }
-  } catch (_) {
-    return null;
   }
   return null;
 }
 
+DynamicLibrary? _tryOpen(String? name) {
+  if (name == null || name.isEmpty) return null;
+  try {
+    return DynamicLibrary.open(name);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// גבול חלון הפענוח. 31 הוא המקסימום שהפורמט מגדיר, ומרווח הוא כל העניין:
+/// קלט שנדחס ב-`--long` היה נדחה בברירת המחדל (27).
 const int _maxWindowLog = 31;
 
 (bool, String?, String?, int) _decompressInIsolate(

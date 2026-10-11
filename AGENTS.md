@@ -1868,7 +1868,7 @@ verify something new.
 | `otzaria_downloads` | Unit-tested plus real local HTTP transport on Windows. Interrupted transfers resume and cancellation is bounded. Not verified against production servers or on a removable drive. |
 | `WindowsExeVersionReader`, `WindowsInstallRegistry` | **Run against a real install** (`otzaria.exe` 0.9.96+90960, Windows 11, 2026-08-10) |
 | `otzaria_manager` on macOS + launcher build/run there | **Verified** against a real `otzaria-macos.zip` — but that predates the custom title bar and `RunningOtzariaLocator._probeMac` |
-| `ZstdFileDecompressor` | Verified against real libzstd on Windows (`library_manager/test/zstd_file_decompressor_test.dart`, self-skipping) — **not** on a full ~1GB DB |
+| `ZstdFileDecompressor` | Verified against real libzstd on Windows (`library_manager/test/zstd_file_decompressor_test.dart`) — **not** on a full ~1GB DB. `flutter test` never builds the plugin binary, so `_openLibrary` falls back to `ZSTD_LIBRARY_PATH` and then the system `libzstd`; the zstd tests load it through `nativeZstd()` (`test/support/zstd_fixtures.dart`), which skips without it unless `REQUIRE_NATIVE_ZSTD=1` — set on the Linux `library_manager` CI job, so there they run instead of skipping. Locally on macOS: `ZSTD_LIBRARY_PATH=/opt/homebrew/lib/libzstd.dylib` |
 | `LibraryUpdateApplier` on Windows | Not verified on real hardware (full ~1GB download, delta chains, `tasklist`) |
 | `RunningOtzariaLocator` FFI half (`QueryFullProcessImageNameW`), Windows `.db` picker filter | Not verified |
 | Plugin store round trip | Unit-tested only — never a real `sync()` against `otzaria.org`, a USB trip, and `install-local` against a real Otzaria |

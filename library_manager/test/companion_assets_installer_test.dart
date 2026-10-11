@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import 'package:archive/archive_io.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:library_manager/library_manager.dart';
-import 'package:library_manager/src/services/zstd_file_decompressor.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
@@ -15,7 +14,7 @@ import 'support/zstd_fixtures.dart';
 /// **מהרשת**. במחשב הלא-מקוון אין רשת, ולכן הם נוסעים במראה ומותקנים כאן —
 /// לאותם יעדים ועם אותם סימוני-גרסה שאוצריא בודקת.
 void main() {
-  final bindings = ZstdFileDecompressor.bindingsOrNull();
+  final bindings = nativeZstd();
 
   late Directory tempDir;
   late String mirrorDir;

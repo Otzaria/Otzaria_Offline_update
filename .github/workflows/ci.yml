@@ -112,6 +112,8 @@ jobs:
   library_manager:
     name: library_manager (analyze + test)
     runs-on: ubuntu-latest
+    env:
+      REQUIRE_NATIVE_ZSTD: "1"
     defaults:
       run:
         working-directory: library_manager

@@ -18,7 +18,7 @@ import 'support/zstd_fixtures.dart';
 /// (ארגומנטים שניתן לשלוח + `AppL10n` שאינו נורש), מסלול ה-fullDownload
 /// שזורם לקובץ צדדי ורק אז מחליף, וחסימת עדכון כשאוצריא פתוחה.
 void main() {
-  final bindings = ZstdFileDecompressor.bindingsOrNull();
+  final bindings = nativeZstd();
 
   late Directory tempDir;
   late String dbPath;

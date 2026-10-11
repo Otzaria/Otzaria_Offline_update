@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:library_manager/library_manager.dart';
-import 'package:library_manager/src/services/zstd_file_decompressor.dart';
 
 import 'support/zstd_fixtures.dart';
 
@@ -10,7 +9,7 @@ import 'support/zstd_fixtures.dart';
 /// ומשמש כמסלול גיבוי ל-DB המלא. החוזה שלו הוא "מחזיר null בכשל, לא זורק":
 /// המוריד מתרגם זאת להודעת אימות במקום לחריג native.
 void main() {
-  final bindings = ZstdFileDecompressor.bindingsOrNull();
+  final bindings = nativeZstd();
   const decompress = ZstdDecompressor();
 
   group('ZstdDecompressor', () {

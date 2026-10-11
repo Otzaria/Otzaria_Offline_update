@@ -50,21 +50,22 @@ class OtzariaProcessGuard {
   }
 
   Future<bool> _isRunningWindows(String processImageName) async {
-    final result = await Process.run('tasklist', [
-      '/FI',
-      'IMAGENAME eq $processImageName',
-      '/NH',
-    ]);
+    final ProcessResult result;
+    try {
+      result = await Process.run('tasklist', [
+        '/FI',
+        'IMAGENAME eq $processImageName',
+        '/NH',
+      ]);
+    } on ProcessException {
+      return true;
+    }
 
     if (result.exitCode != 0) {
-      // אם tasklist עצמו נכשל (נדיר), עדיף להניח "כן רץ" ולחסום, ולא
-      // להסתכן בכתיבה בזמן שהתוכנה בכל זאת פתוחה.
       return true;
     }
 
     final output = result.stdout.toString();
-    // כש-tasklist לא מוצא תהליך תואם, הוא מדפיס הודעה כמו "INFO: No tasks
-    // are running which match the specified criteria." ולא את השם עצמו.
     return output.toLowerCase().contains(processImageName.toLowerCase());
   }
 
