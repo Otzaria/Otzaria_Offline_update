@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'atomic_file.dart';
+
 /// סימון ש-`seforim.db` עודכן **מבחוץ**, ע"י הלאנצ'ר הזה, עם מזהי הספרים
 /// שתוכנם השתנה.
 ///
@@ -28,11 +30,6 @@ class ExternalUpdateNotice {
   static const String routeDelta = 'delta';
   static const String routeFull = 'full';
 
-  /// כותב את הסימון לצד [dbPath]. best-effort: כשל כתיבה לא מבטל עדכון
-  /// שכבר הצליח.
-  ///
-  /// **מצטבר.** סימון קודם שהבקשה עליו עוד לא נמסרה (שני עדכונים לפני
-  /// שאוצריא נפתחה) נבלע לתוך החדש במקום להידרס.
   Future<void> write({
     required String dbPath,
     required String route,
@@ -42,13 +39,12 @@ class ExternalUpdateNotice {
     DateTime? updatedAt,
   }) async {
     try {
-      final file = _fileFor(dbPath);
       final pending = await read(dbPath: dbPath);
-      // מסלול מלא גורף ממילא, ולכן מנצח בכל מיזוג.
       final mergedRoute = (route == routeFull || pending?.route == routeFull)
           ? routeFull
           : route;
-      await file.writeAsString(
+      await writeStringAtomically(
+        _fileFor(dbPath).path,
         jsonEncode({
           'formatVersion': formatVersion,
           'source': 'otzaria-launcher',
@@ -65,14 +61,17 @@ class ExternalUpdateNotice {
     } catch (_) {}
   }
 
-  /// הסימון שממתין לצד [dbPath], או `null` כשאין כזה. קובץ פגום או בפורמט
-  /// שאינו מוכר נחשב "אין" — ובלי למחוק אותו.
   Future<ExternalUpdateNoticeData?> read({required String dbPath}) async {
+    final List<int> bytes;
     try {
       final file = _fileFor(dbPath);
       if (!await file.exists()) return null;
-      final decoded = jsonDecode(await file.readAsString());
-      if (decoded is! Map<String, dynamic>) return null;
+      bytes = await file.readAsBytes();
+    } catch (_) {
+      return null;
+    }
+    try {
+      final decoded = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
       if (decoded['formatVersion'] != formatVersion) return null;
       return ExternalUpdateNoticeData(
         route: decoded['route'] as String? ?? routeFull,
@@ -84,7 +83,7 @@ class ExternalUpdateNotice {
             const <int>{},
       );
     } catch (_) {
-      return null;
+      return const ExternalUpdateNoticeData(route: routeFull);
     }
   }
 

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:otzaria_downloads/otzaria_downloads.dart';
 import 'package:path/path.dart' as p;
 
 import 'custom_app_store.dart';
@@ -45,19 +46,16 @@ class CustomAppOrderStore {
     }
   }
 
-  /// כתיבה אטומית: קובץ זמני ואז החלפה — בדיוק כמו `CustomAppCategoriesStore`.
-  /// כונן שנשלף באמצע הכתיבה היה מותיר כאן JSON חתוך, כלומר סדר אבוד.
   Future<void> save(List<String> ids) async {
     final file = File(filePath);
     await file.parent.create(recursive: true);
-    final temp = File('$filePath.tmp');
-    await temp.writeAsString(
+    await writeStringAtomically(
+      filePath,
       const JsonEncoder.withIndent('  ').convert({
         'schemaVersion': currentSchemaVersion,
         'order': ids,
       }),
     );
-    await temp.rename(filePath);
   }
 
   /// ממיין את [entries] לפי [order]. מה שאינו ברשימה נופל **לסוף**, ממוין

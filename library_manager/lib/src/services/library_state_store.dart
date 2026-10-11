@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'atomic_file.dart';
+
 /// מאיזה release הגיע תוכן המסד שעל המחשב הזה, ובאיזו גרסה הוא היה אז.
 /// שני השדות יחד — גרסה בלי tag אינה מזהה פרסום-מחדש, ו-tag בלי הגרסה
 /// שנרשמה איתו אינו מעיד על המסד שקיים עכשיו.
@@ -39,24 +41,32 @@ class LibraryStateStore {
     return '$host|$account';
   }
 
-  Future<Map<String, dynamic>> _readAll() async {
+  Future<Map<String, dynamic>> _readAll({bool forWrite = false}) async {
     final file = File(stateFilePath);
     if (!await file.exists()) return {};
+    final List<int> bytes;
     try {
-      final raw = await file.readAsString();
-      final json = jsonDecode(raw);
-      return json is Map<String, dynamic> ? json : {};
+      bytes = await file.readAsBytes();
     } catch (_) {
+      if (forWrite) rethrow;
       return {};
     }
+    Object? json;
+    try {
+      json = jsonDecode(utf8.decode(bytes));
+    } on FormatException {
+      json = null;
+    }
+    if (json is Map<String, dynamic>) return json;
+    try {
+      await file.rename('$stateFilePath.corrupt');
+    } catch (_) {}
+    return {};
   }
 
   Future<void> _writeAll(Map<String, dynamic> json) async {
-    final file = File(stateFilePath);
-    await file.parent.create(recursive: true);
-    final tmp = File('$stateFilePath.tmp');
-    await tmp.writeAsString(jsonEncode(json));
-    await tmp.rename(stateFilePath);
+    await File(stateFilePath).parent.create(recursive: true);
+    await writeStringAtomically(stateFilePath, jsonEncode(json));
   }
 
   /// הנתיב שנבחר **במחשב הזה**, או null כשלא הוגדר (וגם כשהקובץ פגום/לא
@@ -105,7 +115,7 @@ class LibraryStateStore {
   }
 
   Future<void> saveCustomDbPath(String dbPath) async {
-    final json = await _readAll();
+    final json = await _readAll(forWrite: true);
     final paths = <String, dynamic>{};
     final existing = json['customDbPaths'];
     if (existing is Map) {
@@ -115,8 +125,6 @@ class LibraryStateStore {
     }
     paths[currentMachineKey()] = dbPath;
     json['customDbPaths'] = paths;
-    // הרשומה הישנה נשארת כמו שהיא: היא עשויה להיות הבחירה של מחשב אחר,
-    // ו-[loadCustomDbPath] כבר מסננת אותה לפי המחשב שקורא.
     await _writeAll(json);
   }
 
@@ -148,7 +156,7 @@ class LibraryStateStore {
     required String tag,
     required int dbVersion,
   }) async {
-    final json = await _readAll();
+    final json = await _readAll(forWrite: true);
     final records = <String, dynamic>{};
     final existing = json['appliedReleases'];
     if (existing is Map) {
@@ -158,8 +166,6 @@ class LibraryStateStore {
     }
     records[currentMachineKey()] = {'tag': tag, 'dbVersion': dbVersion};
     json['appliedReleases'] = records;
-    // הרשומה הגלובלית הישנה יורדת מהכונן: לאנצ'ר בגרסה קודמת שקורא אותה
-    // משווה tag של נושא המסד המלא ומציע הורדה מלאה מיותרת.
     json.remove('appliedReleaseTag');
     await _writeAll(json);
   }
@@ -187,7 +193,7 @@ class LibraryStateStore {
   /// אחד נכשל אינה מוחקת את מה שנמסר בהתקנות קודמות.
   Future<void> saveDeliveredCompanions(Map<String, String> markers) async {
     if (markers.isEmpty) return;
-    final json = await _readAll();
+    final json = await _readAll(forWrite: true);
     final records = <String, dynamic>{};
     final existing = json['deliveredCompanions'];
     if (existing is Map) {
@@ -219,8 +225,10 @@ class LibraryStateStore {
   /// שלו, וההורדה יוצאת מהנמוכה שבהן — ראו [lowestKnownDbVersion].
   ///
   /// לא נסמכים על זה לשום החלטה על ה-DB עצמו: שם הגרסה נקראת מהקובץ בפועל.
-  Future<Map<String, int>> loadKnownDbVersions() async {
-    final json = await _readAll();
+  Future<Map<String, int>> loadKnownDbVersions() async =>
+      _knownDbVersionsIn(await _readAll());
+
+  Map<String, int> _knownDbVersionsIn(Map<String, dynamic> json) {
     final raw = json['knownDbVersions'];
     if (raw is! Map) return const {};
     final versions = <String, int>{};
@@ -247,8 +255,8 @@ class LibraryStateStore {
   /// האישית על גרסה שהמחשב מזמן עבר. בדרך זה גם מוציא מהקובץ שנוסע על הכונן
   /// נתיב מוחלט שכולל את שם החשבון.
   Future<void> recordKnownDbVersion(String machineKey, int version) async {
-    final json = await _readAll();
-    final existing = await loadKnownDbVersions();
+    final json = await _readAll(forWrite: true);
+    final existing = _knownDbVersionsIn(json);
     final host = machineKey.split('|').first;
     final versions = <String, dynamic>{};
     existing.forEach((key, value) {

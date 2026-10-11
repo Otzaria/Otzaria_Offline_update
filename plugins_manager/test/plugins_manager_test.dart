@@ -263,6 +263,25 @@ void main() {
         isTrue,
       );
     });
+
+    test('קטלוג פגום אינו נדרס בקטלוג ריק אחרי השלמת קובץ', () async {
+      const torn = '{"plugins": [{"id": "a", "na';
+      await store.ensureDirs();
+      File(store.catalogPath).writeAsStringSync(torn);
+
+      final result = await manager(
+        client: MockClient((_) async => http.Response.bytes(
+              pluginBytes('{"id":"manifest-a"}'),
+              200,
+              headers: {
+                'content-disposition': 'attachment; filename="plugin.zip"',
+              },
+            )),
+      ).directInstall(plugin(downloadUrl: '/api/plugins/a/download'));
+
+      expect(result.error, strings.badPluginExtension);
+      expect(File(store.catalogPath).readAsStringSync(), torn);
+    });
   });
 
   group('networkTimeout', () {

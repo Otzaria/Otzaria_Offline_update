@@ -132,18 +132,57 @@ void main() {
       expect(data.updatedAt, isNotNull);
     });
 
-    // JSON פגום או פורמט זר הוא "אין בקשה" — ולא נמחק. גרסת פורמט שלא הובנה
-    // עשויה להיות מובנת לגרסה אחרת של הלאנצ'ר.
-    test('קובץ פגום ופורמט לא מוכר נחשבים "אין", בלי למחוק', () async {
+    test('פורמט לא מוכר נחשב "אין", בלי למחוק', () async {
       final file = File(p.join(tempDir.path, ExternalUpdateNotice.fileName));
-
-      await file.writeAsString('{ לא JSON');
-      expect(await notice.read(dbPath: dbPath), isNull);
-      expect(file.existsSync(), isTrue);
 
       await file.writeAsString(jsonEncode({'formatVersion': 99}));
       expect(await notice.read(dbPath: dbPath), isNull);
       expect(file.existsSync(), isTrue);
+    });
+
+    test('קובץ פגום הוא בקשה ממתינה במסלול מלא, בלי למחוק', () async {
+      final file = File(p.join(tempDir.path, ExternalUpdateNotice.fileName));
+
+      for (final torn in ['{ לא JSON', '', '["not", "a", "map"]']) {
+        await file.writeAsString(torn);
+        final data = await notice.read(dbPath: dbPath);
+        expect(data?.isFullRoute, isTrue, reason: torn);
+        expect(file.existsSync(), isTrue);
+      }
+
+      await file.writeAsBytes([0xff, 0xfe, 0x00]);
+      expect((await notice.read(dbPath: dbPath))?.isFullRoute, isTrue);
+    });
+
+    test('כתיבה מעל קובץ פגום שומרת את המסלול המלא', () async {
+      await File(
+        p.join(tempDir.path, ExternalUpdateNotice.fileName),
+      ).writeAsString('{"formatVersion": 1, "route": "del');
+
+      await notice.write(
+        dbPath: dbPath,
+        route: ExternalUpdateNotice.routeDelta,
+        booksTouched: {7},
+      );
+
+      expect(readNotice()['route'], ExternalUpdateNotice.routeFull);
+    });
+
+    test('הכתיבה אינה משאירה קבצים זמניים לצד המסד', () async {
+      await Future.wait([
+        for (var i = 0; i < 10; i++)
+          notice.write(
+            dbPath: dbPath,
+            route: ExternalUpdateNotice.routeDelta,
+            booksTouched: {i},
+          ),
+      ]);
+
+      expect(tempDir.listSync().map((e) => p.basename(e.path)).toSet(), {
+        'seforim.db',
+        ExternalUpdateNotice.fileName,
+      });
+      expect(readNotice()['formatVersion'], ExternalUpdateNotice.formatVersion);
     });
 
     test(

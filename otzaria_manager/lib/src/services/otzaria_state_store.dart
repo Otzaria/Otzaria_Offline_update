@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:otzaria_downloads/otzaria_downloads.dart';
+
 import '../models/otzaria_install_state.dart';
 
 /// שומר/טוען את קובץ ה-state המקומי שמתעד מה הותקן ואיפה. הרג'יסטרי משמש
@@ -35,10 +37,6 @@ class OtzariaStateStore {
   Future<void> save(OtzariaInstallState state) async {
     final file = File(stateFilePath);
     await file.parent.create(recursive: true);
-    // כותבים לקובץ זמני ואז מחליפים (rename), כדי לא להשאיר state.json
-    // חצי-כתוב אם התהליך נקטע באמצע הכתיבה.
-    final tmp = File('$stateFilePath.tmp');
-    await tmp.writeAsString(jsonEncode(state.toJson()));
-    await tmp.rename(stateFilePath);
+    await writeStringAtomically(stateFilePath, jsonEncode(state.toJson()));
   }
 }

@@ -312,9 +312,8 @@ class PluginsManager {
             plugin.manifestId ?? PluginManifestReader.readId(asset.path),
       );
 
-      // הקטגוריות וטקסטי דף הבית **חייבים** לנסוע איתם: בלעדיהם השמירה הזו
-      // מוחקת את כל מבנה החנות מהמראה בגלל הורדה של קובץ בודד.
       final catalog = await store.load();
+      if (!catalog.plugins.any((entry) => entry.id == updated.id)) return file;
       await store.save(PluginCatalog(
         lastSync: catalog.lastSync,
         plugins: [

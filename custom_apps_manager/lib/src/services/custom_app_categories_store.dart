@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:otzaria_downloads/otzaria_downloads.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/custom_app_category.dart';
@@ -44,18 +45,15 @@ class CustomAppCategoriesStore {
     }
   }
 
-  /// כתיבה אטומית: קובץ זמני ואז החלפה. כונן שנשלף באמצע הכתיבה היה
-  /// מותיר כאן JSON חתוך, כלומר את כל הקטגוריות אבודות.
   Future<void> save(List<CustomAppCategory> categories) async {
     final file = File(filePath);
     await file.parent.create(recursive: true);
-    final temp = File('$filePath.tmp');
-    await temp.writeAsString(
+    await writeStringAtomically(
+      filePath,
       const JsonEncoder.withIndent('  ').convert({
         'schemaVersion': currentSchemaVersion,
         'categories': [for (final c in categories) c.toJson()],
       }),
     );
-    await temp.rename(filePath);
   }
 }

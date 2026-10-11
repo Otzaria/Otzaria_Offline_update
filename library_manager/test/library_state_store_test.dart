@@ -135,7 +135,90 @@ void main() {
     test('הכתיבה עוברת דרך קובץ זמני ולא משאירה אותו', () async {
       await store.saveAppliedRelease(tag: 'v1', dbVersion: 1);
 
-      expect(File('$statePath.tmp').existsSync(), isFalse);
+      expect(Directory(p.dirname(statePath)).listSync().map((e) => e.path), [
+        statePath,
+      ]);
+    });
+
+    test('קובץ פגום מועבר הצידה לפני שהכתיבה הבאה דורסת אותו', () async {
+      await File(statePath).parent.create(recursive: true);
+      const torn = '{"appliedReleases": {"OTHER-PC|someone": {"tag": "v2';
+      await File(statePath).writeAsString(torn);
+
+      await store.saveAppliedRelease(tag: 'v9', dbVersion: 9);
+
+      expect(File('$statePath.corrupt').readAsStringSync(), torn);
+      expect((await store.loadAppliedRelease())?.tag, 'v9');
+    });
+
+    test('קובץ שאינו UTF-8 נחשב פגום ומועבר הצידה', () async {
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsBytes([0xff, 0xfe, 0x00]);
+
+      expect(await store.loadAppliedRelease(), isNull);
+      expect(File('$statePath.corrupt').readAsBytesSync(), [0xff, 0xfe, 0x00]);
+    });
+
+    test('קובץ קיים שאינו קריא אינו נדרס ברשומת המחשב הנוכחי בלבד', () async {
+      await File(statePath).parent.create(recursive: true);
+      final original = jsonEncode({
+        'customDbPaths': {'OTHER-PC|someone': r'D:\lib\seforim.db'},
+        'appliedReleases': {
+          'OTHER-PC|someone': {'tag': 'v2', 'dbVersion': 2},
+        },
+        'deliveredCompanions': {
+          'OTHER-PC|someone': {'semantic': 'm1'},
+        },
+        'knownDbVersions': {'OTHER-PC|someone': 2},
+      });
+      await File(statePath).writeAsString(original);
+      await Process.run('chmod', ['000', statePath]);
+      addTearDown(() => Process.run('chmod', ['644', statePath]));
+      expect(() => File(statePath).readAsBytesSync(), throwsA(anything));
+
+      expect(await store.loadAppliedRelease(), isNull);
+      expect(await store.loadKnownDbVersions(), isEmpty);
+      await expectLater(
+        store.saveCustomDbPath(r'C:\x\seforim.db'),
+        throwsA(isA<FileSystemException>()),
+      );
+      await expectLater(
+        store.saveAppliedRelease(tag: 'v9', dbVersion: 9),
+        throwsA(isA<FileSystemException>()),
+      );
+      await expectLater(
+        store.saveDeliveredCompanions({'semantic': 'm9'}),
+        throwsA(isA<FileSystemException>()),
+      );
+      await expectLater(
+        store.recordKnownDbVersion('THIS-PC|me', 9),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      await Process.run('chmod', ['644', statePath]);
+      expect(File(statePath).readAsStringSync(), original);
+      expect(File('$statePath.corrupt').existsSync(), isFalse);
+    }, skip: Platform.isWindows);
+
+    test('קובץ תקין אינו מועבר הצידה', () async {
+      await store.saveAppliedRelease(tag: 'v1', dbVersion: 1);
+
+      await store.loadAppliedRelease();
+      await store.saveCustomDbPath(r'C:\x\seforim.db');
+
+      expect(File('$statePath.corrupt').existsSync(), isFalse);
+    });
+
+    test('כתיבות במקביל אינן מתנגשות על קובץ זמני משותף', () async {
+      await Future.wait([
+        for (var i = 1; i <= 20; i++)
+          store.saveAppliedRelease(tag: 'v$i', dbVersion: i),
+      ]);
+
+      expect(await store.loadAppliedRelease(), isNotNull);
+      expect(Directory(p.dirname(statePath)).listSync().map((e) => e.path), [
+        statePath,
+      ]);
     });
   });
 

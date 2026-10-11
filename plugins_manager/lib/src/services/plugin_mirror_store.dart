@@ -70,15 +70,12 @@ class PluginMirrorStore {
     }
   }
 
-  /// כתיבה אטומית (קובץ זמני + rename), כמו ב-`SettingsStore` — כדי
-  /// שניתוק באמצע כתיבה לא ישאיר קטלוג חצי-כתוב.
   Future<void> save(PluginCatalog catalog) async {
     await ensureDirs();
-    final tmp = File('$catalogPath.tmp');
-    await tmp.writeAsString(
+    await writeStringAtomically(
+      catalogPath,
       const JsonEncoder.withIndent('  ').convert(catalog.toJson()),
     );
-    await tmp.rename(catalogPath);
   }
 
   /// האם הנכס (תמונה / צילום מסך) שנשמר בקטלוג קיים בפועל על הדיסק.

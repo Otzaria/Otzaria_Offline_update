@@ -34,6 +34,19 @@ void main() {
       expect(loaded.last.description, isEmpty);
     });
 
+    test('שמירות במקביל אינן מתנגשות ואינן משאירות קבצים זמניים', () async {
+      await Future.wait([
+        for (var i = 0; i < 20; i++)
+          store.save([CustomAppCategory(slug: 'c$i', name: 'c$i')]),
+      ]);
+
+      expect(await store.load(), hasLength(1));
+      expect(
+        File(store.filePath).parent.listSync().map((e) => e.path),
+        [store.filePath],
+      );
+    });
+
     test('קובץ פגום נקרא כריק ואינו מפיל את הטעינה', () async {
       File(store.filePath)
         ..parent.createSync(recursive: true)

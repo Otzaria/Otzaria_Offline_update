@@ -136,7 +136,29 @@ void main() {
       await store.save(PluginCatalog.empty);
 
       expect(Directory(store.filesDir).existsSync(), isTrue);
-      expect(File('${store.catalogPath}.tmp').existsSync(), isFalse);
+      expect(
+        Directory(store.pluginsDir)
+            .listSync()
+            .whereType<File>()
+            .map((e) => e.path),
+        [store.catalogPath],
+      );
+    });
+
+    test('שמירות במקביל אינן מתנגשות על קובץ זמני משותף', () async {
+      await Future.wait([
+        for (var i = 0; i < 20; i++)
+          store.save(PluginCatalog(plugins: [plugin('p$i')])),
+      ]);
+
+      expect((await store.load()).plugins, hasLength(1));
+      expect(
+        Directory(store.pluginsDir)
+            .listSync()
+            .whereType<File>()
+            .map((e) => e.path),
+        [store.catalogPath],
+      );
     });
 
     test('שמירה חוזרת דורסת את הקטלוג הקודם', () async {

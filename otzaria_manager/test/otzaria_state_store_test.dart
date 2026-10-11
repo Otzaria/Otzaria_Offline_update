@@ -65,6 +65,18 @@ void main() {
       );
     });
 
+    test('שמירות במקביל אינן מתנגשות על קובץ זמני משותף', () async {
+      await Future.wait([for (var i = 0; i < 20; i++) store.save(_state)]);
+
+      expect(await store.load(), _state);
+      expect(
+        Directory(p.dirname(statePath))
+            .listSync()
+            .map((e) => p.basename(e.path)),
+        ['otzaria_install_state.json'],
+      );
+    });
+
     // "אין התקנה ידועה" ולא חריג — אחרת זרימת "תתקין מחדש" הייתה נחסמת.
     test('JSON פגום נקרא כ-null במקום לזרוק', () async {
       await Directory(p.dirname(statePath)).create(recursive: true);
