@@ -156,6 +156,13 @@ folder. What moves to `stateDir` is the log, `launcher_settings.json`,
 version is installed" describes the machine). Preferences are seeded once
 (`AppPaths.seedPreferences`); the state files deliberately are not.
 
+**State files live in `<stateDir>/logs/`, not the root.** `AppPaths.stateFileNames`
+(`otzaria_install_state`, `library_state`, `custom_apps_announced`,
+`plugins_known`, `notices_seen`) moved there to keep `OtzariaData` clean;
+`migrateStateFiles` runs in `main` before anything reads them — skipping it makes
+an existing install look new. Use `stateFilesDir`, never the logger's dir (it
+falls back to temp). Preferences stay in the root: they travel with the drive.
+
 Everything that writes to the drive is off, with no prompt anywhere: `downloadAll`,
 the plugin sync, custom-app add/download, error-report collect/upload, and self-update (it replaces the exe *on
 the drive*). `checkOnline` is skipped too — "there is something new online" with no
@@ -1722,7 +1729,7 @@ log excerpt.
 **The one-time explainer is separate from the offer, and shown before it.** The
 offer needs pending reports; the explainer (`showErrorReportsIntroOnce`) is for
 everyone, once per computer, so `_offerErrorReports` awaits it. "Shown" is
-`NoticesSeenStore` (`notices_seen.json` in `stateDir`, per hostname; the next
+`NoticesSeenStore` (`notices_seen.json` in `stateDir/logs`, per hostname; the next
 one-time notice adds a key, not a file), written only *after* the dialog closes.
 Read-only drives get it too, with a text saying collecting is impossible there.
 It never opens over another dialog and gives up unrecorded after a minute.
