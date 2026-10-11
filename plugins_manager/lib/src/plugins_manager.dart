@@ -102,10 +102,10 @@ class PluginsManager {
   }
 
   Future<Map<String, String>> scanInstalled() async => InstalledPluginsScanner(
-        customPluginsDir: await resolvePluginsDir?.call(),
-        otzariaLaunchPath: await otzariaLaunchPath?.call(),
-        locatePluginsDb: locatePluginsDb,
-      ).scan();
+    customPluginsDir: await resolvePluginsDir?.call(),
+    otzariaLaunchPath: await otzariaLaunchPath?.call(),
+    locatePluginsDb: locatePluginsDb,
+  ).scan();
 
   /// מסנכרן את הקטלוג והקבצים מהאתר אל המראה. דורש אינטרנט. מוריד **רק**
   /// את מה שחסר או השתנה — ראו [PluginSyncOutcome].
@@ -133,16 +133,21 @@ class PluginsManager {
   /// [appVersions] חייבות להיות אותן גרסאות ש-[sync] יקבל.
   Future<PluginsOnlineStatus> peekOnlineUpdates({
     List<String> appVersions = const [],
-  }) async =>
-      PluginOnlinePeek(client: _client, store: await _store())
-          .peek(appVersions: appVersions);
+  }) async => PluginOnlinePeek(
+    client: _client,
+    store: await _store(),
+  ).peek(appVersions: appVersions);
 
-  // ── תוכנת החנות העצמאית ────────────────────────────────────────────────
-  // אותה חלוקה כמו בשאר: [peekStoreApp] ו-[syncStoreApp] נוגעות ברשת,
-  // ואילו [loadStoreApp] ו-[exportStoreApp] קוראות מהכונן בלבד.
+  static String storeAppDirIn(String mirrorRootDir) =>
+      p.join(mirrorRootDir, 'store-app');
+
+  static List<String> mirrorDirsIn(String mirrorRootDir) => [
+    PluginMirrorStore(mirrorRootDir).pluginsDir,
+    storeAppDirIn(mirrorRootDir),
+  ];
 
   Future<StoreAppMirror> _appMirror() async =>
-      StoreAppMirror(mirrorDir: p.join(await resolveMirrorDir(), 'store-app'));
+      StoreAppMirror(mirrorDir: storeAppDirIn(await resolveMirrorDir()));
 
   /// בודק ברשת אם יצאה גרסה חדשה של תוכנת החנות — **בקשה קלה אחת**, בלי
   /// להוריד קובץ ובלי לגעת במראה. מקבילה של [peekOnlineUpdates], ורצה
@@ -201,8 +206,10 @@ class PluginsManager {
   }) async {
     final mirror = await _appMirror();
     try {
-      return await StoreAppExporter(store: await _store(), appMirror: mirror)
-          .exportTo(
+      return await StoreAppExporter(
+        store: await _store(),
+        appMirror: mirror,
+      ).exportTo(
         destinationDir,
         onProgress: onProgress,
         isCancelled: isCancelled,
@@ -226,8 +233,9 @@ class PluginsManager {
     String? appVersion,
   }) async {
     final store = await _store();
-    final local =
-        plugin.localFileFor(plugin.installTarget(appVersion)?.version);
+    final local = plugin.localFileFor(
+      plugin.installTarget(appVersion)?.version,
+    );
     final strings = AppL10n.strings.pluginsDomain;
     if (local == null || !await store.hasAsset(local.relativePath)) {
       return PluginInstallResult.failure(strings.fileNotAvailableSyncFirst);
@@ -245,7 +253,7 @@ class PluginsManager {
   String suggestedFileName(StorePlugin plugin, {String? appVersion}) {
     final local =
         plugin.localFileFor(plugin.installTarget(appVersion)?.version) ??
-            plugin.anyLocalFile;
+        plugin.anyLocalFile;
     return local?.fileName ?? '${plugin.name}${local?.ext ?? '.otzplugin'}';
   }
 
@@ -309,15 +317,17 @@ class PluginsManager {
 
       final catalog = await store.load();
       if (!catalog.plugins.any((entry) => entry.id == updated.id)) return file;
-      await store.save(PluginCatalog(
-        lastSync: catalog.lastSync,
-        plugins: [
-          for (final entry in catalog.plugins)
-            entry.id == updated.id ? updated : entry,
-        ],
-        categories: catalog.categories,
-        home: catalog.home,
-      ));
+      await store.save(
+        PluginCatalog(
+          lastSync: catalog.lastSync,
+          plugins: [
+            for (final entry in catalog.plugins)
+              entry.id == updated.id ? updated : entry,
+          ],
+          categories: catalog.categories,
+          home: catalog.home,
+        ),
+      );
       onPluginUpdated?.call(updated);
       return file;
     } catch (_) {

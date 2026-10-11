@@ -15,46 +15,49 @@ import 'support.dart';
 Future<void> _dropMediaVersion(String root) async {
   final store = PluginMirrorStore(root);
   final old = await store.load();
-  await store.save(PluginCatalog(
-    lastSync: old.lastSync,
-    categories: old.categories,
-    home: old.home,
-    plugins: [
-      for (final plugin in old.plugins)
-        StorePlugin.fromJson(plugin.toJson()
-          ..remove('mediaVersion')
-          ..remove('screenshotsMediaVersion')),
-    ],
-  ));
+  await store.save(
+    PluginCatalog(
+      lastSync: old.lastSync,
+      categories: old.categories,
+      home: old.home,
+      plugins: [
+        for (final plugin in old.plugins)
+          StorePlugin.fromJson(
+            plugin.toJson()
+              ..remove('mediaVersion')
+              ..remove('screenshotsMediaVersion'),
+          ),
+      ],
+    ),
+  );
 }
 
 class _Site {
   _Site({List<Map<String, dynamic>>? plugins})
-      : plugins = plugins ?? defaultPlugins();
+    : plugins = plugins ?? defaultPlugins();
 
   static List<Map<String, dynamic>> defaultPlugins({
     String versionA = '1.0.0',
     List<String>? screenshots,
-  }) =>
-      [
-        {
-          'id': 'a',
-          'name': 'אלף',
-          'version': versionA,
-          'status': 'stable',
-          'isPinned': true,
-          'image': '/api/plugins/a/image',
-          'screenshots': screenshots ?? const [],
-          'downloadUrl': '/api/plugins/a/download',
-        },
-        {
-          'id': 'b',
-          'name': 'בית',
-          'version': '2.0.0',
-          'status': 'beta',
-          'downloadUrl': '/api/plugins/b/download',
-        },
-      ];
+  }) => [
+    {
+      'id': 'a',
+      'name': 'אלף',
+      'version': versionA,
+      'status': 'stable',
+      'isPinned': true,
+      'image': '/api/plugins/a/image',
+      'screenshots': screenshots ?? const [],
+      'downloadUrl': '/api/plugins/a/download',
+    },
+    {
+      'id': 'b',
+      'name': 'בית',
+      'version': '2.0.0',
+      'status': 'beta',
+      'downloadUrl': '/api/plugins/b/download',
+    },
+  ];
 
   List<Map<String, dynamic>> plugins;
 
@@ -64,7 +67,7 @@ class _Site {
       'homeSubtitle': 'תוספים שמרחיבים את הלימוד',
     },
     'featured': [
-      {'id': 'a'}
+      {'id': 'a'},
     ],
     'categories': [
       {
@@ -74,7 +77,7 @@ class _Site {
         'showOnHome': true,
         'homeLimit': 4,
         'plugins': [
-          {'id': 'a'}
+          {'id': 'a'},
         ],
       },
     ],
@@ -104,40 +107,40 @@ class _Site {
       requests.where((r) => r.endsWith(suffix)).toList();
 
   http.Client build() => MockClient((request) async {
-        final path = request.url.path;
-        requests.add(path);
+    final path = request.url.path;
+    requests.add(path);
 
-        final failure = failures[path];
-        if (failure != null) return http.Response('nope', failure);
-        final body = bodies[path];
-        if (body != null) return http.Response.bytes(body, 200);
+    final failure = failures[path];
+    if (failure != null) return http.Response('nope', failure);
+    final body = bodies[path];
+    if (body != null) return http.Response.bytes(body, 200);
 
-        if (stalls.contains(path)) {
-          await Future<void>.delayed(const Duration(milliseconds: 300));
-        }
-        if (beforeResponse != null) await beforeResponse!(path);
+    if (stalls.contains(path)) {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
+    if (beforeResponse != null) await beforeResponse!(path);
 
-        if (path == '/api/plugins') return jsonResponse(plugins);
-        if (path == '/api/plugins/store-home') return jsonResponse(storeHome);
-        if (path.startsWith('/api/plugins/categories/')) {
-          return jsonResponse(category);
-        }
-        if (path.endsWith('/download')) {
-          return http.Response.bytes(
-            pluginBytes('{"id":"manifest-${path.split('/')[3]}"}'),
-            200,
-            headers: {
-              'content-disposition':
-                  "attachment; filename*=UTF-8''plugin.otzplugin",
-            },
-          );
-        }
-        return http.Response.bytes(
-          const [137, 80, 78, 71],
-          200,
-          headers: {'content-type': 'image/png'},
-        );
-      });
+    if (path == '/api/plugins') return jsonResponse(plugins);
+    if (path == '/api/plugins/store-home') return jsonResponse(storeHome);
+    if (path.startsWith('/api/plugins/categories/')) {
+      return jsonResponse(category);
+    }
+    if (path.endsWith('/download')) {
+      return http.Response.bytes(
+        pluginBytes('{"id":"manifest-${path.split('/')[3]}"}'),
+        200,
+        headers: {
+          'content-disposition':
+              "attachment; filename*=UTF-8''plugin.otzplugin",
+        },
+      );
+    }
+    return http.Response.bytes(
+      const [137, 80, 78, 71],
+      200,
+      headers: {'content-type': 'image/png'},
+    );
+  });
 }
 
 void main() {
@@ -148,42 +151,39 @@ void main() {
   tearDown(() => deleteTempDir(temp));
 
   PluginsManager manager(_Site site) => PluginsManager(
-        resolveMirrorDir: () async => temp.path,
-        resolvePluginsDir: () async => p.join(temp.path, 'otzaria', 'plugins'),
-        baseUrl: 'https://otzaria.test',
-        httpClient: site.build(),
-      );
+    resolveMirrorDir: () async => temp.path,
+    resolvePluginsDir: () async => p.join(temp.path, 'otzaria', 'plugins'),
+    baseUrl: 'https://otzaria.test',
+    httpClient: site.build(),
+  );
 
   List<String> warningsOf(List<PluginSyncProgress> events) => [
-        for (final e in events)
-          if (e.phase == PluginSyncPhase.warning) e.message,
-      ];
+    for (final e in events)
+      if (e.phase == PluginSyncPhase.warning) e.message,
+  ];
 
   Future<PluginSyncOutcome> syncOutcome(
     _Site site, {
     List<PluginSyncProgress>? events,
     bool Function()? isCancelled,
     List<String> appVersions = const [],
-  }) =>
-      manager(site).sync(
-        appVersions: appVersions,
-        onProgress: events?.add,
-        isCancelled: isCancelled,
-      );
+  }) => manager(site).sync(
+    appVersions: appVersions,
+    onProgress: events?.add,
+    isCancelled: isCancelled,
+  );
 
   Future<PluginCatalog> sync(
     _Site site, {
     List<PluginSyncProgress>? events,
     bool Function()? isCancelled,
     List<String> appVersions = const [],
-  }) async =>
-      (await syncOutcome(
-        site,
-        events: events,
-        isCancelled: isCancelled,
-        appVersions: appVersions,
-      ))
-          .catalog;
+  }) async => (await syncOutcome(
+    site,
+    events: events,
+    isCancelled: isCancelled,
+    appVersions: appVersions,
+  )).catalog;
 
   group('סנכרון מלא', () {
     test('מושך תוספים, קטגוריות וטקסטים של דף הבית', () async {
@@ -218,8 +218,10 @@ void main() {
       ]);
       expect(featured.anyLocalFile?.fileName, 'plugin.otzplugin');
       expect(featured.anyLocalFile?.ext, '.otzplugin');
-      expect(featured.remoteDownloadUrl,
-          'https://otzaria.test/api/plugins/a/download');
+      expect(
+        featured.remoteDownloadUrl,
+        'https://otzaria.test/api/plugins/a/download',
+      );
     });
 
     test('הקטלוג והקבצים נכתבים למראה ונקראים ממנה בלי רשת', () async {
@@ -237,10 +239,36 @@ void main() {
       expect(File(store.catalogPath).existsSync(), isTrue);
     });
 
+    test('כל מה שהסנכרון כותב יושב תחת PluginsManager.mirrorDirsIn', () async {
+      await sync(
+        _Site(
+          plugins: _Site.defaultPlugins(screenshots: ['/api/plugins/a/shot-0']),
+        ),
+      );
+
+      final roots = PluginsManager.mirrorDirsIn(temp.path);
+      final written = temp
+          .listSync(recursive: true)
+          .whereType<File>()
+          .map((f) => f.path)
+          .toList();
+
+      expect(written, isNotEmpty);
+      for (final path in written) {
+        expect(
+          roots.any((root) => p.isWithin(root, path)),
+          isTrue,
+          reason: path,
+        );
+      }
+    });
+
     test('תוסף שאין לו downloadUrl אינו מוריד כלום ונשאר בקטלוג', () async {
-      final site = _Site(plugins: [
-        {'id': 'c', 'name': 'גימל', 'version': '1.0.0'},
-      ]);
+      final site = _Site(
+        plugins: [
+          {'id': 'c', 'name': 'גימל', 'version': '1.0.0'},
+        ],
+      );
       final events = <PluginSyncProgress>[];
       final catalog = await sync(site, events: events);
 
@@ -277,18 +305,20 @@ void main() {
       );
     });
 
-    test('store-home שנופל בסנכרון ראשון מסתיים בלי קטגוריות ובלי חריג',
-        () async {
-      final site = _Site()..failures['/api/plugins/store-home'] = 500;
-      final events = <PluginSyncProgress>[];
-      final catalog = await sync(site, events: events);
+    test(
+      'store-home שנופל בסנכרון ראשון מסתיים בלי קטגוריות ובלי חריג',
+      () async {
+        final site = _Site()..failures['/api/plugins/store-home'] = 500;
+        final events = <PluginSyncProgress>[];
+        final catalog = await sync(site, events: events);
 
-      expect(catalog.plugins.length, 2);
-      expect(catalog.categories, isEmpty);
-      expect(catalog.home, PluginStoreHome.empty);
-      expect(warningsOf(events), hasLength(1));
-      expect(events.last.phase, PluginSyncPhase.done);
-    });
+        expect(catalog.plugins.length, 2);
+        expect(catalog.categories, isEmpty);
+        expect(catalog.home, PluginStoreHome.empty);
+        expect(warningsOf(events), hasLength(1));
+        expect(events.last.phase, PluginSyncPhase.done);
+      },
+    );
 
     test('דף קטגוריה שנופל שומר את החברות הקודמת מהמראה', () async {
       await sync(_Site());
@@ -336,18 +366,20 @@ void main() {
   group('כשל ברשימת התוספים עצמה כן עוצר', () {
     test('סטטוס שגיאה ב-/api/plugins זורק ואינו נוגע בקטלוג הקיים', () async {
       await sync(_Site());
-      final before =
-          File(PluginMirrorStore(temp.path).catalogPath).readAsStringSync();
+      final before = File(PluginMirrorStore(temp.path).catalogPath)
+          .readAsStringSync();
 
       final site = _Site()..failures['/api/plugins'] = 503;
 
       await expectLater(
         sync(site),
-        throwsA(isA<PluginStoreException>().having(
-          (e) => e.message,
-          'message',
-          strings.loadFailed(strings.whatPluginList, 503),
-        )),
+        throwsA(
+          isA<PluginStoreException>().having(
+            (e) => e.message,
+            'message',
+            strings.loadFailed(strings.whatPluginList, 503),
+          ),
+        ),
       );
       expect(
         File(PluginMirrorStore(temp.path).catalogPath).readAsStringSync(),
@@ -365,11 +397,13 @@ void main() {
 
       await expectLater(
         manager.sync(),
-        throwsA(isA<PluginStoreException>().having(
-          (e) => e.message,
-          'message',
-          strings.responseNotPluginList,
-        )),
+        throwsA(
+          isA<PluginStoreException>().having(
+            (e) => e.message,
+            'message',
+            strings.responseNotPluginList,
+          ),
+        ),
       );
     });
   });
@@ -400,8 +434,9 @@ void main() {
       final events = <PluginSyncProgress>[];
       final catalog = await sync(site, events: events);
 
-      expect(
-          catalog.plugins.first.screenshotPaths, ['files/a/screenshot-0.png']);
+      expect(catalog.plugins.first.screenshotPaths, [
+        'files/a/screenshot-0.png',
+      ]);
       expect(
         warningsOf(events).single,
         strings.syncScreenshotFailed(
@@ -430,7 +465,9 @@ void main() {
           'אלף',
           // הכתובת המלאה כפי שנשמרה בקטלוג — ממנה מנסים להוריד.
           strings.httpStatusFor(
-              500, 'https://otzaria.test/api/plugins/a/download'),
+            500,
+            'https://otzaria.test/api/plugins/a/download',
+          ),
         ),
       );
       expect(events.last.phase, PluginSyncPhase.done);
@@ -454,10 +491,7 @@ void main() {
     test('רשימת תוספים ריקה מול קטלוג קיים — נזרק, והמראה נשארת', () async {
       await sync(_Site());
 
-      await expectLater(
-        sync(_Site(plugins: [])),
-        throwsA(isA<StateError>()),
-      );
+      await expectLater(sync(_Site(plugins: [])), throwsA(isA<StateError>()));
       final onDisk = await PluginMirrorStore(temp.path).load();
       expect(onDisk.plugins.map((e) => e.id), ['a', 'b']);
       expect(onDisk.categories, isNotEmpty);
@@ -506,7 +540,8 @@ void main() {
       expect(outcome.skipped, 2);
       expect(
         events.where(
-            (e) => e.phase == PluginSyncPhase.plugin && e.current != null),
+          (e) => e.phase == PluginSyncPhase.plugin && e.current != null,
+        ),
         isEmpty,
       );
     });
@@ -518,17 +553,21 @@ void main() {
       // מדמה קטלוג שנכתב לפני שכתובות הנכסים נכנסו אליו.
       final store = PluginMirrorStore(temp.path);
       final old = await store.load();
-      await store.save(PluginCatalog(
-        lastSync: old.lastSync,
-        categories: old.categories,
-        home: old.home,
-        plugins: [
-          for (final plugin in old.plugins)
-            StorePlugin.fromJson(plugin.toJson()
-              ..remove('remoteImageUrl')
-              ..remove('remoteScreenshotUrls')),
-        ],
-      ));
+      await store.save(
+        PluginCatalog(
+          lastSync: old.lastSync,
+          categories: old.categories,
+          home: old.home,
+          plugins: [
+            for (final plugin in old.plugins)
+              StorePlugin.fromJson(
+                plugin.toJson()
+                  ..remove('remoteImageUrl')
+                  ..remove('remoteScreenshotUrls'),
+              ),
+          ],
+        ),
+      );
 
       final second = _Site(plugins: _Site.defaultPlugins(screenshots: shots));
       final outcome = await syncOutcome(second);
@@ -585,9 +624,11 @@ void main() {
 
     // האתר מקדם את `updatedAt` של כל התוספים מדי יום — כל החנות ירדה מחדש.
     test('updatedAt שהשתנה לבדו אינו מוריד תמונות', () async {
-      await sync(_Site(
-        plugins: _Site.defaultPlugins(screenshots: ['/api/plugins/a/shot-0']),
-      )..plugins.first['updatedAt'] = '2026-10-08');
+      await sync(
+        _Site(
+          plugins: _Site.defaultPlugins(screenshots: ['/api/plugins/a/shot-0']),
+        )..plugins.first['updatedAt'] = '2026-10-08',
+      );
 
       final second = _Site(
         plugins: _Site.defaultPlugins(screenshots: ['/api/plugins/a/shot-0']),
@@ -647,9 +688,11 @@ void main() {
     });
 
     test('צילום מסך שנוסף מוריד את כל הסדרה, כי השמות לפי אינדקס', () async {
-      await sync(_Site(
-        plugins: _Site.defaultPlugins(screenshots: ['/api/plugins/a/shot-0']),
-      ));
+      await sync(
+        _Site(
+          plugins: _Site.defaultPlugins(screenshots: ['/api/plugins/a/shot-0']),
+        ),
+      );
 
       final second = _Site(
         plugins: _Site.defaultPlugins(
@@ -699,8 +742,9 @@ void main() {
         final pending = await manager(retry).peekOnlineUpdates();
         expect(pending.hasUpdates, isTrue);
         await sync(retry);
-        expect(
-            retry.requestsMatching('/download'), ['/api/plugins/a/download']);
+        expect(retry.requestsMatching('/download'), [
+          '/api/plugins/a/download',
+        ]);
 
         final unchanged = _Site()
           ..plugins.first['downloadUrl'] = '/api/plugins/a/download?v=2';
@@ -732,8 +776,9 @@ void main() {
         await sync(original);
         final failing = _Site()
           ..plugins.first['version'] = changedUrl ? '1.0.0' : '1.1.0'
-          ..plugins.first['image'] =
-              changedUrl ? '/api/plugins/a/new-image' : '/api/plugins/a/image';
+          ..plugins.first['image'] = changedUrl
+              ? '/api/plugins/a/new-image'
+              : '/api/plugins/a/image';
         failing.failures[failing.plugins.first['image'] as String] = 500;
         final afterFailure = await sync(failing);
         expect(afterFailure.plugins.first.imagePath, 'files/a/image.png');
@@ -742,7 +787,9 @@ void main() {
         expect((await manager(retry).peekOnlineUpdates()).hasUpdates, isTrue);
         await sync(retry);
         expect(
-            retry.requests, contains(failing.plugins.first['image'] as String));
+          retry.requests,
+          contains(failing.plugins.first['image'] as String),
+        );
         expect((await manager(retry).peekOnlineUpdates()).hasUpdates, isFalse);
       });
     }
@@ -804,9 +851,11 @@ void main() {
     });
 
     test('תמונה וצילומי מסך שהוסרו באתר יוצאים מהקטלוג', () async {
-      await sync(_Site(
-        plugins: _Site.defaultPlugins(screenshots: ['/api/plugins/a/shot-0']),
-      ));
+      await sync(
+        _Site(
+          plugins: _Site.defaultPlugins(screenshots: ['/api/plugins/a/shot-0']),
+        ),
+      );
 
       final removed = _Site()..plugins.first['image'] = '';
       expect((await manager(removed).peekOnlineUpdates()).hasUpdates, isTrue);
@@ -825,9 +874,11 @@ void main() {
     });
 
     test('צילומי מסך שהוסרו באתר מדווחים בהצצה ויוצאים מהקטלוג', () async {
-      await sync(_Site(
-        plugins: _Site.defaultPlugins(screenshots: ['/api/plugins/a/shot-0']),
-      ));
+      await sync(
+        _Site(
+          plugins: _Site.defaultPlugins(screenshots: ['/api/plugins/a/shot-0']),
+        ),
+      );
 
       final removed = _Site();
       expect((await manager(removed).peekOnlineUpdates()).hasUpdates, isTrue);
@@ -856,15 +907,17 @@ void main() {
       // מדמה קטלוג שנכתב לפני שה-manifestId נכנס אליו.
       final store = PluginMirrorStore(temp.path);
       final old = await store.load();
-      await store.save(PluginCatalog(
-        lastSync: old.lastSync,
-        categories: old.categories,
-        home: old.home,
-        plugins: [
-          for (final plugin in old.plugins)
-            StorePlugin.fromJson(plugin.toJson()..remove('manifestId')),
-        ],
-      ));
+      await store.save(
+        PluginCatalog(
+          lastSync: old.lastSync,
+          categories: old.categories,
+          home: old.home,
+          plugins: [
+            for (final plugin in old.plugins)
+              StorePlugin.fromJson(plugin.toJson()..remove('manifestId')),
+          ],
+        ),
+      );
       expect((await store.load()).plugins.first.manifestId, isNull);
 
       final second = _Site();
@@ -880,15 +933,17 @@ void main() {
       // קטלוג ישן בלי manifestId — ל**כל** החנות יש עבודה, אבל היא מקומית.
       final store = PluginMirrorStore(temp.path);
       final old = await store.load();
-      await store.save(PluginCatalog(
-        lastSync: old.lastSync,
-        categories: old.categories,
-        home: old.home,
-        plugins: [
-          for (final plugin in old.plugins)
-            StorePlugin.fromJson(plugin.toJson()..remove('manifestId')),
-        ],
-      ));
+      await store.save(
+        PluginCatalog(
+          lastSync: old.lastSync,
+          categories: old.categories,
+          home: old.home,
+          plugins: [
+            for (final plugin in old.plugins)
+              StorePlugin.fromJson(plugin.toJson()..remove('manifestId')),
+          ],
+        ),
+      );
 
       final second = _Site();
       final events = <PluginSyncProgress>[];
@@ -899,7 +954,8 @@ void main() {
       expect(outcome.skipped, 2);
       expect(
         events.where(
-            (e) => e.phase == PluginSyncPhase.plugin && e.current != null),
+          (e) => e.phase == PluginSyncPhase.plugin && e.current != null,
+        ),
         isEmpty,
       );
       // ועדיין — העבודה המקומית עצמה נעשתה.
@@ -910,8 +966,9 @@ void main() {
   group('קובץ בילד פגום', () {
     test('דף HTML שחזר ב-200 אינו נרשם, ויורד שוב בסנכרון הבא', () async {
       final site = _Site()
-        ..bodies['/api/plugins/a/download'] =
-            utf8.encode('<html>maintenance</html>');
+        ..bodies['/api/plugins/a/download'] = utf8.encode(
+          '<html>maintenance</html>',
+        );
       final events = <PluginSyncProgress>[];
       final outcome = await syncOutcome(site, events: events);
 
@@ -967,21 +1024,21 @@ void main() {
     });
 
     List<Map<String, dynamic>> sized(int size) => [
+      {
+        'id': 'a',
+        'name': 'אלף',
+        'version': '1.0.0',
+        'downloadUrl': '/api/plugins/a/download',
+        'versions': [
           {
-            'id': 'a',
-            'name': 'אלף',
             'version': '1.0.0',
             'downloadUrl': '/api/plugins/a/download',
-            'versions': [
-              {
-                'version': '1.0.0',
-                'downloadUrl': '/api/plugins/a/download',
-                'pluginFileSize': size,
-                'isLatest': true,
-              },
-            ],
+            'pluginFileSize': size,
+            'isLatest': true,
           },
-        ];
+        ],
+      },
+    ];
 
     test('הגודל שהאתר מצהיר עליו קובע אם הבילד שבמראה תקין', () async {
       await sync(_Site(plugins: sized(0)));
@@ -990,19 +1047,15 @@ void main() {
       final size = file.lengthSync();
 
       final matching = _Site(plugins: sized(size));
-      expect(
-        (await manager(matching).peekOnlineUpdates()).hasUpdates,
-        isFalse,
-      );
+      expect((await manager(matching).peekOnlineUpdates()).hasUpdates, isFalse);
       await sync(matching);
       expect(matching.requestsMatching('/download'), isEmpty);
 
       final declared = size + 1;
       final mismatch = _Site(plugins: sized(declared));
-      expect(
-        (await manager(mismatch).peekOnlineUpdates()).missingPlugins,
-        ['אלף'],
-      );
+      expect((await manager(mismatch).peekOnlineUpdates()).missingPlugins, [
+        'אלף',
+      ]);
       final events = <PluginSyncProgress>[];
       final outcome = await syncOutcome(mismatch, events: events);
 
@@ -1084,8 +1137,10 @@ void main() {
         isCancelled: () => cancelled,
       );
 
-      expect(site.requests.where((r) => r.contains('shot-')),
-          ['/api/plugins/a/shot-0', '/api/plugins/a/shot-1']);
+      expect(site.requests.where((r) => r.contains('shot-')), [
+        '/api/plugins/a/shot-0',
+        '/api/plugins/a/shot-1',
+      ]);
       expect(warningsOf(events), isEmpty);
       final a = outcome.catalog.plugins.firstWhere((p) => p.id == 'a');
       expect(a.screenshotPaths, previousShots);
@@ -1145,10 +1200,7 @@ void main() {
           .toList();
       expect(pluginEvents.first.message, strings.syncPlugin('אלף', 1, 2));
       expect(pluginEvents.last.message, strings.syncPlugin('בית', 2, 2));
-      expect(
-        events.map((e) => e.message),
-        contains(strings.syncCategories),
-      );
+      expect(events.map((e) => e.message), contains(strings.syncCategories));
     });
   });
 
@@ -1174,10 +1226,7 @@ void main() {
 
     test('כותרת ריקה נשארת ריקה — הנפילה לברירת מחדל היא של הממשק', () async {
       final site = _Site()
-        ..storeHome = {
-          'settings': const {},
-          'categories': const [],
-        };
+        ..storeHome = {'settings': const {}, 'categories': const []};
       final catalog = await sync(site);
 
       expect(catalog.home.title, '');
@@ -1192,8 +1241,14 @@ void main() {
 
       // אוצריא מתקינה תחת installed/<manifest.id>/, לא תחת ה-id של האתר.
       final installed = Directory(
-        p.join(temp.path, 'otzaria', 'plugins', 'installed', 'manifest-a',
-            'current'),
+        p.join(
+          temp.path,
+          'otzaria',
+          'plugins',
+          'installed',
+          'manifest-a',
+          'current',
+        ),
       )..createSync(recursive: true);
       File(p.join(installed.path, 'manifest.json'))
           .writeAsStringSync('{"id":"manifest-a","version":"0.9.0"}');
@@ -1217,35 +1272,36 @@ void main() {
   group('תאימות לגרסת אוצריא', () {
     /// תוסף אחד עם שני בילדים: החדש דורש אוצריא 0.9.97, הישן 0.9.95.
     List<Map<String, dynamic>> versioned() => [
+      {
+        'id': 'a',
+        'name': 'אלף',
+        'version': '2.0.0',
+        'compatibleWith': '0.9.97',
+        'downloadUrl': '/api/plugins/a/download',
+        'versions': [
           {
-            'id': 'a',
-            'name': 'אלף',
             'version': '2.0.0',
             'compatibleWith': '0.9.97',
             'downloadUrl': '/api/plugins/a/download',
-            'versions': [
-              {
-                'version': '2.0.0',
-                'compatibleWith': '0.9.97',
-                'downloadUrl': '/api/plugins/a/download',
-                'isLatest': true,
-              },
-              {
-                'version': '1.5.0',
-                'compatibleWith': '0.9.95',
-                'downloadUrl': '/api/plugins/a@1.5.0/download',
-              },
-            ],
+            'isLatest': true,
           },
-        ];
+          {
+            'version': '1.5.0',
+            'compatibleWith': '0.9.95',
+            'downloadUrl': '/api/plugins/a@1.5.0/download',
+          },
+        ],
+      },
+    ];
 
     test('אוצריא ישנה מקבלת את הבילד הישן, ולא את האחרון שפורסם', () async {
       final site = _Site(plugins: versioned());
       final catalog = await sync(site, appVersions: ['0.9.96']);
 
       expect(catalog.plugins.single.localFiles.keys, ['1.5.0']);
-      expect(site.requestsMatching('/download'),
-          ['/api/plugins/a@1.5.0/download']);
+      expect(site.requestsMatching('/download'), [
+        '/api/plugins/a@1.5.0/download',
+      ]);
     });
 
     test('שתי גרסאות אוצריא בכונן — שני בילדים יורדים, קובץ לכל אחד', () async {
@@ -1299,8 +1355,10 @@ void main() {
       final old = File(store.absolutePath('files/a/plugin-1.5.0.otzplugin'));
       expect(old.existsSync(), isTrue);
 
-      final catalog =
-          await sync(_Site(plugins: versioned()), appVersions: ['0.9.97']);
+      final catalog = await sync(
+        _Site(plugins: versioned()),
+        appVersions: ['0.9.97'],
+      );
 
       expect(catalog.plugins.single.localFiles.keys, ['2.0.0']);
       expect(old.existsSync(), isFalse);
@@ -1410,12 +1468,14 @@ void main() {
       final site = _Site(plugins: published({...all}..remove('1.0.0')));
       final catalog = await sync(site);
 
-      expect(site.requestsMatching('/download'),
-          ['/api/plugins/a@3.0.0/download']);
-      expect(
-        catalog.plugins.single.localFiles.keys.toSet(),
-        {'3.0.0', '2.0.0', '1.5.0'},
-      );
+      expect(site.requestsMatching('/download'), [
+        '/api/plugins/a@3.0.0/download',
+      ]);
+      expect(catalog.plugins.single.localFiles.keys.toSet(), {
+        '3.0.0',
+        '2.0.0',
+        '1.5.0',
+      });
       expect(file('3.0.0').existsSync(), isTrue);
       expect(file('2.0.0').existsSync(), isTrue);
       expect(file('1.5.0').existsSync(), isTrue);
@@ -1447,8 +1507,8 @@ void main() {
         },
       ];
       final site = _Site(plugins: moved);
-      final status =
-          await manager(site).peekOnlineUpdates(appVersions: ['0.9.97']);
+      final status = await manager(site)
+          .peekOnlineUpdates(appVersions: ['0.9.97']);
       expect(status.hasUpdates, isFalse);
 
       final catalog = await sync(site, appVersions: ['0.9.97']);
@@ -1475,17 +1535,19 @@ void main() {
       expect(catalog.plugins.single.localFiles.keys, ['2.0.0']);
     });
 
-    test('היסטוריית הגרסאות נשמרת בקטלוג, כדי שההכרעה תעבוד גם אופליין',
-        () async {
-      await sync(_Site(plugins: versioned()), appVersions: ['0.9.96']);
+    test(
+      'היסטוריית הגרסאות נשמרת בקטלוג, כדי שההכרעה תעבוד גם אופליין',
+      () async {
+        await sync(_Site(plugins: versioned()), appVersions: ['0.9.96']);
 
-      final reloaded = await PluginMirrorStore(temp.path).load();
-      final plugin = reloaded.plugins.single;
+        final reloaded = await PluginMirrorStore(temp.path).load();
+        final plugin = reloaded.plugins.single;
 
-      expect(plugin.versions.map((e) => e.version), ['2.0.0', '1.5.0']);
-      expect(plugin.compatibleFor('0.9.97')?.version, '2.0.0');
-      expect(plugin.installTarget('0.9.96')?.version, '1.5.0');
-    });
+        expect(plugin.versions.map((e) => e.version), ['2.0.0', '1.5.0']);
+        expect(plugin.compatibleFor('0.9.97')?.version, '2.0.0');
+        expect(plugin.installTarget('0.9.96')?.version, '1.5.0');
+      },
+    );
   });
 
   // הסנכרון הוא עשרות קבצים קטנים, ורוב הזמן הוא המתנה לשרת. בטור ההמתנות
@@ -1514,8 +1576,10 @@ void main() {
         inFlight++;
         if (inFlight > peak) peak = inFlight;
         if (inFlight >= 4 && !barrier.isCompleted) barrier.complete();
-        await barrier.future
-            .timeout(const Duration(seconds: 2), onTimeout: () {});
+        await barrier.future.timeout(
+          const Duration(seconds: 2),
+          onTimeout: () {},
+        );
         inFlight--;
       };
 

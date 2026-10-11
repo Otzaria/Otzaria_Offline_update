@@ -65,11 +65,7 @@ class CustomAppDetailView extends StatelessWidget {
 
   List<Widget> _panels(BuildContext context) {
     final t = context.strings.customApps;
-    // קובץ שנמחק מהכונן אינו מוצג כאריח שבור — הגלריה פשוט מתקצרת.
-    final screenshots = [
-      for (final path in controller.screenshotPathsOf(_descriptor))
-        if (File(path).existsSync()) path,
-    ];
+    final screenshots = controller.shownScreenshotPathsOf(_descriptor);
 
     return [
       _heroPanel(context),
@@ -116,8 +112,9 @@ class CustomAppDetailView extends StatelessWidget {
           Expanded(
             child: Text(
               _descriptor.name,
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -240,7 +237,7 @@ class CustomAppDetailView extends StatelessWidget {
               stage: t.downloadingLabel,
               progress: (controller.downloadTotal ?? 0) > 0
                   ? (controller.downloadReceived ?? 0) /
-                      controller.downloadTotal!
+                        controller.downloadTotal!
                   : null,
               detail: formatBytesProgress(
                 controller.downloadReceived,
@@ -291,8 +288,8 @@ class CustomAppDetailView extends StatelessWidget {
             isLoading: _isDownloading,
             onPressed:
                 controller.downloadingId != null || controller.isDownloadingAll
-                    ? null
-                    : onDownload,
+                ? null
+                : onDownload,
           ),
           ActionButton.ghost(
             text: t.checkOnlineButton,
@@ -343,7 +340,7 @@ class CustomAppDetailView extends StatelessWidget {
           final columns = constraints.maxWidth < 420 ? 1 : 2;
           final cellWidth =
               (constraints.maxWidth - AppTokens.spaceSM * (columns - 1)) /
-                  columns;
+              columns;
 
           return Wrap(
             spacing: AppTokens.spaceSM,

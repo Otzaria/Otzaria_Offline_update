@@ -844,13 +844,13 @@ class _AppShellState extends State<AppShell> {
   /// התיקיות ש-[downloadAll] ממלא, ולכן אלה שביטול מנקה. `mirror/apps`
   /// (תוכנות שהמשתמש הוסיף) ו-`mirror/launcher` אינן כאן בכוונה: אף הורדה
   /// מכאן אינה נוגעת בהן.
-  List<String> get _downloadMirrorDirs => [
+  @visibleForTesting
+  List<String> get downloadMirrorDirs => [
     _library.mirrorDir,
     _library.companionsMirrorDir,
     _library.semanticMirrorDir,
     _otzaria.mirrorDir,
-    p.join(widget.dataDir, 'mirror', 'plugins'),
-    p.join(widget.dataDir, 'mirror', 'store-app'),
+    ..._plugins.mirrorDirs,
   ];
 
   /// מבקש מהמשתמש אישור ואז מסמן ביטול להורדה שרצה. הדגל בלבד — ההורדה
@@ -991,7 +991,7 @@ class _AppShellState extends State<AppShell> {
       library: _library,
       plugins: _plugins,
     );
-    final undo = await MirrorDownloadUndo.capture(_downloadMirrorDirs);
+    final undo = await MirrorDownloadUndo.capture(downloadMirrorDirs);
     bool cancelled() => _cancelDownload;
 
     // הבדיקה בין רכיב לרכיב: ביטול באמצע הספרייה לא אמור להתחיל את התוספים.

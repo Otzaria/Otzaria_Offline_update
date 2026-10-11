@@ -197,8 +197,12 @@ void main() {
       await pumpScreen(tester, CustomAppsScreen(controller: controller));
       expect(find.text('הורדה לכונן'), findsNothing);
 
-      await addApp(tester,
-          id: 'gh', name: 'מגיטהאב', source: AppSourceKind.github);
+      await addApp(
+        tester,
+        id: 'gh',
+        name: 'מגיטהאב',
+        source: AppSourceKind.github,
+      );
       await pumpScreen(tester, CustomAppsScreen(controller: controller));
       expect(find.text('הורדה לכונן'), findsOneWidget);
       // "בדיקה ברשת" עברה לדף התוכנה — בכרטיס יש פעולה אחת בלבד.
@@ -241,8 +245,9 @@ void main() {
       expect(find.textContaining('מזהה את ההתקנה'), findsNothing);
     });
 
-    testWidgets('שורת ההורדה בדף התוכנה מתעדכנת מדיווח התקדמות בלבד',
-        (tester) async {
+    testWidgets('שורת ההורדה בדף התוכנה מתעדכנת מדיווח התקדמות בלבד', (
+      tester,
+    ) async {
       await addApp(tester, id: 'gh', source: AppSourceKind.github);
       controller.downloadingId = 'gh';
       controller.downloadReceived = 10;
@@ -276,8 +281,9 @@ void main() {
       expect(stateNotifications, 0);
     });
 
-    testWidgets('שורת "הורדת הכול" מתעדכנת מדיווח התקדמות בלבד',
-        (tester) async {
+    testWidgets('שורת "הורדת הכול" מתעדכנת מדיווח התקדמות בלבד', (
+      tester,
+    ) async {
       await addApp(tester, id: 'gh', source: AppSourceKind.github);
       controller.downloadAllTotal = 4;
       controller.downloadAllDone = 1;
@@ -313,8 +319,9 @@ void main() {
       expect(find.textContaining('אפשר להשאיר ריק'), findsNWidgets(2));
     });
 
-    testWidgets('סורק ה-exe אינו בוחר עזר של Flutter או uninstaller',
-        (tester) async {
+    testWidgets('סורק ה-exe אינו בוחר עזר של Flutter או uninstaller', (
+      tester,
+    ) async {
       final dir = Directory(p.join(tempDir.path, 'Installed'))
         ..createSync(recursive: true);
       for (final name in [
@@ -398,7 +405,9 @@ void main() {
         expect(installerKindLabelOf(kind, t), isNotEmpty, reason: kind.id);
       }
       expect(
-          installerKindLabelOf(CustomInstallerKind.zipPortable, t), 'ארכיון');
+        installerKindLabelOf(CustomInstallerKind.zipPortable, t),
+        'ארכיון',
+      );
     });
 
     // ההצהרה נשמרת ברשומה — היא הדבר היחיד על הקובץ שאי אפשר להריח.
@@ -634,13 +643,19 @@ void main() {
   /// מסך הניהול הוא מסך התוכנות עצמו, רק עם כלי העריכה במקום הפעולות.
   group('מסך הניהול', () {
     testWidgets('זו אותה רשת, בלי התקנה, הורדה או בדיקה ברשת', (tester) async {
-      await addApp(tester,
-          id: 'gh', name: 'מגיטהאב', source: AppSourceKind.github);
-      await addApp(tester,
-          id: 'local',
-          name: 'מקומית',
-          exeName: 'demo.exe',
-          withInstaller: true);
+      await addApp(
+        tester,
+        id: 'gh',
+        name: 'מגיטהאב',
+        source: AppSourceKind.github,
+      );
+      await addApp(
+        tester,
+        id: 'local',
+        name: 'מקומית',
+        exeName: 'demo.exe',
+        withInstaller: true,
+      );
       await openManager(tester);
 
       expect(find.byType(CustomAppStoreCard), findsNWidgets(2));
@@ -720,32 +735,31 @@ void main() {
       String? exeName = 'demo.exe',
       String? installedVersion,
       bool isInstalled = false,
-    }) =>
-        CustomAppView(
-          entry: CustomAppEntry(
-            descriptor: AppDescriptor(
-              id: 'a',
-              name: 'תוכנה',
-              sourceKind: AppSourceKind.manual,
-              detect: AppDetectRules(exeName: exeName),
-            ),
-            installer: storedVersion == null
-                ? null
-                : StoredInstaller(
-                    fileName: 'App.exe',
-                    version: storedVersion,
-                    sizeBytes: 1,
-                    addedAt: DateTime(2026),
-                  ),
-          ),
-          installed: isInstalled
-              ? CustomAppInstallState(
-                  version: installedVersion,
-                  installDir: r'C:\App',
-                  launchPath: r'C:\App\demo.exe',
-                )
-              : null,
-        );
+    }) => CustomAppView(
+      entry: CustomAppEntry(
+        descriptor: AppDescriptor(
+          id: 'a',
+          name: 'תוכנה',
+          sourceKind: AppSourceKind.manual,
+          detect: AppDetectRules(exeName: exeName),
+        ),
+        installer: storedVersion == null
+            ? null
+            : StoredInstaller(
+                fileName: 'App.exe',
+                version: storedVersion,
+                sizeBytes: 1,
+                addedAt: DateTime(2026),
+              ),
+      ),
+      installed: isInstalled
+          ? CustomAppInstallState(
+              version: installedVersion,
+              installDir: r'C:\App',
+              launchPath: r'C:\App\demo.exe',
+            )
+          : null,
+    );
 
     test('קובץ על הכונן שאינו מותקן כאן — תוכנה חדשה', () {
       expect(
@@ -757,10 +771,10 @@ void main() {
     test('על הכונן גרסה חדשה מהמותקנת — עדכון', () {
       expect(
         viewOf(
-                storedVersion: '1.4.2',
-                isInstalled: true,
-                installedVersion: '1.4.0')
-            .pending,
+          storedVersion: '1.4.2',
+          isInstalled: true,
+          installedVersion: '1.4.0',
+        ).pending,
         CustomAppPending.newerOnDrive,
       );
     });
@@ -768,18 +782,18 @@ void main() {
     test('אותה גרסה, וגם מותקנת חדשה יותר — אין מה לומר', () {
       expect(
         viewOf(
-                storedVersion: '1.4.2',
-                isInstalled: true,
-                installedVersion: '1.4.2')
-            .pending,
+          storedVersion: '1.4.2',
+          isInstalled: true,
+          installedVersion: '1.4.2',
+        ).pending,
         CustomAppPending.none,
       );
       expect(
         viewOf(
-                storedVersion: '1.4.2',
-                isInstalled: true,
-                installedVersion: '1.5.0')
-            .pending,
+          storedVersion: '1.4.2',
+          isInstalled: true,
+          installedVersion: '1.5.0',
+        ).pending,
         CustomAppPending.none,
       );
     });
@@ -888,9 +902,9 @@ void main() {
   // מכריזה על עצמה שוב בהרצה הבאה, גם כשהיא עדיין אינה מותקנת.
   group('הודעה פעם אחת בכל מחשב', () {
     CustomAppsController persisting() => CustomAppsController(
-          mirrorRootDir: p.join(tempDir.path, 'mirror'),
-          stateDir: tempDir.path,
-        );
+      mirrorRootDir: p.join(tempDir.path, 'mirror'),
+      stateDir: tempDir.path,
+    );
 
     test('הרישום נשמר לפי שם המחשב', () async {
       final store = AnnouncedAppsStore(tempDir.path, hostName: 'PC-A');
@@ -963,11 +977,76 @@ void main() {
     });
   });
 
+  group('טעינות חופפות', () {
+    AppDescriptor manualApp(String id) =>
+        AppDescriptor(id: id, name: id, sourceKind: AppSourceKind.manual);
+
+    test(
+      'בקשת טעינה בזמן טעינה פעילה מריצה טעינה חוזרת בלי תוצאה ישנה',
+      () async {
+        final root = p.join(tempDir.path, 'gated-mirror');
+        final gated = _GatedLoadManager(mirrorRootDir: root);
+        final built = CustomAppsController(mirrorRootDir: root, manager: gated);
+        addTearDown(built.dispose);
+        await gated.add(manualApp('first'));
+        var notifications = 0;
+        built.addListener(() => notifications++);
+
+        Future<Completer<void>> gate(int index) async {
+          while (gated.gates.length <= index) {
+            await Future<void>.delayed(const Duration(milliseconds: 1));
+          }
+          return gated.gates[index];
+        }
+
+        final firstLoad = built.load();
+        final firstGate = await gate(0);
+        await gated.add(manualApp('second'));
+        final requestedLoad = built.load();
+        firstGate.complete();
+        (await gate(1)).complete();
+        await requestedLoad;
+
+        expect(built.apps.map((a) => a.descriptor.id), ['first', 'second']);
+        expect(notifications, 1);
+        await firstLoad;
+      },
+    );
+
+    test('כשל בטעינה ישנה אינו מרוקן תוצאה מהטעינה החוזרת', () async {
+      final root = p.join(tempDir.path, 'gated-mirror-error');
+      final gated = _GatedLoadManager(mirrorRootDir: root);
+      final built = CustomAppsController(mirrorRootDir: root, manager: gated);
+      addTearDown(built.dispose);
+      await gated.add(manualApp('first'));
+      var notifications = 0;
+      built.addListener(() => notifications++);
+
+      Future<Completer<void>> gate(int index) async {
+        while (gated.gates.length <= index) {
+          await Future<void>.delayed(const Duration(milliseconds: 1));
+        }
+        return gated.gates[index];
+      }
+
+      final firstLoad = built.load();
+      final firstGate = await gate(0);
+      final requestedLoad = built.load();
+      firstGate.completeError(const FileSystemException('drive pulled'));
+      (await gate(1)).complete();
+      await requestedLoad;
+
+      expect(built.apps.map((a) => a.descriptor.id), ['first']);
+      expect(notifications, 1);
+      await firstLoad;
+    });
+  });
+
   group('הורדה לכל התוכנות — רק למה שיש בו חדש', () {
     /// קונטרולר שהרשת שלו מזויפת — הדרך היחידה לבדוק הורדה מרוכזת בלי
     /// לצאת לגיטהאב.
     Future<({CustomAppsController controller, _FakeManager fake})>
-        fakeController(
+    fakeController(
       Map<String, String> online, {
       required List<String> ids,
       String storedVersion = '1.4.2',
@@ -1021,8 +1100,9 @@ void main() {
     });
 
     // ההורדה כותבת לכונן, וכונן מוגן מפני כתיבה אינו יכול לקבל אותה.
-    testWidgets('בכונן לקריאה בלבד אין כלל כרטיס פעולות מרוכזות',
-        (tester) async {
+    testWidgets('בכונן לקריאה בלבד אין כלל כרטיס פעולות מרוכזות', (
+      tester,
+    ) async {
       final t = stringsOf().customApps;
       await addApp(tester, id: 'gh', source: AppSourceKind.github);
       await pumpScreen(
@@ -1051,8 +1131,9 @@ void main() {
       expect(result.downloaded, 0);
     });
 
-    testWidgets('an older online version never replaces the drive copy',
-        (tester) async {
+    testWidgets('an older online version never replaces the drive copy', (
+      tester,
+    ) async {
       late ({int checked, int downloaded, int failed, int notChecked}) result;
       late _FakeManager fake;
       late List<CustomAppView> outdated;
@@ -1129,8 +1210,9 @@ void main() {
       expect(result.downloaded, 1);
     });
 
-    testWidgets('ההורדה מקבלת את ה-release שהבדיקה מצאה ואינה שואלת שוב',
-        (tester) async {
+    testWidgets('ההורדה מקבלת את ה-release שהבדיקה מצאה ואינה שואלת שוב', (
+      tester,
+    ) async {
       late _FakeManager fake;
       await tester.runAsync(() async {
         final built = await fakeController({'old': '2.0.0'}, ids: ['old']);
@@ -1145,8 +1227,9 @@ void main() {
       expect(fake.passedSources['old']?.repo, 'their-app');
     });
 
-    testWidgets('בדיקה שחזרה אחרי שינוי המקור אינה שומרת את ה-release שלה',
-        (tester) async {
+    testWidgets('בדיקה שחזרה אחרי שינוי המקור אינה שומרת את ה-release שלה', (
+      tester,
+    ) async {
       late _FakeManager fake;
       late CustomAppsController c;
       await tester.runAsync(() async {
@@ -1189,10 +1272,12 @@ void main() {
         final built = await fakeController({'old': '2.0.0'}, ids: ['old']);
         fake = built.fake;
         await built.controller.load();
-        await built.controller
-            .checkOnline(built.controller.apps.single.descriptor);
+        await built.controller.checkOnline(
+          built.controller.apps.single.descriptor,
+        );
         await built.controller.update(
-            built.controller.apps.single.descriptor.copyWith(name: 'x'));
+          built.controller.apps.single.descriptor.copyWith(name: 'x'),
+        );
         await built.controller.download('old');
         built.controller.dispose();
       });
@@ -1203,14 +1288,14 @@ void main() {
 
   group('זיהוי ההתקנות', () {
     AppDescriptor detectable(String id, {String? exeName}) => AppDescriptor(
-          id: id,
-          name: id,
-          sourceKind: AppSourceKind.manual,
-          detect: AppDetectRules(
-            exeName: exeName ?? '$id.exe',
-            registryDisplayName: '^$id\\b',
-          ),
-        );
+      id: id,
+      name: id,
+      sourceKind: AppSourceKind.manual,
+      detect: AppDetectRules(
+        exeName: exeName ?? '$id.exe',
+        registryDisplayName: '^$id\\b',
+      ),
+    );
 
     test('צילום אחד של התהליכים ושל הרג\'יסטרי לכל טעינה', () async {
       final root = p.join(tempDir.path, 'mirror');
@@ -1424,6 +1509,41 @@ void main() {
       expect(find.text('צילומי מסך'), findsOneWidget);
     });
 
+    testWidgets('צילום מסך שנמחק מהכונן נעלם מהגלריה בטעינה הבאה', (
+      tester,
+    ) async {
+      await addApp(tester, name: 'תוכנת דמו');
+      late List<String> saved;
+      await tester.runAsync(() async {
+        final first = File(p.join(tempDir.path, 'first.png'))
+          ..writeAsBytesSync(_onePixelPng);
+        final second = File(p.join(tempDir.path, 'second.png'))
+          ..writeAsBytesSync(_onePixelPng);
+        await controller.saveMedia(
+          'demo',
+          screenshotSources: [first.path, second.path],
+        );
+        saved = controller.screenshotPathsOf(controller.apps.single.descriptor);
+        File(saved.first).deleteSync();
+        await controller.load();
+      });
+
+      final descriptor = controller.apps.single.descriptor;
+      expect(saved, hasLength(2));
+      expect(controller.shownScreenshotPathsOf(descriptor), [saved.last]);
+
+      await tester.runAsync(() async {
+        File(saved.last).deleteSync();
+        await controller.load();
+      });
+      expect(controller.shownScreenshotPathsOf(descriptor), isEmpty);
+
+      await pumpScreen(tester, CustomAppsScreen(controller: controller));
+      await tester.tap(find.text('לפרטים מלאים'));
+      await tester.pumpAndSettle();
+      expect(find.text('צילומי מסך'), findsNothing);
+    });
+
     testWidgets('בלי תמונות אין סעיף צילומי מסך', (tester) async {
       await addApp(tester, name: 'תוכנת דמו');
       await pumpScreen(tester, CustomAppsScreen(controller: controller));
@@ -1477,7 +1597,8 @@ void main() {
               expect(
                 tester.takeException(),
                 isNull,
-                reason: 'הכרטיס גלש ברוחב $width, שפה $language, '
+                reason:
+                    'הכרטיס גלש ברוחב $width, שפה $language, '
                     'הגדלה $scale, ניהול $manage',
               );
             }
@@ -1606,8 +1727,10 @@ void main() {
         final shot = File(p.join(tempDir.path, 'shot.png'))
           ..writeAsBytesSync(_onePixelPng);
         await built.controller.load();
-        await built.controller
-            .saveMedia('demo', screenshotSources: [shot.path]);
+        await built.controller.saveMedia(
+          'demo',
+          screenshotSources: [shot.path],
+        );
         await built.controller.fillMissingIcons();
       });
 
@@ -1647,48 +1770,50 @@ void main() {
   });
 
   group('טעינות חופפות', () {
-    test('טעינה שמתחילה באמצע אחרת מצטרפת אליה, והרשימה האחרונה גוברת',
-        () async {
-      final root = p.join(tempDir.path, 'gated-mirror');
-      final gated = _GatedManager(root);
-      final c = CustomAppsController(mirrorRootDir: root, manager: gated);
-      addTearDown(c.dispose);
+    test(
+      'טעינה שמתחילה באמצע אחרת מצטרפת אליה, והרשימה האחרונה גוברת',
+      () async {
+        final root = p.join(tempDir.path, 'gated-mirror');
+        final gated = _GatedManager(root);
+        final c = CustomAppsController(mirrorRootDir: root, manager: gated);
+        addTearDown(c.dispose);
 
-      final release = gated.gate = Completer<void>();
-      final stale = c.load();
-      while (gated.calls == 0) {
-        await Future<void>.delayed(const Duration(milliseconds: 1));
-      }
-      await gated.add(
-        const AppDescriptor(
-          id: 'late',
-          name: 'late',
-          sourceKind: AppSourceKind.github,
-          github: GithubSource(
-            owner: 'someone',
-            repo: 'their-app',
-            assetPattern: r'^App\-\d+\.exe$',
+        final release = gated.gate = Completer<void>();
+        final stale = c.load();
+        while (gated.calls == 0) {
+          await Future<void>.delayed(const Duration(milliseconds: 1));
+        }
+        await gated.add(
+          const AppDescriptor(
+            id: 'late',
+            name: 'late',
+            sourceKind: AppSourceKind.github,
+            github: GithubSource(
+              owner: 'someone',
+              repo: 'their-app',
+              assetPattern: r'^App\-\d+\.exe$',
+            ),
+            detect: AppDetectRules(),
           ),
-          detect: AppDetectRules(),
-        ),
-      );
-      final fresh = c.load();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      release.complete();
-      await Future.wait([stale, fresh]);
+        );
+        final fresh = c.load();
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        release.complete();
+        await Future.wait([stale, fresh]);
 
-      expect(gated.maxInFlight, 1);
-      expect(c.apps.map((a) => a.descriptor.id), ['late']);
-    });
+        expect(gated.maxInFlight, 1);
+        expect(c.apps.map((a) => a.descriptor.id), ['late']);
+      },
+    );
   });
 }
 
 class _GatedManager extends CustomAppsManager {
   _GatedManager(String mirrorRootDir)
-      : super(
-          resolveMirrorDir: () async => mirrorRootDir,
-          readVersion: _FakeManager._noVersion,
-        );
+    : super(
+        resolveMirrorDir: () async => mirrorRootDir,
+        readVersion: _FakeManager._noVersion,
+      );
 
   Completer<void>? gate;
   int calls = 0;
@@ -1717,9 +1842,9 @@ class _FakeManager extends CustomAppsManager {
     required this.online,
     required this.sourceFile,
   }) : super(
-          resolveMirrorDir: () async => mirrorRootDir,
-          readVersion: _noVersion,
-        );
+         resolveMirrorDir: () async => mirrorRootDir,
+         readVersion: _noVersion,
+       );
 
   /// הגרסה שכל תוכנה "תמצא" ברשת, לפי מזהה.
   final Map<String, String> online;
@@ -1776,10 +1901,10 @@ class _FakeManager extends CustomAppsManager {
 
 class _CountingManager extends CustomAppsManager {
   _CountingManager({required String mirrorRootDir})
-      : super(
-          resolveMirrorDir: () async => mirrorRootDir,
-          readVersion: _noVersion,
-        );
+    : super(
+        resolveMirrorDir: () async => mirrorRootDir,
+        readVersion: _noVersion,
+      );
 
   final List<String> detected = [];
 
@@ -1798,3 +1923,22 @@ final Uint8List _onePixelPng = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGA'
   'hKmMIQAAAABJRU5ErkJggg==',
 );
+
+class _GatedLoadManager extends CustomAppsManager {
+  _GatedLoadManager({required String mirrorRootDir})
+    : super(
+        resolveMirrorDir: () async => mirrorRootDir,
+        readVersion: (_) => null,
+      );
+
+  final List<Completer<void>> gates = [];
+
+  @override
+  Future<List<CustomAppEntry>> loadAll() async {
+    final entries = await super.loadAll();
+    final gate = Completer<void>();
+    gates.add(gate);
+    await gate.future;
+    return entries;
+  }
+}

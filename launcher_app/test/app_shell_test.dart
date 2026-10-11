@@ -21,6 +21,7 @@ import 'package:launcher_app/src/screens/otzaria_screen.dart';
 import 'package:launcher_app/src/screens/plugins/plugins_screen.dart';
 import 'package:launcher_app/src/screens/settings_screen.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
+import 'package:launcher_app/src/services/mirror_download_undo.dart';
 import 'package:launcher_app/src/services/notices_seen_store.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/settings/safer_mode.dart';
@@ -28,6 +29,8 @@ import 'package:launcher_app/src/settings/settings_controller.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
+import 'package:path/path.dart' as p;
+import 'package:plugins_manager/plugins_manager.dart';
 
 import 'test_harness.dart';
 import 'test_support.dart';
@@ -71,7 +74,8 @@ void main() {
           driveFull: driveFull,
           // ברירת המחדל: ההסבר החד-פעמי כבר הוצג, כדי שלא יצוץ באמצע בדיקה
           // שאינה שלו.
-          noticesStore: notices ??
+          noticesStore:
+              notices ??
               MemoryNoticesStore(seen: {NoticesSeenStore.errorReportsIntro}),
           // כפתורי החלון מדברים עם ערוץ פלטפורמה שאינו קיים בבדיקות widget.
           showWindowButtons: false,
@@ -88,15 +92,18 @@ void main() {
 
   /// ב-[NavRailItem] רק הסמל לחיץ; התווית יושבת מתחתיו כאחות שלו.
   Future<void> tapNav(WidgetTester tester, String label) async {
-    await tester.tap(find.descendant(
-      of: find.widgetWithText(NavRailItem, label),
-      matching: find.byType(IconButton),
-    ));
+    await tester.tap(
+      find.descendant(
+        of: find.widgetWithText(NavRailItem, label),
+        matching: find.byType(IconButton),
+      ),
+    );
     await tester.pump();
   }
 
-  testWidgets('בעלייה נבנה דף הבית בלבד — שאר המסכים כלל לא בעץ',
-      (tester) async {
+  testWidgets('בעלייה נבנה דף הבית בלבד — שאר המסכים כלל לא בעץ', (
+    tester,
+  ) async {
     await pumpShell(tester);
 
     expect(screen(HomeScreen), findsOneWidget);
@@ -108,8 +115,9 @@ void main() {
     expect(screen(SettingsScreen), findsNothing);
   });
 
-  testWidgets('כפתור השאלות הנפוצות צף בפינה השמאלית התחתונה של דף הבית',
-      (tester) async {
+  testWidgets('כפתור השאלות הנפוצות צף בפינה השמאלית התחתונה של דף הבית', (
+    tester,
+  ) async {
     await pumpShell(tester);
 
     Rect buttonRect() => tester.getRect(find.byType(FaqFloatingButton));
@@ -130,8 +138,9 @@ void main() {
     expect(find.byType(FaqFloatingButton), findsOneWidget);
   });
 
-  testWidgets('באנגלית הכפתור עובר לימין — הוא כיסה את סרגל הניווט שמשמאל',
-      (tester) async {
+  testWidgets('באנגלית הכפתור עובר לימין — הוא כיסה את סרגל הניווט שמשמאל', (
+    tester,
+  ) async {
     await pumpShell(tester, language: AppLanguage.english);
 
     final rect = tester.getRect(find.byType(FaqFloatingButton));
@@ -143,17 +152,19 @@ void main() {
   testWidgets('כיבוי בהגדרות מוציא את הכפתור מהעץ לגמרי', (tester) async {
     // `runAsync` ולא `await` ישר: השמירה כותבת לדיסק, וקריאת `dart:io` אינה
     // מסתיימת בתוך ה-fake-async של `testWidgets` — ראו AGENTS §3.
-    await tester.runAsync(() => settings.update(const AppSettings(
-          autoCheckUpdates: false,
-          showFaqButton: false,
-        )));
+    await tester.runAsync(
+      () => settings.update(
+        const AppSettings(autoCheckUpdates: false, showFaqButton: false),
+      ),
+    );
     await pumpShell(tester);
 
     expect(find.byType(FaqFloatingButton, skipOffstage: false), findsNothing);
   });
 
-  testWidgets('מסך שנכנסים אליו נבנה, ונשאר בעץ גם אחרי מעבר משם',
-      (tester) async {
+  testWidgets('מסך שנכנסים אליו נבנה, ונשאר בעץ גם אחרי מעבר משם', (
+    tester,
+  ) async {
     await pumpShell(tester);
 
     await tapNav(tester, shell.navPlugins);
@@ -167,8 +178,9 @@ void main() {
     expect(screen(HomeScreen), findsOneWidget);
   });
 
-  testWidgets('מסך מוסתר אינו מריץ אנימציות — רק המוצג מקבל טיקרים',
-      (tester) async {
+  testWidgets('מסך מוסתר אינו מריץ אנימציות — רק המוצג מקבל טיקרים', (
+    tester,
+  ) async {
     await pumpShell(tester);
     bool ticking(Type type) =>
         TickerMode.valuesOf(tester.element(screen(type))).enabled;
@@ -225,8 +237,9 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
     }
 
-    testWidgets('הרצה ראשונה: החלון מופיע אחרי הפריים ונרשם רק בסגירה',
-        (tester) async {
+    testWidgets('הרצה ראשונה: החלון מופיע אחרי הפריים ונרשם רק בסגירה', (
+      tester,
+    ) async {
       final notices = MemoryNoticesStore();
       await pumpShell(tester, notices: notices);
       await settleDialog(tester);
@@ -309,8 +322,9 @@ void main() {
     expect(find.text(stringsOf().home.onlineNeverChecked), findsOneWidget);
   });
 
-  testWidgets('checkOnline שנכשל (אין רשת) אינו מציג שגיאה אלא "אין חיבור"',
-      (tester) async {
+  testWidgets('checkOnline שנכשל (אין רשת) אינו מציג שגיאה אלא "אין חיבור"', (
+    tester,
+  ) async {
     // הבדיקה הקלה היא מטא-דאטה בלבד, וכשל בה הוא תוצאה **תקינה** —
     // המחשב המנותק הוא מקרה השימוש המרכזי של התוכנה.
     HttpOverrides.global = NoNetworkHttpOverrides();
@@ -339,13 +353,14 @@ void main() {
     expect(find.text(stringsOf().home.downloadNowButton), findsNothing);
   });
 
-  testWidgets('אוצריא שנסגרה מזוהה בזמן שהלאנצ\'ר פתוח — בלי הפעלה מחדש שלו',
-      (tester) async {
+  testWidgets('אוצריא שנסגרה מזוהה בזמן שהלאנצ\'ר פתוח — בלי הפעלה מחדש שלו', (
+    tester,
+  ) async {
     // הבדיקה המקומית כבויה כאן בכוונה: היא קוראת מהדיסק ולא מסתיימת בתוך
     // ה-fake-async, ואז מצב התהליך היה נקבע רק אחרי סיום הבדיקה.
-    await tester.runAsync(() => settings.update(const AppSettings(
-          autoCheckUpdates: false,
-        )));
+    await tester.runAsync(
+      () => settings.update(const AppSettings(autoCheckUpdates: false)),
+    );
     final locator = _MutableLocator(isRunning: true);
 
     await pumpShell(tester, locator: locator);
@@ -366,8 +381,9 @@ void main() {
     expect(locator.probes, probesWhenClosed);
   });
 
-  testWidgets('הניווט מסמן את הפריט הנבחר ומחליף את המסך המוצג',
-      (tester) async {
+  testWidgets('הניווט מסמן את הפריט הנבחר ומחליף את המסך המוצג', (
+    tester,
+  ) async {
     await pumpShell(tester);
 
     NavRailItem item(String label) =>
@@ -385,8 +401,9 @@ void main() {
 
   // Custom-app management writes to mirror/apps on the drive (issue #25).
   for (final readOnly in [true, false]) {
-    testWidgets('settings custom-apps card with readOnly=$readOnly',
-        (tester) async {
+    testWidgets('settings custom-apps card with readOnly=$readOnly', (
+      tester,
+    ) async {
       await pumpShell(tester, readOnly: readOnly);
       await tapNav(tester, shell.navSettings);
 
@@ -408,8 +425,9 @@ void main() {
     });
   }
 
-  testWidgets('settings custom-apps card on a full drive asks to free space',
-      (tester) async {
+  testWidgets('settings custom-apps card on a full drive asks to free space', (
+    tester,
+  ) async {
     await pumpShell(tester, readOnly: true, driveFull: true);
     await tapNav(tester, shell.navSettings);
 
@@ -424,9 +442,42 @@ void main() {
     );
     expect(
       find.descendant(
-          of: card, matching: find.text(t.customAppsManageDisabled)),
+        of: card,
+        matching: find.text(t.customAppsManageDisabled),
+      ),
       findsNothing,
     );
+  });
+
+  testWidgets('ביטול הורדה מנקה את שתי תיקיות המראה של התוספים', (
+    tester,
+  ) async {
+    await pumpShell(tester);
+
+    final dynamic state = tester.state(find.byType(AppShell));
+    final dirs = List<String>.from(state.downloadMirrorDirs as List);
+    final mirrorRoot = p.join(tempDir.path, 'mirror');
+    final pluginDirs = PluginsManager.mirrorDirsIn(mirrorRoot);
+
+    expect(pluginDirs, hasLength(2));
+    expect(dirs, containsAll(pluginDirs));
+
+    await tester.runAsync(() async {
+      final undo = await MirrorDownloadUndo.capture(dirs);
+      final written = [
+        for (final dir in pluginDirs) File(p.join(dir, 'new', 'asset.bin')),
+      ];
+      for (final file in written) {
+        file.parent.createSync(recursive: true);
+        file.writeAsStringSync('x');
+      }
+
+      await undo.revert();
+
+      for (final file in written) {
+        expect(file.existsSync(), isFalse, reason: file.path);
+      }
+    });
   });
 
   // ההתקנה האוטומטית עצמה אינה נהיגה מבדיקת widget — היא מריצה מתקין אמיתי
@@ -435,8 +486,10 @@ void main() {
   group('_autoInstallIfEnabled', () {
     final source = File('lib/src/screens/app_shell.dart').readAsStringSync();
     final start = source.indexOf('_autoInstallIfEnabled() async {');
-    final body =
-        source.substring(start, source.indexOf('_downloadMirrorDirs', start));
+    final body = source.substring(
+      start,
+      source.indexOf('downloadMirrorDirs', start),
+    );
 
     test('גוף המתודה נמצא — אחרת כל השאר כאן בודק מחרוזת ריקה', () {
       expect(start, greaterThan(-1));
@@ -446,8 +499,10 @@ void main() {
     // המתקין של אוצריא משיק אותה בסוף התקנה שקטה, ואוצריא פתוחה נועלת את
     // המסד — בסדר ההפוך הלאנצ'ר חסם את עדכון המסד שהוא עצמו הריץ.
     test('עדכון המסד מוקדם להתקנת התוכנה', () {
-      expect(body.indexOf('_library.update()'),
-          lessThan(body.indexOf('_otzaria.install(')));
+      expect(
+        body.indexOf('_library.update()'),
+        lessThan(body.indexOf('_otzaria.install(')),
+      );
     });
 
     test('שני המסלולים נשענים על בדיקת תהליך טרייה', () {
@@ -514,14 +569,18 @@ void main() {
   group('installLauncherUpdate', () {
     final source = File('lib/src/screens/app_shell.dart').readAsStringSync();
     final start = source.indexOf('Future<void> installLauncherUpdate()');
-    final body =
-        source.substring(start, source.indexOf('_autoInstallIfEnabled', start));
+    final body = source.substring(
+      start,
+      source.indexOf('_autoInstallIfEnabled', start),
+    );
 
     test('גוף המתודה נמצא', () => expect(start, greaterThan(-1)));
 
     test('נחסמת בזמן הורדה או התקנה, עם הודעה', () {
-      expect(body.indexOf('_exitWouldInterrupt'),
-          lessThan(body.indexOf('showTwoActionsDialog')));
+      expect(
+        body.indexOf('_exitWouldInterrupt'),
+        lessThan(body.indexOf('showTwoActionsDialog')),
+      );
       expect(body, contains('busyNotice'));
     });
 
@@ -597,8 +656,10 @@ void main() {
       final afterDialog = body.indexOf('_exitWouldInterrupt', dialog);
       expect(afterDialog, greaterThan(dialog));
       expect(afterDialog, lessThan(restart));
-      expect(body.substring(afterDialog, restart),
-          contains('_offeredElevation = false'));
+      expect(
+        body.substring(afterDialog, restart),
+        contains('_offeredElevation = false'),
+      );
     });
 
     test('מסמנת המתנה ל-UAC סביב restartElevated ומאפסת בכשל', () {
@@ -611,21 +672,23 @@ void main() {
       expect(body.substring(restart, reset), contains('finally'));
     });
 
-    test('ממשק המסגרת וההורדה חסומים בזמן ההמתנה ל-UAC או החלפת קובץ ההרצה',
-        () {
-      expect(source, contains('absorbing: _exitPending'));
-      expect(source, contains('excluding: _exitPending'));
-      final download = source.substring(
-        source.indexOf('Future<void> _downloadAll()'),
-        source.indexOf('setState(() {\n      _isDownloading = true;'),
-      );
-      expect('_exitPending'.allMatches(download).length, 2);
-      final wait = source.substring(
-        source.indexOf('Future<bool> _waitUntilNoDialog('),
-        source.indexOf('Timer? _pauseTimer;'),
-      );
-      expect(wait, contains('_exitPending'));
-    });
+    test(
+      'ממשק המסגרת וההורדה חסומים בזמן ההמתנה ל-UAC או החלפת קובץ ההרצה',
+      () {
+        expect(source, contains('absorbing: _exitPending'));
+        expect(source, contains('excluding: _exitPending'));
+        final download = source.substring(
+          source.indexOf('Future<void> _downloadAll()'),
+          source.indexOf('setState(() {\n      _isDownloading = true;'),
+        );
+        expect('_exitPending'.allMatches(download).length, 2);
+        final wait = source.substring(
+          source.indexOf('Future<bool> _waitUntilNoDialog('),
+          source.indexOf('Timer? _pauseTimer;'),
+        );
+        expect(wait, contains('_exitPending'));
+      },
+    );
 
     test('מוצעת שוב בסיום איסוף או העלאה של דיווחים', () {
       expect('..addListener(_onReportsChange)'.allMatches(source).length, 2);
@@ -651,17 +714,18 @@ void main() {
     /// מפעיל את הנעילה על ההגדרות שהמסגרת כבר מחזיקה. `runAsync` כי הכתיבה
     /// לדיסק אינה מסתיימת בתוך ה-fake-async.
     Future<void> lockSettings(WidgetTester tester) => tester.runAsync(
-          () => settings.update(
-            AppSettings(
-              autoCheckUpdates: false,
-              saferModeEnabled: true,
-              saferModePassword: SaferModePassword.encode('1234'),
-            ),
-          ),
-        );
+      () => settings.update(
+        AppSettings(
+          autoCheckUpdates: false,
+          saferModeEnabled: true,
+          saferModePassword: SaferModePassword.encode('1234'),
+        ),
+      ),
+    );
 
-    testWidgets('לחיצה על ההגדרות פותחת דיאלוג סיסמה ואינה בונה את המסך',
-        (tester) async {
+    testWidgets('לחיצה על ההגדרות פותחת דיאלוג סיסמה ואינה בונה את המסך', (
+      tester,
+    ) async {
       await lockSettings(tester);
       await pumpShell(tester);
 
@@ -701,8 +765,9 @@ void main() {
       expect(find.text(stringsOf().saferMode.verifyTitle), findsOneWidget);
     });
 
-    testWidgets('הסיסמה הנכונה פותחת, וכניסה חוזרת אינה נשאלת שוב',
-        (tester) async {
+    testWidgets('הסיסמה הנכונה פותחת, וכניסה חוזרת אינה נשאלת שוב', (
+      tester,
+    ) async {
       await lockSettings(tester);
       await pumpShell(tester);
 
@@ -727,10 +792,7 @@ void main() {
       // קובץ שנערך ביד יכול להדליק את המתג בלי סיסמה — וזה אינו נועל.
       await tester.runAsync(
         () => settings.update(
-          const AppSettings(
-            autoCheckUpdates: false,
-            saferModeEnabled: true,
-          ),
+          const AppSettings(autoCheckUpdates: false, saferModeEnabled: true),
         ),
       );
       await pumpShell(tester);
@@ -747,9 +809,11 @@ void main() {
     Future<LauncherUpdateStatus> statusAfterStart(WidgetTester tester) async {
       LauncherUpdateController launcher() =>
           tester.widget<HomeScreen>(screen(HomeScreen)).launcherUpdate;
-      for (var i = 0;
-          i < 40 && launcher().status == LauncherUpdateStatus.idle;
-          i++) {
+      for (
+        var i = 0;
+        i < 40 && launcher().status == LauncherUpdateStatus.idle;
+        i++
+      ) {
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 20)),
         );
@@ -758,13 +822,11 @@ void main() {
       return launcher().status;
     }
 
-    testWidgets('רצה בעלייה גם כשבדיקת העדכונים האוטומטית כבויה',
-        (tester) async {
+    testWidgets('רצה בעלייה גם כשבדיקת העדכונים האוטומטית כבויה', (
+      tester,
+    ) async {
       await pumpShell(tester);
-      expect(
-        await statusAfterStart(tester),
-        isNot(LauncherUpdateStatus.idle),
-      );
+      expect(await statusAfterStart(tester), isNot(LauncherUpdateStatus.idle));
     });
 
     testWidgets('כונן לקריאה בלבד: אינה רצה', (tester) async {
@@ -776,8 +838,10 @@ void main() {
 
     test('הבדיקה הידנית ברשת קוראת גם את המראה, לפני ההצצה', () {
       final start = source.indexOf('Future<void> checkOnline() async {');
-      final body =
-          source.substring(start, source.indexOf('Future.wait', start));
+      final body = source.substring(
+        start,
+        source.indexOf('Future.wait', start),
+      );
       expect(start, greaterThan(-1));
       expect(body, contains('await _checkLauncherMirror()'));
     });
@@ -854,8 +918,9 @@ void main() {
   });
 
   group('סגירת החלון בזמן פעולה ארוכה', () {
-    testWidgets('המסגרת רושמת שומר סגירה שמאשר כשאין פעולה, ומסירה בפירוק',
-        (tester) async {
+    testWidgets('המסגרת רושמת שומר סגירה שמאשר כשאין פעולה, ומסירה בפירוק', (
+      tester,
+    ) async {
       await pumpShell(tester);
       final guard = LauncherCrashSession.closeGuard;
       expect(guard, isNotNull);

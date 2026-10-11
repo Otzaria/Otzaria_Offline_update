@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -21,29 +22,21 @@ void main() {
   tearDown(() => deleteTempDir(temp));
 
   PluginsManager manager({http.Client? client}) => PluginsManager(
-        resolveMirrorDir: () async => temp.path,
-        resolvePluginsDir: () async => p.join(temp.path, 'otzaria', 'plugins'),
-        baseUrl: 'https://otzaria.test',
-        httpClient: client ?? MockClient((_) async => http.Response('', 404)),
-      );
+    resolveMirrorDir: () async => temp.path,
+    resolvePluginsDir: () async => p.join(temp.path, 'otzaria', 'plugins'),
+    baseUrl: 'https://otzaria.test',
+    httpClient: client ?? MockClient((_) async => http.Response('', 404)),
+  );
 
   StorePlugin plugin({
     String id = 'a',
     String name = 'אלף',
     String downloadUrl = '',
     PluginLocalFile? localFile,
-  }) =>
-      StorePlugin.fromApi(
-        {
-          'id': id,
-          'name': name,
-          'version': '1.0.0',
-          'downloadUrl': downloadUrl,
-        },
-        'https://otzaria.test',
-      ).copyWith(
-        localFiles: localFile == null ? const {} : {'1.0.0': localFile},
-      );
+  }) => StorePlugin.fromApi(
+    {'id': id, 'name': name, 'version': '1.0.0', 'downloadUrl': downloadUrl},
+    'https://otzaria.test',
+  ).copyWith(localFiles: localFile == null ? const {} : {'1.0.0': localFile});
 
   /// כותב קובץ `.otzplugin` אמיתי במראה ומחזיר את הרשומה שמצביעה עליו.
   StorePlugin withLocalFile({String id = 'a'}) {
@@ -75,8 +68,14 @@ void main() {
     test('מחזיר את הקטלוג מהמראה ואת המותקנים מהתקנת אוצריא', () async {
       await store.save(PluginCatalog(plugins: [plugin()]));
       final installed = Directory(
-        p.join(temp.path, 'otzaria', 'plugins', 'installed', 'manifest-a',
-            'current'),
+        p.join(
+          temp.path,
+          'otzaria',
+          'plugins',
+          'installed',
+          'manifest-a',
+          'current',
+        ),
       )..createSync(recursive: true);
       File(p.join(installed.path, 'manifest.json'))
           .writeAsStringSync('{"id":"manifest-a","version":"1.0.0"}');
@@ -95,38 +94,39 @@ void main() {
         ..createSync(recursive: true);
       final exe = p.join(exeDir.path, 'otzaria.exe');
       File(exe).writeAsStringSync('');
-      File(p.join(
-        exeDir.path,
-        InstalledPluginsScanner.portableMarkerFileName,
-      )).writeAsStringSync('');
+      File(p.join(exeDir.path, InstalledPluginsScanner.portableMarkerFileName))
+          .writeAsStringSync('');
 
-      final installed = Directory(p.join(
-        exeDir.path,
-        InstalledPluginsScanner.portableDataFolderName,
-        'plugins',
-        'installed',
-        'manifest-a',
-        'current',
-      ))
-        ..createSync(recursive: true);
+      final installed = Directory(
+        p.join(
+          exeDir.path,
+          InstalledPluginsScanner.portableDataFolderName,
+          'plugins',
+          'installed',
+          'manifest-a',
+          'current',
+        ),
+      )..createSync(recursive: true);
       File(p.join(installed.path, 'manifest.json'))
           .writeAsStringSync('{"id":"manifest-a","version":"2.5.0"}');
       return exe;
     }
 
     PluginsManager portableManager(String exe) => PluginsManager(
-          resolveMirrorDir: () async => temp.path,
-          otzariaLaunchPath: () async => exe,
-          baseUrl: 'https://otzaria.test',
-          httpClient: MockClient((_) async => http.Response('', 404)),
-        );
+      resolveMirrorDir: () async => temp.path,
+      otzariaLaunchPath: () async => exe,
+      baseUrl: 'https://otzaria.test',
+      httpClient: MockClient((_) async => http.Response('', 404)),
+    );
 
-    test('בלי נתיב מפורש הסריקה נגזרת מההתקנה שזוהתה, לא מ-%APPDATA%',
-        () async {
-      final view = await portableManager(portableInstall()).load();
+    test(
+      'בלי נתיב מפורש הסריקה נגזרת מההתקנה שזוהתה, לא מ-%APPDATA%',
+      () async {
+        final view = await portableManager(portableInstall()).load();
 
-      expect(view.installed, {'manifest-a': '2.5.0'});
-    });
+        expect(view.installed, {'manifest-a': '2.5.0'});
+      },
+    );
 
     test('scanInstalled מחזיר את אותה מפה בלי לקרוא את הקטלוג', () async {
       final manager = portableManager(portableInstall());
@@ -152,10 +152,7 @@ void main() {
 
   group('suggestedFileName', () {
     test('משתמש בשם שהאתר החזיר ב-Content-Disposition', () {
-      expect(
-        manager().suggestedFileName(withLocalFile()),
-        'plugin.otzplugin',
-      );
+      expect(manager().suggestedFileName(withLocalFile()), 'plugin.otzplugin');
     });
 
     test('בלי קובץ מקומי נבנה שם מהתוסף', () {
@@ -230,12 +227,13 @@ void main() {
 
     test('כשל בהשלמת הקובץ החסר מוחזר ככשל ולא כחריג', () async {
       final reported = <StorePlugin>[];
-      final result = await manager(
-        client: MockClient((_) async => http.Response('nope', 500)),
-      ).directInstall(
-        plugin(downloadUrl: '/api/plugins/a/download'),
-        onPluginUpdated: reported.add,
-      );
+      final result =
+          await manager(
+            client: MockClient((_) async => http.Response('nope', 500)),
+          ).directInstall(
+            plugin(downloadUrl: '/api/plugins/a/download'),
+            onPluginUpdated: reported.add,
+          );
 
       expect(result.success, isFalse);
       expect(result.error, strings.pluginFileNotAvailable);
@@ -269,13 +267,15 @@ void main() {
 
       final reported = <StorePlugin>[];
       final result = await manager(
-        client: MockClient((_) async => http.Response.bytes(
-              pluginBytes('{"id":"manifest-a"}'),
-              200,
-              headers: {
-                'content-disposition': 'attachment; filename="plugin.zip"',
-              },
-            )),
+        client: MockClient(
+          (_) async => http.Response.bytes(
+            pluginBytes('{"id":"manifest-a"}'),
+            200,
+            headers: {
+              'content-disposition': 'attachment; filename="plugin.zip"',
+            },
+          ),
+        ),
       ).directInstall(entry, onPluginUpdated: reported.add);
 
       expect(result.error, strings.badPluginExtension);
@@ -301,17 +301,53 @@ void main() {
       File(store.catalogPath).writeAsStringSync(torn);
 
       final result = await manager(
-        client: MockClient((_) async => http.Response.bytes(
-              pluginBytes('{"id":"manifest-a"}'),
-              200,
-              headers: {
-                'content-disposition': 'attachment; filename="plugin.zip"',
-              },
-            )),
+        client: MockClient(
+          (_) async => http.Response.bytes(
+            pluginBytes('{"id":"manifest-a"}'),
+            200,
+            headers: {
+              'content-disposition': 'attachment; filename="plugin.zip"',
+            },
+          ),
+        ),
       ).directInstall(plugin(downloadUrl: '/api/plugins/a/download'));
 
       expect(result.error, strings.badPluginExtension);
       expect(File(store.catalogPath).readAsStringSync(), torn);
+    });
+  });
+
+  group('mirrorDirsIn', () {
+    test('תוכנת החנות נקראת מהתיקייה ש-mirrorDirsIn מכריז עליה', () async {
+      final storeAppDir = PluginsManager.storeAppDirIn(temp.path);
+      expect(PluginsManager.mirrorDirsIn(temp.path), [
+        store.pluginsDir,
+        storeAppDir,
+      ]);
+
+      const bytes = 'MZ';
+      final exe = File(p.join(storeAppDir, 'files', 'v6', 'Store.exe'))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(bytes);
+      final release = StoreAppRelease(
+        tagName: 'v6',
+        version: 6,
+        assetName: 'Store.exe',
+        downloadUrl: 'https://example.invalid/v6.exe',
+        sizeBytes: bytes.length,
+        publishedAt: DateTime.utc(2026, 9, 4),
+      );
+      File(p.join(storeAppDir, 'latest-release.json')).writeAsStringSync(
+        jsonEncode({
+          'schemaVersion': 1,
+          'release': release.toJson(),
+          'filePath': 'files/v6/Store.exe',
+        }),
+      );
+
+      final loaded = await manager().loadStoreApp();
+
+      expect(loaded?.filePath, exe.path);
     });
   });
 
@@ -326,11 +362,13 @@ void main() {
 
       await expectLater(
         slow.sync(),
-        throwsA(isA<PluginStoreException>().having(
-          (e) => e.message,
-          'message',
-          startsWith(strings.siteUnreachable('')),
-        )),
+        throwsA(
+          isA<PluginStoreException>().having(
+            (e) => e.message,
+            'message',
+            startsWith(strings.siteUnreachable('')),
+          ),
+        ),
       );
     });
   });

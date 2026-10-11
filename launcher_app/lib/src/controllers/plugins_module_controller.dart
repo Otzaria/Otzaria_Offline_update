@@ -49,14 +49,16 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     this.ensureAppVersionsKnown,
     this.installWatchInterval = const Duration(seconds: 1),
     this.installWatchTimeout = const Duration(minutes: 5),
-  })  : _manager = PluginsManager(
-          resolveMirrorDir: () async => mirrorRootDir,
-          otzariaLaunchPath: otzariaLaunchPath,
-          locatePluginsDb: locatePluginsDb,
-        ),
-        _known = stateDir == null ? null : KnownPluginsStore(stateDir),
-        _destination =
-            stateDir == null ? null : StoreAppDestinationStore(stateDir);
+  }) : _manager = PluginsManager(
+         resolveMirrorDir: () async => mirrorRootDir,
+         otzariaLaunchPath: otzariaLaunchPath,
+         locatePluginsDb: locatePluginsDb,
+       ),
+       mirrorDirs = PluginsManager.mirrorDirsIn(mirrorRootDir),
+       _known = stateDir == null ? null : KnownPluginsStore(stateDir),
+       _destination = stateDir == null
+           ? null
+           : StoreAppDestinationStore(stateDir);
 
   static Future<String?> locateOtzariaPluginsDb(String dataRoot) async {
     final settings = await const OtzariaSettingsReader().read(dataRoot);
@@ -69,6 +71,8 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   }
 
   final PluginsManager _manager;
+
+  final List<String> mirrorDirs;
 
   /// זיכרון "אילו תוספים כבר נראו כאן". `null` כשאין תיקיית כתיבה — אז אין
   /// הודעות על תוספים חדשים בכלל, ולא הודעה שחוזרת בכל הרצה.
@@ -100,7 +104,13 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   PluginsModuleStatus status = PluginsModuleStatus.idle;
   String? errorMessage;
 
-  List<StorePlugin> plugins = const [];
+  List<StorePlugin> get plugins => _plugins;
+  set plugins(List<StorePlugin> value) {
+    _plugins = value;
+    _invalidateDerived();
+  }
+
+  List<StorePlugin> _plugins = const [];
 
   /// קטגוריות החנות כפי שנאצרו באתר, בסדר שלו. ריק במראה ישנה.
   List<PluginStoreCategory> categories = const [];
@@ -209,10 +219,10 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   bool get hasOnlineUpdate => hasCatalogOnlineUpdate || hasStoreAppOnlineUpdate;
 
   PluginsCatalogOnlineAnswers get catalogOnlineAnswers => (
-        status: onlineStatus,
-        checkError: onlineCheckError,
-        checkedAt: onlineCheckedAt,
-      );
+    status: onlineStatus,
+    checkError: onlineCheckError,
+    checkedAt: onlineCheckedAt,
+  );
 
   void restoreCatalogOnlineAnswers(PluginsCatalogOnlineAnswers answers) {
     onlineStatus = answers.status;
@@ -222,10 +232,10 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   }
 
   StoreAppOnlineAnswers get storeAppOnlineAnswers => (
-        release: storeAppOnline,
-        checkError: storeAppCheckError,
-        checkedAt: storeAppCheckedAt,
-      );
+    release: storeAppOnline,
+    checkError: storeAppCheckError,
+    checkedAt: storeAppCheckedAt,
+  );
 
   void restoreStoreAppOnlineAnswers(StoreAppOnlineAnswers answers) {
     storeAppOnline = answers.release;
@@ -449,23 +459,26 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
 
     try {
       final outcome = await _manager.sync(
-          appVersions: await _appVersions(),
-          isCancelled: isCancelled,
-          onProgress: (progress) {
-            syncMessage = progress.message;
-            if (progress.phase == PluginSyncPhase.warning) {
-              syncWarnings.add(progress.message);
-            } else if (progress.fraction != null) {
-              syncProgress = progress.fraction;
-            }
-            // הסנכרון מדווח פעמים רבות בשנייה (נכס אחר נכס) — מדולל, כמו
-            // שאר מדי ההתקדמות.
-            notifyProgress();
-          });
+        appVersions: await _appVersions(),
+        isCancelled: isCancelled,
+        onProgress: (progress) {
+          syncMessage = progress.message;
+          if (progress.phase == PluginSyncPhase.warning) {
+            syncWarnings.add(progress.message);
+          } else if (progress.fraction != null) {
+            syncProgress = progress.fraction;
+          }
+          // הסנכרון מדווח פעמים רבות בשנייה (נכס אחר נכס) — מדולל, כמו
+          // שאר מדי ההתקדמות.
+          notifyProgress();
+        },
+      );
       lastSyncOutcome = outcome;
-      AppLogger.instance.info('סנכרון התוספים: ${outcome.fetched} ירדו, '
-          '${outcome.skipped} דולגו, ${syncWarnings.length} אזהרות'
-          '${syncWarnings.isEmpty ? '' : ':\n${syncWarnings.join('\n')}'}');
+      AppLogger.instance.info(
+        'סנכרון התוספים: ${outcome.fetched} ירדו, '
+        '${outcome.skipped} דולגו, ${syncWarnings.length} אזהרות'
+        '${syncWarnings.isEmpty ? '' : ':\n${syncWarnings.join('\n')}'}',
+      );
       // ליומן בלבד: הבחירה עצמה שקופה למשתמש, אבל "למה התוסף הזה לא על
       // הכונן" חייב להיות ניתן לענות עליו.
       if (outcome.incompatible.isNotEmpty) {
@@ -569,12 +582,7 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
 
   // ── פעולות על תוסף בודד ───────────────────────────────────────────────────
 
-  StorePlugin? byId(String id) {
-    for (final plugin in plugins) {
-      if (plugin.id == id) return plugin;
-    }
-    return null;
-  }
+  StorePlugin? byId(String id) => _pluginsById[id];
 
   PluginInstallStatus statusOf(StorePlugin plugin) =>
       plugin.statusAgainst(installed, appVersion: appVersion);
@@ -741,7 +749,8 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
       !hideInstalled || statusOf(plugin) != PluginInstallStatus.upToDate;
 
   /// "כל התוספים" — חיפוש, סטטוס ותגית, מעל מתג ההתקנה.
-  List<StorePlugin> get filtered => _filtered ??= plugins.where((plugin) {
+  List<StorePlugin> get filtered => _filtered ??= plugins
+      .where((plugin) {
         if (!plugin.matchesQuery(search)) return false;
         if (statusFilter != PluginStatusFilter.all &&
             plugin.status != statusFilter.name) {
@@ -749,10 +758,11 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
         }
         if (tagFilter != null && !plugin.tags.contains(tagFilter)) return false;
         return _passesInstalledFilter(plugin);
-      }).toList(growable: false);
+      })
+      .toList(growable: false);
 
   Map<String, StorePlugin> get _pluginsById =>
-      _byId ??= {for (final plugin in plugins) plugin.id: plugin};
+      _byId ??= {for (final plugin in plugins.reversed) plugin.id: plugin};
 
   /// התוספים הנבחרים, בסדר האצירה של האתר — `/api/plugins` מחזיר אותם
   /// ראשונים, ולכן סדר הקטלוג הוא סדר האצירה.
@@ -764,15 +774,15 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   /// ממוזן כמו שאר התוצרים: הוא מריץ [pluginsIn] לכל קטגוריה, ודף הבית קורא
   /// לו מ-`build` — כלומר גם בכל דיווח התקדמות של סנכרון.
   List<PluginStoreCategory> get homeCategories => _homeCategories ??= [
-        for (final category in categories)
-          if (category.showOnHome && pluginsIn(category).isNotEmpty) category,
-      ];
+    for (final category in categories)
+      if (category.showOnHome && pluginsIn(category).isNotEmpty) category,
+  ];
 
   /// האם **קיים** דף בית אצור. נמדד על המבנה עצמו ולא על מה שנשאר אחרי
   /// הסינון — אחרת כיבוי כל הכרטיסים ע"י המתג היה נראה כמו חנות ריקה.
-  bool get hasCuratedHome =>
-      _hasCuratedHome ??= plugins.any((p) => p.isFeatured) ||
-          categories.any((c) => c.showOnHome && c.pluginIds.isNotEmpty);
+  bool get hasCuratedHome => _hasCuratedHome ??=
+      plugins.any((p) => p.isFeatured) ||
+      categories.any((c) => c.showOnHome && c.pluginIds.isNotEmpty);
 
   PluginStoreCategory? get openCategory {
     final slug = openCategorySlug;
@@ -814,12 +824,12 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
       : home.subtitle;
 
   List<String> get allTags => _allTags ??= () {
-        final tags = <String>{};
-        for (final plugin in plugins) {
-          tags.addAll(plugin.tags);
-        }
-        return tags.toList()..sort();
-      }();
+    final tags = <String>{};
+    for (final plugin in plugins) {
+      tags.addAll(plugin.tags);
+    }
+    return tags.toList()..sort();
+  }();
 
   // ── תוספים חדשים ──────────────────────────────────────────────────────────
 
@@ -869,10 +879,12 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     final notified = _notifiedIds;
     if (seen == null || notified == null) return const [];
     return plugins
-        .where((p) =>
-            !seen.contains(p.id) &&
-            !notified.contains(p.id) &&
-            _isNewCandidate(p))
+        .where(
+          (p) =>
+              !seen.contains(p.id) &&
+              !notified.contains(p.id) &&
+              _isNewCandidate(p),
+        )
         .toList(growable: false);
   }
 

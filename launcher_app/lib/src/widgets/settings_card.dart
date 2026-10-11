@@ -120,13 +120,13 @@ class CardActionsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: padding,
-        child: Wrap(
-          spacing: AppTokens.spaceSM,
-          runSpacing: AppTokens.spaceSM,
-          children: actions,
-        ),
-      );
+    padding: padding,
+    child: Wrap(
+      spacing: AppTokens.spaceSM,
+      runSpacing: AppTokens.spaceSM,
+      children: actions,
+    ),
+  );
 }
 
 /// סימן השאלה שלצד כותרת הכרטיס. גם לחיצה פותחת אותו, כי במסך מגע אין ריחוף.
@@ -137,14 +137,14 @@ class _HintIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Tooltip(
-        message: message,
-        triggerMode: TooltipTriggerMode.tap,
-        child: Icon(
-          FluentIcons.question_circle_24_regular,
-          size: 18,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-      );
+    message: message,
+    triggerMode: TooltipTriggerMode.tap,
+    child: Icon(
+      FluentIcons.question_circle_24_regular,
+      size: 18,
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+    ),
+  );
 }
 
 // ── Helpers לטיפוגרפיה אחידה ──────────────────────────────────────────────────
@@ -170,13 +170,13 @@ Widget _settingTitle(String text, {String? hint}) {
 }
 
 Widget _settingSubtitle(String text, {Color? color, bool ltr = false}) => Text(
-      text,
-      style: color != null
-          ? AppTextStyles.settingSubtitle.copyWith(color: color)
-          : AppTextStyles.settingSubtitle,
-      textDirection: ltr ? TextDirection.ltr : null,
-      textAlign: ltr ? TextAlign.end : null,
-    );
+  text,
+  style: color != null
+      ? AppTextStyles.settingSubtitle.copyWith(color: color)
+      : AppTextStyles.settingSubtitle,
+  textDirection: ltr ? TextDirection.ltr : null,
+  textAlign: ltr ? TextAlign.end : null,
+);
 
 Widget? _buildSettingIcon(IconData? icon, IconData? rtlIcon, Color? iconColor) {
   if (rtlIcon != null) return RtlIcon(rtlIcon, color: iconColor);
@@ -219,11 +219,11 @@ class SettingsActionTile extends StatelessWidget {
     this.enabled = true,
     this.responsiveActions = true,
     this.leading,
-  })  : _rawTitle = null,
-        assert(
-          icon == null || rtlIcon == null,
-          'העבר icon או rtlIcon — לא שניהם יחד',
-        );
+  }) : _rawTitle = null,
+       assert(
+         icon == null || rtlIcon == null,
+         'העבר icon או rtlIcon — לא שניהם יחד',
+       );
 
   SettingsActionTile.text({
     super.key,
@@ -241,15 +241,15 @@ class SettingsActionTile extends StatelessWidget {
     this.enabled = true,
     this.responsiveActions = true,
     this.leading,
-  })  : assert(
-          icon == null || rtlIcon == null,
-          'העבר icon או rtlIcon — לא שניהם יחד',
-        ),
-        _rawTitle = title,
-        title = _settingTitle(title, hint: hint),
-        subtitle = subtitle != null
-            ? _settingSubtitle(subtitle, color: subtitleColor, ltr: subtitleLtr)
-            : null;
+  }) : assert(
+         icon == null || rtlIcon == null,
+         'העבר icon או rtlIcon — לא שניהם יחד',
+       ),
+       _rawTitle = title,
+       title = _settingTitle(title, hint: hint),
+       subtitle = subtitle != null
+           ? _settingSubtitle(subtitle, color: subtitleColor, ltr: subtitleLtr)
+           : null;
 
   /// שורת נתיב קובץ — מאכפת LTR ומוסיפה סימני U+200E אחרי מפרידים.
   SettingsActionTile.path({
@@ -266,16 +266,16 @@ class SettingsActionTile extends StatelessWidget {
     this.enabled = true,
     this.responsiveActions = true,
     this.leading,
-  })  : assert(
-          icon == null || rtlIcon == null,
-          'העבר icon או rtlIcon — לא שניהם יחד',
-        ),
-        _rawTitle = title,
-        title = _settingTitle(title),
-        subtitle = _settingSubtitle(
-          (path != null && path.isNotEmpty) ? _formatPath(path) : placeholder,
-          ltr: path != null && path.isNotEmpty,
-        );
+  }) : assert(
+         icon == null || rtlIcon == null,
+         'העבר icon או rtlIcon — לא שניהם יחד',
+       ),
+       _rawTitle = title,
+       title = _settingTitle(title),
+       subtitle = _settingSubtitle(
+         (path != null && path.isNotEmpty) ? _formatPath(path) : placeholder,
+         ltr: path != null && path.isNotEmpty,
+       );
 
   /// שורת on/off עם [CustomSwitch]; לחיצה על כל השורה, Enter ו-Space מחליפים.
   static Widget switchTile({
@@ -288,18 +288,17 @@ class SettingsActionTile extends StatelessWidget {
     required bool value,
     ValueChanged<bool>? onChanged,
     bool enabled = true,
-  }) =>
-      _SwitchTile(
-        key: key,
-        icon: icon,
-        rtlIcon: rtlIcon,
-        title: title,
-        subtitle: subtitle,
-        hint: hint,
-        value: value,
-        onChanged: onChanged,
-        enabled: enabled,
-      );
+  }) => _SwitchTile(
+    key: key,
+    icon: icon,
+    rtlIcon: rtlIcon,
+    title: title,
+    subtitle: subtitle,
+    hint: hint,
+    value: value,
+    onChanged: onChanged,
+    enabled: enabled,
+  );
 
   /// שורה עם [AppDropdownField]. [subtitle] — כשלא סופק, נלקח מתת-הכותרת של
   /// האפשרות הנבחרת.
@@ -313,18 +312,17 @@ class SettingsActionTile extends StatelessWidget {
     required T currentValue,
     required ValueChanged<T> onSelected,
     double? width,
-  }) =>
-      _DropdownTile<T>(
-        key: key,
-        icon: icon,
-        rtlIcon: rtlIcon,
-        title: title,
-        subtitle: subtitle,
-        entries: entries,
-        currentValue: currentValue,
-        onSelected: onSelected,
-        width: width,
-      );
+  }) => _DropdownTile<T>(
+    key: key,
+    icon: icon,
+    rtlIcon: rtlIcon,
+    title: title,
+    subtitle: subtitle,
+    entries: entries,
+    currentValue: currentValue,
+    onSelected: onSelected,
+    width: width,
+  );
 
   static Widget segmentedTile<T>({
     Key? key,
@@ -336,18 +334,17 @@ class SettingsActionTile extends StatelessWidget {
     required T currentValue,
     required ValueChanged<T>? onChanged,
     double? width,
-  }) =>
-      _SegmentedTile<T>(
-        key: key,
-        icon: icon,
-        rtlIcon: rtlIcon,
-        title: title,
-        subtitle: subtitle,
-        options: options,
-        currentValue: currentValue,
-        onChanged: onChanged,
-        width: width,
-      );
+  }) => _SegmentedTile<T>(
+    key: key,
+    icon: icon,
+    rtlIcon: rtlIcon,
+    title: title,
+    subtitle: subtitle,
+    options: options,
+    currentValue: currentValue,
+    onChanged: onChanged,
+    width: width,
+  );
 
   /// שורה עם [AppMultiSegmentedControl] — כמה אפשרויות סימון בשורה אחת.
   static Widget multiSegmentedTile<T>({
@@ -361,19 +358,18 @@ class SettingsActionTile extends StatelessWidget {
     required Set<T> selected,
     required ValueChanged<T> onToggled,
     double? width,
-  }) =>
-      _MultiSegmentedTile<T>(
-        key: key,
-        icon: icon,
-        rtlIcon: rtlIcon,
-        title: title,
-        subtitle: subtitle,
-        hint: hint,
-        options: options,
-        selected: selected,
-        onToggled: onToggled,
-        width: width,
-      );
+  }) => _MultiSegmentedTile<T>(
+    key: key,
+    icon: icon,
+    rtlIcon: rtlIcon,
+    title: title,
+    subtitle: subtitle,
+    hint: hint,
+    options: options,
+    selected: selected,
+    onToggled: onToggled,
+    width: width,
+  );
 
   // ── Internals ──────────────────────────────────────────────────────────────
 
@@ -396,19 +392,22 @@ class SettingsActionTile extends StatelessWidget {
   }
 
   Widget _buildListTile() => ListTile(
-        focusNode: focusNode,
-        enabled: enabled,
-        onTap: onTap,
-        // ה-hover צריך להופיע על כפתורי הפעולה בלבד, לא על השורה כולה.
-        hoverColor: actions.isNotEmpty ? Colors.transparent : null,
-        leading: _buildIcon(),
-        title: title,
-        subtitle: subtitle,
-        trailing: _buildTrailing(),
-      );
+    focusNode: focusNode,
+    enabled: enabled,
+    onTap: onTap,
+    // ה-hover צריך להופיע על כפתורי הפעולה בלבד, לא על השורה כולה.
+    hoverColor: actions.isNotEmpty ? Colors.transparent : null,
+    leading: _buildIcon(),
+    title: title,
+    subtitle: subtitle,
+    trailing: _buildTrailing(),
+  );
 
-  // אומדן שמרני לרוחב ה-actions, כדי להטות לפריסה האנכית ולא לדחוס את הטקסט.
-  bool _wouldTextOverflow(double containerWidth, TextDirection textDirection) {
+  bool _wouldTextOverflow(
+    double containerWidth,
+    TextDirection textDirection,
+    TextScaler textScaler,
+  ) {
     if (_rawTitle == null) return false;
     const iconAreaWidth = 56.0;
     const hPadding = 32.0;
@@ -419,9 +418,12 @@ class SettingsActionTile extends StatelessWidget {
     final titlePainter = TextPainter(
       text: TextSpan(text: _rawTitle, style: AppTextStyles.settingTitle),
       textDirection: textDirection,
+      textScaler: textScaler,
       maxLines: 1,
     )..layout(maxWidth: textWidth);
-    return titlePainter.didExceedMaxLines;
+    final overflows = titlePainter.didExceedMaxLines;
+    titlePainter.dispose();
+    return overflows;
   }
 
   Widget _buildColumnLayout() {
@@ -479,9 +481,13 @@ class SettingsActionTile extends StatelessWidget {
     if (!responsiveActions) return _buildListTile();
     return LayoutBuilder(
       builder: (context, constraints) =>
-          _wouldTextOverflow(constraints.maxWidth, Directionality.of(context))
-              ? _buildColumnLayout()
-              : _buildListTile(),
+          _wouldTextOverflow(
+            constraints.maxWidth,
+            Directionality.of(context),
+            MediaQuery.textScalerOf(context),
+          )
+          ? _buildColumnLayout()
+          : _buildListTile(),
     );
   }
 }
@@ -581,8 +587,9 @@ class _SwitchTileState extends State<_SwitchTile> {
 /// רוחב התיבה לפי התווית הארוכה ברשימה — לא רוחב קבוע: תיבה של שלוש שפות
 /// אינה צריכה להיות ברוחב של פקד סגמנטד.
 double _dropdownWidth(List<AppMenuEntry<dynamic>> entries) {
-  final maxLen =
-      entries.map((e) => e.label.length).reduce((a, b) => a > b ? a : b);
+  final maxLen = entries
+      .map((e) => e.label.length)
+      .reduce((a, b) => a > b ? a : b);
   // ריפוד + סמל החץ + רוחב תו ממוצע.
   return (56 + maxLen * 9.0).clamp(120.0, 400.0);
 }
@@ -682,12 +689,16 @@ const _kSegMaxWidth = 400.0;
 
 double _segGroupWidth(List<SegmentOption<dynamic>> options) {
   final hasIcons = options.any((o) => o.icon != null || o.rtlIcon != null);
-  final maxLen =
-      options.map((o) => o.label.length).reduce((a, b) => a > b ? a : b);
-  final btnW = (hasIcons ? _kSegBaseWithIcon : _kSegBaseNoIcon) +
+  final maxLen = options
+      .map((o) => o.label.length)
+      .reduce((a, b) => a > b ? a : b);
+  final btnW =
+      (hasIcons ? _kSegBaseWithIcon : _kSegBaseNoIcon) +
       maxLen * _kSegCharWidth;
-  return (btnW * options.length + _kSegGroupPadding)
-      .clamp(_kSegMinWidth, _kSegMaxWidth);
+  return (btnW * options.length + _kSegGroupPadding).clamp(
+    _kSegMinWidth,
+    _kSegMaxWidth,
+  );
 }
 
 class _MultiSegmentedTile<T> extends StatelessWidget {

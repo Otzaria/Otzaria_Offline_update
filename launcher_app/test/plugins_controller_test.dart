@@ -29,18 +29,16 @@ void main() {
     String shortDescription = '',
     String author = '',
     String? manifestId,
-  }) =>
-      StorePlugin.fromApi({
-        'id': id,
-        'name': name,
-        'status': status,
-        'version': version,
-        'tags': tags,
-        'isPinned': featured,
-        'shortDescription': shortDescription,
-        'author': author,
-      }, 'https://otzaria.org')
-          .copyWith(manifestId: manifestId);
+  }) => StorePlugin.fromApi({
+    'id': id,
+    'name': name,
+    'status': status,
+    'version': version,
+    'tags': tags,
+    'isPinned': featured,
+    'shortDescription': shortDescription,
+    'author': author,
+  }, 'https://otzaria.org').copyWith(manifestId: manifestId);
 
   Future<void> saveCatalog(PluginCatalog catalog) =>
       PluginMirrorStore(p.join(tempDir.path, 'mirror')).save(catalog);
@@ -50,8 +48,9 @@ void main() {
     HttpOverrides.global = NoNetworkHttpOverrides();
     AppLogger.resetForTest();
     await AppLogger.init(tempDir.path);
-    controller =
-        PluginsModuleController(mirrorRootDir: p.join(tempDir.path, 'mirror'));
+    controller = PluginsModuleController(
+      mirrorRootDir: p.join(tempDir.path, 'mirror'),
+    );
     AppL10n.use(AppLanguage.hebrew);
   });
 
@@ -66,15 +65,19 @@ void main() {
 
   group('תוספים חדשים — פעם אחת בכל מחשב', () {
     PluginsModuleController withState() => PluginsModuleController(
-          mirrorRootDir: p.join(tempDir.path, 'mirror'),
-          stateDir: p.join(tempDir.path, 'state'),
-        );
+      mirrorRootDir: p.join(tempDir.path, 'mirror'),
+      stateDir: p.join(tempDir.path, 'state'),
+    );
 
     test('הטעינה הראשונה קובעת נקודת התחלה: שום דבר אינו חדש', () async {
-      await saveCatalog(PluginCatalog(plugins: [
-        plugin('a', 'א', manifestId: 'a'),
-        plugin('b', 'ב', manifestId: 'b'),
-      ]));
+      await saveCatalog(
+        PluginCatalog(
+          plugins: [
+            plugin('a', 'א', manifestId: 'a'),
+            plugin('b', 'ב', manifestId: 'b'),
+          ],
+        ),
+      );
       final c = withState();
       addTearDown(c.dispose);
 
@@ -84,35 +87,45 @@ void main() {
       expect(c.newPluginsForHome, isEmpty);
     });
 
-    test('קטלוג ריק אינו נקודת התחלה — הסנכרון הראשון לא מכריז על כולו',
-        () async {
-      final first = withState();
-      addTearDown(first.dispose);
-      await first.load();
+    test(
+      'קטלוג ריק אינו נקודת התחלה — הסנכרון הראשון לא מכריז על כולו',
+      () async {
+        final first = withState();
+        addTearDown(first.dispose);
+        await first.load();
 
-      await saveCatalog(PluginCatalog(plugins: [
-        plugin('a', 'א', manifestId: 'a'),
-        plugin('b', 'ב', manifestId: 'b'),
-      ]));
-      final second = withState();
-      addTearDown(second.dispose);
-      await second.load();
+        await saveCatalog(
+          PluginCatalog(
+            plugins: [
+              plugin('a', 'א', manifestId: 'a'),
+              plugin('b', 'ב', manifestId: 'b'),
+            ],
+          ),
+        );
+        final second = withState();
+        addTearDown(second.dispose);
+        await second.load();
 
-      expect(second.newPlugins, isEmpty);
-    });
+        expect(second.newPlugins, isEmpty);
+      },
+    );
 
     test('תוסף שנוסף אחרי נקודת ההתחלה הוא חדש, ונאמר פעם אחת', () async {
-      await saveCatalog(PluginCatalog(plugins: [
-        plugin('a', 'א', manifestId: 'a'),
-      ]));
+      await saveCatalog(
+        PluginCatalog(plugins: [plugin('a', 'א', manifestId: 'a')]),
+      );
       final first = withState();
       addTearDown(first.dispose);
       await first.load();
 
-      await saveCatalog(PluginCatalog(plugins: [
-        plugin('a', 'א', manifestId: 'a'),
-        plugin('b', 'ב', manifestId: 'b'),
-      ]));
+      await saveCatalog(
+        PluginCatalog(
+          plugins: [
+            plugin('a', 'א', manifestId: 'a'),
+            plugin('b', 'ב', manifestId: 'b'),
+          ],
+        ),
+      );
       final second = withState();
       addTearDown(second.dispose);
       await second.load();
@@ -128,17 +141,21 @@ void main() {
     });
 
     test('הטוסט והחלון שבמסך הראשי נרשמים בנפרד', () async {
-      await saveCatalog(PluginCatalog(plugins: [
-        plugin('a', 'א', manifestId: 'a'),
-      ]));
+      await saveCatalog(
+        PluginCatalog(plugins: [plugin('a', 'א', manifestId: 'a')]),
+      );
       final first = withState();
       addTearDown(first.dispose);
       await first.load();
 
-      await saveCatalog(PluginCatalog(plugins: [
-        plugin('a', 'א', manifestId: 'a'),
-        plugin('b', 'ב', manifestId: 'b'),
-      ]));
+      await saveCatalog(
+        PluginCatalog(
+          plugins: [
+            plugin('a', 'א', manifestId: 'a'),
+            plugin('b', 'ב', manifestId: 'b'),
+          ],
+        ),
+      );
       final c = withState();
       addTearDown(c.dispose);
       await c.load();
@@ -150,17 +167,21 @@ void main() {
     });
 
     test('תוסף שכבר נראה בחנות אינו מוזכר שוב במסך הראשי', () async {
-      await saveCatalog(PluginCatalog(plugins: [
-        plugin('a', 'א', manifestId: 'a'),
-      ]));
+      await saveCatalog(
+        PluginCatalog(plugins: [plugin('a', 'א', manifestId: 'a')]),
+      );
       final first = withState();
       addTearDown(first.dispose);
       await first.load();
 
-      await saveCatalog(PluginCatalog(plugins: [
-        plugin('a', 'א', manifestId: 'a'),
-        plugin('b', 'ב', manifestId: 'b'),
-      ]));
+      await saveCatalog(
+        PluginCatalog(
+          plugins: [
+            plugin('a', 'א', manifestId: 'a'),
+            plugin('b', 'ב', manifestId: 'b'),
+          ],
+        ),
+      );
       final c = withState();
       addTearDown(c.dispose);
       await c.load();
@@ -171,17 +192,21 @@ void main() {
     });
 
     test('תוסף שכבר מותקן כאן אינו חדש', () async {
-      await saveCatalog(PluginCatalog(plugins: [
-        plugin('a', 'א', manifestId: 'a'),
-      ]));
+      await saveCatalog(
+        PluginCatalog(plugins: [plugin('a', 'א', manifestId: 'a')]),
+      );
       final first = withState();
       addTearDown(first.dispose);
       await first.load();
 
-      await saveCatalog(PluginCatalog(plugins: [
-        plugin('a', 'א', manifestId: 'a'),
-        plugin('b', 'ב', manifestId: 'b'),
-      ]));
+      await saveCatalog(
+        PluginCatalog(
+          plugins: [
+            plugin('a', 'א', manifestId: 'a'),
+            plugin('b', 'ב', manifestId: 'b'),
+          ],
+        ),
+      );
       final c = withState();
       addTearDown(c.dispose);
       await c.load();
@@ -191,9 +216,9 @@ void main() {
     });
 
     test('בלי תיקיית כתיבה אין הודעות בכלל', () async {
-      await saveCatalog(PluginCatalog(plugins: [
-        plugin('a', 'א', manifestId: 'a'),
-      ]));
+      await saveCatalog(
+        PluginCatalog(plugins: [plugin('a', 'א', manifestId: 'a')]),
+      );
       await controller.load();
 
       expect(controller.newPlugins, isEmpty);
@@ -223,10 +248,12 @@ void main() {
     });
 
     test('יש אצירה — נשארים בדף הבית', () async {
-      await saveCatalog(PluginCatalog(
-        plugins: [plugin('a', 'תוסף נבחר', featured: true)],
-        home: const PluginStoreHome(title: 'החנות', subtitle: 'תקציר'),
-      ));
+      await saveCatalog(
+        PluginCatalog(
+          plugins: [plugin('a', 'תוסף נבחר', featured: true)],
+          home: const PluginStoreHome(title: 'החנות', subtitle: 'תקציר'),
+        ),
+      );
 
       await controller.load();
 
@@ -237,10 +264,12 @@ void main() {
     });
 
     test('קטגוריה שנעלמה מהחנות אינה נשארת פתוחה', () async {
-      await saveCatalog(PluginCatalog(
-        plugins: [plugin('a', 'תוסף')],
-        categories: const [PluginStoreCategory(slug: 'study', name: 'לימוד')],
-      ));
+      await saveCatalog(
+        PluginCatalog(
+          plugins: [plugin('a', 'תוסף')],
+          categories: const [PluginStoreCategory(slug: 'study', name: 'לימוד')],
+        ),
+      );
       await controller.load();
       controller.showCategory('study');
       expect(controller.view, PluginStorePage.category);
@@ -256,14 +285,21 @@ void main() {
 
   group('סינון', () {
     setUp(() async {
-      await saveCatalog(PluginCatalog(
-        plugins: [
-          plugin('a', 'מפתח ראשי',
-              tags: ['לימוד'], author: 'שרה', shortDescription: 'תקציר א'),
-          plugin('b', 'תוסף בטא', status: 'beta', tags: ['עיצוב']),
-          plugin('c', 'תוסף ניסיוני', status: 'experimental'),
-        ],
-      ));
+      await saveCatalog(
+        PluginCatalog(
+          plugins: [
+            plugin(
+              'a',
+              'מפתח ראשי',
+              tags: ['לימוד'],
+              author: 'שרה',
+              shortDescription: 'תקציר א',
+            ),
+            plugin('b', 'תוסף בטא', status: 'beta', tags: ['עיצוב']),
+            plugin('c', 'תוסף ניסיוני', status: 'experimental'),
+          ],
+        ),
+      );
       await controller.load();
       // ההתקנה האמיתית של המכונה המריצה לא אמורה להשפיע על התוצאה.
       controller.installed = const {};
@@ -331,18 +367,65 @@ void main() {
 
   group('זיהוי מותקנים — לפי manifestId, לא לפי מזהה הקטלוג', () {
     setUp(() async {
-      await saveCatalog(PluginCatalog(
-        plugins: [
-          plugin('db-1', 'מותקן ומעודכן',
-              version: '1.0.0', manifestId: 'com.example.one'),
-          plugin('db-2', 'מותקן וישן',
-              version: '2.0.0', manifestId: 'com.example.two'),
-          plugin('db-3', 'לא מותקן',
-              version: '1.0.0', manifestId: 'com.example.three'),
-          plugin('db-4', 'קובץ טרם ירד'),
-        ],
-      ));
+      await saveCatalog(
+        PluginCatalog(
+          plugins: [
+            plugin(
+              'db-1',
+              'מותקן ומעודכן',
+              version: '1.0.0',
+              manifestId: 'com.example.one',
+            ),
+            plugin(
+              'db-2',
+              'מותקן וישן',
+              version: '2.0.0',
+              manifestId: 'com.example.two',
+            ),
+            plugin(
+              'db-3',
+              'לא מותקן',
+              version: '1.0.0',
+              manifestId: 'com.example.three',
+            ),
+            plugin('db-4', 'קובץ טרם ירד'),
+          ],
+        ),
+      );
       await controller.load();
+    });
+
+    test('byId עונה מהקטלוג הנוכחי גם אחרי שהוחלף', () {
+      expect(controller.byId('db-1')!.name, 'מותקן ומעודכן');
+      expect(controller.byId('missing'), isNull);
+
+      controller.plugins = [plugin('db-1', 'שם חדש')];
+
+      expect(controller.byId('db-1')!.name, 'שם חדש');
+      expect(controller.byId('db-2'), isNull);
+    });
+
+    test('במזהה כפול byId ו-pluginsIn מחזירים את הראשון בקטלוג', () {
+      controller.plugins = [
+        plugin('dup', 'ראשון'),
+        plugin('other', 'אחר'),
+        plugin('dup', 'שני'),
+      ];
+
+      expect(controller.byId('dup')!.name, 'ראשון');
+      expect(
+        controller
+            .pluginsIn(
+              const PluginStoreCategory(
+                slug: 's',
+                name: 's',
+                pluginIds: ['dup'],
+              ),
+            )
+            .single
+            .name,
+        'ראשון',
+      );
     });
 
     test('ההשוואה היא מול manifestId — מזהה הקטלוג אינו מזוהה כמותקן', () {
@@ -360,15 +443,23 @@ void main() {
         'com.example.two': '1.5.0',
       };
 
-      expect(controller.statusOf(controller.byId('db-1')!),
-          PluginInstallStatus.upToDate);
-      expect(controller.statusOf(controller.byId('db-2')!),
-          PluginInstallStatus.updateAvailable);
-      expect(controller.statusOf(controller.byId('db-3')!),
-          PluginInstallStatus.notInstalled);
+      expect(
+        controller.statusOf(controller.byId('db-1')!),
+        PluginInstallStatus.upToDate,
+      );
+      expect(
+        controller.statusOf(controller.byId('db-2')!),
+        PluginInstallStatus.updateAvailable,
+      );
+      expect(
+        controller.statusOf(controller.byId('db-3')!),
+        PluginInstallStatus.notInstalled,
+      );
       // תוסף שקובץ ה-.otzplugin שלו טרם ירד — מצב תקין, לא שגיאה.
-      expect(controller.statusOf(controller.byId('db-4')!),
-          PluginInstallStatus.unknown);
+      expect(
+        controller.statusOf(controller.byId('db-4')!),
+        PluginInstallStatus.unknown,
+      );
 
       expect(controller.updatablePlugins.map((p) => p.id), ['db-2']);
       expect(controller.installedVersionOf(controller.byId('db-2')!), '1.5.0');
@@ -392,28 +483,30 @@ void main() {
 
   group('אצירה — נבחרים, קטגוריות ודף הבית', () {
     setUp(() async {
-      await saveCatalog(PluginCatalog(
-        plugins: [
-          plugin('a', 'ראשון', featured: true, manifestId: 'm.a'),
-          plugin('b', 'שני', manifestId: 'm.b'),
-          plugin('c', 'שלישי', manifestId: 'm.c'),
-        ],
-        categories: const [
-          PluginStoreCategory(
-            slug: 'study',
-            name: 'כלי לימוד',
-            description: 'תיאור',
-            showOnHome: true,
-            homeLimit: 2,
-            pluginIds: ['a', 'b', 'c', 'לא-קיים'],
-          ),
-          PluginStoreCategory(
-            slug: 'hidden',
-            name: 'לא בדף הבית',
-            pluginIds: ['c'],
-          ),
-        ],
-      ));
+      await saveCatalog(
+        PluginCatalog(
+          plugins: [
+            plugin('a', 'ראשון', featured: true, manifestId: 'm.a'),
+            plugin('b', 'שני', manifestId: 'm.b'),
+            plugin('c', 'שלישי', manifestId: 'm.c'),
+          ],
+          categories: const [
+            PluginStoreCategory(
+              slug: 'study',
+              name: 'כלי לימוד',
+              description: 'תיאור',
+              showOnHome: true,
+              homeLimit: 2,
+              pluginIds: ['a', 'b', 'c', 'לא-קיים'],
+            ),
+            PluginStoreCategory(
+              slug: 'hidden',
+              name: 'לא בדף הבית',
+              pluginIds: ['c'],
+            ),
+          ],
+        ),
+      );
       await controller.load();
       controller.installed = const {};
     });
@@ -444,7 +537,7 @@ void main() {
       controller.installed = const {
         'm.a': '1.0.0',
         'm.b': '1.0.0',
-        'm.c': '1.0.0'
+        'm.c': '1.0.0',
       };
       expect(controller.homeCategories, isEmpty);
 
@@ -457,7 +550,7 @@ void main() {
       controller.installed = const {
         'm.a': '1.0.0',
         'm.b': '1.0.0',
-        'm.c': '1.0.0'
+        'm.c': '1.0.0',
       };
 
       expect(controller.featured, isEmpty);
@@ -469,12 +562,14 @@ void main() {
 
   group('ניווט בין מסכי החנות', () {
     setUp(() async {
-      await saveCatalog(PluginCatalog(
-        plugins: [plugin('a', 'תוסף', featured: true)],
-        categories: const [
-          PluginStoreCategory(slug: 'study', name: 'לימוד', pluginIds: ['a']),
-        ],
-      ));
+      await saveCatalog(
+        PluginCatalog(
+          plugins: [plugin('a', 'תוסף', featured: true)],
+          categories: const [
+            PluginStoreCategory(slug: 'study', name: 'לימוד', pluginIds: ['a']),
+          ],
+        ),
+      );
       await controller.load();
     });
 
@@ -519,13 +614,19 @@ void main() {
       await controller.load();
 
       expect(
-          controller.homeTitle, AppL10n.strings.plugins.catalogTitleFallback);
-      expect(controller.homeSubtitle,
-          AppL10n.strings.plugins.catalogSubtitleFallback);
+        controller.homeTitle,
+        AppL10n.strings.plugins.catalogTitleFallback,
+      );
+      expect(
+        controller.homeSubtitle,
+        AppL10n.strings.plugins.catalogSubtitleFallback,
+      );
 
       AppL10n.use(AppLanguage.english);
       expect(
-          controller.homeTitle, AppL10n.strings.plugins.catalogTitleFallback);
+        controller.homeTitle,
+        AppL10n.strings.plugins.catalogTitleFallback,
+      );
       expect(controller.homeTitle, isNot(contains('אוצריא')));
     });
 
@@ -558,15 +659,17 @@ void main() {
       File(exe).createSync(recursive: true);
       File(p.join(dir, InstalledPluginsScanner.portableMarkerFileName))
           .writeAsStringSync('');
-      File(p.join(
-        dir,
-        InstalledPluginsScanner.portableDataFolderName,
-        'plugins',
-        'installed',
-        pluginId,
-        'current',
-        'manifest.json',
-      ))
+      File(
+          p.join(
+            dir,
+            InstalledPluginsScanner.portableDataFolderName,
+            'plugins',
+            'installed',
+            pluginId,
+            'current',
+            'manifest.json',
+          ),
+        )
         ..createSync(recursive: true)
         ..writeAsStringSync('{"id":"$pluginId","version":"1.4.0"}');
       launchPath = null;
@@ -595,10 +698,10 @@ void main() {
           'CREATE TABLE plugin_installation '
           '(plugin_id TEXT PRIMARY KEY, version TEXT NOT NULL)',
         )
-        ..execute(
-          'INSERT INTO plugin_installation VALUES (?, ?)',
-          [pluginId, '1.5.0'],
-        )
+        ..execute('INSERT INTO plugin_installation VALUES (?, ?)', [
+          pluginId,
+          '1.5.0',
+        ])
         ..close();
       final c = PluginsModuleController(
         mirrorRootDir: p.join(tempDir.path, 'mirror'),
@@ -699,27 +802,33 @@ void main() {
       File(exe).createSync(recursive: true);
       File(p.join(dir, InstalledPluginsScanner.portableMarkerFileName))
           .writeAsStringSync('');
-      installedDir = p.join(dir, InstalledPluginsScanner.portableDataFolderName,
-          'plugins', 'installed');
+      installedDir = p.join(
+        dir,
+        InstalledPluginsScanner.portableDataFolderName,
+        'plugins',
+        'installed',
+      );
       Directory(installedDir).createSync(recursive: true);
     });
 
-    test('הסריקה החוזרת מזהה את ההתקנה ומודיעה עליה, בלי בדיקה ידנית',
-        () async {
-      final c = watching();
-      await c.load();
-      final target = plugin('חדש', 'תוסף חדש', manifestId: manifestId);
+    test(
+      'הסריקה החוזרת מזהה את ההתקנה ומודיעה עליה, בלי בדיקה ידנית',
+      () async {
+        final c = watching();
+        await c.load();
+        final target = plugin('חדש', 'תוסף חדש', manifestId: manifestId);
 
-      final announced = c.installCompletions.first;
-      c.watchForInstall(target);
-      expect(c.isAwaitingInstallOf(target), isTrue);
+        final announced = c.installCompletions.first;
+        c.watchForInstall(target);
+        expect(c.isAwaitingInstallOf(target), isTrue);
 
-      otzariaFinishes('2.0.0');
+        otzariaFinishes('2.0.0');
 
-      expect(await announced, 'תוסף חדש');
-      expect(c.installed[manifestId], '2.0.0');
-      expect(c.isAwaitingInstall, isFalse);
-    });
+        expect(await announced, 'תוסף חדש');
+        expect(c.installed[manifestId], '2.0.0');
+        expect(c.isAwaitingInstall, isFalse);
+      },
+    );
 
     test('גם עדכון מזוהה — הגרסה שעל הדיסק היא שהשתנתה', () async {
       otzariaFinishes('1.0.0');
@@ -821,8 +930,10 @@ void main() {
       );
       server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       server.listen((request) async {
-        request.response.headers
-            .set('content-disposition', 'attachment; filename="$fileName"');
+        request.response.headers.set(
+          'content-disposition',
+          'attachment; filename="$fileName"',
+        );
         request.response.add(body);
         await request.response.close();
       });
@@ -831,12 +942,12 @@ void main() {
     tearDown(() => server.close(force: true));
 
     StorePlugin remote() => StorePlugin.fromApi({
-          'id': 'remote',
-          'name': 'תוסף מרוחק',
-          'version': '1.0.0',
-          'supportsDirectInstall': true,
-          'downloadUrl': 'http://127.0.0.1:${server.port}/download',
-        }, 'https://otzaria.org');
+      'id': 'remote',
+      'name': 'תוסף מרוחק',
+      'version': '1.0.0',
+      'supportsDirectInstall': true,
+      'downloadUrl': 'http://127.0.0.1:${server.port}/download',
+    }, 'https://otzaria.org');
 
     test('הרשומה בזיכרון מתעדכנת גם כשהמסירה נכשלה', () async {
       fileName = 'plugin.zip';
@@ -1009,8 +1120,9 @@ void main() {
     });
 
     test('סנכרון שנכשל אינו מוחק את תוצאת הבדיקה', () async {
-      controller.onlineStatus =
-          const PluginsOnlineStatus(newPlugins: ['תוסף חדש']);
+      controller.onlineStatus = const PluginsOnlineStatus(
+        newPlugins: ['תוסף חדש'],
+      );
 
       await controller.sync();
 
@@ -1042,8 +1154,7 @@ void main() {
               'downloadUrl': '/api/plugins/db-1@1.5.0/download',
             },
           ],
-        }, 'https://otzaria.org')
-            .copyWith(
+        }, 'https://otzaria.org').copyWith(
           manifestId: 'com.example.one',
           localFiles: {
             for (final entry in files.entries)
@@ -1057,12 +1168,18 @@ void main() {
         );
 
     Future<PluginsModuleController> controllerFor(String? appVersion) async {
-      await saveCatalog(PluginCatalog(plugins: [
-        versioned(files: {
-          '2.0.0': 'files/db-1/plugin-2.0.0.otzplugin',
-          '1.5.0': 'files/db-1/plugin-1.5.0.otzplugin',
-        }),
-      ]));
+      await saveCatalog(
+        PluginCatalog(
+          plugins: [
+            versioned(
+              files: {
+                '2.0.0': 'files/db-1/plugin-2.0.0.otzplugin',
+                '1.5.0': 'files/db-1/plugin-1.5.0.otzplugin',
+              },
+            ),
+          ],
+        ),
+      );
       final c = PluginsModuleController(
         mirrorRootDir: p.join(tempDir.path, 'mirror'),
         installedAppVersion: () async => appVersion,
@@ -1108,12 +1225,18 @@ void main() {
       // זוהתה, וגרסה לא ידועה מכשירה **כל** בילד שבמראה — גם זה שירד עבור
       // הגרסה השנייה שהכונן נושא. הודעת הכניסה לחנות נפתחה אז על "עדכון"
       // שהתהפך ל"מעודכן" ברגע שהזיהוי נחת.
-      await saveCatalog(PluginCatalog(plugins: [
-        versioned(files: {
-          '2.0.0': 'files/db-1/plugin-2.0.0.otzplugin',
-          '1.5.0': 'files/db-1/plugin-1.5.0.otzplugin',
-        }),
-      ]));
+      await saveCatalog(
+        PluginCatalog(
+          plugins: [
+            versioned(
+              files: {
+                '2.0.0': 'files/db-1/plugin-2.0.0.otzplugin',
+                '1.5.0': 'files/db-1/plugin-1.5.0.otzplugin',
+              },
+            ),
+          ],
+        ),
+      );
       final calls = <String>[];
       var detected = false;
       final c = PluginsModuleController(
@@ -1215,19 +1338,16 @@ void main() {
 
       expect(outcome.plugins, 1);
       expect(File(p.join(dest, 'Store.exe')).existsSync(), isTrue);
-      expect(
-        File(p.join(dest, 'Data', 'catalog.json')).existsSync(),
-        isTrue,
-      );
+      expect(File(p.join(dest, 'Data', 'catalog.json')).existsSync(), isTrue);
       // הדגל מתאפס גם בהצלחה — אחרת השכבה החוסמת נשארת על המסך.
       expect(controller.isExporting, isFalse);
     });
 
     group('זכירת תיקיית החנות', () {
       PluginsModuleController withState() => PluginsModuleController(
-            mirrorRootDir: p.join(tempDir.path, 'mirror'),
-            stateDir: p.join(tempDir.path, 'state'),
-          );
+        mirrorRootDir: p.join(tempDir.path, 'mirror'),
+        stateDir: p.join(tempDir.path, 'state'),
+      );
 
       Future<String> exportOnce(PluginsModuleController c) async {
         await seedStoreApp();
@@ -1298,8 +1418,8 @@ void main() {
 List<int> _le16(int value) => [value & 0xff, (value >> 8) & 0xff];
 
 List<int> _le32(int value) => [
-      value & 0xff,
-      (value >> 8) & 0xff,
-      (value >> 16) & 0xff,
-      (value >> 24) & 0xff,
-    ];
+  value & 0xff,
+  (value >> 8) & 0xff,
+  (value >> 16) & 0xff,
+  (value >> 24) & 0xff,
+];
