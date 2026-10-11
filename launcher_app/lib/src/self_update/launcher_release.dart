@@ -12,6 +12,7 @@ class LauncherRelease {
     this.publishedAt,
     this.releaseNotes,
     this.changelog,
+    this.sha256,
   });
 
   final String tagName;
@@ -30,6 +31,8 @@ class LauncherRelease {
   /// המנותק יציג "מה התחדש" בלי רשת. `null` כשלא נשלף.
   final String? changelog;
 
+  final String? sha256;
+
   LauncherRelease withChangelog(String? changelog) => LauncherRelease(
         tagName: tagName,
         name: name,
@@ -39,6 +42,7 @@ class LauncherRelease {
         publishedAt: publishedAt,
         releaseNotes: releaseNotes,
         changelog: changelog,
+        sha256: sha256,
       );
 
   /// הגרסה המנורמלת של התג — זו שמוצגת למשתמש ומושווית למותקנת.
@@ -64,6 +68,7 @@ class LauncherRelease {
         if (publishedAt != null) 'publishedAt': publishedAt!.toIso8601String(),
         if (releaseNotes != null) 'releaseNotes': releaseNotes,
         if (changelog != null) 'changelog': changelog,
+        if (sha256 != null) 'sha256': sha256,
       };
 
   /// זורק [FormatException] על רשומה שחסר בה שדה חובה — הקורא (המראה) הופך
@@ -97,6 +102,7 @@ class LauncherRelease {
           : null,
       changelog:
           json['changelog'] is String ? json['changelog'] as String : null,
+      sha256: json['sha256'] is String ? json['sha256'] as String : null,
     );
   }
 }

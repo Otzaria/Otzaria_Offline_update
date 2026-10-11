@@ -135,6 +135,7 @@ class LauncherReleaseClient {
       final size = asset['size'];
       if (name is! String || url is! String || size is! int) continue;
       if (!matchesPlatform(name, _operatingSystem)) continue;
+      final digest = asset['digest'];
 
       return LauncherRelease(
         tagName: tagName,
@@ -148,6 +149,9 @@ class LauncherReleaseClient {
             ? DateTime.tryParse(json['published_at'] as String)
             : null,
         releaseNotes: json['body'] is String ? json['body'] as String : null,
+        sha256: digest is String && digest.startsWith('sha256:')
+            ? digest.substring('sha256:'.length).toLowerCase()
+            : null,
       );
     }
     return null;

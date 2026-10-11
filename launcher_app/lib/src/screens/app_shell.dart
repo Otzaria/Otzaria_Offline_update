@@ -708,8 +708,8 @@ class _AppShellState extends State<AppShell> {
     // יחד רק היו מאטות זו את זו.
     if (_isDownloading || _launcherUpdate.isDownloading) return;
 
-    await _launcherUpdate.download();
-    if (!mounted || !_launcherUpdate.hasUpdateReady) return;
+    final downloaded = await _launcherUpdate.download();
+    if (!downloaded || !mounted || !_launcherUpdate.hasUpdateReady) return;
 
     UiSnack.showSuccess(
       AppL10n.strings.launcherUpdate

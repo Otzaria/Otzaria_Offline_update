@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:otzaria_downloads/otzaria_downloads.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -104,11 +105,6 @@ class LauncherUpdateMirror {
     return MirroredLauncherRelease(release: release, filePath: filePath);
   }
 
-  /// מוריד את [release] אל המראה וכותב את המטא-דאטה. **הפעולה היחידה כאן
-  /// שדורשת אינטרנט.**
-  ///
-  /// המטא-דאטה נכתבת רק אחרי שהקובץ כולו בדיסק, ולכן [load] לא רואה מראה
-  /// חצי-מוכנה. קובץ שכבר קיים בגודל הנכון אינו יורד שוב.
   Future<MirroredLauncherRelease> sync(
     LauncherRelease release, {
     void Function(int received, int total)? onProgress,
@@ -116,23 +112,45 @@ class LauncherUpdateMirror {
     final releaseDir = p.join(mirrorDir, _filesDirName, release.tagName);
     final filePath = p.join(releaseDir, release.assetName);
     final file = File(filePath);
+    final expected = release.sha256;
 
-    final alreadyThere =
-        await file.exists() && await file.length() == release.sizeBytes;
+    final alreadyThere = await file.exists() &&
+        await file.length() == release.sizeBytes &&
+        (expected == null || await _sha256Of(filePath) == expected);
     if (!alreadyThere) {
       await Directory(releaseDir).create(recursive: true);
-      await _download(
+      final result = await _download(
         url: release.downloadUrl,
         destinationPath: filePath,
         expectedSizeBytes: release.sizeBytes,
+        calculateSha256: expected != null,
         onProgress: onProgress,
       );
+      if (expected != null && result.sha256 != expected) {
+        await file.delete();
+        throw LauncherUpdateException(
+            AppL10n.strings.launcherUpdate.digestMismatch);
+      }
     }
 
     await _writeMetadata(release: release, filePath: filePath);
     await _pruneExcept(release.tagName);
     return MirroredLauncherRelease(release: release, filePath: filePath);
   }
+
+  Future<void> verify(MirroredLauncherRelease mirrored) async {
+    final expected = mirrored.release.sha256;
+    if (expected == null) return;
+    if (await _sha256Of(mirrored.filePath) == expected) return;
+    try {
+      await File(mirrored.filePath).delete();
+    } catch (_) {}
+    throw LauncherUpdateException(
+        AppL10n.strings.launcherUpdate.digestMismatch);
+  }
+
+  static Future<String> _sha256Of(String path) async =>
+      (await sha256.bind(File(path).openRead()).first).toString();
 
   /// גרסאות לאנצ'ר קודמות אינן שוות מקום על הכונן — הגרסה שרצה כבר על
   /// הדיסק בתור קובץ ההרצה עצמו.
@@ -172,13 +190,14 @@ class LauncherUpdateMirror {
     await temp.rename(_metadataPath);
   }
 
-  Future<void> _download({
+  Future<FileDownloadResult> _download({
     required String url,
     required String destinationPath,
     required int expectedSizeBytes,
+    required bool calculateSha256,
     void Function(int received, int total)? onProgress,
   }) async {
-    await downloadFile(
+    return downloadFile(
       client: _httpClient,
       url: url,
       destinationPath: destinationPath,
@@ -186,6 +205,7 @@ class LauncherUpdateMirror {
       connectTimeout: connectTimeout,
       stallTimeout: stallTimeout,
       onProgress: onProgress,
+      calculateSha256: calculateSha256,
       statusError: (status) => LauncherUpdateException(
           AppL10n.strings.launcherUpdate.downloadFailed(status)),
       sizeError: (actual, expected) => LauncherUpdateException(

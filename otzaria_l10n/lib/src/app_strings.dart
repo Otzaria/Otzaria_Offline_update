@@ -1044,6 +1044,8 @@ abstract class LauncherUpdateStrings {
   String sizeMismatch(int received, int expected);
   String replaceFailed(String error);
   String restartFailed(String error);
+  String restartFailedRolledBack(String error);
+  String get digestMismatch;
 }
 
 // ── יחידות ומספרים ────────────────────────────────────────────────────────────

@@ -1810,6 +1810,15 @@ class _LauncherUpdate extends LauncherUpdateStrings {
   String restartFailed(String error) =>
       'Launching the new version failed: $error. Please close the program and '
       'start it again manually — the replacement itself already finished.';
+  @override
+  String restartFailedRolledBack(String error) =>
+      'Launching the new version failed: $error. The previous version was '
+      'restored.';
+  @override
+  String get digestMismatch =>
+      'The new version in the folder is damaged — it does not match the '
+      'checksum GitHub publishes for it. Download it again on a computer with '
+      'internet.';
 }
 
 class _Units extends UnitStrings {

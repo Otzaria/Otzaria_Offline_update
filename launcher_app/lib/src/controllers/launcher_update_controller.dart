@@ -61,12 +61,14 @@ class LauncherUpdateController extends ChangeNotifier with ProgressNotifier {
   /// יש בתיקייה גרסה חדשה, מוכנה להתקנה בלי רשת.
   bool get hasUpdateReady => status == LauncherUpdateStatus.readyToInstall;
 
-  /// יש ברשת גרסה חדשה יותר מזו שכבר הורדה (או מזו שרצה, אם לא הורדה
-  /// כלום) — כלומר יש **מה להוריד**. אחרי הורדה מוצלחת זה נכבה מעצמו.
   bool get hasOnlineUpdate {
     final online = onlineRelease;
     if (online == null) return false;
-    final best = downloadedVersion ?? currentVersion;
+    final mirrored = downloadedVersion;
+    final best =
+        mirrored != null && LauncherVersion.isNewer(mirrored, currentVersion)
+            ? mirrored
+            : currentVersion;
     return LauncherVersion.isNewer(online.tagName, best);
   }
 
@@ -123,10 +125,15 @@ class LauncherUpdateController extends ChangeNotifier with ProgressNotifier {
     notifyListeners();
   }
 
-  /// בודק מה מוכן בתיקייה שלצד התוכנה. לא נוגע ברשת.
   Future<void> checkForUpdate() async {
+    await _loadLocal();
+    notifyListeners();
+  }
+
+  Future<void> _loadLocal({bool cleanupLeftovers = true}) async {
     try {
-      final check = await _updater.checkForUpdate();
+      final check =
+          await _updater.checkForUpdate(cleanupLeftovers: cleanupLeftovers);
       downloadedVersion = check.mirroredVersion;
       _downloadedChangelog = check.mirrored?.release.changelog;
       canInstall = check.canInstall;
@@ -140,12 +147,10 @@ class LauncherUpdateController extends ChangeNotifier with ProgressNotifier {
       AppLogger.instance
           .error('LauncherUpdateController.checkForUpdate נכשל', e, st);
     }
-    notifyListeners();
   }
 
-  /// מוריד את הגרסה שברשת אל התיקייה שלצד התוכנה. לא מתקין.
-  Future<void> download() async {
-    if (isDownloading) return;
+  Future<bool> download() async {
+    if (isDownloading) return false;
 
     status = LauncherUpdateStatus.downloading;
     downloadReceived = null;
@@ -164,20 +169,18 @@ class LauncherUpdateController extends ChangeNotifier with ProgressNotifier {
       );
       AppLogger.instance.info("גרסה חדשה של הלאנצ'ר הורדה לתיקייה המקומית");
     } catch (e, st) {
-      status = LauncherUpdateStatus.error;
-      errorMessage = e.toString();
       AppLogger.instance.error("הורדת גרסת הלאנצ'ר נכשלה", e, st);
+      await _loadLocal();
+      if (!hasUpdateReady) status = LauncherUpdateStatus.error;
+      errorMessage = e.toString();
       notifyListeners();
-      return;
+      return false;
     }
 
-    // הבדיקה המקומית היא שקובעת את המצב — היא מאמתת שהקובץ בדיסק בגודל
-    // הנכון, ולא סומכת על כך שההורדה "אמרה" שהצליחה.
     await checkForUpdate();
+    return true;
   }
 
-  /// מחליף את קובץ ההרצה ומפעיל מחדש. מחזיר `true` אם הגרסה החדשה הופעלה —
-  /// ואז התהליך הזה כבר בדרך להסתיים, ואין למה לעדכן UI.
   Future<bool> install() async {
     status = LauncherUpdateStatus.installing;
     errorMessage = null;
@@ -188,20 +191,16 @@ class LauncherUpdateController extends ChangeNotifier with ProgressNotifier {
 
     try {
       final restarted = await _updater.applyUpdate();
-      // ב-macOS ההחלפה הצליחה אך התוכנה הזאת ממשיכה לרוץ בגרסה הישנה, ולכן
-      // "מתקין" היה נשאר על המסך עם מחוון סובב לנצח. הקובץ עוד במראה.
       if (!restarted) {
         status = LauncherUpdateStatus.readyToInstall;
         notifyListeners();
       }
       return restarted;
     } catch (e, st) {
-      // חוזרים ל"מוכן להתקנה" ולא ל-error: הקובץ עדיין במראה, וב-`error`
-      // הכפתור נעלם — במחשב המנותק זו הפעולה היחידה שנשארה, ורק הפעלה
-      // מחדש של הלאנצ'ר הייתה מחזירה אותה. ההודעה עצמה מוצגת לצדו.
-      status = LauncherUpdateStatus.readyToInstall;
-      errorMessage = e.toString();
       AppLogger.instance.error("החלפת קובץ ההרצה של הלאנצ'ר נכשלה", e, st);
+      await _loadLocal(cleanupLeftovers: false);
+      if (!hasUpdateReady) status = LauncherUpdateStatus.error;
+      errorMessage = e.toString();
       notifyListeners();
       return false;
     }

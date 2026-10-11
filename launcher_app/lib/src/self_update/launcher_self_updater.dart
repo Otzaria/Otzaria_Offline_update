@@ -120,11 +120,12 @@ class LauncherSelfUpdater {
     }
   }
 
-  /// בודק מה מוכן בתיקייה מול הגרסה שרצה. לא נוגע ברשת ולא זורק על מראה
-  /// ריקה — "אין מה להתקין" היא תשובה תקינה.
-  Future<LauncherUpdateCheck> checkForUpdate() async {
+  Future<LauncherUpdateCheck> checkForUpdate(
+      {bool cleanupLeftovers = true}) async {
     final layout = _layout;
-    if (layout != null) await _installer.cleanupLeftovers(layout);
+    if (layout != null && cleanupLeftovers) {
+      await _installer.cleanupLeftovers(layout);
+    }
 
     return LauncherUpdateCheck(
       currentVersion: currentVersion,
@@ -152,6 +153,7 @@ class LauncherSelfUpdater {
         AppL10n.strings.launcherUpdate.mirrorMissing,
       );
     }
+    await _mirror.verify(mirrored);
 
     return _installer.apply(
       layout: layout,

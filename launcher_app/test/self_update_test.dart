@@ -8,6 +8,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -38,6 +39,7 @@ Map<String, dynamic> _releaseJson({
   bool draft = false,
   String assetName = 'עדכוני.אוצריא.exe',
   int size = 4,
+  String? digest,
 }) =>
     {
       'tag_name': tag ?? _newerTag,
@@ -51,20 +53,28 @@ Map<String, dynamic> _releaseJson({
           'name': assetName,
           'browser_download_url': 'https://example/$assetName',
           'size': size,
+          if (digest != null) 'digest': digest,
         },
       ],
     };
 
-LauncherRelease _release({String? tag, int size = 4}) =>
-    _releaseFor(tag ?? _newerTag, size);
+LauncherRelease _release({String? tag, int size = 4, String? sha256}) =>
+    _releaseFor(tag ?? _newerTag, size, sha256);
 
-LauncherRelease _releaseFor(String tag, int size) => LauncherRelease(
+LauncherRelease _releaseFor(String tag, int size, [String? sha256]) =>
+    LauncherRelease(
       tagName: tag,
       name: 'Otzaria Updates $tag',
       assetName: 'launcher-$tag.exe',
       downloadUrl: 'https://example/launcher-$tag.exe',
       sizeBytes: size,
+      sha256: sha256,
     );
+
+final String _abcdSha256 = sha256.convert(utf8.encode('abcd')).toString();
+
+String _tagAfterNewer() =>
+    'v${int.parse(LauncherVersion.normalize(launcherVersion).split('.').first) + 2}.0.0';
 
 void main() {
   group('LauncherVersion', () {
@@ -197,6 +207,20 @@ void main() {
       );
 
       expect(release?.assetName, 'launcher_app-macos.zip');
+    });
+
+    test('ה-digest של האסט נשמר כ-sha256 ב-hex קטן', () async {
+      final withDigest = await fetch([
+        _releaseJson(tag: 'v0.2.0', digest: 'sha256:ABCDEF'),
+      ]);
+      expect(withDigest?.sha256, 'abcdef');
+      expect(
+        LauncherRelease.fromJson(withDigest!.toJson()).sha256,
+        'abcdef',
+      );
+
+      final withoutDigest = await fetch([_releaseJson(tag: 'v0.2.0')]);
+      expect(withoutDigest?.sha256, isNull);
     });
 
     test('אין יציב בכלל — null, ולא שגיאה', () async {
@@ -427,6 +451,61 @@ void main() {
       // ובווינדוס אותה מראה בדיוק עדיין תקינה.
       expect(await mirror.load(), isNotNull);
     });
+
+    test('digest תואם — ההורדה נשמרת, וה-sha256 נוסע במטא-דאטה', () async {
+      await mirror.sync(_release(sha256: _abcdSha256));
+
+      final loaded = await mirror.load();
+      expect(loaded?.release.sha256, _abcdSha256);
+      await mirror.verify(loaded!);
+    });
+
+    test('digest שאינו תואם נזרק, והקובץ שהורד נמחק', () async {
+      final release = _release(sha256: 'f' * 64);
+      await expectLater(
+        () => mirror.sync(release),
+        throwsA(isA<LauncherUpdateException>()),
+      );
+
+      final expected = p.join(
+        mirror.mirrorDir,
+        'files',
+        release.tagName,
+        release.assetName,
+      );
+      expect(File(expected).existsSync(), isFalse);
+      expect(await mirror.load(), isNull);
+    });
+
+    test('קובץ שהשתבש בכונן באותו גודל נפסל באימות שלפני ההתקנה', () async {
+      final synced = await mirror.sync(_release(sha256: _abcdSha256));
+      await File(synced.filePath).writeAsString('abce');
+
+      final loaded = await mirror.load();
+      expect(loaded, isNotNull);
+      await expectLater(
+        () => mirror.verify(loaded!),
+        throwsA(isA<LauncherUpdateException>()),
+      );
+      expect(File(synced.filePath).existsSync(), isFalse);
+      expect(await mirror.load(), isNull);
+    });
+
+    test('קובץ קיים בגודל הנכון אך ב-digest שגוי יורד מחדש', () async {
+      final release = _release(sha256: _abcdSha256);
+      final existing = File(p.join(
+        mirror.mirrorDir,
+        'files',
+        release.tagName,
+        release.assetName,
+      ));
+      await existing.parent.create(recursive: true);
+      await existing.writeAsString('abce');
+
+      await mirror.sync(release);
+
+      expect(await existing.readAsString(), 'abcd');
+    });
   });
 
   group('LauncherInstallLayout', () {
@@ -539,9 +618,12 @@ void main() {
 
     tearDown(() => deleteTempDir(temp));
 
-    LauncherSelfInstaller installer() => LauncherSelfInstaller(
+    LauncherSelfInstaller installer({Object? startError}) =>
+        LauncherSelfInstaller(
           currentPid: 4242,
+          operatingSystem: 'windows',
           startDetached: (executable, arguments) async {
+            if (startError != null) throw startError;
             started = [executable, ...arguments];
           },
           quit: () => quits++,
@@ -562,9 +644,9 @@ void main() {
         '{"keep":true}',
       );
       expect(downloaded.existsSync(), isTrue);
-    }, skip: !Platform.isWindows);
+    });
 
-    test('אין שאריות: לא הקובץ הזמני ולא הקודם', () async {
+    test('הקובץ הקודם נשמר עד ההפעלה הבאה, ואז נמחק', () async {
       await installer().apply(
         layout: layout,
         downloadedFilePath: downloaded.path,
@@ -574,12 +656,34 @@ void main() {
         File(p.join(temp.path, LauncherSelfInstaller.stagedName)).existsSync(),
         isFalse,
       );
+      final previous =
+          File(p.join(temp.path, LauncherSelfInstaller.previousName));
+      expect(await previous.readAsString(), 'גרסה ישנה');
+
+      await installer().cleanupLeftovers(layout);
+      expect(previous.existsSync(), isFalse);
+    });
+
+    test('הגרסה החדשה לא עלתה — הקודמת חוזרת למקומה', () async {
+      await expectLater(
+        () => installer(
+          startError: const FileSystemException('not a valid Win32 app'),
+        ).apply(layout: layout, downloadedFilePath: downloaded.path),
+        throwsA(isA<LauncherUpdateException>()),
+      );
+
+      expect(await stub.readAsString(), 'גרסה ישנה');
       expect(
         File(p.join(temp.path, LauncherSelfInstaller.previousName))
             .existsSync(),
         isFalse,
       );
-    }, skip: !Platform.isWindows);
+      expect(
+        File(p.join(temp.path, LauncherSelfInstaller.stagedName)).existsSync(),
+        isFalse,
+      );
+      expect(quits, 0);
+    });
 
     test('מפעיל את הקובץ החדש עם ה-pid שלנו, ואז מסיים', () async {
       await installer().apply(
@@ -591,7 +695,7 @@ void main() {
       // ה-stub החדש ממתין שהתהליך הזה ייסגר לפני שהוא מחלץ מחדש.
       expect(started.last, '${LauncherInstallLayout.afterUpdateFlag}=4242');
       expect(quits, 1);
-    }, skip: !Platform.isWindows);
+    });
 
     test('שאריות מהחלפה שנקטעה נמחקות בבדיקה הבאה', () async {
       final leftover =
@@ -640,6 +744,7 @@ void main() {
     LauncherSelfUpdater updater({
       LauncherInstallLayout? layout,
       String body = 'abcd',
+      int downloadStatus = 200,
       String? changelog,
       LauncherSelfInstaller? installer,
     }) {
@@ -654,12 +759,17 @@ void main() {
           if (changelog == null) return http.Response('', 404);
           return http.Response.bytes(utf8.encode(changelog), 200);
         }
-        return http.Response.bytes(utf8.encode(body), 200);
+        return http.Response.bytes(utf8.encode(body), downloadStatus);
       });
       final made = LauncherSelfUpdater(
         dataDir: temp.path,
         httpClient: client,
         releaseClient: LauncherReleaseClient(
+          httpClient: client,
+          operatingSystem: 'windows',
+        ),
+        mirror: LauncherUpdateMirror(
+          mirrorDir: p.join(temp.path, 'mirror', 'launcher'),
           httpClient: client,
           operatingSystem: 'windows',
         ),
@@ -708,8 +818,76 @@ void main() {
       );
     });
 
+    test('קובץ שהשתבש בכונן באותו גודל אינו מותקן', () async {
+      final layout = LauncherInstallLayout(
+        executablePath: p.join(temp.path, 'stub.exe'),
+      );
+      final self = updater(layout: layout, installer: _NoRestartInstaller());
+      final synced = await self.downloadToMirror(
+        release: _release(sha256: _abcdSha256),
+      );
+      await File(synced!.filePath).writeAsString('abce');
+
+      await expectLater(
+        self.applyUpdate,
+        throwsA(isA<LauncherUpdateException>()),
+      );
+    });
+
     group('LauncherUpdateController', () {
       setUp(() => AppLogger.init(temp.path));
+
+      test('גרסה ותיקה במראה אינה מסתירה שהגרסה שברשת כבר רצה', () {
+        final controller = LauncherUpdateController(
+          dataDir: temp.path,
+          updater: updater(),
+        );
+        addTearDown(controller.dispose);
+
+        controller.onlineRelease = _release(tag: 'v$launcherVersion');
+        controller.downloadedVersion = '0.0.1';
+        expect(controller.hasOnlineUpdate, isFalse);
+
+        controller.onlineRelease = _release();
+        expect(controller.hasOnlineUpdate, isTrue);
+
+        controller.downloadedVersion = _release().version;
+        expect(controller.hasOnlineUpdate, isFalse);
+      });
+
+      test('הורדה שנכשלה משאירה את הגרסה שכבר מוכנה בתיקייה', () async {
+        final ready = LauncherUpdateController(
+          dataDir: temp.path,
+          updater: updater(),
+        );
+        addTearDown(ready.dispose);
+        expect(await ready.download(), isTrue);
+
+        final controller = LauncherUpdateController(
+          dataDir: temp.path,
+          updater: updater(downloadStatus: 500),
+        );
+        addTearDown(controller.dispose);
+        controller.onlineRelease = _release(tag: _tagAfterNewer());
+
+        expect(await controller.download(), isFalse);
+        expect(controller.errorMessage, isNotNull);
+        expect(controller.hasUpdateReady, isTrue);
+        expect(controller.downloadedVersion, _release().version);
+      });
+
+      test('הורדה שנכשלה בלי גרסה מוכנה — מצב שגיאה', () async {
+        final controller = LauncherUpdateController(
+          dataDir: temp.path,
+          updater: updater(downloadStatus: 500),
+        );
+        addTearDown(controller.dispose);
+        controller.onlineRelease = _release();
+
+        expect(await controller.download(), isFalse);
+        expect(controller.status, LauncherUpdateStatus.error);
+        expect(controller.errorMessage, isNotNull);
+      });
 
       test('"מה התחדש" נשלף בהצעה, ואחרי ההורדה נקרא מהמראה', () async {
         final newer = _release().version;
@@ -751,13 +929,14 @@ void main() {
 
       test('כשל התקנה משאיר את הכפתור — במחשב מנותק אין דרך אחרת לנסות שוב',
           () async {
+        final installer = _FailingInstaller();
         final controller = LauncherUpdateController(
           dataDir: temp.path,
           updater: updater(
             layout: LauncherInstallLayout(
               executablePath: p.join(temp.path, 'stub.exe'),
             ),
-            installer: _FailingInstaller(),
+            installer: installer,
           ),
         );
         addTearDown(controller.dispose);
@@ -768,6 +947,43 @@ void main() {
         expect(controller.errorMessage, isNotNull);
         expect(controller.hasUpdateReady, isTrue);
         expect(controller.isInstalling, isFalse);
+        expect(installer.cleanupCalls, 1);
+      });
+
+      test('קובץ שהשתבש באותו גודל — אחרי ההתקנה שנכשלה מוצעת הורדה מחדש',
+          () async {
+        final controller = LauncherUpdateController(
+          dataDir: temp.path,
+          updater: updater(
+            layout: LauncherInstallLayout(
+              executablePath: p.join(temp.path, 'stub.exe'),
+            ),
+            installer: _NoRestartInstaller(),
+          ),
+        );
+        addTearDown(controller.dispose);
+        final release = _release(sha256: _abcdSha256);
+        controller.onlineRelease = release;
+
+        expect(await controller.download(), isTrue);
+        expect(controller.hasOnlineUpdate, isFalse);
+        await File(p.join(
+          temp.path,
+          'mirror',
+          'launcher',
+          'files',
+          release.tagName,
+          release.assetName,
+        )).writeAsString('abce');
+
+        expect(await controller.install(), isFalse);
+        expect(controller.errorMessage, isNotNull);
+        expect(controller.status, LauncherUpdateStatus.error);
+        expect(controller.downloadedVersion, isNull);
+        expect(controller.hasOnlineUpdate, isTrue);
+
+        expect(await controller.download(), isTrue);
+        expect(controller.hasUpdateReady, isTrue);
       });
 
       test('החלפה בלי הפעלה מחדש (macOS) אינה משאירה את המצב על "מתקין"',
@@ -796,7 +1012,6 @@ void main() {
   });
 }
 
-/// החלפה שנכשלה — exe נעול, תיקייה לקריאה בלבד.
 class _FailingInstaller extends LauncherSelfInstaller {
   @override
   Future<bool> apply({
@@ -805,8 +1020,12 @@ class _FailingInstaller extends LauncherSelfInstaller {
   }) async =>
       throw const LauncherUpdateException('החלפה נכשלה');
 
+  int cleanupCalls = 0;
+
   @override
-  Future<void> cleanupLeftovers(LauncherInstallLayout layout) async {}
+  Future<void> cleanupLeftovers(LauncherInstallLayout layout) async {
+    cleanupCalls++;
+  }
 }
 
 /// מדמה את מסלול ה-macOS: ההחלפה הצליחה, ואין הפעלה מחדש.

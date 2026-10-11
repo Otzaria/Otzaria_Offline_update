@@ -1706,6 +1706,13 @@ class _LauncherUpdate extends LauncherUpdateStrings {
   String restartFailed(String error) =>
       'הפעלת הגרסה החדשה נכשלה: $error. יש לסגור את התוכנה ולהפעיל אותה '
       'מחדש ידנית — ההחלפה עצמה כבר הושלמה.';
+  @override
+  String restartFailedRolledBack(String error) =>
+      'הפעלת הגרסה החדשה נכשלה: $error. הגרסה הקודמת הוחזרה למקומה.';
+  @override
+  String get digestMismatch =>
+      'קובץ הגרסה החדשה שבתיקייה פגום — הוא אינו תואם לחתימה שגיטהאב מפרסם '
+      'לו. יש להוריד אותו מחדש במחשב שיש בו אינטרנט.';
 }
 
 class _Units extends UnitStrings {
