@@ -1275,7 +1275,7 @@ abstract class LibraryDomainStrings {
 
   // library_manager
   String get mirrorMissing;
-  String interruptedUpdateNeedsManualFix(String detail);
+  String interruptedUpdateCorruptDb(String detail);
   String get interruptedUpdateDefaultDetail;
   String get blockedNeedsManualAction;
   String get blockedNeedsManualActionWithPeriod;

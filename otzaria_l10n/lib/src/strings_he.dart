@@ -2132,9 +2132,9 @@ class _LibraryDomain extends LibraryDomainStrings {
       'עדיין לא הורדו עדכוני ספרייה לתיקייה המקומית — יש להריץ הורדה במחשב '
       'עם חיבור לאינטרנט.';
   @override
-  String interruptedUpdateNeedsManualFix(String detail) =>
-      '$detail — quick_check נכשל בפועל, נדרשת התערבות ידנית '
-      '(שחזור מגיבוי חיצוני).';
+  String interruptedUpdateCorruptDb(String detail) =>
+      '$detail — המסד נכשל בבדיקת quick_check, ולכן יש להחליף אותו '
+      'בהורדת מסד מלא.';
   @override
   String get interruptedUpdateDefaultDetail => 'עדכון DB שנקטע';
   @override

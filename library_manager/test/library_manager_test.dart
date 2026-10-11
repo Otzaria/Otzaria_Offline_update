@@ -631,7 +631,7 @@ void main() {
       });
     });
 
-    test('סימון שנקטע על DB פגום נעצר עם ההודעה מ-otzaria_l10n', () async {
+    test('סימון שנקטע על DB פגום מתוכנן כהורדה מלאה ולא נחסם', () async {
       final dbPath = p.join(tempDir.path, 'books', 'seforim.db');
       await Directory(p.dirname(dbPath)).create(recursive: true);
       File(dbPath).writeAsStringSync('זה בכלל לא SQLite');
@@ -643,19 +643,90 @@ void main() {
 
       await _withoutNetwork((_) async {
         final manager = LibraryManager(dataDir: dataDir);
-        await expectLater(
-          manager.checkForUpdate(),
-          throwsA(
-            isA<StateError>().having(
-              (e) => e.message,
-              'message',
-              AppL10n.strings.libraryDomain.interruptedUpdateNeedsManualFix(
-                AppL10n.strings.libraryDomain.interruptedUpdateFound,
-              ),
-            ),
+        final check = await manager.checkForUpdate();
+
+        expect(check.isFreshInstall, isFalse);
+        expect(check.dbPath, dbPath);
+        expect(check.localVersion!.hasVersionMeta, isFalse);
+        expect(check.plan!.kind, LibraryUpdatePlanKind.fullDownload);
+        expect(
+          check.plan!.reason,
+          AppL10n.strings.libraryDomain.interruptedUpdateCorruptDb(
+            AppL10n.strings.libraryDomain.interruptedUpdateFound,
           ),
         );
+        expect(File('$dbPath.applying').existsSync(), isTrue);
         manager.dispose();
+      });
+    });
+
+    test('נעילה בזמן בדיקת התקינות אינה מוצגת כמסד פגום', () async {
+      final dbPath = await installExistingDb(5, appliedTag: 'v5');
+      await writeMirror(tag: 'v5', compressedDb: Uint8List.fromList([1, 2]));
+      File('$dbPath.applying').writeAsStringSync('{"fromVersion":4}');
+
+      await _withoutNetwork((_) async {
+        final manager = LibraryManager(dataDir: dataDir);
+        addTearDown(manager.dispose);
+        final writer = sqlite3.sqlite3.open(dbPath);
+        try {
+          writer.execute('BEGIN EXCLUSIVE');
+          writer.execute(
+            "UPDATE schema_meta SET value = '6' WHERE key = 'db_version'",
+          );
+          await expectLater(
+            manager.checkForUpdate(),
+            throwsA(
+              isA<LocalDbUnreadableException>().having(
+                (e) => e.reason,
+                'reason',
+                LocalDbUnreadableReason.locked,
+              ),
+            ),
+          );
+        } finally {
+          writer.execute('ROLLBACK');
+          writer.close();
+        }
+        expect(File('$dbPath.applying').existsSync(), isTrue);
+      });
+    });
+
+    test('<db>.old יתום משוחזר גם כשהמסד לא ישב במיקום ההתקנה', () async {
+      final home = p.join(tempDir.path, 'home');
+      final exeDir = p.join(tempDir.path, 'portable-otzaria');
+      await Directory(exeDir).create(recursive: true);
+      File(
+        p.join(exeDir, LibraryDbLocator.portableMarkerFileName),
+      ).writeAsStringSync('');
+      final livedAt = p.join(
+        home,
+        '.local',
+        'share',
+        'otzaria',
+        'books',
+        LibraryDbLocator.databaseFileName,
+      );
+      await Directory(p.dirname(livedAt)).create(recursive: true);
+      File('$livedAt.old').writeAsBytesSync(buildRealDb(5));
+      await writeMirror(tag: 'v5');
+
+      await _withoutNetwork((_) async {
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          operatingSystem: 'linux',
+          environment: {'HOME': home},
+          otzariaLaunchPath: () async => p.join(exeDir, 'otzaria'),
+        );
+        addTearDown(manager.dispose);
+        expect(await manager.installDbPath(), isNot(livedAt));
+
+        final check = await manager.checkForUpdate();
+
+        expect(check.isFreshInstall, isFalse);
+        expect(check.dbPath, livedAt);
+        expect(check.localVersion!.dbVersion, 5);
+        expect(File('$livedAt.old').existsSync(), isFalse);
       });
     });
   });
@@ -1048,6 +1119,62 @@ void main() {
             ).loadAppliedRelease())?.tag,
             'v5',
           );
+          manager.dispose();
+        });
+      },
+    );
+
+    test(
+      'מסלול חלופי שנוחת מתחת ל-latest נרשם עם ה-tag של המסד המלא',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        if (await const OtzariaProcessGuard().isAnyRunning(
+          OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
+        )) {
+          markTestSkipped('אוצריא פתוחה — ההחלה נחסמת בכוונה');
+          return;
+        }
+
+        final dbPath = await installExistingDb(4, appliedTag: 'v4');
+        final dbBytes = buildRealDb(5);
+        final compressed = p.join(tempDir.path, 'full-below-latest.db.zst');
+        File(
+          compressed,
+        ).writeAsBytesSync(compressWithZstd(bindings, dbBytes), flush: true);
+
+        final check = LibraryUpdateCheckResult(
+          dbPath: dbPath,
+          latestVersion: 6,
+          latestContentTag: 'v6',
+          plan: LibraryUpdatePlan.delta(
+            localVersion: 4,
+            targetVersion: 6,
+            steps: const [],
+            fullDownloadFallback: LibraryUpdatePlan.fullDownload(
+              localVersion: 4,
+              targetVersion: 5,
+              asset: ReleaseAsset(
+                name: 'seforim.db.zst',
+                downloadUrl: compressed,
+                size: File(compressed).lengthSync(),
+              ),
+              releaseTag: 'v5',
+            ),
+          ),
+        );
+
+        await _withoutNetwork((_) async {
+          final manager = LibraryManager(dataDir: dataDir);
+          await manager.applyUpdate(check, useFullDownloadFallback: true);
+
+          final applied = await LibraryStateStore(
+            p.join(dataDir, 'library_state.json'),
+          ).loadAppliedRelease();
+          expect(applied?.tag, 'v5');
+          expect(applied?.dbVersion, 5);
           manager.dispose();
         });
       },

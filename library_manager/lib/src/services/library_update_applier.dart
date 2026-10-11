@@ -597,6 +597,7 @@ class LibraryUpdateApplier {
     _throwIfCancelled(isCancelled);
 
     final dbAlreadyExists = File(dbPath).existsSync();
+    final markerPreexisted = File(_recovery.markerPathFor(dbPath)).existsSync();
     if (dbAlreadyExists) {
       // סימון בלבד — אין גיבוי של המסד, ראו [LibraryDbRecoveryService].
       try {
@@ -621,10 +622,9 @@ class LibraryUpdateApplier {
     try {
       await _guardOtzariaNotRunning();
     } catch (_) {
-      // כשל **נקי** שלא נגע במסד, ולכן אינו "עדכון שנקטע": בלי הניקוי הזה
-      // נשארו הסימון, ה-`.new` (~7GB) והדחוס — והריצה הבאה הייתה קוראת את
-      // הסימון ומריצה `quick_check` של דקות על המסד החי לחינם.
-      if (dbAlreadyExists) _recovery.clearStaleArtifacts(dbPath);
+      if (dbAlreadyExists && !markerPreexisted) {
+        _recovery.clearStaleArtifacts(dbPath);
+      }
       _deleteQuietly(newFilePath);
       deleteStaged();
       rethrow;
@@ -673,10 +673,7 @@ class LibraryUpdateApplier {
         // ה-rename קיימים בדיוק כדי שזה לא יקרה.
         if (rolledBack) _deleteQuietly(retiredPath);
       }
-      // הסימון נמחק רק כשידוע שהמסד החי הוא הישן והתקין. גלגול שנחסם (קובץ
-      // זר תופס את השם) חייב להשאיר סימון — הוא מה שגורם לעלייה הבאה להריץ
-      // `quick_check` ולהודיע, במקום לפתוח בשקט מסד שאינו שלנו.
-      if (dbAlreadyExists && (rolledBack || !retired)) {
+      if (dbAlreadyExists && !markerPreexisted && (rolledBack || !retired)) {
         _recovery.clearStaleArtifacts(dbPath);
       }
       rethrow;

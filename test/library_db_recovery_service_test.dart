@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:seforim_library_updater/src/services/library_db_recovery_service.dart';
+import 'package:seforim_library_updater/src/services/local_db_version_reader.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 import 'package:test/test.dart';
 
@@ -63,6 +64,45 @@ void main() {
       final broken = '${tmp.path}/broken.db';
       File(broken).writeAsBytesSync(List.filled(4096, 0x7a));
       expect(service.checkDbHealthAfterCrash(broken), isFalse);
+    });
+
+    test('נעילה זמנית זורקת LocalDbUnreadableException ולא נחשבת פגם', () {
+      final locked = '${tmp.path}/locked.db';
+      final writer = sqlite3.sqlite3.open(locked);
+      writer.execute('CREATE TABLE t (x)');
+      writer.execute('BEGIN EXCLUSIVE');
+      writer.execute('INSERT INTO t VALUES (1)');
+      try {
+        expect(
+          () => service.checkDbHealthAfterCrash(locked),
+          throwsA(isA<LocalDbUnreadableException>().having(
+            (e) => e.reason,
+            'reason',
+            LocalDbUnreadableReason.locked,
+          )),
+        );
+      } finally {
+        writer.execute('ROLLBACK');
+        writer.close();
+      }
+    });
+
+    test('journal חם במסד מוגן-כתיבה זורק readOnlyLocation ולא נחשב פגם', () {
+      final crashed = _makeHotJournalDb(tmp.path);
+      _setReadOnly(crashed, true);
+      try {
+        expect(
+          () => service.checkDbHealthAfterCrash(crashed),
+          throwsA(isA<LocalDbUnreadableException>()
+              .having((e) => e.reason, 'reason',
+                  LocalDbUnreadableReason.readOnlyLocation)
+              .having((e) => e.extendedResultCode, 'extendedResultCode', 776)),
+        );
+        expect(File('$crashed-journal').existsSync(), isTrue);
+      } finally {
+        _setReadOnly(crashed, false);
+      }
+      expect(service.checkDbHealthAfterCrash(crashed), isTrue);
     });
   });
 
@@ -333,4 +373,11 @@ String _makeHotJournalDb(String dir) {
   c.execute('ROLLBACK');
   c.close();
   return crashed;
+}
+
+void _setReadOnly(String path, bool readOnly) {
+  final result = Platform.isWindows
+      ? Process.runSync('attrib', [readOnly ? '+R' : '-R', path])
+      : Process.runSync('chmod', [readOnly ? '444' : '644', path]);
+  expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
 }

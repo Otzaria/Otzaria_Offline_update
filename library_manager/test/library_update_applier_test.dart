@@ -683,6 +683,84 @@ void main() {
     });
   });
 
+  group('applyFullDownload — סימון של מסד פגום שקדם להחלה', () {
+    const recovery = LibraryDbRecoveryService();
+
+    Future<void> abortAfterBeginApply({
+      required bool markerBefore,
+      required bool failSecondRename,
+    }) async {
+      final compressedPath = writeCompressed(
+        'seforim.db.zst',
+        pseudoRandomBytes(32 * 1024),
+      );
+      File(dbPath).writeAsStringSync('OLD DB');
+      if (markerBefore) {
+        File('$dbPath.applying').writeAsStringSync('{"fromVersion":4}');
+      }
+      applier = LibraryUpdateApplier(
+        processGuard: failSecondRename
+            ? const _FakeGuard(false)
+            : _RunningAfterGuard(1),
+        verifyExtractedDb: (newDbPath, expectedVersion, {onStage}) async {
+          if (failSecondRename) File(newDbPath).deleteSync();
+        },
+      );
+
+      await expectLater(
+        applier.applyFullDownload(
+          plan: fullPlanFor(compressedPath),
+          dbPath: dbPath,
+        ),
+        throwsA(
+          failSecondRename
+              ? isA<FileSystemException>()
+              : isA<OtzariaIsRunningException>(),
+        ),
+      );
+
+      expect(File(dbPath).readAsStringSync(), 'OLD DB');
+      expect(File('$dbPath.old').existsSync(), isFalse);
+      expect(File('$dbPath.new').existsSync(), isFalse);
+    }
+
+    for (final failSecondRename in [false, true]) {
+      final abort = failSecondRename ? 'rename שני שנכשל' : 'אוצריא שנפתחה';
+
+      test('$abort אינו מוחק סימון שהיה קיים לפני ההחלה', () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+
+        await abortAfterBeginApply(
+          markerBefore: true,
+          failSecondRename: failSecondRename,
+        );
+
+        expect(File('$dbPath.applying').existsSync(), isTrue);
+        expect(
+          (await recovery.recoverIfNeeded(dbPath)).action,
+          RecoveryAction.interrupted,
+        );
+      });
+
+      test('$abort מוחק סימון שההחלה עצמה כתבה', () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+
+        await abortAfterBeginApply(
+          markerBefore: false,
+          failSecondRename: failSecondRename,
+        );
+
+        expect(File('$dbPath.applying').existsSync(), isFalse);
+      });
+    }
+  });
+
   group('applyFullDownload — אימות לפני ההחלפה', () {
     test('גרסה שאינה תואמת נעצרת וה-DB הישן נשאר במקומו', () async {
       if (bindings == null) {
@@ -1858,6 +1936,19 @@ class _FakeGuard extends OtzariaProcessGuard {
 
   @override
   Future<bool> isRunning(String processName) async => running;
+}
+
+class _RunningAfterGuard extends OtzariaProcessGuard {
+  _RunningAfterGuard(this.cleanChecks);
+
+  int cleanChecks;
+
+  @override
+  Future<bool> isAnyRunning(List<String> processNames) async =>
+      cleanChecks-- <= 0;
+
+  @override
+  Future<bool> isRunning(String processName) async => cleanChecks-- <= 0;
 }
 
 /// קורא גרסה שמחזיר ערך קבוע — כדי לבדוק את מסלול האימות/השחזור בלי לייצר

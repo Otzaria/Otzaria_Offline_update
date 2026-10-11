@@ -62,8 +62,6 @@ void main() {
       expect(controller.localVersion, 18);
     });
 
-    // A locked DB is a local error with its own message; the flag keeps the
-    // screen from labelling the mirror as the culprit.
     test('locked local DB is an error flagged as local, not a mirror fault',
         () async {
       final dbPath = _dbWithVersion(tempDir, 'locked', 26);
@@ -82,12 +80,66 @@ void main() {
       }
       expect(controller.status, LibraryModuleStatus.error);
       expect(controller.localDbUnreadable, isTrue);
+      expect(controller.needsElevation, isFalse);
       expect(
           controller.errorMessage, AppL10n.strings.libraryDomain.localDbLocked);
 
       await controller.checkForUpdate();
       expect(controller.localDbUnreadable, isFalse);
       expect(controller.status, LibraryModuleStatus.needsDownload);
+    });
+
+    test(
+        'only a write-protected location offers elevation, not a hot '
+        'journal the read-only reader hit or a lock', () {
+      bool offers(LocalDbUnreadableReason reason) =>
+          LibraryModuleController.unreadableDbNeedsElevation(
+              LocalDbUnreadableException(reason, 0, ''));
+      expect(offers(LocalDbUnreadableReason.interruptedWrite), isFalse);
+      expect(offers(LocalDbUnreadableReason.readOnlyLocation), isTrue);
+      expect(offers(LocalDbUnreadableReason.locked), isFalse);
+      expect(
+          LibraryModuleController.unreadableDbNeedsElevation(
+              StateError('other')),
+          isFalse);
+    });
+
+    test(
+        'a hot journal offers elevation only when the read-write health '
+        'check hit it on a write-protected DB', () {
+      final crashed = _hotJournalDb(tempDir);
+      Object thrownBy(void Function() body) {
+        try {
+          body();
+        } catch (e) {
+          return e;
+        }
+        fail('expected an exception');
+      }
+
+      final fromReader =
+          thrownBy(() => const LocalDbVersionReader().read(crashed));
+      expect(
+          fromReader,
+          isA<LocalDbUnreadableException>().having((e) => e.reason, 'reason',
+              LocalDbUnreadableReason.interruptedWrite));
+      expect(LibraryModuleController.unreadableDbNeedsElevation(fromReader),
+          isFalse);
+
+      _setReadOnly(crashed, true);
+      try {
+        final fromHealthCheck = thrownBy(() =>
+            const LibraryDbRecoveryService().checkDbHealthAfterCrash(crashed));
+        expect(
+            fromHealthCheck,
+            isA<LocalDbUnreadableException>().having((e) => e.reason, 'reason',
+                LocalDbUnreadableReason.readOnlyLocation));
+        expect(
+            LibraryModuleController.unreadableDbNeedsElevation(fromHealthCheck),
+            isTrue);
+      } finally {
+        _setReadOnly(crashed, false);
+      }
     });
 
     // "No DB found" would be wrong here: the DB exists but is locked.
@@ -1021,4 +1073,33 @@ class _MirrorRelease {
   final String tag;
   final List<_MirrorPatch> patches;
   final bool hasFullDb;
+}
+
+String _hotJournalDb(Directory tempDir) {
+  final live = p.join(tempDir.path, 'live.db');
+  final writer = sqlite3.sqlite3.open(live);
+  try {
+    writer.execute('PRAGMA journal_mode = DELETE');
+    writer.execute('CREATE TABLE filler (blob BLOB)');
+    for (var i = 0; i < 50; i++) {
+      writer.execute('INSERT INTO filler VALUES (zeroblob(4096))');
+    }
+    writer.execute('PRAGMA cache_size = 1');
+    writer.execute('BEGIN');
+    writer.execute('UPDATE filler SET blob = randomblob(4096)');
+    final crashed = p.join(tempDir.path, 'crashed.db');
+    File(live).copySync(crashed);
+    File('$live-journal').copySync('$crashed-journal');
+    return crashed;
+  } finally {
+    writer.execute('ROLLBACK');
+    writer.close();
+  }
+}
+
+void _setReadOnly(String path, bool readOnly) {
+  final result = Platform.isWindows
+      ? Process.runSync('attrib', [readOnly ? '+R' : '-R', path])
+      : Process.runSync('chmod', [readOnly ? '444' : '644', path]);
+  expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
 }

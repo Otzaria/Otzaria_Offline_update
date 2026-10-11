@@ -2285,9 +2285,9 @@ class _LibraryDomain extends LibraryDomainStrings {
       'No library updates have been downloaded into the local folder yet — '
       'run a download on a computer with internet.';
   @override
-  String interruptedUpdateNeedsManualFix(String detail) =>
-      '$detail — quick_check actually failed, so this needs manual attention '
-      '(restore from an external backup).';
+  String interruptedUpdateCorruptDb(String detail) =>
+      '$detail — the database failed quick_check, so it must be replaced by '
+      'a full database download.';
   @override
   String get interruptedUpdateDefaultDetail => 'An interrupted database update';
   @override

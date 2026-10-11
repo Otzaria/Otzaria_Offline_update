@@ -342,18 +342,21 @@ class LibraryDbLocator {
   }
 
   Future<String?> resolveDbPath() async {
-    final custom = await stateStore.loadCustomDbPath();
-    if (custom != null && await File(custom).exists()) {
-      return custom;
-    }
-
-    for (final candidate in await _otzariaDbCandidates(
-      launchPath: await otzariaLaunchPath?.call(),
-      includeReadOnly: true,
-    )) {
+    for (final candidate in await dbCandidates()) {
       if (await File(candidate).exists()) return candidate;
     }
     return null;
+  }
+
+  Future<List<String>> dbCandidates() async {
+    final custom = await stateStore.loadCustomDbPath();
+    return [
+      if (custom != null) custom,
+      ...await _otzariaDbCandidates(
+        launchPath: await otzariaLaunchPath?.call(),
+        includeReadOnly: true,
+      ),
+    ];
   }
 
   /// לאן תותקן ספרייה **חדשה** כשאין עדיין מסד בשום מקום: בחירת המשתמש אם

@@ -527,8 +527,12 @@ class LibraryManager {
     var dbPath = await locator.resolveDbPath();
     final applying = _appliesInFlight > 0;
     if (dbPath == null && !applying) {
-      final target = await _installDbPath(locator);
-      _recovery.restoreRetiredDbIfOrphaned(target);
+      for (final candidate in {
+        ...await locator.dbCandidates(),
+        await _installDbPath(locator),
+      }) {
+        _recovery.restoreRetiredDbIfOrphaned(candidate);
+      }
       dbPath = await locator.resolveDbPath();
     }
     _lastResolvedDbPath = dbPath;
@@ -536,32 +540,29 @@ class LibraryManager {
     dbPath ??= await _installDbPath(locator);
     _lastInstallDbPath = dbPath;
 
+    const unknownVersion = LocalDbVersion(
+      dbVersion: 0,
+      schemaVersion: null,
+      hasVersionMeta: false,
+    );
     LocalDbVersion local;
+    String? corruptAfterCrashReason;
     if (isFreshInstall) {
-      // אין DB בכלל עדיין — אין מה לקרוא ואין מה לשחזר. localVersion=0 +
-      // hasVersionMeta=false גורמים ל-planner לבחור fullDownload, בדיוק
-      // כמו DB ישן-מדי-לפאץ' (ראו LibraryUpdatePlanner._fullOrBlocked).
-      local = const LocalDbVersion(
-        dbVersion: 0,
-        schemaVersion: null,
-        hasVersionMeta: false,
-      );
+      local = unknownVersion;
     } else {
-      final recovery = applying
-          ? null
-          : await _recovery.recoverIfNeeded(dbPath);
-      if (recovery != null && recovery.action == RecoveryAction.interrupted) {
-        if (!await _recovery.checkDbHealthAfterCrashAsync(dbPath)) {
-          final strings = AppL10n.strings.libraryDomain;
-          throw StateError(
-            strings.interruptedUpdateNeedsManualFix(
-              recovery.detail ?? strings.interruptedUpdateDefaultDetail,
-            ),
-          );
-        }
-        _recovery.clearStaleArtifacts(dbPath);
+      final recovery = applying ? null : await _recovery.recoverIfNeeded(dbPath);
+      final interrupted = recovery?.action == RecoveryAction.interrupted;
+      if (interrupted &&
+          !await _recovery.checkDbHealthAfterCrashAsync(dbPath)) {
+        final strings = AppL10n.strings.libraryDomain;
+        corruptAfterCrashReason = strings.interruptedUpdateCorruptDb(
+          recovery!.detail ?? strings.interruptedUpdateDefaultDetail,
+        );
+        local = unknownVersion;
+      } else {
+        if (interrupted) _recovery.clearStaleArtifacts(dbPath);
+        local = await _versionReader.readInIsolate(dbPath);
       }
-      local = await _versionReader.readInIsolate(dbPath);
     }
 
     final source = await _resolveSource();
@@ -602,6 +603,7 @@ class LibraryManager {
       localReleaseTagVersion: applied?.dbVersion,
       blockingSchemaVersion: discoveryResult.blockingSchemaVersion,
       blockingPatchFormatVersion: discoveryResult.blockingPatchFormatVersion,
+      localVersionUnknownReason: corruptAfterCrashReason,
     );
 
     final settings = await _semanticSettings(locator);
@@ -752,10 +754,8 @@ class LibraryManager {
     }
 
     var booksTouched = const <int>{};
-    // הגרסה שהמסד באמת הגיע אליה. שונה מ-`plan.targetVersion` כשהורדה מלאה
-    // נחתה על מסד ישן והושלמה ב-patches — ראו [LibraryUpdatePlan.followUpDelta].
     var appliedVersion = plan?.targetVersion;
-    var appliedTag = _contentTagFor(check, appliedVersion);
+    var appliedTag = _contentTagFor(check, plan, appliedVersion);
     if (plan != null && check.dbUpdateAvailable) {
       switch (plan.kind) {
         case LibraryUpdatePlanKind.delta:
@@ -800,11 +800,11 @@ class LibraryManager {
                 isCancelled: isCancelled,
                 onStepApplied: (_, version) {
                   appliedVersion = version;
-                  appliedTag = _contentTagFor(check, version);
+                  appliedTag = _contentTagFor(check, plan, version);
                 },
               );
               appliedVersion = followUp.targetVersion;
-              appliedTag = _contentTagFor(check, appliedVersion);
+              appliedTag = _contentTagFor(check, plan, appliedVersion);
             } catch (_) {
               await _finishDbUpdate(
                 check: check,
@@ -945,18 +945,16 @@ class LibraryManager {
     return byAsset;
   }
 
-  /// ה-release שהתוכן בגרסה [version] הגיע ממנו: ה-release החדש ביותר כשהגענו
-  /// ל-latest, ואחרת נושא המסד המלא שהורד. **לא** נושא המסד המלא כברירת מחדל:
-  /// זה מה שהפך כל החלפה שלו ל"עדכון" מגרסה X לאותה גרסה X.
-  String? _contentTagFor(LibraryUpdateCheckResult check, int? version) {
+  String? _contentTagFor(
+    LibraryUpdateCheckResult check,
+    LibraryUpdatePlan? plan,
+    int? version,
+  ) {
     final latest = check.latestVersion;
     if (version != null && latest != null && version >= latest) {
-      return check.latestContentTag ?? check.plan?.fullDbReleaseTag;
+      return check.latestContentTag ?? plan?.fullDbReleaseTag;
     }
-    // מתחת ל-latest ה-tag היחיד שידוע בוודאות הוא של המסד המלא שהותקן.
-    // שרשרת שנעצרת באמצע (מעבר סכמה חתך את הדרך) הייתה נרשמת אחרת כאילו
-    // התוכן הגיע מה-release האחרון — "מסד v23 שהגיע מ-v26".
-    return check.plan?.fullDbReleaseTag;
+    return plan?.fullDbReleaseTag;
   }
 
   /// רישומי הסיום של עדכון מסד שהצליח: state מקומי + הסימון לאוצריא.

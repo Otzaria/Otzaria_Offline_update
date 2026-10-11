@@ -484,7 +484,11 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
   /// סיבת כשל בקריאת הגרסה לרישום אישי; `null` כשלא נמצא מסד עם גרסה.
   String? personalCaptureError;
 
-  /// קוד SQLite ללוג: ההודעה המתורגמת לבדה אינה מזהה את השגיאה.
+  @visibleForTesting
+  static bool unreadableDbNeedsElevation(Object e) =>
+      e is LocalDbUnreadableException &&
+      e.reason == LocalDbUnreadableReason.readOnlyLocation;
+
   static String _sqliteDetail(Object e) => e is LocalDbUnreadableException
       ? ' (${e.reason.name}, SQLite ${e.extendedResultCode}: ${e.detail})'
       : '';
@@ -626,6 +630,7 @@ class LibraryModuleController extends ChangeNotifier with ProgressNotifier {
       errorMessage = e.toString();
       _lastCheck = null;
       localDbUnreadable = e is LocalDbUnreadableException;
+      needsElevation = unreadableDbNeedsElevation(e);
       pendingCompanions = const {};
       unavailableCompanions = const {};
       mirroredCompanions = const {};

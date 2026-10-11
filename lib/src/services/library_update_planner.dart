@@ -48,6 +48,7 @@ class LibraryUpdatePlanner {
     int? localReleaseTagVersion,
     int? blockingSchemaVersion,
     int? blockingPatchFormatVersion,
+    String? localVersionUnknownReason,
   }) {
     final fullTargetVersion = latestFullDbVersion ?? latestVersion;
     final followUp = _followUpDelta(
@@ -66,7 +67,8 @@ class LibraryUpdatePlanner {
         followUp: followUp,
         asset: latestFullDbAsset,
         tag: fullDbReleaseTag,
-        reason: AppL10n.strings.libraryDomain.planLocalVersionUnknown,
+        reason: localVersionUnknownReason ??
+            AppL10n.strings.libraryDomain.planLocalVersionUnknown,
         requireProgress: false,
       );
     }

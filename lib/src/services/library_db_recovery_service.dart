@@ -220,18 +220,36 @@ class LibraryDbRecoveryService {
   }
 }
 
-/// top-level, ומקבלת מחרוזת בלבד — כך ה-`Isolate.run` אינו לוכד `this` ולא
-/// שום `HttpClient` חי. ראו האזהרה ב-`LibraryUpdateApplier`.
 bool _checkDbHealthInIsolate(String dbPath) {
+  sqlite3.Database? db;
   try {
-    final db = sqlite3.sqlite3.open(dbPath, mode: sqlite3.OpenMode.readWrite);
-    try {
-      final result = db.select('PRAGMA quick_check');
-      return result.isNotEmpty && result.first.values.first?.toString() == 'ok';
-    } finally {
-      db.close();
+    db = sqlite3.sqlite3.open(dbPath, mode: sqlite3.OpenMode.readWrite);
+    db.execute('PRAGMA busy_timeout = $_healthCheckBusyTimeoutMs');
+    final result = db.select('PRAGMA quick_check');
+    return result.isNotEmpty && result.first.values.first?.toString() == 'ok';
+  } on sqlite3.SqliteException catch (e) {
+    if (LocalDbVersionReader.isPermanentlyUnreadable(e.extendedResultCode)) {
+      return false;
     }
-  } catch (_) {
-    return false;
+    final reason = switch (LocalDbVersionReader.unreadableReasonFor(
+      e.extendedResultCode,
+      opened: db != null,
+    )) {
+      LocalDbUnreadableReason.interruptedWrite =>
+        LocalDbUnreadableReason.readOnlyLocation,
+      final other => other,
+    };
+    if (reason != null) {
+      throw LocalDbUnreadableException(
+        reason,
+        e.extendedResultCode,
+        e.message,
+      );
+    }
+    rethrow;
+  } finally {
+    db?.close();
   }
 }
+
+const int _healthCheckBusyTimeoutMs = 2000;
