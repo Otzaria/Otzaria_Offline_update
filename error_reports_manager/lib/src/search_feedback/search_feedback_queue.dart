@@ -214,7 +214,14 @@ Future<String> _canonicalDirectory(
   final requested = (await directory()).absolute;
   var existing = requested;
   while (!await existing.exists()) {
-    existing = existing.parent;
+    final parent = existing.parent;
+    if (parent.path == existing.path) {
+      throw FileSystemException(
+        'No existing ancestor directory',
+        requested.path,
+      );
+    }
+    existing = parent;
   }
   final base = await existing.resolveSymbolicLinks();
   return p.normalize(

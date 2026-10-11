@@ -191,6 +191,36 @@ void main() {
         (jsonDecode(await block.readAsString()) as Map)['delaySeconds'], 43200);
   });
 
+  for (final contents in ['{"delaySec', '[1]', '{"delaySeconds":"x"}']) {
+    test('corrupt filter backoff $contents still defers the next attempt',
+        () async {
+      identity.registeredKeyId = identity.keyId;
+      await SearchFeedbackIdentityStore(() async => Directory(source))
+          .save(identity);
+      var requests = 0;
+      final transport =
+          SearchFeedbackTransport(destination, client: MockClient((_) async {
+        requests++;
+        return http.Response('<html>blocked</html>', 200);
+      }));
+      addTearDown(transport.close);
+      await transport.collect(source, mayCollect: () async => true);
+      final block = File(p.join(destination, 'network-block.json'));
+      await block.writeAsString(contents);
+      expect(await transport.upload(), (sent: 0, rejected: 0, remaining: 1));
+      expect((jsonDecode(await block.readAsString()) as Map)['delaySeconds'],
+          21600);
+      final retryAt = DateTime.parse(
+          await File(p.join(destination, 'retry-at.txt')).readAsString());
+      expect(
+          retryAt.isAfter(DateTime.now().add(const Duration(hours: 5))), true);
+      expect(await transport.upload(), (sent: 0, rejected: 0, remaining: 1));
+      expect(requests, 1);
+      expect(await File(p.join(destination, 'network-block.json.tmp')).exists(),
+          false);
+    });
+  }
+
   test('blocked key cannot be resumed or collected', () async {
     identity.blocked = true;
     await SearchFeedbackIdentityStore(() async => Directory(source))

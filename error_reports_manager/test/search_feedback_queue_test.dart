@@ -17,6 +17,25 @@ Future<void> _writeFromIsolate(
   }
 }
 
+class _VanishedRoot implements Directory {
+  _VanishedRoot(this.path);
+
+  @override
+  final String path;
+
+  @override
+  Directory get absolute => this;
+
+  @override
+  Directory get parent => _VanishedRoot(path);
+
+  @override
+  Future<bool> exists() => Future.delayed(Duration.zero, () => false);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   late Directory temporary;
   late Directory directory;
@@ -358,6 +377,15 @@ void main() {
     expect(queue.eventCount, 1);
     expect(calls, 2);
   });
+
+  test('directory resolution fails when no ancestor exists', () async {
+    queue = SearchFeedbackQueue(
+      () async => _VanishedRoot(r'E:\'),
+      clock: () => now,
+    );
+    await expectLater(queue.load(), throwsA(isA<FileSystemException>()));
+    await expectLater(queue.load(), throwsA(isA<FileSystemException>()));
+  }, timeout: const Timeout(Duration(seconds: 10)));
 
   test('removing a context key preserves the original and event lines', () {
     final batch = SearchFeedbackStoredBatch(
