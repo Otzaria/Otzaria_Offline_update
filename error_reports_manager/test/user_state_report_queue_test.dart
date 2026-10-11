@@ -577,6 +577,27 @@ void main() {
       expect(await locateUserStateDb(dataRoot: dataRoot), isNull);
       expect(Directory(dataRoot).existsSync(), isFalse);
     });
+
+    test('מאתר באותה תיקייה גם מסד אחר של אוצריא לפי שם', () async {
+      final custom = p.join(temp.path, 'custom');
+      final f = touch(p.join(custom, 'plugins_host.db'));
+      touch(p.join(custom, 'user_state.db'));
+      expect(
+        await locateUserStateDb(
+          dataRoot: dataRoot,
+          databasesPathSetting: custom,
+          fileName: 'plugins_host.db',
+        ),
+        f.path,
+      );
+      expect(
+        await locateUserStateDb(
+          dataRoot: dataRoot,
+          fileName: 'plugins_host.db',
+        ),
+        isNull,
+      );
+    });
   });
 }
 

@@ -9,6 +9,7 @@ export 'src/models/plugins_online_status.dart';
 export 'src/models/store_app_release.dart';
 export 'src/models/store_plugin.dart';
 export 'src/plugins_manager.dart';
+export 'src/services/installed_plugins_registry.dart';
 export 'src/services/installed_plugins_scanner.dart';
 export 'src/services/plugin_compatibility.dart';
 export 'src/services/plugin_direct_installer.dart';

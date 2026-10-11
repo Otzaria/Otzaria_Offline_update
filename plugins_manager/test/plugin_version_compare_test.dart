@@ -71,5 +71,22 @@ void main() {
         );
       }
     });
+
+    test('סיומת prerelease או build עם נקודות אינה מוסיפה מקטעים', () {
+      expect(comparePluginVersions('1.0.0-beta.2', '1.0.0'), 0);
+      expect(comparePluginVersions('1.0.0+build.5', '1.0.0'), 0);
+      expect(comparePluginVersions('1.0.0-rc.1+7', '1.0.0'), 0);
+      expect(comparePluginVersions('v1.0.1-beta.9', '1.0.0'), 1);
+    });
+  });
+
+  group('compareAppVersions', () {
+    test('משווה רק major.minor.patch, כמו אוצריא', () {
+      expect(compareAppVersions('0.9.97.2+800', '0.9.97'), 0);
+      expect(compareAppVersions('0.9.97.2', '0.9.97.9'), 0);
+      expect(compareAppVersions('0.9.98.1', '0.9.97'), 1);
+      expect(compareAppVersions('0.9.96', '0.9.97.5'), -1);
+      expect(compareAppVersions('1.0.0-beta.3', '1.0.0'), 0);
+    });
   });
 }

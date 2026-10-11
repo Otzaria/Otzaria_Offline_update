@@ -61,6 +61,7 @@ class PluginsManager {
     required this.resolveMirrorDir,
     this.resolvePluginsDir,
     this.otzariaLaunchPath,
+    this.locatePluginsDb,
     String baseUrl = PluginStoreClient.defaultBaseUrl,
     http.Client? httpClient,
   }) : _client = PluginStoreClient(baseUrl: baseUrl, client: httpClient);
@@ -77,6 +78,8 @@ class PluginsManager {
   /// ([PluginDirectInstaller]). `null` = ברירות המחדל של הפלטפורמה ומטפל
   /// הפרוטוקול, כמו קודם.
   final Future<String?> Function()? otzariaLaunchPath;
+
+  final Future<String?> Function(String dataRoot)? locatePluginsDb;
 
   final PluginStoreClient _client;
 
@@ -98,12 +101,10 @@ class PluginsManager {
     );
   }
 
-  /// סורק **רק** את ההתקנה של אוצריא, בלי לקרוא את הקטלוג. קיים בנפרד כדי
-  /// שהלאנצ'ר יוכל לרענן את המפה אחרי שנתיב ההתקנה התברר — לפניו הסריקה
-  /// קראה תיקייה אחרת לגמרי.
   Future<Map<String, String>> scanInstalled() async => InstalledPluginsScanner(
         customPluginsDir: await resolvePluginsDir?.call(),
         otzariaLaunchPath: await otzariaLaunchPath?.call(),
+        locatePluginsDb: locatePluginsDb,
       ).scan();
 
   /// מסנכרן את הקטלוג והקבצים מהאתר אל המראה. דורש אינטרנט. מוריד **רק**

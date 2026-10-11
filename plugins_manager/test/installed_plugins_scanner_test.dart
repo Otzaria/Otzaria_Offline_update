@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:plugins_manager/plugins_manager.dart';
+import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'support.dart';
@@ -151,6 +152,107 @@ void main() {
       final scanner = InstalledPluginsScanner(customPluginsDir: temp.path);
       expect(await scanner.scan(), isEmpty);
     });
+  });
+
+  group('scan מול רישום ההתקנות של אוצריא', () {
+    late String pluginsDir;
+    late String dbPath;
+
+    setUp(() {
+      pluginsDir = p.join(temp.path, 'plugins');
+      dbPath = p.join(temp.path, 'databases', pluginsRegistryFileName);
+      Directory(p.dirname(dbPath)).createSync(recursive: true);
+    });
+
+    Database openRegistry(Map<String, String> rows) {
+      final db = sqlite3.open(dbPath)
+        ..execute('PRAGMA journal_mode=WAL')
+        ..execute(
+          'CREATE TABLE plugin_installation ('
+          'plugin_id TEXT PRIMARY KEY, name TEXT NOT NULL, '
+          'version TEXT NOT NULL, install_path TEXT NOT NULL)',
+        );
+      for (final row in rows.entries) {
+        db.execute(
+          'INSERT INTO plugin_installation VALUES (?, ?, ?, ?)',
+          [row.key, row.key, row.value, p.join(pluginsDir, row.key)],
+        );
+      }
+      return db;
+    }
+
+    test('הרישום גובר על תיקיות שנשארו אחרי מחיקה או התקנה שנקטעה', () async {
+      install(pluginsDir, 'updated', '{"version":"1.0.0"}');
+      install(pluginsDir, 'updated', '{"version":"2.0.0"}',
+          release: '.release-new');
+      install(pluginsDir, 'removed', '{"version":"1.0.0"}',
+          release: '.release-old');
+      install(pluginsDir, 'half', '{"version":"1.0.0"}',
+          release: '.release-old');
+      install(pluginsDir, 'half', '{"version":"3.0.0"}',
+          release: '.release-staged');
+      final writer = openRegistry({'updated': '2.0.0', 'half': '1.0.0'});
+      addTearDown(writer.close);
+
+      String? askedRoot;
+      final scanner = InstalledPluginsScanner(
+        customPluginsDir: pluginsDir,
+        locatePluginsDb: (dataRoot) async {
+          askedRoot = dataRoot;
+          return dbPath;
+        },
+      );
+
+      expect(await scanner.scan(), {'updated': '2.0.0', 'half': '1.0.0'});
+      expect(askedRoot, temp.path);
+    });
+
+    test('רישום ריק פירושו שאין תוספים, גם כשתיקיות נשארו', () async {
+      install(pluginsDir, 'leftover', '{"version":"1.0.0"}');
+      openRegistry(const {}).close();
+
+      final scanner = InstalledPluginsScanner(
+        customPluginsDir: pluginsDir,
+        locatePluginsDb: (_) async => dbPath,
+      );
+      expect(await scanner.scan(), isEmpty);
+    });
+
+    test('בלי רישום קריא חוזרים לסריקת התיקיות', () async {
+      install(pluginsDir, 'alpha', '{"version":"1.2.3"}');
+
+      Future<Map<String, String>> scanWith(
+              Future<String?> Function(String) locate) =>
+          InstalledPluginsScanner(
+            customPluginsDir: pluginsDir,
+            locatePluginsDb: locate,
+          ).scan();
+
+      expect(await scanWith((_) async => null), {'alpha': '1.2.3'});
+      expect(await scanWith((_) async => dbPath), {'alpha': '1.2.3'});
+      expect(await scanWith((_) => throw StateError('x')), {'alpha': '1.2.3'});
+
+      File(dbPath).writeAsStringSync('לא מסד נתונים');
+      expect(await scanWith((_) async => dbPath), {'alpha': '1.2.3'});
+
+      File(dbPath).deleteSync();
+      sqlite3.open(dbPath)
+        ..execute('CREATE TABLE other (x)')
+        ..close();
+      expect(await scanWith((_) async => dbPath), {'alpha': '1.2.3'});
+    });
+  });
+
+  group('scan כשקריאת התיקייה נכשלת', () {
+    test('תיקיית installed שאי אפשר לקרוא מחזירה מפה ריקה ולא זורקת', () async {
+      install(temp.path, 'alpha', '{"version":"1.0.0"}');
+      final installed = p.join(temp.path, 'installed');
+      Process.runSync('chmod', ['000', installed]);
+      addTearDown(() => Process.runSync('chmod', ['755', installed]));
+
+      final scanner = InstalledPluginsScanner(customPluginsDir: temp.path);
+      expect(await scanner.scan(), isEmpty);
+    }, skip: Platform.isWindows ? 'chmod אינו קיים בווינדוס' : false);
   });
 
   group('resolveInstalledDir', () {

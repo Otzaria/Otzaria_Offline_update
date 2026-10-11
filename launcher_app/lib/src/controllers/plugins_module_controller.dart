@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:flutter/foundation.dart';
+import 'package:library_manager/library_manager.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
@@ -28,22 +30,30 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
     required String mirrorRootDir,
     String? stateDir,
     Future<String?> Function()? otzariaLaunchPath,
+    Future<String?> Function(String dataRoot)? locatePluginsDb,
     this.mirroredAppVersions,
     this.installedAppVersion,
     this.ensureAppVersionsKnown,
     this.installWatchInterval = const Duration(seconds: 1),
     this.installWatchTimeout = const Duration(minutes: 5),
-  })  
-  // תיקיית התוספים של אוצריא נגזרת מההתקנה שהלאנצ'ר זיהה ואינה ניתנת
-  // להגדרה — ראו AppPaths: אין נתיבים בהגדרות.
-  : _manager = PluginsManager(
+  })  : _manager = PluginsManager(
           resolveMirrorDir: () async => mirrorRootDir,
           otzariaLaunchPath: otzariaLaunchPath,
+          locatePluginsDb: locatePluginsDb,
         ),
-        // תיקיית הכתיבה, כי "מה כבר נראה" הוא נתון של המחשב הזה.
         _known = stateDir == null ? null : KnownPluginsStore(stateDir),
         _destination =
             stateDir == null ? null : StoreAppDestinationStore(stateDir);
+
+  static Future<String?> locateOtzariaPluginsDb(String dataRoot) async {
+    final settings = await const OtzariaSettingsReader().read(dataRoot);
+    return locateUserStateDb(
+      dataRoot: dataRoot,
+      databasesPathSetting: settings?.databasesPath,
+      libraryPathSetting: settings?.libraryPath,
+      fileName: pluginsRegistryFileName,
+    );
+  }
 
   final PluginsManager _manager;
 

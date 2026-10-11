@@ -13,21 +13,16 @@ library;
 import '../models/plugin_version_entry.dart';
 import 'plugin_version_compare.dart';
 
-/// האם [appVersion] נופלת בטווח התאימות של [entry].
-///
-/// שדה חסר = גבול פתוח. בילדים היסטוריים שאורכבו לפני שנשמרו שדות התאימות
-/// מגיעים עם `compatibleWith` ריק, ואין לפסול אותם בגלל נתון חסר. גם
-/// [appVersion] ריקה (לא ידוע מה מותקן) אינה פוסלת דבר.
 bool isCompatibleWithApp(PluginVersionEntry entry, String? appVersion) {
   if (appVersion == null || appVersion.isEmpty) return true;
   if (entry.compatibleWith.isNotEmpty &&
-      comparePluginVersions(appVersion, entry.compatibleWith) < 0) {
+      compareAppVersions(appVersion, entry.compatibleWith) < 0) {
     return false;
   }
   final max = entry.maxAppVersion;
   if (max != null &&
       max.isNotEmpty &&
-      comparePluginVersions(appVersion, max) > 0) {
+      compareAppVersions(appVersion, max) > 0) {
     return false;
   }
   return true;
@@ -65,17 +60,12 @@ List<PluginVersionEntry> resolveTargets(
   return targets.values.toList(growable: false);
 }
 
-/// גרסת האוצריא הנמוכה ביותר שעדיין מריצה בילד כלשהו — הרצפה הנמוכה מכל
-/// הבילדים, ולא זו של החי. מאפשר לומר למי שאין לו גרסה תואמת מה הוא באמת
-/// צריך, במקום את דרישת הבילד האחרון שהיא לרוב גבוהה יותר.
-///
-/// `null` כשלבילד כלשהו אין רצפה בכלל — ואז "אוצריא ישנה מדי" אינו ההסבר.
 String? lowestSupportedAppVersion(List<PluginVersionEntry> entries) {
   String? lowest;
   for (final entry in entries) {
     if (entry.compatibleWith.isEmpty) return null;
     if (lowest == null ||
-        comparePluginVersions(entry.compatibleWith, lowest) < 0) {
+        compareAppVersions(entry.compatibleWith, lowest) < 0) {
       lowest = entry.compatibleWith;
     }
   }

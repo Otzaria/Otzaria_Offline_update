@@ -1179,6 +1179,15 @@ Older installs use `installed/<manifest.id>/current/`; newer ones
 left every recently installed plugin out of the map, so the store showed it as never
 installed and the "only what is not installed" toggle did not hide it. `current` wins
 when both exist; among several `.release-` dirs the most recently written is active.
+That directory walk is only the **fallback**: when Otzaria's own registry
+(`plugin_installation` in `plugins_host.db`, found like `user_state.db` via
+`locateUserStateDb(fileName:)`) is readable, it is the answer, opened read-only in an
+isolate. Directories outlive what Otzaria considers installed — an old release whose
+delete failed, a staged `.release-` from an interrupted install, a plugin whose
+uninstall removed the row but not the folder — and the walk reported all of them.
+App-range checks use `compareAppVersions` (major.minor.patch only, suffix stripped at
+the first `+`/`-`), exactly like Otzaria's `compareCoreVersions`, so a hotfix tag such
+as `0.9.97.2+800` is not above a `maxAppVersion` of `0.9.97`.
 
 **The mirror carries the plugin build that will *run*, not the newest one published.**
 Every build declares `compatibleWith` (minimum Otzaria version) and `maxAppVersion`,

@@ -1,33 +1,23 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 
-/// סורק את התוספים שאוצריא כבר התקינה במחשב הזה.
-///
-/// המבנה של אוצריא: `<pluginsDir>/installed/<manifestId>/<הוצאה>/manifest.json`,
-/// וה-`version` שבתוכו הוא הגרסה המותקנת בפועל. תיקיית ההוצאה היא `current`
-/// בהתקנות הישנות ו-`.release-<hash>` בחדשות — **שתיהן** נסרקות, אחרת כל
-/// תוסף שהותקן במבנה החדש נראה כלא-מותקן.
-///
-/// בדומה ל-`LibraryDbLocator`, הנתיב **מתגלה ולא מונח כקבוע**: קודם נתיב
-/// שנמסר במפורש, אחר כך שורש הנתונים של ההתקנה שהלאנצ'ר זיהה (התקנה ניידת
-/// שומרת אותו לידה ולא ב-`%APPDATA%`), ולבסוף ברירת המחדל של הפלטפורמה.
-/// תיקייה שלא קיימת מחזירה מפה ריקה בשקט — זה המצב התקין כשאוצריא לא
-/// מותקנת או שאין עדיין תוספים.
+import 'installed_plugins_registry.dart';
+
 class InstalledPluginsScanner {
   const InstalledPluginsScanner({
     this.customPluginsDir,
     this.otzariaLaunchPath,
+    this.locatePluginsDb,
   });
 
-  /// תיקיית התוספים של אוצריא כפי שנמסרה במפורש, אם נמסרה.
   final String? customPluginsDir;
 
-  /// נתיב ההפעלה של אוצריא שהלאנצ'ר זיהה (`.exe` בווינדוס, חבילת `.app`
-  /// ב-macOS). ממנו נגזרת תיקיית התוספים של התקנה ניידת. `null` = פשוט
-  /// מדלגים על האפשרות הזו.
   final String? otzariaLaunchPath;
+
+  final Future<String?> Function(String dataRoot)? locatePluginsDb;
 
   /// שם תיקיית המשנה שאוצריא מתקינה לתוכה כל תוסף.
   static const String installedDirName = 'installed';
@@ -43,21 +33,39 @@ class InstalledPluginsScanner {
   static const String portableMarkerFileName = 'portable.marker';
   static const String portableDataFolderName = 'otzaria_data';
 
-  /// מחזיר `manifestId -> גרסה מותקנת`.
   Future<Map<String, String>> scan() async {
     final root = resolveInstalledDir();
     if (root == null) return const {};
+
+    final registered = await _readRegistry(root);
+    if (registered != null) return registered;
 
     final dir = Directory(root);
     if (!await dir.exists()) return const {};
 
     final result = <String, String>{};
-    await for (final entry in dir.list(followLinks: false)) {
-      if (entry is! Directory) continue;
-      final version = _readInstalledVersion(entry.path);
-      if (version != null) result[p.basename(entry.path)] = version;
+    try {
+      await for (final entry in dir.list(followLinks: false)) {
+        if (entry is! Directory) continue;
+        final version = _readInstalledVersion(entry.path);
+        if (version != null) result[p.basename(entry.path)] = version;
+      }
+    } on FileSystemException {
+      return result;
     }
     return result;
+  }
+
+  Future<Map<String, String>?> _readRegistry(String installedDir) async {
+    final locate = locatePluginsDb;
+    if (locate == null) return null;
+    try {
+      final dbPath = await locate(p.dirname(p.dirname(installedDir)));
+      if (dbPath == null) return null;
+      return await Isolate.run(() => readInstalledPluginsRegistry(dbPath));
+    } catch (_) {
+      return null;
+    }
   }
 
   /// תיקיית ה-`installed` שתיסרק בפועל, או null אם אי אפשר לגזור אותה

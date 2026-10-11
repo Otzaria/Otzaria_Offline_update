@@ -12,13 +12,12 @@ import '../port/direct_error_report.dart';
 import '../port/plugin_report_record.dart';
 import 'report_outbox.dart';
 
-/// `user_state.db` כמו `AppPaths.resolveNotesDbPath` של אוצריא. `null` = אין
-/// מסד שהיא הייתה פותחת — ולעולם לא יוצרים אחד.
 Future<String?> locateUserStateDb({
   required String dataRoot,
   String? databasesPathSetting,
   String? libraryPathSetting,
   Future<bool> Function(String dir)? isWritable,
+  String fileName = UserStateReportQueue.fileName,
 }) async {
   final internal = p.join(dataRoot, 'databases');
   final String preferred;
@@ -29,14 +28,11 @@ Future<String?> locateUserStateDb({
   } else if (libraryPathSetting != null && libraryPathSetting.isNotEmpty) {
     preferred = p.join(p.dirname(libraryPathSetting), 'databases');
   } else {
-    // בלי הגדרה אוצריא נופלת ל-`<dataRoot>/books`, כלומר לאותה `databases`.
     preferred = internal;
   }
-  // `_writableDatabasesDirectory`: המועדפת רק כשאפשר לכתוב בה (גם אם תיווצר).
   final writable = p.equals(preferred, internal) ||
       await (isWritable ?? _canWriteIn)(preferred);
-  final file = File(
-      p.join(writable ? preferred : internal, UserStateReportQueue.fileName));
+  final file = File(p.join(writable ? preferred : internal, fileName));
   return await file.exists() ? file.path : null;
 }
 

@@ -71,6 +71,13 @@ void main() {
       expect(isCompatibleWithApp(entry, '0.9.96+736'), isTrue);
       expect(isCompatibleWithApp(entry, '0.9.94+686'), isFalse);
     });
+
+    test('מקטע רביעי או סיומת עם נקודות בגרסת אוצריא אינם פוסלים', () {
+      expect(isCompatibleWithApp(entry, '0.9.99.2+800'), isTrue);
+      expect(isCompatibleWithApp(entry, '0.9.99-beta.4'), isTrue);
+      expect(isCompatibleWithApp(entry, '0.9.95.0'), isTrue);
+      expect(isCompatibleWithApp(entry, '0.9.100.1'), isFalse);
+    });
   });
 
   group('resolveCompatibleVersion', () {

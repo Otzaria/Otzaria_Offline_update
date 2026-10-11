@@ -6,6 +6,7 @@ import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:plugins_manager/plugins_manager.dart';
+import 'package:sqlite3/sqlite3.dart';
 
 import 'test_support.dart';
 
@@ -576,6 +577,37 @@ void main() {
       await c.load();
 
       expect(c.installed, {pluginId: '1.4.0'});
+    });
+
+    test('רישום ההתקנות של אוצריא גובר על מבנה התיקיות', () async {
+      launchPath = exe;
+      final dbPath = p.join(
+        p.dirname(exe),
+        InstalledPluginsScanner.portableDataFolderName,
+        'databases',
+        pluginsRegistryFileName,
+      );
+      Directory(p.dirname(dbPath)).createSync(recursive: true);
+      sqlite3.open(dbPath)
+        ..execute(
+          'CREATE TABLE plugin_installation '
+          '(plugin_id TEXT PRIMARY KEY, version TEXT NOT NULL)',
+        )
+        ..execute(
+          'INSERT INTO plugin_installation VALUES (?, ?)',
+          [pluginId, '1.5.0'],
+        )
+        ..close();
+      final c = PluginsModuleController(
+        mirrorRootDir: p.join(tempDir.path, 'mirror'),
+        otzariaLaunchPath: () async => launchPath,
+        locatePluginsDb: PluginsModuleController.locateOtzariaPluginsDb,
+      );
+      addTearDown(c.dispose);
+
+      await c.load();
+
+      expect(c.installed, {pluginId: '1.5.0'});
     });
 
     test('refreshInstalled סורק מחדש אחרי שנתיב ההתקנה התברר', () async {

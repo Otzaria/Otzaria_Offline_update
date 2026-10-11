@@ -218,6 +218,7 @@ class _AppShellState extends State<AppShell> {
       // אותו נתיב התקנה שמודול הספרייה מקבל: התקנה ניידת מחזיקה גם את
       // התוספים לידה, ואליה גם נמסרת ההתקנה הישירה של תוסף.
       otzariaLaunchPath: () async => _otzaria.launchPath,
+      locatePluginsDb: PluginsModuleController.locateOtzariaPluginsDb,
       // ההורדה מביאה בילד תוסף לכל גרסת אוצריא שהכונן נושא — שתיהן, בדיוק
       // כמו מראת התוכנה עצמה. נקרא **בזמן** הסנכרון, שרץ אחרי הורדת
       // התוכנה, ולכן משקף גם גרסה שזה עתה ירדה.
