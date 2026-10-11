@@ -69,6 +69,122 @@ void main() {
     });
   });
 
+  group('downloading from GitHub', () {
+    const id = 'org.example.gh';
+    late String appDir;
+
+    Map<String, dynamic> releaseJson(String tag, List<String> assets) => {
+          'tag_name': tag,
+          'prerelease': false,
+          'draft': false,
+          'published_at': '2026-08-13T10:00:00Z',
+          'assets': [
+            for (final name in assets)
+              {
+                'name': name,
+                'browser_download_url': 'https://example.test/$name',
+                'size': 3,
+              },
+          ],
+        };
+
+    Future<CustomAppsManager> managerServing(
+      List<Map<String, dynamic>> releases,
+    ) async {
+      final m = CustomAppsManager(
+        resolveMirrorDir: () async => root,
+        readVersion: (_) => '1',
+        processRunner: runner.call,
+        githubClient: GithubAppClient(
+          httpClient: MockClient((request) async {
+            if (request.url.host == 'api.github.com') {
+              return http.Response(
+                jsonEncode(releases),
+                200,
+                headers: {'content-type': 'application/json; charset=utf-8'},
+              );
+            }
+            return http.Response('abc', 200);
+          }),
+        ),
+      );
+      await m.add(
+        AppDescriptor(
+          id: id,
+          name: 'gh',
+          sourceKind: AppSourceKind.github,
+          github: GithubSource(
+            owner: 'o',
+            repo: 'r',
+            assetPattern: GithubAssetPattern.fromAssetName('App-1.4.exe'),
+          ),
+        ),
+      );
+      appDir = p.join(root, 'apps', id);
+      return m;
+    }
+
+    test('stale partials of an older asset are swept after success', () async {
+      final m = await managerServing([
+        releaseJson('v1.5', ['App-1.5.exe']),
+      ]);
+      final stale = [
+        writeFile(p.join(appDir, 'App-1.4.exe.part.part')),
+        writeFile(p.join(appDir, 'App-1.4.exe.part.resume'), '{}'),
+        writeFile(p.join(appDir, 'App-1.4.exe.part')),
+      ];
+
+      final stored = await m.downloadFromGithub(id);
+
+      expect(stored.fileName, 'App-1.5.exe');
+      expect(File(p.join(appDir, 'App-1.5.exe')).readAsStringSync(), 'abc');
+      for (final path in stale) {
+        expect(File(path).existsSync(), isFalse, reason: path);
+      }
+      expect(File(p.join(appDir, 'descriptor.json')).existsSync(), isTrue);
+      expect(File(p.join(appDir, 'installer.json')).existsSync(), isTrue);
+    });
+
+    test('a newer release without a matching asset is skipped', () async {
+      final m = await managerServing([
+        releaseJson('v3.0', ['Other-3.0.exe']),
+        releaseJson('v1.5', ['App-1.5.exe']),
+      ]);
+
+      expect(
+          (await m.peekLatestOnline((await m.load(id))!.descriptor))!.tagName,
+          'v1.5');
+      final stored = await m.downloadFromGithub(id);
+      expect(stored.fileName, 'App-1.5.exe');
+      expect(stored.version, '1.5');
+    });
+
+    test('a backport published after a newer release does not win', () async {
+      final m = await managerServing([
+        releaseJson('v1.9.5', ['App-1.9.exe']),
+        releaseJson('v2.0.0', ['App-2.0.exe']),
+      ]);
+
+      final stored = await m.downloadFromGithub(id);
+      expect(stored.version, '2.0.0');
+      expect(stored.fileName, 'App-2.0.exe');
+    });
+
+    test('attaching an installer also sweeps stale partials', () async {
+      final m = await managerServing(const []);
+      final stale = writeFile(p.join(appDir, 'App-1.4.exe.part.part'));
+
+      await m.attachInstaller(
+        id,
+        sourcePath: writeFile(p.join(root, 'src', 'App-1.5.exe')),
+        version: '1.5',
+      );
+
+      expect(File(stale).existsSync(), isFalse);
+      expect(File(p.join(appDir, 'App-1.5.exe')).existsSync(), isTrue);
+    });
+  });
+
   group('installer.json naming a file outside the app folder', () {
     late String outside;
 

@@ -39,7 +39,6 @@ String customAppStoredLabel(BuildContext context, CustomAppView app) {
       : t.storedInstaller(stored.version);
 }
 
-/// מה שנמצא ברשת, כשנבדק. `null` כשלא נבדק — לא ממציאים מצב.
 String? customAppOnlineLabel(
   BuildContext context,
   CustomAppsController controller,
@@ -52,7 +51,7 @@ String? customAppOnlineLabel(
   if (controller.onlineUnavailable.contains(id)) return t.onlineUnavailable;
   final online = controller.onlineVersions[id];
   if (online == null) return null;
-  return online == app.storedInstaller?.version
-      ? t.onlineUpToDate
-      : t.onlineVersionAvailable(online);
+  return customAppOnlineIsNewer(online, app.storedInstaller?.version)
+      ? t.onlineVersionAvailable(online)
+      : t.onlineUpToDate;
 }

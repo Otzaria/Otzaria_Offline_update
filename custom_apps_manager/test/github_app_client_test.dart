@@ -76,6 +76,51 @@ void main() {
     test('ריפו בלי גרסאות — null ולא שגיאה', () async {
       expect(await clientReturning([]).fetchLatest(source), isNull);
     });
+
+    test('a backport published after a newer release does not win', () async {
+      final client = clientReturning([
+        release('v1.9.5'),
+        release('v2.0.0'),
+        release('v1.9.4'),
+      ]);
+      expect((await client.fetchLatest(source))!.tagName, 'v2.0.0');
+    });
+
+    test('tags that are not plain versions keep the list order', () async {
+      final client = clientReturning([
+        release('nightly-2'),
+        release('v5.0'),
+      ]);
+      expect((await client.fetchLatest(source))!.tagName, 'nightly-2');
+    });
+
+    test('the newest release with a matching asset is chosen', () async {
+      final client = clientReturning([
+        release('v3.0', assets: ['Other-3.0.exe']),
+        release('v2.0', assets: ['App-2.0.exe']),
+        release('v1.0', assets: ['App-1.0.exe']),
+      ]);
+      final withPattern = GithubSource(
+        owner: 'someone',
+        repo: 'their-app',
+        assetPattern: GithubAssetPattern.fromAssetName('App-1.0.exe'),
+      );
+      expect((await client.fetchLatest(withPattern))!.tagName, 'v2.0');
+    });
+
+    test('with no matching asset anywhere the newest release is reported',
+        () async {
+      final client = clientReturning([
+        release('v3.0', assets: ['Other-3.0.exe']),
+        release('v2.0', assets: ['Other-2.0.exe']),
+      ]);
+      final withPattern = GithubSource(
+        owner: 'someone',
+        repo: 'their-app',
+        assetPattern: GithubAssetPattern.fromAssetName('App-1.0.exe'),
+      );
+      expect((await client.fetchLatest(withPattern))!.tagName, 'v3.0');
+    });
   });
 
   group('נרמול הגרסה', () {

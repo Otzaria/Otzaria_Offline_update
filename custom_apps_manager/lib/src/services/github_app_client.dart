@@ -30,17 +30,53 @@ class GithubAppClient {
 
   static const int _pageSize = 20;
 
-  /// הגרסה האחרונה שאינה טיוטה. pre-release נבחר רק אם אין שום גרסה
-  /// יציבה — GitHub מחזיר מהחדש לישן, ולכן "יציבה ראשונה ברשימה" היא
-  /// היציבה האחרונה.
-  ///
-  /// זורק חריג רשת/HTTP רגיל בכשל; הקורא מתייחס אליו כ"אין חיבור כרגע".
   Future<GithubRelease?> fetchLatest(GithubSource source) async {
     final releases = await fetchReleases(source);
-    for (final release in releases) {
-      if (!release.isPrerelease) return release;
+    final pattern = source.assetPattern;
+    if (pattern.isEmpty) return _newest(releases);
+    final usable = [
+      for (final release in releases)
+        if (selectAsset(release, pattern) != null) release,
+    ];
+    return _newest(usable) ?? _newest(releases);
+  }
+
+  static GithubRelease? _newest(List<GithubRelease> releases) {
+    final stable = [
+      for (final release in releases)
+        if (!release.isPrerelease) release,
+    ];
+    final pool = stable.isEmpty ? releases : stable;
+    if (pool.isEmpty) return null;
+    final numbers = [
+      for (final release in pool) _numericVersion(release.version),
+    ];
+    if (numbers.contains(null)) return pool.first;
+    var best = 0;
+    for (var i = 1; i < pool.length; i++) {
+      if (_compareNumeric(numbers[i]!, numbers[best]!) > 0) best = i;
     }
-    return releases.isEmpty ? null : releases.first;
+    return pool[best];
+  }
+
+  static List<int>? _numericVersion(String version) {
+    final numbers = <int>[];
+    for (final part in version.split('.')) {
+      final number = int.tryParse(part);
+      if (number == null || number < 0 || part.startsWith('+')) return null;
+      numbers.add(number);
+    }
+    return numbers;
+  }
+
+  static int _compareNumeric(List<int> a, List<int> b) {
+    final count = a.length > b.length ? a.length : b.length;
+    for (var i = 0; i < count; i++) {
+      final left = i < a.length ? a[i] : 0;
+      final right = i < b.length ? b[i] : 0;
+      if (left != right) return left < right ? -1 : 1;
+    }
+    return 0;
   }
 
   /// כל ה-releases האחרונים, מהחדש לישן, בלי טיוטות. משמש את בורר הקבצים

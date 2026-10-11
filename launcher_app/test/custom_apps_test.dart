@@ -955,6 +955,41 @@ void main() {
       expect(result.downloaded, 0);
     });
 
+    testWidgets('an older online version never replaces the drive copy',
+        (tester) async {
+      late ({int checked, int downloaded, int failed, int notChecked}) result;
+      late _FakeManager fake;
+      late List<CustomAppView> outdated;
+      await tester.runAsync(() async {
+        final built = await fakeController(
+          {'a': '1.9.5'},
+          ids: ['a'],
+          storedVersion: '2.0.0',
+        );
+        fake = built.fake;
+        await built.controller.load();
+        await built.controller.checkAllOnline();
+        outdated = built.controller.outdatedApps;
+        result = await built.controller.downloadAllOutdated();
+        built.controller.dispose();
+      });
+
+      expect(outdated, isEmpty);
+      expect(fake.downloaded, isEmpty);
+      expect(result.downloaded, 0);
+    });
+
+    test('customAppOnlineIsNewer', () {
+      expect(customAppOnlineIsNewer('2.0.0', '1.9.5'), isTrue);
+      expect(customAppOnlineIsNewer('1.9.5', '2.0.0'), isFalse);
+      expect(customAppOnlineIsNewer('1.2', '1.2.0'), isFalse);
+      expect(customAppOnlineIsNewer('1.2.0', null), isTrue);
+      expect(customAppOnlineIsNewer('1.0.0', '1.0.0-beta'), isTrue);
+      expect(customAppOnlineIsNewer('1.0.0-beta2', '1.0.0-beta1'), isTrue);
+      expect(customAppOnlineIsNewer('nightly-2', 'nightly-1'), isTrue);
+      expect(customAppOnlineIsNewer('nightly-1', 'nightly-1'), isFalse);
+    });
+
     testWidgets('יורדת רק התוכנה שיש לה ברשת גרסה חדשה', (tester) async {
       late ({int checked, int downloaded, int failed, int notChecked}) result;
       late _FakeManager fake;

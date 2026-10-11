@@ -209,9 +209,6 @@ class CustomAppsManager {
     }
   }
 
-  /// מעתיק קובץ התקנה אל תיקיית התוכנה במראה, כך שייסע על הכונן.
-  ///
-  /// מחליף קובץ קודם אם היה — "עדכון" במקור `manual` פירושו בדיוק זה.
   Future<StoredInstaller> attachInstaller(
     String id, {
     required String sourcePath,
@@ -220,7 +217,6 @@ class CustomAppsManager {
     final t = AppL10n.strings.customAppsDomain;
     final source = File(sourcePath);
     final fileName = p.basename(sourcePath);
-    // שם הקובץ חייב להישמר ללא שינוי גם במחשב Windows אחר.
     if (safeFileName(fileName) == null || !await source.exists()) {
       throw AppDescriptorException(t.installerFileMissing(sourcePath));
     }
@@ -231,7 +227,6 @@ class CustomAppsManager {
 
     final target = store.installerPathNamed(id, fileName);
     await Directory(store.dirFor(id)).create(recursive: true);
-    // מכינים עותק לפני ההחלפה: המקור יכול להיות המתקין שכבר במראה.
     final temp = File('$target.part');
     try {
       await source.copy(temp.path);
@@ -245,7 +240,6 @@ class CustomAppsManager {
       version: version,
       sizeBytes: await File(target).length(),
       addedAt: DateTime.now(),
-      // מהעותק שבמראה ולא מהמקור — זה הקובץ שייבדק לפני ההתקנה.
       sha256: await sha256OfFile(target),
     );
     await store.saveInstaller(id, stored);
@@ -254,11 +248,10 @@ class CustomAppsManager {
         await File(store.installerPathFor(id, old)).delete();
       } catch (_) {}
     }
+    await _sweepPartials(store, id, keep: fileName);
     return stored;
   }
 
-  /// בודק ברשת מה הגרסה האחרונה בריפו — **פעולה קלה**, קריאת API אחת בלי
-  /// הורדת קובץ. זורק כשהתוכנה אינה מוגדרת עם ריפו.
   Future<GithubRelease?> peekLatestOnline(AppDescriptor descriptor) async {
     final source = descriptor.github;
     if (descriptor.sourceKind != AppSourceKind.github || source == null) {
@@ -269,8 +262,6 @@ class CustomAppsManager {
     return github.fetchLatest(source);
   }
 
-  /// **הפעולה הכבדה שנוגעת ברשת**: מוריד מהריפו את הקובץ שנבחר אל המראה,
-  /// כך שייסע על הכונן. רצה על המחשב המקוון בלבד.
   Future<StoredInstaller> downloadFromGithub(
     String id, {
     void Function(int received, int total)? onProgress,
@@ -287,16 +278,10 @@ class CustomAppsManager {
       release,
       entry.descriptor.github!.assetPattern,
     );
-    // התבנית נבנתה משם שהמשתמש בחר, אך שמות משתנים. הודעה מפורשת עדיפה
-    // על הורדת "הקובץ הראשון", שהיא בדיוק הבאג שהתבנית קיימת כדי למנוע.
-    // An unsafe asset name counts as no usable asset, intentionally reusing
-    // that message: GitHub sanitizes asset names, so this is a backstop.
     if (asset == null || safeFileName(asset.name) == null) {
       throw AppDescriptorException(t.githubNoMatchingAsset(release.tagName));
     }
 
-    // מורידים לשם זמני ומחליפים רק בסוף: הורדה שנקטעה לא תיראה כקובץ
-    // שמוכן להתקנה במחשב המנותק.
     final target = store.installerPathNamed(id, asset.name);
     final temp = '$target.part';
     final digest = await github.download(asset, temp, onProgress: onProgress);
@@ -316,7 +301,26 @@ class CustomAppsManager {
       sha256: digest,
     );
     await store.saveInstaller(id, stored);
+    await _sweepPartials(store, id, keep: stored.fileName);
     return stored;
+  }
+
+  Future<void> _sweepPartials(
+    CustomAppStore store,
+    String id, {
+    required String keep,
+  }) async {
+    try {
+      await for (final entity
+          in Directory(store.dirFor(id)).list(followLinks: false)) {
+        final name = p.basename(entity.path);
+        if (entity is! File || name == keep) continue;
+        if (!name.endsWith('.part') && !name.endsWith('.resume')) continue;
+        try {
+          await entity.delete();
+        } on FileSystemException catch (_) {}
+      }
+    } on FileSystemException catch (_) {}
   }
 
   /// מתקין מהקובץ ששמור במראה. **לא נוגע ברשת** — זה מה שעובד במחשב

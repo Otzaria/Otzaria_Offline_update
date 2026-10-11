@@ -14,6 +14,25 @@ import 'progress_notifier.dart';
 String? readInstallerVersion(String path) =>
     CustomAppsController._readInstalledVersion(path);
 
+bool customAppOnlineIsNewer(String online, String? stored) {
+  if (stored == null) return true;
+  if (online == stored) return false;
+  final left = OtzariaUpdateCheckResult.normalizeVersion(online);
+  final right = OtzariaUpdateCheckResult.normalizeVersion(stored);
+  if (!_hasNumericBase(left) || !_hasNumericBase(right)) return true;
+  final order = OtzariaUpdateCheckResult.compareVersions(left, right);
+  if (order != 0) return order > 0;
+  return left.contains('-') && right.contains('-') && left != right;
+}
+
+bool _hasNumericBase(String version) {
+  final dash = version.indexOf('-');
+  final base = dash < 0 ? version : version.substring(0, dash);
+  return base
+      .split('.')
+      .every((part) => part.isNotEmpty && int.tryParse(part) != null);
+}
+
 /// תוכנה מותאמת אחת, כפי שהמסך צריך אותה: התיאור, מה שמור על הכונן, ומה
 /// מותקן על המחשב הזה.
 class CustomAppView {
@@ -423,15 +442,13 @@ class CustomAppsController extends ChangeNotifier with ProgressNotifier {
           if (app.descriptor.sourceKind == AppSourceKind.github) app,
       ];
 
-  /// נמצאה ברשת גרסה שאינה זו ששמורה על הכונן — **רק אחרי שנבדק**.
-  /// "לא נבדק" אינו "אין חדש", וכשל בבדיקה מכסה גם תשובה ישנה שנשארה
-  /// בזיכרון: זה בדיוק מה שהכרטיס מציג.
   bool _hasNewerOnline(CustomAppView app) {
     final id = app.descriptor.id;
     if (app.descriptor.sourceKind != AppSourceKind.github) return false;
     if (onlineUnavailable.contains(id)) return false;
     final online = onlineVersions[id];
-    return online != null && online != app.storedInstaller?.version;
+    return online != null &&
+        customAppOnlineIsNewer(online, app.storedInstaller?.version);
   }
 
   /// התוכנות שיש להן ברשת גרסה חדשה מזו שעל הכונן — אלה ואלה בלבד שההורדה
