@@ -374,21 +374,33 @@ class LibraryManager {
     await Future.wait<void>([exportFuture, companionsFuture]);
 
     if (includeSemanticSearch) {
-      final discovery = await LibraryUpdateDiscovery(
-        client: await _resolveSource(),
-      ).discover(allowPrerelease: allowPrerelease);
-      final tag = discovery.latestContentTag;
-      if (tag == null) {
-        throw StateError(AppL10n.strings.libraryDomain.companionsMirrorMissing);
-      }
       final semantic = SemanticSearchAssets();
       try {
+        final discovery = await LibraryUpdateDiscovery(
+          client: await _resolveSource(),
+        ).discover(allowPrerelease: allowPrerelease);
+        final tag = discovery.latestContentTag;
+        if (tag == null) {
+          throw StateError(
+            AppL10n.strings.libraryDomain.companionsMirrorMissing,
+          );
+        }
         await semantic.sync(
           mirrorDir: semanticMirrorDir,
           libraryTag: tag,
           onStage: onStage,
           onBytesProgress: onBytesProgress,
           isCancelled: isCancelled,
+        );
+      } catch (e) {
+        // ביטול אינו כשל, גם כשהוא הגיע כחריג אחר (סגירת חיבור באמצע).
+        if (e is PatchDownloadCancelled || (isCancelled?.call() ?? false)) {
+          rethrow;
+        }
+        // הספרייה והנלווים כבר ירדו; כשל בחיפוש החכם לא מפיל אותם, כמו נלווה.
+        onCompanionWarning?.call(
+          AppL10n.strings.libraryDomain.companionSemanticName,
+          e,
         );
       } finally {
         semantic.dispose();

@@ -59,6 +59,23 @@ void main() {
     });
   }
 
+  test('sync מציין את קוד ה-HTTP בהודעת הכשל', () async {
+    final client = MockClient((_) async => http.Response('{}', 403));
+    addTearDown(client.close);
+    final assets = SemanticSearchAssets(httpClient: client);
+    addTearDown(assets.dispose);
+    await expectLater(
+      assets.sync(mirrorDir: mirror, libraryTag: tag),
+      throwsA(
+        isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          contains('HTTP 403'),
+        ),
+      ),
+    );
+  });
+
   for (final value in [null, [], 'text', 1, {}]) {
     test(
       'non-release metadata $value fails without replacing the mirror',

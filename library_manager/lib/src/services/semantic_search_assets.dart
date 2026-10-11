@@ -65,6 +65,12 @@ class SemanticSearchAssets {
     AppL10n.strings.libraryDomain.companionAssetMissingInRelease(_name),
   );
 
+  /// כשל HTTP עם הקוד בהודעה — בלי זה 403 של מגבלת קצב נראה כמו "אין קובץ".
+  Never _httpFailure(int status) => throw FormatException(
+    '${AppL10n.strings.libraryDomain.companionAssetMissingInRelease(_name)}'
+    ' (HTTP $status)',
+  );
+
   void dispose() {
     if (_ownsClient) _client.close();
   }
@@ -230,7 +236,7 @@ class SemanticSearchAssets {
         .timeout(const Duration(seconds: 30));
     _cancel(isCancelled);
     if (response.statusCode != 200) {
-      _invalid();
+      _httpFailure(response.statusCode);
     }
     final release = jsonDecode(response.body);
     if (release is! Map ||
@@ -262,7 +268,7 @@ class SemanticSearchAssets {
         .timeout(const Duration(seconds: 30));
     _cancel(isCancelled);
     if (manifestResponse.statusCode != 200) {
-      _invalid();
+      _httpFailure(manifestResponse.statusCode);
     }
     final manifestBytes = manifestResponse.bodyBytes;
     if (manifestAsset['size'] != manifestBytes.length) {
