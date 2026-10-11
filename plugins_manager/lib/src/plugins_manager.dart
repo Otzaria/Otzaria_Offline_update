@@ -248,18 +248,10 @@ class PluginsManager {
     return local?.fileName ?? '${plugin.name}${local?.ext ?? '.otzplugin'}';
   }
 
-  /// מתקין את התוסף באוצריא דרך `otzaria://plugin/install-local` — ישירות
-  /// אל ההתקנה ש-[otzariaLaunchPath] מצביע עליה, כשהיא ידועה.
-  ///
-  /// אם קובץ התוסף חסר מהמראה (למשל הסנכרון דילג עליו) הוא מורד עכשיו —
-  /// וזה הצעד היחיד כאן שדורש אינטרנט. כשהקובץ כבר במראה, ההתקנה עובדת
-  /// בלי רשת בכלל.
-  ///
-  /// [appVersion] היא גרסת אוצריא שבמחשב הזה — היא שקובעת **איזה בילד**
-  /// מותקן. `null` = לא ידוע, ואז נבחר הבילד החי כמו קודם.
   Future<PluginInstallResult> directInstall(
     StorePlugin plugin, {
     String? appVersion,
+    void Function(StorePlugin updated)? onPluginUpdated,
   }) async {
     final store = await _store();
     final strings = AppL10n.strings.pluginsDomain;
@@ -271,7 +263,7 @@ class PluginsManager {
 
     var local = plugin.localFileFor(target.version);
     if (local == null || !await store.hasAsset(local.relativePath)) {
-      local = await _fetchMissingFile(store, plugin, target);
+      local = await _fetchMissingFile(store, plugin, target, onPluginUpdated);
       if (local == null) {
         return PluginInstallResult.failure(strings.pluginFileNotAvailable);
       }
@@ -283,11 +275,11 @@ class PluginsManager {
     );
   }
 
-  /// מוריד בילד חסר ומעדכן את הקטלוג. מחזיר null אם לא הצליח.
   Future<PluginLocalFile?> _fetchMissingFile(
     PluginMirrorStore store,
     StorePlugin plugin,
     PluginVersionEntry target,
+    void Function(StorePlugin updated)? onPluginUpdated,
   ) async {
     if (target.downloadUrl.isEmpty) return null;
 
@@ -312,8 +304,6 @@ class PluginsManager {
             plugin.manifestId ?? PluginManifestReader.readId(asset.path),
       );
 
-      // הקטגוריות וטקסטי דף הבית **חייבים** לנסוע איתם: בלעדיהם השמירה הזו
-      // מוחקת את כל מבנה החנות מהמראה בגלל הורדה של קובץ בודד.
       final catalog = await store.load();
       await store.save(PluginCatalog(
         lastSync: catalog.lastSync,
@@ -324,6 +314,7 @@ class PluginsManager {
         categories: catalog.categories,
         home: catalog.home,
       ));
+      onPluginUpdated?.call(updated);
       return file;
     } catch (_) {
       return null;

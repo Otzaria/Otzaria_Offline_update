@@ -229,12 +229,17 @@ void main() {
     });
 
     test('כשל בהשלמת הקובץ החסר מוחזר ככשל ולא כחריג', () async {
+      final reported = <StorePlugin>[];
       final result = await manager(
         client: MockClient((_) async => http.Response('nope', 500)),
-      ).directInstall(plugin(downloadUrl: '/api/plugins/a/download'));
+      ).directInstall(
+        plugin(downloadUrl: '/api/plugins/a/download'),
+        onPluginUpdated: reported.add,
+      );
 
       expect(result.success, isFalse);
       expect(result.error, strings.pluginFileNotAvailable);
+      expect(reported, isEmpty);
     });
 
     test('קובץ חסר מושלם ונרשם בקטלוג לפני ההתקנה', () async {
@@ -243,6 +248,7 @@ void main() {
       final entry = plugin(downloadUrl: '/api/plugins/a/download');
       await store.save(PluginCatalog(plugins: [entry]));
 
+      final reported = <StorePlugin>[];
       final result = await manager(
         client: MockClient((_) async => http.Response.bytes(
               pluginBytes('{"id":"manifest-a"}'),
@@ -251,9 +257,15 @@ void main() {
                 'content-disposition': 'attachment; filename="plugin.zip"',
               },
             )),
-      ).directInstall(entry);
+      ).directInstall(entry, onPluginUpdated: reported.add);
 
       expect(result.error, strings.badPluginExtension);
+      expect(reported, hasLength(1));
+      expect(reported.single.manifestId, 'manifest-a');
+      expect(
+        reported.single.localFileFor('1.0.0')?.relativePath,
+        'files/a/plugin-1.0.0.zip',
+      );
 
       final saved = (await store.load()).plugins.single;
       expect(saved.anyLocalFile?.relativePath, 'files/a/plugin-1.0.0.zip');

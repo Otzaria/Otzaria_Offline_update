@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -690,6 +691,153 @@ void main() {
     });
   });
 
+  group('התקנה ישירה של בילד שטרם ירד', () {
+    const manifestId = 'downloaded-manifest';
+    late HttpServer server;
+    late String fileName;
+
+    List<int> storedZip(String name, List<int> content) {
+      final nameBytes = utf8.encode(name);
+      final localBytes = [
+        ..._le32(0x04034b50),
+        ..._le16(20),
+        ..._le16(0),
+        ..._le16(0),
+        ..._le32(0),
+        ..._le32(0),
+        ..._le32(content.length),
+        ..._le32(content.length),
+        ..._le16(nameBytes.length),
+        ..._le16(0),
+        ...nameBytes,
+        ...content,
+      ];
+      final centralBytes = [
+        ..._le32(0x02014b50),
+        ..._le16(20),
+        ..._le16(20),
+        ..._le16(0),
+        ..._le16(0),
+        ..._le32(0),
+        ..._le32(0),
+        ..._le32(content.length),
+        ..._le32(content.length),
+        ..._le16(nameBytes.length),
+        ..._le16(0),
+        ..._le16(0),
+        ..._le16(0),
+        ..._le16(0),
+        ..._le32(0),
+        ..._le32(0),
+        ...nameBytes,
+      ];
+      return [
+        ...localBytes,
+        ...centralBytes,
+        ..._le32(0x06054b50),
+        ..._le16(0),
+        ..._le16(0),
+        ..._le16(1),
+        ..._le16(1),
+        ..._le32(centralBytes.length),
+        ..._le32(localBytes.length),
+        ..._le16(0),
+      ];
+    }
+
+    setUp(() async {
+      HttpOverrides.global = null;
+      fileName = 'plugin.otzplugin';
+      final body = storedZip(
+        'manifest.json',
+        utf8.encode('{"id":"$manifestId","version":"1.0.0"}'),
+      );
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((request) async {
+        request.response.headers
+            .set('content-disposition', 'attachment; filename="$fileName"');
+        request.response.add(body);
+        await request.response.close();
+      });
+    });
+
+    tearDown(() => server.close(force: true));
+
+    StorePlugin remote() => StorePlugin.fromApi({
+          'id': 'remote',
+          'name': 'תוסף מרוחק',
+          'version': '1.0.0',
+          'supportsDirectInstall': true,
+          'downloadUrl': 'http://127.0.0.1:${server.port}/download',
+        }, 'https://otzaria.org');
+
+    test('הרשומה בזיכרון מתעדכנת גם כשהמסירה נכשלה', () async {
+      fileName = 'plugin.zip';
+      final c = PluginsModuleController(
+        mirrorRootDir: p.join(tempDir.path, 'mirror'),
+      );
+      addTearDown(c.dispose);
+      await saveCatalog(PluginCatalog(plugins: [remote()]));
+      await c.load();
+      final stale = c.byId('remote')!;
+      expect(c.hasFileFor(stale), isFalse);
+
+      final result = await c.directInstall(stale);
+
+      expect(result.success, isFalse);
+      final fresh = c.byId('remote')!;
+      expect(c.hasFileFor(fresh), isTrue);
+      expect(fresh.manifestId, manifestId);
+      expect(c.isAwaitingInstall, isFalse);
+    });
+
+    test('מסירה שהצליחה ממתינה להתקנה לפי המניפסט שירד', () async {
+      final exe = p.join(tempDir.path, 'otzaria-stub');
+      File(exe).writeAsStringSync('#!/bin/sh\nexit 0\n');
+      await Process.run('chmod', ['+x', exe]);
+      final c = PluginsModuleController(
+        mirrorRootDir: p.join(tempDir.path, 'mirror'),
+        otzariaLaunchPath: () async => exe,
+      );
+      addTearDown(c.dispose);
+      await saveCatalog(PluginCatalog(plugins: [remote()]));
+      await c.load();
+
+      final result = await c.directInstall(c.byId('remote')!);
+
+      expect(result.success, isTrue, reason: result.error);
+      expect(c.isAwaitingInstallOf(c.byId('remote')!), isTrue);
+      expect(c.byId('remote')!.manifestId, manifestId);
+    }, skip: Platform.isWindows);
+  });
+
+  group('canDirectInstall', () {
+    test('נקבע לפי הבילד שיותקן ולא לפי הבילד החי', () {
+      final entry = StorePlugin.fromApi(const {
+        'id': 'v',
+        'name': 'גרסאות',
+        'version': '2.0.0',
+        'supportsDirectInstall': true,
+        'versions': [
+          {
+            'version': '2.0.0',
+            'compatibleWith': '9.0.0',
+            'supportsDirectInstall': true,
+          },
+          {
+            'version': '1.0.0',
+            'compatibleWith': '1.0.0',
+            'supportsDirectInstall': false,
+          },
+        ],
+      }, 'https://otzaria.org');
+      controller.appVersion = '1.5.0';
+
+      expect(controller.targetOf(entry)?.version, '1.0.0');
+      expect(controller.canDirectInstall(entry), isFalse);
+    });
+  });
+
   group('sync — הפעולה היחידה שדורשת רשת', () {
     test('בלי חיבור: מצב שגיאה עם הודעה, בלי קריסה', () async {
       await controller.sync();
@@ -1045,3 +1193,12 @@ void main() {
     });
   });
 }
+
+List<int> _le16(int value) => [value & 0xff, (value >> 8) & 0xff];
+
+List<int> _le32(int value) => [
+      value & 0xff,
+      (value >> 8) & 0xff,
+      (value >> 16) & 0xff,
+      (value >> 24) & 0xff,
+    ];

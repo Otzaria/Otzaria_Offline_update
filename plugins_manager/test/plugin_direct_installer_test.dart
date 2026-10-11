@@ -92,6 +92,159 @@ void main() {
     });
   });
 
+  group('acceptedByOtzaria', () {
+    final windows = p.Context(style: p.Style.windows);
+    final posix = p.Context(style: p.Style.posix);
+
+    test('ב-Windows רק נתיב עם אות כונן עובר', () {
+      expect(
+        PluginDirectInstaller.acceptedByOtzaria(
+          r'C:\OtzariaData\plugin.otzplugin',
+          windows,
+        ),
+        isTrue,
+      );
+      expect(
+        PluginDirectInstaller.acceptedByOtzaria(
+          r'\\NAS\share\plugin.otzplugin',
+          windows,
+        ),
+        isFalse,
+      );
+      expect(
+        PluginDirectInstaller.acceptedByOtzaria(
+          r'\\?\C:\plugin.otzplugin',
+          windows,
+        ),
+        isFalse,
+      );
+      expect(
+        PluginDirectInstaller.acceptedByOtzaria(r'\plugin.otzplugin', windows),
+        isFalse,
+      );
+      expect(
+        PluginDirectInstaller.acceptedByOtzaria('plugin.otzplugin', windows),
+        isFalse,
+      );
+    });
+
+    test('ב-POSIX נתיב מוחלט עובר, יחסי ו-//host לא', () {
+      expect(
+        PluginDirectInstaller.acceptedByOtzaria(
+          '/Volumes/USB/plugin.otzplugin',
+          posix,
+        ),
+        isTrue,
+      );
+      expect(
+        PluginDirectInstaller.acceptedByOtzaria('a/plugin.otzplugin', posix),
+        isFalse,
+      );
+      expect(
+        PluginDirectInstaller.acceptedByOtzaria(
+          '//host/share/plugin.otzplugin',
+          posix,
+        ),
+        isFalse,
+      );
+    });
+  });
+
+  group('deliverablePath', () {
+    test('נתיב שאוצריא מקבלת נמסר כמו שהוא', () async {
+      final path = writePluginFile(temp, 'a.otzplugin', '{"id":"x"}');
+
+      expect(
+        await PluginDirectInstaller.deliverablePath(path, accepts: (_) => true),
+        path,
+      );
+    });
+
+    test('נתיב שאוצריא דוחה מועתק לתיקיית המסירה המקומית', () async {
+      final share = Directory(p.join(temp.path, 'unc-share'))..createSync();
+      final path = writePluginFile(share, 'a.otzplugin', '{"id":"x"}');
+      final handoff = Directory(p.join(temp.path, 'handoff'));
+
+      final delivered = await PluginDirectInstaller.deliverablePath(
+        path,
+        accepts: (candidate) => !candidate.contains('unc-share'),
+        handoffRoot: handoff,
+      );
+
+      expect(delivered, isNot(path));
+      expect(p.isWithin(handoff.path, delivered), isTrue);
+      expect(p.basename(delivered), 'a.otzplugin');
+      expect(File(delivered).readAsBytesSync(), File(path).readAsBytesSync());
+    });
+
+    test('כשגם העותק נדחה — חריג, לא מסירה שאוצריא תתעלם ממנה', () async {
+      final path = writePluginFile(temp, 'a.otzplugin', '{"id":"x"}');
+      String? copied;
+
+      await expectLater(
+        PluginDirectInstaller.deliverablePath(
+          path,
+          accepts: (candidate) {
+            if (candidate != path) copied = candidate;
+            return false;
+          },
+          handoffRoot: Directory(p.join(temp.path, 'handoff')),
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(copied, isNotNull);
+      expect(File(copied!).parent.existsSync(), isFalse);
+    });
+
+    test('כשההעתקה נכשלת — התיקייה שנוצרה נמחקת', () async {
+      final handoff = Directory(p.join(temp.path, 'handoff'));
+
+      await expectLater(
+        PluginDirectInstaller.deliverablePath(
+          p.join(temp.path, 'missing.otzplugin'),
+          accepts: (_) => false,
+          handoffRoot: handoff,
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(handoff.listSync(), isEmpty);
+    });
+
+    test('עותקים ישנים מהחלון נמחקים, עותקים טריים נשמרים', () async {
+      final share = Directory(p.join(temp.path, 'unc-share'))..createSync();
+      final path = writePluginFile(share, 'a.otzplugin', '{"id":"x"}');
+      final handoff = Directory(p.join(temp.path, 'handoff'));
+      bool accepts(String candidate) => !candidate.contains('unc-share');
+
+      final first = await PluginDirectInstaller.deliverablePath(
+        path,
+        accepts: accepts,
+        handoffRoot: handoff,
+      );
+      final second = await PluginDirectInstaller.deliverablePath(
+        path,
+        accepts: accepts,
+        handoffRoot: handoff,
+      );
+      expect(File(first).existsSync(), isTrue);
+      expect(File(second).existsSync(), isTrue);
+
+      final later = await PluginDirectInstaller.deliverablePath(
+        path,
+        accepts: accepts,
+        handoffRoot: handoff,
+        now: () => DateTime.now().add(
+          PluginDirectInstaller.handoffRetention + const Duration(minutes: 1),
+        ),
+      );
+
+      expect(File(first).existsSync(), isFalse);
+      expect(File(second).existsSync(), isFalse);
+      expect(File(later).existsSync(), isTrue);
+      expect(handoff.listSync(), hasLength(1));
+    });
+  });
+
   group('PluginDirectInstaller.install', () {
     test('קובץ חסר מוחזר ככשל, לא כחריג', () async {
       final result = await PluginDirectInstaller.install(

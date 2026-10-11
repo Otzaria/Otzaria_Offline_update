@@ -115,10 +115,9 @@ class _PluginUpdatesListState extends State<_PluginUpdatesList> {
     return rows;
   }
 
-  /// שורות שעדיין יש מה לעשות בהן דרך הכפתור.
   List<StorePlugin> get _pending => [
         for (final plugin in _rows)
-          if (plugin.supportsDirectInstall &&
+          if (widget.controller.canDirectInstall(plugin) &&
               !_sent.contains(plugin.id) &&
               !_isDone(plugin))
             plugin,
@@ -265,8 +264,6 @@ class _PluginUpdatesListState extends State<_PluginUpdatesList> {
     );
   }
 
-  /// הפעולה שבקצה השורה. שלושת המצבים אינם זהים: "עודכן" הוא מה שאוצריא
-  /// מדווחת, "נשלח" הוא מה ש**אנחנו** מסרנו לה וטרם אושר בסריקה.
   Widget _rowAction(BuildContext context, StorePlugin plugin) {
     final t = context.strings.plugins;
 
@@ -282,7 +279,7 @@ class _PluginUpdatesListState extends State<_PluginUpdatesList> {
         label: t.updatesDialogSentLabel,
       );
     }
-    if (!plugin.supportsDirectInstall) {
+    if (!widget.controller.canDirectInstall(plugin)) {
       return ActionButton.ghost(
         text: t.updatesDialogDetailsButton,
         onPressed: () => _openDetail(plugin),

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:path/path.dart' as p;
 
 /// תוצאת ניסיון פעולה מול מערכת ההפעלה — מוחזרת כערך ולא כחריג, בדיוק
 /// כמו ב-`FileReveal` בלאנצ'ר: ה-UI מציג הודעה, לא stack trace.
@@ -25,8 +26,6 @@ class PluginInstallResult {
 /// כשידוע נתיב ההתקנה שהלאנצ'ר זיהה, ה-URL נמסר **לקובץ ההרצה עצמו**
 /// ולא למערכת ההפעלה — ראו [openProtocolUrl].
 abstract final class PluginDirectInstaller {
-  /// [pluginFilePath] חייב להיות נתיב **מוחלט** לקובץ `.otzplugin` קיים.
-  /// [otzariaLaunchPath] הוא ההתקנה שהלאנצ'ר זיהה, כשהיא ידועה.
   static Future<PluginInstallResult> install(
     String pluginFilePath, {
     String? otzariaLaunchPath,
@@ -39,10 +38,88 @@ abstract final class PluginDirectInstaller {
       return PluginInstallResult.failure(strings.badPluginExtension);
     }
 
+    final String deliverable;
+    try {
+      deliverable = await deliverablePath(pluginFilePath);
+    } catch (e) {
+      return PluginInstallResult.failure(strings.saveFailed('$e'));
+    }
+
     return openProtocolUrl(
-      installLocalUrl(pluginFilePath),
+      installLocalUrl(deliverable),
       otzariaLaunchPath: otzariaLaunchPath,
     );
+  }
+
+  static bool acceptedByOtzaria(String path, [p.Context? context]) {
+    final ctx = context ?? p.context;
+    if (path.startsWith(r'\\') || path.startsWith('//')) return false;
+    if (!ctx.isAbsolute(path)) return false;
+    if (ctx.style == p.Style.windows && !RegExp(r'^[A-Za-z]:').hasMatch(path)) {
+      return false;
+    }
+    return true;
+  }
+
+  static const handoffRetention = Duration(hours: 1);
+
+  static Directory get defaultHandoffRoot =>
+      Directory(p.join(Directory.systemTemp.path, 'otzaria_plugin_handoff'));
+
+  static Future<String> deliverablePath(
+    String pluginFilePath, {
+    bool Function(String path) accepts = acceptedByOtzaria,
+    Directory? handoffRoot,
+    DateTime Function() now = DateTime.now,
+  }) async {
+    if (accepts(pluginFilePath)) return pluginFilePath;
+
+    final root = handoffRoot ?? defaultHandoffRoot;
+    await pruneHandoff(root, now().subtract(handoffRetention));
+    await root.create(recursive: true);
+    final dir = await root.createTemp('install_');
+    final String copied;
+    try {
+      copied = (await File(pluginFilePath)
+              .copy(p.join(dir.path, p.basename(pluginFilePath))))
+          .path;
+    } catch (_) {
+      await _deleteQuietly(dir);
+      rethrow;
+    }
+    if (!accepts(copied)) {
+      await _deleteQuietly(dir);
+      throw FileSystemException('not a local drive path', copied);
+    }
+    return copied;
+  }
+
+  static Future<void> pruneHandoff(Directory root, DateTime olderThan) async {
+    if (!root.existsSync()) return;
+    final List<FileSystemEntity> entries;
+    try {
+      entries = await root.list(followLinks: false).toList();
+    } on FileSystemException {
+      return;
+    }
+    for (final entry in entries) {
+      try {
+        final modified = (await entry.stat()).modified;
+        if (modified.isBefore(olderThan)) {
+          await entry.delete(recursive: true);
+        }
+      } on FileSystemException {
+        continue;
+      }
+    }
+  }
+
+  static Future<void> _deleteQuietly(Directory dir) async {
+    try {
+      await dir.delete(recursive: true);
+    } on FileSystemException {
+      return;
+    }
   }
 
   /// ה-URL שנמסר למערכת ההפעלה. חשוף בנפרד כדי שבדיקות יאמתו אותו בלי

@@ -259,7 +259,7 @@ class PluginDetailView extends StatelessWidget {
           spacing: AppTokens.spaceSM,
           runSpacing: AppTokens.spaceSM,
           children: [
-            if (target?.supportsDirectInstall ?? plugin.supportsDirectInstall)
+            if (controller.canDirectInstall(plugin))
               ActionButton.recommended(
                 text: t.directInstallButton,
                 icon: FluentIcons.arrow_download_24_regular,

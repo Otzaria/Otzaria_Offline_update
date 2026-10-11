@@ -143,10 +143,7 @@ class PluginStoreCard extends StatelessWidget {
                     onPressed: controller.hasFileFor(plugin) ? onSave : null,
                   ),
                 ),
-                // בלי בילד תואם אין מה להתקין — הכפתור כבוי, והשבב למעלה
-                // אומר למה.
-                if (target?.supportsDirectInstall ??
-                    plugin.supportsDirectInstall) ...[
+                if (controller.canDirectInstall(plugin)) ...[
                   const SizedBox(width: AppTokens.spaceSM),
                   Expanded(
                     child: ActionButton.recommended(

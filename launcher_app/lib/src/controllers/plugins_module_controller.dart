@@ -544,6 +544,9 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   bool hasFileFor(StorePlugin plugin) =>
       plugin.localFileFor(targetOf(plugin)?.version) != null;
 
+  bool canDirectInstall(StorePlugin plugin) =>
+      targetOf(plugin)?.supportsDirectInstall ?? plugin.supportsDirectInstall;
+
   String suggestedFileName(StorePlugin plugin) =>
       _manager.suggestedFileName(plugin, appVersion: appVersion);
 
@@ -559,18 +562,32 @@ class PluginsModuleController extends ChangeNotifier with ProgressNotifier {
   Future<PluginInstallResult> saveCopy(StorePlugin plugin, String destPath) =>
       _manager.saveCopy(plugin, destPath, appVersion: appVersion);
 
-  /// מוסר את התוסף לאוצריא. ההצלחה כאן היא של ה**מסירה** בלבד — ההתקנה
-  /// נגמרת בחלון של אוצריא, ולכן מתחילים מיד להמתין לה על הדיסק.
   Future<PluginInstallResult> directInstall(StorePlugin plugin) async {
-    final result = await _manager.directInstall(plugin, appVersion: appVersion);
+    var current = plugin;
+    final result = await _manager.directInstall(
+      plugin,
+      appVersion: appVersion,
+      onPluginUpdated: (updated) {
+        current = updated;
+        _replacePlugin(updated);
+      },
+    );
     if (result.success) {
-      watchForInstall(plugin);
+      watchForInstall(current);
     } else {
       AppLogger.instance.error(
         'התקנה ישירה של ${plugin.name} נכשלה: ${result.error}',
       );
     }
     return result;
+  }
+
+  void _replacePlugin(StorePlugin updated) {
+    plugins = [
+      for (final entry in plugins) entry.id == updated.id ? updated : entry,
+    ];
+    _invalidateDerived();
+    notifyListeners();
   }
 
   Future<PluginInstallResult> openHomepage(String url) =>
