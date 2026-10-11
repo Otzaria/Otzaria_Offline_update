@@ -734,6 +734,172 @@ void main() {
     });
   });
 
+  group('latestOnlineRelease אינו עולה על discover', () {
+    Map<String, dynamic> releaseJson(
+      String tag,
+      List<String> names, {
+      bool prerelease = false,
+      bool draft = false,
+    }) =>
+        {
+          'tag_name': tag,
+          'prerelease': prerelease,
+          'draft': draft,
+          'assets': [
+            for (final name in names)
+              {
+                'name': name,
+                'browser_download_url': 'https://x/$tag/$name',
+                'size': 100,
+              },
+          ],
+        };
+
+    final cases = <String,
+        ({
+      List<Map<String, dynamic>> releases,
+      Map<String, String> manifests,
+      int? stable,
+      int? dev,
+    })>{
+      'prerelease': (
+        releases: [
+          releaseJson(
+              'v6',
+              [
+                'patch-v5-v6.db.zst',
+                'patch-v5-v6.db.zst.manifest.json',
+              ],
+              prerelease: true),
+          releaseJson('v5', ['seforim.db.zst']),
+        ],
+        manifests: {'patch-v5-v6.db.zst.manifest.json': _manifestJson(5, 6)},
+        stable: 5,
+        dev: 6,
+      ),
+      'draft': (
+        releases: [
+          releaseJson('v7', ['seforim.db.zst'], draft: true),
+          releaseJson('v5', ['seforim.db.zst']),
+        ],
+        manifests: const {},
+        stable: 5,
+        dev: 5,
+      ),
+      'no-DB': (
+        releases: [
+          releaseJson('lines-snapshot-sha256-abc', ['lines.txt']),
+          releaseJson('v9', ['notes.txt']),
+          releaseJson('v5', ['seforim.db.zst']),
+        ],
+        manifests: const {},
+        stable: 5,
+        dev: 5,
+      ),
+      'only-no-DB': (
+        releases: [
+          releaseJson('v9', ['notes.txt']),
+        ],
+        manifests: const {},
+        stable: null,
+        dev: null,
+      ),
+      'fullRebase': (
+        releases: [
+          releaseJson('v28', ['patch-v27-v28.db.zst.manifest.json']),
+          releaseJson('v27', ['seforim-schema6.db.zst']),
+        ],
+        manifests: {
+          'patch-v27-v28.db.zst.manifest.json': _manifestJson(27, 28,
+              fromSchema: 6, toSchema: 7, fullRebase: true),
+        },
+        stable: 28,
+        dev: 28,
+      ),
+      'unsupported schema': (
+        releases: [
+          releaseJson('v28', ['seforim-schema7.db.zst']),
+          releaseJson('v27', ['seforim-schema6.db.zst']),
+        ],
+        manifests: const {},
+        stable: 27,
+        dev: 27,
+      ),
+      'unsupported patch schema': (
+        releases: [
+          releaseJson('v26', [
+            'patch-v22-v26.db.zst',
+            'patch-v22-v26.db.zst.manifest.json',
+          ]),
+          releaseJson('v22', ['seforim.db.zst']),
+        ],
+        manifests: {
+          'patch-v22-v26.db.zst.manifest.json':
+              _manifestJson(22, 26, fromSchema: 2, toSchema: 7),
+        },
+        stable: 26,
+        dev: 26,
+      ),
+      'split': (
+        releases: [
+          releaseJson('v30', [
+            'seforim.db.zst.part-000',
+            'seforim.db.zst.part-001',
+            'seforim.db.zst.manifest.json',
+          ]),
+          releaseJson('v29', ['seforim.db.zst']),
+        ],
+        manifests: const {},
+        stable: 30,
+        dev: 30,
+      ),
+      'patches only over an older full DB': (
+        releases: [
+          releaseJson('v4', [
+            'patch-v3-v4.db.zst',
+            'patch-v3-v4.db.zst.manifest.json',
+          ]),
+          releaseJson('v3', ['seforim.db.zst']),
+        ],
+        manifests: {'patch-v3-v4.db.zst.manifest.json': _manifestJson(3, 4)},
+        stable: 4,
+        dev: 4,
+      ),
+    };
+
+    for (final MapEntry(key: name, value: fixture) in cases.entries) {
+      for (final allowPrerelease in const [false, true]) {
+        test('$name (allowPrerelease=$allowPrerelease)', () async {
+          final json = jsonEncode(fixture.releases);
+          final peek = LibraryUpdateDiscovery.latestOnlineRelease(
+            fixture.releases.map(LibraryRelease.fromJson).toList(),
+            allowPrerelease: allowPrerelease,
+          );
+          final mock = MockClient((request) async {
+            final url = request.url.toString();
+            if (url.contains('/releases')) return http.Response(json, 200);
+            final manifest = fixture.manifests[url.split('/').last];
+            return manifest == null
+                ? http.Response('not found', 404)
+                : http.Response(manifest, 200);
+          });
+          final discovered = await LibraryUpdateDiscovery(
+            client: GithubLibraryReleaseClient(httpClient: mock),
+          ).discover(allowPrerelease: allowPrerelease);
+
+          expect(
+            peek?.version,
+            allowPrerelease ? fixture.dev : fixture.stable,
+          );
+          expect(
+            peek?.version ?? 0,
+            lessThanOrEqualTo(discovered.latestVersion),
+          );
+        });
+      }
+    }
+  });
+
   group('releaseVersionOf', () {
     LibraryRelease withAssets(String tag, List<String> names) =>
         _release(tag: tag, assetNames: names);

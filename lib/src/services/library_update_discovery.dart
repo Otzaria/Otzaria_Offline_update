@@ -79,6 +79,24 @@ class LibraryUpdateDiscovery {
         .toList(growable: false);
   }
 
+  static ({String tag, int version})? latestOnlineRelease(
+    List<LibraryRelease> releases, {
+    required bool allowPrerelease,
+  }) {
+    ({String tag, int version})? latest;
+    for (final release
+        in eligibleReleases(releases, allowPrerelease: allowPrerelease)) {
+      if (release.deltaManifestAssets.isEmpty && release.fullDbAsset == null) {
+        continue;
+      }
+      final version = releaseVersionOf(release);
+      if (version > (latest?.version ?? 0)) {
+        latest = (tag: release.tag, version: version);
+      }
+    }
+    return latest;
+  }
+
   /// מחלץ מספר גרסה מ-tag כמו `v20-20260807110905`, `v3` או `3`. מעוגן
   /// לתחילת ה-tag בכוונה: המאגר מפרסם גם תגים ממוזערי-תוכן כמו
   /// `lines-snapshot-sha256-<hex>`, ורצף הספרות **הראשון** שם הוא ה-`256`

@@ -162,3 +162,14 @@ class OtzariaSettingsReader {
   static String? _stringOrNull(Object? value) =>
       (value is String && value.isNotEmpty) ? value : null;
 }
+
+class OtzariaSettingsSnapshot extends OtzariaSettingsReader {
+  OtzariaSettingsSnapshot(this._source);
+
+  final OtzariaSettingsReader _source;
+  final Map<String, Future<OtzariaSettings?>> _byRoot = {};
+
+  @override
+  Future<OtzariaSettings?> read(String dataRootPath) =>
+      _byRoot.putIfAbsent(dataRootPath, () => _source.read(dataRootPath));
+}

@@ -87,6 +87,7 @@ class LibraryManager {
     String? operatingSystem,
     Map<String, String>? environment,
     LocalDbVersionReader versionReader = const LocalDbVersionReader(),
+    OtzariaSettingsReader settingsReader = const OtzariaSettingsReader(),
   }) : _stateStore = LibraryStateStore.inDir(stateDir ?? dataDir),
        _planner = const LibraryUpdatePlanner(),
        _versionReader = versionReader,
@@ -95,6 +96,7 @@ class LibraryManager {
        _applier = LibraryUpdateApplier() {
     _locator = LibraryDbLocator(
       stateStore: _stateStore,
+      settingsReader: settingsReader,
       otzariaLaunchPath: otzariaLaunchPath,
       operatingSystem: operatingSystem,
       environment: environment,
@@ -164,26 +166,31 @@ class LibraryManager {
 
   String get semanticMirrorDir => p.join(dataDir, 'mirror', 'semantic');
 
-  Future<OtzariaSettings?> _semanticSettings() async {
-    final launch = await _locator.otzariaLaunchPath?.call();
-    final root = await _locator.otzariaSettingsRoot(launch);
-    return root == null ? null : _locator.settingsReader.read(root);
+  LibraryDbLocator _snapshotLocator() => _locator.withSettingsReader(
+    OtzariaSettingsSnapshot(_locator.settingsReader),
+  );
+
+  Future<OtzariaSettings?> _semanticSettings([
+    LibraryDbLocator? locator,
+  ]) async {
+    final source = locator ?? _locator;
+    final launch = await source.otzariaLaunchPath?.call();
+    final root = await source.otzariaSettingsRoot(launch);
+    return root == null ? null : source.settingsReader.read(root);
   }
 
-  Future<String> resolveSemanticVectorsRoot(String dbPath) async {
-    final library = (await _semanticSettings())?.libraryPath;
+  static String _semanticVectorsRoot(OtzariaSettings? settings, String dbPath) {
+    final library = settings?.libraryPath;
     return library != null && library.isNotEmpty
         ? p.dirname(library)
         : p.dirname(p.dirname(dbPath));
   }
 
-  Future<bool> semanticConsentGranted() async {
-    final launch = await _locator.otzariaLaunchPath?.call();
-    final root = await _locator.otzariaSettingsRoot(launch);
-    if (root == null) return false;
-    return (await _locator.settingsReader.read(root))?.searchFeedbackGranted ??
-        false;
-  }
+  Future<String> resolveSemanticVectorsRoot(String dbPath) async =>
+      _semanticVectorsRoot(await _semanticSettings(), dbPath);
+
+  Future<bool> semanticConsentGranted() async =>
+      (await _semanticSettings())?.searchFeedbackGranted ?? false;
 
   Future<void> setCustomDbPath(String dbPath) =>
       _stateStore.saveCustomDbPath(dbPath);
@@ -192,14 +199,10 @@ class LibraryManager {
   /// שיש שם קובץ להצביע עליו.
   String dbPathIn(String dir) => p.join(dir, LibraryDbLocator.databaseFileName);
 
-  /// לאן תותקן ספרייה חדשה: בחירת המשתמש אם קיימת, ואחרת המיקום שאוצריא
-  /// עצמה מחפשת בו (ההגדרה שלה, ואחרת ברירת המחדל של הפלטפורמה).
-  ///
-  /// תיקיית הלאנצ'ר היא **רשת ביטחון אחרונה** בלבד, לפלטפורמה שאין בה מיקום
-  /// כזה: לאנצ'ר שרץ מכונן נייד היה מתקין עליו את המסד, והוא היה נוסע איתו
-  /// ונעלם מהמחשב ברגע שנשלף.
-  Future<String> installDbPath() async =>
-      await _locator.resolveInstallDbPath() ??
+  Future<String> installDbPath() => _installDbPath(_locator);
+
+  Future<String> _installDbPath(LibraryDbLocator locator) async =>
+      await locator.resolveInstallDbPath() ??
       p.join(dataDir, 'library', LibraryDbLocator.databaseFileName);
 
   /// האם אוצריא תמצא את המסד הזה בעצמה. `false` = המשתמש יצטרך להצביע על
@@ -519,19 +522,16 @@ class LibraryManager {
   /// [LibraryUpdateCheckResult.isFreshInstall]. בחירה ידנית של קובץ DB
   /// קיים עדיין אפשרית מרצון דרך [setCustomDbPath].
   Future<LibraryUpdateCheckResult> checkForUpdate() async {
-    var dbPath = await _locator.resolveDbPath();
-    // החלפה שנקטעה בין שני ה-rename משאירה את המסד השלם תחת `<db>.old` ואת
-    // `seforim.db` לא-קיים — ואז האיתור מחזיר null, וזה נראה כמו "התקנה
-    // טרייה" שמורידה ~1.4GB מחדש בזמן שהמסד השלם שוכב שם. השחזור חייב לרוץ
-    // **לפני** שמחליטים שאין מסד, ולכן הוא כאן ולא בענף ה-recovery.
+    final locator = _snapshotLocator();
+    var dbPath = await locator.resolveDbPath();
     if (dbPath == null) {
-      final target = await installDbPath();
+      final target = await _installDbPath(locator);
       _recovery.restoreRetiredDbIfOrphaned(target);
-      dbPath = await _locator.resolveDbPath();
+      dbPath = await locator.resolveDbPath();
     }
     _lastResolvedDbPath = dbPath;
     final isFreshInstall = dbPath == null;
-    dbPath ??= await installDbPath();
+    dbPath ??= await _installDbPath(locator);
     _lastInstallDbPath = dbPath;
 
     LocalDbVersion local;
@@ -601,6 +601,7 @@ class LibraryManager {
       blockingPatchFormatVersion: discoveryResult.blockingPatchFormatVersion,
     );
 
+    final settings = await _semanticSettings(locator);
     final semantic = SemanticSearchAssets();
     final bool semanticPending;
     try {
@@ -610,10 +611,8 @@ class LibraryManager {
         libraryVersion: plan.kind == LibraryUpdatePlanKind.blocked
             ? local.dbVersion
             : plan.finalTargetVersion ?? local.dbVersion,
-        vectorsRootPath: await resolveSemanticVectorsRoot(dbPath),
-        preferencesReady:
-            (await _semanticSettings())?.semanticSearchReadyPreferences ??
-            false,
+        vectorsRootPath: _semanticVectorsRoot(settings, dbPath),
+        preferencesReady: settings?.semanticSearchReadyPreferences ?? false,
       );
     } finally {
       semantic.dispose();
@@ -629,7 +628,7 @@ class LibraryManager {
       unavailableCompanions: companions.unavailable,
       mirroredCompanions: companions.mirrored,
       semanticPending: semanticPending,
-      semanticConsentGranted: await semanticConsentGranted(),
+      semanticConsentGranted: settings?.searchFeedbackGranted ?? false,
     );
   }
 
@@ -811,7 +810,8 @@ class LibraryManager {
     if (check.semanticPending && check.semanticConsentGranted) {
       final name = AppL10n.strings.libraryDomain.companionSemanticName;
       try {
-        if (!await semanticConsentGranted()) {
+        final settings = await _semanticSettings();
+        if (!(settings?.searchFeedbackGranted ?? false)) {
           throw StateError(
             AppL10n.strings.libraryDomain.semanticConsentRequired,
           );
@@ -828,7 +828,7 @@ class LibraryManager {
             mirrorDir: semanticMirrorDir,
             dbPath: dbPath,
             libraryVersion: version.dbVersion,
-            vectorsRootPath: await resolveSemanticVectorsRoot(dbPath),
+            vectorsRootPath: _semanticVectorsRoot(settings, dbPath),
             beforeActivate: () async {
               if (await const OtzariaProcessGuard().isAnyRunning(
                 OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
@@ -922,19 +922,14 @@ class LibraryManager {
       }
     }
 
-    // התקנה טרייה נרשמת **רק** כשהאיתור הרגיל לא ימצא אותה לבדו: רישום
-    // גורף הפך ניחוש (ברירת מחדל, כשההגדרות של אוצריא לא נקראו) לבחירה
-    // של המשתמש — שנבדקת לפניהן, ולכן נעל את הלאנצ'ר על המסד הלא נכון.
+    final locator = _snapshotLocator();
     await record(() async {
-      if (check.isFreshInstall && !await _locator.isKnownToOtzaria(dbPath)) {
+      if (check.isFreshInstall && !await locator.isKnownToOtzaria(dbPath)) {
         await _stateStore.saveCustomDbPath(dbPath);
       }
     });
-    // ספרייה טרייה שאוצריא לא מכוונת אליה היא ספרייה שהיא לא תראה בכלל —
-    // היא אינה סורקת את ברירת המחדל שלה. כשל כאן אינו מבטל את העדכון, אבל
-    // המשתמש חייב לדעת שנשאר לו צעד ידני.
     if (check.isFreshInstall) {
-      final pointed = await _pointOtzariaAtFreshDb(dbPath);
+      final pointed = await _pointOtzariaAtFreshDb(dbPath, locator);
       if (!pointed) onLibraryLocationNotSet?.call(dbPath);
     }
     // רושמים מאיזה release התוכן הנוכחי הגיע, **יחד עם הגרסה** — זה מה
@@ -965,22 +960,16 @@ class LibraryManager {
     );
   }
 
-  /// מכוון את ההגדרה של אוצריא אל הספרייה שהרגע הותקנה, ומחזיר אם היא
-  /// אכן תמצא אותה מעכשיו.
-  ///
-  /// **אוצריא אינה סורקת את ברירת המחדל שלה**: `getDatabasePath` נופל
-  /// ל-`'.'` כש-`key-library-path` ריק, ולכן ספרייה טרייה שהותקנה במיקום
-  /// ברירת המחדל פשוט אינה נראית לה (דיווח בפורום, פוסט 39342). הגדרה
-  /// **קיימת** לא נדרסת: היא בחירה של המשתמש, וממילא היא זו שקבעה לאן
-  /// התקנו — אז היא כבר מצביעה לכאן, אלא אם המשתמש בחר יעד אחר בעצמו,
-  /// ואז נכון שיקבל את ההוראה הידנית.
-  Future<bool> _pointOtzariaAtFreshDb(String dbPath) async {
+  Future<bool> _pointOtzariaAtFreshDb(
+    String dbPath,
+    LibraryDbLocator locator,
+  ) async {
     try {
-      final launchPath = await _locator.otzariaLaunchPath?.call();
-      final root = await _locator.otzariaSettingsRoot(launchPath);
+      final launchPath = await locator.otzariaLaunchPath?.call();
+      final root = await locator.otzariaSettingsRoot(launchPath);
       if (root == null) return false;
 
-      final current = await _locator.settingsReader.read(root);
+      final current = await locator.settingsReader.read(root);
       if (current != null && !current.isEmpty) {
         final resolved = current.resolveDbPath(
           path: p.context,

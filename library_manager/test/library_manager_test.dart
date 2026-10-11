@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -13,6 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
+import 'support/db_fixtures.dart';
 import 'support/zstd_fixtures.dart';
 
 /// ה-landmine המרכזי של החבילה: **אין נפילה לרשת**. `checkForUpdate` ו-
@@ -81,20 +81,9 @@ void main() {
     );
   }
 
-  /// `seforim.db` אמיתי (SQLite עם `schema_meta`) — כדי שהבדיקות ילכו דרך
-  /// `LocalDbVersionReader` האמיתי ולא דרך קורא מזויף.
   var builtDbCount = 0;
-  Uint8List buildRealDb(int dbVersion) {
-    final path = p.join(tempDir.path, 'built-$dbVersion-${builtDbCount++}.db');
-    final db = sqlite3.sqlite3.open(path);
-    db.execute('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT)');
-    db.execute(
-      "INSERT INTO schema_meta VALUES ('db_version', '$dbVersion'), "
-      "('db_schema_version', '1')",
-    );
-    db.close();
-    return File(path).readAsBytesSync();
-  }
+  Uint8List buildRealDb(int dbVersion) =>
+      buildVersionOnlyDb(tempDir.path, dbVersion);
 
   /// מתקין DB קיים בתיקייה זמנית ומצביע עליו כנתיב המותאם אישית, כדי
   /// שהאיתור יהיה דטרמיניסטי ולא יפגוש אוצריא אמיתית של המפתח.
@@ -110,98 +99,57 @@ void main() {
     return dbPath;
   }
 
-  /// האם למפתח שמריץ את הבדיקות יש אוצריא אמיתית במיקום ברירת המחדל —
-  /// אז בדיקת "התקנה טרייה" אינה תקפה, ומדלגים עליה במקום לגעת ב-DB אמיתי.
-  Future<bool> ambientDbExists() async =>
-      await LibraryDbLocator(
-        stateStore: LibraryStateStore(p.join(tempDir.path, 'probe.json')),
-      ).resolveDbPath() !=
-      null;
+  Map<String, String> hermeticEnvironment() => {
+    'HOME': p.join(tempDir.path, 'home'),
+  };
 
-  /// מסד בסכמה 2 עם טבלת תוכן — הצורה ש-`PatchApplier` יודע להחיל עליה
-  /// patches, בשונה מ-[buildRealDb] שנועד רק לקריאת גרסה.
-  Uint8List buildPatchableDb(int dbVersion, List<List> rows) {
-    final path = p.join(
-      tempDir.path,
-      'patchable-$dbVersion-${builtDbCount++}.db',
-    );
-    final db = sqlite3.sqlite3.open(path);
-    db.execute('CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT)');
-    db.execute(
-      "INSERT INTO schema_meta VALUES ('db_version','$dbVersion'),"
-      "('db_schema_version','2')",
-    );
-    db.execute('CREATE TABLE source (id INTEGER PRIMARY KEY, name TEXT)');
-    for (final row in rows) {
-      db.execute('INSERT INTO source VALUES (?,?)', [row[0], row[1]]);
-    }
-    db.close();
-    return File(path).readAsBytesSync();
-  }
+  LibraryManager hermeticManager({
+    OtzariaSettingsReader settingsReader = const OtzariaSettingsReader(),
+  }) => LibraryManager(
+    dataDir: dataDir,
+    operatingSystem: 'linux',
+    environment: hermeticEnvironment(),
+    settingsReader: settingsReader,
+  );
 
-  var edgeSeq = 0;
+  Uint8List buildPatchableDb(int dbVersion, List<List> rows) =>
+      buildSchema2Db(tempDir.path, dbVersion, rows);
 
-  /// קשת patch אמיתית עם כתובת **מקומית**, כמו במראה offline. ה-hashes
-  /// דמיוניים בכוונה: בשרשרת שנקטעת אף אחד מהם אינו נבדק (ראו
-  /// `LibraryUpdateApplier.applyDelta`), וההחלה עצמה מכוסה בבדיקות המחיל.
-  /// [toSchemaVersion] שאינה נתמכת מדמה את v26 של SeforimLibrary.
   PatchEdge buildPatchEdge({
     required int from,
     required int to,
     required List<List> upsertRows,
     int toSchemaVersion = 2,
-  }) {
-    final raw = p.join(tempDir.path, 'patch_${from}_${to}_${edgeSeq++}.db');
-    final db = sqlite3.sqlite3.open(raw);
-    db.execute('CREATE TABLE patch_meta (key TEXT PRIMARY KEY, value TEXT)');
-    db.execute(
-      "INSERT INTO patch_meta VALUES ('schema_version','2'),"
-      "('from_version','$from'),('to_version','$to')",
-    );
-    db.execute(
-      'CREATE TABLE migrations (version INTEGER PRIMARY KEY, sql TEXT)',
-    );
-    db.execute(
-      'CREATE TABLE upsert_schema_meta (key TEXT PRIMARY KEY, value TEXT)',
-    );
-    db.execute("INSERT INTO upsert_schema_meta VALUES ('db_version','$to')");
-    db.execute(
-      'CREATE TABLE upsert_source (id INTEGER PRIMARY KEY, name TEXT)',
-    );
-    for (final row in upsertRows) {
-      db.execute('INSERT INTO upsert_source VALUES (?,?)', [row[0], row[1]]);
-    }
-    db.close();
+  }) => buildSchema2PatchEdge(
+    bindings!,
+    tempDir.path,
+    from: from,
+    to: to,
+    upsertRows: upsertRows,
+    toSchemaVersion: toSchemaVersion,
+  );
 
-    final rawBytes = File(raw).readAsBytesSync();
-    final compressed = compressWithZstd(bindings!, rawBytes);
-    final zstPath = '$raw.zst';
-    File(zstPath).writeAsBytesSync(compressed);
-    final fileName = 'patch_$from-$to.db.zst';
-    const dummyHash =
-        '0000000000000000000000000000000000000000000000000000000000000001';
-
-    return PatchEdge(
-      manifest: DeltaManifest(
-        fromVersion: from,
-        toVersion: to,
-        fromSchemaVersion: 2,
-        toSchemaVersion: toSchemaVersion,
-        fromContentHash: dummyHash,
-        toContentHash: dummyHash,
-        patchFiles: [
-          PatchFileEntry(
-            file: fileName,
-            compression: 'zstd',
-            sha256: sha256.convert(compressed).toString(),
-            size: compressed.length,
-            uncompressedSha256: sha256.convert(rawBytes).toString(),
-            uncompressedSize: rawBytes.length,
-          ),
-        ],
+  LibraryUpdateCheckResult freshCheck(String dbPath) {
+    final compressed = p.join(tempDir.path, 'fresh-${builtDbCount++}.db.zst');
+    File(compressed).writeAsBytesSync(
+      compressWithZstd(bindings!, buildRealDb(5)),
+      flush: true,
+    );
+    return LibraryUpdateCheckResult(
+      dbPath: dbPath,
+      isFreshInstall: true,
+      latestVersion: 5,
+      latestContentTag: 'v5',
+      plan: LibraryUpdatePlan.fullDownload(
+        localVersion: 0,
+        targetVersion: 5,
+        asset: ReleaseAsset(
+          name: 'seforim.db.zst',
+          downloadUrl: compressed,
+          size: File(compressed).lengthSync(),
+        ),
+        releaseTag: 'v5',
       ),
-      patchFileUrls: {fileName: zstPath},
-      manifestUrl: 'manifest.json',
     );
   }
 
@@ -350,11 +298,7 @@ void main() {
     );
 
     test('בלי מסד כלל — readLocalVersion מחזירה null ולא זורקת', () async {
-      if (await ambientDbExists()) {
-        markTestSkipped('קיימת אוצריא אמיתית במכונה — הבדיקה אינה מבודדת');
-        return;
-      }
-      final manager = LibraryManager(dataDir: dataDir);
+      final manager = hermeticManager();
       addTearDown(manager.dispose);
 
       expect(await manager.readLocalVersion(), isNull);
@@ -408,17 +352,13 @@ void main() {
           markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
           return;
         }
-        if (await ambientDbExists()) {
-          markTestSkipped('קיימת אוצריא אמיתית במכונה — הבדיקה אינה מבודדת');
-          return;
-        }
         await writeMirror(
           tag: 'v5',
           compressedDb: compressWithZstd(bindings, buildRealDb(5)),
         );
 
         await _withoutNetwork((_) async {
-          final manager = LibraryManager(dataDir: dataDir);
+          final manager = hermeticManager();
           final check = await manager.checkForUpdate();
 
           expect(check.isFreshInstall, isTrue);
@@ -430,10 +370,10 @@ void main() {
           expect(check.dbPath, await manager.installDbPath());
           expect(
             check.dbPath,
-            p.join(
+            p.posix.join(
               LibraryDbLocator.defaultDbDirs(
-                operatingSystem: Platform.operatingSystem,
-                environment: Platform.environment,
+                operatingSystem: 'linux',
+                environment: hermeticEnvironment(),
               ).first,
               'seforim.db',
             ),
@@ -1091,6 +1031,112 @@ void main() {
     });
   });
 
+  group('קופסת ההגדרות של אוצריא נקראת פעם אחת בכל בדיקה', () {
+    test('התקנה טרייה', () async {
+      await writeMirror(tag: 'v5');
+      final reader = _CountingSettingsReader();
+
+      await _withoutNetwork((_) async {
+        final manager = hermeticManager(settingsReader: reader);
+        addTearDown(manager.dispose);
+        expect((await manager.checkForUpdate()).isFreshInstall, isTrue);
+      });
+
+      expect(reader.reads, isNotEmpty);
+      expect(reader.reads.values, everyElement(1));
+    });
+
+    test('מסד קיים', () async {
+      await installExistingDb(5, appliedTag: 'v5');
+      await writeMirror(tag: 'v5');
+      final reader = _CountingSettingsReader();
+
+      await _withoutNetwork((_) async {
+        final manager = hermeticManager(settingsReader: reader);
+        addTearDown(manager.dispose);
+        expect((await manager.checkForUpdate()).isFreshInstall, isFalse);
+      });
+
+      expect(reader.reads, isNotEmpty);
+      expect(reader.reads.values, everyElement(1));
+    });
+
+    test('סיום התקנה טרייה ב-applyUpdate', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      if (await const OtzariaProcessGuard().isAnyRunning(
+        OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
+      )) {
+        markTestSkipped('אוצריא פתוחה — ההחלה נחסמת בכוונה');
+        return;
+      }
+      final dbPath = p.join(tempDir.path, 'fresh-books', 'seforim.db');
+      await Directory(p.dirname(dbPath)).create(recursive: true);
+      final check = freshCheck(dbPath);
+      final reader = _CountingSettingsReader();
+      final settingsRoot = p.posix.join(
+        hermeticEnvironment()['HOME']!,
+        '.local',
+        'share',
+        'otzaria',
+      );
+
+      await _withoutNetwork((_) async {
+        final manager = hermeticManager(settingsReader: reader);
+        addTearDown(manager.dispose);
+        final notSet = <String>[];
+        await manager.applyUpdate(check, onLibraryLocationNotSet: notSet.add);
+        expect(notSet, [dbPath]);
+      });
+
+      expect(await File(dbPath).exists(), isTrue);
+      expect(reader.reads, {settingsRoot: 1});
+    });
+
+    test('החיפוש החכם ב-applyUpdate', () async {
+      if (await const OtzariaProcessGuard().isAnyRunning(
+        OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
+      )) {
+        markTestSkipped('אוצריא פתוחה — ההחלה נחסמת בכוונה');
+        return;
+      }
+      final dbPath = await installExistingDb(5, appliedTag: 'v5');
+      final reader = _CountingSettingsReader(
+        settings: const OtzariaSettings(
+          searchFeedbackConsent: 'granted',
+          searchFeedbackConsentVersion: 1,
+        ),
+      );
+      final warnings = <String>[];
+
+      await _withoutNetwork((_) async {
+        final manager = hermeticManager(settingsReader: reader);
+        addTearDown(manager.dispose);
+        await manager.applyUpdate(
+          LibraryUpdateCheckResult(
+            dbPath: dbPath,
+            semanticPending: true,
+            semanticConsentGranted: true,
+          ),
+          onCompanionWarning: (_, error) => warnings.add('$error'),
+        );
+      });
+
+      expect(
+        warnings,
+        isNot(
+          anyElement(
+            contains(AppL10n.strings.libraryDomain.semanticConsentRequired),
+          ),
+        ),
+      );
+      expect(reader.reads, isNotEmpty);
+      expect(reader.reads.values, everyElement(1));
+    });
+  });
+
   group('setCustomDbPath / currentDbPath', () {
     test('נתיב שנבחר ידנית נשמר ומוחזר בבדיקה הבאה', () async {
       final dbPath = p.join(tempDir.path, 'my-library', 'seforim.db');
@@ -1137,32 +1183,6 @@ void main() {
       manager = isolatedManager();
       addTearDown(manager.dispose);
     });
-
-    /// התקנה טרייה אמיתית: הורדה מלאה מקובץ מקומי אל [dbPath]. בלי תוכנית
-    /// `applyUpdate` פשוט לא עושה כלום, וגם הכיוון להגדרות לא היה רץ.
-    LibraryUpdateCheckResult freshCheck(String dbPath) {
-      final compressed = p.join(tempDir.path, 'fresh-$builtDbCount.db.zst');
-      File(compressed).writeAsBytesSync(
-        compressWithZstd(bindings!, buildRealDb(5)),
-        flush: true,
-      );
-      return LibraryUpdateCheckResult(
-        dbPath: dbPath,
-        isFreshInstall: true,
-        latestVersion: 5,
-        latestContentTag: 'v5',
-        plan: LibraryUpdatePlan.fullDownload(
-          localVersion: 0,
-          targetVersion: 5,
-          asset: ReleaseAsset(
-            name: 'seforim.db.zst',
-            downloadUrl: compressed,
-            size: File(compressed).lengthSync(),
-          ),
-          releaseTag: 'v5',
-        ),
-      );
-    }
 
     /// הבדיקות כאן מחילות בפועל, ולכן הן תלויות ב-zstd ובאוצריא סגורה —
     /// בדיוק כמו שאר בדיקות ה-`applyUpdate`.
@@ -1379,6 +1399,20 @@ void main() {
       expect(vectorTags, isEmpty);
     });
   });
+}
+
+class _CountingSettingsReader extends OtzariaSettingsReader {
+  _CountingSettingsReader({this.settings});
+
+  final OtzariaSettings? settings;
+  final Map<String, int> reads = {};
+
+  @override
+  Future<OtzariaSettings?> read(String dataRootPath) {
+    reads.update(dataRootPath, (count) => count + 1, ifAbsent: () => 1);
+    final fixed = settings;
+    return fixed != null ? Future.value(fixed) : super.read(dataRootPath);
+  }
 }
 
 /// מריץ [body] בזון שבו כל שימוש ב-HTTP זורק — כך "נפילה לרשת" בקוד הנבדק

@@ -52,6 +52,15 @@ class LibraryDbLocator {
   final String? _operatingSystemOverride;
   final Map<String, String>? _environmentOverride;
 
+  LibraryDbLocator withSettingsReader(OtzariaSettingsReader reader) =>
+      LibraryDbLocator(
+        stateStore: stateStore,
+        settingsReader: reader,
+        otzariaLaunchPath: otzariaLaunchPath,
+        operatingSystem: _operatingSystemOverride,
+        environment: _environmentOverride,
+      );
+
   String get _operatingSystem =>
       _operatingSystemOverride ?? Platform.operatingSystem;
   Map<String, String> get _environment =>
