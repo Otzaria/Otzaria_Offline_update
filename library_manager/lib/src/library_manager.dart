@@ -88,6 +88,8 @@ class LibraryManager {
     Map<String, String>? environment,
     LocalDbVersionReader versionReader = const LocalDbVersionReader(),
     OtzariaSettingsReader settingsReader = const OtzariaSettingsReader(),
+    OtzariaProcessGuard processGuard = const OtzariaProcessGuard(),
+    RecentLibraryReleasesClient? releaseClient,
     LibraryUpdateApplier? applier,
   }) : _stateStore = LibraryStateStore(
          p.join(stateDir ?? dataDir, LibraryStateStore.fileName),
@@ -96,8 +98,9 @@ class LibraryManager {
        _planner = const LibraryUpdatePlanner(),
        _versionReader = versionReader,
        _recovery = const LibraryDbRecoveryService(),
-       _cloudClient = RecentLibraryReleasesClient(),
-       _applier = applier ?? LibraryUpdateApplier() {
+       _processGuard = processGuard,
+       _cloudClient = releaseClient ?? RecentLibraryReleasesClient(),
+       _applier = applier ?? LibraryUpdateApplier(processGuard: processGuard) {
     _locator = LibraryDbLocator(
       stateStore: _stateStore,
       settingsReader: settingsReader,
@@ -142,10 +145,10 @@ class LibraryManager {
   /// כותב/מחיל דבר בעצמו.
   final LibraryDbRecoveryService _recovery;
 
+  final OtzariaProcessGuard _processGuard;
+
   final RecentLibraryReleasesClient _cloudClient;
 
-  /// מבצע את ההחלה בפועל של תוכנית עדכון (delta/fullDownload) על ה-DB החי —
-  /// ראו [applyUpdate].
   final LibraryUpdateApplier _applier;
 
   /// הקבצים הנלווים לספרייה (תלמוד, קטלוג, מילון). אוצריא מרעננת אותם
@@ -155,15 +158,22 @@ class LibraryManager {
   /// חיבורים, אבל אפשר להוריד קבצים שונים בו-זמנית, וזה מה שמאיץ בפועל.
   final DownloadScheduler _scheduler = DownloadScheduler();
 
-  late final CompanionAssetsMirror _companionsMirror = CompanionAssetsMirror(
-    scheduler: _scheduler,
-  );
+  CompanionAssetsMirror? _companionsMirrorInstance;
+
+  CompanionAssetsMirror get _companionsMirror => _companionsMirrorInstance ??=
+      CompanionAssetsMirror(scheduler: _scheduler);
   final CompanionAssetsInstaller _companionsInstaller =
       const CompanionAssetsInstaller();
 
-  /// מכוון את ההגדרה של אוצריא לספרייה שהרגע הותקנה — ראו
-  /// [_pointOtzariaAtFreshDb].
   final OtzariaSettingsWriter _settingsWriter = const OtzariaSettingsWriter();
+
+  Future<bool> _isOtzariaRunning() => _processGuard.isAnyRunning(
+    OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
+  );
+
+  Future<void> _throwIfOtzariaRunning() async {
+    if (await _isOtzariaRunning()) throw const OtzariaIsRunningException();
+  }
 
   /// תיקיית המראה של הקבצים הנלווים — לצד מראת הספרייה, תחת אותו שורש.
   String get companionsMirrorDir => p.join(dataDir, 'mirror', 'companions');
@@ -359,8 +369,8 @@ class LibraryManager {
           tag = discovery.newestReleaseTag;
         } else {
           final latest = _latestOnline(await _cloudClient.fetchReleases());
-          _onlineLibraryTag = latest.tag;
-          tag = latest.tag;
+          _onlineLibraryTag = latest?.tag;
+          tag = latest?.tag;
         }
         if (tag == null) {
           throw StateError(
@@ -442,29 +452,15 @@ class LibraryManager {
   Future<int?> peekLatestOnlineVersion() async {
     _onlineLibraryTag = null;
     final latest = _latestOnline(await _cloudClient.fetchFreshReleases());
-    _onlineLibraryTag = latest.tag;
-    return latest.version;
+    _onlineLibraryTag = latest?.tag;
+    return latest?.version;
   }
 
-  ({int? version, String? tag}) _latestOnline(List<LibraryRelease> all) {
-    final releases = LibraryUpdateDiscovery.eligibleReleases(
-      all,
-      allowPrerelease: allowPrerelease,
-    );
-    var latest = 0;
-    String? tag;
-    for (final release in releases) {
-      if (release.deltaManifestAssets.isEmpty && release.fullDbAsset == null) {
-        continue;
-      }
-      final version = LibraryUpdateDiscovery.releaseVersionOf(release);
-      if (version > latest) {
-        latest = version;
-        tag = release.tag;
-      }
-    }
-    return (version: latest == 0 ? null : latest, tag: tag);
-  }
+  ({String tag, int version})? _latestOnline(List<LibraryRelease> all) =>
+      LibraryUpdateDiscovery.latestOnlineRelease(
+        all,
+        allowPrerelease: allowPrerelease,
+      );
 
   /// המראה המקומית כמקור releases. זורק [LibraryMirrorMissingException] אם
   /// עדיין לא הורד דבר — במקום ליפול לרשת בשקט, כפי שהיה בעבר.
@@ -685,8 +681,6 @@ class LibraryManager {
     bool Function()? isCancelled,
     bool useFullDownloadFallback = false,
   }) async {
-    // מסלול ההתאוששות: אותה בדיקה, אבל עם המסד המלא במקום ה-patches. לא
-    // קורה מעצמו — הורדה של ~1.5GB וחילוץ של ~5.5GB היא החלטה של המשתמש.
     final plan = useFullDownloadFallback
         ? check.plan?.fullDownloadFallback
         : check.plan;
@@ -706,9 +700,6 @@ class LibraryManager {
     if (plan != null && check.dbUpdateAvailable) {
       switch (plan.kind) {
         case LibraryUpdatePlanKind.delta:
-          // שלב בשרשרת שנכשל אינו מבטל את השלבים שכבר בוצעו והוחלו על ה-DB
-          // החי. בלי הרישום הזה הספרים שהשתנו בהם היו נשארים מאונדקסים
-          // בגרסתם הישנה אצל אוצריא — בדיוק מה ש-[ExternalUpdateNotice] מונע.
           final partial = <int>{};
           try {
             booksTouched = await _applier.applyDelta(
@@ -790,8 +781,6 @@ class LibraryManager {
       );
     }
 
-    // הקבצים הנלווים אחרי המסד — אותו סדר כמו ב-`LibraryUpdateBloc` באוצריא,
-    // ובאותה רוח: כשל בהם אינו מבטל עדכון מסד שכבר הצליח.
     final companions = await _companionsInstaller.install(
       mirrorDir: companionsMirrorDir,
       dbPath: dbPath,
@@ -807,9 +796,6 @@ class LibraryManager {
       onWarning: onCompanionWarning,
       isCancelled: isCancelled,
     );
-    // **הראיה שהמראה הזו נמסרה כאן.** בלעדיה הבדיקה הבאה אינה יודעת להבדיל
-    // בין קובץ ישן לבין קובץ שאוצריא החליפה אחרינו, ומציעה שוב את מה שכבר
-    // מותקן — ולכן כשל ברישום מדווח ואינו נבלע.
     try {
       await _stateStore.saveDeliveredCompanions({
         for (final e in companions.delivered.entries) e.key.name: e.value,
@@ -827,11 +813,7 @@ class LibraryManager {
             AppL10n.strings.libraryDomain.semanticConsentRequired,
           );
         }
-        if (await const OtzariaProcessGuard().isAnyRunning(
-          OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
-        )) {
-          throw const OtzariaIsRunningException();
-        }
+        await _throwIfOtzariaRunning();
         final semantic = SemanticSearchAssets();
         try {
           final version = await _versionReader.readInIsolate(dbPath);
@@ -840,13 +822,7 @@ class LibraryManager {
             dbPath: dbPath,
             libraryVersion: version.dbVersion,
             vectorsRootPath: _semanticVectorsRoot(settings, dbPath),
-            beforeActivate: () async {
-              if (await const OtzariaProcessGuard().isAnyRunning(
-                OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
-              )) {
-                throw const OtzariaIsRunningException();
-              }
-            },
+            beforeActivate: _throwIfOtzariaRunning,
             onStage: (stage) => onProgress?.call(
               LibraryApplyProgress(
                 stage: LibraryApplyStage.installingCompanions,
@@ -855,11 +831,7 @@ class LibraryManager {
             ),
             isCancelled: isCancelled,
           );
-          if (await const OtzariaProcessGuard().isAnyRunning(
-            OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
-          )) {
-            throw const OtzariaIsRunningException();
-          }
+          await _throwIfOtzariaRunning();
           final launch = await _locator.otzariaLaunchPath?.call();
           final root = await _locator.otzariaSettingsRoot(launch);
           if (root == null ||
@@ -980,27 +952,14 @@ class LibraryManager {
         return resolved != null && p.equals(resolved, dbPath);
       }
 
-      // קופסה שקיימת אך לא נקראה (פגומה, מוצפנת, פורמט אחר) מוחזרת
-      // כ-`null` בדיוק כמו קופסה שאינה קיימת — והכתיבה לתוכה עלולה
-      // להחמיר. כותבים רק כשאין קובץ בכלל, או כשהוא נקרא והתברר כריק.
       final boxFile = File(p.join(root, OtzariaSettingsReader.boxFileName));
       if (current == null && await boxFile.exists()) return false;
 
-      // פתיחת הקופסה במקומה לוקחת נעילה בתיקייה של אוצריא. אוצריא רצה
-      // מחזיקה אותה, וניסיון כזה נוגע בקובץ הנעילה שלה — ולכן פשוט לא
-      // מנסים. ההחלה עצמה כבר חסומה כשהיא פתוחה; זו הבדיקה לתהליך שעלה
-      // באמצע העדכון הארוך.
-      if (await const OtzariaProcessGuard().isAnyRunning(
-        OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
-      )) {
-        return false;
-      }
+      if (await _isOtzariaRunning()) return false;
 
       return await _settingsWriter.pointLibraryAt(
         dataRootPath: root,
         dbPath: dbPath,
-        // אוצריא מותקנת אך מעולם לא רצה — אין עדיין שורש נתונים, ואנחנו
-        // יוצרים אותו. בלי נתיב הפעלה ידוע לא ניצור תיקיות מיותרות.
         allowCreate: launchPath != null,
       );
     } catch (_) {
@@ -1008,11 +967,10 @@ class LibraryManager {
     }
   }
 
-  /// סוגר את חיבורי ה-HTTP הפנימיים. יש לקרוא כשמסיימים להשתמש
-  /// ב-[LibraryManager] (לא הכרחי בין קריאות בודדות — רק בסגירת האפליקציה).
   void dispose() {
     _cloudClient.dispose();
     _applier.dispose();
+    _companionsMirrorInstance?.dispose();
   }
 }
 
