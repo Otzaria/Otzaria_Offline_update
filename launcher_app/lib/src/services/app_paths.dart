@@ -160,6 +160,43 @@ class AppPaths {
     return false;
   }
 
+  /// תיקיית הלוגים — שם יושבים גם קובצי המצב, כדי ששורש הנתונים יישאר נקי.
+  static const String logsDirName = 'logs';
+
+  /// קובצי המצב שהיו בשורש [stateDir] ועברו ל-[stateFilesDir].
+  static const List<String> stateFileNames = [
+    'otzaria_install_state.json',
+    'library_state.json',
+    'custom_apps_announced.json',
+    'plugins_known.json',
+    'notices_seen.json',
+  ];
+
+  /// היכן נכתבים קובצי המצב. נגזר מ-[stateDir] ולא מהלוגר, שנופל ל-temp.
+  String get stateFilesDir => p.join(stateDir, logsDirName);
+
+  /// מעביר קובצי מצב מהשורש ל-[stateFilesDir]; קובץ שכבר קיים שם גובר.
+  /// חייב לרוץ לפני שמישהו קורא אותם, אחרת ההתקנה הקיימת נראית כחדשה.
+  Future<void> migrateStateFiles() async {
+    for (final name in stateFileNames) {
+      try {
+        final source = File(p.join(stateDir, name));
+        final target = File(p.join(stateFilesDir, name));
+        if (!await source.exists() || await target.exists()) continue;
+        await target.parent.create(recursive: true);
+        try {
+          await source.rename(target.path);
+        } on FileSystemException {
+          await source.copy(target.path);
+          await source.delete();
+        }
+      } catch (_) {
+        // best-effort: קובץ שלא עבר נשאר בשורש; זה לא כשל הרצה.
+        continue;
+      }
+    }
+  }
+
   /// שמות קובצי ההעדפות שנוסעים עם הכונן — ראו [seedPreferences].
   static const List<String> preferenceFileNames = [
     'launcher_settings.json',

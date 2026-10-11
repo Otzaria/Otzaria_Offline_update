@@ -19,6 +19,7 @@ import '../controllers/otzaria_module_controller.dart';
 import '../controllers/plugins_module_controller.dart';
 import '../controllers/search_feedback_controller.dart';
 import '../services/app_logger.dart';
+import '../services/app_paths.dart';
 import '../services/byte_size.dart';
 import '../services/elevation.dart';
 import '../services/file_reveal.dart';
@@ -70,6 +71,9 @@ class AppShell extends StatefulWidget {
   /// לאן נכתבים לוג, הגדרות ומצב. זהה ל-[dataDir] בהרצה רגילה — ראו
   /// [AppPaths.stateDir].
   String get stateDir => _stateDir ?? dataDir;
+
+  /// קובצי המצב יושבים בתיקיית הלוגים — ראו [AppPaths.stateFilesDir].
+  String get stateFilesDir => p.join(stateDir, AppPaths.logsDirName);
 
   /// `true` = הכונן לקריאה בלבד: בדיקות והתקנות עובדות (הן כותבות למחשב),
   /// והורדות מהרשת ועדכון הלאנצ'ר עצמו כבויים — אין לאן להוריד.
@@ -123,7 +127,7 @@ class _AppShellState extends State<AppShell> {
   /// אילו הודעות חד-פעמיות כבר הוצגו במחשב הזה. נכתב ל-`stateDir`, ולכן
   /// עובד גם בכונן לקריאה בלבד.
   late final NoticesSeenStore _notices =
-      widget.noticesStore ?? NoticesSeenStore(widget.stateDir);
+      widget.noticesStore ?? NoticesSeenStore(widget.stateFilesDir);
 
   /// ההסבר על דיווחי הטעויות רץ לפני ההצעה לאסוף — [_offerErrorReports]
   /// ממתין לו, כדי שהמשתמש יבין קודם מה זה ואחר כך יישאל.
@@ -188,7 +192,7 @@ class _AppShellState extends State<AppShell> {
 
     _otzaria = OtzariaModuleController(
       dataDir: widget.dataDir,
-      stateDir: widget.stateDir,
+      stateDir: widget.stateFilesDir,
       // ההורדה מביאה תמיד את שתי הגרסאות; זו רק הבחירה איזו מהן מותקנת.
       preferPrerelease: s.preferAppPrerelease,
       runningLocator: widget.runningLocator,
@@ -201,7 +205,7 @@ class _AppShellState extends State<AppShell> {
     )..addListener(_onChange);
     _library = LibraryModuleController(
       dataDir: widget.dataDir,
-      stateDir: widget.stateDir,
+      stateDir: widget.stateFilesDir,
       // נתיב ההתקנה של אוצריא מזהה התקנה ניידת/ספרייה מצורפת, ששם המסד לא
       // יושב ב-`%APPDATA%`. `null` לפני הבדיקה הראשונה — ראו [checkAll].
       otzariaLaunchPath: () async => _otzaria.launchPath,
@@ -210,7 +214,7 @@ class _AppShellState extends State<AppShell> {
       // כל המראות יושבות תחת אותו שורש שלצד התוכנה, כך שהכול נוסע יחד.
       mirrorRootDir: p.join(widget.dataDir, 'mirror'),
       // "אילו תוספים כבר נראו" הוא נתון של המחשב הזה, ולכן בתיקיית הכתיבה.
-      stateDir: widget.stateDir,
+      stateDir: widget.stateFilesDir,
       // אותו נתיב התקנה שמודול הספרייה מקבל: התקנה ניידת מחזיקה גם את
       // התוספים לידה, ואליה גם נמסרת ההתקנה הישירה של תוסף.
       otzariaLaunchPath: () async => _otzaria.launchPath,
@@ -240,7 +244,7 @@ class _AppShellState extends State<AppShell> {
     _customApps = CustomAppsController(
       mirrorRootDir: p.join(widget.dataDir, 'mirror'),
       // תיקיית הכתיבה, כי "על מה כבר הודענו" הוא נתון של המחשב הזה.
-      stateDir: widget.stateDir,
+      stateDir: widget.stateFilesDir,
     )..addListener(_onChange);
     _launcherUpdate = LauncherUpdateController(dataDir: widget.dataDir)
       ..addListener(_onChange);
@@ -249,11 +253,13 @@ class _AppShellState extends State<AppShell> {
     unawaited(_faq.load());
     _errorReports = ErrorReportsController.forDrive(
       stateDir: widget.stateDir,
+      stateFilesDir: widget.stateFilesDir,
       launchPath: () async => _otzaria.launchPath,
     );
     _searchFeedback = SearchFeedbackController.forDrive(
       dataDir: widget.dataDir,
       stateDir: widget.stateDir,
+      stateFilesDir: widget.stateFilesDir,
       launchPath: () async => _otzaria.launchPath,
       runningLocator: widget.runningLocator,
     );

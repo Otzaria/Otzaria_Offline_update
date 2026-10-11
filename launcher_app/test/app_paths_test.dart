@@ -323,6 +323,53 @@ void main() {
       expect(onMachine.readAsStringSync(), 'from-machine');
     });
 
+    test('קובצי מצב עוברים מהשורש ל-logs, וקובץ שכבר שם גובר', () async {
+      File(p.join(machine.path, 'otzaria_install_state.json'))
+          .writeAsStringSync('old');
+      File(p.join(machine.path, 'library_state.json')).writeAsStringSync('old');
+      Directory(p.join(machine.path, 'logs')).createSync();
+      final kept = File(p.join(machine.path, 'logs', 'library_state.json'))
+        ..writeAsStringSync('new');
+      File(p.join(machine.path, 'launcher_settings.json'))
+          .writeAsStringSync('prefs');
+
+      await AppPaths(dataDir: drive.path, stateDir: machine.path)
+          .migrateStateFiles();
+
+      expect(
+        File(p.join(machine.path, 'logs', 'otzaria_install_state.json'))
+            .readAsStringSync(),
+        'old',
+      );
+      expect(
+        File(p.join(machine.path, 'otzaria_install_state.json')).existsSync(),
+        isFalse,
+      );
+      expect(kept.readAsStringSync(), 'new');
+      // ההעדפות נשארות בשורש — הן אלה שנוסעות עם הכונן.
+      expect(
+        File(p.join(machine.path, 'launcher_settings.json')).existsSync(),
+        isTrue,
+      );
+    });
+
+    test('כל חמשת קובצי המצב עוברים, והרצה חוזרת וריקה אינן שוברות', () async {
+      final paths = AppPaths(dataDir: drive.path, stateDir: machine.path);
+      await paths.migrateStateFiles();
+      for (final name in AppPaths.stateFileNames) {
+        File(p.join(machine.path, name)).writeAsStringSync(name);
+      }
+
+      await paths.migrateStateFiles();
+      await paths.migrateStateFiles();
+
+      for (final name in AppPaths.stateFileNames) {
+        expect(File(p.join(machine.path, name)).existsSync(), isFalse);
+        expect(
+            File(p.join(paths.stateFilesDir, name)).readAsStringSync(), name);
+      }
+    });
+
     test('בהרצה כותבת אין העתקה בכלל', () async {
       File(p.join(drive.path, 'launcher_settings.json'))
           .writeAsStringSync('from-drive');

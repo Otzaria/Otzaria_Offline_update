@@ -17,6 +17,7 @@ class SearchFeedbackController extends ChangeNotifier {
   factory SearchFeedbackController.forDrive({
     required String dataDir,
     required String stateDir,
+    String? stateFilesDir,
     required Future<String?> Function() launchPath,
     RunningOtzariaLocator runningLocator = const RunningOtzariaLocator(),
   }) {
@@ -27,7 +28,9 @@ class SearchFeedbackController extends ChangeNotifier {
       final launch = await launchPath();
       if (launch == null) return null;
       final locator = LibraryDbLocator(
-        stateStore: LibraryStateStore(p.join(stateDir, 'library_state.json')),
+        stateStore: LibraryStateStore(
+          p.join(stateFilesDir ?? stateDir, 'library_state.json'),
+        ),
         otzariaLaunchPath: () async => launch,
       );
       final root = await locator.otzariaSettingsRoot(launch);
