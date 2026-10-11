@@ -1,22 +1,19 @@
 import 'dart:io';
 
-int _sequence = 0;
+var _atomicWriteSequence = 0;
+final _atomicWriteQueues = <String, Future<void>>{};
+const _transientWindowsRenameErrors = {5, 32, 33};
+const _renameAttempts = 5;
 
 String uniqueTempPath(String path) =>
-    '$path.$pid-${DateTime.now().microsecondsSinceEpoch}-${_sequence++}.tmp';
+    '$path.$pid-${DateTime.now().microsecondsSinceEpoch}-${_atomicWriteSequence++}.tmp';
 
 String Function(String path) atomicTempPathFor = uniqueTempPath;
-
-Future<void> Function(String from, String to) replaceFile =
-    (from, to) => File(from).rename(to);
 
 bool isAtomicTempNameOf(String fileName, String target) {
   final name = fileName.toLowerCase();
   return name.startsWith('${target.toLowerCase()}.') && name.endsWith('.tmp');
 }
-
-final _atomicWriteQueues = <String, Future<void>>{};
-const _transientWindowsRenameErrors = {5, 32, 33};
 
 Future<void> writeStringAtomically(String path, String contents) {
   final key = _atomicWriteKey(path);
@@ -43,31 +40,29 @@ Future<void> _writeStringAtomically(String path, String contents) async {
   final temp = File(atomicTempPathFor(path));
   try {
     await temp.writeAsString(contents, flush: true);
-    await _renameWithRetry(temp, path);
+    await renameRetryingTransient(() => temp.rename(path));
   } catch (_) {
-    await _deleteQuietly(temp);
+    try {
+      await temp.delete();
+    } catch (_) {}
     rethrow;
   }
 }
 
-Future<void> _renameWithRetry(File temp, String path) async {
+Future<void> renameRetryingTransient(
+  Future<void> Function() rename, {
+  bool? isWindows,
+}) async {
+  final windows = isWindows ?? Platform.isWindows;
   for (var attempt = 1;; attempt++) {
     try {
-      await temp.rename(path);
+      await rename();
       return;
     } on FileSystemException catch (e) {
-      final transient = Platform.isWindows &&
+      final transient = windows &&
           _transientWindowsRenameErrors.contains(e.osError?.errorCode);
-      if (!transient || attempt >= 5) rethrow;
+      if (!transient || attempt >= _renameAttempts) rethrow;
       await Future<void>.delayed(Duration(milliseconds: 25 * attempt));
     }
-  }
-}
-
-Future<void> _deleteQuietly(File file) async {
-  try {
-    if (await file.exists()) await file.delete();
-  } on FileSystemException {
-    return;
   }
 }

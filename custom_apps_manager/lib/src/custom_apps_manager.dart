@@ -14,7 +14,6 @@ import 'models/github_release.dart';
 import 'models/github_source.dart';
 import 'models/safe_file_name.dart';
 import 'models/stored_installer.dart';
-import 'services/atomic_file.dart';
 import 'services/custom_app_categories_store.dart';
 import 'services/custom_app_installer.dart';
 import 'services/custom_app_locator.dart';
@@ -26,6 +25,7 @@ import 'services/file_digest.dart';
 import 'services/github_app_client.dart';
 import 'services/install_learner.dart';
 import 'services/known_locations_store.dart';
+import 'services/replace_file.dart';
 
 /// נקודת הכניסה היחידה לתוכנות מותאמות.
 ///

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:otzaria_downloads/otzaria_downloads.dart'
+    show writeStringAtomically;
 import 'package:path/path.dart' as p;
 
 import '../models/otzaria_release.dart';
@@ -371,11 +373,9 @@ class OtzariaAppMirror {
       _platformsKey: {...others, if (here != null) here.name: channels},
     };
 
-    final temp = File('$_metadataPath.tmp');
-    await temp.writeAsString(
+    await writeStringAtomically(
+      _metadataPath,
       const JsonEncoder.withIndent('  ').convert(json),
-      flush: true,
     );
-    await temp.rename(_metadataPath);
   }
 }

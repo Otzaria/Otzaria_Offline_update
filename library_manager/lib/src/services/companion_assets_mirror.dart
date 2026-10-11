@@ -6,6 +6,7 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
+import 'atomic_file.dart' show writeStringAtomically;
 import 'companion_assets.dart';
 import 'companion_assets_installer.dart';
 import 'zstd_decompressor.dart';
@@ -215,12 +216,10 @@ class CompanionAssetsMirror {
 
     final manifest = CompanionMirrorManifest(entries: entries);
     final manifestPath = p.join(destDir, CompanionMirrorManifest.fileName);
-    final manifestTmp = File('$manifestPath.tmp');
-    await manifestTmp.writeAsString(
+    await writeStringAtomically(
+      manifestPath,
       const JsonEncoder.withIndent('  ').convert(manifest.toJson()),
-      flush: true,
     );
-    await manifestTmp.rename(manifestPath);
     return manifest;
   }
 

@@ -508,6 +508,10 @@ void main() {
       expect(progress.first.$1, 0);
       expect(progress.last.$1, progress.last.$2);
       expect(
+        Directory(mirror).listSync().map((e) => p.basename(e.path)),
+        isNot(contains(endsWith('.tmp'))),
+      );
+      expect(
         await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
         isTrue,
       );

@@ -9,6 +9,8 @@ import 'package:otzaria_search_engine/otzaria_search_engine.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
+import 'atomic_file.dart' show writeStringAtomically;
+
 typedef SemanticAsset = ({String name, int size, String sha256});
 
 /// מתקין את נתוני החיפוש בנתיבי אוצריא, בלי לשנות את ההסכמה שלה.
@@ -364,10 +366,11 @@ class SemanticSearchAssets {
       await File(
         p.join(generation, 'vectors', manifestName),
       ).writeAsBytes(manifestBytes, flush: true);
-      final metadataFile = File(p.join(mirrorDir, '$manifestFileName.tmp'));
-      await metadataFile.writeAsString(jsonEncode(metadata), flush: true);
       _cancel(isCancelled);
-      await metadataFile.rename(p.join(mirrorDir, manifestFileName));
+      await writeStringAtomically(
+        p.join(mirrorDir, manifestFileName),
+        jsonEncode(metadata),
+      );
       await pruneOldGenerations(mirrorDir, libraryTag);
     } finally {
       downloader.dispose();

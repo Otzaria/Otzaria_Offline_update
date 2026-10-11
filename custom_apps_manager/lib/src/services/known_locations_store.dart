@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:otzaria_downloads/otzaria_downloads.dart'
+    show writeStringAtomically;
 import 'package:path/path.dart' as p;
-
-import 'atomic_file.dart';
 
 /// זוכר **איפה נמצאה התוכנה בכל מחשב** שהכונן ביקר בו, ומדרג את המיקומים
 /// לפי כמה מחשבים ראו אותם.

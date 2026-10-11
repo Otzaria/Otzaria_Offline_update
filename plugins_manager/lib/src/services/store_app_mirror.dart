@@ -151,17 +151,13 @@ class StoreAppMirror {
       'schemaVersion': _schemaVersion,
       'syncedAt': DateTime.now().toIso8601String(),
       'release': release.toJson(),
-      // **תמיד עם `/`** — מראה שנבנתה בווינדוס נפתחת גם ב-macOS.
       'filePath': p.relative(filePath, from: mirrorDir).replaceAll(r'\', '/'),
     };
 
-    // כתיבה אטומית — הפסקת חשמל לא תשאיר JSON חצי-כתוב.
-    final temp = File('$_metadataPath.tmp');
-    await temp.writeAsString(
+    await writeStringAtomically(
+      _metadataPath,
       const JsonEncoder.withIndent('  ').convert(json),
-      flush: true,
     );
-    await temp.rename(_metadataPath);
   }
 
   Future<void> _download({

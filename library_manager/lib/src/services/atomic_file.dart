@@ -3,6 +3,17 @@ import 'dart:io';
 var _atomicWriteSequence = 0;
 final _atomicWriteQueues = <String, Future<void>>{};
 const _transientWindowsRenameErrors = {5, 32, 33};
+const _renameAttempts = 5;
+
+String uniqueTempPath(String path) =>
+    '$path.$pid-${DateTime.now().microsecondsSinceEpoch}-${_atomicWriteSequence++}.tmp';
+
+String Function(String path) atomicTempPathFor = uniqueTempPath;
+
+bool isAtomicTempNameOf(String fileName, String target) {
+  final name = fileName.toLowerCase();
+  return name.startsWith('${target.toLowerCase()}.') && name.endsWith('.tmp');
+}
 
 Future<void> writeStringAtomically(String path, String contents) {
   final key = _atomicWriteKey(path);
@@ -26,10 +37,10 @@ String _atomicWriteKey(String path) {
 }
 
 Future<void> _writeStringAtomically(String path, String contents) async {
-  final temp = File('$path.$pid.${_atomicWriteSequence++}.tmp');
+  final temp = File(atomicTempPathFor(path));
   try {
     await temp.writeAsString(contents, flush: true);
-    await _renameWithRetry(temp, path);
+    await renameRetryingTransient(() => temp.rename(path));
   } catch (_) {
     try {
       await temp.delete();
@@ -38,16 +49,20 @@ Future<void> _writeStringAtomically(String path, String contents) async {
   }
 }
 
-Future<void> _renameWithRetry(File temp, String path) async {
+Future<void> renameRetryingTransient(
+  Future<void> Function() rename, {
+  bool? isWindows,
+}) async {
+  final windows = isWindows ?? Platform.isWindows;
   for (var attempt = 1; ; attempt++) {
     try {
-      await temp.rename(path);
+      await rename();
       return;
     } on FileSystemException catch (e) {
       final transient =
-          Platform.isWindows &&
+          windows &&
           _transientWindowsRenameErrors.contains(e.osError?.errorCode);
-      if (!transient || attempt >= 5) rethrow;
+      if (!transient || attempt >= _renameAttempts) rethrow;
       await Future<void>.delayed(Duration(milliseconds: 25 * attempt));
     }
   }

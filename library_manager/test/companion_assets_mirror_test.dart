@@ -179,14 +179,11 @@ void main() {
     expect(manifest.entries[CompanionAsset.dictionary]!.tag, 'dict-v7');
     expect(manifest.entries[CompanionAsset.talmud]!.tag, 'lib-v9');
 
-    // המניפסט נקרא חזרה מהדיסק — זה מה שהמחשב הלא-מקוון יראה.
     final reloaded = await CompanionMirrorManifest.load(destDir);
     expect(reloaded!.entries.length, 3);
     expect(
-      File(
-        p.join(destDir, '${CompanionMirrorManifest.fileName}.tmp'),
-      ).existsSync(),
-      isFalse,
+      Directory(destDir).listSync().map((e) => p.basename(e.path)),
+      isNot(contains(endsWith('.tmp'))),
     );
   });
 

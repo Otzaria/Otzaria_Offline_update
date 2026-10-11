@@ -1,12 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:otzaria_downloads/otzaria_downloads.dart'
+    show isAtomicTempNameOf, writeStringAtomically;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/app_descriptor.dart';
 import '../models/stored_installer.dart';
-import 'atomic_file.dart';
 import 'file_digest.dart';
 import 'known_locations_store.dart';
 

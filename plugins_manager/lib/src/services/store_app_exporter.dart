@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:otzaria_downloads/otzaria_downloads.dart'
+    show writeStringAtomically;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
@@ -235,7 +237,6 @@ class StoreAppExporter {
       );
     }
 
-    // ── הקטלוג, אחרון ──────────────────────────────────────────────────────
     report(StoreAppExportPhase.catalog, strings.exportWritingCatalog);
     final rewritten = PluginCatalog(
       lastSync: catalog.lastSync,
@@ -244,12 +245,10 @@ class StoreAppExporter {
       plugins: exported,
     );
     final catalogPath = p.join(dataDir, PluginMirrorStore.catalogFileName);
-    final temp = File('$catalogPath.tmp');
-    await temp.writeAsString(
+    await writeStringAtomically(
+      catalogPath,
       const JsonEncoder.withIndent('  ').convert(rewritten.toJson()),
-      flush: true,
     );
-    await temp.rename(catalogPath);
     files++;
 
     // ⚠️ בדיקה שנייה, אחרי הכול: קובץ הרצה לא-חתום שנוחת בתיקיית משתמש

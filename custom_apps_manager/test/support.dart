@@ -1,7 +1,8 @@
 import 'dart:io';
 
 import 'package:custom_apps_manager/custom_apps_manager.dart';
-import 'package:custom_apps_manager/src/services/atomic_file.dart';
+import 'package:custom_apps_manager/src/services/replace_file.dart';
+import 'package:otzaria_downloads/atomic_write_testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -52,8 +53,9 @@ final Object skipWithoutChmod =
     Platform.isWindows ? 'chmod is not available on Windows' : false;
 
 void blockAtomicWrites(String dir, List<String> fileNames) {
+  final original = atomicTempPathFor;
   atomicTempPathFor = (path) => '$path.tmp';
-  addTearDown(() => atomicTempPathFor = uniqueTempPath);
+  addTearDown(() => atomicTempPathFor = original);
   for (final name in fileNames) {
     Directory(p.join(dir, '$name.tmp')).createSync(recursive: true);
   }
