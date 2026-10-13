@@ -1,11 +1,3 @@
-// בדיקות ל-[AppShell] — המסגרת שמחזיקה את חמשת המסכים.
-//
-// בדיקת העדכונים בפתיחה (`autoCheckUpdates`) כבויה בכולן חוץ מאחת, ושם
-// הרשת חסומה ב-[NoNetworkHttpOverrides] — אף בדיקה כאן לא נוגעת ברשת אמיתית.
-// מה שכן נפתח ב-`initState` (טעינת הקטלוג, בדיקה מהתיקייה המקומית) הוא
-// `dart:io` ולכן אינו מסתיים בתוך ה-fake-async; מכאן שכל ה-pump כאן הוא
-// [WidgetTester.pump] ולא `pumpAndSettle`, שהיה נתקע על מד ההתקדמות.
-
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -382,6 +374,25 @@ void main() {
     final probesWhenClosed = locator.probes;
     await tester.pump(const Duration(seconds: 12));
     expect(locator.probes, probesWhenClosed);
+  });
+
+  test('כל סיום של משימה ארוכה מעיר את ההצעה שנדחתה', () {
+    final source = _appShellSource();
+    String body(String signature) {
+      final start = source.indexOf(signature);
+      expect(start, greaterThan(-1), reason: signature);
+      return source.substring(start, source.indexOf('\n  }\n', start));
+    }
+
+    expect(body('void _rebuild() {'), contains('_offers.resume()'));
+    expect(
+      source,
+      contains('setState(() => _elevationPending = false);\n'
+          '        _offers.resume();'),
+    );
+    expect(source, contains('Future<bool> closeOtzaria() => _offers.holdFor('));
+    expect(source, contains('_downloads.isPreparing'));
+    expect(source, contains('blocked: () => _blockedByReadOnly()'));
   });
 
   testWidgets('הניווט מסמן את הפריט הנבחר ומחליף את המסך המוצג', (
@@ -923,8 +934,6 @@ class _NeverRunningLocator extends RunningOtzariaLocator {
       (isRunning: false, launchPath: null);
 }
 
-/// אוצריא שנסגרת באמצע הבדיקה: [isRunning] מוחלף בין בדיקה לבדיקה.
-/// [probes] סופר דגימות, כדי לאמת גם שהרענון המחזורי **נכבה**.
 class _MutableLocator extends RunningOtzariaLocator {
   _MutableLocator({required this.isRunning});
 

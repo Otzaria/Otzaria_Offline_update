@@ -32,6 +32,7 @@ class SemanticSearchAssets {
   http.Client get _client =>
       _injectedClient ?? (_createdClient ??= http.Client());
   Duration timeout = const Duration(seconds: 30);
+  Duration stallTimeout = const Duration(minutes: 5);
   final DownloadScheduler _scheduler;
   final int? Function(String) _freeBytesFor;
   final bool _ownsClient;
@@ -331,6 +332,7 @@ class SemanticSearchAssets {
     final downloader = PatchDownloader(
       httpClient: _client,
       decompress: (_) async => null,
+      stallTimeout: stallTimeout,
     );
     try {
       _cancel(isCancelled);

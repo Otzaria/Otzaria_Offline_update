@@ -5,6 +5,7 @@ import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
 
 import '../services/app_logger.dart';
+import '../services/offer_decline.dart';
 import 'dispose_guard.dart';
 
 class SearchFeedbackController extends ChangeNotifier
@@ -59,7 +60,7 @@ class SearchFeedbackController extends ChangeNotifier
     return SearchFeedbackController(
       transport: transport,
       resolveSource: () async {
-        final location = await locate();
+        final location = await locate(fresh: true);
         if (location == null) return null;
         final settings = await location.locator.settingsReader.read(
           location.root,
@@ -86,7 +87,7 @@ class SearchFeedbackController extends ChangeNotifier
   final SearchFeedbackTransport transport;
   final Future<String?> Function() resolveSource;
   final Future<bool> Function()? _grantConsent;
-  bool _offered = false;
+  final OfferDecline _decline = OfferDecline();
   bool isCollecting = false;
   bool isUploading = false;
   int outboxCount = 0;
@@ -112,16 +113,19 @@ class SearchFeedbackController extends ChangeNotifier
   }
 
   Future<int> pendingToOffer() async {
-    if (_offered || isDisposed) return 0;
-    _offered = true;
+    if (isDisposed || isUploading || isCollecting) return 0;
     try {
       final source = await resolveSource();
-      return source == null ? 0 : await transport.pendingForCollection(source);
+      if (source == null) return 0;
+      final count = await transport.pendingForCollection(source);
+      return _decline.filter(count);
     } catch (error) {
       AppLogger.maybeInstance?.error('קריאת משוב החיפוש באוצריא נכשלה', error);
       return 0;
     }
   }
+
+  void markDeclined(int count) => _decline.mark(count);
 
   Future<int> collect() async {
     if (isCollecting || isUploading || isDisposed) return 0;

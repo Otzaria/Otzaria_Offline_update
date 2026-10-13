@@ -3581,7 +3581,7 @@ class _ErrorReports extends ErrorReportsStrings {
   @override
   String get collectOtzariaOpenSnack =>
       'Otzaria is open, so the reports were not collected. You will be asked '
-      'again next launch';
+      'again once Otzaria is closed';
   @override
   String get legacyReportsDialogTitle => 'Old reports that were not migrated';
   @override
@@ -3632,6 +3632,21 @@ class _ErrorReports extends ErrorReportsStrings {
       'Waiting for the server — continuing in $seconds seconds';
   @override
   String get uploadStopButton => 'Stop';
+  @override
+  String get uploadingFeedbackStage =>
+      'Uploading smart search training data...';
+  @override
+  String uploadPendingOffline(int count) =>
+      '$count ${_reports(count)} waiting to be uploaded. There is no network connection, so there is no upload button';
+  @override
+  String uploadPendingUnchecked(int count) =>
+      '$count ${_reports(count)} waiting to be uploaded. The network connection has not been checked yet — check the connection to upload';
+  @override
+  String get uploadCollectingBusy =>
+      'Reports are being collected right now. Try again in a moment';
+  @override
+  String get uploadUnexpectedFailure =>
+      'The upload failed. Details are in the activity log';
   @override
   String uploadSummary(int sent, int rejected, int remaining) => [
         '$sent ${_reports(sent)} sent',

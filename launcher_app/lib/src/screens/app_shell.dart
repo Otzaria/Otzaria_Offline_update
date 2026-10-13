@@ -33,6 +33,7 @@ import '../services/elevation.dart';
 import '../services/file_reveal.dart';
 import '../services/mirror_junk_sweeper.dart';
 import '../services/notices_seen_store.dart';
+import '../services/report_offer_coordinator.dart';
 import '../settings/app_settings.dart';
 import '../settings/safer_mode.dart';
 import '../settings/settings_controller.dart';
@@ -46,6 +47,7 @@ import 'home_screen.dart';
 import 'library_screen.dart';
 import 'otzaria_screen.dart';
 import 'plugins/plugins_screen.dart';
+import 'reports_upload_flow.dart';
 import 'search_feedback_flow.dart';
 import 'settings_screen.dart';
 
@@ -132,13 +134,9 @@ class _AppShellState extends State<AppShell> {
   late final ErrorReportsController _errorReports;
   late final SearchFeedbackController _searchFeedback;
 
-  /// אילו הודעות חד-פעמיות כבר הוצגו במחשב הזה. נכתב ל-`stateDir`, ולכן
-  /// עובד גם בכונן לקריאה בלבד.
   late final NoticesSeenStore _notices =
       widget.noticesStore ?? NoticesSeenStore(widget.stateFilesDir);
 
-  /// ההסבר על דיווחי הטעויות רץ לפני ההצעה לאסוף — [_offerErrorReports]
-  /// ממתין לו, כדי שהמשתמש יבין קודם מה זה ואחר כך יישאל.
   Future<void> _errorReportsIntro = Future<void>.value();
 
   /// ההצעה להוריד גרסה חדשה של הלאנצ'ר מוצגת **פעם אחת בהרצה**. הבדיקה הקלה
@@ -205,6 +203,17 @@ class _AppShellState extends State<AppShell> {
     exitPending: () => _exitPending,
     isActive: () => mounted,
   );
+
+  late final ReportOfferCoordinator _offers = ReportOfferCoordinator(
+    isTaskRunning: () => _exitWouldInterrupt || _downloads.isPreparing,
+    isActive: () => mounted,
+    prepare: _prepareOffer,
+    runDialog: _dialogs.run,
+    perform: _performOffer,
+  );
+
+  bool _uploadingReports = false;
+  bool _reportsStopRequested = false;
 
   late final DialogQueue _dialogs = DialogQueue(
     isActive: () => mounted,
@@ -304,7 +313,7 @@ class _AppShellState extends State<AppShell> {
       unawaited(_launcherFlow.checkMirror());
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        unawaited(_otzaria.ensureChecked().then((_) => _offerErrorReports()));
+        unawaited(_otzaria.ensureChecked().then((_) => _offers.request()));
       });
     }
     if (widget.appReports case final reports?) {
@@ -324,6 +333,7 @@ class _AppShellState extends State<AppShell> {
     }
     _dialogs.dispose();
     _runningPoll?.cancel();
+    _offers.dispose();
     unawaited(_installDone.cancel());
     unawaited(_installRejected.cancel());
     widget.settings.removeListener(_onChange);
@@ -347,6 +357,8 @@ class _AppShellState extends State<AppShell> {
 
   void _onChange() {
     if (!mounted) return;
+    _offers.onRunningState(running: _otzariaIsRunning);
+    _offers.resume();
     _applySettings(widget.settings.settings);
     _syncRunningPoll();
     setState(() {});
@@ -355,7 +367,9 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _onReportsChange() {
-    if (mounted) unawaited(_maybeOfferElevation());
+    if (!mounted) return;
+    _offers.resume();
+    unawaited(_maybeOfferElevation());
   }
 
   Future<void> _maybeAnnouncePlugins() async {
@@ -481,7 +495,10 @@ class _AppShellState extends State<AppShell> {
     try {
       failure = await Elevation.restartElevated();
     } finally {
-      if (mounted) setState(() => _elevationPending = false);
+      if (mounted) {
+        setState(() => _elevationPending = false);
+        _offers.resume();
+      }
     }
     if (failure != null && failure != Elevation.cancelled) {
       UiSnack.showError(t.restartFailedSnack('$failure'));
@@ -529,16 +546,11 @@ class _AppShellState extends State<AppShell> {
   Future<bool> refreshProcessState() =>
       _otzaria.refreshRunningState(force: true);
 
-  /// מבקש מאוצריא הפתוחה להיסגר — הכפתור שלצד האזהרה, בכל מסך שמציג אותה.
-  /// מחזיר אם היא אכן נסגרה; ההודעה על כישלון היא של הכפתור עצמו.
-  ///
-  /// הרענון המחזורי מסונכרן אחריו במפורש: הוא נדלק לפי מצב התהליך, וסגירה
-  /// שהצליחה אמורה לכבות אותו מיד ולא רק בפעימה הבאה.
-  Future<bool> closeOtzaria() async {
-    final closed = await _otzaria.closeRunning();
-    if (mounted) _syncRunningPoll();
-    return closed;
-  }
+  Future<bool> closeOtzaria() => _offers.holdFor(() async {
+        final closed = await _otzaria.closeRunning();
+        if (mounted) _syncRunningPoll();
+        return closed;
+      });
 
   bool _blockedByReadOnly() {
     if (!widget.readOnly) return false;
@@ -563,33 +575,29 @@ class _AppShellState extends State<AppShell> {
     if (!mounted) return;
     await _autoInstallIfEnabled();
     if (!mounted) return;
-    await _offerErrorReports();
+    await _offers.request();
   }
 
-  Future<void> _offerErrorReports() async {
+  Future<bool> _prepareOffer() async {
     await WidgetsBinding.instance.endOfFrame;
     await _errorReportsIntro;
-    if (!mounted || _otzaria.launchPath == null) return;
-    await _dialogs.run(() async {
-      await offerErrorReportCollection(
-        context,
-        _errorReports,
-        readOnly: widget.readOnly,
-        isOtzariaRunning: refreshProcessState,
-        notices: _notices,
-      );
-      if (!mounted) return;
-      await offerSearchFeedbackCollection(
-        context,
-        _searchFeedback,
-        readOnly: widget.readOnly,
-      );
-    });
+    return mounted && _otzaria.launchPath != null;
   }
 
-  Future<void> _uploadSearchFeedback() async {
-    if (_blockedByReadOnly() || !mounted) return;
-    await uploadSearchFeedback(context, _searchFeedback);
+  Future<void> _performOffer() async {
+    await offerErrorReportCollection(
+      context,
+      _errorReports,
+      readOnly: widget.readOnly,
+      isOtzariaRunning: refreshProcessState,
+      notices: _notices,
+    );
+    if (!mounted) return;
+    await offerSearchFeedbackCollection(
+      context,
+      _searchFeedback,
+      readOnly: widget.readOnly,
+    );
   }
 
   Future<void> _grantSemanticConsent() async {
@@ -618,11 +626,22 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
-  /// העלאת הדיווחים שעל הכונן — הפעולה היחידה שלהם שפונה לרשת.
-  Future<void> _uploadErrorReports() async {
-    if (_blockedByReadOnly() || !mounted) return;
-    await uploadErrorReports(context, _errorReports);
-  }
+  Future<void> _uploadReports() => _offers.guardedUpload(
+        blocked: () => _blockedByReadOnly() || !mounted,
+        run: (onActive) => uploadAllReports(
+          context,
+          errorReports: _errorReports,
+          searchFeedback: _searchFeedback,
+          isCancelled: () => _reportsStopRequested,
+          onActiveChanged: onActive,
+          onUploadingChanged: (uploading) {
+            if (!mounted) return;
+            if (uploading) _reportsStopRequested = false;
+            setState(() => _uploadingReports = uploading);
+            _offers.resume();
+          },
+        ),
+      );
 
   Future<void> checkOnline() async {
     if (widget.readOnly || _isCheckingOnline) return;
@@ -701,7 +720,8 @@ class _AppShellState extends State<AppShell> {
       _errorReports.isCollecting ||
       _errorReports.isUploading ||
       _searchFeedback.isCollecting ||
-      _searchFeedback.isUploading;
+      _searchFeedback.isUploading ||
+      _uploadingReports;
 
   Future<void> installLauncherUpdate() => _launcherFlow.install();
 
@@ -853,7 +873,9 @@ class _AppShellState extends State<AppShell> {
       );
 
   void _rebuild() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    _offers.resume();
   }
 
   void _reportDownload({
@@ -962,9 +984,10 @@ class _AppShellState extends State<AppShell> {
             readOnly: widget.readOnly,
             driveFull: widget.driveFull,
             errorReports: _errorReports,
-            onUploadErrorReports: _uploadErrorReports,
             searchFeedback: _searchFeedback,
-            onUploadSearchFeedback: _uploadSearchFeedback,
+            isUploadingReports: _uploadingReports,
+            onUploadReports: _uploadReports,
+            onStopReports: () => _reportsStopRequested = true,
           ),
         LauncherScreen.otzaria => OtzariaScreen(
             otzaria: _otzaria,

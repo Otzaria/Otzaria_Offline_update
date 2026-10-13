@@ -12,6 +12,7 @@ import 'package:launcher_app/src/controllers/otzaria_module_controller.dart';
 import 'package:launcher_app/src/controllers/plugins_module_controller.dart';
 import 'package:launcher_app/src/controllers/search_feedback_controller.dart';
 import 'package:launcher_app/src/screens/home_screen.dart';
+import 'package:launcher_app/src/screens/reports_upload_flow.dart';
 import 'package:launcher_app/src/screens/search_feedback_flow.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
@@ -127,6 +128,49 @@ void main() {
         findsNothing);
   });
 
+  test('pending offer is empty while uploading or collecting', () async {
+    expect(await controller.pendingToOffer(), 2);
+    controller.isUploading = true;
+    expect(await controller.pendingToOffer(), 0);
+    controller
+      ..isUploading = false
+      ..isCollecting = true;
+    expect(await controller.pendingToOffer(), 0);
+    controller.isCollecting = false;
+    expect(await controller.pendingToOffer(), 2);
+  });
+
+  test('the source is resolved with a fresh process probe every time',
+      () async {
+    final temporary = await Directory.systemTemp.createTemp('feedback-fresh-');
+    addTearDown(() => temporary.delete(recursive: true));
+    final locator = _CountingOtzaria();
+    final drive = SearchFeedbackController.forDrive(
+      dataDir: p.join(temporary.path, 'drive'),
+      stateDir: temporary.path,
+      runningLocator: locator,
+      launchPath: () async => null,
+    );
+    addTearDown(drive.dispose);
+    await drive.resolveSource();
+    await drive.resolveSource();
+    expect(locator.probes, 2);
+  });
+
+  test('a source that is unavailable now does not consume the offer', () async {
+    final collectible = SearchFeedbackController(
+      transport: transport,
+      resolveSource: () async => consent ? 'source' : null,
+    );
+    addTearDown(collectible.dispose);
+    consent = false;
+    expect(await collectible.pendingToOffer(), 0);
+    consent = true;
+    expect(await collectible.pendingToOffer(), 2);
+    collectible.markDeclined(2);
+    expect(await collectible.pendingToOffer(), 0);
+  });
+
   testWidgets(
       'approving collection carries events and updates the pending count',
       (tester) async {
@@ -157,7 +201,7 @@ void main() {
       (tester) async {
     transport.carriedEvents = 2;
     final context = await _host(tester);
-    unawaited(uploadSearchFeedback(context, controller));
+    unawaited(uploadAllReports(context, searchFeedback: controller));
     await tester.pumpAndSettle();
     expect(find.text(strings.libraryDomain.semanticFeedbackUploadTitle),
         findsOneWidget);
@@ -172,7 +216,6 @@ void main() {
     transport.carriedEvents = 2;
     final context = await _host(tester);
     await offerSearchFeedbackCollection(context, controller, readOnly: true);
-    await uploadSearchFeedback(context, controller, readOnly: true);
     await tester.pumpAndSettle();
     expect(find.text(strings.libraryDomain.semanticFeedbackCollectTitle),
         findsNothing);
@@ -222,6 +265,7 @@ void main() {
       plugins = PluginsModuleController(mirrorRootDir: temporary.path);
       launcher = LauncherUpdateController(dataDir: temporary.path);
       settings = SettingsController(dataDir: temporary.path);
+      otzaria.onlineCheckedAt = DateTime.utc(2026, 9, 1);
     });
 
     tearDown(() {
@@ -257,7 +301,7 @@ void main() {
           onGoToOtzaria: () {},
           onGoToLibrary: () {},
           searchFeedback: controller,
-          onUploadSearchFeedback: () async => onUpload?.call(),
+          onUploadReports: () async => onUpload?.call(),
         );
 
     testWidgets(
@@ -265,15 +309,12 @@ void main() {
         (tester) async {
       var clicks = 0;
       await pumpScreen(tester, home(onUpload: () => clicks++));
-      expect(find.text(strings.libraryDomain.semanticFeedbackUploadAction),
-          findsNothing);
+      expect(find.text(strings.errorReports.uploadButton(2)), findsNothing);
       transport.carriedEvents = 2;
       await controller.refreshOutbox();
       await tester.pump();
-      expect(find.text(strings.libraryDomain.semanticFeedbackUploadBody(2)),
-          findsOneWidget);
-      await tester
-          .tap(find.text(strings.libraryDomain.semanticFeedbackUploadAction));
+      expect(find.text(strings.errorReports.uploadButton(2)), findsOneWidget);
+      await tester.tap(find.text(strings.errorReports.uploadButton(2)));
       expect(clicks, 1);
     });
 
@@ -283,7 +324,7 @@ void main() {
         ..isUploading = true;
       await pumpScreen(tester, home());
       final stops = transport.stops;
-      await tester.tap(find.text(strings.common.cancel));
+      await tester.tap(find.text(strings.errorReports.uploadStopButton));
       expect(transport.stops, stops + 1);
     });
 
@@ -291,8 +332,19 @@ void main() {
         (tester) async {
       controller.outboxCount = 2;
       await pumpScreen(tester, home(readOnly: true));
-      expect(find.text(strings.libraryDomain.semanticFeedbackUploadAction),
-          findsNothing);
+      expect(find.text(strings.errorReports.uploadButton(2)), findsNothing);
     });
   });
+}
+
+class _CountingOtzaria extends RunningOtzariaLocator {
+  _CountingOtzaria();
+
+  int probes = 0;
+
+  @override
+  Future<RunningOtzariaProbe> probe() async {
+    probes++;
+    return (isRunning: false, launchPath: null);
+  }
 }

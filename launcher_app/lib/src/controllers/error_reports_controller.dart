@@ -5,9 +5,9 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart' show OtzariaCapabilities;
 
 import '../services/app_logger.dart';
+import '../services/offer_decline.dart';
 import 'dispose_guard.dart';
 
-/// תוצאת איסוף: כמה דיווחים הועברו לתיבה, ושגיאה אם הייתה.
 typedef ReportCollectOutcome = ({int collected, String? error});
 
 class ErrorReportsController extends ChangeNotifier
@@ -104,8 +104,7 @@ class ErrorReportsController extends ChangeNotifier
   List<String> unmigratedLegacy = const [];
   final ErrorReportUploader _uploader;
 
-  /// ההצעה לאסוף — פעם אחת בהרצה, גם כשנענתה "לא עכשיו".
-  bool _offered = false;
+  final OfferDecline _decline = OfferDecline();
 
   int outboxCount = 0;
   bool isCollecting = false;
@@ -133,11 +132,8 @@ class ErrorReportsController extends ChangeNotifier
     notifyListeners();
   }
 
-  /// כמה דיווחים ניתנים לשליחה ממתינים באוצריא, אם עוד לא הצענו בהרצה הזו.
-  /// 0 = אין מה להציע: אין התקנה, אין מסד, סכמה לא מוכרת או כשל בקריאה.
   Future<int> pendingToOffer() async {
-    if (_offered) return 0;
-    _offered = true;
+    if (isUploading || isCollecting) return 0;
     try {
       unmigratedLegacy = await _findUnmigratedLegacy?.call() ?? const [];
     } catch (e) {
@@ -151,18 +147,18 @@ class ErrorReportsController extends ChangeNotifier
     try {
       final queue = await _resolveQueue();
       if (queue == null) return 0;
-      return await queue.countSendable();
+      final count = await queue.countSendable();
+      return _decline.filter(count);
     } catch (e) {
-      // מסד נעול או פגום — לא סיבה להטריד את המשתמש בעלייה.
       AppLogger.maybeInstance?.warn('קריאת תור הדיווחים של אוצריא נכשלה: $e');
       return 0;
     }
   }
 
-  /// מעביר את הדיווחים לתיבה ומסמן אותם באוצריא כנשלחו. נספרות רק שורות
-  /// שהועברו בפועל.
+  void markDeclined(int count) => _decline.mark(count);
+
   Future<ReportCollectOutcome> collect() async {
-    if (isCollecting) return (collected: 0, error: null);
+    if (isCollecting || isUploading) return (collected: 0, error: null);
     isCollecting = true;
     notifyListeners();
     try {
@@ -171,7 +167,6 @@ class ErrorReportsController extends ChangeNotifier
       final result = await queue.collectTo(outbox);
       final error = result.error;
       if (error == null) return result;
-      // הפרטים ליומן; במסך — הודעה מתורגמת, בלי טקסט של חריג.
       AppLogger.maybeInstance?.warn('איסוף חלקי: $error');
       return (
         collected: result.collected,
@@ -190,7 +185,7 @@ class ErrorReportsController extends ChangeNotifier
   }
 
   Future<ReportUploadResult?> upload() async {
-    if (isUploading || isDisposed) return null;
+    if (isUploading || isCollecting || isDisposed) return null;
     final cancellation = _cancellation = ReportUploadCancellation();
     isUploading = true;
     progress = null;

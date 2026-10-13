@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -926,6 +927,50 @@ void main() {
     }
   }
 
+  Future<void> syncWithStalledSegment(Duration stallTimeout) async {
+    await seedGeneration(oldTag, models: true);
+    final inner = releaseClient(modelRequests: <Uri>[]);
+    final client = _StallingSegmentClient(
+      inner,
+      const Duration(milliseconds: 400),
+    );
+    final online = SemanticSearchAssets(httpClient: client)
+      ..stallTimeout = stallTimeout;
+    try {
+      await online.sync(mirrorDir: mirror, libraryTag: tag);
+    } finally {
+      online.dispose();
+      client.close();
+    }
+  }
+
+  test(
+    'sync gives up when the download stalls longer than the limit',
+    skip: modelSkip,
+    () async {
+      await expectLater(
+        syncWithStalledSegment(const Duration(milliseconds: 100)),
+        throwsA(isA<TimeoutException>()),
+      );
+    },
+  );
+
+  test(
+    'sync waits out a stall shorter than the limit',
+    skip: modelSkip,
+    () async {
+      await syncWithStalledSegment(const Duration(seconds: 5));
+      expect(await pointerTag(), tag);
+    },
+  );
+
+  test('the default stall limit tolerates a slow CDN', () {
+    expect(
+      SemanticSearchAssets().stallTimeout,
+      greaterThanOrEqualTo(const Duration(minutes: 2)),
+    );
+  });
+
   test(
     'sync copies models from the old generation, then prunes it and repoints',
     () async {
@@ -1644,4 +1689,30 @@ void main() {
     );
     expect(created, 0);
   });
+}
+
+class _StallingSegmentClient extends http.BaseClient {
+  _StallingSegmentClient(this._inner, this._stall);
+
+  final http.Client _inner;
+  final Duration _stall;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final response = await _inner.send(request);
+    if (request.url.pathSegments.last != 'segment.oxv.zst') return response;
+    final bytes = await response.stream.toBytes();
+    return http.StreamedResponse(
+      () async* {
+        yield bytes.sublist(0, 1);
+        await Future<void>.delayed(_stall);
+        yield bytes.sublist(1);
+      }(),
+      response.statusCode,
+      contentLength: bytes.length,
+    );
+  }
+
+  @override
+  void close() => _inner.close();
 }

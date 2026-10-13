@@ -15,11 +15,8 @@ import '../settings/settings_controller.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
-import 'error_reports_upload_section.dart';
+import 'reports_upload_section.dart';
 
-/// דף הבית — שני אריחים בלבד: עדכון/התקנת תוכנת אוצריא, ועדכון הספרייה.
-/// כל פרט טכני נוסף (סנכרון, נתיבים, מספרי גרסה) נמצא במסכים המפורטים
-/// ("תוכנה"/"ספרייה") או בהגדרות — כאן רק "יש עדכון? לחצו."
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
     super.key,
@@ -46,9 +43,10 @@ class HomeScreen extends StatelessWidget {
     this.readOnly = false,
     this.driveFull = false,
     this.errorReports,
-    this.onUploadErrorReports,
+    this.isUploadingReports = false,
+    this.onUploadReports,
+    this.onStopReports,
     this.searchFeedback,
-    this.onUploadSearchFeedback,
   });
 
   final OtzariaModuleController otzaria;
@@ -96,12 +94,11 @@ class HomeScreen extends StatelessWidget {
   final bool readOnly;
   final bool driveFull;
 
-  /// דיווחי טעויות שנאספו לכונן. כפתור ההעלאה יושב בכרטיס ההורדות — המקום
-  /// היחיד שבו הלאנצ'ר פונה לרשת.
   final ErrorReportsController? errorReports;
-  final Future<void> Function()? onUploadErrorReports;
   final SearchFeedbackController? searchFeedback;
-  final Future<void> Function()? onUploadSearchFeedback;
+  final VoidCallback? onStopReports;
+  final bool isUploadingReports;
+  final Future<void> Function()? onUploadReports;
 
   @override
   Widget build(BuildContext context) {
@@ -314,7 +311,16 @@ class HomeScreen extends StatelessWidget {
         onRequestReindex: onRequestReindex,
       );
 
-  // ── בדיקת עדכונים ברשת (צדדי) ────────────────────────────────────────────
+  bool? get _connection {
+    final checks = [
+      (otzaria.onlineCheckedAt, otzaria.onlineCheckError),
+      (library.onlineCheckedAt, library.onlineCheckError),
+      (plugins.onlineCheckedAt, plugins.onlineCheckError),
+      (launcherUpdate.onlineCheckedAt, launcherUpdate.onlineCheckError),
+    ];
+    if (checks.every((c) => c.$1 == null)) return null;
+    return checks.any((c) => c.$1 != null && c.$2 == null);
+  }
 
   Widget _onlineCheckCard(BuildContext context) {
     final theme = Theme.of(context);
@@ -425,38 +431,15 @@ class HomeScreen extends StatelessWidget {
                   onPressed: isCancellingDownload ? null : onCancelDownload,
                 ),
               ],
-              if (errorReports != null && !readOnly)
-                ErrorReportsUploadSection(
-                  controller: errorReports!,
-                  onUpload: onUploadErrorReports,
-                ),
-              if (searchFeedback case final feedback? when !readOnly)
-                AnimatedBuilder(
-                  animation: feedback,
-                  builder: (context, _) => feedback.outboxCount == 0
-                      ? const SizedBox.shrink()
-                      : SettingsActionTile.text(
-                          icon: FluentIcons.arrow_upload_24_regular,
-                          title: context.strings.libraryDomain
-                              .semanticFeedbackUploadTitle,
-                          subtitle: context.strings.libraryDomain
-                              .semanticFeedbackUploadBody(feedback.outboxCount),
-                          actions: [
-                            if (feedback.isUploading)
-                              ActionButton.warning(
-                                text: context.strings.common.cancel,
-                                onPressed: feedback.stop,
-                              ),
-                            ActionButton.neutral(
-                              text: context.strings.libraryDomain
-                                  .semanticFeedbackUploadAction,
-                              isLoading: feedback.isUploading,
-                              onPressed: longTaskRunning || feedback.isUploading
-                                  ? null
-                                  : onUploadSearchFeedback,
-                            ),
-                          ],
-                        ),
+              if (!readOnly && (errorReports != null || searchFeedback != null))
+                ReportsUploadSection(
+                  errorReports: errorReports,
+                  searchFeedback: searchFeedback,
+                  connection: isCheckingOnline ? null : _connection,
+                  isUploadingAll: isUploadingReports,
+                  busy: longTaskRunning,
+                  onUpload: onUploadReports,
+                  onStop: onStopReports,
                 ),
               if (lastChecked != null) ...[
                 const SizedBox(height: AppTokens.spaceSM),

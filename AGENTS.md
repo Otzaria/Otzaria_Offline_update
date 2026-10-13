@@ -1962,8 +1962,12 @@ Otzaria queues book, app and plugin reports it could not send; this package carr
 them on the drive. **Otzaria is not changed for this**: the launcher reads and writes
 Otzaria's own queue in `user_state.db` directly and builds the request body itself —
 every `sqlite3` call inside `Isolate.run`, the offer after the first frame (§5.9).
-UI for *Otzaria's* reports is deliberately one startup dialog plus one button
-in the download card — no screen, no nav item, no setting. Paths, table
+UI for *Otzaria's* reports is deliberately one startup dialog plus **one** button in
+the download card (`ReportsUploadSection` → `uploadAllReports`, which uploads the
+reports and the smart-search feedback in sequence and reports one summary) — no screen,
+no nav item, no setting. The button appears only while some module's last online check
+succeeded (`_connection` in `HomeScreen`); otherwise only a caption says reports are
+waiting. Paths, table
 layout and the transaction are tabulated in `error_reports_manager/README.md`.
 
 **The launcher's own reports are a port of Otzaria's app reports, told apart
@@ -2017,7 +2021,7 @@ log excerpt.
 
 **The one-time explainer is separate from the offer, and shown before it.** The
 offer needs pending reports; the explainer (`showErrorReportsIntroOnce`) is for
-everyone, once per computer, so `_offerErrorReports` awaits it. "Shown" is
+everyone, once per computer, so `_prepareOffer` awaits it. "Shown" is
 `NoticesSeenStore` (`notices_seen.json` in `stateDir/logs`, per hostname; the next
 one-time notice adds a key, not a file), written only *after* the dialog closes.
 Read-only drives get it too, with a text saying collecting is impossible there.
@@ -2043,12 +2047,14 @@ folder are never created. Unsendable reports (`isSendable`, Otzaria's own export
 plus the 256KB book limit), invalid app/plugin records and oversized app requests
 stay in the queue. App attachments travel in the outbox, not the sent history.
 
-**Otzaria must be closed — checked before the offer *and* after the click**
-(`offerErrorReportCollection`). Otzaria keeps `user_state.db` open for the life of every
-window (`busy_timeout=1000`, no retry by design), so a write under it can fail its own
-transactions; the dialog can sit open for minutes. Running at the first check does not
-consume the once-per-launch offer; it runs even with `autoCheckUpdates` off (after
-`_otzaria.ensureChecked()`), never on a read-only drive.
+**Check Otzaria is closed before the offer and after approval; retry on closure.**
+Writing under its open `user_state.db` can break its transactions (2026-10-13).
+`markDeclined` keeps a count threshold even when the queue shrinks; retry only
+above it. Offers also run with auto-check off, never on read-only drives, and
+wait for dialogs and tasks, including 3s after launcher-initiated closure.
+`ReportOfferCoordinator`, `AppShell._onChange`, `offerErrorReportCollection`,
+`SearchFeedbackController`; task-ending paths must call `resume()`.
+See `launcher_app/README.md` for the collection and upload flow.
 
 **File first, then `markPendingReportAsSent` in one `BEGIN IMMEDIATE`.** A crash
 between them leaves the report pending and it is rewritten next time; the reverse order

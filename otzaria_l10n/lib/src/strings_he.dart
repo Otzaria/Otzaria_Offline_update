@@ -2390,10 +2390,11 @@ class _LibraryDomain extends LibraryDomainStrings {
       'בכונן ממתינות $count רשומות נתוני שימוש בחיפוש החכם שנאספו בהסכמה. לשלוח אותן כעת לשרת אוצריא כדי לשפר את החיפוש?';
   @override
   String semanticFeedbackCollected(int count) =>
-      'נאספו $count רשומות נתוני אימון לכונן';
+      '${count == 1 ? 'נאספה 1 רשומת' : 'נאספו $count רשומות'} נתוני אימון לכונן';
   @override
   String semanticFeedbackUploaded(int sent, int remaining) =>
-      'נשלחו $sent רשומות נתוני אימון; $remaining נשארו בכונן';
+      '${sent == 1 ? 'נשלחה 1 רשומת' : 'נשלחו $sent רשומות'} נתוני אימון; '
+      '${remaining == 1 ? 'נשארה 1' : 'נשארו $remaining'} בכונן';
   @override
   String get semanticFeedbackFailed =>
       'העברת נתוני האימון לא הושלמה. אפשר לנסות שוב; פרטים נשמרו ביומן.';
@@ -3298,6 +3299,8 @@ class _CustomApps extends CustomAppsStrings {
   String removedSnack(String name) => '$name הוסרה';
 }
 
+String _reports(int count) => count == 1 ? '1 דיווח' : '$count דיווחים';
+
 class _ErrorReports extends ErrorReportsStrings {
   const _ErrorReports();
 
@@ -3305,7 +3308,7 @@ class _ErrorReports extends ErrorReportsStrings {
   String get collectDialogTitle => 'דיווחים שלא נשלחו';
   @override
   String collectDialogContent(int count) =>
-      'נמצאו באוצריא $count דיווחים על ספרים, התוכנה ותוספים שעדיין לא נשלחו.\n\n'
+      'נמצאו באוצריא ${_reports(count)} על ספרים, התוכנה ותוספים שעדיין לא נשלחו.\n\n'
       'לאסוף אותם לכונן, כדי לשלוח אותם לאוצריא מהמחשב המחובר לרשת?\n\n'
       'שימו לב: הדיווחים נשמרים בכונן כמו שהם, בלי הצפנה, עד שיישלחו — '
       'כתובת המייל, הטקסט שכתבתם, קטעי יומן, צילומי מסך, ובדיווח על קריסה '
@@ -3316,15 +3319,15 @@ class _ErrorReports extends ErrorReportsStrings {
   String get collectLater => 'לא עכשיו';
   @override
   String collectedSnack(int count) =>
-      'נאספו לכונן $count דיווחים. הם יישלחו מהמחשב המחובר לרשת';
+      'נאספו לכונן ${_reports(count)}. הם יישלחו מהמחשב המחובר לרשת';
   @override
   String collectPartialSnack(int count, String error) =>
-      'נאספו $count דיווחים, אבל לא כולם: $error';
+      'נאספו ${_reports(count)}, אבל לא כולם: $error';
   @override
   String collectFailedSnack(String error) => 'איסוף הדיווחים נכשל: $error';
   @override
   String get collectOtzariaOpenSnack =>
-      'אוצריא פתוחה, ולכן הדיווחים לא נאספו. השאלה תחזור בהפעלה הבאה';
+      'אוצריא פתוחה, ולכן הדיווחים לא נאספו. השאלה תחזור כשאוצריא תיסגר';
   @override
   String get legacyReportsDialogTitle => 'דיווחים ישנים שלא הועברו';
   @override
@@ -3356,12 +3359,12 @@ class _ErrorReports extends ErrorReportsStrings {
   String get introDialogConfirm => 'הבנתי';
 
   @override
-  String uploadButton(int count) => 'העלאת $count דיווחים לאוצריא';
+  String uploadButton(int count) => 'העלאת ${_reports(count)} לאוצריא';
   @override
   String get uploadLongDialogTitle => 'העלאת הדיווחים';
   @override
   String uploadLongDialogContent(int count, int perMinute, int minutes) =>
-      'על הכונן $count דיווחים. השרת של אוצריא מקבל עד $perMinute דיווחים '
+      'על הכונן ${_reports(count)}. השרת של אוצריא מקבל עד $perMinute דיווחים '
       'בדקה, ולכן ההעלאה תימשך כ-$minutes דקות.\n\n'
       'אפשר לעצור באמצע, ובפעם הבאה ההעלאה תמשיך מהמקום שבו נעצרה.';
   @override
@@ -3375,10 +3378,29 @@ class _ErrorReports extends ErrorReportsStrings {
   @override
   String get uploadStopButton => 'עצירה';
   @override
+  String get uploadingFeedbackStage => 'מעלה נתוני אימון לחיפוש החכם...';
+  @override
+  String uploadPendingOffline(int count) =>
+      '${count == 1 ? 'ממתין' : 'ממתינים'} להעלאה ${_reports(count)}. אין חיבור לרשת, ולכן אין כפתור העלאה';
+  @override
+  String uploadPendingUnchecked(int count) =>
+      '${count == 1 ? 'ממתין' : 'ממתינים'} להעלאה ${_reports(count)}. טרם נבדק חיבור לרשת — בדקו חיבור כדי להעלות';
+  @override
+  String get uploadCollectingBusy =>
+      'איסוף דיווחים מתבצע כעת. נסו שוב בעוד רגע';
+  @override
+  String get uploadUnexpectedFailure => 'ההעלאה נכשלה. הפרטים ביומן הפעילות';
+  @override
   String uploadSummary(int sent, int rejected, int remaining) => [
-        'נשלחו $sent דיווחים',
-        if (rejected > 0) '$rejected נדחו על ידי השרת ונמחקו',
-        if (remaining > 0) '$remaining ממתינים לפעם הבאה',
+        sent == 1 ? 'נשלח 1 דיווח' : 'נשלחו $sent דיווחים',
+        if (rejected > 0)
+          rejected == 1
+              ? 'אחד נדחה על ידי השרת ונמחק'
+              : '$rejected נדחו על ידי השרת ונמחקו',
+        if (remaining > 0)
+          remaining == 1
+              ? 'אחד ממתין לפעם הבאה'
+              : '$remaining ממתינים לפעם הבאה',
       ].join(', ');
   @override
   String uploadFailedSnack(String error) => 'ההעלאה נעצרה: $error';

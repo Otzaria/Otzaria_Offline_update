@@ -17,9 +17,13 @@ import 'package:launcher_app/src/controllers/launcher_update_controller.dart';
 import 'package:launcher_app/src/controllers/library_module_controller.dart';
 import 'package:launcher_app/src/controllers/otzaria_module_controller.dart';
 import 'package:launcher_app/src/controllers/plugins_module_controller.dart';
+import 'package:launcher_app/src/controllers/search_feedback_controller.dart';
 import 'package:launcher_app/src/screens/error_reports_flow.dart';
 import 'package:launcher_app/src/screens/home_screen.dart';
+import 'package:launcher_app/src/screens/reports_upload_flow.dart';
+import 'package:launcher_app/src/screens/reports_upload_section.dart';
 import 'package:launcher_app/src/services/notices_seen_store.dart';
+import 'package:launcher_app/src/services/report_offer_trigger.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -48,15 +52,22 @@ const _hiveSentOnly =
 
 class _MemoryOutbox implements ReportOutbox {
   final reports = <OutboxReport>[];
+  Future<void> Function()? beforeList;
 
   void add(String id) =>
       reports.add(OutboxReport.fromJson(_report(id), filePath: id));
 
   @override
-  Future<List<OutboxReport>> list() async => List.of(reports);
+  Future<List<OutboxReport>> list() async {
+    await beforeList?.call();
+    return List.of(reports);
+  }
 
   @override
-  Future<int> count() async => reports.length;
+  Future<int> count() async {
+    await beforeList?.call();
+    return reports.length;
+  }
 
   @override
   Future<Uint8List> requestBody(OutboxReport report) async =>
@@ -286,6 +297,206 @@ void main() {
     });
   });
 
+  group('הצעה מחדש אחרי סגירת אוצריא', () {
+    testWidgets('נפתחה בעלייה ונסגרה אחר כך → ההצעה מופיעה', (tester) async {
+      final c = controller(pending: 2);
+      final ctx = await host(tester);
+      final trigger = ReportOfferTrigger(() async {
+        await offer(ctx, c);
+      });
+
+      running = true;
+      trigger.onRunningState(running: true);
+      await trigger.request();
+      await tester.pumpAndSettle();
+      expect(find.text(t.collectDialogTitle), findsNothing);
+
+      running = false;
+      trigger.onRunningState(running: false);
+      await tester.pumpAndSettle();
+      expect(find.text(t.collectDialogTitle), findsOneWidget);
+    });
+
+    testWidgets('אוצריא שנפתחה ונסגרה במהלך ההרצה → דיווחים חדשים מוצעים',
+        (tester) async {
+      var pending = 0;
+      final c = ErrorReportsController(
+        outbox: outbox,
+        resolveQueue: () async => _FakeQueue(pending),
+      );
+      final ctx = await host(tester);
+      final trigger = ReportOfferTrigger(() async {
+        await offer(ctx, c);
+      });
+
+      await trigger.request();
+      await tester.pumpAndSettle();
+      expect(find.text(t.collectDialogTitle), findsNothing);
+
+      running = true;
+      trigger.onRunningState(running: true);
+      pending = 2;
+      running = false;
+      trigger.onRunningState(running: false);
+      await tester.pumpAndSettle();
+      expect(find.text(t.collectDialogContent(2)), findsOneWidget);
+    });
+
+    testWidgets('מי שסירב לא נשאל שוב על אותם דיווחים, אבל כן על חדשים',
+        (tester) async {
+      var pending = 2;
+      final c = ErrorReportsController(
+        outbox: outbox,
+        resolveQueue: () async => _FakeQueue(pending),
+      );
+      final ctx = await host(tester);
+      final trigger = ReportOfferTrigger(() async {
+        await offer(ctx, c);
+      });
+
+      unawaited(trigger.request());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(t.collectLater));
+      await tester.pumpAndSettle();
+
+      trigger.onRunningState(running: true);
+      trigger.onRunningState(running: false);
+      await tester.pumpAndSettle();
+      expect(find.text(t.collectDialogTitle), findsNothing);
+
+      pending = 3;
+      trigger.onRunningState(running: true);
+      trigger.onRunningState(running: false);
+      await tester.pumpAndSettle();
+      expect(find.text(t.collectDialogContent(3)), findsOneWidget);
+    });
+
+    test('בקשה שמגיעה באמצע הצעה רצה שוב אחריה, בלי להיערם', () async {
+      final gate = Completer<void>();
+      var runs = 0;
+      final trigger = ReportOfferTrigger(() async {
+        runs++;
+        if (runs == 1) await gate.future;
+      });
+
+      final first = trigger.request();
+      await trigger.request();
+      await trigger.request();
+      expect(runs, 1);
+      gate.complete();
+      await first;
+      expect(runs, 2);
+    });
+
+    test('בזמן העלאה או איסוף אין הצעה, ואיסוף והעלאה אינם חופפים', () async {
+      final c = controller(pending: 2);
+      expect(await c.pendingToOffer(), 2);
+
+      c.isUploading = true;
+      expect(await c.pendingToOffer(), 0);
+      expect((await c.collect()).collected, 0);
+      expect(outbox.reports, isEmpty);
+      c.isUploading = false;
+
+      c.isCollecting = true;
+      expect(await c.pendingToOffer(), 0);
+      outbox.add('a');
+      expect(await c.upload(), isNull);
+      expect(outbox.reports, hasLength(1));
+      c.isCollecting = false;
+
+      expect(await c.pendingToOffer(), 2);
+    });
+    test('ספירה אחרי ספירה: הצעה שלא נענתה אינה נצרכת', () async {
+      final c = controller(pending: 2);
+      expect(await c.pendingToOffer(), 2);
+      expect(await c.pendingToOffer(), 2);
+      c.markDeclined(2);
+      expect(await c.pendingToOffer(), 0);
+    });
+
+    test('הצעה שנדחתה בזמן משימה ארוכה רצה מחדש כשהיא מסתיימת', () async {
+      var busy = true;
+      var runs = 0;
+      final trigger =
+          ReportOfferTrigger(() async => runs++, isBusy: () => busy);
+
+      trigger.onRunningState(running: true);
+      trigger.onRunningState(running: false);
+      await Future<void>.delayed(Duration.zero);
+      expect(runs, 0);
+
+      trigger.resume();
+      await Future<void>.delayed(Duration.zero);
+      expect(runs, 0);
+
+      busy = false;
+      trigger.resume();
+      await Future<void>.delayed(Duration.zero);
+      expect(runs, 1);
+
+      trigger.resume();
+      await Future<void>.delayed(Duration.zero);
+      expect(runs, 1);
+    });
+
+    test('הצעה שהוכרזה כדחויה מבפנים רצה מחדש ב-resume', () async {
+      var runs = 0;
+      late ReportOfferTrigger trigger;
+      const busy = false;
+      trigger = ReportOfferTrigger(() async {
+        runs++;
+        if (runs == 1) trigger.defer();
+      }, isBusy: () => busy);
+
+      await trigger.request();
+      expect(runs, 1);
+      trigger.resume();
+      await Future<void>.delayed(Duration.zero);
+      expect(runs, 2);
+    });
+
+    test('סירוב נשמר גם כשחלק מהדיווחים כבר אינם בתור', () async {
+      var pending = 5;
+      final c = ErrorReportsController(
+        outbox: outbox,
+        resolveQueue: () async => _FakeQueue(pending),
+      );
+      c.markDeclined(5);
+      expect(await c.pendingToOffer(), 0);
+      pending = 2;
+      expect(await c.pendingToOffer(), 0);
+      pending = 3;
+      expect(await c.pendingToOffer(), 0);
+    });
+  });
+
+  test('דיווח בודד בעברית בלשון יחיד', () {
+    expect(t.uploadButton(1), contains('1 דיווח '));
+    expect(t.uploadPendingOffline(1), contains('1 דיווח.'));
+    expect(t.uploadPendingUnchecked(1), contains('1 דיווח.'));
+    expect(t.uploadSummary(1, 0, 0), 'נשלח 1 דיווח');
+    expect(t.uploadButton(3), contains('3 דיווחים'));
+  });
+
+  test('ניסוח יחיד בעברית: פועל וספירה', () {
+    expect(t.uploadPendingOffline(1), startsWith('ממתין להעלאה 1 דיווח'));
+    expect(t.uploadPendingOffline(2), startsWith('ממתינים להעלאה 2 דיווחים'));
+    final library = stringsOf().libraryDomain;
+    expect(
+      library.semanticFeedbackUploaded(1, 1),
+      'נשלחה 1 רשומת נתוני אימון; נשארה 1 בכונן',
+    );
+    expect(
+      library.semanticFeedbackUploaded(2, 3),
+      'נשלחו 2 רשומות נתוני אימון; נשארו 3 בכונן',
+    );
+    expect(
+      library.semanticFeedbackCollected(1),
+      'נאספה 1 רשומת נתוני אימון לכונן',
+    );
+  });
+
   group('איסוף בעלייה', () {
     testWidgets('אוצריא פתוחה → אין דיאלוג, וההצעה לא "נוצלה"', (tester) async {
       final c = controller(pending: 2);
@@ -369,6 +580,7 @@ void main() {
     late PluginsModuleController plugins;
     late LauncherUpdateController launcherUpdate;
     late SettingsController settings;
+    ReportsUploadOutcome? outcome;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('error_reports_test');
@@ -377,6 +589,8 @@ void main() {
       plugins = PluginsModuleController(mirrorRootDir: tempDir.path);
       launcherUpdate = LauncherUpdateController(dataDir: tempDir.path);
       settings = SettingsController(dataDir: tempDir.path);
+      outcome = null;
+      otzaria.onlineCheckedAt = DateTime.utc(2026, 9, 1);
     });
 
     tearDown(() {
@@ -391,6 +605,7 @@ void main() {
     HomeScreen home(
       ErrorReportsController reports, {
       bool readOnly = false,
+      SearchFeedbackController? feedback,
       Future<void> Function()? onUpload,
     }) =>
         HomeScreen(
@@ -416,9 +631,287 @@ void main() {
           onGoToOtzaria: () {},
           onGoToLibrary: () {},
           errorReports: reports,
-          onUploadErrorReports: onUpload ?? () async {},
+          searchFeedback: feedback,
+          isUploadingReports: false,
+          onUploadReports: onUpload ?? () async {},
         );
 
+    testWidgets('כפתור אחד מעלה את שני הסוגים, והכמות בו היא הסכום',
+        (tester) async {
+      final printed = <String>[];
+      final originalPrint = debugPrint;
+      debugPrint = (message, {wrapWidth}) => printed.add(message ?? '');
+      outbox
+        ..add('a')
+        ..add('b');
+      final transport = _CountFeedback(carried: 3);
+      final feedback = SearchFeedbackController(
+        transport: transport,
+        resolveSource: () async => null,
+      );
+      addTearDown(feedback.dispose);
+      final c = controller();
+      await c.refreshOutbox();
+      await feedback.refreshOutbox();
+      final libraryT = stringsOf().libraryDomain;
+      late BuildContext ctx;
+      await pumpScreen(
+        tester,
+        Builder(builder: (context) {
+          ctx = context;
+          return home(
+            c,
+            feedback: feedback,
+            onUpload: () async => outcome = await uploadAllReports(
+              ctx,
+              errorReports: c,
+              searchFeedback: feedback,
+            ),
+          );
+        }),
+      );
+
+      expect(find.text(t.uploadButton(5)), findsOneWidget);
+      expect(find.text(libraryT.semanticFeedbackUploadAction), findsNothing);
+      expect(find.text(libraryT.semanticFeedbackUploadBody(3)), findsNothing);
+
+      await tester.tap(find.text(t.uploadButton(5)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(libraryT.semanticFeedbackUploadAction));
+      await tester.pumpAndSettle();
+
+      expect(outbox.reports, isEmpty);
+      expect(transport.uploads, 1);
+      debugPrint = originalPrint;
+      expect(outcome?.severity, ReportsUploadSeverity.success);
+      expect(printed, [
+        'UiSnack ללא overlay: ${t.uploadSummary(2, 0, 0)}\n'
+            '${libraryT.semanticFeedbackUploaded(3, 0)}',
+      ]);
+    });
+
+    testWidgets('אין חיבור: נשאר הכיתוב בלבד, וכשהחיבור חוזר הכפתור מופיע',
+        (tester) async {
+      outbox
+        ..add('a')
+        ..add('b');
+      final transport = _CountFeedback(carried: 1);
+      final feedback = SearchFeedbackController(
+        transport: transport,
+        resolveSource: () async => null,
+      );
+      addTearDown(feedback.dispose);
+      final c = controller();
+      await c.refreshOutbox();
+      await feedback.refreshOutbox();
+      otzaria.onlineCheckError = 'no network';
+
+      await pumpScreen(tester, home(c, feedback: feedback));
+      expect(find.text(t.uploadPendingOffline(3)), findsOneWidget);
+      expect(find.text(t.uploadButton(3)), findsNothing);
+
+      otzaria.onlineCheckError = null;
+      await pumpScreen(tester, home(c, feedback: feedback));
+      expect(find.text(t.uploadPendingOffline(3)), findsNothing);
+      expect(find.text(t.uploadButton(3)), findsOneWidget);
+    });
+
+    testWidgets('בלי בדיקה מקוונת מוצלחת אין כפתור', (tester) async {
+      outbox.add('a');
+      otzaria.onlineCheckedAt = null;
+      final c = controller();
+      await c.refreshOutbox();
+      await pumpScreen(tester, home(c));
+      expect(find.text(t.uploadPendingUnchecked(1)), findsOneWidget);
+      expect(find.text(t.uploadButton(1)), findsNothing);
+      expect(find.text(t.uploadPendingOffline(1)), findsNothing);
+    });
+
+    testWidgets('עצירה בין שלבי ההעלאה משאירה את המשוב בכונן', (tester) async {
+      outbox.add('a');
+      final c = controller();
+      await c.refreshOutbox();
+      final transport = _CountFeedback(carried: 2);
+      final feedback = SearchFeedbackController(
+        transport: transport,
+        resolveSource: () async => null,
+      );
+      addTearDown(feedback.dispose);
+      final gate = Completer<void>();
+      outbox.beforeList =
+          () => outbox.reports.isEmpty ? gate.future : Future<void>.value();
+      var stopped = false;
+      late BuildContext ctx;
+      await pumpScreen(tester, Builder(builder: (context) {
+        ctx = context;
+        return ReportsUploadSection(
+          errorReports: c,
+          searchFeedback: feedback,
+          connection: true,
+          isUploadingAll: true,
+          busy: false,
+          onUpload: null,
+          onStop: () => stopped = true,
+        );
+      }));
+      final uploading = uploadAllReports(
+        ctx,
+        errorReports: c,
+        searchFeedback: feedback,
+        isCancelled: () => stopped,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(
+          find.text(stringsOf().libraryDomain.semanticFeedbackUploadAction));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(c.isUploading, isFalse);
+      expect(feedback.isUploading, isFalse);
+      await tester.tap(find.text(t.uploadStopButton));
+      gate.complete();
+      await tester.pump();
+      final result = await uploading;
+      expect(transport.uploads, 0);
+      expect(transport.carried, 2);
+      expect(result?.severity, ReportsUploadSeverity.info);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('רק בדיקת הלאנצ׳ר הצליחה: אפשר להעלות', (tester) async {
+      outbox.add('a');
+      otzaria.onlineCheckedAt = null;
+      launcherUpdate.onlineCheckedAt = DateTime.utc(2026, 10, 13);
+      final c = controller();
+      await c.refreshOutbox();
+      await pumpScreen(tester, home(c));
+      expect(find.text(t.uploadButton(1)), findsOneWidget);
+    });
+
+    testWidgets('משוב שזורק: סיכום הדיווחים שהועלו נשמר', (tester) async {
+      outbox.add('a');
+      final transport = _CountFeedback(carried: 2, throwOnUpload: true);
+      final feedback = SearchFeedbackController(
+        transport: transport,
+        resolveSource: () async => null,
+      );
+      addTearDown(feedback.dispose);
+      final c = controller();
+      await c.refreshOutbox();
+      await feedback.refreshOutbox();
+      final libraryT = stringsOf().libraryDomain;
+      final printed = <String>[];
+      final originalPrint = debugPrint;
+      debugPrint = (message, {wrapWidth}) => printed.add(message ?? '');
+      late BuildContext ctx;
+      await pumpScreen(
+        tester,
+        Builder(builder: (context) {
+          ctx = context;
+          return home(
+            c,
+            feedback: feedback,
+            onUpload: () async => outcome = await uploadAllReports(
+              ctx,
+              errorReports: c,
+              searchFeedback: feedback,
+            ),
+          );
+        }),
+      );
+      await tester.tap(find.text(t.uploadButton(3)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(libraryT.semanticFeedbackUploadAction));
+      await tester.pumpAndSettle();
+      debugPrint = originalPrint;
+      expect(outcome?.severity, ReportsUploadSeverity.error);
+
+      expect(outbox.reports, isEmpty);
+      expect(printed, [
+        'UiSnack ללא overlay: ${t.uploadSummary(1, 0, 0)}\n'
+            '${libraryT.semanticFeedbackFailed}',
+      ]);
+    });
+
+    testWidgets('דיווחים שנכשלו: המשוב לא עולה, ונשאר בסיכום כממתין',
+        (tester) async {
+      outbox.add('a');
+      final transport = _CountFeedback(carried: 2);
+      final feedback = SearchFeedbackController(
+        transport: transport,
+        resolveSource: () async => null,
+      );
+      addTearDown(feedback.dispose);
+      final c = controller(
+        client: MockClient((_) async => http.Response('oops', 500)),
+      );
+      await c.refreshOutbox();
+      await feedback.refreshOutbox();
+      final libraryT = stringsOf().libraryDomain;
+      final printed = <String>[];
+      final originalPrint = debugPrint;
+      debugPrint = (message, {wrapWidth}) => printed.add(message ?? '');
+      late BuildContext ctx;
+      await pumpScreen(
+        tester,
+        Builder(builder: (context) {
+          ctx = context;
+          return home(
+            c,
+            feedback: feedback,
+            onUpload: () async => outcome = await uploadAllReports(
+              ctx,
+              errorReports: c,
+              searchFeedback: feedback,
+            ),
+          );
+        }),
+      );
+      await tester.tap(find.text(t.uploadButton(3)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(libraryT.semanticFeedbackUploadAction));
+      await tester.pumpAndSettle();
+      debugPrint = originalPrint;
+      expect(outcome?.severity, ReportsUploadSeverity.error);
+
+      expect(transport.uploads, 0);
+      expect(transport.carried, 2);
+      expect(printed, hasLength(1));
+      expect(printed.single, contains(libraryT.semanticFeedbackUploaded(0, 2)));
+    });
+
+    testWidgets('העלאת דיווחים שחזרה null אינה נספרת כהצלחה', (tester) async {
+      outbox.add('a');
+      final c = _NullUploadReports(
+        outbox: outbox,
+        resolveQueue: () async => null,
+      );
+      await c.refreshOutbox();
+      final ctx = await host(tester);
+      final result = await uploadAllReports(ctx, errorReports: c);
+
+      expect(result?.severity, ReportsUploadSeverity.info);
+      expect(result?.message, t.uploadCollectingBusy);
+    });
+    testWidgets('איסוף רץ: לחיצה על העלאה מודיעה ואינה מדלגת בשקט',
+        (tester) async {
+      final transport = _CountFeedback(carried: 2);
+      final feedback = SearchFeedbackController(
+        transport: transport,
+        resolveSource: () async => null,
+      )..isCollecting = true;
+      addTearDown(feedback.dispose);
+      final c = controller();
+      final printed = <String>[];
+      final originalPrint = debugPrint;
+      debugPrint = (message, {wrapWidth}) => printed.add(message ?? '');
+      final ctx = await host(tester);
+      await uploadAllReports(ctx, errorReports: c, searchFeedback: feedback);
+      debugPrint = originalPrint;
+
+      expect(transport.uploads, 0);
+      expect(printed, ['UiSnack ללא overlay: ${t.uploadCollectingBusy}']);
+    });
     testWidgets('מופיע רק כשיש דיווחים בתיבה', (tester) async {
       final c = controller();
       await c.refreshOutbox();
@@ -453,7 +946,10 @@ void main() {
         tester,
         Builder(builder: (context) {
           ctx = context;
-          return home(c, onUpload: () => uploadErrorReports(ctx, c));
+          return home(
+            c,
+            onUpload: () => uploadAllReports(ctx, errorReports: c),
+          );
         }),
       );
 
@@ -773,4 +1269,33 @@ class _BrokenOutbox implements ReportOutbox {
 
   @override
   Future<void> discard(String reportId) async {}
+}
+
+class _CountFeedback extends SearchFeedbackTransport {
+  _CountFeedback({required this.carried, this.throwOnUpload = false})
+      : super('unused',
+            client: MockClient((_) async => http.Response('{}', 200)));
+
+  int carried;
+  final bool throwOnUpload;
+  int uploads = 0;
+
+  @override
+  Future<int> count() async => carried;
+
+  @override
+  Future<SearchFeedbackUploadResult> upload() async {
+    uploads++;
+    if (throwOnUpload) throw StateError('boom');
+    final sent = carried;
+    carried = 0;
+    return (sent: sent, rejected: 0, remaining: 0);
+  }
+}
+
+class _NullUploadReports extends ErrorReportsController {
+  _NullUploadReports({required super.outbox, required super.resolveQueue});
+
+  @override
+  Future<ReportUploadResult?> upload() async => null;
 }

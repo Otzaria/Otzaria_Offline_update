@@ -606,10 +606,11 @@ personalUpdateMode`) הוא מה שנקרא בכל מקום, ולא `syncLibrary
 
 ### חריג שני: העלאת דיווחי טעויות
 
-דיווחי טעויות שאוצריא לא הצליחה לשלוח נאספים לכונן במחשב הלא-מקוון (דיאלוג
-בעלייה, `AppShell._offerErrorReports` → `offerErrorReportCollection`), ונשלחים
-מהכפתור שבכרטיס ההורדות במחשב המקוון (`ErrorReportsUploadSection` →
-`uploadErrorReports`). זו הפנייה השנייה לרשת, וגם היא בלחיצה בלבד — אין לה חלק
+דיווחי טעויות ומשוב החיפוש החכם שאוצריא לא הצליחה לשלוח נאספים לכונן במחשב
+הלא-מקוון (דיאלוג בעלייה ושוב בכל סגירה של אוצריא, `ReportOfferCoordinator` →
+`offerErrorReportCollection`), ונשלחים מכפתור אחד בכרטיס ההורדות במחשב המקוון
+(`ReportsUploadSection` → `uploadAllReports`), ורק כשבדיקה מקוונת אחרונה הצליחה;
+בלי חיבור נשאר כיתוב בלבד. זו הפנייה השנייה לרשת, וגם היא בלחיצה בלבד — אין לה חלק
 ב-`checkOnline`. הבקר (`ErrorReportsController`) אינו מחובר ל-listener של
 `AppShell`: ההתקדמות מתעדכנת כל שנייה, והשורה מאזינה לו בעצמה. האיסוף קורא
 וכותב ישירות את התור של אוצריא ב-`user_state.db` (`resolveOtzariaReportQueue`
@@ -904,11 +905,13 @@ lib/
     ├── services/
     │   ├── app_logger.dart            — לוג לקובץ תחת <dataDir>/logs
     │   ├── file_reveal.dart           — פתיחת תיקייה ב-Explorer/Finder
+    │   ├── report_offer_coordinator.dart, report_offer_trigger.dart, offer_decline.dart — מתי להציע איסוף
     │   └── hebrew_date.dart           — המרה לתאריך עברי + גימטריה
     └── screens/
         ├── app_shell.dart             — סרגל ניווט, סרגל מצב, IndexedStack מדורג
         ├── home_screen.dart, otzaria_screen.dart, library_screen.dart, settings_screen.dart
-        ├── error_reports_flow.dart, error_reports_upload_section.dart — דיווחי טעויות
+        ├── error_reports_flow.dart, search_feedback_flow.dart — הצעת האיסוף
+        ├── reports_upload_flow.dart, reports_upload_section.dart — כפתור ההעלאה האחד
         ├── faq/                       — הדרכת שאלות נפוצות (ראו למטה)
         │   ├── faq_content.dart             — הזוגות שאלה/תשובה, מקובצים
         │   ├── faq_dialog.dart              — האקורדיון + מצב העריכה
