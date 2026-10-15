@@ -558,8 +558,9 @@ already takes, so it lands mid-asset.
 `MirrorDownloadUndo` snapshots `mirror/library`, `mirror/companions`, `mirror/app`
 and `mirror/plugins` before the first byte; on cancel it deletes created files,
 restores any rewritten `.json` manifest (a new `releases.json` over deleted assets
-is a mirror pointing at nothing), and truncates a resumed partial asset back to its
-previous length so it stays resumable. Do **not** simplify this into deleting the
+is a mirror pointing at nothing) and the `.resume`/`.segments` download state by
+content, and truncates a resumed partial asset (and its `.seg-N` ranges) back to
+its previous length so it stays resumable. Do **not** simplify this into deleting the
 mirror — the ~1.5GB DB from an earlier run is exactly what must survive a cancel.
 `mirror/apps` and `mirror/launcher` are deliberately outside the snapshot.
 A root in which a captured file went missing is left in its new state: components

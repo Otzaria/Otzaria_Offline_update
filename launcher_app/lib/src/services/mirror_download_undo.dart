@@ -79,9 +79,13 @@ class MirrorDownloadUndo {
     return (MirrorDownloadUndo._(roots, files, dirs, untouched), notes);
   }
 
-  /// קובצי הצד של ההורדה (`<נכס>.resume`) קטנים כמו מניפסט, וההורדה כותבת
-  /// אותם מחדש — חיתוך לאורך הישן היה מותיר JSON קטוע ומאבד את החידוש.
-  static const Set<String> _rememberedExtensions = {'.json', '.resume'};
+  /// קובצי הצד של ההורדה (`.resume`, ומצב הטווחים `.segments`) נכתבים מחדש
+  /// בכל ריצה — חיתוך לאורך הישן היה מותיר אותם קטועים ומאבד את החידוש.
+  static const Set<String> _rememberedExtensions = {
+    '.json',
+    '.resume',
+    '.segments',
+  };
 
   static bool _remembersContent(String path, int length) =>
       _rememberedExtensions.contains(p.extension(path).toLowerCase()) &&
