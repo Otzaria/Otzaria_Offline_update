@@ -728,7 +728,9 @@ August 2026), which is also why resume never works against GitHub. What the CDN
 *does* throttle is each connection separately: ~0.7MB/s on one against ~2.1MB/s
 aggregate on four. `PatchDownloader` splits a file of 64MB or more into ranges
 only after a probe gets `206`, and falls back to one connection on `200`; its
-`<dest>.segments`/`.seg-N`/`.lock` side files belong to the asset like `.resume`.
+`<dest>.segments`/`.seg-N`/`.lock` side files are the state of an unfinished
+download: the engine deletes them on success, and `MirrorJunkSweeper` (which runs
+only after a successful download) treats leftovers as junk.
 Every downloader on the shared scheduler takes `connectionsPerFile`
 (`download_connections.dart`), the exporter's share of its eight-connection cap.
 

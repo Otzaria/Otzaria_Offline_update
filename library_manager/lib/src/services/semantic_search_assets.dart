@@ -330,12 +330,7 @@ class SemanticSearchAssets {
       slots.add(progress.slot(existingBytes: existing));
     }
     progress.announce();
-    final downloader = PatchDownloader(
-      httpClient: _client,
-      decompress: (_) async => null,
-      stallTimeout: stallTimeout,
-      maxConnections: connectionsPerFile(_scheduler),
-    );
+    final downloader = newDownloader();
     try {
       _cancel(isCancelled);
       await Directory(p.join(generation, modelFolder)).create(recursive: true);
@@ -382,6 +377,14 @@ class SemanticSearchAssets {
       downloader.dispose();
     }
   }
+
+  @visibleForTesting
+  PatchDownloader newDownloader() => PatchDownloader(
+    httpClient: _client,
+    decompress: (_) async => null,
+    stallTimeout: stallTimeout,
+    maxConnections: connectionsPerFile(_scheduler),
+  );
 
   Future<int> _completeLength(String path, int expectedSize) async {
     try {

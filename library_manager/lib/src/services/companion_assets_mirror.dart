@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
@@ -55,6 +56,9 @@ class CompanionAssetsMirror {
   final http.Client _httpClient;
   final bool _ownsClient;
   late final PatchDownloader _downloader;
+
+  @visibleForTesting
+  int get maxConnectionsPerFile => _downloader.maxConnections;
 
   /// שלושת הפריטים אינם תלויים זה בזה, ולכן הם יורדים במקביל — התלמוד לבדו
   /// הוא ~450MB, והמילון והקטלוג היו מחכים לו בתור בלי סיבה. מוזרק מבחוץ

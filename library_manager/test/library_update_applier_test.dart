@@ -708,6 +708,32 @@ void main() {
       );
     });
 
+    test('הורדה מהרשת מתחת לסף הטווחים אינה מוסיפה לדרוש', () async {
+      final probe = PatchDownloader(decompress: (_) async => null);
+      final size = probe.segmentThresholdBytes - 1;
+      probe.dispose();
+      withFreeBytes((_) => size + DiskSpaceProbe.defaultHeadroomBytes);
+
+      // הביטול נתפס בכניסה להורדה, כלומר רק אחרי שבדיקת המקום עברה.
+      await expectLater(
+        applier.applyFullDownload(
+          plan: LibraryUpdatePlan.fullDownload(
+            localVersion: 4,
+            targetVersion: 5,
+            asset: ReleaseAsset(
+              name: 'seforim.db.zst',
+              downloadUrl: 'https://example.invalid/seforim.db.zst',
+              size: size,
+            ),
+            releaseTag: 'v5',
+          ),
+          dbPath: dbPath,
+          isCancelled: () => true,
+        ),
+        throwsA(isA<PatchDownloadCancelled>()),
+      );
+    });
+
     test('מדידה שנכשלה (null) אינה חוסמת', () async {
       if (bindings == null) {
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');

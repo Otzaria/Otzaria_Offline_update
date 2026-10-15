@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:library_manager/library_manager.dart';
 import 'package:library_manager/src/services/download_connections.dart';
+import 'package:library_manager/src/services/semantic_search_assets.dart';
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 void main() {
@@ -19,5 +21,19 @@ void main() {
         reason: '$slots משבצות',
       );
     }
+  });
+
+  test('הנלווים והחיפוש החכם מורידים בחלוקה הזו', () {
+    final scheduler = DownloadScheduler(maxConcurrent: 4);
+    final companions = CompanionAssetsMirror(scheduler: scheduler);
+    addTearDown(companions.dispose);
+    final semantic = SemanticSearchAssets(scheduler: scheduler);
+    addTearDown(semantic.dispose);
+    final downloader = semantic.newDownloader();
+    addTearDown(downloader.dispose);
+
+    expect(connectionsPerFile(scheduler), 2);
+    expect(companions.maxConnectionsPerFile, 2);
+    expect(downloader.maxConnections, 2);
   });
 }
