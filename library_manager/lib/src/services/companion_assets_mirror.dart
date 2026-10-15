@@ -9,6 +9,7 @@ import 'package:seforim_library_updater/seforim_library_updater.dart';
 import 'atomic_file.dart' show writeStringAtomically;
 import 'companion_assets.dart';
 import 'companion_assets_installer.dart';
+import 'download_connections.dart';
 import 'github_fetch.dart';
 import 'zstd_decompressor.dart';
 
@@ -32,6 +33,7 @@ class CompanionAssetsMirror {
     _downloader = PatchDownloader(
       httpClient: _httpClient,
       decompress: const ZstdDecompressor().call,
+      maxConnections: connectionsPerFile(_scheduler),
     );
   }
 

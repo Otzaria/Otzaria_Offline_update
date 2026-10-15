@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import 'atomic_file.dart' show writeStringAtomically;
+import 'download_connections.dart';
 import 'github_fetch.dart';
 
 typedef SemanticAsset = ({String name, int size, String sha256});
@@ -333,6 +334,7 @@ class SemanticSearchAssets {
       httpClient: _client,
       decompress: (_) async => null,
       stallTimeout: stallTimeout,
+      maxConnections: connectionsPerFile(_scheduler),
     );
     try {
       _cancel(isCancelled);

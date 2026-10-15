@@ -349,6 +349,8 @@ void main() {
         // בדיוק מה שנשאר אחרי קריסה באמצע apply קודם.
         File('$dbPath.new').writeAsStringSync('חצי מסד מריצה שקרסה');
         File('$dbPath.download.zst').writeAsStringSync('הורדה חלקית');
+        File('$dbPath.download.zst.seg-1').writeAsStringSync('טווח');
+        File('$dbPath.download.zst.segments').writeAsStringSync('{}');
 
         await applier.applyFullDownload(
           plan: fullPlanFor(compressedPath),
@@ -358,6 +360,8 @@ void main() {
         expect(File(dbPath).readAsBytesSync(), payload);
         expect(File('$dbPath.new').existsSync(), isFalse);
         expect(File('$dbPath.download.zst').existsSync(), isFalse);
+        expect(File('$dbPath.download.zst.seg-1').existsSync(), isFalse);
+        expect(File('$dbPath.download.zst.segments').existsSync(), isFalse);
       },
     );
 
@@ -664,6 +668,44 @@ void main() {
         dbPath: dbPath,
       );
       expect(File(dbPath).readAsBytesSync(), payload);
+    });
+
+    test('הורדה מהרשת בטווחים מוסיפה לדרוש את הטווח הגדול ביותר', () async {
+      const size = 100 << 20;
+      final probe = PatchDownloader(decompress: (_) async => null);
+      final connections = probe.maxConnections;
+      probe.dispose();
+      const free = size + DiskSpaceProbe.defaultHeadroomBytes;
+      withFreeBytes((_) => free);
+
+      await expectLater(
+        applier.applyFullDownload(
+          plan: LibraryUpdatePlan.fullDownload(
+            localVersion: 4,
+            targetVersion: 5,
+            asset: const ReleaseAsset(
+              name: 'seforim.db.zst',
+              downloadUrl: 'https://example.invalid/seforim.db.zst',
+              size: size,
+            ),
+            releaseTag: 'v5',
+          ),
+          dbPath: dbPath,
+        ),
+        throwsA(
+          isA<LibraryApplyException>().having(
+            (e) => e.message,
+            'message',
+            AppL10n.strings.libraryDomain.notEnoughDiskSpace(
+              p.dirname(dbPath),
+              DiskSpaceProbe.formatBytes(
+                size + (size + connections - 1) ~/ connections,
+              ),
+              DiskSpaceProbe.formatBytes(free),
+            ),
+          ),
+        ),
+      );
     });
 
     test('מדידה שנכשלה (null) אינה חוסמת', () async {
