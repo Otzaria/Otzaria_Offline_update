@@ -142,6 +142,32 @@ void main() {
     expect(file('assets/v1/seforim.db.zst.seg-2').existsSync(), isFalse);
   });
 
+  test('טווחים שההורדה צירפה ומחקה אינם משאירים את המראה בלי החזרה', () async {
+    const state = '{"token":"111","bounds":[0,10,20],"assembled":1}';
+    write('releases.json', '{"releases":["v1"]}');
+    write('assets/v1/seforim.db.zst', '01234');
+    write('assets/v1/seforim.db.zst.seg-1', 'abc');
+    write('assets/v1/seforim.db.zst.segments', state);
+    write('assets/v1/seforim.db.zst.lock', '');
+
+    final undo = await MirrorDownloadUndo.capture([mirrorDir]);
+    // ההורדה הושלמה: הטווחים צורפו ונמחקו, וגם מצבם והנעילה.
+    file('assets/v1/seforim.db.zst').writeAsStringSync('0123456789abcdefghij');
+    file('assets/v1/seforim.db.zst.seg-1').deleteSync();
+    file('assets/v1/seforim.db.zst.segments').deleteSync();
+    file('assets/v1/seforim.db.zst.lock').deleteSync();
+    write('assets/v2/patch-v1-v2.zst', 'ירד עכשיו');
+    write('releases.json', '{"releases":["v1","v2"]}');
+
+    await undo.revert();
+
+    expect(file('assets/v2/patch-v1-v2.zst').existsSync(), isFalse);
+    expect(file('releases.json').readAsStringSync(), '{"releases":["v1"]}');
+    expect(file('assets/v1/seforim.db.zst').readAsStringSync(), '01234');
+    expect(file('assets/v1/seforim.db.zst.segments').readAsStringSync(), state);
+    expect(file('assets/v1/seforim.db.zst.seg-1').existsSync(), isFalse);
+  });
+
   test('כמה תיקיות מראה מנוקות באותו ביטול', () async {
     final companionsDir = p.join(tempDir.path, 'mirror', 'companions');
     Directory(companionsDir).createSync(recursive: true);

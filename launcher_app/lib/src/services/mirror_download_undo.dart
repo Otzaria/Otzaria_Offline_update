@@ -121,10 +121,19 @@ class MirrorDownloadUndo {
 
   String? _lostFileUnder(String rootPath) {
     for (final path in _files.keys) {
+      if (_isDownloadSideFile(path)) continue;
       if (p.isWithin(rootPath, path) && !File(path).existsSync()) return path;
     }
     return null;
   }
+
+  /// קבצים שההורדה עצמה מוחקת כשהיא מתקדמת (טווח אחרי צירופו, מצב הטווחים,
+  /// נעילה) — היעלמותם אינה גיזום של נכס.
+  static final RegExp _downloadSideFile =
+      RegExp(r'\.(seg-\d+|segments|segments\.tmp|lock)$', caseSensitive: false);
+
+  static bool _isDownloadSideFile(String path) =>
+      _downloadSideFile.hasMatch(p.basename(path));
 
   static const Set<String> _keptFileNames = {
     LibraryMirrorExporter.rejectedSplitsFileName,
@@ -156,6 +165,21 @@ class MirrorDownloadUndo {
         continue;
       }
       _quietly(() => before.restoreInto(file), file.path, notes);
+    }
+
+    for (final MapEntry(key: path, value: before) in _files.entries) {
+      final content = before.content;
+      if (content == null ||
+          !_isDownloadSideFile(path) ||
+          !p.isWithin(root.path, path) ||
+          File(path).existsSync()) {
+        continue;
+      }
+      _quietly(
+        () => File(path).writeAsBytesSync(content, flush: true),
+        path,
+        notes,
+      );
     }
 
     newDirs.sort((a, b) => b.length.compareTo(a.length));

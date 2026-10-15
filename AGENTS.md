@@ -565,6 +565,8 @@ mirror — the ~1.5GB DB from an earlier run is exactly what must survive a canc
 `mirror/apps` and `mirror/launcher` are deliberately outside the snapshot.
 A root in which a captured file went missing is left in its new state: components
 prune only after writing their manifest, so the old one would name deleted files.
+Download side files the engine deletes on its own (`.seg-N`, `.segments`, `.lock`)
+do not count as missing; a remembered `.segments` is written back.
 `rejected-split-archives.json` (`LibraryMirrorExporter.rejectedSplitsFileName`) at a
 root is never deleted or restored, even in a root that did not exist at capture: it
 records a verdict, not a download, and losing it re-downloads ~2GB of known-bad parts.
