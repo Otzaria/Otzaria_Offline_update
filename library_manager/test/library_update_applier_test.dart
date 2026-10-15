@@ -1568,7 +1568,7 @@ void main() {
                   ],
                   fromHash: h.h2,
                   toHash: h.h3,
-                  toSchemaVersion: 7,
+                  toSchemaVersion: kSupportedDbSchemaVersion + 1,
                 ),
               ],
             ),

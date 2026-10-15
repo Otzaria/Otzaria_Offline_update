@@ -484,7 +484,7 @@ void main() {
         releases: [
           const _MirrorRelease(
             'v31-20261004170255',
-            patches: [_MirrorPatch(29, 31, toSchema: 7)],
+            patches: [_MirrorPatch(29, 31, toSchema: _futureSchema)],
           ),
         ],
       );
@@ -739,7 +739,7 @@ void main() {
           const _MirrorRelease('v22', patches: [_MirrorPatch(21, 22)]),
           const _MirrorRelease(
             'v26',
-            patches: [_MirrorPatch(22, 26, toSchema: 7)],
+            patches: [_MirrorPatch(22, 26, toSchema: _futureSchema)],
           ),
         ],
       );
@@ -748,7 +748,7 @@ void main() {
       expect(controller.status, LibraryModuleStatus.error);
       expect(
         controller.errorMessage,
-        AppL10n.strings.libraryDomain.planPatchSchemaTooNew(7, 26),
+        AppL10n.strings.libraryDomain.planPatchSchemaTooNew(_futureSchema, 26),
       );
     });
 
@@ -759,7 +759,7 @@ void main() {
           const _MirrorRelease('v21', hasFullDb: true),
           const _MirrorRelease(
             'v26',
-            patches: [_MirrorPatch(22, 26, toSchema: 7)],
+            patches: [_MirrorPatch(22, 26, toSchema: _futureSchema)],
             hasFullDb: true,
           ),
         ],
@@ -770,7 +770,8 @@ void main() {
       expect(controller.targetVersion, 26);
       expect(
         controller.updateRouteNote,
-        AppL10n.strings.libraryDomain.planNewSchemaNeedsFullDb(26, 7),
+        AppL10n.strings.libraryDomain
+            .planNewSchemaNeedsFullDb(26, _futureSchema),
       );
     });
 
@@ -787,7 +788,7 @@ void main() {
           ),
           const _MirrorRelease(
             'v26',
-            patches: [_MirrorPatch(22, 26, toSchema: 7)],
+            patches: [_MirrorPatch(22, 26, toSchema: _futureSchema)],
           ),
         ],
       );
@@ -797,7 +798,8 @@ void main() {
       expect(controller.targetVersion, 23);
       expect(
         controller.updateRouteNote,
-        AppL10n.strings.libraryDomain.planPartialDeltaSchemaStop(23, 26, 7),
+        AppL10n.strings.libraryDomain
+            .planPartialDeltaSchemaStop(23, 26, _futureSchema),
       );
     });
 
@@ -1251,6 +1253,9 @@ void _writeMirror(Directory tempDir, {required List<_MirrorRelease> releases}) {
     }),
   );
 }
+
+/// סכמה שהחבילה עוד אינה מכירה, בכל גרסה שלה.
+const _futureSchema = kSupportedDbSchemaVersion + 1;
 
 class _MirrorPatch {
   const _MirrorPatch(this.from, this.to, {this.toSchema = 2});
