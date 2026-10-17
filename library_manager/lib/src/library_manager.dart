@@ -167,9 +167,8 @@ class LibraryManager {
 
   /// הקבצים הנלווים לספרייה (תלמוד, קטלוג, מילון). אוצריא מרעננת אותם
   /// **מהרשת** בכל עדכון ספרייה; כאן הם נוסעים במראה ומותקנים אופליין.
-  /// תקרת החיבורים המקבילים של כל ההורדה — נכסי הספרייה **והקבצים הנלווים
-  /// יחד**. ראו [DownloadScheduler]: מול GitHub אי אפשר לפצל קובץ בודד לכמה
-  /// חיבורים, אבל אפשר להוריד קבצים שונים בו-זמנית, וזה מה שמאיץ בפועל.
+  /// תקרת הקבצים המקבילים של כל ההורדה — נכסי הספרייה **והקבצים הנלווים
+  /// יחד**. ראו [DownloadScheduler] ו-`connectionsPerFile`.
   final DownloadScheduler _scheduler = DownloadScheduler();
 
   CompanionAssetsMirror? _companionsMirrorInstance;

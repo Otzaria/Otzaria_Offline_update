@@ -475,12 +475,13 @@ class LibraryUpdateApplier {
       // שארית מגרסה שעוד העתיקה את הנכס לכאן — אין לה שימוש יותר.
       _deleteQuietly(stagedPath);
       _deleteQuietly(PatchDownloader.resumeSidecarPath(stagedPath));
+      PatchDownloader.deleteSegmentFiles(stagedPath);
     } else {
       compressedPath = stagedPath;
       // הדחוס וה-`.new` יושבים שניהם לצד המסד הקיים, ולכן שיא התפוסה על אותו
       // נפח הוא ישן + דחוס + חדש. בלי הבדיקה הזו הכשל היה `errno = 112`
       // באנגלית באמצע חילוץ של דקות, על נתיב `.new` שהמשתמש אינו מכיר.
-      _ensureSpaceFor(dir.path, asset.size);
+      _ensureSpaceFor(dir.path, asset.size + _segmentAssemblyOverhead(asset));
       await _downloader.downloadToFile(
         url: asset.downloadUrl,
         destPath: stagedPath,
@@ -844,6 +845,15 @@ class LibraryUpdateApplier {
         DiskSpaceProbe.formatBytes(free),
       ),
     );
+  }
+
+  /// הורדה בטווחים מחזיקה בזמן הצירוף עותק נוסף של הטווח הגדול ביותר.
+  int _segmentAssemblyOverhead(ReleaseAsset asset) {
+    final connections = _downloader.maxConnections;
+    if (connections < 2 || asset.size < _downloader.segmentThresholdBytes) {
+      return 0;
+    }
+    return (asset.size + connections - 1) ~/ connections;
   }
 
   void _ensureDeltaStepFits(String dbPath, String url, PatchFileEntry patch) {

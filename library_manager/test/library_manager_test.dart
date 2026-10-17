@@ -1061,7 +1061,7 @@ void main() {
                   upsertRows: [
                     [3, 'gimel'],
                   ],
-                  toSchemaVersion: 7,
+                  toSchemaVersion: kSupportedDbSchemaVersion + 1,
                 ),
               ],
             ),

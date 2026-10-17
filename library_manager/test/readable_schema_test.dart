@@ -180,6 +180,20 @@ void main() {
       expect(result.plan?.fullDbAsset?.name, 'seforim-schema6.db.zst');
     });
 
+    test('אוצריא 0.9.98 אינה מקבלת את סכמה 7 גם כשהיא במראה', () async {
+      await writeMirror('v33', [
+        'seforim-schema6.db.zst',
+        'seforim-schema7.db.zst',
+      ]);
+
+      final result = await check(appVersion: '0.9.98');
+
+      expect(result.plan?.kind, LibraryUpdatePlanKind.fullDownload);
+      expect(result.plan?.fullDbAsset?.name, 'seforim-schema6.db.zst');
+      expect(result.readableDbSchemaVersion, 6);
+      expect(result.needsNewerOtzaria, isFalse);
+    });
+
     test('אוצריא לא ידועה — ההתנהגות הקודמת, הסכמה הגבוהה הנתמכת', () async {
       await writeMirror('v31', ['seforim.db.zst', 'seforim-schema6.db.zst']);
 
@@ -293,6 +307,26 @@ void main() {
         expect(route.edges, edges);
         expect(route.limited, isFalse);
       }
+    });
+
+    test('אוצריא קוראת סכמה אחת פחות מהחבילה: הקשת לסכמה החדשה נחסמת', () {
+      const older = kSupportedDbSchemaVersion - 1;
+      final keep = edge(30, 31, fromSchema: older, toSchema: older);
+      final cross = edge(
+        31,
+        32,
+        fromSchema: older,
+        toSchema: kSupportedDbSchemaVersion,
+      );
+      final route = ReadableSchemaRoute.limit(
+        discovery: discovery([keep, cross]),
+        releases: const [],
+        allowPrerelease: false,
+        readableSchema: older,
+      );
+
+      expect(route.edges, [keep]);
+      expect(route.excludedSchema, kSupportedDbSchemaVersion);
     });
   });
 }

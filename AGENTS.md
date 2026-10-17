@@ -402,7 +402,7 @@ surfaces as `LocalDbUnreadableException` and the check fails instead of planning
 
 **Two version axes, never one constant.** `patch_meta.schema_version` is the
 **patch.db format** version, not the logical DB schema. They travelled together
-until DB schema 5 shipped in patch format 4, so `kSupportedDbSchemaVersion` (6) and
+until DB schema 5 shipped in patch format 4, so `kSupportedDbSchemaVersion` (7) and
 `kSupportedPatchFormatVersion` (4) are separate constants with separate predicates
 (`isSupportedSchemaVersion` / `isSupportedPatchFormatVersion`) and separate filters. Collapsing them makes `PatchApplier` silently accept a format
 it cannot apply. `patchFormatVersion` stays **optional** in the manifest even where
@@ -558,12 +558,15 @@ already takes, so it lands mid-asset.
 `MirrorDownloadUndo` snapshots `mirror/library`, `mirror/companions`, `mirror/app`
 and `mirror/plugins` before the first byte; on cancel it deletes created files,
 restores any rewritten `.json` manifest (a new `releases.json` over deleted assets
-is a mirror pointing at nothing), and truncates a resumed partial asset back to its
-previous length so it stays resumable. Do **not** simplify this into deleting the
+is a mirror pointing at nothing) and the `.resume`/`.segments` download state by
+content, and truncates a resumed partial asset (and its `.seg-N` ranges) back to
+its previous length so it stays resumable. Do **not** simplify this into deleting the
 mirror — the ~1.5GB DB from an earlier run is exactly what must survive a cancel.
 `mirror/apps` and `mirror/launcher` are deliberately outside the snapshot.
 A root in which a captured file went missing is left in its new state: components
 prune only after writing their manifest, so the old one would name deleted files.
+Download side files the engine deletes on its own (`.seg-N`, `.segments`, `.lock`)
+do not count as missing; a remembered `.segments` is written back.
 `rejected-split-archives.json` (`LibraryMirrorExporter.rejectedSplitsFileName`) at a
 root is never deleted or restored, even in a root that did not exist at capture: it
 records a verdict, not a download, and losing it re-downloads ~2GB of known-bad parts.
@@ -716,21 +719,26 @@ re-published asset, or a different resume token brings full verification back. T
 verification must keep happening on the **online** machine, the only place a corrupt
 asset can be fetched again.
 
-**Downloads are parallel *across files*, never *within* a file — and that is what
-the server allows, not a preference.** Issue #17 asked for a download accelerator,
-but GitHub's release CDN (`release-assets.githubusercontent.com`, an Azure Blob SAS
-behind a proxy) **strips `Range`**: it answers `200` with the full body to every
-`Range` — and `x-ms-range` — while still advertising `Accept-Ranges: bytes`
-(verified five ways, August 2026). That is also why resume never works against
-GitHub, which the code already knew (`_streamToFile` treats "ignored Range → 200" as
-a restart). What the CDN *does* throttle is each connection separately: ~0.7MB/s on
-one against ~2.1MB/s aggregate on four.
+**Downloads are parallel *across files*; *within* a file only where the server
+honours `Range`.** Issue #17 asked for a download accelerator, but GitHub's release
+CDN (`release-assets.githubusercontent.com`, an Azure Blob SAS behind a proxy)
+**strips `Range`**: it answers `200` with the full body to every `Range` — and
+`x-ms-range` — while still advertising `Accept-Ranges: bytes` (verified five ways,
+August 2026), which is also why resume never works against GitHub. What the CDN
+*does* throttle is each connection separately: ~0.7MB/s on one against ~2.1MB/s
+aggregate on four. `PatchDownloader` splits a file of 64MB or more into ranges
+only after a probe gets `206`, and falls back to one connection on `200`; its
+`<dest>.segments`/`.seg-N`/`.lock` side files are the state of an unfinished
+download: the engine deletes them on success, and `MirrorJunkSweeper` (which runs
+only after a successful download) treats leftovers as junk.
+Every downloader on the shared scheduler takes `connectionsPerFile`
+(`download_connections.dart`), the exporter's share of its eight-connection cap.
 
 `DownloadScheduler` (`seforim_library_updater`, exported) is that pool, and it
 is a **shared semaphore on purpose**: `LibraryManager` hands the same instance to
 `LibraryMirrorExporter` and `CompanionAssetsMirror` and runs them concurrently (the
 ~509MB of companions used to queue behind the ~1.55GB DB), so the two stages
-together never open more than four connections. The smart-search sync
+together never run more than four files at once. The smart-search sync
 (`SemanticSearchAssets.sync`) runs after both on the same instance, models and
 vector parts biggest-first, deducts files already complete in the generation
 through `slot(existingBytes:)` before its `announce()`, and reports into a new
