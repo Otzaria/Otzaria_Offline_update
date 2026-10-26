@@ -33,6 +33,7 @@ class OtzariaCapabilities {
 
   static const List<(int, String)> _readableSchemaSinceAppVersion = [
     (6, '0.9.98'),
+    (7, '0.9.98.2'),
   ];
 
   final int? formatVersion;

@@ -1326,7 +1326,9 @@ void main() {
       expect(host, contains('_session.tasks.downloadRunning('));
       expect(host, contains('flow.activeComponents,'));
       expect(host, contains('_session.tasks.downloadCancelled('));
-      expect(host, contains('s.tasks.downloadDone(skipped: skipped)'));
+      expect(host,
+          contains('s.tasks.downloadDone(skipped: skipped, notes: notes)'));
+      expect(host, contains('!skipped.contains(MirrorComponent.library)'));
       expect(host, contains('classifyDownloadFailure('));
       // הביטול עצמו לא השתנה: אישור אזהרה ואז `requestCancel` (שמחזיר את הכונן).
       final cancel = _methodBody(session, 'Future<void> cancelDownload()');

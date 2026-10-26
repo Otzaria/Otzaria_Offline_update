@@ -9,6 +9,7 @@ abstract interface class AppMirrorModule {
 }
 
 abstract interface class LibraryMirrorModule {
+  bool get hasBlockedLibrary;
   bool get shouldOfferSemanticDownload;
   bool get personalUpdateMode;
   OnlineProof get libraryOnlineProof;
@@ -180,12 +181,13 @@ class MirrorDownloadFlow {
     DownloadPlan planWith({required bool semantic}) => DownloadPlan(
           skipApp: skipApp,
           includeSemanticSearch: semantic,
-          skipLibrary: DownloadPlan.shouldSkipLibrary(
-            s,
-            includeSemanticSearch: semantic,
-            personalUpdateMode: library.personalUpdateMode,
-            online: library.libraryOnlineProof,
-          ),
+          skipLibrary: !(s.syncApp && !skipApp && library.hasBlockedLibrary) &&
+              DownloadPlan.shouldSkipLibrary(
+                s,
+                includeSemanticSearch: semantic,
+                personalUpdateMode: library.personalUpdateMode,
+                online: library.libraryOnlineProof,
+              ),
           skipPlugins: DownloadPlan.shouldSkipPlugins(
             s,
             catalog: plugins.catalogOnlineProof,

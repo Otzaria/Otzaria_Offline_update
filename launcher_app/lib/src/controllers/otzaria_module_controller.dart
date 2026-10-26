@@ -389,6 +389,10 @@ class OtzariaModuleController extends ChangeNotifier
     return onlineChannels;
   }
 
+  /// See [OtzariaManager.mirroredReadableDbSchema].
+  Future<int?> mirroredReadableDbSchema() =>
+      _manager.mirroredReadableDbSchema();
+
   Future<void> download({bool Function()? isCancelled}) async {
     downloadStatus = OtzariaDownloadStatus.downloading;
     downloadReceived = null;

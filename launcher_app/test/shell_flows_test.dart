@@ -66,6 +66,8 @@ class _FakeLibrary implements LibraryMirrorModule, AutoInstallLibrary {
   @override
   bool downloadNeedsRetry = false;
   @override
+  bool hasBlockedLibrary = false;
+  @override
   bool isFreshInstall = false;
   @override
   bool hasUpdateAvailable = true;
@@ -110,6 +112,7 @@ class _FakePlugins implements PluginsMirrorModule {
   _FakePlugins(this.log);
 
   final List<String> log;
+  void Function()? onSync;
 
   @override
   OnlineProof catalogOnlineProof = _hasNew;
@@ -121,6 +124,7 @@ class _FakePlugins implements PluginsMirrorModule {
   @override
   Future<void> sync({required bool Function() isCancelled}) async {
     log.add('plugins');
+    onSync?.call();
   }
 
   @override
@@ -364,6 +368,24 @@ void main() {
       ];
 
   group('MirrorDownloadFlow', () {
+    test(
+        'an app download rechecks a library previously limited by its installer',
+        () async {
+      library.libraryOnlineProof = _proven;
+      library.hasBlockedLibrary = true;
+      await flow.downloadAll();
+      expect(componentsRun(), containsAllInOrder(['app', 'library']));
+    });
+    test('cancelling plugins keeps the app and library that already finished',
+        () async {
+      plugins.onSync = flow.requestCancel;
+      await flow.downloadAll();
+      expect(host.rollback.reverted, MirrorComponent.plugins);
+      expect(host.kept, [MirrorComponent.app, MirrorComponent.library]);
+      plugins.onSync = null;
+      await flow.downloadAll();
+      expect(host.failed, isEmpty);
+    });
     test('חריג באמצע — מדווח למארח, והזרימה משתחררת', () async {
       host.onRefresh = (_) async => throw StateError('boom');
       await flow.downloadAll();

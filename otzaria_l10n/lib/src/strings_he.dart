@@ -1553,6 +1553,24 @@ class _LibraryScreen extends LibraryScreenStrings {
   @override
   String personalDownloadNote(int count) =>
       'הכונן מוכן ל${plural(count, one: 'מחשב אחד שנרשם', two: 'שני מחשבים שנרשמו', many: '-$count מחשבים שנרשמו')}.';
+  @override
+  String get downloadNoteTitle => 'הורדת ספריית אוצריא';
+  @override
+  String get downloadNeedsOtzariaInstaller =>
+      'ספריית אוצריא לא הורדה: אין בכונן מתקין אוצריא שמתאים לה. '
+      'בחר בהגדרות להוריד גם את אוצריא לכונן, ואז נסה שוב.';
+  @override
+  String downloadNewerNeedsOtzaria(String version) =>
+      'גרסה ${_ltr(version)} של ספריית אוצריא לא הורדה: אוצריא שבכונן אינה '
+      'תומכת בה. הורד לכונן גרסה מתאימה של אוצריא ואז הורד שוב.';
+  @override
+  String get downloadKeptNewerMirror =>
+      'ספריית אוצריא שבכונן כוללת גם גרסה חדשה יותר, ונשמרה כמות שהיא. '
+      'כדי להתקין את הגרסה החדשה, הורד לכונן גרסה מתאימה של אוצריא.';
+  @override
+  String get downloadMetadataUnreadable =>
+      'חלק מנתוני העדכון של הספרייה ברשת לא נקרא, ולכן לא ידוע אם יש גרסה '
+      'חדשה שאפשר להביא. מה שכבר בכונן נשמר — נסה להוריד שוב מאוחר יותר.';
 }
 
 class _Settings extends SettingsScreenStrings {
@@ -2766,6 +2784,13 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get exportPersonalVersionUnknown =>
       'לא זוהתה גרסת ספריית אוצריא במחשב — מוריד את הספרייה המלאה';
+  @override
+  String get semanticTargetUnknown =>
+      'לא ידוע בלי הורדה אילו קובצי חיפוש חכם מתאימים לספרייה שאוצריא שבכונן '
+      'קוראת';
+  @override
+  String get exportKeptNewerMirror =>
+      'בכונן כבר יש ספרייה חדשה ממה שאוצריא שבכונן קוראת — היא נשארת כמות שהיא';
   @override
   String get exportPersonalMirrorDamaged =>
       'עדכוני הספרייה שבתיקייה פגומים — מוריד את המסד המלא';

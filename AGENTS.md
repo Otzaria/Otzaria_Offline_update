@@ -809,6 +809,14 @@ update off and download again" message now fires only at a real dead end. Its
 home bound (`personalDownloadBytesBound`) is the patches alone only when held,
 appliable manifests prove they win; otherwise the larger of the two routes.
 
+**Download only a library a usable Otzaria installer on the drive reads.**
+The exporter's schema limit covers full DBs, not patches (2026-10), so filter
+both before export. Keep a newer mirror only when its complete route still
+serves the installer with the asset identities the exporter would use.
+Vectors follow the offline planner's content; ambiguity stays unknown, and
+saved decisions expire with the installer, online list or mirror.
+`ReadableReleasesClient`, `LibraryManager`; details: `library_manager/README.md`.
+
 **Only the patches are per-release; `seforim.db.zst` is downloaded once**, from the
 highest version carrying one — the only full-DB asset `OfflineLibraryUpdateDiscovery` ever
 selects offline, so a copy per release meant ~7.5GB nothing would read. After a

@@ -269,6 +269,12 @@ class HomePage extends StatelessWidget {
     final blocked = m.checkBlocked;
     final inHero = _libraryInHero(m);
     return [
+      if (m.libraryDownloadNotes.isNotEmpty)
+        NoticeBanner(
+          leading: const IconTile(icon: FluentIcons.info_24_regular),
+          title: context.strings.libraryScreen.downloadNoteTitle,
+          body: m.libraryDownloadNotes.join('\n'),
+        ),
       if (m.libraryNotFound && !inHero)
         NoticeBanner(
           key: ShellKeys.libraryNotFoundNotice,

@@ -94,6 +94,41 @@ void main() {
     }
   }
 
+  test('session library download requires an installer actually on the drive',
+      () async {
+    final s = session();
+    await s.library.download();
+    expect(s.library.downloadNeedsOtzariaInstaller, isTrue);
+    expect(s.library.downloadStatus, MirrorDownloadStatus.error);
+
+    const relative = 'installers/0.9.98/otzaria.exe';
+    final mirror = p.join(tempDir.path, 'mirror', 'app');
+    final installer = File(p.join(mirror, relative));
+    await installer.parent.create(recursive: true);
+    await installer.writeAsString('installer');
+    const release = OtzariaRelease(
+      tagName: '0.9.98+801',
+      name: 'Otzaria',
+      isPrerelease: false,
+      isDraft: false,
+      publishedAt: null,
+      installerKind: OtzariaInstallerKind.windowsSetupExe,
+      installerAssetName: 'otzaria.exe',
+      installerDownloadUrl: 'https://example.test/installer',
+      installerSizeBytes: 9,
+    );
+    await File(p.join(mirror, 'latest-release.json')).writeAsString(jsonEncode({
+      'schemaVersion': 2,
+      'stable': release.toJson()..['installerPath'] = relative,
+    }));
+    if (Platform.isWindows) {
+      await s.library.download();
+      expect(s.library.downloadNeedsOtzariaInstaller, isFalse);
+      expect(s.library.downloadError, isNotNull,
+          reason: 'Network is forbidden in this test');
+    }
+  });
+
   group('השאלה "מחשבים מרובים או רק המחשב שלי"', () {
     // בלי פריים השאלה אינה יוצאת — היא מחכה לפריים הראשון, כמו באפליקציה.
     void frame() => WidgetsBinding.instance

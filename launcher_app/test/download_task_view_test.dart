@@ -30,6 +30,35 @@ void main() {
 
   String? percent(WidgetTester tester) => line(tester, 'task.download.percent');
 
+  testWidgets('an incompatible installer has a visible actionable explanation',
+      (tester) async {
+    downloadScenarios['installerRequired'] = const DownloadTask(
+        phase: DownloadTaskPhase.failed,
+        failure: DownloadFailure(DownloadFailureKind.libraryInstaller));
+    addTearDown(() => downloadScenarios.remove('installerRequired'));
+    await show(tester, 'installerRequired');
+    expect(find.text(stringsOf().libraryScreen.downloadNeedsOtzariaInstaller),
+        findsOneWidget);
+  });
+
+  testWidgets(
+      'a limited download shows its qualification instead of unqualified success',
+      (tester) async {
+    final note = stringsOf().libraryScreen.downloadNewerNeedsOtzaria('33');
+    downloadScenarios['limitedLibrary'] = DownloadTask(
+        phase: DownloadTaskPhase.done,
+        components: const [MirrorComponent.library],
+        notes: [note]);
+    addTearDown(() => downloadScenarios.remove('limitedLibrary'));
+    await show(tester, 'limitedLibrary');
+    expect(find.text(note), findsOneWidget);
+    expect(find.text(t.doneBody), findsNothing);
+    await pumpScreen(tester, taskScenario('limitedLibrary'),
+        size: const Size(760, 560));
+    expect(find.text(note), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   group('שאלת החיפוש החכם', () {
     testWidgets('המומלץ מסומן מראש, ו"התחלת ההורדה" עונה "לא"', (tester) async {
       await show(tester, 'semantic');

@@ -48,6 +48,7 @@ typedef LibraryOnlineAnswers = ({
   bool semanticChecked,
   int? downloadBytesBound,
   int? semanticBytes,
+  bool readableMirrorCurrent,
 });
 
 /// מה ההורדה האחרונה עשתה במצב "עדכון אישי".
@@ -74,9 +75,11 @@ class LibraryModuleController extends ChangeNotifier
     Future<String?> Function()? otzariaLaunchPath,
     Future<String?> Function()? otzariaAppVersion,
     Future<String?> Function()? mirroredOtzariaUpdate,
+    Future<int?> Function()? mirroredReadableDbSchema,
     OtzariaInstanceLock? instanceLock,
     LibraryManager? manager,
   })  : _mirroredOtzariaUpdate = mirroredOtzariaUpdate,
+        _mirroredReadableDbSchema = mirroredReadableDbSchema,
         _manager = manager ??
             LibraryManager(
               dataDir: dataDir,
@@ -84,14 +87,20 @@ class LibraryModuleController extends ChangeNotifier
               allowPrerelease: allowPrerelease,
               otzariaLaunchPath: otzariaLaunchPath,
               otzariaAppVersion: otzariaAppVersion,
+              mirroredReadableDbSchema: mirroredReadableDbSchema,
               instanceLock: instanceLock,
             );
 
   final Future<String?> Function()? _mirroredOtzariaUpdate;
 
+  /// The schema the Otzaria installers on the drive read, asked fresh at each
+  /// download (after the app's); `null` from it = no usable installer.
+  final Future<int?> Function()? _mirroredReadableDbSchema;
+
   set personalUpdateMode(bool value) {
     if (_manager.personalUpdateMode == value) return;
     _manager.personalUpdateMode = value;
+    _readableMirrorCurrent = false;
     _refreshDownloadSize();
     if (!value) registeredMachines = const [];
     if (status == LibraryModuleStatus.idle || _applying) return;
@@ -280,6 +289,35 @@ class LibraryModuleController extends ChangeNotifier
   bool _incompleteMirrorDownload = false;
   bool get downloadNeedsRetry =>
       downloadError != null || _incompleteMirrorDownload;
+
+  /// The last download did not start: no Otzaria installer on the drive reads
+  /// the library. [downloadError] carries the message.
+  bool downloadNeedsOtzariaInstaller = false;
+
+  /// A newer library the drive's Otzaria installers cannot read, left online
+  /// by the last download.
+  int? newerLibraryNeedsOtzaria;
+
+  /// The last download left a newer mirror in place rather than replace it
+  /// with what the drive's Otzaria installers read.
+  bool keptNewerMirror = false;
+
+  /// Some update manifests could not be read, so "nothing newer" is unproven.
+  bool libraryMetadataUnreadable = false;
+
+  /// What the last download could not do, or could not tell — each its own
+  /// sentence, so a block, a kept mirror and unknown data never read alike.
+  List<String> get downloadNotes {
+    final t = AppL10n.strings.libraryScreen;
+    return [
+      if (downloadNeedsOtzariaInstaller) t.downloadNeedsOtzariaInstaller,
+      if (keptNewerMirror) t.downloadKeptNewerMirror,
+      if (newerLibraryNeedsOtzaria case final newer?)
+        t.downloadNewerNeedsOtzaria('$newer'),
+      if (libraryMetadataUnreadable) t.downloadMetadataUnreadable,
+    ];
+  }
+
   DateTime? lastDownloadedAt;
 
   /// הגרסה שנרשמה כנקודת מוצא להורדה אישית, או `null` אם טרם נרשמה. נקראת
@@ -297,6 +335,7 @@ class LibraryModuleController extends ChangeNotifier
 
   /// מריץ רק את התכנון של ההורדה (בלי התוכן). כשל משאיר את השורה בלי מספר.
   Future<void> probeDownloadSize() async {
+    if (_mirroredReadableDbSchema != null) return;
     downloadSizeProbe = const LibrarySizeProbe.checking();
     notifyProgress();
     int? bytes;
@@ -512,6 +551,7 @@ class LibraryModuleController extends ChangeNotifier
         semanticChecked: semanticChecked,
         downloadBytesBound: onlineDownloadBytesBound,
         semanticBytes: onlineSemanticBytes,
+        readableMirrorCurrent: _readableMirrorCurrent,
       );
 
   void restoreOnlineAnswers(LibraryOnlineAnswers answers) {
@@ -526,10 +566,13 @@ class LibraryModuleController extends ChangeNotifier
     _sizeRun++;
     onlineDownloadBytesBound = answers.downloadBytesBound;
     onlineSemanticBytes = answers.semanticBytes;
+    _readableMirrorCurrent = answers.readableMirrorCurrent;
     notifyListeners();
   }
 
   bool get hasOnlineUpdate => hasOnlineLibraryUpdate || _semanticCountsAsUpdate;
+
+  bool _readableMirrorCurrent = false;
 
   bool get hasOnlineLibraryUpdate =>
       downloadNeedsRetry || _hasOnlineDbUpdate || _offeredCompanions.isNotEmpty;
@@ -541,6 +584,7 @@ class LibraryModuleController extends ChangeNotifier
   bool get _hasOnlineDbUpdate {
     final online = onlineLatestVersion;
     if (online == null) return false;
+    if (_readableMirrorCurrent) return false;
     // מראה ריקה = יש מה להוריד, נקודה. הנפילה לגרסת המסד החי השוותה את הרשת
     // למחשב הזה במקום לכונן, ולכן כונן ריק במחשב שיש עליו אוצריא מעודכנת
     // קיבל "אין עדכונים", בלי כפתור הורדה ועם דילוג ב-downloadAll.
@@ -600,6 +644,14 @@ class LibraryModuleController extends ChangeNotifier
       checkedSemantic = true;
     }
     int? bound;
+    _readableMirrorCurrent = false;
+    if (checkError == null) {
+      try {
+        _readableMirrorCurrent = await _manager.isReadableMirrorCurrent();
+      } catch (e) {
+        AppLogger.instance.info('בדיקת תאימות ההורדה השמורה לא הצליחה: $e');
+      }
+    }
     if (checkError == null && companionsError == null) {
       try {
         bound = await _manager.peekedDownloadBytesBound();
@@ -608,6 +660,12 @@ class LibraryModuleController extends ChangeNotifier
       }
     }
     onlineLatestVersion = latest;
+    final checkedLatest = latest;
+    if (_readableMirrorCurrent &&
+        checkedLatest != null &&
+        checkedLatest > (targetVersion ?? 0)) {
+      newerLibraryNeedsOtzaria = checkedLatest;
+    }
     onlineCheckError = checkError;
     onlinePendingCompanions = companions;
     onlineCompanionsCheckError = companionsError;
@@ -640,11 +698,31 @@ class LibraryModuleController extends ChangeNotifier
     downloadError = null;
     // הדיווח מתייחס להורדה הזו בלבד — הישן היה מתאר מצב שכבר הוחלף.
     personalDownloadNote = null;
+    downloadNeedsOtzariaInstaller = false;
+    newerLibraryNeedsOtzaria = null;
+    keptNewerMirror = false;
+    libraryMetadataUnreadable = false;
     notifyListeners();
 
     try {
+      int? readableDbSchema;
+      if (_mirroredReadableDbSchema case final readSchema?) {
+        readableDbSchema = await readSchema();
+        if (readableDbSchema == null) {
+          downloadStatus = MirrorDownloadStatus.error;
+          downloadNeedsOtzariaInstaller = true;
+          downloadError =
+              AppL10n.strings.libraryScreen.downloadNeedsOtzariaInstaller;
+          AppLogger.instance.info(
+            'הורדת הספרייה לא התחילה: אין בכונן מתקין אוצריא מתאים',
+          );
+          notifyListeners();
+          return;
+        }
+      }
       final outcome = await _manager.downloadToMirror(
         includeSemanticSearch: includeSemanticSearch,
+        readableDbSchema: readableDbSchema,
         onStage: (stage) {
           downloadStage = stage;
           // **בלי איפוס הבייטים.** הנכסים יורדים במקביל ומדווחים מונה אחד
@@ -674,8 +752,14 @@ class LibraryModuleController extends ChangeNotifier
       );
       downloadStatus = MirrorDownloadStatus.done;
       lastDownloadedAt = DateTime.now();
+      newerLibraryNeedsOtzaria = outcome.newerNeedsOtzaria;
+      keptNewerMirror = outcome.keptNewerMirror;
+      libraryMetadataUnreadable = outcome.unreadableManifests.isNotEmpty;
       personalFromVersion = outcome.personalFromVersion ?? personalFromVersion;
-      personalDownloadNote = !personalUpdateMode
+      // "Nothing newer" beside a newer release left online contradicts itself.
+      personalDownloadNote = !personalUpdateMode ||
+              outcome.libraryLeftAsIs ||
+              (outcome.upToDate && outcome.newerNeedsOtzaria != null)
           ? null
           : outcome.upToDate
               ? LibraryPersonalDownloadNote.upToDate
@@ -723,6 +807,7 @@ class LibraryModuleController extends ChangeNotifier
       final version = await _manager.captureLocalDbVersion();
       if (version == null) return false;
       personalFromVersion = version;
+      _readableMirrorCurrent = false;
       _refreshDownloadSize();
       // בדיקה מחדש ולא רק notify: המחשב הזה הפך זה עתה ליעד, ו-
       // [LibraryModuleStatus.personalTargetElsewhere] שהוצג לו כבר אינו נכון.

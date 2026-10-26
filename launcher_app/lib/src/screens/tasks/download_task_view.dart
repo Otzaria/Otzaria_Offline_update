@@ -176,8 +176,18 @@ class DownloadTaskView extends StatelessWidget {
       onPressed: actions.onHome,
     );
     final details = failure.details;
-    final tech = [if (details != null) TechDetails(text: details)];
+    final tech = [
+      for (final note in task.notes) Text(note),
+      if (details != null) TechDetails(text: details)
+    ];
     return switch (failure.kind) {
+      DownloadFailureKind.libraryInstaller => TaskResult(
+          badge: const ResultBadge(
+              kind: ResultBadgeKind.calm, icon: FluentIcons.info_24_regular),
+          title: context.strings.libraryScreen.downloadNoteTitle,
+          body: context.strings.libraryScreen.downloadNeedsOtzariaInstaller,
+          actions: [retry, home],
+        ),
       DownloadFailureKind.blocked => TaskResult(
           badge: const ResultBadge(
             kind: ResultBadgeKind.calm,
@@ -315,7 +325,11 @@ class DownloadTaskView extends StatelessWidget {
         icon: FluentIcons.checkmark_24_regular,
       ),
       title: t.doneTitle,
-      body: task.components.isEmpty ? t.doneNothingBody : t.doneBody,
+      body: task.notes.isNotEmpty
+          ? task.notes.join('\n')
+          : task.components.isEmpty
+              ? t.doneNothingBody
+              : t.doneBody,
       extra: [
         if (task.components.isNotEmpty) ...[
           SizedBox(height: narrow ? 12 : 20),

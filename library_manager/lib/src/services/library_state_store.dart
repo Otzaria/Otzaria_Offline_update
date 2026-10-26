@@ -330,6 +330,20 @@ class LibraryStateStore {
     await _writeAll(json);
   }
 
+  /// The smart-search tag a schema-limited download settled on, with what it
+  /// was decided from — a fact about the drive, so not per machine.
+  Future<Map<String, Object?>?> loadReadableSemanticTarget() async {
+    final value = (await _readAll())['readableSemanticTarget'];
+    return value is Map ? Map<String, Object?>.from(value) : null;
+  }
+
+  Future<void> saveReadableSemanticTarget(Map<String, Object?> target) =>
+      _exclusively(() async {
+        final json = await _readAll(forWrite: true);
+        json['readableSemanticTarget'] = target;
+        await _writeAll(json);
+      });
+
   Future<Map<String, int>> loadKnownDbVersions() async =>
       _knownVersions(await _readAll());
 

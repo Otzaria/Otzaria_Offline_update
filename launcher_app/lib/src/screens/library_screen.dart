@@ -540,6 +540,12 @@ class LibraryScreen extends StatelessWidget {
           below: PathText(c.mirrorDir),
           trailing: CopyPathButton(path: c.mirrorDir),
         ),
+        if (c.downloadNotes case final notes when notes.isNotEmpty)
+          SettingsActionTile.text(
+            icon: FluentIcons.warning_24_regular,
+            title: s.downloadNoteTitle,
+            subtitle: notes.join('\n'),
+          ),
       ],
     );
   }

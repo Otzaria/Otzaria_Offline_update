@@ -837,6 +837,19 @@ abstract class LibraryScreenStrings {
   String personalDownloadItem(int count, String version);
   String get personalDownloadItemNone;
   String personalDownloadNote(int count);
+  String get downloadNoteTitle;
+
+  /// הספרייה לא הורדה כי אין בכונן מתקין אוצריא שקורא אותה.
+  String get downloadNeedsOtzariaInstaller;
+
+  /// גרסת ספרייה חדשה יותר נשארה ברשת: המתקינים שבכונן אינם קוראים אותה.
+  String downloadNewerNeedsOtzaria(String version);
+
+  /// בכונן כבר יש ספרייה חדשה ממה שהמתקינים שבו קוראים, והיא נשארה.
+  String get downloadKeptNewerMirror;
+
+  /// חלק מנתוני העדכון לא נקרא — לא ידוע אם יש ספרייה חדשה שאפשר להביא.
+  String get downloadMetadataUnreadable;
 }
 
 // ── מסך ההגדרות ───────────────────────────────────────────────────────────────
@@ -1543,6 +1556,11 @@ abstract class LibraryDomainStrings {
   String exportPersonalUpToDate(int localVersion);
   String get exportPersonalVersionUnknown;
   String get exportPersonalMirrorDamaged;
+  String get exportKeptNewerMirror;
+
+  /// הבדיקה הקלה אינה קוראת מניפסטים, ובלעדיהם לא ידוע לאיזו ספרייה מתאים
+  /// החיפוש החכם שאוצריא שבכונן קוראת.
+  String get semanticTargetUnknown;
 
   /// המסד המלא שכבר במראה נשמר, כי יש ממנו מסלול patches לגרסה האחרונה.
   String exportReusingFullDb(int version, String tag);

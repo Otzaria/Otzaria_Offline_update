@@ -98,6 +98,9 @@ class LibraryModulePort
   final LibraryModuleController _library;
 
   @override
+  bool get hasBlockedLibrary => _library.newerLibraryNeedsOtzaria != null;
+
+  @override
   bool get shouldOfferSemanticDownload => _library.shouldOfferSemanticDownload;
 
   @override

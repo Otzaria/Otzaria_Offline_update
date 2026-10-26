@@ -1609,6 +1609,28 @@ class _LibraryScreen extends LibraryScreenStrings {
   @override
   String personalDownloadNote(int count) => 'The drive is prepared for '
       '${plural(count, one: 'one registered computer', two: '$count registered computers', many: '$count registered computers')}.';
+  @override
+  String get downloadNoteTitle => 'Otzaria library download';
+  @override
+  String get downloadNeedsOtzariaInstaller =>
+      'The library was not downloaded: the drive carries no Otzaria installer '
+      'that can read it. Download Otzaria to the drive first (select Otzaria '
+      'in the download components), then the library.';
+  @override
+  String downloadNewerNeedsOtzaria(String version) =>
+      'Library release $version was not downloaded: the Otzaria on the drive '
+      'cannot read it. To bring it, download a suitable Otzaria to the drive '
+      'and download again.';
+  @override
+  String get downloadKeptNewerMirror =>
+      'The drive already holds a newer library than its Otzaria reads, and it '
+      'was left as it is. To install it, download a suitable Otzaria to the '
+      'drive.';
+  @override
+  String get downloadMetadataUnreadable =>
+      'Some of the library\'s update data online could not be read, so '
+      'whether a newer release can be brought is unknown. What is on the '
+      'drive was kept — try downloading again later.';
 }
 
 class _Settings extends SettingsScreenStrings {
@@ -2904,6 +2926,14 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get exportPersonalVersionUnknown =>
       'The Otzaria library version on this computer was not detected — downloading the full library';
+  @override
+  String get semanticTargetUnknown =>
+      'Which smart-search files match the library the drive\'s Otzaria reads '
+      'is unknown without a download';
+  @override
+  String get exportKeptNewerMirror =>
+      'The drive already holds a newer library than its Otzaria reads — '
+      'leaving it as it is';
   @override
   String get exportPersonalMirrorDamaged =>
       'The library updates in the folder are damaged — downloading the full '

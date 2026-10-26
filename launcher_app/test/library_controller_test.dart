@@ -9,6 +9,13 @@ import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:otzaria_manager/otzaria_manager.dart'
+    show
+        OtzariaArch,
+        OtzariaInstallerKind,
+        OtzariaManager,
+        OtzariaRelease,
+        OtzariaTargetPlatform;
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
@@ -392,6 +399,34 @@ void main() {
       expect(controller.onlinePendingCompanions, {CompanionAsset.talmud});
     });
 
+    // "לא ידוע איזה פרסום יותקן" אינו "אין חיפוש חכם להוריד".
+    test('יעד חיפוש חכם לא ידוע אינו נחשב בדיקה מעודכנת', () async {
+      controller.dispose();
+      controller = LibraryModuleController(
+        dataDir: tempDir.path,
+        manager: _UnknownSemanticManager(tempDir.path),
+      );
+      controller.targetVersion = 30;
+
+      await controller.checkOnline();
+
+      expect(controller.onlineCheckError, isNull);
+      expect(controller.onlineSemanticPending, isFalse);
+      expect(
+        controller.onlineSemanticCheckError,
+        contains(AppL10n.strings.libraryDomain.semanticTargetUnknown),
+      );
+      expect(controller.shouldOfferSemanticDownload, isTrue);
+      expect(
+        provenUpToDateOnline(
+          checkedAt: controller.onlineCheckedAt,
+          error: controller.onlineProofError,
+          hasUpdate: controller.hasOnlineUpdate,
+        ),
+        isFalse,
+      );
+    });
+
     test('כשל בשתי הבדיקות המקבילות נשמר בכל אחת בנפרד', () async {
       controller.dispose();
       final manager = _ConcurrentPeekManager(tempDir.path, fail: true);
@@ -706,6 +741,221 @@ void main() {
       controller.onlineDownloadBytesBound = 5;
       controller.restoreOnlineAnswers(answers);
       expect(controller.onlineDownloadUpperBound, 900);
+    });
+
+    group('Otzaria installers on the drive', () {
+      test('a verified compatible mirror stops offering the blocked newer DB',
+          () async {
+        controller.dispose();
+        final manager = _DownloadManager(tempDir.path, const {})
+          ..downloaded = true
+          ..settled = true;
+        controller =
+            LibraryModuleController(dataDir: tempDir.path, manager: manager);
+        controller.targetVersion = 29;
+        await controller.checkOnline();
+        expect(controller.hasOnlineLibraryUpdate, isFalse);
+        expect(controller.newerLibraryNeedsOtzaria, 30);
+        final answers = controller.onlineAnswers;
+        manager.settled = false;
+        await controller.checkOnline();
+        expect(controller.hasOnlineLibraryUpdate, isTrue);
+        controller.restoreOnlineAnswers(answers);
+        expect(controller.hasOnlineLibraryUpdate, isFalse);
+        controller.personalUpdateMode = true;
+        expect(controller.hasOnlineLibraryUpdate, isTrue);
+      });
+      test('no installer: the library download never starts', () async {
+        controller.dispose();
+        final manager = _DownloadManager(tempDir.path, const {});
+        controller = LibraryModuleController(
+          dataDir: tempDir.path,
+          manager: manager,
+          mirroredReadableDbSchema: () async => null,
+        );
+
+        await controller.download();
+
+        expect(manager.downloaded, isFalse);
+        expect(controller.downloadNeedsOtzariaInstaller, isTrue);
+        expect(controller.downloadNeedsRetry, isTrue);
+        expect(controller.downloadError, isNotNull);
+      });
+
+      test('the schema is read at download time and passed on', () async {
+        controller.dispose();
+        final manager = _DownloadManager(
+          tempDir.path,
+          const {},
+          outcome: const MirrorDownloadOutcome(newerNeedsOtzaria: 31),
+        );
+        var schema = 5;
+        controller = LibraryModuleController(
+          dataDir: tempDir.path,
+          manager: manager,
+          mirroredReadableDbSchema: () async => schema,
+        );
+        // An installer that lands after construction must count.
+        schema = 6;
+
+        await controller.download();
+
+        expect(manager.passedReadableSchema, 6);
+        expect(controller.downloadStatus, MirrorDownloadStatus.done);
+        expect(controller.downloadNeedsOtzariaInstaller, isFalse);
+        expect(controller.newerLibraryNeedsOtzaria, 31);
+      });
+
+      group('read from the app mirror after the app download', () {
+        late String dataDir;
+        late OtzariaManager otzaria;
+
+        setUp(() {
+          dataDir = p.join(tempDir.path, 'drive');
+          otzaria = OtzariaManager(
+            dataDir: dataDir,
+            platform: OtzariaTargetPlatform.windows,
+            environment: const {},
+            machineArch: OtzariaArch.x64,
+          );
+          addTearDown(otzaria.dispose);
+        });
+
+        /// What the app download leaves; [installerLanded] false = it failed
+        /// after the metadata named the installer.
+        void appDownloaded(String tag, {required bool installerLanded}) {
+          final mirror = p.join(dataDir, 'mirror', 'app');
+          final relative = 'installers/$tag/otzaria-$tag-windows.exe';
+          if (installerLanded) {
+            File(p.join(mirror, relative))
+              ..createSync(recursive: true)
+              ..writeAsStringSync('installer');
+          }
+          File(p.join(mirror, 'latest-release.json'))
+            ..createSync(recursive: true)
+            ..writeAsStringSync(
+              jsonEncode({
+                'schemaVersion': 2,
+                'stable': OtzariaRelease(
+                  tagName: tag,
+                  name: tag,
+                  isPrerelease: false,
+                  isDraft: false,
+                  publishedAt: DateTime.utc(2026),
+                  installerKind: OtzariaInstallerKind.windowsSetupExe,
+                  installerAssetName: 'otzaria-$tag-windows.exe',
+                  installerDownloadUrl: 'https://example/$tag',
+                  installerSizeBytes: 'installer'.length,
+                ).toJson()
+                  ..['installerPath'] = relative,
+              }),
+            );
+        }
+
+        Future<_DownloadManager> downloadLibrary() async {
+          controller.dispose();
+          final manager = _DownloadManager(tempDir.path, const {});
+          controller = LibraryModuleController(
+            dataDir: tempDir.path,
+            manager: manager,
+            mirroredReadableDbSchema: otzaria.mirroredReadableDbSchema,
+          );
+          await controller.download();
+          return manager;
+        }
+
+        test('the installer just downloaded opens the newer library', () async {
+          appDownloaded('0.9.98+801', installerLanded: true);
+
+          final manager = await downloadLibrary();
+
+          expect(manager.passedReadableSchema, 6);
+        });
+
+        test('a failed installer download proves nothing', () async {
+          appDownloaded('0.9.98+801', installerLanded: false);
+
+          final manager = await downloadLibrary();
+
+          expect(manager.downloaded, isFalse);
+          expect(controller.downloadNeedsOtzariaInstaller, isTrue);
+        });
+
+        test('the Otzaria on this machine does not lift the limit', () async {
+          appDownloaded('0.9.97+789', installerLanded: true);
+          controller.dispose();
+          final manager = _DownloadManager(tempDir.path, const {});
+          controller = LibraryModuleController(
+            dataDir: tempDir.path,
+            manager: manager,
+            otzariaAppVersion: () async => '0.9.98+801',
+            mirroredReadableDbSchema: otzaria.mirroredReadableDbSchema,
+          );
+
+          await controller.download();
+
+          expect(manager.passedReadableSchema, 5);
+        });
+      });
+
+      test('each outcome has its own note', () async {
+        Future<List<String>> notesFor(MirrorDownloadOutcome outcome) async {
+          controller.dispose();
+          controller = LibraryModuleController(
+            dataDir: tempDir.path,
+            manager: _DownloadManager(tempDir.path, const {}, outcome: outcome),
+            mirroredReadableDbSchema: () async => 5,
+          );
+          await controller.download();
+          return controller.downloadNotes;
+        }
+
+        final t = AppL10n.strings.libraryScreen;
+        expect(await notesFor(const MirrorDownloadOutcome()), isEmpty);
+        expect(
+          await notesFor(const MirrorDownloadOutcome(newerNeedsOtzaria: 31)),
+          [t.downloadNewerNeedsOtzaria('31')],
+        );
+        expect(
+          await notesFor(
+            const MirrorDownloadOutcome(
+              keptNewerMirror: true,
+              libraryLeftAsIs: true,
+            ),
+          ),
+          [t.downloadKeptNewerMirror],
+        );
+        expect(
+          await notesFor(
+            const MirrorDownloadOutcome(
+              libraryLeftAsIs: true,
+              unreadableManifests: {'patch-v30-v31.db.zst.manifest.json'},
+            ),
+          ),
+          [t.downloadMetadataUnreadable],
+        );
+        expect(controller.libraryMetadataUnreadable, isTrue);
+      });
+
+      test('a later download clears the previous verdict', () async {
+        controller.dispose();
+        int? schema;
+        final manager = _DownloadManager(tempDir.path, const {});
+        controller = LibraryModuleController(
+          dataDir: tempDir.path,
+          manager: manager,
+          mirroredReadableDbSchema: () async => schema,
+        );
+        await controller.download();
+        expect(controller.downloadNeedsOtzariaInstaller, isTrue);
+
+        schema = 6;
+        await controller.download();
+
+        expect(manager.downloaded, isTrue);
+        expect(controller.downloadNeedsOtzariaInstaller, isFalse);
+        expect(controller.downloadError, isNull);
+      });
     });
   });
 
@@ -1487,6 +1737,10 @@ class _DownloadManager extends LibraryManager {
   final Set<CompanionAsset> remaining;
   final MirrorDownloadOutcome outcome;
   bool downloaded = false;
+  bool settled = false;
+
+  @override
+  Future<bool> isReadableMirrorCurrent() async => settled;
   bool semanticPending = false;
   bool semanticFails = false;
   int semanticPeeks = 0;
@@ -1512,6 +1766,7 @@ class _DownloadManager extends LibraryManager {
 
   @override
   int? get peekedSemanticBytes => semanticBytes;
+  int? passedReadableSchema;
 
   @override
   Future<LibraryUpdateCheckResult> checkForUpdate() async =>
@@ -1534,6 +1789,7 @@ class _DownloadManager extends LibraryManager {
   @override
   Future<MirrorDownloadOutcome> downloadToMirror({
     bool includeSemanticSearch = false,
+    int? readableDbSchema,
     void Function(String stage)? onStage,
     void Function(String? stage)? onCompanionStage,
     void Function(int doneAssets, int totalAssets)? onAssetProgress,
@@ -1543,6 +1799,7 @@ class _DownloadManager extends LibraryManager {
     bool Function()? isCancelled,
   }) async {
     downloaded = true;
+    passedReadableSchema = readableDbSchema;
     return outcome;
   }
 }
@@ -1780,4 +2037,18 @@ class _ChangesNotesManager extends LibraryManager {
     _version = 33;
     return const {};
   }
+}
+
+class _UnknownSemanticManager extends LibraryManager {
+  _UnknownSemanticManager(String dataDir) : super(dataDir: dataDir);
+
+  @override
+  Future<int> peekLatestOnlineVersion() async => 30;
+
+  @override
+  Future<Set<CompanionAsset>> peekPendingCompanions() async => const {};
+
+  @override
+  Future<bool> peekPendingSemanticSearch() async =>
+      throw StateError(AppL10n.strings.libraryDomain.semanticTargetUnknown);
 }

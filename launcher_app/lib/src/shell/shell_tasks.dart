@@ -25,6 +25,7 @@ enum DownloadFailureKind {
   shabbat,
   diskSpace,
   snapshot,
+  libraryInstaller,
   other
 }
 
@@ -99,6 +100,7 @@ final class DownloadTask extends ShellTask {
     this.failure,
     this.revertFailed = false,
     this.kept = const [],
+    this.notes = const [],
   });
 
   final DownloadTaskPhase phase;
@@ -119,6 +121,8 @@ final class DownloadTask extends ShellTask {
   /// בביטול: רכיבים שירדו עד הסוף ונשארו בכונן.
   final List<MirrorComponent> kept;
 
+  final List<String> notes;
+
   @override
   bool get isFinished => switch (phase) {
         DownloadTaskPhase.cancelled ||
@@ -136,6 +140,7 @@ final class DownloadTask extends ShellTask {
     DownloadFailure? failure,
     bool? revertFailed,
     List<MirrorComponent>? kept,
+    List<String>? notes,
   }) =>
       DownloadTask(
         phase: phase ?? this.phase,
@@ -145,6 +150,7 @@ final class DownloadTask extends ShellTask {
         failure: failure ?? this.failure,
         revertFailed: revertFailed ?? this.revertFailed,
         kept: kept ?? this.kept,
+        notes: notes ?? this.notes,
       );
 }
 
@@ -350,11 +356,14 @@ class ShellTasks extends ChangeNotifier {
               kept: kept,
             );
 
-  void downloadFailed(DownloadFailure failure) =>
-      _moveDownload(DownloadTaskPhase.failed, failure: failure);
+  void downloadFailed(DownloadFailure failure,
+          {List<String> notes = const []}) =>
+      _moveDownload(DownloadTaskPhase.failed, failure: failure, notes: notes);
 
-  void downloadDone({List<MirrorComponent> skipped = const []}) =>
-      _moveDownload(DownloadTaskPhase.done, skipped: skipped);
+  void downloadDone(
+          {List<MirrorComponent> skipped = const [],
+          List<String> notes = const []}) =>
+      _moveDownload(DownloadTaskPhase.done, skipped: skipped, notes: notes);
 
   // ── עדכון במחשב הזה ──
 
@@ -526,6 +535,7 @@ class ShellTasks extends ChangeNotifier {
     DownloadFailure? failure,
     bool? revertFailed,
     List<MirrorComponent>? kept,
+    List<String>? notes,
   }) {
     final task = _current;
     if (task is! DownloadTask ||
@@ -540,6 +550,7 @@ class ShellTasks extends ChangeNotifier {
       failure: failure,
       revertFailed: revertFailed,
       kept: kept,
+      notes: notes,
     ));
   }
 

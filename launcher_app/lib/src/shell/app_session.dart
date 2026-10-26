@@ -87,6 +87,7 @@ class AppSession extends ChangeNotifier {
       stateDir: stateFilesDir,
       otzariaLaunchPath: () async => _otzaria.launchPath,
       otzariaAppVersion: () async => _otzaria.currentVersion,
+      mirroredReadableDbSchema: () => _otzaria.mirroredReadableDbSchema(),
       mirroredOtzariaUpdate: () async =>
           _otzaria.status == OtzariaModuleStatus.updateAvailable
               ? _otzaria.latestVersion
@@ -1371,19 +1372,33 @@ class _SessionDownloadHost implements MirrorDownloadHost {
     required List<MirrorComponent> skipped,
   }) {
     final s = _session;
+    final task = s.tasks.current;
+    final libraryRan = task is DownloadTask &&
+        task.components.contains(MirrorComponent.library) &&
+        !skipped.contains(MirrorComponent.library);
+    final notes = libraryRan ? s._library.downloadNotes : const <String>[];
     if (failed.isEmpty) {
-      s.tasks.downloadDone(skipped: skipped);
-    } else {
-      s.tasks.downloadFailed(classifyDownloadFailure(
-        failed: failed,
-        errors: {
-          MirrorComponent.app: s._otzaria.downloadError,
-          MirrorComponent.library: s._library.downloadError,
-          MirrorComponent.plugins:
-              s._plugins.errorMessage ?? s._plugins.shabbatNotice,
-        },
-        shabbat: s._plugins.shabbatNotice != null,
+      s.tasks.downloadDone(skipped: skipped, notes: notes);
+    } else if (failed.length == 1 &&
+        failed.single == MirrorComponent.library &&
+        s._library.downloadNeedsOtzariaInstaller) {
+      s.tasks.downloadFailed(DownloadFailure(
+        DownloadFailureKind.libraryInstaller,
+        components: failed,
       ));
+    } else {
+      s.tasks.downloadFailed(
+          classifyDownloadFailure(
+            failed: failed,
+            errors: {
+              MirrorComponent.app: s._otzaria.downloadError,
+              MirrorComponent.library: s._library.downloadError,
+              MirrorComponent.plugins:
+                  s._plugins.errorMessage ?? s._plugins.shabbatNotice,
+            },
+            shabbat: s._plugins.shabbatNotice != null,
+          ),
+          notes: notes);
     }
   }
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import 'package:http/http.dart' as http;
@@ -25,6 +26,7 @@ import 'services/otzaria_instance_lock.dart';
 import 'services/otzaria_process_guard.dart';
 import 'services/otzaria_settings_reader.dart';
 import 'services/otzaria_settings_writer.dart';
+import 'services/readable_releases_client.dart';
 import 'services/readable_schema_limit.dart';
 import 'services/recent_library_releases_client.dart';
 import 'services/semantic_search_assets.dart';
@@ -69,6 +71,10 @@ class MirrorDownloadOutcome {
     this.personalFromVersion,
     this.upToDate = false,
     this.repairedDamagedMirror = false,
+    this.newerNeedsOtzaria,
+    this.keptNewerMirror = false,
+    this.libraryLeftAsIs = false,
+    this.unreadableManifests = const {},
   });
 
   /// הגרסה שממנה ירדו קובצי העדכון במצב אישי. `null` = ירד המסד המלא —
@@ -80,6 +86,22 @@ class MirrorDownloadOutcome {
 
   /// מצב אישי "מעודכן" עם `releases.json` פגום — המראה נבנתה מחדש במסלול המלא.
   final bool repairedDamagedMirror;
+
+  /// The newest library left out because the Otzaria installers on the drive
+  /// cannot read its schema; `null` when nothing was left out.
+  final int? newerNeedsOtzaria;
+
+  /// The mirror already held a newer library than those installers read, so
+  /// it was left as it was rather than replaced with an older one.
+  final bool keptNewerMirror;
+
+  /// The export did not run because of that limit — [keptNewerMirror], or
+  /// nothing online is readable — so the mirror was not touched.
+  final bool libraryLeftAsIs;
+
+  /// Update manifests that could not be read: whether a newer readable library
+  /// exists is unknown, so nothing here may be read as "up to date".
+  final Set<String> unreadableManifests;
 }
 
 /// נקודת הכניסה היחידה שמודול ה-UI אמור להשתמש בה כדי **לבדוק** גרסת מסד
@@ -112,6 +134,7 @@ class LibraryManager {
     this.personalUpdateMode = false,
     Future<String?> Function()? otzariaLaunchPath,
     Future<String?> Function()? otzariaAppVersion,
+    Future<int?> Function()? mirroredReadableDbSchema,
     OtzariaInstanceLock? instanceLock,
     String? operatingSystem,
     Map<String, String>? environment,
@@ -130,6 +153,7 @@ class LibraryManager {
        _recovery = const OfflineLibraryDbRecoveryService(),
        _processGuard = processGuard,
        _otzariaAppVersion = otzariaAppVersion,
+       _mirroredReadableDbSchema = mirroredReadableDbSchema,
        _instanceLock = instanceLock,
        _cloudClient = releaseClient ?? RecentLibraryReleasesClient(),
        _applier = applier ?? LibraryUpdateApplier(processGuard: processGuard) {
@@ -180,6 +204,9 @@ class LibraryManager {
   final OtzariaProcessGuard _processGuard;
 
   final Future<String?> Function()? _otzariaAppVersion;
+
+  /// The schema the drive's Otzaria installers read, for the semantic peek.
+  final Future<int?> Function()? _mirroredReadableDbSchema;
 
   final OtzariaInstanceLock? _instanceLock;
 
@@ -348,8 +375,11 @@ class LibraryManager {
   static bool _isDamagedManifestError(Object e) =>
       e is LocalMirrorException || e is TypeError || e is FormatException;
 
+  /// [readableDbSchema] is the highest schema an Otzaria installer on the
+  /// drive reads; nothing above it is downloaded. `null` = no such limit.
   Future<MirrorDownloadOutcome> downloadToMirror({
     bool includeSemanticSearch = false,
+    int? readableDbSchema,
     void Function(String stage)? onStage,
     void Function(String? stage)? onCompanionStage,
     void Function(int doneAssets, int totalAssets)? onAssetProgress,
@@ -377,11 +407,26 @@ class LibraryManager {
     var exported = true;
     var exportFailed = false;
     var repaired = false;
+    var keptNewer = false;
+    var leftAsIs = false;
+    int? mirroredLatest;
+
+    final readable =
+        readableDbSchema != null && readableDbSchema < kSupportedDbSchemaVersion
+        ? ReadableReleasesClient(
+            _cloudClient,
+            readableSchema: readableDbSchema,
+            allowPrerelease: allowPrerelease,
+            fromVersion: fromVersion,
+            scheduler: _scheduler,
+            isCancelled: isCancelled,
+          )
+        : null;
 
     Future<bool> runExport(int? from) async {
       final exporter = LibraryMirrorExporter(
         supportedDbSchemaVersion: kSupportedDbSchemaVersion,
-        client: _cloudClient,
+        client: readable ?? _cloudClient,
         scheduler: _scheduler,
       );
       try {
@@ -402,6 +447,47 @@ class LibraryManager {
 
     final exportFuture = () async {
       try {
+        if (readable != null) {
+          await readable.fetchReleases();
+          final online = readable.newestReadableVersion;
+          final mirrored = await _mirroredReach(
+            readable.readableSchema,
+            fromVersion: fromVersion,
+          );
+          mirroredLatest = mirrored?.latest;
+          // Reaching the same number is not holding the same content: a
+          // re-publish or a replaced asset must still reach the drive.
+          final servesOnline =
+              mirrored != null &&
+              (mirrored.readable > (online ?? 0) ||
+                  // A personal machine already holds its own version.
+                  (fromVersion != null && (online ?? 0) <= fromVersion) ||
+                  (mirrored.readable == online &&
+                      _holdsOnline(
+                        mirrored.present,
+                        mirrored.route,
+                        await readable.fetchReleases(),
+                        online!,
+                        schema: readable.readableSchema,
+                        fromVersion: fromVersion,
+                      )));
+          if (mirrored != null &&
+              (online ?? 0) < mirrored.latest &&
+              servesOnline) {
+            onStage?.call(AppL10n.strings.libraryDomain.exportKeptNewerMirror);
+            exported = false;
+            keptNewer = leftAsIs = true;
+            return;
+          }
+          // Nothing readable to gain, and what cannot be read decides nothing:
+          // rewriting would only cost the drive what it already serves.
+          if (online == null ||
+              (readable.unreadableManifests.isNotEmpty && servesOnline)) {
+            exported = false;
+            leftAsIs = true;
+            return;
+          }
+        }
         exported = await runExport(fromVersion);
         // ייצוא אישי "מעודכן" אינו כותב את releases.json, ולכן מראה פגומה
         // מתוקנת אז רק בייצוא מלא.
@@ -441,13 +527,48 @@ class LibraryManager {
       );
     }
 
-    if (includeSemanticSearch) {
+    // Under a limit the vectors follow the library the drive now reaches, not
+    // the base full DB; the light check then reads the same answer back.
+    String? readableTag;
+    // A library is reached but which release's content it is stays unproven —
+    // never the same as "nothing to fetch".
+    var targetUnknown = false;
+    if (readable != null && !(isCancelled?.call() ?? false)) {
+      final schema = readable.readableSchema;
+      final reach = readable.newestReadableVersion == null
+          ? null
+          : await _mirroredReach(schema, fromVersion: fromVersion);
+      if (reach != null && reach.readable > 0) {
+        // Personal mode at its own version knows the number only: a release
+        // is named only when no re-publish leaves the content in doubt.
+        final candidates =
+            OfflineLibraryUpdateDiscovery.eligibleReleases(
+              await readable.fetchReleases(),
+              allowPrerelease: allowPrerelease,
+            ).where(
+              (r) =>
+                  OfflineLibraryUpdateDiscovery.releaseVersionOf(r) ==
+                      reach.readable &&
+                  (r.fullDbAssetFor(maxSchemaVersion: schema) != null ||
+                      r.deltaManifestAssets.isNotEmpty),
+            );
+        readableTag = reach.uncertain
+            ? null
+            : reach.tag ??
+                  (candidates.length == 1 ? candidates.single.tag : null);
+        targetUnknown = readableTag == null;
+      }
+    }
+    // Nothing readable online means no library for vectors to match.
+    if (includeSemanticSearch && (readable == null || readableTag != null)) {
       final semantic = SemanticSearchAssets(scheduler: _scheduler);
       if (!exported) exportBytes.report(0, 0);
       final semanticBytes = bytes.slot();
       try {
         String? tag;
-        if (exported) {
+        if (readable != null) {
+          tag = readableTag;
+        } else if (exported) {
           final discovery = await OfflineLibraryUpdateDiscovery(
             supportedDbSchemaVersion: kSupportedDbSchemaVersion,
             client: await _resolveSource(),
@@ -488,11 +609,32 @@ class LibraryManager {
         semantic.dispose();
       }
     }
-
+    // Saved last: a cancel restores the mirror but not this file.
+    if (readable != null &&
+        readable.unreadableManifests.isEmpty &&
+        !(isCancelled?.call() ?? false)) {
+      await _saveReadableTarget(
+        readable.readableSchema,
+        readableTag,
+        unknown: targetUnknown,
+        online: readable.onlineReleases,
+        fromVersion: fromVersion,
+      );
+    }
     return MirrorDownloadOutcome(
       personalFromVersion: repaired ? null : fromVersion,
-      upToDate: !exported,
+      upToDate:
+          !exported &&
+          !leftAsIs &&
+          (readable?.unreadableManifests.isEmpty ?? true),
       repairedDamagedMirror: repaired,
+      newerNeedsOtzaria: switch (readable?.newerUnreadableVersion) {
+        final newer? when !keptNewer || newer > (mirroredLatest ?? 0) => newer,
+        _ => null,
+      },
+      keptNewerMirror: keptNewer,
+      libraryLeftAsIs: leftAsIs,
+      unreadableManifests: readable?.unreadableManifests ?? const {},
     );
   }
 
@@ -503,6 +645,7 @@ class LibraryManager {
   Future<int?> probeMirrorDownloadBytes({
     Duration timeout = const Duration(seconds: 45),
   }) async {
+    if (_mirroredReadableDbSchema != null) return null;
     // שתי בדיקות במקביל מתחרות על אותה מראה; השאלה החדשה גוברת.
     _sizeProbe?.stop();
     var stopped = false;
@@ -563,6 +706,313 @@ class LibraryManager {
         }),
       );
     }
+  }
+
+  Future<void> _saveReadableTarget(
+    int schema,
+    String? tag, {
+    required bool unknown,
+    required List<LibraryRelease> online,
+    required int? fromVersion,
+  }) async {
+    try {
+      await _stateStore.saveReadableSemanticTarget({
+        'schema': schema,
+        'allowPrerelease': allowPrerelease,
+        'online': _lightReadable(online, schema).online,
+        'fromVersion': fromVersion,
+        'mirror': await _mirrorIdentity(),
+        'tag': tag,
+        'unknown': unknown,
+      });
+    } on Exception {
+      // Without it the light check reports "unknown", which is still true.
+    }
+  }
+
+  /// The verdict describes this mirror only: a deleted, rebuilt or rolled
+  /// back `releases.json` voids it.
+  Future<String?> _mirrorIdentity() async {
+    final file = File(
+      p.join(mirrorDir, LocalMirrorLibraryReleaseClient.manifestFileName),
+    );
+    try {
+      return '${sha256.convert(await file.readAsBytes())}';
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  /// How far [schema] reads along readable patches from the mirror's full DB or
+  /// [fromVersion] — counting only assets complete on the drive.
+  Future<
+    ({
+      int latest,
+      int readable,
+      String? tag,
+      bool uncertain,
+      List<LibraryRelease> present,
+      ReadableSchemaRoute route,
+    })?
+  >
+  _mirroredReach(int schema, {int? fromVersion}) async {
+    if (!await hasMirror) return null;
+    try {
+      final source = LocalMirrorLibraryReleaseClient(mirrorDir: mirrorDir);
+      final named = await source.fetchReleases();
+      Future<OfflineLibraryDiscoveryResult> discover(
+        List<LibraryRelease> releases,
+      ) => OfflineLibraryUpdateDiscovery(
+        supportedDbSchemaVersion: kSupportedDbSchemaVersion,
+        client: _FetchedReleasesSource(source, releases),
+      ).discover(allowPrerelease: allowPrerelease);
+
+      final present = [
+        for (final release in named)
+          LibraryRelease(
+            tag: release.tag,
+            isPrerelease: release.isPrerelease,
+            isDraft: release.isDraft,
+            publishedAt: release.publishedAt,
+            assets: [
+              for (final asset in release.assets)
+                if (asset.size <= 0 || await _completeOnDisk(asset)) asset,
+            ],
+          ),
+      ];
+      final route = ReadableSchemaRoute.limit(
+        discovery: await discover(present),
+        releases: present,
+        allowPrerelease: allowPrerelease,
+        readableSchema: schema,
+      );
+      final reached = {?route.latestFullDbVersion, ?fromVersion};
+      for (var grew = true; grew;) {
+        grew = false;
+        for (final edge in route.edges) {
+          if (reached.contains(edge.fromVersion) &&
+              reached.add(edge.toVersion)) {
+            grew = true;
+          }
+        }
+      }
+      final reach = reached.fold(0, (a, b) => a > b ? a : b);
+      final contents = _plannedContents(
+        present,
+        route,
+        reach,
+        // A lagging machine plans from patches below the base too.
+        starts: fromVersion != null
+            ? [if (fromVersion < reach) fromVersion]
+            : [
+                null,
+                ...{
+                  ...reached,
+                  for (final edge in route.edges) edge.fromVersion,
+                }.where((v) => v < reach),
+              ],
+        reached: reached,
+      );
+      return (
+        latest: (await discover(named)).latestVersion,
+        readable: reach,
+        tag: contents.length == 1
+            ? _tagForVersion(contents.values.single.toList(), reach)
+            : null,
+        uncertain: contents.length > 1,
+        present: present,
+        route: route,
+      );
+    } catch (e) {
+      if (_isDamagedManifestError(e)) return null;
+      rethrow;
+    }
+  }
+
+  /// The content the offline planner itself installs into [reach] from each of
+  /// [starts] (`null` = an empty machine), keyed by content hash, with every
+  /// release on the drive delivering that same content. Reachability alone
+  /// proves nothing: two re-publishes of one patch may lead to different DBs.
+  Map<String, Set<LibraryRelease>> _plannedContents(
+    List<LibraryRelease> present,
+    ReadableSchemaRoute route,
+    int reach, {
+    required List<int?> starts,
+    required Set<int> reached,
+  }) {
+    Iterable<LibraryRelease> releasesOf(PatchEdge edge) => present.where(
+      (r) => r.assets.any((a) => a.downloadUrl == edge.manifestUrl),
+    );
+    final contents = <String, Set<LibraryRelease>>{};
+    for (final local in starts) {
+      final plan = _planner.plan(
+        localVersion: local ?? 0,
+        hasLocalVersionMeta: local != null,
+        latestVersion: reach,
+        edges: route.edges,
+        latestFullDbAsset: route.latestFullDbAsset,
+        fullDbReleaseTag: route.fullDbReleaseTag,
+        latestFullDbVersion: route.latestFullDbVersion,
+      );
+      if (plan.finalTargetVersion != reach) continue;
+      final steps = switch (plan.kind) {
+        LibraryUpdatePlanKind.delta => plan.deltaSteps,
+        LibraryUpdatePlanKind.fullDownload =>
+          plan.followUpDelta?.deltaSteps ?? const <PatchEdge>[],
+        _ => null,
+      };
+      if (steps == null) continue;
+      if (steps.isEmpty) {
+        contents
+            .putIfAbsent('full:${plan.fullDbReleaseTag}', () => {})
+            .addAll(present.where((r) => r.tag == plan.fullDbReleaseTag));
+        continue;
+      }
+      contents
+          .putIfAbsent(steps.last.manifest.toContentHash, () => {})
+          .addAll(releasesOf(steps.last));
+    }
+    // Other re-publishes that lead to the very same content name it too.
+    for (final edge in route.edges) {
+      if (edge.toVersion == reach && reached.contains(edge.fromVersion)) {
+        contents[edge.manifest.toContentHash]?.addAll(releasesOf(edge));
+      }
+    }
+    // A full DB and a patch of one release are one content.
+    for (final key
+        in contents.keys.where((k) => k.startsWith('full:')).toList()) {
+      final tag = key.substring('full:'.length);
+      final same = contents.entries
+          .where((e) => !e.key.startsWith('full:'))
+          .where((e) => e.value.any((r) => r.tag == tag))
+          .firstOrNull;
+      if (same != null) same.value.addAll(contents.remove(key)!);
+    }
+    return contents;
+  }
+
+  /// Whether the mirror's own route (full DB, then patches) reaches [version]
+  /// on assets [online] still serves: same release, GitHub id and `updatedAt`.
+  bool _holdsOnline(
+    List<LibraryRelease> present,
+    ReadableSchemaRoute route,
+    List<LibraryRelease> online,
+    int version, {
+    required int schema,
+    int? fromVersion,
+  }) {
+    final eligible = OfflineLibraryUpdateDiscovery.eligibleReleases(
+      online,
+      allowPrerelease: allowPrerelease,
+    ).toList();
+    // [online] lists the newest re-publish of each version first; with
+    // [newest], only that carrier of the asset kind counts.
+    bool same(
+      LibraryRelease held,
+      Iterable<ReleaseAsset> assets, {
+      required bool Function(LibraryRelease release) carries,
+      bool newest = true,
+    }) {
+      final version = OfflineLibraryUpdateDiscovery.releaseVersionOf(held);
+      final source = eligible
+          .where(
+            (r) =>
+                OfflineLibraryUpdateDiscovery.releaseVersionOf(r) == version &&
+                carries(r) &&
+                (newest || r.tag == held.tag),
+          )
+          .firstOrNull;
+      if (source == null || source.tag != held.tag) return false;
+      return assets.every(
+        (asset) => source.assets.any(
+          (s) =>
+              // The drive holds a split full DB as its assembled archive.
+              (s.isSplitFullDbManifest ? s.splitArchiveName : s.name) ==
+                  asset.name &&
+              (s.id == null
+                  ? s.size == asset.size
+                  : s.id == asset.id && s.updatedAt == asset.updatedAt),
+        ),
+      );
+    }
+
+    final reached = <int>{?fromVersion};
+    final base = present
+        .where((r) => r.tag == route.fullDbReleaseTag)
+        .firstOrNull;
+    final full = route.latestFullDbAsset;
+    if (base != null &&
+        full != null &&
+        same(
+          base,
+          [full],
+          carries: (r) => r.fullDbAssetFor(maxSchemaVersion: schema) != null,
+          // The exporter keeps an older base on the drive and only drops one
+          // whose version is the latest and was re-published.
+          newest: route.latestFullDbVersion == version,
+        )) {
+      reached.add(route.latestFullDbVersion!);
+    }
+    for (var grew = true; grew;) {
+      grew = false;
+      for (final edge in route.edges) {
+        if (!reached.contains(edge.fromVersion) ||
+            reached.contains(edge.toVersion)) {
+          continue;
+        }
+        final urls = {edge.manifestUrl, ...edge.patchFileUrls.values};
+        final held = present
+            .where(
+              (r) => r.assets.any((a) => a.downloadUrl == edge.manifestUrl),
+            )
+            .firstOrNull;
+        final manifest = held?.assets
+            .firstWhere((a) => a.downloadUrl == edge.manifestUrl)
+            .name;
+        if (held != null &&
+            same(
+              held,
+              held.assets.where((a) => urls.contains(a.downloadUrl)),
+              carries: (r) =>
+                  r.deltaManifestAssets.any((a) => a.name == manifest),
+            )) {
+          grew = reached.add(edge.toVersion) || grew;
+        }
+      }
+    }
+    return reached.contains(version);
+  }
+
+  // The same size rule as [_mirrorDownloadIncomplete]; hashing stays with the
+  // exporter, which re-verifies whatever it keeps.
+  static Future<bool> _completeOnDisk(ReleaseAsset asset) async {
+    final file = File(asset.downloadUrl);
+    return await file.exists() && await file.length() == asset.size;
+  }
+
+  /// The release of [version]; of a re-publish, the latest one.
+  String? _tagForVersion(
+    List<LibraryRelease> releases,
+    int version, {
+    bool Function(LibraryRelease release)? carries,
+  }) {
+    LibraryRelease? best;
+    for (final release in OfflineLibraryUpdateDiscovery.eligibleReleases(
+      releases,
+      allowPrerelease: allowPrerelease,
+    )) {
+      if (OfflineLibraryUpdateDiscovery.releaseVersionOf(release) != version ||
+          !(carries?.call(release) ?? true)) {
+        continue;
+      }
+      final at = release.publishedAt;
+      final bestAt = best?.publishedAt;
+      if (best == null ||
+          (at != null && (bestAt == null || at.isAfter(bestAt)))) {
+        best = release;
+      }
+    }
+    return best?.tag;
   }
 
   /// "מה חדש" של כל release שהמראה מכסה. קובץ שעוד לא הועלה יובא בהורדה
@@ -689,7 +1139,8 @@ class LibraryManager {
   Future<bool> peekPendingSemanticSearch() async {
     _peekedSemanticBytes = null;
     if (_onlineLibraryTag == null) await peekLatestOnlineVersion();
-    final tag = _onlineLibraryTag;
+    final readable = await _readableOnlineTag();
+    final tag = readable.limited ? readable.tag : _onlineLibraryTag;
     if (tag == null) {
       _peekedSemanticBytes = 0;
       return false;
@@ -709,6 +1160,119 @@ class LibraryManager {
     } finally {
       semantic.dispose();
     }
+  }
+
+  /// The vectors' tag under the drive's limit (no installer passes nothing).
+  /// Throws when only a manifest, which a peek never reads, could tell.
+  Future<({bool limited, String? tag})> _readableOnlineTag() async {
+    final read = _mirroredReadableDbSchema;
+    if (read == null) return (limited: false, tag: null);
+    final schema = await read();
+    if (schema != null && schema >= kSupportedDbSchemaVersion) {
+      return (limited: false, tag: null);
+    }
+    if (schema == null) return (limited: true, tag: null);
+    final light = _lightReadable(
+      _cloudClient.lastFetchedReleases ?? const [],
+      schema,
+    );
+    // The last download's answer first: it saw which route the drive kept,
+    // which names alone cannot tell.
+    final decided = await _stateStore.loadReadableSemanticTarget();
+    final fromVersion = personalUpdateMode
+        ? await recordedPersonalDbVersion()
+        : null;
+    if (decided != null &&
+        decided['schema'] == schema &&
+        decided['allowPrerelease'] == allowPrerelease &&
+        decided['online'] == light.online &&
+        decided['fromVersion'] == fromVersion &&
+        decided['mirror'] == await _mirrorIdentity()) {
+      if (decided['unknown'] != false) {
+        throw StateError(AppL10n.strings.libraryDomain.semanticTargetUnknown);
+      }
+      final tag = decided['tag'];
+      return (limited: true, tag: tag is String ? tag : null);
+    }
+    if (light.certain) return (limited: true, tag: light.tag);
+    throw StateError(AppL10n.strings.libraryDomain.semanticTargetUnknown);
+  }
+
+  /// A completed limited export still describes this drive and online list.
+  Future<bool> isReadableMirrorCurrent() async {
+    final schema = await _mirroredReadableDbSchema?.call();
+    if (schema == null) return false;
+    final decided = await _stateStore.loadReadableSemanticTarget();
+    if (decided == null || decided['unknown'] != false) return false;
+    return decided['schema'] == schema &&
+        decided['allowPrerelease'] == allowPrerelease &&
+        decided['online'] ==
+            _lightReadable(
+              _cloudClient.lastFetchedReleases ?? const [],
+              schema,
+            ).online &&
+        decided['fromVersion'] ==
+            (personalUpdateMode ? await recordedPersonalDbVersion() : null) &&
+        decided['mirror'] == await _mirrorIdentity();
+  }
+
+  /// What names alone settle: the newest release with a full DB [schema]
+  /// reads, whether no newer patch needs a manifest to judge, and a
+  /// fingerprint of every eligible release's content identity.
+  ({String? tag, bool certain, String online}) _lightReadable(
+    List<LibraryRelease> releases,
+    int schema,
+  ) {
+    final eligible = OfflineLibraryUpdateDiscovery.eligibleReleases(
+      releases,
+      allowPrerelease: allowPrerelease,
+    );
+    var newest = 0;
+    for (final release in eligible) {
+      if (release.fullDbAssetFor(maxSchemaVersion: schema) == null) continue;
+      final version = OfflineLibraryUpdateDiscovery.releaseVersionOf(release);
+      if (version > newest) newest = version;
+    }
+    // A re-publish the installer cannot read is not what the drive gets.
+    final tag = newest == 0
+        ? null
+        : _tagForVersion(
+            releases,
+            newest,
+            carries: (r) => r.fullDbAssetFor(maxSchemaVersion: schema) != null,
+          );
+    // Any re-publish or replaced asset may change which content the drive
+    // serves, so a saved verdict must not outlive one.
+    final online = [
+      for (final release in eligible)
+        for (final asset in release.assets)
+          if (asset.isFullDbArchive ||
+              asset.isSplitFullDbManifest ||
+              asset.isDeltaManifest)
+            '${release.tag}/${asset.name}/${asset.id}/${asset.updatedAt}',
+    ]..sort();
+    return (
+      tag: tag,
+      // Re-publishes of the newest version leave to the route which one the
+      // drive serves, and names cannot see the route.
+      certain:
+          !eligible.any(
+            (r) =>
+                OfflineLibraryUpdateDiscovery.releaseVersionOf(r) > newest &&
+                r.deltaManifestAssets.isNotEmpty,
+          ) &&
+          eligible
+                  .where(
+                    (r) =>
+                        OfflineLibraryUpdateDiscovery.releaseVersionOf(r) ==
+                            newest &&
+                        (r.fullDbAssetFor(maxSchemaVersion: schema) != null ||
+                            r.deltaManifestAssets.isNotEmpty),
+                  )
+                  .length <=
+              1,
+      online: online.join(';'),
+    );
   }
 
   static final _libraryTagPattern = RegExp(r'^v(\d+)-');
@@ -737,6 +1301,7 @@ class LibraryManager {
   /// חסם עליון ל-[downloadToMirror] (בלי חיפוש חכם) מההצצות, בלי רשת ובלי כתיבה —
   /// [mirrorDownloadBytesBound] או [personalDownloadBytesBound]; `null` = אין חסם.
   Future<int?> peekedDownloadBytesBound() async {
+    if (_mirroredReadableDbSchema != null) return null;
     final releases = _peekedReleases;
     final companions = _companionsMirror.peekedPendingBytes;
     if (releases == null || companions == null) return null;

@@ -76,6 +76,7 @@ class HomeViewModel {
     this.syncLibrary = true,
     this.syncPlugins = true,
     this.libraryDownloadFailed = false,
+    this.libraryDownloadNotes = const [],
     this.semanticOffer = false,
     this.failedDownloads,
     this.foundNothing,
@@ -180,6 +181,7 @@ class HomeViewModel {
   final bool syncLibrary;
   final bool syncPlugins;
   final bool libraryDownloadFailed;
+  final List<String> libraryDownloadNotes;
 
   /// `AppSession.onlineSemanticOffer` — שורה משנית, לא חלק מ"יש חדש".
   final bool semanticOffer;
@@ -357,6 +359,7 @@ HomeViewModel homeViewModelOf(AppSession s) {
     syncLibrary: settings.downloadsLibrary,
     syncPlugins: settings.syncPlugins,
     libraryDownloadFailed: library.downloadNeedsRetry && !s.isDownloading,
+    libraryDownloadNotes: library.downloadNotes,
     semanticOffer: s.onlineSemanticOffer,
     failedDownloads:
         library.hasDownloadFailures && settings.downloadsLibrary && !s.readOnly

@@ -386,6 +386,21 @@ class OtzariaManager {
         isCancelled: isCancelled,
       );
 
+  /// The highest schema any channel's installer on the drive reads, `null` if
+  /// none is usable; the architecture is chosen as [update] chooses it.
+  Future<int?> mirroredReadableDbSchema() async {
+    final stored = await _stateStore.load();
+    final current = stored == null ? null : _verifyStoredState(stored);
+    int? best;
+    for (final entry in (await _mirrorFor(current)).all) {
+      final schema = OtzariaCapabilities.readableDbSchemaForAppVersion(
+        entry.release.tagName,
+      );
+      if (schema != null && (best == null || schema > best)) best = schema;
+    }
+    return best;
+  }
+
   /// **שני הערוצים** כפי שהם ברשת כרגע, ולא גרסה נבחרת אחת.
   ///
   /// ההורדה מביאה תמיד את שניהם, ולכן "יש מה להביא?" חייב להישאל על כל

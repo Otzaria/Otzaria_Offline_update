@@ -61,9 +61,10 @@ void main() {
       expect(schema('0.9.97'), 5);
       expect(schema('0.9.97+99702'), 5);
       expect(schema('0.9.98'), 6);
-      expect(schema('0.9.98.2'), 6);
-      expect(schema('v0.9.99-beta'), 6);
-      expect(schema('1.0.0'), 6);
+      expect(schema('0.9.98.1'), 6);
+      expect(schema('0.9.98.2'), 7);
+      expect(schema('v0.9.99-beta'), 7);
+      expect(schema('1.0.0'), 7);
       expect(schema('unknown'), isNull);
     });
 
