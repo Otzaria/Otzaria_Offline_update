@@ -3,8 +3,10 @@
 // כיווניות שנגזרת מה-locale בלבד, והתנהגות הרכיבים בהגדלת טקסט.
 
 import 'dart:io';
+import 'dart:ui' show SemanticsAction, Tristate;
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -14,6 +16,8 @@ import 'package:launcher_app/src/widgets/screen_body.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:window_manager/window_manager.dart';
+
+import 'test_harness.dart' show drawnArrow;
 
 final AppStrings he = AppL10n.stringsFor(AppLanguage.hebrew);
 final AppStrings en = AppL10n.stringsFor(AppLanguage.english);
@@ -38,12 +42,7 @@ Widget wrap(
       locale: language == AppLanguage.hebrew
           ? const Locale('he', 'IL')
           : const Locale('en'),
-      theme: AppThemeData.light(
-        AppThemeData.createColorScheme(
-          AppSeedColors.defaultLight,
-          Brightness.light,
-        ),
-      ),
+      theme: AppThemeData.light(),
       builder: (context, navigator) => AppStringsScope(
         strings: AppL10n.stringsFor(language),
         child: MediaQuery.withClampedTextScaling(
@@ -113,7 +112,7 @@ void main() {
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   builder: (context) =>
-                      Scaffold(body: Text(context.strings.home.title)),
+                      Scaffold(body: Text(context.strings.guide.tilesLabel)),
                 ),
               ),
             ),
@@ -124,7 +123,7 @@ void main() {
       await tester.tap(find.byKey(const Key('push')));
       await tester.pumpAndSettle();
 
-      expect(find.text(he.home.title), findsOneWidget);
+      expect(find.text(he.guide.tilesLabel), findsOneWidget);
     });
 
     testWidgets('דיאלוג קורא את המלל מתוך המסלול שלו', (tester) async {
@@ -174,52 +173,48 @@ void main() {
       );
     });
 
-    // ההיפוך הכפול: העוזרים מוסרים ל-RtlIcon את הסמל ההפוך, והוא מהפך בחזרה.
-    testWidgets('חצי חזרה/קדימה נראים זהה בעברית ובאנגלית', (tester) async {
-      Future<(IconData, IconData)> arrowsFor(AppLanguage language) async {
+    testWidgets('חץ "חזרה" מצביע ימינה בעברית ושמאלה באנגלית', (tester) async {
+      Future<AxisDirection> backIn(AppLanguage language) async {
         await tester.pumpWidget(
           wrap(
-            Builder(
-              builder: (context) => Row(
-                children: [
-                  RtlIcon(context.backArrowIcon, key: const Key('back')),
-                  RtlIcon(context.forwardArrowIcon, key: const Key('forward')),
-                ],
-              ),
-            ),
+            const RtlIcon(FluentIcons.arrow_left_24_regular),
             language: language,
           ),
         );
-        return (
-          renderedIcon(tester, find.byKey(const Key('back'))),
-          renderedIcon(tester, find.byKey(const Key('forward'))),
-        );
+        return drawnArrow(tester, find.byType(Icon));
       }
 
-      final hebrew = await arrowsFor(AppLanguage.hebrew);
-      final english = await arrowsFor(AppLanguage.english);
-
-      expect(hebrew.$1, english.$1);
-      expect(hebrew.$2, english.$2);
-      // ושני החצים באמת מנוגדים — אחרת ההשוואה למעלה חסרת משמעות.
-      expect(hebrew.$1, isNot(hebrew.$2));
+      expect(await backIn(AppLanguage.hebrew), AxisDirection.right);
+      expect(await backIn(AppLanguage.english), AxisDirection.left);
     });
 
     testWidgets('RtlIcon מחליף אייקון ממופה ב-RTL ומשאיר אותו ב-LTR', (
       tester,
     ) async {
-      const arrow = FluentIcons.arrow_right_24_regular;
+      const panel = FluentIcons.panel_left_24_regular;
 
-      await tester.pumpWidget(wrap(const RtlIcon(arrow)));
+      await tester.pumpWidget(wrap(const RtlIcon(panel)));
       expect(
         renderedIcon(tester, find.byType(RtlIcon)),
-        FluentIcons.arrow_left_24_regular,
+        FluentIcons.panel_right_24_regular,
       );
 
       await tester.pumpWidget(
-        wrap(const RtlIcon(arrow), language: AppLanguage.english),
+        wrap(const RtlIcon(panel), language: AppLanguage.english),
       );
-      expect(renderedIcon(tester, find.byType(RtlIcon)), arrow);
+      expect(renderedIcon(tester, find.byType(RtlIcon)), panel);
+    });
+
+    // Icon מהפך בעצמו גליף עם matchTextDirection; היפוך נוסף מחזיר אותו לאחור.
+    testWidgets('RtlIcon אינו מהפך חץ שכבר מתהפך מעצמו', (tester) async {
+      await tester.pumpWidget(
+        wrap(const RtlIcon(FluentIcons.chevron_right_20_regular)),
+      );
+      expect(
+        renderedIcon(tester, find.byType(RtlIcon)),
+        FluentIcons.chevron_right_20_regular,
+      );
+      expect(drawnArrow(tester, find.byType(Icon)), AxisDirection.left);
     });
 
     testWidgets('אייקון בלי גרסת RTL מתהפך גאומטרית, ואייקון נייטרלי לא', (
@@ -266,6 +261,49 @@ void main() {
       }
     });
 
+    // בלי decoration אין InputDecorator, וה-theme לא מצייר מסגרת ולא מילוי —
+    // כך נעלמו שדות טופס "הוספת תוכנה" על רקע הדיאלוג.
+    testWidgets('RtlTextField בלי decoration עדיין מצויר כשדה (מסגרת ומילוי)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(wrap(const RtlTextField()));
+      final decorator =
+          tester.widget<InputDecorator>(find.byType(InputDecorator));
+      expect(decorator.decoration.filled, isTrue);
+      expect(decorator.decoration.enabledBorder, isA<OutlineInputBorder>());
+    });
+
+    test('אף RtlTextField ב-lib אינו מבטל את ה-decoration', () {
+      final calls = <String>[];
+      for (final entity in Directory('lib').listSync(recursive: true)) {
+        if (entity is! File || !entity.path.endsWith('.dart')) continue;
+        final source = entity.readAsStringSync();
+        var at = source.indexOf('RtlTextField(');
+        while (at >= 0) {
+          // הארגומנטים עד הסוגר התואם.
+          var depth = 0;
+          var end = at + 'RtlTextField'.length;
+          for (; end < source.length; end++) {
+            final ch = source[end];
+            if (ch == '(') depth++;
+            if (ch == ')' && --depth == 0) break;
+          }
+          final args = source.substring(at, end);
+          if (!args.startsWith('RtlTextField({')) {
+            calls.add(entity.path);
+            expect(
+              args.replaceAll(' ', ''),
+              isNot(contains('decoration:null')),
+              reason: entity.path,
+            );
+          }
+          at = source.indexOf('RtlTextField(', end);
+        }
+      }
+      // הסורק באמת מוצא את השדות — טופס התוכנה, החיפוש, הדיווחים ועוד.
+      expect(calls.length, greaterThanOrEqualTo(10));
+    });
+
     testWidgets('RtlTextField מדווח על הקלדה, ומושבת אינו מקבל קלט', (
       tester,
     ) async {
@@ -279,13 +317,13 @@ void main() {
             controller: controller,
             onChanged: (v) => seen = v,
             decoration: InputDecoration(
-              labelText: he.plugins.filterSearchLabel,
+              labelText: he.plugins.searchHint,
             ),
           ),
         ),
       );
 
-      expect(find.text(he.plugins.filterSearchLabel), findsOneWidget);
+      expect(find.text(he.plugins.searchHint), findsOneWidget);
       await tester.enterText(find.byType(TextField), he.plugins.statusStable);
       expect(seen, he.plugins.statusStable);
 
@@ -301,9 +339,8 @@ void main() {
       expect(tester.widget<TextField>(find.byType(TextField)).enabled, isFalse);
     });
 
-    // הכיווניות מגיעה מה-locale. שני חריגים: `UiSnack` שיושב ב-Overlay, ופלטת
-    // הצבעים — עיגולי צבע אינם טקסט, וסדרם אינו אמור להתהפך באנגלית.
-    test('אין Directionality ידני ברכיבים — חוץ מ-UiSnack ומהפלטה', () {
+    // הכיווניות מגיעה מה-locale. החריג היחיד: `UiSnack`, שיושב ב-Overlay.
+    test('אין Directionality ידני ברכיבים — חוץ מ-UiSnack', () {
       final offenders = [
         for (final file in Directory('lib/src/widgets').listSync())
           if (file is File &&
@@ -312,7 +349,7 @@ void main() {
             file.uri.pathSegments.last,
       ];
 
-      expect(offenders..sort(), ['color_picker_tile.dart', 'ui_snack.dart']);
+      expect(offenders, ['ui_snack.dart']);
     });
   });
 
@@ -384,17 +421,14 @@ void main() {
       );
 
       expect(find.byType(RtlIcon), findsOneWidget);
-      expect(
-        renderedIcon(tester, find.byType(RtlIcon)),
-        FluentIcons.arrow_left_24_regular,
-      );
+      expect(drawnArrow(tester, find.byType(Icon)), AxisDirection.left);
     });
 
     testWidgets('spinning מסובב את האייקון ומשאיר את הטקסט', (tester) async {
       await tester.pumpWidget(
         wrap(
           ActionButton.neutral(
-            text: he.common.recheck,
+            text: he.guide.recheckButton,
             icon: FluentIcons.arrow_sync_24_regular,
             spinning: true,
             onPressed: () {},
@@ -402,7 +436,7 @@ void main() {
         ),
       );
 
-      expect(find.text(he.common.recheck), findsOneWidget);
+      expect(find.text(he.guide.recheckButton), findsOneWidget);
       expect(
         find.ancestor(
           of: find.byType(RtlIcon),
@@ -438,7 +472,7 @@ void main() {
     /// האם הכפתור שבפנים מבקש סיבוב כרגע.
     bool spinningOf(WidgetTester tester) => tester
         .widget<ActionButton>(
-          find.widgetWithText(ActionButton, he.common.recheck),
+          find.widgetWithText(ActionButton, he.guide.recheckButton),
         )
         .spinning;
 
@@ -449,7 +483,7 @@ void main() {
       );
 
       expect(spinningOf(tester), isFalse);
-      await tester.tap(find.text(he.common.recheck));
+      await tester.tap(find.text(he.guide.recheckButton));
       await tester.pump();
 
       expect(checks, 1);
@@ -472,9 +506,9 @@ void main() {
         wrap(RecheckButton(onPressed: () async => checks++)),
       );
 
-      await tester.tap(find.text(he.common.recheck));
+      await tester.tap(find.text(he.guide.recheckButton));
       await tester.pump();
-      await tester.tap(find.text(he.common.recheck));
+      await tester.tap(find.text(he.guide.recheckButton));
       await tester.pump();
 
       expect(checks, 1);
@@ -487,7 +521,7 @@ void main() {
       expect(
         tester
             .widget<ActionButton>(
-              find.widgetWithText(ActionButton, he.common.recheck),
+              find.widgetWithText(ActionButton, he.guide.recheckButton),
             )
             .onPressed,
         isNull,
@@ -505,12 +539,12 @@ void main() {
           AppCard(
             onTap: () => taps++,
             padding: const EdgeInsets.all(AppTokens.spaceMD),
-            child: Text(he.home.appTileTitle),
+            child: Text(he.guide.tileApp),
           ),
         ),
       );
 
-      await tester.tap(find.text(he.home.appTileTitle));
+      await tester.tap(find.text(he.guide.tileApp));
       expect(taps, 1);
     });
 
@@ -531,28 +565,18 @@ void main() {
       expect(gap, AppCard.sectionSpacing);
     });
 
-    testWidgets('כרטיס נבחר מקבל את שכבת הבחירה משכבת העיצוב', (tester) async {
-      late Color expected;
+    testWidgets('כרטיס נבחר מקבל את צבע הבחירה משכבת העיצוב', (tester) async {
       await tester.pumpWidget(
-        wrap(
-          Builder(
-            builder: (context) {
-              expected = AppSurfaces.cardSelectionOverlay(context);
-              return const AppCard(selected: true, child: SizedBox(height: 20));
-            },
-          ),
-        ),
+        wrap(const AppCard(selected: true, child: SizedBox(height: 20))),
       );
 
-      final colors = tester
-          .widgetList<ColoredBox>(
-            find.descendant(
-              of: find.byType(AppCard),
-              matching: find.byType(ColoredBox),
-            ),
-          )
-          .map((box) => box.color);
-      expect(colors, contains(expected));
+      final material = tester.widget<Material>(
+        find.descendant(
+          of: find.byType(AppCard),
+          matching: find.byType(Material),
+        ),
+      );
+      expect(material.color, AppPalette.light.cardSelected);
     });
   });
 
@@ -563,8 +587,8 @@ void main() {
       await tester.pumpWidget(
         wrap(
           SettingsCard(
-            title: he.settings.automationCardTitle,
-            subtitle: he.settings.automationCardHint,
+            title: he.settings.groupGeneral,
+            subtitle: he.settings.advancedSummary,
             children: [
               SettingsActionTile.text(
                 icon: FluentIcons.timer_24_regular,
@@ -576,8 +600,8 @@ void main() {
         ),
       );
 
-      expect(find.text(he.settings.automationCardTitle), findsOneWidget);
-      expect(find.text(he.settings.automationCardHint), findsOneWidget);
+      expect(find.text(he.settings.groupGeneral), findsOneWidget);
+      expect(find.text(he.settings.advancedSummary), findsOneWidget);
       expect(find.text(he.settings.autoCheckTitle), findsOneWidget);
     });
 
@@ -589,9 +613,9 @@ void main() {
           SettingsCard(
             children: [
               SettingsActionTile.path(
-                title: he.libraryScreen.dbFileTitle,
+                title: he.pages.libLocationTitle,
                 path: r'C:\אוצריא\seforim.db',
-                placeholder: he.libraryScreen.dbFileMissing,
+                placeholder: he.pages.libLocationNone,
               ),
             ],
           ),
@@ -616,9 +640,9 @@ void main() {
           SettingsCard(
             children: [
               SettingsActionTile.path(
-                title: he.libraryScreen.dbFileTitle,
+                title: he.pages.libLocationTitle,
                 path: null,
-                placeholder: he.libraryScreen.dbFileMissing,
+                placeholder: he.pages.libLocationNone,
               ),
             ],
           ),
@@ -626,7 +650,7 @@ void main() {
       );
 
       final subtitle = tester.widget<Text>(
-        find.text(he.libraryScreen.dbFileMissing),
+        find.text(he.pages.libLocationNone),
       );
       expect(subtitle.textDirection, isNull);
     });
@@ -641,7 +665,7 @@ void main() {
             builder: (context, setState) => SettingsCard(
               children: [
                 SettingsActionTile.switchTile(
-                  title: he.settings.personalModeTitle,
+                  title: he.settings.autoCheckTitle,
                   value: value,
                   onChanged: (v) => setState(() => value = v),
                 ),
@@ -651,7 +675,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text(he.settings.personalModeTitle));
+      await tester.tap(find.text(he.settings.autoCheckTitle));
       await tester.pumpAndSettle();
       expect(value, isTrue);
 
@@ -666,7 +690,7 @@ void main() {
           SettingsCard(
             children: [
               SettingsActionTile.switchTile(
-                title: he.settings.personalModeTitle,
+                title: he.settings.autoCheckTitle,
                 value: false,
                 enabled: false,
                 onChanged: (v) => disabled = v,
@@ -675,7 +699,7 @@ void main() {
           ),
         ),
       );
-      await tester.tap(find.text(he.settings.personalModeTitle));
+      await tester.tap(find.text(he.settings.autoCheckTitle));
       await tester.pumpAndSettle();
       expect(disabled, isFalse);
     });
@@ -687,7 +711,7 @@ void main() {
             children: [
               SettingsActionTile.text(
                 icon: FluentIcons.arrow_download_24_regular,
-                title: he.settings.personalModeTitle,
+                title: he.settings.autoCheckTitle,
                 actions: [
                   ActionButton.neutral(
                       text: he.common.install, onPressed: () {}),
@@ -702,7 +726,7 @@ void main() {
       await tester.pumpWidget(wrap(SizedBox(width: 280, child: tile())));
       // בפריסה האנכית אין יותר ListTile — הכותרת מעל והפעולות מתחתיה.
       expect(find.byType(ListTile), findsNothing);
-      expect(find.text(he.settings.personalModeTitle), findsOneWidget);
+      expect(find.text(he.settings.autoCheckTitle), findsOneWidget);
       expect(find.text(he.common.install), findsOneWidget);
     });
 
@@ -740,12 +764,14 @@ void main() {
           SettingsCard(
             children: [
               SettingsActionTile.segmentedTile<String>(
-                title: he.settings.themeTitle,
+                title: he.settings.languageTitle,
                 currentValue: 'light',
                 onChanged: (v) => picked = v,
                 options: [
-                  SegmentOption(value: 'light', label: he.settings.themeLight),
-                  SegmentOption(value: 'dark', label: he.settings.themeDark),
+                  SegmentOption(
+                      value: 'light', label: he.settings.languageHebrew),
+                  SegmentOption(
+                      value: 'dark', label: he.settings.languageEnglish),
                 ],
               ),
             ],
@@ -753,7 +779,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text(he.settings.themeDark));
+      await tester.tap(find.text(he.settings.languageEnglish));
       await tester.pumpAndSettle();
       expect(picked, 'dark');
     });
@@ -770,16 +796,16 @@ void main() {
             currentValue: 0,
             onChanged: (v) => picked = v,
             options: [
-              SegmentOption(value: 0, label: he.settings.themeSystem),
-              SegmentOption(value: 1, label: he.settings.themeLight),
-              SegmentOption(value: 2, label: he.settings.themeDark),
+              SegmentOption(value: 0, label: he.settings.languageSystem),
+              SegmentOption(value: 1, label: he.settings.languageHebrew),
+              SegmentOption(value: 2, label: he.settings.languageEnglish),
             ],
           ),
         ),
       );
 
-      expect(find.text(he.settings.themeSystem), findsOneWidget);
-      await tester.tap(find.text(he.settings.themeDark));
+      expect(find.text(he.settings.languageSystem), findsOneWidget);
+      await tester.tap(find.text(he.settings.languageEnglish));
       await tester.pumpAndSettle();
       expect(picked, 2);
     });
@@ -802,14 +828,15 @@ void main() {
         ),
       );
 
-      expect(
-        renderedIcon(tester, find.byType(RtlIcon).first),
-        FluentIcons.arrow_left_24_regular,
+      final icon = find.descendant(
+        of: find.byType(RtlIcon).first,
+        matching: find.byType(Icon),
       );
+      expect(drawnArrow(tester, icon), AxisDirection.left);
     });
   });
 
-  // ── StatusChip / CustomSwitch / NavRailItem ────────────────────────────────
+  // ── StatusChip / CustomSwitch ────────────────────────────────
 
   group('חיוויים ופקדים', () {
     testWidgets('StatusChip מציג סמל וטקסט בכל סוג', (tester) async {
@@ -849,59 +876,6 @@ void main() {
       );
       expect(tester.widget<Switch>(find.byType(Switch)).onChanged, isNull);
     });
-
-    testWidgets('NavRailItem מחליף לאייקון המלא כשהוא נבחר ומדווח על הקשה', (
-      tester,
-    ) async {
-      var taps = 0;
-      Widget item(bool selected) => NavRailItem(
-            icon: FluentIcons.home_24_regular,
-            iconFilled: FluentIcons.home_24_filled,
-            label: he.shell.navHome,
-            isSelected: selected,
-            tooltip: he.shell.navHome,
-            onTap: () => taps++,
-          );
-
-      await tester.pumpWidget(wrap(item(false)));
-      expect(find.text(he.shell.navHome), findsOneWidget);
-      expect(
-        renderedIcon(tester, find.byType(RtlIcon)),
-        FluentIcons.home_24_regular,
-      );
-
-      await tester.tap(find.byType(IconButton));
-      expect(taps, 1);
-
-      await tester.pumpWidget(wrap(item(true)));
-      await tester.pumpAndSettle();
-      expect(
-        renderedIcon(tester, find.byType(RtlIcon)),
-        FluentIcons.home_24_filled,
-      );
-    });
-
-    testWidgets('NavRailItem הצר משתמש ברוחב שהוגדר כקבוע', (tester) async {
-      await tester.pumpWidget(
-        wrap(
-          Align(
-            alignment: Alignment.topRight,
-            child: NavRailItem(
-              icon: FluentIcons.home_24_regular,
-              label: he.shell.navHome,
-              isSelected: false,
-              compact: true,
-              onTap: () {},
-            ),
-          ),
-        ),
-      );
-
-      expect(
-        tester.getSize(find.byType(NavRailItem)).width,
-        NavRailItem.compactWidth,
-      );
-    });
   });
 
   // ── שורות המידע ────────────────────────────────────────────────────────────
@@ -914,7 +888,7 @@ void main() {
             children: [
               InfoStatusRow(
                 icon: FluentIcons.database_24_regular,
-                title: he.libraryScreen.stateRowTitle,
+                title: he.pages.libSourceTitle,
                 kind: StatusKind.ok,
                 label: he.common.upToDate,
               ),
@@ -923,7 +897,7 @@ void main() {
         ),
       );
 
-      expect(find.text(he.libraryScreen.stateRowTitle), findsOneWidget);
+      expect(find.text(he.pages.libSourceTitle), findsOneWidget);
       expect(find.byType(StatusChip), findsOneWidget);
       expect(find.text(he.common.upToDate), findsOneWidget);
     });
@@ -1014,11 +988,7 @@ void main() {
       expect(find.text('42%'), findsOneWidget);
       expect(find.text(he.units.progressOf('1', '2')), findsOneWidget);
       expect(
-        tester
-            .widget<LinearProgressIndicator>(
-              find.byType(LinearProgressIndicator),
-            )
-            .value,
+        tester.widget<AppProgressBar>(find.byType(AppProgressBar)).value,
         0.42,
       );
 
@@ -1027,11 +997,7 @@ void main() {
       );
       expect(find.textContaining('%'), findsNothing);
       expect(
-        tester
-            .widget<LinearProgressIndicator>(
-              find.byType(LinearProgressIndicator),
-            )
-            .value,
+        tester.widget<AppProgressBar>(find.byType(AppProgressBar)).value,
         isNull,
       );
     });
@@ -1041,42 +1007,13 @@ void main() {
         wrap(InfoProgressRow(
             stage: he.libraryDomain.applyVerifying, progress: 0.42)),
       );
-      final bar = tester.widget<LinearProgressIndicator>(
-        find.byType(LinearProgressIndicator),
-      );
-      expect(bar.semanticsLabel, he.libraryDomain.applyVerifying);
-      expect(bar.semanticsValue, '42%');
-    });
-
-    testWidgets('פריט בסרגל הניווט הוא כפתור אחד עם שם ומצב בחירה', (
-      tester,
-    ) async {
-      final handle = tester.ensureSemantics();
-      await tester.pumpWidget(
-        wrap(
-          NavRailItem(
-            icon: FluentIcons.home_24_regular,
-            label: 'בית',
-            isSelected: true,
-            onTap: () {},
-          ),
-        ),
-      );
       expect(
-        tester.getSemantics(find.byType(IconButton)),
-        matchesSemantics(
-          label: 'בית',
-          isButton: true,
-          isSelected: true,
-          hasSelectedState: true,
-          isEnabled: true,
-          hasEnabledState: true,
-          isFocusable: true,
-          hasTapAction: true,
-          hasFocusAction: true,
-        ),
+        find.bySemanticsLabel(he.libraryDomain.applyVerifying),
+        findsWidgets,
       );
-      handle.dispose();
+      final bar = tester.widget<AppProgressBar>(find.byType(AppProgressBar));
+      expect(bar.semanticsLabel, he.libraryDomain.applyVerifying);
+      expect(bar.value, 0.42);
     });
 
     testWidgets('CardActionsRow פורס את הפעולות שקיבל', (tester) async {
@@ -1111,16 +1048,22 @@ void main() {
         wrap(
           ScreenBody(
             title: he.settings.title,
-            children: [Text(he.settings.appearanceCardTitle)],
+            children: [Text(he.settings.groupGeneral)],
           ),
         ),
       );
 
       expect(find.text(he.settings.title), findsOneWidget);
-      expect(find.text(he.settings.appearanceCardTitle), findsOneWidget);
+      expect(find.text(he.settings.groupGeneral), findsOneWidget);
+      // רוחב התוכן הוא 720; הריפוד של הדף יושב בתוך הרשימה.
       expect(
         tester.getSize(find.byType(ListView)).width,
-        LayoutConstraints.panelContentMaxWidth,
+        LayoutConstraints.panelContentMaxWidth +
+            LayoutConstraints.pagePadding.horizontal,
+      );
+      expect(
+        tester.getSize(find.text(he.settings.title)).width,
+        lessThanOrEqualTo(LayoutConstraints.panelContentMaxWidth),
       );
     });
   });
@@ -1232,12 +1175,12 @@ void main() {
         (context) => showSingleActionDialog(
           context: context,
           title: he.plugins.saveDialogTitle,
-          content: he.plugins.syncDialogContent,
+          content: he.plugins.syncingHint,
         ),
       );
 
       expect(find.text(he.plugins.saveDialogTitle), findsOneWidget);
-      expect(find.text(he.plugins.syncDialogContent), findsOneWidget);
+      expect(find.text(he.plugins.syncingHint), findsOneWidget);
       // כפתור אחד בלבד — אין ביטול.
       expect(find.text(he.common.cancel), findsNothing);
 
@@ -1389,12 +1332,12 @@ void main() {
           context: context,
           title: he.settings.resetDialogTitle,
           content: he.settings.resetDialogContent,
-          subtitle: he.settings.resetDialogWarning,
+          subtitle: he.settings.resetSubtitle,
           confirmText: he.settings.resetDialogConfirm,
         ),
       );
 
-      expect(find.text(he.settings.resetDialogWarning), findsOneWidget);
+      expect(find.text(he.settings.resetSubtitle), findsOneWidget);
       // האישור ההרסני הוא ווריאנט האזהרה, והביטול הוא ה-FilledButton.
       expect(
         find.widgetWithText(FilledButton, he.common.cancel),
@@ -1475,8 +1418,8 @@ void main() {
       await expectNoOverflow(
         tester,
         () => SettingsCard(
-          title: he.settings.automationCardTitle,
-          subtitle: he.settings.automationCardHint,
+          title: he.settings.groupGeneral,
+          subtitle: he.settings.advancedSummary,
           children: [
             SettingsActionTile.switchTile(
               icon: FluentIcons.arrow_download_24_regular,
@@ -1487,17 +1430,17 @@ void main() {
             ),
             SettingsActionTile.text(
               icon: FluentIcons.database_24_regular,
-              title: he.settings.personalModeTitle,
-              subtitle: he.settings.personalModeSubtitle,
+              title: he.settings.autoCheckTitle,
+              subtitle: he.settings.autoCheckSubtitle,
               actions: [
                 ActionButton.neutral(text: he.common.install, onPressed: () {}),
               ],
             ),
             SettingsActionTile.path(
               icon: FluentIcons.folder_24_regular,
-              title: he.libraryScreen.dbFileTitle,
+              title: he.pages.libLocationTitle,
               path: r'C:\Users\דוגמה\AppData\Roaming\otzaria\books\seforim.db',
-              placeholder: he.libraryScreen.dbFileMissing,
+              placeholder: he.pages.libLocationNone,
             ),
           ],
         ),
@@ -1511,13 +1454,13 @@ void main() {
           children: [
             SettingsActionTile.segmentedTile<int>(
               icon: FluentIcons.dark_theme_24_regular,
-              title: he.settings.themeTitle,
+              title: he.settings.languageTitle,
               currentValue: 1,
               onChanged: (_) {},
               options: [
-                SegmentOption(value: 0, label: he.settings.themeSystem),
-                SegmentOption(value: 1, label: he.settings.themeLight),
-                SegmentOption(value: 2, label: he.settings.themeDark),
+                SegmentOption(value: 0, label: he.settings.languageSystem),
+                SegmentOption(value: 1, label: he.settings.languageHebrew),
+                SegmentOption(value: 2, label: he.settings.languageEnglish),
               ],
             ),
           ],
@@ -1531,11 +1474,11 @@ void main() {
               SettingsActionTile.multiSegmentedTile<int>(
                 icon: FluentIcons.cloud_arrow_down_24_regular,
                 title: he.settings.syncTargetsTitle,
-                hint: he.settings.syncTargetsHint,
+                hint: he.settings.syncTargetsSubtitle,
                 selected: const {1, 2},
                 onToggled: (_) {},
                 options: [
-                  SegmentOption(value: 0, label: he.settings.syncTargetAll),
+                  const SegmentOption(value: 0, label: 'הכול'),
                   SegmentOption(value: 1, label: he.settings.syncTargetApp),
                   SegmentOption(value: 2, label: he.settings.syncTargetLibrary),
                   SegmentOption(value: 3, label: he.settings.syncTargetPlugins),
@@ -1566,7 +1509,7 @@ void main() {
             SettingsActionTile.dropdownTile<int>(
               icon: FluentIcons.local_language_24_regular,
               title: he.settings.languageTitle,
-              subtitle: he.settings.languageSubtitle,
+              subtitle: he.settings.autoCheckSubtitle,
               currentValue: 0,
               onSelected: (_) {},
               entries: [
@@ -1597,7 +1540,7 @@ void main() {
             CardActionsRow(
               actions: [
                 ActionButton.recommended(
-                  text: he.appScreen.installUpdateButton,
+                  text: he.pages.libUpdateButton,
                   onPressed: () {},
                 ),
                 ActionButton.ghost(text: he.common.launch, onPressed: () {}),
@@ -1613,7 +1556,7 @@ void main() {
           children: [
             InfoStatusRow(
               icon: FluentIcons.database_24_regular,
-              title: s.libraryScreen.stateRowTitle,
+              title: s.pages.libSourceTitle,
               kind: StatusKind.updateAvailable,
               label: s.common.updateAvailable,
             ),
@@ -1651,31 +1594,6 @@ void main() {
       skip: true,
     );
 
-    testWidgets('סרגל הניווט ברוחב הפריט הקבוע', (tester) async {
-      await expectNoOverflow(
-        tester,
-        () => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final label in [
-              he.shell.navHome,
-              he.shell.navApp,
-              he.shell.navLibrary,
-              he.shell.navPlugins,
-              he.shell.navSettings,
-            ])
-              NavRailItem(
-                icon: FluentIcons.home_24_regular,
-                label: label,
-                isSelected: label == he.shell.navHome,
-                onTap: () {},
-              ),
-          ],
-        ),
-        width: NavRailItem.width,
-      );
-    });
-
     testWidgets('גוף מסך שלם באנגלית ובעברית', (tester) async {
       for (final language in AppLanguage.values) {
         final s = AppL10n.stringsFor(language);
@@ -1686,14 +1604,14 @@ void main() {
                 title: s.setupError.title,
                 children: [
                   SettingsCard(
-                    title: s.settings.appearanceCardTitle,
-                    subtitle: s.settings.languageSubtitle,
-                    hint: s.settings.syncTargetsHint,
+                    title: s.settings.groupGeneral,
+                    subtitle: s.settings.autoCheckSubtitle,
+                    hint: s.settings.syncTargetsSubtitle,
                     children: [
                       SettingsActionTile.text(
                         icon: FluentIcons.info_24_regular,
                         title: s.setupError.whatToDo,
-                        subtitle: s.settings.languageSubtitle,
+                        subtitle: s.settings.autoCheckSubtitle,
                         actions: [
                           ActionButton.neutral(
                             text: s.common.copyPathButton,
@@ -1720,20 +1638,41 @@ void main() {
     });
   });
 
-  // `WindowCaption` של window_manager הוא, לפי התיעוד שלו, "סימולציה של
-  // שורת הכותרת של Windows 11". ב-macOS מערכת ההפעלה מציירת את שלושת
-  // הכפתורים העגולים בפינה השמאלית בעצמה, ולכן ציור שלנו בצד השני נותן
-  // שתי שלישיות בשורה אחת — וגם חוסם את מה שיושב תחתיו.
+  // ב-macOS מערכת ההפעלה מציירת את שלושת הכפתורים העגולים בפינה השמאלית
+  // בעצמה, ולכן ציור שלנו היה נותן שתי שלישיות בשורה אחת.
   group('AppTitleBar — שתי הפריסות', () {
+    // כפתורי החלון שואלים את החלון אם הוא מוגדל, כבר בבנייה.
+    const channel = MethodChannel('window_manager');
+    final calls = <String>[];
+    var maximized = false;
+
+    setUp(() {
+      calls.clear();
+      maximized = false;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+        calls.add(call.method);
+        return switch (call.method) {
+          'isMaximized' => maximized,
+          _ => null,
+        };
+      });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
     testWidgets('macOS: בלי כפתורים משלנו, ועם מקום לכפתורי המערכת', (
       tester,
     ) async {
       await tester.pumpWidget(
-        wrap(const AppTitleBar(screenTitle: 'מסך', isMacOS: true)),
+        wrap(const AppTitleBar(isMacOS: true, showWindowButtons: true)),
       );
       await tester.pumpAndSettle();
 
-      expect(find.byType(WindowCaption), findsNothing);
+      expect(find.byType(WindowCaptionButtons), findsNothing);
 
       // הריווח הוא **פיזי** ולא לוגי: ב-RTL הוא היה עובר לצד הלא נכון.
       final container = tester.widget<Container>(
@@ -1745,43 +1684,268 @@ void main() {
             .first,
       );
       final padding = container.padding!.resolve(TextDirection.rtl);
-      expect(padding.left, greaterThan(0));
+      expect(padding.left, 78);
       expect(padding.right, 0);
     });
 
-    testWidgets('ווינדוס: הכפתורים שלנו מצוירים', (tester) async {
+    testWidgets('ווינדוס: שלושה כפתורים מצוירים של 46×36', (tester) async {
+      await tester.pumpWidget(
+        wrap(const AppTitleBar(isMacOS: false, showWindowButtons: true)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(WindowCaptionButtons), findsOneWidget);
+      expect(tester.getSize(find.byType(AppTitleBar)).height, 36);
+      final shell = he.shell;
+      for (final label in [
+        shell.windowMinimize,
+        shell.windowMaximize,
+        shell.windowClose,
+      ]) {
+        expect(
+          tester.getSize(find.bySemanticsLabel(label)),
+          const Size(46, 36),
+          reason: label,
+        );
+      }
+      // בעברית הסגירה בקצה השמאלי.
+      expect(
+        tester.getTopLeft(find.bySemanticsLabel(shell.windowClose)).dx,
+        0,
+      );
+    });
+
+    // במוקאפ הקו שמתחת לשורה רציף לכל הרוחב, גם מתחת לכפתורי החלון.
+    testWidgets('הקו התחתון עובר גם מתחת לכפתורי החלון', (tester) async {
+      await tester.pumpWidget(
+        wrap(const AppTitleBar(isMacOS: false, showWindowButtons: true)),
+      );
+      await tester.pumpAndSettle();
+
+      final bar = find.ancestor(
+        of: find.byType(WindowCaptionButtons),
+        matching: find.byWidgetPredicate(
+          (w) => w is Container && w.foregroundDecoration != null,
+        ),
+      );
+      expect(bar, findsOneWidget);
+      final decoration =
+          tester.widget<Container>(bar).foregroundDecoration! as BoxDecoration;
+      expect((decoration.border! as Border).bottom.width, 1);
+      expect(
+        tester.getSize(bar).width,
+        tester.getSize(find.byType(AppTitleBar)).width,
+      );
+    });
+
+    testWidgets('ריחוף על הסגירה צובע אדום של Windows', (tester) async {
+      await tester.pumpWidget(
+        wrap(const AppTitleBar(isMacOS: false, showWindowButtons: true)),
+      );
+      final close = find.bySemanticsLabel(he.shell.windowClose);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: tester.getCenter(close));
+      addTearDown(mouse.removePointer);
+      await tester.pump();
+
+      final box = tester.widget<Container>(
+        find.descendant(of: close, matching: find.byType(Container)),
+      );
+      expect(box.color, AppPalette.light.closeHover);
+    });
+
+    testWidgets('השם בלבד, הכלים לפי הקריאות, והכלי הפעיל מסומן', (
+      tester,
+    ) async {
+      var help = 0;
+      var settings = 0;
       await tester.pumpWidget(
         wrap(
-          const AppTitleBar(
-            screenTitle: 'מסך',
+          AppTitleBar(
+            showWindowButtons: false,
+            onHelp: () => help++,
+            onSettings: () => settings++,
+            activeTool: TitleBarTool.settings,
+          ),
+        ),
+      );
+      final shell = he.shell;
+
+      expect(find.text(shell.appTitle), findsOneWidget);
+      await tester.tap(find.byTooltip(shell.helpTooltip));
+      await tester.tap(find.byTooltip(shell.settingsTooltip));
+      expect((help, settings), (1, 1));
+      expect(
+        tester.getSize(find.bySemanticsLabel(shell.helpTooltip)),
+        const Size(36, 28),
+      );
+    });
+
+    testWidgets('מסך עצירה: לוגו בלבד, בלי שם ובלי כלים', (tester) async {
+      await tester.pumpWidget(
+        wrap(const AppTitleBar(showTitle: false, showWindowButtons: false)),
+      );
+      final shell = he.shell;
+      expect(find.text(shell.appTitle), findsNothing);
+      expect(find.byTooltip(shell.helpTooltip), findsNothing);
+      expect(find.byTooltip(shell.settingsTooltip), findsNothing);
+    });
+
+    testWidgets('חלון שנפתח מוגדל: הכפתור הוא "שחזר", ולחיצה משחזרת', (
+      tester,
+    ) async {
+      maximized = true;
+      await tester.pumpWidget(
+        wrap(const AppTitleBar(isMacOS: false, showWindowButtons: true)),
+      );
+      await tester.pumpAndSettle();
+      final shell = he.shell;
+
+      expect(find.bySemanticsLabel(shell.windowRestore), findsOneWidget);
+      expect(find.bySemanticsLabel(shell.windowMaximize), findsNothing);
+
+      await tester.tap(find.bySemanticsLabel(shell.windowRestore));
+      await tester.pumpAndSettle();
+      expect(calls, contains('unmaximize'));
+      expect(calls, isNot(contains('maximize')));
+    });
+
+    testWidgets('קורא מסך: לכלים ולכפתורי החלון יש פעולת הקשה, בלי מלל כפול', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      var help = 0;
+      await tester.pumpWidget(
+        wrap(
+          AppTitleBar(
             isMacOS: false,
             showWindowButtons: true,
+            onHelp: () => help++,
+            onSettings: () {},
           ),
         ),
       );
       await tester.pumpAndSettle();
+      final shell = he.shell;
 
-      expect(find.byType(WindowCaption), findsOneWidget);
+      for (final label in [
+        shell.helpTooltip,
+        shell.settingsTooltip,
+        shell.windowMinimize,
+        shell.windowMaximize,
+        shell.windowClose,
+      ]) {
+        final data = tester
+            .getSemantics(find.bySemanticsLabel(label))
+            .getSemanticsData();
+        expect(data.hasAction(SemanticsAction.tap), isTrue, reason: label);
+        expect(data.label, label, reason: label);
+        expect(data.tooltip, isEmpty, reason: label);
+      }
+
+      tester.semantics.tap(find.semantics.byLabel(shell.helpTooltip));
+      await tester.pump();
+      expect(help, 1);
+      tester.semantics.tap(find.semantics.byLabel(shell.windowClose));
+      await tester.pump();
+      expect(calls, contains('close'));
+
+      // כלים מושבתים (היציאה ממתינה): מוכרזים כמושבתים ובלי הקשה.
+      await tester.pumpWidget(
+        wrap(
+          AppTitleBar(
+            showWindowButtons: false,
+            toolsEnabled: false,
+            onHelp: () => help++,
+          ),
+        ),
+      );
+      await tester.pump();
+      final disabled = tester
+          .getSemantics(find.bySemanticsLabel(shell.helpTooltip))
+          .getSemanticsData();
+      expect(disabled.hasAction(SemanticsAction.tap), isFalse);
+      expect(disabled.flagsCollection.isEnabled, Tristate.isFalse);
+      semantics.dispose();
+    });
+
+    testWidgets('דו-שיח פתוח: כפתורי החלון פעילים מעל השכבה, והכלים מושבתים', (
+      tester,
+    ) async {
+      var help = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppThemeData.light(),
+          locale: const Locale('he', 'IL'),
+          supportedLocales: const [Locale('he', 'IL')],
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          builder: (context, navigator) => AppStringsScope(
+            strings: he,
+            child: TitleBarHost(child: navigator!),
+          ),
+          home: Scaffold(
+            body: Column(
+              children: [
+                AppTitleBar(
+                  isMacOS: false,
+                  showWindowButtons: true,
+                  onHelp: () => help++,
+                ),
+                Expanded(
+                  child: Builder(
+                    builder: (context) => TextButton(
+                      onPressed: () => showDialog<void>(
+                        context: context,
+                        builder: (_) => const AlertDialog(content: Text('d')),
+                      ),
+                      child: const Text('open'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final shell = he.shell;
+
+      await tester.tap(find.bySemanticsLabel(shell.helpTooltip));
+      expect(help, 1);
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('d'), findsOneWidget);
+
+      // לחיצה על השכבה הייתה סוגרת את הדו-שיח — כאן היא מגיעה לכפתורים.
+      await tester.tap(find.bySemanticsLabel(shell.windowMinimize));
+      await tester.tap(find.bySemanticsLabel(shell.windowClose));
+      await tester.pump();
+      expect(calls, containsAll(['minimize', 'close']));
+      expect(find.text('d'), findsOneWidget);
+
+      await tester.tap(
+        find.bySemanticsLabel(shell.helpTooltip),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+      expect(help, 1);
+      expect(find.text('d'), findsOneWidget);
     });
 
     testWidgets('macOS: גם כשמזריקים showWindowButtons אין ריווח בצד הסיום', (
       tester,
     ) async {
-      // הזרקת `false` היא מה שכל בדיקות המסכים עושות; הריווח אינו תלוי בה.
       await tester.pumpWidget(
         wrap(
-          const AppTitleBar(
-            screenTitle: 'מסך',
-            isMacOS: true,
-            showWindowButtons: false,
-          ),
+          const AppTitleBar(isMacOS: true, showWindowButtons: false),
           language: AppLanguage.english,
         ),
       );
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      expect(find.byType(WindowCaption), findsNothing);
+      expect(find.byType(WindowCaptionButtons), findsNothing);
     });
   });
 }

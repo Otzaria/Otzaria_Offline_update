@@ -877,4 +877,66 @@ void main() {
     ]);
     expect(id, LibraryStateStore.parseMachineId('${reg.stdout}'));
   }, skip: !Platform.isWindows);
+
+  group('מחשבים שנרשמו — שמות והסרה', () {
+    test('רשומה ישנה בלי שם נקראת, והשמות במפה נפרדת', () async {
+      await File(statePath).parent.create(recursive: true);
+      await File(statePath).writeAsString(
+        jsonEncode({
+          'knownDbVersions': {'OLD|me': 20},
+        }),
+      );
+      await store.recordKnownDbVersion('NEW|me', 22, name: 'LAPTOP');
+
+      final machines = await store.liveRegisteredMachines();
+      expect(
+        [for (final m in machines) (m.key, m.name, m.version)],
+        [('OLD|me', null, 20), ('NEW|me', 'LAPTOP', 22)],
+      );
+      final json = jsonDecode(await File(statePath).readAsString()) as Map;
+      expect(json['knownDbVersions'], {'OLD|me': 20, 'NEW|me': 22});
+      expect(json['knownDbVersionsNames'], {'NEW|me': 'LAPTOP'});
+    });
+
+    test('רישום חוזר בלי שם שומר את השם הקודם', () async {
+      await store.recordKnownDbVersion('PC|me', 20, name: 'BEIT-MIDRASH');
+      await store.recordKnownDbVersion('PC|me', 21);
+      expect(
+        (await store.liveRegisteredMachines()).single.name,
+        'BEIT-MIDRASH',
+      );
+    });
+
+    test('הסרה מזיזה את גרסת ההתחלה ומוחקת את כל השדות', () async {
+      await store.recordKnownDbVersion('A|me', 18, name: 'A');
+      await store.recordKnownDbVersion('B|me', 21, name: 'B');
+      expect(await store.lowestKnownDbVersion(), 18);
+
+      await store.forgetKnownDbVersion('A|me');
+
+      expect(await store.lowestKnownDbVersion(), 21);
+      final json = jsonDecode(await File(statePath).readAsString()) as Map;
+      for (final field in [
+        'knownDbVersions',
+        'knownDbVersionsSeen',
+        'knownDbVersionsLocalTime',
+        'knownDbVersionsNames',
+      ]) {
+        expect(
+          (json[field] as Map).containsKey('A|me'),
+          isFalse,
+          reason: field,
+        );
+      }
+    });
+
+    test('המחשב הזה מסומן', () async {
+      await store.recordOwnDbVersion(19);
+      await store.recordKnownDbVersion('OTHER|x', 20);
+      final machines = await store.liveRegisteredMachines();
+      expect(machines.first.isThisMachine, isTrue);
+      expect(machines.first.name, isNotNull);
+      expect(machines.last.isThisMachine, isFalse);
+    });
+  });
 }

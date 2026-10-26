@@ -1,25 +1,40 @@
-// Barrel re-export — כל רכיבי הממשק המשותפים, פורט מאוצריא.
-// ראה launcher_app/README.md לכללי השימוש (איזה כפתור/דיאלוג/שורה מתי).
-// כולל `context.strings` — כל מסך שמייבא רכיבים ממילא צריך גם מלל.
+// כל רכיבי הממשק המשותפים, וגם `context.strings` — ראו launcher_app/README.md
+// לכללי השימוש.
 export '../l10n/app_strings_scope.dart';
 export 'action_buttons.dart';
+export 'advanced_section.dart';
 export 'app_card.dart';
 export 'app_dialogs.dart';
 export 'app_dropdown_field.dart';
+export 'app_progress_bar.dart';
 export 'app_title_bar.dart';
 export 'close_otzaria_button.dart';
-export 'color_picker_tile.dart';
 export 'copy_path_button.dart';
 export 'custom_switch.dart';
+export 'empty_state.dart';
+export 'focus_ring.dart';
+export 'form_check_row.dart';
+export 'icon_tile.dart';
 export 'info_rows.dart';
 export 'library_changes_view.dart';
-export 'nav_rail_item.dart';
+export 'news_card.dart';
+export 'notice_banner.dart';
+export 'option_card.dart';
+export 'otzaria_logo.dart';
+export 'path_text.dart';
 export 'recheck_button.dart';
+export 'result_badge.dart';
+export 'rows_card.dart';
 export 'rtl_icon.dart';
 export 'rtl_text_field.dart';
 export 'safer_mode_dialogs.dart';
+export 'section_label.dart';
 export 'segmented_control.dart';
 export 'settings_card.dart';
+export 'status_card.dart';
 export 'status_chip.dart';
+export 'sub_page_header.dart';
+export 'task_frame.dart';
+export 'text_link.dart';
 export 'ui_snack.dart';
 export 'whats_new_view.dart';

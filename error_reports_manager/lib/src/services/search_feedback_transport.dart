@@ -79,18 +79,22 @@ class SearchFeedbackTransport {
   /// חסימת שרת אינה נעקפת בהסכמה חדשה של המשתמש.
   Future<bool> resumeAfterConsent(String sourceDirectory) async {
     if (!await Directory(sourceDirectory).parent.exists()) return false;
+    if (await blockedByServer(sourceDirectory)) return false;
+    await _queue(sourceDirectory).resume();
+    return true;
+  }
+
+  /// המפתח של המחשב הזה נחסם בשרת — כאן או בעותק שבכונן.
+  Future<bool> blockedByServer(String sourceDirectory) async {
     final identity = await SearchFeedbackIdentityStore(
       () async => Directory(sourceDirectory),
     ).load();
-    if (identity?.blocked == true) return false;
-    if (identity != null) {
-      final carriedIdentity = await SearchFeedbackIdentityStore(
-        () async => Directory(p.join(directory, identity.keyId)),
-      ).load();
-      if (carriedIdentity?.blocked == true) return false;
-    }
-    await _queue(sourceDirectory).resume();
-    return true;
+    if (identity == null) return false;
+    if (identity.blocked) return true;
+    final carriedIdentity = await SearchFeedbackIdentityStore(
+      () async => Directory(p.join(directory, identity.keyId)),
+    ).load();
+    return carriedIdentity?.blocked == true;
   }
 
   Future<int> count() async {

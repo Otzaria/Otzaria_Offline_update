@@ -33,21 +33,43 @@ void main() {
     final strings = stringsOf(language);
     final t = strings.customApps;
 
-    Future<void> open(WidgetTester tester) async {
+    /// כפתור שמריץ את [action] — פתיחת הטופס או אישור המחיקה, כמו מדף הניהול.
+    Future<void> pumpButton(
+      WidgetTester tester,
+      Future<void> Function(BuildContext context) action,
+    ) async {
       await tester.runAsync(controller.load);
       await pumpScreen(
           tester,
           Builder(
               builder: (context) => Scaffold(
                   body: TextButton(
-                      onPressed: () => showCustomAppCategoriesDialog(
-                          context: context, controller: controller),
+                      onPressed: () => action(context),
                       child: const Text('open')))),
           language: language,
           size: const Size(900, 1000));
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
     }
+
+    Future<void> open(WidgetTester tester, {CustomAppCategory? editing}) =>
+        pumpButton(
+          tester,
+          (context) => showCustomAppCategoriesDialog(
+            context: context,
+            controller: controller,
+            editing: editing,
+          ),
+        );
+
+    Future<void> openRemove(WidgetTester tester) => pumpButton(
+          tester,
+          (context) => confirmRemoveCustomAppCategory(
+            context,
+            controller,
+            controller.categories.single,
+          ),
+        );
 
     Future<void> tap(WidgetTester tester, Finder finder,
         {bool Function()? completed}) async {
@@ -65,52 +87,52 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    Finder inDialog(String text) => find.descendant(
+        of: find.byType(AlertDialog), matching: find.text(text));
+
+    ActionButton submit(WidgetTester tester, String text) =>
+        tester.widget<ActionButton>(find.ancestor(
+            of: inDialog(text), matching: find.byType(ActionButton)));
+
+    bool dialogClosed() => find.byType(AlertDialog).evaluate().isEmpty;
+
     testWidgets('$language: blank and whitespace names cannot be submitted',
         (tester) async {
       await open(tester);
-      ActionButton button() => tester.widget<ActionButton>(find.ancestor(
-          of: find.text(t.addCategoryButton),
-          matching: find.byType(ActionButton)));
-      expect(button().onPressed, isNull);
+      expect(submit(tester, t.addCategoryButton).onPressed, isNull);
       await tester.enterText(find.byType(TextField).first, '   ');
       await tester.pump();
-      expect(button().onPressed, isNull);
+      expect(submit(tester, t.addCategoryButton).onPressed, isNull);
       expect(controller.categories, isEmpty);
-      expect(find.text(t.noCategoriesHint), findsOneWidget);
-      await tap(tester, find.text(strings.common.close));
+      await tap(tester, find.text(strings.common.cancel));
       expect(find.byType(AlertDialog), findsNothing);
     });
 
-    testWidgets(
-        '$language: add persists trimmed name and description across reopen',
+    // הרשימה, העריכה והמחיקה בדף הניהול — הדו-שיח הוא טופס אחד בלבד.
+    testWidgets('$language: the dialog is only the form, not a second list',
+        (tester) async {
+      await tester.runAsync(() => controller.addCategory('לימוד'));
+      await open(tester);
+      expect(find.text('לימוד'), findsNothing);
+      expect(find.text(t.noCategoriesHint), findsNothing);
+      expect(find.byTooltip(t.editTooltip), findsNothing);
+      expect(find.byTooltip(t.removeCategoryTooltip), findsNothing);
+      expect(find.byType(TextField), findsNWidgets(2));
+    });
+
+    testWidgets('$language: add persists trimmed name and description',
         (tester) async {
       await open(tester);
       await tester.enterText(find.byType(TextField).first, '  לימוד  ');
       await tester.enterText(find.byType(TextField).last, '  כלים ללימוד  ');
       await tester.pump();
-      await tap(tester, find.text(t.addCategoryButton),
-          completed: () =>
-              controller.categories.length == 1 &&
-              tester
-                  .widget<TextField>(find.byType(TextField).first)
-                  .controller!
-                  .text
-                  .isEmpty);
+      await tap(tester, find.widgetWithText(ActionButton, t.addCategoryButton),
+          completed: () => controller.categories.length == 1);
+      expect(dialogClosed(), isTrue);
       expect(controller.categories.single.name, 'לימוד');
       expect(controller.categories.single.description, 'כלים ללימוד');
-      expect(find.text('לימוד'), findsOneWidget);
-      expect(
-          tester
-              .widget<TextField>(find.byType(TextField).first)
-              .controller!
-              .text,
-          isEmpty);
-      await tap(tester, find.text(strings.common.close));
       await tester.runAsync(controller.load);
-      await tester.tap(find.text('open'));
-      await tester.pumpAndSettle();
-      expect(find.text('לימוד'), findsOneWidget);
-      expect(find.text('כלים ללימוד'), findsOneWidget);
+      expect(controller.categories.single.name, 'לימוד');
     });
 
     testWidgets(
@@ -124,27 +146,15 @@ void main() {
           sourceKind: AppSourceKind.manual,
           categorySlugs: [slug!],
           autoIcon: false)));
-      await open(tester);
-      await tap(tester, find.byTooltip(t.editTooltip));
-      expect(
-          tester
-              .widget<TextField>(find.byType(TextField).first)
-              .controller!
-              .text,
-          'לימוד');
+      await open(tester, editing: controller.categories.single);
+      expect(find.text(t.editCategoryTitle), findsOneWidget);
       await tester.enterText(find.byType(TextField).first, 'שינוי');
       await tap(tester, find.text(strings.common.cancel));
+      expect(find.byType(AlertDialog), findsNothing);
       expect(controller.categories.single.slug, slug);
       expect(controller.categories.single.name, 'לימוד');
       expect(controller.categories.single.description, 'מקורי');
       expect(controller.appsIn(slug!).single.descriptor.id, 'demo');
-      expect(find.text(t.addCategoryButton), findsOneWidget);
-      expect(
-          tester
-              .widget<TextField>(find.byType(TextField).first)
-              .controller!
-              .text,
-          isEmpty);
     });
 
     testWidgets('$language: rename preserves slug and app membership',
@@ -157,40 +167,29 @@ void main() {
           sourceKind: AppSourceKind.manual,
           categorySlugs: [slug],
           autoIcon: false)));
-      await open(tester);
-      expect(find.text(t.categoryAppCount(1)), findsOneWidget);
-      await tap(tester, find.byTooltip(t.editTooltip));
+      await open(tester, editing: controller.categories.single);
       await tester.enterText(find.byType(TextField).first, '  ספרים  ');
       await tester.enterText(find.byType(TextField).last, 'תיאור');
       await tester.pump();
-      await tap(tester, find.text(t.saveEditButton),
-          completed: () =>
-              controller.categories.single.name == 'ספרים' &&
-              tester
-                  .widget<TextField>(find.byType(TextField).first)
-                  .controller!
-                  .text
-                  .isEmpty);
+      await tap(tester, inDialog(t.saveEditButton),
+          completed: () => controller.categories.single.name == 'ספרים');
+      expect(dialogClosed(), isTrue);
       expect(controller.categories.single.slug, slug);
       expect(controller.categories.single.name, 'ספרים');
+      expect(controller.categories.single.description, 'תיאור');
       expect(controller.appsIn(slug).single.descriptor.id, 'demo');
-      expect(find.text('ספרים'), findsOneWidget);
-      expect(find.text('תיאור'), findsOneWidget);
     });
 
     testWidgets('$language: cancelled deletion preserves the category',
         (tester) async {
       await tester.runAsync(() => controller.addCategory('לימוד'));
-      await open(tester);
-      await tap(tester, find.byTooltip(t.removeCategoryTooltip));
+      await openRemove(tester);
       expect(find.text(t.removeCategoryDialogTitle('לימוד')), findsOneWidget);
       await tap(tester, find.text(strings.common.cancel));
       expect(controller.categories, hasLength(1));
-      expect(find.text('לימוד'), findsOneWidget);
     });
 
-    testWidgets(
-        '$language: confirmed deletion removes membership and updates open dialog',
+    testWidgets('$language: confirmed deletion removes membership',
         (tester) async {
       final slug =
           (await tester.runAsync(() => controller.addCategory('לימוד')))!;
@@ -200,8 +199,7 @@ void main() {
           sourceKind: AppSourceKind.manual,
           categorySlugs: [slug],
           autoIcon: false)));
-      await open(tester);
-      await tap(tester, find.byTooltip(t.removeCategoryTooltip));
+      await openRemove(tester);
       expect(
           find.text(t.removeCategoryDialogContent('לימוד', 1)), findsOneWidget);
       final confirm = find.descendant(
@@ -213,10 +211,23 @@ void main() {
               controller.apps.single.descriptor.categorySlugs.isEmpty);
       expect(controller.categories, isEmpty);
       expect(controller.uncategorizedApps.single.descriptor.id, 'demo');
-      expect(controller.apps.single.descriptor.categorySlugs, isEmpty);
-      expect(find.text('לימוד'), findsNothing);
-      expect(find.text(t.noCategoriesHint), findsOneWidget);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        '$language: opened on a category (from the manage page) '
+        'starts with its fields filled', (tester) async {
+      await tester.runAsync(controller.load);
+      await tester.runAsync(
+          () => controller.addCategory('לימוד', description: 'כלים ללימוד'));
+      await open(tester, editing: controller.categories.single);
+
+      final fields = tester
+          .widgetList<TextField>(find.byType(TextField))
+          .map((field) => field.controller?.text)
+          .toList();
+      expect(fields, containsAll(['לימוד', 'כלים ללימוד']));
+      await tap(tester, find.text(strings.common.cancel));
     });
   }
 }

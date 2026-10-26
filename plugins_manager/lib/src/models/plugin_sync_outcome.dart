@@ -10,6 +10,7 @@ class PluginSyncOutcome {
     this.failed = const [],
     this.incompatible = const [],
     this.versionMismatches = const [],
+    this.cancelled = false,
   });
 
   final PluginCatalog catalog;
@@ -34,6 +35,9 @@ class PluginSyncOutcome {
   /// בילדים שגרסת המניפסט שלהם שונה מזו שבאתר (מנהל שינה את המספר בלי קובץ
   /// חדש). נשמרים, ונכתבים ליומן בלבד.
   final List<String> versionMismatches;
+
+  /// העצירה נקלטה לפני סוף הסנכרון — מבנה החנות לא נמשך, והמראה חלקית.
+  final bool cancelled;
 
   bool get hasFailures => failed.isNotEmpty;
 }

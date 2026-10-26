@@ -5,17 +5,10 @@ import '../../controllers/plugins_module_controller.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
 import '../store_kit/store_kit.dart';
+import 'plugin_visuals.dart';
 
-/// שורת החיפוש והסינון של "כל התוספים" — חיפוש, סטטוס, מיון ושורת תגיות מתקפלת.
-/// פריסה של שדות בשורה אחת, כמו בחנות המקורית, ולא שורות
-/// `SettingsActionTile`.
-///
-/// מוצגת **רק** במסך "כל התוספים", בדיוק כמו `/plugins/all` באתר: דף הבית
-/// ודף הקטגוריה מציגים אצירה ואין בהם סינון. הקטגוריות אינן כאן אלא בסרגל
-/// הצד — הן הניווט הראשי, והתגיות סינון משני בתוך הרשימה השטוחה.
-///
-/// מתג "רק מה שלא מותקן" גם הוא אינו כאן אלא בשורת הסנכרון שבראש המסך:
-/// הוא תוספת של הלאנצ'ר (אין לו מקבילה באתר) והוא חל על **כל** מסכי החנות.
+/// מעל הרשימה: חיפוש ובורר "הכול / מותקנים / לא מותקנים", שבבי הקטגוריות,
+/// ו"עוד סינון" מקופל (יציבות ותגיות).
 class PluginFiltersBar extends StatefulWidget {
   const PluginFiltersBar({
     super.key,
@@ -24,200 +17,286 @@ class PluginFiltersBar extends StatefulWidget {
   });
 
   final PluginsModuleController controller;
+
+  /// בבעלות המסך: הטקסט שהוקלד נשמר גם כשהבר נבנה מחדש.
   final TextEditingController searchController;
 
   @override
   State<PluginFiltersBar> createState() => _PluginFiltersBarState();
 }
 
-class _PluginFiltersBarState extends State<PluginFiltersBar> {
-  /// כמה תגיות מוצגות לפני "הצג עוד" — שתי שורות בקירוב.
-  static const int _collapsedTagCount = 14;
+/// מעל מספר התגיות הזה הרשימה מתקפלת — כמו `TagFilterChips` באתר.
+const int _collapsedTagCount = 14;
 
+class _PluginFiltersBarState extends State<PluginFiltersBar> {
+  bool _moreOpen = false;
   bool _allTagsShown = false;
 
-  /// מעל הרוחב הזה שלושת הפקדים נכנסים לשורה אחת.
-  static const double _singleRowWidth = 840;
+  PluginsModuleController get _c => widget.controller;
 
-  static const double _statusWidth = 180;
+  @override
+  void initState() {
+    super.initState();
+    // מסנן שנבחר קודם (תגית מדף הפרטים) — "עוד סינון" נפתח כדי שייראה.
+    _moreOpen = _c.moreFiltersCount > 0;
+  }
+
+  @override
+  void didUpdateWidget(PluginFiltersBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_c.moreFiltersCount > 0) _moreOpen = true;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
-      child: Padding(
-        padding: const EdgeInsets.all(AppTokens.spaceLG),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            LayoutBuilder(
-              builder: (context, constraints) =>
-                  constraints.maxWidth >= _singleRowWidth
-                      ? _wideRow(context)
-                      : _narrowColumn(context),
-            ),
-            _tagsSection(context),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _wideRow(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Expanded(child: _searchField(context)),
-        const SizedBox(width: AppTokens.spaceMD),
-        SizedBox(width: _statusWidth, child: _statusField(context)),
-        const SizedBox(width: AppTokens.spaceMD),
-        SizedBox(width: _statusWidth, child: _sortField(context)),
-      ],
-    );
-  }
-
-  Widget _narrowColumn(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _searchField(context),
-        const SizedBox(height: AppTokens.spaceMD),
-        _statusField(context),
-        const SizedBox(height: AppTokens.spaceMD),
-        _sortField(context),
-      ],
-    );
-  }
-
-  Widget _searchField(BuildContext context) {
-    final t = context.strings.plugins;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        StoreFieldLabel(t.filterSearchLabel),
-        RtlTextField(
-          controller: widget.searchController,
-          onChanged: widget.controller.setSearch,
-          decoration: InputDecoration(
-            border: const OutlineInputBorder(
-              borderRadius: AppTokens.borderRadiusAll,
-            ),
-            prefixIcon: const Icon(FluentIcons.search_24_regular),
-            hintText: t.filterSearchHint,
-            isDense: true,
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// תוויות הסינון לפי סטטוס. המפתחות הם ערכי ה-API ואינם מתורגמים.
-  static Map<PluginStatusFilter, String> _statusLabels(BuildContext context) {
-    final t = context.strings.plugins;
-    return {
-      PluginStatusFilter.all: t.filterStatusAll,
-      PluginStatusFilter.stable: t.statusStable,
-      PluginStatusFilter.beta: t.statusBeta,
-      PluginStatusFilter.experimental: t.statusExperimental,
-    };
-  }
-
-  /// תפריט נפתח, לא `AppSegmentedControl` — כדי לשבת בשורה אחת עם שדה
-  /// החיפוש בלי לתפוס יותר מקום ממנו.
-  Widget _statusField(BuildContext context) => _dropdownField(
-        label: context.strings.plugins.filterStatusLabel,
-        value: widget.controller.statusFilter,
-        labels: _statusLabels(context),
-        onChanged: widget.controller.setStatusFilter,
-      );
-
-  Widget _sortField(BuildContext context) {
-    final t = context.strings.plugins;
-    return _dropdownField(
-      label: t.filterSortLabel,
-      value: widget.controller.sortMode,
-      labels: {
-        PluginSortMode.recommended: t.sortRecommended,
-        PluginSortMode.newest: t.sortNewest,
-        PluginSortMode.updated: t.sortUpdated,
-      },
-      onChanged: widget.controller.setSortMode,
-    );
-  }
-
-  Widget _dropdownField<T>({
-    required String label,
-    required T value,
-    required Map<T, String> labels,
-    required void Function(T) onChanged,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        StoreFieldLabel(label),
-        DropdownButtonFormField<T>(
-          initialValue: value,
-          onChanged: (value) {
-            if (value != null) onChanged(value);
-          },
-          isDense: true,
-          isExpanded: true,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(borderRadius: AppTokens.borderRadiusAll),
-            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            isDense: true,
-          ),
-          items: [
-            for (final entry in labels.entries)
-              DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+        _toolRow(context),
+        const SizedBox(height: 12),
+        AppDropdownField<PluginSortMode>(
+          value: _c.sortMode,
+          entries: [
+            AppMenuEntry(
+                value: PluginSortMode.recommended,
+                label: context.strings.plugins.sortRecommended),
+            AppMenuEntry(
+                value: PluginSortMode.newest,
+                label: context.strings.plugins.sortNewest),
+            AppMenuEntry(
+                value: PluginSortMode.updated,
+                label: context.strings.plugins.sortUpdated),
           ],
+          onSelected: _c.setSortMode,
         ),
+        if (_c.shownCategories.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _categories(context),
+        ],
+        const SizedBox(height: 8),
+        _moreFilters(context),
       ],
     );
   }
 
-  Widget _tagsSection(BuildContext context) {
-    final tags = widget.controller.allTags;
-    if (tags.isEmpty) return const SizedBox.shrink();
+  Widget _toolRow(BuildContext context) {
     final t = context.strings.plugins;
-
-    final hasMore = tags.length > _collapsedTagCount;
-    final shown =
-        _allTagsShown || !hasMore ? tags : tags.take(_collapsedTagCount);
-
-    return Padding(
-      padding: const EdgeInsets.only(top: AppTokens.spaceMD),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          StoreFieldLabel(t.filterTagsLabel),
-          Wrap(
-            spacing: AppTokens.spaceSM,
-            runSpacing: AppTokens.spaceSM,
-            children: [
-              StoreTagPill(
-                label: t.filterAllTags,
-                active: widget.controller.tagFilter == null,
-                onTap: () => widget.controller.setTagFilter(null),
-              ),
-              for (final tag in shown)
-                StoreTagPill(
-                  label: tag,
-                  active: widget.controller.tagFilter == tag,
-                  onTap: () => widget.controller.setTagFilter(tag),
+    final cs = Theme.of(context).colorScheme;
+    final search = ValueListenableBuilder<TextEditingValue>(
+      valueListenable: widget.searchController,
+      builder: (context, value, _) => RtlTextField(
+        controller: widget.searchController,
+        onChanged: _c.setSearch,
+        decoration: InputDecoration(
+          hintText: t.searchHint,
+          constraints: const BoxConstraints(
+            minHeight: AppTokens.buttonHeight,
+            maxHeight: AppTokens.buttonHeight,
+          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          prefixIcon: Icon(
+            FluentIcons.search_20_regular,
+            size: 20,
+            color: cs.onSurfaceVariant,
+          ),
+          suffixIcon: value.text.isEmpty
+              ? null
+              : AppIconButton(
+                  icon: FluentIcons.dismiss_20_regular,
+                  tooltip: t.clearSearchTooltip,
+                  small: true,
+                  onPressed: () {
+                    widget.searchController.clear();
+                    _c.setSearch('');
+                  },
                 ),
+        ),
+      ),
+    );
+    final filter = AppSegmentedControl<PluginInstallFilter>(
+      options: [
+        SegmentOption(value: PluginInstallFilter.all, label: t.filterAll),
+        SegmentOption(
+          value: PluginInstallFilter.installed,
+          label: t.filterInstalled,
+        ),
+        SegmentOption(
+          value: PluginInstallFilter.notInstalled,
+          label: t.filterNotInstalled,
+        ),
+      ],
+      currentValue: _c.installFilter,
+      onChanged: _c.setInstallFilter,
+      height: AppTokens.buttonHeight,
+    );
+    // הבורר גדל עם הטקסט, ולכן גם הרוחב שממנו הוא נכנס לצד החיפוש.
+    final scale = MediaQuery.textScalerOf(context).scale(1);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 600 * scale) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [search, const SizedBox(height: 12), filter],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: search),
+            const SizedBox(width: 12),
+            filter,
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _categories(BuildContext context) {
+    final t = context.strings.plugins;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        StoreCategoryChip(
+          label: t.filterAll,
+          count: _c.plugins.length,
+          selected: _c.categoryFilter == null,
+          onTap: () => _c.setCategory(null),
+        ),
+        for (final category in _c.shownCategories)
+          Tooltip(
+            message: category.description,
+            child: StoreCategoryChip(
+              label: category.name,
+              count: _c.pluginsIn(category).length,
+              selected: _c.categoryFilter == category.slug,
+              onTap: () => _c.setCategory(category.slug),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _moreFilters(BuildContext context) {
+    final t = context.strings.plugins;
+    final cs = Theme.of(context).colorScheme;
+    final count = _c.moreFiltersCount;
+    final head = Semantics(
+      expanded: _moreOpen,
+      child: FocusRing(
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            onTap: () => setState(() => _moreOpen = !_moreOpen),
+            borderRadius: AppTokens.borderRadiusAll,
+            overlayColor: AppSurfaces.stateLayer(cs.primary),
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: Row(
+                children: [
+                  Icon(
+                    FluentIcons.filter_20_regular,
+                    size: 18,
+                    color: cs.outline,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    count == 0 ? t.moreFilters : t.moreFiltersCount(count),
+                    style: AppTextStyles.rowTitle.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                  const Spacer(),
+                  AnimatedRotation(
+                    turns: _moreOpen ? 0.5 : 0,
+                    duration: AppTokens.animFast,
+                    child: Icon(
+                      FluentIcons.chevron_down_20_regular,
+                      size: 18,
+                      color: cs.outline,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (!_moreOpen) return head;
+
+    final tags = _c.allTags;
+    final hasMore = tags.length > _collapsedTagCount;
+    final selectedTag = _c.tagFilter;
+    // תגית שנבחרה נשארת גלויה גם כשהרשימה מקופלת — אחרת המסנן פעיל ובלתי נראה.
+    final shownTags = _allTagsShown || !hasMore
+        ? tags
+        : [
+            ...tags.take(_collapsedTagCount),
+            if (selectedTag != null &&
+                !tags.take(_collapsedTagCount).contains(selectedTag))
+              selectedTag,
+          ];
+    final label = AppTextStyles.small.copyWith(color: cs.onSurfaceVariant);
+
+    Widget line(String title, List<Widget> chips) => Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 64,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 7),
+                child: Text(title, style: label),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Wrap(spacing: 8, runSpacing: 8, children: chips)),
+          ],
+        );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        head,
+        const SizedBox(height: 4),
+        AppCard(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              line(t.filterStatusLabel, [
+                for (final status in PluginStatusFilter.values)
+                  StoreFilterChip(
+                    label: status == PluginStatusFilter.all
+                        ? t.filterAll
+                        : pluginStatusLabel(status.name),
+                    selected: _c.statusFilter == status,
+                    onTap: () => _c.setStatusFilter(status),
+                  ),
+              ]),
+              if (tags.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                line(t.filterTagsLabel, [
+                  for (final tag in shownTags)
+                    StoreFilterChip(
+                      label: tag,
+                      selected: _c.tagFilter == tag,
+                      onTap: () =>
+                          _c.setTagFilter(_c.tagFilter == tag ? null : tag),
+                    ),
+                  if (hasMore)
+                    ActionButton.ghost(
+                      text: _allTagsShown ? t.showFewerTags : t.showMoreTags,
+                      size: ActionButtonSize.sm,
+                      onPressed: () =>
+                          setState(() => _allTagsShown = !_allTagsShown),
+                    ),
+                ]),
+              ],
             ],
           ),
-          if (hasMore)
-            Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: ActionButton.ghost(
-                text: _allTagsShown ? t.showFewerTags : t.showMoreTags,
-                onPressed: () => setState(() => _allTagsShown = !_allTagsShown),
-              ),
-            ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 4),
+      ],
     );
   }
 }

@@ -6,6 +6,7 @@ export 'src/models/otzaria_release.dart';
 export 'src/models/otzaria_release_channel.dart';
 export 'src/models/otzaria_update_check_result.dart';
 export 'src/otzaria_manager.dart';
+export 'src/otzaria_user_error.dart';
 export 'src/services/installed_version_reader.dart';
 export 'src/services/mac_app_version_reader.dart';
 export 'src/services/otzaria_app_locator.dart';

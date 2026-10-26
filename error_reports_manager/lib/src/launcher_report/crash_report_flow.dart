@@ -16,10 +16,11 @@ enum AppCrashReportMode {
 
   final String wireName;
 
+  /// ערך חסר או לא מוכר — ברירת המחדל, "לשלוח תמיד".
   static AppCrashReportMode parse(Object? raw) =>
       AppCrashReportMode.values.firstWhere(
         (mode) => mode.wireName == raw,
-        orElse: () => AppCrashReportMode.ask,
+        orElse: () => AppCrashReportMode.always,
       );
 }
 

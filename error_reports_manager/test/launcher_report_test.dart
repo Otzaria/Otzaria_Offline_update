@@ -728,10 +728,10 @@ error: A RenderFlex overflowed by 4 pixels
       });
     }
 
-    test('parse: ערך לא מוכר נופל ל-ask', () {
-      expect(AppCrashReportMode.parse('always'), AppCrashReportMode.always);
-      expect(AppCrashReportMode.parse(null), AppCrashReportMode.ask);
-      expect(AppCrashReportMode.parse('x'), AppCrashReportMode.ask);
+    test('parse: ערך חסר או לא מוכר נופל ל-always, ברירת המחדל', () {
+      expect(AppCrashReportMode.parse('ask'), AppCrashReportMode.ask);
+      expect(AppCrashReportMode.parse(null), AppCrashReportMode.always);
+      expect(AppCrashReportMode.parse('x'), AppCrashReportMode.always);
     });
 
     test('titleFor ו-throttleKeyFor', () {

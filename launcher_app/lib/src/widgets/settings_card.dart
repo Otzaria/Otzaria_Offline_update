@@ -1,6 +1,4 @@
-// כרטיס הגדרות ושורות ההגדרה — פורט מאוצריא
-// (`otzaria/lib/settings/widgets/settings_card.dart`), בגרסה מצומצמת:
-// ללא אנכורי חיפוש, dropdown ותפריטי נתיב.
+// כרטיס הגדרות ושורות ההגדרה: כותרת מקטע מעל כרטיס של שורות (`.rows`).
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
@@ -10,12 +8,13 @@ import '../theme/theme_exports.dart';
 import 'app_card.dart';
 import 'app_dropdown_field.dart';
 import 'custom_switch.dart';
+import 'icon_tile.dart';
 import 'rtl_icon.dart';
 import 'segmented_control.dart';
 
 // ── SettingsCard ──────────────────────────────────────────────────────────────
 
-/// כרטיס הגדרות מעוצב בסגנון M3 — כותרת מעל הכרטיס, שורות בתוכו.
+/// כרטיס הגדרות — כותרת מקטע מעל הכרטיס, שורות בתוכו.
 class SettingsCard extends StatelessWidget {
   final String? title;
   final String? subtitle;
@@ -38,14 +37,11 @@ class SettingsCard extends StatelessWidget {
     this.actions = const [],
   });
 
-  /// סגנון כותרת הכרטיס — מקור אמת יחיד.
-  static TextStyle? titleStyleOf(BuildContext context) {
-    final theme = Theme.of(context);
-    return theme.textTheme.titleMedium?.copyWith(
-      fontWeight: FontWeight.bold,
-      color: theme.colorScheme.primary,
-    );
-  }
+  /// סגנון כותרת הכרטיס (`.sec-label`) — מקור אמת יחיד.
+  static TextStyle? titleStyleOf(BuildContext context) =>
+      AppTextStyles.sectionLabel.copyWith(
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -61,12 +57,7 @@ class SettingsCard extends StatelessWidget {
         if (hasHeader)
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.only(
-              right: 16,
-              left: 16,
-              top: 24,
-              bottom: 12,
-            ),
+            padding: const EdgeInsets.only(top: 28, bottom: 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -83,7 +74,7 @@ class SettingsCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     subtitle!,
-                    style: theme.textTheme.bodySmall?.copyWith(
+                    style: AppTextStyles.meta.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
@@ -178,10 +169,19 @@ Widget _settingSubtitle(String text, {Color? color, bool ltr = false}) => Text(
       textAlign: ltr ? TextAlign.end : null,
     );
 
+/// סמל השורה יושב באריח שקט של 32 (`.tile.quiet.sm`).
 Widget? _buildSettingIcon(IconData? icon, IconData? rtlIcon, Color? iconColor) {
-  if (rtlIcon != null) return RtlIcon(rtlIcon, color: iconColor);
-  if (icon != null) return Icon(icon, color: iconColor);
-  return null;
+  final glyph = rtlIcon != null
+      ? RtlIcon(rtlIcon, size: 18, color: iconColor)
+      : icon != null
+          ? Icon(icon, size: 18, color: iconColor)
+          : null;
+  if (glyph == null) return null;
+  return IconTile(
+    size: IconTileSize.sm,
+    tone: IconTileTone.quiet,
+    child: glyph,
+  );
 }
 
 // ── SettingsActionTile ────────────────────────────────────────────────────────
@@ -680,7 +680,7 @@ class _DropdownTile<T> extends StatelessWidget {
 
 /// גובה תיבת הפקד — נכפה גם על הכפתורים שבתוכה. כשהתיבה הייתה נמוכה מהם
 /// הם גלשו מטה, והתווית נראתה יושבת מתחת למרכז.
-const _kSegBoxHeight = 32.0;
+const _kSegBoxHeight = 40.0;
 
 const _kSegBaseNoIcon = 60.0;
 const _kSegBaseWithIcon = 80.0;

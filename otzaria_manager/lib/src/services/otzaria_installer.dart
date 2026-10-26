@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 import '../models/otzaria_install_state.dart';
 import '../models/otzaria_release.dart';
 import '../models/otzaria_update_check_result.dart';
+import '../otzaria_user_error.dart';
 import 'installed_version_reader.dart';
 import 'otzaria_app_locator.dart';
 import 'running_otzaria_locator.dart';
@@ -32,6 +33,11 @@ class OtzariaInstallCancelled implements Exception {
 
   @override
   String toString() => AppL10n.strings.appDomain.installCancelledByUser;
+}
+
+/// ההתקנה הסתיימה, אבל אוצריא לא נמצאה — התיקון הוא בחירת התיקייה ידנית.
+class OtzariaInstallNotDetected extends OtzariaUserError {
+  OtzariaInstallNotDetected(super.message);
 }
 
 /// האשף הופעל, התהליך שהרצנו חזר, וההתקנה עדיין לא נראית על הדיסק — ראו
@@ -224,7 +230,7 @@ class OtzariaInstaller {
     final expected = release.installerSha256;
     if (expected == null) return;
     if (await _sha256Of(File(installerPath)) != expected.toLowerCase()) {
-      throw StateError(AppL10n.strings.appDomain.installerDigestMismatch);
+      throw OtzariaUserError(AppL10n.strings.appDomain.installerDigestMismatch);
     }
   }
 
@@ -329,7 +335,7 @@ class OtzariaInstaller {
       case OtzariaWizardOutcome.failed:
         final details = _installFailureOutput(result, logPath);
         _deleteQuietly(logPath);
-        throw StateError(
+        throw OtzariaUserError(
           AppL10n.strings.appDomain.installerExitCode(result.exitCode, details),
         );
       case OtzariaWizardOutcome.finished:
@@ -431,7 +437,7 @@ class OtzariaInstaller {
     }
     final found = await _pollForInstalled(locateInstalled, timeout);
     if (found == null) {
-      throw StateError(
+      throw OtzariaInstallNotDetected(
         AppL10n.strings.appDomain.installNotDetectedAnywhere(timeout.inSeconds),
       );
     }
@@ -515,16 +521,17 @@ class OtzariaInstaller {
       onProgress: onProgress,
       checkCancelled: () => _throwIfCancelled(isCancelled),
       calculateSha256: expectedSha256 != null,
-      statusError: (status) =>
-          StateError(AppL10n.strings.appDomain.installerDownloadFailed(status)),
-      sizeError: (actual, expected) => StateError(
+      statusError: (status) => OtzariaUserError(
+        AppL10n.strings.appDomain.installerDownloadFailed(status),
+      ),
+      sizeError: (actual, expected) => OtzariaUserError(
         AppL10n.strings.appDomain.installerSizeMismatch(actual, expected),
       ),
     );
     if (expectedSha256 != null &&
         result.sha256 != expectedSha256.toLowerCase()) {
       await File(destinationPath).delete();
-      throw StateError(AppL10n.strings.appDomain.installerDigestMismatch);
+      throw OtzariaUserError(AppL10n.strings.appDomain.installerDigestMismatch);
     }
   }
 
@@ -604,7 +611,7 @@ class OtzariaInstaller {
     if (result.exitCode != 0) {
       final details = _installFailureOutput(result, logPath);
       _deleteQuietly(logPath);
-      throw StateError(
+      throw OtzariaUserError(
         AppL10n.strings.appDomain.installerExitCode(result.exitCode, details),
       );
     }
@@ -677,7 +684,8 @@ class OtzariaInstaller {
 
       final stagedApp = await _appLocator.findIn(stagingDir);
       if (stagedApp == null) {
-        throw StateError(AppL10n.strings.appDomain.macAppNotFoundInArchive);
+        throw OtzariaUserError(
+            AppL10n.strings.appDomain.macAppNotFoundInArchive);
       }
 
       // ה-app נכנס לתיקיית ההתקנה תחת אותו שם שיש לו בחבילה (למשל
@@ -732,7 +740,7 @@ class OtzariaInstaller {
           await Directory(backupPath).rename(targetApp);
         } catch (_) {}
       }
-      throw StateError(AppL10n.strings.appDomain.macReplaceFailed('$e'));
+      throw OtzariaUserError(AppL10n.strings.appDomain.macReplaceFailed('$e'));
     }
 
     await _deleteDirQuietly(previousDir);
@@ -750,7 +758,7 @@ class OtzariaInstaller {
       destinationDir,
     ]);
     if (result.exitCode != 0) {
-      throw StateError(
+      throw OtzariaUserError(
         AppL10n.strings.appDomain.dittoExtractFailed(
           result.exitCode,
           'stderr: ${result.stderr}',
@@ -776,7 +784,7 @@ class OtzariaInstaller {
       mountPoint,
     ]);
     if (attach.exitCode != 0) {
-      throw StateError(
+      throw OtzariaUserError(
         AppL10n.strings.appDomain.hdiutilAttachFailed(
           attach.exitCode,
           'stderr: ${attach.stderr}',
@@ -787,7 +795,7 @@ class OtzariaInstaller {
     try {
       final appInDmg = await _appLocator.findIn(mountPoint);
       if (appInDmg == null) {
-        throw StateError(AppL10n.strings.appDomain.macAppNotFoundInDmg);
+        throw OtzariaUserError(AppL10n.strings.appDomain.macAppNotFoundInDmg);
       }
 
       // גם כאן ditto ולא cp -R, מאותה סיבה שב-[_extractZipTo].
@@ -796,7 +804,7 @@ class OtzariaInstaller {
         p.join(destinationDir, p.basename(appInDmg)),
       ]);
       if (copy.exitCode != 0) {
-        throw StateError(
+        throw OtzariaUserError(
           AppL10n.strings.appDomain.dittoCopyFailed(
             copy.exitCode,
             'stderr: ${copy.stderr}',
@@ -846,7 +854,7 @@ class OtzariaInstaller {
       await Future<void>.delayed(const Duration(seconds: 2));
     }
 
-    throw StateError(
+    throw OtzariaInstallNotDetected(
       AppL10n.strings.appDomain.installNotDetected(
         installDir,
         timeout.inSeconds,

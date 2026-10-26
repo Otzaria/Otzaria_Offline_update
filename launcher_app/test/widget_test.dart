@@ -51,7 +51,6 @@ void main() {
         autoCheckUpdates: false,
         autoInstall: true,
         syncLibrary: false,
-        themeMode: AppThemeMode.dark,
         textScale: 1.15,
       );
 
@@ -60,7 +59,6 @@ void main() {
       expect(restored.autoCheckUpdates, isFalse);
       expect(restored.autoInstall, isTrue);
       expect(restored.syncLibrary, isFalse);
-      expect(restored.themeMode, AppThemeMode.dark);
       expect(restored.textScale, 1.15);
     });
 
@@ -68,12 +66,12 @@ void main() {
       final restored = AppSettings.fromJson({
         'schemaVersion': 2,
         'automation': 'לא אובייקט',
-        'ui': {'themeMode': 'ערכה שלא קיימת'},
+        'ui': {'textScale': 'לא מספר'},
       });
 
       expect(restored.autoCheckUpdates, isTrue);
       expect(restored.autoInstall, isFalse);
-      expect(restored.themeMode, AppThemeMode.system);
+      expect(restored.textScale, 1.0);
     });
 
     // קובץ ישן מכיל נתיבים, ערוצי גרסאות ומתגים שהוסרו. חשוב שהוא לא
@@ -90,7 +88,7 @@ void main() {
       });
 
       expect(restored.autoCheckUpdates, isFalse);
-      expect(restored.themeMode, AppThemeMode.dark);
+      expect(restored.textScale, 1.15);
       // הסעיפים שהוסרו ('paths', 'storage', 'network') נבלעים בשקט.
       expect(restored.toJson().keys, isNot(contains('storage')));
       expect(restored.hasSyncSelection, isTrue);

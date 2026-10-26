@@ -194,17 +194,40 @@ void main() {
       expect(result.updateAvailable, isTrue);
     });
 
-    // מעבר מהערוץ הלא-יציב חזרה ליציב הוא ירידת גרסה — וגם אותו מציעים.
-    test('ירידת גרסה מוצעת כשהמשתמש ביקש את הערוץ השני', () {
+    // החלטת המשתמש: מעבר לערוץ היציב אינו מוריד גרסה. מחכים ליציבה חדשה.
+    test('בחירת הערוץ היציב כשמותקנת ניסיונית חדשה ממנו — אין עדכון', () {
       final result = OtzariaUpdateCheckResult(
         stableRelease: _release(tagName: '0.9.90'),
         prereleaseRelease: _release(tagName: '0.9.97', isPrerelease: true),
         currentState: _state('0.9.97'),
       );
 
+      expect(result.latestRelease!.tagName, '0.9.90');
+      expect(result.installedIsNewer, isTrue);
+      expect(result.updateAvailable, isFalse);
+      expect(result.awaitsNewerInSelectedChannel, isTrue);
+    });
+
+    test('יציבה חדשה מהניסיונית המותקנת — עדכון רגיל', () {
+      final result = OtzariaUpdateCheckResult(
+        stableRelease: _release(tagName: '0.9.98'),
+        currentState: _state('0.9.97-dev-3'),
+      );
+
       expect(result.installedIsNewer, isFalse);
       expect(result.updateAvailable, isTrue);
-      expect(result.latestRelease!.tagName, '0.9.90');
+      expect(result.awaitsNewerInSelectedChannel, isFalse);
+    });
+
+    test('מותקנת חדשה מהכונן שאינה מהערוץ השני — לא "ממתין לערוץ"', () {
+      final result = OtzariaUpdateCheckResult(
+        stableRelease: _release(tagName: '0.9.90'),
+        prereleaseRelease: _release(tagName: '0.9.97', isPrerelease: true),
+        currentState: _state('0.9.99'),
+      );
+
+      expect(result.installedIsNewer, isTrue);
+      expect(result.awaitsNewerInSelectedChannel, isFalse);
     });
   });
 
@@ -329,7 +352,7 @@ void main() {
     });
   });
 
-  group('channel-switch carve-out', () {
+  group('channel switch never downgrades', () {
     test('a newer final release is not downgraded to the stable channel', () {
       final result = OtzariaUpdateCheckResult(
         stableRelease: _release(tagName: '0.9.97'),
@@ -343,7 +366,7 @@ void main() {
       expect(result.updateAvailable, isFalse);
     });
 
-    test('an exe-derived version without build still matches the other tag',
+    test('an exe-derived version of the other tag is not downgraded either',
         () {
       final result = OtzariaUpdateCheckResult(
         stableRelease: _release(tagName: '0.9.96+736'),
@@ -351,8 +374,9 @@ void main() {
         currentState: _state('0.9.97'),
       );
 
-      expect(result.installedIsNewer, isFalse);
-      expect(result.updateAvailable, isTrue);
+      expect(result.installedIsNewer, isTrue);
+      expect(result.updateAvailable, isFalse);
+      expect(result.awaitsNewerInSelectedChannel, isTrue);
     });
   });
 

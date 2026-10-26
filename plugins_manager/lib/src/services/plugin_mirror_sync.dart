@@ -212,6 +212,7 @@ class PluginMirrorSync {
       skipped: skipped,
       failed: failed,
       versionMismatches: versionMismatches,
+      cancelled: cancelled,
       incompatible: [
         for (final plan in plans)
           if (plan.isIncompatible)

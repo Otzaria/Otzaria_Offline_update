@@ -148,11 +148,13 @@ void main() {
       await expectLater(
         installer.ensureCached(release: _release(size: 999)),
         throwsA(
-          isA<StateError>().having(
-            (e) => e.message,
-            'message',
-            AppL10n.strings.appDomain.installerSizeMismatch(5, 999),
-          ),
+          isA<OtzariaUserError>()
+              .having(
+                (e) => e.message,
+                'message',
+                AppL10n.strings.appDomain.installerSizeMismatch(5, 999),
+              )
+              .having((e) => '$e', 'toString', isNot(contains('Bad state'))),
         ),
       );
       expect(File(cachedPath()).existsSync(), isFalse);
@@ -165,11 +167,13 @@ void main() {
       await expectLater(
         installer.ensureCached(release: _release()),
         throwsA(
-          isA<StateError>().having(
-            (e) => e.message,
-            'message',
-            AppL10n.strings.appDomain.installerDownloadFailed(404),
-          ),
+          isA<OtzariaUserError>()
+              .having(
+                (e) => e.message,
+                'message',
+                AppL10n.strings.appDomain.installerDownloadFailed(404),
+              )
+              .having((e) => '$e', 'toString', isNot(contains('Bad state'))),
         ),
       );
       expect(File(cachedPath()).existsSync(), isFalse);
@@ -1195,6 +1199,42 @@ void main() {
             (e) => e.message,
             'message',
             startsWith(AppL10n.strings.appDomain.installerExitCode(1, '')),
+          ),
+        ),
+      );
+    });
+
+    // הלאנצ'ר מציע בגללה "בחירת מיקום ידנית" — ולכן הסוג, לא רק הנוסח.
+    test('installed nowhere to be found - OtzariaInstallNotDetected', () async {
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 0);
+
+      await expectLater(
+        installer.installFromFile(
+          release: _release(),
+          installerPath: fakeInstaller,
+          installDir: null,
+          locateInstalled: () async => null,
+          appAppearTimeout: Duration.zero,
+        ),
+        throwsA(isA<OtzariaInstallNotDetected>()),
+      );
+    });
+
+    test('nothing in the forced folder - OtzariaInstallNotDetected', () async {
+      final fakeInstaller = await _writeExitScript(tempDir.path, exitCode: 0);
+
+      await expectLater(
+        installer.installFromFile(
+          release: _release(),
+          installerPath: fakeInstaller,
+          installDir: '${tempDir.path}/empty-install',
+          appAppearTimeout: Duration.zero,
+        ),
+        throwsA(
+          isA<OtzariaInstallNotDetected>().having(
+            (e) => '$e',
+            'toString',
+            isNot(contains('Bad state')),
           ),
         ),
       );

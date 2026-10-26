@@ -10,8 +10,8 @@ import '../../controllers/plugins_module_controller.dart';
 import '../../services/app_logger.dart';
 import '../../services/byte_size.dart';
 import '../../services/file_reveal.dart';
-import '../../services/hebrew_date.dart';
 import '../../services/native_file_dialogs.dart';
+import '../../services/timestamps.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
 
@@ -28,14 +28,18 @@ class StoreAppExportButton extends StatelessWidget {
   const StoreAppExportButton({
     super.key,
     required this.controller,
+    required this.onExport,
     this.busyElsewhere = false,
   });
 
   final PluginsModuleController controller;
+
+  /// הזרימה רצה על ה-context של המסך: הכפתור יושב ב"מתקדם", ויוצא מהעץ
+  /// כשמקפלים אותו או נכנסים לדף תוסף באמצע ההעתקה.
+  final VoidCallback onExport;
   final bool busyElsewhere;
 
-  /// הפלטפורמות שיש להן מה לעשות עם קובץ ההרצה. מוחזק כאן כדי ששורת
-  /// הסנכרון תוכל להשמיט את הכפתור לגמרי במקום להציג אותו מושבת לנצח.
+  /// הפלטפורמות שיש להן מה לעשות עם קובץ ההרצה — בשאר השורה מושמטת.
   static bool get isSupported => Platform.isWindows;
 
   @override
@@ -51,15 +55,13 @@ class StoreAppExportButton extends StatelessWidget {
         ? t.storeAppUnavailableTooltip
         : (controller.plugins.isEmpty ? t.storeAppNoPluginsTooltip : null);
 
-    // `outlined` ובסמל המסך, כמו הכפתור המקביל באתר: הוא עומד לצד
-    // "סנכרון מהאתר" ואינו אמור להתחרות בו על העין.
-    final button = ActionButton.outlined(
+    final button = ActionButton.neutral(
       text: controller.storeAppUpdatePending
           ? t.storeAppUpdateButton
-          : t.storeAppButton,
-      icon: FluentIcons.desktop_24_regular,
+          : t.storeAppCopyButton,
+      icon: FluentIcons.desktop_arrow_down_20_regular,
       isLoading: controller.isExporting,
-      onPressed: enabled ? () => runStoreAppExport(context, controller) : null,
+      onPressed: enabled ? onExport : null,
     );
 
     return tooltip == null ? button : Tooltip(message: tooltip, child: button);
@@ -129,8 +131,10 @@ Future<void> runStoreAppExport(
   if (outcome.skipped.isNotEmpty) {
     AppLogger.instance.info('הושמטו: ${outcome.skipped.join(', ')}');
   }
-  if (!context.mounted) return;
-  await _showDoneDialog(context, outcome);
+  // המסך עצמו עשוי להתחלף בזמן ההעתקה; אז הסיום עולה מעל המסגרת כולה.
+  final host = context.mounted ? context : navigatorKey.currentContext;
+  if (host == null || !host.mounted) return;
+  await _showDoneDialog(host, outcome);
 }
 
 /// ההסבר לפני שנוגעים בכלום — אותם שלושה יתרונות ואותם שבבים שבאתר.
@@ -155,8 +159,7 @@ Future<bool> _showIntroDialog(
       chips: [
         t.storeAppChipWindows,
         t.storeAppChipSize(formatBytes(release.sizeBytes)),
-        if (updated != null)
-          t.storeAppChipUpdated(HebrewDate.format(updated.toIso8601String())),
+        if (updated != null) t.storeAppChipUpdated(formatStoreDate(updated)),
       ],
     ),
   );
@@ -170,133 +173,69 @@ Future<void> _showDoneDialog(
   StoreAppExportOutcome outcome,
 ) async {
   final t = context.strings.plugins;
-
-  await showDialog<void>(
+  final launch = await showTwoActionsDialog(
     context: context,
-    builder: (dialogContext) => AlertDialog(
-      scrollable: true,
-      title: Text(t.storeAppDoneTitle),
-      content: Column(
+    title: t.storeAppDoneTitle,
+    cancelText: context.strings.common.close,
+    confirmText: t.storeAppLaunch,
+    customContent: Builder(
+      builder: (dialogContext) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(t.storeAppDoneContent(
-            outcome.plugins,
-            formatBytes(outcome.bytes),
-          )),
+              outcome.plugins, formatBytes(outcome.bytes))),
           if (outcome.skipped.isNotEmpty) ...[
             const SizedBox(height: AppTokens.spaceSM),
-            Text(
-              t.storeAppDoneSkipped(outcome.skipped.length),
-              style: Theme.of(dialogContext).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(dialogContext).colorScheme.onSurfaceVariant,
-                  ),
-            ),
+            Text(t.storeAppDoneSkipped(outcome.skipped.length)),
           ],
           const SizedBox(height: AppTokens.spaceSM),
-          CopyPathButton(path: outcome.destinationDir),
+          PathText(outcome.destinationDir),
+          const SizedBox(height: AppTokens.spaceXS),
+          Wrap(
+            spacing: AppTokens.spaceSM,
+            runSpacing: AppTokens.spaceXS,
+            children: [
+              ActionButton.ghost(
+                text: t.storeAppOpenFolder,
+                icon: FluentIcons.folder_open_20_regular,
+                size: ActionButtonSize.sm,
+                onPressed: () {
+                  Navigator.of(dialogContext).pop(false);
+                  unawaited(FileReveal.revealDirectory(outcome.destinationDir));
+                },
+              ),
+              CopyPathButton(
+                path: outcome.destinationDir,
+                size: ActionButtonSize.sm,
+              ),
+            ],
+          ),
         ],
       ),
-      actions: [
-        ActionButton.ghost(
-          text: context.strings.common.close,
-          onPressed: () => Navigator.of(dialogContext).pop(),
-        ),
-        ActionButton.neutral(
-          text: t.storeAppOpenFolder,
-          icon: FluentIcons.folder_open_24_regular,
-          onPressed: () {
-            Navigator.of(dialogContext).pop();
-            unawaited(FileReveal.revealDirectory(outcome.destinationDir));
-          },
-        ),
-        ActionButton.recommended(
-          text: t.storeAppLaunch,
-          icon: FluentIcons.play_24_regular,
-          onPressed: () {
-            Navigator.of(dialogContext).pop();
-            unawaited(_launch(outcome.appPath));
-          },
-        ),
-      ],
     ),
   );
+  if (launch && context.mounted) unawaited(_launch(outcome.appPath));
 }
 
-class StoreAppExportOverlay extends StatelessWidget {
-  const StoreAppExportOverlay({super.key, required this.controller});
+/// ההתקדמות בשורת ההעתקה — לא שכבה מעל הדף.
+class StoreAppCopyProgress extends StatelessWidget {
+  const StoreAppCopyProgress({super.key, required this.controller});
 
   final PluginsModuleController controller;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
         listenable: controller.progress,
-        builder: (context, _) => _overlay(context),
-      );
-
-  Widget _overlay(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final t = context.strings.plugins;
-    final progress = controller.exportProgress;
-
-    return ColoredBox(
-      color: Colors.black54,
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Material(
-            color: cs.surface,
-            borderRadius: AppTokens.borderRadiusAll,
-            clipBehavior: Clip.antiAlias,
-            child: Padding(
-              padding: const EdgeInsets.all(AppTokens.spaceLG),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    t.storeAppCopyingTitle,
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: AppTokens.spaceXS),
-                  Text(
-                    t.storeAppCopyingSubtitle,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: cs.onSurfaceVariant),
-                  ),
-                  const SizedBox(height: AppTokens.spaceMD),
-                  Text(
-                    controller.exportMessage ?? '',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: cs.onSurfaceVariant),
-                  ),
-                  const SizedBox(height: AppTokens.spaceMD),
-                  ClipRRect(
-                    borderRadius: AppTokens.borderRadiusAll,
-                    child: LinearProgressIndicator(
-                      value: progress,
-                      minHeight: 8,
-                    ),
-                  ),
-                  if (progress != null) ...[
-                    const SizedBox(height: AppTokens.spaceXS),
-                    Text(
-                      '${(progress.clamp(0.0, 1.0) * 100).round()}%',
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ],
-              ),
-            ),
+        builder: (context, _) => Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: InfoProgressRow(
+            stage: controller.exportMessage ??
+                context.strings.plugins.storeAppCopyingTitle,
+            progress: controller.exportProgress,
           ),
         ),
-      ),
-    );
-  }
+      );
 }
 
 /// מנותק מהלאנצ'ר בכוונה: החנות היא תוכנה נפרדת, וסגירת הלאנצ'ר אינה

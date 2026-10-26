@@ -222,9 +222,15 @@ class CompanionAssetsMirror {
     return manifest;
   }
 
+  /// כמה יורד בפועל לפי [peekPending] האחרון; null כשגודל אחד הפריטים לא ידוע.
+  int? get peekedPendingBytes => _peekedPendingBytes;
+  int? _peekedPendingBytes;
+
   Future<Set<CompanionAsset>> peekPending({required String destDir}) async {
+    _peekedPendingBytes = null;
     final previous = await CompanionMirrorManifest.load(destDir);
     final pending = <CompanionAsset>{};
+    int? pendingBytes = 0;
     final plans = <CompanionAsset, _CompanionPlan>{};
     final errors = <Object>[];
 
@@ -241,10 +247,18 @@ class CompanionAssetsMirror {
           previous?.entries[asset],
           planned.entry,
         );
-        if (!held) pending.add(asset);
+        if (!held) {
+          pending.add(asset);
+          pendingBytes = planned.size > 0 && pendingBytes != null
+              ? pendingBytes! + planned.size
+              : null;
+        }
       } catch (error) {
         errors.add(error);
-        if (error is! StateError) pending.add(asset);
+        if (error is! StateError) {
+          pending.add(asset);
+          pendingBytes = null;
+        }
       }
     }
 
@@ -254,6 +268,7 @@ class CompanionAssetsMirror {
       check(CompanionAsset.dictionary, () => _planDictionary(destDir)),
     ]);
     _peekedPlans = (destDir: destDir, at: _clock(), plans: plans);
+    _peekedPendingBytes = pendingBytes;
     if (errors.length == CompanionAsset.values.length) throw errors.first;
     return pending;
   }

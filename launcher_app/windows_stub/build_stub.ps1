@@ -69,9 +69,11 @@ if (-not (Test-Path $vcvars)) { throw "vcvars64.bat not found at $vcvars." }
 # /utf-8 מאפשר את הטקסט העברי במקור ומונע C4819. אין כאן /WX בכוונה,
 # בניגוד לרנר של Flutter: אזהרה בקובץ עזר של 70 שורות לא שווה CI אדום
 # שבו הארטיפקט כולו לא נבנה.
+# vcvars עצמו מחפש את vswhere ב-PATH, ומדפיס שגיאה כשהוא לא שם.
 $batPath = Join-Path $outDir '_build.bat'
 @"
 @echo off
+set "PATH=%PATH%;$(Split-Path -Parent $vswhere)"
 call "$vcvars" >nul || exit /b 1
 rc /nologo /i "$outDir" /fo "$outDir\stub.res" "$sourceDir\stub.rc" || exit /b 1
 cl /nologo /utf-8 /W4 /O1 /MT /I"$outDir" /Fo"$outDir\stub.obj" /Fe"$outDir\stub.exe" ^

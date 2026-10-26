@@ -114,7 +114,7 @@ void main() {
             Directory.systemTemp.path,
             version: launcherVersion,
           );
-          AppLogger.instance.error('תיקיית הנתונים אינה זמינה לכתיבה: $e');
+          AppLogger.instance.error('מסך עצירה בעלייה (${e.kind.name}): $e');
         } catch (_) {}
         runApp(SetupErrorApp(error: e));
         return;
@@ -214,21 +214,17 @@ void main() {
   );
 }
 
-/// מסתיר את מסגרת החלון של המערכת — מכאן והלאה שורת הכותרת היא [AppTitleBar]
-/// שבתוך האפליקציה, בצבע הרקע. רץ לפני `runApp` כדי שהחלון ייצבע פעם אחת
-/// בגודלו הסופי: שינוי המסגרת מאתחל את אזור-הלקוח ומבטל פריים שכבר צויר.
-/// ההגדלה עצמה נעשית ב-runner (`Win32Window::Show`) ולא כאן — ראו שם.
+/// מסגרת המערכת מוסתרת לפני `runApp`: שינוי המסגרת מבטל פריים שכבר צויר.
+/// הגודל והמיקום ההתחלתיים נקבעים ב-runner (`main.cpp`).
 Future<void> _prepareWindow() async {
   if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) return;
   // כשל כאן הוא קוסמטי בלבד (נשארת מסגרת המערכת), אבל בלי ה-catch הוא היה
   // בורח לפני שיש לוג ומשאיר את המשתמש בלי חלון בכלל.
   try {
     await windowManager.ensureInitialized();
-    await windowManager.setMinimumSize(const Size(900, 620));
-    // ב-macOS **משאירים** את שלושת הכפתורים העגולים של המערכת: `WindowCaption`
-    // מצייר כפתורים בסגנון Windows 11 בצד הסיום של השורה, ומשתמש מק מחפש
-    // אותם בפינה השמאלית — חלון בלי אף אחד מהם, או עם השלישייה הלא נכונה,
-    // פשוט נראה שבור. בווינדוס נשארת `false`, אחרת היו מופיעים כפולים.
+    await windowManager.setMinimumSize(const Size(760, 560));
+    // ב-macOS המערכת מציירת את שלושת הכפתורים העגולים, ו-`AppTitleBar` אינו
+    // מצייר את שלו; בווינדוס `false`, אחרת היו מופיעים כפולים.
     await windowManager.setTitleBarStyle(
       TitleBarStyle.hidden,
       windowButtonVisibility: Platform.isMacOS,
@@ -259,14 +255,7 @@ class LauncherApp extends StatelessWidget {
 
         return _materialApp(
           language: s.language,
-          themeMode: switch (s.themeMode) {
-            AppThemeMode.system => ThemeMode.system,
-            AppThemeMode.light => ThemeMode.light,
-            AppThemeMode.dark => ThemeMode.dark,
-          },
           textScale: s.textScale,
-          seedColor: s.seedColor,
-          darkSeedColor: s.darkSeedColor,
           home: AppShell(
             dataDir: paths.dataDir,
             stateDir: paths.stateDir,
@@ -282,7 +271,7 @@ class LauncherApp extends StatelessWidget {
 }
 
 /// עוטף את [SetupErrorScreen] ב-MaterialApp משלו — ההגדרות עוד לא נטענו
-/// (ואי אפשר לטעון אותן), ולכן ערכת הנושא והשפה הן לפי המערכת.
+/// (ואי אפשר לטעון אותן), ולכן השפה היא לפי המערכת.
 class SetupErrorApp extends StatelessWidget {
   const SetupErrorApp({super.key, required this.error});
 
@@ -310,17 +299,12 @@ class PayloadMismatchApp extends StatelessWidget {
       );
 }
 
-/// הקונפיגורציה המשותפת לשני ה-MaterialApp — שפה, כיווניות וערכת הנושא.
-///
-/// ה-`locale` הוא שקובע גם את כיוון הכתיבה: עברית → RTL, אנגלית → LTR, דרך
-/// `GlobalWidgetsLocalizations`. אין כאן נגיעה ישירה ב-[Directionality].
+/// הקונפיגורציה של כל MaterialApp. ה-`locale` קובע גם את הכיוון (RTL/LTR)
+/// דרך `GlobalWidgetsLocalizations` — בלי [Directionality] ישיר.
 Widget _materialApp({
   required Widget home,
   required AppLanguage language,
-  ThemeMode themeMode = ThemeMode.system,
   double textScale = 1.0,
-  Color seedColor = AppSeedColors.defaultLight,
-  Color darkSeedColor = AppSeedColors.defaultDark,
 }) {
   final strings = AppL10n.stringsFor(language);
 
@@ -338,21 +322,15 @@ Widget _materialApp({
       AppLanguage.hebrew => const Locale('he', 'IL'),
       AppLanguage.english => const Locale('en'),
     },
-    theme: AppThemeData.light(
-      AppThemeData.createColorScheme(seedColor, Brightness.light),
-    ),
-    darkTheme: AppThemeData.dark(
-      AppThemeData.createColorScheme(darkSeedColor, Brightness.dark),
-    ),
-    themeMode: themeMode,
+    theme: AppThemeData.light(),
     // ב-`builder` ולא סביב `home`: כאן זה יושב **מעל** ה-Navigator, ולכן גם
-    // דיאלוגים ומסלולים שנפתחים מעליו מוצאים את המלל.
+    // דיאלוגים מוצאים את המלל, ושורת הכותרת מצוירת מעל השכבה שלהם.
     builder: (context, child) => AppStringsScope(
       strings: strings,
       child: MediaQuery.withClampedTextScaling(
         minScaleFactor: textScale,
         maxScaleFactor: textScale,
-        child: child ?? const SizedBox.shrink(),
+        child: TitleBarHost(child: child ?? const SizedBox.shrink()),
       ),
     ),
     home: home,

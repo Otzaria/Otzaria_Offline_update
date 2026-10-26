@@ -1,4 +1,3 @@
-import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/widgets.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
@@ -35,17 +34,4 @@ extension AppStringsContext on BuildContext {
   AppStrings get strings => AppStringsScope.of(this);
 
   bool get isRtl => Directionality.of(this) == TextDirection.rtl;
-
-  /// חץ "חזרה" וחץ "קדימה".
-  ///
-  /// `RtlIcon` (שדרכו `ActionButton` מצייר כל אייקון) מהפך חיצים ב-RTL,
-  /// ולכן מעבירים כאן את הסמל ההפוך — כך הגליף שמוצג בפועל זהה בשתי
-  /// השפות, ומראה הממשק בעברית לא משתנה.
-  IconData get backArrowIcon => isRtl
-      ? FluentIcons.arrow_right_24_regular
-      : FluentIcons.arrow_left_24_regular;
-
-  IconData get forwardArrowIcon => isRtl
-      ? FluentIcons.arrow_left_24_regular
-      : FluentIcons.arrow_right_24_regular;
 }

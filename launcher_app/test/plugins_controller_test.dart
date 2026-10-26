@@ -247,49 +247,73 @@ void main() {
       expect(controller.pluginsDir, p.join(tempDir.path, 'mirror', 'plugins'));
     });
 
-    test('בלי אצירה אין דף בית — נפתחת ישר "כל התוספים"', () async {
-      await saveCatalog(PluginCatalog(plugins: [plugin('a', 'תוסף')]));
+    test('תגית שנעלמה מהחנות אינה נשארת מסנן פעיל ובלתי נראה', () async {
+      await saveCatalog(PluginCatalog(plugins: [
+        plugin('a', 'תוסף', tags: ['ישנה']),
+        plugin('b', 'אחר', tags: ['נשארת']),
+      ]));
+      await controller.load();
+      controller.setTagFilter('ישנה');
+      expect(controller.moreFiltersCount, 1);
 
+      await saveCatalog(PluginCatalog(plugins: [
+        plugin('a', 'תוסף', tags: ['נשארת']),
+        plugin('b', 'אחר', tags: ['נשארת']),
+      ]));
       await controller.load();
 
-      expect(controller.hasCuratedHome, isFalse);
-      expect(controller.view, PluginStorePage.all);
-    });
+      expect(controller.tagFilter, isNull);
+      expect(controller.moreFiltersCount, 0);
+      expect(controller.filtered.map((p) => p.id), ['a', 'b']);
 
-    test('יש אצירה — נשארים בדף הבית', () async {
-      await saveCatalog(
-        PluginCatalog(
-          plugins: [plugin('a', 'תוסף נבחר', featured: true)],
-          home: const PluginStoreHome(title: 'החנות', subtitle: 'תקציר'),
-        ),
-      );
-
+      // תגית שעדיין קיימת נשמרת גם אחרי טעינה מחדש.
+      controller.setTagFilter('נשארת');
       await controller.load();
-
-      expect(controller.hasCuratedHome, isTrue);
-      expect(controller.view, PluginStorePage.home);
-      expect(controller.homeTitle, 'החנות');
-      expect(controller.homeSubtitle, 'תקציר');
+      expect(controller.tagFilter, 'נשארת');
     });
 
-    test('קטגוריה שנעלמה מהחנות אינה נשארת פתוחה', () async {
+    test('שבב קטגוריה שנעלמה מהחנות מתאפס ל"הכול"', () async {
       await saveCatalog(
         PluginCatalog(
           plugins: [plugin('a', 'תוסף')],
-          categories: const [PluginStoreCategory(slug: 'study', name: 'לימוד')],
+          categories: const [
+            PluginStoreCategory(
+              slug: 'study',
+              name: 'לימוד',
+              pluginIds: ['a'],
+            ),
+          ],
         ),
       );
       await controller.load();
-      controller.showCategory('study');
-      expect(controller.view, PluginStorePage.category);
+      controller.setCategory('study');
+      expect(controller.categoryFilter, 'study');
 
       await saveCatalog(PluginCatalog(plugins: [plugin('a', 'תוסף')]));
       await controller.load();
 
-      expect(controller.view, PluginStorePage.all);
-      expect(controller.openCategorySlug, isNull);
-      expect(controller.openCategory, isNull);
+      expect(controller.categoryFilter, isNull);
+      expect(controller.filtered.map((p) => p.id), ['a']);
     });
+  });
+
+  test('a failed installed-plugin scan still refreshes app compatibility',
+      () async {
+    final c = PluginsModuleController(
+      mirrorRootDir: p.join(tempDir.path, 'mirror'),
+      otzariaLaunchPath: () async =>
+          throw const FileSystemException('unreadable'),
+      installedAppVersion: () async => '0.9.97',
+    )
+      ..status = PluginsModuleStatus.ready
+      ..appVersion = '0.9.96'
+      ..installed = {'known': '1.0.0'};
+    addTearDown(c.dispose);
+
+    await c.refreshInstalled();
+
+    expect(c.appVersion, '0.9.97');
+    expect(c.installed, {'known': '1.0.0'});
   });
 
   group('סינון', () {
@@ -314,6 +338,45 @@ void main() {
       controller.installed = const {};
     });
 
+    test('search reuses catalog normalization across queries and filters', () {
+      final entry = _SearchPlugin('a', 'תיאור ארוך');
+      controller.plugins = [entry];
+      controller.setSearch('לא נמצא');
+      expect(controller.filtered, isEmpty);
+      final reads = entry.descriptionReads;
+      expect(reads, greaterThan(0));
+
+      controller.setSearch('עדיין לא נמצא');
+      expect(controller.filtered, isEmpty);
+      controller.setSortMode(PluginSortMode.newest);
+      expect(controller.filtered, isEmpty);
+      controller.setStatusFilter(PluginStatusFilter.stable);
+      expect(controller.filtered, isEmpty);
+      expect(entry.descriptionReads, reads);
+
+      final changed = _SearchPlugin('a', 'התיאור החדש');
+      expect(changed, entry);
+      controller.plugins = [changed];
+      controller.setSearch('החדש');
+      expect(controller.filtered, [changed]);
+      expect(changed.descriptionReads, greaterThan(0));
+      controller.setSearch('ארוך');
+      expect(controller.filtered, isEmpty);
+    });
+
+    test('equal catalog identities keep separate search fields', () {
+      final first = _SearchPlugin('a', 'תיאור ראשון');
+      final second = _SearchPlugin('a', 'תיאור שני');
+      expect(first, second);
+      controller.plugins = [first, second];
+      controller.setSearch('שני');
+      expect(controller.filtered.single, same(second));
+      controller.setSearch('ראשון');
+      expect(controller.filtered.single, same(first));
+      controller.setSearch('לוח תיאור');
+      expect(controller.filtered, isEmpty);
+    });
+
     test('בלי סינון — הכול, כולל בטא וניסיוני', () {
       expect(controller.filtered.map((p) => p.id), ['a', 'b', 'c']);
     });
@@ -332,9 +395,12 @@ void main() {
       expect(controller.filtered, hasLength(3));
     });
 
-    test('סינון סטטוס', () {
-      controller.setStatusFilter(PluginStatusFilter.beta);
-      expect(controller.filtered.map((p) => p.id), ['b']);
+    test('סינון יציבות: "ניסיוני" כולל גם בטא', () {
+      controller.setStatusFilter(PluginStatusFilter.experimental);
+      expect(controller.filtered.map((p) => p.id), ['b', 'c']);
+
+      controller.setStatusFilter(PluginStatusFilter.stable);
+      expect(controller.filtered.map((p) => p.id), ['a']);
 
       controller.setStatusFilter(PluginStatusFilter.all);
       expect(controller.filtered, hasLength(3));
@@ -357,8 +423,8 @@ void main() {
       controller.setSearch('');
       controller.setStatusFilter(PluginStatusFilter.all);
       controller.setTagFilter(null);
-      controller.setHideInstalled(controller.hideInstalled);
-      controller.setSortMode(PluginSortMode.recommended);
+      controller.setInstallFilter(controller.installFilter);
+      controller.setCategory(null);
 
       expect(notifications, 0);
     });
@@ -543,26 +609,30 @@ void main() {
       expect(controller.installedCount, 2);
     });
 
-    test('מתג "רק מה שלא מותקן" מסתיר את המעודכן בלבד', () {
+    test('בורר המותקנים: הכול / מותקנים / לא מותקנים', () {
       controller.installed = const {
         'com.example.one': '1.0.0',
         'com.example.two': '1.5.0',
       };
 
-      expect(controller.hideInstalled, isTrue);
-      expect(controller.filtered.map((p) => p.id), ['db-2', 'db-3', 'db-4']);
-
-      controller.setHideInstalled(false);
+      // ברירת המחדל "הכול" — המשתמש בא לראות מה קיים.
+      expect(controller.installFilter, PluginInstallFilter.all);
       expect(controller.filtered, hasLength(4));
+
+      controller.setInstallFilter(PluginInstallFilter.installed);
+      expect(controller.filtered.map((p) => p.id), ['db-1', 'db-2']);
+
+      controller.setInstallFilter(PluginInstallFilter.notInstalled);
+      expect(controller.filtered.map((p) => p.id), ['db-3', 'db-4']);
     });
   });
 
-  group('אצירה — נבחרים, קטגוריות ודף הבית', () {
+  group('קטגוריות', () {
     setUp(() async {
       await saveCatalog(
         PluginCatalog(
           plugins: [
-            plugin('a', 'ראשון', featured: true, manifestId: 'm.a'),
+            plugin('a', 'ראשון', manifestId: 'm.a'),
             plugin('b', 'שני', manifestId: 'm.b'),
             plugin('c', 'שלישי', manifestId: 'm.c'),
           ],
@@ -571,15 +641,9 @@ void main() {
               slug: 'study',
               name: 'כלי לימוד',
               description: 'תיאור',
-              showOnHome: true,
-              homeLimit: 2,
-              pluginIds: ['a', 'b', 'c', 'לא-קיים'],
+              pluginIds: ['c', 'a', 'לא-קיים'],
             ),
-            PluginStoreCategory(
-              slug: 'hidden',
-              name: 'לא בדף הבית',
-              pluginIds: ['c'],
-            ),
+            PluginStoreCategory(slug: 'empty', name: 'ריקה'),
           ],
         ),
       );
@@ -587,90 +651,54 @@ void main() {
       controller.installed = const {};
     });
 
-    test('נבחרים בסדר הקטלוג, קטגוריות דף-הבית ומגבלת השורה', () {
-      expect(controller.featured.map((p) => p.id), ['a']);
-      expect(controller.homeCategories.map((c) => c.slug), ['study']);
-
+    test('תוספי קטגוריה בסדר האתר, ומזהה שאינו בקטלוג מדולג', () {
       final category = controller.categoryBySlug('study')!;
-      expect(controller.pluginsIn(category).map((p) => p.id), ['a', 'b', 'c']);
-      expect(
-        controller
-            .pluginsIn(category, limit: category.homeLimit)
-            .map((p) => p.id),
-        ['a', 'b'],
-      );
+      expect(controller.pluginsIn(category).map((p) => p.id), ['c', 'a']);
       expect(controller.categoryName('study'), 'כלי לימוד');
       // slug לא מוכר מחזיר את עצמו, ולא נופל.
       expect(controller.categoryName('אין-כזו'), 'אין-כזו');
     });
 
+    test('קטגוריה ריקה אינה מקבלת שבב', () {
+      expect(controller.shownCategories.map((c) => c.slug), ['study']);
+    });
+
+    test('שבב קטגוריה מצמצם, ומשתלב עם בורר המותקנים', () {
+      controller.setCategory('study');
+      expect(controller.filtered.map((p) => p.id), ['a', 'c']);
+
+      controller.installed = const {'m.a': '1.0.0'};
+      controller.setInstallFilter(PluginInstallFilter.notInstalled);
+      expect(controller.filtered.map((p) => p.id), ['c']);
+    });
+
     // התוצרים ממוזנים, ולכן קריאה **לפני** שינוי מצב חייבת להתבטל אחריו.
-    // בלי זה דף הבית היה נשאר על התשובה של הטעינה הראשונה.
-    test('homeCategories מתעדכן אחרי שינוי מצב, ולא נשאר על cache', () {
-      expect(controller.homeCategories.map((c) => c.slug), ['study']);
+    test('filtered מתעדכן אחרי שינוי מצב, ולא נשאר על cache', () {
+      controller.setInstallFilter(PluginInstallFilter.installed);
+      expect(controller.filtered, isEmpty);
 
-      // הצבה ישירה ל-installed — כל התוספים מותקנים ומעודכנים.
-      controller.installed = const {
-        'm.a': '1.0.0',
-        'm.b': '1.0.0',
-        'm.c': '1.0.0',
-      };
-      expect(controller.homeCategories, isEmpty);
-
-      // כיבוי המתג מחזיר אותן, למרות שכבר נקרא פעמיים לפני כן.
-      controller.setHideInstalled(false);
-      expect(controller.homeCategories.map((c) => c.slug), ['study']);
+      controller.installed = const {'m.b': '1.0.0'};
+      expect(controller.filtered.map((p) => p.id), ['b']);
     });
 
-    test('hasCuratedHome נמדד על המבנה — גם כשהמתג ריקן את הכרטיסים', () {
-      controller.installed = const {
-        'm.a': '1.0.0',
-        'm.b': '1.0.0',
-        'm.c': '1.0.0',
-      };
+    test('"ניקוי החיפוש והסינון" מאפס הכול בבת אחת', () {
+      controller
+        ..setSearch('שני')
+        ..setCategory('study')
+        ..setStatusFilter(PluginStatusFilter.experimental)
+        ..setTagFilter('תגית')
+        ..setInstallFilter(PluginInstallFilter.installed);
+      expect(controller.moreFiltersCount, 2);
 
-      expect(controller.featured, isEmpty);
-      expect(controller.homeCategories, isEmpty);
-      // ובכל זאת יש דף בית — אחרת כיבוי הכרטיסים היה נראה כחנות ריקה.
-      expect(controller.hasCuratedHome, isTrue);
-    });
-  });
+      controller.clearFilters();
 
-  group('ניווט בין מסכי החנות', () {
-    setUp(() async {
-      await saveCatalog(
-        PluginCatalog(
-          plugins: [plugin('a', 'תוסף', featured: true)],
-          categories: const [
-            PluginStoreCategory(slug: 'study', name: 'לימוד', pluginIds: ['a']),
-          ],
-        ),
-      );
-      await controller.load();
-    });
-
-    test('מעבר לקטגוריה ובחזרה מנקה את ה-slug', () {
-      controller.showCategory('study');
-      expect(controller.view, PluginStorePage.category);
-      expect(controller.openCategory?.name, 'לימוד');
-
-      controller.showHome();
-      expect(controller.view, PluginStorePage.home);
-      expect(controller.openCategorySlug, isNull);
-    });
-
-    test('חיפוש מה-hero מוביל ל"כל התוספים" עם המילה בתיבה', () {
-      controller.showAllPlugins(query: 'תוסף');
-
-      expect(controller.view, PluginStorePage.all);
-      expect(controller.search, 'תוסף');
-    });
-
-    test('מעבר בלי query אינו מוחק חיפוש קיים', () {
-      controller.setSearch('קיים');
-      controller.showAllPlugins();
-
-      expect(controller.search, 'קיים');
+      expect(controller.search, isEmpty);
+      expect(controller.categoryFilter, isNull);
+      expect(controller.statusFilter, PluginStatusFilter.all);
+      expect(controller.tagFilter, isNull);
+      expect(controller.installFilter, PluginInstallFilter.all);
+      expect(controller.moreFiltersCount, 0);
+      expect(controller.filtered, hasLength(3));
     });
   });
 
@@ -684,26 +712,6 @@ void main() {
         controller.assetPath('files/a.png'),
         p.join(tempDir.path, 'mirror', 'plugins', 'files', 'a.png'),
       );
-    });
-
-    test('כותרת ברירת המחדל מגיעה מ-otzaria_l10n בשתי השפות', () async {
-      await controller.load();
-
-      expect(
-        controller.homeTitle,
-        AppL10n.strings.plugins.catalogTitleFallback,
-      );
-      expect(
-        controller.homeSubtitle,
-        AppL10n.strings.plugins.catalogSubtitleFallback,
-      );
-
-      AppL10n.use(AppLanguage.english);
-      expect(
-        controller.homeTitle,
-        AppL10n.strings.plugins.catalogTitleFallback,
-      );
-      expect(controller.homeTitle, isNot(contains('אוצריא')));
     });
 
     test('byId מחזיר null למזהה שאינו בקטלוג', () async {
@@ -1284,6 +1292,46 @@ void main() {
       expect(controller.isSyncing, isFalse);
     });
 
+    test('a successful sync after Shabbat drops the Shabbat closure', () async {
+      final open = PluginsModuleController(
+        mirrorRootDir: p.join(tempDir.path, 'mirror'),
+        httpClient: MockClient(
+          (_) async => http.Response(
+            jsonEncode([]),
+            200,
+            headers: {'content-type': 'application/json'},
+          ),
+        ),
+      );
+      addTearDown(open.dispose);
+      await open.load();
+      open
+        ..onlineCheckError = 'closed'
+        ..onlineClosedForShabbat = true;
+
+      await open.sync();
+
+      expect(open.lastSyncFailed, isFalse);
+      expect(open.onlineCheckError, isNull);
+      expect(open.onlineClosedForShabbat, isFalse);
+    });
+
+    test('a re-check keeps the previous errors until the new answer', () async {
+      controller
+        ..onlineCheckError = 'old catalog'
+        ..storeAppCheckError = 'old store';
+      final seen = <(String?, String?)>[];
+      controller.addListener(
+        () => seen.add(
+          (controller.onlineCheckError, controller.storeAppCheckError),
+        ),
+      );
+
+      await controller.checkOnline();
+
+      expect(seen.first, ('old catalog', 'old store'));
+    });
+
     test('a second sync while one runs joins the same run', () async {
       final first = controller.sync();
       final second = controller.sync();
@@ -1314,6 +1362,12 @@ void main() {
         closed.onlineCheckError,
         AppL10n.strings.pluginsDomain.siteClosedForShabbat,
       );
+      // לבית: לא נבדק, אבל לא כשל — ונשמר גם בשחזור אחרי ביטול.
+      expect(closed.onlineClosedForShabbat, isTrue);
+      final answers = closed.catalogOnlineAnswers;
+      closed.onlineClosedForShabbat = false;
+      closed.restoreCatalogOnlineAnswers(answers);
+      expect(closed.onlineClosedForShabbat, isTrue);
     });
 
     test('שבת: המראה הקיימת נשארת מוכנה, עם הודעה ייעודית ובלי שגיאה',
@@ -1729,3 +1783,37 @@ List<int> _le32(int value) => [
       (value >> 16) & 0xff,
       (value >> 24) & 0xff,
     ];
+
+class _SearchPlugin extends StorePlugin {
+  _SearchPlugin(String id, this.text)
+      : super(
+          id: id,
+          name: 'לוח',
+          shortDescription: '',
+          description: '',
+          version: '1.0.0',
+          status: 'stable',
+          author: '',
+          updatedAt: '',
+          originalDate: '',
+          compatibleWith: '',
+          maxAppVersion: '',
+          requiresNetwork: false,
+          tags: const [],
+          homepage: '',
+          downloadCount: 0,
+          supportsDirectInstall: false,
+          isFeatured: false,
+          remoteDownloadUrl: '',
+        );
+
+  final String text;
+  final _descriptionReads = [0];
+  int get descriptionReads => _descriptionReads.single;
+
+  @override
+  String get description {
+    _descriptionReads[0]++;
+    return text;
+  }
+}

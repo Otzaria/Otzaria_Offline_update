@@ -64,7 +64,7 @@ class AppReportsController extends ChangeNotifier with DisposeGuard {
   /// שם המחשב — מפתח הכתובת השמורה (ראו `AppSettings.reportSenderEmails`).
   final String host;
 
-  /// מצב המודולים לאבחון; `AppShell` מציב אותו, כי שם חיים המודולים.
+  /// מצב המודולים לאבחון; `AppSession` מציב אותו, כי שם חיים המודולים.
   Map<String, dynamic> Function() stateProvider = () => const {};
 
   late final StreamSubscription<void> _changes;

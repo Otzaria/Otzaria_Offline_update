@@ -1,9 +1,7 @@
-// UiSnack — הודעות למשתמש. פורט מאוצריא (`otzaria/lib/core/ui_snack.dart`)
-// בגרסה מצומצמת: overlay "זכוכית" ממורכז בתחתית, בלי תור הודעות ובלי פעולות.
-// אין להשתמש ב-ScaffoldMessenger/SnackBar ישירות.
+// UiSnack — טוסט ממורכז בתחתית, בלי תור ובלי פעולות. אין להשתמש
+// ב-ScaffoldMessenger/SnackBar ישירות.
 
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
@@ -15,10 +13,8 @@ import '../theme/theme_exports.dart';
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 abstract class _ToastTokens {
-  static const double maxWidth = 500;
+  static const double maxWidth = 540;
   static const int maxLines = 3;
-  static const double bgAlpha = 0.88;
-  static const double blurSigma = 24.0;
 }
 
 enum _SnackVariant { standard, success, error }
@@ -94,15 +90,14 @@ class _SnackView extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final accent = switch (variant) {
-      _SnackVariant.standard => cs.onSurface,
-      _SnackVariant.success => cs.primary,
-      _SnackVariant.error => cs.error,
+      _SnackVariant.error => cs.errorContainer,
+      _ => AppPalette.of(context).glow,
     };
 
     return Positioned(
-      left: 0,
-      right: 0,
-      bottom: AppTokens.spaceXL,
+      left: AppTokens.spaceMD,
+      right: AppTokens.spaceMD,
+      bottom: 20,
       // ההודעה יושבת ב-Overlay מעל ה-Navigator ולא יורשת ממנו כיווניות,
       // ולכן היא נגזרת ישירות מהשפה הפעילה.
       child: Directionality(
@@ -112,47 +107,30 @@ class _SnackView extends StatelessWidget {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: _ToastTokens.maxWidth),
             child: Material(
-              color: Colors.transparent,
-              child: ClipRRect(
-                borderRadius: AppTokens.borderRadiusAll,
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(
-                    sigmaX: _ToastTokens.blurSigma,
-                    sigmaY: _ToastTokens.blurSigma,
-                  ),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppTokens.spaceMD,
-                      vertical: AppTokens.spaceSM + 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: cs.surfaceContainerHigh
-                          .withValues(alpha: _ToastTokens.bgAlpha),
-                      border: Border.all(color: cs.outlineVariant),
-                      borderRadius: AppTokens.borderRadiusAll,
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(icon, size: 20, color: accent),
-                        const SizedBox(width: AppTokens.spaceSM),
-                        Flexible(
-                          child: Text(
-                            message,
-                            // הודעה ארוכה (הודעת שגיאה שנושאת איתה לוג) כיסתה
-                            // חצי מסך ונעלמה אחרי שש שניות. הטוסט הוא שורה,
-                            // והפירוט יושב בכרטיס וביומן הפעילות.
-                            maxLines: _ToastTokens.maxLines,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: AppTokens.fontXL,
-                              color: cs.onSurface,
-                            ),
-                          ),
+              color: cs.inverseSurface,
+              borderRadius: AppTokens.borderRadiusAll,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppTokens.spaceMD,
+                  vertical: 12,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 18, color: accent),
+                    const SizedBox(width: 12),
+                    Flexible(
+                      child: Text(
+                        message,
+                        // הטוסט הוא שורה; הפירוט יושב בכרטיס וביומן הפעילות.
+                        maxLines: _ToastTokens.maxLines,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTextStyles.body.copyWith(
+                          color: cs.onInverseSurface,
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),

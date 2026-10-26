@@ -525,7 +525,7 @@ void main() {
       },
     );
     addTearDown(guarded.dispose);
-    expect(await guarded.grantConsent(), false);
+    expect(await guarded.grantConsent(), ConsentWrite.failed);
     expect(launchReads, 0);
     expect(await settings.readAsBytes(), [1, 2, 3]);
     expect(await Directory(p.join(temporary.path, 'drive')).exists(), false);

@@ -26,7 +26,7 @@
 | [`custom_apps_manager/`](custom_apps_manager) | מרשם "תוכנות נוספות" שנוסעות על הכונן |
 | [`error_reports_manager/`](error_reports_manager) | איסוף דיווחי טעויות במחשב הלא־מקוון והעלאתם ממחשב מקוון |
 | [`otzaria_l10n/`](otzaria_l10n) | מחרוזות ממשק (עברית ואנגלית) |
-| [`launcher_app/`](launcher_app) | אפליקציית Flutter לדסקטופ שמחברת את כל המודולים לדשבורד אחד |
+| [`launcher_app/`](launcher_app) | אפליקציית Flutter לדסקטופ שמחברת את כל המודולים לחלון אחד |
 
 `launcher_app` תלוי בשאר ה-packages דרך `path:` יחסי, ולכן הם חייבים לשבת באותה רמה בריפו.
 מנוע עדכון המסד אינו בריפו הזה (למטה).

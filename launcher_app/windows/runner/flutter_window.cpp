@@ -60,6 +60,10 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     std::optional<LRESULT> result =
         flutter_controller_->HandleTopLevelWindowProc(hwnd, message, wparam,
                                                       lparam);
+    // After window_manager has applied the minimum that Dart asked for.
+    if (message == WM_GETMINMAXINFO) {
+      FitMinTrackSize(reinterpret_cast<MINMAXINFO*>(lparam));
+    }
     if (result) {
       return *result;
     }

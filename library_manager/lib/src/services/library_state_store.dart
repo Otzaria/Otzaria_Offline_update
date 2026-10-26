@@ -22,6 +22,21 @@ class AppliedRelease {
   final int dbVersion;
 }
 
+/// מחשב שנרשם לעדכון אישי. [name] — שם המחשב לתצוגה; `null` ברשומה ישנה.
+class RegisteredMachine {
+  const RegisteredMachine({
+    required this.key,
+    required this.version,
+    required this.isThisMachine,
+    this.name,
+  });
+
+  final String key;
+  final String? name;
+  final int version;
+  final bool isThisMachine;
+}
+
 class LibraryStateStore {
   const LibraryStateStore(this.stateFilePath, {this.dataDir});
 
@@ -345,8 +360,54 @@ class LibraryStateStore {
     return live.reduce((a, b) => a < b ? a : b);
   }
 
+  /// המחשבים שנרשמו ורשומתם לא פגה, מהגרסה הנמוכה.
+  Future<List<RegisteredMachine>> liveRegisteredMachines() async {
+    final json = await _readAll();
+    final live = await _liveKnownVersions();
+    final names = _names(json);
+    final own = {await currentMachineKey(), legacyMachineKey()};
+    final machines = [
+      for (final MapEntry(:key, :value) in live.entries)
+        RegisteredMachine(
+          key: key,
+          version: value,
+          name: names[key],
+          isThisMachine: own.contains(key),
+        ),
+    ]..sort((a, b) => a.version.compareTo(b.version));
+    return machines;
+  }
+
+  /// מוחק רשומה של מחשב אחד, כך שאינו קובע עוד מאיזו גרסה מורידים.
+  Future<void> forgetKnownDbVersion(String machineKey) =>
+      _exclusively(() async {
+        final json = await _readAll(forWrite: true);
+        var changed = false;
+        for (final field in [
+          'knownDbVersions',
+          _seenField,
+          _localTimeField,
+          _namesField,
+        ]) {
+          final map = json[field];
+          if (map is Map && map.remove(machineKey) != null) changed = true;
+        }
+        if (changed) await _writeAll(json);
+      });
+
+  static Map<String, String> _names(Map<String, dynamic> json) {
+    final raw = json[_namesField];
+    return {
+      if (raw is Map)
+        for (final MapEntry(:key, :value) in raw.entries)
+          if (key is String && value is String && value.isNotEmpty) key: value,
+    };
+  }
+
   static const _seenField = 'knownDbVersionsSeen';
   static const _localTimeField = 'knownDbVersionsLocalTime';
+  // מפה נפרדת, כדי שגרסאות ישנות ימשיכו לקרוא את `knownDbVersions` כמספרים.
+  static const _namesField = 'knownDbVersionsNames';
   static const maxClockStep = Duration(days: 30);
 
   static Map<String, DateTime> _stamps(
@@ -399,21 +460,27 @@ class LibraryStateStore {
     await currentMachineKey(),
     version,
     aliases: [legacyMachineKey()],
+    name: _hostname(),
   );
 
   Future<void> recordKnownDbVersion(
     String machineKey,
     int version, {
     Iterable<String> aliases = const [],
-  }) => _exclusively(() => _recordKnownDbVersion(machineKey, version, aliases));
+    String? name,
+  }) => _exclusively(
+    () => _recordKnownDbVersion(machineKey, version, aliases, name),
+  );
 
   Future<void> _recordKnownDbVersion(
     String machineKey,
     int version,
     Iterable<String> aliases,
+    String? name,
   ) async {
     final json = await _readAll(forWrite: true);
     final existing = _knownVersions(json);
+    final previousNames = _names(json);
     final previousSeen = _stamps(json, _seenField);
     final previousLocalTime = _stamps(json, _localTimeField);
     final ownKeys = [machineKey, ...aliases];
@@ -433,6 +500,7 @@ class LibraryStateStore {
     final versions = <String, dynamic>{};
     final seen = <String, dynamic>{};
     final localTime = <String, dynamic>{};
+    final names = <String, dynamic>{};
     existing.forEach((key, value) {
       if (own.contains(key) || _isLegacyPathKey(key, hosts)) return;
       final stamp = previousSeen[key] ?? logicalNow;
@@ -441,13 +509,18 @@ class LibraryStateStore {
       seen[key] = stamp.toIso8601String();
       final writerTime = previousLocalTime[key];
       if (writerTime != null) localTime[key] = writerTime.toIso8601String();
+      if (previousNames[key] case final keptName?) names[key] = keptName;
     });
     versions[machineKey] = version;
     seen[machineKey] = logicalNow.toIso8601String();
     localTime[machineKey] = now.toIso8601String();
+    final ownName =
+        name ?? ownKeys.map((key) => previousNames[key]).nonNulls.firstOrNull;
+    if (ownName != null) names[machineKey] = ownName;
     json['knownDbVersions'] = versions;
     json[_seenField] = seen;
     json[_localTimeField] = localTime;
+    json[_namesField] = names;
     await _writeAll(json);
   }
 

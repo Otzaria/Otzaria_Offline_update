@@ -4,7 +4,6 @@ import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/dispose_guard.dart';
-import 'package:launcher_app/src/controllers/download_summary.dart';
 import 'package:launcher_app/src/controllers/library_module_controller.dart';
 import 'package:launcher_app/src/controllers/online_check.dart';
 import 'package:launcher_app/src/controllers/otzaria_module_controller.dart';
@@ -157,6 +156,16 @@ void main() {
       expect(content, contains('error: Bad state: הסיבה'));
       expect(content, contains('infra_test.dart'));
       expect(content, contains('[WARN] אזהרה'));
+    });
+
+    test('גודל ביומן — בלי תווי בידוד ועם רווח רגיל, כדי שחיפוש ימצא אותו',
+        () async {
+      final logger = await AppLogger.init(tmp.path);
+      logger.info('ניקוי פינה \u2066403\u00a0MB\u2069');
+      await logger.flush();
+      final content = logFile().readAsStringSync();
+      expect(content, contains('ניקוי פינה 403 MB'));
+      expect(content, isNot(contains('\u2066')));
     });
 
     test('filePath ו-logDir מצביעים על <dataDir>/logs', () async {
@@ -438,30 +447,6 @@ void main() {
       expect(
         onlineCheckNeedsRefresh(checkedAt: now, error: 'אין חיבור', now: now),
         isTrue,
-      );
-    });
-  });
-
-  group('summarizeDownload — ההודעה האחת שבסוף ההורדה', () {
-    test('לא נכשל ולא דולג — ההורדה הצליחה, ואומרים את זה', () {
-      expect(
-        summarizeDownload(failed: const [], skipped: const []),
-        DownloadSummary.done,
-      );
-    });
-
-    test('דולג בלבד', () {
-      expect(
-        summarizeDownload(failed: const [], skipped: const ['תוספים']),
-        DownloadSummary.skipped,
-      );
-    });
-
-    // ל-UiSnack אין תור, ולכן שתי ההודעות יחד היו משאירות רק את האחרונה.
-    test('כשל גובר על דילוג', () {
-      expect(
-        summarizeDownload(failed: const ['הספרייה'], skipped: const ['תוספים']),
-        DownloadSummary.failed,
       );
     });
   });

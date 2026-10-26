@@ -84,8 +84,7 @@ class CustomAppView {
 /// שעוד לא הגיעה למחשב הזה, והשני עדכון לתוכנה שכבר יושבת בו.
 enum CustomAppPending { none, notInstalled, newerOnDrive }
 
-/// איזו רשימה מוצגת במסך — כמו `PluginStorePage` של חנות התוספים, פחות
-/// דף הבית האצור: אין כאן אתר שאוצר משהו.
+/// איזו רשימה מוצגת במסך.
 enum CustomAppsPage {
   /// כל התוכנות, בלי סינון. זה המצב ההתחלתי, וגם היחיד למי שלא הגדיר
   /// קטגוריות בכלל.
@@ -193,6 +192,7 @@ class CustomAppsController extends ChangeNotifier
     final ids = [for (final app in shown) app.descriptor.id];
     if (ids.isEmpty) return;
     _announcedIds = {..._announcedIds, ...ids};
+    notifyListeners();
     await _announced?.record(ids);
   }
 
@@ -350,6 +350,9 @@ class CustomAppsController extends ChangeNotifier
   /// מצב שגיאה שיש להתריע עליו — במחשב המנותק הוא הנורמה.
   final Set<String> onlineUnavailable = {};
 
+  /// התוכנות שנבדקות ברשת ברגע זה — בדיקה שנייה לאותה תוכנה אינה יוצאת.
+  final Set<String> checkingIds = {};
+
   final Map<String, ({GithubSource source, GithubRelease release})>
       _onlineReleases = {};
 
@@ -445,6 +448,8 @@ class CustomAppsController extends ChangeNotifier
   Future<void> checkOnline(AppDescriptor descriptor) async {
     final source = descriptor.github;
     if (descriptor.sourceKind != AppSourceKind.github || source == null) return;
+    if (!checkingIds.add(descriptor.id)) return;
+    notifyListeners();
     try {
       final release = await _manager.peekLatestOnline(descriptor);
       if (!_isCurrentSource(descriptor.id, source)) return;
@@ -459,8 +464,10 @@ class CustomAppsController extends ChangeNotifier
       if (!_isCurrentSource(descriptor.id, source)) return;
       onlineUnavailable.add(descriptor.id);
       _onlineReleases.remove(descriptor.id);
+    } finally {
+      checkingIds.remove(descriptor.id);
+      if (!isDisposed) notifyListeners();
     }
-    notifyListeners();
   }
 
   bool _isCurrentSource(String id, GithubSource source) => apps.any(

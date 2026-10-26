@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
-import 'store_visuals.dart';
+import 'store_visuals.dart' show decodeWidthFor;
 
 /// גלריית צילומי המסך במסך מלא. ניווט בחצים, בלחיצה על הצדדים, וסגירה
 /// ב-Esc או בלחיצה על הרקע — כמו ה-lightbox בחנות המקורית.
@@ -19,7 +19,7 @@ Future<void> showStoreScreenshots(
 }) {
   return showDialog<void>(
     context: context,
-    barrierColor: Colors.black87,
+    barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: .8),
     builder: (context) => _Lightbox(paths: paths, initialIndex: initialIndex),
   );
 }
@@ -67,7 +67,7 @@ class _LightboxState extends State<_Lightbox> {
   Widget build(BuildContext context) {
     final hasMany = widget.paths.length > 1;
     final t = context.strings.plugins;
-    final isRtl = context.isRtl;
+    final cs = Theme.of(context).colorScheme;
 
     return Focus(
       autofocus: true,
@@ -86,58 +86,65 @@ class _LightboxState extends State<_Lightbox> {
             ),
             Center(
               child: Padding(
-                padding: const EdgeInsets.all(AppTokens.spaceXL),
-                child: Image(
-                  image: screenBoundImage(context, widget.paths[_index]),
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, _, __) => const Icon(
-                    FluentIcons.image_off_24_regular,
-                    size: 64,
-                    color: Colors.white,
+                padding: const EdgeInsets.fromLTRB(
+                  88,
+                  AppTokens.titleBarHeight + 56,
+                  88,
+                  56,
+                ),
+                child: ClipRRect(
+                  borderRadius: AppTokens.borderRadiusAll,
+                  child: Image(
+                    image: screenBoundImage(context, widget.paths[_index]),
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, _, __) => Icon(
+                      FluentIcons.image_off_24_regular,
+                      size: 64,
+                      color: cs.onInverseSurface,
+                    ),
                   ),
                 ),
               ),
             ),
             if (hasMany) ...[
-              // המיקום והחץ נשמרים כפי שהם בעברית, ומשתקפים ב-LTR.
+              // "הקודם" בצד שממנו באים — ימין בעברית, כמו החץ → במקלדת.
               _NavButton(
-                alignment: isRtl
-                    ? AlignmentDirectional.centerEnd
-                    : AlignmentDirectional.centerStart,
-                icon: isRtl
-                    ? FluentIcons.chevron_right_24_regular
-                    : FluentIcons.chevron_left_24_regular,
+                alignment: AlignmentDirectional.centerStart,
+                icon: FluentIcons.chevron_left_24_regular,
                 tooltip: t.screenshotPrevious,
                 onPressed: () => _step(-1),
               ),
               _NavButton(
-                alignment: isRtl
-                    ? AlignmentDirectional.centerStart
-                    : AlignmentDirectional.centerEnd,
-                icon: isRtl
-                    ? FluentIcons.chevron_left_24_regular
-                    : FluentIcons.chevron_right_24_regular,
+                alignment: AlignmentDirectional.centerEnd,
+                icon: FluentIcons.chevron_right_24_regular,
                 tooltip: t.screenshotNext,
                 onPressed: () => _step(1),
               ),
               Align(
                 alignment: Alignment.bottomCenter,
                 child: Padding(
-                  padding: const EdgeInsets.all(AppTokens.spaceLG),
+                  padding: const EdgeInsets.all(16),
                   child: Text(
-                    '${_index + 1} / ${widget.paths.length}',
-                    style: const TextStyle(color: Colors.white70),
+                    t.screenshotNumber(_index + 1, widget.paths.length),
+                    style: AppTextStyles.small.copyWith(
+                      color: cs.onInverseSurface,
+                    ),
                   ),
                 ),
               ),
             ],
+            // שורת הכותרת מצוירת מעל הדו-שיח, ולכן הכפתור יורד מתחתיה.
             Align(
-              alignment: AlignmentDirectional.topStart,
+              alignment: AlignmentDirectional.topEnd,
               child: Padding(
-                padding: const EdgeInsets.all(AppTokens.spaceMD),
-                child: IconButton(
-                  icon: const Icon(FluentIcons.dismiss_24_regular),
-                  color: Colors.white,
+                padding: const EdgeInsets.fromLTRB(
+                  16,
+                  AppTokens.titleBarHeight + 16,
+                  16,
+                  16,
+                ),
+                child: _NavButton.plain(
+                  icon: FluentIcons.dismiss_24_regular,
                   tooltip: context.strings.common.close,
                   onPressed: () => Navigator.of(context).pop(),
                 ),
@@ -150,31 +157,49 @@ class _LightboxState extends State<_Lightbox> {
   }
 }
 
+/// כפתור סמל על הרקע הכהה: inverseSurface ב-70%.
 class _NavButton extends StatelessWidget {
   const _NavButton({
-    required this.alignment,
+    required AlignmentDirectional this.alignment,
     required this.icon,
     required this.tooltip,
     required this.onPressed,
   });
 
-  final AlignmentDirectional alignment;
+  const _NavButton.plain({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  }) : alignment = null;
+
+  final AlignmentDirectional? alignment;
   final IconData icon;
   final String tooltip;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: alignment,
-      child: Padding(
-        padding: const EdgeInsets.all(AppTokens.spaceMD),
-        child: IconButton.filledTonal(
-          icon: Icon(icon),
-          tooltip: tooltip,
-          onPressed: onPressed,
+    final cs = Theme.of(context).colorScheme;
+    final button = Tooltip(
+      message: tooltip,
+      child: IconButton(
+        icon: Icon(icon, size: 20),
+        onPressed: onPressed,
+        style: IconButton.styleFrom(
+          backgroundColor: cs.inverseSurface.withValues(alpha: .7),
+          foregroundColor: cs.onInverseSurface,
+          fixedSize: const Size(40, 40),
+          minimumSize: const Size(40, 40),
+          shape: AppTokens.roundedShape,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
       ),
+    );
+    final at = alignment;
+    if (at == null) return button;
+    return Align(
+      alignment: at,
+      child: Padding(padding: const EdgeInsets.all(16), child: button),
     );
   }
 }

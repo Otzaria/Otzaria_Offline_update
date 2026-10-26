@@ -1,3 +1,5 @@
+import 'package:flutter/painting.dart';
+
 class LayoutBreakpoints {
   static const double compact = 600;
   static const double medium = 840;
@@ -8,6 +10,12 @@ class LayoutBreakpoints {
 class LayoutConstraints {
   LayoutConstraints._();
 
-  /// רוחב מקסימלי לתוכן בתוך מסך — מונע כרטיסים רחבים מדי בדסקטופ (תכנון §14)
-  static const double panelContentMaxWidth = 860.0;
+  /// רוחב התוכן המרבי של דף (`.page` במוקאפ: 768 פחות ריפוד 24 מכל צד).
+  static const double panelContentMaxWidth = 720.0;
+
+  /// רוחב התוכן של דף רחב — חנות התוספים.
+  static const double wideContentMaxWidth = 960.0;
+
+  /// הריפוד של הדף: 24 בצדדים, 28 למעלה ו-40 למטה.
+  static const EdgeInsets pagePadding = EdgeInsets.fromLTRB(24, 28, 24, 40);
 }

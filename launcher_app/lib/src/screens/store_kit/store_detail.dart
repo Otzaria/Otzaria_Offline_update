@@ -5,217 +5,230 @@ import 'package:flutter/material.dart';
 
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
-import 'store_body.dart';
 import 'store_screenshot_lightbox.dart';
 import 'store_visuals.dart';
 
-class StoreDetailPage extends StatelessWidget {
-  const StoreDetailPage({
+/// מתחת לרוחב התוכן הזה דף הפרטים בעמודה אחת, ותאי הנתונים המשניים נעלמים
+/// (`@container body (max-width: 800px)` פחות ריפוד הדף).
+const double kStoreDetailNarrowWidth = 752;
+
+/// ראש דף הפרטים (`.dhero`): סמל 96, שם 24/600, מטא, תקציר, פעולות והערה.
+class StoreDetailHero extends StatelessWidget {
+  const StoreDetailHero({
     super.key,
-    required this.backLabel,
+    required this.icon,
     required this.title,
-    required this.onBack,
-    required this.panels,
+    this.meta,
+    this.summary,
+    this.actions = const [],
+    this.note,
+    this.below,
   });
 
-  final String backLabel;
+  final Widget icon;
   final String title;
-  final VoidCallback onBack;
-  final List<Widget> panels;
+  final Widget? meta;
+  final String? summary;
+  final List<Widget> actions;
+  final String? note;
+
+  /// מתחת לפעולות — שורת התקדמות.
+  final Widget? below;
 
   @override
   Widget build(BuildContext context) {
-    return StoreBody(
-      header: StoreDetailHeader(
-        backLabel: backLabel,
-        title: title,
-        onBack: onBack,
-      ),
-      slivers: [
-        StoreBody.padded(
-          SliverList.list(children: panels),
-          top: AppTokens.spaceMD,
+    final cs = Theme.of(context).colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        icon,
+        const SizedBox(width: 20),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: AppTextStyles.heroTitle.copyWith(color: cs.onSurface),
+              ),
+              if (meta != null) ...[const SizedBox(height: 4), meta!],
+              if (summary != null && summary!.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  summary!,
+                  style: AppTextStyles.body.copyWith(
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
+              ],
+              if (actions.isNotEmpty || note != null) ...[
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    ...actions,
+                    if (note != null)
+                      Text(
+                        note!,
+                        style: AppTextStyles.small.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+              if (below != null) ...[const SizedBox(height: 12), below!],
+            ],
+          ),
         ),
       ],
     );
   }
 }
 
-class StoreDetailHeader extends StatelessWidget {
-  const StoreDetailHeader({
-    super.key,
-    required this.backLabel,
-    required this.title,
-    required this.onBack,
+/// תא ברצועת הנתונים: תווית, ערך עם סמל, ושורת הסבר.
+class StoreFact {
+  const StoreFact({
+    required this.label,
+    required this.value,
+    this.icon,
+    this.caption,
+    this.wideOnly = false,
+    this.ltr = false,
   });
 
-  final String backLabel;
-  final String title;
-  final VoidCallback onBack;
+  final String label;
+  final String value;
+  final IconData? icon;
+  final String? caption;
+
+  /// בחלון צר התא נעלם, כמו `.wideonly`.
+  final bool wideOnly;
+
+  /// ערך שהוא מספר גרסה או גודל.
+  final bool ltr;
+}
+
+/// רצועת נתוני המפתח (`.facts`): כרטיס אחד, תאים שווים וקו ביניהם.
+class StoreFacts extends StatelessWidget {
+  const StoreFacts({super.key, required this.facts});
+
+  final List<StoreFact> facts;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: AppSurfaces.card(context),
-        border: Border(
-          bottom: BorderSide(color: theme.colorScheme.outlineVariant),
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(
-        horizontal: StoreBody.horizontalPadding,
-        vertical: AppTokens.spaceSM,
-      ),
-      child: Row(
-        children: [
-          ActionButton.ghost(
-            text: backLabel,
-            icon: context.backArrowIcon,
-            onPressed: onBack,
+    final cs = Theme.of(context).colorScheme;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final narrow = constraints.maxWidth < kStoreDetailNarrowWidth;
+        final shown = [
+          for (final fact in facts)
+            if (!narrow || !fact.wideOnly) fact,
+        ];
+        return Container(
+          decoration: BoxDecoration(
+            color: AppSurfaces.card(context),
+            borderRadius: AppTokens.borderRadiusAll,
           ),
-          const SizedBox(width: AppTokens.spaceMD),
-          Expanded(
-            child: Text(
-              title,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-              overflow: TextOverflow.ellipsis,
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final (i, fact) in shown.indexed) ...[
+                  if (i > 0)
+                    VerticalDivider(
+                      width: 1,
+                      thickness: 1,
+                      color: cs.outlineVariant,
+                    ),
+                  Expanded(child: _FactCell(fact: fact)),
+                ],
+              ],
             ),
           ),
+        );
+      },
+    );
+  }
+}
+
+class _FactCell extends StatelessWidget {
+  const _FactCell({required this.fact});
+
+  final StoreFact fact;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final muted = AppTextStyles.meta.copyWith(color: cs.onSurfaceVariant);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            fact.label,
+            textAlign: TextAlign.center,
+            style: muted.copyWith(fontWeight: AppTextStyles.semibold),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (fact.icon != null) ...[
+                RtlIcon(fact.icon!, size: 16, color: cs.primary),
+                const SizedBox(width: 5),
+              ],
+              Flexible(
+                child: Text(
+                  fact.value,
+                  textDirection: fact.ltr ? TextDirection.ltr : null,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.cardTitle.copyWith(color: cs.onSurface),
+                ),
+              ),
+            ],
+          ),
+          if (fact.caption != null) ...[
+            const SizedBox(height: 2),
+            Text(fact.caption!, textAlign: TextAlign.center, style: muted),
+          ],
         ],
       ),
     );
   }
 }
 
-class StoreDetailPanel extends StatelessWidget {
-  const StoreDetailPanel({
+/// שתי עמודות של דף הפרטים (`.dcols` 1.25fr / 1fr), ועמודה אחת בחלון צר.
+class StoreDetailColumns extends StatelessWidget {
+  const StoreDetailColumns({
     super.key,
-    required this.title,
-    required this.child,
+    required this.start,
+    required this.end,
   });
 
-  final String title;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      child: Padding(
-        padding: const EdgeInsets.all(AppTokens.spaceLG),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: SettingsCard.titleStyleOf(context)),
-            const SizedBox(height: AppTokens.spaceMD),
-            child,
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class StoreDetailHero extends StatelessWidget {
-  const StoreDetailHero({
-    super.key,
-    required this.image,
-    required this.imageWidth,
-    this.imageMaxWidth,
-    required this.details,
-  });
-
-  final Widget image;
-  final double imageWidth;
-  final double? imageMaxWidth;
-  final Widget details;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      child: Padding(
-        padding: const EdgeInsets.all(AppTokens.spaceLG),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final narrow = constraints.maxWidth < LayoutBreakpoints.medium;
-            Widget framed = SizedBox(
-              width: narrow ? double.infinity : imageWidth,
-              child: image,
-            );
-            if (imageMaxWidth case final maxWidth?) {
-              framed = ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: maxWidth),
-                child: framed,
-              );
-            }
-
-            if (narrow) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  framed,
-                  const SizedBox(height: AppTokens.spaceMD),
-                  details,
-                ],
-              );
-            }
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                framed,
-                const SizedBox(width: AppTokens.spaceXL),
-                Expanded(child: details),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
-
-class StoreInfoEntry {
-  const StoreInfoEntry({
-    required this.label,
-    required this.value,
-    this.wide = false,
-  });
-
-  final String label;
-  final String value;
-  final bool wide;
-}
-
-class StoreInfoGrid extends StatelessWidget {
-  const StoreInfoGrid({super.key, required this.entries});
-
-  final List<StoreInfoEntry> entries;
-
-  static const double singleColumnBelow = 420;
+  final List<Widget> start;
+  final List<Widget> end;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = constraints.maxWidth < singleColumnBelow ? 1 : 2;
-        final cellWidth =
-            (constraints.maxWidth - AppTokens.spaceSM * (columns - 1)) /
-                columns;
-
-        return Wrap(
-          spacing: AppTokens.spaceSM,
-          runSpacing: AppTokens.spaceSM,
+        Widget column(List<Widget> children) => Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: children,
+            );
+        if (constraints.maxWidth < kStoreDetailNarrowWidth) {
+          return column([...start, ...end]);
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            for (final entry in entries)
-              SizedBox(
-                width: entry.wide || columns == 1
-                    ? constraints.maxWidth
-                    : cellWidth,
-                child: StoreInfoCell(label: entry.label, value: entry.value),
-              ),
+            Expanded(flex: 5, child: column(start)),
+            const SizedBox(width: 24),
+            Expanded(flex: 4, child: column(end)),
           ],
         );
       },
@@ -223,92 +236,225 @@ class StoreInfoGrid extends StatelessWidget {
   }
 }
 
-class StoreInfoCell extends StatelessWidget {
-  const StoreInfoCell({super.key, required this.label, required this.value});
+/// שורת מידע (`.info .row`): תווית משנית והערך 14/600 בקצה.
+class StoreInfoEntry {
+  const StoreInfoEntry({
+    required this.label,
+    required this.value,
+    this.ltr = false,
+    this.mono = false,
+    this.trailing,
+  });
 
   final String label;
   final String value;
 
+  /// [ltr] — גרסה; [mono] — כתובת או נתיב, בתיבת `PathText`.
+  final bool ltr;
+  final bool mono;
+
+  /// כפתורים קטנים אחרי הערך (העתקה, פתיחה).
+  final List<Widget>? trailing;
+}
+
+class StoreInfoRows extends StatelessWidget {
+  const StoreInfoRows({super.key, required this.entries});
+
+  final List<StoreInfoEntry> entries;
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppTokens.spaceMD,
-        vertical: AppTokens.spaceSM + 2,
-      ),
-      decoration: BoxDecoration(
-        color: AppSurfaces.panelSection(context),
-        borderRadius: AppTokens.borderRadiusAll,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: AppTokens.fontSM,
-              color: cs.onSurfaceVariant,
+    return AppCard.section(
+      children: [
+        for (final entry in entries)
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 46),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Text(
+                    entry.label,
+                    style: AppTextStyles.small.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      child: entry.mono
+                          ? PathText(entry.value)
+                          : Text(
+                              entry.value,
+                              textAlign: TextAlign.end,
+                              textDirection:
+                                  entry.ltr ? TextDirection.ltr : null,
+                              style: AppTextStyles.rowTitle.copyWith(
+                                color: cs.onSurface,
+                              ),
+                            ),
+                    ),
+                  ),
+                  if (entry.trailing != null) ...[
+                    const SizedBox(width: 4),
+                    ...entry.trailing!,
+                  ],
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: AppTokens.fontMD,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
+      ],
     );
   }
 }
 
-class StoreScreenshotsPanel extends StatelessWidget {
-  const StoreScreenshotsPanel({
-    super.key,
-    required this.title,
-    required this.paths,
-  });
+/// צילומי המסך (`.shot`): צילום גדול ביחס 16:10 עם כפתור הגדלה, ונקודות
+/// למעבר ביניהם. לחיצה פותחת את התצוגה המוגדלת.
+class StoreScreenshots extends StatefulWidget {
+  const StoreScreenshots({super.key, required this.paths});
 
-  final String title;
   final List<String> paths;
 
-  static const double thumbWidth = 200;
+  @override
+  State<StoreScreenshots> createState() => _StoreScreenshotsState();
+}
+
+class _StoreScreenshotsState extends State<StoreScreenshots> {
+  int _index = 0;
+
+  @override
+  void didUpdateWidget(StoreScreenshots oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_index >= widget.paths.length) _index = 0;
+  }
+
+  void _open() => showStoreScreenshots(
+        context,
+        paths: widget.paths,
+        initialIndex: _index,
+      );
 
   @override
   Widget build(BuildContext context) {
-    return StoreDetailPanel(
-      title: title,
-      child: Wrap(
-        spacing: AppTokens.spaceSM,
-        runSpacing: AppTokens.spaceSM,
-        children: [
-          for (var i = 0; i < paths.length; i++)
-            SizedBox(
-              width: thumbWidth,
-              child: AppCard(
-                onTap: () => showStoreScreenshots(
-                  context,
-                  paths: paths,
-                  initialIndex: i,
+    final cs = Theme.of(context).colorScheme;
+    final t = context.strings.plugins;
+    final paths = widget.paths;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Semantics(
+          button: true,
+          label: t.screenshotZoom,
+          child: FocusRing(
+            child: Material(
+              color: cs.surfaceContainer,
+              shape: RoundedRectangleBorder(
+                borderRadius: AppTokens.borderRadiusAll,
+                side: BorderSide(
+                  color: cs.outlineVariant.withValues(alpha: .7),
                 ),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: _open,
+                mouseCursor: SystemMouseCursors.zoomIn,
                 child: AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: Image.file(
-                    File(paths[i]),
-                    fit: BoxFit.cover,
-                    cacheWidth: decodeWidthFor(context, thumbWidth),
-                    errorBuilder: (context, _, __) => const Center(
-                      child: Icon(FluentIcons.image_off_24_regular),
+                  aspectRatio: 16 / 10,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => Stack(
+                      children: [
+                        Positioned.fill(
+                          child: Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: Image.file(
+                              File(paths[_index]),
+                              fit: BoxFit.contain,
+                              cacheWidth: decodeWidthFor(
+                                context,
+                                constraints.maxWidth,
+                              ),
+                              errorBuilder: (context, _, __) => Center(
+                                child: Icon(
+                                  FluentIcons.image_off_24_regular,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        PositionedDirectional(
+                          bottom: 10,
+                          end: 10,
+                          child: Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: cs.surface,
+                              borderRadius: AppTokens.borderRadiusAll,
+                            ),
+                            child: Icon(
+                              FluentIcons.zoom_in_20_regular,
+                              size: 18,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ),
             ),
+          ),
+        ),
+        if (paths.length > 1) ...[
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (var i = 0; i < paths.length; i++)
+                _Dot(
+                  current: i == _index,
+                  label: t.screenshotNumber(i + 1, paths.length),
+                  onTap: () => setState(() => _index = i),
+                ),
+            ],
+          ),
         ],
+      ],
+    );
+  }
+}
+
+class _Dot extends StatelessWidget {
+  const _Dot({required this.current, required this.label, required this.onTap});
+
+  final bool current;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: label,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: AppTokens.borderRadiusAll,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+          child: AnimatedContainer(
+            duration: AppTokens.animFast,
+            width: current ? 18 : 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: current ? cs.primary : cs.outlineVariant,
+              borderRadius: const BorderRadius.all(Radius.circular(3)),
+            ),
+          ),
+        ),
       ),
     );
   }

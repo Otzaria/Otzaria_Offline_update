@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:error_reports_manager/error_reports_manager.dart'
+    show AppCrashReportMode;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
-import 'package:launcher_app/src/theme/theme_exports.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
@@ -83,13 +83,12 @@ void main() {
         'library',
         'plugins',
         'personalMode',
+        'personalAsked',
+        'personalAutoRegister',
+        'semantic',
         'ui',
         'language',
-        'themeMode',
         'textScale',
-        'seedColor',
-        'darkSeedColor',
-        'showFaq',
         'protection',
         'enabled',
         'password',
@@ -116,13 +115,7 @@ void main() {
       // ברירת המחדל היא "אוטומטי" — לפי שפת המחשב, ולכן הבדיקה על הבחירה
       // ולא על השפה שנפתרת ממנה (שתלויה במחשב שעליו הבדיקה רצה).
       expect(s.languagePreference, AppLanguagePreference.system);
-      expect(s.themeMode, AppThemeMode.system);
       expect(s.textScale, 1.0);
-      // אותם גוונים שאוצריא נפתחת בהם.
-      expect(s.seedColor, AppSeedColors.defaultLight);
-      expect(s.darkSeedColor, AppSeedColors.defaultDark);
-      // ההדרכה היחידה בתוכנה — דלוקה, ומי שאינו רוצה אותה מכבה אותה.
-      expect(s.showFaqButton, isTrue);
     });
 
     test('סבב JSON מלא — כל שדה חוזר כפי שנשמר', () {
@@ -135,11 +128,7 @@ void main() {
         autoInstall: true,
         preferAppPrerelease: true,
         languagePreference: AppLanguagePreference.english,
-        themeMode: AppThemeMode.light,
         textScale: 1.3,
-        seedColor: AppSeedColors.teal,
-        darkSeedColor: AppSeedColors.amber,
-        showFaqButton: false,
       );
 
       final restored = AppSettings.fromJson(original.toJson());
@@ -153,36 +142,105 @@ void main() {
       expect(restored.preferAppPrerelease, isTrue);
       expect(restored.languagePreference, AppLanguagePreference.english);
       expect(restored.language, AppLanguage.english);
-      expect(restored.themeMode, AppThemeMode.light);
       expect(restored.textScale, 1.3);
-      expect(restored.seedColor, AppSeedColors.teal);
-      expect(restored.darkSeedColor, AppSeedColors.amber);
-      expect(restored.showFaqButton, isFalse);
       // עדכון אישי כופה את הספרייה, גם כשהבחירה השמורה כבויה.
       expect(restored.downloadsLibrary, isTrue);
       expect(restored.hasSyncSelection, isTrue);
     });
 
-    test('צבע נשמר כ-ARGB שלם, וערך פגום נופל לברירת המחדל', () {
-      final ui = const AppSettings(seedColor: AppSeedColors.navy).toJson()['ui']
-          as Map<String, dynamic>;
-      expect(ui['seedColor'], AppSeedColors.navy.toARGB32());
-
+    // סכימה 13: ערכת הנושא, צבע הבסיס והכפתור הצף הוסרו.
+    test('קובץ מסכימה 12 נקרא, ושדות הערכה שהוסרו אינם נכתבים שוב', () {
       final restored = AppSettings.fromJson({
-        'ui': {'seedColor': '#FF0000', 'darkSeedColor': null},
+        'schemaVersion': 12,
+        'automation': {'checkUpdates': false, 'install': true},
+        'sync': {'library': false},
+        'ui': {
+          'language': 'en',
+          'themeMode': 'dark',
+          'textScale': 1.15,
+          'seedColor': 0xFF2196F3,
+          'darkSeedColor': 0xFF9C27B0,
+          'showFaq': false,
+        },
+        'protection': {'enabled': true, 'password': 'salt:hash'},
       });
-      expect(restored.seedColor, AppSeedColors.defaultLight);
-      expect(restored.darkSeedColor, AppSeedColors.defaultDark);
+
+      expect(restored.autoCheckUpdates, isFalse);
+      expect(restored.autoInstall, isTrue);
+      expect(restored.syncLibrary, isFalse);
+      expect(restored.languagePreference, AppLanguagePreference.english);
+      expect(restored.textScale, 1.15);
+      expect(restored.saferModeActive, isTrue);
+
+      final json = restored.toJson();
+      expect(json['schemaVersion'], AppSettings.schemaVersion);
+      expect(
+        (json['ui'] as Map<String, dynamic>).keys,
+        unorderedEquals(['language', 'textScale']),
+      );
     });
 
-    test('צבע שאינו בפלטה נשמר כמו שהוא — קובץ שנערך ביד לא נמחק', () {
-      const custom = Color(0xFF123456);
-      final restored = AppSettings.fromJson(
-        const AppSettings(seedColor: custom).toJson(),
+    // סכימה 14: העדפת החיפוש החכם בהורדה.
+    test('קובץ מסכימה 13 בלי sync.semantic — "לשאול כל פעם"', () {
+      final restored = AppSettings.fromJson({
+        'schemaVersion': 13,
+        'sync': {'app': true, 'library': true, 'plugins': false},
+      });
+      expect(restored.semanticDownload, SemanticDownloadPreference.ask);
+      expect(restored.syncPlugins, isFalse);
+      expect(
+        (restored.toJson()['sync'] as Map<String, dynamic>)['semantic'],
+        'ask',
       );
+    });
 
-      expect(restored.seedColor, custom);
-      expect(AppSeedColors.labelOf(restored.seedColor), isNull);
+    // סכימה 15: "לשלוח תמיד" הוא ברירת המחדל אחרי סגירה לא צפויה.
+    test('ברירת המחדל לסגירה לא צפויה היא "לשלוח תמיד", גם באיפוס', () {
+      expect(const AppSettings().crashReportMode, AppCrashReportMode.always);
+      expect(AppSettings.fromJson(const {}).crashReportMode,
+          AppCrashReportMode.always);
+      expect(
+        AppSettings.fromJson({
+          'reports': {'crashMode': 'x'},
+        }).crashReportMode,
+        AppCrashReportMode.always,
+      );
+    });
+
+    test('"לשאול" מסכימה 14 ומטה עובר ל"לשלוח תמיד"; "לא לשלוח" נשמר', () {
+      AppCrashReportMode read(Object? version, String mode) =>
+          AppSettings.fromJson({
+            if (version != null) 'schemaVersion': version,
+            'reports': {'crashMode': mode},
+          }).crashReportMode;
+
+      expect(read(14, 'ask'), AppCrashReportMode.always);
+      expect(read(null, 'ask'), AppCrashReportMode.always);
+      expect(read(14, 'never'), AppCrashReportMode.never);
+      expect(read(14, 'always'), AppCrashReportMode.always);
+      // מסכימה 15 "לשאול" כבר נבחר במפורש.
+      expect(read(15, 'ask'), AppCrashReportMode.ask);
+      const chosen = AppSettings(crashReportMode: AppCrashReportMode.ask);
+      expect(AppSettings.fromJson(chosen.toJson()).crashReportMode,
+          AppCrashReportMode.ask);
+    });
+
+    test('sync.semantic נשמר ונקרא; ערך לא מוכר חוזר ל"לשאול"', () {
+      for (final value in SemanticDownloadPreference.values) {
+        final json = const AppSettings().copyWith(semanticDownload: value);
+        expect(
+          AppSettings.fromJson(json.toJson()).semanticDownload,
+          value,
+        );
+      }
+      for (final bad in ['sometimes', 1, true, null]) {
+        expect(
+          AppSettings.fromJson({
+            'sync': {'semantic': bad},
+          }).semanticDownload,
+          SemanticDownloadPreference.ask,
+        );
+      }
     });
 
     test('JSON ריק → בדיוק ברירות המחדל', () {
@@ -329,7 +387,42 @@ void main() {
       await controller.load();
 
       expect(controller.settings.autoCheckUpdates, isTrue);
-      expect(controller.settings.themeMode, AppThemeMode.system);
+      expect(controller.settings.textScale, 1.0);
+    });
+
+    test('קובץ ישן עם ערכת נושא נטען, והשמירה הבאה מוחקת את השדות', () async {
+      settingsFile().writeAsStringSync(jsonEncode({
+        'schemaVersion': 12,
+        'ui': {
+          'language': 'he',
+          'themeMode': 'dark',
+          'seedColor': 0xFF2196F3,
+          'darkSeedColor': 0xFF9C27B0,
+          'showFaq': false,
+        },
+      }));
+
+      await controller.load();
+      expect(
+          controller.settings.languagePreference, AppLanguagePreference.hebrew);
+
+      await controller.update(
+        controller.settings.copyWith(autoCheckUpdates: false),
+      );
+
+      final saved =
+          jsonDecode(settingsFile().readAsStringSync()) as Map<String, dynamic>;
+      expect(saved['schemaVersion'], AppSettings.schemaVersion);
+      final ui = saved['ui'] as Map<String, dynamic>;
+      for (final removed in [
+        'themeMode',
+        'seedColor',
+        'darkSeedColor',
+        'showFaq'
+      ]) {
+        expect(ui.containsKey(removed), isFalse, reason: removed);
+      }
+      expect(ui['language'], 'he');
     });
 
     test('JSON תקין שאינו אובייקט נבלע גם הוא', () async {
@@ -445,6 +538,25 @@ void main() {
         File(p.join(nested, 'launcher_settings.json')).existsSync(),
         isTrue,
       );
+    });
+  });
+
+  group('השאלה "מחשבים מרובים או רק המחשב שלי"', () {
+    test('כונן חדש עוד לא נשאל, והתשובה נשמרת ונקראת', () {
+      expect(const AppSettings().personalModeAsked, isFalse);
+      final answered = AppSettings.fromJson(
+        const AppSettings().copyWith(personalModeAsked: true).toJson(),
+      );
+      expect(answered.personalModeAsked, isTrue);
+      expect(answered.personalUpdateMode, isFalse);
+    });
+
+    test('כונן קיים שעדכון אישי פעיל בו נחשב כמי שענה', () {
+      final legacy = AppSettings.fromJson({
+        'sync': {'personalMode': true},
+      });
+      expect(legacy.personalModeAsked, isTrue);
+      expect(AppSettings.fromJson({'sync': {}}).personalModeAsked, isFalse);
     });
   });
 }

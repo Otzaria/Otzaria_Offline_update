@@ -188,7 +188,7 @@ class AppReportImagesSection extends StatelessWidget {
                   Text(
                     t.imagesPrompt,
                     textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyMedium,
+                    style: AppTextStyles.body,
                   ),
                 ],
               ),

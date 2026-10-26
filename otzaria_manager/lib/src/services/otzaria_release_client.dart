@@ -5,6 +5,7 @@ import 'package:otzaria_downloads/otzaria_downloads.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../models/otzaria_release.dart';
+import '../otzaria_user_error.dart';
 import 'otzaria_asset_selector.dart';
 import 'windows_arch.dart';
 
@@ -101,7 +102,7 @@ class OtzariaReleaseClient {
             ),
     ) as List<dynamic>;
     if (decoded.isEmpty) {
-      throw StateError(
+      throw OtzariaUserError(
         AppL10n.strings.appDomain.noReleasesAtAll('$_owner/$_repo'),
       );
     }

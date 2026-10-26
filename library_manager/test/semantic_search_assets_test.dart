@@ -47,6 +47,7 @@ void main() {
   late String db;
   late SemanticSearchAssets assets;
   var requests = 0;
+  int? peekedBytes;
 
   setUp(() async {
     temp = await Directory.systemTemp.createTemp('semantic-assets-test-');
@@ -138,6 +139,7 @@ void main() {
       return await online.peekPending(mirrorDir: mirror, libraryTag: remoteTag);
     } finally {
       expect(calls, 1);
+      peekedBytes = online.peekedPendingBytes;
       online.dispose();
       client.close();
     }
@@ -166,6 +168,30 @@ void main() {
 
   test('light check detects semantic data missing from the mirror', () async {
     expect(await peek(), isTrue);
+  });
+
+  test('light check bounds the download by every release asset and every '
+      'model file', () async {
+    final models = SemanticSearchAssets.modelFiles
+        .where((file) => file.name != 'tokenizer.json')
+        .fold<int>(0, (sum, file) => sum + file.size);
+    final manifestSize = utf8.encode(jsonEncode(manifest())).length;
+
+    expect(await peek(), isTrue);
+    expect(
+      peekedBytes,
+      manifestSize + 3 + models + SemanticSearchAssets.tokenizerZip.size,
+    );
+
+    await writeMirror();
+    expect(await peek(), isFalse);
+    expect(peekedBytes, 0);
+
+    expect(await peek(status: 404), isFalse);
+    expect(peekedBytes, 0);
+
+    await expectLater(peek(status: 403), throwsFormatException);
+    expect(peekedBytes, isNull);
   });
 
   test('light check detects incomplete model and vector mirrors', () async {

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
@@ -43,42 +45,34 @@ class CustomAppIconSection extends StatelessWidget {
     return FormLabelled(
       label: t.iconLabel,
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 64,
-            // תצוגה מקדימה קטנה ומרובעת, ולכן היחס נקבע כאן ולא מהכלל:
-            // ריבוע 64 עם האוויר של הכרטיס היה משאיר אייקון של 32.
-            child: StoreThumbnail.icon(
-              imagePath: iconPath,
-              placeholderIcon: FluentIcons.box_24_regular,
-              aspectRatio: 1,
-              ratio: 0.78,
-              iconSize: 28,
-            ),
+          StoreIcon(
+            imagePath: iconPath,
+            placeholderIcon: FluentIcons.box_24_regular,
+            size: 54,
           ),
           const SizedBox(width: AppTokens.spaceMD),
           Expanded(
             child: Wrap(
-              spacing: AppTokens.spaceSM,
-              runSpacing: AppTokens.spaceSM,
+              spacing: AppTokens.spaceXS,
+              runSpacing: AppTokens.spaceXS,
               children: [
-                ActionButton.neutral(
-                  text: t.pickIconButton,
-                  icon: FluentIcons.image_24_regular,
-                  onPressed: onPick,
-                ),
                 if (canExtract)
                   ActionButton.ghost(
                     text: t.extractIconButton,
-                    icon: FluentIcons.wand_24_regular,
+                    size: ActionButtonSize.sm,
                     isLoading: isExtracting,
                     onPressed: isExtracting ? null : onExtract,
                   ),
+                ActionButton.ghost(
+                  text: t.pickIconButton,
+                  size: ActionButtonSize.sm,
+                  onPressed: onPick,
+                ),
                 if (iconPath != null)
                   ActionButton.ghost(
                     text: t.removeIconTooltip,
-                    icon: FluentIcons.dismiss_24_regular,
+                    size: ActionButtonSize.sm,
                     onPressed: onRemove,
                   ),
               ],
@@ -108,7 +102,7 @@ class CustomAppScreenshotsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.strings.customApps;
-    final theme = Theme.of(context);
+    final cs = Theme.of(context).colorScheme;
 
     return FormLabelled(
       label: t.screenshotsLabel,
@@ -130,14 +124,13 @@ class CustomAppScreenshotsSection extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: AppTokens.spaceSM),
               child: Text(
                 t.screenshotsChosen(screenshots.length),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+                style: AppTextStyles.meta.copyWith(color: cs.onSurfaceVariant),
               ),
             ),
           ActionButton.neutral(
             text: t.addScreenshotsButton,
-            icon: FluentIcons.image_multiple_24_regular,
+            icon: FluentIcons.image_add_20_regular,
+            size: ActionButtonSize.sm,
             onPressed: onAdd,
           ),
         ],
@@ -168,13 +161,21 @@ class _ScreenshotRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: AppTokens.spaceSM),
       child: Row(
         children: [
-          SizedBox(
-            width: 72,
-            child: StoreThumbnail(
-              imagePath: path,
-              placeholderIcon: FluentIcons.image_off_24_regular,
-              aspectRatio: 16 / 9,
-              iconSize: 20,
+          ClipRRect(
+            borderRadius: const BorderRadius.all(Radius.circular(6)),
+            child: Container(
+              width: 72,
+              height: 54,
+              color: Theme.of(context).colorScheme.surfaceContainer,
+              child: Image.file(
+                File(path),
+                fit: BoxFit.cover,
+                cacheWidth: decodeWidthFor(context, 72),
+                errorBuilder: (context, _, __) => const Icon(
+                  FluentIcons.image_off_20_regular,
+                  size: 20,
+                ),
+              ),
             ),
           ),
           const SizedBox(width: AppTokens.spaceSM),
@@ -182,24 +183,28 @@ class _ScreenshotRow extends StatelessWidget {
             child: Text(
               p.basename(path),
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
+              style: AppTextStyles.meta,
             ),
           ),
           // ⚠️ חיצים ולא `RtlIcon`: אלה חיצי סדר ברשימה אנכית, ו-RTL
           // אינו הופך "למעלה" ו"למטה".
-          SecondaryIconButton(
-            icon: FluentIcons.arrow_up_24_regular,
+          AppIconButton(
+            icon: FluentIcons.arrow_up_20_regular,
             tooltip: t.moveScreenshotBackTooltip,
+            small: true,
             onPressed: onMoveBack,
           ),
-          SecondaryIconButton(
-            icon: FluentIcons.arrow_down_24_regular,
+          AppIconButton(
+            icon: FluentIcons.arrow_down_20_regular,
             tooltip: t.moveScreenshotForwardTooltip,
+            small: true,
             onPressed: onMoveForward,
           ),
-          SecondaryIconButton(
-            icon: FluentIcons.delete_24_regular,
+          AppIconButton(
+            icon: FluentIcons.delete_20_regular,
             tooltip: t.removeScreenshotTooltip,
+            small: true,
+            danger: true,
             onPressed: onRemove,
           ),
         ],

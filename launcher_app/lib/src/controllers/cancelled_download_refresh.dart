@@ -1,3 +1,4 @@
+import 'download_plan.dart';
 import 'library_module_controller.dart';
 import 'otzaria_module_controller.dart';
 import 'plugins_module_controller.dart';
@@ -25,17 +26,22 @@ Future<void> refreshAfterCancelledDownload({
   required LibraryModuleController library,
   required PluginsModuleController plugins,
   required OnlineAnswersBeforeDownload before,
+  required MirrorComponent? reverted,
 }) async {
+  // רכיב שנשאר בכונן שומר את תשובות הרשת שנמדדו מולו בזמן ההורדה.
   await otzaria.checkForUpdate();
-  if (before.answeredDuringDownload(library.onlineCheckedAt)) {
+  if (reverted == MirrorComponent.library &&
+      before.answeredDuringDownload(library.onlineCheckedAt)) {
     library.restoreOnlineAnswers(before.libraryAnswers);
   }
   await library.checkForUpdate();
-  if (before.answeredDuringDownload(plugins.onlineCheckedAt)) {
-    plugins.restoreCatalogOnlineAnswers(before.catalogAnswers);
-  }
-  if (before.answeredDuringDownload(plugins.storeAppCheckedAt)) {
-    plugins.restoreStoreAppOnlineAnswers(before.storeAppAnswers);
+  if (reverted == MirrorComponent.plugins) {
+    if (before.answeredDuringDownload(plugins.onlineCheckedAt)) {
+      plugins.restoreCatalogOnlineAnswers(before.catalogAnswers);
+    }
+    if (before.answeredDuringDownload(plugins.storeAppCheckedAt)) {
+      plugins.restoreStoreAppOnlineAnswers(before.storeAppAnswers);
+    }
   }
   await plugins.load();
 }

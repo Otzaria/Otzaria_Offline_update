@@ -75,6 +75,13 @@ class PluginOnlinePeek {
     final updated = <String>[];
     final missing = <String>[];
     final remoteIds = <String>{};
+    int? bytes = 0;
+    void fetches(Iterable<PluginVersionEntry> builds) {
+      for (final build in builds) {
+        final size = build.fileSize;
+        bytes = size > 0 && bytes != null ? bytes! + size : null;
+      }
+    }
 
     for (final raw in remote) {
       final plugin = StorePlugin.fromApi(raw, baseUrl);
@@ -95,14 +102,18 @@ class PluginOnlinePeek {
             plugin.remoteDownloadUrl.isEmpty ||
             pendingMedia.contains(plugin.id)) {
           fresh.add(plugin.name);
+          fetches(targets);
         }
         continue;
       }
 
       final have = presentBuilds[plugin.id] ?? const <String>{};
-      final needsWork = pendingMedia.contains(plugin.id) ||
-          targets.any((target) => _needsFetch(target, known, have));
-      if (!needsWork) continue;
+      final stale = [
+        for (final target in targets)
+          if (_needsFetch(target, known, have)) target,
+      ];
+      if (stale.isEmpty && !pendingMedia.contains(plugin.id)) continue;
+      fetches(stale);
 
       // **גרסה חדשה** באתר לעומת **קובץ שחסר** מהכונן. השניים נראים אחרת
       // למשתמש ולכן נספרים בנפרד: בילד שהמראה כבר מתארת כשלה (הגרסה שנרשמה
@@ -132,6 +143,7 @@ class PluginOnlinePeek {
       missingPlugins: missing,
       removedPlugins: removed,
       totalOnline: remote.length,
+      pendingBytes: bytes,
     );
   }
 

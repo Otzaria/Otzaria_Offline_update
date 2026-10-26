@@ -7,6 +7,8 @@
 #include <memory>
 #include <string>
 
+#include "window_fit.h"
+
 // A class abstraction for a high DPI-aware Win32 Window. Intended to be
 // inherited from by classes that wish to specialize with custom
 // rendering and input handling
@@ -35,6 +37,10 @@ class Win32Window {
   // as appropriate for the default monitor. The window is invisible until
   // |Show| is called. Returns true if the window was created successfully.
   bool Create(const std::wstring& title, const Point& origin, const Size& size);
+
+  // The client area |Show| centres in the work area (logical pixels, capped
+  // at the work area), and whether to open maximized (a "maximized" shortcut).
+  void SetPreferredSize(const Size& content, bool maximized);
 
   // Show the current window. Returns true if the window was successfully shown.
   bool Show();
@@ -71,6 +77,10 @@ class Win32Window {
   // Called when Destroy is called.
   virtual void OnDestroy();
 
+  // Adds the non-client insets to the minimum size, and caps it at the work
+  // area of the window's monitor.
+  void FitMinTrackSize(MINMAXINFO* info);
+
  private:
   friend class WindowClassRegistrar;
 
@@ -87,10 +97,10 @@ class Win32Window {
   // Retrieves a class instance pointer for |window|
   static Win32Window* GetThisFromHandle(HWND const window) noexcept;
 
-  // Update the window frame's theme to match the system theme.
-  static void UpdateTheme(HWND const window);
-
   bool quit_on_close_ = false;
+
+  Size preferred_size_ = Size(0, 0);
+  bool start_maximized_ = false;
 
   // window handle for top level window.
   HWND window_handle_ = nullptr;

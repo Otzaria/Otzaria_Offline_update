@@ -5,11 +5,14 @@ import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/screens/app_shell.dart';
-import 'package:launcher_app/src/screens/home_screen.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:launcher_app/src/services/notices_seen_store.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
+import 'package:launcher_app/src/shell/app_session.dart';
+import 'package:launcher_app/src/shell/shell_keys.dart';
+import 'package:launcher_app/src/shell/shell_navigator.dart';
+import 'package:launcher_app/src/widgets/widgets_exports.dart' show AppDialog;
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -25,7 +28,8 @@ void main() {
     tempDir = Directory.systemTemp.createTempSync('report-lifecycle-');
     await AppLogger.init(tempDir.path);
     settings = SettingsController(dataDir: tempDir.path);
-    await settings.update(const AppSettings(autoCheckUpdates: false));
+    await settings.update(
+        const AppSettings(personalModeAsked: true, autoCheckUpdates: false));
   });
 
   tearDown(() async {
@@ -50,8 +54,9 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('סגירה שזוהתה ברענון המחזורי מציעה לאסוף גם בלי בדיקה אוטומטית',
-      (tester) async {
+  testWidgets(
+      'סגירה שזוהתה ברענון המחזורי סופרת לאיסוף גם בלי בדיקה אוטומטית, '
+      'והאיסוף עצמו בלחיצה בדף הדיווחים', (tester) async {
     final install = Directory(p.join(tempDir.path, 'install'))..createSync();
     final launch = File(p.join(install.path, 'otzaria.exe'))
       ..writeAsStringSync('');
@@ -96,7 +101,8 @@ void main() {
         1);
     final locator = _CollectionLocator(isRunning: true);
     await pumpShell(tester, locator: locator);
-    final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+    final home =
+        (tester.state(find.byType(AppShell)) as dynamic).session as AppSession;
     Future<void> finishIo({bool Function()? until}) async {
       final attempts = until == null ? 100 : 500;
       for (var i = 0; i < attempts; i++) {
@@ -107,26 +113,43 @@ void main() {
       }
     }
 
+    final reportsTile = find.byKey(ShellKeys.tile(ShellSection.reports));
     await finishIo(until: () => home.otzaria.launchPath != null);
     expect(home.otzaria.launchPath, launch.path);
-    final t = stringsOf().errorReports;
-    expect(find.text(t.collectDialogTitle), findsNothing);
+    expect(reportsTile, findsNothing);
     locator.isRunning = false;
     await tester.pump(const Duration(seconds: 4));
-    await finishIo(
-        until: () => find.text(t.collectDialogTitle).evaluate().isNotEmpty);
-    expect(find.text(t.collectDialogTitle), findsOneWidget);
-    await tester.tap(find.text(t.collectLater));
-    await tester.pumpAndSettle();
+    await finishIo(until: () => home.reportsToCollect > 0);
+    // אין דיאלוג בעלייה: רק מונה באריח הדיווחים.
+    expect(home.reportsToCollect, 1);
+    expect(find.byType(AppDialog), findsNothing);
+    expect(reportsTile, findsOneWidget);
+    expect(
+      find.text(stringsOf().guide.chipReportsToCollect(1)),
+      findsOneWidget,
+    );
+
+    await tester.tap(reportsTile);
+    await tester.pump();
+    // הלחיצה על "איסוף" היא האישור: אין דו-שיח "לאסוף?" שני.
+    await tester.tap(find.byKey(ShellKeys.reportsCollect));
+    await finishIo(until: () => home.reportsToCollect == 0);
+    expect(find.byType(AppDialog), findsNothing);
+    expect(home.reportsToCollect, 0);
+    expect(
+      await tester.runAsync(() => UserStateReportQueue(dbPath).countSendable()),
+      0,
+    );
+
+    // מה שנאסף אינו חוזר: פתיחה וסגירה של אוצריא אינן מחזירות אותו.
     locator.isRunning = true;
-    await tester
-        .widget<HomeScreen>(find.byType(HomeScreen))
-        .onProcessStateChanged();
+    await home.refreshProcessState();
     await tester.pump();
     locator.isRunning = false;
     await tester.pump(const Duration(seconds: 4));
     await finishIo();
-    expect(find.text(t.collectDialogTitle), findsNothing);
+    expect(home.reportsToCollect, 0);
+    expect(find.byType(AppDialog), findsNothing);
   });
 }
 

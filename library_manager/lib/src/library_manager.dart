@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
@@ -18,6 +20,7 @@ import 'services/library_db_locator.dart';
 import 'services/library_state_store.dart';
 import 'services/library_update_applier.dart';
 import 'services/library_updater_l10n.dart';
+import 'services/mirror_download_bound.dart';
 import 'services/otzaria_instance_lock.dart';
 import 'services/otzaria_process_guard.dart';
 import 'services/otzaria_settings_reader.dart';
@@ -355,6 +358,11 @@ class LibraryManager {
     void Function(String warning)? onWarning,
     bool Function()? isCancelled,
   }) async {
+    // שני מייצאים על אותה מראה היו מתנגשים; הבדיקה המוקדמת נעצרת ומתפנה קודם.
+    if (_sizeProbe case final probe?) {
+      probe.stop();
+      await probe.done;
+    }
     final fromVersion = personalUpdateMode
         ? await recordedPersonalDbVersion()
         : null;
@@ -488,6 +496,75 @@ class LibraryManager {
     );
   }
 
+  ({void Function() stop, Future<void> done})? _sizeProbe;
+
+  /// כמה [downloadToMirror] יביא בפועל, בלי להוריד דבר: מריץ את התכנון של המנוע
+  /// (קובצי התיאור בלבד) ועוצר כשהוא מכריז על היעד. null בכשל או אחרי [timeout].
+  Future<int?> probeMirrorDownloadBytes({
+    Duration timeout = const Duration(seconds: 45),
+  }) async {
+    // שתי בדיקות במקביל מתחרות על אותה מראה; השאלה החדשה גוברת.
+    _sizeProbe?.stop();
+    var stopped = false;
+    int? exportBytes;
+    Future<int?> run() async {
+      final fromVersion = personalUpdateMode
+          ? await recordedPersonalDbVersion()
+          : null;
+      final exporter = LibraryMirrorExporter(
+        supportedDbSchemaVersion: kSupportedDbSchemaVersion,
+        client: _cloudClient,
+      );
+      final export = () async {
+        try {
+          final exported = await exporter.export(
+            destDir: mirrorDir,
+            allowPrerelease: allowPrerelease,
+            fromVersion: fromVersion,
+            onBytesProgress: (_, total) {
+              exportBytes ??= total ?? -1;
+              stopped = true;
+            },
+            isCancelled: () => stopped,
+          );
+          if (!exported) exportBytes ??= 0;
+        } on StateError {
+          if (exportBytes == null) rethrow;
+        } finally {
+          exporter.dispose();
+        }
+      }();
+      final companions = _companionsMirror
+          .peekPending(destDir: companionsMirrorDir)
+          .then((_) => _companionsMirror.peekedPendingBytes);
+      final results = await Future.wait<int?>([
+        export.then((_) => exportBytes),
+        companions,
+      ]);
+      if (results.any((bytes) => bytes == null || bytes < 0)) return null;
+      return results[0]! + results[1]!;
+    }
+
+    final work = run();
+    final probe = (
+      stop: () => stopped = true,
+      done: work.then<void>((_) {}, onError: (_) {}),
+    );
+    _sizeProbe = probe;
+    try {
+      return await work.timeout(timeout);
+    } on TimeoutException {
+      stopped = true;
+      return null;
+    } finally {
+      unawaited(
+        probe.done.whenComplete(() {
+          if (identical(_sizeProbe, probe)) _sizeProbe = null;
+        }),
+      );
+    }
+  }
+
   /// "מה חדש" של כל release שהמראה מכסה. קובץ שעוד לא הועלה יובא בהורדה
   /// הבאה, וכשל כאן לעולם אינו מכשיל את ההורדה — רק מדווח.
   Future<void> _syncChangesNotes({
@@ -578,6 +655,13 @@ class LibraryManager {
   Future<bool> isRegisteredForPersonalUpdate() =>
       _stateStore.hasOwnKnownDbVersion();
 
+  /// המחשבים שנרשמו ושרשומתם בתוקף, מהגרסה הנמוכה — נקודת ההתחלה.
+  Future<List<RegisteredMachine>> registeredMachines() =>
+      _stateStore.liveRegisteredMachines();
+
+  Future<void> forgetRegisteredMachine(String machineKey) =>
+      _stateStore.forgetKnownDbVersion(machineKey);
+
   Future<int?> captureLocalDbVersion() async {
     final path = await currentDbPath();
     if (path == null) return null;
@@ -595,13 +679,24 @@ class LibraryManager {
 
   String? _onlineLibraryTag;
 
+  /// ה-releases של [peekLatestOnlineVersion] האחרון שהצליח; `null` אחרי כשל.
+  List<LibraryRelease>? _peekedReleases;
+
+  /// חסם עליון לחיפוש החכם לפי [peekPendingSemanticSearch] האחרון.
+  int? get peekedSemanticBytes => _peekedSemanticBytes;
+  int? _peekedSemanticBytes;
+
   Future<bool> peekPendingSemanticSearch() async {
+    _peekedSemanticBytes = null;
     if (_onlineLibraryTag == null) await peekLatestOnlineVersion();
     final tag = _onlineLibraryTag;
-    if (tag == null) return false;
+    if (tag == null) {
+      _peekedSemanticBytes = 0;
+      return false;
+    }
     final semantic = SemanticSearchAssets();
     try {
-      return await semantic.peekPending(
+      final pending = await semantic.peekPending(
         mirrorDir: semanticMirrorDir,
         libraryTag: tag,
         // The online machine's Otzaria fetches its vectors itself.
@@ -609,6 +704,8 @@ class LibraryManager {
           await _stateStore.liveSemanticStates(excludeOwn: true),
         ),
       );
+      _peekedSemanticBytes = semantic.peekedPendingBytes;
+      return pending;
     } finally {
       semantic.dispose();
     }
@@ -629,10 +726,135 @@ class LibraryManager {
 
   Future<int?> peekLatestOnlineVersion() async {
     _onlineLibraryTag = null;
-    final latest = _latestOnline(await _cloudClient.fetchFreshReleases());
+    _peekedReleases = null;
+    final releases = await _cloudClient.fetchFreshReleases();
+    final latest = _latestOnline(releases);
+    _peekedReleases = releases;
     _onlineLibraryTag = latest?.tag;
     return latest?.version;
   }
+
+  /// חסם עליון ל-[downloadToMirror] (בלי חיפוש חכם) מההצצות, בלי רשת ובלי כתיבה —
+  /// [mirrorDownloadBytesBound] או [personalDownloadBytesBound]; `null` = אין חסם.
+  Future<int?> peekedDownloadBytesBound() async {
+    final releases = _peekedReleases;
+    final companions = _companionsMirror.peekedPendingBytes;
+    if (releases == null || companions == null) return null;
+    final fromVersion = personalUpdateMode
+        ? await recordedPersonalDbVersion()
+        : null;
+    final exporter = LibraryMirrorExporter(
+      supportedDbSchemaVersion: kSupportedDbSchemaVersion,
+      client: _cloudClient,
+    );
+    final List<LibraryRelease> eligible;
+    final List<LibraryRelease> relevant;
+    final ApplyTimeEstimate applyTime;
+    try {
+      eligible = LibraryUpdateDiscovery.eligibleReleases(
+        releases,
+        allowPrerelease: allowPrerelease,
+      );
+      relevant = fromVersion == null
+          ? exporter.recentReleases(eligible)
+          : exporter.personalReleases(eligible, fromVersion);
+      applyTime = exporter.applyTime;
+    } finally {
+      exporter.dispose();
+    }
+
+    final held = <(String, String)>{};
+    final manifests = <(String, String), DeltaManifest>{};
+    // במצב אישי גם נשא המסד המלא, שאינו בין ה-releases של קובצי העדכון.
+    final scanned = {
+      ...relevant,
+      if (fromVersion != null)
+        ...eligible.where(
+          (r) =>
+              r.fullDbAssetFor(maxSchemaVersion: kSupportedDbSchemaVersion) !=
+              null,
+        ),
+    };
+    for (final release in scanned) {
+      for (final asset in release.assets) {
+        // מסד מפוצל נשמר בשם הארכיון המורכב, וגודלו רק במניפסט שברשת: קיומו
+        // מספיק כדי שהמייצא עשוי לבחור בו.
+        final archive = asset.isSplitFullDbManifest
+            ? asset.splitArchiveName!
+            : null;
+        if (archive != null) {
+          if (await File(_mirrorAssetPath(release.tag, archive)).exists()) {
+            held.add((release.tag, asset.name));
+          }
+          continue;
+        }
+        final file = File(_mirrorAssetPath(release.tag, asset.name));
+        if (!await file.exists() || await file.length() != asset.size) {
+          continue;
+        }
+        held.add((release.tag, asset.name));
+        if (!asset.isDeltaManifest) continue;
+        try {
+          manifests[(release.tag, asset.name)] = DeltaManifest.fromJson(
+            jsonDecode(await file.readAsString()) as Map<String, dynamic>,
+          );
+        } catch (_) {
+          // manifest שאינו נקרא — הקשת נחשבת תקפה, כמו בלי manifest.
+        }
+      }
+    }
+    if (fromVersion != null) {
+      final bytes = personalDownloadBytesBound(
+        eligible: eligible,
+        relevant: relevant,
+        fromVersion: fromVersion,
+        supportedDbSchemaVersion: kSupportedDbSchemaVersion,
+        applyTime: applyTime,
+        complete: (release, asset) => held.contains((release.tag, asset.name)),
+        heldManifest: (release, asset) => manifests[(release.tag, asset.name)],
+      );
+      return bytes == null ? null : bytes + companions;
+    }
+    final bytes = mirrorDownloadBytesBound(
+      relevant: relevant,
+      supportedDbSchemaVersion: kSupportedDbSchemaVersion,
+      applyTime: applyTime,
+      complete: (release, asset) => held.contains((release.tag, asset.name)),
+      heldManifest: (release, asset) => manifests[(release.tag, asset.name)],
+    );
+    return bytes == null ? null : bytes + companions;
+  }
+
+  /// בכונן יש ספרייה מלאה — שהייצוא האישי הבא ימחק. קריאה בלבד.
+  Future<bool> mirrorHoldsFullDb() async {
+    try {
+      if (!await hasMirror) return false;
+      final releases = await LocalMirrorLibraryReleaseClient(
+        mirrorDir: mirrorDir,
+      ).fetchReleases();
+      for (final release in releases) {
+        final full = release.fullDbAssetFor(
+          maxSchemaVersion: kSupportedDbSchemaVersion,
+        );
+        if (full == null) continue;
+        final name = full.isSplitFullDbManifest
+            ? full.splitArchiveName!
+            : full.name;
+        if (await File(_mirrorAssetPath(release.tag, name)).exists()) {
+          return true;
+        }
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  /// הנתיב שבו [LibraryMirrorExporter] שומר נכס — כמו `_safeDirName` שלו.
+  String _mirrorAssetPath(String tag, String name) => p.join(
+    mirrorDir,
+    'assets',
+    tag.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_'),
+    name,
+  );
 
   ({String tag, int version})? _latestOnline(List<LibraryRelease> all) =>
       OfflineLibraryUpdateDiscovery.latestOnlineRelease(

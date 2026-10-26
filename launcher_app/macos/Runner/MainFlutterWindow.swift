@@ -6,15 +6,20 @@ class MainFlutterWindow: NSWindow {
     let flutterViewController = FlutterViewController()
     self.contentViewController = flutterViewController
 
-    // החלון נפתח בגודל אזור העבודה של המסך (בלי שורת התפריטים וה-Dock) —
-    // המקבילה למה שה-runner של ווינדוס עושה ב-`Win32Window` (גודל לפי
-    // work area + SW_SHOWMAXIMIZED). בלי זה נפתח כאן חלון בגודל שב-XIB,
-    // שקטן מהמינימום שה-Dart מבקש (900x620) והתוכן נדחס בו.
-    //
-    // כאן ולא מ-Dart, מאותה סיבה: ה-runner מציג את החלון רק כשהפריים
-    // הראשון מוכן, ולכן שינוי גודל לפני `runApp` מהבהב.
+    // בהיר תמיד, כמו הממשק עצמו — בלי זה מסגרת המערכת מתכהה במצב כהה.
+    self.appearance = NSAppearance(named: .aqua)
+
+    // חלון בינוני, 1000x720, ממורכז באזור העבודה (קטן יותר אם האזור קטן).
+    // כאן ולא מ-Dart: ה-runner מציג את החלון רק כשהפריים הראשון מוכן.
     if let visible = (self.screen ?? NSScreen.main)?.visibleFrame {
-      self.setFrame(visible, display: true)
+      let width = min(1000, visible.width)
+      let height = min(720, visible.height)
+      let frame = NSRect(
+        x: visible.minX + (visible.width - width) / 2,
+        y: visible.minY + (visible.height - height) / 2,
+        width: width,
+        height: height)
+      self.setFrame(frame, display: true)
     } else {
       self.setFrame(self.frame, display: true)
     }

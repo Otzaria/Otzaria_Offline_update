@@ -7,23 +7,29 @@ import '../l10n/app_strings_scope.dart';
 import 'action_buttons.dart';
 import 'ui_snack.dart';
 
-/// כפתור "העתקת הנתיב" לשורת הגדרה שמחזיקה נתיב. הנתיב עצמו אינו מוצג:
-/// הוא ארוך, נשבר בעברית, ומה שבאמת עושים איתו הוא להדביק אותו במקום אחר.
+/// "העתקת הנתיב" ליד `PathText`, שמקצר נתיב ארוך לשורה אחת.
 class CopyPathButton extends StatelessWidget {
-  const CopyPathButton({super.key, required this.path, this.enabled = true});
+  const CopyPathButton({
+    super.key,
+    required this.path,
+    this.enabled = true,
+    this.size = ActionButtonSize.md,
+  });
 
   final String path;
   final bool enabled;
+  final ActionButtonSize size;
 
   @override
   Widget build(BuildContext context) => ActionButton.ghost(
         text: context.strings.common.copyPathButton,
         icon: FluentIcons.copy_24_regular,
-        onPressed: enabled ? _copy : null,
+        size: size,
+        onPressed: enabled ? () => copyPath(path) : null,
       );
+}
 
-  Future<void> _copy() async {
-    await Clipboard.setData(ClipboardData(text: path));
-    UiSnack.showSuccess(AppL10n.strings.common.pathCopiedSnack);
-  }
+Future<void> copyPath(String path) async {
+  await Clipboard.setData(ClipboardData(text: path));
+  UiSnack.showSuccess(AppL10n.strings.common.pathCopiedSnack);
 }

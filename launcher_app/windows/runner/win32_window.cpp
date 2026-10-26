@@ -1,30 +1,15 @@
 #include "win32_window.h"
 
-#include <dwmapi.h>
 #include <flutter_windows.h>
 
+#include <cmath>
+
 #include "resource.h"
+#include "window_fit.h"
 
 namespace {
 
-/// Window attribute that enables dark mode window decorations.
-///
-/// Redefined in case the developer's machine has a Windows SDK older than
-/// version 10.0.22000.0.
-/// See: https://docs.microsoft.com/windows/win32/api/dwmapi/ne-dwmapi-dwmwindowattribute
-#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
-#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
-#endif
-
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
-
-/// Registry key for app theme preference.
-///
-/// A value of 0 indicates apps should use dark mode. A non-zero or missing
-/// value indicates apps should use light mode.
-constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
-  L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
-constexpr const wchar_t kGetPreferredBrightnessRegValue[] = L"AppsUseLightTheme";
 
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;
@@ -144,15 +129,69 @@ bool Win32Window::Create(const std::wstring& title,
     return false;
   }
 
-  UpdateTheme(window);
-
   return OnCreate();
 }
 
+void Win32Window::SetPreferredSize(const Size& content, bool maximized) {
+  preferred_size_ = content;
+  start_maximized_ = maximized;
+}
+
+// The margins around the client area. window_manager sets them (with the caption
+// hidden: a fixed 8 at the sides and bottom, 0-1 at the top), so they are read, not computed.
+static window_fit::Insets ClientInsets(HWND window) {
+  window_fit::Insets insets;
+  RECT outer;
+  RECT client;
+  POINT origin = {0, 0};
+  if (GetWindowRect(window, &outer) && GetClientRect(window, &client) &&
+      ClientToScreen(window, &origin)) {
+    insets.left = origin.x - outer.left;
+    insets.top = origin.y - outer.top;
+    insets.right = outer.right - (origin.x + client.right);
+    insets.bottom = outer.bottom - (origin.y + client.bottom);
+  }
+  return insets;
+}
+
+static bool WorkAreaOf(HWND window, RECT* work, double* scale) {
+  HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+  MONITORINFO info = {sizeof(MONITORINFO)};
+  if (!GetMonitorInfo(monitor, &info)) return false;
+  *work = info.rcWork;
+  *scale = FlutterDesktopGetDpiForMonitor(monitor) / 96.0;
+  return true;
+}
+
 bool Win32Window::Show() {
-  // התוכנה נפתחת תמיד מוגדלת, וההגדלה נעשית כאן ולא מצד ה-Dart: החלון מוצג
-  // רק אחרי הפריים הראשון, ולכן maximize מוקדם היה חושף אותו ריק ומהבהב.
-  return ShowWindow(window_handle_, SW_SHOWMAXIMIZED);
+  // The client area (all of it Flutter) is the preferred size, capped at the
+  // work area and centred. Placed even when maximizing: it is the restore rect.
+  RECT work;
+  double scale;
+  if (preferred_size_.width > 0 && WorkAreaOf(window_handle_, &work, &scale)) {
+    const window_fit::Box box = window_fit::CenteredOuter(
+        work.left, work.top, work.right - work.left, work.bottom - work.top,
+        std::lround(preferred_size_.width * scale),
+        std::lround(preferred_size_.height * scale),
+        ClientInsets(window_handle_));
+    SetWindowPos(window_handle_, nullptr, box.left, box.top, box.width,
+                 box.height, SWP_NOZORDER | SWP_NOACTIVATE);
+  }
+  return ShowWindow(window_handle_,
+                    start_maximized_ ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL);
+}
+
+void Win32Window::FitMinTrackSize(MINMAXINFO* info) {
+  RECT work;
+  double scale;
+  if (!WorkAreaOf(window_handle_, &work, &scale)) return;
+  const window_fit::Insets insets = ClientInsets(window_handle_);
+  info->ptMinTrackSize.x = window_fit::MinTrack(
+      info->ptMinTrackSize.x, work.right - work.left,
+      insets.left + insets.right);
+  info->ptMinTrackSize.y = window_fit::MinTrack(
+      info->ptMinTrackSize.y, work.bottom - work.top,
+      insets.top + insets.bottom);
 }
 
 // static
@@ -215,9 +254,6 @@ Win32Window::MessageHandler(HWND hwnd,
       }
       return 0;
 
-    case WM_DWMCOLORIZATIONCOLORCHANGED:
-      UpdateTheme(hwnd);
-      return 0;
   }
 
   return DefWindowProc(window_handle_, message, wparam, lparam);
@@ -272,19 +308,4 @@ bool Win32Window::OnCreate() {
 
 void Win32Window::OnDestroy() {
   // No-op; provided for subclasses.
-}
-
-void Win32Window::UpdateTheme(HWND const window) {
-  DWORD light_mode;
-  DWORD light_mode_size = sizeof(light_mode);
-  LSTATUS result = RegGetValue(HKEY_CURRENT_USER, kGetPreferredBrightnessRegKey,
-                               kGetPreferredBrightnessRegValue,
-                               RRF_RT_REG_DWORD, nullptr, &light_mode,
-                               &light_mode_size);
-
-  if (result == ERROR_SUCCESS) {
-    BOOL enable_dark_mode = light_mode == 0;
-    DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
-                          &enable_dark_mode, sizeof(enable_dark_mode));
-  }
 }

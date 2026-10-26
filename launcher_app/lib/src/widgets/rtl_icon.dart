@@ -1,4 +1,4 @@
-// אייקון RTL-מודע שמהפך חיצי ניווט אוטומטית — פורט מאוצריא.
+// אייקון RTL-מודע: מחליף או מהפך אייקון שאין לו היפוך משלו — פורט מאוצריא.
 // ⚠️ אין להשתמש ב-const Map<IconData,...> כי IconData לא מימש ==.
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
@@ -18,15 +18,8 @@ class RtlIcon extends StatelessWidget {
     this.semanticLabel,
   });
 
+  // חצים ו-chevron של Fluent נושאים matchTextDirection, ו-Icon מהפך אותם בעצמו.
   static final Map<IconData, IconData> _fluentMirrorMap = {
-    FluentIcons.chevron_right_24_regular: FluentIcons.chevron_left_24_regular,
-    FluentIcons.chevron_left_24_regular: FluentIcons.chevron_right_24_regular,
-    FluentIcons.chevron_right_20_regular: FluentIcons.chevron_left_20_regular,
-    FluentIcons.chevron_left_20_regular: FluentIcons.chevron_right_20_regular,
-    FluentIcons.arrow_right_24_regular: FluentIcons.arrow_left_24_regular,
-    FluentIcons.arrow_left_24_regular: FluentIcons.arrow_right_24_regular,
-    FluentIcons.arrow_right_24_filled: FluentIcons.arrow_left_24_filled,
-    FluentIcons.arrow_left_24_filled: FluentIcons.arrow_right_24_filled,
     FluentIcons.panel_left_24_regular: FluentIcons.panel_right_24_regular,
     FluentIcons.panel_right_24_regular: FluentIcons.panel_left_24_regular,
   };

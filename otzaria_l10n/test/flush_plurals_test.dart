@@ -19,7 +19,8 @@ void main() {
     expect(t.flushErrorSnack(2), contains('2 דיווחים'));
     expect(t.flushPartialSnack(1, 1), contains('1 דיווח לא נשלח'));
     expect(t.flushPartialSnack(2, 2), contains('2 דיווחים לא נשלחו'));
-    expect(t.pendingCount(1), contains('1 דיווח שמור'));
+    expect(he.pages.repStoredTitle(1), '1 דיווח שמור בכונן');
+    expect(he.pages.repWaitingTitle(1), '1 דיווח ממתין לשליחה');
     expect(t.sentSummary(1, 1), 'נשלח 1 דיווח');
     // אף משפט אינו מכיל "1 דיווחים".
     for (final text in [
@@ -29,7 +30,8 @@ void main() {
       t.flushFailedSnack(1),
       t.flushErrorSnack(1),
       t.flushPartialSnack(1, 1),
-      t.pendingCount(1),
+      he.pages.repStoredTitle(1),
+      he.pages.repWaitingTitle(1),
       t.sentSummary(1, 1),
     ]) {
       expect(text, isNot(contains('1 דיווחים')), reason: text);

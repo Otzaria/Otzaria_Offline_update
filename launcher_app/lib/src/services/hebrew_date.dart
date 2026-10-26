@@ -1,11 +1,5 @@
-import 'package:otzaria_l10n/otzaria_l10n.dart';
-
-/// המרת תאריך לועזי לתאריך עברי בגימטריה — למשל `ט"ו בשבט ה'תשפ"ו`.
-///
-/// חנות התוספים המקורית קיבלה את זה חינם מ-`Intl` בדפדפן
-/// (`he-u-ca-hebrew`), אבל ל-`package:intl` ב-Dart אין לוח שנה עברי. לכן
-/// ההמרה מחושבת כאן: אלגוריתם המולד הסטנדרטי (Dershowitz & Reingold),
-/// והגימטריה היא פורט ישיר של `toHebrewNumeral` מהחנות.
+/// תאריך עברי בגימטריה (`ט"ו שבט ה'תשפ"ו`). ל-`package:intl` אין לוח עברי,
+/// ולכן אלגוריתם המולד (Dershowitz & Reingold).
 class HebrewDate {
   const HebrewDate(this.year, this.month, this.day);
 
@@ -15,10 +9,11 @@ class HebrewDate {
   final int month;
   final int day;
 
-  /// "יום חודש שנה" בעברית, למשל `ט"ו בשבט ה'תשפ"ו`.
+  /// כמו `formatHebrewDate` של חנות התוספים באתר (`src/lib/hebrewDate.ts`):
+  /// `ט' חשוון ה'תשפ"ז` — שמות החודשים של ICU, והשנה עם האלפים.
   @override
   String toString() =>
-      '${toHebrewNumeral(day)} ב$monthName ${toHebrewNumeral(year)}';
+      '${toHebrewNumeral(day)} $monthName ${toHebrewNumeral(year)}';
 
   String get monthName {
     if (month == 12 && isLeapYear(year)) return 'אדר א׳';
@@ -29,12 +24,12 @@ class HebrewDate {
   static const Map<int, String> _monthNames = {
     1: 'ניסן',
     2: 'אייר',
-    3: 'סיון',
+    3: 'סיוון',
     4: 'תמוז',
     5: 'אב',
     6: 'אלול',
     7: 'תשרי',
-    8: 'חשון',
+    8: 'חשוון',
     9: 'כסלו',
     10: 'טבת',
     11: 'שבט',
@@ -48,22 +43,6 @@ class HebrewDate {
   static HebrewDate fromDateTime(DateTime date) =>
       _fromAbsolute(_absoluteFromGregorian(date.year, date.month, date.day));
 
-  /// מפרמט מחרוזת תאריך מה-API (`YYYY-MM-DD` או ISO-8601 מלא). מחזיר את
-  /// המחרוזת המקורית אם אי אפשר לפרסר אותה — עדיף על שגיאה במסך.
-  /// באנגלית מוחזר תאריך לועזי: תאריך עברי בגימטריה בתוך משפט אנגלי אינו
-  /// קריא, וגם אין מה לתרגם בו — שמות החודשים הם התוכן עצמו.
-  static String format(String? raw) {
-    if (raw == null || raw.isEmpty) return '';
-    final date = DateTime.tryParse(raw);
-    if (date == null) return raw;
-    if (!AppL10n.language.isRtl) {
-      final month = date.month.toString().padLeft(2, '0');
-      final day = date.day.toString().padLeft(2, '0');
-      return '${date.year}-$month-$day';
-    }
-    return HebrewDate.fromDateTime(date).toString();
-  }
-
   static bool isLeapYear(int year) => ((7 * year + 1) % 19) < 7;
 
   static int _lastMonthOfYear(int year) => isLeapYear(year) ? 13 : 12;
@@ -75,13 +54,11 @@ class HebrewDate {
         12 * ((year - 1) % 19) +
         (7 * ((year - 1) % 19) + 1) ~/ 19;
     final partsElapsed = 204 + 793 * (monthsElapsed % 1080);
-    final hoursElapsed = 11 +
+    // מולד בהר"ד: ב' בשבוע, 5 שעות ור"ד (204) חלקים.
+    final hoursElapsed = 5 +
         12 * monthsElapsed +
         793 * (monthsElapsed ~/ 1080) +
         partsElapsed ~/ 1080;
-    // ה-+1 מיישר את יום המולד לעוגן [_epoch]. בלעדיו יום השבוע של המולד
-    // יוצא מוסט, ולכן הדחיות למטה מופעלות על היום הלא נכון — וראש השנה
-    // נופל בטעות יום או שניים מוקדם מדי בחלק מהשנים.
     final day = 29 * monthsElapsed + hoursElapsed ~/ 24 + 1;
     final parts = (hoursElapsed % 24) * 1080 + partsElapsed % 1080;
 
@@ -169,8 +146,8 @@ class HebrewDate {
     );
   }
 
-  /// המרת מספר לגימטריה — פורט ישיר של `toHebrewNumeral` מהחנות המקורית,
-  /// כולל טו/טז והצבת הגרש/גרשיים.
+  /// המרת מספר לגימטריה — פורט של `toHebrewNumeral` מהאתר, כולל טו/טז
+  /// והצבת הגרש/גרשיים.
   static String toHebrewNumeral(int number) {
     const ones = ['', 'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט'];
     const tens = ['', 'י', 'כ', 'ל', 'מ', 'נ', 'ס', 'ע', 'פ', 'צ'];

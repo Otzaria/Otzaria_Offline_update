@@ -1,65 +1,85 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:fluentui_system_icons/fluentui_system_icons.dart';
+import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:library_manager/library_manager.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
 
-import '../app_report/launcher_crash_session.dart';
 import '../controllers/app_reports_controller.dart';
-import '../controllers/auto_install_flow.dart';
-import '../controllers/custom_apps_controller.dart';
 import '../controllers/download_plan.dart';
-import '../controllers/download_summary.dart';
 import '../controllers/error_reports_controller.dart';
-import '../controllers/faq_controller.dart';
-import '../controllers/launcher_update_controller.dart';
 import '../controllers/launcher_update_flow.dart';
-import '../controllers/library_module_controller.dart';
-import '../controllers/mirror_download_flow.dart';
-import '../controllers/otzaria_module_controller.dart';
-import '../controllers/plugins_module_controller.dart';
+import '../controllers/otzaria_module_controller.dart' show OtzariaModuleStatus;
+import '../controllers/plugins_module_controller.dart' show PluginsModuleStatus;
 import '../controllers/search_feedback_controller.dart';
-import '../controllers/shell_module_ports.dart';
-import '../services/app_logger.dart';
+import '../flows/library_flows.dart'
+    show
+        capturePersonalVersion,
+        pickLibraryInstallDir,
+        showLibraryChangesDialog;
 import '../services/app_paths.dart';
-import '../services/byte_size.dart';
 import '../services/dialog_queue.dart';
-import '../services/elevation.dart';
 import '../services/file_reveal.dart';
-import '../services/mirror_junk_sweeper.dart';
 import '../services/notices_seen_store.dart';
-import '../services/report_offer_coordinator.dart';
-import '../services/search_feedback_auto_sync.dart';
 import '../services/sleep_inhibitor.dart';
 import '../settings/app_settings.dart';
 import '../settings/safer_mode.dart';
 import '../settings/settings_controller.dart';
+import '../shell/app_session.dart';
+import '../shell/home_guidance.dart';
+import '../shell/home_guidance_session.dart';
+import '../shell/session_prompts.dart';
+import '../shell/shell_keys.dart';
+import '../shell/shell_navigator.dart';
+import '../shell/shell_tasks.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/widgets_exports.dart';
 import 'app_report/crash_prompt_dialog.dart';
+import 'custom_apps/custom_apps_manage_page.dart';
 import 'custom_apps/custom_apps_screen.dart';
 import 'error_reports_flow.dart';
-import 'faq/faq_floating_button.dart';
-import 'home_screen.dart';
+import 'help/help_page.dart';
+import 'home/home_page.dart';
+import 'home/home_progress.dart';
+import 'home/home_view_model.dart';
+import 'home/personal_scope_dialog.dart';
+import 'home/semantic_consent_dialog.dart';
+import 'home/whats_new_dialog.dart';
+import 'launcher/launcher_update_page.dart';
 import 'library_screen.dart';
-import 'otzaria_screen.dart';
+import 'otzaria_advanced_page.dart';
 import 'plugins/plugins_screen.dart';
+import 'reports/reports_page.dart';
 import 'reports_upload_flow.dart';
 import 'settings_screen.dart';
+import 'tasks/download_task_view.dart';
+import 'tasks/update_here_task_view.dart';
 
-/// המסך הפעיל בסרגל הניווט. "תוכנה" קודם ל"ספרייה" — ראו [_NavRail].
-///
-/// [customApps] הוא היחיד שאינו תמיד בסרגל: הוא מופיע רק אחרי שהמשתמש
-/// הוסיף תוכנה משלו. מי שלא עושה זאת רואה בדיוק את הסרגל שהיה כאן קודם.
-enum LauncherScreen { home, otzaria, library, plugins, customApps, settings }
+/// כפתור השפה שבמסך הפתיחה: עברית ↔ אנגלית, ונשמר בהגדרות.
+Future<void> toggleAppLanguage(SettingsController settings) {
+  final current = settings.settings;
+  final next = current.language == AppLanguage.hebrew
+      ? AppLanguagePreference.english
+      : AppLanguagePreference.hebrew;
+  return settings.update(current.copyWith(languagePreference: next));
+}
 
-/// מסגרת האפליקציה: שורת כותרת מותאמת למעלה, סרגל ניווט קבוע בצד, וחמשת
-/// המסכים. שלושתם נצבעים באותו רקע לוח — בלי תפר ביניהם.
+/// Esc בשדה טקסט (חיפוש בחנות) יוצא מהשדה ולא חוזר לבית. `true` — יצא.
+@visibleForTesting
+bool leaveTextField() {
+  final focus = FocusManager.instance.primaryFocus;
+  if (focus?.context?.findAncestorStateOfType<EditableTextState>() == null) {
+    return false;
+  }
+  focus!.unfocus();
+  return true;
+}
+
+/// מסגרת האפליקציה: שורת כותרת מותאמת למעלה, ומתחתיה הגוף — הבית או דף
+/// משנה שנפתח ממנו. אין סרגל ניווט ואין דף שמכסה את שורת הכותרת.
 class AppShell extends StatefulWidget {
   const AppShell({
     super.key,
@@ -121,675 +141,125 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
-  late final SleepInhibitor _sleepInhibitor =
-      widget.sleepInhibitor ?? SleepInhibitor();
-  late final OtzariaModuleController _otzaria;
-  late final LibraryModuleController _library;
-  late final PluginsModuleController _plugins;
-
-  /// "התוסף הותקן בהצלחה" — נשלח מהקונטרולר כשהסריקה זיהתה שאוצריא סיימה.
-  late final StreamSubscription<String> _installDone;
-  late final StreamSubscription<Object?> _installRejected;
-
-  /// תוכנות שהמשתמש הוסיף בעצמו. אינו מודול כמו השלושה: הוא לא נבדק
-  /// ב-[checkAll], אין לו הורדה מהרשת, והוא נעלם לגמרי כשאין בו כלום.
-  late final CustomAppsController _customApps;
-
-  /// עדכון הלאנצ'ר **עצמו** — נפרד משלושת המודולים: הוא לא מתקין כלום במחשב,
-  /// אלא מחליף את קובץ ההרצה שלנו ומפעיל אותו מחדש.
-  late final LauncherUpdateController _launcherUpdate;
-
-  /// ההתאמות שהמשתמש עשה להדרכת השאלות הנפוצות. אינו מודול: אין לו בדיקה,
-  /// אין לו הורדה, והוא נטען פעם אחת בעלייה.
-  late final FaqController _faq;
-
-  /// דיווחי טעויות של אוצריא: איסוף לכונן בעלייה, והעלאה מכרטיס ההורדות.
-  late final ErrorReportsController _errorReports;
-  late final SearchFeedbackController _searchFeedback;
-
-  late final NoticesSeenStore _notices =
-      widget.noticesStore ?? NoticesSeenStore(widget.stateFilesDir);
-
-  Future<void> _errorReportsIntro = Future<void>.value();
-
-  /// ההצעה להוריד גרסה חדשה של הלאנצ'ר מוצגת **פעם אחת בהרצה**. הבדיקה הקלה
-  /// יכולה לרוץ עוד פעמים (כפתור "בדיקת עדכונים"), ודיאלוג שקופץ בכל אחת מהן
-  /// היה נדנוד.
-  bool _askedAboutLauncherUpdate = false;
-
-  /// "מה התחדש" כבר הוצג בדיאלוג ההצעה, ולכן דיאלוג ההתקנה שבא מיד אחריו
-  /// לא חוזר עליו. נכבה בסוף הרצף, כדי שהתקנה ידנית מאוחרת תציג אותו.
-  bool _whatsNewAlreadyShown = false;
-
-  /// ההצעה להפעיל מחדש כמנהל — גם היא פעם אחת בהרצה, ראו
-  /// [_maybeOfferElevation].
-  bool _offeredElevation = false;
-
-  bool _elevationPending = false;
-
-  LauncherScreen _screen = LauncherScreen.home;
-
-  /// שומר הסף של מצב הסייפר. חי לאורך ההרצה, ולכן אימות אחד מלווה גם את
-  /// ההגדרות וגם את עריכת ההדרכה — ראו `SaferModeGate`.
-  late final SaferModeGate _saferMode = SaferModeGate(widget.settings);
-
-  /// **נגזר** מהקונטרולר ולא מועתק לשדה: העתק נשאר תקוע על "פתוחה" עד
-  /// להפעלה מחדש של הלאנצ'ר, גם אחרי שאוצריא נסגרה ובדיקה חדשה כבר ידעה זאת.
-  bool get _otzariaIsRunning => _otzaria.isRunning;
-
-  static const Duration _runningPollInterval = Duration(seconds: 3);
-  static const Duration _runningWatchSlice = Duration(minutes: 1);
-  Timer? _runningPoll;
-  Future<void>? _runningWatch;
-
-  /// המסכים שנבנו בפועל. ה-[IndexedStack] בונה את *כל* ילדיו, ולכן בעבר גם
-  /// חנות התוספים (רשת כרטיסים עם תמונה לכל תוסף) נבנתה ופענחה את כל
-  /// התמונות עוד לפני שהמשתמש נכנס אליה — עלות ישירה בזמן העלייה וב-RAM.
-  /// כאן כל מסך נבנה בכניסה הראשונה אליו, ומאותו רגע נשאר בעץ עם המצב שלו.
-  final Set<LauncherScreen> _builtScreens = {LauncherScreen.home};
-
-  bool _announcedPlugins = false;
-
-  bool _isCheckingOnline = false;
-
-  late final OtzariaModulePort _otzariaPort = OtzariaModulePort(_otzaria);
-  late final LibraryModulePort _libraryPort = LibraryModulePort(_library);
-
-  late final MirrorDownloadFlow _downloads = MirrorDownloadFlow(
-    app: _otzariaPort,
-    library: _libraryPort,
-    plugins: PluginsModulePort(_plugins),
-    host: _ShellDownloadHost(this),
-  );
-
-  late final LauncherUpdateFlow _launcherFlow = LauncherUpdateFlow(
-    launcher: LauncherUpdatePort(_launcherUpdate),
-    downloads: _downloads,
-    host: _ShellLauncherHost(this),
-  );
-
-  late final AutoInstallFlow _autoInstall = AutoInstallFlow(
-    library: _libraryPort,
-    app: _otzariaPort,
-    isOtzariaRunning: refreshProcessState,
-    isDownloading: () => _downloads.isDownloading,
-    exitPending: () => _exitPending,
-    isActive: () => mounted,
-  );
-
-  late final ReportOfferCoordinator _offers = ReportOfferCoordinator(
-    isTaskRunning: () =>
-        _longTaskRunning ||
-        _errorReports.isCollecting ||
-        _errorReports.isUploading ||
-        _uploadingReports ||
-        _downloads.isPreparing,
-    isActive: () => mounted,
-    prepare: _prepareOffer,
-    runDialog: _dialogs.run,
-    perform: _performOffer,
-    onResume: () {
-      if (!widget.readOnly) _feedbackSync.resume();
-    },
-  );
-
-  late final SearchFeedbackAutoSync _feedbackSync = SearchFeedbackAutoSync(
-    run: _syncSearchFeedback,
-    isBusy: () => _offers.busy,
-  );
-
-  final Completer<void> _firstFrame = Completer<void>();
-
-  bool _uploadingReports = false;
+class _AppShellState extends State<AppShell> implements SessionPrompts {
+  late final AppSession _session;
+  late final ShellNavigator _navigator = ShellNavigator(canEnter: _canEnter);
 
   late final DialogQueue _dialogs = DialogQueue(
     isActive: () => mounted,
     isBlocked: () =>
-        _exitPending || !(ModalRoute.of(context)?.isCurrent ?? true),
+        _session.exitPending || !(ModalRoute.of(context)?.isCurrent ?? true),
   );
+
+  @visibleForTesting
+  AppSession get session => _session;
+
+  @visibleForTesting
+  ShellNavigator get navigator => _navigator;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _firstFrame.complete());
-    final s = widget.settings.settings;
-
-    _otzaria = OtzariaModuleController(
+    _session = AppSession(
       dataDir: widget.dataDir,
-      stateDir: widget.stateFilesDir,
-      preferPrerelease: s.preferAppPrerelease,
+      stateDir: widget.stateDir,
+      settings: widget.settings,
+      prompts: this,
+      readOnly: widget.readOnly,
+      driveFull: widget.driveFull,
       runningLocator: widget.runningLocator,
-      pendingLaunchUri: () async =>
-          _library.hasPendingReindex ? OtzariaDeepLinks.libraryReindex : null,
-      onLaunchUriDelivered: () => _library.markReindexRequestDelivered(),
-      isLibraryApplying: () => _library.isApplying,
-    )..addListener(_onChange);
-    _library = LibraryModuleController(
-      dataDir: widget.dataDir,
-      stateDir: widget.stateFilesDir,
-      otzariaLaunchPath: () async => _otzaria.launchPath,
-      otzariaAppVersion: () async => _otzaria.currentVersion,
-      mirroredOtzariaUpdate: () async =>
-          _otzaria.status == OtzariaModuleStatus.updateAvailable
-              ? _otzaria.latestVersion
-              : null,
-      instanceLock: const OtzariaInstanceLock(),
-    )..addListener(_onChange);
-    _plugins = PluginsModuleController(
-      mirrorRootDir: p.join(widget.dataDir, 'mirror'),
-      stateDir: widget.stateFilesDir,
-      otzariaLaunchPath: () async => _otzaria.launchPath,
-      locatePluginsDb: PluginsModuleController.locateOtzariaPluginsDb,
-      mirroredAppVersions: () async => [
-        if (_otzaria.stableVersion != null) _otzaria.stableVersion!,
-        if (_otzaria.prereleaseVersion != null) _otzaria.prereleaseVersion!,
-      ],
-      installedAppVersion: () async =>
-          _otzaria.currentVersion ?? _otzaria.latestVersion,
-      ensureAppVersionsKnown: _otzaria.ensureChecked,
-    )..addListener(_onChange);
-    _installDone = _plugins.installCompletions.listen((name) {
-      if (mounted) {
-        UiSnack.showSuccess(AppL10n.strings.plugins.installDoneSnack(name));
-      }
-    });
-    _installRejected = _plugins.installRejections.listen((entry) {
-      if (!mounted) return;
-      final t = AppL10n.strings.plugins;
-      if (entry.report.cancelled) {
-        UiSnack.show(t.installCancelledSnack(entry.name));
-      } else {
-        UiSnack.showError(
-          t.installRejectedSnack(entry.name, entry.report.message),
-        );
-      }
-    });
-    _customApps = CustomAppsController(
-      mirrorRootDir: p.join(widget.dataDir, 'mirror'),
-      stateDir: widget.stateFilesDir,
-      trustFilePath: _customAppsTrustFile(),
-    )..addListener(_onChange);
-    _launcherUpdate = LauncherUpdateController(dataDir: widget.dataDir)
-      ..addListener(_onChange);
-    _faq = FaqController(dataDir: widget.stateDir);
-    unawaited(_faq.load());
-    _errorReports = (widget.errorReports ??
-        ErrorReportsController.forDrive(
-          stateDir: widget.stateDir,
-          dataDir: widget.dataDir,
-          stateFilesDir: widget.stateFilesDir,
-          launchPath: () async => _otzaria.launchPath,
-        ))
-      ..addListener(_onReportsChange);
-    _searchFeedback = (widget.searchFeedback ??
-        SearchFeedbackController.forDrive(
-          dataDir: widget.dataDir,
-          stateDir: widget.stateDir,
-          stateFilesDir: widget.stateFilesDir,
-          launchPath: () async => _otzaria.launchPath,
-          runningLocator: widget.runningLocator,
-        ))
-      ..addListener(_onReportsChange);
-    if (!widget.readOnly) unawaited(_errorReports.refreshOutbox());
-    _errorReportsIntro = _showErrorReportsIntro();
-    widget.settings.addListener(_onChange);
-    _applySettings(s);
-
-    unawaited(_plugins.load());
-    unawaited(_customApps.load());
-    if (s.autoCheckUpdates) {
-      unawaited(checkAll());
-    } else {
-      unawaited(refreshProcessState());
-      unawaited(_launcherFlow.checkMirror());
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        unawaited(_otzaria.ensureChecked().then((_) {
-          _requestFeedbackSync();
-          return _offers.request();
-        }));
-      });
-    }
-    if (widget.appReports case final reports?) {
-      reports.stateProvider = _reportState;
-      unawaited(_startReports(reports));
-    }
-    if (s.autoCheckUpdates) {
-      unawaited(checkOnline());
-    }
-    LauncherCrashSession.closeGuard = _confirmClose;
+      noticesStore: widget.noticesStore,
+      appReports: widget.appReports,
+      sleepInhibitor: widget.sleepInhibitor,
+      searchFeedback: widget.searchFeedback,
+      errorReports: widget.errorReports,
+    )
+      ..addListener(_onSessionChange)
+      ..addListener(_onSessionChangeInStore);
+    _session.tasks.addListener(_onTasks);
+    _navigator
+      ..addListener(_onSessionChange)
+      ..addListener(_onNavigation);
+    _session.start();
   }
 
   @override
   void dispose() {
-    _sleepInhibitor.dispose();
-    if (LauncherCrashSession.closeGuard == _confirmClose) {
-      LauncherCrashSession.closeGuard = null;
-    }
+    _session.tasks.removeListener(_onTasks);
     _dialogs.dispose();
-    _runningPoll?.cancel();
-    _offers.dispose();
-    _feedbackSync.dispose();
-    unawaited(_installDone.cancel());
-    unawaited(_installRejected.cancel());
-    widget.settings.removeListener(_onChange);
-    _otzaria.removeListener(_onChange);
-    _library.removeListener(_onChange);
-    _plugins.removeListener(_onChange);
-    _customApps.removeListener(_onChange);
-    _launcherUpdate.removeListener(_onChange);
-    _errorReports.removeListener(_onReportsChange);
-    _searchFeedback.removeListener(_onReportsChange);
-    _otzaria.dispose();
-    _library.dispose();
-    _plugins.dispose();
-    _customApps.dispose();
-    _launcherUpdate.dispose();
-    _errorReports.dispose();
-    _searchFeedback.dispose();
-    _faq.dispose();
+    _faqEditRequest.dispose();
+    _navigator
+      ..removeListener(_onSessionChange)
+      ..removeListener(_onNavigation)
+      ..dispose();
+    _session
+      ..removeListener(_onSessionChange)
+      ..removeListener(_onSessionChangeInStore)
+      ..dispose();
     super.dispose();
   }
 
-  void _onChange() {
+  void _onSessionChange() {
+    if (mounted) setState(() {});
+  }
+
+  /// משימה שנפתחה מוצגת מיד בשכבה מעל הגוף, ונעלמת כשהיא נסגרת.
+  void _onTasks() {
     if (!mounted) return;
-    _syncSleepInhibition();
-    _offers.onRunningState(running: _otzariaIsRunning);
-    if (!widget.readOnly) {
-      _feedbackSync.onRunningState(running: _otzariaIsRunning);
+    if (_session.tasks.hasTask) {
+      _navigator.showTask();
+    } else {
+      _navigator.endTask();
     }
-    _offers.resume();
-    _applySettings(widget.settings.settings);
-    _syncRunningPoll();
     setState(() {});
-    unawaited(_maybeOfferElevation());
-    unawaited(_maybeAnnouncePlugins());
   }
 
-  void _onReportsChange() {
-    if (!mounted) return;
-    _syncSleepInhibition();
-    _offers.resume();
-    unawaited(_maybeOfferElevation());
-  }
-
-  Future<void> _maybeAnnouncePlugins() async {
-    if (_announcedPlugins || _plugins.status != PluginsModuleStatus.ready) {
-      return;
-    }
-    _announcedPlugins = true;
-
-    final fresh = _plugins.newPluginsForHome;
-    final hasUpdates = _plugins.updatablePlugins.isNotEmpty;
-    if (fresh.isEmpty && !hasUpdates) return;
-
-    await WidgetsBinding.instance.endOfFrame;
-    await _dialogs.run(() async {
-      final t = context.strings.plugins;
-      final message = hasUpdates && fresh.isNotEmpty
-          ? t.homeNoticeUpdatesAndNew
-          : hasUpdates
-              ? t.homeNoticeUpdates
-              : fresh.length == 1
-                  ? t.homeNoticeNewOne
-                  : t.homeNoticeNewMany(fresh.length);
-
-      unawaited(_plugins.markHomeNotified(fresh));
-      final open = await showTwoActionsDialog(
-        context: context,
-        title: t.homeNoticeTitle,
-        content: message,
-        cancelText: context.strings.common.close,
-        confirmText: t.homeNoticeOpenButton,
-      );
-      if (open && mounted) await _goTo(LauncherScreen.plugins);
-    });
-  }
-
-  Future<void> _showErrorReportsIntro() async {
-    await WidgetsBinding.instance.endOfFrame;
-    if (!mounted) return;
-    await _dialogs.run(
-      () => showErrorReportsIntroOnce(
-        context,
-        _notices,
-        readOnly: widget.readOnly,
-        driveFull: widget.driveFull,
-      ),
-    );
-  }
-
-  /// מצב המודולים לאבחון הדיווח — בלי נתיבים ושמות קבצים של המשתמש.
-  Map<String, dynamic> _reportState() {
-    final s = widget.settings.settings;
-    return {
-      'readOnly': widget.readOnly,
-      'otzaria': _otzaria.status.name,
-      'otzariaRunning': _otzariaIsRunning,
-      'library': _library.status.name,
-      'plugins': _plugins.status.name,
-      'customApps': _customApps.hasApps,
-      'launcherUpdateReady': _launcherUpdate.hasUpdateReady,
-      'autoCheckUpdates': s.autoCheckUpdates,
-      'autoInstall': s.autoInstall,
-      'personalUpdateMode': s.personalUpdateMode,
-      'crashReportMode': s.crashReportMode.wireName,
-      'language': s.language.name,
-    };
-  }
-
-  Future<void> _startReports(AppReportsController reports) async {
-    await WidgetsBinding.instance.endOfFrame;
-    if (!mounted) return;
-    reports.startBackground();
-    await reports.runCrashCheck(
-      showPrompt: (candidate) async {
-        final shown = await _dialogs.run(
-          () async {
-            await showCrashPromptDialog(
-              context,
-              reports: reports,
-              candidate: candidate,
-              saferMode: _saferMode,
-            );
-            return true;
-          },
-          forever: true,
-        );
-        return shown ?? false;
-      },
-    );
-  }
-
-  Future<void> _maybeOfferElevation() async {
-    if (_offeredElevation || !Platform.isWindows) return;
-    if (!_library.needsElevation &&
-        !_otzaria.needsElevation &&
-        !_launcherUpdate.needsElevation) {
-      return;
-    }
-    if (_exitWouldInterrupt) return;
-    _offeredElevation = true;
-    await Future<void>.delayed(Duration.zero);
-    if (!mounted) return;
-
-    final t = AppL10n.strings.elevation;
-    final approved = await _dialogs.run(
-      () => showTwoActionsDialog(
-        context: context,
-        title: t.dialogTitle,
-        content: t.dialogContent,
-        cancelText: t.dialogCancel,
-        confirmText: t.dialogConfirm,
-      ),
-    );
-    if (approved == null) _offeredElevation = false;
-    if (approved != true || !mounted) return;
-    await _searchFeedback.stopAndWait();
-    if (!mounted) return;
-    if (_exitWouldInterrupt) {
-      _offeredElevation = false;
-      UiSnack.show(t.busyNotice);
-      return;
-    }
-
-    setState(() => _elevationPending = true);
-    final Object? failure;
-    try {
-      failure = await Elevation.restartElevated();
-    } finally {
-      if (mounted) {
-        setState(() => _elevationPending = false);
-        _offers.resume();
-      }
-    }
-    if (failure != null && failure != Elevation.cancelled) {
-      UiSnack.showError(t.restartFailedSnack('$failure'));
+  /// מה שמוצג בחנות "מוזכר" — גם תוסף שהגיע בסנכרון בזמן שהמשתמש בה, כדי
+  /// שלא יופיע אחר כך בבית כ"חדש".
+  void _onNavigation() {
+    if (_navigator.section == ShellSection.plugins) {
+      unawaited(_session.markPluginsVisited());
     }
   }
 
-  void _syncRunningPoll() {
-    if (_otzariaIsRunning) _runningWatch ??= _watchUntilClosed();
-  }
-
-  Future<void> _watchUntilClosed() async {
-    try {
-      while (mounted && _otzariaIsRunning) {
-        final exited =
-            await widget.runningLocator.waitForExit(_runningWatchSlice);
-        if (!mounted) return;
-        if (exited == null) {
-          final elapsed = Completer<void>();
-          _runningPoll = Timer(_runningPollInterval, elapsed.complete);
-          await elapsed.future;
-          if (!mounted) return;
-        }
-        await _otzaria.refreshRunningState();
-      }
-    } finally {
-      _runningWatch = null;
+  void _onSessionChangeInStore() {
+    // תוסף שנמחק בסנכרון בזמן שפרטיו מוצגים — חוזרים לרשימה, כדי שחזרה אחת תספיק.
+    if (_navigator.current case PluginDetailRoute(:final id)
+        when _session.plugins.status == PluginsModuleStatus.ready &&
+            _session.plugins.byId(id) == null) {
+      _navigator.back();
+    }
+    if (_navigator.section == ShellSection.plugins &&
+        _session.newPluginsForHome.isNotEmpty) {
+      unawaited(_session.markPluginsVisited());
     }
   }
 
-  /// מזליג הגדרות שהקונטרולרים צריכים. הכול idempotent (הצבת ערך), ולכן אין
-  /// צורך לעקוב אחרי שינוי בפועל.
-  void _applySettings(AppSettings s) {
-    // ה-setter מתעלם מהצבה חוזרת של אותו ערך, ולכן זה לא מריץ בדיקה בכל
-    // שינוי הגדרה אחר.
-    _otzaria.preferPrerelease = s.preferAppPrerelease;
-    _library.personalUpdateMode = s.personalUpdateMode;
-  }
+  @override
+  Future<T?> runDialog<T>(Future<T> Function() body, {bool forever = false}) =>
+      _dialogs.run(body, forever: forever);
 
-  /// בדיקת תהליך עצמאית — לרענון יזום מהמסך, ובעיקר **מיד לפני** פעולה
-  /// שאוצריא הפתוחה חוסמת. מחזירה את התוצאה הטרייה, כי `otzariaIsRunning`
-  /// של המסכים הוא הערך שנלכד בבנייה — זה שבגללו נחסמו מלכתחילה.
-  ///
-  /// `force`: זו נקודת ההכרעה לפני פעולה חוסמת, ולכן אינה מסתפקת בתשובה של
-  /// בדיקה שכבר הייתה באוויר. הרענון המחזורי, לעומת זאת, כן מצטרף.
-  Future<bool> refreshProcessState() =>
-      _otzaria.refreshRunningState(force: true);
-
-  Future<bool> closeOtzaria() => _offers.holdFor(() async {
-        final closed = await _otzaria.closeRunning();
-        if (mounted) _syncRunningPoll();
-        return closed;
-      });
-
-  bool _blockedByReadOnly() {
-    if (!widget.readOnly) return false;
-    final t = AppL10n.strings.readOnlyDrive;
-    UiSnack.show(
-      widget.driveFull
-          ? t.downloadsDisabledSnackDriveFull
-          : t.downloadsDisabledSnack,
-    );
-    return true;
-  }
-
-  Future<void> checkAll() async {
-    await _launcherFlow.checkMirror();
-    if (!mounted) return;
-
-    await _otzaria.checkForUpdate();
-    if (!mounted) return;
-    unawaited(_plugins.refreshInstalled());
-
-    await _library.checkForUpdate();
-    if (!mounted) return;
-    await _autoInstallIfEnabled();
-    if (!mounted) return;
-    _requestFeedbackSync();
-    await _offers.request();
-  }
-
-  Future<bool> _prepareOffer() async {
-    await WidgetsBinding.instance.endOfFrame;
-    await _errorReportsIntro;
-    return mounted && _otzaria.launchPath != null;
-  }
-
-  Future<void> _performOffer() async {
-    await offerErrorReportCollection(
-      context,
-      _errorReports,
-      readOnly: widget.readOnly,
-      isOtzariaRunning: refreshProcessState,
-      notices: _notices,
-    );
-  }
-
-  /// בלי ממשק ובלי המתנה לדיאלוג של דיווחי הטעויות; הבקר עצמו בודק הסכמה
-  /// ואוצריא סגורה. כונן לקריאה בלבד אינו מגיע לכאן — ראו [_requestFeedbackSync].
-  Future<Duration?> _syncSearchFeedback() async {
-    // לא endOfFrame: חלון ממוזער אינו מצייר, והניסיון ברקע היה נתקע.
-    await _firstFrame.future;
-    if (!mounted) return null;
-    // ריצה שהחלה אחרי stopAndWait, בזמן החלפת ה-exe או UAC.
-    if (_exitPending) return SearchFeedbackController.minRetry;
-    return _searchFeedback.synchronize();
-  }
-
-  void _requestFeedbackSync() {
-    if (!widget.readOnly && mounted) unawaited(_feedbackSync.request());
-  }
-
-  Future<void> _grantSemanticConsent() async {
-    if (await refreshProcessState()) {
-      UiSnack.showError(AppL10n.strings.home.otzariaOpenSnack);
-      return;
-    }
-    if (!mounted) return;
-    final t = context.strings.libraryDomain;
-    final agreed = await showTwoActionsDialog(
-      context: context,
-      title: t.semanticConsentTitle,
-      content: t.semanticConsentText,
-      confirmText: t.semanticConsentConfirm,
-    );
-    if (!agreed || !mounted) return;
-    try {
-      if (!await _searchFeedback.grantConsent()) {
-        UiSnack.showError(t.semanticConsentRequired);
-        return;
-      }
-      _requestFeedbackSync();
-      await _library.checkForUpdate();
-    } catch (error, stack) {
-      AppLogger.instance.error('כתיבת ההסכמה לחיפוש החכם נכשלה', error, stack);
-      UiSnack.showError(t.semanticFeedbackFailed);
-    }
-  }
-
-  Future<void> _uploadReports() => _offers.guardedUpload(
-        blocked: () => _blockedByReadOnly() || !mounted,
-        run: (onActive) => uploadAllReports(
-          context,
-          errorReports: _errorReports,
-          onActiveChanged: onActive,
-          onUploadingChanged: (uploading) {
-            if (!mounted) return;
-            setState(() => _uploadingReports = uploading);
-            _syncSleepInhibition();
-            _offers.resume();
-          },
-        ),
+  @override
+  Future<bool?> showCrashPrompt(
+    AppReportsController reports,
+    CrashCandidate candidate,
+  ) =>
+      _dialogs.run(
+        () async {
+          await showCrashPromptDialog(
+            context,
+            reports: reports,
+            candidate: candidate,
+            saferMode: _session.saferMode,
+          );
+          return true;
+        },
+        forever: true,
       );
 
-  Future<void> checkOnline() async {
-    if (widget.readOnly || _isCheckingOnline) return;
-    setState(() => _isCheckingOnline = true);
-    await _launcherFlow.checkMirror();
-    if (!mounted) return;
-    await Future.wait([
-      _otzaria.checkOnline(),
-      _library.checkOnline(),
-      _plugins.checkOnline(),
-      _launcherUpdate.checkOnline(),
-    ]);
-    if (!mounted) return;
-    setState(() => _isCheckingOnline = false);
-    await _promptLauncherUpdate();
-  }
-
-  Future<void> _promptLauncherUpdate() async {
-    if (!mounted || widget.readOnly) return;
-    final c = _launcherUpdate;
-    final release = c.onlineRelease;
-    if (release == null || !c.hasOnlineUpdate) return;
-    if (_askedAboutLauncherUpdate || c.isDownloading) return;
-    _askedAboutLauncherUpdate = true;
-
+  @override
+  Future<bool> confirmLauncherInstall(String version, {String? whatsNew}) {
     final t = context.strings.launcherUpdate;
-    final whatsNew = c.onlineWhatsNew;
-    final approved = await _dialogs.run(
-      () => showTwoActionsDialog(
-        context: context,
-        title: t.availableDialogTitle,
-        content: '${t.availableDialogContent(release.version)}\n\n'
-            '${t.availableDialogDetail(formatBytes(release.sizeBytes))}',
-        customContent: whatsNew == null
-            ? null
-            : WhatsNewSection(heading: t.whatsNewHeading, markdown: whatsNew),
-        cancelText: t.availableDialogCancel,
-        confirmText: t.availableDialogConfirm,
-      ),
-    );
-    if (approved == null) _askedAboutLauncherUpdate = false;
-    if (approved != true || !mounted) return;
-    _whatsNewAlreadyShown = whatsNew != null;
-    try {
-      await downloadLauncherUpdate();
-    } finally {
-      _whatsNewAlreadyShown = false;
-    }
-  }
-
-  Future<void> downloadLauncherUpdate() => _launcherFlow.download();
-
-  bool get _longTaskRunning =>
-      _downloads.isDownloading ||
-      _library.isApplying ||
-      _library.status == LibraryModuleStatus.updating ||
-      _otzaria.status == OtzariaModuleStatus.installing ||
-      _customApps.isBusy ||
-      _customApps.isLearning ||
-      _customApps.isDownloadingAll ||
-      _plugins.isExporting ||
-      _plugins.isSyncing ||
-      _exitPending;
-
-  bool get _pluginSyncBlockedElsewhere =>
-      _downloads.isDownloading ||
-      _library.isApplying ||
-      _library.status == LibraryModuleStatus.updating ||
-      _otzaria.status == OtzariaModuleStatus.installing ||
-      _customApps.isBusy;
-
-  bool get _exitPending => _elevationPending || _launcherUpdate.isInstalling;
-
-  void _syncSleepInhibition() => _sleepInhibitor.setActive(
-        _exitWouldInterrupt ||
-            _searchFeedback.isCollecting ||
-            _searchFeedback.isUploading ||
-            _launcherUpdate.isDownloading ||
-            _library.downloadStatus == MirrorDownloadStatus.downloading ||
-            _otzaria.downloadStatus == OtzariaDownloadStatus.downloading ||
-            _plugins.isAwaitingInstall,
-      );
-
-  bool get _exitWouldInterrupt =>
-      _longTaskRunning ||
-      _errorReports.isCollecting ||
-      _errorReports.isUploading ||
-      _uploadingReports;
-
-  Future<void> installLauncherUpdate() => _launcherFlow.install();
-
-  Future<bool> _confirmLauncherInstall(String version) {
-    final t = context.strings.launcherUpdate;
-    final whatsNew =
-        _whatsNewAlreadyShown ? null : _launcherUpdate.downloadedWhatsNew;
     return showTwoActionsDialog(
       context: context,
       title: t.readyDialogTitle,
@@ -801,7 +271,8 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
-  void _notifyLauncherUpdate(LauncherUpdateNotice notice, String detail) {
+  @override
+  void notifyLauncherUpdate(LauncherUpdateNotice notice, String detail) {
     final t = AppL10n.strings.launcherUpdate;
     switch (notice) {
       case LauncherUpdateNotice.downloaded:
@@ -817,50 +288,27 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
-  Future<void> _autoInstallIfEnabled() async {
-    final skippedWhileRunning = await _autoInstall.run(
-      enabled: widget.settings.settings.autoInstall,
-    );
-    if (!skippedWhileRunning || !mounted) return;
-    final t = context.strings.home;
-    await showSingleActionDialog(
-      context: context,
-      title: t.autoInstallSkippedTitle,
-      content: t.autoInstallSkippedContent,
-    );
+  @override
+  void notifyNoSyncSelection() {
+    UiSnack.show(AppL10n.strings.guide.noSyncSelectionNote);
   }
 
-  @visibleForTesting
-  List<String> get downloadMirrorDirs => [
-        _library.mirrorDir,
-        _library.companionsMirrorDir,
-        _library.semanticMirrorDir,
-        _otzaria.mirrorDir,
-        ..._plugins.mirrorDirs,
-      ];
-
-  Future<void> cancelDownload() async {
-    if (!_downloads.isDownloading || _downloads.isCancelling || !mounted) {
-      return;
-    }
-
+  @override
+  Future<bool> confirmCancelDownload() {
     final t = context.strings.home;
-    final approved = await showWarningDialog(
+    return showWarningDialog(
       context: context,
       title: t.cancelDownloadDialogTitle,
       content: t.cancelDownloadPrompt,
       cancelText: t.cancelDownloadKeepGoing,
       confirmText: t.cancelDownloadButton,
     );
-    if (!approved || !mounted || !_downloads.isDownloading) return;
-    _downloads.requestCancel();
   }
 
-  Future<bool> _confirmClose() async {
-    if (!mounted || !_longTaskRunning) return true;
+  @override
+  Future<bool> confirmClose({required bool downloading}) {
     final t = context.strings.shell;
-    final downloading = _downloads.isDownloading;
-    final approved = await showWarningDialog(
+    return showWarningDialog(
       context: context,
       title: t.closeWhileBusyTitle,
       content: downloading
@@ -871,245 +319,431 @@ class _AppShellState extends State<AppShell> {
           ? t.closeWhileDownloadingConfirm
           : t.closeWhileInstallingConfirm,
     );
-    if (!approved) return false;
-    if (!mounted) return true;
-    await _downloads.cancelAndWait();
-    return true;
   }
 
-  Future<void> downloadAll() async {
-    if (_blockedByReadOnly()) return;
-    await _downloads.downloadAll();
-  }
-
-  Future<void> _refreshStaleOnlineChecks(AppSettings s) async {
-    final stale = StaleOnlineChecks.of(
-      s,
-      app: OnlineCheckStamp(
-        checkedAt: _otzaria.onlineCheckedAt,
-        error: _otzaria.onlineCheckError,
-      ),
-      library: OnlineCheckStamp(
-        checkedAt: _library.onlineCheckedAt,
-        error: _library.onlineCheckError,
-      ),
-      catalog: OnlineCheckStamp(
-        checkedAt: _plugins.onlineCheckedAt,
-        error: _plugins.onlineCheckError,
-      ),
-      storeApp: OnlineCheckStamp(
-        checkedAt: _plugins.storeAppCheckedAt,
-        error: _plugins.storeAppCheckError,
-      ),
+  @override
+  Future<bool> confirmSemanticConsent() {
+    final t = context.strings.libraryDomain;
+    return showTwoActionsDialog(
+      context: context,
+      title: t.semanticConsentTitle,
+      content: t.semanticConsentText,
+      confirmText: t.semanticConsentConfirm,
     );
-    if (!stale.any) return;
-    final ownsCheckingFlag = !_isCheckingOnline;
-    if (ownsCheckingFlag) setState(() => _isCheckingOnline = true);
-    try {
-      await Future.wait([
-        if (stale.app) _otzaria.checkOnline(),
-        if (stale.library) _library.checkOnline(),
-        if (stale.plugins) _plugins.checkOnline(),
-      ]);
-    } finally {
-      if (ownsCheckingFlag && mounted) {
-        setState(() => _isCheckingOnline = false);
-      }
-    }
   }
 
-  Future<bool> _confirmSemanticSearch() => showTwoActionsDialog(
-        context: context,
-        title: context.strings.libraryDomain.companionSemanticName,
-        content: context.strings.libraryDomain.semanticDownloadPrompt,
-        confirmText: context.strings.home.downloadNowButton,
-      );
+  @override
+  Future<bool?> askSemanticConsentBeforeUpdate() =>
+      showSemanticConsentAskDialog(context);
 
-  Future<DownloadRollback> _captureDownloadRollback() =>
-      CancelledDownloadRollback.capture(
-        otzaria: _otzaria,
-        library: _library,
-        plugins: _plugins,
-        mirrorDirs: downloadMirrorDirs,
-      );
-
-  void _rebuild() {
-    if (!mounted) return;
-    _syncSleepInhibition();
-    setState(() {});
-    _offers.resume();
-  }
-
-  void _reportDownload({
-    required List<MirrorComponent> failed,
-    required List<MirrorComponent> skipped,
-  }) {
-    final t = context.strings;
-    String label(MirrorComponent component) => switch (component) {
-          MirrorComponent.app => t.home.appTileTitle,
-          MirrorComponent.library => t.home.libraryTileTitle,
-          MirrorComponent.plugins => t.shell.navPlugins,
-        };
-    final failedLabels = [for (final c in failed) label(c)];
-    final skippedLabels = [for (final c in skipped) label(c)];
-
-    switch (summarizeDownload(failed: failedLabels, skipped: skippedLabels)) {
-      case DownloadSummary.failed:
-        UiSnack.show(t.home.downloadFailedSnack(failedLabels.join(', ')));
-      case DownloadSummary.skipped:
-        UiSnack.show(t.home.downloadSkippedSnack(skippedLabels.join(', ')));
-      case DownloadSummary.done:
-        UiSnack.showSuccess(t.home.downloadDoneSnack);
-    }
-  }
-
-  Future<void> _sweepMirrorJunk() async {
-    final freed = await MirrorJunkSweeper(dataDir: widget.dataDir).sweep();
-    if (freed > 0) {
-      AppLogger.instance.info('ניקוי המראה פינה ${formatBytes(freed)}');
-    }
-  }
-
-  /// מציע ומוסר לאוצריא את בקשת עדכון אינדקס החיפוש — הפעולה היזומה, כשלא
-  /// מחכים להפעלה הבאה של אוצריא. הדיאלוג יושב כאן ולא במסכים, כי גם מסך
-  /// הבית וגם מסך הספרייה מציעים אותה מיד אחרי עדכון מסד.
-  ///
-  /// הסימון נמחק רק אחרי מסירה מוצלחת: סירוב או כשל משאירים אותו, וההצעה
-  /// תחזור.
-  Future<void> requestLibraryReindex() async {
-    if (!_library.hasPendingReindex || !mounted) return;
-
+  @override
+  Future<bool> confirmLibraryReindex() {
     final t = context.strings.libraryScreen;
-    final approved = await showTwoActionsDialog(
+    return showTwoActionsDialog(
       context: context,
       title: t.reindexDialogTitle,
       content: t.reindexDialogContent,
       confirmText: t.reindexDialogConfirm,
     );
-    if (!approved) return;
-
-    if (await _otzaria.requestLibraryReindex()) {
-      await _library.markReindexRequestDelivered();
-      UiSnack.showSuccess(t.reindexRequestedSnack);
-      return;
-    }
-    UiSnack.showError(t.reindexFailedSnack(_otzaria.errorMessage ?? ''));
   }
 
-  Future<void> _openLogFolder() async {
-    final logger = AppLogger.instance;
-    if (await FileReveal.revealDirectory(logger.logDir)) return;
-    UiSnack.show(AppL10n.strings.shell.logPathFallback(logger.filePath));
-  }
+  @override
+  Future<bool?> askPersonalScope() => showPersonalScopeDialog(context);
 
-  /// ניווט למסך. הכניסה להגדרות עוברת בשומר הסף של מצב הסייפר — כאן ולא
-  /// בתוך המסך עצמו: ה-[IndexedStack] משאיר כל מסך שנבנה בעץ עד הסגירה,
-  /// ולכן שער שיושב בתוך המסך היה נפתח פעם אחת ונשאר פתוח.
-  Future<void> _goTo(LauncherScreen screen) async {
-    if (screen == LauncherScreen.settings && _saferMode.isLocked) {
-      final unlocked = await showSaferModePasswordDialog(
+  @override
+  Future<bool> confirmPersonalMode() => confirmPersonalModeDialog(context);
+
+  @override
+  Future<void> uploadReports({
+    required bool Function() isCancelled,
+    required void Function(bool active) onActiveChanged,
+    required void Function(bool uploading) onUploadingChanged,
+  }) =>
+      uploadAllReports(
         context,
-        storedPassword: widget.settings.settings.saferModePassword,
-        hint: context.strings.saferMode.verifySettingsHint,
+        errorReports: _session.errorReports,
+        onActiveChanged: onActiveChanged,
+        onUploadingChanged: onUploadingChanged,
       );
-      if (!unlocked || !mounted) return;
-      _saferMode.unlock();
-    }
-    setState(() {
-      _screen = screen;
-      _builtScreens.add(screen);
-    });
+
+  Future<bool> _goTo(ShellSection section) => _navigator.select(section);
+
+  /// שער הניווט: ההגדרות (וניהול התוכנות שתחתן) נעולות במצב הסייפר. השער
+  /// בנווט ולא במסך, כי מסך שנבנה נשאר בעץ ושער בתוכו היה נשאר פתוח.
+  FutureOr<bool> _canEnter(ShellSection section) {
+    final saferMode = _session.saferMode;
+    if (section != ShellSection.settings || !saferMode.isLocked) return true;
+    return _unlockSaferMode(saferMode);
   }
 
-  Widget _screenWidget(LauncherScreen screen) => switch (screen) {
-        LauncherScreen.home => HomeScreen(
-            otzaria: _otzaria,
-            library: _library,
-            plugins: _plugins,
-            launcherUpdate: _launcherUpdate,
-            settings: widget.settings,
-            otzariaIsRunning: _otzariaIsRunning,
-            isDownloading: _downloads.isDownloading,
-            isCancellingDownload: _downloads.isCancelling,
-            isCheckingOnline: _isCheckingOnline,
-            longTaskRunning: _longTaskRunning,
-            onProcessStateChanged: refreshProcessState,
-            onCloseOtzaria: closeOtzaria,
-            onCheckOnline: checkOnline,
-            onDownloadAll: downloadAll,
-            onCancelDownload: cancelDownload,
-            onDownloadLauncherUpdate: downloadLauncherUpdate,
-            onInstallLauncherUpdate: installLauncherUpdate,
-            onRequestReindex: requestLibraryReindex,
-            onGoToOtzaria: () => _goTo(LauncherScreen.otzaria),
-            onGoToLibrary: () => _goTo(LauncherScreen.library),
-            readOnly: widget.readOnly,
-            driveFull: widget.driveFull,
-            errorReports: _errorReports,
-            isUploadingReports: _uploadingReports,
-            onUploadReports: _uploadReports,
-          ),
-        LauncherScreen.otzaria => OtzariaScreen(
-            otzaria: _otzaria,
-            settings: widget.settings,
-            otzariaIsRunning: _otzariaIsRunning,
-            onCloseOtzaria: closeOtzaria,
-            onInstallAdopted: _plugins.refreshInstalled,
-            saferMode: _saferMode,
-          ),
-        LauncherScreen.customApps => CustomAppsScreen(
-            controller: _customApps,
-            readOnly: widget.readOnly,
-          ),
-        LauncherScreen.library => LibraryScreen(
-            library: _library,
-            otzariaIsRunning: _otzariaIsRunning,
-            isDownloading: _downloads.isDownloading,
-            onProcessStateChanged: refreshProcessState,
-            onCloseOtzaria: closeOtzaria,
-            onRequestReindex: requestLibraryReindex,
-            onGoToSettings: () => _goTo(LauncherScreen.settings),
-            onGrantSemanticConsent: _grantSemanticConsent,
-          ),
-        LauncherScreen.plugins => PluginsScreen(
-            controller: _plugins,
-            onRequestFocus: () => _goTo(LauncherScreen.plugins),
-            readOnly: widget.readOnly,
-            driveFull: widget.driveFull,
-            busyElsewhere: _pluginSyncBlockedElsewhere,
-          ),
-        LauncherScreen.settings => SettingsScreen(
-            controller: widget.settings,
-            onOpenLog: _openLogFolder,
-            launcherVersion: _launcherUpdate.currentVersion,
-            saferMode: _saferMode,
-            customApps: _customApps,
-            readOnly: widget.readOnly,
-            driveFull: widget.driveFull,
-            appReports: widget.appReports,
-          ),
+  Future<bool> _unlockSaferMode(SaferModeGate saferMode) async {
+    final unlocked = await showSaferModePasswordDialog(
+      context,
+      storedPassword: widget.settings.settings.saferModePassword,
+      hint: context.strings.saferMode.verifySettingsHint,
+      confirmText: context.strings.saferMode.enterButton,
+    );
+    if (!unlocked || !mounted) return false;
+    saferMode.unlock();
+    return true;
+  }
+
+  void _openHelp() => unawaited(_goTo(ShellSection.help));
+
+  /// "עריכת השאלות הנפוצות" בהגדרות — דף העזרה נכנס לעריכה כשהוא מוצג.
+  final ValueNotifier<bool> _faqEditRequest = ValueNotifier(false);
+
+  /// מעל ההגדרות, כך שחזרה מהעריכה מחזירה אליהן. הבקשה אחרי הניווט: ניווט
+  /// שנחסם לא משאיר את הדף במצב עריכה.
+  Future<void> _editFaq() async {
+    if (await _navigator.push(const FaqEditRoute())) {
+      _faqEditRequest.value = true;
+    }
+  }
+
+  void _toggleLanguage() => unawaited(toggleAppLanguage(widget.settings));
+
+  List<GuidanceItem> get _hereItems =>
+      homeViewModelOf(_session).guidance.hereItems;
+
+  void _updateHere() => unawaited(_session.updateHere(_hereItems));
+
+  /// מ"אוצריא — מתקדם" או מדף הספרייה — הרכיב הזה בלבד, באותו מסך משימה.
+  void _updateOnly(
+    GuidanceItem item, {
+    bool reinstallApp = false,
+    bool fullLibrary = false,
+  }) =>
+      unawaited(
+        _session.updateHere(
+          [item],
+          reinstallApp: reinstallApp,
+          fullLibrary: fullLibrary,
+        ),
+      );
+
+  Future<void> _openLauncherFolder() async {
+    final dir = _session.launcherUpdate.mirrorDir;
+    if (await FileReveal.revealDirectory(dir)) return;
+    UiSnack.show(AppL10n.strings.shell.folderPathFallback(dir));
+  }
+
+  VoidCallback? get _restartElevated =>
+      Platform.isWindows && !_session.exitPending
+          ? () => unawaited(_session.restartElevated())
+          : null;
+
+  /// "הצג התקדמות" של עדכון ספרייה שרץ מחוץ למסך משימה. התקנת התוכנה
+  /// מוצגת בגיבור עצמו, והורדה — תמיד במסך המשימה.
+  void _showProgress() {
+    if (homeViewModelOf(_session).task == HomeTask.updatingLibrary) {
+      unawaited(_goTo(ShellSection.library));
+    }
+  }
+
+  void _showWhatsNew() => unawaited(
+        showHomeWhatsNewDialog(
+          context,
+          otzaria: _session.otzaria,
+          library: _session.library,
+        ),
+      );
+
+  /// "איסוף לכונן": גילוי שאינו מעודכן נבנה מחדש מהספירה, בלי לאסוף.
+  Future<void> _collectReports() async {
+    final s = _session;
+    await collectReportsToDrive(
+      s.errorReports,
+      readOnly: widget.readOnly,
+      isOtzariaRunning: s.refreshProcessState,
+      disclosedReports: s.errorReportsToCollect,
+    );
+    if (mounted) await s.recountReportsToCollect();
+  }
+
+  late final HomeActions _homeActions = HomeActions(
+    onInstallHere: _updateHere,
+    onUpdateHere: _updateHere,
+    onDownload: () => unawaited(_session.downloadAll()),
+    onDownloadSemantic: () =>
+        unawaited(_session.downloadAll(forceSemantic: true)),
+    onRetryFailedDownloads: () => unawaited(_session.retryFailedDownloads()),
+    onLaunch: () => unawaited(_session.launchOtzaria()),
+    onRecheck: () => unawaited(_session.checkNow()),
+    onOpenSection: (section) => unawaited(_goTo(section)),
+    onOpenSettings: () => unawaited(_goTo(ShellSection.settings)),
+    onHelp: _openHelp,
+    onToggleLanguage: _toggleLanguage,
+    onDismissReportsIntro: () => unawaited(_session.dismissReportsIntro()),
+    onDismissLegacyReports: () =>
+        unawaited(_session.dismissLegacyReportsNotice()),
+    onRestartElevated: () => unawaited(_session.restartElevated()),
+    onDismissElevation: _session.dismissElevation,
+    onOpenLauncherUpdate: () => unawaited(_goTo(ShellSection.launcher)),
+    onShowProgress: _showProgress,
+    onWhatsNew: _showWhatsNew,
+    onRecheckApp: () => unawaited(_session.otzaria.checkForUpdate()),
+    onCloseOtzaria: _session.closeOtzaria,
+    onPickLibraryFolder: () =>
+        unawaited(pickLibraryInstallDir(context, _session.library)),
+    onRegisterThisComputer: _registerHere,
+    onGrantSemanticConsent: () => unawaited(_session.answerSemanticConsent()),
+  );
+
+  void _registerHere() => unawaited(() async {
+        await capturePersonalVersion(context, _session.library);
+        await _session.afterManualRegistration();
+      }());
+
+  Widget _home() {
+    final s = _session;
+    return ListenableBuilder(
+      // מוני הדיווחים והשליחה אינם מעירים את הסשן כולו.
+      listenable: Listenable.merge([
+        s.errorReports,
+        if (s.appReports != null) s.appReports!,
+        s.faq,
+      ]),
+      builder: (context, _) {
+        final model = homeViewModelOf(s);
+        return HomePage(
+          model: model,
+          actions: _homeActions,
+          taskProgress: model.guidance.primary == GuidancePrimary.taskInProgress
+              ? HomeTaskProgress(
+                  task: model.task,
+                  otzaria: s.otzaria,
+                  library: s.library,
+                  plugins: s.plugins,
+                )
+              : null,
+          launcherProgress:
+              LauncherDownloadPercent(controller: s.launcherUpdate),
+        );
+      },
+    );
+  }
+
+  String _sectionLabel(BuildContext context, ShellSection section) {
+    final g = context.strings.guide;
+    return switch (section) {
+      ShellSection.home => context.strings.shell.breadcrumbHome,
+      ShellSection.otzaria => context.strings.pages.appAdvancedPageTitle,
+      ShellSection.library => g.tileLibrary,
+      ShellSection.plugins => g.tilePlugins,
+      ShellSection.customApps => g.tileCustomApps,
+      ShellSection.reports => context.strings.pages.repCrumb,
+      ShellSection.settings => context.strings.settings.title,
+      ShellSection.help => context.strings.faq.title,
+      ShellSection.launcher => context.strings.pages.selfCrumb,
+    };
+  }
+
+  /// דף הפרטים שמוצג עכשיו במקטע — נתיב בנווט, כך שחזרה ו-Esc מובילים
+  /// לרשימה, ובכניסה מחדש למקטע מוצגת הרשימה.
+  String? _detailId(ShellSection section) => switch (_navigator.current) {
+        PluginDetailRoute(:final id) when section == ShellSection.plugins => id,
+        CustomAppDetailRoute(:final id)
+            when section == ShellSection.customApps =>
+          id,
+        _ => null,
       };
 
-  /// אישורי התוכנות הנוספות נשמרים במחשב, לעולם לא על הכונן.
-  static String? _customAppsTrustFile() {
-    final dir = AppPaths.machineStateDir(
-      Platform.environment,
-      isWindows: Platform.isWindows,
-      isMacOS: Platform.isMacOS,
+  void _showDetail(ShellSection section, String? id) {
+    if (id == null) {
+      if (_detailId(section) != null) _navigator.back();
+      return;
+    }
+    unawaited(
+      _navigator.push(
+        section == ShellSection.plugins
+            ? PluginDetailRoute(id)
+            : CustomAppDetailRoute(id),
+      ),
     );
-    return dir == null ? null : p.join(dir, 'custom_apps_trust.json');
   }
 
-  /// Ctrl+R/F5: קורא מחדש מה מותקן ומה יש על הכונן, בלי ההצעות של העלייה.
-  /// לא פועל בזמן משימה ארוכה.
-  Future<void> _refreshFromKeyboard() async {
-    if (_longTaskRunning) return;
-    await _launcherFlow.checkMirror();
-    if (!mounted) return;
-    await _otzaria.checkForUpdate();
-    if (!mounted) return;
-    unawaited(_plugins.refreshInstalled());
-    await _library.checkForUpdate();
+  /// ניהול התוכנות הנוספות — דף בתוך מקטע ההגדרות.
+  bool _managesApps(ShellSection section) =>
+      section == ShellSection.settings &&
+      _navigator.current is CustomAppsManageRoute;
+
+  String? _detailLabel(ShellSection section, String id) => switch (section) {
+        ShellSection.plugins => _session.plugins.byId(id)?.name,
+        ShellSection.customApps => _session.customApps.apps
+            .where((app) => app.descriptor.id == id)
+            .firstOrNull
+            ?.descriptor
+            .name,
+        _ => null,
+      };
+
+  Widget _sectionWidget(BuildContext context, ShellSection section) {
+    if (section == ShellSection.home) return _home();
+    final screen = _subPage(section);
+    final label = _sectionLabel(context, section);
+    final detail = _detailId(section);
+    final detailLabel = detail == null
+        ? (_managesApps(section)
+            ? context.strings.customApps.manageDialogTitle
+            : null)
+        : _detailLabel(section, detail);
+    return SubPageHeaderScope(
+      header: SubPageHeader(
+        onBack: _navigator.back,
+        onHome: () => unawaited(_goTo(ShellSection.home)),
+        trail: [
+          if (detailLabel == null)
+            (label: label, onTap: null)
+          else ...[
+            (label: label, onTap: _navigator.back),
+            (label: detailLabel, onTap: null),
+          ],
+        ],
+      ),
+      child: screen,
+    );
+  }
+
+  Widget _subPage(ShellSection section) {
+    final s = _session;
+    return switch (section) {
+      ShellSection.otzaria => OtzariaAdvancedPage(
+          otzaria: s.otzaria,
+          settings: widget.settings,
+          onInstallAdopted: s.plugins.refreshInstalled,
+          saferMode: s.saferMode,
+          busy: s.longTaskRunning,
+          onReinstall: () => _updateOnly(GuidanceItem.app, reinstallApp: true),
+        ),
+      ShellSection.customApps => CustomAppsScreen(
+          controller: s.customApps,
+          readOnly: widget.readOnly,
+          online: onlineState(s),
+          onOpenManage: widget.readOnly
+              ? null
+              : () => unawaited(_navigator.push(const CustomAppsManageRoute())),
+          detailId: _detailId(ShellSection.customApps),
+          onDetailChanged: (id) => _showDetail(ShellSection.customApps, id),
+        ),
+      ShellSection.library => LibraryScreen(
+          library: s.library,
+          otzariaIsRunning: s.otzariaIsRunning,
+          isDownloading: s.isDownloading,
+          onProcessStateChanged: s.refreshProcessState,
+          onCloseOtzaria: s.closeOtzaria,
+          onRequestReindex: s.requestLibraryReindex,
+          onGoToSettings: () => unawaited(_goTo(ShellSection.settings)),
+          onGrantSemanticConsent: s.grantSemanticConsent,
+          semanticOffer: s.onlineSemanticOffer,
+          busy: s.longTaskRunning,
+          readOnly: widget.readOnly,
+          appInstalled: s.otzaria.currentVersion != null,
+          appInstallable: switch (s.otzaria.status) {
+            OtzariaModuleStatus.idle ||
+            OtzariaModuleStatus.checking ||
+            OtzariaModuleStatus.error =>
+              null,
+            final status => status == OtzariaModuleStatus.updateAvailable,
+          },
+          onUpdateHere: () => _updateOnly(GuidanceItem.library),
+          onInstallFull: () =>
+              _updateOnly(GuidanceItem.library, fullLibrary: true),
+        ),
+      ShellSection.plugins => PluginsScreen(
+          controller: s.plugins,
+          readOnly: widget.readOnly,
+          online: onlineState(s),
+          otzariaInstalled: s.otzaria.currentVersion != null,
+          driveFull: widget.driveFull,
+          busyElsewhere: s.pluginSyncBlockedElsewhere,
+          detailId: _detailId(ShellSection.plugins),
+          onDetailChanged: (id) => _showDetail(ShellSection.plugins, id),
+          onOpenHelp: _openHelp,
+        ),
+      ShellSection.reports => ReportsPage(
+          errorReports: s.errorReports,
+          connection: s.isCheckingOnline ? null : onlineState(s),
+          isUploadingAll: s.uploadingReports,
+          busy: s.longTaskRunning,
+          reportsToCollect: s.errorReportsToCollect,
+          onCollect: () => unawaited(_collectReports()),
+          onUpload: s.uploadReports,
+          onStop: s.stopReports,
+          readOnly: widget.readOnly,
+          driveFull: widget.driveFull,
+          legacyNotice: s.showsLegacyReportsNotice,
+          onDismissLegacy: () =>
+              unawaited(_session.dismissLegacyReportsNotice()),
+          appReports: widget.appReports,
+          onCheckConnection:
+              widget.readOnly ? null : () => unawaited(s.checkOnline()),
+          checkingConnection: s.isCheckingOnline,
+        ),
+      ShellSection.launcher => LauncherUpdatePage(
+          controller: s.launcherUpdate,
+          readOnly: widget.readOnly,
+          busy: s.exitWouldInterrupt,
+          onDownload: () => unawaited(s.downloadLauncherUpdate()),
+          onInstall: () => unawaited(s.installLauncherUpdate()),
+          onOpenFolder: () => unawaited(_openLauncherFolder()),
+          onRestartElevated: _restartElevated,
+          onCheck: s.checkNowBlocked ? null : () => unawaited(s.checkNow()),
+          checking: s.isCheckingNow,
+        ),
+      ShellSection.settings when _managesApps(section) => CustomAppsManagePage(
+          controller: s.customApps,
+          readOnly: widget.readOnly,
+        ),
+      ShellSection.settings => SettingsScreen(
+          controller: widget.settings,
+          onOpenLog: s.openLogFolder,
+          launcherVersion: s.launcherUpdate.currentVersion,
+          saferMode: s.saferMode,
+          customApps: s.customApps,
+          onManageCustomApps: () =>
+              unawaited(_navigator.push(const CustomAppsManageRoute())),
+          readOnly: widget.readOnly,
+          driveFull: widget.driveFull,
+          appReports: widget.appReports,
+          onOpenReports: () => unawaited(_goTo(ShellSection.reports)),
+          launcherUpdate: s.launcherUpdate,
+          onOpenLauncherUpdate: () => unawaited(_goTo(ShellSection.launcher)),
+          onEditFaq: () => unawaited(_editFaq()),
+          // `select` ולא מעל ההגדרות: הדף אינו נעול, ו"חזרה" ממנו מובילה לבית.
+          onOpenOtzariaAdvanced: () => unawaited(_goTo(ShellSection.otzaria)),
+          otzariaChannelChoice: s.otzaria.hasChannelChoice,
+          semanticConsentGranted: s.otzaria.currentVersion != null &&
+                  (s.library.semanticPending ||
+                      s.library.semanticConsentGranted)
+              ? s.library.semanticConsentGranted
+              : null,
+          onEnableSemanticSearch: s.longTaskRunning
+              ? null
+              : () => unawaited(s.grantSemanticConsent()),
+          personalMachines: s.library.registeredMachines,
+          onChoosePersonal: (personal) =>
+              s.choosePersonalScope(personal: personal),
+          onRemoveMachine: s.longTaskRunning
+              ? null
+              : (key) => unawaited(s.forgetRegisteredMachine(key)),
+          onRegisterHere: s.longTaskRunning || s.otzaria.currentVersion == null
+              ? null
+              : _registerHere,
+        ),
+      ShellSection.help => HelpPage(
+          faq: s.faq,
+          saferMode: s.saferMode,
+          editRequests: _faqEditRequest,
+          active: _navigator.section == ShellSection.help,
+          readOnly: widget.readOnly,
+        ),
+      ShellSection.home => const SizedBox.shrink(),
+    };
+  }
+
+  void _onEscape() {
+    if (!leaveTextField()) _navigator.back();
   }
 
   @override
@@ -1117,272 +751,207 @@ class _AppShellState extends State<AppShell> {
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyR, control: true): () =>
-            unawaited(_refreshFromKeyboard()),
+            unawaited(_session.refreshFromKeyboard()),
         const SingleActivator(LogicalKeyboardKey.f5): () =>
-            unawaited(_refreshFromKeyboard()),
+            unawaited(_session.refreshFromKeyboard()),
+        const SingleActivator(LogicalKeyboardKey.escape): _onEscape,
       },
       child: Focus(autofocus: true, child: _scaffold(context)),
     );
   }
 
   Widget _scaffold(BuildContext context) {
+    final section = _navigator.section;
     return Scaffold(
       backgroundColor: AppSurfaces.panelBackground(context),
-      // שורת הכותרת נפרסת על כל הרוחב — מעל סרגל הניווט ולא לצידו — כך שגרירת
-      // החלון אפשרית לכל רוחב החלון (כמו באוצריא).
+      // כפתורי החלון נשארים פעילים גם כשהיציאה ממתינה.
       body: Column(
         children: [
           AppTitleBar(
-            screenTitle: _screenLabel(context, _screen),
+            onHelp: _openHelp,
+            onSettings: () => unawaited(_goTo(ShellSection.settings)),
+            activeTool: switch (section) {
+              ShellSection.settings => TitleBarTool.settings,
+              ShellSection.help => TitleBarTool.help,
+              _ => null,
+            },
+            // משימה רצה אינה נעזבת — גלגל השיניים והעזרה מושבתים גם למראה.
+            toolsEnabled: !_session.exitPending &&
+                !(_navigator.showsTask && _session.tasks.isRunning),
             showWindowButtons: widget.showWindowButtons,
           ),
           Expanded(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                AbsorbPointer(
-                  absorbing: _exitPending,
-                  child: ExcludeFocus(
-                    excluding: _exitPending,
-                    child: _shellRow(context),
-                  ),
-                ),
-                if (widget.settings.settings.showFaqButton)
-                  PositionedDirectional(
-                    end: AppTokens.spaceMD,
-                    bottom: AppTokens.spaceMD,
-                    // `Offstage` ולא בנייה מותנית: הכפתור מוצג בדף הבית בלבד,
-                    // אבל ה-state שלו חייב לשרוד ניווט — אחרת ההבהוב והבועה
-                    // החד-פעמיים היו חוזרים בכל חזרה לדף הבית.
-                    child: Offstage(
-                      offstage: _screen != LauncherScreen.home,
-                      child: FaqFloatingButton(
-                        faq: _faq,
-                        saferMode: _saferMode,
+            child: AbsorbPointer(
+              absorbing: _session.exitPending,
+              child: ExcludeFocus(
+                excluding: _session.exitPending,
+                child: _body(context, section),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// מקטע נבנה בכניסה הראשונה אליו ונשאר; רק המוצג מריץ טיקרים. משימה
+  /// מוצגת בשכבה מעליהם, והמקטע שמתחתיה אינו מריץ טיקרים.
+  Widget _body(BuildContext context, ShellSection current) {
+    final task = _navigator.showsTask ? _session.tasks.current : null;
+    return Stack(
+      children: [
+        IndexedStack(
+          key: ShellKeys.sectionStack,
+          index: current.index,
+          children: [
+            for (final section in ShellSection.values)
+              _navigator.isBuilt(section)
+                  ? TickerMode(
+                      enabled: section == current && task == null,
+                      // בועה בשכבת העל שדעיכתה נעצרה עם הטיקרים נשארת קפואה.
+                      child: TooltipVisibility(
+                        visible: section == current && task == null,
+                        child: ExcludeFocus(
+                          excluding: task != null,
+                          child: _sectionWidget(context, section),
+                        ),
                       ),
-                    ),
-                  ),
-              ],
+                    )
+                  : const SizedBox.shrink(),
+          ],
+        ),
+        if (task != null)
+          Positioned.fill(
+            child: ColoredBox(
+              key: ShellKeys.taskLayer,
+              color: AppSurfaces.panelBackground(context),
+              child: _taskView(task),
             ),
           ),
-        ],
-      ),
+      ],
     );
   }
 
-  Widget _shellRow(BuildContext context) => Row(
-        children: [
-          _NavRail(
-            current: _screen,
-            onSelect: _goTo,
-            showCustomApps: _customApps.hasApps,
-          ),
-          VerticalDivider(
-            width: 1,
-            thickness: 1,
-            color: AppSurfaces.shellDivider(context),
-          ),
-          Expanded(
-            child: IndexedStack(
-              index: _screen.index,
-              children: [
-                for (final screen in LauncherScreen.values)
-                  _builtScreens.contains(screen)
-                      ? TickerMode(
-                          enabled: screen == _screen,
-                          child: _screenWidget(screen),
-                        )
-                      : const SizedBox.shrink(),
-              ],
-            ),
-          ),
-        ],
-      );
-}
+  late final Listenable _downloadProgress = Listenable.merge([
+    _session.otzaria.progress,
+    _session.library.progress,
+    _session.plugins.progress,
+  ]);
 
-class _ShellDownloadHost implements MirrorDownloadHost {
-  _ShellDownloadHost(this._shell);
-
-  final _AppShellState _shell;
-
-  @override
-  bool get isActive => _shell.mounted;
-
-  @override
-  bool get isBlocked =>
-      _shell._longTaskRunning || _shell._launcherUpdate.isDownloading;
-
-  @override
-  bool get launcherDownloading => _shell._launcherUpdate.isDownloading;
-
-  @override
-  AppSettings get settings => _shell.widget.settings.settings;
-
-  @override
-  Future<void> refreshStaleOnlineChecks(AppSettings s) =>
-      _shell._refreshStaleOnlineChecks(s);
-
-  @override
-  Future<bool> confirmSemanticSearch() => _shell._confirmSemanticSearch();
-
-  @override
-  Future<DownloadRollback> captureRollback() =>
-      _shell._captureDownloadRollback();
-
-  @override
-  Future<void> sweepMirror() => _shell._sweepMirrorJunk();
-
-  @override
-  void stateChanged() => _shell._rebuild();
-
-  @override
-  void downloadSnapshotFailed(Object error) {
-    AppLogger.instance.info('mirror snapshot failed: $error');
-    UiSnack.show(AppL10n.strings.home.downloadSnapshotFailedSnack);
-  }
-
-  @override
-  void downloadCancelled({Object? revertError}) {
-    if (revertError != null) {
-      AppLogger.instance
-          .info('revert after cancelled download failed: $revertError');
+  DownloadSnapshot _downloadSnapshot() {
+    final s = _session;
+    switch (s.currentDownload) {
+      case MirrorComponent.app:
+        final received = s.otzaria.downloadReceived;
+        final total = s.otzaria.downloadTotal;
+        return DownloadSnapshot(
+          current: MirrorComponent.app,
+          libraryProbe: s.library.downloadSizeProbe,
+          received: received,
+          total: total,
+          fraction: received != null && total != null && total > 0
+              ? received / total
+              : null,
+        );
+      case MirrorComponent.library:
+        return DownloadSnapshot(
+          current: MirrorComponent.library,
+          received: s.library.downloadReceivedBytes,
+          total: s.library.downloadTotalBytes,
+          fraction: s.library.downloadProgress,
+        );
+      case MirrorComponent.plugins:
+        return DownloadSnapshot(
+          current: MirrorComponent.plugins,
+          libraryProbe: s.library.downloadSizeProbe,
+          fraction: s.plugins.syncProgress,
+        );
+      case null:
+        return DownloadSnapshot(libraryProbe: s.library.downloadSizeProbe);
     }
-    unawaited(_shell._maybeOfferElevation());
-    UiSnack.show(
-      revertError == null
-          ? AppL10n.strings.home.downloadCancelledSnack
-          : AppL10n.strings.home.downloadCancelRevertFailedSnack,
-    );
   }
 
-  @override
-  void downloadEnded() => unawaited(_shell._maybeOfferElevation());
+  void _dismissTask() => _session.tasks.dismiss();
 
-  @override
-  void downloadFinished({
-    required List<MirrorComponent> failed,
-    required List<MirrorComponent> skipped,
-  }) =>
-      _shell._reportDownload(failed: failed, skipped: skipped);
-}
+  void _leaveTaskTo(ShellSection section) {
+    _dismissTask();
+    unawaited(_goTo(section));
+  }
 
-class _ShellLauncherHost implements LauncherUpdateHost {
-  _ShellLauncherHost(this._shell);
-
-  final _AppShellState _shell;
-
-  @override
-  bool get isActive => _shell.mounted;
-
-  @override
-  bool get isReadOnly => _shell.widget.readOnly;
-
-  @override
-  bool blockedByReadOnly() => _shell._blockedByReadOnly();
-
-  @override
-  bool get wouldInterrupt => _shell._exitWouldInterrupt;
-
-  @override
-  Future<void> settleBackgroundWork() => _shell._searchFeedback.stopAndWait();
-
-  @override
-  Future<bool> confirmInstall(String version) =>
-      _shell._confirmLauncherInstall(version);
-
-  @override
-  void notify(LauncherUpdateNotice notice, {String? detail}) =>
-      _shell._notifyLauncherUpdate(notice, detail ?? '');
-}
-
-// ── סרגל הניווט ───────────────────────────────────────────────────────────────
-
-/// שם המסך — אותה תווית בסרגל הניווט ובשורת הכותרת, כך שהשניים מדברים באותה
-/// שפה. מקור אחד בכוונה: שני העתקים נטו להיפרד.
-String _screenLabel(BuildContext context, LauncherScreen screen) {
-  final s = context.strings.shell;
-  return switch (screen) {
-    LauncherScreen.home => s.navHome,
-    LauncherScreen.otzaria => s.navApp,
-    LauncherScreen.library => s.navLibrary,
-    LauncherScreen.plugins => s.navPlugins,
-    LauncherScreen.customApps => s.navCustomApps,
-    LauncherScreen.settings => s.navSettings,
-  };
-}
-
-class _NavRail extends StatelessWidget {
-  final LauncherScreen current;
-  final ValueChanged<LauncherScreen> onSelect;
-
-  /// מוסיף את "תוכנות נוספות" לסרגל. מוצג רק כשיש בפועל תוכנה כזו —
-  /// הכניסה הראשונה היא מההגדרות.
-  final bool showCustomApps;
-
-  const _NavRail({
-    required this.current,
-    required this.onSelect,
-    required this.showCustomApps,
-  });
-
-  /// הסמל הרגיל והמלא לכל מסך. הפריטים עצמם נגזרים מ-[LauncherScreen.values]
-  /// ולא נכתבים אחד-אחד, כך שמסך חדש אינו יכול להישאר בלי פריט בסרגל — הוא
-  /// ייפול כאן על סמל חסר במקום להיעלם בשקט.
-  static const Map<LauncherScreen, (IconData, IconData)> _icons = {
-    LauncherScreen.home: (
-      FluentIcons.home_24_regular,
-      FluentIcons.home_24_filled,
-    ),
-    LauncherScreen.otzaria: (
-      FluentIcons.desktop_24_regular,
-      FluentIcons.desktop_24_filled,
-    ),
-    LauncherScreen.library: (
-      FluentIcons.library_24_regular,
-      FluentIcons.library_24_filled,
-    ),
-    LauncherScreen.plugins: (
-      FluentIcons.puzzle_piece_24_regular,
-      FluentIcons.puzzle_piece_24_filled,
-    ),
-    LauncherScreen.customApps: (
-      FluentIcons.box_24_regular,
-      FluentIcons.box_24_filled,
-    ),
-    LauncherScreen.settings: (
-      FluentIcons.settings_24_regular,
-      FluentIcons.settings_24_filled,
-    ),
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    NavRailItem item(LauncherScreen screen) {
-      final (icon, iconFilled) = _icons[screen]!;
-      return NavRailItem(
-        icon: icon,
-        iconFilled: iconFilled,
-        label: _screenLabel(context, screen),
-        isSelected: current == screen,
-        onTap: () => onSelect(screen),
-      );
+  Widget _taskView(ShellTask task) {
+    final s = _session;
+    switch (task) {
+      case DownloadTask():
+        final here = _hereItems;
+        return DownloadTaskView(
+          task: task,
+          progress: _downloadProgress,
+          snapshot: _downloadSnapshot,
+          cancelling: s.isCancellingDownload,
+          canRemember: !s.saferMode.isLocked,
+          done: DownloadDoneInfo(
+            appVersion: s.otzaria.latestVersion == null
+                ? null
+                : displayVersion(s.otzaria.latestVersion!),
+            libraryVersion: s.library.targetVersion,
+            pluginCount:
+                s.plugins.plugins.isEmpty ? null : s.plugins.plugins.length,
+            offer: here.isEmpty || widget.readOnly
+                ? DownloadHereOffer.none
+                : s.otzaria.currentVersion == null
+                    ? DownloadHereOffer.install
+                    : DownloadHereOffer.update,
+          ),
+          actions: DownloadTaskActions(
+            onAnswer: s.tasks.answer,
+            onCancel: () => unawaited(s.cancelDownload()),
+            onRetry: () => unawaited(s.downloadAll()),
+            onHome: _dismissTask,
+            onHere: _updateHere,
+            onCancelPreparing: s.abandonPreparingDownload,
+          ),
+        );
+      case UpdateHereTask():
+        final failure = task.failure;
+        final library = s.library;
+        return UpdateHereTaskView(
+          task: task,
+          libraryProgress: library.progress,
+          librarySnapshot: () => LibraryApplySnapshot(
+            fraction: library.applyProgress,
+            stage: library.stageText,
+          ),
+          actions: UpdateHereActions(
+            onRespond: s.tasks.respond,
+            onStopWaiting: s.stopWaitingForSetup,
+            onFinishWithoutWaiting: s.tasks.finishWithoutWaiting,
+            onLaunch: () {
+              _dismissTask();
+              unawaited(s.launchOtzaria());
+            },
+            onHome: _dismissTask,
+            onRetry: () => unawaited(s.retryUpdateHere()),
+            // מצב התוכנה וההמשך שלה בבית — אין לה דף משלה.
+            onOpenPage: (stage) => _leaveTaskTo(switch (stage) {
+              GuidanceItem.library => ShellSection.library,
+              GuidanceItem.app => ShellSection.home,
+              GuidanceItem.plugins => ShellSection.plugins,
+            }),
+            onReindex: library.hasPendingReindex
+                ? () => unawaited(s.deliverLibraryReindex())
+                : null,
+            // נגזר מהמצב הנוכחי: דגל הכשל לבדו היה משאיר כפתור ש-
+            // restartElevated מתעלם ממנו.
+            onRestartElevated:
+                (failure?.needsElevation ?? false) && s.canRestartElevated
+                    ? () => unawaited(s.restartElevated())
+                    : null,
+            onLibraryChanges: library.changesNotesApplied &&
+                    library.changesNotes.isNotEmpty
+                ? () => unawaited(showLibraryChangesDialog(context, library))
+                : null,
+          ),
+        );
     }
-
-    return Container(
-      width: NavRailItem.width,
-      color: AppSurfaces.navRailBackground(context),
-      padding: const EdgeInsets.symmetric(vertical: AppTokens.spaceSM),
-      child: Column(
-        children: [
-          // ההגדרות נדחקות לתחתית; כל השאר בסדר ההכרזה של ה-enum.
-          for (final screen in LauncherScreen.values)
-            if (screen != LauncherScreen.settings &&
-                (screen != LauncherScreen.customApps || showCustomApps))
-              item(screen),
-          const Spacer(),
-          item(LauncherScreen.settings),
-        ],
-      ),
-    );
   }
 }

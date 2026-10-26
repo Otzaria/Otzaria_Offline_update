@@ -3,11 +3,14 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/cancelled_download_refresh.dart';
+import 'package:launcher_app/src/controllers/download_plan.dart';
 import 'package:launcher_app/src/controllers/library_module_controller.dart';
 import 'package:launcher_app/src/controllers/online_check.dart';
 import 'package:launcher_app/src/controllers/otzaria_module_controller.dart';
 import 'package:launcher_app/src/controllers/plugins_module_controller.dart';
+import 'package:launcher_app/src/controllers/shell_module_ports.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
+import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
@@ -81,11 +84,13 @@ void main() {
     );
   }
 
-  Future<void> refresh() => refreshAfterCancelledDownload(
+  Future<void> refresh(MirrorComponent? reverted) =>
+      refreshAfterCancelledDownload(
         otzaria: otzaria,
         library: library,
         plugins: plugins,
         before: before,
+        reverted: reverted,
       );
 
   bool cardOffersDownload({
@@ -144,9 +149,10 @@ void main() {
   test('the refresh runs even when the revert throws', () {
     final source =
         File('lib/src/controllers/shell_module_ports.dart').readAsStringSync();
-    final start = source.indexOf('Future<void> rollback() async {');
+    final start = source
+        .indexOf('Future<void> rollback(MirrorComponent? inProgress) async {');
     final body = source.substring(start);
-    final revert = body.indexOf('await _undo.revert()');
+    final revert = body.indexOf('await _undo.revert(');
     final finallyAt = body.indexOf('finally {', revert);
     final refresh = body.indexOf('refreshAfterCancelledDownload(', finallyAt);
 
@@ -154,6 +160,56 @@ void main() {
     expect(body.lastIndexOf('try {', revert), greaterThan(-1));
     expect(finallyAt, greaterThan(revert));
     expect(refresh, greaterThan(finallyAt));
+  });
+
+  group('cancel keeps the components that finished', () {
+    Future<CancelledDownloadRollback> capture() =>
+        CancelledDownloadRollback.capture(
+          otzaria: otzaria,
+          library: library,
+          plugins: plugins,
+          mirrorDirs: {
+            MirrorComponent.app: [appMirrorDir()],
+            MirrorComponent.library: [library.mirrorDir],
+            MirrorComponent.plugins: plugins.mirrorDirs,
+          },
+        );
+
+    File libraryAsset(String name) => File(p.join(library.mirrorDir, name));
+
+    test('during the second component: the first stays, the second reverts',
+        () async {
+      final earlier = libraryAsset('assets/earlier.bin')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('from an earlier download');
+      final rollback = await capture();
+
+      writeAppMirror();
+      final partial = libraryAsset('assets/new.bin')..writeAsStringSync('half');
+      await rollback.rollback(MirrorComponent.library);
+
+      expect(File(p.join(appMirrorDir(), 'latest-release.json')).existsSync(),
+          isTrue);
+      expect(partial.existsSync(), isFalse);
+      expect(earlier.readAsStringSync(), 'from an earlier download');
+      expect(otzaria.stableVersion, tag);
+    });
+
+    test('during the first component: the drive is as before', () async {
+      final earlier = libraryAsset('assets/earlier.bin')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('from an earlier download');
+      final rollback = await capture();
+
+      writeAppMirror();
+      await rollback.rollback(MirrorComponent.app);
+
+      expect(Directory(appMirrorDir()).existsSync(), isFalse);
+      expect(earlier.readAsStringSync(), 'from an earlier download');
+      expect(
+          Directory(library.mirrorDir).listSync(recursive: true), hasLength(2));
+      expect(otzaria.stableVersion, isNull);
+    });
   });
 
   test('a reverted app download is no longer proven up to date', () async {
@@ -168,7 +224,7 @@ void main() {
     startDownload();
 
     Directory(appMirrorDir()).deleteSync(recursive: true);
-    await refresh();
+    await refresh(MirrorComponent.app);
 
     expect(otzaria.stableVersion, isNull);
     expect(otzaria.hasOnlineUpdate, isTrue);
@@ -181,7 +237,7 @@ void main() {
       ..onlineCheckedAt = DateTime.now();
     expect(libraryProvenUpToDate(), isTrue);
 
-    await refresh();
+    await refresh(MirrorComponent.library);
 
     expect(library.onlineCheckedAt, isNull);
     expect(library.onlineCheckError, isNull);
@@ -195,7 +251,7 @@ void main() {
       ..onlineCheckedAt = checkedBefore;
     startDownload();
 
-    await refresh();
+    await refresh(MirrorComponent.library);
 
     expect(library.onlineCheckedAt, checkedBefore);
     expect(library.onlineCheckError, isNull);
@@ -209,7 +265,7 @@ void main() {
       ..onlineCheckedAt = DateTime.now();
     expect(pluginsProvenUpToDate(), isTrue);
 
-    await refresh();
+    await refresh(MirrorComponent.plugins);
 
     expect(plugins.onlineCheckedAt, isNull);
     expect(plugins.onlineCheckError, isNull);
@@ -224,7 +280,7 @@ void main() {
       ..storeAppCheckedAt = DateTime.now();
     expect(storeAppProvenUpToDate(), isTrue);
 
-    await refresh();
+    await refresh(MirrorComponent.plugins);
 
     expect(plugins.storeAppCheckedAt, isNull);
     expect(plugins.storeAppCheckError, isNull);
@@ -240,13 +296,37 @@ void main() {
       ..storeAppCheckedAt = checkedBefore;
     startDownload();
 
-    await refresh();
+    await refresh(MirrorComponent.plugins);
 
     expect(plugins.onlineCheckedAt, checkedBefore);
     expect(plugins.storeAppCheckedAt, checkedBefore);
     expect(plugins.storeAppOnline, isNull);
     expect(pluginsProvenUpToDate(), isTrue);
     expect(storeAppProvenUpToDate(), isTrue);
+  });
+
+  test('a library kept on the drive keeps its answers from the download',
+      () async {
+    library
+      ..onlinePendingCompanions = {CompanionAsset.talmud}
+      ..onlineCheckedAt = DateTime.now().subtract(const Duration(minutes: 1));
+    plugins.storeAppOnline = storeAppRelease;
+    startDownload();
+
+    library
+      ..downloadStatus = MirrorDownloadStatus.done
+      ..onlinePendingCompanions = const {}
+      ..onlineCheckedAt = DateTime.now();
+    plugins
+      ..storeAppOnline = null
+      ..storeAppCheckedAt = DateTime.now();
+
+    await refresh(MirrorComponent.plugins);
+
+    expect(library.onlinePendingCompanions, isEmpty);
+    expect(libraryProvenUpToDate(), isTrue);
+    expect(plugins.storeAppOnline, same(storeAppRelease));
+    expect(storeAppProvenUpToDate(), isFalse);
   });
 
   test('a cancelled companion-only download offers the download again',
@@ -264,7 +344,7 @@ void main() {
       ..onlineCheckedAt = DateTime.now();
     expect(library.hasOnlineUpdate, isFalse);
 
-    await refresh();
+    await refresh(MirrorComponent.library);
 
     expect(library.onlinePendingCompanions, {CompanionAsset.talmud});
     expect(library.hasOnlineUpdate, isTrue);
@@ -283,19 +363,23 @@ void main() {
       () async {
     final checkedBefore = DateTime.now().subtract(const Duration(minutes: 1));
     library
+      ..semanticPreference = SemanticDownloadPreference.always
       ..onlineSemanticPending = true
+      ..semanticChecked = true
       ..onlineCheckedAt = checkedBefore;
     startDownload();
 
     library
       ..downloadStatus = MirrorDownloadStatus.done
       ..onlineSemanticPending = false
+      ..semanticChecked = false
       ..onlineCheckedAt = DateTime.now();
     expect(library.hasOnlineUpdate, isFalse);
 
-    await refresh();
+    await refresh(MirrorComponent.library);
 
     expect(library.onlineSemanticPending, isTrue);
+    expect(library.semanticChecked, isTrue);
     expect(library.shouldOfferSemanticDownload, isTrue);
     expect(
       cardOffersDownload(
@@ -321,7 +405,7 @@ void main() {
       ..onlineCheckedAt = DateTime.now();
     expect(plugins.hasOnlineUpdate, isFalse);
 
-    await refresh();
+    await refresh(MirrorComponent.plugins);
 
     expect(plugins.onlineStatus, same(pending));
     expect(plugins.hasCatalogOnlineUpdate, isTrue);

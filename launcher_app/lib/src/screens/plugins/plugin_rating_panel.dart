@@ -1,114 +1,91 @@
-import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
+import '../../services/timestamps.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
 import 'plugin_visuals.dart';
 
-/// תוכן סעיף "דירוג המשתמשים" בעמוד התוסף — הממוצע, הכוכבים, מספר
-/// המדרגים והפילוח לפי ציון, באותה צורה שהאתר מציג אותם.
-///
-/// **תצוגה בלבד.** הדירוג עצמו נעשה באתר ודורש חשבון; המראה רק נושאת את
-/// המספרים אל המחשב הלא-מקוון, ואין כאן דרך לדרג.
+/// "דירוג המשתמשים" בדף התוסף — תצוגה בלבד: הדירוג נעשה באתר, והכונן
+/// רק נושא את המספרים.
 class PluginRatingSummary extends StatelessWidget {
-  const PluginRatingSummary({super.key, required this.plugin});
+  const PluginRatingSummary({super.key, required this.plugin, this.asOf});
 
   final StorePlugin plugin;
 
-  /// מעל הרוחב הזה הממוצע והפילוח יושבים זה לצד זה, כמו `md:` שבאתר.
-  static const double _twoColumnWidth = 520;
-
-  /// רוחב תיבת הממוצע בפריסה הרחבה — 220px, כמו באתר.
-  static const double _averageWidth = 220;
+  /// מתי המספרים ירדו לכונן.
+  final DateTime? asOf;
 
   @override
   Widget build(BuildContext context) {
-    final average = _averageBox(context);
-    // בלי דירוגים אין מה לפלח — נשארת רק ההודעה "עדיין לא דורג".
-    if (plugin.ratingCount <= 0) return average;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < _twoColumnWidth) {
-          return Column(
-            children: [
-              average,
-              const SizedBox(height: AppTokens.spaceMD),
-              _breakdown(context),
-            ],
-          );
-        }
-        return Row(
-          children: [
-            SizedBox(width: _averageWidth, child: average),
-            const SizedBox(width: AppTokens.spaceLG),
-            Expanded(child: _breakdown(context)),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _averageBox(BuildContext context) {
-    final theme = Theme.of(context);
+    final cs = Theme.of(context).colorScheme;
     final t = context.strings.plugins;
     final rated = plugin.ratingCount > 0;
+    final meta = AppTextStyles.meta.copyWith(color: cs.onSurfaceVariant);
 
-    return Container(
-      padding: const EdgeInsets.all(AppTokens.spaceMD),
-      decoration: BoxDecoration(
-        color: AppSurfaces.panelSection(context),
-        borderRadius: AppTokens.borderRadiusAll,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (rated) ...[
-            Text(
-              formatRating(plugin.ratingAvg),
-              style: theme.textTheme.headlineMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: AppTokens.spaceXS),
-          ],
-          PluginRatingStars(value: rated ? plugin.ratingAvg : 0, size: 22),
-          const SizedBox(height: AppTokens.spaceXS),
-          Text(
-            rated ? t.ratingCountLabel(plugin.ratingCount) : t.ratingEmpty,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          if (plugin.ratingVerifiedCount > 0) ...[
-            const SizedBox(height: AppTokens.spaceSM),
-            Tooltip(
-              message: t.ratingVerifiedTooltip,
-              child: StatusChip(
-                kind: StatusKind.ok,
-                label: t.ratingVerifiedLabel(plugin.ratingVerifiedCount),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _breakdown(BuildContext context) {
-    return Column(
+    final average = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        for (var score = 5; score >= 1; score--) ...[
-          if (score < 5) const SizedBox(height: AppTokens.spaceSM),
-          _BreakdownRow(
-            score: score,
-            count: _countFor(score),
-            total: plugin.ratingCount,
+        Text(
+          rated ? formatRating(plugin.ratingAvg) : '—',
+          style: AppTextStyles.percent.copyWith(color: cs.onSurface),
+        ),
+        const SizedBox(height: 4),
+        PluginRatingStars(value: rated ? plugin.ratingAvg : 0),
+        const SizedBox(height: 4),
+        Text(
+          rated ? t.ratingCountLabel(plugin.ratingCount) : t.ratingEmpty,
+          textAlign: TextAlign.center,
+          style: meta,
+        ),
+        if (plugin.ratingVerifiedCount > 0) ...[
+          const SizedBox(height: 8),
+          Tooltip(
+            message: t.ratingVerifiedTooltip,
+            child: StatusChip(
+              kind: StatusKind.ok,
+              label: t.ratingVerifiedLabel(plugin.ratingVerifiedCount),
+            ),
           ),
         ],
       ],
+    );
+
+    return AppCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (!rated)
+            Center(child: average)
+          else
+            Row(
+              children: [
+                average,
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Column(
+                    children: [
+                      for (var score = 5; score >= 1; score--)
+                        _BreakdownRow(
+                          score: score,
+                          count: _countFor(score),
+                          total: plugin.ratingCount,
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          const SizedBox(height: 10),
+          Text(
+            asOf == null
+                ? t.ratingSourceNote
+                : t.ratingAsOfNote(formatStoreLocalDate(asOf!)),
+            style: meta,
+          ),
+        ],
+      ),
     );
   }
 
@@ -118,8 +95,7 @@ class PluginRatingSummary extends StatelessWidget {
       : 0;
 }
 
-/// שורת פילוח אחת: הציון, מד היחס מתוך כלל המדרגים, ומספר המדרגים שנתנו
-/// אותו.
+/// שורת פילוח (`.rbar`): הציון, פס 6 בצבע הדירוג, ומספר המדרגים.
 class _BreakdownRow extends StatelessWidget {
   const _BreakdownRow({
     required this.score,
@@ -131,54 +107,34 @@ class _BreakdownRow extends StatelessWidget {
   final int count;
   final int total;
 
-  /// רוחב מזערי לתווית ולמונה, כדי שכל המדים יתחילו ויסתיימו באותו מקום.
-  static const BoxConstraints _endWidth = BoxConstraints(minWidth: 30);
-
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final style = theme.textTheme.bodySmall?.copyWith(
-      color: theme.colorScheme.onSurfaceVariant,
-    );
-
-    return Row(
-      children: [
-        ConstrainedBox(
-          constraints: _endWidth,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('$score', style: style),
-              const SizedBox(width: 2),
-              const Icon(
-                FluentIcons.star_16_filled,
-                size: 13,
-                color: AppColors.ratingStar,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: AppTokens.spaceSM),
-        Expanded(
-          child: ClipRRect(
-            borderRadius: AppTokens.borderRadiusAll,
-            child: Container(
-              height: 10,
-              color: theme.colorScheme.surfaceContainerHighest,
-              child: FractionallySizedBox(
-                alignment: AlignmentDirectional.centerStart,
-                widthFactor: total <= 0 ? 0 : count / total,
-                child: const ColoredBox(color: AppColors.ratingStar),
+    final cs = Theme.of(context).colorScheme;
+    final style = AppTextStyles.meta.copyWith(color: cs.onSurfaceVariant);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          SizedBox(width: 14, child: Text('$score', style: style)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: AppTokens.pill,
+              child: Container(
+                height: 6,
+                color: cs.surfaceContainerHighest,
+                child: FractionallySizedBox(
+                  alignment: AlignmentDirectional.centerStart,
+                  widthFactor: total <= 0 ? 0 : count / total,
+                  child: ColoredBox(color: AppPalette.of(context).rating),
+                ),
               ),
             ),
           ),
-        ),
-        const SizedBox(width: AppTokens.spaceSM),
-        ConstrainedBox(
-          constraints: _endWidth,
-          child: Text('$count', style: style),
-        ),
-      ],
+          const SizedBox(width: 8),
+          SizedBox(width: 28, child: Text('$count', style: style)),
+        ],
+      ),
     );
   }
 }

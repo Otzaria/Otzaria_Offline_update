@@ -21,6 +21,8 @@ const Set<String> _allowedHebrewLiterals = {
 /// חריגים שכל מחרוזת שנכנסת אליהם היא מלל למשתמש.
 const List<String> _userFacingThrowables = [
   'StateError',
+  'OtzariaInstallNotDetected',
+  'OtzariaUserError',
   'UnsupportedError',
   'FormatException',
   'GithubApiException',
@@ -135,6 +137,21 @@ void main() {
     }
 
     expect(sites, greaterThanOrEqualTo(10), reason: 'הסורק לא מצא זריקות');
+  });
+
+  // `StateError` מוסיף "Bad state: " לפני הנוסח, והמשתמש קרא אותו בבית.
+  test('נוסח מתורגם נבנה כ-OtzariaUserError, לא כ-StateError', () {
+    final plain = RegExp(r'(?<![A-Za-z_])StateError\s*\(\s*(\S*)');
+    for (final file in files) {
+      final code = _parse(file.readAsStringSync()).code;
+      for (final match in plain.allMatches(code)) {
+        expect(
+          match.group(1),
+          isNot(startsWith('AppL10n.strings')),
+          reason: '${p.basename(file.path)}: StateError עם נוסח מתורגם',
+        );
+      }
+    }
   });
 
   // הסורק עצמו נבדק מול קטע מפוברק, כדי שלא "יעבור" רק כי לא ראה כלום.

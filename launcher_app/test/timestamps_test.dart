@@ -33,8 +33,8 @@ void main() {
     });
 
     // באנגלית `03.08.2026` נקרא כ-3 באוגוסט או כ-8 במרץ, תלוי בקורא. ISO
-    // חד-משמעי — וזה גם מה ש-`HebrewDate.format` כבר עושה שם.
-    test('אנגלית: ISO, כמו התקדים ב-HebrewDate.format', () {
+    // חד-משמעי.
+    test('אנגלית: ISO', () {
       AppL10n.use(AppLanguage.english);
       expect(formatTimestamp(noon), '2026-08-03 14:05:09');
     });
@@ -58,6 +58,56 @@ void main() {
       List<String> digitsOf(String s) =>
           RegExp(r'\d+').allMatches(s).map((m) => m.group(0)!).toList()..sort();
       expect(digitsOf(he), digitsOf(en));
+    });
+  });
+
+  group('formatStoreDate — תאריכי החנויות', () {
+    test('עברית: תאריך עברי כמו באתר; אנגלית: לועזי בשם חודש', () {
+      AppL10n.use(AppLanguage.hebrew);
+      expect(formatStoreDate(DateTime(2026, 10, 20, 12)), 'ט\' חשוון ה\'תשפ"ז');
+      AppL10n.use(AppLanguage.english);
+      expect(formatStoreDate(DateTime(2026, 10, 20, 12)), 'October 20, 2026');
+    });
+
+    test('מחרוזת מה-API: תאריך בלבד אינו זז, ומה שאינו תאריך חוזר כמות שהוא',
+        () {
+      for (final language in AppLanguage.values) {
+        AppL10n.use(language);
+        expect(formatStoreDateRaw(''), '');
+        expect(formatStoreDateRaw(null), '');
+        expect(formatStoreDateRaw('לא תאריך'), 'לא תאריך');
+        expect(formatStoreDateRaw('02/04/2026'), '02/04/2026');
+      }
+      AppL10n.use(AppLanguage.hebrew);
+      expect(formatStoreDateRaw('2026-01-01'), 'י"ב טבת ה\'תשפ"ו');
+      expect(
+          formatStoreDateRaw('2026-04-02T10:30:00.000Z'), 'ט"ו ניסן ה\'תשפ"ו');
+      AppL10n.use(AppLanguage.english);
+      expect(formatStoreDateRaw('2026-01-01'), 'January 1, 2026');
+    });
+
+    test('רגע מלא נקרא ב-UTC, כמו בחנות שבאתר — לא לפי השעון המקומי', () {
+      AppL10n.use(AppLanguage.hebrew);
+      // בישראל זה כבר 2/4 (ט"ו בניסן); באתר — 1/4.
+      expect(formatStoreDateRaw('2026-04-01T22:30:00Z'), 'י"ד ניסן ה\'תשפ"ו');
+      expect(
+        formatStoreDate(DateTime.utc(2026, 4, 1, 22, 30)),
+        'י"ד ניסן ה\'תשפ"ו',
+      );
+    });
+
+    test('רגע שנרשם במחשב הזה נקרא בלוח המקומי — גם אחרי חצות', () {
+      // שדות מקומיים: היום יוצא 24/10 בכל אזור זמן; ב-UTC בישראל זה עדיין 23/10.
+      final afterMidnight = DateTime(2026, 10, 24, 0, 30);
+      AppL10n.use(AppLanguage.hebrew);
+      expect(formatStoreLocalDate(afterMidnight), 'י"ג חשוון ה\'תשפ"ז');
+      // כך הוא נשמר ונקרא מהקובץ — ISO בלי היסט, ונקרא כמקומי.
+      expect(
+        formatStoreLocalDate(DateTime.parse(afterMidnight.toIso8601String())),
+        'י"ג חשוון ה\'תשפ"ז',
+      );
+      AppL10n.use(AppLanguage.english);
+      expect(formatStoreLocalDate(afterMidnight), 'October 24, 2026');
     });
   });
 }

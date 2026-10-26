@@ -23,6 +23,9 @@ enum LauncherUpdateStatus {
   error,
 }
 
+/// השלב שבו נכשל העדכון — כדי שההודעה תתאר אותו ולא תנחש.
+enum LauncherUpdateFailure { check, download, install }
+
 class LauncherUpdateController extends ChangeNotifier
     with DisposeGuard, ProgressNotifier {
   LauncherUpdateController(
@@ -36,6 +39,9 @@ class LauncherUpdateController extends ChangeNotifier
   /// הגרסה שרצה כרגע — מוצגת גם כשאין שום עדכון.
   String get currentVersion => _updater.currentVersion;
 
+  /// התיקייה בכונן שבה יושבת הגרסה שהורדה — להחלפה ידנית.
+  String get mirrorDir => _updater.mirrorDir;
+
   /// הגרסה שמוכנה בתיקייה, אם יש.
   String? downloadedVersion;
 
@@ -48,6 +54,7 @@ class LauncherUpdateController extends ChangeNotifier
   DateTime? onlineCheckedAt;
 
   String? errorMessage;
+  LauncherUpdateFailure? failure;
 
   /// ההחלפה נכשלה על הרשאות — הלאנצ'ר מותקן בתיקייה מוגנת (`Program Files`).
   bool needsElevation = false;
@@ -108,7 +115,7 @@ class LauncherUpdateController extends ChangeNotifier
   /// בדיקה קלה ברשת. כשל (בעיקר "אין חיבור") הוא מצב תקין ונשמר בשקט, בדיוק
   /// כמו במודולים האחרים — בדיקה אוטומטית לא מציגה שגיאה כשאין רשת.
   Future<void> checkOnline() async {
-    onlineCheckError = null;
+    // הכשל הקודם נשאר עד התשובה החדשה, כדי ששורת המצב לא תאמר "מחובר" באמצע.
     notifyListeners();
 
     try {
@@ -118,6 +125,7 @@ class LauncherUpdateController extends ChangeNotifier
       if (online != null && hasOnlineUpdate) {
         onlineRelease = await _updater.withChangelog(online);
       }
+      onlineCheckError = null;
     } catch (e) {
       onlineRelease = null;
       onlineCheckError = e.toString();
@@ -148,6 +156,7 @@ class LauncherUpdateController extends ChangeNotifier
     } catch (e, st) {
       status = LauncherUpdateStatus.error;
       errorMessage = e.toString();
+      failure = LauncherUpdateFailure.check;
       AppLogger.instance
           .error('LauncherUpdateController.checkForUpdate נכשל', e, st);
     }
@@ -177,6 +186,7 @@ class LauncherUpdateController extends ChangeNotifier
       await _loadLocal();
       if (!hasUpdateReady) status = LauncherUpdateStatus.error;
       errorMessage = e.toString();
+      failure = LauncherUpdateFailure.download;
       notifyListeners();
       return false;
     }
@@ -206,6 +216,7 @@ class LauncherUpdateController extends ChangeNotifier
       await _loadLocal(cleanupLeftovers: false);
       if (!hasUpdateReady) status = LauncherUpdateStatus.error;
       errorMessage = e.toString();
+      failure = LauncherUpdateFailure.install;
       needsElevation = Elevation.isAccessDenied(e);
       notifyListeners();
       return false;

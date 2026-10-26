@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 
-/// צבעים קבועים שאינם חלק מה-ColorScheme הדינמי — מועתק מאוצריא.
-/// כל השאר (primary/surface/error…) נגזר מ-[ColorScheme.fromSeed].
+/// צבעים קבועים שאינם חלק מה-ColorScheme. השאר נגזר מ-[ColorScheme.fromSeed]
+/// או יושב ב-`AppPalette`.
 class AppColors {
   AppColors._();
 
-  /// צבע מחסום הדיאלוג (barrier) — חצי שקוף
+  /// השכבה מאחורי דו-שיח: שחור ב-13.3%.
   static const Color dialogBarrier = Color(0x22000000);
 
-  /// כוכב הדירוג בחנות. קבוע ולא נגזר מה-seed: זה `warning-500` של האתר,
-  /// והדירוג אמור להיראות שם וכאן אותו דבר בכל ערכת צבעים.
-  static const Color ratingStar = Color(0xFFF99C00);
+  /// כוכב הדירוג בחנות. המקור היחיד — `AppPalette.rating` מפנה לכאן.
+  static const Color ratingStar = Color(0xFF9C6E28);
 }

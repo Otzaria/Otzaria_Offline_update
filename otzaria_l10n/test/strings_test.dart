@@ -16,6 +16,52 @@ void main() {
         contains('other personal details may still be sent'));
   });
 
+  test('"באתר יש חדש" ברכיב כבוי — יחיד, רבים ורשימה', () {
+    const he = HebrewStrings();
+    const en = EnglishStrings();
+    expect(
+      he.guide.syncOffOnlyNote(app: false, library: true, plugins: false),
+      'באתר יש גרסה חדשה של ספריית אוצריא, אבל ההורדה שלה כבויה בהגדרות.',
+    );
+    expect(
+      he.guide.syncOffOnlyNote(app: false, library: false, plugins: true),
+      contains('ההורדה שלהם'),
+    );
+    expect(
+      he.guide.syncOffOnlyNote(
+        app: false,
+        library: true,
+        plugins: false,
+        libraryFilesOnly: true,
+      ),
+      'באתר יש קבצים חדשים לספריית אוצריא, אבל ההורדה שלהם כבויה בהגדרות.',
+    );
+    expect(
+      en.guide.syncOffOnlyNote(
+        app: false,
+        library: true,
+        plugins: false,
+        libraryFilesOnly: true,
+      ),
+      'There are new Otzaria library files online, but their download is turned off '
+      'in the settings.',
+    );
+    expect(
+      he.guide.syncOffOnlyNote(app: true, library: true, plugins: true),
+      'באתר יש חדש בתוכנה, בספריית אוצריא ובתוספים, אבל ההורדה שלהם כבויה בהגדרות.',
+    );
+    expect(
+      en.guide.syncOffOnlyNote(app: true, library: true, plugins: false),
+      'There is something new online for the program and the Otzaria library, but '
+      'their download is turned off in the settings.',
+    );
+  });
+
+  test('כפתור השער אינו "Enter" — שם המקש, לא פעולה', () {
+    expect(const EnglishStrings().saferMode.enterButton, 'Unlock');
+    expect(const HebrewStrings().saferMode.enterButton, 'כניסה');
+  });
+
   test('AppL10n.use מחליף את כל המחרוזות', () {
     AppL10n.use(AppLanguage.english);
     expect(AppL10n.strings.shell.appTitle, 'Otzaria Updates');

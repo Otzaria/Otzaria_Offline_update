@@ -5,7 +5,6 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart' show OtzariaCapabilities;
 
 import '../services/app_logger.dart';
-import '../services/offer_decline.dart';
 import 'dispose_guard.dart';
 
 typedef ReportCollectOutcome = ({int collected, String? error});
@@ -104,8 +103,6 @@ class ErrorReportsController extends ChangeNotifier
   List<String> unmigratedLegacy = const [];
   final ErrorReportUploader _uploader;
 
-  final OfferDecline _decline = OfferDecline();
-
   int outboxCount = 0;
   bool isCollecting = false;
   bool isUploading = false;
@@ -148,14 +145,12 @@ class ErrorReportsController extends ChangeNotifier
       final queue = await _resolveQueue();
       if (queue == null) return 0;
       final count = await queue.countSendable();
-      return _decline.filter(count);
+      return count;
     } catch (e) {
       AppLogger.maybeInstance?.warn('קריאת תור הדיווחים של אוצריא נכשלה: $e');
       return 0;
     }
   }
-
-  void markDeclined(int count) => _decline.mark(count);
 
   Future<ReportCollectOutcome> collect() async {
     if (isCollecting || isUploading) return (collected: 0, error: null);
@@ -165,7 +160,6 @@ class ErrorReportsController extends ChangeNotifier
       final queue = await _resolveQueue();
       if (queue == null) return (collected: 0, error: null);
       final result = await queue.collectTo(outbox);
-      if (result.collected > 0) _decline.reset();
       final error = result.error;
       if (error == null) return result;
       AppLogger.maybeInstance?.warn('איסוף חלקי: $error');

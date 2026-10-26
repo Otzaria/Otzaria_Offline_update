@@ -17,6 +17,43 @@ void main() {
   });
   tearDown(() async => temp.delete(recursive: true));
 
+  for (final mixed in [false, true]) {
+    test(
+      'download bound stays unknown for ${mixed ? 'mixed' : 'windows'} fleet',
+      () async {
+        final github = FakeVectorsGithub()
+          ..windowsBase(30)
+          ..legacyBase(30);
+        addTearDown(github.client.close);
+        final assets = SemanticSearchAssets(
+          httpClient: github.client,
+          models: fakeModels,
+        );
+        addTearDown(assets.dispose);
+        final pending = await assets.peekPending(
+          mirrorDir: p.join(temp.path, 'mirror'),
+          libraryTag: libraryTagOf(30),
+          fleet: SemanticFleet([
+            const SemanticMachineState(
+              supportsWindows: true,
+              family: SemanticVectorsFamily.windows,
+              libraryVersion: 29,
+              identityDigest: identityA,
+            ),
+            if (mixed)
+              const SemanticMachineState(
+                supportsWindows: false,
+                family: SemanticVectorsFamily.legacy,
+                libraryVersion: 29,
+              ),
+          ]),
+        );
+        expect(pending, isTrue);
+        expect(assets.peekedPendingBytes, isNull);
+      },
+    );
+  }
+
   test(
     'a mixed fleet must still update its existing windows machine',
     () async {

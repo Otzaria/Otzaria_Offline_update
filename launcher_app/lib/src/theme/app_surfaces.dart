@@ -1,83 +1,137 @@
 import 'package:flutter/material.dart';
 
+import 'app_palette.dart';
+import 'focus_visibility.dart';
+
 ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
 
-extension on ColorScheme {
-  bool get isDark => brightness == Brightness.dark;
-}
-
-/// רקעי מסך — מועתק מאוצריא. זו נקודת ה-override היחידה לשקיפויות ולגוני
-/// רקע; אין להגדיר `.withValues(alpha:)` מחוץ ל-`theme/`.
+/// רקעי מסך ושכבות מצב. זו נקודת ה-override היחידה לשקיפויות ולגוני רקע;
+/// אין להגדיר `.withValues(alpha:)` מחוץ ל-`theme/`.
 class AppSurfaces {
   AppSurfaces._();
 
-  /// רקע מסכי לוח — כל מסכי הלאנצ'ר
-  static Color panelBackground(BuildContext context) {
-    final cs = _cs(context);
-    return cs.isDark
-        ? Colors.black
-        : Color.alphaBlend(
-            cs.surfaceContainerHighest.withValues(alpha: 0.475),
-            cs.surface,
-          );
-  }
+  /// ריחוף ולחיצה: 8% ו-12% מצבע הבסיס, מעל המשטח שמתחתיו.
+  static const double hoverAlpha = 0.08;
+  static const double pressedAlpha = 0.12;
 
-  /// רקע שורת הכותרת המותאמת — אותו רקע כמו הלוח, כך שהיא נקראת כהמשך של
-  /// המסך ולא כסרגל נפרד (כמו באוצריא).
+  /// רקע החלון וכל הדפים.
+  static Color panelBackground(BuildContext context) =>
+      AppPalette.of(context).page;
+
+  /// רקע שורת הכותרת.
   static Color topBarBackground(BuildContext context) =>
-      panelBackground(context);
+      _cs(context).surfaceContainerHigh;
 
-  /// רקע סרגל הניווט הצדי — גם הוא רקע הלוח, בלי תפר מול התוכן.
-  static Color navRailBackground(BuildContext context) =>
-      panelBackground(context);
-
-  /// קו ההפרדה של המסגרת — מתחת לשורת הכותרת ובין סרגל הניווט לתוכן.
-  /// שלושת המשטחים באותו צבע, ולכן הקו הזה הוא כל מה שמפריד ביניהם (כמו
-  /// ה-`VerticalDivider` וגבול ה-`CustomTitleBar` באוצריא).
+  /// הקו שמתחת לשורת הכותרת.
   static Color shellDivider(BuildContext context) =>
-      _cs(context).outlineVariant.withValues(alpha: 0.6);
+      AppPalette.of(context).titleBarBorder;
 
-  /// צבע ברירת המחדל לכרטיסי תוכן
-  static Color card(BuildContext context) => _cs(context).isDark
-      ? _cs(context).surfaceContainer
-      : _cs(context).surface;
+  /// כרטיס תוכן: שטוח, בלי מסגרת ובלי צל.
+  static Color card(BuildContext context) => _cs(context).surface;
 
-  /// צל רך לכרטיסי תוכן — עומק עדין שמפריד את הכרטיס מרקע הלוח. במצב כהה
-  /// הרקע שחור ממילא, וצל עליו רק מלכלך את הפינות; שם אין צל.
-  static List<BoxShadow> cardShadow(BuildContext context) => _cs(context).isDark
-      ? const []
-      : [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ];
-
-  /// צבע מפריד פנימי בין שורות בתוך כרטיס תוכן
+  /// הרצועה בין שורות בכרטיס — רקע הדף עצמו.
   static Color cardRowDivider(BuildContext context) => panelBackground(context);
 
-  /// שכבת בחירה לכרטיסי תוכן
-  static Color cardSelectionOverlay(BuildContext context) =>
-      _cs(context).secondaryContainer.withValues(alpha: 0.3);
+  /// כרטיס נבחר.
+  static Color cardSelected(BuildContext context) =>
+      AppPalette.of(context).cardSelected;
 
-  /// רקע קטע-משנה ניטרלי בתוך כרטיס
+  /// רקע קטע-משנה ניטרלי בתוך כרטיס.
   static Color panelSection(BuildContext context) =>
-      _cs(context).surfaceContainerHighest.withValues(alpha: 0.5);
+      _cs(context).surfaceContainer;
 
-  /// רקע שבב חיווי מצב — נגזר מצבע החיווי עצמו, בשקיפות אחידה
-  static Color statusChip(Color base) => base.withValues(alpha: 0.12);
+  /// שכבת המצב (hover/pressed) בצבע [base] — ל-`overlayColor` של כפתור או
+  /// `InkWell`. מיקוד לבדו אינו צובע: הוא טבעת ([focusRingSide], `FocusRing`).
+  static WidgetStateProperty<Color?> stateLayer(Color base) =>
+      WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.disabled)) return null;
+        if (states.contains(WidgetState.pressed)) {
+          return base.withValues(alpha: pressedAlpha);
+        }
+        if (states.contains(WidgetState.hovered)) {
+          return base.withValues(alpha: hoverAlpha);
+        }
+        // שקוף ולא null: null נופל לברירת המחדל של הכפתור, שצובעת מיקוד.
+        if (states.contains(WidgetState.focused)) return Colors.transparent;
+        return null;
+      });
 
-  /// טקסט של פקד מושבת, לפי מפרט M3.
-  static Color disabledForeground(ColorScheme cs) =>
-      cs.onSurface.withValues(alpha: 0.38);
+  /// כמו [stateLayer], לפקד שאין לו מקום לטבעת: מיקוד מהמקלדת מקבל את שכבת
+  /// הלחיצה.
+  static WidgetStateProperty<Color?> stateLayerWithFocus(Color base) =>
+      WidgetStateProperty.resolveWith((states) {
+        // נקרא לפני הבדיקה כדי שההאזנה תתחיל בבנייה הראשונה, לפני כל מקש.
+        final keyboard = FocusVisibility.isKeyboard;
+        if (!states.contains(WidgetState.disabled) &&
+            states.contains(WidgetState.focused) &&
+            keyboard) {
+          return base.withValues(alpha: pressedAlpha);
+        }
+        return stateLayer(base).resolve(states);
+      });
 
-  /// רקע של אפשרות מסומנת בפקד מושבת, לפי מפרט M3.
-  static Color disabledSelectedBackground(ColorScheme cs) =>
-      cs.onSurface.withValues(alpha: 0.12);
+  /// טבעת המיקוד ל-`side` של כפתור: 2px ב-[ring], במרחק 2 מחוץ לצורה, רק
+  /// כשהמיקוד הגיע מהמקלדת. אחרת — [base].
+  static WidgetStateProperty<BorderSide?> focusRingSide(
+    Color ring, [
+    WidgetStateProperty<BorderSide?>? base,
+  ]) =>
+      WidgetStateProperty.resolveWith((states) {
+        final keyboard = FocusVisibility.isKeyboard;
+        if (states.contains(WidgetState.focused) && keyboard) {
+          return BorderSide(color: ring, width: 2, strokeAlign: 3);
+        }
+        return base?.resolve(states);
+      });
 
-  /// טבעת ההבהוב של כפתור השאלות הנפוצות. השקיפות קבועה — ההיעלמות נעשית
-  /// ב-`FadeTransition`, ולכן אין כאן חישוב alpha לפי מצב האנימציה.
-  static Color faqPulseRing(BuildContext context) =>
-      _cs(context).primary.withValues(alpha: 0.35);
+  /// [base] בריחוף מעל [surface] — כצבע אטום, למשטח שמצייר את עצמו.
+  static Color hovered(Color surface, Color base) =>
+      Color.alphaBlend(base.withValues(alpha: hoverAlpha), surface);
+
+  /// [base] בלחיצה מעל [surface].
+  static Color pressed(Color surface, Color base) =>
+      Color.alphaBlend(base.withValues(alpha: pressedAlpha), surface);
+
+  /// רקע ההודעה בבית: secondaryContainer ב-45% מעל רקע הדף.
+  static Color banner(BuildContext context) => Color.alphaBlend(
+        _cs(context).secondaryContainer.withValues(alpha: 0.45),
+        panelBackground(context),
+      );
+
+  /// הודעת אזהרה: errorContainer ב-45% מעל הכרטיס.
+  static Color warningNotice(BuildContext context) => Color.alphaBlend(
+        _cs(context).errorContainer.withValues(alpha: 0.45),
+        card(context),
+      );
+
+  /// "אל תנתקו את הכונן": secondaryContainer ב-50% מעל רקע הדף.
+  static Color keepNotice(BuildContext context) => Color.alphaBlend(
+        _cs(context).secondaryContainer.withValues(alpha: 0.5),
+        panelBackground(context),
+      );
+
+  /// הטבעת שמסביב לתג תוצאה — צבע התג ב-11%.
+  static Color badgeRing(Color base) => base.withValues(alpha: 0.11);
+
+  /// הטבעת שמסביב לסמל הגיבור — secondaryContainer ב-45%.
+  static Color emblemRing(Color base) => base.withValues(alpha: 0.45);
+
+  /// [base] שקוף לגמרי — קצה של מעבר צבע.
+  static Color transparent(Color base) => base.withValues(alpha: 0);
+
+  /// טבעת התג הרגוע: onSurfaceVariant ב-9%.
+  static Color calmBadgeRing(ColorScheme cs) =>
+      cs.onSurfaceVariant.withValues(alpha: 0.09);
+
+  /// מסגרת סמל התוסף: outlineVariant ב-70%.
+  static Color iconFrame(ColorScheme cs) =>
+      cs.outlineVariant.withValues(alpha: 0.7);
+
+  /// טקסט של פקד מושבת.
+  static Color disabledForeground(BuildContext context) =>
+      AppPalette.of(context).disabledText;
+
+  /// רקע של פקד מושבת.
+  static Color disabledBackground(BuildContext context) =>
+      AppPalette.of(context).disabledContainer;
 }

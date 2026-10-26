@@ -1,48 +1,12 @@
 import 'dart:io';
 
+import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
-import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/library_module_controller.dart';
 import '../services/byte_size.dart';
+import '../services/native_file_dialogs.dart';
 import '../widgets/widgets_exports.dart';
-
-StatusKind libraryStatusKind(LibraryModuleStatus status) => switch (status) {
-      LibraryModuleStatus.idle => StatusKind.unknown,
-      LibraryModuleStatus.checking => StatusKind.working,
-      LibraryModuleStatus.upToDate => StatusKind.ok,
-      LibraryModuleStatus.updateAvailable => StatusKind.updateAvailable,
-      LibraryModuleStatus.updating => StatusKind.working,
-      LibraryModuleStatus.error => StatusKind.error,
-      LibraryModuleStatus.needsDownload => StatusKind.needsAction,
-      LibraryModuleStatus.needsManualPath => StatusKind.needsAction,
-      LibraryModuleStatus.personalTargetElsewhere => StatusKind.needsAction,
-    };
-
-String libraryStatusLabel(BuildContext context, LibraryModuleController c) {
-  final common = context.strings.common;
-  final t = context.strings.home;
-
-  return switch (c.status) {
-    LibraryModuleStatus.idle => common.notCheckedYet,
-    LibraryModuleStatus.checking => common.checking,
-    LibraryModuleStatus.upToDate => common.upToDate,
-    LibraryModuleStatus.updateAvailable => switch (c) {
-        _ when c.isFreshInstall => t.libraryNotInstalledYet,
-        _ when c.companionsOnly =>
-          AppL10n.strings.libraryDomain.companionsOnlyPending(
-            c.pendingCompanionNames,
-          ),
-        _ => common.updateAvailable,
-      },
-    LibraryModuleStatus.updating => t.libraryUpdating,
-    LibraryModuleStatus.error => common.error,
-    LibraryModuleStatus.needsDownload => t.libraryNothingDownloaded,
-    LibraryModuleStatus.needsManualPath => t.libraryNeedsManualPath,
-    LibraryModuleStatus.personalTargetElsewhere =>
-      t.libraryPersonalOtherMachine,
-  };
-}
 
 Widget libraryApplyProgressRow(
   BuildContext context,
@@ -57,46 +21,6 @@ Widget libraryApplyProgressRow(
         warning: context.strings.home.doNotRemoveDriveWarning,
       ),
     );
-
-String _withEstimate(
-  BuildContext context,
-  String text,
-  ({int low, int high})? estimate,
-) =>
-    estimate == null
-        ? text
-        : '${context.strings.home.libraryApplyEstimate(
-            estimate.low,
-            estimate.high,
-          )}\n$text';
-
-Future<bool> _blockedByRunningOtzaria(
-  Future<bool> Function() isOtzariaRunning,
-) async {
-  if (!await isOtzariaRunning()) return false;
-  UiSnack.showError(AppL10n.strings.home.otzariaOpenSnack);
-  return true;
-}
-
-Future<void> applyLibraryAndReport(
-  BuildContext context,
-  LibraryModuleController library,
-  Future<void> Function() apply, {
-  required Future<void> Function() onRequestReindex,
-}) async {
-  await apply();
-  if (library.status == LibraryModuleStatus.upToDate) {
-    UiSnack.showSuccess(
-      AppL10n.strings.home.libraryUpdatedSnack('${library.localVersion}'),
-    );
-  }
-  await onRequestReindex();
-  if (library.changesNotesApplied &&
-      library.changesNotes.isNotEmpty &&
-      context.mounted) {
-    await showLibraryChangesDialog(context, library);
-  }
-}
 
 /// "מה חדש בספרייה" — ההערות של כל הגרסאות שבטווח, החדשה קודם.
 Future<void> showLibraryChangesDialog(
@@ -129,80 +53,106 @@ Future<void> showLibraryChangesDialog(
   );
 }
 
-Future<void> confirmLibraryUpdate(
-  BuildContext context, {
-  required LibraryModuleController library,
-  required String Function(AppStrings strings) dialogTitle,
-  required Future<bool> Function() isOtzariaRunning,
-  required Future<void> Function() onRequestReindex,
-}) async {
-  if (await _blockedByRunningOtzaria(isOtzariaRunning)) return;
-  if (!context.mounted) return;
-  final home = context.strings.home;
+/// "מה חדש בספרייה" כרשימה קצרה; הרשימה המלאה נפתחת בחלון משלה, כי היא
+/// יכולה למנות אלפי ספרים.
+class LibraryChangesCard extends StatelessWidget {
+  const LibraryChangesCard({super.key, required this.library});
 
-  final c = library;
-  final approved = await showTwoActionsDialog(
-    context: context,
-    title: dialogTitle(context.strings),
-    content: switch (c) {
-      _ when c.isFreshInstall =>
-        home.libraryFreshInstallPrompt('${c.targetVersion}'),
-      _ when c.companionsOnly => AppL10n.strings.libraryDomain
-          .companionsOnlyPrompt(c.pendingCompanionNames),
-      _ => home.libraryUpdatePrompt('${c.localVersion}', '${c.targetVersion}'),
-    },
-    subtitle: _withEstimate(
-      context,
-      home.doNotRemoveDriveWarning,
-      c.companionsOnly ? null : c.applyEstimateFor(),
-    ),
-    confirmText: home.libraryUpdateConfirm,
+  final LibraryModuleController library;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = library;
+    final s = context.strings.libraryScreen;
+    return NewsCard(
+      items: [
+        c.changesNotesApplied
+            ? s.changesAppliedSubtitle('${c.changesNotesVersion}')
+            : s.changesPendingSubtitle('${c.changesNotesVersion}'),
+        if (c.changesNotesPartial)
+          s.changesPartial(c.changesNotes.length, c.changesNotesRange),
+      ],
+      footer: ActionButton.ghost(
+        text: s.changesButton,
+        icon: FluentIcons.document_text_24_regular,
+        size: ActionButtonSize.sm,
+        onPressed: () => showLibraryChangesDialog(context, c),
+      ),
+    );
+  }
+}
+
+/// בחירת קובץ הספרייה (`seforim.db`) במחשב הזה.
+Future<void> pickLibraryDbFile(
+  BuildContext context,
+  LibraryModuleController library,
+) async {
+  final t = context.strings.libraryScreen;
+  final path = await NativeFileDialogs.pickFile(
+    dialogTitle: t.pickDbDialogTitle,
+    allowedExtensions: const ['db'],
   );
-  if (!approved) return;
+  if (path == null || !context.mounted) return;
+  if (!await _confirmLocationOutsideOtzaria(context, library, path)) return;
+  await library.setCustomDbPath(path);
+  UiSnack.showSuccess(t.dbPathUpdatedSnack);
+}
 
-  if (!context.mounted) return;
-  await applyLibraryAndReport(
+/// התיקייה שאליה תותקן ספרייה חדשה, או שבה היא יושבת עכשיו.
+Future<void> pickLibraryInstallDir(
+  BuildContext context,
+  LibraryModuleController library,
+) async {
+  final t = context.strings.libraryScreen;
+  final dir = await NativeFileDialogs.pickDirectory(
+    dialogTitle: t.pickInstallDirDialogTitle,
+  );
+  if (dir == null || !context.mounted) return;
+  if (!await _confirmLocationOutsideOtzaria(
     context,
-    c,
-    c.update,
-    onRequestReindex: onRequestReindex,
+    library,
+    library.dbPathIn(dir),
+  )) {
+    return;
+  }
+  await library.setInstallDir(dir);
+  UiSnack.showSuccess(t.installDirUpdatedSnack);
+}
+
+/// מיקום שאוצריא אינה מחפשת בו מותר — אבל רק אחרי אזהרה מפורשת: היא לא
+/// תראה שם ספרים עד שהמשתמש יצביע על התיקייה מתוך ההגדרות שלה.
+Future<bool> _confirmLocationOutsideOtzaria(
+  BuildContext context,
+  LibraryModuleController library,
+  String dbPath,
+) async {
+  if (await library.isDbPathKnownToOtzaria(dbPath)) return true;
+  if (!context.mounted) return false;
+  final t = context.strings.libraryScreen;
+  return showTwoActionsDialog(
+    context: context,
+    title: t.customLocationDialogTitle,
+    content: t.customLocationPrompt(dbPath),
+    confirmText: t.customLocationConfirm,
   );
 }
 
-Future<void> confirmLibraryFullDownload(
-  BuildContext context, {
-  required LibraryModuleController library,
-  required Future<bool> Function() isOtzariaRunning,
-  required Future<void> Function() onRequestReindex,
-}) async {
-  if (await _blockedByRunningOtzaria(isOtzariaRunning)) return;
-  if (!context.mounted) return;
+/// קוראת את גרסת המסד של המחשב הזה ורושמת אותה. snack ולא שדה מצב:
+/// לחיצה שלא מצאה מסד היא מידע חד-פעמי, לא תקלה שנשארת בדף.
+Future<void> capturePersonalVersion(
+  BuildContext context,
+  LibraryModuleController library,
+) async {
   final t = context.strings.libraryScreen;
-
-  final c = library;
-  final size = c.fullDownloadFallbackSize;
-  final approved = await showTwoActionsDialog(
-    context: context,
-    title: t.fullDownloadInsteadDialogTitle,
-    content: t.fullDownloadInsteadPrompt(
-      size != null && size > 0
-          ? formatBytes(size)
-          : context.strings.common.unknownValue,
-    ),
-    subtitle: _withEstimate(
-      context,
-      context.strings.home.doNotRemoveDriveWarning,
-      c.applyEstimateFor(fullDownload: true),
-    ),
-    confirmText: context.strings.common.install,
-  );
-  if (!approved) return;
-
+  final captured = await library.capturePersonalVersion();
   if (!context.mounted) return;
-  await applyLibraryAndReport(
-    context,
-    c,
-    c.updateWithFullDownload,
-    onRequestReindex: onRequestReindex,
-  );
+  if (captured) {
+    UiSnack.showSuccess(
+      t.personalVersionCapturedSnack('${library.personalFromVersion}'),
+    );
+  } else {
+    UiSnack.showError(
+      library.personalCaptureError ?? t.personalVersionNotFoundSnack,
+    );
+  }
 }

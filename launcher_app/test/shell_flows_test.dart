@@ -13,6 +13,8 @@ final _proven =
     OnlineProof(checkedAt: _checkedAt, error: null, hasUpdate: false);
 final _hasNew =
     OnlineProof(checkedAt: _checkedAt, error: null, hasUpdate: true);
+const SemanticSearchAnswer _yes = (download: true, remember: false);
+const SemanticSearchAnswer _no = (download: false, remember: false);
 
 class _FakeApp implements AppMirrorModule, AutoInstallApp {
   _FakeApp(this.log);
@@ -69,6 +71,7 @@ class _FakeLibrary implements LibraryMirrorModule, AutoInstallLibrary {
   bool hasUpdateAvailable = true;
 
   bool? includedSemanticSearch;
+  Future<void> Function()? onDownload;
   Future<void> Function()? onUpdate;
   Future<void> Function()? onRecheck;
 
@@ -79,7 +82,16 @@ class _FakeLibrary implements LibraryMirrorModule, AutoInstallLibrary {
   }) async {
     includedSemanticSearch = includeSemanticSearch;
     log.add('library');
+    await onDownload?.call();
   }
+
+  var probes = 0;
+
+  @override
+  void startDownloadSizeProbe() => probes++;
+
+  @override
+  void clearDownloadSizeProbe() {}
 
   @override
   Future<void> update() async {
@@ -122,9 +134,11 @@ class _FakeRollback implements DownloadRollback {
 
   final List<String> log;
   Completer<void>? gate;
+  MirrorComponent? reverted;
 
   @override
-  Future<void> rollback() async {
+  Future<void> rollback(MirrorComponent? inProgress) async {
+    reverted = inProgress;
     log.add('rollback');
     await gate?.future;
     if (error case final error?) throw error;
@@ -150,22 +164,26 @@ class _FakeDownloadHost implements MirrorDownloadHost {
   AppSettings settings = const AppSettings();
 
   Future<void> Function(AppSettings s)? onRefresh;
-  Future<bool> Function()? onConfirmSemantic;
+  Future<SemanticSearchAnswer?> Function()? onConfirmSemantic;
   Completer<void>? sweepGate;
   int sweeps = 0;
   List<MirrorComponent>? failed;
   List<MirrorComponent>? skipped;
 
+  bool refreshed = true;
+
   @override
-  Future<void> refreshStaleOnlineChecks(AppSettings s) async {
+  Future<bool> refreshStaleOnlineChecks(AppSettings s) async {
     log.add('refresh');
     await onRefresh?.call(s);
+    return refreshed;
   }
 
   @override
-  Future<bool> confirmSemanticSearch() async {
+  Future<SemanticSearchAnswer?> confirmSemanticSearch() async {
     log.add('ask semantic');
-    return await onConfirmSemantic?.call() ?? false;
+    final answer = onConfirmSemantic;
+    return answer == null ? _no : await answer();
   }
 
   @override
@@ -193,12 +211,35 @@ class _FakeDownloadHost implements MirrorDownloadHost {
   @override
   void downloadSnapshotFailed(Object error) => log.add('snapshot failed');
 
+  List<MirrorComponent>? kept;
+
   @override
-  void downloadCancelled({Object? revertError}) =>
-      log.add(revertError == null ? 'cancelled' : 'cancelled revert failed');
+  void downloadCancelled({
+    Object? revertError,
+    List<MirrorComponent> kept = const [],
+  }) {
+    this.kept = kept;
+    log.add(revertError == null ? 'cancelled' : 'cancelled revert failed');
+  }
 
   @override
   void downloadEnded() => log.add('ended');
+
+  @override
+  void downloadFoundNothing({required bool rechecked}) =>
+      log.add(rechecked ? 'found nothing' : 'found nothing unchecked');
+
+  Object? crashed;
+
+  @override
+  void downloadCrashed(
+    Object error,
+    StackTrace stackTrace, {
+    bool abandoned = false,
+  }) {
+    log.add(abandoned ? 'crashed abandoned' : 'crashed');
+    crashed = error;
+  }
 
   @override
   void downloadFinished({
@@ -323,6 +364,29 @@ void main() {
       ];
 
   group('MirrorDownloadFlow', () {
+    test('חריג באמצע — מדווח למארח, והזרימה משתחררת', () async {
+      host.onRefresh = (_) async => throw StateError('boom');
+      await flow.downloadAll();
+      expect(log, ['refresh', 'crashed']);
+      expect(host.crashed, isA<StateError>());
+      expect(flow.isPreparing, isFalse);
+      expect(flow.isDownloading, isFalse);
+    });
+
+    test('"ביטול" ב"מתכונן" — חוזרים אחרי הבדיקה ברשת בלי לשאול ולהוריד',
+        () async {
+      library.shouldOfferSemanticDownload = true;
+      host.onRefresh = (_) async => flow.abandonPreparing();
+      await flow.downloadAll();
+      expect(log, ['refresh']);
+      expect(flow.isPreparing, isFalse);
+
+      // ההורדה הבאה אינה יורשת את הביטול.
+      host.onRefresh = null;
+      await flow.downloadAll();
+      expect(log, contains('capture'));
+    });
+
     test('runs every component in order and ends with one sweep', () async {
       await flow.downloadAll();
 
@@ -399,7 +463,7 @@ void main() {
     test('a declined smart search still skips an up-to-date library', () async {
       library.shouldOfferSemanticDownload = true;
       library.libraryOnlineProof = _proven;
-      host.onConfirmSemantic = () async => false;
+      host.onConfirmSemantic = () async => _no;
 
       await flow.downloadAll();
 
@@ -411,12 +475,47 @@ void main() {
     test('an accepted smart search runs the library with it', () async {
       library.shouldOfferSemanticDownload = true;
       library.libraryOnlineProof = _proven;
-      host.onConfirmSemantic = () async => true;
+      host.onConfirmSemantic = () async => _yes;
 
       await flow.downloadAll();
 
       expect(componentsRun(), contains('library'));
       expect(library.includedSemanticSearch, isTrue);
+    });
+
+    // "חזרה" במסך השאלה: ההורדה לא מתחילה, ושום דבר לא נלכד או נוקה.
+    test('backing out of the smart search question downloads nothing',
+        () async {
+      library.shouldOfferSemanticDownload = true;
+      host.onConfirmSemantic = () async => null;
+
+      await flow.downloadAll();
+
+      expect(log, ['refresh', 'ask semantic']);
+      expect(flow.isDownloading, isFalse);
+      expect(flow.isPreparing, isFalse);
+      expect(host.failed, isNull);
+    });
+
+    test('the active plan and the current component follow the run', () async {
+      plugins.catalogOnlineProof = _proven;
+      plugins.storeAppOnlineProof = _proven;
+      MirrorComponent? during;
+      List<MirrorComponent>? components;
+      app.onDownload = () async {
+        during = flow.currentComponent;
+        components = flow.activeComponents;
+        expect(flow.activePlan, isNotNull);
+      };
+
+      expect(flow.activePlan, isNull);
+      await flow.downloadAll();
+
+      expect(during, MirrorComponent.app);
+      expect(components, [MirrorComponent.app, MirrorComponent.library]);
+      expect(flow.currentComponent, isNull);
+      expect(flow.activeComponents, isEmpty);
+      expect(flow.activePlan, isNull);
     });
 
     test('smart search is not offered when the library is not selected',
@@ -426,6 +525,27 @@ void main() {
       await flow.downloadAll();
       expect(log, isNot(contains('ask semantic')));
       expect(componentsRun(), isNot(contains('library')));
+    });
+
+    test('the library size is probed while the app downloads', () async {
+      app.onDownload = () async => expect(library.probes, 1);
+      await flow.downloadAll();
+      expect(library.probes, 1);
+    });
+
+    test('no size probe without the library, first, or with smart search',
+        () async {
+      host.settings = const AppSettings(syncLibrary: false);
+      await flow.downloadAll();
+      host.settings = const AppSettings(syncApp: false);
+      await flow.downloadAll();
+      host.settings = const AppSettings();
+      library.shouldOfferSemanticDownload = true;
+      host.onConfirmSemantic = () async => _yes;
+      await flow.downloadAll();
+
+      expect(componentsRun().where((c) => c == 'library'), hasLength(2));
+      expect(library.probes, 0);
     });
 
     test('personal update mode never skips the library', () async {
@@ -464,7 +584,7 @@ void main() {
       library.shouldOfferSemanticDownload = true;
       host.onConfirmSemantic = () async {
         host.isBlocked = true;
-        return true;
+        return _yes;
       };
 
       await flow.downloadAll();
@@ -501,6 +621,38 @@ void main() {
       expect(log, isNot(contains('finished')));
     });
 
+    test('cancel during the first component reverts it and keeps nothing',
+        () async {
+      app.onDownload = () async => flow.requestCancel();
+
+      await flow.downloadAll();
+
+      expect(host.rollback.reverted, MirrorComponent.app);
+      expect(host.kept, isEmpty);
+    });
+
+    test('cancel during the second component keeps the first', () async {
+      library.onDownload = () async => flow.requestCancel();
+
+      await flow.downloadAll();
+
+      expect(componentsRun(), ['app', 'library']);
+      expect(host.rollback.reverted, MirrorComponent.library);
+      expect(host.kept, [MirrorComponent.app]);
+      expect(log.last, 'cancelled');
+    });
+
+    test('a component that failed before the cancel is not reported as kept',
+        () async {
+      app.onDownload = () async => app.downloadFailed = true;
+      library.onDownload = () async => flow.requestCancel();
+
+      await flow.downloadAll();
+
+      expect(host.rollback.reverted, MirrorComponent.library);
+      expect(host.kept, isEmpty);
+    });
+
     test('a failed snapshot downloads nothing and is reported', () async {
       host.captureError = const FileSystemException('locked');
 
@@ -530,10 +682,15 @@ void main() {
     test('a component that throws still releases the download state', () async {
       app.onDownload = () async => throw StateError('boom');
 
-      await expectLater(flow.downloadAll(), throwsStateError);
+      // החריג מגיע למארח (מסך כשל), לא כחריג שאיש אינו מחכה לו.
+      await flow.downloadAll();
 
       expect(flow.isDownloading, isFalse);
-      expect(log.last, 'changed downloading=false cancelling=false');
+      expect(log.sublist(log.length - 2), [
+        'changed downloading=false cancelling=false',
+        'crashed',
+      ]);
+      expect(host.crashed, isA<StateError>());
       app.onDownload = null;
       await flow.downloadAll();
       expect(componentsRun().where((c) => c == 'app'), hasLength(2));
@@ -579,6 +736,108 @@ void main() {
       await flow.cancelAndWait();
       expect(flow.isCancelling, isFalse);
       expect(log, isEmpty);
+    });
+
+    group('smart search preference', () {
+      setUp(() {
+        app.onlineProof = _proven;
+        library.libraryOnlineProof = _proven;
+        plugins.catalogOnlineProof = _proven;
+        plugins.storeAppOnlineProof = _proven;
+        library.shouldOfferSemanticDownload = true;
+      });
+
+      AppSettings mode(SemanticDownloadPreference p) =>
+          AppSettings(semanticDownload: p);
+
+      test('"never": no question, no smart search, even unchecked', () async {
+        host.settings = mode(SemanticDownloadPreference.never);
+        app.onlineProof = _hasNew;
+        await flow.downloadAll(forceSemantic: true);
+        expect(log, isNot(contains('ask semantic')));
+        expect(componentsRun(), ['app']);
+      });
+
+      test('"always": downloads it without asking, only when not proven',
+          () async {
+        host.settings = mode(SemanticDownloadPreference.always);
+        await flow.downloadAll();
+        expect(log, isNot(contains('ask semantic')));
+        expect(componentsRun(), ['library']);
+        expect(library.includedSemanticSearch, isTrue);
+
+        log.clear();
+        library.shouldOfferSemanticDownload = false;
+        await flow.downloadAll();
+        expect(componentsRun(), isEmpty);
+        expect(log, contains('found nothing'));
+      });
+
+      test('"ask" + force: downloads it without asking', () async {
+        await flow.downloadAll(forceSemantic: true);
+        expect(log, isNot(contains('ask semantic')));
+        expect(library.includedSemanticSearch, isTrue);
+      });
+
+      test('"ask" without force: asks only next to a real download', () async {
+        await flow.downloadAll();
+        expect(log, isNot(contains('ask semantic')));
+        expect(log, contains('found nothing'));
+
+        log.clear();
+        app.onlineProof = _hasNew;
+        host.onConfirmSemantic = () async => _yes;
+        await flow.downloadAll();
+        expect(log.where((e) => e == 'ask semantic'), hasLength(1));
+        expect(componentsRun(), ['app', 'library']);
+        expect(library.includedSemanticSearch, isTrue);
+      });
+
+      test('the decision follows the refresh: nothing left means no run',
+          () async {
+        host.onRefresh =
+            (_) async => library.shouldOfferSemanticDownload = false;
+        await flow.downloadAll(forceSemantic: true);
+        expect(componentsRun(), isEmpty);
+        expect(log, ['refresh', 'found nothing']);
+        expect(flow.isDownloading, isFalse);
+        expect(host.sweeps, 0);
+      });
+
+      test('re-entry after "cancel" keeps the force flag', () async {
+        final refreshGate = Completer<void>();
+        host.onRefresh = (_) => refreshGate.future;
+        final abandoned = flow.downloadAll();
+        flow.abandonPreparing();
+
+        final again = flow.downloadAll(forceSemantic: true);
+        host.onRefresh = null;
+        refreshGate.complete();
+        await abandoned;
+        await again;
+        expect(log, isNot(contains('ask semantic')));
+        expect(library.includedSemanticSearch, isTrue);
+      });
+    });
+
+    test('a refresh that finds nothing new opens no task and reports it',
+        () async {
+      host.onRefresh = (_) async {
+        app.onlineProof = _proven;
+        library.libraryOnlineProof = _proven;
+        plugins.catalogOnlineProof = _proven;
+        plugins.storeAppOnlineProof = _proven;
+      };
+      await flow.downloadAll();
+      expect(log, ['refresh', 'found nothing']);
+      expect(host.skipped, isNull);
+      expect(flow.isPreparing, isFalse);
+
+      // בלי רענון ברשת אין "בדקתי שוב".
+      log.clear();
+      host.refreshed = false;
+      await flow.downloadAll();
+      expect(log, ['refresh', 'found nothing unchecked']);
     });
 
     test('a failed component is reported and the mirror is not swept',
@@ -639,6 +898,74 @@ void main() {
       refreshGate.complete();
       await first;
       expect(flow.isPreparing, isFalse);
+      expect(componentsRun(), hasLength(4));
+    });
+
+    test('"ביטול" בזמן הניקוי הקודם — הזרימה עוצרת לפני הבדיקה ברשת', () async {
+      host.sweepGate = Completer<void>();
+      await flow.downloadAll();
+      log.clear();
+
+      final next = flow.downloadAll();
+      flow.abandonPreparing();
+      host.sweepGate!.complete();
+      host.sweepGate = null;
+      await next;
+      expect(log, isEmpty);
+    });
+
+    test('"הורדה" מיד אחרי "ביטול" — מחכה לזרימה שבוטלה ומתחילה מחדש',
+        () async {
+      final refreshGate = Completer<void>();
+      host.onRefresh = (_) => refreshGate.future;
+      final abandoned = flow.downloadAll();
+      flow.abandonPreparing();
+
+      final again = flow.downloadAll();
+      host.onRefresh = null;
+      refreshGate.complete();
+      await abandoned;
+      await again;
+      expect(log.where((e) => e == 'refresh'), hasLength(2));
+      expect(componentsRun(), hasLength(4));
+    });
+
+    test('"ביטול", "הורדה" ו"ביטול" שוב לפני שהראשונה חזרה — נשאר מבוטל',
+        () async {
+      final refreshGate = Completer<void>();
+      host.onRefresh = (_) => refreshGate.future;
+      final abandoned = flow.downloadAll();
+      flow.abandonPreparing();
+      final again = flow.downloadAll();
+      flow.abandonPreparing();
+
+      host.onRefresh = null;
+      refreshGate.complete();
+      await abandoned;
+      await again;
+      expect(log, ['refresh']);
+      expect(flow.isPreparing, isFalse);
+
+      // הביטול אינו נשאר תלוי: ההורדה הבאה רצה.
+      await flow.downloadAll();
+      expect(componentsRun(), hasLength(4));
+    });
+
+    test('חריג בזרימה שבוטלה — מדווח כמבוטל, לא ככשל של הבקשה החדשה', () async {
+      final refreshGate = Completer<void>();
+      host.onRefresh = (_) async {
+        await refreshGate.future;
+        throw StateError('boom');
+      };
+      final abandoned = flow.downloadAll();
+      flow.abandonPreparing();
+      final again = flow.downloadAll();
+
+      refreshGate.complete();
+      await abandoned;
+      expect(log, ['refresh', 'crashed abandoned']);
+      host.onRefresh = null;
+      await again;
       expect(componentsRun(), hasLength(4));
     });
   });

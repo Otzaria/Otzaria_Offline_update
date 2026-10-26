@@ -5,32 +5,54 @@ import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
 import '../store_kit/store_kit.dart';
 
-/// אבני הבניין של טופס התוכנה — ראו `CustomAppFormDialog`.
+/// אבני הבניין של טופס התוכנה (`.field`) — ראו `CustomAppFormDialog`.
 
-/// כותרת קטנה ומתחתיה התוכן.
+/// תווית 13/600 מעל התוכן.
 class FormLabelled extends StatelessWidget {
   const FormLabelled({
     super.key,
     required this.label,
     required this.child,
+    this.help,
   });
 
   final String label;
   final Widget child;
 
+  /// הסבר קטן מתחת (`.help`).
+  final String? help;
+
   @override
-  Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppTokens.spaceMD),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(label, style: Theme.of(context).textTheme.labelLarge),
-          const SizedBox(height: AppTokens.spaceSM),
+          Text(
+            label,
+            style: AppTextStyles.sectionLabel.copyWith(
+              color: cs.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 6),
           child,
+          if (help != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              help!,
+              style: AppTextStyles.meta.copyWith(color: cs.onSurfaceVariant),
+            ),
+          ],
         ],
-      );
+      ),
+    );
+  }
 }
 
-/// שדה טקסט עם תווית ורמז. [onChanged] קיים כי המזהה והכפתור "שמירה"
-/// נגזרים מהשדות, והטופס צריך להיבנות מחדש בכל הקשה.
+/// שדה טקסט עם תווית מעליו והסבר מתחתיו. [onChanged] קיים כי המזהה
+/// והכפתורים נגזרים מהשדות, והטופס צריך להיבנות מחדש בכל הקשה.
 class FormTextField extends StatelessWidget {
   const FormTextField({
     super.key,
@@ -39,6 +61,8 @@ class FormTextField extends StatelessWidget {
     this.hint,
     this.maxLines = 1,
     this.onChanged,
+    this.ltr = false,
+    this.trailing,
   });
 
   final String label;
@@ -47,48 +71,40 @@ class FormTextField extends StatelessWidget {
   final int maxLines;
   final ValueChanged<String>? onChanged;
 
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: AppTokens.spaceMD),
-        child: RtlTextField(
-          controller: controller,
-          maxLines: maxLines,
-          decoration: InputDecoration(labelText: label, helperText: hint),
-          onChanged: onChanged,
-        ),
-      );
-}
+  /// נתיב, כתובת, שם קובץ — LTR.
+  final bool ltr;
 
-/// כותרת של קבוצת שדות בטופס — מפרידה בין "מה התוכנה" ל"מאיפה היא מגיעה".
-class FormSectionHeader extends StatelessWidget {
-  const FormSectionHeader(this.title, {super.key});
-
-  final String title;
+  /// כפתור בשורה של השדה ("הצגת הקבצים", "בחירה…").
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppTokens.spaceMD),
-      child: Row(
-        children: [
-          Text(
-            title,
-            style: theme.textTheme.titleSmall?.copyWith(
-              color: theme.colorScheme.primary,
-              fontWeight: FontWeight.bold,
+    final field = RtlTextField(
+      controller: controller,
+      decoration: const InputDecoration(),
+      maxLines: maxLines,
+      minLines: maxLines,
+      textDirection: ltr ? TextDirection.ltr : null,
+      onChanged: onChanged,
+    );
+    return FormLabelled(
+      label: label,
+      help: hint,
+      child: trailing == null
+          ? field
+          : Row(
+              children: [
+                Expanded(child: field),
+                const SizedBox(width: AppTokens.spaceSM),
+                trailing!,
+              ],
             ),
-          ),
-          const SizedBox(width: AppTokens.spaceSM),
-          Expanded(child: Divider(color: theme.colorScheme.outlineVariant)),
-        ],
-      ),
     );
   }
 }
 
-/// הקטגוריות כגלולות שנבחרות. **אין כאן יצירה של קטגוריה** — היא נעשית
-/// בחלון הניהול; כשאין אף קטגוריה הטופס אינו מציג את זה בכלל.
+/// הקטגוריות כשבבי בחירה. **אין כאן יצירה של קטגוריה** — היא נעשית בדף
+/// הניהול; כשאין אף קטגוריה הטופס אינו מציג את זה בכלל.
 class CustomAppCategoriesPicker extends StatelessWidget {
   const CustomAppCategoriesPicker({
     super.key,
@@ -104,32 +120,19 @@ class CustomAppCategoriesPicker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.strings.customApps;
-    final theme = Theme.of(context);
-
     return FormLabelled(
       label: t.appCategoriesLabel,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      help: t.appCategoriesHint,
+      child: Wrap(
+        spacing: AppTokens.spaceSM,
+        runSpacing: AppTokens.spaceSM,
         children: [
-          Wrap(
-            spacing: AppTokens.spaceSM,
-            runSpacing: AppTokens.spaceSM,
-            children: [
-              for (final category in categories)
-                StoreTagPill(
-                  label: category.name,
-                  active: selected.contains(category.slug),
-                  onTap: () => onToggle(category.slug),
-                ),
-            ],
-          ),
-          const SizedBox(height: AppTokens.spaceXS),
-          Text(
-            t.appCategoriesHint,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+          for (final category in categories)
+            StoreFilterChip(
+              label: category.name,
+              selected: selected.contains(category.slug),
+              onTap: () => onToggle(category.slug),
             ),
-          ),
         ],
       ),
     );

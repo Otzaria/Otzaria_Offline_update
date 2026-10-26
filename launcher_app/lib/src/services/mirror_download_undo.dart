@@ -92,16 +92,20 @@ class MirrorDownloadUndo {
       _rememberedExtensions.contains(p.extension(path).toLowerCase()) &&
       length <= _rememberedContentLimit;
 
-  Future<void> revert() async {
+  /// [roots]: רק התיקיות האלה מוחזרות, והשאר נשארות כמו שההורדה השאירה
+  /// אותן. `null` = כל מה שצולם.
+  Future<void> revert({Iterable<String>? roots}) async {
     final undo = this;
-    final notes = await Isolate.run(() => undo._revert());
+    final only = roots?.toSet();
+    final notes = await Isolate.run(() => undo._revert(only));
     notes.forEach(AppLogger.instance.info);
   }
 
-  List<String> _revert() {
+  List<String> _revert(Set<String>? only) {
     final notes = <String>[];
     final retainedAssets = _consumedSegmentAssets();
     for (final root in _roots) {
+      if (only != null && !only.contains(root.path)) continue;
       final dir = Directory(root.path);
       if (!dir.existsSync()) continue;
       if (!root.existed) {

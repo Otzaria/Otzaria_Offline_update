@@ -33,7 +33,9 @@ void main() {
     }
     inhibitor.dispose();
     expect(errors, isEmpty);
-    if (Platform.isWindows) expect(handles(), lessThanOrEqualTo(before));
+    // הספירה היא של כל התהליך, ו-thread pool של ה-VM פותח לפעמים handle
+    // באמצע. דליפה אמיתית כאן הייתה +500 (אחד לכל סבב).
+    if (Platform.isWindows) expect(handles(), lessThanOrEqualTo(before + 8));
   }, skip: !Platform.isWindows && !Platform.isMacOS);
 
   test('10000 random overlapping task transitions preserve ownership', () {

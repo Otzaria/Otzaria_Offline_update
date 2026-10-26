@@ -1,5 +1,5 @@
-// תפריט נפתח בסגנון אוצריא (`otzaria/lib/widgets/misc/app_dropdown_field.dart`),
-// בגרסה מצומצמת: בלי חיפוש, בלי צ'יפים ובלי תת-תפריטים — רק בחירה מרשימה.
+// תפריט נפתח (`.dd` במוקאפ): שדה לבן עם מסגרת outline, בלי חיפוש ובלי
+// תת-תפריטים — רק בחירה מרשימה.
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
@@ -24,8 +24,8 @@ class AppMenuEntry<T> {
   });
 }
 
-/// כפתור טונאלי שפותח תפריט בחירה — החלופה לפקד סגמנטד כשיש הרבה אפשרויות
-/// או כשהתוויות ארוכות.
+/// שדה שפותח תפריט בחירה — החלופה לפקד סגמנטד כשיש הרבה אפשרויות או
+/// כשהתוויות ארוכות.
 class AppDropdownField<T> extends StatelessWidget {
   const AppDropdownField({
     super.key,
@@ -52,6 +52,7 @@ class AppDropdownField<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selected = _selected;
+    final cs = Theme.of(context).colorScheme;
 
     return MenuAnchor(
       // התפריט נפתח מתחת לכפתור ובאותו רוחב, כמו בבורר של אוצריא.
@@ -66,18 +67,29 @@ class AppDropdownField<T> extends StatelessWidget {
             child: Text(entry.label),
           ),
       ],
-      builder: (context, controller, _) => FilledButton.tonal(
+      builder: (context, controller, _) => OutlinedButton(
         onPressed: () =>
             controller.isOpen ? controller.close() : controller.open(),
-        style: FilledButton.styleFrom(
-          minimumSize: Size(0, height ?? 40),
-          padding: const EdgeInsetsDirectional.fromSTEB(
-            AppTokens.spaceMD,
-            0,
-            AppTokens.spaceSM,
-            0,
-          ),
+        // ריחוף מכהה את המסגרת בלבד, בלי רקע (`.dd:hover`).
+        style: OutlinedButton.styleFrom(
+          minimumSize: Size(150, height ?? AppTokens.buttonHeight),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          backgroundColor: cs.surfaceContainerLowest,
+          foregroundColor: cs.onSurface,
+          overlayColor: Colors.transparent,
+          textStyle: AppTextStyles.body,
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ).copyWith(
+          side: AppSurfaces.focusRingSide(
+            cs.primary,
+            WidgetStateProperty.resolveWith(
+              (states) => BorderSide(
+                color: states.contains(WidgetState.hovered)
+                    ? cs.onSurface
+                    : cs.outline,
+              ),
+            ),
+          ),
         ),
         child: Row(
           children: [
@@ -92,8 +104,8 @@ class AppDropdownField<T> extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            const SizedBox(width: AppTokens.spaceSM),
-            const Icon(FluentIcons.chevron_down_24_regular, size: 18),
+            const SizedBox(width: 12),
+            const Icon(FluentIcons.chevron_down_24_regular, size: 16),
           ],
         ),
       ),

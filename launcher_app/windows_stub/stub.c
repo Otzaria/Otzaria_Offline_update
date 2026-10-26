@@ -206,8 +206,22 @@ static int ReportTemporaryLocation(void) {
   MessageBoxW(NULL,
               L"התוכנה הופעלה מתוך קובץ ZIP או מתיקייה זמנית.\n\n"
               L"כל מה שהיא מורידה משם נמחק יחד עם התיקייה הזמנית. "
-              L"יש לחלץ את הקובץ לכונן הנייד (או לתיקייה קבועה בדיסק) "
+              L"יש לחלץ את הקובץ לדיסק און קי או לכונן חיצוני "
               L"ולהפעיל אותו משם.",
+              L"עדכוני אוצריא",
+              MB_OK | MB_ICONWARNING | MB_RTLREADING | MB_RIGHT);
+  return EXIT_FAILURE;
+}
+
+// הטקסט השלישי שאינו ב-otzaria_l10n; = `setupError.systemDrive`. נבדק לפני
+// החילוץ, כדי לא להשאיר ערמת קבצים על כונן המערכת.
+static int ReportSystemDrive(void) {
+  MessageBoxW(NULL,
+              L"התוכנה נושאת את העדכונים ממחשב למחשב, ולכן היא צריכה "
+              L"להימצא על דיסק און קי או על כונן חיצוני — לא על הכונן "
+              L"הראשי של המחשב.\n\n"
+              L"יש להעתיק את כל תיקיית התוכנה (כולל התיקייה app-files) "
+              L"לכונן הנייד ולהפעיל אותה משם.",
               L"עדכוני אוצריא",
               MB_OK | MB_ICONWARNING | MB_RTLREADING | MB_RIGHT);
   return EXIT_FAILURE;
@@ -233,9 +247,14 @@ static const wchar_t *SeparatorFor(const wchar_t *dir) {
 // שאינו כונן המערכת) הגיע אליו משובש. כאן אין תהליך חיצוני, אין קובץ זמני,
 // והנתיבים נשארים UTF-16 מקצה לקצה.
 
-// כמה קבצים כבר נכתבו — נקרא מחוט החלון בזמן שהחילוץ רץ.
+// ההתקדמות, כפי שחוט החלון קורא אותה בזמן שהחילוץ רץ. יחידה = בית שנכתב,
+// ועוד kFileWeight לכל קובץ: על כונן USB פתיחת קובץ עולה כמו כתיבת עשרות KB.
 static volatile LONG g_files_done;
 static DWORD g_files_total;
+static volatile LONG64 g_units_done;
+static volatile LONG64 g_units_total;  // 0 כל עוד הגוש עדיין נפרש
+#define kFileWeight (32 * 1024)
+#define kWriteChunk (1024 * 1024)
 
 // נתיב ארוך מ-MAX_PATH הוא מציאותי כאן (`data\flutter_assets\packages\...`
 // בתוך תיקייה של המשתמש), ולכן הכתיבה היא דרך תחילית `\\?\`. היא חוקית רק
@@ -342,14 +361,17 @@ static BOOL WriteOneFile(const wchar_t *dest_root, const char *path_utf8,
   BOOL ok = TRUE;
   DWORD offset = 0;
   while (offset < size) {
+    // במנות, כדי שקובץ גדול (flutter_windows.dll) לא יקפיץ את הפס בבת אחת.
+    const DWORD chunk = min(size - offset, (DWORD)kWriteChunk);
     DWORD written = 0;
-    if (!WriteFile(file, data + offset, size - offset, &written, NULL) ||
+    if (!WriteFile(file, data + offset, chunk, &written, NULL) ||
         written == 0) {
       LogLine(L"כתיבת %s נקטעה בשגיאה %lu", relative, GetLastError());
       ok = FALSE;
       break;
     }
     offset += written;
+    InterlockedExchangeAdd64(&g_units_done, written);
   }
   CloseHandle(file);
   return ok;
@@ -403,6 +425,9 @@ static BYTE *DecompressPayload(ULONGLONG *out_size, DWORD *out_count) {
     return NULL;
   }
 
+#ifdef STUB_SLOW_DEMO
+  Sleep(1500);  // צילום הפס בלי ערך בלבד
+#endif
   SIZE_T produced = 0;
   const BOOL ok = Decompress(decompressor, (PVOID)(bytes + sizeof(header)),
                              resource_size - sizeof(header), raw,
@@ -458,6 +483,8 @@ static BOOL WritePayloadFiles(const wchar_t *dest_root, const BYTE *raw,
     return FALSE;
   }
 
+  g_units_total = (LONG64)total_data + (LONG64)count * kFileWeight;
+
   const BYTE *data = cursor;
   cursor = raw + sizeof(DWORD);
   BOOL all_ok = TRUE;
@@ -474,6 +501,10 @@ static BOOL WritePayloadFiles(const wchar_t *dest_root, const BYTE *raw,
     cursor += path_bytes;
     data += data_bytes;
     InterlockedIncrement(&g_files_done);
+    InterlockedExchangeAdd64(&g_units_done, kFileWeight);
+#ifdef STUB_SLOW_DEMO
+    Sleep(STUB_SLOW_DEMO);  // צילום החלון בלבד; הבנייה הרגילה אינה מגדירה אותו
+#endif
   }
   return all_ok;
 }
@@ -588,12 +619,434 @@ static BOOL ExtractPayload(const wchar_t *dest_dir, const wchar_t *marker,
 
 // ── חלון ההמתנה ───────────────────────────────────────────────────────────
 //
-// קודם היה כאן חלון הקונסולה של tar, והוא היה סימן החיים היחיד: חילוץ לכונן
-// USB אורך שניות ארוכות, ובלעדיו ההרצה הראשונה נראית תקועה. עכשיו החילוץ
-// שלנו, ולכן גם החלון שלנו — ואפשר גם לומר בו מה קורה.
+// בלי סימן חיים, חילוץ של שניות לכונן USB נראה תקוע. בנוי כמו מסך ההורדה
+// של הלאנצ'ר, ומצויר ביד אל מאגר אחד — בלי comctl32, GDI+ או ערכת נושא.
+
+// `AppPalette.light` וה-ColorScheme שנגזר מ-`AppThemeData.seed`. אין קישור
+// בזמן קומפילציה ל-Dart: צבע שמשתנה שם משתנה גם כאן ידנית.
+static const COLORREF kPageColor = RGB(0xF6, 0xED, 0xE5);
+static const COLORREF kBorderColor = RGB(0xE1, 0xD4, 0xC8);
+static const COLORREF kPrimaryColor = RGB(0x80, 0x56, 0x10);
+static const COLORREF kTrackColor = RGB(0xFB, 0xDE, 0xBC);
+static const COLORREF kOnSurfaceColor = RGB(0x20, 0x1B, 0x13);
+static const COLORREF kOnSurfaceVariantColor = RGB(0x4F, 0x45, 0x39);
 
 static const wchar_t kProgressClass[] = L"OtzariaStubProgress";
-static const wchar_t kProgressText[] = L"מכין את התוכנה להרצה…";
+static const wchar_t kWindowTitle[] = L"עדכוני אוצריא";
+static const wchar_t kProgressTitle[] = L"מכין את התוכנה להרצה";
+static const wchar_t kProgressSubtitle[] = L"התוכנה תיפתח מיד בסיום.";
+static const wchar_t kUnpackingText[] = L"פורש את הקבצים…";
+static const wchar_t kWritingFormat[] = L"מעתיק קבצים · %lu מתוך %lu";
+
+// מידות ב-DIP, כמו בפלאטר; S() ממיר לפיקסלים לפי ה-DPI של החלון.
+#define UI_WIDTH 440
+#define UI_HEIGHT 276
+#define UI_LOGO 48
+#define UI_BAR_INSET 40
+#define UI_BAR_HEIGHT 8
+#define UI_TIMER_MS 16
+#define UI_SWEEP_MS 1800
+
+typedef struct {
+  UINT dpi;
+  HFONT title_font;
+  HFONT body_font;
+  HFONT status_font;
+  HFONT percent_font;
+  HICON logo;
+  HDC buffer_dc;
+  HBITMAP buffer;
+  HGDIOBJ buffer_old;
+  DWORD *pixels;
+  int width;
+  int height;
+  double shown;  // השבר שמוצג, מתקרב בהדרגה לשבר האמיתי
+  DWORD started;
+} ProgressUi;
+
+static ProgressUi g_ui;
+
+static int S(int dips) { return MulDiv(dips, (int)g_ui.dpi, 96); }
+
+// GetDpiForWindow קיים רק מ-Windows 10 1607; לפניו המניפסט נותן "system aware".
+static UINT DpiOf(HWND window) {
+  typedef UINT(WINAPI * GetDpiForWindowFn)(HWND);
+  const GetDpiForWindowFn get_dpi = (GetDpiForWindowFn)(void *)GetProcAddress(
+      GetModuleHandleW(L"user32.dll"), "GetDpiForWindow");
+  if (get_dpi != NULL && window != NULL) {
+    const UINT dpi = get_dpi(window);
+    if (dpi != 0) {
+      return dpi;
+    }
+  }
+  HDC screen = GetDC(NULL);
+  const int dpi = screen == NULL ? 96 : GetDeviceCaps(screen, LOGPIXELSY);
+  if (screen != NULL) {
+    ReleaseDC(NULL, screen);
+  }
+  return dpi > 0 ? (UINT)dpi : 96;
+}
+
+static HFONT MakeFont(int dips, int weight) {
+  return CreateFontW(-S(dips), 0, 0, 0, weight, FALSE, FALSE, FALSE,
+                     DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                     CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+}
+
+static void DeleteIfSet(HGDIOBJ object) {
+  if (object != NULL) {
+    DeleteObject(object);
+  }
+}
+
+static void ReleaseUiResources(void) {
+  DeleteIfSet(g_ui.title_font);
+  DeleteIfSet(g_ui.body_font);
+  DeleteIfSet(g_ui.status_font);
+  DeleteIfSet(g_ui.percent_font);
+  if (g_ui.logo != NULL) {
+    DestroyIcon(g_ui.logo);
+  }
+  if (g_ui.buffer_dc != NULL) {
+    SelectObject(g_ui.buffer_dc, g_ui.buffer_old);
+    DeleteIfSet(g_ui.buffer);
+    DeleteDC(g_ui.buffer_dc);
+  }
+  g_ui.title_font = g_ui.body_font = NULL;
+  g_ui.status_font = g_ui.percent_font = NULL;
+  g_ui.logo = NULL;
+  g_ui.buffer_dc = NULL;
+  g_ui.buffer = NULL;
+  g_ui.pixels = NULL;
+}
+
+// נבנה מחדש בכל שינוי DPI — גם האייקון, כדי שייטען מהגודל המתאים ב-ico.
+static void CreateUiResources(UINT dpi) {
+  ReleaseUiResources();
+  g_ui.dpi = dpi;
+  g_ui.title_font = MakeFont(20, FW_SEMIBOLD);
+  g_ui.body_font = MakeFont(14, FW_NORMAL);
+  g_ui.status_font = MakeFont(13, FW_NORMAL);
+  g_ui.percent_font = MakeFont(32, FW_SEMIBOLD);
+  g_ui.logo = (HICON)LoadImageW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(1),
+                                IMAGE_ICON, S(UI_LOGO), S(UI_LOGO),
+                                LR_DEFAULTCOLOR);
+}
+
+// מאגר DIB בגודל החלון: הטקסט נכתב אליו ב-GDI, והפס מצויר ישירות בפיקסלים.
+static BOOL EnsureBuffer(HDC target, int width, int height) {
+  if (g_ui.buffer_dc != NULL && g_ui.width == width && g_ui.height == height) {
+    return TRUE;
+  }
+  if (g_ui.buffer_dc != NULL) {
+    SelectObject(g_ui.buffer_dc, g_ui.buffer_old);
+    DeleteIfSet(g_ui.buffer);
+    DeleteDC(g_ui.buffer_dc);
+    g_ui.buffer_dc = NULL;
+  }
+  BITMAPINFO info;
+  ZeroMemory(&info, sizeof(info));
+  info.bmiHeader.biSize = sizeof(info.bmiHeader);
+  info.bmiHeader.biWidth = width;
+  info.bmiHeader.biHeight = -height;  // מלמעלה למטה
+  info.bmiHeader.biPlanes = 1;
+  info.bmiHeader.biBitCount = 32;
+  info.bmiHeader.biCompression = BI_RGB;
+  void *bits = NULL;
+  g_ui.buffer = CreateDIBSection(target, &info, DIB_RGB_COLORS, &bits, NULL, 0);
+  if (g_ui.buffer == NULL) {
+    return FALSE;
+  }
+  g_ui.buffer_dc = CreateCompatibleDC(target);
+  if (g_ui.buffer_dc == NULL) {
+    DeleteObject(g_ui.buffer);
+    g_ui.buffer = NULL;
+    return FALSE;
+  }
+  g_ui.buffer_old = SelectObject(g_ui.buffer_dc, g_ui.buffer);
+  g_ui.pixels = (DWORD *)bits;
+  g_ui.width = width;
+  g_ui.height = height;
+  return TRUE;
+}
+
+// האם נקודה בתוך גלולה אופקית [left, right] סביב center_y.
+static BOOL InPill(double x, double y, double left, double right,
+                   double center_y, double radius) {
+  if (right - left < 2 * radius) {
+    return FALSE;
+  }
+  double dx = 0;
+  if (x < left + radius) {
+    dx = left + radius - x;
+  } else if (x > right - radius) {
+    dx = x - (right - radius);
+  }
+  const double dy = y - center_y;
+  return dx * dx + dy * dy <= radius * radius;
+}
+
+static DWORD BlendPixel(int track, int fill, int samples) {
+  const COLORREF colors[3] = {kPageColor, kTrackColor, kPrimaryColor};
+  const int weights[3] = {samples - track, track - fill, fill};
+  int r = 0, g = 0, b = 0;
+  for (int i = 0; i < 3; ++i) {
+    r += GetRValue(colors[i]) * weights[i];
+    g += GetGValue(colors[i]) * weights[i];
+    b += GetBValue(colors[i]) * weights[i];
+  }
+  return ((DWORD)(r / samples) << 16) | ((DWORD)(g / samples) << 8) |
+         (DWORD)(b / samples);
+}
+
+// `AppProgressBar`; fraction < 0 הוא פס בלי ערך — מקטע של 30% שנע בכיוון
+// הקריאה. GDI אינו מחליק קצוות, ולכן כל פיקסל נדגם 4x4.
+static void PaintBar(RECT bar, double fraction, double sweep) {
+  const double left = bar.left, right = bar.right;
+  const double width = right - left;
+  const double radius = (bar.bottom - bar.top) / 2.0;
+  const double center_y = bar.top + radius;
+  double fill_left = right, fill_right = right;
+  if (fraction >= 0) {
+    // מימין לשמאל, כמו בממשק העברי; לפחות גלולה עגולה אחת, כמו בפלאטר.
+    double fill_width = width * min(fraction, 1.0);
+    fill_width = max(fill_width, 2 * radius);
+    fill_left = right - fill_width;
+  } else {
+    const double segment = width * 0.3;
+    const double travel = (width + segment) * sweep;
+    fill_right = right - (travel - segment);
+    fill_left = fill_right - segment;
+  }
+  const int sub = 4;
+  for (int y = bar.top; y < bar.bottom; ++y) {
+    if (y < 0 || y >= g_ui.height) {
+      continue;
+    }
+    for (int x = bar.left - 1; x <= bar.right; ++x) {
+      if (x < 0 || x >= g_ui.width) {
+        continue;
+      }
+      int track = 0, fill = 0;
+      for (int j = 0; j < sub; ++j) {
+        for (int i = 0; i < sub; ++i) {
+          const double sx = x + (i + 0.5) / sub;
+          const double sy = y + (j + 0.5) / sub;
+          if (!InPill(sx, sy, left, right, center_y, radius)) {
+            continue;
+          }
+          ++track;
+          // רק דגימות שבתוך המסילה נספרות — המקטע נחתך בקצותיה, כמו ClipRRect.
+          if (InPill(sx, sy, fill_left, fill_right, center_y, radius)) {
+            ++fill;
+          }
+        }
+      }
+      if (track > 0) {
+        g_ui.pixels[y * g_ui.width + x] = BlendPixel(track, fill, sub * sub);
+      }
+    }
+  }
+}
+
+static void DrawLine(const wchar_t *text, HFONT font, COLORREF color, int top,
+                     int height, BOOL rtl) {
+  RECT rect = {S(24), S(top), g_ui.width - S(24), S(top + height)};
+  SelectObject(g_ui.buffer_dc, font);
+  SetTextColor(g_ui.buffer_dc, color);
+  DrawTextW(g_ui.buffer_dc, text, -1, &rect,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX |
+                DT_END_ELLIPSIS | (rtl ? DT_RTLREADING : 0));
+}
+
+static double CurrentFraction(void) {
+  const LONG64 total = g_units_total;
+  if (total <= 0) {
+    return -1;
+  }
+  const double fraction = (double)g_units_done / (double)total;
+  return fraction > 1 ? 1 : fraction;
+}
+
+static void PaintProgress(HWND window, HDC target) {
+  RECT client;
+  GetClientRect(window, &client);
+  if (!EnsureBuffer(target, client.right, client.bottom)) {
+    return;
+  }
+  HDC dc = g_ui.buffer_dc;
+
+  HBRUSH page = CreateSolidBrush(kPageColor);
+  FillRect(dc, &client, page);
+  DeleteObject(page);
+  HBRUSH border = CreateSolidBrush(kBorderColor);
+  FrameRect(dc, &client, border);
+  DeleteObject(border);
+
+  if (g_ui.logo != NULL) {
+    DrawIconEx(dc, (g_ui.width - S(UI_LOGO)) / 2, S(28), g_ui.logo, S(UI_LOGO),
+               S(UI_LOGO), 0, NULL, DI_NORMAL);
+  }
+
+  SetBkMode(dc, TRANSPARENT);
+  HGDIOBJ previous_font = SelectObject(dc, g_ui.title_font);
+  DrawLine(kProgressTitle, g_ui.title_font, kOnSurfaceColor, 88, 28, TRUE);
+  DrawLine(kProgressSubtitle, g_ui.body_font, kOnSurfaceVariantColor, 120, 20,
+           TRUE);
+
+  const double fraction = CurrentFraction();
+  if (fraction >= 0) {  // בזמן הפרישה אין ערך, ו-"0%" ליד פס שנע סותר אותו
+    wchar_t percent[16];
+    StringCchPrintfW(percent, ARRAYSIZE(percent), L"%d%%",
+                     (int)(g_ui.shown * 100));
+    DrawLine(percent, g_ui.percent_font, kPrimaryColor, 154, 42, FALSE);
+  }
+
+  wchar_t status[96];
+  if (fraction < 0) {
+    StringCchCopyW(status, ARRAYSIZE(status), kUnpackingText);
+  } else {
+    StringCchPrintfW(status, ARRAYSIZE(status), kWritingFormat,
+                     (unsigned long)g_files_done, (unsigned long)g_files_total);
+  }
+  DrawLine(status, g_ui.status_font, kOnSurfaceVariantColor, 226, 20, TRUE);
+  SelectObject(dc, previous_font);
+
+  GdiFlush();  // לפני נגיעה ישירה בפיקסלים
+  RECT bar = {S(UI_BAR_INSET), S(206), g_ui.width - S(UI_BAR_INSET),
+              S(206) + S(UI_BAR_HEIGHT)};
+  const DWORD elapsed = GetTickCount() - g_ui.started;
+  PaintBar(bar, fraction < 0 ? -1 : g_ui.shown,
+           (double)(elapsed % UI_SWEEP_MS) / UI_SWEEP_MS);
+
+  BitBlt(target, 0, 0, g_ui.width, g_ui.height, dc, 0, 0, SRCCOPY);
+}
+
+static LRESULT CALLBACK ProgressWindowProc(HWND window, UINT message,
+                                           WPARAM wparam, LPARAM lparam) {
+  switch (message) {
+    case WM_PAINT: {
+      PAINTSTRUCT paint;
+      HDC dc = BeginPaint(window, &paint);
+      PaintProgress(window, dc);
+      EndPaint(window, &paint);
+      return 0;
+    }
+    case WM_ERASEBKGND:
+      return 1;  // הכול נצבע ב-WM_PAINT; מחיקה לפניו היא ההבהוב
+    case WM_TIMER: {
+      const double fraction = CurrentFraction();
+      // מתקרב לערך האמיתי ולא קופץ אליו — אחרת מנות של 1MB נראות כמו מדרגות.
+      g_ui.shown =
+          fraction < 0 ? 0 : g_ui.shown + (fraction - g_ui.shown) * 0.2;
+      InvalidateRect(window, NULL, FALSE);
+      return 0;
+    }
+    case WM_NCHITTEST:
+      return HTCAPTION;  // אין שורת כותרת, ולכן גוררים מכל מקום
+    case WM_DPICHANGED: {
+      CreateUiResources(HIWORD(wparam));
+      const RECT *suggested = (const RECT *)lparam;
+      SetWindowPos(window, NULL, suggested->left, suggested->top,
+                   suggested->right - suggested->left,
+                   suggested->bottom - suggested->top,
+                   SWP_NOZORDER | SWP_NOACTIVATE);
+      InvalidateRect(window, NULL, FALSE);
+      return 0;
+    }
+    // אין WM_CLOSE: סגירה באמצע חילוץ היא בדיוק מה שמשאיר ערמת קבצים חלקית.
+    case WM_CLOSE:
+      return 0;
+    default:
+      return DefWindowProcW(window, message, wparam, lparam);
+  }
+}
+
+// ממורכז באזור העבודה של המסך שבו העכבר — שם המשתמש לחץ על הקובץ.
+static void PlaceWindow(HWND window) {
+  POINT cursor = {0, 0};
+  GetCursorPos(&cursor);
+  RECT work;
+  MONITORINFO monitor;
+  monitor.cbSize = sizeof(monitor);
+  if (GetMonitorInfoW(MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY),
+                      &monitor)) {
+    work = monitor.rcWork;
+  } else {
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+  }
+  const int width = S(UI_WIDTH);
+  const int height = S(UI_HEIGHT);
+  SetWindowPos(window, NULL, work.left + (work.right - work.left - width) / 2,
+               work.top + (work.bottom - work.top - height) / 2, width, height,
+               SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+// פינות מעוגלות ב-Windows 11; לפניו המאפיין אינו מוכר והקריאה נכשלת.
+// dwmapi נטען מ-System32 בלבד: ייבוא סטטי היה מחפש אותו גם ליד ה-exe.
+static BOOL RequestRoundCorners(HWND window) {
+  typedef HRESULT(WINAPI * DwmSetWindowAttributeFn)(HWND, DWORD, LPCVOID,
+                                                    DWORD);
+  HMODULE dwm = LoadLibraryExW(L"dwmapi.dll", NULL,
+                               LOAD_LIBRARY_SEARCH_SYSTEM32);
+  if (dwm == NULL) {
+    return FALSE;
+  }
+  const DwmSetWindowAttributeFn set_attribute =
+      (DwmSetWindowAttributeFn)(void *)GetProcAddress(dwm,
+                                                      "DwmSetWindowAttribute");
+  const DWORD corner_preference = 33;  // DWMWA_WINDOW_CORNER_PREFERENCE
+  const DWORD round = 2;               // DWMWCP_ROUND
+  const BOOL ok =
+      set_attribute != NULL &&
+      SUCCEEDED(set_attribute(window, corner_preference, &round,
+                              sizeof(round)));
+  FreeLibrary(dwm);
+  return ok;
+}
+
+static HWND CreateProgressWindow(HINSTANCE instance) {
+  WNDCLASSEXW window_class;
+  ZeroMemory(&window_class, sizeof(window_class));
+  window_class.cbSize = sizeof(window_class);
+  window_class.style = CS_DROPSHADOW;
+  window_class.lpfnWndProc = ProgressWindowProc;
+  window_class.hInstance = instance;
+  // ה-cast כמו אצל RT_RCDATA: IDC_ARROW הוא TCHAR, וה-stub אינו UNICODE.
+  window_class.hCursor = LoadCursorW(NULL, (const wchar_t *)IDC_ARROW);
+  window_class.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(1));
+  window_class.lpszClassName = kProgressClass;
+  if (RegisterClassExW(&window_class) == 0) {
+    return NULL;
+  }
+
+  ZeroMemory(&g_ui, sizeof(g_ui));
+  g_ui.started = GetTickCount();
+  CreateUiResources(DpiOf(NULL));
+  HWND window = CreateWindowExW(0, kProgressClass, kWindowTitle, WS_POPUP, 0,
+                                0, S(UI_WIDTH), S(UI_HEIGHT), NULL, NULL,
+                                instance, NULL);
+  if (window == NULL) {
+    ReleaseUiResources();
+    return NULL;
+  }
+  const UINT dpi = DpiOf(window);
+  if (dpi != g_ui.dpi) {
+    CreateUiResources(dpi);
+  }
+  // מעבר למסך ב-DPI אחר משנה את הגודל דרך WM_DPICHANGED; השני ממרכז מחדש.
+  PlaceWindow(window);
+  PlaceWindow(window);
+  if (RequestRoundCorners(window)) {
+    // DWM מצייר צל משלו לחלון מעוגל; הצל של המחלקה מלבני ויוצא כפול.
+    SetClassLongPtrW(window, GCL_STYLE,
+                     GetClassLongPtrW(window, GCL_STYLE) & ~CS_DROPSHADOW);
+  }
+  SetTimer(window, 1, UI_TIMER_MS, NULL);
+  ShowWindow(window, SW_SHOWNORMAL);
+  UpdateWindow(window);
+  return window;
+}
 
 typedef struct {
   const wchar_t *dest_dir;
@@ -601,101 +1054,6 @@ typedef struct {
   const wchar_t *target;
   BOOL ok;
 } ExtractJob;
-
-static LRESULT CALLBACK ProgressWindowProc(HWND window, UINT message,
-                                           WPARAM wparam, LPARAM lparam) {
-  if (message == WM_PAINT) {
-    PAINTSTRUCT paint;
-    HDC dc = BeginPaint(window, &paint);
-    RECT client;
-    GetClientRect(window, &client);
-    FillRect(dc, &client, (HBRUSH)(COLOR_WINDOW + 1));
-
-    NONCLIENTMETRICSW metrics;
-    metrics.cbSize = sizeof(metrics);
-    HFONT font = NULL;
-    if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics),
-                              &metrics, 0)) {
-      font = CreateFontIndirectW(&metrics.lfMessageFont);
-    }
-    HGDIOBJ previous = (font != NULL) ? SelectObject(dc, font) : NULL;
-
-    SetBkMode(dc, TRANSPARENT);
-    RECT text = client;
-    text.top += 26;
-    text.bottom = text.top + 24;
-    DrawTextW(dc, kProgressText, -1, &text,
-              DT_CENTER | DT_SINGLELINE | DT_RTLREADING);
-
-    // מד התקדמות מצויר ביד — בלי comctl32 ובלי תלות בערכת הנושא.
-    RECT bar = client;
-    bar.left += 30;
-    bar.right -= 30;
-    bar.top = text.bottom + 18;
-    bar.bottom = bar.top + 12;
-    FrameRect(dc, &bar, (HBRUSH)GetStockObject(GRAY_BRUSH));
-    const DWORD total = g_files_total;
-    if (total > 0) {
-      const LONG done = g_files_done;
-      RECT filled = bar;
-      InflateRect(&filled, -1, -1);
-      const LONG width = filled.right - filled.left;
-      filled.right = filled.left +
-                     (LONG)((ULONGLONG)width * (ULONGLONG)done / total);
-      FillRect(dc, &filled, (HBRUSH)(COLOR_HIGHLIGHT + 1));
-    }
-
-    if (previous != NULL) {
-      SelectObject(dc, previous);
-    }
-    if (font != NULL) {
-      DeleteObject(font);
-    }
-    EndPaint(window, &paint);
-    return 0;
-  }
-  if (message == WM_TIMER) {
-    InvalidateRect(window, NULL, FALSE);
-    return 0;
-  }
-  // אין WM_CLOSE: סגירה באמצע חילוץ היא בדיוק מה שמשאיר ערמת קבצים חלקית.
-  if (message == WM_CLOSE) {
-    return 0;
-  }
-  return DefWindowProcW(window, message, wparam, lparam);
-}
-
-static HWND CreateProgressWindow(HINSTANCE instance) {
-  WNDCLASSEXW window_class;
-  ZeroMemory(&window_class, sizeof(window_class));
-  window_class.cbSize = sizeof(window_class);
-  window_class.lpfnWndProc = ProgressWindowProc;
-  window_class.hInstance = instance;
-  // ה-cast כמו אצל RT_RCDATA: IDC_ARROW הוא TCHAR, וה-stub אינו UNICODE.
-  window_class.hCursor = LoadCursorW(NULL, (const wchar_t *)IDC_ARROW);
-  window_class.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(1));
-  window_class.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-  window_class.lpszClassName = kProgressClass;
-  if (RegisterClassExW(&window_class) == 0) {
-    return NULL;
-  }
-
-  const int width = 420;
-  const int height = 150;
-  const int x = (GetSystemMetrics(SM_CXSCREEN) - width) / 2;
-  const int y = (GetSystemMetrics(SM_CYSCREEN) - height) / 2;
-  HWND window = CreateWindowExW(WS_EX_LAYOUTRTL, kProgressClass,
-                                L"עדכוני אוצריא", WS_POPUPWINDOW | WS_CAPTION,
-                                x, y, width, height, NULL, NULL, instance,
-                                NULL);
-  if (window == NULL) {
-    return NULL;
-  }
-  ShowWindow(window, SW_SHOWNORMAL);
-  UpdateWindow(window);
-  SetTimer(window, 1, 200, NULL);
-  return window;
-}
 
 static DWORD WINAPI ExtractThread(LPVOID parameter) {
   ExtractJob *job = (ExtractJob *)parameter;
@@ -736,7 +1094,15 @@ static BOOL ExtractWithProgress(HINSTANCE instance, const wchar_t *dest_dir,
 
   if (window != NULL) {
     KillTimer(window, 1);
+    if (job.ok) {
+      // רגע של 100% לפני הסגירה, כדי שהסיום ייראה כסיום ולא כקטיעה.
+      g_ui.shown = 1;
+      InvalidateRect(window, NULL, FALSE);
+      UpdateWindow(window);
+      Sleep(150);
+    }
     DestroyWindow(window);
+    ReleaseUiResources();
   }
   return job.ok;
 }
@@ -807,6 +1173,21 @@ static BOOL IsTemporaryLocation(const wchar_t *dir) {
   FreeString(long_temp);
   FreeString(long_dir);
   return inside;
+}
+
+// = `AppPaths.isOnSystemDrive`. נתיב רשת (גם \\?\UNC\) אינו אות כונן — מותר.
+static BOOL IsOnSystemDrive(const wchar_t *dir) {
+  if (wcsncmp(dir, L"\\\\?\\", 4) == 0) {
+    dir += 4;
+  }
+  wchar_t system[MAX_PATH + 1];
+  const DWORD length =
+      GetEnvironmentVariableW(L"SystemDrive", system, ARRAYSIZE(system));
+  if (length < 2 || length >= ARRAYSIZE(system) || system[1] != L':' ||
+      dir[0] == L'\0' || dir[1] != L':') {
+    return FALSE;
+  }
+  return CompareStringOrdinal(dir, 1, system, 1, TRUE) == CSTR_EQUAL;
 }
 
 static BOOL FileExists(const wchar_t *path) {
@@ -934,6 +1315,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   if (IsTemporaryLocation(stub_dir)) {
     return ReportTemporaryLocation();
+  }
+  if (IsOnSystemDrive(stub_dir)) {
+    return ReportSystemDrive();
   }
 
   wchar_t *work_dir =

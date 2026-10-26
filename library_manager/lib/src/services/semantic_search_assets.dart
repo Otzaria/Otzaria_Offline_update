@@ -685,14 +685,29 @@ class SemanticSearchAssets {
     ],
   );
 
+  /// חסם עליון למה ש-[sync] יוריד לפי [peekPending] האחרון: כל נכסי ה-release
+  /// וכל קובצי המודל. `null` כשההצצה לא הצליחה.
+  int? get peekedPendingBytes => _peekedPendingBytes;
+  int? _peekedPendingBytes;
+
+  static final int _modelDownloadBytes = [
+    for (final file in modelFiles)
+      file.name == 'tokenizer.json' ? tokenizerZip : file,
+  ].fold<int>(0, (sum, file) => sum + file.size);
+
   Future<bool> peekPending({
     required String mirrorDir,
     required String libraryTag,
     SemanticFleet fleet = const SemanticFleet(),
   }) async {
+    _peekedPendingBytes = null;
     for (final group in fleet.groups) {
-      if (await _peekPending(mirrorDir, libraryTag, group)) return true;
+      if (await _peekPending(mirrorDir, libraryTag, group)) {
+        if (fleet.groups.length != 1) _peekedPendingBytes = null;
+        return true;
+      }
     }
+    _peekedPendingBytes = 0;
     return false;
   }
 
@@ -733,11 +748,16 @@ class SemanticSearchAssets {
         local.meta.base.name != remote['name'] ||
         local.meta.base.size != remote['size'] ||
         local.meta.base.sha256 != fetched.digest) {
+      _peekedPendingBytes = fetched.assets.values.fold<int>(
+        _modelDownloadBytes,
+        (sum, asset) => sum + (asset['size'] as int),
+      );
       return true;
     }
     for (final file in local.units.single.files) {
       _publishedAsset(fetched.assets, file);
     }
+    _peekedPendingBytes = 0;
     return false;
   }
 

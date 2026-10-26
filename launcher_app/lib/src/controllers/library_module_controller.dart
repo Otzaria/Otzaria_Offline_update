@@ -8,7 +8,9 @@ import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import '../services/app_logger.dart';
 import '../services/elevation.dart';
+import '../settings/app_settings.dart' show SemanticDownloadPreference;
 import 'dispose_guard.dart';
+import 'download_plan.dart' show LibrarySizeProbe;
 import 'online_check.dart';
 import 'progress_notifier.dart';
 import 'stage_clock.dart';
@@ -43,6 +45,9 @@ typedef LibraryOnlineAnswers = ({
   String? companionsCheckError,
   bool semanticPending,
   String? semanticCheckError,
+  bool semanticChecked,
+  int? downloadBytesBound,
+  int? semanticBytes,
 });
 
 /// מה ההורדה האחרונה עשתה במצב "עדכון אישי".
@@ -87,11 +92,31 @@ class LibraryModuleController extends ChangeNotifier
   set personalUpdateMode(bool value) {
     if (_manager.personalUpdateMode == value) return;
     _manager.personalUpdateMode = value;
+    _refreshDownloadSize();
+    if (!value) registeredMachines = const [];
     if (status == LibraryModuleStatus.idle || _applying) return;
     unawaited(checkForUpdate());
   }
 
   bool get personalUpdateMode => _manager.personalUpdateMode;
+
+  SemanticDownloadPreference get semanticPreference => _semanticPreference;
+  SemanticDownloadPreference _semanticPreference =
+      SemanticDownloadPreference.ask;
+
+  set semanticPreference(SemanticDownloadPreference value) {
+    if (_semanticPreference == value) return;
+    _semanticPreference = value;
+    if (value == SemanticDownloadPreference.never) {
+      semanticDownloadFailed = false;
+    }
+    notifyListeners();
+  }
+
+  bool get _semanticCountsAsUpdate =>
+      _semanticPreference == SemanticDownloadPreference.always &&
+      onlineSemanticPending &&
+      !semanticDownloadFailed;
 
   final LibraryManager _manager;
   LibraryUpdateCheckResult? _lastCheck;
@@ -171,11 +196,19 @@ class LibraryModuleController extends ChangeNotifier
   /// שאינו מתאים למסד שלו נשאר תקוע לנצח (issue #19).
   bool canRetryWithFullDownload = false;
 
-  /// הכשל האחרון היה "אין הרשאה" — ראו [Elevation]. `AppShell` מציע על סמך
+  /// ההחלה האחרונה הגיעה לסופה — המסד הוחלף.
+  bool lastApplyCompleted = false;
+
+  /// הערה מוכרת אחרי החלה שהצליחה (מיקום שצריך לכוון, קובץ נלווה שנכשל).
+  /// חריג גולמי שנזרק אחרי ההחלה לא נכנס לכאן.
+  String? applyNote;
+
+  /// הכשל האחרון היה "אין הרשאה" — ראו [Elevation]. `AppSession` מציע על סמך
   /// זה להפעיל מחדש כמנהל, ולכן זה נדלק בכשל ונכבה בכל ניסיון חדש.
   bool needsElevation = false;
 
-  /// "צפוי כ-X עד Y דקות" לתוכנית שמאושרת עכשיו — בדיאלוג האישור בלבד.
+  /// "צפוי כ-X עד Y דקות" לתוכנית שתוחל — בשלב הספרייה של מסך המשימה,
+  /// וליד הכפתור של הספרייה המלאה.
   ({int low, int high})? applyEstimateFor({bool fullDownload = false}) =>
       libraryApplyMinutes(
         fullDownload
@@ -257,6 +290,90 @@ class LibraryModuleController extends ChangeNotifier
   /// שהמצב לא יהיה שקוף: מי שהפעיל אותו בלי לרשום גרסה קיבל מסד מלא.
   LibraryPersonalDownloadNote? personalDownloadNote;
 
+  /// גודל ההורדה הבאה לפני שהספרייה מתחילה לרדת; null כשלא נבדק.
+  LibrarySizeProbe? downloadSizeProbe;
+
+  void clearDownloadSizeProbe() => downloadSizeProbe = null;
+
+  /// מריץ רק את התכנון של ההורדה (בלי התוכן). כשל משאיר את השורה בלי מספר.
+  Future<void> probeDownloadSize() async {
+    downloadSizeProbe = const LibrarySizeProbe.checking();
+    notifyProgress();
+    int? bytes;
+    try {
+      bytes = await _manager.probeMirrorDownloadBytes();
+    } catch (e) {
+      AppLogger.instance.info('בדיקת גודל הספרייה לפני ההורדה לא הצליחה: $e');
+    }
+    downloadSizeProbe = bytes == null
+        ? const LibrarySizeProbe.failed()
+        : LibrarySizeProbe.known(bytes);
+    notifyProgress();
+  }
+
+  /// המחשבים שנרשמו לעדכון אישי, מהגרסה הנמוכה. נקרא בכל בדיקה.
+  List<RegisteredMachine> registeredMachines = const [];
+
+  /// גם בלי בדיקה: ההגדרות מציגות את הרשימה כשהבדיקה בעלייה כבויה. רק במצב
+  /// אישי — זיהוי המחשב מריץ תהליך ב-macOS, וכבוי אין למי להציג את הרשימה.
+  Future<void> refreshRegisteredMachines() async {
+    registeredMachines = await _loadRegisteredMachines();
+    if (!isDisposed) notifyListeners();
+  }
+
+  Future<List<RegisteredMachine>> _loadRegisteredMachines() async {
+    if (!personalUpdateMode) return const [];
+    try {
+      return await _manager.registeredMachines();
+    } catch (e) {
+      if (!isDisposed) {
+        AppLogger.maybeInstance?.info('קריאת המחשבים שנרשמו נכשלה: $e');
+      }
+      return const [];
+    }
+  }
+
+  /// בכונן ספרייה מלאה שתימחק בהורדה הבאה במצב אישי — לאזהרה שלפני הבחירה.
+  Future<bool> mirrorHoldsFullDb() => _manager.mirrorHoldsFullDb();
+
+  /// אף מחשב לא נרשם — נקרא מקובץ ה-state, לא מהבדיקה האחרונה.
+  Future<bool> hasNoRegisteredMachine() async =>
+      await _manager.recordedPersonalDbVersion() == null;
+
+  /// "הסרה" בהגדרות: המחשב כבר אינו קובע מאיזו גרסה מורידים.
+  Future<void> forgetMachine(String machineKey) async {
+    try {
+      await _manager.forgetRegisteredMachine(machineKey);
+    } catch (e, st) {
+      AppLogger.instance.error('הסרת מחשב שנרשם נכשלה', e, st);
+    }
+    _refreshDownloadSize();
+    await checkForUpdate(fresh: true);
+  }
+
+  int _sizeRun = 0;
+
+  /// מחשב את החסם מחדש אחרי שינוי מצב או רישום — מההצצה האחרונה בלבד, בלי
+  /// רשת ובלי כתיבה לכונן (`peekedDownloadBytesBound`).
+  void _refreshDownloadSize() {
+    final run = ++_sizeRun;
+    onlineDownloadBytesBound = null;
+    if (onlineCheckedAt == null || onlineLibraryProofError != null) return;
+    unawaited(() async {
+      int? bytes;
+      try {
+        bytes = await _manager.peekedDownloadBytesBound();
+      } catch (e) {
+        if (isDisposed) return;
+        AppLogger.maybeInstance
+            ?.info('חישוב גודל ההורדה של הספרייה לא הצליח: $e');
+      }
+      if (run != _sizeRun || isDisposed) return;
+      onlineDownloadBytesBound = bytes;
+      notifyListeners();
+    }());
+  }
+
   /// האם המחשב הזה נרשם כיעד לעדכון אישי. `true` גם כשהמצב כבוי, כי אז
   /// כל מחשב הוא יעד לגיטימי. ראו [LibraryModuleStatus.personalTargetElsewhere].
   bool personalTargetIsThisMachine = true;
@@ -292,6 +409,64 @@ class LibraryModuleController extends ChangeNotifier
   bool onlineSemanticPending = false;
   String? onlineSemanticCheckError;
 
+  /// הבדיקה של החיפוש החכם רצה בפועל. בלעדיה — "לא נבדק", לעולם לא "מעודכן".
+  bool semanticChecked = false;
+
+  /// חסמים עליונים מהבדיקה הקלה — `LibraryManager.peekedDownloadBytesBound`
+  /// ו-`peekedSemanticBytes`; `null` כשאין חסם מוגדר.
+  int? onlineDownloadBytesBound;
+  int? onlineSemanticBytes;
+
+  /// "עד X" של הספרייה בבית: עם החיפוש החכם רק ב"תמיד", כי ב"לשאול" הוא
+  /// יורד רק אחרי השאלה. `null` — אין חסם, ולכן אין מספר.
+  int? get onlineDownloadUpperBound {
+    final bound = onlineDownloadBytesBound;
+    if (bound == null) return null;
+    // אותו תנאי שבו ההורדה מוסיפה אותו — גם כשבדיקתו נכשלה.
+    if (_semanticPreference != SemanticDownloadPreference.always ||
+        !shouldOfferSemanticDownload) {
+      return bound;
+    }
+    final semantic = onlineSemanticBytes;
+    return semantic == null ? null : bound + semantic;
+  }
+
+  /// נלווים שנשארו חסרים אחרי הורדה של הספרייה שהסתיימה — לא מוצעים שוב עד
+  /// [forgetDownloadFailures]; אחרת הבית מציע אותם בכל פתיחה ונכשל שוב.
+  Set<CompanionAsset> failedCompanions = const {};
+  bool semanticDownloadFailed = false;
+
+  /// רק מה שעדיין חסר — בדיקה מאוחרת יותר יכולה לגלות שכבר ירד.
+  Set<CompanionAsset> get _stillFailed =>
+      failedCompanions.intersection(onlinePendingCompanions);
+
+  bool get hasDownloadFailures =>
+      _stillFailed.isNotEmpty ||
+      (semanticDownloadFailed && onlineSemanticPending);
+
+  String get failedDownloadNames => [
+        if (_stillFailed.isNotEmpty) _companionNames(_stillFailed),
+        if (semanticDownloadFailed && onlineSemanticPending)
+          AppL10n.strings.libraryDomain.companionSemanticName,
+      ].join(', ');
+
+  void forgetDownloadFailures() {
+    if (failedCompanions.isEmpty && !semanticDownloadFailed) return;
+    failedCompanions = const {};
+    semanticDownloadFailed = false;
+    notifyListeners();
+  }
+
+  Set<CompanionAsset> get _offeredCompanions =>
+      onlinePendingCompanions.difference(failedCompanions);
+
+  /// "לשאול כל פעם": חיפוש חכם שאפשר להוריד, כשורה משנית — לא כעדכון.
+  bool get onlineSemanticOffer =>
+      _semanticPreference == SemanticDownloadPreference.ask &&
+      onlineSemanticPending &&
+      semanticChecked &&
+      !semanticDownloadFailed;
+
   /// כשל בבדיקת הנלווים בלבד. אינו "אין רשת" למודול, אך שולל את ההוכחה שאין
   /// מה להוריד — ראו [onlineProofError].
   String? onlineCompanionsCheckError;
@@ -302,18 +477,27 @@ class LibraryModuleController extends ChangeNotifier
   String? get onlineLibraryProofError =>
       onlineCheckError ?? onlineCompanionsCheckError;
 
+  /// הבדיקה כפי שהבית רואה אותה: כשל של החיפוש החכם נחשב רק ב"תמיד" — בשאר
+  /// הוא אינו חלק מהעדכון.
+  String? get onlineAnswerError =>
+      onlineLibraryProofError ??
+      (_semanticPreference == SemanticDownloadPreference.always
+          ? onlineSemanticCheckError
+          : null);
+
   /// לשאול על הורדת החיפוש החכם רק כשהבדיקה לא הוכיחה שהכונן כבר מחזיק אותו —
   /// אחרת "כן" מריץ את כל הורדת הספרייה בלי שום דבר חדש להביא.
-  bool get shouldOfferSemanticDownload => !provenUpToDateOnline(
+  bool get shouldOfferSemanticDownload =>
+      !semanticChecked ||
+      !provenUpToDateOnline(
         checkedAt: onlineCheckedAt,
         error: onlineCheckError ?? onlineSemanticCheckError,
         hasUpdate: onlineSemanticPending,
       );
 
   String get onlinePendingCompanionNames => [
-        if (onlinePendingCompanions.isNotEmpty)
-          _companionNames(onlinePendingCompanions),
-        if (onlineSemanticPending)
+        if (_offeredCompanions.isNotEmpty) _companionNames(_offeredCompanions),
+        if (_semanticCountsAsUpdate)
           AppL10n.strings.libraryDomain.companionSemanticName,
       ].join(', ');
 
@@ -325,6 +509,9 @@ class LibraryModuleController extends ChangeNotifier
         companionsCheckError: onlineCompanionsCheckError,
         semanticPending: onlineSemanticPending,
         semanticCheckError: onlineSemanticCheckError,
+        semanticChecked: semanticChecked,
+        downloadBytesBound: onlineDownloadBytesBound,
+        semanticBytes: onlineSemanticBytes,
       );
 
   void restoreOnlineAnswers(LibraryOnlineAnswers answers) {
@@ -335,15 +522,21 @@ class LibraryModuleController extends ChangeNotifier
     onlineCompanionsCheckError = answers.companionsCheckError;
     onlineSemanticPending = answers.semanticPending;
     onlineSemanticCheckError = answers.semanticCheckError;
+    semanticChecked = answers.semanticChecked;
+    _sizeRun++;
+    onlineDownloadBytesBound = answers.downloadBytesBound;
+    onlineSemanticBytes = answers.semanticBytes;
     notifyListeners();
   }
 
-  bool get hasOnlineUpdate => hasOnlineLibraryUpdate || onlineSemanticPending;
+  bool get hasOnlineUpdate => hasOnlineLibraryUpdate || _semanticCountsAsUpdate;
 
   bool get hasOnlineLibraryUpdate =>
-      downloadNeedsRetry ||
-      _hasOnlineDbUpdate ||
-      onlinePendingCompanions.isNotEmpty;
+      downloadNeedsRetry || _hasOnlineDbUpdate || _offeredCompanions.isNotEmpty;
+
+  /// להוכחה שלפני ההורדה: נלווה שנכשל אינו מוצע בבית, אבל גם אינו "מעודכן".
+  bool get libraryDownloadPending =>
+      hasOnlineLibraryUpdate || onlinePendingCompanions.isNotEmpty;
 
   bool get _hasOnlineDbUpdate {
     final online = onlineLatestVersion;
@@ -360,46 +553,71 @@ class LibraryModuleController extends ChangeNotifier
   int? get onlineUpdateVersion =>
       _hasOnlineDbUpdate ? onlineLatestVersion : null;
 
+  /// התשובה הקודמת — גם כשל — נשארת עד שהחדשה מוכנה: ניקוי בתחילה הפך כשל
+  /// ל"הוכח" באמצע בדיקה חוזרת (`onlineProofOf`).
   Future<void> checkOnline() async {
-    onlineCheckError = null;
-    onlineCompanionsCheckError = null;
     notifyListeners();
 
+    int? latest;
+    String? checkError;
+    var companions = const <CompanionAsset>{};
+    String? companionsError;
     await Future.wait<void>([
       () async {
         try {
-          onlineLatestVersion = await _manager.peekLatestOnlineVersion();
+          latest = await _manager.peekLatestOnlineVersion();
         } catch (e) {
-          onlineLatestVersion = null;
-          onlineCheckError = e.toString();
+          checkError = e.toString();
           AppLogger.instance.info('בדיקת עדכונים ברשת (ספרייה) לא הצליחה: $e');
         }
       }(),
       () async {
         try {
-          onlinePendingCompanions = await _manager.peekPendingCompanions();
+          companions = await _manager.peekPendingCompanions();
         } catch (e) {
-          onlinePendingCompanions = const {};
-          onlineCompanionsCheckError = e.toString();
+          companionsError = e.toString();
           AppLogger.instance.info('בדיקת הקבצים הנלווים ברשת לא הצליחה: $e');
         }
       }(),
     ]);
     AppLogger.instance.info(
-      'checkOnline (ספרייה): latest=$onlineLatestVersion '
-      'companions=[${_companionNames(onlinePendingCompanions)}]',
+      'checkOnline (ספרייה): latest=$latest '
+      'companions=[${_companionNames(companions)}]',
     );
-    onlineSemanticCheckError = null;
-    onlineSemanticPending = false;
-    if (onlineCheckError == null) {
+    String? semanticError;
+    var semanticPending = false;
+    var checkedSemantic = false;
+    int? semanticBytes;
+    if (checkError == null &&
+        _semanticPreference != SemanticDownloadPreference.never) {
       try {
-        onlineSemanticPending = await _manager.peekPendingSemanticSearch();
+        semanticPending = await _manager.peekPendingSemanticSearch();
+        semanticBytes = _manager.peekedSemanticBytes;
       } catch (e) {
-        onlineSemanticCheckError = e.toString();
+        semanticError = e.toString();
         AppLogger.instance.info('בדיקת החיפוש החכם ברשת לא הצליחה: $e');
       }
+      checkedSemantic = true;
     }
+    int? bound;
+    if (checkError == null && companionsError == null) {
+      try {
+        bound = await _manager.peekedDownloadBytesBound();
+      } catch (e) {
+        AppLogger.instance.info('חישוב גודל ההורדה של הספרייה לא הצליח: $e');
+      }
+    }
+    onlineLatestVersion = latest;
+    onlineCheckError = checkError;
+    onlinePendingCompanions = companions;
+    onlineCompanionsCheckError = companionsError;
+    onlineSemanticPending = semanticPending;
+    onlineSemanticCheckError = semanticError;
+    semanticChecked = checkedSemantic;
+    onlineSemanticBytes = semanticBytes;
     onlineCheckedAt = DateTime.now();
+    _sizeRun++;
+    onlineDownloadBytesBound = bound;
     notifyListeners();
   }
 
@@ -470,7 +688,14 @@ class LibraryModuleController extends ChangeNotifier
       // עכשיו יש מול מה להשוות — מרעננים את מצב העדכון מהתיקייה החדשה.
       await checkForUpdate();
       // הנלווים יכולים להיכשל בנפרד; בודקים מה עדיין חסר אחרי ההורדה.
-      if (!(isCancelled?.call() ?? false)) await checkOnline();
+      if (!(isCancelled?.call() ?? false)) {
+        await checkOnline();
+        failedCompanions = {...onlinePendingCompanions};
+        if (includeSemanticSearch) {
+          semanticDownloadFailed = onlineSemanticPending;
+        }
+        notifyListeners();
+      }
       return;
     } catch (e, st) {
       // ביטול של המשתמש אינו תקלה, ולכן אינו נשאר על המסך כשגיאה. השלב
@@ -498,6 +723,7 @@ class LibraryModuleController extends ChangeNotifier
       final version = await _manager.captureLocalDbVersion();
       if (version == null) return false;
       personalFromVersion = version;
+      _refreshDownloadSize();
       // בדיקה מחדש ולא רק notify: המחשב הזה הפך זה עתה ליעד, ו-
       // [LibraryModuleStatus.personalTargetElsewhere] שהוצג לו כבר אינו נכון.
       await checkForUpdate();
@@ -571,7 +797,18 @@ class LibraryModuleController extends ChangeNotifier
         .join(', ');
   }
 
-  Future<void> checkForUpdate() {
+  /// [fresh] — לא מצטרף לבדיקה שכבר רצה (לא ראתה כתיבה של עכשיו). בזמן החלה
+  /// אין בדיקה, כמו תמיד: ההחלה בודקת בסופה.
+  Future<void> checkForUpdate({bool fresh = false}) async {
+    if (fresh) {
+      try {
+        await _checkInFlight;
+      } catch (_) {}
+    }
+    return _joinOrStartCheck();
+  }
+
+  Future<void> _joinOrStartCheck() {
     if (_applying) return Future.value();
     final inFlight = _checkInFlight;
     if (inFlight != null) return inFlight;
@@ -595,6 +832,7 @@ class LibraryModuleController extends ChangeNotifier
     // "אין מסלול" במחשב שאינו אחד מהם אינו תקלה אלא מראה של מישהו אחר.
     personalTargetIsThisMachine =
         !personalUpdateMode || await _manager.isRegisteredForPersonalUpdate();
+    registeredMachines = await _loadRegisteredMachines();
 
     // **לא `_lastCheck`.** הוא נכתב רק בנתיב ההצלחה, ובמסלולי החריגה הוא
     // מחזיק את התוצאה של הריצה הקודמת — שורת אבחון שקוראת ממנו משקרת.
@@ -687,6 +925,7 @@ class LibraryModuleController extends ChangeNotifier
     // בקשה שנכתבה בהרצה קודמת ולא נמסרה עדיין — הסימון יושב לצד המסד, ולכן
     // הוא נקרא כאן ולא רק אחרי עדכון שנעשה בהרצה הזאת.
     await _refreshPendingReindex();
+    if (isDisposed) return;
     // **שורה אחת בכל בדיקה, וזו ששווה הכול.** בלעדיה בדיקה שהצליחה והכריזה
     // "יש עדכון" לא השאירה שום עקבה, ו"מציע לעדכן בכל פתיחה" לא היה ניתן
     // לאבחון מהלוג בכלל. `companions` מפריד בין הצעה על המסד לבין קובץ נלווה
@@ -796,6 +1035,8 @@ class LibraryModuleController extends ChangeNotifier
       _apply(useFullDownloadFallback: true);
 
   Future<void> _apply({required bool useFullDownloadFallback}) async {
+    lastApplyCompleted = false;
+    applyNote = null;
     if (_applying) return;
     _applying = true;
     final inFlight = _checkInFlight;
@@ -882,6 +1123,7 @@ class LibraryModuleController extends ChangeNotifier
       } finally {
         _applying = false;
       }
+      lastApplyCompleted = true;
       AppLogger.instance.info(
         'החלת העדכון הסתיימה, נלווים שנכשלו=${companionFailures.length}',
       );
@@ -897,7 +1139,7 @@ class LibraryModuleController extends ChangeNotifier
           (status == LibraryModuleStatus.updateAvailable ||
               companionFailures.containsKey(
                   AppL10n.strings.libraryDomain.companionSemanticName))) {
-        errorMessage = AppL10n.strings.libraryDomain
+        errorMessage = applyNote = AppL10n.strings.libraryDomain
             .companionsInstallFailed(companionFailures.keys.join(', '));
         needsElevation = companionFailures.values.any(Elevation.isAccessDenied);
         if (companionFailures
@@ -910,7 +1152,7 @@ class LibraryModuleController extends ChangeNotifier
       // הגדולה מבין השתיים.
       final notSet = locationNotSetFor;
       if (notSet != null) {
-        errorMessage = AppL10n.strings.libraryDomain
+        errorMessage = applyNote = AppL10n.strings.libraryDomain
             .libraryLocationNeedsManualSetting(notSet);
       }
     } catch (e, st) {

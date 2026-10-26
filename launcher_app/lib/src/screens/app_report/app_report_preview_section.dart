@@ -125,7 +125,7 @@ class _AppReportPreviewSectionState extends State<AppReportPreviewSection> {
               Expanded(
                 child: Text(
                   t.privacyNote,
-                  style: theme.textTheme.bodySmall?.copyWith(
+                  style: AppTextStyles.meta.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
@@ -154,7 +154,9 @@ class _PreviewBox extends StatelessWidget {
         children: [
           Text(
             title,
-            style: theme.textTheme.labelLarge,
+            style: AppTextStyles.rowTitle.copyWith(
+              color: theme.colorScheme.onSurface,
+            ),
             textDirection: TextDirection.ltr,
           ),
           const SizedBox(height: AppTokens.spaceXS),
@@ -169,8 +171,10 @@ class _PreviewBox extends StatelessWidget {
               child: SelectableText(
                 content,
                 textDirection: TextDirection.ltr,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontFamily: 'monospace',
+                style: AppTextStyles.meta.copyWith(
+                  fontFamily: 'Consolas',
+                  fontFamilyFallback: const ['Cascadia Mono', 'monospace'],
+                  color: theme.colorScheme.onSurface,
                 ),
               ),
             ),

@@ -1,5 +1,6 @@
 import 'app_language.dart';
 import 'app_strings.dart';
+import 'plural.dart';
 
 /// אנגלית — תרגום חופשי של הנוסח העברי, לא מילה במילה: אותה כוונה ואותו
 /// אורך בערך, בניסוח שנשמע טבעי לקורא אנגלית.
@@ -15,6 +16,12 @@ class EnglishStrings extends AppStrings {
   ShellStrings get shell => const _Shell();
   @override
   HomeStrings get home => const _Home();
+  @override
+  GuidanceStrings get guide => const _Guide();
+  @override
+  TaskStrings get task => const _Task();
+  @override
+  PageStrings get pages => const _Pages();
   @override
   AppScreenStrings get appScreen => const _AppScreen();
   @override
@@ -72,11 +79,11 @@ class _Common extends CommonStrings {
   @override
   String get error => 'Error';
   @override
-  String get retry => 'Try Again';
+  String get retry => 'Try again';
   @override
   String get errorDetailsButton => 'Details';
   @override
-  String get errorDetailsTitle => 'Error Details';
+  String get errorDetailsTitle => 'Error details';
   @override
   String get install => 'Install';
   @override
@@ -84,15 +91,13 @@ class _Common extends CommonStrings {
   @override
   String get launch => 'Open';
   @override
-  String get recheck => 'Check Again';
-  @override
   String get notCheckedYet => 'Not checked yet';
   @override
   String get checking => 'Checking…';
   @override
   String get upToDate => 'Up To Date';
   @override
-  String get updateAvailable => 'Update Available';
+  String get updateAvailable => 'Update available';
   @override
   String get installedIsNewer => 'A Newer Version Is Installed';
   @override
@@ -100,7 +105,7 @@ class _Common extends CommonStrings {
   @override
   String get unknownValue => 'Unknown';
   @override
-  String get lastDownloaded => 'Last Downloaded';
+  String get lastDownloaded => 'Last downloaded';
   @override
   String get emptyValue => '—';
   @override
@@ -123,25 +128,17 @@ class _Shell extends ShellStrings {
   @override
   String get otzariaLogoLabel => 'Otzaria';
   @override
-  String get navHome => 'Home';
-  @override
-  String get navApp => 'Program';
-  @override
-  String get navLibrary => 'Library';
-  @override
-  String get navPlugins => 'Plugins';
-  @override
-  String get navCustomApps => 'Other Programs';
-  @override
-  String get navSettings => 'Settings';
-  @override
   String logPathFallback(String path) => 'Activity log: $path';
+  @override
+  String folderPathFallback(String path) =>
+      'Could not open the folder. It is here: $path';
   @override
   String get closeWhileBusyTitle => 'Close in the middle of this?';
   @override
   String get closeWhileDownloadingPrompt =>
-      'A download is running. Closing now cancels it, and the files it '
-      'fetched are deleted before the program closes.';
+      'A download is running. Closing now cancels it: whatever has finished '
+      'downloading stays on the drive, and the part in progress is deleted '
+      'before the program closes.';
   @override
   String get closeWhileDownloadingConfirm => 'Cancel and close';
   @override
@@ -152,236 +149,1266 @@ class _Shell extends ShellStrings {
   String get closeWhileInstallingConfirm => 'Close anyway';
   @override
   String get closeWhileBusyKeepGoing => 'Keep going';
+  @override
+  String get helpTooltip => 'Help and FAQ';
+  @override
+  String get settingsTooltip => 'Settings';
+  @override
+  String get windowMinimize => 'Minimize';
+  @override
+  String get windowMaximize => 'Maximize';
+  @override
+  String get windowRestore => 'Restore';
+  @override
+  String get windowClose => 'Close';
+  @override
+  String get backTooltip => 'Back (Esc)';
+  @override
+  String get breadcrumbHome => 'Home';
 }
 
 class _Home extends HomeStrings {
   const _Home();
 
   @override
-  String get title => 'Home';
-
-  @override
-  String get otzariaRunningTitle => 'Otzaria is open';
-  @override
-  String get otzariaRunningSubtitle =>
-      'Library updates are blocked until you close it.';
-
-  @override
-  String get appTileTitle => 'Otzaria Program';
-  @override
-  String get libraryTileTitle => 'Library';
-
-  @override
-  String get appNoInstallFound => 'No installation found';
-  @override
-  String get appNothingDownloaded => 'Nothing downloaded yet';
-
-  @override
-  String get noActionAvailable =>
-      'Nothing to do right now — see below for details and manual options.';
-  @override
-  String get moreDetails => 'More details';
-
-  @override
-  String get appInstallDialogTitle => 'Install the Otzaria Program';
-  @override
-  String get appInstallConfirm => 'Install';
-  @override
-  String appInstalledSnack(String version) =>
-      'Otzaria was updated to version $version';
-
-  @override
-  String get firstInstallDialogTitle => 'Otzaria is not installed here';
-  @override
-  String firstInstallPrompt(String appVersion, String libraryVersion) =>
-      'No Otzaria installation and no book database were found on this '
-      'computer. One click installs both from the drive, with no internet: '
-      'the Otzaria program $appVersion, and then the book library, version '
-      '$libraryVersion.\n\n'
-      'The Otzaria installer opens first, where you choose where to install '
-      'and whether to create a shortcut. The library install starts right '
-      'after it and takes many minutes.';
-  @override
-  String get firstInstallConfirm => 'Full install';
-  @override
-  String get closeOtzariaForLibraryDialogTitle => 'Please close Otzaria';
-  @override
-  String get closeOtzariaForLibraryPrompt =>
-      'Otzaria opened when the installation finished, and it locks the '
-      'library file. Close it and press "Try again" to continue installing '
-      'the library.';
-  @override
-  String get closeOtzariaForAppInstallDialogTitle => 'Otzaria is open';
-  @override
-  String get closeOtzariaForAppInstallPrompt =>
-      'Otzaria must be closed to install the new version. Close it now and '
-      'continue with the installation?';
-  @override
-  String get closeOtzariaAndInstallConfirm => 'Close and install';
-  @override
-  String get elevatedAsOtherUserWarning =>
-      'This program runs as administrator under a different user name — a '
-      '"current user" installation will go into the administrator\'s account, '
-      'not yours. It is better to start it without "Run as administrator".';
-
-  @override
-  String get autoInstallSkippedTitle => 'The automatic update was not applied';
-  @override
-  String get autoInstallSkippedContent =>
-      'Otzaria is open right now, so the automatic update was not applied — '
-      'installing over a running program corrupts it. Close Otzaria and '
-      'apply the update by hand from the home screen.';
-  @override
   String get otzariaOpenSnack =>
       'Otzaria is open — please close it and try again.';
-  @override
-  String get libraryUpdateDialogTitle => 'Update the Library';
-  @override
-  String libraryFreshInstallPrompt(String targetVersion) =>
-      'The library (version $targetVersion) will be installed for the first '
-      'time from the folder next to this program. The database is large, so '
-      'this may take a while.';
-  @override
-  String libraryUpdatePrompt(String localVersion, String targetVersion) =>
-      'The database will be updated from version $localVersion to version '
-      '$targetVersion. The current database will be replaced only after the '
-      'new version has been verified.';
-  @override
-  String get libraryUpdateConfirm => 'Update Now';
-  @override
-  String libraryApplyEstimate(int lowMinutes, int highMinutes) =>
-      'Expected to take about $lowMinutes to $highMinutes minutes, depending '
-      'on the computer.';
-  @override
-  String libraryUpdatedSnack(String version) =>
-      'The database was updated to version $version';
 
   @override
   String get doNotRemoveDriveWarning =>
-      'Note! Do not remove the USB drive until the update is finished.';
+      'Do not disconnect the drive until the update finishes.';
 
   @override
-  String get onlineCardTitle => 'Check for updates';
-  @override
-  String get onlineCardHint =>
-      'Only on a computer with internet — not needed for the install itself.';
-  @override
-  String get onlineChecking => 'Checking online for updates…';
-  @override
-  String get onlineNeverChecked => 'Not checked in this session';
-  @override
-  String get onlineOffline => 'No internet connection right now';
-  @override
-  String get onlineHasUpdates => 'New updates are available online';
-  @override
-  String get onlineNoUpdates => 'No new updates online';
-  @override
-  String onlineAppUpdate(String version) =>
-      'Otzaria Program: version $version is online';
-  @override
-  String onlineLibraryUpdate(String version) =>
-      'Library: version $version is online';
-  @override
-  String onlineLibraryCompanions(String names) =>
-      'Library companion files to download: $names';
-  @override
-  String get onlineAppSyncOff =>
-      'Program downloads are turned off in Settings — it will be skipped.';
-  @override
-  String get onlineLibrarySyncOff =>
-      'Library downloads are turned off in Settings — it will be skipped.';
-  @override
-  String onlineNewPlugins(int count) => '$count new plugins in the store';
-  @override
-  String onlineUpdatedPlugins(int count) =>
-      '$count plugins updated in the store';
-  @override
-  String onlineMissingPlugins(int count) =>
-      '$count plugins are missing from the folder — their install file is gone';
-  @override
-  String onlineRemovedPlugins(int count) =>
-      '$count plugins were removed from the store';
-  @override
-  String onlineStoreAppUpdate(String version) =>
-      'Version $version of the plugin store program';
-  @override
-  String get onlinePluginsSyncOff =>
-      'Plugin downloads are turned off in Settings — they will be skipped.';
-  @override
-  String get checkForUpdatesButton => 'Check for updates';
-  @override
-  String get downloadNowButton => 'Download now';
-  @override
   String get cancelDownloadButton => 'Cancel download';
-  @override
-  String get cancelDownloadPending => 'Cancelling…';
   @override
   String get cancelDownloadDialogTitle => 'Cancel the download?';
   @override
   String get cancelDownloadPrompt =>
-      'The files this download fetched will be deleted. Whatever the folder '
-      'already held from earlier downloads stays where it is.';
+      'Whatever has finished downloading stays on the drive. The part in '
+      'progress is deleted, and whatever the drive held before stays where it is.';
   @override
   String get cancelDownloadKeepGoing => 'Keep downloading';
   @override
-  String get downloadCancelledSnack =>
-      'The download was cancelled, and what it had fetched was deleted';
-  @override
-  String get downloadSnapshotFailedSnack =>
-      'The download did not start: the mirror state could not be saved beforehand, so a cancel could not restore it';
-  @override
-  String get downloadCancelRevertFailedSnack =>
-      'The download was cancelled, but deleting what it fetched failed. Partial files may remain in the mirror';
-  @override
-  String downloadSkippedSnack(String components) =>
-      'Skipped $components — nothing new for them online';
-  @override
-  String downloadFailedSnack(String components) =>
-      'Downloading $components failed. What already arrived is kept — try '
-      'again and the download will continue where it stopped';
-  @override
-  String get downloadDoneSnack =>
-      'Download complete — the folder next to the program is up to date';
-  @override
-  String lastCheckedAt(String time) => 'Last checked at $time';
-
-  @override
   String get downloadingApp => 'Downloading the Otzaria Program…';
   @override
-  String get downloadingLibrary => 'Downloading the Library…';
+  String get downloadingLibrary => 'Downloading the Otzaria library…';
   @override
   String get downloadingPlugins => 'Downloading the Plugins…';
   @override
   String get downloadStarting => 'Starting the download…';
 
   @override
-  String get libraryNotInstalledYet => 'Library not installed yet';
+  String get libraryApplyActive => 'Otzaria library update in progress';
+}
+
+class _Task extends TaskStrings {
+  const _Task();
+
   @override
-  String get libraryUpdating => 'Updating…';
+  String get semanticTitle => 'Download smart search too?';
   @override
-  String get libraryApplyActive => 'Library update in progress';
+  String get semanticBody =>
+      'Smart search finds sources by meaning, even when the words differ from what you searched for.';
   @override
-  String get libraryNothingDownloaded => 'Nothing downloaded yet';
+  String get semanticNoTitle => 'No, regular search only (recommended)';
   @override
-  String get libraryNeedsManualPath => 'Choose the database file';
+  String get semanticNoBody => 'You can add smart search in the next download.';
   @override
-  String get libraryPersonalOtherMachine => 'Targets another computer';
+  String get semanticNoSize => 'Nothing extra';
+  @override
+  String get semanticYesTitle => 'Yes, smart search too';
+  @override
+  String get semanticYesBody =>
+      'The files take a few gigabytes, and the download will take longer. Using smart search in Otzaria requires consent to training-data collection; downloading does not change that consent.';
+  @override
+  String get semanticRemember => "Don't show again";
+  @override
+  String get semanticRememberBody =>
+      'Your choice is saved in Settings, under "Smart search". You can change it there.';
+  @override
+  String get back => 'Back';
+  @override
+  String get startDownload => 'Start download';
+  @override
+  String get preparingTitle => 'Getting ready to download';
+  @override
+  String get preparingBody => 'Checking the Otzaria website for what is new.';
+  @override
+  String get downloadingTitle => 'Downloading the updates to the drive';
+  @override
+  String get downloadingBody => 'You can keep using the computer meanwhile.';
+  @override
+  String downloadingStep(String name, int index, int count) =>
+      'Downloading $name · $index of $count';
+  @override
+  String get componentApp => 'Otzaria app';
+  @override
+  String get componentLibrary => 'The Otzaria library';
+  @override
+  String get componentPlugins => 'Plugins';
+  @override
+  String get stepApp => 'the Otzaria app';
+  @override
+  String get stepLibrary => 'the Otzaria library';
+  @override
+  String get stepPlugins => 'the plugins';
+  @override
+  String minutesLeft(int minutes) => plural(
+        minutes,
+        one: 'One minute left',
+        many: '$minutes minutes left',
+      );
+  @override
+  String get lessThanMinuteLeft => 'Less than a minute left';
+  @override
+  String get speedPending => 'Measuring speed…';
+  @override
+  String get speedStalled => 'Waiting for data…';
+  @override
+  String bytesLine(String name, String done, String total) =>
+      '$name: $done of $total downloaded';
+  @override
+  String stageDone(String? size) => size == null ? 'Done' : 'Done · $size';
+  @override
+  String get stageWaiting => 'Waiting';
+  @override
+  String approxSize(String size) => 'about $size';
+  @override
+  String downloadTotal(String size) => 'About $size in total';
+  @override
+  String get sizeChecking => 'checking how much will download…';
+  @override
+  String get cancelling => 'Cancelling…';
+  @override
+  String get cancelledTitle => 'The download was cancelled';
+  @override
+  String get cancelledBody =>
+      'The drive is as it was before you started, and you can keep using it as usual.';
+  @override
+  String cancelledKeptBody(String names) =>
+      'What finished downloading stays on the drive: $names. You can continue '
+      'the download from the same point.';
+  @override
+  String get cancelledRevertFailedBody =>
+      'Not everything that was downloaded could be removed from the drive. Downloading again will continue from it.';
+  @override
+  String get downloadAgain => 'Download again';
+  @override
+  String get backHome => 'Back to home';
+  @override
+  String get retryNothingSnack =>
+      'There is nothing left to install from the drive — home shows the current state.';
+  @override
+  String get doneTitle => 'The drive is ready';
+  @override
+  String get doneBody =>
+      'All the updates were downloaded and saved on the drive.';
+  @override
+  String get doneNothingBody =>
+      'The Otzaria website has nothing new, so nothing was downloaded. The drive is already up to date.';
+  @override
+  String doneSkipped(String names) =>
+      '$names were not downloaded — nothing new on the website.';
+  @override
+  String doneAppValue(String version) => 'Otzaria $version';
+  @override
+  String doneLibraryValue(int version) => 'Version $version';
+  @override
+  String donePluginsValue(int count) => plural(
+        count,
+        one: 'One plugin on the drive',
+        many: '$count plugins on the drive',
+      );
+  @override
+  String get donePluginsUpdated => 'The plugin store was updated';
+  @override
+  String get whatNow => 'What now?';
+  @override
+  String get whatNowEject => 'Safely eject the drive';
+  @override
+  String get whatNowEjectHint => '(the drive icon next to the clock → Eject)';
+  @override
+  String get whatNowConnect =>
+      'Connect it to the computer where you study with Otzaria.';
+  @override
+  String whatNowOpen(String toolName) =>
+      'Open $toolName from the drive there, and click "Update this computer".';
+  @override
+  String get updateHereToo => 'Update this computer too';
+  @override
+  String get installHereToo => 'Install Otzaria here too';
+  @override
+  String get finish => 'Done';
+  @override
+  String get networkTitle => 'No internet connection';
+  @override
+  String get filterTitle => 'The connection to the Otzaria website was blocked';
+  @override
+  String filterBody(String name) =>
+      'An internet filter may be blocking the download of $name. What was already downloaded is saved on the drive. If it happens again, ask your filtering provider to allow the Otzaria website, then click "Try again".';
+  @override
+  String networkBody(String name) =>
+      'The connection dropped while downloading $name. What was already downloaded is saved on the drive. Check the connection and click "Try again".';
+  @override
+  String get shabbatTitle =>
+      'The Otzaria website is closed on Shabbat and holidays';
+  @override
+  String get shabbatBody =>
+      'You can download after Shabbat. What was already downloaded is saved on the drive.';
+  @override
+  String get spaceTitle => 'Not enough space on the drive';
+  @override
+  String spaceBody(String needed, String free) =>
+      '$needed are needed and $free are free. Free up space on the drive and click "Try again" — what was already downloaded is saved.';
+  @override
+  String get snapshotTitle => 'The download did not start';
+  @override
+  String get snapshotBody =>
+      'The drive state could not be saved before downloading, and without it the download cannot be cancelled safely. Nothing was downloaded. Check that the drive is connected and click "Try again".';
+  @override
+  String otherTitle(String name) => 'The download of $name did not finish';
+  @override
+  String get otherBody =>
+      'What was already downloaded is saved on the drive, and "Try again" continues from it. If it happens again, the technical details will help whoever assists you.';
+  @override
+  String get techDetails => 'Technical details';
+  @override
+  String get hideTechDetails => 'Hide technical details';
+  @override
+  String get copyDetails => 'Copy';
+  @override
+  String get detailsCopied => 'Details copied';
+  @override
+  String get otherUserTitle =>
+      'This tool runs as an administrator of another account';
+  @override
+  String otherUserBody({required bool firstInstall, String? account}) {
+    final who = account == null
+        ? 'This tool was started as an administrator under another account'
+        : 'This tool was started as the administrator account $account';
+    return firstInstall
+        ? '$who, so Otzaria would be installed for that administrator and not for you.'
+        : '$who, so the update would go to that administrator and not to the Otzaria in your account.';
+  }
+
+  @override
+  String get otherUserHint =>
+      'It is best to close this tool and open it again without "Run as administrator".';
+  @override
+  String get continueAnyway => 'Continue anyway';
+  @override
+  String get closeTitle => 'Otzaria needs to be closed';
+  @override
+  String get closeBody =>
+      'The update replaces files that Otzaria is using right now.';
+  @override
+  String closeHint({required bool plugins}) => plugins
+      ? 'Nothing is lost: open books, bookmarks and notes will wait for you exactly where you left them. At the end of the update Otzaria will open again so you can approve the plugins.'
+      : 'Nothing is lost: open books, bookmarks and notes will wait for you exactly where you left them.';
+  @override
+  String get closeAfterWizardBody =>
+      'The setup wizard opened Otzaria. Close Otzaria to install the Otzaria library.';
+  @override
+  String get closeOtzariaAndContinue => 'Close Otzaria and continue';
+  @override
+  String stepOf(int index, int count) => 'Step $index of $count';
+  @override
+  String get installingApp => 'Installing Otzaria';
+  @override
+  String get updatingApp => 'Updating the Otzaria app';
+  @override
+  String get installingLibrary => 'Installing the Otzaria library';
+  @override
+  String get updatingLibrary => 'Updating the Otzaria library';
+  @override
+  String get sendingPlugins => 'Sending the plugins to Otzaria';
+  @override
+  String get appWizardFirstBody =>
+      'The Otzaria setup wizard opened in a separate window. Follow it to the end, and this tool will continue by itself.';
+  @override
+  String get appWizardBody =>
+      'The Otzaria setup wizard opened in a separate window. At its end Otzaria opens by itself, and this tool continues by itself.';
+  @override
+  String libraryBody(int? lowMinutes, int? highMinutes) => lowMinutes == null ||
+          highMinutes == null
+      ? 'This may take a while, depending on the update and the computer.'
+      : 'Expected to take ${_minutesRange(lowMinutes, highMinutes)}, depending on the computer.';
+  @override
+  String get pluginsBody =>
+      'This tool sends the plugins to Otzaria one by one. You approve the installation in the Otzaria window.';
+  @override
+  String get keepDrive => 'Do not disconnect the drive until the end';
+  @override
+  String appVersion(String version) => 'Version $version';
+  @override
+  String appInstalled(String version) => 'Installed · version $version';
+  @override
+  String get appWizardOpen => 'The setup wizard is open — continue in it';
+  @override
+  String get appStoppedWaiting =>
+      'Stopped waiting · check on the home page whether the installation finished';
+  @override
+  String get appSkipped => 'No installation was needed';
+  @override
+  String get stopWaiting => 'Stop waiting';
+  @override
+  String get libraryFull => 'The full Otzaria library';
+  @override
+  String libraryVersion(int version) => 'Version $version';
+  @override
+  String libraryDone(String detail) => 'Done · $detail';
+  @override
+  String get libraryWaitingClose => 'Waiting for Otzaria to close';
+  @override
+  String get librarySkipped =>
+      'Not installed now — you can install it later from the home page';
+  @override
+  String pluginsWaiting(int count) => plural(
+        count,
+        one: 'One plugin · will be sent to Otzaria',
+        many: '$count plugins · will be sent to Otzaria',
+      );
+  @override
+  String get pluginsCurrent => 'Approve each plugin in the Otzaria window';
+  @override
+  String get pluginsSent => 'Sent to Otzaria — approve each plugin there';
+  @override
+  String pluginsSentNames(String names) => 'Sent: $names';
+  @override
+  String pluginsNotSent(String names) =>
+      'Not sent: $names — you can retry from the plugins page';
+  @override
+  String pluginsStillSending(String names) => 'Still being sent: $names';
+  @override
+  String get pluginsAfterInstall =>
+      'Not sent — send them from the plugins page after the installation finishes';
+  @override
+  String get pluginRowSent => 'Sent to Otzaria';
+  @override
+  String get pluginRowWaiting => 'Waiting to be sent';
+  @override
+  String get pluginRowFailed =>
+      'Not sent — you can retry from the plugins page';
+  @override
+  String get finishWithoutWaiting => 'Finish without waiting';
+  @override
+  String get installedTitle => 'Otzaria is installed';
+  @override
+  String get updatedTitle => 'Otzaria is up to date';
+  @override
+  String doneHereBody({
+    required bool firstInstall,
+    required bool app,
+    required bool library,
+    required bool plugins,
+    bool libraryNote = false,
+  }) {
+    if (firstInstall) {
+      if (library && libraryNote) {
+        return 'Otzaria and its library were installed on this computer, but one thing is left to do — see the library row. You can disconnect the drive.';
+      }
+      return library
+          ? 'Otzaria and its library are installed on this computer and ready for study. You can disconnect the drive.'
+          : 'Otzaria is installed on this computer. You can disconnect the drive.';
+    }
+    final done = app && library
+        ? 'The app and the Otzaria library were updated.'
+        : app
+            ? 'The Otzaria app was updated.'
+            : library
+                ? 'The Otzaria library was updated.'
+                : null;
+    return [
+      if (done != null) done,
+      if (library && libraryNote)
+        'One thing is left to do — see the Otzaria library row.',
+      if (plugins) 'The plugins are waiting for your approval in Otzaria.',
+      'You can disconnect the drive.',
+    ].join(' ');
+  }
+
+  @override
+  String get stoppedWaitingTitle => 'Stopped waiting for the setup wizard';
+  @override
+  String stoppedWaitingBody(
+          {required bool firstInstall, required bool libraryDone}) =>
+      firstInstall
+          ? 'If the wizard is still open, finish it. Then check on the home page that Otzaria was installed; you can install the Otzaria library from there too.'
+          : libraryDone
+              ? 'The Otzaria library was updated. Finish the installation in the wizard window, and check on the home page that Otzaria was updated. Do not disconnect the drive until the wizard finishes.'
+              : 'Finish the installation in the wizard window, and check on the home page that Otzaria was updated. Do not disconnect the drive until the wizard finishes.';
+  @override
+  String get wizardStillOpenTitle => 'The setup wizard is still open';
+  @override
+  String get wizardStillOpenBody =>
+      'Finish the installation in the wizard window, then check again on the home page. Do not disconnect the drive until the wizard finishes.';
+  @override
+  String get reindexTitle => 'Rebuilding search is recommended';
+  @override
+  String get reindexBody =>
+      'That way the new books show up in search. Otzaria will open and rebuild it.';
+  @override
+  String get reindexButton => 'Rebuild';
+  @override
+  String get toOtzaria => 'Go to Otzaria';
+  @override
+  String get wizardClosedTitle => 'The Otzaria installation did not finish';
+  @override
+  String wizardClosedBody(
+          {required bool firstInstall, required bool libraryDone}) =>
+      firstInstall
+          ? 'The setup wizard was closed before the end, and Otzaria was not installed. You can try again any time.'
+          : libraryDone
+              ? 'The setup wizard was closed before the end. Otzaria stayed on the previous version and works as usual. The Otzaria library that was already updated stays updated.'
+              : 'The setup wizard was closed before the end. Otzaria stayed on the previous version and works as usual.';
+  @override
+  String get stoppedTitle => 'The update stopped';
+  @override
+  String get stoppedBody =>
+      'Otzaria stayed open, so the rest of the update was not installed. What was already installed stays.';
+  @override
+  String get libraryFailedTitle => 'The Otzaria library update failed';
+  @override
+  String get libraryInstallFailedTitle =>
+      'Installing the Otzaria library failed';
+  @override
+  String get appFailedTitle => 'Installing Otzaria failed';
+  @override
+  String get libraryFailedKeep =>
+      'Otzaria keeps working with the previous library.';
+  @override
+  String get appFailedKeep => 'Otzaria stayed on the previous version.';
+  @override
+  String get pluginsFailedTitle => 'Sending the plugins failed';
+  @override
+  String pluginsFailedKeep(
+          {required bool firstInstall, required bool appDone}) =>
+      !appDone
+          ? 'The plugins were not sent to Otzaria.'
+          : firstInstall
+              ? 'Otzaria was installed, but the plugins were not sent to it.'
+              : 'Otzaria was updated, but the plugins were not sent to it.';
+  @override
+  String get permissionFailedTitle => 'The update failed';
+  @override
+  String get permissionInstallFailedTitle => 'The installation failed';
+  @override
+  String get permissionAppBody =>
+      'This tool is not allowed to update Otzaria, because it is installed for all users of the computer.';
+  @override
+  String get permissionAppInstallBody =>
+      'This tool is not allowed to install Otzaria on this computer.';
+  @override
+  String get permissionLibraryBody =>
+      'This tool is not allowed to change the folder that holds the Otzaria library.';
+  @override
+  String get elevateTitle => 'Restart as administrator';
+  @override
+  String get elevateBody =>
+      'This tool will reopen with administrator rights, and then you can try again.';
+  @override
+  String get elevateButton => 'Restart as administrator';
+  @override
+  String get toLibraryPage => 'To the Otzaria library page';
+  @override
+  String get toPluginsPage => 'To the plugins page';
+  @override
+  String get showProgress => 'Show progress';
+}
+
+class _Pages extends PageStrings {
+  const _Pages();
+
+  @override
+  String get advancedTitle => 'Advanced';
+  @override
+  String get onThisComputer => 'On this computer';
+  @override
+  String get onTheDrive => 'On the drive';
+  @override
+  String get nothingYet => 'Nothing yet';
+  @override
+  String get onlineAvailable => 'Available to download';
+  @override
+  String get nothingNewOnline => 'Nothing new';
+  @override
+  String downloadedOn(String date) => 'downloaded $date';
+  @override
+  String get chipUpdateOnDrive => 'Update on the drive';
+  @override
+  String get chipUpToDate => 'Up to date';
+  @override
+  String get lockedChip => 'Locked by password';
+  @override
+  String get appChipNotInstalled => 'Not installed on this computer';
+  @override
+  String appWhatsNew(String version) => "What's new in Otzaria $version";
+  @override
+  String get appInstalledNotesCaption =>
+      'The version installed on this computer';
+  @override
+  String get appAdvancedPageTitle => 'Otzaria — advanced';
+  @override
+  String appAwaitsNewer({required bool stable}) => stable
+      ? 'A beta version newer than the stable one on the drive is installed here. You will move to the stable version when a stable version newer than the installed one comes out.'
+      : 'A stable version newer than the beta on the drive is installed here. You will move to the beta version when a beta newer than the installed one comes out.';
+  @override
+  String get pageBusyNote =>
+      'Another task is running now, so the actions here wait for it to finish.';
+  @override
+  String appAdvancedSummary({required bool channel}) => channel
+      ? 'Beta version, reinstall, install location and the drive folder'
+      : 'Reinstall, install location and the drive folder';
+  @override
+  String get appChannelTitle => 'Which version to install';
+  @override
+  String get appChannelBody =>
+      'A beta version gets new features first, but it may have problems.';
+  @override
+  String get appReinstallTitle => 'Reinstall the same version';
+  @override
+  String appReinstallBody(String version) =>
+      'Installs Otzaria $version again. Helps when something in the app does not work as it should.';
+  @override
+  String get appReinstallUnavailable =>
+      'The drive does not have the version installed here.';
+  @override
+  String get appLocationTitle => 'Install location';
+  @override
+  String get appSourceTitle => 'The drive folder it installs from';
+  @override
+  String get libSemanticSection => 'Smart search';
+  @override
+  String libAdvancedSummary({required bool reindex}) => reindex
+      ? 'Otzaria library location, rebuilding search, the full library and '
+          'the drive folder'
+      : 'Otzaria library location, the full library and the drive folder';
+  @override
+  String get libMissingFilesTitle =>
+      'Some Otzaria library files did not reach the drive';
+  @override
+  String libChipCompanions(String names) => 'On the drive: $names';
+  @override
+  String libVersion(int version) => 'Version $version';
+  @override
+  String get libNotInstalled => 'Not installed';
+  @override
+  String get libInstallButton => 'Install the Otzaria library';
+  @override
+  String get libInstallWithAppButton => 'Install Otzaria and its library';
+  @override
+  String get libInstallWithAppNote =>
+      'Otzaria is not installed on this computer yet. The program installs first, then the Otzaria library.';
+  @override
+  String get libInstallNeedsApp =>
+      'Otzaria is not installed on this computer, and the program is not on the drive. To install the Otzaria library, first download the program on a computer with internet.';
+  @override
+  String get libUpdateNeedsApp =>
+      'Otzaria is not installed on this computer. Install it first from the home page, and then the Otzaria library can be installed here.';
+  @override
+  String get libUpdateButton => 'Update the Otzaria library';
+  @override
+  String get libNotFoundTitle =>
+      'We could not find the Otzaria library on this computer';
+  @override
+  String get libNotFoundBody =>
+      'Otzaria is installed, but the Otzaria library is not in the usual place. If you moved it, choose where it is now.';
+  @override
+  String get libPickFolderButton => 'Choose the Otzaria library location';
+  @override
+  String get libSemanticTitle => 'Search by meaning';
+  @override
+  String get libSemanticBody =>
+      'Smart search finds sources even when the words differ from what you '
+      'searched for. To turn it on, you need to agree that Otzaria keeps your '
+      'search words and which results helped you. This tool passes them to '
+      'the developers through the drive, together with the reports.';
+  @override
+  String get libSemanticGrant => 'I agree, turn it on';
+  @override
+  String get libSemanticClosedNote =>
+      'Otzaria needs to be closed to turn this on.';
+  @override
+  String get libSemanticActive => 'On';
+  @override
+  String get libSemanticActiveBody =>
+      'Consent is on. You can withdraw it in the Otzaria settings.';
+  @override
+  String get libLocationTitle => 'Otzaria library location on this computer';
+  @override
+  String get libLocationNone => 'No location chosen yet';
+  @override
+  String get libFullTitle => 'The full Otzaria library instead of an update';
+  @override
+  String libFullBody(String size) =>
+      'The regular update failed. You can install the full Otzaria library from the drive instead ($size). It takes longer, and needs no internet.';
+  @override
+  String get libFullBodyNoSize =>
+      'The regular update failed. You can install the full Otzaria library from the drive instead. It takes longer, and needs no internet.';
+  @override
+  String libFullMeta({String? size, int? lowMinutes, int? highMinutes}) => [
+        size == null
+            ? 'The full Otzaria library on the drive'
+            : 'The full Otzaria library on the drive: $size',
+        if (lowMinutes != null && highMinutes != null)
+          _minutesRange(lowMinutes, highMinutes),
+      ].join(' · ');
+  @override
+  String get libFullUnavailable =>
+      'Possible only after a regular update failed, when the drive has a full library.';
+  @override
+  String get libPersonalReadOnly =>
+      'The drive is write-protected, so this computer cannot be registered on it.';
+  @override
+  String get libSourceTitle => 'The drive folder it updates from';
+  @override
+  String get repDescription =>
+      'When something does not work in Otzaria or its plugins, a short report is saved. This tool passes the reports to the developers — even from computers without internet.';
+  @override
+  String get repSendingTitle => 'Sending the reports';
+  @override
+  String repWaitingTitle(int count) => count == 1
+      ? '1 report waiting to be sent'
+      : '$count reports waiting to be sent';
+  @override
+  String repWaitingBody({required bool withSearch}) => withSearch
+      ? 'They are saved on the drive, together with the smart search improvement data. This computer is online, so you can send them now.'
+      : 'They are saved on the drive. This computer is online, so you can send them now.';
+  @override
+  String repStoredTitle(int count) => count == 1
+      ? '1 report saved on the drive'
+      : '$count reports saved on the drive';
+  @override
+  String get repStoredBody =>
+      'They will be sent when you connect the drive to a computer with internet and open this tool there.';
+  @override
+  String get repUncheckedBody =>
+      'It has not been checked yet whether this computer is online. If it is, you can send from here.';
+  @override
+  String get repOnlyOnline =>
+      'Sending works only from a computer with internet';
+  @override
+  String get repCheckConnectionButton => 'Check connection';
+  @override
+  String repAlsoStored(int count) => count == 1
+      ? '1 report is already saved on the drive.'
+      : '$count are already saved on the drive.';
+  @override
+  String get repNothingTitle => 'No reports from Otzaria waiting';
+  @override
+  String get repSendButton => 'Send now';
+  @override
+  String repSendStoredButton(int count) => plural(count,
+      one: 'Send the report on the drive',
+      many: 'Send the $count reports on the drive');
+  @override
+  String get repWhatIsSent => 'What is sent?';
+  @override
+  String repOwnPending(int count) => 'Reports from this tool waiting ($count)';
+  @override
+  String get repOwnTitle => 'Reports about this tool';
+  @override
+  String get repOwnEmpty => 'There are no reports about this tool yet.';
+  @override
+  String get repCrumb => 'Reports';
+  @override
+  String get repProblemSection => 'Something not working in this tool?';
+  @override
+  String get repProblemTitle => 'Report a problem with this tool';
+  @override
+  String get repProblemBody =>
+      'Tell us what happened. You can attach screenshots.';
+  @override
+  String get selfCrumb => 'This tool';
+  @override
+  String get selfTitle => 'Updating this tool';
+  @override
+  String get selfDescription =>
+      'Otzaria Updates updates itself too. It takes less than a minute, and the tool reopens by itself.';
+  @override
+  String selfChipOnline(String version) => 'Version $version is on the website';
+  @override
+  String selfChipOnDrive(String version) => 'Version $version is on the drive';
+  @override
+  String get selfChipUpToDate => 'Up to date';
+  @override
+  String get selfCurrentVersion => 'The version open now';
+  @override
+  String get selfNewVersion => 'New version';
+  @override
+  String get selfDownloadButton => 'Download and restart';
+  @override
+  String selfDownloading(int percent) =>
+      'Downloading the new version · $percent%';
+  @override
+  String get selfInstalling => 'Installing and restarting…';
+  @override
+  String get selfErrorTitle => 'Updating the tool did not succeed';
+  @override
+  String get selfDownloadFailed => 'The new version was not fully downloaded.';
+  @override
+  String get selfCheckFailed =>
+      'We could not read the new version on the drive.';
+  @override
+  String get selfInstallFailed => 'Installing the new version did not succeed.';
+  @override
+  String get selfErrorKeepsWorking =>
+      'The current version keeps working as usual.';
+  @override
+  String get selfManualTitle => 'The tool needs to be replaced by hand';
+  @override
+  String get selfOpenFolder => 'Open the folder';
+  @override
+  String get selfAdminTitle => 'Administrator rights are needed';
+  @override
+  String get selfAdminBody =>
+      'The tool is in a folder only an administrator can change. Restart it as administrator, and click "Install and restart" again.';
+  @override
+  String get selfReadOnly =>
+      'The drive is write-protected, so the new version cannot be downloaded to it.';
+  @override
+  String selfWhatsNew(String version) => "What's new in $version";
+}
+
+class _Guide extends GuidanceStrings {
+  const _Guide();
+
+  @override
+  String get eyebrowOnline => 'This computer: online';
+  @override
+  String get eyebrowOffline => 'This computer: not connected';
+  @override
+  String get eyebrowThisComputer => 'This computer';
+  @override
+  String eyebrowOtzaria(String version) => 'Otzaria $version';
+  @override
+  String get eyebrowNotInstalled => 'Otzaria is not installed yet';
+
+  @override
+  String get checkingTitle => 'Checking the drive and this computer';
+  @override
+  String get checkingBody =>
+      'This takes a moment. Then you will see here what to do next.';
+  @override
+  String get installHereTitle => 'Otzaria is ready to install on this computer';
+  @override
+  String get installHereBody =>
+      'The program and the Otzaria library are already on the drive. Plugins are '
+      'installed later, from the plugins page.';
+  @override
+  String get installHereButton => 'Install Otzaria on this computer';
+  @override
+  String get updateHereTitle => 'The drive has updates for this computer';
+  @override
+  String get updateHereBody =>
+      'Your books, bookmarks and notes stay exactly as they are.';
+  @override
+  String get updateHereButton => 'Update this computer';
+  @override
+  String get whatsNewButton => 'What is new?';
+  @override
+  String get downloadTitle => 'There are new updates on the Otzaria site';
+  @override
+  String get downloadBody =>
+      'Download them to this drive, and update any computer from it — even '
+      'one without internet.';
+  @override
+  String get downloadButton => 'Download everything to the drive';
+  @override
+  String updateHereTooNote(String? version) => version == null
+      ? 'The drive already holds an update not installed on this computer. '
+          'You can install it now, or after the download.'
+      : 'The drive already holds an update not installed on this computer '
+          '(Otzaria $version). You can install it now, or after the download.';
+  @override
+  String syncOffNote({
+    required bool app,
+    required bool library,
+    required bool plugins,
+  }) {
+    final off = [
+      if (app) 'the program',
+      if (library) 'the Otzaria library',
+      if (plugins) 'the plugins',
+    ];
+    if (off.isEmpty) return noSyncSelectionNote;
+    final names = off.length == 1
+        ? off.single
+        : '${off.sublist(0, off.length - 1).join(', ')} and ${off.last}';
+    final subject = '${names[0].toUpperCase()}${names.substring(1)}';
+    return '$subject will not be downloaded — turned off in the settings.';
+  }
+
+  @override
+  String get noSyncSelectionNote =>
+      'Nothing is selected for download in the settings.';
+  @override
+  String syncOffOnlyNote({
+    required bool app,
+    required bool library,
+    required bool plugins,
+    bool libraryFilesOnly = false,
+  }) {
+    final off = [
+      if (app) 'the program',
+      if (library) 'the Otzaria library',
+      if (plugins) 'the plugins',
+    ];
+    if (off.length > 1) {
+      final names =
+          '${off.sublist(0, off.length - 1).join(', ')} and ${off.last}';
+      return 'There is something new online for $names, but their download '
+          'is turned off in the settings.';
+    }
+    if (plugins) {
+      return 'There are plugin updates online, but their download is turned '
+          'off in the settings.';
+    }
+    if (off.isEmpty) return noSyncSelectionNote;
+    if (library && libraryFilesOnly) {
+      return 'There are new Otzaria library files online, but their download is '
+          'turned off in the settings.';
+    }
+    return 'There is a new version of ${off.single} online, but its download '
+        'is turned off in the settings.';
+  }
+
+  @override
+  String get downloadBusySnack =>
+      'Another task is running. You can download once it finishes.';
+  @override
+  String get changeInSettingsLink => 'Change';
+  @override
+  String get chooseInSettingsLink => 'Choose in settings';
+  @override
+  String get libraryRetryNote =>
+      'The last library download did not finish. Downloading again continues '
+      'from what already arrived.';
+  @override
+  String get semanticOfferNote => 'Smart search is available to download';
+  @override
+  String get semanticOfferLink => 'Download';
+  @override
+  String get recheckNothingTitle =>
+      'Checked again — nothing new on the Otzaria site';
+  @override
+  String recheckNothingBody(String time, {required bool upToDate}) => [
+        'There are no new updates on the Otzaria site (checked at $time), so '
+            'nothing was downloaded.',
+        if (upToDate) 'The drive and this computer are up to date.',
+      ].join(' ');
+  @override
+  String recheckNothingNote(String time) =>
+      'Checked again — nothing new on the Otzaria site · checked at $time';
+  @override
+  String get nothingNewTitle => 'Nothing new on the Otzaria site';
+  @override
+  String nothingNewBody(String time, {required bool upToDate}) => [
+        'The check at $time found no new updates, so nothing was downloaded.',
+        if (upToDate) 'The drive and this computer are up to date.',
+      ].join(' ');
+  @override
+  String nothingNewNote(String time) =>
+      'Nothing new on the Otzaria site · checked at $time';
+  @override
+  String failedDownloadsNote(String names) =>
+      'Did not reach the drive: $names.';
+  @override
+  String get upToDateTitle => 'Everything is up to date on this computer';
+  @override
+  String upToDateBody(String? version) => version == null
+      ? 'Otzaria, its library and the plugins are up to date.'
+      : 'Otzaria $version, its library and the plugins are up to date.';
+  @override
+  String get driveInstalledTitle =>
+      'Everything on the drive is already installed here';
+  @override
+  String driveInstalledBody(String? version) => version == null
+      ? 'Otzaria, its library and the plugins are installed.'
+      : 'Otzaria $version, its library and the plugins are installed.';
+  @override
+  String get othersPendingTitle => 'There are more updates';
+  @override
+  String get otherLauncherTitle => 'This tool';
+  @override
+  String otherLauncherOnline(String version) =>
+      'Version $version on the Otzaria site';
+  @override
+  String otherLauncherOnDrive(String version) =>
+      'Version $version on the drive';
+  @override
+  String get checkFailedTitle => 'Could not check online';
+  @override
+  String checkFailedBody({
+    required bool appFailed,
+    required bool libraryFailed,
+    required bool pluginsFailed,
+    required bool appChecked,
+    required bool libraryChecked,
+    required bool pluginsChecked,
+  }) {
+    List<String> names(bool app, bool library, bool plugins) => [
+          if (app) 'the Otzaria program',
+          if (library) 'the Otzaria library',
+          if (plugins) 'the plugins',
+        ];
+    String join(List<String> all) => all.length < 2
+        ? all.join()
+        : '${all.sublist(0, all.length - 1).join(', ')} and ${all.last}';
+
+    final failed = join(names(appFailed, libraryFailed, pluginsFailed));
+    final lead = failed.isEmpty
+        ? 'The check on the Otzaria site failed.'
+        : 'The check of $failed on the Otzaria site failed.';
+    final checkedNames = names(appChecked, libraryChecked, pluginsChecked);
+    if (checkedNames.isEmpty) return lead;
+    final checked = join(checkedNames);
+    final plural = checkedNames.length > 1 || pluginsChecked;
+    final verb = plural
+        ? 'were checked and are up to date'
+        : 'was checked and is up to date';
+    return '$lead ${checked[0].toUpperCase()}${checked.substring(1)} $verb.';
+  }
+
+  @override
+  String get launchButton => 'Open Otzaria';
+  @override
+  String get recheckButton => 'Check again';
+  @override
+  String get offlineNote =>
+      'New updates are downloaded to the drive on the connected computer, '
+      'and then the drive is plugged in here.';
+  @override
+  String get checkOnlineNowNote =>
+      'The Otzaria site has not been checked yet. "Check again" checks now.';
+  @override
+  String get newerTitle => 'This computer is newer than the drive';
+  @override
+  String newerChannelTitle({required bool stable}) => stable
+      ? 'This computer is newer than the stable version on the drive'
+      : 'This computer is newer than the beta version on the drive';
+  @override
+  String newerBody(String installed, String onDrive) =>
+      'This computer has Otzaria $installed, and the drive has $onDrive. '
+      'There is nothing to install from the drive.';
+  @override
+  String get newerNote =>
+      'Newer updates are downloaded to the drive on the connected computer, '
+      'and then the drive is plugged in here.';
+  @override
+  String get attentionAppTitle =>
+      'Something in the Otzaria program needs a look';
+  @override
+  String get attentionLibraryTitle =>
+      'Something in the Otzaria library needs a look';
+  @override
+  String get attentionBody => 'Its page explains what happened and what to do.';
+  @override
+  String get attentionLibraryButton => 'To the Otzaria library page';
+  @override
+  String get taskDownloadingTitle => 'Downloading updates to the drive';
+  @override
+  String get taskDownloadingBody =>
+      'You can keep working. Do not unplug the drive until the download ends.';
+  @override
+  String get taskInstallingAppTitle => 'Installing Otzaria';
+  @override
+  String get taskUpdatingLibraryTitle => 'Updating the Otzaria library';
+  @override
+  String get taskBusyTitle => 'A task is running';
+  @override
+  String get taskBusyBody =>
+      'When it ends, you will see here what else this computer needs.';
+  @override
+  String get taskNamedBody =>
+      'When this ends, you will see here what else this computer needs.';
+  @override
+  String get taskSyncingPluginsTitle =>
+      'Downloading the plugin store to the drive';
+  @override
+  String get taskUpdatingPluginsTitle => 'Updating the plugins';
+  @override
+  String get taskExportingStoreTitle => 'Copying the plugin store';
+  @override
+  String get taskDownloadingCustomAppsTitle =>
+      'Downloading additional programs to the drive';
+  @override
+  String get taskCustomAppsTitle => 'Working on an additional program';
+  @override
+  String get taskInstallingLauncherTitle =>
+      'Installing the new version of this tool';
+  @override
+  String get taskRestartingElevatedTitle =>
+      'Restarting this tool as administrator';
+
+  @override
+  String itemUpdateTo(String version) => 'Update to $version';
+  @override
+  String itemLibraryUpdateTo(int version) => 'Update to version $version';
+  @override
+  String get itemLibraryUpdate => 'Update';
+  @override
+  String get itemLibraryFull => 'The full Otzaria library';
+  @override
+  String itemPluginUpdates(int count) =>
+      count == 1 ? '1 plugin update' : '$count plugin updates';
+  @override
+  String itemPlugins(int count) => count == 1 ? '1 plugin' : '$count plugins';
+  @override
+  String get itemPluginsCatalog => 'Plugin list';
+  @override
+  String get itemStoreApp => 'Plugin store update';
+  @override
+  String itemPluginsWithStore(int count) =>
+      '${itemPlugins(count)} · store update';
+  @override
+  String itemUpTo(String size) => 'Up to $size';
+  @override
+  String downloadTotal(
+    String size, {
+    required bool plusApp,
+    required bool plusLibrary,
+    required bool plusPlugins,
+  }) {
+    final plus = [
+      if (plusApp) 'the program',
+      if (plusLibrary) 'the Otzaria library',
+      if (plusPlugins) 'the plugins',
+    ];
+    if (plus.isEmpty) return 'Total up to $size';
+    final names = plus.length == 1
+        ? plus.single
+        : '${plus.sublist(0, plus.length - 1).join(', ')} and ${plus.last}';
+    return 'Total up to $size plus $names';
+  }
+
+  @override
+  String driveFree(String size) => 'Free on the drive: $size';
+
+  @override
+  String get otzariaOpenTitle => 'Otzaria is open right now';
+  @override
+  String get otzariaOpenBody =>
+      'When you press "Update", the tool will ask to close it. Your open books '
+      'will wait for you.';
+  @override
+  String get otzariaOpenIdleBody =>
+      'There is nothing to install right now, so you can keep working in it. '
+      'When there is an update, the tool will ask to close it.';
+  @override
+  String get autoInstallSkippedLead =>
+      'That is why the automatic update was not installed. ';
+  @override
+  String newPluginsTitle(int count) => count == 1
+      ? '1 new plugin on the drive'
+      : '$count new plugins on the drive';
+  @override
+  String newPluginsBody(List<String> names, int more) {
+    final listed = names.length == 1
+        ? names.single
+        : '${names.sublist(0, names.length - 1).join(', ')} and ${names.last}';
+    final suffix = more > 0 ? ' and $more more' : '';
+    return '$listed$suffix — you can install them in Otzaria.';
+  }
+
+  @override
+  String get toPluginsButton => 'To plugins';
+  @override
+  String libraryMissingFilesBody(String names) =>
+      'Missing on the drive: $names. Downloading to the drive again fills in '
+      'what is missing, and the rest of the update will install as usual.';
+  @override
+  String get libraryCompanionsAbsentBody =>
+      'The drive does not have the Talmud Bavli, the catalog and the '
+      'dictionary, so they will not be installed. Downloading to the drive '
+      'again brings them.';
+  @override
+  String get semanticConsentBody =>
+      'Smart search is on the drive. To turn it on, agree that Otzaria keeps '
+      'your search words and which results helped you.';
+
+  @override
+  String get tilesLabel => 'On the drive and on this computer';
+  @override
+  String get tileApp => 'Otzaria program';
+  @override
+  String get tileLibrary => 'Otzaria library';
+  @override
+  String get tilePlugins => 'Plugins';
+  @override
+  String get tileCustomApps => 'Other programs';
+  @override
+  String get tileReports => 'Error reports';
+  @override
+  String get chipReadyToInstall => 'Ready to install';
+  @override
+  String get chipNewerHere => 'Newer than the drive';
+  @override
+  String get chipNotOnDrive => 'Not on the drive yet';
+  @override
+  String get chipChecking => 'Checking…';
+  @override
+  String get chipInstalling => 'Installing…';
+  @override
+  String get chipUpdating => 'Updating…';
+  @override
+  String get chipAttention => 'Something went wrong';
+  @override
+  String get chipLibraryUpToDate => 'Up to date';
+  @override
+  String chipPluginUpdates(int count) =>
+      count == 1 ? '1 update available' : '$count updates available';
+  @override
+  String chipPluginsInstalled(int count) => '$count installed';
+  @override
+  String chipPluginsOnDrive(int count) => '$count on the drive';
+  @override
+  String get chipNoPlugins => 'No plugins on the drive';
+  @override
+  String chipAppsPending(int count) => '$count waiting to install';
+  @override
+  String chipAppsInstalled(int count) => '$count on the drive';
+  @override
+  String chipReportsToSend(int count) => '$count waiting to send';
+  @override
+  String chipReportsToCollect(int count) =>
+      '$count new to collect from Otzaria';
+  @override
+  String get chipReportsSending => 'Sending…';
+  @override
+  String get chipReportsLocked => 'Not available on this drive';
+  @override
+  String get chipNewOnline => 'New online';
+  @override
+  String tileFactHere(String value) => 'On this computer: $value';
+  @override
+  String tileFactDrive(String value) => 'On the drive: $value';
+  @override
+  String tileFactOnline(String value) => 'Online: $value';
+  @override
+  String tileFactVersion(String version) => 'version $version';
+  @override
+  String get updateAvailableButton => 'Update available';
+
+  @override
+  String launcherOnline(String version) =>
+      'A new version of this tool is available ($version)';
+  @override
+  String launcherOnDrive(String version) =>
+      'The drive has a new version of this tool ($version)';
+  @override
+  String get launcherDownloading => 'Downloading the new version of the tool';
+  @override
+  String checkedAt(String time) => 'Checked at $time';
+  @override
+  String get recheckHint => 'Check again: Ctrl+R or F5';
+  @override
+  String get checkNowLink => 'Check now';
+  @override
+  String drive(String letter) => 'Drive $letter';
+  @override
+  String get driveReadOnlySuffix => 'write-protected';
+  @override
+  String get driveFullSuffix => 'full';
+
+  @override
+  String get welcomeTitle => 'Welcome to Otzaria Updates';
+  @override
+  String get welcomeLeadOnline =>
+      'This is how Otzaria reaches any computer, even without internet:';
+  @override
+  String get welcomeLeadOffline =>
+      'This drive is still empty, and this computer is not connected. Here is '
+      'how to start:';
+  @override
+  String step(int number) => 'Step $number';
+  @override
+  String get youAreHere => 'You are here';
+  @override
+  String get step1Title => 'On a connected computer';
+  @override
+  String get step1BodyOnline => 'Download Otzaria to this drive.';
+  @override
+  String get step1BodyOffline =>
+      'Open the tool there from the drive and download.';
+  @override
+  String get step2Title => 'The drive changes hands';
+  @override
+  String get step2Body => 'Eject it safely and take it with you.';
+  @override
+  String get step3Title => 'On the study computer';
+  @override
+  String get step3BodyOnline => 'Open the tool there and install in one click.';
+  @override
+  String get step3BodyOffline => 'Come back here and install in one click.';
+  @override
+  String get welcomeDownloadButton => 'Download Otzaria to the drive';
+  @override
+  String get welcomeDownloadNote =>
+      'The tool only downloads to the drive. It installs nothing on this '
+      'computer unless you ask.';
+  @override
+  String get welcomeHelpButton => 'How do I start?';
+  @override
+  String get welcomeOfflineNote =>
+      'Nothing can be downloaded from this computer. Plug the drive into a '
+      'connected computer and open the tool there.';
+  @override
+  String get welcomeAlsoOnDrive => 'Also on this drive:';
+
+  @override
+  String reportsCollectTitle({
+    required int reports,
+    required int searchRecords,
+  }) =>
+      'Otzaria has ${[
+        if (reports > 0 || searchRecords <= 0)
+          plural(reports, one: '1 new report', many: '$reports new reports'),
+        if (searchRecords > 0)
+          plural(searchRecords,
+              one: '1 search record', many: '$searchRecords search records'),
+      ].join(' and ')} waiting';
+  @override
+  String get reportsCollectBody =>
+      'Collecting copies them to the drive, so they can be sent from here or '
+      'from a computer with internet. What will be copied:';
+  @override
+  String get reportsDisclosureReports =>
+      'Reports: what you wrote, your email address if you gave it, excerpts '
+      'from the app log, technical details about the computer and Otzaria '
+      '(such as versions and the operating system), screenshots and images '
+      'you attached, and for a crash report you approved — also a copy of '
+      'the app memory at the moment of the crash.';
+  @override
+  String get reportsDisclosureSearch =>
+      'Smart search records, collected with your consent: search usage data, '
+      'including the search terms, together with the anonymous key that signs '
+      'them. They are removed from Otzaria only after being saved to the '
+      'drive, and the key is deleted from the drive once all records are sent.';
+  @override
+  String get reportsDisclosureStorage =>
+      'Everything is stored on the drive as it is, unencrypted, until it is '
+      'sent — anyone holding the drive can read it. When sent, the data goes '
+      'to Otzaria only, and is deleted from the drive.';
+  @override
+  String get reportsCollectButton => 'Collect from Otzaria';
+  @override
+  String get reportsNothing =>
+      'When something does not work in Otzaria, the report will show up here.';
+  @override
+  String reportsLockedNote({required bool driveFull}) => driveFull
+      ? 'The drive is full, so reports cannot be collected to it, and the ones '
+          'on it cannot be sent. Free up space and open the tool again.'
+      : 'The drive is write-protected, so reports cannot be collected to it, '
+          'and the ones on it cannot be sent. Move the lock switch and open '
+          'the tool again.';
 }
 
 class _AppScreen extends AppScreenStrings {
   const _AppScreen();
 
   @override
-  String get title => 'Otzaria Program Update';
-
-  @override
-  String get stateCardTitle => 'Installation status';
-  @override
-  String get stateRowTitle => 'Status';
-  @override
   String get readyToInstall => 'Ready to install';
-  @override
-  String get nothingDownloadedYet => 'No version downloaded yet';
 
   @override
   String get installedVersion => 'Installed version';
@@ -400,125 +1427,39 @@ class _AppScreen extends AppScreenStrings {
       'No Otzaria installation was found in that folder';
 
   @override
-  String get mirrorVersionTitle => 'Version in the local folder';
-  @override
-  String get mirrorEmpty => 'None — run a download first';
+  String get mirrorEmpty =>
+      'None — Download updates to the drive on a computer with internet, from the home page';
   @override
   String channelPair(String stable, String prerelease) =>
-      '$stable (stable) · $prerelease (pre-release)';
+      '$stable (stable) · $prerelease (beta)';
 
-  @override
-  String get channelTileTitle => 'Version to install';
-  @override
-  String prereleaseSubtitle(String version) =>
-      'The pre-release ($version) — newer, but may still have rough edges';
-  @override
-  String stableSubtitle(String version) =>
-      'The stable release ($version) — recommended';
   @override
   String get channelStable => 'Stable';
   @override
-  String get channelPrerelease => 'Pre-release';
+  String get channelPrerelease => 'Beta';
 
-  @override
-  String get processTitle => 'Otzaria process';
-  @override
-  String get processRunning =>
-      'Running — database updates are blocked until you close it';
-
-  @override
-  String get installingProgress => 'Installing Otzaria…';
   @override
   String get launchButton => 'Open Otzaria';
-  @override
-  String get installUpdateButton => 'Install the Update';
 
   @override
   String get reinstallButton => 'Reinstall';
-  @override
-  String get reinstallDialogTitle => 'Reinstall Otzaria?';
-  @override
-  String reinstallPrompt(String version) =>
-      'Otzaria $version is already installed and up to date, and the same '
-      'version will be installed again from the local folder — useful when '
-      'the installation itself is broken, or a file in it was deleted. No '
-      'internet is needed. Make sure Otzaria is closed. The Otzaria '
-      'installer will open for you to complete the installation.';
-
-  @override
-  String get installOlderButton => 'Install the folder version';
-  @override
-  String get installOlderDialogTitle => 'Go back to the folder version?';
-  @override
-  String installOlderPrompt(String mirrorVersion, String installedVersion) =>
-      'The local folder holds version $mirrorVersion, while $installedVersion '
-      'is installed — so this is a downgrade, not an update. No internet is '
-      'needed. Make sure Otzaria is closed. The Otzaria installer will open '
-      'for you to complete the installation.';
-
-  @override
-  String get whatsNewTitle => "What's new in the latest version";
-  @override
-  String get whatsNewButton => "What's new";
-  @override
-  String get whatsNewEmpty =>
-      'This version has no release notes, or no version has been downloaded '
-      'yet.';
-
-  @override
-  String get sourceCardTitle => 'Folder the program is installed from';
-  @override
-  String get sourceCardHint =>
-      'Fixed, next to the executable — see "Library Update" for the full '
-      'explanation.';
-  @override
-  String get sourceDirTitle => 'Program updates Folder';
-
-  @override
-  String installPrompt({
-    required String? latestVersion,
-    required String? currentVersion,
-    required bool prereleaseNote,
-  }) {
-    final channelNote = prereleaseNote
-        ? ' This is the pre-release you selected on the program screen.'
-        : '';
-    return 'Version $latestVersion will be installed from the local folder '
-        'over ${currentVersion ?? 'the existing installation'}.$channelNote '
-        'No internet is needed. Make sure Otzaria is closed. The Otzaria '
-        'installer will open for you to complete the installation.';
-  }
 }
 
 class _LibraryScreen extends LibraryScreenStrings {
   const _LibraryScreen();
 
   @override
-  String get title => 'Library update';
-
-  @override
-  String get stateCardTitle => 'Database status';
-  @override
-  String get stateRowTitle => 'Status';
-
-  @override
-  String get dbFileTitle => 'Active seforim.db file';
-  @override
-  String get dbFileMissing => 'Not found — please select a file';
-  @override
-  String get pickDbButton => 'Choose a database file';
+  String get pickDbButton => 'Choose the Otzaria library file';
   @override
   String get pickDbDialogTitle => 'Choose the seforim.db file';
   @override
-  String get dbPathUpdatedSnack => 'The database location was updated';
+  String get dbPathUpdatedSnack => 'The Otzaria library location was updated';
 
   @override
-  String get installTargetTitle => 'The library will be installed to';
-  @override
-  String get pickInstallDirButton => 'Choose an install location';
+  String get pickInstallDirButton => 'Choose folder';
   @override
   String get pickInstallDirDialogTitle =>
-      'Choose the folder the library will be installed to';
+      'Choose the folder the Otzaria library will be installed to';
   @override
   String get installDirUpdatedSnack => 'The install location was updated';
   @override
@@ -532,34 +1473,12 @@ class _LibraryScreen extends LibraryScreenStrings {
   String get customLocationConfirm => 'Continue with this location';
 
   @override
-  String get localVersionTitle => 'Local Version';
+  String get updatingProgress => 'Updating the Otzaria library…';
   @override
-  String get targetVersionTitle => 'Target version in the local folder';
-  @override
-  String get targetVersionNothingDownloaded => 'Nothing downloaded yet';
-  @override
-  String get targetVersionUnknown => 'Unknown — run a check';
-  @override
-  String get updateRouteNoteTitle => 'About this update';
-
-  @override
-  String get otzariaRunningTitle => 'Otzaria is open';
-  @override
-  String get otzariaRunningSubtitle =>
-      'Close Otzaria before applying an update to the database.';
-
-  @override
-  String get updatingProgress => 'Updating the database…';
-  @override
-  String get installUpdateButton => 'Install the update';
-  @override
-  String get updateDialogTitle => 'Update the book library';
-  @override
-  String get changesTitle => "What's new in the library";
+  String get changesTitle => "What's new in the Otzaria library";
   @override
   String changesPendingSubtitle(String version) =>
-      'Books added and changed up to version $version, which this update '
-      'will install.';
+      'The update adds and fixes books up to version $version.';
   @override
   String changesAppliedSubtitle(String version) =>
       'Books added and changed up to version $version, which is now '
@@ -570,20 +1489,20 @@ class _LibraryScreen extends LibraryScreenStrings {
       'This list is partial: it covers $shown of the $total versions in the '
       'range.';
   @override
-  String get changesButton => 'Show';
+  String get changesButton => 'Full list';
   @override
   String get changesNotFound =>
       'The list of changes was not found on the drive.';
 
   @override
-  String get reindexTitle => 'Otzaria\'s search index';
+  String get reindexTitle => 'Rebuilding search';
   @override
   String get reindexPendingSubtitle =>
       'The database was updated from here, so searching the books that '
       'changed still returns their old content. One request to Otzaria fixes '
       'that.';
   @override
-  String get reindexButton => 'Update the index';
+  String get reindexButton => 'Rebuild';
   @override
   String get reindexDialogTitle => 'Update the search index';
   @override
@@ -600,87 +1519,96 @@ class _LibraryScreen extends LibraryScreenStrings {
       'The request could not be handed to Otzaria ($error)';
 
   @override
-  String get fullDownloadInsteadButton => 'Install the full library';
-  @override
-  String get fullDownloadInsteadDialogTitle => 'Install the full library';
-  @override
-  String fullDownloadInsteadPrompt(String size) =>
-      'The incremental update failed, and the database was left untouched. '
-      'The full library can be installed instead, from the folder next to '
-      'this program ($size) — a long operation that needs free disk space, '
-      'and no internet. Install it now?';
+  String get fullDownloadInsteadButton => 'Install the full Otzaria library';
 
   @override
-  String get sourceCardTitle => 'Folder the update comes from';
-  @override
-  String get sourceCardHint =>
-      'Fixed, next to the executable. When the program lives on a removable '
-      'drive the folder travels with it, and the offline computer reads '
-      'straight from it.';
-  @override
-  String get sourceDirTitle => 'Library Updates Folder';
-  @override
-  String get mirrorContentTitle => 'Folder contents';
-  @override
-  String get mirrorEmpty => 'Empty — run a download from the home screen';
+  String get mirrorEmpty =>
+      'Empty — Download updates to the drive on a computer with internet, from the home page';
   @override
   String get mirrorUnreadable => 'Cannot be read';
   @override
   String get mirrorNotChecked =>
-      'Not checked: the local database could not be read';
+      'Not checked: the Otzaria library on this computer could not be read';
   @override
   String mirrorHasVersion(String version) => 'Contains version $version';
   @override
   String get mirrorPresent => 'Present';
   @override
-  String get personalVersionTitle => 'My database version (personal update)';
-  @override
-  String personalVersionRecorded(String version) =>
-      'Version $version recorded — the download will start from it';
-  @override
-  String get personalVersionMissing =>
-      'No version recorded yet. Press here on the computer where your Otzaria '
-      'is installed, before downloading';
-  @override
-  String get personalVersionButton => 'Detect my database version';
+  String get personalVersionButton => 'Register this computer';
   @override
   String personalVersionCapturedSnack(String version) =>
-      'Version $version recorded for personal update';
+      'This computer was registered, at version $version';
   @override
   String get personalVersionNotFoundSnack =>
-      'No database was found on this computer to read a version from';
+      'No Otzaria library was found on this computer to read the version from';
   @override
-  String get personalOtherMachineTitle => 'Personal update — not this computer';
+  String get personalOtherMachineTitle =>
+      'The drive was prepared for another computer';
   @override
   String personalOtherMachineSubtitle(String version) =>
-      'The folder next to the app holds a personal update from version '
-      '$version, for the computer that was registered. This computer was not '
-      'registered, so there is nothing here to install on it — the download '
-      'itself succeeded and travels with the drive. You can register this '
-      'computer too, or turn "Personal update" off in settings to go back to '
-      'downloading the full database.';
+      'The Otzaria library on the drive fits only the registered computer, '
+      'from version $version. This computer is not registered, so there is no '
+      'library update for it here.';
   @override
-  String get personalOtherMachineCaptureButton => 'Register this computer too';
+  String get personalOtherMachineSettingsButton => 'To settings';
   @override
-  String get personalOtherMachineSettingsButton => 'Open settings';
+  String get personalAskTitle =>
+      'Do you want to update several computers, or only your own?';
   @override
-  String get downloadNoteTitle => 'The last download';
+  String get personalAskMultiple => 'Several computers';
   @override
-  String downloadNotePersonal(String version) =>
-      'Personal update — update files from version $version onwards, without '
-      'the full database';
+  String get personalAskMultipleBody =>
+      'The drive keeps everything any computer may need, including the full '
+      'Otzaria library.';
   @override
-  String get downloadNotePersonalUnknownVersion =>
-      'Personal update is on, but no local database version was detected — the '
-      'full database was downloaded. Run this program once on the computer '
-      'where Otzaria is installed.';
+  String get personalAskMine => 'Only my computer';
   @override
-  String get downloadNotePersonalMirrorRepaired =>
-      'Personal update is on, but the library updates in the folder were '
-      'damaged — the folder was rebuilt with the full database.';
+  String get personalAskMineBody =>
+      'Only what your computer is missing is downloaded, so the download is '
+      'much smaller. Other computers will not update from the drive.';
   @override
-  String downloadNotePersonalUpToDate(String version) =>
-      'Personal update — version $version is the latest, nothing to download';
+  String get personalAskLater =>
+      'You can change this at any time in the settings.';
+  @override
+  String get personalPreparedHere => 'The drive is prepared for this computer';
+  @override
+  String get personalPendingNote =>
+      'The computer with Otzaria installed is chosen when you run the tool on it.';
+  @override
+  String get personalPendingRegisterNote =>
+      'The drive is not prepared for any computer yet. If this is the '
+      'computer to update from the drive:';
+  @override
+  String get personalChipElsewhere => 'Prepared for another computer';
+  @override
+  String get personalChange => 'Change';
+  @override
+  String personalCardThis(String version) =>
+      'The drive is prepared for this computer, from version $version.';
+  @override
+  String personalCardThisAndOthers(int others, String version) =>
+      'The drive is prepared for this computer and '
+      '${plural(others, one: 'one more', two: '$others more', many: '$others more')}, '
+      'from version $version.';
+  @override
+  String personalCardOthers(int count, String version) =>
+      'The drive is prepared for '
+      '${plural(count, one: 'one registered computer', two: '$count registered computers', many: '$count registered computers')}, '
+      'from version $version.';
+  @override
+  String get personalCardNone =>
+      'No computer is registered yet, so the full Otzaria library is '
+      'downloaded.';
+  @override
+  String personalDownloadItem(int count, String version) => 'only what '
+      '${plural(count, one: 'the registered computer is', two: 'the $count registered computers are', many: 'the $count registered computers are')} '
+      'missing, from version $version';
+  @override
+  String get personalDownloadItemNone =>
+      'the full Otzaria library, no computer registered yet';
+  @override
+  String personalDownloadNote(int count) => 'The drive is prepared for '
+      '${plural(count, one: 'one registered computer', two: '$count registered computers', many: '$count registered computers')}.';
 }
 
 class _Settings extends SettingsScreenStrings {
@@ -690,352 +1618,282 @@ class _Settings extends SettingsScreenStrings {
   String get title => 'Settings';
 
   @override
-  String get automationCardTitle => 'Automation';
+  String get groupGeneral => 'General';
   @override
-  String get automationCardHint =>
-      'Default: check only, never install on its own.';
+  String get groupPrivacy => 'Privacy and reports';
   @override
-  String get autoCheckTitle => 'Check for updates on startup';
+  String get groupAbout => 'About';
   @override
-  String get autoCheckSubtitle =>
-      'Compares what is installed with the local folder, and with the latest '
-      'release whenever there is a connection';
-  @override
-  String get autoCheckHint =>
-      'The online part is metadata only, with no download. Failure (no '
-      'internet) is ignored silently, and the manual button on the home '
-      'screen always works.';
-  @override
-  String get autoInstallTitle =>
-      'Starting this program updates Otzaria and the library automatically';
-  @override
-  String get autoInstallSubtitle =>
-      'Updates what is already installed on startup; never installs the first '
-      'time, and is skipped while Otzaria is open';
+  String get advancedSummary =>
+      'Password lock, common questions, log and reset';
 
   @override
-  String get autoInstallDialogTitle => 'Turn on automatic installs?';
+  String get languageTitle => 'Language';
   @override
-  String get autoInstallDialogContent =>
-      'From now on, the Otzaria program and the library will be updated '
-      'without asking whenever a newer version is found in the folder next to '
-      'this program — but only once they are already installed. The first '
-      'install stays your call, and so does the download itself.';
+  String get languageSystem => 'Same as the computer';
   @override
-  String get autoInstallDialogWarning =>
-      'Installing replaces files on your computer. If you are not sure, '
-      'leave this off and approve each update yourself.';
-  @override
-  String get autoInstallDialogConfirm => 'Turn on automatic installs';
-
-  @override
-  String get downloadCardTitle => 'Download';
-  @override
-  String get downloadCardHint =>
-      'Which parts the "Download now" button on the home screen brings into '
-      'the local folder. The download itself always starts with a click.';
-  @override
-  String get syncTargetsTitle => 'Choose what to download from the internet';
-  @override
-  String get syncTargetsHint =>
-      'Program — the installer for the latest version. Library — the heavy '
-      'part, the full database is about 1.5 GB. Plugins — the catalogue and '
-      'the installation files for every plugin.';
-  @override
-  String get syncTargetAll => 'All';
-  @override
-  String get syncTargetApp => 'Program';
-  @override
-  String get syncTargetLibrary => 'Library';
-  @override
-  String get syncTargetPlugins => 'Plugins';
-  @override
-  String get syncLibraryLockedSubtitle =>
-      'Personal update is on, so the library is always downloaded';
-  @override
-  String get personalModeTitle => 'Personal update — this computer only';
-  @override
-  String get personalModeSubtitle =>
-      'Only the update files from the version you already have onwards, '
-      'without the full database';
-  @override
-  String get personalModeHint =>
-      'The full database is about 1.5 GB. You detect your own database '
-      'version with a click, on the library screen.';
-  @override
-  String get personalModeDialogTitle => 'Turn on personal update?';
-  @override
-  String get personalModeDialogContent =>
-      'The download will bring only the update files from the version you '
-      'already have onwards — tens of MB instead of several gigabytes.\n\n'
-      'This program never reads your database version on its own: on the '
-      'library screen, press "Detect my database version" — on the computer '
-      'where your Otzaria is installed. The result is stored on the drive and '
-      'travels with it to the online computer, so an Otzaria installed there '
-      'cannot take its place.';
-  @override
-  String get personalModeDialogWarning =>
-      'The drive will no longer serve another computer: the next download '
-      'removes the full database from it, and the recovery route (a full '
-      'install when an update file does not fit) will not be available.';
-  @override
-  String get personalModeDialogConfirm => 'Turn on personal update';
-
-  @override
-  String get appearanceCardTitle => 'Language and Appearance';
-  @override
-  String get languageTitle => 'Interface Language';
-  @override
-  String get languageSubtitle =>
-      'Changes every screen and message right away. "Automatic" follows the '
-      'computer.';
-  @override
-  String get languageSystem => 'Automatic';
+  String languageSystemAs(String language) =>
+      'Same as the computer ($language)';
   @override
   String get languageHebrew => 'עברית';
   @override
   String get languageEnglish => 'English';
-  @override
-  String get themeTitle => 'Theme';
-  @override
-  String get themeSystem => 'System';
-  @override
-  String get themeLight => 'Light';
-  @override
-  String get themeDark => 'Dark';
-  @override
-  String get showFaqTitle => 'Common-questions button';
-  @override
-  String get showFaqSubtitle =>
-      'The round button in the bottom corner of the home screen that opens the '
-      'guide.';
 
   @override
-  String get seedColorTitle => 'Base color';
+  String get autoCheckTitle => 'Check for updates every time it opens';
   @override
-  String get seedColorButton => 'Change color';
+  String get autoCheckSubtitle =>
+      'Checks what is on the drive, and on a connected computer also what is new on the site.';
   @override
-  String get seedColorDialogTitle => 'Pick a base color';
+  String get autoInstallTitle => 'Update on its own without asking';
   @override
-  String get seedColorResetButton => 'Reset';
+  String get autoInstallSubtitle =>
+      'When the drive has an update for this computer, it is installed right on opening. '
+      'Never applies to a first installation.';
   @override
-  String get seedColorCustom => 'Custom color';
+  String get autoInstallDialogTitle => 'Update on its own without asking?';
   @override
-  String get colorRed => 'Red';
+  String get autoInstallDialogContent =>
+      'Whenever the tool opens on a computer the drive has an update for, the update '
+      'is installed right away. If Otzaria is open, the update waits for next time.';
   @override
-  String get colorOrange => 'Orange';
-  @override
-  String get colorAmber => 'Amber';
-  @override
-  String get colorGreen => 'Green';
-  @override
-  String get colorTeal => 'Teal';
-  @override
-  String get colorBlue => 'Blue';
-  @override
-  String get colorBlueGrey => 'Graphite grey';
-  @override
-  String get colorNavy => 'Navy';
-  @override
-  String get colorPurple => 'Purple';
-  @override
-  String get colorBrown => 'Brown';
-  @override
-  String get colorParchment => 'Parchment / beige';
-  @override
-  String get colorGrey => 'Grey';
-  @override
-  String get colorDarkBrown => 'Golden brown';
+  String get autoInstallDialogConfirm => 'Turn on';
 
   @override
-  String get supportCardTitle => 'Support';
+  String get syncTargetsTitle => 'What to download to the drive';
   @override
-  String get logTitle => 'Activity Log';
+  String get syncTargetsSubtitle =>
+      'Anything not selected is not downloaded, even if it has an update.';
   @override
-  String get logSubtitle =>
-      'Every check, download and install is recorded locally only';
+  String get syncTargetApp => 'Otzaria';
   @override
-  String get openLogFolderButton => 'Open the log folder';
+  String get syncTargetLibrary => 'Otzaria library';
+  @override
+  String get syncTargetPlugins => 'Plugins';
+  @override
+  String get syncLibraryLockedSubtitle =>
+      'The Otzaria library follows the registered computer.';
+  @override
+  String get semanticDownloadTitle => 'Smart search';
+  @override
+  String get semanticDownloadSubtitle =>
+      'The files take a few gigabytes. When there is a download:';
+  @override
+  String get semanticDownloadAsk => 'Ask every time';
+  @override
+  String get semanticDownloadAlways => 'Always download';
+  @override
+  String get semanticDownloadNever => "Don't download";
+  @override
+  String get semanticConsentRowTitle => 'Smart search on this computer';
+  @override
+  String get semanticConsentRowOn =>
+      'On: consent to send training data is active in Otzaria. It can be '
+      'revoked only in Otzaria settings: System → Smart search (experimental) '
+      '→ Improve the engine.';
+  @override
+  String get semanticConsentRowOff =>
+      'Off: the smart search on the drive is installed with the next update '
+      'only after consent to send training data. Otzaria must be closed.';
+  @override
+  String get semanticConsentRowEnable => 'Enable smart search';
+
+  @override
+  String get personalModeDialogTitle =>
+      'Download only what your computer is missing?';
+  @override
+  String get personalModeDialogContent =>
+      'From now on the drive gets only what the registered computers are '
+      'missing. A computer that is not registered will not update from the '
+      'drive, and the full Otzaria library on the drive is deleted on the next '
+      'download.';
+  @override
+  String get personalModeDialogConfirm => 'Turn on';
+  @override
+  String get personalGroupTitle => 'Which computer the Otzaria library is for';
+  @override
+  String get personalMachineThis => 'This computer';
+  @override
+  String get personalMachineUnnamed => 'A registered computer';
+  @override
+  String personalMachineVersion(String version) => 'Version $version';
+  @override
+  String personalMachineFloor(String version) =>
+      'Version $version · the download starts from it, as it is the lowest';
+  @override
+  String get personalMachineRemove => 'Remove';
+  @override
+  String get personalMachinesNone =>
+      'No computer is registered yet. The computer with Otzaria installed is '
+      'chosen when you run the tool on it.';
+  @override
+  String personalMachineName(String machineName) => machineName;
+  @override
+  String personalMachineThisSubtitle(String machineName, String version) =>
+      '$machineName · version $version';
+  @override
+  String get personalMachineNotHere => 'This computer is not registered';
+  @override
+  String get personalMachinesReadOnly =>
+      'The drive is write-protected, so its list of computers cannot change.';
+  @override
+  String get personalRemoveTitle => 'Remove this computer from the list?';
+  @override
+  String get personalRemoveBody =>
+      'The next download will no longer bring what it is missing. You can '
+      'register it again at any time.';
+  @override
+  String get personalRemoveThisBody =>
+      'This computer will no longer update from the drive until it is '
+      'registered again.';
+
+  @override
+  String get faqEditTitle => 'Edit the common questions';
+  @override
+  String get faqEditSubtitle =>
+      'Hide questions, add your own, and a contact for help on site';
+
+  @override
+  String get logTitle => 'Activity log';
+  @override
+  String get logSubtitle => 'To send to support when something does not work.';
+  @override
+  String get openLogFolderButton => 'Open the folder';
 
   @override
   String get resetTitle => 'Reset settings';
   @override
   String get resetSubtitle =>
-      'Restores every setting to its default without removing installations';
+      'Returns every setting to its default. The password stays.';
   @override
   String get resetButton => 'Reset';
   @override
-  String get resetDialogTitle => 'Reset settings';
+  String get resetDialogTitle => 'Reset all settings?';
   @override
-  String get resetDialogContent => 'Every setting returns to its default.';
-  @override
-  String get resetDialogWarning =>
-      'Your installations, the database, the plugins and anything already '
-      'downloaded are left untouched.';
+  String get resetDialogContent =>
+      'Every setting returns to its default. Nothing on the drive is deleted, and the password stays.';
   @override
   String get resetDialogConfirm => 'Reset settings';
   @override
-  String get resetDoneSnack => 'Settings have been reset';
+  String get resetDoneSnack => 'Settings were reset';
+
+  @override
+  String aboutTitle(String version) => 'Otzaria Updates $version';
+  @override
+  String get aboutSubtitle => 'Check whether a new version exists';
+  @override
+  String aboutNewVersion(String version) =>
+      'New version: $version · what is new and update';
 }
 
 class _SaferMode extends SaferModeStrings {
   const _SaferMode();
 
   @override
-  String get cardTitle => 'Safer mode';
+  String get lockTitle => 'Password lock';
   @override
-  String get cardHint =>
-      'Locks the settings behind a password. Downloading, checking and '
-      'installing stay open to everyone — only changing settings and editing '
-      'the guide ask for the password.';
+  String get noPasswordSubtitle =>
+      'Prevents changing settings, choosing a pre-release version and editing the common questions without a password.';
   @override
-  String get toggleTitle => 'Safer mode';
+  String get setPasswordButton => 'Set a password';
   @override
-  String get toggleOnSubtitle => 'Settings and guide editing are locked';
+  String get lockOnSubtitle => 'On: opening Settings asks for the password.';
   @override
-  String get toggleOffSubtitle =>
-      'Settings are open to anyone who opens the app';
+  String get lockOffSubtitle => 'There is a password, but the lock is off.';
   @override
-  String get needsPasswordSubtitle => 'Choose a password first';
+  String get passwordRowTitle => 'The password';
   @override
-  String get setPasswordButton => 'Choose a password';
+  String get passwordRowSubtitle => 'You can change or delete it.';
   @override
-  String get passwordTileTitle => 'Password';
+  String get passwordRowLockedSubtitle =>
+      'To delete it, turn the lock off first.';
   @override
-  String get passwordTileSubtitle =>
-      'A password is set — you can change or delete it';
+  String get changeButton => 'Change';
   @override
-  String get passwordOptionsButton => 'Options';
+  String get clearButton => 'Delete';
   @override
-  String get enabledSnack => 'Safer mode is on';
+  String get enabledSnack => 'The lock is on';
   @override
-  String get disabledSnack => 'Safer mode is off';
+  String get disabledSnack => 'The lock is off';
 
   @override
-  String get verifyTitle => 'Enter password';
+  String get verifyTitle => 'Password required';
   @override
-  String get verifySettingsHint =>
-      'Safer mode is on. Enter the password to open the settings.';
+  String get verifySettingsHint => 'Settings are locked with a password.';
   @override
   String get verifyFaqHint =>
-      'Safer mode is on. Enter the password to edit the guide.';
+      'Editing the common questions is locked with a password.';
   @override
-  String get verifyEnableHint => 'Enter the password to turn safer mode on.';
+  String get verifyEnableHint => 'To turn the lock on, type the password.';
   @override
-  String get verifyDisableHint => 'Enter the password to turn safer mode off.';
+  String get verifyDisableHint => 'To turn the lock off, type the password.';
   @override
-  String get verifyChangeHint => 'Enter the current password to change it.';
+  String get enterButton => 'Unlock';
   @override
   String get passwordLabel => 'Password';
   @override
-  String get passwordFieldHint => 'Enter the password';
+  String get wrongPassword => 'The password is wrong. Try again.';
   @override
-  String get wrongPassword => 'Wrong password';
+  String get passwordRequired => 'Type a password.';
   @override
   String get showPasswordTooltip => 'Show the password';
   @override
   String get hidePasswordTooltip => 'Hide the password';
 
   @override
-  String get setTitle => 'Choose a password';
+  String get setTitle => 'Set a password';
   @override
-  String get setIntro =>
-      'The password is stored hashed in the settings file on the drive, and '
-      'cannot be recovered. Losing it means deleting the settings file.';
+  String setIntro(int minLength, {bool onThisComputer = false}) =>
+      'The password will be needed to open Settings, choose a pre-release version and '
+      'edit the common questions. At least $minLength characters. A forgotten password '
+      'cannot be recovered — only the settings file '
+      '${onThisComputer ? 'on this computer' : 'on the drive'} can be deleted.';
+  @override
+  String get setConfirm => 'Save and turn the lock on';
+  @override
+  String get changeTitle => 'Change the password';
+  @override
+  String get currentPasswordLabel => 'Current password';
   @override
   String get newPasswordLabel => 'New password';
   @override
-  String minLengthHint(int minLength) => 'At least $minLength characters';
-  @override
-  String get confirmPasswordLabel => 'Confirm password';
-  @override
-  String get confirmPasswordFieldHint => 'Enter the password again';
-  @override
-  String get passwordRequired => 'A password is required';
+  String get confirmPasswordLabel => 'Again, to confirm';
   @override
   String passwordTooShort(int minLength) =>
-      'The password must be at least $minLength characters long';
+      'The password is too short: at least $minLength characters.';
   @override
-  String get passwordsDoNotMatch => 'The passwords do not match';
+  String get passwordsDoNotMatch => 'The two passwords are not the same.';
   @override
-  String get passwordSavedSnack => 'Password saved';
+  String get passwordSetSnack => 'The password is set and the lock is on';
   @override
-  String get saveButton => 'Save';
+  String get passwordChangedSnack => 'The password was changed';
 
   @override
-  String get activateNowTitle => 'Turn safer mode on now?';
-  @override
-  String get activateNowContent =>
-      'From now on the password will be required to open the settings and to '
-      'edit the guide. You can also turn it on later, from the switch on the '
-      'card.';
-  @override
-  String get activateNowConfirm => 'Turn on now';
-
-  @override
-  String get clearButton => 'Delete the password';
-  @override
-  String get clearBlockedButton =>
-      'Turn safer mode off before deleting the password';
-  @override
-  String get clearDialogTitle => 'Delete the password';
+  String get clearDialogTitle => 'Delete the password?';
   @override
   String get clearDialogContent =>
-      'No password will be asked for any more, and safer mode cannot be turned '
-      'on again until a new password is chosen.';
+      'Without a password, anyone who opens the tool can change settings.';
   @override
-  String get clearDialogConfirm => 'Delete the password';
-  @override
-  String get passwordRemovedSnack => 'Password deleted';
+  String get passwordRemovedSnack => 'The password was deleted';
 }
 
 class _Plugins extends PluginsStrings {
   const _Plugins();
 
   @override
-  String get syncDialogTitle => 'Sync the plugin store';
-  @override
-  String get syncDialogContent =>
-      'This downloads the plugin list, the categories, the images and the '
-      'install files from otzaria.org into the transfer folder. Only new and '
-      'updated plugins are fetched — whatever is already there is left alone. '
-      'It needs internet once; after that the store works on a computer with '
-      'no connection at all.';
-  @override
-  String get syncDialogConfirm => 'Sync';
-  @override
-  String get syncFailedSnack => 'The sync failed';
+  String get syncFailedSnack => 'Updating from the website failed';
   @override
   String syncDoneSnack(int fetched, int total) => fetched == 0
-      ? 'Everything was already up to date — nothing downloaded '
-          '($total plugins in the store)'
-      : 'Sync complete — $fetched plugins downloaded, out of $total in the '
-          'store';
-  @override
-  String get syncingOverlaySubtitle =>
-      'Only new and updated plugins are downloaded — the rest is skipped.';
+      ? 'The plugin list is up to date — nothing new ($total plugins)'
+      : 'The plugin list was updated — $fetched of $total downloaded';
   @override
   String syncDoneWithWarningsSnack(int count) =>
-      'Sync finished, but $count items did not download. Details in the log.';
-  @override
-  String get syncButton => 'Sync from the site';
-  @override
-  String get reloadTooltip => 'Reload from the local folder';
-  @override
-  String get syncingOverlayTitle => 'Syncing the plugin store';
+      'The list was updated, but $count items did not download. Details are in the log.';
   @override
   String get syncingOverlayStarting => 'Starting…';
   @override
-  String get syncNeverRan => 'Never synced';
-  @override
-  String syncedAt(String time) => 'Last synced: $time';
-  @override
   String get syncDirUnknownTooltip =>
-      'The folder is chosen during the first sync';
-  @override
-  String updatesAvailableChip(int count) => '$count updates available';
-  @override
-  String get updatesChipTooltip => 'Show the plugins waiting for an update';
+      'The folder is set on the first update from the website';
 
   @override
   String get saveDialogTitle => 'Save the plugin';
@@ -1043,9 +1901,6 @@ class _Plugins extends PluginsStrings {
   String get saveDoneSnack => 'The file was saved';
   @override
   String get saveFailedSnack => 'Saving the file failed';
-  @override
-  String installOpenedSnack(String pluginName) =>
-      'Otzaria was opened to finish installing $pluginName';
   @override
   String installDoneSnack(String pluginName) =>
       '$pluginName was installed successfully';
@@ -1059,105 +1914,15 @@ class _Plugins extends PluginsStrings {
   String get installFailedSnack => 'The installation failed';
 
   @override
-  String get loadingCatalog => 'Loading the plugin catalogue…';
-  @override
-  String get catalogTitleFallback => 'The Otzaria Plugin Store';
-  @override
-  String get catalogSubtitleFallback =>
-      'Plugins that enhance your learning experience in Otzaria';
-  @override
-  String get heroSearchHint => 'Search by name, description or topic…';
-  @override
-  String get heroSearchButton => 'Search';
+  String get loadingCatalog => 'Loading the plugin list…';
 
   @override
-  String get emptyStoreTitle => 'The store is still being built — the plugins '
-      'are already here';
+  String get noResultsTitle => 'No plugins match your filters';
   @override
-  String get emptyStoreBody =>
-      'Featured plugins and organized categories are on their way. In the '
-      'meantime, search above or browse the full list of plugins.';
-  @override
-  String allPluginsWithCount(int count) => 'All plugins ($count)';
-  @override
-  String get browseAllPrompt => "Didn't find what you were looking for?";
-  @override
-  String browseAllButton(int count) => 'Browse all Plugins ($count)';
+  String get noResultsBody => 'Try another word, or search all categories.';
 
   @override
-  String get featuredEyebrow => 'Store Picks';
-  @override
-  String get featuredTitle => 'Featured Plugins';
-  @override
-  String get showMoreFeatured => 'Show more picks';
-  @override
-  String categoryLinkButton(int count) => 'See the whole category ($count)';
-
-  @override
-  String get breadcrumbRoot => 'Plugin Store';
-  @override
-  String get allPluginsPage => 'All Plugins';
-  @override
-  String get listEyebrow => 'Plugin List';
-  @override
-  String get listTitle => 'Pick the plugin that fits your needs';
-  @override
-  String get summaryNoResults => 'No plugins match the filters you chose';
-  @override
-  String get summaryAllShown => 'Showing Every Plugin';
-  @override
-  String summaryPartial(int shown, int total) =>
-      'Showing $shown of $total plugins';
-  @override
-  String get categoryOnePlugin => 'One plugin in this category';
-  @override
-  String categoryPluginCount(int count) => '$count plugins in this category';
-
-  @override
-  String get hideInstalledLabel => 'Not Installed Only';
-  @override
-  String hideInstalledOnTooltip(int installedCount) =>
-      'Showing only plugins that are not installed or have an update.\n'
-      '$installedCount installed plugins were detected in Otzaria.';
-  @override
-  String hideInstalledOffTooltip(int installedCount) =>
-      'Showing every plugin, including installed and up-to-date ones.\n'
-      '$installedCount installed plugins were detected in Otzaria.';
-
-  @override
-  String get neverSyncedTitle => 'No plugins have been synced yet';
-  @override
-  String get neverSyncedBody =>
-      'Press "Sync from the site" on a computer with internet to load the '
-      'current plugin list from otzaria.org.';
-  @override
-  String get noResultsTitle => 'No plugins match the filters you chose';
-  @override
-  String get noResultsBody =>
-      'Try a different name, clear a tag, pick another status, or turn off '
-      '"Not Installed Only".';
-  @override
-  String get allInstalledTitle => 'Everything is installed and up to date';
-  @override
-  String get allInstalledBody =>
-      'The "Not Installed Only" switch hides plugins you already have at '
-      'the latest version. Turn it off to see them too.';
-  @override
-  String get showInstalledButton => 'Show Installed Plugins Too';
-  @override
-  String get emptyCategoryTitle => 'Plugins are coming to this category soon';
-  @override
-  String get emptyCategoryBody =>
-      'In the meantime you can browse the full list of plugins in the store.';
-  @override
-  String get allPluginsButton => 'All Plugins';
-
-  @override
-  String get filterSearchLabel => 'Search';
-  @override
-  String get filterSearchHint => 'Name, description or tag…';
-  @override
-  String get filterStatusLabel => 'Status';
+  String get filterStatusLabel => 'Stability';
   @override
   String get filterSortLabel => 'Sort';
   @override
@@ -1169,34 +1934,24 @@ class _Plugins extends PluginsStrings {
   @override
   String get filterTagsLabel => 'Tags';
   @override
-  String get filterAllTags => 'All tags';
+  String get showMoreTags => 'Show more';
   @override
-  String get filterStatusAll => 'All';
-  @override
-  String get showMoreTags => 'Show More';
-  @override
-  String get showFewerTags => 'Show Fewer';
+  String get showFewerTags => 'Show fewer';
 
   @override
-  String get badgeFeaturedShort => 'Featured';
-  @override
-  String get badgeFeatured => 'Featured Plugin';
-  @override
   String pluginVersionBadge(String version) => 'Version $version';
-  @override
-  String downloadsBadge(int count) => '$count downloads';
 
   @override
   String ratingBadge(String average, int count) => '$average ($count)';
   @override
   String ratingTooltip(int count) => 'Average rating from $count raters';
   @override
-  String get ratingPanelTitle => 'User Rating';
+  String get ratingPanelTitle => 'User rating';
   @override
   String ratingCountLabel(int count) =>
       count == 1 ? '$count rater' : '$count raters';
   @override
-  String ratingVerifiedLabel(int count) => '$count verified';
+  String ratingVerifiedLabel(int count) => '$count actually installed it';
   @override
   String get ratingVerifiedTooltip =>
       'Raters whose install of the plugin was actually recorded';
@@ -1205,139 +1960,37 @@ class _Plugins extends PluginsStrings {
   @override
   String ratingStarsLabel(String average) => 'Rated $average out of 5';
   @override
-  String get saveButton => 'Save';
-  @override
-  String get installButton => 'Install';
-  @override
-  String get directInstallButton => 'Install straight into Otzaria';
-  @override
-  String get sourcePageButton => 'Source Page';
-  @override
-  String get cardDetailsLink => 'Full Details';
-  @override
-  String cardUpdatedOn(String date) => 'Updated $date';
-  @override
-  String get backToStore => 'Back to the store';
+  String get sourcePageButton => 'Source page';
 
   @override
   String get statusStable => 'Stable';
-  @override
-  String get statusBeta => 'Beta';
   @override
   String get statusExperimental => 'Experimental';
   @override
   String get statusUnknown => 'Unknown';
 
   @override
-  String get installChipInstalled => 'Installed';
+  String get infoPanelTitle => 'General information';
   @override
-  String get installChipUpdateAvailable => 'Update Available';
-  @override
-  String installChipUpdateFrom(String installedVersion) =>
-      'Update available (you have $installedVersion)';
-  @override
-  String get installChipIncompatible => 'Needs a newer Otzaria';
-  @override
-  String get installChipDisabled => 'Installed, disabled in Otzaria';
-  @override
-  String get installChipDisabledUpdate =>
-      'Update available, disabled in Otzaria';
-  @override
-  String get installChipDevelopment => 'Local development copy';
-
-  @override
-  String get infoPanelTitle => 'General Information';
-  @override
-  String get tagsPanelTitle => 'Tags';
+  String get tagsPanelTitle => 'Categories and tags';
   @override
   String get screenshotsPanelTitle => 'Screenshots';
   @override
   String get infoVersion => 'Version';
   @override
-  String get infoStatus => 'Status';
+  String get infoStatus => 'Stability';
   @override
   String get infoAuthor => 'Developer';
   @override
   String get infoUpdated => 'Updated';
   @override
-  String get infoNetwork => 'Internet needed while using';
+  String get infoNetwork => 'Internet connection';
   @override
   String get infoNetworkRequired => 'Required';
   @override
-  String get infoNetworkNotRequired => 'Not Required';
-  @override
-  String get infoCompatibility => 'Compatibility';
-  @override
-  String compatibilityRange(String from, String to) => '$from — up to $to';
-  @override
-  String get infoLocalFile => 'Plugin file in the local folder';
-  @override
-  String get infoLocalFileMissing => 'Not downloaded yet — run a sync';
-  @override
-  String localFileDescription(String fileName, String size) =>
-      '$fileName ($size)';
-  @override
-  String get valueUnspecifiedFeminine => 'Not specified';
+  String get infoNetworkNotRequired => 'Not required';
   @override
   String get valueUnspecifiedMasculine => 'Not specified';
-  @override
-  String get sizeUnknown => 'Size unknown';
-
-  @override
-  String get categoriesTitle => 'Categories';
-  @override
-  String get storeHomeItem => 'Store Home';
-  @override
-  String get storeHomeChip => 'Home';
-
-  @override
-  String updatesDialogTitle(int count) => 'Updates are available ($count)';
-  @override
-  String get updatesDialogIntro =>
-      'These plugins are installed in your Otzaria at an older version than '
-      'the store has:';
-  @override
-  String updatesDialogRow(String installedVersion, String storeVersion) =>
-      'Installed $installedVersion → store $storeVersion';
-  @override
-  String get updatesDialogUpdateButton => 'Update';
-  @override
-  String updatesDialogUpdateAllButton(int count) => 'Update all ($count)';
-  @override
-  String get updatesDialogDetailsButton => 'Details';
-  @override
-  String get updatesDialogSentLabel => 'Sent to Otzaria';
-  @override
-  String get updatesDialogDoneLabel => 'Updated';
-  @override
-  String get updatesDialogPendingNote =>
-      'The installation itself happens inside Otzaria. This list updates by '
-      'itself the moment it finishes there — nothing to press.';
-
-  @override
-  String get newToastOne => 'New plugin in the store!';
-  @override
-  String newToastMany(int count) => '$count new plugins in the store!';
-  @override
-  String get newToastView => 'View';
-  @override
-  String get newToastClose => 'Close';
-  @override
-  String get homeNoticeTitle => 'Plugin store';
-  @override
-  String get homeNoticeUpdates =>
-      'Updates are available for plugins you have installed.';
-  @override
-  String get homeNoticeNewOne => 'There is a new plugin in the plugin store.';
-  @override
-  String homeNoticeNewMany(int count) =>
-      'There are $count new plugins in the plugin store.';
-  @override
-  String get homeNoticeUpdatesAndNew =>
-      'Updates are available for plugins you have installed, and there are '
-      'new plugins in the store.';
-  @override
-  String get homeNoticeOpenButton => 'Open the plugin store';
 
   @override
   String get screenshotPrevious => 'Previous';
@@ -1370,8 +2023,7 @@ class _Plugins extends PluginsStrings {
   String get storeAppChooseFolder => 'Choose a folder…';
   @override
   String get storeAppUnavailableTooltip =>
-      'The store program has not been downloaded yet. Run "Download" on a '
-      'computer with internet.';
+      'The store program is not on the drive yet. Download updates to the drive on a computer with internet, from the home page.';
   @override
   String get storeAppNoPluginsTooltip =>
       'There are no plugins on this drive. Sync the store on a computer with '
@@ -1401,9 +2053,6 @@ class _Plugins extends PluginsStrings {
   @override
   String get storeAppCopyingTitle => 'Copying the plugin store';
   @override
-  String get storeAppCopyingSubtitle =>
-      'Copying from this drive only — no internet is used here.';
-  @override
   String get storeAppDoneTitle => 'The store was copied';
   @override
   String storeAppDoneContent(int plugins, String size) =>
@@ -1420,6 +2069,248 @@ class _Plugins extends PluginsStrings {
   @override
   String storeAppLaunchFailedSnack(String error) =>
       'Launching the store failed: $error';
+
+  @override
+  String get storeTitle => 'Plugins';
+  @override
+  String get storeSubtitle =>
+      'Plugins that extend Otzaria. Everything here is already on the drive and installs without internet.';
+  @override
+  String asOfDate(String date) => 'As of $date.';
+  @override
+  String get refreshButton => 'Refresh';
+  @override
+  String get syncingTitle => 'Updating the plugin list from the website';
+  @override
+  String get syncingHint =>
+      'Only new and updated plugins are downloaded. You can keep browsing meanwhile.';
+  @override
+  String get syncStopButton => 'Stop';
+  @override
+  String get syncStoppedSnack =>
+      'The update stopped. What was already downloaded is kept on the drive.';
+  @override
+  String get emptyTitle => 'No plugins on the drive yet';
+  @override
+  String get emptyBodyOnline =>
+      'Plugins come to the drive with the Otzaria updates. "Refresh" downloads them now.';
+  @override
+  String get emptyBodyOffline =>
+      'Plugins come to the drive with the Otzaria updates. On a computer with internet, click "Download everything to the drive" on the home page, and they will appear here.';
+  @override
+  String get searchHint => 'Search plugins by name or topic';
+  @override
+  String get clearSearchTooltip => 'Clear';
+  @override
+  String get filterAll => 'All';
+  @override
+  String get filterInstalled => 'Installed';
+  @override
+  String get filterNotInstalled => 'Not installed';
+  @override
+  String get moreFilters => 'More filters';
+  @override
+  String moreFiltersCount(int count) => 'More filters ($count)';
+  @override
+  String noResultsForQuery(String query) => 'No plugins found for "$query"';
+  @override
+  String get clearFiltersButton => 'Clear search and filters';
+  @override
+  String updatesAvailable(int count) => plural(count,
+      one: 'One update available', many: '$count updates available');
+  @override
+  String updatesBarNames(String names) =>
+      '$names · sent to Otzaria, where you approve each one';
+  @override
+  String joinNames(List<String> names) => names.length < 2
+      ? names.join()
+      : '${names.sublist(0, names.length - 1).join(', ')} and ${names.last}';
+  @override
+  String get updateAllButton => 'Update all';
+  @override
+  String updatingAllLabel(int current, int total) =>
+      'Sending to Otzaria, $current of $total…';
+  @override
+  String updatesSentSnack(int count) => plural(count,
+      one: 'The update was sent to Otzaria — approve it there',
+      many: '$count updates were sent to Otzaria — approve them there');
+  @override
+  String updateAllNoneSentSnack(String names) => 'Not sent to Otzaria: $names';
+  @override
+  String updateAllPartlySentSnack(int sent, String names) => plural(sent,
+      one: 'One update was sent to Otzaria — approve it there. '
+          'Not sent: $names',
+      many: '$sent updates were sent to Otzaria — approve them there. '
+          'Not sent: $names');
+  @override
+  String updateAllStoppedSnack(int sent) => plural(sent,
+      one: 'Updating stopped. One update was sent to Otzaria — approve it '
+          'there',
+      many: 'Updating stopped. $sent updates were sent to Otzaria — approve '
+          'them there');
+  @override
+  String get updateAllStoppedNoneSnack =>
+      'Updating stopped. Nothing was sent to Otzaria.';
+  @override
+  String get updateAllStoppedPrefix => 'Updating stopped.';
+  @override
+  String get updateAllStoppingLabel => 'Stopping after the current plugin…';
+  @override
+  String get actionsBlockedSyncing =>
+      'Plugins cannot be installed or saved while the list updates from the website.';
+  @override
+  String get actionsBlockedExporting =>
+      'Plugins cannot be installed or saved while the store is being copied.';
+  @override
+  String get actionsBlockedUpdatingAll =>
+      'Other plugins cannot be installed or saved during "Update All".';
+  @override
+  String get actionsBlockedElsewhere =>
+      'Another task is running. Plugins cannot be installed or saved meanwhile.';
+  @override
+  String get howItWorksButton => 'How does this work?';
+  @override
+  String get updatesSentTitle =>
+      'The updates were sent to Otzaria — approve them there';
+  @override
+  String get updatesSentBody =>
+      'This list updates by itself as soon as Otzaria finishes installing.';
+  @override
+  String installSentSnack(String pluginName) =>
+      '$pluginName was sent to Otzaria — approve it there';
+  @override
+  String get newChip => 'New';
+  @override
+  String get networkChip => 'Needs internet';
+  @override
+  String get installInOtzariaButton => 'Install in Otzaria';
+  @override
+  String updateToButton(String version) => 'Update to $version';
+  @override
+  String get saveFileButton => 'Save plugin file…';
+  @override
+  String get sendingLabel => 'Sending to Otzaria…';
+  @override
+  String get sentLabel => 'Sent to Otzaria — approve there';
+  @override
+  String get developmentLabel => 'In development here';
+  @override
+  String get incompatibleLabel => 'Not compatible with your Otzaria';
+  @override
+  String get disabledLabel => 'Disabled in Otzaria';
+  @override
+  String get installedLabel => 'Installed';
+  @override
+  String get noteIncompatible => 'No version fits the Otzaria on this computer';
+  @override
+  String noteNeedsApp(String version) => 'Needs Otzaria $version or later';
+  @override
+  String get noteNeedsOtzaria => 'Install Otzaria first';
+  @override
+  String get noteSaveOnly => 'No direct install — save the file';
+  @override
+  String get noteDisabled => 'Disabled in Otzaria';
+  @override
+  String get noteFileMissing =>
+      'Not on the drive yet — downloaded on install (needs internet)';
+  @override
+  String get noteFileMissingOnline =>
+      'Not on the drive yet — it downloads from the website now';
+  @override
+  String get fileNotOnDriveLabel => 'The file is not on the drive';
+  @override
+  String get noteNextDriveDownload =>
+      'It comes with the next download to the drive';
+  @override
+  String get incompatibleTitle =>
+      'This plugin does not fit the Otzaria on this computer';
+  @override
+  String incompatibleBodyVersions(String needs, String here) =>
+      'It needs Otzaria $needs or later, and this computer has $here. After you update Otzaria you can install it.';
+  @override
+  String get incompatibleBody =>
+      'It has no version that runs on the Otzaria here. After you update Otzaria you can install it.';
+  @override
+  String get disabledTitle => 'The plugin is disabled in Otzaria';
+  @override
+  String get disabledBody =>
+      'It is installed but not active. You can turn it back on in the Otzaria plugin settings.';
+  @override
+  String get disabledUpdateBody =>
+      'The update installs even while it is disabled.';
+  @override
+  String get developmentTitle => 'Plugin in development';
+  @override
+  String get developmentBody =>
+      'Otzaria loads it from its own folder on this computer, so this tool does not update it.';
+  @override
+  String get fileMissingTitle => 'The plugin file is not on the drive yet';
+  @override
+  String get fileMissingBody =>
+      'It downloads the next time you download updates to the drive on a computer with internet. On a connected computer, installing downloads it now.';
+  @override
+  String get factRating => 'Rating';
+  @override
+  String get factCompatible => 'Fits your Otzaria';
+  @override
+  String get factYes => 'Yes';
+  @override
+  String get factNo => 'No';
+  @override
+  String factOtzariaVersion(String version) => 'Otzaria $version';
+  @override
+  String get factVersionLatest => 'Latest';
+  @override
+  String get factVersionInstalled => 'Installed here';
+  @override
+  String factVersionInstalledAt(String version) => 'You have $version';
+  @override
+  String get factNetworkAny => 'Works on any computer';
+  @override
+  String get factNetworkSome => 'For some features';
+  @override
+  String get factSize => 'Size';
+  @override
+  String get factOnDrive => 'On the drive';
+  @override
+  String get factNotOnDrive => 'Not on the drive';
+  @override
+  String get descriptionTitle => 'Description';
+  @override
+  String get versionsTitle => 'Versions';
+  @override
+  String get versionLatestTag => 'latest';
+  @override
+  String get versionInstalledTag => 'installed here';
+  @override
+  String get infoDownloads => 'Downloads';
+  @override
+  String get infoSource => 'Source';
+  @override
+  String get copyAddressTooltip => 'Copy address';
+  @override
+  String get addressCopiedSnack => 'Address copied';
+  @override
+  String get ratingSourceNote => 'Ratings are given on the Otzaria website.';
+  @override
+  String ratingAsOfNote(String date) =>
+      'As of $date, when you downloaded to the drive. Ratings are given on the Otzaria website.';
+  @override
+  String get screenshotZoom => 'Enlarge screenshot';
+  @override
+  String screenshotNumber(int index, int total) =>
+      'Screenshot $index of $total';
+  @override
+  String get advancedSummary => 'Copy the plugin store to this computer';
+  @override
+  String get storeAppCopyButton => 'Copy…';
+  @override
+  String get storeAppRowBody =>
+      'A small app that shows the plugins on the drive and installs them even without the drive (Windows).';
+  @override
+  String get reloadRowTitle => 'Reload from the drive';
+  @override
+  String get reloadButton => 'Reload';
 }
 
 class _Faq extends FaqStrings {
@@ -1428,7 +2319,7 @@ class _Faq extends FaqStrings {
   @override
   String get title => 'Common questions';
   @override
-  String get intro => 'Click a question to see the answer.';
+  String get intro => 'Short answers to questions that keep coming up.';
 
   @override
   String get groupBasics => 'How this works';
@@ -1437,7 +2328,7 @@ class _Faq extends FaqStrings {
   @override
   String get groupLibrary => 'The books are not found';
   @override
-  String get groupExtras => 'Plugins and extra programs';
+  String get groupExtras => 'Plugins and other programs';
   @override
   String get groupGeneral => 'General questions';
 
@@ -1456,7 +2347,7 @@ class _Faq extends FaqStrings {
   String get aOfflineFlow =>
       'That is exactly what this program is for. Copy the whole program folder '
       'onto a USB drive, plug the drive into a computer that does have '
-      'internet, open the program there and press Download — everything is '
+      'internet, open the program there and press "Download everything to the drive" — everything is '
       'collected into that same folder on the drive. Then unplug the drive, '
       'plug it into your own computer, open the program from there and '
       'install. No internet is needed at that stage.';
@@ -1478,20 +2369,20 @@ class _Faq extends FaqStrings {
   @override
   String get aDownloadStopped =>
       'No. The download remembers what it already fetched, and pressing '
-      'Download again continues from there. Cancelling on purpose does not '
-      'erase earlier runs either — it only clears what the current download '
-      'brought in.';
+      '"Download everything to the drive" again continues from there. Cancelling on purpose does not '
+      'erase what has finished downloading or earlier runs — it only clears the '
+      'part that was in progress.';
   @override
   String get qDownloadTooBig =>
-      'The download is enormous and I only want to update the library I '
+      'The download is enormous and I only want to update the Otzaria library I '
       'already have';
   @override
   String get aDownloadTooBig =>
-      'Settings has a "personal update" option. With it on, only the steps '
-      'from your own version upwards are fetched instead of the whole '
-      'library — far less data. Before downloading, go to the Library screen '
-      'and press the button that records your library version, otherwise the '
-      'program does not know where to start from. One caveat: such a drive '
+      'In the settings, under "Which computer the Otzaria library is for", '
+      'choose "Only my computer". From then on only the steps from your own '
+      'version upwards are fetched instead of the whole Otzaria library — far '
+      'less data. Your computer registers itself the first time the tool opens '
+      'on it. One caveat: such a drive '
       'cannot install Otzaria on a computer that has none, so if you update '
       'several computers, leave the option off.';
   @override
@@ -1524,8 +2415,8 @@ class _Faq extends FaqStrings {
   String get qDbNotFound => 'It says no database was found, but I have books';
   @override
   String get aDbNotFound =>
-      'The book database is likewise not detected when it sits somewhere other '
-      'than the default. On the Library screen, pick the location manually. If '
+      'The Otzaria library is likewise not detected when it sits somewhere other than '
+      'the default. On the Otzaria library page, under Advanced, pick the location manually. If '
       'you do not know where it is, Otzaria will tell you: open its settings, '
       'and under the Library tab press "copy path".';
   @override
@@ -1539,7 +2430,7 @@ class _Faq extends FaqStrings {
       'package again.';
   @override
   String get qSearchMissesNewBooks =>
-      'I updated the library, but the search in Otzaria does not find the new '
+      'I updated the Otzaria library, but the search in Otzaria does not find the new '
       'books';
   @override
   String get aSearchMissesNewBooks =>
@@ -1557,7 +2448,7 @@ class _Faq extends FaqStrings {
       'from here, or press Save and then install them on any computer that has '
       'Otzaria by double-clicking the file.';
   @override
-  String get qWhatAreCustomApps => 'What are "extra programs"?';
+  String get qWhatAreCustomApps => 'What are "Other programs"?';
   @override
   String get aWhatAreCustomApps =>
       'A place to add helper programs that are not Otzaria — the kind that '
@@ -1574,8 +2465,8 @@ class _Faq extends FaqStrings {
       'so that it all travels together on the drive. If it was moved '
       'somewhere without write permission — Program Files, for instance — '
       'there is nowhere to save, so it stops rather than leaving the files on '
-      'the wrong computer. The fix: move the whole program folder to the USB '
-      'drive, or to an ordinary folder on the disk, and run it from there.';
+      'the wrong computer. The fix: move the whole program folder to a USB '
+      'stick or an external drive, and run it from there.';
   @override
   String get qLauncherSelfUpdate => 'Does this program update itself too?';
   @override
@@ -1603,22 +2494,28 @@ class _Faq extends FaqStrings {
       'pick "Otzaria" there. That site is in Hebrew only.';
 
   @override
-  String get contactTitle => 'Still have a question?';
+  String get contactTitle => 'Help on site';
 
   @override
-  String get editTooltip => 'Customise this guide';
+  String get contactLead => 'Help on site:';
+
   @override
-  String get editDoneTooltip => 'Done customising';
+  String get editButton => 'Edit';
+  @override
+  String get editDoneButton => 'Done';
+  @override
+  String get editTitle => 'Edit the common questions';
   @override
   String get editIntro =>
-      'Here you can hide questions that do not apply to you, add your own, and '
-      'put your details at the bottom of the list. Customisations are saved in '
-      'the folder beside the program and travel with it on the drive.';
+      'Hidden questions are not shown. Changes are saved on the drive.';
+  @override
+  String get editIntroThisComputer =>
+      'Hidden questions are not shown. Changes are saved on this computer.';
 
   @override
-  String get hideTooltip => 'Hide this question';
+  String get hideTooltip => 'Hide';
   @override
-  String get restoreTooltip => 'Bring this question back';
+  String get restoreTooltip => 'Show';
   @override
   String get hiddenLabel => 'hidden';
 
@@ -1654,17 +2551,11 @@ class _Faq extends FaqStrings {
       'them again at any time.';
 
   @override
-  String get contactCardTitle => 'My details at the bottom of the guide';
+  String get contactAutoSaveNote => 'Saved automatically.';
   @override
-  String get contactCardHint =>
-      'If you prepare drives for other people, put here who they should '
-      'contact. An empty field is simply not shown.';
-  @override
-  String get contactNameLabel => 'Name';
+  String get contactNameLabel => 'Contact name';
   @override
   String get contactPhoneLabel => 'Phone';
-  @override
-  String contactPhoneLine(String phone) => 'Phone: $phone';
 }
 
 class _SetupError extends SetupErrorStrings {
@@ -1674,7 +2565,7 @@ class _SetupError extends SetupErrorStrings {
   String get title => 'This program is in the wrong place';
   @override
   String get explanation =>
-      'The launcher keeps all of its data — the library, the plugins and the '
+      'The launcher keeps all of its data — the Otzaria library, the plugins and the '
       'Otzaria program itself — in a folder right next to it, so everything '
       'travels together on the drive. The current folder is blocked for '
       'writing — permissions, or a write-protected drive — and carries no '
@@ -1685,8 +2576,8 @@ class _SetupError extends SetupErrorStrings {
       'the drive, a burned disc, or read-only permissions) — remove the '
       'protection, download the updates, and then you can lock it again and '
       'install from it on any computer. Otherwise — move the whole program '
-      'folder onto the removable drive (or into any folder on disk that is '
-      'not under Program Files), and run it from there.';
+      'folder onto a USB stick or an external drive, and run it from '
+      'there.';
   @override
   String get attemptedDirTitle => 'Folder that was tried';
   @override
@@ -1712,11 +2603,19 @@ class _SetupError extends SetupErrorStrings {
   String get runningFromTemp =>
       'This program was started from inside a ZIP file or a temporary folder, '
       'and everything it downloads there would be deleted along with that '
-      'folder. Extract the file to the USB drive (or a permanent folder on '
-      'disk) and run it from there.';
+      'folder. Extract the file to a USB stick or an external drive and run '
+      'it from there.';
   @override
   String get runningFromTempTitle =>
       'Extract the file to a drive before running it';
+  @override
+  String get systemDrive =>
+      'This program carries the updates from one computer to another, so it '
+      'has to be on a USB stick or an external drive — not on the '
+      "computer's main drive. Copy the whole program folder (including the "
+      'app-files folder) to the portable drive and run it from there.';
+  @override
+  String get systemDriveTitle => 'Run the program from a portable drive';
   @override
   String get macVolumeAccessDenied =>
       'macOS did not allow this program to write to the folder next to it. '
@@ -1730,13 +2629,12 @@ class _ReadOnlyDrive extends ReadOnlyDriveStrings {
   const _ReadOnlyDrive();
 
   @override
-  String get bannerTitle => 'The drive is write-protected — read-only mode';
+  String get bannerTitle => 'The drive is write-protected';
   @override
   String get bannerSubtitle =>
-      'Installing and updating Otzaria, the library and the plugins all work '
-      'as usual: they write to this computer, not to the drive. Downloading '
-      'from the internet and updating this program itself are off — there is '
-      'nowhere to download to. Settings and the log are kept on this computer.';
+      'You can update this computer from it, but new updates and reports '
+      'cannot be saved on it. To change that, slide the lock switch on the '
+      'side of the drive and open the tool again.';
   @override
   String get downloadsDisabledSnack =>
       'The drive is write-protected — there is nowhere to download to. You '
@@ -1746,15 +2644,12 @@ class _ReadOnlyDrive extends ReadOnlyDriveStrings {
       'The drive is write-protected, so programs cannot be added, edited or '
       'removed here. Programs already on the drive install as usual.';
   @override
-  String get bannerTitleDriveFull => 'The drive is full — read-only mode';
+  String get bannerTitleDriveFull => 'The drive is full';
   @override
   String get bannerSubtitleDriveFull =>
-      'Installing and updating Otzaria, the library and the plugins all work '
-      'as usual: they write to this computer, not to the drive. Downloading '
-      'from the internet and updating this program itself are off because the '
-      'drive has no free space. To turn them back on, free up space on the '
-      'drive and restart the program. Meanwhile settings and the log are kept '
-      'on this computer.';
+      'Very little space is left on it, so updates cannot be downloaded to it '
+      'and reports cannot be saved. Free some space, or move the folder to a '
+      'larger drive, and open the tool again.';
   @override
   String get downloadsDisabledSnackDriveFull =>
       'The drive is full — there is nowhere to download to. Free up space on '
@@ -1785,17 +2680,15 @@ class _Elevation extends ElevationStrings {
       'grant this program Full Disk Access in System Settings → Privacy & '
       'Security → Full Disk Access, and then reopen it.';
   @override
-  String get dialogTitle => 'Administrator rights are needed';
+  String get bannerTitle => 'Administrator rights are needed';
   @override
-  String get dialogContent =>
-      'The action failed because the folder is not writable — usually the '
-      'case when Otzaria is installed under Program Files. Restart this '
-      'program with administrator rights and try again? Windows will ask for '
-      'confirmation.';
+  String get bannerContent =>
+      'The folder is protected from changes. The tool will reopen as '
+      'administrator, and then you can try again.';
   @override
-  String get dialogConfirm => 'Restart as administrator';
+  String get bannerConfirm => 'Restart as administrator';
   @override
-  String get dialogCancel => 'Not now';
+  String get bannerDismiss => 'Not now';
   @override
   String restartFailedSnack(String error) =>
       'Restarting as administrator failed: $error. You can close this program '
@@ -1838,48 +2731,10 @@ class _LauncherUpdate extends LauncherUpdateStrings {
   const _LauncherUpdate();
 
   @override
-  String get cardTitle => 'Update this program';
-  @override
-  String get cardHint =>
-      'Otzaria Updates itself. The update replaces the program only — your '
-      'data, your settings and the folder beside it stay exactly as they are.';
-  @override
   String installedVersion(String version) => 'Installed version: $version';
-  @override
-  String downloadedVersion(String version) => 'Downloaded version: $version';
-  @override
-  String onlineVersion(String version) => 'Version online: $version';
 
-  @override
-  String get statusUpToDate => 'Up to date';
-  @override
-  String get statusUpdateAvailable => 'A new version is available';
-  @override
-  String get statusReadyToInstall => 'Ready to install';
-  @override
-  String get statusDownloading => 'Downloading the new version';
-  @override
-  String get statusInstalling => 'Installing the new version';
-
-  @override
-  String get downloadButton => 'Download the new version';
   @override
   String get installButton => 'Install and restart';
-
-  @override
-  String get availableDialogTitle => 'Update for Otzaria Updates';
-  @override
-  String availableDialogContent(String version) =>
-      'Version $version of Otzaria Updates is available. Download it now?';
-  @override
-  String availableDialogDetail(String size) =>
-      'Download size: $size. The file is kept in the folder beside the '
-      'program, and the installation itself runs from the launcher — even on '
-      'a computer with no internet.';
-  @override
-  String get availableDialogConfirm => 'Download now';
-  @override
-  String get availableDialogCancel => 'Not now';
 
   @override
   String get readyDialogTitle => 'The new version is ready';
@@ -1907,15 +2762,11 @@ class _LauncherUpdate extends LauncherUpdateStrings {
       'waits for the download or install that is running right now.';
   @override
   String get installUnavailableNotice =>
-      'The version is ready, but the executable to replace was not found in '
-      'this run. The downloaded file sits in the mirror\\launcher folder '
-      'beside the program and can be swapped in by hand.';
+      'Close the tool, copy the new file from the folder below, and put it in '
+      "place of the tool's old file.";
 
   @override
   String get whatsNewHeading => "What's new:";
-
-  @override
-  String get versionTileTitle => 'Program version';
 
   @override
   String get changelogButton => 'Changelog';
@@ -1934,7 +2785,7 @@ class _LauncherUpdate extends LauncherUpdateStrings {
   @override
   String get mirrorMissing =>
       'The new version has not been downloaded to the folder beside the '
-      'program yet — run a download on a computer with internet.';
+      'program yet. Download updates to the drive on a computer with internet, from the home page.';
   @override
   String unsupportedPlatform(String operatingSystem) =>
       'Self-update is supported on Windows and macOS only '
@@ -1974,6 +2825,21 @@ class _LauncherUpdate extends LauncherUpdateStrings {
       'internet.';
 }
 
+const _englishMonths = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
 class _Units extends UnitStrings {
   const _Units();
 
@@ -1987,6 +2853,11 @@ class _Units extends UnitStrings {
   String megabytes(String amount) => '$amount MB';
   @override
   String gigabytes(String amount) => '$amount GB';
+  @override
+  String perSecond(String size) => '$size/s';
+  @override
+  String longDate(int day, int month, int year) =>
+      '${_englishMonths[(month - 1) % 12]} $day, $year';
 }
 
 class _LibraryDomain extends LibraryDomainStrings {
@@ -2025,14 +2896,14 @@ class _LibraryDomain extends LibraryDomainStrings {
       'No releases with database updates were found to download.';
   @override
   String exportPersonalFrom(int localVersion) =>
-      'Personal update: downloading update files from version $localVersion '
-      'onwards, without the full database';
+      'Only my computer: downloading update files from version '
+      '$localVersion onwards, without the full Otzaria library';
   @override
   String exportPersonalUpToDate(int localVersion) =>
       'Nothing newer than $localVersion — nothing was downloaded';
   @override
   String get exportPersonalVersionUnknown =>
-      'No local database version was detected — downloading the full database';
+      'The Otzaria library version on this computer was not detected — downloading the full library';
   @override
   String get exportPersonalMirrorDamaged =>
       'The library updates in the folder are damaged — downloading the full '
@@ -2146,13 +3017,13 @@ class _LibraryDomain extends LibraryDomainStrings {
   String exportPersonalNeedsFullDb(int fromVersion, int latestVersion) =>
       'There is no chain of update files that can carry version $fromVersion '
       'to version $latestVersion, so the full database is being downloaded — '
-      'even though a personal update normally skips it';
+      'even though downloading only for your computer normally skips it';
 
   @override
   String exportPersonalNoFullDbEither(int fromVersion, int latestVersion) =>
       'There is no chain of update files from version $fromVersion to '
       'version $latestVersion, and no full database for the latest version '
-      'either. Turn off "personal update" in the settings and download '
+      'either. Choose "Several computers" in the settings and download '
       'again.';
 
   @override
@@ -2185,16 +3056,16 @@ class _LibraryDomain extends LibraryDomainStrings {
       'know how to apply through update files';
   @override
   String planOtzariaTooOldForLibrary(int readableSchema, int latestVersion) =>
-      'Library release $latestVersion needs a newer Otzaria: the installed '
+      'Otzaria library release $latestVersion needs a newer Otzaria: the installed '
       'version reads databases up to schema $readableSchema only. Update '
       'Otzaria first, then the library.';
   @override
   String planStopsBeforeOtzariaSchema(int reachedVersion, int latestVersion) =>
-      'The library will be updated to release $reachedVersion. Release '
+      'The Otzaria library will be updated to release $reachedVersion. Release '
       '$latestVersion needs a newer Otzaria — update Otzaria to continue.';
   @override
   String libraryNeedsOtzariaUpdateFromDrive(String otzariaVersion) =>
-      'The drive carries Otzaria $otzariaVersion, which reads the new library: '
+      'The drive carries Otzaria $otzariaVersion, which reads the new Otzaria library: '
       'update Otzaria first, then the library.';
   @override
   String planPatchFormatTooNew(int patchFormatVersion, int latestVersion) =>
@@ -2209,7 +3080,7 @@ class _LibraryDomain extends LibraryDomainStrings {
   ) =>
       'The full database available for download only reaches version '
       '$reachableVersion, which is not newer than the version already '
-      'installed ($localVersion) — installing it would replace the library '
+      'installed ($localVersion) — installing it would replace the Otzaria library '
       'with an older version instead of updating it to version '
       '$latestVersion. The update was therefore not performed: a newer full '
       'database, or a newer version of the software, is needed.';
@@ -2281,7 +3152,7 @@ class _LibraryDomain extends LibraryDomainStrings {
   String patchUniqueConflictNeedsFullDownload(String table, String detail) =>
       'This patch does not fit the database on this computer: a unique-value '
       'conflict in table "$table". The incremental update was cancelled and '
-      'the database was left untouched. A full download of the library is '
+      'the database was left untouched. A full download of the Otzaria library is '
       'required. ($detail)';
   @override
   String foreignKeyViolationsGrew(int before, int after) =>
@@ -2431,11 +3302,11 @@ class _LibraryDomain extends LibraryDomainStrings {
       'backup';
   @override
   String planSchemaNeedsAppUpdate(int schemaVersion, int supportedSchema) =>
-      'The library moved to DB schema $schemaVersion, newer than supported '
+      'The Otzaria library moved to DB schema $schemaVersion, newer than supported '
       '(DB $supportedSchema) — an app update is required';
   @override
   String planSchemaBarrierNeedsFullDownload(int schemaVersion) =>
-      'The library moved to DB schema $schemaVersion; the change requires a '
+      'The Otzaria library moved to DB schema $schemaVersion; the change requires a '
       'full download';
   @override
   String planDeltaNeedsAppUpdate(
@@ -2474,8 +3345,7 @@ class _LibraryDomain extends LibraryDomainStrings {
 
   @override
   String get mirrorMissing =>
-      'No library updates have been downloaded into the local folder yet — '
-      'run a download on a computer with internet.';
+      'No Otzaria library updates have been downloaded to the drive yet. Download updates to the drive on a computer with internet, from the home page.';
   @override
   String get mirrorDamaged =>
       'The library updates in the local folder are damaged and cannot be '
@@ -2522,12 +3392,12 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String fileTooLargeForVolume(String dir) =>
       'The drive holding $dir is formatted as FAT32, which cannot store files '
-      'larger than 4 GB, and the library database is larger than that. Choose '
+      'larger than 4 GB, and the Otzaria library database is larger than that. Choose '
       'a location for the database on an NTFS or exFAT drive.';
   @override
   String installDirNotWritable(String dir, String detail) =>
       'The folder $dir could not be created ($detail). Choose another location '
-      'for the database through "Choose location manually" on the library '
+      'for the database through "Choose location manually" on the Otzaria library '
       'screen.';
   @override
   String mirrorNotEnoughDiskSpace(String dir, String needed, String free) =>
@@ -2540,17 +3410,17 @@ class _LibraryDomain extends LibraryDomainStrings {
       'the file is not locked.';
   @override
   String get localDbLocked =>
-      'Could not read the local library version because the database is '
+      'Could not read the local Otzaria library version because the database is '
       'locked, probably because Otzaria is open. Close Otzaria and check '
       'again.';
   @override
   String get localDbInterruptedWrite =>
-      'Could not read the local library version: the database was left in '
+      'Could not read the local Otzaria library version: the database was left in '
       'the middle of an interrupted write. Open and close Otzaria, then '
       'check again.';
   @override
   String get localDbReadOnlyLocation =>
-      'Could not read the local library version because its folder is '
+      'Could not read the local Otzaria library version because its folder is '
       'write-protected. Allow writing to the folder and check again.';
   @override
   String get zstdContextCreationFailed =>
@@ -2577,24 +3447,47 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get companionSemanticName => 'Smart search';
   @override
-  String get libraryChangesNotesName => "The library's what's-new list";
+  String get libraryChangesNotesName => "The Otzaria library's what's-new list";
   @override
   String get semanticDownloading => 'Downloading smart search files';
   @override
   String get semanticInstalling => 'Installing smart search';
   @override
-  String get semanticConsentTitle => 'Help Improve the Engine';
+  String get semanticConsentTitle => 'Help improve the engine';
+  @override
+  String get semanticConsentTerms =>
+      'This is experimental search, and your searches help improve it. Using it requires consent to send usage data: search terms, displayed results and their rankings, passages opened or rated (like / dislike) and time spent reading them, plus the app and operating system versions. Content from personal books is not sent. Recognized email addresses and file paths are masked in search text, but other personal details may still be sent. Do not include personal details in search text. You can revoke consent at any time in Otzaria settings; revoking it disables this search mode.';
   @override
   String get semanticConsentText =>
       'This is experimental search, and your searches help improve it. Using it requires consent to send usage data: search terms, displayed results and their rankings, passages opened or rated (like / dislike) and time spent reading them, plus the app and operating system versions. Content from personal books is not sent. Recognized email addresses and file paths are masked in search text, but other personal details may still be sent. Do not include personal details in search text. You can revoke consent at any time in settings; revoking it disables this search mode.\n\nConfirming enables consent in Otzaria settings. From then on, the app collects the data onto the drive and sends it to Otzaria whenever there is an internet connection, automatically and without notifications. The data, including search terms, is stored on the drive unencrypted until it is sent, together with the anonymous key that signs it.';
+  @override
+  String get semanticAskTitle => 'Smart search on this computer';
+  @override
+  String get semanticAskIntro =>
+      'The drive also carries smart search: search by meaning, which finds '
+      'sources even when the words differ from what you searched for. You can '
+      'install it now, together with the update.';
+  @override
+  String get semanticAskLater =>
+      'You will not be asked again on this computer. You can enable it later '
+      'in the settings of this tool; revoking is done in Otzaria settings.';
+  @override
+  String get semanticConsentNotSaved =>
+      "Couldn't save the consent in Otzaria settings, so smart search was not "
+      'installed. You can try again.';
+  @override
+  String get semanticConsentBlocked =>
+      "Otzaria's server has blocked training data from this computer, so smart "
+      'search cannot be enabled here.';
+  @override
+  String get semanticAskApprove => 'Agree and install smart search';
+  @override
+  String get semanticAskDecline => 'Continue without smart search';
   @override
   String get semanticConsentConfirm => 'I agree';
   @override
   String get semanticFeedbackFailed =>
       'Training data transfer did not finish. You can try again; details were saved to the log.';
-  @override
-  String get semanticDownloadPrompt =>
-      'Download smart search files for the offline computer too? The files may take several gigabytes. Smart search requires consent in Otzaria to collect training data. Downloading does not change that consent.';
   @override
   String get semanticConsentRequired =>
       'Smart search files are on the drive. Installing them requires consent to collect training data. You can agree here while Otzaria is closed, or enable consent in Otzaria settings and check again.';
@@ -2624,33 +3517,28 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String companionsInstallFailed(String names) =>
       'The database was updated, but installing the companion files ($names) '
-      'failed — so the library update will keep being offered.';
+      'failed — so the Otzaria library update will keep being offered.';
   @override
   String libraryLocationNeedsManualSetting(String dbPath) =>
-      'The library was installed in $dbPath, but Otzaria\'s settings could '
+      'The Otzaria library was installed in $dbPath, but Otzaria\'s settings could '
       'not be updated. Open Otzaria and point it at this folder in the '
       'library location screen.';
   @override
-  String companionsOnlyPending(String names) =>
-      'The database is up to date; companion files pending: $names';
-  @override
-  String companionsOnlyPrompt(String names) =>
-      'The database itself is up to date. The update will only install the '
-      'companion files: $names. Continue?';
-  @override
   String companionsMissingFromMirror(String names) =>
-      'Companion files listed in the mirror but missing from it: $names';
+      'Missing on the drive: $names. The download was probably interrupted. '
+      'To get it, download again on a computer with internet. The rest of '
+      'the update will install as usual.';
   @override
   String get companionsAbsentFromMirror =>
-      'The drive carries no companion files (Talmud Bavli, catalog, '
-      'dictionary), so they will not be installed. Check for updates and '
-      'download again on the online computer.';
+      'The drive does not have the Talmud Bavli, the catalog and the '
+      'dictionary, so they will not be installed. To get them, download '
+      'again on a computer with internet.';
 
   @override
   String applyDownloadingPatch(String step) => 'Downloading the update$step…';
   @override
   String applyApplyingPatch(String step) =>
-      'Applying the update to the database$step…';
+      'Updating the Otzaria library$step…';
   @override
   String applyPatchStage(String stage, String step) {
     switch (stage) {
@@ -2678,14 +3566,14 @@ class _LibraryDomain extends LibraryDomainStrings {
   }
 
   @override
-  String get applyDownloadingFullDb => 'Downloading the full database…';
+  String get applyDownloadingFullDb => 'Downloading the full Otzaria library…';
   @override
-  String get applyDecompressingFullDb => 'Extracting the database…';
+  String get applyDecompressingFullDb => 'Extracting the Otzaria library…';
   @override
   String get applyDecompressingAndVerifyingFullDb =>
       'Extracting the database and verifying its checksum…';
   @override
-  String get applyWritingFullDb => 'Writing the database…';
+  String get applyWritingFullDb => 'Writing the Otzaria library…';
   @override
   String get applyVerifying => 'Verifying…';
   @override
@@ -2738,16 +3626,13 @@ class _AppDomain extends AppDomainStrings {
   String get setupContinuesElsewhere =>
       'The installer is updating Otzaria in its own window — waiting for it '
       'to finish…';
-  @override
-  String get stopWaitingForSetup => 'Stop waiting';
 
   @override
   String get noInstallableReleaseForPlatform =>
       'No Otzaria version that can be installed on this platform was found.';
   @override
   String get mirrorEmptyRunDownload =>
-      'There is no Otzaria version in the local folder — run a download on a '
-      'computer with internet.';
+      'There is no Otzaria version on the drive. Download updates to the drive on a computer with internet, from the home page.';
   @override
   String get noOtzariaInstallFound =>
       'No Otzaria installation was found on this computer — install it, or '
@@ -2823,7 +3708,7 @@ class _AppDomain extends AppDomainStrings {
       'The installation finished, but Otzaria was not found on this computer '
       'within $timeoutSeconds seconds — neither in the list of installed '
       'programs nor in the known locations. If it was installed after all, '
-      'choose its folder manually on the Otzaria screen.';
+      'choose its folder manually on the "Otzaria — advanced" page.';
   @override
   String launchFileMissing(String launchPath) =>
       'The executable was not found at: $launchPath';
@@ -2902,12 +3787,12 @@ class _PluginsDomain extends PluginsDomainStrings {
   String get syncLoadingCatalog => 'Loading the plugin list from the site…';
   @override
   String syncPlugin(String name, int done, int total) =>
-      'Syncing: $name ($done/$total)';
+      'Updating: $name ($done/$total)';
   @override
   String syncDoneCounts(int fetched, int skipped) =>
       'Sync complete: $fetched plugins updated, $skipped already up to date';
   @override
-  String get syncCategories => 'Syncing the store categories…';
+  String get syncCategories => 'Updating the store categories…';
   @override
   String syncStructureFailed(String error) =>
       'Could not load the store structure from the site ($error) — keeping '
@@ -2977,8 +3862,7 @@ class _PluginsDomain extends PluginsDomainStrings {
   String get exportPreparing => 'Preparing the copy…';
   @override
   String get exportAppMissing =>
-      'The store program is not on this drive. Run "Download" on a computer '
-      'with internet.';
+      'The store program is not on this drive. Download updates to the drive on a computer with internet, from the home page.';
   @override
   String get exportCopyingApp => 'Copying the store program…';
   @override
@@ -3135,7 +4019,7 @@ class _CustomApps extends CustomAppsStrings {
   const _CustomApps();
 
   @override
-  String get screenTitle => 'Other Programs';
+  String get screenTitle => 'Other programs';
 
   // ── The card grid and the category rail ──
   @override
@@ -3143,13 +4027,7 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get allAppsItem => 'All programs';
   @override
-  String allAppsWithCount(int count) => 'All programs ($count)';
-  @override
   String get uncategorizedItem => 'Uncategorized';
-  @override
-  String get cardDetailsLink => 'Full details';
-  @override
-  String get backToApps => 'Back to programs';
 
   // ── The program page ──
   @override
@@ -3161,11 +4039,9 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get infoSource => 'Source';
   @override
-  String get infoSourceGithub => 'GitHub';
-  @override
   String get infoSourceFile => 'Manually picked file';
   @override
-  String get infoInstalled => 'On this computer';
+  String get infoInstalled => 'Installed on this computer';
   @override
   String get infoStored => 'On the drive';
   @override
@@ -3176,14 +4052,19 @@ class _CustomApps extends CustomAppsStrings {
   String get infoStoredAdded => 'Added to the drive';
   @override
   String get valueUnknown => 'Unknown';
+  @override
+  String get valueNo => 'No';
+  @override
+  String get installedNoVersionValue => 'Yes, version unknown';
+  @override
+  String get notStoredValue => 'Not downloaded yet';
 
   // ── Empty states ──
   @override
   String get emptyCategoryTitle => 'No programs here yet';
   @override
   String get emptyCategoryBody =>
-      'Programs are assigned to a category when you edit them, from the '
-      'management window in the settings.';
+      'You can assign programs to this category when editing them, in program management under Settings.';
   @override
   String get emptyUncategorizedTitle => 'Every program is assigned';
   @override
@@ -3194,11 +4075,8 @@ class _CustomApps extends CustomAppsStrings {
 
   // ── Managing categories ──
   @override
-  String get manageCategoriesButton => 'Manage categories';
-  @override
   String get categoriesDialogHint =>
-      'Categories travel on the drive together with the programs, and appear '
-      'as a side rail on the screen.';
+      'Categories travel on the drive with the programs and appear as chips above the list.';
   @override
   String get categoryNameLabel => 'Category name';
   @override
@@ -3207,6 +4085,8 @@ class _CustomApps extends CustomAppsStrings {
   String get categoryDescriptionLabel => 'Description (optional)';
   @override
   String get addCategoryButton => 'Add category';
+  @override
+  String get editCategoryTitle => 'Edit category';
   @override
   String get noCategoriesHint =>
       'No categories yet. Without them the screen shows every program '
@@ -3231,7 +4111,7 @@ class _CustomApps extends CustomAppsStrings {
   String get appCategoriesHint =>
       'A program can belong to several categories, or to none.';
   @override
-  String get longDescriptionLabel => 'Full description';
+  String get longDescriptionLabel => 'Full description (optional)';
   @override
   String get longDescriptionHint =>
       'What the program does, who it is for, and anything worth knowing. '
@@ -3239,13 +4119,13 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get iconLabel => 'Icon';
   @override
-  String get pickIconButton => 'Pick an icon';
+  String get pickIconButton => 'Choose image';
   @override
   String get pickIconDialogTitle => 'Pick an icon image';
   @override
   String get removeIconTooltip => 'Remove the icon';
   @override
-  String get extractIconButton => 'Extract from the executable';
+  String get extractIconButton => 'Extract from file';
   @override
   String extractedIconSnack(String fileName) =>
       'The icon was extracted from $fileName';
@@ -3269,89 +4149,67 @@ class _CustomApps extends CustomAppsStrings {
       count == 1 ? '$count image' : '$count images';
 
   @override
-  String get settingsCardTitle => 'Other Programs';
+  String get settingsCardTitle => 'Other programs';
   @override
-  String get settingsCardHint =>
-      'You can add your own programs, and this app will carry them on the '
-      'drive and install them on the offline computer — exactly as it does '
-      'for Otzaria. All management happens in the management window opened '
-      'from here; downloading and installing happen on the "Other Programs" '
-      'screen.';
+  String get manageRowTitle => 'Manage';
   @override
-  String get emptyHint => 'No programs added';
+  String manageRowSubtitle(int count) =>
+      '${count == 1 ? '$count program' : '$count programs'} on the drive · add, edit, order and categories';
   @override
-  String get addButton => 'Add a Program';
+  String get emptyHint => 'No programs yet · add, edit, order and categories';
   @override
-  String registeredAppCount(int count) =>
-      count == 1 ? '$count program registered' : '$count programs registered';
+  String get addButton => 'Add a program';
   @override
   String get openManagerButton => 'Manage programs';
 
   // ── The management window ──
   @override
-  String get manageDialogTitle => 'Manage Other Programs';
+  String get manageDialogTitle => 'Manage other programs';
   @override
   String get manageDialogHint =>
-      'Click a program to edit it. The registry is set once on the online '
-      'computer and travels on the drive as it is; downloading and '
-      'installing themselves happen on the "Other Programs" screen.';
+      'The programs kept on the drive, their order and categories.';
   @override
   String get orderHint =>
-      "Drag a card by its handle onto another card's place to reorder. This is the order "
-      'the programs appear in on the screen, and it travels on the drive.';
+      'Drag a row by its handle onto another, or use the arrows. This is the order the programs are shown in, and it travels on the drive.';
   @override
   String get moveAppEarlierTooltip => 'Move earlier';
   @override
   String get moveAppLaterTooltip => 'Move later';
   @override
   String get dragToReorderTooltip => 'Drag to reorder';
-  @override
-  String get formSectionDetails => 'Program details';
-  @override
-  String get formSectionSource => 'Installer source';
-  @override
-  String get formSectionInstall => 'Install and detection';
-  @override
-  String get formSectionMedia => 'Icon and images';
 
   @override
-  String get addDialogTitle => 'Add a Program';
+  String get addDialogTitle => 'Add a program';
   @override
-  String get editDialogTitle => 'Edit Program';
+  String get editDialogTitle => 'Edit program';
   @override
   String get nameLabel => 'Program name';
   @override
   String get nameHint => 'As it will appear in your list';
   @override
-  String get descriptionLabel => 'Description';
+  String get descriptionLabel => 'Short description';
   @override
   String get descriptionHint => 'A short line to remind you what this is';
   @override
-  String get installDirLabel => 'Install location';
+  String get installDirLabel => 'Installation folder';
   @override
   String get installDirHint =>
       'Can be left empty — the location is found by itself after the first '
       'install.';
   @override
-  String get pickInstallDirButton => 'Choose Folder';
+  String get pickInstallDirButton => 'Choose…';
   @override
   String get pickInstallDirDialogTitle => 'Choose the install folder';
 
   @override
-  String get sourceLabel => 'Where the program comes from';
-  @override
-  String get sourceGithub => 'From GitHub';
-  @override
-  String get sourceFile => 'From my own file';
-
-  @override
-  String get githubUrlLabel => 'GitHub repository address';
+  String get githubUrlLabel => 'Program address on the developer site';
   @override
   String get githubUrlHint => 'For example github.com/owner/repo';
   @override
-  String get githubUrlInvalid => 'That is not a GitHub repository address';
+  String get githubUrlInvalid =>
+      'That is not the address of a program on the developers\' site (GitHub)';
   @override
-  String get fetchAssetsButton => 'Show The Files';
+  String get fetchAssetsButton => 'Show the files';
   @override
   String get assetHint =>
       'A release usually holds several files. Pick the one that fits your '
@@ -3362,11 +4220,11 @@ class _CustomApps extends CustomAppsStrings {
   String assetsFromRelease(String tagName) => 'Files in release $tagName:';
 
   @override
-  String get pickInstallerButton => 'Choose File';
+  String get pickInstallerButton => 'Choose…';
   @override
   String get pickInstallerDialogTitle => 'Choose the installer file';
   @override
-  String installerKindSniffed(String kind) => 'Detected from the file: $kind';
+  String installerKindSniffed(String kind) => 'Detected: $kind';
   @override
   String get portableFileLabel => 'The file is the program itself';
   @override
@@ -3378,6 +4236,9 @@ class _CustomApps extends CustomAppsStrings {
   String get portableFileHint =>
       'Tick this when the file is not an installer but the program itself. '
       'On install you will be asked where to copy it, instead of running it.';
+  @override
+  String get portableDestinationHint =>
+      'Where to keep the program on each computer — you will be asked to choose a folder during installation.';
   @override
   String get pickCopyTargetDialogTitle => 'Where to copy the file';
   @override
@@ -3399,25 +4260,25 @@ class _CustomApps extends CustomAppsStrings {
       'file.';
 
   @override
-  String get saveButton => 'Add';
+  String get saveButton => 'Add to the drive';
   @override
   String get saveEditButton => 'Save';
   @override
   String get nameRequired => 'A program name is required';
   @override
   String get sourceRequired =>
-      'Choose a file, or a repository and a file in it';
+      'Choose a file, or an address and a file from it';
   @override
   String addedSnack(String name) => '$name was added';
   @override
   String updatedSnack(String name) => '$name was updated';
 
   @override
-  String get kindInno => 'Inno Setup';
+  String get kindInno => 'A regular installer';
   @override
-  String get kindNsis => 'NSIS';
+  String get kindNsis => 'A regular installer';
   @override
-  String get kindMsi => 'MSI';
+  String get kindMsi => 'A regular installer';
   @override
   String get kindZip => 'Archive';
   @override
@@ -3427,48 +4288,16 @@ class _CustomApps extends CustomAppsStrings {
       'Unrecognised installer — a normal install window will open';
 
   @override
-  String installedVersion(String version) => 'Installed: version $version';
-  @override
-  String get installedUnknownVersion =>
-      'Installed, but the version cannot be read';
-  @override
-  String get notInstalled => 'Not installed';
-  @override
-  String get noDetectRules => 'Cannot detect — no executable file name was set';
-  @override
-  String storedInstaller(String version) => 'On the drive: version $version';
-  @override
   String get noStoredInstaller => 'No installer downloaded yet';
 
   @override
-  String pendingDialogTitle(int count) =>
-      'Programs are waiting on the drive ($count)';
-  @override
-  String get pendingDialogIntro =>
-      'The drive carries installers that have not been installed on this '
-      'computer yet. Install them here, or later from the card of each '
-      'program.';
-  @override
-  String pendingDialogNotInstalledRow(String storedVersion) =>
-      'Version $storedVersion on the drive — not installed here yet';
-  @override
-  String pendingDialogUpdateRow(
-    String installedVersion,
-    String storedVersion,
-  ) =>
-      'Installed $installedVersion → on the drive $storedVersion';
-
-  @override
-  String get pendingDialogInstalledLabel => 'Installed';
-
-  @override
-  String get downloadButton => 'Download To Drive';
+  String get downloadButton => 'Download to drive';
   @override
   String get downloadingLabel => 'Downloading…';
   @override
-  String get checkOnlineButton => 'Check Online';
+  String get checkOnlineButton => 'Check online';
   @override
-  String get checkAllOnlineButton => 'Check All Programs Online';
+  String get checkAllOnlineButton => 'Check all programs online';
   @override
   String checkingAllOnlineLabel(int done, int total) =>
       'Checking online… ($done/$total)';
@@ -3485,7 +4314,7 @@ class _CustomApps extends CustomAppsStrings {
   String checkAllOnlineSomeFailed(int failed) =>
       '$failed programs could not be checked.';
   @override
-  String get downloadAllButton => 'Download All Updates';
+  String get downloadAllButton => 'Download all updates';
   @override
   String downloadingAllLabel(int done, int total) =>
       'Downloading updates… ($done/$total)';
@@ -3507,7 +4336,7 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get onlineUnavailable => 'No internet connection right now';
   @override
-  String get pickLocationButton => 'Choose Location Manually';
+  String get pickLocationButton => 'Choose location manually';
   @override
   String locationAdoptedSnack(String dir) => 'The program was found in $dir';
   @override
@@ -3518,26 +4347,23 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String installedSnack(String name) => '$name was installed';
   @override
-  String get trustDialogTitle => 'A program added on another computer';
+  String get trustDialogTitle => 'Install a program that was not checked?';
   @override
   String trustDialogContent(String name, String source) =>
-      '"$name" was not added on this computer — it came on the drive from '
-      'elsewhere ($source). Installing runs its installer on this computer. '
-      'Continue only if you know who added it and what it is.';
+      '"$name" was added to the drive on another computer and has not been approved on this one. '
+      'Install it only if you trust whoever added it${source == name ? '' : ' ($source)'}.';
   @override
-  String get trustDialogConfirm => 'I trust this program, install';
+  String get trustDialogConfirm => 'Install anyway';
   @override
-  String get unverifiedDialogTitle => 'An installer without a fingerprint';
+  String get unverifiedDialogTitle => 'Install a file that was not checked?';
   @override
   String unverifiedDialogContent(String fileName) =>
-      '$fileName has no stored fingerprint (sha256), so there is no way to '
-      'tell whether it is the file that was originally added. Approving '
-      'computes and stores it now; from then on any change to the file is '
-      'blocked.';
+      'No identifying mark was saved for $fileName, so there is no way to make sure it was not changed. '
+      'If you continue, the mark is computed and saved, and any later change to the file is blocked.';
   @override
-  String get unverifiedDialogConfirm => 'Verify and save';
+  String get unverifiedDialogConfirm => 'Install anyway';
   @override
-  String get learningLabel => 'Identifying the installation...';
+  String get learningLabel => 'Identifying the installation…';
   @override
   String learnedDetectionSnack(String exeName) =>
       'From now on it will be recognised automatically, by $exeName';
@@ -3551,18 +4377,66 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get editTooltip => 'Edit';
   @override
-  String get removeTooltip => 'Remove from list';
+  String get removeTooltip => 'Remove from the drive';
   @override
-  String get removeDialogTitle => 'Remove From List';
+  String removeDialogTitle(String name) => 'Remove "$name" from the drive?';
   @override
   String removeDialogContent(String name) =>
-      '$name will be removed from the list, and its stored file will be '
-      'deleted from the drive.\n\n'
-      'The program itself will not be uninstalled from this computer.';
+      '"$name" will be removed from the list and its file deleted from the drive. '
+      'It will not be uninstalled from computers that already installed it.';
   @override
   String get removeDialogConfirm => 'Remove';
   @override
   String removedSnack(String name) => '$name was removed';
+
+  @override
+  String get screenSubtitle =>
+      'Programs saved on the drive so you can install them on computers without internet.';
+  @override
+  String get showAllAppsButton => 'Show all programs';
+  @override
+  String get sourceGithubShort => 'From the developer site (GitHub)';
+  @override
+  String get sourceFileShort => 'From a file';
+  @override
+  String versionLabel(String version) => 'Version $version';
+  @override
+  String updateToButton(String version) => 'Update to $version';
+  @override
+  String get onlineNotChecked => 'Not checked yet';
+  @override
+  String get emptyReadOnlyBody =>
+      'This drive is write-protected, so programs cannot be added to it.';
+  @override
+  String get manageEmptyTitle => 'No programs added yet';
+  @override
+  String get manageEmptyBody =>
+      'You can keep a program on the drive to install on computers without internet — from a file on this computer, or from the developer site (GitHub) so it updates by itself.';
+  @override
+  String get noCategoriesTitle => 'No categories';
+  @override
+  String get orderSectionTitle => 'Programs in the order they are shown';
+  @override
+  String get formStepSource => 'Where is the program from?';
+  @override
+  String get formStepGithubFile => 'Which file?';
+  @override
+  String get formStepLocalFile => 'Choose the file';
+  @override
+  String get formStepDetails => 'Program details';
+  @override
+  String get sourceGithubOption =>
+      'From the developer site — GitHub (recommended)';
+  @override
+  String get sourceGithubOptionHint =>
+      'The program updates by itself with every download to the drive.';
+  @override
+  String get sourceFileOption => 'A file on this computer';
+  @override
+  String get sourceFileOptionHint =>
+      'An installer, or a program that needs no installation.';
+  @override
+  String get fileLabel => 'The file';
 }
 
 String _reports(int count) => count == 1 ? 'report' : 'reports';
@@ -3597,17 +4471,19 @@ class _ErrorReports extends ErrorReportsStrings {
   String collectFailedSnack(String error) =>
       'Collecting the reports failed: $error';
   @override
+  String get collectDisclosureRefreshedSnack =>
+      'More data to collect was found — review the details above the button and click again.';
+  @override
   String get collectOtzariaOpenSnack =>
       'Otzaria is open, so the reports were not collected. You will be asked '
       'again once Otzaria is closed';
   @override
-  String get legacyReportsDialogTitle => 'Old reports that were not migrated';
+  String get legacyReportsDialogTitle =>
+      'Old reports found that cannot be sent';
   @override
   String get legacyReportsDialogContent =>
-      'This computer still has reports saved by an old version of Otzaria, in '
-      'a format the current Otzaria no longer migrates. Otzaria Offline Update '
-      'therefore cannot collect them either.\n\n'
-      'All other reports are collected and sent as usual.';
+      'An old version of Otzaria saved them in a form that is no longer sent. '
+      'All other reports are sent as usual.';
 
   @override
   String get introDialogTitle => 'Reports to Otzaria and plugin developers';
@@ -3630,9 +4506,6 @@ class _ErrorReports extends ErrorReportsStrings {
   String get introDialogConfirm => 'Got it';
 
   @override
-  String uploadButton(int count) =>
-      'Upload $count ${_reports(count)} to Otzaria';
-  @override
   String get uploadLongDialogTitle => 'Uploading reports';
   @override
   String uploadLongDialogContent(int count, int perMinute, int minutes) =>
@@ -3644,7 +4517,7 @@ class _ErrorReports extends ErrorReportsStrings {
   String get uploadLongDialogConfirm => 'Start';
   @override
   String uploadingStage(int done, int total) =>
-      'Uploading reports... ($done/$total)';
+      'Sending reports · $done of $total';
   @override
   String uploadWaitingStage(int seconds) =>
       'Waiting for the server — continuing in $seconds seconds';
@@ -3656,6 +4529,9 @@ class _ErrorReports extends ErrorReportsStrings {
   @override
   String uploadPendingUnchecked(int count) =>
       '$count ${_reports(count)} waiting to be uploaded. The network connection has not been checked yet — check the connection to upload';
+  @override
+  String get uploadingFeedbackStage =>
+      'Sending the smart search improvement data…';
   @override
   String get uploadCollectingBusy =>
       'Reports are being collected right now. Try again in a moment';
@@ -3700,53 +4576,34 @@ class _AppReports extends AppReportsStrings {
   const _AppReports();
 
   @override
-  String get cardTitle => 'Problem reports';
-  @override
-  String get reportTileTitle => 'Report a problem with this app';
-  @override
-  String get reportTileSubtitle =>
-      'A bug, a crash, a performance problem or a suggestion';
-  @override
-  String get openFormButton => 'Open report form';
-  @override
-  String get crashModeTitle => 'Reporting after an unexpected exit';
+  String get crashModeTitle => 'After the tool closes unexpectedly';
   @override
   String get crashModeSubtitle =>
-      'What to do when the app finds it did not close properly';
+      'A short report to the developers: version and system details, an '
+      'excerpt of the activity log and the email you saved in the report '
+      'form, if any. Paths and the user name are hidden.';
   @override
-  String get crashModeAsk => 'Ask me';
+  String get crashModeAsk => 'Ask';
   @override
-  String get crashModeAlways => 'Send automatically';
+  String get crashModeAlways => 'Always send';
   @override
-  String get crashModeNever => 'Never';
+  String get crashModeNever => 'Do not send';
   @override
-  String get manageTileTitle => 'Your reports';
+  String get manageTileTitle => 'Problem reports';
   @override
   String manageTileSubtitle(int pending, int sent) => pending == 0
       ? 'No reports waiting · $sent sent'
       : '$pending waiting · $sent sent';
-  @override
-  String get manageButton => 'Show reports';
 
   @override
-  String get manageDialogTitle => 'Your reports';
-  @override
   String get manageDialogIntro =>
-      'Reports about problems in this app. A report becomes a public issue on '
-      'GitHub; diagnostic files are visible to the developers only. A report '
-      'that could not be sent is kept and sent once there is a connection.';
-  @override
-  String get pendingSectionTitle => 'Waiting reports';
-  @override
-  String get pendingEmpty => 'No reports are waiting right now';
-  @override
-  String pendingCount(int count) => count == 1
-      ? '1 report is waiting to be sent'
-      : '$count reports are waiting to be sent';
+      'Reports about this tool itself. The description is published on the '
+      "developers' site where anyone can read it; diagnostic files are "
+      'visible to the developers only.';
   @override
   String get sendNowButton => 'Send now';
   @override
-  String get clearPendingButton => 'Clear reports';
+  String get clearPendingButton => 'Delete all';
   @override
   String get sendOneButton => 'Send';
   @override
@@ -3756,15 +4613,13 @@ class _AppReports extends AppReportsStrings {
   @override
   String get sentSectionTitle => 'Sent reports';
   @override
-  String get sentEmpty => 'No reports have been sent yet';
-  @override
   String sentSummary(int shown, int total) =>
       shown == total ? '$total sent' : '$total sent; showing the latest $shown';
   @override
-  String get clearSentButton => 'Clear all history';
+  String get clearSentButton => 'Clear history';
   @override
   String openIssueButton(int? number) =>
-      number == null ? 'Open on GitHub' : 'Open issue #$number';
+      number == null ? 'Open the report' : 'Open report #$number';
   @override
   String get mergedLabel => 'Added to an existing report';
   @override
@@ -3971,4 +4826,14 @@ class _AppReports extends AppReportsStrings {
       'Settings.';
   @override
   String get crashFallbackTitle => 'Unexpected exit';
+  @override
+  String get crashAutoSentSnack =>
+      'The tool closed unexpectedly last time. A short report was sent to the '
+      'developers, or will be once there is a connection. You can change this '
+      'in the settings.';
 }
+
+/// "about 3 to 5 minutes"; a collapsed range — "about 2 minutes".
+String _minutesRange(int low, int high) => low == high
+    ? plural(low, one: 'about a minute', many: 'about $low minutes')
+    : 'about $low to $high minutes';

@@ -6,11 +6,10 @@ import 'package:flutter/material.dart';
 import '../self_update/payload_check.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/widgets_exports.dart';
+import 'tasks/task_parts.dart';
 
-/// מוצג במקום האפליקציה כשקובץ ההרצה וערמת הקבצים שלצידו הם משתי גרסאות
-/// שונות (ראו [PayloadCheck]). כמו [SetupErrorScreen] אין כאן "המשך בכל
-/// זאת": זה בדיוק המצב שמסתיים בקריסה, והפעולה שמתקנת אותו היא סגירה
-/// ופתיחה מחדש — ה-stub משלים אז את החילוץ בעצמו.
+/// קובץ ההרצה והקבצים שלצידו משתי גרסאות ([PayloadCheck]). אין "המשך":
+/// זה המצב שמסתיים בקריסה, וסגירה ופתיחה מחדש משלימות את החילוץ.
 class PayloadMismatchScreen extends StatelessWidget {
   const PayloadMismatchScreen({
     super.key,
@@ -29,73 +28,64 @@ class PayloadMismatchScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final cs = Theme.of(context).colorScheme;
     final t = context.strings.payloadMismatch;
+
+    Widget version(String label, String value) => Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(text: '$label: '),
+                TextSpan(
+                  text: value,
+                  style: TextStyle(
+                    color: cs.onSurface,
+                    fontWeight: AppTextStyles.semibold,
+                  ),
+                ),
+              ],
+            ),
+            textAlign: TextAlign.center,
+            style: AppTextStyles.body.copyWith(color: cs.onSurfaceVariant),
+          ),
+        );
 
     return Scaffold(
       backgroundColor: AppSurfaces.panelBackground(context),
       body: Column(
         children: [
-          AppTitleBar(screenTitle: '', showWindowButtons: showWindowButtons),
+          AppTitleBar(showTitle: false, showWindowButtons: showWindowButtons),
           Expanded(
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 620),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(AppTokens.spaceLG),
-                  child: AppCard(
-                    padding: const EdgeInsets.all(AppTokens.spaceLG),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              FluentIcons.warning_24_regular,
-                              color: theme.colorScheme.error,
-                            ),
-                            const SizedBox(width: AppTokens.spaceSM),
-                            Expanded(
-                              child: Text(
-                                t.title,
-                                style: theme.textTheme.titleMedium
-                                    ?.copyWith(fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: AppTokens.spaceMD),
-                        Text(t.explanation, style: theme.textTheme.bodyMedium),
-                        const SizedBox(height: AppTokens.spaceMD),
-                        Text(t.whatToDo, style: theme.textTheme.bodyMedium),
-                        const SizedBox(height: AppTokens.spaceMD),
-                        SettingsActionTile.text(
-                          icon: FluentIcons.box_24_regular,
-                          title: t.runningVersionTitle,
-                          subtitle: mismatch.runningVersion,
-                          subtitleLtr: true,
-                        ),
-                        SettingsActionTile.text(
-                          icon: FluentIcons.document_24_regular,
-                          title: t.expectedVersionTitle,
-                          subtitle: mismatch.stubVersion,
-                          subtitleLtr: true,
-                        ),
-                        const SizedBox(height: AppTokens.spaceMD),
-                        CardActionsRow(
-                          actions: [
-                            ActionButton.recommended(
-                              text: t.closeButton,
-                              icon: FluentIcons.dismiss_24_regular,
-                              onPressed: onClose ?? () => exit(0),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+            child: TaskResult(
+              badge: const ResultBadge(
+                kind: ResultBadgeKind.error,
+                icon: FluentIcons.warning_24_regular,
               ),
+              title: t.title,
+              body: t.explanation,
+              extra: [
+                const SizedBox(height: 10),
+                Text(
+                  t.whatToDo,
+                  textAlign: TextAlign.center,
+                  style:
+                      AppTextStyles.body.copyWith(color: cs.onSurfaceVariant),
+                ),
+                const SizedBox(height: 10),
+                version(t.runningVersionTitle, mismatch.runningVersion),
+                version(t.expectedVersionTitle, mismatch.stubVersion),
+              ],
+              actions: [
+                ActionButton.recommended(
+                  text: t.closeButton,
+                  icon: FluentIcons.dismiss_24_regular,
+                  size: ActionButtonSize.lg,
+                  expand: true,
+                  autofocus: true,
+                  onPressed: onClose ?? () => exit(0),
+                ),
+              ],
             ),
           ),
         ],

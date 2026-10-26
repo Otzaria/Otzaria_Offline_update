@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:launcher_app/src/services/offer_decline.dart';
 import 'package:launcher_app/src/services/report_offer_coordinator.dart';
 
 void main() {
@@ -190,13 +189,5 @@ void main() {
     });
     coordinator.dispose();
     expect(performed, 0);
-  });
-
-  test('a decline also covers reports left after the count drops', () {
-    final decline = OfferDecline()..mark(5);
-    expect(decline.filter(5), 0);
-    expect(decline.filter(6), 6);
-    expect(decline.filter(2), 0);
-    expect(decline.filter(3), 0);
   });
 }

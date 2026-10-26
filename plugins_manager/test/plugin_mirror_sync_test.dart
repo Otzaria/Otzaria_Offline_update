@@ -704,6 +704,7 @@ void main() {
       expect(second.requestsMatching('/image'), isEmpty);
       expect(second.requests.where((r) => r.contains('shot-')), isEmpty);
       expect(outcome.fetched, 0);
+      expect(outcome.cancelled, isFalse);
       expect(
         outcome.catalog.plugins.first.remoteImageUrl,
         '/api/plugins/a/image',
@@ -1220,6 +1221,8 @@ void main() {
 
       expect(warningsOf(events), isEmpty);
       expect(outcome.failed, isEmpty);
+      // המסך אומר "נעצר" לפי זה — לא לפי הלחיצה עצמה.
+      expect(outcome.cancelled, isTrue);
       final byId = {for (final p in outcome.catalog.plugins) p.id: p};
       expect(byId['a']!.localFiles.keys, ['1.0.0']);
       expect(byId['b']!.localFiles.keys, ['2.0.0']);

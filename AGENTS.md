@@ -91,6 +91,14 @@ uploading the error reports the drive collected (§5.10). The two deliberate
 exceptions, sent without a click, are the launcher's **own** problem reports
 and the smart-search feedback the drive carries (§5.10).
 
+**There are no modes to choose — the home page derives what to do from the
+state.** `deriveHomeGuidance` (`launcher_app/lib/src/shell/home_guidance.dart`,
+pure Dart, table-tested) turns what is installed here, what is on the drive and
+whether a check reached the network into one sentence and one primary button:
+update this computer from the drive, download updates to the drive, or "everything
+is up to date". A machine that is not connected is a hint there, never an error.
+Nothing about it is a stored flag or a question to the user.
+
 | Step | API | Network |
 | --- | --- | --- |
 | Download library updates + companions | `LibraryManager.downloadToMirror()` | **yes**, heavy |
@@ -108,7 +116,7 @@ and the smart-search feedback the drive carries (§5.10).
 | Collect + upload smart-search feedback | `SearchFeedbackController.synchronize()` | **yes**, light — background, see §5.10 |
 
 The "peek" calls exist only for the optional, one-shot, on-launch "is there
-anything new online?" nudge (`AppShell.checkOnline()`,
+anything new online?" nudge (`AppSession.checkOnline()`,
 `AppSettings.autoCheckUpdates`) — metadata only, never an asset, and a failure
 (no network) is a normal silent outcome. **All four modules must be in that
 call**: the plugin store was missing from it for its whole life, so a new plugin
@@ -121,7 +129,12 @@ was announced by nothing while the launcher said "no new updates online".
 that is what makes the drive self-contained. If it is not writable (the app was
 moved into `Program Files`), the launcher shows `SetupErrorScreen` and refuses to
 run rather than falling back to `%APPDATA%`, which would leave the data behind on
-the online machine.
+the online machine. On Windows it also refuses the system drive
+(`AppPathsFailure.systemDrive`, `AppPaths.isOnSystemDrive`): the tool must live
+on a portable drive. Any other letter, fixed external disks included, and UNC
+paths are allowed; dev runs are exempt because only the stub sets
+`OTZARIA_LAUNCHER_STUB`, which is the path checked. The stub refuses first
+(see §5.8); the Dart check is defense in depth.
 
 ```
 mirror/library/     releases.json + assets/                               ← LibraryManager.mirrorDir
@@ -189,7 +202,7 @@ only repo tooling; the update engine is an external package (below).
 | `plugins_manager/` | `plugins_manager` | Pure Dart. The **offline plugin store**: syncs `otzaria.org/api/plugins` into the mirror, detects what Otzaria has, installs via `otzaria://`. Converted from `Yehuda-Zakesh/Offline-repository-plugin-store` (itself derived from `Otzaria/Otzaria_Website`); details in `plugins_manager/README.md`. |
 | `custom_apps_manager/` | `custom_apps_manager` | Pure Dart. **User-added programs**: a record filled in a form (name, GitHub repo *or* local installer, install location, detection rules) so the drive can carry a program that is not Otzaria. Not a plugin system — no runtime, no WebView, no permissions, and **no importing a record from a file**, so every repo and file was chosen by the user. |
 | `error_reports_manager/` | `error_reports_manager` | Pure Dart. **Otzaria's unsent book, app and plugin reports**, carried offline → online: read Otzaria's queues in `user_state.db` directly (Otzaria unchanged), port of its `toApiPayload`, a drive outbox, upload to `otzaria.org` in rate-limited batches — **and the launcher's own problem reports** (a port of Otzaria's app reports, routed by `product`), with their queue and crash detection. See §5.10. |
-| `launcher_app/` | `launcher_app` | The Flutter desktop app (Windows + macOS) wiring the modules into one dashboard. Depends on the seven sub-packages by relative `path:`, so it must stay their sibling. |
+| `launcher_app/` | `launcher_app` | The Flutter desktop app (Windows + macOS) wiring the modules into one window. Depends on the seven sub-packages by relative `path:`, so it must stay their sibling. |
 
 Producer vs. consumer: the Kotlin repo `Otzaria/SeforimLibrary` *produces* the DB
 and the patches; this repo only *consumes* them.
@@ -278,7 +291,8 @@ dart analyze                       # all pure-Dart packages, including otzaria_d
   only decided at publish time, so `tool/changelog.sh stamp` (run by
   `set_launcher_version.sh`) adds the `* **0.N**` heading above them, and the
   Release workflow's `guard` job fails when there is nothing unheaded to stamp.
-  That file is what "מה התחדש" shows, in the update dialogs and in Settings.
+  That file is what "מה חדש" shows, on the "update this tool" page (reached from
+  the home page's status bar and from Settings → About).
   **Bug fixes alone require neither a changelog entry nor a question about one.**
   For other changes, ask the maintainer whether they warrant a changelog entry
   before editing that file, and follow their answer. Before release, document the
@@ -316,15 +330,21 @@ dart analyze                       # all pure-Dart packages, including otzaria_d
 - Do not create Markdown files for plans, progress logs or summaries — report those
   in the conversation or the PR. Durable references go into an existing document.
 
-**UI in `launcher_app` follows Otzaria's design system, not its own.**
-`launcher_app/lib/src/theme/` and `lib/src/widgets/` are ports of
-`otzaria/lib/theme/` and `otzaria/lib/widgets/`. Use the ported components
-(`ActionButton`, `SettingsCard`/`SettingsActionTile`, `AppCard`, `UiSnack`, the
-`show*Dialog` helpers, `AppSegmentedControl`, `RtlIcon`, `RtlTextField`,
-`StatusChip`, `ColorPickerTile`) instead of raw Material widgets, and keep
-alpha/hover overrides inside `lib/src/theme/`. The full rule table — including what
-deliberately was *not* ported — is in `launcher_app/README.md`; the upstream
-contract is `otzaria/AGENTS.md` § "MANDATORY UI Components".
+**UI in `launcher_app` follows the design language of Otzaria's Download
+Assistant.** One fixed light theme (`AppThemeData.light()`: seed `#2C1B02`,
+`Segoe UI`, radius 8, no shadows); there is no dark mode and no colour choice, and
+the old `ui.themeMode`/`ui.seedColor` keys are dropped on the next save. The
+`ColorScheme` roles plus the `AppPalette` theme extension carry every colour
+(hex-checked against the mockup in `test/theme_test.dart`),
+`AppTokens`/`AppTextStyles` every size. Window size and placement are the runner's
+job and navigation is in-body (both §5.9). Use the shared components (`ActionButton`
+with its sizes, `SettingsCard`/`SettingsActionTile`, `AppCard`/`RowsCard`/`AppRow`,
+`UiSnack`, the `show*Dialog` helpers, `AppSegmentedControl`, `StatusChip`,
+`IconTile`, `SectionLabel`, `AdvancedSection`, `OptionCard`, `FormCheckRow`,
+`ResultBadge`, `AppProgressBar`, `TaskFrame`/`StageRow`, `SubPageHeader`,
+`EmptyState`, `NoticeBanner`, `PathText`, `RtlIcon`, `RtlTextField`) instead of raw
+Material widgets, and keep alpha/hover overrides inside `lib/src/theme/`. The full
+rule table is in `launcher_app/README.md`.
 
 **All user-visible text lives in `otzaria_l10n`, never inline.** The launcher ships
 in Hebrew and English, defaulting to the system language
@@ -348,15 +368,48 @@ Hebrew is the source, English a free translation of it.
   home texts) is **never** translated — only the chrome around it, plus the
   store-title fallback for an empty field.
 - Direction comes from the locale alone (`GlobalWidgetsLocalizations`); never set
-  `Directionality` by hand. Exactly two exceptions, pinned by an allowlist in
+  `Directionality` by hand. Exactly one exception, pinned by an allowlist in
   `launcher_app/test/widgets_test.dart`: `UiSnack` (lives in an `Overlay`, reads
-  `AppL10n.language.isRtl`) and `SeedColorPalette` (forces RTL so the swatch order
-  does not mirror). A third is a bug, not a precedent. For back/forward arrows use
-  `context.backArrowIcon` / `context.forwardArrowIcon`: `RtlIcon` mirrors arrows
-  under RTL, so those helpers hand it the *opposite* glyph and the result is
-  identical in both languages. On a `Text`, pass `textDirection: TextDirection.ltr`
+  `AppL10n.language.isRtl`). A second is a bug, not a precedent. **Give arrows and chevrons their LTR glyph
+  and nothing else** (back = `arrow_left`, forward = `chevron_right`): Fluent
+  marks them `matchTextDirection`, so `Icon` already mirrors them under RTL; an
+  `isRtl ?` swap or an `RtlIcon` map entry flips them back, which pointed every
+  tile chevron the wrong way (`drawnArrow` in `test/test_harness.dart` pins it). On a `Text`, pass `textDirection: TextDirection.ltr`
   only for inherently LTR content (paths, emails, versions, hashes, URLs); never
   pass `TextDirection.rtl` — the locale already sets it.
+- **A version, drive, path, file name, tag or URL inside a Hebrew template goes
+  through `_ltr()`** in `strings_he.dart` (LRI…PDI). Unisolated, "0.10.5-beta" renders
+  as "beta-0.10.5" and "C:" as ":C". `otzaria_l10n/test/ltr_isolation_test.dart`
+  scans every template whose parameter is named that way. Sizes keep their own rule
+  below.
+- **A string that tells the user to press something quotes its exact label.**
+  `otzaria_l10n/test/button_quotes_test.dart` checks every Hebrew quote against the
+  labels in `strings_he.dart`; a label outside this tool (Windows, Otzaria's own
+  settings, a website) goes on its `_external` list. Button labels are action nouns
+  ("שליחה", "פתיחת התיקייה", "פתיחת אוצריא"), except "נסה שוב" and "בדוק שוב".
+- **Hebrew addresses the user in masculine singular, as Otzaria does** ("לחץ", "בחר",
+  "שלך"); impersonal forms ("יש ל…", "אפשר ל…") are fine. The search index is
+  "אינדקס החיפוש", Otzaria's own term. The library is "ספריית אוצריא" ("the
+  Otzaria library") in every title, label and first mention (maintainer,
+  2026-10-26); a later "הספרייה" in the same text is fine.
+- **Counts go through `plural(count, one:, two:, many:)`**, never `'$n דקות'`: the
+  singular is spelled out ("תוסף אחד") and so is the Hebrew dual ("שתי דקות"). Such a
+  field is listed in `_spelledOne` / `_spelledTwoInHebrew` in
+  `otzaria_l10n/test/strings_completeness_test.dart`, which otherwise demands the digit.
+- **Sizes go through `formatBytes` / `formatRate`** (`services/byte_size.dart`): in
+  Hebrew the number and Latin unit sit inside LRI…PDI with a non-breaking space, GB
+  with one decimal, MB whole. A size typed into text uses the same form: in Hebrew
+  number and unit together in one isolate, in English "1.5 GB". A unit without a
+  number is a word ("כמה ג׳יגה־בייט", "tens of megabytes"), never "GB" alone
+  (`otzaria_l10n/test/units_format_test.dart`). The log, "copy details" and a manual
+  copy from the technical details drop those marks through `withoutBidiMarks`, so a
+  search for "403 MB" finds them.
+- **Store dates use the website's Hebrew format** (`ט' חשוון ה'תשפ"ז`, English
+  "October 20, 2026") through `services/timestamps.dart`. A catalogue date is read
+  in UTC like the site (`formatStoreDate`, `formatStoreDateRaw`); an instant recorded
+  on this machine ("as of" the sync, "added to the drive") goes through
+  `formatStoreLocalDate` — read in UTC it showed yesterday after midnight. Other
+  timestamps stay Gregorian (`formatTimestamp`, `formatDate`).
 
 ---
 
@@ -534,14 +587,38 @@ run all three every time, so two new plugins also re-ran the app and library
 downloads — minutes of progress bars for nothing. A component is skipped when
 `provenUpToDateOnline` (`controllers/online_check.dart`) says the light check
 *proved* there is nothing new: checked, no error, no update. Before deciding,
-`AppShell._refreshStaleOnlineChecks` re-runs, in parallel, the check of every
+`AppSession._refreshStaleOnlineChecks` re-runs, in parallel, the check of every
 selected component that `onlineCheckNeedsRefresh` calls stale (never ran, failed,
 or older than `onlineCheckMaxAge`, 15 minutes): a morning check must not skip an
 app released at noon. A check that never ran
 or that failed proves nothing and never skips — "no network" is not "no update".
 The library is never skipped in personal-update mode, where the target comes from
-the recorded DB version. The skip is announced in a snackbar; a silent one produced
-the "why did it not download the plugins" confusion.
+the recorded DB version. The skip is named on the "drive is ready" task screen; a
+silent one produced the "why did it not download the plugins" confusion.
+
+**A download that finds nothing to run opens no result screen — and is never
+silent.** A stale "new online" used to end in a task screen saying "nothing was
+downloaded". The flow calls `downloadFoundNothing`, and `AppSession.foundNothing`
+makes the home say so in every primary: "checked again" when a check just ran,
+otherwise "nothing new" — each with the time of the latest successful check of a
+selected component. Cleared by a check, the next download or a settings change.
+
+**"Everything is up to date" needs every selected component's own check.**
+`online` is true when any check succeeded — the launcher's own one included —
+so a failed library check read as "up to date". `onlineProofOf`: all selected
+succeeded (stale too) → up to date; all failed → offline "installed here", not
+a failure; some failed while connected → `checkFailed`. `checkOnline` keeps the
+previous answer, a failure included, until the new one (clearing it flashed
+"connected, up to date" offline). Smart search counts only in "always"
+(`onlineAnswerError`); Shabbat is unchecked, not failed.
+
+**The home's download sizes are upper bounds known before the click.** Counting
+every patch showed 4.8GB for a 2.5GB download (v32), so `mirrorDownloadBytesBound`
+applies the exporter's rules that need no manifest (rules in `library_manager`
+README); it must never fall below the real download, and an older full DB the
+exporter may reuse means `null`. App: `OtzariaModuleController.onlineDownloadBytes`;
+plugins have none. No bound means no number — never `probeMirrorDownloadBytes`
+before a click: it runs the real export planning.
 
 **Filtered networks get their own messages and NetFree's CA.** A filter answers
 418 (or 403) and a NetFree MITM breaks TLS; both read as a bare "status 418" or a
@@ -560,12 +637,41 @@ never got it, and `companions=[]` on the offline machine hid it (issue #33).
 `CompanionAssetsMirror.peekPending` → `LibraryModuleController.onlinePendingCompanions`
 feeds `hasOnlineUpdate`; its failure blocks the skip via `onlineProofError`.
 
-**Cancelling a download deletes what *that* download brought.** The button appears
-next to the progress row only while a download runs, and
+**A companion that failed is hidden from the home, never proven.** Still pending
+after a finished library download, it kept the home offering a download that failed
+again each time. `failedCompanions` leaves it out of `hasOnlineUpdate` until "check
+now" (in memory: once per launch), but `libraryDownloadPending` keeps it in the skip
+proof, so any real download retries it. `downloadNeedsRetry` is deliberately not
+suppressed: a failed DB download is finished by downloading again.
+
+**Smart search alone is not an update unless the user chose "always".** A declined
+one kept the home offering a download that brought nothing, on every launch.
+`AppSettings.semanticDownload` (Settings, or "don't show again" under the question —
+hidden while safer mode is locked) → `semanticPreference`. In "ask" it is only
+`onlineSemanticOffer`, whose click passes `forceSemantic` (no question); the
+question comes only beside a real download. "Never" skips the peek, and a skipped
+peek is `semanticChecked = false` — unchecked, never "up to date".
+
+**The download runs as a task screen, and its wording must match the undo.**
+`ShellTasks` (`shell/shell_tasks.dart`) is the host's UI side: the smart-search
+question (`confirmSemanticSearch` returns `null` for "back" — nothing is captured,
+saved or downloaded), progress, "cancelled", "drive is ready" and an in-window
+failure (`classifyDownloadFailure`: network/filter/Shabbat/no space are calm, the
+rest red; a rejected certificate is "filter", not "no internet" — retry alone will
+not help, and the no-space message is matched against every language's template). A
+cancel keeps the components that finished, so the screen names them
+(`DownloadTask.kept`) or, when none did, says "the drive is as before". Ctrl+R/F5
+and report offers also check `tasks.isRunning`; do **not** fold it into
+`longTaskRunning` — the download's own `isBlocked` reads that and would stop itself.
+
+**Cancelling a download reverts only the component in progress.** "Cancel" (behind
+the warning dialog) appears only while a download runs, and
 `MirrorDownloadFlow.requestCancel` rides the `isCancelled` callback every layer
-already takes, so it lands mid-asset.
-`MirrorDownloadUndo` snapshots `mirror/library`, `mirror/companions`, `mirror/app`
-and `mirror/plugins` before the first byte; on cancel it deletes created files,
+already takes, so it lands mid-asset. Components that finished stay, and so do the
+online answers measured against them (`refreshAfterCancelledDownload(reverted:)`).
+`MirrorDownloadUndo` snapshots every root of `AppSession.downloadMirrorDirs`
+(per component) before the first byte; on cancel it reverts the in-progress
+component's roots (`revert(roots:)`): it deletes created files,
 restores any rewritten `.json` manifest (a new `releases.json` over deleted assets
 is a mirror pointing at nothing) and the `.resume`/`.segments` download state by
 content, and truncates a resumed partial asset (and its `.seg-N` ranges) back to
@@ -643,14 +749,18 @@ DB version upwards, and **no full DB** (`personalReleases`). It exists because
 carrying ~1.5GB to update a machine already at v20 is what users objected to (forum
 post 33695). Four things hold it together:
 
-- **Default off, confirmed on enable.** Without the full DB the drive cannot serve
-  a machine that has no Otzaria, and `LibraryUpdatePlan.fullDownloadFallback` — the
-  recovery from a patch that does not fit — is `null`. The toggle warns first.
-- **The version is read only on an explicit click**
-  (`LibraryManager.captureLocalDbVersion()`, behind the button in `LibraryScreen`).
-  A routine `checkForUpdate` deliberately does not record it: the **online** machine
-  may hold its own newer Otzaria, and recording that would aim the download at v22
-  while the offline machine sat at v20, with no patch route at all.
+- **Default off; asked once per drive.** Without the full DB the drive cannot
+  serve a machine that has no Otzaria, and `fullDownloadFallback` is `null`.
+  The first-run question (§5.9) or Settings sets it; `personalModeAsked`
+  travels with the drive, and a drive already in the mode counts as answered.
+- **A routine check never records the version.** `captureLocalDbVersion()`
+  runs on a click, on "only my computer" answered where Otzaria is installed
+  and the online check failed, or once via the drive's one-shot
+  `personalAutoRegisterPending` (`AppSession.registerPendingMachine` after the
+  startup check or "check now": same test, nobody registered; cleared by it or
+  by "remove"). With no online check the home offers the button instead. Else
+  the **online** machine's newer Otzaria would aim the download at v22 while
+  the target sat at v20.
 - **One record per machine, and the lowest wins**
   (`LibraryStateStore.knownDbVersions`, keyed by `currentMachineKey()`). Someone who
   clicks on two machines gets a download serving both; `applyUpdate` raises that
@@ -663,7 +773,8 @@ post 33695). Four things hold it together:
   first seen). An entry not refreshed for 180 days (hostname-form keys, which orphan
   easily) or 365 days (machine-id keys) is ignored by `lowestKnownDbVersion` and
   pruned on the next write, so an orphan stops pinning the floor; a machine that
-  sat idle that long re-registers with the button.
+  sat idle that long re-registers with the button. Settings lists them
+  (`knownDbVersionsNames`, a separate map) with "remove".
   **The stamps are a logical clock, never compared with the local clock.** Offline
   machines have no time sync and their clocks are often years off (dead CMOS
   battery), so a reader measures age against the newest stamp in the file, and a
@@ -694,7 +805,9 @@ chain, every step of it**, instead of the per-edge verdict a mirror hands an unk
 machine; when it loses, the full DB is downloaded and the patches dropped. Hence a
 release shipping **only** a full DB is no longer invisible to personal mode (it used
 to be filtered out while the mode reported "up to date"), and the "turn personal
-update off and download again" message now fires only at a real dead end.
+update off and download again" message now fires only at a real dead end. Its
+home bound (`personalDownloadBytesBound`) is the patches alone only when held,
+appliable manifests prove they win; otherwise the larger of the two routes.
 
 **Only the patches are per-release; `seforim.db.zst` is downloaded once**, from the
 highest version carrying one — the only full-DB asset `OfflineLibraryUpdateDiscovery` ever
@@ -704,7 +817,7 @@ deleted (`_pruneStaleAssets`); the `.resume` sidecars of assets that *are* in it
 survive, since they let a re-run skip a completed download.
 
 **Every successful download ends with one sweep of the whole mirror**
-(`MirrorJunkSweeper`, called from `AppShell.downloadAll`). Each component already
+(`MirrorJunkSweeper`, called from `AppSession.downloadAll`). Each component already
 prunes itself, but only inside a download that brought it something: a skipped
 component, or an `export` that returned `false`, prunes nothing — which is how a
 drive ended up carrying full DBs of v20 *and* v21, and 5GB after a version bump.
@@ -787,7 +900,7 @@ load-bearing consequences:
 
 Deliberately *not* parallelised: `OtzariaAppMirror.sync` (two installers, ~6% of the
 bytes, and its `onChannelStart` UI assumes one channel at a time) and the module
-ordering in `AppShell.downloadAll`.
+ordering in `AppSession.downloadAll`.
 
 ### 5.3 State that travels on the drive
 
@@ -854,6 +967,15 @@ The model goes beside the DB; the vector root is `dirname(key-library-path)`,
 which differs from the DB's parent when a library folder name is set.
 `SemanticSearchAssets`, `LibraryManager.resolveSemanticVectorsRoot`, and
 `OtzariaSettingsWriter.finishSemanticInstall` install and enable the data.
+
+**Smart-search consent is a dialog on "update this computer", once per machine.**
+As a home notice it went unnoticed (maintainer, 2026-10). Unanswered smart
+search alone is a library "here" item (`semanticOnlyHere`), else it could never
+ask; `UpdateHereFlow.run` asks with Otzaria installed, "back" records nothing,
+an answer (or a server-blocked key) goes to `NoticesSeenStore` in
+`stateFilesDir`. Consent is written after `_ensureClosed`, then
+`checkForUpdate(fresh: true)`. Settings only enables: Otzaria's `revoke()` also
+purges its queue. Not behind safer mode: no launcher setting changes.
 
 **The offline machine picks the fastest route it has, and that route can be the full
 database.** `OfflineLibraryUpdatePlanner` used to take the delta chain whenever it reached
@@ -947,7 +1069,7 @@ saying the user must point Otzaria's own library-location setting at it.
 
 **Portable Otzaria moves everything.** A `portable.marker` next to Otzaria's
 executable puts its whole data root in `otzaria_data` beside it. Detecting that needs
-Otzaria's launch path, which is why `AppShell.checkAll()` runs the app module's check
+Otzaria's launch path, which is why `AppSession.checkAll()` runs the app module's check
 **before** the library module's, sequentially.
 
 **Never install a DB schema the installed Otzaria cannot read.** Otzaria reads
@@ -1088,15 +1210,16 @@ stable, plus the latest pre-release *only when it is newer than that stable*
 (`OtzariaReleaseClient.fetchChannelReleases`). Both installers travel on the drive
 and the offline machine picks (`AppSettings.preferAppPrerelease` →
 `OtzariaManager.preferPrerelease`) with no network. Do **not** turn this back into a
-single-release download. Two consequences to preserve: a pre-release *older* than the
-newest stable is never mirrored (no real choice, wasted space — so `OtzariaScreen`
-shows the choice only when `hasChannelChoice`), and when the first page of 50
-releases holds no plain release at all, only the pre-release is downloaded: a stable
-already on the drive is **kept** (a stable cannot vanish by promotion, it only fell off
-the page), and with none the pre-release is offered **labelled** as such (replacing the
-old `NoStableReleaseException`). "Newer than the stable" is decided by list order
-online; a pre-release entry written by `sync` records the stable it was listed above
-(`newerThanStable`), and `load` trusts that instead of re-judging by publish date.
+single-release download. Two consequences to preserve: a pre-release *older* than
+the newest stable is never mirrored (no real choice, wasted space — so
+`OtzariaAdvancedPage` shows the choice only when `hasChannelChoice`), and when the
+first page of 50 releases holds no plain release at all, only the pre-release is
+downloaded: a stable already on the drive is **kept** (a stable cannot vanish by
+promotion, it only fell off the page), and with none the pre-release is offered
+**labelled** as such (replacing the old `NoStableReleaseException`). "Newer than the
+stable" is decided by list order online; a pre-release entry written by `sync`
+records the stable it was listed above (`newerThanStable`), and `load` trusts that
+instead of re-judging by publish date.
 
 **Version strings need normalizing before comparison.** An installed build reports
 `0.9.96` while the tag is `0.9.96+736`; `OtzariaUpdateCheckResult` strips a leading
@@ -1107,18 +1230,27 @@ re-downloaded ~73MB.
 so a user who had installed 0.9.97+90970 himself while the mirror held 0.9.96+736 was
 offered a *downgrade*. `compareVersions` orders base components **numerically** (so
 `0.9.9 < 0.9.10`, which a string compare gets backwards) and ranks a pre-release
-suffix below the same bare base; `installedIsNewer` suppresses the offer. The one
-downgrade left is a deliberate channel switch — when the installed tag *is* the other
-mirrored channel's tag, the user asked for it (`OtzariaChannelPair` only ever holds a
-prerelease newer than the stable). Two different suffixes on one base are incomparable
+suffix below the same bare base; `installedIsNewer` suppresses the offer. **There is
+no downgrade at all, not even on a channel switch**: with a newer pre-release installed
+and the stable channel selected, nothing is offered and the page says calmly that the
+switch happens when a stable newer than the installed one arrives
+(`awaitsNewerInSelectedChannel`). Two different suffixes on one base are incomparable
 and compare as 0.
 
 **The FULL package is gone; a first install now runs the app wizard and then the
 library.** `otzaria-<ver>-windows-full.exe` was the ordinary installer with the
 library inside — i.e. a second copy of the ~1.5GB already on the drive, for one
-saved click. `HomeScreen._confirmAppInstall` offers both when
-`otzaria.currentVersion == null && library.isFreshInstall`, and
-`_installLibraryAfterApp` runs the second half.
+saved click. `UpdateHereFlow` (`flows/update_here_flow.dart`, the task screen behind
+the hero) installs both when `otzaria.currentVersion == null &&
+library.isFreshInstall` — never plugins. An update keeps `AutoInstallFlow`'s order:
+library, app, then plugin delivery (`PluginsModuleController.deliverUpdates`, which
+only *sends* — the screen says "sent to Otzaria, approve there").
+
+- **"Try again" reruns the request that failed, not what home shows now.** The task
+  keeps its `UpdateHereRequest` (items, `reinstallApp`, `fullLibrary`) and
+  `AppSession.retryUpdateHere` → `UpdateHereFlow.retry` runs exactly that. Wiring the
+  button to home's `hereItems` turned a failed full-library or reinstall run into a
+  partial update, or into a button that did nothing.
 
 - **App first, never the library first.** Where the DB goes follows what the wizard
   chose: a portable install keeps it beside the exe, an ordinary one under
@@ -1133,8 +1265,8 @@ saved click. `HomeScreen._confirmAppInstall` offers both when
   entry has no `Check:`, while `ShouldLaunchAppAfterSilentInstall` gates only the
   silent one on `WizardSilent`. A running Otzaria locks `seforim.db`, so
   `OtzariaProcessCloser` asks it to quit (`taskkill` without `/F`); safe precisely
-  here, because it opened two seconds ago with nothing to save. The manual dialog
-  appears only if it survives.
+  here, because it opened two seconds ago with nothing to save. The task's
+  "close Otzaria" step appears only if it survives.
 - **A stale FULL file on an old drive is swept.** `OtzariaAppMirror.staleFullPackages()`
   finds it, `sync()` deletes it, and `check.hasStaleFullPackage` forces the app module
   to run even when the online check proved nothing is new — otherwise "nothing to
@@ -1214,9 +1346,12 @@ periodic refresh only runs while Otzaria is already open.
 
 **A skipped auto-install is announced.** Otzaria being open blocks both paths, and the
 skip used to be silent — which reads as a setting that does not work.
-`AutoInstallFlow.run` returns `skippedWhileRunning` and `_autoInstallIfEnabled` ends in
-a `showSingleActionDialog`; a startup snackbar disappears before it is read, and this one
-asks the user to do something.
+`AutoInstallFlow.run` returns `skippedWhileRunning`, which `_autoInstallIfEnabled` keeps
+in `AppSession.autoInstallSkipped`: the lead of the home page's "Otzaria is open right
+now" banner, shown while Otzaria is open and the drive has something to install here.
+The banner has no button — the hero's "update here" opens the task, whose
+"close Otzaria" step closes it only on the user's click; declining stops the steps
+after it. A startup snackbar disappears before it is read.
 
 **Auto-install only ever *updates*; a first install is never automatic.** Both paths
 are gated (`!isFreshInstall` for the library, `currentVersion != null` for the app) and
@@ -1228,15 +1363,17 @@ through Otzaria's `app_preferences.hive`, and `OtzariaSettingsReader` returns `n
 guess then becomes `saveCustomDbPath` in `_finishDbUpdate`, i.e. recorded as the user's
 own choice and checked *before* Otzaria's settings from then on. So one unreadable box
 meant ~5.5GB written where Otzaria does not look and a launcher permanently locked onto
-the wrong path. The home-screen card already offers the button, which is where that
+the wrong path. The home page's hero already offers the button, which is where that
 decision belongs.
 
 **Cancelling the wizard is not a failure.** `OtzariaInstallCancelled` (Inno exit 2/5,
 plus 1223 = UAC refused) and `OtzariaWizardStillOpen` (the process returned before the
 install is on disk — routine when Inno elevates and hands off to an elevated child)
-surface as `OtzariaModuleController.noticeMessage`, a plain snackbar. Never route them
-through `errorMessage`: painting the user's own choice red makes people think the
-program broke.
+surface as `OtzariaModuleController.lastInstallNotice` (and `lastInstallResult`):
+a quiet note in the home hero (`HomeViewModel.appSetupNotice`), a calm "did not
+finish" task screen from "update here".
+Never route them through `errorMessage`: painting the user's own choice red makes
+people think the program broke.
 
 **On macOS, refuse to install while Otzaria is running.** The install is a
 whole-bundle swap followed by deleting the previous bundle, and `unlink` succeeds on
@@ -1481,7 +1618,7 @@ timeout.
   Otzaria is installed" failure. Without a known path the OS handler is the fallback.
 
 Because the launch path is known only after `OtzariaManager.checkForUpdate`,
-`AppShell.checkAll()` re-scans installed plugins right after it
+`AppSession.checkAll()` re-scans installed plugins right after it
 (`refreshInstalled`), and so does the manual "pick the install folder" flow. Dropping
 those calls leaves the store showing a scan of the wrong folder until the next launch.
 
@@ -1508,7 +1645,7 @@ all. The two cannot share a flag: the catalog comes from otzaria.org and the
 program from GitHub, so one being unreachable says nothing about the other, and
 `skipPlugins` (dozens of site calls) must not be decided by a 600KB file.
 `hasCatalogOnlineUpdate` drives `skipPlugins`, `hasStoreAppOnlineUpdate` drives
-`skipStoreApp`, and `hasOnlineUpdate` is the union — the home screen reads the
+`skipStoreApp`, and `hasOnlineUpdate` is the union — the home page reads the
 union, or a new store-program version would not even show the download button.
 A failed store-app download is a log line, never a failed download run.
 
@@ -1535,12 +1672,15 @@ deleted", because only the first is fixed by downloading again.
 
 **"New plugin" notices are once per machine, and an empty catalog is not a
 baseline.** `KnownPluginsStore` (`plugins_known.json`, keyed by hostname like
-`AnnouncedAppsStore`) keeps two lists: what the store toast has shown and what
-the home-screen dialog has mentioned — one list would let the dialog swallow the
-toast. The first *non-empty* load only records the catalog as known; recording
-on an empty one would make the first sync announce the whole store. Updates, unlike
-new plugins, are announced once per run. `PluginsModuleController.newPlugins`,
-`newPluginsForHome`, `AppShell._maybeAnnouncePlugins`, `PluginNewToast`.
+`AnnouncedAppsStore`) keeps two lists: what the store has marked "new" (a chip on
+the card, recorded as seen on entering the store) and what the home page has
+mentioned — one list would let the home banner swallow the store's mark. The home banner ("N new plugins on the drive") stays until the store is
+visited; entering it records them (`AppSession.markPluginsVisited`). The first
+*non-empty* load only records the catalog as known; recording on an empty one would
+make the first sync announce the whole store. Updates are never a popup: a count on
+the plugins tile and a bar at the top of the store with "update all" (one delivery at a
+time, `pluginUpdateDeliverySpacing` apart). `PluginsModuleController.newPlugins`,
+`newPluginsForHome`, `AppSession.newPluginsForHome`, `PluginMeta(isNew:)`.
 
 ### 5.7 Custom apps
 
@@ -1659,33 +1799,28 @@ otherwise delete them; and `readOnly` stops it, because it writes to the drive.
 `AppDescriptor.autoIcon` is set to false only when the user **removed** an icon
 in the form — without it the removed icon reappeared on the next visit.
 
-**An icon is displayed with `StoreThumbnail.icon`, never the default
-constructor.** The default is `BoxFit.cover`, right for a wide store image and
-wrong for a square icon: it fills the frame and crops what sticks out, which is
-exactly the report "the icon escapes the frame and you can't see all of it". The
-named constructor centers the whole image on a neutral background.
+**Every store icon is a `StoreIcon`: a fixed square (64 in a card, 96 on a detail
+page) with the image inside at `BoxFit.contain`.** `BoxFit.cover` crops a square
+icon in a wide frame — the old report "the icon escapes the frame" — and a frame
+whose size follows the card width left the icon adrift in an empty band. The square
+never changes with the window, so neither can happen. Without an image it shows the
+app's placeholder icon (custom apps) or the Otzaria logo (plugins, as on the site).
 
-**The icon's size is a ratio of its frame, never a pixel count.**
-`kStoreIconRatio` (0.5) is the edge, `kStoreIconGutterRatio` the air above and
-below it, and `kStoreIconFrameAspect` is **derived** from the two — a frame whose
-height is not "icon + its air" is precisely the empty band the icon floats in. A
-fixed pixel size is right for one card width and either tiny or overflowing at
-every other, and the grid's card width changes with the window. `maxSize` is the
-blur ceiling (the source is 256×256), not the design.
+**Custom apps are managed only from Settings.** The "Other programs" page (its home
+tile appears only when there are apps) is for using them: download, check online,
+install, launch. Adding, editing, removing, categories and order live on
+`CustomAppsManagePage`, opened from Settings → Other programs → Manage as
+`CustomAppsManageRoute` — a page inside the body, behind the same safer-mode gate as
+Settings. The add/edit form stays a dialog. On a read-only drive the Manage row is
+disabled with the reason, since every management action writes to the drive.
 
-⚠️ A card that narrows its icon frame (`kCustomAppIconFrameMaxWidth`) must pass
-the same number to `StoreGridDelegate.imageMaxWidth`. The delegate decides the
-tile's height and the card decides what fills it; if the two disagree the card
-either overflows or floats in dead space. Without the cap a single-column window
-gave a 500px-wide frame with a small icon adrift in the middle — the same empty
-band, reintroduced from the other end.
-
-**`CustomAppsScreen` listens to its own controller**, like `PluginsScreen` and
-unlike the version before the card grid: the open category lives in the
-controller, and a tap in the side rail rebuilt nothing when the screen relied on
-`AppShell` rebuilding it from outside. Both listeners are fine; the screen is
-still built lazily on first visit, which is what makes the pending dialog fire
-there.
+**`CustomAppsScreen` listens to its own controller**, like `PluginsScreen`: the
+open category lives in the controller, and a category tap rebuilt nothing when the
+screen relied on `AppShell` rebuilding it from outside. Both listeners are fine;
+the screen is
+still built lazily on first visit, and that visit is what marks pending programs as
+seen on this computer (`markAnnounced`) — until then the "waiting to install" chip on
+the home tile stands out. There is no pending dialog.
 
 ### 5.8 Packaging, distribution and self-update
 
@@ -1725,14 +1860,23 @@ just launch. Five load-bearing details:
 - The completion guard is the `.ready` marker, not the presence of
   `launcher_app.exe`, so an interrupted extraction is never mistaken for a finished
   one.
-- Its two message boxes (the failure, and "extract me first") are the **only**
-  user-visible strings in this repo outside `otzaria_l10n` — C cannot depend on
-  a Dart package.
+- Its first-run window is hand-painted GDI in the launcher's palette; the colors
+  are **copied by hand** from `AppPalette.light`/the seeded `ColorScheme` into
+  `stub.c` — change one, change both. Debug-only `STUB_SLOW_DEMO` slows it
+  down for screenshots; the shipped build never defines it.
+- Its inline Hebrew strings — the first-run window and its three message boxes
+  (the failure, "extract me first", "not from the system drive") — are the
+  **only** user-visible strings in this repo outside `otzaria_l10n`; C cannot
+  depend on a Dart package.
 - **It refuses to run from under `%TEMP%`** (a temp that is a drive root
   does not count; a folder merely named `*.zip` elsewhere is fine)
   (`IsTemporaryLocation`; Dart twin `AppPaths.isTemporaryLocation` →
   `AppPathsFailure.runningFromTemp`). Explorer runs an exe opened in a zip from
   `%TEMP%\Temp1_<name>.zip\`, and everything downloaded there was discarded.
+- **It refuses to run from the system drive** (`IsOnSystemDrive` vs
+  `%SystemDrive%`; UNC allowed; Dart twin `AppPaths.isOnSystemDrive` →
+  `AppPathsFailure.systemDrive`), before `PrepareLog`, so nothing is extracted
+  there. `stub_contract_test.dart` pins that order.
 - **It recovers a self-update cut between its two renames.** `_replaceFile`
   writes the real exe name to `.launcher-update.target` before the first
   rename (users rename the exe, e.g. `Otzaria-Updates (1).exe`); run as
@@ -1841,30 +1985,32 @@ exe into `mirror/launcher/`, copies it over the stub (two renames, rollback on f
 - **Replacing the exe is refused while a long task runs.** `LauncherSelfInstaller` ends
   in `exit(0)`, so an install pressed during a mirror download killed the process
   mid-asset: `MirrorDownloadUndo` never ran and partial assets stayed next to an
-  already-rewritten manifest. `AppShell._longTaskRunning` (download, library `updating`,
+  already-rewritten manifest. `AppSession.longTaskRunning` (download, library `updating`,
   Otzaria `installing`, a custom-app install/learning/download, the store-app export)
-  disables the card's button, and `AppShell._exitWouldInterrupt` (that plus error-report
+  disables the card's button, and `AppSession.exitWouldInterrupt` (that plus error-report
   collect/upload; background search feedback is stopped first via
   `settleBackgroundWork`, §5.10) guards `installLauncherUpdate` itself — the button
   is not enough, since `downloadLauncherUpdate` offers the install straight after a
   download. The guard runs again **after** the confirmation dialog, because the startup
   auto-install can begin while it is open. While the exe is being copied from the drive
-  or the UAC answer is awaited (`AppShell._exitPending`: `isInstalling` or
-  `_elevationPending`, part of `_longTaskRunning`) the shell is wrapped in
+  or the UAC answer is awaited (`AppSession.exitPending`: `isInstalling` or
+  `_elevationPending`, part of `longTaskRunning`) the shell is wrapped in
   `AbsorbPointer`/`ExcludeFocus`, `downloadAll` refuses, queued dialogs wait and the
   auto-install skips, since `exit(0)` follows. "Restart as administrator" obeys the same
-  guard: the offer is deferred during such a task (and re-offered when a download ends),
-  and `Elevation.restartElevated` waits for `ShellExecuteExW` "runas"
+  guard: the home banner (`AppSession.offersElevation`) is hidden during such a task and
+  `restartElevated` refuses with a notice, and `Elevation.restartElevated` waits for `ShellExecuteExW` "runas"
   (`ElevatedProcess.start`, in an isolate) and quits only on success, so a
   declined UAC leaves the launcher running. Dart FFI clobbers `GetLastError`
   after a non-leaf call, so a decline is read from `hInstApp`
   (`shellExecuteFailureCode`: access denied under runas = 1223).
-- **Closing the window during a long task asks first.** AppShell._confirmClose is
+- **Closing the window during a long task asks first.** `AppSession.confirmClose` is
   `LauncherCrashSession.closeGuard`, consulted by `onWindowClose` and by the
   `AppLifecycleListener.onExitRequested` that macOS Cmd+Q / Dock > Quit reach
   (a refusal there returns `AppExitResponse.cancel`): a download is
   cancelled and `MirrorDownloadUndo` reverts it before the process exits; an install
-  can only be warned about. A guard that throws still closes — X must never go inert.
+  can only be warned about. A running "update here" stage asks too, plugin
+  delivery included (not `longTaskRunning`); its questions do not, nothing runs yet.
+  A guard that throws still closes — X must never go inert.
 - **The mirror is checked on every writable start, also with `autoCheckUpdates` off**,
   and again before each `checkOnline` (`LauncherUpdateFlow.checkMirror`). It is a disk
   read, and on the offline machine it is the only way to see a launcher the online
@@ -1894,23 +2040,36 @@ overwrites them. **The launcher's macOS process name must not be `אוצריא`*
 `PRODUCT_NAME` is `Otzaria Launcher` for exactly that reason (table in
 `launcher_app/README.md`).
 
-**`launcher_app/windows/runner/` is tracked too, with two non-default edits.**
-`main.cpp` sets a Hebrew window title and sizes the window to the monitor's work area;
-`win32_window.cpp`'s `Show()` uses `SW_SHOWMAXIMIZED`. Doing it in the runner rather
-than from Dart is deliberate: the runner shows the window only once the first frame is
-ready, so a `windowManager.maximize()` before `runApp` reveals an empty window early
-and is then undone by the runner's own `Show()`. `flutter create --platforms=windows .`
-— which CI still runs — only fills in missing files and leaves these alone (verified
+**`launcher_app/windows/runner/` is tracked too, with non-default edits.**
+`main.cpp` sets a Hebrew window title and asks for a 1000×720 (logical) **client area**;
+`win32_window.cpp`'s `Show()` reads the margins between the window and its client area
+(window_manager sets them: with the caption hidden, a fixed 8 physical pixels at the sides and bottom and 0–1 at the top),
+adds them, and centres the client area in the primary monitor's work area. When it does
+not fit (e.g. 1920×1080 at 150%) it is capped at the work area as a normal window; it is
+never maximized because of size, only when the shortcut asked, and even then it is placed
+first so that Restore returns to the centred rect (rules in `window_fit.h`). The runner
+calls no Windows 10-only API (`GetDpiForWindow` and the like), since Windows 8 is
+supported. `main.dart` sets the minimum to 760×560; `FitMinTrackSize` adds
+the margins and caps it at the monitor's work area, maximized too. Sizing in the runner rather than from
+Dart is deliberate: the runner shows the window only once the first frame is ready, so
+resizing or maximizing before `runApp` reveals an empty window early. The runner does
+not apply the system dark mode to the frame: it is hidden, and the app is light only.
+`flutter create --platforms=windows .` — which CI still runs — only fills in missing files and leaves these alone (verified
 2026-08-12), but it drops the `macos` entry from `.metadata`; check `git diff` after.
 
 **The custom title bar is Windows-shaped, and macOS needs the other half.**
-`WindowCaption` is, by its own documentation, "a widget to simulate the title bar of
-windows 11". So on macOS `main.dart` passes `windowButtonVisibility: true` and lets the
-system draw its three round buttons, `AppTitleBar` renders no `WindowCaption`, and the
-row reserves `_kMacTrafficLightsWidth` on the **physical** left
-(`EdgeInsets.only(left:)`, never `EdgeInsetsDirectional` — under Hebrew RTL the logical
-start is the right edge). Matching it, `MainFlutterWindow` sizes the window to the
-screen's `visibleFrame`, the macOS counterpart of the Windows work-area sizing.
+`AppTitleBar` (36 high) paints its own Windows 11 caption buttons
+(`WindowCaptionButtons`, 46×36, close hover `#C42B1C`); close goes through
+`windowManager.close()` and therefore through `LauncherCrashSession.closeGuard`. The
+bar is drawn through an `OverlayPortal` into the overlay `TitleBarHost` puts above the
+Navigator (`MaterialApp.builder`), so a dialog's barrier never covers it: caption
+buttons and dragging keep working with a dialog open, the tools are disabled. On
+macOS `main.dart` passes `windowButtonVisibility: true` and lets the system draw its
+three round buttons, `AppTitleBar` paints none, and the row reserves
+`_kMacTrafficLightsWidth` (dropped in full screen) on the **physical** left (`EdgeInsets.only(left:)`, never
+`EdgeInsetsDirectional` — under Hebrew RTL the logical start is the right edge).
+Matching the Windows runner, `MainFlutterWindow` centres a 1000×720 window in the
+screen's `visibleFrame` and forces the `aqua` appearance.
 
 **Permission failures are diagnosed, not just printed.** Otzaria under `Program Files`
 means the launcher's *own* writes fail — the DB apply, the companion assets — while the
@@ -1919,13 +2078,14 @@ user refused UAC"). `Elevation` recognises that by **OS error code** (5 / `EACCE
 never by message text: a Hebrew Windows says "הגישה נדחתה". A file merely *in use*
 (error 32, Otzaria open on the DB) is deliberately **not** counted — elevating fixes
 nothing. The sqlite path has no `OSError` at all, so a read-only DB is matched on
-sqlite's own untranslated `readonly database`. `AppShell` offers the restart once per
-run, from the shared listener, so the offer lives in one place.
+sqlite's own untranslated `readonly database`. The offer is a banner on the home page,
+derived from state (`AppSession.offersElevation`), so it lives in one place and never
+pops up.
 
 **`Elevation` has two pieces of advice, and only one is actionable per platform.**
 macOS has no "run as administrator" — an app cannot elevate itself (`osascript … with
 administrator privileges` runs a *shell command* as root, not the app, behind a prompt
-indistinguishable from phishing). So `restartElevated` refuses there, `AppShell` never
+indistinguishable from phishing). So `restartElevated` refuses there, `AppSession` never
 offers it, and `describe` appends `macHint` (pick a writable location, or grant Full
 Disk Access). Detection differs too: macOS returns `EPERM` (1) as well as `EACCES` (13)
 for a protected directory, while Windows counts only 5. A removable volume the user never
@@ -1952,36 +2112,89 @@ written before `notifyProgress` (byte counters, stage text, sync message/warning
 export progress) must sit inside `ListenableBuilder(listenable: controller.progress)`,
 or it freezes until the next state change.
 
-**`AppShell` builds screens lazily.** `IndexedStack` builds every child, so the plugin
-store — a card grid with one `Image.file` per plugin — was built and decoded at launch,
-before the user opened that tab. Screens are created on first visit (`_builtScreens`)
-and kept after. Consequence: the "plugin updates available" dialog fires on first visit
-to the plugins tab, not at launch. `IndexedStack` does not disable tickers, so each
-built screen is wrapped in `TickerMode(enabled: screen == _screen)`; otherwise a hidden
-screen's spinner keeps requesting frames for the whole operation.
+**`AppShell` builds sections lazily.** There is no navigation rail: the body is
+the home page or a sub-page opened from a home tile, the title-bar gear or "?" —
+help is a body section hosting the FAQ (`HelpPage` → `FaqBody`), not a dialog.
+The stack is `ShellNavigator`'s (`SectionRoute`, `PluginDetailRoute`,
+`CustomAppDetailRoute`, `CustomAppsManageRoute`, `FaqEditRoute`, `TaskRoute`);
+back button, breadcrumb and Esc pop it, so a detail page's single back leads to
+its list. Esc inside a text field only leaves the field (`leaveTextField`). Kept
+sections keep their scroll; help resets to the top on each visit. `IndexedStack` builds every child, so the
+plugin store — a card grid with one `Image.file` per plugin — was built and decoded at
+launch, before the user opened it. Sections are created on first visit
+(`ShellNavigator.isBuilt`) and kept after. `IndexedStack` does not disable tickers, so
+each built section is wrapped in `TickerMode(enabled: section == current)`; otherwise a
+hidden section's spinner keeps requesting frames for the whole operation. The same
+wrapper sets `TooltipVisibility`: a tooltip lives in the root overlay, and one
+fading out when its section was hidden froze half-transparent over the home.
+
+**The safer-mode gate is the navigator's, for every route that puts Settings on the
+stack.** `ShellNavigator.canEnter` (`AppShell._canEnter`) asks before Settings,
+`CustomAppsManageRoute` and `FaqEditRoute` (help over Settings, so "back" lands
+there). A gate inside `SettingsScreen` stayed open for good: the built screen never
+leaves the `IndexedStack`. Help is open, but not its edit mode; so is "Otzaria —
+advanced" (`OtzariaAdvancedPage`: reinstall and install folder act on this machine),
+but not its channel change (`_setChannel`). Its tile and Settings link both `select`
+it, never stacking it on Settings. Details: `launcher_app/README.md`.
+
+**At startup only two dialogs: the crash prompt and, once per drive, the
+"several computers or only mine" question** (§5.4; maintainer, 2026-10-26: a
+home row went unseen). It waits for the crash prompt in `DialogQueue` and for
+the startup check (the welcome view is already up); never on a read-only drive
+or with safer mode locked; Esc asks again next launch. Everything else that
+used to pop up is a home row (reports, plugins, custom apps, launcher,
+elevation); other dialogs answer a click (smart-search consent on "update
+this computer", §5.4).
+
+**"Check now" is `checkAll` then `checkOnline`, and `checkAll` can install.** With
+auto-install on, `_autoInstallIfEnabled` starts an install without a dialog — so the
+hero's retry for an app error calls `otzaria.checkForUpdate` only. The status-bar
+link, the hero's "check again" and the action share one block (`checkNowBlocked` =
+`longTaskRunning`), the startup check counts as running (`isCheckingNow`), a
+read-only drive runs `checkAll` only, and Ctrl+R/F5 stay local-only
+(`AppSession.checkNow`).
+
+**Nothing the home shows on an offline machine says "internet".** Not connected is
+the normal case (§1), so it reads "not connected" / "the connected computer", and
+text shown on both machines is worded for both (maintainer decision). The hero
+repeats nothing the status bar shows; "checked at" there is the last successful
+online check, on a connected machine only.
 
 **Store images must pass `cacheWidth`.** Without it Flutter decodes at source
 resolution; a 1200×800 catalogue image is ~3.8MB of RAM, times every plugin. See
-`decodeWidthFor` in `screens/plugins/plugin_visuals.dart`. Related: the grid is a
-`SliverGrid` inside `PluginStoreBody`'s `CustomScrollView` — it was a
+`decodeWidthFor` in `screens/store_kit/store_visuals.dart`. Related: the grid is a
+`SliverGrid` inside `StoreBody`'s `CustomScrollView` — it was a
 `GridView(shrinkWrap: true)` inside a `ListView`, and `shrinkWrap` disables
 virtualisation, so every card was built regardless of the viewport.
 
 **Store cards live in a fixed-height grid, so nothing inside may grow.**
-`mainAxisExtent` is computed from `_cardContentHeight`, and the card's two `Wrap` rows
-(metadata badges, tags) silently wrap to another line when a chip gets longer or the
-column narrows — which overflowed the card. Both rows have a fixed height budget with
-`Clip.hardEdge`, the install chip is shortened inside cards
-(`PluginInstallChip(compact: true)`), and the "כרטיס עמוס" test in `screens_test.dart`
-renders the heaviest card in the narrowest column at two text scales.
+`StoreGridDelegate` gives one column of row cards below 772px of content and two
+columns of tile cards above it (the mockup's 820px container query), with
+`mainAxisExtent` from `storeRowCardExtent`/`storeTileCardExtent` — a fixed part plus a
+part multiplied by the text scale. The layout is computed in the delegate, not a
+`SliverLayoutBuilder`, which would rebuild the grid on every scroll frame. Inside the
+card the description always reserves two lines, the meta line is one clipped row whose
+items ellipsize, and the tile's action is `Flexible`. The search row stacks the
+installed filter under the search field below `600 × textScale`. The "כרטיס עמוס" test
+in `screens_test.dart` renders the heaviest card at four widths, both languages and
+five text scales.
 
-**`PluginStoreBody` takes slivers only, and nothing nests a scrollable inside it.** A
+**`StoreBody` takes slivers only, and nothing nests a scrollable inside it.** A
 `SliverList` with a fixed child list builds every child up front, re-creating the
-eager-image problem. The category sidebar therefore lives *outside* the
-`CustomScrollView` (it also stays put while the content scrolls, like the site's sticky
-aside), and the website's mobile-style horizontal card rows were deliberately not
-ported — a nested horizontal scrollable swallows the mouse wheel and makes the page
-feel frozen.
+eager-image problem. Categories are a wrapped row of chips above the grid (there is
+no sidebar), screenshots are one large image with dots rather than a horizontal strip,
+and the website's mobile-style horizontal card rows were deliberately not ported — a
+nested horizontal scrollable swallows the mouse wheel and makes the page feel frozen.
+`StoreBody` also supplies a transparent `Material`, so its fields and ink work outside
+a `Scaffold`.
+
+**The store is the website's catalogue page, not its curated home.** One page: title
+with "refresh" (only online and on a writable drive; progress is a card in the page,
+not an overlay), local search (final letters, niqqud and geresh ignored, matches
+highlighted — `services/store_search.dart`), an "all / installed / not installed"
+switch, category chips, a collapsed "more filters" (stability and tags), the updates
+bar, the grid, and "advanced" (store-app export on Windows, reload from the drive).
+The site's curated home (featured row, per-category rows) is not ported.
 
 ### 5.10 Error reports (offline → online)
 
@@ -1989,11 +2202,17 @@ Otzaria queues book, app and plugin reports it could not send; this package carr
 them on the drive. **Otzaria is not changed for this**: the launcher reads and writes
 Otzaria's own queue in `user_state.db` directly and builds the request body itself —
 every `sqlite3` call inside `Isolate.run`, the offer after the first frame (§5.9).
-UI for *Otzaria's* reports is deliberately one startup dialog plus **one** button in
-the download card (`ReportsUploadSection` → `uploadAllReports`, reports only) — no
-screen, no nav item, no setting. The button appears only while some module's last online check
-succeeded (`_connection` in `HomeScreen`); otherwise only a caption says reports are
-waiting. Paths, table
+UI for *Otzaria's* reports: a "reports" tile on the home page that appears only when
+there is something to collect or send, and the reports page behind it — "collect from
+Otzaria" (`collectReportsToDrive`: the disclosure above the button is the consent, so
+a category it did not show is not collected — it recounts instead) and **one** upload button
+(`ReportsPage` → `uploadAllReports`, reports only). `ReportOfferCoordinator`
+still decides *when*, but its `perform` only counts (`recountReportsToCollect`); nothing
+is collected without a click. The upload button appears only while some module's last
+online check succeeded (`onlineState` / `connectionOf`); otherwise only a caption says
+reports are waiting. The same page hosts the launcher's own reports (`AppReportsPanel`:
+queue, history, issue links) and "report a problem with this tool" (`AppReportDialog`);
+Settings keeps only the crash mode, a link to the page and the report form. Paths, table
 layout and the transaction are tabulated in `error_reports_manager/README.md`.
 
 **The launcher's own reports are a port of Otzaria's app reports, told apart
@@ -2010,7 +2229,9 @@ queued. Code: `lib/src/launcher_report/`, `launcher_app/lib/src/app_report/`.
 also when detection fails) and every orderly exit must clear it
 (`closeWindow`, `exitCleanly`, `onExitRequested`) — miss one and every run
 looks like a crash. A lock from another `host` is overwritten, never
-prompted. The prompt waits for a free dialog without a time limit. Evidence
+prompted. The prompt waits for a free dialog without a time limit. The
+default is `always` (maintainer, 2026-10-26), with a snack after sending;
+`fromJson` turns a stored `ask` from schema ≤14 into it. Evidence
 rules and **known limitations** (Windows logoff, native crashes):
 `error_reports_manager/README.md`.
 
@@ -2045,13 +2266,13 @@ limit): the same README.
 The README lists what is masked and that file names can still appear in the
 log excerpt.
 
-**The one-time explainer is separate from the offer, and shown before it.** The
-offer needs pending reports; the explainer (`showErrorReportsIntroOnce`) is for
-everyone, once per computer, so `_prepareOffer` awaits it. "Shown" is
+**The one-time explainer is separate from the count, and loaded before it.** The
+count needs pending reports; the explainer is for everyone, once per computer — a
+notice on the home page (`AppSession.showsReportsIntro`) until "got it"
+(`dismissReportsIntro`), and `_prepareOffer` awaits its load. "Shown" is
 `NoticesSeenStore` (`notices_seen.json` in `stateDir/logs`, per hostname; the next
-one-time notice adds a key, not a file), written only *after* the dialog closes.
+one-time notice adds a key, not a file), written only *after* the tap.
 Read-only drives get it too, with a text saying collecting is impossible there.
-It never opens over another dialog and gives up unrecorded after a minute.
 
 **The request body is a port, and it must be kept in step with Otzaria.**
 `lib/src/port/` translates `toApiPayload`, `apiErrorDetails` (the fallback block, word
@@ -2073,14 +2294,12 @@ folder are never created. Unsendable reports (`isSendable`, Otzaria's own export
 plus the 256KB book limit), invalid app/plugin records and oversized app requests
 stay in the queue. App attachments travel in the outbox, not the sent history.
 
-**Check Otzaria is closed before the offer and after approval; retry on closure.**
+**Check Otzaria is closed before counting and before collecting; recount on closure.**
 Writing under its open `user_state.db` can break its transactions (2026-10-13).
-`markDeclined` keeps a count threshold even when the queue shrinks, until a
-collection brings reports (else new ones stay hidden); retry only above it.
 Offers also run with auto-check off, never on read-only drives, and
 wait for dialogs and tasks, including 3s after launcher-initiated closure.
-`ReportOfferCoordinator`, `AppShell._onChange`, `offerErrorReportCollection`;
-task-ending paths must call `resume()` (on `_feedbackSync` too).
+`ReportOfferCoordinator`, `AppSession._onChange`, `collectReportsToDrive`,
+`SearchFeedbackController`; task-ending paths must call `resume()`.
 See `launcher_app/README.md` for the collection and upload flow.
 
 **Smart-search feedback has no offer, button, count or message — it syncs in
@@ -2152,7 +2371,7 @@ verify something new.
 | `RunningOtzariaLocator` FFI half (`QueryFullProcessImageNameW`), Windows `.db` picker filter | Not verified |
 | Plugin store round trip | Unit-tested only — never a real `sync()` against `otzaria.org`, a USB trip, and `install-local` against a real Otzaria |
 | Launcher self-update | Dart side unit-tested end to end (GitHub client against a mock, mirror round trip, location fallbacks, a real swap in a temp dir asserting `OtzariaData/` survives); `stub.c` compiles clean at `/W4`. **Never run for real**: a published tag found by a shipped exe, the `--after-update=<pid>` wait, the re-extract over a live `app-files\`, the macOS bundle swap |
-| Offline-only rework (single mode, exe-adjacent data folder, app mirror, `prerelease` channels) | Unit-tested and analyzer-clean only. Not run on a real removable drive, a genuinely read-only folder, or `OtzariaAppMirror.sync()` against real GitHub; whether the trimmed mirror suffices for a real offline apply is unconfirmed |
+| Offline-only rework (drive-only checks and installs, exe-adjacent data folder, app mirror, `prerelease` channels) | Unit-tested and analyzer-clean only. Not run on a real removable drive, a genuinely read-only folder, or `OtzariaAppMirror.sync()` against real GitHub; whether the trimmed mirror suffices for a real offline apply is unconfirmed |
 | Read-only drive mode (issue #25) | Same — write paths traced and unit-tested, never run from a drive with its lock switch on |
 | Two-channel download (stable + newer pre-release, chosen offline) | Unit-tested only. Not verified what `fetchChannelReleases` returns against the real repo today, nor whether both installers fit comfortably on a typical drive |
 | Companion assets (mirror against the three real repos, installer into a real library folder) | Unit-tested only |

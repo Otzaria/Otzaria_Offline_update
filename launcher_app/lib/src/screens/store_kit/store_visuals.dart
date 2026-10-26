@@ -1,24 +1,17 @@
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 
+import '../../services/store_search.dart';
 import '../../theme/theme_exports.dart';
+import '../../widgets/widgets_exports.dart';
 
-/// רכיבי התצוגה הקטנים המשותפים למסכי החנות — חנות התוספים ומסך
-/// התוכנות הנוספות.
-///
-/// אלה **תוספת** למערכת העיצוב של אוצריא ולא פורט ממנה: לכרטיס-חנות עם
-/// תמונה ולגלולות מטא-דאטה אין מקבילה שם. הם נבנים מטוקנים קיימים בלבד
-/// (`AppTokens`, `ColorScheme`) ואינם מיוצאים ל-`widgets/`, כדי שלא
-/// ייחשבו בטעות לרכיבים מאושרים של מערכת העיצוב. ראו launcher_app/README.md.
-/// רוחב הפענוח שיש לבקש מ-`Image.file` עבור תמונה שתוצג ב-[logicalWidth].
-///
-/// **למה זה חובה כאן:** בלי `cacheWidth` פלאטר מפענח את התמונה בגודל המקור.
-/// תמונת חנות טיפוסית (1200×800) תופסת כ-3.8MB מפוענחת, וברשת של עשרות
-/// תוספים — כולן חיות בבת אחת — זה מאות MB של RAM עבור אריחים ברוחב 300px.
-/// עיגול ל-[_decodeStep] מונע פענוח מחדש בכל פיקסל של שינוי גודל החלון.
+/// רכיבי התצוגה הקטנים של שני מסכי החנות (תוספים ותוכנות נוספות) — לפי
+/// חנות התוספים שבאתר ובמידות המוקאפ. אינם מיוצאים ל-`widgets/`.
+
+/// רוחב הפענוח ל-`Image.file`: בלי `cacheWidth` כל תמונה מפוענחת בגודל
+/// המקור (מאות MB ברשת); העיגול ל-64 חוסך פענוח בכל שינוי גודל.
 int? decodeWidthFor(BuildContext context, double logicalWidth) {
   if (!logicalWidth.isFinite || logicalWidth <= 0) return null;
   final physical = logicalWidth * MediaQuery.devicePixelRatioOf(context);
@@ -27,73 +20,253 @@ int? decodeWidthFor(BuildContext context, double logicalWidth) {
 
 const int _decodeStep = 64;
 
-/// **הכלל של גודל האייקון:** צלע האייקון היא חלק קבוע מרוחב המסגרת שלו,
-/// ולא מספר פיקסלים. כרטיס צר מקבל אייקון קטן וכרטיס רחב אייקון גדול,
-/// ולכן הכרטיס נראה אותו הדבר בכל רוחב חלון ובכל מספר עמודות — מספר
-/// פיקסלים קבוע נכון לרוחב אחד בלבד, ובכל השאר הוא או זעיר או בולע.
-const double kStoreIconRatio = 0.5;
-
-/// האוויר מעל האייקון ומתחתיו, גם הוא כיחס מרוחב המסגרת. יחד עם
-/// [kStoreIconRatio] הוא קובע את [kStoreIconFrameAspect].
-const double kStoreIconGutterRatio = 0.065;
-
-/// יחס המסגרת שמסביב לאייקון — רוחב חלקי גובה. **נגזר** משני היחסים
-/// שלמעלה ולא נבחר בנפרד: מסגרת שגובהה אינו גובה האייקון ועוד האוויר
-/// שלו היא בדיוק הפס הריק שהאייקון "מרחף" בתוכו.
-const double kStoreIconFrameAspect =
-    1 / (kStoreIconRatio + kStoreIconGutterRatio * 2);
-
-/// גלולת מטא-דאטה קטנה (גרסה, מספר הורדות, סטטוס).
-class StoreBadge extends StatelessWidget {
-  const StoreBadge({
+/// סמל הפריט (`.picon`): ריבוע ברדיוס 8 על surfaceContainer עם קו דק. התמונה
+/// נכנסת שלמה (`contain`); בלעדיה — [placeholderIcon], או הלוגו כשאין.
+class StoreIcon extends StatelessWidget {
+  const StoreIcon({
     super.key,
-    required this.label,
-    this.icon,
-    this.leading,
-    this.emphasized = false,
+    required this.imagePath,
+    this.size = 64,
+    this.placeholderIcon,
   });
 
-  final String label;
-  final IconData? icon;
+  final String? imagePath;
+  final double size;
 
-  /// רכיב לפני התווית, כשסמל בודד אינו מספיק — הכוכבים של גלולת הדירוג.
-  final Widget? leading;
-
-  /// גלולה מודגשת בצבע ה-primary — לסטטוס התוסף.
-  final bool emphasized;
+  /// `null` — לוגו אוצריא, כמו באתר לתוסף בלי תמונה.
+  final IconData? placeholderIcon;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final background =
-        emphasized ? cs.primaryContainer : cs.surfaceContainerHighest;
-    final foreground = emphasized ? cs.onPrimaryContainer : cs.onSurfaceVariant;
-
+    final path = imagePath;
+    final inner = size * 0.78;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      width: size,
+      height: size,
+      alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: background,
+        color: cs.surfaceContainer,
         borderRadius: AppTokens.borderRadiusAll,
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: .7)),
+      ),
+      child: path == null || path.isEmpty
+          ? _placeholder(context)
+          : ClipRRect(
+              borderRadius: const BorderRadius.all(Radius.circular(6)),
+              child: Image.file(
+                File(path),
+                width: inner,
+                height: inner,
+                fit: BoxFit.contain,
+                cacheWidth: decodeWidthFor(context, inner),
+                errorBuilder: (context, _, __) => _placeholder(context),
+              ),
+            ),
+    );
+  }
+
+  Widget _placeholder(BuildContext context) {
+    final icon = placeholderIcon;
+    if (icon == null) {
+      return Opacity(
+        opacity: .8,
+        child: Image.asset(
+          'assets/images/otzaria_logo.png',
+          width: size / 2,
+          height: size / 2,
+          cacheWidth: decodeWidthFor(context, size / 2),
+        ),
+      );
+    }
+    return RtlIcon(
+      icon,
+      size: size / 2,
+      color: Theme.of(context).colorScheme.primary,
+    );
+  }
+}
+
+/// טקסט שמילות החיפוש בו מודגשות ברקע secondaryContainer (`mark`).
+class StoreHighlightText extends StatelessWidget {
+  const StoreHighlightText(
+    this.text, {
+    super.key,
+    required this.query,
+    this.style,
+    this.maxLines,
+  });
+
+  final String text;
+  final String query;
+  final TextStyle? style;
+  final int? maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    final range = storeMatchRange(text, query);
+    final overflow = maxLines == null ? null : TextOverflow.ellipsis;
+    if (range == null) {
+      return Text(text, style: style, maxLines: maxLines, overflow: overflow);
+    }
+    final mark = TextStyle(
+      backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+    );
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(text: text.substring(0, range.start)),
+          TextSpan(
+            text: text.substring(range.start, range.end),
+            style: mark,
+          ),
+          TextSpan(text: text.substring(range.end)),
+        ],
+      ),
+      style: style,
+      maxLines: maxLines,
+      overflow: overflow,
+    );
+  }
+}
+
+/// שורת מטא (`.pmeta`): פריטים ברווח 10, בשורה אחת — מה שלא נכנס נחתך.
+class StoreMetaLine extends StatelessWidget {
+  const StoreMetaLine({super.key, required this.items});
+
+  final List<Widget> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final height = MediaQuery.textScalerOf(context).scale(24);
+    return SizedBox(
+      height: height,
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        clipBehavior: Clip.hardEdge,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: items,
+      ),
+    );
+  }
+}
+
+/// פריט בשורת המטא: סמל 14 וטקסט 13.
+class StoreMetaItem extends StatelessWidget {
+  const StoreMetaItem(
+    this.text, {
+    super.key,
+    this.icon,
+    this.iconColor,
+    this.ltr = false,
+  });
+
+  final String text;
+  final IconData? icon;
+  final Color? iconColor;
+
+  /// מספר גרסה, גודל — LTR.
+  final bool ltr;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: MediaQuery.textScalerOf(context).scale(24),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: iconColor ?? cs.onSurfaceVariant),
+            const SizedBox(width: 3),
+          ],
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textDirection: ltr ? TextDirection.ltr : null,
+              style: AppTextStyles.small.copyWith(color: cs.onSurfaceVariant),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// שבב ניטרלי בשורת המטא ("ניסיוני", "דורש אינטרנט", "חדש").
+class StoreMetaChip extends StatelessWidget {
+  const StoreMetaChip(this.label, {super.key, this.icon, this.tonal = false});
+
+  final String label;
+  final IconData? icon;
+
+  /// שבב בולט (secondaryContainer) — "חדש".
+  final bool tonal;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final foreground = tonal ? cs.onSecondaryContainer : cs.onSurfaceVariant;
+    return Container(
+      height: AppTokens.chipHeight,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: tonal ? cs.secondaryContainer : null,
+        borderRadius: AppTokens.pill,
+        border: tonal ? null : Border.all(color: cs.outlineVariant),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (leading != null) ...[
-            leading!,
-            const SizedBox(width: 4),
-          ] else if (icon != null) ...[
-            Icon(icon, size: 13, color: foreground),
-            const SizedBox(width: 4),
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: foreground),
+            const SizedBox(width: 5),
           ],
-          // ראו ההערה ב-StatusChip: שבב בודד רחב מהעמודה גלש במקום להתקצר.
           Flexible(
             child: Text(
               label,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: AppTokens.fontSM,
-                fontWeight: FontWeight.w700,
-                color: foreground,
+              style: AppTextStyles.chip.copyWith(color: foreground),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// מצב במקום כפתור (`.state`): סמל 18 ב-primary וטקסט 13/600, בגובה כפתור.
+class StoreStateLabel extends StatelessWidget {
+  const StoreStateLabel({super.key, required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: AppTokens.buttonHeight),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        // בעמודת הפעולה של שורה — ממורכז; בתחתית כרטיס — בתחילת השורה.
+        mainAxisAlignment: StoreCardLayout.isTile(context)
+            ? MainAxisAlignment.start
+            : MainAxisAlignment.center,
+        children: [
+          RtlIcon(icon, size: 18, color: cs.primary),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.buttonSm.copyWith(
+                color: cs.onSurfaceVariant,
               ),
             ),
           ),
@@ -103,216 +276,348 @@ class StoreBadge extends StatelessWidget {
   }
 }
 
-/// גלולת תגית — לחיצה עליה מסננת את הרשימה.
-class StoreTagPill extends StatelessWidget {
-  const StoreTagPill({
+/// הצורה של הכרטיס שמעל — "כרטיס" (פעולה בתחתית) או "שורה" (בעמודה בצד).
+class StoreCardLayout extends InheritedWidget {
+  const StoreCardLayout({super.key, required this.tile, required super.child});
+
+  final bool tile;
+
+  static bool isTile(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<StoreCardLayout>()?.tile ??
+      false;
+
+  @override
+  bool updateShouldNotify(StoreCardLayout oldWidget) => tile != oldWidget.tile;
+}
+
+/// הערה קטנה מתחת לפעולה (`.pnote`).
+class StoreNote extends StatelessWidget {
+  const StoreNote(this.text, {super.key, this.center = false});
+
+  final String text;
+  final bool center;
+
+  @override
+  Widget build(BuildContext context) => Text(
+        text,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        textAlign: center ? TextAlign.center : null,
+        style: AppTextStyles.meta.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      );
+}
+
+/// שבב קטגוריה (`.cat`): גלולה 36, ומונה בסוגריים.
+class StoreCategoryChip extends StatelessWidget {
+  const StoreCategoryChip({
     super.key,
     required this.label,
-    this.active = false,
-    this.onTap,
-    this.icon,
+    required this.selected,
+    required this.onTap,
+    this.count,
   });
 
   final String label;
-  final bool active;
-  final VoidCallback? onTap;
-
-  /// סמל קטן לפני התווית — לגלולות שהן פעולה ולא תגית (מתג הסינון).
-  final IconData? icon;
+  final int? count;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final foreground = active ? cs.onPrimary : cs.onSurfaceVariant;
+    final palette = AppPalette.of(context);
+    final foreground = selected ? cs.onSecondaryContainer : cs.onSurfaceVariant;
+    const shape = StadiumBorder();
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: FocusRing(
+        borderRadius: AppTokens.pill,
+        child: Material(
+          color: selected ? cs.secondaryContainer : Colors.transparent,
+          shape: shape.copyWith(
+            side: BorderSide(
+              color: selected ? cs.primary : cs.outlineVariant,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            hoverColor: selected ? null : palette.cardSelected,
+            overlayColor: selected ? AppSurfaces.stateLayer(cs.primary) : null,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 36),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      style: AppTextStyles.buttonSm.copyWith(color: foreground),
+                    ),
+                    if (count != null) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        '($count)',
+                        style: AppTextStyles.meta.copyWith(color: foreground),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
-    return Material(
-      color: active ? cs.primary : cs.surfaceContainerHighest,
-      borderRadius: AppTokens.borderRadiusAll,
+/// שבב סינון (`.fchip`): 32, רדיוס 8, מסגרת outline; הנבחר tonal עם ✓.
+/// נעול — מנעול במקום ✓, ב-60% ובלי לחיצה (`.fchip:disabled`).
+class StoreFilterChip extends StatelessWidget {
+  const StoreFilterChip({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.locked = false,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+  final bool locked;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final foreground = selected ? cs.onSecondaryContainer : cs.onSurface;
+    final chip = Semantics(
+      button: true,
+      selected: selected,
+      enabled: !locked,
+      child: FocusRing(
+        child: Material(
+          color: selected ? cs.secondaryContainer : Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: AppTokens.borderRadiusAll,
+            side: BorderSide(
+              color: selected ? cs.secondaryContainer : cs.outline,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: locked ? null : onTap,
+            overlayColor: AppSurfaces.stateLayer(cs.primary),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 32),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (selected || locked) ...[
+                      Icon(
+                        locked
+                            ? FluentIcons.lock_closed_16_regular
+                            : FluentIcons.checkmark_16_regular,
+                        size: 16,
+                        color: foreground,
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    Text(
+                      label,
+                      style: AppTextStyles.small.copyWith(color: foreground),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return locked ? Opacity(opacity: 0.6, child: chip) : chip;
+  }
+}
+
+/// תגית (`.tag`): גלולה 28 עם קו דק. עם [onTap] היא מסננת; [tonal] — הקטגוריה.
+class StoreTagPill extends StatelessWidget {
+  const StoreTagPill({
+    super.key,
+    required this.label,
+    this.onTap,
+    this.tonal = false,
+  });
+
+  final String label;
+  final VoidCallback? onTap;
+  final bool tonal;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final pill = Material(
+      color: tonal ? cs.secondaryContainer : Colors.transparent,
+      shape: StadiumBorder(
+        side: tonal ? BorderSide.none : BorderSide(color: cs.outlineVariant),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         mouseCursor:
             onTap == null ? SystemMouseCursors.basic : SystemMouseCursors.click,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (icon != null) ...[
-                Icon(icon, size: 14, color: foreground),
-                const SizedBox(width: 4),
-              ],
-              Flexible(
-                child: Text(
-                  label,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: AppTokens.fontSM,
-                    fontWeight: FontWeight.w600,
-                    color: foreground,
-                  ),
-                ),
+        overlayColor: AppSurfaces.stateLayer(cs.primary),
+        child: Container(
+          height: 28,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Center(
+            widthFactor: 1,
+            child: Text(
+              label,
+              style: AppTextStyles.small.copyWith(
+                color: tonal ? cs.onSecondaryContainer : cs.onSurfaceVariant,
               ),
-            ],
+            ),
           ),
         ),
       ),
     );
+    return onTap == null
+        ? pill
+        : FocusRing(borderRadius: AppTokens.pill, child: pill);
   }
 }
 
-/// "עינית" מעל כותרת סעיף — קו קצר ואחריו טקסט קטן ומודגש. זה הפורמט
-/// של כותרות הסעיפים בחנות שבאתר ("מומלצי החנות", "רשימת תוספים").
-class StoreSectionEyebrow extends StatelessWidget {
-  const StoreSectionEyebrow(this.text, {super.key});
+/// כותרת סעיף בדף פרטים (`.h2`): 16/600, ואחריה קו שנמוג ונקודת זהב.
+class StoreSectionTitle extends StatelessWidget {
+  const StoreSectionTitle(this.text, {super.key, this.first = false});
 
   final String text;
 
+  /// הסעיף הראשון בעמודה — בלי הרווח העליון.
+  final bool first;
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-            width: 28, height: 1, color: cs.primary.withValues(alpha: .4)),
-        const SizedBox(width: AppTokens.spaceSM),
-        Text(
-          text,
-          style: TextStyle(
-            fontSize: AppTokens.fontSM,
-            fontWeight: FontWeight.bold,
-            color: cs.primary,
+    final palette = AppPalette.of(context);
+    return Padding(
+      padding: EdgeInsets.only(top: first ? 0 : 22, bottom: 10),
+      child: Row(
+        children: [
+          Text(text,
+              style: AppTextStyles.cardTitle.copyWith(color: cs.onSurface)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: SizedBox(
+              height: 7,
+              child: CustomPaint(
+                painter: _OrnamentPainter(
+                  line: cs.outlineVariant,
+                  dot: palette.glow,
+                  rtl: Directionality.of(context) == TextDirection.rtl,
+                ),
+              ),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-/// תמונת הפריט מהדיסק המקומי. כשאין תמונה (או שהקובץ נמחק) מוצג
-/// [placeholderIcon] על רקע primaryContainer — אין `flutter_svg` בפרויקט
-/// ולכן לוגו ה-SVG של החנות המקורית לא הועבר.
-class StoreThumbnail extends StatelessWidget {
-  const StoreThumbnail({
+/// נקודה צמודה לכותרת, וקו שנמוג ממנה והלאה — כמו `.h2::after` במוקאפ.
+class _OrnamentPainter extends CustomPainter {
+  const _OrnamentPainter({
+    required this.line,
+    required this.dot,
+    required this.rtl,
+  });
+
+  final Color line;
+  final Color dot;
+  final bool rtl;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final y = size.height / 2;
+    final near = rtl ? size.width : 0.0;
+    final far = rtl ? 0.0 : size.width;
+    final paint = Paint()
+      ..strokeWidth = 1
+      ..shader = LinearGradient(
+        colors: [line, line.withValues(alpha: 0)],
+      ).createShader(
+        Rect.fromPoints(Offset(near, y), Offset(far, y + 1)),
+      );
+    canvas.drawLine(Offset(near, y), Offset(far, y), paint);
+    canvas.drawCircle(
+      Offset(rtl ? size.width - 4 : 4, y),
+      3.5,
+      Paint()..color = dot,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_OrnamentPainter old) =>
+      old.line != line || old.dot != dot || old.rtl != rtl;
+}
+
+/// ראש העמוד (`.pagehead`): כותרת 20/600, הסבר, ופעולה בקצה.
+class StorePageHead extends StatelessWidget {
+  const StorePageHead({
     super.key,
-    required this.imagePath,
-    this.aspectRatio = 16 / 11,
-    this.iconSize = 44,
-    this.placeholderIcon = FluentIcons.puzzle_piece_24_regular,
-  })  : _icon = false,
-        _ratio = 0,
-        _maxSize = 0;
+    required this.title,
+    this.description,
+    this.actions = const [],
+  });
 
-  /// תצוגה של **אייקון** ולא של תמונת חנות: התמונה נכנסת שלמה, ממורכזת,
-  /// על רקע ניטרלי, וגודלה נגזר מרוחב המסגרת לפי [kStoreIconRatio].
-  ///
-  /// ⚠️ זה לא סגנון — זה תיקון של באג. `BoxFit.cover` ממלא את המסגרת
-  /// **וחותך** את מה שחורג, ואייקון ריבועי בתוך מסגרת רחבה נחתך מלמעלה
-  /// ומלמטה: "האייקון בורח מהמסגרת ולא רואים את כולו".
-  ///
-  /// [maxSize] הוא חסם הטשטוש ולא העיצוב: אייקון של ווינדוס הוא 256×256
-  /// לכל היותר, ומתיחה מעבר לזה רק מרככת אותו. מי שרוצה אייקון קטן יותר
-  /// מצר את המסגרת — לא את החסם.
-  const StoreThumbnail.icon({
-    super.key,
-    required this.imagePath,
-    this.aspectRatio = kStoreIconFrameAspect,
-    this.iconSize = 44,
-    this.placeholderIcon = FluentIcons.puzzle_piece_24_regular,
-    double ratio = kStoreIconRatio,
-    double maxSize = 256,
-  })  : _icon = true,
-        _ratio = ratio,
-        _maxSize = maxSize;
-
-  final String? imagePath;
-  final double aspectRatio;
-  final double iconSize;
-
-  /// מה מוצג כשאין תמונה — פאזל לתוסף, קופסה לתוכנה נוספת.
-  final IconData placeholderIcon;
-
-  final bool _icon;
-  final double _ratio;
-  final double _maxSize;
+  final String title;
+  final String? description;
+  final List<Widget> actions;
 
   @override
   Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: aspectRatio,
-      child: ClipRRect(
-        borderRadius: AppTokens.borderRadiusAll,
-        child: _content(context),
-      ),
-    );
-  }
-
-  Widget _content(BuildContext context) {
-    final path = imagePath;
-    if (path == null || path.isEmpty) return _placeholder(context);
-    return _icon ? _iconImage(context, path) : _coverImage(context, path);
-  }
-
-  Widget _coverImage(BuildContext context, String path) {
-    return LayoutBuilder(
-      builder: (context, constraints) => Image.file(
-        File(path),
-        fit: BoxFit.cover,
-        cacheWidth: decodeWidthFor(context, constraints.maxWidth),
-        errorBuilder: (context, _, __) => _placeholder(context),
-      ),
-    );
-  }
-
-  Widget _iconImage(BuildContext context, String path) {
     final cs = Theme.of(context).colorScheme;
-
-    return ColoredBox(
-      color: cs.surfaceContainerHighest,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final size = _iconEdgeFor(constraints);
-
-          return Center(
-            child: SizedBox(
-              width: size,
-              height: size,
-              child: Image.file(
-                File(path),
-                fit: BoxFit.contain,
-                cacheWidth: decodeWidthFor(context, size),
-                errorBuilder: (context, _, __) => _placeholder(context),
-              ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.start,
+        children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 260, maxWidth: 640),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AppTextStyles.pageTitle.copyWith(color: cs.onSurface),
+                ),
+                if (description != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    description!,
+                    style: AppTextStyles.body.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
             ),
-          );
-        },
-      ),
-    );
-  }
-
-  /// צלע האייקון: היחס מרוחב המסגרת, חסום ברזולוציית המקור וגם בגובה
-  /// הפנוי — מסגרת שמישהו הצר ידנית אינה מקום להיחתך בו.
-  double _iconEdgeFor(BoxConstraints constraints) {
-    final byWidth = constraints.maxWidth * _ratio;
-    // אותו יחס בדיוק, אבל נמדד מהגובה — כך האוויר נשאר פרופורציוני גם
-    // במסגרת נמוכה מהיחס הקנוני.
-    final byHeight =
-        constraints.maxHeight * _ratio / (_ratio + kStoreIconGutterRatio * 2);
-    return math.min(math.min(byWidth, byHeight), _maxSize);
-  }
-
-  Widget _placeholder(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return ColoredBox(
-      color: cs.primaryContainer,
-      child: Center(
-        child: Icon(
-          placeholderIcon,
-          size: iconSize,
-          color: cs.onPrimaryContainer,
-        ),
+          ),
+          if (actions.isNotEmpty)
+            Wrap(spacing: 8, runSpacing: 8, children: actions),
+        ],
       ),
     );
   }

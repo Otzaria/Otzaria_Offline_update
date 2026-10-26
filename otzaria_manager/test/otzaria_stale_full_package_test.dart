@@ -32,6 +32,9 @@ void main() {
     manager = OtzariaManager(
       dataDir: temp.path,
       platform: OtzariaTargetPlatform.windows,
+      environment: const {},
+      runningLocator: const _NotRunning(),
+      installRegistry: const _EmptyRegistry(),
     );
   });
 
@@ -68,4 +71,19 @@ void main() {
 
     expect((await manager.checkForUpdate()).hasStaleFullPackage, isFalse);
   });
+}
+
+class _NotRunning extends RunningOtzariaLocator {
+  const _NotRunning();
+
+  @override
+  Future<RunningOtzariaProbe> probe() async =>
+      (isRunning: false, launchPath: null);
+}
+
+class _EmptyRegistry extends WindowsInstallRegistry {
+  const _EmptyRegistry();
+
+  @override
+  Future<List<String>> otzariaInstallDirs() async => const [];
 }

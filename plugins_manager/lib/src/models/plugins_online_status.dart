@@ -7,6 +7,7 @@ class PluginsOnlineStatus {
     this.missingPlugins = const [],
     this.removedPlugins = const [],
     this.totalOnline = 0,
+    this.pendingBytes,
   });
 
   static const PluginsOnlineStatus empty = PluginsOnlineStatus();
@@ -25,6 +26,9 @@ class PluginsOnlineStatus {
   final List<String> removedPlugins;
 
   final int totalOnline;
+
+  /// גודל הבילדים שסנכרון יוריד; `null` כשלאחד מהם אין גודל בקטלוג.
+  final int? pendingBytes;
 
   int get newCount => newPlugins.length;
   int get updatedCount => updatedPlugins.length;

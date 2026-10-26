@@ -392,6 +392,77 @@ void main() {
       },
     );
 
+    test(
+      'the size probe plans without payload, and the download matches it',
+      () async {
+        await online(() async {
+          github.libraryTo = 3;
+          final manager = LibraryManager(dataDir: dataDir);
+          addTearDown(manager.dispose);
+
+          final probed = await manager.probeMirrorDownloadBytes();
+
+          bool payload(Uri u) =>
+              (u.host == 'lib' && !u.path.endsWith('.manifest.json')) ||
+              (u.host == 'dl' && u.pathSegments.last != 'version.txt');
+          expect(github.requests.where(payload), isEmpty);
+          final mirror = Directory(p.join(dataDir, 'mirror'));
+          final files = mirror.existsSync()
+              ? mirror.listSync(recursive: true).whereType<File>().toList()
+              : const <File>[];
+          expect(files, isEmpty);
+          expect(probed, greaterThan(0));
+
+          int? total;
+          await manager.downloadToMirror(onBytesProgress: (_, t) => total = t);
+          expect(total, probed);
+          expect(github.count(_libraryReleasesPath), 1);
+          expect(github.companionApiCalls, 3);
+        });
+      },
+    );
+
+    test('in personal mode the probe is the personal export, not the full '
+        'library', () async {
+      await online(() async {
+        github.libraryTo = 3;
+        await LibraryStateStore(
+          p.join(dataDir, 'library_state.json'),
+        ).recordKnownDbVersion(await LibraryStateStore.currentMachineKey(), 2);
+        final full = LibraryManager(dataDir: dataDir);
+        addTearDown(full.dispose);
+        final fullBytes = await full.probeMirrorDownloadBytes();
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          personalUpdateMode: true,
+        );
+        addTearDown(manager.dispose);
+
+        final probed = await manager.probeMirrorDownloadBytes();
+        int? total;
+        await manager.downloadToMirror(onBytesProgress: (_, t) => total = t);
+
+        expect(probed, total);
+        expect(probed, lessThan(fullBytes!));
+      });
+    });
+
+    test('a download stops a running probe before it exports', () async {
+      await online(() async {
+        final manager = LibraryManager(dataDir: dataDir);
+        addTearDown(manager.dispose);
+
+        final probe = manager.probeMirrorDownloadBytes().then<int?>(
+          (bytes) => bytes,
+          onError: (_) => null,
+        );
+        await manager.downloadToMirror();
+        await probe;
+
+        expect(await manager.hasMirror, isTrue);
+      });
+    });
+
     test('a new light check asks GitHub again', () async {
       await online(() async {
         final manager = LibraryManager(dataDir: dataDir);

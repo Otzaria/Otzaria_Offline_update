@@ -7,172 +7,107 @@ import 'package:plugins_manager/plugins_manager.dart';
 import '../../controllers/plugins_module_controller.dart';
 import '../../services/native_file_dialogs.dart';
 import '../../services/timestamps.dart';
+import '../../shell/shell_keys.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
 import '../store_kit/store_kit.dart';
 import 'plugin_detail_view.dart';
 import 'plugin_filters_bar.dart';
-import 'plugin_new_toast.dart';
 import 'plugin_store_card.dart';
-import 'plugin_store_nav.dart';
-import 'plugin_sync_overlay.dart';
-import 'plugin_updates_dialog.dart';
+import 'plugin_visuals.dart';
 import 'store_app_export_flow.dart';
 
-/// מסך חנות התוספים — פורט של מבנה החנות שבאתר: דף בית אצור
-/// (`/plugins`), "כל התוספים" (`/plugins/all`) ודף קטגוריה
-/// (`/plugins/category/<slug>`), עם סרגל צד של קטגוריות ביניהם.
-///
-/// המסך נטען מהמראה בלבד; "סנכרון מהאתר" הוא הפעולה היחידה שדורשת
-/// אינטרנט, והיא תמיד יזומה בלחיצה.
+/// חנות התוספים בסגנון האתר. הכול נטען מהכונן; "רענון" הוא הפעולה
+/// היחידה שפונה לאתר, ותמיד בלחיצה.
 class PluginsScreen extends StatefulWidget {
-  const PluginsScreen(
-      {super.key,
-      required this.controller,
-      this.onRequestFocus,
-      this.readOnly = false,
-      this.driveFull = false,
-      this.busyElsewhere = false});
+  const PluginsScreen({
+    super.key,
+    required this.controller,
+    this.readOnly = false,
+    this.driveFull = false,
+    this.busyElsewhere = false,
+    this.online,
+    this.otzariaInstalled = true,
+    this.detailId,
+    this.onDetailChanged,
+    this.onOpenHelp,
+  });
 
   final PluginsModuleController controller;
-
-  /// מבקש מהמסגרת להעביר את התצוגה למסך התוספים. הודעת העדכונים נפתחת מעל
-  /// כל מסך (המסך נשאר בעץ גם כשיוצאים ממנו), ולכן פתיחת תוסף מתוכה חייבת
-  /// גם להחזיר את הניווט לכאן — אחרת הפרטים נפתחים מאחורי מסך אחר.
-  final VoidCallback? onRequestFocus;
 
   final bool readOnly;
   final bool driveFull;
   final bool busyElsewhere;
 
+  /// `false` — אין אינטרנט במחשב הזה, ו"רענון" אינו מוצג.
+  final bool? online;
+
+  /// בלי אוצריא אין למי למסור תוסף.
+  final bool otzariaInstalled;
+
+  /// עם [onDetailChanged] — התוסף שפרטיו מוצגים הוא נתיב בנווט, כך שחזרה
+  /// ו-Esc מהפרטים מובילים לרשימה. בלעדיו המסך זוכר בעצמו.
+  final String? detailId;
+  final ValueChanged<String?>? onDetailChanged;
+
+  /// "איך זה עובד?" במצב הריק כשאין אינטרנט.
+  final VoidCallback? onOpenHelp;
+
   @override
   State<PluginsScreen> createState() => _PluginsScreenState();
 }
 
-/// גובה כל מה שאינו התמונה בכרטיס — ראו החישוב ב-[StoreGridDelegate].
-///
-/// 352 ולא 336: התקציב אינו תלוי שפה, ובאנגלית השם והתקציר מגיעים למספר
-/// השורות המרבי שלהם כבר בעמודה הצרה ביותר — שם 336 גלש. נמדד מול
-/// הבדיקה "כרטיס עמוס" ב-`screens_test.dart`, שנכשלת כבר ב-348.
-///
-/// קטן מ-356 שהיה כאן לפני גלולת הדירוג: מאז `PluginStoreCard._badgesHeight`
-/// מוכפל גם הוא ב-`textScale`, ולכן אינו נגבה במלואו דווקא בהגדלה שבה
-/// התקציב הקטן ביותר.
-const double _cardContentHeight = 352;
-
-/// הרוחב המינימלי של כרטיס ברשת; ממנו נגזר מספר העמודות.
-///
-/// 280 ולא 300: באתר הרשת היא `xl:grid-cols-3` בתוך מכל של 1280px פחות
-/// סרגל צד — כלומר כרטיס של כ-300px, ושלוש עמודות כבר סביב 950px של תוכן.
-/// עם 300 העמודה השלישית נפתחה רק ב-950+ ובחלון בינוני נשארו שתי עמודות
-/// עם כרטיסים רחבים בהרבה מאלה שבאתר.
-const double _minCardWidth = 280;
-
-/// כמה נבחרים מוצגים לפני "הצג עוד נבחרים" — כמו `FEATURED_PREVIEW_COUNT`.
-const int _featuredPreviewCount = 6;
-
-/// מתחת לרוחב הזה שורת הסנכרון נשברת לשתי שורות.
-const double _wideHeaderWidth = 900;
-
 class _PluginsScreenState extends State<PluginsScreen> {
-  /// משמש גם את תיבת החיפוש של דף הבית וגם את זו שב"כל התוספים" — הן
-  /// לעולם לא מוצגות יחד, וכך טקסט שהוקלד בדף הבית ממשיך לשם.
   final TextEditingController _search = TextEditingController();
 
-  /// ה-id של התוסף שפרטיו מוצגים, או null כשמוצגת הרשימה.
-  String? _selectedId;
+  String? _localSelectedId;
 
-  /// ה-id של התוסף שכרגע רצה עליו פעולה (שמירה / התקנה).
-  String? _busyId;
+  String? get _selectedId =>
+      widget.onDetailChanged == null ? _localSelectedId : widget.detailId;
 
-  /// הודעת העדכונים מוצגת פעם אחת בכל הרצה, לא בכל טעינה מחדש.
-  bool _updatesDialogShown = false;
+  void _select(String? id) {
+    final external = widget.onDetailChanged;
+    if (external != null) {
+      external(id);
+    } else {
+      setState(() => _localSelectedId = id);
+    }
+  }
 
-  /// התוספים החדשים שהטוסט עוד לא נצפה בהם. מוגדר פעם אחת בהרצה, ברגע
-  /// שהם נרשמים כ"נראו" — ראו [_announceNewIfNeeded].
-  List<StorePlugin> _newQueue = const [];
-  bool _newToastShown = false;
+  bool _stopSync = false;
 
-  /// "הצג עוד נבחרים" — נפתח פעם אחת ונשאר פתוח, כמו באתר.
-  bool _allFeaturedShown = false;
+  PluginsModuleController get _c => widget.controller;
 
   @override
   void initState() {
     super.initState();
-    widget.controller.addListener(_onControllerChange);
-    // הטעינה עצמה נעשית ב-AppShell, כמו לשאר המודולים; כאן רק מגיבים לה.
-    _announceUpdatesIfNeeded();
-    _announceNewIfNeeded();
+    _search.text = _c.search;
+    _c.addListener(_onControllerChange);
+    _captureNew();
   }
 
   @override
   void dispose() {
-    widget.controller.removeListener(_onControllerChange);
+    _c.removeListener(_onControllerChange);
     _search.dispose();
     super.dispose();
   }
 
   void _onControllerChange() {
     if (!mounted) return;
+    if (_search.text != _c.search) _search.text = _c.search;
     setState(() {});
-    _announceUpdatesIfNeeded();
-    _announceNewIfNeeded();
+    _captureNew();
   }
 
-  /// מציג את הטוסט "תוסף חדש בחנות" בפעם הראשונה שהקטלוג נטען, ורושם
-  /// את התוספים כ"נראו" כבר עכשיו — כמו בחנות הרשמית, ההודעה נאמרת פעם
-  /// אחת במחשב הזה גם אם נסגרה בלי להסתכל.
-  void _announceNewIfNeeded() {
-    if (_newToastShown) return;
-    if (widget.controller.status != PluginsModuleStatus.ready) return;
-    final fresh = widget.controller.newPlugins;
-    if (fresh.isEmpty) return;
-
-    _newToastShown = true;
-    _newQueue = fresh.toList();
-    unawaited(widget.controller.markNewSeen(fresh));
+  /// מה שחדש — גם מה שהגיע בסנכרון שרץ עכשיו — מסומן בשבב ונרשם כ"נראה".
+  void _captureNew() {
+    if (_c.status != PluginsModuleStatus.ready) return;
+    final fresh = _c.newPlugins;
+    if (fresh.isNotEmpty) unawaited(_c.markNewSeen(fresh));
   }
 
-  /// "צפה": פותח את הראשון בתור, והטוסט נשאר עם מה שעוד לא נצפה.
-  void _viewNextNew() {
-    if (_newQueue.isEmpty) return;
-    final next = _newQueue.first;
-    setState(() {
-      _newQueue = _newQueue.sublist(1);
-      _selectedId = next.id;
-    });
-    widget.onRequestFocus?.call();
-  }
-
-  /// מציג את הודעת "יש עדכונים זמינים" בפעם הראשונה שהקטלוג נטען בהצלחה.
-  void _announceUpdatesIfNeeded() {
-    if (_updatesDialogShown) return;
-    if (widget.controller.status != PluginsModuleStatus.ready) return;
-    if (widget.controller.updatablePlugins.isEmpty) return;
-
-    _updatesDialogShown = true;
-    unawaited(WidgetsBinding.instance.endOfFrame.then((_) async {
-      if (!mounted) return;
-      await _showUpdatesDialog();
-    }));
-  }
-
-  /// פותח את רשימת העדכונים — אוטומטית פעם אחת, ומכאן ואילך בלחיצה על
-  /// השבב. הרשימה נלקחת מהקונטרולר בכל פתיחה, ולכן היא תמיד רק מה שעדיין
-  /// ממתין לעדכון.
-  Future<void> _showUpdatesDialog() async {
-    final updatable = widget.controller.updatablePlugins;
-    if (updatable.isEmpty) return;
-
-    final selected = await showPluginUpdatesDialog(
-      context: context,
-      controller: widget.controller,
-      updatable: updatable,
-    );
-    if (selected == null || !mounted) return;
-    setState(() => _selectedId = selected);
-    widget.onRequestFocus?.call();
-  }
+  bool get _canSync => !widget.readOnly && widget.online != false;
 
   // ── פעולות ────────────────────────────────────────────────────────────────
 
@@ -185,33 +120,24 @@ class _PluginsScreenState extends State<PluginsScreen> {
       return;
     }
     final t = context.strings.plugins;
-    final approved = await showTwoActionsDialog(
-      context: context,
-      title: t.syncDialogTitle,
-      content: t.syncDialogContent,
-      confirmText: t.syncDialogConfirm,
-    );
-    if (!approved) return;
-
-    await widget.controller.sync();
+    _stopSync = false;
+    await _c.sync(isCancelled: () => _stopSync);
     if (!mounted) return;
-    final warnings = widget.controller.syncWarnings;
-    final shabbat = widget.controller.shabbatNotice;
-    if (shabbat != null) {
+    final warnings = _c.syncWarnings;
+    final shabbat = _c.shabbatNotice;
+    if (_c.lastSyncOutcome?.cancelled ?? false) {
+      UiSnack.show(t.syncStoppedSnack);
+    } else if (shabbat != null) {
       UiSnack.show(shabbat);
-    } else if (widget.controller.status == PluginsModuleStatus.error) {
-      UiSnack.showError(widget.controller.errorMessage ?? t.syncFailedSnack);
+    } else if (_c.status == PluginsModuleStatus.error) {
+      UiSnack.showError(_c.errorMessage ?? t.syncFailedSnack);
     } else if (warnings.isNotEmpty) {
-      // שכבת הסנכרון (ובה האזהרות) נעלמת ברגע הסיום. בלי ההודעה הזו סנכרון
-      // שבו קובצי תוספים לא ירדו נראה כהצלחה מלאה — והמשתמש שולף את הכונן.
+      // בלי ההודעה הזו סנכרון שבו קבצים לא ירדו נראה כהצלחה מלאה.
       UiSnack.showError(t.syncDoneWithWarningsSnack(warnings.length));
     } else {
-      // כמה באמת ירדו, ולא רק כמה יש בחנות — אחרת סנכרון שדילג על הכול
-      // נראה בדיוק כמו סנכרון שהוריד את כולה.
-      UiSnack.showSuccess(t.syncDoneSnack(
-        widget.controller.lastSyncOutcome?.fetched ?? 0,
-        widget.controller.plugins.length,
-      ));
+      UiSnack.showSuccess(
+        t.syncDoneSnack(_c.lastSyncOutcome?.fetched ?? 0, _c.plugins.length),
+      );
     }
   }
 
@@ -219,16 +145,13 @@ class _PluginsScreenState extends State<PluginsScreen> {
     final t = context.strings.plugins;
     final destPath = await NativeFileDialogs.saveFile(
       dialogTitle: t.saveDialogTitle,
-      fileName: widget.controller.suggestedFileName(plugin),
+      fileName: _c.suggestedFileName(plugin),
       allowedExtensions: const ['otzplugin'],
     );
     if (destPath == null || !mounted) return;
 
-    setState(() => _busyId = plugin.id);
-    final result = await widget.controller.saveCopy(plugin, destPath);
+    final result = await _c.saveCopy(plugin, destPath);
     if (!mounted) return;
-    setState(() => _busyId = null);
-
     if (result.success) {
       UiSnack.showSuccess(t.saveDoneSnack);
     } else {
@@ -238,681 +161,234 @@ class _PluginsScreenState extends State<PluginsScreen> {
 
   Future<void> _install(StorePlugin plugin) async {
     final t = context.strings.plugins;
-    setState(() => _busyId = plugin.id);
-    final result = await widget.controller.directInstall(plugin);
-    if (!mounted) return;
-    setState(() => _busyId = null);
-
+    final result = await _c.deliver(plugin);
     if (result.success) {
-      UiSnack.show(t.installOpenedSnack(plugin.name));
+      UiSnack.show(t.installSentSnack(plugin.name));
     } else {
       UiSnack.showError(result.error ?? t.installFailedSnack);
     }
   }
 
-  /// חזרה מעמוד הפרטים אל רשימה מסוננת — החיפוש החופשי מתאפס כדי שהסינון
-  /// החדש לא ייחתך בטקסט שהוקלד קודם.
-  void _backToList() {
-    widget.controller.setSearch('');
+  /// "עדכון הכול": אחד אחרי השני, במרווח — ראו `deliverUpdates`. הודעה אחת
+  /// בסוף: הודעה לכל כישלון הייתה נדרסת מיד בהודעה שאחריה.
+  Future<void> _updateAll() async {
+    final t = context.strings.plugins;
+    final targets =
+        _pendingUpdates.where(_c.canDirectInstall).toList(growable: false);
+    final outcome = await _c.updateAll(targets);
+    if (outcome == null) return;
+    final sent = outcome.sent.length;
+    if (outcome.failed.isNotEmpty) {
+      final names =
+          t.joinNames([for (final f in outcome.failed) f.plugin.name]);
+      final failure = sent == 0
+          ? t.updateAllNoneSentSnack(names)
+          : t.updateAllPartlySentSnack(sent, names);
+      UiSnack.showError(
+        outcome.stopped ? '${t.updateAllStoppedPrefix} $failure' : failure,
+      );
+    } else if (sent > 0) {
+      UiSnack.show(outcome.stopped
+          ? t.updateAllStoppedSnack(sent)
+          : t.updatesSentSnack(sent));
+    } else if (outcome.stopped) {
+      UiSnack.show(t.updateAllStoppedNoneSnack);
+    }
+  }
+
+  /// למה פעולות התוספים מושבתות עכשיו, או `null`. הסנכרון מחליף קבצים
+  /// במראה, והמסירה והשמירה קוראות מאותה מראה.
+  String? _blockedReason(BuildContext context) {
+    final t = context.strings.plugins;
+    if (_c.isSyncing) return t.actionsBlockedSyncing;
+    if (_c.isExporting) return t.actionsBlockedExporting;
+    if (_c.isUpdatingAll) return t.actionsBlockedUpdatingAll;
+    // הורדה, החלת ספרייה או התקנת אוצריא — המראה עשויה להתחלף באמצע.
+    if (widget.busyElsewhere) return t.actionsBlockedElsewhere;
+    return null;
+  }
+
+  /// עדכונים שעוד לא נשלחו לאוצריא.
+  List<StorePlugin> get _pendingUpdates => [
+        for (final plugin in _c.updatablePlugins)
+          if (!_c.isAwaitingInstallOf(plugin)) plugin,
+      ];
+
+  void _clearFilters() {
     _search.clear();
-    setState(() => _selectedId = null);
+    _c.clearFilters();
   }
 
   // ── תצוגה ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final controller = widget.controller;
-    final selected = _selectedId == null ? null : controller.byId(_selectedId!);
-
-    return Stack(
-      children: [
-        if (selected != null)
-          PluginDetailView(
-            plugin: selected,
-            controller: controller,
-            busy: _busyId == selected.id,
-            onBack: () => setState(() => _selectedId = null),
-            onSave: () => _save(selected),
-            onInstall: () => _install(selected),
-            onTagSelected: (tag) {
-              controller.showAllPlugins();
-              controller.setTagFilter(tag);
-              _backToList();
-            },
-            onCategorySelected: (slug) {
-              controller.setTagFilter(null);
-              controller.showCategory(slug);
-              _backToList();
-            },
-          )
-        else
-          _storeView(context),
-        if (controller.status == PluginsModuleStatus.syncing)
-          Positioned.fill(child: PluginSyncOverlay(controller: controller)),
-        if (controller.isExporting)
-          Positioned.fill(
-            child: StoreAppExportOverlay(controller: controller),
-          ),
-        if (_newQueue.isNotEmpty)
-          PluginNewToast(
-            count: _newQueue.length,
-            onView: _viewNextNew,
-            onClose: () => setState(() => _newQueue = const []),
-          ),
-      ],
-    );
-  }
-
-  Widget _storeView(BuildContext context) {
-    final controller = widget.controller;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final hasNav = controller.categories.isNotEmpty;
-        final sidebar =
-            hasNav && constraints.maxWidth >= kStoreSidebarBreakpoint;
-
-        return StoreBody(
-          header: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _syncHeader(context),
-              if (hasNav && !sidebar)
-                PluginStoreCategoryBar(controller: controller),
-            ],
-          ),
-          sidebar: sidebar ? PluginStoreSidebar(controller: controller) : null,
-          slivers: _slivers(context),
-        );
-      },
-    );
-  }
-
-  /// התוכן הגליל, לפי המסך שנבחר. הכול slivers — ראו [StoreBody].
-  List<Widget> _slivers(BuildContext context) {
-    final controller = widget.controller;
-
-    return [
-      if (controller.errorMessage != null)
-        StoreBody.block(
-          AppCard(
-            child: InfoErrorRow(
-              message: controller.errorMessage!,
-              onRetry: controller.load,
-            ),
-          ),
-          top: AppTokens.spaceMD,
-        ),
-      if (controller.status == PluginsModuleStatus.loading)
-        StoreBody.block(
-          AppCard(
-            child: InfoProgressRow(
-              stage: context.strings.plugins.loadingCatalog,
-            ),
-          ),
-          top: AppTokens.spaceLG,
-        )
-      else if (controller.plugins.isEmpty)
-        StoreBody.block(_neverSyncedState(context), top: AppTokens.spaceLG)
-      else
-        ...switch (controller.view) {
-          PluginStorePage.home => _homeSlivers(context),
-          PluginStorePage.all => _allSlivers(context),
-          PluginStorePage.category => _categorySlivers(context),
+    final id = _selectedId;
+    final selected = id == null ? null : _c.byId(id);
+    if (selected != null) {
+      return PluginDetailView(
+        plugin: selected,
+        controller: _c,
+        busy: _c.isDelivering(selected),
+        blockedReason: _blockedReason(context),
+        otzariaInstalled: widget.otzariaInstalled,
+        online: widget.online,
+        onSave: () => _save(selected),
+        onInstall: () => _install(selected),
+        onTagSelected: (tag) {
+          _clearFilters();
+          _c.setTagFilter(tag);
+          _select(null);
         },
-    ];
+        onCategorySelected: (slug) {
+          _clearFilters();
+          _c.setCategory(slug);
+          _select(null);
+        },
+      );
+    }
+    return StoreBody(slivers: _slivers(context));
   }
 
-  // ── דף הבית האצור ─────────────────────────────────────────────────────────
-
-  List<Widget> _homeSlivers(BuildContext context) {
-    final controller = widget.controller;
+  List<Widget> _slivers(BuildContext context) {
     final t = context.strings.plugins;
-    final featured = controller.featured;
-    final visibleFeatured = _allFeaturedShown
-        ? featured
-        : featured.take(_featuredPreviewCount).toList(growable: false);
+    final lastSync = _c.lastSync;
+    final ready = _c.status == PluginsModuleStatus.ready;
+    final empty = _c.plugins.isEmpty;
+    final busy = _c.isSyncing ||
+        _c.isExporting ||
+        _c.isUpdatingAll ||
+        widget.busyElsewhere;
+    final blockedReason = _blockedReason(context);
+    final failed = _c.errorMessage != null;
 
     return [
-      StoreBody.block(_hero(context), top: AppTokens.spaceLG),
-      // אין אצירה להציג — שער אל כל התוספים, כמו המצב הריק של דף הבית באתר.
-      if (!controller.hasCuratedHome)
-        StoreBody.block(
-          _emptyCard(
-            context,
-            icon: FluentIcons.puzzle_piece_24_regular,
-            title: t.emptyStoreTitle,
-            body: t.emptyStoreBody,
-            action: ActionButton.recommended(
-              text: t.allPluginsWithCount(controller.plugins.length),
-              icon: FluentIcons.apps_list_24_regular,
-              onPressed: controller.showAllPlugins,
-            ),
-          ),
-          top: AppTokens.spaceLG,
-        ),
-      // יש אצירה, אבל המתג "רק מה שלא מותקן" הסתיר את כולה.
-      if (controller.hasCuratedHome &&
-          featured.isEmpty &&
-          controller.homeCategories.isEmpty)
-        StoreBody.block(_allInstalledState(context), top: AppTokens.spaceLG),
-      if (featured.isNotEmpty) ...[
-        StoreBody.block(
-          StoreSectionHeader(
-            eyebrow: t.featuredEyebrow,
-            title: t.featuredTitle,
-          ),
-          top: AppTokens.spaceXL,
-          bottom: AppTokens.spaceMD,
-        ),
-        StoreBody.padded(_gridSliver(context, visibleFeatured)),
-        if (featured.length > _featuredPreviewCount && !_allFeaturedShown)
-          StoreBody.block(
-            Center(
-              child: ActionButton.neutral(
-                text: t.showMoreFeatured,
-                icon: FluentIcons.chevron_down_24_regular,
-                onPressed: () => setState(() => _allFeaturedShown = true),
+      StoreBody.block(
+        StorePageHead(
+          title: t.storeTitle,
+          description: lastSync == null
+              ? t.storeSubtitle
+              : '${t.storeSubtitle} ${t.asOfDate(formatStoreLocalDate(lastSync))}',
+          actions: [
+            // בחנות ריקה "רענון" הוא הפעולה הראשית של המצב הריק.
+            if (_canSync && !empty)
+              ActionButton.ghost(
+                text: t.refreshButton,
+                icon: FluentIcons.arrow_sync_20_regular,
+                spinning: _c.isSyncing,
+                onPressed: busy ? null : () => unawaited(_sync()),
               ),
-            ),
-            top: AppTokens.spaceMD,
-          ),
-      ],
-      for (final category in controller.homeCategories) ...[
-        StoreBody.block(
-          StoreSectionHeader(
-            title: category.name,
-            description: category.description,
-            action: ActionButton.ghost(
-              text: t.categoryLinkButton(category.pluginCount),
-              icon: context.forwardArrowIcon,
-              onPressed: () => controller.showCategory(category.slug),
-            ),
-          ),
-          top: AppTokens.spaceXL,
-          bottom: AppTokens.spaceMD,
-        ),
-        StoreBody.padded(
-          _gridSliver(
-            context,
-            controller.pluginsIn(category, limit: category.homeLimit),
-          ),
-        ),
-      ],
-      if (controller.hasCuratedHome)
-        StoreBody.block(_discoveryStrip(context), top: AppTokens.spaceXL),
-    ];
-  }
-
-  /// ה-hero של דף הבית: כותרת, תקציר ותיבת חיפוש בולטת. באתר החיפוש מוביל
-  /// לדף חיפוש צד-שרת; כאן — לסינון המקומי ב"כל התוספים".
-  Widget _hero(BuildContext context) {
-    final theme = Theme.of(context);
-    final controller = widget.controller;
-    final t = context.strings.plugins;
-
-    return AppCard(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppTokens.spaceLG,
-          vertical: AppTokens.spaceXL,
-        ),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 640),
-            child: Column(
-              children: [
-                Text(
-                  controller.homeTitle,
-                  style: theme.textTheme.headlineMedium
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: AppTokens.spaceSM),
-                Text(
-                  controller.homeSubtitle,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: AppTokens.spaceLG),
-                Row(
-                  children: [
-                    Expanded(
-                      child: RtlTextField(
-                        controller: _search,
-                        onSubmitted: _submitHeroSearch,
-                        decoration: InputDecoration(
-                          border: const OutlineInputBorder(
-                            borderRadius: AppTokens.borderRadiusAll,
-                          ),
-                          prefixIcon: const Icon(FluentIcons.search_24_regular),
-                          hintText: t.heroSearchHint,
-                          isDense: true,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: AppTokens.spaceSM),
-                    ActionButton.recommended(
-                      text: t.heroSearchButton,
-                      icon: FluentIcons.search_24_regular,
-                      onPressed: () => _submitHeroSearch(_search.text),
-                    ),
-                  ],
-                ),
-                // מתחת לחיפוש וממורכז, כמו הכפתור המקביל באתר. `Wrap` ולא
-                // `Row`: בחלון צר הוא יורד לשורה משלו במקום לגלוש.
-                if (StoreAppExportButton.isSupported) ...[
-                  const SizedBox(height: AppTokens.spaceMD),
-                  Wrap(
-                    alignment: WrapAlignment.center,
-                    spacing: AppTokens.spaceSM,
-                    runSpacing: AppTokens.spaceSM,
-                    children: [
-                      StoreAppExportButton(
-                        controller: controller,
-                        busyElsewhere: widget.busyElsewhere,
-                      ),
-                    ],
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _submitHeroSearch(String query) =>
-      widget.controller.showAllPlugins(query: query);
-
-  /// פס הגילוי בתחתית דף הבית — "לא מצאתם? עיינו בכל התוספים".
-  Widget _discoveryStrip(BuildContext context) {
-    final theme = Theme.of(context);
-    final controller = widget.controller;
-    final t = context.strings.plugins;
-
-    return AppCard(
-      child: Padding(
-        padding: const EdgeInsets.all(AppTokens.spaceLG),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Flexible(
-              child: Text(
-                t.browseAllPrompt,
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-            const SizedBox(width: AppTokens.spaceMD),
-            ActionButton.neutral(
-              text: t.browseAllButton(controller.plugins.length),
-              icon: FluentIcons.apps_list_24_regular,
-              onPressed: controller.showAllPlugins,
-            ),
           ],
         ),
       ),
-    );
+      if (_c.isSyncing) StoreBody.block(_syncProgress(context), bottom: 14),
+      if (failed)
+        StoreBody.block(
+          AppCard(
+            padding: const EdgeInsets.all(16),
+            child: InfoErrorRow(message: _c.errorMessage!, onRetry: _c.load),
+          ),
+          bottom: 14,
+        ),
+      if (_c.status == PluginsModuleStatus.loading)
+        StoreBody.block(
+          AppCard(
+            padding: const EdgeInsets.all(16),
+            child: InfoProgressRow(stage: t.loadingCatalog),
+          ),
+        )
+      // אחרי כשל טעינה הרשימה ריקה כי לא נקראה — לא כי אין תוספים.
+      else if (empty && !_c.isSyncing && !failed)
+        StoreBody.block(
+          EmptyState(
+            icon: FluentIcons.puzzle_piece_24_regular,
+            title: t.emptyTitle,
+            body: _canSync ? t.emptyBodyOnline : t.emptyBodyOffline,
+            actions: [
+              if (_canSync)
+                ActionButton.recommended(
+                  text: t.refreshButton,
+                  icon: FluentIcons.arrow_sync_20_regular,
+                  onPressed: busy ? null : () => unawaited(_sync()),
+                )
+              else ...[
+                ActionButton.neutral(
+                  key: ShellKeys.storeEmptyReload,
+                  text: t.reloadButton,
+                  icon: FluentIcons.arrow_clockwise_20_regular,
+                  onPressed: busy ? null : _c.load,
+                ),
+                if (widget.onOpenHelp case final help?)
+                  ActionButton.ghost(
+                    text: t.howItWorksButton,
+                    icon: FluentIcons.question_circle_20_regular,
+                    onPressed: help,
+                  ),
+              ],
+            ],
+          ),
+        )
+      else if (!empty) ...[
+        StoreBody.block(
+          PluginFiltersBar(controller: _c, searchController: _search),
+          bottom: 6,
+        ),
+        if (ready || _c.isUpdatingAll) ..._updatesBar(context),
+        if (blockedReason != null)
+          StoreBody.block(_BlockedNote(blockedReason), top: 6, bottom: 4),
+        if (_c.filtered.isEmpty)
+          StoreBody.block(_noResults(context))
+        else
+          StoreQueryScope(
+            query: _c.search,
+            child: _grid(context, blocked: blockedReason != null),
+          ),
+        StoreBody.block(_advanced(context), top: 8),
+      ],
+    ];
   }
 
-  // ── כל התוספים ────────────────────────────────────────────────────────────
-
-  List<Widget> _allSlivers(BuildContext context) {
-    final controller = widget.controller;
+  Widget _syncProgress(BuildContext context) {
     final t = context.strings.plugins;
-    final filtered = controller.filtered;
-
-    return [
-      StoreBody.block(
-        _breadcrumb(context, t.allPluginsPage),
-        top: AppTokens.spaceMD,
-        bottom: AppTokens.spaceSM,
-      ),
-      StoreBody.block(
-        PluginFiltersBar(
-          controller: controller,
-          searchController: _search,
-        ),
-      ),
-      StoreBody.block(
-        StoreSectionHeader(
-          eyebrow: t.listEyebrow,
-          title: t.listTitle,
-          action: Text(
-            _summaryText(context, filtered.length, controller.plugins.length),
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+    return ListenableBuilder(
+      listenable: _c.progress,
+      builder: (context, _) => AppCard(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    t.syncingTitle,
+                    style: AppTextStyles.rowTitle.copyWith(
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                ActionButton.ghost(
+                  text: t.syncStopButton,
+                  size: ActionButtonSize.sm,
+                  onPressed:
+                      _stopSync ? null : () => setState(() => _stopSync = true),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            InfoProgressRow(
+              stage: _c.syncMessage ?? t.syncingOverlayStarting,
+              progress: _c.syncProgress,
+              warning: t.syncingHint,
+            ),
+            for (final warning in _c.syncWarnings) ...[
+              const SizedBox(height: 4),
+              Text(
+                warning,
+                style: AppTextStyles.meta.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
-          ),
-        ),
-        top: AppTokens.spaceLG,
-        bottom: AppTokens.spaceMD,
-      ),
-      if (filtered.isEmpty)
-        StoreBody.block(_noResultsState(context))
-      else
-        StoreBody.padded(_gridSliver(context, filtered)),
-    ];
-  }
-
-  static String _summaryText(BuildContext context, int shown, int total) {
-    final t = context.strings.plugins;
-    if (shown == 0) return t.summaryNoResults;
-    if (shown == total) return t.summaryAllShown;
-    return t.summaryPartial(shown, total);
-  }
-
-  // ── דף קטגוריה ────────────────────────────────────────────────────────────
-
-  List<Widget> _categorySlivers(BuildContext context) {
-    final controller = widget.controller;
-    final category = controller.openCategory;
-    if (category == null) return _allSlivers(context);
-
-    final plugins = controller.pluginsIn(category);
-
-    return [
-      StoreBody.block(
-        _breadcrumb(context, category.name),
-        top: AppTokens.spaceMD,
-        bottom: AppTokens.spaceSM,
-      ),
-      StoreBody.block(
-        StoreSectionHeader(
-          title: category.name,
-          description: category.description,
-          footnote: plugins.length == 1
-              ? context.strings.plugins.categoryOnePlugin
-              : context.strings.plugins.categoryPluginCount(plugins.length),
-        ),
-        bottom: AppTokens.spaceMD,
-      ),
-      if (plugins.isEmpty)
-        StoreBody.block(
-          // קטגוריה שיש בה תוספים אבל כולם מותקנים — לא "בקרוב יתווספו".
-          category.pluginIds.isEmpty
-              ? _emptyCategoryState(context)
-              : _allInstalledState(context),
-        )
-      else
-        StoreBody.padded(_gridSliver(context, plugins)),
-    ];
-  }
-
-  /// פירורי לחם — "חנות התוספים ‹ <המסך>", כמו באתר.
-  Widget _breadcrumb(BuildContext context, String current) {
-    final theme = Theme.of(context);
-
-    return Row(
-      children: [
-        ActionButton.ghost(
-          text: context.strings.plugins.breadcrumbRoot,
-          icon: context.backArrowIcon,
-          onPressed: widget.controller.showHome,
-        ),
-        const SizedBox(width: AppTokens.spaceSM),
-        const RtlIcon(FluentIcons.chevron_right_20_regular, size: 16),
-        const SizedBox(width: AppTokens.spaceSM),
-        Flexible(
-          child: Text(
-            current,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium
-                ?.copyWith(fontWeight: FontWeight.bold),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ── שורת הסנכרון ──────────────────────────────────────────────────────────
-
-  /// שורת הסנכרון בראש המסך. אין כאן מיתוג או כותרת — הלאנצ'ר כבר מציג
-  /// סרגל עליון משלו, וזו גרסת התוספים שבתוכו.
-  Widget _syncHeader(BuildContext context) {
-    final controller = widget.controller;
-    final theme = Theme.of(context);
-    final t = context.strings.plugins;
-    final lastSync = controller.lastSync;
-    final isSyncing = controller.isSyncing;
-    final syncBlocked = isSyncing || widget.busyElsewhere;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: AppSurfaces.card(context),
-        border: Border(
-          bottom: BorderSide(color: theme.colorScheme.outlineVariant),
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(
-        horizontal: StoreBody.horizontalPadding,
-        vertical: AppTokens.spaceSM,
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          // קבוצה אחת ברוחב טבעי (`min`); ה-`Flexible` הפנימי מקצר את הכפתור
-          // כשהקבוצה נלחצת, בלי לקחת קצבה בשורה החיצונית.
-          final actions = Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // הסנכרון מוריד את החנות אל הכונן — ולכן אינו קיים כשהוא נעול.
-              if (!widget.readOnly) ...[
-                Flexible(
-                  child: ActionButton.recommended(
-                    text: t.syncButton,
-                    icon: FluentIcons.arrow_sync_24_regular,
-                    isLoading: isSyncing,
-                    onPressed: syncBlocked ? null : _sync,
-                  ),
-                ),
-                const SizedBox(width: AppTokens.spaceSM),
-              ],
-              SecondaryIconButton(
-                icon: FluentIcons.arrow_clockwise_24_regular,
-                tooltip: t.reloadTooltip,
-                onPressed: isSyncing ? null : controller.load,
               ),
-            ],
-          );
-
-          // גמיש: הטקסט מתקצר לפני שהשורה גולשת.
-          final status = Tooltip(
-            message: controller.pluginsDir ?? t.syncDirUnknownTooltip,
-            child: Text(
-              lastSync == null
-                  ? t.syncNeverRan
-                  : t.syncedAt(formatTimestamp(lastSync)),
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          );
-
-          // השבב הוא גם הדרך לפתוח שוב את רשימת העדכונים: ההודעה מוצגת
-          // אוטומטית פעם אחת בלבד, ובלעדיו אי אפשר לחזור אליה.
-          final updates = controller.status == PluginsModuleStatus.ready &&
-                  controller.updatablePlugins.isNotEmpty
-              ? Tooltip(
-                  message: t.updatesChipTooltip,
-                  // Material שקוף: ה-Container של השורה צובע מעל ה-Material
-                  // של המסך, ובלעדיו אפקט הלחיצה נצבע מאחוריו ואינו נראה.
-                  child: Material(
-                    type: MaterialType.transparency,
-                    child: InkWell(
-                      borderRadius: AppTokens.borderRadiusAll,
-                      mouseCursor: SystemMouseCursors.click,
-                      onTap: () => unawaited(_showUpdatesDialog()),
-                      child: StatusChip(
-                        kind: StatusKind.updateAvailable,
-                        label: t.updatesAvailableChip(
-                          controller.updatablePlugins.length,
-                        ),
-                      ),
-                    ),
-                  ),
-                )
-              : null;
-
-          // `Expanded` (tight) ולא `Flexible`: ילד רופף שאינו מנצל את כל קצבתו
-          // משאיר יתרה, ו-`Row` דוחף אותה **אחרי** האחרון — כך המתג שבסוף
-          // השורה נדחק פנימה ונראה באמצע. ה-`Align` משאיר לתוכן את רוחבו
-          // הטבעי בתוך הקצבה, וגבול הקצבה הוא שמקצר אותו בטקסט מוגדל.
-          Widget stretched(
-            Widget child, {
-            int flex = 1,
-            AlignmentGeometry alignment = AlignmentDirectional.centerStart,
-          }) =>
-              Expanded(
-                flex: flex,
-                child: Align(alignment: alignment, child: child),
-              );
-
-          final filterToggle = stretched(
-            _installedFilterToggle(context),
-            alignment: AlignmentDirectional.centerEnd,
-          );
-
-          // בחלון צר הכול לא נכנס לשורה אחת; המתג נשאר צמוד לקצה השמאלי העליון
-          // בשני המצבים, ומועד הסנכרון יורד לשורה שנייה.
-          if (constraints.maxWidth < _wideHeaderWidth) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(children: [stretched(actions), filterToggle]),
-                const SizedBox(height: AppTokens.spaceSM),
-                Row(
-                  children: [
-                    stretched(status),
-                    if (updates != null) updates,
-                  ],
-                ),
-              ],
-            );
-          }
-
-          return Row(
-            children: [
-              stretched(actions),
-              const SizedBox(width: AppTokens.spaceMD),
-              stretched(status, flex: 2),
-              if (updates != null) ...[
-                updates,
-                const SizedBox(width: AppTokens.spaceSM),
-              ],
-              filterToggle,
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  /// מתג "רק מה שלא מותקן" — קטן, בקצה השמאלי של שורת הסנכרון, וחל על כל
-  /// מסכי החנות (גם דף הבית והקטגוריות, שאין בהם סינון אחר).
-  Widget _installedFilterToggle(BuildContext context) {
-    final controller = widget.controller;
-    final isOn = controller.hideInstalled;
-    final t = context.strings.plugins;
-
-    return Tooltip(
-      message: isOn
-          ? t.hideInstalledOnTooltip(controller.installedCount)
-          : t.hideInstalledOffTooltip(controller.installedCount),
-      child: StoreTagPill(
-        label: t.hideInstalledLabel,
-        icon: FluentIcons.filter_24_regular,
-        active: isOn,
-        onTap: () => controller.setHideInstalled(!isOn),
-      ),
-    );
-  }
-
-  // ── מצבים ריקים ───────────────────────────────────────────────────────────
-
-  Widget _neverSyncedState(BuildContext context) => _emptyCard(
-        context,
-        icon: FluentIcons.puzzle_piece_24_regular,
-        title: context.strings.plugins.neverSyncedTitle,
-        body: context.strings.plugins.neverSyncedBody,
-      );
-
-  Widget _noResultsState(BuildContext context) => _emptyCard(
-        context,
-        icon: FluentIcons.search_24_regular,
-        title: context.strings.plugins.noResultsTitle,
-        body: context.strings.plugins.noResultsBody,
-      );
-
-  /// כל מה שהיה אמור להופיע כאן כבר מותקן ומעודכן — ולכן הוסתר במתג.
-  Widget _allInstalledState(BuildContext context) => _emptyCard(
-        context,
-        icon: FluentIcons.checkmark_circle_24_regular,
-        title: context.strings.plugins.allInstalledTitle,
-        body: context.strings.plugins.allInstalledBody,
-        action: ActionButton.neutral(
-          text: context.strings.plugins.showInstalledButton,
-          icon: FluentIcons.eye_24_regular,
-          onPressed: () => widget.controller.setHideInstalled(false),
-        ),
-      );
-
-  Widget _emptyCategoryState(BuildContext context) => _emptyCard(
-        context,
-        icon: FluentIcons.puzzle_piece_24_regular,
-        title: context.strings.plugins.emptyCategoryTitle,
-        body: context.strings.plugins.emptyCategoryBody,
-        action: ActionButton.neutral(
-          text: context.strings.plugins.allPluginsButton,
-          icon: FluentIcons.apps_list_24_regular,
-          onPressed: widget.controller.showAllPlugins,
-        ),
-      );
-
-  Widget _emptyCard(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String body,
-    Widget? action,
-  }) {
-    final theme = Theme.of(context);
-
-    return AppCard(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppTokens.spaceMD,
-          vertical: 56,
-        ),
-        child: Column(
-          children: [
-            Icon(icon, size: 40, color: theme.colorScheme.onSurfaceVariant),
-            const SizedBox(height: AppTokens.spaceMD),
-            Text(
-              title,
-              style: theme.textTheme.titleMedium,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: AppTokens.spaceSM),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 480),
-              child: Text(
-                body,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-            if (action != null) ...[
-              const SizedBox(height: AppTokens.spaceMD),
-              action,
             ],
           ],
         ),
@@ -920,27 +396,163 @@ class _PluginsScreenState extends State<PluginsScreen> {
     );
   }
 
-  // ── הרשת ──────────────────────────────────────────────────────────────────
+  List<Widget> _updatesBar(BuildContext context) {
+    final t = context.strings.plugins;
+    final updatable = _c.updatablePlugins;
+    if (updatable.isEmpty) return const [];
+    final pending = _pendingUpdates;
+    final run = _c.updateAllRun;
+    final names = [for (final plugin in pending) plugin.name];
+    final deliverable = pending.any(_c.canDirectInstall);
+    final stopping = _c.updateAllStopRequested;
 
-  Widget _gridSliver(BuildContext context, List<StorePlugin> plugins) {
+    final Widget banner;
+    if (run != null) {
+      banner = NoticeBanner(
+        kind: NoticeKind.banner,
+        leading: const IconTile(icon: FluentIcons.arrow_sync_24_regular),
+        title: t.updatingAllLabel(
+            run.done + 1 > run.total ? run.total : run.done + 1, run.total),
+        body: stopping ? t.updateAllStoppingLabel : null,
+        below: AppProgressBar(value: run.done / run.total, thin: true),
+        actions: [
+          ActionButton.ghost(
+            text: t.syncStopButton,
+            size: ActionButtonSize.sm,
+            onPressed: stopping ? null : _c.stopUpdateAll,
+          ),
+        ],
+      );
+    } else if (pending.isEmpty) {
+      banner = NoticeBanner(
+        kind: NoticeKind.banner,
+        leading: const IconTile(icon: FluentIcons.send_24_regular),
+        title: t.updatesSentTitle,
+        body: t.updatesSentBody,
+      );
+    } else {
+      banner = NoticeBanner(
+        kind: NoticeKind.banner,
+        leading: const IconTile(icon: FluentIcons.arrow_sync_24_regular),
+        title: t.updatesAvailable(pending.length),
+        body: t.updatesBarNames(t.joinNames(names)),
+        actions: [
+          if (deliverable)
+            ActionButton.recommended(
+              text: t.updateAllButton,
+              onPressed: _blockedReason(context) != null
+                  ? null
+                  : () => unawaited(_updateAll()),
+            ),
+        ],
+      );
+    }
+    return [StoreBody.block(banner, bottom: 2)];
+  }
+
+  Widget _noResults(BuildContext context) {
+    final t = context.strings.plugins;
+    final query = _c.search.trim();
+    return EmptyState(
+      icon: FluentIcons.search_24_regular,
+      quiet: true,
+      title: query.isEmpty ? t.noResultsTitle : t.noResultsForQuery(query),
+      body: t.noResultsBody,
+      actions: [
+        ActionButton.neutral(
+            text: t.clearFiltersButton, onPressed: _clearFilters),
+      ],
+    );
+  }
+
+  Widget _grid(BuildContext context, {required bool blocked}) {
+    final plugins = _c.filtered;
     return SliverGrid.builder(
       gridDelegate: StoreGridDelegate(
         textScale: MediaQuery.textScalerOf(context).scale(1),
-        minCardWidth: _minCardWidth,
-        contentHeight: _cardContentHeight,
       ),
       itemCount: plugins.length,
       itemBuilder: (context, index) {
         final plugin = plugins[index];
         return PluginStoreCard(
           plugin: plugin,
-          controller: widget.controller,
-          busy: _busyId == plugin.id,
-          onOpenDetail: () => setState(() => _selectedId = plugin.id),
+          controller: _c,
+          state: pluginCardStateOf(
+            _c,
+            plugin,
+            busy: _c.isDelivering(plugin),
+            otzariaInstalled: widget.otzariaInstalled,
+            online: widget.online,
+          ),
+          isNew: _c.isNewThisRun(plugin),
+          blocked: blocked,
+          online: widget.online,
+          onOpenDetail: () => _select(plugin.id),
           onSave: () => _save(plugin),
           onInstall: () => _install(plugin),
         );
       },
+    );
+  }
+
+  Widget _advanced(BuildContext context) {
+    final t = context.strings.plugins;
+    return AdvancedSection(
+      title: context.strings.pages.advancedTitle,
+      summary: StoreAppExportButton.isSupported
+          ? t.advancedSummary
+          : t.reloadRowTitle,
+      child: RowsCard(
+        children: [
+          if (StoreAppExportButton.isSupported)
+            AppRow(
+              title: t.storeAppButton,
+              subtitle: t.storeAppRowBody,
+              trailing: StoreAppExportButton(
+                controller: _c,
+                busyElsewhere: widget.busyElsewhere || _c.isUpdatingAll,
+                onExport: () => unawaited(runStoreAppExport(context, _c)),
+              ),
+              below:
+                  _c.isExporting ? StoreAppCopyProgress(controller: _c) : null,
+            ),
+          AppRow(
+            title: t.reloadRowTitle,
+            subtitle: _blockedReason(context) ??
+                (_c.pluginsDir == null ? t.syncDirUnknownTooltip : null),
+            below: _c.pluginsDir == null ? null : PathText(_c.pluginsDir!),
+            trailing: ActionButton.neutral(
+              text: t.reloadButton,
+              icon: FluentIcons.arrow_clockwise_20_regular,
+              onPressed: _blockedReason(context) == null ? _c.load : null,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// שורת ההסבר מעל הרשת כשהפעולות מושבתות.
+class _BlockedNote extends StatelessWidget {
+  const _BlockedNote(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Icon(FluentIcons.info_16_regular, size: 16, color: cs.onSurfaceVariant),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: AppTextStyles.meta.copyWith(color: cs.onSurfaceVariant),
+          ),
+        ),
+      ],
     );
   }
 }

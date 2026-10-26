@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
@@ -9,231 +11,224 @@ import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
 import '../store_kit/store_kit.dart';
 import 'custom_app_status.dart';
+import 'custom_app_store_card.dart';
 
+/// דף תוכנה — כמו דף תוסף: ראש עם הפעולה לפי המצב, מידע וצילומי מסך.
 class CustomAppDetailView extends StatelessWidget {
   const CustomAppDetailView({
     super.key,
     required this.controller,
     required this.app,
     required this.readOnly,
-    required this.onBack,
     required this.onInstall,
     required this.onLaunch,
     required this.onDownload,
     required this.onPickLocation,
     required this.onCategorySelected,
+    this.online = true,
   });
 
   final CustomAppsController controller;
   final CustomAppView app;
-
   final bool readOnly;
 
-  final VoidCallback onBack;
+  /// `false` — אין אינטרנט: אין בדיקה ואין הורדה ברשת.
+  final bool online;
   final VoidCallback onInstall;
   final VoidCallback onLaunch;
   final VoidCallback onDownload;
   final VoidCallback onPickLocation;
-
   final ValueChanged<String> onCategorySelected;
 
   AppDescriptor get _descriptor => app.descriptor;
   bool get _isFromGithub => _descriptor.sourceKind == AppSourceKind.github;
+  bool get _canFetch => _isFromGithub && !readOnly && online;
   bool get _isDownloading => controller.downloadingId == _descriptor.id;
 
   @override
   Widget build(BuildContext context) {
-    return StoreDetailPage(
-      backLabel: context.strings.customApps.backToApps,
-      title: _descriptor.name,
-      onBack: onBack,
-      panels: _panels(context),
+    return StoreBody(slivers: [StoreBody.block(_body(context))]);
+  }
+
+  Widget _body(BuildContext context) {
+    final t = context.strings.customApps;
+    final cs = Theme.of(context).colorScheme;
+    final screenshots = controller.shownScreenshotPathsOf(_descriptor);
+    final primary = CustomAppAction(
+      controller: controller,
+      app: app,
+      readOnly: readOnly,
+      onInstall: onInstall,
+      onLaunch: onLaunch,
+      onDownload: onDownload,
+      primary: true,
+      online: online,
+    );
+    // ההורדה היא הפעולה הראשית רק כשאין מה להתקין; אחרת — כפתור משני, ורק
+    // כשמה שבכונן חסר או ישן מזה שברשת.
+    final downloadIsPrimary = !app.canInstall && !app.canLaunch && _canFetch;
+    final stored = app.storedInstaller;
+    final onlineVersion = controller.onlineVersions[_descriptor.id];
+    final driveOutdated = stored == null ||
+        (onlineVersion != null &&
+            customAppOnlineIsNewer(onlineVersion, stored.version));
+    final checking = controller.checkingIds.contains(_descriptor.id);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        StoreDetailHero(
+          icon: StoreIcon(
+            imagePath: controller.iconPathOf(_descriptor),
+            placeholderIcon: FluentIcons.box_24_regular,
+            size: 96,
+          ),
+          title: _descriptor.name,
+          meta: StoreMetaLine(
+            items: [
+              for (final item in customAppMeta(context, app))
+                StoreMetaItem(item),
+            ],
+          ),
+          summary: _descriptor.description,
+          actions: [
+            primary,
+            if (app.canDetect && !app.canLaunch)
+              ActionButton.neutral(
+                text: t.pickLocationButton,
+                icon: FluentIcons.folder_open_20_regular,
+                onPressed: controller.isBusy ? null : onPickLocation,
+              ),
+            if (_canFetch && !downloadIsPrimary && driveOutdated)
+              ActionButton.neutral(
+                text: t.downloadButton,
+                icon: FluentIcons.arrow_download_20_regular,
+                isLoading: _isDownloading,
+                onPressed: controller.downloadingId != null ||
+                        controller.isDownloadingAll
+                    ? null
+                    : onDownload,
+              ),
+            if (_canFetch)
+              ActionButton.ghost(
+                text: t.checkOnlineButton,
+                icon: FluentIcons.arrow_sync_20_regular,
+                spinning: checking,
+                onPressed: checking || controller.isCheckingAll
+                    ? null
+                    : () => unawaited(_checkOnline(context)),
+              ),
+          ],
+          note: customAppNoteOf(context, app),
+          below: _progress(context),
+        ),
+        StoreDetailColumns(
+          start: [
+            if (screenshots.isNotEmpty) ...[
+              StoreSectionTitle(t.screenshotsPanelTitle),
+              StoreScreenshots(paths: screenshots),
+            ],
+            if (_descriptor.longDescription case final text?) ...[
+              StoreSectionTitle(t.aboutPanelTitle),
+              Text(
+                text,
+                style: AppTextStyles.dialogBody.copyWith(color: cs.onSurface),
+              ),
+            ],
+          ],
+          end: [
+            StoreSectionTitle(t.infoPanelTitle),
+            StoreInfoRows(entries: _info(context)),
+            if (_descriptor.categorySlugs.isNotEmpty) ...[
+              StoreSectionTitle(t.categoriesTitle),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final slug in _descriptor.categorySlugs)
+                    StoreTagPill(
+                      label: controller.categoryName(slug),
+                      tonal: true,
+                      onTap: () => onCategorySelected(slug),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ],
     );
   }
 
-  List<Widget> _panels(BuildContext context) {
-    final t = context.strings.customApps;
-    final screenshots = controller.shownScreenshotPathsOf(_descriptor);
+  /// "בדיקה ברשת" אומרת מה נמצא — לא רק מעדכנת שורה בדף.
+  Future<void> _checkOnline(BuildContext context) async {
+    await controller.checkOnline(_descriptor);
+    if (!context.mounted) return;
+    final label = customAppOnlineLabel(context, controller, app);
+    if (label != null) UiSnack.show(label);
+  }
 
-    return [
-      StoreDetailHero(
-        image: StoreThumbnail.icon(
-          imagePath: controller.iconPathOf(_descriptor),
-          placeholderIcon: FluentIcons.box_24_regular,
+  Widget? _progress(BuildContext context) {
+    final t = context.strings.customApps;
+    if (controller.isLearning) return InfoProgressRow(stage: t.learningLabel);
+    if (!_isDownloading) return null;
+    return ListenableBuilder(
+      listenable: controller.progress,
+      builder: (context, _) => InfoProgressRow(
+        stage: t.downloadingLabel,
+        progress: (controller.downloadTotal ?? 0) > 0
+            ? (controller.downloadReceived ?? 0) / controller.downloadTotal!
+            : null,
+        detail: formatBytesProgress(
+          controller.downloadReceived,
+          controller.downloadTotal,
         ),
-        imageWidth: 300,
-        imageMaxWidth: 360,
-        details: _heroDetails(context),
       ),
-      if (_descriptor.longDescription case final text?) ...[
-        const SizedBox(height: AppTokens.spaceLG),
-        StoreDetailPanel(
-          title: t.aboutPanelTitle,
-          child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
+    );
+  }
+
+  List<StoreInfoEntry> _info(BuildContext context) {
+    final t = context.strings.customApps;
+    final stored = app.storedInstaller;
+    final online = customAppOnlineLabel(context, controller, app);
+    final installedValue = customAppInstalledValue(context, app);
+    final storedValue = customAppStoredValue(context, app);
+    return [
+      StoreInfoEntry(
+        label: t.infoInstalled,
+        value: installedValue.text,
+        ltr: installedValue.ltr,
+      ),
+      StoreInfoEntry(
+        label: t.infoStored,
+        value: storedValue.text,
+        ltr: storedValue.ltr,
+      ),
+      if (_isFromGithub)
+        StoreInfoEntry(
+          label: t.infoOnline,
+          value: online ?? t.onlineNotChecked,
         ),
-      ],
-      const SizedBox(height: AppTokens.spaceLG),
-      _infoPanel(context),
-      if (screenshots.isNotEmpty) ...[
-        const SizedBox(height: AppTokens.spaceLG),
-        StoreScreenshotsPanel(
-          title: t.screenshotsPanelTitle,
-          paths: screenshots,
+      StoreInfoEntry(
+        label: t.infoSource,
+        value: switch (_descriptor.github) {
+          final source? => source.webUrl,
+          null => t.infoSourceFile,
+        },
+        mono: _descriptor.github != null,
+      ),
+      if (stored != null) ...[
+        StoreInfoEntry(
+          label: t.infoStoredSize,
+          value: stored.sizeBytes > 0
+              ? formatBytes(stored.sizeBytes)
+              : t.valueUnknown,
+        ),
+        StoreInfoEntry(
+          label: t.infoStoredAdded,
+          value: formatStoreLocalDate(stored.addedAt),
         ),
       ],
     ];
-  }
-
-  Widget _heroDetails(BuildContext context) {
-    final theme = Theme.of(context);
-    final t = context.strings.customApps;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(_descriptor.name, style: theme.textTheme.headlineMedium),
-        if (_descriptor.description case final text?) ...[
-          const SizedBox(height: AppTokens.spaceSM),
-          Text(text, style: theme.textTheme.bodyMedium),
-        ],
-        const SizedBox(height: AppTokens.spaceMD),
-        Wrap(
-          spacing: AppTokens.spaceXS,
-          runSpacing: AppTokens.spaceXS,
-          children: [
-            StatusChip(
-              kind: customAppStatusKind(app),
-              label: customAppInstalledLabel(context, app),
-            ),
-            StoreBadge(label: customAppStoredLabel(context, app)),
-            if (customAppOnlineLabel(context, controller, app)
-                case final label?)
-              StoreBadge(label: label),
-          ],
-        ),
-        if (_descriptor.categorySlugs.isNotEmpty) ...[
-          const SizedBox(height: AppTokens.spaceSM),
-          Wrap(
-            spacing: AppTokens.spaceSM,
-            runSpacing: AppTokens.spaceSM,
-            children: [
-              for (final slug in _descriptor.categorySlugs)
-                StoreTagPill(
-                  label: controller.categoryName(slug),
-                  onTap: () => onCategorySelected(slug),
-                ),
-            ],
-          ),
-        ],
-        if (controller.isLearning) ...[
-          const SizedBox(height: AppTokens.spaceMD),
-          InfoProgressRow(stage: t.learningLabel),
-        ],
-        if (_isDownloading) ...[
-          const SizedBox(height: AppTokens.spaceMD),
-          ListenableBuilder(
-            listenable: controller.progress,
-            builder: (context, _) => InfoProgressRow(
-              stage: t.downloadingLabel,
-              progress: (controller.downloadTotal ?? 0) > 0
-                  ? (controller.downloadReceived ?? 0) /
-                      controller.downloadTotal!
-                  : null,
-              detail: formatBytesProgress(
-                controller.downloadReceived,
-                controller.downloadTotal,
-              ),
-            ),
-          ),
-        ],
-        const SizedBox(height: AppTokens.spaceMD),
-        _actions(context),
-      ],
-    );
-  }
-
-  Widget _actions(BuildContext context) {
-    final t = context.strings.customApps;
-    final common = context.strings.common;
-
-    return Wrap(
-      spacing: AppTokens.spaceSM,
-      runSpacing: AppTokens.spaceSM,
-      children: [
-        if (app.canInstall)
-          ActionButton.recommended(
-            text: common.install,
-            icon: FluentIcons.desktop_arrow_right_24_regular,
-            onPressed: controller.isBusy ? null : onInstall,
-          ),
-        if (app.canLaunch)
-          ActionButton.neutral(
-            text: common.launch,
-            icon: FluentIcons.play_24_regular,
-            onPressed: controller.isBusy ? null : onLaunch,
-          ),
-        if (app.canDetect && !app.canLaunch)
-          ActionButton.ghost(
-            text: t.pickLocationButton,
-            icon: FluentIcons.folder_open_24_regular,
-            onPressed: controller.isBusy ? null : onPickLocation,
-          ),
-        if (_isFromGithub && !readOnly) ...[
-          ActionButton.neutral(
-            text: t.downloadButton,
-            icon: FluentIcons.arrow_download_24_regular,
-            isLoading: _isDownloading,
-            onPressed:
-                controller.downloadingId != null || controller.isDownloadingAll
-                    ? null
-                    : onDownload,
-          ),
-          ActionButton.ghost(
-            text: t.checkOnlineButton,
-            icon: FluentIcons.arrow_sync_24_regular,
-            onPressed: () => controller.checkOnline(_descriptor),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _infoPanel(BuildContext context) {
-    final t = context.strings.customApps;
-    final stored = app.storedInstaller;
-
-    return StoreDetailPanel(
-      title: t.infoPanelTitle,
-      child: StoreInfoGrid(
-        entries: [
-          StoreInfoEntry(
-            label: t.infoSource,
-            value: _isFromGithub ? t.infoSourceGithub : t.infoSourceFile,
-          ),
-          StoreInfoEntry(
-            label: t.infoInstalled,
-            value: customAppInstalledLabel(context, app),
-          ),
-          StoreInfoEntry(
-            label: t.infoStored,
-            value: customAppStoredLabel(context, app),
-          ),
-          if (customAppOnlineLabel(context, controller, app) case final online?)
-            StoreInfoEntry(label: t.infoOnline, value: online),
-          if (stored != null) ...[
-            StoreInfoEntry(
-              label: t.infoStoredSize,
-              value: stored.sizeBytes > 0
-                  ? formatBytes(stored.sizeBytes)
-                  : t.valueUnknown,
-            ),
-            StoreInfoEntry(
-              label: t.infoStoredAdded,
-              value: formatTimestamp(stored.addedAt),
-            ),
-          ],
-        ],
-      ),
-    );
   }
 }

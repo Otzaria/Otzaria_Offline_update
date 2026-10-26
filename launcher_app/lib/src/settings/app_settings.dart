@@ -1,12 +1,8 @@
-import 'dart:ui' show Color, PlatformDispatcher;
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:error_reports_manager/error_reports_manager.dart'
     show AppCrashReportMode;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
-
-import '../theme/app_seed_colors.dart';
-
-enum AppThemeMode { system, light, dark }
 
 /// בחירת שפת הממשק. [system] — לפי שפת מערכת ההפעלה, וזו ברירת המחדל:
 /// התקנה חדשה מדברת בשפה שהמחשב כבר מדבר, בלי שאיש יגדיר דבר.
@@ -37,6 +33,27 @@ enum AppLanguagePreference {
   }
 }
 
+/// האם ההורדה לכונן מביאה גם את החיפוש החכם (כמה ג׳יגה־בייט). [ask] — השאלה
+/// שלפני ההורדה; [always]/[never] נבחרים בהגדרות או ב"אל תציג שוב" שבשאלה.
+enum SemanticDownloadPreference {
+  ask('ask'),
+  always('always'),
+  never('never');
+
+  const SemanticDownloadPreference(this.code);
+
+  /// הערך שנשמר תחת `sync.semantic`.
+  final String code;
+
+  /// ערך לא מוכר — וגם קובץ מלפני השדה — חוזר לשאלה.
+  static SemanticDownloadPreference fromCode(Object? code) {
+    for (final preference in values) {
+      if (preference.code == code) return preference;
+    }
+    return SemanticDownloadPreference.ask;
+  }
+}
+
 /// שפת מערכת ההפעלה, מצומצמת לשפות שהלאנצ'ר מדבר.
 ///
 /// `PlatformDispatcher` ולא `Platform.localeName` — הראשון הוא שפת *הממשק*
@@ -57,17 +74,9 @@ AppLanguage systemLanguage() {
 /// **אין כאן נתיבים.** תיקיית הנתונים תמיד צמודה לקובץ ההרצה (ראו
 /// `AppPaths`), והמיקום של אוצריא עצמה מתגלה ואינו מוגדר.
 class AppSettings {
-  /// 4: מקטע `storage` (גיבוי המסד) הוסר — ראו `OfflineLibraryDbRecoveryService`.
-  /// 5: `ui.language` מקבל גם `system` — לפי שפת המחשב, וזו ברירת המחדל.
-  /// 6: `ui.seedColor` / `ui.darkSeedColor` — פלטת הצבעים של אוצריא.
-  /// 7: `sync.personalMode` — הורדה למחשב שלי בלבד, בלי המסד המלא.
-  /// 8: `sync.fullPackage` — חבילת ההתקנה המלאה של אוצריא (הוסר).
-  /// 9: `ui.showFaq` — הכפתור הצף של השאלות הנפוצות.
-  /// 10: `protection` — מצב סייפר: נעילת ההגדרות בסיסמה.
-  /// 11: `automation` — שני דגלים במקום ארבעה: בדיקה והתקנה, כל אחד
-  ///     לתוכנה ולספרייה גם יחד.
-  /// 12: `reports` — מצב הדיווח אחרי קריסה וכתובת הדואר שנזכרת בטופס.
-  static const int schemaVersion = 12;
+  /// מפתח חסר מקבל ברירת מחדל, ומפתח לא מוכר נמחק בשמירה הבאה. הגרסה
+  /// נבדקת רק להסבת `reports.crashMode` (ראו [AppSettings.fromJson]).
+  static const int schemaVersion = 15;
 
   /// בדיקת עדכונים בפתיחה — גם מקומית (התיקייה שלצד התוכנה) וגם קלה מול
   /// GitHub כשיש רשת: מטא-דאטה בלבד, בלי הורדה, וכשל (אין רשת) נבלע בשקט.
@@ -85,6 +94,16 @@ class AppSettings {
   /// בלי המסד המלא אינו יכול לשרת מחשב שאין בו אוצריא בכלל.
   final bool personalUpdateMode;
 
+  /// השאלה "מחשבים מרובים או רק המחשב שלי" כבר נענתה בכונן הזה. נוסע עם
+  /// הכונן, ולכן היא נשאלת פעם אחת לכונן ולא לכל מחשב.
+  final bool personalModeAsked;
+
+  /// "רק המחשב שלי" נבחר במחשב שלא נרשם: המחשב הלא מחובר הראשון שבו אוצריא
+  /// מותקנת יירשם. חד-פעמי — נמחק ברישום הזה או בהסרה ידנית.
+  final bool personalAutoRegisterPending;
+
+  final SemanticDownloadPreference semanticDownload;
+
   // ── התקנה אוטומטית מהתיקייה המקומית ─────────────────────────────────────
   /// התוכנה והספרייה יחד — התקנה ראשונה לעולם אינה אוטומטית.
   final bool autoInstall;
@@ -99,17 +118,7 @@ class AppSettings {
   /// *הבחירה* בהגדרות — כולל "אוטומטי", שהיא ברירת המחדל. השפה שמוצגת
   /// בפועל היא [language].
   final AppLanguagePreference languagePreference;
-  final AppThemeMode themeMode;
   final double textScale;
-
-  /// צבעי ה-seed שמהם נבנית ערכת הצבעים — אחד לכל בהירות, כמו באוצריא:
-  /// הבחירה בהגדרות חלה על הערכה המוצגת באותו רגע.
-  final Color seedColor;
-  final Color darkSeedColor;
-
-  /// הכפתור הצף של השאלות הנפוצות בדף הבית. דלוק כברירת מחדל — הוא ההדרכה
-  /// היחידה בתוכנה — וכיבוי מסתיר אותו לגמרי, כולל ההבהוב שבעלייה.
-  final bool showFaqButton;
 
   // ── מצב סייפר ───────────────────────────────────────────────────────────
   /// `true` = ההגדרות ועריכת ההדרכה נעולות בסיסמה. אין לזה משמעות בלי
@@ -138,17 +147,16 @@ class AppSettings {
     this.syncLibrary = true,
     this.syncPlugins = true,
     this.personalUpdateMode = false,
+    this.personalModeAsked = false,
+    this.personalAutoRegisterPending = false,
+    this.semanticDownload = SemanticDownloadPreference.ask,
     this.autoInstall = false,
     this.preferAppPrerelease = false,
     this.languagePreference = AppLanguagePreference.system,
-    this.themeMode = AppThemeMode.system,
     this.textScale = 1.0,
-    this.seedColor = AppSeedColors.defaultLight,
-    this.darkSeedColor = AppSeedColors.defaultDark,
-    this.showFaqButton = true,
     this.saferModeEnabled = false,
     this.saferModePassword = '',
-    this.crashReportMode = AppCrashReportMode.ask,
+    this.crashReportMode = AppCrashReportMode.always,
     this.reportSenderEmails = const {},
   });
 
@@ -179,14 +187,13 @@ class AppSettings {
     bool? syncLibrary,
     bool? syncPlugins,
     bool? personalUpdateMode,
+    bool? personalModeAsked,
+    bool? personalAutoRegisterPending,
+    SemanticDownloadPreference? semanticDownload,
     bool? autoInstall,
     bool? preferAppPrerelease,
     AppLanguagePreference? languagePreference,
-    AppThemeMode? themeMode,
     double? textScale,
-    Color? seedColor,
-    Color? darkSeedColor,
-    bool? showFaqButton,
     bool? saferModeEnabled,
     String? saferModePassword,
     AppCrashReportMode? crashReportMode,
@@ -198,14 +205,14 @@ class AppSettings {
       syncLibrary: syncLibrary ?? this.syncLibrary,
       syncPlugins: syncPlugins ?? this.syncPlugins,
       personalUpdateMode: personalUpdateMode ?? this.personalUpdateMode,
+      personalModeAsked: personalModeAsked ?? this.personalModeAsked,
+      personalAutoRegisterPending:
+          personalAutoRegisterPending ?? this.personalAutoRegisterPending,
+      semanticDownload: semanticDownload ?? this.semanticDownload,
       autoInstall: autoInstall ?? this.autoInstall,
       preferAppPrerelease: preferAppPrerelease ?? this.preferAppPrerelease,
       languagePreference: languagePreference ?? this.languagePreference,
-      themeMode: themeMode ?? this.themeMode,
       textScale: textScale ?? this.textScale,
-      seedColor: seedColor ?? this.seedColor,
-      darkSeedColor: darkSeedColor ?? this.darkSeedColor,
-      showFaqButton: showFaqButton ?? this.showFaqButton,
       saferModeEnabled: saferModeEnabled ?? this.saferModeEnabled,
       saferModePassword: saferModePassword ?? this.saferModePassword,
       crashReportMode: crashReportMode ?? this.crashReportMode,
@@ -227,15 +234,13 @@ class AppSettings {
           'library': syncLibrary,
           'plugins': syncPlugins,
           'personalMode': personalUpdateMode,
+          'personalAsked': personalModeAsked,
+          'personalAutoRegister': personalAutoRegisterPending,
+          'semantic': semanticDownload.code,
         },
         'ui': {
           'language': languagePreference.code,
-          'themeMode': themeMode.name,
           'textScale': textScale,
-          // ARGB שלם, כמו ש-`key-swatch-color` נשמר באוצריא.
-          'seedColor': seedColor.toARGB32(),
-          'darkSeedColor': darkSeedColor.toARGB32(),
-          'showFaq': showFaqButton,
         },
         'protection': {
           'enabled': saferModeEnabled,
@@ -269,11 +274,6 @@ class AppSettings {
       return value is bool ? value : fallback;
     }
 
-    Color color(String key, Color fallback) {
-      final value = ui[key];
-      return value is int ? Color(value) : fallback;
-    }
-
     // ערך פגום היה מגיע ישר ל-`MediaQuery.withClampedTextScaling` (ראו
     // `main.dart`): שלילי מפיל שם assert, ו-40 משאיר ממשק שאי אפשר לתקן בו
     // כלום — כולל את מסך ההגדרות שבו משנים אותו בחזרה.
@@ -296,6 +296,20 @@ class AppSettings {
       return (a is bool ? a : fallback) && (b is bool ? b : fallback);
     }
 
+    // עד סכימה 14 "לשאול" היה ברירת המחדל ונכתב לכל קובץ, כך שאין לדעת אם
+    // נבחר; ברירת המחדל החדשה (לבקשת המתחזק) חלה גם עליו. "לא לשלוח" נשמר.
+    AppCrashReportMode crashMode() {
+      final mode = AppCrashReportMode.parse(reports['crashMode']);
+      final version = json['schemaVersion'];
+      final legacy = version is! int || version < 15;
+      return legacy && mode == AppCrashReportMode.ask
+          ? AppCrashReportMode.always
+          : mode;
+    }
+
+    final personalMode =
+        flag(sync, 'personalMode', defaults.personalUpdateMode);
+
     return AppSettings(
       autoCheckUpdates: merged(
         'checkUpdates',
@@ -306,8 +320,11 @@ class AppSettings {
       syncApp: flag(sync, 'app', defaults.syncApp),
       syncLibrary: flag(sync, 'library', defaults.syncLibrary),
       syncPlugins: flag(sync, 'plugins', defaults.syncPlugins),
-      personalUpdateMode:
-          flag(sync, 'personalMode', defaults.personalUpdateMode),
+      personalUpdateMode: personalMode,
+      // כונן שכבר הפעיל עדכון אישי ענה על השאלה, גם לפני שהיא הייתה.
+      personalModeAsked: flag(sync, 'personalAsked', personalMode),
+      personalAutoRegisterPending: flag(sync, 'personalAutoRegister', false),
+      semanticDownload: SemanticDownloadPreference.fromCode(sync['semantic']),
       autoInstall: merged(
         'install',
         'installApp',
@@ -317,14 +334,7 @@ class AppSettings {
       preferAppPrerelease:
           flag(channels, 'appPrerelease', defaults.preferAppPrerelease),
       languagePreference: AppLanguagePreference.fromCode(ui['language']),
-      themeMode: AppThemeMode.values.firstWhere(
-        (m) => m.name == ui['themeMode'],
-        orElse: () => defaults.themeMode,
-      ),
       textScale: textScale(defaults.textScale),
-      seedColor: color('seedColor', defaults.seedColor),
-      darkSeedColor: color('darkSeedColor', defaults.darkSeedColor),
-      showFaqButton: flag(ui, 'showFaq', defaults.showFaqButton),
       saferModeEnabled: flag(
         protection,
         'enabled',
@@ -333,7 +343,7 @@ class AppSettings {
       saferModePassword: protection['password'] is String
           ? protection['password'] as String
           : defaults.saferModePassword,
-      crashReportMode: AppCrashReportMode.parse(reports['crashMode']),
+      crashReportMode: crashMode(),
       reportSenderEmails: {
         if (reports['senderEmails'] case final Map<dynamic, dynamic> emails)
           for (final entry in emails.entries)

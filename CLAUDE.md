@@ -3,7 +3,7 @@
 The full agent contract for this repository lives in [AGENTS.md](AGENTS.md) —
 read it before making changes. It covers what this software is for (an offline
 update path for Otzaria: download on an online computer, carry the USB drive to
-the offline one, apply there), the four-package layout, and the landmines that
+the offline one, apply there), the package layout, and the landmines that
 must not be broken.
 
 The three rules that apply to *every* change:

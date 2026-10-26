@@ -16,13 +16,15 @@ import 'package:launcher_app/src/screens/app_report/app_report_dialog.dart';
 import 'package:launcher_app/src/screens/app_report/app_report_form.dart';
 import 'package:launcher_app/src/screens/app_report/app_report_images_section.dart';
 import 'package:launcher_app/src/screens/app_report/app_report_preview_section.dart';
+import 'package:launcher_app/src/screens/app_report/app_reports_panel.dart';
 import 'package:launcher_app/src/screens/app_report/app_reports_settings_card.dart';
 import 'package:launcher_app/src/screens/app_report/crash_prompt_dialog.dart';
-import 'package:launcher_app/src/screens/app_report/reports_management_dialog.dart';
+import 'package:launcher_app/src/screens/reports/reports_page.dart';
 import 'package:launcher_app/src/services/file_reveal.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/settings/safer_mode.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
+import 'package:launcher_app/src/shell/shell_keys.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
@@ -265,7 +267,7 @@ void main() {
       expect(back.crashReportMode, AppCrashReportMode.always);
       expect(back.reportSenderEmails, {'PC1': 'a@b.co'});
       expect(AppSettings.fromJson(const {}).crashReportMode,
-          AppCrashReportMode.ask);
+          AppCrashReportMode.always);
     });
   });
 
@@ -446,11 +448,19 @@ void main() {
       final service = _MemoryService()..pending.add(_report('p1'));
       final settings = _MemorySettings();
       final reports = _controller(service, settings: settings);
-      await tester.pumpWidget(wrap(AppReportsSettingsCard(reports: reports)));
+      var opened = 0;
+      await tester.pumpWidget(wrap(AppReportsSettingsCard(
+        reports: reports,
+        onOpenReports: () => opened++,
+      )));
       await reports.refresh();
       await tester.pumpAndSettle();
 
       expect(find.text(t.manageTileSubtitle(1, 0)), findsOneWidget);
+      // שורה לחיצה לדף הדיווחים, ושורה לדיווח על בעיה בכלי.
+      await tester.tap(find.byKey(const ValueKey('app-reports-manage')));
+      expect(opened, 1);
+      expect(find.byKey(const ValueKey('app-reports-problem')), findsOneWidget);
       // מרכז הסגמנט ולא מרכז התווית: בגופן הבדיקה התווית גולשת מתחת לכפתור.
       final segment = tester.getRect(
         find.byType(SegmentedButton<AppCrashReportMode>),
@@ -479,7 +489,7 @@ void main() {
       final reports = _controller(service);
       await _open(
         tester,
-        (_) => ReportsManagementDialog(
+        (_) => _PanelDialog(
           reports: reports,
           openUrl: (url) async {
             opened.add(url);
@@ -488,12 +498,13 @@ void main() {
         ),
       );
 
-      expect(find.text(t.pendingCount(2)), findsOneWidget);
+      expect(find.text(stringsOf().pages.repOwnPending(2)), findsOneWidget);
       expect(find.text('ראשון'), findsOneWidget);
 
       final firstTile = find.byKey(const ValueKey('app-report-pending-p1'));
       await tester.tap(
-        find.descendant(of: firstTile, matching: find.text(t.deleteButton)),
+        find.descendant(
+            of: firstTile, matching: find.byTooltip(t.deleteButton)),
       );
       await tester.pumpAndSettle();
       expect(service.pending.map((r) => r.reportId), ['p2']);
@@ -501,7 +512,7 @@ void main() {
 
       final second = find.byKey(const ValueKey('app-report-pending-p2'));
       await tester.tap(
-        find.descendant(of: second, matching: find.text(t.sendOneButton)),
+        find.descendant(of: second, matching: find.byTooltip(t.sendOneButton)),
       );
       await tester.pumpAndSettle();
       expect(service.pending, isEmpty);
@@ -511,6 +522,112 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('app-report-open-issue-s1')));
       await tester.pumpAndSettle();
       expect(opened.single, endsWith('/issues/7'));
+    });
+  });
+
+  group('הפאנל בדף הדיווחים', () {
+    final pages = stringsOf().pages;
+    final t = stringsOf().appReports;
+
+    testWidgets('אין דיווחים כלל — שורה אחת, בלי שני כרטיסים ריקים', (
+      tester,
+    ) async {
+      final reports = _controller(_MemoryService());
+      await _open(tester, (_) => _PanelDialog(reports: reports));
+
+      expect(find.text(pages.repOwnTitle), findsOneWidget);
+      expect(find.text(pages.repOwnEmpty), findsOneWidget);
+      expect(find.text(t.sentSectionTitle), findsNothing);
+      expect(find.text(t.manageDialogIntro), findsNothing);
+    });
+
+    testWidgets('בלי חיבור — אין כפתורי שליחה, והמחיקה נשארת', (tester) async {
+      final service = _MemoryService()..pending.add(_report('p1'));
+      final reports = _controller(service);
+      await _open(
+        tester,
+        (_) => _PanelDialog(reports: reports, connection: false),
+      );
+
+      expect(find.text(t.manageDialogIntro), findsOneWidget);
+      expect(find.byKey(const ValueKey('app-reports-flush')), findsNothing);
+      expect(find.byTooltip(t.sendOneButton), findsNothing);
+      expect(find.byTooltip(t.deleteButton), findsOneWidget);
+    });
+
+    testWidgets('חיבור שלא נבדק — "בדוק חיבור" בודק, ובזמן הבדיקה מושבת', (
+      tester,
+    ) async {
+      final service = _MemoryService()..pending.add(_report('p1'));
+      final reports = _controller(service);
+      var checks = 0;
+      Widget page({required bool checking, bool readOnly = false}) =>
+          ReportsPage(
+            errorReports: null,
+            connection: null,
+            isUploadingAll: false,
+            busy: false,
+            reportsToCollect: 0,
+            onCollect: () {},
+            onUpload: null,
+            readOnly: readOnly,
+            appReports: reports,
+            onCheckConnection: readOnly ? null : () => checks++,
+            checkingConnection: checking,
+          );
+      await pumpScreen(tester, page(checking: false));
+      await tester.pumpAndSettle();
+
+      final check = find.byKey(ShellKeys.reportsCheckConnection);
+      expect(check, findsOneWidget);
+      expect(find.byKey(const ValueKey('app-reports-flush')), findsNothing);
+      await tester.tap(check);
+      expect(checks, 1);
+
+      await pumpScreen(tester, page(checking: true));
+      await tester.pump();
+      expect(tester.widget<ActionButton>(check).onPressed, isNull);
+
+      await pumpScreen(tester, page(checking: false, readOnly: true));
+      await tester.pumpAndSettle();
+      expect(check, findsNothing);
+    });
+
+    // התור והטופס נכתבים ל-stateDir, שבכונן מוגן עובר למחשב עצמו.
+    testWidgets('כונן מוגן — הדיווחים של הכלי והטופס זמינים כרגיל', (
+      tester,
+    ) async {
+      final service = _MemoryService()
+        ..pending.add(_report('p1'))
+        ..history.add(_report('s1'));
+      final reports = _controller(service);
+      await pumpScreen(
+        tester,
+        ReportsPage(
+          errorReports: null,
+          connection: true,
+          isUploadingAll: false,
+          busy: false,
+          reportsToCollect: 0,
+          onCollect: () {},
+          onUpload: null,
+          readOnly: true,
+          appReports: reports,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(t.manageDialogIntro), findsOneWidget);
+      expect(find.byKey(const ValueKey('app-reports-flush')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('app-reports-clear-sent')),
+        findsOneWidget,
+      );
+      expect(find.byTooltip(t.deleteButton), findsNWidgets(2));
+      final problem =
+          tester.widget<AppRow>(find.byKey(ShellKeys.reportsProblem));
+      expect(problem.subtitle, pages.repProblemBody);
+      expect(problem.onTap, isNotNull);
     });
   });
 
@@ -544,7 +661,13 @@ void main() {
       final logs = p.join(tmp.path, 'logs');
       writeCrashOf(logs);
       final service = _MemoryService();
-      final reports = _controller(service, logsDirectory: logs);
+      final reports = _controller(
+        service,
+        logsDirectory: logs,
+        settings: _MemorySettings(
+          const AppSettings(crashReportMode: AppCrashReportMode.ask),
+        ),
+      );
       CrashCandidate? shown;
       final outcome = await reports.runCrashCheck(
         showPrompt: (c) async {
@@ -830,7 +953,7 @@ void main() {
       final service = _MemoryService()..pending.add(_report('p1'));
       await _open(
         tester,
-        (_) => ReportsManagementDialog(reports: _controller(service)),
+        (_) => _PanelDialog(reports: _controller(service)),
       );
 
       service.flushOutcome = const FlushOutcome(sent: 4, capped: true);
@@ -856,6 +979,7 @@ void main() {
         AppSettings(
           saferModeEnabled: true,
           saferModePassword: SaferModePassword.encode('1234'),
+          crashReportMode: AppCrashReportMode.ask,
         ),
       );
       final gate = SaferModeGate(settings);
@@ -936,7 +1060,7 @@ void main() {
       final service = _MemoryService()..pending.add(_report('p1'));
       await _open(
         tester,
-        (_) => ReportsManagementDialog(reports: _controller(service)),
+        (_) => _PanelDialog(reports: _controller(service)),
       );
       return service;
     }
@@ -987,7 +1111,7 @@ void main() {
       final before = service.pendingListCalls;
       final tile = find.byKey(const ValueKey('app-report-pending-p1'));
       await tester.tap(
-        find.descendant(of: tile, matching: find.text(t.sendOneButton)),
+        find.descendant(of: tile, matching: find.byTooltip(t.sendOneButton)),
       );
       await tester.pumpAndSettle();
       expect(find.text(t.notPendingSnack), findsOneWidget);
@@ -1008,8 +1132,7 @@ void main() {
             builder: (context) => ActionButtonProbe(
               onPressed: () => showDialog<void>(
                 context: context,
-                builder: (_) =>
-                    ReportsManagementDialog(reports: _controller(service)),
+                builder: (_) => _PanelDialog(reports: _controller(service)),
               ),
             ),
           ),
@@ -1180,7 +1303,7 @@ void main() {
     expect(await _openRejected('https://evil.com/x'), isFalse);
     expect(await _openRejected('https://user@github.com/x'), isFalse);
     expect(await _openRejected('not a url'), isFalse);
-    expect(AppL10n.strings.appReports.cardTitle, isNotEmpty);
+    expect(AppL10n.strings.appReports.crashModeTitle, isNotEmpty);
   });
 }
 
@@ -1202,4 +1325,31 @@ class _ThrowingDetector extends UncleanExitDetector {
   @override
   Future<CrashCandidate?> detectPreviousCrash() async =>
       throw StateError('isolate failed');
+}
+
+/// הפאנל שבדף הדיווחים, בתוך חלון — כדי שהבדיקות ייפתחו כמו קודם.
+class _PanelDialog extends StatelessWidget {
+  const _PanelDialog({
+    required this.reports,
+    this.openUrl = _neverOpens,
+    this.connection = true,
+  });
+
+  final AppReportsController reports;
+  final Future<bool> Function(String url) openUrl;
+  final bool? connection;
+
+  static Future<bool> _neverOpens(String _) async => false;
+
+  @override
+  Widget build(BuildContext context) => Dialog(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: AppReportsPanel(
+            reports: reports,
+            openUrl: openUrl,
+            connection: connection,
+          ),
+        ),
+      );
 }

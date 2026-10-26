@@ -6,11 +6,14 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:win32/win32.dart';
 
+import '../self_update/launcher_install_layout.dart';
+
 enum AppPathsFailure {
   cannotWrite,
   driveFull,
   appTranslocated,
-  runningFromTemp
+  runningFromTemp,
+  systemDrive,
 }
 
 class AppPathsException implements Exception {
@@ -97,6 +100,16 @@ class AppPaths {
         kind: AppPathsFailure.runningFromTemp,
       );
     }
+    final env = environment ?? Platform.environment;
+    // נתיב ה-stub קיים רק בהרצה הארוזה, ולכן `flutter run` ובדיקות פטורים.
+    final stubPath = env[LauncherInstallLayout.stubPathEnvVar] ?? '';
+    if (windows && isOnSystemDrive(stubPath, systemDrive: env['SystemDrive'])) {
+      throw AppPathsException(
+        message: AppL10n.strings.setupError.systemDrive,
+        attemptedDir: p.windows.dirname(stubPath),
+        kind: AppPathsFailure.systemDrive,
+      );
+    }
     final failure = await _probeWritable(dataDir);
     if (failure == null) {
       return AppPaths(dataDir: dataDir, stateDir: dataDir);
@@ -144,6 +157,19 @@ class AppPaths {
       }
     }
     return false;
+  }
+
+  /// `true` כש-[path] יושב על כונן המערכת. נתיב רשת (UNC) וכל אות כונן אחרת,
+  /// כולל כונן קבוע חיצוני, מותרים — הכלי נוסע בין מחשבים ואינו שייך לאחד מהם.
+  static bool isOnSystemDrive(String path, {required String? systemDrive}) {
+    final pathLetter = _driveLetter(path);
+    final systemLetter = _driveLetter(systemDrive ?? '');
+    return pathLetter != null && pathLetter == systemLetter;
+  }
+
+  static String? _driveLetter(String path) {
+    final match = RegExp(r'^(?:\\\\\?\\)?([A-Za-z]):').firstMatch(path);
+    return match?.group(1)!.toUpperCase();
   }
 
   static List<String> _windowsTempDirs(Map<String, String>? environment) {

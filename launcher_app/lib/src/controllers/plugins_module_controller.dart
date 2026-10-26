@@ -12,6 +12,7 @@ import '../services/app_logger.dart';
 import '../services/coalescing_loader.dart';
 import '../services/known_plugins_store.dart';
 import '../services/store_app_destination_store.dart';
+import '../services/store_search.dart';
 import 'dispose_guard.dart';
 import 'progress_notifier.dart';
 
@@ -21,6 +22,7 @@ typedef PluginsCatalogOnlineAnswers = ({
   PluginsOnlineStatus? status,
   String? checkError,
   DateTime? checkedAt,
+  bool closedForShabbat,
 });
 
 typedef StoreAppOnlineAnswers = ({
@@ -29,16 +31,36 @@ typedef StoreAppOnlineAnswers = ({
   DateTime? checkedAt,
 });
 
-/// סינון לפי סטטוס התוסף בחנות (`stable` / `beta` / `experimental`).
-enum PluginStatusFilter { all, stable, beta, experimental }
+/// סינון לפי יציבות: "ניסיוני" כולל גם את מה שהאתר מסמן כבטא.
+enum PluginStatusFilter { all, stable, experimental }
 
-/// סדר "כל התוספים", כמו באתר: [recommended] הוא סדר הקטלוג (הנבחרים ואחריהם
-/// מהחדש לישן), [newest] לפי הפרסום הראשון ו-[updated] לפי תאריך ה"עודכן".
+/// סטטוס של גרסה שעוד לא יציבה. האתר שולח `beta`/`experimental`; השאר —
+/// לחומרה. סטטוס לא מוכר אינו נספר כאן וגם לא כיציב: מופיע רק תחת "הכול".
+bool isExperimentalPluginStatus(String status) => const {
+      'beta',
+      'experimental',
+      'alpha',
+      'rc',
+      'preview',
+    }.contains(status.toLowerCase());
+
+/// סיכום "עדכון הכול": מה נשלח, מה נכשל ולמה, והאם נעצר באמצע.
+typedef PluginUpdateAllOutcome = ({
+  List<StorePlugin> sent,
+  List<({StorePlugin plugin, String? error})> failed,
+  bool stopped,
+});
+
+/// הבורר שליד החיפוש: הכול / מותקנים / לא מותקנים.
+enum PluginInstallFilter { all, installed, notInstalled }
+
 enum PluginSortMode { recommended, newest, updated }
 
-/// שלושת המסכים של החנות באתר, במקום שלושת ה-routes שלה:
-/// `/plugins` (דף בית אצור), `/plugins/all` ו-`/plugins/category/<slug>`.
-enum PluginStorePage { home, all, category }
+/// המרווח בין שתי מסירות רצופות של עדכוני תוספים.
+///
+/// כל מסירה היא `otzaria://plugin/install-local`. כשאוצריא סגורה, הראשונה
+/// מפעילה אותה, ושנייה מוקדמת מדי הייתה פותחת מופע נוסף.
+const Duration pluginUpdateDeliverySpacing = Duration(milliseconds: 1500);
 
 class PluginsModuleController extends ChangeNotifier
     with DisposeGuard, ProgressNotifier {
@@ -111,6 +133,7 @@ class PluginsModuleController extends ChangeNotifier
   List<StorePlugin> get plugins => _plugins;
   set plugins(List<StorePlugin> value) {
     _plugins = value;
+    _searchTexts.clear();
     _invalidateDerived();
   }
 
@@ -119,12 +142,8 @@ class PluginsModuleController extends ChangeNotifier
   /// קטגוריות החנות כפי שנאצרו באתר, בסדר שלו. ריק במראה ישנה.
   List<PluginStoreCategory> categories = const [];
 
-  /// הכותרת והתקציר של דף הבית של החנות, כפי שירדו מהאתר.
-  PluginStoreHome home = PluginStoreHome.empty;
-
-  /// `manifestId -> גרסה מותקנת`. setter ולא שדה: התוצרים הממוזנים למטה
-  /// ([filtered], [featured], [homeCategories]…) נגזרים ממנו, והצבה ישירה
-  /// הייתה משאירה אותם על התשובה הקודמת.
+  /// `manifestId -> גרסה מותקנת`. setter ולא שדה: הוא מאפס את מה שנגזר
+  /// ממנו ([filtered], [updatablePlugins]…).
   Map<String, String> get installed => _installed;
   set installed(Map<String, String> value) {
     _installed = value;
@@ -195,26 +214,17 @@ class PluginsModuleController extends ChangeNotifier
   double? exportProgress;
   bool isExporting = false;
 
-  // ── ניווט ─────────────────────────────────────────────────────────────────
-
-  /// המסך המוצג. החנות נפתחת בדף הבית האצור, בדיוק כמו באתר; מראה בלי
-  /// קטגוריות (סנכרון ישן) נופלת ל"כל התוספים" — אין לה דף בית להציג.
-  PluginStorePage view = PluginStorePage.home;
-
-  /// ה-slug של הקטגוריה הפתוחה, כשה-[view] הוא [PluginStorePage.category].
-  String? openCategorySlug;
-
-  // ── סינון (מסך "כל התוספים" בלבד, כמו באתר) ───────────────────────────────
+  // ── סינון ─────────────────────────────────────────────────────────────────
   String search = '';
+
+  /// ה-slug של שבב הקטגוריה שנבחר, או `null` ל"הכול".
+  String? categoryFilter;
 
   /// החנות נפתחת על "הכול" — המשתמש בא לראות מה קיים, לא רק את היציב.
   PluginStatusFilter statusFilter = PluginStatusFilter.all;
   String? tagFilter;
+  PluginInstallFilter installFilter = PluginInstallFilter.all;
   PluginSortMode sortMode = PluginSortMode.recommended;
-
-  /// הצג רק מה שלא מותקן או שיש לו עדכון — פועל כברירת מחדל, כמו בחנות
-  /// המקורית: המשתמש בא לעדכן, לא לגלול על מה שכבר מותקן.
-  bool hideInstalled = true;
 
   // ── בדיקה קלה ברשת ────────────────────────────────────────────────────────
 
@@ -222,6 +232,9 @@ class PluginsModuleController extends ChangeNotifier
   PluginsOnlineStatus? onlineStatus;
   String? onlineCheckError;
   DateTime? onlineCheckedAt;
+
+  /// [onlineCheckError] הוא סגירת האתר בשבת — לא נבדק, אבל גם לא כשל.
+  bool onlineClosedForShabbat = false;
 
   /// `true` כשיש בחנות תוסף חדש או גרסה חדשה שאינם במראה המקומית.
   ///
@@ -239,12 +252,14 @@ class PluginsModuleController extends ChangeNotifier
         status: onlineStatus,
         checkError: onlineCheckError,
         checkedAt: onlineCheckedAt,
+        closedForShabbat: onlineClosedForShabbat,
       );
 
   void restoreCatalogOnlineAnswers(PluginsCatalogOnlineAnswers answers) {
     onlineStatus = answers.status;
     onlineCheckError = answers.checkError;
     onlineCheckedAt = answers.checkedAt;
+    onlineClosedForShabbat = answers.closedForShabbat;
     notifyListeners();
   }
 
@@ -302,7 +317,6 @@ class PluginsModuleController extends ChangeNotifier
       final snapshot = await _manager.load();
       plugins = snapshot.catalog.plugins;
       categories = snapshot.catalog.categories;
-      home = snapshot.catalog.home;
       lastSync = snapshot.catalog.lastSync;
       _applyInstalledState(
         InstalledPluginsState(
@@ -315,8 +329,15 @@ class PluginsModuleController extends ChangeNotifier
       storeApp = await _manager.loadStoreApp();
       await _loadStoreDestination();
       await _loadKnown();
+      // קטגוריה או תגית שנעלמו מהחנות לא נשארות בחורה.
+      if (categoryFilter case final slug? when categoryBySlug(slug) == null) {
+        categoryFilter = null;
+      }
       _invalidateDerived();
-      _settleView();
+      if (tagFilter case final tag? when !allTags.contains(tag)) {
+        tagFilter = null;
+        _invalidateDerived();
+      }
       status = PluginsModuleStatus.ready;
     } catch (e, st) {
       status = PluginsModuleStatus.error;
@@ -333,18 +354,26 @@ class PluginsModuleController extends ChangeNotifier
 
   Future<void> refreshInstalled() => _installedScan.run();
 
+  Future<void> refreshAppVersion() async {
+    final resolve = installedAppVersion;
+    if (resolve == null) return;
+    final version = await resolve();
+    if (isDisposed || version == appVersion) return;
+    appVersion = version;
+    _invalidateDerived();
+    notifyListeners();
+  }
+
   Future<void> _refreshInstalled() async {
     await _loading;
     if (status != PluginsModuleStatus.ready) return;
 
     try {
+      await refreshAppVersion();
       final scanned = await _manager.scanInstalled();
-      final version = await installedAppVersion?.call();
       if (!mapEquals(installed, scanned.versions) ||
           !setEquals(_disabled, scanned.disabled) ||
-          !setEquals(_development, scanned.development) ||
-          version != appVersion) {
-        appVersion = version;
+          !setEquals(_development, scanned.development)) {
         _applyInstalledState(scanned);
         _invalidateDerived();
         notifyListeners();
@@ -364,7 +393,7 @@ class PluginsModuleController extends ChangeNotifier
   final Map<String, _PendingInstall> _pendingInstalls = {};
   Timer? _installWatch;
 
-  /// שמות התוספים שאוצריא סיימה להתקין. `AppShell` מאזין ומציג הודעה —
+  /// שמות התוספים שאוצריא סיימה להתקין. `AppSession` מאזין ומציג הודעה —
   /// גם כשהמשתמש כבר עבר ממסך החנות למסך אחר.
   final StreamController<String> _installDone =
       StreamController<String>.broadcast();
@@ -494,8 +523,7 @@ class PluginsModuleController extends ChangeNotifier
   /// מגיטהאב. במקביל, ועם דיווח כשל נפרד: אתר שאינו עונה אינו אומר דבר על
   /// הזמינות של השני, ודגל כשל משותף היה מבטל את הדילוג של שניהם.
   Future<void> checkOnline() async {
-    onlineCheckError = null;
-    storeAppCheckError = null;
+    // הכשל הקודם נשאר עד התשובה החדשה — ראו `LibraryModuleController.checkOnline`.
     notifyListeners();
 
     // אותן גרסאות שהסנכרון יקבל — אחרת ההצצה מדווחת על עדכון שההורדה
@@ -508,13 +536,17 @@ class PluginsModuleController extends ChangeNotifier
   Future<void> _peekCatalog(List<String> appVersions) async {
     try {
       onlineStatus = await _manager.peekOnlineUpdates(appVersions: appVersions);
+      onlineCheckError = null;
+      onlineClosedForShabbat = false;
     } on PluginStoreShabbatException catch (e) {
       onlineStatus = null;
       onlineCheckError = e.message;
+      onlineClosedForShabbat = true;
       AppLogger.instance.info('בדיקת עדכונים ברשת (תוספים): האתר סגור בשבת');
     } catch (e) {
       onlineStatus = null;
       onlineCheckError = e.toString();
+      onlineClosedForShabbat = false;
       // ראו `LibraryModuleController.checkOnline` — בלי stack trace בכוונה.
       AppLogger.instance.info('בדיקת עדכונים ברשת (תוספים) לא הצליחה: $e');
     }
@@ -524,6 +556,7 @@ class PluginsModuleController extends ChangeNotifier
   Future<void> _peekStoreApp() async {
     try {
       storeAppOnline = await _manager.peekStoreApp();
+      storeAppCheckError = null;
     } catch (e) {
       storeAppOnline = null;
       storeAppCheckError = e.toString();
@@ -601,6 +634,7 @@ class PluginsModuleController extends ChangeNotifier
         onlineStatus = PluginsOnlineStatus.empty;
         onlineCheckedAt = DateTime.now();
         onlineCheckError = null;
+        onlineClosedForShabbat = false;
       }
       await load();
     } on PluginStoreShabbatException catch (e) {
@@ -773,6 +807,103 @@ class PluginsModuleController extends ChangeNotifier
     return result;
   }
 
+  final Set<String> _delivering = {};
+
+  /// התוסף נמסר לאוצריא ברגע זה — לכל תוסף בנפרד.
+  bool isDelivering(StorePlugin plugin) => _delivering.contains(plugin.id);
+
+  /// [directInstall] עם סימון "בשליחה" על התוסף עד שהמסירה חוזרת. חריגה
+  /// (דיסק, תהליך) חוזרת ככישלון של התוסף הזה, ולא עוצרת רצף מסירות.
+  Future<PluginInstallResult> deliver(StorePlugin plugin) async {
+    _delivering.add(plugin.id);
+    notifyListeners();
+    try {
+      return await directInstall(plugin);
+    } catch (error, stackTrace) {
+      AppLogger.instance.error(
+        'מסירת ${plugin.name} לאוצריא נכשלה',
+        error,
+        stackTrace,
+      );
+      return const PluginInstallResult.failure(null);
+    } finally {
+      _delivering.remove(plugin.id);
+      if (!isDisposed) notifyListeners();
+    }
+  }
+
+  /// "עדכון הכול" שרץ: כמה נשלחו מתוך כמה. `null` כשאינו רץ.
+  ({int done, int total})? updateAllRun;
+  bool get isUpdatingAll => updateAllRun != null;
+  bool _stopUpdateAll = false;
+  bool get updateAllStopRequested => _stopUpdateAll;
+
+  void stopUpdateAll() {
+    if (!isUpdatingAll || _stopUpdateAll) return;
+    _stopUpdateAll = true;
+    notifyListeners();
+  }
+
+  /// "עדכון הכול" מהחנות. רץ בקונטרולר ולא במסך: הוא משימה ארוכה שממשיכה
+  /// גם כשעוברים מסך, ונעצר רק ב-[stopUpdateAll]. `null` — כבר רץ.
+  Future<PluginUpdateAllOutcome?> updateAll(List<StorePlugin> targets) async {
+    if (isUpdatingAll || targets.isEmpty) return null;
+    _stopUpdateAll = false;
+    updateAllRun = (done: 0, total: targets.length);
+    notifyListeners();
+    final failed = <({StorePlugin plugin, String? error})>[];
+    try {
+      final sent = await deliverUpdates(
+        plugins: targets,
+        isCancelled: () => _stopUpdateAll,
+        onDelivered: (plugin, result) {
+          if (!result.success) {
+            failed.add((plugin: plugin, error: result.error));
+          }
+          final run = updateAllRun;
+          if (run != null) {
+            updateAllRun = (done: run.done + 1, total: run.total);
+          }
+        },
+      );
+      final stopped =
+          _stopUpdateAll && sent.length + failed.length < targets.length;
+      return (sent: sent, failed: failed, stopped: stopped);
+    } finally {
+      // אחרת longTaskRunning נשאר תקוע עד סוף ההרצה.
+      updateAllRun = null;
+      _stopUpdateAll = false;
+      if (!isDisposed) notifyListeners();
+    }
+  }
+
+  /// מוסר לאוצריא, אחד אחרי השני, את העדכונים שאפשר להתקין ישירות
+  /// ([plugins], וכברירת מחדל [deliverableUpdates]). מחזיר מה נשלח בהצלחה.
+  Future<List<StorePlugin>> deliverUpdates({
+    List<StorePlugin>? plugins,
+    void Function(StorePlugin plugin)? onDelivering,
+    void Function(StorePlugin plugin, PluginInstallResult result)? onDelivered,
+    bool Function()? isCancelled,
+  }) async {
+    final sent = <StorePlugin>[];
+    var first = true;
+    for (final plugin in plugins ?? deliverableUpdates) {
+      if (isDisposed || (isCancelled?.call() ?? false)) break;
+      if (!first) await Future<void>.delayed(pluginUpdateDeliverySpacing);
+      first = false;
+      if (isDisposed || (isCancelled?.call() ?? false)) break;
+      onDelivering?.call(plugin);
+      final result = await deliver(plugin);
+      if (result.success) sent.add(plugin);
+      onDelivered?.call(plugin, result);
+    }
+    return sent;
+  }
+
+  /// עדכונים שאוצריא יכולה לקבל ישירות.
+  List<StorePlugin> get deliverableUpdates =>
+      updatablePlugins.where(canDirectInstall).toList(growable: false);
+
   void _replacePlugin(StorePlugin updated) {
     plugins = [
       for (final entry in plugins) entry.id == updated.id ? updated : entry,
@@ -800,39 +931,11 @@ class PluginsModuleController extends ChangeNotifier
     notifyListeners();
   }
 
-  // ── ניווט בין מסכי החנות ──────────────────────────────────────────────────
-
-  void showHome() => _goTo(PluginStorePage.home);
-
-  /// "כל התוספים" — הרשימה השטוחה עם הסינון. [query] מגיע מתיבת החיפוש
-  /// שבדף הבית: באתר היא מובילה לדף חיפוש צד-שרת, וכאן לסינון המקומי.
-  void showAllPlugins({String? query}) {
-    if (query != null) search = query;
-    _goTo(PluginStorePage.all);
-  }
-
-  void showCategory(String slug) {
-    openCategorySlug = slug;
-    _goTo(PluginStorePage.category);
-  }
-
-  void _goTo(PluginStorePage target) {
-    if (target != PluginStorePage.category) openCategorySlug = null;
-    view = target;
+  void setCategory(String? slug) {
+    if (categoryFilter == slug) return;
+    categoryFilter = slug;
     _invalidateDerived();
     notifyListeners();
-  }
-
-  /// מיישר את המסך המוצג מול הקטלוג שנטען זה עתה: בלי קטגוריות אין דף בית,
-  /// וקטגוריה שנעלמה מהחנות לא נשארת פתוחה.
-  void _settleView() {
-    if (view == PluginStorePage.category && openCategory == null) {
-      openCategorySlug = null;
-      view = PluginStorePage.all;
-    }
-    if (view == PluginStorePage.home && !hasCuratedHome) {
-      view = PluginStorePage.all;
-    }
   }
 
   void setTagFilter(String? value) {
@@ -849,9 +952,25 @@ class PluginsModuleController extends ChangeNotifier
     notifyListeners();
   }
 
-  void setHideInstalled(bool value) {
-    if (hideInstalled == value) return;
-    hideInstalled = value;
+  void setInstallFilter(PluginInstallFilter value) {
+    if (installFilter == value) return;
+    installFilter = value;
+    _invalidateDerived();
+    notifyListeners();
+  }
+
+  /// כמה מסננים פעילים מתחת ל"עוד סינון" (יציבות ותגית).
+  int get moreFiltersCount =>
+      (statusFilter == PluginStatusFilter.all ? 0 : 1) +
+      (tagFilter == null ? 0 : 1);
+
+  /// "ניקוי החיפוש והסינון" — כל מה שמצמצם את הרשימה, בבת אחת.
+  void clearFilters() {
+    search = '';
+    categoryFilter = null;
+    statusFilter = PluginStatusFilter.all;
+    tagFilter = null;
+    installFilter = PluginInstallFilter.all;
     _invalidateDerived();
     notifyListeners();
   }
@@ -865,39 +984,64 @@ class PluginsModuleController extends ChangeNotifier
   List<String>? _allTags;
   List<StorePlugin>? _updatable;
   List<StorePlugin>? _newPlugins;
-  List<StorePlugin>? _featured;
   Map<String, StorePlugin>? _byId;
-  List<PluginStoreCategory>? _homeCategories;
-  bool? _hasCuratedHome;
+  List<PluginStoreCategory>? _shownCategories;
 
   void _invalidateDerived() {
     _filtered = null;
     _allTags = null;
     _updatable = null;
     _newPlugins = null;
-    _featured = null;
     _byId = null;
-    _homeCategories = null;
-    _hasCuratedHome = null;
+    _shownCategories = null;
   }
 
-  /// האם התוסף עובר את מתג "רק מה שלא מותקן" שבשורה העליונה. המתג הוא
-  /// תוספת של הלאנצ'ר ולכן חל על **כל** המסכים, גם על האצירה.
-  bool _passesInstalledFilter(StorePlugin plugin) =>
-      !hideInstalled || statusOf(plugin) != PluginInstallStatus.upToDate;
+  bool _passesInstallFilter(StorePlugin plugin) => switch (installFilter) {
+        PluginInstallFilter.all => true,
+        PluginInstallFilter.installed => installedVersionOf(plugin) != null,
+        PluginInstallFilter.notInstalled => installedVersionOf(plugin) == null,
+      };
 
-  /// "כל התוספים" — חיפוש, סטטוס ותגית, מעל מתג ההתקנה, בסדר של [sortMode].
-  List<StorePlugin> get filtered => _filtered ??= _sorted(_matching());
+  final Map<StorePlugin, List<String>> _searchTexts = Map.identity();
 
-  List<StorePlugin> _matching() => plugins.where((plugin) {
-        if (!plugin.matchesQuery(search)) return false;
-        if (statusFilter != PluginStatusFilter.all &&
-            plugin.status != statusFilter.name) {
-          return false;
-        }
-        if (tagFilter != null && !plugin.tags.contains(tagFilter)) return false;
-        return _passesInstalledFilter(plugin);
-      }).toList(growable: false);
+  bool _matchesQuery(StorePlugin plugin, String query) => _searchTexts
+      .putIfAbsent(
+          plugin,
+          () => [
+                for (final text in [
+                  plugin.name,
+                  plugin.shortDescription,
+                  plugin.description,
+                  plugin.author,
+                  ...plugin.tags,
+                ])
+                  normalizeStoreText(text),
+              ])
+      .any((text) => text.contains(query));
+
+  /// הרשימה המוצגת: חיפוש, קטגוריה, מותקנים, יציבות ותגית — יחד.
+  List<StorePlugin> get filtered => _filtered ??= () {
+        final query = normalizeStoreQuery(search);
+        final category =
+            categoryFilter == null ? null : categoryBySlug(categoryFilter!);
+        final members = category?.pluginIds.toSet();
+        return _sorted(plugins.where((plugin) {
+          if (members != null && !members.contains(plugin.id)) return false;
+          if (!_passesInstallFilter(plugin)) return false;
+          if (statusFilter == PluginStatusFilter.stable &&
+              plugin.status != 'stable') {
+            return false;
+          }
+          if (statusFilter == PluginStatusFilter.experimental &&
+              !isExperimentalPluginStatus(plugin.status)) {
+            return false;
+          }
+          if (tagFilter != null && !plugin.tags.contains(tagFilter)) {
+            return false;
+          }
+          return query.isEmpty || _matchesQuery(plugin, query);
+        }).toList(growable: false));
+      }();
 
   /// מיון יורד לפי תאריך; תוסף בלי תאריך (קטלוג ישן) בסוף. שוויון שומר על
   /// סדר הקטלוג — `sort` של Dart אינו יציב, ולכן האינדקס משמש שובר שוויון.
@@ -919,31 +1063,11 @@ class PluginsModuleController extends ChangeNotifier
   Map<String, StorePlugin> get _pluginsById =>
       _byId ??= {for (final plugin in plugins.reversed) plugin.id: plugin};
 
-  /// התוספים הנבחרים, בסדר האצירה של האתר — `/api/plugins` מחזיר אותם
-  /// ראשונים, ולכן סדר הקטלוג הוא סדר האצירה.
-  List<StorePlugin> get featured => _featured ??= plugins
-      .where((p) => p.isFeatured && _passesInstalledFilter(p))
-      .toList(growable: false);
-
-  /// הקטגוריות שמקבלות שורה בדף הבית ונשאר בהן מה להציג אחרי מתג ההתקנה.
-  /// ממוזן כמו שאר התוצרים: הוא מריץ [pluginsIn] לכל קטגוריה, ודף הבית קורא
-  /// לו מ-`build` — כלומר גם בכל דיווח התקדמות של סנכרון.
-  List<PluginStoreCategory> get homeCategories => _homeCategories ??= [
+  /// הקטגוריות שיש בהן תוסף אחד לפחות — שבב ריק אינו מוביל לשום מקום.
+  List<PluginStoreCategory> get shownCategories => _shownCategories ??= [
         for (final category in categories)
-          if (category.showOnHome && pluginsIn(category).isNotEmpty) category,
+          if (pluginsIn(category).isNotEmpty) category,
       ];
-
-  /// האם **קיים** דף בית אצור. נמדד על המבנה עצמו ולא על מה שנשאר אחרי
-  /// הסינון — אחרת כיבוי כל הכרטיסים ע"י המתג היה נראה כמו חנות ריקה.
-  bool get hasCuratedHome =>
-      _hasCuratedHome ??= plugins.any((p) => p.isFeatured) ||
-          categories.any((c) => c.showOnHome && c.pluginIds.isNotEmpty);
-
-  PluginStoreCategory? get openCategory {
-    final slug = openCategorySlug;
-    if (slug == null) return null;
-    return categoryBySlug(slug);
-  }
 
   PluginStoreCategory? categoryBySlug(String slug) {
     for (final category in categories) {
@@ -952,31 +1076,14 @@ class PluginsModuleController extends ChangeNotifier
     return null;
   }
 
-  /// תוספי הקטגוריה בסדר הידני שנקבע באתר, אחרי מתג ההתקנה. [limit] הוא
-  /// `homeLimit` של שורת דף-הבית. מזהה שאין לו תוסף בקטלוג מדולג.
-  List<StorePlugin> pluginsIn(PluginStoreCategory category, {int? limit}) {
-    final result = <StorePlugin>[];
-    for (final id in category.pluginIds) {
-      final plugin = _pluginsById[id];
-      if (plugin == null || !_passesInstalledFilter(plugin)) continue;
-      result.add(plugin);
-      if (limit != null && result.length >= limit) break;
-    }
-    return result;
-  }
+  /// תוספי הקטגוריה בסדר הידני שנקבע באתר. מזהה שאין לו תוסף בקטלוג מדולג.
+  List<StorePlugin> pluginsIn(PluginStoreCategory category) => [
+        for (final id in category.pluginIds)
+          if (_pluginsById[id] case final plugin?) plugin,
+      ];
 
   /// שם התצוגה של קטגוריה לפי ה-slug שנשמר על התוסף.
   String categoryName(String slug) => categoryBySlug(slug)?.name ?? slug;
-
-  /// כותרת החנות. ברירת המחדל זהה לזו שבאתר, למראה שסונכרנה לפני
-  /// שהטקסטים האלה נכנסו — או כשמנהלי האתר השאירו אותם ריקים.
-  String get homeTitle => home.title.isEmpty
-      ? AppL10n.strings.plugins.catalogTitleFallback
-      : home.title;
-
-  String get homeSubtitle => home.subtitle.isEmpty
-      ? AppL10n.strings.plugins.catalogSubtitleFallback
-      : home.subtitle;
 
   List<String> get allTags => _allTags ??= () {
         final tags = <String>{};
@@ -1043,10 +1150,15 @@ class PluginsModuleController extends ChangeNotifier
         .toList(growable: false);
   }
 
-  /// רושם שהטוסט של החנות הציג את התוספים האלה.
+  /// מה שסומן "חדש" בהרצה הזו — השבב נשאר עד סוף ההרצה, גם אחרי הרישום.
+  final Set<String> _newThisRun = {};
+  bool isNewThisRun(StorePlugin plugin) => _newThisRun.contains(plugin.id);
+
+  /// רושם שהחנות הציגה את התוספים האלה כחדשים.
   Future<void> markNewSeen(Iterable<StorePlugin> shown) async {
     final ids = shown.map((plugin) => plugin.id).toList();
     if (ids.isEmpty) return;
+    _newThisRun.addAll(ids);
     _seenIds = {...?_seenIds, ...ids};
     _newPlugins = null;
     await _known?.recordSeen(ids);

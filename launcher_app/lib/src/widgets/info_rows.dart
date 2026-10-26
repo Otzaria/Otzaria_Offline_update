@@ -5,6 +5,7 @@ import '../l10n/app_strings_scope.dart';
 import '../theme/theme_exports.dart';
 import 'action_buttons.dart';
 import 'app_dialogs.dart';
+import 'app_progress_bar.dart';
 import 'settings_card.dart';
 import 'status_chip.dart';
 
@@ -104,8 +105,8 @@ class InfoProgressRow extends StatelessWidget {
   /// שניהם על אותה שורה גרמו לכיתוב לקפוץ ביניהם.
   final String? secondaryStage;
 
-  /// אזהרה שנשארת על המסך לאורך הפעולה, בצבע error — לפעולה שקטיעה שלה
-  /// מזיקה. null כשאין.
+  /// הנחיה שנשארת על המסך לאורך הפעולה — לפעולה שקטיעה שלה מזיקה. מצב
+  /// תקין, ולכן לא בצבע שגיאה. null כשאין.
   final String? warning;
 
   const InfoProgressRow({
@@ -119,8 +120,9 @@ class InfoProgressRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final cs = Theme.of(context).colorScheme;
     final value = progress?.clamp(0.0, 1.0);
+    final muted = AppTextStyles.meta.copyWith(color: cs.onSurfaceVariant);
 
     return Padding(
       padding: const EdgeInsets.symmetric(
@@ -133,49 +135,44 @@ class InfoProgressRow extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(stage, style: theme.textTheme.bodySmall),
+                child: Text(
+                  stage,
+                  style: AppTextStyles.meta.copyWith(color: cs.onSurface),
+                ),
               ),
               if (value != null) ...[
                 const SizedBox(width: AppTokens.spaceSM),
                 Text(
                   '${(value * 100).round()}%',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(fontWeight: FontWeight.bold),
+                  style: AppTextStyles.meta.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: AppTextStyles.semibold,
+                  ),
                 ),
               ],
             ],
           ),
           const SizedBox(height: AppTokens.spaceXS),
-          LinearProgressIndicator(
-            value: value,
-            minHeight: 6,
-            semanticsLabel: stage,
-            semanticsValue: value == null ? null : '${(value * 100).round()}%',
-          ),
+          AppProgressBar(value: value, semanticsLabel: stage),
           if (secondaryStage != null) ...[
             const SizedBox(height: AppTokens.spaceXS),
             Text(
               secondaryStage!,
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: muted,
             ),
           ],
           if (detail != null) ...[
             const SizedBox(height: AppTokens.spaceXS),
             Text(
               detail!,
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: muted,
             ),
           ],
           if (warning != null) ...[
             const SizedBox(height: AppTokens.spaceXS),
             Text(
               warning!,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.error,
-                fontWeight: FontWeight.bold,
-              ),
+              style: muted,
             ),
           ],
         ],

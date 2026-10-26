@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/theme_exports.dart';
+
 /// [Switch] תואם M3 — פורט מאוצריא, לפי
 /// https://m3.material.io/components/switch/specs
 class CustomSwitch extends StatelessWidget {
@@ -18,28 +20,24 @@ class CustomSwitch extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    return Switch(
+    // מושבת = אותו מתג ב-38% (`.sw:disabled`), ולכן הצבעים אינם תלויים בו.
+    final control = Switch(
       value: value,
       onChanged: onChanged,
       focusNode: focusNode,
-      thumbColor: WidgetStateProperty.resolveWith((s) {
-        if (s.contains(WidgetState.disabled)) {
-          return cs.onSurface.withValues(alpha: 0.38);
-        }
-        if (s.contains(WidgetState.selected)) return cs.onPrimary;
-        return cs.outline;
-      }),
-      trackColor: WidgetStateProperty.resolveWith((s) {
-        if (s.contains(WidgetState.disabled)) {
-          return cs.surfaceContainerHighest.withValues(alpha: 0.12);
-        }
-        if (s.contains(WidgetState.selected)) return cs.primary;
-        return cs.surfaceContainerHighest;
-      }),
-      trackOutlineColor: WidgetStateProperty.resolveWith((s) {
-        if (s.contains(WidgetState.selected)) return Colors.transparent;
-        return cs.outline;
-      }),
+      thumbColor: WidgetStateProperty.resolveWith(
+        (s) => s.contains(WidgetState.selected) ? cs.onPrimary : cs.outline,
+      ),
+      trackColor: WidgetStateProperty.resolveWith(
+        (s) => s.contains(WidgetState.selected)
+            ? cs.primary
+            : cs.surfaceContainerHighest,
+      ),
+      trackOutlineColor: WidgetStateProperty.resolveWith(
+        (s) => s.contains(WidgetState.selected) ? cs.primary : cs.outline,
+      ),
+      overlayColor: AppSurfaces.stateLayerWithFocus(cs.primary),
     );
+    return onChanged == null ? Opacity(opacity: 0.38, child: control) : control;
   }
 }

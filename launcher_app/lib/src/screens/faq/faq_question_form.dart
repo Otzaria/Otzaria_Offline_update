@@ -5,7 +5,7 @@ import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
 
 /// מה שהוקלד בטופס. `showTwoActionsDialog` אינו מחזיר ערך משלו, ולכן התוצאה
-/// נאספת לאובייקט משותף — כמו ב-`plugin_updates_dialog`.
+/// נאספת לאובייקט משותף.
 class _FormDraft {
   _FormDraft(this.question, this.answer);
 

@@ -1,30 +1,29 @@
+import 'dart:async';
+
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:library_manager/library_manager.dart' show RegisteredMachine;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/app_reports_controller.dart';
 import '../controllers/custom_apps_controller.dart';
-import '../self_update/launcher_changelog.dart';
-import '../services/app_paths.dart';
+import '../controllers/launcher_update_controller.dart';
 import '../settings/app_settings.dart';
 import '../settings/safer_mode.dart';
 import '../settings/settings_controller.dart';
+import '../shell/shell_keys.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
 import 'app_report/app_reports_settings_card.dart';
 import 'custom_apps/custom_apps_settings_card.dart';
+import 'home/home_view_model.dart' show launcherLineOf, LauncherLineKind;
+import 'home/personal_scope_dialog.dart' show confirmPersonalModeDialog;
+import 'store_kit/store_visuals.dart' show StoreFilterChip;
 
-/// מסך ההגדרות — שפה ומראה, אוטומציה, הורדה ותמיכה.
-///
-/// **אין כאן הגדרות רשת בכוונה.** הזמן הקצוב לכל פנייה נקבע בלקוחות עצמם
-/// (ראו `OtzariaReleaseClient`, `GithubLibraryReleaseClient`) — ערך שהמשתמש
-/// אינו יכול לכוון נכון, וכשל הורדה נפתר בניסיון חוזר ולא בהארכת timeout.
-///
-/// **אין כאן נתיבים בכוונה.** תיקיית הנתונים צמודה לקובץ ההרצה (ראו
-/// [AppPaths]) ומיקום אוצריא מתגלה לבד — שינוי נתיב היה שובר את הרעיון של
-/// כונן נייד שנוסע בין מחשבים.
+/// אין כאן בכוונה הגדרות רשת (הזמן הקצוב בלקוחות), נתיבים (צמודים לקובץ
+/// ההרצה, כדי שהכונן יישאר נייד) או ערוץ גרסאות — הוא ב"אוצריא — מתקדם",
+/// שאינו נעול כמו ההגדרות; כאן רק קישור אליו.
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({
     super.key,
@@ -32,31 +31,83 @@ class SettingsScreen extends StatelessWidget {
     required this.onOpenLog,
     required this.launcherVersion,
     this.customApps,
+    this.onManageCustomApps,
     this.readOnly = false,
     this.driveFull = false,
     this.saferMode,
     this.appReports,
+    this.onOpenReports,
+    this.launcherUpdate,
+    this.onOpenLauncherUpdate,
+    this.onEditFaq,
+    this.onOpenOtzariaAdvanced,
+    this.otzariaChannelChoice = false,
+    this.semanticConsentGranted,
+    this.onEnableSemanticSearch,
+    this.personalMachines = const [],
+    this.onChoosePersonal,
+    this.onRemoveMachine,
+    this.onRegisterHere,
   });
 
   final SettingsController controller;
   final VoidCallback onOpenLog;
 
-  /// גרסת הלאנצ'ר עצמו. מוצגת כאן ולא בדף הבית: הכרטיס בדף הבית מופיע רק
-  /// כשיש עדכון, וכשאין — עדיין צריך לדעת איזו גרסה רצה (למשל לתמיכה).
+  /// גרסת הכלי עצמו — בשורת "אודות", גם כשאין עדכון (למשל לתמיכה).
   final String launcherVersion;
 
   /// ניהול התוכנות המותאמות. `null` בבדיקות שאינן נוגעות בהן.
   final CustomAppsController? customApps;
 
+  /// דף ניהול התוכנות הנוספות (`CustomAppsManageRoute`).
+  final VoidCallback? onManageCustomApps;
+
   final bool readOnly;
   final bool driveFull;
 
-  /// שומר הסף של מצב הסייפר — נדרש כדי לסמן אימות אחרי בחירת סיסמה. `null`
-  /// בבדיקות שאינן נוגעות בנעילה.
+  /// שומר הסף של מצב הסייפר — נדרש כדי לסמן אימות אחרי קביעת סיסמה.
   final SaferModeGate? saferMode;
 
-  /// הדיווחים של הלאנצ'ר על עצמו. `null` בבדיקות שאינן נוגעות בהם.
+  /// הדיווחים של הכלי על עצמו. `null` בבדיקות שאינן נוגעות בהם.
   final AppReportsController? appReports;
+
+  /// דף הדיווחים — התור וההיסטוריה.
+  final VoidCallback? onOpenReports;
+
+  /// מצב העדכון של הכלי — לשורת "אודות". `null` בבדיקות.
+  final LauncherUpdateController? launcherUpdate;
+
+  /// דף "עדכון הכלי הזה".
+  final VoidCallback? onOpenLauncherUpdate;
+
+  /// דף העזרה במצב עריכה.
+  final VoidCallback? onEditFaq;
+
+  /// "אוצריא — מתקדם". `null` בבדיקות שאינן נוגעות בו.
+  final VoidCallback? onOpenOtzariaAdvanced;
+
+  /// בכונן שתי גרסאות — הקישור מזכיר את בחירת הגרסה.
+  final bool otzariaChannelChoice;
+
+  /// ההסכמה לחיפוש החכם באוצריא שבמחשב הזה; `null` — אין חיפוש חכם בכונן
+  /// או שאוצריא אינה מותקנת, והשורה מוסתרת.
+  final bool? semanticConsentGranted;
+
+  /// אותו אישור כמו בדף הספרייה; `null` בזמן משימה ארוכה.
+  final VoidCallback? onEnableSemanticSearch;
+
+  /// המחשבים שנרשמו, מהגרסה הנמוכה — `LibraryModuleController.registeredMachines`.
+  final List<RegisteredMachine> personalMachines;
+
+  /// הבחירה בקבוצה — `AppSession.choosePersonalScope`, שגם רושם את המחשב
+  /// הזה. `null` בבדיקות: נשמרת ההגדרה בלבד.
+  final Future<void> Function(bool personal)? onChoosePersonal;
+
+  /// `null` בזמן משימה ארוכה.
+  final void Function(String machineKey)? onRemoveMachine;
+
+  /// "רישום המחשב הזה" כשהוא לא ברשימה. `null` — בלי הכפתור.
+  final VoidCallback? onRegisterHere;
 
   AppSettings get _s => controller.settings;
 
@@ -64,59 +115,182 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.strings.settings;
-
-    return ScreenBody(
-      title: t.title,
-      children: [
-        // שפה ומראה ראשונים: מי שפותח בפעם הראשונה צריך קודם להבין את המסך.
-        _appearanceCard(context),
-        _automationCard(context),
-        _downloadCard(context),
-        if (customApps case final controller?)
-          CustomAppsSettingsCard(
-            controller: controller,
-            readOnly: readOnly,
-            driveFull: driveFull,
-          ),
-        _saferModeCard(context),
-        if (appReports case final reports?)
-          AppReportsSettingsCard(reports: reports),
-        _supportCard(context),
-      ],
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        final t = context.strings.settings;
+        return ScreenBody(
+          title: t.title,
+          children: [
+            // כותרת דף בלי הסבר: הרווח שלה (20) לפני התווית הראשונה.
+            const SizedBox(height: 20),
+            SectionLabel(t.groupGeneral, first: true),
+            _general(context),
+            SectionLabel(t.personalGroupTitle),
+            ..._personalGroup(context),
+            if (onOpenOtzariaAdvanced case final open?) ...[
+              SectionLabel(context.strings.guide.tileApp),
+              RowsCard(
+                children: [
+                  AppRow(
+                    key: const ValueKey('settings.otzariaAdvanced'),
+                    leading: const IconTile(
+                      size: _tile,
+                      tone: _quiet,
+                      child: OtzariaLogo(size: 18),
+                    ),
+                    title: context.strings.pages.appAdvancedPageTitle,
+                    subtitle: context.strings.pages.appAdvancedSummary(
+                      channel: otzariaChannelChoice,
+                    ),
+                    onTap: open,
+                  ),
+                ],
+              ),
+            ],
+            if (customApps case final apps?) ...[
+              SectionLabel(context.strings.customApps.settingsCardTitle),
+              CustomAppsSettingsCard(
+                controller: apps,
+                onOpenManager: onManageCustomApps ?? () {},
+                readOnly: readOnly,
+                driveFull: driveFull,
+              ),
+            ],
+            if (appReports != null || semanticConsentGranted != null)
+              SectionLabel(t.groupPrivacy),
+            if (appReports case final reports?)
+              AppReportsSettingsCard(
+                reports: reports,
+                onOpenReports: onOpenReports,
+              ),
+            if (semanticConsentGranted case final granted?) ...[
+              if (appReports != null) const SizedBox(height: AppTokens.spaceSM),
+              _semanticConsentRow(context, granted: granted),
+            ],
+            AdvancedSection(
+              key: ShellKeys.pageAdvanced,
+              title: context.strings.pages.advancedTitle,
+              summary: t.advancedSummary,
+              child: _advanced(context),
+            ),
+            SectionLabel(t.groupAbout),
+            _about(context),
+          ],
+        );
+      },
     );
   }
 
-  // ── אוטומציה ──────────────────────────────────────────────────────────────
+  static const _tile = IconTileSize.sm;
+  static const _quiet = IconTileTone.quiet;
 
-  Widget _automationCard(BuildContext context) {
+  // ── כללי ──────────────────────────────────────────────────────────────────
+
+  Widget _general(BuildContext context) {
     final t = context.strings.settings;
-
-    return SettingsCard(
-      title: t.automationCardTitle,
-      hint: t.automationCardHint,
+    return RowsCard(
       children: [
-        SettingsActionTile.switchTile(
-          icon: FluentIcons.search_info_24_regular,
+        AppRow(
+          leading: const IconTile(
+            icon: FluentIcons.globe_24_regular,
+            size: _tile,
+            tone: _quiet,
+          ),
+          title: t.languageTitle,
+          trailing: _LanguageButton(
+            key: const ValueKey('settings.language'),
+            label: _languageLabel(t, _s.languagePreference),
+            onPressed: () => unawaited(_chooseLanguage(context)),
+          ),
+        ),
+        AppSwitchRow(
+          leading: const IconTile(
+            icon: FluentIcons.arrow_sync_24_regular,
+            size: _tile,
+            tone: _quiet,
+          ),
           title: t.autoCheckTitle,
           subtitle: t.autoCheckSubtitle,
-          hint: t.autoCheckHint,
           value: _s.autoCheckUpdates,
           onChanged: (v) => _set(_s.copyWith(autoCheckUpdates: v)),
         ),
-        SettingsActionTile.switchTile(
-          icon: FluentIcons.desktop_arrow_right_24_regular,
+        AppSwitchRow(
+          leading: const IconTile(
+            icon: FluentIcons.flash_24_regular,
+            size: _tile,
+            tone: _quiet,
+          ),
           title: t.autoInstallTitle,
           subtitle: t.autoInstallSubtitle,
           value: _s.autoInstall,
           onChanged: (v) => _confirmAutoInstall(context, enabled: v),
         ),
+        _syncTargetsRow(context),
+        _semanticDownloadRow(context),
       ],
     );
   }
 
-  /// התקנה אוטומטית היא הסיכון האמיתי כאן — היא מחליפה קבצים בלי לשאול —
-  /// ולכן היא דורשת אישור מפורש והסבר.
+  static String _languageLabel(
+    SettingsScreenStrings t,
+    AppLanguagePreference preference,
+  ) =>
+      switch (preference) {
+        AppLanguagePreference.system => t.languageSystem,
+        AppLanguagePreference.hebrew => t.languageHebrew,
+        AppLanguagePreference.english => t.languageEnglish,
+      };
+
+  /// בחירה סוגרת את הדו-שיח — השפה מתחלפת מיד, גם מאחוריו.
+  Future<void> _chooseLanguage(BuildContext context) {
+    final t = context.strings.settings;
+    final current = _s.languagePreference;
+    return showSingleActionDialog(
+      context: context,
+      title: t.languageTitle,
+      confirmText: context.strings.common.close,
+      customContent: Builder(
+        builder: (dialogContext) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final (value, icon) in const [
+              (AppLanguagePreference.system, FluentIcons.desktop_24_regular),
+              (
+                AppLanguagePreference.hebrew,
+                FluentIcons.local_language_24_regular
+              ),
+              (AppLanguagePreference.english, FluentIcons.globe_24_regular),
+            ])
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: OptionCard(
+                  icon: icon,
+                  title: value == AppLanguagePreference.system
+                      ? t.languageSystemAs(
+                          _languageLabel(
+                            t,
+                            AppLanguagePreference.system.resolve().isRtl
+                                ? AppLanguagePreference.hebrew
+                                : AppLanguagePreference.english,
+                          ),
+                        )
+                      : _languageLabel(t, value),
+                  selected: value == current,
+                  onSelected: () {
+                    Navigator.of(dialogContext).pop();
+                    unawaited(_set(_s.copyWith(languagePreference: value)));
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// התקנה אוטומטית מחליפה קבצים בלי לשאול — ולכן ההפעלה דורשת אישור,
+  /// באזהרה: הביטול ממוקד, ו-Enter אינו מפעיל.
   Future<void> _confirmAutoInstall(
     BuildContext context, {
     required bool enabled,
@@ -131,36 +305,22 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       title: t.autoInstallDialogTitle,
       content: t.autoInstallDialogContent,
-      subtitle: t.autoInstallDialogWarning,
       confirmText: t.autoInstallDialogConfirm,
     );
     if (!approved) return;
     await _set(_s.copyWith(autoInstall: true));
   }
 
-  // ── הורדה ─────────────────────────────────────────────────────────────────
-
-  /// [_SyncTarget.all] אינו הגדרה בפני עצמו — הוא דלוק כששלושת הרכיבים
-  /// דלוקים, ולחיצה עליו מדליקה או מכבה את שלושתם יחד.
   Set<_SyncTarget> get _selectedSyncTargets => {
         if (_s.syncApp) _SyncTarget.app,
         if (_s.downloadsLibrary) _SyncTarget.library,
         if (_s.syncPlugins) _SyncTarget.plugins,
-        if (_s.syncApp && _s.downloadsLibrary && _s.syncPlugins)
-          _SyncTarget.all,
       };
 
   Future<void> _toggleSyncTarget(_SyncTarget target) {
-    final selected = _selectedSyncTargets;
-    final on = !selected.contains(target);
+    final on = !_selectedSyncTargets.contains(target);
     return _set(
       switch (target) {
-        // בעדכון אישי הספרייה נעולה — "הכל" נוגע רק בשני האחרים.
-        _SyncTarget.all => _s.copyWith(
-            syncApp: on,
-            syncLibrary: _s.personalUpdateMode ? null : on,
-            syncPlugins: on,
-          ),
         _SyncTarget.app => _s.copyWith(syncApp: on),
         _SyncTarget.library => _s.copyWith(syncLibrary: on),
         _SyncTarget.plugins => _s.copyWith(syncPlugins: on),
@@ -168,213 +328,326 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  Widget _downloadCard(BuildContext context) {
+  Widget _syncTargetsRow(BuildContext context) {
     final t = context.strings.settings;
-
-    return SettingsCard(
-      title: t.downloadCardTitle,
-      hint: t.downloadCardHint,
-      children: [
-        SettingsActionTile.multiSegmentedTile<_SyncTarget>(
-          icon: FluentIcons.cloud_arrow_down_24_regular,
-          title: t.syncTargetsTitle,
-          subtitle: _s.personalUpdateMode ? t.syncLibraryLockedSubtitle : null,
-          hint: t.syncTargetsHint,
-          selected: _selectedSyncTargets,
-          onToggled: _toggleSyncTarget,
-          options: [
-            SegmentOption(value: _SyncTarget.all, label: t.syncTargetAll),
-            SegmentOption(value: _SyncTarget.app, label: t.syncTargetApp),
-            SegmentOption(
-              value: _SyncTarget.library,
-              label: t.syncTargetLibrary,
-              enabled: !_s.personalUpdateMode,
-            ),
-            SegmentOption(
-              value: _SyncTarget.plugins,
-              label: t.syncTargetPlugins,
-            ),
+    final selected = _selectedSyncTargets;
+    final personal = _s.personalUpdateMode;
+    return AppRow(
+      key: const ValueKey('settings.syncTargets'),
+      alignTop: true,
+      leading: const IconTile(
+        icon: FluentIcons.arrow_download_24_regular,
+        size: _tile,
+        tone: _quiet,
+      ),
+      title: t.syncTargetsTitle,
+      subtitle: personal
+          ? '${t.syncTargetsSubtitle} ${t.syncLibraryLockedSubtitle}'
+          : t.syncTargetsSubtitle,
+      below: Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final (target, label) in [
+              (_SyncTarget.app, t.syncTargetApp),
+              (_SyncTarget.library, t.syncTargetLibrary),
+              (_SyncTarget.plugins, t.syncTargetPlugins),
+            ])
+              if (personal && target == _SyncTarget.library)
+                Tooltip(
+                  message: t.syncLibraryLockedSubtitle,
+                  child: StoreFilterChip(
+                    label: label,
+                    selected: selected.contains(target),
+                    locked: true,
+                    onTap: null,
+                  ),
+                )
+              else
+                StoreFilterChip(
+                  label: label,
+                  selected: selected.contains(target),
+                  onTap: () => unawaited(_toggleSyncTarget(target)),
+                ),
           ],
         ),
-        SettingsActionTile.switchTile(
-          icon: FluentIcons.person_24_regular,
-          title: t.personalModeTitle,
-          subtitle: t.personalModeSubtitle,
-          hint: t.personalModeHint,
-          value: _s.personalUpdateMode,
-          onChanged: (v) => _confirmPersonalMode(context, enabled: v),
-        ),
-      ],
-    );
-  }
-
-  /// הפעלה דורשת אישור: מכאן והלאה הכונן אינו מתקין ספרייה במחשב אחר, וגם
-  /// מסלול ההתאוששות (מסד מלא כשקובץ עדכון אינו מתאים) נעלם ממנו.
-  Future<void> _confirmPersonalMode(
-    BuildContext context, {
-    required bool enabled,
-  }) async {
-    if (!enabled) {
-      await _set(_s.copyWith(personalUpdateMode: false));
-      return;
-    }
-
-    final t = context.strings.settings;
-    final approved = await showWarningDialog(
-      context: context,
-      title: t.personalModeDialogTitle,
-      content: t.personalModeDialogContent,
-      subtitle: t.personalModeDialogWarning,
-      confirmText: t.personalModeDialogConfirm,
-    );
-    if (!approved) return;
-    await _set(_s.copyWith(personalUpdateMode: true));
-  }
-
-  // ── שפה ומראה ─────────────────────────────────────────────────────────────
-
-  /// רוחב קבוע לשורות הכרטיס — כך שתיבת ערכת הנושא, שהתווית הארוכה שבה
-  /// הייתה מגדילה אותה, יושבת באותו גודל בדיוק כמו בורר השפה.
-  static const double _uiSegmentWidth = 300;
-
-  Widget _appearanceCard(BuildContext context) {
-    final t = context.strings.settings;
-
-    return SettingsCard(
-      title: t.appearanceCardTitle,
-      children: [
-        // תפריט נפתח ולא סגמנטד — כמו בורר השפה של אוצריא.
-        SettingsActionTile.dropdownTile<AppLanguagePreference>(
-          icon: FluentIcons.local_language_24_regular,
-          title: t.languageTitle,
-          subtitle: t.languageSubtitle,
-          currentValue: _s.languagePreference,
-          onSelected: (v) => _set(_s.copyWith(languagePreference: v)),
-          entries: [
-            AppMenuEntry(
-              value: AppLanguagePreference.system,
-              label: t.languageSystem,
-            ),
-            AppMenuEntry(
-              value: AppLanguagePreference.hebrew,
-              label: t.languageHebrew,
-            ),
-            AppMenuEntry(
-              value: AppLanguagePreference.english,
-              label: t.languageEnglish,
-            ),
-          ],
-        ),
-        SettingsActionTile.segmentedTile<AppThemeMode>(
-          icon: FluentIcons.dark_theme_24_regular,
-          title: t.themeTitle,
-          currentValue: _s.themeMode,
-          onChanged: (v) => _set(_s.copyWith(themeMode: v)),
-          width: _uiSegmentWidth,
-          options: [
-            SegmentOption(value: AppThemeMode.system, label: t.themeSystem),
-            SegmentOption(value: AppThemeMode.light, label: t.themeLight),
-            SegmentOption(value: AppThemeMode.dark, label: t.themeDark),
-          ],
-        ),
-        _colorPickerTile(context),
-        SettingsActionTile.switchTile(
-          icon: FluentIcons.question_circle_24_regular,
-          title: t.showFaqTitle,
-          subtitle: t.showFaqSubtitle,
-          value: _s.showFaqButton,
-          onChanged: (v) => _set(_s.copyWith(showFaqButton: v)),
-        ),
-      ],
-    );
-  }
-
-  /// בורר צבע הבסיס. כמו באוצריא, הבחירה חלה על הערכה שמוצגת כרגע — ולכן
-  /// המפתח מכריח בנייה מחדש כשהבהירות מתחלפת, אחרת הצבע של הערכה הקודמת
-  /// היה נשאר על המסך.
-  Widget _colorPickerTile(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return ColorPickerTile(
-      key: ValueKey('seed-color-${isDark ? 'dark' : 'light'}'),
-      currentColor: isDark ? _s.darkSeedColor : _s.seedColor,
-      defaultColor:
-          isDark ? AppSeedColors.defaultDark : AppSeedColors.defaultLight,
-      onChanged: (color) => _set(
-        isDark
-            ? _s.copyWith(darkSeedColor: color)
-            : _s.copyWith(seedColor: color),
       ),
     );
   }
 
-  // ── מצב סייפר ─────────────────────────────────────────────────────────────
+  Widget _semanticDownloadRow(BuildContext context) {
+    final t = context.strings.settings;
+    return AppRow(
+      key: const ValueKey('settings.semanticDownload'),
+      alignTop: true,
+      leading: const IconTile(
+        icon: FluentIcons.sparkle_24_regular,
+        size: _tile,
+        tone: _quiet,
+      ),
+      title: t.semanticDownloadTitle,
+      subtitle: t.semanticDownloadSubtitle,
+      below: Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: AppSegmentedControl<SemanticDownloadPreference>(
+            options: [
+              SegmentOption(
+                value: SemanticDownloadPreference.ask,
+                label: t.semanticDownloadAsk,
+              ),
+              SegmentOption(
+                value: SemanticDownloadPreference.always,
+                label: t.semanticDownloadAlways,
+              ),
+              SegmentOption(
+                value: SemanticDownloadPreference.never,
+                label: t.semanticDownloadNever,
+              ),
+            ],
+            currentValue: _s.semanticDownload,
+            onChanged: (v) => unawaited(_set(_s.copyWith(semanticDownload: v))),
+          ),
+        ),
+      ),
+    );
+  }
 
-  /// נעילת ההגדרות בסיסמה. הכרטיס עצמו יושב **בתוך** המסך הנעול: מי שהגיע
-  /// לכאן כבר עבר את השער, ולכן כאן די באימות לפני כל שינוי של הנעילה
-  /// עצמה — הפעלה, כיבוי, החלפת סיסמה או מחיקתה.
-  Widget _saferModeCard(BuildContext context) {
-    final t = context.strings.saferMode;
-    final hasPassword = _s.hasSaferModePassword;
-
-    return SettingsCard(
-      title: t.cardTitle,
-      hint: t.cardHint,
+  /// ביטול ההסכמה רק באוצריא: הביטול שלה גם מוחק את מה שטרם נשלח.
+  Widget _semanticConsentRow(BuildContext context, {required bool granted}) {
+    final t = context.strings.settings;
+    return RowsCard(
       children: [
-        if (hasPassword)
-          SettingsActionTile.switchTile(
-            icon: _s.saferModeEnabled
-                ? FluentIcons.shield_lock_24_filled
-                : FluentIcons.shield_lock_24_regular,
-            title: t.toggleTitle,
-            subtitle:
-                _s.saferModeEnabled ? t.toggleOnSubtitle : t.toggleOffSubtitle,
-            value: _s.saferModeEnabled,
-            onChanged: (v) => _toggleSaferMode(context, enabled: v),
-          )
-        else
-          SettingsActionTile.text(
-            icon: FluentIcons.shield_lock_24_regular,
-            title: t.toggleTitle,
-            subtitle: t.needsPasswordSubtitle,
-            actions: [
-              ActionButton.recommended(
-                icon: FluentIcons.key_24_regular,
-                text: t.setPasswordButton,
-                onPressed: () => _setSaferModePassword(context),
-              ),
-            ],
+        AppRow(
+          key: ShellKeys.settingsSemanticConsent,
+          alignTop: true,
+          leading: const IconTile(
+            icon: FluentIcons.sparkle_24_regular,
+            size: _tile,
+            tone: _quiet,
           ),
-        if (hasPassword)
-          SettingsActionTile.text(
-            icon: FluentIcons.key_24_regular,
-            title: t.passwordTileTitle,
-            subtitle: t.passwordTileSubtitle,
-            actions: [
-              ActionButton.neutral(
-                icon: FluentIcons.key_24_regular,
-                text: t.passwordOptionsButton,
-                onPressed: () => _setSaferModePassword(context),
-              ),
-              // מחיקה כשהמצב פעיל הייתה דלת אחורית מתוך הנעילה — הכפתור
-              // מושבת ומסביר, במקום להיעלם בלי סיבה נראית.
-              ActionButton.warning(
-                text:
-                    _s.saferModeEnabled ? t.clearBlockedButton : t.clearButton,
-                onPressed: _s.saferModeEnabled
-                    ? null
-                    : () => _clearSaferModePassword(context),
-              ),
-            ],
-          ),
+          title: t.semanticConsentRowTitle,
+          subtitle: granted ? t.semanticConsentRowOn : t.semanticConsentRowOff,
+          trailing: granted
+              ? StatusChip(
+                  kind: StatusKind.ok,
+                  label: context.strings.pages.libSemanticActive,
+                )
+              : ActionButton.neutral(
+                  text: t.semanticConsentRowEnable,
+                  onPressed: onEnableSemanticSearch,
+                ),
+        ),
       ],
     );
   }
 
-  Future<void> _toggleSaferMode(
+  // ── מתקדם ─────────────────────────────────────────────────────────────────
+
+  Widget _advanced(BuildContext context) {
+    final t = context.strings.settings;
+    return RowsCard(
+      children: [
+        ..._lockRows(context),
+        if (onEditFaq case final edit?)
+          AppRow(
+            key: const ValueKey('settings.faqEdit'),
+            title: t.faqEditTitle,
+            subtitle: t.faqEditSubtitle,
+            onTap: edit,
+          ),
+        AppRow(
+          title: t.logTitle,
+          subtitle: t.logSubtitle,
+          trailing: ActionButton.ghost(
+            text: t.openLogFolderButton,
+            icon: FluentIcons.folder_open_24_regular,
+            onPressed: onOpenLog,
+          ),
+        ),
+        AppRow(
+          title: t.resetTitle,
+          subtitle: t.resetSubtitle,
+          trailing: ActionButton.warning(
+            key: const ValueKey('settings.reset'),
+            text: t.resetButton,
+            icon: FluentIcons.arrow_reset_24_regular,
+            onPressed: () => unawaited(_confirmReset(context)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── בשביל איזה מחשב מורידים ──────────────────────────────────────────────
+
+  List<Widget> _personalGroup(BuildContext context) {
+    final t = context.strings.libraryScreen;
+    final personal = _s.personalUpdateMode;
+    return [
+      OptionCard(
+        key: ShellKeys.settingsPersonalMultiple,
+        icon: FluentIcons.laptop_multiple_24_regular,
+        title: t.personalAskMultiple,
+        description: t.personalAskMultipleBody,
+        selected: !personal,
+        onSelected: () => unawaited(_choosePersonal(context, personal: false)),
+      ),
+      const SizedBox(height: AppTokens.spaceSM),
+      OptionCard(
+        key: ShellKeys.settingsPersonalMine,
+        icon: FluentIcons.person_24_regular,
+        title: t.personalAskMine,
+        description: t.personalAskMineBody,
+        selected: personal,
+        onSelected: () => unawaited(_choosePersonal(context, personal: true)),
+      ),
+      if (personal) ...[
+        const SizedBox(height: AppTokens.spaceSM),
+        _machinesCard(context),
+      ],
+    ];
+  }
+
+  Widget _machinesCard(BuildContext context) {
+    final t = context.strings.settings;
+    final machines = personalMachines;
+    const icon = IconTile(
+      icon: FluentIcons.desktop_24_regular,
+      size: _tile,
+      tone: _quiet,
+    );
+    final floor = machines.isEmpty ? null : machines.first.version;
+    final here = machines.any((m) => m.isThisMachine);
+    return RowsCard(
+      children: [
+        if (machines.isEmpty)
+          AppRow(leading: icon, title: t.personalMachinesNone),
+        for (final machine in machines)
+          AppRow(
+            leading: icon,
+            title: machine.isThisMachine
+                ? t.personalMachineThis
+                : machine.name == null
+                    ? t.personalMachineUnnamed
+                    : t.personalMachineName(machine.name!),
+            subtitle: machines.length > 1 && machine.version == floor
+                ? t.personalMachineFloor('${machine.version}')
+                : machine.isThisMachine && machine.name != null
+                    ? t.personalMachineThisSubtitle(
+                        machine.name!,
+                        '${machine.version}',
+                      )
+                    : t.personalMachineVersion('${machine.version}'),
+            trailing: ActionButton.ghost(
+              key: ShellKeys.personalMachineRemove(machine.key),
+              text: t.personalMachineRemove,
+              onPressed: readOnly || onRemoveMachine == null
+                  ? null
+                  : () => unawaited(_confirmRemove(context, machine)),
+            ),
+          ),
+        if (!here && onRegisterHere != null)
+          AppRow(
+            leading: icon,
+            title: t.personalMachineNotHere,
+            trailing: ActionButton.neutral(
+              key: ShellKeys.settingsPersonalRegisterHere,
+              text: context.strings.libraryScreen.personalVersionButton,
+              onPressed: readOnly ? null : onRegisterHere,
+            ),
+          ),
+        if (readOnly) AppRow(title: t.personalMachinesReadOnly),
+      ],
+    );
+  }
+
+  /// ההסרה משנה מאיזו גרסה מורידים, ולכן באישור; למחשב הזה — בנוסח משלו.
+  Future<void> _confirmRemove(
+    BuildContext context,
+    RegisteredMachine machine,
+  ) async {
+    final t = context.strings.settings;
+    final approved = await showWarningDialog(
+      context: context,
+      title: t.personalRemoveTitle,
+      content: machine.isThisMachine
+          ? t.personalRemoveThisBody
+          : t.personalRemoveBody,
+      confirmText: t.personalMachineRemove,
+    );
+    if (approved) onRemoveMachine?.call(machine.key);
+  }
+
+  /// "רק המחשב שלי" דורש אישור באזהרה: הספרייה המלאה שבכונן נמחקת בהורדה
+  /// הבאה. החזרה ל"מחשבים מרובים" אינה מוחקת דבר.
+  Future<void> _choosePersonal(
     BuildContext context, {
-    required bool enabled,
+    required bool personal,
   }) async {
+    if (personal == _s.personalUpdateMode) return;
+    if (personal && !await confirmPersonalModeDialog(context)) return;
+    final choose = onChoosePersonal;
+    if (choose != null) return choose(personal);
+    await _set(
+      _s.copyWith(personalUpdateMode: personal, personalModeAsked: true),
+    );
+  }
+
+  /// הנעילה בסיסמה. השורות יושבות **בתוך** המסך הנעול: מי שהגיע לכאן כבר
+  /// עבר את השער, ולכן די באימות לפני כל שינוי של הנעילה עצמה.
+  List<Widget> _lockRows(BuildContext context) {
+    final t = context.strings.saferMode;
+    if (!_s.hasSaferModePassword) {
+      return [
+        AppRow(
+          key: const ValueKey('settings.lock'),
+          title: t.lockTitle,
+          subtitle: t.noPasswordSubtitle,
+          trailing: ActionButton.neutral(
+            icon: FluentIcons.key_24_regular,
+            text: t.setPasswordButton,
+            onPressed: () => unawaited(_setPassword(context)),
+          ),
+        ),
+      ];
+    }
+    final on = _s.saferModeEnabled;
+    return [
+      AppSwitchRow(
+        key: const ValueKey('settings.lock'),
+        title: t.lockTitle,
+        subtitle: on ? t.lockOnSubtitle : t.lockOffSubtitle,
+        value: on,
+        onChanged: (v) => unawaited(_toggleLock(context, enabled: v)),
+      ),
+      AppRow(
+        title: t.passwordRowTitle,
+        // מחיקה כשהנעילה פעילה הייתה דלת אחורית מתוך הנעילה — מושבת ומוסבר.
+        subtitle: on ? t.passwordRowLockedSubtitle : t.passwordRowSubtitle,
+        trailing: Wrap(
+          spacing: 8,
+          children: [
+            ActionButton.ghost(
+              text: t.changeButton,
+              onPressed: () => unawaited(_changePassword(context)),
+            ),
+            ActionButton.warning(
+              key: const ValueKey('settings.lock.clear'),
+              text: t.clearButton,
+              onPressed: on ? null : () => unawaited(_clearPassword(context)),
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  Future<void> _toggleLock(BuildContext context,
+      {required bool enabled}) async {
     final t = context.strings.saferMode;
     final verified = await showSaferModePasswordDialog(
       context,
@@ -382,133 +655,51 @@ class SettingsScreen extends StatelessWidget {
       hint: enabled ? t.verifyEnableHint : t.verifyDisableHint,
     );
     if (!verified) return;
-    // מי שהפעיל את המצב הרגע הוכיח את הסיסמה — ולא יישאל שוב עד הסגירה.
+    // מי שהפעיל את הנעילה הרגע הוכיח את הסיסמה — ולא יישאל שוב עד הסגירה.
     saferMode?.unlock();
     await _set(_s.copyWith(saferModeEnabled: enabled));
     UiSnack.show(enabled ? t.enabledSnack : t.disabledSnack);
   }
 
-  Future<void> _setSaferModePassword(BuildContext context) async {
+  /// סיסמה ראשונה נשמרת ומפעילה את הנעילה — מי שבחר אותה מתכוון לנעול.
+  Future<void> _setPassword(BuildContext context) async {
     final t = context.strings.saferMode;
-    final hadPassword = _s.hasSaferModePassword;
-
-    if (hadPassword) {
-      final verified = await showSaferModePasswordDialog(
-        context,
-        storedPassword: _s.saferModePassword,
-        hint: t.verifyChangeHint,
-      );
-      if (!verified || !context.mounted) return;
-    }
-
-    final encoded = await showSaferModeSetPasswordDialog(context);
-    if (encoded == null) return;
-    await _set(_s.copyWith(saferModePassword: encoded));
-    saferMode?.unlock();
-    UiSnack.showSuccess(t.passwordSavedSnack);
-
-    // סיסמה ראשונה אינה נועלת דבר בלי המתג, ומי שבחר אותה מתכוון לנעול.
-    if (hadPassword || _s.saferModeEnabled || !context.mounted) return;
-    final activate = await showTwoActionsDialog(
-      context: context,
-      title: t.activateNowTitle,
-      content: t.activateNowContent,
-      confirmText: t.activateNowConfirm,
+    final encoded = await showSaferModeSetPasswordDialog(
+      context,
+      onThisComputer: readOnly,
     );
-    if (!activate) return;
-    await _set(_s.copyWith(saferModeEnabled: true));
-    UiSnack.show(t.enabledSnack);
+    if (encoded == null) return;
+    // לפני השמירה: הנעילה נכנסת לתוקף בשמירה, ומי שקבע אותה לא יישאל עליה.
+    saferMode?.unlock();
+    await _set(
+      _s.copyWith(saferModePassword: encoded, saferModeEnabled: true),
+    );
+    UiSnack.showSuccess(t.passwordSetSnack);
   }
 
-  Future<void> _clearSaferModePassword(BuildContext context) async {
+  Future<void> _changePassword(BuildContext context) async {
     final t = context.strings.saferMode;
-    final verified = await showSaferModePasswordDialog(
+    final encoded = await showSaferModeChangePasswordDialog(
       context,
       storedPassword: _s.saferModePassword,
-      hint: t.verifyChangeHint,
     );
-    if (!verified || !context.mounted) return;
+    if (encoded == null) return;
+    saferMode?.unlock();
+    await _set(_s.copyWith(saferModePassword: encoded));
+    UiSnack.showSuccess(t.passwordChangedSnack);
+  }
 
-    final approved = await showWarningDialog(
-      context: context,
-      title: t.clearDialogTitle,
-      content: t.clearDialogContent,
-      confirmText: t.clearDialogConfirm,
+  Future<void> _clearPassword(BuildContext context) async {
+    final t = context.strings.saferMode;
+    final approved = await showSaferModeClearPasswordDialog(
+      context,
+      storedPassword: _s.saferModePassword,
     );
     if (!approved) return;
     await _set(_s.copyWith(saferModePassword: '', saferModeEnabled: false));
-    // בלי זה, סיסמה שתיבחר מיד אחר כך הייתה נכנסת לתוקף רק בהרצה הבאה.
+    // בלי זה, סיסמה שתיקבע מיד אחר כך הייתה נכנסת לתוקף רק בהרצה הבאה.
     saferMode?.lock();
     UiSnack.show(t.passwordRemovedSnack);
-  }
-
-  // ── תמיכה ─────────────────────────────────────────────────────────────────
-
-  Widget _supportCard(BuildContext context) {
-    final t = context.strings.settings;
-
-    return SettingsCard(
-      title: t.supportCardTitle,
-      children: [
-        SettingsActionTile.text(
-          icon: FluentIcons.info_24_regular,
-          title: context.strings.launcherUpdate.versionTileTitle,
-          subtitle:
-              context.strings.launcherUpdate.installedVersion(launcherVersion),
-          actions: [
-            ActionButton.ghost(
-              icon: FluentIcons.history_24_regular,
-              text: context.strings.launcherUpdate.changelogButton,
-              onPressed: () => _showChangelog(context),
-            ),
-          ],
-        ),
-        SettingsActionTile.text(
-          icon: FluentIcons.document_bullet_list_24_regular,
-          title: t.logTitle,
-          subtitle: t.logSubtitle,
-          actions: [
-            ActionButton.neutral(
-              text: t.openLogFolderButton,
-              icon: FluentIcons.folder_open_24_regular,
-              onPressed: onOpenLog,
-            ),
-          ],
-        ),
-        SettingsActionTile.text(
-          icon: FluentIcons.arrow_reset_24_regular,
-          title: t.resetTitle,
-          subtitle: t.resetSubtitle,
-          actions: [
-            ActionButton.warning(
-              text: t.resetButton,
-              onPressed: () => _confirmReset(context),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  /// יומן השינויים המלא, מהעותק שנארז בתוכנה — בלי רשת.
-  Future<void> _showChangelog(BuildContext context) async {
-    String? changelog;
-    try {
-      changelog = await rootBundle.loadString(launcherChangelogAsset);
-    } catch (_) {
-      changelog = null;
-    }
-    if (!context.mounted) return;
-    final t = context.strings.launcherUpdate;
-    await showSingleActionDialog(
-      context: context,
-      title: t.changelogDialogTitle,
-      confirmText: context.strings.common.close,
-      customContent: WhatsNewView(
-        markdown: changelog,
-        emptyText: t.changelogNotFound,
-      ),
-    );
   }
 
   Future<void> _confirmReset(BuildContext context) async {
@@ -517,13 +708,11 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       title: t.resetDialogTitle,
       content: t.resetDialogContent,
-      subtitle: t.resetDialogWarning,
       confirmText: t.resetDialogConfirm,
     );
     if (!approved) return;
-    // איפוס מחזיר גם את השפה לעברית — ולכן ההודעה נקראת אחרי ההחלה.
-    // הנעילה שורדת אותו בכוונה: "החזר הגדרות לברירת המחדל" אינו אמור
-    // לפתוח בשקט את מה שנועל את ההגדרות עצמן.
+    // הנעילה שורדת את האיפוס בכוונה: "ברירת מחדל" אינה אמורה לפתוח בשקט
+    // את מה שנועל את ההגדרות עצמן. ההודעה נקראת אחרי ההחלה (השפה חוזרת).
     await _set(
       const AppSettings().copyWith(
         saferModeEnabled: _s.saferModeEnabled,
@@ -532,7 +721,95 @@ class SettingsScreen extends StatelessWidget {
     );
     UiSnack.showSuccess(AppL10n.strings.settings.resetDoneSnack);
   }
+
+  // ── אודות ─────────────────────────────────────────────────────────────────
+
+  Widget _about(BuildContext context) {
+    final t = context.strings.settings;
+    Widget versionRow() {
+      final line =
+          launcherUpdate == null ? null : launcherLineOf(launcherUpdate!);
+      final newer =
+          line?.kind == LauncherLineKind.downloading ? null : line?.version;
+      return AppRow(
+        key: const ValueKey('settings.about'),
+        leading: IconTile(
+          child: Image.asset(
+            'assets/images/otzaria_logo.png',
+            width: 22,
+            height: 22,
+            semanticLabel: context.strings.shell.otzariaLogoLabel,
+          ),
+        ),
+        title: t.aboutTitle(launcherVersion),
+        subtitle: newer == null ? t.aboutSubtitle : t.aboutNewVersion(newer),
+        onTap: onOpenLauncherUpdate,
+      );
+    }
+
+    return RowsCard(
+      children: [
+        if (launcherUpdate case final c?)
+          ListenableBuilder(listenable: c, builder: (_, __) => versionRow())
+        else
+          versionRow(),
+      ],
+    );
+  }
 }
 
-/// אפשרויות שורת הסימון של ההורדה. `all` הוא קיצור לשלושתם, לא רכיב.
-enum _SyncTarget { all, app, library, plugins }
+/// אפשרויות שבבי ההורדה.
+enum _SyncTarget { app, library, plugins }
+
+/// כפתור בורר (`.dd`): 40, לבן עם מסגרת outline, התווית והחץ בקצוות.
+class _LanguageButton extends StatelessWidget {
+  const _LanguageButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return FocusRing(
+      child: Material(
+        color: cs.surfaceContainerLowest,
+        shape: RoundedRectangleBorder(
+          borderRadius: AppTokens.borderRadiusAll,
+          side: BorderSide(color: cs.outline),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onPressed,
+          overlayColor: AppSurfaces.stateLayer(cs.primary),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 40, minWidth: 150),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    label,
+                    style: AppTextStyles.body.copyWith(color: cs.onSurface),
+                  ),
+                  const SizedBox(width: 12),
+                  Icon(
+                    FluentIcons.chevron_down_16_regular,
+                    size: 16,
+                    color: cs.onSurfaceVariant,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

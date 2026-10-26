@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -35,9 +36,36 @@ class FaqController extends ChangeNotifier {
   final SerialQueue _queue = SerialQueue();
 
   Future<void> update(FaqCustomization next) {
+    _pendingSave?.cancel();
     _value = next;
     notifyListeners();
     return _queue.run(_save);
+  }
+
+  Timer? _pendingSave;
+
+  /// שינוי שנכתב לדיסק רק אחרי [delay] בלי שינוי נוסף — הקלדה בשדה, שעל
+  /// כונן נייד לא תכתוב קובץ בכל הקשה. [flush] כותב מיד.
+  void updateDeferred(FaqCustomization next, Duration delay) {
+    _pendingSave?.cancel();
+    _value = next;
+    notifyListeners();
+    _pendingSave = Timer(delay, () => unawaited(_queue.run(_save)));
+  }
+
+  /// כותב מיד שינוי שממתין, וממתין גם לכתיבה שכבר רצה. נקרא ביציאה מהעריכה
+  /// ולפני סגירת החלון.
+  Future<void> flush() {
+    final pending = _pendingSave;
+    if (pending == null || !pending.isActive) return _queue.run(() async {});
+    pending.cancel();
+    return _queue.run(_save);
+  }
+
+  @override
+  void dispose() {
+    _pendingSave?.cancel();
+    super.dispose();
   }
 
   Future<void> _save() async {

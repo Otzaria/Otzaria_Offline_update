@@ -145,50 +145,23 @@ class _CrashPromptDialogState extends State<CrashPromptDialog> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
-    final maxWidth = size.width < 600 ? size.width * 0.95 : 560.0;
-    final t = context.strings.appReports;
-
-    return Dialog(
-      clipBehavior: Clip.antiAlias,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: maxWidth,
-          maxHeight: size.height * 0.9,
+  Widget build(BuildContext context) => AppDialog.custom(
+        title: context.strings.appReports.crashTitle,
+        width: AppTokens.dialogWideWidth,
+        customContent: Flexible(
+          child: SingleChildScrollView(child: _buildBody(context)),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
-              child: Text(
-                t.crashTitle,
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-            ),
-            Flexible(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: _buildBody(context),
-              ),
-            ),
-            _buildActions(context),
-          ],
-        ),
-      ),
-    );
-  }
+        actions: _buildActions(context),
+      );
 
   Widget _buildBody(BuildContext context) {
-    final theme = Theme.of(context);
+    final cs = Theme.of(context).colorScheme;
     final t = context.strings.appReports;
     final enabled = !_form.collecting && !_form.isSending;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(t.crashBody, style: theme.textTheme.bodyMedium),
+        Text(t.crashBody),
         const SizedBox(height: AppTokens.spaceMD),
         RtlTextField(
           key: const ValueKey('crash-prompt-description'),
@@ -219,13 +192,16 @@ class _CrashPromptDialogState extends State<CrashPromptDialog> {
         const SizedBox(height: AppTokens.spaceMD),
         if (_form.collecting)
           const Padding(
-            padding: EdgeInsets.all(AppTokens.spaceMD),
-            child: Center(child: CircularProgressIndicator()),
+            padding: EdgeInsets.symmetric(vertical: AppTokens.spaceMD),
+            child: AppProgressBar(thin: true),
           )
         else
           AppReportPreviewSection(form: _form),
         const SizedBox(height: AppTokens.spaceMD),
-        Text(t.crashNextTimeLabel, style: theme.textTheme.labelLarge),
+        Text(
+          t.crashNextTimeLabel,
+          style: AppTextStyles.rowTitle.copyWith(color: cs.onSurface),
+        ),
         const SizedBox(height: AppTokens.spaceSM),
         AppSegmentedControl<AppCrashReportMode>(
           options: [
@@ -248,29 +224,22 @@ class _CrashPromptDialogState extends State<CrashPromptDialog> {
     );
   }
 
-  Widget _buildActions(BuildContext context) {
+  List<Widget> _buildActions(BuildContext context) {
     final t = context.strings.appReports;
     final isSending = _form.isSending;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          ActionButton.ghost(
-            key: const ValueKey('crash-prompt-dismiss'),
-            text: t.crashDismissButton,
-            onPressed: isSending ? null : _dismiss,
-          ),
-          const SizedBox(width: AppTokens.spaceSM),
-          ActionButton.recommended(
-            key: const ValueKey('crash-prompt-send'),
-            text: t.crashSendButton,
-            icon: FluentIcons.send_24_regular,
-            isLoading: isSending,
-            onPressed: _form.collecting || isSending ? null : _send,
-          ),
-        ],
+    return [
+      ActionButton.ghost(
+        key: const ValueKey('crash-prompt-dismiss'),
+        text: t.crashDismissButton,
+        onPressed: isSending ? null : _dismiss,
       ),
-    );
+      ActionButton.recommended(
+        key: const ValueKey('crash-prompt-send'),
+        text: t.crashSendButton,
+        icon: FluentIcons.send_24_regular,
+        isLoading: isSending,
+        onPressed: _form.collecting || isSending ? null : _send,
+      ),
+    ];
   }
 }

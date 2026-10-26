@@ -23,6 +23,9 @@ class NoticesSeenStore {
   /// דיווחים ממתינים בקובץ Hive ישן שאוצריא כבר אינה מעבירה.
   static const String legacyReportsNotice = 'legacy_reports_notice';
 
+  /// החלון על החיפוש החכם לפני "עדכון המחשב הזה" נענה — בכל תשובה.
+  static const String semanticConsentAnswered = 'semantic_consent_answered';
+
   final File _file;
   final String _host;
 

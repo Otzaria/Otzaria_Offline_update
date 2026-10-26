@@ -417,72 +417,47 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
 
   // ── תצוגה ─────────────────────────────────────────────────────────────────
 
+  /// הסדר של האשף במוקאפ: מאיפה, איזה קובץ, ואז הפרטים — בדו-שיח אחד.
   @override
   Widget build(BuildContext context) {
     final t = context.strings.customApps;
-    final theme = Theme.of(context);
     void rebuild(String _) => setState(() {});
+    const pad = AppTokens.spaceLG;
+    final github = _source == AppSourceKind.github;
 
     return AlertDialog(
-      title: Text(
-        _isEditing ? t.editDialogTitle : t.addDialogTitle,
-        style: theme.textTheme.titleLarge,
-      ),
+      insetPadding: const EdgeInsets.all(pad),
+      titlePadding: const EdgeInsets.fromLTRB(pad, pad, pad, 0),
+      contentPadding: const EdgeInsets.fromLTRB(pad, 10, pad, 0),
+      actionsPadding: const EdgeInsets.all(pad),
+      title: Text(_isEditing ? t.editDialogTitle : t.addDialogTitle),
       content: SizedBox(
-        width: 520,
+        width: AppTokens.dialogFormWidth - 2 * pad,
         child: SingleChildScrollView(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              FormSectionHeader(t.formSectionDetails),
-              FormTextField(
-                label: t.nameLabel,
-                controller: _name,
-                hint: t.nameHint,
-                onChanged: rebuild,
+              SectionLabel(t.formStepSource, first: true),
+              OptionCard(
+                icon: FluentIcons.globe_24_regular,
+                title: t.sourceGithubOption,
+                description: t.sourceGithubOptionHint,
+                selected: github,
+                onSelected: () =>
+                    setState(() => _source = AppSourceKind.github),
               ),
-              FormTextField(
-                label: t.descriptionLabel,
-                controller: _description,
-                hint: t.descriptionHint,
+              const SizedBox(height: 10),
+              OptionCard(
+                icon: FluentIcons.folder_open_24_regular,
+                title: t.sourceFileOption,
+                description: t.sourceFileOptionHint,
+                selected: !github,
+                onSelected: () =>
+                    setState(() => _source = AppSourceKind.manual),
               ),
-              FormTextField(
-                label: t.longDescriptionLabel,
-                controller: _longDescription,
-                hint: t.longDescriptionHint,
-                maxLines: 4,
-              ),
-              if (widget.controller.categories.isNotEmpty) ...[
-                CustomAppCategoriesPicker(
-                  categories: widget.controller.categories,
-                  selected: _categories,
-                  onToggle: (slug) => setState(() {
-                    if (!_categories.remove(slug)) _categories.add(slug);
-                  }),
-                ),
-                const SizedBox(height: AppTokens.spaceLG),
-              ],
-              FormSectionHeader(t.formSectionSource),
-              FormLabelled(
-                label: t.sourceLabel,
-                child: AppSegmentedControl<AppSourceKind>(
-                  options: [
-                    SegmentOption(
-                      value: AppSourceKind.github,
-                      label: t.sourceGithub,
-                    ),
-                    SegmentOption(
-                      value: AppSourceKind.manual,
-                      label: t.sourceFile,
-                    ),
-                  ],
-                  currentValue: _source,
-                  onChanged: (value) => setState(() => _source = value),
-                ),
-              ),
-              const SizedBox(height: AppTokens.spaceLG),
-              if (_source == AppSourceKind.github)
+              SectionLabel(github ? t.formStepGithubFile : t.formStepLocalFile),
+              if (github)
                 CustomAppGithubSection(
                   urlController: _githubUrl,
                   onUrlChanged: rebuild,
@@ -502,47 +477,79 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
                   onPick: _pickLocalFile,
                   error: _localFileError,
                 ),
-              const SizedBox(height: AppTokens.spaceLG),
               // "זו התוכנה עצמה" נשאל דווקא משום שאי אפשר להריח אותו: exe
               // נייד ומתקין של framework לא מוכר נראים זהים לחלוטין.
-              SettingsActionTile.switchTile(
-                icon: FluentIcons.document_arrow_right_24_regular,
-                title: t.portableFileLabel,
-                subtitle: t.portableFileHint,
+              FormCheckRow(
+                label: t.portableFileLabel,
+                help: t.portableFileHint,
                 value: _portableFile,
                 onChanged: (value) => setState(() => _portableFile = value),
               ),
-              const SizedBox(height: AppTokens.spaceLG),
-              FormSectionHeader(t.formSectionInstall),
               if (!_portableFile)
-                SettingsActionTile.switchTile(
-                  icon: FluentIcons.window_24_regular,
-                  title: t.interactiveInstallLabel,
-                  subtitle: t.interactiveInstallHint,
+                FormCheckRow(
+                  label: t.interactiveInstallLabel,
+                  help: t.interactiveInstallHint,
                   value: _interactiveInstall,
                   onChanged: (value) =>
                       setState(() => _interactiveInstall = value),
                 ),
+              SectionLabel(t.formStepDetails),
               FormTextField(
-                label: t.installDirLabel,
-                controller: _installDir,
-                hint: t.installDirHint,
+                label: t.nameLabel,
+                controller: _name,
+                hint: t.nameHint,
                 onChanged: rebuild,
               ),
-              ActionButton.neutral(
-                text: t.pickInstallDirButton,
-                icon: FluentIcons.folder_24_regular,
-                onPressed: _pickInstallDir,
-              ),
-              const SizedBox(height: AppTokens.spaceMD),
+              if (widget.controller.categories.isNotEmpty)
+                CustomAppCategoriesPicker(
+                  categories: widget.controller.categories,
+                  selected: _categories,
+                  onToggle: (slug) => setState(() {
+                    if (!_categories.remove(slug)) _categories.add(slug);
+                  }),
+                ),
               FormTextField(
-                label: t.exeNameLabel,
-                controller: _exeName,
-                hint: t.exeNameHint,
-                onChanged: rebuild,
+                label: t.descriptionLabel,
+                controller: _description,
+                hint: t.descriptionHint,
               ),
-              const SizedBox(height: AppTokens.spaceSM),
-              FormSectionHeader(t.formSectionMedia),
+              FormTextField(
+                label: t.longDescriptionLabel,
+                controller: _longDescription,
+                hint: t.longDescriptionHint,
+                maxLines: 3,
+              ),
+              // תוכנה ניידת: התיקייה נבחרת בכל מחשב בזמן ההתקנה, ואין מה לזהות.
+              if (_portableFile)
+                FormLabelled(
+                  label: t.installDirLabel,
+                  child: Text(
+                    t.portableDestinationHint,
+                    style: AppTextStyles.body.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                )
+              else ...[
+                FormTextField(
+                  label: t.installDirLabel,
+                  controller: _installDir,
+                  hint: t.installDirHint,
+                  onChanged: rebuild,
+                  ltr: true,
+                  trailing: ActionButton.neutral(
+                    text: t.pickInstallDirButton,
+                    onPressed: _pickInstallDir,
+                  ),
+                ),
+                FormTextField(
+                  label: t.exeNameLabel,
+                  controller: _exeName,
+                  hint: t.exeNameHint,
+                  onChanged: rebuild,
+                  ltr: true,
+                ),
+              ],
               CustomAppIconSection(
                 iconPath: _iconPath,
                 canExtract: _iconSourceExe() != null,
@@ -554,7 +561,6 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
                   _removedIcon = true;
                 }),
               ),
-              const SizedBox(height: AppTokens.spaceLG),
               CustomAppScreenshotsSection(
                 screenshots: _screenshots,
                 onMove: _moveScreenshot,
@@ -566,14 +572,20 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
         ),
       ),
       actions: [
-        ActionButton.neutral(
-          text: context.strings.common.cancel,
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        ActionButton.recommended(
-          text: _isEditing ? t.saveEditButton : t.saveButton,
-          isLoading: _isSaving,
-          onPressed: _isSaving ? null : _save,
+        Wrap(
+          alignment: WrapAlignment.end,
+          spacing: AppTokens.spaceSM,
+          children: [
+            ActionButton.ghost(
+              text: context.strings.common.cancel,
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            ActionButton.recommended(
+              text: _isEditing ? t.saveEditButton : t.saveButton,
+              isLoading: _isSaving,
+              onPressed: _isSaving ? null : _save,
+            ),
+          ],
         ),
       ],
     );

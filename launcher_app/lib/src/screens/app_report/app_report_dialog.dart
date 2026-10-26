@@ -109,99 +109,34 @@ class _AppReportDialogState extends State<AppReportDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
-    final maxWidth = size.width < 600 ? size.width * 0.95 : 640.0;
-
-    return Dialog(
-      clipBehavior: Clip.antiAlias,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: maxWidth,
-          maxHeight: size.height * 0.9,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildHeader(context),
-            const Divider(height: 1),
-            Flexible(
-              child: _form.collecting
-                  ? const Padding(
-                      padding: EdgeInsets.all(AppTokens.spaceXL),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  : SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(
-                        AppTokens.spaceLG,
-                        AppTokens.spaceMD,
-                        AppTokens.spaceLG,
-                        0,
-                      ),
-                      child: _buildForm(context),
-                    ),
-            ),
-            const Divider(height: 1),
-            _buildActions(context),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// כותרת הטופס: אייקון, שם הטופס ומשפט שמסביר מה עוזר בדיווח.
-  Widget _buildHeader(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
     final t = context.strings.appReports;
-    return Container(
-      color: cs.surfaceContainerHighest,
-      padding: const EdgeInsetsDirectional.fromSTEB(
-        AppTokens.spaceLG,
-        AppTokens.spaceMD,
-        AppTokens.spaceSM,
-        AppTokens.spaceMD,
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: cs.primaryContainer,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              FluentIcons.person_feedback_24_regular,
-              size: 22,
-              color: cs.onPrimaryContainer,
-            ),
-          ),
-          const SizedBox(width: AppTokens.spaceMD),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(t.dialogTitle, style: theme.textTheme.titleLarge),
-                const SizedBox(height: 2),
-                Text(
-                  t.dialogSubtitle,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurfaceVariant,
-                  ),
+    final cs = Theme.of(context).colorScheme;
+    return AppDialog.custom(
+      title: t.dialogTitle,
+      width: AppTokens.dialogWideWidth,
+      customContent: Flexible(
+        child: _form.collecting
+            ? const Padding(
+                padding: EdgeInsets.symmetric(vertical: AppTokens.spaceXL),
+                child: AppProgressBar(thin: true),
+              )
+            : SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      t.dialogSubtitle,
+                      style: AppTextStyles.dialogBody.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: AppTokens.spaceMD),
+                    _buildForm(context),
+                  ],
                 ),
-              ],
-            ),
-          ),
-          SecondaryIconButton(
-            tooltip: context.strings.common.close,
-            icon: FluentIcons.dismiss_24_regular,
-            onPressed:
-                _form.isSending ? null : () => Navigator.of(context).pop(),
-          ),
-        ],
+              ),
       ),
+      actions: _buildActions(context),
     );
   }
 
@@ -212,26 +147,22 @@ class _AppReportDialogState extends State<AppReportDialog> {
     String label, {
     String? hint,
   }) {
-    final theme = Theme.of(context);
+    final cs = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.only(bottom: AppTokens.spaceXS),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
+          Icon(icon, size: 18, color: cs.onSurfaceVariant),
           const SizedBox(width: AppTokens.spaceSM),
           Text(
             label,
-            style: theme.textTheme.labelLarge?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+            style: AppTextStyles.rowTitle.copyWith(color: cs.onSurface),
           ),
           if (hint != null) ...[
             const SizedBox(width: AppTokens.spaceXS),
             Text(
               hint,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+              style: AppTextStyles.meta.copyWith(color: cs.onSurfaceVariant),
             ),
           ],
         ],
@@ -355,28 +286,21 @@ class _AppReportDialogState extends State<AppReportDialog> {
     );
   }
 
-  Widget _buildActions(BuildContext context) {
+  List<Widget> _buildActions(BuildContext context) {
     final t = context.strings.appReports;
     final isSending = _form.isSending;
-    return Padding(
-      padding: const EdgeInsets.all(AppTokens.spaceMD),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          ActionButton.ghost(
-            text: context.strings.common.cancel,
-            onPressed: isSending ? null : () => Navigator.of(context).pop(),
-          ),
-          const SizedBox(width: AppTokens.spaceSM),
-          ActionButton.recommended(
-            key: const ValueKey('app-report-send'),
-            text: t.sendButton,
-            icon: FluentIcons.send_24_regular,
-            isLoading: isSending,
-            onPressed: _form.collecting || isSending ? null : _submit,
-          ),
-        ],
+    return [
+      ActionButton.ghost(
+        text: context.strings.common.cancel,
+        onPressed: isSending ? null : () => Navigator.of(context).pop(),
       ),
-    );
+      ActionButton.recommended(
+        key: const ValueKey('app-report-send'),
+        text: t.sendButton,
+        icon: FluentIcons.send_24_regular,
+        isLoading: isSending,
+        onPressed: _form.collecting || isSending ? null : _submit,
+      ),
+    ];
   }
 }

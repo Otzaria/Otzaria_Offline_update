@@ -3,6 +3,8 @@
 #include <flutter_windows.h>
 #include <windows.h>
 
+#include <algorithm>
+
 #include "flutter_window.h"
 #include "splash_window.h"
 #include "utils.h"
@@ -32,25 +34,27 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
-  // החלון מוצג מוגדל (Win32Window::Show). נותנים לו כבר ביצירה את מידות שטח
-  // העבודה של הצג, כדי שהפריים הראשון ייוצר בגודלו הסופי ולא ייצבע קטן
-  // ויימתח. Create מצפה למידות לוגיות, ולכן מחלקים ב-scale של הצג.
+  // A medium window: the client area is 1000x720 logical, centred in the
+  // primary monitor's work area (see Win32Window::Show).
+  const Win32Window::Size preferred(1000, 720);
   Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1280, 720);
-  RECT work_area;
-  if (::SystemParametersInfo(SPI_GETWORKAREA, 0, &work_area, 0)) {
-    const POINT top_left = {work_area.left, work_area.top};
-    const double scale =
-        FlutterDesktopGetDpiForMonitor(
-            ::MonitorFromPoint(top_left, MONITOR_DEFAULTTOPRIMARY)) /
-        96.0;
-    origin = Win32Window::Point(
-        static_cast<unsigned int>(work_area.left / scale),
-        static_cast<unsigned int>(work_area.top / scale));
+  Win32Window::Size size = preferred;
+  HMONITOR monitor = ::MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY);
+  MONITORINFO monitor_info = {sizeof(MONITORINFO)};
+  if (::GetMonitorInfo(monitor, &monitor_info)) {
+    // Created inside the work area; Show() sets the final size and position.
+    const RECT& work = monitor_info.rcWork;
+    const double scale = FlutterDesktopGetDpiForMonitor(monitor) / 96.0;
+    const double work_width = (work.right - work.left) / scale;
+    const double work_height = (work.bottom - work.top) / scale;
     size = Win32Window::Size(
-        static_cast<unsigned int>((work_area.right - work_area.left) / scale),
-        static_cast<unsigned int>((work_area.bottom - work_area.top) / scale));
+        static_cast<unsigned int>(std::min<double>(preferred.width, work_width)),
+        static_cast<unsigned int>(
+            std::min<double>(preferred.height, work_height)));
+    origin = Win32Window::Point(static_cast<unsigned int>(work.left / scale),
+                                static_cast<unsigned int>(work.top / scale));
   }
+  window.SetPreferredSize(preferred, show_command == SW_SHOWMAXIMIZED);
   // Window title, Hebrew for "Otzaria Updates". Kept as escapes and not as
   // literal text on purpose: this file is compiled with /WX, and non-ASCII
   // bytes raise C4819 wherever the system code page is not UTF-8.

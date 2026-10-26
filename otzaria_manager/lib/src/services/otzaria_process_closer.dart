@@ -51,7 +51,11 @@ class OtzariaProcessCloser {
     return false;
   }
 
+  /// נקרא לפני בקשת סגירה אמיתית. בבדיקות זורק, כדי שלא תיסגר אוצריא פתוחה.
+  static void Function()? debugCloseGuard;
+
   Future<void> _requestClose(String? launchPath) async {
+    debugCloseGuard?.call();
     if (Platform.isWindows) return _requestCloseWindows();
     if (Platform.isMacOS) return _requestCloseMac(launchPath);
     await _pkill(RunningOtzariaLocator.processNamesFor('linux'));

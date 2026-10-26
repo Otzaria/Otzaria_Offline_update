@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
@@ -5,15 +7,18 @@ import 'package:flutter/material.dart';
 import '../../controllers/app_reports_controller.dart';
 import '../../widgets/widgets_exports.dart';
 import 'app_report_dialog.dart';
-import 'reports_management_dialog.dart';
 
-/// כרטיס "דיווח על תקלות" בהגדרות: פתיחת הטופס, מצב הדיווח אחרי קריסה,
-/// וסיכום התור וההיסטוריה עם הכניסה לניהולם — כמו `ReportsCard` +
-/// `AppReportsPanel` של אוצריא, בכרטיס אחד.
+/// "פרטיות ודיווחים" בהגדרות: מה קורה אחרי סגירה לא צפויה, כניסה לדף
+/// הדיווחים (התור וההיסטוריה), ודיווח על בעיה בכלי.
 class AppReportsSettingsCard extends StatefulWidget {
-  const AppReportsSettingsCard({super.key, required this.reports});
+  const AppReportsSettingsCard({
+    super.key,
+    required this.reports,
+    this.onOpenReports,
+  });
 
   final AppReportsController reports;
+  final VoidCallback? onOpenReports;
 
   @override
   State<AppReportsSettingsCard> createState() => _AppReportsSettingsCardState();
@@ -45,62 +50,63 @@ class _AppReportsSettingsCardState extends State<AppReportsSettingsCard> {
     await _reports.refresh();
   }
 
-  Future<void> _openManagement() async {
-    await showReportsManagementDialog(context, reports: _reports);
-    await _reports.refresh();
-  }
-
   @override
   Widget build(BuildContext context) {
     final t = context.strings.appReports;
-    return SettingsCard(
-      title: t.cardTitle,
+    const tile = IconTileSize.sm;
+    const quiet = IconTileTone.quiet;
+    return RowsCard(
       children: [
-        SettingsActionTile.text(
-          icon: FluentIcons.bug_24_regular,
-          title: t.reportTileTitle,
-          subtitle: t.reportTileSubtitle,
-          actions: [
-            ActionButton.recommended(
-              key: const ValueKey('app-reports-open-form'),
-              text: t.openFormButton,
-              onPressed: _openForm,
-            ),
-          ],
-        ),
-        SettingsActionTile.segmentedTile<AppCrashReportMode>(
+        AppRow(
           key: const ValueKey('app-reports-crash-mode'),
-          icon: FluentIcons.warning_24_regular,
+          leading: const IconTile(
+            icon: FluentIcons.shield_checkmark_24_regular,
+            size: tile,
+            tone: quiet,
+          ),
           title: t.crashModeTitle,
           subtitle: t.crashModeSubtitle,
-          options: [
-            SegmentOption(value: AppCrashReportMode.ask, label: t.crashModeAsk),
-            SegmentOption(
-              value: AppCrashReportMode.always,
-              label: t.crashModeAlways,
-            ),
-            SegmentOption(
-              value: AppCrashReportMode.never,
-              label: t.crashModeNever,
-            ),
-          ],
-          currentValue: _reports.crashMode,
-          onChanged: _reports.setCrashMode,
-        ),
-        SettingsActionTile.text(
-          icon: FluentIcons.task_list_ltr_24_regular,
-          title: t.manageTileTitle,
-          subtitle: t.manageTileSubtitle(
-            _reports.pendingCount,
-            _reports.sentTotal,
+          trailing: AppSegmentedControl<AppCrashReportMode>(
+            options: [
+              SegmentOption(
+                  value: AppCrashReportMode.ask, label: t.crashModeAsk),
+              SegmentOption(
+                value: AppCrashReportMode.always,
+                label: t.crashModeAlways,
+              ),
+              SegmentOption(
+                value: AppCrashReportMode.never,
+                label: t.crashModeNever,
+              ),
+            ],
+            currentValue: _reports.crashMode,
+            onChanged: _reports.setCrashMode,
           ),
-          actions: [
-            ActionButton.neutral(
-              key: const ValueKey('app-reports-manage'),
-              text: t.manageButton,
-              onPressed: _openManagement,
+        ),
+        if (widget.onOpenReports case final open?)
+          AppRow(
+            key: const ValueKey('app-reports-manage'),
+            leading: const IconTile(
+              icon: FluentIcons.bug_24_regular,
+              size: tile,
+              tone: quiet,
             ),
-          ],
+            title: t.manageTileTitle,
+            subtitle: t.manageTileSubtitle(
+              _reports.pendingCount,
+              _reports.sentTotal,
+            ),
+            onTap: open,
+          ),
+        AppRow(
+          key: const ValueKey('app-reports-problem'),
+          leading: const IconTile(
+            icon: FluentIcons.person_feedback_24_regular,
+            size: tile,
+            tone: quiet,
+          ),
+          title: context.strings.pages.repProblemTitle,
+          onTap: () => unawaited(_openForm()),
         ),
       ],
     );

@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
+import 'byte_size.dart';
+
 /// לוגר פשוט מבוסס-קובץ: כל שורה נכתבת (append) ל-`<dataDir>/logs/launcher.log`
 /// עם timestamp ורמה, כדי שאפשר יהיה לראות מה קרה בפועל אחרי שהאפליקציה
 /// כבר נסגרה — בלי צורך בדיבאגר או בחיבור מסוף.
@@ -117,7 +119,8 @@ class AppLogger {
   IOSink? _sink;
 
   void _write(String level, String message) {
-    final line = '${DateTime.now().toIso8601String()} [$level] $message\n';
+    final line = '${DateTime.now().toIso8601String()} [$level] '
+        '${withoutBidiMarks(message)}\n';
     if (kDebugMode) {
       // ignore: avoid_print
       print(line);

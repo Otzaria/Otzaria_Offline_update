@@ -73,16 +73,7 @@ Future<bool> launchCustomApp({
   }
   if (needsTrust) {
     if (!context.mounted) return false;
-    final t = context.strings.customApps;
-    final approved = await showWarningDialog(
-      context: context,
-      title: t.trustDialogTitle,
-      content: t.trustDialogContent(
-        app.descriptor.name,
-        app.descriptor.github?.webUrl ?? app.descriptor.name,
-      ),
-      confirmText: t.trustDialogConfirm,
-    );
+    final approved = await showCustomAppTrustDialog(context, app);
     if (!approved || !await controller.trustHere(id)) return false;
   }
   return controller.launch(id, installed);
@@ -117,14 +108,22 @@ Future<bool> _confirmTrust(
     }
   } else if (preflight.needsTrust) {
     if (!context.mounted) return false;
-    final source = app.descriptor.github?.webUrl ?? app.descriptor.name;
-    final approved = await showWarningDialog(
-      context: context,
-      title: t.trustDialogTitle,
-      content: t.trustDialogContent(app.descriptor.name, source),
-      confirmText: t.trustDialogConfirm,
-    );
+    final approved = await showCustomAppTrustDialog(context, app);
     if (!approved || !await controller.trustHere(id)) return false;
   }
   return context.mounted;
+}
+
+/// "להתקין תוכנה שלא נבדקה?" — תוכנה שנוספה במחשב אחר. הבטוח (ביטול) ראשי.
+Future<bool> showCustomAppTrustDialog(BuildContext context, CustomAppView app) {
+  final t = context.strings.customApps;
+  return showWarningDialog(
+    context: context,
+    title: t.trustDialogTitle,
+    content: t.trustDialogContent(
+      app.descriptor.name,
+      app.descriptor.github?.webUrl ?? app.descriptor.name,
+    ),
+    confirmText: t.trustDialogConfirm,
+  );
 }

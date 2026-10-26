@@ -25,6 +25,9 @@ if (Test-Path $stageDir) { Remove-Item -Recurse -Force $stageDir }
 $payloadDir = Join-Path $stageDir $payloadDirName
 New-Item -ItemType Directory -Force $payloadDir | Out-Null
 Copy-Item (Join-Path $releaseDir '*') $payloadDir -Recurse
+# הרצה מקומית של ה-Release משאירה בו נתוני משתמש; חילוץ היה דורס בהם את של המשתמש.
+$strayData = Join-Path $payloadDir 'OtzariaData'
+if (Test-Path -LiteralPath $strayData) { Remove-Item -Recurse -Force -LiteralPath $strayData }
 
 # ה-CRT של Visual C++ נוסע איתנו. `launcher_app.exe` ושלושה מה-DLL של
 # ה-plugins מייבאים אותו בטעינה, ופלאטר **אינו** מעתיק אותו לתיקיית ה-Release

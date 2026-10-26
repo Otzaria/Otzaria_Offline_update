@@ -326,6 +326,81 @@ void main() {
     });
   });
 
+  group('הפעלה מכונן המערכת', () {
+    test('כונן המערכת נחסם, גם באותיות קטנות', () {
+      for (final (path, system) in const [
+        (r'C:\Otzaria\Otzaria-Updates.exe', 'C:'),
+        (r'c:\otzaria\otzaria-updates.exe', 'C:'),
+        (r'C:\Otzaria\Otzaria-Updates.exe', 'c:'),
+        (r'D:\Otzaria-Updates.exe', r'D:\'),
+        (r'\\?\C:\Otzaria\Otzaria-Updates.exe', 'C:'),
+      ]) {
+        expect(AppPaths.isOnSystemDrive(path, systemDrive: system), isTrue,
+            reason: '$path / $system');
+      }
+    });
+
+    test('כונן אחר, נתיב רשת והרצת פיתוח — מותרים', () {
+      for (final (path, system) in const [
+        (r'E:\Otzaria-Updates.exe', 'C:'),
+        (r'D:\Otzaria\Otzaria-Updates.exe', 'C:'),
+        (r'\\server\share\Otzaria-Updates.exe', 'C:'),
+        (r'\\?\UNC\server\share\Otzaria-Updates.exe', 'C:'),
+        ('', 'C:'),
+        (r'C:\Otzaria-Updates.exe', null),
+        (r'C:\Otzaria-Updates.exe', ''),
+      ]) {
+        expect(AppPaths.isOnSystemDrive(path, systemDrive: system), isFalse,
+            reason: '$path / $system');
+      }
+    });
+
+    test('resolve מסרב עם הודעה ייעודית, לפני שנוגע בדיסק', () async {
+      final overrides = _RedirectingIOOverrides(Directory.systemTemp.path);
+      await expectLater(
+        IOOverrides.runWithIOOverrides(
+          () => AppPaths.resolve(
+            resolvedExecutable: r'C:\Otzaria\app-files\launcher_app.exe',
+            environment: const {
+              'OTZARIA_LAUNCHER_STUB': r'C:\Otzaria\Otzaria-Updates.exe',
+              'SystemDrive': 'C:',
+            },
+            isMacOS: false,
+            isWindows: true,
+            tempDirs: const [],
+          ),
+          overrides,
+        ),
+        throwsA(isA<AppPathsException>()
+            .having((e) => e.kind, 'kind', AppPathsFailure.systemDrive)
+            .having((e) => e.message, 'message',
+                AppL10n.strings.setupError.systemDrive)
+            // מה שצריך להעתיק — תיקיית ה-exe, לא OtzariaData שבתוך app-files.
+            .having((e) => e.attemptedDir, 'attemptedDir', r'C:\Otzaria')),
+      );
+      expect(overrides.createdDirs, isEmpty);
+      expect(overrides.createdFiles, isEmpty);
+    });
+
+    test('מחוץ לווינדוס אין חסימה, גם כשנתיב ה-stub על C:', () async {
+      final sandbox = await Directory.systemTemp.createTemp('app-paths-test-');
+      addTearDown(() => sandbox.delete(recursive: true));
+      final paths = await IOOverrides.runWithIOOverrides(
+        () => AppPaths.resolve(
+          resolvedExecutable: p.join(sandbox.path, 'launcher_app'),
+          environment: const {
+            'OTZARIA_LAUNCHER_STUB': r'C:\Otzaria\Otzaria-Updates.exe',
+            'SystemDrive': 'C:',
+          },
+          isMacOS: false,
+          isWindows: false,
+        ),
+        _RedirectingIOOverrides(sandbox.path),
+      );
+      expect(paths.readOnly, isFalse);
+    });
+  });
+
   group('כונן מוגן-כתיבה (בעיה #25)', () {
     late Directory sandbox;
     late Directory drive;

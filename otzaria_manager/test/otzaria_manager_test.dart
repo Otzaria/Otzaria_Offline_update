@@ -14,10 +14,6 @@ const String _systemExe = r'C:\Windows\System32\notepad.exe';
 
 const String _installerBytes = 'installer';
 
-/// \u200EC:\אוצריא היא נתיב קשיח בקוד (התקנות ישנות של אוצריא). במכונה שיש בה
-/// כזו, הזיהוי האוטומטי ימצא אותה — ולכן אי אפשר לצפות שם ל"לא זוהה כלום".
-final bool _legacyInstallExists = Directory(r'C:\אוצריא').existsSync();
-
 OtzariaRelease _release(String tag, {required bool isPrerelease}) =>
     OtzariaRelease(
       tagName: tag,
@@ -40,8 +36,17 @@ void main() {
     dataDir = await Directory.systemTemp.createTemp('otzaria-manager-test-');
   });
 
+  // סורק או אינדקס של Windows מחזיק לרגע קובץ בתיקייה (errno 32) — ניסיון חוזר.
   tearDown(() async {
-    if (await dataDir.exists()) await dataDir.delete(recursive: true);
+    for (var attempt = 1;; attempt++) {
+      try {
+        if (await dataDir.exists()) await dataDir.delete(recursive: true);
+        return;
+      } on FileSystemException {
+        if (attempt == 5) rethrow;
+        await Future<void>.delayed(Duration(milliseconds: 200 * attempt));
+      }
+    }
   });
 
   String mirrorDir() => p.join(dataDir.path, 'mirror', 'app');
@@ -72,9 +77,9 @@ void main() {
         .writeAsString(jsonEncode(json));
   }
 
-  /// [runningOtzariaPath] מדמה "אוצריא רצה כרגע מהנתיב הזה". ברירת המחדל
-  /// null היא גם מה שמנטרל את הזיהוי האמיתי לפי תהליך — אחרת הבדיקות היו
-  /// תלויות בשאלה אם אוצריא פתוחה במכונת המפתח.
+  /// [runningOtzariaPath] מדמה "אוצריא רצה כרגע מהנתיב הזה". כל מקור אמיתי
+  /// (תהליך, רג'יסטרי, התיקייה הישנה, הפעלה) מוחלף, כדי שהבדיקה לא תגיע
+  /// לאוצריא שמותקנת במכונת המפתח.
   OtzariaManager managerFor({
     bool preferPrerelease = false,
     Map<String, String> environment = const {},
@@ -82,6 +87,7 @@ void main() {
     List<String> registeredInstallDirs = const [],
     OtzariaTargetPlatform platform = OtzariaTargetPlatform.windows,
     InstalledVersionReader? versionReader,
+    List<String> legacyInstallDirs = const [],
   }) {
     final manager = OtzariaManager(
       dataDir: dataDir.path,
@@ -90,6 +96,8 @@ void main() {
       environment: environment,
       runningLocator: _FakeRunningLocator(runningOtzariaPath),
       installRegistry: _FakeInstallRegistry(registeredInstallDirs),
+      launcher: _RecordingLauncher(),
+      legacyInstallDirs: legacyInstallDirs,
       preferPrerelease: preferPrerelease,
     );
     addTearDown(manager.dispose);
@@ -165,7 +173,7 @@ void main() {
       expect(check.updateAvailable, isFalse);
       expect(check.hasChannelChoice, isFalse);
       expect(check.selectedChannel, isNull);
-      if (!_legacyInstallExists) expect(check.currentState, isNull);
+      expect(check.currentState, isNull);
     });
 
     test('מחזיר בדיוק את מה שיושב במראה', () async {
@@ -245,7 +253,6 @@ void main() {
     }
 
     test('state שנתיב ההתקנה שלו אינו קיים כאן נפסל, וההתקנה מוצעת', () async {
-      if (_legacyInstallExists) return; // C:\אוצריא = כן תימצא התקנה אחרת
       await writeMirror(stable: _release('0.9.96', isPrerelease: false));
       await writeState(OtzariaInstallState(
         installedTagName: '0.9.96',
@@ -260,7 +267,6 @@ void main() {
     });
 
     test('הפעלה מסרבת ל-state שההתקנה שלו אינה במחשב הזה', () async {
-      if (_legacyInstallExists) return;
       await writeState(OtzariaInstallState(
         installedTagName: '0.9.96',
         installDir: p.join(dataDir.path, 'מחשב אחר'),
@@ -572,7 +578,6 @@ ${build == null ? '' : '<key>CFBundleVersion</key><string>$build</string>'}
     });
 
     test('launch זורק כשלא נמצאה שום התקנה', () async {
-      if (_legacyInstallExists) return; // C:\אוצריא במכונה = כן תימצא התקנה
       expect(
         managerFor().launch,
         throwsA(
@@ -653,6 +658,25 @@ ${build == null ? '' : '<key>CFBundleVersion</key><string>$build</string>'}
               AppL10n.strings.appDomain.noOtzariaInstallFound),
         ),
       );
+    });
+
+    // המתקינים הישנים כתבו C: קבוע, גם כשכונן המערכת אחר.
+    test('התיקייה הישנה היא C:\\אוצריא, ורק כשבסביבה יש SystemDrive', () {
+      expect(
+        OtzariaManager.legacyWindowsInstallDirsFor(const {'SystemDrive': 'D:'}),
+        [r'C:\אוצריא'],
+      );
+      expect(OtzariaManager.legacyWindowsInstallDirsFor(const {}), isEmpty);
+    });
+
+    // הנתיב אינו קיים: בלי השומר הייתה כאן שגיאת "קובץ חסר", לא AssertionError.
+    test('בבדיקות אין הפעלה או סגירה של אוצריא אמיתית', () async {
+      await expectLater(
+        const OtzariaLauncher().launch(r'C:\no-such-otzaria-dir\otzaria.exe'),
+        throwsA(isA<AssertionError>()),
+      );
+      expect(
+          OtzariaProcessCloser.debugCloseGuard, throwsA(isA<AssertionError>()));
     });
   });
 
@@ -975,6 +999,7 @@ ${build == null ? '' : '<key>CFBundleVersion</key><string>$build</string>'}
   group('זיהוי אוטומטי — סדר תיקיות ברירת המחדל בווינדוס', () {
     late String localAppData;
     late String programFiles;
+    late String legacyDir;
 
     Future<void> installFakeOtzaria(String dir) async {
       await Directory(dir).create(recursive: true);
@@ -984,11 +1009,12 @@ ${build == null ? '' : '<key>CFBundleVersion</key><string>$build</string>'}
     setUp(() async {
       localAppData = p.join(dataDir.path, 'env', 'LocalAppData');
       programFiles = p.join(dataDir.path, 'env', 'ProgramFiles');
+      legacyDir = p.join(dataDir.path, 'env', 'legacy', 'אוצריא');
     });
 
     test(
       'התיקייה המנוהלת מנצחת, ואחריה LocalAppData, ProgramFiles\\Otzaria '
-      'ו-ProgramFiles\\אוצריא',
+      'ו-ProgramFiles\\אוצריא, ובסוף התיקייה הישנה',
       () async {
         if (!File(_systemExe).existsSync()) {
           markTestSkipped('אין $_systemExe במכונה הזאת');
@@ -1002,15 +1028,19 @@ ${build == null ? '' : '<key>CFBundleVersion</key><string>$build</string>'}
           p.join(localAppData, 'Programs', 'Otzaria'),
           p.join(programFiles, 'Otzaria'),
           p.join(programFiles, 'אוצריא'),
+          legacyDir,
         ];
         for (final dir in byPriority) {
           await installFakeOtzaria(dir);
         }
 
-        final manager = managerFor(environment: {
-          'LOCALAPPDATA': localAppData,
-          'ProgramFiles': programFiles,
-        });
+        final manager = managerFor(
+          environment: {
+            'LOCALAPPDATA': localAppData,
+            'ProgramFiles': programFiles,
+          },
+          legacyInstallDirs: [legacyDir],
+        );
 
         for (final expected in byPriority) {
           final check = await manager.checkForUpdate();
@@ -1019,11 +1049,7 @@ ${build == null ? '' : '<key>CFBundleVersion</key><string>$build</string>'}
           await Directory(expected).delete(recursive: true);
         }
 
-        // כלום לא נשאר — ואין מה לזהות. (\u200EC:\אוצריא ההיסטורית היא האחרונה
-        // ברשימה; אי אפשר ליצור אותה בבדיקה, ולכן היא לא נבדקת כאן.)
-        if (!_legacyInstallExists) {
-          expect((await manager.checkForUpdate()).currentState, isNull);
-        }
+        expect((await manager.checkForUpdate()).currentState, isNull);
       },
       testOn: 'windows',
     );
@@ -1081,7 +1107,7 @@ ${build == null ? '' : '<key>CFBundleVersion</key><string>$build</string>'}
         ).checkForUpdate();
 
         expect(check.currentState?.installDir, isNot(registered));
-        if (!_legacyInstallExists) expect(check.currentState, isNull);
+        expect(check.currentState, isNull);
       },
       testOn: 'windows',
     );

@@ -14,11 +14,14 @@ import 'package:launcher_app/src/app_report/launcher_crash_session.dart';
 import 'package:launcher_app/src/controllers/app_reports_controller.dart';
 import 'package:launcher_app/src/screens/app_report/crash_prompt_dialog.dart';
 import 'package:launcher_app/src/screens/app_shell.dart';
-import 'package:launcher_app/src/screens/home_screen.dart';
+import 'package:launcher_app/src/screens/home/home_page.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:launcher_app/src/services/notices_seen_store.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
+import 'package:launcher_app/src/shell/shell_keys.dart';
+import 'package:launcher_app/src/widgets/ui_snack.dart' show navigatorKey;
+import 'package:otzaria_l10n/otzaria_l10n.dart' show AppL10n;
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
 
@@ -39,7 +42,7 @@ class _CountingService extends AppReportService {
   @override
   void startAutomaticFlush() {
     starts++;
-    homeBuiltAtStart = find.byType(HomeScreen).evaluate().isNotEmpty;
+    homeBuiltAtStart = find.byType(HomePage).evaluate().isNotEmpty;
   }
 
   @override
@@ -70,7 +73,8 @@ void main() {
     tempDir = Directory.systemTemp.createTempSync('app_reports_shell');
     await AppLogger.init(tempDir.path);
     settings = SettingsController(dataDir: tempDir.path);
-    await settings.update(const AppSettings(autoCheckUpdates: false));
+    await settings.update(
+        const AppSettings(personalModeAsked: true, autoCheckUpdates: false));
   });
 
   tearDown(() async {
@@ -93,7 +97,11 @@ void main() {
         isProcessAlive: (_) => false,
       );
 
-  Widget shell(AppReportsController reports, MemoryNoticesStore notices) =>
+  Widget shell(
+    AppReportsController reports,
+    MemoryNoticesStore notices, {
+    GlobalKey<NavigatorState>? navigator,
+  }) =>
       wrap(
         AppShell(
           dataDir: tempDir.path,
@@ -103,6 +111,7 @@ void main() {
           showWindowButtons: false,
           appReports: reports,
         ),
+        navigatorKey: navigator,
       );
 
   testWidgets('השליחה ברקע מופעלת אחרי הפריים הראשון, לא ב-initState',
@@ -137,10 +146,11 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.byType(HomeScreen), findsOneWidget);
+    expect(find.byType(HomePage), findsOneWidget);
   });
 
-  testWidgets('ההסבר החד-פעמי וההצעה אחרי קריסה לא עולים יחד', (tester) async {
+  testWidgets('ההסבר החד-פעמי הוא הודעה בבית, וההצעה אחרי קריסה דו-שיח יחיד',
+      (tester) async {
     useViewSize(tester, const Size(1400, 1000));
     final logs = p.join(tempDir.path, 'logs')..toString();
     Directory(logs).createSync(recursive: true);
@@ -157,10 +167,14 @@ void main() {
       '${start.add(const Duration(minutes: 1)).toIso8601String()} [ERROR] '
       '${LauncherLogFormat.uncaughtMessage(LauncherLogFormat.zoneError, StateError('x'))}\n',
     );
+    await tester.runAsync(
+      () => settings.update(
+        settings.settings.copyWith(crashReportMode: AppCrashReportMode.ask),
+      ),
+    );
     final reports = controller(_CountingService(), logs: logs);
     // לא נראה עדיין: ההסבר החד-פעמי רוצה לעלות באותה עלייה.
     final notices = MemoryNoticesStore();
-    final intro = stringsOf().errorReports.introDialogConfirm;
     final crash = stringsOf().appReports.crashTitle;
 
     var maxOpen = 0;
@@ -171,15 +185,14 @@ void main() {
       for (var i = 0; i < 80 && !(sawIntro && sawCrash); i++) {
         await Future<void>.delayed(const Duration(milliseconds: 100));
         await tester.pump();
-        final introOpen = find.text(intro).evaluate().isNotEmpty;
+        final introShown = find
+            .byKey(ShellKeys.reportsIntroNotice, skipOffstage: false)
+            .evaluate()
+            .isNotEmpty;
         final crashOpen = find.byType(CrashPromptDialog).evaluate().isNotEmpty;
-        final open = (introOpen ? 1 : 0) + (crashOpen ? 1 : 0);
+        final open = find.byType(Dialog).evaluate().length;
         if (open > maxOpen) maxOpen = open;
-        if (introOpen) {
-          sawIntro = true;
-          await tester.tap(find.text(intro));
-          await tester.pump();
-        }
+        if (introShown) sawIntro = true;
         if (crashOpen) {
           sawCrash = true;
           expect(find.text(crash), findsOneWidget);
@@ -197,6 +210,102 @@ void main() {
     expect(maxOpen, 1);
   });
 
+  testWidgets('שאלת "מחשבים מרובים" ממתינה לשאלת הקריסה, ולא נערמת עליה',
+      (tester) async {
+    useViewSize(tester, const Size(1400, 1000));
+    final logs = p.join(tempDir.path, 'logs');
+    Directory(logs).createSync(recursive: true);
+    final start = DateTime.now().subtract(const Duration(hours: 1));
+    File(p.join(logs, UncleanExitDetector.lockFileName)).writeAsStringSync(
+      jsonEncode({
+        'pid': 999999,
+        'version': '0.24',
+        'startedAt': start.toUtc().toIso8601String(),
+        'host': UncleanExitDetector.localHost(),
+      }),
+    );
+    File(p.join(logs, 'launcher.log')).writeAsStringSync(
+      '${start.add(const Duration(minutes: 1)).toIso8601String()} [ERROR] '
+      '${LauncherLogFormat.uncaughtMessage(LauncherLogFormat.zoneError, StateError('x'))}\n',
+    );
+    await tester.runAsync(
+      () => settings.update(
+        settings.settings.copyWith(
+          crashReportMode: AppCrashReportMode.ask,
+          personalModeAsked: false,
+        ),
+      ),
+    );
+    final reports = controller(_CountingService(), logs: logs);
+    var maxOpen = 0;
+    var sawCrash = false;
+    var sawQuestion = false;
+    await tester.runAsync(() async {
+      await tester.pumpWidget(
+        shell(
+          reports,
+          MemoryNoticesStore(seen: {NoticesSeenStore.errorReportsIntro}),
+          navigator: navigatorKey,
+        ),
+      );
+      for (var i = 0; i < 120 && !sawQuestion; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        await tester.pump();
+        final open = find.byType(Dialog).evaluate().length;
+        if (open > maxOpen) maxOpen = open;
+        final crashOpen = find.byType(CrashPromptDialog).evaluate().isNotEmpty;
+        final question =
+            find.byKey(ShellKeys.personalAskDialog).evaluate().isNotEmpty;
+        if (crashOpen) {
+          sawCrash = true;
+          expect(question, isFalse);
+          navigatorKey.currentState!.pop();
+        }
+        if (question) {
+          expect(sawCrash, isTrue);
+          sawQuestion = true;
+          navigatorKey.currentState!.pop();
+        }
+      }
+      for (var i = 0; i < 20; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        await tester.pump();
+      }
+    });
+    expect(sawCrash, isTrue);
+    expect(sawQuestion, isTrue);
+    expect(maxOpen, 1);
+    // בלי תשובה — נשאלת שוב בהפעלה הבאה.
+    expect(settings.settings.personalModeAsked, isFalse);
+  });
+
+  testWidgets('"לשלוח תמיד": בלי דו-שיח, והודעה שקטה שהדיווח נשלח',
+      (tester) async {
+    useViewSize(tester, const Size(1400, 1000));
+    final reports = _AutoSentController(
+      service: _CountingService(),
+      collector: _Collector(),
+      settings: settings,
+      logsDirectory: '',
+      redactor: AppReportRedactor(environment: const {}),
+    );
+    await tester.pumpWidget(
+      shell(
+        reports,
+        MemoryNoticesStore(seen: {NoticesSeenStore.errorReportsIntro}),
+        navigator: navigatorKey,
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(CrashPromptDialog), findsNothing);
+    expect(
+      find.text(AppL10n.strings.appReports.crashAutoSentSnack),
+      findsOneWidget,
+    );
+    await tester.pump(const Duration(seconds: 8));
+  });
+
   group('ההצעה אחרי קריסה ממתינה לדיאלוג פתוח', () {
     /// מחליף את הזיהוי האמיתי: ההצעה מתבקשת מיד אחרי ש-[release] מושלם.
     _PromptingController promptingController() => _PromptingController(
@@ -209,7 +318,7 @@ void main() {
 
     Future<void> openBlocker(WidgetTester tester) async {
       unawaited(showDialog<void>(
-        context: tester.element(find.byType(HomeScreen)),
+        context: tester.element(find.byType(HomePage)),
         builder: (_) => const AlertDialog(title: Text('חוסם')),
       ));
       await tester.pump();
@@ -235,7 +344,7 @@ void main() {
       expect(reports.shown, isNull, reason: 'עדיין ממתינה');
       expect(find.byType(CrashPromptDialog), findsNothing);
 
-      Navigator.of(tester.element(find.byType(HomeScreen))).pop();
+      Navigator.of(tester.element(find.byType(HomePage))).pop();
       await tester.pump(const Duration(seconds: 1));
       await tester.pump(const Duration(seconds: 1));
       expect(find.byType(CrashPromptDialog), findsOneWidget);
@@ -264,6 +373,22 @@ void main() {
       // טיימר שנשאר תלוי היה מפיל את הבדיקה בסיומה.
     });
   });
+}
+
+class _AutoSentController extends AppReportsController {
+  _AutoSentController({
+    required super.service,
+    required super.collector,
+    required super.settings,
+    required super.logsDirectory,
+    required super.redactor,
+  });
+
+  @override
+  Future<CrashReportOutcome?> runCrashCheck({
+    required Future<bool> Function(CrashCandidate candidate) showPrompt,
+  }) async =>
+      CrashReportOutcome.sentAutomatically;
 }
 
 class _PromptingController extends AppReportsController {

@@ -82,21 +82,24 @@ class OtzariaUpdateCheckResult {
 
     final installed = current.installedTagName;
     if (sameVersion(installed, latest.tagName)) return false;
+    // גם כשהמותקנת היא הגרסה של הערוץ השני: מעבר ערוץ לעולם אינו מוריד גרסה.
+    return compareVersions(installed, latest.tagName) > 0;
+  }
 
+  /// המותקנת היא הגרסה של הערוץ השני שבכונן, והיא חדשה מזו של הערוץ שנבחר.
+  /// לא מחליפים אותה; המעבר יקרה כשבערוץ שנבחר תגיע גרסה חדשה ממנה.
+  bool get awaitsNewerInSelectedChannel {
+    if (!installedIsNewer) return false;
     final other = selectedChannel == OtzariaReleaseChannel.stable
         ? prereleaseRelease
         : stableRelease;
-    if (other != null && _sameRelease(installed, other.tagName)) return false;
-
-    return compareVersions(installed, latest.tagName) > 0;
+    return other != null &&
+        sameVersion(currentState!.installedTagName, other.tagName);
   }
 
   bool _isMirroredTag(String tagName) =>
       tagName == stableRelease?.tagName ||
       tagName == prereleaseRelease?.tagName;
-
-  static bool _sameRelease(String a, String b) =>
-      sameBuild(a, b) && normalizeVersion(a) == normalizeVersion(b);
 
   static bool sameVersion(String installedVersion, String tagName) {
     if (!sameBuild(installedVersion, tagName)) return false;

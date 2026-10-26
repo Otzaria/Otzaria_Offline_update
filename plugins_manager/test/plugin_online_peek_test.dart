@@ -315,6 +315,51 @@ void main() {
     });
   });
 
+  group('גודל ההורדה הצפויה', () {
+    Map<String, dynamic> sized(String id, String version, int size) => {
+          ..._plugin(id, version),
+          'versions': [
+            {
+              'version': version,
+              'downloadUrl': '/api/plugins/$id/download',
+              'pluginFileSize': size,
+              'isLatest': true,
+            },
+          ],
+        };
+
+    PluginsOnlineStatus compare(List<Map<String, dynamic>> remote) =>
+        PluginOnlinePeek.compare(
+          remote: remote,
+          local: PluginCatalog(plugins: [
+            StorePlugin.fromApi(
+              sized('a', '1.0.0', 300),
+              'https://otzaria.test',
+            ),
+          ]),
+          baseUrl: 'https://otzaria.test',
+          presentBuilds: const {
+            'a': {'1.0.0'},
+          },
+        );
+
+    test('סכום הבילדים שירדו: חדש ומעודכן, בלי מה שכבר בכונן', () {
+      final status = compare([
+        sized('a', '1.1.0', 500),
+        sized('b', '2.0.0', 1000),
+        _plugin('c', '1.0.0'),
+      ]);
+      expect(status.pendingBytes, isNull, reason: 'לבילד של c אין גודל');
+
+      expect(
+        compare([sized('a', '1.1.0', 500), sized('b', '2.0.0', 1000)])
+            .pendingBytes,
+        1500,
+      );
+      expect(compare([sized('a', '1.0.0', 300)]).pendingBytes, 0);
+    });
+  });
+
   group('תוכן מהאתר אינו מתורגם', () {
     tearDown(() => AppL10n.use(AppLanguage.hebrew));
 

@@ -63,7 +63,7 @@ class AppMultiSegmentedControl<T> extends StatelessWidget {
             label: Center(
               child: FittedBox(
                 fit: BoxFit.scaleDown,
-                child: Text(o.label, style: AppTextStyles.settingTitle),
+                child: Text(o.label, style: AppTextStyles.buttonSm),
               ),
             ),
           ),
@@ -82,8 +82,10 @@ class AppMultiSegmentedControl<T> extends StatelessWidget {
       showSelectedIcon: false,
       style: height != null
           ? AppSegmentedControl._fixedHeightStyle(cs, height!)
-          : AppSegmentedControl._buttonStyle(cs)
-              .copyWith(visualDensity: VisualDensity.compact),
+          : AppSegmentedControl._buttonStyle(cs).copyWith(
+              visualDensity: VisualDensity.standard,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
     );
   }
 }
@@ -117,7 +119,7 @@ class AppSegmentedControl<T> extends StatelessWidget {
                 fit: BoxFit.scaleDown,
                 child: Text(
                   o.label,
-                  style: AppTextStyles.settingTitle,
+                  style: AppTextStyles.buttonSm,
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -134,28 +136,44 @@ class AppSegmentedControl<T> extends StatelessWidget {
     return const SizedBox(width: 18);
   }
 
+  /// `.seg` במוקאפ: מסגרת outline, רקע שקוף, הנבחר tonal.
   static ButtonStyle _buttonStyle(ColorScheme cs) => ButtonStyle(
         alignment: Alignment.center,
+        side: WidgetStatePropertyAll(BorderSide(color: cs.outline)),
+        textStyle: const WidgetStatePropertyAll(AppTextStyles.buttonSm),
+        padding: const WidgetStatePropertyAll(
+          EdgeInsets.symmetric(horizontal: 14),
+        ),
+        // הנבחר נשאר שטוח גם בריחוף. ל-SegmentedButton אין טבעת לכל סגמנט,
+        // ולכן מיקוד מהמקלדת מסומן בשכבה.
+        overlayColor: WidgetStateProperty.resolveWith((states) {
+          final layer = AppSurfaces.stateLayerWithFocus(cs.primary);
+          if (states.contains(WidgetState.selected)) {
+            final focus = states.intersection({WidgetState.focused});
+            return layer.resolve(focus) ?? Colors.transparent;
+          }
+          return layer.resolve(states);
+        }),
         // מושבת נבדק ראשון: אחרת סגמנט נעול ומסומן נראה לחיץ כמו כל השאר.
         foregroundColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.disabled)) {
-            return AppSurfaces.disabledForeground(cs);
+            return AppPalette.light.disabledText;
           }
           if (states.contains(WidgetState.selected)) {
             return cs.onSecondaryContainer;
           }
-          return cs.onSurfaceVariant;
+          return cs.onSurface;
         }),
         backgroundColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.disabled)) {
             return states.contains(WidgetState.selected)
-                ? AppSurfaces.disabledSelectedBackground(cs)
-                : cs.surface;
+                ? AppPalette.light.disabledContainer
+                : Colors.transparent;
           }
           if (states.contains(WidgetState.selected)) {
             return cs.secondaryContainer;
           }
-          return cs.surface;
+          return Colors.transparent;
         }),
         shape: const WidgetStatePropertyAll(AppTokens.roundedShape),
       );
@@ -201,7 +219,10 @@ class AppSegmentedControl<T> extends StatelessWidget {
       showSelectedIcon: false,
       style: isFixed
           ? _fixedHeightStyle(cs, height!)
-          : _buttonStyle(cs).copyWith(visualDensity: VisualDensity.compact),
+          : _buttonStyle(cs).copyWith(
+              visualDensity: VisualDensity.standard,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
     );
   }
 }
