@@ -3327,6 +3327,12 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get semanticFullDownloadNeeded =>
       'החיפוש החכם במחשב זה אינו בגרסה שהעדכון החלקי שבכונן ממשיך ממנה, ולכן לא הותקן. בהורדה הבאה במחשב המקוון תירד חבילת החיפוש החכם המלאה.';
   @override
+  String get semanticBuiltForOlderOtzaria =>
+      'החיפוש החכם שפורסם לגרסת הספרייה הזו נבנה לגרסת אוצריא ישנה, והכלי הזה אינו יכול להתקין אותו. הוא יירד עם ספרייה חדשה יותר, כשבכונן תהיה גרסת אוצריא שקוראת אותה.';
+  @override
+  String get semanticNeedsNewerLauncher =>
+      'החיפוש החכם שפורסם לגרסת הספרייה הזו מיועד לגרסה חדשה יותר של הכלי הזה. עדכנו את עדכוני אוצריא ונסו שוב.';
+  @override
   String companionChecking(String name) => 'בודק $name...';
   @override
   String companionDownloading(String name) => 'מוריד $name…';

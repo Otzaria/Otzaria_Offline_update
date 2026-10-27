@@ -3525,6 +3525,12 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get semanticFullDownloadNeeded =>
       'Smart search on this computer is not at the version the partial update on the drive continues from, so it was not installed. The next download on the online computer will bring the full smart search package.';
   @override
+  String get semanticBuiltForOlderOtzaria =>
+      'The smart search published for this library version was built for an older Otzaria, and this tool cannot install it. It will be downloaded with a newer library, once the drive has an Otzaria version that reads it.';
+  @override
+  String get semanticNeedsNewerLauncher =>
+      'The smart search published for this library version needs a newer version of this tool. Update Otzaria Updates and try again.';
+  @override
   String companionChecking(String name) => 'Checking $name…';
   @override
   String companionDownloading(String name) => 'Downloading $name…';
