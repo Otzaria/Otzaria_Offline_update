@@ -473,6 +473,27 @@ void main() {
       );
     });
 
+    test('a windows release for another line-text version falls back to '
+        'the legacy one', () async {
+      github
+        ..windowsBase(30, lineText: kSemanticLineTextVersion - 1)
+        ..legacyBase(30);
+      await sync(SemanticFleet([windowsAt(29)]));
+      final meta = await metadata();
+      expect(meta['family'], 'legacy');
+      expect(github.downloads, isNot(contains(endsWith(baseSegmentName(30)))));
+    });
+
+    test('a release for another line-text version fails before its segment '
+        'is downloaded', () async {
+      github.legacyBase(30, lineText: kSemanticLineTextVersion - 1);
+      await expectLater(
+        sync(const SemanticFleet()),
+        throwsA(isA<FormatException>()),
+      );
+      expect(github.downloads, isNot(contains(endsWith('legacy-v30.oxv.zst'))));
+    });
+
     test(
       'a cut-off API reply fails the download instead of falling back',
       () async {

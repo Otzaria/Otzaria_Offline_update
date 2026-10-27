@@ -108,12 +108,13 @@ class FakeVectorsGithub {
     required List<int> segment,
     String identity = identityA,
     int chunking = kWindowsChunkingIdentity,
+    int lineText = kSemanticLineTextVersion,
   }) => {
     'format': 'otzaria-vectors-release',
     'formatVersion': 1,
     'kind': kind,
     'identity': {
-      'text': {},
+      'text': {'line_text_version': lineText, 'key_version': 1},
       'model': {
         'family_id':
             'ArieLLL123/judaic-semantic-round2-onnx-zayit@1ec8dc68888bcea774ae9f735b2fe7cd9dc7f3ca',
@@ -149,6 +150,7 @@ class FakeVectorsGithub {
     int segmentSize = 1000,
     String identity = identityA,
     int chunking = kWindowsChunkingIdentity,
+    int lineText = kSemanticLineTextVersion,
   }) {
     final segment = _bytes(segmentSize, v);
     _release(
@@ -162,13 +164,14 @@ class FakeVectorsGithub {
         segment: segment,
         identity: identity,
         chunking: chunking,
+        lineText: lineText,
       ),
       segmentName: baseSegmentName(v),
       segment: segment,
     );
   }
 
-  void legacyBase(int v) {
+  void legacyBase(int v, {int lineText = kSemanticLineTextVersion}) {
     final segment = _bytes(500, v + 7);
     _release(
       'vectors-${libraryTagOf(v)}',
@@ -181,6 +184,7 @@ class FakeVectorsGithub {
         segment: segment,
         identity: '',
         chunking: 2685558872390372738,
+        lineText: lineText,
       ),
       segmentName: 'legacy-v$v.oxv.zst',
       segment: segment,

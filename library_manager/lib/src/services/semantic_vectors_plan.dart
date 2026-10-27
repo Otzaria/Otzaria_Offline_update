@@ -28,6 +28,10 @@ const kSemanticDeltaChainLimits = (maxSteps: 8, maxBaseSizeRatio: 0.5);
 
 const kWindowsChunkingIdentity = 320260894818558297;
 
+/// The pinned engine's `LINE_TEXT_VERSION`: it refuses a set built for any
+/// other, so such a release is not worth its download. Bump with the engine.
+const kSemanticLineTextVersion = 4;
+
 /// Byte-identical to Otzaria's `meivin-round2-windows-onnx/model.json`;
 /// explicit `\n` so a CRLF checkout cannot change the bytes it verifies.
 const String kWindowsModelIdentityJson =

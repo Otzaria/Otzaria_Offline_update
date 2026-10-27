@@ -1115,7 +1115,10 @@ class SemanticSearchAssets {
     }
     final identity = manifest['identity'];
     final model = identity is Map ? identity['model'] : null;
+    final text = identity is Map ? identity['text'] : null;
+    final lineText = text is Map ? text['line_text_version'] : null;
     if (model is! Map ||
+        (lineText != null && lineText != kSemanticLineTextVersion) ||
         model['family_id'] !=
             'ArieLLL123/judaic-semantic-round2-onnx-zayit@1ec8dc68888bcea774ae9f735b2fe7cd9dc7f3ca' ||
         model['tokenizer_checksum'] != modelFiles[1].sha256) {
