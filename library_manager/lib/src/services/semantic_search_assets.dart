@@ -727,13 +727,23 @@ class SemanticSearchAssets {
           release != null &&
           local.rejectedWindowsManifest == _rejectionKey(release);
       if (release != null && !rejected) {
-        return !await _windowsMirrorServes(
+        if (await _windowsMirrorServes(
           mirrorDir,
           libraryTag,
           version,
           release,
           fleet,
-        );
+        )) {
+          return false;
+        }
+        if (await _offerable(
+          release,
+          libraryTag,
+          version,
+          family: SemanticVectorsFamily.windows,
+        )) {
+          return true;
+        }
       }
     }
     final fetched = await _fetchRelease(
@@ -766,14 +776,15 @@ class SemanticSearchAssets {
   Future<bool> _offerable(
     _Release release,
     String libraryTag,
-    int version,
-  ) async {
+    int version, {
+    SemanticVectorsFamily family = SemanticVectorsFamily.legacy,
+  }) async {
     try {
       await _remote(
         release,
         libraryTag: libraryTag,
         version: version,
-        family: SemanticVectorsFamily.legacy,
+        family: family,
       );
       return true;
     } on _Unusable {
@@ -1139,10 +1150,16 @@ class SemanticSearchAssets {
     final model = identity is Map ? identity['model'] : null;
     final text = identity is Map ? identity['text'] : null;
     final lineText = text is Map ? text['line_text_version'] : null;
-    if (lineText != null && lineText != kSemanticLineTextVersion) {
+    final keyVersion = text is Map ? text['key_version'] : null;
+    if (lineText is! int ||
+        keyVersion is! int ||
+        lineText != kSemanticLineTextVersion ||
+        keyVersion != 1) {
       final strings = AppL10n.strings.libraryDomain;
       throw FormatException(
-        lineText is int && lineText < kSemanticLineTextVersion
+        lineText == null ||
+                (lineText is int && lineText < kSemanticLineTextVersion) ||
+                (lineText == kSemanticLineTextVersion && keyVersion == null)
             ? strings.semanticBuiltForOlderOtzaria
             : strings.semanticNeedsNewerLauncher,
       );

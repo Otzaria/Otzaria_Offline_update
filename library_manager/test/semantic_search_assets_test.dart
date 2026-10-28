@@ -24,6 +24,7 @@ Map<String, Object?> manifest({
   'toLibraryVersion': version,
   'segment': {'size': 3},
   'identity': {
+    'text': {'line_text_version': kSemanticLineTextVersion, 'key_version': 1},
     'model': {
       'family_id':
           'ArieLLL123/judaic-semantic-round2-onnx-zayit@1ec8dc68888bcea774ae9f735b2fe7cd9dc7f3ca',
