@@ -32,6 +32,7 @@ import 'package:library_manager/library_manager.dart'
         CompanionAsset,
         LibraryManager,
         LibraryStateStore,
+        LibraryUpdateCheckResult,
         MirrorDownloadOutcome;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
@@ -1408,7 +1409,10 @@ void main() {
       test('בדיקת ביקורת: בלי כשל אחסון גם תוכנת החנות מתחילה', () async {
         final s = await fullSession();
         await waitFor(() => s.plugins.status != PluginsModuleStatus.loading);
+        await s.library.checkForUpdate();
+        final checksBefore = engines.library.checkCalls;
         await s.downloadAll();
+        expect(engines.library.checkCalls, greaterThan(checksBefore));
         expect(engines.plugins.syncCalls, 1);
         expect(engines.plugins.storeAppCalls, greaterThanOrEqualTo(1));
       });
@@ -1853,6 +1857,15 @@ class _ScriptedLibrary extends LibraryManager {
 
   /// מה שהמוריד האמיתי זרק; `null` = ההורדה מצליחה.
   Object? error;
+  int checkCalls = 0;
+
+  @override
+  Future<LibraryUpdateCheckResult> checkForUpdate() async {
+    checkCalls++;
+    return LibraryUpdateCheckResult(
+      dbPath: p.join(dataDir, 'library', 'seforim.db'),
+    );
+  }
 
   @override
   Future<MirrorDownloadOutcome> downloadToMirror({
