@@ -9,6 +9,7 @@ import 'package:http/testing.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:library_manager/src/services/readable_releases_client.dart';
 import 'package:library_manager/src/services/recent_library_releases_client.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart' show StorageFullException;
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart'
     show
@@ -19,6 +20,8 @@ import 'package:seforim_library_updater/seforim_library_updater.dart'
         PatchEdge,
         LocalMirrorLibraryReleaseClient,
         fullDbArchiveNameForSchema;
+
+import 'support/failing_writes.dart';
 
 const _libraryReleasesPath = '/repos/Otzaria/SeforimLibrary/releases';
 
@@ -77,6 +80,9 @@ class _FakeGithub {
 
   /// Sees each request for a vectors release.
   void Function()? onVectors;
+
+  Future<void> Function()? beforeLibraryReleases;
+  Future<void> Function()? beforeDictionary;
 
   int assetFetches() => requests
       .where((u) => u.host == 'lib' && !u.path.endsWith('.manifest.json'))
@@ -199,10 +205,17 @@ class _FakeGithub {
 
   late final MockClient client = MockClient.streaming((request, _) async {
     requests.add(request.url);
+    if (request.url.host == 'dl' &&
+        request.url.pathSegments.last == 'lexical.db') {
+      await beforeDictionary?.call();
+    }
     if (request.url.path.contains('/releases/tags/')) onVectors?.call();
     final url = request.url;
     Uint8List? body;
     if (url.host == 'api.github.com') {
+      if (url.path == _libraryReleasesPath) {
+        await beforeLibraryReleases?.call();
+      }
       body = switch (url.path) {
         _libraryReleasesPath => _utf8(
           url.queryParameters['page'] == '1' ? _libraryReleases() : [],
@@ -265,6 +278,8 @@ const _mixedSchemas = [
     patches: [(from: 32, to: 33, fromSchema: 6, toSchema: 7)],
   ),
 ];
+
+bool dictionaryFailed = false;
 
 void main() {
   late Directory tempDir;
@@ -1762,5 +1777,82 @@ void main() {
         expect(releases.map((r) => r.tag), ['v30-20261011']);
       },
     );
+  });
+
+  group('a full drive in a companion under a readable schema', () {
+    Future<Object?> downloadWithFullDictionary() async {
+      Object? thrown;
+      await runWithFailingRandomWrites(
+        () async {
+          try {
+            await download(readableDbSchema: 5);
+          } catch (error) {
+            thrown = error;
+          }
+        },
+        matches: (path) {
+          final hit = p.basename(path) == 'lexical.db';
+          if (hit) dictionaryFailed = true;
+          return hit;
+        },
+      );
+      return thrown;
+    }
+
+    setUp(() => dictionaryFailed = false);
+
+    test('a finished export keeps its readable target', () async {
+      github.beforeDictionary = () async {
+        final deadline = DateTime.now().add(const Duration(seconds: 5));
+        while (!File(p.join(mirrorDir(), 'releases.json')).existsSync() &&
+            DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      };
+
+      final thrown = await downloadWithFullDictionary();
+
+      expect(thrown, isA<StorageFullException>(), reason: '$thrown');
+      expect(await mirroredAssets(), contains('v30-20261011/seforim.db.zst'));
+      expect(
+        (await stateStore().loadReadableSemanticTarget())?['tag'],
+        'v30-20261011',
+      );
+    });
+
+    test('an export stopped by it leaves the previous target and a '
+        'consistent mirror', () async {
+      await stateStore().saveReadableSemanticTarget({
+        'schema': 5,
+        'tag': 'previous-tag',
+        'unknown': false,
+      });
+      github.beforeLibraryReleases = () async {
+        final deadline = DateTime.now().add(const Duration(seconds: 5));
+        while (!dictionaryFailed && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      };
+
+      final thrown = await downloadWithFullDictionary();
+
+      expect(thrown, isA<StorageFullException>(), reason: '$thrown');
+      expect(github.assetFetches(), 0);
+      expect(
+        (await stateStore().loadReadableSemanticTarget())?['tag'],
+        'previous-tag',
+      );
+      final manifest = File(p.join(mirrorDir(), 'releases.json'));
+      if (manifest.existsSync()) {
+        for (final asset in await mirroredAssets()) {
+          expect(
+            File(p.join(mirrorDir(), 'assets', asset)).existsSync(),
+            isTrue,
+            reason: '$asset is named but missing',
+          );
+        }
+      }
+    });
   });
 }

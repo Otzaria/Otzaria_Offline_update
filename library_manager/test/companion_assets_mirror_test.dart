@@ -12,6 +12,8 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
+import 'support/failing_writes.dart';
+
 /// צד ההורדה של הקבצים הנלווים: אותם שלושה מאגרים ואותם כללי בחירת נכס
 /// שאוצריא משתמשת בהם, רק שהיעד הוא המראה ולא ההתקנה.
 void main() {
@@ -314,6 +316,59 @@ void main() {
     await built.mirror.sync(destDir: destDir, onStage: stages.add);
     expect(stages.whereType<String>(), isNotEmpty);
     expect(stages.last, isNull);
+  });
+
+  test('דיסק מלא באמצע הורדת נלווה עוצר את הבאים אחריו, שומר את שהושלמו '
+      'ונזרק כ-StorageFullException', () async {
+    final warnings = <String>[];
+    final built = buildMirror(scheduler: DownloadScheduler(maxConcurrent: 1));
+    addTearDown(built.mirror.dispose);
+    Object? thrown;
+
+    await runWithFailingRandomWrites(() async {
+      try {
+        await built.mirror.sync(
+          destDir: destDir,
+          onWarning: (name, _) => warnings.add(name),
+        );
+      } catch (error) {
+        thrown = error;
+      }
+    }, matches: (path) => p.basename(path) == 'otzar-HB_catalog.db.zst');
+
+    expect(thrown, isA<StorageFullException>(), reason: '$thrown');
+    expect(built.fetched, isNot(contains('lexical.db')));
+    expect(warnings, isEmpty);
+    final manifest = (await CompanionMirrorManifest.load(destDir))!;
+    expect(manifest.entries.keys, {CompanionAsset.talmud});
+  });
+
+  test('דיסק מלא בנכס הראשון משאיר ב-manifest את הנכסים הישנים השלמים שלא '
+      'התחילו', () async {
+    final first = buildMirror();
+    addTearDown(first.mirror.dispose);
+    await first.mirror.sync(destDir: destDir);
+    final built = buildMirror(
+      talmudTag: 'lib-v10',
+      scheduler: DownloadScheduler(maxConcurrent: 1),
+    );
+    addTearDown(built.mirror.dispose);
+    Object? thrown;
+
+    await runWithFailingRandomWrites(() async {
+      try {
+        await built.mirror.sync(destDir: destDir);
+      } catch (error) {
+        thrown = error;
+      }
+    }, matches: (path) => p.basename(path) == 'talmud_bavli_latest.tar.zst');
+
+    expect(thrown, isA<StorageFullException>(), reason: '$thrown');
+    final manifest = (await CompanionMirrorManifest.load(destDir))!;
+    expect(
+      manifest.entries.keys,
+      containsAll([CompanionAsset.catalog, CompanionAsset.dictionary]),
+    );
   });
 
   test('תקרת החיבורים המשותפת נשמרת גם כשהיא נמוכה משלושה', () async {

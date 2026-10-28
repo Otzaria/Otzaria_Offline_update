@@ -1,0 +1,62 @@
+{
+  "format": "otzaria-vectors-release",
+  "formatVersion": 1,
+  "kind": "base",
+  "identity": {
+    "text": {
+      "line_text_version": 4,
+      "key_version": 1
+    },
+    "model": {
+      "family_id": "test-mock@0000000",
+      "tokenizer_checksum": "c63e0b5741a17baee6036e3d80f9a92786e91fa3fdcab32612c98003149f21b6",
+      "embedding_dim": 64,
+      "pooling": "in-graph",
+      "max_tokens": 512,
+      "embedding_text_version": 2,
+      "normalization_version": 1,
+      "chunking_identity": 2685558872390372738,
+      "query_packages": [
+        {
+          "checksum": "42554411b67514ae3cc452b6baef3e70ff327c8e91f1f8ff3baa47c35758b2d1",
+          "quantization": "int8"
+        }
+      ]
+    },
+    "store": {
+      "backend_id": "otzaria-oxv",
+      "store_format_version": 2,
+      "vector_precision": "i8-sym-vec"
+    }
+  },
+  "identityDigest": "917496bac0c4307eb6ceb1dcbfc03aadbfbc9cf834b506792ed64c5ba6dc0b83",
+  "codecParamsSha256": "4ea17a26ec94acaadf3d92f4b12493432dd3abf35680341a90bcb933a458c7fc",
+  "fromLibraryVersion": 0,
+  "toLibraryVersion": 1,
+  "libraryReleaseTag": "v1-20261001000000",
+  "segmentId": "86870ac49d8590cd61dd02cefaa7f6ca",
+  "counts": {
+    "books": 1,
+    "slots": 2,
+    "extras": 0,
+    "foreign": 0,
+    "tombstones": 0
+  },
+  "segment": {
+    "sha256": "f122dfe82b79af1788c7fbd49abe6c50668911e64922a0eb1474341a67eeea7c",
+    "size": 8328
+  },
+  "packageDigest": "524223fe80724ecf3d1f5944826ce76023954f0dc48272c0b4619ab55b47367a",
+  "provenance": {
+    "passage_package": {
+      "checksum": "42554411b67514ae3cc452b6baef3e70ff327c8e91f1f8ff3baa47c35758b2d1",
+      "quantization": "int8"
+    },
+    "worker": {
+      "backend": "mock-hash-v1",
+      "device": "cpu"
+    }
+  },
+  "files": [],
+  "createdAt": "2026-10-01T00:00:00Z"
+}

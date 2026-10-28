@@ -36,6 +36,7 @@ class DownloadFailure {
     this.details,
     this.needed,
     this.free,
+    this.dir,
   });
 
   final DownloadFailureKind kind;
@@ -46,9 +47,11 @@ class DownloadFailure {
   /// "פרטים טכניים" — הודעות החריגים כמו שהן.
   final String? details;
 
-  /// ב-[DownloadFailureKind.diskSpace]: כמה נדרש וכמה פנוי, מעוצבים.
+  /// ב-[DownloadFailureKind.diskSpace]: כמה נדרש וכמה פנוי, מעוצבים. `null`
+  /// כשהמערכת לא סיפקה מדידה — אז המסך אומר רק איזה כונן התמלא ([dir]).
   final String? needed;
   final String? free;
+  final String? dir;
 }
 
 /// איך הסתיים שלב ב"עדכון כאן".

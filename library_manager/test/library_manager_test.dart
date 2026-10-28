@@ -111,6 +111,7 @@ void main() {
   }) => LibraryManager(
     dataDir: dataDir,
     operatingSystem: 'linux',
+    processGuard: const _NeverRunningGuard(),
     environment: hermeticEnvironment(),
     settingsReader: settingsReader,
   );
@@ -536,6 +537,7 @@ void main() {
           final manager = LibraryManager(
             dataDir: dataDir,
             operatingSystem: 'linux',
+            processGuard: const _NeverRunningGuard(),
             environment: hermeticEnvironment(),
             versionReader: const LocalDbVersionReader(
               busyTimeout: Duration(milliseconds: 50),
@@ -759,6 +761,7 @@ void main() {
         final manager = LibraryManager(
           dataDir: dataDir,
           operatingSystem: 'linux',
+          processGuard: const _NeverRunningGuard(),
           environment: {'HOME': home},
           otzariaLaunchPath: () async => p.posix.join(exeDir, 'otzaria'),
         );
@@ -788,6 +791,7 @@ void main() {
           final manager = LibraryManager(
             dataDir: dataDir,
             operatingSystem: 'linux',
+            processGuard: const _NeverRunningGuard(),
             environment: hermeticEnvironment(),
             applier: applier,
           );
@@ -909,6 +913,7 @@ void main() {
         final manager = LibraryManager(
           dataDir: dataDir,
           operatingSystem: 'linux',
+          processGuard: const _NeverRunningGuard(),
           environment: hermeticEnvironment(),
           otzariaLaunchPath: () async => p.posix.join(exeDir, 'otzaria'),
         );
@@ -1510,6 +1515,7 @@ void main() {
         final manager = LibraryManager(
           dataDir: dataDir,
           operatingSystem: 'linux',
+          processGuard: const _NeverRunningGuard(),
           environment: hermeticEnvironment(),
           settingsReader: _CountingSettingsReader(
             settings: const OtzariaSettings(
@@ -1517,6 +1523,7 @@ void main() {
               searchFeedbackConsentVersion: 1,
             ),
           ),
+          otzariaAppVersion: () async => '0.9.99',
           semanticEngineFactory: (_) async => engine,
         );
         addTearDown(manager.dispose);
@@ -1540,6 +1547,217 @@ void main() {
       expect(state?.family, SemanticVectorsFamily.windows);
       expect(state?.libraryVersion, 26);
       expect(state?.identityDigest, identityA);
+    });
+  });
+
+  group('smart-search on an unchanged local library', () {
+    for (final mirroredVersion in [0, 29, 30]) {
+      test('uses local v30 with a v$mirroredVersion library mirror', () async {
+        await installExistingDb(30, appliedTag: 'v30');
+        await writeMirror(
+          tag: 'v$mirroredVersion',
+          compressedDb: Uint8List.fromList([1]),
+        );
+        final github = FakeVectorsGithub()..legacyBase(30);
+        addTearDown(github.client.close);
+        final online = SemanticSearchAssets(
+          httpClient: github.client,
+          models: fakeModels,
+        );
+        addTearDown(online.dispose);
+        await online.sync(
+          mirrorDir: p.join(dataDir, 'mirror', 'semantic'),
+          libraryTag: libraryTagOf(30),
+          libraryTagFor: libraryTagOf,
+        );
+
+        await _withoutNetwork((_) async {
+          final manager = LibraryManager(
+            dataDir: dataDir,
+            operatingSystem: 'linux',
+            processGuard: const _NeverRunningGuard(),
+            environment: hermeticEnvironment(),
+            settingsReader: _CountingSettingsReader(
+              settings: const OtzariaSettings(
+                searchFeedbackConsent: 'granted',
+                searchFeedbackConsentVersion: 1,
+              ),
+            ),
+            otzariaAppVersion: () async => '0.9.98.2',
+            semanticAssetsFactory: (_) =>
+                SemanticSearchAssets(models: fakeModels),
+          );
+          addTearDown(manager.dispose);
+          final check = await manager.checkForUpdate();
+          expect(check.plan?.kind, LibraryUpdatePlanKind.none);
+          expect(check.semanticPending, isTrue);
+          expect(check.semanticIncompatibility, isNull);
+        });
+      });
+    }
+  });
+
+  group('smart-search install against the target Otzaria', () {
+    void guardedTest(String name, Future<void> Function() body) =>
+        test(name, () async {
+          if (await const OtzariaProcessGuard().isAnyRunning(
+            OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
+          )) {
+            markTestSkipped('אוצריא פתוחה — ההחלה נחסמת בכוונה');
+            return;
+          }
+          await body();
+        });
+    Future<({List<Object> warnings, FakeVectorsEngine engine, String vectors})>
+    applyWith({
+      String? installed,
+      String? launchPath,
+      String? capabilitiesJson,
+    }) async {
+      final dbPath = await installExistingDb(30, appliedTag: 'v30');
+      final github = FakeVectorsGithub()..legacyBase(30);
+      addTearDown(github.client.close);
+      final online = SemanticSearchAssets(
+        httpClient: github.client,
+        models: fakeModels,
+      );
+      addTearDown(online.dispose);
+      await online.sync(
+        mirrorDir: p.join(dataDir, 'mirror', 'semantic'),
+        libraryTag: libraryTagOf(30),
+        libraryTagFor: libraryTagOf,
+      );
+      if (capabilitiesJson != null) {
+        final capabilities = File(
+          p.join(
+            hermeticEnvironment()['HOME']!,
+            '.local',
+            'share',
+            'otzaria',
+            OtzariaCapabilities.fileName,
+          ),
+        );
+        await capabilities.parent.create(recursive: true);
+        await capabilities.writeAsString(capabilitiesJson);
+      }
+      final vectors = p.join(tempDir.path, 'vectors');
+      final engine = FakeVectorsEngine(present: false);
+      final warnings = <Object>[];
+      await _withoutNetwork((_) async {
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          operatingSystem: 'linux',
+          processGuard: const _NeverRunningGuard(),
+          environment: hermeticEnvironment(),
+          settingsReader: _CountingSettingsReader(
+            settings: const OtzariaSettings(
+              searchFeedbackConsent: 'granted',
+              searchFeedbackConsentVersion: 1,
+            ),
+          ),
+          otzariaAppVersion: () async => installed,
+          otzariaLaunchPath: launchPath == null ? null : () async => launchPath,
+          semanticAssetsFactory: (_) => SemanticSearchAssets(
+            models: fakeModels,
+            engineFactory: (_) async => engine,
+          ),
+        );
+        addTearDown(manager.dispose);
+        await manager.applyUpdate(
+          LibraryUpdateCheckResult(
+            dbPath: dbPath,
+            semanticPending: true,
+            semanticConsentGranted: true,
+          ),
+          onCompanionWarning: (_, error) => warnings.add(error),
+        );
+      });
+      return (warnings: warnings, engine: engine, vectors: vectors);
+    }
+
+    Matcher blockedAs(SemanticIncompatibilityReason reason) =>
+        isA<SemanticEngineIncompatibleException>().having(
+          (e) => e.reason,
+          'reason',
+          reason,
+        );
+
+    void expectBlocked(
+      ({List<Object> warnings, FakeVectorsEngine engine, String vectors}) run,
+      SemanticIncompatibilityReason reason,
+    ) {
+      expect(run.warnings, [blockedAs(reason)]);
+      expect(run.engine.installs, isEmpty);
+      expect(File(p.join(run.vectors, 'CURRENT')).existsSync(), isFalse);
+    }
+
+    guardedTest('a recognised current version installs without a capabilities '
+        'file', () async {
+      final run = await applyWith(installed: '0.9.98.2');
+      expect(run.engine.installs, hasLength(1));
+      expect(
+        run.warnings.whereType<SemanticEngineIncompatibleException>(),
+        isEmpty,
+      );
+    });
+
+    guardedTest(
+      'a recognised old version is blocked as updateOtzaria',
+      () async {
+        final run = await applyWith(installed: '0.9.98');
+        expectBlocked(run, SemanticIncompatibilityReason.updateOtzaria);
+        expect(
+          '${run.warnings.single}',
+          AppL10n.strings.libraryDomain.semanticIncompatibleUpdateOtzaria,
+        );
+      },
+    );
+
+    guardedTest('an unknown version is blocked as unproven', () async {
+      final run = await applyWith();
+      expectBlocked(run, SemanticIncompatibilityReason.otzariaUnproven);
+    });
+
+    guardedTest('a newer capabilities file does not prove an older installed '
+        'Otzaria', () async {
+      final run = await applyWith(
+        installed: '0.9.98',
+        capabilitiesJson: '{"appVersion":"0.9.99"}',
+      );
+      expectBlocked(run, SemanticIncompatibilityReason.updateOtzaria);
+    });
+
+    guardedTest(
+      'an older capabilities file does not hold back a newer installed '
+      'Otzaria',
+      () async {
+        final run = await applyWith(
+          installed: '0.9.99',
+          capabilitiesJson: '{"appVersion":"0.9.97"}',
+        );
+        expect(run.engine.installs, hasLength(1));
+      },
+    );
+
+    guardedTest(
+      'a capabilities file of another executable proves nothing',
+      () async {
+        final run = await applyWith(
+          launchPath: '/opt/otzaria/otzaria',
+          capabilitiesJson:
+              '{"appVersion":"0.9.99","exePath":"/elsewhere/otzaria"}',
+        );
+        expectBlocked(run, SemanticIncompatibilityReason.otzariaUnproven);
+      },
+    );
+    guardedTest('a capabilities file of the same executable proves the '
+        'version when none is installed', () async {
+      final run = await applyWith(
+        launchPath: '/opt/otzaria/otzaria',
+        capabilitiesJson:
+            '{"appVersion":"0.9.99","exePath":"/opt/otzaria/otzaria"}',
+      );
+      expect(run.engine.installs, hasLength(1));
     });
   });
 
@@ -1886,6 +2104,171 @@ void main() {
       );
       expect(vectorTags, isEmpty);
     });
+
+    group('checkForUpdate judges the family the machine would install', () {
+      Future<LibraryUpdateCheckResult> check({
+        String? unreadableManifest,
+        bool windowsUnreadableAtSync = false,
+        bool liveWindowsSet = false,
+        required bool windowsCapable,
+      }) async {
+        await installExistingDb(29, appliedTag: 'v29');
+        await writeMirror(
+          tag: 'v30',
+          compressedDb: compressWithZstd(bindings!, buildRealDb(30)),
+        );
+        final github = FakeVectorsGithub();
+        github
+          ..legacyBase(30)
+          ..windowsBase(30, lineTextVersion: windowsUnreadableAtSync ? 1 : 4);
+        addTearDown(github.client.close);
+        final online = SemanticSearchAssets(
+          httpClient: github.client,
+          models: fakeModels,
+        );
+        addTearDown(online.dispose);
+        await online.sync(
+          mirrorDir: p.join(dataDir, 'mirror', 'semantic'),
+          libraryTag: libraryTagOf(30),
+          fleet: const SemanticFleet([
+            SemanticMachineState(
+              supportsWindows: false,
+              family: SemanticVectorsFamily.legacy,
+              libraryVersion: 0,
+            ),
+            SemanticMachineState(
+              supportsWindows: true,
+              family: SemanticVectorsFamily.windows,
+              libraryVersion: 0,
+            ),
+          ]),
+          libraryTagFor: libraryTagOf,
+        );
+        if (unreadableManifest != null) {
+          // The engine can no longer read this family: its manifest declares an
+          // older line-text version, with the mirror's record kept consistent.
+          final vectorsDir = p.join(
+            dataDir,
+            'mirror',
+            'semantic',
+            libraryTagOf(30),
+            'vectors',
+          );
+          final manifestFile = File(p.join(vectorsDir, unreadableManifest));
+          final manifest =
+              jsonDecode(await manifestFile.readAsString())
+                  as Map<String, dynamic>;
+          ((manifest['identity'] as Map)['text'] as Map)['line_text_version'] =
+              1;
+          final bytes = utf8.encode(jsonEncode(manifest));
+          await manifestFile.writeAsBytes(bytes);
+          final metaFile = File(
+            p.join(
+              dataDir,
+              'mirror',
+              'semantic',
+              SemanticSearchAssets.manifestFileName,
+            ),
+          );
+          final meta =
+              jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
+          for (final record in [
+            meta,
+            if (meta['windows'] is Map) meta['windows'] as Map,
+          ]) {
+            if (record['manifestName'] != unreadableManifest) continue;
+            record['manifestSize'] = bytes.length;
+            record['manifestSha256'] = Sha256Stream.ofBytes(bytes);
+          }
+          await metaFile.writeAsString(jsonEncode(meta));
+        }
+        if (windowsCapable) {
+          final capabilities = File(
+            p.join(
+              hermeticEnvironment()['HOME']!,
+              '.local',
+              'share',
+              'otzaria',
+              OtzariaCapabilities.fileName,
+            ),
+          );
+          await capabilities.parent.create(recursive: true);
+          await capabilities.writeAsString(
+            '{"semanticVectorFamilies":["vectors-windows","vectors"]}',
+          );
+        }
+        if (liveWindowsSet) {
+          await writeInstalledSet(p.join(tempDir.path, 'vectors'), version: 29);
+        }
+        late LibraryUpdateCheckResult result;
+        await _withoutNetwork((_) async {
+          final manager = LibraryManager(
+            dataDir: dataDir,
+            operatingSystem: 'linux',
+            processGuard: const _NeverRunningGuard(),
+            environment: hermeticEnvironment(),
+            settingsReader: _CountingSettingsReader(
+              settings: const OtzariaSettings(
+                searchFeedbackConsent: 'granted',
+                searchFeedbackConsentVersion: 1,
+              ),
+            ),
+            otzariaAppVersion: () async => '0.9.99',
+            semanticAssetsFactory: (_) =>
+                SemanticSearchAssets(models: fakeModels),
+          );
+          addTearDown(manager.dispose);
+          result = await manager.checkForUpdate();
+        });
+        return result;
+      }
+
+      test('an unreadable legacy set does not block the windows set the '
+          'machine would install', () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        final result = await check(
+          unreadableManifest: legacyManifestName(30),
+          windowsCapable: true,
+        );
+
+        expect(result.semanticPending, isTrue);
+        expect(result.semanticIncompatibility, isNull);
+      });
+
+      test('without windows support the readable legacy set is the one '
+          'judged', () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        final result = await check(
+          unreadableManifest: baseManifestName(30),
+          windowsCapable: false,
+        );
+
+        expect(result.semanticPending, isTrue);
+        expect(result.semanticIncompatibility, isNull);
+      });
+
+      test('a windows machine on a live windows set is told the mirror fell '
+          'back to a set it cannot take', () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        final result = await check(
+          windowsUnreadableAtSync: true,
+          liveWindowsSet: true,
+          windowsCapable: true,
+        );
+
+        expect(result.semanticPending, isFalse);
+        expect(result.semanticIncompatibility, isNotNull);
+      });
+    });
   });
 }
 
@@ -1949,4 +2332,13 @@ class _GatedApplier extends LibraryUpdateApplier {
     File('$dbPath.new').renameSync(dbPath);
     File('$dbPath.applying').deleteSync();
   }
+}
+
+/// A guard that never probes the real machine: a slow or failed probe counts
+/// as "Otzaria is running" and would fail a hermetic apply.
+class _NeverRunningGuard extends OtzariaProcessGuard {
+  const _NeverRunningGuard();
+
+  @override
+  Future<bool> isAnyRunning(List<String> processNames) async => false;
 }

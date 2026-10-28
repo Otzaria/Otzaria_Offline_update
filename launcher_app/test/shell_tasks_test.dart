@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/download_plan.dart';
+import 'package:launcher_app/src/services/byte_size.dart';
 import 'package:launcher_app/src/shell/download_failure.dart';
 import 'package:launcher_app/src/shell/home_guidance.dart';
 import 'package:launcher_app/src/shell/shell_tasks.dart';
@@ -275,6 +277,126 @@ void main() {
       final failure = classifyDownloadFailure(
         failed: const [MirrorComponent.library],
         errors: {MirrorComponent.library: hebrew},
+        shabbat: false,
+      );
+      expect(failure.kind, DownloadFailureKind.diskSpace);
+    });
+
+    final fullErrno = Platform.isWindows ? 112 : 28;
+    final deniedErrno = Platform.isWindows ? 5 : 13;
+
+    test('FileSystemException גולמי עם קוד "הכונן מלא" — חוסר מקום בלי מספרים',
+        () {
+      final cause = FileSystemException(
+        'Writing failed',
+        r'E:\mirror\plugins\a.otzplugin',
+        OSError('disk full', fullErrno),
+      );
+      final failure = classifyDownloadFailure(
+        failed: const [MirrorComponent.plugins],
+        errors: {MirrorComponent.plugins: cause.toString()},
+        causes: {MirrorComponent.plugins: cause},
+        shabbat: false,
+      );
+      expect(failure.kind, DownloadFailureKind.diskSpace);
+      expect(failure.needed, isNull);
+      expect(failure.free, isNull);
+      expect(failure.dir, r'E:\mirror\plugins');
+    });
+
+    test('StorageFullException עם מדידה — המספרים מעוצבים; בלי מדידה — null',
+        () {
+      final measured = classifyDownloadFailure(
+        failed: const [MirrorComponent.library],
+        errors: const {},
+        causes: {
+          MirrorComponent.library: const StorageFullException(
+            dir: 'E:',
+            neededBytes: 3 * 1024 * 1024 * 1024,
+            freeBytes: 1024 * 1024 * 1024,
+          ),
+        },
+        shabbat: false,
+      );
+      expect(measured.kind, DownloadFailureKind.diskSpace);
+      expect(measured.needed, formatBytes(3 * 1024 * 1024 * 1024));
+      expect(measured.free, formatBytes(1024 * 1024 * 1024));
+      final unmeasured = classifyDownloadFailure(
+        failed: const [MirrorComponent.library],
+        errors: const {},
+        causes: {
+          MirrorComponent.library: const StorageFullException(dir: 'E:'),
+        },
+        shabbat: false,
+      );
+      expect(unmeasured.needed, isNull);
+      expect(unmeasured.free, isNull);
+      expect(unmeasured.dir, 'E:');
+    });
+
+    test('שגיאה עטופה (AsyncError / ParallelWaitError / cause) מזוהה', () {
+      final inner = FileSystemException(
+        'Writing failed',
+        r'E:\mirror\x',
+        OSError('', fullErrno),
+      );
+      for (final wrapped in <Object>[
+        AsyncError(inner, StackTrace.empty),
+        ParallelWaitError<List<Object?>, List<AsyncError?>>(
+          [null, null],
+          [null, AsyncError(inner, StackTrace.empty)],
+        ),
+        StorageFullException(cause: inner),
+        StateError('x'),
+      ]) {
+        final failure = classifyDownloadFailure(
+          failed: const [MirrorComponent.app],
+          errors: const {},
+          causes: {MirrorComponent.app: wrapped},
+          shabbat: false,
+        );
+        expect(
+          failure.kind,
+          wrapped is StateError
+              ? DownloadFailureKind.other
+              : DownloadFailureKind.diskSpace,
+          reason: '$wrapped',
+        );
+      }
+    });
+
+    test('"גישה נדחתה" אינה חוסר מקום', () {
+      final cause = FileSystemException(
+        'Writing failed',
+        r'E:\mirror\x',
+        OSError('access denied', deniedErrno),
+      );
+      final failure = classifyDownloadFailure(
+        failed: const [MirrorComponent.library],
+        errors: {MirrorComponent.library: cause.toString()},
+        causes: {MirrorComponent.library: cause},
+        shabbat: false,
+      );
+      expect(failure.kind, DownloadFailureKind.other);
+    });
+
+    test('התבנית notEnoughDiskSpace (החיפוש החכם) מזוהה בכל השפות', () {
+      for (final language in AppLanguage.values) {
+        final message = AppL10n.stringsFor(language)
+            .libraryDomain
+            .notEnoughDiskSpace('/drive', '2 GB', '1 GB');
+        expect(
+          parseNotEnoughSpace('Bad state: $message'),
+          (needed: '2 GB', free: '1 GB'),
+          reason: language.name,
+        );
+      }
+      final failure = classifyDownloadFailure(
+        failed: const [MirrorComponent.library],
+        errors: {
+          MirrorComponent.library:
+              AppL10n.strings.libraryDomain.notEnoughDiskSpace('E:', '2', '1'),
+        },
         shabbat: false,
       );
       expect(failure.kind, DownloadFailureKind.diskSpace);

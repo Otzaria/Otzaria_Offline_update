@@ -10,6 +10,7 @@ import 'package:plugins_manager/plugins_manager.dart';
 import 'package:plugins_manager/src/services/plugin_mirror_sync.dart';
 import 'package:test/test.dart';
 
+import 'failing_disk.dart';
 import 'support.dart';
 
 /// מדמה קטלוג שנכתב לפני שהשדה `mediaVersion` נוסף.
@@ -516,6 +517,32 @@ void main() {
           strings.httpStatusFor(500, '/api/plugins/a/shot-1'),
         ),
       );
+    });
+
+    test(
+        'כשל מדיה בלבד כשהבילד קיים: אינו כשל התקנה, אבל הסנכרון מסומן לא '
+        'שלם בהתאם להצצה', () async {
+      final site = _Site(
+        plugins: _Site.defaultPlugins(
+          screenshots: ['/api/plugins/a/shot-0', '/api/plugins/a/shot-1'],
+        ),
+      )..failures['/api/plugins/a/shot-1'] = 500;
+      final outcome = await syncOutcome(site);
+
+      expect(outcome.catalog.plugins.first.localFiles, isNotEmpty);
+      expect(outcome.hasFailures, isFalse);
+      expect(outcome.incompleteMedia, ['אלף']);
+      expect(outcome.hasIncompleteSync, isTrue);
+      expect(outcome.hasStorageFailure, isFalse);
+      expect((await manager(site).peekOnlineUpdates()).hasUpdates, isTrue);
+
+      final clean = await syncOutcome(_Site(
+        plugins: _Site.defaultPlugins(
+          screenshots: ['/api/plugins/a/shot-0', '/api/plugins/a/shot-1'],
+        ),
+      ));
+      expect(clean.incompleteMedia, isEmpty);
+      expect(clean.hasIncompleteSync, isFalse);
     });
 
     test('קובץ תוסף שלא ירד — התוסף נשאר במצב unknown, וזה תקין', () async {
@@ -1992,6 +2019,300 @@ void main() {
         'files/a/screenshot-1.png',
         'files/a/screenshot-2.png',
       ]);
+    });
+  });
+
+  group('כשל אחסון (כונן מלא)', () {
+    final fullErrno = Platform.isWindows ? 112 : 28;
+
+    Map<String, dynamic> entry(String id,
+            {String? image, List<String>? shots}) =>
+        {
+          'id': id,
+          'name': id.toUpperCase(),
+          'version': '1.0.0',
+          'status': 'stable',
+          if (image != null) 'image': image,
+          if (shots != null) 'screenshots': shots,
+          'downloadUrl': '/api/plugins/$id/download',
+        };
+
+    PluginMirrorSync syncer(_Site site, {int plugins = 1, int shots = 1}) =>
+        PluginMirrorSync(
+          client: PluginStoreClient(
+            baseUrl: 'https://otzaria.test',
+            client: site.build(),
+          ),
+          store: PluginMirrorStore(temp.path),
+          maxConcurrentPlugins: plugins,
+          maxConcurrentScreenshots: shots,
+        );
+
+    Future<({PluginSyncOutcome outcome, List<Object> uncaught})> runFailing(
+      PluginMirrorSync sync,
+      bool Function(String path) failing,
+    ) async {
+      final uncaught = <Object>[];
+      final done = Completer<PluginSyncOutcome>();
+      runZonedGuarded(() {
+        IOOverrides.runWithIOOverrides(
+          () => sync.sync().then(done.complete, onError: done.completeError),
+          FailingDiskOverrides(failing, errno: fullErrno),
+        );
+      }, (error, _) => uncaught.add(error));
+      final outcome = await done.future.timeout(const Duration(seconds: 10));
+      return (outcome: outcome, uncaught: uncaught);
+    }
+
+    String filesOf(String id) => p.join(temp.path, 'plugins', 'files', id);
+
+    test(
+        'כונן מלא בתמונה: אין משימות נוספות, מה שהסתיים נשמר, המבנה והניקוי '
+        'לא רצים', () async {
+      final site = _Site(plugins: [
+        entry('x'),
+        entry('y', image: '/api/plugins/y/image'),
+        entry('z'),
+      ]);
+      final result = await runFailing(
+        syncer(site),
+        (path) => path.endsWith('${p.separator}image.download.part'),
+      );
+      final outcome = result.outcome;
+
+      expect(result.uncaught, isEmpty);
+      expect(outcome.storageFailure, isA<StorageFullException>());
+      expect(outcome.hasStorageFailure, isTrue);
+      expect(outcome.hasIncompleteSync, isTrue);
+      expect(outcome.hasFailures, isFalse);
+      expect(site.requestsMatching('/api/plugins/y/download'), isEmpty);
+      expect(site.requestsMatching('/api/plugins/z/download'), isEmpty);
+      expect(site.requestsMatching('/api/plugins/store-home'), isEmpty);
+      expect(
+        outcome.catalog.plugins.firstWhere((x) => x.id == 'x').localFiles,
+        isNotEmpty,
+      );
+      expect(File(p.join(filesOf('x'), 'plugin-1.0.0.otzplugin')).existsSync(),
+          isTrue);
+      for (final id in ['y', 'z']) {
+        expect(
+          outcome.catalog.plugins.firstWhere((x) => x.id == id).localFiles,
+          isEmpty,
+        );
+      }
+      expect(File(p.join(filesOf('y'), 'image.download.part')).existsSync(),
+          isFalse);
+
+      final retry = await syncOutcome(site..requests.clear());
+      expect(retry.storageFailure, isNull);
+      expect(
+          retry.catalog.plugins.every((x) => x.localFiles.isNotEmpty), isTrue);
+    });
+
+    test('במקביליות: משימה שכבר רצה מסיימת ונשמרת, ותורים שלא התחילו נעצרים',
+        () async {
+      final site = _Site(plugins: [
+        entry('p1'),
+        entry('p2', image: '/api/plugins/p2/image'),
+        entry('p3'),
+        entry('p4'),
+      ])
+        ..stalls.add('/api/plugins/p1/download');
+      final result = await runFailing(
+        syncer(site, plugins: 2),
+        (path) => path.endsWith('${p.separator}image.download.part'),
+      );
+      final outcome = result.outcome;
+
+      expect(result.uncaught, isEmpty);
+      expect(outcome.hasStorageFailure, isTrue);
+      expect(site.requestsMatching('/api/plugins/p1/download'), hasLength(1));
+      expect(
+        outcome.catalog.plugins.firstWhere((x) => x.id == 'p1').localFiles,
+        isNotEmpty,
+      );
+      expect(site.requestsMatching('/api/plugins/p3/download'), isEmpty);
+      expect(site.requestsMatching('/api/plugins/p4/download'), isEmpty);
+    });
+
+    test(
+        'כונן מלא בקובץ התוסף עצמו: נרשם גם ב-failed וגם ב-storageFailure, '
+        'ומי שלא הגיעו אליו לא ב-failed', () async {
+      final site = _Site(plugins: [entry('x'), entry('y'), entry('z')]);
+      final result = await runFailing(
+        syncer(site),
+        (path) => path.endsWith('plugin-1.0.0.download.part'),
+      );
+      final outcome = result.outcome;
+
+      expect(result.uncaught, isEmpty);
+      expect(outcome.hasStorageFailure, isTrue);
+      expect(outcome.failed, ['X']);
+      expect(site.requestsMatching('/api/plugins/y/download'), isEmpty);
+      expect(site.requestsMatching('/api/plugins/z/download'), isEmpty);
+    });
+
+    Future<({PluginSyncOutcome? outcome, Object? error, List<Object> uncaught})>
+        runMkdir(PluginMirrorSync sync, String id, int errno) async {
+      final uncaught = <Object>[];
+      final done = Completer<List<Object?>>();
+      runZonedGuarded(() {
+        IOOverrides.runWithIOOverrides(
+          () => sync.sync().then((o) => done.complete([o, null]),
+              onError: (Object e) => done.complete([null, e])),
+          FailingMkdirOverrides(
+            (path) => path.endsWith('${p.separator}$id'),
+            errno: errno,
+          ),
+        );
+      }, (error, _) => uncaught.add(error));
+      final r = await done.future.timeout(const Duration(seconds: 10));
+      return (
+        outcome: r[0] as PluginSyncOutcome?,
+        error: r[1],
+        uncaught: uncaught
+      );
+    }
+
+    for (final concurrency in [1, 2]) {
+      test(
+          'כונן מלא ביצירת תיקיית תוסף (מקביליות $concurrency): הקטלוג '
+          'מייצג את מה שהושלם, והשאר לא יורדים', () async {
+        final site = _Site(plugins: [
+          entry('x'),
+          entry('y'),
+          entry('z'),
+          entry('w'),
+        ])
+          ..stalls.add('/api/plugins/x/download');
+        final r = await runMkdir(
+          syncer(site, plugins: concurrency),
+          'y',
+          fullErrno,
+        );
+
+        expect(r.uncaught, isEmpty);
+        expect(r.error, isNull);
+        final outcome = r.outcome!;
+        expect(outcome.hasStorageFailure, isTrue);
+        expect(outcome.provesMissingContent, isTrue);
+        expect(
+          outcome.catalog.plugins.firstWhere((x) => x.id == 'x').localFiles,
+          isNotEmpty,
+        );
+        final saved = await PluginMirrorStore(temp.path).load();
+        expect(saved.plugins.firstWhere((x) => x.id == 'x').localFiles,
+            isNotEmpty);
+        expect(site.requestsMatching('/api/plugins/y/download'), isEmpty);
+        expect(site.requestsMatching('/api/plugins/w/download'), isEmpty);
+        if (concurrency == 1) {
+          expect(site.requestsMatching('/api/plugins/z/download'), isEmpty);
+        }
+        for (final id in ['y', 'z', 'w']) {
+          expect(
+            saved.plugins
+                .where((x) => x.id == id)
+                .expand((x) => x.localFiles.keys),
+            isEmpty,
+          );
+        }
+      });
+    }
+
+    test('כונן מלא ביצירת תיקייה בתוסף הראשון אינו דורס קטלוג קיים', () async {
+      await syncOutcome(_Site(plugins: [entry('x')]));
+      final catalogFile = File(p.join(temp.path, 'plugins', 'catalog.json'));
+      final before = catalogFile.readAsStringSync();
+
+      final site = _Site(plugins: [
+        {...entry('x'), 'version': '2.0.0'},
+      ]);
+      final r = await runMkdir(syncer(site), 'x', fullErrno);
+
+      expect(r.uncaught, isEmpty);
+      expect(r.outcome!.hasStorageFailure, isTrue);
+      expect(catalogFile.readAsStringSync(), before);
+    });
+
+    test('שגיאת מערכת אחרת ביצירת תיקייה היא כשל נקודתי של תוסף אחד', () async {
+      final site = _Site(plugins: [entry('x'), entry('y'), entry('z')]);
+      final r = await runMkdir(syncer(site), 'y', 5);
+
+      expect(r.error, isNull);
+      final outcome = r.outcome!;
+      expect(outcome.hasStorageFailure, isFalse);
+      expect(outcome.failed, ['Y']);
+      expect(site.requestsMatching('/api/plugins/z/download'), hasLength(1));
+    });
+
+    test('כונן מלא בשמירת הקטלוג נזרק כ-StorageFullException', () async {
+      final site = _Site(plugins: [entry('x')]);
+      final sync = syncer(site);
+      final uncaught = <Object>[];
+      final done = Completer<Object?>();
+      runZonedGuarded(() {
+        IOOverrides.runWithIOOverrides(
+          () => sync.sync().then((_) => done.complete(null),
+              onError: (Object e) => done.complete(e)),
+          FailingDiskOverrides(
+            (path) => path.contains('catalog.json.') && path.endsWith('.tmp'),
+            errno: fullErrno,
+          ),
+        );
+      }, (error, _) => uncaught.add(error));
+      final error = await done.future.timeout(const Duration(seconds: 10));
+
+      expect(uncaught, isEmpty);
+      expect(error, isA<StorageFullException>());
+    });
+
+    test('כונן מלא בצילום מסך עוצר את שאר הצילומים ואת קובץ התוסף', () async {
+      final site = _Site(plugins: [
+        entry('s', shots: [
+          '/api/plugins/s/shot-0',
+          '/api/plugins/s/shot-1',
+          '/api/plugins/s/shot-2',
+        ]),
+      ]);
+      final result = await runFailing(
+        syncer(site),
+        (path) => path.endsWith('screenshot-0.download.part'),
+      );
+
+      expect(result.uncaught, isEmpty);
+      expect(result.outcome.hasStorageFailure, isTrue);
+      expect(site.requestsMatching('shot-1'), isEmpty);
+      expect(site.requestsMatching('shot-2'), isEmpty);
+      expect(site.requestsMatching('/api/plugins/s/download'), isEmpty);
+    });
+
+    test('כשל כתיבה שאינו אחסון נשאר אזהרה נקודתית ולא עוצר', () async {
+      final site = _Site(plugins: [
+        entry('x'),
+        entry('y', image: '/api/plugins/y/image'),
+        entry('z'),
+      ]);
+      final uncaught = <Object>[];
+      final done = Completer<PluginSyncOutcome>();
+      runZonedGuarded(() {
+        IOOverrides.runWithIOOverrides(
+          () => syncer(site)
+              .sync()
+              .then(done.complete, onError: done.completeError),
+          FailingDiskOverrides(
+            (path) => path.endsWith('${p.separator}image.download.part'),
+            errno: 5,
+          ),
+        );
+      }, (error, _) => uncaught.add(error));
+      final outcome = await done.future.timeout(const Duration(seconds: 10));
+
+      expect(uncaught, isEmpty);
+      expect(outcome.hasStorageFailure, isFalse);
+      expect(outcome.incompleteMedia, ['Y']);
+      expect(site.requestsMatching('/api/plugins/z/download'), hasLength(1));
+      expect(outcome.catalog.plugins.every((x) => x.localFiles.isNotEmpty),
+          isTrue);
     });
   });
 }

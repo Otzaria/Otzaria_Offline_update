@@ -11,6 +11,7 @@ import 'package:plugins_manager/plugins_manager.dart';
 import '../services/app_logger.dart';
 import '../services/coalescing_loader.dart';
 import '../services/known_plugins_store.dart';
+import '../services/storage_failure.dart';
 import '../services/store_app_destination_store.dart';
 import '../services/store_search.dart';
 import 'dispose_guard.dart';
@@ -75,12 +76,14 @@ class PluginsModuleController extends ChangeNotifier
     this.installWatchInterval = const Duration(seconds: 1),
     this.installWatchTimeout = const Duration(minutes: 5),
     http.Client? httpClient,
-  })  : _manager = PluginsManager(
-          resolveMirrorDir: () async => mirrorRootDir,
-          otzariaLaunchPath: otzariaLaunchPath,
-          locatePluginsDb: locatePluginsDb,
-          httpClient: httpClient,
-        ),
+    PluginsManager? manager,
+  })  : _manager = manager ??
+            PluginsManager(
+              resolveMirrorDir: () async => mirrorRootDir,
+              otzariaLaunchPath: otzariaLaunchPath,
+              locatePluginsDb: locatePluginsDb,
+              httpClient: httpClient,
+            ),
         mirrorDirs = PluginsManager.mirrorDirsIn(mirrorRootDir),
         _known = stateDir == null ? null : KnownPluginsStore(stateDir),
         _destination =
@@ -287,7 +290,16 @@ class PluginsModuleController extends ChangeNotifier
   bool get lastSyncFailed =>
       errorMessage != null ||
       shabbatNotice != null ||
+      storageFull ||
       (lastSyncOutcome?.hasFailures ?? false);
+
+  /// החריג שהפיל את הסנכרון האחרון, או כשל הכתיבה של תוכנת החנות (שאינו קטלני
+  /// אבל אומר שהכונן מלא). מתאפסים בתחילת כל אחד מהם.
+  Object? syncCause;
+  Object? storeAppCause;
+  StorageFullException? get storageFailure =>
+      findStorageFull(syncCause) ?? findStorageFull(storeAppCause);
+  bool get storageFull => storageFailure != null;
 
   String? syncMessage;
   double? syncProgress;
@@ -584,6 +596,8 @@ class PluginsModuleController extends ChangeNotifier
     errorMessage = null;
     shabbatNotice = null;
     lastSyncOutcome = null;
+    syncCause = null;
+    storeAppCause = null;
     syncMessage = AppL10n.strings.plugins.syncingOverlayStarting;
     syncProgress = null;
     syncWarnings.clear();
@@ -607,6 +621,7 @@ class PluginsModuleController extends ChangeNotifier
         },
       );
       lastSyncOutcome = outcome;
+      syncCause = outcome.storageFailure;
       AppLogger.instance.info(
         'סנכרון התוספים: ${outcome.fetched} ירדו, '
         '${outcome.skipped} דולגו, ${syncWarnings.length} אזהרות'
@@ -630,11 +645,15 @@ class PluginsModuleController extends ChangeNotifier
       // מתארת אותה, והשארתה הייתה מציגה "יש עדכונים" אחרי שהם כבר ירדו.
       // כשקובץ תוסף לא ירד המראה עדיין חסרה אותו, ולכן התשובה נשארת — וכך
       // גם בסנכרון שבוטל, שהשאיר בדיוק את אותו חוסר.
-      if (!outcome.hasFailures && !(isCancelled?.call() ?? false)) {
+      if (!outcome.provesMissingContent && !(isCancelled?.call() ?? false)) {
         onlineStatus = PluginsOnlineStatus.empty;
         onlineCheckedAt = DateTime.now();
         onlineCheckError = null;
         onlineClosedForShabbat = false;
+      } else if (!hasCatalogOnlineUpdate) {
+        // "אין שינוי" מלפני הסנכרון כבר אינו נכון: חסרה מדיה או קובץ.
+        onlineStatus = null;
+        onlineCheckedAt = null;
       }
       await load();
     } on PluginStoreShabbatException catch (e) {
@@ -644,6 +663,11 @@ class PluginsModuleController extends ChangeNotifier
     } catch (e, st) {
       status = PluginsModuleStatus.error;
       errorMessage = e.toString();
+      syncCause = e;
+      if (!hasCatalogOnlineUpdate) {
+        onlineStatus = null;
+        onlineCheckedAt = null;
+      }
       AppLogger.instance.error('סנכרון חנות התוספים נכשל', e, st);
       notifyListeners();
     }
@@ -657,6 +681,8 @@ class PluginsModuleController extends ChangeNotifier
   /// סיבה לסמן הורדה שהצליחה ככושלת: הכפתור פשוט יישאר על הגרסה הקודמת עד
   /// ההורדה הבאה. כמו מבנה החנות (`syncStructureFailed`), האזהרה ליומן.
   Future<void> syncStoreApp() async {
+    syncCause = null;
+    storeAppCause = null;
     final release = storeAppOnline;
     if (release == null) return;
 
@@ -668,6 +694,7 @@ class PluginsModuleController extends ChangeNotifier
       storeAppCheckedAt = DateTime.now();
       storeAppCheckError = null;
     } catch (e) {
+      if (isStorageFull(e)) storeAppCause = e;
       AppLogger.instance.info('הורדת תוכנת החנות לא הצליחה: $e');
     }
     notifyListeners();

@@ -1,6 +1,8 @@
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import '../services/companion_assets.dart';
+import '../services/semantic_search_assets.dart'
+    show SemanticEngineIncompatibleException;
 
 /// תוצאת בדיקת עדכון למסד (ה-DB).
 ///
@@ -24,6 +26,7 @@ class LibraryUpdateCheckResult {
     this.mirroredCompanions = const {},
     this.semanticPending = false,
     this.semanticConsentGranted = false,
+    this.semanticIncompatibility,
     this.mirrorDownloadIncomplete = false,
     this.readableDbSchemaVersion,
     this.needsNewerOtzaria = false,
@@ -53,6 +56,10 @@ class LibraryUpdateCheckResult {
 
   final bool semanticPending;
   final bool semanticConsentGranted;
+
+  /// Why the drive's smart-search vectors cannot install here; they are not
+  /// offered while it is set.
+  final SemanticEngineIncompatibleException? semanticIncompatibility;
   final bool mirrorDownloadIncomplete;
   final int? readableDbSchemaVersion;
   final bool needsNewerOtzaria;

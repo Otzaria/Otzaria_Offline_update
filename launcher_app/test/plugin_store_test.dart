@@ -152,6 +152,7 @@ class _OutcomeController extends PluginsModuleController {
     notifyListeners();
     await release.future;
     lastSyncOutcome = next;
+    syncCause = next?.storageFailure;
     _running = false;
     notifyListeners();
   }
@@ -1316,6 +1317,61 @@ void main() {
     expect(none, isEmpty);
   });
 
+  // #126: סגירת המארח בזמן ההשהיה בין שתי מסירות לא תתקין אחרי dispose.
+  testWidgets('deliverUpdates: פירוק הקונטרולר בזמן ההשהיה — אין מסירה נוספת',
+      (tester) async {
+    final controller = await seedRecording(
+      tester,
+      catalog: [
+        storePlugin('a', name: 'ראשון', manifestId: 'id-a', version: '2.0'),
+        storePlugin('b', name: 'שני', manifestId: 'id-b', version: '3.0'),
+      ],
+      installed: {'id-a': '1.0', 'id-b': '1.0'},
+    );
+    final delivered = <String>[];
+    List<StorePlugin>? sent;
+    unawaited(controller
+        .deliverUpdates(onDelivered: (plugin, _) => delivered.add(plugin.id))
+        .then((value) => sent = value));
+    await tester.pump();
+    expect(controller.delivered, ['a']);
+
+    controller.dispose();
+    plugins = PluginsModuleController(mirrorRootDir: tempDir.path);
+    await tester.pump(pluginUpdateDeliverySpacing);
+    await tester.pump();
+
+    expect(controller.delivered, ['a']);
+    expect(delivered, ['a']);
+    expect(sent!.map((p) => p.id), ['a']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('deliverUpdates: מעבר מסך באמצע "עדכן הכול" אינו עוצר את המשימה',
+      (tester) async {
+    final controller = await seedRecording(
+      tester,
+      catalog: [
+        storePlugin('a', name: 'ראשון', manifestId: 'id-a', version: '2.0'),
+        storePlugin('b', name: 'שני', manifestId: 'id-b', version: '3.0'),
+      ],
+      installed: {'id-a': '1.0', 'id-b': '1.0'},
+    );
+    await pumpScreen(tester, PluginsScreen(controller: controller));
+    await tester.pumpAndSettle();
+
+    unawaited(controller.deliverUpdates());
+    await tester.pump();
+    expect(controller.delivered, ['a']);
+
+    await pumpScreen(tester, const SizedBox());
+    await tester.pump(pluginUpdateDeliverySpacing);
+    await tester.pump();
+
+    expect(controller.delivered, ['a', 'b']);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('מסירה שנכשלה אינה מסומנת כנשלחה', (tester) async {
     final controller = await seedRecording(
       tester,
@@ -1777,6 +1833,32 @@ void main() {
       expect(snacks.single, contains(expected), reason: 'cancelled=$cancelled');
       fake.release = Completer<void>();
     }
+    restore();
+  });
+
+  testWidgets('סנכרון עצמאי שהכונן התמלא בו: הודעת כונן מלא, לא "הסתיים"',
+      (tester) async {
+    final (messages: snacks, :restore) = captureSnacks();
+    plugins.dispose();
+    final fake = _OutcomeController(tempDir.path);
+    plugins = fake;
+    await seed(tester, catalog: [storePlugin('a')]);
+    const full = StorageFullException(dir: r'E:\mirror');
+    fake.next = PluginSyncOutcome(
+      catalog: PluginCatalog(plugins: [storePlugin('a')]),
+      fetched: 1,
+      skipped: 0,
+      storageFailure: full,
+    );
+    await pumpScreen(tester, PluginsScreen(controller: plugins));
+    await tester.pump();
+    await tester.tap(find.text(t.refreshButton));
+    await tester.pump();
+    fake.release.complete();
+    await tester.pump();
+    await tester.pump();
+    expect(snacks.single, contains(full.toString()));
+    expect(snacks.single, isNot(contains(t.syncDoneSnack(1, 1))));
     restore();
   });
 

@@ -120,6 +120,13 @@ class _Common extends CommonStrings {
   @override
   String get closeOtzariaFailedSnack =>
       'אוצריא לא נסגרה — ייתכן שהיא ממתינה לשמירה. יש לסגור אותה ידנית.';
+  @override
+  String storageFullNoDetails(String dir) =>
+      'הכונן התמלא והכתיבה נעצרה ב-${_ltr(dir)}. פנה מקום בכונן ונסה שוב — מה '
+      'שכבר ירד נשמר.';
+  @override
+  String get storageFullUnknownDir =>
+      'הכונן התמלא והכתיבה נעצרה. פנה מקום בכונן ונסה שוב — מה שכבר ירד נשמר.';
 }
 
 class _Shell extends ShellStrings {
@@ -3280,6 +3287,27 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get companionSemanticName => 'החיפוש החכם';
   @override
+  String get semanticIncompatibleUpdateTool =>
+      'קובצי החיפוש החכם שבכונן נבנו עבור מנוע חיפוש חדש יותר מזה שבגרסה הזאת '
+      'של הכלי. הורדה חוזרת לא תועיל — עדכן את הכלי לגרסה חדשה יותר. החיפוש '
+      'החכם שכבר מותקן נשאר כפי שהוא.';
+  @override
+  String get semanticIncompatibleUpdateOtzaria =>
+      'קובצי החיפוש החכם שבכונן דורשים גרסה חדשה יותר של אוצריא מזו שמותקנת '
+      'במחשב הזה. עדכן את אוצריא ואז התקן את החיפוש החכם. החיפוש החכם שכבר '
+      'מותקן נשאר כפי שהוא.';
+  @override
+  String get semanticIncompatibleRepublish =>
+      'קובצי החיפוש החכם שפורסמו לספריית אוצריא נבנו עבור גרסה ישנה יותר של '
+      'מנוע החיפוש, ולכן אי אפשר להתקין אותם. הורדה חוזרת לא תועיל — צריך '
+      'להמתין לפרסום קובצי חיפוש חכם חדשים. החיפוש החכם שכבר מותקן נשאר כפי '
+      'שהוא.';
+  @override
+  String get semanticIncompatibleOtzariaUnproven =>
+      'לא ניתן לוודא שאוצריא במחשב הזה קוראת את קובצי החיפוש החכם שבכונן, ולכן '
+      'הם לא הותקנו. התקן או עדכן את אוצריא מהכונן ונסה שוב. החיפוש החכם שכבר '
+      'מותקן נשאר כפי שהוא.';
+  @override
   String get libraryChangesNotesName => 'רשימת "מה חדש בספריית אוצריא"';
   @override
   String get semanticDownloading => 'מוריד את קובצי החיפוש החכם';
@@ -3326,12 +3354,6 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get semanticFullDownloadNeeded =>
       'החיפוש החכם במחשב זה אינו בגרסה שהעדכון החלקי שבכונן ממשיך ממנה, ולכן לא הותקן. בהורדה הבאה במחשב המקוון תירד חבילת החיפוש החכם המלאה.';
-  @override
-  String get semanticBuiltForOlderOtzaria =>
-      'החיפוש החכם שפורסם לגרסת הספרייה הזו נבנה לגרסת אוצריא ישנה, והכלי הזה אינו יכול להתקין אותו. הוא יירד עם ספרייה חדשה יותר, כשבכונן תהיה גרסת אוצריא שקוראת אותה.';
-  @override
-  String get semanticNeedsNewerLauncher =>
-      'החיפוש החכם שפורסם לגרסת הספרייה הזו מיועד לגרסה חדשה יותר של הכלי הזה. עדכנו את עדכוני אוצריא ונסו שוב.';
   @override
   String companionChecking(String name) => 'בודק $name...';
   @override

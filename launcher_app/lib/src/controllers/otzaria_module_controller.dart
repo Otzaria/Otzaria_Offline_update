@@ -6,6 +6,7 @@ import 'package:otzaria_manager/otzaria_manager.dart';
 
 import '../services/app_logger.dart';
 import '../services/elevation.dart';
+import '../services/storage_failure.dart';
 import 'dispose_guard.dart';
 import 'progress_notifier.dart';
 
@@ -42,7 +43,7 @@ class OtzariaModuleController extends ChangeNotifier
     OtzariaLauncher launcher = const OtzariaLauncher(),
     OtzariaProcessCloser? processCloser,
     OtzariaTargetPlatform? platform,
-    @visibleForTesting OtzariaManager? manager,
+    OtzariaManager? manager,
   })  : _preferPrerelease = preferPrerelease,
         _pendingLaunchUri = pendingLaunchUri,
         _onLaunchUriDelivered = onLaunchUriDelivered,
@@ -169,6 +170,10 @@ class OtzariaModuleController extends ChangeNotifier
   /// ההתקדמות היה מתאפס בלי הסבר.
   String? downloadStage;
   String? downloadError;
+
+  /// החריג שהפיל את ההורדה — המסך מסווג לפיו ולא לפי הטקסט.
+  Object? downloadCause;
+  bool get downloadStorageFull => findStorageFull(downloadCause) != null;
   DateTime? lastDownloadedAt;
 
   /// מצב הבדיקה הקלה ("יש עדכון ברשת?") — נפרד לגמרי מ-[downloadStatus]:
@@ -399,6 +404,7 @@ class OtzariaModuleController extends ChangeNotifier
     downloadTotal = null;
     downloadStage = null;
     downloadError = null;
+    downloadCause = null;
     notifyListeners();
 
     try {
@@ -433,6 +439,7 @@ class OtzariaModuleController extends ChangeNotifier
       } else {
         downloadStatus = OtzariaDownloadStatus.error;
         downloadError = e.toString();
+        downloadCause = e;
         AppLogger.instance.error('הורדת גרסת אוצריא נכשלה', e, st);
       }
     }

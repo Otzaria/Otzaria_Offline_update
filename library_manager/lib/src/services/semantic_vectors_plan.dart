@@ -28,9 +28,9 @@ const kSemanticDeltaChainLimits = (maxSteps: 8, maxBaseSizeRatio: 0.5);
 
 const kWindowsChunkingIdentity = 320260894818558297;
 
-/// The pinned engine's `LINE_TEXT_VERSION`: it refuses a set built for any
-/// other, so such a release is not worth its download. Bump with the engine.
-const kSemanticLineTextVersion = 4;
+/// `identity.text` the bundled `otzaria_search_engine` accepts: its
+/// `LINE_TEXT_VERSION` and the sidecar's key version. Move with that pin.
+const kSemanticEngineText = (lineTextVersion: 4, keyVersion: 1);
 
 /// Byte-identical to Otzaria's `meivin-round2-windows-onnx/model.json`;
 /// explicit `\n` so a CRLF checkout cannot change the bytes it verifies.
@@ -154,4 +154,19 @@ class SemanticFleet {
       (m) => m.libraryVersion >= target || starts.contains(m.libraryVersion),
     );
   }
+}
+
+/// Which side must change before the published smart-search vectors install.
+enum SemanticIncompatibilityReason {
+  /// The vectors need a newer engine than this tool bundles.
+  updateTool,
+
+  /// The vectors fit this tool, but the target Otzaria is known not to read them.
+  updateOtzaria,
+
+  /// The vectors were built for an older engine than this tool bundles.
+  republishAssets,
+
+  /// The vectors fit this tool, but no version of the target Otzaria is known.
+  otzariaUnproven,
 }

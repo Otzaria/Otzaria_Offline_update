@@ -108,17 +108,17 @@ class FakeVectorsGithub {
     required List<int> segment,
     String identity = identityA,
     int chunking = kWindowsChunkingIdentity,
-    int? lineText = kSemanticLineTextVersion,
+    int lineTextVersion = 4,
     int keyVersion = 1,
+    bool emptyText = false,
   }) => {
     'format': 'otzaria-vectors-release',
     'formatVersion': 1,
     'kind': kind,
     'identity': {
-      'text': {
-        if (lineText != null) 'line_text_version': lineText,
-        'key_version': keyVersion,
-      },
+      'text': emptyText
+          ? <String, Object?>{}
+          : {'line_text_version': lineTextVersion, 'key_version': keyVersion},
       'model': {
         'family_id':
             'ArieLLL123/judaic-semantic-round2-onnx-zayit@1ec8dc68888bcea774ae9f735b2fe7cd9dc7f3ca',
@@ -154,8 +154,9 @@ class FakeVectorsGithub {
     int segmentSize = 1000,
     String identity = identityA,
     int chunking = kWindowsChunkingIdentity,
-    int? lineText = kSemanticLineTextVersion,
+    int lineTextVersion = 4,
     int keyVersion = 1,
+    bool emptyText = false,
   }) {
     final segment = _bytes(segmentSize, v);
     _release(
@@ -169,8 +170,9 @@ class FakeVectorsGithub {
         segment: segment,
         identity: identity,
         chunking: chunking,
-        lineText: lineText,
+        lineTextVersion: lineTextVersion,
         keyVersion: keyVersion,
+        emptyText: emptyText,
       ),
       segmentName: baseSegmentName(v),
       segment: segment,
@@ -179,8 +181,10 @@ class FakeVectorsGithub {
 
   void legacyBase(
     int v, {
-    int? lineText = kSemanticLineTextVersion,
+    int lineTextVersion = 4,
     int keyVersion = 1,
+    bool emptyText = false,
+    String identity = '',
   }) {
     final segment = _bytes(500, v + 7);
     _release(
@@ -192,10 +196,11 @@ class FakeVectorsGithub {
         to: v,
         file: 'legacy-v$v.oxv.zst',
         segment: segment,
-        identity: '',
+        identity: identity,
         chunking: 2685558872390372738,
-        lineText: lineText,
+        lineTextVersion: lineTextVersion,
         keyVersion: keyVersion,
+        emptyText: emptyText,
       ),
       segmentName: 'legacy-v$v.oxv.zst',
       segment: segment,
@@ -209,6 +214,7 @@ class FakeVectorsGithub {
     int segmentSize = 50,
     String identity = identityA,
     int? manifestFrom,
+    int lineTextVersion = 4,
   }) {
     final segment = _bytes(segmentSize, from * 100 + to);
     _release(
@@ -221,6 +227,7 @@ class FakeVectorsGithub {
         file: deltaSegmentName(from, to),
         segment: segment,
         identity: identity,
+        lineTextVersion: lineTextVersion,
       ),
       segmentName: deltaSegmentName(from, to),
       segment: segment,

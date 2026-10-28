@@ -125,7 +125,9 @@ class _PluginsScreenState extends State<PluginsScreen> {
     if (!mounted) return;
     final warnings = _c.syncWarnings;
     final shabbat = _c.shabbatNotice;
-    if (_c.lastSyncOutcome?.cancelled ?? false) {
+    if (_c.storageFailure case final full?) {
+      UiSnack.showError('$full');
+    } else if (_c.lastSyncOutcome?.cancelled ?? false) {
       UiSnack.show(t.syncStoppedSnack);
     } else if (shabbat != null) {
       UiSnack.show(shabbat);

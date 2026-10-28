@@ -268,6 +268,12 @@ jobs:
       - run: dart pub global activate coverage 1.15.1
         if: ${{ !matrix.flutter }}
       - run: dart tool/coverage.dart --collect "--packages=${{ matrix.packages }}" --min=60 --target=0
+      - name: library_manager native engine (required)
+        if: ${{ !cancelled() && matrix.shard == 'flutter_packages' }}
+        working-directory: library_manager
+        env:
+          REQUIRE_NATIVE_ENGINE: "1"
+        run: flutter test test/native_engine_test.dart test/native_install_identity_test.dart test/native_vector_install_test.dart test/native_pending_test.dart
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: ${{ !cancelled() }}
         with:

@@ -91,6 +91,8 @@ class CompanionAssetsMirror {
     void Function(String? stage)? onStage,
     void Function(int downloaded, int? total)? onBytesProgress,
     void Function(String assetName, Object error)? onWarning,
+    void Function(StorageFullException error, StackTrace stack)?
+    onStorageFailure,
     bool Function()? isCancelled,
   }) async {
     await Directory(destDir).create(recursive: true);
@@ -98,6 +100,7 @@ class CompanionAssetsMirror {
     final previous = await CompanionMirrorManifest.load(destDir);
     final reusable = _takePeekedPlans(destDir);
     final entries = <CompanionAsset, CompanionMirrorEntry>{};
+    (StorageFullException, StackTrace)? storageFailure;
     final activeStages = <CompanionAsset, String>{};
     void reportStage(CompanionAsset asset, String? stage) {
       if (stage == null) {
@@ -110,27 +113,41 @@ class CompanionAssetsMirror {
       );
     }
 
+    // A complete file already on the drive stays listed when its refresh fails
+    // or never starts.
+    Future<void> keepPrevious(CompanionAsset asset) async {
+      final kept = previous?.entries[asset];
+      if (kept != null &&
+          kept.fileName.isNotEmpty &&
+          await _isCompleteFile(p.join(destDir, kept.fileName), kept.size)) {
+        entries[asset] = kept;
+      }
+    }
+
     Future<void> run(
       CompanionAsset asset,
       String name,
       Future<void> Function() body,
     ) async {
       _throwIfCancelled(isCancelled);
+      if (storageFailure != null) {
+        await keepPrevious(asset);
+        return;
+      }
       try {
         await body();
-      } catch (error) {
+      } catch (error, stack) {
         if (_isCancellation(error)) rethrow;
-        final kept = previous?.entries[asset];
-        // **קיום אינו שלמות.** נכס שהוחלף בשרת נמחק ויורד מאפס, וכשל באמצע
-        // משאיר שבר באותו שם — שהרשומה הישנה מצהירה עליו כשלם. כזה נוסע
-        // לכונן ומתגלה רק במחשב המנותק, ובמקרה של המילון (0 בתים) גם בשקט
-        // מוחלט: הוא "מותקן" בכל פתיחה ולעולם אינו נחשב מעודכן.
-        if (kept != null &&
-            kept.fileName.isNotEmpty &&
-            await _isCompleteFile(p.join(destDir, kept.fileName), kept.size)) {
-          entries[asset] = kept;
+        final full = storageFullFromUpstream(error);
+        if (full != null) {
+          if (storageFailure == null) {
+            storageFailure = (full, stack);
+            onStorageFailure?.call(full, stack);
+          }
+        } else {
+          onWarning?.call(name, error);
         }
-        onWarning?.call(name, error);
+        await keepPrevious(asset);
       } finally {
         reportStage(asset, null);
       }
@@ -219,6 +236,8 @@ class CompanionAssetsMirror {
       manifestPath,
       const JsonEncoder.withIndent('  ').convert(manifest.toJson()),
     );
+    final failure = storageFailure;
+    if (failure != null) Error.throwWithStackTrace(failure.$1, failure.$2);
     return manifest;
   }
 

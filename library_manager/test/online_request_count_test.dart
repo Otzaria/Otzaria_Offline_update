@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -8,15 +9,43 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:library_manager/src/services/recent_library_releases_client.dart';
+import 'package:library_manager/src/services/semantic_search_assets.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart'
-    show LibraryRelease, LocalMirrorLibraryReleaseClient;
+    show
+        LibraryRelease,
+        LocalMirrorLibraryReleaseClient,
+        DownloadScheduler,
+        PatchDownloadCancelled,
+        PatchDownloadException;
+
+import 'support/failing_writes.dart';
+import 'support/semantic_fixtures.dart';
 
 const _libraryReleasesPath = '/repos/Otzaria/SeforimLibrary/releases';
 const _talmudPath = '/repos/Otzaria/otzaria-library/releases/latest';
 const _catalogPath = '/repos/Otzaria/otzar-HB_catalog/releases/latest';
 const _dictionaryPath = '/repos/Otzaria/SeforimMagicIndexer/releases/latest';
+
+class _FullDirectory implements Directory {
+  _FullDirectory(this.path);
+
+  @override
+  final String path;
+
+  @override
+  Future<Directory> create({bool recursive = false}) async =>
+      throw FileSystemException(
+        'mkdir failed',
+        path,
+        OSError('', diskFullErrno),
+      );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+}
 
 class _FakeGithub {
   final requests = <Uri>[];
@@ -24,6 +53,10 @@ class _FakeGithub {
 
   /// `library-changes.md` לפי גרסה; `null` = רשום ברשימת הנכסים אך 404.
   final notes = <int, String?>{};
+
+  Future<void> Function()? beforeLibraryReleases;
+  Future<void> Function()? beforeDictionary;
+  Future<void> Function()? beforeTalmud;
 
   int count(String path) => requests
       .where((u) => u.host == 'api.github.com' && u.path == path)
@@ -109,10 +142,19 @@ class _FakeGithub {
 
   late final MockClient client = MockClient.streaming((request, _) async {
     requests.add(request.url);
+    if (request.url.host == 'dl' &&
+        request.url.pathSegments.last == 'talmud_bavli_latest.tar.zst') {
+      await beforeTalmud?.call();
+    }
+    if (request.url.host == 'dl' &&
+        request.url.pathSegments.last == 'lexical.db') {
+      await beforeDictionary?.call();
+    }
     final url = request.url;
     Uint8List? body;
     if (url.host == 'api.github.com') {
       if (url.path == _libraryReleasesPath) {
+        await beforeLibraryReleases?.call();
         body = _utf8(
           url.queryParameters['page'] == '1' ? _libraryReleases() : [],
         );
@@ -598,6 +640,393 @@ void main() {
       });
     });
 
+    group('smart-search failure during the download', () {
+      Future<({List<String> warnings, Object? thrown, LibraryManager manager})>
+      run(Object failure) async {
+        late LibraryManager manager;
+        final warnings = <String>[];
+        Object? thrown;
+        await online(() async {
+          manager = LibraryManager(
+            dataDir: dataDir,
+            semanticAssetsFactory: (_) => _FailingSemanticAssets(failure),
+          );
+          addTearDown(manager.dispose);
+          try {
+            await manager.downloadToMirror(
+              includeSemanticSearch: true,
+              onCompanionWarning: (name, _) => warnings.add(name),
+            );
+          } catch (error) {
+            thrown = error;
+          }
+        });
+        return (warnings: warnings, thrown: thrown, manager: manager);
+      }
+
+      String semanticName() =>
+          AppL10n.strings.libraryDomain.companionSemanticName;
+
+      test('a full drive stops the download once the finished components are '
+          'kept', () async {
+        final result = await run(
+          const StorageFullException(neededBytes: 5, freeBytes: 1),
+        );
+
+        expect(result.thrown, isA<StorageFullException>());
+        expect((result.thrown as StorageFullException).neededBytes, 5);
+        expect(result.warnings, isNot(contains(semanticName())));
+        expect(
+          File(p.join(result.manager.mirrorDir, 'releases.json')).existsSync(),
+          isTrue,
+        );
+        expect(
+          File(
+            p.join(
+              result.manager.companionsMirrorDir,
+              CompanionMirrorManifest.fileName,
+            ),
+          ).existsSync(),
+          isTrue,
+        );
+      });
+
+      test('a system disk-full error reaches the caller as '
+          'StorageFullException', () async {
+        final cause = FileSystemException(
+          'write failed',
+          'E:/mirror/semantic/x',
+          OSError('There is not enough space on the disk.', diskFullErrno),
+        );
+
+        final result = await run(cause);
+
+        expect(result.thrown, isA<StorageFullException>());
+        expect((result.thrown as StorageFullException).cause, same(cause));
+        expect(result.warnings, isNot(contains(semanticName())));
+      });
+
+      test('a point failure stays a warning', () async {
+        final result = await run(const FormatException('bad manifest'));
+
+        expect(result.thrown, isNull);
+        expect(result.warnings, contains(semanticName()));
+      });
+
+      String wrappedWrite(int errno) =>
+          'save failed: FileSystemException: Write failed, path = '
+          "'E:\\mirror\\semantic\\x.zst' (OS Error: simulated, errno = $errno)";
+
+      test('a disk-full write wrapped by the downloader as text is a storage '
+          'failure, not a warning', () async {
+        final result = await run(
+          PatchDownloadException(wrappedWrite(diskFullErrno)),
+        );
+
+        expect(result.thrown, isA<StorageFullException>());
+        expect(result.warnings, isNot(contains(semanticName())));
+      });
+
+      test('a wrapped write error that is not a full drive stays a '
+          'warning', () async {
+        final result = await run(PatchDownloadException(wrappedWrite(5)));
+
+        expect(result.thrown, isNull);
+        expect(result.warnings, contains(semanticName()));
+      });
+    });
+
+    test('a disk-full write inside the real smart-search downloader crosses '
+        'the boundary as StorageFullException', () async {
+      final vectors = FakeVectorsGithub()..legacyBase(2);
+      addTearDown(vectors.client.close);
+      await online(() async {
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          semanticAssetsFactory: (scheduler) =>
+              _RealVectorsAssets(vectors.client, scheduler),
+        );
+        addTearDown(manager.dispose);
+        final warnings = <String>[];
+        final escaped = <Object>[];
+        final finished = Completer<Object?>();
+
+        runZonedGuarded(() {
+          runWithFailingRandomWrites(
+            () => manager.downloadToMirror(
+              includeSemanticSearch: true,
+              onCompanionWarning: (name, _) => warnings.add(name),
+            ),
+            matches: (path) => p.basename(path) == 'legacy-v2.oxv.zst',
+          ).then(
+            (_) => finished.complete(null),
+            onError: (Object error) => finished.complete(error),
+          );
+        }, (error, _) => escaped.add(error));
+        final thrown = await finished.future;
+
+        expect(escaped, isEmpty);
+        expect(thrown, isA<StorageFullException>(), reason: '$thrown');
+        expect(
+          warnings,
+          isNot(contains(AppL10n.strings.libraryDomain.companionSemanticName)),
+        );
+        expect(
+          File(p.join(manager.mirrorDir, 'releases.json')).existsSync(),
+          isTrue,
+        );
+      });
+    });
+
+    group('a full drive in one parallel branch gates the other', () {
+      /// Holds the library list until [release] and then a little longer, so
+      /// the companions hit the full drive before any library asset starts.
+      void holdLibraryUntil(bool Function() release) {
+        github.beforeLibraryReleases = () async {
+          final deadline = DateTime.now().add(const Duration(seconds: 5));
+          while (!release() && DateTime.now().isBefore(deadline)) {
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        };
+      }
+
+      List<Uri> libraryAssets() => [
+        for (final u in github.requests)
+          if (u.host == 'lib' && u.path.endsWith('.zst')) u,
+      ];
+
+      test('after a companion hits a full drive no library asset starts and '
+          'the cause is kept', () async {
+        await online(() async {
+          var tripped = false;
+          holdLibraryUntil(() => tripped);
+          final manager = LibraryManager(
+            dataDir: dataDir,
+            semanticAssetsFactory: (_) =>
+                _FailingSemanticAssets(const FormatException('must not run')),
+          );
+          addTearDown(manager.dispose);
+          final warnings = <String>[];
+          Object? thrown;
+
+          await runWithFailingRandomWrites(
+            () async {
+              try {
+                await manager.downloadToMirror(
+                  includeSemanticSearch: true,
+                  onCompanionWarning: (name, _) => warnings.add(name),
+                );
+              } catch (error) {
+                thrown = error;
+              }
+            },
+            matches: (path) {
+              final hit = p.basename(path) == 'lexical.db';
+              if (hit) tripped = true;
+              return hit;
+            },
+          );
+
+          expect(thrown, isA<StorageFullException>(), reason: '$thrown');
+          expect(libraryAssets(), isEmpty);
+          expect(
+            warnings,
+            isNot(
+              contains(AppL10n.strings.libraryDomain.companionSemanticName),
+            ),
+          );
+        });
+      });
+
+      test('a companion failure gates the export while another companion '
+          'is still active', () async {
+        await online(() async {
+          final failed = Completer<void>();
+          final peer = Completer<void>();
+          github.beforeTalmud = () => peer.future;
+          holdLibraryUntil(() => failed.isCompleted);
+          final manager = LibraryManager(dataDir: dataDir);
+          addTearDown(manager.dispose);
+          Object? thrown;
+
+          await runWithFailingRandomWrites(
+            () async {
+              final download = manager.downloadToMirror().then<void>(
+                (_) {},
+                onError: (Object error) => thrown = error,
+              );
+              try {
+                await failed.future.timeout(const Duration(seconds: 5));
+                await Future<void>.delayed(const Duration(milliseconds: 300));
+              } finally {
+                peer.complete();
+                await download;
+              }
+            },
+            matches: (path) {
+              final hit = p.basename(path) == 'lexical.db';
+              if (hit && !failed.isCompleted) failed.complete();
+              return hit;
+            },
+          );
+
+          expect(thrown, isA<StorageFullException>(), reason: '$thrown');
+          expect(libraryAssets(), isEmpty);
+          final manifest = await CompanionMirrorManifest.load(
+            manager.companionsMirrorDir,
+          );
+          expect(manifest?.entries[CompanionAsset.talmud], isNotNull);
+        });
+      });
+
+      test(
+        'a full drive creating the companions directory gates the export',
+        () async {
+          await online(() async {
+            var tripped = false;
+            holdLibraryUntil(() => tripped);
+            final manager = LibraryManager(dataDir: dataDir);
+            addTearDown(manager.dispose);
+            Object? thrown;
+            await IOOverrides.runZoned(
+              () async {
+                try {
+                  await manager.downloadToMirror();
+                } catch (error) {
+                  thrown = error;
+                }
+              },
+              createDirectory: (path) {
+                if (p.equals(path, manager.companionsMirrorDir)) {
+                  tripped = true;
+                  return _FullDirectory(path);
+                }
+                return Zone.root.run(() => Directory(path));
+              },
+            );
+            expect(thrown, isA<StorageFullException>(), reason: '$thrown');
+            expect(libraryAssets(), isEmpty);
+          });
+        },
+      );
+
+      test('a real user cancel still surfaces as a cancel', () async {
+        await online(() async {
+          var cancelled = false;
+          github.beforeLibraryReleases = () async => cancelled = true;
+          final manager = LibraryManager(dataDir: dataDir);
+          addTearDown(manager.dispose);
+          Object? thrown;
+
+          try {
+            await manager.downloadToMirror(isCancelled: () => cancelled);
+          } catch (error) {
+            thrown = error;
+          }
+
+          expect(thrown, isA<PatchDownloadCancelled>(), reason: '$thrown');
+        });
+      });
+    });
+
+    test('a disk-full write inside the real downloader crosses the boundary '
+        'as StorageFullException', () async {
+      await online(() async {
+        final manager = LibraryManager(dataDir: dataDir);
+        addTearDown(manager.dispose);
+        final warnings = <String>[];
+        Object? thrown;
+
+        await runWithFailingRandomWrites(() async {
+          try {
+            await manager.downloadToMirror(
+              includeSemanticSearch: true,
+              onCompanionWarning: (name, _) => warnings.add(name),
+            );
+          } catch (error) {
+            thrown = error;
+          }
+        }, matches: (path) => p.basename(path) == 'seforim.db.zst');
+
+        expect(thrown, isA<StorageFullException>(), reason: '$thrown');
+        expect(
+          github.requests.where((u) => u.path.contains('/releases/tags/')),
+          isEmpty,
+        );
+      });
+    });
+
+    test('a full drive in a companion keeps the finished DB export and skips '
+        'the smart search', () async {
+      await online(() async {
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          semanticAssetsFactory: (_) =>
+              _FailingSemanticAssets(const FormatException('must not run')),
+        );
+        addTearDown(manager.dispose);
+        // The companion fails only after the export finished, so the test
+        // holds regardless of how the two branches interleave.
+        github.beforeDictionary = () async {
+          final releases = File(p.join(manager.mirrorDir, 'releases.json'));
+          final deadline = DateTime.now().add(const Duration(seconds: 5));
+          while (!releases.existsSync() && DateTime.now().isBefore(deadline)) {
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+          }
+        };
+        final warnings = <String>[];
+        Object? thrown;
+
+        await runWithFailingRandomWrites(() async {
+          try {
+            await manager.downloadToMirror(
+              includeSemanticSearch: true,
+              onCompanionWarning: (name, _) => warnings.add(name),
+            );
+          } catch (error) {
+            thrown = error;
+          }
+        }, matches: (path) => p.basename(path) == 'lexical.db');
+
+        expect(thrown, isA<StorageFullException>(), reason: '$thrown');
+        expect(
+          warnings,
+          isNot(contains(AppL10n.strings.libraryDomain.companionSemanticName)),
+        );
+        expect(
+          File(p.join(manager.mirrorDir, 'releases.json')).existsSync(),
+          isTrue,
+        );
+        expect(
+          File(
+            p.join(
+              manager.mirrorDir,
+              'assets',
+              'v2-20261011',
+              'seforim.db.zst',
+            ),
+          ).existsSync(),
+          isTrue,
+        );
+      });
+    });
+
+    test('the light check exposes why nothing is offered', () async {
+      await online(() async {
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          semanticAssetsFactory: (_) => _UnreadableSemanticAssets(),
+        );
+        addTearDown(manager.dispose);
+        expect(manager.peekedSemanticIncompatibility, isNull);
+
+        expect(await manager.peekPendingSemanticSearch(), isFalse);
+
+        expect(manager.peekedSemanticIncompatibility?.lineTextVersion, 1);
+      });
+    });
+
     List<String> vectorTags() => [
       for (final url in github.requests)
         if (url.path.startsWith('$_libraryReleasesPath/tags/'))
@@ -680,3 +1109,69 @@ void main() {
 List<String> _tags(List<LibraryRelease> releases) => [
   for (final release in releases) release.tag,
 ];
+
+/// סנכרון חיפוש חכם שנכשל בדרך שנבחרה בבדיקה, בלי רשת ובלי מודל.
+class _FailingSemanticAssets extends SemanticSearchAssets {
+  _FailingSemanticAssets(this.failure);
+
+  final Object failure;
+
+  @override
+  Future<void> sync({
+    required String mirrorDir,
+    required String libraryTag,
+    SemanticFleet fleet = const SemanticFleet(),
+    String? Function(int version)? libraryTagFor,
+    void Function(String)? onStage,
+    void Function(int, int?)? onBytesProgress,
+    bool Function()? isCancelled,
+  }) async => throw failure;
+}
+
+/// בדיקה קלה שמצהירה שהווקטורים שפורסמו אינם קריאים למנוע.
+class _UnreadableSemanticAssets extends SemanticSearchAssets {
+  @override
+  SemanticEngineIncompatibleException? get peekedIncompatibility =>
+      const SemanticEngineIncompatibleException(
+        lineTextVersion: 1,
+        keyVersion: 1,
+      );
+
+  @override
+  Future<bool> peekPending({
+    required String mirrorDir,
+    required String libraryTag,
+    SemanticFleet fleet = const SemanticFleet(),
+  }) async => false;
+}
+
+/// The real downloader against the in-memory vectors release of the library
+/// tag the fixtures use.
+class _RealVectorsAssets extends SemanticSearchAssets {
+  _RealVectorsAssets(http.Client client, DownloadScheduler scheduler)
+    : super(
+        scheduler: scheduler,
+        httpClient: client,
+        models: fakeModels,
+        freeBytesFor: (_) => null,
+      );
+
+  @override
+  Future<void> sync({
+    required String mirrorDir,
+    required String libraryTag,
+    SemanticFleet fleet = const SemanticFleet(),
+    String? Function(int version)? libraryTagFor,
+    void Function(String)? onStage,
+    void Function(int, int?)? onBytesProgress,
+    bool Function()? isCancelled,
+  }) => super.sync(
+    mirrorDir: mirrorDir,
+    libraryTag: libraryTagOf(2),
+    fleet: fleet,
+    libraryTagFor: libraryTagOf,
+    onStage: onStage,
+    onBytesProgress: onBytesProgress,
+    isCancelled: isCancelled,
+  );
+}

@@ -144,6 +144,7 @@ class LibraryManager {
     RecentLibraryReleasesClient? releaseClient,
     LibraryUpdateApplier? applier,
     this.semanticEngineFactory,
+    @visibleForTesting this.semanticAssetsFactory,
   }) : _stateStore = LibraryStateStore(
          p.join(stateDir ?? dataDir, LibraryStateStore.fileName),
          dataDir: dataDir,
@@ -217,6 +218,10 @@ class LibraryManager {
   /// Replaces the native engine of the smart-search install, for tests.
   final SemanticEngineFactory? semanticEngineFactory;
 
+  /// Replaces the smart-search download and light check, for tests.
+  final SemanticSearchAssets Function(DownloadScheduler scheduler)?
+  semanticAssetsFactory;
+
   /// הקבצים הנלווים לספרייה (תלמוד, קטלוג, מילון). אוצריא מרעננת אותם
   /// **מהרשת** בכל עדכון ספרייה; כאן הם נוסעים במראה ומותקנים אופליין.
   /// תקרת הקבצים המקבילים של כל ההורדה — נכסי הספרייה **והקבצים הנלווים
@@ -231,6 +236,18 @@ class LibraryManager {
       const CompanionAssetsInstaller();
 
   final OtzariaSettingsWriter _settingsWriter = const OtzariaSettingsWriter();
+
+  /// The one boundary for `seforim_library_updater`, whose full-drive
+  /// failures arrive as text: a recognised one crosses as [StorageFullException].
+  Future<T> _storageAware<T>(Future<T> Function() body) async {
+    try {
+      return await body();
+    } catch (error, stack) {
+      final full = storageFullFromUpstream(error);
+      if (full == null) rethrow;
+      Error.throwWithStackTrace(full, stack);
+    }
+  }
 
   Future<bool> _isOtzariaRunning() => _processGuard.isAnyRunning(
     OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
@@ -410,6 +427,12 @@ class LibraryManager {
     var keptNewer = false;
     var leftAsIs = false;
     int? mirroredLatest;
+    // A full drive found by one branch stops the other from starting assets;
+    // it is not a user cancel and surfaces as the storage failure itself.
+    (StorageFullException, StackTrace)? gateFailure;
+    var exportStoppedByGate = false;
+    bool stopRequested() =>
+        gateFailure != null || (isCancelled?.call() ?? false);
 
     final readable =
         readableDbSchema != null && readableDbSchema < kSupportedDbSchemaVersion
@@ -419,7 +442,7 @@ class LibraryManager {
             allowPrerelease: allowPrerelease,
             fromVersion: fromVersion,
             scheduler: _scheduler,
-            isCancelled: isCancelled,
+            isCancelled: stopRequested,
           )
         : null;
 
@@ -430,15 +453,17 @@ class LibraryManager {
         scheduler: _scheduler,
       );
       try {
-        return await exporter.export(
-          destDir: mirrorDir,
-          allowPrerelease: allowPrerelease,
-          fromVersion: from,
-          onStage: onStage,
-          onAssetProgress: onAssetProgress,
-          onBytesProgress: exportBytes.report,
-          onWarning: onWarning,
-          isCancelled: isCancelled,
+        return await _storageAware(
+          () => exporter.export(
+            destDir: mirrorDir,
+            allowPrerelease: allowPrerelease,
+            fromVersion: from,
+            onStage: onStage,
+            onAssetProgress: onAssetProgress,
+            onBytesProgress: exportBytes.report,
+            onWarning: onWarning,
+            isCancelled: stopRequested,
+          ),
         );
       } finally {
         exporter.dispose();
@@ -498,29 +523,56 @@ class LibraryManager {
           exported = await runExport(null);
           repaired = true;
         }
-      } catch (_) {
-        exportFailed = true;
+      } catch (e) {
         _cloudClient.forgetReleases();
+        final gate = gateFailure;
+        if (gate != null &&
+            (e is PatchDownloadCancelled ||
+                e is StateError &&
+                    e.message ==
+                        AppL10n.strings.libraryDomain.exportCancelled) &&
+            !(isCancelled?.call() ?? false)) {
+          exportStoppedByGate = true;
+          Error.throwWithStackTrace(gate.$1, gate.$2);
+        }
+        exportFailed = true;
         rethrow;
       }
     }();
 
-    final companionsFuture = _companionsMirror.sync(
-      destDir: companionsMirrorDir,
-      onStage: (stage) {
-        if (onCompanionStage != null) {
-          onCompanionStage(stage);
-        } else if (stage != null) {
-          onStage?.call(stage);
-        }
-      },
-      onBytesProgress: companionBytes.report,
-      onWarning: onCompanionWarning,
-      isCancelled: () => exportFailed || (isCancelled?.call() ?? false),
-    );
+    final companionsFuture = () async {
+      try {
+        await _companionsMirror.sync(
+          destDir: companionsMirrorDir,
+          onStage: (stage) {
+            if (onCompanionStage != null) {
+              onCompanionStage(stage);
+            } else if (stage != null) {
+              onStage?.call(stage);
+            }
+          },
+          onBytesProgress: companionBytes.report,
+          onWarning: onCompanionWarning,
+          onStorageFailure: (error, stack) => gateFailure ??= (error, stack),
+          isCancelled: () => exportFailed || (isCancelled?.call() ?? false),
+        );
+      } catch (error, stack) {
+        final full = storageFullFromUpstream(error);
+        if (full == null) rethrow;
+        gateFailure ??= (full, stack);
+        Error.throwWithStackTrace(full, stack);
+      }
+    }();
 
-    await Future.wait<void>([exportFuture, companionsFuture]);
-    if (!(isCancelled?.call() ?? false)) {
+    (StorageFullException, StackTrace)? storageFailure;
+    try {
+      await Future.wait<void>([exportFuture, companionsFuture]);
+    } on StorageFullException catch (error, stack) {
+      // A full drive in the companions leaves the finished DB export valid.
+      if (exportFailed && !exportStoppedByGate) rethrow;
+      storageFailure = (error, stack);
+    }
+    if (storageFailure == null && !(isCancelled?.call() ?? false)) {
       await _syncChangesNotes(
         onWarning: onCompanionWarning,
         isCancelled: isCancelled,
@@ -560,8 +612,12 @@ class LibraryManager {
       }
     }
     // Nothing readable online means no library for vectors to match.
-    if (includeSemanticSearch && (readable == null || readableTag != null)) {
-      final semantic = SemanticSearchAssets(scheduler: _scheduler);
+    if (storageFailure == null &&
+        includeSemanticSearch &&
+        (readable == null || readableTag != null)) {
+      final semantic =
+          semanticAssetsFactory?.call(_scheduler) ??
+          SemanticSearchAssets(scheduler: _scheduler);
       if (!exported) exportBytes.report(0, 0);
       final semanticBytes = bytes.slot();
       try {
@@ -595,16 +651,29 @@ class LibraryManager {
           libraryTagFor: (version) => _libraryTagFor(releases, version),
           onStage: onStage,
           onBytesProgress: semanticBytes.report,
-          isCancelled: isCancelled,
+          isCancelled: stopRequested,
         );
-      } catch (e) {
+      } catch (e, stack) {
         if (e is PatchDownloadCancelled || (isCancelled?.call() ?? false)) {
           rethrow;
         }
-        onCompanionWarning?.call(
-          AppL10n.strings.libraryDomain.companionSemanticName,
-          e,
-        );
+        final full = storageFullFromUpstream(e);
+        if (full != null) {
+          storageFailure = (
+            !identical(full, e) && full.dir == null && full.message == null
+                ? StorageFullException(
+                    dir: semanticMirrorDir,
+                    cause: full.cause,
+                  )
+                : full,
+            stack,
+          );
+        } else {
+          onCompanionWarning?.call(
+            AppL10n.strings.libraryDomain.companionSemanticName,
+            e,
+          );
+        }
       } finally {
         semantic.dispose();
       }
@@ -612,6 +681,7 @@ class LibraryManager {
     // Saved last: a cancel restores the mirror but not this file.
     if (readable != null &&
         readable.unreadableManifests.isEmpty &&
+        !exportStoppedByGate &&
         !(isCancelled?.call() ?? false)) {
       await _saveReadableTarget(
         readable.readableSchema,
@@ -620,6 +690,10 @@ class LibraryManager {
         online: readable.onlineReleases,
         fromVersion: fromVersion,
       );
+    }
+    // The finished components are on the drive; a full drive stops the rest.
+    if (storageFailure != null) {
+      Error.throwWithStackTrace(storageFailure.$1, storageFailure.$2);
     }
     return MirrorDownloadOutcome(
       personalFromVersion: repaired ? null : fromVersion,
@@ -1136,8 +1210,15 @@ class LibraryManager {
   int? get peekedSemanticBytes => _peekedSemanticBytes;
   int? _peekedSemanticBytes;
 
+  /// Why the last light check offered nothing: the published vectors are
+  /// unreadable by the bundled engine.
+  SemanticEngineIncompatibleException? get peekedSemanticIncompatibility =>
+      _peekedSemanticIncompatibility;
+  SemanticEngineIncompatibleException? _peekedSemanticIncompatibility;
+
   Future<bool> peekPendingSemanticSearch() async {
     _peekedSemanticBytes = null;
+    _peekedSemanticIncompatibility = null;
     if (_onlineLibraryTag == null) await peekLatestOnlineVersion();
     final readable = await _readableOnlineTag();
     final tag = readable.limited ? readable.tag : _onlineLibraryTag;
@@ -1145,7 +1226,8 @@ class LibraryManager {
       _peekedSemanticBytes = 0;
       return false;
     }
-    final semantic = SemanticSearchAssets();
+    final semantic =
+        semanticAssetsFactory?.call(_scheduler) ?? SemanticSearchAssets();
     try {
       final pending = await semantic.peekPending(
         mirrorDir: semanticMirrorDir,
@@ -1156,6 +1238,7 @@ class LibraryManager {
         ),
       );
       _peekedSemanticBytes = semantic.peekedPendingBytes;
+      _peekedSemanticIncompatibility = semantic.peekedIncompatibility;
       return pending;
     } finally {
       semantic.dispose();
@@ -1543,20 +1626,45 @@ class LibraryManager {
 
     final settings = await _semanticSettings(locator);
     final supportsWindows = await _supportsWindowsVectors(locator);
-    final semantic = SemanticSearchAssets();
-    final bool semanticPending;
+    final semantic =
+        semanticAssetsFactory?.call(_scheduler) ?? SemanticSearchAssets();
+    var semanticPending = false;
+    SemanticEngineIncompatibleException? semanticIncompatibility;
     try {
+      final semanticVersion = switch (plan.kind) {
+        LibraryUpdatePlanKind.none ||
+        LibraryUpdatePlanKind.blocked => local.dbVersion,
+        _ => plan.finalTargetVersion ?? local.dbVersion,
+      };
       semanticPending = await semantic.pending(
         mirrorDir: semanticMirrorDir,
         dbPath: dbPath,
-        libraryVersion: plan.kind == LibraryUpdatePlanKind.blocked
-            ? local.dbVersion
-            : plan.finalTargetVersion ?? local.dbVersion,
+        libraryVersion: semanticVersion,
         vectorsRootPath: _semanticVectorsRoot(settings, dbPath),
         preferencesReady: settings?.semanticSearchReadyPreferences ?? false,
         supportsWindows: supportsWindows,
         needsBase: await _ownNeedsBase(),
       );
+      semanticIncompatibility = await semantic.incompatibility(
+        mirrorDir: semanticMirrorDir,
+        libraryVersion: semanticVersion,
+        supportsWindows: supportsWindows,
+        dbPath: dbPath,
+        vectorsRootPath: _semanticVectorsRoot(settings, dbPath),
+      );
+      if (semanticIncompatibility == null && semanticPending) {
+        final reads = await _semanticTargetReadsText4(locator);
+        if (reads != true) {
+          semanticIncompatibility = SemanticEngineIncompatibleException(
+            lineTextVersion: kSemanticEngineText.lineTextVersion,
+            keyVersion: kSemanticEngineText.keyVersion,
+            reason: reads == null
+                ? SemanticIncompatibilityReason.otzariaUnproven
+                : SemanticIncompatibilityReason.updateOtzaria,
+          );
+        }
+      }
+      if (semanticIncompatibility != null) semanticPending = false;
     } finally {
       semantic.dispose();
     }
@@ -1579,6 +1687,7 @@ class LibraryManager {
       mirroredCompanions: companions.mirrored,
       semanticPending: semanticPending,
       semanticConsentGranted: settings?.searchFeedbackGranted ?? false,
+      semanticIncompatibility: semanticIncompatibility,
       mirrorDownloadIncomplete: mirrorDownloadIncomplete,
       readableDbSchemaVersion: readableSchema,
       needsNewerOtzaria: !identical(plan, limitedPlan),
@@ -1603,6 +1712,17 @@ class LibraryManager {
 
   Future<bool> _ownNeedsBase() async =>
       (await _stateStore.loadOwnSemanticState())?.needsBase ?? false;
+
+  /// Whether the target Otzaria reads text-4 vectors; `null` = version unknown.
+  Future<bool?> _semanticTargetReadsText4(LibraryDbLocator locator) async {
+    final launch = await locator.otzariaLaunchPath?.call();
+    final root = await locator.otzariaSettingsRoot(launch);
+    return OtzariaCapabilities.readsSemanticLineText4(
+      capabilities: root == null ? null : await OtzariaCapabilities.read(root),
+      launchPath: launch,
+      installedVersion: await _otzariaAppVersion?.call(),
+    );
+  }
 
   Future<bool> _supportsWindowsVectors(LibraryDbLocator locator) async {
     final launch = await locator.otzariaLaunchPath?.call();
@@ -1850,12 +1970,14 @@ class LibraryManager {
         case LibraryUpdatePlanKind.delta:
           final partial = <int>{};
           try {
-            booksTouched = await _applier.applyDelta(
-              plan: plan,
-              dbPath: dbPath,
-              onProgress: onProgress,
-              isCancelled: isCancelled,
-              onStepApplied: (books, _) => partial.addAll(books),
+            booksTouched = await _storageAware(
+              () => _applier.applyDelta(
+                plan: plan,
+                dbPath: dbPath,
+                onProgress: onProgress,
+                isCancelled: isCancelled,
+                onStepApplied: (books, _) => partial.addAll(books),
+              ),
             );
           } catch (_) {
             if (partial.isNotEmpty) {
@@ -1870,25 +1992,29 @@ class LibraryManager {
           }
           break;
         case LibraryUpdatePlanKind.fullDownload:
-          await _applier.applyFullDownload(
-            plan: plan,
-            dbPath: dbPath,
-            onProgress: onProgress,
-            isCancelled: isCancelled,
+          await _storageAware(
+            () => _applier.applyFullDownload(
+              plan: plan,
+              dbPath: dbPath,
+              onProgress: onProgress,
+              isCancelled: isCancelled,
+            ),
           );
           appliedTag = plan.fullDbReleaseTag;
           final followUp = plan.followUpDelta;
           if (followUp != null) {
             try {
-              booksTouched = await _applier.applyDelta(
-                plan: followUp,
-                dbPath: dbPath,
-                onProgress: onProgress,
-                isCancelled: isCancelled,
-                onStepApplied: (_, version) {
-                  appliedVersion = version;
-                  appliedTag = _contentTagFor(check, plan, version);
-                },
+              booksTouched = await _storageAware(
+                () => _applier.applyDelta(
+                  plan: followUp,
+                  dbPath: dbPath,
+                  onProgress: onProgress,
+                  isCancelled: isCancelled,
+                  onStepApplied: (_, version) {
+                    appliedVersion = version;
+                    appliedTag = _contentTagFor(check, plan, version);
+                  },
+                ),
               );
               appliedVersion = followUp.targetVersion;
               appliedTag = _contentTagFor(check, plan, appliedVersion);
@@ -1955,7 +2081,9 @@ class LibraryManager {
       onStateWarning?.call(e);
     }
 
-    if (check.semanticPending && check.semanticConsentGranted) {
+    if (companions.storageFailure == null &&
+        check.semanticPending &&
+        check.semanticConsentGranted) {
       final name = AppL10n.strings.libraryDomain.companionSemanticName;
       try {
         final settings = await _semanticSettings();
@@ -1965,9 +2093,9 @@ class LibraryManager {
           );
         }
         await _throwIfOtzariaRunning();
-        final semantic = SemanticSearchAssets(
-          engineFactory: semanticEngineFactory,
-        );
+        final semantic =
+            semanticAssetsFactory?.call(_scheduler) ??
+            SemanticSearchAssets(engineFactory: semanticEngineFactory);
         final supportsWindows = await _supportsWindowsVectors(_locator);
         var chainFailed = false;
         var baseInstalled = false;
@@ -1980,6 +2108,7 @@ class LibraryManager {
               libraryVersion: version.dbVersion,
               vectorsRootPath: _semanticVectorsRoot(settings, dbPath),
               supportsWindows: supportsWindows,
+              targetReadsLineText4: await _semanticTargetReadsText4(_locator),
               beforeActivate: _throwIfOtzariaRunning,
               onStage: (stage) => onProgress?.call(
                 LibraryApplyProgress(

@@ -691,6 +691,28 @@ void main() {
       expect(find.text(stringsOf().common.retry), findsOneWidget);
     });
 
+    testWidgets('אין מקום בלי מדידה: אומר איזה כונן, בלי "null"',
+        (tester) async {
+      for (final (dir, body) in [
+        (r'E:\mirror', stringsOf().common.storageFullNoDetails(r'E:\mirror')),
+        (null, stringsOf().common.storageFullUnknownDir),
+      ]) {
+        downloadScenarios['dlSpaceBare'] = DownloadTask(
+          phase: DownloadTaskPhase.failed,
+          components: const [MirrorComponent.plugins],
+          failure: DownloadFailure(
+            DownloadFailureKind.diskSpace,
+            components: const [MirrorComponent.plugins],
+            dir: dir,
+          ),
+        );
+        addTearDown(() => downloadScenarios.remove('dlSpaceBare'));
+        await show(tester, 'dlSpaceBare');
+        expect(find.text(body), findsOneWidget);
+        expect(find.textContaining('null'), findsNothing);
+      }
+    });
+
     testWidgets('שגיאה אמיתית: תג אדום, ומה שירד נשמר', (tester) async {
       await show(tester, 'dlFail');
       expect(find.text(t.otherTitle(t.stepLibrary)), findsOneWidget);

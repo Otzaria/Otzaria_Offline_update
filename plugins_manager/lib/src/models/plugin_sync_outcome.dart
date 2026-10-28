@@ -1,3 +1,5 @@
+import 'package:otzaria_l10n/otzaria_l10n.dart';
+
 import 'plugin_catalog.dart';
 
 /// מה סנכרון אחד באמת עשה. הקטלוג לבדו לא ענה על זה: הוא נראה זהה בין
@@ -8,6 +10,8 @@ class PluginSyncOutcome {
     required this.fetched,
     required this.skipped,
     this.failed = const [],
+    this.incompleteMedia = const [],
+    this.storageFailure,
     this.incompatible = const [],
     this.versionMismatches = const [],
     this.cancelled = false,
@@ -39,5 +43,19 @@ class PluginSyncOutcome {
   /// העצירה נקלטה לפני סוף הסנכרון — מבנה החנות לא נמשך, והמראה חלקית.
   final bool cancelled;
 
+  /// תוספים שהתמונה או צילומי המסך שלהם לא ירדו; אינו כשל התקנה.
+  final List<String> incompleteMedia;
+
+  /// הכונן התמלא באמצע והמראה חלקית. [failed] אינו כולל תוספים שלא הגיעו אליהם.
+  final StorageFullException? storageFailure;
+
   bool get hasFailures => failed.isNotEmpty;
+
+  bool get hasStorageFailure => storageFailure != null;
+
+  /// הסנכרון אינו מוכיח שהמראה שלמה: מדיה, אחסון, כשל או ביטול.
+  bool get provesMissingContent => hasIncompleteSync || cancelled;
+
+  bool get hasIncompleteSync =>
+      hasFailures || incompleteMedia.isNotEmpty || hasStorageFailure;
 }

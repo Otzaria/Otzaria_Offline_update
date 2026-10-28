@@ -14,6 +14,7 @@ import 'atomic_file.dart' show writeStringAtomically;
 import 'download_connections.dart';
 import 'github_fetch.dart';
 import 'semantic_vectors_plan.dart';
+import 'storage_guard.dart';
 
 export 'semantic_vectors_plan.dart';
 
@@ -26,6 +27,48 @@ class SemanticChainNotApplicableException implements Exception {
 
   @override
   String toString() => AppL10n.strings.libraryDomain.semanticFullDownloadNeeded;
+}
+
+/// Published vectors the bundled engine would refuse (`identity.text`);
+/// downloading again cannot help.
+class SemanticEngineIncompatibleException implements Exception {
+  const SemanticEngineIncompatibleException({
+    required this.lineTextVersion,
+    required this.keyVersion,
+    SemanticIncompatibilityReason? reason,
+  }) : _reason = reason;
+
+  final int lineTextVersion;
+  final int keyVersion;
+  final SemanticIncompatibilityReason? _reason;
+
+  /// The vectors were built for a newer engine than this tool bundles.
+  bool get toolIsOlder =>
+      lineTextVersion > kSemanticEngineText.lineTextVersion ||
+      (lineTextVersion == kSemanticEngineText.lineTextVersion &&
+          keyVersion > kSemanticEngineText.keyVersion);
+
+  /// Which side must change; the target Otzaria's reasons are set explicitly.
+  SemanticIncompatibilityReason get reason =>
+      _reason ??
+      (toolIsOlder
+          ? SemanticIncompatibilityReason.updateTool
+          : SemanticIncompatibilityReason.republishAssets);
+
+  @override
+  String toString() {
+    final strings = AppL10n.strings.libraryDomain;
+    return switch (reason) {
+      SemanticIncompatibilityReason.updateTool =>
+        strings.semanticIncompatibleUpdateTool,
+      SemanticIncompatibilityReason.updateOtzaria =>
+        strings.semanticIncompatibleUpdateOtzaria,
+      SemanticIncompatibilityReason.republishAssets =>
+        strings.semanticIncompatibleRepublish,
+      SemanticIncompatibilityReason.otzariaUnproven =>
+        strings.semanticIncompatibleOtzariaUnproven,
+    };
+  }
 }
 
 /// A vector set as its `CURRENT`/`PREVIOUS` pointer files describe it.
@@ -216,11 +259,13 @@ class _LoadedUnit {
     required this.step,
     required this.files,
     required this.segmentSize,
+    this.identityDigest = '',
   });
 
   final _Step step;
   final List<SemanticAsset> files;
   final int segmentSize;
+  final String identityDigest;
 
   bool get isDelta => step.from > 0;
 }
@@ -233,12 +278,15 @@ class SemanticSearchAssets {
     int? Function(String)? freeBytesFor,
     SemanticEngineFactory? engineFactory,
     @visibleForTesting List<SemanticAsset>? models,
+    @visibleForTesting
+    ({String familyId, String tokenizerChecksum})? modelFamily,
   }) : _injectedClient = httpClient,
        _nativeLibrary = nativeLibrary,
        _scheduler = scheduler ?? DownloadScheduler(),
        _freeBytesFor = freeBytesFor ?? DiskSpaceProbe.freeBytesFor,
        _engineFactory = engineFactory,
        _models = models ?? modelFiles,
+       _modelFamily = modelFamily ?? productionModelFamily,
        _ownsClient = httpClient == null;
 
   final http.Client? _injectedClient;
@@ -253,6 +301,14 @@ class SemanticSearchAssets {
   final ExternalLibrary? _nativeLibrary;
   final SemanticEngineFactory? _engineFactory;
   final List<SemanticAsset> _models;
+  final ({String familyId, String tokenizerChecksum}) _modelFamily;
+
+  /// The family and tokenizer a published manifest must name.
+  static final productionModelFamily = (
+    familyId:
+        'ArieLLL123/judaic-semantic-round2-onnx-zayit@1ec8dc68888bcea774ae9f735b2fe7cd9dc7f3ca',
+    tokenizerChecksum: modelFiles[1].sha256,
+  );
   static const manifestFileName = 'semantic.json';
   static const modelFolder = 'meivin-round2-onnx';
   static const windowsIdentityFileName = '.otzaria-windows-identity';
@@ -567,11 +623,14 @@ class SemanticSearchAssets {
       rethrow;
     } on FormatException {
       return null;
+    } on SemanticEngineIncompatibleException {
+      return null;
     }
   }
 
   /// What to mirror for [libraryTag]: `null` when no vectors were published.
   Future<({_Meta meta, List<_Remote> remotes})?> _plan(
+    String mirrorDir,
     String libraryTag,
     int version,
     SemanticFleet fleet,
@@ -579,7 +638,7 @@ class SemanticSearchAssets {
     bool Function()? isCancelled,
   ) async {
     String? rejectedWindows;
-    _Unusable? windowsFault;
+    Object? windowsFault;
     if (fleet.family == SemanticVectorsFamily.windows) {
       const family = SemanticVectorsFamily.windows;
       final release = await _windowsRelease(libraryTag);
@@ -595,6 +654,9 @@ class SemanticSearchAssets {
           );
         } on _Unusable catch (fault) {
           rejectedWindows = _rejectionKey(release);
+          windowsFault = fault;
+        } on SemanticEngineIncompatibleException catch (fault) {
+          await _recordIncompatible(mirrorDir, release, fault);
           windowsFault = fault;
         }
       }
@@ -622,13 +684,19 @@ class SemanticSearchAssets {
       if (windowsFault != null) throw windowsFault;
       return null;
     }
-    final base = await _remote(
-      release,
-      libraryTag: libraryTag,
-      version: version,
-      family: family,
-      isCancelled: isCancelled,
-    );
+    final _Remote base;
+    try {
+      base = await _remote(
+        release,
+        libraryTag: libraryTag,
+        version: version,
+        family: family,
+        isCancelled: isCancelled,
+      );
+    } on SemanticEngineIncompatibleException catch (fault) {
+      await _recordIncompatible(mirrorDir, release, fault);
+      rethrow;
+    }
     return (
       meta: _metaOf(family, base, rejectedWindows: rejectedWindows),
       remotes: [base],
@@ -695,15 +763,146 @@ class SemanticSearchAssets {
       file.name == 'tokenizer.json' ? tokenizerZip : file,
   ].fold<int>(0, (sum, file) => sum + file.size);
 
+  /// Set by [peekPending] when a published release is known unreadable by
+  /// the bundled engine, which is why nothing is offered.
+  SemanticEngineIncompatibleException? get peekedIncompatibility =>
+      _peekedIncompatibility;
+  SemanticEngineIncompatibleException? _peekedIncompatibility;
+
+  /// The hint [sync] leaves beside `semantic.json`: a release found unreadable
+  /// costs a manifest, and the light check must not offer it again.
+  static const incompatibleFileName = 'semantic-incompatible.json';
+
+  Future<Map<String, Map>> _recordedIncompatible(String mirrorDir) async {
+    try {
+      final value = jsonDecode(
+        await File(p.join(mirrorDir, incompatibleFileName)).readAsString(),
+      );
+      final engine = value is Map ? value['engine'] : null;
+      final releases = value is Map ? value['releases'] : null;
+      if (engine is! Map ||
+          engine['lineTextVersion'] != kSemanticEngineText.lineTextVersion ||
+          engine['keyVersion'] != kSemanticEngineText.keyVersion ||
+          releases is! Map) {
+        return {};
+      }
+      return {
+        for (final MapEntry(:key, :value) in releases.entries)
+          if (key is String && value is Map) key: value,
+      };
+    } on FileSystemException {
+      return {};
+    } on FormatException {
+      return {};
+    }
+  }
+
+  Future<SemanticEngineIncompatibleException?> _recorded(
+    String mirrorDir,
+    _Release release,
+  ) async {
+    final entry = (await _recordedIncompatible(mirrorDir))[release.releaseTag];
+    final line = entry?['lineTextVersion'];
+    final key = entry?['keyVersion'];
+    if (entry == null ||
+        entry['key'] != _rejectionKey(release) ||
+        line is! int ||
+        key is! int) {
+      return null;
+    }
+    return SemanticEngineIncompatibleException(
+      lineTextVersion: line,
+      keyVersion: key,
+    );
+  }
+
+  Future<void> _recordIncompatible(
+    String mirrorDir,
+    _Release release,
+    SemanticEngineIncompatibleException fault,
+  ) async {
+    final releases = await _recordedIncompatible(mirrorDir);
+    releases[release.releaseTag] = {
+      'key': _rejectionKey(release),
+      'lineTextVersion': fault.lineTextVersion,
+      'keyVersion': fault.keyVersion,
+    };
+    try {
+      await Directory(mirrorDir).create(recursive: true);
+      await writeStringAtomically(
+        p.join(mirrorDir, incompatibleFileName),
+        jsonEncode({
+          'engine': {
+            'lineTextVersion': kSemanticEngineText.lineTextVersion,
+            'keyVersion': kSemanticEngineText.keyVersion,
+          },
+          'releases': releases,
+        }),
+      );
+    } on FileSystemException {
+      // A hint for the light check only; the incompatibility is what is thrown.
+    }
+  }
+
+  /// Why the vectors the mirror holds for [libraryVersion] cannot be
+  /// installed, or `null` when they can (or none are held).
+  Future<SemanticEngineIncompatibleException?> incompatibility({
+    required String mirrorDir,
+    required int libraryVersion,
+    bool supportsWindows = false,
+    String? dbPath,
+    String? vectorsRootPath,
+  }) async {
+    final root =
+        vectorsRootPath ??
+        (dbPath == null ? null : p.dirname(p.dirname(dbPath)));
+    if (supportsWindows && root != null) {
+      final meta = await _metadata(mirrorDir, preferWindows: true);
+      final live = (await readInstalledSets(
+        p.join(root, 'vectors'),
+      )).firstOrNull;
+      if (meta != null &&
+          meta.libraryVersion == libraryVersion &&
+          _keepsWindowsSet(meta, live, supportsWindows)) {
+        final hint = (await _recordedIncompatible(
+          mirrorDir,
+        ))['${SemanticVectorsFamily.windows.releaseTagPrefix}${meta.libraryTag}'];
+        final line = hint?['lineTextVersion'];
+        final key = hint?['keyVersion'];
+        if (line is int && key is int) {
+          return SemanticEngineIncompatibleException(
+            lineTextVersion: line,
+            keyVersion: key,
+          );
+        }
+        // The machine keeps its windows set and never installs legacy.
+        return null;
+      }
+    }
+    try {
+      await _load(
+        mirrorDir,
+        libraryVersion,
+        preferWindows: supportsWindows,
+        reportIncompatible: true,
+      );
+      return null;
+    } on SemanticEngineIncompatibleException catch (fault) {
+      return fault;
+    }
+  }
+
   Future<bool> peekPending({
     required String mirrorDir,
     required String libraryTag,
     SemanticFleet fleet = const SemanticFleet(),
   }) async {
     _peekedPendingBytes = null;
+    _peekedIncompatibility = null;
     for (final group in fleet.groups) {
       if (await _peekPending(mirrorDir, libraryTag, group)) {
         if (fleet.groups.length != 1) _peekedPendingBytes = null;
+        _peekedIncompatibility = null;
         return true;
       }
     }
@@ -717,6 +916,7 @@ class SemanticSearchAssets {
     SemanticFleet fleet,
   ) async {
     final version = _version(libraryTag);
+    SemanticEngineIncompatibleException? windowsFault;
     if (fleet.family == SemanticVectorsFamily.windows) {
       final release = await _windowsRelease(libraryTag);
       final local = await _metadata(mirrorDir);
@@ -726,7 +926,10 @@ class SemanticSearchAssets {
           local.libraryTag == libraryTag &&
           release != null &&
           local.rejectedWindowsManifest == _rejectionKey(release);
-      if (release != null && !rejected) {
+      var unreadable = release == null
+          ? null
+          : await _recorded(mirrorDir, release);
+      if (release != null && !rejected && unreadable == null) {
         if (await _windowsMirrorServes(
           mirrorDir,
           libraryTag,
@@ -736,30 +939,86 @@ class SemanticSearchAssets {
         )) {
           return false;
         }
-        if (await _offerable(
-          release,
-          libraryTag,
-          version,
-          family: SemanticVectorsFamily.windows,
-        )) {
+        try {
+          await _remote(
+            release,
+            libraryTag: libraryTag,
+            version: version,
+            family: SemanticVectorsFamily.windows,
+          );
           return true;
+        } on SemanticEngineIncompatibleException catch (fault) {
+          await _recordIncompatible(mirrorDir, release, fault);
+          unreadable = fault;
+        } on _Unusable {
+          // Match download planning: unusable windows metadata permits legacy.
         }
+      }
+      windowsFault = unreadable;
+      // Machines on a live windows set never install legacy: say why instead.
+      if (unreadable != null &&
+          fleet.machines.isNotEmpty &&
+          fleet.machines.every(
+            (m) => m.family == SemanticVectorsFamily.windows,
+          )) {
+        _peekedIncompatibility = unreadable;
+        _peekedPendingBytes = 0;
+        return false;
       }
     }
     final fetched = await _fetchRelease(
       '${SemanticVectorsFamily.legacy.releaseTagPrefix}$libraryTag',
     );
-    if (fetched == null) return false;
+    if (fetched == null) {
+      _peekedIncompatibility = windowsFault;
+      return false;
+    }
     final remote = fetched.manifest;
-    final local = await _load(mirrorDir, version);
+    final recorded = await _recorded(mirrorDir, fetched);
+    if (recorded != null) {
+      _peekedIncompatibility = recorded;
+      _peekedPendingBytes = 0;
+      return false;
+    }
+    SemanticEngineIncompatibleException? held;
+    ({_Meta meta, List<_LoadedUnit> units})? local;
+    try {
+      local = await _load(mirrorDir, version, reportIncompatible: true);
+    } on SemanticEngineIncompatibleException catch (fault) {
+      held = fault;
+    }
+    if (held != null) {
+      final meta = await _metadata(mirrorDir);
+      if (meta != null &&
+          !meta.windows &&
+          meta.libraryTag == libraryTag &&
+          meta.base.name == remote['name'] &&
+          meta.base.size == remote['size'] &&
+          meta.base.sha256 == fetched.digest) {
+        _peekedIncompatibility = held;
+        _peekedPendingBytes = 0;
+        return false;
+      }
+    }
     if (local == null ||
         local.meta.windows ||
         local.meta.libraryTag != libraryTag ||
         local.meta.base.name != remote['name'] ||
         local.meta.base.size != remote['size'] ||
         local.meta.base.sha256 != fetched.digest) {
-      // A release this launcher refuses would fail every download again.
-      if (!await _offerable(fetched, libraryTag, version)) return false;
+      try {
+        await _remote(
+          fetched,
+          libraryTag: libraryTag,
+          version: version,
+          family: SemanticVectorsFamily.legacy,
+        );
+      } on SemanticEngineIncompatibleException catch (fault) {
+        await _recordIncompatible(mirrorDir, fetched, fault);
+        _peekedIncompatibility = fault;
+        _peekedPendingBytes = 0;
+        return false;
+      }
       _peekedPendingBytes = fetched.assets.values.fold<int>(
         _modelDownloadBytes,
         (sum, asset) => sum + (asset['size'] as int),
@@ -773,27 +1032,6 @@ class SemanticSearchAssets {
     return false;
   }
 
-  Future<bool> _offerable(
-    _Release release,
-    String libraryTag,
-    int version, {
-    SemanticVectorsFamily family = SemanticVectorsFamily.legacy,
-  }) async {
-    try {
-      await _remote(
-        release,
-        libraryTag: libraryTag,
-        version: version,
-        family: family,
-      );
-      return true;
-    } on _Unusable {
-      return false;
-    } on Exception {
-      return true;
-    }
-  }
-
   Future<bool> _windowsMirrorServes(
     String mirrorDir,
     String libraryTag,
@@ -801,7 +1039,26 @@ class SemanticSearchAssets {
     _Release release,
     SemanticFleet fleet,
   ) async {
-    final local = await _load(mirrorDir, version, preferWindows: true);
+    final ({_Meta meta, List<_LoadedUnit> units})? local;
+    try {
+      local = await _load(
+        mirrorDir,
+        version,
+        preferWindows: true,
+        reportIncompatible: true,
+      );
+    } on SemanticEngineIncompatibleException catch (fault) {
+      final held = await _metadata(mirrorDir, preferWindows: true);
+      final same =
+          held != null &&
+          held.windows &&
+          held.libraryTag == libraryTag &&
+          held.base.name == release.manifest['name'] &&
+          held.base.size == release.manifest['size'] &&
+          held.base.sha256 == release.digest;
+      if (same) _peekedIncompatibility = fault;
+      return same;
+    }
     final meta = local?.meta;
     if (local == null ||
         meta == null ||
@@ -838,6 +1095,7 @@ class SemanticSearchAssets {
     final remotes = <String, _Remote>{};
     for (final group in fleet.groups) {
       final plan = await _plan(
+        mirrorDir,
         libraryTag,
         version,
         group,
@@ -903,9 +1161,23 @@ class SemanticSearchAssets {
       final existing = await _completeLength(job.dest, job.file.size);
       slots.add(progress.slot(existingBytes: existing));
     }
-    progress.announce();
     final downloader = newDownloader();
     try {
+      await _ensureMirrorSpace(
+        mirrorDir: mirrorDir,
+        generation: generation,
+        jobs: [
+          for (final job in jobs)
+            (file: job.file, url: job.url, dest: job.dest),
+        ],
+        reused: reused,
+        manifestBytes: remotes.values.fold<int>(
+          0,
+          (sum, remote) => sum + remote.manifestBytes.length,
+        ),
+        downloader: downloader,
+      );
+      progress.announce();
       _cancel(isCancelled);
       await Directory(p.join(generation, modelFolder)).create(recursive: true);
       await Directory(p.join(generation, 'vectors')).create(recursive: true);
@@ -955,6 +1227,8 @@ class SemanticSearchAssets {
           for (final file in remote.files) file.name,
         ],
       });
+    } on FileSystemException catch (error, stack) {
+      throwStorageAware(error, stack, mirrorDir);
     } finally {
       downloader.dispose();
     }
@@ -1002,6 +1276,133 @@ class SemanticSearchAssets {
       final file = File(path);
       if (!await file.exists()) return 0;
       return await file.length() >= expectedSize ? expectedSize : 0;
+    } on FileSystemException {
+      return 0;
+    }
+  }
+
+  /// Refuses before the first write when the drive is known to lack room;
+  /// unknown free space never blocks.
+  Future<void> _ensureMirrorSpace({
+    required String mirrorDir,
+    required String generation,
+    required List<({SemanticAsset file, String url, String dest})> jobs,
+    required Map<String, String> reused,
+    required int manifestBytes,
+    required PatchDownloader downloader,
+  }) async {
+    var needed = manifestBytes;
+    for (final job in jobs) {
+      final size = job.file.size;
+      if (job.file.name == tokenizerZip.name) {
+        final unzipped = p.join(p.dirname(job.dest), 'tokenizer.json');
+        final tokenizer = modelFiles[1].size;
+        if (await _heldLength(unzipped, tokenizer) < tokenizer) {
+          needed += tokenizer;
+        }
+      }
+      final ranges = _rangeResume(job.dest, job.url, job.file, downloader);
+      final held = ranges?.held ?? await _heldLength(job.dest, size);
+      final missing = size - held;
+      if (missing > 0) needed += missing;
+      final connections = downloader.maxConnections;
+      if (ranges != null) {
+        needed += ranges.largestUnassembled;
+      } else if (missing > 0 &&
+          connections >= 2 &&
+          size >= downloader.segmentThresholdBytes) {
+        needed += (size + connections - 1) ~/ connections;
+      }
+    }
+    for (final entry in reused.entries) {
+      final target = p.join(generation, modelFolder, entry.key);
+      if (p.equals(entry.value, target)) continue;
+      needed += _models.firstWhere((file) => file.name == entry.key).size;
+    }
+    if (needed == 0) return;
+    final free = _freeBytesFor(mirrorDir);
+    if (free == null || !DiskSpaceProbe.lacksSpace(free, needed)) return;
+    throw StorageFullException(
+      dir: mirrorDir,
+      neededBytes: needed,
+      freeBytes: free,
+      message: AppL10n.strings.libraryDomain.notEnoughDiskSpace(
+        mirrorDir,
+        DiskSpaceProbe.formatBytes(needed),
+        DiskSpaceProbe.formatBytes(free),
+      ),
+    );
+  }
+
+  /// What the downloader resumes from `<dest>.segments` (prefix plus ranges);
+  /// `null` when it would discard the state.
+  ({int held, int largestUnassembled})? _rangeResume(
+    String dest,
+    String url,
+    SemanticAsset file,
+    PatchDownloader downloader,
+  ) {
+    if (downloader.maxConnections < 2 ||
+        file.size < downloader.segmentThresholdBytes) {
+      return null;
+    }
+    try {
+      final state = jsonDecode(File('$dest.segments').readAsStringSync());
+      if (state is! Map ||
+          state['v'] != 1 ||
+          state['token'] != file.sha256 ||
+          state['url'] != url ||
+          state['size'] != file.size ||
+          state['sha256'] != file.sha256 ||
+          (state['etag'] != null && state['etag'] is! String)) {
+        return null;
+      }
+      final bounds = (state['bounds'] as List).cast<int>();
+      final assembled = state['assembled'] as int;
+      if (bounds.length < 3 ||
+          bounds.first != 0 ||
+          bounds.last != file.size ||
+          assembled < 1 ||
+          assembled > bounds.length - 1) {
+        return null;
+      }
+      for (var i = 1; i < bounds.length; i++) {
+        if (bounds[i] <= bounds[i - 1]) return null;
+      }
+      final target = File(dest);
+      final destLength = target.existsSync() ? target.lengthSync() : 0;
+      if (destLength >= file.size) return null;
+      if (assembled > 1 && destLength < bounds[assembled]) return null;
+      // A tail beyond the assembled prefix is cut by the next assembly.
+      var held = destLength < bounds[assembled]
+          ? destLength
+          : bounds[assembled];
+      var largest = 0;
+      for (var i = assembled; i < bounds.length - 1; i++) {
+        final length = bounds[i + 1] - bounds[i];
+        if (length > largest) largest = length;
+        final range = File('$dest.seg-$i');
+        if (!range.existsSync()) continue;
+        final have = range.lengthSync();
+        if (have > length) return null;
+        held += have;
+      }
+      return (held: held, largestUnassembled: largest);
+    } on FileSystemException {
+      return null;
+    } on FormatException {
+      return null;
+    } on TypeError {
+      return null;
+    }
+  }
+
+  Future<int> _heldLength(String path, int size) async {
+    try {
+      final file = File(path);
+      if (!await file.exists()) return 0;
+      final length = await file.length();
+      return length > size ? size : length;
     } on FileSystemException {
       return 0;
     }
@@ -1148,27 +1549,23 @@ class SemanticSearchAssets {
     }
     final identity = manifest['identity'];
     final model = identity is Map ? identity['model'] : null;
-    final text = identity is Map ? identity['text'] : null;
-    final lineText = text is Map ? text['line_text_version'] : null;
-    final keyVersion = text is Map ? text['key_version'] : null;
-    if (lineText is! int ||
-        keyVersion is! int ||
-        lineText != kSemanticLineTextVersion ||
-        keyVersion != 1) {
-      final strings = AppL10n.strings.libraryDomain;
-      throw FormatException(
-        lineText == null ||
-                (lineText is int && lineText < kSemanticLineTextVersion) ||
-                (lineText == kSemanticLineTextVersion && keyVersion == null)
-            ? strings.semanticBuiltForOlderOtzaria
-            : strings.semanticNeedsNewerLauncher,
-      );
-    }
     if (model is! Map ||
-        model['family_id'] !=
-            'ArieLLL123/judaic-semantic-round2-onnx-zayit@1ec8dc68888bcea774ae9f735b2fe7cd9dc7f3ca' ||
-        model['tokenizer_checksum'] != modelFiles[1].sha256) {
+        model['family_id'] != _modelFamily.familyId ||
+        model['tokenizer_checksum'] != _modelFamily.tokenizerChecksum) {
       _invalid();
+    }
+    final text = (identity as Map)['text'];
+    // A manifest built before these fields existed reads as version 0.
+    final rawLine = text is Map ? text['line_text_version'] : null;
+    final rawKey = text is Map ? text['key_version'] : null;
+    final lineText = rawLine is int ? rawLine : 0;
+    final keyVersion = rawKey is int ? rawKey : 0;
+    if (lineText != kSemanticEngineText.lineTextVersion ||
+        keyVersion != kSemanticEngineText.keyVersion) {
+      throw SemanticEngineIncompatibleException(
+        lineTextVersion: lineText,
+        keyVersion: keyVersion,
+      );
     }
     final digest = manifest['identityDigest'];
     if (family == SemanticVectorsFamily.windows &&
@@ -1320,7 +1717,7 @@ class SemanticSearchAssets {
     String path,
     SemanticAsset file, [
     bool Function()? isCancelled,
-    IOSink? copyTo,
+    GuardedSink? copyTo,
   ]) async {
     _cancel(isCancelled);
     final source = File(path);
@@ -1356,6 +1753,7 @@ class SemanticSearchAssets {
     String mirrorDir,
     int version, {
     bool preferWindows = false,
+    bool reportIncompatible = false,
   }) async {
     final meta = await _metadata(mirrorDir, preferWindows: preferWindows);
     if (meta == null || meta.libraryVersion != version) return null;
@@ -1393,6 +1791,7 @@ class SemanticSearchAssets {
             step: step,
             files: parsed.files,
             segmentSize: parsed.segmentSize,
+            identityDigest: parsed.identityDigest,
           ),
         );
       }
@@ -1400,6 +1799,9 @@ class SemanticSearchAssets {
     } on FileSystemException {
       return null;
     } on FormatException {
+      return null;
+    } on SemanticEngineIncompatibleException {
+      if (reportIncompatible) rethrow;
       return null;
     }
   }
@@ -1428,11 +1830,13 @@ class SemanticSearchAssets {
     if (!preferencesReady) return true;
     if (needsBase && !meta.chain) return true;
     final vectorsCurrent = !meta.windows
-        ? sets.any(
-            (set) =>
-                set.libraryVersion == meta.libraryVersion &&
-                set.libraryReleaseTag == meta.libraryTag,
-          )
+        ? live != null &&
+              live.libraryVersion == meta.libraryVersion &&
+              live.libraryReleaseTag == meta.libraryTag &&
+              _sameIdentity(
+                live.identityDigest,
+                data.units.single.identityDigest,
+              )
         : live != null &&
               live.windows &&
               live.identityDigest == meta.identityDigest &&
@@ -1460,6 +1864,11 @@ class SemanticSearchAssets {
     SemanticInstalledSet? live,
     bool supportsWindows,
   ) => !meta.windows && supportsWindows && live != null && live.windows;
+
+  /// A set installed under another identity is not the published one; an
+  /// unrecorded identity on either side cannot tell.
+  static bool _sameIdentity(String installed, String published) =>
+      installed.isEmpty || published.isEmpty || installed == published;
 
   /// The sound sets under [vectors], live first (`CURRENT`, then `PREVIOUS`).
   static Future<List<SemanticInstalledSet>> readInstalledSets(
@@ -1569,7 +1978,7 @@ class SemanticSearchAssets {
   }) async {
     final name = parts.first.name.replaceFirst(RegExp(r'\.part-\d+$'), '');
     final segmentPath = p.join(workDir, name);
-    final sink = File(segmentPath).openWrite();
+    final sink = GuardedSink(File(segmentPath).openWrite(), segmentPath);
     try {
       for (final part in parts) {
         _cancel(isCancelled);
@@ -1578,22 +1987,26 @@ class SemanticSearchAssets {
           _invalid();
         }
       }
-    } finally {
-      await sink.close();
+    } catch (_) {
+      await sink.closeAfterFailure();
+      rethrow;
     }
+    await sink.close();
     return segmentPath;
   }
 
   void _ensureSpace(String path, int needed) {
     final free = _freeBytesFor(path);
     if (free == null || free >= needed) return;
-    throw FileSystemException(
-      AppL10n.strings.libraryDomain.notEnoughDiskSpace(
+    throw StorageFullException(
+      dir: path,
+      neededBytes: needed,
+      freeBytes: free,
+      message: AppL10n.strings.libraryDomain.notEnoughDiskSpace(
         path,
         DiskSpaceProbe.formatBytes(needed),
         DiskSpaceProbe.formatBytes(free),
       ),
-      path,
     );
   }
 
@@ -1654,6 +2067,7 @@ class SemanticSearchAssets {
     required int libraryVersion,
     String? vectorsRootPath,
     bool supportsWindows = false,
+    bool? targetReadsLineText4 = true,
     Future<void> Function()? beforeActivate,
     void Function(String)? onStage,
     bool Function()? isCancelled,
@@ -1663,6 +2077,7 @@ class SemanticSearchAssets {
       mirrorDir,
       libraryVersion,
       preferWindows: supportsWindows,
+      reportIncompatible: true,
     );
     if (data == null || (data.meta.windows && !supportsWindows)) {
       _invalid();
@@ -1674,6 +2089,15 @@ class SemanticSearchAssets {
     final generation = p.join(mirrorDir, meta.libraryTag);
     final live = (await readInstalledSets(vectorsDir)).firstOrNull;
     if (_keepsWindowsSet(meta, live, supportsWindows)) return false;
+    if (targetReadsLineText4 != true) {
+      throw SemanticEngineIncompatibleException(
+        lineTextVersion: kSemanticEngineText.lineTextVersion,
+        keyVersion: kSemanticEngineText.keyVersion,
+        reason: targetReadsLineText4 == null
+            ? SemanticIncompatibilityReason.otzariaUnproven
+            : SemanticIncompatibilityReason.updateOtzaria,
+      );
+    }
     final work = await Directory.systemTemp.createTemp(
       'otzaria-semantic-install-',
     );
@@ -1796,6 +2220,8 @@ class SemanticSearchAssets {
               _setRefusesDelta.contains(error.kind)) {
             throw const SemanticChainNotApplicableException();
           }
+          final full = storageFullFromEngine(error, vectorsDir);
+          if (full != null) throw full;
           rethrow;
         }
         if (!report.alreadyApplied && report.libraryVersion != unit.step.to) {
@@ -1805,9 +2231,17 @@ class SemanticSearchAssets {
       if (meta.chain) {
         await beforeActivate?.call();
         _cancel(isCancelled);
-        await engine.compact(vectorsDir, isCancelled: isCancelled);
+        try {
+          await engine.compact(vectorsDir, isCancelled: isCancelled);
+        } catch (error) {
+          final full = storageFullFromEngine(error, vectorsDir);
+          if (full != null) throw full;
+          rethrow;
+        }
       }
       return !meta.chain;
+    } on FileSystemException catch (error, stack) {
+      throwStorageAware(error, stack, vectorsDir);
     } finally {
       engine?.dispose();
       await work.delete(recursive: true);

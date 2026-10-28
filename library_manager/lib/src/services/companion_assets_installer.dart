@@ -10,6 +10,7 @@ import 'package:seforim_library_updater/seforim_library_updater.dart'
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 import 'companion_assets.dart';
+import 'storage_guard.dart';
 import 'zstd_file_decompressor.dart';
 
 /// תוצאת התקנה של פריט נלווה אחד.
@@ -25,6 +26,14 @@ class CompanionInstallReport {
   /// הצעה חוזרת על מראה שכבר נמסרה — ראו [CompanionAssetsInstaller.pendingWork].
   /// **רק פריטים שהצליחו**: רישום של כשל היה מבליע עבודה אמיתית.
   final Map<CompanionAsset, String> delivered;
+
+  /// The first full-drive failure among [errors]; later items never started.
+  StorageFullException? get storageFailure {
+    for (final error in errors.values) {
+      if (error is StorageFullException) return error;
+    }
+    return null;
+  }
 
   bool get anyInstalled =>
       outcomes.values.any((o) => o == CompanionInstallOutcome.installed);
@@ -60,7 +69,10 @@ class CompanionPendingReport {
 ///
 /// כל פריט הוא best-effort: כשל באחד נרשם ולא מפיל את השאר, בדיוק כמו שם.
 class CompanionAssetsInstaller {
-  const CompanionAssetsInstaller();
+  const CompanionAssetsInstaller({this.freeBytesFor});
+
+  /// Replaces the disk probe, for tests.
+  final int? Function(String path)? freeBytesFor;
 
   /// שם תיקיית ה-PDF של התלמוד בתוך תיקיית הספרייה
   /// (`DatabaseConstants.talmudBavliFolderName`).
@@ -112,12 +124,16 @@ class CompanionAssetsInstaller {
     final strings = AppL10n.strings.libraryDomain;
     final talmudBefore = _talmudStatsMemo(libraryDir);
 
+    var storageFailed = false;
     Future<void> run(
       CompanionAsset asset,
       String name,
       Future<bool> Function(CompanionMirrorEntry entry) body,
     ) async {
       if (isCancelled?.call() ?? false) return;
+      // A full drive stops the writes that have not started; the rest of the
+      // report stays.
+      if (storageFailed) return;
       final entry = manifest.entries[asset];
       if (entry == null) {
         outcomes[asset] = CompanionInstallOutcome.missing;
@@ -143,9 +159,11 @@ class CompanionAssetsInstaller {
         // חוזר היה נרשם כאילו הושלם ומעלים עבודה אמיתית.
         deliveredNow[asset] = mirrorMarkerOf(asset, entry);
       } catch (error) {
+        final full = storageFullFromUpstream(error);
         outcomes[asset] = CompanionInstallOutcome.failed;
-        errors[asset] = error;
-        onWarning?.call(name, error);
+        errors[asset] = full ?? error;
+        storageFailed = storageFailed || full != null;
+        onWarning?.call(name, full ?? error);
       }
     }
 
@@ -518,17 +536,17 @@ class CompanionAssetsInstaller {
   }
 
   void _ensureSpaceForTalmud(String libraryDir, int needed) {
-    if (needed <= 0 ||
-        !DiskSpaceProbe.isKnownInsufficient(libraryDir, needed)) {
-      return;
-    }
-    throw StateError(
-      AppL10n.strings.libraryDomain.notEnoughDiskSpace(
+    if (needed <= 0) return;
+    final free = (freeBytesFor ?? DiskSpaceProbe.freeBytesFor)(libraryDir);
+    if (!DiskSpaceProbe.lacksSpace(free, needed)) return;
+    throw StorageFullException(
+      dir: libraryDir,
+      neededBytes: needed,
+      freeBytes: free,
+      message: AppL10n.strings.libraryDomain.notEnoughDiskSpace(
         libraryDir,
         DiskSpaceProbe.formatBytes(needed),
-        DiskSpaceProbe.formatBytes(
-          DiskSpaceProbe.freeBytesFor(libraryDir) ?? 0,
-        ),
+        DiskSpaceProbe.formatBytes(free!),
       ),
     );
   }
@@ -695,21 +713,27 @@ class CompanionAssetsInstaller {
     String name,
   ) async {
     if (entry.sha256 == null) {
-      await source.copy(destPath);
+      try {
+        await source.copy(destPath);
+      } on FileSystemException catch (error) {
+        throw asStorageFailure(error, destPath);
+      }
       return;
     }
     final hasher = Sha256Stream();
     try {
-      final sink = File(destPath).openWrite();
+      final sink = GuardedSink(File(destPath).openWrite(), destPath);
       try {
         await for (final chunk in source.openRead()) {
           hasher.add(chunk);
           sink.add(chunk);
         }
         await sink.flush();
-      } finally {
-        await sink.close();
+      } catch (_) {
+        await sink.closeAfterFailure();
+        rethrow;
       }
+      await sink.close();
       _verifyDigest(entry, hasher.close(), name);
     } finally {
       hasher.dispose();

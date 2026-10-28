@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:library_manager/src/services/semantic_search_assets.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_search_engine/otzaria_search_engine.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
@@ -24,7 +25,7 @@ Map<String, Object?> manifest({
   'toLibraryVersion': version,
   'segment': {'size': 3},
   'identity': {
-    'text': {'line_text_version': kSemanticLineTextVersion, 'key_version': 1},
+    'text': {'line_text_version': 4, 'key_version': 1},
     'model': {
       'family_id':
           'ArieLLL123/judaic-semantic-round2-onnx-zayit@1ec8dc68888bcea774ae9f735b2fe7cd9dc7f3ca',
@@ -105,13 +106,27 @@ void main() {
     int status = 200,
     String remoteTag = tag,
     String? digest,
+    bool republished = false,
     bool publishDigest = true,
     String? notes,
   }) async {
-    final bytes = utf8.encode(jsonEncode(manifest()));
-    var calls = 0;
+    final remoteManifest = manifest(
+      version: int.parse(remoteTag.substring(1).split('-').first),
+    )..['libraryReleaseTag'] = remoteTag;
+    if (republished) remoteManifest['publishedAgain'] = true;
+    final bytes = utf8.encode(jsonEncode(remoteManifest));
+    var apiCalls = 0;
+    var manifestCalls = 0;
+    final downloadRoot =
+        'https://github.com/Otzaria/SeforimLibrary/'
+        'releases/download/vectors-$remoteTag';
     final client = MockClient((request) async {
-      calls++;
+      if (request.url.host == 'github.com') {
+        manifestCalls++;
+        expect(request.url.toString(), '$downloadRoot/$manifestName');
+        return http.Response.bytes(bytes, 200);
+      }
+      apiCalls++;
       expect(request.url.host, 'api.github.com');
       expect(
         request.url.path,
@@ -126,10 +141,15 @@ void main() {
             {
               'name': manifestName,
               'size': bytes.length,
+              'browser_download_url': '$downloadRoot/$manifestName',
               if (publishDigest)
                 'digest': 'sha256:${digest ?? Sha256Stream.ofBytes(bytes)}',
             },
-            {'name': 'segment.oxv.zst', 'size': 3},
+            {
+              'name': 'segment.oxv.zst',
+              'size': 3,
+              'browser_download_url': '$downloadRoot/segment.oxv.zst',
+            },
           ],
         }),
         status,
@@ -139,7 +159,8 @@ void main() {
     try {
       return await online.peekPending(mirrorDir: mirror, libraryTag: remoteTag);
     } finally {
-      expect(calls, 1);
+      expect(apiCalls, 1);
+      expect(manifestCalls, lessThanOrEqualTo(1));
       peekedBytes = online.peekedPendingBytes;
       online.dispose();
       client.close();
@@ -158,7 +179,7 @@ void main() {
     'light check detects republished vectors under the same library tag',
     () async {
       await writeMirror();
-      expect(await peek(digest: List.filled(64, '1').join()), isTrue);
+      expect(await peek(republished: true), isTrue);
     },
   );
 
@@ -266,7 +287,9 @@ void main() {
     try {
       await expectLater(
         installer.install(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
-        throwsA(isA<FileSystemException>()),
+        throwsA(
+          isA<StorageFullException>().having((e) => e.freeBytes, 'free', 2),
+        ),
       );
       expect(checked, contains(p.join(root, 'vectors')));
       expect(await Directory(root).exists(), isFalse);
@@ -326,8 +349,8 @@ void main() {
         await expectLater(
           installer.install(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
           throwsA(
-            isA<FileSystemException>().having(
-              (error) => error.path,
+            isA<StorageFullException>().having(
+              (error) => error.dir,
               'work volume',
               Directory.systemTemp.path,
             ),
@@ -1655,8 +1678,8 @@ void main() {
             vectorsRootPath: root,
           ),
           throwsA(
-            isA<FileSystemException>().having(
-              (error) => error.path,
+            isA<StorageFullException>().having(
+              (error) => error.dir,
               'model folder',
               modelDir,
             ),
@@ -1706,7 +1729,7 @@ void main() {
             libraryVersion: 30,
             vectorsRootPath: root,
           ),
-          throwsA(isA<FileSystemException>()),
+          throwsA(isA<StorageFullException>()),
         );
         expect(vectorChecks, 2);
         expect(await File(p.join(vectorsDir, 'CURRENT')).exists(), isFalse);

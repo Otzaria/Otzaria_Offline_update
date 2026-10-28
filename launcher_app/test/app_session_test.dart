@@ -28,12 +28,26 @@ import 'package:launcher_app/src/shell/home_guidance_session.dart';
 import 'package:launcher_app/src/shell/session_prompts.dart';
 import 'package:launcher_app/src/shell/shell_tasks.dart';
 import 'package:library_manager/library_manager.dart'
-    show CompanionAsset, LibraryStateStore;
+    show
+        CompanionAsset,
+        LibraryManager,
+        LibraryStateStore,
+        MirrorDownloadOutcome;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
+import 'package:plugins_manager/plugins_manager.dart'
+    show
+        MirroredStoreApp,
+        PluginCatalog,
+        PluginSyncOutcome,
+        PluginSyncProgress,
+        PluginsManager,
+        PluginsOnlineStatus,
+        StoreAppRelease;
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
+import 'storage_real_engine_support.dart';
 import 'test_support.dart';
 
 void main() {
@@ -71,6 +85,9 @@ void main() {
     SleepInhibitor? sleep,
     NoticesSeenStore? notices,
     OtzariaLauncher launcher = const _FailingLauncher(),
+    OtzariaManager? otzariaManager,
+    LibraryManager? libraryManager,
+    PluginsManager? pluginsManager,
   }) {
     final s = AppSession(
       dataDir: tempDir.path,
@@ -83,6 +100,9 @@ void main() {
           MemoryNoticesStore(seen: {NoticesSeenStore.errorReportsIntro}),
       sleepInhibitor: sleep,
       otzariaLauncher: launcher,
+      otzariaManager: otzariaManager,
+      libraryManager: libraryManager,
+      pluginsManager: pluginsManager,
     );
     sessions.add(s);
     return s;
@@ -1368,6 +1388,120 @@ void main() {
       expect(s.library.downloadStatus, isNot(MirrorDownloadStatus.idle));
     });
 
+    group('כונן מלא באמצע ההורדה — מסלול מלא', () {
+      late _Engines engines;
+
+      Future<AppSession> fullSession() async {
+        await settings.update(settings.settings
+            .copyWith(semanticDownload: SemanticDownloadPreference.never));
+        engines = _Engines(tempDir.path);
+        final s = session(
+          otzariaManager: engines.otzaria,
+          libraryManager: engines.library,
+          pluginsManager: engines.plugins,
+        )..start();
+        return s;
+      }
+
+      DownloadTask task(AppSession s) => s.tasks.current! as DownloadTask;
+
+      test('בדיקת ביקורת: בלי כשל אחסון גם תוכנת החנות מתחילה', () async {
+        final s = await fullSession();
+        await waitFor(() => s.plugins.status != PluginsModuleStatus.loading);
+        await s.downloadAll();
+        expect(engines.plugins.syncCalls, 1);
+        expect(engines.plugins.storeAppCalls, greaterThanOrEqualTo(1));
+      });
+
+      test('כשל אחסון בספרייה (חריג אמיתי): לא תוספים ולא תוכנת החנות',
+          () async {
+        final s = await fullSession();
+        await waitFor(() => s.plugins.status != PluginsModuleStatus.loading);
+        engines.library.error =
+            await realDownloadFailure(tempDir, diskFullErrno);
+        await s.downloadAll();
+        expect(engines.plugins.syncCalls, 0);
+        expect(engines.plugins.storeAppCalls, 0);
+        expect(task(s).phase, DownloadTaskPhase.failed);
+        expect(task(s).failure!.kind, DownloadFailureKind.diskSpace);
+      });
+
+      test('כשל אחסון בסנכרון התוספים עצמו עוצר את תוכנת החנות', () async {
+        final s = await fullSession();
+        await waitFor(() => s.plugins.status != PluginsModuleStatus.loading);
+        engines.plugins.outcome = const PluginSyncOutcome(
+          catalog: PluginCatalog.empty,
+          fetched: 0,
+          skipped: 0,
+          storageFailure: StorageFullException(dir: 'E:'),
+        );
+        await s.downloadAll();
+        expect(engines.plugins.syncCalls, 1);
+        expect(engines.plugins.storeAppCalls, 0);
+        expect(task(s).failure!.kind, DownloadFailureKind.diskSpace);
+      });
+
+      test('PatchDownloadException אמיתי בספרייה: אין תוספים, כשל diskSpace',
+          () async {
+        final s = await fullSession();
+        await waitFor(() => s.plugins.status != PluginsModuleStatus.loading);
+        engines.library.error =
+            await realDownloadFailure(tempDir, diskFullErrno);
+        await s.downloadAll();
+
+        expect(engines.plugins.syncCalls, 0);
+        final t = task(s);
+        expect(t.phase, DownloadTaskPhase.failed);
+        expect(t.failure!.kind, DownloadFailureKind.diskSpace);
+        expect(t.failure!.components, [MirrorComponent.library]);
+        // האפליקציה שירדה לפני הספרייה אינה כשלה, ולכן נשארת.
+        expect(t.failure!.components, isNot(contains(MirrorComponent.app)));
+        expect(s.library.downloadStatus, MirrorDownloadStatus.error);
+        expect(s.isDownloading, isFalse);
+      });
+
+      test('StateError אמיתי של בדיקת המקום: נדרש ופנוי מוצגים', () async {
+        final s = await fullSession();
+        await waitFor(() => s.plugins.status != PluginsModuleStatus.loading);
+        engines.library.error = StateError(AppL10n.strings.libraryDomain
+            .mirrorNotEnoughDiskSpace('E:', '2 GB', '1 GB'));
+        await s.downloadAll();
+        expect(engines.plugins.syncCalls, 0);
+        expect(task(s).failure!.kind, DownloadFailureKind.diskSpace);
+        expect(task(s).failure!.needed, '2 GB');
+      });
+
+      test('כשל אחסון בסנכרון התוספים: כשל diskSpace על התוספים', () async {
+        final s = await fullSession();
+        await waitFor(() => s.plugins.status != PluginsModuleStatus.loading);
+        engines.plugins.outcome = const PluginSyncOutcome(
+          catalog: PluginCatalog.empty,
+          fetched: 0,
+          skipped: 0,
+          storageFailure: StorageFullException(dir: 'E:'),
+        );
+        await s.downloadAll();
+        final t = task(s);
+        expect(t.phase, DownloadTaskPhase.failed);
+        expect(t.failure!.kind, DownloadFailureKind.diskSpace);
+        expect(t.failure!.components, [MirrorComponent.plugins]);
+      });
+
+      test('ניסיון נוסף אחרי שהכונן התפנה אינו תקוע על הכשל הישן', () async {
+        final s = await fullSession();
+        await waitFor(() => s.plugins.status != PluginsModuleStatus.loading);
+        engines.library.error =
+            await realDownloadFailure(tempDir, diskFullErrno);
+        await s.downloadAll();
+        expect(task(s).phase, DownloadTaskPhase.failed);
+
+        engines.library.error = null;
+        await s.downloadAll();
+        expect(engines.plugins.syncCalls, 1);
+        expect(task(s).phase, DownloadTaskPhase.done);
+      });
+    });
+
     test('"אל תציג שוב" עם "לא" שומר "לא להוריד"; "חזרה" לא שומרת', () async {
       await settings.update(settings.settings.copyWith(
         personalUpdateMode: true,
@@ -1697,4 +1831,103 @@ class _TrackedSettings extends SettingsController {
 
   @override
   Future<void> update(AppSettings next) => pending = super.update(next);
+}
+
+class _QuietOtzaria extends OtzariaManager {
+  _QuietOtzaria(String dir) : super(dataDir: dir);
+
+  @override
+  Future<void> downloadToMirror({
+    OtzariaChannelReleases? online,
+    void Function(int received, int total)? onProgress,
+    void Function(OtzariaReleaseChannel channel)? onChannel,
+    bool Function()? isCancelled,
+  }) async {}
+
+  @override
+  Future<int?> mirroredReadableDbSchema() async => 1;
+}
+
+class _ScriptedLibrary extends LibraryManager {
+  _ScriptedLibrary(String dir) : super(dataDir: dir, environment: const {});
+
+  /// מה שהמוריד האמיתי זרק; `null` = ההורדה מצליחה.
+  Object? error;
+
+  @override
+  Future<MirrorDownloadOutcome> downloadToMirror({
+    bool includeSemanticSearch = false,
+    int? readableDbSchema,
+    void Function(String stage)? onStage,
+    void Function(String? stage)? onCompanionStage,
+    void Function(int doneAssets, int totalAssets)? onAssetProgress,
+    void Function(int downloaded, int? total)? onBytesProgress,
+    void Function(String assetName, Object error)? onCompanionWarning,
+    void Function(String warning)? onWarning,
+    bool Function()? isCancelled,
+  }) async {
+    if (error case final failure?) throw failure;
+    return const MirrorDownloadOutcome();
+  }
+}
+
+const _storeRelease = StoreAppRelease(
+  tagName: 'v6',
+  version: 6,
+  assetName: 'store.exe',
+  downloadUrl: 'https://example.invalid/store.exe',
+  sizeBytes: 1,
+);
+
+class _CountingPlugins extends PluginsManager {
+  _CountingPlugins(String dir)
+      : super(resolveMirrorDir: () async => p.join(dir, 'mirror'));
+
+  int syncCalls = 0;
+  int storeAppCalls = 0;
+  PluginSyncOutcome outcome = const PluginSyncOutcome(
+    catalog: PluginCatalog.empty,
+    fetched: 0,
+    skipped: 0,
+  );
+
+  @override
+  Future<PluginSyncOutcome> sync({
+    List<String> appVersions = const [],
+    void Function(PluginSyncProgress progress)? onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    syncCalls++;
+    return outcome;
+  }
+
+  // הבדיקה הקלה מראה גם אחרי הרענון שיש תוספים וגרסה חדשה של החנות.
+  @override
+  Future<PluginsOnlineStatus> peekOnlineUpdates({
+    List<String> appVersions = const [],
+  }) async =>
+      const PluginsOnlineStatus(updatedPlugins: ['a'], totalOnline: 1);
+
+  @override
+  Future<StoreAppRelease?> peekStoreApp() async => _storeRelease;
+
+  @override
+  Future<MirroredStoreApp> syncStoreApp(
+    StoreAppRelease release, {
+    void Function(int received, int total)? onProgress,
+  }) async {
+    storeAppCalls++;
+    throw StateError('store app download stubbed');
+  }
+}
+
+class _Engines {
+  _Engines(String dir)
+      : otzaria = _QuietOtzaria(dir),
+        library = _ScriptedLibrary(dir),
+        plugins = _CountingPlugins(dir);
+
+  final _QuietOtzaria otzaria;
+  final _ScriptedLibrary library;
+  final _CountingPlugins plugins;
 }

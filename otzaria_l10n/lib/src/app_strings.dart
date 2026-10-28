@@ -80,6 +80,10 @@ abstract class CommonStrings {
   /// בכולם — ולכן המלל שלו יושב כאן ולא בכל אחד מהם.
   String get closeOtzariaButton;
   String get closeOtzariaFailedSnack;
+
+  /// הכונן התמלא באמצע כתיבה והמערכת לא אמרה כמה חסר, ולכן אין כאן מספרים.
+  String storageFullNoDetails(String dir);
+  String get storageFullUnknownDir;
 }
 
 // ── מסגרת האפליקציה ───────────────────────────────────────────────────────────
@@ -1804,13 +1808,17 @@ abstract class LibraryDomainStrings {
   String get companionCatalogName;
   String get companionDictionaryName;
   String get companionSemanticName;
+
+  /// קובצי החיפוש החכם שבמראה אינם ניתנים להתקנה; ההסבר תלוי במי שצריך לזוז.
+  String get semanticIncompatibleUpdateTool;
+  String get semanticIncompatibleUpdateOtzaria;
+  String get semanticIncompatibleRepublish;
+  String get semanticIncompatibleOtzariaUnproven;
   String get libraryChangesNotesName;
   String get semanticDownloading;
   String get semanticInstalling;
   String get semanticConsentRequired;
   String get semanticFullDownloadNeeded;
-  String get semanticBuiltForOlderOtzaria;
-  String get semanticNeedsNewerLauncher;
   String get semanticConsentTitle;
 
   /// נוסח ההסכמה של אוצריא עצמה, בלי המשפט על הכלי הזה.

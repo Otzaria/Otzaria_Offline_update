@@ -508,6 +508,49 @@ void main() {
         CompanionInstallOutcome.alreadyUpToDate,
       );
     });
+    test(
+      'אין מקום לתלמוד: StorageFullException, והפריטים הבאים לא מתחילים',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        writeTalmudArchive(p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'), [
+          'ברכות.pdf',
+        ]);
+        await writeManifest({
+          'talmud': {
+            'fileName': 'talmud_bavli_latest.tar.zst',
+            'size': mirrorSize('talmud_bavli_latest.tar.zst'),
+            'tag': 'v1',
+            'sha256': mirrorSha256('talmud_bavli_latest.tar.zst'),
+            'compressed': true,
+          },
+          'dictionary': {'fileName': 'lexical.db', 'size': 7, 'tag': 'v2'},
+        });
+        await File(p.join(mirrorDir, 'lexical.db')).writeAsString('LEXICAL');
+        final warned = <Object>[];
+
+        final report = await CompanionAssetsInstaller(freeBytesFor: (_) => 0)
+            .install(
+              mirrorDir: mirrorDir,
+              dbPath: dbPath,
+              onWarning: (_, error) => warned.add(error),
+            );
+
+        final failure = report.storageFailure!;
+        expect(failure.dir, libraryDir);
+        expect(failure.neededBytes, greaterThan(0));
+        expect(failure.freeBytes, 0);
+        expect(warned, [same(failure)]);
+        expect(
+          report.outcomes[CompanionAsset.talmud],
+          CompanionInstallOutcome.failed,
+        );
+        expect(report.outcomes.containsKey(CompanionAsset.dictionary), isFalse);
+        expect(File(p.join(libraryDir, 'lexical.db')).existsSync(), isFalse);
+      },
+    );
 
     test('מפרט התוכן נמדד מהארכיון ולא ממה שכבר ישב בתיקייה', () async {
       if (bindings == null) {

@@ -9,7 +9,8 @@ import 'package:library_manager/library_manager.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
-import 'package:plugins_manager/plugins_manager.dart' show StorePlugin;
+import 'package:plugins_manager/plugins_manager.dart'
+    show PluginsManager, StorePlugin;
 import 'package:seforim_library_updater/seforim_library_updater.dart'
     show DiskSpaceProbe;
 
@@ -67,6 +68,9 @@ class AppSession extends ChangeNotifier {
     OtzariaLauncher otzariaLauncher = const OtzariaLauncher(),
     SearchFeedbackController? searchFeedback,
     ErrorReportsController? errorReports,
+    @visibleForTesting OtzariaManager? otzariaManager,
+    @visibleForTesting LibraryManager? libraryManager,
+    @visibleForTesting PluginsManager? pluginsManager,
   })  : _noticesStore = noticesStore,
         _injectedSleepInhibitor = sleepInhibitor {
     final s = settings.settings;
@@ -77,6 +81,7 @@ class AppSession extends ChangeNotifier {
       preferPrerelease: s.preferAppPrerelease,
       runningLocator: runningLocator,
       launcher: otzariaLauncher,
+      manager: otzariaManager,
       pendingLaunchUri: () async =>
           _library.hasPendingReindex ? OtzariaDeepLinks.libraryReindex : null,
       onLaunchUriDelivered: () => _library.markReindexRequestDelivered(),
@@ -93,6 +98,7 @@ class AppSession extends ChangeNotifier {
               ? _otzaria.latestVersion
               : null,
       instanceLock: const OtzariaInstanceLock(),
+      manager: libraryManager,
     )..addListener(_onChange);
     _plugins = PluginsModuleController(
       mirrorRootDir: p.join(dataDir, 'mirror'),
@@ -106,6 +112,7 @@ class AppSession extends ChangeNotifier {
       installedAppVersion: () async =>
           _otzaria.currentVersion ?? _otzaria.latestVersion,
       ensureAppVersionsKnown: _otzaria.ensureChecked,
+      manager: pluginsManager,
     )..addListener(_onChange);
     _installDone = _plugins.installCompletions.listen((name) {
       if (isActive) {
@@ -1395,6 +1402,12 @@ class _SessionDownloadHost implements MirrorDownloadHost {
               MirrorComponent.library: s._library.downloadError,
               MirrorComponent.plugins:
                   s._plugins.errorMessage ?? s._plugins.shabbatNotice,
+            },
+            causes: {
+              MirrorComponent.app: s._otzaria.downloadCause,
+              MirrorComponent.library: s._library.downloadCause,
+              MirrorComponent.plugins:
+                  s._plugins.syncCause ?? s._plugins.storeAppCause,
             },
             shabbat: s._plugins.shabbatNotice != null,
           ),

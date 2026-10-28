@@ -232,7 +232,12 @@ class DownloadTaskView extends StatelessWidget {
             icon: FluentIcons.storage_24_regular,
           ),
           title: t.spaceTitle,
-          body: t.spaceBody('${failure.needed}', '${failure.free}'),
+          body: switch ((failure.needed, failure.free, failure.dir)) {
+            (final needed?, final free?, _) => t.spaceBody(needed, free),
+            (_, _, final dir?) =>
+              context.strings.common.storageFullNoDetails(dir),
+            _ => context.strings.common.storageFullUnknownDir,
+          },
           actions: [retry, home],
         ),
       DownloadFailureKind.snapshot => TaskResult(

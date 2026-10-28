@@ -7,3 +7,6 @@
 
 # סקריפט שרץ כ-hook דרך bash (shebang) — CRLF שובר אותו בדיוק כמו למעלה.
 .githooks/* text eol=lf
+
+# fixture בינארי שנבדק ב-sha256: בלי נרמול שורות.
+*.oxv binary

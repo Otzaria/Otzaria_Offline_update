@@ -114,6 +114,27 @@ class OtzariaCapabilities {
         false;
   }
 
+  /// First Otzaria release that bundles `otzaria_search_engine` 6.0.0
+  /// (`text.line_text_version` 4); 0.9.98+801 still ships ^3.1.0.
+  static const String searchEngine6SinceAppVersion = '0.9.98.2';
+
+  /// Whether the Otzaria at [launchPath] reads `text.line_text_version` 4
+  /// vectors: `true`/`false` from its version, `null` when no version is known.
+  static bool? readsSemanticLineText4({
+    OtzariaCapabilities? capabilities,
+    String? launchPath,
+    String? installedVersion,
+  }) {
+    final trusted = capabilities?.exePath == null ||
+            launchPath == null ||
+            capabilities!.describesExe(launchPath)
+        ? capabilities
+        : null;
+    final version = installedVersion ?? trusted?.appVersion;
+    if (version == null || _numericParts(version).isEmpty) return null;
+    return compareAppVersions(version, searchEngine6SinceAppVersion) >= 0;
+  }
+
   static OtzariaCapabilities? _parse(List<int> bytes) =>
       fromJson(jsonDecode(_withoutBom(utf8.decode(bytes))));
 

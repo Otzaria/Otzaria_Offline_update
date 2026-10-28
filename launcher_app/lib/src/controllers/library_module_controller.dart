@@ -8,6 +8,7 @@ import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import '../services/app_logger.dart';
 import '../services/elevation.dart';
+import '../services/storage_failure.dart';
 import '../settings/app_settings.dart' show SemanticDownloadPreference;
 import 'dispose_guard.dart';
 import 'download_plan.dart' show LibrarySizeProbe;
@@ -286,6 +287,10 @@ class LibraryModuleController extends ChangeNotifier
   int? downloadReceivedBytes;
   int? downloadTotalBytes;
   String? downloadError;
+
+  /// החריג שהפיל את ההורדה — המסך מסווג לפיו ולא לפי הטקסט.
+  Object? downloadCause;
+  bool get downloadStorageFull => findStorageFull(downloadCause) != null;
   bool _incompleteMirrorDownload = false;
   bool get downloadNeedsRetry =>
       downloadError != null || _incompleteMirrorDownload;
@@ -315,6 +320,7 @@ class LibraryModuleController extends ChangeNotifier
       if (newerLibraryNeedsOtzaria case final newer?)
         t.downloadNewerNeedsOtzaria('$newer'),
       if (libraryMetadataUnreadable) t.downloadMetadataUnreadable,
+      if (semanticIncompatibility case final incompatible?) '$incompatible',
     ];
   }
 
@@ -447,6 +453,13 @@ class LibraryModuleController extends ChangeNotifier
   Set<CompanionAsset> onlinePendingCompanions = const {};
   bool onlineSemanticPending = false;
   String? onlineSemanticCheckError;
+
+  /// חיפוש חכם שהמנוע שבכלי או באוצריא אינו קורא: לא ירד מחדש, וההסבר לפי
+  /// הסיבה. הבדיקה המקוונת והמראה שעל הכונן נבדקות בנפרד.
+  SemanticEngineIncompatibleException? onlineSemanticIncompatibility;
+  SemanticEngineIncompatibleException? mirrorSemanticIncompatibility;
+  SemanticEngineIncompatibleException? get semanticIncompatibility =>
+      mirrorSemanticIncompatibility ?? onlineSemanticIncompatibility;
 
   /// הבדיקה של החיפוש החכם רצה בפועל. בלעדיה — "לא נבדק", לעולם לא "מעודכן".
   bool semanticChecked = false;
@@ -629,6 +642,7 @@ class LibraryModuleController extends ChangeNotifier
       'companions=[${_companionNames(companions)}]',
     );
     String? semanticError;
+    SemanticEngineIncompatibleException? semanticIncompatible;
     var semanticPending = false;
     var checkedSemantic = false;
     int? semanticBytes;
@@ -637,6 +651,10 @@ class LibraryModuleController extends ChangeNotifier
       try {
         semanticPending = await _manager.peekPendingSemanticSearch();
         semanticBytes = _manager.peekedSemanticBytes;
+        semanticIncompatible = _manager.peekedSemanticIncompatibility;
+        if (semanticIncompatible != null) {
+          AppLogger.instance.info('$semanticIncompatible');
+        }
       } catch (e) {
         semanticError = e.toString();
         AppLogger.instance.info('בדיקת החיפוש החכם ברשת לא הצליחה: $e');
@@ -670,6 +688,7 @@ class LibraryModuleController extends ChangeNotifier
     onlinePendingCompanions = companions;
     onlineCompanionsCheckError = companionsError;
     onlineSemanticPending = semanticPending;
+    onlineSemanticIncompatibility = semanticIncompatible;
     onlineSemanticCheckError = semanticError;
     semanticChecked = checkedSemantic;
     onlineSemanticBytes = semanticBytes;
@@ -696,6 +715,7 @@ class LibraryModuleController extends ChangeNotifier
     downloadReceivedBytes = null;
     downloadTotalBytes = null;
     downloadError = null;
+    downloadCause = null;
     // הדיווח מתייחס להורדה הזו בלבד — הישן היה מתאר מצב שכבר הוחלף.
     personalDownloadNote = null;
     downloadNeedsOtzariaInstaller = false;
@@ -704,6 +724,7 @@ class LibraryModuleController extends ChangeNotifier
     libraryMetadataUnreadable = false;
     notifyListeners();
 
+    StorageFullException? warnedStorageFull;
     try {
       int? readableDbSchema;
       if (_mirroredReadableDbSchema case final readSchema?) {
@@ -746,10 +767,14 @@ class LibraryModuleController extends ChangeNotifier
         },
         // כשל בקובץ נלווה אינו מפיל את ההורדה, אבל בלי הרישום הזה הוא היה
         // מתגלה רק במחשב הלא-מקוון, כשכבר אין רשת לתקן בה.
-        onCompanionWarning: (name, error) =>
-            AppLogger.instance.info('הורדת הקובץ הנלווה "$name" נכשלה: $error'),
+        onCompanionWarning: (name, error) {
+          AppLogger.instance.info('הורדת הקובץ הנלווה "$name" נכשלה: $error');
+          // כונן מלא אינו כשל נקודתי: הוא משתק את כל הכתיבות שאחריו.
+          warnedStorageFull ??= findStorageFull(error);
+        },
         isCancelled: isCancelled,
       );
+      if (warnedStorageFull case final full?) throw full;
       downloadStatus = MirrorDownloadStatus.done;
       lastDownloadedAt = DateTime.now();
       newerLibraryNeedsOtzaria = outcome.newerNeedsOtzaria;
@@ -792,6 +817,7 @@ class LibraryModuleController extends ChangeNotifier
       } else {
         downloadStatus = MirrorDownloadStatus.error;
         downloadError = e.toString();
+        downloadCause = e;
         AppLogger.instance.error('הורדת עדכוני ספרייה נכשלה', e, st);
       }
     }
@@ -939,6 +965,7 @@ class LibraryModuleController extends ChangeNotifier
       mirroredCompanions = check.mirroredCompanions;
       semanticPending = check.semanticPending;
       semanticConsentGranted = check.semanticConsentGranted;
+      mirrorSemanticIncompatibility = check.semanticIncompatibility;
 
       if (check.needsManualDbPath) {
         status = LibraryModuleStatus.needsManualPath;
@@ -974,6 +1001,7 @@ class LibraryModuleController extends ChangeNotifier
       mirrorMissing = true;
       mirrorDamaged = false;
       _lastCheck = null;
+      mirrorSemanticIncompatibility = null;
       pendingCompanions = const {};
       unavailableCompanions = const {};
       mirroredCompanions = const {};
@@ -987,6 +1015,7 @@ class LibraryModuleController extends ChangeNotifier
       status = LibraryModuleStatus.error;
       errorMessage = e.toString();
       _lastCheck = null;
+      mirrorSemanticIncompatibility = null;
       localDbUnreadable = e is LocalDbUnreadableException;
       mirrorDamaged = e is LibraryMirrorDamagedException;
       needsElevation = unreadableDbNeedsElevation(e);

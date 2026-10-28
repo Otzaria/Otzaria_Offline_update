@@ -118,6 +118,14 @@ class _Common extends CommonStrings {
   String get closeOtzariaFailedSnack =>
       'Otzaria did not close — it may be waiting to save. Please close it '
       'manually.';
+  @override
+  String storageFullNoDetails(String dir) =>
+      'The drive is full and writing stopped in $dir. Free up space on it and '
+      'try again — what already arrived is kept.';
+  @override
+  String get storageFullUnknownDir =>
+      'The drive is full and writing stopped. Free up space on it and try '
+      'again — what already arrived is kept.';
 }
 
 class _Shell extends ShellStrings {
@@ -3477,6 +3485,30 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get companionSemanticName => 'Smart search';
   @override
+  String get semanticIncompatibleUpdateTool =>
+      'The smart-search files on the drive were built for a newer search '
+      'engine than this version of the tool contains. Downloading again will '
+      'not help — update the tool to a newer version. The smart search '
+      'already installed stays as it is.';
+  @override
+  String get semanticIncompatibleUpdateOtzaria =>
+      'The smart-search files on the drive need a newer version of Otzaria '
+      'than the one installed on this computer. Update Otzaria, then install '
+      'the smart search. The smart search already installed stays as it is.';
+  @override
+  String get semanticIncompatibleRepublish =>
+      'The smart-search files published for the Otzaria library were built '
+      'for an older version of the search engine, so they cannot be '
+      'installed. Downloading again will not help — wait for new smart-search '
+      'files to be published. The smart search already installed stays as it '
+      'is.';
+  @override
+  String get semanticIncompatibleOtzariaUnproven =>
+      'It could not be verified that Otzaria on this computer can read the '
+      'smart-search files on the drive, so they were not installed. Install '
+      'or update Otzaria from the drive and try again. The smart search '
+      'already installed stays as it is.';
+  @override
   String get libraryChangesNotesName => "The Otzaria library's what's-new list";
   @override
   String get semanticDownloading => 'Downloading smart search files';
@@ -3524,12 +3556,6 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get semanticFullDownloadNeeded =>
       'Smart search on this computer is not at the version the partial update on the drive continues from, so it was not installed. The next download on the online computer will bring the full smart search package.';
-  @override
-  String get semanticBuiltForOlderOtzaria =>
-      'The smart search published for this library version was built for an older Otzaria, and this tool cannot install it. It will be downloaded with a newer library, once the drive has an Otzaria version that reads it.';
-  @override
-  String get semanticNeedsNewerLauncher =>
-      'The smart search published for this library version needs a newer version of this tool. Update Otzaria Updates and try again.';
   @override
   String companionChecking(String name) => 'Checking $name…';
   @override

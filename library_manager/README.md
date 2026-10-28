@@ -293,9 +293,11 @@ best-effort**: כשל באחד לא מפיל את השאר ולא מבטל עד�
 כשל במדידת המקום אינו חוסם התקנה; מחסור ידוע מציג את היעד והכמות הדרושה.
 
 הבדיקה הקלה ברשת כוללת גם את החיפוש החכם: בקשת API למטא־נתוני release
-הווקטורים של תג הספרייה העדכני, ללא הורדת המניפסט או קובצי החיפוש.
-היא מזהה גם מאגר שהשתנה באותו תג וקבצים חסרים בכונן. כשל רשת אינו נחשב
-הוכחה שאין עדכון, ו־404 פירושו שטרם פורסם מאגר לתג הזה.
+הווקטורים של תג הספרייה העדכני. במהדורה חדשה או שהשתנתה נקרא גם המניפסט
+הקטן, כדי שלא להציע קבצים שהמנוע אינו קורא; קובצי החיפוש אינם יורדים.
+מראה שלמה וזהה דורשת רק את בקשת ה־API. הבדיקה מזהה גם מאגר שהשתנה באותו
+תג וקבצים חסרים בכונן. כשל רשת אינו נחשב הוכחה שאין עדכון, ו־404 פירושו
+שטרם פורסם מאגר לתג הזה.
 
 #### משפחת החלונות ועדכון חלקי
 
@@ -549,6 +551,26 @@ otzaria://library/reindex
    המלא של v26 אכן קיים ב-release ויורד), והחלפה בפועל של מסד חי במסד
    בסכמה 4 — כולל השאלה שמחוץ לתחום שלנו, האם אוצריא שמותקנת אצל המשתמש
    יודעת לקרוא סכמה 4.
+
+## בדיקות native של המנוע
+
+`native_engine_test`, `native_install_identity_test`, `native_vector_install_test` ו-`native_pending_test`
+טוענות את הבינארי ש-build hook של `otzaria_search_engine` מניח תחת
+`build/native_assets`, ומתקינות דרכו סט וקטורים אמיתי (`test/support/native_vector_set`,
+11KB, נבנה בידי `build_semantic_artifact` של המנוע). בלי הספרייה הן מדלגות עם סיבה;
+עם `REQUIRE_NATIVE_ENGINE=1` היעדר הספרייה או קבצי ה-fixture הוא כישלון:
+
+```bash
+REQUIRE_NATIVE_ENGINE=1 flutter test test/native_engine_test.dart \
+  test/native_install_identity_test.dart test/native_vector_install_test.dart \
+  test/native_pending_test.dart
+```
+
+ה-CI מפעיל אותו ב-Windows בלבד: step "library_manager native engine (required)"
+ב-job `coverage` (shard `flutter_packages`), אחרי הרצת הסוויטה שבונה את
+הספרייה. ב-Linux ו-macOS הבדיקות מדלגות כשהספרייה חסרה.
+`OTZARIA_NATIVE_ENGINE_DIR` מחליף את שורש החיפוש של הספרייה, כדי לתרגל
+את היעדרה.
 
 ## שימוש
 

@@ -1,0 +1,89 @@
+{
+  "format": "otzaria-vectors-release",
+  "formatVersion": 1,
+  "kind": "base",
+  "identity": {
+    "text": {
+      "line_text_version": 4,
+      "key_version": 1
+    },
+    "model": {
+      "family_id": "ArieLLL123/judaic-semantic-round2-onnx-zayit@1ec8dc68888bcea774ae9f735b2fe7cd9dc7f3ca",
+      "tokenizer_checksum": "0664287976ecb078bdfd8f5e5515dc87d8cb7f985a79a481aa1cdf7a7321c0e9",
+      "embedding_dim": 256,
+      "pooling": "in-graph",
+      "max_tokens": 256,
+      "embedding_text_version": 2,
+      "normalization_version": 1,
+      "chunking_identity": 2685558872390372738,
+      "query_packages": [
+        {
+          "checksum": "9e408407922b4aab26dd148cbe4b9a0e573c65591cfc799ba28e991d77d9d065",
+          "quantization": "int8"
+        },
+        {
+          "checksum": "4a4a2ae88a86f15ffe6069bfcefc3abd13c207cec5d7aaef52c0c59d752ade46",
+          "quantization": "fp32"
+        }
+      ]
+    },
+    "store": {
+      "backend_id": "otzaria-oxv",
+      "store_format_version": 2,
+      "vector_precision": "i8-sym-vec"
+    }
+  },
+  "identityDigest": "6c9ca7002f44658c16ee61003438afdb57809d0502d1a774c2f8c08eb74f625d",
+  "codecParamsSha256": "242045e2f1bb37769b514f182fd91b3d215324cb57f187cced1e9c62921dbac3",
+  "fromLibraryVersion": 0,
+  "toLibraryVersion": 34,
+  "libraryReleaseTag": "v34-20261025231155",
+  "segmentId": "75545b365f0d5cadd07bf28df898ebae",
+  "counts": {
+    "books": 7953,
+    "slots": 6778704,
+    "extras": 184272,
+    "foreign": 0,
+    "tombstones": 0
+  },
+  "segment": {
+    "sha256": "bafb085692e08b5e92e21e99e2952c91aa964663c02a36194a0093f8983627b1",
+    "size": 1900633408
+  },
+  "packageDigest": "aa75d8205d9910a33421bbc9d8a1cbe2ec35d49e90486e2df782997a483ac275",
+  "provenance": {
+    "passage_package": {
+      "checksum": "4a4a2ae88a86f15ffe6069bfcefc3abd13c207cec5d7aaef52c0c59d752ade46",
+      "quantization": "fp32"
+    },
+    "worker": {
+      "backend": "otzaria-semantic-search 0.1.0 + seforim-gpu-worker 1.0",
+      "device": "AMD Radeon RX 9060 XT (rocm torch-mixed) + cpu x86_64: AVX-VNNI kernels (VPDPBUSD, exact), so session.x64quantprecision not set (cpu onnxruntime)"
+    }
+  },
+  "files": [
+    {
+      "file": "otzaria-vectors-6c9ca700-v34-base.oxv.zst",
+      "compression": "zstd",
+      "sha256": "ea0f36811f5a6f3026146c0d18c935af976338263a53b1732471d494d2ff8e57",
+      "size": 1754207587,
+      "uncompressedSha256": "bafb085692e08b5e92e21e99e2952c91aa964663c02a36194a0093f8983627b1",
+      "uncompressedSize": 1900633408
+    }
+  ],
+  "requires": {
+    "indexSchemaVersion": 5,
+    "keyVersion": 1,
+    "lineTextVersion": 4
+  },
+  "builtBy": {
+    "commit": "5e5982cec6a0ba792b001f6d3d99bd83ed792dfd",
+    "plugin": "5ea4900c60aacc5c637cd20d2027665a99dc88c3",
+    "repository": "Otzaria/SeforimLibrary",
+    "runId": "40344492539",
+    "sidecar": "86f45489d2ef0dcc139681e682bb84dc1e04dd81",
+    "worker": "seforim-gpu-worker 1.0",
+    "workflow": "build-library-vectors"
+  },
+  "createdAt": "2026-10-26T12:43:50Z"
+}

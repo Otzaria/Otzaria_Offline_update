@@ -13,5 +13,7 @@ export 'src/services/otzaria_process_guard.dart';
 export 'src/services/otzaria_settings_reader.dart';
 export 'src/services/otzaria_settings_writer.dart';
 export 'src/services/readable_schema_limit.dart';
+export 'src/services/semantic_search_assets.dart'
+    show SemanticEngineIncompatibleException;
 export 'src/services/semantic_vectors_plan.dart';
 export 'src/services/zstd_decompressor.dart';

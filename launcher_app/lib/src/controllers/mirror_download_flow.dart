@@ -6,6 +6,9 @@ abstract interface class AppMirrorModule {
   OnlineProof get onlineProof;
   Future<void> download({required bool Function() isCancelled});
   bool get downloadFailed;
+
+  /// ההורדה האחרונה נכשלה כי הכונן התמלא — אז אין להמשיך לכתוב אליו.
+  bool get storageFull;
 }
 
 abstract interface class LibraryMirrorModule {
@@ -18,6 +21,7 @@ abstract interface class LibraryMirrorModule {
     required bool Function() isCancelled,
   });
   bool get downloadFailed;
+  bool get storageFull;
   bool get downloadNeedsRetry;
 
   /// בודק ברקע כמה ירד, בזמן שרכיבים קודמים יורדים.
@@ -31,6 +35,7 @@ abstract interface class PluginsMirrorModule {
   Future<void> sync({required bool Function() isCancelled});
   Future<void> syncStoreApp();
   bool get lastSyncFailed;
+  bool get storageFull;
 }
 
 abstract interface class DownloadRollback {
@@ -247,24 +252,32 @@ class MirrorDownloadFlow {
         library.startDownloadSizeProbe();
       }
 
+      // כונן מלא משותק: רכיב נוסף רק היה נכשל באותה כתיבה, ומה שהסתיים נשמר.
+      MirrorComponent? storageFullIn;
+      bool go() => !cancelled() && storageFullIn == null;
+
       if (plan.runsApp(s)) {
         _current = MirrorComponent.app;
         await app.download(isCancelled: cancelled);
+        if (app.storageFull) storageFullIn = MirrorComponent.app;
       }
-      if (!cancelled() && plan.runsLibrary(s)) {
+      if (go() && plan.runsLibrary(s)) {
         _current = MirrorComponent.library;
         await library.download(
           includeSemanticSearch: includeSemanticSearch,
           isCancelled: cancelled,
         );
+        if (library.storageFull) storageFullIn = MirrorComponent.library;
       }
-      if (!cancelled() && plan.runsPlugins(s)) {
+      if (go() && plan.runsPlugins(s)) {
         _current = MirrorComponent.plugins;
         await plugins.sync(isCancelled: cancelled);
+        if (plugins.storageFull) storageFullIn = MirrorComponent.plugins;
       }
-      if (!cancelled() && plan.runsStoreApp(s)) {
+      if (go() && plan.runsStoreApp(s)) {
         _current = MirrorComponent.plugins;
         await plugins.syncStoreApp();
+        if (plugins.storageFull) storageFullIn = MirrorComponent.plugins;
       }
       final inProgress = _current;
       _current = null;
@@ -305,6 +318,9 @@ class MirrorDownloadFlow {
         libraryFailed: library.downloadFailed,
         pluginsFailed: plugins.lastSyncFailed,
       );
+      if (storageFullIn case final full? when !failed.contains(full)) {
+        failed.add(full);
+      }
       if (failed.isEmpty &&
           !library.downloadNeedsRetry &&
           !host.launcherDownloading) {

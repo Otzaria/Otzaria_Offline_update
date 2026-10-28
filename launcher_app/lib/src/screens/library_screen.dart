@@ -129,7 +129,14 @@ class LibraryScreen extends StatelessWidget {
           title: t.libMissingFilesTitle,
           body: domain.companionsMissingFromMirror(c.unavailableCompanionNames),
         ),
-      // כונן שלא נשא אף נלווה נראה בדיוק כמו "הכול מעודכן" (issue #33).
+      // לא הצעה ולא "מעודכן": החיפוש החכם שבכונן אינו מותקן כאן, והסיבה נאמרת.
+      if (c.semanticIncompatibility case final incompatible?)
+        NoticeBanner(
+          kind: NoticeKind.warning,
+          leading: warning,
+          title: t.libSemanticSection,
+          body: '$incompatible',
+        ),
       if (c.mirrorLacksCompanions)
         NoticeBanner(
           kind: NoticeKind.warning,

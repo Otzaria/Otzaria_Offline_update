@@ -42,6 +42,9 @@ class OtzariaModulePort
   bool get downloadFailed => _otzaria.downloadError != null;
 
   @override
+  bool get storageFull => _otzaria.downloadStorageFull;
+
+  @override
   bool get isInstalled => _otzaria.currentVersion != null;
 
   @override
@@ -125,6 +128,9 @@ class LibraryModulePort
 
   @override
   bool get downloadFailed => _library.downloadError != null;
+
+  @override
+  bool get storageFull => _library.downloadStorageFull;
 
   @override
   bool get downloadNeedsRetry => _library.downloadNeedsRetry;
@@ -218,6 +224,9 @@ class PluginsModulePort implements PluginsMirrorModule, UpdateHerePlugins {
 
   @override
   bool get lastSyncFailed => _plugins.lastSyncFailed;
+
+  @override
+  bool get storageFull => _plugins.storageFull;
 
   @override
   List<String> get deliverableUpdates =>

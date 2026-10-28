@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import 'src/network_errors.dart';
 
@@ -54,6 +55,16 @@ Future<FileDownloadResult> downloadFile({
         onProgress: onProgress,
         checkCancelled: checkCancelled,
         calculateSha256: calculateSha256,
+      );
+    } on FileSystemException catch (error, stack) {
+      checkCancelled?.call();
+      if (!isStorageFull(error)) rethrow;
+      Error.throwWithStackTrace(
+        StorageFullException(
+          dir: File(destinationPath).parent.path,
+          cause: error,
+        ),
+        stack,
       );
     } catch (error) {
       checkCancelled?.call();
@@ -134,7 +145,14 @@ Future<FileDownloadResult> _downloadFile({
       request.headers['Range'] = 'bytes=$offset-';
       request.headers['If-Range'] = validator!;
     }
-    IOSink? sink;
+    RandomAccessFile? output;
+    http.StreamedResponse? unreadResponse;
+    Future<void> cancelResponse() async {
+      final response = unreadResponse;
+      unreadResponse = null;
+      await response?.stream.listen((_) {}).cancel();
+    }
+
     ByteConversionSink? hasher;
     Digest? digest;
     var retain = offset > 0;
@@ -153,14 +171,15 @@ Future<FileDownloadResult> _downloadFile({
       } on TlsException catch (e) {
         throw NetworkCertificateException(uri: request.url, cause: e);
       }
+      unreadResponse = response;
       if (response case http.BaseResponseWithUrl(url: final finalUrl)) {
         if (request.url.scheme == 'https' && finalUrl.scheme != 'https') {
-          await response.stream.listen((_) {}).cancel();
+          await cancelResponse();
           throw statusError(response.statusCode);
         }
       }
       if (offset > 0 && response.statusCode == 416) {
-        await response.stream.listen((_) {}).cancel();
+        await cancelResponse();
         await _delete(part);
         await _delete(metadata);
         offset = 0;
@@ -169,7 +188,7 @@ Future<FileDownloadResult> _downloadFile({
         continue;
       }
       if (response.statusCode != 200 && response.statusCode != 206) {
-        await response.stream.listen((_) {}).cancel();
+        await cancelResponse();
         if (response.statusCode == 418) {
           throw NetworkBlockedException(
             uri: request.url,
@@ -199,7 +218,7 @@ Future<FileDownloadResult> _downloadFile({
                 response.contentLength != end - offset + 1) ||
             (response.headers['etag'] != null &&
                 response.headers['etag'] != validator)) {
-          await response.stream.listen((_) {}).cancel();
+          await cancelResponse();
           retain = false;
           throw statusError(206);
         }
@@ -240,11 +259,13 @@ Future<FileDownloadResult> _downloadFile({
           }
         }
       }
-      sink =
-          part.openWrite(mode: offset > 0 ? FileMode.append : FileMode.write);
+      // כתיבה ממתינה ולא IOSink: שגיאת כתיבה של IOSink בין flush-ים הולכת
+      // ל-done בלבד, דולפת ל-zone וההורדה נתקעת.
+      output =
+          await part.open(mode: offset > 0 ? FileMode.append : FileMode.write);
       var received = offset;
-      var buffered = 0;
       onProgress?.call(received, total ?? 0);
+      unreadResponse = null;
       await for (final chunk in response.stream.timeout(stallTimeout)) {
         checkCancelled?.call();
         received += chunk.length;
@@ -252,18 +273,33 @@ Future<FileDownloadResult> _downloadFile({
           retain = false;
           throw sizeError(received, total);
         }
-        sink.add(chunk);
-        hasher?.add(chunk);
-        buffered += chunk.length;
-        onProgress?.call(received, total ?? 0);
-        if (buffered >= 4 << 20) {
-          await sink.flush();
-          buffered = 0;
+        try {
+          await output.writeFrom(chunk);
+        } catch (_) {
+          // כתיבה שנכשלה משאירה זנב לא ודאי; קיצוץ לאורך שנכתב במלואו שומר את החלקי.
+          final written = received - chunk.length;
+          var keep = retain && written > 0;
+          if (keep) {
+            try {
+              await output.truncate(written);
+            } catch (_) {
+              keep = false;
+            }
+          }
+          retain = keep;
+          rethrow;
         }
+        hasher?.add(chunk);
+        onProgress?.call(received, total ?? 0);
       }
-      await sink.flush();
-      await sink.close();
-      sink = null;
+      final closing = output;
+      output = null;
+      try {
+        await closing.close();
+      } catch (_) {
+        retain = false;
+        rethrow;
+      }
       checkCancelled?.call();
       hasher?.close();
       hasher = null;
@@ -275,9 +311,12 @@ Future<FileDownloadResult> _downloadFile({
       await _delete(metadata);
       return FileDownloadResult(received, headers, digest?.toString());
     } catch (_) {
-      if (sink != null) {
+      try {
+        await cancelResponse();
+      } catch (_) {}
+      if (output != null) {
         try {
-          await sink.close();
+          await output.close();
         } catch (_) {}
       }
       // ביטול יזום נשאר ביטול; רק הפרעת רשת משאירה התקדמות ניתנת לחידוש.

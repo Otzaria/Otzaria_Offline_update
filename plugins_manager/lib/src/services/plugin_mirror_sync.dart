@@ -109,6 +109,8 @@ class PluginMirrorSync {
 
     final fetched = <String, StorePlugin>{};
     final failed = <String>[];
+    final incompleteMedia = <String>[];
+    final gate = _StorageGate();
     final versionMismatches = <String>[];
     final total = todo.where((plan) => plan.needsNetwork).length;
     var done = 0;
@@ -116,7 +118,7 @@ class PluginMirrorSync {
     await runPooled([
       for (final plan in todo)
         () async {
-          if (isCancelled?.call() ?? false) return;
+          if ((isCancelled?.call() ?? false) || gate.tripped) return;
 
           var plugin = plan.plugin;
           if (plan.needsNetwork) {
@@ -131,14 +133,39 @@ class PluginMirrorSync {
             );
           }
 
-          await Directory(store.pluginDir(plugin.id)).create(recursive: true);
-          plugin = await _syncImages(plan, plugin, report, cancelRequested);
+          final pluginDir = store.pluginDir(plugin.id);
+          try {
+            await Directory(pluginDir).create(recursive: true);
+          } catch (e) {
+            if (isStorageFull(e)) {
+              gate.note(e, pluginDir);
+              return;
+            }
+            failed.add(plugin.name);
+            report(
+              PluginSyncProgress(
+                phase: PluginSyncPhase.warning,
+                message: strings.syncPluginFileFailed(
+                  plugin.name,
+                  PluginStoreClient.describeError(e),
+                ),
+              ),
+            );
+            return;
+          }
+          final images =
+              await _syncImages(plan, plugin, report, cancelRequested, gate);
+          plugin = images.plugin;
+          if (!images.complete && !cancelRequested()) {
+            incompleteMedia.add(plugin.name);
+          }
           final files = await _syncPluginFiles(
             plan,
             plugin,
             report,
             now,
             cancelRequested,
+            gate,
           );
           plugin = files.plugin;
 
@@ -149,18 +176,20 @@ class PluginMirrorSync {
     ], maxConcurrent: maxConcurrentPlugins);
 
     final cancelled = isCancelled?.call() ?? false;
+    final storageFailure = gate.failure;
+    final partial = cancelled || storageFailure != null;
 
     final plugins = <StorePlugin>[
       for (final plan in plans)
         fetched[plan.plugin.id] ??
-            (cancelled && plan.hasWork
+            (partial && plan.hasWork
                 ? (plan.previous ?? plan.plugin)
                 : plan.plugin),
       ...keptInvalid,
     ];
     final syncedIds = {for (final plugin in plugins) plugin.id};
 
-    final structure = cancelled
+    final structure = partial
         ? _StoreStructure(
             home: previousCatalog.home,
             categories: previousCatalog.categories,
@@ -187,10 +216,23 @@ class PluginMirrorSync {
     }
 
     final guard = catalogGuard;
-    final catalog =
-        guard == null ? await saveMerged() : await guard(saveMerged);
+    final PluginCatalog catalog;
+    try {
+      // כשל אחסון לפני שהושלם משהו: אין מה לשמור, ואין לדרוס קטלוג קיים.
+      catalog = storageFailure != null && fetched.isEmpty
+          ? previousCatalog
+          : guard == null
+              ? await saveMerged()
+              : await guard(saveMerged);
+    } on FileSystemException catch (e, stack) {
+      if (!isStorageFull(e)) rethrow;
+      Error.throwWithStackTrace(
+        StorageFullException(dir: store.mirrorDir, cause: e),
+        stack,
+      );
+    }
 
-    if (!cancelled) {
+    if (!partial) {
       for (final plugin in catalog.plugins) {
         if (!plugin.hasValidId) continue;
         await store.pruneUnusedFiles(plugin);
@@ -211,6 +253,8 @@ class PluginMirrorSync {
       fetched: done,
       skipped: skipped,
       failed: failed,
+      incompleteMedia: incompleteMedia,
+      storageFailure: storageFailure,
       versionMismatches: versionMismatches,
       cancelled: cancelled,
       incompatible: [
@@ -439,16 +483,24 @@ class PluginMirrorSync {
     );
   }
 
-  Future<StorePlugin> _syncImages(
+  Future<({StorePlugin plugin, bool complete})> _syncImages(
     _PluginPlan plan,
     StorePlugin plugin,
     void Function(PluginSyncProgress) report,
     bool Function() cancelled,
+    _StorageGate gate,
   ) async {
     var result = plugin;
+    var complete = true;
     final dir = store.pluginDir(plugin.id);
 
-    if (plan.needsImage) {
+    if (plan.needsImage && gate.tripped) {
+      complete = false;
+      result = result.copyWith(
+        mediaVersion: plan.previousMediaVersion,
+        remoteImageUrl: plan.previous?.remoteImageUrl,
+      );
+    } else if (plan.needsImage) {
       try {
         final asset = await client.downloadAsset(
           plugin.remoteImageUrl,
@@ -458,6 +510,8 @@ class PluginMirrorSync {
         );
         result = result.copyWith(imagePath: store.relativePath(asset.path));
       } catch (e) {
+        complete = false;
+        gate.note(e, dir);
         result = result.copyWith(
           mediaVersion: plan.previousMediaVersion,
           remoteImageUrl: plan.previous?.remoteImageUrl,
@@ -485,6 +539,10 @@ class PluginMirrorSync {
         for (var i = 0; i < shotUrls.length; i++)
           () async {
             if (interrupted) return;
+            if (gate.tripped) {
+              failedAny = true;
+              return;
+            }
             try {
               final asset = await client.downloadAsset(
                 shotUrls[i],
@@ -495,6 +553,7 @@ class PluginMirrorSync {
               downloaded[i] = store.relativePath(asset.path);
             } catch (e) {
               failedAny = true;
+              gate.note(e, dir);
               if (cancelled()) {
                 interrupted = true;
                 return;
@@ -512,6 +571,7 @@ class PluginMirrorSync {
           },
       ], maxConcurrent: maxConcurrentScreenshots);
       if (failedAny) {
+        complete = false;
         result = result.copyWith(
           screenshotsMediaVersion: plan.previousScreenshotsMediaVersion,
           remoteScreenshotUrls: plan.previous?.remoteScreenshotUrls,
@@ -523,7 +583,7 @@ class PluginMirrorSync {
       }
     }
 
-    return result;
+    return (plugin: result, complete: complete);
   }
 
   static Future<String?> _imageRejection(String path) async =>
@@ -692,6 +752,7 @@ class PluginMirrorSync {
     void Function(PluginSyncProgress) report,
     DateTime now,
     bool Function() cancelled,
+    _StorageGate gate,
   ) async {
     if (plan.missingBuilds.isEmpty) {
       final known = plugin.anyLocalFile;
@@ -717,6 +778,10 @@ class PluginMirrorSync {
     final versionMismatches = <String>[];
 
     for (final target in plan.missingBuilds) {
+      if (gate.tripped) {
+        interrupted = true;
+        break;
+      }
       Map<String, dynamic>? manifest;
       try {
         final asset = await client.downloadAsset(
@@ -749,6 +814,7 @@ class PluginMirrorSync {
               .add('${plugin.name}: ${target.version} ≠ $manifestVersion');
         }
       } catch (e) {
+        gate.note(e, store.pluginDir(plugin.id));
         if (cancelled()) {
           interrupted = true;
           break;
@@ -838,6 +904,20 @@ class _PluginPlan {
       needsImage || needsScreenshots || missingBuilds.isNotEmpty;
 
   bool get hasWork => needsNetwork || needsManifestId;
+}
+
+/// כשל אחסון עוצר התחלת משימות; הרצות מסיימות. תוסף שנכשל נרשם גם ב-failed.
+class _StorageGate {
+  StorageFullException? failure;
+
+  bool get tripped => failure != null;
+
+  void note(Object error, String dir) {
+    if (failure != null || !isStorageFull(error)) return;
+    failure = error is StorageFullException
+        ? error
+        : StorageFullException(dir: dir, cause: error);
+  }
 }
 
 /// תוצאת סנכרון המבנה — הקטגוריות והטקסטים, ומהן נגזרת גם השיוך ההפוך

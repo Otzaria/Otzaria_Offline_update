@@ -28,6 +28,8 @@ class _FakeApp implements AppMirrorModule, AutoInstallApp {
   @override
   bool downloadFailed = false;
   @override
+  bool storageFull = false;
+  @override
   bool isInstalled = true;
   @override
   bool hasUpdateAvailable = true;
@@ -63,6 +65,8 @@ class _FakeLibrary implements LibraryMirrorModule, AutoInstallLibrary {
   OnlineProof libraryOnlineProof = _hasNew;
   @override
   bool downloadFailed = false;
+  @override
+  bool storageFull = false;
   @override
   bool downloadNeedsRetry = false;
   @override
@@ -113,6 +117,7 @@ class _FakePlugins implements PluginsMirrorModule {
 
   final List<String> log;
   void Function()? onSync;
+  void Function()? onStoreApp;
 
   @override
   OnlineProof catalogOnlineProof = _hasNew;
@@ -120,6 +125,8 @@ class _FakePlugins implements PluginsMirrorModule {
   OnlineProof storeAppOnlineProof = _hasNew;
   @override
   bool lastSyncFailed = false;
+  @override
+  bool storageFull = false;
 
   @override
   Future<void> sync({required bool Function() isCancelled}) async {
@@ -130,6 +137,7 @@ class _FakePlugins implements PluginsMirrorModule {
   @override
   Future<void> syncStoreApp() async {
     log.add('store app');
+    onStoreApp?.call();
   }
 }
 
@@ -386,6 +394,74 @@ void main() {
       await flow.downloadAll();
       expect(host.failed, isEmpty);
     });
+    group('הכונן התמלא', () {
+      void fullIn(_FakeLibrary l) {
+        l.downloadFailed = true;
+        l.storageFull = true;
+      }
+
+      test('בספרייה: לא מתחילים תוספים ותוכנת חנות, והספרייה נכשלת', () async {
+        library.onDownload = () async => fullIn(library);
+        await flow.downloadAll();
+        expect(componentsRun(), ['app', 'library']);
+        expect(host.failed, [MirrorComponent.library]);
+        expect(log, isNot(contains('sweep')));
+        expect(flow.isDownloading, isFalse);
+      });
+
+      test('באפליקציה: לא מתחילים ספרייה ותוספים', () async {
+        app.onDownload = () async {
+          app.downloadFailed = true;
+          app.storageFull = true;
+        };
+        await flow.downloadAll();
+        expect(componentsRun(), ['app']);
+        expect(host.failed, [MirrorComponent.app]);
+      });
+
+      test('בתוספים: לא מתחילים את תוכנת החנות', () async {
+        plugins.onSync = () {
+          plugins.lastSyncFailed = true;
+          plugins.storageFull = true;
+        };
+        await flow.downloadAll();
+        expect(componentsRun(), ['app', 'library', 'plugins']);
+        expect(host.failed, [MirrorComponent.plugins]);
+      });
+
+      test('תוכנת החנות שנכשלה בכתיבה מסמנת את התוספים ככושלים', () async {
+        plugins.onStoreApp = () => plugins.storageFull = true;
+        await flow.downloadAll();
+        expect(host.failed, [MirrorComponent.plugins]);
+      });
+
+      test('כשל רגיל בספרייה לא עוצר את התוספים', () async {
+        library.onDownload = () async => library.downloadFailed = true;
+        await flow.downloadAll();
+        expect(componentsRun(), ['app', 'library', 'plugins', 'store app']);
+        expect(host.failed, [MirrorComponent.library]);
+      });
+
+      test('דגל ישן של רכיב שלא רץ בהורדה הזו אינו עוצר דבר', () async {
+        library.libraryOnlineProof = _proven;
+        library.storageFull = true;
+        await flow.downloadAll();
+        expect(componentsRun(), ['app', 'plugins', 'store app']);
+        expect(host.failed, isEmpty);
+      });
+
+      test('ביטול שהתבקש יחד עם הכשל נשאר ביטול', () async {
+        library.onDownload = () async {
+          fullIn(library);
+          flow.requestCancel();
+        };
+        await flow.downloadAll();
+        expect(log, contains('cancelled'));
+        expect(log, isNot(contains('finished')));
+        expect(componentsRun(), ['app', 'library']);
+      });
+    });
+
     test('חריג באמצע — מדווח למארח, והזרימה משתחררת', () async {
       host.onRefresh = (_) async => throw StateError('boom');
       await flow.downloadAll();
