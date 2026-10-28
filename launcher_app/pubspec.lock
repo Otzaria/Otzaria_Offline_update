@@ -451,10 +451,10 @@ packages:
     dependency: transitive
     description:
       name: otzaria_search_engine
-      sha256: f5e8a88b5373258a09fc42eda3f9e8c3bb88eb367b02e946854e443030ba66b0
+      sha256: "1c077f9c853700a3340ccb50d5dd4cb74d8d194195bcc24142bef952b56bd4ee"
       url: "https://pub.dev"
     source: hosted
-    version: "5.0.0"
+    version: "6.0.0"
   package_config:
     dependency: transitive
     description:

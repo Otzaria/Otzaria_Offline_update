@@ -1809,6 +1809,8 @@ abstract class LibraryDomainStrings {
   String get semanticInstalling;
   String get semanticConsentRequired;
   String get semanticFullDownloadNeeded;
+  String get semanticBuiltForOlderOtzaria;
+  String get semanticNeedsNewerLauncher;
   String get semanticConsentTitle;
 
   /// נוסח ההסכמה של אוצריא עצמה, בלי המשפט על הכלי הזה.

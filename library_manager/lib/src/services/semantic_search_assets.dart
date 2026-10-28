@@ -727,13 +727,23 @@ class SemanticSearchAssets {
           release != null &&
           local.rejectedWindowsManifest == _rejectionKey(release);
       if (release != null && !rejected) {
-        return !await _windowsMirrorServes(
+        if (await _windowsMirrorServes(
           mirrorDir,
           libraryTag,
           version,
           release,
           fleet,
-        );
+        )) {
+          return false;
+        }
+        if (await _offerable(
+          release,
+          libraryTag,
+          version,
+          family: SemanticVectorsFamily.windows,
+        )) {
+          return true;
+        }
       }
     }
     final fetched = await _fetchRelease(
@@ -748,6 +758,8 @@ class SemanticSearchAssets {
         local.meta.base.name != remote['name'] ||
         local.meta.base.size != remote['size'] ||
         local.meta.base.sha256 != fetched.digest) {
+      // A release this launcher refuses would fail every download again.
+      if (!await _offerable(fetched, libraryTag, version)) return false;
       _peekedPendingBytes = fetched.assets.values.fold<int>(
         _modelDownloadBytes,
         (sum, asset) => sum + (asset['size'] as int),
@@ -759,6 +771,27 @@ class SemanticSearchAssets {
     }
     _peekedPendingBytes = 0;
     return false;
+  }
+
+  Future<bool> _offerable(
+    _Release release,
+    String libraryTag,
+    int version, {
+    SemanticVectorsFamily family = SemanticVectorsFamily.legacy,
+  }) async {
+    try {
+      await _remote(
+        release,
+        libraryTag: libraryTag,
+        version: version,
+        family: family,
+      );
+      return true;
+    } on _Unusable {
+      return false;
+    } on Exception {
+      return true;
+    }
   }
 
   Future<bool> _windowsMirrorServes(
@@ -1115,6 +1148,22 @@ class SemanticSearchAssets {
     }
     final identity = manifest['identity'];
     final model = identity is Map ? identity['model'] : null;
+    final text = identity is Map ? identity['text'] : null;
+    final lineText = text is Map ? text['line_text_version'] : null;
+    final keyVersion = text is Map ? text['key_version'] : null;
+    if (lineText is! int ||
+        keyVersion is! int ||
+        lineText != kSemanticLineTextVersion ||
+        keyVersion != 1) {
+      final strings = AppL10n.strings.libraryDomain;
+      throw FormatException(
+        lineText == null ||
+                (lineText is int && lineText < kSemanticLineTextVersion) ||
+                (lineText == kSemanticLineTextVersion && keyVersion == null)
+            ? strings.semanticBuiltForOlderOtzaria
+            : strings.semanticNeedsNewerLauncher,
+      );
+    }
     if (model is! Map ||
         model['family_id'] !=
             'ArieLLL123/judaic-semantic-round2-onnx-zayit@1ec8dc68888bcea774ae9f735b2fe7cd9dc7f3ca' ||

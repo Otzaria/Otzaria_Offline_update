@@ -445,7 +445,7 @@ void main() {
         isFalse,
       );
 
-      github.addAsset('vectors-windows-${libraryTagOf(30)}', 'late.bin');
+      github.windowsBase(30);
       expect(
         await assets.peekPending(
           mirrorDir: mirror,
@@ -471,6 +471,159 @@ void main() {
           ),
         ),
       );
+    });
+
+    test(
+      'the light check does not offer an incompatible windows release',
+      () async {
+        github.windowsBase(30, lineText: kSemanticLineTextVersion + 1);
+        final assets = SemanticSearchAssets(
+          httpClient: github.client,
+          models: fakeModels,
+        );
+        addTearDown(assets.dispose);
+        expect(
+          await assets.peekPending(
+            mirrorDir: mirror,
+            libraryTag: libraryTagOf(30),
+            fleet: SemanticFleet([windowsAt(29)]),
+          ),
+          isFalse,
+        );
+        expect(github.downloads, [baseManifestName(30)]);
+      },
+    );
+
+    test(
+      'the light check falls back from incompatible windows to usable legacy',
+      () async {
+        github
+          ..windowsBase(30, lineText: kSemanticLineTextVersion + 1)
+          ..legacyBase(30);
+        final assets = SemanticSearchAssets(
+          httpClient: github.client,
+          models: fakeModels,
+        );
+        addTearDown(assets.dispose);
+        expect(
+          await assets.peekPending(
+            mirrorDir: mirror,
+            libraryTag: libraryTagOf(30),
+            fleet: SemanticFleet([windowsAt(29)]),
+          ),
+          isTrue,
+        );
+        expect(github.downloads, [
+          baseManifestName(30),
+          legacyManifestName(30),
+        ]);
+      },
+    );
+
+    test(
+      'a manifest without line text is refused before its segment',
+      () async {
+        github.legacyBase(30, lineText: null);
+        await expectLater(
+          sync(const SemanticFleet()),
+          throwsA(isA<FormatException>()),
+        );
+        expect(github.downloads, [legacyManifestName(30)]);
+      },
+    );
+
+    test(
+      'a manifest with an unsupported key version is refused before its segment',
+      () async {
+        github.legacyBase(30, keyVersion: 2);
+        await expectLater(
+          sync(const SemanticFleet()),
+          throwsA(isA<FormatException>()),
+        );
+        expect(github.downloads, [legacyManifestName(30)]);
+      },
+    );
+    test('a windows release for another line-text version falls back to '
+        'the legacy one', () async {
+      github
+        ..windowsBase(30, lineText: kSemanticLineTextVersion - 1)
+        ..legacyBase(30);
+      await sync(SemanticFleet([windowsAt(29)]));
+      final meta = await metadata();
+      expect(meta['family'], 'legacy');
+      expect(github.downloads, isNot(contains(endsWith(baseSegmentName(30)))));
+    });
+
+    test('a release for another line-text version fails before its segment '
+        'is downloaded', () async {
+      github.legacyBase(30, lineText: kSemanticLineTextVersion - 1);
+      await expectLater(
+        sync(const SemanticFleet()),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            AppL10n.strings.libraryDomain.semanticBuiltForOlderOtzaria,
+          ),
+        ),
+      );
+      expect(github.downloads, isNot(contains(endsWith('legacy-v30.oxv.zst'))));
+    });
+
+    test('a release for a newer line-text version asks for a newer '
+        'launcher', () async {
+      github.legacyBase(30, lineText: kSemanticLineTextVersion + 1);
+      await expectLater(
+        sync(const SemanticFleet()),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            AppL10n.strings.libraryDomain.semanticNeedsNewerLauncher,
+          ),
+        ),
+      );
+    });
+
+    test('the light check does not offer a release for another line-text '
+        'version', () async {
+      github.legacyBase(30, lineText: kSemanticLineTextVersion - 1);
+      final assets = SemanticSearchAssets(
+        httpClient: github.client,
+        models: fakeModels,
+      );
+      addTearDown(assets.dispose);
+      for (var check = 0; check < 2; check++) {
+        expect(
+          await assets.peekPending(
+            mirrorDir: mirror,
+            libraryTag: libraryTagOf(30),
+          ),
+          isFalse,
+        );
+      }
+      expect(assets.peekedPendingBytes, 0);
+      expect(github.downloads, [
+        legacyManifestName(30),
+        legacyManifestName(30),
+      ]);
+    });
+
+    test('the light check still offers a usable legacy release', () async {
+      github.legacyBase(30);
+      final assets = SemanticSearchAssets(
+        httpClient: github.client,
+        models: fakeModels,
+      );
+      addTearDown(assets.dispose);
+      expect(
+        await assets.peekPending(
+          mirrorDir: mirror,
+          libraryTag: libraryTagOf(30),
+        ),
+        isTrue,
+      );
+      expect(assets.peekedPendingBytes, greaterThan(0));
     });
 
     test(
