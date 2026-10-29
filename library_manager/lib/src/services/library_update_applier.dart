@@ -874,8 +874,9 @@ class LibraryUpdateApplier {
   void _ensureDeltaStepFits(String dbPath, String url, PatchFileEntry patch) {
     final dir = p.dirname(dbPath);
     final download = PatchDownloader.isRemoteUrl(url) ? patch.size : 0;
-    _ensureSpaceFor(dir, download + 2 * patch.uncompressedSize);
     final dbSize = File(dbPath).existsSync() ? File(dbPath).lengthSync() : 0;
+    // SQLite may journal every existing page even when the patch is small.
+    _ensureSpaceFor(dir, download + dbSize + 2 * patch.uncompressedSize);
     _ensureFileFitsVolume(dir, dbSize + patch.uncompressedSize);
   }
 

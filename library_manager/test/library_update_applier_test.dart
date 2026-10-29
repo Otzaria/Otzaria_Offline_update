@@ -176,6 +176,46 @@ void main() {
   });
 
   group('applyDelta', () {
+    test(
+      'reserves the live database rollback journal before extracting',
+      () async {
+        final original = Uint8List(8192);
+        File(dbPath).writeAsBytesSync(original);
+        final edge = _edge();
+        final patchBytes = edge.manifest.patchFiles.single.uncompressedSize;
+        final free = 2 * patchBytes + DiskSpaceProbe.defaultHeadroomBytes;
+        final tight = LibraryUpdateApplier(
+          processGuard: const _FakeGuard(false),
+          freeBytesFor: (_) => free,
+        );
+        addTearDown(tight.dispose);
+
+        await expectLater(
+          tight.applyDelta(
+            plan: LibraryUpdatePlan.delta(
+              localVersion: 4,
+              targetVersion: 5,
+              steps: [edge],
+            ),
+            dbPath: dbPath,
+          ),
+          throwsA(
+            isA<LibraryApplyException>().having(
+              (e) => e.message,
+              'message',
+              AppL10n.strings.libraryDomain.notEnoughDiskSpace(
+                p.dirname(dbPath),
+                DiskSpaceProbe.formatBytes(original.length + 2 * patchBytes),
+                DiskSpaceProbe.formatBytes(free),
+              ),
+            ),
+          ),
+        );
+        expect(File(dbPath).readAsBytesSync(), original);
+        expect(File('$dbPath.applying').existsSync(), isFalse);
+      },
+    );
+
     setUp(() {
       applier = LibraryUpdateApplier(processGuard: const _FakeGuard(false));
     });
@@ -2222,7 +2262,9 @@ void main() {
             'message',
             AppL10n.strings.libraryDomain.notEnoughDiskSpace(
               p.dirname(dbPath),
-              DiskSpaceProbe.formatBytes(2 * uncompressed),
+              DiskSpaceProbe.formatBytes(
+                File(dbPath).lengthSync() + 2 * uncompressed,
+              ),
               DiskSpaceProbe.formatBytes(1 << 20),
             ),
           ),
