@@ -403,7 +403,17 @@ class AppSession extends ChangeNotifier {
 
   /// העבודה שבעלייה. נפרד מהבנאי כדי שבדיקות יוכלו לבנות סשן בלי להריץ אותה.
   void start() {
-    WidgetsBinding.instance.addPostFrameCallback((_) => _firstFrame.complete());
+    LauncherCrashSession.closeGuard = confirmClose;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _firstFrame.complete();
+      // The scene is submitted before post-frame callbacks finish.
+      scheduleMicrotask(() {
+        if (isActive) _startAfterFrame();
+      });
+    });
+  }
+
+  void _startAfterFrame() {
     final s = settings.settings;
     unawaited(_faq.load());
     // ספירה בלבד — גם בכונן מוגן, כדי שהבית יאמר שיש בו דיווחים.
@@ -420,18 +430,15 @@ class AppSession extends ChangeNotifier {
     } else {
       unawaited(refreshProcessState());
       unawaited(_launcherFlow.checkMirror());
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!isActive) return;
-        final local = _asCheck(() async {
-          await _otzaria.ensureChecked();
-          _markChecked();
-        });
-        _startupLocal.complete(local.catchError((_) {}));
-        unawaited(local.then((_) {
-          _requestFeedbackSync();
-          return _offers.request();
-        }));
+      final local = _asCheck(() async {
+        await _otzaria.ensureChecked();
+        _markChecked();
       });
+      _startupLocal.complete(local.catchError((_) {}));
+      unawaited(local.then((_) {
+        _requestFeedbackSync();
+        return _offers.request();
+      }));
     }
     var crashCheck = Future<void>.value();
     if (appReports case final reports?) {
@@ -448,7 +455,6 @@ class AppSession extends ChangeNotifier {
       Future.wait([_startupLocal.future, _startupOnline])
           .then((_) => registerPendingMachine()),
     );
-    LauncherCrashSession.closeGuard = confirmClose;
   }
 
   @override

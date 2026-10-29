@@ -112,10 +112,73 @@ void main() {
   }
 
   Future<void> waitFor(bool Function() done) async {
+    WidgetsBinding.instance
+      ..handleBeginFrame(null)
+      ..handleDrawFrame();
+    await Future<void>.delayed(Duration.zero);
     for (var i = 0; i < 200 && !done(); i++) {
       await Future<void>.delayed(const Duration(milliseconds: 20));
     }
   }
+
+  test('startup reads wait for the first frame', () async {
+    await settings.update(const AppSettings(autoCheckUpdates: true));
+    final s = _RecordingStartupSession(
+      dataDir: tempDir.path,
+      stateDir: tempDir.path,
+      settings: settings,
+      prompts: prompts,
+      runningLocator: const _NeverRunningLocator(),
+      noticesStore: MemoryNoticesStore(),
+    );
+    sessions.add(s);
+    s.start();
+    expect(s.checks, isEmpty);
+    expect(s.plugins.status, PluginsModuleStatus.idle);
+    expect(s.launcherUpdate.status, LauncherUpdateStatus.idle);
+
+    WidgetsBinding.instance
+      ..handleBeginFrame(null)
+      ..handleDrawFrame();
+    await waitFor(() => s.plugins.status == PluginsModuleStatus.ready);
+    expect(s.checks, ['local', 'online']);
+  });
+
+  test('startup uses settings changed before the first frame', () async {
+    final s = _RecordingStartupSession(
+      dataDir: tempDir.path,
+      stateDir: tempDir.path,
+      settings: settings,
+      prompts: prompts,
+      runningLocator: const _NeverRunningLocator(),
+      noticesStore: MemoryNoticesStore(),
+    );
+    sessions.add(s);
+    s.start();
+    await settings.update(const AppSettings(autoCheckUpdates: true));
+    expect(s.checks, isEmpty);
+    await waitFor(() => s.plugins.status == PluginsModuleStatus.ready);
+    expect(s.checks, ['local', 'online']);
+  });
+
+  test('disposing before the first frame skips startup reads', () async {
+    final s = _RecordingStartupSession(
+      dataDir: tempDir.path,
+      stateDir: tempDir.path,
+      settings: settings,
+      prompts: prompts,
+      runningLocator: const _NeverRunningLocator(),
+    );
+    s.start();
+    s.dispose();
+    WidgetsBinding.instance
+      ..handleBeginFrame(null)
+      ..handleDrawFrame();
+    await Future<void>.delayed(Duration.zero);
+    expect(s.checks, isEmpty);
+    expect(s.plugins.status, PluginsModuleStatus.idle);
+    expect(LauncherCrashSession.closeGuard, isNull);
+  });
 
   test('home offers new custom apps once, and installed updates until applied',
       () async {
@@ -677,8 +740,13 @@ void main() {
       await tester.runAsync(
         () => settings.update(const AppSettings(autoCheckUpdates: true)),
       );
-      final started = session()..start();
-      expect(started.isCheckingNow, isTrue);
+      final started = session();
+      var startupWasChecking = false;
+      started.addListener(() => startupWasChecking |= started.isCheckingNow);
+      started.start();
+      tester.binding.scheduleFrame();
+      await drive(() => started.lastCheckedAt != null);
+      expect(startupWasChecking, isTrue);
       await drive(() => !started.isCheckingNow);
       expect(started.isCheckingNow, isFalse);
       expect(started.lastCheckedAt, isNotNull);
@@ -1831,6 +1899,25 @@ class _FakePrompts implements SessionPrompts {
     required void Function(bool active) onActiveChanged,
     required void Function(bool uploading) onUploadingChanged,
   }) async {}
+}
+
+class _RecordingStartupSession extends AppSession {
+  _RecordingStartupSession({
+    required super.dataDir,
+    required super.stateDir,
+    required super.settings,
+    required super.prompts,
+    super.runningLocator,
+    super.noticesStore,
+  });
+
+  final checks = <String>[];
+
+  @override
+  Future<void> checkAll() async => checks.add('local');
+
+  @override
+  Future<void> checkOnline() async => checks.add('online');
 }
 
 /// "בדוק עכשיו" בלי בדיקות אמיתיות: המקומית לא נוגעת בדבר, והמקוונת נכשלת
