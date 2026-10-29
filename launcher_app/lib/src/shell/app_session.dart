@@ -593,9 +593,11 @@ class AppSession extends ChangeNotifier {
     return {
       'readOnly': readOnly,
       'otzaria': _otzaria.status.name,
+      'otzariaVersion': _otzaria.currentVersion,
       'otzariaRunning': _otzariaIsRunning,
       'library': _library.status.name,
       'plugins': _plugins.status.name,
+      'pluginDetails': _plugins.diagnostics,
       'customApps': _customApps.hasApps,
       'launcherUpdateReady': _launcherUpdate.hasUpdateReady,
       'autoCheckUpdates': s.autoCheckUpdates,

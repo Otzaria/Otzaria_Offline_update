@@ -17,9 +17,26 @@ void main() {
       expect(ProgressNotifier.interval, const Duration(milliseconds: 100));
     });
 
+    test('a report after an idle interval is delivered immediately', () {
+      fakeAsync((async) {
+        final notifier = _Counter(async);
+        addTearDown(notifier.dispose);
+        var notifications = 0;
+        notifier.progress.addListener(() => notifications++);
+
+        notifier.value = 1;
+        async.elapse(ProgressNotifier.interval);
+        notifier.value = 2;
+
+        expect(notifications, 2);
+        expect(notifier.lastSeen, 2);
+        expect(async.pendingTimers, isEmpty);
+      });
+    });
+
     test('הצפה של 5000 דיווחים באותו tick = שתי הודעות בלבד', () {
       fakeAsync((async) {
-        final notifier = _Counter();
+        final notifier = _Counter(async);
         var notifications = 0;
         notifier.progress.addListener(() => notifications++);
 
@@ -44,7 +61,7 @@ void main() {
 
     test('דיווח התקדמות מעיר רק את מאזיני ההתקדמות, לא את מאזיני המצב', () {
       fakeAsync((async) {
-        final notifier = _Counter();
+        final notifier = _Counter(async);
         var state = 0;
         var progress = 0;
         notifier.addListener(() => state++);
@@ -63,7 +80,7 @@ void main() {
 
     test('גם המתנה ארוכה אינה מייצרת הודעה נוספת אחרי האחרונה', () {
       fakeAsync((async) {
-        final notifier = _Counter();
+        final notifier = _Counter(async);
         var notifications = 0;
         notifier.progress.addListener(() => notifications++);
 
@@ -80,7 +97,7 @@ void main() {
 
     test('שתי הצפות בזו אחר זו = שלוש הודעות, לא 2000', () {
       fakeAsync((async) {
-        final notifier = _Counter();
+        final notifier = _Counter(async);
         var notifications = 0;
         notifier.progress.addListener(() => notifications++);
 
@@ -104,7 +121,7 @@ void main() {
 
     test('dispose מבטל טיימר תלוי — ואין הודעה אחריו', () {
       fakeAsync((async) {
-        final notifier = _Counter();
+        final notifier = _Counter(async);
         var notifications = 0;
         notifier.progress.addListener(() => notifications++);
 
@@ -146,9 +163,15 @@ void main() {
 }
 
 class _Counter extends ChangeNotifier with DisposeGuard, ProgressNotifier {
-  _Counter() {
+  _Counter(FakeAsync async)
+      : _stopwatch = async.getClock(DateTime.utc(2026)).stopwatch {
     progress.addListener(() => lastSeen = _value);
   }
+
+  final Stopwatch Function() _stopwatch;
+
+  @override
+  Stopwatch createProgressStopwatch() => _stopwatch();
 
   int _value = 0;
   int lastSeen = 0;

@@ -610,6 +610,10 @@ class PluginsModuleController extends ChangeNotifier
         isCancelled: isCancelled,
         onProgress: (progress) {
           syncMessage = progress.message;
+          if (progress.phase == PluginSyncPhase.plugin &&
+              progress.current != null) {
+            AppLogger.instance.info(progress.message);
+          }
           if (progress.phase == PluginSyncPhase.warning) {
             syncWarnings.add(progress.message);
           } else if (progress.fraction != null) {
@@ -790,6 +794,28 @@ class PluginsModuleController extends ChangeNotifier
   /// האם הקובץ של הבילד שיותקן בכלל ירד למראה.
   bool hasFileFor(StorePlugin plugin) =>
       plugin.localFileFor(targetOf(plugin)?.version) != null;
+
+  Map<String, dynamic> get diagnostics => {
+        'appVersion': appVersion,
+        'installed': Map<String, String>.of(installed),
+        'lastSync': lastSync?.toIso8601String(),
+        'inventory': [
+          for (final plugin in plugins)
+            {
+              'id': plugin.id,
+              'name': plugin.name,
+              'manifestId': plugin.manifestId,
+              'catalogVersion': plugin.version,
+              'compatibleWith': plugin.compatibleWith,
+              'maxAppVersion': plugin.maxAppVersion,
+              'mirroredVersions': plugin.localFiles.keys.toList(),
+              'targetVersion': targetOf(plugin)?.version,
+              'status': statusOf(plugin).name,
+              'directInstall': canDirectInstall(plugin),
+              'development': isDevelopmentInOtzaria(plugin),
+            },
+        ],
+      };
 
   bool canDirectInstall(StorePlugin plugin) =>
       targetOf(plugin)?.supportsDirectInstall ?? plugin.supportsDirectInstall;
