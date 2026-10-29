@@ -145,7 +145,7 @@ class CustomAppsManager {
     final entry = await (await _store()).load(id);
     if (entry == null) return;
     final installer = entry.installer;
-    if (installer != null && installer.sha256 == null) return;
+    // A null hash can approve launching; installation still requires a hash.
     await _trust.trust(
       CustomAppTrustStore.keyFor(entry.descriptor, installer?.sha256),
     );

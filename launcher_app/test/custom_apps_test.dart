@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/custom_apps_controller.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_app_detail_view.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_app_form_source.dart';
+import 'package:launcher_app/src/screens/custom_apps/custom_app_install_action.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_app_store_card.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_apps_manage_page.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_apps_screen.dart';
@@ -1138,6 +1139,158 @@ void main() {
       );
     });
 
+    for (final version in ['', '   ', 'unknown', 'N/A']) {
+      test('unknown ProductVersion "$version" is not an update', () {
+        final app = viewOf(
+          storedVersion: '1.4.2',
+          isInstalled: true,
+          installedVersion: version,
+        );
+        expect(app.pending, CustomAppPending.none);
+        controller.apps = [app];
+        expect(controller.hasHomeOffer, isFalse);
+      });
+    }
+
+    test('normalized numeric ProductVersion remains comparable', () {
+      for (final version in ['V1.4.2', ' v1.5.0+build.4 ']) {
+        expect(
+          viewOf(
+            storedVersion: '1.4.2',
+            isInstalled: true,
+            installedVersion: version,
+          ).pending,
+          CustomAppPending.none,
+        );
+      }
+      expect(
+        viewOf(
+          storedVersion: '1.4.2',
+          isInstalled: true,
+          installedVersion: 'v1.4.2-rc.1',
+        ).pending,
+        CustomAppPending.newerOnDrive,
+      );
+    });
+
+    testWidgets('unknown ProductVersion permits an explicit reinstall',
+        (tester) async {
+      for (final version in ['', '   ', 'unknown', 'N/A']) {
+        await pumpScreen(
+          tester,
+          CustomAppDetailView(
+            controller: controller,
+            app: viewOf(
+              storedVersion: '1.4.2',
+              isInstalled: true,
+              installedVersion: version,
+            ),
+            readOnly: true,
+            onInstall: () {},
+            onLaunch: () {},
+            onDownload: () {},
+            onPickLocation: () {},
+            onCategorySelected: (_) {},
+          ),
+        );
+        expect(find.text(stringsOf().common.launch), findsOneWidget);
+        expect(
+            find.text(stringsOf().customApps.reinstallButton), findsOneWidget);
+        expect(find.text(stringsOf().customApps.installedNoVersionValue),
+            findsOneWidget);
+      }
+    });
+
+    testWidgets('גרסה לא ידועה מאפשרת התקנה מחדש מדף התוכנה', (tester) async {
+      var installs = 0;
+      final app = viewOf(storedVersion: '1.4.2', isInstalled: true);
+      await pumpScreen(
+          tester,
+          CustomAppDetailView(
+            controller: controller,
+            app: app,
+            readOnly: true,
+            onInstall: () => installs++,
+            onLaunch: () {},
+            onDownload: () {},
+            onPickLocation: () {},
+            onCategorySelected: (_) {},
+          ));
+      expect(find.text(stringsOf().common.launch), findsOneWidget);
+      await tester.tap(find.text('התקנה מחדש'));
+      expect(installs, 1);
+      expect(app.pending, CustomAppPending.none);
+
+      await pumpScreen(
+        tester,
+        CustomAppDetailView(
+          controller: controller,
+          app: viewOf(
+              storedVersion: '1.4.2',
+              isInstalled: true,
+              installedVersion: '1.5.0'),
+          readOnly: true,
+          onInstall: () => installs++,
+          onLaunch: () {},
+          onDownload: () {},
+          onPickLocation: () {},
+          onCategorySelected: (_) {},
+        ),
+      );
+      expect(find.text(stringsOf().common.launch), findsOneWidget);
+      expect(find.text('התקנה מחדש'), findsNothing);
+    });
+
+    testWidgets('אישור הפעלה של תוכנה קיימת אינו מבקש להתקין אותה',
+        (tester) async {
+      await addApp(tester, withInstaller: true);
+      controller.dispose();
+      controller = CustomAppsController(
+        mirrorRootDir: p.join(tempDir.path, 'mirror'),
+      );
+      await tester.runAsync(controller.load);
+      final app = CustomAppView(
+        entry: controller.apps.single.entry,
+        installed: const CustomAppInstallState(
+          version: '1.4.2',
+          installDir: r'C:\App',
+          launchPath: r'C:\App\demo.exe',
+        ),
+      );
+      await pumpScreen(
+          tester,
+          Builder(
+              builder: (context) => ActionButton.neutral(
+                    text: stringsOf().common.launch,
+                    onPressed: () => unawaited(launchCustomApp(
+                      context: context,
+                      controller: controller,
+                      app: app,
+                    )),
+                  )));
+      await tester.tap(find.text(stringsOf().common.launch));
+      await settleDisk(tester);
+      expect(find.text('להפעיל תוכנה שלא אושרה במחשב הזה?'), findsOneWidget);
+      expect(find.text(stringsOf().customApps.trustDialogTitle), findsNothing);
+      await tester.tap(find.text(stringsOf().common.cancel));
+      await tester.pumpAndSettle();
+    });
+
+    test('תוכנה חסרה שכבר הוצגה אינה עדכון; גרסה חדשה עדיין מוצעת', () async {
+      controller.apps = [viewOf(storedVersion: '1.4.2')];
+      expect(controller.hasHomeOffer, isTrue);
+      await controller.markAnnounced(controller.apps);
+      expect(controller.pendingApps, hasLength(1));
+      expect(controller.hasHomeOffer, isFalse);
+      controller.apps = [
+        viewOf(
+            storedVersion: '1.4.2',
+            isInstalled: true,
+            installedVersion: '1.4.0')
+      ];
+      expect(controller.hasHomeOffer, isTrue);
+    });
+
     test('בלי שם קובץ הרצה — שותקים, כי לא ידוע אם מותקנת', () {
       expect(
         viewOf(storedVersion: '1.4.2', exeName: null).pending,
@@ -1331,6 +1484,45 @@ void main() {
   });
 
   group('טעינות חופפות', () {
+    test('late loading preserves an announcement recorded while loading',
+        () async {
+      final root = p.join(tempDir.path, 'gated-announced');
+      final gated = _GatedLoadManager(mirrorRootDir: root);
+      final built = CustomAppsController(
+        mirrorRootDir: root,
+        stateDir: tempDir.path,
+        manager: gated,
+      );
+      addTearDown(built.dispose);
+      const descriptor = AppDescriptor(
+        id: 'missing-app',
+        name: 'Missing app',
+        sourceKind: AppSourceKind.manual,
+        detect: AppDetectRules(exeName: 'missing-app.exe'),
+      );
+      await gated.add(descriptor);
+      final source = File(p.join(tempDir.path, 'setup.exe'))
+        ..writeAsStringSync('installer');
+      await gated.attachInstaller(
+        descriptor.id,
+        sourcePath: source.path,
+        version: '1.4.2',
+      );
+      built.apps = [CustomAppView(entry: (await gated.load(descriptor.id))!)];
+      expect(built.hasHomeOffer, isTrue);
+
+      final loading = built.load();
+      while (gated.gates.isEmpty) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      await built.markAnnounced(built.apps);
+      expect(built.hasHomeOffer, isFalse);
+      gated.gates.single.complete();
+      await loading;
+      expect(built.pendingApps, hasLength(1));
+      expect(built.hasHomeOffer, isFalse);
+    });
+
     AppDescriptor manualApp(String id) =>
         AppDescriptor(id: id, name: id, sourceKind: AppSourceKind.manual);
 

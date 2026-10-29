@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show WidgetsBinding;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/app_report/launcher_crash_session.dart';
 import 'package:launcher_app/src/controllers/app_reports_controller.dart';
+import 'package:launcher_app/src/controllers/custom_apps_controller.dart';
 import 'package:launcher_app/src/controllers/download_plan.dart';
 import 'package:launcher_app/src/controllers/launcher_update_controller.dart';
 import 'package:launcher_app/src/controllers/launcher_update_flow.dart';
@@ -114,6 +116,41 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 20));
     }
   }
+
+  test('home offers new custom apps once, and installed updates until applied',
+      () async {
+    final s = session();
+    final entry = CustomAppEntry(
+      descriptor: const AppDescriptor(
+        id: 'zayit',
+        name: 'Zayit',
+        sourceKind: AppSourceKind.manual,
+        detect: AppDetectRules(exeName: 'zayit.exe'),
+      ),
+      installer: StoredInstaller(
+        fileName: 'setup.exe',
+        version: '0.6.10',
+        sizeBytes: 1,
+        addedAt: DateTime(2026),
+      ),
+    );
+    s.customApps.apps = [CustomAppView(entry: entry)];
+    expect(guidanceFactsFromSession(s).customAppsPending, isTrue);
+    await s.customApps.markAnnounced(s.customApps.apps);
+    expect(s.customApps.pendingApps, hasLength(1));
+    expect(guidanceFactsFromSession(s).customAppsPending, isFalse);
+    s.customApps.apps = [
+      CustomAppView(
+        entry: entry,
+        installed: const CustomAppInstallState(
+          version: '0.6.9',
+          installDir: r'C:\App',
+          launchPath: r'C:\App\zayit.exe',
+        ),
+      )
+    ];
+    expect(guidanceFactsFromSession(s).customAppsPending, isTrue);
+  });
 
   test('session library download requires an installer actually on the drive',
       () async {

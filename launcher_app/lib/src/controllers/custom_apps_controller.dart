@@ -60,6 +60,14 @@ class CustomAppView {
   /// התשובה הנכונה היא "לא ניתן לדעת".
   bool get canDetect => (descriptor.detect.exeName ?? '').isNotEmpty;
 
+  String? get knownInstalledVersion {
+    final version = installed?.version;
+    return version != null &&
+            _hasNumericBase(OtzariaUpdateCheckResult.normalizeVersion(version))
+        ? version
+        : null;
+  }
+
   /// מה שהכונן מציע למחשב הזה — עליו נפתחת הודעת הכניסה למסך.
   ///
   /// **הכול נקרא מהדיסק ולא מהרשת.** שתי שתיקות מכוונות: בלי כללי זיהוי
@@ -72,7 +80,7 @@ class CustomAppView {
     final current = installed;
     if (current == null) return CustomAppPending.notInstalled;
 
-    final version = current.version;
+    final version = knownInstalledVersion;
     if (version == null) return CustomAppPending.none;
     return OtzariaUpdateCheckResult.compareVersions(version, stored.version) < 0
         ? CustomAppPending.newerOnDrive
@@ -186,6 +194,10 @@ class CustomAppsController extends ChangeNotifier
         for (final app in pendingApps)
           if (!_announcedIds.contains(app.descriptor.id)) app,
       ];
+
+  bool get hasHomeOffer =>
+      unannouncedApps.isNotEmpty ||
+      apps.any((app) => app.pending == CustomAppPending.newerOnDrive);
 
   /// רושם שההודעה על [shown] נאמרה במחשב הזה, כדי שלא תיאמר בו שוב.
   Future<void> markAnnounced(Iterable<CustomAppView> shown) async {
@@ -313,7 +325,10 @@ class CustomAppsController extends ChangeNotifier
         );
       }
       if (gen != _loadGen) return;
-      if (announcedIds != null) _announcedIds = announcedIds;
+      if (announcedIds != null) {
+        // A pending load must not forget a newer announcement.
+        _announcedIds = {..._announcedIds, ...announcedIds};
+      }
       categories = loadedCategories;
       _folderIds = folderIds;
       apps = views;

@@ -18,7 +18,7 @@ import '../../widgets/widgets_exports.dart';
   if (!app.canDetect) return (text: t.valueUnknown, ltr: false);
   final installed = app.installed;
   if (installed == null) return (text: t.valueNo, ltr: false);
-  final version = installed.version;
+  final version = app.knownInstalledVersion;
   return version == null
       ? (text: t.installedNoVersionValue, ltr: false)
       : (text: version, ltr: true);
@@ -45,7 +45,7 @@ String customAppSourceLabel(BuildContext context, CustomAppView app) {
 
 /// הגרסה שבכונן, ובלעדיה — המותקנת כאן.
 String? customAppVersionOf(CustomAppView app) =>
-    app.storedInstaller?.version ?? app.installed?.version;
+    app.storedInstaller?.version ?? app.knownInstalledVersion;
 
 /// שורת המטא: גרסה, גודל ומקור.
 List<String> customAppMeta(BuildContext context, CustomAppView app) {

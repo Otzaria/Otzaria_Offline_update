@@ -4409,6 +4409,17 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String installedSnack(String name) => '$name was installed';
   @override
+  String get reinstallButton => 'Reinstall';
+  @override
+  String get launchTrustDialogTitle =>
+      'Launch a program not approved on this computer?';
+  @override
+  String launchTrustDialogContent(String name) =>
+      '"$name" is already installed on this computer, but its launch rules from the drive have not been approved here. '
+      'Approve only if you trust whoever added it. Approval launches the existing program.';
+  @override
+  String get launchTrustDialogConfirm => 'Launch anyway';
+  @override
   String get trustDialogTitle => 'Install a program that was not checked?';
   @override
   String trustDialogContent(String name, String source) =>

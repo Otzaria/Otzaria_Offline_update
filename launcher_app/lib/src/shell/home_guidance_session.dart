@@ -57,7 +57,7 @@ GuidanceFacts guidanceFactsFromSession(
     installing: otzaria.status == OtzariaModuleStatus.installing ||
         library.status == LibraryModuleStatus.updating,
     launcherUpdate: launcherUpdate,
-    customAppsPending: s.customApps.pendingApps.isNotEmpty,
+    customAppsPending: s.customApps.hasHomeOffer,
     pluginsClosedForShabbat: plugins.onlineClosedForShabbat,
   );
 }

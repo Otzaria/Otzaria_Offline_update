@@ -73,7 +73,8 @@ Future<bool> launchCustomApp({
   }
   if (needsTrust) {
     if (!context.mounted) return false;
-    final approved = await showCustomAppTrustDialog(context, app);
+    final approved =
+        await showCustomAppTrustDialog(context, app, launching: true);
     if (!approved || !await controller.trustHere(id)) return false;
   }
   return controller.launch(id, installed);
@@ -114,16 +115,22 @@ Future<bool> _confirmTrust(
   return context.mounted;
 }
 
-/// "להתקין תוכנה שלא נבדקה?" — תוכנה שנוספה במחשב אחר. הבטוח (ביטול) ראשי.
-Future<bool> showCustomAppTrustDialog(BuildContext context, CustomAppView app) {
+/// אישור כללי התקנה או הפעלה שהגיעו ממחשב אחר; ביטול הוא הפעולה הראשית.
+Future<bool> showCustomAppTrustDialog(
+  BuildContext context,
+  CustomAppView app, {
+  bool launching = false,
+}) {
   final t = context.strings.customApps;
   return showWarningDialog(
     context: context,
-    title: t.trustDialogTitle,
-    content: t.trustDialogContent(
-      app.descriptor.name,
-      app.descriptor.github?.webUrl ?? app.descriptor.name,
-    ),
-    confirmText: t.trustDialogConfirm,
+    title: launching ? t.launchTrustDialogTitle : t.trustDialogTitle,
+    content: launching
+        ? t.launchTrustDialogContent(app.descriptor.name)
+        : t.trustDialogContent(
+            app.descriptor.name,
+            app.descriptor.github?.webUrl ?? app.descriptor.name,
+          ),
+    confirmText: launching ? t.launchTrustDialogConfirm : t.trustDialogConfirm,
   );
 }

@@ -2239,6 +2239,10 @@ abstract class CustomAppsStrings {
 
   String installedSnack(String name);
 
+  String get reinstallButton;
+  String get launchTrustDialogTitle;
+  String launchTrustDialogContent(String name);
+  String get launchTrustDialogConfirm;
   String get trustDialogTitle;
   String trustDialogContent(String name, String source);
   String get trustDialogConfirm;

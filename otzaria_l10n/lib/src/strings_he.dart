@@ -4157,6 +4157,16 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String installedSnack(String name) => '$name הותקנה';
   @override
+  String get reinstallButton => 'התקנה מחדש';
+  @override
+  String get launchTrustDialogTitle => 'להפעיל תוכנה שלא אושרה במחשב הזה?';
+  @override
+  String launchTrustDialogContent(String name) =>
+      'התוכנה "$name" כבר מותקנת במחשב הזה, אבל כללי ההפעלה שהגיעו בכונן עדיין לא אושרו כאן. '
+      'אשר רק אם אתה סומך על מי שהוסיף אותה. האישור מפעיל את התוכנה הקיימת.';
+  @override
+  String get launchTrustDialogConfirm => 'הפעלה בכל זאת';
+  @override
   String get trustDialogTitle => 'להתקין תוכנה שלא נבדקה?';
   @override
   String trustDialogContent(String name, String source) =>

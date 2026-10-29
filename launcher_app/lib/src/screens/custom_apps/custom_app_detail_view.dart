@@ -93,6 +93,13 @@ class CustomAppDetailView extends StatelessWidget {
           summary: _descriptor.description,
           actions: [
             primary,
+            if (app.canInstall &&
+                app.canLaunch &&
+                app.knownInstalledVersion == null)
+              ActionButton.neutral(
+                text: t.reinstallButton,
+                onPressed: controller.isBusy ? null : onInstall,
+              ),
             if (app.canDetect && !app.canLaunch)
               ActionButton.neutral(
                 text: t.pickLocationButton,

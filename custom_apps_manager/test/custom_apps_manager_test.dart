@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -332,6 +333,47 @@ void main() {
 
     String sha(String content) =>
         sha256.convert(utf8.encode(content)).toString();
+
+    test(
+        'launch approval without an installer hash persists but cannot install',
+        () async {
+      installerJson();
+      final trustFile = p.join(tempMirrorRoot(), 'machine', 'trust.json');
+      final here = machine(trustFile);
+      expect(await here.launchNeedsTrust('org.example.app'), isTrue);
+
+      await here.trustHere('org.example.app');
+      expect(await here.launchNeedsTrust('org.example.app'), isFalse);
+      expect((await here.load('org.example.app'))!.installer!.sha256, isNull);
+      final restarted = machine(trustFile);
+      expect(await restarted.launchNeedsTrust('org.example.app'), isFalse);
+      expect(await restarted.installPreflight('org.example.app'),
+          (needsTrust: true, needsHash: true));
+      await expectLater(
+        restarted.install('org.example.app'),
+        throwsA(isA<AppDescriptorException>().having(
+          (e) => e.message,
+          'message',
+          AppL10n.strings.customAppsDomain.installerUnverified,
+        )),
+      );
+      expect(runner.calls, isEmpty);
+
+      final descriptorFile =
+          File(p.join(root, 'apps', 'org.example.app', 'descriptor.json'));
+      final changed = jsonDecode(await descriptorFile.readAsString())
+          as Map<String, dynamic>;
+      changed['detect'] = {'exeName': 'other.exe'};
+      await descriptorFile.writeAsString(jsonEncode(changed));
+      expect(await restarted.launchNeedsTrust('org.example.app'), isTrue);
+      await restarted.trustHere('org.example.app');
+      expect(await restarted.launchNeedsTrust('org.example.app'), isFalse);
+
+      installerJson(sha: sha('MZ Inno Setup'));
+      expect(await restarted.launchNeedsTrust('org.example.app'), isTrue);
+      expect(await restarted.installPreflight('org.example.app'),
+          (needsTrust: true, needsHash: false));
+    });
 
     test('רשומה שלא אושרה במחשב הזה מחכה לאישור, ואחריו אינה שואלת שוב',
         () async {
