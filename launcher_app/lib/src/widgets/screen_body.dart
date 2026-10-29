@@ -30,35 +30,47 @@ class ScreenBody extends StatelessWidget {
         constraints: BoxConstraints(
           maxWidth: LayoutConstraints.panelContentMaxWidth + padding.horizontal,
         ),
-        child: ListView(
-          controller: controller,
-          padding: padding,
+        child: Column(
           children: [
-            if (header != null) header,
-            if (title != null)
+            if (header != null)
               Padding(
-                padding: EdgeInsets.only(bottom: description != null ? 20 : 0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title!,
-                      style:
-                          AppTextStyles.pageTitle.copyWith(color: cs.onSurface),
-                    ),
-                    if (description != null) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        description!,
-                        style: AppTextStyles.body.copyWith(
-                          color: cs.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
+                padding: EdgeInsets.fromLTRB(
+                    padding.left, padding.top, padding.right, 0),
+                child: header,
               ),
-            ...children,
+            Expanded(
+              child: ListView(
+                controller: controller,
+                padding: header == null ? padding : padding.copyWith(top: 0),
+                children: [
+                  if (title != null)
+                    Padding(
+                      padding:
+                          EdgeInsets.only(bottom: description != null ? 20 : 0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title!,
+                            style: AppTextStyles.pageTitle
+                                .copyWith(color: cs.onSurface),
+                          ),
+                          if (description != null) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              description!,
+                              style: AppTextStyles.body.copyWith(
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ...children,
+                ],
+              ),
+            ),
           ],
         ),
       ),
