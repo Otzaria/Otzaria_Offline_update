@@ -1017,7 +1017,23 @@ void main() {
     () async {
       await expectLater(
         syncWithStalledSegment(const Duration(milliseconds: 100)),
-        throwsA(isA<TimeoutException>()),
+        throwsA(
+          isA<PatchNetworkException>()
+              .having(
+                (error) => error.cause,
+                'cause',
+                isA<TimeoutException>().having(
+                  (error) => error.duration,
+                  'stall timeout',
+                  const Duration(milliseconds: 100),
+                ),
+              )
+              .having(
+                (error) => error.message,
+                'message',
+                LibraryUpdaterMessages.current.networkInterrupted,
+              ),
+        ),
       );
     },
   );
@@ -1689,12 +1705,14 @@ void main() {
         expect(
           await Directory(
             modelDir,
-          ).list().where((entry) => entry.path.endsWith('.tmp')).toList(),
-          isEmpty,
+          ).list().map((entry) => p.basename(entry.path)).toList(),
+          ['.otzaria-semantic'],
         );
         expect(
-          await Directory(p.join(root, 'vectors')).list().toList(),
-          isEmpty,
+          await Directory(
+            p.join(root, 'vectors'),
+          ).list().map((entry) => p.basename(entry.path)).toList(),
+          ['.otzaria-semantic'],
         );
         expect(requests, 0);
       } finally {

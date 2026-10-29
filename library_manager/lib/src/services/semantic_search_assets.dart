@@ -1949,12 +1949,29 @@ class SemanticSearchAssets {
     return sets;
   }
 
-  Future<void> _ensureOwnedDirectory(String path) async {
+  Future<void> _ensureOwnedDirectory(
+    String path, {
+    bool adoptModel = false,
+  }) async {
     final directory = Directory(path);
     if (await directory.exists()) {
       var owned = false;
       for (final marker in const ['.otzaria-semantic', 'CURRENT', 'PREVIOUS']) {
         if (await File(p.join(path, marker)).exists()) owned = true;
+      }
+      if (!owned && adoptModel) {
+        final identity = _models
+            .where((file) => file.name == 'model.json')
+            .firstOrNull;
+        final names = _models.map((file) => file.name).toSet();
+        final entries = await directory.list(followLinks: false).toList();
+        owned =
+            identity != null &&
+            entries.every(
+              (entry) =>
+                  entry is File && names.contains(p.basename(entry.path)),
+            ) &&
+            await _matches(p.join(path, identity.name), identity, null);
       }
       if (!owned && !await directory.list().isEmpty) {
         throw FileSystemException(
@@ -2155,7 +2172,7 @@ class SemanticSearchAssets {
       ];
       await beforeActivate?.call();
       final modelDirectory = p.join(p.dirname(dbPath), modelFolder);
-      await _ensureOwnedDirectory(modelDirectory);
+      await _ensureOwnedDirectory(modelDirectory, adoptModel: true);
       await _ensureOwnedDirectory(vectorsDir);
       for (final file in _models) {
         _cancel(isCancelled);

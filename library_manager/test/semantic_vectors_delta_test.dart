@@ -629,6 +629,50 @@ void main() {
       }
     }
 
+    test(
+      'a markerless known model is repaired without adopting foreign data',
+      () async {
+        github.windowsBase(30);
+        await sync(SemanticFleet([windowsAt(29, needsBase: true)]));
+        final modelDir = p.join(
+          p.dirname(db),
+          SemanticSearchAssets.modelFolder,
+        );
+        await installModels(modelDir);
+        final marker = File(p.join(modelDir, '.otzaria-semantic'));
+        final component = File(p.join(modelDir, fakeModels.last.name));
+        await marker.delete();
+        await component.writeAsBytes([1, 2, 3]);
+        engine = FakeVectorsEngine(present: false);
+        await install();
+        expect(await marker.exists(), isTrue);
+        expect(
+          Sha256Stream.ofBytes(await component.readAsBytes()),
+          fakeModels.last.sha256,
+        );
+
+        await marker.delete();
+        final foreign = File(p.join(modelDir, 'personal.txt'));
+        await foreign.writeAsString('preserve');
+        await expectLater(install(), throwsA(isA<FileSystemException>()));
+        expect(await foreign.readAsString(), 'preserve');
+        expect(await marker.exists(), isFalse);
+        await foreign.delete();
+        await component.delete();
+        final foreignDirectory = await Directory(component.path).create();
+        final nested = File(p.join(foreignDirectory.path, 'personal.txt'));
+        await nested.writeAsString('preserve');
+        await expectLater(install(), throwsA(isA<FileSystemException>()));
+        expect(await nested.readAsString(), 'preserve');
+        expect(await marker.exists(), isFalse);
+        await foreignDirectory.delete(recursive: true);
+        await File(p.join(modelDir, 'model.json')).writeAsString('{}');
+        await expectLater(install(), throwsA(isA<FileSystemException>()));
+        expect(await File(p.join(modelDir, 'model.json')).readAsString(), '{}');
+        expect(await marker.exists(), isFalse);
+      },
+    );
+
     Future<void> chainMirror() async {
       github
         ..windowsBase(30)
