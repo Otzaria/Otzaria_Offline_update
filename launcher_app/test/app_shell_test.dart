@@ -2366,8 +2366,9 @@ void main() {
       );
     });
 
-    test('הורדה מבוטלת ומחכים לשחזור לפני הסגירה', () {
-      expect(body, contains('await _downloads.cancelAndWait()'));
+    test('הורדה נעצרת עם שמירת ההתקדמות לפני הסגירה', () {
+      expect(
+          body, contains('await _downloads.cancelAndWait(keepProgress: true)'));
     });
   });
 }

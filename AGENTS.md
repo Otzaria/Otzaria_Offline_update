@@ -2022,8 +2022,9 @@ exe into `mirror/launcher/`, copies it over the stub (two renames, rollback on f
   `LauncherCrashSession.closeGuard`, consulted by `onWindowClose` and by the
   `AppLifecycleListener.onExitRequested` that macOS Cmd+Q / Dock > Quit reach
   (a refusal there returns `AppExitResponse.cancel`): a download is
-  cancelled and `MirrorDownloadUndo` reverts it before the process exits; an install
-  can only be warned about. A running "update here" stage asks too, plugin
+  stopped with partial files kept for resuming (#140); only explicit cancel uses
+  `MirrorDownloadUndo`. An install can only be warned about.
+  A running "update here" stage asks too, plugin
   delivery included (not `longTaskRunning`); its questions do not, nothing runs yet.
   A guard that throws still closes — X must never go inert.
 - **The mirror is checked on every writable start, also with `autoCheckUpdates` off**,

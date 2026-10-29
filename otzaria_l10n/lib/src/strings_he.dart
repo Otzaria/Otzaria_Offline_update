@@ -145,10 +145,10 @@ class _Shell extends ShellStrings {
   String get closeWhileBusyTitle => 'לסגור באמצע הפעולה?';
   @override
   String get closeWhileDownloadingPrompt =>
-      'הורדה רצה כרגע. סגירה עכשיו תבטל אותה: מה שכבר ירד עד הסוף יישאר '
-      'בכונן, והחלק שבאמצע יימחק לפני שהתוכנה תיסגר.';
+      'הורדה רצה כרגע. סגירה עכשיו תעצור אותה ותשמור את ההתקדמות בכונן. '
+      'בפעם הבאה אפשר להמשיך את ההורדה מהמקום שבו נעצרה, ככל שהשרת מאפשר.';
   @override
-  String get closeWhileDownloadingConfirm => 'ביטול וסגירה';
+  String get closeWhileDownloadingConfirm => 'עצירה וסגירה';
   @override
   String get closeWhileInstallingPrompt =>
       'התקנה רצה כרגע. סגירה באמצעה עלולה להשאיר אותה חלקית, ויהיה צורך '

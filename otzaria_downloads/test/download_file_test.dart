@@ -27,6 +27,7 @@ void main() {
     Duration connect = const Duration(milliseconds: 100),
     void Function(int, int)? progress,
     void Function()? cancelled,
+    bool keepPartialOnCancel = false,
   }) =>
       downloadFile(
         client: client,
@@ -38,6 +39,7 @@ void main() {
         connectTimeout: connect,
         onProgress: progress,
         checkCancelled: cancelled,
+        keepPartialOnCancel: keepPartialOnCancel,
         statusError: (status) => StateError('HTTP $status'),
         sizeError: (actual, expected) => StateError('size $actual/$expected'),
       );
@@ -243,6 +245,51 @@ void main() {
     expect(requests, 1);
     expect(await File(target).exists(), isFalse);
     expect(await File('$target.part').exists(), isFalse);
+  });
+
+  test('a stopped download keeps new bytes and resumes with a new client',
+      () async {
+    var stopped = false;
+    Stream<List<int>> chunks() async* {
+      yield utf8.encode('abc');
+      yield utf8.encode('def');
+    }
+
+    final first = MockClient.streaming((_, __) async => http.StreamedResponse(
+          chunks(),
+          200,
+          contentLength: 6,
+          headers: {'etag': '"v1"'},
+        ));
+    addTearDown(first.close);
+    await expectLater(
+      download(
+        first,
+        keepPartialOnCancel: true,
+        progress: (n, _) => stopped = n >= 3,
+        cancelled: () {
+          if (stopped) throw StateError('stopped');
+        },
+      ),
+      throwsStateError,
+    );
+    expect(await File(target).exists(), isFalse);
+    expect(await File('$target.part').readAsString(), 'abc');
+    expect(await File('$target.resume').exists(), isTrue);
+
+    final second = responding((request) async {
+      expect(request.headers['range'], 'bytes=3-');
+      expect(request.headers['if-range'], '"v1"');
+      return body('def', status: 206, headers: {
+        'etag': '"v1"',
+        'content-range': 'bytes 3-5/6',
+      });
+    });
+    addTearDown(second.close);
+    await download(second);
+    expect(await File(target).readAsString(), 'abcdef');
+    expect(await File('$target.part').exists(), isFalse);
+    expect(await File('$target.resume').exists(), isFalse);
   });
 
   test('truncated success and oversized bodies never become complete files',

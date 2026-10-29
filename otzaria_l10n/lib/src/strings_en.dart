@@ -144,11 +144,10 @@ class _Shell extends ShellStrings {
   String get closeWhileBusyTitle => 'Close in the middle of this?';
   @override
   String get closeWhileDownloadingPrompt =>
-      'A download is running. Closing now cancels it: whatever has finished '
-      'downloading stays on the drive, and the part in progress is deleted '
-      'before the program closes.';
+      'A download is running. Closing now stops it and saves progress on the drive. '
+      'Next time, you can resume where it stopped, if the server supports it.';
   @override
-  String get closeWhileDownloadingConfirm => 'Cancel and close';
+  String get closeWhileDownloadingConfirm => 'Stop and close';
   @override
   String get closeWhileInstallingPrompt =>
       'An install is running. Closing in the middle may leave it unfinished, '
