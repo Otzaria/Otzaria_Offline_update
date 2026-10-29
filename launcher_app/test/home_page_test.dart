@@ -43,6 +43,53 @@ void main() {
   ActionButton primary(WidgetTester tester) =>
       tester.widget<ActionButton>(find.byKey(ShellKeys.heroPrimary));
 
+  for (final language in AppLanguage.values) {
+    for (final size in [const Size(760, 560), const Size(1000, 720)]) {
+      for (final scenario in ['uptodate', 'first']) {
+        testWidgets('collected feedback notice: $language $size $scenario',
+            (tester) async {
+          await pumpScreen(
+            tester,
+            HomePage(
+              model: HomeViewModel(
+                guidance: homeScenario(scenario).guidance,
+                searchFeedbackCollected: true,
+                reportsIntro: true,
+              ),
+            ),
+            language: language,
+            size: size,
+          );
+          final notice = find.byKey(ShellKeys.searchFeedbackCollectedNotice);
+          expect(notice, findsOneWidget);
+          expect(
+            find.descendant(
+              of: notice,
+              matching: find.text(
+                stringsOf(language).errorReports.searchFeedbackCollected,
+              ),
+            ),
+            findsOneWidget,
+          );
+          final collected = tester.widget<NoticeBanner>(notice);
+          final reports = tester.widget<NoticeBanner>(
+            find.byKey(ShellKeys.reportsIntroNotice),
+          );
+          expect(collected.kind, reports.kind);
+          expect((collected.leading as IconTile).icon,
+              (reports.leading as IconTile).icon);
+          expect((collected.leading as IconTile).tone,
+              (reports.leading as IconTile).tone);
+          expect(collected.actions, isEmpty);
+          expect(
+              find.descendant(of: notice, matching: find.byType(ActionButton)),
+              findsNothing);
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
+  }
+
   group('חיפוש חכם, קבצים שלא ירדו ובדיקה מחודשת', () {
     testWidgets('השורה המשנית מורידה, "נסה שוב" מנסה שוב — בלי "יש חדש"',
         (tester) async {

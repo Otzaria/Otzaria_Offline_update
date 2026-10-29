@@ -4321,6 +4321,9 @@ class _ErrorReports extends ErrorReportsStrings {
   @override
   String get collectLater => 'לא עכשיו';
   @override
+  String get searchFeedbackCollected =>
+      'נאספו נתוני החיפוש החכם מאוצריא לכונן.';
+  @override
   String collectedSnack(int count) =>
       'נאספו לכונן ${_reports(count)}. הם יישלחו מהמחשב המחובר לרשת';
   @override

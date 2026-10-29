@@ -2317,14 +2317,14 @@ wait for dialogs and tasks, including 3s after launcher-initiated closure.
 `SearchFeedbackController`; task-ending paths must call `resume()`.
 See `launcher_app/README.md` for the collection and upload flow.
 
-**Smart-search feedback has no offer, button, count or message — it syncs in
-the background.** Maintainer decision (2026-10-21): collect when Otzaria is
-closed and consent is already granted, then upload, even with auto-check off.
+**Smart-search feedback syncs in the background; only successful collection
+shows a home notice, without buttons or a count.** Maintainer decisions
+(2026-10-21, 2026-10-29): collect with Otzaria closed and existing consent,
+then upload, even with auto-check off.
 `SearchFeedbackAutoSync` waits on `_offers.busy`, never the dialog queue, and
 retries after `retryAt()`. A no-connection backoff stays in memory
 (`reachedServer: false`) — on the drive it delayed the online upload.
-Self-update and elevation call `stopAndWait()` first. Never merge it into the
-report offer or upload.
+Self-update and elevation call `stopAndWait()` first. Keep report flows separate.
 
 **File first, then `markPendingReportAsSent` in one `BEGIN IMMEDIATE`.** A crash
 between them leaves the report pending and it is rewritten next time; the reverse order

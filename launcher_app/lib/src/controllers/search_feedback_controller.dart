@@ -130,6 +130,7 @@ class SearchFeedbackController extends ChangeNotifier
   bool isCollecting = false;
   bool isUploading = false;
   int outboxCount = 0;
+  bool hasCollected = false;
   Future<Duration?>? _run;
   bool _stopRequested = false;
 
@@ -172,10 +173,12 @@ class SearchFeedbackController extends ChangeNotifier
     try {
       final source = await resolveSource();
       if (source == null) return 0;
-      return await transport.collect(
+      final collected = await transport.collect(
         source,
         mayCollect: () async => await resolveSource() == source,
       );
+      if (collected > 0) hasCollected = true;
+      return collected;
     } finally {
       isCollecting = false;
       await refreshOutbox();
@@ -194,7 +197,7 @@ class SearchFeedbackController extends ChangeNotifier
     }
   }
 
-  /// איסוף ואז העלאה, בלי ממשק; כשל נרשם בלוג בלבד. מחזיר מתי לנסות שוב,
+  /// איסוף ואז העלאה ברקע; כשל נרשם בלוג בלבד. מחזיר מתי לנסות שוב,
   /// או null כשלא נשאר מה לשלוח.
   Future<Duration?> synchronize() async {
     if (isDisposed || isCollecting || isUploading || _run != null) return null;

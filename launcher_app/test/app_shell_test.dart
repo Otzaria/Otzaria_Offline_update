@@ -1631,6 +1631,13 @@ void main() {
       expect(settings.settings.autoCheckUpdates, isFalse);
       expect(transport.sent, 2);
       expectSilent(tester);
+      final notice = find.byKey(ShellKeys.searchFeedbackCollectedNotice);
+      expect(notice, findsOneWidget);
+      expect(find.text(stringsOf().errorReports.searchFeedbackCollected),
+          findsOneWidget);
+      expect(tester.widget<NoticeBanner>(notice).actions, isEmpty);
+      expect(find.descendant(of: notice, matching: find.byType(ActionButton)),
+          findsNothing);
     });
 
     testWidgets('אינו ממתין להסבר הדיווחים הפתוח ואינו מופיע בו', (
@@ -1665,6 +1672,7 @@ void main() {
       expect(transport.uploads, 0);
       expect(transport.sourceEvents, 2);
       expectSilent(tester);
+      expect(find.byKey(ShellKeys.searchFeedbackCollectedNotice), findsNothing);
     });
 
     testWidgets('אוצריא פתוחה: ממתין, ואוסף מעצמו כשהיא נסגרת', (tester) async {
@@ -1729,6 +1737,10 @@ void main() {
       expect(transport.uploads, 1);
       expect(transport.carriedEvents, 2);
 
+      final notice = find.byKey(ShellKeys.searchFeedbackCollectedNotice);
+      expect(notice, findsOneWidget);
+      expect(tester.widget<NoticeBanner>(notice).actions, isEmpty);
+
       await tester.pump(const Duration(minutes: 1));
       await settle(tester, () => false);
       expect(transport.uploads, 1);
@@ -1739,6 +1751,7 @@ void main() {
       expect(transport.uploads, 2);
       expect(transport.carriedEvents, 0);
       expectSilent(tester);
+      expect(notice, findsOneWidget);
     });
 
     testWidgets('פירוק המסגרת מבטל את הניסיון החוזר', (tester) async {

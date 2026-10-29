@@ -2391,6 +2391,7 @@ abstract class ErrorReportsStrings {
   String get collectConfirm;
   String get collectLater;
   String collectedSnack(int count);
+  String get searchFeedbackCollected;
 
   String collectPartialSnack(int count, String error);
   String collectFailedSnack(String error);

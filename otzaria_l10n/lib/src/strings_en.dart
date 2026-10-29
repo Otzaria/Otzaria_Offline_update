@@ -4582,6 +4582,9 @@ class _ErrorReports extends ErrorReportsStrings {
   @override
   String get collectLater => 'Not now';
   @override
+  String get searchFeedbackCollected =>
+      'Smart-search data from Otzaria has been collected to the drive.';
+  @override
   String collectedSnack(int count) =>
       '$count ${_reports(count)} collected to the drive. They will be sent '
       'from the computer that is online';

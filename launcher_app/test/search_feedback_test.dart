@@ -116,13 +116,14 @@ void main() {
     controller.dispose();
   });
 
-  group('synchronize — no prompt, no message', () {
+  group('synchronize — background collection and upload', () {
     test('collects available feedback and uploads it in one run', () async {
       expect(await controller.synchronize(), isNull);
       expect(transport.collections, 1);
       expect(transport.uploads, 1);
       expect(transport.sourceEvents, 0);
       expect(transport.carriedEvents, 0);
+      expect(controller.hasCollected, isTrue);
       expect(printed.where((m) => m.startsWith('UiSnack')), isEmpty);
     });
 
@@ -135,6 +136,7 @@ void main() {
       expect(transport.collections, 0);
       expect(transport.uploads, 1);
       expect(transport.carriedEvents, 0);
+      expect(controller.hasCollected, isFalse);
     });
 
     test('without consent nothing is collected or sent', () async {
@@ -143,6 +145,7 @@ void main() {
       expect(transport.collections, 0);
       expect(transport.uploads, 0);
       expect(transport.sourceEvents, 2);
+      expect(controller.hasCollected, isFalse);
     });
 
     test('carried feedback uploads without Otzaria on the online PC', () async {
@@ -187,6 +190,7 @@ void main() {
       transport.online = false;
       final delay = await controller.synchronize();
       expect(transport.carriedEvents, 2);
+      expect(controller.hasCollected, isTrue);
       expect(delay, isNotNull);
       expect(delay! > const Duration(minutes: 1), isTrue);
       expect(delay <= const Duration(minutes: 2), isTrue);
@@ -228,6 +232,29 @@ void main() {
       expect(transport.uploads, 1);
       expect(transport.sourceEvents, 2);
       expect(controller.isCollecting, isFalse);
+      expect(controller.hasCollected, isFalse);
+    });
+
+    test('empty collection does not announce success', () async {
+      transport.sourceEvents = 0;
+      expect(await controller.collect(), 0);
+      expect(controller.hasCollected, isFalse);
+    });
+
+    test('collection is announced only after the data reaches the drive',
+        () async {
+      transport.collectGate = Completer<void>();
+      final run = controller.collect();
+      await pumpEventQueue();
+      expect(controller.isCollecting, isTrue);
+      expect(controller.hasCollected, isFalse);
+      var announced = false;
+      controller.addListener(() => announced |= controller.hasCollected);
+      transport.collectGate!.complete();
+      expect(await run, 2);
+      expect(announced, isTrue);
+      await controller.synchronize();
+      expect(controller.hasCollected, isTrue);
     });
 
     test('runs never overlap', () async {

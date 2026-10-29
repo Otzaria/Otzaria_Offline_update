@@ -27,6 +27,8 @@ abstract final class ShellKeys {
   static const readOnlyNotice = ValueKey('home.notice.readOnly');
   static const driveFullNotice = ValueKey('home.notice.driveFull');
   static const reportsIntroNotice = ValueKey('home.notice.reportsIntro');
+  static const searchFeedbackCollectedNotice =
+      ValueKey('home.notice.searchFeedbackCollected');
   static const legacyReportsNotice = ValueKey('home.notice.legacyReports');
   static const otzariaOpenBanner = ValueKey('home.banner.otzariaOpen');
   static const elevationBanner = ValueKey('home.banner.elevation');

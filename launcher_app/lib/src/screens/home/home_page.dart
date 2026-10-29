@@ -222,6 +222,15 @@ class HomePage extends StatelessWidget {
     return [
       if (model.reportsIntro) _reportsIntro(context),
       if (model.legacyReportsNotice) _legacyReports(context),
+      if (model.searchFeedbackCollected)
+        NoticeBanner(
+          key: ShellKeys.searchFeedbackCollectedNotice,
+          leading: const IconTile(
+            icon: FluentIcons.bug_24_regular,
+            tone: IconTileTone.quiet,
+          ),
+          title: context.strings.errorReports.searchFeedbackCollected,
+        ),
       if (model.guidance.showOtzariaOpenBanner)
         NoticeBanner(
           key: ShellKeys.otzariaOpenBanner,
