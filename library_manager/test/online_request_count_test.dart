@@ -341,6 +341,36 @@ void main() {
   });
 
   group('LibraryManager check + download session', () {
+    test(
+      'a later session keeps unchanged library and companion payloads',
+      () async {
+        await online(() async {
+          final first = LibraryManager(dataDir: dataDir);
+          try {
+            await first.downloadToMirror();
+          } finally {
+            first.dispose();
+          }
+          github.requests.clear();
+          final next = LibraryManager(dataDir: dataDir);
+          addTearDown(next.dispose);
+
+          expect(await next.peekLatestOnlineVersion(), 2);
+          expect(await next.peekPendingCompanions(), isEmpty);
+          await next.downloadToMirror();
+
+          expect(
+            github.requests.where(
+              (u) =>
+                  (u.host == 'lib' && !u.path.endsWith('.manifest.json')) ||
+                  (u.host == 'dl' && !u.path.endsWith('/version.txt')),
+            ),
+            isEmpty,
+          );
+        });
+      },
+    );
+
     test('the download reuses what the light check fetched', () async {
       await online(() async {
         final manager = LibraryManager(dataDir: dataDir);
