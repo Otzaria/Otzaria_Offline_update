@@ -87,9 +87,9 @@ This repository is the updater/launcher for those users:
 network, so this launcher deliberately offers no "just update from the internet"
 path. Every check and every install reads the local folder, always — even when
 the machine is online. Two clicks touch the network: the download step, and
-uploading the error reports the drive collected (§5.10). The two deliberate
-exceptions, sent without a click, are the launcher's **own** problem reports
-and the smart-search feedback the drive carries (§5.10).
+uploading the error reports the drive collected (§5.10). Background sending
+also covers the launcher's **own** problem reports, plugin reports written in
+the store, and the smart-search feedback the drive carries (§5.10).
 
 **There are no modes to choose — the home page derives what to do from the
 state.** `deriveHomeGuidance` (`launcher_app/lib/src/shell/home_guidance.dart`,
@@ -1501,13 +1501,13 @@ and falls back to x64 only when the installed exe is not ARM64 (PE header).
 
 ### 5.6 Plugins
 
-**Install-state matching uses `manifestId`, not the catalog `id`.** The `id` from
-`/api/plugins` is the website's database id; Otzaria installs under
-`plugins/installed/<manifest.id>/`. `manifestId` is the site's `pluginUid`, or — on a
-site without it — the `manifest.json` inside the downloaded `.otzplugin`
-(`PluginManifestReader`, BOM-stripped like `LogicalContentHasher`). Compare by catalog
-id and *nothing* is ever detected as installed. A plugin with neither correctly reports
-`PluginInstallStatus.unknown` — not an error.
+**Install-state matching uses `manifestId`, not the catalog `id`.**
+`/api/plugins` gives the website's id; installed folders use the manifest id.
+`manifestId` comes from website `pluginUid`, or a downloaded archive's
+`manifest.json` (`PluginManifestReader`, BOM-stripped). Comparing catalog ids
+makes every plugin look uninstalled; neither identity means `unknown`.
+Reports use the separate website-only `pluginUid`, falling back to catalog `id`:
+an inferred manifest id cannot resolve the developer on a legacy website record.
 
 **Every downloaded build is checked against the build it was fetched for**
 (`PluginBuildCheck`): a wrong manifest id or a `sha256` mismatch rejects the file. A

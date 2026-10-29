@@ -27,6 +27,7 @@ class PluginDetailView extends StatelessWidget {
     this.blockedReason,
     this.otzariaInstalled = true,
     this.online,
+    this.onReport,
   });
 
   final StorePlugin plugin;
@@ -41,6 +42,7 @@ class PluginDetailView extends StatelessWidget {
   final String? blockedReason;
   final bool otzariaInstalled;
   final bool? online;
+  final VoidCallback? onReport;
 
   bool get _blocked => blockedReason != null;
 
@@ -156,6 +158,21 @@ class PluginDetailView extends StatelessWidget {
             ],
           ],
         ),
+        if (onReport != null) ...[
+          const SizedBox(height: AppTokens.spaceLG),
+          NoticeBanner(
+            kind: NoticeKind.banner,
+            leading: const IconTile(icon: FluentIcons.flag_24_regular),
+            title: t.reportCallout,
+            actions: [
+              ActionButton.outlined(
+                text: t.reportButton,
+                icon: FluentIcons.flag_24_regular,
+                onPressed: onReport,
+              )
+            ],
+          ),
+        ],
       ],
     );
   }

@@ -116,6 +116,7 @@ final _hebrewLetter = RegExp(r'[֐-׿]');
 /// חריגים מכוונים, ולא ליקויי תרגום. רשימה מפורשת היא מה שהופך את
 /// הבדיקות למשמעותיות: שדה שיישכח בלי תרגום ייפול, ולא ייבלע ברעש.
 const _sameInBothLanguages = {
+  'plugins.reportEmailPlaceholder', // Example email address, as on the website.
   'common.emptyValue', // מקף — אין מה לתרגם
   'settings.languageHebrew', // כל שפה מוצגת בשמה שלה
   'settings.languageEnglish',
@@ -134,6 +135,7 @@ const _selectorArgs = {
   'units.longDate#1', // החודש מוצג בשמו
 };
 const _noHebrewLettersInHebrew = {
+  'plugins.reportEmailPlaceholder',
   'common.emptyValue',
   // שם המחשב כפי שהוא, רק מבודד בכיוון.
   'settings.personalMachineName',

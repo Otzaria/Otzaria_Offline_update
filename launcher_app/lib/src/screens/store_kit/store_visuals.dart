@@ -385,12 +385,14 @@ class StoreFilterChip extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.locked = false,
+    this.icon,
   });
 
   final String label;
   final bool selected;
   final VoidCallback? onTap;
   final bool locked;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -420,11 +422,11 @@ class StoreFilterChip extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (selected || locked) ...[
+                    if (selected || locked || icon != null) ...[
                       Icon(
                         locked
                             ? FluentIcons.lock_closed_16_regular
-                            : FluentIcons.checkmark_16_regular,
+                            : icon ?? FluentIcons.checkmark_16_regular,
                         size: 16,
                         color: foreground,
                       ),

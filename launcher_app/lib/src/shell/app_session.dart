@@ -418,6 +418,7 @@ class AppSession extends ChangeNotifier {
     unawaited(_faq.load());
     // ספירה בלבד — גם בכונן מוגן, כדי שהבית יאמר שיש בו דיווחים.
     unawaited(_errorReports.refreshOutbox());
+    if (!readOnly) _errorReports.startAutomaticPluginUpload();
     _errorReportsIntro = _loadReportsIntro();
     unawaited(loadSemanticConsentAnswer());
     settings.addListener(_onChange);

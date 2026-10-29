@@ -15,6 +15,7 @@ export 'src/port/app_report_redactor.dart';
 export 'src/port/canonical_json.dart';
 export 'src/port/crash_signature.dart';
 export 'src/port/direct_error_report.dart';
+export 'src/port/plugin_report_record.dart';
 export 'src/services/report_outbox.dart';
 export 'src/services/report_uploader.dart';
 export 'src/services/search_feedback_transport.dart';

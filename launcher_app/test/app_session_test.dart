@@ -751,6 +751,8 @@ void main() {
       expect(started.isCheckingNow, isFalse);
       expect(started.lastCheckedAt, isNotNull);
       await drive(() => started.plugins.status != PluginsModuleStatus.loading);
+      started.dispose();
+      sessions.remove(started);
     });
 
     test('משימה ארוכה (ייצוא) חוסמת: אין בדיקה, והבית רואה את אותו תנאי',

@@ -2,6 +2,24 @@ import 'package:plugins_manager/plugins_manager.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test(
+      'website report identity survives mirror serialization and archive enrichment',
+      () {
+    final remote = StorePlugin.fromApi(const {
+      'id': 'catalog-id',
+      'pluginUid': 'website-uid',
+    }, 'https://otzaria.org');
+    final mirrored =
+        StorePlugin.fromJson(remote.copyWith(imagePath: 'icon.png').toJson());
+    expect(mirrored.pluginUid, 'website-uid');
+    final legacy =
+        StorePlugin.fromApi(const {'id': 'legacy-id'}, 'https://otzaria.org')
+            .copyWith(manifestId: 'archive-only-uid');
+    final restored = StorePlugin.fromJson(legacy.toJson());
+    expect(restored.manifestId, 'archive-only-uid');
+    expect(restored.pluginUid, isNull);
+  });
+
   test('גרסת פיתוח מותקנת אינה מוצעת לעדכון', () {
     final plugin = StorePlugin.fromApi(
       {'id': 'a', 'name': 'א', 'version': '2.0.0', 'pluginUid': 'uid'},

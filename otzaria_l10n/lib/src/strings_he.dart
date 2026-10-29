@@ -1831,6 +1831,53 @@ class _SaferMode extends SaferModeStrings {
 }
 
 class _Plugins extends PluginsStrings {
+  @override
+  String get reportButton => 'דיווח למפתח';
+  @override
+  String get reportCallout => 'דיווח על תקלה או בעיה למפתח התוסף';
+  @override
+  String get reportTitle => 'דיווח לבעל התוסף';
+  @override
+  String get reportType => 'סוג הדיווח';
+  @override
+  String get reportBug => 'תקלה';
+  @override
+  String get reportCrash => 'קריסה';
+  @override
+  String get reportContent => 'תוכן';
+  @override
+  String get reportOther => 'אחר';
+  @override
+  String get reportDetails => 'תיאור הבעיה';
+  @override
+  String get reportHint => 'מה קרה, באיזה מצב, ומה היית מצפה שיקרה';
+  @override
+  String get reportEmail => 'כתובת מייל למענה (לא חובה)';
+  @override
+  String get reportEmailPlaceholder => 'name@example.com';
+  @override
+  String get reportEmailHint =>
+      'הכתובת תועבר למפתח התוסף כדי שיוכל לחזור אליך. השאר ריק כדי לדווח באופן אנונימי.';
+  @override
+  String get reportSend => 'שליחת הדיווח';
+  @override
+  String get reportSending => 'שולח...';
+  @override
+  String get reportEmpty => 'נא לתאר את הבעיה';
+  @override
+  String get reportSaved =>
+      'הדיווח נשמר בכונן ויישלח כשהכונן יחובר למחשב מחובר.';
+  @override
+  String get reportSent => 'הדיווח נשלח למפתח התוסף';
+  @override
+  String get reportFailed => 'שמירת הדיווח נכשלה. נסה שוב.';
+  @override
+  String get reportRejected =>
+      'הדיווח נדחה על ידי השרת. בדוק את הפרטים ונסה שוב.';
+  @override
+  String reportSubtitle(String name, String version) =>
+      'הדיווח על $name (גרסה ${_ltr(version)}) יישלח במייל למפתח התוסף.';
+
   const _Plugins();
 
   @override

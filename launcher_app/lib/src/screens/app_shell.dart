@@ -652,6 +652,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
         ),
       ShellSection.plugins => PluginsScreen(
           controller: s.plugins,
+          reports: s.errorReports,
           readOnly: widget.readOnly,
           online: onlineState(s),
           otzariaInstalled: s.otzaria.currentVersion != null,

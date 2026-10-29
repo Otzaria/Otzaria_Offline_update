@@ -1908,6 +1908,54 @@ class _SaferMode extends SaferModeStrings {
 }
 
 class _Plugins extends PluginsStrings {
+  @override
+  String get reportButton => 'Report to developer';
+  @override
+  String get reportCallout => 'Report a problem to the plugin developer';
+  @override
+  String get reportTitle => 'Report to plugin owner';
+  @override
+  String get reportType => 'Report type';
+  @override
+  String get reportBug => 'Bug';
+  @override
+  String get reportCrash => 'Crash';
+  @override
+  String get reportContent => 'Content';
+  @override
+  String get reportOther => 'Other';
+  @override
+  String get reportDetails => 'Problem description';
+  @override
+  String get reportHint =>
+      'What happened, in what situation, and what you expected to happen';
+  @override
+  String get reportEmail => 'Reply email address (optional)';
+  @override
+  String get reportEmailPlaceholder => 'name@example.com';
+  @override
+  String get reportEmailHint =>
+      'The address will be shared with the developer so they can reply. Leave blank to report anonymously.';
+  @override
+  String get reportSend => 'Send report';
+  @override
+  String get reportSending => 'Sending...';
+  @override
+  String get reportEmpty => 'Please describe the problem';
+  @override
+  String get reportSaved =>
+      'The report is saved on the drive and will be sent on a connected computer.';
+  @override
+  String get reportSent => 'The report was sent to the plugin developer';
+  @override
+  String get reportFailed => 'Could not save the report. Try again.';
+  @override
+  String get reportRejected =>
+      'The server rejected the report. Check the details and try again.';
+  @override
+  String reportSubtitle(String name, String version) =>
+      'The report about $name (version $version) will be emailed to the plugin developer.';
+
   const _Plugins();
 
   @override
