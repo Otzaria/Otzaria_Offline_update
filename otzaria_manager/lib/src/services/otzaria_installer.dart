@@ -520,6 +520,7 @@ class OtzariaInstaller {
       stallTimeout: stallTimeout,
       onProgress: onProgress,
       checkCancelled: () => _throwIfCancelled(isCancelled),
+      keepPartialOnCancel: true,
       calculateSha256: expectedSha256 != null,
       statusError: (status) => OtzariaUserError(
         AppL10n.strings.appDomain.installerDownloadFailed(status),

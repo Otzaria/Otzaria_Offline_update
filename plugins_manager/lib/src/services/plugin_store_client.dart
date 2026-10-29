@@ -161,6 +161,7 @@ class PluginStoreClient {
         stallTimeout: stallTimeout,
         expectedSize: expectedSize,
         checkCancelled: checkCancelled,
+        keepPartialOnCancel: true,
         statusError: (status) => _HttpStatusException(
           AppL10n.strings.pluginsDomain.httpStatusFor(status, url),
           status,

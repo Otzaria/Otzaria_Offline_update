@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:flutter/foundation.dart';
 import 'package:library_manager/library_manager.dart';
@@ -108,12 +111,56 @@ class ErrorReportsController extends ChangeNotifier
   bool isUploading = false;
   ReportUploadProgress? progress;
   ReportUploadCancellation? _cancellation;
+  Timer? _automaticUpload;
+
+  void startAutomaticPluginUpload() {
+    _automaticUpload?.cancel();
+    unawaited(uploadAutomaticPluginReports());
+    _automaticUpload = Timer.periodic(const Duration(minutes: 5), (_) {
+      unawaited(uploadAutomaticPluginReports());
+    });
+  }
+
+  Future<String> queuePluginReport({
+    required String pluginUid,
+    required String pluginName,
+    required String pluginVersion,
+    required String reportType,
+    required String details,
+    String? reporterEmail,
+  }) async {
+    final record = PluginReportRecord(
+      reportId: AppReport.generateReportId(),
+      pluginUid: pluginUid,
+      pluginName: pluginName,
+      pluginVersion: pluginVersion,
+      reportType: reportType,
+      details: details.trim(),
+      reporterEmail: reporterEmail?.trim(),
+      platform: Platform.operatingSystem,
+      createdAt: DateTime.now(),
+    );
+    await outbox.write(
+      'plugin-${record.reportId}',
+      OutboxReport.encodeFile(OutboxReport.fileJson(
+        reportId: 'plugin-${record.reportId}',
+        bookTitle: pluginName,
+        createdAt: record.createdAt.toUtc().toIso8601String(),
+        endpoint: OutboxReport.pluginReportingEndpoint,
+        body: record.toApiPayload(),
+        autoUpload: true,
+      )),
+    );
+    await refreshOutbox();
+    return 'plugin-${record.reportId}';
+  }
 
   int get batchSize => _uploader.batchSize;
   int estimateMinutes(int count) => _uploader.estimateMinutes(count);
 
   @override
   void dispose() {
+    _automaticUpload?.cancel();
     stop();
     _uploader.close();
     super.dispose();
@@ -179,7 +226,31 @@ class ErrorReportsController extends ChangeNotifier
     }
   }
 
-  Future<ReportUploadResult?> upload() async {
+  Future<ReportUploadResult?> upload() => _upload();
+
+  Future<ReportUploadResult?> uploadAutomaticPluginReports(
+      {String? reportId}) async {
+    if (isUploading || isCollecting || isDisposed) return null;
+    try {
+      final pending = await outbox.list();
+      if (!pending.any((report) =>
+          _isAutomaticPlugin(report) &&
+          (reportId == null || report.reportId == reportId))) {
+        return null;
+      }
+    } catch (e) {
+      AppLogger.maybeInstance?.warn('קריאת תיבת דיווחי התוספים נכשלה: $e');
+      return null;
+    }
+    return _upload(automaticOnly: true, reportId: reportId);
+  }
+
+  static bool _isAutomaticPlugin(OutboxReport report) =>
+      report.autoUpload &&
+      report.endpoint.toString() == OutboxReport.pluginReportingEndpoint;
+
+  Future<ReportUploadResult?> _upload(
+      {bool automaticOnly = false, String? reportId}) async {
     if (isUploading || isCollecting || isDisposed) return null;
     final cancellation = _cancellation = ReportUploadCancellation();
     isUploading = true;
@@ -189,6 +260,11 @@ class ErrorReportsController extends ChangeNotifier
       final result = await _uploader.upload(
         outbox,
         cancellation: cancellation,
+        where: automaticOnly
+            ? (report) =>
+                _isAutomaticPlugin(report) &&
+                (reportId == null || report.reportId == reportId)
+            : null,
         onProgress: (p) {
           progress = p;
           notifyListeners();

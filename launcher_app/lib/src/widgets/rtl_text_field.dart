@@ -31,6 +31,7 @@ class RtlTextField extends StatelessWidget {
   /// בהדרכה — ושם שדה בגובה שורה אינו קריא.
   final int minLines;
   final int maxLines;
+  final int? maxLength;
 
   const RtlTextField({
     super.key,
@@ -46,6 +47,7 @@ class RtlTextField extends StatelessWidget {
     this.autofocus = false,
     this.minLines = 1,
     this.maxLines = 1,
+    this.maxLength,
   });
 
   @override
@@ -68,6 +70,7 @@ class RtlTextField extends StatelessWidget {
       textAlign: TextAlign.start,
       minLines: minLines,
       maxLines: maxLines,
+      maxLength: maxLength,
     );
   }
 }

@@ -235,6 +235,117 @@ void main() {
           .catalog;
 
   group('סנכרון מלא', () {
+    for (final minimum in ['0.9.98', '0.9.98.2']) {
+      test('#144: four downloads remain available (minimum $minimum)',
+          () async {
+        const apps = ['0.9.98', '0.9.98.2+807'];
+        List<Map<String, dynamic>> catalog(String version) => [
+              for (final id in ['a', 'b', 'c', 'd'])
+                {
+                  'id': id,
+                  'name': id,
+                  'version': version,
+                  'supportsDirectInstall': true,
+                  'versions': [
+                    if (version != '1.0.0')
+                      {
+                        'version': version,
+                        'compatibleWith': id == 'a' ? apps.first : minimum,
+                        'downloadUrl': '/api/plugins/$id@$version/download',
+                        'supportsDirectInstall': true,
+                      },
+                    {
+                      'version': '1.0.0',
+                      'compatibleWith': apps.first,
+                      'downloadUrl': '/api/plugins/$id@1.0.0/download',
+                      'supportsDirectInstall': true,
+                    },
+                  ],
+                },
+            ];
+
+        await sync(_Site(plugins: catalog('1.0.0')), appVersions: apps);
+        for (final id in ['a', 'b', 'c', 'd']) {
+          File(p.join(temp.path, 'otzaria', 'plugins', 'installed',
+              'manifest-$id', '.release-old', 'manifest.json'))
+            ..createSync(recursive: true)
+            ..writeAsStringSync('{"id":"manifest-$id","version":"1.0.0"}');
+        }
+
+        for (final version in ['2.0.0', '3.0.0']) {
+          final site = _Site(plugins: catalog(version));
+          final online = manager(site);
+          final peek = await online.peekOnlineUpdates(appVersions: apps);
+          expect(peek.newCount + peek.updatedCount + peek.missingCount, 4);
+          final outcome = await online.sync(appVersions: apps);
+          expect(outcome.fetched, 4);
+          expect(outcome.provesMissingContent, isFalse);
+          expect(site.requestsMatching('/download'), hasLength(4));
+
+          final offlineSite = _Site()..failures['/api/plugins'] = 500;
+          final offline = manager(offlineSite);
+          final view = await offline.load();
+          expect(offlineSite.requests, isEmpty);
+          expect(view.installed, hasLength(4));
+          for (final plugin in view.catalog.plugins) {
+            expect(plugin.localFiles.keys, containsAll(['1.0.0', version]));
+            expect(plugin.installTarget(apps.last)?.version, version);
+            for (final build in plugin.localFiles.keys) {
+              expect(
+                  await PluginMirrorStore(temp.path).hasFileFor(plugin, build),
+                  isTrue);
+            }
+          }
+          List<String> updatesFor(String app) => [
+                for (final plugin in view.catalog.plugins)
+                  if (plugin.statusAgainst(view.installed, appVersion: app) ==
+                      PluginInstallStatus.updateAvailable)
+                    plugin.id,
+              ];
+          expect(updatesFor(apps.first),
+              minimum == apps.first ? ['a', 'b', 'c', 'd'] : ['a']);
+          expect(updatesFor(apps.last), ['a', 'b', 'c', 'd']);
+          expect((await online.peekOnlineUpdates(appVersions: apps)).hasUpdates,
+              isFalse);
+        }
+      });
+    }
+
+    test('#144: media changes do not require reinstalling plugin builds',
+        () async {
+      List<Map<String, dynamic>> catalog({bool changed = false}) => [
+            for (final id in ['a', 'b', 'c', 'd'])
+              {
+                'id': id,
+                'name': id,
+                'version': changed && id == 'a' ? '2.0.0' : '1.0.0',
+                'compatibleWith': '0.9.98',
+                'downloadUrl': '/api/plugins/$id/download',
+                'image': '/images/$id${changed ? '-new' : ''}',
+              },
+          ];
+      await sync(_Site(plugins: catalog()));
+      final site = _Site(plugins: catalog(changed: true));
+      final peek = await manager(site).peekOnlineUpdates();
+      expect(peek.newCount + peek.updatedCount + peek.missingCount, 4);
+      final outcome = await syncOutcome(site);
+      expect(outcome.fetched, 4);
+      expect(outcome.provesMissingContent, isFalse);
+      expect(site.requestsMatching('/download'), ['/api/plugins/a/download']);
+      expect(
+        [
+          for (final plugin in outcome.catalog.plugins)
+            if (plugin.statusAgainst({
+                  for (final id in ['a', 'b', 'c', 'd'])
+                    'manifest-$id': '1.0.0',
+                }, appVersion: '0.9.98') ==
+                PluginInstallStatus.updateAvailable)
+              plugin.id,
+        ],
+        ['a'],
+      );
+    });
+
     test('מושך תוספים, קטגוריות וטקסטים של דף הבית', () async {
       final site = _Site(
         plugins: _Site.defaultPlugins(

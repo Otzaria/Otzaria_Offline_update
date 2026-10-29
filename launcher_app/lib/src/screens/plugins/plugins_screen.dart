@@ -4,6 +4,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
+import '../../controllers/error_reports_controller.dart';
 import '../../controllers/plugins_module_controller.dart';
 import '../../services/native_file_dialogs.dart';
 import '../../services/timestamps.dart';
@@ -13,6 +14,7 @@ import '../../widgets/widgets_exports.dart';
 import '../store_kit/store_kit.dart';
 import 'plugin_detail_view.dart';
 import 'plugin_filters_bar.dart';
+import 'plugin_report_dialog.dart';
 import 'plugin_store_card.dart';
 import 'plugin_visuals.dart';
 import 'store_app_export_flow.dart';
@@ -31,9 +33,11 @@ class PluginsScreen extends StatefulWidget {
     this.detailId,
     this.onDetailChanged,
     this.onOpenHelp,
+    this.reports,
   });
 
   final PluginsModuleController controller;
+  final ErrorReportsController? reports;
 
   final bool readOnly;
   final bool driveFull;
@@ -237,6 +241,10 @@ class _PluginsScreenState extends State<PluginsScreen> {
         online: widget.online,
         onSave: () => _save(selected),
         onInstall: () => _install(selected),
+        onReport: widget.readOnly || widget.reports == null
+            ? null
+            : () => showPluginReportDialog(context,
+                plugin: selected, reports: widget.reports!),
         onTagSelected: (tag) {
           _clearFilters();
           _c.setTagFilter(tag);

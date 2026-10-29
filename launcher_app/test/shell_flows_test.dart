@@ -6,6 +6,8 @@ import 'package:launcher_app/src/controllers/auto_install_flow.dart';
 import 'package:launcher_app/src/controllers/download_plan.dart';
 import 'package:launcher_app/src/controllers/launcher_update_flow.dart';
 import 'package:launcher_app/src/controllers/mirror_download_flow.dart';
+import 'package:launcher_app/src/services/app_logger.dart';
+import 'package:launcher_app/src/services/mirror_download_undo.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 
 final _checkedAt = DateTime.now();
@@ -147,12 +149,14 @@ class _FakeRollback implements DownloadRollback {
   final List<String> log;
   Completer<void>? gate;
   MirrorComponent? reverted;
+  Future<void> Function()? onRollback;
 
   @override
   Future<void> rollback(MirrorComponent? inProgress) async {
     reverted = inProgress;
     log.add('rollback');
     await gate?.future;
+    await onRollback?.call();
     if (error case final error?) throw error;
   }
 
@@ -806,7 +810,47 @@ void main() {
       expect(log, isNot(contains('cancelled')));
     });
 
-    test('closing the window cancels and waits for the rollback', () async {
+    test('stopping with progress kept waits without rollback or sweep',
+        () async {
+      final dir = await Directory.systemTemp.createTemp('download-close-');
+      addTearDown(() => dir.delete(recursive: true));
+      await AppLogger.init(dir.path);
+      addTearDown(() async {
+        await AppLogger.maybeInstance?.flush();
+        AppLogger.resetForTest();
+      });
+      final undo = await MirrorDownloadUndo.capture([dir.path]);
+      host.rollback.onRollback = () => undo.revert();
+      final partial = File('${dir.path}/asset.part');
+      final resume = File('${dir.path}/asset.resume');
+      await partial.writeAsBytes([1, 2, 3]);
+      await resume.writeAsString('asset-identity');
+      final gate = Completer<void>();
+      app.onDownload = () => gate.future;
+      final run = flow.downloadAll();
+      await pumpEventQueue();
+
+      var closed = false;
+      final close = flow.cancelAndWait(keepProgress: true).then((_) {
+        closed = true;
+      });
+      expect(flow.isCancelling, isTrue);
+      expect(closed, isFalse);
+      gate.complete();
+      await close;
+      await run;
+
+      expect(log, isNot(contains('rollback')));
+      expect(log, isNot(contains('sweep')));
+      expect(await partial.readAsBytes(), [1, 2, 3]);
+      expect(await resume.readAsString(), 'asset-identity');
+      expect(componentsRun(), ['app']);
+      expect(flow.isDownloading, isFalse);
+      expect(flow.isCancelling, isFalse);
+    });
+
+    test('closing after explicit cancel still waits for the rollback',
+        () async {
       final appGate = Completer<void>();
       app.onDownload = () => appGate.future;
       host.rollback.gate = Completer<void>();
@@ -815,7 +859,9 @@ void main() {
       expect(flow.isDownloading, isTrue);
 
       var closed = false;
-      final close = flow.cancelAndWait().then((_) => closed = true);
+      flow.requestCancel();
+      final close =
+          flow.cancelAndWait(keepProgress: true).then((_) => closed = true);
       expect(flow.isCancelling, isTrue);
       appGate.complete();
       await pumpEventQueue();

@@ -418,6 +418,7 @@ class AppSession extends ChangeNotifier {
     unawaited(_faq.load());
     // ספירה בלבד — גם בכונן מוגן, כדי שהבית יאמר שיש בו דיווחים.
     unawaited(_errorReports.refreshOutbox());
+    if (!readOnly) _errorReports.startAutomaticPluginUpload();
     _errorReportsIntro = _loadReportsIntro();
     unawaited(loadSemanticConsentAnswer());
     settings.addListener(_onChange);
@@ -592,9 +593,11 @@ class AppSession extends ChangeNotifier {
     return {
       'readOnly': readOnly,
       'otzaria': _otzaria.status.name,
+      'otzariaVersion': _otzaria.currentVersion,
       'otzariaRunning': _otzariaIsRunning,
       'library': _library.status.name,
       'plugins': _plugins.status.name,
+      'pluginDetails': _plugins.diagnostics,
       'customApps': _customApps.hasApps,
       'launcherUpdateReady': _launcherUpdate.hasUpdateReady,
       'autoCheckUpdates': s.autoCheckUpdates,
@@ -1039,8 +1042,8 @@ class AppSession extends ChangeNotifier {
     _downloads.requestCancel();
   }
 
-  /// [LauncherCrashSession.closeGuard]: שואל רק בזמן פעולה ארוכה, ומבטל
-  /// הורדה (עם שחזור המראה) לפני שהחלון נסגר.
+  /// [LauncherCrashSession.closeGuard]: שואל רק בזמן פעולה ארוכה, ועוצר
+  /// הורדה תוך שמירת ההתקדמות לפני שהחלון נסגר.
   Future<bool> confirmClose() async {
     // הסגירה מסתיימת ב-`exit`, ושום dispose לא ירוץ אחריה.
     await _faq.flush().timeout(const Duration(seconds: 1), onTimeout: () {});
@@ -1055,7 +1058,7 @@ class AppSession extends ChangeNotifier {
     );
     if (!approved) return false;
     if (!isActive) return true;
-    await _downloads.cancelAndWait();
+    await _downloads.cancelAndWait(keepProgress: true);
     return true;
   }
 

@@ -129,6 +129,11 @@ void main() {
 
     expect(service.starts, 1);
     expect(service.homeBuiltAtStart, isTrue);
+    final state = reports.stateProvider();
+    expect(state, contains('otzariaVersion'));
+    expect(state['pluginDetails'], contains('appVersion'));
+    expect(state['pluginDetails'], contains('installed'));
+    expect(state['pluginDetails'], contains('inventory'));
   });
 
   testWidgets('בלי הדיווחים (בדיקות אחרות) — אין הפעלה', (tester) async {

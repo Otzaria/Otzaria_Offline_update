@@ -38,6 +38,7 @@ Future<FileDownloadResult> downloadFile({
   Duration stallTimeout = const Duration(seconds: 30),
   void Function(int received, int total)? onProgress,
   void Function()? checkCancelled,
+  bool keepPartialOnCancel = false,
   int maxAttempts = 2,
   bool calculateSha256 = false,
 }) async {
@@ -54,6 +55,7 @@ Future<FileDownloadResult> downloadFile({
         stallTimeout: stallTimeout,
         onProgress: onProgress,
         checkCancelled: checkCancelled,
+        keepPartialOnCancel: keepPartialOnCancel,
         calculateSha256: calculateSha256,
       );
     } on FileSystemException catch (error, stack) {
@@ -91,6 +93,7 @@ Future<FileDownloadResult> _downloadFile({
   Duration stallTimeout = const Duration(seconds: 30),
   void Function(int received, int total)? onProgress,
   void Function()? checkCancelled,
+  required bool keepPartialOnCancel,
   required bool calculateSha256,
 }) async {
   checkCancelled?.call();
@@ -319,20 +322,21 @@ Future<FileDownloadResult> _downloadFile({
           await output.close();
         } catch (_) {}
       }
-      // ביטול יזום נשאר ביטול; רק הפרעת רשת משאירה התקדמות ניתנת לחידוש.
       try {
         checkCancelled?.call();
       } catch (_) {
-        retain = false;
-        if (initialOffset > 0 && offset > 0 && await part.exists()) {
-          final handle = await part.open(mode: FileMode.append);
-          try {
-            await handle.truncate(initialOffset);
-          } finally {
-            await handle.close();
+        if (!keepPartialOnCancel) {
+          retain = false;
+          if (initialOffset > 0 && offset > 0 && await part.exists()) {
+            final handle = await part.open(mode: FileMode.append);
+            try {
+              await handle.truncate(initialOffset);
+            } finally {
+              await handle.close();
+            }
+            await metadata.writeAsString(jsonEncode(saved), flush: true);
+            retain = true;
           }
-          await metadata.writeAsString(jsonEncode(saved), flush: true);
-          retain = true;
         }
       }
       if (!retain) {

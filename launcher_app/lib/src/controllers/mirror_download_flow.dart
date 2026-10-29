@@ -97,6 +97,7 @@ class MirrorDownloadFlow {
 
   bool _isDownloading = false;
   bool _cancelRequested = false;
+  bool _keepProgress = false;
   bool _isPreparing = false;
   bool _abandonRequested = false;
   int _abandonCount = 0;
@@ -160,8 +161,9 @@ class MirrorDownloadFlow {
     host.stateChanged();
   }
 
-  Future<void> cancelAndWait() async {
+  Future<void> cancelAndWait({bool keepProgress = false}) async {
     if (_run case final run? when _isDownloading) {
+      if (!_cancelRequested) _keepProgress = keepProgress;
       requestCancel();
       await run;
     }
@@ -232,6 +234,7 @@ class MirrorDownloadFlow {
     _current = null;
     _isDownloading = true;
     _cancelRequested = false;
+    _keepProgress = false;
     host.stateChanged();
 
     try {
@@ -283,6 +286,7 @@ class MirrorDownloadFlow {
       _current = null;
 
       if (cancelled()) {
+        if (_keepProgress) return;
         final failed = plan.failed(
           s,
           appFailed: app.downloadFailed,

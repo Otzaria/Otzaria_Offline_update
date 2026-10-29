@@ -14,6 +14,7 @@ class OutboxReport {
     this.createdAt,
     this.hasImages = false,
     this.hasMinidump = false,
+    this.autoUpload = false,
   });
 
   static const String format = 'otzaria-report';
@@ -34,6 +35,7 @@ class OutboxReport {
     required String createdAt,
     required Map<String, dynamic> body,
     String endpoint = reportingEndpoint,
+    bool autoUpload = false,
   }) =>
       {
         'format': format,
@@ -43,6 +45,7 @@ class OutboxReport {
         'book_title': bookTitle,
         'created_at': createdAt,
         'body': body,
+        if (autoUpload) 'auto_upload': true,
       };
 
   final String reportId;
@@ -53,6 +56,7 @@ class OutboxReport {
 
   final bool hasImages;
   final bool hasMinidump;
+  final bool autoUpload;
 
   /// הקובץ בתיבת היציאה — נמחק כשהדיווח נשלח או נדחה סופית.
   final String filePath;
@@ -88,6 +92,7 @@ class OutboxReport {
       filePath: filePath,
       hasImages: images is List && images.isNotEmpty,
       hasMinidump: attachments is Map && attachments['minidump'] != null,
+      autoUpload: json['auto_upload'] == true,
     );
   }
 

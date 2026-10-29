@@ -38,14 +38,25 @@ class StoreBody extends StatelessWidget {
         // גם כשהדף אינו יושב בתוך Scaffold.
         return Material(
           type: MaterialType.transparency,
-          child: CustomScrollView(
-            slivers: [
-              SliverPadding(
-                padding: EdgeInsets.fromLTRB(side, page.top, side, page.bottom),
-                sliver: SliverMainAxisGroup(
+          child: Column(
+            children: [
+              if (header != null)
+                Padding(
+                  padding: EdgeInsets.fromLTRB(side, page.top, side, 0),
+                  child: header,
+                ),
+              Expanded(
+                child: CustomScrollView(
                   slivers: [
-                    if (header != null) SliverToBoxAdapter(child: header),
-                    ...slivers,
+                    SliverPadding(
+                      padding: EdgeInsets.fromLTRB(side,
+                          header == null ? page.top : 0, side, page.bottom),
+                      sliver: SliverMainAxisGroup(
+                        slivers: [
+                          ...slivers,
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),

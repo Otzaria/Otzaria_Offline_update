@@ -1026,6 +1026,28 @@ abstract class SaferModeStrings {
 // ── חנות התוספים ──────────────────────────────────────────────────────────────
 
 abstract class PluginsStrings {
+  String get reportButton;
+  String get reportCallout;
+  String get reportTitle;
+  String get reportType;
+  String get reportBug;
+  String get reportCrash;
+  String get reportContent;
+  String get reportOther;
+  String get reportDetails;
+  String get reportHint;
+  String get reportEmail;
+  String get reportEmailPlaceholder;
+  String get reportEmailHint;
+  String get reportSend;
+  String get reportSending;
+  String get reportEmpty;
+  String get reportSaved;
+  String get reportSent;
+  String get reportFailed;
+  String get reportRejected;
+  String reportSubtitle(String name, String version);
+
   const PluginsStrings();
 
   String get syncFailedSnack;
@@ -2369,6 +2391,7 @@ abstract class ErrorReportsStrings {
   String get collectConfirm;
   String get collectLater;
   String collectedSnack(int count);
+  String get searchFeedbackCollected;
 
   String collectPartialSnack(int count, String error);
   String collectFailedSnack(String error);

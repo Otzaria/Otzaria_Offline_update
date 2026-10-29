@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:error_reports_manager/error_reports_manager.dart';
-import 'package:error_reports_manager/src/port/plugin_report_record.dart';
 import 'package:test/test.dart';
 
 // הוקטורים נגזרו מהקוד של אוצריא עצמה, לא נכתבו ביד:

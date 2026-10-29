@@ -703,6 +703,37 @@ void main() {
   });
 
   group('נכסים וכותרות', () {
+    test('#144: diagnostics explain the offline plugin selection', () async {
+      final compatible = StorePlugin.fromApi(const {
+        'id': 'old-app',
+        'pluginUid': 'manifest-old-app',
+        'name': 'old-app',
+        'version': '2.0.0',
+        'compatibleWith': '0.9.98',
+      }, 'https://otzaria.org');
+      final incompatible = StorePlugin.fromApi(const {
+        'id': 'new-app',
+        'pluginUid': 'manifest-new-app',
+        'name': 'new-app',
+        'version': '2.0.0',
+        'compatibleWith': '0.9.98.2',
+      }, 'https://otzaria.org');
+      controller
+        ..appVersion = '0.9.98'
+        ..plugins = [compatible, incompatible]
+        ..installed = {'manifest-old-app': '1.0.0'};
+
+      final diagnostics = controller.diagnostics;
+      expect(diagnostics['appVersion'], '0.9.98');
+      expect(diagnostics['installed'], {'manifest-old-app': '1.0.0'});
+      final inventory = diagnostics['inventory'] as List;
+      expect(inventory[0], containsPair('targetVersion', '2.0.0'));
+      expect(inventory[0], containsPair('status', 'updateAvailable'));
+      expect(inventory[1], containsPair('targetVersion', null));
+      expect(inventory[1], containsPair('status', 'incompatible'));
+      expect(jsonEncode(diagnostics), isNot(contains(tempDir.path)));
+    });
+
     test('assetPath מרכיב נתיב מוחלט, ומחזיר null כשאין נכס', () async {
       await controller.load();
 

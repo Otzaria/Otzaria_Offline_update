@@ -68,8 +68,11 @@ class ErrorReportUploader {
     ReportOutbox outbox, {
     void Function(ReportUploadProgress progress)? onProgress,
     ReportUploadCancellation? cancellation,
+    bool Function(OutboxReport report)? where,
   }) async {
-    final reports = await outbox.list();
+    final reports = (await outbox.list())
+        .where((report) => where?.call(report) ?? true)
+        .toList();
     final total = reports.length;
     var sent = 0;
     var rejected = 0;
@@ -370,6 +373,7 @@ class ErrorReportUploader {
           bookTitle: report.bookTitle,
           createdAt: report.createdAt?.toUtc().toIso8601String() ?? '',
           endpoint: report.endpoint.toString(),
+          autoUpload: report.autoUpload,
           body: body,
         )),
       );
@@ -412,12 +416,14 @@ class ErrorReportUploader {
         ),
         hasImages: item.hasImages,
         hasMinidump: item.hasMinidump,
+        autoUpload: item.autoUpload,
       ),
       fileBytes: OutboxReport.encodeFile(OutboxReport.fileJson(
         reportId: outboxId,
         bookTitle: item.bookTitle,
         createdAt: item.createdAt?.toUtc().toIso8601String() ?? '',
         endpoint: item.endpoint.toString(),
+        autoUpload: item.autoUpload,
         body: body,
       )),
       bodyBytes: Uint8List.fromList(utf8.encode(jsonEncode(body))),

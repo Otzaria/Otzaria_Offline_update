@@ -13,20 +13,23 @@ mixin ProgressNotifier on DisposeGuard {
 
   Listenable get progress => _progress;
 
+  @protected
+  Stopwatch createProgressStopwatch() => Stopwatch();
+
   void notifyProgress() {
     if (isDisposed) return;
     final since = _since;
     if (since == null || since.elapsed >= interval) {
       _pending?.cancel();
       _pending = null;
-      _since = Stopwatch()..start();
+      _since = createProgressStopwatch()..start();
       _progress.fire();
       return;
     }
     _pending ??= Timer(interval - since.elapsed, () {
       _pending = null;
       if (isDisposed) return;
-      _since = Stopwatch()..start();
+      _since = createProgressStopwatch()..start();
       _progress.fire();
     });
   }

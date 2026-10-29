@@ -144,11 +144,10 @@ class _Shell extends ShellStrings {
   String get closeWhileBusyTitle => 'Close in the middle of this?';
   @override
   String get closeWhileDownloadingPrompt =>
-      'A download is running. Closing now cancels it: whatever has finished '
-      'downloading stays on the drive, and the part in progress is deleted '
-      'before the program closes.';
+      'A download is running. Closing now stops it and saves progress on the drive. '
+      'Next time, you can resume where it stopped, if the server supports it.';
   @override
-  String get closeWhileDownloadingConfirm => 'Cancel and close';
+  String get closeWhileDownloadingConfirm => 'Stop and close';
   @override
   String get closeWhileInstallingPrompt =>
       'An install is running. Closing in the middle may leave it unfinished, '
@@ -1908,6 +1907,54 @@ class _SaferMode extends SaferModeStrings {
 }
 
 class _Plugins extends PluginsStrings {
+  @override
+  String get reportButton => 'Report to developer';
+  @override
+  String get reportCallout => 'Report a problem to the plugin developer';
+  @override
+  String get reportTitle => 'Report to plugin owner';
+  @override
+  String get reportType => 'Report type';
+  @override
+  String get reportBug => 'Bug';
+  @override
+  String get reportCrash => 'Crash';
+  @override
+  String get reportContent => 'Content';
+  @override
+  String get reportOther => 'Other';
+  @override
+  String get reportDetails => 'Problem description';
+  @override
+  String get reportHint =>
+      'What happened, in what situation, and what you expected to happen';
+  @override
+  String get reportEmail => 'Reply email address (optional)';
+  @override
+  String get reportEmailPlaceholder => 'name@example.com';
+  @override
+  String get reportEmailHint =>
+      'The address will be shared with the developer so they can reply. Leave blank to report anonymously.';
+  @override
+  String get reportSend => 'Send report';
+  @override
+  String get reportSending => 'Sending...';
+  @override
+  String get reportEmpty => 'Please describe the problem';
+  @override
+  String get reportSaved =>
+      'The report is saved on the drive and will be sent on a connected computer.';
+  @override
+  String get reportSent => 'The report was sent to the plugin developer';
+  @override
+  String get reportFailed => 'Could not save the report. Try again.';
+  @override
+  String get reportRejected =>
+      'The server rejected the report. Check the details and try again.';
+  @override
+  String reportSubtitle(String name, String version) =>
+      'The report about $name (version $version) will be emailed to the plugin developer.';
+
   const _Plugins();
 
   @override
@@ -4533,6 +4580,9 @@ class _ErrorReports extends ErrorReportsStrings {
   String get collectConfirm => 'Collect';
   @override
   String get collectLater => 'Not now';
+  @override
+  String get searchFeedbackCollected =>
+      'Smart-search data from Otzaria has been collected to the drive.';
   @override
   String collectedSnack(int count) =>
       '$count ${_reports(count)} collected to the drive. They will be sent '

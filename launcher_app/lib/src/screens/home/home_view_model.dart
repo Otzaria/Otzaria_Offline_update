@@ -105,6 +105,7 @@ class HomeViewModel {
     this.toolReportsPending = 0,
     this.reportsSending = false,
     this.reportsIntro = false,
+    this.searchFeedbackCollected = false,
     this.autoInstallSkipped = false,
     this.offersElevation = false,
     this.legacyReportsNotice = false,
@@ -239,6 +240,7 @@ class HomeViewModel {
   final int toolReportsPending;
   final bool reportsSending;
   final bool reportsIntro;
+  final bool searchFeedbackCollected;
   final bool autoInstallSkipped;
   final bool offersElevation;
 
@@ -408,6 +410,7 @@ HomeViewModel homeViewModelOf(AppSession s) {
     toolReportsPending: s.appReports?.pendingCount ?? 0,
     reportsSending: s.uploadingReports || s.errorReports.isUploading,
     reportsIntro: s.showsReportsIntro,
+    searchFeedbackCollected: s.searchFeedback.hasCollected,
     autoInstallSkipped: s.autoInstallSkipped,
     offersElevation: s.offersElevation,
     legacyReportsNotice: s.showsLegacyReportsNotice,

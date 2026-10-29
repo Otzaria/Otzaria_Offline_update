@@ -87,9 +87,9 @@ This repository is the updater/launcher for those users:
 network, so this launcher deliberately offers no "just update from the internet"
 path. Every check and every install reads the local folder, always — even when
 the machine is online. Two clicks touch the network: the download step, and
-uploading the error reports the drive collected (§5.10). The two deliberate
-exceptions, sent without a click, are the launcher's **own** problem reports
-and the smart-search feedback the drive carries (§5.10).
+uploading the error reports the drive collected (§5.10). Background sending
+also covers the launcher's **own** problem reports, plugin reports written in
+the store, and the smart-search feedback the drive carries (§5.10).
 
 **There are no modes to choose — the home page derives what to do from the
 state.** `deriveHomeGuidance` (`launcher_app/lib/src/shell/home_guidance.dart`,
@@ -1501,13 +1501,13 @@ and falls back to x64 only when the installed exe is not ARM64 (PE header).
 
 ### 5.6 Plugins
 
-**Install-state matching uses `manifestId`, not the catalog `id`.** The `id` from
-`/api/plugins` is the website's database id; Otzaria installs under
-`plugins/installed/<manifest.id>/`. `manifestId` is the site's `pluginUid`, or — on a
-site without it — the `manifest.json` inside the downloaded `.otzplugin`
-(`PluginManifestReader`, BOM-stripped like `LogicalContentHasher`). Compare by catalog
-id and *nothing* is ever detected as installed. A plugin with neither correctly reports
-`PluginInstallStatus.unknown` — not an error.
+**Install-state matching uses `manifestId`, not the catalog `id`.**
+`/api/plugins` gives the website's id; installed folders use the manifest id.
+`manifestId` comes from website `pluginUid`, or a downloaded archive's
+`manifest.json` (`PluginManifestReader`, BOM-stripped). Comparing catalog ids
+makes every plugin look uninstalled; neither identity means `unknown`.
+Reports use the separate website-only `pluginUid`, falling back to catalog `id`:
+an inferred manifest id cannot resolve the developer on a legacy website record.
 
 **Every downloaded build is checked against the build it was fetched for**
 (`PluginBuildCheck`): a wrong manifest id or a `sha256` mismatch rejects the file. A
@@ -2022,8 +2022,9 @@ exe into `mirror/launcher/`, copies it over the stub (two renames, rollback on f
   `LauncherCrashSession.closeGuard`, consulted by `onWindowClose` and by the
   `AppLifecycleListener.onExitRequested` that macOS Cmd+Q / Dock > Quit reach
   (a refusal there returns `AppExitResponse.cancel`): a download is
-  cancelled and `MirrorDownloadUndo` reverts it before the process exits; an install
-  can only be warned about. A running "update here" stage asks too, plugin
+  stopped with partial files kept for resuming (#140); only explicit cancel uses
+  `MirrorDownloadUndo`. An install can only be warned about.
+  A running "update here" stage asks too, plugin
   delivery included (not `longTaskRunning`); its questions do not, nothing runs yet.
   A guard that throws still closes — X must never go inert.
 - **The mirror is checked on every writable start, also with `autoCheckUpdates` off**,
@@ -2317,14 +2318,14 @@ wait for dialogs and tasks, including 3s after launcher-initiated closure.
 `SearchFeedbackController`; task-ending paths must call `resume()`.
 See `launcher_app/README.md` for the collection and upload flow.
 
-**Smart-search feedback has no offer, button, count or message — it syncs in
-the background.** Maintainer decision (2026-10-21): collect when Otzaria is
-closed and consent is already granted, then upload, even with auto-check off.
+**Smart-search feedback syncs in the background; only successful collection
+shows a home notice, without buttons or a count.** Maintainer decisions
+(2026-10-21, 2026-10-29): collect with Otzaria closed and existing consent,
+then upload, even with auto-check off.
 `SearchFeedbackAutoSync` waits on `_offers.busy`, never the dialog queue, and
 retries after `retryAt()`. A no-connection backoff stays in memory
 (`reachedServer: false`) — on the drive it delayed the online upload.
-Self-update and elevation call `stopAndWait()` first. Never merge it into the
-report offer or upload.
+Self-update and elevation call `stopAndWait()` first. Keep report flows separate.
 
 **File first, then `markPendingReportAsSent` in one `BEGIN IMMEDIATE`.** A crash
 between them leaves the report pending and it is rewritten next time; the reverse order

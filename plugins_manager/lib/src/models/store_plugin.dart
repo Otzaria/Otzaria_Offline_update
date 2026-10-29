@@ -123,6 +123,7 @@ class StorePlugin extends Equatable {
     this.categorySlugs = const [],
     this.localFiles = const {},
     this.manifestId,
+    this.pluginUid,
     this.versions = const [],
     this.ratingAvg = 0,
     this.ratingCount = 0,
@@ -215,6 +216,8 @@ class StorePlugin extends Equatable {
   /// ה-id האמיתי מתוך `manifest.json` שבקובץ ה-`.otzplugin`. זהו המפתח
   /// היחיד שמותר להשוות מולו את התוספים המותקנים (`installed/<manifestId>/`).
   final String? manifestId;
+  // Unlike manifestId, this comes only from the website, never from an archive.
+  final String? pluginUid;
 
   /// הבילדים להכרעה. קטלוג ישן (או אתר בלי `versions`) מקבל רשומה אחת
   /// שנבנית מהשדות העליונים — בדיוק `buildLiveVersionEntry` של האתר.
@@ -345,6 +348,7 @@ class StorePlugin extends Equatable {
       categorySlugs: categorySlugs ?? this.categorySlugs,
       localFiles: localFiles ?? this.localFiles,
       manifestId: manifestId ?? this.manifestId,
+      pluginUid: pluginUid,
       versions: versions ?? this.versions,
       ratingAvg: ratingAvg,
       ratingCount: ratingCount,
@@ -399,6 +403,7 @@ class StorePlugin extends Equatable {
         baseUrl,
       )),
       manifestId: _nonEmpty(json['pluginUid']),
+      pluginUid: _nonEmpty(json['pluginUid']),
       // כמו שהאתר שלח, בלי להפוך למוחלט: הן נשמרות כדי להשוות מול התשובה
       // הבאה, וההורדה עצמה כבר יודעת להשלים כתובת יחסית.
       remoteImageUrl: _string(json['image']),
@@ -449,6 +454,7 @@ class StorePlugin extends Equatable {
             entry.key: entry.value.toJson(),
         },
         'manifestId': manifestId,
+        if (pluginUid != null) 'pluginUid': pluginUid,
       };
 
   /// קורא רשומה מהקטלוג השמור. שדה חסר או פגום נופל לברירת המחדל שלו,
@@ -494,6 +500,7 @@ class StorePlugin extends Equatable {
       versions: _sortedDescending(_versions(json['versions'], '')),
       localFiles: _localFiles(json, version),
       manifestId: _nonEmpty(json['manifestId']),
+      pluginUid: _nonEmpty(json['pluginUid']),
     );
   }
 
@@ -600,6 +607,7 @@ class StorePlugin extends Equatable {
         id,
         version,
         manifestId,
+        pluginUid,
         localFiles,
         imagePath,
         categorySlugs,
