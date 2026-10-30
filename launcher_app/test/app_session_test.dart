@@ -1901,8 +1901,7 @@ void main() {
         expect(s.libraryApplyBlocked, isTrue);
 
         await release(run);
-        await pumpEventQueue();
-        expect(s.installsBlockedByDownload, isEmpty);
+        await waitFor(() => s.installsBlockedByDownload.isEmpty);
         expect(s.libraryApplyBlocked, isFalse);
       });
 
