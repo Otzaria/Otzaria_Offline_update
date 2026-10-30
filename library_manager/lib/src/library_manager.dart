@@ -1629,6 +1629,7 @@ class LibraryManager {
     final semantic =
         semanticAssetsFactory?.call(_scheduler) ?? SemanticSearchAssets();
     var semanticPending = false;
+    var semanticRecovered = false;
     SemanticEngineIncompatibleException? semanticIncompatibility;
     try {
       final semanticVersion = switch (plan.kind) {
@@ -1644,6 +1645,7 @@ class LibraryManager {
         preferencesReady: settings?.semanticSearchReadyPreferences ?? false,
         supportsWindows: supportsWindows,
         needsBase: await _ownNeedsBase(),
+        onRecoveryVerified: () => semanticRecovered = true,
       );
       semanticIncompatibility = await semantic.incompatibility(
         mirrorDir: semanticMirrorDir,
@@ -1673,6 +1675,7 @@ class LibraryManager {
         dbPath: dbPath,
         settings: settings,
         supportsWindows: supportsWindows,
+        baseInstalled: semanticRecovered,
       );
     }
     return LibraryUpdateCheckResult(

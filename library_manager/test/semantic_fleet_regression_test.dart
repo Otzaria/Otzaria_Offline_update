@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:http/testing.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:library_manager/src/services/semantic_search_assets.dart';
+import 'package:otzaria_search_engine/otzaria_search_engine.dart'
+    show SemanticError, SemanticErrorKind;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -158,6 +160,142 @@ void main() {
       expect(meta['windows']['family'], 'windows');
     },
   );
+
+  for (final scenario in [
+    (failedVersion: 29, corrupt: false),
+    (failedVersion: 30, corrupt: false),
+    (failedVersion: 30, corrupt: true),
+  ]) {
+    test('external smart-search repair after failure at '
+        '${scenario.failedVersion}, corrupt=${scenario.corrupt}', () async {
+      final dataDir = p.join(temp.path, 'data');
+      final db = p.join(temp.path, 'machine', 'books', 'seforim.db');
+      await File(db).parent.create(recursive: true);
+      await File(db).writeAsBytes(buildVersionOnlyDb(temp.path, 30));
+      final store = LibraryStateStore(
+        p.join(dataDir, LibraryStateStore.fileName),
+      );
+      await store.saveCustomDbPath(db);
+      await store.recordOwnSemanticState(
+        SemanticMachineState(
+          supportsWindows: true,
+          family: SemanticVectorsFamily.windows,
+          libraryVersion: scenario.failedVersion,
+          identityDigest: identityA,
+          needsBase: LibraryManager.nextNeedsBase(
+            previous: null,
+            libraryVersion: scenario.failedVersion,
+            identityDigest: identityA,
+            chainFailed: true,
+          ),
+        ),
+      );
+      final manifest = File(
+        p.join(dataDir, 'mirror', 'library', 'releases.json'),
+      );
+      await manifest.parent.create(recursive: true);
+      await manifest.writeAsString(
+        jsonEncode({
+          'formatVersion': 1,
+          'exportedAt': DateTime.now().toIso8601String(),
+          'releases': [
+            {
+              'tag': libraryTagOf(30),
+              'isPrerelease': false,
+              'isDraft': false,
+              'assets': [],
+            },
+          ],
+        }),
+      );
+      final github = FakeVectorsGithub()..windowsBase(30);
+      addTearDown(github.client.close);
+      final online = SemanticSearchAssets(
+        httpClient: github.client,
+        models: fakeModels,
+      );
+      addTearDown(online.dispose);
+      await online.sync(
+        mirrorDir: p.join(dataDir, 'mirror', 'semantic'),
+        libraryTag: libraryTagOf(30),
+        fleet: const SemanticFleet([
+          SemanticMachineState(
+            supportsWindows: true,
+            family: SemanticVectorsFamily.windows,
+            needsBase: true,
+          ),
+        ]),
+      );
+      await writeInstalledSet(
+        p.join(p.dirname(p.dirname(db)), 'vectors'),
+        version: 30,
+      );
+      await installModels(
+        p.join(p.dirname(db), SemanticSearchAssets.modelFolder),
+      );
+      final capabilities = File(
+        p.join(
+          temp.path,
+          'home',
+          '.local',
+          'share',
+          'otzaria',
+          'otzaria_capabilities.json',
+        ),
+      );
+      await capabilities.parent.create(recursive: true);
+      await capabilities.writeAsString(
+        '{"semanticVectorFamilies":["vectors-windows","vectors"]}',
+      );
+      for (var launch = 0; launch < 2; launch++) {
+        final engine = FakeVectorsEngine(
+          version: 30,
+          verifyError: scenario.corrupt
+              ? const SemanticError(
+                  kind: SemanticErrorKind.artifactCorrupt,
+                  message: 'corrupt installed segment',
+                )
+              : null,
+        );
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          operatingSystem: 'linux',
+          environment: {'HOME': p.join(temp.path, 'home')},
+          settingsReader: const _SettingsReader(
+            OtzariaSettings(
+              semanticDataEnabled: true,
+              searchFeedbackConsent: 'granted',
+              searchFeedbackConsentVersion: 1,
+            ),
+          ),
+          otzariaAppVersion: () async => '0.9.99',
+          semanticAssetsFactory: (_) => SemanticSearchAssets(
+            httpClient: MockClient((request) async {
+              fail('local check sent a request to ${request.url}');
+            }),
+            models: fakeModels,
+            engineFactory: (_) async => engine,
+          ),
+        );
+        try {
+          final check = await manager.checkForUpdate();
+          expect(check.semanticIncompatibility, isNull);
+          expect(check.semanticPending, scenario.corrupt);
+          expect(
+            (await store.loadOwnSemanticState())?.needsBase,
+            scenario.corrupt,
+          );
+          expect(engine.installs, isEmpty);
+          expect(
+            engine.verifications,
+            hasLength(launch == 0 || scenario.corrupt ? 1 : 0),
+          );
+        } finally {
+          manager.dispose();
+        }
+      }
+    });
+  }
 
   for (final settings in [null, const OtzariaSettings()]) {
     test(

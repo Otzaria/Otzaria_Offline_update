@@ -138,6 +138,50 @@ void main() {
   }, skip: skip);
 
   test(
+    'a verified external repair clears recovery, but corrupt bytes do not',
+    () async {
+      await install();
+      Future<bool> recovering(void Function() verified) async {
+        final subject = assets();
+        addTearDown(subject.dispose);
+        return subject.pending(
+          mirrorDir: mirror,
+          dbPath: db,
+          libraryVersion: 1,
+          vectorsRootPath: root,
+          needsBase: true,
+          onRecoveryVerified: verified,
+        );
+      }
+
+      var verified = false;
+      expect(await recovering(() => verified = true), isFalse);
+      expect(verified, isTrue);
+      final vectors = p.join(root, 'vectors');
+      final pointer =
+          jsonDecode(await File(p.join(vectors, 'CURRENT')).readAsString())
+              as Map;
+      final set =
+          jsonDecode(
+                await File(
+                  p.join(vectors, pointer['set'] as String),
+                ).readAsString(),
+              )
+              as Map;
+      final segment = File(
+        p.join(vectors, (set['segments'] as List).first['file'] as String),
+      );
+      final bytes = await segment.readAsBytes();
+      bytes[0] ^= 0xff;
+      await segment.writeAsBytes(bytes, flush: true);
+      verified = false;
+      expect(await recovering(() => verified = true), isTrue);
+      expect(verified, isFalse);
+    },
+    skip: skip,
+  );
+
+  test(
     'the same tag republished under another identity is offered again',
     () async {
       await install();

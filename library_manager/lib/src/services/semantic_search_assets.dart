@@ -99,6 +99,8 @@ typedef SemanticEngineInfo = ({
 abstract interface class SemanticVectorsEngine {
   Future<SemanticEngineInfo> info(String vectorsDir);
 
+  Future<void> verify(String vectorsDir);
+
   Future<({int libraryVersion, bool alreadyApplied})> install(
     SemanticVectorsInstallInput input, {
     bool Function()? isCancelled,
@@ -1814,6 +1816,7 @@ class SemanticSearchAssets {
     bool preferencesReady = true,
     bool supportsWindows = false,
     bool needsBase = false,
+    void Function()? onRecoveryVerified,
   }) async {
     final data = await _load(
       mirrorDir,
@@ -1828,7 +1831,6 @@ class SemanticSearchAssets {
     final live = sets.firstOrNull;
     if (_keepsWindowsSet(meta, live, supportsWindows)) return false;
     if (!preferencesReady) return true;
-    if (needsBase && !meta.chain) return true;
     final vectorsCurrent = !meta.windows
         ? live != null &&
               live.libraryVersion == meta.libraryVersion &&
@@ -1853,6 +1855,28 @@ class SemanticSearchAssets {
       )) {
         return true;
       }
+    }
+    if (needsBase) {
+      // A repair by Otzaria can keep the same version and identity.
+      // Verify its contents before clearing the recorded failure.
+      final work = await Directory.systemTemp.createTemp('semantic-recovery-');
+      SemanticVectorsEngine? engine;
+      try {
+        engine = await _openEngine(work.path);
+        final info = await engine.info(p.join(root, 'vectors'));
+        if (!info.present ||
+            info.libraryVersion != live.libraryVersion ||
+            info.identityDigest != live.identityDigest) {
+          return true;
+        }
+        await engine.verify(p.join(root, 'vectors'));
+      } on SemanticError {
+        return true;
+      } finally {
+        engine?.dispose();
+        await work.delete(recursive: true);
+      }
+      onRecoveryVerified?.call();
     }
     return false;
   }
@@ -2305,6 +2329,15 @@ class _NativeVectorsEngine implements SemanticVectorsEngine {
       identityDigest: info.identityDigest,
     );
   }
+
+  @override
+  Future<void> verify(String vectorsDir) =>
+      _withCancellation(null, (token) async {
+        await _engine.verifySemanticVectors(
+          vectorsDir: vectorsDir,
+          cancellation: token,
+        );
+      });
 
   @override
   Future<({int libraryVersion, bool alreadyApplied})> install(
