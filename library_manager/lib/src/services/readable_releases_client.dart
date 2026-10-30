@@ -83,7 +83,8 @@ class ReadableReleasesClient extends GithubLibraryReleaseClient {
         return await _source.fetchManifest(url);
       } on FormatException {
         rethrow;
-      } catch (_) {
+      } catch (error) {
+        if (error is LibraryHttpException && error.isBlockedByFilter) rethrow;
         if (attempt >= _manifestAttempts || (_isCancelled?.call() ?? false)) {
           rethrow;
         }
