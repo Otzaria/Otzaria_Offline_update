@@ -27,6 +27,10 @@ abstract interface class SessionPrompts {
 
   Future<bool> confirmClose({required bool downloading});
 
+  /// סגירה שאושרה ומסירת תוסף שעוד לא חזרה: `true` ממשיכים לחכות, `false`
+  /// (גם סגירת הדיאלוג) חוזרים לכלי.
+  Future<bool> keepWaitingForDeliveries();
+
   Future<bool> confirmSemanticConsent();
 
   /// לפני "עדכון המחשב הזה": `true` הסכמה, `false` בלי חיפוש חכם, `null` חזרה.

@@ -155,36 +155,53 @@ class UpdateHereFlow {
 
   /// `false` — אין מה להתקין, והמשימה לא נפתחה. חריג באמצע מעביר את
   /// המשימה לכשל: משימה רצה חוסמת את Esc ואת הסרגל, ובלי זה אין ממנה יציאה.
+  /// [blocked] — שלבים שההורדה שרצה עוד כותבת את המראה שלהם; הם יחכו לפעם הבאה.
   Future<bool> run(
     List<GuidanceItem> items, {
     bool reinstallApp = false,
     bool fullLibrary = false,
+    Set<GuidanceItem> Function()? blocked,
   }) async {
     // ההסכמה נכתבת להגדרות של אוצריא, ולכן רק כשהיא מותקנת.
     final asks = app.isInstalled &&
         items.contains(GuidanceItem.library) &&
+        !(blocked?.call().contains(GuidanceItem.library) ?? false) &&
         library.semanticAwaitsConsent &&
         await host.semanticConsentUnanswered();
     if (!host.isActive) return true;
-    List<GuidanceItem> stagesNow({required bool semantic}) => stagesFor(
-          items,
-          reinstallApp: reinstallApp,
-          fullLibrary: fullLibrary,
-          semantic: semantic,
-        );
+    List<GuidanceItem> stagesNow({required bool semantic}) {
+      final stages = stagesFor(
+        items,
+        reinstallApp: reinstallApp,
+        fullLibrary: fullLibrary,
+        semantic: semantic,
+      );
+      // נקרא שוב אחרי חלון ההסכמה: ההורדה עשויה להתקדם בינתיים.
+      final now = blocked?.call() ?? const {};
+      // בהתקנה ראשונה הספרייה תלויה בתוכנה שתותקן לפניה.
+      if (!app.isInstalled && now.contains(GuidanceItem.app)) return [];
+      return [
+        for (final stage in stages)
+          if (!now.contains(stage)) stage,
+      ];
+    }
+
     var stages = stagesNow(semantic: asks);
     if (stages.isEmpty) return false;
     var grantConsent = false;
     if (asks) {
       final approve = await host.askSemanticConsent();
-      if (approve == null || !host.isActive || _tasks.isRunning) return true;
+      if (approve == null || !host.isActive || _tasks.updateInProgress) {
+        return true;
+      }
       if (approve) {
         grantConsent = true;
+        stages = stagesNow(semantic: true);
       } else {
         await host.declineSemanticConsent();
         stages = stagesNow(semantic: false);
-        if (stages.isEmpty || !host.isActive) return true;
       }
+      if (stages.isEmpty || !host.isActive) return true;
     }
     final hasApp = stages.contains(GuidanceItem.app);
     final libraryUpdate = stages.contains(GuidanceItem.library) &&
@@ -225,8 +242,8 @@ class UpdateHereFlow {
   }
 
   /// "נסה שוב" אחרי כשל או ביטול — אותה בקשה, לא מה שמוצג עכשיו בבית.
-  Future<bool> retry() async {
-    final request = switch (_tasks.current) {
+  Future<bool> retry({Set<GuidanceItem> Function()? blocked}) async {
+    final request = switch (_tasks.updateTask) {
       UpdateHereTask(:final request?, isFinished: true) => request,
       _ => null,
     };
@@ -235,6 +252,7 @@ class UpdateHereFlow {
       request.items,
       reinstallApp: request.reinstallApp,
       fullLibrary: request.fullLibrary,
+      blocked: blocked,
     );
   }
 
@@ -279,7 +297,7 @@ class UpdateHereFlow {
 
   void _failIfRunning(int id, Object error) {
     if (!host.isActive || !_tasks.isCurrentUpdate(id)) return;
-    final task = _tasks.current! as UpdateHereTask;
+    final task = _tasks.updateTask!;
     if (task.isFinished) return;
     _tasks.updateFailed(UpdateFailure(
       task.currentStage ?? task.stages.first,
@@ -389,7 +407,7 @@ class UpdateHereFlow {
     _tasks.stageRunning(GuidanceItem.app);
     final outcome = await app.installWithWizard();
     if (!host.isActive) return false;
-    final stopped = switch (_tasks.current) {
+    final stopped = switch (_tasks.updateTask) {
       UpdateHereTask(:final stopWaitingRequested) => stopWaitingRequested,
       _ => false,
     };
@@ -430,7 +448,7 @@ class UpdateHereFlow {
 
   Future<bool> _plugins(int id) async {
     // האשף אולי עוד מעתיק קבצים: otzaria:// היה פותח את הגרסה הישנה.
-    final task = _tasks.current;
+    final task = _tasks.updateTask;
     if (task is UpdateHereTask &&
         task.outcomes[GuidanceItem.app] == StageOutcome.stoppedWaiting) {
       _tasks.stageFinished(GuidanceItem.plugins, StageOutcome.skipped);
@@ -444,7 +462,7 @@ class UpdateHereFlow {
     });
     await Future.any([delivery, _tasks.finishRequested]);
     if (!host.isActive) return false;
-    final rows = switch (_tasks.current) {
+    final rows = switch (_tasks.updateTask) {
       UpdateHereTask(:final plugins) => plugins,
       _ => const <PluginDelivery>[],
     };

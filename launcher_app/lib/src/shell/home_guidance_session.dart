@@ -54,6 +54,7 @@ GuidanceFacts guidanceFactsFromSession(
     autoCheckUpdates: settings.autoCheckUpdates,
     isCheckingOnline: s.isCheckingOnline,
     longTaskRunning: s.longTaskRunning,
+    hereDuringDownload: s.hereDuringDownload,
     installing: otzaria.status == OtzariaModuleStatus.installing ||
         library.status == LibraryModuleStatus.updating,
     launcherUpdate: launcherUpdate,

@@ -322,6 +322,18 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
   }
 
   @override
+  Future<bool> keepWaitingForDeliveries() {
+    final t = context.strings.shell;
+    return showTwoActionsDialog(
+      context: context,
+      title: t.closeWaitingDeliveryTitle,
+      content: t.closeWaitingDeliveryPrompt,
+      cancelText: t.closeWaitingDeliveryBack,
+      confirmText: t.closeWaitingDeliveryWait,
+    );
+  }
+
+  @override
   Future<bool> confirmSemanticConsent() {
     final t = context.strings.libraryDomain;
     return showTwoActionsDialog(
@@ -436,8 +448,12 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
   /// "הצג התקדמות" של עדכון ספרייה שרץ מחוץ למסך משימה. התקנת התוכנה
   /// מוצגת בגיבור עצמו, והורדה — תמיד במסך המשימה.
   void _showProgress() {
-    if (homeViewModelOf(_session).task == HomeTask.updatingLibrary) {
-      unawaited(_goTo(ShellSection.library));
+    switch (homeViewModelOf(_session).task) {
+      case HomeTask.downloading:
+        _session.tasks.showDownload();
+      case HomeTask.updatingLibrary:
+        unawaited(_goTo(ShellSection.library));
+      case _:
     }
   }
 
@@ -481,6 +497,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
     onDismissElevation: _session.dismissElevation,
     onOpenLauncherUpdate: () => unawaited(_goTo(ShellSection.launcher)),
     onShowProgress: _showProgress,
+    onShowDownload: _session.tasks.showDownload,
     onWhatsNew: _showWhatsNew,
     onRecheckApp: () => unawaited(_session.otzaria.checkForUpdate()),
     onCloseOtzaria: _session.closeOtzaria,
@@ -613,7 +630,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           settings: widget.settings,
           onInstallAdopted: s.plugins.refreshInstalled,
           saferMode: s.saferMode,
-          busy: s.longTaskRunning,
+          busy: s.appInstallBlocked,
           onReinstall: () => _updateOnly(GuidanceItem.app, reinstallApp: true),
         ),
       ShellSection.customApps => CustomAppsScreen(
@@ -636,7 +653,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           onGoToSettings: () => unawaited(_goTo(ShellSection.settings)),
           onGrantSemanticConsent: s.grantSemanticConsent,
           semanticOffer: s.onlineSemanticOffer,
-          busy: s.longTaskRunning,
+          busy: s.libraryApplyBlocked,
           readOnly: widget.readOnly,
           appInstalled: s.otzaria.currentVersion != null,
           appInstallable: switch (s.otzaria.status) {
@@ -657,7 +674,8 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           online: onlineState(s),
           otzariaInstalled: s.otzaria.currentVersion != null,
           driveFull: widget.driveFull,
-          busyElsewhere: s.pluginSyncBlockedElsewhere,
+          busyElsewhere: s.pluginActionsBlockedElsewhere,
+          syncBlockedElsewhere: s.pluginSyncBlockedElsewhere,
           detailId: _detailId(ShellSection.plugins),
           onDetailChanged: (id) => _showDetail(ShellSection.plugins, id),
           onOpenHelp: _openHelp,
@@ -666,7 +684,8 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           errorReports: s.errorReports,
           connection: s.isCheckingOnline ? null : onlineState(s),
           isUploadingAll: s.uploadingReports,
-          busy: s.longTaskRunning,
+          busy: s.reportsCollectBlocked,
+          uploadBusy: s.reportsUploadBlocked,
           reportsToCollect: s.errorReportsToCollect,
           onCollect: () => unawaited(_collectReports()),
           onUpload: s.uploadReports,
@@ -841,18 +860,42 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
 
   DownloadSnapshot _downloadSnapshot() {
     final s = _session;
-    switch (s.currentDownload) {
+    final running = s.runningDownloads;
+    double? appFraction() {
+      final received = s.otzaria.downloadReceived;
+      final total = s.otzaria.downloadTotal;
+      return received != null && total != null && total > 0
+          ? received / total
+          : null;
+    }
+
+    double? fractionOf(MirrorComponent c) => switch (c) {
+          MirrorComponent.app => appFraction(),
+          MirrorComponent.library => s.library.downloadProgress,
+          MirrorComponent.plugins => s.plugins.syncProgress,
+        };
+    // המהירות נמדדת על רכיב שמדווח בייטים; התוספים אינם מדווחים.
+    final current = [
+      MirrorComponent.library,
+      MirrorComponent.app,
+      MirrorComponent.plugins,
+    ].where(running.contains).firstOrNull;
+    final others = {
+      for (final c in running)
+        if (c != current) c: fractionOf(c),
+    };
+    final finished = s.finishedDownloads;
+    final probe = s.library.downloadSizeProbe;
+    switch (current) {
       case MirrorComponent.app:
-        final received = s.otzaria.downloadReceived;
-        final total = s.otzaria.downloadTotal;
         return DownloadSnapshot(
           current: MirrorComponent.app,
-          libraryProbe: s.library.downloadSizeProbe,
-          received: received,
-          total: total,
-          fraction: received != null && total != null && total > 0
-              ? received / total
-              : null,
+          libraryProbe: probe,
+          received: s.otzaria.downloadReceived,
+          total: s.otzaria.downloadTotal,
+          fraction: appFraction(),
+          others: others,
+          finished: finished,
         );
       case MirrorComponent.library:
         return DownloadSnapshot(
@@ -860,22 +903,26 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           received: s.library.downloadReceivedBytes,
           total: s.library.downloadTotalBytes,
           fraction: s.library.downloadProgress,
+          others: others,
+          finished: finished,
         );
       case MirrorComponent.plugins:
         return DownloadSnapshot(
           current: MirrorComponent.plugins,
-          libraryProbe: s.library.downloadSizeProbe,
+          libraryProbe: probe,
           fraction: s.plugins.syncProgress,
+          others: others,
+          finished: finished,
         );
       case null:
-        return DownloadSnapshot(libraryProbe: s.library.downloadSizeProbe);
+        return DownloadSnapshot(libraryProbe: probe, finished: finished);
     }
   }
 
   void _dismissTask() => _session.tasks.dismiss();
 
   void _leaveTaskTo(ShellSection section) {
-    _dismissTask();
+    _session.tasks.leaveTask();
     unawaited(_goTo(section));
   }
 
@@ -910,6 +957,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
             onHome: _dismissTask,
             onHere: _updateHere,
             onCancelPreparing: s.abandonPreparingDownload,
+            onHide: s.tasks.hideDownload,
           ),
         );
       case UpdateHereTask():

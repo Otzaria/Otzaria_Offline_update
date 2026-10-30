@@ -137,6 +137,7 @@ class GuidanceFacts {
     this.autoCheckUpdates = false,
     this.isCheckingOnline = false,
     this.longTaskRunning = false,
+    this.hereDuringDownload,
     this.installing = false,
     this.launcherUpdate = false,
     this.customAppsPending = false,
@@ -184,6 +185,10 @@ class GuidanceFacts {
 
   /// הורדה, סנכרון, ייצוא, תוכנה מותאמת — `AppSession.longTaskRunning`.
   final bool longTaskRunning;
+
+  /// ההורדה לכונן היא המשימה היחידה, והיא ברקע: מה מותר להתקין כאן בינתיים —
+  /// שלבים שהמראה שלהם כבר אינה נכתבת. `null` — אין כזו.
+  final Set<GuidanceItem>? hereDuringDownload;
   final bool installing;
 
   /// שורת הכלי בתחתית מציעה עדכון (`HomeViewModel.launcher`).
@@ -381,7 +386,18 @@ HomeGuidance deriveHomeGuidance(GuidanceFacts f) {
   }
 
   if (f.longTaskRunning || f.installing || f.libraryApplyActive) {
-    return result(GuidancePrimary.taskInProgress);
+    final allowed = f.hereDuringDownload ?? const {};
+    final hereNow = [
+      for (final item in _hereItems(f))
+        if (allowed.contains(item)) item,
+    ];
+    // בהתקנה ראשונה הספרייה תלויה בתוכנה שלפניה.
+    final installable =
+        f.otzariaInstalled || hereNow.contains(GuidanceItem.app);
+    return result(
+      GuidancePrimary.taskInProgress,
+      here: installable ? hereNow : const [],
+    );
   }
 
   final here = _hereItems(f);

@@ -1,0 +1,5 @@
+# כמו שאר חבילות ה-Dart הטהורות: בלי ה-include של השורש (flutter_lints אינו
+# תלות כאן), עם ההידוקים המשותפים.
+include:
+  - package:lints/recommended.yaml
+  - ../../analysis_options_shared.yaml

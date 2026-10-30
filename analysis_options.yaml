@@ -26,3 +26,5 @@ analyzer:
     - error_reports_manager/**
     - launcher_app/**
     - build/**
+    # חבילת מדידה עצמאית (pubspec משלה) — ראו AGENTS.md §5.2.
+    - tool/download_bench/**

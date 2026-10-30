@@ -22,13 +22,22 @@ class DownloadSnapshot {
     this.received,
     this.total,
     this.libraryProbe,
+    this.others = const {},
+    this.finished,
   });
 
+  /// הרכיב שהמהירות והבייטים נמדדים עליו; [fraction], [received], [total] שלו.
   final MirrorComponent? current;
   final double? fraction;
   final int? received;
   final int? total;
   final LibrarySizeProbe? libraryProbe;
+
+  /// רכיבים שרצים לצד [current], עם החלק שהושלם בכל אחד.
+  final Map<MirrorComponent, double?> others;
+
+  /// מה הסתיים. `null` — כל מה שלפני [current] ברשימה.
+  final Set<MirrorComponent>? finished;
 }
 
 /// אחרי ההורדה: מה אפשר לעשות במחשב הזה.
@@ -57,6 +66,7 @@ class DownloadTaskActions {
     required this.onHome,
     required this.onHere,
     this.onCancelPreparing,
+    this.onHide,
   });
 
   /// התשובה לשאלת החיפוש החכם; `null` = חזרה.
@@ -65,6 +75,9 @@ class DownloadTaskActions {
 
   /// "ביטול" ב"מתכונן להורדה" — הבדיקה ברשת יכולה להימשך.
   final VoidCallback? onCancelPreparing;
+
+  /// "חזרה לבית" בזמן ההורדה — היא ממשיכה ברקע.
+  final VoidCallback? onHide;
   final VoidCallback onRetry;
   final VoidCallback onHome;
 
@@ -112,6 +125,7 @@ class DownloadTaskView extends StatelessWidget {
             snapshot: snapshot,
             cancelling: cancelling,
             onCancel: actions.onCancel,
+            onHide: actions.onHide,
             clock: clock,
           ),
         DownloadTaskPhase.cancelled => _cancelled(context),
@@ -527,6 +541,7 @@ class _DownloadProgress extends StatefulWidget {
     required this.cancelling,
     required this.onCancel,
     this.expectedBytes = const {},
+    this.onHide,
     this.clock,
   });
 
@@ -536,6 +551,7 @@ class _DownloadProgress extends StatefulWidget {
   final DownloadSnapshot Function() snapshot;
   final bool cancelling;
   final VoidCallback onCancel;
+  final VoidCallback? onHide;
   final DateTime Function()? clock;
 
   @override
@@ -578,7 +594,13 @@ class _DownloadProgressState extends State<_DownloadProgress> {
   Widget build(BuildContext context) {
     final t = context.strings.task;
     return TaskFrame(
-      start: const SizedBox.shrink(),
+      start: widget.onHide == null
+          ? const SizedBox.shrink()
+          : ActionButton.ghost(
+              key: ShellKeys.taskHide,
+              text: t.backHome,
+              onPressed: widget.onHide,
+            ),
       endMinWidth: 120,
       end: ActionButton.neutral(
         key: ShellKeys.taskCancel,
@@ -627,11 +649,25 @@ class _DownloadProgressState extends State<_DownloadProgress> {
     }
     final index = current == null ? -1 : components.indexOf(current);
     final fraction = _smoothed(current, s.fraction?.clamp(0.0, 1.0));
-    // הפס הכללי מונוטוני: מה שהסתיים ועוד החלק של הנוכחי. רכיב שמפסיק לדווח
+    final others = s.others;
+    final finished = s.finished ?? {if (index > 0) ...components.take(index)};
+    StageState stateOf(MirrorComponent c) => finished.contains(c)
+        ? StageState.done
+        : c == current || others.containsKey(c)
+            ? StageState.current
+            : StageState.waiting;
+    // הפס הכללי מונוטוני: מה שהסתיים ועוד החלק של מה שרץ. רכיב שמפסיק לדווח
     // חלק (הספרייה בלי סכום ידוע) לא מוריד את מה שכבר הוצג.
-    final computed = components.isEmpty || index < 0
+    final running = index >= 0 || others.isNotEmpty;
+    final computed = components.isEmpty || !running
         ? null
-        : (index + (fraction ?? 0)) / components.length;
+        : (finished.where(components.contains).length +
+                (index >= 0 ? fraction ?? 0 : 0) +
+                others.values.fold<double>(
+                  0,
+                  (sum, part) => sum + (part ?? 0).clamp(0.0, 1.0),
+                )) /
+            components.length;
     final peak = _peak;
     final overall =
         computed == null || peak == null || computed >= peak ? computed : peak;
@@ -694,7 +730,17 @@ class _DownloadProgressState extends State<_DownloadProgress> {
           textDirection: TextDirection.ltr,
           style: AppTextStyles.percent.copyWith(color: cs.primary),
         ),
-        if (shown != null) ...[
+        if (others.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            t.downloadingTogether(context.strings.plugins.joinNames([
+              for (final c in components)
+                if (c == current || others.containsKey(c))
+                  componentStepName(context, c),
+            ])),
+            style: AppTextStyles.body.copyWith(color: cs.onSurface),
+          ),
+        ] else if (shown != null) ...[
           const SizedBox(height: 4),
           Text(
             t.downloadingStep(
@@ -729,7 +775,7 @@ class _DownloadProgressState extends State<_DownloadProgress> {
         SizedBox(height: narrow ? 16 : 24),
         RowsCard(
           children: [
-            for (final (i, c) in components.indexed)
+            for (final c in components)
               StageRow(
                 icon: c == MirrorComponent.app ? null : componentIcon(c),
                 tileChild: c == MirrorComponent.app
@@ -741,32 +787,35 @@ class _DownloadProgressState extends State<_DownloadProgress> {
                     : null,
                 compact: narrow,
                 title: componentName(context, c),
-                state: i < index
-                    ? StageState.done
-                    : i == index
-                        ? StageState.current
-                        : StageState.waiting,
-                detail: i < index
-                    ? t.stageDone(
-                        _sizes[c] == null ? null : formatBytes(_sizes[c]!),
-                      )
-                    : i == index
-                        ? [
-                            if (fraction != null)
-                              '${(fraction * 100).floor()}%',
-                            if (sizeOfCurrent ?? approx(c) case final size?)
-                              size,
-                          ].join(' · ')
-                        : [
-                            t.stageWaiting,
-                            if (_sizes[c] case final size?)
-                              formatBytes(size)
-                            else if (approx(c) case final size?)
-                              size
-                            else if (c == MirrorComponent.library &&
-                                (s.libraryProbe?.checking ?? false))
-                              t.sizeChecking,
-                          ].join(' · '),
+                state: stateOf(c),
+                detail: switch (stateOf(c)) {
+                  StageState.done => t.stageDone(
+                      _sizes[c] == null ? null : formatBytes(_sizes[c]!),
+                    ),
+                  StageState.current when c == current => [
+                      if (fraction != null) '${(fraction * 100).floor()}%',
+                      if (sizeOfCurrent ?? approx(c) case final size?) size,
+                    ].join(' · '),
+                  StageState.current => [
+                      if (others[c] case final part?)
+                        '${(part.clamp(0.0, 1.0) * 100).floor()}%',
+                      if (_sizes[c] == null
+                              ? approx(c)
+                              : formatBytes(_sizes[c]!)
+                          case final size?)
+                        size,
+                    ].join(' · '),
+                  _ => [
+                      t.stageWaiting,
+                      if (_sizes[c] case final size?)
+                        formatBytes(size)
+                      else if (approx(c) case final size?)
+                        size
+                      else if (c == MirrorComponent.library &&
+                          (s.libraryProbe?.checking ?? false))
+                        t.sizeChecking,
+                    ].join(' · '),
+                },
               ),
           ],
         ),

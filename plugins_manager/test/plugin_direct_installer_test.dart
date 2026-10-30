@@ -150,14 +150,56 @@ void main() {
     });
   });
 
-  group('deliverablePath', () {
-    test('נתיב שאוצריא מקבלת נמסר כמו שהוא', () async {
-      final path = writePluginFile(temp, 'a.otzplugin', '{"id":"x"}');
+  test('תיקיית המסירה בנתיב הארוך, גם כש-TEMP הוא שם 8.3', () {
+    final root = PluginDirectInstaller.defaultHandoffRoot.path;
+    expect(p.basename(root), 'otzaria_plugin_handoff');
+    expect(
+      p.equals(
+          p.dirname(root), Directory.systemTemp.resolveSymbolicLinksSync()),
+      isTrue,
+    );
+    if (Platform.isWindows && Directory.systemTemp.path.contains('~')) {
+      expect(root, isNot(contains('~')));
+    }
+  });
 
-      expect(
-        await PluginDirectInstaller.deliverablePath(path, accepts: (_) => true),
+  test('TEMP בכונן רשת ממופה: נשארים באות הכונן ולא בנתיב UNC', () {
+    final temp = Directory(r'Z:\Temp');
+    expect(
+      PluginDirectInstaller.handoffBase(
+        temp,
+        resolve: (_) => r'\\server\share\Temp',
+        accepts: (path) => !path.startsWith(r'\\'),
+      ),
+      temp.path,
+    );
+    expect(
+      PluginDirectInstaller.handoffBase(
+        Directory(r'C:\Users\ZEEVLE~1\Temp'),
+        resolve: (_) => r'C:\Users\Zeev Levental\Temp',
+        accepts: (_) => true,
+      ),
+      r'C:\Users\Zeev Levental\Temp',
+    );
+  });
+
+  group('deliverablePath', () {
+    test('גם נתיב שאוצריא מקבלת מועתק — המראה עשויה להתחלף לפני שתקרא',
+        () async {
+      final path = writePluginFile(temp, 'a.otzplugin', '{"id":"x"}');
+      final handoff = Directory(p.join(temp.path, 'handoff'));
+
+      final delivered = await PluginDirectInstaller.deliverablePath(
         path,
+        accepts: (_) => true,
+        handoffRoot: handoff,
       );
+      expect(delivered, isNot(path));
+      expect(p.isWithin(handoff.path, delivered), isTrue);
+
+      final bytes = File(path).readAsBytesSync();
+      File(path).deleteSync();
+      expect(File(delivered).readAsBytesSync(), bytes);
     });
 
     test('נתיב שאוצריא דוחה מועתק לתיקיית המסירה המקומית', () async {

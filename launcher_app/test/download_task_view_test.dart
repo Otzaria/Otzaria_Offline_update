@@ -163,6 +163,84 @@ void main() {
       expect(calls, ['cancel']);
     });
 
+    testWidgets(
+        'ספרייה ותוספים יחד: שתי שורות "עכשיו", אחוז כולל משניהם, '
+        'ו"חזרה לבית" משאירה את ההורדה רצה', (tester) async {
+      final progress = ValueNotifier(0);
+      var hidden = 0;
+      var snapshot = const DownloadSnapshot(
+        current: MirrorComponent.library,
+        fraction: 0.5,
+        others: {MirrorComponent.plugins: 0.25},
+        finished: {MirrorComponent.app},
+      );
+      await pumpScreen(
+        tester,
+        DownloadTaskView(
+          task: downloadScenarios['download']!,
+          progress: progress,
+          snapshot: () => snapshot,
+          actions: DownloadTaskActions(
+            onAnswer: (_) {},
+            onCancel: () {},
+            onRetry: () {},
+            onHome: () {},
+            onHere: () {},
+            onHide: () => hidden++,
+          ),
+        ),
+      );
+      // (1 + 0.5 + 0.25) / 3
+      expect(percent(tester), '58%');
+      expect(
+        tester.widgetList<StageRow>(find.byType(StageRow)).map((r) => r.state),
+        [StageState.done, StageState.current, StageState.current],
+      );
+      expect(
+        find.text(t.downloadingTogether(
+            stringsOf().plugins.joinNames([t.stepLibrary, t.stepPlugins]))),
+        findsOneWidget,
+      );
+      expect(find.text('50%'), findsOneWidget);
+      expect(find.text('25%'), findsOneWidget);
+
+      // הספרייה הסתיימה (גם בכשל) — התוספים עדיין רצים, והאחוז אינו יורד.
+      snapshot = const DownloadSnapshot(
+        current: MirrorComponent.plugins,
+        fraction: 0.5,
+        finished: {MirrorComponent.app, MirrorComponent.library},
+      );
+      progress.value++;
+      await tester.pump();
+      expect(percent(tester), '83%');
+      expect(
+        tester.widgetList<StageRow>(find.byType(StageRow)).map((r) => r.state),
+        [StageState.done, StageState.done, StageState.current],
+      );
+
+      await tester.tap(find.byKey(ShellKeys.taskHide));
+      expect(hidden, 1);
+    });
+
+    testWidgets('בלי "חזרה לבית" אין כפתור', (tester) async {
+      await pumpScreen(
+        tester,
+        DownloadTaskView(
+          task: downloadScenarios['download']!,
+          progress: ValueNotifier(0),
+          snapshot: () => const DownloadSnapshot(),
+          actions: DownloadTaskActions(
+            onAnswer: (_) {},
+            onCancel: () {},
+            onRetry: () {},
+            onHome: () {},
+            onHere: () {},
+          ),
+        ),
+      );
+      expect(find.byKey(ShellKeys.taskHide), findsNothing);
+    });
+
     testWidgets('שורות ממתינות מראות גודל צפוי, וסך הכול רק כשהכול ידוע',
         (tester) async {
       const mb = 1024 * 1024;

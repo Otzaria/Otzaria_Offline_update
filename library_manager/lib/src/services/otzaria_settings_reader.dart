@@ -96,14 +96,16 @@ class OtzariaSettingsReader {
   /// מקבילות על שורשי נתונים שונים היו מקבלות את אותה קופסה, כלומר את
   /// ההגדרות של השורש הלא-נכון. מונה + מנעול מבטיחים שם ייחודי וריצה בטור.
   static int _readCounter = 0;
-  static Future<void> _lock = Future<void>.value();
+  static Future<void> _lock = Zone.root.run(Future<void>.value);
 
   /// התור שכל גישה לקופסאות של אוצריא עוברת בו — קריאה **וכתיבה**
   /// (`OtzariaSettingsWriter`) גם יחד, מאותה סיבה: `Hive.init` והמזהה לפי
   /// שם הם מצב גלובלי.
   static Future<T> runExclusively<T>(Future<T> Function() action) {
     final previous = _lock;
-    final completer = Completer<void>();
+    // ב-root: המשך על עתיד שהושלם עובר באזור שבו העתיד נוצר, ואזור שנעצר
+    // (זמן מדומה של בדיקה שהסתיימה) היה חוסם את כל מי שבא אחריו.
+    final completer = Zone.root.run(Completer<void>.new);
     _lock = completer.future;
     return previous.then((_) => action()).whenComplete(completer.complete);
   }

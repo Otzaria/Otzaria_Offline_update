@@ -26,16 +26,16 @@ Future<void> refreshAfterCancelledDownload({
   required LibraryModuleController library,
   required PluginsModuleController plugins,
   required OnlineAnswersBeforeDownload before,
-  required MirrorComponent? reverted,
+  required Set<MirrorComponent> reverted,
 }) async {
   // רכיב שנשאר בכונן שומר את תשובות הרשת שנמדדו מולו בזמן ההורדה.
   await otzaria.checkForUpdate();
-  if (reverted == MirrorComponent.library &&
+  if (reverted.contains(MirrorComponent.library) &&
       before.answeredDuringDownload(library.onlineCheckedAt)) {
     library.restoreOnlineAnswers(before.libraryAnswers);
   }
   await library.checkForUpdate();
-  if (reverted == MirrorComponent.plugins) {
+  if (reverted.contains(MirrorComponent.plugins)) {
     if (before.answeredDuringDownload(plugins.onlineCheckedAt)) {
       plugins.restoreCatalogOnlineAnswers(before.catalogAnswers);
     }
@@ -43,5 +43,10 @@ Future<void> refreshAfterCancelledDownload({
       plugins.restoreStoreAppOnlineAnswers(before.storeAppAnswers);
     }
   }
-  await plugins.load();
+  // סנכרון או מסירה שרצים במקביל: טעינה באמצעם דורסת את מצבם; הסנכרון טוען בסופו.
+  if (!plugins.isSyncing &&
+      !plugins.isUpdatingAll &&
+      !plugins.isDeliveringAny) {
+    await plugins.load();
+  }
 }

@@ -90,7 +90,7 @@ void main() {
         library: library,
         plugins: plugins,
         before: before,
-        reverted: reverted,
+        reverted: {if (reverted != null) reverted},
       );
 
   bool cardOffersDownload({
@@ -146,11 +146,25 @@ void main() {
     await deleteTempDir(tempDir);
   });
 
+  test('a plugin update run beside the download is not reloaded under it',
+      () async {
+    startDownload();
+    plugins
+      ..updateAllRun = (done: 0, total: 2)
+      ..status = PluginsModuleStatus.error;
+    await refresh(MirrorComponent.library);
+    expect(plugins.status, PluginsModuleStatus.error);
+
+    plugins.updateAllRun = null;
+    await refresh(MirrorComponent.library);
+    expect(plugins.status, isNot(PluginsModuleStatus.error));
+  });
+
   test('the refresh runs even when the revert throws', () {
     final source =
         File('lib/src/controllers/shell_module_ports.dart').readAsStringSync();
-    final start = source
-        .indexOf('Future<void> rollback(MirrorComponent? inProgress) async {');
+    final start = source.indexOf(
+        'Future<void> rollback(Set<MirrorComponent> inProgress) async {');
     final body = source.substring(start);
     final revert = body.indexOf('await _undo.revert(');
     final finallyAt = body.indexOf('finally {', revert);
@@ -186,13 +200,35 @@ void main() {
 
       writeAppMirror();
       final partial = libraryAsset('assets/new.bin')..writeAsStringSync('half');
-      await rollback.rollback(MirrorComponent.library);
+      await rollback.rollback({MirrorComponent.library});
 
       expect(File(p.join(appMirrorDir(), 'latest-release.json')).existsSync(),
           isTrue);
       expect(partial.existsSync(), isFalse);
       expect(earlier.readAsStringSync(), 'from an earlier download');
       expect(otzaria.stableVersion, tag);
+    });
+
+    test('library and plugins in progress together: both revert, app stays',
+        () async {
+      final earlier = libraryAsset('assets/earlier.bin')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('from an earlier download');
+      final rollback = await capture();
+
+      writeAppMirror();
+      final partial = libraryAsset('assets/new.bin')..writeAsStringSync('half');
+      final plugin = File(p.join(plugins.mirrorDirs.first, 'files', 'x.part'))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('half');
+      await rollback
+          .rollback({MirrorComponent.library, MirrorComponent.plugins});
+
+      expect(File(p.join(appMirrorDir(), 'latest-release.json')).existsSync(),
+          isTrue);
+      expect(partial.existsSync(), isFalse);
+      expect(plugin.existsSync(), isFalse);
+      expect(earlier.readAsStringSync(), 'from an earlier download');
     });
 
     test('during the first component: the drive is as before', () async {
@@ -202,7 +238,7 @@ void main() {
       final rollback = await capture();
 
       writeAppMirror();
-      await rollback.rollback(MirrorComponent.app);
+      await rollback.rollback({MirrorComponent.app});
 
       expect(Directory(appMirrorDir()).existsSync(), isFalse);
       expect(earlier.readAsStringSync(), 'from an earlier download');

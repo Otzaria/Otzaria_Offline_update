@@ -30,6 +30,7 @@ import '../controllers/plugins_module_controller.dart';
 import '../controllers/search_feedback_controller.dart';
 import '../controllers/shell_module_ports.dart';
 import '../flows/update_here_flow.dart';
+import '../self_update/launcher_self_updater.dart';
 import '../services/app_logger.dart';
 import '../services/app_paths.dart';
 import '../services/byte_size.dart';
@@ -71,6 +72,8 @@ class AppSession extends ChangeNotifier {
     @visibleForTesting OtzariaManager? otzariaManager,
     @visibleForTesting LibraryManager? libraryManager,
     @visibleForTesting PluginsManager? pluginsManager,
+    @visibleForTesting LauncherSelfUpdater? launcherUpdater,
+    @visibleForTesting this.closeDeliveryPatience = const Duration(seconds: 10),
   })  : _noticesStore = noticesStore,
         _injectedSleepInhibitor = sleepInhibitor {
     final s = settings.settings;
@@ -113,7 +116,11 @@ class AppSession extends ChangeNotifier {
           _otzaria.currentVersion ?? _otzaria.latestVersion,
       ensureAppVersionsKnown: _otzaria.ensureChecked,
       manager: pluginsManager,
-    )..addListener(_onChange);
+    )
+      ..syncBlockedElsewhere = (() => pluginSyncBlockedElsewhere)
+      ..mirrorWrittenElsewhere =
+          (() => mirrorBeingWritten.contains(MirrorComponent.plugins))
+      ..addListener(_onChange);
     _installDone = _plugins.installCompletions.listen((name) {
       if (isActive) {
         UiSnack.showSuccess(AppL10n.strings.plugins.installDoneSnack(name));
@@ -135,8 +142,9 @@ class AppSession extends ChangeNotifier {
       stateDir: stateFilesDir,
       trustFilePath: _customAppsTrustFile(),
     )..addListener(_onChange);
-    _launcherUpdate = LauncherUpdateController(dataDir: dataDir)
-      ..addListener(_onChange);
+    _launcherUpdate =
+        LauncherUpdateController(dataDir: dataDir, updater: launcherUpdater)
+          ..addListener(_onChange);
     _faq = FaqController(dataDir: stateDir);
     _errorReports = (errorReports ??
         ErrorReportsController.forDrive(
@@ -170,6 +178,9 @@ class AppSession extends ChangeNotifier {
   final SettingsController settings;
   final SessionPrompts prompts;
   final RunningOtzariaLocator runningLocator;
+
+  /// כמה סגירה שאושרה ממתינה למסירות לפני שהיא מציעה לחזור לכלי.
+  final Duration closeDeliveryPatience;
 
   /// `null` בבדיקות: הוא מפעיל טיימר שליחה ופונה לרשת.
   final AppReportsController? appReports;
@@ -360,7 +371,7 @@ class AppSession extends ChangeNotifier {
 
   late final ReportOfferCoordinator _offers = ReportOfferCoordinator(
     isTaskRunning: () =>
-        exitWouldInterrupt || _downloads.isPreparing || tasks.isRunning,
+        exitWouldInterrupt || _downloads.isPreparing || tasks.anyRunning,
     isActive: () => isActive,
     prepare: _prepareOffer,
     runDialog: prompts.runDialog,
@@ -379,8 +390,9 @@ class AppSession extends ChangeNotifier {
   bool get isDownloading => _downloads.isDownloading;
   bool get isCancellingDownload => _downloads.isCancelling;
 
-  /// מה יורד עכשיו — למסך ההתקדמות.
-  MirrorComponent? get currentDownload => _downloads.currentComponent;
+  /// מה יורד עכשיו ומה כבר הסתיים — למסך ההתקדמות.
+  Set<MirrorComponent> get runningDownloads => _downloads.runningComponents;
+  Set<MirrorComponent> get finishedDownloads => _downloads.finishedComponents;
 
   /// מה שכל רכיב צפוי להוריד לפי הבדיקה ברשת; רכיב שגודלו לא ידוע חסר.
   Map<MirrorComponent, int> get expectedDownloadBytes {
@@ -957,25 +969,105 @@ class AppSession extends ChangeNotifier {
   Future<void> downloadLauncherUpdate() =>
       _fromLauncherPage(_launcherFlow.download);
 
-  bool get longTaskRunning =>
-      _downloads.isDownloading ||
+  /// עבודה פעילה כלשהי — ליציאה, לשינה ולהחלפת קובץ ההרצה, **לא** כהרשאה
+  /// לפעולה אחרת: לזה משמשים הגטרים שלפי משאב שאחריו.
+  bool get longTaskRunning => _downloads.isDownloading || _otherLongTask;
+
+  bool get _otherLongTask =>
+      _installingHere ||
+      _customApps.isLearning ||
+      _customApps.isDownloadingAll ||
+      _plugins.isExporting ||
+      // הסנכרון שבתוך ההורדה הוא ההורדה עצמה, לא משימה נוספת.
+      (_plugins.isSyncing &&
+          !_downloads.pendingComponents.contains(MirrorComponent.plugins)) ||
+      exitPending;
+
+  /// התקנה במחשב הזה רצה — אוצריא נסגרת, מוחלפת או נפתחת באמצעה.
+  bool get _installingHere =>
       _library.isApplying ||
       _library.status == LibraryModuleStatus.updating ||
       _otzaria.status == OtzariaModuleStatus.installing ||
       _customApps.isBusy ||
-      _customApps.isLearning ||
-      _customApps.isDownloadingAll ||
-      _plugins.isExporting ||
-      _plugins.isSyncing ||
-      _plugins.isUpdatingAll ||
-      exitPending;
+      _plugins.isUpdatingAll;
 
-  bool get pluginSyncBlockedElsewhere =>
-      _downloads.isDownloading ||
+  /// אזורי המראה שההורדה עוד עשויה לכתוב. לפני שהתוכנית ידועה ובזמן
+  /// הניקוי — כולם.
+  Set<MirrorComponent> get mirrorBeingWritten => (_downloads.isPreparing &&
+              !_downloads.isDownloading &&
+              !_downloads.isAbandoned) ||
+          _downloads.pendingSweep != null
+      ? MirrorComponent.values.toSet()
+      : _downloads.pendingComponents;
+
+  /// שלבי "עדכון כאן" שקוראים מראה שעוד נכתבת; הם ממתינים לסוף הכתיבה.
+  Set<GuidanceItem> get installsBlockedByDownload => {
+        for (final component in mirrorBeingWritten)
+          switch (component) {
+            MirrorComponent.app => GuidanceItem.app,
+            MirrorComponent.library => GuidanceItem.library,
+            MirrorComponent.plugins => GuidanceItem.plugins,
+          },
+        // מסירה נדחית גם בזמן העתקת החנות (`deliver`), ולכן השלב ממתין.
+        if (_plugins.isSyncing ||
+            _plugins.isExporting ||
+            // רצף מסירות שממשיך ברקע — שלב שני היה שולח אותם שוב.
+            _plugins.isDeliveryRunActive)
+          GuidanceItem.plugins,
+      };
+
+  /// מה הבית מציע להתקין כאן בזמן הורדה שרצה ברקע — רק כשהיא המשימה היחידה.
+  Set<GuidanceItem>? get hereDuringDownload =>
+      _downloads.isDownloading && tasks.downloadHidden && !_otherLongTask
+          ? GuidanceItem.values.toSet().difference(installsBlockedByDownload)
+          : null;
+
+  /// התקנה, שמירה וייצוא בחנות: קוראות את מראה התוספים ומוסרות לאוצריא.
+  bool get pluginActionsBlockedElsewhere =>
+      installsBlockedByDownload.contains(GuidanceItem.plugins) ||
       _library.isApplying ||
       _library.status == LibraryModuleStatus.updating ||
       _otzaria.status == OtzariaModuleStatus.installing ||
       _customApps.isBusy;
+
+  /// "רענון" בחנות כותב את מראה התוספים ובוחר גרסאות לפי המתקין שבכונן —
+  /// ולכן גם מתקין שעוד יורד חוסם אותו.
+  bool get pluginSyncBlockedElsewhere =>
+      mirrorBeingWritten.contains(MirrorComponent.plugins) ||
+      mirrorBeingWritten.contains(MirrorComponent.app) ||
+      _updateHereReads(GuidanceItem.plugins);
+
+  bool _updateHereReads(GuidanceItem stage) => switch (tasks.updateTask) {
+        final UpdateHereTask task when !task.isFinished =>
+          task.stages.indexOf(stage) >= task.stageIndex,
+        _ => false,
+      };
+
+  /// התקנת אוצריא וההחלה של הספרייה — רק אחרי שהמראה שלהן נכתבה.
+  bool get appInstallBlocked =>
+      _installingHere ||
+      exitPending ||
+      installsBlockedByDownload.contains(GuidanceItem.app);
+  bool get libraryApplyBlocked =>
+      _installingHere ||
+      exitPending ||
+      installsBlockedByDownload.contains(GuidanceItem.library);
+
+  /// איסוף כותב לתור של אוצריא, ולכן לא בזמן התקנה כאן; ההורדות אינן נוגעות בו.
+  bool get reportsCollectBlocked =>
+      _installingHere || tasks.updateInProgress || exitPending;
+
+  /// שליחה קוראת רק את תיבת היוצאים — כפילות נחסמת ב-`guardedUpload`.
+  bool get reportsUploadBlocked => exitPending;
+
+  /// "הורדה" לא מתחילה: יציאה ממתינה, "עדכון כאן" קורא את המראה, או התקנה
+  /// כאן שמראה שלה הייתה מתחלפת. תוספים — לפי התוכנית, ב-[blocksComponent].
+  bool get downloadBlocked =>
+      exitPending ||
+      tasks.updateInProgress ||
+      _library.isApplying ||
+      _library.status == LibraryModuleStatus.updating ||
+      _otzaria.status == OtzariaModuleStatus.installing;
 
   bool get exitPending => _elevationPending || _launcherUpdate.isInstalling;
 
@@ -991,6 +1083,10 @@ class AppSession extends ChangeNotifier {
 
   bool get exitWouldInterrupt =>
       longTaskRunning ||
+      // מראה נפרדת שרצה לצד הורדת המראה ועשויה להימשך אחריה.
+      _launcherUpdate.isDownloading ||
+      // מסירות של "עדכון כאן" שהסתיים מוקדם; כמו "עדכון הכול".
+      _plugins.isDeliveryRunActive ||
       _errorReports.isCollecting ||
       _errorReports.isUploading ||
       _uploadingReports;
@@ -1048,29 +1144,54 @@ class AppSession extends ChangeNotifier {
     // הסגירה מסתיימת ב-`exit`, ושום dispose לא ירוץ אחריה.
     await _faq.flush().timeout(const Duration(seconds: 1), onTimeout: () {});
     // גם במסירת התוספים, שאינה longTask; בשאלות (סגירת אוצריא, משתמש אחר) עוד לא רץ דבר.
-    final updatingHere = switch (tasks.current) {
-      UpdateHereTask(phase: UpdateHereTaskPhase.running) => true,
-      _ => false,
-    };
-    if (!isActive || !(longTaskRunning || updatingHere)) return true;
+    // וגם מסירות שממשיכות ברקע אחרי "סיום בלי לחכות".
+    final updatingHere = _plugins.isDeliveryRunActive ||
+        switch (tasks.updateTask) {
+          UpdateHereTask(phase: UpdateHereTaskPhase.running) => true,
+          _ => false,
+        };
+    final launcherDownloading = _launcherUpdate.isDownloading;
+    if (!isActive) return true;
+    if (!(longTaskRunning || updatingHere || launcherDownloading)) {
+      // מסירה בודדת מהחנות: קצרה, בלי שאלה — רק לא לקטוע אותה באמצע.
+      return _stopDeliveries();
+    }
     final approved = await prompts.confirmClose(
-      downloading: _downloads.isDownloading,
+      downloading: _downloads.isDownloading || launcherDownloading,
     );
     if (!approved) return false;
     if (!isActive) return true;
-    await _downloads.cancelAndWait(keepProgress: true);
+    // המסירות קודם: "חזרה לכלי" מהן משאירה את ההורדות רצות כרגיל.
+    if (!await _stopDeliveries()) return false;
+    await Future.wait([
+      _downloads.cancelAndWait(keepProgress: true),
+      _launcherUpdate.cancelAndWait(),
+    ]);
+    return true;
+  }
+
+  /// עוצר מסירות וממתין להן. מסירה שלא חזרה אחרי [closeDeliveryPatience] אינה
+  /// נקטעת: המשתמש בוחר בין המשך המתנה לחזרה לכלי (`false`).
+  Future<bool> _stopDeliveries() async {
+    final idle = _plugins.stopDeliveriesAndWait().then((_) => true);
+    while (!await idle.timeout(closeDeliveryPatience, onTimeout: () => false)) {
+      if (!await prompts.keepWaitingForDeliveries()) {
+        _plugins.resumeDeliveries();
+        return false;
+      }
+    }
     return true;
   }
 
   /// "מתכונן" נפתח מיד, גם מ"נסה שוב"; זרימה שחזרה בלי להתחיל סוגרת אותו.
   /// [forceSemantic] — ראו [MirrorDownloadFlow.downloadAll].
   Future<void> downloadAll({bool forceSemantic = false}) async {
-    if (_blockedByReadOnly() || tasks.isRunning) return;
+    if (_blockedByReadOnly() || tasks.downloadInProgress) return;
     if (!settings.settings.hasSyncSelection) {
       prompts.notifyNoSyncSelection();
       return;
     }
-    if (longTaskRunning || _launcherUpdate.isDownloading) {
+    if (downloadBlocked) {
       UiSnack.show(AppL10n.strings.guide.downloadBusySnack);
       return;
     }
@@ -1103,30 +1224,69 @@ class AppSession extends ChangeNotifier {
     bool reinstallApp = false,
     bool fullLibrary = false,
   }) async {
-    if (tasks.isRunning || exitPending || !isActive) return;
+    if (!_canStartUpdateHere) return;
+    // נאמר לפני ההתחלה: השלב שנשמט לא יופיע במסך הסיום.
+    if (_waitReason(items) case final reason?) UiSnack.show(reason);
     await _updateHere.run(
       items,
       reinstallApp: reinstallApp,
       fullLibrary: fullLibrary,
+      blocked: () => installsBlockedByDownload,
     );
   }
+
+  /// הורדה שרצה ברקע אינה סיבה לחכות; רק "עדכון כאן" אחר, יציאה, או הורדה
+  /// שעוד מתכוננת (התוכנית לא ידועה, והמסך שלה בחזית).
+  bool get _canStartUpdateHere =>
+      isActive &&
+      !tasks.updateInProgress &&
+      !exitPending &&
+      !(tasks.downloadInProgress && !tasks.downloadHidden);
 
   /// הכפתור שבהודעה בבית: אותו חלון ואותה זרימה כמו "עדכון המחשב הזה".
   /// בלי אוצריא אין לאן לכתוב — וזרימה בלעדיה הייתה מריצה את מתקין התוכנה.
   Future<void> answerSemanticConsent() async {
-    if (tasks.isRunning || exitPending || !isActive) return;
+    if (!_canStartUpdateHere) return;
     if (_otzaria.currentVersion == null) return;
-    if (await _updateHere.run(const [GuidanceItem.library]) || !isActive) {
+    if (installsBlockedByDownload.contains(GuidanceItem.library)) {
+      UiSnack.show(AppL10n.strings.task.installWaitsForDownloadSnack);
+      return;
+    }
+    if (await _updateHere.run(const [GuidanceItem.library],
+            blocked: () => installsBlockedByDownload) ||
+        !isActive) {
       return;
     }
     await grantSemanticConsent();
   }
 
+  /// למה שלבים שנבחרו ממתינים, או `null`: הורדה שכותבת את המראה, או פעולה
+  /// בחנות (סנכרון, העתקה, מסירות שעוד נשלחות) כשאין הורדה.
+  String? _waitReason(Iterable<GuidanceItem> items) {
+    final blocked = items.where(installsBlockedByDownload.contains);
+    if (blocked.isEmpty) return null;
+    if (blocked.any((item) => item != GuidanceItem.plugins) ||
+        mirrorBeingWritten.contains(MirrorComponent.plugins)) {
+      return AppL10n.strings.task.installWaitsForDownloadSnack;
+    }
+    final t = AppL10n.strings.plugins;
+    if (_plugins.isSyncing) return t.actionsBlockedSyncing;
+    if (_plugins.isExporting) return t.actionsBlockedExporting;
+    return t.actionsBlockedDelivering;
+  }
+
   Future<void> retryUpdateHere() async {
-    if (tasks.isRunning || exitPending || !isActive) return;
-    if (await _updateHere.retry() || !isActive) return;
+    if (tasks.updateInProgress || exitPending || !isActive) return;
+    final requested = tasks.updateTask?.request?.items ?? const [];
+    final reason = _waitReason(requested);
+    final waits = reason != null;
+    if (reason != null) UiSnack.show(reason);
+    if (await _updateHere.retry(blocked: () => installsBlockedByDownload) ||
+        !isActive) {
+      return;
+    }
     tasks.dismiss();
-    UiSnack.show(AppL10n.strings.task.retryNothingSnack);
+    if (!waits) UiSnack.show(AppL10n.strings.task.retryNothingSnack);
   }
 
   void stopWaitingForSetup() => _updateHere.stopWaiting();
@@ -1264,7 +1424,7 @@ class AppSession extends ChangeNotifier {
   Future<void> refreshFromKeyboard() async {
     // לא `longTaskRunning` עצמו: `isBlocked` של ההורדה נשען עליו, והיה
     // עוצר את ההורדה של המשימה עצמה.
-    if (longTaskRunning || tasks.isRunning) return;
+    if (longTaskRunning || tasks.anyRunning) return;
     await _launcherFlow.checkMirror();
     if (!isActive) return;
     await _otzaria.checkForUpdate();
@@ -1283,12 +1443,31 @@ class _SessionDownloadHost implements MirrorDownloadHost {
   @override
   bool get isActive => _session.isActive;
 
+  // לא `longTaskRunning`: ההורדה עצמה חלק ממנו, והייתה עוצרת את עצמה.
   @override
-  bool get isBlocked =>
-      _session.longTaskRunning || _session._launcherUpdate.isDownloading;
+  bool get isBlocked => _session.downloadBlocked;
 
   @override
-  bool get launcherDownloading => _session._launcherUpdate.isDownloading;
+  bool blocksComponent(MirrorComponent component) => switch (component) {
+        MirrorComponent.plugins => _session._plugins.isSyncing ||
+            _session._plugins.isReadingMirror ||
+            _session._plugins.isUpdatingAll,
+        // סנכרון עצמאי בוחר גרסאות לפי המתקין שהיה מתחלף תחתיו.
+        MirrorComponent.app => _session._plugins.isSyncing,
+        MirrorComponent.library => false,
+      };
+
+  @override
+  bool get mirrorInUse =>
+      _session._launcherUpdate.isDownloading ||
+      _session.tasks.updateInProgress ||
+      _session._installingHere ||
+      _session._plugins.isSyncing ||
+      _session._plugins.isReadingMirror;
+
+  @override
+  void downloadBlocked() =>
+      UiSnack.show(AppL10n.strings.guide.downloadBusySnack);
 
   @override
   AppSettings get settings => _session.settings.settings;
@@ -1370,7 +1549,7 @@ class _SessionDownloadHost implements MirrorDownloadHost {
     bool abandoned = false,
   }) {
     AppLogger.instance.error('ההורדה נעצרה בחריג', error, stackTrace);
-    final task = _session.tasks.current;
+    final task = _session.tasks.downloadTask;
     if (abandoned ||
         task is! DownloadTask ||
         task.isFinished ||
@@ -1388,7 +1567,7 @@ class _SessionDownloadHost implements MirrorDownloadHost {
     required List<MirrorComponent> skipped,
   }) {
     final s = _session;
-    final task = s.tasks.current;
+    final task = s.tasks.downloadTask;
     final libraryRan = task is DownloadTask &&
         task.components.contains(MirrorComponent.library) &&
         !skipped.contains(MirrorComponent.library);
@@ -1409,8 +1588,9 @@ class _SessionDownloadHost implements MirrorDownloadHost {
             errors: {
               MirrorComponent.app: s._otzaria.downloadError,
               MirrorComponent.library: s._library.downloadError,
-              MirrorComponent.plugins:
-                  s._plugins.errorMessage ?? s._plugins.shabbatNotice,
+              MirrorComponent.plugins: s._plugins.errorMessage ??
+                  s._plugins.syncRefusal ??
+                  s._plugins.shabbatNotice,
             },
             causes: {
               MirrorComponent.app: s._otzaria.downloadCause,

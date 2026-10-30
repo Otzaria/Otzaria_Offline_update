@@ -105,6 +105,12 @@ abstract class ShellStrings {
   String get closeWhileInstallingConfirm;
   String get closeWhileBusyKeepGoing;
 
+  /// סגירה שאושרה ממתינה למסירת תוסף שעוד לא חזרה.
+  String get closeWaitingDeliveryTitle;
+  String get closeWaitingDeliveryPrompt;
+  String get closeWaitingDeliveryWait;
+  String get closeWaitingDeliveryBack;
+
   /// כלי שורת הכותרת וכפתורי החלון — תוויות נגישות ו-tooltip.
   String get helpTooltip;
   String get settingsTooltip;
@@ -172,6 +178,9 @@ abstract class TaskStrings {
   String get downloadingTitle;
   String get downloadingBody;
   String downloadingStep(String name, int index, int count);
+
+  /// רכיבים שיורדים יחד; [names] כבר מחוברים.
+  String downloadingTogether(String names);
   String get componentApp;
   String get componentLibrary;
   String get componentPlugins;
@@ -208,6 +217,9 @@ abstract class TaskStrings {
   String get downloadAgain;
   String get backHome;
   String get retryNothingSnack;
+
+  /// "עדכון כאן" בזמן הורדה שעוד כותבת את המראה של מה שהתבקש.
+  String get installWaitsForDownloadSnack;
   String get doneTitle;
   String get doneBody;
 
@@ -347,6 +359,8 @@ abstract class TaskStrings {
   String get toLibraryPage;
   String get toPluginsPage;
   String get showProgress;
+  String get showDownload;
+  String get showDownloadResult;
 }
 
 // ── דפי הרכיבים ──
@@ -1212,6 +1226,8 @@ abstract class PluginsStrings {
   String get actionsBlockedExporting;
   String get actionsBlockedUpdatingAll;
   String get actionsBlockedElsewhere;
+  String get syncBlockedSnack;
+  String get actionsBlockedDelivering;
   String get howItWorksButton;
   String get updatesSentTitle;
   String get updatesSentBody;

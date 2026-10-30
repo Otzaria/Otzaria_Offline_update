@@ -264,6 +264,47 @@ void main() {
 
   const both = [GuidanceItem.library, GuidanceItem.app];
 
+  group('שלבים שההורדה עוד כותבת', () {
+    test('הספרייה חסומה — התוכנה לבדה, והחסימה נקראת ברגע ההתחלה', () async {
+      var calls = 0;
+      await flow.run(both, blocked: () {
+        calls++;
+        return {GuidanceItem.library};
+      });
+      expect(log, ['app']);
+      expect(task()!.stages, [GuidanceItem.app]);
+      expect(calls, greaterThan(0));
+    });
+
+    test('הכול חסום — אין משימה', () async {
+      final started = await flow.run(
+        both,
+        blocked: () => {GuidanceItem.library, GuidanceItem.app},
+      );
+      expect(started, isFalse);
+      expect(host.tasks.updateTask, isNull);
+      expect(log, isEmpty);
+    });
+
+    test('התקנה ראשונה כשהתוכנה חסומה — גם הספרייה אינה רצה', () async {
+      app.isInstalled = false;
+      library.isFreshInstall = true;
+      final started = await flow.run(both, blocked: () => {GuidanceItem.app});
+      expect(started, isFalse);
+      expect(log, isEmpty);
+    });
+
+    test('"נסה שוב" מחשב את החסימה מחדש', () async {
+      app.outcome = AppInstallOutcome.failed;
+      await flow.run(both, blocked: () => {GuidanceItem.library});
+      expect(task()!.phase, UpdateHereTaskPhase.failed);
+      app.outcome = AppInstallOutcome.installed;
+      log.clear();
+      await flow.retry(blocked: () => const {});
+      expect(log, ['library', 'app']);
+    });
+  });
+
   group('עדכון', () {
     test('הספרייה ואז התוכנה, כמו ההתקנה האוטומטית', () async {
       await flow.run(both);

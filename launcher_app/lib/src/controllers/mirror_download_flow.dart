@@ -40,13 +40,20 @@ abstract interface class PluginsMirrorModule {
 
 abstract interface class DownloadRollback {
   /// מחזיר רק את [inProgress]; רכיבים שהסתיימו נשארים בכונן.
-  Future<void> rollback(MirrorComponent? inProgress);
+  Future<void> rollback(Set<MirrorComponent> inProgress);
 }
 
 abstract interface class MirrorDownloadHost {
   bool get isActive;
+
+  /// פעולה שחוסמת כל הורדה (יציאה, "עדכון כאן").
   bool get isBlocked;
-  bool get launcherDownloading;
+
+  /// פעולה אחרת קוראת או כותבת עכשיו את המראה של [component].
+  bool blocksComponent(MirrorComponent component);
+
+  /// מישהו אחר משתמש במראה — הניקוי שבסוף ההורדה היה מוחק לו קבצים.
+  bool get mirrorInUse;
   AppSettings get settings;
 
   /// `true` כשבדיקה אחת לפחות רצה עכשיו ברשת.
@@ -65,6 +72,9 @@ abstract interface class MirrorDownloadHost {
     List<MirrorComponent> kept = const [],
   });
   void downloadEnded();
+
+  /// התוכנית התנגשה בפעולה אחרת ([blocksComponent]) — לא ירד דבר.
+  void downloadBlocked();
 
   /// אין מה להביא — לא נפתח מסך "לא ירד דבר". [rechecked]: הבדיקה רעננה עכשיו.
   void downloadFoundNothing({required bool rechecked});
@@ -105,7 +115,8 @@ class MirrorDownloadFlow {
   Future<void>? _sweep;
   DownloadPlan? _plan;
   List<MirrorComponent> _components = const [];
-  MirrorComponent? _current;
+  final Set<MirrorComponent> _running = {};
+  final Set<MirrorComponent> _finished = {};
 
   bool get isDownloading => _isDownloading;
 
@@ -114,10 +125,26 @@ class MirrorDownloadFlow {
   List<MirrorComponent> get activeComponents =>
       _isDownloading ? _components : const [];
 
-  /// הרכיב שיורד ברגע זה; `null` לפני הראשון ואחרי האחרון.
-  MirrorComponent? get currentComponent => _isDownloading ? _current : null;
+  /// מה יורד ברגע זה — הספרייה והתוספים רצים יחד.
+  Set<MirrorComponent> get runningComponents =>
+      _isDownloading ? Set.unmodifiable(_running) : const {};
+
+  /// מה מההורדה הזו הסתיים (גם בכשל) ולא ייכתב עוד.
+  Set<MirrorComponent> get finishedComponents =>
+      _isDownloading ? Set.unmodifiable(_finished) : const {};
+
+  /// מה מההורדה הזו עוד עשוי לכתוב למראה — רץ, או ממתין לתורו.
+  Set<MirrorComponent> get pendingComponents => _isDownloading
+      ? {
+          for (final c in _components)
+            if (!_finished.contains(c)) c
+        }
+      : const {};
   bool get isCancelling => _cancelRequested;
   bool get isPreparing => _isPreparing;
+
+  /// "ביטול" ב"מתכונן": הזרימה תחזור בלי להוריד דבר.
+  bool get isAbandoned => _isPreparing && _abandonRequested;
   Future<void>? get pendingSweep => _sweep;
 
   /// [forceSemantic]: השורה "חיפוש חכם זמין" — מורידה בלי לשאול, במצב "לשאול".
@@ -228,10 +255,15 @@ class MirrorDownloadFlow {
       host.downloadFoundNothing(rechecked: rechecked);
       return;
     }
+    if (components.any(host.blocksComponent)) {
+      host.downloadBlocked();
+      return;
+    }
 
     _plan = plan;
     _components = components;
-    _current = null;
+    _running.clear();
+    _finished.clear();
     _isDownloading = true;
     _cancelRequested = false;
     _keepProgress = false;
@@ -256,34 +288,64 @@ class MirrorDownloadFlow {
       }
 
       // כונן מלא משותק: רכיב נוסף רק היה נכשל באותה כתיבה, ומה שהסתיים נשמר.
-      MirrorComponent? storageFullIn;
-      bool go() => !cancelled() && storageFullIn == null;
+      final storageFullIn = <MirrorComponent>{};
+      bool go() => !cancelled() && storageFullIn.isEmpty;
+      final interrupted = <MirrorComponent>{};
 
+      Future<void> run(
+        MirrorComponent component,
+        List<Future<void> Function()> steps,
+        bool Function() full,
+      ) async {
+        if (!go()) return;
+        _running.add(component);
+        host.stateChanged();
+        try {
+          for (final (i, step) in steps.indexed) {
+            if (i > 0 && !go()) break;
+            await step();
+            if (full()) storageFullIn.add(component);
+          }
+        } finally {
+          _running.remove(component);
+          // רכיב שחזר אחרי בקשת ביטול נחשב קטוע — גם אם הספיק להסתיים.
+          (cancelled() ? interrupted : _finished).add(component);
+          if (host.isActive) host.stateChanged();
+        }
+      }
+
+      // הספרייה והתוספים בוחרים לפי המתקין שבכונן, ולכן התוכנה ראשונה.
       if (plan.runsApp(s)) {
-        _current = MirrorComponent.app;
-        await app.download(isCancelled: cancelled);
-        if (app.storageFull) storageFullIn = MirrorComponent.app;
-      }
-      if (go() && plan.runsLibrary(s)) {
-        _current = MirrorComponent.library;
-        await library.download(
-          includeSemanticSearch: includeSemanticSearch,
-          isCancelled: cancelled,
+        await run(
+          MirrorComponent.app,
+          [() => app.download(isCancelled: cancelled)],
+          () => app.storageFull,
         );
-        if (library.storageFull) storageFullIn = MirrorComponent.library;
       }
-      if (go() && plan.runsPlugins(s)) {
-        _current = MirrorComponent.plugins;
-        await plugins.sync(isCancelled: cancelled);
-        if (plugins.storageFull) storageFullIn = MirrorComponent.plugins;
-      }
-      if (go() && plan.runsStoreApp(s)) {
-        _current = MirrorComponent.plugins;
-        await plugins.syncStoreApp();
-        if (plugins.storageFull) storageFullIn = MirrorComponent.plugins;
-      }
-      final inProgress = _current;
-      _current = null;
+      // כל אחד במראה משלו ובשורשי שחזור משלו — אין סיבה שיחכו זה לזה.
+      await Future.wait([
+        if (plan.runsLibrary(s))
+          run(
+            MirrorComponent.library,
+            [
+              () => library.download(
+                    includeSemanticSearch: includeSemanticSearch,
+                    isCancelled: cancelled,
+                  ),
+            ],
+            () => library.storageFull,
+          ),
+        if (plan.runsPlugins(s) || plan.runsStoreApp(s))
+          run(
+            MirrorComponent.plugins,
+            [
+              if (plan.runsPlugins(s))
+                () => plugins.sync(isCancelled: cancelled),
+              if (plan.runsStoreApp(s)) plugins.syncStoreApp,
+            ],
+            () => plugins.storageFull,
+          ),
+      ]);
 
       if (cancelled()) {
         if (_keepProgress) return;
@@ -294,12 +356,12 @@ class MirrorDownloadFlow {
           pluginsFailed: plugins.lastSyncFailed,
         );
         final kept = [
-          for (final c in _components.takeWhile((c) => c != inProgress))
-            if (!failed.contains(c)) c,
+          for (final c in _components)
+            if (_finished.contains(c) && !failed.contains(c)) c,
         ];
         Object? revertError;
         try {
-          await rollback.rollback(inProgress);
+          await rollback.rollback(interrupted);
         } catch (error) {
           revertError = error;
         }
@@ -322,12 +384,10 @@ class MirrorDownloadFlow {
         libraryFailed: library.downloadFailed,
         pluginsFailed: plugins.lastSyncFailed,
       );
-      if (storageFullIn case final full? when !failed.contains(full)) {
-        failed.add(full);
+      for (final full in storageFullIn) {
+        if (!failed.contains(full)) failed.add(full);
       }
-      if (failed.isEmpty &&
-          !library.downloadNeedsRetry &&
-          !host.launcherDownloading) {
+      if (failed.isEmpty && !library.downloadNeedsRetry && !host.mirrorInUse) {
         _sweep = _sweepMirror();
       }
       host.downloadFinished(failed: failed, skipped: plan.skipped);
@@ -354,6 +414,7 @@ class MirrorDownloadFlow {
       await host.sweepMirror();
     } finally {
       _sweep = null;
+      if (host.isActive) host.stateChanged();
     }
   }
 }

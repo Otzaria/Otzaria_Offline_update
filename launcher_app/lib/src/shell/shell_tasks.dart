@@ -261,20 +261,70 @@ final class UpdateHereTask extends ShellTask {
       );
 }
 
-/// מכונת המצבים של מסכי המשימה. משימה אחת בכל פעם; מעבר לא חוקי נזרק,
-/// כי הוא באג בזרימה ולא מצב שהמשתמש יכול להגיע אליו.
+/// מכונת המצבים של מסכי המשימה: הורדה אחת ו"עדכון כאן" אחד, אחד בחזית.
+/// מעבר לא חוקי נזרק, כי הוא באג בזרימה ולא מצב שהמשתמש יכול להגיע אליו.
 class ShellTasks extends ChangeNotifier {
-  ShellTask? _current;
+  DownloadTask? _download;
+  UpdateHereTask? _update;
+  bool _downloadHidden = false;
   Completer<SemanticSearchAnswer?>? _question;
   Completer<bool>? _decision;
   Completer<void>? _finishNow;
   int _lastUpdateId = 0;
 
-  ShellTask? get current => _current;
-  bool get hasTask => _current != null;
+  /// המשימה שבחזית. "עדכון כאן" גובר: הוא שואל שאלות, וההורדה ממשיכה מאחוריו.
+  ShellTask? get current => _update ?? (_downloadHidden ? null : _download);
+  bool get hasTask => current != null;
+
+  DownloadTask? get downloadTask => _download;
+  UpdateHereTask? get updateTask => _update;
 
   /// משימה שעוד לא הסתיימה מוצגת — ולכן אין לצאת ממסך המשימה.
-  bool get isRunning => _current?.isFinished == false;
+  bool get isRunning => current?.isFinished == false;
+
+  bool get downloadInProgress => _download?.isFinished == false;
+  bool get updateInProgress => _update?.isFinished == false;
+
+  /// משימה כלשהי עוד רצה, גם הורדה שהוסתרה.
+  bool get anyRunning => downloadInProgress || updateInProgress;
+
+  /// ההורדה רצה ברקע — המשתמש חזר לבית.
+  bool get downloadHidden => _downloadHidden && downloadInProgress;
+
+  /// "חזרה לבית" בזמן ההורדה: היא ממשיכה, והבית מציג אותה.
+  void hideDownload() {
+    if (_download?.phase != DownloadTaskPhase.running || _downloadHidden) {
+      return;
+    }
+    _downloadHidden = true;
+    notifyListeners();
+  }
+
+  /// הורדה שהסתיימה מאחורי "עדכון כאן" והוזזה הצידה — תוצאתה מחכה בבית.
+  bool get downloadParked =>
+      _downloadHidden && (_download?.isFinished ?? false);
+
+  /// "פתח את הדף" ממשימה שהסתיימה: היא נסגרת, והורדה שהסתיימה מאחוריה זזה
+  /// הצידה במקום לעלות לחזית ולחסום את המעבר.
+  void leaveTask() {
+    final task = current;
+    if (task is! UpdateHereTask || !(_download?.isFinished ?? false)) {
+      return dismiss();
+    }
+    if (!task.isFinished) {
+      throw StateError('cannot leave a running update');
+    }
+    _update = null;
+    _downloadHidden = true;
+    notifyListeners();
+  }
+
+  /// "הצג התקדמות" בבית, וגם תוצאה שהוזזה הצידה.
+  void showDownload() {
+    if (!_downloadHidden) return;
+    _downloadHidden = false;
+    notifyListeners();
+  }
 
   static const _downloadMoves = {
     DownloadTaskPhase.preparing: {
@@ -295,18 +345,21 @@ class ShellTasks extends ChangeNotifier {
   /// ההורדה מתכוננת. מחליף משימה שהסתיימה, כך ש"נסה שוב" אינו חוזר לבית
   /// בדרך; כבר מתכונן — אין שינוי.
   void prepareDownload() {
-    final task = _current;
-    if (task is DownloadTask && task.phase == DownloadTaskPhase.preparing) {
-      return;
+    final task = _download;
+    if (task != null && task.phase == DownloadTaskPhase.preparing) return;
+    if (task?.isFinished == false) {
+      throw StateError('a download is already running');
     }
-    _requireIdle();
-    _set(const DownloadTask(phase: DownloadTaskPhase.preparing));
+    // "עדכון כאן" שהסתיים אינו נשאר בחזית מעל ההורדה החדשה.
+    if (_update?.isFinished ?? false) _update = null;
+    _downloadHidden = false;
+    _setDownload(const DownloadTask(phase: DownloadTaskPhase.preparing));
   }
 
   /// השאלה שלפני ההורדה ("להוריד גם חיפוש חכם?"). `null` = חזרה, כלומר
   /// ביטול לפני שההורדה התחילה.
   Future<SemanticSearchAnswer?> askBeforeDownload() {
-    if (_current == null) prepareDownload();
+    if (_download == null) prepareDownload();
     _moveDownload(DownloadTaskPhase.question);
     return (_question = Completer<SemanticSearchAnswer?>()).future;
   }
@@ -316,7 +369,7 @@ class ShellTasks extends ChangeNotifier {
     if (question == null || question.isCompleted) return;
     _question = null;
     if (value == null) {
-      _set(null);
+      _setDownload(null);
     } else {
       _moveDownload(DownloadTaskPhase.preparing);
     }
@@ -328,9 +381,8 @@ class ShellTasks extends ChangeNotifier {
     List<MirrorComponent> components, {
     Map<MirrorComponent, int> expectedBytes = const {},
   }) {
-    if (_current == null) prepareDownload();
-    final task = _current;
-    if (task is DownloadTask && task.phase == DownloadTaskPhase.running) return;
+    if (_download == null) prepareDownload();
+    if (_download?.phase == DownloadTaskPhase.running) return;
     _moveDownload(
       DownloadTaskPhase.running,
       components: components,
@@ -340,10 +392,10 @@ class ShellTasks extends ChangeNotifier {
 
   /// הזרימה חזרה בלי להתחיל (חסימה, בלי בחירה) — המסך נסגר בשקט.
   void abandonDownload() {
-    final task = _current;
-    if (task is! DownloadTask) return;
+    final task = _download;
+    if (task == null) return;
     if (task.phase == DownloadTaskPhase.question) return answer(null);
-    if (task.phase == DownloadTaskPhase.preparing) _set(null);
+    if (task.phase == DownloadTaskPhase.preparing) _setDownload(null);
   }
 
   /// ביטול לפני שההורדה התחילה הוא תשובה ריקה לשאלה, לא מצב "בוטל".
@@ -382,11 +434,17 @@ class ShellTasks extends ChangeNotifier {
     List<String> pluginNames = const [],
     UpdateHereRequest? request,
   }) {
-    _requireIdle();
+    if (updateInProgress) throw StateError('an update is already running');
+    // "התקנה כאן" ממסך הסיום — רק תוצאה שבחזית; שמאחורי עדכון או בצד עוד לא נראתה.
+    if (_update == null &&
+        !downloadParked &&
+        (_download?.isFinished ?? false)) {
+      _download = null;
+    }
     if (stages.isEmpty) throw ArgumentError.value(stages, 'stages');
     _finishNow = Completer<void>();
     final id = ++_lastUpdateId;
-    _set(UpdateHereTask(
+    _setUpdate(UpdateHereTask(
       id: id,
       phase: UpdateHereTaskPhase.running,
       request: request,
@@ -406,7 +464,7 @@ class ShellTasks extends ChangeNotifier {
   }
 
   /// "עדכון כאן" [id] עדיין מוצג (גם אם הסתיים) — ולא הרצה חדשה שהחליפה אותו.
-  bool isCurrentUpdate(int id) => switch (_current) {
+  bool isCurrentUpdate(int id) => switch (_update) {
         UpdateHereTask(id: final current) => current == id,
         _ => false,
       };
@@ -434,7 +492,7 @@ class ShellTasks extends ChangeNotifier {
     final task = _updateTask();
     final index = task.stages.indexOf(stage);
     if (index < 0) throw ArgumentError.value(stage, 'stage');
-    _set(task._copy(
+    _setUpdate(task._copy(
       phase: UpdateHereTaskPhase.running,
       stageIndex: index,
       stopWaitingRequested: false,
@@ -444,7 +502,7 @@ class ShellTasks extends ChangeNotifier {
   /// [note] — הספרייה הותקנה, אבל יש מה לומר עליה.
   void stageFinished(GuidanceItem stage, StageOutcome outcome, {String? note}) {
     final task = _updateTask();
-    _set(task._copy(
+    _setUpdate(task._copy(
       outcomes: {...task.outcomes, stage: outcome},
       stageIndex: task.stages.indexOf(stage) + 1,
       libraryNote: note,
@@ -455,17 +513,17 @@ class ShellTasks extends ChangeNotifier {
   /// כדי שמסך הסיום ידבר על השלב הזה ולא על הבא.
   void stageStopped(GuidanceItem stage, StageOutcome outcome) {
     final task = _updateTask();
-    _set(task._copy(outcomes: {...task.outcomes, stage: outcome}));
+    _setUpdate(task._copy(outcomes: {...task.outcomes, stage: outcome}));
   }
 
   void pluginDeliveries(List<PluginDelivery> rows) =>
-      _set(_updateTask()._copy(plugins: List.unmodifiable(rows)));
+      _setUpdate(_updateTask()._copy(plugins: List.unmodifiable(rows)));
 
   /// "הפסק להמתין" לאשף ההתקנה.
   void requestStopWaiting() {
-    final task = _current;
-    if (task is! UpdateHereTask || task.isFinished) return;
-    _set(task._copy(stopWaitingRequested: true));
+    final task = _update;
+    if (task == null || task.isFinished) return;
+    _setUpdate(task._copy(stopWaitingRequested: true));
   }
 
   /// "סיום בלי לחכות" במסירת התוספים: המסירה ממשיכה, המסך עובר לסיום.
@@ -487,18 +545,22 @@ class ShellTasks extends ChangeNotifier {
 
   /// "ביטול" לפני ששום שלב רץ — המסך נסגר וחוזרים למה שהיה.
   void abandonUpdate() {
-    final task = _current;
-    if (task is UpdateHereTask && !task.isFinished) _set(null);
+    final task = _update;
+    if (task != null && !task.isFinished) _setUpdate(null);
   }
 
   /// סוגר משימה שהסתיימה. משימה רצה אינה נסגרת מכאן.
   void dismiss() {
-    final task = _current;
+    final task = current;
     if (task == null) return;
     if (!task.isFinished) {
       throw StateError('cannot dismiss a running task: $task');
     }
-    _set(null);
+    if (task is UpdateHereTask) {
+      _setUpdate(null);
+    } else {
+      _setDownload(null);
+    }
   }
 
   @override
@@ -513,20 +575,13 @@ class ShellTasks extends ChangeNotifier {
     super.dispose();
   }
 
-  /// משימה חדשה מחליפה רק משימה שהסתיימה.
-  void _requireIdle() {
-    if (_current?.isFinished == false) {
-      throw StateError('a task is already running');
-    }
-  }
-
   Future<bool> _ask(UpdateHereTaskPhase phase,
       {bool closeAfterWizard = false}) {
     final task = _updateTask();
     if (task.isFinished || _decision != null) {
       throw StateError('cannot ask in $task');
     }
-    _set(task._copy(phase: phase, closeAfterWizard: closeAfterWizard));
+    _setUpdate(task._copy(phase: phase, closeAfterWizard: closeAfterWizard));
     return (_decision = Completer<bool>()).future;
   }
 
@@ -540,12 +595,11 @@ class ShellTasks extends ChangeNotifier {
     List<MirrorComponent>? kept,
     List<String>? notes,
   }) {
-    final task = _current;
-    if (task is! DownloadTask ||
-        !(_downloadMoves[task.phase]?.contains(to) ?? false)) {
+    final task = _download;
+    if (task == null || !(_downloadMoves[task.phase]?.contains(to) ?? false)) {
       throw StateError('illegal download move: $task -> $to');
     }
-    _set(task._copy(
+    _setDownload(task._copy(
       phase: to,
       components: components,
       expectedBytes: expectedBytes,
@@ -558,23 +612,30 @@ class ShellTasks extends ChangeNotifier {
   }
 
   void _moveUpdate(UpdateHereTaskPhase to, {UpdateFailure? failure}) {
-    final task = _current;
-    if (task is! UpdateHereTask || task.isFinished) {
+    final task = _update;
+    if (task == null || task.isFinished) {
       throw StateError('illegal update move: $task -> $to');
     }
-    _set(task._copy(phase: to, failure: failure));
+    _setUpdate(task._copy(phase: to, failure: failure));
   }
 
   UpdateHereTask _updateTask() {
-    final task = _current;
-    if (task is! UpdateHereTask) {
+    final task = _update;
+    if (task == null) {
       throw StateError('expected an update task, got $task');
     }
     return task;
   }
 
-  void _set(ShellTask? task) {
-    _current = task;
+  void _setDownload(DownloadTask? task) {
+    _download = task;
+    // הורדה שהסתיימה ברקע עולה לחזית עם התוצאה שלה.
+    if (task == null || task.isFinished) _downloadHidden = false;
+    notifyListeners();
+  }
+
+  void _setUpdate(UpdateHereTask? task) {
+    _update = task;
     notifyListeners();
   }
 }

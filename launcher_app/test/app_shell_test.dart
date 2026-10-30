@@ -41,6 +41,7 @@ import 'package:launcher_app/src/settings/safer_mode.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
 import 'package:launcher_app/src/shell/app_session.dart';
 import 'package:launcher_app/src/shell/home_guidance.dart' show GuidanceItem;
+import 'package:launcher_app/src/shell/session_prompts.dart';
 import 'package:launcher_app/src/shell/shell_keys.dart';
 import 'package:launcher_app/src/shell/shell_navigator.dart';
 import 'package:launcher_app/src/shell/shell_tasks.dart';
@@ -1121,6 +1122,42 @@ void main() {
       expect(find.byKey(ShellKeys.taskLayer), findsNothing);
     });
 
+    testWidgets(
+        '"לדף הספרייה" מעדכון שהסתיים מעל הורדה שהסתיימה ברקע: הדף נפתח, '
+        'ותוצאת ההורדה נשמרת בבית', (tester) async {
+      await pumpShell(tester);
+      final s = sessionOf(tester);
+      final nav = navigatorOf(tester);
+      s.tasks.downloadRunning(const [MirrorComponent.plugins]);
+      s.tasks.hideDownload();
+      await tester.pump();
+      expect(nav.showsTask, isFalse);
+
+      s.tasks.startUpdateHere(const [GuidanceItem.library]);
+      s.tasks.stageRunning(GuidanceItem.library);
+      await tester.pump();
+      s.tasks.downloadDone();
+      await tester.pump();
+      expect(s.tasks.current, isA<UpdateHereTask>());
+      s.tasks.updateFailed(
+          const UpdateFailure(GuidanceItem.library, message: 'נכשל'));
+      await tester.pump();
+
+      await tester.tap(find.byKey(ShellKeys.taskSecondary));
+      await tester.pump();
+      await tester.pump();
+      expect(nav.showsTask, isFalse);
+      expect(nav.section, ShellSection.library);
+      expect(s.tasks.downloadTask?.phase, DownloadTaskPhase.done);
+
+      await nav.select(ShellSection.home);
+      await tester.pump();
+      await tester.tap(find.byKey(ShellKeys.heroShowDownload));
+      await tester.pump();
+      expect(nav.showsTask, isTrue);
+      expect(find.text(task.doneTitle), findsOneWidget);
+    });
+
     testWidgets('Esc וגלגל השיניים אינם יוצאים ממשימה רצה', (tester) async {
       await pumpShell(tester);
       final s = sessionOf(tester);
@@ -1359,13 +1396,14 @@ void main() {
       _appSessionSource(),
       'Future<void> refreshFromKeyboard()',
     );
-    expect(body, contains('if (longTaskRunning || tasks.isRunning) return;'));
+    expect(body, contains('if (longTaskRunning || tasks.anyRunning) return;'));
     // גם הצעת הדיווחים אינה קופצת מעל מסך משימה.
     final offers = _appSessionSource().substring(
       _appSessionSource().indexOf('late final ReportOfferCoordinator _offers'),
       _appSessionSource().indexOf('bool get isDownloading =>'),
     );
-    expect(offers, contains('tasks.isRunning'));
+    // גם הורדה שהוסתרה לבית — היא עדיין רצה.
+    expect(offers, contains('tasks.anyRunning'));
   });
 
   group('חיווט הזרימות שהוצאו מהמסגרת', () {
@@ -1518,24 +1556,24 @@ void main() {
       expect(body, contains('_library.onlineCheckError'));
     });
 
-    test("ההורדה נחסמת בפעולה ארוכה ובהורדת הלאנצ'ר, והניקוי נדחה בה", () {
+    test("ההורדה נחסמת לפי התנגשות, והניקוי נדחה בהורדת הלאנצ'ר ובקוראי המראה",
+        () {
       final host = bodyOf(
         'class _SessionDownloadHost implements MirrorDownloadHost',
         'class _SessionLauncherHost',
       );
-      expect(
-        host,
-        contains(
-          '_session.longTaskRunning || _session._launcherUpdate.isDownloading',
-        ),
-      );
-      expect(
-        host,
-        contains(
-          'bool get launcherDownloading => '
-          '_session._launcherUpdate.isDownloading',
-        ),
-      );
+      // לא `longTaskRunning`: ההורדה עצמה חלק ממנו.
+      expect(host, contains('bool get isBlocked => _session.downloadBlocked;'));
+      final inUse = host.substring(host.indexOf('bool get mirrorInUse'));
+      for (final reader in [
+        '_session._launcherUpdate.isDownloading',
+        '_session.tasks.updateInProgress',
+        '_session._plugins.isSyncing',
+        '_session._plugins.isReadingMirror',
+        '_session._installingHere',
+      ]) {
+        expect(inUse, contains(reader));
+      }
       expect(host, contains('_session._refreshStaleOnlineChecks(s)'));
       expect(host, contains('_session._sweepMirrorJunk()'));
     });
@@ -1870,30 +1908,45 @@ void main() {
     });
   });
 
-  group('חסימת הסנכרון והייצוא בזמן פעולה אחרת', () {
+  group('חסימת פעולות התוספים בזמן פעולה אחרת', () {
     final source = _appSessionSource();
-    final start = source.indexOf('bool get pluginSyncBlockedElsewhere');
+    final start = source.indexOf('bool get pluginActionsBlockedElsewhere');
     final getter = source.substring(
       start,
-      source.indexOf('bool get exitPending', start),
+      source.indexOf('bool _updateHereReads', start),
     );
 
-    test('הגטר כולל הורדה, החלפת מסד, התקנת אוצריא ותוכנות מותאמות', () {
+    test(
+        'מסירה ושמירה: מראת התוספים בכתיבה, החלפת מסד, התקנת אוצריא '
+        'ותוכנות מותאמות', () {
       expect(start, greaterThan(-1));
-      expect(getter, contains('_downloads.isDownloading'));
+      expect(getter,
+          contains('installsBlockedByDownload.contains(GuidanceItem.plugins)'));
       expect(getter, contains('_library.isApplying'));
       expect(getter, contains('LibraryModuleStatus.updating'));
       expect(getter, contains('OtzariaModuleStatus.installing'));
       expect(getter, contains('_customApps.isBusy'));
     });
 
-    test('מסך התוספים מקבל אותו', () {
+    test('רענון: רק מי שקורא או כותב את מראת התוספים', () {
+      final sync = getter
+          .substring(getter.indexOf('bool get pluginSyncBlockedElsewhere'));
+      expect(sync,
+          contains('mirrorBeingWritten.contains(MirrorComponent.plugins)'));
+      expect(sync, contains('_updateHereReads(GuidanceItem.plugins)'));
+      expect(sync, isNot(contains('_library')));
+      expect(sync, isNot(contains('_otzaria')));
+    });
+
+    test('מסך התוספים מקבל את שניהם', () {
       final shellSource = _appShellSource();
       final screen =
           shellSource.substring(shellSource.indexOf('PluginsScreen('));
       final args =
           screen.substring(0, screen.indexOf('ShellSection.reports =>'));
-      expect(args, contains('busyElsewhere: s.pluginSyncBlockedElsewhere'));
+      expect(args, contains('busyElsewhere: s.pluginActionsBlockedElsewhere'));
+      expect(
+          args, contains('syncBlockedElsewhere: s.pluginSyncBlockedElsewhere'));
     });
   });
 
@@ -1957,7 +2010,12 @@ void main() {
           source.indexOf('class _SessionLauncherHost'),
         );
         expect(host, contains('bool get isBlocked =>'));
-        expect(host, contains('_session.longTaskRunning'));
+        expect(host, contains('_session.downloadBlocked'));
+        final blocked = source.substring(
+          source.indexOf('bool get downloadBlocked'),
+          source.indexOf('bool get exitPending'),
+        );
+        expect(blocked, contains('exitPending'));
         final wait = shellSource.substring(
           shellSource.indexOf('late final DialogQueue _dialogs'),
           shellSource.indexOf('void initState()'),
@@ -2336,6 +2394,32 @@ void main() {
       }
     }
 
+    for (final language in AppLanguage.values) {
+      testWidgets('$language: מסירה שלא חזרה — להמשיך לחכות או לחזור לכלי',
+          (tester) async {
+        await pumpShell(tester, language: language, readOnly: true);
+        final prompts = tester.state(find.byType(AppShell)) as SessionPrompts;
+        final t = AppL10n.stringsFor(language).shell;
+        for (final wait in [true, false]) {
+          bool? result;
+          final pending = prompts
+              .keepWaitingForDeliveries()
+              .then((value) => result = value);
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(find.text(t.closeWaitingDeliveryTitle), findsOneWidget);
+          expect(find.text(t.closeWaitingDeliveryPrompt), findsOneWidget);
+          expect(result, isNull);
+
+          await tester.tap(find.text(
+              wait ? t.closeWaitingDeliveryWait : t.closeWaitingDeliveryBack));
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(await pending, wait);
+        }
+        expect(tester.takeException(), isNull);
+      });
+    }
+
     testWidgets('המסגרת רושמת שומר סגירה שמאשר כשאין פעולה, ומסירה בפירוק', (
       tester,
     ) async {
@@ -2355,7 +2439,10 @@ void main() {
     test('גוף השומר נמצא', () => expect(start, greaterThan(-1)));
 
     test('שואל רק בזמן פעולה ארוכה', () {
-      expect(body, contains('!(longTaskRunning || updatingHere)) return true'));
+      expect(
+          body,
+          contains(
+              '!(longTaskRunning || updatingHere || launcherDownloading)'));
       expect(body, contains('prompts.confirmClose('));
       expect(
         _methodBody(
@@ -2367,8 +2454,8 @@ void main() {
     });
 
     test('הורדה נעצרת עם שמירת ההתקדמות לפני הסגירה', () {
-      expect(
-          body, contains('await _downloads.cancelAndWait(keepProgress: true)'));
+      expect(body, contains('_downloads.cancelAndWait(keepProgress: true)'));
+      expect(body, contains('_launcherUpdate.cancelAndWait()'));
     });
   });
 }

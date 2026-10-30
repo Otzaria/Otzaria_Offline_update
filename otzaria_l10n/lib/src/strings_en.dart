@@ -157,6 +157,18 @@ class _Shell extends ShellStrings {
   @override
   String get closeWhileBusyKeepGoing => 'Keep going';
   @override
+  String get closeWaitingDeliveryTitle =>
+      'A plugin is still being handed to Otzaria';
+  @override
+  String get closeWaitingDeliveryPrompt =>
+      'Handing a plugin to Otzaria has not finished yet, and the tool closes '
+      'only after it does. You can keep waiting, or go back to the tool and '
+      'close it later.';
+  @override
+  String get closeWaitingDeliveryWait => 'Keep waiting';
+  @override
+  String get closeWaitingDeliveryBack => 'Back to the tool';
+  @override
   String get helpTooltip => 'Help and FAQ';
   @override
   String get settingsTooltip => 'Settings';
@@ -248,6 +260,8 @@ class _Task extends TaskStrings {
   String downloadingStep(String name, int index, int count) =>
       'Downloading $name · $index of $count';
   @override
+  String downloadingTogether(String names) => 'Downloading $names together';
+  @override
   String get componentApp => 'Otzaria app';
   @override
   String get componentLibrary => 'The Otzaria library';
@@ -305,6 +319,9 @@ class _Task extends TaskStrings {
   @override
   String get retryNothingSnack =>
       'There is nothing left to install from the drive — home shows the current state.';
+  @override
+  String get installWaitsForDownloadSnack =>
+      'The drive download is still writing these files. You can install them once it finishes.';
   @override
   String get doneTitle => 'The drive is ready';
   @override
@@ -621,6 +638,10 @@ class _Task extends TaskStrings {
   String get toPluginsPage => 'To the plugins page';
   @override
   String get showProgress => 'Show progress';
+  @override
+  String get showDownload => 'Show the download';
+  @override
+  String get showDownloadResult => 'Download result';
 }
 
 class _Pages extends PageStrings {
@@ -2244,6 +2265,12 @@ class _Plugins extends PluginsStrings {
   @override
   String get actionsBlockedElsewhere =>
       'Another task is running. Plugins cannot be installed or saved meanwhile.';
+  @override
+  String get syncBlockedSnack =>
+      'Another action is using the plugin files on the drive. You can update from the website when it finishes.';
+  @override
+  String get actionsBlockedDelivering =>
+      'Plugins are being sent to Otzaria. You can continue when sending finishes.';
   @override
   String get howItWorksButton => 'How does this work?';
   @override

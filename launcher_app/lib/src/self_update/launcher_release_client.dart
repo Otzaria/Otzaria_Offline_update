@@ -154,3 +154,8 @@ class LauncherUpdateException implements Exception {
   @override
   String toString() => message;
 }
+
+/// הורדת הלאנצ'ר נעצרה לבקשתנו (סגירה); החלקי נשמר להמשך.
+class LauncherDownloadCancelled implements Exception {
+  const LauncherDownloadCancelled();
+}
