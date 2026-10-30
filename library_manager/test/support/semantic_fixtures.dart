@@ -318,6 +318,7 @@ class FakeVectorsEngine implements SemanticVectorsEngine {
     this.refuse = false,
     this.error,
     this.infoError,
+    this.verifyError,
     this.onInstall,
   });
 
@@ -326,6 +327,8 @@ class FakeVectorsEngine implements SemanticVectorsEngine {
   final String identity;
   final bool refuse;
   final SemanticError? error;
+  final SemanticError? verifyError;
+  final verifications = <String>[];
   final SemanticError? infoError;
   final void Function(SemanticVectorsInstallInput input)? onInstall;
   final installs = <SemanticVectorsInstallInput>[];
@@ -357,6 +360,13 @@ class FakeVectorsEngine implements SemanticVectorsEngine {
       libraryVersion: present ? version : 0,
       identityDigest: present ? identity : '',
     );
+  }
+
+  @override
+  Future<void> verify(String vectorsDir) async {
+    verifications.add(vectorsDir);
+    final failure = verifyError;
+    if (failure != null) throw failure;
   }
 
   @override

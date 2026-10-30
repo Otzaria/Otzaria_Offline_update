@@ -754,10 +754,11 @@ void main() {
       expect(find.textContaining(g.autoInstallSkippedLead), findsNothing);
     });
 
-    // הביטול וההתקדמות במסך המשימה, שמכסה את הבית בזמן הורדה.
-    testWidgets('בזמן הורדה: מד, בלי "הצג התקדמות" ובלי ביטול', (
+    // הורדה שהוסתרה ב"חזרה לבית": הביטול במסך המשימה, והבית מחזיר אליו.
+    testWidgets('בזמן הורדה ברקע: מד ו"הצג התקדמות", בלי ביטול', (
       tester,
     ) async {
+      var shown = 0;
       await pumpScreen(
         tester,
         HomePage(
@@ -767,14 +768,117 @@ void main() {
             ),
             task: HomeTask.downloading,
           ),
+          actions: HomeActions(onShowProgress: () => shown++),
           taskProgress: const Text('progress-slot'),
         ),
       );
 
       expect(find.text(g.taskDownloadingTitle), findsOneWidget);
       expect(find.text('progress-slot'), findsOneWidget);
-      expect(find.byKey(ShellKeys.heroShowProgress), findsNothing);
       expect(find.text(he.common.cancel), findsNothing);
+      expect(find.byKey(ShellKeys.heroSecondary), findsNothing);
+      await tester.tap(find.byKey(ShellKeys.heroShowProgress));
+      expect(shown, 1);
+    });
+
+    testWidgets('בזמן הורדה ברקע: "עדכון המחשב הזה" למה שכבר נכתב', (
+      tester,
+    ) async {
+      var updates = 0;
+      await pumpScreen(
+        tester,
+        HomePage(
+          model: HomeViewModel(
+            guidance: deriveHomeGuidance(
+              const GuidanceFacts(
+                longTaskRunning: true,
+                otzariaStatus: AppStatusFact.updateAvailable,
+                libraryStatus: LibraryStatusFact.updateAvailable,
+                hereDuringDownload: {GuidanceItem.app},
+              ),
+            ),
+            task: HomeTask.downloading,
+            installedVersion: 'v1',
+          ),
+          actions: HomeActions(onUpdateHere: () => updates++),
+        ),
+      );
+      final button = find.byKey(ShellKeys.heroSecondary);
+      expect(
+        find.descendant(of: button, matching: find.text(g.updateHereButton)),
+        findsOneWidget,
+      );
+      await tester.tap(button);
+      expect(updates, 1);
+    });
+
+    testWidgets(
+        'עדכון ספרייה לצד הורדה ברקע: "הצג התקדמות" לספרייה, ו"הצג את '
+        'ההורדה" להורדה — שני כפתורים נפרדים', (tester) async {
+      final pressed = <String>[];
+      await pumpScreen(
+        tester,
+        HomePage(
+          model: HomeViewModel(
+            guidance: deriveHomeGuidance(
+              const GuidanceFacts(longTaskRunning: true),
+            ),
+            task: HomeTask.updatingLibrary,
+            downloadBehind: true,
+          ),
+          actions: HomeActions(
+            onShowProgress: () => pressed.add('library'),
+            onShowDownload: () => pressed.add('download'),
+          ),
+        ),
+      );
+
+      expect(find.text(g.taskUpdatingLibraryTitle), findsOneWidget);
+      await tester.tap(find.byKey(ShellKeys.heroShowProgress));
+      await tester.tap(find.byKey(ShellKeys.heroShowDownload));
+      expect(pressed, ['library', 'download']);
+      expect(find.text(he.task.showDownload), findsOneWidget);
+    });
+
+    testWidgets('התקנת אוצריא לצד הורדה ברקע: ההתקדמות בגיבור, וההורדה בכפתור',
+        (tester) async {
+      var shown = 0;
+      await pumpScreen(
+        tester,
+        HomePage(
+          model: HomeViewModel(
+            guidance: deriveHomeGuidance(
+              const GuidanceFacts(longTaskRunning: true),
+            ),
+            task: HomeTask.installingApp,
+            downloadBehind: true,
+          ),
+          actions: HomeActions(onShowDownload: () => shown++),
+          taskProgress: const Text('install-progress-slot'),
+        ),
+      );
+
+      expect(find.text(g.taskInstallingAppTitle), findsOneWidget);
+      expect(find.text('install-progress-slot'), findsOneWidget);
+      await tester.tap(find.byKey(ShellKeys.heroShowDownload));
+      expect(shown, 1);
+    });
+
+    testWidgets('תוצאת הורדה שהוזזה הצידה נגישה מהבית', (tester) async {
+      var shown = 0;
+      await pumpScreen(
+        tester,
+        HomePage(
+          model: HomeViewModel(
+            guidance: deriveHomeGuidance(const GuidanceFacts()),
+            downloadResultWaiting: true,
+          ),
+          actions: HomeActions(onShowDownload: () => shown++),
+        ),
+      );
+      expect(find.text(he.task.showDownloadResult), findsOneWidget);
+      await tester.tap(find.byKey(ShellKeys.heroShowDownload));
+      expect(shown, 1);
     });
   });
 

@@ -217,7 +217,7 @@ class PluginsModulePort implements PluginsMirrorModule, UpdateHerePlugins {
 
   @override
   Future<void> sync({required bool Function() isCancelled}) =>
-      _plugins.sync(isCancelled: isCancelled);
+      _plugins.sync(isCancelled: isCancelled, forDownload: true);
 
   @override
   Future<void> syncStoreApp() => _plugins.syncStoreApp();
@@ -333,9 +333,11 @@ class CancelledDownloadRollback implements DownloadRollback {
   final PluginsModuleController _plugins;
 
   @override
-  Future<void> rollback(MirrorComponent? inProgress) async {
+  Future<void> rollback(Set<MirrorComponent> inProgress) async {
     try {
-      await _undo.revert(roots: _dirs[inProgress] ?? const []);
+      await _undo.revert(roots: [
+        for (final component in inProgress) ...?_dirs[component],
+      ]);
     } finally {
       await refreshAfterCancelledDownload(
         otzaria: _otzaria,

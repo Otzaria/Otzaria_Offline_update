@@ -37,6 +37,7 @@ class HomeActions {
     this.onDismissElevation = _noop,
     this.onOpenLauncherUpdate = _noop,
     this.onShowProgress = _noop,
+    this.onShowDownload = _noop,
     this.onWhatsNew = _noop,
     this.onRecheckApp = _noop,
     this.onCloseOtzaria = _notClosed,
@@ -70,6 +71,9 @@ class HomeActions {
 
   /// "הצג התקדמות" בגיבור של עדכון ספרייה שרץ מחוץ למסך משימה.
   final VoidCallback onShowProgress;
+
+  /// ההורדה שרצה ברקע, או תוצאתה שהוזזה הצידה — כשהגיבור מציג משהו אחר.
+  final VoidCallback onShowDownload;
 
   /// "מה חדש?" — חלון מעל הבית.
   final VoidCallback onWhatsNew;
@@ -557,7 +561,7 @@ class _Hero extends StatelessWidget {
     final pad = narrow
         ? const EdgeInsets.all(24)
         : const EdgeInsets.symmetric(horizontal: 32, vertical: 28);
-    final spec = _spec(context);
+    final spec = _withDownload(context, _spec(context));
 
     return Container(
       key: ShellKeys.hero,
@@ -577,6 +581,35 @@ class _Hero extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+
+  /// הורדה שאינה מה שהגיבור מציג נשארת נגישה בכפתור משלה.
+  _HeroSpec _withDownload(BuildContext context, _HeroSpec spec) {
+    final t = context.strings.task;
+    final text = model.downloadBehind
+        ? t.showDownload
+        : model.downloadResultWaiting
+            ? t.showDownloadResult
+            : null;
+    if (text == null) return spec;
+    return _HeroSpec(
+      title: spec.title,
+      body: spec.body,
+      items: spec.items,
+      total: spec.total,
+      free: spec.free,
+      notes: spec.notes,
+      extra: spec.extra,
+      eyebrow: spec.eyebrow,
+      actions: [
+        ...spec.actions,
+        ActionButton.ghost(
+          key: ShellKeys.heroShowDownload,
+          text: text,
+          onPressed: actions.onShowDownload,
+        ),
+      ],
     );
   }
 
@@ -1117,11 +1150,23 @@ class _Hero extends StatelessWidget {
               onPressed: actions.onShowProgress,
             );
         return switch (m.task) {
-          // ההורדה מוצגת במסך המשימה, שמכסה את הבית; כאן רק למקרה ביניים.
+          // ההורדה ברקע אחרי "חזרה לבית": מה שהמראה שלו כבר נכתב מותקן בינתיים.
           HomeTask.downloading => _HeroSpec(
               title: g.taskDownloadingTitle,
               body: g.taskDownloadingBody,
               items: _downloadItems(context),
+              actions: [
+                showProgress(),
+                if (_g.hereItems.isNotEmpty)
+                  secondary(
+                    m.installedVersion == null
+                        ? g.installHereButton
+                        : g.updateHereButton,
+                    m.installedVersion == null
+                        ? actions.onInstallHere
+                        : actions.onUpdateHere,
+                  ),
+              ],
             ),
           // ההתקדמות ו"הפסק להמתין" בגיבור עצמו — `HomeTaskProgress`.
           HomeTask.installingApp => _HeroSpec(

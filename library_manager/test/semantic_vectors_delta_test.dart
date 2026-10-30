@@ -866,7 +866,7 @@ void main() {
       },
     );
 
-    test('a machine needing a base is offered the base it already holds, and '
+    test('an unreadable set is offered the base it already holds, and '
         'installing it reports a base', () async {
       github.windowsBase(30);
       await sync(SemanticFleet([windowsAt(29, needsBase: true)]));
@@ -875,6 +875,13 @@ void main() {
       );
       await writeInstalledSet(vectors, version: 30);
       expect(await pending(), isFalse);
+      engine = FakeVectorsEngine(
+        version: 30,
+        infoError: const SemanticError(
+          kind: SemanticErrorKind.artifactCorrupt,
+          message: 'unreadable installed set',
+        ),
+      );
       final assets = offline();
       try {
         expect(

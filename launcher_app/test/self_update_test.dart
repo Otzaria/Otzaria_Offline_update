@@ -365,6 +365,55 @@ void main() {
       expect(await mirror.load(), isNull);
     });
 
+    test('עצירה באמצע ההעברה: נזרק LauncherDownloadCancelled והחלקי נשמר',
+        () async {
+      final next = Completer<void>();
+      var stop = false;
+      final stopping = LauncherUpdateMirror(
+        mirrorDir: p.join(temp.path, 'stopping', 'launcher'),
+        httpClient: MockClient.streaming((request, _) async {
+          final body = StreamController<List<int>>();
+          unawaited(() async {
+            body.add(utf8.encode('ab'));
+            await next.future;
+            body.add(utf8.encode('cd'));
+            await body.close();
+          }());
+          return http.StreamedResponse(
+            body.stream,
+            200,
+            contentLength: 8,
+            headers: {'etag': '"strong"', 'accept-ranges': 'bytes'},
+          );
+        }),
+        operatingSystem: 'windows',
+      );
+      addTearDown(stopping.dispose);
+      final release = _release(size: 8);
+
+      final firstChunk = Completer<void>();
+      final sync = stopping.sync(
+        release,
+        isCancelled: () => stop,
+        onProgress: (received, _) {
+          if (received >= 2 && !firstChunk.isCompleted) firstChunk.complete();
+        },
+      );
+      final cancelled = expectLater(
+        sync,
+        throwsA(isA<LauncherDownloadCancelled>()),
+      );
+      await firstChunk.future;
+      stop = true;
+      next.complete();
+      await cancelled;
+
+      final target = p.join(
+          stopping.mirrorDir, 'files', release.tagName, release.assetName);
+      expect(File(target).existsSync(), isFalse);
+      expect(File('$target.part').existsSync(), isTrue);
+    });
+
     test('sync מוריד, כותב מטא-דאטה, ו-load מחזירה את מה שהורד', () async {
       final synced = await mirror.sync(_release());
 

@@ -73,14 +73,124 @@ void main() {
       expect(download().failure, isNull);
     });
 
-    test('משימה רצה אינה נסגרת, ומשימה שנייה אינה נפתחת', () {
+    test('משימה רצה אינה נסגרת, והורדה שנייה אינה נפתחת', () {
       tasks.downloadRunning(const [MirrorComponent.app]);
       expect(tasks.isRunning, isTrue);
       expect(tasks.dismiss, throwsStateError);
       expect(tasks.prepareDownload, throwsStateError);
-      expect(() => tasks.startUpdateHere([GuidanceItem.app]), throwsStateError);
       tasks.downloadDone();
       expect(tasks.isRunning, isFalse);
+    });
+
+    group('הורדה ו"עדכון כאן" יחד', () {
+      test('"עדכון כאן" נפתח לצד הורדה רצה ובא לחזית; השני אינו נפתח', () {
+        tasks
+          ..downloadRunning(const [MirrorComponent.library])
+          ..hideDownload();
+        tasks.startUpdateHere([GuidanceItem.app]);
+        expect(tasks.current, isA<UpdateHereTask>());
+        expect(tasks.downloadInProgress, isTrue);
+        expect(tasks.updateInProgress, isTrue);
+        expect(
+            () => tasks.startUpdateHere([GuidanceItem.app]), throwsStateError);
+      });
+
+      test('"התקנה כאן" ממסך הסיום — התוצאה הישנה אינה חוזרת אחרי העדכון', () {
+        tasks
+          ..downloadRunning(const [MirrorComponent.app])
+          ..downloadDone()
+          ..startUpdateHere([GuidanceItem.app])
+          ..updateDone()
+          ..dismiss();
+        expect(tasks.current, isNull);
+        expect(tasks.downloadTask, isNull);
+      });
+
+      test('"נסה שוב" לעדכון אינו מוחק הורדה שהסתיימה מאחוריו בלי שנראתה', () {
+        tasks
+          ..downloadRunning(const [MirrorComponent.library])
+          ..hideDownload()
+          ..startUpdateHere([GuidanceItem.plugins])
+          ..downloadFailed(const DownloadFailure(DownloadFailureKind.network))
+          ..updateFailed(const UpdateFailure(GuidanceItem.plugins))
+          // "נסה שוב" פותח עדכון חדש על העדכון שנכשל.
+          ..startUpdateHere([GuidanceItem.plugins])
+          ..updateDone()
+          ..dismiss();
+        expect(tasks.current, isA<DownloadTask>());
+        expect(tasks.downloadTask!.phase, DownloadTaskPhase.failed);
+      });
+
+      test('סיום של אחת אינו נוגע בשנייה', () {
+        tasks
+          ..downloadRunning(const [MirrorComponent.library])
+          ..hideDownload()
+          ..startUpdateHere([GuidanceItem.app])
+          ..updateDone();
+        expect(tasks.downloadInProgress, isTrue);
+        expect(tasks.downloadTask!.phase, DownloadTaskPhase.running);
+        tasks.dismiss();
+        expect(tasks.updateTask, isNull);
+        // ההורדה הוסתרה — הבית, לא מסך ההורדה.
+        expect(tasks.hasTask, isFalse);
+        expect(tasks.downloadHidden, isTrue);
+
+        tasks.downloadFailed(const DownloadFailure(DownloadFailureKind.other));
+        expect(tasks.current, isA<DownloadTask>());
+        expect(tasks.downloadHidden, isFalse);
+      });
+
+      test('הורדה שנכשלה מאחורי "עדכון כאן" רץ — העדכון נשאר בחזית', () {
+        tasks
+          ..downloadRunning(const [MirrorComponent.library])
+          ..hideDownload()
+          ..startUpdateHere([GuidanceItem.app])
+          ..downloadFailed(const DownloadFailure(DownloadFailureKind.other));
+        expect(tasks.current, isA<UpdateHereTask>());
+        expect(tasks.updateInProgress, isTrue);
+        tasks
+          ..updateDone()
+          ..dismiss();
+        expect(tasks.current, isA<DownloadTask>());
+        expect(tasks.downloadTask!.phase, DownloadTaskPhase.failed);
+      });
+    });
+
+    group('"חזרה לבית" בזמן ההורדה', () {
+      test('רק בהורדה שרצה — לא בהכנה ולא בשאלה', () {
+        tasks
+          ..prepareDownload()
+          ..hideDownload();
+        expect(tasks.hasTask, isTrue);
+        expect(tasks.downloadHidden, isFalse);
+      });
+
+      test('מסתיר ומחזיר, וההורדה ממשיכה', () {
+        var notified = 0;
+        tasks
+          ..addListener(() => notified++)
+          ..downloadRunning(const [MirrorComponent.library]);
+        notified = 0;
+        tasks.hideDownload();
+        expect(notified, 1);
+        expect(tasks.hasTask, isFalse);
+        expect(tasks.isRunning, isFalse);
+        expect(tasks.anyRunning, isTrue);
+        expect(tasks.downloadInProgress, isTrue);
+
+        tasks.showDownload();
+        expect(tasks.current, isA<DownloadTask>());
+        expect(tasks.isRunning, isTrue);
+      });
+
+      test('סיום ברקע מעלה את התוצאה לחזית', () {
+        tasks
+          ..downloadRunning(const [MirrorComponent.library])
+          ..hideDownload()
+          ..downloadDone();
+        expect(tasks.current, isA<DownloadTask>());
+        expect(tasks.downloadHidden, isFalse);
+      });
     });
 
     test('ביטול בזמן השאלה מחזיר null ומנקה את המשימה', () async {
@@ -133,6 +243,51 @@ void main() {
   });
 
   group('עדכון כאן', () {
+    group('יציאה לדף מעדכון שהסתיים מעל הורדה שהסתיימה', () {
+      void finishedUpdateOverFinishedDownload() {
+        tasks.downloadRunning(const [MirrorComponent.plugins]);
+        tasks.hideDownload();
+        tasks.startUpdateHere(const [GuidanceItem.library]);
+        tasks.downloadDone();
+        tasks.updateDone();
+      }
+
+      test('העדכון נסגר וההורדה זזה הצידה; "הצג" מחזיר אותה', () {
+        finishedUpdateOverFinishedDownload();
+        tasks.leaveTask();
+        expect(tasks.current, isNull);
+        expect(tasks.downloadParked, isTrue);
+        tasks.showDownload();
+        expect(tasks.current, isA<DownloadTask>());
+        expect(tasks.downloadParked, isFalse);
+      });
+
+      test('"עדכון כאן" חדש אינו מוחק תוצאה שבצד', () {
+        finishedUpdateOverFinishedDownload();
+        tasks.leaveTask();
+        tasks.startUpdateHere(const [GuidanceItem.app]);
+        tasks.updateDone();
+        tasks.dismiss();
+        expect(tasks.downloadParked, isTrue);
+      });
+
+      test('הורדה חדשה אחרי תוצאה שבצד מוצגת בחזית', () {
+        finishedUpdateOverFinishedDownload();
+        tasks.leaveTask();
+        tasks.prepareDownload();
+        expect(tasks.current, isA<DownloadTask>());
+        expect(tasks.downloadHidden, isFalse);
+      });
+
+      test('בלי הורדה מאחור — סגירה רגילה', () {
+        tasks.startUpdateHere(const [GuidanceItem.library]);
+        tasks.updateDone();
+        tasks.leaveTask();
+        expect(tasks.current, isNull);
+        expect(tasks.downloadParked, isFalse);
+      });
+    });
+
     test('סגירת אוצריא → שלבים לפי הסדר → סיום', () async {
       tasks.startUpdateHere(
         [GuidanceItem.library, GuidanceItem.app],

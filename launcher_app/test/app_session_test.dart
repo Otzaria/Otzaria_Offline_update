@@ -18,6 +18,12 @@ import 'package:launcher_app/src/controllers/otzaria_module_controller.dart';
 import 'package:launcher_app/src/controllers/plugins_module_controller.dart';
 import 'package:launcher_app/src/controllers/search_feedback_controller.dart';
 import 'package:launcher_app/src/screens/home/home_view_model.dart';
+import 'package:launcher_app/src/self_update/launcher_release.dart';
+import 'package:launcher_app/src/self_update/launcher_release_client.dart'
+    show LauncherDownloadCancelled;
+import 'package:launcher_app/src/self_update/launcher_self_updater.dart';
+import 'package:launcher_app/src/self_update/launcher_update_mirror.dart'
+    show MirroredLauncherRelease;
 import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:launcher_app/src/services/notices_seen_store.dart';
 import 'package:launcher_app/src/services/sleep_inhibitor.dart';
@@ -43,11 +49,13 @@ import 'package:plugins_manager/plugins_manager.dart'
     show
         MirroredStoreApp,
         PluginCatalog,
+        PluginInstallResult,
         PluginSyncOutcome,
         PluginSyncProgress,
         PluginsManager,
         PluginsOnlineStatus,
-        StoreAppRelease;
+        StoreAppRelease,
+        StorePlugin;
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 import 'storage_real_engine_support.dart';
@@ -91,6 +99,9 @@ void main() {
     OtzariaManager? otzariaManager,
     LibraryManager? libraryManager,
     PluginsManager? pluginsManager,
+    LauncherSelfUpdater? launcherUpdater,
+    SearchFeedbackController? searchFeedback,
+    Duration closeDeliveryPatience = const Duration(seconds: 10),
   }) {
     final s = AppSession(
       dataDir: tempDir.path,
@@ -106,6 +117,9 @@ void main() {
       otzariaManager: otzariaManager,
       libraryManager: libraryManager,
       pluginsManager: pluginsManager,
+      launcherUpdater: launcherUpdater,
+      searchFeedback: searchFeedback,
+      closeDeliveryPatience: closeDeliveryPatience,
     );
     sessions.add(s);
     return s;
@@ -932,22 +946,30 @@ void main() {
   });
 
   group('דגלי משימה ארוכה', () {
-    test('עדכון ספרייה והתקנת אוצריא חוסמים יציאה וסנכרון', () {
+    test(
+        'עדכון ספרייה והתקנת אוצריא חוסמים יציאה ומסירת תוספים — '
+        'לא את סנכרון המראה ולא שליחת דיווחים', () {
       final s = session();
       expect(s.longTaskRunning, isFalse);
       expect(s.exitWouldInterrupt, isFalse);
+      expect(s.pluginActionsBlockedElsewhere, isFalse);
       expect(s.pluginSyncBlockedElsewhere, isFalse);
       expect(s.exitPending, isFalse);
 
       s.library.status = LibraryModuleStatus.updating;
       expect(s.longTaskRunning, isTrue);
       expect(s.exitWouldInterrupt, isTrue);
-      expect(s.pluginSyncBlockedElsewhere, isTrue);
+      expect(s.pluginActionsBlockedElsewhere, isTrue);
+      expect(s.pluginSyncBlockedElsewhere, isFalse);
+      expect(s.reportsCollectBlocked, isTrue);
+      expect(s.reportsUploadBlocked, isFalse);
 
       s.library.status = LibraryModuleStatus.upToDate;
       s.otzaria.status = OtzariaModuleStatus.installing;
       expect(s.longTaskRunning, isTrue);
-      expect(s.pluginSyncBlockedElsewhere, isTrue);
+      expect(s.pluginActionsBlockedElsewhere, isTrue);
+      expect(s.pluginSyncBlockedElsewhere, isFalse);
+      expect(s.libraryApplyBlocked, isTrue);
 
       s.otzaria.status = OtzariaModuleStatus.upToDate;
       expect(s.longTaskRunning, isFalse);
@@ -1496,6 +1518,617 @@ void main() {
       expect(s.library.downloadStatus, isNot(MirrorDownloadStatus.idle));
     });
 
+    // הורדה אחת חסמה כל פעולה אחרת. מחסומים מחזיקים פעולות פתוחות יחד.
+    group('פעולות עצמאיות בזמן הורדה', () {
+      late _Engines engines;
+
+      Future<(AppSession, Future<void>)> downloading({
+        bool plugins = true,
+        LauncherSelfUpdater? launcher,
+      }) async {
+        await settings.update(settings.settings.copyWith(
+          semanticDownload: SemanticDownloadPreference.never,
+          syncPlugins: plugins,
+        ));
+        engines = _Engines(tempDir.path);
+        final s = session(
+          otzariaManager: engines.otzaria,
+          libraryManager: engines.library,
+          pluginsManager: engines.plugins,
+          launcherUpdater: launcher,
+          // ההתקנה העצמית ממתינה לעצירתו; בלי מקור הוא אינו פונה להתקנת
+          // אוצריא האמיתית שבמחשב.
+          searchFeedback: SearchFeedbackController(
+            transport: SearchFeedbackTransport(p.join(tempDir.path, 'sf')),
+            resolveSource: () async => null,
+          ),
+        )..start();
+        await waitFor(() => s.plugins.status != PluginsModuleStatus.loading);
+        engines.library.downloadGate = Completer<void>();
+        engines.plugins.syncGate = Completer<void>();
+        final run = s.downloadAll();
+        await waitFor(
+            () => s.runningDownloads.contains(MirrorComponent.library));
+        if (plugins) {
+          await waitFor(
+              () => s.runningDownloads.contains(MirrorComponent.plugins));
+        }
+        return (s, run);
+      }
+
+      Future<void> release(Future<void> run) async {
+        for (final gate in [
+          engines.library.downloadGate!,
+          engines.plugins.syncGate!,
+        ]) {
+          if (!gate.isCompleted) gate.complete();
+        }
+        await run;
+      }
+
+      test('הספרייה והתוספים רצים יחד, אחרי התוכנה', () async {
+        final (s, run) = await downloading();
+        expect(s.runningDownloads,
+            {MirrorComponent.library, MirrorComponent.plugins});
+        expect(s.finishedDownloads, {MirrorComponent.app});
+        expect(engines.plugins.syncCalls, 1);
+        await release(run);
+        expect(
+            (s.tasks.current! as DownloadTask).phase, DownloadTaskPhase.done);
+      });
+
+      test(
+          "הורדת הלאנצ'ר שנמשכת אחרי המראה: סגירה, מנהל והתקנה עצמית מחכים "
+          'לה, ואחריה ההתקנה פתוחה', () async {
+        final launcher = _SteppedLauncher();
+        final (s, run) = await downloading(launcher: launcher);
+        await waitFor(() => s.launcherUpdate.hasUpdateReady);
+        final launcherRun = s.downloadLauncherUpdate();
+        await waitFor(() => s.launcherUpdate.isDownloading);
+        await release(run);
+        expect(s.isDownloading, isFalse);
+        expect(launcher.downloading, isTrue);
+
+        expect(s.exitWouldInterrupt, isTrue);
+        s.launcherUpdate.needsElevation = true;
+        expect(s.canRestartElevated, isFalse);
+        s.launcherUpdate.needsElevation = false;
+
+        prompts.launcherInstallAnswer = true;
+        await s.installLauncherUpdate();
+        expect(launcher.calls, isNot(contains('apply')));
+        expect(launcher.downloading, isTrue);
+
+        // סגירה: נשאלת, עוצרת את ההעברה ומחכה לה לפני שהחלון נסגר.
+        expect(await s.confirmClose(), isTrue);
+        expect(prompts.closeDownloading.last, isTrue);
+        expect(launcher.calls.last, 'stopped');
+        expect(s.launcherUpdate.isDownloading, isFalse);
+        await launcherRun;
+
+        // הורדה חדשה שמסתיימת אינה חוסמת את ההתקנה של עצמה.
+        launcher.gate.complete();
+        await s.downloadLauncherUpdate();
+        expect(launcher.calls, containsAllInOrder(['downloaded', 'apply']));
+        expect(s.exitWouldInterrupt, isFalse);
+      });
+
+      test(
+          'התקנת אוצריא לצד הורדה ברקע: הבית מציג את ההתקנה, וההורדה נגישה '
+          'בלי לעצור אף אחת', () async {
+        final (s, run) = await downloading(plugins: false);
+        s.tasks.hideDownload();
+        s.otzaria.status = OtzariaModuleStatus.installing;
+
+        final model = homeViewModelOf(s);
+        expect(model.task, HomeTask.installingApp);
+        expect(model.downloadBehind, isTrue);
+
+        s.tasks.showDownload();
+        expect(s.tasks.current, isA<DownloadTask>());
+        s.tasks.hideDownload();
+        expect(s.isDownloading, isTrue);
+        expect(s.otzaria.status, OtzariaModuleStatus.installing);
+
+        s.otzaria.status = OtzariaModuleStatus.upToDate;
+        expect(homeViewModelOf(s).task, HomeTask.downloading);
+        expect(homeViewModelOf(s).downloadBehind, isFalse);
+        await release(run);
+      });
+
+      test('החנות שואלת את הסשן: מראת תוספים שההורדה כותבת חוסמת קוראים',
+          () async {
+        final (s, run) = await downloading();
+        expect(s.plugins.mirrorWrittenElsewhere!(), isTrue);
+        expect(s.plugins.syncBlockedElsewhere!(), isTrue);
+        expect(s.plugins.syncBlockedReason(forDownload: true), isNull);
+        await release(run);
+        await waitFor(() => !s.plugins.mirrorWrittenElsewhere!());
+        expect(s.plugins.syncBlockedElsewhere!(), isFalse);
+      });
+
+      test('רצף מסירות שממשיך ברקע: "עדכון כאן" חדש אינו שולח אותם שוב',
+          () async {
+        final s = session();
+        StorePlugin entry(String id) => StorePlugin.fromApi(
+              {'id': id, 'name': id},
+              'https://example.invalid',
+            );
+        final run = s.plugins.deliverUpdates(plugins: [entry('a'), entry('b')]);
+        await waitFor(() => !s.plugins.isDeliveringAny);
+        expect(s.plugins.isDeliveryRunActive, isTrue);
+        expect(s.installsBlockedByDownload, contains(GuidanceItem.plugins));
+        await run;
+        expect(
+            s.installsBlockedByDownload, isNot(contains(GuidanceItem.plugins)));
+      });
+
+      test('רצף מסירות ברקע: סגירה שואלת, והחלפת קובץ ההרצה ממתינה', () async {
+        final s = session();
+        StorePlugin entry(String id) => StorePlugin.fromApi(
+              {'id': id, 'name': id},
+              'https://example.invalid',
+            );
+        expect(s.exitWouldInterrupt, isFalse);
+        final run = s.plugins.deliverUpdates(plugins: [entry('a'), entry('b')]);
+        await waitFor(() => !s.plugins.isDeliveringAny);
+        expect(s.exitWouldInterrupt, isTrue);
+        prompts.closeAnswer = false;
+        expect(await s.confirmClose(), isFalse);
+        expect(prompts.calls, contains('confirmClose'));
+        await run;
+        expect(s.exitWouldInterrupt, isFalse);
+      });
+
+      group('סגירה מאושרת בזמן רצף מסירות', () {
+        late _GatedDeliveries engine;
+        StorePlugin entry(String id) => StorePlugin.fromApi(
+              {'id': id, 'name': id},
+              'https://example.invalid',
+            );
+        AppSession withEngine() {
+          engine = _GatedDeliveries(tempDir.path);
+          return session(
+            pluginsManager: engine,
+            closeDeliveryPatience: const Duration(milliseconds: 100),
+          );
+        }
+
+        /// אחרי שהסגירה הסתיימה, שום מסירה נוספת — גם אחרי המרווח.
+        Future<void> expectNothingMore(AppSession s, List<String> sent) async {
+          await Future<void>.delayed(pluginUpdateDeliverySpacing * 2);
+          expect(engine.delivered, sent);
+          expect(s.plugins.isDeliveryRunActive, isFalse);
+          expect(s.plugins.isDeliveringAny, isFalse);
+          expect(s.plugins.isReadingMirror, isFalse);
+        }
+
+        test('סירוב: הרצף ממשיך עד הסוף', () async {
+          final s = withEngine();
+          final run =
+              s.plugins.deliverUpdates(plugins: [entry('a'), entry('b')]);
+          await waitFor(() => !s.plugins.isDeliveringAny);
+          prompts.closeAnswer = false;
+          expect(await s.confirmClose(), isFalse);
+          expect((await run).map((p) => p.id), ['a', 'b']);
+        });
+
+        test('אישור באמצע מסירה: ממתין לה, ולא מתחיל את הבאה', () async {
+          final s = withEngine();
+          final gate = engine.gates['a'] = Completer<void>();
+          final run =
+              s.plugins.deliverUpdates(plugins: [entry('a'), entry('b')]);
+          await waitFor(() => s.plugins.isDeliveringAny);
+          bool? closed;
+          final close = s.confirmClose().then((ok) => closed = ok);
+          await pumpEventQueue();
+          expect(prompts.calls, contains('confirmClose'));
+          expect(closed, isNull);
+
+          gate.complete();
+          expect(await close, isTrue);
+          expect(s.plugins.isDeliveryRunActive, isFalse);
+          expect((await run).map((p) => p.id), ['a']);
+          await expectNothingMore(s, ['a']);
+        });
+
+        test('אישור ברווח שבין מסירות: חוזר רק אחרי שהרצף נעצר', () async {
+          final s = withEngine();
+          final run =
+              s.plugins.deliverUpdates(plugins: [entry('a'), entry('b')]);
+          await waitFor(
+              () => engine.delivered.isNotEmpty && !s.plugins.isDeliveringAny);
+          expect(s.plugins.isDeliveryRunActive, isTrue);
+
+          expect(await s.confirmClose(), isTrue);
+          expect(s.plugins.isDeliveryRunActive, isFalse);
+          expect((await run).map((p) => p.id), ['a']);
+          await expectNothingMore(s, ['a']);
+        });
+
+        test('מסירה שזורקת או נכשלת משחררת את כל המצבים', () async {
+          final s = withEngine();
+          engine.throwing.add('a');
+          final gate = engine.gates['a'] = Completer<void>();
+          final run =
+              s.plugins.deliverUpdates(plugins: [entry('a'), entry('b')]);
+          await waitFor(() => s.plugins.isDeliveringAny);
+          final close = s.confirmClose();
+          await pumpEventQueue();
+          gate.complete();
+          expect(await close, isTrue);
+          expect(await run, isEmpty);
+          await expectNothingMore(s, ['a']);
+
+          final s2 = withEngine();
+          engine.failing.add('a');
+          final run2 =
+              s2.plugins.deliverUpdates(plugins: [entry('a'), entry('b')]);
+          await waitFor(
+              () => engine.delivered.isNotEmpty && !s2.plugins.isDeliveringAny);
+          expect(await s2.confirmClose(), isTrue);
+          expect(await run2, isEmpty);
+          await expectNothingMore(s2, ['a']);
+        });
+
+        test(
+            'מסירה שאינה חוזרת: הסגירה אינה יוצאת; "חזרה לכלי" מחזירה מצב '
+            'תקין', () async {
+          final s = withEngine();
+          final gate = engine.gates['a'] = Completer<void>();
+          final run =
+              s.plugins.deliverUpdates(plugins: [entry('a'), entry('b')]);
+          await waitFor(() => s.plugins.isDeliveringAny);
+          prompts.keepWaitingAnswers.add(false);
+
+          expect(await s.confirmClose(), isFalse);
+          expect(prompts.calls, contains('keepWaitingForDeliveries'));
+          // המסירה עדיין באוויר, ואין מה שמעמיד פנים אחרת.
+          expect(s.plugins.isDelivering(entry('a')), isTrue);
+          expect(s.plugins.isReadingMirror, isTrue);
+          // מסירות חדשות מותרות שוב.
+          final other = s.plugins.deliver(entry('c'));
+          expect((await other).success, isTrue);
+
+          gate.complete();
+          // הרצף עוד לא הגיע לבדיקה הבאה שלו, ולכן ממשיך כרגיל.
+          expect((await run).map((p) => p.id), ['a', 'b']);
+          await expectNothingMore(s, ['a', 'c', 'b']);
+        });
+
+        test('מסירה שאינה חוזרת: "להמשיך לחכות" סוגר רק כשהיא מסתיימת',
+            () async {
+          final s = withEngine();
+          final gate = engine.gates['a'] = Completer<void>();
+          final run =
+              s.plugins.deliverUpdates(plugins: [entry('a'), entry('b')]);
+          await waitFor(() => s.plugins.isDeliveringAny);
+          prompts.keepWaitingAnswers.addAll([true, true]);
+
+          bool? closed;
+          final close = s.confirmClose().then((ok) => closed = ok);
+          await waitFor(() =>
+              prompts.calls
+                  .where((c) => c == 'keepWaitingForDeliveries')
+                  .length ==
+              2);
+          expect(prompts.calls.where((c) => c == 'keepWaitingForDeliveries'),
+              hasLength(2));
+          expect(closed, isNull);
+
+          gate.complete();
+          expect(await close, isTrue);
+          expect((await run).map((p) => p.id), ['a']);
+          await expectNothingMore(s, ['a']);
+        });
+
+        test('מסירה בודדת מהחנות: בלי שאלה, אבל הסגירה ממתינה לה', () async {
+          final s = withEngine();
+          final gate = engine.gates['a'] = Completer<void>();
+          final delivery = s.plugins.deliver(entry('a'));
+          bool? closed;
+          final close = s.confirmClose().then((ok) => closed = ok);
+          await pumpEventQueue();
+          expect(closed, isNull);
+          expect(prompts.calls, isNot(contains('confirmClose')));
+          gate.complete();
+          expect(await close, isTrue);
+          expect((await delivery).success, isTrue);
+          expect(s.plugins.isReadingMirror, isFalse);
+        });
+      });
+
+      test('העתקת החנות: שלב התוספים של "עדכון כאן" ממתין', () async {
+        final s = session();
+        expect(
+            s.installsBlockedByDownload, isNot(contains(GuidanceItem.plugins)));
+        s.plugins.isExporting = true;
+        expect(s.installsBlockedByDownload, contains(GuidanceItem.plugins));
+        s.plugins.isExporting = false;
+      });
+
+      test('סוף הניקוי שאחרי ההורדה משחרר את הכפתורים ומודיע למסך', () async {
+        final (s, run) = await downloading();
+        final seen = <bool>[];
+        s.addListener(() =>
+            seen.add(s.libraryApplyBlocked || s.pluginSyncBlockedElsewhere));
+        await release(run);
+        await waitFor(
+            () => !s.libraryApplyBlocked && !s.pluginSyncBlockedElsewhere);
+        await pumpEventQueue();
+        expect(seen.last, isFalse);
+      });
+
+      test('שליחת דיווחים בזמן הורדת הספרייה וסנכרון התוספים — פעם אחת',
+          () async {
+        final (s, run) = await downloading();
+        expect(s.plugins.isSyncing, isTrue);
+        expect(s.reportsUploadBlocked, isFalse);
+
+        prompts.uploadGate = Completer<void>();
+        final upload = s.uploadReports();
+        expect(prompts.calls.where((c) => c == 'uploadReports'), hasLength(1));
+        // לחיצה שנייה בזמן הראשונה אינה פותחת שליחה נוספת.
+        await s.uploadReports();
+        expect(prompts.calls.where((c) => c == 'uploadReports'), hasLength(1));
+
+        prompts.uploadGate!.complete();
+        await upload;
+        expect(s.isDownloading, isTrue);
+        await release(run);
+        expect(
+            (s.tasks.current! as DownloadTask).phase, DownloadTaskPhase.done);
+      });
+
+      test('איסוף דיווחים אינו נחסם בהורדה, רק בהתקנה כאן', () async {
+        final (s, run) = await downloading();
+        expect(s.reportsCollectBlocked, isFalse);
+        s.otzaria.status = OtzariaModuleStatus.installing;
+        expect(s.reportsCollectBlocked, isTrue);
+        expect(s.reportsUploadBlocked, isFalse);
+        s.otzaria.status = OtzariaModuleStatus.upToDate;
+        await release(run);
+      });
+
+      test(
+          'בזמן הורדת הספרייה: התקנת אוצריא ותוספים פתוחה, ההחלה של הספרייה '
+          'סגורה', () async {
+        final (s, run) = await downloading(plugins: false);
+        expect(s.installsBlockedByDownload, {GuidanceItem.library});
+        expect(s.appInstallBlocked, isFalse);
+        expect(s.pluginActionsBlockedElsewhere, isFalse);
+        expect(s.pluginSyncBlockedElsewhere, isFalse);
+        expect(s.libraryApplyBlocked, isTrue);
+
+        await release(run);
+        await waitFor(() => s.installsBlockedByDownload.isEmpty);
+        expect(s.libraryApplyBlocked, isFalse);
+      });
+
+      test('בזמן סנכרון התוספים בהורדה: מסירה ורענון בחנות סגורים', () async {
+        final (s, run) = await downloading();
+        engines.library.downloadGate!.complete();
+        await waitFor(
+            () => !s.runningDownloads.contains(MirrorComponent.library));
+        expect(s.installsBlockedByDownload, {GuidanceItem.plugins});
+        expect(s.pluginActionsBlockedElsewhere, isTrue);
+        expect(s.pluginSyncBlockedElsewhere, isTrue);
+        expect(s.libraryApplyBlocked, isFalse);
+        expect(s.appInstallBlocked, isFalse);
+        await release(run);
+      });
+
+      test('"עדכון כאן" בזמן הורדת הספרייה מתקין את התוכנה בלבד', () async {
+        final (s, run) = await downloading(plugins: false);
+        s.tasks.hideDownload();
+        s.otzaria
+          ..currentVersion = 'v1'
+          ..latestVersion = 'v2'
+          ..status = OtzariaModuleStatus.updateAvailable;
+        s.library.status = LibraryModuleStatus.updateAvailable;
+
+        // הבית מציע רק את מה שהמראה שלו כבר נכתבה.
+        final guidance = homeViewModelOf(s).guidance;
+        expect(guidance.primary, GuidancePrimary.taskInProgress);
+        expect(guidance.hereItems, [GuidanceItem.app]);
+
+        unawaited(s.updateHere(const [GuidanceItem.library, GuidanceItem.app]));
+        await waitFor(() => s.tasks.updateTask != null);
+        expect(s.tasks.updateTask!.stages, [GuidanceItem.app]);
+        expect(s.tasks.current, isA<UpdateHereTask>());
+        expect(s.isDownloading, isTrue);
+        // עכשיו הורדה חדשה אינה מתחילה: "עדכון כאן" קורא את המראה.
+        expect(s.downloadBlocked, isTrue);
+
+        await waitFor(() => s.tasks.updateTask!.isFinished);
+        expect(s.isDownloading, isTrue);
+        s.tasks.dismiss();
+        await release(run);
+        expect(
+            (s.tasks.current! as DownloadTask).phase, DownloadTaskPhase.done);
+      });
+
+      test('"עדכון כאן" רק לספרייה בזמן שהיא יורדת — הודעה, בלי משימה',
+          () async {
+        final messages = <String>[];
+        final previousPrint = debugPrint;
+        debugPrint = (String? message, {int? wrapWidth}) {
+          if (message?.startsWith('UiSnack') ?? false) messages.add(message!);
+        };
+        addTearDown(() => debugPrint = previousPrint);
+        final (s, run) = await downloading(plugins: false);
+        s.tasks.hideDownload();
+        s.otzaria.currentVersion = 'v1';
+        s.library.status = LibraryModuleStatus.updateAvailable;
+        await s.updateHere(const [GuidanceItem.library]);
+        expect(s.tasks.updateTask, isNull);
+        expect(messages.single,
+            contains(AppL10n.strings.task.installWaitsForDownloadSnack));
+        await release(run);
+      });
+
+      test('"עדכון כאן" לתוספים בזמן העתקת החנות — ההודעה מהחנות, לא מהורדה',
+          () async {
+        final messages = <String>[];
+        final previousPrint = debugPrint;
+        debugPrint = (String? message, {int? wrapWidth}) {
+          if (message?.startsWith('UiSnack') ?? false) messages.add(message!);
+        };
+        addTearDown(() => debugPrint = previousPrint);
+        final s = session();
+        s.otzaria.currentVersion = 'v1';
+        s.plugins.isExporting = true;
+        await s.updateHere(const [GuidanceItem.plugins]);
+        expect(s.tasks.updateTask, isNull);
+        expect(messages.single,
+            contains(AppL10n.strings.plugins.actionsBlockedExporting));
+        s.plugins.isExporting = false;
+      });
+
+      test('"ביטול" ב"מתכונן" — הזרימה שחוזרת אינה חוסמת התקנה', () async {
+        await settings.update(settings.settings
+            .copyWith(semanticDownload: SemanticDownloadPreference.never));
+        engines = _Engines(tempDir.path);
+        final s = session(
+          otzariaManager: engines.otzaria,
+          libraryManager: engines.library,
+          pluginsManager: engines.plugins,
+        )..start();
+        await waitFor(() => s.plugins.status != PluginsModuleStatus.loading);
+        // הבדיקה המקוונת שלפני ההורדה ממתינה, כדי ללחוץ "ביטול" בזמנה.
+        final gate = engines.otzaria.peekGate = Completer<void>();
+        final run = s.downloadAll();
+        await waitFor(() => s.isCheckingOnline);
+        expect(s.installsBlockedByDownload, GuidanceItem.values.toSet());
+
+        s.abandonPreparingDownload();
+        expect(s.installsBlockedByDownload, isEmpty);
+        expect(s.pluginSyncBlockedElsewhere, isFalse);
+        gate.complete();
+        await run;
+        expect(engines.library.downloadCalls, 0);
+      });
+
+      test('"עדכון כאן" אינו נפתח כשמסך ההורדה בחזית', () async {
+        final (s, run) = await downloading(plugins: false);
+        s.otzaria
+          ..currentVersion = 'v1'
+          ..status = OtzariaModuleStatus.updateAvailable;
+        await s.updateHere(const [GuidanceItem.app]);
+        expect(s.tasks.updateTask, isNull);
+        await release(run);
+      });
+
+      test('רענון התוספים נחסם כל עוד המתקין יורד — הוא בוחר גרסאות לפיו',
+          () async {
+        await settings.update(settings.settings
+            .copyWith(semanticDownload: SemanticDownloadPreference.never));
+        engines = _Engines(tempDir.path);
+        final s = session(
+          otzariaManager: engines.otzaria,
+          libraryManager: engines.library,
+          pluginsManager: engines.plugins,
+        )..start();
+        await waitFor(() => s.plugins.status != PluginsModuleStatus.loading);
+        engines.otzaria.downloadGate = Completer<void>();
+        final run = s.downloadAll();
+        await waitFor(() => s.runningDownloads.contains(MirrorComponent.app));
+        expect(s.pluginSyncBlockedElsewhere, isTrue);
+        engines.otzaria.downloadGate!.complete();
+        await run;
+        // הניקוי שבסוף ההורדה חוסם גם הוא, עד שנגמר.
+        await waitFor(() => !s.pluginSyncBlockedElsewhere);
+        expect(s.pluginSyncBlockedElsewhere, isFalse);
+      });
+
+      test('"הורדה" עם תוכנה בזמן רענון תוספים עצמאי — מסורבת, לא רצה',
+          () async {
+        await settings.update(settings.settings.copyWith(
+          semanticDownload: SemanticDownloadPreference.never,
+          syncPlugins: false,
+        ));
+        engines = _Engines(tempDir.path);
+        final s = session(
+          otzariaManager: engines.otzaria,
+          libraryManager: engines.library,
+          pluginsManager: engines.plugins,
+        )..start();
+        await waitFor(() => s.plugins.status != PluginsModuleStatus.loading);
+        engines.plugins.syncGate = Completer<void>();
+        final sync = s.plugins.sync();
+        await waitFor(() => s.plugins.isSyncing);
+
+        await s.downloadAll();
+        expect(engines.library.downloadCalls, 0);
+        expect(s.isDownloading, isFalse);
+        expect(s.tasks.hasTask, isFalse);
+
+        engines.plugins.syncGate!.complete();
+        await sync;
+      });
+
+      test('ביטול אחרי שהספרייה הסתיימה מחזיר רק את התוספים', () async {
+        final (s, run) = await downloading();
+        engines.library.downloadGate!.complete();
+        await waitFor(
+            () => s.finishedDownloads.contains(MirrorComponent.library));
+        s.tasks.hideDownload();
+        prompts.cancelAnswer = true;
+        await s.cancelDownload();
+        await release(run);
+        final task = s.tasks.current! as DownloadTask;
+        expect(task.phase, DownloadTaskPhase.cancelled);
+        expect(task.kept, [MirrorComponent.app, MirrorComponent.library]);
+      });
+
+      test('"הורדה" שנייה בזמן ההורדה אינה מריצה את הספרייה פעמיים', () async {
+        final (s, run) = await downloading();
+        s.tasks.hideDownload();
+        await s.downloadAll();
+        expect(engines.library.downloadCalls, 1);
+        await release(run);
+        expect(engines.library.downloadCalls, 1);
+      });
+
+      test('ביטול בזמן שהספרייה והתוספים רצים מחזיר את שניהם', () async {
+        final (s, run) = await downloading();
+        s.tasks.hideDownload();
+        prompts.cancelAnswer = true;
+        await s.cancelDownload();
+        expect(s.isCancellingDownload, isTrue);
+        await release(run);
+        final task = s.tasks.current! as DownloadTask;
+        expect(task.phase, DownloadTaskPhase.cancelled);
+        expect(task.kept, [MirrorComponent.app]);
+        expect(s.isDownloading, isFalse);
+      });
+
+      test(
+          'סגירה בזמן הורדה ושליחה: שואלת פעם אחת, ממתינה להורדה ושומרת '
+          'את ההתקדמות', () async {
+        final (s, run) = await downloading();
+        s.tasks.hideDownload();
+        prompts.uploadGate = Completer<void>();
+        unawaited(s.uploadReports());
+        expect(s.exitWouldInterrupt, isTrue);
+
+        var closed = false;
+        final close = s.confirmClose().then((ok) => closed = ok);
+        await waitFor(() => prompts.calls.contains('confirmClose'));
+        expect(prompts.closeDownloading, [true]);
+        expect(s.isCancellingDownload, isTrue);
+        expect(closed, isFalse);
+
+        await release(run);
+        await close;
+        expect(closed, isTrue);
+        // נעצרה בלי שחזור: לא "בוטל", והקבצים החלקיים נשארו להמשך.
+        expect(
+            (s.tasks.downloadTask!).phase, isNot(DownloadTaskPhase.cancelled));
+        prompts.uploadGate!.complete();
+      });
+    });
+
     group('כונן מלא באמצע ההורדה — מסלול מלא', () {
       late _Engines engines;
 
@@ -1524,14 +2157,25 @@ void main() {
         expect(engines.plugins.storeAppCalls, greaterThanOrEqualTo(1));
       });
 
-      test('כשל אחסון בספרייה (חריג אמיתי): לא תוספים ולא תוכנת החנות',
-          () async {
+      /// הספרייה והתוספים מתחילים יחד; התוספים נעצרים עד שהספרייה נכשלה.
+      Future<void> downloadWhileLibraryFails(AppSession s) async {
+        engines.plugins.syncGate = Completer<void>();
+        final run = s.downloadAll();
+        await waitFor(
+            () => s.library.downloadStatus == MirrorDownloadStatus.error);
+        engines.plugins.syncGate!.complete();
+        await run;
+      }
+
+      test(
+          'כשל אחסון בספרייה (חריג אמיתי): התוספים שרצו לצידה מסתיימים, '
+          'תוכנת החנות לא מתחילה', () async {
         final s = await fullSession();
         await waitFor(() => s.plugins.status != PluginsModuleStatus.loading);
         engines.library.error =
             await realDownloadFailure(tempDir, diskFullErrno);
-        await s.downloadAll();
-        expect(engines.plugins.syncCalls, 0);
+        await downloadWhileLibraryFails(s);
+        expect(engines.plugins.syncCalls, 1);
         expect(engines.plugins.storeAppCalls, 0);
         expect(task(s).phase, DownloadTaskPhase.failed);
         expect(task(s).failure!.kind, DownloadFailureKind.diskSpace);
@@ -1552,15 +2196,16 @@ void main() {
         expect(task(s).failure!.kind, DownloadFailureKind.diskSpace);
       });
 
-      test('PatchDownloadException אמיתי בספרייה: אין תוספים, כשל diskSpace',
+      test(
+          'PatchDownloadException אמיתי בספרייה: אין תוכנת חנות, כשל diskSpace',
           () async {
         final s = await fullSession();
         await waitFor(() => s.plugins.status != PluginsModuleStatus.loading);
         engines.library.error =
             await realDownloadFailure(tempDir, diskFullErrno);
-        await s.downloadAll();
+        await downloadWhileLibraryFails(s);
 
-        expect(engines.plugins.syncCalls, 0);
+        expect(engines.plugins.storeAppCalls, 0);
         final t = task(s);
         expect(t.phase, DownloadTaskPhase.failed);
         expect(t.failure!.kind, DownloadFailureKind.diskSpace);
@@ -1576,8 +2221,8 @@ void main() {
         await waitFor(() => s.plugins.status != PluginsModuleStatus.loading);
         engines.library.error = StateError(AppL10n.strings.libraryDomain
             .mirrorNotEnoughDiskSpace('E:', '2 GB', '1 GB'));
-        await s.downloadAll();
-        expect(engines.plugins.syncCalls, 0);
+        await downloadWhileLibraryFails(s);
+        expect(engines.plugins.storeAppCalls, 0);
         expect(task(s).failure!.kind, DownloadFailureKind.diskSpace);
         expect(task(s).failure!.needed, '2 GB');
       });
@@ -1817,6 +2462,79 @@ void main() {
   });
 }
 
+/// הורדת לאנצ'ר מדומה: מתקדמת בצעדים, בודקת עצירה בין צעד לצעד, ומסתיימת
+/// רק כשהבדיקה משחררת את [gate]. [ready] — גרסה שכבר יושבת במראה.
+class _SteppedLauncher implements LauncherSelfUpdater {
+  String? ready = 'v8.0.0';
+  final calls = <String>[];
+  Completer<void> gate = Completer<void>();
+  bool get downloading => calls.last == 'download';
+
+  static LauncherRelease _release(String tag) => LauncherRelease(
+        tagName: tag,
+        name: tag,
+        assetName: 'launcher.exe',
+        downloadUrl: 'https://example.invalid/launcher.exe',
+        sizeBytes: 4,
+      );
+
+  @override
+  String get currentVersion => '1.0.0';
+
+  @override
+  String get mirrorDir => 'mirror/launcher';
+
+  @override
+  Future<LauncherUpdateCheck> checkForUpdate({
+    bool cleanupLeftovers = true,
+  }) async =>
+      LauncherUpdateCheck(
+        currentVersion: currentVersion,
+        mirrored: switch (ready) {
+          final tag? =>
+            MirroredLauncherRelease(release: _release(tag), filePath: 'f'),
+          null => null,
+        },
+        canInstall: true,
+      );
+
+  @override
+  Future<MirroredLauncherRelease?> downloadToMirror({
+    LauncherRelease? release,
+    void Function(int received, int total)? onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    calls.add('download');
+    for (var received = 0; !gate.isCompleted; received++) {
+      if (isCancelled?.call() ?? false) {
+        calls.add('stopped');
+        throw const LauncherDownloadCancelled();
+      }
+      onProgress?.call(received, 1000);
+      await Future.any(
+          [gate.future, Future<void>.delayed(const Duration(milliseconds: 2))]);
+    }
+    ready = 'v9.0.0';
+    calls.add('downloaded');
+    return MirroredLauncherRelease(release: _release('v9.0.0'), filePath: 'f');
+  }
+
+  @override
+  Future<LauncherRelease?> peekLatestOnline() async => null;
+
+  @override
+  Future<bool> applyUpdate() async {
+    calls.add('apply');
+    return false;
+  }
+
+  @override
+  void dispose() {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 class _NeverRunningLocator extends RunningOtzariaLocator {
   const _NeverRunningLocator();
 
@@ -1841,6 +2559,15 @@ class _FakePrompts implements SessionPrompts {
     return closeAnswer;
   }
 
+  /// התשובות לפי הסדר; כשנגמרו — ממשיכים לחכות.
+  final keepWaitingAnswers = <bool>[];
+
+  @override
+  Future<bool> keepWaitingForDeliveries() async {
+    calls.add('keepWaitingForDeliveries');
+    return keepWaitingAnswers.isEmpty ? true : keepWaitingAnswers.removeAt(0);
+  }
+
   @override
   Future<bool?> showCrashPrompt(
     AppReportsController reports,
@@ -1852,14 +2579,18 @@ class _FakePrompts implements SessionPrompts {
   Future<bool> confirmLauncherInstall(String version,
       {String? whatsNew}) async {
     calls.add('confirmLauncherInstall');
-    return false;
+    return launcherInstallAnswer;
   }
+
+  bool launcherInstallAnswer = false;
 
   @override
   void notifyLauncherUpdate(LauncherUpdateNotice notice, String detail) {}
 
+  bool cancelAnswer = false;
+
   @override
-  Future<bool> confirmCancelDownload() async => false;
+  Future<bool> confirmCancelDownload() async => cancelAnswer;
 
   @override
   void notifyNoSyncSelection() => calls.add('noSyncSelection');
@@ -1900,7 +2631,18 @@ class _FakePrompts implements SessionPrompts {
     required bool Function() isCancelled,
     required void Function(bool active) onActiveChanged,
     required void Function(bool uploading) onUploadingChanged,
-  }) async {}
+  }) async {
+    calls.add('uploadReports');
+    // כמו `uploadAllReports`: הסימון נדלק לפני כל await.
+    onActiveChanged(true);
+    try {
+      await uploadGate?.future;
+    } finally {
+      onActiveChanged(false);
+    }
+  }
+
+  Completer<void>? uploadGate;
 }
 
 class _RecordingStartupSession extends AppSession {
@@ -1972,7 +2714,21 @@ class _QuietOtzaria extends OtzariaManager {
     void Function(int received, int total)? onProgress,
     void Function(OtzariaReleaseChannel channel)? onChannel,
     bool Function()? isCancelled,
-  }) async {}
+  }) async {
+    await downloadGate?.future;
+  }
+
+  /// מחסום: הורדת המתקין ממתינה לו.
+  Completer<void>? downloadGate;
+
+  /// מחסום לבדיקה המקוונת; בלעדיו — כאילו אין רשת.
+  Completer<void>? peekGate;
+
+  @override
+  Future<OtzariaChannelReleases> peekOnlineChannels() async {
+    await peekGate?.future;
+    throw const SocketException('no network');
+  }
 
   @override
   Future<int?> mirroredReadableDbSchema() async => 1;
@@ -1980,6 +2736,10 @@ class _QuietOtzaria extends OtzariaManager {
 
 class _ScriptedLibrary extends LibraryManager {
   _ScriptedLibrary(String dir) : super(dataDir: dir, environment: const {});
+
+  /// מחסום: ההורדה ממתינה לו — כדי להחזיק אותה פתוחה בזמן פעולה אחרת.
+  Completer<void>? downloadGate;
+  int downloadCalls = 0;
 
   /// מה שהמוריד האמיתי זרק; `null` = ההורדה מצליחה.
   Object? error;
@@ -2005,6 +2765,8 @@ class _ScriptedLibrary extends LibraryManager {
     void Function(String warning)? onWarning,
     bool Function()? isCancelled,
   }) async {
+    downloadCalls++;
+    await downloadGate?.future;
     if (error case final failure?) throw failure;
     return const MirrorDownloadOutcome();
   }
@@ -2018,12 +2780,44 @@ const _storeRelease = StoreAppRelease(
   sizeBytes: 1,
 );
 
+/// מסירה שמצליחה (או נכשלת / זורקת) כשהבדיקה משחררת את המחסום של התוסף —
+/// בלי תהליך ובלי קובץ.
+class _GatedDeliveries extends PluginsManager {
+  _GatedDeliveries(String dir)
+      : super(resolveMirrorDir: () async => p.join(dir, 'mirror'));
+
+  final delivered = <String>[];
+  final gates = <String, Completer<void>>{};
+  final failing = <String>{};
+  final throwing = <String>{};
+
+  @override
+  Future<PluginInstallResult> directInstall(
+    StorePlugin plugin, {
+    String? appVersion,
+    void Function(StorePlugin updated)? onPluginUpdated,
+  }) async {
+    delivered.add(plugin.id);
+    await gates[plugin.id]?.future;
+    if (throwing.contains(plugin.id)) {
+      throw const FileSystemException('הקובץ נעול');
+    }
+    if (failing.contains(plugin.id)) {
+      return const PluginInstallResult.failure('אוצריא לא נפתחה');
+    }
+    return const PluginInstallResult.ok();
+  }
+}
+
 class _CountingPlugins extends PluginsManager {
   _CountingPlugins(String dir)
       : super(resolveMirrorDir: () async => p.join(dir, 'mirror'));
 
   int syncCalls = 0;
   int storeAppCalls = 0;
+
+  /// מחסום: הסנכרון ממתין לו, כדי לקבוע מה הסתיים קודם.
+  Completer<void>? syncGate;
   PluginSyncOutcome outcome = const PluginSyncOutcome(
     catalog: PluginCatalog.empty,
     fetched: 0,
@@ -2037,6 +2831,7 @@ class _CountingPlugins extends PluginsManager {
     bool Function()? isCancelled,
   }) async {
     syncCalls++;
+    await syncGate?.future;
     return outcome;
   }
 

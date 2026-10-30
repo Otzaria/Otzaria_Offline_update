@@ -28,6 +28,7 @@ class PluginsScreen extends StatefulWidget {
     this.readOnly = false,
     this.driveFull = false,
     this.busyElsewhere = false,
+    this.syncBlockedElsewhere = false,
     this.online,
     this.otzariaInstalled = true,
     this.detailId,
@@ -41,7 +42,12 @@ class PluginsScreen extends StatefulWidget {
 
   final bool readOnly;
   final bool driveFull;
+
+  /// התקנה, שמירה וייצוא — מראה התוספים נכתבת, או שאוצריא מוחלפת עכשיו.
   final bool busyElsewhere;
+
+  /// "רענון" — מישהו אחר קורא או כותב עכשיו את מראה התוספים.
+  final bool syncBlockedElsewhere;
 
   /// `false` — אין אינטרנט במחשב הזה, ו"רענון" אינו מוצג.
   final bool? online;
@@ -125,7 +131,11 @@ class _PluginsScreenState extends State<PluginsScreen> {
     }
     final t = context.strings.plugins;
     _stopSync = false;
-    await _c.sync(isCancelled: () => _stopSync);
+    if (!await _c.sync(isCancelled: () => _stopSync)) {
+      final reason = _c.syncBlockedReason();
+      if (reason != null && mounted) UiSnack.show(reason);
+      return;
+    }
     if (!mounted) return;
     final warnings = _c.syncWarnings;
     final shabbat = _c.shabbatNotice;
@@ -209,6 +219,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
     if (_c.isSyncing) return t.actionsBlockedSyncing;
     if (_c.isExporting) return t.actionsBlockedExporting;
     if (_c.isUpdatingAll) return t.actionsBlockedUpdatingAll;
+    if (_c.isDeliveryRunActive) return t.actionsBlockedDelivering;
     // הורדה, החלת ספרייה או התקנת אוצריא — המראה עשויה להתחלף באמצע.
     if (widget.busyElsewhere) return t.actionsBlockedElsewhere;
     return null;
@@ -266,9 +277,10 @@ class _PluginsScreenState extends State<PluginsScreen> {
     final ready = _c.status == PluginsModuleStatus.ready;
     final empty = _c.plugins.isEmpty;
     final busy = _c.isSyncing ||
+        _c.isReadingMirror ||
         _c.isExporting ||
         _c.isUpdatingAll ||
-        widget.busyElsewhere;
+        widget.syncBlockedElsewhere;
     final blockedReason = _blockedReason(context);
     final failed = _c.errorMessage != null;
 
@@ -326,7 +338,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
                   key: ShellKeys.storeEmptyReload,
                   text: t.reloadButton,
                   icon: FluentIcons.arrow_clockwise_20_regular,
-                  onPressed: busy ? null : _c.load,
+                  onPressed: busy || widget.busyElsewhere ? null : _c.load,
                 ),
                 if (widget.onOpenHelp case final help?)
                   ActionButton.ghost(
@@ -520,7 +532,9 @@ class _PluginsScreenState extends State<PluginsScreen> {
               subtitle: t.storeAppRowBody,
               trailing: StoreAppExportButton(
                 controller: _c,
-                busyElsewhere: widget.busyElsewhere || _c.isUpdatingAll,
+                busyElsewhere: widget.busyElsewhere ||
+                    _c.isUpdatingAll ||
+                    _c.isReadingMirror,
                 onExport: () => unawaited(runStoreAppExport(context, _c)),
               ),
               below:

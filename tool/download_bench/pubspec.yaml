@@ -1,0 +1,22 @@
+name: download_bench
+description: >-
+  מדידת מסלולי ההורדה של הכלי מול שרת מקומי מוגבל קצב ומול GitHub (#149).
+  כלי אבחון בלבד; שום חבילה אינה תלויה בו.
+publish_to: none
+
+environment:
+  sdk: '>=3.10.0 <4.0.0'
+
+dependencies:
+  crypto: ^3.0.7
+  http: ^1.6.0
+  otzaria_downloads:
+    path: ../../otzaria_downloads
+  # אותו ref כמו בשורש, ב-library_manager וב-launcher_app.
+  seforim_library_updater:
+    git:
+      url: https://github.com/Otzaria/otzaria_library_updater.git
+      ref: 809ce54799f5ef47f4694ea3e950a94368705e21
+
+dev_dependencies:
+  lints: ^4.0.0

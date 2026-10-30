@@ -158,6 +158,16 @@ class _Shell extends ShellStrings {
   @override
   String get closeWhileBusyKeepGoing => 'המשך';
   @override
+  String get closeWaitingDeliveryTitle => 'תוסף עוד נמסר לאוצריא';
+  @override
+  String get closeWaitingDeliveryPrompt =>
+      'מסירת תוסף לאוצריא עוד לא הסתיימה, והכלי ייסגר רק אחריה. אפשר להמשיך '
+      'לחכות, או לחזור לכלי ולסגור אותו מאוחר יותר.';
+  @override
+  String get closeWaitingDeliveryWait => 'להמשיך לחכות';
+  @override
+  String get closeWaitingDeliveryBack => 'חזרה לכלי';
+  @override
   String get helpTooltip => 'עזרה ושאלות נפוצות';
   @override
   String get settingsTooltip => 'הגדרות';
@@ -247,6 +257,8 @@ class _Task extends TaskStrings {
   String downloadingStep(String name, int index, int count) =>
       'מוריד את $name · $index מתוך $count';
   @override
+  String downloadingTogether(String names) => 'מוריד יחד את $names';
+  @override
   String get componentApp => 'תוכנת אוצריא';
   @override
   String get componentLibrary => 'ספריית אוצריא';
@@ -304,6 +316,9 @@ class _Task extends TaskStrings {
   @override
   String get retryNothingSnack =>
       'אין עוד מה להתקין מהכונן — המצב העדכני מוצג בבית.';
+  @override
+  String get installWaitsForDownloadSnack =>
+      'ההורדה לכונן עדיין כותבת את הקבצים האלה. אפשר יהיה להתקין אותם כשהיא תסתיים.';
   @override
   String get doneTitle => 'הכונן מוכן';
   @override
@@ -610,6 +625,10 @@ class _Task extends TaskStrings {
   String get toPluginsPage => 'לדף התוספים';
   @override
   String get showProgress => 'הצג התקדמות';
+  @override
+  String get showDownload => 'הצג את ההורדה';
+  @override
+  String get showDownloadResult => 'תוצאת ההורדה';
 }
 
 class _Pages extends PageStrings {
@@ -2155,6 +2174,12 @@ class _Plugins extends PluginsStrings {
   @override
   String get actionsBlockedElsewhere =>
       'משימה אחרת רצה עכשיו. בינתיים אי אפשר להתקין או לשמור תוספים.';
+  @override
+  String get syncBlockedSnack =>
+      'פעולה אחרת משתמשת עכשיו בקובצי התוספים שבכונן. אפשר יהיה לעדכן מהאתר כשהיא תסתיים.';
+  @override
+  String get actionsBlockedDelivering =>
+      'תוספים נשלחים עכשיו לאוצריא. אפשר יהיה להמשיך כשהשליחה תסתיים.';
   @override
   String get howItWorksButton => 'איך זה עובד?';
   @override

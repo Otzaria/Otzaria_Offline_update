@@ -102,10 +102,15 @@ class LauncherSelfUpdater {
   Future<MirroredLauncherRelease?> downloadToMirror({
     LauncherRelease? release,
     void Function(int received, int total)? onProgress,
+    bool Function()? isCancelled,
   }) async {
     final target = release ?? await peekLatestOnline();
     if (target == null) return null;
-    return _mirror.sync(await withChangelog(target), onProgress: onProgress);
+    return _mirror.sync(
+      await withChangelog(target),
+      onProgress: onProgress,
+      isCancelled: isCancelled,
+    );
   }
 
   /// [release] עם יומן השינויים שבתג שלו. כשל נבלע: "מה התחדש" חסר אינו

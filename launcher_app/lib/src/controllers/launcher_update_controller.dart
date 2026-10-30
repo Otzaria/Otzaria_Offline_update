@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 
 import '../self_update/launcher_changelog.dart';
 import '../self_update/launcher_release.dart';
+import '../self_update/launcher_release_client.dart'
+    show LauncherDownloadCancelled;
 import '../self_update/launcher_self_updater.dart';
 import '../self_update/launcher_version.dart';
 import '../services/app_logger.dart';
@@ -162,9 +164,24 @@ class LauncherUpdateController extends ChangeNotifier
     }
   }
 
-  Future<bool> download() async {
-    if (isDownloading) return false;
+  Future<bool> download() {
+    if (isDownloading) return Future.value(false);
+    _cancelRequested = false;
+    return _downloadRun = _download().whenComplete(() => _downloadRun = null);
+  }
 
+  Future<bool>? _downloadRun;
+  bool _cancelRequested = false;
+
+  /// עוצר הורדה שרצה ומחכה שתיעצר; החלקי נשמר, וההורדה הבאה ממשיכה ממנו.
+  Future<void> cancelAndWait() async {
+    final run = _downloadRun;
+    if (run == null) return;
+    _cancelRequested = true;
+    await run;
+  }
+
+  Future<bool> _download() async {
     status = LauncherUpdateStatus.downloading;
     downloadReceived = null;
     downloadTotal = null;
@@ -179,8 +196,14 @@ class LauncherUpdateController extends ChangeNotifier
           downloadTotal = total;
           notifyProgress();
         },
+        isCancelled: () => _cancelRequested,
       );
       AppLogger.instance.info("גרסה חדשה של הלאנצ'ר הורדה לתיקייה המקומית");
+    } on LauncherDownloadCancelled {
+      AppLogger.instance.info("הורדת הלאנצ'ר נעצרה; החלקי נשמר להמשך");
+      await _loadLocal(cleanupLeftovers: false);
+      notifyListeners();
+      return false;
     } catch (e, st) {
       AppLogger.instance.error("הורדת גרסת הלאנצ'ר נכשלה", e, st);
       await _loadLocal();

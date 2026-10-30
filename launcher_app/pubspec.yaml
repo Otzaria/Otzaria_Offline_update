@@ -19,7 +19,7 @@ dependencies:
   seforim_library_updater:
     git:
       url: https://github.com/Otzaria/otzaria_library_updater.git
-      ref: 809ce54799f5ef47f4694ea3e950a94368705e21
+      ref: 0b508aad37d5eb04640c5f2497d16ce9a2f9555b
   otzaria_l10n:
     path: ../otzaria_l10n
   otzaria_manager:

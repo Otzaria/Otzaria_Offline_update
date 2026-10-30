@@ -27,7 +27,8 @@ import 'package:launcher_app/src/settings/settings_controller.dart';
 import 'package:launcher_app/src/shell/home_guidance.dart';
 import 'package:launcher_app/src/shell/home_guidance_session.dart';
 import 'package:launcher_app/src/shell/shell_keys.dart';
-import 'package:launcher_app/src/widgets/widgets_exports.dart' show AppDialog;
+import 'package:launcher_app/src/widgets/widgets_exports.dart'
+    show ActionButton, AppDialog;
 import 'package:library_manager/library_manager.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart' show OtzariaCapabilities;
@@ -644,6 +645,8 @@ void main() {
       ErrorReportsController reports, {
       bool readOnly = false,
       Future<void> Function()? onUpload,
+      bool busy = false,
+      bool? uploadBusy,
     }) =>
         ReportsPage(
           errorReports: reports,
@@ -654,7 +657,8 @@ void main() {
             (launcherUpdate.onlineCheckedAt, launcherUpdate.onlineCheckError),
           ]),
           isUploadingAll: false,
-          busy: false,
+          busy: busy,
+          uploadBusy: uploadBusy,
           reportsToCollect: 0,
           onCollect: () {},
           onUpload: onUpload ?? () async {},
@@ -693,6 +697,33 @@ void main() {
       debugPrint = originalPrint;
       expect(outcome?.severity, ReportsUploadSeverity.success);
       expect(printed, ['UiSnack ללא overlay: ${t.uploadSummary(2, 0, 0)}']);
+    });
+
+    // הורדה או סנכרון תוספים השביתו את השליחה, אף שאינם נוגעים בתיבה.
+    testWidgets('איסוף חסום (התקנה כאן) — השליחה פתוחה; חסימת שליחה סוגרת',
+        (tester) async {
+      outbox
+        ..add('a')
+        ..add('b');
+      final c = controller();
+      await c.refreshOutbox();
+      var uploads = 0;
+
+      await pumpScreen(
+        tester,
+        home(c, busy: true, uploadBusy: false, onUpload: () async => uploads++),
+      );
+      expect(sendOffer(2), findsOneWidget);
+      expect(find.text(stringsOf().pages.pageBusyNote), findsNothing);
+      await tester.tap(sendOffer(2));
+      expect(uploads, 1);
+
+      await pumpScreen(tester, home(c, uploadBusy: true));
+      expect(
+        tester.widget<ActionButton>(sendOffer(2)).onPressed,
+        isNull,
+      );
+      expect(find.text(stringsOf().pages.pageBusyNote), findsOneWidget);
     });
 
     testWidgets('אין חיבור: נשאר הכיתוב בלבד, וכשהחיבור חוזר הכפתור מופיע',

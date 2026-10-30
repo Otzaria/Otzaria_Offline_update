@@ -97,6 +97,7 @@ class LauncherUpdateMirror {
   Future<MirroredLauncherRelease> sync(
     LauncherRelease release, {
     void Function(int received, int total)? onProgress,
+    bool Function()? isCancelled,
   }) async {
     final releaseDir = p.join(mirrorDir, _filesDirName, release.tagName);
     final filePath = p.join(releaseDir, release.assetName);
@@ -114,6 +115,7 @@ class LauncherUpdateMirror {
         expectedSizeBytes: release.sizeBytes,
         calculateSha256: expected != null,
         onProgress: onProgress,
+        isCancelled: isCancelled,
       );
       if (expected != null && result.sha256 != expected) {
         await file.delete();
@@ -252,6 +254,7 @@ class LauncherUpdateMirror {
     required int expectedSizeBytes,
     required bool calculateSha256,
     void Function(int received, int total)? onProgress,
+    bool Function()? isCancelled,
   }) async {
     return downloadFile(
       client: _httpClient,
@@ -261,6 +264,12 @@ class LauncherUpdateMirror {
       connectTimeout: connectTimeout,
       stallTimeout: stallTimeout,
       onProgress: onProgress,
+      checkCancelled: () {
+        if (isCancelled?.call() ?? false) {
+          throw const LauncherDownloadCancelled();
+        }
+      },
+      keepPartialOnCancel: true,
       calculateSha256: calculateSha256,
       statusError: (status) => LauncherUpdateException(
         AppL10n.strings.launcherUpdate.downloadFailed(status),

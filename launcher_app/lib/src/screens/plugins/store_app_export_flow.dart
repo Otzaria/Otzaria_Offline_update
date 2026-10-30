@@ -118,6 +118,9 @@ Future<void> runStoreAppExport(
   final StoreAppExportOutcome outcome;
   try {
     outcome = await controller.exportStoreApp(destination);
+  } on PluginMirrorBusy catch (e) {
+    UiSnack.show(e.message);
+    return;
   } catch (e, st) {
     AppLogger.instance.error('העתקת חנות התוספים נכשלה', e, st);
     // 32 = קובץ בשימוש: החנות רצה ולא ניתן לדרוס את קובץ ההרצה שלה.

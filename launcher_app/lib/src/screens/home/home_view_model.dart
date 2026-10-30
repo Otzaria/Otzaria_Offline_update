@@ -6,6 +6,7 @@ import 'package:otzaria_manager/otzaria_manager.dart'
 import 'package:path/path.dart' as p;
 import 'package:plugins_manager/plugins_manager.dart' show PluginsOnlineStatus;
 
+import '../../controllers/download_plan.dart' show MirrorComponent;
 import '../../controllers/launcher_update_controller.dart';
 import '../../controllers/library_module_controller.dart';
 import '../../controllers/otzaria_module_controller.dart';
@@ -112,6 +113,8 @@ class HomeViewModel {
     this.newPlugins = const [],
     this.canLaunch = false,
     this.task = HomeTask.other,
+    this.downloadBehind = false,
+    this.downloadResultWaiting = false,
     this.isCheckingOnline = false,
     this.checkingNow = false,
     this.checkBlocked = false,
@@ -249,6 +252,12 @@ class HomeViewModel {
   final List<String> newPlugins;
   final bool canLaunch;
   final HomeTask task;
+
+  /// הורדה רצה ברקע בזמן ש-[task] אחרת מוצגת — הגיבור מציע גם אותה.
+  final bool downloadBehind;
+
+  /// הורדה שהסתיימה מאחורי "עדכון כאן" ותוצאתה עוד לא נראתה.
+  final bool downloadResultWaiting;
   final bool isCheckingOnline;
 
   /// "בדוק עכשיו" רץ (מקומית ואז ברשת) — מחוון במקום הקישור.
@@ -300,6 +309,28 @@ HomeViewModel homeViewModelOf(AppSession s) {
   final customApps = s.customApps;
 
   final guidance = deriveHomeGuidance(facts);
+  // פעולה שרצה לצד הורדה ברקע מוצגת בגיבור; להורדה כפתור משלה.
+  final task = switch (s) {
+    _ when otzaria.status == OtzariaModuleStatus.installing =>
+      HomeTask.installingApp,
+    _
+        when library.isApplying ||
+            library.status == LibraryModuleStatus.updating =>
+      HomeTask.updatingLibrary,
+    _ when plugins.isUpdatingAll => HomeTask.updatingPlugins,
+    // סנכרון בזמן הורדה הוא חלק ממנה.
+    _
+        when plugins.isSyncing &&
+            !s.mirrorBeingWritten.contains(MirrorComponent.plugins) =>
+      HomeTask.syncingPlugins,
+    _ when plugins.isExporting => HomeTask.exportingStore,
+    _ when customApps.isDownloadingAll => HomeTask.downloadingCustomApps,
+    _ when customApps.isBusy || customApps.isLearning => HomeTask.customApps,
+    _ when s.launcherUpdate.isInstalling => HomeTask.installingLauncher,
+    _ when s.exitPending => HomeTask.restartingElevated,
+    _ when s.isDownloading => HomeTask.downloading,
+    _ => HomeTask.other,
+  };
   TileStatus tile(GuidanceItem item) => deriveTileStatus(
         item,
         facts,
@@ -416,23 +447,9 @@ HomeViewModel homeViewModelOf(AppSession s) {
     legacyReportsNotice: s.showsLegacyReportsNotice,
     newPlugins: [for (final plugin in s.newPluginsForHome) plugin.name],
     canLaunch: otzaria.canLaunch,
-    task: switch (s) {
-      _ when s.isDownloading => HomeTask.downloading,
-      _ when otzaria.status == OtzariaModuleStatus.installing =>
-        HomeTask.installingApp,
-      _
-          when library.isApplying ||
-              library.status == LibraryModuleStatus.updating =>
-        HomeTask.updatingLibrary,
-      _ when plugins.isUpdatingAll => HomeTask.updatingPlugins,
-      _ when plugins.isSyncing => HomeTask.syncingPlugins,
-      _ when plugins.isExporting => HomeTask.exportingStore,
-      _ when customApps.isDownloadingAll => HomeTask.downloadingCustomApps,
-      _ when customApps.isBusy || customApps.isLearning => HomeTask.customApps,
-      _ when s.launcherUpdate.isInstalling => HomeTask.installingLauncher,
-      _ when s.exitPending => HomeTask.restartingElevated,
-      _ => HomeTask.other,
-    },
+    task: task,
+    downloadBehind: s.isDownloading && task != HomeTask.downloading,
+    downloadResultWaiting: s.tasks.downloadParked,
     isCheckingOnline: s.isCheckingOnline,
     checkingNow: s.isCheckingNow,
     checkBlocked: s.checkNowBlocked,

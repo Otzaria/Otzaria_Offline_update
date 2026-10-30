@@ -57,14 +57,13 @@ class LauncherUpdateFlow {
 
   Future<void> download() async {
     if (host.blockedByReadOnly()) return;
-    if (downloads.pendingSweep case final sweep?) await sweep;
-    if (_mirrorCheck case final check?) await check;
-    if (!host.isActive ||
-        downloads.isPreparing ||
-        downloads.isDownloading ||
-        launcher.isDownloading) {
-      return;
+    // ניקוי עלול להתחיל בזמן ההמתנה לבדיקה; בין הבדיקה האחרונה להורדה אין await.
+    for (Future<void>? wait;
+        (wait = downloads.pendingSweep ?? _mirrorCheck) != null;) {
+      await wait;
     }
+    // מראה נפרדת ומחוץ לשחזור; הניקוי מדולג כל עוד היא יורדת (`mirrorInUse`).
+    if (!host.isActive || launcher.isDownloading) return;
 
     final downloaded = await launcher.download();
     if (!downloaded || !host.isActive || !launcher.hasUpdateReady) return;

@@ -68,8 +68,24 @@ abstract final class PluginDirectInstaller {
 
   static const handoffRetention = Duration(hours: 1);
 
-  static Directory get defaultHandoffRoot =>
-      Directory(p.join(Directory.systemTemp.path, 'otzaria_plugin_handoff'));
+  static Directory get defaultHandoffRoot => Directory(
+      p.join(handoffBase(Directory.systemTemp), 'otzaria_plugin_handoff'));
+
+  /// בנתיב הארוך: TEMP ב-Windows הוא לרוב שם 8.3 (`ZEEVLE~1`), והתאמת קובץ
+  /// התוצאות של אוצריא משווה את הנתיב שנמסר מילה במילה.
+  static String handoffBase(
+    Directory temp, {
+    String Function(Directory dir)? resolve,
+    bool Function(String path) accepts = acceptedByOtzaria,
+  }) {
+    try {
+      final resolved = (resolve ?? (d) => d.resolveSymbolicLinksSync())(temp);
+      // כונן רשת ממופה נפתר לנתיב UNC, שאוצריא אינה מקבלת.
+      return accepts(resolved) ? resolved : temp.path;
+    } on FileSystemException {
+      return temp.path;
+    }
+  }
 
   static Future<String> deliverablePath(
     String pluginFilePath, {
@@ -77,8 +93,8 @@ abstract final class PluginDirectInstaller {
     Directory? handoffRoot,
     DateTime Function() now = DateTime.now,
   }) async {
-    if (accepts(pluginFilePath)) return pluginFilePath;
-
+    // תמיד עותק: אוצריא קוראת אחרי שהמסירה חזרה, וסנכרון עשוי להחליף את
+    // הקובץ שבמראה עד אז.
     final root = handoffRoot ?? defaultHandoffRoot;
     await pruneHandoff(root, now().subtract(handoffRetention));
     await root.create(recursive: true);

@@ -19,6 +19,7 @@ class ReportsPage extends StatelessWidget {
     required this.connection,
     required this.isUploadingAll,
     required this.busy,
+    bool? uploadBusy,
     required this.reportsToCollect,
     required this.onCollect,
     required this.onUpload,
@@ -30,7 +31,7 @@ class ReportsPage extends StatelessWidget {
     this.appReports,
     this.onCheckConnection,
     this.checkingConnection = false,
-  });
+  }) : uploadBusy = uploadBusy ?? busy;
 
   final ErrorReportsController? errorReports;
 
@@ -38,8 +39,11 @@ class ReportsPage extends StatelessWidget {
   final bool? connection;
   final bool isUploadingAll;
 
-  /// פעולה ארוכה רצה — אין איסוף ואין שליחה עכשיו.
+  /// התקנה רצה כאן — אין איסוף עכשיו.
   final bool busy;
+
+  /// השליחה קוראת רק את תיבת היוצאים, ולכן הורדה אינה חוסמת אותה.
+  final bool uploadBusy;
 
   /// דיווחי תקלות שממתינים באוצריא, ורשומות החיפוש החכם שלצידם.
   final int reportsToCollect;
@@ -216,9 +220,9 @@ class ReportsPage extends StatelessWidget {
       key: ShellKeys.reportsSend,
       text: t.repSendButton,
       icon: FluentIcons.send_24_regular,
-      onPressed: busy || onUpload == null ? null : () => onUpload!(),
+      onPressed: uploadBusy || onUpload == null ? null : () => onUpload!(),
     );
-    final busyNote = busy
+    final busyNote = busy || uploadBusy
         ? Text(key: ShellKeys.pageBusyNote, t.pageBusyNote, style: sub)
         : null;
 
@@ -265,7 +269,8 @@ class ReportsPage extends StatelessWidget {
               key: ShellKeys.reportsSend,
               text: t.repSendStoredButton(waiting),
               icon: FluentIcons.send_24_regular,
-              onPressed: busy || onUpload == null ? null : () => onUpload!(),
+              onPressed:
+                  uploadBusy || onUpload == null ? null : () => onUpload!(),
             ),
         ],
       );
@@ -276,7 +281,7 @@ class ReportsPage extends StatelessWidget {
         icon: FluentIcons.send_24_regular,
         title: t.repWaitingTitle(waiting),
         subtitle: t.repWaitingBody(withSearch: false),
-        extra: [if (busyNote != null) busyNote],
+        extra: [if (uploadBusy && busyNote != null) busyNote],
         actions: [
           sendButton,
           ActionButton.ghost(

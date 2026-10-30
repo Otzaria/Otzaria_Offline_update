@@ -1,4 +1,6 @@
+import 'package:otzaria_downloads/otzaria_downloads.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import '../controllers/download_plan.dart' show MirrorComponent;
 import '../services/byte_size.dart';
@@ -60,7 +62,17 @@ DownloadFailure classifyDownloadFailure({
     for (final m in messages)
       if (!(shabbat && m.component == MirrorComponent.plugins)) m,
   ];
-  if (withoutShabbat.any((m) => _blocked.hasMatch(m.error))) {
+  if (failed
+          .where((c) => !(shabbat && c == MirrorComponent.plugins))
+          .any((c) => switch (causes[c]) {
+                NetworkBlockedException() ||
+                NetworkCertificateException() =>
+                  true,
+                LibraryHttpException(:final isBlockedByFilter) =>
+                  isBlockedByFilter,
+                _ => false,
+              }) ||
+      withoutShabbat.any((m) => _blocked.hasMatch(m.error))) {
     return DownloadFailure(
       DownloadFailureKind.blocked,
       components: failed,

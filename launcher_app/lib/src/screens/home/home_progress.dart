@@ -69,7 +69,8 @@ class HomeTaskProgress extends StatelessWidget {
     );
   }
 
-  /// ההורדה עוברת בין התוכנה, הספרייה והתוספים — מד אחד למה שרץ עכשיו.
+  /// מד אחד לרכיב המוביל: כשהספרייה והתוספים רצים יחד מוצגת הספרייה, והפירוט
+  /// המלא במסך ההתקדמות.
   Widget _downloadRow(BuildContext context) {
     final t = context.strings.home;
     if (otzaria.downloadStatus == OtzariaDownloadStatus.downloading) {

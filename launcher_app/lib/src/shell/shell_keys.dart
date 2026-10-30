@@ -93,11 +93,13 @@ abstract final class ShellKeys {
   static const taskPrimary = ValueKey('task.primary');
   static const taskSecondary = ValueKey('task.secondary');
   static const taskCancel = ValueKey('task.cancel');
+  static const taskHide = ValueKey('task.hide');
   static const taskSemanticRemember = ValueKey('task.semanticRemember');
   static const taskStopWaiting = ValueKey('task.stopWaiting');
   static const taskReindex = ValueKey('task.reindex');
   static const taskElevation = ValueKey('task.elevation');
   static const heroShowProgress = ValueKey('home.hero.showProgress');
+  static const heroShowDownload = ValueKey('home.hero.showDownload');
   static const personalAskDialog = ValueKey('personal.ask');
   static const personalAskMultiple = ValueKey('personal.ask.multiple');
   static const personalAskMine = ValueKey('personal.ask.mine');

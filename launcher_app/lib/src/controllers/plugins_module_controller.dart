@@ -287,8 +287,12 @@ class PluginsModuleController extends ChangeNotifier
 
   String? shabbatNotice;
 
+  /// סנכרון שההורדה ביקשה ונדחה — כשל של הרכיב, לא שגיאה בכרטיס של החנות.
+  String? syncRefusal;
+
   bool get lastSyncFailed =>
       errorMessage != null ||
+      syncRefusal != null ||
       shabbatNotice != null ||
       storageFull ||
       (lastSyncOutcome?.hasFailures ?? false);
@@ -577,22 +581,54 @@ class PluginsModuleController extends ChangeNotifier
     storeAppCheckedAt = DateTime.now();
   }
 
-  /// מסנכרן את הקטלוג והקבצים מהאתר אל המראה. דורש אינטרנט.
+  /// מסנכרן את הקטלוג והקבצים מהאתר אל המראה. דורש אינטרנט. `false` —
+  /// נדחה, ראו [syncBlockedReason]; סנכרון שכבר רץ מצורף ואינו נדחה.
   ///
   /// [isCancelled] נבדק בין תוסף לתוסף (הקבצים עצמם קטנים) — ראו
   /// `PluginMirrorSync.sync`.
-  Future<void> sync({bool Function()? isCancelled}) =>
-      _syncRun ??= _sync(isCancelled: isCancelled).whenComplete(() {
-        _syncRun = null;
-        if (!_installDone.isClosed) notifyListeners();
-      });
+  Future<bool> sync({
+    bool Function()? isCancelled,
+    bool forDownload = false,
+  }) {
+    if (_syncRun case final running?) return running;
+    if (syncBlockedReason(forDownload: forDownload) case final reason?) {
+      // בהורדה — כשל רגיל של הרכיב (`lastSyncFailed`), לא חריג שמפיל את הזרימה.
+      if (forDownload) {
+        syncRefusal = reason;
+        notifyListeners();
+      }
+      return Future.value(false);
+    }
+    return _syncRun =
+        _sync(isCancelled: isCancelled).then((_) => true).whenComplete(() {
+      _syncRun = null;
+      if (!_installDone.isClosed) notifyListeners();
+    });
+  }
 
-  Future<void>? _syncRun;
+  /// למה סנכרון לא יתחיל עכשיו, או `null`. [forDownload] — ההורדה הכוללת
+  /// מבקשת, והמראה כבר שמורה לה.
+  String? syncBlockedReason({bool forDownload = false}) {
+    // "עדכון הכול" משחרר את המראה בין מסירה למסירה, אבל עוד לא סיים.
+    final busy = isReadingMirror ||
+        isUpdatingAll ||
+        (!forDownload && (syncBlockedElsewhere?.call() ?? false));
+    return busy ? AppL10n.strings.plugins.syncBlockedSnack : null;
+  }
+
+  /// הסנכרון העצמאי מחליף קבצים במראה ובוחר גרסאות לפי המתקין שבה —
+  /// `AppSession` עונה כאן אם הורדה או "עדכון כאן" אוחזים בהם.
+  bool Function()? syncBlockedElsewhere;
+
+  /// הורדה, ניקוי או החזרה לאחור כותבים עכשיו את מראה התוספים.
+  bool Function()? mirrorWrittenElsewhere;
+  Future<bool>? _syncRun;
 
   bool get isSyncing => _syncRun != null;
 
   Future<void> _sync({bool Function()? isCancelled}) async {
     status = PluginsModuleStatus.syncing;
+    syncRefusal = null;
     errorMessage = null;
     shabbatNotice = null;
     lastSyncOutcome = null;
@@ -706,10 +742,18 @@ class PluginsModuleController extends ChangeNotifier
 
   /// מעתיק את תוכנת החנות ואת כל התוספים שבמראה ליעד שהמשתמש בחר. **בלי
   /// רשת.** זורק בכישלון; המסך הוא שמציג את ההודעה.
-  Future<StoreAppExportOutcome> exportStoreApp(String destinationDir) =>
-      _exportRun ??= _exportStoreApp(destinationDir).whenComplete(() {
-        _exportRun = null;
-      });
+  Future<StoreAppExportOutcome> exportStoreApp(String destinationDir) {
+    if (_exportRun == null) {
+      // מסירה ברקע ("עדכון כאן" שהסתיים מוקדם) הייתה נכשלת מכאן והלאה.
+      final reason = mirrorReadBlockedReason ??
+          (_delivering.isNotEmpty || isDeliveryRunActive
+              ? AppL10n.strings.plugins.actionsBlockedDelivering
+              : null);
+      if (reason != null) return Future.error(PluginMirrorBusy(reason));
+    }
+    return _exportRun ??=
+        _exportStoreApp(destinationDir).whenComplete(() => _exportRun = null);
+  }
 
   Future<StoreAppExportOutcome>? _exportRun;
 
@@ -832,8 +876,41 @@ class PluginsModuleController extends ChangeNotifier
     return PluginMirrorStore.resolveAgainst(root, relativePath);
   }
 
-  Future<PluginInstallResult> saveCopy(StorePlugin plugin, String destPath) =>
-      _manager.saveCopy(plugin, destPath, appVersion: appVersion);
+  Future<PluginInstallResult> saveCopy(
+    StorePlugin plugin,
+    String destPath,
+  ) async {
+    if (mirrorReadBlockedReason case final reason?) {
+      return PluginInstallResult.failure(reason);
+    }
+    _savingCopies++;
+    notifyListeners();
+    try {
+      return await _manager.saveCopy(plugin, destPath, appVersion: appVersion);
+    } finally {
+      _savingCopies--;
+      if (!isDisposed) notifyListeners();
+    }
+  }
+
+  int _savingCopies = 0;
+
+  /// למה אי אפשר לקרוא מהמראה עכשיו, או `null`: סנכרון או הורדה כותבים בה.
+  String? get mirrorReadBlockedReason {
+    final t = AppL10n.strings.plugins;
+    if (isSyncing) return t.actionsBlockedSyncing;
+    if (mirrorWrittenElsewhere?.call() ?? false) {
+      return t.actionsBlockedElsewhere;
+    }
+    return null;
+  }
+
+  /// מסירה, שמירת עותק או העתקת החנות קוראות עכשיו מהמראה.
+  bool get isReadingMirror =>
+      _delivering.isNotEmpty ||
+      _deliveryRuns > 0 ||
+      _savingCopies > 0 ||
+      _exportRun != null;
 
   Future<PluginInstallResult> directInstall(StorePlugin plugin) async {
     final handedOffAt = DateTime.now();
@@ -860,16 +937,35 @@ class PluginsModuleController extends ChangeNotifier
     return result;
   }
 
-  final Set<String> _delivering = {};
+  final Map<String, Future<PluginInstallResult>> _delivering = {};
 
   /// התוסף נמסר לאוצריא ברגע זה — לכל תוסף בנפרד.
-  bool isDelivering(StorePlugin plugin) => _delivering.contains(plugin.id);
+  bool isDelivering(StorePlugin plugin) => _delivering.containsKey(plugin.id);
 
-  /// [directInstall] עם סימון "בשליחה" על התוסף עד שהמסירה חוזרת. חריגה
-  /// (דיסק, תהליך) חוזרת ככישלון של התוסף הזה, ולא עוצרת רצף מסירות.
-  Future<PluginInstallResult> deliver(StorePlugin plugin) async {
-    _delivering.add(plugin.id);
+  /// מסירה כלשהי רצה — קוראת קובץ מהמראה.
+  bool get isDeliveringAny => _delivering.isNotEmpty;
+
+  /// [directInstall] עם סימון "בשליחה" עד שהמסירה חוזרת; חריגה היא כישלון של
+  /// התוסף הזה. מסירה של תוסף שכבר בשליחה מצטרפת אליה.
+  Future<PluginInstallResult> deliver(StorePlugin plugin) {
+    if (_delivering[plugin.id] case final running?) return running;
+    if (_closing) return Future.value(const PluginInstallResult.failure(null));
+    // מסירה עשויה גם להוריד קובץ חסר אל המראה — ולכן לא באמצע העתקה.
+    final blocked = mirrorReadBlockedReason ??
+        (isExporting ? AppL10n.strings.plugins.actionsBlockedExporting : null);
+    if (blocked != null) {
+      return Future.value(PluginInstallResult.failure(blocked));
+    }
+    final run = _delivering[plugin.id] = _deliver(plugin).whenComplete(() {
+      _delivering.remove(plugin.id);
+      _signalIdle();
+      if (!isDisposed) notifyListeners();
+    });
     notifyListeners();
+    return run;
+  }
+
+  Future<PluginInstallResult> _deliver(StorePlugin plugin) async {
     try {
       return await directInstall(plugin);
     } catch (error, stackTrace) {
@@ -879,9 +975,6 @@ class PluginsModuleController extends ChangeNotifier
         stackTrace,
       );
       return const PluginInstallResult.failure(null);
-    } finally {
-      _delivering.remove(plugin.id);
-      if (!isDisposed) notifyListeners();
     }
   }
 
@@ -940,17 +1033,52 @@ class PluginsModuleController extends ChangeNotifier
   }) async {
     final sent = <StorePlugin>[];
     var first = true;
-    for (final plugin in plugins ?? deliverableUpdates) {
-      if (isDisposed || (isCancelled?.call() ?? false)) break;
-      if (!first) await Future<void>.delayed(pluginUpdateDeliverySpacing);
-      first = false;
-      if (isDisposed || (isCancelled?.call() ?? false)) break;
-      onDelivering?.call(plugin);
-      final result = await deliver(plugin);
-      if (result.success) sent.add(plugin);
-      onDelivered?.call(plugin, result);
+    // אוחז במראה לכל הרצף: גם ברווח שבין מסירה למסירה (ראו [isReadingMirror]).
+    _deliveryRuns++;
+    try {
+      for (final plugin in plugins ?? deliverableUpdates) {
+        if (isDisposed || _closing || (isCancelled?.call() ?? false)) break;
+        if (!first) await Future<void>.delayed(pluginUpdateDeliverySpacing);
+        first = false;
+        if (isDisposed || _closing || (isCancelled?.call() ?? false)) break;
+        onDelivering?.call(plugin);
+        final result = await deliver(plugin);
+        if (result.success) sent.add(plugin);
+        onDelivered?.call(plugin, result);
+      }
+    } finally {
+      _deliveryRuns--;
+      _signalIdle();
+      // הבית, היציאה והחנות קוראים אותו מהמאזינים.
+      if (!isDisposed) notifyListeners();
     }
     return sent;
+  }
+
+  int _deliveryRuns = 0;
+
+  /// רצף מסירות ("עדכון הכול", שלב התוספים של "עדכון כאן") עוד לא הסתיים.
+  bool get isDeliveryRunActive => _deliveryRuns > 0;
+
+  bool _closing = false;
+  Completer<void>? _idle;
+
+  /// סגירה אושרה: שום מסירה חדשה לא מתחילה, וממתינים לאלה שבשליחה (וברצף —
+  /// לכל היותר עוד מרווח אחד). אין כאן מגבלת זמן; ראו [resumeDeliveries].
+  Future<void> stopDeliveriesAndWait() {
+    _closing = true;
+    if (_delivering.isEmpty && _deliveryRuns == 0) return Future.value();
+    return (_idle ??= Completer<void>()).future;
+  }
+
+  /// "חזרה לכלי" מהמתנת הסגירה: מסירות מותרות שוב. רצף שכבר יצא מהלולאה
+  /// (נעצר ברווח) אינו חוזר; רצף שעוד במסירה ממשיך כרגיל.
+  void resumeDeliveries() => _closing = false;
+
+  void _signalIdle() {
+    if (_delivering.isNotEmpty || _deliveryRuns > 0) return;
+    _idle?.complete();
+    _idle = null;
   }
 
   /// עדכונים שאוצריא יכולה לקבל ישירות.
@@ -1240,6 +1368,16 @@ class PluginsModuleController extends ChangeNotifier
     _manager.dispose();
     super.dispose();
   }
+}
+
+/// פעולה על מראה התוספים נדחתה כי פעולה מתנגשת רצה. [message] מוכן להצגה.
+class PluginMirrorBusy implements Exception {
+  const PluginMirrorBusy(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }
 
 /// תוסף שנמסר לאוצריא וממתין לאישור מהדיסק. [versionBefore] הוא מה שהיה

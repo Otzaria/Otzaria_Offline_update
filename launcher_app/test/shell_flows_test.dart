@@ -17,6 +17,7 @@ final _hasNew =
     OnlineProof(checkedAt: _checkedAt, error: null, hasUpdate: true);
 const SemanticSearchAnswer _yes = (download: true, remember: false);
 const SemanticSearchAnswer _no = (download: false, remember: false);
+const _swept = 'changed downloading=false cancelling=false';
 
 class _FakeApp implements AppMirrorModule, AutoInstallApp {
   _FakeApp(this.log);
@@ -121,6 +122,9 @@ class _FakePlugins implements PluginsMirrorModule {
   void Function()? onSync;
   void Function()? onStoreApp;
 
+  /// מחסום: הסנכרון ממתין לו אחרי שנרשם שהתחיל.
+  Completer<void>? syncGate;
+
   @override
   OnlineProof catalogOnlineProof = _hasNew;
   @override
@@ -133,6 +137,7 @@ class _FakePlugins implements PluginsMirrorModule {
   @override
   Future<void> sync({required bool Function() isCancelled}) async {
     log.add('plugins');
+    await syncGate?.future;
     onSync?.call();
   }
 
@@ -148,11 +153,11 @@ class _FakeRollback implements DownloadRollback {
 
   final List<String> log;
   Completer<void>? gate;
-  MirrorComponent? reverted;
+  Set<MirrorComponent>? reverted;
   Future<void> Function()? onRollback;
 
   @override
-  Future<void> rollback(MirrorComponent? inProgress) async {
+  Future<void> rollback(Set<MirrorComponent> inProgress) async {
     reverted = inProgress;
     log.add('rollback');
     await gate?.future;
@@ -175,7 +180,15 @@ class _FakeDownloadHost implements MirrorDownloadHost {
   @override
   bool isBlocked = false;
   @override
-  bool launcherDownloading = false;
+  bool mirrorInUse = false;
+  Set<MirrorComponent> blocked = {};
+
+  @override
+  bool blocksComponent(MirrorComponent component) =>
+      blocked.contains(component);
+
+  @override
+  void downloadBlocked() => log.add('blocked');
   @override
   AppSettings settings = const AppSettings();
 
@@ -390,13 +403,123 @@ void main() {
     });
     test('cancelling plugins keeps the app and library that already finished',
         () async {
-      plugins.onSync = flow.requestCancel;
-      await flow.downloadAll();
-      expect(host.rollback.reverted, MirrorComponent.plugins);
+      plugins
+        ..syncGate = Completer<void>()
+        ..onSync = flow.requestCancel;
+      final run = flow.downloadAll();
+      await pumpEventQueue();
+      expect(flow.finishedComponents,
+          {MirrorComponent.app, MirrorComponent.library});
+      plugins.syncGate!.complete();
+      await run;
+      expect(host.rollback.reverted, {MirrorComponent.plugins});
       expect(host.kept, [MirrorComponent.app, MirrorComponent.library]);
-      plugins.onSync = null;
+      plugins
+        ..syncGate = null
+        ..onSync = null;
       await flow.downloadAll();
       expect(host.failed, isEmpty);
+    });
+
+    group('library and plugins in parallel', () {
+      test('both enter before either finishes; the app ran first', () async {
+        final libraryGate = Completer<void>();
+        library.onDownload = () => libraryGate.future;
+        plugins.syncGate = Completer<void>();
+        final run = flow.downloadAll();
+        await pumpEventQueue();
+
+        expect(componentsRun(), ['app', 'library', 'plugins']);
+        expect(flow.runningComponents,
+            {MirrorComponent.library, MirrorComponent.plugins});
+        expect(flow.finishedComponents, {MirrorComponent.app});
+        expect(flow.pendingComponents,
+            {MirrorComponent.library, MirrorComponent.plugins});
+
+        // הספרייה נגמרת — התוספים עדיין רצים, ושום סיום אינו מוכרז.
+        libraryGate.complete();
+        await pumpEventQueue();
+        expect(flow.runningComponents, {MirrorComponent.plugins});
+        expect(flow.pendingComponents, {MirrorComponent.plugins});
+        expect(flow.isDownloading, isTrue);
+        expect(log, isNot(contains('finished')));
+        expect(log, isNot(contains('sweep')));
+
+        plugins.syncGate!.complete();
+        await run;
+        expect(componentsRun(), ['app', 'library', 'plugins', 'store app']);
+        expect(host.failed, isEmpty);
+        expect(host.sweeps, 1);
+      });
+
+      test('a failed library does not end the plugins still running', () async {
+        library.onDownload = () async => library.downloadFailed = true;
+        plugins.syncGate = Completer<void>();
+        final run = flow.downloadAll();
+        await pumpEventQueue();
+        expect(flow.finishedComponents,
+            {MirrorComponent.app, MirrorComponent.library});
+        expect(flow.runningComponents, {MirrorComponent.plugins});
+        expect(log, isNot(contains('finished')));
+
+        plugins.syncGate!.complete();
+        await run;
+        expect(componentsRun(), ['app', 'library', 'plugins', 'store app']);
+        expect(host.failed, [MirrorComponent.library]);
+        expect(host.sweeps, 0);
+      });
+
+      test('cancel while both run reverts both and keeps the app', () async {
+        final libraryGate = Completer<void>();
+        library.onDownload = () => libraryGate.future;
+        plugins.syncGate = Completer<void>();
+        final run = flow.downloadAll();
+        await pumpEventQueue();
+        flow.requestCancel();
+        libraryGate.complete();
+        plugins.syncGate!.complete();
+        await run;
+
+        expect(host.rollback.reverted,
+            {MirrorComponent.library, MirrorComponent.plugins});
+        expect(host.kept, [MirrorComponent.app]);
+        // תוכנת החנות לא מתחילה אחרי הביטול.
+        expect(componentsRun(), ['app', 'library', 'plugins']);
+        expect(log.last, 'cancelled');
+        expect(flow.isDownloading, isFalse);
+        expect(host.sweeps, 0);
+      });
+
+      test('a library that throws still waits for the plugins, then reports',
+          () async {
+        library.onDownload = () async => throw StateError('boom');
+        plugins.syncGate = Completer<void>();
+        final run = flow.downloadAll();
+        await pumpEventQueue();
+        expect(flow.runningComponents, {MirrorComponent.plugins});
+        expect(log, isNot(contains('crashed')));
+
+        plugins.syncGate!.complete();
+        await run;
+        expect(log, contains('crashed'));
+        expect(componentsRun(), ['app', 'library', 'plugins', 'store app']);
+        expect(flow.isDownloading, isFalse);
+      });
+
+      test('the plugins are refused, not skipped, while a plugin sync runs',
+          () async {
+        host.blocked = {MirrorComponent.plugins};
+        await flow.downloadAll();
+        expect(componentsRun(), isEmpty);
+        expect(log, contains('blocked'));
+        expect(log, isNot(contains('capture')));
+        expect(flow.isDownloading, isFalse);
+
+        // בלי תוספים בתוכנית — הסנכרון האחר אינו מפריע.
+        host.settings = const AppSettings(syncPlugins: false);
+        await flow.downloadAll();
+        expect(componentsRun(), ['app', 'library']);
+      });
     });
     group('הכונן התמלא', () {
       void fullIn(_FakeLibrary l) {
@@ -404,10 +527,15 @@ void main() {
         l.storageFull = true;
       }
 
-      test('בספרייה: לא מתחילים תוספים ותוכנת חנות, והספרייה נכשלת', () async {
+      test('בספרייה: התוספים שכבר רצו מסתיימים, תוכנת החנות לא מתחילה',
+          () async {
         library.onDownload = () async => fullIn(library);
-        await flow.downloadAll();
-        expect(componentsRun(), ['app', 'library']);
+        plugins.syncGate = Completer<void>();
+        final run = flow.downloadAll();
+        await pumpEventQueue();
+        plugins.syncGate!.complete();
+        await run;
+        expect(componentsRun(), ['app', 'library', 'plugins']);
         expect(host.failed, [MirrorComponent.library]);
         expect(log, isNot(contains('sweep')));
         expect(flow.isDownloading, isFalse);
@@ -492,9 +620,10 @@ void main() {
     test('runs every component in order and ends with one sweep', () async {
       await flow.downloadAll();
 
-      expect(log, [
+      // כל רכיב מכריז על תחילתו וסיומו — למסך ההתקדמות; כאן רק הסדר.
+      expect(
+          log.where((e) => e != 'changed downloading=true cancelling=false'), [
         'refresh',
-        'changed downloading=true cancelling=false',
         'capture',
         'app',
         'library',
@@ -504,6 +633,10 @@ void main() {
         'ended',
         'sweep',
         'finished',
+      ]);
+      expect(log.take(2), [
+        'refresh',
+        'changed downloading=true cancelling=false',
       ]);
       expect(host.failed, isEmpty);
       expect(host.skipped, isEmpty);
@@ -599,13 +732,15 @@ void main() {
       expect(host.failed, isNull);
     });
 
-    test('the active plan and the current component follow the run', () async {
+    test('the active plan and the running components follow the run', () async {
       plugins.catalogOnlineProof = _proven;
       plugins.storeAppOnlineProof = _proven;
-      MirrorComponent? during;
+      Set<MirrorComponent>? during;
+      Set<MirrorComponent>? pending;
       List<MirrorComponent>? components;
       app.onDownload = () async {
-        during = flow.currentComponent;
+        during = flow.runningComponents;
+        pending = flow.pendingComponents;
         components = flow.activeComponents;
         expect(flow.activePlan, isNotNull);
       };
@@ -613,9 +748,11 @@ void main() {
       expect(flow.activePlan, isNull);
       await flow.downloadAll();
 
-      expect(during, MirrorComponent.app);
+      expect(during, {MirrorComponent.app});
+      expect(pending, {MirrorComponent.app, MirrorComponent.library});
       expect(components, [MirrorComponent.app, MirrorComponent.library]);
-      expect(flow.currentComponent, isNull);
+      expect(flow.runningComponents, isEmpty);
+      expect(flow.pendingComponents, isEmpty);
       expect(flow.activeComponents, isEmpty);
       expect(flow.activePlan, isNull);
     });
@@ -714,6 +851,8 @@ void main() {
       expect(log.sublist(log.indexOf('app')), [
         'app',
         'changed downloading=true cancelling=true',
+        // סיום רכיב האפליקציה, שנקטע.
+        'changed downloading=true cancelling=true',
         'rollback',
         'changed downloading=false cancelling=false',
         'cancelled',
@@ -729,7 +868,7 @@ void main() {
 
       await flow.downloadAll();
 
-      expect(host.rollback.reverted, MirrorComponent.app);
+      expect(host.rollback.reverted, {MirrorComponent.app});
       expect(host.kept, isEmpty);
     });
 
@@ -739,7 +878,7 @@ void main() {
       await flow.downloadAll();
 
       expect(componentsRun(), ['app', 'library']);
-      expect(host.rollback.reverted, MirrorComponent.library);
+      expect(host.rollback.reverted, {MirrorComponent.library});
       expect(host.kept, [MirrorComponent.app]);
       expect(log.last, 'cancelled');
     });
@@ -751,7 +890,7 @@ void main() {
 
       await flow.downloadAll();
 
-      expect(host.rollback.reverted, MirrorComponent.library);
+      expect(host.rollback.reverted, {MirrorComponent.library});
       expect(host.kept, isEmpty);
     });
 
@@ -1008,8 +1147,8 @@ void main() {
       expect(host.sweeps, 0);
     });
 
-    test('no sweep while a launcher download runs', () async {
-      host.launcherDownloading = true;
+    test('no sweep while the mirror is in use elsewhere', () async {
+      host.mirrorInUse = true;
       await flow.downloadAll();
       expect(host.sweeps, 0);
     });
@@ -1027,7 +1166,7 @@ void main() {
       host.sweepGate!.complete();
       host.sweepGate = null;
       await next;
-      expect(log.first, 'refresh');
+      expect(log.take(2), [_swept, 'refresh']);
     });
 
     test('a second press while preparing is ignored', () async {
@@ -1055,7 +1194,7 @@ void main() {
       host.sweepGate!.complete();
       host.sweepGate = null;
       await next;
-      expect(log, isEmpty);
+      expect(log, [_swept]);
     });
 
     test('"הורדה" מיד אחרי "ביטול" — מחכה לזרימה שבוטלה ומתחילה מחדש',
@@ -1373,7 +1512,7 @@ void main() {
 
       host.sweepGate!.complete();
       await download;
-      expect(log.first, 'launcher download');
+      expect(log.take(2), [_swept, 'launcher download']);
     });
 
     test('download waits for a running mirror check first', () async {
@@ -1388,17 +1527,39 @@ void main() {
       expect(log[1], 'launcher download');
     });
 
-    test('download does not start while the mirror download prepares',
-        () async {
-      final refreshGate = Completer<void>();
-      host.onRefresh = (_) => refreshGate.future;
+    // מראה נפרדת ומחוץ לשחזור: רק הניקוי נוגע בה, והוא מדולג בזמן שהיא יורדת.
+    test('download runs alongside a mirror download', () async {
+      final libraryGate = Completer<void>();
+      library.onDownload = () => libraryGate.future;
       final mirror = flow.downloadAll();
+      await pumpEventQueue();
+      expect(flow.isDownloading, isTrue);
 
       await launcherFlow.download();
+      expect(log, contains('launcher download'));
+      expect(flow.isDownloading, isTrue);
+
+      libraryGate.complete();
+      await mirror;
+    });
+
+    test('a sweep that starts while the mirror check runs is awaited too',
+        () async {
+      launcher.checkGate = Completer<void>();
+      unawaited(launcherFlow.checkMirror());
+      final download = launcherFlow.download();
+      host.sweepGate = Completer<void>();
+      await flow.downloadAll();
+      expect(flow.pendingSweep, isNotNull);
+
+      launcher.checkGate!.complete();
+      await pumpEventQueue();
       expect(log, isNot(contains('launcher download')));
 
-      refreshGate.complete();
-      await mirror;
+      host.sweepGate!.complete();
+      await download;
+      expect(
+          log.indexOf('launcher download'), greaterThan(log.indexOf('sweep')));
     });
 
     test('download does not start while another launcher download runs',

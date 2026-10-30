@@ -816,7 +816,10 @@ class LibraryModuleController extends ChangeNotifier
         AppLogger.instance.info('הורדת עדכוני ספרייה בוטלה: $e');
       } else {
         downloadStatus = MirrorDownloadStatus.error;
-        downloadError = e.toString();
+        downloadError = e is LibraryHttpException && e.isBlockedByFilter
+            ? AppL10n.strings.appDomain
+                .networkBlockedByFilter(e.statusCode, e.uri.host)
+            : e.toString();
         downloadCause = e;
         AppLogger.instance.error('הורדת עדכוני ספרייה נכשלה', e, st);
       }

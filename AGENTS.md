@@ -196,7 +196,7 @@ only repo tooling; the update engine is an external package (below).
 | --- | --- | --- |
 | `otzaria_downloads/` | `otzaria_downloads` | Pure Dart. Shared resumable file transfers for app, launcher, store and custom apps, and the one GitHub API transport they use (`githubGet`: headers, timeout, `GithubRateLimitException` with a fail-fast gate). Also the Windows elevation helpers shared by `otzaria_manager`, `custom_apps_manager` and `launcher_app` (`windows_elevation.dart`: token query, the one argument-quoting function, de-elevated launch, `ShellExecuteExW` `runas`). `library_manager` keeps an equivalent internal copy (`github_fetch.dart`) instead of depending on it. |
 | `otzaria_l10n/` | `otzaria_l10n` | Pure Dart, **no dependencies at all**. Every user-visible string, Hebrew + English. The updater, managers and launcher depend on it, which is why it cannot use Flutter. See §4. |
-| `.` (root, `tool/`, `test/`) | `otzaria_offline_update` | Flutter. Repo tooling only: `tool/coverage.dart` over the eight sub-packages and the logical-hash measuring tools. Nothing depends on it. |
+| `.` (root, `tool/`, `test/`) | `otzaria_offline_update` | Flutter. Repo tooling only: `tool/coverage.dart` over the eight sub-packages and the logical-hash measuring tools. Nothing depends on it. `tool/download_bench/` is its own small package (download measurements, §5.2). |
 | `otzaria_manager/` | `otzaria_manager` | Pure Dart. The **Otzaria app itself**: check, download, silent install, launch. Windows + macOS. |
 | `library_manager/` | `library_manager` | Flutter. Wires `seforim_library_updater` into the launcher: locate the real `seforim.db`, check versions, apply to the **live** DB, export/consume the mirror. |
 | `plugins_manager/` | `plugins_manager` | Pure Dart. The **offline plugin store**: syncs `otzaria.org/api/plugins` into the mirror, detects what Otzaria has, installs via `otzaria://`. Converted from `Yehuda-Zakesh/Offline-repository-plugin-store` (itself derived from `Otzaria/Otzaria_Website`); details in `plugins_manager/README.md`. |
@@ -661,17 +661,47 @@ rest red; a rejected certificate is "filter", not "no internet" — retry alone 
 not help, and the no-space message is matched against every language's template). A
 cancel keeps the components that finished, so the screen names them
 (`DownloadTask.kept`) or, when none did, says "the drive is as before". Ctrl+R/F5
-and report offers also check `tasks.isRunning`; do **not** fold it into
-`longTaskRunning` — the download's own `isBlocked` reads that and would stop itself.
+and report offers also check `tasks.anyRunning`; do **not** fold it into
+`longTaskRunning`. A running download has "back to home" (`ShellTasks.hideDownload`):
+`ShellTasks` holds one download and one "update here" (which takes the front), so
+an install can start beside it. "Open the page" from a finished update over a
+finished download parks the result (`ShellTasks.leaveTask`, `downloadParked`)
+instead of raising it and blocking the move; home offers it back
+(`HomeViewModel.downloadResultWaiting`). Home shows an install or library update
+running beside a hidden download, with the download on its own button
+(`downloadBehind`) — not a priority that hides one of them.
 
-**Cancelling a download reverts only the component in progress.** "Cancel" (behind
+**Permission to act is per resource, never `longTaskRunning`.** That flag is
+"something is running" — for close, sleep and self-update; used as a permission it
+blocked uploading reports during a plugin sync and installing Otzaria during a
+library download (#148). `AppSession.mirrorBeingWritten` (pending components;
+everything while preparing or sweeping) → `installsBlockedByDownload`,
+`appInstallBlocked`, `libraryApplyBlocked`, `plugin*BlockedElsewhere`,
+`reportsCollectBlocked`/`reportsUploadBlocked`, `downloadBlocked`; the flow asks
+`blocksComponent` once its plan is known. "Update here" re-reads them right before
+it starts (`UpdateHereFlow.run(blocked:)`). Flags only gate buttons; the plugin
+mirror is also claimed in `PluginsModuleController` itself, both ways: `sync`
+refuses while a delivery, a delivery run (`deliverUpdates`, also between its
+spaced deliveries), a saved copy, an export (`isReadingMirror`) or "update all" runs;
+the download's own sync is then a plain component failure (`syncRefusal`, not the
+store's error card). The readers
+refuse while a sync runs or the session says the mirror is being
+written (`mirrorWrittenElsewhere`, `syncBlockedElsewhere`). A delivery also refuses
+during an export, and an export during a delivery run, so "update here" holds its
+plugin stage while either runs, and "update all" waits for a run still going. The check is at the
+call, so a file dialog that was open while the state changed cannot slip past it. A second
+`deliver` of a plugin already being delivered joins that delivery (`_delivering` maps id to
+its future): a set lost the claim when the first ended, and Otzaria got the file twice.
+
+**Cancelling a download reverts only the components in progress.** "Cancel" (behind
 the warning dialog) appears only while a download runs, and
 `MirrorDownloadFlow.requestCancel` rides the `isCancelled` callback every layer
 already takes, so it lands mid-asset. Components that finished stay, and so do the
 online answers measured against them (`refreshAfterCancelledDownload(reverted:)`).
 `MirrorDownloadUndo` snapshots every root of `AppSession.downloadMirrorDirs`
-(per component) before the first byte; on cancel it reverts the in-progress
-component's roots (`revert(roots:)`): it deletes created files,
+(per component) before the first byte; on cancel it reverts the roots of every
+component that returned after the cancel — library and plugins run together —
+(`revert(roots:)`): it deletes created files,
 restores any rewritten `.json` manifest (a new `releases.json` over deleted assets
 is a mirror pointing at nothing) and the `.resume`/`.segments` download state by
 content, and truncates a resumed partial asset (and its `.seg-N` ranges) back to
@@ -835,9 +865,12 @@ manifest does not know yet); and `mirror/apps` and `otzaria-app/` are never
 touched. It is silent by design — the freed bytes go to the log only. It is not
 awaited, but the next `downloadAll` and every launcher download wait for it
 (`MirrorDownloadFlow.pendingSweep`): a launcher tag directory not yet named in
-`latest-release.json` is junk to it. The other way round holds too: the sweep is
-skipped while a launcher download runs, and neither download starts while the
-other is running or preparing (`MirrorDownloadFlow.isPreparing`).
+`latest-release.json` is junk to it — re-checked after the mirror check, since a
+sweep can start while it waits. The other way round holds too: the sweep is
+skipped while anyone else uses the mirror (`MirrorDownloadHost.mirrorInUse`: a
+launcher download, "update here", an install here, a plugin sync, export or any
+delivery). That is
+what lets the two downloads run together.
 
 **A re-run does not re-hash an asset it already proved.** Skipping the download is
 not skipping the check: `downloadToFile` still verified `expectedSha256`, and on the
@@ -856,7 +889,8 @@ honours `Range`.** Issue #17 asked for a download accelerator, but GitHub's rele
 CDN (`release-assets.githubusercontent.com`, an Azure Blob SAS behind a proxy)
 **strips `Range`**: it answers `200` with the full body to every `Range` — and
 `x-ms-range` — while still advertising `Accept-Ranges: bytes` (verified five ways,
-August 2026), which is also why resume never works against GitHub. What the CDN
+August 2026). On 2026-10-29, behind NetFree, it answered `206` to every client and
+range, so this varies by network and time — probe, never assume. What the CDN
 *does* throttle is each connection separately: ~0.7MB/s on one against ~2.1MB/s
 aggregate on four. `PatchDownloader` splits a file of 64MB or more into ranges
 only after a probe gets `206`, and falls back to one connection on `200`; its
@@ -867,6 +901,15 @@ lets another writer bypass the lock. `MirrorJunkSweeper`, `MirrorDownloadUndo`
 and semantic generation pruning preserve them without restoring their contents.
 Every downloader on the shared scheduler takes `connectionsPerFile`
 (`download_connections.dart`), the exporter's share of its eight-connection cap.
+
+**Do not raise connections or switch to curl on the #149 evidence.** Issue #149
+("slower than Otzaria's download assistant") was not reproduced and its cause is
+unproven: a local per-connection cap shows one possible mechanism (curl's four
+ranges beat our two), and GitHub behind NetFree gave every path about the same
+rate (2026-10-30). The Windows assistant was read from code and imitated with
+curl, never run; macOS/Linux assistants and the app with a USB target were not
+timed. Numbers, commands and limits: `otzaria_downloads/README.md`, tools in
+`tool/download_bench/`.
 
 `DownloadScheduler` (`seforim_library_updater`, exported) is that pool, and it
 is a **shared semaphore on purpose**: `LibraryManager` hands the same instance to
@@ -906,9 +949,14 @@ load-bearing consequences:
   rethrowing; a download left running in the background keeps writing into the
   mirror after `MirrorDownloadUndo` has cleaned it.
 
-Deliberately *not* parallelised: `OtzariaAppMirror.sync` (two installers, ~6% of the
-bytes, and its `onChannelStart` UI assumes one channel at a time) and the module
-ordering in `AppSession.downloadAll`.
+**The app downloads first; then library and plugins run together**
+(`MirrorDownloadFlow._downloadAll`, `Future.wait` over their own roots). Both read
+the installer the app step brings — the library's readable schema, the plugins'
+compatible versions — so the app cannot join them. A full drive stops what has not
+started yet (the store app after plugins), never what already runs; a throw still
+awaits the other branch. The progress screen shows `runningComponents` together.
+`OtzariaAppMirror.sync` stays serial (two installers, ~6% of the bytes, and its
+`onChannelStart` UI assumes one channel at a time).
 
 ### 5.3 State that travels on the drive
 
@@ -1019,7 +1067,9 @@ and skipping Otzaria's setting silently updated the wrong file for anyone who ha
 moved their library. **The Hive box is read from a copy in a temp dir**
 (`OtzariaSettingsReader`): opening it in place creates a lock file inside Otzaria's
 folder and clashes with a running Otzaria; any failure returns `null` and the search
-continues.
+continues. Every box access queues on the static `runExclusively`, whose futures are
+made in `Zone.root`: one born in a test's fake-time zone hung every later read in the
+isolate (2026-10-30, the self-update test waiting on search feedback).
 
 **Otzaria does not look in its own default — a fresh install must be written into
 its settings.** `DatabaseConstants.getDatabasePath` falls back to `'.'` when
@@ -1606,7 +1656,10 @@ already has. Wiping them would silently degrade an offline machine that had them
 extract the `.otzplugin` ZIP into Otzaria's folders ourselves — Otzaria keeps an
 internal registry beyond the `installed/` directory, and a manual unpack bypasses it.
 `install-local` reads from disk and needs no network; the older `install?url=` does and
-is deliberately unused.
+is deliberately unused. Otzaria always gets a copy in the handoff folder
+(`PluginDirectInstaller.deliverablePath`), never the mirror file: it reads after
+`deliver` returns, and a sync could replace or prune that file by then. The folder
+is under the long TEMP path, since the results file is matched by exact path.
 
 **Install completion comes from Otzaria's result file when it writes one, else from
 polling.** When `otzaria_capabilities.json` says `pluginInstallResults >= 1`,
@@ -2002,7 +2055,8 @@ exe into `mirror/launcher/`, copies it over the stub (two renames, rollback on f
   mid-asset: `MirrorDownloadUndo` never ran and partial assets stayed next to an
   already-rewritten manifest. `AppSession.longTaskRunning` (download, library `updating`,
   Otzaria `installing`, a custom-app install/learning/download, the store-app export)
-  disables the card's button, and `AppSession.exitWouldInterrupt` (that plus error-report
+  disables the card's button, and `AppSession.exitWouldInterrupt` (that plus a launcher
+  download — it may outlive the mirror download beside it — and error-report
   collect/upload; background search feedback is stopped first via
   `settleBackgroundWork`, §5.10) guards `installLauncherUpdate` itself — the button
   is not enough, since `downloadLauncherUpdate` offers the install straight after a
@@ -2023,9 +2077,18 @@ exe into `mirror/launcher/`, copies it over the stub (two renames, rollback on f
   `AppLifecycleListener.onExitRequested` that macOS Cmd+Q / Dock > Quit reach
   (a refusal there returns `AppExitResponse.cancel`): a download is
   stopped with partial files kept for resuming (#140); only explicit cancel uses
-  `MirrorDownloadUndo`. An install can only be warned about.
+  `MirrorDownloadUndo`. A launcher download is stopped the same way
+  (`LauncherUpdateController.cancelAndWait`, `.part` kept) — it runs beside the mirror
+  download and may still run after it. An install can only be warned about.
   A running "update here" stage asks too, plugin
-  delivery included (not `longTaskRunning`); its questions do not, nothing runs yet.
+  delivery included (not `longTaskRunning`), and so do deliveries still running after
+  "finish without waiting" (`isDeliveryRunActive`, also in `exitWouldInterrupt`); its
+  questions do not, nothing runs yet. An approved close stops deliveries first
+  (`stopDeliveriesAndWait`): none starts and the ones in hand finish, with no time
+  limit — a delivery is never cut off. After `closeDeliveryPatience` (10s) the user
+  may go back to the tool instead (`keepWaitingForDeliveries` → `resumeDeliveries`);
+  downloads are stopped only after that, so going back leaves them running. A lone
+  store delivery is waited for the same way, without the first question.
   A guard that throws still closes — X must never go inert.
 - **The mirror is checked on every writable start, also with `autoCheckUpdates` off**,
   and again before each `checkOnline` (`LauncherUpdateFlow.checkMirror`). It is a disk

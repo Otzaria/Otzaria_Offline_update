@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import 'byte_size.dart';
 
@@ -105,6 +107,9 @@ class AppLogger {
   void error(String message, [Object? error, StackTrace? stackTrace]) {
     final buffer = StringBuffer(message);
     if (error != null) buffer.write('\nerror: $error');
+    if (error is LibraryHttpException) {
+      buffer.write('\nhttp: ${jsonEncode(error.diagnostics)}');
+    }
     if (stackTrace != null) buffer.write('\n$stackTrace');
     _write('ERROR', buffer.toString());
   }

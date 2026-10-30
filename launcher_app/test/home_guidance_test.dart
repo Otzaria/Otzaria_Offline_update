@@ -138,6 +138,30 @@ void main() {
         GuidancePrimary.taskInProgress,
       ),
       _case(
+        'הורדה ברקע: מציעים רק מה שהמראה שלו כבר נכתבה',
+        const GuidanceFacts(
+          longTaskRunning: true,
+          otzariaStatus: AppStatusFact.updateAvailable,
+          libraryStatus: LibraryStatusFact.updateAvailable,
+          pluginUpdatesOnDrive: 2,
+          hereDuringDownload: {GuidanceItem.app, GuidanceItem.plugins},
+        ),
+        GuidancePrimary.taskInProgress,
+        here: [GuidanceItem.app, GuidanceItem.plugins],
+      ),
+      _case(
+        'הורדה ברקע בלי אוצריא: הספרייה לבדה אינה מוצעת',
+        const GuidanceFacts(
+          longTaskRunning: true,
+          otzariaInstalled: false,
+          otzariaStatus: AppStatusFact.updateAvailable,
+          libraryStatus: LibraryStatusFact.updateAvailable,
+          libraryFreshInstall: true,
+          hereDuringDownload: {GuidanceItem.library},
+        ),
+        GuidancePrimary.taskInProgress,
+      ),
+      _case(
         'התקנה רצה',
         const GuidanceFacts(
           installing: true,

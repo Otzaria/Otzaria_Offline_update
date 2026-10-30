@@ -147,7 +147,10 @@ class _OutcomeController extends PluginsModuleController {
   bool get isSyncing => _running;
 
   @override
-  Future<void> sync({bool Function()? isCancelled}) async {
+  Future<bool> sync({
+    bool Function()? isCancelled,
+    bool forDownload = false,
+  }) async {
     _running = true;
     notifyListeners();
     await release.future;
@@ -155,6 +158,7 @@ class _OutcomeController extends PluginsModuleController {
     syncCause = next?.storageFailure;
     _running = false;
     notifyListeners();
+    return true;
   }
 }
 
@@ -1523,6 +1527,47 @@ void main() {
       ];
   const threeInstalled = {'id-a': '1.0', 'id-b': '1.0', 'id-c': '1.0'};
 
+  testWidgets(
+      'מסירה יחידה ואז "עדכון הכול": התוסף שבשליחה אינו נמסר שוב, והמראה '
+      'תפוסה עד הסוף', (tester) async {
+    final controller = await seedRecording(
+      tester,
+      catalog: [
+        storePlugin('a', name: 'ראשון', manifestId: 'id-a', version: '2.0'),
+        storePlugin('b', name: 'שני', manifestId: 'id-b', version: '3.0'),
+      ],
+      installed: {'id-a': '1.0', 'id-b': '1.0'},
+    );
+    final hold = controller.holds['a'] = Completer<void>();
+    final (messages: snacks, :restore) = captureSnacks();
+
+    await pumpScreen(tester, PluginsScreen(controller: plugins));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(t.updateToButton('2.0')));
+    await tester.pump();
+    expect(controller.delivered, ['a']);
+    await tester.tap(find.text(t.updateAllButton));
+    await tester.pump();
+    await tester.pump();
+    expect(controller.delivered, ['a']);
+    expect(controller.isReadingMirror, isTrue);
+    expect(find.text(t.updatingAllLabel(1, 2)), findsOneWidget);
+
+    hold.complete();
+    await tester.pump();
+    await tester.pump();
+    expect(controller.isReadingMirror, isTrue);
+    await tester.pump(pluginUpdateDeliverySpacing);
+    await tester.pumpAndSettle();
+
+    expect(controller.delivered, ['a', 'b']);
+    expect(controller.isReadingMirror, isFalse);
+    // התוסף שהצטרף נספר פעם אחת: שניים נשלחו, לא שלושה.
+    restore();
+    expect(snacks.last, contains(t.updatesSentSnack(2)));
+  });
+
   testWidgets('"עדכון הכול": הודעת סיכום אחת — כמה נשלחו וכמה נכשלו',
       (tester) async {
     final controller = await seedRecording(
@@ -1714,6 +1759,93 @@ void main() {
       expect((element.widget as PluginAction).blocked, isTrue);
     }
     expect(controller.delivered, isEmpty);
+  });
+
+  // הורדת ספרייה או התקנת אוצריא אינן כותבות את מראה התוספים.
+  testWidgets('מסירה חסומה אינה חוסמת "רענון", וחסימת רענון אינה חוסמת מסירה',
+      (tester) async {
+    await seedRecording(
+      tester,
+      catalog: threeUpdates(),
+      installed: threeInstalled,
+    );
+    Finder refresh() => find.widgetWithText(ActionButton, t.refreshButton);
+
+    await pumpScreen(
+      tester,
+      PluginsScreen(controller: plugins, online: true, busyElsewhere: true),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.widget<ActionButton>(refresh()).onPressed, isNotNull);
+    expect(button(tester, t.updateAllButton).onPressed, isNull);
+
+    await pumpScreen(
+      tester,
+      PluginsScreen(
+        controller: plugins,
+        online: true,
+        syncBlockedElsewhere: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.widget<ActionButton>(refresh()).onPressed, isNull);
+    expect(button(tester, t.updateAllButton).onPressed, isNotNull);
+    expect(find.text(t.actionsBlockedElsewhere), findsNothing);
+  });
+
+  testWidgets('מסירה של תוסף יחיד: "רענון" מושבת עד שהיא חוזרת',
+      (tester) async {
+    final controller = await seedRecording(
+      tester,
+      catalog: [
+        storePlugin('a', name: 'ראשון', manifestId: 'id-a', version: '2.0'),
+      ],
+      installed: {'id-a': '1.0'},
+    );
+    final hold = Completer<void>();
+    controller.holds['a'] = hold;
+    Finder refresh() => find.widgetWithText(ActionButton, t.refreshButton);
+
+    await pumpScreen(tester, PluginsScreen(controller: plugins, online: true));
+    await tester.pumpAndSettle();
+    expect(tester.widget<ActionButton>(refresh()).onPressed, isNotNull);
+
+    unawaited(controller.deliver(plugins.plugins.single));
+    await tester.pump();
+    expect(controller.isDeliveringAny, isTrue);
+    expect(tester.widget<ActionButton>(refresh()).onPressed, isNull);
+
+    hold.complete();
+    await tester.pump();
+    await tester.pump();
+    expect(controller.isDeliveringAny, isFalse);
+    expect(tester.widget<ActionButton>(refresh()).onPressed, isNotNull);
+  });
+
+  testWidgets('רצף מסירות שממשיך ברקע: "עדכון הכול" מושבת, עם הסבר',
+      (tester) async {
+    final controller = await seedRecording(
+      tester,
+      catalog: threeUpdates(),
+      installed: threeInstalled,
+    );
+    final hold = Completer<void>();
+    controller.holds['a'] = hold;
+
+    await pumpScreen(tester, PluginsScreen(controller: plugins));
+    await tester.pumpAndSettle();
+    expect(button(tester, t.updateAllButton).onPressed, isNotNull);
+
+    final run = controller.deliverUpdates(plugins: [plugins.plugins.first]);
+    await tester.pump();
+    expect(controller.isDeliveryRunActive, isTrue);
+    expect(button(tester, t.updateAllButton).onPressed, isNull);
+    expect(find.text(t.actionsBlockedDelivering), findsOneWidget);
+
+    hold.complete();
+    await run;
+    await tester.pump();
+    expect(button(tester, t.updateAllButton).onPressed, isNotNull);
   });
 
   testWidgets('"בשליחה" לכל תוסף בנפרד — סיום אחד אינו מחזיר את השני',
