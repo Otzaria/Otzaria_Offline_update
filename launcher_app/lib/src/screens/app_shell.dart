@@ -20,6 +20,7 @@ import '../flows/library_flows.dart'
         capturePersonalVersion,
         pickLibraryInstallDir,
         showLibraryChangesDialog;
+import '../services/after_launcher_update_store.dart';
 import '../services/app_paths.dart';
 import '../services/dialog_queue.dart';
 import '../services/file_reveal.dart';
@@ -420,6 +421,9 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
 
   void _updateHere() => unawaited(_session.updateHere(_hereItems));
 
+  void _updateHereLauncherFirst() =>
+      unawaited(_session.launcherFirst(AfterLauncherUpdate.updateHere));
+
   /// מ"אוצריא — מתקדם" או מדף הספרייה — הרכיב הזה בלבד, באותו מסך משימה.
   void _updateOnly(
     GuidanceItem item, {
@@ -478,9 +482,11 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
   }
 
   late final HomeActions _homeActions = HomeActions(
-    onInstallHere: _updateHere,
-    onUpdateHere: _updateHere,
-    onDownload: () => unawaited(_session.downloadAll()),
+    onInstallHere: _updateHereLauncherFirst,
+    onUpdateHere: _updateHereLauncherFirst,
+    onDownload: () => unawaited(
+      _session.launcherFirst(AfterLauncherUpdate.download),
+    ),
     onDownloadSemantic: () =>
         unawaited(_session.downloadAll(forceSemantic: true)),
     onRetryFailedDownloads: () => unawaited(_session.retryFailedDownloads()),

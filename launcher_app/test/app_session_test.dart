@@ -24,7 +24,9 @@ import 'package:launcher_app/src/self_update/launcher_release_client.dart'
 import 'package:launcher_app/src/self_update/launcher_self_updater.dart';
 import 'package:launcher_app/src/self_update/launcher_update_mirror.dart'
     show MirroredLauncherRelease;
+import 'package:launcher_app/src/services/after_launcher_update_store.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
+import 'package:launcher_app/src/services/app_paths.dart';
 import 'package:launcher_app/src/services/notices_seen_store.dart';
 import 'package:launcher_app/src/services/sleep_inhibitor.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
@@ -1518,6 +1520,125 @@ void main() {
       expect(s.library.downloadStatus, isNot(MirrorDownloadStatus.idle));
     });
 
+    group('הכפתור הראשי מעדכן את הכלי קודם', () {
+      Future<void> settled(AppSession s) => waitFor(() =>
+          s.plugins.status != PluginsModuleStatus.loading &&
+          s.plugins.status != PluginsModuleStatus.idle &&
+          !s.isCheckingNow);
+
+      // בלי רכיב להורדה, ההורדה נעצרת מיד באמירה — כך רואים שהתחילה.
+      Future<AppSession> started(_SteppedLauncher? launcher) async {
+        await settings.update(settings.settings.copyWith(
+          syncApp: false,
+          syncLibrary: false,
+          syncPlugins: false,
+        ));
+        final s = session(launcherUpdater: launcher)..start();
+        await settled(s);
+        if (launcher?.ready != null) {
+          await waitFor(() => s.launcherUpdate.hasUpdateReady);
+        }
+        return s;
+      }
+
+      File marker() => File(p.join(
+            tempDir.path,
+            AppPaths.logsDirName,
+            'after_launcher_update.json',
+          ));
+
+      test('ההתקנה בוטלה — ההורדה ממשיכה מיד בגרסה הזו', () async {
+        final launcher = _SteppedLauncher();
+        final s = await started(launcher);
+        prompts.launcherInstallAnswer = false;
+        await s.launcherFirst(AfterLauncherUpdate.download);
+        expect(
+          prompts.calls,
+          containsAllInOrder(['confirmLauncherInstall', 'noSyncSelection']),
+        );
+        expect(launcher.calls, isNot(contains('apply')));
+        expect(marker().existsSync(), isFalse);
+        expect(s.updatingLauncherFirst, isFalse);
+      });
+
+      test('הכלי הוחלף והופעל מחדש — הגרסה החדשה ממשיכה בהורדה', () async {
+        final launcher = _SteppedLauncher()..restarts = true;
+        final s = await started(launcher);
+        prompts.launcherInstallAnswer = true;
+        await s.launcherFirst(AfterLauncherUpdate.download);
+        expect(launcher.calls, contains('apply'));
+        expect(prompts.calls, isNot(contains('noSyncSelection')));
+        expect(marker().existsSync(), isTrue);
+
+        s.dispose();
+        sessions.remove(s);
+        final resumed =
+            session(launcherUpdater: _SteppedLauncher()..ready = null)..start();
+        await waitFor(() => prompts.calls.contains('noSyncSelection'));
+        await settled(resumed);
+        expect(prompts.calls, contains('noSyncSelection'));
+        expect(marker().existsSync(), isFalse);
+      });
+
+      test('ההחלפה נכשלה — ההורדה ממשיכה, והסימון נמחק', () async {
+        final launcher = _SteppedLauncher()..failsToApply = true;
+        final s = await started(launcher);
+        prompts.launcherInstallAnswer = true;
+        await s.launcherFirst(AfterLauncherUpdate.download);
+        expect(launcher.calls, contains('apply'));
+        expect(prompts.calls, contains('noSyncSelection'));
+        expect(marker().existsSync(), isFalse);
+        expect(s.updatingLauncherFirst, isFalse);
+      });
+
+      test('סגירה בזמן הורדת הכלי — לא ממשיכים לפעולה שתיקטע ביציאה', () async {
+        final launcher = _SteppedLauncher()
+          ..ready = null
+          ..online = 'v9.0.0';
+        final s = await started(launcher);
+        await s.launcherUpdate.checkOnline();
+        expect(s.launcherUpdate.hasOnlineUpdate, isTrue);
+        final run = s.launcherFirst(AfterLauncherUpdate.download);
+        await waitFor(() => s.launcherUpdate.isDownloading);
+        expect(s.updatingLauncherFirst, isTrue);
+
+        expect(await s.confirmClose(), isTrue);
+        await run;
+        expect(launcher.calls, contains('stopped'));
+        expect(prompts.calls, isNot(contains('noSyncSelection')));
+        expect(marker().existsSync(), isFalse);
+      });
+
+      test('אין גרסה חדשה לכלי — הכפתור עושה את שלו בלי לשאול', () async {
+        final s = await started(_SteppedLauncher()..ready = null);
+        await s.launcherFirst(AfterLauncherUpdate.download);
+        expect(prompts.calls, isNot(contains('confirmLauncherInstall')));
+        expect(prompts.calls, contains('noSyncSelection'));
+      });
+
+      test('סימון ישן אינו מתחיל הורדה בפתיחה מאוחרת', () async {
+        final store = AfterLauncherUpdateStore(tempDir.path);
+        final at = DateTime(2026, 11, 1, 10);
+        expect(await store.save(AfterLauncherUpdate.updateHere, now: at), true);
+        expect(
+          await store.take(now: at.add(const Duration(minutes: 11))),
+          isNull,
+        );
+        expect(await store.take(now: at), isNull, reason: 'נמחק בקריאה');
+        await store.save(AfterLauncherUpdate.updateHere, now: at);
+        expect(
+          await store.take(now: at.add(const Duration(minutes: 1))),
+          AfterLauncherUpdate.updateHere,
+        );
+        final file = File(p.join(tempDir.path, 'after_launcher_update.json'));
+        for (final junk in ['{', '[]', '{"then":"other","at":"$at"}']) {
+          file.writeAsStringSync(junk);
+          expect(await store.take(now: at), isNull, reason: junk);
+          expect(file.existsSync(), isFalse);
+        }
+      });
+    });
+
     // הורדה אחת חסמה כל פעולה אחרת. מחסומים מחזיקים פעולות פתוחות יחד.
     group('פעולות עצמאיות בזמן הורדה', () {
       late _Engines engines;
@@ -2519,13 +2640,27 @@ class _SteppedLauncher implements LauncherSelfUpdater {
     return MirroredLauncherRelease(release: _release('v9.0.0'), filePath: 'f');
   }
 
+  /// גרסה שבאתר ועוד לא ירדה — `launcherFirst` מוריד אותה לפני ההתקנה.
+  String? online;
+
   @override
-  Future<LauncherRelease?> peekLatestOnline() async => null;
+  Future<LauncherRelease?> peekLatestOnline() async =>
+      online == null ? null : _release(online!);
+
+  @override
+  Future<LauncherRelease> withChangelog(LauncherRelease release) async =>
+      release;
+
+  /// `true` — הגרסה החדשה הופעלה, כמו ב-Windows; `false` — פתיחה ידנית.
+  bool restarts = false;
+
+  bool failsToApply = false;
 
   @override
   Future<bool> applyUpdate() async {
     calls.add('apply');
-    return false;
+    if (failsToApply) throw const FileSystemException('locked');
+    return restarts;
   }
 
   @override
