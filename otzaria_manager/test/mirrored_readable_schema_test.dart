@@ -62,7 +62,8 @@ void main() {
   void writeMirror(Map<String, dynamic> channels) {
     File(p.join(mirrorDir, 'latest-release.json'))
       ..createSync(recursive: true)
-      ..writeAsStringSync(jsonEncode({'schemaVersion': 2, ...channels}));
+      ..writeAsStringSync(jsonEncode(
+          {'schemaVersion': 3, 'source': 'github-latest', ...channels}));
   }
 
   Future<int?> readable({
@@ -95,13 +96,15 @@ void main() {
   }
 
   Map<String, dynamic> arm64(Map<String, dynamic> channels) => {
-        'platforms': {'windows_arm64': channels},
+        'platforms': {
+          'windows_arm64': {'source': 'github-latest', ...channels}
+        },
       };
 
   group('architecture follows the installer selection rules', () {
     test('an ARM64 machine counts an ARM64-only mirror', () async {
       writeMirror(
-        arm64({'stable': entry('0.9.98+801', arch: OtzariaArch.arm64)}),
+        arm64({'latest': entry('0.9.98+801', arch: OtzariaArch.arm64)}),
       );
 
       expect(await readable(machine: OtzariaArch.arm64), 6);
@@ -109,7 +112,7 @@ void main() {
 
     test('an x64 machine does not count an ARM64 installer', () async {
       writeMirror(
-        arm64({'stable': entry('0.9.98+801', arch: OtzariaArch.arm64)}),
+        arm64({'latest': entry('0.9.98+801', arch: OtzariaArch.arm64)}),
       );
 
       expect(await readable(), isNull);
@@ -117,15 +120,15 @@ void main() {
 
     test('an ARM64 machine falls back to x64 without an ARM64 install',
         () async {
-      writeMirror({'stable': entry('0.9.98+801')});
+      writeMirror({'latest': entry('0.9.98+801')});
 
       expect(await readable(machine: OtzariaArch.arm64), 6);
     });
 
     test('a mixed mirror counts the newer of the two on ARM64', () async {
       writeMirror({
-        'stable': entry('0.9.98+801'),
-        ...arm64({'stable': entry('0.9.97+789', arch: OtzariaArch.arm64)}),
+        'latest': entry('0.9.98+801'),
+        ...arm64({'latest': entry('0.9.97+789', arch: OtzariaArch.arm64)}),
       });
 
       expect(await readable(machine: OtzariaArch.arm64), 6);
@@ -133,8 +136,8 @@ void main() {
 
     test('an ARM64 install is never offered the x64 installer', () async {
       writeMirror({
-        'stable': entry('0.9.98+801'),
-        ...arm64({'stable': entry('0.9.97+789', arch: OtzariaArch.arm64)}),
+        'latest': entry('0.9.98+801'),
+        ...arm64({'latest': entry('0.9.97+789', arch: OtzariaArch.arm64)}),
       });
 
       expect(
@@ -152,32 +155,14 @@ void main() {
   });
 
   test('an old installer reads the legacy schema only', () async {
-    writeMirror({'stable': entry('0.9.97+789')});
-
-    expect(await readable(), 5);
-  });
-
-  test('one suitable installer in either channel is enough', () async {
-    writeMirror({
-      'stable': entry('0.9.97+789'),
-      'prerelease': entry('0.9.98+801', prerelease: true),
-    });
-
-    expect(await readable(), 6);
-  });
-
-  test('metadata whose installer file is missing does not count', () async {
-    writeMirror({
-      'stable': entry('0.9.97+789'),
-      'prerelease': entry('0.9.98+801', prerelease: true, writeFile: false),
-    });
+    writeMirror({'latest': entry('0.9.97+789')});
 
     expect(await readable(), 5);
   });
 
   test('an installer for another platform does not count', () async {
     writeMirror({
-      'stable': entry('0.9.98+801', kind: OtzariaInstallerKind.macAppZip),
+      'latest': entry('0.9.98+801', kind: OtzariaInstallerKind.macAppZip),
     });
 
     expect(await readable(), isNull);

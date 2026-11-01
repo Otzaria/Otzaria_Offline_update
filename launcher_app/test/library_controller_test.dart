@@ -835,8 +835,9 @@ void main() {
             ..createSync(recursive: true)
             ..writeAsStringSync(
               jsonEncode({
-                'schemaVersion': 2,
-                'stable': OtzariaRelease(
+                'schemaVersion': 3,
+                'source': 'github-latest',
+                'latest': OtzariaRelease(
                   tagName: tag,
                   name: tag,
                   isPrerelease: false,

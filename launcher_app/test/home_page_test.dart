@@ -431,33 +431,6 @@ void main() {
       expect(find.byKey(ShellKeys.newPluginsBanner), findsNothing);
     });
 
-    testWidgets('newer בערוץ שנבחר: הכותרת והגוף מציינים את הערוץ', (
-      tester,
-    ) async {
-      final newer = homeScenario('newer');
-      for (final stable in [true, false]) {
-        await pumpScreen(
-          tester,
-          HomePage(
-            model: HomeViewModel(
-              guidance: newer.guidance,
-              installedVersion: newer.installedVersion,
-              driveAppVersion: newer.driveAppVersion,
-              appAwaitsNewerStable: stable,
-            ),
-          ),
-        );
-
-        expect(find.text(g.newerChannelTitle(stable: stable)), findsOneWidget);
-        expect(
-          find.text(stringsOf().pages.appAwaitsNewer(stable: stable)),
-          findsOneWidget,
-        );
-        expect(find.text(g.newerTitle), findsNothing);
-        expect(find.text(g.newerBody('0.10.5', '0.10.4')), findsNothing);
-      }
-    });
-
     testWidgets('open: פס "אוצריא פתוחה כרגע" כמו במוקאפ, בלי כפתור', (
       tester,
     ) async {
@@ -2599,8 +2572,7 @@ void main() {
       expect(find.text(g.otzariaOpenIdleBody), findsNothing);
     });
 
-    testWidgets('גרסה שממתינה בערוץ והאשף שלא ידוע — הערות שקטות בגיבור',
-        (tester) async {
+    testWidgets('האשף שלא ידוע — הערה שקטה בגיבור', (tester) async {
       final m = homeScenario('offline');
       await pumpScreen(
         tester,
@@ -2608,17 +2580,12 @@ void main() {
           model: HomeViewModel(
             guidance: m.guidance,
             installedVersion: '0.10.3',
-            appAwaitsNewerStable: true,
             appSetupNotice: 'setup-notice',
           ),
         ),
       );
       expect(inHero(find.text(g.updateHereTitle)), findsOneWidget);
-      expect(find.byKey(ShellKeys.appAwaitsNewer), findsOneWidget);
-      expect(
-        find.text(he.pages.appAwaitsNewer(stable: true)),
-        findsOneWidget,
-      );
+      expect(find.byKey(ShellKeys.appAwaitsNewer), findsNothing);
       expect(inHero(find.text('setup-notice')), findsOneWidget);
     });
 
@@ -3151,9 +3118,10 @@ void writeAppMirror(String dataDir, String tag) {
     ..parent.createSync(recursive: true)
     ..writeAsStringSync('installer for $tag');
   File(p.join(mirror, 'latest-release.json')).writeAsStringSync(jsonEncode({
-    'schemaVersion': 2,
+    'schemaVersion': 3,
+    'source': 'github-latest',
     'syncedAt': '2026-08-01T00:00:00.000Z',
-    'stable': {
+    'latest': {
       'tagName': tag,
       'name': 'אוצריא $tag',
       'isPrerelease': false,

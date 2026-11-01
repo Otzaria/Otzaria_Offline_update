@@ -26,7 +26,6 @@ OtzariaRelease _release({
       installerSizeBytes: size,
     );
 
-/// רשומת ערוץ אחת בקובץ המטא־דאטה, אחרי כתיבת קובץ ההתקנה שלה.
 Future<Map<String, dynamic>> _writeInstaller(
   Directory dir,
   OtzariaRelease release, {
@@ -44,8 +43,6 @@ Future<Map<String, dynamic>> _writeInstaller(
     ..['installerPath'] = p.relative(installer.path, from: dir.path);
 }
 
-/// כותב מראה "ידנית" בפורמט הנוכחי — sync() האמיתי דורש רשת, ומה שנבדק
-/// כאן הוא צד הקריאה: מה load() מקבלת ומה היא פוסלת.
 Future<void> _writeMirror(
   Directory dir, {
   OtzariaRelease? stable,
@@ -54,9 +51,10 @@ Future<void> _writeMirror(
   bool writeInstaller = true,
 }) async {
   final json = <String, dynamic>{
-    'schemaVersion': 2,
+    'schemaVersion': 3,
+    'source': 'github-latest',
     if (stable != null)
-      'stable': await _writeInstaller(
+      'latest': await _writeInstaller(
         dir,
         stable,
         installerContents: installerContents,
@@ -71,7 +69,7 @@ Future<void> _writeMirror(
       ),
   };
   await File(p.join(dir.path, 'latest-release.json'))
-      .writeAsString(jsonEncode(json));
+      .writeAsString(_encodeLatestFixture(json));
 }
 
 void main() {
@@ -80,9 +78,7 @@ void main() {
 
   setUp(() async {
     temp = await Directory.systemTemp.createTemp('otzaria-mirror-test');
-    // sync() לא נקרא בבדיקות האלה, ולכן הלקוח וה-installer לא בשימוש.
-    // `platform` מפורש: הנכסים כאן הם של ווינדוס, וברירת המחדל (המכונה
-    // שמריצה) הייתה פוסלת אותם כשהבדיקות רצות על מק.
+
     mirror = OtzariaAppMirror(
       mirrorDir: temp.path,
       platform: OtzariaTargetPlatform.windows,
@@ -100,6 +96,22 @@ void main() {
 
   tearDown(() async => temp.delete(recursive: true));
 
+  test('legacy mirror cannot supply an update and its files survive', () async {
+    await _writeMirror(temp, stable: _release(isPrerelease: false));
+    final file = File(p.join(temp.path, 'latest-release.json'));
+    final metadata =
+        jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    metadata.remove('source');
+    await file.writeAsString(jsonEncode(metadata));
+    final before = await file.readAsString();
+    final installerFiles =
+        Directory(p.join(temp.path, 'installers')).listSync();
+    expect((await mirror.load()).isEmpty, isTrue);
+    expect(await file.readAsString(), before);
+    expect(
+        installerFiles.whereType<File>().every((f) => f.existsSync()), isTrue);
+  });
+
   group('OtzariaAppMirror.load', () {
     test('ריק כשאין מראה בכלל', () async {
       expect((await mirror.load()).isEmpty, isTrue);
@@ -108,7 +120,7 @@ void main() {
     test('מחזירה את הגרסה וקובץ ההתקנה כשהמראה שלמה', () async {
       await _writeMirror(temp, stable: _release(isPrerelease: false));
 
-      final loaded = (await mirror.load()).stable;
+      final loaded = (await mirror.load()).latest;
 
       expect(loaded, isNotNull);
       expect(loaded!.release.tagName, '0.9.96+736');
@@ -119,23 +131,6 @@ void main() {
       expect(File(loaded.installerPath).existsSync(), isTrue);
     });
 
-    test('מחזירה את שני הערוצים כששניהם במראה', () async {
-      await _writeMirror(
-        temp,
-        stable: _release(tagName: '0.9.90', isPrerelease: false),
-        prerelease: _release(tagName: '0.9.97'),
-      );
-
-      final loaded = await mirror.load();
-
-      expect(loaded.hasChoice, isTrue);
-      expect(loaded.stable!.release.tagName, '0.9.90');
-      expect(loaded.prerelease!.release.tagName, '0.9.97');
-      expect(loaded.select(preferPrerelease: true)!.release.tagName, '0.9.97');
-      expect(loaded.select(preferPrerelease: false)!.release.tagName, '0.9.90');
-    });
-
-    // הורדה שנקטעה משאירה קובץ בגודל שגוי. להתקין אותו = להתקין זבל.
     test('null כשגודל קובץ ההתקנה לא תואם למטא־דאטה', () async {
       await _writeMirror(temp, stable: _release(size: 999));
 
@@ -148,102 +143,6 @@ void main() {
       expect((await mirror.load()).isEmpty, isTrue);
     });
 
-    // ערוץ פגום לא אמור לפסול את השני — עדיין יש מה להתקין.
-    test('ערוץ אחד פגום משאיר את השני שמיש', () async {
-      final stable = _release(tagName: '0.9.90', isPrerelease: false);
-      final broken = _release(tagName: '0.9.97', size: 999);
-      await File(p.join(temp.path, 'latest-release.json')).writeAsString(
-        jsonEncode({
-          'schemaVersion': 2,
-          'stable': await _writeInstaller(temp, stable),
-          'prerelease': await _writeInstaller(temp, broken),
-        }),
-      );
-
-      final loaded = await mirror.load();
-
-      expect(loaded.stable!.release.tagName, '0.9.90');
-      expect(loaded.prerelease, isNull);
-    });
-
-    // A drive left with a prerelease older than its stable (an interrupted
-    // sync) must not offer it: preferPrerelease would install a downgrade.
-    test('drops a prerelease published before the stable', () async {
-      await _writeMirror(
-        temp,
-        stable: _release(
-          tagName: '0.9.98',
-          isPrerelease: false,
-          publishedAt: DateTime.utc(2026, 1, 2),
-        ),
-        prerelease: _release(
-          tagName: '0.9.97',
-          publishedAt: DateTime.utc(2026, 1, 1),
-        ),
-      );
-
-      final loaded = await mirror.load();
-
-      expect(loaded.stable!.release.tagName, '0.9.98');
-      expect(loaded.prerelease, isNull);
-      expect(loaded.select(preferPrerelease: true)!.release.tagName, '0.9.98');
-    });
-
-    // Real tag pairs compare as older or equal; publish order is what counts.
-    for (final pair in const [
-      ['v0.2.7', 'v0.2.7-dev-118'],
-      ['0.9.71', '0.9.71+80'],
-    ]) {
-      test(
-        'keeps prerelease ${pair[1]} published after stable ${pair[0]}',
-        () async {
-          await _writeMirror(
-            temp,
-            stable: _release(
-              tagName: pair[0],
-              isPrerelease: false,
-              publishedAt: DateTime.utc(2026, 1, 1),
-            ),
-            prerelease: _release(
-              tagName: pair[1],
-              publishedAt: DateTime.utc(2026, 1, 2),
-            ),
-          );
-
-          final loaded = await mirror.load();
-
-          expect(loaded.hasChoice, isTrue);
-          expect(loaded.prerelease!.release.tagName, pair[1]);
-        },
-      );
-    }
-
-    test('without dates, only a prerelease ranked older is dropped', () async {
-      await _writeMirror(
-        temp,
-        stable: _release(
-          tagName: '0.9.98',
-          isPrerelease: false,
-          unknownDate: true,
-        ),
-        prerelease: _release(tagName: '0.9.97', unknownDate: true),
-      );
-      expect((await mirror.load()).prerelease, isNull);
-
-      await _writeMirror(
-        temp,
-        stable: _release(
-          tagName: '0.9.71',
-          isPrerelease: false,
-          unknownDate: true,
-        ),
-        prerelease: _release(tagName: '0.9.71+80', unknownDate: true),
-      );
-      expect((await mirror.load()).prerelease!.release.tagName, '0.9.71+80');
-    });
-
-    // מראה שנבנתה בווינדוס נקראת ב-macOS ולהיפך — הנתיב בקטלוג נשמר עם `/`,
-    // אבל גם `\` היסטורי חייב להמשיך להיפתח.
     test('נתיב עם מפריד של הפלטפורמה האחרת נפתח בכל זאת', () async {
       final release = _release(isPrerelease: false);
       final installersDir = Directory(p.join(temp.path, 'installers'));
@@ -253,31 +152,19 @@ void main() {
 
       for (final separator in ['/', r'\']) {
         final json = {
-          'schemaVersion': 2,
-          'stable': release.toJson()
+          'schemaVersion': 3,
+          'source': 'github-latest',
+          'latest': release.toJson()
             ..['installerPath'] =
                 'installers$separator${release.installerAssetName}',
         };
         await File(p.join(temp.path, 'latest-release.json'))
-            .writeAsString(jsonEncode(json));
+            .writeAsString(_encodeLatestFixture(json));
 
-        final loaded = (await mirror.load()).stable;
+        final loaded = (await mirror.load()).latest;
         expect(loaded, isNotNull, reason: 'מפריד: $separator');
         expect(File(loaded!.installerPath).existsSync(), isTrue);
       }
-    });
-
-    // כונן שנוצר לפני מעבר לשני ערוצים מחזיק רשומה בודדת בשורש הקובץ.
-    test('פורמט ישן (רשומה בודדת) עדיין נקרא ומשויך לערוץ לפי הדגל', () async {
-      final release = _release();
-      final entry = await _writeInstaller(temp, release);
-      await File(p.join(temp.path, 'latest-release.json'))
-          .writeAsString(jsonEncode(entry));
-
-      final loaded = await mirror.load();
-
-      expect(loaded.stable, isNull);
-      expect(loaded.prerelease!.release.tagName, '0.9.96+736');
     });
 
     test('null כשהמטא־דאטה פגומה', () async {
@@ -289,7 +176,7 @@ void main() {
 
     test('JSON תקין שאינו אובייקט נקרא כמראה ריקה', () async {
       await File(p.join(temp.path, 'latest-release.json'))
-          .writeAsString(jsonEncode([1, 2, 3]));
+          .writeAsString(_encodeLatestFixture([1, 2, 3]));
 
       expect((await mirror.load()).isEmpty, isTrue);
     });
@@ -303,8 +190,12 @@ void main() {
         } else {
           entry['installerPath'] = path;
         }
-        await File(p.join(temp.path, 'latest-release.json'))
-            .writeAsString(jsonEncode({'schemaVersion': 2, 'stable': entry}));
+        await File(p.join(temp.path, 'latest-release.json')).writeAsString(
+            _encodeLatestFixture({
+          'schemaVersion': 3,
+          'source': 'github-latest',
+          'latest': entry
+        }));
 
         expect((await mirror.load()).isEmpty, isTrue, reason: 'נתיב: $path');
       }
@@ -313,12 +204,15 @@ void main() {
     test('רשומת ערוץ שאינה אובייקט נפסלת', () async {
       await File(
         p.join(temp.path, 'latest-release.json'),
-      ).writeAsString(jsonEncode({'schemaVersion': 2, 'stable': 'לא רשומה'}));
+      ).writeAsString(_encodeLatestFixture({
+        'schemaVersion': 3,
+        'source': 'github-latest',
+        'latest': 'לא רשומה'
+      }));
 
       expect((await mirror.load()).isEmpty, isTrue);
     });
 
-    // פורמט ישן שקובץ ההתקנה שלו נעלם — בדיוק כמו רשומה חדשה חסרה.
     test('פורמט ישן בלי קובץ התקנה נפסל', () async {
       final entry = await _writeInstaller(
         temp,
@@ -326,13 +220,11 @@ void main() {
         writeInstaller: false,
       );
       await File(p.join(temp.path, 'latest-release.json'))
-          .writeAsString(jsonEncode(entry));
+          .writeAsString(_encodeLatestFixture(entry));
 
       expect((await mirror.load()).isEmpty, isTrue);
     });
 
-    // הכונן נוסע בין מחשבים: מי שהוריד במחשב ווינדוס נושא עליו `.exe` של
-    // Inno, ומק שקורא אותו היה מנסה להריץ אותו.
     test('מראה של ווינדוס נקראת כריקה במק, ולא כהתקנה שאפשר להריץ', () async {
       await _writeMirror(temp, stable: _release(isPrerelease: false));
 
@@ -394,7 +286,7 @@ void main() {
 
     http.Client mockReleases(List<Map<String, dynamic>> releases) => MockClient(
           (_) async => http.Response(
-            jsonEncode(releases),
+            _encodeLatestFixture(releases),
             200,
             headers: const {'content-type': 'application/json; charset=utf-8'},
           ),
@@ -454,11 +346,11 @@ void main() {
         final result = await mirror.sync();
 
         expect(
-          result.stable!.release.releaseNotes,
+          result.latest!.release.releaseNotes,
           contains('יומן השינויים המרוכז'),
         );
         expect(
-          result.stable!.release.releaseNotes,
+          result.latest!.release.releaseNotes,
           isNot(contains('תיאור גולמי')),
         );
       },
@@ -486,49 +378,10 @@ void main() {
 
         final result = await mirror.sync();
 
-        expect(result.stable!.release.releaseNotes, 'תיאור גולמי מ-GitHub');
+        expect(result.latest!.release.releaseNotes, 'תיאור גולמי מ-GitHub');
       },
     );
 
-    // הלב של הבקשה: הורדה אחת מביאה את שתי הגרסאות, ושתיהן נשמרות בכונן
-    // כך שאפשר לבחור ביניהן במחשב המנותק.
-    test('מורידה גם את היציבה וגם את ה-pre-release החדש ממנה', () async {
-      final tempDir = await Directory.systemTemp.createTemp(
-        'otzaria-mirror-sync-test',
-      );
-      addTearDown(() => tempDir.delete(recursive: true));
-
-      final mirror = await mirrorFor(
-        releasesHttpClient: mockReleases([
-          releaseJson('0.9.97', prerelease: true),
-          releaseJson('0.9.90', prerelease: false),
-        ]),
-        changelogHttpClient: MockClient((_) async => http.Response('', 404)),
-        tempDir: tempDir,
-      );
-
-      final downloaded = await mirror.sync();
-      final channels = <OtzariaReleaseChannel>[];
-      await mirror.sync(onChannelStart: channels.add);
-
-      expect(downloaded.hasChoice, isTrue);
-      expect(downloaded.stable!.release.tagName, '0.9.90');
-      expect(downloaded.prerelease!.release.tagName, '0.9.97');
-      // היציבה קודם — כישלון ב-pre-release לא משאיר את הכונן בלי כלום.
-      expect(channels, [
-        OtzariaReleaseChannel.stable,
-        OtzariaReleaseChannel.prerelease,
-      ]);
-
-      // המטא־דאטה שנכתבה נקראת חזרה כשני ערוצים, עם שני קובצי התקנה.
-      final reloaded = await mirror.load();
-      expect(reloaded.hasChoice, isTrue);
-      expect(File(reloaded.stable!.installerPath).existsSync(), isTrue);
-      expect(File(reloaded.prerelease!.installerPath).existsSync(), isTrue);
-    });
-
-    // מראה שנבנית בווינדוס חייבת להיפתח ב-macOS: הנתיב במטא־דאטה נכתב
-    // תמיד עם `/`, גם כש-p.relative מחזיר כאן `\`.
     test('המטא־דאטה נכתבת עם מפריד POSIX ובמבנה installers/<tag>/', () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'otzaria-mirror-sync-test',
@@ -548,9 +401,9 @@ void main() {
       final raw = await File(p.join(tempDir.path, 'latest-release.json'))
           .readAsString();
       final json = jsonDecode(raw) as Map<String, dynamic>;
-      final entry = json['stable'] as Map<String, dynamic>;
+      final entry = json['latest'] as Map<String, dynamic>;
 
-      expect(json['schemaVersion'], 2);
+      expect(json['schemaVersion'], 3);
       expect(json['syncedAt'], isA<String>());
       expect(json.containsKey('prerelease'), isFalse);
       expect(
@@ -585,7 +438,6 @@ void main() {
       expect(downloads, 1);
     });
 
-    // קובץ התקנה של גרסה שכבר אינה במטא־דאטה סתם תופס מקום על הכונן הנייד.
     test('סנכרון מנקה קובצי התקנה של גרסאות שכבר לא רלוונטיות', () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'otzaria-mirror-sync-test',
@@ -610,340 +462,9 @@ void main() {
         p.join(tempDir.path, 'installers'),
       ).listSync().map((e) => p.basename(e.path)).toList()
         ..sort();
-      expect(kept, ['0.9.90', '0.9.97']);
+      expect(kept, ['0.9.90']);
       expect(stale.existsSync(), isFalse);
     });
-
-    // המסלול האמיתי של גרסה שיוצאת כלא-יציבה ומסומנת בהמשך כיציבה: היא
-    // עוברת לערוץ היציב, וה-API מפסיק להחזיר לא-יציב. הרשומה הישנה חייבת
-    // לרדת — אחרת נשארת "בחירת ערוץ" בין שתי רשומות של אותה גרסה.
-    test('ערוץ שנעלם מהרשת יורד מהמטא־דאטה, וקובץ ההתקנה שלו נמחק', () async {
-      final tempDir = await Directory.systemTemp.createTemp(
-        'otzaria-mirror-sync-test',
-      );
-      addTearDown(() => tempDir.delete(recursive: true));
-
-      // סבב ראשון: יציבה 0.9.96, ולצדה 0.9.97 שעדיין מסומנת לא-יציבה.
-      final before = await mirrorFor(
-        releasesHttpClient: mockReleases([
-          releaseJson('0.9.97', prerelease: true),
-          releaseJson('0.9.96', prerelease: false),
-        ]),
-        changelogHttpClient: MockClient((_) async => http.Response('', 404)),
-        tempDir: tempDir,
-      );
-      final first = await before.sync();
-      expect(first.hasChoice, isTrue);
-
-      // סבב שני: 0.9.97 סומנה כיציבה, ואין עוד לא-יציבה ברשת.
-      final after = await mirrorFor(
-        releasesHttpClient: mockReleases([
-          releaseJson('0.9.97', prerelease: false),
-        ]),
-        changelogHttpClient: MockClient((_) async => http.Response('', 404)),
-        tempDir: tempDir,
-      );
-      final second = await after.sync();
-
-      expect(second.prerelease, isNull);
-      expect(second.stable!.release.tagName, '0.9.97');
-      expect(second.hasChoice, isFalse);
-
-      final reloaded = await after.load();
-      expect(reloaded.prerelease, isNull);
-
-      // והגרסה הקודמת אינה נושאת עוד מקום על הכונן.
-      final kept = Directory(p.join(tempDir.path, 'installers'))
-          .listSync()
-          .map((e) => p.basename(e.path))
-          .toList();
-      expect(kept, ['0.9.97']);
-    });
-
-    // אותו מסלול, אבל הסנכרון השני נקטע אחרי הערוץ היציב: הרשומה
-    // הלא-יציבה הישנה מצביעה עכשיו על אותו תג בדיוק. בלי הניקוי נשארת
-    // "בחירת ערוץ" בין שתי רשומות של אותו קובץ — וכונן כזה נוסע למחשב
-    // מנותק שלעולם לא יסנכרן שוב.
-    test('גרסה שסומנה כיציבה אינה נשארת גם ברשומה הלא-יציבה', () async {
-      final tempDir = await Directory.systemTemp.createTemp(
-        'otzaria-mirror-sync-test',
-      );
-      addTearDown(() => tempDir.delete(recursive: true));
-
-      final before = await mirrorFor(
-        releasesHttpClient: mockReleases([
-          releaseJson('0.9.97', prerelease: true),
-          releaseJson('0.9.96', prerelease: false),
-        ]),
-        changelogHttpClient: MockClient((_) async => http.Response('', 404)),
-        tempDir: tempDir,
-      );
-      expect((await before.sync()).hasChoice, isTrue);
-
-      // 0.9.97 סומנה כיציבה, ולצדה פורסמה 0.9.98 לא-יציבה שההורדה שלה
-      // נכשלת — כך שהמטא־דאטה נכתבת אחרי הערוץ היציב בלבד.
-      final after = await mirrorFor(
-        releasesHttpClient: mockReleases([
-          releaseJson('0.9.98', prerelease: true),
-          releaseJson('0.9.97', prerelease: false),
-        ]),
-        changelogHttpClient: MockClient((_) async => http.Response('', 404)),
-        installerHttpClient: MockClient(
-          (request) async => request.url.path.contains('0.9.98')
-              ? http.Response('', 500)
-              : http.Response(installerBytes, 200),
-        ),
-        tempDir: tempDir,
-      );
-      await expectLater(after.sync(), throwsA(isA<Object>()));
-
-      final reloaded = await after.load();
-      expect(reloaded.stable!.release.tagName, '0.9.97');
-      expect(reloaded.prerelease, isNull);
-      expect(reloaded.hasChoice, isFalse);
-    });
-
-    // The new stable lands but the new prerelease fails: the old prerelease
-    // from the drive is now older than the stable and must not be written.
-    test(
-      'a failed prerelease download leaves no older prerelease behind',
-      () async {
-        final tempDir = await Directory.systemTemp.createTemp(
-          'otzaria-mirror-sync-test',
-        );
-        addTearDown(() => tempDir.delete(recursive: true));
-
-        final before = await mirrorFor(
-          releasesHttpClient: mockReleases([
-            releaseJson(
-              '0.9.97',
-              prerelease: true,
-              publishedAt: '2026-01-02T00:00:00Z',
-            ),
-            releaseJson(
-              '0.9.96',
-              prerelease: false,
-              publishedAt: '2026-01-01T00:00:00Z',
-            ),
-          ]),
-          changelogHttpClient: MockClient((_) async => http.Response('', 404)),
-          tempDir: tempDir,
-        );
-        expect((await before.sync()).hasChoice, isTrue);
-
-        final after = await mirrorFor(
-          releasesHttpClient: mockReleases([
-            releaseJson(
-              '0.9.99',
-              prerelease: true,
-              publishedAt: '2026-01-04T00:00:00Z',
-            ),
-            releaseJson(
-              '0.9.98',
-              prerelease: false,
-              publishedAt: '2026-01-03T00:00:00Z',
-            ),
-          ]),
-          changelogHttpClient: MockClient((_) async => http.Response('', 404)),
-          installerHttpClient: MockClient(
-            (request) async => request.url.path.contains('0.9.99')
-                ? http.Response('', 500)
-                : http.Response(installerBytes, 200),
-          ),
-          tempDir: tempDir,
-        );
-        await expectLater(after.sync(), throwsA(isA<Object>()));
-
-        final written = jsonDecode(
-          await File(p.join(tempDir.path, 'latest-release.json'))
-              .readAsString(),
-        ) as Map<String, dynamic>;
-        expect((written['stable'] as Map)['tagName'], '0.9.98');
-        expect(written.containsKey('prerelease'), isFalse);
-
-        final reloaded = await after.load();
-        expect(
-          reloaded.select(preferPrerelease: true)!.release.tagName,
-          '0.9.98',
-        );
-        expect(reloaded.prerelease, isNull);
-      },
-    );
-
-    // A prerelease downloaded in this sync was vetted by publish order; real
-    // tag formats must not make it fail a version comparison and get pruned.
-    for (final pair in const [
-      ['v0.2.7', 'v0.2.7-dev-118'],
-      ['0.9.71', '0.9.71+80'],
-      ['0.9.97+789', '0.9.97+795'],
-      ['0.9.97+789', '0.9.98+800'],
-    ]) {
-      test(
-        'keeps fresh prerelease ${pair[1]} beside stable ${pair[0]}',
-        () async {
-          final tempDir = await Directory.systemTemp.createTemp(
-            'otzaria-mirror-sync-test',
-          );
-          addTearDown(() => tempDir.delete(recursive: true));
-
-          final mirror = await mirrorFor(
-            releasesHttpClient: mockReleases([
-              releaseJson(
-                pair[1],
-                prerelease: true,
-                publishedAt: '2026-01-02T00:00:00Z',
-              ),
-              releaseJson(
-                pair[0],
-                prerelease: false,
-                publishedAt: '2026-01-01T00:00:00Z',
-              ),
-            ]),
-            changelogHttpClient: MockClient(
-              (_) async => http.Response('', 404),
-            ),
-            tempDir: tempDir,
-          );
-
-          final synced = await mirror.sync();
-          expect(synced.prerelease?.release.tagName, pair[1]);
-
-          final reloaded = await mirror.load();
-          expect(reloaded.hasChoice, isTrue);
-          expect(reloaded.prerelease!.release.tagName, pair[1]);
-          expect(File(reloaded.prerelease!.installerPath).existsSync(), isTrue);
-        },
-      );
-    }
-
-    // אין יציב בעמוד הראשון — אז ה-pre-release הוא הגרסה היחידה, והתווית
-    // אומרת את זה במפורש.
-    test('בלי יציב, רק ה-pre-release יורד ומתויג ככזה', () async {
-      final tempDir = await Directory.systemTemp.createTemp(
-        'otzaria-mirror-sync-test',
-      );
-      addTearDown(() => tempDir.delete(recursive: true));
-
-      final mirror = await mirrorFor(
-        releasesHttpClient: mockReleases([
-          releaseJson('0.9.97', prerelease: true),
-          releaseJson('0.9.96', prerelease: true),
-        ]),
-        changelogHttpClient: MockClient((_) async => http.Response('', 404)),
-        tempDir: tempDir,
-      );
-
-      final channels = <OtzariaReleaseChannel>[];
-      final result = await mirror.sync(onChannelStart: channels.add);
-
-      expect(channels, [OtzariaReleaseChannel.prerelease]);
-      expect(result.stable, isNull);
-      expect(result.hasChoice, isFalse);
-
-      final reloaded = await mirror.load();
-      expect(
-        reloaded.select(preferPrerelease: false)!.release.tagName,
-        '0.9.97',
-      );
-      expect(
-        reloaded.selectedChannel(preferPrerelease: false),
-        OtzariaReleaseChannel.prerelease,
-      );
-    });
-
-    test(
-      'keeps the drive stable when the release page lists no stable',
-      () async {
-        final tempDir = await Directory.systemTemp.createTemp(
-          'otzaria-mirror-sync-test',
-        );
-        addTearDown(() => tempDir.delete(recursive: true));
-
-        final before = await mirrorFor(
-          releasesHttpClient: mockReleases([
-            releaseJson(
-              '0.9.97',
-              prerelease: true,
-              publishedAt: '2026-01-02T00:00:00Z',
-            ),
-            releaseJson(
-              '0.9.96',
-              prerelease: false,
-              publishedAt: '2026-01-01T00:00:00Z',
-            ),
-          ]),
-          changelogHttpClient: MockClient((_) async => http.Response('', 404)),
-          tempDir: tempDir,
-        );
-        expect((await before.sync()).hasChoice, isTrue);
-
-        final after = await mirrorFor(
-          releasesHttpClient: mockReleases([
-            for (var build = 60; build > 0; build--)
-              releaseJson(
-                '0.9.98+$build',
-                prerelease: true,
-                publishedAt: '2026-02-01T00:00:00Z',
-              ),
-          ]),
-          changelogHttpClient: MockClient((_) async => http.Response('', 404)),
-          tempDir: tempDir,
-        );
-        final synced = await after.sync();
-
-        expect(synced.stable?.release.tagName, '0.9.96');
-        expect(synced.prerelease?.release.tagName, '0.9.98+60');
-        expect(
-          Directory(p.join(tempDir.path, 'installers', '0.9.96')).existsSync(),
-          isTrue,
-        );
-
-        final reloaded = await after.load();
-        expect(
-          reloaded.select(preferPrerelease: false)!.release.tagName,
-          '0.9.96',
-        );
-        expect(reloaded.prerelease!.release.tagName, '0.9.98+60');
-      },
-    );
-
-    test(
-      'keeps a prerelease listed above the stable but published before it',
-      () async {
-        final tempDir = await Directory.systemTemp.createTemp(
-          'otzaria-mirror-sync-test',
-        );
-        addTearDown(() => tempDir.delete(recursive: true));
-
-        final mirror = await mirrorFor(
-          releasesHttpClient: mockReleases([
-            releaseJson(
-              '0.9.98+800',
-              prerelease: true,
-              publishedAt: '2026-01-01T00:00:00Z',
-            ),
-            releaseJson(
-              '0.9.97+790',
-              prerelease: false,
-              publishedAt: '2026-01-02T00:00:00Z',
-            ),
-          ]),
-          changelogHttpClient: MockClient((_) async => http.Response('', 404)),
-          tempDir: tempDir,
-        );
-
-        expect((await mirror.sync()).hasChoice, isTrue);
-        expect((await mirror.load()).prerelease?.release.tagName, '0.9.98+800');
-
-        expect((await mirror.sync()).hasChoice, isTrue);
-        final reloaded = await mirror.load();
-        expect(reloaded.hasChoice, isTrue);
-        expect(
-          reloaded.select(preferPrerelease: true)!.release.tagName,
-          '0.9.98+800',
-        );
-      },
-    );
 
     group('one drive synced from Windows and macOS', () {
       late Directory tempDir;
@@ -990,12 +511,29 @@ void main() {
       ) async {
         for (final mirror in [windows, mac]) {
           final loaded = await mirror.load();
-          expect(loaded.hasChoice, isTrue);
+          expect(loaded.latest, isNotNull);
           for (final entry in loaded.all) {
             expect(File(entry.installerPath).existsSync(), isTrue);
           }
         }
       }
+
+      test(
+          'corrupt top-level metadata does not block sync or remove another platform',
+          () async {
+        final mac = await on(OtzariaTargetPlatform.macos);
+        await mac.sync();
+        final file = File(p.join(tempDir.path, 'latest-release.json'));
+        final metadata =
+            jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+        metadata['latest'] = <String, dynamic>{};
+        await file.writeAsString(jsonEncode(metadata));
+        final windows = await on(OtzariaTargetPlatform.windows);
+        expect(await windows.otherPlatformTagNames(), {'0.9.96'});
+        await windows.sync();
+        await expectBothUsable(windows, mac);
+        expect(downloads, 2);
+      });
 
       test("each platform keeps the other one's installers", () async {
         final windows = await on(OtzariaTargetPlatform.windows);
@@ -1006,10 +544,10 @@ void main() {
         await windows.sync();
         await mac.sync();
 
-        expect(downloads, 4);
+        expect(downloads, 2);
         await expectBothUsable(windows, mac);
-        expect(await windows.otherPlatformTagNames(), {'0.9.96', '0.9.97'});
-        expect(await mac.otherPlatformTagNames(), {'0.9.96', '0.9.97'});
+        expect(await windows.otherPlatformTagNames(), {'0.9.96'});
+        expect(await mac.otherPlatformTagNames(), {'0.9.96'});
       });
 
       test(
@@ -1021,50 +559,28 @@ void main() {
           final legacy = jsonDecode(await metadata.readAsString())
               as Map<String, dynamic>
             ..remove('platforms');
-          await metadata.writeAsString(jsonEncode(legacy));
+          await metadata.writeAsString(_encodeLatestFixture(legacy));
 
           final mac = await on(OtzariaTargetPlatform.macos);
           await mac.sync();
 
-          expect(downloads, 4);
+          expect(downloads, 2);
           await expectBothUsable(windows, mac);
         },
       );
     });
-    test('ערוצים שכבר נשלפו בבדיקה אינם נשלפים שוב מה-API', () async {
-      final tempDir = await Directory.systemTemp.createTemp(
-        'otzaria-mirror-sync-test',
-      );
-      addTearDown(() => tempDir.delete(recursive: true));
-
-      var releaseRequests = 0;
-      final mirror = await mirrorFor(
-        releasesHttpClient: MockClient((_) async {
-          releaseRequests++;
-          return http.Response('', 500);
-        }),
-        changelogHttpClient: MockClient((_) async => http.Response('', 404)),
-        tempDir: tempDir,
-      );
-      final online = OtzariaChannelReleases(
-        stable: _release(
-          tagName: '0.9.96',
-          isPrerelease: false,
-          size: installerBytes.length,
-        ),
-        prerelease: _release(
-          tagName: '0.9.97',
-          publishedAt: DateTime.utc(2026, 2, 1),
-          size: installerBytes.length,
-        ),
-      );
-
-      final result = await mirror.sync(online: online);
-
-      expect(releaseRequests, 0);
-      expect(result.stable!.release.tagName, '0.9.96');
-      expect(result.prerelease!.release.tagName, '0.9.97');
-      expect((await mirror.load()).hasChoice, isTrue);
-    });
   });
+}
+
+String _encodeLatestFixture(Object? value) {
+  if (value is List &&
+      value.isNotEmpty &&
+      value.first is Map &&
+      (value.first as Map).containsKey('tag_name')) {
+    final candidates = value
+        .whereType<Map>()
+        .where((r) => r['prerelease'] != true && r['draft'] != true);
+    value = candidates.isEmpty ? value.first : candidates.first;
+  }
+  return jsonEncode(value);
 }

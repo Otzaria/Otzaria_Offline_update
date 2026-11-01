@@ -34,8 +34,7 @@ void main() {
   });
 
   void writeAppMirror({
-    String? stableTag,
-    String? prereleaseTag,
+    String? latestTag,
     bool staleFullOnDrive = false,
     bool arm64Checked = true,
     OtzariaInstallerKind installerKind = OtzariaInstallerKind.windowsSetupExe,
@@ -43,13 +42,13 @@ void main() {
     final mirrorDir = p.join(tempDir.path, 'mirror', 'app');
     Directory(mirrorDir).createSync(recursive: true);
 
-    Map<String, dynamic> entry(String tag, bool prerelease) {
+    Map<String, dynamic> entry(String tag) {
       final relative = 'installers/$tag/otzaria-$tag.exe';
       final file = File(p.join(mirrorDir, p.joinAll(relative.split('/'))))
         ..parent.createSync(recursive: true)
         ..writeAsStringSync('installer for $tag');
 
-      if (staleFullOnDrive && !prerelease) {
+      if (staleFullOnDrive) {
         final stale = 'installers/$tag/otzaria-$tag-windows-full.exe';
         File(p.join(mirrorDir, p.joinAll(stale.split('/'))))
           ..parent.createSync(recursive: true)
@@ -59,7 +58,7 @@ void main() {
       return {
         'tagName': tag,
         'name': 'אוצריא $tag',
-        'isPrerelease': prerelease,
+        'isPrerelease': false,
         'isDraft': false,
         'publishedAt': '2026-08-01T00:00:00.000Z',
         'installerKind': installerKind.name,
@@ -73,16 +72,15 @@ void main() {
 
     File(p.join(mirrorDir, 'latest-release.json'))
         .writeAsStringSync(jsonEncode({
-      'schemaVersion': 2,
+      'schemaVersion': 3,
+      'source': 'github-latest',
       'syncedAt': '2026-08-01T00:00:00.000Z',
-      if (stableTag != null) 'stable': entry(stableTag, false),
-      if (prereleaseTag != null) 'prerelease': entry(prereleaseTag, true),
+      if (latestTag != null) 'latest': entry(latestTag),
       if (arm64Checked)
         'platforms': {
           'windows_arm64': {
             'missingAssetTags': [
-              if (stableTag != null) stableTag,
-              if (prereleaseTag != null) prereleaseTag,
+              if (latestTag != null) latestTag,
             ],
           },
         },
@@ -90,13 +88,11 @@ void main() {
   }
 
   OtzariaModuleController controllerFor({
-    bool preferPrerelease = false,
     RunningOtzariaLocator runningLocator = const _NeverRunningLocator(),
     OtzariaTargetPlatform platform = OtzariaTargetPlatform.windows,
   }) {
     final controller = OtzariaModuleController(
       dataDir: tempDir.path,
-      preferPrerelease: preferPrerelease,
       runningLocator: runningLocator,
       platform: platform,
     );
@@ -107,47 +103,31 @@ void main() {
   final hostInstallerKind = Platform.isMacOS
       ? OtzariaInstallerKind.macAppZip
       : OtzariaInstallerKind.windowsSetupExe;
-  final hostPlatform = Platform.isMacOS
-      ? OtzariaTargetPlatform.macos
-      : OtzariaTargetPlatform.windows;
 
   group('checkForUpdate — מהתיקייה המקומית בלבד', () {
-    test('מראה ריקה = needsDownload, וזה לא מצב שגיאה', () async {
-      final c = controllerFor();
-
-      await c.checkForUpdate();
-
-      expect(c.status, OtzariaModuleStatus.needsDownload);
-      expect(c.errorMessage, isNull);
-      expect(c.latestVersion, isNull);
-      expect(c.stableVersion, isNull);
-      expect(c.prereleaseVersion, isNull);
-      expect(c.hasChannelChoice, isFalse);
-    });
-
     test('ensureChecked מצטרפת לבדיקה שכבר רצה, ולא מריצה שנייה', () async {
-      writeAppMirror(stableTag: '99.9.9+1');
+      writeAppMirror(latestTag: '99.9.9+1');
       final c = controllerFor();
 
       // בעלייה שתי הקריאות יוצאות יחד: המקומית מ-`checkAll`, וההצצה ברשת
       // דרך `ensureChecked`. השנייה חייבת לחכות לראשונה ולא לפתוח סריקה
       // מקבילה על אותו כונן.
       final both = Future.wait([c.checkForUpdate(), c.ensureChecked()]);
-      expect(c.stableVersion, isNull);
+      expect(c.latestVersion, isNull);
       await both;
 
-      expect(c.stableVersion, '99.9.9+1');
+      expect(c.latestVersion, '99.9.9+1');
 
       // ומשיש תשובה, ההמתנה הבאה חוזרת מיד בלי לגעת בדיסק.
-      c.stableVersion = null;
+      c.latestVersion = null;
       await c.ensureChecked();
-      expect(c.stableVersion, isNull);
+      expect(c.latestVersion, isNull);
     });
 
     test(
         'checkForUpdate שיוצאת בזמן ש-ensureChecked כבר רצה מצטרפת אליה, '
         'ולא פותחת סריקה מקבילה', () async {
-      writeAppMirror(stableTag: '99.9.9+1');
+      writeAppMirror(latestTag: '99.9.9+1');
       final c = controllerFor();
 
       // סדר הפוך מהבדיקה הקודמת — וזה בדיוק סדר הקריאות שקרס בפועל
@@ -160,26 +140,11 @@ void main() {
 
       expect(c.status, isNot(OtzariaModuleStatus.error));
       expect(c.errorMessage, isNull);
-      expect(c.stableVersion, '99.9.9+1');
-    });
-
-    test('גרסה יציבה בתיקייה = יש מה להתקין, בלי רשת', () async {
-      writeAppMirror(stableTag: '99.9.9+1');
-      final c = controllerFor();
-
-      await c.checkForUpdate();
-
-      expect(c.status, OtzariaModuleStatus.updateAvailable);
       expect(c.latestVersion, '99.9.9+1');
-      expect(c.stableVersion, '99.9.9+1');
-      expect(c.prereleaseVersion, isNull);
-      expect(c.hasChannelChoice, isFalse);
-      // "מה התחדש" נקרא מהמטא-דאטה שנשמרה לצד קובץ ההתקנה.
-      expect(c.latestReleaseNotes, 'מה התחדש ב-99.9.9+1');
     });
 
     test('קובץ התקנה חסר → המראה נחשבת ריקה, לא שגיאה', () async {
-      writeAppMirror(stableTag: '99.9.9+1');
+      writeAppMirror(latestTag: '99.9.9+1');
       File(p.join(tempDir.path, 'mirror', 'app', 'installers', '99.9.9+1',
               'otzaria-99.9.9+1.exe'))
           .deleteSync();
@@ -206,104 +171,7 @@ void main() {
   });
 
   group('שני ערוצים בתיקייה — הבחירה נעשית במחשב המנותק', () {
-    test('שתי גרסאות = יש בחירה, וברירת המחדל היא היציבה', () async {
-      writeAppMirror(stableTag: '1.0.0', prereleaseTag: '1.1.0-beta');
-      final c = controllerFor();
-
-      await c.checkForUpdate();
-
-      expect(c.hasChannelChoice, isTrue);
-      expect(c.stableVersion, '1.0.0');
-      expect(c.prereleaseVersion, '1.1.0-beta');
-      expect(c.latestVersion, '1.0.0');
-    });
-
-    test('החלפת ערוץ קוראת מהדיסק ואינה דורשת רשת', () async {
-      writeAppMirror(stableTag: '1.0.0', prereleaseTag: '1.1.0-beta');
-      final c = controllerFor();
-      await c.checkForUpdate();
-
-      // ה-setter מריץ בדיקה מחדש בעצמו (fire-and-forget), ולכן ממתינים
-      // להודעה שבה היא הסתיימה במקום לקרוא לה שוב.
-      final done = Completer<void>();
-      void listener() {
-        if (c.status != OtzariaModuleStatus.checking && !done.isCompleted) {
-          done.complete();
-        }
-      }
-
-      c.addListener(listener);
-      c.preferPrerelease = true;
-      await done.future;
-      c.removeListener(listener);
-
-      expect(c.preferPrerelease, isTrue);
-      expect(c.latestVersion, '1.1.0-beta');
-      expect(c.status, OtzariaModuleStatus.updateAvailable);
-    });
-
-    test('החלפת ערוץ בזמן שבדיקה רצה מריצה אותה שוב בערוץ החדש', () async {
-      writeAppMirror(
-        stableTag: '1.0.0',
-        prereleaseTag: '1.1.0-beta',
-        installerKind: hostInstallerKind,
-      );
-      final locator = _GatedLocator();
-      final c = controllerFor(runningLocator: locator, platform: hostPlatform);
-
-      final check = c.checkForUpdate();
-      final firstProbe = await locator.next();
-      c.preferPrerelease = true;
-      firstProbe.complete(false);
-      (await locator.next()).complete(false);
-      await check;
-
-      expect(c.latestVersion, '1.1.0-beta');
-      expect(c.status, OtzariaModuleStatus.updateAvailable);
-      expect(locator.requested, 2);
-    });
-
-    test('הצבת אותו ערך אינה משנה דבר', () async {
-      final c = controllerFor();
-      c.preferPrerelease = false;
-
-      expect(c.preferPrerelease, isFalse);
-    });
-
-    test('רק pre-release בתיקייה = הוא הגרסה היחידה, בלי בחירה', () async {
-      writeAppMirror(prereleaseTag: '2.0.0-rc1');
-      final c = controllerFor();
-
-      await c.checkForUpdate();
-
-      expect(c.hasChannelChoice, isFalse);
-      expect(c.latestVersion, '2.0.0-rc1');
-      expect(c.stableVersion, isNull);
-      expect(c.status, OtzariaModuleStatus.updateAvailable);
-    });
-
     // החלטת המשתמש: מעבר ליציבה לא מתקין גרסה ישנה — מחכים ליציבה חדשה.
-    test('מותקנת ניסיונית חדשה ובוחרים יציבה — אין עדכון, ממתינים', () async {
-      writeAppMirror(stableTag: '1.0.0', prereleaseTag: '1.1.0-beta');
-      final install = Directory(p.join(tempDir.path, 'Otzaria'))
-        ..createSync(recursive: true);
-      final exe = File(p.join(install.path, 'otzaria.exe'))
-        ..writeAsStringSync('exe');
-      File(p.join(tempDir.path, 'otzaria_install_state.json'))
-          .writeAsStringSync(jsonEncode(OtzariaInstallState(
-        installedTagName: '1.1.0-beta',
-        installDir: install.path,
-        launchPath: exe.path,
-      ).toJson()));
-      final c = controllerFor();
-
-      await c.checkForUpdate();
-
-      expect(c.currentVersion, '1.1.0-beta');
-      expect(c.latestVersion, '1.0.0');
-      expect(c.status, OtzariaModuleStatus.installedIsNewer);
-      expect(c.awaitsNewerInSelectedChannel, isTrue);
-    });
   });
 
   group('"מה חדש" בבית', () {
@@ -320,21 +188,21 @@ void main() {
       ).toJson()));
     }
 
-    test('אין עדכון — ההערות של הגרסה המותקנת, גם מהערוץ השני', () async {
-      writeAppMirror(stableTag: '1.0.0', prereleaseTag: '1.1.0-beta');
-      installed('1.1.0-beta');
+    test('אין עדכון — ההערות של Latest שכבר מותקנת', () async {
+      writeAppMirror(latestTag: '1.0.0');
+      installed('1.0.0');
       final c = controllerFor();
       await c.checkForUpdate();
 
-      expect(c.status, OtzariaModuleStatus.installedIsNewer);
-      expect(c.installedReleaseNotes, 'מה התחדש ב-1.1.0-beta');
+      expect(c.status, OtzariaModuleStatus.upToDate);
+      expect(c.installedReleaseNotes, 'מה התחדש ב-1.0.0');
       final notes = whatsNewAppNotes(c)!;
       expect(notes.installed, isTrue);
-      expect(notes.version, '1.1.0-beta');
+      expect(notes.version, '1.0.0');
     });
 
     test('יש עדכון בכונן — ההערות שלו, לא של המותקנת', () async {
-      writeAppMirror(stableTag: '1.1.0');
+      writeAppMirror(latestTag: '1.1.0');
       installed('1.0.0');
       final c = controllerFor();
       await c.checkForUpdate();
@@ -348,7 +216,7 @@ void main() {
     });
 
     test('גרסה מותקנת שאינה בכונן — אין הערות', () async {
-      writeAppMirror(stableTag: '1.0.0');
+      writeAppMirror(latestTag: '1.0.0');
       installed('0.9.0');
       final c = controllerFor();
       await c.checkForUpdate();
@@ -372,57 +240,10 @@ void main() {
     });
 
     test(
-      'בדיקה והחלפת ערוץ באמצע התקנה אינן דורסות את מצב ההתקנה, '
-      'והתקנה שנייה אינה יוצאת',
-      () async {
-        writeAppMirror(
-          stableTag: '1.0.0',
-          prereleaseTag: '1.1.0-beta',
-          installerKind: OtzariaInstallerKind.macAppZip,
-        );
-        final locator = _GatedLocator();
-        final c = controllerFor(
-          runningLocator: locator,
-          platform: OtzariaTargetPlatform.macos,
-        );
-        final initial = c.checkForUpdate();
-        (await locator.next()).complete(false);
-        await initial;
-        expect(c.status, OtzariaModuleStatus.updateAvailable);
-
-        final install = c.install(useWizard: false);
-        final installProbe = await locator.next();
-        expect(c.status, OtzariaModuleStatus.installing);
-
-        unawaited(c.checkForUpdate());
-        c.preferPrerelease = true;
-        unawaited(c.install(useWizard: false));
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-
-        expect(c.status, OtzariaModuleStatus.installing);
-        expect(locator.requested, 2);
-
-        installProbe.complete(true);
-        await install;
-        expect(c.status, OtzariaModuleStatus.error);
-        expect(c.errorMessage, isNotNull);
-
-        final retry = c.checkForUpdate();
-        (await locator.next()).complete(false);
-        await retry;
-
-        expect(c.status, OtzariaModuleStatus.updateAvailable);
-        expect(c.errorMessage, isNull);
-        expect(c.latestVersion, '1.1.0-beta');
-      },
-      testOn: 'mac-os',
-    );
-
-    test(
       'התקנה שנפתחת בזמן בדיקה ממתינה לה, ושגיאת ההתקנה נשארת',
       () async {
         writeAppMirror(
-          stableTag: '1.0.0',
+          latestTag: '1.0.0',
           installerKind: OtzariaInstallerKind.macAppZip,
         );
         final locator = _GatedLocator();
@@ -457,7 +278,7 @@ void main() {
     );
 
     test('התקנה שהסתיימה ואוצריא לא נמצאה — הבית יציע בחירת תיקייה', () async {
-      writeAppMirror(stableTag: '1.0.0', installerKind: hostInstallerKind);
+      writeAppMirror(latestTag: '1.0.0', installerKind: hostInstallerKind);
       final c = OtzariaModuleController(
         dataDir: tempDir.path,
         runningLocator: const _NeverRunningLocator(),
@@ -773,7 +594,7 @@ void main() {
 
   group('checkOnline — כשל רשת הוא מצב תקין', () {
     test('אין רשת: הכשל נבלע, נשמר, ואינו נוגע במצב המודול', () async {
-      writeAppMirror(stableTag: '1.0.0');
+      writeAppMirror(latestTag: '1.0.0');
       final c = controllerFor();
       await c.checkForUpdate();
       final statusBefore = c.status;
@@ -819,31 +640,30 @@ void main() {
         );
 
     test('רק מתקינים שהתג שלהם אינו בכונן; בלי בדיקה — לא ידוע', () async {
-      writeAppMirror(stableTag: '1.0.0');
+      writeAppMirror(latestTag: '1.0.0');
       final c = controllerFor();
       await c.checkForUpdate();
       expect(c.onlineDownloadBytes, isNull);
 
-      c.onlineChannels = OtzariaChannelReleases(
-        stable: release('1.0.0', 100),
-        prerelease: release('1.1.0', 250, pre: true),
+      c.onlineRelease = OtzariaLatestRelease(
+        latest: release('1.1.0', 250),
       );
       expect(c.onlineDownloadBytes, 250);
 
-      c.onlineChannels = OtzariaChannelReleases(stable: release('1.0.0', 100));
+      c.onlineRelease = OtzariaLatestRelease(latest: release('1.0.0', 100));
       expect(c.onlineDownloadBytes, isNull, reason: 'הכול כבר בכונן');
     });
   });
 
   group('download — משתמשת בתוצאת הבדיקה הקלה כשהיא טרייה', () {
-    OtzariaChannelReleases cachedOnline(String tag) {
+    OtzariaLatestRelease cachedOnline(String tag) {
       const bytes = 'installer bytes';
       final assetName = 'otzaria-$tag.exe';
       File(p.join(tempDir.path, 'mirror', 'app', 'installers', tag, assetName))
         ..parent.createSync(recursive: true)
         ..writeAsStringSync(bytes);
-      return OtzariaChannelReleases(
-        stable: OtzariaRelease(
+      return OtzariaLatestRelease(
+        latest: OtzariaRelease(
           tagName: tag,
           name: 'אוצריא $tag',
           isPrerelease: false,
@@ -859,7 +679,7 @@ void main() {
 
     test('בדיקה טרייה: ההורדה אינה שולפת שוב את רשימת ה-releases', () async {
       final c = controllerFor();
-      c.onlineChannels = cachedOnline('1.0.0');
+      c.onlineRelease = cachedOnline('1.0.0');
       c.onlineCheckedAt = DateTime.now();
 
       await c.download();
@@ -870,7 +690,7 @@ void main() {
 
     test('בדיקה ישנה אינה משמשת: ההורדה פונה לרשת מחדש', () async {
       final c = controllerFor();
-      c.onlineChannels = cachedOnline('1.0.0');
+      c.onlineRelease = cachedOnline('1.0.0');
       c.onlineCheckedAt = DateTime.now().subtract(const Duration(minutes: 11));
 
       await c.download();
@@ -880,7 +700,7 @@ void main() {
   });
 
   test('מראה שלא נבדקה בה ARM64 מחייבת את מודול התוכנה לרוץ', () async {
-    writeAppMirror(stableTag: '0.9.96', arm64Checked: false);
+    writeAppMirror(latestTag: '0.9.96', arm64Checked: false);
     final c = controllerFor();
     await c.checkForUpdate();
 
@@ -889,7 +709,7 @@ void main() {
 
   group('חבילת FULL שנשארה מגרסה ישנה', () {
     test('מראה רגילה — אין מה לנקות', () async {
-      writeAppMirror(stableTag: '0.9.96');
+      writeAppMirror(latestTag: '0.9.96');
       final c = controllerFor();
       await c.checkForUpdate();
 
@@ -897,7 +717,7 @@ void main() {
     });
 
     test('קובץ FULL על הכונן מדליק את הדגל', () async {
-      writeAppMirror(stableTag: '0.9.96', staleFullOnDrive: true);
+      writeAppMirror(latestTag: '0.9.96', staleFullOnDrive: true);
       final c = controllerFor();
       await c.checkForUpdate();
 

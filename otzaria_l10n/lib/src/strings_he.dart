@@ -663,21 +663,10 @@ class _Pages extends PageStrings {
   @override
   String get appAdvancedPageTitle => 'אוצריא — מתקדם';
   @override
-  String appAwaitsNewer({required bool stable}) => stable
-      ? 'מותקנת כאן גרסה ניסיונית, חדשה מהיציבה שבכונן. תעבור לגרסה היציבה כשתצא גרסה יציבה חדשה יותר מזו שמותקנת.'
-      : 'מותקנת כאן גרסה יציבה, חדשה מהניסיונית שבכונן. תעבור לגרסה הניסיונית כשתצא גרסה ניסיונית חדשה יותר מזו שמותקנת.';
-  @override
   String get pageBusyNote =>
       'משימה אחרת רצה עכשיו, ולכן הפעולות כאן ממתינות לסיומה.';
   @override
-  String appAdvancedSummary({required bool channel}) => channel
-      ? 'גרסה ניסיונית, התקנה מחדש, מיקום ההתקנה והתיקייה שבכונן'
-      : 'התקנה מחדש, מיקום ההתקנה והתיקייה שבכונן';
-  @override
-  String get appChannelTitle => 'איזו גרסה להתקין';
-  @override
-  String get appChannelBody =>
-      'גרסה ניסיונית מקבלת חידושים לפני כולם, אבל עלולות להיות בה תקלות.';
+  String get appAdvancedSummary => 'התקנה מחדש, מיקום ההתקנה והתיקייה שבכונן';
   @override
   String get appReinstallTitle => 'התקנה מחדש של אותה גרסה';
   @override
@@ -1077,10 +1066,6 @@ class _Guide extends GuidanceStrings {
   @override
   String get newerTitle => 'המחשב הזה מעודכן יותר מהכונן';
   @override
-  String newerChannelTitle({required bool stable}) => stable
-      ? 'המחשב הזה מעודכן יותר מהגרסה היציבה שבכונן'
-      : 'המחשב הזה מעודכן יותר מהגרסה הניסיונית שבכונן';
-  @override
   String newerBody(String installed, String onDrive) =>
       'במחשב הזה מותקנת אוצריא ${_ltr(installed)}, ובכונן יש ${_ltr(onDrive)}. אין מה '
       'להתקין מהכונן.';
@@ -1410,14 +1395,6 @@ class _AppScreen extends AppScreenStrings {
   @override
   String get mirrorEmpty =>
       'אין — הורד עדכונים לכונן במחשב עם אינטרנט, מדף הבית';
-  @override
-  String channelPair(String stable, String prerelease) =>
-      '${_ltr(stable)} (יציבה) · ${_ltr(prerelease)} (ניסיונית)';
-
-  @override
-  String get channelStable => 'יציבה';
-  @override
-  String get channelPrerelease => 'ניסיונית';
 
   @override
   String get launchButton => 'פתיחת אוצריא';
@@ -1768,7 +1745,7 @@ class _SaferMode extends SaferModeStrings {
   String get lockTitle => 'נעילה בסיסמה';
   @override
   String get noPasswordSubtitle =>
-      'מונעת שינוי הגדרות, בחירת גרסה ניסיונית ועריכת השאלות הנפוצות בלי סיסמה.';
+      'מונעת שינוי הגדרות, עריכת השאלות הנפוצות בלי סיסמה.';
   @override
   String get setPasswordButton => 'קביעת סיסמה';
   @override
@@ -1817,7 +1794,7 @@ class _SaferMode extends SaferModeStrings {
   String get setTitle => 'קביעת סיסמה';
   @override
   String setIntro(int minLength, {bool onThisComputer = false}) =>
-      'הסיסמה תידרש לכניסה להגדרות, לבחירת גרסה ניסיונית ולעריכת השאלות '
+      'הסיסמה תידרש לכניסה להגדרות, ללעריכת השאלות '
       'הנפוצות. לפחות $minLength תווים. סיסמה שנשכחה אי אפשר לשחזר — רק '
       'למחוק את קובץ ההגדרות ${onThisComputer ? 'שבמחשב הזה' : 'שבכונן'}.';
   @override
@@ -3528,13 +3505,6 @@ class _LibraryDomain extends LibraryDomainStrings {
 class _AppDomain extends AppDomainStrings {
   const _AppDomain();
 
-  @override
-  String get channelStable => 'יציבה';
-  @override
-  String get channelPrerelease => 'ניסיונית';
-  @override
-  String downloadingChannel(String channelLabel) =>
-      'מוריד את תוכנת אוצריא (גרסה $channelLabel)…';
   @override
   String get downloadCancelled => 'ההורדה בוטלה.';
   @override

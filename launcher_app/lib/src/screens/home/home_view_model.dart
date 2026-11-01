@@ -52,7 +52,6 @@ class HomeViewModel {
     this.online,
     this.installedVersion,
     this.driveAppVersion,
-    this.appAwaitsNewerStable,
     this.appError,
     this.appErrorPicksFolder = false,
     this.appSetupNotice,
@@ -131,10 +130,6 @@ class HomeViewModel {
   final bool? online;
   final String? installedVersion;
   final String? driveAppVersion;
-
-  /// מותקנת גרסה חדשה מהערוץ שנבחר, וממתינים לגרסה חדשה יותר בו: `true`
-  /// לערוץ היציב. `null` כשזה לא המצב.
-  final bool? appAwaitsNewerStable;
 
   /// הבדיקה או ההתקנה של התוכנה נכשלו — בגיבור, עם "בדוק שוב".
   final String? appError;
@@ -347,8 +342,7 @@ HomeViewModel homeViewModelOf(AppSession s) {
     online: facts.online,
     installedVersion: otzaria.currentVersion,
     driveAppVersion: otzaria.latestVersion,
-    appAwaitsNewerStable:
-        otzaria.awaitsNewerInSelectedChannel ? !otzaria.preferPrerelease : null,
+
     appError: otzaria.status == OtzariaModuleStatus.error
         ? otzaria.errorMessage
         : null,

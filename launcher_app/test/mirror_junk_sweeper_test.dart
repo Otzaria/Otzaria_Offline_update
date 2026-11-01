@@ -107,7 +107,7 @@ void main() {
     for (final invalidPath in [null, '', 42]) {
       test('נתיב מתקין פגום ($invalidPath) אינו מתיר מחיקה', () async {
         json('mirror/app/latest-release.json', {
-          'stable': {'tagName': 'v0.9.97', 'installerPath': invalidPath},
+          'latest': {'tagName': 'v0.9.97', 'installerPath': invalidPath},
         });
         file('mirror/app/installers/v0.9.97/OtzariaSetup.exe');
         file('mirror/app/installers/v0.9.90/OtzariaSetup.exe');
@@ -122,7 +122,7 @@ void main() {
 
     test('ערוץ פגום לצד ערוץ תקין אינו מתיר מחיקת המתקין שלו', () async {
       json('mirror/app/latest-release.json', {
-        'stable': {
+        'latest': {
           'tagName': 'v0.9.97',
           'installerPath': 'installers/v0.9.97/OtzariaSetup.exe',
         },
@@ -136,8 +136,9 @@ void main() {
     });
 
     void appManifest() => json('mirror/app/latest-release.json', {
-          'schemaVersion': 2,
-          'stable': {
+          'schemaVersion': 3,
+          'source': 'github-latest',
+          'latest': {
             'tagName': 'v0.9.97',
             'installerPath': 'installers/v0.9.97/OtzariaSetup.exe',
           },
@@ -156,20 +157,21 @@ void main() {
 
     test("another platform's installers are kept", () async {
       json('mirror/app/latest-release.json', {
-        'schemaVersion': 2,
-        'stable': {
+        'schemaVersion': 3,
+        'source': 'github-latest',
+        'latest': {
           'tagName': 'v0.9.97',
           'installerPath': 'installers/v0.9.97/otzaria-macos.zip',
         },
         'platforms': {
           'macos': {
-            'stable': {
+            'latest': {
               'tagName': 'v0.9.97',
               'installerPath': 'installers/v0.9.97/otzaria-macos.zip',
             },
           },
           'windows': {
-            'stable': {
+            'latest': {
               'tagName': 'v0.9.97',
               'installerPath': 'installers/v0.9.97/otzaria-windows.exe',
             },
@@ -195,7 +197,7 @@ void main() {
 
     test('a damaged platform entry blocks deletion', () async {
       json('mirror/app/latest-release.json', {
-        'stable': {
+        'latest': {
           'tagName': 'v0.9.97',
           'installerPath': 'installers/v0.9.97/otzaria-macos.zip',
         },

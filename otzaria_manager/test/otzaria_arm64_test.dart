@@ -152,7 +152,7 @@ void main() {
             platform: OtzariaTargetPlatform.windows,
             httpClient: MockClient(
               (_) async => http.Response(
-                jsonEncode(releases),
+                _encodeLatestFixture(releases),
                 200,
                 headers: const {
                   'content-type': 'application/json; charset=utf-8',
@@ -171,35 +171,6 @@ void main() {
             httpClient: MockClient((_) async => http.Response('', 404)),
           ),
         );
-
-    test('x64 בראש הקובץ, ARM64 תחת platforms', () async {
-      final mirror = mirrorWith([
-        _releaseJson('1.0.1', prerelease: true),
-        _releaseJson('1.0.0', prerelease: false),
-      ]);
-
-      await mirror.sync();
-
-      final x64 = await mirror.load();
-      final arm = await mirror.load(arch: OtzariaArch.arm64);
-      expect(x64.stable!.release.installerAssetName, endsWith('windows.exe'));
-      expect(
-        arm.stable!.release.installerAssetName,
-        endsWith('windows_arm64.exe'),
-      );
-      expect(arm.prerelease!.release.tagName, '1.0.1');
-      expect(File(arm.stable!.installerPath).existsSync(), isTrue);
-
-      final json = jsonDecode(
-        File(p.join(temp.path, 'latest-release.json')).readAsStringSync(),
-      ) as Map<String, dynamic>;
-      expect(
-        (json['stable'] as Map)['installerAssetName'],
-        'otzaria-1.0.0-windows.exe',
-      );
-      expect((json['platforms'] as Map).keys, contains('windows_arm64'));
-      expect(await mirror.lacksArm64Installers(), isFalse);
-    });
 
     test('release בלי מתקין ARM64 נרשם ואינו דורש הורדה חוזרת', () async {
       final mirror = mirrorWith([
@@ -220,7 +191,7 @@ void main() {
       final file = File(p.join(temp.path, 'latest-release.json'));
       final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
       (json['platforms'] as Map).remove('windows_arm64');
-      file.writeAsStringSync(jsonEncode(json));
+      file.writeAsStringSync(_encodeLatestFixture(json));
 
       expect(await mirror.lacksArm64Installers(), isTrue);
     });
@@ -236,7 +207,7 @@ void main() {
           platform: OtzariaTargetPlatform.windows,
           httpClient: MockClient(
             (_) async => http.Response(
-              jsonEncode([
+              _encodeLatestFixture([
                 _releaseJson('2.0.0', prerelease: false, withArm64: withArm64),
               ]),
               200,
@@ -298,8 +269,8 @@ void main() {
       final json =
           jsonDecode(mirrorFile.readAsStringSync()) as Map<String, dynamic>;
       final arm = (json['platforms'] as Map)['windows_arm64'] as Map;
-      (arm['stable'] as Map)['tagName'] = '1.5.0';
-      mirrorFile.writeAsStringSync(jsonEncode(json));
+      (arm['latest'] as Map)['tagName'] = '1.5.0';
+      mirrorFile.writeAsStringSync(_encodeLatestFixture(json));
 
       final x64Check = await managerFor(
         installedExe: installedExe(),
@@ -354,4 +325,17 @@ class _NoRegistry extends WindowsInstallRegistry {
 
   @override
   Future<List<String>> otzariaInstallDirs() async => const [];
+}
+
+String _encodeLatestFixture(Object? value) {
+  if (value is List &&
+      value.isNotEmpty &&
+      value.first is Map &&
+      (value.first as Map).containsKey('tag_name')) {
+    final candidates = value
+        .whereType<Map>()
+        .where((r) => r['prerelease'] != true && r['draft'] != true);
+    value = candidates.isEmpty ? value.first : candidates.first;
+  }
+  return jsonEncode(value);
 }

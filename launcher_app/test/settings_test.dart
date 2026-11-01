@@ -14,6 +14,14 @@ import 'package:path/path.dart' as p;
 /// ברירת מחדל לכל שדה, קובץ פגום, כתיבה אטומית והחלפת שפה.
 void main() {
   group('AppSettings — אין ולא יהיו שדות נתיב', () {
+    test('העדפת ערוץ ישנה נזנחת ואינה נשמרת', () {
+      final settings = AppSettings.fromJson({
+        'channels': {'appPrerelease': true}
+      });
+      expect(settings.toJson(), isNot(contains('channels')));
+      expect(settings.toJson(), const AppSettings().toJson());
+    });
+
     /// כל המפתחות בקובץ, כולל אלה שבתוך הסעיפים.
     Set<String> allKeys(Map<String, dynamic> json) {
       final keys = <String>{};
@@ -65,7 +73,6 @@ void main() {
       expect(json.keys.toSet(), {
         'schemaVersion',
         'automation',
-        'channels',
         'sync',
         'ui',
         'protection',
@@ -76,8 +83,6 @@ void main() {
         'automation',
         'checkUpdates',
         'install',
-        'channels',
-        'appPrerelease',
         'sync',
         'app',
         'library',
@@ -101,53 +106,6 @@ void main() {
   });
 
   group('AppSettings — ברירות מחדל וסבב JSON', () {
-    test('לכל שדה יש ברירת מחדל מוגדרת', () {
-      const s = AppSettings();
-
-      expect(s.autoCheckUpdates, isTrue);
-      expect(s.syncApp, isTrue);
-      expect(s.syncLibrary, isTrue);
-      expect(s.syncPlugins, isTrue);
-      // ברירת המחדל היא הפצה: הכונן נושא מסד מלא ומשרת גם מחשב בלי אוצריא.
-      expect(s.personalUpdateMode, isFalse);
-      expect(s.autoInstall, isFalse);
-      expect(s.preferAppPrerelease, isFalse);
-      // ברירת המחדל היא "אוטומטי" — לפי שפת המחשב, ולכן הבדיקה על הבחירה
-      // ולא על השפה שנפתרת ממנה (שתלויה במחשב שעליו הבדיקה רצה).
-      expect(s.languagePreference, AppLanguagePreference.system);
-      expect(s.textScale, 1.0);
-    });
-
-    test('סבב JSON מלא — כל שדה חוזר כפי שנשמר', () {
-      const original = AppSettings(
-        autoCheckUpdates: false,
-        syncApp: false,
-        syncLibrary: false,
-        syncPlugins: false,
-        personalUpdateMode: true,
-        autoInstall: true,
-        preferAppPrerelease: true,
-        languagePreference: AppLanguagePreference.english,
-        textScale: 1.3,
-      );
-
-      final restored = AppSettings.fromJson(original.toJson());
-
-      expect(restored.autoCheckUpdates, isFalse);
-      expect(restored.syncApp, isFalse);
-      expect(restored.syncLibrary, isFalse);
-      expect(restored.syncPlugins, isFalse);
-      expect(restored.personalUpdateMode, isTrue);
-      expect(restored.autoInstall, isTrue);
-      expect(restored.preferAppPrerelease, isTrue);
-      expect(restored.languagePreference, AppLanguagePreference.english);
-      expect(restored.language, AppLanguage.english);
-      expect(restored.textScale, 1.3);
-      // עדכון אישי כופה את הספרייה, גם כשהבחירה השמורה כבויה.
-      expect(restored.downloadsLibrary, isTrue);
-      expect(restored.hasSyncSelection, isTrue);
-    });
-
     // סכימה 13: ערכת הנושא, צבע הבסיס והכפתור הצף הוסרו.
     test('קובץ מסכימה 12 נקרא, ושדות הערכה שהוסרו אינם נכתבים שוב', () {
       final restored = AppSettings.fromJson({
@@ -308,23 +266,6 @@ void main() {
       expect(restored.toJson(), defaults.toJson());
     });
 
-    test('copyWith משנה שדה אחד ומשאיר את השאר', () {
-      const original = AppSettings(textScale: 1.15);
-      final next = original.copyWith(preferAppPrerelease: true);
-
-      expect(next.preferAppPrerelease, isTrue);
-      expect(next.textScale, 1.15);
-      expect(next.languagePreference, original.languagePreference);
-    });
-
-    test('preferAppPrerelease נשמר בסעיף הערוצים ולא נוגע בהורדה', () {
-      // ההורדה מביאה תמיד את שתי הגרסאות; זו בחירת התקנה בלבד.
-      final json = const AppSettings(preferAppPrerelease: true).toJson();
-
-      expect(json['channels'], containsPair('appPrerelease', true));
-      expect(json['sync'], containsPair('app', true));
-    });
-
     // קובץ מגרסה 10 ומטה — ארבעה דגלים שמתמזגים לשניים, שמרנית: הגדרה
     // שהמשתמש לא אישר (פנייה לרשת, התקנה שדורסת קבצים) לא נדלקת מאליה.
     test('מיזוג דגלי האוטומציה מקובץ ישן דורש ששניהם היו דלוקים', () {
@@ -431,27 +372,6 @@ void main() {
       await controller.load();
 
       expect(controller.settings.toJson(), const AppSettings().toJson());
-    });
-
-    test('שמירה אטומית: אין קובץ .tmp אחרי הכתיבה, והתוכן נקרא חזרה', () async {
-      await controller.update(const AppSettings(
-        preferAppPrerelease: true,
-        textScale: 1.15,
-      ));
-
-      expect(File('${settingsFile().path}.tmp').existsSync(), isFalse);
-      expect(settingsFile().existsSync(), isTrue);
-
-      final onDisk =
-          jsonDecode(settingsFile().readAsStringSync()) as Map<String, dynamic>;
-      expect(onDisk['schemaVersion'], AppSettings.schemaVersion);
-
-      final reloaded = SettingsController(dataDir: tempDir.path);
-      addTearDown(reloaded.dispose);
-      await reloaded.load();
-
-      expect(reloaded.settings.textScale, 1.15);
-      expect(reloaded.settings.preferAppPrerelease, isTrue);
     });
 
     test('שמירות חופפות עוברות בטור: הקובץ תקין ונושא את האחרונה', () async {

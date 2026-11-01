@@ -42,12 +42,12 @@ void main() {
     addTearDown(client.dispose);
 
     await expectLater(
-      client.fetchChannelReleases(),
+      client.fetchLatestRelease(),
       throwsA(isA<GithubRateLimitException>()
           .having((e) => e.retryAfterMinutes, 'minutes', 5)),
     );
     await expectLater(
-      client.fetchChannelReleases(),
+      client.fetchLatestRelease(),
       throwsA(isA<GithubRateLimitException>()),
     );
     expect(calls, 1);
@@ -56,10 +56,11 @@ void main() {
   test('assets still uploading or malformed are skipped like missing ones',
       () async {
     final client = _client(MockClient((_) async => http.Response.bytes(
-          utf8.encode(jsonEncode([
+          utf8.encode(_encodeLatestFixture([
             _release('0.9.97', [
               _asset('otzaria-0.9.97-windows.exe', state: 'starter'),
               {'name': 'otzaria-0.9.97-windows.exe'},
+              _asset('otzaria-0.9.97-windows.exe', state: 'uploaded'),
             ]),
             _release('0.9.96', [
               _asset('otzaria-0.9.96-windows.exe', size: 0),
@@ -70,12 +71,25 @@ void main() {
         )));
     addTearDown(client.dispose);
 
-    final channels = await client.fetchChannelReleases();
-    expect(channels.stable!.tagName, '0.9.96');
-    expect(channels.stable!.installerSizeBytes, 31);
+    final channels = await client.fetchLatestRelease();
+    expect(channels.latest!.tagName, '0.9.97');
+    expect(channels.latest!.installerSizeBytes, 31);
     expect(
-      channels.stable!.installerDownloadUrl,
-      'https://x/otzaria-0.9.96-windows.exe',
+      channels.latest!.installerDownloadUrl,
+      'https://x/otzaria-0.9.97-windows.exe',
     );
   });
+}
+
+String _encodeLatestFixture(Object? value) {
+  if (value is List &&
+      value.isNotEmpty &&
+      value.first is Map &&
+      (value.first as Map).containsKey('tag_name')) {
+    final candidates = value
+        .whereType<Map>()
+        .where((r) => r['prerelease'] != true && r['draft'] != true);
+    value = candidates.isEmpty ? value.first : candidates.first;
+  }
+  return jsonEncode(value);
 }

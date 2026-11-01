@@ -41,7 +41,6 @@ class SettingsScreen extends StatelessWidget {
     this.onOpenLauncherUpdate,
     this.onEditFaq,
     this.onOpenOtzariaAdvanced,
-    this.otzariaChannelChoice = false,
     this.semanticConsentGranted,
     this.onEnableSemanticSearch,
     this.personalMachines = const [],
@@ -85,9 +84,6 @@ class SettingsScreen extends StatelessWidget {
 
   /// "אוצריא — מתקדם". `null` בבדיקות שאינן נוגעות בו.
   final VoidCallback? onOpenOtzariaAdvanced;
-
-  /// בכונן שתי גרסאות — הקישור מזכיר את בחירת הגרסה.
-  final bool otzariaChannelChoice;
 
   /// ההסכמה לחיפוש החכם באוצריא שבמחשב הזה; `null` — אין חיפוש חכם בכונן
   /// או שאוצריא אינה מותקנת, והשורה מוסתרת.
@@ -140,9 +136,7 @@ class SettingsScreen extends StatelessWidget {
                       child: OtzariaLogo(size: 18),
                     ),
                     title: context.strings.pages.appAdvancedPageTitle,
-                    subtitle: context.strings.pages.appAdvancedSummary(
-                      channel: otzariaChannelChoice,
-                    ),
+                    subtitle: context.strings.pages.appAdvancedSummary,
                     onTap: open,
                   ),
                 ],

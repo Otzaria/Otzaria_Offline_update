@@ -10,13 +10,11 @@ import 'package:test/test.dart';
 
 http.Client _mockReleasesResponse(List<Map<String, dynamic>> releases) {
   return MockClient((request) async {
-    expect(request.url.path, '/repos/Otzaria/otzaria/releases');
-    return http.Response(jsonEncode(releases), 200);
+    expect(request.url.path, '/repos/Otzaria/otzaria/releases/latest');
+    return http.Response(_encodeLatestFixture(releases), 200);
   });
 }
 
-/// רשימת האסטים כאן היא צילום נאמן של release אמיתי (0.9.96+736), כולל
-/// חבילות ה-FULL של ~2GB שאסור לבחור.
 List<Map<String, dynamic>> _realWorldAssets(String tag) => [
       {'name': 'app-release.apk', 'browser_download_url': 'apk', 'size': 83},
       {
@@ -58,7 +56,7 @@ List<Map<String, dynamic>> _realWorldAssets(String tag) => [
 
 Map<String, dynamic> _fakeRelease({
   required String tag,
-  bool prerelease = true,
+  bool prerelease = false,
   List<Map<String, dynamic>>? assets,
 }) {
   return {
@@ -89,96 +87,41 @@ OtzariaRelease _release({
 }
 
 void main() {
+  test(
+      'only the explicitly selected Latest is queried, even below another published version',
+      () async {
+    final requests = <Uri>[];
+    final client = OtzariaReleaseClient(
+      platform: OtzariaTargetPlatform.windows,
+      httpClient: MockClient((request) async {
+        requests.add(request.url);
+        expect(request.url.path, '/repos/Otzaria/otzaria/releases/latest');
+        return http.Response(jsonEncode(_fakeRelease(tag: '1.0.0')), 200);
+      }),
+    );
+    addTearDown(client.dispose);
+    expect((await client.fetchLatestRelease()).latest!.tagName, '1.0.0');
+    expect(requests, hasLength(1));
+  });
+  for (final flag in ['prerelease', 'draft']) {
+    test('an invalid Latest $flag cannot fall back to another release',
+        () async {
+      final client = OtzariaReleaseClient(
+        platform: OtzariaTargetPlatform.windows,
+        httpClient: MockClient((_) async => http.Response(
+            jsonEncode({
+              ..._fakeRelease(tag: '1.0.0'),
+              flag: true,
+            }),
+            200)),
+      );
+      addTearDown(client.dispose);
+      await expectLater(
+          client.fetchLatestRelease(), throwsA(isA<GithubApiException>()));
+    });
+  }
+
   group('OtzariaReleaseClient (Windows)', () {
-    test('מביא את שני הערוצים כשה-pre-release חדש מהיציב', () async {
-      final client = OtzariaReleaseClient(
-        platform: OtzariaTargetPlatform.windows,
-        httpClient: _mockReleasesResponse([
-          _fakeRelease(tag: '0.9.97', prerelease: true),
-          _fakeRelease(tag: '0.9.96', prerelease: true),
-          _fakeRelease(tag: '0.9.90', prerelease: false),
-        ]),
-      );
-
-      final releases = await client.fetchChannelReleases();
-
-      expect(releases.hasChoice, isTrue);
-      expect(releases.stable!.tagName, '0.9.90');
-      expect(releases.stable!.isPrerelease, isFalse);
-      // מבין ה-pre-release-ים נבחר החדש ביותר בלבד.
-      expect(releases.prerelease!.tagName, '0.9.97');
-      expect(releases.prerelease!.installerKind,
-          OtzariaInstallerKind.windowsSetupExe);
-      expect(releases.prerelease!.installerAssetName,
-          'otzaria-0.9.97-windows.exe');
-      expect(releases.prerelease!.installerSizeBytes, 31);
-    });
-
-    // המצב באתר של אוצריא כרגע: הפרסום החדש ביותר הוא release רגיל. אין
-    // אז מה לבחור, ואין טעם להוריד pre-release ותיק ממנו.
-    test('pre-release ותיק מהיציב אינו מוחזר בכלל', () async {
-      final client = OtzariaReleaseClient(
-        platform: OtzariaTargetPlatform.windows,
-        httpClient: _mockReleasesResponse([
-          _fakeRelease(tag: '0.9.98', prerelease: false),
-          _fakeRelease(tag: '0.9.97', prerelease: true),
-        ]),
-      );
-
-      final releases = await client.fetchChannelReleases();
-
-      expect(releases.stable!.tagName, '0.9.98');
-      expect(releases.prerelease, isNull);
-      expect(releases.hasChoice, isFalse);
-    });
-
-    // חלון הזמן שבין פרסום ה-release לסיום העלאת הקבצים: GitHub כבר מחזיר
-    // את האסט, אבל `size` הוא 0 ו-`state` אינו `uploaded`. קובץ כזה נראה
-    // תקין לכל אורך המסלול — אימות הגודל מדלג על 0, ואחר כך קובץ ריק נחשב
-    // cache-hit ולא ינוסה שוב — ולכן ה-release כולו מדולג עד שיהיה מוכן.
-    test('release שהאסטים שלו עדיין בהעלאה מדולג לטובת הוותיק ממנו', () async {
-      final client = OtzariaReleaseClient(
-        platform: OtzariaTargetPlatform.windows,
-        httpClient: _mockReleasesResponse([
-          _fakeRelease(tag: '0.9.97', prerelease: true, assets: [
-            {
-              'name': 'otzaria-0.9.97-windows.exe',
-              'browser_download_url': 'https://example/uploading.exe',
-              'size': 0,
-              'state': 'starter',
-            },
-          ]),
-          _fakeRelease(tag: '0.9.96', prerelease: true),
-          _fakeRelease(tag: '0.9.90', prerelease: false),
-        ]),
-      );
-
-      final releases = await client.fetchChannelReleases();
-
-      expect(releases.prerelease!.tagName, '0.9.96');
-      expect(releases.stable!.tagName, '0.9.90');
-    });
-
-    // הריפו של אוצריא מפרסם בעיקר pre-release, ולכן זה מצב מציאותי: אז
-    // פשוט אין ערוץ יציב להציע, וה-pre-release הוא היחיד שקיים.
-    test('בלי release יציב כלל — מוחזר pre-release בלבד', () async {
-      final client = OtzariaReleaseClient(
-        platform: OtzariaTargetPlatform.windows,
-        httpClient: _mockReleasesResponse([
-          _fakeRelease(tag: '0.9.97', prerelease: true),
-          _fakeRelease(tag: '0.9.96', prerelease: true),
-        ]),
-      );
-
-      final releases = await client.fetchChannelReleases();
-
-      expect(releases.stable, isNull);
-      expect(releases.prerelease!.tagName, '0.9.97');
-      expect(releases.select(preferPrerelease: false)!.tagName, '0.9.97');
-    });
-
-    // release ללא אסט לפלטפורמה (למשל אנדרואיד בלבד) לא אמור להשבית ערוץ
-    // שלם — ממשיכים לגרסה הוותיקה יותר.
     test('release בלי אסט מתאים מדולג במקום להפיל את הבדיקה', () async {
       final client = OtzariaReleaseClient(
         platform: OtzariaTargetPlatform.windows,
@@ -190,9 +133,8 @@ void main() {
         ]),
       );
 
-      final releases = await client.fetchChannelReleases();
-
-      expect(releases.stable!.tagName, '0.9.98');
+      await expectLater(client.fetchLatestRelease(),
+          throwsA(isA<NoInstallerAssetException>()));
     });
 
     test('selects the plain windows.exe, never the 2GB FULL installer',
@@ -203,9 +145,9 @@ void main() {
             [_fakeRelease(tag: '0.9.96', prerelease: false)]),
       );
 
-      final releases = await client.fetchChannelReleases();
+      final releases = await client.fetchLatestRelease();
 
-      expect(releases.stable!.installerDownloadUrl, 'win');
+      expect(releases.latest!.installerDownloadUrl, 'win');
     });
 
     test('throws NoInstallerAssetException when no windows asset exists',
@@ -223,13 +165,13 @@ void main() {
         ]),
       );
 
-      expect(client.fetchChannelReleases,
-          throwsA(isA<NoInstallerAssetException>()));
+      expect(
+          client.fetchLatestRelease, throwsA(isA<NoInstallerAssetException>()));
     });
   });
 
   group('OtzariaReleaseClient — הבקשה עצמה', () {
-    test('שולח User-Agent (בלעדיו GitHub מחזיר 403) ומבקש 50 releases',
+    test('שולח User-Agent (בלעדיו GitHub מחזיר 403) ומבקש Latest בלבד',
         () async {
       late http.Request captured;
       final client = OtzariaReleaseClient(
@@ -237,18 +179,19 @@ void main() {
         httpClient: MockClient((request) async {
           captured = request;
           return http.Response(
-            jsonEncode([_fakeRelease(tag: '0.9.96', prerelease: false)]),
+            _encodeLatestFixture(
+                [_fakeRelease(tag: '0.9.96', prerelease: false)]),
             200,
           );
         }),
       );
 
-      await client.fetchChannelReleases();
+      await client.fetchLatestRelease();
 
       expect(captured.headers['User-Agent'], isNotEmpty);
       expect(captured.headers['Accept'], 'application/vnd.github+json');
       expect(captured.headers['X-GitHub-Api-Version'], '2022-11-28');
-      expect(captured.url.queryParameters['per_page'], '50');
+      expect(captured.url.path, '/repos/Otzaria/otzaria/releases/latest');
     });
 
     test('סטטוס לא תקין הופך ל-GithubApiException עם ההודעה מ-l10n', () async {
@@ -258,7 +201,7 @@ void main() {
       );
 
       expect(
-        client.fetchChannelReleases,
+        client.fetchLatestRelease,
         throwsA(
           isA<GithubApiException>().having(
             (e) => e.message,
@@ -276,7 +219,7 @@ void main() {
           httpClient: MockClient((_) async => http.Response('', status)),
         );
         await expectLater(
-          client.fetchChannelReleases(),
+          client.fetchLatestRelease(),
           throwsA(
             isA<NetworkBlockedException>()
                 .having((e) => e.statusCode, 'statusCode', status),
@@ -292,15 +235,14 @@ void main() {
       );
 
       expect(
-        client.fetchChannelReleases,
+        client.fetchLatestRelease,
         throwsA(
-          isA<StateError>().having((e) => e.message, 'message',
+          isA<GithubApiException>().having((e) => e.message, 'message',
               AppL10n.strings.appDomain.noReleasesAtAll('Otzaria/otzaria')),
         ),
       );
     });
 
-    // draft הוא פרסום שטרם יצא — אסור להציע אותו למשתמש.
     test('draft מסונן, גם כשהוא החדש ביותר', () async {
       final client = OtzariaReleaseClient(
         platform: OtzariaTargetPlatform.windows,
@@ -310,23 +252,9 @@ void main() {
         ]),
       );
 
-      final releases = await client.fetchChannelReleases();
+      final releases = await client.fetchLatestRelease();
 
-      expect(releases.stable!.tagName, '0.9.98');
-    });
-
-    test('release בלי דגל prerelease נחשב יציב', () async {
-      final client = OtzariaReleaseClient(
-        platform: OtzariaTargetPlatform.windows,
-        httpClient: _mockReleasesResponse([
-          (_fakeRelease(tag: '0.9.98')..remove('prerelease')),
-        ]),
-      );
-
-      final releases = await client.fetchChannelReleases();
-
-      expect(releases.stable!.tagName, '0.9.98');
-      expect(releases.prerelease, isNull);
+      expect(releases.latest!.tagName, '0.9.98');
     });
 
     test('release בלי אסטים בכלל מדולג', () async {
@@ -338,16 +266,16 @@ void main() {
         ]),
       );
 
-      expect((await client.fetchChannelReleases()).stable!.tagName, '0.9.98');
+      await expectLater(client.fetchLatestRelease(),
+          throwsA(isA<NoInstallerAssetException>()));
     });
 
-    // תיאור ה-release הוא עברית — ולכן גם ה-charset של התגובה חשוב.
     test('שומר את תיאור ה-release הגולמי כשיש כזה', () async {
       final client = OtzariaReleaseClient(
         platform: OtzariaTargetPlatform.windows,
         httpClient: MockClient(
           (_) async => http.Response(
-            jsonEncode([
+            _encodeLatestFixture([
               {
                 ..._fakeRelease(tag: '0.9.96', prerelease: false),
                 'body': 'מה חדש',
@@ -360,7 +288,7 @@ void main() {
       );
 
       expect(
-          (await client.fetchChannelReleases()).stable!.releaseNotes, 'מה חדש');
+          (await client.fetchLatestRelease()).latest!.releaseNotes, 'מה חדש');
     });
 
     test('close לא זורק', () {
@@ -374,46 +302,6 @@ void main() {
   });
 
   group('OtzariaReleaseClient (macOS)', () {
-    test('prefers otzaria-macos.zip over the dmg and over the FULL zip',
-        () async {
-      final client = OtzariaReleaseClient(
-        platform: OtzariaTargetPlatform.macos,
-        httpClient: _mockReleasesResponse([_fakeRelease(tag: '0.9.96')]),
-      );
-
-      final release = (await client.fetchChannelReleases()).prerelease!;
-
-      expect(release.installerKind, OtzariaInstallerKind.macAppZip);
-      expect(release.installerAssetName, 'otzaria-macos.zip');
-      expect(release.installerDownloadUrl, 'mac-zip');
-      expect(release.installerSizeBytes, 74);
-    });
-
-    test('falls back to the dmg when no zip is published', () async {
-      final client = OtzariaReleaseClient(
-        platform: OtzariaTargetPlatform.macos,
-        httpClient: _mockReleasesResponse([
-          _fakeRelease(tag: '0.9.93', assets: [
-            {
-              'name': 'otzaria-macos-full.zip',
-              'browser_download_url': 'full',
-              'size': 2145
-            },
-            {
-              'name': 'otzaria-macos.dmg',
-              'browser_download_url': 'dmg',
-              'size': 67
-            },
-          ]),
-        ]),
-      );
-
-      final release = (await client.fetchChannelReleases()).prerelease!;
-
-      expect(release.installerKind, OtzariaInstallerKind.macAppDmg);
-      expect(release.installerDownloadUrl, 'dmg');
-    });
-
     test('throws NoInstallerAssetException on a windows-only release',
         () async {
       final client = OtzariaReleaseClient(
@@ -430,7 +318,7 @@ void main() {
       );
 
       expect(
-        client.fetchChannelReleases,
+        client.fetchLatestRelease,
         throwsA(
           isA<NoInstallerAssetException>().having(
             (e) => e.toString(),
@@ -459,7 +347,7 @@ void main() {
   group('OtzariaUpdateCheckResult.updateAvailable', () {
     test('is true when there is no prior install state', () {
       final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: '0.9.95'),
+        latestRelease: _release(tagName: '0.9.95'),
         currentState: null,
       );
 
@@ -468,7 +356,7 @@ void main() {
 
     test('is false when installed tag matches latest tag', () {
       final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: '0.9.95'),
+        latestRelease: _release(tagName: '0.9.95'),
         currentState: const OtzariaInstallState(
           installedTagName: '0.9.95',
           installDir: r'C:\some\dir',
@@ -482,10 +370,8 @@ void main() {
     test(
       'is false when a detected install reports the version without the build suffix',
       () {
-        // זה בדיוק המצב אחרי זיהוי התקנה קיימת: ה-.app מדווח 0.9.96
-        // (CFBundleShortVersionString) בעוד תג ה-release הוא 0.9.96+736.
         final result = OtzariaUpdateCheckResult(
-          stableRelease: _release(
+          latestRelease: _release(
             tagName: '0.9.96+736',
             kind: OtzariaInstallerKind.macAppZip,
           ),
@@ -502,7 +388,7 @@ void main() {
 
     test('is still true for a genuinely newer release', () {
       final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: '0.9.97+800'),
+        latestRelease: _release(tagName: '0.9.97+800'),
         currentState: const OtzariaInstallState(
           installedTagName: '0.9.96',
           installDir: '/Applications',
@@ -516,52 +402,6 @@ void main() {
     test('normalizeVersion strips a leading v and the build suffix', () {
       expect(OtzariaUpdateCheckResult.normalizeVersion('v1.2.3+45'), '1.2.3');
       expect(OtzariaUpdateCheckResult.normalizeVersion(' 1.2.3 '), '1.2.3');
-    });
-  });
-
-  group('בחירת ערוץ בתוצאת הבדיקה', () {
-    final stable = _release(tagName: '0.9.90');
-    final prerelease = _release(tagName: '0.9.97');
-
-    test('ברירת המחדל היא היציבה, וההעדפה מחליפה אותה', () {
-      final onStable = OtzariaUpdateCheckResult(
-        currentState: null,
-        stableRelease: stable,
-        prereleaseRelease: prerelease,
-      );
-      final onPrerelease = OtzariaUpdateCheckResult(
-        currentState: null,
-        stableRelease: stable,
-        prereleaseRelease: prerelease,
-        preferPrerelease: true,
-      );
-
-      expect(onStable.hasChannelChoice, isTrue);
-      expect(onStable.latestRelease!.tagName, '0.9.90');
-      expect(onStable.selectedChannel, OtzariaReleaseChannel.stable);
-      expect(onPrerelease.latestRelease!.tagName, '0.9.97');
-      expect(onPrerelease.selectedChannel, OtzariaReleaseChannel.prerelease);
-    });
-
-    // העדפת "לא יציבה" לא אמורה להשאיר בלי כלום כשאין pre-release חדש.
-    test('העדפה לערוץ ריק נופלת חזרה לערוץ הקיים', () {
-      final result = OtzariaUpdateCheckResult(
-        currentState: null,
-        stableRelease: stable,
-        preferPrerelease: true,
-      );
-
-      expect(result.hasChannelChoice, isFalse);
-      expect(result.latestRelease!.tagName, '0.9.90');
-      expect(result.needsDownload, isFalse);
-    });
-
-    test('בלי שום גרסה במראה — צריך להוריד', () {
-      const result = OtzariaUpdateCheckResult(currentState: null);
-
-      expect(result.needsDownload, isTrue);
-      expect(result.updateAvailable, isFalse);
-      expect(result.selectedChannel, isNull);
     });
   });
 
@@ -587,4 +427,17 @@ void main() {
       expect(OtzariaInstallState.fromJson(state.toJson()), state);
     });
   });
+}
+
+String _encodeLatestFixture(Object? value) {
+  if (value is List &&
+      value.isNotEmpty &&
+      value.first is Map &&
+      (value.first as Map).containsKey('tag_name')) {
+    final candidates = value
+        .whereType<Map>()
+        .where((r) => r['prerelease'] != true && r['draft'] != true);
+    value = candidates.isEmpty ? value.first : candidates.first;
+  }
+  return jsonEncode(value);
 }

@@ -12,8 +12,6 @@ import '../widgets/screen_body.dart';
 import '../widgets/widgets_exports.dart';
 import 'home/home_view_model.dart' show displayVersion;
 
-/// "אוצריא — מתקדם": הגרסה, התקנה מחדש, מיקום ההתקנה והתיקייה שבכונן. המצב,
-/// "מה חדש" וההתקנה עצמה בבית. הדף אינו נעול; רק שינוי הגרסה מבקש סיסמה.
 class OtzariaAdvancedPage extends StatelessWidget {
   const OtzariaAdvancedPage({
     super.key,
@@ -27,20 +25,14 @@ class OtzariaAdvancedPage extends StatelessWidget {
 
   final OtzariaModuleController otzaria;
 
-  /// בחירת ערוץ הגרסה נשמרת בהגדרות, כדי שתישאר בין הפעלות.
   final SettingsController settings;
 
-  /// נקרא אחרי שהמשתמש הצביע ידנית על תיקיית ההתקנה — תיקיית התוספים
-  /// נגזרת מהנתיב הזה, ולכן צריך לסרוק אותה מחדש.
   final Future<void> Function()? onInstallAdopted;
 
-  /// בורר הערוץ הוא הגדרה שמחוץ למסך ההגדרות, ולכן הוא צריך שער משלו.
   final SaferModeGate? saferMode;
 
-  /// התקנה מחדש של אותה גרסה, במסך המשימה.
   final VoidCallback? onReinstall;
 
-  /// משימה ארוכה רצה במקום אחר — אין התקנה עכשיו.
   final bool busy;
 
   bool get _installing => otzaria.status == OtzariaModuleStatus.installing;
@@ -65,30 +57,6 @@ class OtzariaAdvancedPage extends StatelessWidget {
     return RowsCard(
       key: ShellKeys.appAdvanced,
       children: [
-        if (c.hasChannelChoice)
-          AppRow(
-            key: ShellKeys.appChannel,
-            title: t.appChannelTitle,
-            subtitle: '${t.appChannelBody}\n'
-                '${a.channelPair('${c.stableVersion}', '${c.prereleaseVersion}')}',
-            trailing: Wrap(
-              spacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                if (saferMode?.isLocked ?? false)
-                  StatusChip(kind: StatusKind.locked, label: t.lockedChip),
-                AppSegmentedControl<bool>(
-                  options: [
-                    SegmentOption(value: false, label: a.channelStable),
-                    SegmentOption(value: true, label: a.channelPrerelease),
-                  ],
-                  currentValue: c.preferPrerelease,
-                  onChanged:
-                      _installing ? null : (v) => _setChannel(context, v),
-                ),
-              ],
-            ),
-          ),
         AppRow(
           key: ShellKeys.appReinstall,
           title: t.appReinstallTitle,
@@ -127,23 +95,6 @@ class OtzariaAdvancedPage extends StatelessWidget {
           trailing: CopyPathButton(path: c.mirrorDir),
         ),
       ],
-    );
-  }
-
-  /// נשמר בהגדרות; `AppSession` מזליג לקונטרולר, שבודק מחדש מהכונן.
-  Future<void> _setChannel(BuildContext context, bool preferPrerelease) async {
-    final gate = saferMode;
-    if (gate != null && gate.isLocked) {
-      final unlocked = await showSaferModePasswordDialog(
-        context,
-        storedPassword: gate.settings.settings.saferModePassword,
-        hint: context.strings.saferMode.verifySettingsHint,
-      );
-      if (!unlocked) return;
-      gate.unlock();
-    }
-    await settings.update(
-      settings.settings.copyWith(preferAppPrerelease: preferPrerelease),
     );
   }
 

@@ -6,8 +6,7 @@ import 'package:otzaria_downloads/otzaria_downloads.dart'
 import 'package:path/path.dart' as p;
 
 import '../models/otzaria_release.dart';
-import '../models/otzaria_release_channel.dart';
-import '../models/otzaria_update_check_result.dart';
+import '../models/otzaria_releases.dart';
 import 'otzaria_asset_selector.dart';
 import 'otzaria_changelog_client.dart';
 import 'otzaria_installer.dart';
@@ -18,26 +17,14 @@ class MirroredOtzariaRelease {
   const MirroredOtzariaRelease({
     required this.release,
     required this.installerPath,
-    this.newerThanStableTag,
   });
 
   final OtzariaRelease release;
   final String installerPath;
-  final String? newerThanStableTag;
 }
 
-/// הגרסאות שיושבות במראה, לפי ערוץ — ראו [OtzariaChannelPair].
-typedef MirroredOtzariaReleases = OtzariaChannelPair<MirroredOtzariaRelease>;
+typedef MirroredOtzariaReleases = OtzariaReleases<MirroredOtzariaRelease>;
 
-/// המראה המקומית של **תוכנת אוצריא עצמה**: קובצי ההתקנה של הגרסאות
-/// האחרונות יחד עם המטא־דאטה שלהן, בתיקייה שלצד הלאנצ'ר.
-///
-/// המראה מחזיקה **עד שתי גרסאות**: היציבה האחרונה, ובנוסף ה-pre-release
-/// האחרון כשהוא חדש ממנה — כדי שבמחשב המנותק יהיה מה לבחור בין השתיים.
-///
-/// בלי המטא־דאטה המקומית, בדיקת גרסה הייתה חייבת לפנות ל-GitHub — ובמחשב
-/// בלי רשת מודול התוכנה היה פשוט נכשל. עם המראה, [load] עונה מהדיסק
-/// ו-[sync] היא הפעולה היחידה שנוגעת ברשת.
 class OtzariaAppMirror {
   OtzariaAppMirror({
     required this.mirrorDir,
@@ -51,11 +38,8 @@ class OtzariaAppMirror {
         _platform = platform ??
             OtzariaTargetPlatform.detectOrNull(Platform.operatingSystem);
 
-  /// הפלטפורמה שהמראה נקראת בה — ראו [load]. `null` = פלטפורמה שאין לה
-  /// מסלול התקנה (לינוקס, שם רצות הבדיקות ב-CI), ואז אין סינון בכלל.
   final OtzariaTargetPlatform? _platform;
 
-  /// `<dataDir>/mirror/app` — נוסע עם התוכנה על הכונן הנייד.
   final String mirrorDir;
 
   final OtzariaReleaseClient _releaseClient;
@@ -64,7 +48,6 @@ class OtzariaAppMirror {
 
   static const String _metadataFileName = 'latest-release.json';
   static const String _platformsKey = 'platforms';
-  static const String _newerThanStableKey = 'newerThanStable';
   static const String _missingAssetTagsKey = 'missingAssetTags';
 
   static String platformKey(OtzariaTargetPlatform platform, OtzariaArch arch) =>
@@ -78,7 +61,7 @@ class OtzariaAppMirror {
           platformKey(platform!, OtzariaArch.arm64),
       };
 
-  static const int _schemaVersion = 2;
+  static const int _schemaVersion = 3;
 
   String get _metadataPath => p.join(mirrorDir, _metadataFileName);
 
@@ -87,27 +70,13 @@ class OtzariaAppMirror {
   }) async {
     final decoded = await _readMetadata();
     if (decoded == null) return const MirroredOtzariaReleases();
-    final channels = _ownChannels(decoded, arch);
-    if (channels == null) return const MirroredOtzariaReleases();
-
-    if (channels['tagName'] is String) {
-      final legacy = await _entryFrom(channels, arch);
-      if (legacy == null) return const MirroredOtzariaReleases();
-      return legacy.release.isPrerelease
-          ? MirroredOtzariaReleases(prerelease: legacy)
-          : MirroredOtzariaReleases(stable: legacy);
+    final channels = _ownEntry(decoded, arch);
+    if (channels == null || channels['source'] != 'github-latest') {
+      return const MirroredOtzariaReleases();
     }
 
-    return _withoutStalePrerelease(
-      stable: await _entryFrom(
-        channels[OtzariaReleaseChannel.stable.name],
-        arch,
-      ),
-      prerelease: await _entryFrom(
-        channels[OtzariaReleaseChannel.prerelease.name],
-        arch,
-      ),
-    );
+    return MirroredOtzariaReleases(
+        latest: await _entryFrom(channels['latest'], arch));
   }
 
   Future<bool> lacksArm64Installers() async {
@@ -115,7 +84,7 @@ class OtzariaAppMirror {
     final decoded = await _readMetadata();
     if (decoded == null) return false;
     final x64 = await load();
-    final arm = _ownChannels(decoded, OtzariaArch.arm64);
+    final arm = _ownEntry(decoded, OtzariaArch.arm64);
     final covered = <String>{
       ..._tagNamesIn({'arm64': arm ?? const {}}),
       if (arm?[_missingAssetTagsKey] case final List<dynamic> tags)
@@ -125,7 +94,11 @@ class OtzariaAppMirror {
   }
 
   Future<Set<String>> otherPlatformTagNames() async =>
-      _tagNamesIn(_otherPlatforms(await _readMetadata(), _platform));
+      _tagNamesIn(Map.fromEntries(
+        _otherPlatforms(await _readMetadata(), _platform)
+            .entries
+            .where((entry) => entry.value['source'] == 'github-latest'),
+      ));
 
   Future<Map<String, dynamic>?> _readMetadata() async {
     final file = File(_metadataPath);
@@ -138,7 +111,7 @@ class OtzariaAppMirror {
     }
   }
 
-  Map<String, dynamic>? _ownChannels(
+  Map<String, dynamic>? _ownEntry(
     Map<String, dynamic> decoded,
     OtzariaArch arch,
   ) {
@@ -169,21 +142,20 @@ class OtzariaAppMirror {
       }
     }
 
-    for (final channel in OtzariaReleaseChannel.values) {
-      final raw = decoded[channel.name];
-      final platform = _targetPlatformOf(raw);
-      if (platform == null ||
-          platform == here ||
-          listed.containsKey(platform.name)) {
-        continue;
+    final legacy = decoded['latest'];
+    if (decoded['source'] == 'github-latest' &&
+        legacy is Map<String, dynamic>) {
+      final platform = _targetPlatformOf(legacy);
+      if (platform != null &&
+          platform != here &&
+          !others.containsKey(platform.name)) {
+        others[platform.name] = {'source': 'github-latest', 'latest': legacy};
       }
-      (others[platform.name] ??= {})[channel.name] = raw;
     }
     return others;
   }
 
-  static OtzariaTargetPlatform? _targetPlatformOf(Object? raw) {
-    if (raw is! Map<String, dynamic>) return null;
+  static OtzariaTargetPlatform? _targetPlatformOf(Map<String, dynamic> raw) {
     try {
       return OtzariaRelease.fromJson(raw).installerKind.targetPlatform;
     } catch (_) {
@@ -199,48 +171,19 @@ class OtzariaAppMirror {
               entry['tagName'] as String,
       };
 
-  static MirroredOtzariaReleases _withoutStalePrerelease({
-    MirroredOtzariaRelease? stable,
-    MirroredOtzariaRelease? prerelease,
-  }) =>
-      MirroredOtzariaReleases(
-        stable: stable,
-        prerelease: stable != null &&
-                prerelease != null &&
-                _isStalePrerelease(stable, prerelease)
-            ? null
-            : prerelease,
-      );
-
-  static bool _isStalePrerelease(
-    MirroredOtzariaRelease stable,
-    MirroredOtzariaRelease prerelease,
-  ) {
-    final stableTag = stable.release.tagName;
-    if (prerelease.release.tagName == stableTag) return true;
-    if (prerelease.newerThanStableTag == stableTag) return false;
-    final prereleaseDate = prerelease.release.publishedAt;
-    final stableDate = stable.release.publishedAt;
-    if (prereleaseDate != null && stableDate != null) {
-      return prereleaseDate.isBefore(stableDate);
-    }
-    return OtzariaUpdateCheckResult.compareVersions(
-          prerelease.release.tagName,
-          stableTag,
-        ) <
-        0;
-  }
-
   Future<MirroredOtzariaRelease?> _entryFrom(
     Object? raw,
     OtzariaArch arch,
   ) async {
-    if (raw is! Map<String, dynamic>) return null;
+    if (raw is! Map<String, dynamic> || raw['isPrerelease'] == true) {
+      return null;
+    }
 
     final OtzariaRelease release;
     final String installerPath;
     try {
       release = OtzariaRelease.fromJson(raw);
+      if (release.isDraft || release.isPrerelease) return null;
       final relative = raw['installerPath'];
       if (relative is! String || relative.isEmpty) return null;
       installerPath = p.joinAll([
@@ -251,7 +194,9 @@ class OtzariaAppMirror {
       return null;
     }
     if (!p.isWithin(
-        p.absolute(mirrorDir), p.normalize(p.absolute(installerPath)))) {
+      p.absolute(mirrorDir),
+      p.normalize(p.absolute(installerPath)),
+    )) {
       return null;
     }
 
@@ -265,18 +210,12 @@ class OtzariaAppMirror {
     if (!await installer.exists()) return null;
     if (await installer.length() != release.installerSizeBytes) return null;
 
-    final newerThanStable = raw[_newerThanStableKey];
     return MirroredOtzariaRelease(
       release: release,
       installerPath: installerPath,
-      newerThanStableTag: newerThanStable is String ? newerThanStable : null,
     );
   }
 
-  /// חבילות FULL שנשארו במראה מגרסה ישנה של הלאנצ'ר, שאינה נושאת אותן
-  /// יותר. הן ~2GB כל אחת, ולכן [sync] מוחקת אותן — ו-`OtzariaManager`
-  /// מדווח עליהן כדי שמודול התוכנה ירוץ גם על כונן שאין בו גרסה חדשה,
-  /// אחרת "אין מה להוריד" היה משאיר אותן שם לנצח.
   Future<List<String>> staleFullPackages() async {
     final root = Directory(_installer.cacheDir);
     if (!await root.exists()) return const [];
@@ -288,124 +227,38 @@ class OtzariaAppMirror {
           found.add(entity.path);
         }
       }
-    } catch (_) {
-      // סריקה best-effort: כונן שנשלף באמצע אינו סיבה להפיל בדיקת גרסה.
-    }
+    } catch (_) {}
     return found;
   }
 
   Future<MirroredOtzariaReleases> sync({
-    OtzariaChannelReleases? online,
+    OtzariaLatestRelease? online,
     void Function(int received, int total)? onDownloadProgress,
-    void Function(OtzariaReleaseChannel channel)? onChannelStart,
     bool Function()? isCancelled,
   }) async {
-    online ??= await _releaseClient.fetchChannelReleases();
-
-    final existing = await load();
-    final here = _platform ??
-        (online.stable ??
-                online.prerelease ??
-                existing.stable?.release ??
-                existing.prerelease?.release)
-            ?.installerKind
-            .targetPlatform;
-    final withArm64 = here == OtzariaTargetPlatform.windows;
-    final existingArm = withArm64 ? await load(arch: OtzariaArch.arm64) : null;
-    final metadata = await _readMetadata();
-    final others = _otherPlatforms(metadata, here);
-    final previousArm =
-        metadata == null ? null : _ownChannels(metadata, OtzariaArch.arm64);
-    var stable = existing.stable?.release.tagName == online.prerelease?.tagName
+    online ??= await _releaseClient.fetchLatestRelease();
+    final release = online.latest;
+    if (release == null) return const MirroredOtzariaReleases();
+    final here = _platform ?? release.installerKind.targetPlatform;
+    final others = _otherPlatforms(await _readMetadata(), here);
+    final latest =
+        await _downloadToMirror(release, onDownloadProgress, isCancelled);
+    final variant =
+        here == OtzariaTargetPlatform.windows ? release.arm64Variant : null;
+    final arm64 = variant == null
         ? null
-        : existing.stable;
-    var prerelease = online.prerelease == null ? null : existing.prerelease;
-    var armStable =
-        existingArm?.stable?.release.tagName == online.prerelease?.tagName
-            ? null
-            : existingArm?.stable;
-    var armPrerelease =
-        online.prerelease == null ? null : existingArm?.prerelease;
-    final missingArm = <String>{
-      if (previousArm?[_missingAssetTagsKey] case final List<dynamic> tags)
-        ...tags.whereType<String>(),
-    };
-
-    for (final channel in OtzariaReleaseChannel.values) {
-      final release = online[channel];
-      if (release == null) continue;
-
-      onChannelStart?.call(channel);
-      final mirrored = await _downloadToMirror(
-        release,
-        onDownloadProgress,
-        isCancelled,
-      );
-      final variant = withArm64 ? release.arm64Variant : null;
-      final mirroredArm = variant == null
-          ? null
-          : await _downloadToMirror(variant, onDownloadProgress, isCancelled);
-      if (withArm64 && variant == null) missingArm.add(release.tagName);
-      if (channel == OtzariaReleaseChannel.stable) {
-        stable = mirrored;
-        armStable = mirroredArm;
-        if (prerelease != null && _isStalePrerelease(mirrored, prerelease)) {
-          prerelease = null;
-          armPrerelease = null;
-        }
-      } else {
-        prerelease = MirroredOtzariaRelease(
-          release: mirrored.release,
-          installerPath: mirrored.installerPath,
-          newerThanStableTag: online.stable?.tagName,
-        );
-        armPrerelease = mirroredArm == null
-            ? null
-            : MirroredOtzariaRelease(
-                release: mirroredArm.release,
-                installerPath: mirroredArm.installerPath,
-                newerThanStableTag: online.stable?.tagName,
-              );
-      }
-      await _writeMetadata(
-        stable: stable,
-        prerelease: prerelease,
-        here: here,
-        others: others,
-        arm64: withArm64
-            ? (
-                stable: armStable,
-                prerelease: armPrerelease,
-                missingAssetTags: {
-                  for (final tag in missingArm)
-                    if (tag == stable?.release.tagName ||
-                        tag == prerelease?.release.tagName)
-                      tag,
-                },
-              )
-            : null,
-      );
-    }
-
-    final result = MirroredOtzariaReleases(
-      stable: stable,
-      prerelease: prerelease,
-    );
-    if (result.all.isNotEmpty) {
-      await _installer.pruneCacheExcept(
-        keepTagNames: {
-          for (final e in result.all)
-            OtzariaInstaller.cacheSegment(e.release.tagName),
-          for (final e in [armStable, armPrerelease].nonNulls)
-            OtzariaInstaller.cacheSegment(e.release.tagName),
-          ..._tagNamesIn(others).map(OtzariaInstaller.cacheSegment),
-        },
-      );
-    }
+        : await _downloadToMirror(variant, onDownloadProgress, isCancelled);
+    await _writeMetadata(
+        latest: latest, arm64: arm64, here: here, others: others);
+    await _installer.pruneCacheExcept(keepTagNames: {
+      OtzariaInstaller.cacheSegment(release.tagName),
+      if (arm64 != null) OtzariaInstaller.cacheSegment(arm64.release.tagName),
+      ..._tagNamesIn(others).map(OtzariaInstaller.cacheSegment),
+    });
     for (final path in await staleFullPackages()) {
       await _deleteQuietly(path);
     }
-    return result;
+    return MirroredOtzariaReleases(latest: latest);
   }
 
   Future<MirroredOtzariaRelease> _downloadToMirror(
@@ -433,59 +286,39 @@ class OtzariaAppMirror {
     try {
       final file = File(path);
       if (await file.exists()) await file.delete();
-    } catch (_) {
-      // ניקוי best-effort — כישלון כאן לא אמור להפיל הורדה שהצליחה.
-    }
+    } catch (_) {}
   }
 
   Future<void> _writeMetadata({
-    MirroredOtzariaRelease? stable,
-    MirroredOtzariaRelease? prerelease,
-    OtzariaTargetPlatform? here,
+    required MirroredOtzariaRelease latest,
+    required OtzariaTargetPlatform here,
+    MirroredOtzariaRelease? arm64,
     Map<String, Map<String, dynamic>> others = const {},
-    ({
-      MirroredOtzariaRelease? stable,
-      MirroredOtzariaRelease? prerelease,
-      Set<String> missingAssetTags,
-    })? arm64,
   }) async {
-    String relative(String path) =>
-        p.relative(path, from: mirrorDir).replaceAll(r'\', '/');
-
     Map<String, dynamic> entry(MirroredOtzariaRelease e) => e.release.toJson()
-      ..['installerPath'] = relative(e.installerPath)
-      ..addAll({
-        if (e.newerThanStableTag case final tag?) _newerThanStableKey: tag,
-      });
-
+      ..['installerPath'] =
+          p.relative(e.installerPath, from: mirrorDir).replaceAll(r'\', '/');
+    final own = <String, dynamic>{
+      'source': 'github-latest',
+      'latest': entry(latest)
+    };
     await Directory(mirrorDir).create(recursive: true);
-    final channels = <String, dynamic>{
-      if (stable != null) OtzariaReleaseChannel.stable.name: entry(stable),
-      if (prerelease != null)
-        OtzariaReleaseChannel.prerelease.name: entry(prerelease),
-    };
-    final json = <String, dynamic>{
-      'schemaVersion': _schemaVersion,
-      'syncedAt': DateTime.now().toIso8601String(),
-      ...channels,
-      _platformsKey: {
-        ...others,
-        if (here != null) here.name: channels,
-        if (here != null && arm64 != null)
-          platformKey(here, OtzariaArch.arm64): {
-            if (arm64.stable case final e?)
-              OtzariaReleaseChannel.stable.name: entry(e),
-            if (arm64.prerelease case final e?)
-              OtzariaReleaseChannel.prerelease.name: entry(e),
-            if (arm64.missingAssetTags.isNotEmpty)
-              _missingAssetTagsKey: arm64.missingAssetTags.toList()..sort(),
-          },
-      },
-    };
-
     await writeStringAtomically(
-      _metadataPath,
-      const JsonEncoder.withIndent('  ').convert(json),
-    );
+        _metadataPath,
+        const JsonEncoder.withIndent('  ').convert({
+          'schemaVersion': _schemaVersion,
+          'syncedAt': DateTime.now().toIso8601String(),
+          ...own,
+          'platforms': {
+            ...others,
+            here.name: own,
+            if (here == OtzariaTargetPlatform.windows)
+              platformKey(here, OtzariaArch.arm64): {
+                'source': 'github-latest',
+                if (arm64 != null) 'latest': entry(arm64),
+                if (arm64 == null) 'missingAssetTags': [latest.release.tagName],
+              },
+          },
+        }));
   }
 }

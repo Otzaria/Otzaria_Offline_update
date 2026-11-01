@@ -141,8 +141,9 @@ void main() {
         operatingSystem: os,
         httpClient: MockClient((request) async {
           expect(request.headers['User-Agent'], isNotNull);
+          expect(request.url.path, endsWith('/releases/latest'));
           return http.Response(
-            jsonEncode(releases),
+            jsonEncode(releases.single),
             200,
             headers: {'content-type': 'application/json; charset=utf-8'},
           );
@@ -152,53 +153,30 @@ void main() {
       return client.fetchLatestStable();
     }
 
-    test('בוחר את היציב האחרון ומדלג על draft ועל pre-release', () async {
-      final release = await fetch([
-        _releaseJson(tag: 'v0.4.0', draft: true),
-        _releaseJson(tag: 'v0.3.0', prerelease: true),
-        _releaseJson(tag: 'v0.2.0'),
-        _releaseJson(tag: 'v0.1.0'),
-      ]);
-
+    test('נבחר רק Latest גם אם יש ריליס גבוה ממנו', () async {
+      final release = await fetch([_releaseJson(tag: 'v0.2.0')]);
       expect(release?.tagName, 'v0.2.0');
       expect(release?.version, '0.2');
       expect(release?.sizeBytes, 4);
     });
 
-    test('נבחרת הגרסה הגבוהה, גם כשהיא לא הראשונה ברשימה', () async {
-      // סדר הפרסום אינו סדר הגרסאות: release ותיק שנערך מחדש עולה לראש.
-      final release = await fetch([
-        _releaseJson(tag: 'v0.1.0'),
-        _releaseJson(tag: 'v0.9.0'),
-        _releaseJson(tag: 'v0.2.0'),
-      ]);
-
-      expect(release?.tagName, 'v0.9.0');
+    test('תגובה ניסיונית או טיוטה אינה Latest תקין', () async {
+      expect(await fetch([_releaseJson(prerelease: true)]), isNull);
+      expect(await fetch([_releaseJson(draft: true)]), isNull);
     });
 
-    test('תג ידני שאינו vX.Y.Z נפסל — "V1" אינו גרסה 1', () async {
-      // ⚠️ בריפו יש release ידני ותיק בשם `V1` עם `default.exe`. כל השוואה
-      // מספרית הייתה רואה בו גרסה 1, כלומר חדשה לנצח מכל 0.x, ומתקינה
-      // בניית בדיקה ותיקה על המשתמשים.
-      final ignored = await fetch([
-        _releaseJson(tag: 'V1', assetName: 'default.exe'),
-      ]);
-      expect(ignored, isNull);
-
+    test('Latest עם תג ידני V1 נפסל בלי מעבר לריליס אחר', () async {
       final release = await fetch([
         _releaseJson(tag: 'V1', assetName: 'default.exe'),
-        _releaseJson(tag: 'v0.1.2'),
       ]);
-      expect(release?.tagName, 'v0.1.2');
+      expect(release, isNull);
     });
 
-    test('release בלי אסט לפלטפורמה מדולג, ולא מפיל את הבדיקה', () async {
+    test('Latest בלי אסט לפלטפורמה אינו מחפש ריליס אחר', () async {
       final release = await fetch([
         _releaseJson(tag: 'v0.3.0', assetName: 'launcher_app-macos.zip'),
-        _releaseJson(tag: 'v0.2.0'),
       ]);
-
-      expect(release?.tagName, 'v0.2.0');
+      expect(release, isNull);
     });
 
     test('ב-macOS נבחר ה-zip ולא ה-exe', () async {
@@ -218,11 +196,6 @@ void main() {
 
       final withoutDigest = await fetch([_releaseJson(tag: 'v0.2.0')]);
       expect(withoutDigest?.sha256, isNull);
-    });
-
-    test('אין יציב בכלל — null, ולא שגיאה', () async {
-      final release = await fetch([_releaseJson(prerelease: true)]);
-      expect(release, isNull);
     });
 
     test('סטטוס שאינו 200 נזרק כ-LauncherUpdateException', () async {
@@ -441,6 +414,22 @@ void main() {
         expect(loaded?.release.changelog, contains('חדש'));
       },
     );
+
+    test('מראה ישנה ללא ראיית Latest אינה מוצעת להתקנה ואינה נמחקת', () async {
+      final synced = await mirror.sync(_release());
+      final metadata = File(p.join(mirror.mirrorDir, 'latest-release.json'));
+      final json =
+          jsonDecode(await metadata.readAsString()) as Map<String, dynamic>;
+      json.remove('source');
+      for (final entry in (json['platforms'] as Map).values) {
+        (entry as Map).remove('source');
+      }
+      final legacy = jsonEncode(json);
+      await metadata.writeAsString(legacy);
+      expect(await mirror.load(), isNull);
+      expect(await metadata.readAsString(), legacy);
+      expect(await File(synced.filePath).readAsString(), 'abcd');
+    });
 
     test('קובץ בגודל שגוי (הורדה שנקטעה) נחשב "אין מראה"', () async {
       final synced = await mirror.sync(_release());
@@ -1185,7 +1174,7 @@ void main() {
       final client = MockClient((request) async {
         if (request.url.host == 'api.github.com') {
           return http.Response.bytes(
-            utf8.encode(jsonEncode([_releaseJson()])),
+            utf8.encode(jsonEncode(_releaseJson())),
             200,
           );
         }

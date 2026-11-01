@@ -391,14 +391,11 @@ abstract class PageStrings {
   String get appAdvancedPageTitle;
 
   /// מותקנת הגרסה של הערוץ השני, חדשה מזו שנבחרה — לא מורידים גרסה.
-  String appAwaitsNewer({required bool stable});
 
   /// כפתורים שמושבתים כי משימה ארוכה רצה במקום אחר.
   String get pageBusyNote;
 
-  String appAdvancedSummary({required bool channel});
-  String get appChannelTitle;
-  String get appChannelBody;
+  String get appAdvancedSummary;
   String get appReinstallTitle;
   String appReinstallBody(String version);
   String get appReinstallUnavailable;
@@ -591,7 +588,6 @@ abstract class GuidanceStrings {
   String get offlineNote;
   String get checkOnlineNowNote;
   String get newerTitle;
-  String newerChannelTitle({required bool stable});
   String newerBody(String installed, String onDrive);
   String get newerNote;
   String get attentionAppTitle;
@@ -758,10 +754,6 @@ abstract class AppScreenStrings {
   String get installNotFoundSnack;
 
   String get mirrorEmpty;
-  String channelPair(String stable, String prerelease);
-
-  String get channelStable;
-  String get channelPrerelease;
 
   String get launchButton;
 
@@ -1931,10 +1923,6 @@ abstract class LibraryDomainStrings {
 
 abstract class AppDomainStrings {
   const AppDomainStrings();
-
-  String get channelStable;
-  String get channelPrerelease;
-  String downloadingChannel(String channelLabel);
 
   /// הודעת החריג שנזרק כשהמשתמש ביטל את ההורדה — לא שגיאה, בחירה.
   String get downloadCancelled;

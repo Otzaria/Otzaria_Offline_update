@@ -738,7 +738,6 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           onEditFaq: () => unawaited(_editFaq()),
           // `select` ולא מעל ההגדרות: הדף אינו נעול, ו"חזרה" ממנו מובילה לבית.
           onOpenOtzariaAdvanced: () => unawaited(_goTo(ShellSection.otzaria)),
-          otzariaChannelChoice: s.otzaria.hasChannelChoice,
           semanticConsentGranted: s.otzaria.currentVersion != null &&
                   (s.library.semanticPending ||
                       s.library.semanticConsentGranted)

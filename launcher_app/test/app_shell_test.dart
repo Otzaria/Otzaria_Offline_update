@@ -2210,49 +2210,6 @@ void main() {
       expect(screen(SettingsScreen), findsOneWidget);
     });
 
-    /// שני ערוצים בכונן — רק אז מוצגת בחירת הגרסה.
-    void offerChannels(AppSession s) {
-      s.otzaria
-        ..status = OtzariaModuleStatus.upToDate
-        ..currentVersion = '1.0.0'
-        ..latestVersion = '1.0.0'
-        ..stableVersion = '1.0.0'
-        ..prereleaseVersion = '1.1.0-beta'
-        ..hasChannelChoice = true;
-      // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
-      s.otzaria.notifyListeners();
-    }
-
-    testWidgets('"אוצריא — מתקדם" אינו נעול, אבל שינוי הגרסה מבקש סיסמה', (
-      tester,
-    ) async {
-      await lockSettings(tester);
-      await pumpShell(tester);
-      final s = sessionOf(tester);
-      final nav = navigatorOf(tester);
-      offerChannels(s);
-      await tester.pump();
-
-      await open(tester, ShellSection.otzaria);
-      await tester.pump();
-      expect(find.text(stringsOf().saferMode.verifyTitle), findsNothing);
-      expect(nav.stack, [
-        const HomeRoute(),
-        const SectionRoute(ShellSection.otzaria),
-      ]);
-      expect(find.byKey(ShellKeys.appAdvanced), findsOneWidget);
-      expect(find.text(stringsOf().pages.appAdvancedPageTitle), findsWidgets);
-
-      await tester.tap(find.text(stringsOf().appScreen.channelPrerelease));
-      await tester.pump();
-      expect(find.text(stringsOf().saferMode.verifyTitle), findsOneWidget);
-      await tester.tap(find.text(stringsOf().common.cancel));
-      await tester.pump();
-      expect(settings.settings.preferAppPrerelease, isFalse);
-      expect(s.saferMode.isLocked, isTrue);
-      expect(screen(SettingsScreen), findsNothing);
-    });
-
     testWidgets('הקישור מההגדרות פותח את המתקדם מעל הבית, ו"חזרה" מובילה לבית',
         (tester) async {
       await lockSettings(tester);

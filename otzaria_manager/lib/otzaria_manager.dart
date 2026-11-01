@@ -3,7 +3,7 @@ export 'src/models/otzaria_data_root.dart';
 export 'src/models/otzaria_deep_links.dart';
 export 'src/models/otzaria_install_state.dart';
 export 'src/models/otzaria_release.dart';
-export 'src/models/otzaria_release_channel.dart';
+export 'src/models/otzaria_releases.dart';
 export 'src/models/otzaria_update_check_result.dart';
 export 'src/otzaria_manager.dart';
 export 'src/otzaria_user_error.dart';

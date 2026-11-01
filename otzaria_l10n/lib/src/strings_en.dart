@@ -677,21 +677,11 @@ class _Pages extends PageStrings {
   @override
   String get appAdvancedPageTitle => 'Otzaria — advanced';
   @override
-  String appAwaitsNewer({required bool stable}) => stable
-      ? 'A beta version newer than the stable one on the drive is installed here. You will move to the stable version when a stable version newer than the installed one comes out.'
-      : 'A stable version newer than the beta on the drive is installed here. You will move to the beta version when a beta newer than the installed one comes out.';
-  @override
   String get pageBusyNote =>
       'Another task is running now, so the actions here wait for it to finish.';
   @override
-  String appAdvancedSummary({required bool channel}) => channel
-      ? 'Beta version, reinstall, install location and the drive folder'
-      : 'Reinstall, install location and the drive folder';
-  @override
-  String get appChannelTitle => 'Which version to install';
-  @override
-  String get appChannelBody =>
-      'A beta version gets new features first, but it may have problems.';
+  String get appAdvancedSummary =>
+      'Reinstall, install location and the drive folder';
   @override
   String get appReinstallTitle => 'Reinstall the same version';
   @override
@@ -1112,10 +1102,6 @@ class _Guide extends GuidanceStrings {
   @override
   String get newerTitle => 'This computer is newer than the drive';
   @override
-  String newerChannelTitle({required bool stable}) => stable
-      ? 'This computer is newer than the stable version on the drive'
-      : 'This computer is newer than the beta version on the drive';
-  @override
   String newerBody(String installed, String onDrive) =>
       'This computer has Otzaria $installed, and the drive has $onDrive. '
       'There is nothing to install from the drive.';
@@ -1457,14 +1443,6 @@ class _AppScreen extends AppScreenStrings {
   @override
   String get mirrorEmpty =>
       'None — Download updates to the drive on a computer with internet, from the home page';
-  @override
-  String channelPair(String stable, String prerelease) =>
-      '$stable (stable) · $prerelease (beta)';
-
-  @override
-  String get channelStable => 'Stable';
-  @override
-  String get channelPrerelease => 'Beta';
 
   @override
   String get launchButton => 'Open Otzaria';
@@ -3737,13 +3715,6 @@ class _LibraryDomain extends LibraryDomainStrings {
 class _AppDomain extends AppDomainStrings {
   const _AppDomain();
 
-  @override
-  String get channelStable => 'stable';
-  @override
-  String get channelPrerelease => 'pre-release';
-  @override
-  String downloadingChannel(String channelLabel) =>
-      'Downloading the Otzaria program ($channelLabel version)…';
   @override
   String get downloadCancelled => 'The download was cancelled.';
   @override

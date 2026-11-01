@@ -10,7 +10,7 @@ import 'package:test/test.dart';
 
 import 'support/sandbox.dart';
 
-const _releasesPath = '/repos/Otzaria/otzaria/releases';
+const _releasesPath = '/repos/Otzaria/otzaria/releases/latest';
 
 class _FakeGithub {
   final requests = <Uri>[];
@@ -54,7 +54,7 @@ class _FakeGithub {
     final url = request.url;
     if (url.host == 'api.github.com' && url.path == _releasesPath) {
       return http.Response(
-        jsonEncode([
+        _encodeLatestFixture([
           _release('0.9.97', pre: true),
           _release('0.9.96', pre: false),
         ]),
@@ -125,28 +125,15 @@ void main() {
     });
   });
 
-  test('the light check is one release-list call', () async {
-    await online((manager) async {
-      final channels = await manager.peekOnlineChannels();
-
-      expect(channels.stable!.tagName, '0.9.96');
-      expect(channels.prerelease!.tagName, '0.9.97');
-      expect(github.releaseListCalls, 1);
-      expect(github.apiCalls, 1);
-      expect(github.changelogCalls, lessThanOrEqualTo(2));
-      expect(github.installerDownloads, 0);
-    });
-  });
-
   test('check + download stays within one list call per step', () async {
     await online((manager) async {
-      await manager.peekOnlineChannels();
+      await manager.peekOnlineRelease();
       await manager.downloadToMirror();
 
       expect(github.releaseListCalls, lessThanOrEqualTo(2));
       expect(github.apiCalls, github.releaseListCalls);
       expect(github.changelogCalls, lessThanOrEqualTo(4));
-      expect(github.installerDownloads, 2);
+      expect(github.installerDownloads, 1);
     });
   });
 
@@ -155,8 +142,21 @@ void main() {
       await manager.downloadToMirror();
       await manager.downloadToMirror();
 
-      expect(github.installerDownloads, 2);
+      expect(github.installerDownloads, 1);
       expect(github.releaseListCalls, lessThanOrEqualTo(2));
     });
   });
+}
+
+String _encodeLatestFixture(Object? value) {
+  if (value is List &&
+      value.isNotEmpty &&
+      value.first is Map &&
+      (value.first as Map).containsKey('tag_name')) {
+    final candidates = value
+        .whereType<Map>()
+        .where((r) => r['prerelease'] != true && r['draft'] != true);
+    value = candidates.isEmpty ? value.first : candidates.first;
+  }
+  return jsonEncode(value);
 }

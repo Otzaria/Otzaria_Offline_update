@@ -51,7 +51,7 @@ void main() {
 
   test('גרסת beta וכונן נשארים בכיוון שלהם בתוך עברית', () {
     expect(
-      he.appScreen.channelPair('0.10.4', '0.10.5-beta'),
+      he.pages.appWhatsNew('0.10.5-beta'),
       contains('\u20660.10.5-beta\u2069'),
     );
     expect(he.guide.drive('C:'), 'כונן \u2066C:\u2069');

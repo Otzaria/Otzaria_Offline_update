@@ -1,105 +1,39 @@
 import 'otzaria_install_state.dart';
 import 'otzaria_release.dart';
-import 'otzaria_release_channel.dart';
 
-/// תוצאת בדיקת עדכון: מה מותקן כרגע (אם בכלל) מול מה שיושב **במראה
-/// המקומית**. הבדיקה עצמה אינה נוגעת ברשת.
-///
-/// המראה מחזיקה עד שתי גרסאות — יציבה ולא-יציבה. [preferPrerelease] הוא
-/// מה שהמשתמש בחר בהגדרות, והוא זה שקובע איזו מהן [latestRelease] מחזיר.
 class OtzariaUpdateCheckResult {
   const OtzariaUpdateCheckResult({
     required this.currentState,
-    this.stableRelease,
-    this.prereleaseRelease,
-    this.preferPrerelease = false,
+    this.latestRelease,
     this.isOtzariaRunning = false,
     this.hasStaleFullPackage = false,
     this.mirrorLacksArchitectures = false,
   });
-
-  /// הגרסה היציבה שבמראה, או null אם לא הורדה כזו.
-  final OtzariaRelease? stableRelease;
-
-  /// ה-pre-release שבמראה — קיים רק כשהוא חדש מהיציבה (ראו
-  /// `OtzariaReleaseClient.fetchChannelReleases`).
-  final OtzariaRelease? prereleaseRelease;
-
-  /// בחירת המשתמש בין השתיים. חסרת משמעות כשאין [hasChannelChoice].
-  final bool preferPrerelease;
-
-  /// null אם עדיין לא בוצעה אף התקנה על ידי הלאנצ'ר הזה.
+  final OtzariaRelease? latestRelease;
   final OtzariaInstallState? currentState;
-
-  /// האם אוצריא פתוחה כרגע, כפי שנצפה **באותה בדיקת תהליך** ששימשה לזיהוי
-  /// ההתקנה. מוחזר כאן כדי שהממשק לא יריץ בדיקת תהליך שנייה משלו.
   final bool isOtzariaRunning;
-
-  /// על הכונן יושבת חבילת FULL (~2GB) שירדה בגרסה ישנה של הלאנצ'ר. היא
-  /// אינה נתמכת יותר, וההורדה הבאה מוחקת אותה — ראו
-  /// `OtzariaAppMirror.staleFullPackages`.
   final bool hasStaleFullPackage;
-
   final bool mirrorLacksArchitectures;
-
-  /// הגרסה שתותקן בפועל — לפי הערוץ שנבחר, עם נפילה לערוץ השני כשהנבחר
-  /// ריק. null אם עדיין לא הורדה שום גרסה. ראו [needsDownload].
-  OtzariaRelease? get latestRelease =>
-      _mirrored.select(preferPrerelease: preferPrerelease);
-
-  /// הערוץ שאליו שייכת [latestRelease] בפועל.
-  OtzariaReleaseChannel? get selectedChannel =>
-      _mirrored.selectedChannel(preferPrerelease: preferPrerelease);
-
-  /// שתי הגרסאות יושבות במראה — רק אז יש למשתמש מה לבחור.
-  bool get hasChannelChoice => _mirrored.hasChoice;
-
-  OtzariaChannelReleases get _mirrored => OtzariaChannelReleases(
-        stable: stableRelease,
-        prerelease: prereleaseRelease,
-      );
-
-  /// אין מה להשוות מולו — צריך קודם להריץ הורדה במחשב עם אינטרנט.
   bool get needsDownload => latestRelease == null;
-
   bool get updateAvailable {
     final latest = latestRelease;
+    final current = currentState;
     if (latest == null) return false;
-    final current = currentState;
     if (current == null) return true;
-    final installed = current.installedTagName;
-    if (installed == latest.tagName) return false;
-    if (!_isMirroredTag(installed) && sameVersion(installed, latest.tagName)) {
-      return false;
-    }
-    return !installedIsNewer;
+    final compared = compareBases(normalizeVersion(latest.tagName),
+        normalizeVersion(current.installedTagName));
+    if (compared != 0) return compared > 0;
+    final installedVersion = normalizeVersion(current.installedTagName);
+    final targetVersion = normalizeVersion(latest.tagName);
+    return installedVersion.contains('-') && !targetVersion.contains('-');
   }
 
-  bool get installedIsNewer {
-    final latest = latestRelease;
-    final current = currentState;
-    if (latest == null || current == null) return false;
-
-    final installed = current.installedTagName;
-    if (sameVersion(installed, latest.tagName)) return false;
-    // גם כשהמותקנת היא הגרסה של הערוץ השני: מעבר ערוץ לעולם אינו מוריד גרסה.
-    return compareVersions(installed, latest.tagName) > 0;
-  }
-
-  /// המותקנת היא הגרסה של הערוץ השני שבכונן, והיא חדשה מזו של הערוץ שנבחר.
-  /// לא מחליפים אותה; המעבר יקרה כשבערוץ שנבחר תגיע גרסה חדשה ממנה.
-  bool get awaitsNewerInSelectedChannel {
-    if (!installedIsNewer) return false;
-    final other = selectedChannel == OtzariaReleaseChannel.stable
-        ? prereleaseRelease
-        : stableRelease;
-    return other != null &&
-        sameVersion(currentState!.installedTagName, other.tagName);
-  }
-
-  bool _isMirroredTag(String tagName) =>
-      tagName == stableRelease?.tagName ||
-      tagName == prereleaseRelease?.tagName;
+  bool get installedIsNewer =>
+      latestRelease != null &&
+      currentState != null &&
+      compareBases(normalizeVersion(currentState!.installedTagName),
+              normalizeVersion(latestRelease!.tagName)) >
+          0;
 
   static bool sameVersion(String installedVersion, String tagName) {
     if (!sameBuild(installedVersion, tagName)) return false;
@@ -118,14 +52,6 @@ class OtzariaUpdateCheckResult {
     return installedBase == installed && tagBase != tag;
   }
 
-  /// סדר בין שתי גרסאות: שלילי אם [a] ותיקה מ-[b], חיובי אם חדשה ממנה,
-  /// ואפס כשהן שקולות או שאין הכרעה.
-  ///
-  /// חלקי הבסיס מושווים כמספרים ולא כטקסט (חלק חסר = 0) — `0.9.97` חדשה
-  /// מ-`0.9.96` וגם מ-`0.9.9`. סיומת ה-pre-release מכריעה רק בתיקו, והצד
-  /// שנושא אותה ותיק מהצד שבלעדיה (`1.0.0-beta` < `1.0.0`). שתי סיומות
-  /// שונות על אותו בסיס אינן ברות השוואה ומחזירות אפס. בתיקו מלא מכריע
-  /// מספר ה-build (`0.9.96+736` < `0.9.96+741`) — ראו [sameBuild].
   static int compareVersions(String a, String b) {
     final left = normalizeVersion(a);
     final right = normalizeVersion(b);
@@ -138,22 +64,10 @@ class OtzariaUpdateCheckResult {
     final leftHasSuffix = left != leftBase;
     final rightHasSuffix = right != rightBase;
     if (leftHasSuffix != rightHasSuffix) return leftHasSuffix ? -1 : 1;
-    // תיקו בבסיס ובסיומת — נשאר רק ה-build להכריע בו.
+
     return _compareBuilds(a, b);
   }
 
-  /// שני תגים נושאים את **אותו** מספר build, או שלפחות אחד מהם בלי build
-  /// כלל.
-  ///
-  /// אוצריא מוציאה לפעמים תיקון לבאג בלי להעלות את מספר הגרסה: אותו
-  /// `0.9.96`, ורק המספר שאחרי ה-`+` עולה (`+736` → `+741`). הבדל כזה הוא
-  /// release חדש לכל דבר, ולכן הוא כן נספר.
-  ///
-  /// **אבל רק כששני הצדדים נושאים build, ורק כששניהם תגי גיטהאב.** ה-
-  /// build שמוטבע ב-exe הוא ספירה אחרת לגמרי (`0.9.97+99702` מול `+740`
-  /// באותה גרסה ממש), ולכן `OtzariaManager` מסיר אותו מכל גרסה שנקראת
-  /// מהדיסק — ראו `OtzariaInstallState.appVersion`. build חסר אינו "build
-  /// אחר", אחרת כל זיהוי של התקנה קיימת היה חוזר להיראות כמו עדכון ממתין.
   static bool sameBuild(String a, String b) {
     final left = _buildSuffix(a);
     final right = _buildSuffix(b);
@@ -161,7 +75,6 @@ class OtzariaUpdateCheckResult {
     return left == right;
   }
 
-  /// החלק שאחרי ה-`+`, או null כשאין כזה (גם ל-`0.9.96+` הריק).
   static String? _buildSuffix(String raw) {
     final version = raw.trim();
     final separator = version.indexOf('+');
@@ -170,8 +83,6 @@ class OtzariaUpdateCheckResult {
     return build.isEmpty ? null : build;
   }
 
-  /// סדר בין מספרי ה-build. מוכרע רק כששניהם קיימים ושניהם מספריים —
-  /// סיומת שאינה מספר אינה ברת השוואה, ואפס פירושו "אין הכרעה".
   static int _compareBuilds(String a, String b) {
     final left = int.tryParse(_buildSuffix(a) ?? '');
     final right = int.tryParse(_buildSuffix(b) ?? '');
@@ -179,13 +90,11 @@ class OtzariaUpdateCheckResult {
     return left < right ? -1 : 1;
   }
 
-  /// חלקי הבסיס כמספרים; חלק שאינו מספר נחשב 0 (במקום להפיל את ההשוואה).
   static List<int> _numericParts(String base) => base
       .split('.')
       .map((part) => int.tryParse(part) ?? 0)
       .toList(growable: false);
 
-  /// החלק שלפני סיומת ה-pre-release.
   static String _baseVersion(String version) {
     final separator = version.indexOf('-');
     return separator >= 0 ? version.substring(0, separator) : version;
@@ -232,21 +141,6 @@ class OtzariaUpdateCheckResult {
   static int? buildNumberOf(String raw) =>
       int.tryParse(_buildSuffix(raw) ?? '');
 
-  /// מנרמל תג/גרסה להשוואה: מוריד `v` מוביל ואת סיומת ה-build שאחרי `+`.
-  ///
-  /// **למה זה נחוץ:** כשההתקנה בוצעה על ידי הלאנצ'ר, [OtzariaInstallState.
-  /// installedTagName] הוא תג ה-release המלא (`0.9.96+736`). אבל כשמזהים
-  /// התקנה קיימת שלא נעשתה דרך הלאנצ'ר, הגרסה נקראת מתוך ההתקנה עצמה —
-  /// ושם ה-build אינו אותה ספירה: `ProductVersion` בווינדוס מחזיר
-  /// `0.9.97+99702` לאותה גרסה ממש שתגה `0.9.97+740`, ו-
-  /// `CFBundleShortVersionString` ב-macOS מחזיר `0.9.97` בלבד. לכן
-  /// `OtzariaManager` מנרמל כל גרסה שנקראת מהדיסק; בלי זה כל זיהוי של
-  /// התקנה קיימת נראה כמו "יש עדכון" (או גרוע מכך, כמו "מותקנת גרסה חדשה
-  /// יותר") ומוריד שוב את אותה גרסה בדיוק.
-  ///
-  /// ה-build עצמו לא נזרק לפח: [sameBuild] מכריע בו כששני הצדדים נושאים
-  /// אחד. כאן הוא יורד כי הפונקציה משמשת גם לאיתור הסעיף ביומן השינויים,
-  /// שבו הכותרות הן מספר הגרסה בלבד.
   static String normalizeVersion(String raw) {
     var version = raw.trim();
     if (version.startsWith('v') || version.startsWith('V')) {

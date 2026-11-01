@@ -109,10 +109,6 @@ class AppSettings {
   final bool autoInstall;
 
   // ── ערוץ הגרסה של תוכנת אוצריא ──────────────────────────────────────────
-  /// `true` = להתקין את הגרסה הלא-יציבה (pre-release). ההורדה מביאה תמיד
-  /// את שתי הגרסאות; זו רק הבחירה איזו מהן מותקנת, והיא רלוונטית רק כשיש
-  /// pre-release חדש מהיציבה.
-  final bool preferAppPrerelease;
 
   // ── ממשק ────────────────────────────────────────────────────────────────
   /// *הבחירה* בהגדרות — כולל "אוטומטי", שהיא ברירת המחדל. השפה שמוצגת
@@ -151,7 +147,6 @@ class AppSettings {
     this.personalAutoRegisterPending = false,
     this.semanticDownload = SemanticDownloadPreference.ask,
     this.autoInstall = false,
-    this.preferAppPrerelease = false,
     this.languagePreference = AppLanguagePreference.system,
     this.textScale = 1.0,
     this.saferModeEnabled = false,
@@ -191,7 +186,6 @@ class AppSettings {
     bool? personalAutoRegisterPending,
     SemanticDownloadPreference? semanticDownload,
     bool? autoInstall,
-    bool? preferAppPrerelease,
     AppLanguagePreference? languagePreference,
     double? textScale,
     bool? saferModeEnabled,
@@ -210,7 +204,6 @@ class AppSettings {
           personalAutoRegisterPending ?? this.personalAutoRegisterPending,
       semanticDownload: semanticDownload ?? this.semanticDownload,
       autoInstall: autoInstall ?? this.autoInstall,
-      preferAppPrerelease: preferAppPrerelease ?? this.preferAppPrerelease,
       languagePreference: languagePreference ?? this.languagePreference,
       textScale: textScale ?? this.textScale,
       saferModeEnabled: saferModeEnabled ?? this.saferModeEnabled,
@@ -225,9 +218,6 @@ class AppSettings {
         'automation': {
           'checkUpdates': autoCheckUpdates,
           'install': autoInstall,
-        },
-        'channels': {
-          'appPrerelease': preferAppPrerelease,
         },
         'sync': {
           'app': syncApp,
@@ -262,7 +252,6 @@ class AppSettings {
     }
 
     final automation = section('automation');
-    final channels = section('channels');
     final sync = section('sync');
     final ui = section('ui');
     final protection = section('protection');
@@ -331,8 +320,6 @@ class AppSettings {
         'installLibrary',
         defaults.autoInstall,
       ),
-      preferAppPrerelease:
-          flag(channels, 'appPrerelease', defaults.preferAppPrerelease),
       languagePreference: AppLanguagePreference.fromCode(ui['language']),
       textScale: textScale(defaults.textScale),
       saferModeEnabled: flag(
