@@ -20,8 +20,8 @@ class OtzariaUpdateCheckResult {
     final current = currentState;
     if (latest == null) return false;
     if (current == null) return true;
-    final compared = compareBases(normalizeVersion(latest.tagName),
-        normalizeVersion(current.installedTagName));
+    final compared =
+        compareBases(normalizeVersion(latest.tagName), _installedVersion);
     if (compared != 0) return compared > 0;
     final installedVersion = normalizeVersion(current.installedTagName);
     final targetVersion = normalizeVersion(latest.tagName);
@@ -31,9 +31,19 @@ class OtzariaUpdateCheckResult {
   bool get installedIsNewer =>
       latestRelease != null &&
       currentState != null &&
-      compareBases(normalizeVersion(currentState!.installedTagName),
-              normalizeVersion(latestRelease!.tagName)) >
+      compareBases(
+              _installedVersion, normalizeVersion(latestRelease!.tagName)) >
           0;
+
+  String get _installedVersion {
+    final current = currentState!;
+    final tag = normalizeVersion(current.installedTagName);
+    final raw = current.appVersion;
+    if (raw == null) return tag;
+    final disk = versionFromDisk(raw);
+    // Either the recorded tag or the exe can omit the installed hotfix.
+    return compareBases(disk, tag) > 0 ? disk : tag;
+  }
 
   static bool sameVersion(String installedVersion, String tagName) {
     if (!sameBuild(installedVersion, tagName)) return false;

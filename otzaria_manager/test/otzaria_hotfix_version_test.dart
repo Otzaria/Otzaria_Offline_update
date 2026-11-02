@@ -141,6 +141,34 @@ void main() {
     for (final scenario in [
       (
         installed: '1.0.0+900',
+        disk: '1.0.0+1000002',
+        target: '1.0.0.1',
+        update: false,
+        newer: true
+      ),
+      (
+        installed: '1.0.0+900',
+        disk: '1.0.0+1000002',
+        target: '1.0.0.2+901',
+        update: false,
+        newer: false
+      ),
+      (
+        installed: '1.0.0+900',
+        disk: '1.0.0+1000002',
+        target: '1.0.0.3+901',
+        update: true,
+        newer: false
+      ),
+      (
+        installed: '1.0.0.2+900',
+        disk: '1.0.0',
+        target: '1.0.0.1+901',
+        update: false,
+        newer: true
+      ),
+      (
+        installed: '1.0.0+900',
         disk: '1.0.0+1000000',
         target: '1.0.0.1+901',
         update: true,
