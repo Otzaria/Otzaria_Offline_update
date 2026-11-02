@@ -66,7 +66,7 @@ class HomeActions {
   final VoidCallback onRestartElevated;
   final VoidCallback onDismissElevation;
 
-  /// "עדכון זמין" בשורת המצב — דף "עדכון הכלי הזה".
+  /// "עדכון זמין" של הכלי — דף "עדכון הכלי הזה".
   final VoidCallback onOpenLauncherUpdate;
 
   /// "הצג התקדמות" בגיבור של עדכון ספרייה שרץ מחוץ למסך משימה.
@@ -424,6 +424,18 @@ class HomePage extends StatelessWidget {
   }
 }
 
+/// הגיבור מציג את הכלי ברשימה שלו, ושורת המצב לא חוזרת עליו — מלבד אחוז
+/// ההורדה והשגיאה.
+bool _launcherInHero(HomeViewModel m) => switch (m.guidance.primary) {
+      GuidancePrimary.installHere ||
+      GuidancePrimary.updateHere ||
+      GuidancePrimary.downloadToDrive =>
+        launcherOffersUpdate(m.launcher),
+      GuidancePrimary.upToDate =>
+        m.guidance.otherUpdates.contains(OtherUpdate.launcher),
+      _ => false,
+    };
+
 /// הגיבור במצב "צריך בדיקה" על ספרייה שלא נמצאה או שהכונן הוכן למחשב אחר —
 /// והוא שמציע את הפעולה, במקום ההודעה.
 bool _libraryInHero(HomeViewModel m) =>
@@ -761,7 +773,9 @@ class _Hero extends StatelessWidget {
           onPressed: onPressed,
         );
 
-    final busy = m.isCheckingOnline;
+    // עדכון הכלי שלפני השאר — הכפתור הראשי ממתין לו.
+    final launching = m.updatingLauncherFirst;
+    final busy = m.isCheckingOnline || launching;
     final offline = m.online == false;
     final launch =
         primary(g.launchButton, m.canLaunch ? actions.onLaunch : null);
@@ -870,8 +884,15 @@ class _Hero extends StatelessWidget {
         return _HeroSpec(
           title: g.installHereTitle,
           body: g.installHereBody,
-          items: _hereItems(context),
-          actions: [primary(g.installHereButton, actions.onInstallHere)],
+          items: [..._launcherItems(context), ..._hereItems(context)],
+          actions: [
+            primary(
+              g.installHereButton,
+              launching ? null : actions.onInstallHere,
+              icon: launching ? FluentIcons.arrow_sync_24_regular : null,
+              spinning: launching,
+            ),
+          ],
           notes: [
             ...recheckNote,
             ...appNotes,
@@ -883,9 +904,14 @@ class _Hero extends StatelessWidget {
         return _HeroSpec(
           title: g.updateHereTitle,
           body: g.updateHereBody,
-          items: _hereItems(context),
+          items: [..._launcherItems(context), ..._hereItems(context)],
           actions: [
-            primary(g.updateHereButton, actions.onUpdateHere),
+            primary(
+              g.updateHereButton,
+              launching ? null : actions.onUpdateHere,
+              icon: launching ? FluentIcons.arrow_sync_24_regular : null,
+              spinning: launching,
+            ),
             ...whatsNew,
             ...launchToo,
           ],
@@ -898,11 +924,10 @@ class _Hero extends StatelessWidget {
         );
       case GuidancePrimary.downloadToDrive:
         final hereToo = _g.secondary == GuidanceSecondary.updateHereToo;
-        final items = _downloadItems(context);
         return _HeroSpec(
           title: g.downloadTitle,
           body: g.downloadBody,
-          items: items,
+          items: [..._launcherItems(context), ..._downloadItems(context)],
           total: _total(context),
           free: m.driveFreeBytes == null
               ? null
@@ -925,9 +950,11 @@ class _Hero extends StatelessWidget {
                     ? g.installHereButton
                     : g.updateHereButton,
                 size: ActionButtonSize.lg,
-                onPressed: m.installedVersion == null
-                    ? actions.onInstallHere
-                    : actions.onUpdateHere,
+                onPressed: launching
+                    ? null
+                    : m.installedVersion == null
+                        ? actions.onInstallHere
+                        : actions.onUpdateHere,
               ),
             ...launchToo,
           ],
@@ -1440,32 +1467,43 @@ class _Hero extends StatelessWidget {
     );
   }
 
+  /// הכלי עצמו ראשון ברשימה: הכפתור הראשי מעדכן אותו לפני השאר
+  /// (`AppSession.launcherFirst`), כדי שהעדכונים הבאים ירוצו בגרסה החדשה.
+  List<_Item> _launcherItems(BuildContext context) => [
+        if (launcherOffersUpdate(model.launcher)) _launcherItem(context),
+      ];
+
+  _Item _launcherItem(BuildContext context) {
+    final g = context.strings.guide;
+    final launcher = model.launcher;
+    final version =
+        launcher?.version == null ? null : displayVersion(launcher!.version!);
+    return _item(
+      const IconTile(
+        size: IconTileSize.sm,
+        icon: FluentIcons.usb_stick_24_regular,
+      ),
+      g.otherLauncherTitle,
+      subtitle: switch (launcher?.kind) {
+        LauncherLineKind.downloading => g.launcherDownloading,
+        LauncherLineKind.ready ||
+        LauncherLineKind.readyManual when version != null =>
+          g.otherLauncherOnDrive(version),
+        _ when version != null => g.otherLauncherOnline(version),
+        _ => null,
+      },
+      onTap: actions.onOpenLauncherUpdate,
+    );
+  }
+
   /// הכלי עצמו ותוכנות נוספות — כדי ש"הכול מעודכן" לא יסתיר אותם.
   List<_Item> _otherItems(BuildContext context) {
     final g = context.strings.guide;
     final m = model;
-    final launcher = m.launcher;
-    final version =
-        launcher?.version == null ? null : displayVersion(launcher!.version!);
     return [
       for (final other in _g.otherUpdates)
         switch (other) {
-          OtherUpdate.launcher => _item(
-              const IconTile(
-                size: IconTileSize.sm,
-                icon: FluentIcons.usb_stick_24_regular,
-              ),
-              g.otherLauncherTitle,
-              subtitle: switch (launcher?.kind) {
-                LauncherLineKind.downloading => g.launcherDownloading,
-                LauncherLineKind.ready ||
-                LauncherLineKind.readyManual when version != null =>
-                  g.otherLauncherOnDrive(version),
-                _ when version != null => g.otherLauncherOnline(version),
-                _ => null,
-              },
-              onTap: actions.onOpenLauncherUpdate,
-            ),
+          OtherUpdate.launcher => _launcherItem(context),
           OtherUpdate.customApps => _item(
               const IconTile(
                 size: IconTileSize.sm,
@@ -2106,7 +2144,10 @@ class _StatusBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          if (launcher != null) ...[
+          if (launcher != null &&
+              (launcher.kind == LauncherLineKind.downloading ||
+                  launcher.kind == LauncherLineKind.error ||
+                  !_launcherInHero(model))) ...[
             _launcher(context, launcher, style),
             const SizedBox(width: 16),
           ],

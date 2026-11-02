@@ -116,6 +116,7 @@ class HomeViewModel {
     this.downloadBehind = false,
     this.downloadResultWaiting = false,
     this.isCheckingOnline = false,
+    this.updatingLauncherFirst = false,
     this.checkingNow = false,
     this.checkBlocked = false,
     this.launcher,
@@ -259,6 +260,9 @@ class HomeViewModel {
   /// הורדה שהסתיימה מאחורי "עדכון כאן" ותוצאתה עוד לא נראתה.
   final bool downloadResultWaiting;
   final bool isCheckingOnline;
+
+  /// הכפתור הראשי מעדכן את הכלי לפני השאר — מחוון בו.
+  final bool updatingLauncherFirst;
 
   /// "בדוק עכשיו" רץ (מקומית ואז ברשת) — מחוון במקום הקישור.
   final bool checkingNow;
@@ -451,6 +455,7 @@ HomeViewModel homeViewModelOf(AppSession s) {
     downloadBehind: s.isDownloading && task != HomeTask.downloading,
     downloadResultWaiting: s.tasks.downloadParked,
     isCheckingOnline: s.isCheckingOnline,
+    updatingLauncherFirst: s.updatingLauncherFirst,
     checkingNow: s.isCheckingNow,
     checkBlocked: s.checkNowBlocked,
     launcher: launcher,

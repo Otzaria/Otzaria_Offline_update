@@ -324,11 +324,10 @@ void main() {
         findsOneWidget,
       );
       expect(inList(g.driveFree(formatBytes(29082 << 20))), findsOneWidget);
-      // הסמל העגול יורד — הרשימה צריכה את הרוחב.
-      expect(
-        inHero(find.byIcon(FluentIcons.usb_stick_24_regular)),
-        findsNothing,
-      );
+      // הסמל העגול יורד — הרשימה צריכה את הרוחב. הכונן שנשאר הוא שורת הכלי.
+      final usb = find.byIcon(FluentIcons.usb_stick_24_regular);
+      expect(inHero(usb), findsOneWidget);
+      expect(find.descendant(of: list, matching: usb), findsOneWidget);
       expect(
         tester.widget<ActionButton>(find.byKey(ShellKeys.heroSecondary)).text,
         g.updateHereButton,
@@ -1166,10 +1165,16 @@ void main() {
   });
 
   group('שורת התחתית', () {
+    // גיבור בלי רשימה ("חדשה מהכונן"), ולכן הכלי בשורת המצב.
     HomeViewModel withLauncher(LauncherLine? line, {bool busy = false}) =>
         HomeViewModel(
           guidance: deriveHomeGuidance(
-            GuidanceFacts(online: true, longTaskRunning: busy),
+            GuidanceFacts(
+              online: true,
+              longTaskRunning: busy,
+              otzariaStatus: AppStatusFact.installedIsNewer,
+              launcherUpdate: launcherOffersUpdate(line),
+            ),
           ),
           online: true,
           launcher: line,
@@ -2351,6 +2356,157 @@ void main() {
       );
       expect(
         find.descendant(of: list, matching: find.text(g.chipAppsPending(2))),
+        findsOneWidget,
+      );
+    });
+
+    for (final scenario in ['offline', 'downloadOnly', 'othersPending']) {
+      testWidgets('$scenario: הכלי ראשון ברשימת הגיבור, ולא בשורת המצב', (
+        tester,
+      ) async {
+        var opened = 0;
+        await pumpScreen(
+          tester,
+          HomePage(
+            model: homeScenario(scenario),
+            actions: HomeActions(onOpenLauncherUpdate: () => opened++),
+          ),
+        );
+        final rows = find.descendant(
+          of: find.byKey(ShellKeys.heroItems),
+          matching: find.byType(AppRow),
+        );
+        expect(tester.widget<AppRow>(rows.first).title, g.otherLauncherTitle);
+        expect(find.byKey(ShellKeys.launcherLine), findsNothing);
+        await tester.tap(rows.first);
+        expect(opened, 1);
+      });
+    }
+
+    HomeViewModel updateHere(
+      LauncherLine line, {
+      bool updatingLauncherFirst = false,
+    }) =>
+        HomeViewModel(
+          guidance: deriveHomeGuidance(
+            GuidanceFacts(
+              otzariaStatus: AppStatusFact.updateAvailable,
+              online: false,
+              launcherUpdate: launcherOffersUpdate(line),
+            ),
+          ),
+          online: false,
+          installedVersion: '0.10.3',
+          driveAppVersion: '0.10.4',
+          launcher: line,
+          updatingLauncherFirst: updatingLauncherFirst,
+          driveName: 'E:',
+        );
+
+    testWidgets('שגיאה בכלי: השורה בגיבור, והאזהרה נשארת בשורת המצב', (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        HomePage(
+          model: updateHere(
+            const LauncherLine(
+              LauncherLineKind.error,
+              version: '3.3.0',
+              error: 'access denied',
+            ),
+          ),
+        ),
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(ShellKeys.heroItems),
+          matching: find.text(g.otherLauncherTitle),
+        ),
+        findsOneWidget,
+      );
+      expect(find.byTooltip('access denied'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(ShellKeys.launcherUpdateButton),
+          matching: find.byIcon(FluentIcons.warning_24_regular),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('שגיאה בלי גרסה: אין שורה בגיבור, והכפתור בשורת המצב', (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        HomePage(
+          model: updateHere(
+            const LauncherLine(LauncherLineKind.error, error: 'offline'),
+          ),
+        ),
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(ShellKeys.heroItems),
+          matching: find.text(g.otherLauncherTitle),
+        ),
+        findsNothing,
+      );
+      expect(find.byKey(ShellKeys.launcherUpdateButton), findsOneWidget);
+    });
+
+    testWidgets('בזמן עדכון הכלי שלפני השאר — הכפתור הראשי מסתובב ומושבת', (
+      tester,
+    ) async {
+      const ready = LauncherLine(LauncherLineKind.ready, version: '3.3.0');
+      await pumpScreen(
+        tester,
+        HomePage(model: updateHere(ready, updatingLauncherFirst: true)),
+      );
+      final button =
+          tester.widget<ActionButton>(find.byKey(ShellKeys.heroPrimary));
+      expect(button.text, g.updateHereButton);
+      expect(button.onPressed, isNull);
+      expect(button.spinning, isTrue);
+
+      await pumpScreen(tester, HomePage(model: updateHere(ready)));
+      expect(
+        tester
+            .widget<ActionButton>(find.byKey(ShellKeys.heroPrimary))
+            .onPressed,
+        isNotNull,
+      );
+    });
+
+    testWidgets('הכלי יורד: ברשימת הגיבור, והאחוז נשאר בשורת המצב', (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        HomePage(
+          model: HomeViewModel(
+            guidance: deriveHomeGuidance(
+              const GuidanceFacts(online: true, launcherUpdate: true),
+            ),
+            online: true,
+            launcher: const LauncherLine(LauncherLineKind.downloading),
+            driveName: 'E:',
+          ),
+        ),
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(ShellKeys.heroItems),
+          matching: find.text(g.otherLauncherTitle),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(ShellKeys.statusBar),
+          matching: find.text(g.launcherDownloading),
+        ),
         findsOneWidget,
       );
     });

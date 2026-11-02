@@ -1336,10 +1336,23 @@ void main() {
 
     test('הגיבור פותח את מסכי המשימה, לא את הדיאלוגים הישנים', () {
       final source = _appShellSource();
-      expect(source, contains('onInstallHere: _updateHere,'));
-      expect(source, contains('onUpdateHere: _updateHere,'));
-      expect(source,
-          contains('onDownload: () => unawaited(_session.downloadAll()),'));
+      // הכלי קודם (`launcherFirst`), ואז אותם מסכי משימה.
+      expect(source, contains('onInstallHere: _updateHereLauncherFirst,'));
+      expect(source, contains('onUpdateHere: _updateHereLauncherFirst,'));
+      expect(
+        source,
+        contains('_session.launcherFirst(AfterLauncherUpdate.download)'),
+      );
+      expect(
+        source,
+        contains('_session.launcherFirst(AfterLauncherUpdate.updateHere)'),
+      );
+      final then = _methodBody(
+        _appSessionSource(),
+        'Future<void> _runAfterLauncherUpdate(',
+      );
+      expect(then, contains('await downloadAll();'));
+      expect(then, contains('await updateHere(items);'));
       expect(source, contains('onShowProgress: _showProgress,'));
       expect(source, isNot(contains('onCancelDownload')));
       expect(

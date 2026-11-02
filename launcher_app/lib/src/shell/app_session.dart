@@ -31,6 +31,7 @@ import '../controllers/search_feedback_controller.dart';
 import '../controllers/shell_module_ports.dart';
 import '../flows/update_here_flow.dart';
 import '../self_update/launcher_self_updater.dart';
+import '../services/after_launcher_update_store.dart';
 import '../services/app_logger.dart';
 import '../services/app_paths.dart';
 import '../services/byte_size.dart';
@@ -46,8 +47,8 @@ import '../settings/safer_mode.dart';
 import '../settings/settings_controller.dart';
 import '../widgets/ui_snack.dart';
 import 'download_failure.dart';
-import 'home_guidance.dart' show FoundNothing, GuidanceItem;
-import 'home_guidance_session.dart' show onlineState;
+import 'home_guidance.dart' show FoundNothing, GuidanceItem, deriveHomeGuidance;
+import 'home_guidance_session.dart' show guidanceFactsFromSession, onlineState;
 import 'session_prompts.dart';
 import 'shell_tasks.dart';
 
@@ -463,7 +464,9 @@ class AppSession extends ChangeNotifier {
     _startupOnline = online.catchError((_) {}).whenComplete(() {
       if (isActive) _update(() => _startupOnlineDone = true);
     });
-    unawaited(_askPersonalScopeAfter(crashCheck));
+    final scope = _askPersonalScopeAfter(crashCheck);
+    unawaited(scope);
+    if (!readOnly) unawaited(_resumeAfterLauncherUpdate(scope));
     unawaited(
       Future.wait([_startupLocal.future, _startupOnline])
           .then((_) => registerPendingMachine()),
@@ -1094,6 +1097,73 @@ class AppSession extends ChangeNotifier {
   Future<void> installLauncherUpdate() =>
       _fromLauncherPage(_launcherFlow.install);
 
+  late final AfterLauncherUpdateStore _afterLauncherUpdate =
+      AfterLauncherUpdateStore(stateFilesDir);
+
+  /// הכפתור הראשי של הבית מעדכן את הכלי לפני השאר.
+  bool get updatingLauncherFirst => _launcherFirstThen != null;
+  AfterLauncherUpdate? _launcherFirstThen;
+
+  /// הכפתור הראשי של הבית: גרסה חדשה של הכלי מותקנת קודם, ו-[then] ממשיך
+  /// בהפעלה החדשה — או מיד, כשהכלי לא הופעל מחדש (ביטול, כשל, macOS).
+  Future<void> launcherFirst(AfterLauncherUpdate then) async {
+    if (_launcherFirstThen != null || !isActive) return;
+    final c = _launcherUpdate;
+    final Future<void> Function()? update = readOnly || c.isDownloading
+        ? null
+        : c.hasUpdateReady && c.canInstall
+            ? _launcherFlow.install
+            : c.hasOnlineUpdate
+                ? _launcherFlow.download
+                : null;
+    if (update != null) {
+      _update(() => _launcherFirstThen = then);
+      try {
+        await update();
+      } catch (e, st) {
+        AppLogger.instance.error('עדכון הכלי שלפני השאר נכשל', e, st);
+      } finally {
+        if (isActive) _update(() => _launcherFirstThen = null);
+      }
+      // הוחלף והופעל מחדש — התהליך הזה נסגר, והגרסה החדשה ממשיכה.
+      if (c.isInstalling || !isActive || _closing) return;
+      await _afterLauncherUpdate.clear();
+    }
+    await _runAfterLauncherUpdate(then);
+  }
+
+  Future<void> _runAfterLauncherUpdate(AfterLauncherUpdate then) async {
+    if (!isActive || _closing) return;
+    switch (then) {
+      case AfterLauncherUpdate.download:
+        await downloadAll();
+      case AfterLauncherUpdate.updateHere:
+        final items =
+            deriveHomeGuidance(guidanceFactsFromSession(this)).hereItems;
+        if (items.isNotEmpty) await updateHere(items);
+    }
+  }
+
+  /// הגרסה החדשה ממשיכה במה שהכפתור הראשי התחיל לפני ההחלפה — אחרי הבדיקות
+  /// ושאלת העלייה, שההורדה תלויה בתשובה שלה.
+  Future<void> _resumeAfterLauncherUpdate(Future<void> scopeQuestion) async {
+    final then = await _afterLauncherUpdate.take();
+    if (then == null) return;
+    try {
+      await scopeQuestion;
+    } catch (_) {}
+    await _startupLocal.future;
+    await _startupOnline;
+    if (!isActive || _closing) return;
+    // בלי בדיקה בעלייה הספרייה והתוספים עוד לא ידועים, והרשימה הייתה מדלגת עליהם.
+    if (then == AfterLauncherUpdate.updateHere) {
+      await _library.checkForUpdate();
+      if (!isActive || _closing) return;
+      await _plugins.refreshInstalled();
+    }
+    await _runAfterLauncherUpdate(then);
+  }
+
   Future<void> _fromLauncherPage(Future<void> Function() action) async {
     if (!isActive) return;
     _whatsNewAlreadyShown = true;
@@ -1104,12 +1174,18 @@ class AppSession extends ChangeNotifier {
     }
   }
 
-  Future<bool> _confirmLauncherInstall(String version) =>
-      prompts.confirmLauncherInstall(
-        version,
-        whatsNew:
-            _whatsNewAlreadyShown ? null : _launcherUpdate.downloadedWhatsNew,
-      );
+  /// מ-[launcherFirst] הסימון נשמר רק אחרי האישור, כדי שהגיל שלו יימדד מההחלפה;
+  /// סימון שלא נשמר נחשב סירוב — אחרת ההמשך היה הולך לאיבוד בהפעלה מחדש.
+  Future<bool> _confirmLauncherInstall(String version) async {
+    final approved = await prompts.confirmLauncherInstall(
+      version,
+      whatsNew:
+          _whatsNewAlreadyShown ? null : _launcherUpdate.downloadedWhatsNew,
+    );
+    final then = _launcherFirstThen;
+    if (!approved || then == null) return approved;
+    return _afterLauncherUpdate.save(then);
+  }
 
   Future<void> _autoInstallIfEnabled() async {
     final skippedWhileRunning = await _autoInstall.run(
@@ -1154,7 +1230,7 @@ class AppSession extends ChangeNotifier {
     if (!isActive) return true;
     if (!(longTaskRunning || updatingHere || launcherDownloading)) {
       // מסירה בודדת מהחנות: קצרה, בלי שאלה — רק לא לקטוע אותה באמצע.
-      return _stopDeliveries();
+      return _closeApproved(await _stopDeliveries());
     }
     final approved = await prompts.confirmClose(
       downloading: _downloads.isDownloading || launcherDownloading,
@@ -1163,12 +1239,24 @@ class AppSession extends ChangeNotifier {
     if (!isActive) return true;
     // המסירות קודם: "חזרה לכלי" מהן משאירה את ההורדות רצות כרגיל.
     if (!await _stopDeliveries()) return false;
+    await _closeApproved(true);
     await Future.wait([
       _downloads.cancelAndWait(keepProgress: true),
       _launcherUpdate.cancelAndWait(),
     ]);
     return true;
   }
+
+  /// החלון נסגר: [launcherFirst] אינו ממשיך לפעולה שתיקטע ב-`exit`, ואינו
+  /// משאיר סימון שיתחיל אותה בפתיחה הבאה.
+  Future<bool> _closeApproved(bool approved) async {
+    if (!approved) return false;
+    _closing = true;
+    if (_launcherFirstThen != null) await _afterLauncherUpdate.clear();
+    return true;
+  }
+
+  bool _closing = false;
 
   /// עוצר מסירות וממתין להן. מסירה שלא חזרה אחרי [closeDeliveryPatience] אינה
   /// נקטעת: המשתמש בוחר בין המשך המתנה לחזרה לכלי (`false`).
