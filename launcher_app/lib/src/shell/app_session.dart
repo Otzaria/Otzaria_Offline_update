@@ -1133,6 +1133,7 @@ class AppSession extends ChangeNotifier {
   }
 
   Future<void> _runAfterLauncherUpdate(AfterLauncherUpdate then) async {
+    if (!isActive || _closing) return;
     switch (then) {
       case AfterLauncherUpdate.download:
         await downloadAll();
@@ -1153,12 +1154,14 @@ class AppSession extends ChangeNotifier {
     } catch (_) {}
     await _startupLocal.future;
     await _startupOnline;
+    if (!isActive || _closing) return;
     // בלי בדיקה בעלייה הספרייה והתוספים עוד לא ידועים, והרשימה הייתה מדלגת עליהם.
-    if (then == AfterLauncherUpdate.updateHere && isActive) {
+    if (then == AfterLauncherUpdate.updateHere) {
       await _library.checkForUpdate();
+      if (!isActive || _closing) return;
       await _plugins.refreshInstalled();
     }
-    if (isActive) await _runAfterLauncherUpdate(then);
+    await _runAfterLauncherUpdate(then);
   }
 
   Future<void> _fromLauncherPage(Future<void> Function() action) async {

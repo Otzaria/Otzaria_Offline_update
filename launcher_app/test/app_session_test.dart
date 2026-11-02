@@ -1609,6 +1609,41 @@ void main() {
         expect(marker().existsSync(), isFalse);
       });
 
+      for (final then in AfterLauncherUpdate.values) {
+        test('סגירה בזמן שאלת העלייה מבטלת המשך ${then.name}', () async {
+          await settings.update(settings.settings.copyWith(
+            syncApp: false,
+            syncLibrary: false,
+            syncPlugins: false,
+          ));
+          prompts.personalGate = Completer<bool?>();
+          final store = AfterLauncherUpdateStore(
+            p.join(tempDir.path, AppPaths.logsDirName),
+          );
+          await store.save(then);
+          final library = _ScriptedLibrary(tempDir.path);
+          final s = session(
+            libraryManager: library,
+            launcherUpdater: _SteppedLauncher()..ready = null,
+          )..start();
+          await waitFor(() => prompts.personalAsks == 1);
+          expect(prompts.personalAsks, 1);
+          await waitFor(() => !marker().existsSync());
+          expect(marker().existsSync(), isFalse);
+          await settled(s);
+          expect(await s.confirmClose(), isTrue);
+          expect(s.isActive, isTrue);
+
+          prompts.personalGate!.complete(null);
+          await Future<void>.delayed(Duration.zero);
+          expect(prompts.calls, isNot(contains('noSyncSelection')));
+          expect(s.library.status, LibraryModuleStatus.idle);
+          expect(library.checkCalls, 0);
+          expect(s.tasks.hasTask, isFalse);
+          expect(marker().existsSync(), isFalse);
+        });
+      }
+
       test('אין גרסה חדשה לכלי — הכפתור עושה את שלו בלי לשאול', () async {
         final s = await started(_SteppedLauncher()..ready = null);
         await s.launcherFirst(AfterLauncherUpdate.download);
@@ -2745,6 +2780,7 @@ class _FakePrompts implements SessionPrompts {
   Future<bool> confirmLibraryReindex() async => false;
 
   int personalAsks = 0;
+  Completer<bool?>? personalGate;
   bool? personalAnswer;
   int personalModeConfirms = 0;
   bool personalModeConfirm = true;
@@ -2758,7 +2794,7 @@ class _FakePrompts implements SessionPrompts {
   @override
   Future<bool?> askPersonalScope() async {
     personalAsks++;
-    return personalAnswer;
+    return personalGate == null ? personalAnswer : await personalGate!.future;
   }
 
   @override
