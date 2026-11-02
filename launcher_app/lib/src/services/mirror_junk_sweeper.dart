@@ -155,9 +155,10 @@ class MirrorJunkSweeper {
     final entries = [
       if (meta['tagName'] is String)
         meta
-      else ...[meta['stable'], meta['prerelease']],
+      else ...[meta['latest'], meta['stable'], meta['prerelease']],
       for (final channels in platforms.values)
         if (channels is Map<String, dynamic>) ...[
+          channels['latest'],
           channels['stable'],
           channels['prerelease']
         ] else

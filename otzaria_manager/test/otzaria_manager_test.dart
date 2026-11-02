@@ -68,8 +68,9 @@ void main() {
     }
 
     final json = <String, dynamic>{
-      'schemaVersion': 2,
-      if (stable != null) 'stable': await entry(stable),
+      'schemaVersion': 3,
+      'source': 'github-latest',
+      if (stable != null) 'latest': await entry(stable),
       if (prerelease != null) 'prerelease': await entry(prerelease),
     };
     await Directory(mirrorDir()).create(recursive: true);
@@ -81,7 +82,6 @@ void main() {
   /// (תהליך, רג'יסטרי, התיקייה הישנה, הפעלה) מוחלף, כדי שהבדיקה לא תגיע
   /// לאוצריא שמותקנת במכונת המפתח.
   OtzariaManager managerFor({
-    bool preferPrerelease = false,
     Map<String, String> environment = const {},
     String? runningOtzariaPath,
     List<String> registeredInstallDirs = const [],
@@ -98,7 +98,6 @@ void main() {
       installRegistry: _FakeInstallRegistry(registeredInstallDirs),
       launcher: _RecordingLauncher(),
       legacyInstallDirs: legacyInstallDirs,
-      preferPrerelease: preferPrerelease,
     );
     addTearDown(manager.dispose);
     return manager;
@@ -165,59 +164,11 @@ void main() {
   });
 
   group('checkForUpdate — מהמראה בלבד', () {
-    test('מראה ריקה: צריך להוריד, ואין קריסה ואין המתנה לרשת', () async {
-      final check = await managerFor().checkForUpdate();
-
-      expect(check.needsDownload, isTrue);
-      expect(check.latestRelease, isNull);
-      expect(check.updateAvailable, isFalse);
-      expect(check.hasChannelChoice, isFalse);
-      expect(check.selectedChannel, isNull);
-      expect(check.currentState, isNull);
-    });
-
-    test('מחזיר בדיוק את מה שיושב במראה', () async {
-      await writeMirror(stable: _release('0.9.90', isPrerelease: false));
-
-      final check = await managerFor().checkForUpdate();
-
-      expect(check.needsDownload, isFalse);
-      expect(check.latestRelease!.tagName, '0.9.90');
-      expect(check.selectedChannel, OtzariaReleaseChannel.stable);
-      expect(check.updateAvailable, isTrue); // אין עדיין התקנה מוכרת
-    });
-
     // הלב של המצב האופליין: החלפת ערוץ בוחרת את קובץ ההתקנה השני שכבר
     // יושב על הכונן — בלי שום פנייה לרשת.
-    test('preferPrerelease מחליף בין שתי הגרסאות שבמראה, בלי רשת', () async {
-      await writeMirror(
-        stable: _release('0.9.90', isPrerelease: false),
-        prerelease: _release('0.9.97', isPrerelease: true),
-      );
-      final manager = managerFor();
-
-      final onStable = await manager.checkForUpdate();
-      manager.preferPrerelease = true;
-      final onPrerelease = await manager.checkForUpdate();
-
-      expect(onStable.hasChannelChoice, isTrue);
-      expect(onStable.latestRelease!.tagName, '0.9.90');
-      expect(onPrerelease.hasChannelChoice, isTrue);
-      expect(onPrerelease.latestRelease!.tagName, '0.9.97');
-      expect(onPrerelease.selectedChannel, OtzariaReleaseChannel.prerelease);
-    });
 
     // כשאין release יציב כלל — ה-pre-release הוא הגרסה היחידה, והתווית
     // אומרת בדיוק את זה (לא נפילה שקטה).
-    test('מראה עם pre-release בלבד מוצעת, ומתויגת כלא-יציבה', () async {
-      await writeMirror(prerelease: _release('0.9.97', isPrerelease: true));
-
-      final check = await managerFor().checkForUpdate();
-
-      expect(check.hasChannelChoice, isFalse);
-      expect(check.latestRelease!.tagName, '0.9.97');
-      expect(check.selectedChannel, OtzariaReleaseChannel.prerelease);
-    });
 
     test('מצב שמור מחובר לתוצאה, ותג זהה אינו עדכון', () async {
       await writeMirror(stable: _release('0.9.96+736', isPrerelease: false));
@@ -452,8 +403,9 @@ ${build == null ? '' : '<key>CFBundleVersion</key><string>$build</string>'}
         File(zip).copySync(p.join(installerDir.path, 'otzaria-macos.zip'));
         File(p.join(mirrorDir(), 'latest-release.json'))
             .writeAsStringSync(jsonEncode({
-          'schemaVersion': 2,
-          'stable': release.toJson()
+          'schemaVersion': 3,
+          'source': 'github-latest',
+          'latest': release.toJson()
             ..['installerPath'] = 'installers/$tag/otzaria-macos.zip',
         }));
 
@@ -1205,7 +1157,7 @@ ${build == null ? '' : '<key>CFBundleVersion</key><string>$build</string>'}
 
     expect(body, contains('_mirror.load()'));
     expect(body, isNot(contains('_releaseClient')));
-    expect(body, isNot(contains('fetchChannelReleases')));
+    expect(body, isNot(contains('fetchLatestRelease')));
   });
 
   // ב-macOS ההתקנה מחליפה את חבילת ה-`.app` כולה ומוחקת את הקודמת;

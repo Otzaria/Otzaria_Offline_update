@@ -25,7 +25,6 @@ OtzariaInstallState _state(String tag) => OtzariaInstallState(
       launchPath: r'C:\dir\otzaria.exe',
     );
 
-/// המטא־דאטה המינימלית ש-[OtzariaRelease.fromJson] דורשת.
 Map<String, dynamic> _minimalJson() => <String, dynamic>{
       'tagName': '0.9.96',
       'installerKind': 'windowsSetupExe',
@@ -34,7 +33,6 @@ Map<String, dynamic> _minimalJson() => <String, dynamic>{
     };
 
 void main() {
-  // ההודעות נקראות דרך AppL10n, ולכן כל בדיקה שמחליפה שפה חייבת להחזיר.
   tearDown(() => AppL10n.use(AppLanguage.hebrew));
 
   group('normalizeVersion', () {
@@ -60,7 +58,6 @@ void main() {
       expect(OtzariaUpdateCheckResult.normalizeVersion('vv1.2.3'), 'v1.2.3');
     });
 
-    // ההשוואה טקסטואלית ולא סמנטית — \u200E1.2 ו-1.2.0 אינם אותו דבר.
     test('אינה משווה סמנטית בין מספרי גרסה באורך שונה', () {
       expect(
         OtzariaUpdateCheckResult.normalizeVersion('1.2'),
@@ -78,7 +75,7 @@ void main() {
         (' 0.9.96 ', '0.9.96'),
       ]) {
         final result = OtzariaUpdateCheckResult(
-          stableRelease: _release(tagName: pair.$2),
+          latestRelease: _release(tagName: pair.$2),
           currentState: _state(pair.$1),
         );
         expect(result.updateAvailable, isFalse,
@@ -86,19 +83,15 @@ void main() {
       }
     });
 
-    // ב-README מתועד release אמיתי בתג `0.9.53-pr-715-146` שה-exe שלו מדווח
-    // `0.9.53`. בלי ההשוואה על הבסיס, כל התקנה מאומצת של גרסת pre-release
-    // הייתה רואה "יש עדכון" ומתקינה מחדש את אותה גרסה בדיוק.
     test('התקנה מאומצת של pre-release אינה נראית כעדכון', () {
       final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: '0.9.53-pr-715-146'),
+        latestRelease: _release(tagName: '0.9.53-pr-715-146'),
         currentState: _state('0.9.53'),
       );
 
       expect(result.updateAvailable, isFalse);
     });
 
-    // הסיומת מושמטת רק בצד אחד — אחרת המעבר בין הערוצים היה משותק.
     test('סיומת בשני הצדדים עדיין מושווית במלואה', () {
       expect(
         OtzariaUpdateCheckResult.sameVersion('1.0.0-beta1', '1.0.0-beta2'),
@@ -117,14 +110,13 @@ void main() {
       );
     });
 
-    // אוצריא מתקנת באג ומפרסמת מחדש באותו מספר גרסה, עם build חדש בלבד.
-    test('build חדש באותה גרסה הוא עדכון', () {
+    test('build חדש באותה גרסה אינו עדכון', () {
       final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: '0.9.96+741'),
+        latestRelease: _release(tagName: '0.9.96+741'),
         currentState: _state('0.9.96+736'),
       );
 
-      expect(result.updateAvailable, isTrue);
+      expect(result.updateAvailable, isFalse);
       expect(result.installedIsNewer, isFalse);
       expect(
         OtzariaUpdateCheckResult.sameVersion('0.9.96+736', '0.9.96+741'),
@@ -132,7 +124,6 @@ void main() {
       );
     });
 
-    // הסיבה שבגללה ה-build מושמט מלכתחילה: ההתקנה מדווחת `0.9.96` בלבד.
     test('התקנה מאומצת בלי build אינה נראית כעדכון', () {
       expect(
         OtzariaUpdateCheckResult.sameBuild('0.9.96', '0.9.96+741'),
@@ -155,7 +146,7 @@ void main() {
         OtzariaUpdateCheckResult.compareVersions('0.9.96+741', '0.9.96+736'),
         greaterThan(0),
       );
-      // build שאינו מספר אינו בר-השוואה — אין הכרעה, ולא ניחוש.
+
       expect(
         OtzariaUpdateCheckResult.compareVersions('0.9.96+abc', '0.9.96+736'),
         0,
@@ -166,19 +157,17 @@ void main() {
       );
     });
 
-    // המותקן חדש מהמראה — הצעת התקנה כאן הייתה מחזירה את המשתמש לבאג.
-    test('build חדש מותקן מול ותיק במראה הוא installedIsNewer', () {
+    test('build חדש מותקן מול ותיק במראה אינו נסיגת גרסה', () {
       final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: '0.9.96+736'),
+        latestRelease: _release(tagName: '0.9.96+736'),
         currentState: _state('0.9.96+741'),
       );
 
-      expect(result.installedIsNewer, isTrue);
+      expect(result.installedIsNewer, isFalse);
       expect(result.updateAvailable, isFalse);
     });
 
     test('normalizeVersion עצמו אינו נוגע בסיומת המקף', () {
-      // הוא משמש גם לאיתור הסעיף ביומן השינויים, שם התג מופיע במלואו.
       expect(OtzariaUpdateCheckResult.normalizeVersion('0.9.53-pr-715-146'),
           '0.9.53-pr-715-146');
       expect(
@@ -187,56 +176,18 @@ void main() {
 
     test('גרסה מותקנת ריקה נחשבת שונה, ולכן מוצע עדכון', () {
       final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: '0.9.96'),
+        latestRelease: _release(tagName: '0.9.96'),
         currentState: _state(''),
       );
 
       expect(result.updateAvailable, isTrue);
     });
-
-    // החלטת המשתמש: מעבר לערוץ היציב אינו מוריד גרסה. מחכים ליציבה חדשה.
-    test('בחירת הערוץ היציב כשמותקנת ניסיונית חדשה ממנו — אין עדכון', () {
-      final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: '0.9.90'),
-        prereleaseRelease: _release(tagName: '0.9.97', isPrerelease: true),
-        currentState: _state('0.9.97'),
-      );
-
-      expect(result.latestRelease!.tagName, '0.9.90');
-      expect(result.installedIsNewer, isTrue);
-      expect(result.updateAvailable, isFalse);
-      expect(result.awaitsNewerInSelectedChannel, isTrue);
-    });
-
-    test('יציבה חדשה מהניסיונית המותקנת — עדכון רגיל', () {
-      final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: '0.9.98'),
-        currentState: _state('0.9.97-dev-3'),
-      );
-
-      expect(result.installedIsNewer, isFalse);
-      expect(result.updateAvailable, isTrue);
-      expect(result.awaitsNewerInSelectedChannel, isFalse);
-    });
-
-    test('מותקנת חדשה מהכונן שאינה מהערוץ השני — לא "ממתין לערוץ"', () {
-      final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: '0.9.90'),
-        prereleaseRelease: _release(tagName: '0.9.97', isPrerelease: true),
-        currentState: _state('0.9.99'),
-      );
-
-      expect(result.installedIsNewer, isTrue);
-      expect(result.awaitsNewerInSelectedChannel, isFalse);
-    });
   });
 
   group('installedIsNewer', () {
-    // דיווח מהשטח: 0.9.97 הותקנה ידנית, המראה החזיקה 0.9.96, והלאנצ'ר הציע
-    // "עדכון" שהיה מחזיר את המשתמש אחורה.
     test('מותקן חדש מהמראה — אין הצעת התקנה', () {
       final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: '0.9.96+736'),
+        latestRelease: _release(tagName: '0.9.96+736'),
         currentState: _state('0.9.97+90970'),
       );
 
@@ -246,7 +197,7 @@ void main() {
 
     test('המראה חדשה מהמותקן — עדכון רגיל', () {
       final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: '0.9.97+90970'),
+        latestRelease: _release(tagName: '0.9.97+90970'),
         currentState: _state('0.9.96'),
       );
 
@@ -256,7 +207,7 @@ void main() {
 
     test('אותה גרסה אינה נסיגה ואינה עדכון', () {
       final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: '0.9.96+736'),
+        latestRelease: _release(tagName: '0.9.96+736'),
         currentState: _state('v0.9.96+736'),
       );
 
@@ -266,7 +217,7 @@ void main() {
 
     test('בלי התקנה קודמת אין מול מה להשוות', () {
       final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: '0.9.96'),
+        latestRelease: _release(tagName: '0.9.96'),
         currentState: null,
       );
 
@@ -276,50 +227,10 @@ void main() {
   });
 
   group('channel tags recorded by the launcher', () {
-    test('a recorded stable tag still offers the same-base prerelease', () {
-      final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: 'v0.2.7'),
-        prereleaseRelease:
-            _release(tagName: 'v0.2.7-dev-118', isPrerelease: true),
-        preferPrerelease: true,
-        currentState: _state('v0.2.7'),
-      );
-
-      expect(result.latestRelease!.tagName, 'v0.2.7-dev-118');
-      expect(result.installedIsNewer, isFalse);
-      expect(result.updateAvailable, isTrue);
-    });
-
-    test('a recorded prerelease tag still offers the same-base stable', () {
-      final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: 'v0.2.7'),
-        prereleaseRelease:
-            _release(tagName: 'v0.2.7-dev-118', isPrerelease: true),
-        currentState: _state('v0.2.7-dev-118'),
-      );
-
-      expect(result.latestRelease!.tagName, 'v0.2.7');
-      expect(result.installedIsNewer, isFalse);
-      expect(result.updateAvailable, isTrue);
-    });
-
-    test('a recorded tag equal to the selected one is up to date', () {
-      final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: 'v0.2.7'),
-        prereleaseRelease:
-            _release(tagName: 'v0.2.7-dev-118', isPrerelease: true),
-        preferPrerelease: true,
-        currentState: _state('v0.2.7-dev-118'),
-      );
-
-      expect(result.installedIsNewer, isFalse);
-      expect(result.updateAvailable, isFalse);
-    });
-
     test('a recorded prerelease tag no longer mirrored still offers the final',
         () {
       final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: 'v0.2.8'),
+        latestRelease: _release(tagName: 'v0.2.8'),
         currentState: _state('v0.2.8-dev-5'),
       );
 
@@ -338,47 +249,9 @@ void main() {
         isFalse,
       );
     });
-
-    test('an exe-derived version keeps the lenient comparison', () {
-      final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: 'v0.2.6'),
-        prereleaseRelease:
-            _release(tagName: 'v0.2.7-dev-118', isPrerelease: true),
-        preferPrerelease: true,
-        currentState: _state('0.2.7'),
-      );
-
-      expect(result.updateAvailable, isFalse);
-    });
   });
 
-  group('channel switch never downgrades', () {
-    test('a newer final release is not downgraded to the stable channel', () {
-      final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: '0.9.97'),
-        prereleaseRelease:
-            _release(tagName: '0.9.98-dev-3', isPrerelease: true),
-        currentState: _state('0.9.98'),
-      );
-
-      expect(result.latestRelease!.tagName, '0.9.97');
-      expect(result.installedIsNewer, isTrue);
-      expect(result.updateAvailable, isFalse);
-    });
-
-    test('an exe-derived version of the other tag is not downgraded either',
-        () {
-      final result = OtzariaUpdateCheckResult(
-        stableRelease: _release(tagName: '0.9.96+736'),
-        prereleaseRelease: _release(tagName: '0.9.97+740', isPrerelease: true),
-        currentState: _state('0.9.97'),
-      );
-
-      expect(result.installedIsNewer, isTrue);
-      expect(result.updateAvailable, isFalse);
-      expect(result.awaitsNewerInSelectedChannel, isTrue);
-    });
-  });
+  group('channel switch never downgrades', () {});
 
   group('compareVersions', () {
     test('משווה כמספרים ולא כטקסט', () {
@@ -401,8 +274,6 @@ void main() {
       expect(OtzariaUpdateCheckResult.compareVersions('1.2', '1.2.1'), -1);
     });
 
-    // הסיומת מכריעה רק בתיקו, ורק כשהיא בצד אחד — שתי סיומות שונות אינן
-    // ברות השוואה, ושם ההכרעה נשארת ל-updateAvailable.
     test('סיומת pre-release ותיקה מהבסיס הנקי', () {
       expect(
           OtzariaUpdateCheckResult.compareVersions('1.0.0-beta', '1.0.0'), -1);
@@ -538,70 +409,7 @@ void main() {
     });
   });
 
-  group('OtzariaChannelPair', () {
-    final stable = _release(tagName: '0.9.90');
-    final prerelease = _release(tagName: '0.9.97', isPrerelease: true);
-
-    test('זוג ריק', () {
-      const pair = OtzariaChannelPair<OtzariaRelease>();
-
-      expect(pair.isEmpty, isTrue);
-      expect(pair.hasChoice, isFalse);
-      expect(pair.all, isEmpty);
-      expect(pair.select(preferPrerelease: true), isNull);
-      expect(pair.selectedChannel(preferPrerelease: false), isNull);
-      expect(pair[OtzariaReleaseChannel.stable], isNull);
-    });
-
-    test('גישה לפי ערוץ, ו-all לפי סדר יציב→לא יציב', () {
-      final pair = OtzariaChannelPair(stable: stable, prerelease: prerelease);
-
-      expect(pair[OtzariaReleaseChannel.stable], stable);
-      expect(pair[OtzariaReleaseChannel.prerelease], prerelease);
-      expect(pair.all, [stable, prerelease]);
-      expect(pair.isEmpty, isFalse);
-      expect(pair.hasChoice, isTrue);
-    });
-
-    // המצב שבו אין release יציב כלל בעמוד הראשון: ה-pre-release הוא הגרסה
-    // היחידה, והתווית חייבת לומר שזה הערוץ הלא-יציב.
-    test('pre-release בלבד נבחר גם בהעדפת יציב, ומתויג נכון', () {
-      final pair = OtzariaChannelPair(prerelease: prerelease);
-
-      expect(pair.hasChoice, isFalse);
-      expect(pair.select(preferPrerelease: false), prerelease);
-      expect(pair.selectedChannel(preferPrerelease: false),
-          OtzariaReleaseChannel.prerelease);
-    });
-
-    test('יציב בלבד נבחר גם בהעדפת לא-יציב, ומתויג נכון', () {
-      final pair = OtzariaChannelPair(stable: stable);
-
-      expect(pair.select(preferPrerelease: true), stable);
-      expect(pair.selectedChannel(preferPrerelease: true),
-          OtzariaReleaseChannel.stable);
-    });
-  });
-
   group('אנומים ותוויות', () {
-    test('fromPrerelease ממופה לדגל של GitHub', () {
-      expect(OtzariaReleaseChannel.fromPrerelease(true),
-          OtzariaReleaseChannel.prerelease);
-      expect(OtzariaReleaseChannel.fromPrerelease(false),
-          OtzariaReleaseChannel.stable);
-    });
-
-    test('תווית הערוץ מגיעה מ-l10n ומתחלפת עם השפה', () {
-      expect(OtzariaReleaseChannel.stable.label,
-          AppL10n.strings.appDomain.channelStable);
-
-      AppL10n.use(AppLanguage.english);
-      expect(OtzariaReleaseChannel.prerelease.label,
-          const EnglishStrings().appDomain.channelPrerelease);
-      expect(OtzariaReleaseChannel.prerelease.label,
-          isNot(const HebrewStrings().appDomain.channelPrerelease));
-    });
-
     test('isMac נכון לשלושת סוגי ההתקנה', () {
       expect(OtzariaInstallerKind.windowsSetupExe.isMac, isFalse);
       expect(OtzariaInstallerKind.macAppZip.isMac, isTrue);

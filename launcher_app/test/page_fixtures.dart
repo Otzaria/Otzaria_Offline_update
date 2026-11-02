@@ -70,9 +70,6 @@ final Map<String, PageScenario> pageScenarios = {
           ..status = OtzariaModuleStatus.upToDate
           ..currentVersion = '0.10.4'
           ..latestVersion = '0.10.4'
-          ..stableVersion = '0.10.4'
-          ..prereleaseVersion = '0.10.5-beta'
-          ..hasChannelChoice = true
           ..lastDownloadedAt = DateTime(2026, 10, 18);
       }),
   'otzaria_advanced_notinstalled': (d, s) => _otzaria(d, s, (c) {

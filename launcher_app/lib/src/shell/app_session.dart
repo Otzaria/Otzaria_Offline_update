@@ -77,12 +77,9 @@ class AppSession extends ChangeNotifier {
     @visibleForTesting this.closeDeliveryPatience = const Duration(seconds: 10),
   })  : _noticesStore = noticesStore,
         _injectedSleepInhibitor = sleepInhibitor {
-    final s = settings.settings;
-
     _otzaria = OtzariaModuleController(
       dataDir: dataDir,
       stateDir: stateFilesDir,
-      preferPrerelease: s.preferAppPrerelease,
       runningLocator: runningLocator,
       launcher: otzariaLauncher,
       manager: otzariaManager,
@@ -110,8 +107,7 @@ class AppSession extends ChangeNotifier {
       otzariaLaunchPath: () async => _otzaria.launchPath,
       locatePluginsDb: PluginsModuleController.locateOtzariaPluginsDb,
       mirroredAppVersions: () async => [
-        if (_otzaria.stableVersion != null) _otzaria.stableVersion!,
-        if (_otzaria.prereleaseVersion != null) _otzaria.prereleaseVersion!,
+        if (_otzaria.latestVersion != null) _otzaria.latestVersion!,
       ],
       installedAppVersion: () async =>
           _otzaria.currentVersion ?? _otzaria.latestVersion,
@@ -830,7 +826,6 @@ class AppSession extends ChangeNotifier {
       _foundNothing = null;
     }
     _appliedSettings = s;
-    _otzaria.preferPrerelease = s.preferAppPrerelease;
     if (s.personalUpdateMode && !_library.personalUpdateMode) {
       _library.personalUpdateMode = true;
       unawaited(_library.refreshRegisteredMachines());

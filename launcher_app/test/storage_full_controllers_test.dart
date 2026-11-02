@@ -18,9 +18,8 @@ class _FailingOtzariaManager extends OtzariaManager {
 
   @override
   Future<void> downloadToMirror({
-    OtzariaChannelReleases? online,
+    OtzariaLatestRelease? online,
     void Function(int received, int total)? onProgress,
-    void Function(OtzariaReleaseChannel channel)? onChannel,
     bool Function()? isCancelled,
   }) async =>
       throw error;

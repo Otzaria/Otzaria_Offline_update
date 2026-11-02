@@ -105,8 +105,9 @@ void main() {
       );
       File(p.join(mirror, 'latest-release.json')).writeAsStringSync(
         jsonEncode({
-          'schemaVersion': 2,
-          'stable': release.toJson()
+          'schemaVersion': 3,
+          'source': 'github-latest',
+          'latest': release.toJson()
             ..['installerPath'] = 'installers/$tag/$name',
         }),
       );
@@ -137,6 +138,85 @@ void main() {
       return manager;
     }
 
+    for (final scenario in [
+      (
+        installed: '1.0.0+900',
+        disk: '1.0.0+1000002',
+        target: '1.0.0.1',
+        update: false,
+        newer: true
+      ),
+      (
+        installed: '1.0.0+900',
+        disk: '1.0.0+1000002',
+        target: '1.0.0.2+901',
+        update: false,
+        newer: false
+      ),
+      (
+        installed: '1.0.0+900',
+        disk: '1.0.0+1000002',
+        target: '1.0.0.3+901',
+        update: true,
+        newer: false
+      ),
+      (
+        installed: '1.0.0.2+900',
+        disk: '1.0.0',
+        target: '1.0.0.1+901',
+        update: false,
+        newer: true
+      ),
+      (
+        installed: '1.0.0+900',
+        disk: '1.0.0+1000000',
+        target: '1.0.0.1+901',
+        update: true,
+        newer: false
+      ),
+      (
+        installed: '1.0.0.2+900',
+        disk: '1.0.0+1000002',
+        target: '1.0.0.1+901',
+        update: false,
+        newer: true
+      ),
+      (
+        installed: '1.0.0+900',
+        disk: '1.0.0+1000000',
+        target: '1.0.0+901',
+        update: false,
+        newer: false
+      ),
+      (
+        installed: '1.0.0.0+900',
+        disk: '1.0.0+1000000',
+        target: '1.0.0+901',
+        update: false,
+        newer: false
+      ),
+    ]) {
+      test(
+          'persisted install ${scenario.installed} to Latest ${scenario.target}',
+          () async {
+        File(exe).writeAsStringSync(scenario.disk);
+        await writeMirror(scenario.target);
+        final state =
+            File(p.join(root.path, 'data', 'otzaria_install_state.json'));
+        state.writeAsStringSync(jsonEncode(OtzariaInstallState(
+          installedTagName: scenario.installed,
+          appVersion: scenario.disk,
+          installDir: p.dirname(exe),
+          launchPath: exe,
+        ).toJson()));
+        final check = await manager().checkForUpdate();
+        expect(check.currentState!.installedTagName, scenario.installed);
+        expect(check.currentState!.appVersion, scenario.disk);
+        expect(check.updateAvailable, scenario.update);
+        expect(check.installedIsNewer, scenario.newer);
+      });
+    }
+
     test('0.9.97+99702 על הדיסק הוא 0.9.97.2 — אין עדכון חוזר', () async {
       File(exe).writeAsStringSync('0.9.97+99702');
       await writeMirror('0.9.97.2');
@@ -148,14 +228,14 @@ void main() {
       expect(check.installedIsNewer, isFalse);
     });
 
-    test('exe של hotfix מול תג pre-release בן שלושה חלקים — מעודכן', () async {
+    test('hotfix מותקן מול Latest ללא hotfix — אין הצעת נסיגה', () async {
       File(exe).writeAsStringSync('0.9.97+99702');
       await writeMirror('0.9.97+789');
 
       final check = await manager().checkForUpdate();
 
       expect(check.updateAvailable, isFalse);
-      expect(check.installedIsNewer, isFalse);
+      expect(check.installedIsNewer, isTrue);
     });
 
     test('exe בלי hotfix מול תג hotfix — יש עדכון', () async {

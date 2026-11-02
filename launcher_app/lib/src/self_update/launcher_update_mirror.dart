@@ -56,7 +56,7 @@ class LauncherUpdateMirror {
   static const String _metadataFileName = 'latest-release.json';
   static const String _filesDirName = 'files';
   static const String _platformsKey = 'platforms';
-  static const int _schemaVersion = 1;
+  static const int _schemaVersion = 2;
 
   String get _metadataPath => p.join(mirrorDir, _metadataFileName);
 
@@ -64,6 +64,7 @@ class LauncherUpdateMirror {
     final decoded = await _readMetadata();
     if (decoded == null) return null;
     final own = _ownEntry(decoded);
+    if (own['source'] != 'github-latest') return null;
 
     final LauncherRelease release;
     final String filePath;
@@ -230,6 +231,7 @@ class LauncherUpdateMirror {
   }) async {
     await Directory(mirrorDir).create(recursive: true);
     final entry = <String, dynamic>{
+      'source': 'github-latest',
       'release': release.toJson(),
       'filePath': p.relative(filePath, from: mirrorDir).replaceAll(r'\', '/'),
     };

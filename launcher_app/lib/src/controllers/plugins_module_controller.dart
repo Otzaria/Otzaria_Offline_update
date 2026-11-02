@@ -108,7 +108,7 @@ class PluginsModuleController extends ChangeNotifier
   final KnownPluginsStore? _known;
   final StoreAppDestinationStore? _destination;
 
-  /// גרסאות אוצריא שהכונן נושא — היציבה, ואיתה הלא-יציבה כשהיא חדשה ממנה.
+  /// גרסאות אוצריא הנדרשות לתאימות התוספים בכונן ובמחשב הזה.
   /// **ההורדה** מביאה בילד תוסף לכל אחת מהן, כדי שהמחשב המנותק ימצא בילד
   /// שירוץ אצלו בכל אחד משני המקרים.
   final Future<List<String>> Function()? mirroredAppVersions;

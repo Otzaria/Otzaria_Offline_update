@@ -51,10 +51,7 @@
   [`OtzariaUpdateCheckResult`](lib/src/models/otzaria_update_check_result.dart)
   מנרמל את שתי המחרוזות לפני ההשוואה; בלי זה כל זיהוי של התקנה קיימת
   היה נראה כמו "יש עדכון" ומוריד 73MB לחינם, בכל פתיחה.
-  **אבל ה-build לא נזרק לפח:** אוצריא מתקנת לפעמים באג ומפרסמת מחדש תחת
-  אותו מספר גרסה, כשכל השינוי הוא ה-`+736` → `+741`. `sameBuild` מכריע
-  בו — ורק כששני הצדדים נושאים אחד, כך שצד שנקרא מתוך התקנה קיימת (ושם
-  לעולם אין build) ממשיך להיחשב זהה.
+  מספר הבנייה נשמר לזיהוי הקובץ המדויק, אך אינו יוצר הצעת עדכון.
 - ה-`.app` חתום **ad-hoc** (בלי Developer ID, בלי notarization). לכן
   החילוץ הוא ב-`ditto` דווקא: `unzip`/`package:archive` שוברים את
   ה-symlinks וה-xattrs של ה-bundle ואיתם את החתימה, ואז macOS מסרב
@@ -64,19 +61,15 @@
   בכל זאת יש הסרה best-effort של `com.apple.quarantine` אחרי ההתקנה,
   למקרה שהמשתמש הביא את הארכיון בעצמו (דפדפן/AirDrop).
 
-## ממצאים חשובים (נכון ליולי 2026)
+## בחירת גרסת אוצריא
 
-- **הריפו האמיתי**: `github.com/Sivan22/otzaria` (לא "Otzaria/otzaria").
-- ה-release ה**יציב** האחרון (`prerelease=false`) הוא `v0.2.7` מיולי 2025 —
-  ישן משמעותית. כל הפעילות האמיתית מאז היא **PR-preview builds**
-  (`prerelease=true`), עם אזהרת "Use at your own risk".
-  [`OtzariaReleaseClient.fetchChannelReleases`](lib/src/services/otzaria_release_client.dart)
-  מחזיר את **שניהם** (release = יציב, pre-release = לא יציב), וההורדה
-  מביאה את שניהם אל המראה — כך שבמחשב המנותק אפשר לבחור ביניהם בלי לחזור
-  לרשת. ה-pre-release נכלל **רק כשהוא חדש מהיציב**; אחרת אין בחירה אמיתית
-  ומורידים את היציב בלבד (זה המצב באתר נכון לאוגוסט 2026). כשאין release
-  יציב כלל בעמוד הראשון (50 האחרונים), נשאר רק ה-pre-release — ואז הוא
-  הגרסה היחידה שמוצעת, עם התווית שאומרת בדיוק את זה.
+מקור העדכונים הוא `Otzaria/otzaria/releases/latest` בלבד. ריליס אחר אינו
+מועמד לעדכון, גם אם מספר הגרסה שלו גבוה יותר או אינו מסומן prerelease.
+אין בחירת ערוץ. בכל סנכרון נשמר Latest אחד לכל פלטפורמה וארכיטקטורה.
+מראת תוכנה בפורמט 3 מתעדת `source: github-latest` בכל רשומת פלטפורמה;
+פורמט קודם דורש רענון במחשב עם אינטרנט, בלי למחוק קבצים בקריאה.
+סיומת מספר הבנייה אינה העלאת גרסה; מספר hotfix משתתף בהשוואה.
+
 - שם קובץ ה-installer לווינדוס אינו קבוע (מספר הגרסה משובץ בשם, למשל
   `otzaria-0.9.53-windows.exe`) — הבחירה מתבססת על סיומת `windows.exe`.
   בחלק מה-releases קיימים גם `otzaria-windows.zip`/`otzaria.msix`, אבל
@@ -175,15 +168,12 @@
 ## שימוש
 
 ```dart
-// preferPrerelease = מה יותקן כשבמראה יושבות שתיהן. ניתן לשינוי בזמן ריצה.
 final manager = OtzariaManager(dataDir: appPaths.dataDir);
 
 // במחשב עם אינטרנט — הפעולה היחידה שנוגעת ברשת. ממלאת את
-// `<dataDir>/mirror/app` (מטא־דאטה + קובצי ההתקנה) ב**שתי** הגרסאות:
-// היציבה, ובנוסף ה-pre-release כשהוא חדש ממנה.
+// `<dataDir>/mirror/app` בגרסה שנבחרה כ-Latest.
 await manager.downloadToMirror(
   onProgress: (received, total) => print('$received / $total'),
-  onChannel: (channel) => print('מוריד גרסה ${channel.label}'),
 );
 
 // בכל מחשב, כולל בלי רשת בכלל — בדיקה והתקנה קוראות מהמראה בלבד.
@@ -191,9 +181,6 @@ final check = await manager.checkForUpdate();
 if (check.needsDownload) {
   print('עוד לא הורדה גרסה');
 } else if (check.updateAvailable) {
-  // כשיש שתיים, `check.hasChannelChoice` הוא true — ו-`preferPrerelease`
-  // קובע איזו מהן `latestRelease`/`update` מתייחסים אליה.
-  //
   // התקנה קיימת מתעדכנת **במקומה**; התקנה חדשה הולכת למיקום ברירת המחדל
   // של אוצריא עצמה (`manager.resolveDefaultInstallDir()`) — לעולם לא אל
   // `dataDir`, שיושבת על הכונן הנייד ונשלפת איתו.
@@ -222,7 +209,7 @@ manager.dispose();
 
 ## מבנה
 
-- `models/` — `OtzariaRelease` (+`OtzariaTargetPlatform`, `OtzariaInstallerKind`), `OtzariaReleaseChannel` (+`OtzariaChannelPair`), `OtzariaInstallState`, `OtzariaUpdateCheckResult`.
+- `models/` — `OtzariaRelease` (+`OtzariaTargetPlatform`, `OtzariaInstallerKind`), `OtzariaReleases`, `OtzariaInstallState`, `OtzariaUpdateCheckResult`.
 - `services/otzaria_release_client.dart` — שליפת שתי הגרסאות האחרונות (יציבה ולא-יציבה) מ-GitHub API.
 - `services/otzaria_changelog_client.dart` — שליפת הפסקה המתאימה מיומן
   השינויים המרוכז של אוצריא (`assets/יומן שינויים.md` בענף `dev`), כדי
@@ -245,8 +232,7 @@ manager.dispose();
   אוצריא בטענה שהמותקן חדש יותר. בתיקייה **ייעודית** (`{autopf}\Otzaria`,
   `C:\אוצריא`, המנוהלת) מועמד הגיבוי נשאר — שם שם התיקייה הוא הראיה.
 - `services/mac_app_version_reader.dart` — קריאת `CFBundleShortVersionString`/`CFBundleIdentifier` מ-`Info.plist` (binary plist, ולכן דרך `plutil`).
-- `services/otzaria_app_mirror.dart` — מראת התוכנה שעל הכונן: מורידה את שתי
-  הגרסאות (יציבה + pre-release כשהוא חדש ממנה), כותבת `latest-release.json`
+- `services/otzaria_app_mirror.dart` — מראת התוכנה שעל הכונן: מורידה Latest אחד לכל פלטפורמה, כותבת `latest-release.json`
   וקוראת ממנה במחשב הלא-מקוון.
 - `services/running_otzaria_locator.dart` — איתור ההתקנה לפי **התהליך הרץ**
   (`tasklist` + `QueryFullProcessImageNameW` בווינדוס, `ps` ב-macOS). רשימת

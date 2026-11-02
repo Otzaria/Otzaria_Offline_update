@@ -860,12 +860,6 @@ class _Hero extends StatelessWidget {
         ),
       if (m.appSetupNotice case final notice?)
         _Note(FluentIcons.info_16_regular, notice),
-      if (m.appAwaitsNewerStable case final stable?)
-        _Note(
-          key: ShellKeys.appAwaitsNewer,
-          FluentIcons.info_16_regular,
-          context.strings.pages.appAwaitsNewer(stable: stable),
-        ),
     ];
     final libraryNotes = _libraryNotes(context, failedShown: true);
     // ב"צריך בדיקה" אין הערת "נסה שוב" — הקבצים החסרים נאמרים בכל מקרה.
@@ -994,26 +988,11 @@ class _Hero extends StatelessWidget {
         );
       case GuidancePrimary.newerHereThanDrive:
         return _HeroSpec(
-          title: switch (m.appAwaitsNewerStable) {
-            final stable? => g.newerChannelTitle(stable: stable),
-            null => g.newerTitle,
-          },
-          // הכונן מחזיק שני ערוצים; במצב הזה משווים לערוץ שנבחר בלבד.
-          body: switch (m.appAwaitsNewerStable) {
-            final stable? => context.strings.pages.appAwaitsNewer(
-                stable: stable,
-              ),
-            null => g.newerBody(
-                displayVersion(
-                  m.installedVersion ?? '',
-                  other: m.driveAppVersion,
-                ),
-                displayVersion(
-                  m.driveAppVersion ?? '',
-                  other: m.installedVersion,
-                ),
-              ),
-          },
+          title: g.newerTitle,
+          body: g.newerBody(
+            displayVersion(m.installedVersion ?? '', other: m.driveAppVersion),
+            displayVersion(m.driveAppVersion ?? '', other: m.installedVersion),
+          ),
           actions: quietActions,
           notes: [
             ...recheckNote,

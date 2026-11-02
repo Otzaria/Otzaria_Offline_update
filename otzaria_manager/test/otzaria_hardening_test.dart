@@ -72,12 +72,13 @@ void main() {
       await Directory(mirrorDir).create(recursive: true);
       final release = _release();
       final json = {
-        'schemaVersion': 2,
-        'stable': release.toJson()..['installerPath'] = relative,
+        'schemaVersion': 3,
+        'source': 'github-latest',
+        'latest': release.toJson()..['installerPath'] = relative,
       };
       await File(
         p.join(mirrorDir, 'latest-release.json'),
-      ).writeAsString(jsonEncode(json));
+      ).writeAsString(_encodeLatestFixture(json));
     }
 
     test('a path escaping the mirror directory is treated as missing',
@@ -88,7 +89,7 @@ void main() {
       await outside.writeAsString(_bytes);
       await writeMirror(mirrorDir, '../evil.exe');
 
-      expect((await mirrorOver(mirrorDir).load()).stable, isNull);
+      expect((await mirrorOver(mirrorDir).load()).latest, isNull);
     });
 
     test('a nested relative path still loads', () async {
@@ -98,7 +99,7 @@ void main() {
       await nested.writeAsString(_bytes);
       await writeMirror(mirrorDir, 'installers/x/a.exe');
 
-      expect((await mirrorOver(mirrorDir).load()).stable, isNotNull);
+      expect((await mirrorOver(mirrorDir).load()).latest, isNotNull);
     });
   });
 
@@ -172,7 +173,7 @@ void main() {
         platform: OtzariaTargetPlatform.windows,
         httpClient: MockClient(
           (_) async => http.Response(
-            jsonEncode([
+            _encodeLatestFixture([
               {
                 'tag_name': '1.0.0',
                 'prerelease': false,
@@ -192,9 +193,9 @@ void main() {
         ),
       );
 
-      final releases = await client.fetchChannelReleases();
+      final releases = await client.fetchLatestRelease();
 
-      expect(releases.stable!.installerSha256, hex);
+      expect(releases.latest!.installerSha256, hex);
     });
 
     test('a download that does not match the digest fails and leaves nothing',
@@ -298,4 +299,17 @@ void main() {
       );
     });
   });
+}
+
+String _encodeLatestFixture(Object? value) {
+  if (value is List &&
+      value.isNotEmpty &&
+      value.first is Map &&
+      (value.first as Map).containsKey('tag_name')) {
+    final candidates = value
+        .whereType<Map>()
+        .where((r) => r['prerelease'] != true && r['draft'] != true);
+    value = candidates.isEmpty ? value.first : candidates.first;
+  }
+  return jsonEncode(value);
 }

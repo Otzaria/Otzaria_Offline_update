@@ -50,9 +50,10 @@ void main() {
           ..writeAsStringSync('installer for $tag');
     File(p.join(appMirrorDir(), 'latest-release.json'))
         .writeAsStringSync(jsonEncode({
-      'schemaVersion': 2,
+      'schemaVersion': 3,
+      'source': 'github-latest',
       'syncedAt': '2026-08-01T00:00:00.000Z',
-      'stable': {
+      'latest': {
         'tagName': tag,
         'name': 'Otzaria $tag',
         'isPrerelease': false,
@@ -206,7 +207,7 @@ void main() {
           isTrue);
       expect(partial.existsSync(), isFalse);
       expect(earlier.readAsStringSync(), 'from an earlier download');
-      expect(otzaria.stableVersion, tag);
+      expect(otzaria.latestVersion, tag);
     });
 
     test('library and plugins in progress together: both revert, app stays',
@@ -244,7 +245,7 @@ void main() {
       expect(earlier.readAsStringSync(), 'from an earlier download');
       expect(
           Directory(library.mirrorDir).listSync(recursive: true), hasLength(2));
-      expect(otzaria.stableVersion, isNull);
+      expect(otzaria.latestVersion, isNull);
     });
   });
 
@@ -252,17 +253,17 @@ void main() {
     writeAppMirror();
     await otzaria.checkForUpdate();
     otzaria
-      ..onlineChannels = OtzariaChannelReleases(stable: onlineStable)
+      ..onlineRelease = OtzariaLatestRelease(latest: onlineStable)
       ..onlineCheckedAt = DateTime.now();
     expect(otzaria.errorMessage, isNull);
-    expect(otzaria.stableVersion, tag);
+    expect(otzaria.latestVersion, tag);
     expect(otzaria.hasOnlineUpdate, isFalse);
     startDownload();
 
     Directory(appMirrorDir()).deleteSync(recursive: true);
     await refresh(MirrorComponent.app);
 
-    expect(otzaria.stableVersion, isNull);
+    expect(otzaria.latestVersion, isNull);
     expect(otzaria.hasOnlineUpdate, isTrue);
   });
 

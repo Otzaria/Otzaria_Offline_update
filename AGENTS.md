@@ -102,7 +102,7 @@ Nothing about it is a stored flag or a question to the user.
 | Step | API | Network |
 | --- | --- | --- |
 | Download library updates + companions | `LibraryManager.downloadToMirror()` | **yes**, heavy |
-| Download the Otzaria installers (stable + newer pre-release) | `OtzariaManager.downloadToMirror()` | **yes**, heavy |
+| Download the Otzaria installers selected by GitHub Latest | `OtzariaManager.downloadToMirror()` | **yes**, heavy |
 | Download the plugin store | `PluginsManager.sync()` | **yes**, heavy |
 | Download a newer launcher | `LauncherSelfUpdater.downloadToMirror()` | **yes** (tens of MB) |
 | Peek the latest library / app / launcher / store | `*.peek*()` on all four managers | **yes**, light — one API call, no asset |
@@ -139,7 +139,7 @@ paths are allowed; dev runs are exempt because only the stub sets
 ```
 mirror/library/     releases.json + assets/                               ← LibraryManager.mirrorDir
 mirror/companions/  companions.json + Talmud archive, catalog, dictionary ← LibraryManager.companionsMirrorDir
-mirror/app/         latest-release.json (≤2 channels) + installers/<tag>/ ← OtzariaAppMirror
+mirror/app/         latest-release.json (Latest per platform) + installers/<tag>/ ← OtzariaAppMirror
 mirror/plugins/     catalog.json + files/<id>/plugin-<version>.otzplugin  ← PluginMirrorStore
 mirror/store-app/   latest-release.json + files/<tag>/<store>.exe         ← StoreAppMirror
 mirror/launcher/    latest-release.json + files/<tag>/                    ← LauncherUpdateMirror
@@ -955,8 +955,7 @@ the installer the app step brings — the library's readable schema, the plugins
 compatible versions — so the app cannot join them. A full drive stops what has not
 started yet (the store app after plugins), never what already runs; a throw still
 awaits the other branch. The progress screen shows `runningComponents` together.
-`OtzariaAppMirror.sync` stays serial (two installers, ~6% of the bytes, and its
-`onChannelStart` UI assumes one channel at a time).
+`OtzariaAppMirror.sync` downloads the Latest installers serially.
 
 ### 5.3 State that travels on the drive
 
@@ -1268,39 +1267,23 @@ Three things about our half:
 
 ### 5.5 The Otzaria app: detect, install, version
 
-**Channels map to GitHub's `prerelease` flag** — a plain release is "stable", a
-pre-release is not, for both library and app. For the **app** this is not a setting
-that picks what to download: the download always fetches **both** — the latest
-stable, plus the latest pre-release *only when it is newer than that stable*
-(`OtzariaReleaseClient.fetchChannelReleases`). Both installers travel on the drive
-and the offline machine picks (`AppSettings.preferAppPrerelease` →
-`OtzariaManager.preferPrerelease`) with no network. Do **not** turn this back into a
-single-release download. Two consequences to preserve: a pre-release *older* than
-the newest stable is never mirrored (no real choice, wasted space — so
-`OtzariaAdvancedPage` shows the choice only when `hasChannelChoice`), and when the
-first page of 50 releases holds no plain release at all, only the pre-release is
-downloaded: a stable already on the drive is **kept** (a stable cannot vanish by
-promotion, it only fell off the page), and with none the pre-release is offered
-**labelled** as such (replacing the old `NoStableReleaseException`). "Newer than the
-stable" is decided by list order online; a pre-release entry written by `sync`
-records the stable it was listed above (`newerThanStable`), and `load` trusts that
-instead of re-judging by publish date.
+**Only GitHub Latest is an Otzaria update target.**
+`OtzariaReleaseClient.fetchLatestRelease` requests `/releases/latest`; a plain
+release elsewhere in the list is not eligible. There is one installer per
+platform/architecture and no user-selectable channel. App mirror schema 3 and
+launcher mirror schema 2 record `source: github-latest` per platform. Older
+metadata must be refreshed online before it can install; reading it preserves
+all files. Offline installation uses that last verified selection without network.
 
 **Version strings need normalizing before comparison.** An installed build reports
 `0.9.96` while the tag is `0.9.96+736`; `OtzariaUpdateCheckResult` strips a leading
 `v` and everything after `+`. Without it every launch saw a phantom update and
 re-downloaded ~73MB.
 
-**"Different tag" is not "newer tag".** `updateAvailable` used to be pure inequality,
-so a user who had installed 0.9.97+90970 himself while the mirror held 0.9.96+736 was
-offered a *downgrade*. `compareVersions` orders base components **numerically** (so
-`0.9.9 < 0.9.10`, which a string compare gets backwards) and ranks a pre-release
-suffix below the same bare base; `installedIsNewer` suppresses the offer. **There is
-no downgrade at all, not even on a channel switch**: with a newer pre-release installed
-and the stable channel selected, nothing is offered and the page says calmly that the
-switch happens when a stable newer than the installed one arrives
-(`awaitsNewerInSelectedChannel`). Two different suffixes on one base are incomparable
-and compare as 0.
+**A build suffix alone is not an update.** Compare numeric application versions,
+including hotfixes, while ignoring `+build` for the installation offer. Keep the
+full tag for cached files, hashes, release notes and architecture selection.
+An installed version newer than the mirrored target is never downgraded.
 
 **The FULL package is gone; a first install now runs the app wizard and then the
 library.** `otzaria-<ver>-windows-full.exe` was the ordinary installer with the
@@ -1543,7 +1526,7 @@ platform references.
 
 **Windows installers travel for both architectures; ARM64 is never downgraded
 to x64.** The drive moves between PCs, so a Windows sync also mirrors each
-channel's `windows_arm64.exe` under `platforms.windows_arm64` (top-level entries
+Latest's `windows_arm64.exe` under `platforms.windows_arm64` (top-level entries
 stay x64 for older launchers), and records releases without one in
 `missingAssetTags`. On an ARM64 machine (`WindowsArch.machine`, IsWow64Process2 —
 the env vars lie under x64 emulation) `OtzariaManager._mirrorFor` prefers ARM64
@@ -1594,8 +1577,8 @@ machine got plugins that would not load — 8 of the 37 plugins on the site requ
 newer Otzaria than the latest stable when this was written.
 
 - **The drive's own app versions decide what is downloaded.**
-  `PluginsManager.sync(appVersions:)` gets the stable release, the newer pre-release
-  when there is one, and whatever Otzaria is installed here, and fetches a build for
+  `PluginsManager.sync(appVersions:)` gets the Latest release verified on the drive
+  and whatever Otzaria is installed here, and fetches a build for
   each; the launcher passes them from `OtzariaModuleController`. An **empty** list
   means "nothing to filter against" and falls back to the live build, which is what a
   drive with no app mirror gets.
@@ -2033,11 +2016,10 @@ exe into `mirror/launcher/`, copies it over the stub (two renames, rollback on f
   (`LauncherVersion.isReleaseTag` in the *released* build, not this tree), so a `v0.2`
   release is invisible to all of them — it happened once, and the fix was to tag
   `vX.Y.0`. `LauncherRelease.version` drops the trailing `.0` for display.
-- **Only a strict `vX.Y.Z` tag counts, and the highest version wins — not the first
-  listed.** This repo carries a hand-made release tagged **`V1`** ("גירסת בדיקה", with
-  a `default.exe`); `normalize('V1')` is `1`, newer than every 0.x forever, so a
-  first-match-wins client would eventually hand users that stale test build. Taking the
-  maximum also removes the dependence on GitHub's ordering.
+- **Only the repository's Latest with a strict `vX.Y.Z` tag counts.**
+  A manually published release outside Latest must never become a self-update.
+  `LauncherReleaseClient.fetchLatestStable` validates the single API object;
+  it never scans the list for a higher or alternative version.
 - **The stub waits for the old process before extracting** — `launcher_app.exe` and
   `flutter_windows.dll` are locked while it runs. Hence `--after-update=<pid>` and
   `WaitForProcessExit`. If extraction fails anyway *and* a launcher exists on disk, the
@@ -2213,8 +2195,7 @@ stack.** `ShellNavigator.canEnter` (`AppShell._canEnter`) asks before Settings,
 there). A gate inside `SettingsScreen` stayed open for good: the built screen never
 leaves the `IndexedStack`. Help is open, but not its edit mode; so is "Otzaria —
 advanced" (`OtzariaAdvancedPage`: reinstall and install folder act on this machine),
-but not its channel change (`_setChannel`). Its tile and Settings link both `select`
-it, never stacking it on Settings. Details: `launcher_app/README.md`.
+Its tile and Settings link both `select` it, never stacking it on Settings. Details: `launcher_app/README.md`.
 
 **At startup only two dialogs: the crash prompt and, once per drive, the
 "several computers or only mine" question** (§5.4; maintainer, 2026-10-26: a
@@ -2452,7 +2433,7 @@ verify something new.
 | Launcher self-update | Dart side unit-tested end to end (GitHub client against a mock, mirror round trip, location fallbacks, a real swap in a temp dir asserting `OtzariaData/` survives); `stub.c` compiles clean at `/W4`. **Never run for real**: a published tag found by a shipped exe, the `--after-update=<pid>` wait, the re-extract over a live `app-files\`, the macOS bundle swap |
 | Offline-only rework (drive-only checks and installs, exe-adjacent data folder, app mirror, `prerelease` channels) | Unit-tested and analyzer-clean only. Not run on a real removable drive, a genuinely read-only folder, or `OtzariaAppMirror.sync()` against real GitHub; whether the trimmed mirror suffices for a real offline apply is unconfirmed |
 | Read-only drive mode (issue #25) | Same — write paths traced and unit-tested, never run from a drive with its lock switch on |
-| Two-channel download (stable + newer pre-release, chosen offline) | Unit-tested only. Not verified what `fetchChannelReleases` returns against the real repo today, nor whether both installers fit comfortably on a typical drive |
+| Latest-only app and launcher updates | Unit-tested and analyzer-clean; no real removable-drive install was run |
 | Companion assets (mirror against the three real repos, installer into a real library folder) | Unit-tested only |
 | `OtzariaSettingsReader` against a real `app_preferences.hive` | Unit-tested only |
 | Smart search and training feedback | Unit- and widget-tested, including the background collect/upload schedule. Real Windows v34 vectors (1.99GB unpacked) and model repair installed with native engine 6.0.0 into an isolated NTFS USB folder on 2026-10-29; a repeated check performed no writes. Details: `library_manager/README.md`. Still not exercised in a live Otzaria install, a USB trip, or the production feedback endpoint. See `error_reports_manager/README.md` |

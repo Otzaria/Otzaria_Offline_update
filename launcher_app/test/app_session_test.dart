@@ -255,8 +255,9 @@ void main() {
       installerSizeBytes: 9,
     );
     await File(p.join(mirror, 'latest-release.json')).writeAsString(jsonEncode({
-      'schemaVersion': 2,
-      'stable': release.toJson()..['installerPath'] = relative,
+      'schemaVersion': 3,
+      'source': 'github-latest',
+      'latest': release.toJson()..['installerPath'] = relative,
     }));
     if (Platform.isWindows) {
       await s.library.download();
@@ -784,20 +785,6 @@ void main() {
       expect(s.isCheckingNow, isFalse);
       s.plugins.isExporting = false;
       expect(homeViewModelOf(s).checkBlocked, isFalse);
-    });
-
-    test('הבית מקבל את הערוץ כשממתינים לגרסה חדשה יותר בערוץ שנבחר', () {
-      final s = session();
-      s.otzaria
-        ..status = OtzariaModuleStatus.installedIsNewer
-        ..awaitsNewerInSelectedChannel = true;
-      expect(
-        homeViewModelOf(s).appAwaitsNewerStable,
-        !s.otzaria.preferPrerelease,
-      );
-
-      s.otzaria.awaitsNewerInSelectedChannel = false;
-      expect(homeViewModelOf(s).appAwaitsNewerStable, isNull);
     });
 
     test('שגיאת התוכנה והאשף שלא ידוע אם הסתיים — בבית', () {
@@ -2881,9 +2868,8 @@ class _QuietOtzaria extends OtzariaManager {
 
   @override
   Future<void> downloadToMirror({
-    OtzariaChannelReleases? online,
+    OtzariaLatestRelease? online,
     void Function(int received, int total)? onProgress,
-    void Function(OtzariaReleaseChannel channel)? onChannel,
     bool Function()? isCancelled,
   }) async {
     await downloadGate?.future;
@@ -2896,7 +2882,7 @@ class _QuietOtzaria extends OtzariaManager {
   Completer<void>? peekGate;
 
   @override
-  Future<OtzariaChannelReleases> peekOnlineChannels() async {
+  Future<OtzariaLatestRelease> peekOnlineRelease() async {
     await peekGate?.future;
     throw const SocketException('no network');
   }

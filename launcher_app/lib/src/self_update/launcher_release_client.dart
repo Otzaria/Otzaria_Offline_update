@@ -28,15 +28,12 @@ class LauncherReleaseClient {
   static const _repo = 'Otzaria_Offline_update';
   static const _apiBase = 'https://api.github.com';
 
-  /// דף אחד מספיק: מחפשים את ה-release היציב האחרון, ולא את כל ההיסטוריה.
-  static const int _pageSize = 30;
-
   final http.Client _httpClient;
   final String _operatingSystem;
 
   Future<LauncherRelease?> fetchLatestStable() async {
     final uri = Uri.parse(
-      '$_apiBase/repos/$_owner/$_repo/releases?per_page=$_pageSize',
+      '$_apiBase/repos/$_owner/$_repo/releases/latest',
     );
     final decoded = await githubGetJson(
       _httpClient,
@@ -46,26 +43,12 @@ class LauncherReleaseClient {
         AppL10n.strings.appDomain.githubStatus(status, '$uri'),
       ),
     );
-    if (decoded is! List) {
+    if (decoded is! Map<String, dynamic>) {
       throw LauncherUpdateException(
-        AppL10n.strings.appDomain.noReleasesAtAll('$_owner/$_repo'),
-      );
+          AppL10n.strings.appDomain.noReleasesAtAll('$_owner/$_repo'));
     }
-
-    LauncherRelease? best;
-    for (final entry in decoded) {
-      if (entry is! Map<String, dynamic>) continue;
-      if (entry['draft'] as bool? ?? false) continue;
-      if (entry['prerelease'] as bool? ?? false) continue;
-
-      final release = _parse(entry);
-      if (release == null) continue;
-      if (best == null ||
-          LauncherVersion.isNewer(release.tagName, best.tagName)) {
-        best = release;
-      }
-    }
-    return best;
+    if (decoded['draft'] == true || decoded['prerelease'] == true) return null;
+    return _parse(decoded);
   }
 
   Future<String?> fetchChangelog(String tagName) async {

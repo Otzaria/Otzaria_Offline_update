@@ -29,20 +29,17 @@ void main() {
   test('an asset still uploading is not offered as the update', () async {
     final client = LauncherReleaseClient(
       operatingSystem: 'windows',
-      httpClient: MockClient(
-        (_) async => http.Response.bytes(
-          utf8.encode(
-            jsonEncode([
-              _release('v0.9.0', [_asset('a.exe', state: 'starter')]),
-              _release('v0.8.0', [
-                _asset('a.exe', size: 0),
-                _asset('b.exe', state: 'uploaded'),
-              ]),
-            ]),
-          ),
+      httpClient: MockClient((request) async {
+        expect(request.url.path, endsWith('/releases/latest'));
+        return http.Response.bytes(
+          utf8.encode(jsonEncode(_release('v0.8.0', [
+            _asset('a.exe', state: 'starter'),
+            _asset('empty.exe', size: 0),
+            _asset('b.exe', state: 'uploaded'),
+          ]))),
           200,
-        ),
-      ),
+        );
+      }),
     );
     addTearDown(client.dispose);
 
