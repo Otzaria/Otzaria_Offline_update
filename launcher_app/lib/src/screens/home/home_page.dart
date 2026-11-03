@@ -431,7 +431,8 @@ bool _launcherInHero(HomeViewModel m) => switch (m.guidance.primary) {
       GuidancePrimary.updateHere ||
       GuidancePrimary.downloadToDrive =>
         launcherOffersUpdate(m.launcher),
-      GuidancePrimary.upToDate =>
+      GuidancePrimary.upToDate ||
+      GuidancePrimary.smartSearch =>
         m.guidance.otherUpdates.contains(OtherUpdate.launcher),
       _ => false,
     };
@@ -626,6 +627,12 @@ class _Hero extends StatelessWidget {
   }
 
   Widget _emblem() => switch (_g.primary) {
+        GuidancePrimary.newerHereThanDrive
+            when _g.smartSearch != SmartSearchFact.clear =>
+          const _Emblem(
+            icon: FluentIcons.desktop_24_regular,
+            mini: FluentIcons.warning_16_regular,
+          ),
         GuidancePrimary.upToDate ||
         GuidancePrimary.newerHereThanDrive =>
           const _Emblem(icon: FluentIcons.checkmark_24_regular, done: true),
@@ -638,6 +645,7 @@ class _Hero extends StatelessWidget {
             mini: FluentIcons.arrow_download_16_regular,
           ),
         GuidancePrimary.attention ||
+        GuidancePrimary.smartSearch ||
         GuidancePrimary.checkFailed =>
           const _Emblem(
             icon: FluentIcons.desktop_24_regular,
@@ -996,6 +1004,9 @@ class _Hero extends StatelessWidget {
           actions: quietActions,
           notes: [
             ...recheckNote,
+            if (_g.smartSearch != SmartSearchFact.clear &&
+                m.smartSearchNote != null)
+              _Note(FluentIcons.warning_16_regular, m.smartSearchNote!),
             if (m.online != true)
               _Note(FluentIcons.usb_stick_20_regular, g.newerNote),
             ..._quietNotes(context, offline: false),
@@ -1039,6 +1050,33 @@ class _Hero extends StatelessWidget {
           actions: quietActions,
           notes: [
             if (!foundNothingTitle) ...recheckNote,
+            ..._quietNotes(context, offline: true),
+            ...libraryNotes,
+            ...downloadNotes,
+          ],
+        );
+      case GuidancePrimary.smartSearch:
+        return _HeroSpec(
+          title: switch (_g.smartSearch) {
+            SmartSearchFact.readyOnDrive => g.smartSearchReadyTitle,
+            SmartSearchFact.notMatching ||
+            SmartSearchFact.needsDriveDownload =>
+              g.smartSearchNotMatchingTitle,
+            SmartSearchFact.unsupported => g.smartSearchUnsupportedTitle,
+            SmartSearchFact.partial => g.smartSearchPartialTitle,
+            _ => g.smartSearchUnverifiedTitle,
+          },
+          body: m.smartSearchNote,
+          items: _otherItems(context),
+          eyebrow: !offline,
+          actions: [
+            ...quietActions,
+            ActionButton.ghost(
+              text: g.attentionLibraryButton,
+              onPressed: () => actions.onOpenSection(ShellSection.library),
+            ),
+          ],
+          notes: [
             ..._quietNotes(context, offline: true),
             ...libraryNotes,
             ...downloadNotes,
@@ -1797,6 +1835,11 @@ class _Tiles extends StatelessWidget {
           TileStatus.needsConsent => (
               StatusKind.needsAction,
               context.strings.libraryDomain.semanticConsentRequired,
+              FluentIcons.sparkle_16_regular,
+            ),
+          TileStatus.smartSearchOpen => (
+              StatusKind.needsAction,
+              g.chipSmartSearchOpen,
               FluentIcons.sparkle_16_regular,
             ),
           TileStatus.upToDate => (StatusKind.ok, g.chipLibraryUpToDate, null),

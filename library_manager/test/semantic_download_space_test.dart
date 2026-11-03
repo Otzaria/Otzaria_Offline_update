@@ -83,10 +83,11 @@ void main() {
     expect(error.dir, mirror);
     expect(error.freeBytes, 0);
     expect(error.neededBytes, 500 + manifestBytes(30) + modelBytes);
+    final volume = p.rootPrefix(p.absolute(mirror));
     expect(
       error.message,
-      AppL10n.strings.libraryDomain.notEnoughDiskSpace(
-        mirror,
+      AppL10n.strings.libraryDomain.mirrorNotEnoughDiskSpace(
+        volume.isEmpty || volume == '/' ? mirror : volume,
         DiskSpaceProbe.formatBytes(error.neededBytes!),
         DiskSpaceProbe.formatBytes(0),
       ),
@@ -348,7 +349,7 @@ class _RangeAssets extends SemanticSearchAssets {
   final int threshold;
 
   @override
-  PatchDownloader newDownloader() => PatchDownloader(
+  PatchDownloader newDownloader({int? maxConnections}) => PatchDownloader(
     httpClient: _github.client,
     decompress: (_) async => null,
     maxConnections: 4,

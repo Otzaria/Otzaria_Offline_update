@@ -276,6 +276,9 @@ class OtzariaModuleController extends ChangeNotifier
   Future<int?> mirroredReadableDbSchema() =>
       _manager.mirroredReadableDbSchema();
 
+  Future<List<String>> mirroredInstallerVersions() =>
+      _manager.mirroredInstallerVersions();
+
   Future<void> download({bool Function()? isCancelled}) async {
     downloadStatus = OtzariaDownloadStatus.downloading;
     downloadReceived = null;

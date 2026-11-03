@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:otzaria_l10n/otzaria_l10n.dart';
+
 import '../services/app_logger.dart';
 import '../shell/home_guidance.dart' show GuidanceItem;
 import '../shell/shell_tasks.dart';
@@ -47,6 +49,10 @@ abstract interface class UpdateHereLibrary {
   /// חיפוש חכם בכונן מחכה להסכמה — אינו "עדכון" עד שהיא נכתבת.
   bool get semanticAwaitsConsent;
 
+  /// תוכנית הספרייה מוגבלת לאוצריא שמותקנת, ובכונן מתקין חדש יותר: היא
+  /// נבדקת מחדש רק אחרי שהתוכנה מותקנת.
+  bool get awaitsAppUpdate;
+
   /// הכשל, אחרי [LibraryApplyResult.failed].
   String? get errorMessage;
 
@@ -64,7 +70,13 @@ abstract interface class UpdateHereLibrary {
 
   /// כמו [apply], מהספרייה המלאה שבכונן.
   Future<LibraryApplyResult> applyFull();
-  Future<void> recheck();
+
+  /// `false` — הבדיקה עצמה נכשלה ([errorMessage]); "אין עדכון" הוא `true`.
+  Future<bool> recheck();
+
+  /// למה החיפוש החכם פתוח אחרי הבדיקה האחרונה; `null` — סגור, או שההסכמה
+  /// היא שמטפלת בו.
+  String? get semanticOpenNote;
 }
 
 abstract interface class UpdateHerePlugins {
@@ -119,12 +131,14 @@ class UpdateHereFlow {
 
   /// השלבים לפי מה שבאמת יש להתקין מתוך [items], בסדר ההרצה.
   /// [reinstallApp] — גם אותה גרסה; [fullLibrary] — הספרייה המלאה שבכונן;
-  /// [semantic] — הספרייה נכללת גם רק בשביל החלון על החיפוש החכם.
+  /// [semantic] — הספרייה נכללת גם רק בשביל החלון על החיפוש החכם;
+  /// [recheckLibrary] — "נסה שוב" אחרי שהבדיקה של הספרייה נכשלה בסוף האשף.
   List<GuidanceItem> stagesFor(
     List<GuidanceItem> items, {
     bool reinstallApp = false,
     bool fullLibrary = false,
     bool semantic = false,
+    bool recheckLibrary = false,
   }) {
     if (!app.isInstalled) {
       return [
@@ -135,17 +149,28 @@ class UpdateHereFlow {
           GuidanceItem.library,
       ];
     }
-    final installsApp =
-        items.contains(GuidanceItem.app) && _canInstallApp(reinstallApp);
+    // "נסה שוב" אחרי כשל בדיקה: התוכנה כבר הותקנה.
+    final installsApp = !recheckLibrary &&
+        items.contains(GuidanceItem.app) &&
+        _canInstallApp(reinstallApp);
+    // תוכנית הספרייה נגזרת מהתוכנה שמותקנת: עד שהחדשה מותקנת אין מה להחיל,
+    // ולכן היא רצה אחריה ולא בלחיצה נוספת.
+    final afterApp = installsApp && library.awaitsAppUpdate;
+    final installsLibrary = items.contains(GuidanceItem.library) &&
+        (fullLibrary
+            ? library.canApplyFull
+            : library.hasUpdateAvailable ||
+                semantic ||
+                afterApp ||
+                recheckLibrary);
     return [
-      if (items.contains(GuidanceItem.library) &&
-          (fullLibrary
-              ? library.canApplyFull
-              : library.hasUpdateAvailable || semantic))
-        GuidanceItem.library,
+      if (installsLibrary && !afterApp) GuidanceItem.library,
       if (installsApp) GuidanceItem.app,
+      if (installsLibrary && afterApp) GuidanceItem.library,
       if (items.contains(GuidanceItem.plugins) &&
-          (plugins.deliverableUpdates.isNotEmpty || installsApp))
+          (plugins.deliverableUpdates.isNotEmpty ||
+              installsApp ||
+              recheckLibrary))
         GuidanceItem.plugins,
     ];
   }
@@ -161,9 +186,39 @@ class UpdateHereFlow {
     bool reinstallApp = false,
     bool fullLibrary = false,
     Set<GuidanceItem> Function()? blocked,
+  }) =>
+      _start(
+        items,
+        reinstallApp: reinstallApp,
+        fullLibrary: fullLibrary,
+        blocked: blocked,
+      );
+
+  /// הבדיקה של הספרייה אחרי התקנת התוכנה נכשלה: התוכנה הותקנה, ו"נסה שוב"
+  /// בודק את הספרייה שוב במקום לחשוב שאין מה להתקין.
+  bool _libraryRecheckFailed = false;
+
+  Future<bool> _start(
+    List<GuidanceItem> items, {
+    required bool reinstallApp,
+    required bool fullLibrary,
+    Set<GuidanceItem> Function()? blocked,
+    bool recheckLibrary = false,
   }) async {
+    _libraryRecheckFailed = false;
+    // ספרייה מלאה שממתינה לתוכנה רצה אחריה, כמו העדכון הרגיל.
+    if (fullLibrary &&
+        !recheckLibrary &&
+        items.contains(GuidanceItem.library) &&
+        !items.contains(GuidanceItem.app) &&
+        app.isInstalled &&
+        app.hasUpdateAvailable &&
+        library.awaitsAppUpdate) {
+      items = [...items, GuidanceItem.app];
+    }
+    var fullBlockedByApp = false;
     // ההסכמה נכתבת להגדרות של אוצריא, ולכן רק כשהיא מותקנת.
-    final asks = app.isInstalled &&
+    final wantsAsk = app.isInstalled &&
         items.contains(GuidanceItem.library) &&
         !(blocked?.call().contains(GuidanceItem.library) ?? false) &&
         library.semanticAwaitsConsent &&
@@ -175,18 +230,52 @@ class UpdateHereFlow {
         reinstallApp: reinstallApp,
         fullLibrary: fullLibrary,
         semantic: semantic,
+        recheckLibrary: recheckLibrary,
       );
       // נקרא שוב אחרי חלון ההסכמה: ההורדה עשויה להתקדם בינתיים.
       final now = blocked?.call() ?? const {};
       // בהתקנה ראשונה הספרייה תלויה בתוכנה שתותקן לפניה.
       if (!app.isInstalled && now.contains(GuidanceItem.app)) return [];
-      return [
+      final allowed = [
         for (final stage in stages)
           if (!now.contains(stage)) stage,
       ];
+      // הספרייה שממתינה לתוכנה אינה רצה בלעדיה.
+      if (!recheckLibrary &&
+          library.awaitsAppUpdate &&
+          app.hasUpdateAvailable &&
+          (fullLibrary || !library.hasUpdateAvailable) &&
+          !allowed.contains(GuidanceItem.app) &&
+          allowed.remove(GuidanceItem.library) &&
+          fullLibrary) {
+        fullBlockedByApp = true;
+      }
+      return allowed;
     }
 
+    // ספרייה שנשמטת מהשלבים אינה שואלת: ההסכמה לא הייתה נכתבת.
+    final asks =
+        wantsAsk && stagesNow(semantic: true).contains(GuidanceItem.library);
     var stages = stagesNow(semantic: asks);
+    if (stages.isEmpty && fullBlockedByApp) {
+      _tasks.startUpdateHere(
+        const [GuidanceItem.library],
+        libraryVersion: library.targetVersion,
+        request: (
+          items: List.unmodifiable(items),
+          reinstallApp: reinstallApp,
+          fullLibrary: true,
+        ),
+      );
+      _tasks
+        ..stageFinished(
+          GuidanceItem.library,
+          StageOutcome.skipped,
+          note: AppL10n.strings.task.libraryAwaitsApp,
+        )
+        ..updateDone();
+      return true;
+    }
     if (stages.isEmpty) return false;
     var grantConsent = false;
     if (asks) {
@@ -205,7 +294,9 @@ class UpdateHereFlow {
     }
     final hasApp = stages.contains(GuidanceItem.app);
     final libraryUpdate = stages.contains(GuidanceItem.library) &&
-        (fullLibrary || library.hasUpdateAvailable);
+        (fullLibrary ||
+            library.hasUpdateAvailable ||
+            (library.awaitsAppUpdate && app.hasUpdateAvailable));
     final id = _tasks.startUpdateHere(
       stages,
       firstInstall: !app.isInstalled,
@@ -232,6 +323,7 @@ class UpdateHereFlow {
         reinstallApp: reinstallApp,
         fullLibrary: fullLibrary,
         grantConsent: grantConsent,
+        recheckLibrary: recheckLibrary,
       );
     } catch (error, stackTrace) {
       AppLogger.maybeInstance
@@ -248,11 +340,12 @@ class UpdateHereFlow {
       _ => null,
     };
     if (request == null) return false;
-    return run(
+    return _start(
       request.items,
       reinstallApp: request.reinstallApp,
       fullLibrary: request.fullLibrary,
       blocked: blocked,
+      recheckLibrary: _libraryRecheckFailed,
     );
   }
 
@@ -263,6 +356,7 @@ class UpdateHereFlow {
     required bool reinstallApp,
     required bool fullLibrary,
     required bool grantConsent,
+    required bool recheckLibrary,
   }) async {
     if (stages.contains(GuidanceItem.app) && app.elevatedAsOtherUser) {
       final go = await _tasks.askOtherUser();
@@ -275,7 +369,10 @@ class UpdateHereFlow {
       if (!host.isActive) return;
       final keepGoing = switch (stage) {
         GuidanceItem.library => await _library(
-            first: first,
+            afterApp: recheckLibrary ||
+                (stages.contains(GuidanceItem.app) &&
+                    stages.indexOf(GuidanceItem.app) <
+                        stages.indexOf(GuidanceItem.library)),
             ranAny: ranAny,
             full: fullLibrary,
             grantConsent: grantConsent,
@@ -322,21 +419,46 @@ class UpdateHereFlow {
     return true;
   }
 
+  /// [afterApp] — התוכנה הותקנה זה עתה: האשף עשוי היה לפתוח את אוצריא, ותוכנית
+  /// הספרייה (והמסד, בהתקנה ראשונה) נקבעים לפי מה שהותקן.
   Future<bool?> _library({
-    required bool first,
+    required bool afterApp,
     required bool ranAny,
     bool full = false,
     bool grantConsent = false,
   }) async {
     String? consentNote;
-    if (first) {
-      // מיקום המסד נגזר ממה שהאשף בחר — בודקים מחדש אחרי ההתקנה.
-      await library.recheck();
-      if (!host.isActive) return false;
-      if (!library.hasUpdateAvailable) {
+    if (afterApp) {
+      // האשף אולי עוד מעתיק קבצים: הספרייה לא תוחל לפני שהתוכנה הותקנה.
+      if (_appStoppedWaiting) {
         _tasks.stageFinished(GuidanceItem.library, StageOutcome.skipped);
         return true;
       }
+      final checked = await library.recheck();
+      if (!host.isActive) return false;
+      if (!checked) {
+        _libraryRecheckFailed = true;
+        _tasks.updateFailed(UpdateFailure(
+          GuidanceItem.library,
+          message: library.errorMessage,
+          needsElevation: library.needsElevation,
+        ));
+        return false;
+      }
+      final updates = library.hasUpdateAvailable;
+      if (!updates && !grantConsent && !full) {
+        _tasks.stageFinished(
+          GuidanceItem.library,
+          StageOutcome.skipped,
+          note: library.semanticOpenNote,
+        );
+        return true;
+      }
+      _tasks.libraryPlan(
+        version: updates ? library.targetVersion : null,
+        minutes: updates ? library.applyEstimate(full: full) : null,
+        semanticOnly: grantConsent && !updates,
+      );
       // האשף פתח את אוצריא; סוגרים אותה לבד, ושואלים רק אם לא נסגרה.
       if (await host.isOtzariaRunning() && !await host.closeOtzaria()) {
         while (await host.isOtzariaRunning()) {
@@ -354,18 +476,18 @@ class UpdateHereFlow {
     } else {
       final closed = await _ensureClosed(ranAny: ranAny);
       if (closed != true) return closed;
-      if (grantConsent) {
-        consentNote = await host.grantSemanticConsent();
-        if (!host.isActive) return false;
-        // הכתיבה נכשלה והחיפוש החכם היה כל מה שיש — אין מה להחיל.
-        if (!full && !library.hasUpdateAvailable) {
-          _tasks.stageFinished(
-            GuidanceItem.library,
-            StageOutcome.skipped,
-            note: consentNote,
-          );
-          return true;
-        }
+    }
+    if (grantConsent) {
+      consentNote = await host.grantSemanticConsent();
+      if (!host.isActive) return false;
+      // הכתיבה נכשלה והחיפוש החכם היה כל מה שיש — אין מה להחיל.
+      if (!full && !library.hasUpdateAvailable) {
+        _tasks.stageFinished(
+          GuidanceItem.library,
+          StageOutcome.skipped,
+          note: consentNote ?? library.semanticOpenNote,
+        );
+        return true;
       }
     }
     if (!host.isActive) return false;
@@ -446,11 +568,15 @@ class UpdateHereFlow {
     }
   }
 
+  bool get _appStoppedWaiting => switch (_tasks.updateTask) {
+        UpdateHereTask(:final outcomes) =>
+          outcomes[GuidanceItem.app] == StageOutcome.stoppedWaiting,
+        _ => false,
+      };
+
   Future<bool> _plugins(int id) async {
     // האשף אולי עוד מעתיק קבצים: otzaria:// היה פותח את הגרסה הישנה.
-    final task = _tasks.updateTask;
-    if (task is UpdateHereTask &&
-        task.outcomes[GuidanceItem.app] == StageOutcome.stoppedWaiting) {
+    if (_appStoppedWaiting) {
       _tasks.stageFinished(GuidanceItem.plugins, StageOutcome.skipped);
       return true;
     }

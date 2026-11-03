@@ -15,6 +15,7 @@ import 'models/library_update_check_result.dart';
 import 'services/companion_assets.dart';
 import 'services/companion_assets_installer.dart';
 import 'services/companion_assets_mirror.dart';
+import 'services/download_connections.dart';
 import 'services/external_update_notice.dart';
 import 'services/library_changes_notes.dart';
 import 'services/library_db_locator.dart';
@@ -135,6 +136,7 @@ class LibraryManager {
     Future<String?> Function()? otzariaLaunchPath,
     Future<String?> Function()? otzariaAppVersion,
     Future<int?> Function()? mirroredReadableDbSchema,
+    Future<List<String>> Function()? mirroredOtzariaVersions,
     OtzariaInstanceLock? instanceLock,
     String? operatingSystem,
     Map<String, String>? environment,
@@ -145,6 +147,10 @@ class LibraryManager {
     LibraryUpdateApplier? applier,
     this.semanticEngineFactory,
     @visibleForTesting this.semanticAssetsFactory,
+    @visibleForTesting bool Function(String)? removableProbe,
+    @visibleForTesting WriteSpeedProbe? writeProbe,
+    @visibleForTesting
+    int segmentThresholdBytes = PatchDownloader.defaultSegmentThresholdBytes,
   }) : _stateStore = LibraryStateStore(
          p.join(stateDir ?? dataDir, LibraryStateStore.fileName),
          dataDir: dataDir,
@@ -155,7 +161,11 @@ class LibraryManager {
        _processGuard = processGuard,
        _otzariaAppVersion = otzariaAppVersion,
        _mirroredReadableDbSchema = mirroredReadableDbSchema,
+       _mirroredOtzariaVersions = mirroredOtzariaVersions,
        _instanceLock = instanceLock,
+       _removableProbe = removableProbe,
+       _writeProbe = writeProbe,
+       _segmentThresholdBytes = segmentThresholdBytes,
        _cloudClient = releaseClient ?? RecentLibraryReleasesClient(),
        _applier = applier ?? LibraryUpdateApplier(processGuard: processGuard) {
     useLibraryUpdaterL10n();
@@ -209,6 +219,10 @@ class LibraryManager {
   /// The schema the drive's Otzaria installers read, for the semantic peek.
   final Future<int?> Function()? _mirroredReadableDbSchema;
 
+  /// The app versions of the installers the drive carries: what a new
+  /// install there will read, when no computer is recorded yet.
+  final Future<List<String>> Function()? _mirroredOtzariaVersions;
+
   final OtzariaInstanceLock? _instanceLock;
 
   final RecentLibraryReleasesClient _cloudClient;
@@ -222,6 +236,12 @@ class LibraryManager {
   final SemanticSearchAssets Function(DownloadScheduler scheduler)?
   semanticAssetsFactory;
 
+  /// Replace the removable-drive, saved-split and write-speed checks that pick
+  /// the export's connection count, for tests.
+  final bool Function(String)? _removableProbe;
+  final WriteSpeedProbe? _writeProbe;
+  final int _segmentThresholdBytes;
+
   /// הקבצים הנלווים לספרייה (תלמוד, קטלוג, מילון). אוצריא מרעננת אותם
   /// **מהרשת** בכל עדכון ספרייה; כאן הם נוסעים במראה ומותקנים אופליין.
   /// תקרת הקבצים המקבילים של כל ההורדה — נכסי הספרייה **והקבצים הנלווים
@@ -230,22 +250,29 @@ class LibraryManager {
 
   CompanionAssetsMirror? _companionsMirrorInstance;
 
-  CompanionAssetsMirror get _companionsMirror => _companionsMirrorInstance ??=
-      CompanionAssetsMirror(scheduler: _scheduler);
+  CompanionAssetsMirror get _companionsMirror =>
+      _companionsMirrorInstance ??= CompanionAssetsMirror(
+        scheduler: _scheduler,
+        removableProbe: _removableProbe,
+        writeProbe: _writeProbe,
+      );
   final CompanionAssetsInstaller _companionsInstaller =
       const CompanionAssetsInstaller();
 
   final OtzariaSettingsWriter _settingsWriter = const OtzariaSettingsWriter();
 
   /// The one boundary for `seforim_library_updater`, whose full-drive
-  /// failures arrive as text: a recognised one crosses as [StorageFullException].
+  /// failures arrive as text: a recognised one crosses as [StorageFullException],
+  /// a damaged file or drive as [StorageCorruptException].
   Future<T> _storageAware<T>(Future<T> Function() body) async {
     try {
       return await body();
     } catch (error, stack) {
       final full = storageFullFromUpstream(error);
-      if (full == null) rethrow;
-      Error.throwWithStackTrace(full, stack);
+      if (full != null) Error.throwWithStackTrace(full, stack);
+      final damaged = storageCorruptFromUpstream(error);
+      if (damaged != null) Error.throwWithStackTrace(damaged, stack);
+      rethrow;
     }
   }
 
@@ -429,7 +456,7 @@ class LibraryManager {
     int? mirroredLatest;
     // A full drive found by one branch stops the other from starting assets;
     // it is not a user cancel and surfaces as the storage failure itself.
-    (StorageFullException, StackTrace)? gateFailure;
+    (Object, StackTrace)? gateFailure;
     var exportStoppedByGate = false;
     bool stopRequested() =>
         gateFailure != null || (isCancelled?.call() ?? false);
@@ -451,6 +478,15 @@ class LibraryManager {
         supportedDbSchemaVersion: kSupportedDbSchemaVersion,
         client: readable ?? _cloudClient,
         scheduler: _scheduler,
+        segmentThresholdBytes: _segmentThresholdBytes,
+        connectionsForAsset: (destPath, size, sha256, resumeToken) =>
+            exportConnectionsFor(
+              destPath,
+              size,
+              sha256,
+              resumeToken: resumeToken,
+              isCancelled: stopRequested,
+            ),
       );
       try {
         return await _storageAware(
@@ -557,18 +593,23 @@ class LibraryManager {
           isCancelled: () => exportFailed || (isCancelled?.call() ?? false),
         );
       } catch (error, stack) {
-        final full = storageFullFromUpstream(error);
-        if (full == null) rethrow;
-        gateFailure ??= (full, stack);
-        Error.throwWithStackTrace(full, stack);
+        final failure =
+            storageCorruptFromUpstream(error) ?? storageFullFromUpstream(error);
+        if (failure == null) rethrow;
+        gateFailure ??= (failure, stack);
+        Error.throwWithStackTrace(failure, stack);
       }
     }();
 
-    (StorageFullException, StackTrace)? storageFailure;
+    // A full or damaged drive, thrown only after the finished parts are saved.
+    (Object, StackTrace)? storageFailure;
     try {
       await Future.wait<void>([exportFuture, companionsFuture]);
     } on StorageFullException catch (error, stack) {
       // A full drive in the companions leaves the finished DB export valid.
+      if (exportFailed && !exportStoppedByGate) rethrow;
+      storageFailure = (error, stack);
+    } on StorageCorruptException catch (error, stack) {
       if (exportFailed && !exportStoppedByGate) rethrow;
       storageFailure = (error, stack);
     }
@@ -617,7 +658,11 @@ class LibraryManager {
         (readable == null || readableTag != null)) {
       final semantic =
           semanticAssetsFactory?.call(_scheduler) ??
-          SemanticSearchAssets(scheduler: _scheduler);
+          SemanticSearchAssets(
+            scheduler: _scheduler,
+            removableProbe: _removableProbe,
+            writeProbe: _writeProbe,
+          );
       if (!exported) exportBytes.report(0, 0);
       final semanticBytes = bytes.slot();
       try {
@@ -645,9 +690,7 @@ class LibraryManager {
           mirrorDir: semanticMirrorDir,
           libraryTag: tag,
           // The online machine's Otzaria fetches its vectors itself.
-          fleet: SemanticFleet(
-            await _stateStore.liveSemanticStates(excludeOwn: true),
-          ),
+          fleet: await _semanticFleet(),
           libraryTagFor: (version) => _libraryTagFor(releases, version),
           onStage: onStage,
           onBytesProgress: semanticBytes.report,
@@ -657,8 +700,11 @@ class LibraryManager {
         if (e is PatchDownloadCancelled || (isCancelled?.call() ?? false)) {
           rethrow;
         }
-        final full = storageFullFromUpstream(e);
-        if (full != null) {
+        final damaged = storageCorruptFromUpstream(e);
+        final full = damaged == null ? storageFullFromUpstream(e) : null;
+        if (damaged != null) {
+          storageFailure = (damaged, stack);
+        } else if (full != null) {
           storageFailure = (
             !identical(full, e) && full.dir == null && full.message == null
                 ? StorageFullException(
@@ -1233,9 +1279,7 @@ class LibraryManager {
         mirrorDir: semanticMirrorDir,
         libraryTag: tag,
         // The online machine's Otzaria fetches its vectors itself.
-        fleet: SemanticFleet(
-          await _stateStore.liveSemanticStates(excludeOwn: true),
-        ),
+        fleet: await _semanticFleet(),
       );
       _peekedSemanticBytes = semantic.peekedPendingBytes;
       _peekedSemanticIncompatibility = semantic.peekedIncompatibility;
@@ -1496,6 +1540,29 @@ class LibraryManager {
     return false;
   }
 
+  /// החיבורים להורדת נכס בודד בייצוא. נכס מתחת לסף הפיצול (manifests) לא
+  /// מתפצל ולכן אינו נמדד; גדול נבחר לפי [connectionsForAsset].
+  @visibleForTesting
+  Future<int> exportConnectionsFor(
+    String destPath,
+    int size,
+    String? sha256, {
+    String? resumeToken,
+    bool Function()? isCancelled,
+  }) {
+    if (size > 0 && size < _segmentThresholdBytes) {
+      return Future.value(connectionsPerFile(_scheduler));
+    }
+    return connectionsForAsset(
+      _scheduler,
+      destPath,
+      token: resumeToken ?? sha256,
+      removableProbe: _removableProbe,
+      writeProbe: _writeProbe,
+      isCancelled: isCancelled,
+    );
+  }
+
   /// הנתיב שבו [LibraryMirrorExporter] שומר נכס — כמו `_safeDirName` שלו.
   String _mirrorAssetPath(String tag, String name) => p.join(
     mirrorDir,
@@ -1625,11 +1692,11 @@ class LibraryManager {
         : limitedPlan;
 
     final settings = await _semanticSettings(locator);
-    final supportsWindows = await _supportsWindowsVectors(locator);
+    final support = await _semanticSupport(locator);
     final semantic =
         semanticAssetsFactory?.call(_scheduler) ?? SemanticSearchAssets();
-    var semanticPending = false;
     var semanticRecovered = false;
+    SmartSearchStatus semanticStatus;
     SemanticEngineIncompatibleException? semanticIncompatibility;
     try {
       final semanticVersion = switch (plan.kind) {
@@ -1637,44 +1704,68 @@ class LibraryManager {
         LibraryUpdatePlanKind.blocked => local.dbVersion,
         _ => plan.finalTargetVersion ?? local.dbVersion,
       };
-      semanticPending = await semantic.pending(
-        mirrorDir: semanticMirrorDir,
-        dbPath: dbPath,
-        libraryVersion: semanticVersion,
-        vectorsRootPath: _semanticVectorsRoot(settings, dbPath),
-        preferencesReady: settings?.semanticSearchReadyPreferences ?? false,
-        supportsWindows: supportsWindows,
-        needsBase: await _ownNeedsBase(),
-        onRecoveryVerified: () => semanticRecovered = true,
-      );
-      semanticIncompatibility = await semantic.incompatibility(
-        mirrorDir: semanticMirrorDir,
-        libraryVersion: semanticVersion,
-        supportsWindows: supportsWindows,
-        dbPath: dbPath,
-        vectorsRootPath: _semanticVectorsRoot(settings, dbPath),
-      );
-      if (semanticIncompatibility == null && semanticPending) {
-        final reads = await _semanticTargetReadsText4(locator);
-        if (reads != true) {
-          semanticIncompatibility = SemanticEngineIncompatibleException(
-            lineTextVersion: kSemanticEngineText.lineTextVersion,
-            keyVersion: kSemanticEngineText.keyVersion,
-            reason: reads == null
-                ? SemanticIncompatibilityReason.otzariaUnproven
-                : SemanticIncompatibilityReason.updateOtzaria,
+      try {
+        semanticStatus = await semantic.assess(
+          mirrorDir: semanticMirrorDir,
+          dbPath: dbPath,
+          libraryVersion: semanticVersion,
+          support: support,
+          vectorsRootPath: _semanticVectorsRoot(settings, dbPath),
+          preferencesReady: settings?.semanticSearchReadyPreferences ?? false,
+          needsBase: await _ownNeedsBase(),
+          onRecoveryVerified: () => semanticRecovered = true,
+        );
+        if (!semanticStatus.allClear && support.generation != null) {
+          semanticIncompatibility =
+              semanticStatus.incompatibility
+                  as SemanticEngineIncompatibleException? ??
+              await semantic.incompatibility(
+                mirrorDir: semanticMirrorDir,
+                libraryVersion: semanticVersion,
+                supportsWindows: support.windows,
+                generation: support.generation!,
+                dbPath: dbPath,
+                vectorsRootPath: _semanticVectorsRoot(settings, dbPath),
+              );
+        }
+        if (semanticIncompatibility == null && semanticStatus.installable) {
+          final reads = await _semanticTargetReadsText4(locator);
+          if (reads != true) {
+            semanticIncompatibility = SemanticEngineIncompatibleException(
+              lineTextVersion: kSemanticEngineText.lineTextVersion,
+              keyVersion: kSemanticEngineText.keyVersion,
+              reason: reads == null
+                  ? SemanticIncompatibilityReason.otzariaUnproven
+                  : SemanticIncompatibilityReason.updateOtzaria,
+            );
+          }
+        }
+        if (semanticIncompatibility != null && !semanticStatus.allClear) {
+          semanticStatus = semanticStatus.copyWith(
+            state: SmartSearchState.unsupported,
+            reason: semanticStatus.installable
+                ? SmartSearchReason.appCannotRead
+                : semanticStatus.reason,
+            incompatibility: semanticIncompatibility,
           );
         }
+      } on Exception catch (error) {
+        // No answer is not "up to date": the check says it did not run.
+        semanticStatus = SmartSearchStatus(
+          state: SmartSearchState.unverified,
+          reason: SmartSearchReason.checkFailed,
+          error: error,
+        );
       }
-      if (semanticIncompatibility != null) semanticPending = false;
     } finally {
       semantic.dispose();
     }
+    final semanticPending = semanticStatus.installable;
     if (!isFreshInstall) {
       await _recordSemanticState(
         dbPath: dbPath,
         settings: settings,
-        supportsWindows: supportsWindows,
+        support: support,
         baseInstalled: semanticRecovered,
       );
     }
@@ -1690,10 +1781,24 @@ class LibraryManager {
       mirroredCompanions: companions.mirrored,
       semanticPending: semanticPending,
       semanticConsentGranted: settings?.searchFeedbackGranted ?? false,
+      semanticStatus: semanticStatus,
       semanticIncompatibility: semanticIncompatibility,
       mirrorDownloadIncomplete: mirrorDownloadIncomplete,
       readableDbSchemaVersion: readableSchema,
       needsNewerOtzaria: !identical(plan, limitedPlan),
+    );
+  }
+
+  /// What an install that wrote files but is not confirmed by the same check
+  /// as at the start must report; `null` when it is confirmed.
+  @visibleForTesting
+  static SmartSearchStatus? unconfirmedSemanticInstall(
+    SmartSearchStatus after,
+  ) {
+    if (after.allClear) return null;
+    return after.copyWith(
+      state: after.present.isNotEmpty ? SmartSearchState.partial : null,
+      reason: SmartSearchReason.verificationFailed,
     );
   }
 
@@ -1727,22 +1832,58 @@ class LibraryManager {
     );
   }
 
-  Future<bool> _supportsWindowsVectors(LibraryDbLocator locator) async {
+  /// Which model generation and vector shape the installed Otzaria reads, and
+  /// on what proof; an old capabilities file after an upgrade proves nothing.
+  Future<SemanticAppSupport> _semanticSupport(LibraryDbLocator locator) async {
     final launch = await locator.otzariaLaunchPath?.call();
     final root = await locator.otzariaSettingsRoot(launch);
-    return OtzariaCapabilities.supportsWindowsVectors(
+    return OtzariaCapabilities.semanticSupport(
       capabilities: root == null ? null : await OtzariaCapabilities.read(root),
       launchPath: launch,
       installedVersion: await _otzariaAppVersion?.call(),
     );
   }
 
+  /// Recorded machines and any new generation the drive's installers read.
+  Future<SemanticFleet> _semanticFleet() async {
+    final machines = await _stateStore.liveSemanticStates(excludeOwn: true);
+    _peekedUnknownMachines = machines
+        .where((machine) => machine.generation == null)
+        .length;
+    final versions = await _mirroredOtzariaVersions?.call();
+    final generations = <SemanticModelGeneration>{
+      for (final version in versions ?? const <String>[])
+        ?OtzariaCapabilities.semanticGenerationForAppVersion(version),
+    };
+    return SemanticFleet(
+      [
+        ...machines,
+        for (final generation in generations)
+          if (!machines.any((machine) => machine.generation == generation))
+            SemanticMachineState(
+              supportsWindows: false,
+              family: null,
+              generation: generation,
+            ),
+      ],
+      [if (versions == null) SemanticModelGeneration.round2, ...generations],
+    );
+  }
+
+  @visibleForTesting
+  Future<SemanticFleet> semanticFleetForTest() => _semanticFleet();
+
+  /// Recorded computers the last download or light check could not serve
+  /// because their record names no model generation; their records stay.
+  int get peekedUnknownMachines => _peekedUnknownMachines;
+  int _peekedUnknownMachines = 0;
+
   /// Records this machine's smart-search set for the next download's plan;
   /// only a machine that installs it from the drive (consent given) counts.
   Future<void> _recordSemanticState({
     required String dbPath,
     required OtzariaSettings? settings,
-    required bool supportsWindows,
+    required SemanticAppSupport support,
     bool chainFailed = false,
     bool baseInstalled = false,
   }) async {
@@ -1772,11 +1913,12 @@ class LibraryManager {
       );
       await _stateStore.recordOwnSemanticState(
         SemanticMachineState(
-          supportsWindows: supportsWindows,
+          supportsWindows: support.windows,
           family: family,
           libraryVersion: version,
           identityDigest: identity,
           needsBase: needsBase,
+          generation: support.generation,
         ),
       );
     } on Exception {
@@ -2099,7 +2241,7 @@ class LibraryManager {
         final semantic =
             semanticAssetsFactory?.call(_scheduler) ??
             SemanticSearchAssets(engineFactory: semanticEngineFactory);
-        final supportsWindows = await _supportsWindowsVectors(_locator);
+        final support = await _semanticSupport(_locator);
         var chainFailed = false;
         var baseInstalled = false;
         try {
@@ -2110,7 +2252,8 @@ class LibraryManager {
               dbPath: dbPath,
               libraryVersion: version.dbVersion,
               vectorsRootPath: _semanticVectorsRoot(settings, dbPath),
-              supportsWindows: supportsWindows,
+              supportsWindows: support.windows,
+              generation: support.generation,
               targetReadsLineText4: await _semanticTargetReadsText4(_locator),
               beforeActivate: _throwIfOtzariaRunning,
               onStage: (stage) => onProgress?.call(
@@ -2128,7 +2271,7 @@ class LibraryManager {
             await _recordSemanticState(
               dbPath: dbPath,
               settings: settings,
-              supportsWindows: supportsWindows,
+              support: support,
               chainFailed: chainFailed,
               baseInstalled: baseInstalled,
             );
@@ -2143,6 +2286,22 @@ class LibraryManager {
             throw StateError(
               AppL10n.strings.libraryDomain.companionsInstallFailed(name),
             );
+          }
+          // A successful write is not proof: the same check as at the start,
+          // against the app and the refreshed preferences.
+          final after = await semantic.assess(
+            mirrorDir: semanticMirrorDir,
+            dbPath: dbPath,
+            libraryVersion: version.dbVersion,
+            support: support,
+            vectorsRootPath: _semanticVectorsRoot(settings, dbPath),
+            preferencesReady:
+                (await _semanticSettings())?.semanticSearchReadyPreferences ??
+                false,
+          );
+          final unconfirmed = unconfirmedSemanticInstall(after);
+          if (unconfirmed != null) {
+            throw SmartSearchVerificationException(unconfirmed);
           }
         } finally {
           semantic.dispose();

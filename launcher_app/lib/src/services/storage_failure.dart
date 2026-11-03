@@ -4,12 +4,18 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 /// "הכונן מלא" ב-[error] או בשרשרת הסיבות שלו, או `null`. המתאם לטקסט של
 /// המנוע החיצוני הוא `storageFullFromUpstream`.
-StorageFullException? findStorageFull(Object? error, {bool? windows}) {
-  StorageFullException? search(Object? e, int depth) {
+StorageFullException? findStorageFull(Object? error, {bool? windows}) =>
+    _find(error, (e) => storageFullFromUpstream(e, windows: windows));
+
+/// קובץ או כונן פגומים ב-[error] או בשרשרת הסיבות שלו, או `null`. המתאם
+/// לטקסט של המנוע הוא `storageCorruptFromUpstream`.
+StorageCorruptException? findStorageCorrupt(Object? error, {bool? windows}) =>
+    _find(error, (e) => storageCorruptFromUpstream(e, windows: windows));
+
+T? _find<T extends Object>(Object? error, T? Function(Object) match) {
+  T? search(Object? e, int depth) {
     if (e == null || depth > 8) return null;
-    if (storageFullFromUpstream(e, windows: windows) case final full?) {
-      return full;
-    }
+    if (match(e) case final found?) return found;
     final children = switch (e) {
       AsyncError(:final error) => [error],
       ParallelWaitError(:final errors) =>

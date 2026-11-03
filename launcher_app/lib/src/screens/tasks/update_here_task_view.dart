@@ -432,13 +432,20 @@ class UpdateHereTaskView extends StatelessWidget {
       );
     }
 
+    // ספרייה שדולגה עם הערה אינה "הצלחה": הערה על שלב שהותקן כן נשארת וי.
+    final skippedWithNote = task.libraryNote != null &&
+        outcomes[GuidanceItem.library] == StageOutcome.skipped;
     final (title, body) = stoppedWaiting
         ? (
             t.stoppedWaitingTitle,
             t.stoppedWaitingBody(firstInstall: false, libraryDone: libraryDone),
           )
         : (
-            task.firstInstall ? t.installedTitle : t.updatedTitle,
+            skippedWithNote
+                ? t.doneWithNoteTitle
+                : task.firstInstall
+                    ? t.installedTitle
+                    : t.updatedTitle,
             t.doneHereBody(
               firstInstall: task.firstInstall,
               app: appDone,
@@ -449,10 +456,14 @@ class UpdateHereTaskView extends StatelessWidget {
           );
     return TaskResult(
       badge: ResultBadge(
-        kind: stoppedWaiting ? ResultBadgeKind.calm : ResultBadgeKind.ok,
+        kind: stoppedWaiting || skippedWithNote
+            ? ResultBadgeKind.calm
+            : ResultBadgeKind.ok,
         icon: stoppedWaiting
             ? FluentIcons.clock_24_regular
-            : FluentIcons.checkmark_24_regular,
+            : skippedWithNote
+                ? FluentIcons.warning_24_regular
+                : FluentIcons.checkmark_24_regular,
       ),
       title: title,
       body: body,

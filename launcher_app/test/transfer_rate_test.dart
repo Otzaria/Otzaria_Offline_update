@@ -83,4 +83,13 @@ void main() {
     meter.reset();
     expect(meter.bytesPerSecond, isNull);
   });
+
+  test('בטלה: אין מדידה, או שום בייט כבר זמן מה', () {
+    expect(meter.isIdle(TransferRateMeter.localWorkAfter), isTrue);
+    at(0, 0);
+    at(1, 1000);
+    expect(meter.isIdle(TransferRateMeter.localWorkAfter), isFalse);
+    now = now.add(const Duration(seconds: 3));
+    expect(meter.isIdle(TransferRateMeter.localWorkAfter), isTrue);
+  });
 }

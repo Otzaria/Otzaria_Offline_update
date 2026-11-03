@@ -31,6 +31,13 @@ class TransferRateMeter {
 
   void reset() => _samples.clear();
 
+  /// כמה זמן בלי בייט חדש מספיק כדי להציג עבודה מקומית על הכונן במקום מהירות.
+  static const Duration localWorkAfter = Duration(seconds: 2);
+
+  /// אין מדידה, או שום בייט לא הגיע כבר [after].
+  bool isIdle(Duration after) =>
+      _samples.isEmpty || _clock().difference(_samples.last.at) >= after;
+
   /// היו מדידות, אבל שום בייט לא הגיע כבר [stallAfter].
   bool get isStalled =>
       _samples.isNotEmpty && _clock().difference(_samples.last.at) > stallAfter;

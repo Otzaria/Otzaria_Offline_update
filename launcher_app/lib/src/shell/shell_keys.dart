@@ -10,6 +10,7 @@ abstract final class ShellKeys {
   static const heroSecondary = ValueKey('home.hero.secondary');
   static const heroLaunch = ValueKey('home.hero.launch');
   static const heroSemanticOffer = ValueKey('home.hero.semanticOffer');
+  static const librarySemanticNote = ValueKey('library.semanticNote');
   static const heroFailedDownloads = ValueKey('home.hero.failedDownloads');
   static const heroFoundNothing = ValueKey('home.hero.foundNothing');
   static const eyebrow = ValueKey('home.eyebrow');

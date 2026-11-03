@@ -1,0 +1,67 @@
+{
+  "format": "otzaria-vectors-release",
+  "formatVersion": 1,
+  "kind": "base",
+  "identity": {
+    "text": {
+      "line_text_version": 4,
+      "key_version": 1
+    },
+    "model": {
+      "family_id": "otzaria/Meivin-Embed-QA491-native256",
+      "tokenizer_checksum": "0664287976ecb078bdfd8f5e5515dc87d8cb7f985a79a481aa1cdf7a7321c0e9",
+      "embedding_dim": 256,
+      "pooling": "in-graph",
+      "max_tokens": 256,
+      "query_max_tokens": 128,
+      "embedding_text_version": 2,
+      "normalization_version": 1,
+      "chunking_identity": 2685558872390372738,
+      "query_packages": [
+        {
+          "checksum": "e90a67be02c077990c7bc2a6485f6872769ac2a71eb9779d25ceb1fcd97ac9b3",
+          "quantization": "int8"
+        },
+        {
+          "checksum": "5f80c47d3310a21fcc0c2f541fbb5732ba254555ef45afc2712cab63c8a33059",
+          "quantization": "fp32"
+        }
+      ]
+    },
+    "store": {
+      "backend_id": "otzaria-oxv",
+      "store_format_version": 2,
+      "vector_precision": "i8-sym-vec"
+    }
+  },
+  "identityDigest": "0e87cbd9570c35cdf4c9163310b08cd1508bc22dbd8f7baf8cb9aff2920043f3",
+  "codecParamsSha256": "242045e2f1bb37769b514f182fd91b3d215324cb57f187cced1e9c62921dbac3",
+  "fromLibraryVersion": 0,
+  "toLibraryVersion": 36,
+  "libraryReleaseTag": "v36-20261101064231",
+  "segmentId": "4bfef3bcf60d4733c99b9760086b3ecb",
+  "counts": {
+    "books": 1,
+    "slots": 2,
+    "extras": 0,
+    "foreign": 0,
+    "tombstones": 0
+  },
+  "segment": {
+    "sha256": "0055dea8f5ddd56ef5bda7fdf35e6fb9c5fc1f406f1eb88ac58972b64d8bd5f2",
+    "size": 8712
+  },
+  "packageDigest": "602e99dc65bfdfb66fbcca75d220023943a597aadeeaa5e1312e6dacf4aad2c0",
+  "provenance": {
+    "passage_package": {
+      "checksum": "5f80c47d3310a21fcc0c2f541fbb5732ba254555ef45afc2712cab63c8a33059",
+      "quantization": "fp32"
+    },
+    "worker": {
+      "backend": "synthetic-qa491-fixture",
+      "device": "cpu"
+    }
+  },
+  "files": [],
+  "createdAt": "2026-11-03T00:00:00Z"
+}

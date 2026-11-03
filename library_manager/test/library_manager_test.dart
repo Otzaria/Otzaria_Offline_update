@@ -1504,7 +1504,7 @@ void main() {
       );
       await capabilities.parent.create(recursive: true);
       await capabilities.writeAsString(
-        '{"semanticVectorFamilies":["vectors-windows","vectors"]}',
+        '{"appVersion":"0.9.99","semanticVectorFamilies":["vectors-windows","vectors"]}',
       );
       final vectors = p.join(tempDir.path, 'vectors');
       await writeInstalledSet(vectors, version: 26);
@@ -1732,7 +1732,7 @@ void main() {
       'Otzaria',
       () async {
         final run = await applyWith(
-          installed: '0.9.99',
+          installed: '0.9.98.2',
           capabilitiesJson: '{"appVersion":"0.9.97"}',
         );
         expect(run.engine.installs, hasLength(1));
@@ -1755,10 +1755,180 @@ void main() {
       final run = await applyWith(
         launchPath: '/opt/otzaria/otzaria',
         capabilitiesJson:
-            '{"appVersion":"0.9.99","exePath":"/opt/otzaria/otzaria"}',
+            '{"appVersion":"0.9.98.2","exePath":"/opt/otzaria/otzaria"}',
       );
       expect(run.engine.installs, hasLength(1));
     });
+  });
+
+  group('an install is only done when the final check says so', () {
+    test('confirmed, partial and unconfirmed writes', () {
+      const confirmed = SmartSearchStatus(
+        state: SmartSearchState.installedVerified,
+      );
+      expect(LibraryManager.unconfirmedSemanticInstall(confirmed), isNull);
+      const half = SmartSearchStatus(
+        state: SmartSearchState.readyOnDrive,
+        missing: {SmartSearchPart.vectors},
+        present: {SmartSearchPart.model},
+      );
+      final partial = LibraryManager.unconfirmedSemanticInstall(half)!;
+      expect(partial.state, SmartSearchState.partial);
+      expect(partial.reason, SmartSearchReason.verificationFailed);
+      expect(partial.missing, {SmartSearchPart.vectors});
+      expect(partial.allClear, isFalse);
+      const none = SmartSearchStatus(
+        state: SmartSearchState.driveNotMatching,
+        reason: SmartSearchReason.driveOtherGeneration,
+      );
+      final unconfirmed = LibraryManager.unconfirmedSemanticInstall(none)!;
+      expect(unconfirmed.state, SmartSearchState.driveNotMatching);
+      expect(unconfirmed.reason, SmartSearchReason.verificationFailed);
+      expect(
+        '${SmartSearchVerificationException(partial)}',
+        AppL10n.strings.libraryDomain.semanticStatusVerificationFailed,
+      );
+    });
+  });
+
+  group('smart-search status after an Otzaria upgrade', () {
+    Future<LibraryUpdateCheckResult> checkAs({
+      required String installed,
+      required String capabilitiesJson,
+      bool qa491Drive = false,
+    }) async {
+      await installExistingDb(30, appliedTag: 'v30');
+      await writeMirror(tag: 'v30', compressedDb: Uint8List.fromList([1]));
+      final github = FakeVectorsGithub();
+      if (qa491Drive) {
+        github.qa491Base(30);
+      } else {
+        github.legacyBase(30, identity: identityB);
+      }
+      addTearDown(github.client.close);
+      final online = SemanticSearchAssets(
+        httpClient: github.client,
+        models: fakeModels,
+        specs: fakeSpecs,
+      );
+      addTearDown(online.dispose);
+      await online.sync(
+        mirrorDir: p.join(dataDir, 'mirror', 'semantic'),
+        libraryTag: libraryTagOf(30),
+        fleet: SemanticFleet(const [], [
+          qa491Drive
+              ? SemanticModelGeneration.qa491
+              : SemanticModelGeneration.round2,
+        ]),
+        libraryTagFor: libraryTagOf,
+      );
+      final capabilities = File(
+        p.join(
+          hermeticEnvironment()['HOME']!,
+          '.local',
+          'share',
+          'otzaria',
+          OtzariaCapabilities.fileName,
+        ),
+      );
+      await capabilities.parent.create(recursive: true);
+      await capabilities.writeAsString(capabilitiesJson);
+      // Round2 anchor model and set already installed at v30.
+      await installModels(
+        p.join(tempDir.path, 'books', SemanticSearchAssets.modelFolder),
+      );
+      await writeInstalledSet(
+        p.join(tempDir.path, 'vectors'),
+        version: 30,
+        windows: false,
+        identity: identityB,
+      );
+      late LibraryUpdateCheckResult result;
+      await _withoutNetwork((_) async {
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          operatingSystem: 'linux',
+          processGuard: const _NeverRunningGuard(),
+          environment: hermeticEnvironment(),
+          settingsReader: _CountingSettingsReader(
+            settings: const OtzariaSettings(
+              semanticDataEnabled: true,
+              searchFeedbackConsent: 'granted',
+              searchFeedbackConsentVersion: 1,
+            ),
+          ),
+          otzariaAppVersion: () async => installed,
+          semanticAssetsFactory: (_) =>
+              SemanticSearchAssets(models: fakeModels, specs: fakeSpecs),
+        );
+        addTearDown(manager.dispose);
+        result = await manager.checkForUpdate();
+      });
+      return result;
+    }
+
+    const round2Caps =
+        '{"appVersion":"0.9.98.2","semanticVectorFamilies":["vectors-windows","vectors"]}';
+
+    test(
+      'the Round2 file of the previous app proves a Round2 install',
+      () async {
+        final result = await checkAs(
+          installed: '0.9.98.2',
+          capabilitiesJson: round2Caps,
+        );
+        expect(result.semanticState, SmartSearchState.installedVerified);
+        expect(result.semanticAllClear, isTrue);
+      },
+    );
+
+    test(
+      'after the upgrade the old file is not "everything is current"',
+      () async {
+        final result = await checkAs(
+          installed: '0.9.98.3+809',
+          capabilitiesJson: round2Caps,
+        );
+        expect(result.semanticAllClear, isFalse);
+        expect(result.semanticPending, isFalse);
+        expect(result.semanticState, SmartSearchState.driveNotMatching);
+        expect(
+          result.semanticStatus?.reason,
+          SmartSearchReason.driveOtherGeneration,
+        );
+      },
+    );
+
+    test(
+      'the same app writing its own file is read despite build metadata',
+      () async {
+        final result = await checkAs(
+          installed: '0.9.98.3+809',
+          capabilitiesJson:
+              '{"appVersion":"0.9.98.3","semanticVectorFamilies":["vectors-qa491-windows","vectors-qa491"]}',
+          qa491Drive: true,
+        );
+        expect(
+          result.semanticStatus?.required?.generation,
+          SemanticModelGeneration.qa491,
+        );
+        expect(result.semanticState, SmartSearchState.readyOnDrive);
+        expect(result.semanticPending, isTrue);
+      },
+    );
+
+    test(
+      'an app newer than this tool knows and an old file prove nothing',
+      () async {
+        final result = await checkAs(
+          installed: '0.9.99',
+          capabilitiesJson: round2Caps,
+        );
+        expect(result.semanticAllClear, isFalse);
+        expect(result.semanticState, SmartSearchState.unverified);
+        expect(result.semanticStatus?.reason, SmartSearchReason.appUnproven);
+      },
+    );
   });
 
   group('setCustomDbPath / currentDbPath', () {
@@ -2162,27 +2332,19 @@ void main() {
               1;
           final bytes = utf8.encode(jsonEncode(manifest));
           await manifestFile.writeAsBytes(bytes);
-          final metaFile = File(
-            p.join(
-              dataDir,
-              'mirror',
-              'semantic',
-              SemanticSearchAssets.manifestFileName,
-            ),
-          );
-          final meta =
-              jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
-          for (final record in [
-            meta,
-            if (meta['windows'] is Map) meta['windows'] as Map,
-          ]) {
-            if (record['manifestName'] != unreadableManifest) continue;
-            record['manifestSize'] = bytes.length;
-            record['manifestSha256'] = Sha256Stream.ofBytes(bytes);
-          }
-          await metaFile.writeAsString(jsonEncode(meta));
+          await editMirrorMeta(p.join(dataDir, 'mirror', 'semantic'), (record) {
+            if (record['manifestName'] == unreadableManifest) {
+              record['manifestSize'] = bytes.length;
+              record['manifestSha256'] = Sha256Stream.ofBytes(bytes);
+            }
+            final base = record['base'];
+            if (base is Map && base['name'] == unreadableManifest) {
+              base['size'] = bytes.length;
+              base['sha256'] = Sha256Stream.ofBytes(bytes);
+            }
+          });
         }
-        if (windowsCapable) {
+        {
           final capabilities = File(
             p.join(
               hermeticEnvironment()['HOME']!,
@@ -2194,7 +2356,9 @@ void main() {
           );
           await capabilities.parent.create(recursive: true);
           await capabilities.writeAsString(
-            '{"semanticVectorFamilies":["vectors-windows","vectors"]}',
+            windowsCapable
+                ? '{"appVersion":"0.9.99","semanticVectorFamilies":["vectors-windows","vectors"]}'
+                : '{"appVersion":"0.9.99","semanticVectorFamilies":["vectors"]}',
           );
         }
         if (liveWindowsSet) {

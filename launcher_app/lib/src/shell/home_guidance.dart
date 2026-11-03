@@ -27,6 +27,25 @@ enum LibraryStatusFact {
   personalTargetElsewhere,
 }
 
+/// מה בדיקת החיפוש החכם אמרה — רק `clear` מאפשר "הכול מעודכן".
+enum SmartSearchFact {
+  clear,
+
+  /// חומר מתאים בכונן, וההתקנה היא הצעד הבא.
+  readyOnDrive,
+  notMatching,
+
+  /// בכונן אין כלום שמתאים: הורדה במחשב מחובר.
+  needsDriveDownload,
+
+  /// הכלי או אוצריא המותקנת אינם נתמכים.
+  unsupported,
+
+  /// הבדיקה לא רצה, נכשלה, או לא סיפקה הוכחה.
+  unverified,
+  partial,
+}
+
 /// רכיב שנכלל בפעולה — בסדר הביצוע שלה.
 enum GuidanceItem { app, library, plugins }
 
@@ -38,6 +57,9 @@ enum GuidancePrimary {
   downloadToDrive,
   upToDate,
   newerHereThanDrive,
+
+  /// הספרייה מעודכנת, אבל החיפוש החכם אינו `clear` — לא "הכול מעודכן".
+  smartSearch,
 
   /// המחשב מחובר, אבל הבדיקה של רכיב שנבחר נכשלה — "לא הצלחתי לבדוק".
   checkFailed,
@@ -108,6 +130,9 @@ enum TileStatus {
 
   /// מה שבכונן מותקן, אבל הבדיקה ברשת של הרכיב נכשלה (`checkFailed`).
   notCheckedOnline,
+
+  /// הספרייה מעודכנת, והחיפוש החכם שלה פתוח (`SmartSearchFact`).
+  smartSearchOpen,
 }
 
 class GuidanceFacts {
@@ -121,7 +146,9 @@ class GuidanceFacts {
     this.libraryApplyActive = false,
     this.libraryStatus = LibraryStatusFact.upToDate,
     this.libraryFreshInstall = false,
+    this.libraryAwaitsApp = false,
     this.semanticConsentRequired = false,
+    this.smartSearch = SmartSearchFact.clear,
     this.pluginsLoading = false,
     this.pluginUpdatesOnDrive = 0,
     this.online,
@@ -154,9 +181,16 @@ class GuidanceFacts {
   final LibraryStatusFact libraryStatus;
   final bool libraryFreshInstall;
 
+  /// תוכנית הספרייה מוגבלת לאוצריא שמותקנת, ובכונן מתקין חדש יותר שיקרא
+  /// אותה — הספרייה נבדקת מחדש רק אחרי שהתוכנה מותקנת.
+  final bool libraryAwaitsApp;
+
   /// חיפוש חכם בכונן מחכה להסכמה, והחלון עליו עוד לא נענה (לא הסכמה חסרה
   /// סתם — אחרי תשובה הבית שקט).
   final bool semanticConsentRequired;
+
+  /// מצב החיפוש החכם לפי הבדיקה המקומית; ברכיב שאינו מעודכן — `clear`.
+  final SmartSearchFact smartSearch;
   final bool pluginsLoading;
 
   /// תוספים מותקנים שבכונן יש להם גרסה חדשה יותר.
@@ -228,12 +262,16 @@ class HomeGuidance {
     this.otherUpdates = const [],
     this.showOtzariaOpenBanner = false,
     this.otzariaOpenBlocksUpdate = false,
+    this.smartSearch = SmartSearchFact.clear,
     this.readOnly = false,
     this.driveFull = false,
   });
 
   final GuidancePrimary primary;
   final GuidanceSecondary secondary;
+
+  /// ב-`smartSearch`: מה פתוח בו.
+  final SmartSearchFact smartSearch;
 
   /// מה יותקן במחשב הזה, בסדר ההתקנה.
   final List<GuidanceItem> hereItems;
@@ -272,28 +310,50 @@ class HomeGuidance {
       'blocks: $otzariaOpenBlocksUpdate)';
 }
 
-/// סדר שלבי "עדכון כאן": התקנה ראשונה — תוכנה ואז ספרייה, בלי תוספים;
-/// עדכון — ספרייה, תוכנה, ותוספים אחרונים.
+/// סדר שלבי "עדכון כאן": התקנה ראשונה — תוכנה, ספרייה; עדכון — ספרייה, תוכנה,
+/// תוספים. ספרייה שתלויה בתוכנה ([libraryAfterApp]) באה אחריה.
 List<GuidanceItem> updateHereStages({
   required bool firstInstall,
   required bool app,
   required bool library,
   required bool plugins,
+  bool libraryAfterApp = false,
 }) =>
-    firstInstall
-        ? [if (app) GuidanceItem.app, if (library) GuidanceItem.library]
+    firstInstall || (libraryAfterApp && app)
+        ? [
+            if (app) GuidanceItem.app,
+            if (library) GuidanceItem.library,
+            if (plugins && !firstInstall) GuidanceItem.plugins,
+          ]
         : [
             if (library) GuidanceItem.library,
             if (app) GuidanceItem.app,
             if (plugins) GuidanceItem.plugins,
           ];
 
+/// משימה רצה שלא תכלול את התוכנה, והספרייה רק ממתינה לה: כמו בזרימה, היא
+/// נשמטת ולא מוצעת.
+bool libraryHeldBackByTask(GuidanceFacts f) =>
+    (f.longTaskRunning || f.installing) &&
+    libraryWaitsForApp(f) &&
+    f.libraryStatus != LibraryStatusFact.updateAvailable &&
+    !(f.hereDuringDownload ?? const {}).contains(GuidanceItem.app);
+
+/// הספרייה נכללת גם כשהיא עדיין "תקועה" על התוכנה שתותקן לפניה.
+bool libraryWaitsForApp(GuidanceFacts f) =>
+    f.libraryAwaitsApp &&
+    f.libraryStatus != LibraryStatusFact.checking &&
+    f.otzariaInstalled &&
+    f.otzariaStatus == AppStatusFact.updateAvailable;
+
 List<GuidanceItem> _hereItems(GuidanceFacts f) => updateHereStages(
       firstInstall: !f.otzariaInstalled,
       app: f.otzariaStatus == AppStatusFact.updateAvailable,
       library: f.libraryStatus == LibraryStatusFact.updateAvailable ||
+          libraryWaitsForApp(f) ||
           semanticOnlyHere(f),
       plugins: f.pluginUpdatesOnDrive > 0,
+      libraryAfterApp: libraryWaitsForApp(f),
     );
 
 /// הספרייה מעודכנת, ורק החיפוש החכם מחכה לתשובה: "עדכון המחשב הזה" הוא
@@ -382,6 +442,13 @@ HomeGuidance deriveHomeGuidance(GuidanceFacts f) {
           open && here.any((i) => i != GuidanceItem.plugins),
       readOnly: f.readOnly,
       driveFull: f.driveFull,
+      smartSearch: switch (primary) {
+        GuidancePrimary.smartSearch => f.smartSearch,
+        GuidancePrimary.newerHereThanDrive
+            when f.libraryStatus == LibraryStatusFact.upToDate =>
+          f.smartSearch,
+        _ => SmartSearchFact.clear,
+      },
     );
   }
 
@@ -389,7 +456,9 @@ HomeGuidance deriveHomeGuidance(GuidanceFacts f) {
     final allowed = f.hereDuringDownload ?? const {};
     final hereNow = [
       for (final item in _hereItems(f))
-        if (allowed.contains(item)) item,
+        if (allowed.contains(item) &&
+            !(item == GuidanceItem.library && libraryHeldBackByTask(f)))
+          item,
     ];
     // בהתקנה ראשונה הספרייה תלויה בתוכנה שלפניה.
     final installable =
@@ -472,6 +541,21 @@ HomeGuidance deriveHomeGuidance(GuidanceFacts f) {
               f, onlineItems, download, onlineProven, closedForShabbat),
     );
   }
+  // "הכול מעודכן" רק כשהחיפוש החכם הוכח (או שאינו בשימוש), לא כשהוא סתם לא ממתין.
+  if (f.libraryStatus == LibraryStatusFact.upToDate &&
+      f.smartSearch != SmartSearchFact.clear) {
+    return result(
+      GuidancePrimary.smartSearch,
+      secondary: localUnchecked
+          ? GuidanceSecondary.checkOnlineNow
+          : _quietSecondary(
+              f, onlineItems, download, onlineProven, closedForShabbat),
+      others: [
+        if (f.launcherUpdate) OtherUpdate.launcher,
+        if (f.customAppsPending) OtherUpdate.customApps,
+      ],
+    );
+  }
   return result(
     GuidancePrimary.upToDate,
     secondary: localUnchecked
@@ -550,6 +634,8 @@ TileStatus _localTileStatus(GuidanceItem item, GuidanceFacts f) =>
       GuidanceItem.library => switch (f.libraryStatus) {
           _ when f.libraryApplyActive => TileStatus.working,
           LibraryStatusFact.updating => TileStatus.working,
+          _ when libraryWaitsForApp(f) && !libraryHeldBackByTask(f) =>
+            TileStatus.updateHere,
           // העדכון קודם להסכמה, כמו בגיבור שכולל אותו ב"עדכון כאן".
           LibraryStatusFact.updateAvailable => f.libraryFreshInstall
               ? TileStatus.installHere
@@ -558,6 +644,9 @@ TileStatus _localTileStatus(GuidanceItem item, GuidanceFacts f) =>
           _ when f.semanticConsentRequired => TileStatus.needsConsent,
           LibraryStatusFact.idle => TileStatus.unknown,
           LibraryStatusFact.checking => TileStatus.checking,
+          LibraryStatusFact.upToDate
+              when f.smartSearch != SmartSearchFact.clear =>
+            TileStatus.smartSearchOpen,
           LibraryStatusFact.upToDate => TileStatus.upToDate,
           LibraryStatusFact.needsDownload => TileStatus.nothingOnDrive,
           LibraryStatusFact.error ||

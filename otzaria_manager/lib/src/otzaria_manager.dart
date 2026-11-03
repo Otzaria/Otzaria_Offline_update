@@ -313,6 +313,17 @@ class OtzariaManager {
     return best;
   }
 
+  /// The app versions of the installers the drive carries; their model
+  /// generations are what a new install there will read.
+  Future<List<String>> mirroredInstallerVersions() async {
+    final stored = await _stateStore.load();
+    final current = stored == null ? null : _verifyStoredState(stored);
+    return [
+      for (final entry in (await _mirrorFor(current)).all)
+        entry.release.tagName,
+    ];
+  }
+
   Future<OtzariaLatestRelease> peekOnlineRelease() async {
     final online = await _releaseClient.fetchLatestRelease();
     return OtzariaLatestRelease(

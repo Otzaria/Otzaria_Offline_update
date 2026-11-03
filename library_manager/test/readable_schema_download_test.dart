@@ -9,7 +9,9 @@ import 'package:http/testing.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:library_manager/src/services/readable_releases_client.dart';
 import 'package:library_manager/src/services/recent_library_releases_client.dart';
-import 'package:otzaria_l10n/otzaria_l10n.dart' show StorageFullException;
+import 'package:library_manager/src/services/semantic_search_assets.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart'
+    show StorageCorruptException, StorageFullException;
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart'
     show
@@ -1780,7 +1782,7 @@ void main() {
   });
 
   group('a full drive in a companion under a readable schema', () {
-    Future<Object?> downloadWithFullDictionary() async {
+    Future<Object?> downloadWithFullDictionary({int? errno}) async {
       Object? thrown;
       await runWithFailingRandomWrites(
         () async {
@@ -1795,6 +1797,7 @@ void main() {
           if (hit) dictionaryFailed = true;
           return hit;
         },
+        errno: errno,
       );
       return thrown;
     }
@@ -1818,6 +1821,53 @@ void main() {
         (await stateStore().loadReadableSemanticTarget())?['tag'],
         'v30-20261011',
       );
+    });
+
+    test('a damaged drive in a companion keeps the finished export and its '
+        'readable target', () async {
+      github.beforeDictionary = () async {
+        final deadline = DateTime.now().add(const Duration(seconds: 5));
+        while (!File(p.join(mirrorDir(), 'releases.json')).existsSync() &&
+            DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      };
+
+      final thrown = await downloadWithFullDictionary(
+        errno: Platform.isWindows ? 1392 : 5,
+      );
+
+      expect(thrown, isA<StorageCorruptException>(), reason: '$thrown');
+      expect(await mirroredAssets(), contains('v30-20261011/seforim.db.zst'));
+      expect(
+        (await stateStore().loadReadableSemanticTarget())?['tag'],
+        'v30-20261011',
+      );
+    });
+
+    test('a damaged drive in the smart search keeps the readable target', () {
+      return online(() async {
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          semanticAssetsFactory: (_) => _CorruptSemanticAssets(),
+        );
+        addTearDown(manager.dispose);
+        Object? thrown;
+        try {
+          await manager.downloadToMirror(
+            readableDbSchema: 5,
+            includeSemanticSearch: true,
+          );
+        } catch (error) {
+          thrown = error;
+        }
+
+        expect(thrown, isA<StorageCorruptException>(), reason: '$thrown');
+        expect(
+          (await stateStore().loadReadableSemanticTarget())?['tag'],
+          'v30-20261011',
+        );
+      });
     });
 
     test('an export stopped by it leaves the previous target and a '
@@ -1855,4 +1905,17 @@ void main() {
       }
     });
   });
+}
+
+class _CorruptSemanticAssets extends SemanticSearchAssets {
+  @override
+  Future<void> sync({
+    required String mirrorDir,
+    required String libraryTag,
+    SemanticFleet fleet = const SemanticFleet(),
+    String? Function(int version)? libraryTagFor,
+    void Function(String)? onStage,
+    void Function(int, int?)? onBytesProgress,
+    bool Function()? isCancelled,
+  }) async => throw StorageCorruptException(dir: mirrorDir, errno: 1392);
 }

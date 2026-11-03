@@ -29,6 +29,7 @@ Object _sentinel(TypeMirror type, int index) {
     'String' => 'ARG$index',
     'int' => 1000 + index,
     'bool' => true,
+    'DriveCheckTool' => DriveCheckTool.fsck,
     'List' => ['LIST${index}A', 'LIST${index}B'],
     _ => throw StateError(
         'טיפוס פרמטר לא מוכר בחוזה: $name. הוסיפו לו ערך-בדיקה כאן.'),
@@ -132,6 +133,9 @@ const _hebrewLettersInEnglish = {'settings.languageHebrew'};
 const _selectorArgs = {
   'libraryDomain.applyPatchStage#0',
   'libraryDomain.applyVerifyStage#0',
+  'common.storageDamagedNoDetails#1',
+  'common.storageDamagedUnknownDir#0',
+  'task.driveDamagedBodyFor#0',
   'units.longDate#1', // החודש מוצג בשמו
 };
 const _noHebrewLettersInHebrew = {

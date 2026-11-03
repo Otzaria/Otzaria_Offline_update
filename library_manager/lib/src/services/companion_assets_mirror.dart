@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:convert';
 import 'dart:io';
 
@@ -27,9 +28,13 @@ class CompanionAssetsMirror {
     DownloadScheduler? scheduler,
     this.planReuseWindow = const Duration(minutes: 10),
     DateTime Function()? clock,
+    bool Function(String)? removableProbe,
+    WriteSpeedProbe? writeProbe,
   }) : _scheduler = scheduler ?? DownloadScheduler(),
+       _writeProbe = writeProbe ?? driveWriteSpeed,
        _httpClient = httpClient ?? http.Client(),
        _ownsClient = httpClient == null,
+       _removableProbe = removableProbe ?? isRemovableDrive,
        _clock = clock ?? DateTime.now {
     _downloader = PatchDownloader(
       httpClient: _httpClient,
@@ -56,9 +61,16 @@ class CompanionAssetsMirror {
   final http.Client _httpClient;
   final bool _ownsClient;
   late final PatchDownloader _downloader;
+  PatchDownloader? _singleDownloader;
+  final bool Function(String) _removableProbe;
+  final WriteSpeedProbe _writeProbe;
 
   @visibleForTesting
   int get maxConnectionsPerFile => _downloader.maxConnections;
+
+  @visibleForTesting
+  Future<int> maxConnectionsFor(String destPath, {String? token}) async =>
+      (await _downloaderFor(destPath, token: token)).maxConnections;
 
   /// שלושת הפריטים אינם תלויים זה בזה, ולכן הם יורדים במקביל — התלמוד לבדו
   /// הוא ~450MB, והמילון והקטלוג היו מחכים לו בתור בלי סיבה. מוזרק מבחוץ
@@ -81,7 +93,33 @@ class CompanionAssetsMirror {
     return peeked.plans;
   }
 
-  set connectTimeout(Duration value) => _downloader.connectTimeout = value;
+  set connectTimeout(Duration value) {
+    _downloader.connectTimeout = value;
+    _singleDownloader?.connectTimeout = value;
+  }
+
+  /// ביעד נשלף איטי לכתיבה (או שהמדידה נכשלה): חיבור יחיד כותב פעם אחת. נכס
+  /// עם מצב פיצול חי משלו ([token]) ממשיך בחלוקה; של נכס אחר או יתום — לא.
+  Future<PatchDownloader> _downloaderFor(
+    String destPath, {
+    String? token,
+    bool Function()? isCancelled,
+  }) async {
+    final connections = await connectionsForAsset(
+      _scheduler,
+      destPath,
+      token: token,
+      removableProbe: _removableProbe,
+      writeProbe: _writeProbe,
+      isCancelled: isCancelled,
+    );
+    if (connections == _downloader.maxConnections) return _downloader;
+    return _singleDownloader ??= PatchDownloader(
+      httpClient: _httpClient,
+      decompress: const ZstdDecompressor().call,
+      maxConnections: 1,
+    )..connectTimeout = _downloader.connectTimeout;
+  }
 
   /// ממלא את [destDir] בשלושת הקבצים וכותב `companions.json`. מחזיר את
   /// המניפסט שנכתב. פריט שנכשל פשוט לא ייכלל בו — ובמחשב הלא-מקוון פשוט לא
@@ -91,8 +129,7 @@ class CompanionAssetsMirror {
     void Function(String? stage)? onStage,
     void Function(int downloaded, int? total)? onBytesProgress,
     void Function(String assetName, Object error)? onWarning,
-    void Function(StorageFullException error, StackTrace stack)?
-    onStorageFailure,
+    void Function(Object error, StackTrace stack)? onStorageFailure,
     bool Function()? isCancelled,
   }) async {
     await Directory(destDir).create(recursive: true);
@@ -101,6 +138,7 @@ class CompanionAssetsMirror {
     final reusable = _takePeekedPlans(destDir);
     final entries = <CompanionAsset, CompanionMirrorEntry>{};
     (StorageFullException, StackTrace)? storageFailure;
+    (StorageCorruptException, StackTrace)? corruptFailure;
     final activeStages = <CompanionAsset, String>{};
     void reportStage(CompanionAsset asset, String? stage) {
       if (stage == null) {
@@ -130,7 +168,7 @@ class CompanionAssetsMirror {
       Future<void> Function() body,
     ) async {
       _throwIfCancelled(isCancelled);
-      if (storageFailure != null) {
+      if (storageFailure != null || corruptFailure != null) {
         await keepPrevious(asset);
         return;
       }
@@ -143,6 +181,11 @@ class CompanionAssetsMirror {
           if (storageFailure == null) {
             storageFailure = (full, stack);
             onStorageFailure?.call(full, stack);
+          }
+        } else if (storageCorruptFromUpstream(error) case final damaged?) {
+          if (corruptFailure == null) {
+            corruptFailure = (damaged, stack);
+            onStorageFailure?.call(damaged, stack);
           }
         } else {
           onWarning?.call(name, error);
@@ -215,7 +258,9 @@ class CompanionAssetsMirror {
         () {
           final plan = plans[entry.key]!;
           return run(entry.key, plan.name, () async {
-            reportStage(entry.key, strings.companionDownloading(plan.name));
+            final downloading = strings.companionDownloading(plan.name);
+            reportStage(entry.key, downloading);
+            var localStage = '';
             await _download(
               url: plan.url,
               destPath: plan.destPath,
@@ -223,8 +268,36 @@ class CompanionAssetsMirror {
               sha256: plan.sha256,
               identity: plan.identity,
               progress: entry.value,
+              // Reading the file back or joining its ranges is a stage, not
+              // network bytes.
+              onVerify: (done, total) {
+                final percent = (total > 0 ? done * 100 ~/ total : 0).clamp(
+                  0,
+                  100,
+                );
+                final text = strings.companionVerifying(plan.name, percent);
+                if (text == localStage) return;
+                reportStage(entry.key, localStage = text);
+              },
+              onAssemble: (done, total) {
+                final percent = (total > 0 ? done * 100 ~/ total : 0).clamp(
+                  0,
+                  100,
+                );
+                final text = strings.companionAssembling(plan.name, percent);
+                if (text == localStage) return;
+                reportStage(entry.key, localStage = text);
+              },
+              // The engine verifies a prefix before resuming: arriving bytes
+              // end the stage.
+              onBytes: () {
+                if (localStage.isEmpty) return;
+                localStage = '';
+                reportStage(entry.key, downloading);
+              },
               isCancelled: isCancelled,
             );
+            if (localStage.isNotEmpty) reportStage(entry.key, downloading);
             entries[entry.key] = plan.entry;
           });
         },
@@ -238,6 +311,8 @@ class CompanionAssetsMirror {
     );
     final failure = storageFailure;
     if (failure != null) Error.throwWithStackTrace(failure.$1, failure.$2);
+    final damaged = corruptFailure;
+    if (damaged != null) Error.throwWithStackTrace(damaged.$1, damaged.$2);
     return manifest;
   }
 
@@ -415,31 +490,47 @@ class CompanionAssetsMirror {
     required String? sha256,
     required String identity,
     required ByteProgressSlot progress,
+    void Function(int done, int total)? onVerify,
+    void Function(int done, int total)? onAssemble,
+    void Function()? onBytes,
     bool Function()? isCancelled,
   }) async {
+    final verifier = _downloader;
     var target = destPath;
     if (File(destPath).existsSync() &&
-        _downloader.storedResumeToken(destPath) != identity) {
+        verifier.storedResumeToken(destPath) != identity) {
       final sameContent =
           sha256 != null &&
           size > 0 &&
-          await _downloader.verifyExistingFile(
+          await verifier.verifyExistingFile(
             destPath: destPath,
             expectedSize: size,
             expectedSha256: sha256,
             resumeToken: identity,
+            onVerifyProgress: onVerify,
             isCancelled: isCancelled,
           );
       if (!sameContent) target = '$destPath.new';
     }
-    await _downloader.downloadToFile(
+    final dl = await _downloaderFor(
+      target,
+      token: identity,
+      isCancelled: isCancelled,
+    );
+    if (isCancelled?.call() ?? false) throw const PatchDownloadCancelled();
+    await dl.downloadToFile(
       url: url,
       destPath: target,
       expectedSize: size > 0 ? size : null,
       expectedSha256: sha256,
       resumeToken: identity,
-      onProgress: progress.report,
+      onProgress: (done, total) {
+        onBytes?.call();
+        progress.report(done, total);
+      },
       onExistingBytes: progress.markExisting,
+      onVerifyProgress: onVerify,
+      onAssembleProgress: onAssemble,
       isCancelled: isCancelled,
     );
     if (target != destPath) {
@@ -587,7 +678,9 @@ class CompanionAssetsMirror {
   }
 
   void dispose() {
+    unawaited(settleWriteProbes(cancel: true));
     _downloader.dispose();
+    _singleDownloader?.dispose();
     if (_ownsClient) _httpClient.close();
   }
 }

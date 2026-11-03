@@ -299,6 +299,45 @@ best-effort**: כשל באחד לא מפיל את השאר ולא מבטל עד�
 תג וקבצים חסרים בכונן. כשל רשת אינו נחשב הוכחה שאין עדכון, ו־404 פירושו
 שטרם פורסם מאגר לתג הזה.
 
+#### דורות מודל ומצבי התוצאה
+
+שני צירים נפרדים: **דור המודל** (`SemanticModelGeneration`: Round2 /
+QA491; `SemanticModelSpec` מחזיק תיקייה, משפחה, כתובת וקבצים נעוצים לכל דור)
+ו**צורת הווקטורים** (anchor / windows). הדור של אוצריא המותקנת נקבע ב־
+`OtzariaCapabilities.semanticSupport`: קובץ היכולות של האפליקציה עצמה, ובהיעדרו
+טבלת הגרסאות המאומתת (מ־0.9.98.3 — QA491); קובץ שנכתב בידי גרסה ישנה מהמותקנת
+אינו הוכחה, וגרסה שמעבר לטבלה היא "לא ידוע" ולא Round2. רישום מחשב ללא דור
+נשמר אך אינו מעצב הורדה; בצי ריק הדור נקבע לפי המתקינים שבכונן.
+
+`SemanticSearchAssets.assess` מחזיר `SmartSearchStatus`: מותקן ומאומת / מוכן
+בכונן להתקנה / הכונן אינו מתאים (דור, צורה או גרסה) / נדרשת הורדה לכונן / לא
+נתמך בכלי / לא אומת / חלקי / לא בשימוש, יחד עם החלקים החסרים (`model`,
+`vectors`, `preferences`) ו־`proofKey` לביטול מטמון. רק `allClear` פירושו
+שאין מה לעשות. `semantic.json` נושא כל תוכנית תחת `plans`, ו־Round2 גם בשדות
+העליונים הישנים. אחרי התקנה נעשית אותה בדיקה מול האפליקציה והעדפות עדכניות;
+כתיבה שלא אומתה מדווחת כ־`SmartSearchVerificationException`.
+
+הוכחה ואימות, בקצרה:
+- גרסה מותקנת מוכחת רק בצורה `מספר.מספר.מספר[.מספר][+בנייה]`; סיומת
+  (`-rc1`, `3a`), `0.9` או "latest" אינן מוכיחות דור, וגם קובץ יכולות
+  אינו "טרי" מולן. `proofKey` כולל גם משפחות לא מוכרות וקובץ ישן.
+- סט חי נחשב מאומת רק כשה־`family_id` שלו שווה לדור הנדרש; חסר או לא מוכר
+  = `partsMissing` (התקנה חוזרת חד־פעמית), לעולם לא `installedVerified`.
+- `semantic.json` שקיים אך לא פוענח במלואו (פגום, פורמט עתידי, `plans`
+  ריק, דור עתידי) הוא `unverified` / `driveUnreadable`; רק קובץ שאינו
+  קיים הוא "אין מראה".
+- `pending`, `install` ו־`incompatibility` דורשים `generation` מפורש
+  (`null` = לא מוכח; `install` זורק).
+- חשד פתוח: כל `assess` מחשב SHA של קובצי המודל (~45MB). מטמון לפי
+  נתיב/גודל/זמן עדכון היה מחליש את האימות מול קובץ שנפגם בלי שינוי גודל,
+  ולכן לא נוסף.
+
+הלאנצ'ר מציג את המצב ולא bool: "מעודכן" רק כש־`semanticAllClear`; תשובה
+שמורה מתבטלת כש־`proofKey` משתנה; התקנה שנכשלה בבדיקה החוזרת מדווחת על
+החלקים החסרים. `AppSession` מעביר ל־`LibraryManager` את גרסאות המתקינים
+שבכונן (`mirroredOtzariaVersions`) והבדיקה ב־`app_session_test.dart`.
+
+
 #### משפחת החלונות ועדכון חלקי
 
 כל מחשב שהסכים לחיפוש החכם נרשם ב־`library_state.json`
@@ -556,7 +595,7 @@ otzaria://library/reindex
 
 ## בדיקות native של המנוע
 
-`native_engine_test`, `native_install_identity_test`, `native_vector_install_test` ו-`native_pending_test`
+`native_engine_test`, `native_install_identity_test`, `native_manifest_identity_test` (מניפסט QA491 עם `query_max_tokens` ומניפסט v34 בלעדיו; נכשל על 6.0.0), `native_vector_install_test`, `native_pending_test` ו-`native_qa491_install_test`
 טוענות את הבינארי ש-build hook של `otzaria_search_engine` מניח תחת
 `build/native_assets`, ומתקינות דרכו סט וקטורים אמיתי (`test/support/native_vector_set`,
 11KB, נבנה בידי `build_semantic_artifact` של המנוע). בלי הספרייה הן מדלגות עם סיבה;
@@ -565,7 +604,8 @@ otzaria://library/reindex
 ```bash
 REQUIRE_NATIVE_ENGINE=1 flutter test test/native_engine_test.dart \
   test/native_install_identity_test.dart test/native_vector_install_test.dart \
-  test/native_pending_test.dart
+  test/native_pending_test.dart test/native_manifest_identity_test.dart \
+  test/native_qa491_install_test.dart test/native_work_cleanup_test.dart
 ```
 
 ה-CI מפעיל אותו ב-Windows בלבד: step "library_manager native engine (required)"
@@ -573,6 +613,12 @@ REQUIRE_NATIVE_ENGINE=1 flutter test test/native_engine_test.dart \
 הספרייה. ב-Linux ו-macOS הבדיקות מדלגות כשהספרייה חסרה.
 `OTZARIA_NATIVE_ENGINE_DIR` מחליף את שורש החיפוש של הספרייה, כדי לתרגל
 את היעדרה.
+
+בדיקת QA491 משתמשת בשני וקטורים סינתטיים שנוצרו ב-sidecar של native
+7.0.1, עם זהות המודל הפומבית, כולל `query_max_tokens: 128`. היא מתקינה,
+פותחת מחדש ומאמתת CRC, וגם דוחה שינוי ביט בקובץ באותו גודל. קובץ הגרף
+בבדיקה זעיר ומוזרק דרך ממשק הבדיקה; לא הורצה הסקת ONNX או התקנה באוצריא
+החיה. קובצי המקור והזהות נמצאים ב-`test/support/native_qa491_set`.
 
 ב־29.10.2026 נבדקה גם התקנה מהמראה האמיתית של Windows v34 בכונן USB
 מסוג SanDisk Cruzer Blade בנפח 16GB, עם NTFS. המנוע המקורי 6.0.0 התקין

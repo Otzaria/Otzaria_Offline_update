@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:library_manager/library_manager.dart';
+import 'package:library_manager/src/services/download_connections.dart';
 import 'package:library_manager/src/services/recent_library_releases_client.dart';
 import 'package:library_manager/src/services/semantic_search_assets.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -403,6 +404,142 @@ void main() {
 
         expect(github.count(_libraryReleasesPath), 1);
         expect(github.companionApiCalls, 3);
+      });
+    });
+
+    test('the export picks its connections per asset by the drive\'s write '
+        'speed', () async {
+      resetWriteSpeedCache();
+      await online(() async {
+        final probed = <String>[];
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          removableProbe: (_) => true,
+          segmentThresholdBytes: 1,
+          writeProbe: (dir) async {
+            probed.add(dir);
+            return 1024 * 1024;
+          },
+        );
+        addTearDown(manager.dispose);
+
+        await manager.downloadToMirror();
+
+        expect(
+          probed,
+          contains(p.join(manager.mirrorDir, 'assets', 'v2-20261011')),
+          reason: 'the decision is per asset, in the asset\'s own folder',
+        );
+      });
+    });
+
+    group('exportConnectionsFor', () {
+      const mib = 1024 * 1024;
+      late int defaultConnections;
+      late String dest;
+
+      setUp(() {
+        resetWriteSpeedCache();
+        defaultConnections = connectionsPerFile(DownloadScheduler());
+        dest = p.join(tempDir.path, 'mirror', 'assets', 'v1');
+        Directory(dest).createSync(recursive: true);
+      });
+
+      void liveState(String asset, String token) {
+        File('${p.join(dest, asset)}.segments').writeAsStringSync(
+          jsonEncode({
+            'v': 1,
+            'token': token,
+            'url': 'u',
+            'size': 200,
+            'sha256': null,
+            'etag': 'e',
+            'bounds': [0, 100, 200],
+            'assembled': 1,
+          }),
+        );
+      }
+
+      LibraryManager manager({
+        bool removable = true,
+        double? speed = 3.0 * mib,
+        List<String>? probed,
+      }) {
+        final m = LibraryManager(
+          dataDir: dataDir,
+          removableProbe: (_) => removable,
+          segmentThresholdBytes: 100,
+          writeProbe: (dir) async {
+            probed?.add(dir);
+            return speed;
+          },
+        );
+        addTearDown(m.dispose);
+        return m;
+      }
+
+      test('a live split asset stays split and a fresh one on a slow '
+          'removable drive gets one connection', () async {
+        liveState('a.zst', 'tok-a');
+        final probed = <String>[];
+        final m = manager(probed: probed);
+
+        expect(
+          await m.exportConnectionsFor(p.join(dest, 'a.zst'), 500, 'tok-a'),
+          defaultConnections,
+        );
+        expect(probed, isEmpty, reason: 'no measurement for a resumed split');
+        expect(
+          await m.exportConnectionsFor(p.join(dest, 'b.zst'), 500, 'tok-b'),
+          1,
+        );
+        expect(probed, [dest]);
+      });
+
+      test(
+        'small assets (manifests) are neither measured nor reduced',
+        () async {
+          final probed = <String>[];
+          final m = manager(probed: probed);
+
+          expect(
+            await m.exportConnectionsFor(p.join(dest, 'm.json'), 50, 'x'),
+            defaultConnections,
+          );
+          expect(probed, isEmpty);
+        },
+      );
+
+      test('a fixed drive is unchanged and unmeasured', () async {
+        final probed = <String>[];
+        final m = manager(removable: false, probed: probed);
+
+        expect(
+          await m.exportConnectionsFor(p.join(dest, 'b.zst'), 500, 'x'),
+          defaultConnections,
+        );
+        expect(probed, isEmpty);
+      });
+
+      test('a fast removable drive keeps the default', () async {
+        final m = manager(speed: 40.0 * mib);
+        expect(
+          await m.exportConnectionsFor(p.join(dest, 'b.zst'), 500, 'x'),
+          defaultConnections,
+        );
+      });
+
+      test('cancel returns the default without throwing', () async {
+        final m = manager();
+        expect(
+          await m.exportConnectionsFor(
+            p.join(dest, 'b.zst'),
+            500,
+            'x',
+            isCancelled: () => true,
+          ),
+          defaultConnections,
+        );
       });
     });
 
@@ -826,48 +963,61 @@ void main() {
           if (u.host == 'lib' && u.path.endsWith('.zst')) u,
       ];
 
-      test('after a companion hits a full drive no library asset starts and '
-          'the cause is kept', () async {
-        await online(() async {
-          var tripped = false;
-          holdLibraryUntil(() => tripped);
-          final manager = LibraryManager(
-            dataDir: dataDir,
-            semanticAssetsFactory: (_) =>
-                _FailingSemanticAssets(const FormatException('must not run')),
-          );
-          addTearDown(manager.dispose);
-          final warnings = <String>[];
-          Object? thrown;
+      for (final damaged in [false, true]) {
+        test(
+          'after a companion hits a ${damaged ? 'damaged' : 'full'} drive no library asset starts and '
+          'the cause is kept',
+          () async {
+            await online(() async {
+              var tripped = false;
+              holdLibraryUntil(() => tripped);
+              final manager = LibraryManager(
+                dataDir: dataDir,
+                semanticAssetsFactory: (_) => _FailingSemanticAssets(
+                  const FormatException('must not run'),
+                ),
+              );
+              addTearDown(manager.dispose);
+              final warnings = <String>[];
+              Object? thrown;
 
-          await runWithFailingRandomWrites(
-            () async {
-              try {
-                await manager.downloadToMirror(
-                  includeSemanticSearch: true,
-                  onCompanionWarning: (name, _) => warnings.add(name),
-                );
-              } catch (error) {
-                thrown = error;
-              }
-            },
-            matches: (path) {
-              final hit = p.basename(path) == 'lexical.db';
-              if (hit) tripped = true;
-              return hit;
-            },
-          );
+              await runWithFailingRandomWrites(
+                () async {
+                  try {
+                    await manager.downloadToMirror(
+                      includeSemanticSearch: true,
+                      onCompanionWarning: (name, _) => warnings.add(name),
+                    );
+                  } catch (error) {
+                    thrown = error;
+                  }
+                },
+                matches: (path) {
+                  final hit = p.basename(path) == 'lexical.db';
+                  if (hit) tripped = true;
+                  return hit;
+                },
+                errno: damaged ? (Platform.isWindows ? 1392 : 5) : null,
+              );
 
-          expect(thrown, isA<StorageFullException>(), reason: '$thrown');
-          expect(libraryAssets(), isEmpty);
-          expect(
-            warnings,
-            isNot(
-              contains(AppL10n.strings.libraryDomain.companionSemanticName),
-            ),
-          );
-        });
-      });
+              expect(
+                thrown,
+                damaged
+                    ? isA<StorageCorruptException>()
+                    : isA<StorageFullException>(),
+                reason: '$thrown',
+              );
+              expect(libraryAssets(), isEmpty);
+              expect(
+                warnings,
+                isNot(
+                  contains(AppL10n.strings.libraryDomain.companionSemanticName),
+                ),
+              );
+            });
+          },
+        );
+      }
 
       test('a companion failure gates the export while another companion '
           'is still active', () async {
@@ -1042,6 +1192,84 @@ void main() {
       });
     });
 
+    test('a damaged drive in a companion keeps the finished DB export and '
+        'skips the smart search', () async {
+      await online(() async {
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          semanticAssetsFactory: (_) =>
+              _FailingSemanticAssets(const FormatException('must not run')),
+        );
+        addTearDown(manager.dispose);
+        github.beforeDictionary = () async {
+          final releases = File(p.join(manager.mirrorDir, 'releases.json'));
+          final deadline = DateTime.now().add(const Duration(seconds: 5));
+          while (!releases.existsSync() && DateTime.now().isBefore(deadline)) {
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+          }
+        };
+        final warnings = <String>[];
+        Object? thrown;
+
+        await runWithFailingRandomWrites(
+          () async {
+            try {
+              await manager.downloadToMirror(
+                includeSemanticSearch: true,
+                onCompanionWarning: (name, _) => warnings.add(name),
+              );
+            } catch (error) {
+              thrown = error;
+            }
+          },
+          matches: (path) => p.basename(path) == 'lexical.db',
+          errno: Platform.isWindows ? 1392 : 5,
+        );
+
+        expect(thrown, isA<StorageCorruptException>(), reason: '$thrown');
+        expect(
+          warnings,
+          isNot(contains(AppL10n.strings.libraryDomain.companionSemanticName)),
+        );
+        expect(
+          File(
+            p.join(
+              manager.mirrorDir,
+              'assets',
+              'v2-20261011',
+              'seforim.db.zst',
+            ),
+          ).existsSync(),
+          isTrue,
+        );
+      });
+    });
+
+    test('a damaged drive in the smart search is thrown after the finished '
+        'export is saved', () async {
+      await online(() async {
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          semanticAssetsFactory: (_) => _FailingSemanticAssets(
+            StorageCorruptException(dir: dataDir, errno: 1392),
+          ),
+        );
+        addTearDown(manager.dispose);
+        Object? thrown;
+        try {
+          await manager.downloadToMirror(includeSemanticSearch: true);
+        } catch (error) {
+          thrown = error;
+        }
+
+        expect(thrown, isA<StorageCorruptException>(), reason: '$thrown');
+        expect(
+          File(p.join(manager.mirrorDir, 'releases.json')).existsSync(),
+          isTrue,
+        );
+      });
+    });
+
     test('the light check exposes why nothing is offered', () async {
       await online(() async {
         final manager = LibraryManager(
@@ -1056,6 +1284,75 @@ void main() {
         expect(manager.peekedSemanticIncompatibility?.lineTextVersion, 1);
       });
     });
+
+    for (final scenario in [
+      (null, [SemanticModelGeneration.round2]),
+      (<String>[], <SemanticModelGeneration>[]),
+      (['v0.9.98.3'], [SemanticModelGeneration.qa491]),
+      (['v0.9.98.3-rc1', 'latest'], <SemanticModelGeneration>[]),
+      (
+        ['v0.9.98.2', 'v0.9.98.3'],
+        [SemanticModelGeneration.round2, SemanticModelGeneration.qa491],
+      ),
+    ]) {
+      test('a drive without machine records plans for its installers '
+          '${scenario.$1}', () async {
+        await online(() async {
+          final seen = <SemanticFleet>[];
+          final versions = scenario.$1;
+          final manager = LibraryManager(
+            dataDir: dataDir,
+            mirroredOtzariaVersions: versions == null
+                ? null
+                : () async => versions,
+            semanticAssetsFactory: (_) => _RecordingSemanticAssets(seen),
+          );
+          addTearDown(manager.dispose);
+
+          await manager.peekPendingSemanticSearch();
+
+          expect([
+            for (final group in seen.single.groups) group.generation,
+          ], scenario.$2);
+        });
+      });
+    }
+
+    test(
+      'a new installer generation is served beside older recorded machines',
+      () async {
+        await online(() async {
+          await File(p.join(dataDir, LibraryStateStore.fileName)).writeAsString(
+            jsonEncode({
+              'semanticMachines': {
+                'offline-pc|user': const SemanticMachineState(
+                  supportsWindows: false,
+                  family: SemanticVectorsFamily.legacy,
+                  generation: SemanticModelGeneration.round2,
+                ).toJson(),
+              },
+            }),
+          );
+          final manager = LibraryManager(
+            dataDir: dataDir,
+            mirroredOtzariaVersions: () async => ['v0.9.98.3'],
+          );
+          addTearDown(manager.dispose);
+
+          final fleet = await manager.semanticFleetForTest();
+
+          expect(
+            {for (final group in fleet.groups) group.generation},
+            {SemanticModelGeneration.round2, SemanticModelGeneration.qa491},
+          );
+          final persisted = await LibraryStateStore(
+            p.join(dataDir, LibraryStateStore.fileName),
+          ).liveSemanticStates(excludeOwn: true);
+          expect(persisted, hasLength(1));
+          expect(persisted.single.generation, SemanticModelGeneration.round2);
+        });
+      },
+    );
 
     List<String> vectorTags() => [
       for (final url in github.requests)
@@ -1156,6 +1453,22 @@ class _FailingSemanticAssets extends SemanticSearchAssets {
     void Function(int, int?)? onBytesProgress,
     bool Function()? isCancelled,
   }) async => throw failure;
+}
+
+class _RecordingSemanticAssets extends SemanticSearchAssets {
+  _RecordingSemanticAssets(this.fleets);
+
+  final List<SemanticFleet> fleets;
+
+  @override
+  Future<bool> peekPending({
+    required String mirrorDir,
+    required String libraryTag,
+    SemanticFleet fleet = const SemanticFleet(),
+  }) async {
+    fleets.add(fleet);
+    return false;
+  }
 }
 
 /// בדיקה קלה שמצהירה שהווקטורים שפורסמו אינם קריאים למנוע.

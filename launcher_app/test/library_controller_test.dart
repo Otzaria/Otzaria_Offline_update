@@ -5,7 +5,9 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/library_module_controller.dart';
 import 'package:launcher_app/src/controllers/online_check.dart';
+import 'package:launcher_app/src/controllers/shell_module_ports.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
+import 'package:launcher_app/src/services/storage_failure.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -21,6 +23,17 @@ import 'package:seforim_library_updater/seforim_library_updater.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 import 'test_support.dart';
+
+/// ממתין לתנאי שמושג אחרי I/O אמיתי; זורק [TimeoutException] אחרי 10 שניות.
+Future<void> _eventually(bool Function() condition) async {
+  final end = DateTime.now().add(const Duration(seconds: 10));
+  while (!condition()) {
+    if (!DateTime.now().isBefore(end)) {
+      throw TimeoutException('התנאי לא התקיים תוך 10 שניות');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
 
 /// בדיקות ל-[LibraryModuleController], תחת חסימת רשת מלאה: מסלול הבדיקה
 /// חייב לעבוד מהתיקייה המקומית בלבד, ו"אין מראה" הוא מצב תקין ולא שגיאה.
@@ -343,6 +356,122 @@ void main() {
       );
       expect(await blockedMessage(null), reason);
       expect(await blockedMessage('0.9.97+800'), reason);
+    });
+  });
+
+  group('awaitsOtzariaUpdate והבדיקה החוזרת של הזרימה', () {
+    String? mirrored = '0.9.98';
+    LibraryModuleController build(LibraryManager manager) {
+      controller.dispose();
+      return controller = LibraryModuleController(
+        dataDir: tempDir.path,
+        mirroredOtzariaUpdate: () async => mirrored,
+        manager: manager,
+      );
+    }
+
+    test('מחושב מהבדיקה ומתאפס בבדיקה שאחריה', () async {
+      build(_NeedsNewerOtzariaManager(tempDir.path));
+      await controller.checkForUpdate();
+      expect(controller.awaitsOtzariaUpdate, isTrue);
+
+      mirrored = null;
+      await controller.checkForUpdate();
+      expect(controller.awaitsOtzariaUpdate, isFalse);
+    });
+
+    test('מתאפס לפני ההודעה הראשונה של הבדיקה — בלי הבהוב', () async {
+      mirrored = '0.9.98';
+      build(_NeedsNewerOtzariaManager(tempDir.path));
+      await controller.checkForUpdate();
+      final seen = <bool>[];
+      controller.addListener(() {
+        if (controller.status == LibraryModuleStatus.checking) {
+          seen.add(controller.awaitsOtzariaUpdate);
+        }
+      });
+      await controller.checkForUpdate();
+      expect(seen, isNotEmpty);
+      expect(seen, everyElement(isFalse));
+    });
+
+    test('recheck: כשל או נתיב ידני — false; בדיקה תקינה — true', () async {
+      mirrored = null;
+      build(_NeedsNewerOtzariaManager(tempDir.path));
+      expect(await LibraryModulePort(controller).recheck(), isFalse);
+
+      build(_NoPathManager(tempDir.path));
+      expect(await LibraryModulePort(controller).recheck(), isFalse);
+
+      build(_ApplyManager(tempDir.path));
+      expect(await LibraryModulePort(controller).recheck(), isTrue);
+    });
+
+    test('recheck לא מצטרף לבדיקה שרצה — מחכה לבדיקה טרייה', () async {
+      final manager = _ApplyManager(tempDir.path);
+      build(manager);
+      final gate = manager.checkGate = Completer<void>();
+      final stale = controller.checkForUpdate();
+      await _eventually(() => manager.checks == 1);
+      expect(manager.checks, 1);
+
+      final recheck = LibraryModulePort(controller).recheck();
+      gate.complete();
+      await stale;
+      await recheck;
+
+      expect(manager.checks, 2);
+    });
+  });
+
+  group('כשל והאימות המקומי בהורדה', () {
+    LibraryModuleController downloading(_DownloadManager manager) {
+      controller.dispose();
+      return controller = LibraryModuleController(
+        dataDir: tempDir.path,
+        manager: manager,
+      );
+    }
+
+    test('downloadLocalWork: רק שורות אימות והרכבה, משני השלבים', () async {
+      final t = AppL10n.strings.libraryDomain;
+      final gate = Completer<void>();
+      final manager = _StagedDownloadManager(tempDir.path, gate.future)
+        ..stage = '${t.exportDownloading('v35', 'patch.db.zst')}\n'
+            '${t.exportVerifying('v35', 'patch.db.zst', 42)}'
+        ..companionStage = t.companionAssembling('Talmud', 30);
+      downloading(manager);
+
+      final run = controller.download();
+      await _eventually(() => controller.downloadLocalWork != null);
+
+      final local = controller.downloadLocalWork!;
+      expect(local, contains(t.exportVerifying('v35', 'patch.db.zst', 42)));
+      expect(local, contains(t.companionAssembling('Talmud', 30)));
+      expect(
+          local, isNot(contains(t.exportDownloading('v35', 'patch.db.zst'))));
+
+      manager.stage = t.exportDownloading('v35', 'patch.db.zst');
+      manager.companionStage = null;
+      manager.push();
+      expect(controller.downloadLocalWork, isNull);
+
+      gate.complete();
+      await run;
+    });
+
+    test('קובץ נלווה פגום: ההורדה נכשלת כ"כונן פגום", לא מצליחה', () async {
+      final manager = _StagedDownloadManager(tempDir.path, null)
+        ..companionWarning = (
+          'Talmud',
+          StorageCorruptException(dir: r'E:\m', errno: 1392),
+        );
+      downloading(manager);
+
+      await controller.download();
+
+      expect(controller.downloadStatus, MirrorDownloadStatus.error);
+      expect(findStorageCorrupt(controller.downloadCause), isNotNull);
     });
   });
 
@@ -1500,6 +1629,52 @@ void main() {
       expect(controller.status, LibraryModuleStatus.updateAvailable);
     });
 
+    test('ניסיון חוזר באותו שלב פותח מדידה חדשה ומכריז עליו שוב', () async {
+      manager
+        ..progressEvents = const [
+          LibraryApplyProgress(stage: LibraryApplyStage.verifying),
+        ]
+        ..applyError = StateError('boom');
+      await controller.update();
+      await controller.update();
+      await AppLogger.maybeInstance?.flush();
+
+      final lines = File(p.join(tempDir.path, 'logs', 'launcher.log'))
+          .readAsLinesSync()
+          .where((line) => line.contains('שלב החלה'))
+          .toList();
+      expect(lines.where((l) => l.contains('הקודם')), isEmpty);
+      expect(lines.where((l) => l.endsWith(': verifying/')), hasLength(2));
+      expect(lines.where((l) => l.contains('עד סוף ההחלה')), hasLength(2));
+    });
+
+    test('שורה אחת לכל שלב, והאחרון נסגר בסוף ההחלה ולא אחרי הבדיקה', () async {
+      manager.progressEvents = const [
+        LibraryApplyProgress(
+          stage: LibraryApplyStage.downloadingPatch,
+          stepIndex: 1,
+        ),
+        LibraryApplyProgress(
+          stage: LibraryApplyStage.downloadingPatch,
+          stepIndex: 2,
+        ),
+        LibraryApplyProgress(
+          stage: LibraryApplyStage.applyingPatch,
+          stepIndex: 2,
+        ),
+      ];
+      await controller.update();
+      await AppLogger.maybeInstance?.flush();
+
+      final lines = File(p.join(tempDir.path, 'logs', 'launcher.log'))
+          .readAsLinesSync()
+          .where((l) => l.contains('שלב החלה') || l.contains('החלת העדכון'))
+          .toList();
+      expect(lines, hasLength(4), reason: lines.join('\n'));
+      expect(lines[2], contains('עד סוף ההחלה'));
+      expect(lines[3], contains('החלת העדכון הסתיימה'));
+    });
+
     test('בדיקה, החלה שנייה ושינוי מצב אישי אינם נוגעים בה', () async {
       final gate = manager.applyGate = Completer<void>();
       final apply = controller.update();
@@ -1659,6 +1834,7 @@ class _ApplyManager extends LibraryManager {
   Completer<void>? applyGate;
   Object? checkError;
   Object? applyError;
+  List<LibraryApplyProgress> progressEvents = const [];
 
   @override
   Future<LibraryUpdateCheckResult> checkForUpdate() async {
@@ -1680,6 +1856,7 @@ class _ApplyManager extends LibraryManager {
     bool useFullDownloadFallback = false,
   }) async {
     applies++;
+    progressEvents.forEach(onProgress ?? (_) {});
     await applyGate?.future;
     if (applyError case final error?) throw error;
     return const {};
@@ -2052,4 +2229,53 @@ class _UnknownSemanticManager extends LibraryManager {
   @override
   Future<bool> peekPendingSemanticSearch() async =>
       throw StateError(AppL10n.strings.libraryDomain.semanticTargetUnknown);
+}
+
+class _NoPathManager extends LibraryManager {
+  _NoPathManager(String dataDir) : super(dataDir: dataDir);
+
+  @override
+  Future<LibraryUpdateCheckResult> checkForUpdate() async =>
+      const LibraryUpdateCheckResult(dbPath: null);
+}
+
+class _StagedDownloadManager extends _DownloadManager {
+  _StagedDownloadManager(String dataDir, this.gate) : super(dataDir, const {});
+
+  final Future<void>? gate;
+  String? stage;
+  String? companionStage;
+  (String, Object)? companionWarning;
+  void Function(String stage)? _onStage;
+  void Function(String? stage)? _onCompanionStage;
+
+  void push() {
+    if (stage != null) _onStage?.call(stage!);
+    _onCompanionStage?.call(companionStage);
+  }
+
+  @override
+  Future<MirrorDownloadOutcome> downloadToMirror({
+    bool includeSemanticSearch = false,
+    int? readableDbSchema,
+    void Function(String stage)? onStage,
+    void Function(String? stage)? onCompanionStage,
+    void Function(int doneAssets, int totalAssets)? onAssetProgress,
+    void Function(int downloaded, int? total)? onBytesProgress,
+    void Function(String assetName, Object error)? onCompanionWarning,
+    void Function(String warning)? onWarning,
+    bool Function()? isCancelled,
+  }) async {
+    _onStage = onStage;
+    _onCompanionStage = onCompanionStage;
+    push();
+    if (companionWarning case (final name, final error)) {
+      onCompanionWarning?.call(name, error);
+    }
+    await gate;
+    return super.downloadToMirror(
+      includeSemanticSearch: includeSemanticSearch,
+      readableDbSchema: readableDbSchema,
+    );
+  }
 }

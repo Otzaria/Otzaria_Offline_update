@@ -92,6 +92,7 @@ class HomeViewModel {
     this.personalPending = false,
     this.personalPendingNeedsClick = false,
     this.semanticConsent = false,
+    this.smartSearchNote,
     this.appTile = TileStatus.upToDate,
     this.libraryTile = TileStatus.upToDate,
     this.pluginsTile = TileStatus.upToDate,
@@ -220,6 +221,9 @@ class HomeViewModel {
   /// `AppSession.personalPendingNeedsClick` — הכפתור במקום ההבטחה.
   final bool personalPendingNeedsClick;
   final bool semanticConsent;
+
+  /// `LibraryModuleController.semanticNote`: למה החיפוש החכם פתוח.
+  final String? smartSearchNote;
   final TileStatus appTile;
   final TileStatus libraryTile;
   final TileStatus pluginsTile;
@@ -417,6 +421,7 @@ HomeViewModel homeViewModelOf(AppSession s) {
     semanticConsent: s.semanticConsentUnanswered &&
         otzaria.currentVersion != null &&
         !semanticOnlyHere(facts),
+    smartSearchNote: library.semanticNote,
     onlineCheckedAt: latestOnlineCheck([
       if (settings.syncApp) (otzaria.onlineCheckedAt, otzaria.onlineCheckError),
       if (settings.downloadsLibrary)

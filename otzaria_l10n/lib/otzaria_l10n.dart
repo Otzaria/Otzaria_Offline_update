@@ -7,6 +7,7 @@ export 'src/app_l10n.dart';
 export 'src/app_language.dart';
 export 'src/app_strings.dart';
 export 'src/plural.dart';
+export 'src/stage_text.dart';
 export 'src/storage_failure.dart';
 export 'src/storage_text.dart';
 export 'src/strings_en.dart';

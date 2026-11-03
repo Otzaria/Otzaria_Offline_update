@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart' show DriveCheckTool;
 
 import '../controllers/download_plan.dart'
     show MirrorComponent, SemanticSearchAnswer;
@@ -24,6 +25,7 @@ enum DownloadFailureKind {
   blocked,
   shabbat,
   diskSpace,
+  driveDamaged,
   snapshot,
   libraryInstaller,
   other
@@ -37,6 +39,8 @@ class DownloadFailure {
     this.needed,
     this.free,
     this.dir,
+    this.errno,
+    this.tool,
   });
 
   final DownloadFailureKind kind;
@@ -52,6 +56,10 @@ class DownloadFailure {
   final String? needed;
   final String? free;
   final String? dir;
+
+  /// ב-[DownloadFailureKind.driveDamaged]: הקוד והכלי כפי שהמערכת דיווחה.
+  final int? errno;
+  final DriveCheckTool? tool;
 }
 
 /// איך הסתיים שלב ב"עדכון כאן".
@@ -514,6 +522,34 @@ class ShellTasks extends ChangeNotifier {
   void stageStopped(GuidanceItem stage, StageOutcome outcome) {
     final task = _updateTask();
     _setUpdate(task._copy(outcomes: {...task.outcomes, stage: outcome}));
+  }
+
+  /// הבדיקה החוזרת אחרי האשף שינתה את תוכנית הספרייה.
+  void libraryPlan({
+    int? version,
+    ({int low, int high})? minutes,
+    bool semanticOnly = false,
+  }) {
+    final task = _updateTask();
+    _setUpdate(UpdateHereTask(
+      id: task.id,
+      phase: task.phase,
+      request: task.request,
+      stages: task.stages,
+      stageIndex: task.stageIndex,
+      firstInstall: task.firstInstall,
+      appVersion: task.appVersion,
+      libraryVersion: version,
+      libraryMinutes: minutes,
+      librarySemanticOnly: semanticOnly,
+      account: task.account,
+      outcomes: task.outcomes,
+      libraryNote: task.libraryNote,
+      plugins: task.plugins,
+      closeAfterWizard: task.closeAfterWizard,
+      stopWaitingRequested: task.stopWaitingRequested,
+      failure: task.failure,
+    ));
   }
 
   void pluginDeliveries(List<PluginDelivery> rows) =>

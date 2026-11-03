@@ -257,7 +257,12 @@ void main() {
     () async {
       expect(await assets.mirroredVersion(mirror), isNull);
       expect(
-        await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+        await assets.pending(
+          generation: SemanticModelGeneration.round2,
+          mirrorDir: mirror,
+          dbPath: db,
+          libraryVersion: 30,
+        ),
         isFalse,
       );
       expect(requests, 0);
@@ -268,7 +273,12 @@ void main() {
     await writeMirror();
     expect(await assets.mirroredVersion(mirror), 30);
     expect(
-      await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+      await assets.pending(
+        generation: SemanticModelGeneration.round2,
+        mirrorDir: mirror,
+        dbPath: db,
+        libraryVersion: 30,
+      ),
       isTrue,
     );
     expect(requests, 0);
@@ -286,7 +296,12 @@ void main() {
     );
     try {
       await expectLater(
-        installer.install(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+        installer.install(
+          generation: SemanticModelGeneration.round2,
+          mirrorDir: mirror,
+          dbPath: db,
+          libraryVersion: 30,
+        ),
         throwsA(
           isA<StorageFullException>().having((e) => e.freeBytes, 'free', 2),
         ),
@@ -304,7 +319,12 @@ void main() {
     final installer = SemanticSearchAssets(freeBytesFor: (_) => null);
     try {
       await expectLater(
-        installer.install(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+        installer.install(
+          generation: SemanticModelGeneration.round2,
+          mirrorDir: mirror,
+          dbPath: db,
+          libraryVersion: 30,
+        ),
         throwsFormatException,
       );
       expect(await Directory(p.dirname(db)).exists(), isFalse);
@@ -347,7 +367,12 @@ void main() {
       );
       try {
         await expectLater(
-          installer.install(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+          installer.install(
+            generation: SemanticModelGeneration.round2,
+            mirrorDir: mirror,
+            dbPath: db,
+            libraryVersion: 30,
+          ),
           throwsA(
             isA<StorageFullException>().having(
               (error) => error.dir,
@@ -372,7 +397,12 @@ void main() {
   test('a mirror cannot offer vectors for another installed library', () async {
     await writeMirror();
     expect(
-      await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 31),
+      await assets.pending(
+        generation: SemanticModelGeneration.round2,
+        mirrorDir: mirror,
+        dbPath: db,
+        libraryVersion: 31,
+      ),
       isFalse,
     );
   });
@@ -381,7 +411,12 @@ void main() {
     await writeMirror();
     await File(p.join(mirror, tag, 'vectors', 'segment.oxv.zst')).delete();
     expect(
-      await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+      await assets.pending(
+        generation: SemanticModelGeneration.round2,
+        mirrorDir: mirror,
+        dbPath: db,
+        libraryVersion: 30,
+      ),
       isFalse,
     );
   });
@@ -392,7 +427,12 @@ void main() {
       p.join(mirror, tag, SemanticSearchAssets.modelFolder, 'LICENSE'),
     ).writeAsBytes([1]);
     expect(
-      await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+      await assets.pending(
+        generation: SemanticModelGeneration.round2,
+        mirrorDir: mirror,
+        dbPath: db,
+        libraryVersion: 30,
+      ),
       isFalse,
     );
   });
@@ -400,11 +440,21 @@ void main() {
   test('corrupt manifest is never offered or installed', () async {
     await writeMirror(corrupt: true);
     expect(
-      await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+      await assets.pending(
+        generation: SemanticModelGeneration.round2,
+        mirrorDir: mirror,
+        dbPath: db,
+        libraryVersion: 30,
+      ),
       isFalse,
     );
     await expectLater(
-      assets.install(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+      assets.install(
+        generation: SemanticModelGeneration.round2,
+        mirrorDir: mirror,
+        dbPath: db,
+        libraryVersion: 30,
+      ),
       throwsFormatException,
     );
     expect(
@@ -419,7 +469,12 @@ void main() {
   test('version mismatch inside authenticated manifest is rejected', () async {
     await writeMirror(version: 31);
     expect(
-      await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+      await assets.pending(
+        generation: SemanticModelGeneration.round2,
+        mirrorDir: mirror,
+        dbPath: db,
+        libraryVersion: 30,
+      ),
       isFalse,
     );
   });
@@ -429,7 +484,12 @@ void main() {
     () async {
       await writeMirror();
       await expectLater(
-        assets.install(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+        assets.install(
+          generation: SemanticModelGeneration.round2,
+          mirrorDir: mirror,
+          dbPath: db,
+          libraryVersion: 30,
+        ),
         throwsFormatException,
       );
       expect(await Directory(p.dirname(p.dirname(db))).exists(), isFalse);
@@ -444,6 +504,7 @@ void main() {
     );
     await expectLater(
       assets.install(
+        generation: SemanticModelGeneration.round2,
         mirrorDir: mirror,
         dbPath: db,
         libraryVersion: 30,
@@ -673,7 +734,12 @@ void main() {
         isNot(contains(endsWith('.tmp'))),
       );
       expect(
-        await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+        await assets.pending(
+          generation: SemanticModelGeneration.round2,
+          mirrorDir: mirror,
+          dbPath: db,
+          libraryVersion: 30,
+        ),
         isTrue,
       );
       final root = p.dirname(p.dirname(db));
@@ -693,7 +759,12 @@ void main() {
         await File(p.join(mirror, tag, 'vectors', name)).copy(target.path);
       }
       expect(
-        await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+        await assets.pending(
+          generation: SemanticModelGeneration.round2,
+          mirrorDir: mirror,
+          dbPath: db,
+          libraryVersion: 30,
+        ),
         isTrue,
       );
       final direct = SemanticSearchAssets(
@@ -703,7 +774,12 @@ void main() {
       );
       try {
         await expectLater(
-          direct.install(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+          direct.install(
+            generation: SemanticModelGeneration.round2,
+            mirrorDir: mirror,
+            dbPath: db,
+            libraryVersion: 30,
+          ),
           throwsA(isA<SemanticError>()),
         );
         expect(
@@ -797,6 +873,7 @@ void main() {
       try {
         expect(
           await direct.pending(
+            generation: SemanticModelGeneration.round2,
             mirrorDir: mirror,
             dbPath: externalDb,
             libraryVersion: 30,
@@ -805,6 +882,7 @@ void main() {
           isTrue,
         );
         await direct.install(
+          generation: SemanticModelGeneration.round2,
           mirrorDir: mirror,
           dbPath: externalDb,
           libraryVersion: 30,
@@ -830,6 +908,7 @@ void main() {
         );
         expect(
           await direct.pending(
+            generation: SemanticModelGeneration.round2,
             mirrorDir: mirror,
             dbPath: externalDb,
             libraryVersion: 30,
@@ -839,6 +918,7 @@ void main() {
         );
         expect(
           await direct.pending(
+            generation: SemanticModelGeneration.round2,
             mirrorDir: mirror,
             dbPath: externalDb,
             libraryVersion: 30,
@@ -869,6 +949,7 @@ void main() {
           engine.dispose();
         }
         await direct.install(
+          generation: SemanticModelGeneration.round2,
           mirrorDir: mirror,
           dbPath: externalDb,
           libraryVersion: 30,
@@ -880,6 +961,7 @@ void main() {
         await unrelated.writeAsString('preserve');
         await expectLater(
           direct.install(
+            generation: SemanticModelGeneration.round2,
             mirrorDir: mirror,
             dbPath: externalDb,
             libraryVersion: 30,
@@ -1078,7 +1160,12 @@ void main() {
         expect(File('${copied.path}.tmp').existsSync(), isFalse);
       }
       expect(
-        await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+        await assets.pending(
+          generation: SemanticModelGeneration.round2,
+          mirrorDir: mirror,
+          dbPath: db,
+          libraryVersion: 30,
+        ),
         isTrue,
       );
     },
@@ -1214,7 +1301,12 @@ void main() {
         expect(found, isNot(endsWith('.tmp')));
       }
       expect(
-        await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+        await assets.pending(
+          generation: SemanticModelGeneration.round2,
+          mirrorDir: mirror,
+          dbPath: db,
+          libraryVersion: 30,
+        ),
         isFalse,
       );
       await runSync(releaseClient(modelRequests: <Uri>[]));
@@ -1250,7 +1342,12 @@ void main() {
       await Process.run('chmod', ['000', model.path]);
       addTearDown(() => Process.run('chmod', ['644', model.path]));
       expect(
-        await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+        await assets.pending(
+          generation: SemanticModelGeneration.round2,
+          mirrorDir: mirror,
+          dbPath: db,
+          libraryVersion: 30,
+        ),
         isTrue,
       );
     },
@@ -1412,13 +1509,23 @@ void main() {
       }
       await Process.run('chmod', ['000', local.path]);
       expect(
-        await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+        await assets.pending(
+          generation: SemanticModelGeneration.round2,
+          mirrorDir: mirror,
+          dbPath: db,
+          libraryVersion: 30,
+        ),
         isTrue,
       );
       final mirrored = File(p.join(mirror, tag, 'vectors', manifestName));
       await Process.run('chmod', ['000', mirrored.path]);
       expect(
-        await assets.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30),
+        await assets.pending(
+          generation: SemanticModelGeneration.round2,
+          mirrorDir: mirror,
+          dbPath: db,
+          libraryVersion: 30,
+        ),
         isFalse,
       );
       expect(requests, 0);
@@ -1478,6 +1585,7 @@ void main() {
       var activations = 0;
       await expectLater(
         assets.install(
+          generation: SemanticModelGeneration.round2,
           mirrorDir: mirror,
           dbPath: db,
           libraryVersion: 30,
@@ -1513,6 +1621,7 @@ void main() {
       List<int>? joined;
       await expectLater(
         assets.install(
+          generation: SemanticModelGeneration.round2,
           mirrorDir: mirror,
           dbPath: db,
           libraryVersion: 30,
@@ -1688,6 +1797,7 @@ void main() {
       try {
         await expectLater(
           installer.install(
+            generation: SemanticModelGeneration.round2,
             mirrorDir: mirror,
             dbPath: db,
             libraryVersion: 30,
@@ -1742,6 +1852,7 @@ void main() {
       try {
         await expectLater(
           installer.install(
+            generation: SemanticModelGeneration.round2,
             mirrorDir: mirror,
             dbPath: db,
             libraryVersion: 30,
@@ -1764,7 +1875,12 @@ void main() {
     await http.runWithClient(
       () async {
         final local = SemanticSearchAssets();
-        await local.pending(mirrorDir: mirror, dbPath: db, libraryVersion: 30);
+        await local.pending(
+          generation: SemanticModelGeneration.round2,
+          mirrorDir: mirror,
+          dbPath: db,
+          libraryVersion: 30,
+        );
         local.dispose();
       },
       () {

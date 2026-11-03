@@ -14,6 +14,7 @@ import 'dispose_guard.dart';
 import 'download_plan.dart' show LibrarySizeProbe;
 import 'online_check.dart';
 import 'progress_notifier.dart';
+import 'smart_search_note.dart';
 import 'stage_clock.dart';
 
 enum LibraryModuleStatus {
@@ -50,6 +51,7 @@ typedef LibraryOnlineAnswers = ({
   int? downloadBytesBound,
   int? semanticBytes,
   bool readableMirrorCurrent,
+  String semanticProofKey,
 });
 
 /// מה ההורדה האחרונה עשתה במצב "עדכון אישי".
@@ -77,6 +79,7 @@ class LibraryModuleController extends ChangeNotifier
     Future<String?> Function()? otzariaAppVersion,
     Future<String?> Function()? mirroredOtzariaUpdate,
     Future<int?> Function()? mirroredReadableDbSchema,
+    Future<List<String>> Function()? mirroredOtzariaVersions,
     OtzariaInstanceLock? instanceLock,
     LibraryManager? manager,
   })  : _mirroredOtzariaUpdate = mirroredOtzariaUpdate,
@@ -89,6 +92,7 @@ class LibraryModuleController extends ChangeNotifier
               otzariaLaunchPath: otzariaLaunchPath,
               otzariaAppVersion: otzariaAppVersion,
               mirroredReadableDbSchema: mirroredReadableDbSchema,
+              mirroredOtzariaVersions: mirroredOtzariaVersions,
               instanceLock: instanceLock,
             );
 
@@ -125,10 +129,56 @@ class LibraryModuleController extends ChangeNotifier
 
   bool get _semanticCountsAsUpdate =>
       _semanticPreference == SemanticDownloadPreference.always &&
-      onlineSemanticPending &&
+      (onlineSemanticPending || _semanticDownloadNeeded) &&
       !semanticDownloadFailed;
 
+  /// The drive cannot serve this computer's smart search: only a download on
+  /// a connected computer helps, whatever the light online check said.
+  bool get _semanticDownloadNeeded =>
+      _semanticPreference != SemanticDownloadPreference.never &&
+      smartSearchNeedsDriveDownload(semanticStatus);
+
+  /// What the last local check found for smart search; `null` = no check.
+  SmartSearchStatus? get semanticStatus => _lastCheck?.semanticStatus;
+
+  /// Only [semanticAllClear] lets the library be called up to date;
+  /// [semanticPending] being false never does.
+  bool get semanticAllClear => _lastCheck?.semanticAllClear ?? false;
+
+  /// A check ran and smart search is not settled (installable, not
+  /// matching, unsupported, unverified, partial).
+  bool get semanticOpen => _lastCheck != null && !_lastCheck!.semanticAllClear;
+
+  SmartSearchState? get semanticState => _lastCheck?.semanticState;
+
+  /// The sentence that says why smart search is open; `null` when it is not.
+  String? get semanticNote {
+    final check = _lastCheck;
+    if (check == null || check.semanticAllClear) return null;
+    final status = check.semanticStatus;
+    return status == null
+        ? AppL10n.strings.libraryDomain.semanticStatusCheckFailed
+        : smartSearchNote(status);
+  }
+
+  /// Set by the online check; an answer is only valid for the same proof.
+  String _onlineSemanticProofKey = '';
+
+  void _voidStaleOnlineSemantic() {
+    final key = semanticStatus?.proofKey ?? '';
+    if (!semanticChecked || _onlineSemanticProofKey == key) return;
+    semanticChecked = false;
+    onlineSemanticPending = false;
+    onlineSemanticBytes = null;
+    onlineSemanticCheckError = null;
+    onlineSemanticIncompatibility = null;
+    semanticDownloadFailed = false;
+  }
+
   final LibraryManager _manager;
+
+  @visibleForTesting
+  LibraryManager get managerForTest => _manager;
   LibraryUpdateCheckResult? _lastCheck;
 
   Future<void>? _checkInFlight;
@@ -162,6 +212,10 @@ class LibraryModuleController extends ChangeNotifier
   /// `true` אם checkForUpdate האחרון זיהה שאין DB בכלל עדיין (התקנה
   /// טרייה) — ה-UI יכול להציג "מוריד ספרייה בפעם הראשונה" במקום "מעדכן".
   bool isFreshInstall = false;
+
+  /// הבדיקה האחרונה הוגבלה לאוצריא שמותקנת, ובכונן מתקין חדש יותר שיקרא
+  /// את הספרייה — "עדכון כאן" מתקין אותו לפניה.
+  bool awaitsOtzariaUpdate = false;
 
   /// `true` כשאין מראה מקומית בכלל (טרם הורד דבר). נשמר בנפרד מ-[status], כי
   /// [hasOnlineUpdate] חייב לדעת זאת גם אחרי שה-status התקדם.
@@ -291,6 +345,19 @@ class LibraryModuleController extends ChangeNotifier
   /// החריג שהפיל את ההורדה — המסך מסווג לפיו ולא לפי הטקסט.
   Object? downloadCause;
   bool get downloadStorageFull => findStorageFull(downloadCause) != null;
+
+  /// שורות השלב שהן אימות או הרכבה על הכונן, או `null`: עבודה מקומית אינה
+  /// הורדה, ולכן אין לה מהירות וזמן שנותר.
+  String? get downloadLocalWork {
+    final lines = [
+      for (final stage in [downloadStage, downloadCompanionStage])
+        if (stage != null)
+          for (final line in stage.split('\n'))
+            if (isLocalWorkStage(line)) line,
+    ];
+    return lines.isEmpty ? null : lines.join(' · ');
+  }
+
   bool _incompleteMirrorDownload = false;
   bool get downloadNeedsRetry =>
       downloadError != null || _incompleteMirrorDownload;
@@ -321,6 +388,10 @@ class LibraryModuleController extends ChangeNotifier
         t.downloadNewerNeedsOtzaria('$newer'),
       if (libraryMetadataUnreadable) t.downloadMetadataUnreadable,
       if (semanticIncompatibility case final incompatible?) '$incompatible',
+      if (downloadStatus == MirrorDownloadStatus.done &&
+          _semanticDownloadNeeded &&
+          semanticNote != null)
+        semanticNote!,
     ];
   }
 
@@ -494,11 +565,13 @@ class LibraryModuleController extends ChangeNotifier
 
   bool get hasDownloadFailures =>
       _stillFailed.isNotEmpty ||
-      (semanticDownloadFailed && onlineSemanticPending);
+      (semanticDownloadFailed &&
+          (onlineSemanticPending || _semanticDownloadNeeded));
 
   String get failedDownloadNames => [
         if (_stillFailed.isNotEmpty) _companionNames(_stillFailed),
-        if (semanticDownloadFailed && onlineSemanticPending)
+        if (semanticDownloadFailed &&
+            (onlineSemanticPending || _semanticDownloadNeeded))
           AppL10n.strings.libraryDomain.companionSemanticName,
       ].join(', ');
 
@@ -515,9 +588,11 @@ class LibraryModuleController extends ChangeNotifier
   /// "לשאול כל פעם": חיפוש חכם שאפשר להוריד, כשורה משנית — לא כעדכון.
   bool get onlineSemanticOffer =>
       _semanticPreference == SemanticDownloadPreference.ask &&
-      onlineSemanticPending &&
-      semanticChecked &&
-      !semanticDownloadFailed;
+      !semanticDownloadFailed &&
+      ((onlineSemanticPending && semanticChecked) ||
+          (_semanticDownloadNeeded &&
+              onlineCheckedAt != null &&
+              onlineLibraryProofError == null));
 
   /// כשל בבדיקת הנלווים בלבד. אינו "אין רשת" למודול, אך שולל את ההוכחה שאין
   /// מה להוריד — ראו [onlineProofError].
@@ -541,6 +616,7 @@ class LibraryModuleController extends ChangeNotifier
   /// אחרת "כן" מריץ את כל הורדת הספרייה בלי שום דבר חדש להביא.
   bool get shouldOfferSemanticDownload =>
       !semanticChecked ||
+      _semanticDownloadNeeded ||
       !provenUpToDateOnline(
         checkedAt: onlineCheckedAt,
         error: onlineCheckError ?? onlineSemanticCheckError,
@@ -565,6 +641,7 @@ class LibraryModuleController extends ChangeNotifier
         downloadBytesBound: onlineDownloadBytesBound,
         semanticBytes: onlineSemanticBytes,
         readableMirrorCurrent: _readableMirrorCurrent,
+        semanticProofKey: _onlineSemanticProofKey,
       );
 
   void restoreOnlineAnswers(LibraryOnlineAnswers answers) {
@@ -580,6 +657,8 @@ class LibraryModuleController extends ChangeNotifier
     onlineDownloadBytesBound = answers.downloadBytesBound;
     onlineSemanticBytes = answers.semanticBytes;
     _readableMirrorCurrent = answers.readableMirrorCurrent;
+    _onlineSemanticProofKey = answers.semanticProofKey;
+    _voidStaleOnlineSemantic();
     notifyListeners();
   }
 
@@ -592,7 +671,9 @@ class LibraryModuleController extends ChangeNotifier
 
   /// להוכחה שלפני ההורדה: נלווה שנכשל אינו מוצע בבית, אבל גם אינו "מעודכן".
   bool get libraryDownloadPending =>
-      hasOnlineLibraryUpdate || onlinePendingCompanions.isNotEmpty;
+      hasOnlineLibraryUpdate ||
+      onlinePendingCompanions.isNotEmpty ||
+      _semanticDownloadNeeded;
 
   bool get _hasOnlineDbUpdate {
     final online = onlineLatestVersion;
@@ -614,6 +695,7 @@ class LibraryModuleController extends ChangeNotifier
   /// ל"הוכח" באמצע בדיקה חוזרת (`onlineProofOf`).
   Future<void> checkOnline() async {
     notifyListeners();
+    final proofKey = semanticStatus?.proofKey ?? '';
 
     int? latest;
     String? checkError;
@@ -693,8 +775,10 @@ class LibraryModuleController extends ChangeNotifier
     semanticChecked = checkedSemantic;
     onlineSemanticBytes = semanticBytes;
     onlineCheckedAt = DateTime.now();
+    _onlineSemanticProofKey = proofKey;
     _sizeRun++;
     onlineDownloadBytesBound = bound;
+    _voidStaleOnlineSemantic();
     notifyListeners();
   }
 
@@ -725,6 +809,7 @@ class LibraryModuleController extends ChangeNotifier
     notifyListeners();
 
     StorageFullException? warnedStorageFull;
+    StorageCorruptException? warnedDamaged;
     try {
       int? readableDbSchema;
       if (_mirroredReadableDbSchema case final readSchema?) {
@@ -771,10 +856,12 @@ class LibraryModuleController extends ChangeNotifier
           AppLogger.instance.info('הורדת הקובץ הנלווה "$name" נכשלה: $error');
           // כונן מלא אינו כשל נקודתי: הוא משתק את כל הכתיבות שאחריו.
           warnedStorageFull ??= findStorageFull(error);
+          warnedDamaged ??= findStorageCorrupt(error);
         },
         isCancelled: isCancelled,
       );
       if (warnedStorageFull case final full?) throw full;
+      if (warnedDamaged case final damaged?) throw damaged;
       downloadStatus = MirrorDownloadStatus.done;
       lastDownloadedAt = DateTime.now();
       newerLibraryNeedsOtzaria = outcome.newerNeedsOtzaria;
@@ -801,7 +888,8 @@ class LibraryModuleController extends ChangeNotifier
         await checkOnline();
         failedCompanions = {...onlinePendingCompanions};
         if (includeSemanticSearch) {
-          semanticDownloadFailed = onlineSemanticPending;
+          semanticDownloadFailed =
+              onlineSemanticPending || _semanticDownloadNeeded;
         }
         notifyListeners();
       }
@@ -935,6 +1023,7 @@ class LibraryModuleController extends ChangeNotifier
 
   Future<void> _runCheckForUpdate() async {
     status = LibraryModuleStatus.checking;
+    awaitsOtzariaUpdate = false;
     needsElevation = false;
     errorMessage = null;
     canRetryWithFullDownload = false;
@@ -957,6 +1046,7 @@ class LibraryModuleController extends ChangeNotifier
       _incompleteMirrorDownload = check.mirrorDownloadIncomplete;
       _lastCheck = check;
       isFreshInstall = check.isFreshInstall;
+      awaitsOtzariaUpdate = await _otzariaFirstMessage(check) != null;
       mirrorMissing = false;
       mirrorDamaged = false;
       // שגיאה מבדיקה קודמת אינה מתארת את זו: `LibraryScreen` הציג אותה כל עוד
@@ -1034,6 +1124,7 @@ class LibraryModuleController extends ChangeNotifier
         targetVersion = null;
       }
     }
+    _voidStaleOnlineSemantic();
     await _refreshChangesNotes(check);
     // הבדיקה עצמה כבר איתרה את הנתיב — גם כשהיא נכשלה אחר כך (למשל אין
     // מראה). קריאה נפרדת ל-`currentDbPath()` הייתה חוזרת על כל האיתור.
@@ -1108,13 +1199,22 @@ class LibraryModuleController extends ChangeNotifier
   }
 
   Future<String?> _otzariaFirstMessage(LibraryUpdateCheckResult check) async {
-    if (!check.needsNewerOtzaria) return null;
     final version = await _mirroredOtzariaUpdate?.call();
     if (version == null) return null;
-    final readable = OtzariaCapabilities.readableDbSchemaForAppVersion(version);
-    final current = check.readableDbSchemaVersion;
-    if (readable == null || current == null || readable <= current) {
-      return null;
+    final semantic = check.semanticStatus;
+    final generation = semantic?.required?.generation;
+    final changesSemantic = semantic != null &&
+        semantic.state != SmartSearchState.notInUse &&
+        OtzariaCapabilities.semanticGenerationForAppVersion(version) !=
+            generation;
+    if (!changesSemantic) {
+      if (!check.needsNewerOtzaria) return null;
+      final readable =
+          OtzariaCapabilities.readableDbSchemaForAppVersion(version);
+      final current = check.readableDbSchemaVersion;
+      if (readable == null || current == null || readable <= current) {
+        return null;
+      }
     }
     return AppL10n.strings.libraryDomain
         .libraryNeedsOtzariaUpdateFromDrive(version);
@@ -1196,6 +1296,7 @@ class LibraryModuleController extends ChangeNotifier
     // לגביהם ואינו זורק — וכשל שלהם הוא בדיוק מה שמשאיר את הבדיקה על
     // "יש עדכון" אחרי החלה שהצליחה.
     final companionFailures = <String, Object>{};
+    SmartSearchStatus? semanticUnconfirmed;
 
     // התקנה טרייה שההגדרה של אוצריא לא כוונה אליה — היא לא תראה שם ספרים,
     // ורק הודעה מפורשת אומרת למשתמש מה נשאר לו לעשות.
@@ -1208,6 +1309,7 @@ class LibraryModuleController extends ChangeNotifier
           useFullDownloadFallback: useFullDownloadFallback,
           onProgress: (p) {
             stageText = _describeApplyStage(p);
+            _logApplyStage(p);
             if (_isSilentLongStage(p)) {
               _startStageClock(stageText!);
               stageText = _stageTextWithElapsed();
@@ -1225,6 +1327,9 @@ class LibraryModuleController extends ChangeNotifier
           },
           onCompanionWarning: (name, error) {
             companionFailures[name] = error;
+            if (error is SmartSearchVerificationException) {
+              semanticUnconfirmed = error.status;
+            }
             AppLogger.instance.warn('התקנת הקובץ הנלווה "$name" נכשלה: $error');
           },
           onStateWarning: (error) => AppLogger.instance
@@ -1239,6 +1344,7 @@ class LibraryModuleController extends ChangeNotifier
         );
       } finally {
         _applying = false;
+        _endApplyStageLog();
       }
       lastApplyCompleted = true;
       AppLogger.instance.info(
@@ -1256,8 +1362,8 @@ class LibraryModuleController extends ChangeNotifier
           (status == LibraryModuleStatus.updateAvailable ||
               companionFailures.containsKey(
                   AppL10n.strings.libraryDomain.companionSemanticName))) {
-        errorMessage = applyNote = AppL10n.strings.libraryDomain
-            .companionsInstallFailed(companionFailures.keys.join(', '));
+        errorMessage = applyNote =
+            _companionFailureNote(companionFailures.keys, semanticUnconfirmed);
         needsElevation = companionFailures.values.any(Elevation.isAccessDenied);
         if (companionFailures
             .containsKey(AppL10n.strings.libraryDomain.companionSemanticName)) {
@@ -1265,6 +1371,11 @@ class LibraryModuleController extends ChangeNotifier
           canRetryWithFullDownload = false;
         }
       }
+      // מצב שאינו כשל אך אינו "הושלם": מה שהחיפוש החכם עוד חסר נאמר, לא נבלע.
+      // בדיקה שנכשלה אחרי ההחלה: המסד הוחלף, אבל החיפוש החכם לא אומת.
+      applyNote ??= _lastCheck == null
+          ? AppL10n.strings.libraryDomain.semanticStatusCheckFailed
+          : semanticOpenNote;
       // גובר על אזהרת הנלווים: ספרייה שאוצריא לא תמצא בכלל היא התקלה
       // הגדולה מבין השתיים.
       final notSet = locationNotSetFor;
@@ -1289,11 +1400,73 @@ class LibraryModuleController extends ChangeNotifier
     notifyListeners();
   }
 
+  /// Why smart search is open, for "update here" and the final screen;
+  /// "ready on the drive" is the consent flow's, unless consent is given.
+  String? get semanticOpenNote => switch (semanticState) {
+        null || SmartSearchState.installedVerified => null,
+        SmartSearchState.notInUse => null,
+        SmartSearchState.readyOnDrive when !semanticConsentGranted => null,
+        _ => semanticNote,
+      };
+
+  String _companionFailureNote(
+    Iterable<String> names,
+    SmartSearchStatus? unconfirmed,
+  ) {
+    final t = AppL10n.strings.libraryDomain;
+    final semantic = t.companionSemanticName;
+    final others = names.where((name) => name != semantic);
+    final unconfirmedNote =
+        unconfirmed == null ? null : smartSearchNote(unconfirmed);
+    return [
+      if (others.isNotEmpty) t.companionsInstallFailed(others.join(', ')),
+      if (names.contains(semantic))
+        unconfirmedNote ?? t.companionsInstallFailed(semantic),
+    ].join('\n');
+  }
+
   /// שלב שיכול להימשך דקות בלי לדווח בייטים ובלי אחוזים. אימות ה-hash
   /// שבמסלול הדלתא **אינו** כזה — הוא מדווח `verifyProgress`.
   static bool _isSilentLongStage(LibraryApplyProgress p) =>
       p.stage == LibraryApplyStage.verifying ||
       p.stage == LibraryApplyStage.writingFullDb;
+
+  String? _loggedApplyStage;
+  final Stopwatch _applyStageWatch = Stopwatch();
+
+  // שורה ביומן בכל מעבר שלב, עם משך הקודם: בלי זה 33 דקות של החלה לא ניתנות לפירוק.
+  void _logApplyStage(LibraryApplyProgress p) {
+    final key = '${p.stage.name}/${p.verifyStage ?? p.patchStage ?? ''}';
+    if (key == _loggedApplyStage) return;
+    final previous = _loggedApplyStage;
+    final seconds =
+        (_applyStageWatch.elapsedMilliseconds / 1000).toStringAsFixed(1);
+    _applyStageWatch
+      ..reset()
+      ..start();
+    _loggedApplyStage = p.stage == LibraryApplyStage.done ? null : key;
+    AppLogger.instance.info(
+      previous == null
+          ? 'שלב החלה: $key'
+          : 'שלב החלה: $key (הקודם $previous נמשך ${seconds}s)',
+    );
+  }
+
+  // סוף ההחלה (גם בלי `done`: כשל, ביטול) סוגר את המדידה, כדי שניסיון חוזר
+  // יפתח מאפס ולא ימדוד גם את ההמתנה ביניהם.
+  void _endApplyStageLog() {
+    final previous = _loggedApplyStage;
+    if (previous != null) {
+      final seconds =
+          (_applyStageWatch.elapsedMilliseconds / 1000).toStringAsFixed(1);
+      AppLogger.instance
+          .info('שלב החלה: $previous נמשך ${seconds}s עד סוף ההחלה');
+    }
+    _loggedApplyStage = null;
+    _applyStageWatch
+      ..stop()
+      ..reset();
+  }
 
   /// מתחיל שעון לשלב ששמו [base], ומפעיל טיימר רק כשזו התחלה חדשה.
   void _startStageClock(String base) {

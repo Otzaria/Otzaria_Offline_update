@@ -14,14 +14,14 @@ dependencies:
     sdk: flutter
   seforim_library_updater:
     git:
-      url: https://github.com/Otzaria/otzaria_library_updater.git
-      ref: 0b508aad37d5eb04640c5f2497d16ce9a2f9555b
+      url: https://github.com/Yehuda-Zakesh/otzaria_library_updater.git
+      ref: cd7446411fd7c1696034e47824f1434f189e290e
   sqlite3_flutter_libs: ^0.5.24
   otzaria_l10n:
     path: ../otzaria_l10n
   otzaria_manager:
     path: ../otzaria_manager
-  otzaria_search_engine: 6.0.0
+  otzaria_search_engine: 7.0.1
   zstandard: ^1.3.26
   # ה-bindings של libzstd שחבילת zstandard מביאה איתה בכל מקרה. נדרשים
   # ישירות בשביל ה-streaming API (ZSTD_decompressStream) — ראו

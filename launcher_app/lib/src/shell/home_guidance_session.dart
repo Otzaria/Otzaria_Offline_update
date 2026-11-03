@@ -1,3 +1,5 @@
+import 'package:library_manager/library_manager.dart' show SmartSearchState;
+
 import '../controllers/library_module_controller.dart';
 import '../controllers/online_check.dart';
 import '../controllers/otzaria_module_controller.dart';
@@ -29,7 +31,13 @@ GuidanceFacts guidanceFactsFromSession(
     libraryApplyActive: library.isApplying,
     libraryStatus: LibraryStatusFact.values.byName(library.status.name),
     libraryFreshInstall: library.isFreshInstall,
+    libraryAwaitsApp: library.awaitsOtzariaUpdate,
     semanticConsentRequired: s.semanticConsentUnanswered,
+    smartSearch: smartSearchFactOf(
+      library,
+      consentDeclined:
+          library.semanticConsentRequired && !s.semanticConsentUnanswered,
+    ),
     pluginsLoading: pluginsLoading,
     pluginUpdatesOnDrive: pluginsReady ? plugins.updatablePlugins.length : 0,
     online: onlineState(s),
@@ -62,6 +70,27 @@ GuidanceFacts guidanceFactsFromSession(
     pluginsClosedForShabbat: plugins.onlineClosedForShabbat,
   );
 }
+
+/// `null` = לא רצה בדיקה מקומית; מצב הספרייה עצמו אומר את זה.
+/// [consentDeclined]: אחרי סירוב ה"מוכן בכונן" אינו דורש טיפול; ההערה נשארת בדף.
+SmartSearchFact smartSearchFactOf(
+  LibraryModuleController library, {
+  bool consentDeclined = false,
+}) =>
+    switch (library.semanticState) {
+      null ||
+      SmartSearchState.installedVerified ||
+      SmartSearchState.notInUse =>
+        SmartSearchFact.clear,
+      SmartSearchState.readyOnDrive when consentDeclined =>
+        SmartSearchFact.clear,
+      SmartSearchState.readyOnDrive => SmartSearchFact.readyOnDrive,
+      SmartSearchState.driveNotMatching => SmartSearchFact.notMatching,
+      SmartSearchState.needsDriveDownload => SmartSearchFact.needsDriveDownload,
+      SmartSearchState.unsupported => SmartSearchFact.unsupported,
+      SmartSearchState.unverified => SmartSearchFact.unverified,
+      SmartSearchState.partial => SmartSearchFact.partial,
+    };
 
 /// (מתי נבדק, שגיאה) של הבדיקות של רכיב אחד — מה הן מוכיחות עליו יחד.
 OnlineProof onlineProofOf(

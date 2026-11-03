@@ -603,6 +603,7 @@ void main() {
       final assets = offline();
       try {
         await assets.install(
+          generation: SemanticModelGeneration.round2,
           mirrorDir: mirror,
           dbPath: db,
           libraryVersion: 30,
@@ -618,6 +619,7 @@ void main() {
       final assets = offline();
       try {
         return await assets.pending(
+          generation: SemanticModelGeneration.round2,
           mirrorDir: mirror,
           dbPath: db,
           libraryVersion: 30,
@@ -701,6 +703,7 @@ void main() {
         var cancelled = false;
         await expectLater(
           assets.install(
+            generation: SemanticModelGeneration.round2,
             mirrorDir: mirror,
             dbPath: db,
             libraryVersion: 30,
@@ -758,6 +761,63 @@ void main() {
       expect(engine.version, 30);
       expect(engine.disposed, isTrue);
     });
+
+    for (final errno in Platform.isWindows ? [1392, 1393, 23] : [5, 117]) {
+      test('native corrupt base errno $errno keeps its type and restores '
+          'the old marker', () async {
+        github.windowsBase(30);
+        await sync(SemanticFleet([windowsAt(29, needsBase: true)]));
+        await writeInstalledSet(vectors, version: 29, identity: identityB);
+        final error = SemanticError(
+          kind: SemanticErrorKind.internal,
+          message:
+              'install: Artifact IO error (creating vectors): '
+              'native I/O failure (os error $errno)',
+        );
+        engine = FakeVectorsEngine(version: 29, error: error);
+
+        await expectLater(
+          install(),
+          throwsA(
+            isA<StorageCorruptException>()
+                .having((e) => e.errno, 'errno', errno)
+                .having((e) => e.dir, 'dir', vectors)
+                .having((e) => e.cause, 'cause', same(error)),
+          ),
+        );
+        expect(
+          File(
+            p.join(vectors, SemanticSearchAssets.windowsIdentityFileName),
+          ).readAsStringSync(),
+          identityB,
+        );
+        expect(engine.disposed, isTrue);
+      });
+
+      test('native corrupt compaction errno $errno keeps its type', () async {
+        await chainMirror();
+        await writeInstalledSet(vectors, version: 29);
+        final error = SemanticError(
+          kind: SemanticErrorKind.internal,
+          message:
+              'compact: Artifact IO error (creating vectors): '
+              'native I/O failure (os error $errno)',
+        );
+        engine = FakeVectorsEngine(version: 29)..compactionError = error;
+
+        await expectLater(
+          install(),
+          throwsA(
+            isA<StorageCorruptException>()
+                .having((e) => e.errno, 'errno', errno)
+                .having((e) => e.dir, 'dir', vectors)
+                .having((e) => e.cause, 'cause', same(error)),
+          ),
+        );
+        expect(engine.version, 30);
+        expect(engine.disposed, isTrue);
+      });
+    }
 
     for (final (installed, expected) in [
       (27, [(27, 28), (28, 29), (29, 30)]),
@@ -886,6 +946,7 @@ void main() {
       try {
         expect(
           await assets.pending(
+            generation: SemanticModelGeneration.round2,
             mirrorDir: mirror,
             dbPath: db,
             libraryVersion: 30,
@@ -898,6 +959,7 @@ void main() {
         engine = FakeVectorsEngine(version: 30);
         expect(
           await assets.install(
+            generation: SemanticModelGeneration.round2,
             mirrorDir: mirror,
             dbPath: db,
             libraryVersion: 30,
@@ -919,6 +981,7 @@ void main() {
       addTearDown(assets.dispose);
       expect(
         await assets.install(
+          generation: SemanticModelGeneration.round2,
           mirrorDir: mirror,
           dbPath: db,
           libraryVersion: 30,
@@ -943,6 +1006,7 @@ void main() {
       addTearDown(assets.dispose);
       expect(
         await assets.install(
+          generation: SemanticModelGeneration.round2,
           mirrorDir: mirror,
           dbPath: db,
           libraryVersion: 30,
@@ -1115,6 +1179,7 @@ void main() {
     addTearDown(assets.dispose);
     await expectLater(
       assets.install(
+        generation: SemanticModelGeneration.round2,
         mirrorDir: mirror,
         dbPath: db,
         libraryVersion: 30,

@@ -75,6 +75,9 @@ class PluginsModuleController extends ChangeNotifier
     this.ensureAppVersionsKnown,
     this.installWatchInterval = const Duration(seconds: 1),
     this.installWatchTimeout = const Duration(minutes: 5),
+    this.installWatchLateInterval = const Duration(seconds: 20),
+    this.installWatchMaxWait = const Duration(minutes: 30),
+    this.isOtzariaRunning,
     http.Client? httpClient,
     PluginsManager? manager,
   })  : _manager = manager ??
@@ -125,6 +128,15 @@ class PluginsModuleController extends ChangeNotifier
   /// רק כדי שבדיקות לא יחכו בזמן אמת.
   final Duration installWatchInterval;
   final Duration installWatchTimeout;
+
+  /// אחרי [installWatchTimeout], כל עוד אוצריא פתוחה, הסריקה ממשיכה בקצב הזה.
+  final Duration installWatchLateInterval;
+
+  /// תקרה מוחלטת מרגע המסירה, גם כשאוצריא נשארת פתוחה.
+  final Duration installWatchMaxWait;
+
+  /// בדיקת תהליך טרייה: אוצריא שנפתחה קר עשויה לסיים להתקין אחרי הפסק הזמן.
+  final Future<bool> Function()? isOtzariaRunning;
 
   /// התשובה האחרונה של [installedAppVersion]. `null` = לא ידוע (אוצריא לא
   /// זוהתה), ואז אין מול מה לסנן והבילד החי הוא שנבחר.
@@ -387,6 +399,7 @@ class PluginsModuleController extends ChangeNotifier
     try {
       await refreshAppVersion();
       final scanned = await _manager.scanInstalled();
+      if (isDisposed) return;
       if (!mapEquals(installed, scanned.versions) ||
           !setEquals(_disabled, scanned.disabled) ||
           !setEquals(_development, scanned.development)) {
@@ -394,7 +407,12 @@ class PluginsModuleController extends ChangeNotifier
         _invalidateDerived();
         notifyListeners();
       }
-      _settleInstallWatch(scanned.versions, reports: await _installReports());
+      final reports = await _installReports();
+      if (isDisposed) return;
+      final open = await _otzariaOpenPastDeadline();
+      if (isDisposed) return;
+      _settleInstallWatch(scanned.versions,
+          reports: reports, otzariaOpen: open);
     } catch (e, st) {
       AppLogger.instance.error('סריקת התוספים המותקנים נכשלה', e, st);
     }
@@ -423,8 +441,18 @@ class PluginsModuleController extends ChangeNotifier
   /// האם ממתינים כרגע לאוצריא שתסיים התקנה כלשהי.
   bool get isAwaitingInstall => _pendingInstalls.isNotEmpty;
 
-  bool isAwaitingInstallOf(StorePlugin plugin) =>
-      _pendingInstalls.containsKey(plugin.id);
+  /// בחלון ההתחלתי בלבד: אחריו ההמתנה נמשכת ברקע והכרטיס חוזר לפעולה.
+  bool get isInInstallWindow {
+    final now = DateTime.now();
+    return _pendingInstalls.values.any((p) => now.isBefore(p.deadline));
+  }
+
+  bool isAwaitingInstallOf(StorePlugin plugin) {
+    final pending = _pendingInstalls[plugin.id];
+    return pending != null && DateTime.now().isBefore(pending.deadline);
+  }
+
+  final Set<String> _windowClosedNotified = {};
 
   /// מתחיל להמתין להתקנה של [plugin] באוצריא. ציבורי כדי שבדיקות יוכלו
   /// להריץ את ההמתנה בלי למסור URL למערכת ההפעלה.
@@ -442,21 +470,48 @@ class PluginsModuleController extends ChangeNotifier
       manifestId: manifestId,
       versionBefore: installed[manifestId],
       deadline: DateTime.now().add(installWatchTimeout),
+      hardDeadline: (handedOffAt ?? DateTime.now()).add(installWatchMaxWait),
       deliveredPath: deliveredPath,
       handedOffAt: handedOffAt ?? DateTime.now(),
     );
+    _windowClosedNotified.remove(plugin.id);
     _installWatch ??= Timer.periodic(installWatchInterval, _tick);
     notifyListeners();
   }
 
+  DateTime? _lastLateScan;
+
   void _tick(Timer _) {
+    final now = DateTime.now();
+    var windowClosed = false;
+    for (final entry in _pendingInstalls.entries) {
+      if (!now.isBefore(entry.value.deadline) &&
+          _windowClosedNotified.add(entry.key)) {
+        windowClosed = true;
+      }
+    }
+    if (windowClosed) notifyListeners();
+    // אחרי המועד הסריקה מתדללת: היא רצה רק כל עוד אוצריא פתוחה.
+    if (_pendingInstalls.values.every((p) => !now.isBefore(p.deadline))) {
+      final last = _lastLateScan;
+      if (last != null && now.difference(last) < installWatchLateInterval) {
+        return;
+      }
+      _lastLateScan = now;
+    }
     // חנות שאינה מוכנה (טעינה / סנכרון / שגיאה) לא נסרקת, אבל המועד שעבר
     // חייב לסגור את ההמתנה גם אז — אחרת הטיימר רץ עד סוף ההרצה.
     if (status == PluginsModuleStatus.ready) {
       unawaited(refreshInstalled());
     } else {
-      _settleInstallWatch(installed);
+      unawaited(_settleWithoutScan());
     }
+  }
+
+  Future<void> _settleWithoutScan() async {
+    final open = await _otzariaOpenPastDeadline();
+    if (isDisposed) return;
+    _settleInstallWatch(installed, otzariaOpen: open);
   }
 
   /// סוגר את מה שהסריקה הוכיחה: גרסה שהשתנתה = ההתקנה הסתיימה, ומועד
@@ -484,9 +539,24 @@ class PluginsModuleController extends ChangeNotifier
     };
   }
 
+  Future<bool> _otzariaOpenPastDeadline() async {
+    final probe = isOtzariaRunning;
+    final now = DateTime.now();
+    if (probe == null ||
+        _pendingInstalls.values.every((p) => now.isBefore(p.deadline))) {
+      return false;
+    }
+    try {
+      return await probe();
+    } catch (_) {
+      return false;
+    }
+  }
+
   void _settleInstallWatch(
     Map<String, String> scanned, {
     Map<String, PluginInstallReport> reports = const {},
+    bool otzariaOpen = false,
   }) {
     if (_pendingInstalls.isEmpty) return;
 
@@ -508,7 +578,8 @@ class PluginsModuleController extends ChangeNotifier
         done.add(pending.name);
         return true;
       }
-      return !now.isBefore(pending.deadline);
+      if (!now.isBefore(pending.hardDeadline)) return true;
+      return !now.isBefore(pending.deadline) && !otzariaOpen;
     });
 
     if (_pendingInstalls.length == countBefore) return; // עוד מחכים
@@ -1388,6 +1459,7 @@ class _PendingInstall {
     required this.manifestId,
     required this.versionBefore,
     required this.deadline,
+    required this.hardDeadline,
     required this.handedOffAt,
     this.deliveredPath,
   });
@@ -1396,6 +1468,7 @@ class _PendingInstall {
   final String manifestId;
   final String? versionBefore;
   final DateTime deadline;
+  final DateTime hardDeadline;
   final DateTime handedOffAt;
   final String? deliveredPath;
 }

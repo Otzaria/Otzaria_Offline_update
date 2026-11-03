@@ -336,6 +336,9 @@ class L10nLibraryUpdaterMessages implements LibraryUpdaterMessages {
       _s.writeResumeSidecarFailed(path, error);
 
   @override
+  String destinationBusy(String path) => _s.destinationBusy(path);
+
+  @override
   String checksumMismatchDetailed(
     String label,
     String expected,

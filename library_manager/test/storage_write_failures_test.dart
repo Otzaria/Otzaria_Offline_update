@@ -16,6 +16,26 @@ import 'support/semantic_fixtures.dart';
 /// כשל כתיבה אסינכרוני ("הכונן מלא") בנתיבי IOSink: הוא חייב להגיע לקורא
 /// כשגיאה אחת, בזמן שהמקור עוד פתוח, בלי zone error ובלי להחליף קובץ תקין.
 void main() {
+  test('throwStorageAware: a damaged drive is a StorageCorruptException', () {
+    final damaged = FileSystemException(
+      'read',
+      p.join('E:', 'm', 'f.bin'),
+      OSError('', Platform.isWindows ? 1392 : 5),
+    );
+    expect(
+      () => throwStorageAware(damaged, StackTrace.current, 'fallback'),
+      throwsA(isA<StorageCorruptException>()),
+    );
+    expect(
+      () => throwStorageAware(
+        const FileSystemException('x'),
+        StackTrace.current,
+        'fallback',
+      ),
+      throwsA(isA<FileSystemException>()),
+    );
+  });
+
   const bounded = Timeout(Duration(seconds: 15));
   late Directory temp;
 

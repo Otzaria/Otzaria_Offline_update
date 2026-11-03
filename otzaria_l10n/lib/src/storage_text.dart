@@ -61,6 +61,18 @@ import 'storage_failure.dart';
 
 /// ה-errno שבתוך טקסט של [FileSystemException] (`OS Error: ..., errno = 112`).
 final _osErrno = RegExp(r'OS Error:[\s\S]*?errno = (\d+)');
+
+/// האחרון מבין ה-errno שבטקסט שעונה על [match]: טקסט מעורב (שגיאת רשת ואחריה
+/// שגיאת קובץ) לא נקבע לפי הראשון.
+int? _errnoWhere(String text, bool Function(int errno) match) {
+  int? found;
+  for (final m in _osErrno.allMatches(text)) {
+    final errno = int.tryParse(m.group(1) ?? '');
+    if (errno != null && match(errno)) found = errno;
+  }
+  return found;
+}
+
 final _errorPath = RegExp(r"path = '([^']*)'");
 
 /// המתאם היחיד לכשלי אחסון ש-`seforim_library_updater` מגיש כטקסט בלבד (בלי
@@ -76,8 +88,11 @@ StorageFullException? storageFullFromUpstream(Object? error, {bool? windows}) {
   if (parseNotEnoughSpace(text) != null) {
     return StorageFullException(message: text, cause: error);
   }
-  final errno = int.tryParse(_osErrno.firstMatch(text)?.group(1) ?? '');
-  if (errno != null && isStorageFullErrno(errno, windows: windows)) {
+  final errno = _errnoWhere(
+    text,
+    (e) => isStorageFullErrno(e, windows: windows),
+  );
+  if (errno != null) {
     return StorageFullException(
       dir: _dirOf(_errorPath.firstMatch(text)?.group(1) ?? ''),
       cause: error,
@@ -90,4 +105,40 @@ String? _dirOf(String path) {
   if (path.isEmpty) return null;
   final cut = path.lastIndexOf(RegExp(r'[\\/]'));
   return cut <= 0 ? null : path.substring(0, cut);
+}
+
+/// המתאם לקובץ פגום שהמנוע מגיש כטקסט (`PatchDownloadException` שעוטף
+/// `FileSystemException`): errno בתוך ההודעה. אחרת `null`.
+StorageCorruptException? storageCorruptFromUpstream(
+  Object? error, {
+  bool? windows,
+  bool? macos,
+}) {
+  if (error == null) return null;
+  if (error is StorageCorruptException) return error;
+  final tool = DriveCheckTool.forPlatform(windows: windows, macos: macos);
+  if (isStorageCorrupt(error, windows: windows)) {
+    final path = error is FileSystemException ? error.path : null;
+    final os = error is FileSystemException ? error.osError : error;
+    return StorageCorruptException(
+      dir: _dirOf(path ?? ''),
+      cause: error,
+      errno: os is OSError ? os.errorCode : null,
+      tool: tool,
+    );
+  }
+  final text = error is StateError ? error.message : error.toString();
+  final errno = _errnoWhere(
+    text,
+    (e) => isStorageCorruptErrno(e, windows: windows),
+  );
+  if (errno != null) {
+    return StorageCorruptException(
+      dir: _dirOf(_errorPath.firstMatch(text)?.group(1) ?? ''),
+      cause: error,
+      errno: errno,
+      tool: tool,
+    );
+  }
+  return null;
 }

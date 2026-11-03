@@ -152,10 +152,22 @@ class LibraryModulePort
   bool get semanticAwaitsConsent => _library.semanticConsentRequired;
 
   @override
+  bool get awaitsAppUpdate => _library.awaitsOtzariaUpdate;
+
+  @override
   Future<void> update() => _library.update();
 
   @override
-  Future<void> recheck() => _library.checkForUpdate();
+  Future<bool> recheck() async {
+    await _library.checkForUpdate(fresh: true);
+    return switch (_library.status) {
+      LibraryModuleStatus.error || LibraryModuleStatus.needsManualPath => false,
+      _ => true,
+    };
+  }
+
+  @override
+  String? get semanticOpenNote => _library.semanticOpenNote;
 
   @override
   int? get targetVersion => _library.targetVersion;

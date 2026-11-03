@@ -267,6 +267,59 @@ void main() {
     }
   });
 
+  group('the smart-search plan of a drive with no recorded computers', () {
+    Future<void> mirrorInstaller(String tag) async {
+      final mirror = p.join(tempDir.path, 'mirror', 'app');
+      const relative = 'installers/otzaria.exe';
+      final installer = File(p.join(mirror, relative));
+      await installer.parent.create(recursive: true);
+      await installer.writeAsString('installer');
+      final release = OtzariaRelease(
+        tagName: tag,
+        name: 'Otzaria',
+        isPrerelease: false,
+        isDraft: false,
+        publishedAt: null,
+        installerKind: OtzariaInstallerKind.windowsSetupExe,
+        installerAssetName: 'otzaria.exe',
+        installerDownloadUrl: 'https://example.test/installer',
+        installerSizeBytes: 9,
+      );
+      await File(p.join(mirror, 'latest-release.json'))
+          .writeAsString(jsonEncode({
+        'schemaVersion': 3,
+        'source': 'github-latest',
+        'latest': release.toJson()..['installerPath'] = relative,
+      }));
+    }
+
+    test('an installer of the QA491 generation on the drive plans QA491',
+        () async {
+      await mirrorInstaller('0.9.98.3');
+      final s = session();
+      expect(
+          await s.library.managerForTest.semanticFleetForTest().then(
+                (f) => [for (final g in f.groups) g.generation],
+              ),
+          [SemanticModelGeneration.qa491]);
+    }, skip: Platform.isWindows ? false : 'a Windows installer kind');
+
+    test('an installer of an unproven version plans no invented generation',
+        () async {
+      await mirrorInstaller('0.9.98.3-rc1');
+      final s = session();
+      final fleet = await s.library.managerForTest.semanticFleetForTest();
+      expect(fleet.groups, isEmpty);
+      expect(fleet.fallbackGenerations, isEmpty);
+    }, skip: Platform.isWindows ? false : 'a Windows installer kind');
+
+    test('the Otzaria module reports the versions of the drive installers',
+        () async {
+      await mirrorInstaller('0.9.98.3');
+      expect(await session().otzaria.mirroredInstallerVersions(), ['0.9.98.3']);
+    }, skip: Platform.isWindows ? false : 'a Windows installer kind');
+  });
+
   group('השאלה "מחשבים מרובים או רק המחשב שלי"', () {
     // בלי פריים השאלה אינה יוצאת — היא מחכה לפריים הראשון, כמו באפליקציה.
     void frame() => WidgetsBinding.instance

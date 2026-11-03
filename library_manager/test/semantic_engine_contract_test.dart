@@ -344,6 +344,7 @@ void main() {
       );
       addTearDown(offline.dispose);
       return offline.install(
+        generation: SemanticModelGeneration.round2,
         mirrorDir: mirror,
         dbPath: db,
         libraryVersion: version,
@@ -441,6 +442,7 @@ void main() {
       final offline = SemanticSearchAssets(models: fakeModels);
       addTearDown(offline.dispose);
       return offline.pending(
+        generation: SemanticModelGeneration.round2,
         mirrorDir: mirror,
         dbPath: db,
         libraryVersion: version,
@@ -485,6 +487,7 @@ void main() {
 
         expect(
           await offline.pending(
+            generation: SemanticModelGeneration.round2,
             mirrorDir: mirror,
             dbPath: db,
             libraryVersion: version,
@@ -524,17 +527,14 @@ void main() {
       ((manifest['identity'] as Map)['text'] as Map)['line_text_version'] = 1;
       final bytes = utf8.encode(jsonEncode(manifest));
       await file.writeAsBytes(bytes);
-      final metaFile = File(
-        p.join(mirror, SemanticSearchAssets.manifestFileName),
-      );
-      final meta = jsonDecode(await metaFile.readAsString()) as Map;
-      final target = windows ? meta['windows'] as Map : meta;
-      final entry = windows ? target['base'] as Map : target;
-      entry[windows ? 'size' : 'manifestSize'] = bytes.length;
-      entry[windows ? 'sha256' : 'manifestSha256'] = Sha256Stream.ofBytes(
-        bytes,
-      );
-      await metaFile.writeAsString(jsonEncode(meta));
+      await editMirrorMeta(mirror, (record) {
+        if ((record['family'] == 'windows') != windows) return;
+        final entry = windows ? record['base'] as Map : record;
+        entry[windows ? 'size' : 'manifestSize'] = bytes.length;
+        entry[windows ? 'sha256' : 'manifestSha256'] = Sha256Stream.ofBytes(
+          bytes,
+        );
+      });
     }
 
     Future<({bool pending, SemanticEngineIncompatibleException? why})> check({
@@ -544,12 +544,14 @@ void main() {
       addTearDown(subject.dispose);
       return (
         pending: await subject.pending(
+          generation: SemanticModelGeneration.round2,
           mirrorDir: mirror,
           dbPath: db,
           libraryVersion: version,
           supportsWindows: windows,
         ),
         why: await subject.incompatibility(
+          generation: SemanticModelGeneration.round2,
           mirrorDir: mirror,
           libraryVersion: version,
           supportsWindows: windows,
@@ -622,6 +624,7 @@ void main() {
 
         expect(
           await offline.pending(
+            generation: SemanticModelGeneration.round2,
             mirrorDir: mirror,
             dbPath: db,
             libraryVersion: version,
@@ -631,6 +634,7 @@ void main() {
           isFalse,
         );
         final why = await offline.incompatibility(
+          generation: SemanticModelGeneration.round2,
           mirrorDir: mirror,
           libraryVersion: version,
           supportsWindows: true,
@@ -657,6 +661,7 @@ void main() {
 
           expect(
             await offline.incompatibility(
+              generation: SemanticModelGeneration.round2,
               mirrorDir: mirror,
               libraryVersion: version,
               supportsWindows: true,
@@ -683,13 +688,11 @@ void main() {
       ((manifest['identity'] as Map)['text'] as Map)['line_text_version'] = 1;
       final bytes = utf8.encode(jsonEncode(manifest));
       await manifestFile.writeAsBytes(bytes);
-      final metaFile = File(
-        p.join(mirror, SemanticSearchAssets.manifestFileName),
-      );
-      final meta = jsonDecode(await metaFile.readAsString()) as Map;
-      meta['manifestSize'] = bytes.length;
-      meta['manifestSha256'] = Sha256Stream.ofBytes(bytes);
-      await metaFile.writeAsString(jsonEncode(meta));
+      await editMirrorMeta(mirror, (record) {
+        if (record['family'] == 'windows') return;
+        record['manifestSize'] = bytes.length;
+        record['manifestSha256'] = Sha256Stream.ofBytes(bytes);
+      });
       github.legacyBase(version, lineTextVersion: 1);
     }
 
@@ -713,6 +716,7 @@ void main() {
 
         expect(
           await offline.incompatibility(
+            generation: SemanticModelGeneration.round2,
             mirrorDir: mirror,
             libraryVersion: version,
             supportsWindows: true,
@@ -732,6 +736,7 @@ void main() {
 
         expect(
           await offline.pending(
+            generation: SemanticModelGeneration.round2,
             mirrorDir: mirror,
             dbPath: db,
             libraryVersion: version,
@@ -740,6 +745,7 @@ void main() {
         );
         await expectLater(
           offline.install(
+            generation: SemanticModelGeneration.round2,
             mirrorDir: mirror,
             dbPath: db,
             libraryVersion: version,
@@ -748,6 +754,7 @@ void main() {
         );
         expect(
           (await offline.incompatibility(
+            generation: SemanticModelGeneration.round2,
             mirrorDir: mirror,
             libraryVersion: version,
           ))?.lineTextVersion,

@@ -94,6 +94,7 @@ void main() {
         p.join(p.dirname(db), SemanticSearchAssets.modelFolder),
       );
       final pending = await assets.pending(
+        generation: SemanticModelGeneration.round2,
         mirrorDir: mirror,
         dbPath: db,
         libraryVersion: 30,
@@ -117,6 +118,7 @@ void main() {
       );
       addTearDown(offline.dispose);
       await offline.install(
+        generation: SemanticModelGeneration.round2,
         mirrorDir: mirror,
         dbPath: db,
         libraryVersion: 30,
@@ -131,6 +133,7 @@ void main() {
       final legacyDb = p.join(temp.path, 'legacy', 'books', 'seforim.db');
       expect(
         await offline.pending(
+          generation: SemanticModelGeneration.round2,
           mirrorDir: mirror,
           dbPath: legacyDb,
           libraryVersion: 30,
@@ -138,6 +141,7 @@ void main() {
         isTrue,
       );
       await offline.install(
+        generation: SemanticModelGeneration.round2,
         mirrorDir: mirror,
         dbPath: legacyDb,
         libraryVersion: 30,
@@ -245,7 +249,7 @@ void main() {
       );
       await capabilities.parent.create(recursive: true);
       await capabilities.writeAsString(
-        '{"semanticVectorFamilies":["vectors-windows","vectors"]}',
+        '{"appVersion":"0.9.99","semanticVectorFamilies":["vectors-windows","vectors"]}',
       );
       for (var launch = 0; launch < 2; launch++) {
         final engine = FakeVectorsEngine(

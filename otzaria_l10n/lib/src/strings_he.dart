@@ -1,10 +1,20 @@
 import 'app_language.dart';
 import 'app_strings.dart';
 import 'plural.dart';
+import 'storage_failure.dart' show DriveCheckTool;
 
 /// גרסה, כונן או נתיב בתוך משפט עברי: בלי בידוד "0.10.5-beta" מתהפך
 /// ל-"beta-0.10.5" ו-"C:" ל-":C". חובה לכל תבנית כזו — `ltr_isolation_test`.
 String _ltr(String value) => '\u2066$value\u2069';
+
+String _heCode(int? errno) => errno == null ? '' : ' (שגיאה ${_ltr('$errno')})';
+
+String _heCheck(DriveCheckTool tool) => switch (tool) {
+      DriveCheckTool.chkdsk => 'בדוק את הכונן (${_ltr('chkdsk')})',
+      DriveCheckTool.diskUtility =>
+        'הפעל עזרה ראשונה (First Aid) לכונן ב-${_ltr('Disk Utility')}',
+      DriveCheckTool.fsck => 'בדוק את מערכת הקבצים (${_ltr('fsck')})',
+    };
 
 /// עברית — ברירת המחדל. הנוסח כאן הוא המקור; האנגלית היא תרגום חופשי שלו.
 class HebrewStrings extends AppStrings {
@@ -127,6 +137,15 @@ class _Common extends CommonStrings {
   @override
   String get storageFullUnknownDir =>
       'הכונן התמלא והכתיבה נעצרה. פנה מקום בכונן ונסה שוב — מה שכבר ירד נשמר.';
+  @override
+  String storageDamagedNoDetails(String dir, DriveCheckTool tool, int? errno) =>
+      'קובץ ב-${_ltr(dir)} פגום ואינו קריא${_heCode(errno)} — כשל בכונן או '
+      'במערכת הקבצים, לא ברשת. ${_heCheck(tool)}, ואם השגיאה חוזרת — החלף כונן; מה שכבר '
+      'ירד תקין נשמר.';
+  @override
+  String storageDamagedUnknownDir(DriveCheckTool tool, int? errno) =>
+      'קובץ בכונן פגום ואינו קריא${_heCode(errno)} — כשל בכונן או במערכת '
+      'הקבצים, לא ברשת. ${_heCheck(tool)}, ואם השגיאה חוזרת — החלף כונן; מה שכבר ירד תקין נשמר.';
 }
 
 class _Shell extends ShellStrings {
@@ -378,6 +397,14 @@ class _Task extends TaskStrings {
   String spaceBody(String needed, String free) =>
       'נדרשים \u2066$needed\u2069 ופנויים \u2066$free\u2069. פנה מקום בכונן ולחץ "נסה שוב" — מה שכבר ירד נשמר.';
   @override
+  String get driveDamagedTitle => 'הכונן או קובץ בו פגומים';
+  @override
+  String driveDamagedBodyFor(DriveCheckTool tool, int? errno) =>
+      'המערכת דיווחה שקובץ בכונן פגום ואינו קריא${_heCode(errno)}. '
+      'זה כשל של הכונן או של מערכת הקבצים, לא של הרשת, ולכן "נסה שוב" לבדו לא יעזור. '
+      '${_heCheck(tool)}, ואם השגיאה חוזרת — החלף כונן. מה שכבר ירד '
+      'תקין נשמר ולא נמחק.';
+  @override
   String get snapshotTitle => 'ההורדה לא התחילה';
   @override
   String get snapshotBody =>
@@ -476,6 +503,9 @@ class _Task extends TaskStrings {
   @override
   String get librarySkipped => 'לא הותקנה עכשיו — אפשר להתקין אחר כך מדף הבית';
   @override
+  String get libraryAwaitsApp =>
+      'הספרייה ממתינה לעדכון התוכנה, שעוד לא אפשר להתקין — אפשר לנסות שוב אחר כך';
+  @override
   String pluginsWaiting(int count) => plural(
         count,
         one: 'תוסף אחד · יישלח לאוצריא',
@@ -509,6 +539,8 @@ class _Task extends TaskStrings {
   @override
   String get updatedTitle => 'אוצריא מעודכנת';
   @override
+  String get doneWithNoteTitle => 'הושלם, עם הערה';
+  @override
   String doneHereBody({
     required bool firstInstall,
     required bool app,
@@ -533,8 +565,7 @@ class _Task extends TaskStrings {
                 : null;
     return [
       if (done != null) done,
-      if (library && libraryNote)
-        'נשאר דבר אחד לעשות — ראה בשורת ספריית אוצריא.',
+      if (libraryNote) 'נשאר דבר אחד לעשות — ראה בשורת ספריית אוצריא.',
       if (plugins) 'התוספים מחכים לאישור שלך באוצריא.',
       'אפשר לנתק את הכונן.',
     ].join(' ');
@@ -1224,6 +1255,20 @@ class _Guide extends GuidanceStrings {
   String get chipAttention => 'משהו השתבש';
   @override
   String get chipLibraryUpToDate => 'מעודכנת';
+  @override
+  String get chipSmartSearchOpen => 'החיפוש החכם דורש טיפול';
+  @override
+  String get smartSearchReadyTitle => 'החיפוש החכם ממתין להתקנה';
+  @override
+  String get smartSearchNotMatchingTitle =>
+      'החיפוש החכם שבכונן אינו מתאים למחשב הזה';
+  @override
+  String get smartSearchUnsupportedTitle =>
+      'אי אפשר להתאים חיפוש חכם לאוצריא המותקנת';
+  @override
+  String get smartSearchUnverifiedTitle => 'החיפוש החכם לא נבדק';
+  @override
+  String get smartSearchPartialTitle => 'החיפוש החכם הותקן חלקית';
   @override
   String chipPluginUpdates(int count) =>
       count == 1 ? '1 עדכון בכונן' : '$count עדכונים בכונן';
@@ -3162,6 +3207,9 @@ class _LibraryDomain extends LibraryDomainStrings {
   String writeResumeSidecarFailed(String path, String error) =>
       'כתיבת קובץ הזהות להמשך ההורדה נכשלה (${_ltr(path)}): $error';
   @override
+  String destinationBusy(String path) =>
+      'הורדה אחרת כבר כותבת לאותו יעד (${_ltr(path)}); נסה שוב כשתסתיים.';
+  @override
   String checksumMismatchDetailed(
     String label,
     String expected,
@@ -3401,12 +3449,51 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get semanticConsentRequired =>
       'קובצי החיפוש החכם נמצאים בכונן. לפני התקנתם יש לאשר איסוף נתוני אימון. אפשר לאשר כאן כשאוצריא סגורה, או להפעיל את ההסכמה בהגדרות אוצריא ולבדוק שוב.';
   @override
+  String get semanticStatusAppUnproven =>
+      'לא ניתן להוכיח איזה מודל חיפוש חכם אוצריא המותקנת קוראת, ולכן דבר לא הותקן ולא הוכרז כמעודכן. יש לעדכן את הכלי או להפעיל את אוצריא פעם אחת ולבדוק שוב.';
+  @override
+  String get semanticStatusDriveNotMatching =>
+      'נתוני החיפוש החכם שבכונן אינם מתאימים לאוצריא המותקנת (דור מודל או צורת וקטורים אחרים). יש להוריד שוב חיפוש חכם לכונן במחשב מחובר.';
+  @override
+  String get semanticStatusVerificationFailed =>
+      'החיפוש החכם נכתב, אך הבדיקה שלאחר מכן לא אישרה שאוצריא המותקנת יכולה להשתמש בו.';
+  @override
+  String get semanticStatusDriveUnreadable =>
+      'בכונן יש קובץ חיפוש חכם שהכלי לא הצליח לקרוא (פגום או מגרסה חדשה יותר), ולכן לא ידוע אם החיפוש החכם מעודכן. יש לעדכן את הכלי או להוריד שוב חיפוש חכם לכונן במחשב מחובר.';
+  @override
+  String get semanticStatusNeedsDriveDownload =>
+      'בכונן אין נתוני חיפוש חכם לספרייה הזו. יש להוריד אותם לכונן במחשב מחובר לרשת; אי אפשר להביא אותם מכאן.';
+  @override
+  String get semanticStatusCheckFailed =>
+      'בדיקת החיפוש החכם לא הושלמה, ולכן לא ידוע אם הוא מעודכן. אפשר לבדוק שוב.';
+  @override
+  String get semanticStatusAppCannotRead =>
+      'אוצריא המותקנת ישנה מדי, או שלא הוכח שהיא יכולה לקרוא את נתוני החיפוש החכם שבכונן. יש לעדכן את אוצריא מהכונן או את הכלי, ולבדוק שוב.';
+  @override
+  String get semanticStatusReadyOnDrive =>
+      'בכונן יש נתוני חיפוש חכם מתאימים, והם עוד לא הותקנו במחשב הזה.';
+  @override
+  String get semanticPartModel => 'המודל';
+  @override
+  String get semanticPartVectors => 'הווקטורים';
+  @override
+  String get semanticPartPreferences => 'הגדרות אוצריא';
+  @override
+  String semanticStatusPartial(String missing) =>
+      'החיפוש החכם הותקן חלקית. חסר: $missing.';
+  @override
   String get semanticFullDownloadNeeded =>
       'החיפוש החכם במחשב זה אינו בגרסה שהעדכון החלקי שבכונן ממשיך ממנה, ולכן לא הותקן. בהורדה הבאה במחשב המקוון תירד חבילת החיפוש החכם המלאה.';
   @override
   String companionChecking(String name) => 'בודק $name...';
   @override
   String companionDownloading(String name) => 'מוריד $name…';
+  @override
+  String companionVerifying(String name, int percent) =>
+      'מאמת $name — $percent%';
+  @override
+  String companionAssembling(String name, int percent) =>
+      'מרכיב $name מחלקיו — $percent%';
   @override
   String companionInstalling(String name) => 'מתקין $name…';
   @override

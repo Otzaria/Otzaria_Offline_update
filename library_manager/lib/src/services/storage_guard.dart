@@ -71,10 +71,24 @@ class GuardedSink {
   }
 }
 
-/// Rethrows [error] as [StorageFullException] when it is a full drive,
-/// otherwise unchanged; [fallbackDir] names the volume when [error] names none.
+/// Rethrows [error] as [StorageFullException] (full drive) or
+/// [StorageCorruptException] (damaged); [fallbackDir] names the volume if none.
 Never throwStorageAware(Object error, StackTrace stack, String fallbackDir) {
-  if (!isStorageFull(error)) Error.throwWithStackTrace(error, stack);
+  if (!isStorageFull(error)) {
+    final damaged = storageCorruptFromUpstream(error);
+    if (damaged == null) Error.throwWithStackTrace(error, stack);
+    Error.throwWithStackTrace(
+      damaged.dir != null
+          ? damaged
+          : StorageCorruptException(
+              dir: fallbackDir,
+              cause: error,
+              errno: damaged.errno,
+              tool: damaged.tool,
+            ),
+      stack,
+    );
+  }
   final path = error is FileSystemException ? error.path : null;
   Error.throwWithStackTrace(
     StorageFullException(
@@ -92,9 +106,23 @@ StorageFullException? storageFullFromEngine(Object error, String dir) {
   if (error.kind == SemanticErrorKind.insufficientDiskSpace) {
     return StorageFullException(dir: dir, cause: error);
   }
-  final code = RegExp(r'os error (\d+)').firstMatch(error.message)?.group(1);
-  final errno = int.tryParse(code ?? '');
+  final errno = _nativeStorageErrno(error);
   return errno != null && isStorageFullErrno(errno)
       ? StorageFullException(dir: dir, cause: error)
       : null;
 }
+
+IOException? storageFailureFromEngine(Object error, String dir) {
+  final full = storageFullFromEngine(error, dir);
+  if (full != null) return full;
+  final errno = _nativeStorageErrno(error);
+  return errno != null && isStorageCorruptErrno(errno)
+      ? StorageCorruptException(dir: dir, cause: error, errno: errno)
+      : null;
+}
+
+int? _nativeStorageErrno(Object error) => error is SemanticError
+    ? int.tryParse(
+        RegExp(r'os error (\d+)').firstMatch(error.message)?.group(1) ?? '',
+      )
+    : null;

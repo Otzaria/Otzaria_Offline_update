@@ -910,6 +910,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           fraction: s.library.downloadProgress,
           others: others,
           finished: finished,
+          localWork: s.library.downloadLocalWork,
         );
       case MirrorComponent.plugins:
         return DownloadSnapshot(

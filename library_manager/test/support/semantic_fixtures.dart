@@ -15,6 +15,12 @@ const identityA =
 const identityB =
     'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
+/// QA491 windows and anchor identities.
+const identityC =
+    'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+const identityD =
+    'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd';
+
 String libraryTagOf(int version) => 'v$version-20261001000000';
 
 String baseManifestName(int v) =>
@@ -39,10 +45,35 @@ final List<SemanticAsset> fakeModels = [
     (name: key, size: value.length, sha256: Sha256Stream.ofBytes(value)),
 ];
 
-Future<void> installModels(String dir) async {
+const fakeQa491ModelJson = '{"fake":"qa491 model identity"}';
+final _fakeQa491Bytes = <String, List<int>>{
+  'model.json': utf8.encode(fakeQa491ModelJson),
+  'LICENSE': utf8.encode('fake qa491 license'),
+};
+
+/// A QA491 spec with small stand-ins for its files (pass as `specs:`).
+final SemanticModelSpec fakeQa491Spec = SemanticModelSpec(
+  generation: SemanticModelGeneration.qa491,
+  folder: SemanticModelSpec.qa491.folder,
+  baseUrl: SemanticModelSpec.qa491.baseUrl,
+  familyId: SemanticModelSpec.qa491.familyId,
+  tokenizerChecksum: SemanticModelSpec.qa491.tokenizerChecksum,
+  files: [
+    for (final MapEntry(:key, :value) in _fakeQa491Bytes.entries)
+      (name: key, size: value.length, sha256: Sha256Stream.ofBytes(value)),
+  ],
+  windowsIdentityJson: kQa491WindowsModelIdentityJson,
+);
+
+final fakeSpecs = <SemanticModelGeneration, SemanticModelSpec>{
+  SemanticModelGeneration.qa491: fakeQa491Spec,
+};
+
+Future<void> installModels(String dir, {bool qa491 = false}) async {
   await Directory(dir).create(recursive: true);
   await File(p.join(dir, '.otzaria-semantic')).writeAsString('');
-  for (final MapEntry(:key, :value) in _fakeModelBytes.entries) {
+  for (final MapEntry(:key, :value)
+      in (qa491 ? _fakeQa491Bytes : _fakeModelBytes).entries) {
     await File(p.join(dir, key)).writeAsBytes(value);
   }
 }
@@ -111,6 +142,7 @@ class FakeVectorsGithub {
     int lineTextVersion = 4,
     int keyVersion = 1,
     bool emptyText = false,
+    String? familyId,
   }) => {
     'format': 'otzaria-vectors-release',
     'formatVersion': 1,
@@ -120,8 +152,7 @@ class FakeVectorsGithub {
           ? <String, Object?>{}
           : {'line_text_version': lineTextVersion, 'key_version': keyVersion},
       'model': {
-        'family_id':
-            'ArieLLL123/judaic-semantic-round2-onnx-zayit@1ec8dc68888bcea774ae9f735b2fe7cd9dc7f3ca',
+        'family_id': familyId ?? SemanticModelSpec.round2.familyId,
         'tokenizer_checksum': SemanticSearchAssets.modelFiles[1].sha256,
         'chunking_identity': chunking,
       },
@@ -207,6 +238,61 @@ class FakeVectorsGithub {
     );
   }
 
+  /// QA491 base of [v]: windows form (`vectors-qa491-windows-`) or anchor.
+  void qa491Base(
+    int v, {
+    bool windows = false,
+    String? identity,
+    int segmentSize = 800,
+    int lineTextVersion = 4,
+    int keyVersion = 1,
+  }) {
+    final segment = _bytes(segmentSize, v + (windows ? 13 : 17));
+    final digest = identity ?? (windows ? identityC : identityD);
+    final manifestName =
+        'otzaria-vectors-qa491${windows ? 'w' : 'a'}-v$v-base.manifest.json';
+    final segmentName =
+        'otzaria-vectors-qa491${windows ? 'w' : 'a'}-v$v-base.oxv.zst';
+    _release(
+      'vectors-qa491-${windows ? 'windows-' : ''}${libraryTagOf(v)}',
+      manifestName: manifestName,
+      manifest: manifestOf(
+        kind: 'base',
+        from: 0,
+        to: v,
+        file: segmentName,
+        segment: segment,
+        identity: digest,
+        chunking: windows ? kWindowsChunkingIdentity : 2685558872390372738,
+        lineTextVersion: lineTextVersion,
+        keyVersion: keyVersion,
+        familyId: SemanticModelSpec.qa491.familyId,
+      ),
+      segmentName: segmentName,
+      segment: segment,
+    );
+  }
+
+  /// QA491 windows delta of [from]..[to].
+  void qa491Delta(int from, int to, {String? identity, int segmentSize = 40}) {
+    final segment = _bytes(segmentSize, from * 100 + to + 5);
+    _release(
+      'vectors-qa491-windows-delta-${libraryTagOf(to)}',
+      manifestName: 'otzaria-vectors-qa491w-v$from-v$to.manifest.json',
+      manifest: manifestOf(
+        kind: 'delta',
+        from: from,
+        to: to,
+        file: 'otzaria-vectors-qa491w-v$from-v$to.oxv.zst',
+        segment: segment,
+        identity: identity ?? identityC,
+        familyId: SemanticModelSpec.qa491.familyId,
+      ),
+      segmentName: 'otzaria-vectors-qa491w-v$from-v$to.oxv.zst',
+      segment: segment,
+    );
+  }
+
   /// [manifestFrom] lets the manifest disagree with the asset name.
   void delta(
     int from,
@@ -248,8 +334,12 @@ class FakeVectorsGithub {
     }
     final name = url.pathSegments.last;
     downloads.add(name);
-    if (url.toString().startsWith(SemanticSearchAssets.modelBaseUrl)) {
-      final bytes = _fakeModelBytes[name];
+    final qa491Model = url.toString().startsWith(
+      SemanticModelSpec.qa491.baseUrl,
+    );
+    if (qa491Model ||
+        url.toString().startsWith(SemanticSearchAssets.modelBaseUrl)) {
+      final bytes = (qa491Model ? _fakeQa491Bytes : _fakeModelBytes)[name];
       return bytes == null
           ? http.Response('', 404)
           : http.Response.bytes(bytes, 200);
@@ -271,6 +361,8 @@ Future<void> writeInstalledSet(
   required int version,
   String identity = identityA,
   bool windows = true,
+  String? familyId,
+  bool omitFamily = false,
 }) async {
   const segment = 'segments/0123456789abcdef0123456789abcdef.oxv';
   final segmentFile = File(p.join(vectors, segment));
@@ -281,6 +373,15 @@ Future<void> writeInstalledSet(
       'format': 'otzaria-vector-set',
       'format_version': 1,
       'generation': version,
+      'identity': {
+        'model': {
+          if (!omitFamily)
+            'family_id': familyId ?? SemanticModelSpec.round2.familyId,
+          'chunking_identity': windows
+              ? kWindowsChunkingIdentity
+              : 2685558872390372738,
+        },
+      },
       'identity_digest': identity,
       'library_version': version,
       'library_release_tag': libraryTagOf(version),
@@ -391,4 +492,23 @@ class FakeVectorsEngine implements SemanticVectorsEngine {
 
   @override
   void dispose() => disposed = true;
+}
+
+/// Applies [edit] to every record of `semantic.json` that describes a plan:
+/// the top level, `windows` and each entry of `plans`.
+Future<void> editMirrorMeta(
+  String mirrorDir,
+  void Function(Map<String, dynamic> record) edit,
+) async {
+  final file = File(p.join(mirrorDir, SemanticSearchAssets.manifestFileName));
+  final meta = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+  for (final record in [
+    meta,
+    if (meta['windows'] is Map) meta['windows'] as Map<String, dynamic>,
+    for (final plan in (meta['plans'] as List?) ?? const [])
+      plan as Map<String, dynamic>,
+  ]) {
+    edit(record);
+  }
+  await file.writeAsString(jsonEncode(meta));
 }

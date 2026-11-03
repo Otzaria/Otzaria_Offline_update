@@ -8,6 +8,7 @@ import 'package:launcher_app/src/services/byte_size.dart';
 import 'package:launcher_app/src/shell/shell_keys.dart';
 import 'package:launcher_app/src/shell/shell_tasks.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import 'task_fixtures.dart';
 import 'test_harness.dart';
@@ -551,6 +552,135 @@ void main() {
       expect(line(tester, 'task.download.speed'), t.speedStalled);
     });
 
+    testWidgets('אימות על הכונן: כיתוב השלב במקום "ממתין לנתונים" וזמן שקרי',
+        (tester) async {
+      final progress = ValueNotifier(0);
+      var now = DateTime(2026, 10, 23);
+      const mb = 1024 * 1024;
+      final verifying = AppL10n.strings.libraryDomain
+          .exportVerifying('v35', 'patch.db.zst', 40);
+      String? local;
+      await pumpScreen(
+        tester,
+        DownloadTaskView(
+          task: const DownloadTask(
+            phase: DownloadTaskPhase.running,
+            components: [MirrorComponent.library],
+          ),
+          progress: progress,
+          clock: () => now,
+          snapshot: () => DownloadSnapshot(
+            current: MirrorComponent.library,
+            fraction: 1,
+            received: 100 * mb,
+            total: 100 * mb,
+            localWork: local,
+          ),
+          actions: DownloadTaskActions(
+            onAnswer: (_) {},
+            onCancel: () {},
+            onRetry: () {},
+            onHome: () {},
+            onHere: () {},
+          ),
+        ),
+      );
+      local = verifying;
+      now = now.add(const Duration(seconds: 10));
+      progress.value++;
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(line(tester, 'task.download.speed'), verifying);
+      expect(percent(tester), '99%');
+    });
+
+    testWidgets('אחרון אחרי ששאר הרכיבים הסתיימו: 99% עד סוף האימות',
+        (tester) async {
+      final progress = ValueNotifier(0);
+      var now = DateTime(2026, 10, 23);
+      const mb = 1024 * 1024;
+      String? local;
+      await pumpScreen(
+        tester,
+        DownloadTaskView(
+          task: downloadScenarios['download']!,
+          progress: progress,
+          clock: () => now,
+          snapshot: () => DownloadSnapshot(
+            current: MirrorComponent.library,
+            finished: const {MirrorComponent.app, MirrorComponent.plugins},
+            fraction: 1,
+            received: 100 * mb,
+            total: 100 * mb,
+            localWork: local,
+          ),
+          actions: DownloadTaskActions(
+            onAnswer: (_) {},
+            onCancel: () {},
+            onRetry: () {},
+            onHome: () {},
+            onHere: () {},
+          ),
+        ),
+      );
+      expect(percent(tester), '99%');
+
+      local = AppL10n.strings.libraryDomain
+          .exportVerifying('v35', 'patch.db.zst', 40);
+      now = now.add(const Duration(seconds: 10));
+      progress.value++;
+      await tester.pump(const Duration(seconds: 1));
+      expect(percent(tester), '99%');
+    });
+
+    testWidgets(
+        'כמה רכיבים ועבודה מקומית: בזמן שבייטים זורמים — מהירות; כשנפסקו — הכיתוב',
+        (tester) async {
+      final progress = ValueNotifier(0);
+      var now = DateTime(2026, 10, 23);
+      const mb = 1024 * 1024;
+      var received = 0;
+      final verifying =
+          AppL10n.strings.libraryDomain.companionVerifying('Talmud', 40);
+      await pumpScreen(
+        tester,
+        DownloadTaskView(
+          task: downloadScenarios['download']!,
+          progress: progress,
+          clock: () => now,
+          snapshot: () => DownloadSnapshot(
+            current: MirrorComponent.library,
+            fraction: received / (1000 * mb),
+            received: received,
+            total: 1000 * mb,
+            others: const {MirrorComponent.plugins: 0.5},
+            localWork: verifying,
+          ),
+          actions: DownloadTaskActions(
+            onAnswer: (_) {},
+            onCancel: () {},
+            onRetry: () {},
+            onHome: () {},
+            onHere: () {},
+          ),
+        ),
+      );
+      for (var i = 1; i <= 3; i++) {
+        now = now.add(const Duration(seconds: 1));
+        received = i * 10 * mb;
+        progress.value++;
+        await tester.pump();
+      }
+      expect(line(tester, 'task.download.speed'), isNot(verifying));
+      expect(
+          line(tester, 'task.download.speed'), contains(formatRate(10.0 * mb)));
+
+      now = now.add(const Duration(seconds: 3));
+      progress.value++;
+      await tester.pump();
+      expect(line(tester, 'task.download.speed'), verifying);
+    });
+
     testWidgets('זמן שנותר: "נותרו שתי דקות", לא "1 דקה" ולא "0 דקות"',
         (tester) async {
       final progress = ValueNotifier(0);
@@ -743,6 +873,31 @@ void main() {
       await tester.tap(find.text(stringsOf().common.retry));
       expect(calls, ['retry']);
     });
+
+    for (final tool in DriveCheckTool.values) {
+      testWidgets('כונן פגום (${tool.name}): הכלי וה-errno האמיתיים',
+          (tester) async {
+        downloadScenarios['dlDamaged'] = DownloadTask(
+          phase: DownloadTaskPhase.failed,
+          components: const [MirrorComponent.library],
+          failure: DownloadFailure(
+            DownloadFailureKind.driveDamaged,
+            errno: 5,
+            tool: tool,
+          ),
+        );
+        addTearDown(() => downloadScenarios.remove('dlDamaged'));
+        await show(tester, 'dlDamaged');
+        final body = t.driveDamagedBodyFor(tool, 5);
+        expect(find.text(body), findsOneWidget);
+        expect(body, contains('5'));
+        expect(body, isNot(contains('1392')));
+        expect(body, isNot(equals(t.driveDamagedBodyFor(tool, 1392))));
+        for (final other in DriveCheckTool.values.where((o) => o != tool)) {
+          expect(body, isNot(equals(t.driveDamagedBodyFor(other, 5))));
+        }
+      });
+    }
 
     testWidgets('תעודה שנדחתה: מסנן אינטרנט, רגוע, "נסה שוב"', (tester) async {
       await show(tester, 'dlBlocked');

@@ -343,6 +343,35 @@ void main() {
     expect(manifest.entries.keys, {CompanionAsset.talmud});
   });
 
+  test('כונן פגום באמצע הורדת נלווה הוא כשל (StorageCorruptException), לא '
+      'אזהרה, ומה שהושלם נשמר', () async {
+    final warnings = <String>[];
+    final built = buildMirror(scheduler: DownloadScheduler(maxConcurrent: 1));
+    addTearDown(built.mirror.dispose);
+    Object? thrown;
+
+    await runWithFailingRandomWrites(
+      () async {
+        try {
+          await built.mirror.sync(
+            destDir: destDir,
+            onWarning: (name, _) => warnings.add(name),
+          );
+        } catch (error) {
+          thrown = error;
+        }
+      },
+      matches: (path) => p.basename(path) == 'otzar-HB_catalog.db.zst',
+      errno: Platform.isWindows ? 1392 : 5,
+    );
+
+    expect(thrown, isA<StorageCorruptException>(), reason: '$thrown');
+    expect(built.fetched, isNot(contains('lexical.db')));
+    expect(warnings, isEmpty);
+    final manifest = (await CompanionMirrorManifest.load(destDir))!;
+    expect(manifest.entries.keys, {CompanionAsset.talmud});
+  });
+
   test('דיסק מלא בנכס הראשון משאיר ב-manifest את הנכסים הישנים השלמים שלא '
       'התחילו', () async {
     final first = buildMirror();

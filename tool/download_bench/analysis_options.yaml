@@ -3,3 +3,7 @@
 include:
   - package:lints/recommended.yaml
   - ../../analysis_options_shared.yaml
+
+analyzer:
+  exclude:
+    - policy/**

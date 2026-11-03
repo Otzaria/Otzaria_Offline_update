@@ -94,6 +94,7 @@ class AppSession extends ChangeNotifier {
       otzariaLaunchPath: () async => _otzaria.launchPath,
       otzariaAppVersion: () async => _otzaria.currentVersion,
       mirroredReadableDbSchema: () => _otzaria.mirroredReadableDbSchema(),
+      mirroredOtzariaVersions: () => _otzaria.mirroredInstallerVersions(),
       mirroredOtzariaUpdate: () async =>
           _otzaria.status == OtzariaModuleStatus.updateAvailable
               ? _otzaria.latestVersion
@@ -112,6 +113,7 @@ class AppSession extends ChangeNotifier {
       installedAppVersion: () async =>
           _otzaria.currentVersion ?? _otzaria.latestVersion,
       ensureAppVersionsKnown: _otzaria.ensureChecked,
+      isOtzariaRunning: () => _otzaria.refreshRunningState(),
       manager: pluginsManager,
     )
       ..syncBlockedElsewhere = (() => pluginSyncBlockedElsewhere)
@@ -1076,7 +1078,7 @@ class AppSession extends ChangeNotifier {
             _launcherUpdate.isDownloading ||
             _library.downloadStatus == MirrorDownloadStatus.downloading ||
             _otzaria.downloadStatus == OtzariaDownloadStatus.downloading ||
-            _plugins.isAwaitingInstall,
+            _plugins.isInInstallWindow,
       );
 
   bool get exitWouldInterrupt =>

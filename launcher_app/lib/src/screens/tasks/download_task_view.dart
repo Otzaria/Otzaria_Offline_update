@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart' show DriveCheckTool;
 
 import '../../controllers/download_plan.dart'
     show LibrarySizeProbe, MirrorComponent, SemanticSearchAnswer;
@@ -24,6 +25,7 @@ class DownloadSnapshot {
     this.libraryProbe,
     this.others = const {},
     this.finished,
+    this.localWork,
   });
 
   /// הרכיב שהמהירות והבייטים נמדדים עליו; [fraction], [received], [total] שלו.
@@ -38,6 +40,10 @@ class DownloadSnapshot {
 
   /// מה הסתיים. `null` — כל מה שלפני [current] ברשימה.
   final Set<MirrorComponent>? finished;
+
+  /// כיתוב של עבודה מקומית על הכונן (אימות, הרכבה) כשהיא רצה: אין בה בייטים
+  /// ברשת, ולכן אין לה מהירות וזמן שנותר.
+  final String? localWork;
 }
 
 /// אחרי ההורדה: מה אפשר לעשות במחשב הזה.
@@ -252,6 +258,19 @@ class DownloadTaskView extends StatelessWidget {
               context.strings.common.storageFullNoDetails(dir),
             _ => context.strings.common.storageFullUnknownDir,
           },
+          actions: [retry, home],
+        ),
+      DownloadFailureKind.driveDamaged => TaskResult(
+          badge: const ResultBadge(
+            kind: ResultBadgeKind.error,
+            icon: FluentIcons.storage_24_regular,
+          ),
+          title: t.driveDamagedTitle,
+          body: t.driveDamagedBodyFor(
+            failure.tool ?? DriveCheckTool.forPlatform(),
+            failure.errno,
+          ),
+          extra: tech,
           actions: [retry, home],
         ),
       DownloadFailureKind.snapshot => TaskResult(
@@ -669,8 +688,14 @@ class _DownloadProgressState extends State<_DownloadProgress> {
                 )) /
             components.length;
     final peak = _peak;
+    // 100% רק במסך הסיום: הבייטים האחרונים אינם סוף האימות וההרכבה, וגם לא
+    // השיא ששמרנו מהם.
+    final local = s.localWork;
+    final working =
+        local != null && _meter.isIdle(TransferRateMeter.localWorkAfter);
+    final bounded = computed != null && computed > 0.99 ? 0.99 : computed;
     final overall =
-        computed == null || peak == null || computed >= peak ? computed : peak;
+        bounded == null || peak == null || bounded >= peak ? bounded : peak;
     _peak = overall ?? peak;
     final rate = _meter.bytesPerSecond;
     final left = total != null && total > 0 ? _meter.remaining(total) : null;
@@ -699,7 +724,9 @@ class _DownloadProgressState extends State<_DownloadProgress> {
             formatBytes(sizes.fold<int>(0, (sum, size) => sum + size!)),
           );
     final String speedLine;
-    if (received == null) {
+    if (local != null && working) {
+      speedLine = local;
+    } else if (received == null) {
       // רכיב שלא מדווח בייטים — אין מהירות לחשב.
       speedLine = ' ';
     } else if (rate != null) {

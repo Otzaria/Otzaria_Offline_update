@@ -6,6 +6,8 @@ import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:otzaria_manager/otzaria_manager.dart'
+    show SemanticAppSupport, SemanticSupportBasis;
 import 'package:otzaria_search_engine/otzaria_search_engine.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
@@ -13,12 +15,139 @@ import 'package:seforim_library_updater/seforim_library_updater.dart';
 import 'atomic_file.dart' show writeStringAtomically;
 import 'download_connections.dart';
 import 'github_fetch.dart';
+import 'semantic_status.dart';
 import 'semantic_vectors_plan.dart';
 import 'storage_guard.dart';
 
+export 'package:otzaria_manager/otzaria_manager.dart'
+    show SemanticAppSupport, SemanticSupportBasis;
+
+export 'semantic_status.dart';
 export 'semantic_vectors_plan.dart';
 
 typedef SemanticAsset = ({String name, int size, String sha256});
+
+/// Everything that differs between two model generations: where the model
+/// lives, what it must be called, what the vectors' manifest must name.
+class SemanticModelSpec {
+  const SemanticModelSpec({
+    required this.generation,
+    required this.folder,
+    required this.baseUrl,
+    required this.familyId,
+    required this.tokenizerChecksum,
+    required this.files,
+    required this.windowsIdentityJson,
+  });
+
+  final SemanticModelGeneration generation;
+
+  /// The model folder beside the DB.
+  final String folder;
+  final String baseUrl;
+
+  /// What a vectors manifest's `identity.model.family_id` must be.
+  final String familyId;
+  final String tokenizerChecksum;
+
+  /// Needed for basic search; an optional passage graph is not listed.
+  final List<SemanticAsset> files;
+
+  /// The `model.json` bytes Otzaria's windows family ships for this model.
+  final String windowsIdentityJson;
+
+  SemanticAsset get identityFile =>
+      files.firstWhere((file) => file.name == 'model.json');
+
+  SemanticAsset get graph => files.first;
+
+  static const round2 = SemanticModelSpec(
+    generation: SemanticModelGeneration.round2,
+    folder: 'meivin-round2-onnx',
+    baseUrl:
+        'https://github.com/Otzaria/otzaria-semantic-search/releases/download/model-meivin-round2-int8-v1',
+    familyId:
+        'ArieLLL123/judaic-semantic-round2-onnx-zayit@1ec8dc68888bcea774ae9f735b2fe7cd9dc7f3ca',
+    tokenizerChecksum:
+        '0664287976ecb078bdfd8f5e5515dc87d8cb7f985a79a481aa1cdf7a7321c0e9',
+    files: <SemanticAsset>[
+      (
+        name: 'seforim-embed-round2-int8.onnx',
+        size: 42489219,
+        sha256:
+            '659226865abd3a1bc833565ae6b2e2f48abdd7136285824a12966d4d3294cbf8',
+      ),
+      (
+        name: 'tokenizer.json',
+        size: 2191362,
+        sha256:
+            '0664287976ecb078bdfd8f5e5515dc87d8cb7f985a79a481aa1cdf7a7321c0e9',
+      ),
+      (
+        name: 'model.json',
+        size: 656,
+        sha256:
+            'a27b103ea5dc50be674e6e6696d8f8ea09639ac3808cd1a48dcf2d70a0b47d1c',
+      ),
+      (
+        name: 'LICENSE',
+        size: 3992,
+        sha256:
+            '92267258dabd9077849cc5ab63a5b0b0b3ca9849e1112fd0d13d9691df7e0739',
+      ),
+    ],
+    windowsIdentityJson: kWindowsModelIdentityJson,
+  );
+
+  static const qa491 = SemanticModelSpec(
+    generation: SemanticModelGeneration.qa491,
+    folder: 'meivin-qa491-onnx',
+    baseUrl:
+        'https://github.com/Otzaria/otzaria-semantic-search/releases/download/model-meivin-qa491-int8-v1',
+    familyId: 'otzaria/Meivin-Embed-QA491-native256',
+    tokenizerChecksum:
+        '0664287976ecb078bdfd8f5e5515dc87d8cb7f985a79a481aa1cdf7a7321c0e9',
+    files: <SemanticAsset>[
+      (
+        name: 'query.int8.onnx',
+        size: 42625431,
+        sha256:
+            '82b87180616cee55357b90858f327f4d98b86b2e5589f6771d50b788ad383597',
+      ),
+      (
+        name: 'tokenizer.json',
+        size: 2191362,
+        sha256:
+            '0664287976ecb078bdfd8f5e5515dc87d8cb7f985a79a481aa1cdf7a7321c0e9',
+      ),
+      (
+        name: 'model.json',
+        size: 634,
+        sha256:
+            '58227b5df294a2c20a706482de5d431875941f22ee5007cf20ddc84536801fad',
+      ),
+      (
+        name: 'LICENSE',
+        size: 3992,
+        sha256:
+            '92267258dabd9077849cc5ab63a5b0b0b3ca9849e1112fd0d13d9691df7e0739',
+      ),
+    ],
+    windowsIdentityJson: kQa491WindowsModelIdentityJson,
+  );
+
+  static const all = <SemanticModelGeneration, SemanticModelSpec>{
+    SemanticModelGeneration.round2: round2,
+    SemanticModelGeneration.qa491: qa491,
+  };
+
+  static SemanticModelGeneration? generationOfFamily(Object? familyId) {
+    for (final spec in all.values) {
+      if (spec.familyId == familyId) return spec.generation;
+    }
+    return null;
+  }
+}
 
 /// The installed set is not where the drive's delta chain continues from;
 /// only a full smart-search download on the online machine helps.
@@ -78,6 +207,8 @@ class SemanticInstalledSet {
     required this.libraryReleaseTag,
     required this.identityDigest,
     required this.windows,
+    this.familyId,
+    this.chunkingIdentity,
   });
 
   final int libraryVersion;
@@ -86,6 +217,20 @@ class SemanticInstalledSet {
 
   /// `.otzaria-windows-identity` names this set, as Otzaria requires.
   final bool windows;
+
+  /// `identity.model.family_id` of `set.json`; `null` when it is not there.
+  final String? familyId;
+  final int? chunkingIdentity;
+
+  /// The model generation the set was built for; `null` = not provable.
+  SemanticModelGeneration? get generation =>
+      SemanticModelSpec.generationOfFamily(familyId);
+
+  /// Whether the windows marker agrees with the set's chunking: a windows
+  /// set without the marker is read by Otzaria as the other shape.
+  bool get markerConsistent =>
+      chunkingIdentity == null ||
+      windows == (chunkingIdentity == kWindowsChunkingIdentity);
 }
 
 typedef SemanticEngineInfo = ({
@@ -113,6 +258,18 @@ abstract interface class SemanticVectorsEngine {
 
 typedef SemanticEngineFactory =
     Future<SemanticVectorsEngine> Function(String workDir);
+
+@visibleForTesting
+Future<void> disposeSemanticEngineWork(
+  SemanticVectorsEngine? engine,
+  Directory work,
+) async {
+  engine?.dispose();
+  // A Tantivy reload already running can outlive dispose and write its old path.
+  // Moving our scratch directory first keeps that callback outside the deletion.
+  final retired = await work.rename('${work.path}.retired');
+  await retired.delete(recursive: true);
+}
 
 class _HttpFailure extends FormatException {
   const _HttpFailure(super.message);
@@ -190,6 +347,7 @@ class _Step {
 /// `semantic.json`: what the mirror holds for one library tag.
 class _Meta {
   const _Meta({
+    this.generation = SemanticModelGeneration.round2,
     required this.family,
     required this.chain,
     required this.libraryTag,
@@ -200,6 +358,7 @@ class _Meta {
     this.rejectedWindowsManifest,
   });
 
+  final SemanticModelGeneration generation;
   final SemanticVectorsFamily family;
 
   /// Only the [steps] are mirrored; [base] is the target base they lead to.
@@ -224,7 +383,7 @@ class _Meta {
       ? steps
       : [
           _Step(
-            releaseTag: '${family.releaseTagPrefix}$libraryTag',
+            releaseTag: '${family.releaseTagPrefixFor(generation)}$libraryTag',
             libraryTag: libraryTag,
             from: 0,
             to: libraryVersion,
@@ -236,6 +395,7 @@ class _Meta {
   // omits them and stays invisible to a launcher that cannot install it.
   Map<String, Object?> toJson() => windows
       ? {
+          'generation': generation.id,
           'family': family.id,
           'kind': chain ? 'chain' : 'base',
           'libraryTag': libraryTag,
@@ -245,6 +405,7 @@ class _Meta {
           'steps': [for (final step in steps) step.toJson()],
         }
       : {
+          'generation': generation.id,
           'family': family.id,
           'kind': 'base',
           'libraryTag': libraryTag,
@@ -278,17 +439,36 @@ class SemanticSearchAssets {
     ExternalLibrary? nativeLibrary,
     DownloadScheduler? scheduler,
     int? Function(String)? freeBytesFor,
+    bool Function(String)? removableProbe,
+    WriteSpeedProbe? writeProbe,
     SemanticEngineFactory? engineFactory,
     @visibleForTesting List<SemanticAsset>? models,
     @visibleForTesting
     ({String familyId, String tokenizerChecksum})? modelFamily,
+    @visibleForTesting Map<SemanticModelGeneration, SemanticModelSpec>? specs,
   }) : _injectedClient = httpClient,
        _nativeLibrary = nativeLibrary,
        _scheduler = scheduler ?? DownloadScheduler(),
        _freeBytesFor = freeBytesFor ?? DiskSpaceProbe.freeBytesFor,
+       _removableProbe = removableProbe,
+       _writeProbe = writeProbe,
        _engineFactory = engineFactory,
-       _models = models ?? modelFiles,
-       _modelFamily = modelFamily ?? productionModelFamily,
+       _specs = {
+         ...SemanticModelSpec.all,
+         if (models != null || modelFamily != null)
+           SemanticModelGeneration.round2: SemanticModelSpec(
+             generation: SemanticModelGeneration.round2,
+             folder: SemanticModelSpec.round2.folder,
+             baseUrl: SemanticModelSpec.round2.baseUrl,
+             familyId: modelFamily?.familyId ?? productionModelFamily.familyId,
+             tokenizerChecksum:
+                 modelFamily?.tokenizerChecksum ??
+                 productionModelFamily.tokenizerChecksum,
+             files: models ?? modelFiles,
+             windowsIdentityJson: kWindowsModelIdentityJson,
+           ),
+         ...?specs,
+       },
        _ownsClient = httpClient == null;
 
   final http.Client? _injectedClient;
@@ -299,17 +479,20 @@ class SemanticSearchAssets {
   Duration stallTimeout = const Duration(minutes: 5);
   final DownloadScheduler _scheduler;
   final int? Function(String) _freeBytesFor;
+  final bool Function(String)? _removableProbe;
+  final WriteSpeedProbe? _writeProbe;
   final bool _ownsClient;
   final ExternalLibrary? _nativeLibrary;
   final SemanticEngineFactory? _engineFactory;
-  final List<SemanticAsset> _models;
-  final ({String familyId, String tokenizerChecksum}) _modelFamily;
+  final Map<SemanticModelGeneration, SemanticModelSpec> _specs;
 
-  /// The family and tokenizer a published manifest must name.
+  SemanticModelSpec _spec(SemanticModelGeneration generation) =>
+      _specs[generation]!;
+
+  /// The family and tokenizer a Round2 manifest must name.
   static final productionModelFamily = (
-    familyId:
-        'ArieLLL123/judaic-semantic-round2-onnx-zayit@1ec8dc68888bcea774ae9f735b2fe7cd9dc7f3ca',
-    tokenizerChecksum: modelFiles[1].sha256,
+    familyId: SemanticModelSpec.round2.familyId,
+    tokenizerChecksum: SemanticModelSpec.round2.tokenizerChecksum,
   );
   static const manifestFileName = 'semantic.json';
   static const modelFolder = 'meivin-round2-onnx';
@@ -494,6 +677,7 @@ class SemanticSearchAssets {
     required String libraryTag,
     required int version,
     required SemanticVectorsFamily family,
+    required SemanticModelGeneration generation,
     bool delta = false,
     bool Function()? isCancelled,
   }) async {
@@ -528,6 +712,7 @@ class SemanticSearchAssets {
         libraryTag,
         version,
         family,
+        generation,
         delta,
       );
     } on FormatException catch (error) {
@@ -542,6 +727,7 @@ class SemanticSearchAssets {
     String libraryTag,
     int version,
     SemanticVectorsFamily family,
+    SemanticModelGeneration generation,
     bool delta,
   ) {
     final manifestName = release.manifest['name'] as String;
@@ -556,6 +742,7 @@ class SemanticSearchAssets {
       tag: libraryTag,
       version: version,
       family: family,
+      generation: generation,
       deltaName: delta ? manifestName : null,
     );
     return _Remote(
@@ -583,6 +770,7 @@ class SemanticSearchAssets {
   Future<List<_Remote>?> _deltaChain(
     _Remote target,
     int start,
+    SemanticModelGeneration generation,
     String? Function(int version) libraryTagFor,
     bool Function()? isCancelled,
   ) async {
@@ -599,7 +787,7 @@ class SemanticSearchAssets {
           return null;
         }
         final release = await _fetchRelease(
-          '${family.deltaReleaseTagPrefix}$tag',
+          '${family.deltaReleaseTagPrefixFor(generation)}$tag',
           delta: true,
         );
         if (release == null) return null;
@@ -608,9 +796,11 @@ class SemanticSearchAssets {
           libraryTag: tag,
           version: to,
           family: family,
+          generation: generation,
           isCancelled: isCancelled,
           delta: true,
         );
+        // A chain never joins identities, and so never generations.
         if (step.identityDigest != target.identityDigest || step.from < start) {
           return null;
         }
@@ -639,11 +829,12 @@ class SemanticSearchAssets {
     String? Function(int version) libraryTagFor,
     bool Function()? isCancelled,
   ) async {
+    final generation = fleet.generation;
     String? rejectedWindows;
     Object? windowsFault;
     if (fleet.family == SemanticVectorsFamily.windows) {
       const family = SemanticVectorsFamily.windows;
-      final release = await _windowsRelease(libraryTag);
+      final release = await _windowsRelease(libraryTag, generation);
       _Remote? base;
       if (release != null) {
         try {
@@ -652,6 +843,7 @@ class SemanticSearchAssets {
             libraryTag: libraryTag,
             version: version,
             family: family,
+            generation: generation,
             isCancelled: isCancelled,
           );
         } on _Unusable catch (fault) {
@@ -667,20 +859,26 @@ class SemanticSearchAssets {
         if (start != null) {
           final chain = start >= version
               ? <_Remote>[]
-              : await _deltaChain(base, start, libraryTagFor, isCancelled);
+              : await _deltaChain(
+                  base,
+                  start,
+                  generation,
+                  libraryTagFor,
+                  isCancelled,
+                );
           if (chain != null) {
-            final meta = _metaOf(family, base, chain: chain);
+            final meta = _metaOf(family, generation, base, chain: chain);
             if (fleet.canApply(meta.stepRange, version)) {
               return (meta: meta, remotes: chain);
             }
           }
         }
-        return (meta: _metaOf(family, base), remotes: [base]);
+        return (meta: _metaOf(family, generation, base), remotes: [base]);
       }
     }
     const family = SemanticVectorsFamily.legacy;
     final release = await _fetchRelease(
-      '${family.releaseTagPrefix}$libraryTag',
+      '${family.releaseTagPrefixFor(generation)}$libraryTag',
     );
     if (release == null) {
       if (windowsFault != null) throw windowsFault;
@@ -693,6 +891,7 @@ class SemanticSearchAssets {
         libraryTag: libraryTag,
         version: version,
         family: family,
+        generation: generation,
         isCancelled: isCancelled,
       );
     } on SemanticEngineIncompatibleException catch (fault) {
@@ -700,7 +899,7 @@ class SemanticSearchAssets {
       rethrow;
     }
     return (
-      meta: _metaOf(family, base, rejectedWindows: rejectedWindows),
+      meta: _metaOf(family, generation, base, rejectedWindows: rejectedWindows),
       remotes: [base],
     );
   }
@@ -718,10 +917,13 @@ class SemanticSearchAssets {
   );
 
   /// The windows base release; an unusable one counts as unpublished.
-  Future<_Release?> _windowsRelease(String libraryTag) async {
+  Future<_Release?> _windowsRelease(
+    String libraryTag,
+    SemanticModelGeneration generation,
+  ) async {
     try {
       return await _fetchRelease(
-        '${SemanticVectorsFamily.windows.releaseTagPrefix}$libraryTag',
+        '${SemanticVectorsFamily.windows.releaseTagPrefixFor(generation)}$libraryTag',
       );
     } on _HttpFailure {
       rethrow;
@@ -732,10 +934,12 @@ class SemanticSearchAssets {
 
   _Meta _metaOf(
     SemanticVectorsFamily family,
+    SemanticModelGeneration generation,
     _Remote base, {
     List<_Remote>? chain,
     String? rejectedWindows,
   }) => _Meta(
+    generation: generation,
     family: family,
     chain: chain != null,
     libraryTag: base.libraryTag,
@@ -760,8 +964,8 @@ class SemanticSearchAssets {
   int? get peekedPendingBytes => _peekedPendingBytes;
   int? _peekedPendingBytes;
 
-  static final int _modelDownloadBytes = [
-    for (final file in modelFiles)
+  int _modelDownloadBytes(SemanticModelGeneration generation) => [
+    for (final file in _spec(generation).files)
       file.name == 'tokenizer.json' ? tokenizerZip : file,
   ].fold<int>(0, (sum, file) => sum + file.size);
 
@@ -851,6 +1055,7 @@ class SemanticSearchAssets {
   Future<SemanticEngineIncompatibleException?> incompatibility({
     required String mirrorDir,
     required int libraryVersion,
+    required SemanticModelGeneration generation,
     bool supportsWindows = false,
     String? dbPath,
     String? vectorsRootPath,
@@ -859,16 +1064,20 @@ class SemanticSearchAssets {
         vectorsRootPath ??
         (dbPath == null ? null : p.dirname(p.dirname(dbPath)));
     if (supportsWindows && root != null) {
-      final meta = await _metadata(mirrorDir, preferWindows: true);
+      final meta = await _metadata(
+        mirrorDir,
+        generation: generation,
+        preferWindows: true,
+      );
       final live = (await readInstalledSets(
         p.join(root, 'vectors'),
       )).firstOrNull;
       if (meta != null &&
           meta.libraryVersion == libraryVersion &&
-          _keepsWindowsSet(meta, live, supportsWindows)) {
+          _keepsWindowsSet(meta, live, supportsWindows, generation)) {
         final hint = (await _recordedIncompatible(
           mirrorDir,
-        ))['${SemanticVectorsFamily.windows.releaseTagPrefix}${meta.libraryTag}'];
+        ))['${SemanticVectorsFamily.windows.releaseTagPrefixFor(generation)}${meta.libraryTag}'];
         final line = hint?['lineTextVersion'];
         final key = hint?['keyVersion'];
         if (line is int && key is int) {
@@ -885,6 +1094,7 @@ class SemanticSearchAssets {
       await _load(
         mirrorDir,
         libraryVersion,
+        generation: generation,
         preferWindows: supportsWindows,
         reportIncompatible: true,
       );
@@ -894,6 +1104,18 @@ class SemanticSearchAssets {
     }
   }
 
+  List<SemanticFleet> _provenGroups(SemanticFleet fleet) {
+    final groups = fleet.groups;
+    if (groups.isEmpty) {
+      throw const SemanticEngineIncompatibleException(
+        lineTextVersion: 0,
+        keyVersion: 0,
+        reason: SemanticIncompatibilityReason.otzariaUnproven,
+      );
+    }
+    return groups;
+  }
+
   Future<bool> peekPending({
     required String mirrorDir,
     required String libraryTag,
@@ -901,9 +1123,10 @@ class SemanticSearchAssets {
   }) async {
     _peekedPendingBytes = null;
     _peekedIncompatibility = null;
-    for (final group in fleet.groups) {
+    final groups = _provenGroups(fleet);
+    for (final group in groups) {
       if (await _peekPending(mirrorDir, libraryTag, group)) {
-        if (fleet.groups.length != 1) _peekedPendingBytes = null;
+        if (groups.length != 1) _peekedPendingBytes = null;
         _peekedIncompatibility = null;
         return true;
       }
@@ -917,11 +1140,12 @@ class SemanticSearchAssets {
     String libraryTag,
     SemanticFleet fleet,
   ) async {
+    final generation = fleet.generation;
     final version = _version(libraryTag);
     SemanticEngineIncompatibleException? windowsFault;
     if (fleet.family == SemanticVectorsFamily.windows) {
-      final release = await _windowsRelease(libraryTag);
-      final local = await _metadata(mirrorDir);
+      final release = await _windowsRelease(libraryTag, generation);
+      final local = await _metadata(mirrorDir, generation: generation);
       final rejected =
           local != null &&
           !local.windows &&
@@ -938,6 +1162,7 @@ class SemanticSearchAssets {
           version,
           release,
           fleet,
+          generation,
         )) {
           return false;
         }
@@ -947,6 +1172,7 @@ class SemanticSearchAssets {
             libraryTag: libraryTag,
             version: version,
             family: SemanticVectorsFamily.windows,
+            generation: generation,
           );
           return true;
         } on SemanticEngineIncompatibleException catch (fault) {
@@ -969,7 +1195,7 @@ class SemanticSearchAssets {
       }
     }
     final fetched = await _fetchRelease(
-      '${SemanticVectorsFamily.legacy.releaseTagPrefix}$libraryTag',
+      '${SemanticVectorsFamily.legacy.releaseTagPrefixFor(generation)}$libraryTag',
     );
     if (fetched == null) {
       _peekedIncompatibility = windowsFault;
@@ -985,12 +1211,17 @@ class SemanticSearchAssets {
     SemanticEngineIncompatibleException? held;
     ({_Meta meta, List<_LoadedUnit> units})? local;
     try {
-      local = await _load(mirrorDir, version, reportIncompatible: true);
+      local = await _load(
+        mirrorDir,
+        version,
+        generation: generation,
+        reportIncompatible: true,
+      );
     } on SemanticEngineIncompatibleException catch (fault) {
       held = fault;
     }
     if (held != null) {
-      final meta = await _metadata(mirrorDir);
+      final meta = await _metadata(mirrorDir, generation: generation);
       if (meta != null &&
           !meta.windows &&
           meta.libraryTag == libraryTag &&
@@ -1014,6 +1245,7 @@ class SemanticSearchAssets {
           libraryTag: libraryTag,
           version: version,
           family: SemanticVectorsFamily.legacy,
+          generation: generation,
         );
       } on SemanticEngineIncompatibleException catch (fault) {
         await _recordIncompatible(mirrorDir, fetched, fault);
@@ -1022,7 +1254,7 @@ class SemanticSearchAssets {
         return false;
       }
       _peekedPendingBytes = fetched.assets.values.fold<int>(
-        _modelDownloadBytes,
+        _modelDownloadBytes(generation),
         (sum, asset) => sum + (asset['size'] as int),
       );
       return true;
@@ -1040,17 +1272,23 @@ class SemanticSearchAssets {
     int version,
     _Release release,
     SemanticFleet fleet,
+    SemanticModelGeneration generation,
   ) async {
     final ({_Meta meta, List<_LoadedUnit> units})? local;
     try {
       local = await _load(
         mirrorDir,
         version,
+        generation: generation,
         preferWindows: true,
         reportIncompatible: true,
       );
     } on SemanticEngineIncompatibleException catch (fault) {
-      final held = await _metadata(mirrorDir, preferWindows: true);
+      final held = await _metadata(
+        mirrorDir,
+        generation: generation,
+        preferWindows: true,
+      );
       final same =
           held != null &&
           held.windows &&
@@ -1081,6 +1319,10 @@ class SemanticSearchAssets {
         fleet.canApply(meta.stepRange, version);
   }
 
+  /// The tokenizer travels as a zip; the verified file is unpacked from it.
+  static SemanticAsset _downloadAsset(SemanticAsset file) =>
+      file.name == 'tokenizer.json' ? tokenizerZip : file;
+
   Future<void> sync({
     required String mirrorDir,
     required String libraryTag,
@@ -1091,11 +1333,12 @@ class SemanticSearchAssets {
     bool Function()? isCancelled,
   }) async {
     _cancel(isCancelled);
+    final groups = _provenGroups(fleet);
     final version = _version(libraryTag);
     onStage?.call(AppL10n.strings.libraryDomain.semanticDownloading);
-    final plans = <SemanticVectorsFamily, _Meta>{};
+    final plans = <_Meta>[];
     final remotes = <String, _Remote>{};
-    for (final group in fleet.groups) {
+    for (final group in groups) {
       final plan = await _plan(
         mirrorDir,
         libraryTag,
@@ -1106,32 +1349,43 @@ class SemanticSearchAssets {
       );
       _cancel(isCancelled);
       if (plan == null) _httpFailure(HttpStatus.notFound);
-      plans[plan.meta.family] = plan.meta;
+      plans.removeWhere(
+        (m) =>
+            m.generation == plan.meta.generation &&
+            m.family == plan.meta.family,
+      );
+      plans.add(plan.meta);
       for (final remote in plan.remotes) {
         remotes[remote.releaseTag] = remote;
       }
     }
-    final metadata = plans.values.first.toJson();
-    // Older launchers must still find the legacy fields at the top level.
-    if (plans.length > 1) {
-      metadata['windows'] = plans[SemanticVectorsFamily.windows]!.toJson();
-    }
+    final metadata = _mirrorJson(plans);
     final generation = p.join(mirrorDir, libraryTag);
-    final reused = <String, String>{};
-    for (final file in _models) {
-      final source = await reusableModelSource(
-        mirrorDir: mirrorDir,
-        libraryTag: libraryTag,
-        file: file,
-        isCancelled: isCancelled,
-      );
-      if (source != null) reused[file.name] = source;
+    // By destination path: the same file name lives in each generation's folder.
+    final reused = <String, ({String source, int size})>{};
+    final downloadModels = <({SemanticModelSpec spec, SemanticAsset file})>[];
+    for (final spec in [
+      for (final gen in SemanticModelGeneration.values)
+        if (plans.any((m) => m.generation == gen)) _spec(gen),
+    ]) {
+      for (final file in spec.files) {
+        final source = await reusableModelSource(
+          mirrorDir: mirrorDir,
+          libraryTag: libraryTag,
+          file: file,
+          generation: spec.generation,
+          isCancelled: isCancelled,
+        );
+        if (source != null) {
+          reused[p.join(generation, spec.folder, file.name)] = (
+            source: source,
+            size: file.size,
+          );
+        } else {
+          downloadModels.add((spec: spec, file: file));
+        }
+      }
     }
-    final downloadModels = [
-      for (final file in _models)
-        if (!reused.containsKey(file.name))
-          file.name == 'tokenizer.json' ? tokenizerZip : file,
-    ];
     final vectorFiles = [
       for (final remote in remotes.values)
         for (final file in remote.files)
@@ -1139,17 +1393,21 @@ class SemanticSearchAssets {
     ];
     final progress = ByteProgressAggregator(
       totalBytes: [
-        ...downloadModels,
+        for (final model in downloadModels) _downloadAsset(model.file),
         for (final vector in vectorFiles) vector.file,
       ].fold<int>(0, (sum, file) => sum + file.size),
       onProgress: onBytesProgress,
     );
     final jobs = <({SemanticAsset file, String url, String dest})>[
-      for (final file in downloadModels)
+      for (final model in downloadModels)
         (
-          file: file,
-          url: '$modelBaseUrl/${file.name}',
-          dest: p.join(generation, modelFolder, file.name),
+          file: _downloadAsset(model.file),
+          url: '${model.spec.baseUrl}/${_downloadAsset(model.file).name}',
+          dest: p.join(
+            generation,
+            model.spec.folder,
+            _downloadAsset(model.file).name,
+          ),
         ),
       for (final vector in vectorFiles)
         (
@@ -1163,8 +1421,26 @@ class SemanticSearchAssets {
       final existing = await _completeLength(job.dest, job.file.size);
       slots.add(progress.slot(existingBytes: existing));
     }
-    final downloader = newDownloader();
+    final downloaders = <PatchDownloader>[];
+    Future<double?>? measured;
+    final probe =
+        _writeProbe ?? (d) => driveWriteSpeed(d, isCancelled: isCancelled);
     try {
+      for (final job in jobs) {
+        downloaders.add(
+          newDownloader(
+            maxConnections: await connectionsForAsset(
+              _scheduler,
+              job.dest,
+              token: job.file.sha256,
+              removableProbe: _removableProbe,
+              // One measurement of the mirror drive serves every asset.
+              writeProbe: (_) => measured ??= probe(mirrorDir),
+              isCancelled: isCancelled,
+            ),
+          ),
+        );
+      }
       await _ensureMirrorSpace(
         mirrorDir: mirrorDir,
         generation: generation,
@@ -1177,35 +1453,91 @@ class SemanticSearchAssets {
           0,
           (sum, remote) => sum + remote.manifestBytes.length,
         ),
-        downloader: downloader,
+        downloaders: downloaders,
       );
       progress.announce();
       _cancel(isCancelled);
-      await Directory(p.join(generation, modelFolder)).create(recursive: true);
+      for (final model in plans) {
+        await Directory(
+          p.join(generation, _spec(model.generation).folder),
+        ).create(recursive: true);
+      }
       await Directory(p.join(generation, 'vectors')).create(recursive: true);
       for (final entry in reused.entries) {
-        final target = p.join(generation, modelFolder, entry.key);
-        if (p.equals(entry.value, target)) continue;
+        final target = entry.key;
+        if (p.equals(entry.value.source, target)) continue;
         _cancel(isCancelled);
         final temporary = '$target.tmp';
-        await File(entry.value).copy(temporary);
+        await File(entry.value.source).copy(temporary);
         await File(temporary).rename(target);
       }
+      // Verifying and assembling touch the drive; they are stages, never
+      // counted as network.
+      final verifying = <String, (bool, int)>{};
+      void showLocalWork(String name, int? percent, {bool assembling = false}) {
+        final next = percent == null ? null : (assembling, percent);
+        if (next == null) {
+          if (verifying.remove(name) == null) return;
+        } else if (verifying[name] == next) {
+          return;
+        } else {
+          verifying[name] = next;
+        }
+        final strings = AppL10n.strings.libraryDomain;
+        onStage?.call(
+          verifying.isEmpty
+              ? strings.semanticDownloading
+              : [
+                  for (final MapEntry(:key, value: (assembly, value))
+                      in verifying.entries)
+                    assembly
+                        ? strings.exportAssembling(
+                            libraryTag,
+                            p.basename(key),
+                            value,
+                          )
+                        : strings.exportVerifying(
+                            libraryTag,
+                            p.basename(key),
+                            value,
+                          ),
+                ].join('\n'),
+        );
+      }
+
       await _scheduler.run<void>([
         for (final (index, job) in jobs.indexed)
           () async {
             _cancel(isCancelled);
             final slot = slots[index];
-            await downloader.downloadToFile(
-              url: job.url,
-              destPath: job.dest,
-              expectedSize: job.file.size,
-              expectedSha256: job.file.sha256,
-              resumeToken: job.file.sha256,
-              onProgress: slot.report,
-              onExistingBytes: slot.markExisting,
-              isCancelled: isCancelled,
-            );
+            try {
+              await downloaders[index].downloadToFile(
+                url: job.url,
+                destPath: job.dest,
+                expectedSize: job.file.size,
+                expectedSha256: job.file.sha256,
+                resumeToken: job.file.sha256,
+                // The engine verifies a prefix before resuming: bytes arriving
+                // end that asset's local-work stage.
+                onProgress: (done, total) {
+                  showLocalWork(job.dest, null);
+                  slot.report(done, total);
+                },
+                onExistingBytes: slot.markExisting,
+                onVerifyProgress: (done, total) => showLocalWork(
+                  job.dest,
+                  total > 0 ? (done * 100 ~/ total).clamp(0, 100) : 0,
+                ),
+                onAssembleProgress: (done, total) => showLocalWork(
+                  job.dest,
+                  total > 0 ? (done * 100 ~/ total).clamp(0, 100) : 0,
+                  assembling: true,
+                ),
+                isCancelled: isCancelled,
+              );
+            } finally {
+              showLocalWork(job.dest, null);
+            }
             if (job.file.name == tokenizerZip.name) {
               await _extractTokenizer(job.dest, isCancelled);
             }
@@ -1232,7 +1564,9 @@ class SemanticSearchAssets {
     } on FileSystemException catch (error, stack) {
       throwStorageAware(error, stack, mirrorDir);
     } finally {
-      downloader.dispose();
+      for (final downloader in downloaders) {
+        downloader.dispose();
+      }
     }
   }
 
@@ -1266,11 +1600,11 @@ class SemanticSearchAssets {
   }
 
   @visibleForTesting
-  PatchDownloader newDownloader() => PatchDownloader(
+  PatchDownloader newDownloader({int? maxConnections}) => PatchDownloader(
     httpClient: _client,
     decompress: (_) async => null,
     stallTimeout: stallTimeout,
-    maxConnections: connectionsPerFile(_scheduler),
+    maxConnections: maxConnections ?? connectionsPerFile(_scheduler),
   );
 
   Future<int> _completeLength(String path, int expectedSize) async {
@@ -1289,12 +1623,13 @@ class SemanticSearchAssets {
     required String mirrorDir,
     required String generation,
     required List<({SemanticAsset file, String url, String dest})> jobs,
-    required Map<String, String> reused,
+    required Map<String, ({String source, int size})> reused,
     required int manifestBytes,
-    required PatchDownloader downloader,
+    required List<PatchDownloader> downloaders,
   }) async {
     var needed = manifestBytes;
-    for (final job in jobs) {
+    for (final (index, job) in jobs.indexed) {
+      final downloader = downloaders[index];
       final size = job.file.size;
       if (job.file.name == tokenizerZip.name) {
         final unzipped = p.join(p.dirname(job.dest), 'tokenizer.json');
@@ -1317,9 +1652,8 @@ class SemanticSearchAssets {
       }
     }
     for (final entry in reused.entries) {
-      final target = p.join(generation, modelFolder, entry.key);
-      if (p.equals(entry.value, target)) continue;
-      needed += _models.firstWhere((file) => file.name == entry.key).size;
+      if (p.equals(entry.value.source, entry.key)) continue;
+      needed += entry.value.size;
     }
     if (needed == 0) return;
     final free = _freeBytesFor(mirrorDir);
@@ -1328,12 +1662,18 @@ class SemanticSearchAssets {
       dir: mirrorDir,
       neededBytes: needed,
       freeBytes: free,
-      message: AppL10n.strings.libraryDomain.notEnoughDiskSpace(
-        mirrorDir,
+      message: AppL10n.strings.libraryDomain.mirrorNotEnoughDiskSpace(
+        _volumeOf(mirrorDir),
         DiskSpaceProbe.formatBytes(needed),
         DiskSpaceProbe.formatBytes(free),
       ),
     );
+  }
+
+  /// The drive the mirror sits on: the message names it, not "semantic".
+  static String _volumeOf(String dir) {
+    final root = p.rootPrefix(p.absolute(dir));
+    return root.isEmpty || root == '/' ? dir : root;
   }
 
   /// What the downloader resumes from `<dest>.segments` (prefix plus ranges);
@@ -1438,6 +1778,7 @@ class SemanticSearchAssets {
     required String mirrorDir,
     required String libraryTag,
     required SemanticAsset file,
+    SemanticModelGeneration generation = SemanticModelGeneration.round2,
     bool Function()? isCancelled,
   }) async {
     final root = Directory(mirrorDir);
@@ -1452,7 +1793,7 @@ class SemanticSearchAssets {
       }
     }
     for (final name in names) {
-      final path = p.join(mirrorDir, name, modelFolder, file.name);
+      final path = p.join(mirrorDir, name, _spec(generation).folder, file.name);
       if (await _matches(path, file, isCancelled)) return path;
     }
     return null;
@@ -1501,6 +1842,7 @@ class SemanticSearchAssets {
     required String tag,
     required int version,
     required SemanticVectorsFamily family,
+    required SemanticModelGeneration generation,
     String? deltaName,
   }) {
     if (manifest is! Map ||
@@ -1552,8 +1894,8 @@ class SemanticSearchAssets {
     final identity = manifest['identity'];
     final model = identity is Map ? identity['model'] : null;
     if (model is! Map ||
-        model['family_id'] != _modelFamily.familyId ||
-        model['tokenizer_checksum'] != _modelFamily.tokenizerChecksum) {
+        model['family_id'] != _spec(generation).familyId ||
+        model['tokenizer_checksum'] != _spec(generation).tokenizerChecksum) {
       _invalid();
     }
     final text = (identity as Map)['text'];
@@ -1600,121 +1942,229 @@ class SemanticSearchAssets {
       ? int.tryParse(_libraryTag.firstMatch(tag)?.group(1) ?? '')
       : null;
 
+  /// The `semantic.json` document: the Round2 plans in the fields old
+  /// launchers read, and every plan (any generation) under `plans`.
+  Map<String, Object?> _mirrorJson(List<_Meta> plans) {
+    final round2 = plans
+        .where((m) => m.generation == SemanticModelGeneration.round2)
+        .toList();
+    final legacy = round2.where((m) => !m.windows).firstOrNull;
+    final windows = round2.where((m) => m.windows).firstOrNull;
+    final first = plans.first;
+    final json = <String, Object?>{
+      if (legacy != null || windows != null)
+        ...(legacy ?? windows)!.toJson()
+      else ...{
+        // No Round2 plan: nothing an old launcher could install.
+        'libraryTag': first.libraryTag,
+        'libraryVersion': first.libraryVersion,
+      },
+    };
+    if (legacy != null && windows != null) {
+      json['windows'] = windows.toJson();
+    }
+    json['plans'] = [for (final plan in plans) plan.toJson()];
+    return json;
+  }
+
+  _Meta? _pick(
+    List<_Meta> metas,
+    SemanticModelGeneration generation, {
+    bool preferWindows = false,
+  }) {
+    final own = metas.where((m) => m.generation == generation).toList();
+    final windows = own.where((m) => m.windows).firstOrNull;
+    final legacy = own.where((m) => !m.windows).firstOrNull;
+    return preferWindows ? (windows ?? legacy) : (legacy ?? windows);
+  }
+
   Future<_Meta?> _metadata(
     String mirrorDir, {
+    required SemanticModelGeneration generation,
     bool preferWindows = false,
-  }) async {
+  }) async => _pick(
+    await _allMetadata(mirrorDir),
+    generation,
+    preferWindows: preferWindows,
+  );
+
+  /// Every plan of `semantic.json`. A document without `plans` is the
+  /// pre-generation format, which could only ever describe Round2.
+  Future<List<_Meta>> _allMetadata(String mirrorDir) async =>
+      (await _readDrive(mirrorDir)).metas;
+
+  /// [fileExists] with [complete] false: a `semantic.json` this tool could
+  /// not fully read, which is not the same as no file.
+  Future<({List<_Meta> metas, bool fileExists, bool complete})> _readDrive(
+    String mirrorDir,
+  ) async {
+    final file = File(p.join(mirrorDir, manifestFileName));
+    bool exists;
     try {
-      var value = jsonDecode(
-        await File(p.join(mirrorDir, manifestFileName)).readAsString(),
-      );
+      exists = await file.exists();
+    } on FileSystemException {
+      exists = true;
+    }
+    if (!exists) {
+      return (metas: const <_Meta>[], fileExists: false, complete: true);
+    }
+    const unreadable = (metas: <_Meta>[], fileExists: true, complete: false);
+    try {
+      final value = jsonDecode(await file.readAsString());
       if (value is! Map<String, dynamic> ||
           value['libraryVersion'] is! int ||
           _tagVersion(value['libraryTag']) != value['libraryVersion']) {
-        return null;
-      }
-      if (preferWindows && value.containsKey('windows')) {
-        final windows = value['windows'];
-        if (windows is! Map<String, dynamic> ||
-            windows['family'] != SemanticVectorsFamily.windows.id ||
-            windows['libraryTag'] != value['libraryTag'] ||
-            windows['libraryVersion'] != value['libraryVersion']) {
-          return null;
-        }
-        value = windows;
+        return unreadable;
       }
       final tag = value['libraryTag'] as String;
       final version = value['libraryVersion'] as int;
-      final family = value.containsKey('family')
-          ? SemanticVectorsFamily.byId(value['family'])
-          : SemanticVectorsFamily.legacy;
-      if (family == SemanticVectorsFamily.legacy) {
-        final base = _assetOf(
-          value['manifestName'],
-          value['manifestSize'],
-          value['manifestSha256'],
-        );
-        if (base == null) return null;
-        return _Meta(
-          family: family!,
-          chain: false,
-          libraryTag: tag,
-          libraryVersion: version,
-          base: base,
-          rejectedWindowsManifest: switch (value['rejectedWindowsManifest']) {
-            final String sha when _sha(sha) => sha,
-            _ => null,
-          },
-        );
-      }
-      if (family != SemanticVectorsFamily.windows) return null;
-      final rawBase = value['base'];
-      final kind = value['kind'];
-      final digest = value['identityDigest'];
-      final rawSteps = value['steps'];
-      final base = rawBase is Map
-          ? _assetOf(rawBase['name'], rawBase['size'], rawBase['sha256'])
-          : null;
-      if (base == null ||
-          (kind != 'base' && kind != 'chain') ||
-          digest is! String ||
-          !_sha(digest) ||
-          rawSteps is! List) {
-        return null;
-      }
-      final steps = <_Step>[];
-      var expectedFrom = 0;
-      for (final raw in rawSteps) {
-        if (raw is! Map ||
-            raw['from'] is! int ||
-            raw['to'] is! int ||
-            raw['releaseTag'] !=
-                '${family!.deltaReleaseTagPrefix}${raw['libraryTag']}' ||
-            _tagVersion(raw['libraryTag']) != raw['to']) {
-          return null;
+      final raw = value['plans'];
+      final metas = <_Meta>[];
+      var complete = true;
+      if (raw is List) {
+        for (final entry in raw) {
+          _Meta? meta;
+          if (entry is Map<String, dynamic>) {
+            final generation = SemanticModelGeneration.byId(
+              entry['generation'],
+            );
+            if (generation != null &&
+                entry['libraryTag'] == tag &&
+                entry['libraryVersion'] == version) {
+              meta = _parseMeta(entry, generation);
+            }
+          }
+          if (meta == null) {
+            complete = false;
+          } else {
+            metas.add(meta);
+          }
         }
-        final from = raw['from'] as int;
-        final to = raw['to'] as int;
-        final manifest = _assetOf(raw['name'], raw['size'], raw['sha256']);
-        if (manifest == null ||
-            from <= 0 ||
-            from >= to ||
-            (steps.isNotEmpty && from != expectedFrom)) {
-          return null;
-        }
-        expectedFrom = to;
-        steps.add(
-          _Step(
-            releaseTag: raw['releaseTag'] as String,
-            libraryTag: raw['libraryTag'] as String,
-            from: from,
-            to: to,
-            manifest: manifest,
-          ),
+        return (
+          metas: metas,
+          fileExists: true,
+          complete: complete && metas.isNotEmpty,
         );
       }
-      final chain = kind == 'chain';
-      if (chain && steps.isNotEmpty && steps.last.to != version) return null;
-      if (!chain && steps.isNotEmpty) return null;
-      return _Meta(
-        family: family!,
-        chain: chain,
-        libraryTag: tag,
-        libraryVersion: version,
-        base: base,
-        identityDigest: digest,
-        steps: steps,
-      );
+      final legacy = _parseMeta(value, SemanticModelGeneration.round2);
+      if (legacy != null) metas.add(legacy);
+      final windows = value['windows'];
+      if (windows is Map<String, dynamic> &&
+          windows['family'] == SemanticVectorsFamily.windows.id &&
+          windows['libraryTag'] == tag &&
+          windows['libraryVersion'] == version) {
+        final meta = _parseMeta(windows, SemanticModelGeneration.round2);
+        if (meta != null) metas.add(meta);
+      }
+      return (metas: metas, fileExists: true, complete: metas.isNotEmpty);
     } on FileSystemException {
-      return null;
+      return unreadable;
     } on FormatException {
-      return null;
+      return unreadable;
     }
   }
 
-  Future<int?> mirroredVersion(String mirrorDir) async =>
-      (await _metadata(mirrorDir))?.libraryVersion;
+  _Meta? _parseMeta(
+    Map<String, dynamic> value,
+    SemanticModelGeneration generation,
+  ) {
+    final tag = value['libraryTag'];
+    final version = value['libraryVersion'];
+    if (tag is! String || version is! int) return null;
+    final family = value.containsKey('family')
+        ? SemanticVectorsFamily.byId(value['family'])
+        : SemanticVectorsFamily.legacy;
+    if (family == SemanticVectorsFamily.legacy) {
+      final base = _assetOf(
+        value['manifestName'],
+        value['manifestSize'],
+        value['manifestSha256'],
+      );
+      if (base == null) return null;
+      return _Meta(
+        generation: generation,
+        family: family!,
+        chain: false,
+        libraryTag: tag,
+        libraryVersion: version,
+        base: base,
+        rejectedWindowsManifest: switch (value['rejectedWindowsManifest']) {
+          final String sha when _sha(sha) => sha,
+          _ => null,
+        },
+      );
+    }
+    if (family != SemanticVectorsFamily.windows) return null;
+    final rawBase = value['base'];
+    final kind = value['kind'];
+    final digest = value['identityDigest'];
+    final rawSteps = value['steps'];
+    final base = rawBase is Map
+        ? _assetOf(rawBase['name'], rawBase['size'], rawBase['sha256'])
+        : null;
+    if (base == null ||
+        (kind != 'base' && kind != 'chain') ||
+        digest is! String ||
+        !_sha(digest) ||
+        rawSteps is! List) {
+      return null;
+    }
+    final steps = <_Step>[];
+    var expectedFrom = 0;
+    for (final raw in rawSteps) {
+      if (raw is! Map ||
+          raw['from'] is! int ||
+          raw['to'] is! int ||
+          raw['releaseTag'] !=
+              '${family!.deltaReleaseTagPrefixFor(generation)}${raw['libraryTag']}' ||
+          _tagVersion(raw['libraryTag']) != raw['to']) {
+        return null;
+      }
+      final from = raw['from'] as int;
+      final to = raw['to'] as int;
+      final manifest = _assetOf(raw['name'], raw['size'], raw['sha256']);
+      if (manifest == null ||
+          from <= 0 ||
+          from >= to ||
+          (steps.isNotEmpty && from != expectedFrom)) {
+        return null;
+      }
+      expectedFrom = to;
+      steps.add(
+        _Step(
+          releaseTag: raw['releaseTag'] as String,
+          libraryTag: raw['libraryTag'] as String,
+          from: from,
+          to: to,
+          manifest: manifest,
+        ),
+      );
+    }
+    final chain = kind == 'chain';
+    if (chain && steps.isNotEmpty && steps.last.to != version) return null;
+    if (!chain && steps.isNotEmpty) return null;
+    return _Meta(
+      generation: generation,
+      family: family!,
+      chain: chain,
+      libraryTag: tag,
+      libraryVersion: version,
+      base: base,
+      identityDigest: digest,
+      steps: steps,
+    );
+  }
 
+  /// The library version the drive holds smart-search data for.
+  Future<int?> mirroredVersion(String mirrorDir) async =>
+      (await _allMetadata(mirrorDir)).firstOrNull?.libraryVersion;
+
+  /// The model generations the drive holds data for.
+  Future<Set<SemanticModelGeneration>> mirroredGenerations(
+    String mirrorDir,
+  ) async => {
+    for (final meta in await _allMetadata(mirrorDir)) meta.generation,
+  };
   Future<bool> _matches(
     String path,
     SemanticAsset file, [
@@ -1754,28 +2204,35 @@ class SemanticSearchAssets {
   Future<({_Meta meta, List<_LoadedUnit> units})?> _load(
     String mirrorDir,
     int version, {
+    required SemanticModelGeneration generation,
     bool preferWindows = false,
     bool reportIncompatible = false,
   }) async {
-    final meta = await _metadata(mirrorDir, preferWindows: preferWindows);
+    final meta = await _metadata(
+      mirrorDir,
+      generation: generation,
+      preferWindows: preferWindows,
+    );
     if (meta == null || meta.libraryVersion != version) return null;
-    final generation = p.join(mirrorDir, meta.libraryTag);
+    final spec = _spec(generation);
+    final dir = p.join(mirrorDir, meta.libraryTag);
     try {
-      for (final file in _models) {
-        final source = File(p.join(generation, modelFolder, file.name));
+      for (final file in spec.files) {
+        final source = File(p.join(dir, spec.folder, file.name));
         if (!await source.exists() || await source.length() != file.size) {
           return null;
         }
       }
       final units = <_LoadedUnit>[];
       for (final step in meta.units) {
-        final path = p.join(generation, 'vectors', step.manifest.name);
+        final path = p.join(dir, 'vectors', step.manifest.name);
         if (!await _matches(path, step.manifest)) return null;
         final parsed = _vectors(
           jsonDecode(await File(path).readAsString()),
           tag: step.libraryTag,
           version: step.to,
           family: meta.family,
+          generation: generation,
           deltaName: step.from > 0 ? step.manifest.name : null,
         );
         if (parsed.from != step.from ||
@@ -1783,7 +2240,7 @@ class SemanticSearchAssets {
           return null;
         }
         for (final file in parsed.files) {
-          final source = File(p.join(generation, 'vectors', file.name));
+          final source = File(p.join(dir, 'vectors', file.name));
           if (!await source.exists() || await source.length() != file.size) {
             return null;
           }
@@ -1808,6 +2265,9 @@ class SemanticSearchAssets {
     }
   }
 
+  /// Whether installing from the drive is the next step; see [assess] for
+  /// every other outcome. [generation] is what the installed Otzaria proves
+  /// it reads; `null` = unproven.
   Future<bool> pending({
     required String mirrorDir,
     required String dbPath,
@@ -1815,84 +2275,259 @@ class SemanticSearchAssets {
     String? vectorsRootPath,
     bool preferencesReady = true,
     bool supportsWindows = false,
+    required SemanticModelGeneration? generation,
+    bool needsBase = false,
+    void Function()? onRecoveryVerified,
+  }) async => (await assess(
+    mirrorDir: mirrorDir,
+    dbPath: dbPath,
+    libraryVersion: libraryVersion,
+    support: SemanticAppSupport(
+      generation: generation,
+      windows: supportsWindows,
+      basis: generation == null
+          ? SemanticSupportBasis.unproven
+          : SemanticSupportBasis.declared,
+    ),
+    vectorsRootPath: vectorsRootPath,
+    preferencesReady: preferencesReady,
+    needsBase: needsBase,
+    onRecoveryVerified: onRecoveryVerified,
+  )).installable;
+
+  /// What the drive and this computer hold for the model generation and
+  /// vector shape the installed Otzaria reads. Reads small files only (the
+  /// model, the set's pointers); never the gigabytes of vectors.
+  Future<SmartSearchStatus> assess({
+    required String mirrorDir,
+    required String dbPath,
+    required int libraryVersion,
+    required SemanticAppSupport support,
+    String? vectorsRootPath,
+    bool preferencesReady = true,
     bool needsBase = false,
     void Function()? onRecoveryVerified,
   }) async {
-    final data = await _load(
-      mirrorDir,
-      libraryVersion,
-      preferWindows: supportsWindows,
-    );
-    if (data == null) return false;
-    final meta = data.meta;
-    if (meta.windows && !supportsWindows) return false;
     final root = vectorsRootPath ?? p.dirname(p.dirname(dbPath));
-    final sets = await readInstalledSets(p.join(root, 'vectors'));
-    final live = sets.firstOrNull;
-    if (_keepsWindowsSet(meta, live, supportsWindows)) return false;
-    if (!preferencesReady) return true;
-    final vectorsCurrent = !meta.windows
-        ? live != null &&
-              live.libraryVersion == meta.libraryVersion &&
-              live.libraryReleaseTag == meta.libraryTag &&
-              _sameIdentity(
-                live.identityDigest,
-                data.units.single.identityDigest,
-              )
-        : live != null &&
-              live.windows &&
-              live.identityDigest == meta.identityDigest &&
-              (meta.chain
-                  ? live.libraryVersion >= meta.libraryVersion
-                  : live.libraryVersion > meta.libraryVersion ||
-                        (live.libraryVersion == meta.libraryVersion &&
-                            live.libraryReleaseTag == meta.libraryTag));
-    if (!vectorsCurrent) return true;
-    for (final file in _models) {
-      if (!await _matches(
-        p.join(p.dirname(dbPath), modelFolder, file.name),
-        file,
-      )) {
-        return true;
+    final vectorsDir = p.join(root, 'vectors');
+    final live = (await readInstalledSets(vectorsDir)).firstOrNull;
+    final drive = await _readDrive(mirrorDir);
+    final metas = drive.metas;
+    final driveGenerations = {for (final meta in metas) meta.generation};
+    final generation = support.generation;
+    String key(_Meta? meta) => [
+      support.proofKey,
+      libraryVersion,
+      drive.fileExists,
+      drive.complete,
+      meta?.generation.id,
+      meta?.family.id,
+      meta?.libraryTag,
+      meta?.base.sha256,
+      meta?.identityDigest,
+      live?.libraryVersion,
+      live?.libraryReleaseTag,
+      live?.identityDigest,
+      live?.familyId,
+      live?.windows,
+      preferencesReady,
+    ].join('|');
+    SmartSearchStatus status(
+      SmartSearchState state,
+      SmartSearchReason reason, {
+      _Meta? meta,
+      Set<SmartSearchPart> missing = const {},
+      Set<SmartSearchPart> present = const {},
+      Object? incompatibility,
+    }) => SmartSearchStatus(
+      state: state,
+      reason: reason,
+      required: generation == null
+          ? null
+          : (
+              generation: generation,
+              family: support.windows
+                  ? SemanticVectorsFamily.windows
+                  : SemanticVectorsFamily.legacy,
+            ),
+      driveGenerations: driveGenerations,
+      installedGeneration: live?.generation,
+      missing: missing,
+      present: present,
+      incompatibility: incompatibility,
+      proofKey: key(meta),
+    );
+    if (generation == null) {
+      return status(
+        support.unrecognizedFamilies.isNotEmpty
+            ? SmartSearchState.unsupported
+            : SmartSearchState.unverified,
+        support.unrecognizedFamilies.isNotEmpty
+            ? SmartSearchReason.appFamilyUnknown
+            : SmartSearchReason.appUnproven,
+      );
+    }
+    final spec = _spec(generation);
+    final modelDir = p.join(p.dirname(dbPath), spec.folder);
+    final meta = _pick(metas, generation, preferWindows: support.windows);
+    if (meta == null) {
+      if (drive.fileExists && !drive.complete) {
+        return status(
+          SmartSearchState.unverified,
+          SmartSearchReason.driveUnreadable,
+        );
+      }
+      if (metas.isNotEmpty) {
+        return status(
+          SmartSearchState.driveNotMatching,
+          SmartSearchReason.driveOtherGeneration,
+        );
+      }
+      final inUse =
+          preferencesReady ||
+          live != null ||
+          await Directory(modelDir).exists();
+      return status(
+        inUse ? SmartSearchState.needsDriveDownload : SmartSearchState.notInUse,
+        inUse ? SmartSearchReason.driveEmpty : SmartSearchReason.none,
+      );
+    }
+    if (meta.libraryVersion != libraryVersion) {
+      return status(
+        SmartSearchState.driveNotMatching,
+        SmartSearchReason.driveOlderVersion,
+        meta: meta,
+      );
+    }
+    if (meta.windows && !support.windows) {
+      return status(
+        SmartSearchState.driveNotMatching,
+        SmartSearchReason.driveOtherShape,
+        meta: meta,
+      );
+    }
+    if (_keepsWindowsSet(meta, live, support.windows, generation)) {
+      return status(
+        SmartSearchState.driveNotMatching,
+        SmartSearchReason.keepsWindowsSet,
+        meta: meta,
+      );
+    }
+    final ({_Meta meta, List<_LoadedUnit> units})? data;
+    try {
+      data = await _load(
+        mirrorDir,
+        libraryVersion,
+        generation: generation,
+        preferWindows: support.windows,
+        reportIncompatible: true,
+      );
+    } on SemanticEngineIncompatibleException catch (fault) {
+      return status(
+        SmartSearchState.unsupported,
+        SmartSearchReason.engineIncompatible,
+        meta: meta,
+        incompatibility: fault,
+      );
+    }
+    if (data == null) {
+      return status(
+        SmartSearchState.needsDriveDownload,
+        SmartSearchReason.driveIncomplete,
+        meta: meta,
+      );
+    }
+    final missing = <SmartSearchPart>{};
+    final present = <SmartSearchPart>{};
+    final vectorsCurrent =
+        live != null &&
+        live.markerConsistent &&
+        live.familyId == spec.familyId &&
+        (!meta.windows
+            ? !live.windows &&
+                  live.libraryVersion == meta.libraryVersion &&
+                  live.libraryReleaseTag == meta.libraryTag &&
+                  _sameIdentity(
+                    live.identityDigest,
+                    data.units.single.identityDigest,
+                  )
+            : live.windows &&
+                  live.identityDigest == meta.identityDigest &&
+                  (meta.chain
+                      ? live.libraryVersion >= meta.libraryVersion
+                      : live.libraryVersion > meta.libraryVersion ||
+                            (live.libraryVersion == meta.libraryVersion &&
+                                live.libraryReleaseTag == meta.libraryTag)));
+    (vectorsCurrent ? present : missing).add(SmartSearchPart.vectors);
+    var modelOk = true;
+    for (final file in spec.files) {
+      if (!await _matches(p.join(modelDir, file.name), file)) {
+        modelOk = false;
+        break;
       }
     }
-    if (needsBase) {
+    (modelOk ? present : missing).add(SmartSearchPart.model);
+    (preferencesReady ? present : missing).add(SmartSearchPart.preferences);
+    if (missing.isEmpty && needsBase && live != null) {
       // A repair by Otzaria can keep the same version and identity.
       // Verify its contents before clearing the recorded failure.
       final work = await Directory.systemTemp.createTemp('semantic-recovery-');
       SemanticVectorsEngine? engine;
       try {
         engine = await _openEngine(work.path);
-        final info = await engine.info(p.join(root, 'vectors'));
+        final info = await engine.info(vectorsDir);
         if (!info.present ||
             info.libraryVersion != live.libraryVersion ||
             info.identityDigest != live.identityDigest) {
-          return true;
+          missing.add(SmartSearchPart.vectors);
+        } else {
+          await engine.verify(vectorsDir);
         }
-        await engine.verify(p.join(root, 'vectors'));
       } on SemanticError {
-        return true;
+        missing.add(SmartSearchPart.vectors);
       } finally {
-        engine?.dispose();
-        await work.delete(recursive: true);
+        await disposeSemanticEngineWork(engine, work);
       }
-      onRecoveryVerified?.call();
+      if (missing.isEmpty) onRecoveryVerified?.call();
     }
-    return false;
+    present.removeAll(missing);
+    if (missing.isNotEmpty) {
+      return status(
+        SmartSearchState.readyOnDrive,
+        SmartSearchReason.partsMissing,
+        meta: meta,
+        missing: missing,
+        present: present,
+      );
+    }
+    return status(
+      SmartSearchState.installedVerified,
+      SmartSearchReason.none,
+      meta: meta,
+      present: present,
+    );
   }
 
   /// A machine already on the preferred windows family waits for a windows
-  /// download rather than taking the legacy set back, as Otzaria does.
+  /// download rather than taking the anchor set back, as Otzaria does, but
+  /// only when that set is of the generation the app reads now.
   static bool _keepsWindowsSet(
     _Meta meta,
     SemanticInstalledSet? live,
     bool supportsWindows,
-  ) => !meta.windows && supportsWindows && live != null && live.windows;
+    SemanticModelGeneration generation,
+  ) =>
+      !meta.windows &&
+      supportsWindows &&
+      live != null &&
+      live.windows &&
+      live.generation == generation;
 
-  /// A set installed under another identity is not the published one; an
-  /// unrecorded identity on either side cannot tell.
+  /// A set installed under another identity is not the published one. A
+  /// published manifest with no digest has nothing to compare; a set with no
+  /// recorded identity cannot be proven to be the published one.
   static bool _sameIdentity(String installed, String published) =>
-      installed.isEmpty || published.isEmpty || installed == published;
+      published.isEmpty || (installed.isNotEmpty && installed == published);
 
   /// The sound sets under [vectors], live first (`CURRENT`, then `PREVIOUS`).
   static Future<List<SemanticInstalledSet>> readInstalledSets(
@@ -1956,12 +2591,19 @@ class SemanticSearchAssets {
         if (!complete) continue;
         final digest = set['identity_digest'];
         final identity = digest is String ? digest : '';
+        final model = set['identity'] is Map
+            ? (set['identity'] as Map)['model']
+            : null;
+        final family = model is Map ? model['family_id'] : null;
+        final chunking = model is Map ? model['chunking_identity'] : null;
         sets.add(
           SemanticInstalledSet(
             libraryVersion: set['library_version'] as int,
             libraryReleaseTag: set['library_release_tag'] as String,
             identityDigest: identity,
             windows: identity.isNotEmpty && marker == identity,
+            familyId: family is String ? family : null,
+            chunkingIdentity: chunking is int ? chunking : null,
           ),
         );
       } on FileSystemException {
@@ -1975,7 +2617,7 @@ class SemanticSearchAssets {
 
   Future<void> _ensureOwnedDirectory(
     String path, {
-    bool adoptModel = false,
+    SemanticModelSpec? spec,
   }) async {
     final directory = Directory(path);
     if (await directory.exists()) {
@@ -1983,11 +2625,11 @@ class SemanticSearchAssets {
       for (final marker in const ['.otzaria-semantic', 'CURRENT', 'PREVIOUS']) {
         if (await File(p.join(path, marker)).exists()) owned = true;
       }
-      if (!owned && adoptModel) {
-        final identity = _models
+      if (!owned && spec != null) {
+        final identity = spec.files
             .where((file) => file.name == 'model.json')
             .firstOrNull;
-        final names = _models.map((file) => file.name).toSet();
+        final names = spec.files.map((file) => file.name).toSet();
         final entries = await directory.list(followLinks: false).toList();
         owned =
             identity != null &&
@@ -2108,15 +2750,25 @@ class SemanticSearchAssets {
     required int libraryVersion,
     String? vectorsRootPath,
     bool supportsWindows = false,
+    required SemanticModelGeneration? generation,
     bool? targetReadsLineText4 = true,
     Future<void> Function()? beforeActivate,
     void Function(String)? onStage,
     bool Function()? isCancelled,
   }) async {
     _cancel(isCancelled);
+    if (generation == null) {
+      throw const SemanticEngineIncompatibleException(
+        lineTextVersion: 0,
+        keyVersion: 0,
+        reason: SemanticIncompatibilityReason.otzariaUnproven,
+      );
+    }
+    final spec = _spec(generation);
     final data = await _load(
       mirrorDir,
       libraryVersion,
+      generation: generation,
       preferWindows: supportsWindows,
       reportIncompatible: true,
     );
@@ -2127,9 +2779,11 @@ class SemanticSearchAssets {
     onStage?.call(AppL10n.strings.libraryDomain.semanticInstalling);
     final root = vectorsRootPath ?? p.dirname(p.dirname(dbPath));
     final vectorsDir = p.join(root, 'vectors');
-    final generation = p.join(mirrorDir, meta.libraryTag);
+    final generationDir = p.join(mirrorDir, meta.libraryTag);
     final live = (await readInstalledSets(vectorsDir)).firstOrNull;
-    if (_keepsWindowsSet(meta, live, supportsWindows)) return false;
+    if (_keepsWindowsSet(meta, live, supportsWindows, generation)) {
+      return false;
+    }
     if (targetReadsLineText4 != true) {
       throw SemanticEngineIncompatibleException(
         lineTextVersion: kSemanticEngineText.lineTextVersion,
@@ -2166,7 +2820,7 @@ class SemanticSearchAssets {
         );
       }
       for (final group in [
-        (modelFolder, _models),
+        (spec.folder, spec.files),
         (
           'vectors',
           [
@@ -2177,7 +2831,7 @@ class SemanticSearchAssets {
         for (final file in group.$2) {
           if (parted.contains(file)) continue;
           _cancel(isCancelled);
-          final source = p.join(generation, group.$1, file.name);
+          final source = p.join(generationDir, group.$1, file.name);
           if (!await _matches(source, file, isCancelled)) {
             _invalid();
           }
@@ -2186,22 +2840,22 @@ class SemanticSearchAssets {
       final segments = <String>[
         for (final unit in units)
           unit.files.length == 1
-              ? p.join(generation, 'vectors', unit.files.single.name)
+              ? p.join(generationDir, 'vectors', unit.files.single.name)
               : await concatenateVectorParts(
-                  vectorsDir: p.join(generation, 'vectors'),
+                  vectorsDir: p.join(generationDir, 'vectors'),
                   parts: unit.files,
                   workDir: work.path,
                   isCancelled: isCancelled,
                 ),
       ];
       await beforeActivate?.call();
-      final modelDirectory = p.join(p.dirname(dbPath), modelFolder);
-      await _ensureOwnedDirectory(modelDirectory, adoptModel: true);
+      final modelDirectory = p.join(p.dirname(dbPath), spec.folder);
+      await _ensureOwnedDirectory(modelDirectory, spec: spec);
       await _ensureOwnedDirectory(vectorsDir);
-      for (final file in _models) {
+      for (final file in spec.files) {
         _cancel(isCancelled);
-        final source = p.join(generation, modelFolder, file.name);
-        final target = p.join(p.dirname(dbPath), modelFolder, file.name);
+        final source = p.join(generationDir, spec.folder, file.name);
+        final target = p.join(p.dirname(dbPath), spec.folder, file.name);
         if (await _matches(target, file, isCancelled)) continue;
         _ensureSpace(p.dirname(target), file.size);
         await Directory(p.dirname(target)).create(recursive: true);
@@ -2215,17 +2869,17 @@ class SemanticSearchAssets {
       }
       _cancel(isCancelled);
       await File(
-        p.join(p.dirname(dbPath), modelFolder, '.otzaria-semantic'),
+        p.join(p.dirname(dbPath), spec.folder, '.otzaria-semantic'),
       ).writeAsString('');
       final modelIdentity = meta.windows
-          ? kWindowsModelIdentityJson
+          ? spec.windowsIdentityJson
           : await File(
-              p.join(p.dirname(dbPath), modelFolder, 'model.json'),
+              p.join(p.dirname(dbPath), spec.folder, 'model.json'),
             ).readAsString();
       engine ??= await _openEngine(work.path);
       for (final (index, unit) in units.indexed) {
         final manifestJson = await File(
-          p.join(generation, 'vectors', unit.step.manifest.name),
+          p.join(generationDir, 'vectors', unit.step.manifest.name),
         ).readAsString();
         await beforeActivate?.call();
         _cancel(isCancelled);
@@ -2261,8 +2915,8 @@ class SemanticSearchAssets {
               _setRefusesDelta.contains(error.kind)) {
             throw const SemanticChainNotApplicableException();
           }
-          final full = storageFullFromEngine(error, vectorsDir);
-          if (full != null) throw full;
+          final failure = storageFailureFromEngine(error, vectorsDir);
+          if (failure != null) throw failure;
           rethrow;
         }
         if (!report.alreadyApplied && report.libraryVersion != unit.step.to) {
@@ -2275,8 +2929,8 @@ class SemanticSearchAssets {
         try {
           await engine.compact(vectorsDir, isCancelled: isCancelled);
         } catch (error) {
-          final full = storageFullFromEngine(error, vectorsDir);
-          if (full != null) throw full;
+          final failure = storageFailureFromEngine(error, vectorsDir);
+          if (failure != null) throw failure;
           rethrow;
         }
       }
@@ -2284,8 +2938,7 @@ class SemanticSearchAssets {
     } on FileSystemException catch (error, stack) {
       throwStorageAware(error, stack, vectorsDir);
     } finally {
-      engine?.dispose();
-      await work.delete(recursive: true);
+      await disposeSemanticEngineWork(engine, work);
     }
   }
 

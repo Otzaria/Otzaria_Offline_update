@@ -938,12 +938,19 @@ void main() {
     late String exe;
     late String installedDir;
 
-    PluginsModuleController watching({Duration? timeout}) {
+    PluginsModuleController watching({
+      Duration? timeout,
+      Duration? maxWait,
+      Future<bool> Function()? running,
+    }) {
       final c = PluginsModuleController(
         mirrorRootDir: p.join(tempDir.path, 'mirror'),
         otzariaLaunchPath: () async => exe,
         installWatchInterval: const Duration(milliseconds: 10),
         installWatchTimeout: timeout ?? const Duration(minutes: 5),
+        installWatchLateInterval: const Duration(milliseconds: 10),
+        installWatchMaxWait: maxWait ?? const Duration(minutes: 30),
+        isOtzariaRunning: running,
       );
       addTearDown(c.dispose);
       return c;
@@ -1010,11 +1017,173 @@ void main() {
       var announced = false;
       c.installCompletions.listen((_) => announced = true);
 
+      final closed = Completer<void>();
+      void onChange() {
+        if (!c.isAwaitingInstall && !closed.isCompleted) closed.complete();
+      }
+
+      c.addListener(onChange);
+      addTearDown(() => c.removeListener(onChange));
       c.watchForInstall(plugin('חדש', 'תוסף', manifestId: manifestId));
-      await Future<void>.delayed(const Duration(milliseconds: 80));
+      await closed.future.timeout(const Duration(seconds: 30));
+      await pumpEventQueue();
 
       expect(c.isAwaitingInstall, isFalse);
       expect(announced, isFalse);
+    });
+
+    test(
+      'אוצריא עוד פתוחה אחרי הפסק הזמן: ההמתנה נשארת, וההתקנה המאוחרת מזוהה',
+      () async {
+        otzariaFinishes('1.0.0');
+        const open = true;
+        final c = watching(
+          timeout: const Duration(milliseconds: 50),
+          running: () async => open,
+        );
+        await c.load();
+        final target = plugin('חדש', 'תוסף', manifestId: manifestId);
+
+        final announced = c.installCompletions.first;
+        c.watchForInstall(target);
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        expect(c.isAwaitingInstall, isTrue);
+
+        otzariaFinishes('1.1.0');
+
+        expect(await announced, 'תוסף');
+        expect(c.installed[manifestId], '1.1.0');
+        expect(c.isAwaitingInstall, isFalse);
+      },
+    );
+
+    test('אוצריא פתוחה לנצח: התקרה המוחלטת סוגרת את ההמתנה בלי הצלחה',
+        () async {
+      otzariaFinishes('1.0.0');
+      final c = watching(
+        timeout: const Duration(milliseconds: 20),
+        maxWait: const Duration(milliseconds: 300),
+        running: () async => true,
+      );
+      await c.load();
+      var announced = false;
+      c.installCompletions.listen((_) => announced = true);
+
+      c.watchForInstall(plugin('חדש', 'תוסף', manifestId: manifestId));
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(c.isAwaitingInstall, isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+
+      expect(c.isAwaitingInstall, isFalse);
+      expect(announced, isFalse);
+    });
+
+    test('אחרי החלון ההתחלתי הכרטיס חוזר לפעולה וההמתנה ברקע נמשכת', () async {
+      otzariaFinishes('1.0.0');
+      final c = watching(
+        timeout: const Duration(milliseconds: 40),
+        running: () async => true,
+      );
+      await c.load();
+      final target = plugin('חדש', 'תוסף', manifestId: manifestId);
+      var notified = 0;
+      c.addListener(() => notified++);
+
+      c.watchForInstall(target);
+      expect(c.isAwaitingInstallOf(target), isTrue);
+      expect(c.isInInstallWindow, isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(c.isAwaitingInstallOf(target), isFalse);
+      expect(c.isInInstallWindow, isFalse);
+      expect(c.isAwaitingInstall, isTrue);
+      expect(notified, greaterThan(1));
+
+      final announced = c.installCompletions.first;
+      otzariaFinishes('2.0.0');
+      expect(await announced, 'תוסף');
+    });
+
+    test('תוסף שחלונו נסגר בזמן שאחר עוד בחלון: הכרטיס שלו מתעדכן', () async {
+      otzariaFinishes('1.0.0');
+      final c = watching(
+        timeout: const Duration(milliseconds: 200),
+        running: () async => true,
+      );
+      await c.load();
+      final a = plugin('a', 'תוסף א', manifestId: manifestId);
+      final b = plugin('b', 'תוסף ב', manifestId: 'launcher-other-plugin');
+
+      c.watchForInstall(a);
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      c.watchForInstall(b);
+      expect(c.isAwaitingInstallOf(a), isTrue);
+
+      var notified = 0;
+      c.addListener(() => notified++);
+      await Future<void>.delayed(const Duration(milliseconds: 140));
+
+      expect(c.isAwaitingInstallOf(a), isFalse);
+      expect(c.isAwaitingInstallOf(b), isTrue);
+      expect(notified, greaterThan(0));
+    });
+
+    test('המחסנית נסגרה בזמן שהבדיקה בטיסה: אין נגיעה אחרי dispose', () async {
+      final probe = Completer<bool>();
+      final c = PluginsModuleController(
+        mirrorRootDir: p.join(tempDir.path, 'mirror'),
+        otzariaLaunchPath: () async => exe,
+        installWatchInterval: const Duration(milliseconds: 10),
+        installWatchTimeout: const Duration(milliseconds: 20),
+        isOtzariaRunning: () => probe.future,
+      );
+      await c.load();
+      c.watchForInstall(plugin('חדש', 'תוסף', manifestId: manifestId));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      c.dispose();
+      probe.complete(false);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(c.isAwaitingInstall, isTrue);
+    });
+
+    test('חנות שאינה מוכנה ואוצריא פתוחה: ממתינים עד התקרה, כמו בסריקה',
+        () async {
+      final c = watching(
+        timeout: const Duration(milliseconds: 20),
+        maxWait: const Duration(milliseconds: 300),
+        running: () async => true,
+      );
+      expect(c.status, isNot(PluginsModuleStatus.ready));
+
+      c.watchForInstall(plugin('חדש', 'תוסף', manifestId: manifestId));
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(c.isAwaitingInstall, isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+
+      expect(c.isAwaitingInstall, isFalse);
+    });
+
+    test('אוצריא נסגרה אחרי הפסק הזמן: סריקה אחרונה ואז ההמתנה נסגרת',
+        () async {
+      otzariaFinishes('1.0.0');
+      var open = true;
+      final c = watching(
+        timeout: const Duration(milliseconds: 50),
+        running: () async => open,
+      );
+      await c.load();
+      final target = plugin('חדש', 'תוסף', manifestId: manifestId);
+
+      c.watchForInstall(target);
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      otzariaFinishes('1.2.0');
+      open = false;
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(c.installed[manifestId], '1.2.0');
+      expect(c.isAwaitingInstall, isFalse);
     });
 
     group('תוצאת ההתקנה שאוצריא כותבת (C2)', () {

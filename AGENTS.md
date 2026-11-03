@@ -208,17 +208,13 @@ Producer vs. consumer: the Kotlin repo `Otzaria/SeforimLibrary` *produces* the D
 and the patches; this repo only *consumes* them.
 
 **The update engine is `seforim_library_updater` of
-`Otzaria/otzaria_library_updater`** — the package Otzaria itself uses for its
-online update — pinned as a git dependency in the root, `library_manager` and
-`launcher_app` pubspecs (move the three refs together). The mirror policy is its
-`Offline*` classes (`OfflineLibraryUpdateDiscovery`, which alone takes
-`supportedDbSchemaVersion`, `OfflineLibraryUpdatePlanner`,
-`OfflineLibraryDbRecoveryService`); the
-unprefixed names are Otzaria's online route and still compile here, so never use
-them. Engine changes go upstream. Otzaria's consumer side is
-`Otzaria/otzaria` under `lib/library_update/` — read it before changing how the
-launcher orchestrates an update, and see `library_manager/README.md` §
-"התאמה לעדכון המקוון של אוצריא".
+`Otzaria/otzaria_library_updater`, pinned in four pubspecs (root,
+`library_manager`, `launcher_app`, `tool/download_bench`); move the refs
+together.** The pin sits on the `Yehuda-Zakesh` fork until it merges upstream.
+Mirror policy is its `Offline*` classes (`OfflineLibraryUpdateDiscovery` alone
+takes `supportedDbSchemaVersion`); the unprefixed names are Otzaria's online
+route, so never use them. Engine changes go upstream; Otzaria's consumer side
+is `Otzaria/otzaria` `lib/library_update/` (README § "התאמה לעדכון המקוון").
 
 ---
 
@@ -899,17 +895,18 @@ on success. **Keep every `.lock` file and its parent directories**, even outside
 the manifest: the downloader holds a SQLite lock on that inode, and unlinking it
 lets another writer bypass the lock. `MirrorJunkSweeper`, `MirrorDownloadUndo`
 and semantic generation pruning preserve them without restoring their contents.
-Every downloader on the shared scheduler takes `connectionsPerFile`
+Every downloader on the shared scheduler takes at most `connectionsPerFile`
 (`download_connections.dart`), the exporter's share of its eight-connection cap.
 
-**Do not raise connections or switch to curl on the #149 evidence.** Issue #149
-("slower than Otzaria's download assistant") was not reproduced and its cause is
-unproven: a local per-connection cap shows one possible mechanism (curl's four
-ranges beat our two), and GitHub behind NetFree gave every path about the same
-rate (2026-10-30). The Windows assistant was read from code and imitated with
-curl, never run; macOS/Linux assistants and the app with a USB target were not
-timed. Numbers, commands and limits: `otzaria_downloads/README.md`, tools in
-`tool/download_bench/`.
+**Do not raise connections or switch to curl on the #149 evidence; a slow
+write target gets one.** #149 was not reproduced (cause unproven). A ranged
+download writes each range to `.seg-N`, then appends (1.5x/1.75x bytes) — the
+bottleneck on a USB stick (~3MB/s). `connectionsForDir`
+(`download_connections.dart`) probes ~1.5s (`driveWriteSpeed`, cached) only on
+a Windows `DRIVE_REMOVABLE` drive; under 10MiB/s or a failed probe gives one
+connection. Only valid split state of that asset preserves its split; orphan
+state or another asset's state does not. Probe completion awaits file closure.
+See `otzaria_downloads/README.md`.
 
 `DownloadScheduler` (`seforim_library_updater`, exported) is that pool, and it
 is a **shared semaphore on purpose**: `LibraryManager` hands the same instance to
@@ -1022,6 +1019,15 @@ The model goes beside the DB; the vector root is `dirname(key-library-path)`,
 which differs from the DB's parent when a library folder name is set.
 `SemanticSearchAssets`, `LibraryManager.resolveSemanticVectorsRoot`, and
 `OtzariaSettingsWriter.finishSemanticInstall` install and enable the data.
+
+**Smart search has two axes, model generation (Round2/QA491) and vector shape
+(anchor/windows); never fold one into the other or default an unproven
+generation to Round2.**
+Round2 data was installed for a QA491 app and reported "everything up to
+date" (2026-11-03). `OtzariaCapabilities.semanticSupport` proves the
+generation, `SemanticSearchAssets.assess` answers; only `allClear` is done.
+`AppSession` passes `mirroredOtzariaVersions` (`app_session_test.dart`).
+Rest: `library_manager/README.md`; `semantic_generations_test.dart`.
 
 **A markerless model folder may be repaired only when its pinned identity
 and file names are recognized.**
@@ -1285,36 +1291,38 @@ including hotfixes, while ignoring `+build` for the installation offer. Keep the
 full tag for cached files, hashes, release notes and architecture selection.
 An installed version newer than the mirrored target is never downgraded.
 
-**The FULL package is gone; a first install now runs the app wizard and then the
-library.** `otzaria-<ver>-windows-full.exe` was the ordinary installer with the
-library inside — i.e. a second copy of the ~1.5GB already on the drive, for one
-saved click. `UpdateHereFlow` (`flows/update_here_flow.dart`, the task screen behind
-the hero) installs both when `otzaria.currentVersion == null &&
-library.isFreshInstall` — never plugins. An update keeps `AutoInstallFlow`'s order:
-library, app, then plugin delivery (`PluginsModuleController.deliverUpdates`, which
-only *sends* — the screen says "sent to Otzaria, approve there").
+**The FULL package is gone; a first install runs the app wizard, then the
+library.** `otzaria-<ver>-windows-full.exe` duplicated the ~1.5GB library
+already on the drive, for one saved click. `UpdateHereFlow`
+(`flows/update_here_flow.dart`) installs both when `otzaria.currentVersion ==
+null && library.isFreshInstall`, never plugins. An update runs library, app,
+plugins; a library awaiting the app (`awaitsOtzariaUpdate`) runs after it,
+behind a fresh recheck. While a download holds the app, home and flow leave
+it out and the library stage is `skipped` with `libraryAwaitsApp`.
 
-- **"Try again" reruns the request that failed, not what home shows now.** The task
-  keeps its `UpdateHereRequest` (items, `reinstallApp`, `fullLibrary`) and
-  `AppSession.retryUpdateHere` → `UpdateHereFlow.retry` runs exactly that. Wiring the
-  button to home's `hereItems` turned a failed full-library or reinstall run into a
+- **"Try again" reruns the request that failed, not what home shows now.** The
+  task keeps its `UpdateHereRequest` (items, `reinstallApp`, `fullLibrary`) and
+  `AppSession.retryUpdateHere` → `UpdateHereFlow.retry` runs that request. The
+  exception: after the post-wizard library recheck failed (`recheckLibrary`),
+  retry skips the app and only rechecks the library. Wiring the button to
+  home's `hereItems` turned a failed full-library or reinstall run into a
   partial update, or into a button that did nothing.
 
-- **App first, never the library first.** Where the DB goes follows what the wizard
-  chose: a portable install keeps it beside the exe, an ordinary one under
-  `%APPDATA%`. Before the wizard there is no exe for `LibraryDbLocator` to hang the
-  portable-marker branch on, so the target would be a guess — and whoever picked
-  "portable" would get 1.5GB where Otzaria never looks. Hence the
-  `library.checkForUpdate()` between the two halves. A system-wide install cannot
-  arise here: `otzaria.iss` sets `PrivilegesRequired=lowest` with overrides allowed
-  from the command line only.
+- **App first, never the library first.** Where the DB goes follows what the
+  wizard chose: a portable install keeps it beside the exe, an ordinary one
+  under `%APPDATA%`. Before the wizard there is no exe for `LibraryDbLocator`
+  to hang the portable-marker branch on, so the target would be a guess — and
+  whoever picked "portable" would get 1.5GB where Otzaria never looks. Hence
+  the `library.checkForUpdate()` between the two halves. A system-wide install
+  cannot arise here: `otzaria.iss` sets `PrivilegesRequired=lowest` with
+  overrides allowed from the command line only.
 - **Otzaria is closed automatically after the wizard.** Its finish page ships a
-  checked "launch Otzaria" box, and `/NOLAUNCH=1` cannot clear it — that `[Run]`
-  entry has no `Check:`, while `ShouldLaunchAppAfterSilentInstall` gates only the
-  silent one on `WizardSilent`. A running Otzaria locks `seforim.db`, so
-  `OtzariaProcessCloser` asks it to quit (`taskkill` without `/F`); safe precisely
-  here, because it opened two seconds ago with nothing to save. The task's
-  "close Otzaria" step appears only if it survives.
+  checked "launch Otzaria" box, and `/NOLAUNCH=1` cannot clear it — that
+  `[Run]` entry has no `Check:`, while `ShouldLaunchAppAfterSilentInstall`
+  gates only the silent one on `WizardSilent`. A running Otzaria locks
+  `seforim.db`, so `OtzariaProcessCloser` asks it to quit (`taskkill` without
+  `/F`); safe precisely here, because it opened two seconds ago with nothing to
+  save. The task's "close Otzaria" step appears only if it survives.
 - **A stale FULL file on an old drive is swept.** `OtzariaAppMirror.staleFullPackages()`
   finds it, `sync()` deletes it, and `check.hasStaleFullPackage` forces the app module
   to run even when the online check proved nothing is new — otherwise "nothing to
@@ -1644,12 +1652,14 @@ is deliberately unused. Otzaria always gets a copy in the handoff folder
 `deliver` returns, and a sync could replace or prune that file by then. The folder
 is under the long TEMP path, since the results file is matched by exact path.
 
-**Install completion comes from Otzaria's result file when it writes one, else from
-polling.** When `otzaria_capabilities.json` says `pluginInstallResults >= 1`,
-`plugin_install_results.jsonl` in Otzaria's data root is matched by the exact handed-off
-path and `at` ≥ the handoff, so a cancel or a rejection is reported at once. Without
-it (older Otzaria) the 5-minute rescan is the only signal, and a cancel looks like a
-timeout.
+**Install completion comes from Otzaria's result file when it writes one, else
+from polling.** With `pluginInstallResults >= 1` in
+`otzaria_capabilities.json`, `plugin_install_results.jsonl` is matched by the
+exact handed-off path and `at` >= the handoff, so a cancel is reported at once;
+older Otzaria has only the 5-minute rescan and a cancel looks like a timeout.
+Past `installWatchTimeout` the wait continues while Otzaria is open, up to 30
+minutes (`installWatchMaxWait`). Only the first window keeps the card "sent"
+and the sleep inhibition; after it the card is actionable again (resend).
 
 **Everything about plugins hangs off the launch path the launcher already detected**
 (`OtzariaModuleController.launchPath`). Two consequences, both load-bearing for a
@@ -2423,7 +2433,9 @@ verify something new.
 
 | Area | Status |
 | --- | --- |
-| `otzaria_downloads` | Unit-tested plus real local HTTP transport on Windows. Interrupted transfers resume and cancellation is bounded. Not verified against production servers or on a removable drive. |
+| `otzaria_downloads` | Unit-tested plus real local HTTP transport on Windows. Interrupted transfers resume and cancellation is bounded. Not verified against production servers. A removable drive was measured only partly: `PatchDownloader` alone, a local server, one USB drive (`otzaria_downloads/README.md`); the full app flow and the write-speed probe were never run on a drive. |
+| "Damaged drive" classification (errno 1392, `StorageCorruptException`) | Unit-tested only — never seen from a real failing drive |
+| QA491 smart-search compatibility | Tested on Windows with native 7.0.1: official manifests pass identity validation; a synthetic QA491 set installs, reopens and passes CRC verification. No live Otzaria install or ONNX inference was run. |
 | `WindowsExeVersionReader`, `WindowsInstallRegistry` | **Run against a real install** (`otzaria.exe` 0.9.96+90960, Windows 11, 2026-08-10) |
 | `otzaria_manager` on macOS + launcher build/run there | **Verified** against a real `otzaria-macos.zip` — but that predates the custom title bar and `RunningOtzariaLocator._probeMac` |
 | `ZstdFileDecompressor` | Verified against real libzstd on Windows (`library_manager/test/zstd_file_decompressor_test.dart`) — **not** on a full ~1GB DB. `flutter test` never builds the plugin binary, so `_openLibrary` falls back to `ZSTD_LIBRARY_PATH` and then the system `libzstd`; the zstd tests load it through `nativeZstd()` (`test/support/zstd_fixtures.dart`), which skips without it unless `REQUIRE_NATIVE_ZSTD=1` — set on the Linux `analyze + native zstd (linux)` CI job, so there they run instead of skipping. Locally on macOS: `ZSTD_LIBRARY_PATH=/opt/homebrew/lib/libzstd.dylib` |

@@ -18,8 +18,8 @@ dependencies:
     sdk: flutter
   seforim_library_updater:
     git:
-      url: https://github.com/Otzaria/otzaria_library_updater.git
-      ref: 0b508aad37d5eb04640c5f2497d16ce9a2f9555b
+      url: https://github.com/Yehuda-Zakesh/otzaria_library_updater.git
+      ref: cd7446411fd7c1696034e47824f1434f189e290e
   otzaria_l10n:
     path: ../otzaria_l10n
   otzaria_manager:

@@ -9,14 +9,16 @@ environment:
 
 dependencies:
   crypto: ^3.0.7
+  ffi: ^2.1.0
   http: ^1.6.0
   otzaria_downloads:
     path: ../../otzaria_downloads
-  # אותו ref כמו בשורש, ב-library_manager וב-launcher_app.
+  # חייב להיות זהה ל-ref שבשורש (pubspec.yaml), ב-library_manager וב-launcher_app.
   seforim_library_updater:
     git:
-      url: https://github.com/Otzaria/otzaria_library_updater.git
-      ref: 809ce54799f5ef47f4694ea3e950a94368705e21
+      url: https://github.com/Yehuda-Zakesh/otzaria_library_updater.git
+      ref: cd7446411fd7c1696034e47824f1434f189e290e
 
 dev_dependencies:
   lints: ^4.0.0
+  test: ^1.25.0

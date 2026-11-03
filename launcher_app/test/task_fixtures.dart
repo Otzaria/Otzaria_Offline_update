@@ -193,6 +193,17 @@ final Map<String, UpdateHereTask> updateScenarios = {
     libraryNote: 'אוצריא עוד לא מכוונת לספרייה החדשה — בחר אותה בהגדרות '
         'אוצריא.',
   ),
+  'librarySkippedNote': const UpdateHereTask(
+    phase: UpdateHereTaskPhase.done,
+    stages: [GuidanceItem.app, GuidanceItem.library],
+    stageIndex: 2,
+    appVersion: '0.10.4',
+    outcomes: {
+      GuidanceItem.app: StageOutcome.done,
+      GuidanceItem.library: StageOutcome.skipped,
+    },
+    libraryNote: 'נתוני החיפוש החכם שבכונן אינם מתאימים לאוצריא המותקנת.',
+  ),
   'firstStopped': const UpdateHereTask(
     phase: UpdateHereTaskPhase.cancelledByUser,
     stages: [GuidanceItem.app, GuidanceItem.library],

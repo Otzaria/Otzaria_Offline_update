@@ -1,5 +1,6 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
+import 'package:library_manager/library_manager.dart' show SmartSearchState;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import '../controllers/library_module_controller.dart';
@@ -137,6 +138,17 @@ class LibraryScreen extends StatelessWidget {
           title: t.libSemanticSection,
           body: '$incompatible',
         ),
+      // מעודכן רק כשהחיפוש החכם הוכח; כל מצב אחר נאמר במפורש.
+      if (c.semanticNote case final note?
+          when c.semanticIncompatibility == null &&
+              c.semanticState != SmartSearchState.readyOnDrive)
+        NoticeBanner(
+          key: ShellKeys.librarySemanticNote,
+          kind: NoticeKind.warning,
+          leading: warning,
+          title: t.libSemanticSection,
+          body: note,
+        ),
       if (c.mirrorLacksCompanions)
         NoticeBanner(
           kind: NoticeKind.warning,
@@ -213,6 +225,10 @@ class LibraryScreen extends StatelessWidget {
         (
           StatusKind.updateAvailable,
           g.chipNewOnline,
+        ),
+      LibraryModuleStatus.upToDate when c.semanticOpen => (
+          StatusKind.needsAction,
+          g.chipSmartSearchOpen,
         ),
       LibraryModuleStatus.upToDate => (StatusKind.ok, t.chipUpToDate),
       LibraryModuleStatus.needsDownload => (

@@ -6,6 +6,7 @@ import 'package:launcher_app/src/flows/update_here_flow.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:launcher_app/src/shell/home_guidance.dart';
 import 'package:launcher_app/src/shell/shell_tasks.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 
 import 'test_support.dart';
 
@@ -36,6 +37,7 @@ class _App implements UpdateHereApp {
   int installs = 0;
   int stops = 0;
   Object? throws;
+  void Function()? onInstall;
 
   @override
   Future<AppInstallOutcome> installWithWizard() async {
@@ -43,6 +45,7 @@ class _App implements UpdateHereApp {
     log.add('app');
     await gate?.future;
     if (throws case final error?) throw error;
+    onInstall?.call();
     if (outcome == AppInstallOutcome.installed) {
       isInstalled = true;
       hasUpdateAvailable = false;
@@ -76,6 +79,11 @@ class _Library implements UpdateHereLibrary {
   bool canApplyFull = false;
   @override
   bool semanticAwaitsConsent = false;
+  @override
+  bool awaitsAppUpdate = false;
+
+  @override
+  String? semanticOpenNote;
 
   bool succeeds = true;
 
@@ -84,6 +92,9 @@ class _Library implements UpdateHereLibrary {
   ({int low, int high})? estimate;
   int fullApplies = 0;
   bool availableAfterRecheck = true;
+  bool recheckSucceeds = true;
+  int? targetAfterRecheck;
+  ({int low, int high})? estimateAfterRecheck;
   int applies = 0;
   int rechecks = 0;
   void Function()? onApply;
@@ -120,10 +131,17 @@ class _Library implements UpdateHereLibrary {
   }
 
   @override
-  Future<void> recheck() async {
+  Future<bool> recheck() async {
     rechecks++;
     log.add('recheck');
+    if (!recheckSucceeds) {
+      hasUpdateAvailable = false;
+      return false;
+    }
     hasUpdateAvailable = availableAfterRecheck;
+    if (targetAfterRecheck != null) targetVersion = targetAfterRecheck;
+    if (estimateAfterRecheck != null) estimate = estimateAfterRecheck;
+    return true;
   }
 }
 
@@ -306,6 +324,172 @@ void main() {
   });
 
   group('עדכון', () {
+    group('ספרייה שתלויה בתוכנה שבכונן', () {
+      const all = [
+        GuidanceItem.app,
+        GuidanceItem.library,
+        GuidanceItem.plugins
+      ];
+
+      setUp(() {
+        library
+          ..awaitsAppUpdate = true
+          ..hasUpdateAvailable = false;
+        plugins.deliverableUpdates = const ['לוח'];
+        // האשף פותח את אוצריא בסיומו, כמו בהתקנה ראשונה.
+        app.onInstall = () => host.running = true;
+      });
+
+      test('התוכנה, בדיקה מחדש, הספרייה ואז התוספים — ריצה אחת, בלי שאלה',
+          () async {
+        await flow.run(all);
+        expect(log, ['app', 'recheck', 'close', 'library', 'plugins']);
+        expect(task()!.stages, [
+          GuidanceItem.app,
+          GuidanceItem.library,
+          GuidanceItem.plugins,
+        ]);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+        expect(task()!.outcomes[GuidanceItem.library], StageOutcome.done);
+      });
+
+      test('התוכנה לא מתקינה ספרייה שעדיין אין לה מה להחיל — דילוג', () async {
+        library.availableAfterRecheck = false;
+        await flow.run(all);
+        expect(log, ['app', 'recheck', 'plugins']);
+        expect(task()!.outcomes[GuidanceItem.library], StageOutcome.skipped);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+      });
+
+      test('אין מה להחיל והחיפוש החכם פתוח — הדילוג נושא את הסיבה', () async {
+        library
+          ..availableAfterRecheck = false
+          ..semanticOpenNote = 'החיפוש החכם שבכונן אינו מתאים';
+        await flow.run(all);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+        expect(task()!.outcomes[GuidanceItem.library], StageOutcome.skipped);
+        expect(task()!.libraryNote, 'החיפוש החכם שבכונן אינו מתאים');
+      });
+
+      test('התקנת התוכנה בוטלה — הספרייה והתוספים לא רצים', () async {
+        app.outcome = AppInstallOutcome.cancelled;
+        await flow.run(all);
+        expect(log, ['app']);
+        expect(task()!.phase, UpdateHereTaskPhase.cancelledByUser);
+      });
+
+      test('הספרייה המלאה שממתינה לתוכנה רצה אחריה, עם בדיקה מחדש', () async {
+        library
+          ..canApplyFull = true
+          ..availableAfterRecheck = false;
+        expect(
+          await flow.run(const [GuidanceItem.library], fullLibrary: true),
+          isTrue,
+        );
+        expect(log, ['app', 'recheck', 'close', 'library-full']);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+        expect(task()!.outcomes[GuidanceItem.library], StageOutcome.done);
+      });
+
+      test('הספרייה המלאה והתוכנה חסומה — דילוג מפורש עם סיבה, לא שתיקה',
+          () async {
+        library.canApplyFull = true;
+        final started = await flow.run(
+          const [GuidanceItem.library],
+          fullLibrary: true,
+          blocked: () => {GuidanceItem.app},
+        );
+        expect(started, isTrue);
+        expect(log, isEmpty);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+        expect(task()!.outcomes[GuidanceItem.library], StageOutcome.skipped);
+        expect(task()!.libraryNote, AppL10n.strings.task.libraryAwaitsApp);
+      });
+
+      test('"נסה שוב" אחרי כשל בדיקה בהתקנה מחדש — התוכנה אינה מותקנת שוב',
+          () async {
+        app
+          ..hasUpdateAvailable = false
+          ..canReinstall = true;
+        library.recheckSucceeds = false;
+        const items = [GuidanceItem.app, GuidanceItem.library];
+        await flow.run(items, reinstallApp: true);
+        expect(app.installs, 1);
+        expect(task()!.phase, UpdateHereTaskPhase.failed);
+
+        library.recheckSucceeds = true;
+        expect(await flow.retry(), isTrue);
+        expect(app.installs, 1);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+      });
+
+      test('התוכנה חסומה בגלל הורדה — הספרייה אינה רצה לבדה', () async {
+        await flow.run(all, blocked: () => {GuidanceItem.app});
+        expect(log, ['plugins']);
+        expect(library.applies, 0);
+      });
+
+      test('"הפסק להמתין" לאשף — הספרייה לא נבדקת ולא מוחלת', () async {
+        app
+          ..gate = Completer<void>()
+          ..outcome = AppInstallOutcome.stillOpen;
+        library.availableAfterRecheck = true;
+        final run = flow.run(all);
+        await settle();
+        flow.stopWaiting();
+        await run;
+        expect(log, ['app']);
+        expect(library.applies, 0);
+        expect(task()!.outcomes[GuidanceItem.library], StageOutcome.skipped);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+      });
+
+      test('האשף נכשל — הספרייה לא מוחלת', () async {
+        app.outcome = AppInstallOutcome.failed;
+        await flow.run(all);
+        expect(log, ['app']);
+        expect(task()!.phase, UpdateHereTaskPhase.failed);
+      });
+
+      test('הבדיקה מחדש נכשלה — המשימה נכשלת עם הסיבה, לא "הושלם"', () async {
+        library
+          ..recheckSucceeds = false
+          ..errorMessage = 'database read failed';
+        await flow.run(all);
+        expect(log, ['app', 'recheck']);
+        expect(task()!.phase, UpdateHereTaskPhase.failed);
+        expect(task()!.failure!.stage, GuidanceItem.library);
+        expect(task()!.failure!.message, 'database read failed');
+      });
+
+      test('"נסה שוב" אחרי כשל בדיקה — בודק שוב את הספרייה, והתוכנה לא רצה',
+          () async {
+        library.recheckSucceeds = false;
+        await flow.run(all);
+        expect(app.installs, 1);
+        log.clear();
+
+        library.recheckSucceeds = true;
+        expect(await flow.retry(), isTrue);
+
+        expect(log, ['recheck', 'close', 'library', 'plugins']);
+        expect(app.installs, 1);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+      });
+
+      test('היעד והאומדן מתעדכנים לפי הבדיקה אחרי האשף', () async {
+        library
+          ..targetVersion = null
+          ..estimate = null
+          ..targetAfterRecheck = 31
+          ..estimateAfterRecheck = (low: 2, high: 9);
+        await flow.run(all);
+        expect(task()!.libraryVersion, 31);
+        expect(task()!.libraryMinutes, (low: 2, high: 9));
+        expect(task()!.outcomes[GuidanceItem.library], StageOutcome.done);
+      });
+    });
+
     test('הספרייה ואז התוכנה, כמו ההתקנה האוטומטית', () async {
       await flow.run(both);
       expect(log, ['library', 'app']);
@@ -823,6 +1007,34 @@ void main() {
       library.semanticAwaitsConsent = true;
     });
 
+    test('ספרייה שנשמטת — ההסכמה אינה נשאלת ואינה נבלעת', () async {
+      library
+        ..awaitsAppUpdate = true
+        ..hasUpdateAvailable = false;
+      plugins.deliverableUpdates = const ['תוסף'];
+      host.consentAnswer = true;
+      await flow.run(
+        const [GuidanceItem.library, GuidanceItem.plugins],
+        blocked: () => {GuidanceItem.app},
+      );
+      expect(host.asks, 0);
+      expect(host.grants, 0);
+      expect(host.consentUnanswered, isTrue);
+    });
+
+    test('המתנה לתוכנה שכבר מעודכנת אינה משמיטה את החלון', () async {
+      library
+        ..awaitsAppUpdate = true
+        ..hasUpdateAvailable = false;
+      app.hasUpdateAvailable = false;
+      host
+        ..consentAnswer = true
+        ..onGranted = () => library.hasUpdateAvailable = true;
+      await flow.run(const [GuidanceItem.library]);
+      expect(host.asks, 1);
+      expect(log, ['grant', 'library']);
+    });
+
     test('הסכמה — נכתבת לפני הספרייה, והעדכון ממשיך', () async {
       host.consentAnswer = true;
       await flow.run(both);
@@ -960,6 +1172,18 @@ void main() {
         expect(task()!.outcomes[GuidanceItem.library], StageOutcome.skipped);
         // הסיבה, ולא "אפשר להתקין אחר כך מדף הבית".
         expect(task()!.libraryNote, host.grantProblem);
+      });
+
+      test('הסכמה נכתבה אבל החומר אינו מתאים — הסיבה נשארת בסיום', () async {
+        host
+          ..consentAnswer = true
+          ..onGranted = () {};
+        library.semanticOpenNote =
+            AppL10n.strings.libraryDomain.semanticStatusDriveNotMatching;
+        await flow.run(const [GuidanceItem.library]);
+        expect(library.applies, 0);
+        expect(task()!.outcomes[GuidanceItem.library], StageOutcome.skipped);
+        expect(task()!.libraryNote, library.semanticOpenNote);
       });
 
       test('אחרי תשובה אין שלב בשבילו', () async {

@@ -18,7 +18,11 @@ Future<String> _download(String url, String dest) async {
     await downloader.downloadToFile(url: url, destPath: dest, expectedSize: 8);
     return 'success';
   } on PatchDownloadException catch (error) {
-    if (!error.message.contains('database is locked')) rethrow;
+    final busy = LibraryUpdaterMessages.current
+        .destinationBusy('\u0000')
+        .split('\u0000')
+        .first;
+    if (!error.message.contains(busy)) rethrow;
     return 'locked';
   } finally {
     downloader.dispose();

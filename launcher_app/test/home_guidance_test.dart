@@ -1008,6 +1008,98 @@ void main() {
     );
   });
 
+  test('עדכון כאן: ספרייה שממתינה לתוכנה באה אחריה', () {
+    expect(
+      updateHereStages(
+        firstInstall: false,
+        app: true,
+        library: true,
+        plugins: true,
+        libraryAfterApp: true,
+      ),
+      [_app, _library, _plugins],
+    );
+  });
+
+  group('ספרייה שתלויה בתוכנה שבכונן', () {
+    const waiting = GuidanceFacts(
+      otzariaStatus: AppStatusFact.updateAvailable,
+      libraryStatus: LibraryStatusFact.error,
+      libraryAwaitsApp: true,
+      pluginUpdatesOnDrive: 1,
+    );
+
+    test('הצעה אחת לכל מה שנדרש — לא תוכנה ותוספים ואז ספרייה בנפרד', () {
+      final g = deriveHomeGuidance(waiting);
+      expect(g.primary, GuidancePrimary.updateHere);
+      expect(g.hereItems, [_app, _library, _plugins]);
+      expect(g.attentionItem, isNull);
+    });
+
+    test('האריח של הספרייה אומר "עדכון כאן", לא תקלה', () {
+      expect(deriveTileStatus(_library, waiting), TileStatus.updateHere);
+    });
+
+    test('בלי עדכון תוכנה אין למה לחכות — נשארת תקלה', () {
+      const f = GuidanceFacts(
+        libraryStatus: LibraryStatusFact.error,
+        libraryAwaitsApp: true,
+      );
+      expect(deriveHomeGuidance(f).primary, GuidancePrimary.attention);
+      expect(deriveTileStatus(_library, f), TileStatus.attention);
+    });
+
+    test('בזמן בדיקה האריח "בודק" — לא "עדכון כאן" שמהבהב', () {
+      const f = GuidanceFacts(
+        otzariaStatus: AppStatusFact.updateAvailable,
+        libraryStatus: LibraryStatusFact.checking,
+        libraryAwaitsApp: true,
+      );
+      expect(deriveTileStatus(_library, f), TileStatus.checking);
+    });
+
+    group('בזמן הורדה שרצה', () {
+      test('התוכנה חסומה — הספרייה שממתינה לה אינה מוצעת ואינה "עדכון כאן"',
+          () {
+        const f = GuidanceFacts(
+          otzariaStatus: AppStatusFact.updateAvailable,
+          libraryStatus: LibraryStatusFact.error,
+          libraryAwaitsApp: true,
+          pluginUpdatesOnDrive: 1,
+          longTaskRunning: true,
+          hereDuringDownload: {_library, _plugins},
+        );
+        final g = deriveHomeGuidance(f);
+        expect(g.primary, GuidancePrimary.taskInProgress);
+        expect(g.hereItems, [_plugins]);
+        expect(deriveTileStatus(_library, f), isNot(TileStatus.updateHere));
+      });
+
+      test('התוכנה מותרת — הספרייה אחריה נשארת', () {
+        const f = GuidanceFacts(
+          otzariaStatus: AppStatusFact.updateAvailable,
+          libraryStatus: LibraryStatusFact.error,
+          libraryAwaitsApp: true,
+          longTaskRunning: true,
+          hereDuringDownload: {_app, _library},
+        );
+        expect(deriveHomeGuidance(f).hereItems, [_app, _library]);
+        expect(deriveTileStatus(_library, f), TileStatus.updateHere);
+      });
+
+      test('עדכון ספרייה אמיתי אינו נשמט', () {
+        const f = GuidanceFacts(
+          otzariaStatus: AppStatusFact.updateAvailable,
+          libraryStatus: LibraryStatusFact.updateAvailable,
+          libraryAwaitsApp: true,
+          longTaskRunning: true,
+          hereDuringDownload: {_library},
+        );
+        expect(deriveHomeGuidance(f).hereItems, [_library]);
+      });
+    });
+  });
+
   test('העובדות מקבילות בשמן למצבי הקונטרולרים — המתאם נשען על זה', () {
     expect(
       AppStatusFact.values.map((v) => v.name),

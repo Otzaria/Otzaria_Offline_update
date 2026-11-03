@@ -58,6 +58,24 @@ DownloadFailure classifyDownloadFailure({
       dir: full.dir,
     );
   }
+  // כונן או קובץ פגומים אינם רשת: "נסה שוב" לבדו לא יעזור, והנכסים התקינים
+  // שבכונן נשארים.
+  for (final component in failed) {
+    final error = errors[component]?.trim();
+    final damaged = findStorageCorrupt(causes[component]) ??
+        (error == null || error.isEmpty
+            ? null
+            : storageCorruptFromUpstream(error));
+    if (damaged == null) continue;
+    return DownloadFailure(
+      DownloadFailureKind.driveDamaged,
+      components: failed,
+      details: details,
+      dir: damaged.dir,
+      errno: damaged.errno,
+      tool: damaged.tool,
+    );
+  }
   final withoutShabbat = [
     for (final m in messages)
       if (!(shabbat && m.component == MirrorComponent.plugins)) m,

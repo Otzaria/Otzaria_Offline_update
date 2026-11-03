@@ -348,6 +348,24 @@ void main() {
       expect(body, isNot(contains('מוכנות ללימוד')));
     });
 
+    testWidgets('ספרייה שדולגה עם הערה — לא "מעודכנת" בוי ירוק',
+        (tester) async {
+      await show(tester, 'librarySkippedNote');
+      expect(find.text(t.doneWithNoteTitle), findsOneWidget);
+      expect(find.text(t.updatedTitle), findsNothing);
+      expect(badge(tester).kind, ResultBadgeKind.calm);
+      expect(find.textContaining('החיפוש החכם שבכונן'), findsOneWidget);
+      final body = t.doneHereBody(
+        firstInstall: false,
+        app: true,
+        library: false,
+        plugins: false,
+        libraryNote: true,
+      );
+      expect(find.text(body), findsOneWidget);
+      expect(body, contains('נשאר דבר אחד לעשות'));
+    });
+
     testWidgets('ממתין לסגירת אוצריא — מנעול ולא טבעת מסתובבת', (tester) async {
       await show(tester, 'firstClose');
       final library = tester

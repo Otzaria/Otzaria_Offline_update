@@ -66,6 +66,7 @@ void main() {
     final subject = assets();
     addTearDown(subject.dispose);
     return subject.pending(
+      generation: SemanticModelGeneration.round2,
       mirrorDir: mirror,
       dbPath: db,
       libraryVersion: 1,
@@ -122,6 +123,7 @@ void main() {
     addTearDown(subject.dispose);
     expect(
       await subject.install(
+        generation: SemanticModelGeneration.round2,
         mirrorDir: mirror,
         dbPath: db,
         libraryVersion: 1,
@@ -145,6 +147,7 @@ void main() {
         final subject = assets();
         addTearDown(subject.dispose);
         return subject.pending(
+          generation: SemanticModelGeneration.round2,
           mirrorDir: mirror,
           dbPath: db,
           libraryVersion: 1,

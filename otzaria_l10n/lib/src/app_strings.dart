@@ -1,4 +1,5 @@
 import 'app_language.dart';
+import 'storage_failure.dart' show DriveCheckTool;
 
 /// שורש כל המלל. מחולק לסעיפים לפי המסך/החבילה שבהם הוא מופיע, כדי
 /// שהוספת מחרוזת תיגע בקובץ אחד קצר ולא ברשימה שטוחה של מאות שדות.
@@ -84,6 +85,10 @@ abstract class CommonStrings {
   /// הכונן התמלא באמצע כתיבה והמערכת לא אמרה כמה חסר, ולכן אין כאן מספרים.
   String storageFullNoDetails(String dir);
   String get storageFullUnknownDir;
+
+  /// קובץ פגום ואינו קריא (1392 ב-Windows): כשל כונן, לא מחסור במקום ולא רשת.
+  String storageDamagedNoDetails(String dir, DriveCheckTool tool, int? errno);
+  String storageDamagedUnknownDir(DriveCheckTool tool, int? errno);
 }
 
 // ── מסגרת האפליקציה ───────────────────────────────────────────────────────────
@@ -250,6 +255,8 @@ abstract class TaskStrings {
   String get shabbatBody;
   String get spaceTitle;
   String spaceBody(String needed, String free);
+  String get driveDamagedTitle;
+  String driveDamagedBodyFor(DriveCheckTool tool, int? errno);
   String get snapshotTitle;
   String get snapshotBody;
   String otherTitle(String name);
@@ -293,6 +300,7 @@ abstract class TaskStrings {
   String libraryDone(String detail);
   String get libraryWaitingClose;
   String get librarySkipped;
+  String get libraryAwaitsApp;
   String pluginsWaiting(int count);
   String get pluginsCurrent;
   String get pluginsSent;
@@ -308,6 +316,9 @@ abstract class TaskStrings {
   String get finishWithoutWaiting;
   String get installedTitle;
   String get updatedTitle;
+
+  /// הספרייה דולגה עם הערה (למשל חיפוש חכם פתוח): לא "מעודכנת" בלי סייג.
+  String get doneWithNoteTitle;
 
   /// בנוי ממה שבאמת הושלם: [app], [library], [plugins] (נשלחו).
   /// [libraryNote] — הספרייה הותקנה, אבל יש הערה בשורה שלה.
@@ -669,6 +680,14 @@ abstract class GuidanceStrings {
   String get chipUpdating;
   String get chipAttention;
   String get chipLibraryUpToDate;
+
+  /// הספרייה מעודכנת אבל החיפוש החכם עוד פתוח — האריח אינו אומר "מעודכנת".
+  String get chipSmartSearchOpen;
+  String get smartSearchReadyTitle;
+  String get smartSearchNotMatchingTitle;
+  String get smartSearchUnsupportedTitle;
+  String get smartSearchUnverifiedTitle;
+  String get smartSearchPartialTitle;
   String chipPluginUpdates(int count);
   String chipPluginsInstalled(int count);
   String chipPluginsOnDrive(int count);
@@ -1766,6 +1785,7 @@ abstract class LibraryDomainStrings {
   String saveDownloadedFileFailed(String error);
   String tooManyRedirects(String url);
   String writeResumeSidecarFailed(String path, String error);
+  String destinationBusy(String path);
   String checksumMismatchDetailed(String label, String expected, String actual);
   String checksumMismatch(String label);
   String localFileNotFound(String path);
@@ -1849,6 +1869,20 @@ abstract class LibraryDomainStrings {
   String get semanticInstalling;
   String get semanticConsentRequired;
   String get semanticFullDownloadNeeded;
+  String get semanticStatusAppUnproven;
+  String get semanticStatusDriveNotMatching;
+  String get semanticStatusVerificationFailed;
+  String get semanticStatusDriveUnreadable;
+  String get semanticStatusNeedsDriveDownload;
+  String get semanticStatusCheckFailed;
+  String get semanticStatusAppCannotRead;
+  String get semanticStatusReadyOnDrive;
+  String get semanticPartModel;
+  String get semanticPartVectors;
+  String get semanticPartPreferences;
+
+  /// [missing] — שמות החלקים שחסרים, מופרדים בפסיק.
+  String semanticStatusPartial(String missing);
   String get semanticConsentTitle;
 
   /// נוסח ההסכמה של אוצריא עצמה, בלי המשפט על הכלי הזה.
@@ -1872,6 +1906,8 @@ abstract class LibraryDomainStrings {
   String get semanticFeedbackFailed;
   String companionChecking(String name);
   String companionDownloading(String name);
+  String companionVerifying(String name, int percent);
+  String companionAssembling(String name, int percent);
   String companionInstalling(String name);
   String companionAssetMissingInRelease(String name);
   String companionAssetHttpFailure(String name, int status);

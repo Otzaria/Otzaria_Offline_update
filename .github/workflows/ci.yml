@@ -273,7 +273,7 @@ jobs:
         working-directory: library_manager
         env:
           REQUIRE_NATIVE_ENGINE: "1"
-        run: flutter test test/native_engine_test.dart test/native_install_identity_test.dart test/native_vector_install_test.dart test/native_pending_test.dart
+        run: flutter test test/native_engine_test.dart test/native_install_identity_test.dart test/native_vector_install_test.dart test/native_pending_test.dart test/native_manifest_identity_test.dart test/native_qa491_install_test.dart test/native_work_cleanup_test.dart
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: ${{ !cancelled() }}
         with:

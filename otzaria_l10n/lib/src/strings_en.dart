@@ -1,6 +1,16 @@
 import 'app_language.dart';
 import 'app_strings.dart';
 import 'plural.dart';
+import 'storage_failure.dart' show DriveCheckTool;
+
+String _enCode(int? errno) => errno == null ? '' : ' (error $errno)';
+
+String _enCheck(DriveCheckTool tool) => switch (tool) {
+      DriveCheckTool.chkdsk => 'Check the drive (chkdsk)',
+      DriveCheckTool.diskUtility =>
+        'Run First Aid on the drive in Disk Utility',
+      DriveCheckTool.fsck => 'Check the file system (fsck)',
+    };
 
 /// אנגלית — תרגום חופשי של הנוסח העברי, לא מילה במילה: אותה כוונה ואותו
 /// אורך בערך, בניסוח שנשמע טבעי לקורא אנגלית.
@@ -126,6 +136,16 @@ class _Common extends CommonStrings {
   String get storageFullUnknownDir =>
       'The drive is full and writing stopped. Free up space on it and try '
       'again — what already arrived is kept.';
+  @override
+  String storageDamagedNoDetails(String dir, DriveCheckTool tool, int? errno) =>
+      'A file in $dir is corrupted and unreadable${_enCode(errno)} — a drive '
+      'or file system fault, not the network. ${_enCheck(tool)}, and if the error returns, replace the '
+      'drive; what already arrived intact is kept.';
+  @override
+  String storageDamagedUnknownDir(DriveCheckTool tool, int? errno) =>
+      'A file on the drive is corrupted and unreadable${_enCode(errno)} — a '
+      'drive or file system fault, not the network. ${_enCheck(tool)}, and if the error returns, '
+      'replace the drive; what already arrived intact is kept.';
 }
 
 class _Shell extends ShellStrings {
@@ -385,6 +405,15 @@ class _Task extends TaskStrings {
   String spaceBody(String needed, String free) =>
       '$needed are needed and $free are free. Free up space on the drive and click "Try again" — what was already downloaded is saved.';
   @override
+  String get driveDamagedTitle => 'The drive or a file on it is damaged';
+  @override
+  String driveDamagedBodyFor(DriveCheckTool tool, int? errno) =>
+      'The system reported that a file on the drive is corrupted and '
+      'unreadable${_enCode(errno)}. This is a drive or file system fault, '
+      'not the network, so "Try again" alone will not help. '
+      '${_enCheck(tool)} and, if the error returns, replace the drive. What already '
+      'arrived intact is kept, not deleted.';
+  @override
   String get snapshotTitle => 'The download did not start';
   @override
   String get snapshotBody =>
@@ -487,6 +516,9 @@ class _Task extends TaskStrings {
   String get librarySkipped =>
       'Not installed now — you can install it later from the home page';
   @override
+  String get libraryAwaitsApp =>
+      'The library is waiting for the app update, which cannot be installed yet — try again later';
+  @override
   String pluginsWaiting(int count) => plural(
         count,
         one: 'One plugin · will be sent to Otzaria',
@@ -520,6 +552,8 @@ class _Task extends TaskStrings {
   @override
   String get updatedTitle => 'Otzaria is up to date';
   @override
+  String get doneWithNoteTitle => 'Done, with a note';
+  @override
   String doneHereBody({
     required bool firstInstall,
     required bool app,
@@ -544,8 +578,7 @@ class _Task extends TaskStrings {
                 : null;
     return [
       if (done != null) done,
-      if (library && libraryNote)
-        'One thing is left to do — see the Otzaria library row.',
+      if (libraryNote) 'One thing is left to do — see the Otzaria library row.',
       if (plugins) 'The plugins are waiting for your approval in Otzaria.',
       'You can disconnect the drive.',
     ].join(' ');
@@ -1269,6 +1302,20 @@ class _Guide extends GuidanceStrings {
   String get chipAttention => 'Something went wrong';
   @override
   String get chipLibraryUpToDate => 'Up to date';
+  @override
+  String get chipSmartSearchOpen => 'Smart search needs attention';
+  @override
+  String get smartSearchReadyTitle => 'Smart search is waiting to be installed';
+  @override
+  String get smartSearchNotMatchingTitle =>
+      'The smart search on the drive does not fit this computer';
+  @override
+  String get smartSearchUnsupportedTitle =>
+      'Smart search cannot be matched to the installed Otzaria';
+  @override
+  String get smartSearchUnverifiedTitle => 'Smart search was not verified';
+  @override
+  String get smartSearchPartialTitle => 'Smart search is only partly installed';
   @override
   String chipPluginUpdates(int count) =>
       count == 1 ? '1 update available' : '$count updates available';
@@ -3346,6 +3393,10 @@ class _LibraryDomain extends LibraryDomainStrings {
   String writeResumeSidecarFailed(String path, String error) =>
       'Could not write the resume identity file ($path): $error';
   @override
+  String destinationBusy(String path) =>
+      'Another download is already writing to the same destination ($path); '
+      'try again when it finishes.';
+  @override
   String checksumMismatchDetailed(
     String label,
     String expected,
@@ -3606,12 +3657,51 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get semanticConsentRequired =>
       'Smart search files are on the drive. Installing them requires consent to collect training data. You can agree here while Otzaria is closed, or enable consent in Otzaria settings and check again.';
   @override
+  String get semanticStatusAppUnproven =>
+      'It cannot be proven which smart search model the installed Otzaria reads, so nothing was installed or called up to date. Update this tool or start Otzaria once and check again.';
+  @override
+  String get semanticStatusDriveNotMatching =>
+      'The smart search data on the drive does not match the installed Otzaria (another model generation or vector shape). Download smart search again to the drive on an online computer.';
+  @override
+  String get semanticStatusVerificationFailed =>
+      'Smart search was written, but the check afterwards did not confirm that the installed Otzaria can use it.';
+  @override
+  String get semanticStatusDriveUnreadable =>
+      'The drive holds a smart search file this tool could not read (damaged or from a newer version), so it is unknown whether smart search is up to date. Update this tool or download smart search again to the drive on an online computer.';
+  @override
+  String get semanticStatusNeedsDriveDownload =>
+      'The drive holds no smart search data for this library. Download it to the drive on a computer that is online; it cannot be fetched here.';
+  @override
+  String get semanticStatusCheckFailed =>
+      'The smart search check did not finish, so it is unknown whether it is up to date. You can check again.';
+  @override
+  String get semanticStatusAppCannotRead =>
+      'The installed Otzaria is too old, or not proven, to read the smart search data on the drive. Update Otzaria from the drive, or update this tool, and check again.';
+  @override
+  String get semanticStatusReadyOnDrive =>
+      'Matching smart search data is on the drive and has not been installed on this computer yet.';
+  @override
+  String get semanticPartModel => 'the model';
+  @override
+  String get semanticPartVectors => 'the vectors';
+  @override
+  String get semanticPartPreferences => 'the Otzaria settings';
+  @override
+  String semanticStatusPartial(String missing) =>
+      'Smart search is only partly installed. Missing: $missing.';
+  @override
   String get semanticFullDownloadNeeded =>
       'Smart search on this computer is not at the version the partial update on the drive continues from, so it was not installed. The next download on the online computer will bring the full smart search package.';
   @override
   String companionChecking(String name) => 'Checking $name…';
   @override
   String companionDownloading(String name) => 'Downloading $name…';
+  @override
+  String companionVerifying(String name, int percent) =>
+      'Verifying $name — $percent%';
+  @override
+  String companionAssembling(String name, int percent) =>
+      'Assembling $name from its parts — $percent%';
   @override
   String companionInstalling(String name) => 'Installing $name…';
   @override

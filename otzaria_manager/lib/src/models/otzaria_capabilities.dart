@@ -6,6 +6,67 @@ import 'package:path/path.dart' as p;
 import 'otzaria_data_root.dart';
 import 'otzaria_release.dart';
 
+/// The model an Otzaria release reads; vectors of another generation are
+/// unreadable by it even at the same library version.
+enum SemanticModelGeneration {
+  round2('round2'),
+  qa491('qa491');
+
+  const SemanticModelGeneration(this.id);
+
+  final String id;
+
+  static SemanticModelGeneration? byId(Object? id) {
+    for (final generation in values) {
+      if (generation.id == id) return generation;
+    }
+    return null;
+  }
+}
+
+enum SemanticSupportBasis {
+  /// The installed app's own, current capabilities file.
+  declared,
+
+  /// The installed version, from this tool's verified version table.
+  appVersion,
+
+  /// Nothing proves what the installed Otzaria reads.
+  unproven,
+}
+
+class SemanticAppSupport {
+  const SemanticAppSupport({
+    this.generation,
+    this.windows = false,
+    required this.basis,
+    this.unrecognizedFamilies = const [],
+    this.capabilitiesStale = false,
+    this.capabilitiesOfOtherApp = false,
+  });
+
+  /// `null` = not proven; never read it as Round2.
+  final SemanticModelGeneration? generation;
+
+  /// The app also installs windows-form vectors of [generation].
+  final bool windows;
+  final SemanticSupportBasis basis;
+  final List<String> unrecognizedFamilies;
+  final bool capabilitiesStale;
+  final bool capabilitiesOfOtherApp;
+
+  bool get proven => generation != null;
+
+  String get proofKey => [
+        generation?.id ?? 'unknown',
+        windows ? 'windows' : 'anchor',
+        basis.name,
+        unrecognizedFamilies.join(','),
+        capabilitiesStale,
+        capabilitiesOfOtherApp,
+      ].join('|');
+}
+
 class OtzariaCapabilities {
   const OtzariaCapabilities({
     this.formatVersion,
@@ -90,29 +151,174 @@ class OtzariaCapabilities {
 
   static const String windowsVectorFamily = 'vectors-windows';
 
-  /// Whether the Otzaria at [launchPath] installs windows-family vectors.
-  /// A record written by another exe proves nothing, as for the DB schema.
-  static bool supportsWindowsVectors({
+  /// The first Otzaria whose model and vectors are QA491; every earlier one
+  /// reads Round2 only (verified against the app's sources at each tag).
+  static const String qa491SinceAppVersion = '0.9.98.3';
+
+  /// Newest version whose generation is known without its own capabilities.
+  static const String semanticGenerationProvenThrough = '0.9.98.3';
+
+  // Three or four dotted numbers and optional `+build`. A prerelease or any
+  // other suffix may sit before the cut-off, so it proves nothing.
+  static final _provable = RegExp(r'^[vV]?\d+(\.\d+){2,3}(\+[0-9A-Za-z.]+)?$');
+
+  static bool _provableVersion(String version) =>
+      _provable.hasMatch(version.trim());
+
+  static int? _versionBuild(String? version) =>
+      int.tryParse(version?.trim().split('+').last ?? '');
+
+  /// `vectors` release-tag families, by the strings Otzaria writes.
+  static const Map<String, (SemanticModelGeneration, bool)>
+      _knownVectorFamilies = {
+    'vectors': (SemanticModelGeneration.round2, false),
+    'vectors-windows': (SemanticModelGeneration.round2, true),
+    'vectors-qa491': (SemanticModelGeneration.qa491, false),
+    'vectors-qa491-windows': (SemanticModelGeneration.qa491, true),
+  };
+
+  /// The model generation an app [version] reads, or `null` past the newest
+  /// version this tool has verified.
+  static SemanticModelGeneration? semanticGenerationForAppVersion(
+    String version,
+  ) {
+    if (!_provableVersion(version)) return null;
+    if (compareAppVersions(version, qa491SinceAppVersion) < 0) {
+      return SemanticModelGeneration.round2;
+    }
+    if (compareAppVersions(version, semanticGenerationProvenThrough) <= 0) {
+      return SemanticModelGeneration.qa491;
+    }
+    return null;
+  }
+
+  /// Which model generation and vector shape the Otzaria at [launchPath]
+  /// consumes. A record written by another exe, or by an older app than the
+  /// one installed now, is not proof of what the installed app reads.
+  static SemanticAppSupport semanticSupport({
     OtzariaCapabilities? capabilities,
     String? launchPath,
     String? installedVersion,
   }) {
-    if (capabilities == null) return false;
-    final writtenBy = capabilities.appVersion;
-    // A downgrade into the same folder leaves the newer app's file behind.
-    if (writtenBy != null &&
-        installedVersion != null &&
-        compareAppVersions(installedVersion, writtenBy) < 0) {
-      return false;
+    final version = installedVersion == null || installedVersion.isEmpty
+        ? null
+        : installedVersion;
+    if (version != null && !_provableVersion(version)) {
+      // A version nobody can place proves nothing, and neither does a file
+      // that cannot be checked against it.
+      return SemanticAppSupport(
+        basis: SemanticSupportBasis.unproven,
+        capabilitiesStale: capabilities != null,
+      );
     }
-    if (capabilities.exePath != null &&
-        launchPath != null &&
-        !capabilities.describesExe(launchPath)) {
-      return false;
+    var caps = capabilities;
+    var other = false;
+    var stale = false;
+    if (caps != null) {
+      final writtenBy = caps.appVersion;
+      final foreignExe = caps.exePath != null &&
+          launchPath != null &&
+          !caps.describesExe(launchPath);
+      // A downgrade into the same folder leaves the newer app's file behind.
+      final newer = writtenBy != null &&
+          version != null &&
+          compareAppVersions(version, writtenBy) < 0;
+      final writtenBuild = caps.buildNumber ?? _versionBuild(writtenBy);
+      final installedBuild = _versionBuild(version);
+      final differentBuild = writtenBuild != null &&
+          installedBuild != null &&
+          writtenBuild != installedBuild;
+      if (foreignExe || newer) {
+        other = true;
+        caps = null;
+      } else if ((writtenBy != null && !_provableVersion(writtenBy)) ||
+          differentBuild) {
+        stale = true;
+        caps = null;
+      }
     }
-    return capabilities.semanticVectorFamilies?.contains(windowsVectorFamily) ??
-        false;
+    final declared = caps?.semanticVectorFamilies;
+    if (caps != null && declared != null && declared.isNotEmpty) {
+      final writtenBy = caps.appVersion;
+      final fresh = version == null ||
+          (writtenBy != null && compareAppVersions(version, writtenBy) == 0);
+      if (fresh) return _declared(declared);
+      // Older app's file: it only tells what the shape is when both versions
+      // read the same generation.
+      final before =
+          writtenBy == null ? null : semanticGenerationForAppVersion(writtenBy);
+      final now = semanticGenerationForAppVersion(version);
+      final carried =
+          before != null && before == now ? _declared(declared) : null;
+      if (carried != null && carried.generation == now) {
+        return SemanticAppSupport(
+          generation: now,
+          windows: carried.windows,
+          basis: SemanticSupportBasis.appVersion,
+          capabilitiesStale: true,
+        );
+      }
+      final byVersion = semanticGenerationForAppVersion(version);
+      return SemanticAppSupport(
+        generation: byVersion,
+        basis: byVersion == null
+            ? SemanticSupportBasis.unproven
+            : SemanticSupportBasis.appVersion,
+        capabilitiesStale: true,
+      );
+    }
+    // No installed version: the file of this very exe names the version.
+    final known = version ?? caps?.appVersion;
+    final byVersion =
+        known == null ? null : semanticGenerationForAppVersion(known);
+    return SemanticAppSupport(
+      generation: byVersion,
+      basis: byVersion == null
+          ? SemanticSupportBasis.unproven
+          : SemanticSupportBasis.appVersion,
+      capabilitiesStale: stale,
+      capabilitiesOfOtherApp: other,
+    );
   }
+
+  static SemanticAppSupport _declared(List<String> families) {
+    final first = _knownVectorFamilies[families.first];
+    if (first == null) {
+      return SemanticAppSupport(
+        basis: SemanticSupportBasis.unproven,
+        unrecognizedFamilies: [
+          for (final f in families)
+            if (!_knownVectorFamilies.containsKey(f)) f,
+        ],
+      );
+    }
+    final generation = first.$1;
+    return SemanticAppSupport(
+      generation: generation,
+      windows: families.any((f) {
+        final known = _knownVectorFamilies[f];
+        return known != null && known.$1 == generation && known.$2;
+      }),
+      basis: SemanticSupportBasis.declared,
+      unrecognizedFamilies: [
+        for (final f in families)
+          if (!_knownVectorFamilies.containsKey(f)) f,
+      ],
+    );
+  }
+
+  /// Whether the Otzaria at [launchPath] installs windows-form vectors of its
+  /// own generation.
+  static bool supportsWindowsVectors({
+    OtzariaCapabilities? capabilities,
+    String? launchPath,
+    String? installedVersion,
+  }) =>
+      semanticSupport(
+        capabilities: capabilities,
+        launchPath: launchPath,
+        installedVersion: installedVersion,
+      ).windows;
 
   /// First Otzaria release that bundles `otzaria_search_engine` 6.0.0
   /// (`text.line_text_version` 4); 0.9.98+801 still ships ^3.1.0.

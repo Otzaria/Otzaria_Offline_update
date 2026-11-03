@@ -2,7 +2,10 @@ import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 import '../services/companion_assets.dart';
 import '../services/semantic_search_assets.dart'
-    show SemanticEngineIncompatibleException;
+    show
+        SemanticEngineIncompatibleException,
+        SmartSearchState,
+        SmartSearchStatus;
 
 /// תוצאת בדיקת עדכון למסד (ה-DB).
 ///
@@ -26,6 +29,7 @@ class LibraryUpdateCheckResult {
     this.mirroredCompanions = const {},
     this.semanticPending = false,
     this.semanticConsentGranted = false,
+    this.semanticStatus,
     this.semanticIncompatibility,
     this.mirrorDownloadIncomplete = false,
     this.readableDbSchemaVersion,
@@ -56,6 +60,16 @@ class LibraryUpdateCheckResult {
 
   final bool semanticPending;
   final bool semanticConsentGranted;
+
+  /// What the smart-search check found, state by state; `null` = it did not
+  /// run. Only [SmartSearchStatus.allClear] means nothing is left to do:
+  /// [semanticPending] being false never does.
+  final SmartSearchStatus? semanticStatus;
+
+  SmartSearchState get semanticState =>
+      semanticStatus?.state ?? SmartSearchState.unverified;
+
+  bool get semanticAllClear => semanticStatus?.allClear ?? false;
 
   /// Why the drive's smart-search vectors cannot install here; they are not
   /// offered while it is set.
