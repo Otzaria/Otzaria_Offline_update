@@ -218,7 +218,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
   /// מה שמוצג בחנות "מוזכר" — גם תוסף שהגיע בסנכרון בזמן שהמשתמש בה, כדי
   /// שלא יופיע אחר כך בבית כ"חדש".
   void _onNavigation() {
-    if (_navigator.section == ShellSection.plugins) {
+    if (_navigator.section == ShellSection.plugins && !_navigator.showsTask) {
       unawaited(_session.markPluginsVisited());
     }
   }
@@ -231,6 +231,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
       _navigator.back();
     }
     if (_navigator.section == ShellSection.plugins &&
+        !_navigator.showsTask &&
         _session.newPluginsForHome.isNotEmpty) {
       unawaited(_session.markPluginsVisited());
     }
@@ -449,9 +450,13 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           ? () => unawaited(_session.restartElevated())
           : null;
 
-  /// "הצג התקדמות" של עדכון ספרייה שרץ מחוץ למסך משימה. התקנת התוכנה
-  /// מוצגת בגיבור עצמו, והורדה — תמיד במסך המשימה.
+  /// "הצג התקדמות" מחזיר משימה שהוסתרה, או את דף הספרייה
+  /// כשהעדכון התחיל ישירות ממנו.
   void _showProgress() {
+    if (_session.tasks.updateHidden) {
+      _session.tasks.showUpdate();
+      return;
+    }
     switch (homeViewModelOf(_session).task) {
       case HomeTask.downloading:
         _session.tasks.showDownload();
@@ -675,6 +680,8 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
         ),
       ShellSection.plugins => PluginsScreen(
           controller: s.plugins,
+          active: _navigator.section == ShellSection.plugins &&
+              !_navigator.showsTask,
           reports: s.errorReports,
           readOnly: widget.readOnly,
           online: onlineState(s),
@@ -986,6 +993,10 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
             },
             onHome: _dismissTask,
             onRetry: () => unawaited(s.retryUpdateHere()),
+            onHide: () {
+              s.tasks.hideUpdate();
+              unawaited(_goTo(ShellSection.home));
+            },
             // מצב התוכנה וההמשך שלה בבית — אין לה דף משלה.
             onOpenPage: (stage) => _leaveTaskTo(switch (stage) {
               GuidanceItem.library => ShellSection.library,

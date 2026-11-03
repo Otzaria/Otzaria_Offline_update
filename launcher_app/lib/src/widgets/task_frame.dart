@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/theme_exports.dart';
 import 'icon_tile.dart';
+import 'ui_snack.dart';
 
 /// מסגרת מסך משימה (`.task`): עמודה ממורכזת ברוחב 460 (או 560), ותחתית של
 /// 68 עם קו עליון — "חזרה" בקצה ההתחלה והפעולה בקצה הסוף.
@@ -73,30 +74,32 @@ class TaskFrame extends StatelessWidget {
           ),
         ),
         if (start != null || end != null)
-          Container(
-            height: AppTokens.taskFooterHeight,
-            decoration: BoxDecoration(
-              border: Border(top: BorderSide(color: cs.outlineVariant)),
-            ),
-            alignment: Alignment.center,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 768),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Row(
-                  children: [
-                    if (start != null)
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(minWidth: 120),
-                        child: start,
-                      ),
-                    const Spacer(),
-                    if (end != null)
-                      ConstrainedBox(
-                        constraints: BoxConstraints(minWidth: endMinWidth),
-                        child: end,
-                      ),
-                  ],
+          UiSnackAnchor(
+            child: Container(
+              height: AppTokens.taskFooterHeight,
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: cs.outlineVariant)),
+              ),
+              alignment: Alignment.center,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 768),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Row(
+                    children: [
+                      if (start != null)
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(minWidth: 120),
+                          child: start,
+                        ),
+                      const Spacer(),
+                      if (end != null)
+                        ConstrainedBox(
+                          constraints: BoxConstraints(minWidth: endMinWidth),
+                          child: end,
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),

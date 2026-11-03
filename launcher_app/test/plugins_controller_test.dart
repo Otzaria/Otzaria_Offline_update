@@ -1169,19 +1169,26 @@ void main() {
         () async {
       otzariaFinishes('1.0.0');
       var open = true;
+      final pastDeadline = Completer<void>();
       final c = watching(
         timeout: const Duration(milliseconds: 50),
-        running: () async => open,
+        running: () async {
+          if (!pastDeadline.isCompleted) pastDeadline.complete();
+          return open;
+        },
       );
       await c.load();
       final target = plugin('חדש', 'תוסף', manifestId: manifestId);
 
+      final announced = c.installCompletions.first;
       c.watchForInstall(target);
-      await Future<void>.delayed(const Duration(milliseconds: 150));
+      await pastDeadline.future;
+      expect(c.isInInstallWindow, isFalse);
+      expect(c.isAwaitingInstall, isTrue);
       otzariaFinishes('1.2.0');
       open = false;
-      await Future<void>.delayed(const Duration(milliseconds: 150));
 
+      expect(await announced, 'תוסף');
       expect(c.installed[manifestId], '1.2.0');
       expect(c.isAwaitingInstall, isFalse);
     });

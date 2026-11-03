@@ -121,15 +121,17 @@ class TaskResult extends StatelessWidget {
             ),
           ),
         ),
-        Container(
-          key: const ValueKey('task.result.actions'),
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-          decoration: BoxDecoration(
-            color: AppSurfaces.panelBackground(context),
-            border: Border(top: BorderSide(color: cs.outlineVariant)),
+        UiSnackAnchor(
+          child: Container(
+            key: const ValueKey('task.result.actions'),
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            decoration: BoxDecoration(
+              color: AppSurfaces.panelBackground(context),
+              border: Border(top: BorderSide(color: cs.outlineVariant)),
+            ),
+            child: buttons,
           ),
-          child: buttons,
         ),
       ],
     );

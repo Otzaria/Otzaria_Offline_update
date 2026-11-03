@@ -48,6 +48,7 @@ class CustomAppsScreen extends StatefulWidget {
 }
 
 class _CustomAppsScreenState extends State<CustomAppsScreen> {
+  final _progressKey = GlobalKey();
   String? _localSelectedId;
 
   String? get _selectedId =>
@@ -211,7 +212,7 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
     ];
   }
 
-  /// בדיקה והורדה מרוכזות, ולמידת ההתקנה — בשורות התקדמות בדף.
+  /// בדיקה, הורדה ולמידת ההתקנה — בשורות התקדמות בדף.
   Widget? _progress(BuildContext context) {
     final t = context.strings.customApps;
     final rows = <Widget>[
@@ -239,10 +240,22 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
             detail: formatBytesProgress(_c.downloadReceived, _c.downloadTotal),
           ),
         ),
+      if (!_c.isDownloadingAll && _c.downloadingId != null)
+        ListenableBuilder(
+          listenable: _c.progress,
+          builder: (context, _) => InfoProgressRow(
+            stage: t.downloadingLabel,
+            progress: (_c.downloadTotal ?? 0) > 0
+                ? (_c.downloadReceived ?? 0) / _c.downloadTotal!
+                : null,
+            detail: formatBytesProgress(_c.downloadReceived, _c.downloadTotal),
+          ),
+        ),
       if (_c.isLearning) InfoProgressRow(stage: t.learningLabel),
     ];
     if (rows.isEmpty) return null;
     return AppCard(
+      key: _progressKey,
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -334,7 +347,15 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
       launchCustomApp(context: context, controller: _c, app: app);
 
   Future<void> _download(CustomAppView app) async {
-    final stored = await _c.download(app.descriptor.id);
+    final download = _c.download(app.descriptor.id);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final progressContext = _progressKey.currentContext;
+      if (progressContext != null) {
+        unawaited(Scrollable.ensureVisible(progressContext));
+      }
+    });
+    final stored = await download;
     if (stored == null) {
       UiSnack.showFailure(_c.errorMessage);
       return;

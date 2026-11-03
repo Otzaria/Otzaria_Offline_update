@@ -243,6 +243,66 @@ void main() {
   });
 
   group('עדכון כאן', () {
+    group('הסתרת התקנת ספרייה', () {
+      test('רק שלב ספרייה רץ מוסתר, בלי לסיים או להחליף את ההרצה', () {
+        final id = tasks.startUpdateHere(
+          const [GuidanceItem.app, GuidanceItem.library],
+        );
+        tasks.hideUpdate();
+        expect(tasks.hasTask, isTrue);
+        expect(tasks.updateHidden, isFalse);
+
+        tasks.stageRunning(GuidanceItem.library);
+        tasks.hideUpdate();
+        expect(tasks.current, isNull);
+        expect(tasks.updateHidden, isTrue);
+        expect(tasks.updateInProgress, isTrue);
+        expect(tasks.anyRunning, isTrue);
+        expect(tasks.isCurrentUpdate(id), isTrue);
+        expect(() => tasks.startUpdateHere([GuidanceItem.library]),
+            throwsStateError);
+
+        tasks.libraryPlan(version: 36);
+        expect(tasks.current, isNull);
+        tasks.showUpdate();
+        expect(update().id, id);
+        expect(update().libraryVersion, 36);
+      });
+
+      test('שאלה וסיום מחזירים את העדכון לחזית', () async {
+        tasks.startUpdateHere(const [GuidanceItem.library]);
+        tasks.hideUpdate();
+        final answer = tasks.askToCloseOtzaria();
+        expect(update().phase, UpdateHereTaskPhase.closeOtzaria);
+        expect(tasks.updateHidden, isFalse);
+        tasks.hideUpdate();
+        expect(tasks.hasTask, isTrue);
+        tasks.respond(true);
+        expect(await answer, isTrue);
+
+        tasks.hideUpdate();
+        tasks.updateDone();
+        expect(update().phase, UpdateHereTaskPhase.done);
+        expect(tasks.updateHidden, isFalse);
+        tasks.dismiss();
+        expect(tasks.updateTask, isNull);
+      });
+
+      test('תוצאת הורדה לצד עדכון מוסתר אינה מסיימת אותו', () {
+        tasks.downloadRunning(const [MirrorComponent.plugins]);
+        tasks.hideDownload();
+        final id = tasks.startUpdateHere(const [GuidanceItem.library]);
+        tasks.hideUpdate();
+        tasks.downloadDone();
+        expect(tasks.current, isA<DownloadTask>());
+        tasks.dismiss();
+        expect(tasks.current, isNull);
+        expect(tasks.updateInProgress, isTrue);
+        tasks.showUpdate();
+        expect(update().id, id);
+      });
+    });
+
     group('יציאה לדף מעדכון שהסתיים מעל הורדה שהסתיימה', () {
       void finishedUpdateOverFinishedDownload() {
         tasks.downloadRunning(const [MirrorComponent.plugins]);

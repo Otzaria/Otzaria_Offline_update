@@ -267,7 +267,20 @@ Future<void> disposeSemanticEngineWork(
   engine?.dispose();
   // A Tantivy reload already running can outlive dispose and write its old path.
   // Moving our scratch directory first keeps that callback outside the deletion.
-  final retired = await work.rename('${work.path}.retired');
+  late Directory retired;
+  for (var attempt = 0; ; attempt++) {
+    try {
+      retired = await work.rename('${work.path}.retired');
+      break;
+    } on FileSystemException catch (error) {
+      if (!Platform.isWindows ||
+          ![5, 32].contains(error.osError?.errorCode) ||
+          attempt == 9) {
+        rethrow;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+  }
   await retired.delete(recursive: true);
 }
 
@@ -1996,13 +2009,15 @@ class SemanticSearchAssets {
   /// [fileExists] with [complete] false: a `semantic.json` this tool could
   /// not fully read, which is not the same as no file.
   Future<({List<_Meta> metas, bool fileExists, bool complete})> _readDrive(
-    String mirrorDir,
-  ) async {
+    String mirrorDir, {
+    bool requireRead = false,
+  }) async {
     final file = File(p.join(mirrorDir, manifestFileName));
     bool exists;
     try {
       exists = await file.exists();
     } on FileSystemException {
+      if (requireRead) rethrow;
       exists = true;
     }
     if (!exists) {
@@ -2058,6 +2073,7 @@ class SemanticSearchAssets {
       }
       return (metas: metas, fileExists: true, complete: metas.isNotEmpty);
     } on FileSystemException {
+      if (requireRead) rethrow;
       return unreadable;
     } on FormatException {
       return unreadable;
@@ -2169,32 +2185,58 @@ class SemanticSearchAssets {
     String path,
     SemanticAsset file, [
     bool Function()? isCancelled,
+  ]) async {
+    try {
+      await _verify(path, file, isCancelled);
+      return true;
+    } on FileSystemException {
+      return false;
+    } on FormatException {
+      return false;
+    }
+  }
+
+  Future<void> _requireSize(String path, SemanticAsset file) async {
+    final source = File(path);
+    final strings = AppL10n.strings.libraryDomain;
+    if (!await source.exists()) {
+      throw FormatException(strings.localSourceNotFound(path));
+    }
+    final length = await source.length();
+    if (length != file.size) {
+      throw FormatException(
+        strings.localFileSizeMismatch(file.size, length, path),
+      );
+    }
+  }
+
+  Future<void> _verify(
+    String path,
+    SemanticAsset file, [
+    bool Function()? isCancelled,
     GuardedSink? copyTo,
   ]) async {
     _cancel(isCancelled);
+    await _requireSize(path, file);
     final source = File(path);
     final hash = Sha256Stream();
     try {
-      try {
-        if (!await source.exists() || await source.length() != file.size) {
-          return false;
+      var unflushed = 0;
+      await for (final chunk in source.openRead()) {
+        _cancel(isCancelled);
+        hash.add(chunk);
+        if (copyTo == null) continue;
+        copyTo.add(chunk);
+        unflushed += chunk.length;
+        if (unflushed >= _copyFlushBytes) {
+          unflushed = 0;
+          await copyTo.flush();
         }
-        var unflushed = 0;
-        await for (final chunk in source.openRead()) {
-          _cancel(isCancelled);
-          hash.add(chunk);
-          if (copyTo == null) continue;
-          copyTo.add(chunk);
-          unflushed += chunk.length;
-          if (unflushed >= _copyFlushBytes) {
-            unflushed = 0;
-            await copyTo.flush();
-          }
-        }
-        return hash.close() == file.sha256;
-      } on FileSystemException {
-        if (copyTo != null) rethrow;
-        return false;
+      }
+      if (hash.close() != file.sha256) {
+        throw FormatException(
+          AppL10n.strings.libraryDomain.localFileHashMismatch(path),
+        );
       }
     } finally {
       hash.dispose();
@@ -2208,25 +2250,44 @@ class SemanticSearchAssets {
     bool preferWindows = false,
     bool reportIncompatible = false,
   }) async {
-    final meta = await _metadata(
-      mirrorDir,
-      generation: generation,
-      preferWindows: preferWindows,
-    );
-    if (meta == null || meta.libraryVersion != version) return null;
-    final spec = _spec(generation);
-    final dir = p.join(mirrorDir, meta.libraryTag);
     try {
+      return await _loadSource(
+        mirrorDir,
+        version,
+        generation: generation,
+        preferWindows: preferWindows,
+        requireRead: false,
+      );
+    } on IOException {
+      return null;
+    } on FormatException {
+      return null;
+    } on SemanticEngineIncompatibleException {
+      if (reportIncompatible) rethrow;
+      return null;
+    }
+  }
+
+  Future<({_Meta meta, List<_LoadedUnit> units})?> _loadSource(
+    String mirrorDir,
+    int version, {
+    required SemanticModelGeneration generation,
+    bool preferWindows = false,
+    bool requireRead = true,
+  }) async {
+    try {
+      final drive = await _readDrive(mirrorDir, requireRead: requireRead);
+      final meta = _pick(drive.metas, generation, preferWindows: preferWindows);
+      if (meta == null || meta.libraryVersion != version) return null;
+      final spec = _spec(generation);
+      final dir = p.join(mirrorDir, meta.libraryTag);
       for (final file in spec.files) {
-        final source = File(p.join(dir, spec.folder, file.name));
-        if (!await source.exists() || await source.length() != file.size) {
-          return null;
-        }
+        await _requireSize(p.join(dir, spec.folder, file.name), file);
       }
       final units = <_LoadedUnit>[];
       for (final step in meta.units) {
         final path = p.join(dir, 'vectors', step.manifest.name);
-        if (!await _matches(path, step.manifest)) return null;
+        await _verify(path, step.manifest);
         final parsed = _vectors(
           jsonDecode(await File(path).readAsString()),
           tag: step.libraryTag,
@@ -2240,10 +2301,7 @@ class SemanticSearchAssets {
           return null;
         }
         for (final file in parsed.files) {
-          final source = File(p.join(dir, 'vectors', file.name));
-          if (!await source.exists() || await source.length() != file.size) {
-            return null;
-          }
+          await _requireSize(p.join(dir, 'vectors', file.name), file);
         }
         units.add(
           _LoadedUnit(
@@ -2255,13 +2313,8 @@ class SemanticSearchAssets {
         );
       }
       return (meta: meta, units: units);
-    } on FileSystemException {
-      return null;
-    } on FormatException {
-      return null;
-    } on SemanticEngineIncompatibleException {
-      if (reportIncompatible) rethrow;
-      return null;
+    } on FileSystemException catch (error, stack) {
+      throwStorageAware(error, stack, mirrorDir);
     }
   }
 
@@ -2666,9 +2719,7 @@ class SemanticSearchAssets {
       for (final part in parts) {
         _cancel(isCancelled);
         final source = p.join(vectorsDir, part.name);
-        if (!await _matches(source, part, isCancelled, sink)) {
-          _invalid();
-        }
+        await _verify(source, part, isCancelled, sink);
       }
     } catch (_) {
       await sink.closeAfterFailure();
@@ -2765,15 +2816,16 @@ class SemanticSearchAssets {
       );
     }
     final spec = _spec(generation);
-    final data = await _load(
+    final data = await _loadSource(
       mirrorDir,
       libraryVersion,
       generation: generation,
       preferWindows: supportsWindows,
-      reportIncompatible: true,
     );
     if (data == null || (data.meta.windows && !supportsWindows)) {
-      _invalid();
+      throw FormatException(
+        AppL10n.strings.libraryDomain.semanticStatusNeedsDriveDownload,
+      );
     }
     final meta = data.meta;
     onStage?.call(AppL10n.strings.libraryDomain.semanticInstalling);
@@ -2832,9 +2884,7 @@ class SemanticSearchAssets {
           if (parted.contains(file)) continue;
           _cancel(isCancelled);
           final source = p.join(generationDir, group.$1, file.name);
-          if (!await _matches(source, file, isCancelled)) {
-            _invalid();
-          }
+          await _verify(source, file, isCancelled);
         }
       }
       final segments = <String>[
@@ -2862,9 +2912,7 @@ class SemanticSearchAssets {
         final temporary = '$target.tmp';
         await File(source).copy(temporary);
         _cancel(isCancelled);
-        if (!await _matches(temporary, file, isCancelled)) {
-          _invalid();
-        }
+        await _verify(temporary, file, isCancelled);
         await File(temporary).rename(target);
       }
       _cancel(isCancelled);

@@ -275,13 +275,15 @@ class ShellTasks extends ChangeNotifier {
   DownloadTask? _download;
   UpdateHereTask? _update;
   bool _downloadHidden = false;
+  bool _updateHidden = false;
   Completer<SemanticSearchAnswer?>? _question;
   Completer<bool>? _decision;
   Completer<void>? _finishNow;
   int _lastUpdateId = 0;
 
   /// המשימה שבחזית. "עדכון כאן" גובר: הוא שואל שאלות, וההורדה ממשיכה מאחוריו.
-  ShellTask? get current => _update ?? (_downloadHidden ? null : _download);
+  ShellTask? get current =>
+      (_updateHidden ? null : _update) ?? (_downloadHidden ? null : _download);
   bool get hasTask => current != null;
 
   DownloadTask? get downloadTask => _download;
@@ -293,7 +295,7 @@ class ShellTasks extends ChangeNotifier {
   bool get downloadInProgress => _download?.isFinished == false;
   bool get updateInProgress => _update?.isFinished == false;
 
-  /// משימה כלשהי עוד רצה, גם הורדה שהוסתרה.
+  /// משימה כלשהי עוד רצה, גם כשהתצוגה שלה מוסתרת.
   bool get anyRunning => downloadInProgress || updateInProgress;
 
   /// ההורדה רצה ברקע — המשתמש חזר לבית.
@@ -331,6 +333,26 @@ class ShellTasks extends ChangeNotifier {
   void showDownload() {
     if (!_downloadHidden) return;
     _downloadHidden = false;
+    notifyListeners();
+  }
+
+  bool get updateHidden => _updateHidden && updateInProgress;
+
+  void hideUpdate() {
+    final task = _update;
+    if (_updateHidden ||
+        task?.phase != UpdateHereTaskPhase.running ||
+        task?.currentStage != GuidanceItem.library) {
+      return;
+    }
+    _updateHidden = true;
+    _downloadHidden = _download != null;
+    notifyListeners();
+  }
+
+  void showUpdate() {
+    if (!_updateHidden) return;
+    _updateHidden = false;
     notifyListeners();
   }
 
@@ -471,7 +493,7 @@ class ShellTasks extends ChangeNotifier {
     return id;
   }
 
-  /// "עדכון כאן" [id] עדיין מוצג (גם אם הסתיים) — ולא הרצה חדשה שהחליפה אותו.
+  /// "עדכון כאן" [id] עדיין שייך להרצה הזו, גם כשהוסתר או הסתיים.
   bool isCurrentUpdate(int id) => switch (_update) {
         UpdateHereTask(id: final current) => current == id,
         _ => false,
@@ -672,6 +694,10 @@ class ShellTasks extends ChangeNotifier {
 
   void _setUpdate(UpdateHereTask? task) {
     _update = task;
+    if (task?.phase != UpdateHereTaskPhase.running ||
+        task?.currentStage != GuidanceItem.library) {
+      _updateHidden = false;
+    }
     notifyListeners();
   }
 }

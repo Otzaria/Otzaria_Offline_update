@@ -1158,6 +1158,63 @@ void main() {
       expect(find.text(task.doneTitle), findsOneWidget);
     });
 
+    testWidgets('התקנת ספרייה ממשיכה בבית ובחנות וחוזרת לאותה התקדמות',
+        (tester) async {
+      await pumpShell(tester);
+      useViewSize(tester, const Size(1500, 1008));
+      tester.view.devicePixelRatio = 1.5;
+      final s = sessionOf(tester);
+      final nav = navigatorOf(tester);
+      s.library.status = LibraryModuleStatus.updating;
+      final id = s.tasks.startUpdateHere(
+        const [GuidanceItem.library, GuidanceItem.plugins],
+      );
+      s.tasks.stageRunning(GuidanceItem.library);
+      await tester.pump();
+
+      expect(find.byKey(ShellKeys.taskHide), findsOneWidget);
+      await tester.tap(find.byKey(ShellKeys.taskHide));
+      await tester.pump();
+      expect(nav.showsTask, isFalse);
+      expect(nav.section, ShellSection.home);
+      expect(s.tasks.updateInProgress, isTrue);
+      expect(s.tasks.isCurrentUpdate(id), isTrue);
+      expect(s.downloadBlocked, isTrue);
+      expect(s.libraryApplyBlocked, isTrue);
+      expect(s.pluginActionsBlockedElsewhere, isTrue);
+      expect(s.reportsCollectBlocked, isTrue);
+      expect(s.reportsUploadBlocked, isFalse);
+
+      await open(tester, ShellSection.plugins);
+      expect(nav.section, ShellSection.plugins);
+      expect(nav.showsTask, isFalse);
+      await back(tester);
+      await nav.select(ShellSection.reports);
+      await tester.pump();
+      expect(nav.section, ShellSection.reports);
+      expect(find.byType(ReportsPage), findsOneWidget);
+      expect(nav.showsTask, isFalse);
+      await back(tester);
+
+      await tester.tap(find.byKey(ShellKeys.heroShowProgress));
+      await tester.pump();
+      expect(nav.showsTask, isTrue);
+      expect(s.tasks.isCurrentUpdate(id), isTrue);
+      expect(find.byKey(ShellKeys.taskHide), findsOneWidget);
+
+      await tester.tap(find.byKey(ShellKeys.taskHide));
+      await tester.pump();
+      s.library.status = LibraryModuleStatus.upToDate;
+      s.tasks.stageFinished(GuidanceItem.library, StageOutcome.done);
+      s.tasks.stageRunning(GuidanceItem.plugins);
+      await tester.pump();
+      expect(nav.showsTask, isTrue);
+      expect(find.byKey(ShellKeys.taskHide), findsNothing);
+      s.tasks.updateDone();
+      await tester.pump();
+      expect(nav.showsTask, isTrue);
+    });
+
     testWidgets('Esc וגלגל השיניים אינם יוצאים ממשימה רצה', (tester) async {
       await pumpShell(tester);
       final s = sessionOf(tester);

@@ -25,6 +25,7 @@ class PluginsScreen extends StatefulWidget {
   const PluginsScreen({
     super.key,
     required this.controller,
+    this.active = true,
     this.readOnly = false,
     this.driveFull = false,
     this.busyElsewhere = false,
@@ -40,6 +41,8 @@ class PluginsScreen extends StatefulWidget {
   final PluginsModuleController controller;
   final ErrorReportsController? reports;
 
+  /// המקטע נשאר בנוי גם כשהבית או משימה מסתירים אותו.
+  final bool active;
   final bool readOnly;
   final bool driveFull;
 
@@ -97,6 +100,12 @@ class _PluginsScreenState extends State<PluginsScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant PluginsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.active && widget.active) _captureNew();
+  }
+
+  @override
   void dispose() {
     _c.removeListener(_onControllerChange);
     _search.dispose();
@@ -112,9 +121,18 @@ class _PluginsScreenState extends State<PluginsScreen> {
 
   /// מה שחדש — גם מה שהגיע בסנכרון שרץ עכשיו — מסומן בשבב ונרשם כ"נראה".
   void _captureNew() {
-    if (_c.status != PluginsModuleStatus.ready) return;
-    final fresh = _c.newPlugins;
-    if (fresh.isNotEmpty) unawaited(_c.markNewSeen(fresh));
+    if (!widget.active || _c.status != PluginsModuleStatus.ready) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          !widget.active ||
+          _c.status != PluginsModuleStatus.ready) {
+        return;
+      }
+      final fresh = _c.newPlugins;
+      if (fresh.isEmpty) return;
+      unawaited(_c.markNewSeen(fresh));
+      setState(() {});
+    });
   }
 
   bool get _canSync => !widget.readOnly && widget.online != false;

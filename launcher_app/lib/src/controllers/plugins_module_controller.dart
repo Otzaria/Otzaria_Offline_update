@@ -398,6 +398,9 @@ class PluginsModuleController extends ChangeNotifier
 
     try {
       await refreshAppVersion();
+      if (isDisposed) return;
+      final open = await _otzariaOpenPastDeadline();
+      if (isDisposed) return;
       final scanned = await _manager.scanInstalled();
       if (isDisposed) return;
       if (!mapEquals(installed, scanned.versions) ||
@@ -408,8 +411,6 @@ class PluginsModuleController extends ChangeNotifier
         notifyListeners();
       }
       final reports = await _installReports();
-      if (isDisposed) return;
-      final open = await _otzariaOpenPastDeadline();
       if (isDisposed) return;
       _settleInstallWatch(scanned.versions,
           reports: reports, otzariaOpen: open);
@@ -542,9 +543,9 @@ class PluginsModuleController extends ChangeNotifier
   Future<bool> _otzariaOpenPastDeadline() async {
     final probe = isOtzariaRunning;
     final now = DateTime.now();
-    if (probe == null ||
-        _pendingInstalls.values.every((p) => now.isBefore(p.deadline))) {
-      return false;
+    if (probe == null) return false;
+    if (_pendingInstalls.values.every((p) => now.isBefore(p.deadline))) {
+      return true;
     }
     try {
       return await probe();

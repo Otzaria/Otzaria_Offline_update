@@ -29,6 +29,7 @@ class UpdateHereActions {
     this.onReindex,
     this.onRestartElevated,
     this.onLibraryChanges,
+    this.onHide,
   });
 
   final ValueChanged<bool> onRespond;
@@ -49,6 +50,8 @@ class UpdateHereActions {
 
   /// `null` — אין "מה חדש" לספרייה שהותקנה.
   final VoidCallback? onLibraryChanges;
+
+  final VoidCallback? onHide;
 }
 
 /// מסך המשימה "עדכון אוצריא במחשב הזה" (וגם "התקנת אוצריא").
@@ -165,7 +168,13 @@ class UpdateHereTaskView extends StatelessWidget {
               text: context.strings.common.cancel,
               onPressed: () => actions.onRespond(false),
             )
-          : null,
+          : stage == GuidanceItem.library && actions.onHide != null
+              ? ActionButton.ghost(
+                  key: ShellKeys.taskHide,
+                  text: t.backHome,
+                  onPressed: actions.onHide,
+                )
+              : null,
       end: closing
           ? ActionButton.recommended(
               key: ShellKeys.taskPrimary,

@@ -24,6 +24,7 @@ class UiSnack {
 
   static OverlayEntry? _currentOverlay;
   static Timer? _dismissTimer;
+  static final LayerLink _actionsLink = LayerLink();
 
   static void show(String message) =>
       _show(message, _SnackVariant.standard, FluentIcons.info_24_regular);
@@ -75,6 +76,19 @@ class UiSnack {
   }
 }
 
+/// אזור פעולות שהודעה צריכה להופיע מעליו, בלי לכסות את הכפתורים.
+class UiSnackAnchor extends StatelessWidget {
+  const UiSnackAnchor({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => CompositedTransformTarget(
+        link: UiSnack._actionsLink,
+        child: child,
+      );
+}
+
 class _SnackView extends StatelessWidget {
   final String message;
   final _SnackVariant variant;
@@ -98,39 +112,47 @@ class _SnackView extends StatelessWidget {
       left: AppTokens.spaceMD,
       right: AppTokens.spaceMD,
       bottom: 20,
-      // ההודעה יושבת ב-Overlay מעל ה-Navigator ולא יורשת ממנו כיווניות,
-      // ולכן היא נגזרת ישירות מהשפה הפעילה.
-      child: Directionality(
-        textDirection:
-            AppL10n.language.isRtl ? TextDirection.rtl : TextDirection.ltr,
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: _ToastTokens.maxWidth),
-            child: Material(
-              color: cs.inverseSurface,
-              borderRadius: AppTokens.borderRadiusAll,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppTokens.spaceMD,
-                  vertical: 12,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(icon, size: 18, color: accent),
-                    const SizedBox(width: 12),
-                    Flexible(
-                      child: Text(
-                        message,
-                        // הטוסט הוא שורה; הפירוט יושב בכרטיס וביומן הפעילות.
-                        maxLines: _ToastTokens.maxLines,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTextStyles.body.copyWith(
-                          color: cs.onInverseSurface,
+      child: CompositedTransformFollower(
+        link: UiSnack._actionsLink,
+        offset: const Offset(AppTokens.spaceMD, -AppTokens.spaceMD),
+        // ההודעה יושבת ב-Overlay מעל ה-Navigator ולא יורשת ממנו כיווניות,
+        // ולכן היא נגזרת ישירות מהשפה הפעילה.
+        child: Directionality(
+          textDirection:
+              AppL10n.language.isRtl ? TextDirection.rtl : TextDirection.ltr,
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            // ההודעה עולה מקו העוגן גם כשפס הפעולות מופיע בזמן שהיא פתוחה.
+            heightFactor: 0,
+            child: ConstrainedBox(
+              constraints:
+                  const BoxConstraints(maxWidth: _ToastTokens.maxWidth),
+              child: Material(
+                color: cs.inverseSurface,
+                borderRadius: AppTokens.borderRadiusAll,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppTokens.spaceMD,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(icon, size: 18, color: accent),
+                      const SizedBox(width: 12),
+                      Flexible(
+                        child: Text(
+                          message,
+                          // הטוסט הוא שורה; הפירוט יושב בכרטיס וביומן הפעילות.
+                          maxLines: _ToastTokens.maxLines,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTextStyles.body.copyWith(
+                            color: cs.onInverseSurface,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
