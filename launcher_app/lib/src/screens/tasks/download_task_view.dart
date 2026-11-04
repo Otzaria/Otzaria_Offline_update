@@ -25,6 +25,7 @@ class DownloadSnapshot {
     this.libraryProbe,
     this.others = const {},
     this.finished,
+    this.stages = const {},
     this.localWork,
   });
 
@@ -40,6 +41,8 @@ class DownloadSnapshot {
 
   /// מה הסתיים. `null` — כל מה שלפני [current] ברשימה.
   final Set<MirrorComponent>? finished;
+
+  final Map<MirrorComponent, String> stages;
 
   /// כיתוב של עבודה מקומית על הכונן (אימות, הרכבה) כשהיא רצה: אין בה בייטים
   /// ברשת, ולכן אין לה מהירות וזמן שנותר.
@@ -832,6 +835,16 @@ class _DownloadProgressState extends State<_DownloadProgress> {
                 compact: narrow,
                 title: componentName(context, c),
                 state: stateOf(c),
+                extra: switch ((stateOf(c), s.stages[c])) {
+                  (StageState.current, final stage?) when stage.isNotEmpty =>
+                    Text(
+                      stage,
+                      style: AppTextStyles.meta.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                  _ => null,
+                },
                 detail: switch (stateOf(c)) {
                   StageState.done => t.stageDone(
                       _sizes[c] == null ? null : formatBytes(_sizes[c]!),
