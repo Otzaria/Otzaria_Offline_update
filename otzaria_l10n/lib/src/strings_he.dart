@@ -1280,8 +1280,15 @@ class _Guide extends GuidanceStrings {
   @override
   String get chipNoPlugins => 'אין תוספים בכונן';
   @override
-  String chipAppsPending(int count) =>
-      count == 1 ? '1 עדכון בכונן' : '$count עדכונים בכונן';
+  String chipAppsPending(int count) => plural(count,
+      one: 'תוכנה אחת להתקנה',
+      two: 'שתי תוכנות להתקנה',
+      many: '$count תוכנות להתקנה');
+  @override
+  String chipAppsUpdates(int count) => plural(count,
+      one: 'עדכון אחד בכונן',
+      two: 'שני עדכונים בכונן',
+      many: '$count עדכונים בכונן');
   @override
   String chipAppsInstalled(int count) => '$count בכונן';
   @override

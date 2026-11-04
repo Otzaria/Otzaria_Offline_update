@@ -97,10 +97,45 @@ void main() {
       await tester.pump();
     }
   });
+
+  for (final language in AppLanguage.values) {
+    testWidgets('ההתקדמות נגלית בהורדה מדף פרטים ארוך (${language.code})',
+        (tester) async {
+      final controller = _DownloadController(
+        total: 10240,
+        description: List.filled(30, 'Demo description').join('\n'),
+      );
+      addTearDown(controller.dispose);
+      await pumpScreen(
+        tester,
+        CustomAppsScreen(
+            controller: controller, detailId: 'demo', onDetailChanged: (_) {}),
+        language: language,
+        size: const Size(760, 560),
+      );
+      final download = find.text(stringsOf(language).customApps.downloadButton);
+      await Scrollable.ensureVisible(tester.element(download), alignment: 1);
+      await tester.pump();
+      expect(download.hitTestable(), findsOneWidget);
+      await tester.tap(download);
+      await tester.pump();
+      await tester.pump();
+
+      try {
+        expect(find.text('10%').hitTestable(), findsOneWidget);
+        controller.reportProgress(5120);
+        await tester.pump();
+        expect(find.text('50%').hitTestable(), findsOneWidget);
+      } finally {
+        controller.finish();
+        await tester.pump();
+      }
+    });
+  }
 }
 
 class _DownloadController extends CustomAppsController {
-  _DownloadController({required this.total, int count = 1})
+  _DownloadController({required this.total, int count = 1, String? description})
       : super(mirrorRootDir: '') {
     apps = [
       for (var i = 0; i < count; i++)
@@ -109,6 +144,7 @@ class _DownloadController extends CustomAppsController {
             descriptor: AppDescriptor(
               id: count == 1 ? 'demo' : 'demo-$i',
               name: count == 1 ? 'Demo' : 'Demo $i',
+              description: description,
               sourceKind: AppSourceKind.github,
               github: const GithubSource(
                 owner: 'example',

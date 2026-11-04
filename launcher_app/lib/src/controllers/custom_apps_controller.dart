@@ -195,9 +195,12 @@ class CustomAppsController extends ChangeNotifier
           if (!_announcedIds.contains(app.descriptor.id)) app,
       ];
 
-  bool get hasHomeOffer =>
-      unannouncedApps.isNotEmpty ||
-      apps.any((app) => app.pending == CustomAppPending.newerOnDrive);
+  List<CustomAppView> get updateApps => [
+        for (final app in apps)
+          if (app.pending == CustomAppPending.newerOnDrive) app,
+      ];
+
+  bool get hasHomeOffer => updateApps.isNotEmpty;
 
   /// רושם שההודעה על [shown] נאמרה במחשב הזה, כדי שלא תיאמר בו שוב.
   Future<void> markAnnounced(Iterable<CustomAppView> shown) async {

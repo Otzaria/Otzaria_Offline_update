@@ -693,6 +693,7 @@ abstract class GuidanceStrings {
   String chipPluginsOnDrive(int count);
   String get chipNoPlugins;
   String chipAppsPending(int count);
+  String chipAppsUpdates(int count);
   String chipAppsInstalled(int count);
   String chipReportsToSend(int count);
   String chipReportsToCollect(int count);

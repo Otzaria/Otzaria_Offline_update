@@ -25,6 +25,7 @@ class CustomAppDetailView extends StatelessWidget {
     required this.onDownload,
     required this.onPickLocation,
     required this.onCategorySelected,
+    this.progressKey,
     this.online = true,
   });
 
@@ -39,6 +40,7 @@ class CustomAppDetailView extends StatelessWidget {
   final VoidCallback onDownload;
   final VoidCallback onPickLocation;
   final ValueChanged<String> onCategorySelected;
+  final Key? progressKey;
 
   AppDescriptor get _descriptor => app.descriptor;
   bool get _isFromGithub => _descriptor.sourceKind == AppSourceKind.github;
@@ -180,6 +182,7 @@ class CustomAppDetailView extends StatelessWidget {
     if (controller.isLearning) return InfoProgressRow(stage: t.learningLabel);
     if (!_isDownloading) return null;
     return ListenableBuilder(
+      key: progressKey,
       listenable: controller.progress,
       builder: (context, _) => InfoProgressRow(
         stage: t.downloadingLabel,

@@ -1527,7 +1527,10 @@ class _Hero extends StatelessWidget {
                 icon: FluentIcons.apps_24_regular,
               ),
               g.tileCustomApps,
-              subtitle: g.chipAppsPending(m.customAppsPending),
+              subtitle: [
+                g.chipAppsUpdates(m.customAppsUpdates),
+                ...m.customAppUpdateNames,
+              ].join(' · '),
               onTap: () => actions.onOpenSection(ShellSection.customApps),
             ),
         },
@@ -1912,15 +1915,25 @@ class _Tiles extends StatelessWidget {
           ShellSection.customApps,
           const IconTile(icon: FluentIcons.apps_24_regular),
           g.tileCustomApps,
-          m.customAppsPending > 0
+          m.customAppsUpdates > 0
               ? (
-                  m.customAppsUnannounced
-                      ? StatusKind.updateAvailable
-                      : StatusKind.needsAction,
-                  g.chipAppsPending(m.customAppsPending),
+                  StatusKind.updateAvailable,
+                  g.chipAppsUpdates(m.customAppsUpdates),
                   FluentIcons.arrow_download_16_regular,
                 )
-              : (StatusKind.ok, g.chipAppsInstalled(m.customApps), null),
+              : m.customAppsNotInstalled > 0
+                  ? (
+                      StatusKind.needsAction,
+                      g.chipAppsPending(m.customAppsNotInstalled),
+                      FluentIcons.arrow_download_16_regular,
+                    )
+                  : (StatusKind.ok, g.chipAppsInstalled(m.customApps), null),
+          facts: [
+            if (m.customAppUpdateNames.isNotEmpty)
+              m.customAppUpdateNames.join(' · '),
+            if (m.customAppsUpdates > 0 && m.customAppsNotInstalled > 0)
+              g.chipAppsPending(m.customAppsNotInstalled),
+          ],
         ),
       if (m.showsReportsTile)
         spec(

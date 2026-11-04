@@ -138,6 +138,7 @@ class _CustomAppsScreenState extends State<CustomAppsScreen> {
       return CustomAppDetailView(
         controller: _c,
         app: selected,
+        progressKey: _progressKey,
         readOnly: widget.readOnly,
         online: widget.online != false,
         onInstall: () => _install(selected),

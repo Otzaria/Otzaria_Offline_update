@@ -196,7 +196,7 @@ void main() {
     expect(LauncherCrashSession.closeGuard, isNull);
   });
 
-  test('home offers new custom apps once, and installed updates until applied',
+  test('home offers installed updates until applied, never missing custom apps',
       () async {
     final s = session();
     final entry = CustomAppEntry(
@@ -214,7 +214,7 @@ void main() {
       ),
     );
     s.customApps.apps = [CustomAppView(entry: entry)];
-    expect(guidanceFactsFromSession(s).customAppsPending, isTrue);
+    expect(guidanceFactsFromSession(s).customAppsPending, isFalse);
     await s.customApps.markAnnounced(s.customApps.apps);
     expect(s.customApps.pendingApps, hasLength(1));
     expect(guidanceFactsFromSession(s).customAppsPending, isFalse);

@@ -1337,9 +1337,9 @@ void main() {
       await tester.pumpAndSettle();
     });
 
-    test('תוכנה חסרה שכבר הוצגה אינה עדכון; גרסה חדשה עדיין מוצעת', () async {
+    test('תוכנה חסרה אינה עדכון; גרסה חדשה עדיין מוצעת', () async {
       controller.apps = [viewOf(storedVersion: '1.4.2')];
-      expect(controller.hasHomeOffer, isTrue);
+      expect(controller.hasHomeOffer, isFalse);
       await controller.markAnnounced(controller.apps);
       expect(controller.pendingApps, hasLength(1));
       expect(controller.hasHomeOffer, isFalse);
@@ -1570,18 +1570,18 @@ void main() {
         version: '1.4.2',
       );
       built.apps = [CustomAppView(entry: (await gated.load(descriptor.id))!)];
-      expect(built.hasHomeOffer, isTrue);
+      expect(built.unannouncedApps, hasLength(1));
 
       final loading = built.load();
       while (gated.gates.isEmpty) {
         await Future<void>.delayed(const Duration(milliseconds: 1));
       }
       await built.markAnnounced(built.apps);
-      expect(built.hasHomeOffer, isFalse);
+      expect(built.unannouncedApps, isEmpty);
       gated.gates.single.complete();
       await loading;
       expect(built.pendingApps, hasLength(1));
-      expect(built.hasHomeOffer, isFalse);
+      expect(built.unannouncedApps, isEmpty);
     });
 
     AppDescriptor manualApp(String id) =>

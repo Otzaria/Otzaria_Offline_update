@@ -1326,7 +1326,11 @@ class _Guide extends GuidanceStrings {
   @override
   String get chipNoPlugins => 'No plugins on the drive';
   @override
-  String chipAppsPending(int count) => '$count waiting to install';
+  String chipAppsPending(int count) => plural(count,
+      one: 'One waiting to install', many: '$count waiting to install');
+  @override
+  String chipAppsUpdates(int count) => plural(count,
+      one: 'One update on the drive', many: '$count updates on the drive');
   @override
   String chipAppsInstalled(int count) => '$count on the drive';
   @override

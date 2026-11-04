@@ -1875,13 +1875,12 @@ install, launch. Adding, editing, removing, categories and order live on
 Settings. The add/edit form stays a dialog. On a read-only drive the Manage row is
 disabled with the reason, since every management action writes to the drive.
 
-**`CustomAppsScreen` listens to its own controller**, like `PluginsScreen`: the
-open category lives in the controller, and a category tap rebuilt nothing when the
-screen relied on `AppShell` rebuilding it from outside. Both listeners are fine;
-the screen is
-still built lazily on first visit, and that visit is what marks pending programs as
-seen on this computer (`markAnnounced`) — until then the "waiting to install" chip on
-the home tile stands out. There is no pending dialog.
+**`CustomAppsScreen` listens to its own controller, like `PluginsScreen`.**
+The open category lives there; relying only on `AppShell` meant category taps
+rebuilt nothing. The screen is still built lazily on its first visit, which marks
+pending programs as seen (`markAnnounced`); a real update stays highlighted until
+applied, and a missing program is offered for installation. There is no pending
+dialog.
 
 ### 5.8 Packaging, distribution and self-update
 
