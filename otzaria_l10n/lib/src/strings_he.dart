@@ -4651,6 +4651,8 @@ class _AppReports extends AppReportsStrings {
   @override
   String get typeLabel => 'סוג הדיווח';
   @override
+  String get typeRequired => 'יש לבחור סוג דיווח';
+  @override
   String get titleLabel => 'כותרת';
   @override
   String get titleHint => 'משפט אחד שמתאר את הבעיה';

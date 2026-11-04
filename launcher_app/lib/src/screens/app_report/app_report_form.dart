@@ -13,7 +13,7 @@ class AppReportForm extends ChangeNotifier {
   AppReportForm({
     required this.reports,
     required this.trigger,
-    this.initialType = AppReportType.bug,
+    this.initialType,
     this.initialTitle = '',
     this.signature,
     DateTime Function()? clock,
@@ -24,7 +24,7 @@ class AppReportForm extends ChangeNotifier {
 
   final AppReportsController reports;
   final AppReportTrigger trigger;
-  final AppReportType initialType;
+  final AppReportType? initialType;
   final String initialTitle;
   final CrashSignature? signature;
   final DateTime Function() _clock;
@@ -32,7 +32,7 @@ class AppReportForm extends ChangeNotifier {
   /// הצרופות עדיין נאספות; הטופס עדיין לא מוצג.
   bool collecting = true;
 
-  AppReportType type;
+  AppReportType? type;
   String title;
   String description = '';
   String steps = '';
@@ -48,7 +48,7 @@ class AppReportForm extends ChangeNotifier {
   AppReportSubmission submission = AppReportSubmission.idle;
   AppReportDeliveryResult? result;
 
-  /// השדה שנכשל בבדיקת התקינות המקומית (`title`/`description`/`reporterEmail`).
+  /// השדה שנכשל בבדיקת התקינות המקומית.
   String? invalidField;
 
   bool _disposed = false;
@@ -87,7 +87,7 @@ class AppReportForm extends ChangeNotifier {
     this.includeDiagnostics = includeDiagnostics ?? this.includeDiagnostics;
     this.includeErrorLog = includeErrorLog ?? this.includeErrorLog;
     this.images = images == null ? this.images : List.unmodifiable(images);
-    if (title != null || description != null || email != null) {
+    if (type != null || title != null || description != null || email != null) {
       invalidField = null;
     }
     _notify();
@@ -96,6 +96,11 @@ class AppReportForm extends ChangeNotifier {
   /// בודק, שומר את המייל ושולח. מחזיר את השדה הלא תקין, או `null`.
   Future<String?> submit() async {
     if (collecting || isSending || isFinished) return null;
+    if (type == null) {
+      invalidField = 'type';
+      _notify();
+      return invalidField;
+    }
     // בשליחה, פעם אחת, גם על הצרופות: ההסתרה אידמפוטנטית, ונכונותה אינה
     // תלויה במימוש של האוסף לבדו.
     final report = buildReport().redactedWith(reports.redactor);
@@ -146,7 +151,7 @@ class AppReportForm extends ChangeNotifier {
   AppReport buildReport() {
     final fields = AppReport(
       reportId: _reportId,
-      type: type,
+      type: type!,
       trigger: trigger,
       title: title,
       description: description,

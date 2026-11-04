@@ -202,8 +202,15 @@ class _AppReportDialogState extends State<AppReportDialog> {
           ],
           currentValue: form.type,
           expandToFillWidth: true,
-          onChanged: (type) => form.update(type: type),
+          onChanged: enabled ? (type) => form.update(type: type) : null,
         ),
+        if (form.invalidField == 'type')
+          Text(
+            t.typeRequired,
+            style: AppTextStyles.meta.copyWith(
+              color: Theme.of(context).colorScheme.error,
+            ),
+          ),
         const SizedBox(height: AppTokens.spaceMD),
         _fieldLabel(context, FluentIcons.textbox_24_regular, t.titleLabel),
         RtlTextField(

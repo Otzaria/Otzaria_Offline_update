@@ -92,7 +92,7 @@ class AppMultiSegmentedControl<T> extends StatelessWidget {
 
 class AppSegmentedControl<T> extends StatelessWidget {
   final List<SegmentOption<T>> options;
-  final T currentValue;
+  final T? currentValue;
   final ValueChanged<T>? onChanged;
   final bool expandToFillWidth;
   final double? height;
@@ -209,7 +209,8 @@ class AppSegmentedControl<T> extends StatelessWidget {
 
     return SegmentedButton<T>(
       segments: _segments(),
-      selected: {currentValue},
+      selected: {if (currentValue case final value?) value},
+      emptySelectionAllowed: currentValue == null,
       expandedInsets: expandToFillWidth ? EdgeInsets.zero : null,
       onSelectionChanged: onChanged == null
           ? null

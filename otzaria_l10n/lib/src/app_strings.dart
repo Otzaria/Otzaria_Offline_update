@@ -2554,6 +2554,7 @@ abstract class AppReportsStrings {
   String get dialogTitle;
   String get dialogSubtitle;
   String get typeLabel;
+  String get typeRequired;
   String get titleLabel;
   String get titleHint;
   String get titleRequired;

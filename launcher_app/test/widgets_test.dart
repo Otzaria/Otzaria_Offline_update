@@ -788,6 +788,38 @@ void main() {
   // ── AppSegmentedControl ────────────────────────────────────────────────────
 
   group('AppSegmentedControl', () {
+    testWidgets('מתחיל ללא בחירה ושומר על הבחירה בלחיצה חוזרת', (tester) async {
+      int? picked;
+      await tester.pumpWidget(
+        wrap(
+          StatefulBuilder(
+            builder: (context, setState) => AppSegmentedControl<int>(
+              currentValue: picked,
+              onChanged: (value) => setState(() => picked = value),
+              options: [
+                SegmentOption(value: 0, label: he.common.update),
+                SegmentOption(value: 1, label: he.common.install),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      Set<int> selected() => tester
+          .widget<SegmentedButton<int>>(find.byType(SegmentedButton<int>))
+          .selected;
+      expect(selected(), isEmpty);
+      await tester.tap(find.text(he.common.install));
+      await tester.pumpAndSettle();
+      expect(picked, 1);
+      expect(selected(), {1});
+
+      await tester.tap(find.text(he.common.install));
+      await tester.pumpAndSettle();
+      expect(picked, 1);
+      expect(selected(), {1});
+    });
+
     testWidgets('מציג את כל האפשרויות ומדווח על הבחירה', (tester) async {
       int? picked;
       await tester.pumpWidget(

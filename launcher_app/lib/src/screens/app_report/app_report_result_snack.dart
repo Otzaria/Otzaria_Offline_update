@@ -28,6 +28,7 @@ void showAppReportResultSnack(AppReportDeliveryResult result) {
 String appReportInvalidFieldMessage(String field, {required bool emailEmpty}) {
   final t = AppL10n.strings.appReports;
   return switch (field) {
+    'type' => t.typeRequired,
     'title' => t.titleRequiredSnack,
     'description' => t.descriptionRequiredSnack,
     'reporterEmail' => emailEmpty ? t.emailRequiredSnack : t.invalidEmailSnack,
