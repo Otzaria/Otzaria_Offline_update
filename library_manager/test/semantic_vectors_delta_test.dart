@@ -537,7 +537,7 @@ void main() {
       );
     });
 
-    Future<bool> peek(SemanticFleet fleet) async {
+    Future<bool> peek(SemanticFleet fleet, {int target = 30}) async {
       final assets = SemanticSearchAssets(
         httpClient: github.client,
         models: fakeModels,
@@ -545,13 +545,58 @@ void main() {
       try {
         return await assets.peekPending(
           mirrorDir: mirror,
-          libraryTag: libraryTagOf(30),
+          libraryTag: libraryTagOf(target),
           fleet: fleet,
         );
       } finally {
         assets.dispose();
       }
     }
+
+    test('v36 family changes reuse complete vectors on repeated syncs '
+        '(#176)', () async {
+      github
+        ..windowsBase(36)
+        ..legacyBase(36);
+      final windows = windowsAt(35, needsBase: true);
+      const anchor = SemanticMachineState(
+        supportsWindows: false,
+        family: SemanticVectorsFamily.legacy,
+        libraryVersion: 35,
+      );
+      final vectorNames = {baseSegmentName(36), 'legacy-v36.oxv.zst'};
+      final scenarios = [
+        (machines: [windows], downloaded: {baseSegmentName(36)}),
+        (machines: [windows, anchor], downloaded: {'legacy-v36.oxv.zst'}),
+        (machines: [anchor], downloaded: <String>{}),
+      ];
+      for (final scenario in scenarios) {
+        final fleet = SemanticFleet(scenario.machines);
+        github.downloads.clear();
+        await sync(fleet, target: 36);
+        expect(
+          github.downloads.where(vectorNames.contains),
+          unorderedEquals(scenario.downloaded),
+        );
+        final expected = {
+          if (scenario.machines.contains(windows)) ...[
+            baseManifestName(36),
+            baseSegmentName(36),
+          ],
+          if (scenario.machines.contains(anchor)) ...[
+            legacyManifestName(36),
+            'legacy-v36.oxv.zst',
+          ],
+        };
+        expect(await mirroredVectors(target: 36), expected);
+
+        github.downloads.clear();
+        await sync(fleet, target: 36);
+        expect(github.downloads.where(vectorNames.contains), isEmpty);
+        expect(await mirroredVectors(target: 36), expected);
+        expect(await peek(fleet, target: 36), isFalse);
+      }
+    });
 
     test('the light check accepts a chain only while every machine can use '
         'it', () async {
