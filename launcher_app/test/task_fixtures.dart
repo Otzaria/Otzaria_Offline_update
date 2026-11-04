@@ -18,6 +18,11 @@ final Map<String, DownloadTask> downloadScenarios = {
   'download': const DownloadTask(
     phase: DownloadTaskPhase.running,
     components: _all,
+    expectedBytes: {
+      MirrorComponent.app: 100,
+      MirrorComponent.library: 100,
+      MirrorComponent.plugins: 100,
+    },
   ),
   'cancelled': const DownloadTask(
     phase: DownloadTaskPhase.cancelled,
