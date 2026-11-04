@@ -285,7 +285,8 @@ class InstallLearner {
       ..._tokensOf(name),
       if (repo != null) ..._tokensOf(repo),
       if (installerFileName != null)
-        ..._tokensOf(p.basenameWithoutExtension(installerFileName)),
+        ..._tokensOf(p.basenameWithoutExtension(installerFileName))
+            .where((token) => !_installerNoiseTokens.contains(token)),
     };
     return tokens.toList(growable: false);
   }
@@ -293,13 +294,7 @@ class InstallLearner {
   /// אורך מינימלי לטוקן שנחשב עדות. `My` או `7z` היו תופסים חצי מהרג'יסטרי.
   static const int _minTokenLength = 3;
 
-  /// טוקנים שאינם מזהים שום תוכנה מסוימת — הם מופיעים בשם קובץ ההתקנה של
-  /// כולן. `x64` שנגזר מ-`MyApp-Setup-x64.exe` היה מאמץ בשמחה את
-  /// `Microsoft Visual C++ 2015 Redistributable (x64)`.
-  ///
-  /// הרשימה מכוונת למוסכמות של **שמות קובצי התקנה** בלבד. `app` או
-  /// `windows` אינם כאן: הם באים מהשם שהמשתמש הקליד, ותוכנה בשם "App 2024"
-  /// הייתה נשארת בלי שום רמז.
+  // ארכיטקטורה ומילות התקנה אינן זהות תוכנה: x64 לבדו מתאים גם לספרייה נלווית.
   static const Set<String> _noiseTokens = {
     'x64',
     'x86',
@@ -315,6 +310,9 @@ class InstallLearner {
     'msi',
     'zip',
   };
+
+  // בשם המתקין אלה פרטי פלטפורמה ואריזה; בשם התוכנה או הריפו הם עשויים לזהות אותה.
+  static const Set<String> _installerNoiseTokens = {'windows', 'nsis'};
 
   /// כל מה שאינו אות או ספרה, בכל שפה.
   ///

@@ -743,6 +743,82 @@ void main() {
   group('למידה אחרי התקנה', () {
     late String installedDir;
 
+    for (final architecture in ['x64', 'arm64']) {
+      for (final suffix in ['', '-nsis']) {
+        for (final withRepo in [false, true]) {
+          final fileName = 'Zayit-0.6.13-windows-$architecture$suffix.exe';
+          test('רגרסיה #203: עדכון זית עם $fileName וריפו $withRepo', () async {
+            final zayitExe =
+                writeFile(p.join(root, 'Programs', 'Zayit', 'Zayit.exe'));
+            final ocrExe = writeFile(
+                p.join(root, 'Programs', 'OCR', 'Windows 11 OCR.exe'));
+            final exes = {
+              p.dirname(zayitExe): zayitExe,
+              p.dirname(ocrExe): ocrExe
+            };
+            final entries = [
+              UninstallEntry(
+                keyName: 'ocr',
+                displayName: 'Windows 11 OCR',
+                installDir: p.dirname(ocrExe),
+              ),
+              UninstallEntry(
+                keyName: 'zayit',
+                displayName: 'Zayit',
+                installDir: p.dirname(zayitExe),
+              ),
+            ];
+            Future<List<UninstallEntry>> registry() async => entries;
+            Future<String?> exe(String dir, List<String> _) async => exes[dir];
+            final m = CustomAppsManager(
+              resolveMirrorDir: () async => root,
+              readVersion: (_) => '0.6.13',
+              processRunner: runner.call,
+              lookupUninstallDirs: (pattern) => [
+                for (final entry in entries)
+                  if (pattern.hasMatch(entry.displayName)) entry.installDir!,
+              ],
+              lookupInstalledExe: exe,
+              learner: InstallLearner(
+                lookupUninstallEntries: registry,
+                lookupExe: exe,
+                sleep: (_) async {},
+              ),
+            );
+            await m.add(AppDescriptor(
+              id: 'zayit',
+              name: 'זית',
+              sourceKind:
+                  withRepo ? AppSourceKind.github : AppSourceKind.manual,
+              github: withRepo
+                  ? const GithubSource(
+                      owner: 'kdroidFilter',
+                      repo: 'Zayit',
+                      assetPattern: r'\.exe$')
+                  : null,
+            ));
+            await m.attachInstaller('zayit',
+                sourcePath:
+                    writeFile(p.join(root, 'dl', fileName), 'MZ Inno Setup'),
+                version: '0.6.13');
+
+            final outcome = await m.install('zayit');
+
+            expect(outcome.learned?.exeName, 'Zayit.exe');
+            final saved = (await m.load('zayit'))!.descriptor;
+            expect(saved.detect.exeName, 'Zayit.exe');
+            final pattern = saved.detect.registryDisplayName!;
+            expect(
+                RegistryDisplayNamePattern.matches(pattern, 'Zayit'), isTrue);
+            expect(
+                RegistryDisplayNamePattern.matches(pattern, 'Windows 11 OCR'),
+                isFalse);
+            expect((await m.detectInstalled(saved))?.launchPath, zayitExe);
+          });
+        }
+      }
+    }
+
     CustomAppsManager managerLearning({
       required String displayName,
       String? exeName = 'myapp.exe',
