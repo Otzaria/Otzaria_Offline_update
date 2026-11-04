@@ -182,6 +182,7 @@ abstract class TaskStrings {
   String get preparingBody;
   String get downloadingTitle;
   String get downloadingBody;
+  String get checkingAppInstaller;
   String downloadingStep(String name, int index, int count);
 
   /// רכיבים שיורדים יחד; [names] כבר מחוברים.

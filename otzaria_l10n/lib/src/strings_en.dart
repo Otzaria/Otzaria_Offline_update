@@ -277,6 +277,9 @@ class _Task extends TaskStrings {
   @override
   String get downloadingBody => 'You can keep using the computer meanwhile.';
   @override
+  String get checkingAppInstaller =>
+      'Checking the Otzaria installer on the drive; downloads only if needed.';
+  @override
   String downloadingStep(String name, int index, int count) =>
       'Downloading $name · $index of $count';
   @override

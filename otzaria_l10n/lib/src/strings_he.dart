@@ -273,6 +273,9 @@ class _Task extends TaskStrings {
   @override
   String get downloadingBody => 'אפשר להמשיך לעבוד במחשב בינתיים.';
   @override
+  String get checkingAppInstaller =>
+      'בודק את מתקין אוצריא בכונן; יוריד רק אם צריך.';
+  @override
   String downloadingStep(String name, int index, int count) =>
       'מוריד את $name · $index מתוך $count';
   @override

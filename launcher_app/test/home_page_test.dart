@@ -1697,6 +1697,7 @@ void main() {
       library.status = LibraryModuleStatus.updating;
       library.applyProgress = 0.1;
       otzaria.downloadStatus = OtzariaDownloadStatus.downloading;
+      otzaria.downloadStage = stringsOf().task.checkingAppInstaller;
       launcher.status = LauncherUpdateStatus.downloading;
       var stateNotifications = 0;
       void count() => stateNotifications++;
@@ -1715,9 +1716,11 @@ void main() {
         ),
       );
       expect(find.text('10%'), findsOneWidget);
+      expect(find.text(stringsOf().task.checkingAppInstaller), findsOneWidget);
 
       library.applyProgress = 0.42;
       library.notifyProgress();
+      otzaria.downloadStage = null;
       otzaria.downloadReceived = 30;
       otzaria.downloadTotal = 100;
       otzaria.notifyProgress();
@@ -1729,6 +1732,8 @@ void main() {
       expect(find.text('42%'), findsOneWidget);
       expect(find.text('30%'), findsOneWidget);
       expect(find.text('70%'), findsOneWidget);
+      expect(find.text(stringsOf().task.checkingAppInstaller), findsNothing);
+      expect(find.text(stringsOf().home.downloadingApp), findsOneWidget);
       expect(stateNotifications, 0);
     });
 

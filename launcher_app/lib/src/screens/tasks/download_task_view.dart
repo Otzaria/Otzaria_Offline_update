@@ -788,11 +788,13 @@ class _DownloadProgressState extends State<_DownloadProgress> {
         ] else if (shown != null) ...[
           const SizedBox(height: 4),
           Text(
-            t.downloadingStep(
-              componentStepName(context, shown),
-              (index < 0 ? 0 : index) + 1,
-              components.length,
-            ),
+            current == MirrorComponent.app && received == null
+                ? t.checkingAppInstaller
+                : t.downloadingStep(
+                    componentStepName(context, shown),
+                    (index < 0 ? 0 : index) + 1,
+                    components.length,
+                  ),
             style: AppTextStyles.body.copyWith(color: cs.onSurface),
           ),
         ],

@@ -108,6 +108,56 @@ void main() {
   });
 
   group('התקדמות', () {
+    for (final language in AppLanguage.values) {
+      for (final size in [const Size(760, 560), const Size(1000, 720)]) {
+        testWidgets(
+            'installer check is distinct from downloading (#193) '
+            '${language.name} $size', (tester) async {
+          final text = stringsOf(language).task;
+          final progress = ValueNotifier(0);
+          addTearDown(progress.dispose);
+          var snapshot = const DownloadSnapshot(current: MirrorComponent.app);
+          await pumpScreen(
+            tester,
+            DownloadTaskView(
+              task: const DownloadTask(
+                phase: DownloadTaskPhase.running,
+                components: [MirrorComponent.app, MirrorComponent.library],
+              ),
+              progress: progress,
+              snapshot: () => snapshot,
+              actions: DownloadTaskActions(
+                onAnswer: (_) {},
+                onCancel: () {},
+                onRetry: () {},
+                onHome: () {},
+                onHere: () {},
+              ),
+            ),
+            language: language,
+            size: size,
+          );
+
+          expect(find.text(text.checkingAppInstaller), findsOneWidget);
+          final downloading = text.downloadingStep(text.stepApp, 1, 2);
+          expect(find.text(downloading), findsNothing);
+          expect(tester.takeException(), isNull);
+
+          snapshot = const DownloadSnapshot(
+            current: MirrorComponent.app,
+            received: 0,
+            total: 100,
+            fraction: 0,
+          );
+          progress.value++;
+          await tester.pump();
+          expect(find.text(text.checkingAppInstaller), findsNothing);
+          expect(find.text(downloading), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
+
     testWidgets('ספרייה בשליש ותוספים שהסתיימו אינם שני שלישים (#162)',
         (tester) async {
       const mb = 1024 * 1024;

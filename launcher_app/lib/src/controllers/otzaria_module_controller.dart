@@ -283,7 +283,7 @@ class OtzariaModuleController extends ChangeNotifier
     downloadStatus = OtzariaDownloadStatus.downloading;
     downloadReceived = null;
     downloadTotal = null;
-    downloadStage = null;
+    downloadStage = AppL10n.strings.task.checkingAppInstaller;
     downloadError = null;
     downloadCause = null;
     notifyListeners();
@@ -292,6 +292,7 @@ class OtzariaModuleController extends ChangeNotifier
       await _manager.downloadToMirror(
         online: _freshOnlineRelease,
         onProgress: (received, total) {
+          downloadStage = null;
           downloadReceived = received;
           downloadTotal = total;
           notifyProgress();
