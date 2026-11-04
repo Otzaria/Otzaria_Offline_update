@@ -391,6 +391,123 @@ void main() {
           isNot(GuidancePrimary.upToDate));
     });
 
+    for (final language in AppLanguage.values) {
+      for (final target in ['0.9.98.3+809', '0.9.99']) {
+        test('עדכון אוצריא מהכונן קודם לדרישת הורדה ($language, $target)',
+            () async {
+          AppL10n.use(language);
+          await check(
+            const SmartSearchStatus(
+              state: SmartSearchState.driveNotMatching,
+              reason: SmartSearchReason.driveOtherGeneration,
+              required: (
+                generation: SemanticModelGeneration.round2,
+                family: SemanticVectorsFamily.legacy,
+              ),
+              driveGenerations: {SemanticModelGeneration.qa491},
+            ),
+            preference: SemanticDownloadPreference.always,
+            mirroredAppVersion: target,
+          );
+          await controller.checkOnline();
+          controller.downloadStatus = MirrorDownloadStatus.done;
+
+          expect(controller.awaitsOtzariaUpdate, isTrue);
+          expect(controller.semanticAllClear, isFalse);
+          expect(controller.semanticState, SmartSearchState.driveNotMatching);
+          expect(controller.semanticPending, isFalse);
+          expect(
+              controller.semanticNote,
+              AppL10n.strings.libraryDomain
+                  .libraryNeedsOtzariaUpdateFromDrive(target));
+          expect(controller.libraryDownloadPending, isFalse);
+          expect(controller.hasOnlineUpdate, isFalse);
+          expect(controller.downloadNotes, isEmpty);
+          expect(controller.shouldOfferSemanticDownload, isFalse);
+
+          controller.semanticPreference = SemanticDownloadPreference.ask;
+          expect(controller.onlineSemanticOffer, isFalse);
+
+          manager.semanticPeek = true;
+          await controller.checkOnline();
+          expect(controller.onlineSemanticOffer, isTrue,
+              reason: 'צורך אמיתי של צי המחשבים עדיין מצדיק הורדה');
+        });
+      }
+    }
+
+    test('אותו דור בכונן אינו מסתיר חומר חסר לחיפוש החכם', () async {
+      await check(
+        const SmartSearchStatus(
+          state: SmartSearchState.driveNotMatching,
+          reason: SmartSearchReason.driveOtherGeneration,
+          required: (
+            generation: SemanticModelGeneration.round2,
+            family: SemanticVectorsFamily.legacy,
+          ),
+          driveGenerations: {SemanticModelGeneration.qa491},
+        ),
+        mirroredAppVersion: '0.9.98.2',
+      );
+      await controller.checkOnline();
+      expect(controller.awaitsOtzariaUpdate, isFalse);
+      expect(controller.libraryDownloadPending, isTrue);
+      expect(controller.onlineSemanticOffer, isTrue);
+      expect(controller.semanticNote,
+          AppL10n.strings.libraryDomain.semanticStatusDriveNotMatching);
+    });
+
+    for (final ready in [false, true]) {
+      test('אחרי התקנת אוצריא נבדק מחדש מה יש בכונן (ready=$ready)', () async {
+        String? appUpdate = '0.9.98.3';
+        manager = _StatusManager(
+          temporary.path,
+          const SmartSearchStatus(
+            state: SmartSearchState.driveNotMatching,
+            reason: SmartSearchReason.driveOtherGeneration,
+            required: (
+              generation: SemanticModelGeneration.round2,
+              family: SemanticVectorsFamily.legacy,
+            ),
+          ),
+          consent: true,
+        );
+        controller = LibraryModuleController(
+          dataDir: temporary.path,
+          manager: manager,
+          mirroredOtzariaUpdate: () async => appUpdate,
+        );
+        await controller.checkForUpdate();
+        expect(controller.awaitsOtzariaUpdate, isTrue);
+
+        appUpdate = null;
+        manager.status = SmartSearchStatus(
+          state: ready
+              ? SmartSearchState.readyOnDrive
+              : SmartSearchState.driveNotMatching,
+          reason: ready
+              ? SmartSearchReason.partsMissing
+              : SmartSearchReason.driveOtherGeneration,
+          required: (
+            generation: SemanticModelGeneration.qa491,
+            family: SemanticVectorsFamily.legacy,
+          ),
+          proofKey: 'after-app-update',
+        );
+        await controller.checkForUpdate(fresh: true);
+        expect(controller.awaitsOtzariaUpdate, isFalse);
+        expect(controller.semanticAllClear, isFalse);
+        expect(controller.semanticPending, ready);
+        expect(controller.libraryDownloadPending, !ready);
+        expect(
+          controller.semanticNote,
+          ready
+              ? AppL10n.strings.libraryDomain.semanticStatusReadyOnDrive
+              : AppL10n.strings.libraryDomain.semanticStatusDriveNotMatching,
+        );
+      });
+    }
+
     test('שדרוג אוצריא עם ספרייה 36: הוכחה ישנה אינה נשארת', () async {
       await check(_status(SmartSearchState.installedVerified, proofKey: 'old'));
       expect(controller.semanticAllClear, isTrue);

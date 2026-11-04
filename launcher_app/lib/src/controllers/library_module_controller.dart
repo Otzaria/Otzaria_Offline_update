@@ -132,9 +132,9 @@ class LibraryModuleController extends ChangeNotifier
       (onlineSemanticPending || _semanticDownloadNeeded) &&
       !semanticDownloadFailed;
 
-  /// The drive cannot serve this computer's smart search: only a download on
-  /// a connected computer helps, whatever the light online check said.
+  /// Local evidence for another download, after any pending app update.
   bool get _semanticDownloadNeeded =>
+      !awaitsOtzariaUpdate &&
       _semanticPreference != SemanticDownloadPreference.never &&
       smartSearchNeedsDriveDownload(semanticStatus);
 
@@ -155,6 +155,7 @@ class LibraryModuleController extends ChangeNotifier
   String? get semanticNote {
     final check = _lastCheck;
     if (check == null || check.semanticAllClear) return null;
+    if (_otzariaFirstMessage case final message?) return message;
     final status = check.semanticStatus;
     return status == null
         ? AppL10n.strings.libraryDomain.semanticStatusCheckFailed
@@ -216,6 +217,16 @@ class LibraryModuleController extends ChangeNotifier
   /// הבדיקה האחרונה הוגבלה לאוצריא שמותקנת, ובכונן מתקין חדש יותר שיקרא
   /// את הספרייה — "עדכון כאן" מתקין אותו לפניה.
   bool awaitsOtzariaUpdate = false;
+
+  String? _awaitedOtzariaVersion;
+
+  String? get _otzariaFirstMessage {
+    final version = _awaitedOtzariaVersion;
+    return version == null
+        ? null
+        : AppL10n.strings.libraryDomain
+            .libraryNeedsOtzariaUpdateFromDrive(version);
+  }
 
   /// `true` כשאין מראה מקומית בכלל (טרם הורד דבר). נשמר בנפרד מ-[status], כי
   /// [hasOnlineUpdate] חייב לדעת זאת גם אחרי שה-status התקדם.
@@ -1019,6 +1030,7 @@ class LibraryModuleController extends ChangeNotifier
   Future<void> _runCheckForUpdate() async {
     status = LibraryModuleStatus.checking;
     awaitsOtzariaUpdate = false;
+    _awaitedOtzariaVersion = null;
     needsElevation = false;
     errorMessage = null;
     canRetryWithFullDownload = false;
@@ -1041,7 +1053,8 @@ class LibraryModuleController extends ChangeNotifier
       _incompleteMirrorDownload = check.mirrorDownloadIncomplete;
       _lastCheck = check;
       isFreshInstall = check.isFreshInstall;
-      awaitsOtzariaUpdate = await _otzariaFirstMessage(check) != null;
+      _awaitedOtzariaVersion = await _otzariaFirstVersion(check);
+      awaitsOtzariaUpdate = _awaitedOtzariaVersion != null;
       mirrorMissing = false;
       mirrorDamaged = false;
       // שגיאה מבדיקה קודמת אינה מתארת את זו: `LibraryScreen` הציג אותה כל עוד
@@ -1069,7 +1082,7 @@ class LibraryModuleController extends ChangeNotifier
           // [LibraryModuleStatus.personalTargetElsewhere].
           if (personalTargetIsThisMachine) {
             status = LibraryModuleStatus.error;
-            errorMessage = await _otzariaFirstMessage(check) ??
+            errorMessage = _otzariaFirstMessage ??
                 check.plan?.reason ??
                 AppL10n
                     .strings.libraryDomain.blockedNeedsManualActionWithPeriod;
@@ -1193,7 +1206,7 @@ class LibraryModuleController extends ChangeNotifier
     await _refreshChangesNotes(_lastCheck);
   }
 
-  Future<String?> _otzariaFirstMessage(LibraryUpdateCheckResult check) async {
+  Future<String?> _otzariaFirstVersion(LibraryUpdateCheckResult check) async {
     final version = await _mirroredOtzariaUpdate?.call();
     if (version == null) return null;
     final semantic = check.semanticStatus;
@@ -1211,8 +1224,7 @@ class LibraryModuleController extends ChangeNotifier
         return null;
       }
     }
-    return AppL10n.strings.libraryDomain
-        .libraryNeedsOtzariaUpdateFromDrive(version);
+    return version;
   }
 
   Future<void> setCustomDbPath(String dbPath) async {
