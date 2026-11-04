@@ -310,13 +310,18 @@ class OtzariaInstaller {
     );
     final previousExe = await _exeSnapshotIn(installDir);
     final previousVersion = previousExe?.version;
+    final scope = windowsInstallScopeOf(installDir);
+    final modernUpgrade =
+        previousVersion != null && !_isOlderBase(previousVersion, '0.9.88');
     final result = await Process.run(installerPath, [
       if (installDir != null) '/DIR=$installDir',
       '/NOLAUNCH=1',
-      if (_isElevated() &&
-          windowsInstallScopeOf(installDir) ==
-              OtzariaWindowsInstallScope.currentUser)
+      // Explicit scope prevents 0.9.88+ upgrades from relaunching silently.
+      if ((modernUpgrade || _isElevated()) &&
+          scope == OtzariaWindowsInstallScope.currentUser)
         '/CURRENTUSER',
+      if (modernUpgrade && scope == OtzariaWindowsInstallScope.allUsers)
+        '/ALLUSERS',
       '/LOG=$logPath',
     ]);
 

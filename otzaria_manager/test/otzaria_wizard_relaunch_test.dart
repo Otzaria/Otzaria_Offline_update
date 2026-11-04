@@ -182,7 +182,7 @@ void main() {
 
   for (final elevated in [true, false]) {
     test(
-      'מתהליך ${elevated ? 'מורם' : 'רגיל'}: /CURRENTUSER ${elevated ? 'נמסר' : 'אינו נמסר'} לאשף',
+      'התקנה חדשה מתהליך ${elevated ? 'מורם' : 'רגיל'}: /CURRENTUSER ${elevated ? 'נמסר' : 'אינו נמסר'} לאשף',
       () async {
         final argsFile = p.join(temp.path, 'args.txt');
         final recorder = p.join(temp.path, 'record.bat');
@@ -198,7 +198,6 @@ void main() {
           installer.installWithWizard(
             release: _release(),
             installerPath: recorder,
-            installDir: installDir,
             locateInstalled: (_) async => null,
           ),
           throwsA(isA<OtzariaInstallCancelled>()),
@@ -210,7 +209,89 @@ void main() {
       },
       testOn: 'windows',
     );
+
+    for (final allUsers in [false, true]) {
+      test(
+        'known ${allUsers ? 'all-users' : 'per-user'} install keeps the wizard '
+        'from an ${elevated ? 'elevated' : 'unelevated'} launcher (#177)',
+        () async {
+          if (allUsers) {
+            File(p.join(
+              installDir,
+              OtzariaInstaller.systemInstallMarkerFileName,
+            )).writeAsStringSync('');
+          }
+          final argsFile = p.join(temp.path, 'args.txt');
+          final recorder = p.join(temp.path, 'record.bat');
+          File(recorder).writeAsStringSync(
+            '@echo off\r\necho %* > "$argsFile"\r\nexit /b 2\r\n',
+          );
+          final installer = OtzariaInstaller(
+            cacheDir: p.join(temp.path, 'cache'),
+            versionReader: const _FileContentVersionReader(),
+            isElevated: () => elevated,
+            waitForRelaunchedSetup: (_, __, ___) async => null,
+          );
+          addTearDown(installer.dispose);
+
+          await expectLater(
+            installer.installWithWizard(
+              release: _release(),
+              installerPath: recorder,
+              installDir: installDir,
+              locateInstalled: (_) async => null,
+            ),
+            throwsA(isA<OtzariaInstallCancelled>()),
+          );
+
+          final args = File(argsFile).readAsStringSync();
+          expect(args.contains('/CURRENTUSER'), !allUsers);
+          expect(args.contains('/ALLUSERS'), allUsers);
+          expect(args, contains('/DIR=$installDir'));
+          expect(args, contains('/NOLAUNCH=1'));
+          expect(args, isNot(contains('/SILENT')));
+          expect(args, isNot(contains('/VERYSILENT')));
+          expect(args, isNot(contains('/MERGETASKS')));
+        },
+        testOn: 'windows',
+      );
+    }
   }
+
+  test(
+    'legacy custom install leaves scope detection to the wizard (#177)',
+    () async {
+      File(exe).writeAsStringSync('0.9.70');
+      final argsFile = p.join(temp.path, 'args.txt');
+      final recorder = p.join(temp.path, 'record.bat');
+      File(recorder).writeAsStringSync(
+        '@echo off\r\necho %* > "$argsFile"\r\nexit /b 2\r\n',
+      );
+      final installer = OtzariaInstaller(
+        cacheDir: p.join(temp.path, 'cache'),
+        versionReader: const _FileContentVersionReader(),
+        isElevated: () => false,
+        waitForRelaunchedSetup: (_, __, ___) async => null,
+      );
+      addTearDown(installer.dispose);
+
+      await expectLater(
+        installer.installWithWizard(
+          release: _release(),
+          installerPath: recorder,
+          installDir: installDir,
+          locateInstalled: (_) async => null,
+        ),
+        throwsA(isA<OtzariaInstallCancelled>()),
+      );
+
+      final args = File(argsFile).readAsStringSync();
+      expect(args, isNot(contains('/CURRENTUSER')));
+      expect(args, isNot(contains('/ALLUSERS')));
+      expect(args, contains('/DIR=$installDir'));
+    },
+    testOn: 'windows',
+  );
 
   test('ביטול ההמתנה מפסיק להמתין בלי לטעון שהמתקין נסגר', () async {
     var cancelled = false;

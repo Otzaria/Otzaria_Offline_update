@@ -1330,14 +1330,14 @@ it out and the library stage is `skipped` with `libraryAwaitsApp`.
 - It never solved issue #21 either: it carried only the ~2MB WebView2 *bootstrapper*,
   which downloads the runtime from the internet. See §5.8 for what #21 actually needs.
 
-**When the *user* installs, Otzaria's own wizard opens**
-(`update(check, useWizard: true)` → `OtzariaInstaller.installWithWizard`, no flags
-but `/LOG=`, `/NOLAUNCH=1` and, from an elevated launcher, `/CURRENTUSER`). Its two
-pages carry
-decisions only the person at the machine can make: which folder, and whether to
-create a desktop shortcut. `/VERYSILENT` deleted both pages — that is what the report
-"it didn't open the installer's dialog and made no shortcut" was. Do not "fix" it back
-with `/MERGETASKS`; overriding that choice is the bug.
+**A user install opens Otzaria's wizard and preserves its known scope.**
+For an installed 0.9.88+, `/CURRENTUSER` or `/ALLUSERS` prevents `InitializeSetup`
+from relaunching silently and closing the requested wizard (#177). Older installs
+keep its scope detection; a fresh install gets `/CURRENTUSER` only when elevated.
+`/LOG=`, `/NOLAUNCH=1` and an existing `/DIR=` preserve the wizard's choices.
+`/VERYSILENT` once hid the folder and shortcut pages; never restore it or
+override the user's shortcut choice with `/MERGETASKS`.
+`OtzariaManager.update(useWizard: true)`, `OtzariaInstaller.installWithWizard`.
 
 **`/DIR=` is different and *is* passed when an install already exists.** Inno's
 `/DIR` only sets the *default* on the destination page (hidden anyway on an update),
