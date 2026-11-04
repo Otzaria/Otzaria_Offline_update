@@ -9,10 +9,11 @@ import 'package:otzaria_l10n/otzaria_l10n.dart';
 // issue #159: errno 1392 בקריאת patch אחרי שליפת האונקי.
 void main() {
   const path = r'E:\mirror\library\assets\patch-v34-v35.db.zst';
-  const error = FileSystemException(
+  final errno = Platform.isWindows ? 1392 : 5;
+  final error = FileSystemException(
     'readSync failed',
     path,
-    OSError('The file or directory is corrupted and unreadable.', 1392),
+    OSError('The file or directory is corrupted and unreadable.', errno),
   );
   final text =
       AppL10n.strings.libraryDomain.saveDownloadedFileFailed(error.toString());
@@ -25,20 +26,21 @@ void main() {
         shabbat: false,
       );
 
-  test('1392 בטקסט של המנוע: כונן פגום, לא רשת ולא מקום', () {
+  test('קוד נזק בטקסט של המנוע: כונן פגום, לא רשת ולא מקום', () {
     final failure = classify(text);
     expect(failure.kind, DownloadFailureKind.driveDamaged);
     expect(failure.dir, r'E:\mirror\library\assets');
+    expect(failure.tool, DriveCheckTool.forPlatform());
   });
 
-  test('errno והכלי של המערכת עוברים כמו שהם (5, לא 1392)', () {
+  test('errno והכלי של המערכת עוברים כמו שהם', () {
     final failure = classify(
       'whatever',
       StorageCorruptException(errno: 5, tool: DriveCheckTool.diskUtility),
     );
     expect(failure.errno, 5);
     expect(failure.tool, DriveCheckTool.diskUtility);
-    expect(classify(text).errno, 1392);
+    expect(classify(text).errno, errno);
   });
 
   test('סיבה מובנית קודמת לטקסט, גם בתוך שרשרת', () {

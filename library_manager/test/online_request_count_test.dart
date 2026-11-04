@@ -894,9 +894,9 @@ void main() {
         expect(result.warnings, isNot(contains(semanticName())));
       });
 
-      test('a wrapped write error that is not a full drive stays a '
-          'warning', () async {
-        final result = await run(PatchDownloadException(wrappedWrite(5)));
+      test('a wrapped access-denied write stays a warning', () async {
+        final errno = Platform.isWindows ? 5 : 13;
+        final result = await run(PatchDownloadException(wrappedWrite(errno)));
 
         expect(result.thrown, isNull);
         expect(result.warnings, contains(semanticName()));
