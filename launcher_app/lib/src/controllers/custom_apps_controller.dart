@@ -56,9 +56,9 @@ class CustomAppView {
   bool get canInstall => entry.hasInstaller;
   bool get canLaunch => installed != null;
 
-  /// האם התוסף בכלל הגדיר כיצד לזהות. בלי זה אסור להציג "אינה מותקנת" —
-  /// התשובה הנכונה היא "לא ניתן לדעת".
-  bool get canDetect => (descriptor.detect.exeName ?? '').isNotEmpty;
+  /// התקנה שנמצאה היא עדות גם כשהרשומה עדיין חסרה כללי זיהוי.
+  bool get canDetect =>
+      installed != null || (descriptor.detect.exeName ?? '').isNotEmpty;
 
   String? get knownInstalledVersion {
     final version = installed?.version;
@@ -347,7 +347,10 @@ class CustomAppsController extends ChangeNotifier
       a.installDir == b.installDir &&
       a.detect.exeName == b.detect.exeName &&
       a.detect.registryDisplayName == b.detect.registryDisplayName &&
-      listEquals(a.detect.dirs, b.detect.dirs);
+      listEquals(a.detect.dirs, b.detect.dirs) &&
+      ((a.detect.exeName ?? '').isNotEmpty &&
+              (a.detect.registryDisplayName ?? '').isNotEmpty ||
+          a.name == b.name && a.github?.repo == b.github?.repo);
 
   Future<CustomAppInstallState?> _detectQuietly(AppDescriptor d) async {
     try {

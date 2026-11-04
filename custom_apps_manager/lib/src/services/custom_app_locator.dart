@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import '../models/app_descriptor.dart';
 import '../models/custom_app_install_state.dart';
 import '../models/registry_display_name_pattern.dart';
+import 'install_learner.dart';
 
 /// קורא את הגרסה מקובץ הרצה. **מוזרק מבחוץ** ולא ממומש כאן: הקריאה
 /// דורשת Win32/FFI ב-Windows ו-`Info.plist` ב-macOS, והלאנצ'ר כבר מחזיק
@@ -32,6 +33,7 @@ class CustomAppLocator {
     required this.readVersion,
     this.lookupUninstallDirs,
     this.lookupRunningProcess,
+    this.lookupInstalledExe,
   });
 
   final AppVersionReader readVersion;
@@ -40,6 +42,7 @@ class CustomAppLocator {
   final UninstallDirLookup? lookupUninstallDirs;
 
   final RunningProcessLookup? lookupRunningProcess;
+  final LearnedExeLookup? lookupInstalledExe;
 
   /// עומק הסריקה בתוך תיקיית מועמדת, בחיפוש לרוחב — אותו שיקול שתועד
   /// ב-`OtzariaAppLocator`: סריקה עמוקה ולא-מסודרת מחזירה תשובות שונות
@@ -60,7 +63,9 @@ class CustomAppLocator {
     List<String> learnedDirs = const [],
   }) async {
     final exeName = descriptor.detect.exeName;
-    if (exeName == null || exeName.isEmpty) return null;
+    if (exeName == null || exeName.isEmpty) {
+      return _findRegisteredInstall(descriptor);
+    }
 
     // התהליך הרץ ראשון, לפני כל חיפוש בתיקיות: הוא אינו ניחוש אלא הקובץ
     // שמורץ בפועל ברגע זה.
@@ -75,7 +80,38 @@ class CustomAppLocator {
       final found = await _findExeIn(dir, exeName);
       if (found != null) return _stateAt(found);
     }
-    return null;
+    if ((descriptor.detect.registryDisplayName ?? '').isNotEmpty) return null;
+    return _findRegisteredInstall(descriptor);
+  }
+
+  Future<CustomAppInstallState?> _findRegisteredInstall(
+    AppDescriptor descriptor,
+  ) async {
+    final lookup = lookupUninstallDirs;
+    if (lookup == null) return null;
+    final savedPattern = descriptor.detect.registryDisplayName;
+    final pattern = savedPattern == null || savedPattern.isEmpty
+        ? RegistryDisplayNamePattern.forAppNames([
+            descriptor.name,
+            if (descriptor.github case final github?) github.repo,
+          ])
+        : RegistryDisplayNamePattern.compile(savedPattern);
+    if (pattern == null) return null;
+    final dirs = (await lookup(pattern)).toSet();
+    if (dirs.length != 1) return null;
+
+    final exeName = descriptor.detect.exeName;
+    final found = exeName == null || exeName.isEmpty
+        ? await lookupInstalledExe?.call(
+            dirs.single,
+            InstallLearner.nameHintsFor(
+              name: descriptor.name,
+              repo: descriptor.github?.repo,
+            ),
+          )
+        : await _findExeIn(dirs.single, exeName);
+    if (found == null || !await File(found).exists()) return null;
+    return _stateAt(found);
   }
 
   /// חיפוש **בתיקייה אחת בלבד** — מה שקורה כשהמשתמש מצביע ידנית.

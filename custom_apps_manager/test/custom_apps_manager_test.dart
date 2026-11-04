@@ -1647,6 +1647,107 @@ void main() {
     expect(await manager.loadAll(), isEmpty);
   });
 
+  group('זיהוי תוכנה שהותקנה לפני הוספתה לכלי', () {
+    const app = AppDescriptor(
+      id: 'zayit',
+      name: 'זית',
+      sourceKind: AppSourceKind.github,
+      github: GithubSource(
+        owner: 'kdroidFilter',
+        repo: 'Zayit',
+        assetPattern: r'\.exe$',
+      ),
+    );
+
+    for (final displayName in ['זית 1.4.2', 'Zayit 1.4.2']) {
+      test('זית מזוהה מרישום $displayName בלי התקנה ובלי כללי זיהוי', () async {
+        final exe = writeFile(p.join(root, 'Programs', 'zayit', 'zayit.exe'));
+        var learningStarted = 0;
+        final m = CustomAppsManager(
+          resolveMirrorDir: () async => root,
+          readVersion: (_) => '1.4.2',
+          processRunner: runner.call,
+          onLearningStarted: () => learningStarted++,
+          lookupUninstallDirs: (pattern) => [
+            if (pattern.hasMatch(displayName)) p.dirname(exe),
+          ],
+          lookupInstalledExe: (dir, hints) async {
+            expect(dir, p.dirname(exe));
+            expect(hints, contains('zayit'));
+            return exe;
+          },
+        );
+        await m.add(app);
+        final before = (await m.load(app.id))!.descriptor.encode();
+        blockAtomicWrites(p.join(root, 'apps', app.id), ['locations.json']);
+
+        final state = await m.detectInstalled(app);
+
+        expect(state?.launchPath, exe);
+        expect(state?.version, '1.4.2');
+        expect((await m.load(app.id))!.descriptor.encode(), before);
+        expect(learningStarted, 0);
+        expect(runner.calls, isEmpty);
+      });
+    }
+
+    test('שם הרצה ידוע בלי תבנית רגיסטרי עדיין מוצא התקנה קיימת', () async {
+      final exe = writeFile(p.join(root, 'Programs', 'zayit', 'zayit.exe'));
+      final m = CustomAppsManager(
+        resolveMirrorDir: () async => root,
+        readVersion: (_) => '1.4.2',
+        lookupUninstallDirs: (pattern) => [
+          if (pattern.hasMatch('זית 1.4.2')) p.dirname(exe),
+        ],
+      );
+
+      final state = await m.detectInstalled(
+        app.copyWith(detect: const AppDetectRules(exeName: 'zayit.exe')),
+      );
+
+      expect(state?.launchPath, exe);
+    });
+
+    test('שתי התקנות תואמות אינן גורמות לבחירה שרירותית', () async {
+      var exeScans = 0;
+      final m = CustomAppsManager(
+        resolveMirrorDir: () async => root,
+        readVersion: (_) => '1.4.2',
+        lookupUninstallDirs: (pattern) => [
+          if (pattern.hasMatch('זית 1.4.2')) ...[
+            p.join(root, 'first'),
+            p.join(root, 'second'),
+          ],
+        ],
+        lookupInstalledExe: (_, __) async {
+          exeScans++;
+          return null;
+        },
+      );
+
+      expect(await m.detectInstalled(app), isNull);
+      expect(exeScans, 0);
+    });
+
+    test('רישום יחיד של תוכנה אחרת אינו מאומץ', () async {
+      var exeScans = 0;
+      final m = CustomAppsManager(
+        resolveMirrorDir: () async => root,
+        readVersion: (_) => '1.4.2',
+        lookupUninstallDirs: (pattern) => [
+          if (pattern.hasMatch('GitHub Desktop')) p.join(root, 'other'),
+        ],
+        lookupInstalledExe: (_, __) async {
+          exeScans++;
+          return null;
+        },
+      );
+
+      expect(await m.detectInstalled(app), isNull);
+      expect(exeScans, 0);
+    });
+  });
+
   test('זיהוי מה מותקן על המחשב הזה', () async {
     final dir = p.join(root, 'Installed');
     writeFile(p.join(dir, 'myapp.exe'));

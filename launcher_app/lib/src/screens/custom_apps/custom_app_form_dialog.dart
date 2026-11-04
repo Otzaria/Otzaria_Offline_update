@@ -280,16 +280,9 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
     setState(() => _exeName.text = suggestion);
   }
 
-  /// שם קובץ ההרצה אינו נשאל אם אפשר למצוא אותו: כשהתוכנה כבר מותקנת,
-  /// ה-exe יושב בתיקייה שהמשתמש הרגע הצביע עליה.
-  ///
-  /// ⚠️ עובר דרך `CustomAppsController.findInstalledExe` ולא דרך "ה-exe
-  /// הראשון בתיקייה". הגרסה הקודמת כאן לקחה את הראשון מ-`listSync()` — סדר
-  /// לא מובטח, בלי לפסול `unins000.exe` ובלי לפסול עזרי Flutter — וזה בדיוק
-  /// הבאג המתועד של `crashpad_handler.exe`, שגם מקדים באלף-בית וגם נושא שדה
-  /// גרסה משל עצמו.
+  // הסורק המשותף פוסל מסירי התקנה וקובצי עזר של Flutter.
   Future<String?> _findExeIn(String dir) async {
-    if (_exeName.text.isNotEmpty) return null;
+    if (_exeName.text.trim().isNotEmpty) return null;
     final path = await CustomAppsController.findInstalledExe(dir, _nameHints());
     return path == null ? null : p.basename(path);
   }
@@ -316,6 +309,12 @@ class _CustomAppFormDialogState extends State<CustomAppFormDialog> {
     }
 
     setState(() => _isSaving = true);
+    final dir = _installDir.text.trim();
+    if (!_portableFile && CustomAppLocator.isFullyQualified(dir)) {
+      final suggestion = await _findExeIn(dir);
+      if (!mounted) return;
+      if (suggestion != null) _exeName.text = suggestion;
+    }
     final descriptor = _buildDescriptor();
     final saved = _isEditing || _savedId != null
         ? await widget.controller.update(descriptor)

@@ -13,6 +13,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/custom_apps_controller.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_app_detail_view.dart';
+import 'package:launcher_app/src/screens/custom_apps/custom_app_form_fields.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_app_form_source.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_app_install_action.dart';
 import 'package:launcher_app/src/screens/custom_apps/custom_app_store_card.dart';
@@ -406,6 +407,66 @@ void main() {
   /// חלק ג': הטופס אינו שואל "לאן זה מותקן" ו"איך נקרא ה-exe" — שתי שאלות
   /// שאי אפשר לענות עליהן במחשב המקוון, שבו התוכנה כלל אינה מותקנת.
   group('למידת הזיהוי', () {
+    for (final scenario in [
+      (name: 'חסר', exeName: null, expected: 'zayit.exe'),
+      (name: 'רווחים בלבד', exeName: '  ', expected: 'zayit.exe'),
+      (name: 'מפורש', exeName: 'custom.exe', expected: 'custom.exe'),
+    ]) {
+      testWidgets('הקלדת תיקיית זית ושמירה עם שם הרצה ${scenario.name}',
+          (tester) async {
+        final t = stringsOf().customApps;
+        final dir = p.join(tempDir.path, 'Programs', 'zayit');
+        Directory(dir).createSync(recursive: true);
+        for (final name in [
+          'zayit.exe',
+          'crashpad_handler.exe',
+          'unins000.exe',
+          if (scenario.exeName == 'custom.exe') 'custom.exe',
+        ]) {
+          File(p.join(dir, name)).writeAsStringSync('x');
+        }
+        await addApp(
+          tester,
+          id: 'zayit',
+          name: 'זית',
+          exeName: scenario.exeName,
+          source: AppSourceKind.github,
+          autoIcon: false,
+        );
+        await openManager(tester);
+        await tester.tap(find.byTooltip('עריכה'));
+        await tester.pumpAndSettle();
+
+        final field = find.descendant(
+          of: find.byWidgetPredicate(
+            (widget) =>
+                widget is FormTextField && widget.label == t.installDirLabel,
+          ),
+          matching: find.byType(TextField),
+        );
+        await tester.ensureVisible(field);
+        await tester.enterText(field, '  $dir  ');
+        await tester.tap(find.text(t.saveEditButton));
+        for (var i = 0; i < 100; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)),
+          );
+          await tester.pump(const Duration(milliseconds: 50));
+          if (find.byType(AlertDialog).evaluate().isEmpty) break;
+        }
+
+        expect(find.byType(AlertDialog), findsNothing);
+        final app = controller.apps.single;
+        expect(app.descriptor.detect.exeName, scenario.expected);
+        expect(app.installed?.launchPath, p.join(dir, scenario.expected));
+        final saved = await tester.runAsync(
+          () => CustomAppStore(mirrorRootDir: p.join(tempDir.path, 'mirror'))
+              .load('zayit'),
+        );
+        expect(saved!.descriptor.detect.exeName, scenario.expected);
+      }, skip: !Platform.isWindows);
+    }
+
     testWidgets('שדות הזיהוי מוצגים כאופציונליים, ולא כדרישה', (tester) async {
       await tester.runAsync(controller.load);
       await openManager(tester);
@@ -1904,6 +1965,124 @@ void main() {
   });
 
   group('זיהוי ההתקנות', () {
+    test('תוכנות קיימות בלי כללי זיהוי משתמשות בצילום רגיסטרי אחד', () async {
+      final root = p.join(tempDir.path, 'cold-existing');
+      final store = CustomAppStore(mirrorRootDir: root);
+      final entries = <InstallRegistryEntry>[];
+      for (final id in ['zayit', 'notepad']) {
+        final dir = Directory(p.join(tempDir.path, 'Programs', id))
+          ..createSync(recursive: true);
+        for (final name in [
+          '$id.exe',
+          'crashpad_handler.exe',
+          'unins000.exe'
+        ]) {
+          File(p.join(dir.path, name)).createSync();
+        }
+        await store.add(AppDescriptor(
+          id: id,
+          name: id == 'zayit' ? 'זית' : 'Notepad',
+          sourceKind: AppSourceKind.github,
+          github:
+              GithubSource(owner: 'example', repo: id, assetPattern: r'\.exe$'),
+        ));
+        entries.add(InstallRegistryEntry(
+          keyName: id,
+          displayName: '$id 1.0',
+          installDir: dir.path,
+        ));
+      }
+      var registryReads = 0;
+      final built = CustomAppsController(
+        mirrorRootDir: root,
+        detectionSnapshot: () => CustomAppDetectionSnapshot(
+          runningImagePaths: () => const [],
+          uninstallEntries: () {
+            registryReads++;
+            return entries;
+          },
+        ),
+      );
+      addTearDown(built.dispose);
+
+      await built.load();
+
+      expect(registryReads, 1);
+      for (final app in built.apps) {
+        expect(
+            app.installed?.launchPath,
+            p.join(tempDir.path, 'Programs', app.descriptor.id,
+                '${app.descriptor.id}.exe'));
+        expect(app.canDetect, isTrue);
+        expect(app.canLaunch, isTrue);
+        expect(app.descriptor.detect.exeName, isNull);
+      }
+    }, skip: !Platform.isWindows);
+
+    test('התקנה שנמצאה מזוהה גם בלי שם הרצה ברשומה', () {
+      final app = CustomAppView(
+        entry: const CustomAppEntry(
+          descriptor: AppDescriptor(
+            id: 'zayit',
+            name: 'זית',
+            sourceKind: AppSourceKind.manual,
+          ),
+        ),
+        installed: CustomAppInstallState(
+          installDir: tempDir.path,
+          launchPath: p.join(tempDir.path, 'zayit.exe'),
+          version: '1.0',
+        ),
+      );
+
+      expect(app.canDetect, isTrue);
+      expect(app.canLaunch, isTrue);
+    });
+
+    test('שינוי שם בלי כללי זיהוי בודק שוב את ההתקנה הקיימת', () async {
+      final root = p.join(tempDir.path, 'cold-detection');
+      final manager = _CountingManager(mirrorRootDir: root);
+      final built = CustomAppsController(mirrorRootDir: root, manager: manager);
+      addTearDown(built.dispose);
+      const app = AppDescriptor(
+        id: 'zayit',
+        name: 'שם אחר',
+        sourceKind: AppSourceKind.manual,
+      );
+      await built.add(app);
+      manager.detected.clear();
+
+      await built.update(app.copyWith(name: 'זית'));
+
+      expect(manager.detected, ['zayit']);
+    });
+
+    test('שינוי ריפו בלי כללי זיהוי בודק שוב את ההתקנה הקיימת', () async {
+      final root = p.join(tempDir.path, 'cold-repo');
+      final manager = _CountingManager(mirrorRootDir: root);
+      final built = CustomAppsController(mirrorRootDir: root, manager: manager);
+      addTearDown(built.dispose);
+      const app = AppDescriptor(
+        id: 'zayit',
+        name: 'זית',
+        sourceKind: AppSourceKind.github,
+        github: GithubSource(
+            owner: 'example', repo: 'other', assetPattern: r'\.exe$'),
+      );
+      await built.add(app);
+      manager.detected.clear();
+
+      await built.update(const AppDescriptor(
+        id: 'zayit',
+        name: 'זית',
+        sourceKind: AppSourceKind.github,
+        github: GithubSource(
+            owner: 'kdroidFilter', repo: 'Zayit', assetPattern: r'\.exe$'),
+      ));
+
+      expect(manager.detected, ['zayit']);
+    });
+
     AppDescriptor detectable(String id, {String? exeName}) => AppDescriptor(
           id: id,
           name: id,

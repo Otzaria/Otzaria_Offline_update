@@ -17,6 +17,20 @@ abstract final class RegistryDisplayNamePattern {
   /// ה-`DisplayName` השלם, גם במחיר שהוא יתיישן עם הגרסה הבאה.
   static const int _minPrefixLength = 2;
 
+  // בזיהוי בלי כללים נדרשת זהות מלאה; רק זנב גרסה יכול להתווסף לשם.
+  static RegExp? forAppNames(Iterable<String> names) {
+    final identities = names
+        .map((name) => name.trim())
+        .where((name) => name.length >= 3)
+        .map(RegExp.escape)
+        .toSet();
+    if (identities.isEmpty) return null;
+    return RegExp(
+      '^(?:${identities.join('|')})' r'(?:\s+v?\d.*)?$',
+      caseSensitive: false,
+    );
+  }
+
   /// תבנית שמתאימה לאותה תוכנה בכל גרסה.
   ///
   /// התבנית מעוגנת **בהתחלה בלבד**, כי מה שנחתך הוא הזנב: מספר הגרסה וכל
