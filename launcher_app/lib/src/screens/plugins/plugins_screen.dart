@@ -218,8 +218,11 @@ class _PluginsScreenState extends State<PluginsScreen> {
       final failure = sent == 0
           ? t.updateAllNoneSentSnack(names)
           : t.updateAllPartlySentSnack(sent, names);
+      final errors = {for (final failed in outcome.failed) failed.error};
+      final detail = errors.length == 1 ? errors.single : null;
+      final message = detail == null ? failure : '$failure\n$detail';
       UiSnack.showError(
-        outcome.stopped ? '${t.updateAllStoppedPrefix} $failure' : failure,
+        outcome.stopped ? '${t.updateAllStoppedPrefix} $message' : message,
       );
     } else if (sent > 0) {
       UiSnack.show(outcome.stopped

@@ -2035,6 +2035,10 @@ class _Plugins extends PluginsStrings {
       'Otzaria did not install $pluginName${reason == null ? '' : ': $reason'}';
   @override
   String get installFailedSnack => 'The installation failed';
+  @override
+  String get legacyPortableInstallRequiresClosedApp =>
+      'This portable version of Otzaria cannot receive plugins while open. '
+      'Close Otzaria and try again, or update Otzaria.';
 
   @override
   String get loadingCatalog => 'Loading the plugin list…';

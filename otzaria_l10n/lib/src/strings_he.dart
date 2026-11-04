@@ -1952,6 +1952,10 @@ class _Plugins extends PluginsStrings {
       'אוצריא לא התקינה את $pluginName${reason == null ? '' : ': $reason'}';
   @override
   String get installFailedSnack => 'ההתקנה נכשלה';
+  @override
+  String get legacyPortableInstallRequiresClosedApp =>
+      'גרסת אוצריא הניידת הזו אינה מקבלת תוספים כשהיא פתוחה. '
+      'סגור את אוצריא ונסה שוב, או עדכן את אוצריא.';
 
   @override
   String get loadingCatalog => 'טוען את רשימת התוספים…';

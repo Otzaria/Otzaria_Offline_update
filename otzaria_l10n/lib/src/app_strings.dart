@@ -1095,6 +1095,7 @@ abstract class PluginsStrings {
   String installCancelledSnack(String pluginName);
   String installRejectedSnack(String pluginName, String? reason);
   String get installFailedSnack;
+  String get legacyPortableInstallRequiresClosedApp;
 
   String get loadingCatalog;
 

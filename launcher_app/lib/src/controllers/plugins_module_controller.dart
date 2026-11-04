@@ -1,11 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:library_manager/library_manager.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
-import 'package:otzaria_manager/otzaria_manager.dart' show OtzariaCapabilities;
+import 'package:otzaria_manager/otzaria_manager.dart'
+    show OtzariaCapabilities, OtzariaDataRoot;
 import 'package:plugins_manager/plugins_manager.dart';
 
 import '../services/app_logger.dart';
@@ -985,6 +987,21 @@ class PluginsModuleController extends ChangeNotifier
       _exportRun != null;
 
   Future<PluginInstallResult> directInstall(StorePlugin plugin) async {
+    // Older portable runners forward links to the user folder (#196).
+    if (Platform.isWindows &&
+        appVersion != null &&
+        compareAppVersions(appVersion, '0.9.98.2') < 0 &&
+        OtzariaDataRoot.portableRoot(
+              await _manager.otzariaLaunchPath?.call(),
+              operatingSystem: 'windows',
+            ) !=
+            null &&
+        (await isOtzariaRunning?.call() ?? false)) {
+      final reason =
+          AppL10n.strings.plugins.legacyPortableInstallRequiresClosedApp;
+      AppLogger.instance.info(reason);
+      return PluginInstallResult.failure(reason);
+    }
     final handedOffAt = DateTime.now();
     var current = plugin;
     final result = await _manager.directInstall(
