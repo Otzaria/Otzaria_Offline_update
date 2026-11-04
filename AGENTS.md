@@ -2199,6 +2199,12 @@ hidden section's spinner keeps requesting frames for the whole operation. The sa
 wrapper sets `TooltipVisibility`: a tooltip lives in the root overlay, and one
 fading out when its section was hidden froze half-transparent over the home.
 
+**Task notifications must stay above the visible action area.** In issue #173,
+plugin-install success messages covered "back to home" until they disappeared.
+`UiSnackAnchor` in `TaskFrame` and `TaskResult` positions `UiSnack` above the
+buttons, including when the task changes while a notification is open. Shell
+tests of this behaviour must connect the global `navigatorKey` to render it.
+
 **The safer-mode gate is the navigator's, for every route that puts Settings on the
 stack.** `ShellNavigator.canEnter` (`AppShell._canEnter`) asks before Settings,
 `CustomAppsManageRoute` and `FaqEditRoute` (help over Settings, so "back" lands
