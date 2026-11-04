@@ -108,6 +108,60 @@ void main() {
   });
 
   group('התקדמות', () {
+    testWidgets('סך לא ידוע מציג בתים בלי אחוז או אומדן חלקי (#156)',
+        (tester) async {
+      const mb = 1024 * 1024;
+      final progress = ValueNotifier(0);
+      var snapshot = const DownloadSnapshot(
+        current: MirrorComponent.library,
+        received: 20 * mb,
+        libraryProbe: LibrarySizeProbe.known(100 * mb),
+      );
+      await pumpScreen(
+        tester,
+        DownloadTaskView(
+          task: const DownloadTask(
+            phase: DownloadTaskPhase.running,
+            components: [MirrorComponent.library],
+          ),
+          progress: progress,
+          snapshot: () => snapshot,
+          actions: DownloadTaskActions(
+            onAnswer: (_) {},
+            onCancel: () {},
+            onRetry: () {},
+            onHome: () {},
+            onHere: () {},
+          ),
+        ),
+      );
+
+      expect(percent(tester), '…');
+      expect(line(tester, 'task.download.total'), ' ');
+      expect(line(tester, 'task.download.bytes'), formatBytes(20 * mb));
+      expect(
+        tester.widget<StageRow>(find.byType(StageRow)).detail,
+        isNot(contains(formatBytes(100 * mb))),
+      );
+
+      snapshot = const DownloadSnapshot(
+        current: MirrorComponent.library,
+        received: 100 * mb,
+        total: 200 * mb,
+        fraction: 0.5,
+      );
+      progress.value++;
+      await tester.pump();
+
+      expect(percent(tester), '50%');
+      expect(line(tester, 'task.download.total'),
+          t.downloadTotal(formatBytes(200 * mb)));
+      expect(
+          line(tester, 'task.download.bytes'),
+          t.bytesLine(
+              t.stepLibrary, formatBytes(100 * mb), formatBytes(200 * mb)));
+    });
+
     testWidgets('אחוז, שם השלב ושורות הרכיבים — רק מתוך ה-progress',
         (tester) async {
       final progress = ValueNotifier(0);

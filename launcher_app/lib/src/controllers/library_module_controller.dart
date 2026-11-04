@@ -494,20 +494,15 @@ class LibraryModuleController extends ChangeNotifier
   /// כל מחשב הוא יעד לגיטימי. ראו [LibraryModuleStatus.personalTargetElsewhere].
   bool personalTargetIsThisMachine = true;
 
-  /// 0..1 להורדה כולה. **הבייטים קודמים לספירת הנכסים**: המונה מתאר ממילא
-  /// את כל ההורדה יחד (`ByteProgressAggregator`), ולחלק אותו במספר הנכסים
-  /// היה משאיר את המד על שליש בזמן שההורדה כמעט הסתיימה. ספירת הנכסים היא
-  /// הנפילה־לאחור, לפני שידוע סכום בייטים — ובהורדה שכולה כבר על הכונן.
+  /// מד ההורדה כולה בבייטים; null כל עוד סכום הבייטים אינו ידוע.
+  /// יעד של אפס בייטים משתמש בספירת הנכסים שכבר על הכונן.
   double? get downloadProgress {
     final received = downloadReceivedBytes;
     final bytesTotal = downloadTotalBytes;
-    if (received != null && bytesTotal != null && bytesTotal > 0) {
+    if (bytesTotal == null) return null;
+    if (received != null && bytesTotal > 0) {
       return (received / bytesTotal).clamp(0.0, 1.0);
     }
-    // **אין החלפת סרגל באמצע.** בייטים שכבר עברו בלי שיש להם יעד הם המצב
-    // היחיד שבו ספירת הנכסים הייתה מציגה אחוז מסרגל אחר לגמרי — ואז הכניסה
-    // של הבייטים קפצה. מד בלתי-מוגדר אומר את האמת, ונמשך שניות בודדות.
-    if (received != null && received > 0 && bytesTotal == null) return null;
 
     final totalAssets = downloadTotalAssets;
     if (totalAssets == null || totalAssets <= 0) return null;

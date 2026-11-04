@@ -915,11 +915,11 @@ is a **shared semaphore on purpose**: `LibraryManager` hands the same instance t
 together never run more than four files at once. The smart-search sync
 (`SemanticSearchAssets.sync`) runs after both on the same instance, models and
 vector parts biggest-first, deducts files already complete in the generation
-through `slot(existingBytes:)` before its `announce()`, and reports into a new
-`slot()` of the same outer aggregator, so the bar keeps counting instead of
-resetting when it starts; an
-export that returned "up to date" without ever reporting gets a zero total first,
-or the outer total would stay unknown. `plugins_manager` cannot depend on
+through `slot(existingBytes:)` before its `announce()`, and reports into an outer
+`slot()` reserved **before** either exporter starts. Until smart search plans,
+the total stays unknown; adding its slot later caused 100% → 70% (#156).
+An export that returns "up to date" without reporting gets a zero total, as does
+smart search skipped before planning. `plugins_manager` cannot depend on
 `seforim_library_updater` (pure Dart vs. Flutter) and carries its own 40-line
 `runPooled`; keep them in step conceptually, without a cross-package dependency. Three
 load-bearing consequences:
@@ -939,8 +939,8 @@ load-bearing consequences:
   `CompanionAssetsMirror.sync` resolves all three assets (`_plan*`) before it
   downloads any. Without it the total appeared late and moved, and
   `downloadProgress` measured in assets meanwhile: two rulers, swapping mid-
-  download. It now returns `null` rather than fall back to assets once bytes have
-  flowed. Verification bytes are **not** download bytes — `onVerifyProgress` feeds
+  download. It returns `null` while the byte total is unknown, even before bytes
+  flow. Verification bytes are **not** download bytes — `onVerifyProgress` feeds
   the stage text (`exportVerifying`), never the meter.
 - **A failed task stops new ones but still awaits the running ones** before
   rethrowing; a download left running in the background keeps writing into the

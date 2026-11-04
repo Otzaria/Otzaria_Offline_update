@@ -407,6 +407,162 @@ void main() {
       });
     });
 
+    for (final personal in [false, true]) {
+      test('download progress includes smart search before showing a known '
+          'total (personal up to date: $personal, issue #156)', () async {
+        final vectors = FakeVectorsGithub()..legacyBase(2);
+        addTearDown(vectors.client.close);
+        await online(() async {
+          if (personal) {
+            await LibraryStateStore(
+              p.join(dataDir, LibraryStateStore.fileName),
+            ).recordOwnDbVersion(2);
+          }
+          var semanticStarted = false;
+          final progress = <(int, int?, bool)>[];
+          final warnings = <Object>[];
+          final manager = LibraryManager(
+            dataDir: dataDir,
+            personalUpdateMode: personal,
+            semanticAssetsFactory: (scheduler) => _RealVectorsAssets(
+              vectors.client,
+              scheduler,
+              onSync: () => semanticStarted = true,
+            ),
+          );
+          addTearDown(manager.dispose);
+
+          final outcome = await manager.downloadToMirror(
+            includeSemanticSearch: true,
+            onBytesProgress: (done, total) =>
+                progress.add((done, total, semanticStarted)),
+            onCompanionWarning: (_, error) => warnings.add(error),
+          );
+
+          expect(warnings, isEmpty);
+          expect(outcome.upToDate, personal);
+          expect(vectors.downloads, contains('legacy-v2.oxv.zst'));
+          final beforeSemantic = progress.where((sample) => !sample.$3);
+          expect(beforeSemantic, isNotEmpty);
+          expect(
+            beforeSemantic.where(
+              (sample) =>
+                  sample.$2 != null &&
+                  sample.$2! > 0 &&
+                  sample.$1 >= sample.$2!,
+            ),
+            isEmpty,
+            reason:
+                'DB and companion completion must not show 100% while '
+                'smart search is still pending: $progress',
+          );
+          final known = progress.where((sample) => (sample.$2 ?? 0) > 0);
+          expect(known, isNotEmpty);
+          expect(known.map((sample) => sample.$2).toSet(), {known.last.$2});
+          double previous = 0;
+          for (final (done, total, _) in known) {
+            final fraction = done / total!;
+            expect(fraction, greaterThanOrEqualTo(previous));
+            previous = fraction;
+          }
+          expect(progress.last.$1, progress.last.$2);
+          expect(previous, 1);
+        });
+      });
+    }
+
+    for (final personal in [false, true]) {
+      test('download progress without smart search completes with a known '
+          'total (personal up to date: $personal)', () async {
+        await online(() async {
+          if (personal) {
+            await LibraryStateStore(
+              p.join(dataDir, LibraryStateStore.fileName),
+            ).recordOwnDbVersion(2);
+          }
+          final progress = <(int, int?)>[];
+          final manager = LibraryManager(
+            dataDir: dataDir,
+            personalUpdateMode: personal,
+          );
+          addTearDown(manager.dispose);
+
+          final outcome = await manager.downloadToMirror(
+            onBytesProgress: (done, total) => progress.add((done, total)),
+          );
+
+          expect(outcome.upToDate, personal);
+          expect(progress, isNotEmpty);
+          expect(progress.last.$2, greaterThan(0));
+          expect(progress.last.$1, progress.last.$2);
+          expect(
+            github.requests.where((u) => u.path.contains('/releases/tags/')),
+            isEmpty,
+          );
+        });
+      });
+    }
+
+    test('download progress finishes with a known total after a smart-search '
+        'warning before its first report', () async {
+      await online(() async {
+        const failure = FormatException('bad manifest');
+        final progress = <(int, int?)>[];
+        final warnings = <(String, Object)>[];
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          semanticAssetsFactory: (_) => _FailingSemanticAssets(failure),
+        );
+        addTearDown(manager.dispose);
+
+        await manager.downloadToMirror(
+          includeSemanticSearch: true,
+          onBytesProgress: (done, total) => progress.add((done, total)),
+          onCompanionWarning: (name, error) => warnings.add((name, error)),
+        );
+
+        expect(warnings, [
+          (AppL10n.strings.libraryDomain.companionSemanticName, failure),
+        ]);
+        expect(progress.last.$2, greaterThan(0));
+        expect(progress.last.$1, progress.last.$2);
+        expect(
+          progress.take(progress.length - 1).map((sample) => sample.$2),
+          everyElement(isNull),
+        );
+      });
+    });
+
+    test('download progress preserves an unfinished smart-search total after '
+        'a warning', () async {
+      await online(() async {
+        const failure = FormatException('truncated vectors');
+        final progress = <(int, int?)>[];
+        final warnings = <(String, Object)>[];
+        final manager = LibraryManager(
+          dataDir: dataDir,
+          semanticAssetsFactory: (_) =>
+              _FailingSemanticAssets(failure, progressBeforeFailure: (25, 100)),
+        );
+        addTearDown(manager.dispose);
+
+        await manager.downloadToMirror(
+          includeSemanticSearch: true,
+          onBytesProgress: (done, total) => progress.add((done, total)),
+          onCompanionWarning: (name, error) => warnings.add((name, error)),
+        );
+
+        expect(warnings, [
+          (AppL10n.strings.libraryDomain.companionSemanticName, failure),
+        ]);
+        final known = progress.where((sample) => sample.$2 != null);
+        expect(known, isNotEmpty);
+        expect(known.map((sample) => sample.$2).toSet(), {progress.last.$2});
+        expect(progress.last.$2! - progress.last.$1, 75);
+        expect(progress.last.$1, lessThan(progress.last.$2!));
+      });
+    });
+
     test('the export picks its connections per asset by the drive\'s write '
         'speed', () async {
       resetWriteSpeedCache();
@@ -1439,9 +1595,10 @@ List<String> _tags(List<LibraryRelease> releases) => [
 
 /// סנכרון חיפוש חכם שנכשל בדרך שנבחרה בבדיקה, בלי רשת ובלי מודל.
 class _FailingSemanticAssets extends SemanticSearchAssets {
-  _FailingSemanticAssets(this.failure);
+  _FailingSemanticAssets(this.failure, {this.progressBeforeFailure});
 
   final Object failure;
+  final (int, int?)? progressBeforeFailure;
 
   @override
   Future<void> sync({
@@ -1452,7 +1609,12 @@ class _FailingSemanticAssets extends SemanticSearchAssets {
     void Function(String)? onStage,
     void Function(int, int?)? onBytesProgress,
     bool Function()? isCancelled,
-  }) async => throw failure;
+  }) async {
+    if (progressBeforeFailure case (final done, final total)?) {
+      onBytesProgress?.call(done, total);
+    }
+    throw failure;
+  }
 }
 
 class _RecordingSemanticAssets extends SemanticSearchAssets {
@@ -1491,13 +1653,18 @@ class _UnreadableSemanticAssets extends SemanticSearchAssets {
 /// The real downloader against the in-memory vectors release of the library
 /// tag the fixtures use.
 class _RealVectorsAssets extends SemanticSearchAssets {
-  _RealVectorsAssets(http.Client client, DownloadScheduler scheduler)
-    : super(
-        scheduler: scheduler,
-        httpClient: client,
-        models: fakeModels,
-        freeBytesFor: (_) => null,
-      );
+  _RealVectorsAssets(
+    http.Client client,
+    DownloadScheduler scheduler, {
+    this.onSync,
+  }) : super(
+         scheduler: scheduler,
+         httpClient: client,
+         models: fakeModels,
+         freeBytesFor: (_) => null,
+       );
+
+  final void Function()? onSync;
 
   @override
   Future<void> sync({
@@ -1508,13 +1675,16 @@ class _RealVectorsAssets extends SemanticSearchAssets {
     void Function(String)? onStage,
     void Function(int, int?)? onBytesProgress,
     bool Function()? isCancelled,
-  }) => super.sync(
-    mirrorDir: mirrorDir,
-    libraryTag: libraryTagOf(2),
-    fleet: fleet,
-    libraryTagFor: libraryTagOf,
-    onStage: onStage,
-    onBytesProgress: onBytesProgress,
-    isCancelled: isCancelled,
-  );
+  }) {
+    onSync?.call();
+    return super.sync(
+      mirrorDir: mirrorDir,
+      libraryTag: libraryTagOf(2),
+      fleet: fleet,
+      libraryTagFor: libraryTagOf,
+      onStage: onStage,
+      onBytesProgress: onBytesProgress,
+      isCancelled: isCancelled,
+    );
+  }
 }

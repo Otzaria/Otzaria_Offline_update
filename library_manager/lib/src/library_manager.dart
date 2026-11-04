@@ -447,6 +447,9 @@ class LibraryManager {
     final bytes = ByteProgressAggregator(onProgress: onBytesProgress);
     final exportBytes = bytes.slot();
     final companionBytes = bytes.slot();
+    // Pending smart-search files must keep the combined total unknown.
+    final semanticBytes = includeSemanticSearch ? bytes.slot() : null;
+    var semanticReported = false;
 
     var exported = true;
     var exportFailed = false;
@@ -613,6 +616,7 @@ class LibraryManager {
       if (exportFailed && !exportStoppedByGate) rethrow;
       storageFailure = (error, stack);
     }
+    if (!exported) exportBytes.report(0, 0);
     if (storageFailure == null && !(isCancelled?.call() ?? false)) {
       await _syncChangesNotes(
         onWarning: onCompanionWarning,
@@ -663,8 +667,6 @@ class LibraryManager {
             removableProbe: _removableProbe,
             writeProbe: _writeProbe,
           );
-      if (!exported) exportBytes.report(0, 0);
-      final semanticBytes = bytes.slot();
       try {
         String? tag;
         if (readable != null) {
@@ -693,7 +695,10 @@ class LibraryManager {
           fleet: await _semanticFleet(),
           libraryTagFor: (version) => _libraryTagFor(releases, version),
           onStage: onStage,
-          onBytesProgress: semanticBytes.report,
+          onBytesProgress: (received, total) {
+            semanticReported = true;
+            semanticBytes!.report(received, total);
+          },
           isCancelled: stopRequested,
         );
       } catch (e, stack) {
@@ -723,6 +728,11 @@ class LibraryManager {
       } finally {
         semantic.dispose();
       }
+    }
+    if (!semanticReported &&
+        storageFailure == null &&
+        !(isCancelled?.call() ?? false)) {
+      semanticBytes?.report(0, 0);
     }
     // Saved last: a cancel restores the mirror but not this file.
     if (readable != null &&

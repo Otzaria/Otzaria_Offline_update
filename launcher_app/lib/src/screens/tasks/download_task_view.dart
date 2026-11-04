@@ -678,7 +678,10 @@ class _DownloadProgressState extends State<_DownloadProgress> {
     // הפס הכללי מונוטוני: מה שהסתיים ועוד החלק של מה שרץ. רכיב שמפסיק לדווח
     // חלק (הספרייה בלי סכום ידוע) לא מוריד את מה שכבר הוצג.
     final running = index >= 0 || others.isNotEmpty;
-    final computed = components.isEmpty || !running
+    final hasProgress = fraction != null ||
+        others.values.any((part) => part != null) ||
+        finished.any(components.contains);
+    final computed = components.isEmpty || !running || !hasProgress
         ? null
         : (finished.where(components.contains).length +
                 (index >= 0 ? fraction ?? 0 : 0) +
@@ -702,21 +705,25 @@ class _DownloadProgressState extends State<_DownloadProgress> {
     final shown = current ?? components.firstOrNull;
     final sizeOfCurrent =
         total != null && total > 0 ? formatBytes(total) : null;
+    final currentSizeUnknown = received != null && total == null;
     final expected = {
       ...widget.expectedBytes,
       if (s.libraryProbe?.bytes case final bytes?)
         MirrorComponent.library: bytes,
     };
-    String? approx(MirrorComponent c) => switch (expected[c]) {
+    String? approx(MirrorComponent c) =>
+        switch (c == current && currentSizeUnknown ? null : expected[c]) {
           final size? => t.approxSize(formatBytes(size)),
           null => null,
         };
     // הגודל האמיתי של הספרייה גובר על הבדיקה המוקדמת.
     final sizes = [
       for (final c in components)
-        c == MirrorComponent.library
-            ? _sizes[c] ?? expected[c]
-            : expected[c] ?? _sizes[c],
+        c == current && currentSizeUnknown
+            ? null
+            : c == MirrorComponent.library
+                ? _sizes[c] ?? expected[c]
+                : expected[c] ?? _sizes[c],
     ];
     final totalLine = sizes.isEmpty || sizes.contains(null)
         ? ' '
@@ -789,12 +796,14 @@ class _DownloadProgressState extends State<_DownloadProgress> {
         ),
         const SizedBox(height: 4),
         Text(
-          current != null && received != null && sizeOfCurrent != null
-              ? t.bytesLine(
-                  componentName(context, current),
-                  formatBytes(received),
-                  sizeOfCurrent,
-                )
+          current != null && received != null
+              ? sizeOfCurrent == null
+                  ? formatBytesProgress(received, total) ?? ' '
+                  : t.bytesLine(
+                      componentName(context, current),
+                      formatBytes(received),
+                      sizeOfCurrent,
+                    )
               : ' ',
           key: const ValueKey('task.download.bytes'),
           style: AppTextStyles.small.copyWith(color: cs.onSurfaceVariant),
