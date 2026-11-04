@@ -603,6 +603,10 @@ void main() {
         expect(controller.hasOnlineUpdate, isFalse);
         expect(controller.onlinePendingCompanionNames, isEmpty);
         expect(controller.hasDownloadFailures, remaining.isNotEmpty);
+        expect(
+          LibraryModulePort(controller).downloadNeedsRetry,
+          remaining.isNotEmpty,
+        );
 
         controller.forgetDownloadFailures();
         expect(controller.hasOnlineUpdate, remaining.isNotEmpty);

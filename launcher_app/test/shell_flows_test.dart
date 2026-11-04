@@ -1,14 +1,20 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/auto_install_flow.dart';
 import 'package:launcher_app/src/controllers/download_plan.dart';
 import 'package:launcher_app/src/controllers/launcher_update_flow.dart';
+import 'package:launcher_app/src/controllers/library_module_controller.dart';
 import 'package:launcher_app/src/controllers/mirror_download_flow.dart';
+import 'package:launcher_app/src/controllers/shell_module_ports.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:launcher_app/src/services/mirror_download_undo.dart';
+import 'package:launcher_app/src/services/mirror_junk_sweeper.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
+import 'package:library_manager/library_manager.dart' show CompanionAsset;
+import 'package:path/path.dart' as p;
 
 final _checkedAt = DateTime.now();
 final _proven =
@@ -194,6 +200,7 @@ class _FakeDownloadHost implements MirrorDownloadHost {
 
   Future<void> Function(AppSettings s)? onRefresh;
   Future<SemanticSearchAnswer?> Function()? onConfirmSemantic;
+  Future<void> Function()? onSweep;
   Completer<void>? sweepGate;
   int sweeps = 0;
   List<MirrorComponent>? failed;
@@ -229,6 +236,7 @@ class _FakeDownloadHost implements MirrorDownloadHost {
     sweeps++;
     log.add('sweep');
     await sweepGate?.future;
+    await onSweep?.call();
   }
 
   @override
@@ -1146,6 +1154,52 @@ void main() {
       expect(host.failed, isEmpty);
       expect(host.sweeps, 0);
     });
+
+    for (final state in ['pending', 'failed check', 'unchecked']) {
+      test('partial companion survives cleanup with $state proof', () async {
+        final dir = await Directory.systemTemp.createTemp('partial-companion-');
+        addTearDown(() => dir.delete(recursive: true));
+        final companions = Directory(p.join(dir.path, 'mirror', 'companions'));
+        await companions.create(recursive: true);
+        await File(p.join(companions.path, 'companions.json'))
+            .writeAsString(jsonEncode({
+          'formatVersion': 1,
+          'dictionary': {'fileName': 'lexical.db', 'size': 5},
+        }));
+        await File(p.join(companions.path, 'lexical.db'))
+            .writeAsString('ready');
+        final partial =
+            File(p.join(companions.path, 'talmud_bavli_latest.tar.zst'));
+        final resume = File('${partial.path}.resume');
+        await partial.writeAsString('partial');
+        await resume.writeAsString('asset-identity\n"strong-etag"');
+        final controller = LibraryModuleController(dataDir: dir.path);
+        addTearDown(controller.dispose);
+        if (state != 'unchecked') controller.onlineCheckedAt = DateTime.now();
+        if (state == 'pending') {
+          controller.onlinePendingCompanions = {CompanionAsset.talmud};
+          controller.failedCompanions = {CompanionAsset.talmud};
+        } else if (state == 'failed check') {
+          controller.onlineCompanionsCheckError = 'offline';
+        }
+        if (state == 'unchecked') {
+          host.settings = const AppSettings(syncApp: false, syncLibrary: false);
+        }
+        library.downloadNeedsRetry =
+            LibraryModulePort(controller).downloadNeedsRetry;
+        host.onSweep = () async {
+          await MirrorJunkSweeper(dataDir: dir.path).sweep();
+        };
+
+        await flow.downloadAll();
+        await flow.pendingSweep;
+
+        expect(await partial.exists(), isTrue);
+        expect(await partial.readAsString(), 'partial');
+        expect(await resume.readAsString(), 'asset-identity\n"strong-etag"');
+        expect(host.failed, isEmpty);
+      });
+    }
 
     test('no sweep while the mirror is in use elsewhere', () async {
       host.mirrorInUse = true;
