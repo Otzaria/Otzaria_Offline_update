@@ -4505,6 +4505,9 @@ class _ErrorReportsDomain extends ErrorReportsDomainStrings {
   String uploadHttpStatus(int statusCode) =>
       'אתר אוצריא השיב בקוד שגיאה $statusCode';
   @override
+  String uploadReportKept(String reason) =>
+      '$reason. הדיווח וכל צרופותיו נשמרו בכונן להמשך טיפול.';
+  @override
   String get uploadShabbat =>
       'אתר אוצריא סגור בשבת ובימים טובים. הדיווחים נשמרו בכונן ויישלחו בפעם הבאה, אחרי צאת השבת.';
   @override
@@ -4667,17 +4670,23 @@ class _AppReports extends AppReportsStrings {
   @override
   String get imagesPrompt => 'לחץ כאן לבחירת צילום מסך';
   @override
+  String get attachmentLimitsHint =>
+      'עד 10 MiB לקובץ, ועד 20 MiB לכל הצרופות יחד (1 MiB = 1,048,576 בתים).';
+  @override
+  String get attachmentsInvalidSnack =>
+      'הצרופות אינן עומדות במגבלות: עד 10 MiB לקובץ ועד 20 MiB יחד. הסירו צרופה ונסו שוב.';
+  @override
   String get imagesPickDialogTitle => 'בחירת צילומי מסך לדיווח';
   @override
   String get removeImageTooltip => 'הסרת התמונה';
   @override
   String imageTooLarge(int megabytes) =>
-      'תמונה גדולה מ-\u2066$megabytes\u00a0MB\u2069 לא צורפה.';
+      'תמונה גדולה מ-\u2066$megabytes\u00a0MiB\u2069 לא צורפה.';
   @override
   String tooManyImages(int count) => 'ניתן לצרף עד $count תמונות לדיווח.';
   @override
   String imagesTotalTooLarge(int megabytes) =>
-      'הגודל הכולל של התמונות מוגבל ל-\u2066$megabytes\u00a0MB\u2069.';
+      'הגודל הכולל של הצרופות מוגבל ל-\u2066$megabytes\u00a0MiB\u2069.';
 
   @override
   String get imageReadFailed => 'לא ניתן היה לקרוא את התמונה.';

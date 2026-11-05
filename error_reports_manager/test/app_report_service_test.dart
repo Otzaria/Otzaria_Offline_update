@@ -10,7 +10,12 @@ import 'package:http/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-AppReport _report({String? id, String title = 'באג'}) => AppReport(
+AppReport _report(
+        {String? id,
+        String title = 'באג',
+        int schema = AppReport.schemaVersion}) =>
+    AppReport(
+      schema: schema,
       reportId: id ?? AppReport.generateReportId(),
       type: AppReportType.bug,
       trigger: AppReportTrigger.manual,
@@ -89,7 +94,7 @@ void main() {
     expect(result.issueNumber, 55);
     expect(result.merged, isTrue);
     expect(sentBody!['product'], 'offline-update');
-    expect(sentBody!['schema'], 1);
+    expect(sentBody!['schema'], 2);
     expect(sentBody!['reportId'], report.reportId);
     expect(sentBody!['attachments'], {
       'diagnostics': {'x': 1},
@@ -144,21 +149,21 @@ void main() {
     expect((await service.getSentReports()).single.reportId, ids.last);
   });
 
-  test('409 פעמיים: כשל idConflict, לא נכנס לתור', () async {
+  test('schema1: 409 פעמיים: כשל idConflict, לא נכנס לתור', () async {
     final service = build(MockClient((_) async => _json(409, {})));
-    final result = await service.send(_report());
+    final result = await service.send(_report(schema: 1));
     expect(result.isFailed, isTrue);
     expect(result.failureReason, AppReportFailureReason.idConflict);
     expect(await service.getPendingReportsCount(), 0);
   });
 
-  test('422: דחייה קבועה, לא נכנס לתור', () async {
+  test('schema1: 422: דחייה קבועה, לא נכנס לתור', () async {
     final service = build(
       MockClient(
         (_) async => _json(422, {'error': 'invalid', 'field': 'reporterEmail'}),
       ),
     );
-    final result = await service.send(_report());
+    final result = await service.send(_report(schema: 1));
     expect(result.isFailed, isTrue);
     expect(result.failureReason, AppReportFailureReason.rejected);
     expect(result.rejectedField, 'reporterEmail');
@@ -167,13 +172,62 @@ void main() {
   });
 
   for (final status in [400, 413]) {
-    test('$status: דחייה קבועה', () async {
+    test('schema1: $status: דחייה קבועה', () async {
       final service = build(MockClient((_) async => _json(status, {})));
-      final result = await service.send(_report());
+      final result = await service.send(_report(schema: 1));
       expect(result.failureReason, AppReportFailureReason.rejected);
       expect(await service.getPendingReportsCount(), 0);
     });
   }
+
+  for (final status in [400, 409, 413, 422]) {
+    test('schema 2 rejection $status preserves the complete report on disk',
+        () async {
+      final service = build(MockClient(
+          (_) async => _json(status, {'field': 'attachments.minidump'})));
+      final report = _report().copyWith(errorLog: 'complete log');
+      final result = await service.send(report);
+      expect(result.isFailed, isTrue);
+      expect(await service.getPendingReportsCount(), 1);
+      final file =
+          Directory(p.join(AppReportService.dirIn(tmp.path), 'pending'))
+              .listSync()
+              .whereType<File>()
+              .single;
+      final saved =
+          (jsonDecode(file.readAsStringSync()) as Map)['report'] as Map;
+      expect(saved['schema'], 2);
+      expect(saved['diagnostics'], report.diagnostics);
+      expect(saved['errorLog'], report.errorLog);
+      final outcome = await service.flush();
+      expect(outcome.sent, 0);
+      expect(outcome.dropped, 0);
+      expect(await service.getPendingReportsCount(), 1);
+    });
+  }
+
+  test('schema 2 validates oversized log before sending and keeps its bytes',
+      () async {
+    var calls = 0;
+    final service = build(MockClient((_) async {
+      calls++;
+      return _json(200, {'success': true});
+    }));
+    final report = _report().copyWith(errorLog: 'x' * (10 * 1024 * 1024 + 1));
+    final result = await service.send(report);
+    expect(result.isFailed, isTrue);
+    expect(result.rejectedField, 'attachments.errorLog');
+    expect(calls, 0);
+    expect(await service.getPendingReportsCount(), 1);
+    final file = Directory(p.join(AppReportService.dirIn(tmp.path), 'pending'))
+        .listSync()
+        .whereType<File>()
+        .single;
+    expect(
+        ((jsonDecode(file.readAsStringSync()) as Map)['report']
+            as Map)['errorLog'],
+        report.errorLog);
+  });
 
   for (final status in [429, 500, 503]) {
     test('$status נשמר בתור עם הצרופות', () async {
@@ -204,7 +258,7 @@ void main() {
 
   test('flush: שולח, מסיר נדחים, מחליף מזהה ב-409 ועוצר בכשל זמני', () async {
     final a = _report(title: 'a');
-    final rejected = _report(title: 'rejected');
+    final rejected = _report(title: 'rejected', schema: 1);
     final conflict = _report(title: 'conflict');
     final transient = _report(title: 'transient');
     final after = _report(title: 'after');
@@ -487,7 +541,7 @@ void main() {
       expect(outcome.sent, 0);
     });
 
-    test('409 חוזר: אחרי 3 החלפות מזהה הדיווח מוסר', () async {
+    test('schema2: אחרי 3 החלפות מזהה הדיווח נשמר לטיפול', () async {
       final service = build(MockClient((_) async => _json(409, {})));
       await service.queueReport(_report());
       await service.flush();
@@ -495,7 +549,7 @@ void main() {
       await service.flush();
       expect(await service.getPendingReportsCount(), 1);
       await service.flush();
-      expect(await service.getPendingReportsCount(), 0);
+      expect(await service.getPendingReportsCount(), 1);
       expect(await service.getSentReports(), isEmpty);
     });
 
@@ -587,8 +641,7 @@ void main() {
       expect((await service.getSentReports()).single.issueNumber, 5);
     });
 
-    test('submitPendingReport: כשל זמני משאיר אותו בתור, ודחייה מסירה',
-        () async {
+    test('schema2: submitPendingReport משאיר תוכן גם בדחיית שרת', () async {
       var status = 503;
       final service = build(
         MockClient((_) async => http.Response('', status)),
@@ -599,7 +652,7 @@ void main() {
       expect(await service.getPendingReportsCount(), 1);
       status = 422;
       expect((await service.submitPendingReport(report)).isFailed, isTrue);
-      expect(await service.getPendingReportsCount(), 0);
+      expect(await service.getPendingReportsCount(), 1);
     });
 
     test('הרשימה בחלון בלי צרופות, והשליחה מהתור כוללת אותן', () async {
@@ -747,9 +800,9 @@ void main() {
   });
 
   group('ספירת תוצאות הסבב', () {
-    test('דחיית שרת מוסרת ונספרת כ-dropped, לא כ-sent', () async {
+    test('schema1: דחיית שרת מוסרת ונספרת כ-dropped, לא כ-sent', () async {
       final service = build(MockClient((_) async => _json(422, {})));
-      await service.queueReport(_report());
+      await service.queueReport(_report(schema: 1));
       final outcome = await service.flush();
       expect(outcome.sent, 0);
       expect(outcome.dropped, 1);
@@ -757,9 +810,9 @@ void main() {
       expect(await service.getPendingReportsCount(), 0);
     });
 
-    test('409 חוזר: ה-dropped נספר בסבב השלישי', () async {
+    test('schema1: 409 חוזר: ה-dropped נספר בסבב השלישי', () async {
       final service = build(MockClient((_) async => _json(409, {})));
-      await service.queueReport(_report());
+      await service.queueReport(_report(schema: 1));
       expect((await service.flush()).dropped, 0);
       expect((await service.flush()).dropped, 0);
       expect((await service.flush()).dropped, 1);

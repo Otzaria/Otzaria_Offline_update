@@ -394,6 +394,63 @@ void main() {
     return outbox;
   }
 
+  Future<MemoryOutbox> schema2Outbox({String? log}) async {
+    final fixture = jsonDecode(
+            File('test/fixtures/app_report_schema2.json').readAsStringSync())
+        as Map;
+    final body = Map<String, dynamic>.from(fixture['payload'] as Map);
+    if (log != null) {
+      body['attachments'] = {...body['attachments'] as Map, 'errorLog': log};
+    }
+    final outbox = MemoryOutbox([]);
+    await outbox.write(
+        'app-modern',
+        OutboxReport.encodeFile(OutboxReport.fileJson(
+          reportId: 'app-modern',
+          bookTitle: 'Modern report',
+          createdAt: '2026-11-05T00:00:00Z',
+          endpoint: OutboxReport.appReportingEndpoint,
+          body: body,
+        )));
+    return outbox;
+  }
+
+  for (final status in [400, 413, 422]) {
+    test('schema 2 HTTP $status retains all data without a stripped retry',
+        () async {
+      final outbox = await schema2Outbox();
+      final originalBody = outbox.bodyOf(outbox.reports.single);
+      var calls = 0;
+      final result = await uploader((_) async {
+        calls++;
+        return http.Response(
+            jsonEncode({'field': 'attachments.minidump'}), status);
+      }).upload(outbox);
+      expect(calls, 1);
+      expect(result.sent, 0);
+      expect(result.rejected, 0);
+      expect(result.remaining, 1);
+      expect(result.error, isNotNull);
+      expect(outbox.bodyOf(outbox.reports.single), originalBody);
+    });
+  }
+
+  test('schema 2 excess byte is retained and rejected locally before HTTP',
+      () async {
+    final outbox = await schema2Outbox(log: 'x' * (10 * 1024 * 1024 + 1));
+    final originalBody = outbox.bodyOf(outbox.reports.single);
+    var calls = 0;
+    final result = await uploader((_) async {
+      calls++;
+      return http.Response(_ok, 200);
+    }).upload(outbox);
+    expect(calls, 0);
+    expect(result.sent, 0);
+    expect(result.remaining, 1);
+    expect(result.error, isNotNull);
+    expect(outbox.bodyOf(outbox.reports.single), originalBody);
+  });
+
   test('דיווח תוכנה עם minidump מקבל זמן העלאה ארוך יותר', () async {
     final outbox = await dumpOutbox();
     final sender = ErrorReportUploader(

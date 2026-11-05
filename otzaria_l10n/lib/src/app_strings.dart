@@ -2477,6 +2477,7 @@ abstract class ErrorReportsDomainStrings {
   String get someNotCollected;
 
   String uploadHttpStatus(int statusCode);
+  String uploadReportKept(String reason);
   String get uploadShabbat;
   String get uploadTimedOut;
   String uploadNetworkError(String error);
@@ -2567,6 +2568,8 @@ abstract class AppReportsStrings {
 
   // ── תמונות ──
   String get imagesPrompt;
+  String get attachmentLimitsHint;
+  String get attachmentsInvalidSnack;
   String get imagesPickDialogTitle;
   String get removeImageTooltip;
   String imageTooLarge(int megabytes);

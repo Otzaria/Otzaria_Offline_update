@@ -4772,6 +4772,9 @@ class _ErrorReportsDomain extends ErrorReportsDomainStrings {
   String uploadHttpStatus(int statusCode) =>
       'The server answered with code $statusCode';
   @override
+  String uploadReportKept(String reason) =>
+      '$reason. The report and all its attachments remain on the drive for review.';
+  @override
   String get uploadShabbat =>
       'The Otzaria site is closed on Shabbat and Yom Tov. The reports stay on the drive and will be sent next time, after Shabbat ends.';
   @override
@@ -4934,18 +4937,24 @@ class _AppReports extends AppReportsStrings {
   @override
   String get imagesPrompt => 'Click to choose a screenshot';
   @override
+  String get attachmentLimitsHint =>
+      'Up to 10 MiB per file and 20 MiB for all attachments together (1 MiB = 1,048,576 bytes).';
+  @override
+  String get attachmentsInvalidSnack =>
+      'Attachments exceed the limits: 10 MiB per file and 20 MiB in total. Remove an attachment and try again.';
+  @override
   String get imagesPickDialogTitle => 'Choose screenshots for the report';
   @override
   String get removeImageTooltip => 'Remove image';
   @override
   String imageTooLarge(int megabytes) =>
-      'An image larger than $megabytes MB was not attached.';
+      'An image larger than $megabytes MiB was not attached.';
   @override
   String tooManyImages(int count) =>
       'Up to $count images can be attached to a report.';
   @override
   String imagesTotalTooLarge(int megabytes) =>
-      'The images are limited to $megabytes MB in total.';
+      'All attachments are limited to $megabytes MiB in total.';
   @override
   String get imageReadFailed => 'The image could not be read.';
 

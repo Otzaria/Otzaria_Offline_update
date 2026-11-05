@@ -273,6 +273,7 @@ class _AppReportDialogState extends State<AppReportDialog> {
         const SizedBox(height: AppTokens.spaceMD),
         AppReportImagesSection(
           images: form.images,
+          otherAttachmentBytes: form.buildReport().otherAttachmentBytes,
           enabled: enabled,
           source: widget.imageSource,
           onChanged: (images) => form.update(images: images),
