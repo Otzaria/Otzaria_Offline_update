@@ -125,12 +125,11 @@ class ErrorReportUploader {
         );
       }
 
-      final sourceBody = body;
       final appEndpoint =
           item.endpoint.toString() == OutboxReport.appReportingEndpoint;
-      final policy = await Isolate.run(
-        () => _inspectAttachmentPolicy(sourceBody, appEndpoint),
-      );
+      final policy = appEndpoint
+          ? await _inspectAppAttachmentPolicy(body)
+          : (preserveAttachments: false, invalidField: null);
       if (policy.invalidField != null) {
         return finish(
           error: AppL10n.strings.errorReportsDomain.uploadReportKept(
@@ -369,11 +368,12 @@ class ErrorReportUploader {
       (attempt.statusCode == 422 &&
           attempt.rejectedField == 'attachments.minidump');
 
+  static Future<({bool preserveAttachments, String? invalidField})>
+      _inspectAppAttachmentPolicy(Uint8List bytes) =>
+          Isolate.run(() => _inspectAttachmentPolicy(bytes));
+
   static ({bool preserveAttachments, String? invalidField})
-      _inspectAttachmentPolicy(Uint8List bytes, bool appEndpoint) {
-    if (!appEndpoint) {
-      return (preserveAttachments: false, invalidField: null);
-    }
+      _inspectAttachmentPolicy(Uint8List bytes) {
     try {
       final json = jsonDecode(utf8.decode(bytes));
       if (json is! Map<String, dynamic> ||
