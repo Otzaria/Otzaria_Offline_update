@@ -201,6 +201,10 @@ class _RandomWriteFile implements File {
       _real.deleteSync(recursive: recursive);
 
   @override
+  Future<FileSystemEntity> delete({bool recursive = false}) =>
+      _real.delete(recursive: recursive);
+
+  @override
   Future<RandomAccessFile> open({FileMode mode = FileMode.read}) async {
     if (mode == FileMode.read) return _real.open(mode: mode);
     _real.writeAsBytesSync(

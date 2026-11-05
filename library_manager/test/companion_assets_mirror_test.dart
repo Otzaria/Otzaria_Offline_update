@@ -54,6 +54,7 @@ void main() {
     String dictionaryTag = 'dict-v7',
     String dictionaryRevision = '',
     String talmudTag = 'lib-v9',
+    String talmudRevision = '',
     bool dictionaryV2 = false,
     bool apiDown = false,
     Set<String> apiDownFor = const {},
@@ -79,6 +80,7 @@ void main() {
                   assetJson(
                     'talmud_bavli_latest.tar.zst',
                     'https://x/talmud_bavli_latest.tar.zst',
+                    talmudRevision,
                   ),
               ],
             }),
@@ -122,7 +124,11 @@ void main() {
         if (beforeAsset != null) await beforeAsset(name);
         body = name == 'version.txt'
             ? Uint8List.fromList(utf8.encode('55'))
-            : bodyOf(name, name == 'lexical.db' ? dictionaryRevision : '');
+            : bodyOf(name, switch (name) {
+                'lexical.db' => dictionaryRevision,
+                'talmud_bavli_latest.tar.zst' => talmudRevision,
+                _ => '',
+              });
       }
 
       return http.StreamedResponse(
@@ -379,6 +385,9 @@ void main() {
     await first.mirror.sync(destDir: destDir);
     final built = buildMirror(
       talmudTag: 'lib-v10',
+      // A changed tag with identical bytes is a verified cache hit. Change the
+      // payload too so this test reaches the write whose failure it injects.
+      talmudRevision: ':v10',
       scheduler: DownloadScheduler(maxConcurrent: 1),
     );
     addTearDown(built.mirror.dispose);

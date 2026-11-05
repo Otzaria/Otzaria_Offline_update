@@ -210,8 +210,9 @@ and the patches; this repo only *consumes* them.
 **The update engine is `seforim_library_updater` of
 `Otzaria/otzaria_library_updater`, pinned in four pubspecs (root,
 `library_manager`, `launcher_app`, `tool/download_bench`); move the refs
-together.** All four consumers pin the same upstream 0.9.0 commit, including
-the changes consumed from `Yehuda-Zakesh` at `cd744641`. Move both
+together.** The upstream 0.9.0 pin preserves the APIs used from the previous
+`Yehuda-Zakesh` pin (`cd744641`). Merge
+`Otzaria/otzaria_library_updater#42` before releasing these consumers; move
 `pubspec.yaml` refs and `pubspec.lock` resolved refs together.
 Mirror policy is its `Offline*` classes (`OfflineLibraryUpdateDiscovery` alone
 takes `supportedDbSchemaVersion`); the unprefixed names are Otzaria's online

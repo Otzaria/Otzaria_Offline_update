@@ -744,3 +744,54 @@ SHA-256 בזמן כתיבה וניקוי אחרי ביטול:
 ריצות הביטול לא נשאר פלט חלקי. אלה מדידות RSS מדגמיות של fixtures דחיסים
 על מארח משותף; הן אינן מדידת העדכון המלא, צריכת SQLite או חלון zstd מרבי,
 ואינן מחליפות בדיקת release ב־Windows וב־macOS.
+
+
+לשחזור המדידה, `tool/streaming_probe.dart` יוצר את ה־fixtures בתהליך נפרד
+כדי שההקצאות בזמן ההכנה לא ייכללו בשיא הזיכרון. הכלי דורש libzstd זמינה
+ומשתמש בתלויות הקיימות של החבילה. יש להריץ מתוך `library_manager`:
+
+```sh
+flutter pub get --enforce-lockfile
+dart compile exe --packages=.dart_tool/package_config.json \
+  tool/streaming_probe.dart -o /tmp/offline-streaming-probe
+/tmp/offline-streaming-probe prepare /tmp/offline-streaming-fixtures 64 512
+for size in 64 512; do
+  for repeat in 1 2; do
+    for mode in inline cancel; do
+      /tmp/offline-streaming-probe "$mode" \
+        "/tmp/offline-streaming-fixtures/zstd-$size-mib.zst.json"
+    done
+  done
+done
+```
+
+כל invocation מפיק שורת JSON אחת ובודק hash/גודל או ביטול וניקוי, לפי
+המצב. את מספר החזרה אפשר לצרף לשורות שנאספות; קובץ
+[`tool/streaming_measurements/2026-11-05.jsonl`](tool/streaming_measurements/2026-11-05.jsonl)
+כולל את שמונה התוצאות המקוריות ואת מספר החזרה. פרטי הסביבה וה־SHA-256
+של המחלץ שנמדד נמצאים ב־
+[`tool/streaming_measurements/environment.json`](tool/streaming_measurements/environment.json).
+הכנת 512 MiB פלט מחייבת די מקום פנוי בקובץ היעד, גם כשהארכיון הדחוס קטן.
+
+#### בדיקת אריזת SQLite
+
+נבדקה גם אריזת release ממשית, בלי להסיר dependency. ה־artifact של macOS
+מ־[ריצת CI ‏42112990453](https://github.com/Otzaria/Otzaria_Offline_update/actions/runs/42112990453),
+על commit ‏`34ee4d1d5673e40d7b34dad387a0cfb0a90043ed`, מכיל שני מימושי SQLite:
+
+| binary בתוך `Contents/Frameworks` | גודל בבתים | מחרוזת גרסה בתוך הבינארי |
+| --- | --- | --- |
+| `sqlite3.framework/Versions/A/sqlite3` | 3,391,312 | 3.54.0 |
+| `CSQLite.framework/Versions/A/CSQLite` | 2,518,576 | 3.52.0 |
+
+בשני הבינאריים אומתו הגדרות exported של `sqlite3_open_v2`,
+`sqlite3_libversion` ו־`sqlite3_close`, הן ב־x64 והן ב־arm64. לכן זו
+כפילות של מימושים ארוזים; לא הוסקה ממנה בחירה מסוימת בזמן ריצה. ה־artifact
+הוא `launcher_app-macos`, מזהה `13455537117`, ו־SHA-256 של ארכיון ה־artifact:
+`674b3b7703ee7930f505bea7ad5a536225c9d3de1922cbdb39850b23fa6a35d8`.
+
+ה־pins הקיימים הם `sqlite3` ‏3.7.1 ו־`sqlite3_flutter_libs` ‏0.5.42;
+ה־Podfile נועל גם SQLite ‏3.52.0. בניית Windows באותה ריצה עברה,
+אך פורמט ה־portable הוא payload דחוס בתוך EXE ולכן לא אומתה בה רשימת
+ה־DLLs. הסרת ה־plugin הישן דורשת אימות נפרד של native-assets, רישום
+plugins והפעלת כל צרכני SQLite בפלטפורמות הנתמכות. ה־dependency נשמר.
