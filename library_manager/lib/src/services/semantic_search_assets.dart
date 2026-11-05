@@ -1776,14 +1776,24 @@ class SemanticSearchAssets {
       _invalid();
     }
     final bytes = zipped.files.single.content;
+    _cancel(isCancelled);
     if (Sha256Stream.ofBytes(bytes) != modelFiles[1].sha256) {
       _invalid();
     }
     final target = File(p.join(p.dirname(zipPath), 'tokenizer.json'));
     final temporary = File('${target.path}.tmp');
-    await temporary.writeAsBytes(bytes, flush: true);
-    _cancel(isCancelled);
-    await temporary.rename(target.path);
+    try {
+      await temporary.writeAsBytes(bytes, flush: true);
+      _cancel(isCancelled);
+      await temporary.rename(target.path);
+    } catch (_) {
+      try {
+        await temporary.delete();
+      } on FileSystemException {
+        // The write may have failed before creating the temporary file.
+      }
+      rethrow;
+    }
   }
 
   static final _generationName = _libraryTag;

@@ -3294,6 +3294,9 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get networkInterrupted => 'החיבור לרשת נקטע במהלך ההורדה';
   @override
+  String get downloadAlreadyInProgress =>
+      'כבר מתבצעת הורדה של קובץ זה. יש להמתין לסיומה ולנסות שוב.';
+  @override
   String get deletePreviousArchiveFailed =>
       'מחיקת ארכיון קודם נכשלה — לא ניתן לחבר את חלקי ההורדה';
   @override
@@ -3542,6 +3545,8 @@ class _LibraryDomain extends LibraryDomainStrings {
 
   @override
   String applyDownloadingPatch(String step) => 'מוריד עדכון$step…';
+  @override
+  String applyDecompressingPatch(String step) => 'מחלץ עדכון$step…';
   @override
   String applyApplyingPatch(String step) => 'מעדכן את ספריית אוצריא$step…';
   @override

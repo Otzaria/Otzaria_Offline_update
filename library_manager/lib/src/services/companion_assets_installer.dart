@@ -1,20 +1,21 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
 
-import 'package:archive/archive_io.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart'
-    show DiskSpaceProbe, Sha256Stream;
+    show DiskSpaceProbe, kDefaultMaxExtractedBytes, withFileOperationLock;
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 import 'companion_assets.dart';
-import 'storage_guard.dart';
+import 'companion_file_operations.dart';
 import 'zstd_file_decompressor.dart';
 
 /// תוצאת התקנה של פריט נלווה אחד.
 enum CompanionInstallOutcome { alreadyUpToDate, installed, failed, missing }
+
+typedef CompanionInstallProgress =
+    void Function(String stage, int bytesDone, int? bytesTotal);
 
 class CompanionInstallReport {
   const CompanionInstallReport(this.outcomes, this.errors, this.delivered);
@@ -69,17 +70,21 @@ class CompanionPendingReport {
 ///
 /// כל פריט הוא best-effort: כשל באחד נרשם ולא מפיל את השאר, בדיוק כמו שם.
 class CompanionAssetsInstaller {
-  const CompanionAssetsInstaller({this.freeBytesFor});
+  const CompanionAssetsInstaller({
+    this.freeBytesFor,
+    this.maxOutputBytes = kDefaultMaxExtractedBytes,
+  }) : assert(maxOutputBytes > 0);
 
   /// Replaces the disk probe, for tests.
   final int? Function(String path)? freeBytesFor;
+
+  final int maxOutputBytes;
 
   /// שם תיקיית ה-PDF של התלמוד בתוך תיקיית הספרייה
   /// (`DatabaseConstants.talmudBavliFolderName`).
   static const String talmudFolderName = 'תלמוד בבלי';
 
-  /// סימון הגרסה בתוך תיקיית התלמוד, והערך שנכתב בו לפני החילוץ —
-  /// חילוץ שנקטע משאיר אותו, וכך אוצריא מתעלמת מההתקנה החלקית.
+  /// סימון הגרסה של אוצריא; `installing` נשמר לזיהוי התקנות ישנות שנקטעו.
   static const String talmudVersionFileName = '.version';
   static const String talmudInstallingMarker = 'installing';
 
@@ -109,22 +114,81 @@ class CompanionAssetsInstaller {
     required String dbPath,
     Map<CompanionAsset, String> delivered = const {},
     void Function(String stage)? onStage,
+    CompanionInstallProgress? onProgress,
     void Function(String assetName, Object error)? onWarning,
     bool Function()? isCancelled,
+    Future<void> Function()? beforeCommit,
   }) async {
     final manifest = await CompanionMirrorManifest.load(mirrorDir);
     final outcomes = <CompanionAsset, CompanionInstallOutcome>{};
     final errors = <CompanionAsset, Object>{};
     final deliveredNow = <CompanionAsset, String>{};
-    if (manifest == null || manifest.isEmpty) {
-      return const CompanionInstallReport({}, {}, {});
-    }
-
     final libraryDir = p.dirname(dbPath);
     final strings = AppL10n.strings.libraryDomain;
-    final talmudBefore = _talmudStatsMemo(libraryDir);
-
     var storageFailed = false;
+    final recoveryFailed = <CompanionAsset>{};
+    void recordFailure(CompanionAsset asset, Object error) {
+      if (!recoveryFailed.add(asset)) return;
+      final full = storageFullFromUpstream(error);
+      outcomes[asset] = CompanionInstallOutcome.failed;
+      errors[asset] = full ?? error;
+      storageFailed = storageFailed || full != null;
+      onWarning?.call(_nameForAsset(asset), full ?? error);
+    }
+
+    final sources = {
+      if (manifest != null)
+        for (final entry in manifest.entries.entries)
+          entry.key: p.join(mirrorDir, entry.value.fileName),
+    };
+    void guardSourcesFor(CompanionAsset asset) {
+      final target = _targetForAsset(libraryDir, asset);
+      for (final source in sources.values) {
+        guardCompanionSource(source, _ownedPathsForAsset(target, asset));
+      }
+    }
+
+    // A source for one asset can be inside another asset's backup/staging.
+    // Reject both conflicting jobs before any cleanup, including recovery for
+    // an asset absent from the manifest. Unrelated assets remain best-effort.
+    for (final source in sources.entries) {
+      if (isCancelled?.call() == true) break;
+      for (final owner in CompanionAsset.values) {
+        final target = _targetForAsset(libraryDir, owner);
+        try {
+          guardCompanionSource(
+            source.value,
+            _ownedPathsForAsset(target, owner),
+          );
+        } catch (error) {
+          recordFailure(source.key, error);
+          recordFailure(owner, error);
+        }
+      }
+    }
+    for (final asset in CompanionAsset.values) {
+      if (isCancelled?.call() == true || storageFailed) break;
+      if (recoveryFailed.contains(asset)) continue;
+      final target = _targetForAsset(libraryDir, asset);
+      if (!Directory(companionBackupPath(target)).existsSync()) continue;
+      try {
+        guardSourcesFor(asset);
+        await withFileOperationLock(target, () async {
+          guardSourcesFor(asset);
+          checkCompanionCancelled(isCancelled);
+          await beforeCommit?.call();
+          checkCompanionCancelled(isCancelled);
+          recoverCompanionInstall(target, _pathsForAsset(target, asset));
+        });
+        outcomes[asset] = CompanionInstallOutcome.installed;
+      } catch (error) {
+        recordFailure(asset, error);
+      }
+    }
+    if (manifest == null || manifest.isEmpty) {
+      return CompanionInstallReport(outcomes, errors, deliveredNow);
+    }
+    final talmudBefore = _talmudStatsMemo(libraryDir);
     Future<void> run(
       CompanionAsset asset,
       String name,
@@ -133,15 +197,17 @@ class CompanionAssetsInstaller {
       if (isCancelled?.call() ?? false) return;
       // A full drive stops the writes that have not started; the rest of the
       // report stays.
-      if (storageFailed) return;
+      if (storageFailed || recoveryFailed.contains(asset)) return;
       final entry = manifest.entries[asset];
       if (entry == null) {
-        outcomes[asset] = CompanionInstallOutcome.missing;
+        outcomes.putIfAbsent(asset, () => CompanionInstallOutcome.missing);
         return;
       }
       onStage?.call(strings.companionChecking(name));
       try {
-        if (_wasDelivered(asset, libraryDir, entry, delivered, talmudBefore)) {
+        final target = _targetForAsset(libraryDir, asset);
+        if (!Directory(companionBackupPath(target)).existsSync() &&
+            _wasDelivered(asset, libraryDir, entry, delivered, talmudBefore)) {
           outcomes[asset] = CompanionInstallOutcome.alreadyUpToDate;
           return;
         }
@@ -170,18 +236,44 @@ class CompanionAssetsInstaller {
     await run(
       CompanionAsset.talmud,
       strings.companionTalmudName,
-      (entry) =>
-          _installTalmud(mirrorDir, libraryDir, entry, onStage, talmudBefore),
+      (entry) => _installTalmud(
+        mirrorDir,
+        libraryDir,
+        entry,
+        onStage,
+        onProgress,
+        isCancelled,
+        beforeCommit,
+        () => guardSourcesFor(CompanionAsset.talmud),
+      ),
     );
     await run(
       CompanionAsset.catalog,
       strings.companionCatalogName,
-      (entry) => _installCatalog(mirrorDir, libraryDir, entry, onStage),
+      (entry) => _installCatalog(
+        mirrorDir,
+        libraryDir,
+        entry,
+        onStage,
+        onProgress,
+        isCancelled,
+        beforeCommit,
+        () => guardSourcesFor(CompanionAsset.catalog),
+      ),
     );
     await run(
       CompanionAsset.dictionary,
       strings.companionDictionaryName,
-      (entry) => _installDictionary(mirrorDir, libraryDir, entry, onStage),
+      (entry) => _installDictionary(
+        mirrorDir,
+        libraryDir,
+        entry,
+        onStage,
+        onProgress,
+        isCancelled,
+        beforeCommit,
+        () => guardSourcesFor(CompanionAsset.dictionary),
+      ),
     );
 
     return CompanionInstallReport(outcomes, errors, deliveredNow);
@@ -200,16 +292,23 @@ class CompanionAssetsInstaller {
     required String dbPath,
     Map<CompanionAsset, String> delivered = const {},
   }) async {
+    final libraryDir = p.dirname(dbPath);
+    final pending = <CompanionAsset>{
+      for (final asset in CompanionAsset.values)
+        if (Directory(
+          companionBackupPath(_targetForAsset(libraryDir, asset)),
+        ).existsSync())
+          asset,
+    };
     final manifest = await CompanionMirrorManifest.load(mirrorDir);
     if (manifest == null || manifest.isEmpty) {
-      return const CompanionPendingReport();
+      return CompanionPendingReport(pending: pending);
     }
-    final libraryDir = p.dirname(dbPath);
-    final pending = <CompanionAsset>{};
     final unavailable = <CompanionAsset>{};
     final talmudStats = _talmudStatsMemo(libraryDir);
 
     for (final e in manifest.entries.entries) {
+      if (pending.contains(e.key)) continue;
       if (_isUpToDate(e.key, libraryDir, e.value, talmudStats)) continue;
       // המראה הזו כבר נמסרה כאן ומשהו אחר יושב במקומה — לא מציעים שוב.
       // התנאי השני הוא מה שמבדיל בין "הוחלף בגרסה אחרת" לבין "נמחק": פריט
@@ -231,6 +330,45 @@ class CompanionAssetsInstaller {
       mirrored: manifest.entries.keys.toSet(),
     );
   }
+
+  String _targetForAsset(String libraryDir, CompanionAsset asset) =>
+      p.join(libraryDir, switch (asset) {
+        CompanionAsset.talmud => talmudFolderName,
+        CompanionAsset.catalog => catalogDatabaseFileName,
+        CompanionAsset.dictionary => dictionaryFileName,
+      });
+
+  List<String> _pathsForAsset(String target, CompanionAsset asset) =>
+      switch (asset) {
+        CompanionAsset.talmud => [target],
+        CompanionAsset.catalog => [
+          target,
+          '$target-wal',
+          '$target-shm',
+          '$target-journal',
+        ],
+        CompanionAsset.dictionary => [
+          target,
+          '$target.version',
+          '$target.next',
+          '$target.next.version',
+        ],
+      };
+
+  List<String> _ownedPathsForAsset(String target, CompanionAsset asset) => [
+    ..._pathsForAsset(target, asset),
+    '$target.lock',
+    '$target.offline-staging',
+    companionBackupPath(target),
+  ];
+
+  String _nameForAsset(CompanionAsset asset) => switch (asset) {
+    CompanionAsset.talmud => AppL10n.strings.libraryDomain.companionTalmudName,
+    CompanionAsset.catalog =>
+      AppL10n.strings.libraryDomain.companionCatalogName,
+    CompanionAsset.dictionary =>
+      AppL10n.strings.libraryDomain.companionDictionaryName,
+  };
 
   bool _wasDelivered(
     CompanionAsset asset,
@@ -419,15 +557,14 @@ class CompanionAssetsInstaller {
     String marker,
     ({int files, int bytes}) stats,
   ) {
-    try {
-      File(p.join(dir.path, talmudContentsFileName)).writeAsStringSync(
-        jsonEncode({
-          'marker': marker,
-          'files': stats.files,
-          'bytes': stats.bytes,
-        }),
-      );
-    } catch (_) {}
+    File(p.join(dir.path, talmudContentsFileName)).writeAsStringSync(
+      jsonEncode({
+        'marker': marker,
+        'files': stats.files,
+        'bytes': stats.bytes,
+      }),
+      flush: true,
+    );
   }
 
   Future<bool> _installTalmud(
@@ -435,104 +572,172 @@ class CompanionAssetsInstaller {
     String libraryDir,
     CompanionMirrorEntry entry,
     void Function(String stage)? onStage,
-    _TalmudStatsMemo talmudBefore,
+    CompanionInstallProgress? onProgress,
+    bool Function()? isCancelled,
+    Future<void> Function()? beforeCommit,
+    void Function() guardSources,
   ) async {
-    if (_talmudUpToDate(libraryDir, entry, talmudBefore)) return false;
     final strings = AppL10n.strings.libraryDomain;
-    final archive = _readyMirrorFile(mirrorDir, entry);
-
-    onStage?.call(strings.companionInstalling(strings.companionTalmudName));
-    final targetDir = Directory(p.join(libraryDir, talmudFolderName));
-    await targetDir.create(recursive: true);
-    final marker = File(p.join(targetDir.path, talmudVersionFileName));
-
-    final tarPath = p.join(libraryDir, '${entry.fileName}.tar');
-    final Map<String, int> expected;
-    final ({int files, int bytes}) expectedStats;
-    try {
-      String? digest;
-      if (!await ZstdFileDecompressor.decompressFileToFile(
-        archive.path,
-        tarPath,
-        onSourceDigest: entry.sha256 == null ? null : (hex) => digest = hex,
-      )) {
-        throw StateError(
-          strings.companionExtractionFailed(strings.companionTalmudName),
-        );
-      }
-      _verifyDigest(entry, digest, strings.companionTalmudName);
-      expected = _talmudArchiveFiles(tarPath);
-      expectedStats = (
-        files: expected.length,
-        bytes: expected.values.fold<int>(0, (sum, size) => sum + size),
-      );
-      _ensureSpaceForTalmud(
-        libraryDir,
-        expectedStats.bytes - talmudBefore.value.bytes,
-      );
-      marker.writeAsStringSync(talmudInstallingMarker);
-      for (final entity in targetDir.listSync()) {
-        if (entity is File &&
-            p.basename(entity.path) != talmudVersionFileName) {
-          entity.deleteSync();
+    final target = p.join(libraryDir, talmudFolderName);
+    final source = File(p.join(mirrorDir, entry.fileName));
+    return _stageInstall(
+      source,
+      target,
+      [target],
+      isCancelled,
+      beforeCommit,
+      guardSources,
+      (work) async {
+        if (_talmudUpToDate(libraryDir, entry)) return false;
+        _readyMirrorFile(mirrorDir, entry);
+        final type = FileSystemEntity.typeSync(target, followLinks: false);
+        if (type != FileSystemEntityType.notFound &&
+            type != FileSystemEntityType.directory) {
+          throw FileSystemException(
+            strings.companionExtractionFailed(talmudFolderName),
+            target,
+          );
         }
-      }
-      await _extractTarInIsolate(tarPath, libraryDir);
-    } finally {
-      _deleteQuietly(tarPath);
-    }
-
-    for (final file in expected.entries) {
-      final extracted = File(p.join(libraryDir, file.key));
-      if (!extracted.existsSync() || extracted.lengthSync() != file.value) {
-        throw StateError(
-          strings.companionExtractionFailed(strings.companionTalmudName),
+        final stage = strings.companionInstalling(strings.companionTalmudName);
+        onStage?.call(stage);
+        final tarPath = p.join(work.path, 'talmud.tar');
+        String? digest;
+        if (!await ZstdFileDecompressor.decompressFileToFile(
+          source.path,
+          tarPath,
+          maxOutputBytes: maxOutputBytes,
+          isCancelled: isCancelled,
+          onOutputProgress: (written) => onProgress?.call(stage, written, null),
+          onSourceDigest: entry.sha256 == null ? null : (hex) => digest = hex,
+        )) {
+          throw StateError(
+            strings.companionExtractionFailed(strings.companionTalmudName),
+          );
+        }
+        _verifyDigest(entry, digest, strings.companionTalmudName);
+        checkCompanionCancelled(isCancelled);
+        final expected = await readCompanionTar(
+          tarPath,
+          rootName: talmudFolderName,
+          ignoredNames: {talmudVersionFileName, talmudContentsFileName},
+          maxOutputBytes: maxOutputBytes,
+          isCancelled: isCancelled,
         );
-      }
-    }
-
-    final installed = entry.versionMarker ?? '';
-    _writeTalmudContents(
-      targetDir,
-      installed,
-      expected.isEmpty ? _talmudFolderStats(targetDir) : expectedStats,
+        final expectedBytes = expected.fold<int>(
+          0,
+          (sum, file) => sum + file.size,
+        );
+        final preserved = await _talmudSubdirectories(
+          Directory(target),
+          isCancelled,
+        );
+        final preservedBytes = preserved.fold<int>(
+          0,
+          (sum, file) => sum + (file.size ?? 0),
+        );
+        final total = expectedBytes + preservedBytes;
+        if (total > maxOutputBytes) {
+          throw FormatException(
+            strings.localFileTooLarge(maxOutputBytes, target),
+          );
+        }
+        // Staging keeps the old tree intact, so none of its bytes are free space.
+        _ensureSpaceForTalmud(libraryDir, total);
+        final staged = Directory(p.join(work.path, talmudFolderName));
+        await staged.create();
+        var written = 0;
+        onProgress?.call(stage, 0, total);
+        for (final file in preserved) {
+          checkCompanionCancelled(isCancelled);
+          final destination = p.join(
+            staged.path,
+            p.relative(file.path, from: target),
+          );
+          if (file.size == null) {
+            await Directory(destination).create(recursive: true);
+          } else {
+            await File(destination).parent.create(recursive: true);
+            written += await copyCompanionFile(
+              source: File(file.path),
+              destination: destination,
+              expectedSize: file.size!,
+              maxOutputBytes: maxOutputBytes - written,
+              isCancelled: isCancelled,
+              onProgress: (bytes) =>
+                  onProgress?.call(stage, written + bytes, total),
+            );
+          }
+        }
+        for (final file in expected) {
+          checkCompanionCancelled(isCancelled);
+          final destination = p.joinAll([
+            work.path,
+            ...p.posix.split(file.path),
+          ]);
+          await File(destination).parent.create(recursive: true);
+          written += await copyCompanionFile(
+            source: File(tarPath),
+            destination: destination,
+            start: file.offset,
+            end: file.offset + file.size,
+            expectedSize: file.size,
+            maxOutputBytes: maxOutputBytes - written,
+            isCancelled: isCancelled,
+            onProgress: (bytes) =>
+                onProgress?.call(stage, written + bytes, total),
+          );
+        }
+        final installed = entry.versionMarker ?? '';
+        _writeTalmudContents(staged, installed, (
+          files: expected.length,
+          bytes: expectedBytes,
+        ));
+        await File(
+          p.join(staged.path, talmudVersionFileName),
+        ).writeAsString(installed, flush: true);
+        checkCompanionCancelled(isCancelled);
+        await beforeCommit?.call();
+        checkCompanionCancelled(isCancelled);
+        commitCompanionInstall(target, {target: staged.path});
+        return true;
+      },
     );
-    marker.writeAsStringSync(installed);
-    return true;
   }
 
-  static Future<void> _extractTarInIsolate(String tarPath, String outputDir) =>
-      Isolate.run(() async {
-        final input = InputFileStream(tarPath);
-        try {
-          await extractArchiveToDisk(
-            TarDecoder().decodeStream(input),
-            outputDir,
-          );
-        } finally {
-          await input.close();
-        }
-      });
-
-  Map<String, int> _talmudArchiveFiles(String tarPath) {
-    final files = <String, int>{};
-    final input = InputFileStream(tarPath);
-    try {
-      final archive = TarDecoder().decodeStream(input);
-      for (final entry in archive) {
-        if (!entry.isFile || entry.isSymbolicLink) continue;
-        final parts = p.split(p.normalize(entry.name));
-        if (parts.length < 2 || parts.first != talmudFolderName) continue;
-        final name = parts.last;
-        if (name == talmudVersionFileName || name == talmudContentsFileName) {
-          continue;
-        }
-        files[p.joinAll(parts)] = entry.size;
+  Future<List<({String path, int? size})>> _talmudSubdirectories(
+    Directory target,
+    bool Function()? isCancelled,
+  ) async {
+    final preserved = <({String path, int? size})>[];
+    if (!await target.exists()) return preserved;
+    void add(FileSystemEntity entity) {
+      checkCompanionCancelled(isCancelled);
+      if (preserved.length >= 10000 || entity is Link) {
+        throw FormatException(
+          AppL10n.strings.libraryDomain.companionExtractionFailed(
+            talmudFolderName,
+          ),
+        );
       }
-    } finally {
-      input.closeSync();
+      preserved.add((
+        path: entity.path,
+        size: entity is File ? entity.lengthSync() : null,
+      ));
     }
-    return files;
+
+    await for (final child in target.list(followLinks: false)) {
+      checkCompanionCancelled(isCancelled);
+      if (child is Link) add(child);
+      if (child is! Directory) continue;
+      add(child);
+      await for (final entity in child.list(
+        recursive: true,
+        followLinks: false,
+      )) {
+        add(entity);
+      }
+    }
+    return preserved;
   }
 
   void _ensureSpaceForTalmud(String libraryDir, int needed) {
@@ -567,46 +772,116 @@ class CompanionAssetsInstaller {
     String libraryDir,
     CompanionMirrorEntry entry,
     void Function(String stage)? onStage,
+    CompanionInstallProgress? onProgress,
+    bool Function()? isCancelled,
+    Future<void> Function()? beforeCommit,
+    void Function() guardSources,
   ) async {
-    if (_catalogUpToDate(libraryDir, entry)) return false;
     final strings = AppL10n.strings.libraryDomain;
-    final source = _readyMirrorFile(mirrorDir, entry);
-
-    onStage?.call(strings.companionInstalling(strings.companionCatalogName));
+    final source = File(p.join(mirrorDir, entry.fileName));
     final target = p.join(libraryDir, catalogDatabaseFileName);
-    final staged = '$target.new';
-    _deleteQuietly(staged);
-    try {
-      if (entry.compressed) {
-        String? digest;
-        if (!await ZstdFileDecompressor.decompressFileToFile(
-          source.path,
-          staged,
-          onSourceDigest: entry.sha256 == null ? null : (hex) => digest = hex,
-        )) {
-          throw StateError(
-            strings.companionExtractionFailed(strings.companionCatalogName),
+    final paths = _pathsForAsset(target, CompanionAsset.catalog);
+    return _stageInstall(
+      source,
+      target,
+      paths,
+      isCancelled,
+      beforeCommit,
+      guardSources,
+      (work) async {
+        if (_catalogUpToDate(libraryDir, entry)) return false;
+        _readyMirrorFile(mirrorDir, entry);
+        final stage = strings.companionInstalling(strings.companionCatalogName);
+        onStage?.call(stage);
+        final staged = p.join(work.path, catalogDatabaseFileName);
+        if (entry.compressed) {
+          String? digest;
+          if (!await ZstdFileDecompressor.decompressFileToFile(
+            source.path,
+            staged,
+            maxOutputBytes: maxOutputBytes,
+            isCancelled: isCancelled,
+            onOutputProgress: (written) =>
+                onProgress?.call(stage, written, null),
+            onSourceDigest: entry.sha256 == null ? null : (hex) => digest = hex,
+          )) {
+            throw StateError(
+              strings.companionExtractionFailed(strings.companionCatalogName),
+            );
+          }
+          _verifyDigest(entry, digest, strings.companionCatalogName);
+        } else {
+          await _copyVerified(
+            source,
+            staged,
+            entry,
+            stage,
+            onProgress,
+            isCancelled,
           );
         }
-        _verifyDigest(entry, digest, strings.companionCatalogName);
-      } else {
-        await _copyVerified(
-          source,
-          staged,
-          entry,
-          strings.companionCatalogName,
+        checkCompanionCancelled(isCancelled);
+        // Opening an empty output in write mode would create a fresh database
+        // with only db_meta, which quick_check would then accept. Validate the
+        // original SQLite header before version stamping can modify it.
+        await _verifyCatalogHeader(staged);
+        checkCompanionCancelled(isCancelled);
+        final version = entry.version;
+        if (version != null) _stampCatalogVersion(staged, version);
+        _verifyCatalog(staged);
+        for (final path in paths) {
+          final type = FileSystemEntity.typeSync(path, followLinks: false);
+          if (type != FileSystemEntityType.notFound &&
+              type != FileSystemEntityType.file) {
+            throw FileSystemException(
+              strings.companionExtractionFailed(strings.companionCatalogName),
+              path,
+            );
+          }
+        }
+        checkCompanionCancelled(isCancelled);
+        await beforeCommit?.call();
+        checkCompanionCancelled(isCancelled);
+        commitCompanionInstall(target, {
+          target: staged,
+          for (final path in paths.skip(1)) path: null,
+        });
+        return true;
+      },
+    );
+  }
+
+  Future<void> _verifyCatalogHeader(String path) async {
+    final file = await File(path).open();
+    try {
+      final header = await file.read(16);
+      if (await file.length() < 100 ||
+          latin1.decode(header) != 'SQLite format 3\u0000') {
+        throw FormatException(
+          AppL10n.strings.libraryDomain.companionExtractionFailed(
+            AppL10n.strings.libraryDomain.companionCatalogName,
+          ),
         );
       }
-      _deleteQuietly(target);
-      File(staged).renameSync(target);
-    } catch (_) {
-      _deleteQuietly(staged);
-      rethrow;
+    } finally {
+      await file.close();
     }
+  }
 
-    final version = entry.version;
-    if (version != null) _stampCatalogVersion(target, version);
-    return true;
+  void _verifyCatalog(String path) {
+    final db = sqlite3.sqlite3.open(path, mode: sqlite3.OpenMode.readOnly);
+    try {
+      final result = db.select('PRAGMA quick_check');
+      if (result.length != 1 || result.first.values.single != 'ok') {
+        throw StateError(
+          AppL10n.strings.libraryDomain.companionExtractionFailed(
+            AppL10n.strings.libraryDomain.companionCatalogName,
+          ),
+        );
+      }
+    } finally {
+      db.close();
+    }
   }
 
   int? _readCatalogVersion(String path) {
@@ -634,6 +909,7 @@ class CompanionAssetsInstaller {
   void _stampCatalogVersion(String path, int version) {
     final db = sqlite3.sqlite3.open(path);
     try {
+      db.execute('PRAGMA journal_mode = DELETE');
       db.execute(
         'CREATE TABLE IF NOT EXISTS db_meta '
         '(key TEXT PRIMARY KEY, value TEXT NOT NULL)',
@@ -663,40 +939,108 @@ class CompanionAssetsInstaller {
     String libraryDir,
     CompanionMirrorEntry entry,
     void Function(String stage)? onStage,
+    CompanionInstallProgress? onProgress,
+    bool Function()? isCancelled,
+    Future<void> Function()? beforeCommit,
+    void Function() guardSources,
   ) async {
-    if (_dictionaryUpToDate(libraryDir, entry)) return false;
     final strings = AppL10n.strings.libraryDomain;
-    final source = _readyMirrorFile(mirrorDir, entry);
-
-    onStage?.call(strings.companionInstalling(strings.companionDictionaryName));
+    final source = File(p.join(mirrorDir, entry.fileName));
     final target = p.join(libraryDir, dictionaryFileName);
-    _discardOtzariaStagedDictionary(target);
-    final staged = '$target.new';
-    _deleteQuietly(staged);
-    try {
-      await _copyVerified(
-        source,
-        staged,
-        entry,
-        strings.companionDictionaryName,
-      );
-      _deleteQuietly(target);
-      File(staged).renameSync(target);
-    } catch (_) {
-      _deleteQuietly(staged);
-      rethrow;
-    }
-    File('$target.version').writeAsStringSync(entry.versionMarker ?? '');
-    return true;
+    final paths = _pathsForAsset(target, CompanionAsset.dictionary);
+    return _stageInstall(
+      source,
+      target,
+      paths,
+      isCancelled,
+      beforeCommit,
+      guardSources,
+      (work) async {
+        if (_dictionaryUpToDate(libraryDir, entry)) return false;
+        _readyMirrorFile(mirrorDir, entry);
+        final stage = strings.companionInstalling(
+          strings.companionDictionaryName,
+        );
+        onStage?.call(stage);
+        final staged = p.join(work.path, dictionaryFileName);
+        await _copyVerified(
+          source,
+          staged,
+          entry,
+          stage,
+          onProgress,
+          isCancelled,
+        );
+        final marker = '$staged.version';
+        await File(
+          marker,
+        ).writeAsString(entry.versionMarker ?? '', flush: true);
+        for (final path in paths) {
+          final type = FileSystemEntity.typeSync(path, followLinks: false);
+          if (type != FileSystemEntityType.notFound &&
+              type != FileSystemEntityType.file) {
+            throw FileSystemException(
+              strings.companionExtractionFailed(
+                strings.companionDictionaryName,
+              ),
+              path,
+            );
+          }
+        }
+        checkCompanionCancelled(isCancelled);
+        await beforeCommit?.call();
+        checkCompanionCancelled(isCancelled);
+        commitCompanionInstall(target, {
+          target: staged,
+          '$target.version': marker,
+          '$target.next': null,
+          '$target.next.version': null,
+        });
+        return true;
+      },
+    );
   }
 
-  void _discardOtzariaStagedDictionary(String target) {
-    for (final path in ['$target.next.version', '$target.next']) {
-      if (FileSystemEntity.typeSync(path, followLinks: false) !=
-          FileSystemEntityType.notFound) {
-        File(path).deleteSync();
+  Future<bool> _stageInstall(
+    File source,
+    String target,
+    List<String> paths,
+    bool Function()? isCancelled,
+    Future<void> Function()? beforeCommit,
+    void Function() guardSources,
+    Future<bool> Function(Directory work) body,
+  ) async {
+    final work = Directory('$target.offline-staging');
+    final owned = [
+      ...paths,
+      '$target.lock',
+      companionBackupPath(target),
+      work.path,
+    ];
+    guardSources();
+    guardCompanionSource(source.path, owned);
+    return withFileOperationLock(target, () async {
+      guardSources();
+      guardCompanionSource(source.path, owned);
+      checkCompanionCancelled(isCancelled);
+      if (Directory(companionBackupPath(target)).existsSync()) {
+        await beforeCommit?.call();
+        checkCompanionCancelled(isCancelled);
+        recoverCompanionInstall(target, paths);
       }
-    }
+      if (await work.exists()) await work.delete(recursive: true);
+      await work.create();
+      try {
+        checkCompanionCancelled(isCancelled);
+        return await body(work);
+      } finally {
+        try {
+          await work.delete(recursive: true);
+        } on FileSystemException {
+          // Keep the original failure if the drive has disappeared.
+        }
+      }
+    });
   }
 
   File _readyMirrorFile(String mirrorDir, CompanionMirrorEntry entry) {
@@ -708,36 +1052,22 @@ class CompanionAssetsInstaller {
 
   Future<void> _copyVerified(
     File source,
-    String destPath,
+    String destination,
     CompanionMirrorEntry entry,
-    String name,
+    String stage,
+    CompanionInstallProgress? onProgress,
+    bool Function()? isCancelled,
   ) async {
-    if (entry.sha256 == null) {
-      try {
-        await source.copy(destPath);
-      } on FileSystemException catch (error) {
-        throw asStorageFailure(error, destPath);
-      }
-      return;
-    }
-    final hasher = Sha256Stream();
-    try {
-      final sink = GuardedSink(File(destPath).openWrite(), destPath);
-      try {
-        await for (final chunk in source.openRead()) {
-          hasher.add(chunk);
-          sink.add(chunk);
-        }
-        await sink.flush();
-      } catch (_) {
-        await sink.closeAfterFailure();
-        rethrow;
-      }
-      await sink.close();
-      _verifyDigest(entry, hasher.close(), name);
-    } finally {
-      hasher.dispose();
-    }
+    final expectedSize = entry.size > 0 ? entry.size : await source.length();
+    await copyCompanionFile(
+      source: source,
+      destination: destination,
+      maxOutputBytes: maxOutputBytes,
+      expectedSize: expectedSize,
+      expectedSha256: entry.sha256,
+      isCancelled: isCancelled,
+      onProgress: (written) => onProgress?.call(stage, written, expectedSize),
+    );
   }
 
   void _verifyDigest(CompanionMirrorEntry entry, String? actual, String name) {
@@ -752,13 +1082,6 @@ class CompanionAssetsInstaller {
         ),
       );
     }
-  }
-
-  void _deleteQuietly(String path) {
-    try {
-      final file = File(path);
-      if (file.existsSync()) file.deleteSync();
-    } catch (_) {}
   }
 }
 

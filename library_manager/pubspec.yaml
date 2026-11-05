@@ -14,8 +14,8 @@ dependencies:
     sdk: flutter
   seforim_library_updater:
     git:
-      url: https://github.com/Yehuda-Zakesh/otzaria_library_updater.git
-      ref: cd7446411fd7c1696034e47824f1434f189e290e
+      url: https://github.com/Otzaria/otzaria_library_updater.git
+      ref: f88edf39c3aa307c304e7f9608d30604b8f36457
   sqlite3_flutter_libs: ^0.5.24
   otzaria_l10n:
     path: ../otzaria_l10n
@@ -40,7 +40,7 @@ dependencies:
   hive_ce: ^2.19.3
   # פריסת ה-tar של ארכיון התלמוד (`talmud_bavli_latest.tar.zst`) — אותה
   # חבילה שאוצריא משתמשת בה ב-`extractTarZstToDir`.
-  archive: ^4.0.9
+  archive: ^4.5.1
   crypto: ^3.0.6
 
 dev_dependencies:

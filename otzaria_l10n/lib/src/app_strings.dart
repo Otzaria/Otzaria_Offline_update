@@ -1813,6 +1813,7 @@ abstract class LibraryDomainStrings {
   String tableHashMismatch(String tables);
   String patchOpenFailed(String path, String detail);
   String get networkInterrupted;
+  String get downloadAlreadyInProgress;
   String get deletePreviousArchiveFailed;
   String joinedArchiveSizeMismatch(int written, int expected);
   String get joinedArchiveHashMismatch;
@@ -1932,6 +1933,7 @@ abstract class LibraryDomainStrings {
 
   // שלבי ההחלה, כפי שמוצגים במד ההתקדמות
   String applyDownloadingPatch(String step);
+  String applyDecompressingPatch(String step);
   String applyApplyingPatch(String step);
 
   /// תת-שלב בתוך החלת ה-patch — [stage] הוא שם השלב הגולמי כפי ש-

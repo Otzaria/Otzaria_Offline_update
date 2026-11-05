@@ -15,8 +15,8 @@ dependencies:
     sdk: flutter
   seforim_library_updater:
     git:
-      url: https://github.com/Yehuda-Zakesh/otzaria_library_updater.git
-      ref: cd7446411fd7c1696034e47824f1434f189e290e
+      url: https://github.com/Otzaria/otzaria_library_updater.git
+      ref: f88edf39c3aa307c304e7f9608d30604b8f36457
   sqlite3: ^3.3.3
 
 dev_dependencies:

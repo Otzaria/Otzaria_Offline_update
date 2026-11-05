@@ -480,6 +480,7 @@ void main() {
               sourcePath,
               destPath, {
               onProgress,
+              onOutputProgress,
               onSourceDigest,
               onOutputDigest,
               isCancelled,
@@ -998,6 +999,7 @@ void main() {
               sourcePath,
               destPath, {
               onProgress,
+              onOutputProgress,
               onSourceDigest,
               onOutputDigest,
               isCancelled,
@@ -1038,6 +1040,7 @@ void main() {
               sourcePath,
               destPath, {
               onProgress,
+              onOutputProgress,
               onSourceDigest,
               onOutputDigest,
               isCancelled,
@@ -2056,6 +2059,7 @@ void main() {
               sourcePath,
               destPath, {
               onProgress,
+              onOutputProgress,
               onSourceDigest,
               onOutputDigest,
               isCancelled,
@@ -2101,6 +2105,7 @@ void main() {
               sourcePath,
               destPath, {
               onProgress,
+              onOutputProgress,
               onSourceDigest,
               onOutputDigest,
               isCancelled,
@@ -2181,6 +2186,7 @@ void main() {
                 sourcePath,
                 destPath, {
                 onProgress,
+                onOutputProgress,
                 onSourceDigest,
                 onOutputDigest,
                 isCancelled,

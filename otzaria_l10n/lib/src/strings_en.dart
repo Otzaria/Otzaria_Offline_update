@@ -3484,6 +3484,9 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get networkInterrupted =>
       'The network connection was interrupted during the download';
   @override
+  String get downloadAlreadyInProgress =>
+      'A download of this file is already running. Wait for it to finish and try again.';
+  @override
   String get deletePreviousArchiveFailed =>
       'Deleting the previous archive failed — the downloaded parts cannot be '
       'joined';
@@ -3751,6 +3754,8 @@ class _LibraryDomain extends LibraryDomainStrings {
 
   @override
   String applyDownloadingPatch(String step) => 'Downloading the update$step…';
+  @override
+  String applyDecompressingPatch(String step) => 'Extracting the update$step…';
   @override
   String applyApplyingPatch(String step) =>
       'Updating the Otzaria library$step…';

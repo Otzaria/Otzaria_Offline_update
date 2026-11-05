@@ -2225,8 +2225,17 @@ class LibraryManager {
           statusText: stage,
         ),
       ),
+      onProgress: (stage, done, total) => onProgress?.call(
+        LibraryApplyProgress(
+          stage: LibraryApplyStage.installingCompanions,
+          statusText: stage,
+          bytesDone: done,
+          bytesTotal: total,
+        ),
+      ),
       onWarning: onCompanionWarning,
       isCancelled: isCancelled,
+      beforeCommit: _throwIfOtzariaRunning,
     );
     try {
       await _stateStore.saveDeliveredCompanions({

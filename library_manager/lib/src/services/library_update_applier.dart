@@ -9,12 +9,12 @@ import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 import 'library_updater_l10n.dart';
 import 'otzaria_process_guard.dart';
-import 'zstd_decompressor.dart';
 import 'zstd_file_decompressor.dart';
 
 /// שלב עדכון נוכחי — לדיווח ל-UI בלבד, לא נבדק ע"י שום לוגיקה.
 enum LibraryApplyStage {
   downloadingPatch,
+  decompressingPatch,
   applyingPatch,
   downloadingFullDb,
   decompressingFullDb,
@@ -35,7 +35,7 @@ class LibraryApplyProgress {
   final int? stepCount;
 
   /// בייטים שהושלמו מתוך [bytesTotal] בשלב הנוכחי: מה שירד בשלבי ההורדה, ומה
-  /// שנקרא מהקובץ הדחוס בשלב החילוץ. `null` בשלבים שאין בהם בייטים למנות.
+  /// שנכתב בחילוץ דלתא או נקרא בחילוץ מלא. `null` בשלבים ללא ספירת בייטים.
   final int? bytesDone;
   final int? bytesTotal;
 
@@ -79,11 +79,18 @@ class LibraryApplyException implements Exception {
   String toString() => message;
 }
 
+/// Preserves the applier's message contract and the downloader's cancellation tag.
+class LibraryApplyCancelledException extends LibraryApplyException
+    implements PatchDownloadCancelled {
+  const LibraryApplyCancelledException(super.message);
+}
+
 typedef ZstdFileStreamer =
     Future<bool> Function(
       String sourcePath,
       String destPath, {
       void Function(int bytesRead, int totalBytes)? onProgress,
+      void Function(int bytesWritten)? onOutputProgress,
       void Function(String sha256Hex)? onSourceDigest,
       void Function(String sha256Hex, int bytesWritten)? onOutputDigest,
       bool Function()? isCancelled,
@@ -112,7 +119,9 @@ class LibraryUpdateApplier {
         const OfflineLibraryDbRecoveryService(),
     ExtractedDbVerifier? verifyExtractedDb,
     ZstdFileStreamer? streamFile,
+    @Deprecated('Use streamFile for bounded extraction')
     Future<Uint8List?> Function(Uint8List compressed)? decompress,
+    int maxFullDbBytes = defaultMaxFullDbBytes,
     int? Function(String path)? freeBytesFor,
     bool Function(String path)? isFatVolume,
   }) : _processGuard = processGuard,
@@ -121,9 +130,12 @@ class LibraryUpdateApplier {
        _recovery = recovery,
        _verifyExtractedDb = verifyExtractedDb ?? _defaultExtractedDbVerifier,
        _streamFile = streamFile ?? ZstdFileDecompressor.decompressFileToFile,
-       _downloader = PatchDownloader(
-         decompress: decompress ?? const ZstdDecompressor().call,
-       );
+       _maxFullDbBytes = maxFullDbBytes {
+    if (maxFullDbBytes <= 0) {
+      throw ArgumentError.value(maxFullDbBytes, 'maxFullDbBytes');
+    }
+    _downloader = StreamingPatchDownloader(extractor: _extractRemotePatch);
+  }
 
   final OtzariaProcessGuard _processGuard;
   final OfflineLibraryDbRecoveryService _recovery;
@@ -131,7 +143,11 @@ class LibraryUpdateApplier {
   final ZstdFileStreamer _streamFile;
   final int? Function(String path) _freeBytesFor;
   final bool Function(String path) _isFatVolume;
-  final PatchDownloader _downloader;
+  late final StreamingPatchDownloader _downloader;
+  final int _maxFullDbBytes;
+
+  /// תקרה כוללת גם ל-frames נוספים, כשאין גודל פלט במטא-דאטה של הנכס.
+  static const int defaultMaxFullDbBytes = kDefaultMaxExtractedBytes;
 
   /// שם קובץ ה-hint לסך-הבתים של אימות ה-hash — ראו [applyDelta].
   static const String _verifyHintFileName = 'verify_total_bytes.txt';
@@ -159,6 +175,32 @@ class LibraryUpdateApplier {
       OtzariaProcessGuard.processNamesFor(Platform.operatingSystem);
 
   Future<Set<int>> applyDelta({
+    required LibraryUpdatePlan plan,
+    required String dbPath,
+    void Function(LibraryApplyProgress progress)? onProgress,
+    void Function(Set<int> booksTouched, int toVersion)? onStepApplied,
+    bool Function()? isCancelled,
+  }) async {
+    for (final edge in plan.deltaSteps) {
+      for (final source in edge.patchFileUrls.values) {
+        if (!PatchDownloader.isRemoteUrl(source)) {
+          _assertSourceOutsideWorkFiles(source, dbPath);
+        }
+      }
+    }
+    return withFileOperationLock(
+      dbPath,
+      () => _applyDeltaLocked(
+        plan: plan,
+        dbPath: dbPath,
+        onProgress: onProgress,
+        onStepApplied: onStepApplied,
+        isCancelled: isCancelled,
+      ),
+    );
+  }
+
+  Future<Set<int>> _applyDeltaLocked({
     required LibraryUpdatePlan plan,
     required String dbPath,
     void Function(LibraryApplyProgress progress)? onProgress,
@@ -212,16 +254,27 @@ class LibraryUpdateApplier {
             bytesTotal: total,
           ),
         ),
+        onExtractionProgress: (written, total) => onProgress?.call(
+          LibraryApplyProgress(
+            stage: LibraryApplyStage.decompressingPatch,
+            stepIndex: i + 1,
+            stepCount: steps.length,
+            bytesDone: written,
+            bytesTotal: total,
+          ),
+        ),
         isCancelled: isCancelled,
       );
 
       try {
+        _throwIfCancelled(isCancelled);
         await _recovery.beginApply(
           dbPath: dbPath,
           fromVersion: manifest.fromVersion,
           toVersion: manifest.toVersion,
           timestamp: DateTime.now().toIso8601String(),
         );
+        _throwIfCancelled(isCancelled);
 
         onProgress?.call(
           LibraryApplyProgress(
@@ -231,6 +284,7 @@ class LibraryUpdateApplier {
           ),
         );
 
+        _throwIfCancelled(isCancelled);
         if (i < steps.length - 1) {
           _recovery.markUnverified(dbPath, manifest.toVersion);
         }
@@ -295,6 +349,7 @@ class LibraryUpdateApplier {
     required String url,
     required Directory destDir,
     void Function(int done, int? total)? onProgress,
+    void Function(int written, int total)? onExtractionProgress,
     bool Function()? isCancelled,
   }) async {
     if (!PatchDownloader.isRemoteUrl(url)) {
@@ -303,6 +358,7 @@ class LibraryUpdateApplier {
         sourcePath: url,
         destDir: destDir,
         onProgress: onProgress,
+        onExtractionProgress: onExtractionProgress,
         isCancelled: isCancelled,
       );
       if (extracted != null) return extracted;
@@ -315,8 +371,70 @@ class LibraryUpdateApplier {
       downloadUrl: url,
       destDir: destDir,
       onProgress: onProgress,
+      onExtractionProgress: onExtractionProgress,
       isCancelled: isCancelled,
     );
+  }
+
+  void _assertSourceOutsideWorkFiles(String source, String dbPath) {
+    final staged = '$dbPath.download.zst';
+    final owned = <String>[
+      dbPath,
+      '$dbPath.lock',
+      '$dbPath.new',
+      '$dbPath.old',
+      '$dbPath-wal',
+      '$dbPath-shm',
+      staged,
+      '$staged.lock',
+      PatchDownloader.resumeSidecarPath(staged),
+      '$staged.segments',
+      '$staged.segments.tmp',
+      _recovery.markerPathFor(dbPath),
+      _recovery.unverifiedMarkerPathFor(dbPath),
+    ];
+    final parent = Directory(p.dirname(staged));
+    if (parent.existsSync()) {
+      final prefix = '${p.basename(staged)}.seg-';
+      owned.addAll(
+        parent
+            .listSync(followLinks: false)
+            .where((entry) => p.basename(entry.path).startsWith(prefix))
+            .map((entry) => entry.path),
+      );
+    }
+    for (final target in owned) {
+      _assertDistinctSource(source, target);
+    }
+    final sourceReal = _resolvedPath(source);
+    final cacheReal = _resolvedPath(_recovery.patchTmpDirFor(dbPath));
+    if (p.equals(sourceReal, cacheReal) || p.isWithin(cacheReal, sourceReal)) {
+      throw ArgumentError('Local source must be outside update staging files');
+    }
+  }
+
+  static void _assertDistinctSource(String source, String target) {
+    final sourceReal = _resolvedPath(source);
+    final targetReal = _resolvedPath(target);
+    if (p.equals(sourceReal, targetReal) ||
+        (File(source).existsSync() &&
+            File(target).existsSync() &&
+            FileSystemEntity.identicalSync(sourceReal, targetReal))) {
+      throw ArgumentError('Local source must be distinct from update output');
+    }
+  }
+
+  static String _resolvedPath(String path) {
+    var existing = p.normalize(p.absolute(path));
+    final suffix = <String>[];
+    while (FileSystemEntity.typeSync(existing) ==
+        FileSystemEntityType.notFound) {
+      final parent = p.dirname(existing);
+      if (parent == existing) break;
+      suffix.insert(0, p.basename(existing));
+      existing = parent;
+    }
+    return p.joinAll([File(existing).resolveSymbolicLinksSync(), ...suffix]);
   }
 
   Future<String?> _extractLocalPatch({
@@ -324,6 +442,7 @@ class LibraryUpdateApplier {
     required String sourcePath,
     required Directory destDir,
     void Function(int done, int? total)? onProgress,
+    void Function(int written, int total)? onExtractionProgress,
     bool Function()? isCancelled,
   }) async {
     final strings = AppL10n.strings.libraryDomain;
@@ -343,20 +462,63 @@ class LibraryUpdateApplier {
     }
     _throwIfCancelled(isCancelled);
     if (!destDir.existsSync()) destDir.createSync(recursive: true);
-    final extractedPath = p.join(
-      destDir.path,
-      patchFile.file.endsWith('.zst')
-          ? patchFile.file.substring(0, patchFile.file.length - 4)
-          : '${patchFile.file}.db',
+    final name = patchFile.file;
+    final extractedPath = p.join(destDir.path, extractedPatchFileName(name));
+    if (name.isEmpty ||
+        name.contains('/') ||
+        name.contains('\\') ||
+        name.contains(':') ||
+        !p.isWithin(p.absolute(destDir.path), p.absolute(extractedPath)) ||
+        patchFile.size <= 0 ||
+        patchFile.uncompressedSize <= 0) {
+      throw PatchDownloadException(
+        LibraryUpdaterMessages.current.manifestMissingField('file'),
+      );
+    }
+    for (final target in [
+      extractedPath,
+      '$extractedPath.extracting',
+      '$extractedPath.lock',
+    ]) {
+      _assertDistinctSource(sourcePath, target);
+    }
+    return withFileOperationLock(
+      extractedPath,
+      () => _extractLocalPatchLocked(
+        patchFile: patchFile,
+        sourcePath: sourcePath,
+        extractedPath: extractedPath,
+        onProgress: onProgress,
+        onExtractionProgress: onExtractionProgress,
+        isCancelled: isCancelled,
+      ),
     );
+  }
+
+  Future<String?> _extractLocalPatchLocked({
+    required PatchFileEntry patchFile,
+    required String sourcePath,
+    required String extractedPath,
+    void Function(int done, int? total)? onProgress,
+    void Function(int written, int total)? onExtractionProgress,
+    bool Function()? isCancelled,
+  }) async {
+    final strings = AppL10n.strings.libraryDomain;
+    final partialPath = '$extractedPath.extracting';
+    _assertDistinctSource(sourcePath, partialPath);
+    _assertDistinctSource(sourcePath, extractedPath);
+    _deleteQuietly(partialPath);
+    _throwIfCancelled(isCancelled);
     String? sourceDigest;
     String? outputDigest;
     var outputBytes = 0;
     try {
       final streamed = await _streamFile(
         sourcePath,
-        extractedPath,
+        partialPath,
         onProgress: onProgress,
+        onOutputProgress: (written) =>
+            onExtractionProgress?.call(written, patchFile.uncompressedSize),
         onSourceDigest: (hex) => sourceDigest = hex,
         onOutputDigest: (hex, written) {
           outputDigest = hex;
@@ -365,12 +527,19 @@ class LibraryUpdateApplier {
         isCancelled: isCancelled,
         maxOutputBytes: patchFile.uncompressedSize,
       );
-      if (!streamed) return null;
+      if (!streamed) {
+        _deleteQuietly(partialPath);
+        return null;
+      }
+      _throwIfCancelled(isCancelled);
       if (sourceDigest?.toLowerCase() != patchFile.sha256.toLowerCase()) {
         _forgetMirrorVerification(sourcePath);
         throw PatchDownloadException(strings.localFileHashMismatch(sourcePath));
       }
-      if (outputBytes != patchFile.uncompressedSize) {
+      final output = File(partialPath);
+      if (outputBytes != patchFile.uncompressedSize ||
+          !output.existsSync() ||
+          output.lengthSync() != outputBytes) {
         throw PatchDownloadException(
           strings.checksumMismatchDetailed(
             strings.extractedFileSizeLabel,
@@ -385,24 +554,78 @@ class LibraryUpdateApplier {
           strings.checksumMismatch(strings.extractedFileHashLabel),
         );
       }
+      _throwIfCancelled(isCancelled);
+      await output.rename(extractedPath);
       return extractedPath;
     } on ZstdOutputLimitExceeded catch (e) {
-      _deleteQuietly(extractedPath);
+      _deleteQuietly(partialPath);
       _throwIfCancelled(isCancelled);
       _forgetMirrorVerification(sourcePath);
       throw PatchDownloadException(e.message);
     } on ZstdStreamException catch (e) {
       // קובץ שנפגם בכונן נופל כאן, לפני השוואת ה-sha256.
-      _deleteQuietly(extractedPath);
+      _deleteQuietly(partialPath);
       _throwIfCancelled(isCancelled);
       if (!_isCorruptSource(e)) rethrow;
       _forgetMirrorVerification(sourcePath);
       throw PatchDownloadException(strings.localFileHashMismatch(sourcePath));
     } catch (_) {
-      _deleteQuietly(extractedPath);
+      _deleteQuietly(partialPath);
       _throwIfCancelled(isCancelled);
       rethrow;
     }
+  }
+
+  Future<FileExtractionResult> _extractRemotePatch(
+    String sourcePath,
+    String outputPath, {
+    required int maxOutputBytes,
+    bool Function()? isCancelled,
+    void Function(int bytesWritten)? onProgress,
+  }) async {
+    String? outputDigest;
+    int? bytesWritten;
+    final bool streamed;
+    try {
+      streamed = await _streamFile(
+        sourcePath,
+        outputPath,
+        onOutputProgress: onProgress,
+        onOutputDigest: (digest, written) {
+          outputDigest = digest;
+          bytesWritten = written;
+        },
+        maxOutputBytes: maxOutputBytes,
+        isCancelled: isCancelled,
+      );
+    } on ZstdStreamException catch (error) {
+      _throwIfCancelled(isCancelled);
+      if (error is ZstdCancelledException) {
+        throw const PatchDownloadCancelled();
+      }
+      if (error is ZstdOutputLimitExceeded || _isCorruptSource(error)) {
+        throw PatchDownloadException(error.message);
+      }
+      rethrow;
+    } catch (_) {
+      _throwIfCancelled(isCancelled);
+      rethrow;
+    }
+    _throwIfCancelled(isCancelled);
+    if (!streamed) {
+      throw LibraryApplyException(
+        AppL10n.strings.libraryDomain.patchNeedsNativeZstd,
+      );
+    }
+    if (outputDigest == null || bytesWritten == null) {
+      throw StateError(
+        'Streaming extractor did not report output verification',
+      );
+    }
+    return FileExtractionResult(
+      bytesWritten: bytesWritten!,
+      sha256: outputDigest!,
+    );
   }
 
   /// מוריד ומתקין DB מלא — עבור התקנה טרייה (אין DB קיים) או כש-planner
@@ -412,6 +635,42 @@ class LibraryUpdateApplier {
   /// ([PatchDownloader.downloadToFile]), ומשם מחולץ קובץ-לקובץ דרך
   /// [ZstdFileDecompressor] — שיא הזיכרון הוא חוצצים בודדים, לא ~1.1GB של DB.
   Future<void> applyFullDownload({
+    required LibraryUpdatePlan plan,
+    required String dbPath,
+    void Function(LibraryApplyProgress progress)? onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    if (plan.kind != LibraryUpdatePlanKind.fullDownload) {
+      throw StateError('applyFullDownload נקרא על תוכנית שאינה fullDownload');
+    }
+    final source = plan.fullDbAsset?.downloadUrl;
+    if (source != null && !PatchDownloader.isRemoteUrl(source)) {
+      _assertSourceOutsideWorkFiles(source, dbPath);
+    }
+    _throwIfCancelled(isCancelled);
+    final dir = Directory(p.dirname(dbPath));
+    try {
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+    } on FileSystemException catch (error) {
+      throw LibraryApplyException(
+        AppL10n.strings.libraryDomain.installDirNotWritable(
+          dir.path,
+          error.osError?.message ?? error.message,
+        ),
+      );
+    }
+    return withFileOperationLock(
+      dbPath,
+      () => _applyFullDownloadLocked(
+        plan: plan,
+        dbPath: dbPath,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      ),
+    );
+  }
+
+  Future<void> _applyFullDownloadLocked({
     required LibraryUpdatePlan plan,
     required String dbPath,
     void Function(LibraryApplyProgress progress)? onProgress,
@@ -543,7 +802,9 @@ class LibraryUpdateApplier {
             ? (hex) => sourceDigest = hex
             : null,
         isCancelled: isCancelled,
+        maxOutputBytes: _maxFullDbBytes,
       );
+      _throwIfCancelled(isCancelled);
       if (!streamed) {
         throw LibraryApplyException(
           AppL10n.strings.libraryDomain.fullDbNeedsNativeZstd,
@@ -558,8 +819,8 @@ class LibraryUpdateApplier {
       }
     } catch (e) {
       _deleteQuietly(newFilePath);
-      deleteStaged();
       _throwIfCancelled(isCancelled);
+      if (_isCorruptSource(e)) deleteStaged();
       if (_isFileTooLargeError(e)) {
         throw LibraryApplyException(
           AppL10n.strings.libraryDomain.fileTooLargeForVolume(dir.path),
@@ -582,9 +843,9 @@ class LibraryUpdateApplier {
         ? File(newFilePath).lengthSync()
         : 0;
     if (writtenSize == 0 ||
+        writtenSize > _maxFullDbBytes ||
         (extractedSize != null && writtenSize < extractedSize)) {
       _deleteQuietly(newFilePath);
-      deleteStaged();
       throw LibraryApplyException(
         AppL10n.strings.libraryDomain.fullDbExtractionFailed,
       );
@@ -592,10 +853,11 @@ class LibraryUpdateApplier {
 
     // אימות **לפני** ההחלפה, כמו באוצריא: מסד פגום או בגרסה לא נכונה נעצר
     // כאן, בעוד ה-DB החי עדיין שלם — במקום להחליף ואז לשחזר מגיבוי.
-    onProgress?.call(
-      const LibraryApplyProgress(stage: LibraryApplyStage.verifying),
-    );
     try {
+      onProgress?.call(
+        const LibraryApplyProgress(stage: LibraryApplyStage.verifying),
+      );
+      _throwIfCancelled(isCancelled);
       await _verifyExtractedDb(
         newFilePath,
         plan.targetVersion,
@@ -609,12 +871,10 @@ class LibraryUpdateApplier {
       );
     } catch (_) {
       _deleteQuietly(newFilePath);
-      deleteStaged();
       rethrow;
     }
     if (isCancelled?.call() ?? false) {
       _deleteQuietly(newFilePath);
-      deleteStaged();
     }
     _throwIfCancelled(isCancelled);
 
@@ -632,7 +892,6 @@ class LibraryUpdateApplier {
         // כשל כאן (תיקייה שאינה ניתנת לכתיבה) קרה **אחרי** שהמסד המחולץ כבר
         // על הדיסק — בלי הניקוי הזה נשארים ~1.1GB תלויים על כונן שכבר צר.
         _deleteQuietly(newFilePath);
-        deleteStaged();
         rethrow;
       }
     }
@@ -641,19 +900,20 @@ class LibraryUpdateApplier {
     // החוזרת עולה כלום, ובלעדיה ב-macOS היינו מוחקים את המסד מתחת לאוצריא
     // רצה (`unlink` על קובץ פתוח מצליח שם).
     try {
+      _throwIfCancelled(isCancelled);
       await _guardOtzariaNotRunning();
+      _throwIfCancelled(isCancelled);
+      onProgress?.call(
+        const LibraryApplyProgress(stage: LibraryApplyStage.writingFullDb),
+      );
+      _throwIfCancelled(isCancelled);
     } catch (_) {
       if (dbAlreadyExists && !markerPreexisted) {
         _recovery.clearStaleArtifacts(dbPath);
       }
       _deleteQuietly(newFilePath);
-      deleteStaged();
       rethrow;
     }
-
-    onProgress?.call(
-      const LibraryApplyProgress(stage: LibraryApplyStage.writingFullDb),
-    );
     // מפנים את השם בשני שלבים במקום למחוק ואז להחליף: rename הוא מיידי ואינו
     // עולה מקום, וכך אין רגע שבו אין מסד כלל. מחיקה-ואז-rename שנקטע באמצע
     // (נעילה של אנטי-וירוס, הפסקת חשמל) הותירה את המשתמש בלי ספרייה.
@@ -667,7 +927,6 @@ class LibraryUpdateApplier {
       }
       File(newFilePath).renameSync(dbPath);
     } catch (_) {
-      deleteStaged();
       // גלגול אחור: המסד הישן חוזר לשמו. `<db>.new` נמחק בתחילת הריצה הבאה.
       var rolledBack = false;
       if (retired) {
@@ -842,7 +1101,7 @@ class LibraryUpdateApplier {
 
   void _throwIfCancelled(bool Function()? isCancelled) {
     if (isCancelled?.call() ?? false) {
-      throw LibraryApplyException(
+      throw LibraryApplyCancelledException(
         AppL10n.strings.libraryDomain.updateCancelled,
       );
     }
@@ -907,7 +1166,8 @@ class LibraryUpdateApplier {
   static bool _isCorruptSource(Object e) =>
       e is ZstdStreamException &&
       e is! ZstdOutputLimitExceeded &&
-      e is! ZstdResourceException;
+      e is! ZstdResourceException &&
+      e is! ZstdCancelledException;
 
   void _deleteQuietly(String path) {
     try {
