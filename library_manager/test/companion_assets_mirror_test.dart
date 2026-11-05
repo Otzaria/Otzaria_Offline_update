@@ -393,19 +393,31 @@ void main() {
     addTearDown(built.mirror.dispose);
     Object? thrown;
 
-    await runWithFailingRandomWrites(() async {
-      try {
-        await built.mirror.sync(destDir: destDir);
-      } catch (error) {
-        thrown = error;
-      }
-    }, matches: (path) => p.basename(path) == 'talmud_bavli_latest.tar.zst');
+    await runWithFailingRandomWrites(
+      () async {
+        try {
+          await built.mirror.sync(destDir: destDir);
+        } catch (error) {
+          thrown = error;
+        }
+      },
+      matches: (path) => p.basename(path) == 'talmud_bavli_latest.tar.zst.new',
+    );
 
     expect(thrown, isA<StorageFullException>(), reason: '$thrown');
     final manifest = (await CompanionMirrorManifest.load(destDir))!;
     expect(
       manifest.entries.keys,
       containsAll([CompanionAsset.catalog, CompanionAsset.dictionary]),
+    );
+    expect(manifest.entries[CompanionAsset.talmud]!.tag, 'lib-v9');
+    expect(
+      await File(p.join(destDir, 'talmud_bavli_latest.tar.zst')).readAsBytes(),
+      bodyOf('talmud_bavli_latest.tar.zst'),
+    );
+    expect(
+      File(p.join(destDir, 'talmud_bavli_latest.tar.zst.new')).existsSync(),
+      isFalse,
     );
   });
 
