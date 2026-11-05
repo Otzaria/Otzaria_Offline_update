@@ -51,6 +51,7 @@ class AppReport {
     required this.appVersion,
     required this.platform,
     required this.createdAt,
+    this.schema = schemaVersion,
     this.description = '',
     this.stepsToReproduce = '',
     this.reporterEmail = '',
@@ -71,7 +72,7 @@ class AppReport {
     this.sentAt,
   });
 
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
 
   /// ערך `product` בדיווחים של הלאנצ'ר על עצמו — האתר מנתב לפיו לריפו שלו.
   /// דיווח בלעדיו הוא של אוצריא, ולכן דיווחים שנאספו מאוצריא לא מקבלים אותו.
@@ -84,14 +85,16 @@ class AppReport {
   static const int maxArchLength = 20;
   static const int maxSentryEventIdLength = 64;
 
-  /// גבולות בבייטים; מחושבים ב-1000 כדי להישאר מתחת לגבול השרת בכל פירוש.
-  static const int maxDiagnosticsBytes = 300 * 1000;
-  static const int maxErrorLogBytes = 250 * 1000;
+  /// Schema 2 counts all attachments in binary MiB, without truncating them.
+  static const int maxDiagnosticsBytes = 10 * 1024 * 1024;
+  static const int maxErrorLogBytes = 10 * 1024 * 1024;
+  static const int legacyMaxDiagnosticsBytes = 300 * 1000;
+  static const int legacyMaxErrorLogBytes = 250 * 1000;
   static const int maxBodyBytes = 700 * 1000;
 
-  static const int maxRequestBytes = maxBodyBytes +
-      AppReportImage.maxPayloadBytes +
-      AppReportMinidump.maxPayloadBytes;
+  /// Includes worst-case JSON escaping (six bytes per control character),
+  /// base64, gzip overhead and metadata. Attachment validation runs first.
+  static const int maxRequestBytes = 128 * 1024 * 1024;
 
   static const Set<String> platforms = {
     'windows',
@@ -102,6 +105,7 @@ class AppReport {
   };
 
   final String reportId;
+  final int schema;
   final AppReportType type;
   final AppReportTrigger trigger;
   final String title;
@@ -161,6 +165,7 @@ class AppReport {
 
   /// שם השדה הראשון שהשרת ידחה (422), או null כשהדיווח תקין לשליחה.
   String? validate() {
+    if (schema != 1 && schema != schemaVersion) return 'schema';
     if (reportId.isEmpty || reportId.length > 100) return 'reportId';
     if (title.trim().isEmpty) return 'title';
     final email = reporterEmail.trim();
@@ -171,26 +176,83 @@ class AppReport {
       return 'reporterEmail';
     }
     if (appVersion.trim().isEmpty) return 'appVersion';
+    final imageLimit =
+        schema == 1 ? AppReportImage.legacyMaxBytes : AppReportImage.maxBytes;
+    if (images.length > AppReportImage.maxCount ||
+        images.any((image) => image.bytes.length > imageLimit)) {
+      return 'attachments.images';
+    }
+    final imageBytes = images.fold<int>(
+      0,
+      (sum, image) => sum + image.bytes.length,
+    );
+    if (schema == 1) {
+      if (imageBytes > AppReportImage.legacyMaxTotalBytes) {
+        return 'attachments.images';
+      }
+      // Legacy queues may contain dumps produced before raw size was tracked.
+      if (minidump != null &&
+          minidump!.gzipBytes.length >
+              AppReportMinidump.legacyMaxRawBytes +
+                  AppReportMinidump.compressionAllowance) {
+        return 'attachments.minidump';
+      }
+    } else {
+      if (diagnostics != null &&
+          _utf8Length(jsonEncode(diagnostics)) > maxDiagnosticsBytes) {
+        return 'attachments.diagnostics';
+      }
+      if (errorLog != null && _utf8Length(errorLog!) > maxErrorLogBytes) {
+        return 'attachments.errorLog';
+      }
+      final dump = minidump;
+      if (dump != null &&
+          (dump.rawByteLength == null ||
+              dump.rawByteLength! > AppReportMinidump.maxRawBytes ||
+              dump.gzipBytes.length >
+                  AppReportMinidump.maxRawBytes +
+                      AppReportMinidump.compressionAllowance)) {
+        return 'attachments.minidump';
+      }
+      if (imageBytes + otherAttachmentBytes > AppReportImage.maxTotalBytes) {
+        return 'attachments';
+      }
+    }
     return null;
   }
 
-  /// גוף הבקשה לשרת, חתוך לגבולות החוזה ולגבול הגוף הכולל.
-  Map<String, dynamic> toApiPayload() {
+  /// Counts complete text for schema 2 and legacy truncation for schema 1,
+  /// without allocating image base64 during form budget checks.
+  int get otherAttachmentBytes {
+    final attachments = _textPayload()['attachments'] as Map<String, dynamic>?;
+    final diag = attachments?['diagnostics'];
+    final log = attachments?['errorLog'];
+    return (diag == null ? 0 : _utf8Length(jsonEncode(diag))) +
+        (log is String ? _utf8Length(log) : 0) +
+        (minidump?.rawByteLength ?? 0);
+  }
+
+  /// גוף הבקשה לשרת; חיתוך צרופות נשמר רק לתאימות schema 1.
+  Map<String, dynamic> toApiPayload() => _addImages(_textPayload());
+
+  Map<String, dynamic> _textPayload() {
     final payload = _basePayload();
     final attachments = <String, dynamic>{};
     final diag = diagnostics;
     if (diag != null) {
-      attachments['diagnostics'] = _utf8Length(jsonEncode(diag)) <=
-              maxDiagnosticsBytes
+      attachments['diagnostics'] = schema != 1 ||
+              _utf8Length(jsonEncode(diag)) <= legacyMaxDiagnosticsBytes
           ? diag
           : {'truncated': true, 'reason': 'diagnostics exceeded size limit'};
     }
     final log = errorLog;
     if (log != null && log.isNotEmpty) {
-      attachments['errorLog'] = keepTailBytes(log, maxErrorLogBytes);
+      attachments['errorLog'] =
+          schema == 1 ? keepTailBytes(log, legacyMaxErrorLogBytes) : log;
     }
-    if (attachments.isEmpty) return _addImages(payload);
+    if (attachments.isEmpty) return payload;
     payload['attachments'] = attachments;
+    if (schema != 1) return payload;
 
     // מעבר לגבול הכולל — מקצרים קודם את הלוג (מהישן), ורק אז מוותרים על האבחון.
     var overflow = _utf8Length(jsonEncode(payload)) - maxBodyBytes;
@@ -205,10 +267,10 @@ class AppReport {
       overflow = _utf8Length(jsonEncode(payload)) - maxBodyBytes;
     }
     if (overflow > 0) attachments.remove('diagnostics');
-    _addImages(payload);
     return payload;
   }
 
+  /// Binary data is encoded only when constructing the actual request.
   Map<String, dynamic> _addImages(Map<String, dynamic> payload) {
     final attachments = (payload['attachments'] as Map<String, dynamic>?) ??
         <String, dynamic>{};
@@ -228,7 +290,7 @@ class AppReport {
   Map<String, dynamic> _basePayload() {
     final email = reporterEmail.trim();
     return {
-      'schema': schemaVersion,
+      'schema': schema,
       if (product != null && product!.isNotEmpty) 'product': product,
       'reportId': reportId,
       'type': type.name,
@@ -267,6 +329,7 @@ class AppReport {
   factory AppReport.fromJson(Map<String, dynamic> json) {
     final diagnostics = json['diagnostics'];
     return AppReport(
+      schema: json['schema'] is int ? json['schema'] as int : 1,
       reportId: '${json['reportId'] ?? ''}',
       type: AppReportType.parse(json['type']),
       trigger: AppReportTrigger.parse(json['trigger']),
@@ -303,6 +366,7 @@ class AppReport {
 
   /// הרשומה המלאה לתור המקומי, כולל שדות התוצאה.
   Map<String, dynamic> toJson() => {
+        'schema': schema,
         'reportId': reportId,
         'type': type.name,
         'trigger': trigger.wireName,
@@ -334,6 +398,7 @@ class AppReport {
   static const Object _unset = Object();
 
   AppReport copyWith({
+    int? schema,
     String? reportId,
     AppReportType? type,
     String? title,
@@ -354,6 +419,7 @@ class AppReport {
     Object? sentAt = _unset,
   }) {
     return AppReport(
+      schema: schema ?? this.schema,
       reportId: reportId ?? this.reportId,
       type: type ?? this.type,
       trigger: trigger,

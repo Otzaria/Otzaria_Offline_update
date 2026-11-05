@@ -11,7 +11,7 @@ import 'package:test/test.dart';
 
 import 'support.dart';
 
-void _createOtzariaSchema(Database db, {int userVersion = 1}) {
+void _createOtzariaSchema(Database db, {int userVersion = 2}) {
   db.execute('''
     CREATE TABLE IF NOT EXISTS lists (
       box TEXT NOT NULL,
@@ -30,6 +30,17 @@ void _createOtzariaSchema(Database db, {int userVersion = 1}) {
     )
   ''');
   db.execute('PRAGMA user_version = $userVersion');
+  if (userVersion < 2) return;
+  // Same separate local tables as Otzaria's ReportDraftStore.
+  db.execute('''CREATE TABLE report_drafts (
+    id TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL,
+    payload_json TEXT NOT NULL, created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL, revision INTEGER NOT NULL
+  )''');
+  db.execute('''CREATE TABLE report_draft_attachments (
+    draft_id TEXT PRIMARY KEY REFERENCES report_drafts(id) ON DELETE CASCADE,
+    payload_json TEXT NOT NULL
+  )''');
 }
 
 Map<String, dynamic> _stored(String id,
@@ -59,7 +70,7 @@ void main() {
   });
   tearDown(() => temp.deleteSync(recursive: true));
 
-  Database create({int userVersion = 1}) {
+  Database create({int userVersion = 2}) {
     final db = sqlite3.open(dbPath);
     _createOtzariaSchema(db, userVersion: userVersion);
     return db;
@@ -99,6 +110,136 @@ void main() {
       db.close();
     }
   }
+
+  test(
+      'local drafts and their attachments are never collected, explicit queued reports are',
+      () async {
+    final fixture = jsonDecode(
+            File('test/fixtures/app_report_schema2.json').readAsStringSync())
+        as Map;
+    final app = Map<String, dynamic>.from(fixture['stored'] as Map);
+    final book = _stored('book-draft');
+    final db = create();
+    for (final (id, kind, payload) in [
+      ('app-draft', 'app', app),
+      ('book-draft', 'book', book),
+    ]) {
+      db.execute('INSERT INTO report_drafts VALUES (?,?,?,?,0,0,1)',
+          [id, kind, 'unfinished', jsonEncode(payload)]);
+      db.execute('INSERT INTO report_draft_attachments VALUES (?,?)', [
+        id,
+        jsonEncode({'images': app['images'], 'localOnly': 'draft-secret'})
+      ]);
+    }
+    // A fully valid legacy draft must also remain local, even though its old
+    // storage uses pending_reports with a different kind.
+    insert(db, 'app_reports_queue/draft', app);
+    insert(db, pending, _stored('old-pending'));
+    insert(db, pending, _stored('explicitly-queued'));
+    insert(db, UserStateReportQueue.appPendingKindV2, app);
+    final draftRows = db
+        .select('SELECT * FROM report_drafts ORDER BY id')
+        .map((r) => Map<String, Object?>.from(r))
+        .toList();
+    final attachmentRows = db
+        .select('SELECT * FROM report_draft_attachments ORDER BY draft_id')
+        .map((r) => Map<String, Object?>.from(r))
+        .toList();
+    db.close();
+
+    final outbox = MemoryOutbox(const []);
+    final queue = UserStateReportQueue(dbPath, reportsQueueFormat: 2);
+    expect(await queue.countSendable(), 3);
+    expect((await queue.collectTo(outbox)).collected, 3);
+    expect(outbox.reports.map((r) => r.reportId),
+        ['old-pending', 'explicitly-queued', 'app-${app['reportId']}']);
+    expect(outbox.bodyOf(outbox.reports.last), fixture['payload']);
+    for (final report in outbox.reports) {
+      expect(
+          jsonEncode(outbox.bodyOf(report)), isNot(contains('draft-secret')));
+    }
+    expect(rows('app_reports_queue/draft'), [app]);
+    final after = sqlite3.open(dbPath);
+    try {
+      expect(
+          after
+              .select('SELECT * FROM report_drafts ORDER BY id')
+              .map((r) => Map<String, Object?>.from(r))
+              .toList(),
+          draftRows);
+      expect(
+          after
+              .select(
+                  'SELECT * FROM report_draft_attachments ORDER BY draft_id')
+              .map((r) => Map<String, Object?>.from(r))
+              .toList(),
+          attachmentRows);
+    } finally {
+      after.close();
+    }
+  });
+
+  for (final userVersion in [1, 2]) {
+    for (final queueFormat in <int?>[null, 1, 2]) {
+      test('DB $userVersion, queue format $queueFormat preserves both schemas',
+          () async {
+        final fixture = jsonDecode(File('test/fixtures/app_report_schema2.json')
+            .readAsStringSync()) as Map;
+        final schema2 = Map<String, dynamic>.from(fixture['stored'] as Map);
+        final schema1 = {...schema2, 'reportId': 'legacy'}..remove('schema');
+        final db = create(userVersion: userVersion);
+        insert(db, UserStateReportQueue.appPendingKind, schema1);
+        insert(db, UserStateReportQueue.appPendingKindV2, schema2);
+        db.close();
+        final outbox = MemoryOutbox(const []);
+        final queue =
+            UserStateReportQueue(dbPath, reportsQueueFormat: queueFormat);
+        expect((await queue.collectTo(outbox)).collected, 2);
+        expect(outbox.bodyOf(outbox.reports[0])['schema'], 1);
+        expect(outbox.bodyOf(outbox.reports[1])['schema'], 2);
+        expect(rows(UserStateReportQueue.appPendingKind), isEmpty);
+        expect(rows(UserStateReportQueue.appPendingKindV2), isEmpty);
+        expect(rows('app_reports_queue/sent_reports').length, 2);
+      });
+    }
+  }
+
+  test(
+      '20 MiB payload survives real queue and outbox; an excess byte stays pending',
+      () async {
+    const limit = 10 * 1024 * 1024;
+    final fixture = jsonDecode(
+            File('test/fixtures/app_report_schema2.json').readAsStringSync())
+        as Map;
+    final data = base64Encode(Uint8List(limit));
+    final stored = {
+      ...Map<String, dynamic>.from(fixture['stored'] as Map),
+      'images': [
+        {'fileName': 'first.gif', 'mimeType': 'image/gif', 'data': data},
+        {'fileName': 'second.gif', 'mimeType': 'image/gif', 'data': data},
+      ],
+    }
+      ..remove('diagnostics')
+      ..remove('errorLog')
+      ..remove('minidump');
+    final db = create();
+    insert(db, UserStateReportQueue.appPendingKindV2, stored);
+    insert(db, UserStateReportQueue.appPendingKindV2,
+        {...stored, 'reportId': 'excess', 'errorLog': 'x'});
+    db.close();
+    final queue = UserStateReportQueue(dbPath, reportsQueueFormat: 2);
+    expect(await queue.countSendable(), 1);
+    final outbox = MemoryOutbox(const []);
+    expect((await queue.collectTo(outbox)).collected, 1);
+    final payload = outbox.bodyOf(outbox.reports.single);
+    expect(payload['schema'], 2);
+    expect(
+        ((payload['attachments'] as Map)['images'] as List)
+            .map((i) => base64Decode(i['data'] as String).length),
+        [limit, limit]);
+    expect(rows(UserStateReportQueue.appPendingKindV2).single['reportId'],
+        'excess');
+  });
 
   test('כל עבודת ה-SQLite עוברת ב-isolate, ובאיסוף שורה אחת בכל פעם', () async {
     final db = create();
@@ -559,7 +700,7 @@ void main() {
       db.close();
       final before = File(dbPath).readAsBytesSync();
 
-      final queue = UserStateReportQueue(dbPath, reportsQueueFormat: 2);
+      final queue = UserStateReportQueue(dbPath, reportsQueueFormat: 3);
       expect(await queue.countSendable(), 0);
       expect((await queue.collectTo(MemoryOutbox(const []))).collected, 0);
       expect(File(dbPath).readAsBytesSync(), before);

@@ -179,9 +179,9 @@ class UserStateReportQueue implements OtzariaReportQueue {
 
   /// ה-`user_version` שאוצריא כותבת (`UserStateDatabase._schemaVersion`). מסד
   /// חדש ממנו — לא נוגעים בו בכלל.
-  static const int knownSchemaVersion = 1;
+  static const int knownSchemaVersion = 2;
 
-  static const int knownQueueFormat = 1;
+  static const int knownQueueFormat = 2;
 
   static const String carriedBy = 'offline-update';
 
@@ -189,6 +189,7 @@ class UserStateReportQueue implements OtzariaReportQueue {
   static const String pendingKind = 'error_reports_queue/pending_reports';
   static const String sentKind = 'error_reports_queue/sent_reports';
   static const String appPendingKind = 'app_reports_queue/pending_reports';
+  static const String appPendingKindV2 = 'app_reports_queue/pending_reports_v2';
   static const String pluginPendingKind =
       'plugin_reports_queue/pending_reports';
   static const String counterBox = 'error_reports_queue';
@@ -277,7 +278,11 @@ class UserStateReportQueue implements OtzariaReportQueue {
   /// `null` = אין מה לגעת בו: אין קובץ, פורמט תור לא מוכר, או בלי הטבלה.
   static Database? _open(String dbPath, int? queueFormat) {
     if (!File(dbPath).existsSync()) return null;
-    if (queueFormat != null && queueFormat != knownQueueFormat) return null;
+    if (queueFormat != null &&
+        queueFormat != 1 &&
+        queueFormat != knownQueueFormat) {
+      return null;
+    }
     final db = sqlite3.open(dbPath, mode: OpenMode.readWrite);
     try {
       db.execute('PRAGMA busy_timeout=5000');
@@ -306,11 +311,11 @@ class UserStateReportQueue implements OtzariaReportQueue {
       final seen = <String>{};
       final statement = db.prepare(
         'SELECT id, kind, payload_json FROM pending_reports '
-        'WHERE kind IN (?, ?, ?) ORDER BY id',
+        'WHERE kind IN (?, ?, ?, ?) ORDER BY id',
       );
       try {
         final cursor = statement.selectCursor(
-          [pendingKind, appPendingKind, pluginPendingKind],
+          [pendingKind, appPendingKind, appPendingKindV2, pluginPendingKind],
         );
         while (cursor.moveNext()) {
           final built = _build(cursor.current);
@@ -333,7 +338,7 @@ class UserStateReportQueue implements OtzariaReportQueue {
       final rows = db.select(
         'SELECT id, kind, payload_json FROM pending_reports '
         'WHERE id = ? AND kind = ?',
-        [mark.rowId, mark.kind.pendingKind],
+        [mark.rowId, mark.pendingKind],
       );
       if (rows.isEmpty) return null;
       final built = _build(rows.first);
@@ -351,8 +356,11 @@ class UserStateReportQueue implements OtzariaReportQueue {
     try {
       final decoded = jsonDecode(json);
       if (decoded is! Map<String, dynamic>) return null;
-      final kind = _ReportKind.values
-          .firstWhere((kind) => kind.pendingKind == row['kind']);
+      final pendingKind = row['kind'] as String;
+      final kind = pendingKind == appPendingKindV2
+          ? _ReportKind.app
+          : _ReportKind.values
+              .firstWhere((kind) => kind.pendingKind == pendingKind);
       final String id;
       final String title;
       final String createdAt;
@@ -393,6 +401,7 @@ class UserStateReportQueue implements OtzariaReportQueue {
         rowId: row['id'] as int,
         payloadDigest: _digest(json),
         kind: kind,
+        pendingKind: pendingKind,
         reportId: id,
       );
       return (
@@ -449,7 +458,7 @@ class UserStateReportQueue implements OtzariaReportQueue {
 
   static bool _markAsSent(Database db, _MarkRow row, int now) {
     final kind = row.kind;
-    final pendingKind = kind.pendingKind;
+    final pendingKind = row.pendingKind;
     final sentKind = '${kind.box}/sent_reports';
     final idOf = _field('json_extract', '\$.${kind.idField}');
     final rejection = _field('json_type', r'$.rejectionReason');
@@ -499,10 +508,17 @@ class UserStateReportQueue implements OtzariaReportQueue {
       }
 
       // `deletePendingReport`: כל השורות הממתינות באותו מזהה.
-      db.execute(
-        'DELETE FROM pending_reports WHERE kind = ? AND $idOf = ?',
-        [pendingKind, reportId],
-      );
+      if (kind == _ReportKind.app) {
+        db.execute(
+          'DELETE FROM pending_reports WHERE kind IN (?, ?) AND $idOf = ?',
+          [appPendingKind, appPendingKindV2, reportId],
+        );
+      } else {
+        db.execute(
+          'DELETE FROM pending_reports WHERE kind = ? AND $idOf = ?',
+          [pendingKind, reportId],
+        );
+      }
       db.execute('COMMIT');
       return true;
     } catch (_) {
@@ -552,10 +568,12 @@ class _MarkRow {
     required this.payloadDigest,
     required this.reportId,
     required this.kind,
+    required this.pendingKind,
   });
 
   final int rowId;
   final _ReportKind kind;
+  final String pendingKind;
   final String payloadDigest;
   final String reportId;
 
