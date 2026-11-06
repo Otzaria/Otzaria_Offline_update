@@ -144,14 +144,17 @@ class AppReportForm extends ChangeNotifier {
   /// השרת דחה את הדיווח (400/413/422/409 חוזר) — לא נשמר לשליחה חוזרת.
   bool get wasRejected => result?.isFailed ?? false;
 
-  /// הדיווח מהמצב הנוכחי — בדיוק מה שיישלח, ולכן גם מה שהתצוגה המקדימה
-  /// מראה. ההסתרה חלה על הטקסטים של המשתמש; הצרופות כבר הוסתרו פעם אחת
-  /// באיסוף ([AppReportAttachmentsCollector]), ולכן אינן עוברות אותה שוב בכל
-  /// הקלדה.
-  AppReport buildReport() {
+  int get otherAttachmentBytes =>
+      _buildReport(type ?? AppReportType.bug).otherAttachmentBytes;
+
+  /// הדיווח שיישלח ויוצג בתצוגה המקדימה; רק טקסטי המשתמש מוסתרים כאן.
+  /// הצרופות הוסתרו כבר באיסוף, ולא עוברות הסתרה מחדש בכל הקלדה.
+  AppReport buildReport() => _buildReport(type!);
+
+  AppReport _buildReport(AppReportType reportType) {
     final fields = AppReport(
       reportId: _reportId,
-      type: type!,
+      type: reportType,
       trigger: trigger,
       title: title,
       description: description,
