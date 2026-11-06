@@ -12,7 +12,7 @@ import 'support/zstd_fixtures.dart';
 ///
 /// הבדיקה מדולגת כשאין ספריית zstd לטעינה (למשל לינוקס ב-CI, או הרצת
 /// `flutter test` בלי שהפלאגין של הפלטפורמה נבנה) — בדיוק המצב שבו הקוד
-/// שבייצור נופל למסלול הזיכרון. ב-Windows יש להריץ עם התיקייה של
+/// שבייצור מסרב לחילוץ. ב-Windows יש להריץ עם התיקייה של
 /// `zstandard_windows.dll` ב-PATH; ראו library_manager/README.md.
 void main() {
   final bindings = nativeZstd();
@@ -123,7 +123,7 @@ void main() {
         ),
       );
 
-      expect(File(destPath).lengthSync(), lessThanOrEqualTo(limit));
+      expect(File(destPath).existsSync(), isFalse);
       expect(reports.last, lessThan(File(compressedPath).lengthSync()));
     });
 
@@ -181,7 +181,162 @@ void main() {
       );
 
       expect(reports, isEmpty);
-      expect(File(destPath).lengthSync(), 0);
+      expect(File(destPath).existsSync(), isFalse);
+    });
+
+    test('ביטול בתוך מקטע קלט דחוס מאוד מנקה את הפלט בלבד', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      const outputSize = 64 * 1024 * 1024;
+      final compressed = compressWithZstd(bindings, Uint8List(outputSize));
+      expect(compressed.length, lessThan(128 * 1024));
+      final source = File('${tmp.path}/dense.zst')
+        ..writeAsBytesSync(compressed);
+      final output = File('${tmp.path}/dense.bin');
+      var cancelled = false;
+      var digestCalled = false;
+      final latency = Stopwatch();
+      final reports = <int>[];
+      await expectLater(
+        ZstdFileDecompressor.decompressFileToFile(
+          source.path,
+          output.path,
+          maxOutputBytes: outputSize,
+          isCancelled: () => cancelled,
+          onOutputProgress: (written) {
+            reports.add(written);
+            if (!cancelled) {
+              cancelled = true;
+              latency.start();
+            }
+          },
+          onOutputDigest: (_, _) => digestCalled = true,
+        ),
+        throwsA(isA<ZstdCancelledException>()),
+      );
+      latency.stop();
+      expect(reports.first, lessThan(outputSize));
+      expect(latency.elapsed, lessThan(const Duration(seconds: 5)));
+      expect(digestCalled, isFalse);
+      expect(output.existsSync(), isFalse);
+      expect(source.readAsBytesSync(), compressed);
+    });
+
+    test('שגיאת progress מנקה פלט חלקי ושומרת את השגיאה', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final source = File('${tmp.path}/dense.zst')
+        ..writeAsBytesSync(compressWithZstd(bindings, Uint8List(16 << 20)));
+      final output = File('${tmp.path}/dense.bin');
+      final failure = StateError('progress failed');
+      await expectLater(
+        ZstdFileDecompressor.decompressFileToFile(
+          source.path,
+          output.path,
+          onOutputProgress: (_) => throw failure,
+        ),
+        throwsA(same(failure)),
+      );
+      expect(output.existsSync(), isFalse);
+      expect(source.existsSync(), isTrue);
+    });
+
+    test('אינו מוחק יעד קיים בביטול לפני תחילת הפעולה', () async {
+      final source = File('${tmp.path}/source.zst')
+        ..writeAsStringSync('source');
+      final output = File('${tmp.path}/existing.bin')
+        ..writeAsStringSync('keep');
+      await expectLater(
+        ZstdFileDecompressor.decompressFileToFile(
+          source.path,
+          output.path,
+          isCancelled: () => true,
+        ),
+        throwsA(isA<ZstdCancelledException>()),
+      );
+      expect(output.readAsStringSync(), 'keep');
+      expect(source.readAsStringSync(), 'source');
+    });
+
+    test('דוחה יעד זהה למקור בלי לשנותו', () async {
+      final source = File('${tmp.path}/source.zst')..writeAsStringSync('keep');
+      await expectLater(
+        ZstdFileDecompressor.decompressFileToFile(source.path, source.path),
+        throwsArgumentError,
+      );
+      expect(source.readAsStringSync(), 'keep');
+    });
+
+    test(
+      'ביטול בהתקדמות הפלט האחרונה מנוקה לפני קבלת תוצאת ה-worker',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        final bytes = pseudoRandomBytes((128 << 10) + 17);
+        final source = File('${tmp.path}/final.zst')
+          ..writeAsBytesSync(compressWithZstd(bindings, bytes));
+        final output = File('${tmp.path}/final.bin');
+        var cancelled = false;
+        var digestDelivered = false;
+        await expectLater(
+          ZstdFileDecompressor.decompressFileToFile(
+            source.path,
+            output.path,
+            isCancelled: () => cancelled,
+            onOutputProgress: (written) {
+              if (written == bytes.length) cancelled = true;
+            },
+            onOutputDigest: (_, __) => digestDelivered = true,
+          ),
+          throwsA(isA<ZstdCancelledException>()),
+        );
+        expect(cancelled, isTrue);
+        expect(digestDelivered, isFalse);
+        expect(output.existsSync(), isFalse);
+        expect(source.existsSync(), isTrue);
+      },
+    );
+
+    test('דוחה יעד שמצביע למקור דרך קישור סמלי', () async {
+      if (Platform.isWindows) {
+        markTestSkipped('יצירת symlink ב-Windows דורשת הרשאה נוספת');
+        return;
+      }
+      final source = File('${tmp.path}/source.zst')..writeAsStringSync('keep');
+      final alias = Link('${tmp.path}/alias.zst')..createSync(source.path);
+      await expectLater(
+        ZstdFileDecompressor.decompressFileToFile(source.path, alias.path),
+        throwsArgumentError,
+      );
+      expect(source.readAsStringSync(), 'keep');
+      expect(alias.existsSync(), isTrue);
+    });
+
+    test('מגבלת פלט מצטברת גם בין frames', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final frame = compressWithZstd(bindings, Uint8List(1 << 20));
+      final source = File('${tmp.path}/frames.zst')
+        ..writeAsBytesSync([...frame, ...frame]);
+      final output = File('${tmp.path}/frames.bin');
+      await expectLater(
+        ZstdFileDecompressor.decompressFileToFile(
+          source.path,
+          output.path,
+          maxOutputBytes: (1 << 20) + 1,
+        ),
+        throwsA(isA<ZstdOutputLimitExceeded>()),
+      );
+      expect(output.existsSync(), isFalse);
+      expect(source.lengthSync(), frame.length * 2);
     });
 
     test('כשל בפתיחת היעד אחרי יצירת ה-hashers זורק כרגיל', () async {
@@ -258,6 +413,7 @@ void main() {
         ),
         throwsA(isA<ZstdStreamException>()),
       );
+      expect(File('${tmp.path}/out.bin').existsSync(), isFalse);
     });
 
     test('קובץ ריק נדחה', () async {
@@ -276,6 +432,7 @@ void main() {
         ),
         throwsA(isA<ZstdStreamException>()),
       );
+      expect(File('${tmp.path}/out.bin').existsSync(), isFalse);
     });
 
     test('קובץ שאינו zstd כלל נדחה עם הודעת השגיאה של libzstd', () async {
@@ -294,6 +451,7 @@ void main() {
         ),
         throwsA(isA<ZstdStreamException>()),
       );
+      expect(File('${tmp.path}/out.bin').existsSync(), isFalse);
     });
 
     test(
@@ -329,7 +487,7 @@ void main() {
         return;
       }
 
-      // `false` פירושו "אין streaming בפלטפורמה" ומפעיל את מסלול הזיכרון;
+      // `false` פירושו שאין backend טבעי; קובץ חסר אינו מצב כזה.
       // קובץ חסר הוא שגיאה אמיתית וחייב להישאר כזו.
       await expectLater(
         ZstdFileDecompressor.decompressFileToFile(

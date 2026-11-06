@@ -13,7 +13,7 @@ import 'package:test/test.dart';
 import 'support/failing_writes.dart';
 import 'support/semantic_fixtures.dart';
 
-/// כשל כתיבה אסינכרוני ("הכונן מלא") בנתיבי IOSink: הוא חייב להגיע לקורא
+/// כשל כתיבה אסינכרוני ("הכונן מלא") בנתיבי IOSink ו-RandomAccessFile: עליו להגיע לקורא
 /// כשגיאה אחת, בזמן שהמקור עוד פתוח, בלי zone error ובלי להחליף קובץ תקין.
 void main() {
   test('throwStorageAware: a damaged drive is a StorageCorruptException', () {
@@ -138,11 +138,12 @@ void main() {
       final target = File(p.join(library, 'lexical.db'));
       await target.writeAsString('OLD');
       await File('${target.path}.version').writeAsString('old-digest');
-      final staged = '${target.path}.new';
+      final staging = Directory('${target.path}.offline-staging');
+      final staged = p.join(staging.path, 'lexical.db');
 
       late CompanionInstallReport report;
       final result = await guarded(() async {
-        report = await runWithFailingWrites(
+        report = await runWithFailingRandomWrites(
           () => const CompanionAssetsInstaller().install(
             mirrorDir: mirror,
             dbPath: db,
@@ -159,7 +160,10 @@ void main() {
       );
       expect(isStorageFull(report.errors[CompanionAsset.dictionary]), isTrue);
       expect(await target.readAsString(), 'OLD');
+      expect(await File('${target.path}.version').readAsString(), 'old-digest');
       expect(File(staged).existsSync(), isFalse);
+      expect(staging.existsSync(), isFalse);
+      expect(Directory('${target.path}.offline-backup').existsSync(), isFalse);
     }, timeout: bounded);
   });
 

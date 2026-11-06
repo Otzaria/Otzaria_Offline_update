@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-11-05T18:25:55Z",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.39",
+  "cpu_count": 9,
+  "loadavg": [
+    8.14501953125,
+    11.61572265625,
+    28.56787109375
+  ],
+  "dependencies": {
+    "ffi": "2.2.0",
+    "path": "1.9.1",
+    "zstandard_native": "1.5.0",
+    "crypto": "3.0.7",
+    "sqlite3": "3.7.1"
+  },
+  "runtimeMode": "Dart AOT, one fresh process per mode/size/repeat",
+  "nativeZstdVersion": "1.5.5",
+  "sourceSha256": {
+    "lib/src/services/zstd_file_decompressor.dart": "17d86f72968655c13f9f86f630dba21a5f5f43352c1b35211bb8fb643ad24856"
+  },
+  "fixtureMiB": [
+    64,
+    512
+  ],
+  "fixtureFrameMiB": 8,
+  "repeats": 2,
+  "cancellation": "first positive output callback; includes worker termination and output cleanup",
+  "scope": "Synthetic compressible frames on a shared host. Excludes launcher and SQLite; does not cover the maximum allowed zstd window."
+}
