@@ -1,0 +1,74 @@
+name: Report coverage diagnosis (temporary QA)
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/report-coverage-diagnostic.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  coverage_diagnosis:
+    name: Launcher coverage trace (${{ matrix.source }})
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - source: reports-pr205
+            ref: a1d11f43d02cb0bee3df18ea98f4f7d3eb10f421
+          - source: current-main
+            ref: 501f0f84eb2a568518d4ee98a8789b4174d48cc1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ matrix.ref }}
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: 3.47.2
+          cache: true
+          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-:hash:-coverage-launcher_app
+      - name: Unmodified launcher coverage with live log
+        timeout-minutes: 29
+        shell: pwsh
+        run: |
+          $expected = '${{ matrix.ref }}'
+          if ((git rev-parse HEAD).Trim() -ne $expected) { throw 'Unexpected source commit' }
+          $process = Start-Process -FilePath $env:COMSPEC -ArgumentList '/d', '/c', 'dart tool\coverage.dart --collect --packages=launcher_app --min=60 --target=0' -WorkingDirectory $PWD.Path -NoNewWindow -PassThru
+          $logPath = Join-Path $PWD.Path 'launcher_app/build/coverage/run.log'
+          $position = 0L
+          function Write-NewCoverageLog {
+            if (-not (Test-Path $logPath)) { return }
+            $stream = [System.IO.File]::Open($logPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+            try {
+              if ($stream.Length -lt $script:position) { $script:position = 0L }
+              [void] $stream.Seek($script:position, [System.IO.SeekOrigin]::Begin)
+              $reader = [System.IO.StreamReader]::new($stream)
+              $chunk = $reader.ReadToEnd()
+              $script:position = $stream.Position
+              if ($chunk.Length -gt 0) { Write-Host $chunk }
+            } finally {
+              $stream.Dispose()
+            }
+          }
+          while (-not $process.HasExited) {
+            Write-NewCoverageLog
+            Start-Sleep -Seconds 10
+            $process.Refresh()
+          }
+          $process.WaitForExit()
+          Write-NewCoverageLog
+          if ($process.ExitCode -ne 0) { throw "Coverage exited with $($process.ExitCode)" }
+      - name: Preserve diagnostic evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: launcher-coverage-trace-${{ matrix.source }}
+          path: |
+            build/coverage/summary.json
+            launcher_app/build/coverage/run.log
+            launcher_app/build/coverage/lcov.info
+          if-no-files-found: error
