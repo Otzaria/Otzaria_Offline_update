@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
@@ -826,9 +827,11 @@ class CompanionAssetsInstaller {
         // original SQLite header before version stamping can modify it.
         await _verifyCatalogHeader(staged);
         checkCompanionCancelled(isCancelled);
-        final version = entry.version;
-        if (version != null) _stampCatalogVersion(staged, version);
-        _verifyCatalog(staged);
+        await _verifyAndStampCatalogOffUi(
+          staged,
+          entry.version,
+          AppL10n.language,
+        );
         for (final path in paths) {
           final type = FileSystemEntity.typeSync(path, followLinks: false);
           if (type != FileSystemEntityType.notFound &&
@@ -868,22 +871,6 @@ class CompanionAssetsInstaller {
     }
   }
 
-  void _verifyCatalog(String path) {
-    final db = sqlite3.sqlite3.open(path, mode: sqlite3.OpenMode.readOnly);
-    try {
-      final result = db.select('PRAGMA quick_check');
-      if (result.length != 1 || result.first.values.single != 'ok') {
-        throw StateError(
-          AppL10n.strings.libraryDomain.companionExtractionFailed(
-            AppL10n.strings.libraryDomain.companionCatalogName,
-          ),
-        );
-      }
-    } finally {
-      db.close();
-    }
-  }
-
   int? _readCatalogVersion(String path) {
     try {
       final db = sqlite3.sqlite3.open(path, mode: sqlite3.OpenMode.readOnly);
@@ -899,27 +886,6 @@ class CompanionAssetsInstaller {
       }
     } catch (_) {
       return null;
-    }
-  }
-
-  /// **זורק בכשל, ובכוונה.** הנכס שיורד אינו נושא `db_meta.version` בעצמו —
-  /// הגרסה מגיעה מ-`version.txt` נפרד — ולכן ההחתמה היא הראיה היחידה לגרסה
-  /// שהותקנה. בליעה שקטה שלה השאירה קטלוג "ממתין" לנצח: העתקה מלאה בכל
-  /// פתיחה, והצעת עדכון שלא נגמרת.
-  void _stampCatalogVersion(String path, int version) {
-    final db = sqlite3.sqlite3.open(path);
-    try {
-      db.execute('PRAGMA journal_mode = DELETE');
-      db.execute(
-        'CREATE TABLE IF NOT EXISTS db_meta '
-        '(key TEXT PRIMARY KEY, value TEXT NOT NULL)',
-      );
-      db.execute('INSERT OR REPLACE INTO db_meta (key, value) VALUES (?, ?)', [
-        'version',
-        '$version',
-      ]);
-    } finally {
-      db.close();
     }
   }
 
@@ -1092,4 +1058,43 @@ class _TalmudStatsMemo {
   ({int files, int bytes})? _value;
 
   ({int files, int bytes}) get value => _value ??= _scan();
+}
+
+Future<void> _verifyAndStampCatalogOffUi(
+  String path,
+  int? version,
+  AppLanguage language,
+) => Isolate.run(() => _verifyAndStampCatalog(path, version, language));
+
+void _verifyAndStampCatalog(String path, int? version, AppLanguage language) {
+  AppL10n.use(language);
+  final db = sqlite3.sqlite3.open(
+    path,
+    mode: version == null
+        ? sqlite3.OpenMode.readOnly
+        : sqlite3.OpenMode.readWrite,
+  );
+  try {
+    if (version != null) {
+      db.execute('PRAGMA journal_mode = DELETE');
+      db.execute(
+        'CREATE TABLE IF NOT EXISTS db_meta '
+        '(key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+      );
+      db.execute('INSERT OR REPLACE INTO db_meta (key, value) VALUES (?, ?)', [
+        'version',
+        '$version',
+      ]);
+    }
+    final result = db.select('PRAGMA quick_check');
+    if (result.length != 1 || result.first.values.single != 'ok') {
+      throw StateError(
+        AppL10n.strings.libraryDomain.companionExtractionFailed(
+          AppL10n.strings.libraryDomain.companionCatalogName,
+        ),
+      );
+    }
+  } finally {
+    db.close();
+  }
 }
