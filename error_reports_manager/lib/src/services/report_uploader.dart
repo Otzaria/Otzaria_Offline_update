@@ -125,6 +125,21 @@ class ErrorReportUploader {
         );
       }
 
+      final appEndpoint =
+          item.endpoint.toString() == OutboxReport.appReportingEndpoint;
+      final policy = appEndpoint
+          ? await _inspectAppAttachmentPolicy(body)
+          : (preserveAttachments: false, invalidField: null);
+      if (policy.invalidField != null) {
+        return finish(
+          error: AppL10n.strings.errorReportsDomain.uploadReportKept(
+            policy.invalidField!.startsWith('attachments')
+                ? AppL10n.strings.appReports.attachmentsInvalidSnack
+                : AppL10n.strings.appReports.sendFailedSnack,
+          ),
+        );
+      }
+
       Map<String, dynamic>? strippedBody;
       Future<ReportUploadResult> stop({
         String? error,
@@ -173,7 +188,7 @@ class ErrorReportUploader {
           _windowCount = batchSize;
           continue;
         }
-        if (_minidumpRejection(attempt)) {
+        if (!policy.preserveAttachments && _minidumpRejection(attempt)) {
           final sentBody = body;
           final stripped = await Isolate.run(() {
             final withoutMinidump = _withoutMinidump(sentBody);
@@ -220,6 +235,13 @@ class ErrorReportUploader {
           await _removeQuietly(outbox, item);
           sent++;
         } else if (_rejectStatuses.contains(status)) {
+          if (policy.preserveAttachments) {
+            return stop(
+              error: AppL10n.strings.errorReportsDomain.uploadReportKept(
+                AppL10n.strings.errorReportsDomain.uploadHttpStatus(status),
+              ),
+            );
+          }
           await _removeQuietly(outbox, item);
           rejected++;
           rejections.add(_rejection(item, '$status ${attempt.excerpt}'));
@@ -290,7 +312,9 @@ class ErrorReportUploader {
     Completer<void> abort,
   ) async {
     final timeout = report.endpoint.path == '/api/app-reports' &&
-            (report.hasImages || report.hasMinidump)
+            (report.hasImages ||
+                report.hasMinidump ||
+                body.length > AppReport.maxBodyBytes)
         ? requestTimeoutWithImages
         : requestTimeout;
     final request = http.AbortableRequest(
@@ -343,6 +367,35 @@ class ErrorReportUploader {
       attempt.statusCode == 413 ||
       (attempt.statusCode == 422 &&
           attempt.rejectedField == 'attachments.minidump');
+
+  static Future<({bool preserveAttachments, String? invalidField})>
+      _inspectAppAttachmentPolicy(Uint8List bytes) =>
+          Isolate.run(() => _inspectAttachmentPolicy(bytes));
+
+  static ({bool preserveAttachments, String? invalidField})
+      _inspectAttachmentPolicy(Uint8List bytes) {
+    try {
+      final json = jsonDecode(utf8.decode(bytes));
+      if (json is! Map<String, dynamic> ||
+          json['schema'] == null ||
+          json['schema'] == 1) {
+        return (preserveAttachments: false, invalidField: null);
+      }
+      if (bytes.length > AppReport.maxRequestBytes) {
+        return (preserveAttachments: true, invalidField: 'attachments');
+      }
+      final attachments = json['attachments'];
+      final report = AppReport.fromJson({
+        ...json,
+        if (attachments is Map<String, dynamic>)
+          for (final field in ['diagnostics', 'errorLog', 'images', 'minidump'])
+            if (attachments.containsKey(field)) field: attachments[field],
+      });
+      return (preserveAttachments: true, invalidField: report.validate());
+    } catch (_) {
+      return (preserveAttachments: true, invalidField: 'body');
+    }
+  }
 
   static Map<String, dynamic>? _withoutMinidump(Uint8List bytes) {
     final decoded = jsonDecode(utf8.decode(bytes));

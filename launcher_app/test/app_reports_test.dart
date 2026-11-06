@@ -1295,10 +1295,10 @@ void main() {
           write('d.png', big),
           write('e.png', 20),
         ]);
-        // כמו `mergeAppReportImages`: d נדחה, e עדיין נכנס.
+        // c ו-d חורגים מ-20 MiB; e עדיין נכנס בדיוק בגבול.
         expect(
           picked.images.map((i) => i.fileName),
-          ['a.png', 'b.png', 'c.png', 'e.png'],
+          ['a.png', 'b.png', 'e.png'],
         );
         expect(picked.limit, AppReportImageRejection.totalTooLarge);
         expect(picked.unreadable, 0);

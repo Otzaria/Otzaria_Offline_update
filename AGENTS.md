@@ -2357,7 +2357,7 @@ and `lib/utils/canonical_json.dart`, plus `AppReport` and `PluginReportRecord`.
 by Otzaria's own code (commit named in the fixture); a change there must be re-ported
 and the vectors regenerated, or the server receives a body Otzaria would never send.
 
-**Never write to a DB we do not understand.** A `reportsQueueFormat` other than 1 in
+**Never write to a DB we do not understand.** A `reportsQueueFormat` other than 1 or 2 in
 `otzaria_capabilities.json` (or, without that file, `PRAGMA user_version` above
 `UserStateReportQueue.knownSchemaVersion`), a missing `pending_reports` table, or a
 book report's `schemaVersion` above 2 all mean "no offer" and no write. A leftover
@@ -2420,7 +2420,12 @@ new id (`report_id` / `reportId`), is rewritten in the outbox under it, and is r
 once. A 503 `{"error":"shabbat"}` stops the run with its own message. A drive
 file can come from anywhere, so the endpoint is checked before any POST — and before
 the rate-limit wait, since it is not a request. Rejection reasons go to the log only.
-One exception, as in Otzaria: an app report carrying the consented crash `minidump`
+Schema 2 app reports retain their full outbox file on server rejection and stop with
+a visible message; their 10 MiB per attachment / 20 MiB total policy never strips a
+minidump or truncates diagnostics/logs. Validation precedes sending, and the 128 MiB
+request envelope covers JSON escaping. Existing schema 1 behavior remains below.
+
+One legacy exception, as in Otzaria: a schema 1 app report carrying the consented crash `minidump`
 that gets a 413, or a 422 naming `attachments.minidump`, is re-sent once without the
 dump (after the window wait), and only that answer decides the file's fate. If the
 run stops after the dump was dropped (a transient answer, a timeout, a network error or

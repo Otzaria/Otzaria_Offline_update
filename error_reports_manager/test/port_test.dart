@@ -16,6 +16,47 @@ Map<String, dynamic> _fixture(String name) =>
         as Map<String, dynamic>;
 
 void main() {
+  test('schema 2 matches the current Dart contract shared with the server', () {
+    final fixture = _fixture('app_report_schema2.json');
+    final original =
+        AppReport.fromJson(Map<String, dynamic>.from(fixture['stored'] as Map));
+    final report =
+        AppReport.fromJson(original.toJson()).copyWith(product: null);
+    expect(report.validate(), isNull);
+    expect(report.toApiPayload(), fixture['payload']);
+    expect(report.otherAttachmentBytes + report.images.single.bytes.length,
+        fixture['attachmentBytes']);
+  });
+
+  test('schema 2 preserves full diagnostics/log at 10/20 MiB byte boundaries',
+      () {
+    const limit = 10 * 1024 * 1024;
+    final original = AppReport.fromJson(Map<String, dynamic>.from(
+        _fixture('app_report_schema2.json')['stored'] as Map));
+    final diagnostics = {'blob': 'x' * (limit - 11)};
+    final log = String.fromCharCode(0) * limit;
+    final report = original.copyWith(
+      diagnostics: diagnostics,
+      errorLog: log,
+      images: [],
+      minidump: null,
+    );
+    expect(report.validate(), isNull);
+    expect(report.otherAttachmentBytes, 2 * limit);
+    expect(report.toApiPayload()['attachments'], {
+      'diagnostics': diagnostics,
+      'errorLog': log,
+    });
+    expect(utf8.encode(jsonEncode(report.toApiPayload())).length,
+        lessThanOrEqualTo(AppReport.maxRequestBytes));
+    expect(report.copyWith(errorLog: '${log}x').validate(),
+        'attachments.errorLog');
+    expect(
+        report.copyWith(
+            diagnostics: {'blob': '${diagnostics['blob']}x'}).validate(),
+        'attachments.diagnostics');
+  });
+
   group('דיווחי תוכנה ותוספים מול המודלים המקוריים של אוצריא', () {
     final golden = _fixture('other_reports_golden.json');
     test('המקור מתועד', () {

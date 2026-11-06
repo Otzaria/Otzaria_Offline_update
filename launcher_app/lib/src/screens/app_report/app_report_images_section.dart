@@ -111,12 +111,14 @@ class AppReportImagesSection extends StatelessWidget {
     required this.images,
     required this.onChanged,
     this.enabled = true,
+    this.otherAttachmentBytes = 0,
     this.source = const AppReportImageSource(),
   });
 
   final List<AppReportImage> images;
   final ValueChanged<List<AppReportImage>> onChanged;
   final bool enabled;
+  final int otherAttachmentBytes;
   final AppReportImageSource source;
 
   Future<void> _pick(BuildContext context) async {
@@ -130,7 +132,8 @@ class AppReportImagesSection extends StatelessWidget {
       return;
     }
     if (!enabled) return;
-    final merged = mergeAppReportImages(images, picked.images);
+    final merged = mergeAppReportImages(images, picked.images,
+        otherAttachmentBytes: otherAttachmentBytes);
     // הודעה אחת בכל פעם (`UiSnack` ללא תור): קובץ שלא נקרא קודם לשאר.
     if (picked.unreadable > 0) {
       UiSnack.showError(t.imageReadFailed);
@@ -138,7 +141,8 @@ class AppReportImagesSection extends StatelessWidget {
       switch (picked.limit ?? merged.rejection) {
         case AppReportImageRejection.totalTooLarge:
           UiSnack.showError(
-            t.imagesTotalTooLarge(AppReportImage.maxTotalBytes ~/ 1000000),
+            t.imagesTotalTooLarge(
+                AppReportImage.maxTotalBytes ~/ AppReportImage.megabyte),
           );
         case AppReportImageRejection.tooMany:
           UiSnack.showError(t.tooManyImages(AppReportImage.maxCount));
@@ -146,7 +150,8 @@ class AppReportImagesSection extends StatelessWidget {
         case null:
           if (picked.tooLarge || merged.rejection != null) {
             UiSnack.showError(
-              t.imageTooLarge(AppReportImage.maxBytes ~/ 1000000),
+              t.imageTooLarge(
+                  AppReportImage.maxBytes ~/ AppReportImage.megabyte),
             );
           }
       }
@@ -195,6 +200,8 @@ class AppReportImagesSection extends StatelessWidget {
             ),
           ),
         ),
+        const SizedBox(height: AppTokens.spaceSM),
+        Text(t.attachmentLimitsHint, style: theme.textTheme.bodySmall),
         if (images.isNotEmpty) ...[
           const SizedBox(height: AppTokens.spaceSM),
           Wrap(
