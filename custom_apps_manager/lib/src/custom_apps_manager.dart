@@ -69,6 +69,7 @@ class CustomAppsManager {
           readVersion: readVersion,
           lookupUninstallDirs: lookupUninstallDirs,
           lookupRunningProcess: lookupRunningProcess,
+          lookupInstalledExe: lookupInstalledExe,
         ),
         _installer = CustomAppInstaller(
           processRunner: processRunner,

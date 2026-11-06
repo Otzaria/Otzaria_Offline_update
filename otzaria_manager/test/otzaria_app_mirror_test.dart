@@ -438,6 +438,54 @@ void main() {
       expect(downloads, 1);
     });
 
+    test('אימות מראה ישן משתמש במתקין הקיים בלי להורידו שוב (#193)', () async {
+      final release = _release(
+        tagName: '0.9.96',
+        isPrerelease: false,
+        size: installerBytes.length,
+      );
+      final relative =
+          'installers/${release.tagName}/${release.installerAssetName}';
+      final installer = File(p.join(temp.path, p.joinAll(relative.split('/'))));
+      await installer.parent.create(recursive: true);
+      await installer.writeAsString(installerBytes);
+      await installer.setLastModified(DateTime.utc(2026, 8, 1));
+      final modified = await installer.lastModified();
+      final channels = {
+        'stable': release.toJson()..['installerPath'] = relative,
+      };
+      final metadata = File(p.join(temp.path, 'latest-release.json'));
+      await metadata.writeAsString(jsonEncode({
+        'schemaVersion': 2,
+        ...channels,
+        'platforms': {'windows': channels},
+      }));
+      var downloads = 0;
+      final mirror = await mirrorFor(
+        releasesHttpClient: mockReleases([
+          releaseJson(release.tagName, prerelease: false),
+        ]),
+        changelogHttpClient: MockClient((_) async => http.Response('', 404)),
+        installerHttpClient: MockClient((_) async {
+          downloads++;
+          return http.Response(installerBytes, 200);
+        }),
+        tempDir: temp,
+      );
+
+      expect((await mirror.load()).isEmpty, isTrue);
+      await mirror.sync();
+
+      expect(downloads, 0);
+      expect(await installer.readAsString(), installerBytes);
+      expect(await installer.lastModified(), modified);
+      expect((await mirror.load()).latest!.installerPath, installer.path);
+      final updated = jsonDecode(await metadata.readAsString()) as Map;
+      expect(updated['schemaVersion'], 3);
+      expect(updated['source'], 'github-latest');
+      expect(await mirror.lacksArm64Installers(), isFalse);
+    });
+
     test('סנכרון מנקה קובצי התקנה של גרסאות שכבר לא רלוונטיות', () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'otzaria-mirror-sync-test',

@@ -272,6 +272,41 @@ void main() {
   });
 
   group('AppReportDialog', () {
+    testWidgets('ללא סוג דיווח אין שליחה גם כשכל השדות מלאים', (tester) async {
+      final service = _MemoryService();
+      await _open(
+          tester, (_) => AppReportDialog(reports: _controller(service)));
+      expect(
+          tester
+              .widget<SegmentedButton<AppReportType>>(
+                  find.byType(SegmentedButton<AppReportType>))
+              .selected,
+          isEmpty);
+      await tester.enterText(
+          find.byKey(const ValueKey('app-report-title')), 'כותרת');
+      await tester.enterText(
+          find.byKey(const ValueKey('app-report-description')), 'תיאור');
+      await tester.enterText(
+          find.byKey(const ValueKey('app-report-email')), 'me@x.com');
+      await tester.tap(find.byKey(const ValueKey('app-report-send')));
+      await tester.pumpAndSettle();
+
+      expect(service.sentReports, isEmpty);
+      expect(find.byType(AppReportDialog), findsOneWidget);
+      expect(find.text(t.typeRequired), findsWidgets);
+      await _drainSnack(tester);
+
+      await tester.tap(find.text(t.typeSuggestion));
+      await tester.pumpAndSettle();
+      expect(find.text(t.typeRequired), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('app-report-send')));
+      await tester.pumpAndSettle();
+
+      expect(service.sentReports.single.type, AppReportType.suggestion);
+      expect(find.byType(AppReportDialog), findsNothing);
+      await _drainSnack(tester);
+    });
+
     testWidgets('שולח עם product, זוכר את המייל ומציג את מספר ה-issue',
         (tester) async {
       final service = _MemoryService();
@@ -282,6 +317,7 @@ void main() {
         (_) =>
             AppReportDialog(reports: reports, imageSource: const _FakeImages()),
       );
+      await tester.tap(find.text(t.typeBug));
 
       await tester.enterText(
           find.byKey(const ValueKey('app-report-title')), 'כותרת');
@@ -314,6 +350,7 @@ void main() {
       await _open(
           tester, (_) => AppReportDialog(reports: _controller(service)));
 
+      await tester.tap(find.text(t.typeBug));
       await tester.enterText(
           find.byKey(const ValueKey('app-report-title')), 'כותרת');
       await tester.tap(find.byKey(const ValueKey('app-report-send')));
@@ -333,6 +370,17 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('app-report-toggle-preview')));
       await tester.pumpAndSettle();
 
+      expect(find.byKey(const ValueKey('app-report-preview-report')),
+          findsNothing);
+      expect(find.text(t.typeRequired), findsOneWidget);
+      expect(find.text('diagnostics.json'), findsOneWidget);
+      expect(find.text('launcher.log'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.text(t.typePerformance));
+      await tester.pumpAndSettle();
+      expect(find.text(t.typeRequired), findsNothing);
+
       final preview = tester
           .widget<SelectableText>(
             find.descendant(
@@ -342,6 +390,7 @@ void main() {
           )
           .data!;
       expect(preview, contains('"product": "offline-update"'));
+      expect(preview, contains('"type": "performance"'));
       expect(preview, contains('"osVersion"'));
       expect(
         preview,
@@ -364,6 +413,7 @@ void main() {
       );
       await _open(
           tester, (_) => AppReportDialog(reports: _controller(service)));
+      await tester.tap(find.text(t.typeBug));
       await tester.enterText(
           find.byKey(const ValueKey('app-report-title')), 'כותרת');
       await tester.enterText(
@@ -787,6 +837,7 @@ void main() {
       final service = _MemoryService(respond: rejected);
       await _open(
           tester, (_) => AppReportDialog(reports: _controller(service)));
+      await tester.tap(find.text(t.typeBug));
       await tester.enterText(
           find.byKey(const ValueKey('app-report-title')), 'כותרת');
       await tester.enterText(
@@ -858,6 +909,7 @@ void main() {
       final form = AppReportForm(
         reports: reports,
         trigger: AppReportTrigger.manual,
+        initialType: AppReportType.bug,
       );
       await form.loadAttachments();
       form.update(
@@ -891,6 +943,7 @@ void main() {
       final form = AppReportForm(
         reports: _controller(_MemoryService()),
         trigger: AppReportTrigger.manual,
+        initialType: AppReportType.bug,
       );
       expect(form.buildReport().reportId, form.buildReport().reportId);
     });
@@ -1172,6 +1225,7 @@ void main() {
       final form = AppReportForm(
         reports: reports,
         trigger: AppReportTrigger.manual,
+        initialType: AppReportType.bug,
       );
       await form.loadAttachments();
       form.update(title: 't', description: 'd', email: 'me@x.com');

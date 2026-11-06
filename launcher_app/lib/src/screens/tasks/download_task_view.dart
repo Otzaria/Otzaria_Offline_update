@@ -25,6 +25,7 @@ class DownloadSnapshot {
     this.libraryProbe,
     this.others = const {},
     this.finished,
+    this.stages = const {},
     this.localWork,
   });
 
@@ -40,6 +41,8 @@ class DownloadSnapshot {
 
   /// מה הסתיים. `null` — כל מה שלפני [current] ברשימה.
   final Set<MirrorComponent>? finished;
+
+  final Map<MirrorComponent, String> stages;
 
   /// כיתוב של עבודה מקומית על הכונן (אימות, הרכבה) כשהיא רצה: אין בה בייטים
   /// ברשת, ולכן אין לה מהירות וזמן שנותר.
@@ -664,7 +667,7 @@ class _DownloadProgressState extends State<_DownloadProgress> {
     final total = s.total;
     if (current != null && received != null) {
       _meter.add(received);
-      if (total != null && total > 0) _sizes[current] = total;
+      if (total != null) _sizes[current] = total;
     }
     final index = current == null ? -1 : components.indexOf(current);
     final fraction = _smoothed(current, s.fraction?.clamp(0.0, 1.0));
@@ -675,49 +678,64 @@ class _DownloadProgressState extends State<_DownloadProgress> {
         : c == current || others.containsKey(c)
             ? StageState.current
             : StageState.waiting;
-    // הפס הכללי מונוטוני: מה שהסתיים ועוד החלק של מה שרץ. רכיב שמפסיק לדווח
-    // חלק (הספרייה בלי סכום ידוע) לא מוריד את מה שכבר הוצג.
     final running = index >= 0 || others.isNotEmpty;
-    final computed = components.isEmpty || !running
-        ? null
-        : (finished.where(components.contains).length +
-                (index >= 0 ? fraction ?? 0 : 0) +
-                others.values.fold<double>(
-                  0,
-                  (sum, part) => sum + (part ?? 0).clamp(0.0, 1.0),
-                )) /
-            components.length;
-    final peak = _peak;
-    // 100% רק במסך הסיום: הבייטים האחרונים אינם סוף האימות וההרכבה, וגם לא
-    // השיא ששמרנו מהם.
+    final hasProgress = fraction != null ||
+        others.values.any((part) => part != null) ||
+        finished.any(components.contains);
     final local = s.localWork;
     final working =
         local != null && _meter.isIdle(TransferRateMeter.localWorkAfter);
-    final bounded = computed != null && computed > 0.99 ? 0.99 : computed;
-    final overall =
-        bounded == null || peak == null || bounded >= peak ? bounded : peak;
-    _peak = overall ?? peak;
     final rate = _meter.bytesPerSecond;
     final left = total != null && total > 0 ? _meter.remaining(total) : null;
     final shown = current ?? components.firstOrNull;
     final sizeOfCurrent =
         total != null && total > 0 ? formatBytes(total) : null;
+    final currentSizeUnknown = received != null && total == null;
     final expected = {
       ...widget.expectedBytes,
       if (s.libraryProbe?.bytes case final bytes?)
         MirrorComponent.library: bytes,
     };
-    String? approx(MirrorComponent c) => switch (expected[c]) {
+    String? approx(MirrorComponent c) =>
+        switch (c == current && currentSizeUnknown ? null : expected[c]) {
           final size? => t.approxSize(formatBytes(size)),
           null => null,
         };
     // הגודל האמיתי של הספרייה גובר על הבדיקה המוקדמת.
     final sizes = [
       for (final c in components)
-        c == MirrorComponent.library
-            ? _sizes[c] ?? expected[c]
-            : expected[c] ?? _sizes[c],
+        c == current && currentSizeUnknown
+            ? null
+            : c == MirrorComponent.library
+                ? _sizes[c] ?? expected[c]
+                : expected[c] ?? _sizes[c],
     ];
+    // רכיב שגודלו לא ידוע אינו מקבל משקל שרירותי לפי מספר הרכיבים.
+    final weights = [
+      for (var i = 0; i < components.length; i++)
+        sizes[i] ?? (finished.contains(components[i]) ? 0 : null),
+    ];
+    final bytes = weights.fold<int>(0, (sum, size) => sum + (size ?? 0));
+    final computed =
+        !running || !hasProgress || weights.contains(null) || bytes <= 0
+            ? null
+            : [
+                  for (var i = 0; i < components.length; i++)
+                    weights[i]! *
+                        (finished.contains(components[i])
+                                ? 1.0
+                                : components[i] == current
+                                    ? fraction ?? 0
+                                    : others[components[i]] ?? 0)
+                            .clamp(0.0, 1.0),
+                ].fold<double>(0, (sum, value) => sum + value) /
+                bytes;
+    // 100% רק במסך הסיום, אחרי האימות וההרכבה.
+    final bounded = computed != null && computed > 0.99 ? 0.99 : computed;
+    final peak = _peak;
+    final overall =
+        bounded == null || peak == null || bounded >= peak ? bounded : peak;
+    _peak = overall ?? peak;
     final totalLine = sizes.isEmpty || sizes.contains(null)
         ? ' '
         : t.downloadTotal(
@@ -770,11 +788,13 @@ class _DownloadProgressState extends State<_DownloadProgress> {
         ] else if (shown != null) ...[
           const SizedBox(height: 4),
           Text(
-            t.downloadingStep(
-              componentStepName(context, shown),
-              (index < 0 ? 0 : index) + 1,
-              components.length,
-            ),
+            current == MirrorComponent.app && received == null
+                ? t.checkingAppInstaller
+                : t.downloadingStep(
+                    componentStepName(context, shown),
+                    (index < 0 ? 0 : index) + 1,
+                    components.length,
+                  ),
             style: AppTextStyles.body.copyWith(color: cs.onSurface),
           ),
         ],
@@ -789,12 +809,14 @@ class _DownloadProgressState extends State<_DownloadProgress> {
         ),
         const SizedBox(height: 4),
         Text(
-          current != null && received != null && sizeOfCurrent != null
-              ? t.bytesLine(
-                  componentName(context, current),
-                  formatBytes(received),
-                  sizeOfCurrent,
-                )
+          current != null && received != null
+              ? sizeOfCurrent == null
+                  ? formatBytesProgress(received, total) ?? ' '
+                  : t.bytesLine(
+                      componentName(context, current),
+                      formatBytes(received),
+                      sizeOfCurrent,
+                    )
               : ' ',
           key: const ValueKey('task.download.bytes'),
           style: AppTextStyles.small.copyWith(color: cs.onSurfaceVariant),
@@ -815,6 +837,16 @@ class _DownloadProgressState extends State<_DownloadProgress> {
                 compact: narrow,
                 title: componentName(context, c),
                 state: stateOf(c),
+                extra: switch ((stateOf(c), s.stages[c])) {
+                  (StageState.current, final stage?) when stage.isNotEmpty =>
+                    Text(
+                      stage,
+                      style: AppTextStyles.meta.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                  _ => null,
+                },
                 detail: switch (stateOf(c)) {
                   StageState.done => t.stageDone(
                       _sizes[c] == null ? null : formatBytes(_sizes[c]!),

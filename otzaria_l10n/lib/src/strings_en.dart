@@ -277,6 +277,9 @@ class _Task extends TaskStrings {
   @override
   String get downloadingBody => 'You can keep using the computer meanwhile.';
   @override
+  String get checkingAppInstaller =>
+      'Checking the Otzaria installer on the drive; downloads only if needed.';
+  @override
   String downloadingStep(String name, int index, int count) =>
       'Downloading $name · $index of $count';
   @override
@@ -1326,7 +1329,11 @@ class _Guide extends GuidanceStrings {
   @override
   String get chipNoPlugins => 'No plugins on the drive';
   @override
-  String chipAppsPending(int count) => '$count waiting to install';
+  String chipAppsPending(int count) => plural(count,
+      one: 'One waiting to install', many: '$count waiting to install');
+  @override
+  String chipAppsUpdates(int count) => plural(count,
+      one: 'One update on the drive', many: '$count updates on the drive');
   @override
   String chipAppsInstalled(int count) => '$count on the drive';
   @override
@@ -2035,6 +2042,10 @@ class _Plugins extends PluginsStrings {
       'Otzaria did not install $pluginName${reason == null ? '' : ': $reason'}';
   @override
   String get installFailedSnack => 'The installation failed';
+  @override
+  String get legacyPortableInstallRequiresClosedApp =>
+      'This portable version of Otzaria cannot receive plugins while open. '
+      'Close Otzaria and try again, or update Otzaria.';
 
   @override
   String get loadingCatalog => 'Loading the plugin list…';
@@ -4906,6 +4917,8 @@ class _AppReports extends AppReportsStrings {
       'The more precise the description, the easier it is to find and fix';
   @override
   String get typeLabel => 'Report type';
+  @override
+  String get typeRequired => 'Please choose a report type';
   @override
   String get titleLabel => 'Title';
   @override

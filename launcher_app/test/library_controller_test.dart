@@ -603,6 +603,10 @@ void main() {
         expect(controller.hasOnlineUpdate, isFalse);
         expect(controller.onlinePendingCompanionNames, isEmpty);
         expect(controller.hasDownloadFailures, remaining.isNotEmpty);
+        expect(
+          LibraryModulePort(controller).downloadNeedsRetry,
+          remaining.isNotEmpty,
+        );
 
         controller.forgetDownloadFailures();
         expect(controller.hasOnlineUpdate, remaining.isNotEmpty);
@@ -1110,12 +1114,25 @@ void main() {
       expect(controller.downloadProgress, 0.5);
     });
 
-    test('סה"כ בייטים לא ידוע — מתקדם לפי ספירת הנכסים בלבד', () {
+    test('סה"כ בייטים לא ידוע — המד אינו נקבע לפי ספירת הנכסים', () {
       controller.downloadDoneAssets = 2;
       controller.downloadTotalAssets = 4;
 
-      expect(controller.downloadProgress, 0.5);
+      expect(controller.downloadProgress, isNull);
     });
+
+    for (final received in <int?>[null, 0, 100]) {
+      test(
+          'ספירת נכסים שהסתיימה אינה 100% לפני תכנון החיפוש החכם '
+          '(received: $received, issue #156)', () {
+        controller.downloadDoneAssets = 4;
+        controller.downloadTotalAssets = 4;
+        controller.downloadReceivedBytes = received;
+        controller.downloadTotalBytes = null;
+
+        expect(controller.downloadProgress, isNull);
+      });
+    }
 
     test('יעד 0 (הכול כבר על הכונן) נופל לספירת הנכסים ולא מתפוצץ', () {
       controller.downloadReceivedBytes = 0;

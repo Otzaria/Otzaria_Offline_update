@@ -133,7 +133,11 @@ class LibraryModulePort
   bool get storageFull => _library.downloadStorageFull;
 
   @override
-  bool get downloadNeedsRetry => _library.downloadNeedsRetry;
+  bool get downloadNeedsRetry =>
+      _library.downloadNeedsRetry ||
+      _library.onlineCheckedAt == null ||
+      _library.onlinePendingCompanions.isNotEmpty ||
+      _library.onlineCompanionsCheckError != null;
 
   @override
   void startDownloadSizeProbe() => unawaited(_library.probeDownloadSize());

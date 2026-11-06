@@ -273,6 +273,9 @@ class _Task extends TaskStrings {
   @override
   String get downloadingBody => 'אפשר להמשיך לעבוד במחשב בינתיים.';
   @override
+  String get checkingAppInstaller =>
+      'בודק את מתקין אוצריא בכונן; יוריד רק אם צריך.';
+  @override
   String downloadingStep(String name, int index, int count) =>
       'מוריד את $name · $index מתוך $count';
   @override
@@ -1280,8 +1283,15 @@ class _Guide extends GuidanceStrings {
   @override
   String get chipNoPlugins => 'אין תוספים בכונן';
   @override
-  String chipAppsPending(int count) =>
-      count == 1 ? '1 עדכון בכונן' : '$count עדכונים בכונן';
+  String chipAppsPending(int count) => plural(count,
+      one: 'תוכנה אחת להתקנה',
+      two: 'שתי תוכנות להתקנה',
+      many: '$count תוכנות להתקנה');
+  @override
+  String chipAppsUpdates(int count) => plural(count,
+      one: 'עדכון אחד בכונן',
+      two: 'שני עדכונים בכונן',
+      many: '$count עדכונים בכונן');
   @override
   String chipAppsInstalled(int count) => '$count בכונן';
   @override
@@ -1952,6 +1962,10 @@ class _Plugins extends PluginsStrings {
       'אוצריא לא התקינה את $pluginName${reason == null ? '' : ': $reason'}';
   @override
   String get installFailedSnack => 'ההתקנה נכשלה';
+  @override
+  String get legacyPortableInstallRequiresClosedApp =>
+      'גרסת אוצריא הניידת הזו אינה מקבלת תוספים כשהיא פתוחה. '
+      'סגור את אוצריא ונסה שוב, או עדכן את אוצריא.';
 
   @override
   String get loadingCatalog => 'טוען את רשימת התוספים…';
@@ -4639,6 +4653,8 @@ class _AppReports extends AppReportsStrings {
       'ככל שהתיאור מדויק יותר, כך קל יותר לאתר את התקלה ולתקן אותה';
   @override
   String get typeLabel => 'סוג הדיווח';
+  @override
+  String get typeRequired => 'יש לבחור סוג דיווח';
   @override
   String get titleLabel => 'כותרת';
   @override

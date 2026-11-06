@@ -108,6 +108,247 @@ void main() {
   });
 
   group('התקדמות', () {
+    for (final language in AppLanguage.values) {
+      for (final size in [const Size(760, 560), const Size(1000, 720)]) {
+        testWidgets(
+            'installer check is distinct from downloading (#193) '
+            '${language.name} $size', (tester) async {
+          final text = stringsOf(language).task;
+          final progress = ValueNotifier(0);
+          addTearDown(progress.dispose);
+          var snapshot = const DownloadSnapshot(current: MirrorComponent.app);
+          await pumpScreen(
+            tester,
+            DownloadTaskView(
+              task: const DownloadTask(
+                phase: DownloadTaskPhase.running,
+                components: [MirrorComponent.app, MirrorComponent.library],
+              ),
+              progress: progress,
+              snapshot: () => snapshot,
+              actions: DownloadTaskActions(
+                onAnswer: (_) {},
+                onCancel: () {},
+                onRetry: () {},
+                onHome: () {},
+                onHere: () {},
+              ),
+            ),
+            language: language,
+            size: size,
+          );
+
+          expect(find.text(text.checkingAppInstaller), findsOneWidget);
+          final downloading = text.downloadingStep(text.stepApp, 1, 2);
+          expect(find.text(downloading), findsNothing);
+          expect(tester.takeException(), isNull);
+
+          snapshot = const DownloadSnapshot(
+            current: MirrorComponent.app,
+            received: 0,
+            total: 100,
+            fraction: 0,
+          );
+          progress.value++;
+          await tester.pump();
+          expect(find.text(text.checkingAppInstaller), findsNothing);
+          expect(find.text(downloading), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
+
+    testWidgets('ספרייה בשליש ותוספים שהסתיימו אינם שני שלישים (#162)',
+        (tester) async {
+      const mb = 1024 * 1024;
+      await pumpScreen(
+        tester,
+        DownloadTaskView(
+          task: const DownloadTask(
+            phase: DownloadTaskPhase.running,
+            components: [MirrorComponent.library, MirrorComponent.plugins],
+            expectedBytes: {MirrorComponent.plugins: 10 * mb},
+          ),
+          progress: ValueNotifier(0),
+          snapshot: () => const DownloadSnapshot(
+            current: MirrorComponent.library,
+            received: 557 * mb,
+            total: 1670 * mb,
+            fraction: 557 / 1670,
+            finished: {MirrorComponent.plugins},
+          ),
+          actions: DownloadTaskActions(
+            onAnswer: (_) {},
+            onCancel: () {},
+            onRetry: () {},
+            onHome: () {},
+            onHere: () {},
+          ),
+        ),
+      );
+
+      expect(percent(tester), '33%');
+      expect(tester.widget<AppProgressBar>(find.byType(AppProgressBar)).value,
+          closeTo(567 / 1680, 0.000001));
+      expect(
+        tester.widgetList<StageRow>(find.byType(StageRow)).first.detail,
+        '33% · ${formatBytes(1670 * mb)}',
+      );
+    });
+
+    testWidgets('רכיב שגודלו לא ידוע אינו מקבל משקל של רכיב שלם (#162)',
+        (tester) async {
+      final progress = ValueNotifier(0);
+      var snapshot = const DownloadSnapshot(
+        current: MirrorComponent.library,
+        received: 0,
+        libraryProbe: LibrarySizeProbe.known(100),
+        finished: {MirrorComponent.plugins},
+      );
+      await pumpScreen(
+        tester,
+        DownloadTaskView(
+          task: const DownloadTask(
+            phase: DownloadTaskPhase.running,
+            components: [MirrorComponent.library, MirrorComponent.plugins],
+          ),
+          progress: progress,
+          snapshot: () => snapshot,
+          actions: DownloadTaskActions(
+            onAnswer: (_) {},
+            onCancel: () {},
+            onRetry: () {},
+            onHome: () {},
+            onHere: () {},
+          ),
+        ),
+      );
+      expect(percent(tester), '…');
+
+      snapshot = const DownloadSnapshot(
+        current: MirrorComponent.library,
+        received: 33,
+        total: 100,
+        fraction: 0.33,
+        others: {MirrorComponent.plugins: 0.5},
+        finished: {},
+      );
+      progress.value++;
+      await tester.pump();
+      expect(percent(tester), '…');
+
+      snapshot = const DownloadSnapshot(
+        current: MirrorComponent.library,
+        received: 33,
+        total: 100,
+        fraction: 0.33,
+        finished: {MirrorComponent.plugins},
+      );
+      progress.value++;
+      await tester.pump();
+      expect(percent(tester), '33%');
+    });
+
+    testWidgets('שקלול לפי נפח כשהספרייה והתוספים רצים יחד (#162)',
+        (tester) async {
+      final progress = ValueNotifier(0);
+      var snapshot = const DownloadSnapshot(
+        current: MirrorComponent.library,
+        received: 20,
+        total: 100,
+        fraction: 0.2,
+        others: {MirrorComponent.plugins: 0.5},
+        finished: {},
+      );
+      await pumpScreen(
+        tester,
+        DownloadTaskView(
+          task: const DownloadTask(
+            phase: DownloadTaskPhase.running,
+            components: [MirrorComponent.library, MirrorComponent.plugins],
+            expectedBytes: {MirrorComponent.plugins: 40},
+          ),
+          progress: progress,
+          snapshot: () => snapshot,
+          actions: DownloadTaskActions(
+            onAnswer: (_) {},
+            onCancel: () {},
+            onRetry: () {},
+            onHome: () {},
+            onHere: () {},
+          ),
+        ),
+      );
+      expect(percent(tester), '28%');
+
+      snapshot = const DownloadSnapshot(
+        current: MirrorComponent.library,
+        received: 50,
+        total: 100,
+        fraction: 0.5,
+        finished: {MirrorComponent.plugins},
+      );
+      progress.value++;
+      await tester.pump();
+      expect(percent(tester), '64%');
+      expect(line(tester, 'task.download.total'),
+          t.downloadTotal(formatBytes(140)));
+    });
+
+    testWidgets('סך לא ידוע מציג בתים בלי אחוז או אומדן חלקי (#156)',
+        (tester) async {
+      const mb = 1024 * 1024;
+      final progress = ValueNotifier(0);
+      var snapshot = const DownloadSnapshot(
+        current: MirrorComponent.library,
+        received: 20 * mb,
+        libraryProbe: LibrarySizeProbe.known(100 * mb),
+      );
+      await pumpScreen(
+        tester,
+        DownloadTaskView(
+          task: const DownloadTask(
+            phase: DownloadTaskPhase.running,
+            components: [MirrorComponent.library],
+          ),
+          progress: progress,
+          snapshot: () => snapshot,
+          actions: DownloadTaskActions(
+            onAnswer: (_) {},
+            onCancel: () {},
+            onRetry: () {},
+            onHome: () {},
+            onHere: () {},
+          ),
+        ),
+      );
+
+      expect(percent(tester), '…');
+      expect(line(tester, 'task.download.total'), ' ');
+      expect(line(tester, 'task.download.bytes'), formatBytes(20 * mb));
+      expect(
+        tester.widget<StageRow>(find.byType(StageRow)).detail,
+        isNot(contains(formatBytes(100 * mb))),
+      );
+
+      snapshot = const DownloadSnapshot(
+        current: MirrorComponent.library,
+        received: 100 * mb,
+        total: 200 * mb,
+        fraction: 0.5,
+      );
+      progress.value++;
+      await tester.pump();
+
+      expect(percent(tester), '50%');
+      expect(line(tester, 'task.download.total'),
+          t.downloadTotal(formatBytes(200 * mb)));
+      expect(
+          line(tester, 'task.download.bytes'),
+          t.bytesLine(
+              t.stepLibrary, formatBytes(100 * mb), formatBytes(200 * mb)));
+    });
+
     testWidgets('אחוז, שם השלב ושורות הרכיבים — רק מתוך ה-progress',
         (tester) async {
       final progress = ValueNotifier(0);
@@ -136,7 +377,8 @@ void main() {
       );
       // הגדול כולל: רכיב אחד שהסתיים ועוד 42% מהשני; הרכיב בשורה שלו.
       expect(percent(tester), '47%');
-      expect(find.text('42%'), findsOneWidget);
+      expect(
+          find.text('42% · ${t.approxSize(formatBytes(100))}'), findsOneWidget);
       expect(find.text(t.downloadingStep(t.stepLibrary, 2, 3)), findsOneWidget);
       final rows = tester.widgetList<StageRow>(find.byType(StageRow)).toList();
       expect(rows.map((r) => r.state), [
@@ -153,7 +395,8 @@ void main() {
       await tester.pump();
       expect(parentBuilds, 1);
       expect(percent(tester), '96%');
-      expect(find.text('90%'), findsOneWidget);
+      expect(
+          find.text('90% · ${t.approxSize(formatBytes(100))}'), findsOneWidget);
       expect(find.text(t.downloadingStep(t.stepPlugins, 3, 3)), findsOneWidget);
       expect(
         tester.widgetList<StageRow>(find.byType(StageRow)).last.state,
@@ -202,8 +445,10 @@ void main() {
             stringsOf().plugins.joinNames([t.stepLibrary, t.stepPlugins]))),
         findsOneWidget,
       );
-      expect(find.text('50%'), findsOneWidget);
-      expect(find.text('25%'), findsOneWidget);
+      expect(
+          find.text('50% · ${t.approxSize(formatBytes(100))}'), findsOneWidget);
+      expect(
+          find.text('25% · ${t.approxSize(formatBytes(100))}'), findsOneWidget);
 
       // הספרייה הסתיימה (גם בכשל) — התוספים עדיין רצים, והאחוז אינו יורד.
       snapshot = const DownloadSnapshot(
@@ -403,7 +648,7 @@ void main() {
       expect(line(tester, 'task.download.total'), ' ');
     });
 
-    testWidgets('האחוז לא יורד כשהרכיב מפסיק לדווח חלק, ובלי בייטים אין מהירות',
+    testWidgets('סך שנעשה לא ידוע מסתיר אחוז; בלי בייטים אין מהירות',
         (tester) async {
       final progress = ValueNotifier(0);
       var snapshot = const DownloadSnapshot(
@@ -436,7 +681,7 @@ void main() {
       );
       progress.value++;
       await tester.pump();
-      expect(percent(tester), '47%');
+      expect(percent(tester), '…');
 
       snapshot = const DownloadSnapshot(current: MirrorComponent.plugins);
       progress.value++;
@@ -494,7 +739,8 @@ void main() {
       progress.value++;
       await tester.pump();
       expect(percent(tester), '83%');
-      expect(find.text('50%'), findsOneWidget);
+      expect(
+          find.text('50% · ${t.approxSize(formatBytes(100))}'), findsOneWidget);
     });
 
     testWidgets('מהירות וזמן שנותר אחרי שנייה של מדידה', (tester) async {

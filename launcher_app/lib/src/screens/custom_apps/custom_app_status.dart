@@ -59,11 +59,14 @@ List<String> customAppMeta(BuildContext context, CustomAppView app) {
   ];
 }
 
-/// ההערה מתחת לפעולה — רק כשאין מה להתקין. "התקנה" כבר אומרת שאינה מותקנת.
-String? customAppNoteOf(BuildContext context, CustomAppView app) =>
-    !app.canInstall && !app.canLaunch
-        ? context.strings.customApps.noStoredInstaller
-        : null;
+String? customAppNoteOf(BuildContext context, CustomAppView app) {
+  if (app.pending == CustomAppPending.newerOnDrive) {
+    return context.strings.common.updateAvailable;
+  }
+  return !app.canInstall && !app.canLaunch
+      ? context.strings.customApps.noStoredInstaller
+      : null;
+}
 
 String? customAppOnlineLabel(
   BuildContext context,

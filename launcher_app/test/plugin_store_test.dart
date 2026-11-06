@@ -102,6 +102,7 @@ class _RecordingController extends PluginsModuleController {
 
   final List<String> delivered = [];
   bool succeeds = true;
+  String? failureReason = 'אוצריא לא נפתחה';
 
   /// תוספים שהמסירה שלהם נכשלת, ומסירות שממתינות עד שהבדיקה משחררת.
   final Set<String> failingIds = {};
@@ -122,7 +123,7 @@ class _RecordingController extends PluginsModuleController {
       throw const FileSystemException('הקובץ נעול');
     }
     if (!succeeds || failingIds.contains(plugin.id)) {
-      return const PluginInstallResult.failure('אוצריא לא נפתחה');
+      return PluginInstallResult.failure(failureReason);
     }
     sentIds.add(plugin.id);
     notifyListeners();
@@ -1652,6 +1653,40 @@ void main() {
     final names = t.joinNames(['ראשון', 'שני', 'שלישי']);
     expect(snacks.single, contains(t.updateAllNoneSentSnack(names)));
     expect(snacks.single, isNot(contains('0')));
+  });
+
+  testWidgets('"עדכון הכול": מציג את ההנחיה המשותפת לסגירת אוצריא ניידת',
+      (tester) async {
+    final controller = await seedRecording(
+      tester,
+      catalog: threeUpdates(),
+      installed: threeInstalled,
+    );
+    final reason =
+        AppL10n.strings.plugins.legacyPortableInstallRequiresClosedApp;
+    controller
+      ..succeeds = false
+      ..failureReason = reason;
+    final (messages: snacks, :restore) = captureSnacks();
+    addTearDown(restore);
+
+    await pumpScreen(tester, PluginsScreen(controller: plugins));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(t.updateAllButton));
+    await tester.pump();
+    await tester.pump();
+    for (var i = 0; i < 2; i++) {
+      await tester.pump(pluginUpdateDeliverySpacing);
+      await tester.pump();
+    }
+
+    expect(controller.delivered, ['a', 'b', 'c']);
+    expect(plugins.isUpdatingAll, isFalse);
+    restore();
+    expect(snacks, hasLength(1));
+    final names = t.joinNames(['ראשון', 'שני', 'שלישי']);
+    expect(
+        snacks.single, contains('${t.updateAllNoneSentSnack(names)}\n$reason'));
   });
 
   testWidgets('"עדכון הכול": "עצירה" עוצרת אחרי התוסף הנוכחי', (tester) async {

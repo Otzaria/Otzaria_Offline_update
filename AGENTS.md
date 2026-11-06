@@ -915,11 +915,11 @@ is a **shared semaphore on purpose**: `LibraryManager` hands the same instance t
 together never run more than four files at once. The smart-search sync
 (`SemanticSearchAssets.sync`) runs after both on the same instance, models and
 vector parts biggest-first, deducts files already complete in the generation
-through `slot(existingBytes:)` before its `announce()`, and reports into a new
-`slot()` of the same outer aggregator, so the bar keeps counting instead of
-resetting when it starts; an
-export that returned "up to date" without ever reporting gets a zero total first,
-or the outer total would stay unknown. `plugins_manager` cannot depend on
+through `slot(existingBytes:)` before its `announce()`, and reports into an outer
+`slot()` reserved **before** either exporter starts. Until smart search plans,
+the total stays unknown; adding its slot later caused 100% → 70% (#156).
+An export that returns "up to date" without reporting gets a zero total, as does
+smart search skipped before planning. `plugins_manager` cannot depend on
 `seforim_library_updater` (pure Dart vs. Flutter) and carries its own 40-line
 `runPooled`; keep them in step conceptually, without a cross-package dependency. Three
 load-bearing consequences:
@@ -939,8 +939,8 @@ load-bearing consequences:
   `CompanionAssetsMirror.sync` resolves all three assets (`_plan*`) before it
   downloads any. Without it the total appeared late and moved, and
   `downloadProgress` measured in assets meanwhile: two rulers, swapping mid-
-  download. It now returns `null` rather than fall back to assets once bytes have
-  flowed. Verification bytes are **not** download bytes — `onVerifyProgress` feeds
+  download. It returns `null` while the byte total is unknown, even before bytes
+  flow. Verification bytes are **not** download bytes — `onVerifyProgress` feeds
   the stage text (`exportVerifying`), never the meter.
 - **A failed task stops new ones but still awaits the running ones** before
   rethrowing; a download left running in the background keeps writing into the
@@ -1330,14 +1330,14 @@ it out and the library stage is `skipped` with `libraryAwaitsApp`.
 - It never solved issue #21 either: it carried only the ~2MB WebView2 *bootstrapper*,
   which downloads the runtime from the internet. See §5.8 for what #21 actually needs.
 
-**When the *user* installs, Otzaria's own wizard opens**
-(`update(check, useWizard: true)` → `OtzariaInstaller.installWithWizard`, no flags
-but `/LOG=`, `/NOLAUNCH=1` and, from an elevated launcher, `/CURRENTUSER`). Its two
-pages carry
-decisions only the person at the machine can make: which folder, and whether to
-create a desktop shortcut. `/VERYSILENT` deleted both pages — that is what the report
-"it didn't open the installer's dialog and made no shortcut" was. Do not "fix" it back
-with `/MERGETASKS`; overriding that choice is the bug.
+**A user install opens Otzaria's wizard and preserves its known scope.**
+For an installed 0.9.88+, `/CURRENTUSER` or `/ALLUSERS` prevents `InitializeSetup`
+from relaunching silently and closing the requested wizard (#177). Older installs
+keep its scope detection; a fresh install gets `/CURRENTUSER` only when elevated.
+`/LOG=`, `/NOLAUNCH=1` and an existing `/DIR=` preserve the wizard's choices.
+`/VERYSILENT` once hid the folder and shortcut pages; never restore it or
+override the user's shortcut choice with `/MERGETASKS`.
+`OtzariaManager.update(useWizard: true)`, `OtzariaInstaller.installWithWizard`.
 
 **`/DIR=` is different and *is* passed when an install already exists.** Inno's
 `/DIR` only sets the *default* on the destination page (hidden anyway on an update),
@@ -1875,13 +1875,12 @@ install, launch. Adding, editing, removing, categories and order live on
 Settings. The add/edit form stays a dialog. On a read-only drive the Manage row is
 disabled with the reason, since every management action writes to the drive.
 
-**`CustomAppsScreen` listens to its own controller**, like `PluginsScreen`: the
-open category lives in the controller, and a category tap rebuilt nothing when the
-screen relied on `AppShell` rebuilding it from outside. Both listeners are fine;
-the screen is
-still built lazily on first visit, and that visit is what marks pending programs as
-seen on this computer (`markAnnounced`) — until then the "waiting to install" chip on
-the home tile stands out. There is no pending dialog.
+**`CustomAppsScreen` listens to its own controller, like `PluginsScreen`.**
+The open category lives there; relying only on `AppShell` meant category taps
+rebuilt nothing. The screen is still built lazily on its first visit, which marks
+pending programs as seen (`markAnnounced`); a real update stays highlighted until
+applied, and a missing program is offered for installation. There is no pending
+dialog.
 
 ### 5.8 Packaging, distribution and self-update
 
@@ -2199,6 +2198,12 @@ hidden section's spinner keeps requesting frames for the whole operation. The sa
 wrapper sets `TooltipVisibility`: a tooltip lives in the root overlay, and one
 fading out when its section was hidden froze half-transparent over the home.
 
+**Task notifications must stay above the visible action area.** In issue #173,
+plugin-install success messages covered "back to home" until they disappeared.
+`UiSnackAnchor` in `TaskFrame` and `TaskResult` positions `UiSnack` above the
+buttons, including when the task changes while a notification is open. Shell
+tests of this behaviour must connect the global `navigatorKey` to render it.
+
 **The safer-mode gate is the navigator's, for every route that puts Settings on the
 stack.** `ShellNavigator.canEnter` (`AppShell._canEnter`) asks before Settings,
 `CustomAppsManageRoute` and `FaqEditRoute` (help over Settings, so "back" lands
@@ -2442,6 +2447,7 @@ verify something new.
 | `LibraryUpdateApplier` on Windows | Not verified on real hardware (full ~1GB download, delta chains, the running-Otzaria probe) |
 | `RunningOtzariaLocator` FFI half (`QueryFullProcessImageNameW`), Windows `.db` picker filter | Not verified |
 | Plugin store round trip | Unit-tested only — never a real `sync()` against `otzaria.org`, a USB trip, and `install-local` against a real Otzaria |
+| Existing custom-app detection (§5.7) | Unit- and widget-tested; real Windows registry, executable scan and version reader found an existing VS Code 1.144.1 from a record without detection rules or an install folder (2026-11-04). No install or launch; Zayit itself was not installed on the test machine. |
 | Launcher self-update | Dart side unit-tested end to end (GitHub client against a mock, mirror round trip, location fallbacks, a real swap in a temp dir asserting `OtzariaData/` survives); `stub.c` compiles clean at `/W4`. **Never run for real**: a published tag found by a shipped exe, the `--after-update=<pid>` wait, the re-extract over a live `app-files\`, the macOS bundle swap |
 | Offline-only rework (drive-only checks and installs, exe-adjacent data folder, app mirror, `prerelease` channels) | Unit-tested and analyzer-clean only. Not run on a real removable drive, a genuinely read-only folder, or `OtzariaAppMirror.sync()` against real GitHub; whether the trimmed mirror suffices for a real offline apply is unconfirmed |
 | Read-only drive mode (issue #25) | Same — write paths traced and unit-tested, never run from a drive with its lock switch on |

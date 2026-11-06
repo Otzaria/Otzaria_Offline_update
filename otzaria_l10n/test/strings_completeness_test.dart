@@ -158,6 +158,8 @@ const _noHebrewLettersInHebrew = {
 /// להיות שונה מהפלט ב-2 ובלי אף מונה כמספר; ב-0, 2 ו-1000 הספרה עדיין חובה.
 /// חריג שאינו רשום כאן נופל — כך מונה שנבלע עדיין נתפס.
 const _spelledOne = {
+  'guide.chipAppsPending#0',
+  'guide.chipAppsUpdates#0',
   'task.minutesLeft#0',
   'task.donePluginsValue#0',
   'task.pluginsWaiting#0',
@@ -176,6 +178,8 @@ const _spelledOne = {
 
 /// הזוגי העברי ("שתי דקות") — אותו כלל ב-2, בעברית בלבד.
 const _spelledTwoInHebrew = {
+  'guide.chipAppsPending#0',
+  'guide.chipAppsUpdates#0',
   'task.minutesLeft#0',
   'task.donePluginsValue#0',
   'task.pluginsWaiting#0',

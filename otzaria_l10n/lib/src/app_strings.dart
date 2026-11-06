@@ -182,6 +182,7 @@ abstract class TaskStrings {
   String get preparingBody;
   String get downloadingTitle;
   String get downloadingBody;
+  String get checkingAppInstaller;
   String downloadingStep(String name, int index, int count);
 
   /// רכיבים שיורדים יחד; [names] כבר מחוברים.
@@ -693,6 +694,7 @@ abstract class GuidanceStrings {
   String chipPluginsOnDrive(int count);
   String get chipNoPlugins;
   String chipAppsPending(int count);
+  String chipAppsUpdates(int count);
   String chipAppsInstalled(int count);
   String chipReportsToSend(int count);
   String chipReportsToCollect(int count);
@@ -1095,6 +1097,7 @@ abstract class PluginsStrings {
   String installCancelledSnack(String pluginName);
   String installRejectedSnack(String pluginName, String? reason);
   String get installFailedSnack;
+  String get legacyPortableInstallRequiresClosedApp;
 
   String get loadingCatalog;
 
@@ -2552,6 +2555,7 @@ abstract class AppReportsStrings {
   String get dialogTitle;
   String get dialogSubtitle;
   String get typeLabel;
+  String get typeRequired;
   String get titleLabel;
   String get titleHint;
   String get titleRequired;

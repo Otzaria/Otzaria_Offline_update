@@ -254,12 +254,53 @@ void main() {
 
   test('the library port reports failures and retries', () {
     final port = LibraryModulePort(library);
+    library.onlineCheckedAt = DateTime.now();
     expect(port.downloadFailed, isFalse);
     expect(port.downloadNeedsRetry, isFalse);
 
     library.downloadError = 'boom';
     expect(port.downloadFailed, isTrue);
     expect(port.downloadNeedsRetry, isTrue);
+  });
+
+  test('pending companion partials block cleanup across downloads', () {
+    final port = LibraryModulePort(library);
+    library.onlineCheckedAt = DateTime.now();
+    library.onlinePendingCompanions = {CompanionAsset.talmud};
+
+    expect(port.downloadFailed, isFalse);
+    expect(port.downloadNeedsRetry, isTrue);
+
+    library.failedCompanions = {CompanionAsset.talmud};
+    expect(library.hasOnlineUpdate, isFalse);
+    expect(port.downloadNeedsRetry, isTrue);
+
+    library.onlinePendingCompanions = const {};
+    expect(port.downloadNeedsRetry, isFalse);
+  });
+
+  test('a failed companion recheck cannot authorize partial cleanup', () {
+    final port = LibraryModulePort(library);
+    library.onlineCheckedAt = DateTime.now();
+    library.onlineCompanionsCheckError = 'SocketException: connection lost';
+
+    expect(library.onlinePendingCompanions, isEmpty);
+    expect(port.downloadFailed, isFalse);
+    expect(port.downloadNeedsRetry, isTrue);
+
+    library.onlineCompanionsCheckError = null;
+    expect(port.downloadNeedsRetry, isFalse);
+  });
+
+  test('unchecked companions cannot authorize cleanup after a restart', () {
+    final port = LibraryModulePort(library);
+
+    expect(library.onlineCheckedAt, isNull);
+    expect(port.downloadFailed, isFalse);
+    expect(port.downloadNeedsRetry, isTrue);
+
+    library.onlineCheckedAt = DateTime.now();
+    expect(port.downloadNeedsRetry, isFalse);
   });
 
   test(

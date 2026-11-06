@@ -290,6 +290,37 @@ void main() {
       expect(hints, isNot(contains('setup')));
       expect(hints, contains('myapp'));
     });
+
+    test('סוג המתקין אינו מזהה תוכנת NSIS אחרת', () {
+      final entries = [entry('nsis', 'NSIS Tool'), entry('zayit', 'זית')];
+      final chosen = InstallLearner.pickEntry(
+        entries,
+        entries,
+        InstallLearner.nameHintsFor(
+          name: 'זית',
+          installerFileName: 'זית-0.6.13-nsis.exe',
+        ),
+      );
+      expect(chosen?.keyName, 'zayit');
+    });
+
+    for (final word in ['Windows', 'NSIS']) {
+      for (final fromRepo in [false, true]) {
+        test('$word בשם התוכנה או הריפו נשאר רמז: ריפו $fromRepo', () {
+          final entries = [entry('other', 'Other'), entry('app', '$word Tool')];
+          final chosen = InstallLearner.pickEntry(
+            entries,
+            entries,
+            InstallLearner.nameHintsFor(
+              name: fromRepo ? 'כלי' : word,
+              repo: fromRepo ? word : null,
+              installerFileName: '$word-1.0.exe',
+            ),
+          );
+          expect(chosen?.keyName, 'app');
+        });
+      }
+    }
   });
 
   /// ⚠️ המקרה שנכשל על מחשב אמיתי (`KleiKodesh`): התוכנה כבר הייתה מותקנת,

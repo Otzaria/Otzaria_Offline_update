@@ -896,6 +896,20 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
       for (final c in running)
         if (c != current) c: fractionOf(c),
     };
+    final stages = {
+      for (final c in running)
+        c: switch (c) {
+          MirrorComponent.app => s.otzaria.downloadStage ?? '',
+          MirrorComponent.library => [
+              s.library.downloadStage,
+              s.library.downloadCompanionStage,
+            ].nonNulls.join('\n'),
+          MirrorComponent.plugins =>
+            s.plugins.status == PluginsModuleStatus.syncing
+                ? s.plugins.syncMessage ?? ''
+                : '',
+        },
+    };
     final finished = s.finishedDownloads;
     final probe = s.library.downloadSizeProbe;
     switch (current) {
@@ -908,6 +922,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           fraction: appFraction(),
           others: others,
           finished: finished,
+          stages: stages,
         );
       case MirrorComponent.library:
         return DownloadSnapshot(
@@ -917,6 +932,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           fraction: s.library.downloadProgress,
           others: others,
           finished: finished,
+          stages: stages,
           localWork: s.library.downloadLocalWork,
         );
       case MirrorComponent.plugins:
@@ -926,6 +942,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           fraction: s.plugins.syncProgress,
           others: others,
           finished: finished,
+          stages: stages,
         );
       case null:
         return DownloadSnapshot(libraryProbe: probe, finished: finished);

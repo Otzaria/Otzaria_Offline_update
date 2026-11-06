@@ -1,13 +1,15 @@
 // דף הבית מהמודל: כל מצב של ההכוונה מציג את הגיבור, האריחים וההודעות
-// הנכונים, וכל כפתור מפעיל את הפעולה שלו. בלי סשן ובלי קונטרולרים — מלבד
-// בדיקות המדים בסוף, שקוראות מ-progress של קונטרולרים אמיתיים.
+// הנכונים, וכל כפתור מפעיל את הפעולה שלו. בדיקות התוכנות הנוספות והמדים
+// קוראות גם מהסשן ומהקונטרולרים האמיתיים.
 
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:launcher_app/src/controllers/custom_apps_controller.dart';
 import 'package:launcher_app/src/controllers/launcher_update_controller.dart';
 import 'package:launcher_app/src/controllers/library_module_controller.dart';
 import 'package:launcher_app/src/controllers/otzaria_module_controller.dart';
@@ -20,7 +22,11 @@ import 'package:launcher_app/src/screens/home/home_view_model.dart';
 import 'package:launcher_app/src/screens/home/whats_new_dialog.dart';
 import 'package:launcher_app/src/self_update/launcher_release.dart';
 import 'package:launcher_app/src/services/byte_size.dart';
+import 'package:launcher_app/src/settings/app_settings.dart';
+import 'package:launcher_app/src/settings/settings_controller.dart';
+import 'package:launcher_app/src/shell/app_session.dart';
 import 'package:launcher_app/src/shell/home_guidance.dart';
+import 'package:launcher_app/src/shell/session_prompts.dart';
 import 'package:launcher_app/src/shell/shell_keys.dart';
 import 'package:launcher_app/src/shell/shell_navigator.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
@@ -32,6 +38,7 @@ import 'package:plugins_manager/plugins_manager.dart' show PluginsOnlineStatus;
 
 import 'home_fixtures.dart';
 import 'test_harness.dart';
+import 'test_support.dart';
 
 void main() {
   final g = stringsOf().guide;
@@ -1690,6 +1697,7 @@ void main() {
       library.status = LibraryModuleStatus.updating;
       library.applyProgress = 0.1;
       otzaria.downloadStatus = OtzariaDownloadStatus.downloading;
+      otzaria.downloadStage = stringsOf().task.checkingAppInstaller;
       launcher.status = LauncherUpdateStatus.downloading;
       var stateNotifications = 0;
       void count() => stateNotifications++;
@@ -1708,9 +1716,11 @@ void main() {
         ),
       );
       expect(find.text('10%'), findsOneWidget);
+      expect(find.text(stringsOf().task.checkingAppInstaller), findsOneWidget);
 
       library.applyProgress = 0.42;
       library.notifyProgress();
+      otzaria.downloadStage = null;
       otzaria.downloadReceived = 30;
       otzaria.downloadTotal = 100;
       otzaria.notifyProgress();
@@ -1722,6 +1732,8 @@ void main() {
       expect(find.text('42%'), findsOneWidget);
       expect(find.text('30%'), findsOneWidget);
       expect(find.text('70%'), findsOneWidget);
+      expect(find.text(stringsOf().task.checkingAppInstaller), findsNothing);
+      expect(find.text(stringsOf().home.downloadingApp), findsOneWidget);
       expect(stateNotifications, 0);
     });
 
@@ -2034,6 +2046,133 @@ void main() {
     });
   });
 
+  group('תוכנות נוספות — התקנות ועדכונים (#198)', () {
+    late Directory tempDir;
+    late SettingsController settings;
+    late AppSession session;
+
+    setUp(() async {
+      tempDir = Directory.systemTemp.createTempSync('custom_apps_home');
+      settings = SettingsController(dataDir: tempDir.path);
+      await settings.update(const AppSettings(autoCheckUpdates: false));
+      session = AppSession(
+        dataDir: tempDir.path,
+        stateDir: tempDir.path,
+        settings: settings,
+        prompts: _UnexpectedHomePrompts(),
+        noticesStore: MemoryNoticesStore(),
+      );
+      session.otzaria
+        ..status = OtzariaModuleStatus.upToDate
+        ..currentVersion = '0.10.4';
+      session.library.status = LibraryModuleStatus.upToDate;
+      session.plugins.status = PluginsModuleStatus.ready;
+    });
+
+    tearDown(() async {
+      session.dispose();
+      settings.dispose();
+      await deleteTempDir(tempDir);
+    });
+
+    CustomAppView app(String id, {String? installedVersion}) => CustomAppView(
+          entry: CustomAppEntry(
+            descriptor: AppDescriptor(
+              id: id,
+              name: id,
+              sourceKind: AppSourceKind.manual,
+              detect: AppDetectRules(exeName: '$id.exe'),
+            ),
+            installer: StoredInstaller(
+              fileName: 'setup.exe',
+              version: '2.0.0',
+              sizeBytes: 1,
+              addedAt: DateTime(2026),
+            ),
+          ),
+          installed: installedVersion == null
+              ? null
+              : CustomAppInstallState(
+                  version: installedVersion,
+                  installDir: r'C:\Apps',
+                  launchPath: 'C:\\Apps\\$id.exe',
+                ),
+        );
+
+    StatusChip chipOf(WidgetTester tester) => tester.widget<StatusChip>(
+          find.descendant(
+            of: find.byKey(ShellKeys.tile(ShellSection.customApps)),
+            matching: find.byType(StatusChip),
+          ),
+        );
+
+    test('תוכנה שלא הותקנה אינה עדכון גם לפני פתיחת הרשימה', () async {
+      session.customApps.apps = [app('Missing')];
+      expect(session.customApps.unannouncedApps, hasLength(1));
+      expect(homeViewModelOf(session).guidance.otherUpdates, isEmpty);
+      await session.customApps.markAnnounced(session.customApps.apps);
+      expect(homeViewModelOf(session).guidance.otherUpdates, isEmpty);
+    });
+
+    testWidgets('תוכנה שלא הותקנה מציגה התקנה בלי סימון עדכון', (tester) async {
+      session.customApps.apps = [app('Missing')];
+      await pumpScreen(tester, HomePage(model: homeViewModelOf(session)));
+      expect(chipOf(tester).kind, StatusKind.needsAction);
+      expect(chipOf(tester).label, g.chipAppsPending(1));
+      expect(
+        inHero(find.text(g.tileCustomApps)),
+        findsNothing,
+      );
+    });
+
+    testWidgets('עדכון אמיתי נשאר מסומן גם אחרי פתיחת הרשימה', (tester) async {
+      session.customApps.apps = [app('Updated', installedVersion: '1.0.0')];
+      for (final announced in [false, true]) {
+        if (announced) {
+          await tester.runAsync(
+            () => session.customApps.markAnnounced(session.customApps.apps),
+          );
+        }
+        final model = homeViewModelOf(session);
+        expect(model.guidance.otherUpdates, [OtherUpdate.customApps]);
+        await pumpScreen(tester, HomePage(model: model));
+        expect(chipOf(tester).kind, StatusKind.updateAvailable);
+        expect(chipOf(tester).label, g.chipAppsUpdates(1));
+      }
+    });
+
+    testWidgets('רשימה מעורבת סופרת ומזהה רק עדכונים אמיתיים', (tester) async {
+      session.customApps.apps = [
+        app('Updated', installedVersion: '1.0.0'),
+        app('Missing'),
+        app('Current', installedVersion: '2.0.0'),
+        app('Newer', installedVersion: '3.0.0'),
+        app('Unknown', installedVersion: 'unknown'),
+      ];
+      final model = homeViewModelOf(session);
+      expect(model.customApps, 5);
+      expect(model.customAppsUpdates, 1);
+      expect(model.customAppsNotInstalled, 1);
+      expect(model.customAppUpdateNames, ['Updated']);
+      expect(model.guidance.otherUpdates, [OtherUpdate.customApps]);
+
+      await pumpScreen(tester, HomePage(model: model));
+      expect(chipOf(tester).label, g.chipAppsUpdates(1));
+      final tile = find.byKey(ShellKeys.tile(ShellSection.customApps));
+      for (final area in [tile, find.byKey(ShellKeys.heroItems)]) {
+        expect(
+          find.descendant(of: area, matching: find.textContaining('Updated')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: area, matching: find.textContaining('Missing')),
+          findsNothing,
+        );
+      }
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('אריחים מול הגיבור', () {
     StatusChip chipOf(WidgetTester tester, ShellSection section) =>
         tester.widget<StatusChip>(
@@ -2328,7 +2467,7 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.descendant(of: list, matching: find.text(g.chipAppsPending(2))),
+        find.descendant(of: list, matching: find.text(g.chipAppsUpdates(2))),
         findsOneWidget,
       );
     });
@@ -3108,6 +3247,12 @@ void main() {
       );
     });
   });
+}
+
+class _UnexpectedHomePrompts implements SessionPrompts {
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('Unexpected prompt: ${invocation.memberName}');
 }
 
 /// מראה של התוכנה עם גרסה יציבה אחת [tag] והערות "מה התחדש ב-[tag]".

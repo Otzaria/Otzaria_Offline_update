@@ -5,6 +5,77 @@ void main() {
   String patternOf(String displayName) =>
       RegistryDisplayNamePattern.fromDisplayName(displayName);
 
+  group('זיהוי לפי שמות מלאים בלי כללים שנלמדו', () {
+    test('שם עברי ושם הריפו הם זהויות חלופיות', () {
+      final pattern = RegistryDisplayNamePattern.forAppNames(['זית', 'Zayit'])!;
+
+      for (final displayName in ['זית', 'ZAYIT', 'Zayit 1.2 (x64)', 'זית v2']) {
+        expect(pattern.hasMatch(displayName), isTrue, reason: displayName);
+      }
+      for (final displayName in ['זיתים', 'Zayit Pro', 'Other Zayit']) {
+        expect(pattern.hasMatch(displayName), isFalse, reason: displayName);
+      }
+    });
+
+    test('הרווחים סביב הזהויות נחתכים', () {
+      final pattern = RegistryDisplayNamePattern.forAppNames(['  Zayit  '])!;
+
+      expect(pattern.hasMatch('Zayit'), isTrue);
+      expect(pattern.hasMatch('Zayit\tv1.2 beta'), isTrue);
+      expect(pattern.hasMatch('Zayit vNext'), isFalse);
+      expect(pattern.hasMatch('Zayit(x64)'), isFalse);
+    });
+
+    test('תווי רגקס בזהות מותאמים כלשונם', () {
+      final pattern =
+          RegistryDisplayNamePattern.forAppNames(['Notepad++ (x64)', 'A.B'])!;
+
+      expect(pattern.hasMatch('Notepad++ (x64) 8.6'), isTrue);
+      expect(pattern.hasMatch('NotepadXX (x64) 8.6'), isFalse);
+      expect(pattern.hasMatch('A.B'), isTrue);
+      expect(pattern.hasMatch('AxB'), isFalse);
+    });
+
+    test('איחוד זהויות אינו בוחר בין רישומים תואמים', () {
+      final pattern = RegistryDisplayNamePattern.forAppNames(['Foo', 'Bar'])!;
+      final names = ['Foo 1.0', 'Bar 2.0', 'Other'];
+
+      expect(names.where(pattern.hasMatch), ['Foo 1.0', 'Bar 2.0']);
+    });
+
+    test('אין זהויות שמישות — אין תבנית', () {
+      expect(RegistryDisplayNamePattern.forAppNames([]), isNull);
+      expect(RegistryDisplayNamePattern.forAppNames(['', ' ', '7z', 'אב']),
+          isNull);
+      final pattern =
+          RegistryDisplayNamePattern.forAppNames(['', '7z', 'Zayit'])!;
+      expect(pattern.hasMatch('7z'), isFalse);
+      expect(pattern.hasMatch('Zayit'), isTrue);
+    });
+
+    test('Git אינו מתאים לתוכנה אחרת ששמה מכיל אותו', () {
+      final pattern = RegistryDisplayNamePattern.forAppNames(['Git'])!;
+
+      expect(pattern.hasMatch('Git'), isTrue);
+      expect(pattern.hasMatch('git V2.44.0.windows.1'), isTrue);
+      for (final displayName in [
+        'GitHub Desktop',
+        'Git Extensions',
+        'Digital'
+      ]) {
+        expect(pattern.hasMatch(displayName), isFalse, reason: displayName);
+      }
+    });
+
+    test('שם קצר מהזהות אינו מתאים', () {
+      final pattern = RegistryDisplayNamePattern.forAppNames(['Foobar'])!;
+
+      expect(pattern.hasMatch('Foo'), isFalse);
+      expect(pattern.hasMatch('Foo 1.0'), isFalse);
+      expect(pattern.hasMatch('Foobar 2.0'), isTrue);
+    });
+  });
+
   group('התבנית שורדת עדכון גרסה', () {
     test('הגרסה נחתכת, ולכן הגרסה הבאה עדיין מתאימה', () {
       final pattern = patternOf('MyApp 1.4.2');

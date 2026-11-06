@@ -1437,6 +1437,89 @@ void main() {
     }, skip: Platform.isWindows);
   });
 
+  group('legacy portable plugin delivery', () {
+    for (final scenario in [
+      (
+        name: 'open 0.9.98 portable asks to close Otzaria before sending',
+        version: '0.9.98',
+        portable: true,
+        running: true,
+        blocked: true,
+      ),
+      (
+        name: 'closed 0.9.98 portable can receive a cold-launch request',
+        version: '0.9.98',
+        portable: true,
+        running: false,
+        blocked: false,
+      ),
+      (
+        name: 'open 0.9.98 installed copy can receive a request',
+        version: '0.9.98',
+        portable: false,
+        running: true,
+        blocked: false,
+      ),
+      (
+        name: 'open 0.9.98.2 portable has the corrected native queue',
+        version: '0.9.98.2',
+        portable: true,
+        running: true,
+        blocked: false,
+      ),
+      (
+        name: 'open 0.9.98.2+807 portable keeps its build suffix',
+        version: '0.9.98.2+807',
+        portable: true,
+        running: true,
+        blocked: false,
+      ),
+      (
+        name: 'open newer portable can receive a request',
+        version: '0.9.98.3',
+        portable: true,
+        running: true,
+        blocked: false,
+      ),
+    ]) {
+      test(scenario.name, () async {
+        final launchPath = p.join(tempDir.path, 'otzaria.exe');
+        File(launchPath).writeAsStringSync('');
+        if (scenario.portable) {
+          File(p.join(tempDir.path, 'portable.marker')).writeAsStringSync('');
+        }
+        final mirror = p.join(tempDir.path, 'mirror');
+        final manager = _RecordingInstallManager(mirror, launchPath);
+        final c = PluginsModuleController(
+          mirrorRootDir: mirror,
+          otzariaLaunchPath: () async => launchPath,
+          installedAppVersion: () async => scenario.version,
+          isOtzariaRunning: () async => scenario.running,
+          manager: manager,
+        )..appVersion = scenario.version;
+        addTearDown(c.dispose);
+        final entry = plugin('a', 'תוסף', manifestId: 'com.example.issue196');
+
+        final result = await c.deliver(entry);
+
+        expect(result.success, !scenario.blocked);
+        if (scenario.blocked) {
+          expect(
+            result.error,
+            AppL10n.strings.plugins.legacyPortableInstallRequiresClosedApp,
+          );
+          expect(manager.directInstallCalls, 0);
+          expect(c.isAwaitingInstall, isFalse);
+          expect(c.isAwaitingInstallOf(entry), isFalse);
+        } else {
+          expect(result.error, isNull);
+          expect(manager.directInstallCalls, 1);
+          expect(c.isAwaitingInstallOf(entry), isTrue);
+        }
+      }, testOn: 'windows');
+    }
+  });
+
   group('canDirectInstall', () {
     test('נקבע לפי הבילד שיותקן ולא לפי הבילד החי', () {
       final entry = StorePlugin.fromApi(const {
@@ -1990,6 +2073,26 @@ List<int> _le32(int value) => [
       (value >> 16) & 0xff,
       (value >> 24) & 0xff,
     ];
+
+class _RecordingInstallManager extends PluginsManager {
+  _RecordingInstallManager(String mirrorRootDir, String launchPath)
+      : super(
+          resolveMirrorDir: () async => mirrorRootDir,
+          otzariaLaunchPath: () async => launchPath,
+        );
+
+  int directInstallCalls = 0;
+
+  @override
+  Future<PluginInstallResult> directInstall(
+    StorePlugin plugin, {
+    String? appVersion,
+    void Function(StorePlugin updated)? onPluginUpdated,
+  }) async {
+    directInstallCalls++;
+    return const PluginInstallResult.ok();
+  }
+}
 
 class _SearchPlugin extends StorePlugin {
   _SearchPlugin(String id, this.text)

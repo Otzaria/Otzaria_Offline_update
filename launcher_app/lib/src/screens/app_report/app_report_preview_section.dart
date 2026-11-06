@@ -91,13 +91,16 @@ class _AppReportPreviewSectionState extends State<AppReportPreviewSection> {
           ),
         ),
         if (_isExpanded) ...[
-          _PreviewBox(
-            key: const ValueKey('app-report-preview-report'),
-            title: 'report.json',
-            content: AppReportPreviewSection.prettyJson(
-              AppReportPreviewSection.reportFields(form.buildReport()),
+          if (form.type == null)
+            Text(t.typeRequired)
+          else
+            _PreviewBox(
+              key: const ValueKey('app-report-preview-report'),
+              title: 'report.json',
+              content: AppReportPreviewSection.prettyJson(
+                AppReportPreviewSection.reportFields(form.buildReport()),
+              ),
             ),
-          ),
           if (diagnostics != null && form.includeDiagnostics)
             _PreviewBox(
               title: 'diagnostics.json',

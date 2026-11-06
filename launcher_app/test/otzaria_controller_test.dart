@@ -688,6 +688,55 @@ void main() {
       expect(c.downloadStatus, OtzariaDownloadStatus.done);
     });
 
+    test('מתקין קיים מוצג כבדיקה, בלי הורדה חוזרת (#193)', () async {
+      final c = controllerFor();
+      c.onlineRelease = cachedOnline('1.0.0');
+      c.onlineCheckedAt = DateTime.now();
+      final installer = File(p.join(
+        tempDir.path,
+        'mirror',
+        'app',
+        'installers',
+        '1.0.0',
+        'otzaria-1.0.0.exe',
+      ));
+      await installer.setLastModified(DateTime.utc(2026, 8, 1));
+      final modified = await installer.lastModified();
+      final stages = <String?>[];
+      c.addListener(() {
+        if (c.downloadStatus == OtzariaDownloadStatus.downloading) {
+          stages.add(c.downloadStage);
+        }
+      });
+
+      await c.download();
+
+      expect(stages, isNotEmpty);
+      expect(stages, everyElement(AppL10n.strings.task.checkingAppInstaller));
+      expect(c.downloadStatus, OtzariaDownloadStatus.done);
+      expect(c.downloadReceived, isNull);
+      expect(c.downloadTotal, isNull);
+      expect(await installer.lastModified(), modified);
+    });
+
+    test('התקדמות רשת מחליפה את חיווי בדיקת המתקין בחיווי הורדה', () async {
+      final c = OtzariaModuleController(
+        dataDir: tempDir.path,
+        manager: _ProgressDownloadManager(tempDir.path),
+      );
+      addTearDown(c.dispose);
+      final stages = <String?>[];
+      c.progress.addListener(() => stages.add(c.downloadStage));
+
+      await c.download();
+
+      expect(stages, isNotEmpty);
+      expect(stages, everyElement(isNull));
+      expect(c.downloadReceived, 5);
+      expect(c.downloadTotal, 10);
+      expect(c.downloadStatus, OtzariaDownloadStatus.done);
+    });
+
     test('בדיקה ישנה אינה משמשת: ההורדה פונה לרשת מחדש', () async {
       final c = controllerFor();
       c.onlineRelease = cachedOnline('1.0.0');
@@ -808,4 +857,18 @@ class _NotDetectedManager extends OtzariaManager {
     bool Function()? isWaitCancelled,
   }) async =>
       throw OtzariaInstallNotDetected('not detected');
+}
+
+class _ProgressDownloadManager extends OtzariaManager {
+  _ProgressDownloadManager(String dataDir)
+      : super(dataDir: dataDir, runningLocator: const _NeverRunningLocator());
+
+  @override
+  Future<void> downloadToMirror({
+    OtzariaLatestRelease? online,
+    void Function(int received, int total)? onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    onProgress?.call(5, 10);
+  }
 }

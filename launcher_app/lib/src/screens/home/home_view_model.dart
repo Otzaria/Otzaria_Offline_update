@@ -6,6 +6,7 @@ import 'package:otzaria_manager/otzaria_manager.dart'
 import 'package:path/path.dart' as p;
 import 'package:plugins_manager/plugins_manager.dart' show PluginsOnlineStatus;
 
+import '../../controllers/custom_apps_controller.dart' show CustomAppPending;
 import '../../controllers/download_plan.dart' show MirrorComponent;
 import '../../controllers/launcher_update_controller.dart';
 import '../../controllers/library_module_controller.dart';
@@ -99,8 +100,9 @@ class HomeViewModel {
     this.pluginsOnDrive = 0,
     this.pluginsInstalled = 0,
     this.customApps = 0,
-    this.customAppsPending = 0,
-    this.customAppsUnannounced = false,
+    this.customAppsUpdates = 0,
+    this.customAppsNotInstalled = 0,
+    this.customAppUpdateNames = const [],
     this.reportsToSend = 0,
     this.reportsToCollect = 0,
     this.toolReportsPending = 0,
@@ -232,10 +234,9 @@ class HomeViewModel {
 
   /// כמה תוכנות נוספות בכונן; 0 — אין אריח.
   final int customApps;
-  final int customAppsPending;
-
-  /// יש ממתינה שהמחשב הזה עוד לא ראה בדף שלה.
-  final bool customAppsUnannounced;
+  final int customAppsUpdates;
+  final int customAppsNotInstalled;
+  final List<String> customAppUpdateNames;
   final int reportsToSend;
   final int reportsToCollect;
 
@@ -437,8 +438,13 @@ HomeViewModel homeViewModelOf(AppSession s) {
     pluginsOnDrive: plugins.plugins.length,
     pluginsInstalled: plugins.installedCount,
     customApps: customApps.apps.length,
-    customAppsPending: customApps.pendingApps.length,
-    customAppsUnannounced: customApps.unannouncedApps.isNotEmpty,
+    customAppsUpdates: customApps.updateApps.length,
+    customAppsNotInstalled: customApps.apps
+        .where((app) => app.pending == CustomAppPending.notInstalled)
+        .length,
+    customAppUpdateNames: [
+      for (final app in customApps.updateApps) app.descriptor.name,
+    ],
     reportsToSend: s.errorReports.outboxCount,
     reportsToCollect: s.reportsToCollect,
     toolReportsPending: s.appReports?.pendingCount ?? 0,
