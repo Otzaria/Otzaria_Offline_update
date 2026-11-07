@@ -38,12 +38,21 @@ class _FailingWriteFile implements File {
   @override
   bool existsSync() => _real.existsSync();
   @override
+  Future<bool> exists() => _real.exists();
+  @override
   int lengthSync() => _real.lengthSync();
   @override
-  void deleteSync({bool recursive = false}) => _real.deleteSync();
+  Future<int> length() => _real.length();
+  @override
+  void deleteSync({bool recursive = false}) =>
+      _real.deleteSync(recursive: recursive);
+  @override
+  Future<FileSystemEntity> delete({bool recursive = false}) =>
+      _real.delete(recursive: recursive);
 
   @override
   Future<RandomAccessFile> open({FileMode mode = FileMode.read}) async {
+    if (mode == FileMode.read) return _real.open(mode: mode);
     _real.writeAsBytesSync(const []);
     return _FailingRandomAccessFile(path, errno);
   }

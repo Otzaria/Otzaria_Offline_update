@@ -54,6 +54,7 @@ void main() {
     String dictionaryTag = 'dict-v7',
     String dictionaryRevision = '',
     String talmudTag = 'lib-v9',
+    String talmudRevision = '',
     bool dictionaryV2 = false,
     bool apiDown = false,
     Set<String> apiDownFor = const {},
@@ -79,6 +80,7 @@ void main() {
                   assetJson(
                     'talmud_bavli_latest.tar.zst',
                     'https://x/talmud_bavli_latest.tar.zst',
+                    talmudRevision,
                   ),
               ],
             }),
@@ -122,7 +124,11 @@ void main() {
         if (beforeAsset != null) await beforeAsset(name);
         body = name == 'version.txt'
             ? Uint8List.fromList(utf8.encode('55'))
-            : bodyOf(name, name == 'lexical.db' ? dictionaryRevision : '');
+            : bodyOf(name, switch (name) {
+                'lexical.db' => dictionaryRevision,
+                'talmud_bavli_latest.tar.zst' => talmudRevision,
+                _ => '',
+              });
       }
 
       return http.StreamedResponse(
@@ -379,24 +385,39 @@ void main() {
     await first.mirror.sync(destDir: destDir);
     final built = buildMirror(
       talmudTag: 'lib-v10',
+      // A changed tag with identical bytes is a verified cache hit. Change the
+      // payload too so this test reaches the write whose failure it injects.
+      talmudRevision: ':v10',
       scheduler: DownloadScheduler(maxConcurrent: 1),
     );
     addTearDown(built.mirror.dispose);
     Object? thrown;
 
-    await runWithFailingRandomWrites(() async {
-      try {
-        await built.mirror.sync(destDir: destDir);
-      } catch (error) {
-        thrown = error;
-      }
-    }, matches: (path) => p.basename(path) == 'talmud_bavli_latest.tar.zst');
+    await runWithFailingRandomWrites(
+      () async {
+        try {
+          await built.mirror.sync(destDir: destDir);
+        } catch (error) {
+          thrown = error;
+        }
+      },
+      matches: (path) => p.basename(path) == 'talmud_bavli_latest.tar.zst.new',
+    );
 
     expect(thrown, isA<StorageFullException>(), reason: '$thrown');
     final manifest = (await CompanionMirrorManifest.load(destDir))!;
     expect(
       manifest.entries.keys,
       containsAll([CompanionAsset.catalog, CompanionAsset.dictionary]),
+    );
+    expect(manifest.entries[CompanionAsset.talmud]!.tag, 'lib-v9');
+    expect(
+      await File(p.join(destDir, 'talmud_bavli_latest.tar.zst')).readAsBytes(),
+      bodyOf('talmud_bavli_latest.tar.zst'),
+    );
+    expect(
+      File(p.join(destDir, 'talmud_bavli_latest.tar.zst.new')).existsSync(),
+      isFalse,
     );
   });
 

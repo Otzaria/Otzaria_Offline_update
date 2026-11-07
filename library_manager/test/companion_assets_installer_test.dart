@@ -756,7 +756,7 @@ void main() {
       );
     });
 
-    test('חילוץ שנכשל באמצע משאיר סימון installing ומחזיר להצעה', () async {
+    test('חילוץ שנכשל באמצע משאיר את התלמוד והסימון הקודמים', () async {
       if (bindings == null) {
         markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
         return;
@@ -793,12 +793,12 @@ void main() {
       expect(report.errors[CompanionAsset.talmud], isNotNull);
       expect(
         File(p.join(talmudDir.path, 'ברכות.pdf')).readAsStringSync(),
-        'pdf:ברכות.pdf',
+        'ישן',
       );
       expect(report.delivered, isNot(contains(CompanionAsset.talmud)));
       expect(
         File(p.join(talmudDir.path, '.version')).readAsStringSync(),
-        'installing',
+        'old',
       );
       expect(
         File(p.join(talmudDir.path, '.version.contents')).existsSync(),

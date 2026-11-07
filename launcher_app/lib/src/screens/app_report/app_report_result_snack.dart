@@ -32,6 +32,12 @@ String appReportInvalidFieldMessage(String field, {required bool emailEmpty}) {
     'title' => t.titleRequiredSnack,
     'description' => t.descriptionRequiredSnack,
     'reporterEmail' => emailEmpty ? t.emailRequiredSnack : t.invalidEmailSnack,
+    'attachments' ||
+    'attachments.images' ||
+    'attachments.diagnostics' ||
+    'attachments.errorLog' ||
+    'attachments.minidump' =>
+      t.attachmentsInvalidSnack,
     _ => t.sendFailedSnack,
   };
 }

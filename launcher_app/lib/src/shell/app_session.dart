@@ -1287,6 +1287,7 @@ class AppSession extends ChangeNotifier {
     if (isActive) unawaited(_measureDriveFree());
     // בקשה שבוטלה לא סוגרת את המסך של בקשה חדשה שנפתחה אחריה.
     if (isActive && request == _downloadRequest) tasks.abandonDownload();
+    _onChange();
   }
 
   int _downloadRequest = 0;

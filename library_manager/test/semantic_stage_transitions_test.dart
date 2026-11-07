@@ -76,20 +76,61 @@ class _Routed extends http.BaseClient {
 }
 
 class _Assets extends SemanticSearchAssets {
-  _Assets(this.routed, {required super.httpClient, int concurrent = 1})
-    : super(
-        models: fakeModels,
-        scheduler: DownloadScheduler(maxConcurrent: concurrent),
-        freeBytesFor: (_) => null,
-      );
+  _Assets(
+    this.routed, {
+    required super.httpClient,
+    required this.onAssetProgress,
+    int concurrent = 1,
+  }) : super(
+         models: fakeModels,
+         scheduler: DownloadScheduler(maxConcurrent: concurrent),
+         freeBytesFor: (_) => null,
+       );
 
   final http.Client routed;
+  final void Function(String url) onAssetProgress;
 
   @override
-  PatchDownloader newDownloader({int? maxConnections}) => PatchDownloader(
-    httpClient: routed,
-    decompress: (_) async => null,
-    maxConnections: 1,
+  PatchDownloader newDownloader({int? maxConnections}) =>
+      _ObservedDownloader(httpClient: routed, onAssetProgress: onAssetProgress);
+}
+
+class _ObservedDownloader extends PatchDownloader {
+  _ObservedDownloader({
+    required super.httpClient,
+    required this.onAssetProgress,
+  }) : super(decompress: (_) async => null, maxConnections: 1);
+
+  final void Function(String url) onAssetProgress;
+
+  @override
+  Future<void> downloadToFile({
+    required String url,
+    required String destPath,
+    int? expectedSize,
+    String? expectedSha256,
+    String? resumeToken,
+    void Function(int downloaded, int? total)? onProgress,
+    void Function(int verified, int total)? onVerifyProgress,
+    void Function(int done, int total)? onAssembleProgress,
+    void Function(int bytes)? onExistingBytes,
+    int? connections,
+    bool Function()? isCancelled,
+  }) => super.downloadToFile(
+    url: url,
+    destPath: destPath,
+    expectedSize: expectedSize,
+    expectedSha256: expectedSha256,
+    resumeToken: resumeToken,
+    onProgress: (done, total) {
+      onProgress?.call(done, total);
+      onAssetProgress(url);
+    },
+    onVerifyProgress: onVerifyProgress,
+    onAssembleProgress: onAssembleProgress,
+    onExistingBytes: onExistingBytes,
+    connections: connections,
+    isCancelled: isCancelled,
   );
 }
 
@@ -139,17 +180,24 @@ void main() {
       installModels(p.join(mirror, tag, SemanticSearchAssets.modelFolder));
 
   /// Every stage seen, and the one showing at each arrival of new bytes.
-  Future<({List<String> stages, List<String> atBytes})> sync({
-    int concurrent = 1,
-  }) async {
+  Future<
+    ({List<String> stages, List<String> atBytes, List<String> atVectorBytes})
+  >
+  sync({int concurrent = 1}) async {
     final stages = <String>[];
     final atBytes = <String>[];
+    final atVectorBytes = <String>[];
     var stage = '';
     var last = 0;
     final assets = _Assets(
       _Routed(github.client, server.port, segmentName),
       httpClient: github.client,
       concurrent: concurrent,
+      onAssetProgress: (url) {
+        if (Uri.parse(url).pathSegments.last == segmentName) {
+          atVectorBytes.add(stage);
+        }
+      },
     );
     try {
       await assets.sync(
@@ -168,7 +216,7 @@ void main() {
     } finally {
       assets.dispose();
     }
-    return (stages: stages, atBytes: atBytes);
+    return (stages: stages, atBytes: atBytes, atVectorBytes: atVectorBytes);
   }
 
   test(
@@ -250,11 +298,14 @@ void main() {
 
     final local = run.stages.where(isLocalWorkStage).toList();
     expect(local.any((s) => s.contains(model.name)), isTrue, reason: '$local');
-    // The vectors' bytes never arrive under a stage still naming them.
+    // Observe this asset's progress, not the aggregate: a model can download
+    // while the vectors are still verifying their prefix. Async file I/O makes
+    // that valid overlap visible, so aggregate bytes cannot identify the asset.
+    expect(run.atVectorBytes, isNotEmpty);
     expect(
-      run.atBytes.where((s) => s.contains(segmentName)),
+      run.atVectorBytes.where((s) => s.contains(segmentName)),
       isEmpty,
-      reason: '${run.atBytes}',
+      reason: '${run.atVectorBytes}',
     );
     expect(run.stages.last, downloading);
     expect(File(vectorDest()).readAsBytesSync(), segment);

@@ -247,6 +247,9 @@ class L10nLibraryUpdaterMessages implements LibraryUpdaterMessages {
   String get networkInterrupted => _s.networkInterrupted;
 
   @override
+  String get downloadAlreadyInProgress => _s.downloadAlreadyInProgress;
+
+  @override
   String get compressedFileSizeLabel => _s.compressedFileSizeLabel;
 
   @override

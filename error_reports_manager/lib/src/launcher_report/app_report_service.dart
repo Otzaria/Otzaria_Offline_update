@@ -209,7 +209,11 @@ class AppReportService {
         );
       case _AttemptKind.permanent:
       case _AttemptKind.idConflict:
-        await _deletePendingFile(originalId);
+        if (current.schema == 1) {
+          await _deletePendingFile(originalId);
+        } else {
+          await _keepQueued(originalId, current, idChanges);
+        }
         _notify();
         return AppReportDeliveryResult(
           status: AppReportDeliveryStatus.failed,
@@ -238,13 +242,24 @@ class AppReportService {
     int idChanges,
   ) async {
     final existing = await _findPending(originalId);
-    if (existing != null && report.reportId == originalId) return;
-    if (existing != null) await _deletePendingFile(originalId);
+    if (existing != null && report.reportId == originalId) {
+      if (report.schema == 1) return;
+      await _writePending(report,
+          queuedAt: existing.stamp, idChanges: idChanges);
+      _notify();
+      return;
+    }
+    if (existing != null && report.schema == 1) {
+      await _deletePendingFile(originalId);
+    }
     await _writePending(
       report,
       queuedAt: existing?.stamp,
       idChanges: idChanges,
     );
+    if (existing != null && report.schema != 1) {
+      await _deletePendingFile(originalId);
+    }
     _notify();
   }
 
@@ -355,6 +370,7 @@ class AppReportService {
         );
         if (step == _FlushStep.sent) sent++;
         if (step == _FlushStep.dropped) dropped++;
+        if (step == _FlushStep.retained) failed++;
         if (step == _FlushStep.skipped) skipped++;
         if (step == _FlushStep.transient) {
           transient = true;
@@ -396,6 +412,7 @@ class AppReportService {
         return _FlushStep.sent;
       case _AttemptKind.idConflict:
         if (read.idChanges + 1 >= maxIdChanges) {
+          if (queued.schema != 1) return _FlushStep.retained;
           log?.call('App report id conflict kept recurring, removed');
           await _deleteQuietly(File(meta.path));
           return _FlushStep.dropped;
@@ -410,6 +427,10 @@ class AppReportService {
         await _deleteQuietly(File(meta.path));
         return _FlushStep.skipped;
       case _AttemptKind.permanent:
+        if (queued.schema != 1) {
+          log?.call('App report rejected, retained: ${attempt.httpStatus}');
+          return _FlushStep.retained;
+        }
         log?.call('App report rejected, removed: ${attempt.httpStatus}');
         await _deleteQuietly(File(meta.path));
         return _FlushStep.dropped;
@@ -739,7 +760,7 @@ class AppReportService {
     final body = payload.bytes;
     if (body == null) {
       log?.call('App report payload invalid: ${payload.error}');
-      return const _Attempt(_AttemptKind.permanent);
+      return _Attempt(_AttemptKind.permanent, rejectedField: payload.error);
     }
     if (body.length > AppReport.maxRequestBytes) {
       return const _Attempt(
@@ -867,9 +888,15 @@ class _EncodedBody {
 _EncodedBody _encodeForSending(AppReport report) {
   try {
     final stamped = report.copyWith(product: AppReport.offlineUpdateProduct);
+    if (stamped.schema != 1) {
+      final invalidField = stamped.validate();
+      if (invalidField != null) return _EncodedBody.failed(invalidField);
+    }
     return _EncodedBody(
       utf8.encode(jsonEncode(stamped.toApiPayload())),
-      heavy: report.images.isNotEmpty || report.minidump != null,
+      heavy: report.images.isNotEmpty ||
+          report.minidump != null ||
+          report.otherAttachmentBytes > AppReport.maxBodyBytes,
     );
   } catch (error) {
     return _EncodedBody.failed('$error');
@@ -916,7 +943,7 @@ _PendingDecoded _decodePendingFile(String path, _PendingDecode mode) {
   }
 }
 
-enum _FlushStep { sent, skipped, dropped, transient }
+enum _FlushStep { sent, skipped, dropped, retained, transient }
 
 class _SentHistory {
   _SentHistory(this.total, this.reports);

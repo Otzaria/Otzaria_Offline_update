@@ -1813,6 +1813,7 @@ abstract class LibraryDomainStrings {
   String tableHashMismatch(String tables);
   String patchOpenFailed(String path, String detail);
   String get networkInterrupted;
+  String get downloadAlreadyInProgress;
   String get deletePreviousArchiveFailed;
   String joinedArchiveSizeMismatch(int written, int expected);
   String get joinedArchiveHashMismatch;
@@ -1932,6 +1933,7 @@ abstract class LibraryDomainStrings {
 
   // שלבי ההחלה, כפי שמוצגים במד ההתקדמות
   String applyDownloadingPatch(String step);
+  String applyDecompressingPatch(String step);
   String applyApplyingPatch(String step);
 
   /// תת-שלב בתוך החלת ה-patch — [stage] הוא שם השלב הגולמי כפי ש-
@@ -2480,6 +2482,7 @@ abstract class ErrorReportsDomainStrings {
   String get someNotCollected;
 
   String uploadHttpStatus(int statusCode);
+  String uploadReportKept(String reason);
   String get uploadShabbat;
   String get uploadTimedOut;
   String uploadNetworkError(String error);
@@ -2571,6 +2574,8 @@ abstract class AppReportsStrings {
 
   // ── תמונות ──
   String get imagesPrompt;
+  String get attachmentLimitsHint;
+  String get attachmentsInvalidSnack;
   String get imagesPickDialogTitle;
   String get removeImageTooltip;
   String imageTooLarge(int megabytes);

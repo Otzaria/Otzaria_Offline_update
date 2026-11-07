@@ -1502,6 +1502,8 @@ class LibraryModuleController extends ChangeNotifier
     switch (p.stage) {
       case LibraryApplyStage.downloadingPatch:
         return t.applyDownloadingPatch(step);
+      case LibraryApplyStage.decompressingPatch:
+        return t.applyDecompressingPatch(step);
       case LibraryApplyStage.applyingPatch:
         final patchStage = p.patchStage;
         return patchStage == null
