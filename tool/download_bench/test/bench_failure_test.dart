@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:download_bench/meter.dart';
 import 'package:download_bench/scratch.dart';
+import 'package:seforim_library_updater/seforim_library_updater.dart'
+    show PatchDownloadException;
 import 'package:test/test.dart';
 
 import '../bin/bench.dart' as bench;
@@ -96,6 +98,95 @@ void main() {
       throwsA(isA<BenchFailure>()),
     );
     expect(File('$dir/test.bin').existsSync(), isFalse);
+  });
+
+  List<String> dataFiles(String dir) => [
+    for (final f in Directory(dir).listSync().whereType<File>())
+      if (!f.path.endsWith(ownedMarker) && !f.path.endsWith('.lock')) f.path,
+  ];
+
+  test('stage: wrong sha fails, nothing reaches the target', () async {
+    final out = '${tmp.path}/s-out', cache = '${tmp.path}/s-cache';
+    await expectLater(
+      bench.stage(cache, out, '1', ['$url,$_size,$_wrong'], {}),
+      throwsA(isA<PatchDownloadException>()),
+    );
+    expect(dataFiles(out), isEmpty);
+    expect(dataFiles(cache), isEmpty);
+  });
+
+  test('stage: several files are all copied, verified, and unstaged', () async {
+    final out = '${tmp.path}/s-many', cache = '${tmp.path}/s-many-c';
+    final base = url.substring(0, url.lastIndexOf('/'));
+    await bench.stage(cache, out, '1', [
+      for (final n in ['a.bin', 'b.bin', 'c.bin']) '$base/$n,$_size,$goodSha',
+    ], {});
+    expect(dataFiles(out).map((f) => f.split(RegExp(r'[\\/]')).last).toSet(), {
+      'a.bin',
+      'b.bin',
+      'c.bin',
+    });
+    expect(dataFiles(cache), isEmpty);
+  });
+
+  test('writetest: bad arguments fail before touching the disk', () async {
+    final dir = '${tmp.path}/wt-bad';
+    await expectLater(
+      bench.writetest(dir, 4, [64], {'writers': '0'}),
+      throwsA(isA<BenchFailure>()),
+    );
+    await expectLater(
+      bench.writetest(dir, 4, [64], {'rounds': '0'}),
+      throwsA(isA<BenchFailure>()),
+    );
+    expect(Directory(dir).existsSync(), isFalse);
+  });
+
+  test('writetest: uneven split leaves no scratch files', () async {
+    final dir = '${tmp.path}/wt';
+    await bench.writetest(dir, 4, [1024], {'writers': '3', 'rounds': '1'});
+    expect(dataFiles(dir), isEmpty);
+  });
+
+  test('--insecure trusts loopback only', () {
+    expect(bench.isLoopbackHost('127.0.0.1'), isTrue);
+    expect(bench.isLoopbackHost('localhost'), isTrue);
+    expect(bench.isLoopbackHost('::1'), isTrue);
+    expect(bench.isLoopbackHost('github.com'), isFalse);
+    expect(bench.isLoopbackHost('10.0.0.1'), isFalse);
+  });
+
+  test('stage: good run leaves only the verified target file', () async {
+    final out = '${tmp.path}/s-out2', cache = '${tmp.path}/s-cache2';
+    await bench.stage(cache, out, '1', ['$url,$_size,$goodSha'], {});
+    expect(dataFiles(out), [endsWith('test.bin')]);
+    expect(await hashFile('$out/test.bin'), goodSha);
+    expect(dataFiles(cache), isEmpty, reason: 'staged copy must be removed');
+  });
+
+  test('stage: a failing flush fails the run and removes the output', () async {
+    final out = '${tmp.path}/s-out3';
+    await expectLater(
+      bench.stage(
+        '${tmp.path}/s-cache3',
+        out,
+        '1',
+        ['$url,$_size,$goodSha'],
+        {},
+        flusher: failingFlush,
+      ),
+      throwsA(isA<BenchFailure>()),
+    );
+    expect(dataFiles(out), isEmpty);
+  });
+
+  test('stage: refuses the production policy (local cache is not a drive)', () {
+    expect(
+      bench.stage('${tmp.path}/c', '${tmp.path}/o', 'policy', [
+        '$url,$_size,$goodSha',
+      ], {}),
+      throwsA(isA<BenchFailure>()),
+    );
   });
 
   test('assist: wrong sha fails, no output, no copy', () async {

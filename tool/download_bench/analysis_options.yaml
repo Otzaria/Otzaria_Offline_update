@@ -7,3 +7,4 @@ include:
 analyzer:
   exclude:
     - policy/**
+    - apply/**
