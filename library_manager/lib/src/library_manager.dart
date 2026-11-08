@@ -31,6 +31,7 @@ import 'services/readable_releases_client.dart';
 import 'services/readable_schema_limit.dart';
 import 'services/recent_library_releases_client.dart';
 import 'services/semantic_search_assets.dart';
+import 'services/unpicked_patches.dart';
 
 export 'services/library_update_applier.dart'
     show
@@ -477,9 +478,12 @@ class LibraryManager {
         : null;
 
     Future<bool> runExport(int? from) async {
+      final pruned = readable == null && from == null
+          ? _prunedClient(onStage: onStage, isCancelled: stopRequested)
+          : null;
       final exporter = LibraryMirrorExporter(
         supportedDbSchemaVersion: kSupportedDbSchemaVersion,
-        client: readable ?? _cloudClient,
+        client: pruned ?? readable ?? _cloudClient,
         scheduler: _scheduler,
         segmentThresholdBytes: _segmentThresholdBytes,
         connectionsForAsset: (destPath, size, sha256, resumeToken) =>
@@ -491,6 +495,7 @@ class LibraryManager {
               isCancelled: stopRequested,
             ),
       );
+      pruned?.exporter = exporter;
       try {
         return await _storageAware(
           () => exporter.export(
@@ -784,10 +789,14 @@ class LibraryManager {
       final fromVersion = personalUpdateMode
           ? await recordedPersonalDbVersion()
           : null;
+      final pruned = fromVersion == null
+          ? _prunedClient(isCancelled: () => stopped)
+          : null;
       final exporter = LibraryMirrorExporter(
         supportedDbSchemaVersion: kSupportedDbSchemaVersion,
-        client: _cloudClient,
+        client: pruned ?? _cloudClient,
       );
+      pruned?.exporter = exporter;
       final export = () async {
         try {
           final exported = await exporter.export(
@@ -1572,6 +1581,26 @@ class LibraryManager {
       isCancelled: isCancelled,
     );
   }
+
+  /// A full-mirror export's releases without patches no machine would pick.
+  PrunedReleasesClient _prunedClient({
+    void Function(String stage)? onStage,
+    bool Function()? isCancelled,
+  }) => PrunedReleasesClient(
+    _cloudClient,
+    allowPrerelease: allowPrerelease,
+    // As the exporter's carrier check: size only, or the joined split archive.
+    onDrive: (release, full) {
+      final archive = full.splitArchiveName;
+      final file = File(_mirrorAssetPath(release.tag, archive ?? full.name));
+      return file.existsSync() &&
+          (archive != null || file.lengthSync() == full.size);
+    },
+    onPruned: (assets) => onStage?.call(
+      AppL10n.strings.libraryDomain.exportSkippingUnpickedPatches(assets),
+    ),
+    isCancelled: isCancelled,
+  );
 
   /// הנתיב שבו [LibraryMirrorExporter] שומר נכס — כמו `_safeDirName` שלו.
   String _mirrorAssetPath(String tag, String name) => p.join(

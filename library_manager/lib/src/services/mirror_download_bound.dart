@@ -1,13 +1,16 @@
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
-/// קשת: הנכסים שלה וגודלם. [sure] — קבציה ידועים (manifest בכונן, או קובץ
-/// יחיד בשם הקשת); רק קשת כזו מוסרת, אחרת החסם עלול לרדת מתחת להורדה.
+import 'unpicked_patches.dart';
+
+/// קשת: נכסיה וגודלם. [sure] — קבציה ידועים, ורק כזו מוסרת; [planBytes] — גודל
+/// ה-manifest שנקרא מהכונן, `null` כשלא נקרא (אולי מחסום).
 typedef _Edge = ({
   int from,
   int to,
   List<ReleaseAsset> assets,
   int bytes,
   bool sure,
+  int? planBytes,
 });
 
 final RegExp _edgeName = RegExp(
@@ -41,6 +44,8 @@ int? mirrorDownloadBytesBound({
 
   final always = <(LibraryRelease, ReleaseAsset)>[];
   final edges = <(LibraryRelease, _Edge)>[];
+  // כמו בהורדה: קובץ ששני manifests מפרטים מבטל את הגיזום שאחרי הבחירה.
+  var sharedFiles = false;
   for (final release in relevant) {
     final claimed = <String>{};
     for (final manifestAsset in release.deltaManifestAssets) {
@@ -53,8 +58,9 @@ int? mirrorDownloadBytesBound({
       var sure = true;
       if (manifest != null) {
         final names = {for (final f in manifest.patchFiles) f.file};
+        if (names.any(claimed.contains)) sharedFiles = true;
         claimed.addAll(names);
-        if (!_appliable(manifest)) continue;
+        if (!isAppliableManifest(manifest)) continue;
         files = release.assets.where((a) => names.contains(a.name)).toList();
         // קשת חסרה אינה נבנית, אבל מה שיש ממנה יורד.
         if (files.length < names.length) {
@@ -91,6 +97,7 @@ int? mirrorDownloadBytesBound({
             ...files,
           ].fold(0, (sum, a) => sum + (a.size > 0 ? a.size : 0)),
           sure: sure,
+          planBytes: manifest?.totalCompressedSize,
         ),
       ));
     }
@@ -120,10 +127,13 @@ int? mirrorDownloadBytesBound({
 
   var kept = fast(credit: false);
   if (newest != null) {
+    // כמו בהורדה: מסד ישן בכונן (והחדש לא) מבטל את הגיזום שאחרי הבחירה.
+    var olderOnDrive = false;
     if (!complete(newest, newestFull!)) {
       final reach = _maxReach([for (final e in fast(credit: true)) e.$2]);
       for (final candidate in carriers.skip(1)) {
         if (!complete(candidate, fullOf(candidate)!)) continue;
+        olderOnDrive = true;
         final version = LibraryUpdateDiscovery.releaseVersionOf(candidate);
         final reached = reach[version] ?? version;
         // מסד ישן שהמייצא עשוי לבחור: ההורדה בין ~0.1GB לכל המסד — אין חסם.
@@ -141,6 +151,30 @@ int? mirrorDownloadBytesBound({
             (reach[entry.$2.to] ?? entry.$2.to) >= newestVersion)
           entry,
     ];
+    // המעבר האחרון של המייצא, רק כשכל ה-manifests נקראו: מחסום שנראה כקשת
+    // זולה היה מסיט את הבחירה ומוריד את החסם מתחת להורדה.
+    final picked =
+        olderOnDrive || sharedFiles || kept.any((e) => e.$2.planBytes == null)
+        ? null
+        : pickedEdges(
+            applyTime: applyTime,
+            edges: [
+              for (final (_, e) in kept)
+                (from: e.from, to: e.to, bytes: e.planBytes!),
+            ],
+            fullDbBytes: newestFull.size,
+            fullDbVersion: newestVersion,
+          );
+    // ההורדה נסוגה כש-release בלי מסד מלא מתרוקן; כאן נסוגים כבר כשהוא מאבד קשת.
+    if (picked != null &&
+        kept.indexed.every(
+          (e) => picked.contains(e.$1) || fullOf(e.$2.$1) != null,
+        )) {
+      kept = [
+        for (final (i, entry) in kept.indexed)
+          if (picked.contains(i)) entry,
+      ];
+    }
   }
 
   final counted = <(String, String)>{};
@@ -161,15 +195,6 @@ int? mirrorDownloadBytesBound({
     }
   }
   return bytes;
-}
-
-bool _appliable(DeltaManifest manifest) {
-  final format = manifest.patchFormatVersion;
-  return !manifest.fullRebase &&
-      isSupportedSchemaVersion(manifest.fromSchemaVersion) &&
-      isSupportedSchemaVersion(manifest.toSchemaVersion) &&
-      (format == null || isSupportedPatchFormatVersion(format)) &&
-      manifest.hasSupportedCompression;
 }
 
 /// לכל גרסה — הגבוהה ביותר שאפשר להגיע אליה ממנה בקשתות קדימה.
@@ -251,7 +276,7 @@ int? personalDownloadBytesBound({
     for (final manifestAsset in release.deltaManifestAssets) {
       final manifest = heldManifest(release, manifestAsset);
       if (manifest != null) {
-        if (!_appliable(manifest)) continue;
+        if (!isAppliableManifest(manifest)) continue;
         final names = {for (final f in manifest.patchFiles) f.file};
         final files = release.assets.where((a) => names.contains(a.name));
         if (files.length < names.length) continue;

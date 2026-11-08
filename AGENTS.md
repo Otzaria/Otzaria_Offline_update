@@ -197,7 +197,7 @@ only repo tooling; the update engine is an external package (below).
 | --- | --- | --- |
 | `otzaria_downloads/` | `otzaria_downloads` | Pure Dart. Shared resumable file transfers for app, launcher, store and custom apps, and the one GitHub API transport they use (`githubGet`: headers, timeout, `GithubRateLimitException` with a fail-fast gate). Also the Windows elevation helpers shared by `otzaria_manager`, `custom_apps_manager` and `launcher_app` (`windows_elevation.dart`: token query, the one argument-quoting function, de-elevated launch, `ShellExecuteExW` `runas`). `library_manager` keeps an equivalent internal copy (`github_fetch.dart`) instead of depending on it. |
 | `otzaria_l10n/` | `otzaria_l10n` | Pure Dart, **no dependencies at all**. Every user-visible string, Hebrew + English. The updater, managers and launcher depend on it, which is why it cannot use Flutter. See §4. |
-| `.` (root, `tool/`, `test/`) | `otzaria_offline_update` | Flutter. Repo tooling only: `tool/coverage.dart` over the eight sub-packages and the logical-hash measuring tools. Nothing depends on it. `tool/download_bench/` is its own small package (download measurements, §5.2). |
+| `.` (root, `tool/`, `test/`) | `otzaria_offline_update` | Flutter. Repo tooling only: `tool/coverage.dart` over the eight sub-packages and the logical-hash measuring tools. Nothing depends on it. `tool/download_bench/` is its own small package (download and offline-apply measurements, §5.2). |
 | `otzaria_manager/` | `otzaria_manager` | Pure Dart. The **Otzaria app itself**: check, download, silent install, launch. Windows + macOS. |
 | `library_manager/` | `library_manager` | Flutter. Wires `seforim_library_updater` into the launcher: locate the real `seforim.db`, check versions, apply to the **live** DB, export/consume the mirror. |
 | `plugins_manager/` | `plugins_manager` | Pure Dart. The **offline plugin store**: syncs `otzaria.org/api/plugins` into the mirror, detects what Otzaria has, installs via `otzaria://`. Converted from `Yehuda-Zakesh/Offline-repository-plugin-store` (itself derived from `Otzaria/Otzaria_Website`); details in `plugins_manager/README.md`. |
@@ -771,6 +771,20 @@ full DB included.
   of the chain, the measurement came back "in range", and the 585MB edge — with ten
   releases hanging below it — was downloaded again. Measuring the edge itself keeps
   a rejected edge rejected, with no state between runs and nothing to go stale.
+- **A full mirror carries only edges the offline planner would pick.** Per-edge
+  rules with a download credit kept edges that no machine ever uses: once the
+  full DB is on the drive the planner compares without credit and by whole
+  chain. On v37 that was 332MiB of 2.4GB (v32–v34 always took the full DB).
+  It lives on our side (`unpicked_patches.dart`; the engine variant is the
+  optional `Otzaria/otzaria_library_updater#44`): `PrunedReleasesClient` hands
+  the exporter its releases minus the edges `OfflineLibraryUpdatePlanner.plan`
+  never picks — for every local version plus "no version" — and prunes nothing
+  if that would change any plan's kind or target, the exporter's release
+  selection, or if an older full DB on the drive may be the carrier. Any
+  manifest failure means no pruning. `mirrorDownloadBytesBound` runs the same
+  `pickedEdges`, only when every kept edge's manifest was read from the drive
+  (an unread one may be a barrier). Personal and readable-schema downloads
+  never prune.
 
 **"Personal update" is the one setting that changes what a download brings.**
 `AppSettings.personalUpdateMode` → `LibraryManager.personalUpdateMode` →

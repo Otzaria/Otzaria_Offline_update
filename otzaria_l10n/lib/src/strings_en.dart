@@ -3152,6 +3152,10 @@ class _LibraryDomain extends LibraryDomainStrings {
       '$fullDbVersion) reaches higher than any appliable chain, so they are '
       'not needed';
   @override
+  String exportSkippingUnpickedPatches(int fileCount) =>
+      'Skipping $fileCount update files no computer would use: every version '
+      'has a shorter route or the full database';
+  @override
   String exportFullDbInsteadOfSlowPatches(
     int fileCount,
     int patchMinutes,
