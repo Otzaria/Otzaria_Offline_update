@@ -676,6 +676,53 @@ void main() {
       }
     }
 
+    test('a same-size corrupt drive segment is fetched again by the next '
+        'online check', () async {
+      github.legacyBase(30);
+      await sync(const SemanticFleet());
+      Future<bool> peek() async {
+        final assets = SemanticSearchAssets(
+          httpClient: github.client,
+          models: fakeModels,
+        );
+        try {
+          return await assets.peekPending(
+            mirrorDir: mirror,
+            libraryTag: libraryTagOf(30),
+          );
+        } finally {
+          assets.dispose();
+        }
+      }
+
+      expect(await peek(), isFalse);
+      final segment = File(
+        p.join(
+          mirror,
+          libraryTagOf(30),
+          'vectors',
+          (await mirroredVectors()).firstWhere(
+            (name) => !name.endsWith('.manifest.json'),
+          ),
+        ),
+      );
+      final good = await segment.readAsBytes();
+      final bad = [...good]..[0] ^= 1;
+      await segment.writeAsBytes(bad);
+      await installModels(
+        p.join(p.dirname(db), SemanticSearchAssets.modelFolder),
+      );
+      engine = FakeVectorsEngine(present: false);
+      await expectLater(install(supportsWindows: false), throwsFormatException);
+      expect(engine.installs, isEmpty);
+      expect(await segment.exists(), isFalse);
+      expect(await peek(), isTrue);
+      await sync(const SemanticFleet());
+      expect(await segment.readAsBytes(), good);
+      await install(supportsWindows: false);
+      expect(engine.installs, hasLength(1));
+    });
+
     test(
       'a markerless known model is repaired without adopting foreign data',
       () async {
