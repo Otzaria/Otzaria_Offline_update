@@ -162,9 +162,10 @@ it. `AppPaths` returns `readOnly: true`, `stateDir` moves to
 `%LOCALAPPDATA%\OtzariaOfflineUpdate`, and `dataDir` — the mirror — stays on the
 drive.
 
-It works because **no install writes to the drive**: Inno writes to the machine,
-the library applier stages next to the existing DB, plugins go into Otzaria's own
-folder. What moves to `stateDir` is the log, `launcher_settings.json`,
+It works because **no install writes to the drive** (one best-effort exception: a
+smart-search drive file that fails its sha256 is deleted, see §5.2):
+Inno writes to the machine, the library applier stages next to the existing DB,
+plugins go into Otzaria's own folder. What moves to `stateDir` is the log, `launcher_settings.json`,
 `faq_customization.json`, `library_state.json`, `otzaria_install_state.json`,
 `custom_apps_announced.json` — and the state files belong there anyway ("which
 version is installed" describes the machine). Preferences are seeded once
@@ -881,7 +882,9 @@ turn this into "the file is there, trust it": the skip decision (`_isCompleteOnD
 is size-only on purpose, and the mark is what makes it safe — any write, a
 re-published asset, or a different resume token brings full verification back. That
 verification must keep happening on the **online** machine, the only place a corrupt
-asset can be fetched again.
+asset can be fetched again. Smart search's online check is size-only, so the offline
+install deletes a drive file failing its sha256 and the next check re-downloads it
+(2026-11-03, `semantic_vectors_delta_test.dart`).
 
 **Downloads are parallel *across files*; *within* a file only where the server
 honours `Range`.** Issue #17 asked for a download accelerator, but GitHub's release
