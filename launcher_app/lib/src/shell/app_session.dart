@@ -15,6 +15,7 @@ import 'package:seforim_library_updater/seforim_library_updater.dart'
     show DiskSpaceProbe;
 
 import '../app_report/launcher_crash_session.dart';
+import '../controllers/android_module_controller.dart';
 import '../controllers/app_reports_controller.dart';
 import '../controllers/auto_install_flow.dart';
 import '../controllers/custom_apps_controller.dart';
@@ -71,12 +72,21 @@ class AppSession extends ChangeNotifier {
     SearchFeedbackController? searchFeedback,
     ErrorReportsController? errorReports,
     @visibleForTesting OtzariaManager? otzariaManager,
+    @visibleForTesting AndroidUpdateManager? androidManager,
     @visibleForTesting LibraryManager? libraryManager,
     @visibleForTesting PluginsManager? pluginsManager,
     @visibleForTesting LauncherSelfUpdater? launcherUpdater,
     @visibleForTesting this.closeDeliveryPatience = const Duration(seconds: 10),
   })  : _noticesStore = noticesStore,
         _injectedSleepInhibitor = sleepInhibitor {
+    _android = AndroidModuleController(
+      dataDir: dataDir,
+      stateDir: stateFilesDir,
+      readOnly: readOnly,
+      manager: androidManager,
+    )
+      ..blockedElsewhere = (() => exitPending || _closing)
+      ..addListener(_onChange);
     _otzaria = OtzariaModuleController(
       dataDir: dataDir,
       stateDir: stateFilesDir,
@@ -190,6 +200,7 @@ class AppSession extends ChangeNotifier {
   late final SleepInhibitor _sleepInhibitor =
       _injectedSleepInhibitor ?? SleepInhibitor();
   late final OtzariaModuleController _otzaria;
+  late final AndroidModuleController _android;
   late final LibraryModuleController _library;
   late final PluginsModuleController _plugins;
   late final StreamSubscription<String> _installDone;
@@ -207,6 +218,7 @@ class AppSession extends ChangeNotifier {
   late final SaferModeGate saferMode = SaferModeGate(settings);
 
   OtzariaModuleController get otzaria => _otzaria;
+  AndroidModuleController get android => _android;
   LibraryModuleController get library => _library;
   PluginsModuleController get plugins => _plugins;
   CustomAppsController get customApps => _customApps;
@@ -484,6 +496,7 @@ class AppSession extends ChangeNotifier {
     unawaited(_installDone.cancel());
     unawaited(_installRejected.cancel());
     settings.removeListener(_onChange);
+    _android.removeListener(_onChange);
     _otzaria.removeListener(_onChange);
     _library.removeListener(_onChange);
     _plugins.removeListener(_onChange);
@@ -491,6 +504,7 @@ class AppSession extends ChangeNotifier {
     _launcherUpdate.removeListener(_onChange);
     _errorReports.removeListener(_onReportsChange);
     _searchFeedback.removeListener(_onReportsChange);
+    _android.dispose();
     _otzaria.dispose();
     _library.dispose();
     _plugins.dispose();
@@ -974,6 +988,7 @@ class AppSession extends ChangeNotifier {
   bool get longTaskRunning => _downloads.isDownloading || _otherLongTask;
 
   bool get _otherLongTask =>
+      _android.isBusy ||
       _installingHere ||
       _customApps.isLearning ||
       _customApps.isDownloadingAll ||
@@ -1230,7 +1245,9 @@ class AppSession extends ChangeNotifier {
       return _closeApproved(await _stopDeliveries());
     }
     final approved = await prompts.confirmClose(
-      downloading: _downloads.isDownloading || launcherDownloading,
+      downloading: _downloads.isDownloading ||
+          launcherDownloading ||
+          _android.isDownloading,
     );
     if (!approved) return false;
     if (!isActive) return true;
@@ -1240,6 +1257,7 @@ class AppSession extends ChangeNotifier {
     await Future.wait([
       _downloads.cancelAndWait(keepProgress: true),
       _launcherUpdate.cancelAndWait(),
+      _android.cancelAndWait(),
     ]);
     return true;
   }

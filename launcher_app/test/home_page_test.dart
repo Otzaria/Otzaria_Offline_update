@@ -3087,6 +3087,30 @@ void main() {
       expect(find.byKey(ShellKeys.welcomeLinks), findsNothing);
     });
 
+    for (final language in AppLanguage.values) {
+      testWidgets('Android נגיש בכונן ריק ב-${language.name}', (tester) async {
+        final opened = <ShellSection>[];
+        await pumpScreen(
+          tester,
+          HomePage(
+            model: homeScenario('first'),
+            actions: HomeActions(onOpenSection: opened.add),
+          ),
+          language: language,
+          size: const Size(760, 560),
+        );
+        final android = find.widgetWithText(
+            ActionButton, stringsOf(language).android.title);
+        expect(android, findsOneWidget);
+        expect(find.byKey(ShellKeys.welcomeLinks), findsNothing);
+        await tester.ensureVisible(android);
+        await tester.tap(android);
+        await tester.pump();
+        expect(opened, [ShellSection.android]);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
     testWidgets('כפתור השפה נשאר גם כשיש הודעת כונן, ומעליה', (tester) async {
       await pumpScreen(tester, HomePage(model: homeScenario('firstWithApps')));
       final language = find.byKey(ShellKeys.welcomeLanguage);

@@ -446,17 +446,27 @@ void main() {
         );
         await tester.ensureVisible(field);
         await tester.enterText(field, '  $dir  ');
-        final closed = ModalRoute.of(
-          tester.element(find.byType(AlertDialog)),
-        )!
-            .popped;
-        await tester.runAsync(() async {
-          await tester.tap(find.text(t.saveEditButton));
-          await closed;
-        });
-        await tester.pumpAndSettle();
+        await tester.tap(find.text(t.saveEditButton));
+        // זיהוי ההתקנה קורא גם דיסק ותהליכי Windows; מגבילים זמן אמיתי
+        // ומריצים פריימים בנפרד כדי לא לחכות לאנימציות שאינן מסתיימות.
+        const saveTimeout = Duration(seconds: 15);
+        final saveWait = Stopwatch()..start();
+        while (find.byType(AlertDialog).evaluate().isNotEmpty &&
+            saveWait.elapsed < saveTimeout) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)),
+          );
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        saveWait.stop();
 
-        expect(find.byType(AlertDialog), findsNothing);
+        expect(
+          find.byType(AlertDialog),
+          findsNothing,
+          reason: 'Save dialog stayed open after ${saveWait.elapsed} '
+              '(limit: $saveTimeout, busy: ${controller.isBusy}, '
+              'error: ${controller.errorMessage}).',
+        );
         final app = controller.apps.single;
         expect(app.descriptor.detect.exeName, scenario.expected);
         expect(app.installed?.launchPath, p.join(dir, scenario.expected));

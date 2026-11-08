@@ -143,6 +143,7 @@ class HomePage extends StatelessWidget {
             links: _welcomeLinks(context),
             onDownload: actions.onDownload,
             onHelp: actions.onHelp,
+            onAndroid: () => actions.onOpenSection(ShellSection.android),
             onToggleLanguage: actions.onToggleLanguage,
           );
         }
@@ -1896,6 +1897,13 @@ class _Tiles extends StatelessWidget {
         g.tileApp,
         app,
         facts: _appFacts(context),
+      ),
+      spec(
+        ShellSection.android,
+        const IconTile(icon: FluentIcons.phone_24_regular),
+        context.strings.android.title,
+        (StatusKind.unknown, context.strings.android.selectDevice, null),
+        facts: [context.strings.android.tileSubtitle],
       ),
       spec(
         ShellSection.library,

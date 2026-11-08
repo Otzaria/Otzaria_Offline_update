@@ -15,6 +15,7 @@ class WelcomeView extends StatelessWidget {
     required this.narrow,
     required this.onDownload,
     required this.onHelp,
+    required this.onAndroid,
     required this.onToggleLanguage,
     this.busy = false,
     this.notices = const [],
@@ -29,6 +30,7 @@ class WelcomeView extends StatelessWidget {
   final bool busy;
   final VoidCallback onDownload;
   final VoidCallback onHelp;
+  final VoidCallback onAndroid;
   final VoidCallback onToggleLanguage;
 
   /// הודעות הכונן (מוגן או מלא) והודעות הבית — מעל הכול.
@@ -126,6 +128,11 @@ class WelcomeView extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
           ];
+    cta.add(ActionButton.ghost(
+      text: context.strings.android.title,
+      icon: FluentIcons.phone_24_regular,
+      onPressed: onAndroid,
+    ));
     if (links.isNotEmpty) {
       cta.add(
         Wrap(

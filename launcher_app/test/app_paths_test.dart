@@ -455,6 +455,23 @@ void main() {
       expect(p.isWithin(paths.dataDir, paths.stateDir), isFalse);
     });
 
+    test('כונן נעול עם עדכון Android בלבד משתמש במצב מקומי', () async {
+      final manifest =
+          File(p.join(drive.path, 'mirror', 'android', 'latest-release.json'));
+      manifest.parent.createSync(recursive: true);
+      manifest.writeAsStringSync('{}');
+
+      final paths = await IOOverrides.runWithIOOverrides(
+        () => AppPaths.resolve(environment: env()),
+        _LockedDriveIOOverrides(driveRoot: drive.path),
+      );
+
+      expect(paths.readOnly, isTrue);
+      expect(paths.dataDir, expectedDataDir());
+      expect(p.isWithin(machine.path, paths.stateDir), isTrue);
+      expect(p.isWithin(paths.dataDir, paths.stateDir), isFalse);
+    });
+
     test('כונן נעול **בלי** מראה → אותה שגיאה כמו קודם', () async {
       // תיקייה נעולה שאין בה מה להתקין אינה "מצב קריאה" אלא התקנה במקום
       // הלא נכון — וזה מה שצריך להיאמר.

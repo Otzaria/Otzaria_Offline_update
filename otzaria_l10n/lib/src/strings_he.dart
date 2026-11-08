@@ -38,6 +38,8 @@ class HebrewStrings extends AppStrings {
   @override
   AppScreenStrings get appScreen => const _AppScreen();
   @override
+  AndroidStrings get android => const _Android();
+  @override
   LibraryScreenStrings get libraryScreen => const _LibraryScreen();
   @override
   SettingsScreenStrings get settings => const _Settings();
@@ -4800,3 +4802,144 @@ class _AppReports extends AppReportsStrings {
 String _minutesRange(int low, int high) => low == high
     ? plural(low, one: 'כדקה', two: 'כשתי דקות', many: 'כ-$low דקות')
     : 'כ-$low עד $high דקות';
+
+class _Android extends AndroidStrings {
+  const _Android();
+
+  @override
+  String get title => 'עדכון Android';
+  @override
+  String get description =>
+      'הכן את העדכון במחשב המחובר, ולאחר מכן התקן אותו על מכשיר Android המחובר בכבל. הבדיקה וההתקנה פועלות מהכונן בלבד.';
+  @override
+  String get tileSubtitle => 'מכשיר מחובר או קובץ להתקנה ידנית';
+  @override
+  String get apkTitle => 'קובץ העדכון בכונן';
+  @override
+  String get download => 'הורדת עדכון Android לכונן';
+  @override
+  String get downloadHint =>
+      'הורדה זו דורשת מחשב מחובר ומביאה רק את האפליקציה. ספריית אוצריא נשארת במכשיר.';
+  @override
+  String get toolsTitle => 'חיבור המכשיר למחשב';
+  @override
+  String get toolsHint =>
+      'הורד וחלץ את Android SDK Platform-Tools מהאתר הרשמי. בחר את התיקייה שחולצה לשימוש במחשב זה, או העתק אותה לכונן כדי שתהיה זמינה גם במחשב הלא מחובר. ב־Windows ייתכן שיידרש גם מנהל התקן USB של יצרן המכשיר.';
+  @override
+  String get toolsDownload => 'הורדת כלי Android מהאתר הרשמי';
+  @override
+  String get selectTools => 'בחירת תיקיית Platform-Tools במחשב';
+  @override
+  String get copyTools => 'הכנת כלי Android בכונן';
+  @override
+  String get toolsCopied => 'כלי Android מוכנים לשימוש.';
+  @override
+  String get devicesTitle => 'המכשיר לעדכון';
+  @override
+  String get connectionHint =>
+      'חבר את המכשיר בכבל נתונים, הפעל ניפוי שגיאות USB באפשרויות המפתחים ואשר במכשיר את המחשב הזה. אם ההגדרות חסומות במכשיר, אפשר להעביר את קובץ ההתקנה להתקנה ידנית.';
+  @override
+  String get refresh => 'רענון מכשירים וגרסה';
+  @override
+  String get selectDevice => 'בחירת מכשיר';
+  @override
+  String get noDevices =>
+      'לא נמצא מכשיר מחובר. בדוק את הכבל ואת האישור במכשיר, ואז רענן.';
+  @override
+  String get notInstalled => 'אוצריא אינה מותקנת אצל המשתמש הפעיל במכשיר.';
+  @override
+  String get authorizedLabel => 'מורשה';
+  @override
+  String get unauthorizedLabel => 'ממתין לאישור במכשיר';
+  @override
+  String get offlineLabel => 'לא זמין';
+  @override
+  String get install => 'התקנה במכשיר הנבחר';
+  @override
+  String get installed => 'העדכון הותקן והגרסה במכשיר אומתה.';
+  @override
+  String get exportTitle => 'התקנה ידנית במכשיר';
+  @override
+  String get export => 'שמירת APK להעברה למכשיר';
+  @override
+  String get exportHint =>
+      'אפשר להעביר את הקובץ דרך העברת קבצים USB, כרטיס זיכרון או כונן נייד. פתח אותו במכשיר ואשר את ההתקנה. ייתכן שתידרש הרשאת התקנה ממקור זה. העברת הקובץ לבדה אינה מתקינה אותו.';
+  @override
+  String get exported => 'קובץ ההתקנה נשמר. העבר אותו למכשיר ופתח אותו שם.';
+  @override
+  String get checking => 'בודק את הכונן ואת המכשיר…';
+  @override
+  String get downloading => 'מוריד את עדכון Android לכונן…';
+  @override
+  String get preparingTools => 'מכין את כלי Android…';
+  @override
+  String get exporting => 'מאמת ושומר את קובץ ההתקנה…';
+  @override
+  String get verifying => 'מאמת את קובץ ההתקנה…';
+  @override
+  String get installing => 'מתקין במכשיר. ייתכן שתידרש פעולה במסך המכשיר…';
+  @override
+  String get verifyingInstalled => 'מאמת את הגרסה שהותקנה במכשיר…';
+  @override
+  String get busy => 'פעולת Android אחרת עדיין מתבצעת.';
+  @override
+  String get cancelled =>
+      'הפעולה הופסקה. אם ההתקנה כבר נמסרה למכשיר, ייתכן שהיא הסתיימה שם; רענן את הגרסה לפני ניסיון נוסף.';
+  @override
+  String get timeout =>
+      'המכשיר או כלי Android לא השיבו בזמן. בדוק את המכשיר ורענן לפני ניסיון נוסף.';
+  @override
+  String get adbMissing =>
+      'כלי Android אינם זמינים. בחר תיקיית Platform-Tools תקינה, או שמור APK להתקנה ידנית.';
+  @override
+  String get adbFailed =>
+      'כלי Android לא השלימו את הפעולה. בדוק את המכשיר, הכבל וכלי Platform-Tools.';
+  @override
+  String get deviceUnavailable =>
+      'המכשיר הנבחר אינו זמין. חבר אותו מחדש ורענן את רשימת המכשירים.';
+  @override
+  String get unauthorized =>
+      'אשר במכשיר את ניפוי שגיאות USB מהמחשב הזה, ולאחר מכן רענן.';
+  @override
+  String get invalidApk =>
+      'קובץ ההתקנה או פרטי הגרסה אינם תקינים או אינם מתאימים לאוצריא. הורד מחדש במחשב המחובר.';
+  @override
+  String get digestMismatch =>
+      'קובץ ההתקנה אינו תואם לבדיקת השלמות שלו. הורד אותו מחדש במחשב המחובר.';
+  @override
+  String get noMirror =>
+      'אין בכונן עדכון Android מוכן. הורד אותו תחילה במחשב המחובר.';
+  @override
+  String get noRelease =>
+      'לא ניתן לקבל קובץ Android תקין מהגרסה האחרונה. נסה שוב במחשב המחובר.';
+  @override
+  String get signatureMismatch =>
+      'חתימת העדכון שונה מהחתימה של אוצריא במכשיר. נדרשת גרסה שנחתמה באותו מפתח. ההתקנה הקיימת לא הוסרה.';
+  @override
+  String get downgrade =>
+      'במכשיר מותקנת גרסה חדשה יותר מהקובץ בכונן. הורד עדכון חדש יותר.';
+  @override
+  String get insufficientSpace =>
+      'אין במכשיר מספיק מקום להתקנה. פנה מקום ונסה שוב.';
+  @override
+  String get incompatibleSdk =>
+      'גרסת Android במכשיר אינה מתאימה לקובץ ההתקנה הזה.';
+  @override
+  String get incompatibleAbi => 'קובץ ההתקנה אינו מתאים למעבד של המכשיר.';
+  @override
+  String get installationBlocked =>
+      'המכשיר חסם את ההתקנה או שהאישור בוטל. בדוק את ההודעה וההגדרות במכשיר.';
+  @override
+  String get verificationFailed =>
+      'לא ניתן לאמת את פרטי האפליקציה במכשיר. רענן ובדוק את הגרסה לפני ניסיון נוסף.';
+  @override
+  String get readOnly =>
+      'הכונן מוגן מכתיבה. אפשר להתקין או לייצא קובץ שכבר נמצא בו; להורדה ולהכנת כלים נדרש כונן שניתן לכתוב אליו.';
+  @override
+  String get exportTarget => 'בחר מיקום לשמירת הקובץ מחוץ לתיקיית העדכונים.';
+  @override
+  String version(String version, int code) =>
+      'גרסה ${_ltr(version)} (קוד ${_ltr('$code')})';
+  @override
+  String toolsPath(String path) => 'כלי Android: ${_ltr(path)}';
+}

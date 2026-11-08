@@ -18,6 +18,7 @@ abstract class AppStrings {
   TaskStrings get task;
   PageStrings get pages;
   AppScreenStrings get appScreen;
+  AndroidStrings get android;
   LibraryScreenStrings get libraryScreen;
   SettingsScreenStrings get settings;
   SaferModeStrings get saferMode;
@@ -2625,4 +2626,65 @@ abstract class AppReportsStrings {
 
   /// הודעה שקטה בעלייה, אחרי שדיווח על הסגירה נשלח מעצמו ("לשלוח תמיד").
   String get crashAutoSentSnack;
+}
+
+abstract class AndroidStrings {
+  const AndroidStrings();
+
+  String get title;
+  String get description;
+  String get tileSubtitle;
+  String get apkTitle;
+  String get download;
+  String get downloadHint;
+  String get toolsTitle;
+  String get toolsHint;
+  String get toolsDownload;
+  String get selectTools;
+  String get copyTools;
+  String get toolsCopied;
+  String get devicesTitle;
+  String get connectionHint;
+  String get refresh;
+  String get selectDevice;
+  String get noDevices;
+  String get notInstalled;
+  String get authorizedLabel;
+  String get unauthorizedLabel;
+  String get offlineLabel;
+  String get install;
+  String get installed;
+  String get exportTitle;
+  String get export;
+  String get exportHint;
+  String get exported;
+  String get checking;
+  String get downloading;
+  String get preparingTools;
+  String get exporting;
+  String get verifying;
+  String get installing;
+  String get verifyingInstalled;
+  String get busy;
+  String get cancelled;
+  String get timeout;
+  String get adbMissing;
+  String get adbFailed;
+  String get deviceUnavailable;
+  String get unauthorized;
+  String get invalidApk;
+  String get digestMismatch;
+  String get noMirror;
+  String get noRelease;
+  String get signatureMismatch;
+  String get downgrade;
+  String get insufficientSpace;
+  String get incompatibleSdk;
+  String get incompatibleAbi;
+  String get installationBlocked;
+  String get verificationFailed;
+  String get readOnly;
+  String get exportTarget;
+  String version(String version, int code);
+  String toolsPath(String path);
 }

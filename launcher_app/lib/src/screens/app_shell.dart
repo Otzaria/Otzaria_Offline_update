@@ -38,6 +38,7 @@ import '../shell/shell_navigator.dart';
 import '../shell/shell_tasks.dart';
 import '../theme/theme_exports.dart';
 import '../widgets/widgets_exports.dart';
+import 'android_update_page.dart';
 import 'app_report/crash_prompt_dialog.dart';
 import 'custom_apps/custom_apps_manage_page.dart';
 import 'custom_apps/custom_apps_screen.dart';
@@ -557,6 +558,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
     return switch (section) {
       ShellSection.home => context.strings.shell.breadcrumbHome,
       ShellSection.otzaria => context.strings.pages.appAdvancedPageTitle,
+      ShellSection.android => context.strings.android.title,
       ShellSection.library => g.tileLibrary,
       ShellSection.plugins => g.tilePlugins,
       ShellSection.customApps => g.tileCustomApps,
@@ -636,6 +638,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
   Widget _subPage(ShellSection section) {
     final s = _session;
     return switch (section) {
+      ShellSection.android => AndroidUpdatePage(controller: s.android),
       ShellSection.otzaria => OtzariaAdvancedPage(
           otzaria: s.otzaria,
           settings: widget.settings,
