@@ -447,16 +447,26 @@ void main() {
         await tester.ensureVisible(field);
         await tester.enterText(field, '  $dir  ');
         await tester.tap(find.text(t.saveEditButton));
-        for (var i = 0; i < 100; i++) {
+        // זיהוי ההתקנה קורא גם דיסק ותהליכי Windows; מגבילים זמן אמיתי
+        // ומריצים פריימים בנפרד כדי לא לחכות לאנימציות שאינן מסתיימות.
+        const saveTimeout = Duration(seconds: 15);
+        final saveWait = Stopwatch()..start();
+        while (find.byType(AlertDialog).evaluate().isNotEmpty &&
+            saveWait.elapsed < saveTimeout) {
           await tester.runAsync(
             () => Future<void>.delayed(const Duration(milliseconds: 20)),
           );
           await tester.pump(const Duration(milliseconds: 50));
-          if (find.byType(AlertDialog).evaluate().isEmpty) break;
         }
-        await tester.pumpAndSettle();
+        saveWait.stop();
 
-        expect(find.byType(AlertDialog), findsNothing);
+        expect(
+          find.byType(AlertDialog),
+          findsNothing,
+          reason: 'Save dialog stayed open after ${saveWait.elapsed} '
+              '(limit: $saveTimeout, busy: ${controller.isBusy}, '
+              'error: ${controller.errorMessage}).',
+        );
         final app = controller.apps.single;
         expect(app.descriptor.detect.exeName, scenario.expected);
         expect(app.installed?.launchPath, p.join(dir, scenario.expected));
