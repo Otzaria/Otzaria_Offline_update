@@ -446,14 +446,14 @@ void main() {
         );
         await tester.ensureVisible(field);
         await tester.enterText(field, '  $dir  ');
-        final closed = ModalRoute.of(
-          tester.element(find.byType(AlertDialog)),
-        )!
-            .popped;
-        await tester.runAsync(() async {
-          await tester.tap(find.text(t.saveEditButton));
-          await closed;
-        });
+        await tester.tap(find.text(t.saveEditButton));
+        for (var i = 0; i < 100; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)),
+          );
+          await tester.pump(const Duration(milliseconds: 50));
+          if (find.byType(AlertDialog).evaluate().isEmpty) break;
+        }
         await tester.pumpAndSettle();
 
         expect(find.byType(AlertDialog), findsNothing);
