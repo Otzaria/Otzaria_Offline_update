@@ -1,3 +1,8 @@
+export 'src/android/adb_client.dart';
+export 'src/android/android_models.dart';
+export 'src/android/android_tools.dart';
+export 'src/android/android_update_manager.dart';
+export 'src/android/apk_inspector.dart';
 export 'src/models/otzaria_capabilities.dart';
 export 'src/models/otzaria_data_root.dart';
 export 'src/models/otzaria_deep_links.dart';

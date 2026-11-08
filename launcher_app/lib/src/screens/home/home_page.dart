@@ -344,6 +344,10 @@ class HomePage extends StatelessWidget {
   ) {
     final g = context.strings.guide;
     return [
+      (
+        label: context.strings.android.title,
+        onTap: () => actions.onOpenSection(ShellSection.android)
+      ),
       if (model.customApps > 0)
         (
           label: g.tileCustomApps,
@@ -1896,6 +1900,13 @@ class _Tiles extends StatelessWidget {
         g.tileApp,
         app,
         facts: _appFacts(context),
+      ),
+      spec(
+        ShellSection.android,
+        const IconTile(icon: FluentIcons.phone_24_regular),
+        context.strings.android.title,
+        (StatusKind.unknown, context.strings.android.selectDevice, null),
+        facts: [context.strings.android.tileSubtitle],
       ),
       spec(
         ShellSection.library,

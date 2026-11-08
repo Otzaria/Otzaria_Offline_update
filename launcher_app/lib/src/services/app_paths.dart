@@ -65,6 +65,7 @@ class AppPaths {
   static const List<List<String>> _mirrorManifests = [
     ['mirror', 'library', 'releases.json'],
     ['mirror', 'app', 'latest-release.json'],
+    ['mirror', 'android', 'latest-release.json'],
     ['mirror', 'plugins', 'catalog.json'],
   ];
 

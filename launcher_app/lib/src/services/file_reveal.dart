@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:otzaria_manager/otzaria_manager.dart' show AndroidTools;
+
 /// פותח תיקייה במנהל הקבצים של המערכת — Explorer בווינדוס, Finder ב-macOS.
 ///
 /// למה לא `package:url_launcher` עם `file://`: על תיקייה זה מתנהג שונה בין
@@ -7,6 +9,23 @@ import 'dart:io';
 /// ואילו כאן רוצים בדיוק דבר אחד — לפתוח חלון על התיקייה כדי שהמשתמש יוכל
 /// להעתיק ממנה קבצים ל-USB.
 abstract final class FileReveal {
+  static Future<bool> openAndroidToolsUrl() async {
+    try {
+      if (Platform.isWindows) {
+        await Process.run('explorer.exe', [AndroidTools.downloadUrl]);
+        return true;
+      }
+      if (Platform.isMacOS) {
+        final result =
+            await Process.run('/usr/bin/open', [AndroidTools.downloadUrl]);
+        return result.exitCode == 0;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// מחזיר true אם הפתיחה הצליחה. **לא זורק** — הקורא מציג במקום זה את
   /// הנתיב כטקסט להעתקה, שזה fallback שימושי יותר מהודעת שגיאה.
   static Future<bool> revealDirectory(String path) async {

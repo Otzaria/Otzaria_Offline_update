@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 enum ShellSection {
   home,
   otzaria,
+  android,
   library,
   plugins,
   customApps,

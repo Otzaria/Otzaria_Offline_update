@@ -35,6 +35,8 @@ class EnglishStrings extends AppStrings {
   @override
   AppScreenStrings get appScreen => const _AppScreen();
   @override
+  AndroidStrings get android => const _Android();
+  @override
   LibraryScreenStrings get libraryScreen => const _LibraryScreen();
   @override
   SettingsScreenStrings get settings => const _Settings();
@@ -5075,3 +5077,150 @@ class _AppReports extends AppReportsStrings {
 String _minutesRange(int low, int high) => low == high
     ? plural(low, one: 'about a minute', many: 'about $low minutes')
     : 'about $low to $high minutes';
+
+class _Android extends AndroidStrings {
+  const _Android();
+
+  @override
+  String get title => 'Android update';
+  @override
+  String get description =>
+      'Prepare the update on the connected computer, then install it on an Android device connected by cable. Checking and installing use only the drive.';
+  @override
+  String get tileSubtitle => 'Connected device or manual installation file';
+  @override
+  String get apkTitle => 'Update file on the drive';
+  @override
+  String get download => 'Download Android update to the drive';
+  @override
+  String get downloadHint =>
+      'This download needs a connected computer and brings only the app. The Otzaria library stays on the device.';
+  @override
+  String get toolsTitle => 'Connect the device to the computer';
+  @override
+  String get toolsHint =>
+      'Download and extract Android SDK Platform-Tools from the official site. Select the extracted folder for this computer, or copy it to the drive for the offline computer. Windows may also need the device manufacturer’s USB driver.';
+  @override
+  String get toolsDownload => 'Get Android tools from the official site';
+  @override
+  String get selectTools => 'Select the Platform-Tools folder on this computer';
+  @override
+  String get copyTools => 'Prepare Android tools on the drive';
+  @override
+  String get toolsCopied => 'Android tools are ready to use.';
+  @override
+  String get devicesTitle => 'Device to update';
+  @override
+  String get connectionHint =>
+      'Connect a data cable, enable USB debugging in Developer options, and authorize this computer on the device. If these settings are restricted, you can export the installer for manual installation.';
+  @override
+  String get refresh => 'Refresh devices and version';
+  @override
+  String get selectDevice => 'Select a device';
+  @override
+  String get noDevices =>
+      'No connected device was found. Check the cable and the authorization on the device, then refresh.';
+  @override
+  String get notInstalled =>
+      'Otzaria is not installed for the active user on this device.';
+  @override
+  String get authorizedLabel => 'Authorized';
+  @override
+  String get unauthorizedLabel => 'Waiting for device authorization';
+  @override
+  String get offlineLabel => 'Unavailable';
+  @override
+  String get install => 'Install on the selected device';
+  @override
+  String get installed =>
+      'The update was installed and the version on the device was verified.';
+  @override
+  String get exportTitle => 'Manual installation on the device';
+  @override
+  String get export => 'Save APK to transfer to the device';
+  @override
+  String get exportHint =>
+      'Transfer the file using USB file transfer, a memory card, or a portable drive. Open it on the device and approve installation. You may need to allow installation from that source. Transferring the file alone does not install it.';
+  @override
+  String get exported =>
+      'The installer was saved. Transfer it to the device and open it there.';
+  @override
+  String get checking => 'Checking the drive and device…';
+  @override
+  String get downloading => 'Downloading the Android update to the drive…';
+  @override
+  String get preparingTools => 'Preparing Android tools…';
+  @override
+  String get exporting => 'Verifying and saving the installer…';
+  @override
+  String get verifying => 'Verifying the installer…';
+  @override
+  String get installing =>
+      'Installing on the device. A prompt may need your attention on the device…';
+  @override
+  String get verifyingInstalled =>
+      'Verifying the installed version on the device…';
+  @override
+  String get busy => 'Another Android operation is still running.';
+  @override
+  String get cancelled =>
+      'The operation was stopped. If installation had already reached the device, it may have completed there; refresh the version before trying again.';
+  @override
+  String get timeout =>
+      'The device or Android tools did not respond in time. Check the device and refresh before trying again.';
+  @override
+  String get adbMissing =>
+      'Android tools are unavailable. Select a complete Platform-Tools folder, or save an APK for manual installation.';
+  @override
+  String get adbFailed =>
+      'Android tools could not complete the operation. Check the device, cable, and Platform-Tools installation.';
+  @override
+  String get deviceUnavailable =>
+      'The selected device is unavailable. Reconnect it and refresh the device list.';
+  @override
+  String get unauthorized =>
+      'Authorize USB debugging from this computer on the device, then refresh.';
+  @override
+  String get invalidApk =>
+      'The installer or version details are invalid or do not match Otzaria. Download again on the connected computer.';
+  @override
+  String get digestMismatch =>
+      'The installer failed its integrity check. Download it again on the connected computer.';
+  @override
+  String get noMirror =>
+      'No prepared Android update is on the drive. Download it first on the connected computer.';
+  @override
+  String get noRelease =>
+      'A valid Android installer could not be obtained from the latest release. Try again on the connected computer.';
+  @override
+  String get signatureMismatch =>
+      'The update has a different signing certificate from Otzaria on the device. A release signed with the same key is required. The existing installation was not removed.';
+  @override
+  String get downgrade =>
+      'The installed version is newer than the file on the drive. Download a newer update.';
+  @override
+  String get insufficientSpace =>
+      'The device does not have enough space for installation. Free up space and try again.';
+  @override
+  String get incompatibleSdk =>
+      'The device’s Android version is not compatible with this installer.';
+  @override
+  String get incompatibleAbi =>
+      'The installer does not support this device’s processor.';
+  @override
+  String get installationBlocked =>
+      'The device blocked installation or authorization was declined. Check the message and settings on the device.';
+  @override
+  String get verificationFailed =>
+      'The app details on the device could not be verified. Refresh and check the version before trying again.';
+  @override
+  String get readOnly =>
+      'The drive is read-only. You can install or export an existing file; downloading updates and preparing tools require a writable drive.';
+  @override
+  String get exportTarget =>
+      'Choose a location outside the update folder to save the file.';
+  @override
+  String version(String version, int code) => 'Version $version (code $code)';
+  @override
+  String toolsPath(String path) => 'Android tools: $path';
+}
