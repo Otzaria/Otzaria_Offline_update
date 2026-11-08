@@ -143,6 +143,7 @@ class HomePage extends StatelessWidget {
             links: _welcomeLinks(context),
             onDownload: actions.onDownload,
             onHelp: actions.onHelp,
+            onAndroid: () => actions.onOpenSection(ShellSection.android),
             onToggleLanguage: actions.onToggleLanguage,
           );
         }
@@ -344,10 +345,6 @@ class HomePage extends StatelessWidget {
   ) {
     final g = context.strings.guide;
     return [
-      (
-        label: context.strings.android.title,
-        onTap: () => actions.onOpenSection(ShellSection.android)
-      ),
       if (model.customApps > 0)
         (
           label: g.tileCustomApps,
