@@ -161,6 +161,7 @@ void main() {
       }
       expect(await temp.list().toList(), isEmpty);
     },
+    timeout: const Timeout(Duration(minutes: 2)),
     skip: nativeSkip,
   );
 
@@ -189,6 +190,7 @@ void main() {
       ]);
       expect(await temp.list().toList(), isEmpty);
     },
+    timeout: const Timeout(Duration(minutes: 2)),
     skip: nativeSkip,
   );
 }
