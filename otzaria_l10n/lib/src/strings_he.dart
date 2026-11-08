@@ -2996,6 +2996,10 @@ class _LibraryDomain extends LibraryDomainStrings {
       'מדלג על $fileCount קובצי עדכון: ספריית אוצריא המלאה (גרסה $fullDbVersion) חדשה '
       'יותר ממה שהם מגיעים אליו, ולכן אין בהם צורך';
   @override
+  String exportSkippingUnpickedPatches(int fileCount) =>
+      'מדלג על $fileCount קובצי עדכון שאף מחשב לא ישתמש בהם: לכל גרסה יש '
+      'מסלול קצר יותר, או ספריית אוצריא המלאה';
+  @override
   String exportFullDbInsteadOfSlowPatches(
     int fileCount,
     int patchMinutes,

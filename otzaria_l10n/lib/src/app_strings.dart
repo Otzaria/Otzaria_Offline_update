@@ -1685,6 +1685,9 @@ abstract class LibraryDomainStrings {
   /// קובצי עדכון שהושמטו מהמראה כי המסד המלא מגיע גבוה מהם ממילא.
   String exportSkippingPatchesFullDbWins(int fileCount, int fullDbVersion);
 
+  /// קובצי עדכון שהושמטו מהמראה כי אף מחשב לא היה בוחר בהם.
+  String exportSkippingUnpickedPatches(int fileCount);
+
   /// קובץ עדכון שהחלתו אצל המשתמש ארוכה מהחלפת המסד המלא כולו — אינו נכנס
   /// למראה, והמסד המלא יורד במקומו.
   String exportFullDbInsteadOfSlowPatches(
