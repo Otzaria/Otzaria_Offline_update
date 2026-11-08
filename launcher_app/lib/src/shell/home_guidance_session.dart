@@ -39,7 +39,7 @@ GuidanceFacts guidanceFactsFromSession(
           library.semanticConsentRequired && !s.semanticConsentUnanswered,
     ),
     pluginsLoading: pluginsLoading,
-    pluginUpdatesOnDrive: pluginsReady ? plugins.updatablePlugins.length : 0,
+    pluginUpdatesOnDrive: pluginsReady ? plugins.deliverableUpdates.length : 0,
     online: onlineState(s),
     appProof:
         onlineProofOf([(otzaria.onlineCheckedAt, otzaria.onlineCheckError)]),

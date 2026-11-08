@@ -231,6 +231,27 @@ void main() {
     expect(guidanceFactsFromSession(s).customAppsPending, isTrue);
   });
 
+  test('home counts only plugin updates that "update here" delivers', () {
+    final s = session();
+    StorePlugin entry(String id, {required bool direct}) =>
+        StorePlugin.fromApi({
+          'id': id,
+          'name': id,
+          'version': '2.0.0',
+          'supportsDirectInstall': direct,
+        }, 'https://example.invalid')
+            .copyWith(manifestId: 'm.$id');
+    s.plugins
+      ..status = PluginsModuleStatus.ready
+      ..plugins = [entry('a', direct: true), entry('b', direct: false)]
+      ..installed = const {'m.a': '1.0.0', 'm.b': '1.0.0'};
+
+    expect(s.plugins.updatablePlugins, hasLength(2));
+    expect(guidanceFactsFromSession(s).pluginUpdatesOnDrive, 1);
+    s.plugins.plugins = [entry('b', direct: false)];
+    expect(guidanceFactsFromSession(s).pluginUpdatesOnDrive, 0);
+  });
+
   test('session library download requires an installer actually on the drive',
       () async {
     final s = session();
