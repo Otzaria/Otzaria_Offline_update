@@ -1105,28 +1105,10 @@ void main() {
       expect(controller.downloadProgress, 0.25);
     });
 
-    test('ספירת הנכסים אינה מדללת את הבייטים', () {
-      controller.downloadDoneAssets = 1;
-      controller.downloadTotalAssets = 4;
-      controller.downloadReceivedBytes = 500;
-      controller.downloadTotalBytes = 1000;
-
-      expect(controller.downloadProgress, 0.5);
-    });
-
-    test('סה"כ בייטים לא ידוע — המד אינו נקבע לפי ספירת הנכסים', () {
-      controller.downloadDoneAssets = 2;
-      controller.downloadTotalAssets = 4;
-
-      expect(controller.downloadProgress, isNull);
-    });
-
     for (final received in <int?>[null, 0, 100]) {
       test(
-          'ספירת נכסים שהסתיימה אינה 100% לפני תכנון החיפוש החכם '
+          'סך בייטים לא ידוע אינו אחוז, גם לפני תכנון החיפוש החכם '
           '(received: $received, issue #156)', () {
-        controller.downloadDoneAssets = 4;
-        controller.downloadTotalAssets = 4;
         controller.downloadReceivedBytes = received;
         controller.downloadTotalBytes = null;
 
@@ -1134,14 +1116,10 @@ void main() {
       });
     }
 
-    test('יעד 0 (הכול כבר על הכונן) נופל לספירת הנכסים ולא מתפוצץ', () {
+    test('יעד 0 (הכול כבר על הכונן) אינו אחוז — המד הוא נפח בלבד', () {
       controller.downloadReceivedBytes = 0;
       controller.downloadTotalBytes = 0;
       expect(controller.downloadProgress, isNull);
-
-      controller.downloadDoneAssets = 2;
-      controller.downloadTotalAssets = 2;
-      expect(controller.downloadProgress, 1.0);
     });
 
     test('ערכים חריגים נחתכים ל-0..1 ואינם מפילים את המד', () {
@@ -1151,10 +1129,6 @@ void main() {
 
       controller.downloadTotalBytes = 0;
       expect(controller.downloadProgress, isNull);
-
-      controller.downloadDoneAssets = 9;
-      controller.downloadTotalAssets = 4;
-      expect(controller.downloadProgress, 1.0);
     });
   });
 

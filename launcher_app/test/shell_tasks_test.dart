@@ -49,6 +49,19 @@ void main() {
       expect(tasks.hasTask, isFalse);
     });
 
+    test('כל הורדה שרצה מקבלת מזהה משלה — המד הכולל אינו עובר לבאה', () {
+      tasks.downloadRunning(const [MirrorComponent.library]);
+      final first = tasks.downloadRunId;
+      // דיווח נוסף באותה הורדה אינו הורדה חדשה.
+      tasks.downloadRunning(const [MirrorComponent.library]);
+      expect(tasks.downloadRunId, first);
+      tasks
+        ..downloadDone()
+        ..prepareDownload()
+        ..downloadRunning(const [MirrorComponent.library]);
+      expect(tasks.downloadRunId, isNot(first));
+    });
+
     test('חזרה מהשאלה = ביטול לפני שההורדה התחילה', () async {
       final answer = tasks.askBeforeDownload();
       tasks.answer(null);

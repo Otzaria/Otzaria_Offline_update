@@ -6,7 +6,6 @@ import '../../controllers/library_module_controller.dart';
 import '../../controllers/otzaria_module_controller.dart';
 import '../../controllers/plugins_module_controller.dart';
 import '../../flows/library_flows.dart';
-import '../../services/byte_size.dart';
 import '../../shell/shell_keys.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
@@ -21,12 +20,16 @@ class HomeTaskProgress extends StatelessWidget {
     required this.otzaria,
     required this.library,
     required this.plugins,
+    this.downloadOverall,
   });
 
   final HomeTask task;
   final OtzariaModuleController otzaria;
   final LibraryModuleController library;
   final PluginsModuleController plugins;
+
+  /// האחוז הכולל של ההורדה, מאותו מד שמסך ההורדה קורא.
+  final double? Function()? downloadOverall;
 
   @override
   Widget build(BuildContext context) => switch (task) {
@@ -69,39 +72,31 @@ class HomeTaskProgress extends StatelessWidget {
     );
   }
 
-  /// מד אחד לרכיב המוביל: כשהספרייה והתוספים רצים יחד מוצגת הספרייה, והפירוט
-  /// המלא במסך ההתקדמות.
+  /// האחוז הכולל של מסך ההורדה עצמו, כדי ששניהם יראו אותו מספר; השלב אומר
+  /// מה יורד עכשיו. בלי בייטים של רכיב אחד: לצד אחוז כולל הם נראים כסתירה.
   Widget _downloadRow(BuildContext context) {
     final t = context.strings.home;
-    if (otzaria.downloadStatus == OtzariaDownloadStatus.downloading) {
-      final received = otzaria.downloadReceived;
-      final total = otzaria.downloadTotal;
-      return InfoProgressRow(
-        stage: otzaria.downloadStage ?? t.downloadingApp,
-        progress: (received != null && total != null && total > 0)
-            ? received / total
-            : null,
-        detail: formatBytesProgress(received, total),
-      );
-    }
+    final overall = downloadOverall?.call();
     if (library.downloadStatus == MirrorDownloadStatus.downloading) {
       return InfoProgressRow(
         stage: library.downloadStage ?? t.downloadingLibrary,
-        progress: library.downloadProgress,
+        progress: overall,
         secondaryStage: library.downloadCompanionStage,
-        detail: formatBytesProgress(
-          library.downloadReceivedBytes,
-          library.downloadTotalBytes,
-        ),
+      );
+    }
+    if (otzaria.downloadStatus == OtzariaDownloadStatus.downloading) {
+      return InfoProgressRow(
+        stage: otzaria.downloadStage ?? t.downloadingApp,
+        progress: overall,
       );
     }
     if (plugins.status == PluginsModuleStatus.syncing) {
       return InfoProgressRow(
         stage: plugins.syncMessage ?? t.downloadingPlugins,
-        progress: plugins.syncProgress,
+        progress: overall,
       );
     }
-    return InfoProgressRow(stage: t.downloadStarting);
+    return InfoProgressRow(stage: t.downloadStarting, progress: overall);
   }
 }
 

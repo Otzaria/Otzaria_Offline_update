@@ -810,6 +810,9 @@ class _Pages extends PageStrings {
           _minutesRange(lowMinutes, highMinutes),
       ].join(' · ');
   @override
+  String libApplyEstimate(int lowMinutes, int highMinutes) =>
+      'Expected update time: ${_minutesRange(lowMinutes, highMinutes)}, depending on the computer.';
+  @override
   String get libFullUnavailable =>
       'Possible only after a regular update failed, when the drive has a full library.';
   @override

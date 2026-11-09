@@ -1666,8 +1666,11 @@ void main() {
     late LibraryModuleController library;
     late PluginsModuleController plugins;
     late LauncherUpdateController launcher;
+    // המד הכולל של מסך ההורדה; הבית רק מציג אותו.
+    double? share;
 
     setUp(() {
+      share = null;
       tempDir = Directory.systemTemp.createTempSync('home_page_test');
       otzaria = OtzariaModuleController(
           dataDir: tempDir.path, platform: OtzariaTargetPlatform.windows);
@@ -1689,6 +1692,7 @@ void main() {
           otzaria: otzaria,
           library: library,
           plugins: plugins,
+          downloadOverall: () => share,
         );
 
     testWidgets('החלת ספרייה, הורדת תוכנה והורדת הכלי — בלי שינוי מצב', (
@@ -1723,6 +1727,7 @@ void main() {
       otzaria.downloadStage = null;
       otzaria.downloadReceived = 30;
       otzaria.downloadTotal = 100;
+      share = 0.3;
       otzaria.notifyProgress();
       launcher.downloadReceived = 70;
       launcher.downloadTotal = 100;
@@ -1742,6 +1747,7 @@ void main() {
       library.downloadStage = 'stage 1';
       library.downloadReceivedBytes = 10;
       library.downloadTotalBytes = 100;
+      share = 0.1;
       var stateNotifications = 0;
       library.addListener(() => stateNotifications++);
 
@@ -1753,13 +1759,15 @@ void main() {
       library.downloadCompanionStage = 'companion 2';
       library.downloadReceivedBytes = 2048;
       library.downloadTotalBytes = 4096;
+      share = 0.5;
       library.notifyProgress();
       await tester.pump();
 
       expect(find.text('stage 2'), findsOneWidget);
       expect(find.text('companion 2'), findsOneWidget);
       expect(find.text('50%'), findsOneWidget);
-      expect(find.text(formatBytesProgress(2048, 4096)!), findsOneWidget);
+      // בייטים של רכיב אחד ליד אחוז כולל נראים כסתירה.
+      expect(find.text(formatBytesProgress(2048, 4096)!), findsNothing);
       expect(stateNotifications, 0);
     });
 
@@ -1767,6 +1775,7 @@ void main() {
       plugins.status = PluginsModuleStatus.syncing;
       plugins.syncMessage = 'sync 1';
       plugins.syncProgress = 0.2;
+      share = 0.2;
       var stateNotifications = 0;
       plugins.addListener(() => stateNotifications++);
 
@@ -1776,6 +1785,7 @@ void main() {
 
       plugins.syncMessage = 'sync 2';
       plugins.syncProgress = 0.8;
+      share = 0.8;
       plugins.notifyProgress();
       await tester.pump();
 
