@@ -176,4 +176,39 @@ void main() {
       }, variant: TargetPlatformVariant.only(platform));
     }
   }
+
+  for (final (direction, obscure) in [
+    (TextDirection.rtl, false),
+    (TextDirection.ltr, false),
+    (TextDirection.ltr, true),
+  ]) {
+    testWidgets('Win+V (Ctrl+Meta+V) מדביק, $direction, סיסמה=$obscure',
+        (tester) async {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async =>
+            call.method == 'Clipboard.getData' ? {'text': 'הודבק'} : null,
+      );
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(wrap(Scaffold(
+        body: RtlTextField(
+          controller: controller,
+          textDirection: direction,
+          obscureText: obscure,
+        ),
+      )));
+      await tester.tap(find.byType(RtlTextField));
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pump();
+      expect(controller.text, 'הודבק');
+    }, variant: windows);
+  }
 }
