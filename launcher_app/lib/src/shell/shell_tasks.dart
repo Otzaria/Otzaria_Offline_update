@@ -287,6 +287,10 @@ class ShellTasks extends ChangeNotifier {
   bool get hasTask => current != null;
 
   DownloadTask? get downloadTask => _download;
+
+  /// עולה בכל הורדה שמתחילה לרוץ — מה שמחזיק מצב של הורדה אחת נקשר אליו.
+  int get downloadRunId => _downloadRunId;
+  int _downloadRunId = 0;
   UpdateHereTask? get updateTask => _update;
 
   /// משימה שעוד לא הסתיימה מוצגת — ולכן אין לצאת ממסך המשימה.
@@ -413,6 +417,7 @@ class ShellTasks extends ChangeNotifier {
   }) {
     if (_download == null) prepareDownload();
     if (_download?.phase == DownloadTaskPhase.running) return;
+    _downloadRunId++;
     _moveDownload(
       DownloadTaskPhase.running,
       components: components,

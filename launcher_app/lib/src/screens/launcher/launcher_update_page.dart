@@ -199,7 +199,7 @@ class LauncherUpdatePage extends StatelessWidget {
                   Text(
                     fraction == null
                         ? g.launcherDownloading
-                        : t.selfDownloading((fraction * 100).floor()),
+                        : t.selfDownloading(wholePercent(fraction)),
                     style: sub,
                   ),
                   const SizedBox(height: 8),

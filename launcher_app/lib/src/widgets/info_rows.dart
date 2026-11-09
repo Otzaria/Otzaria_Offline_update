@@ -143,7 +143,7 @@ class InfoProgressRow extends StatelessWidget {
               if (value != null) ...[
                 const SizedBox(width: AppTokens.spaceSM),
                 Text(
-                  '${(value * 100).round()}%',
+                  '${wholePercent(value)}%',
                   style: AppTextStyles.meta.copyWith(
                     color: cs.onSurface,
                     fontWeight: AppTextStyles.semibold,

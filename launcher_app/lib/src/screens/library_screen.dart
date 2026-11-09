@@ -317,6 +317,13 @@ class LibraryScreen extends StatelessWidget {
         // הורדה של מסד שלם במקום קובצי עדכון היא הפרש של שלוש סדרי גודל,
         // ולכן הסיבה נאמרת ולא נשארת בלוג בלבד.
         if (c.updateRouteNote case final note?) Text(note, style: sub),
+        if (canUpdate)
+          if (c.applyEstimateFor() case final est?)
+            Text(
+              key: ShellKeys.libraryApplyEstimate,
+              t.libApplyEstimate(est.low, est.high),
+              style: sub,
+            ),
         if (c.personalUpdateMode) _personalRow(context, sub),
         if (canUpdate && withApp)
           Text(

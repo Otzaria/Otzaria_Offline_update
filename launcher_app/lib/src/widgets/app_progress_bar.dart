@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 
+/// אחוז שלם כלפי מטה, אחד לכל המדים — כדי שהבית ומסך המשימה יציגו אותו
+/// מספר. הסף מבטל שגיאת עיגול: `0.29 * 100` הוא `28.999…`.
+int wholePercent(double fraction) =>
+    (fraction.clamp(0.0, 1.0) * 100 + 1e-9).floor();
+
 /// פס התקדמות (`.bar`): גלולה בגובה 8 (או 4 ב-[thin]), מסילה tonal ומילוי
 /// primary של לפחות 8. בלי [value] — מקטע של 30% שנע בכיוון הקריאה.
 class AppProgressBar extends StatefulWidget {
@@ -67,7 +72,7 @@ class _AppProgressBarState extends State<AppProgressBar>
 
     return Semantics(
       label: widget.semanticsLabel,
-      value: value == null ? null : '${(value * 100).round()}%',
+      value: value == null ? null : '${wholePercent(value)}%',
       child: ClipRRect(
         borderRadius: radius,
         child: SizedBox(

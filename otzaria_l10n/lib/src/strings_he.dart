@@ -788,6 +788,9 @@ class _Pages extends PageStrings {
           'צפוי ${_minutesRange(lowMinutes, highMinutes)}',
       ].join(' · ');
   @override
+  String libApplyEstimate(int lowMinutes, int highMinutes) =>
+      'זמן העדכון הצפוי: ${_minutesRange(lowMinutes, highMinutes)}, לפי מהירות המחשב.';
+  @override
   String get libFullUnavailable =>
       'אפשרי רק אחרי שעדכון רגיל נכשל, כשבכונן יש ספריית אוצריא מלאה.';
   @override

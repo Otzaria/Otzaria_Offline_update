@@ -1989,6 +1989,16 @@ void main() {
     expect(p.libFullMeta(lowMinutes: 3, highMinutes: 12), isNot(contains(':')));
   });
 
+  test('אומדן זמן העדכון נאמר לפני ההתחלה, כטווח', () {
+    final text = stringsOf().pages.libApplyEstimate(3, 12);
+    expect(text, startsWith('זמן העדכון הצפוי: '));
+    expect(text, endsWith('.'));
+    final en = stringsOf(AppLanguage.english).pages.libApplyEstimate(3, 12);
+    expect(en, allOf(contains('3'), contains('12'), endsWith('.')));
+    expect(text, contains('3'));
+    expect(text, contains('12'));
+  });
+
   testWidgets('תקציר "מתקדם" מונה רק שורות שמוצגות', (tester) async {
     final p = stringsOf().pages;
     var opened = 0;

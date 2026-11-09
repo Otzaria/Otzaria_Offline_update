@@ -81,6 +81,7 @@ abstract final class ShellKeys {
   static const libraryConsentWhatIsSent =
       ValueKey('library.consent.whatIsSent');
   static const libraryInstallNote = ValueKey('library.installNote');
+  static const libraryApplyEstimate = ValueKey('library.applyEstimate');
   static const reportsSend = ValueKey('reports.send');
   static const reportsCheckConnection = ValueKey('reports.checkConnection');
   static const storeEmptyReload = ValueKey('store.empty.reload');
