@@ -1423,6 +1423,7 @@ class AppSession extends ChangeNotifier {
         checkedAt: _plugins.storeAppCheckedAt,
         error: _plugins.storeAppCheckError,
       ),
+      semanticUnchecked: _library.semanticAnswerMissing,
     );
     if (!stale.any) return false;
     final ownsCheckingFlag = !_isCheckingOnline;
