@@ -3,10 +3,14 @@ name: Build EXE (launcher_app only)
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-exe:
     name: launcher_app (windows build only)
     runs-on: windows-latest
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: launcher_app
@@ -16,6 +20,8 @@ jobs:
         with:
           channel: stable
           flutter-version: 3.47.2
+          cache: true
+          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-:hash:-${{ hashFiles('**/pubspec.lock') }}-manual-windows
       - run: flutter config --enable-windows-desktop
       - run: flutter create --no-pub --platforms=windows .
       - name: Restore the lock and metadata flutter create rewrites
@@ -25,7 +31,7 @@ jobs:
       - name: Locks unchanged by create/pub get
         shell: bash
         run: git diff --exit-code -- pubspec.lock
-      - run: flutter build windows --release
+      - run: flutter build windows --release --no-pub
       - name: Package portable build
         shell: pwsh
         run: .\windows_stub\package.ps1
@@ -36,3 +42,4 @@ jobs:
           name: launcher_app-windows-portable
           path: launcher_app/build/*.exe
           if-no-files-found: error
+          compression-level: 0
