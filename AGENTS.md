@@ -1947,6 +1947,13 @@ just launch. Five load-bearing details:
   missing, the stub renames the previous one back to it
   (`RecoverInterruptedUpdate`), and `cleanupLeftovers` never deletes it.
 
+**Every unsigned payload `.exe`/`.dll` is marked run-from-swap (`0x0C00`).**
+`app-files\` sits on the drive, so its code was paged in from it on demand; a
+1GB write to a SanDisk Cruzer froze the window for up to 14s, marked: 16ms max,
+same write speed (2026-11-09). Windows honours it only on removable or network
+drives — the log's `--- image` line says which. Never mark the stub (it would load its
+whole payload). `package.ps1`, `StartupDiagnostics.runFromSwapFlags`.
+
 **`package.ps1` must pack the payload before it compiles the stub.** `stub.rc` embeds
 `windows_stub/build/payload.otz`, so `rc.exe` needs that file to exist;
 `build_stub.ps1` throws if it does not. **Extraction happens inside the stub process**,

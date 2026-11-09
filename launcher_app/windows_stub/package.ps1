@@ -29,6 +29,32 @@ Copy-Item (Join-Path $releaseDir '*') $payloadDir -Recurse
 $strayData = Join-Path $payloadDir 'OtzariaData'
 if (Test-Path -LiteralPath $strayData) { Remove-Item -Recurse -Force -LiteralPath $strayData }
 
+# הקוד רץ מהכונן: בלי טעינה מלאה לזיכרון כל דף קוד נקרא ממנו לפי דרישה,
+# וכונן עמוס בהורדה מקפיא את הממשק. חתום לא מסומנים — החתימה הייתה נשברת.
+$runFromSwap = 0x0C00  # REMOVABLE_RUN_FROM_SWAP | NET_RUN_FROM_SWAP
+# Where-Object ולא -Include: עם -LiteralPath ב-PowerShell 5.1 הוא אינו מסנן דבר.
+$images = Get-ChildItem -LiteralPath $payloadDir -Recurse -File |
+  Where-Object { $_.Extension -in '.exe', '.dll' }
+foreach ($image in $images) {
+  if ((Get-AuthenticodeSignature -LiteralPath $image.FullName).Status -ne 'NotSigned') {
+    Write-Host "Left signed image unmarked: $($image.Name)"
+    continue
+  }
+  $bytes = [IO.File]::ReadAllBytes($image.FullName)
+  $pe = if ($bytes.Length -ge 0x40 -and $bytes[0] -eq 0x4D -and $bytes[1] -eq 0x5A) { [BitConverter]::ToInt32($bytes, 0x3C) } else { -1 }
+  if ($pe -lt 0 -or $pe + 24 -gt $bytes.Length -or [BitConverter]::ToUInt32($bytes, $pe) -ne 0x00004550) {
+    throw "Not a PE image: $($image.FullName)"
+  }
+  $at = $pe + 22
+  $flags = [BitConverter]::ToUInt16($bytes, $at) -bor $runFromSwap
+  [BitConverter]::GetBytes([uint16]$flags).CopyTo($bytes, $at)
+  [IO.File]::WriteAllBytes($image.FullName, $bytes)
+}
+$flutterDll = [IO.File]::ReadAllBytes((Join-Path $payloadDir 'flutter_windows.dll'))
+$flutterFlags = [BitConverter]::ToUInt16($flutterDll, [BitConverter]::ToInt32($flutterDll, 0x3C) + 22)
+if (($flutterFlags -band $runFromSwap) -ne $runFromSwap) { throw 'flutter_windows.dll was not marked run-from-swap.' }
+Write-Host 'Marked the payload images run-from-swap'
+
 # ה-CRT של Visual C++ נוסע איתנו. `launcher_app.exe` ושלושה מה-DLL של
 # ה-plugins מייבאים אותו בטעינה, ופלאטר **אינו** מעתיק אותו לתיקיית ה-Release
 # — כך שבלי זה התוכנה אינה עולה כלל על מכונה שאין בה Redistributable מותקן.
