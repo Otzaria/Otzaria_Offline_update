@@ -2,6 +2,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/controllers/download_plan.dart';
+import 'package:launcher_app/src/screens/tasks/download_overall.dart';
 import 'package:launcher_app/src/screens/tasks/download_task_view.dart';
 import 'package:launcher_app/src/screens/tasks/task_parts.dart';
 import 'package:launcher_app/src/services/byte_size.dart';
@@ -692,14 +693,10 @@ void main() {
       expect(line(tester, 'task.download.speed'), ' ');
     });
 
-    testWidgets(
-        'הספרייה עוברת מספירת קבצים לבייטים — האחוז ממשיך לעלות, לא עומד',
+    testWidgets('האחוז הוא אחוז הנפח — לא נגרר מספירת קבצים קודמת',
         (tester) async {
       final progress = ValueNotifier(0);
-      var snapshot = const DownloadSnapshot(
-        current: MirrorComponent.library,
-        fraction: 0.9,
-      );
+      var snapshot = const DownloadSnapshot(current: MirrorComponent.library);
       await pumpScreen(
         tester,
         DownloadTaskView(
@@ -725,11 +722,11 @@ void main() {
         return percent(tester);
       }
 
-      expect(percent(tester), '63%');
-      // ספירת הקבצים הגיעה ל-0.9, והבייטים מתחילים מ-0.05.
-      expect(await at(0.05), '63%');
-      expect(await at(0.5), '64%');
-      expect(await at(0.8), '65%');
+      // התוכנה הסתיימה (שליש מהנפח); לספרייה עוד אין בייטים.
+      expect(percent(tester), '33%');
+      expect(await at(0.05), '35%');
+      expect(await at(0.5), '50%');
+      expect(await at(0.8), '60%');
       expect(await at(1), '66%');
       // רכיב חדש מתחיל מחדש בלי ירושה מהקודם.
       snapshot = const DownloadSnapshot(
@@ -1220,6 +1217,90 @@ void main() {
       expect(find.textContaining('בדף ספריית אוצריא'), findsNothing);
       expect(find.text(t.semanticYesBody), findsOneWidget);
       expect(t.semanticYesBody, contains('נתוני אימון'));
+    });
+  });
+
+  group('DownloadOverallMeter — מספר אחד לבית ולמסך ההורדה', () {
+    const components = [MirrorComponent.app, MirrorComponent.library];
+    const expected = {MirrorComponent.app: 100};
+    DownloadOverall at(DownloadOverallMeter meter, int received) =>
+        meter.measure(
+          components: components,
+          expectedBytes: expected,
+          snapshot: DownloadSnapshot(
+            current: MirrorComponent.library,
+            received: received,
+            total: 300,
+            fraction: received / 300,
+          ),
+        );
+
+    test('אותה הורדה — אותו מד; הורדה חדשה — מד חדש בלי השיא הקודם', () {
+      final meters = DownloadOverallMeters();
+      expect(meters.forRun(null), isNull);
+      final first = meters.forRun(1)!;
+      expect(meters.forRun(1), same(first));
+      at(first, 290);
+      final next = meters.forRun(2)!;
+      expect(next, isNot(same(first)));
+      expect(at(next, 0).overall, closeTo(100 / 400, 1e-9));
+    });
+
+    test('גודל שנמדד מחדש אינו מוריד את האחוז שכבר הוצג', () {
+      final meter = DownloadOverallMeter();
+      at(meter, 150);
+      final again = meter.measure(
+        components: components,
+        expectedBytes: const {MirrorComponent.app: 10},
+        snapshot: const DownloadSnapshot(
+          current: MirrorComponent.library,
+          received: 150,
+          total: 300,
+          fraction: 0.5,
+        ),
+      );
+      expect(again.overall, closeTo(250 / 400, 1e-9));
+      expect(meter.sizes[MirrorComponent.library], 300);
+    });
+
+    testWidgets('יציאה לבית וחזרה למסך: אותו מד, אותו אחוז', (tester) async {
+      final meter = DownloadOverallMeter();
+      var expectedApp = 100;
+      Widget view() => DownloadTaskView(
+            task: DownloadTask(
+              phase: DownloadTaskPhase.running,
+              components: components,
+              expectedBytes: {MirrorComponent.app: expectedApp},
+            ),
+            progress: ValueNotifier(0),
+            snapshot: () => const DownloadSnapshot(
+              current: MirrorComponent.library,
+              received: 150,
+              total: 300,
+              fraction: 0.5,
+            ),
+            overall: meter,
+            actions: DownloadTaskActions(
+              onAnswer: (_) {},
+              onCancel: () {},
+              onRetry: () {},
+              onHome: () {},
+              onHere: () {},
+            ),
+          );
+      await pumpScreen(tester, view());
+      expect(percent(tester), '62%');
+      await pumpScreen(tester, const SizedBox());
+      expectedApp = 10;
+      await pumpScreen(tester, view());
+      expect(percent(tester), '62%');
+    });
+
+    test('אחוז שלם בלי שגיאת עיגול של שברים עשרוניים', () {
+      expect(wholePercent(0.29), 29);
+      expect(wholePercent(0.57), 57);
+      expect(wholePercent(0.999), 99);
+      expect(wholePercent(1.5), 100);
     });
   });
 }

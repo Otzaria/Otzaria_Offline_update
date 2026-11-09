@@ -276,9 +276,8 @@ class UpdateHereTaskView extends StatelessWidget {
             listenable: libraryProgress,
             builder: (context, _) {
               final s = librarySnapshot();
-              final pct = s.fraction == null
-                  ? null
-                  : '${(s.fraction!.clamp(0.0, 1.0) * 100).floor()}%';
+              final pct =
+                  s.fraction == null ? null : '${wholePercent(s.fraction!)}%';
               return StageRow(
                 icon: FluentIcons.library_24_regular,
                 title: t.componentLibrary,

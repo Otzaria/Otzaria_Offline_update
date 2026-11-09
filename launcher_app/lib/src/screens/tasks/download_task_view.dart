@@ -11,6 +11,7 @@ import '../../shell/shell_keys.dart';
 import '../../shell/shell_tasks.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
+import 'download_overall.dart';
 import 'task_parts.dart';
 import 'transfer_rate.dart';
 
@@ -106,6 +107,7 @@ class DownloadTaskView extends StatelessWidget {
     this.done = const DownloadDoneInfo(),
     this.canRemember = false,
     this.clock,
+    this.overall,
   });
 
   final DownloadTask task;
@@ -120,6 +122,9 @@ class DownloadTaskView extends StatelessWidget {
 
   /// לבדיקות של מד המהירות.
   final DateTime Function()? clock;
+
+  /// האחוז הכולל, משותף עם הבית; `null` — מופע משלו (בבדיקות).
+  final DownloadOverallMeter? overall;
 
   @override
   Widget build(BuildContext context) => switch (task.phase) {
@@ -136,6 +141,7 @@ class DownloadTaskView extends StatelessWidget {
             onCancel: actions.onCancel,
             onHide: actions.onHide,
             clock: clock,
+            overall: overall,
           ),
         DownloadTaskPhase.cancelled => _cancelled(context),
         DownloadTaskPhase.done => _done(context),
@@ -565,6 +571,7 @@ class _DownloadProgress extends StatefulWidget {
     this.expectedBytes = const {},
     this.onHide,
     this.clock,
+    this.overall,
   });
 
   final List<MirrorComponent> components;
@@ -575,6 +582,7 @@ class _DownloadProgress extends StatefulWidget {
   final VoidCallback onCancel;
   final VoidCallback? onHide;
   final DateTime Function()? clock;
+  final DownloadOverallMeter? overall;
 
   @override
   State<_DownloadProgress> createState() => _DownloadProgressState();
@@ -583,16 +591,8 @@ class _DownloadProgress extends StatefulWidget {
 class _DownloadProgressState extends State<_DownloadProgress> {
   late final TransferRateMeter _meter = TransferRateMeter(clock: widget.clock);
   MirrorComponent? _measuring;
-  double? _peak;
-
-  // [_smoothed]: החלק של הרכיב הנוכחי שכבר הוצג, ומאיפה נפרס ההמשך.
-  MirrorComponent? _smoothFor;
-  double _shownPart = 0;
-  double _base = 0;
-  double _from = 0;
-
-  /// הגודל האחרון שנראה לכל רכיב — לשורה "הושלם · X" אחרי שעבר.
-  final Map<MirrorComponent, int> _sizes = {};
+  late final DownloadOverallMeter _ownOverall = DownloadOverallMeter();
+  DownloadOverallMeter get _overall => widget.overall ?? _ownOverall;
 
   /// בלי דיווחים אין בנייה מחדש — והמהירות הייתה נשארת קפואה.
   late final Timer _tick;
@@ -636,23 +636,6 @@ class _DownloadProgressState extends State<_DownloadProgress> {
     );
   }
 
-  /// הספרייה עוברת מספירת קבצים לבייטים, והחלק שמדווח קופץ אחורה (0.9 →
-  /// 0.05). ההמשך נפרס על מה שנשאר מעל מה שכבר הוצג — בלי לעמוד ובלי לרדת.
-  double? _smoothed(MirrorComponent? current, double? fraction) {
-    if (current != _smoothFor) {
-      _smoothFor = current;
-      _shownPart = _base = _from = 0;
-    }
-    if (fraction == null) return null;
-    if (_from >= 1) return _shownPart;
-    var part = _base + (fraction - _from) / (1 - _from) * (1 - _base);
-    if (part < _shownPart) {
-      _base = part = _shownPart;
-      _from = fraction;
-    }
-    return _shownPart = part.clamp(0.0, 1.0);
-  }
-
   Widget _content(BuildContext context, DownloadSnapshot s) {
     final t = context.strings.task;
     final cs = Theme.of(context).colorScheme;
@@ -665,12 +648,15 @@ class _DownloadProgressState extends State<_DownloadProgress> {
     }
     final received = s.received;
     final total = s.total;
-    if (current != null && received != null) {
-      _meter.add(received);
-      if (total != null) _sizes[current] = total;
-    }
+    if (current != null && received != null) _meter.add(received);
+    final measured = _overall.measure(
+      components: components,
+      expectedBytes: widget.expectedBytes,
+      snapshot: s,
+    );
+    final sizesSeen = _overall.sizes;
     final index = current == null ? -1 : components.indexOf(current);
-    final fraction = _smoothed(current, s.fraction?.clamp(0.0, 1.0));
+    final fraction = measured.fraction;
     final others = s.others;
     final finished = s.finished ?? {if (index > 0) ...components.take(index)};
     StageState stateOf(MirrorComponent c) => finished.contains(c)
@@ -678,10 +664,6 @@ class _DownloadProgressState extends State<_DownloadProgress> {
         : c == current || others.containsKey(c)
             ? StageState.current
             : StageState.waiting;
-    final running = index >= 0 || others.isNotEmpty;
-    final hasProgress = fraction != null ||
-        others.values.any((part) => part != null) ||
-        finished.any(components.contains);
     final local = s.localWork;
     final working =
         local != null && _meter.isIdle(TransferRateMeter.localWorkAfter);
@@ -691,51 +673,14 @@ class _DownloadProgressState extends State<_DownloadProgress> {
     final sizeOfCurrent =
         total != null && total > 0 ? formatBytes(total) : null;
     final currentSizeUnknown = received != null && total == null;
-    final expected = {
-      ...widget.expectedBytes,
-      if (s.libraryProbe?.bytes case final bytes?)
-        MirrorComponent.library: bytes,
-    };
+    final expected = measured.expected;
     String? approx(MirrorComponent c) =>
         switch (c == current && currentSizeUnknown ? null : expected[c]) {
           final size? => t.approxSize(formatBytes(size)),
           null => null,
         };
-    // הגודל האמיתי של הספרייה גובר על הבדיקה המוקדמת.
-    final sizes = [
-      for (final c in components)
-        c == current && currentSizeUnknown
-            ? null
-            : c == MirrorComponent.library
-                ? _sizes[c] ?? expected[c]
-                : expected[c] ?? _sizes[c],
-    ];
-    // רכיב שגודלו לא ידוע אינו מקבל משקל שרירותי לפי מספר הרכיבים.
-    final weights = [
-      for (var i = 0; i < components.length; i++)
-        sizes[i] ?? (finished.contains(components[i]) ? 0 : null),
-    ];
-    final bytes = weights.fold<int>(0, (sum, size) => sum + (size ?? 0));
-    final computed =
-        !running || !hasProgress || weights.contains(null) || bytes <= 0
-            ? null
-            : [
-                  for (var i = 0; i < components.length; i++)
-                    weights[i]! *
-                        (finished.contains(components[i])
-                                ? 1.0
-                                : components[i] == current
-                                    ? fraction ?? 0
-                                    : others[components[i]] ?? 0)
-                            .clamp(0.0, 1.0),
-                ].fold<double>(0, (sum, value) => sum + value) /
-                bytes;
-    // 100% רק במסך הסיום, אחרי האימות וההרכבה.
-    final bounded = computed != null && computed > 0.99 ? 0.99 : computed;
-    final peak = _peak;
-    final overall =
-        bounded == null || peak == null || bounded >= peak ? bounded : peak;
-    _peak = overall ?? peak;
+    final sizes = measured.sizes;
+    final overall = measured.overall;
     final totalLine = sizes.isEmpty || sizes.contains(null)
         ? ' '
         : t.downloadTotal(
@@ -770,7 +715,7 @@ class _DownloadProgressState extends State<_DownloadProgress> {
         ),
         SizedBox(height: narrow ? 8 : 16),
         Text(
-          overall == null ? '…' : '${(overall * 100).floor()}%',
+          overall == null ? '…' : '${wholePercent(overall)}%',
           key: const ValueKey('task.download.percent'),
           textDirection: TextDirection.ltr,
           style: AppTextStyles.percent.copyWith(color: cs.primary),
@@ -849,24 +794,23 @@ class _DownloadProgressState extends State<_DownloadProgress> {
                 },
                 detail: switch (stateOf(c)) {
                   StageState.done => t.stageDone(
-                      _sizes[c] == null ? null : formatBytes(_sizes[c]!),
+                      sizesSeen[c] == null ? null : formatBytes(sizesSeen[c]!),
                     ),
                   StageState.current when c == current => [
-                      if (fraction != null) '${(fraction * 100).floor()}%',
+                      if (fraction case final real?) '${wholePercent(real)}%',
                       if (sizeOfCurrent ?? approx(c) case final size?) size,
                     ].join(' · '),
                   StageState.current => [
-                      if (others[c] case final part?)
-                        '${(part.clamp(0.0, 1.0) * 100).floor()}%',
-                      if (_sizes[c] == null
+                      if (others[c] case final part?) '${wholePercent(part)}%',
+                      if (sizesSeen[c] == null
                               ? approx(c)
-                              : formatBytes(_sizes[c]!)
+                              : formatBytes(sizesSeen[c]!)
                           case final size?)
                         size,
                     ].join(' · '),
                   _ => [
                       t.stageWaiting,
-                      if (_sizes[c] case final size?)
+                      if (sizesSeen[c] case final size?)
                         formatBytes(size)
                       else if (approx(c) case final size?)
                         size

@@ -443,6 +443,9 @@ abstract class PageStrings {
 
   /// הגודל והאומדן של הספרייה המלאה, ליד הכפתור שמתקין אותה.
   String libFullMeta({String? size, int? lowMinutes, int? highMinutes});
+
+  /// האומדן שלפני הלחיצה על עדכון — כדי לדעת אם יש זמן.
+  String libApplyEstimate(int lowMinutes, int highMinutes);
   String get libFullUnavailable;
   String get libPersonalReadOnly;
   String get libSourceTitle;

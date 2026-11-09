@@ -942,9 +942,17 @@ load-bearing consequences:
   `CompanionAssetsMirror.sync` resolves all three assets (`_plan*`) before it
   downloads any. Without it the total appeared late and moved, and
   `downloadProgress` measured in assets meanwhile: two rulers, swapping mid-
-  download. It returns `null` while the byte total is unknown, even before bytes
-  flow. Verification bytes are **not** download bytes — `onVerifyProgress` feeds
+  download. It is **volume only** — `null` while the byte total is unknown or
+  zero, never an asset count: a count that reached 90% was carried into the
+  bar after the bytes arrived, and the screen showed files, not volume.
+  Verification bytes are **not** download bytes — `onVerifyProgress` feeds
   the stage text (`exportVerifying`), never the meter.
+- **Home and the download screen read one meter.** Each computed its own
+  number (one component vs. weighted overall), so they disagreed. `AppShell`
+  owns one `DownloadOverallMeter` per `ShellTasks.downloadRunId` (not per
+  build: a peak would carry into the next download) and passes it to
+  `DownloadTaskView` and `HomeTaskProgress.downloadOverall`. Plugins still
+  report a file count (`syncProgress`); they have no byte progress yet.
 - **A failed task stops new ones but still awaits the running ones** before
   rethrowing; a download left running in the background keeps writing into the
   mirror after `MirrorDownloadUndo` has cleaned it.

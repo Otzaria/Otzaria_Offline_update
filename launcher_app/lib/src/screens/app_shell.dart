@@ -57,6 +57,7 @@ import 'plugins/plugins_screen.dart';
 import 'reports/reports_page.dart';
 import 'reports_upload_flow.dart';
 import 'settings_screen.dart';
+import 'tasks/download_overall.dart';
 import 'tasks/download_task_view.dart';
 import 'tasks/update_here_task_view.dart';
 
@@ -544,6 +545,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
                   otzaria: s.otzaria,
                   library: s.library,
                   plugins: s.plugins,
+                  downloadOverall: _downloadOverallFraction,
                 )
               : null,
           launcherProgress:
@@ -873,6 +875,31 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
     _session.plugins.progress,
   ]);
 
+  final _overallMeters = DownloadOverallMeters();
+
+  /// אחד לכל הורדה רצה, לבית ולמסך ההורדה — כדי ששניהם יראו אותו אחוז.
+  DownloadOverallMeter? get _downloadOverall {
+    final tasks = _session.tasks;
+    return _overallMeters.forRun(
+      tasks.downloadTask?.phase == DownloadTaskPhase.running
+          ? tasks.downloadRunId
+          : null,
+    );
+  }
+
+  double? _downloadOverallFraction() {
+    final task = _session.tasks.downloadTask;
+    final meter = _downloadOverall;
+    if (task == null || meter == null) return null;
+    return meter
+        .measure(
+          components: task.components,
+          expectedBytes: task.expectedBytes,
+          snapshot: _downloadSnapshot(),
+        )
+        .overall;
+  }
+
   DownloadSnapshot _downloadSnapshot() {
     final s = _session;
     final running = s.runningDownloads;
@@ -968,6 +995,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           task: task,
           progress: _downloadProgress,
           snapshot: _downloadSnapshot,
+          overall: _downloadOverall,
           cancelling: s.isCancellingDownload,
           canRemember: !s.saferMode.isLocked,
           done: DownloadDoneInfo(

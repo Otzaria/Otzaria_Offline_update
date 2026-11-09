@@ -349,8 +349,6 @@ class LibraryModuleController extends ChangeNotifier
   /// שלב הקבצים הנלווים, שרץ **במקביל** לשלב שב-[downloadStage]. שורה משלו
   /// כי שניהם כתבו לאחת וזו קפצה ביניהם בזמן שהמד מתאר את שניהם יחד.
   String? downloadCompanionStage;
-  int? downloadDoneAssets;
-  int? downloadTotalAssets;
 
   /// בייטים שהורדו/סה"כ **לכל ההורדה יחד**, ורק מה שבאמת עובר ברשת: נכס
   /// שכבר יושב שלם על הכונן אינו נספר בשני האגפים. בלי המונה הזה המד נשען
@@ -511,19 +509,13 @@ class LibraryModuleController extends ChangeNotifier
   /// כל מחשב הוא יעד לגיטימי. ראו [LibraryModuleStatus.personalTargetElsewhere].
   bool personalTargetIsThisMachine = true;
 
-  /// מד ההורדה כולה בבייטים; null כל עוד סכום הבייטים אינו ידוע.
-  /// יעד של אפס בייטים משתמש בספירת הנכסים שכבר על הכונן.
+  /// מד ההורדה כולה לפי נפח; null כל עוד אין סכום בייטים להוריד. לעולם
+  /// לא ספירת קבצים: אחוז הקבצים אינו אחוז הנפח.
   double? get downloadProgress {
     final received = downloadReceivedBytes;
     final bytesTotal = downloadTotalBytes;
-    if (bytesTotal == null) return null;
-    if (received != null && bytesTotal > 0) {
-      return (received / bytesTotal).clamp(0.0, 1.0);
-    }
-
-    final totalAssets = downloadTotalAssets;
-    if (totalAssets == null || totalAssets <= 0) return null;
-    return ((downloadDoneAssets ?? 0) / totalAssets).clamp(0.0, 1.0);
+    if (received == null || bytesTotal == null || bytesTotal <= 0) return null;
+    return (received / bytesTotal).clamp(0.0, 1.0);
   }
 
   /// מצב הבדיקה הקלה ("יש עדכון ברשת?") — נפרד לגמרי מ-[downloadStatus]:
@@ -806,8 +798,6 @@ class LibraryModuleController extends ChangeNotifier
     downloadStatus = MirrorDownloadStatus.downloading;
     downloadStage = null;
     downloadCompanionStage = null;
-    downloadDoneAssets = null;
-    downloadTotalAssets = null;
     downloadReceivedBytes = null;
     downloadTotalBytes = null;
     downloadError = null;
@@ -850,11 +840,6 @@ class LibraryModuleController extends ChangeNotifier
         },
         onCompanionStage: (stage) {
           downloadCompanionStage = stage;
-          notifyProgress();
-        },
-        onAssetProgress: (done, total) {
-          downloadDoneAssets = done;
-          downloadTotalAssets = total;
           notifyProgress();
         },
         onBytesProgress: (received, total) {
