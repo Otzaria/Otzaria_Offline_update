@@ -1,5 +1,7 @@
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
+import 'unpicked_patches.dart';
+
 /// קשת: הנכסים שלה וגודלם. [sure] — קבציה ידועים (manifest בכונן, או קובץ
 /// יחיד בשם הקשת); רק קשת כזו מוסרת, אחרת החסם עלול לרדת מתחת להורדה.
 typedef _Edge = ({
@@ -54,7 +56,7 @@ int? mirrorDownloadBytesBound({
       if (manifest != null) {
         final names = {for (final f in manifest.patchFiles) f.file};
         claimed.addAll(names);
-        if (!_appliable(manifest)) continue;
+        if (!isAppliableManifest(manifest)) continue;
         files = release.assets.where((a) => names.contains(a.name)).toList();
         // קשת חסרה אינה נבנית, אבל מה שיש ממנה יורד.
         if (files.length < names.length) {
@@ -118,6 +120,8 @@ int? mirrorDownloadBytesBound({
     ];
   }
 
+  // A later manifest-fetch failure can cancel planner-based pruning.
+  // Cover the exporter's unpruned fallback even with every manifest held.
   var kept = fast(credit: false);
   if (newest != null) {
     if (!complete(newest, newestFull!)) {
@@ -161,15 +165,6 @@ int? mirrorDownloadBytesBound({
     }
   }
   return bytes;
-}
-
-bool _appliable(DeltaManifest manifest) {
-  final format = manifest.patchFormatVersion;
-  return !manifest.fullRebase &&
-      isSupportedSchemaVersion(manifest.fromSchemaVersion) &&
-      isSupportedSchemaVersion(manifest.toSchemaVersion) &&
-      (format == null || isSupportedPatchFormatVersion(format)) &&
-      manifest.hasSupportedCompression;
 }
 
 /// לכל גרסה — הגבוהה ביותר שאפשר להגיע אליה ממנה בקשתות קדימה.
@@ -251,7 +246,7 @@ int? personalDownloadBytesBound({
     for (final manifestAsset in release.deltaManifestAssets) {
       final manifest = heldManifest(release, manifestAsset);
       if (manifest != null) {
-        if (!_appliable(manifest)) continue;
+        if (!isAppliableManifest(manifest)) continue;
         final names = {for (final f in manifest.patchFiles) f.file};
         final files = release.assets.where((a) => names.contains(a.name));
         if (files.length < names.length) continue;

@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:http/testing.dart';
 import 'package:library_manager/src/services/semantic_search_assets.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:otzaria_search_engine/otzaria_search_engine.dart'
+    show SemanticVectorsInstallInput;
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 import 'package:test/test.dart';
@@ -141,22 +143,54 @@ void main() {
       );
     });
 
-    test(
-      'a same-size damaged $kind source preserves the hash failure',
-      () async {
-        final source = sources[kind]!;
-        final bytes = await source.readAsBytes();
-        bytes[0] ^= 1;
-        await source.writeAsBytes(bytes);
-        await rejectsWithoutChanges(
-          isA<FormatException>().having(
-            (error) => error.message,
-            'local failure',
-            AppL10n.strings.libraryDomain.localFileHashMismatch(source.path),
-          ),
-        );
-      },
-    );
+    test('a same-size damaged $kind source preserves the hash failure and '
+        'leaves the drive asking for a new download', () async {
+      final source = sources[kind]!;
+      final bytes = await source.readAsBytes();
+      bytes[0] ^= 1;
+      await source.writeAsBytes(bytes);
+      await rejectsWithoutChanges(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'local failure',
+          AppL10n.strings.libraryDomain.localFileHashMismatch(source.path),
+        ),
+      );
+      expect(await source.exists(), isFalse);
+      // No longer offered here; the online re-fetch is in the delta test.
+      expect(
+        await assets.pending(
+          mirrorDir: mirror,
+          dbPath: db,
+          libraryVersion: 30,
+          generation: SemanticModelGeneration.round2,
+        ),
+        isFalse,
+      );
+    });
+
+    test('a damaged $kind source on a read-only drive still reports the '
+        'hash failure', () async {
+      final source = sources[kind]!;
+      final bytes = await source.readAsBytes();
+      bytes[0] ^= 1;
+      await source.writeAsBytes(bytes);
+      await rejectsWithoutChanges(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'local failure',
+          AppL10n.strings.libraryDomain.localFileHashMismatch(source.path),
+        ),
+        action: () => IOOverrides.runZoned(
+          install,
+          createFile: (path) {
+            final real = Zone.root.run(() => File(path));
+            return path == source.path ? _UndeletableFile(real) : real;
+          },
+        ),
+      );
+      expect(await source.exists(), isTrue);
+    });
 
     for (final operation in ['length', 'read']) {
       test('$kind source $operation failure preserves the I/O error', () async {
@@ -205,6 +239,85 @@ void main() {
         },
       ),
     );
+  });
+
+  test('a damaged copy on this computer leaves the drive file alone', () async {
+    final source = sources['model']!;
+    final target = p.join(
+      p.dirname(db),
+      SemanticSearchAssets.modelFolder,
+      fakeModels.first.name,
+    );
+    await File(target).delete();
+    await expectLater(
+      IOOverrides.runZoned(
+        install,
+        createFile: (path) {
+          final real = Zone.root.run(() => File(path));
+          return path == '$target.tmp' ? _GarbledCopyFile(real) : real;
+        },
+      ),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'local failure',
+          AppL10n.strings.libraryDomain.localFileHashMismatch('$target.tmp'),
+        ),
+      ),
+    );
+    expect(await source.exists(), isTrue);
+    expect(engine.installs, isEmpty);
+  });
+
+  test('a drive manifest the tool cannot use is named as drive data', () async {
+    final source = sources['manifest']!;
+    final bytes = utf8.encode(jsonEncode({'kind': 'base'}));
+    await source.writeAsBytes(bytes);
+    final pointer = File(p.join(mirror, SemanticSearchAssets.manifestFileName));
+    final meta = jsonDecode(await pointer.readAsString()) as Map;
+    meta['manifestSize'] = bytes.length;
+    meta['manifestSha256'] = Sha256Stream.ofBytes(bytes);
+    await pointer.writeAsString(jsonEncode(meta));
+    await rejectsWithoutChanges(
+      isA<FormatException>().having(
+        (error) => error.message,
+        'local failure',
+        AppL10n.strings.libraryDomain.semanticStatusDriveUnreadable,
+      ),
+    );
+    expect(await source.exists(), isTrue);
+  });
+
+  test('an engine that applies another version is reported as drive data '
+      'rather than a missing website file', () async {
+    final wrong = _WrongVersionEngine(version: 29);
+    final installer = SemanticSearchAssets(
+      models: fakeModels,
+      freeBytesFor: (_) => null,
+      engineFactory: (_) async => wrong,
+      httpClient: MockClient((request) async {
+        fail('offline install sent a request to ${request.url}');
+      }),
+    );
+    addTearDown(installer.dispose);
+    await expectLater(
+      installer.install(
+        mirrorDir: mirror,
+        dbPath: db,
+        libraryVersion: 30,
+        generation: SemanticModelGeneration.round2,
+      ),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'local failure',
+          AppL10n.strings.libraryDomain.semanticStatusDriveUnreadable,
+        ),
+      ),
+    );
+    for (final source in sources.values) {
+      expect(await source.exists(), isTrue);
+    }
   });
 
   test('a missing mirror is reported as missing data on the drive', () async {
@@ -335,6 +448,95 @@ void main() {
       expect(requests, 0);
     },
   );
+}
+
+class _WrongVersionEngine extends FakeVectorsEngine {
+  _WrongVersionEngine({super.version});
+
+  @override
+  Future<({int libraryVersion, bool alreadyApplied})> install(
+    SemanticVectorsInstallInput input, {
+    bool Function()? isCancelled,
+  }) async {
+    final report = await super.install(input, isCancelled: isCancelled);
+    return (libraryVersion: report.libraryVersion + 1, alreadyApplied: false);
+  }
+}
+
+class _UndeletableFile implements File {
+  _UndeletableFile(this._real);
+
+  final File _real;
+
+  @override
+  String get path => _real.path;
+
+  @override
+  Future<bool> exists() => _real.exists();
+
+  @override
+  Future<int> length() => _real.length();
+
+  @override
+  Stream<List<int>> openRead([int? start, int? end]) =>
+      _real.openRead(start, end);
+
+  @override
+  Future<String> readAsString({Encoding encoding = utf8}) =>
+      _real.readAsString(encoding: encoding);
+
+  @override
+  Future<RandomAccessFile> open({FileMode mode = FileMode.read}) =>
+      _real.open(mode: mode);
+
+  @override
+  Future<FileSystemEntity> delete({bool recursive = false}) => Future.error(
+    FileSystemException('read-only drive', path, const OSError('denied', 5)),
+  );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('${invocation.memberName} is not forwarded');
+}
+
+/// Reads back one flipped byte, as a copy damaged on its way here would.
+class _GarbledCopyFile implements File {
+  _GarbledCopyFile(this._real);
+
+  final File _real;
+
+  @override
+  String get path => _real.path;
+
+  @override
+  Future<bool> exists() => _real.exists();
+
+  @override
+  Future<int> length() => _real.length();
+
+  @override
+  Stream<List<int>> openRead([int? start, int? end]) async* {
+    var first = true;
+    await for (final chunk in _real.openRead(start, end)) {
+      if (first && chunk.isNotEmpty) {
+        first = false;
+        yield [chunk.first ^ 1, ...chunk.skip(1)];
+      } else {
+        yield chunk;
+      }
+    }
+  }
+
+  @override
+  Future<RandomAccessFile> open({FileMode mode = FileMode.read}) =>
+      _real.open(mode: mode);
+
+  @override
+  Future<FileSystemEntity> delete({bool recursive = false}) => _real.delete();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('${invocation.memberName} is not forwarded');
 }
 
 class _UnreadableFile implements File {

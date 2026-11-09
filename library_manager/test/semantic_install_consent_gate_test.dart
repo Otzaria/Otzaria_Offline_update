@@ -18,6 +18,7 @@ void main() {
       final manager = LibraryManager(
         dataDir: p.join(temporary.path, 'drive'),
         environment: const {},
+        processGuard: _NothingRunning(),
       );
       addTearDown(manager.dispose);
       final db = p.join(temporary.path, 'books', 'seforim.db');
@@ -74,4 +75,9 @@ void main() {
       );
     },
   );
+}
+
+class _NothingRunning extends OtzariaProcessGuard {
+  @override
+  Future<bool> isAnyRunning(List<String> processNames) async => false;
 }

@@ -38,8 +38,26 @@ Future<void> main(List<String> a) async {
       'SHA $s ${sha256.convert(Uint8List.sublistView(buf, 0, s))}',
     );
   }
-  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
-  stdout.writeln('READY port=$port mode=${a[1]} perConnRate=$rate');
+  // TLS_CERT/TLS_KEY (PEM) serve HTTPS, to measure TLS cost without a WAN.
+  final cert = Platform.environment['TLS_CERT'];
+  final key = Platform.environment['TLS_KEY'];
+  if ((cert == null) != (key == null)) {
+    stderr.writeln('TLS_CERT and TLS_KEY must be set together');
+    exit(2);
+  }
+  final server = cert == null
+      ? await HttpServer.bind(InternetAddress.loopbackIPv4, port)
+      : await HttpServer.bindSecure(
+          InternetAddress.loopbackIPv4,
+          port,
+          SecurityContext()
+            ..useCertificateChain(cert)
+            ..usePrivateKey(key!),
+        );
+  stdout.writeln(
+    'READY port=$port scheme=${cert == null ? 'http' : 'https'} '
+    'mode=${a[1]} perConnRate=$rate',
+  );
   await for (final req in server) {
     unawaited(handle(req, honour, rate));
   }

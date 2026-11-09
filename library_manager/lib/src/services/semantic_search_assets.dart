@@ -288,6 +288,12 @@ class _HttpFailure extends FormatException {
   const _HttpFailure(super.message);
 }
 
+class _CorruptLocalFile extends FormatException {
+  const _CorruptLocalFile(super.message, this.path);
+
+  final String path;
+}
+
 /// A published release that cannot be installed: re-fetching will not help.
 typedef _Release = ({
   String releaseTag,
@@ -2244,8 +2250,9 @@ class SemanticSearchAssets {
         }
       }
       if (hash.close() != file.sha256) {
-        throw FormatException(
+        throw _CorruptLocalFile(
           AppL10n.strings.libraryDomain.localFileHashMismatch(path),
+          path,
         );
       }
     } finally {
@@ -2298,14 +2305,29 @@ class SemanticSearchAssets {
       for (final step in meta.units) {
         final path = p.join(dir, 'vectors', step.manifest.name);
         await _verify(path, step.manifest);
-        final parsed = _vectors(
-          jsonDecode(await File(path).readAsString()),
-          tag: step.libraryTag,
-          version: step.to,
-          family: meta.family,
-          generation: generation,
-          deltaName: step.from > 0 ? step.manifest.name : null,
-        );
+        final text = await File(path).readAsString();
+        final ({
+          int from,
+          List<SemanticAsset> files,
+          int segmentSize,
+          String identityDigest,
+        })
+        parsed;
+        try {
+          parsed = _vectors(
+            jsonDecode(text),
+            tag: step.libraryTag,
+            version: step.to,
+            family: meta.family,
+            generation: generation,
+            deltaName: step.from > 0 ? step.manifest.name : null,
+          );
+        } on FormatException {
+          // _vectors speaks of the website; this manifest came from the drive.
+          throw FormatException(
+            AppL10n.strings.libraryDomain.semanticStatusDriveUnreadable,
+          );
+        }
         if (parsed.from != step.from ||
             (meta.windows && parsed.identityDigest != meta.identityDigest)) {
           return null;
@@ -2805,6 +2827,9 @@ class SemanticSearchAssets {
   }
 
   /// Returns whether a base was installed; `false` for a chain or a skip.
+  ///
+  /// A drive file that fails its hash is deleted: the online check sees
+  /// only sizes, so a same-size corrupt file would never be fetched again.
   Future<bool> install({
     required String mirrorDir,
     required String dbPath,
@@ -2813,6 +2838,43 @@ class SemanticSearchAssets {
     bool supportsWindows = false,
     required SemanticModelGeneration? generation,
     bool? targetReadsLineText4 = true,
+    Future<void> Function()? beforeActivate,
+    void Function(String)? onStage,
+    bool Function()? isCancelled,
+  }) async {
+    try {
+      return await _install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+        libraryVersion: libraryVersion,
+        vectorsRootPath: vectorsRootPath,
+        supportsWindows: supportsWindows,
+        generation: generation,
+        targetReadsLineText4: targetReadsLineText4,
+        beforeActivate: beforeActivate,
+        onStage: onStage,
+        isCancelled: isCancelled,
+      );
+    } on _CorruptLocalFile catch (error) {
+      if (p.isWithin(mirrorDir, error.path)) {
+        try {
+          await File(error.path).delete();
+        } on FileSystemException {
+          // A read-only drive keeps the file; the message still names it.
+        }
+      }
+      rethrow;
+    }
+  }
+
+  Future<bool> _install({
+    required String mirrorDir,
+    required String dbPath,
+    required int libraryVersion,
+    String? vectorsRootPath,
+    required bool supportsWindows,
+    required SemanticModelGeneration? generation,
+    required bool? targetReadsLineText4,
     Future<void> Function()? beforeActivate,
     void Function(String)? onStage,
     bool Function()? isCancelled,
@@ -2978,7 +3040,9 @@ class SemanticSearchAssets {
           rethrow;
         }
         if (!report.alreadyApplied && report.libraryVersion != unit.step.to) {
-          _invalid();
+          throw FormatException(
+            AppL10n.strings.libraryDomain.semanticStatusDriveUnreadable,
+          );
         }
       }
       if (meta.chain) {
