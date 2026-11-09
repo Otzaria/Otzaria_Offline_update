@@ -1541,6 +1541,26 @@ void main() {
       expect(s.foundNothing, isNull);
     });
 
+    test('תשובת חיפוש חכם שנפסלה נבדקת מחדש לפני השאלה (#229)', () async {
+      final s = session()..start();
+      await waitFor(() => s.plugins.status != PluginsModuleStatus.loading);
+      allProven(s);
+      s.library.semanticChecked = false;
+      final before = DateTime.now().subtract(const Duration(minutes: 1));
+      s.library.onlineCheckedAt = before;
+
+      final run = s.downloadAll();
+      await question(s);
+      expect(s.library.onlineCheckedAt!.isAfter(before), isTrue);
+      s.tasks.answer(null);
+      await run;
+
+      await settings.update(settings.settings.copyWith(
+        semanticDownload: SemanticDownloadPreference.never,
+      ));
+      expect(s.library.semanticAnswerMissing, isFalse);
+    });
+
     test('"אל תציג שוב" עם "כן" שומר "תמיד להוריד"', () async {
       await settings.update(settings.settings.copyWith(
         personalUpdateMode: true,

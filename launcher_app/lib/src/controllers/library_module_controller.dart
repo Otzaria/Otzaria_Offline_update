@@ -132,6 +132,12 @@ class LibraryModuleController extends ChangeNotifier
       (onlineSemanticPending || _semanticDownloadNeeded) &&
       !semanticDownloadFailed;
 
+  /// The smart-search answer was voided (or never taken) while it is wanted;
+  /// asking on it would offer what the drive may already hold.
+  bool get semanticAnswerMissing =>
+      _semanticPreference != SemanticDownloadPreference.never &&
+      !semanticChecked;
+
   /// Local evidence for another download, after any pending app update.
   bool get _semanticDownloadNeeded =>
       !awaitsOtzariaUpdate &&
