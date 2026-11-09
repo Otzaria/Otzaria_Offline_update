@@ -9,6 +9,7 @@ import 'package:error_reports_manager/error_reports_manager.dart'
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:path/path.dart' as p;
 import 'package:win32/win32.dart';
 
 import 'app_logger.dart';
@@ -63,6 +64,8 @@ class StartupDiagnostics {
 
     _onTimings = onTimings;
     binding.addTimingsCallback(onTimings);
+    binding.addTimingsCallback(_logSlowFrames);
+    _watchUiThread();
 
     // הקידומת היא מה שזיהוי הקריסה מחפש: הפעלה שנהרגה במצב הזה היא תקיעה.
     const tag = LauncherLogFormat.startupStallTag;
@@ -76,6 +79,71 @@ class StartupDiagnostics {
   }
 
   static int _elapsedMs() => _since?.elapsedMilliseconds ?? -1;
+
+  static const Duration _tick = Duration(milliseconds: 500);
+
+  /// מעל זה הממשק נחשב תקוע: Windows מסמן "לא מגיב" אחרי חמש שניות.
+  static const Duration stallThreshold = Duration(seconds: 2);
+
+  /// פער ארוך מזה הוא שינה של המחשב, לא תקיעה.
+  static const Duration _sleepGap = Duration(minutes: 10);
+
+  /// כמה זמן ה-thread של הממשק לא הגיע לטיימר, או `null` כשאין תקיעה.
+  @visibleForTesting
+  static Duration? stallBetweenTicks(Duration sinceLastTick) {
+    final lateness = sinceLastTick - _tick;
+    if (lateness < stallThreshold || sinceLastTick >= _sleepGap) return null;
+    return lateness;
+  }
+
+  // נרשם רק אחרי שהממשק חזר; תקיעה שנגמרה בסגירה כפויה נראית בלוג כשתיקה.
+  static void _watchUiThread() {
+    if (kDebugMode) return; // דיבאגר שעצר את התהליך אינו תקיעה.
+    final clock = awakeClock();
+    var last = clock();
+    Timer.periodic(_tick, (_) {
+      final now = clock();
+      final stall = stallBetweenTicks(now - last);
+      last = now;
+      if (stall != null) {
+        AppLogger.maybeInstance?.warn(
+          'UI stall: הממשק לא הגיב ${stall.inMilliseconds}ms',
+        );
+      }
+    });
+  }
+
+  @visibleForTesting
+  static const String unbiasedTimeSymbol = 'QueryUnbiasedInterruptTime';
+
+  /// שעון שאינו סופר שינה של המחשב; ב-Windows ה-Stopwatch כן סופר אותה.
+  @visibleForTesting
+  static Duration Function() awakeClock() {
+    final stopwatch = Stopwatch()..start();
+    if (!Platform.isWindows) return () => stopwatch.elapsed;
+    try {
+      final query = DynamicLibrary.open('kernel32.dll').lookupFunction<
+          Int32 Function(Pointer<Uint64>),
+          int Function(Pointer<Uint64>)>(unbiasedTimeSymbol);
+      final out = calloc<Uint64>(); // חי כל עוד התהליך חי.
+      return () {
+        query(out);
+        return Duration(microseconds: out.value ~/ 10);
+      };
+    } catch (_) {
+      return () => stopwatch.elapsed;
+    }
+  }
+
+  static void _logSlowFrames(List<FrameTiming> timings) {
+    for (final timing in timings) {
+      final raster = timing.rasterDuration;
+      if (raster < stallThreshold) continue;
+      AppLogger.maybeInstance?.warn(
+        'Raster stall: ציור פריים לקח ${raster.inMilliseconds}ms',
+      );
+    }
+  }
 
   /// שורת הסביבה. באנגלית בכוונה, כמו שורת הפתיחה של הלוג: זה מידע על
   /// המכונה שנועד להישלח בדיווח תקלה, לא מלל למשתמש.
@@ -102,10 +170,13 @@ class StartupDiagnostics {
   /// שהפריים הראשון נבנה, ולעולם לא על thread הפלטפורמה בעלייה.
   static Future<void> _logDisplayAdapter() async {
     try {
-      final adapter = await Isolate.run(primaryDisplayAdapter);
+      final (adapter, image) = await Isolate.run(
+        () => (primaryDisplayAdapter(), imageLocation()),
+      );
       if (adapter != null) {
         AppLogger.maybeInstance?.info('--- display $adapter ---');
       }
+      if (image != null) AppLogger.maybeInstance?.info('--- image $image ---');
     } catch (e) {
       AppLogger.maybeInstance?.warn('זיהוי כרטיס המסך נכשל: $e');
     }
@@ -122,6 +193,59 @@ class StartupDiagnostics {
           '@${view.devicePixelRatio}';
     } catch (_) {
       return 'view ?';
+    }
+  }
+
+  /// סוג הכונן שהקוד נטען ממנו, והאם `flutter_windows.dll` מסומן לטעינה
+  /// מלאה לזיכרון (`package.ps1`); בלי הסימון כונן עמוס מקפיא את הממשק.
+  static String? imageLocation() {
+    if (!Platform.isWindows) return null;
+    final exe = Platform.resolvedExecutable;
+    final prefix = p.rootPrefix(exe);
+    final rootPtr =
+        (prefix.endsWith('\\') ? prefix : '$prefix\\').toNativeUtf16();
+    final String drive;
+    try {
+      drive = switch (GetDriveType(rootPtr)) {
+        DRIVE_REMOVABLE => 'removable',
+        DRIVE_FIXED => 'fixed',
+        DRIVE_REMOTE => 'remote',
+        final other => 'type $other',
+      };
+    } finally {
+      calloc.free(rootPtr);
+    }
+    final flags = peCharacteristics(
+      p.join(p.dirname(exe), 'flutter_windows.dll'),
+    );
+    final swap = flags == null
+        ? '?'
+        : (flags & runFromSwapFlags) == runFromSwapFlags
+            ? 'on'
+            : 'off';
+    return '$drive drive, run-from-swap $swap';
+  }
+
+  /// `IMAGE_FILE_REMOVABLE_RUN_FROM_SWAP | IMAGE_FILE_NET_RUN_FROM_SWAP`.
+  static const int runFromSwapFlags = 0x0C00;
+
+  /// שדה Characteristics של כותרת ה-COFF, או `null` כשאין PE קריא.
+  @visibleForTesting
+  static int? peCharacteristics(String path) {
+    RandomAccessFile? file;
+    try {
+      file = File(path).openSync();
+      final head = file.readSync(1024);
+      if (head.length < 0x40 || head[0] != 0x4D || head[1] != 0x5A) return null;
+      final pe = ByteData.sublistView(head).getUint32(0x3C, Endian.little);
+      if (pe + 24 > head.length) return null;
+      final view = ByteData.sublistView(head);
+      if (view.getUint32(pe, Endian.little) != 0x00004550) return null;
+      return view.getUint16(pe + 22, Endian.little);
+    } catch (_) {
+      return null;
+    } finally {
+      file?.closeSync();
     }
   }
 

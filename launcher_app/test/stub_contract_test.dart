@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:launcher_app/src/self_update/launcher_install_layout.dart';
 import 'package:launcher_app/src/self_update/launcher_self_installer.dart';
 import 'package:launcher_app/src/services/app_paths.dart';
+import 'package:launcher_app/src/services/startup_diagnostics.dart';
 import 'package:launcher_app/src/theme/theme_exports.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 
@@ -57,6 +58,15 @@ void main() {
       contains(
           'kAfterUpdateFlag[] = L"${LauncherInstallLayout.afterUpdateFlag}='),
     );
+  });
+
+  test('האריזה מסמנת את הקוד run-from-swap, בדגל שהלוג בודק, לפני האריזה', () {
+    final flags =
+        '0x${StartupDiagnostics.runFromSwapFlags.toRadixString(16).toUpperCase().padLeft(4, '0')}';
+    final marking = packagePs1.indexOf('\$runFromSwap = $flags');
+    expect(marking, isNonNegative);
+    expect(marking, lessThan(packagePs1.indexOf('pack_payload.ps1')));
+    expect(packagePs1, contains('Not a PE image'));
   });
 
   test('שם ה-exe שהאריזה מייצרת הוא זה שהאיתור מחפש', () {
