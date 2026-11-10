@@ -3,10 +3,14 @@ name: Build macOS app (launcher_app only)
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-macos:
     name: launcher_app (macos build only)
     runs-on: macos-latest
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: launcher_app
@@ -16,9 +20,11 @@ jobs:
         with:
           channel: stable
           flutter-version: 3.47.2
+          cache: true
+          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-:hash:-manual-macos
       - run: flutter config --enable-macos-desktop
       - run: flutter pub get --enforce-lockfile
-      - run: flutter build macos --release
+      - run: flutter build macos --release --no-pub
       - name: Zip the .app bundle
         run: |
           cd build/macos/Build/Products/Release
@@ -30,3 +36,4 @@ jobs:
           name: launcher_app-macos
           path: launcher_app/launcher_app-macos.zip
           if-no-files-found: error
+          compression-level: 0

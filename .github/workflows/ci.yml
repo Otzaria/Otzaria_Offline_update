@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: ["**"]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -23,8 +24,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Main pushes plan full native work, so cancellation cannot discard checks.
+  # Release/manual runs stay isolated from ordinary main pushes.
+  group: ci-${{ inputs.release && format('release-{0}', github.run_id) || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('push-{0}', github.ref) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ !inputs.release && (github.event_name == 'pull_request' || github.event_name == 'push') }}
 
 jobs:
   version:
@@ -34,10 +37,20 @@ jobs:
     outputs:
       version: ${{ steps.next.outputs.version }}
       tag: ${{ steps.next.outputs.tag }}
+      macos: ${{ steps.plan.outputs.macos }}
+      macos_build: ${{ steps.plan.outputs.macos_build }}
+      windows_build: ${{ steps.plan.outputs.windows_build }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
+      - name: Test native CI routing and result gate
+        run: python3 -m unittest discover -s tool/ci -p 'test_*.py' -v
+      - name: Plan native work
+        id: plan
+        env:
+          CI_RELEASE: ${{ inputs.release == true }}
+        run: python3 tool/ci/native_plan.py plan
       - id: next
         run: |
           current="$(sed -n 's/^version:[[:space:]]*//p' launcher_app/pubspec.yaml | head -1 | cut -d+ -f1 | tr -d '[:space:]')"
@@ -65,14 +78,19 @@ jobs:
           channel: stable
           flutter-version: 3.47.2
           cache: true
+          # The pinned flutter-action appends the lockfile hash to pub cache keys.
           pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-:hash:-linux_checks
       - name: otzaria_offline_update (root tools)
         if: ${{ !cancelled() && steps.flutter.outcome == 'success' }}
-        run: flutter pub get --enforce-lockfile && flutter analyze --no-fatal-infos && flutter test
+        run: flutter pub get --enforce-lockfile && flutter analyze --no-pub --no-fatal-infos && flutter test --no-pub
       - name: library_manager
         if: ${{ !cancelled() && steps.flutter.outcome == 'success' }}
         working-directory: library_manager
-        run: flutter pub get --enforce-lockfile && flutter analyze --no-fatal-infos && flutter test
+        run: flutter pub get --enforce-lockfile && flutter analyze --no-pub --no-fatal-infos && flutter test --no-pub
+      - name: launcher_app (analyze once, before native work)
+        if: ${{ !cancelled() && steps.flutter.outcome == 'success' }}
+        working-directory: launcher_app
+        run: flutter pub get --enforce-lockfile && flutter analyze --no-pub --no-fatal-infos
       - name: otzaria_l10n
         if: ${{ !cancelled() && steps.flutter.outcome == 'success' }}
         working-directory: otzaria_l10n
@@ -98,12 +116,66 @@ jobs:
         working-directory: error_reports_manager
         run: dart pub get --enforce-lockfile && dart analyze
 
-  dart_packages_macos:
-    name: dart packages (test) (macos-latest)
-    runs-on: macos-latest
-    timeout-minutes: 15
+  launcher_app:
+    name: launcher_app (windows build)
+    needs: [version, linux_checks, coverage_total]
+    if: ${{ needs.version.outputs.windows_build == 'true' }}
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: launcher_app
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Set the release version
+        if: inputs.release
+        shell: bash
+        run: bash ../tool/set_launcher_version.sh "${{ needs.version.outputs.version }}"
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: 3.47.2
+          cache: true
+          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-:hash:-build
+      - run: flutter config --enable-windows-desktop
+      - run: flutter create --no-pub --platforms=windows .
+      - name: Restore the lock and metadata flutter create rewrites
+        shell: bash
+        run: git checkout -- pubspec.lock .metadata
+      - run: flutter pub get --enforce-lockfile
+      - name: Locks unchanged by create/pub get
+        shell: bash
+        run: git diff --exit-code -- pubspec.lock
+      - run: flutter build windows --release --no-pub
+      - name: Package portable build
+        shell: pwsh
+        run: .\windows_stub\package.ps1
+        env:
+          PAYLOAD_BUILD_ID: ${{ github.sha }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: launcher_app-windows-portable-ci
+          path: launcher_app/build/*.exe
+          if-no-files-found: error
+          compression-level: 0
+
+  # One Apple runner, one Flutter setup. Keep Darwin/FFI and platform-guarded
+  # tests; only the portable root-tool duplicate moved out of this lane.
+  launcher_app_macos:
+    name: launcher_app + packages (macos tests + build)
+    needs: [version, linux_checks, coverage_total]
+    if: ${{ needs.version.outputs.macos == 'true' }}
+    runs-on: macos-latest
+    # Combined upper bound of the previous 15 + 20 + 40 minute jobs.
+    timeout-minutes: 75
+    steps:
+      - id: checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Set the release version
+        id: release_version
+        if: inputs.release
+        run: bash tool/set_launcher_version.sh "${{ needs.version.outputs.version }}"
+      # Preserve the standalone Dart version; do not assume Flutter bundles it.
       - id: dart
         uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
         with:
@@ -124,113 +196,50 @@ jobs:
         if: ${{ !cancelled() && steps.dart.outcome == 'success' }}
         working-directory: custom_apps_manager
         run: dart pub get --enforce-lockfile && dart test
-
-  launcher_app:
-    name: launcher_app (analyze + windows build)
-    needs: version
-    runs-on: windows-latest
-    timeout-minutes: 40
-    defaults:
-      run:
-        working-directory: launcher_app
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Set the release version
-        if: inputs.release
-        shell: bash
-        run: bash ../tool/set_launcher_version.sh "${{ needs.version.outputs.version }}"
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+      - id: flutter
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' && steps.release_version.outcome != 'failure' }}
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           flutter-version: 3.47.2
           cache: true
-          cache-key: flutter-:os:-:channel:-:version:-:arch:-:hash:-build
-          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-:hash:-build
-      - run: flutter config --enable-windows-desktop
-      - run: flutter create --no-pub --platforms=windows .
-      - name: Restore the lock and metadata flutter create rewrites
-        shell: bash
-        run: git checkout -- pubspec.lock .metadata
-      - run: flutter pub get --enforce-lockfile
-      - name: Locks unchanged by create/pub get
-        shell: bash
-        run: git diff --exit-code -- pubspec.lock
-      - run: flutter analyze --no-fatal-infos
-      - run: flutter build windows --release
-      - name: Package portable build
-        shell: pwsh
-        run: .\windows_stub\package.ps1
-        env:
-          PAYLOAD_BUILD_ID: ${{ github.sha }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: launcher_app-windows-portable-ci
-          path: launcher_app/build/*.exe
-          if-no-files-found: error
-
-  launcher_app_macos:
-    name: launcher_app (analyze + macos build)
-    needs: version
-    runs-on: macos-latest
-    timeout-minutes: 40
-    defaults:
-      run:
+          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-:hash:-macos-ci
+      - name: Resolve launcher dependencies once
+        id: launcher_pub
+        if: ${{ !cancelled() && steps.flutter.outcome == 'success' }}
         working-directory: launcher_app
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Set the release version
-        if: inputs.release
-        run: bash ../tool/set_launcher_version.sh "${{ needs.version.outputs.version }}"
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
-        with:
-          channel: stable
-          flutter-version: 3.47.2
-          cache: true
-      - run: flutter config --enable-macos-desktop
-      - run: flutter pub get --enforce-lockfile
-      - run: flutter analyze --no-fatal-infos
-      - run: flutter build macos --release
+        run: flutter pub get --enforce-lockfile
+      - name: launcher_app tests
+        if: ${{ !cancelled() && steps.launcher_pub.outcome == 'success' }}
+        working-directory: launcher_app
+        run: flutter test --no-pub
+      - name: library_manager
+        if: ${{ !cancelled() && steps.flutter.outcome == 'success' }}
+        working-directory: library_manager
+        run: flutter pub get --enforce-lockfile && flutter test --no-pub
+      # A test-only PR still runs the complete macOS suites, but does not build.
+      - name: Enable macOS desktop
+        if: ${{ needs.version.outputs.macos_build == 'true' }}
+        run: flutter config --enable-macos-desktop
+      - name: Build macOS release
+        if: ${{ needs.version.outputs.macos_build == 'true' }}
+        working-directory: launcher_app
+        run: flutter build macos --release --no-pub
       - name: Zip the .app bundle
+        if: ${{ needs.version.outputs.macos_build == 'true' }}
+        working-directory: launcher_app
         run: |
           cd build/macos/Build/Products/Release
           ditto -c -k --sequesterRsrc --keepParent \
             "Otzaria Launcher.app" \
             "$GITHUB_WORKSPACE/launcher_app/launcher_app-macos.zip"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ needs.version.outputs.macos_build == 'true' }}
         with:
           name: launcher_app-macos
           path: launcher_app/launcher_app-macos.zip
           if-no-files-found: error
-
-  launcher_app_macos_test:
-    name: launcher_app + flutter packages (test) (macos-latest)
-    needs: version
-    runs-on: macos-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: launcher_app
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Set the release version
-        if: inputs.release
-        run: bash ../tool/set_launcher_version.sh "${{ needs.version.outputs.version }}"
-      - id: flutter
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
-        with:
-          channel: stable
-          flutter-version: 3.47.2
-          cache: true
-      - run: flutter pub get --enforce-lockfile
-      - run: flutter test
-      - name: library_manager
-        if: ${{ !cancelled() && steps.flutter.outcome == 'success' }}
-        working-directory: library_manager
-        run: flutter pub get --enforce-lockfile && flutter test
-      - name: otzaria_offline_update (root tools)
-        if: ${{ !cancelled() && steps.flutter.outcome == 'success' }}
-        working-directory: .
-        run: flutter pub get --enforce-lockfile && flutter test
+          compression-level: 0
 
   coverage:
     name: tests + coverage (windows, ${{ matrix.shard }})
@@ -311,3 +320,16 @@ jobs:
             */build/coverage/lcov.info
             */build/coverage/run.log
           if-no-files-found: error
+
+  ci_status:
+    name: CI required
+    needs: [version, linux_checks, coverage, coverage_total, launcher_app, launcher_app_macos]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Require success or an explicitly planned native skip
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: python3 tool/ci/native_plan.py check
