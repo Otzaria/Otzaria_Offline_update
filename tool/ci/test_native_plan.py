@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from native_plan import Plan, check_results, classify_paths, plan_for_event
+from native_plan import Plan, changed_paths, check_results, classify_paths, plan_for_event
 
 
 class ClassificationTests(unittest.TestCase):
@@ -109,9 +109,51 @@ class GitPlanTests(unittest.TestCase):
         return plan_for_event(self.repo, event_name, event,
                               sha or self.git("rev-parse", "HEAD"), release)
 
-    def test_documentation_push(self):
+    def test_documentation_push_requires_full_native(self):
         head = self.commit("README.md", "documentation\n")
-        self.assertFalse(self.plan("push", {"before": self.base, "after": head}).macos)
+        self.assertEqual(self.plan("push", {"before": self.base, "after": head}).outputs(),
+                         Plan.full("").outputs())
+
+    def test_documentation_only_pr_still_allows_native_skips(self):
+        head = self.commit("README.md", "documentation\n")
+        plan = self.plan("pull_request", self.pr(head))
+        self.assertEqual(plan.outputs(),
+                         {"macos": "false", "macos_build": "false", "windows_build": "false"})
+        needs = {job: {"result": "success"} for job in
+                 ("version", "linux_checks", "coverage", "coverage_total")}
+        needs["version"]["outputs"] = plan.outputs()
+        for job in ("launcher_app", "launcher_app_macos"):
+            needs[job] = {"result": "skipped"}
+        self.assertEqual(check_results(needs), [])
+
+    def test_followup_push_cannot_lose_cancelled_native_work(self):
+        source = self.commit("launcher_app/lib/main.dart", "native-relevant code\n")
+        self.assertEqual(self.plan("push", {"before": self.base, "after": source}).outputs(),
+                         Plan.full("").outputs())
+        # Each next push can cancel the source run before native work finishes.
+        # Its narrow diff must not inherit a green gate from untested source.
+        for path in ("README.md", "launcher_app/test/regression_test.dart",
+                     "launcher_app/windows_stub/package.ps1",
+                     "launcher_app/macos/Runner/MainFlutterWindow.swift"):
+            self.git("reset", "--hard", source)
+            head = self.commit(path, "follow-up change\n")
+            event = {"before": source, "after": head}
+            self.assertEqual(changed_paths(self.repo, "push", event, head), [path])
+            plan = self.plan("push", event)
+            needs = {job: {"result": "success"} for job in
+                     ("version", "linux_checks", "coverage", "coverage_total",
+                      "launcher_app", "launcher_app_macos")}
+            needs["version"]["outputs"] = plan.outputs()
+            self.assertEqual(check_results(needs), [])
+            for job in ("launcher_app", "launcher_app_macos"):
+                with self.subTest(path=path, skipped_job=job):
+                    skipped = copy.deepcopy(needs)
+                    skipped[job]["result"] = "skipped"
+                    self.assertTrue(any(error.startswith(job + ":")
+                                        for error in check_results(skipped)),
+                                    f"Follow-up push must still require {job}")
+            with self.subTest(path=path, required_builds=True):
+                self.assertEqual(plan.outputs(), Plan.full("").outputs())
 
     def test_whole_pr_not_only_last_documentation_commit(self):
         self.commit("launcher_app/lib/main.dart", "changed code\n")
@@ -128,31 +170,40 @@ class GitPlanTests(unittest.TestCase):
 
     def test_rename_checks_old_and_new_path(self):
         before = self.commit("runtime.dart", "same content\n")
-        self.git("mv", "runtime.dart", "README-renamed.md")
+        (self.repo / "launcher_app").mkdir()
+        self.git("mv", "runtime.dart", "launcher_app/README.md")
         self.git("commit", "-qm", "rename")
         head = self.git("rev-parse", "HEAD")
-        self.assertTrue(self.plan("push", {"before": before, "after": head}).macos_build)
+        paths = changed_paths(self.repo, "push", {"before": before, "after": head}, head)
+        self.assertCountEqual(paths, ["runtime.dart", "launcher_app/README.md"])
+        self.assertTrue(classify_paths(paths).macos_build)
 
     def test_delete_runtime_is_a_change(self):
         before = self.commit("launcher_app/lib/a.dart", "code\n")
         self.git("rm", "launcher_app/lib/a.dart")
         self.git("commit", "-qm", "delete")
-        self.assertTrue(self.plan("push", {"before": before, "after": self.git("rev-parse", "HEAD")}).macos)
+        head = self.git("rev-parse", "HEAD")
+        paths = changed_paths(self.repo, "push", {"before": before, "after": head}, head)
+        self.assertEqual(paths, ["launcher_app/lib/a.dart"])
+        self.assertTrue(classify_paths(paths).macos)
 
     @unittest.skipIf(os.name == "nt", "Newline is not a valid Windows file name")
     def test_newline_and_hebrew_filename(self):
-        head = self.commit("launcher_app/assets/תוכן\nfile.md", "asset\n")
-        self.assertTrue(self.plan("push", {"before": self.base, "after": head}).macos_build)
+        name = "launcher_app/assets/תוכן\nfile.md"
+        head = self.commit(name, "asset\n")
+        paths = changed_paths(self.repo, "push", {"before": self.base, "after": head}, head)
+        self.assertEqual(paths, [name])
+        self.assertTrue(classify_paths(paths).macos_build)
 
     def test_missing_history_runs_everything(self):
-        self.assertTrue(self.plan("push", {"before": "a" * 40, "after": self.base}).windows_build)
+        self.assertTrue(self.plan("pull_request", self.pr(self.base, base="a" * 40)).windows_build)
 
-    def test_zero_before_runs_everything(self):
-        self.assertTrue(self.plan("push", {"before": "0" * 40, "after": self.base}).macos)
+    def test_zero_pr_base_runs_everything(self):
+        self.assertTrue(self.plan("pull_request", self.pr(self.base, base="0" * 40)).macos)
 
     def test_mismatched_checkout_runs_everything(self):
         head = self.commit("README.md", "new docs\n")
-        self.assertTrue(self.plan("push", {"before": self.base, "after": head}, sha=self.base).macos)
+        self.assertTrue(self.plan("pull_request", self.pr(head), sha=self.base).macos)
 
     def test_malformed_events_fail_open(self):
         for event in ({}, {"pull_request": {}}, {"pull_request": {"draft": "false"}}, None, []):

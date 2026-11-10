@@ -21,7 +21,7 @@ jobs:
           channel: stable
           flutter-version: 3.47.2
           cache: true
-          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-:hash:-${{ hashFiles('**/pubspec.lock') }}-manual-macos
+          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-:hash:-manual-macos
       - run: flutter config --enable-macos-desktop
       - run: flutter pub get --enforce-lockfile
       - run: flutter build macos --release --no-pub

@@ -24,7 +24,8 @@ permissions:
   contents: read
 
 concurrency:
-  # Release/manual runs must not be cancelled by a later ordinary main push.
+  # Main pushes plan full native work, so cancellation cannot discard checks.
+  # Release/manual runs stay isolated from ordinary main pushes.
   group: ci-${{ inputs.release && format('release-{0}', github.run_id) || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('push-{0}', github.ref) || format('run-{0}', github.run_id) }}
   cancel-in-progress: ${{ !inputs.release && (github.event_name == 'pull_request' || github.event_name == 'push') }}
 
@@ -77,7 +78,8 @@ jobs:
           channel: stable
           flutter-version: 3.47.2
           cache: true
-          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-:hash:-${{ hashFiles('**/pubspec.lock') }}-linux_checks
+          # The pinned flutter-action appends the lockfile hash to pub cache keys.
+          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-:hash:-linux_checks
       - name: otzaria_offline_update (root tools)
         if: ${{ !cancelled() && steps.flutter.outcome == 'success' }}
         run: flutter pub get --enforce-lockfile && flutter analyze --no-pub --no-fatal-infos && flutter test --no-pub
@@ -134,7 +136,7 @@ jobs:
           channel: stable
           flutter-version: 3.47.2
           cache: true
-          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-:hash:-${{ hashFiles('**/pubspec.lock') }}-build
+          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-:hash:-build
       - run: flutter config --enable-windows-desktop
       - run: flutter create --no-pub --platforms=windows .
       - name: Restore the lock and metadata flutter create rewrites
@@ -201,7 +203,7 @@ jobs:
           channel: stable
           flutter-version: 3.47.2
           cache: true
-          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-:hash:-${{ hashFiles('**/pubspec.lock') }}-macos-ci
+          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-:hash:-macos-ci
       - name: Resolve launcher dependencies once
         id: launcher_pub
         if: ${{ !cancelled() && steps.flutter.outcome == 'success' }}
@@ -271,7 +273,7 @@ jobs:
           channel: stable
           flutter-version: 3.47.2
           cache: true
-          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-:hash:-${{ hashFiles('**/pubspec.lock') }}-coverage-${{ matrix.shard }}
+          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-:hash:-coverage-${{ matrix.shard }}
       - run: dart pub global activate coverage 1.15.1
         if: ${{ !matrix.flutter }}
       - run: dart tool/coverage.dart --collect "--packages=${{ matrix.packages }}" --min=60 --target=0

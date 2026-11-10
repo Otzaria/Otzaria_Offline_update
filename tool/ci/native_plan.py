@@ -1,7 +1,7 @@
 """Plan native CI work; uncertainty schedules work instead of hiding a check.
 
-Only explicitly audited non-runtime paths can avoid native work. The full
-Linux checks and Windows coverage are deliberately outside this filter.
+Only PRs with explicitly audited non-runtime paths can avoid native work.
+Pushes run all native work; Linux checks and Windows coverage are never filtered.
 """
 from __future__ import annotations
 
@@ -111,6 +111,9 @@ def plan_for_event(repo: Path, event_name: str, event: dict[str, Any],
                    checkout_sha: str, release: bool = False) -> Plan:
     if release or event_name == "workflow_dispatch":
         return Plan.full("Explicit full CI / release")
+    if event_name == "push":
+        # A newer push can cancel native work for changes outside its own diff.
+        return Plan.full("Push replaces earlier runs: validate all native work")
     try:
         if event_name == "pull_request":
             draft = event["pull_request"]["draft"]

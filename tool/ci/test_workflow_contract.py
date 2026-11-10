@@ -85,11 +85,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("inputs.release && format('release-{0}', github.run_id)", concurrency)
         self.assertIn("cancel-in-progress: ${{ !inputs.release &&", concurrency)
 
-    def test_pub_caches_follow_locks_and_sdk_cache_is_not_duplicated(self):
-        keys = re.findall(r"^\s+pub-cache-key: (.+)$", CI, re.M)
-        self.assertEqual(len(keys), 4)
-        for key in keys:
-            self.assertIn("hashFiles('**/pubspec.lock')", key)
+    def test_sdk_cache_is_not_duplicated(self):
         self.assertNotRegex(CI, r"(?m)^\s+cache-key: .*build")
 
     def test_manual_workflows_are_bounded_cached_and_uncompressed(self):
