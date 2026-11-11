@@ -1,3 +1,4 @@
+import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -392,6 +393,46 @@ void main() {
       final adapter =
           await Isolate.run(StartupDiagnostics.primaryDisplayAdapter);
       expect(adapter, anyOf(isNull, isNotEmpty));
+    }, skip: !Platform.isWindows);
+
+    test('תקיעה נמדדת מעבר לקצב הטיימר, ושינה אינה תקיעה', () {
+      Duration? stall(int ms) =>
+          StartupDiagnostics.stallBetweenTicks(Duration(milliseconds: ms));
+      expect(stall(500), isNull);
+      expect(stall(2400), isNull);
+      expect(stall(2500), const Duration(seconds: 2));
+      expect(stall(20500), const Duration(seconds: 20));
+      expect(stall(const Duration(minutes: 10).inMilliseconds), isNull);
+    });
+
+    test('השעון של שומר הממשק מתקדם בזמן ער', () async {
+      final clock = StartupDiagnostics.awakeClock();
+      final before = clock();
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      final elapsed = clock() - before;
+      expect(elapsed, greaterThanOrEqualTo(const Duration(milliseconds: 100)));
+      expect(elapsed, lessThan(const Duration(seconds: 5)));
+    });
+
+    test('השעון שאינו סופר שינה נמצא ב-kernel32, ולא נופל בשקט ל-Stopwatch',
+        () {
+      expect(
+        DynamicLibrary.open('kernel32.dll')
+            .providesSymbol(StartupDiagnostics.unbiasedTimeSymbol),
+        isTrue,
+      );
+    }, skip: !Platform.isWindows);
+
+    test('כותרת PE נקראת מקובץ אמיתי, וקובץ שאינו PE נותן null', () {
+      final flags =
+          StartupDiagnostics.peCharacteristics(Platform.resolvedExecutable);
+      expect(flags, isNotNull);
+      expect(flags! & 0x0002, 0x0002, reason: 'IMAGE_FILE_EXECUTABLE_IMAGE');
+      final dir = Directory.systemTemp.createTempSync('pe_test');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final text = File('${dir.path}/x.dll')..writeAsStringSync('not a PE');
+      expect(StartupDiagnostics.peCharacteristics(text.path), isNull);
+      expect(StartupDiagnostics.imageLocation(), contains('run-from-swap'));
     }, skip: !Platform.isWindows);
 
     // אין כאן בדיקה לשתי שורות הפריים: הן נכתבות מתוך callbacks של המנוע,

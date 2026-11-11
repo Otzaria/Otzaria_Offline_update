@@ -42,11 +42,13 @@ class StaleOnlineChecks {
     required OnlineCheckStamp library,
     required OnlineCheckStamp catalog,
     required OnlineCheckStamp storeApp,
+    bool semanticUnchecked = false,
     DateTime? now,
   }) =>
       StaleOnlineChecks(
         app: s.syncApp && app.needsRefresh(now: now),
-        library: s.downloadsLibrary && library.needsRefresh(now: now),
+        library: s.downloadsLibrary &&
+            (library.needsRefresh(now: now) || semanticUnchecked),
         plugins: s.syncPlugins &&
             (catalog.needsRefresh(now: now) || storeApp.needsRefresh(now: now)),
       );

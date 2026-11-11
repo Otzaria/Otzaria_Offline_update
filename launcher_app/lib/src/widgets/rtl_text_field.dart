@@ -68,7 +68,15 @@ class RtlTextField extends StatelessWidget {
       maxLines: maxLines,
       maxLength: maxLength,
     );
-    if (direction != TextDirection.rtl) return field;
+    // Win+V מדביק כשמקש Windows עדיין לחוץ; Ctrl+V הרגיל דורש meta כבוי.
+    final pasteField = Shortcuts(
+      shortcuts: const {
+        SingleActivator(LogicalKeyboardKey.keyV, control: true, meta: true):
+            PasteTextIntent(SelectionChangedCause.keyboard),
+      },
+      child: field,
+    );
+    if (direction != TextDirection.rtl) return pasteField;
 
     final wordByAlt = defaultTargetPlatform == TargetPlatform.macOS ||
         defaultTargetPlatform == TargetPlatform.iOS;
@@ -90,7 +98,7 @@ class RtlTextField extends StatelessWidget {
                     byWord: word,
                   ),
       },
-      child: field,
+      child: pasteField,
     );
   }
 

@@ -38,6 +38,7 @@ void main() {
       OnlineCheckStamp? library,
       OnlineCheckStamp? catalog,
       OnlineCheckStamp? storeApp,
+      bool semanticUnchecked = false,
     }) =>
         StaleOnlineChecks.of(
           s,
@@ -45,6 +46,7 @@ void main() {
           library: library ?? freshStamp,
           catalog: catalog ?? freshStamp,
           storeApp: storeApp ?? freshStamp,
+          semanticUnchecked: semanticUnchecked,
           now: now,
         );
 
@@ -57,6 +59,13 @@ void main() {
       expect(of(all, app: oldStamp).app, isTrue);
       expect(of(all, library: failedStamp).library, isTrue);
       expect(of(all, catalog: neverStamp).plugins, isTrue);
+    });
+
+    test('a voided smart-search answer refreshes the library check', () {
+      expect(of(all, semanticUnchecked: true).library, isTrue);
+      expect(of(all, semanticUnchecked: true).app, isFalse);
+      const none = AppSettings(syncLibrary: false);
+      expect(of(none, semanticUnchecked: true).library, isFalse);
     });
 
     test('a stale store-app check alone refreshes the plugins', () {
