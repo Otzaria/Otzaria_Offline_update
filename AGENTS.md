@@ -982,6 +982,14 @@ started yet (the store app after plugins), never what already runs; a throw stil
 awaits the other branch. The progress screen shows `runningComponents` together.
 `OtzariaAppMirror.sync` downloads the Latest installers serially.
 
+**Downloads to a removable drive are written behind, by one sticky writer**
+(`WriteBehindPool` in `otzaria_downloads`, entered through
+`AppSession._throughDriveWrites`). HTTPS chunks average ~5KB and each switch
+between files costs a slow stick about a second: the same 417MiB took 182–187s
+direct and 124–140s through the pool. Do not preallocate the file or download
+one file at a time instead — both measured worse. Only `File.open` is wrapped;
+cancel calls `abandonPending`. Details: `otzaria_downloads/README.md`.
+
 ### 5.3 State that travels on the drive
 
 State files live in `OtzariaData/`, i.e. on the drive, so anything recorded on one
