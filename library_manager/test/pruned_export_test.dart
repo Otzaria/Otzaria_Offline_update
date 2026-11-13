@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:library_manager/src/services/mirror_download_bound.dart';
 import 'package:library_manager/src/services/unpicked_patches.dart';
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
@@ -55,7 +56,14 @@ class _Published {
     void add(String name, Uint8List body) {
       final url = 'https://lib/$tag/$name';
       bodies[url] = body;
-      assets.add(ReleaseAsset(name: name, downloadUrl: url, size: body.length));
+      assets.add(
+        ReleaseAsset(
+          name: name,
+          downloadUrl: url,
+          size: body.length,
+          id: bodies.length,
+        ),
+      );
     }
 
     if (full) add(_fullName, Uint8List(_fullBytes));
@@ -91,6 +99,19 @@ class _Source extends GithubLibraryReleaseClient {
       DeltaManifest.fromJson(
         jsonDecode(utf8.decode(published.bodies[url]!)) as Map<String, dynamic>,
       );
+}
+
+class _FailOneSource extends _Source {
+  _FailOneSource(super.published);
+  bool failed = false;
+  @override
+  Future<DeltaManifest> fetchManifest(String url) async {
+    if (url.contains('patch-v0-v3') && !failed) {
+      failed = true;
+      throw const FormatException('transient unreadable manifest');
+    }
+    return super.fetchManifest(url);
+  }
 }
 
 void main() {
@@ -152,6 +173,82 @@ void main() {
 
   bool onDisk(String tag, String name) =>
       File('${tmp.path}/assets/$tag/$name').existsSync();
+
+  for (final missingManifest in [false, true]) {
+    test(
+      'bound covers a pruning failure (missing manifest: $missingManifest)',
+      () async {
+        final published = _Published()
+          ..release(
+            'v3',
+            full: true,
+            edges: [(2, 3, 1000), (1, 3, 1000), (0, 3, 30000)],
+          )
+          ..release('v2', full: true, edges: [(1, 2, 1000)]);
+        final source = _FailOneSource(published);
+        for (final release in published.releases) {
+          for (final asset in release.deltaManifestAssets) {
+            if (missingManifest && asset.name.startsWith('patch-v0-v3')) {
+              continue;
+            }
+            final f = File('${tmp.path}/assets/${release.tag}/${asset.name}');
+            f.parent.createSync(recursive: true);
+            f.writeAsBytesSync(published.bodies[asset.downloadUrl]!);
+            File('${f.path}.resume').writeAsStringSync('${asset.id}');
+          }
+        }
+        File heldAsset(LibraryRelease r, ReleaseAsset a) =>
+            File('${tmp.path}/assets/${r.tag}/${a.name}');
+        final bound = mirrorDownloadBytesBound(
+          relevant: published.releases,
+          supportedDbSchemaVersion: kSupportedDbSchemaVersion,
+          applyTime: _time,
+          complete: (r, a) =>
+              heldAsset(r, a).existsSync() &&
+              heldAsset(r, a).lengthSync() == a.size,
+          heldManifest: (r, a) => !heldAsset(r, a).existsSync()
+              ? null
+              : DeltaManifest.fromJson(
+                  jsonDecode(heldAsset(r, a).readAsStringSync())
+                      as Map<String, dynamic>,
+                ),
+        );
+        final client = PrunedReleasesClient(
+          source,
+          allowPrerelease: false,
+          onDrive: (_, _) => false,
+        );
+        var downloaded = 0;
+        final exporter = LibraryMirrorExporter(
+          supportedDbSchemaVersion: kSupportedDbSchemaVersion,
+          client: client,
+          applyTime: _time,
+          httpClient: MockClient.streaming((request, _) async {
+            final body = published.bodies[request.url.toString()]!;
+            downloaded += body.length;
+            return http.StreamedResponse(
+              Stream.value(body),
+              200,
+              contentLength: body.length,
+            );
+          }),
+        );
+        client.exporter = exporter;
+        try {
+          await exporter.export(destDir: tmp.path);
+        } finally {
+          exporter.dispose();
+        }
+        expect(source.failed, isTrue);
+        expect(downloaded, 13000);
+        expect(
+          bound,
+          greaterThanOrEqualTo(downloaded),
+          reason: 'bound=$bound actual=$downloaded',
+        );
+      },
+    );
+  }
 
   test('an edge shadowed by a shorter route is not downloaded', () async {
     final published = _Published()

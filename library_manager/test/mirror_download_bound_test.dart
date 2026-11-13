@@ -64,15 +64,15 @@ void main() {
     heldManifest: (_, asset) => manifestsRead ? _parsed(asset.name) : null,
   );
 
-  test('with every manifest read, an edge no version picks is not counted', () {
-    expect(bound(manifestsRead: true), 1000 * _mb + 2 * _mb + 3 * _manifest);
+  test('held manifests cannot guarantee pruning during the later export', () {
+    expect(bound(manifestsRead: true), 1000 * _mb + 3 * _mb + 3 * _manifest);
   });
 
   test('an unread manifest may be a barrier, so nothing is pruned', () {
     expect(bound(manifestsRead: false), 1000 * _mb + 3 * _mb + 3 * _manifest);
   });
 
-  test('an older full DB on the drive stops the pruning, as in the export', () {
+  test('the bound covers unpruned export with or without an older full DB', () {
     // v1 has no way up, so the bound still has a number; 0→2 is unpicked.
     final withOlder = [
       _release('v3', {
@@ -96,7 +96,7 @@ void main() {
       complete: (release, _) => olderOnDrive && release.tag == 'v1',
       heldManifest: (_, asset) => _parsed(asset.name),
     );
-    expect(withDrive(false), 1000 * _mb + 2 * _mb + 3 * _manifest);
+    expect(withDrive(false), 1000 * _mb + 3 * _mb + 3 * _manifest);
     expect(withDrive(true), 1000 * _mb + 3 * _mb + 3 * _manifest);
   });
 

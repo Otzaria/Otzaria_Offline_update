@@ -781,10 +781,9 @@ full DB included.
   never picks — for every local version plus "no version" — and prunes nothing
   if that would change any plan's kind or target, the exporter's release
   selection, or if an older full DB on the drive may be the carrier. Any
-  manifest failure means no pruning. `mirrorDownloadBytesBound` runs the same
-  `pickedEdges`, only when every kept edge's manifest was read from the drive
-  (an unread one may be a barrier). Personal and readable-schema downloads
-  never prune.
+  manifest failure means no pruning. The pre-click bound must include this
+  unpruned fallback: local manifests cannot guarantee that the later online
+  fetch succeeds. Personal and readable-schema downloads never prune.
 
 **"Personal update" is the one setting that changes what a download brings.**
 `AppSettings.personalUpdateMode` → `LibraryManager.personalUpdateMode` →
