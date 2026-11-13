@@ -98,7 +98,15 @@ class MirrorDownloadFlow {
     required this.library,
     required this.plugins,
     required this.host,
+    this.driveWrites,
+    this.dropDriveWrites,
   });
+
+  /// עוטף כל שלב הורדה; בכונן נשלף זה תור הכתיבה היחיד (`WriteBehindPool`).
+  final Future<void> Function(Future<void> Function() step)? driveWrites;
+
+  /// בביטול: זורק את מה שהתור עוד לא כתב לכונן, כדי שהביטול לא יחכה לו.
+  final void Function()? dropDriveWrites;
 
   final AppMirrorModule app;
   final LibraryMirrorModule library;
@@ -185,6 +193,7 @@ class MirrorDownloadFlow {
 
   void requestCancel() {
     _cancelRequested = true;
+    dropDriveWrites?.call();
     host.stateChanged();
   }
 
@@ -303,7 +312,7 @@ class MirrorDownloadFlow {
         try {
           for (final (i, step) in steps.indexed) {
             if (i > 0 && !go()) break;
-            await step();
+            await (driveWrites?.call(step) ?? step());
             if (full()) storageFullIn.add(component);
           }
         } finally {

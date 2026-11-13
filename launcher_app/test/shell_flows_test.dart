@@ -625,6 +625,29 @@ void main() {
       expect(log, contains('capture'));
     });
 
+    test('every download step runs inside driveWrites', () async {
+      final wrapped = <List<String>>[];
+      flow = MirrorDownloadFlow(
+        app: app,
+        library: library,
+        plugins: plugins,
+        host: host,
+        driveWrites: (step) async {
+          final before = componentsRun().length;
+          await step();
+          wrapped.add(componentsRun().sublist(before));
+        },
+      );
+      host.flow = flow;
+      await flow.downloadAll();
+      expect(
+        wrapped.expand((ran) => ran).toSet(),
+        componentsRun().toSet(),
+        reason: 'no component downloads outside the wrapper',
+      );
+      expect(wrapped, isNotEmpty);
+    });
+
     test('runs every component in order and ends with one sweep', () async {
       await flow.downloadAll();
 
