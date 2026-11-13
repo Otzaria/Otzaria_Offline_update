@@ -775,15 +775,12 @@ full DB included.
   rules with a download credit kept edges that no machine ever uses: once the
   full DB is on the drive the planner compares without credit and by whole
   chain. On v37 that was 332MiB of 2.4GB (v32–v34 always took the full DB).
-  It lives on our side (`unpicked_patches.dart`; the engine variant is the
-  optional `Otzaria/otzaria_library_updater#44`): `PrunedReleasesClient` hands
-  the exporter its releases minus the edges `OfflineLibraryUpdatePlanner.plan`
-  never picks — for every local version plus "no version" — and prunes nothing
-  if that would change any plan's kind or target, the exporter's release
-  selection, or if an older full DB on the drive may be the carrier. Any
-  manifest failure means no pruning. The pre-click bound must include this
-  unpruned fallback: local manifests cannot guarantee that the later online
-  fetch succeeds. Personal and readable-schema downloads never prune.
+  It lives in the engine (`LibraryMirrorExporter._dropUnpickedPatches`,
+  `Otzaria/otzaria_library_updater#45`): it prunes nothing if that would change
+  any plan, the discovery result, or if a manifest failed. We keep no copy of it.
+  The pre-click bound must include the unpruned fallback: local manifests cannot
+  guarantee that the later online fetch succeeds (`mirrorDownloadBytesBound`).
+  Personal and readable-schema downloads never prune.
 
 **"Personal update" is the one setting that changes what a download brings.**
 `AppSettings.personalUpdateMode` → `LibraryManager.personalUpdateMode` →
