@@ -3242,7 +3242,8 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String checksumMismatch(String label) => '$label אינו תואם';
   @override
-  String localFileNotFound(String path) => 'קובץ מקומי לא נמצא: ${_ltr(path)}';
+  String localFileNotFound(String path) =>
+      'קובץ חסר בכונן: ${_ltr(path)} — יש להוריד שוב במחשב עם חיבור לאינטרנט.';
   @override
   String localFileTooLarge(int maxBytes, String path) =>
       'הקובץ המקומי חורג מהגודל הצפוי ($maxBytes בייטים): ${_ltr(path)}';

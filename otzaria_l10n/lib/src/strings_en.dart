@@ -3426,7 +3426,9 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String checksumMismatch(String label) => '$label does not match';
   @override
-  String localFileNotFound(String path) => 'Local file not found: $path';
+  String localFileNotFound(String path) =>
+      'A file is missing from the drive: $path — download again on a computer '
+      'with internet.';
   @override
   String localFileTooLarge(int maxBytes, String path) =>
       'The local file is larger than expected ($maxBytes bytes): $path';

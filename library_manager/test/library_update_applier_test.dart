@@ -448,7 +448,7 @@ void main() {
 
       await expectLater(
         applier.applyFullDownload(
-          plan: fullPlanFor(compressedPath),
+          plan: fullPlanFor(compressedPath, digest: 'sha256:${'a' * 64}'),
           dbPath: dbPath,
         ),
         throwsA(
@@ -467,10 +467,94 @@ void main() {
       expect(File(dbPath).readAsStringSync(), 'OLD DB');
       expect(File('$dbPath.new').existsSync(), isFalse);
       expect(File('$dbPath.download.zst').existsSync(), isFalse);
-      // issue #127: נכס שנפגם בכונן מאבד את סימון האימות, והמראה עצמה נשארת.
-      expect(File(compressedPath).existsSync(), isTrue);
-      if (bindings != null) expect(sidecar.existsSync(), isFalse);
+      // issue #249: נכס שנפגם בכונן נמחק עם סימון האימות, כדי שההורדה הבאה תביא אחר.
+      if (bindings == null) {
+        expect(File(compressedPath).existsSync(), isTrue);
+      } else {
+        expect(File(compressedPath).existsSync(), isFalse);
+        expect(sidecar.existsSync(), isFalse);
+      }
     });
+
+    test('קובץ דחוס פגום בלי digest: נשאר, ורק סימון האימות נמחק', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final compressedPath = p.join(tempDir.path, 'corrupt.db.zst');
+      File(compressedPath).writeAsBytesSync(
+        Uint8List.fromList([0x28, 0xB5, 0x2F, 0xFD, ...List.filled(64, 0x5A)]),
+      );
+      File(dbPath).writeAsStringSync('OLD DB');
+      final sidecar = File(PatchDownloader.resumeSidecarPath(compressedPath))
+        ..writeAsStringSync('token\netag\nverified');
+
+      await expectLater(
+        applier.applyFullDownload(
+          plan: fullPlanFor(compressedPath),
+          dbPath: dbPath,
+        ),
+        throwsA(isA<PatchDownloadException>()),
+      );
+      expect(File(compressedPath).existsSync(), isTrue);
+      expect(sidecar.existsSync(), isFalse);
+    });
+
+    test(
+      'קריאה אחת שגויה של מסד מלא תקין בכונן: הקובץ והסימון נשארים',
+      () async {
+        if (bindings == null) {
+          markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+          return;
+        }
+        final compressedPath = writeCompressed(
+          'seforim.db.zst',
+          pseudoRandomBytes(4096),
+        );
+        final real = Sha256Stream.ofBytes(
+          File(compressedPath).readAsBytesSync(),
+        );
+        final flaky = LibraryUpdateApplier(
+          processGuard: const _FakeGuard(false),
+          streamFile:
+              (
+                sourcePath,
+                destPath, {
+                onProgress,
+                onOutputProgress,
+                onSourceDigest,
+                onOutputDigest,
+                isCancelled,
+                maxOutputBytes,
+              }) async {
+                onSourceDigest?.call('f' * 64);
+                return true;
+              },
+        );
+        addTearDown(flaky.dispose);
+        File(dbPath).writeAsStringSync('OLD DB');
+        final sidecar = File(PatchDownloader.resumeSidecarPath(compressedPath))
+          ..writeAsStringSync('token\netag\nverified');
+
+        await expectLater(
+          flaky.applyFullDownload(
+            plan: fullPlanFor(compressedPath, digest: 'sha256:$real'),
+            dbPath: dbPath,
+          ),
+          throwsA(
+            isA<PatchDownloadException>().having(
+              (e) => e.message,
+              'message',
+              AppL10n.strings.libraryDomain.localFileHashMismatch(
+                compressedPath,
+              ),
+            ),
+          ),
+        );
+        expect(File(compressedPath).existsSync(), isTrue);
+        expect(sidecar.existsSync(), isTrue);
+      },
+    );
 
     test('כשל משאבים של zstd במסד מלא מקומי אינו "קובץ פגום"', () async {
       final failing = LibraryUpdateApplier(
@@ -505,6 +589,7 @@ void main() {
       );
       expect(File(dbPath).readAsStringSync(), 'OLD DB');
       expect(sidecar.existsSync(), isTrue);
+      expect(File(compressedPath).existsSync(), isTrue);
     });
 
     // הגודל שנכתב מושווה להצהרת כותרת ה-frame, ורק `<` נחשב כשל. ארכיון
@@ -609,7 +694,7 @@ void main() {
           isA<LibraryApplyException>().having(
             (e) => e.message,
             'message',
-            AppL10n.strings.libraryDomain.localSourceNotFound(compressedPath),
+            AppL10n.strings.libraryDomain.localFileNotFound(compressedPath),
           ),
         ),
       );
@@ -662,8 +747,8 @@ void main() {
         throwsA(isA<PatchDownloadException>()),
       );
       expect(File(dbPath).readAsStringSync(), 'OLD DB');
-      // issue #127: בלי סימון האימות, ההורדה הבאה מאמתת את הנכס ומחליפה אותו.
-      expect(File(compressedPath).existsSync(), isTrue);
+      // issue #249: ה-sha256 נכשל — הנכס נמחק עם סימונו, וההורדה הבאה מביאה אחר.
+      expect(File(compressedPath).existsSync(), isFalse);
       expect(sidecar.existsSync(), isFalse);
     });
 
@@ -1924,8 +2009,66 @@ void main() {
         isFalse,
       );
       expect(hashOf(dbPath), h.h1);
-      expect(File(source).existsSync(), isTrue);
+      expect(File(source).existsSync(), isFalse);
       expect(sidecar.existsSync(), isFalse);
+    });
+
+    test('קריאה אחת שגויה של patch תקין בכונן: הקובץ והסימון נשארים', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final h = buildChainHashes();
+      final edge = buildEdge(
+        from: 1,
+        to: 2,
+        upsertRows: [
+          [2, 'bet'],
+        ],
+        fromHash: h.h1,
+        toHash: h.h2,
+      );
+      final source = edge.patchFileUrls.values.single;
+      final sidecar = File(PatchDownloader.resumeSidecarPath(source))
+        ..writeAsStringSync('token\netag\nverified');
+      final flaky = LibraryUpdateApplier(
+        processGuard: const _FakeGuard(false),
+        streamFile:
+            (
+              sourcePath,
+              destPath, {
+              onProgress,
+              onOutputProgress,
+              onSourceDigest,
+              onOutputDigest,
+              isCancelled,
+              maxOutputBytes,
+            }) async {
+              onSourceDigest?.call('f' * 64);
+              return true;
+            },
+      );
+      addTearDown(flaky.dispose);
+
+      await expectLater(
+        flaky.applyDelta(
+          plan: LibraryUpdatePlan.delta(
+            localVersion: 1,
+            targetVersion: 2,
+            steps: [edge],
+          ),
+          dbPath: dbPath,
+        ),
+        throwsA(
+          isA<PatchDownloadException>().having(
+            (e) => e.message,
+            'message',
+            AppL10n.strings.libraryDomain.localFileHashMismatch(source),
+          ),
+        ),
+      );
+      expect(File(source).existsSync(), isTrue);
+      expect(sidecar.existsSync(), isTrue);
     });
 
     test(
@@ -1972,7 +2115,7 @@ void main() {
         );
 
         expect(hashOf(dbPath), h.h1);
-        expect(File(source).existsSync(), isTrue);
+        expect(File(source).existsSync(), isFalse);
         expect(sidecar.existsSync(), isFalse);
       },
     );
@@ -2031,6 +2174,7 @@ void main() {
         );
         expect(hashOf(dbPath), h.h1);
         expect(sidecar.existsSync(), isFalse);
+        expect(File(edge.patchFileUrls.values.single).existsSync(), isTrue);
       },
     );
 

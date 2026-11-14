@@ -533,7 +533,11 @@ class LibraryUpdateApplier {
       }
       _throwIfCancelled(isCancelled);
       if (sourceDigest?.toLowerCase() != patchFile.sha256.toLowerCase()) {
-        _forgetMirrorVerification(sourcePath);
+        await _discardCorruptMirrorAsset(
+          sourcePath,
+          patchFile.sha256,
+          isCancelled,
+        );
         throw PatchDownloadException(strings.localFileHashMismatch(sourcePath));
       }
       final output = File(partialPath);
@@ -567,7 +571,11 @@ class LibraryUpdateApplier {
       _deleteQuietly(partialPath);
       _throwIfCancelled(isCancelled);
       if (!_isCorruptSource(e)) rethrow;
-      _forgetMirrorVerification(sourcePath);
+      await _discardCorruptMirrorAsset(
+        sourcePath,
+        patchFile.sha256,
+        isCancelled,
+      );
       throw PatchDownloadException(strings.localFileHashMismatch(sourcePath));
     } catch (_) {
       _deleteQuietly(partialPath);
@@ -709,7 +717,8 @@ class LibraryUpdateApplier {
     // ישן + דחוס + חדש על אותו נפח. ה-sha256 נשמר: הוא מחושב על אותם בתים
     // שנקראים לחילוץ. רק מקור רשת עדיין יורד לקובץ ביניים.
     final isLocalSource = !PatchDownloader.isRemoteUrl(asset.downloadUrl);
-    // הנתיב ש**אנחנו** יצרנו, ולכן מותר למחוק. המראה עצמה לעולם לא.
+    // הנתיב ש**אנחנו** יצרנו, ולכן מותר למחוק. המראה נמחקת רק אחרי שקריאה
+    // שנייה הוכיחה שהיא פגומה ([_discardCorruptMirrorAsset]).
     String? staged;
     void deleteStaged() {
       if (staged case final path?) {
@@ -725,7 +734,7 @@ class LibraryUpdateApplier {
       final source = File(compressedPath);
       if (!source.existsSync()) {
         throw LibraryApplyException(
-          AppL10n.strings.libraryDomain.localSourceNotFound(compressedPath),
+          AppL10n.strings.libraryDomain.localFileNotFound(compressedPath),
         );
       }
       final size = source.lengthSync();
@@ -812,7 +821,11 @@ class LibraryUpdateApplier {
       }
       if (verifiesWhileExtracting &&
           sourceDigest?.toLowerCase() != expectedSha256.toLowerCase()) {
-        _forgetMirrorVerification(compressedPath);
+        await _discardCorruptMirrorAsset(
+          compressedPath,
+          expectedSha256,
+          isCancelled,
+        );
         throw PatchDownloadException(
           AppL10n.strings.libraryDomain.localFileHashMismatch(compressedPath),
         );
@@ -828,7 +841,11 @@ class LibraryUpdateApplier {
       }
       // קובץ שנפגם בכונן נופל בחילוץ, לפני השוואת ה-sha256.
       if (isLocalSource && _isCorruptSource(e)) {
-        _forgetMirrorVerification(compressedPath);
+        await _discardCorruptMirrorAsset(
+          compressedPath,
+          expectedSha256,
+          isCancelled,
+        );
         throw PatchDownloadException(
           AppL10n.strings.libraryDomain.localFileHashMismatch(compressedPath),
         );
@@ -1161,6 +1178,44 @@ class LibraryUpdateApplier {
   /// המקוון מאמתת אותו מחדש ומחליפה אותו — אחרת גודל ו-mtime זהים מדלגים עליו.
   void _forgetMirrorVerification(String mirrorPath) =>
       _deleteQuietly(PatchDownloader.resumeSidecarPath(mirrorPath));
+
+  /// קריאה אחת שגויה (גשר USB גבולי) לא מוחקת קובץ תקין של ~1.5GB: נמחק רק
+  /// אם גם קריאה שנייה מלאה אינה נותנת את ה-sha256. בלי digest — סימון בלבד.
+  Future<void> _discardCorruptMirrorAsset(
+    String mirrorPath,
+    String? expectedSha256,
+    bool Function()? isCancelled,
+  ) async {
+    if (expectedSha256 == null) {
+      _forgetMirrorVerification(mirrorPath);
+      return;
+    }
+    final String digest;
+    try {
+      digest = await _sha256Of(mirrorPath, isCancelled);
+    } on FileSystemException {
+      // קריאה שנכשלה אינה הוכחה שהתוכן פגום: רק האימות נשכח.
+      _forgetMirrorVerification(mirrorPath);
+      return;
+    }
+    if (digest.toLowerCase() == expectedSha256.toLowerCase()) return;
+    _forgetMirrorVerification(mirrorPath);
+    _deleteQuietly(mirrorPath);
+  }
+
+  Future<String> _sha256Of(String path, bool Function()? isCancelled) async {
+    final hash = Sha256Stream();
+    try {
+      await for (final chunk in File(path).openRead()) {
+        _throwIfCancelled(isCancelled);
+        hash.add(chunk);
+      }
+      _throwIfCancelled(isCancelled);
+      return hash.close();
+    } finally {
+      hash.dispose();
+    }
+  }
 
   /// כשל zstd שמקורו בתוכן הקובץ — לא תקרת פלט ולא כשל משאבים.
   static bool _isCorruptSource(Object e) =>
