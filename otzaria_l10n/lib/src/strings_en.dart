@@ -195,6 +195,11 @@ class _Shell extends ShellStrings {
   @override
   String get settingsTooltip => 'Settings';
   @override
+  String get toolsBusyDownloadTooltip =>
+      'Available when the download ends, or after "Back to home"';
+  @override
+  String get toolsBusyTooltip => 'Available when the operation ends';
+  @override
   String get windowMinimize => 'Minimize';
   @override
   String get windowMaximize => 'Maximize';

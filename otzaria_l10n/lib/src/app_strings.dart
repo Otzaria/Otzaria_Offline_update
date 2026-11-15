@@ -120,6 +120,10 @@ abstract class ShellStrings {
   /// כלי שורת הכותרת וכפתורי החלון — תוויות נגישות ו-tooltip.
   String get helpTooltip;
   String get settingsTooltip;
+
+  /// tooltip של הכלים כשמשימה רצה בחזית; הראשון מצטט את "חזרה לבית".
+  String get toolsBusyDownloadTooltip;
+  String get toolsBusyTooltip;
   String get windowMinimize;
   String get windowMaximize;
   String get windowRestore;

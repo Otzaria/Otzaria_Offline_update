@@ -193,6 +193,11 @@ class _Shell extends ShellStrings {
   @override
   String get settingsTooltip => 'הגדרות';
   @override
+  String get toolsBusyDownloadTooltip =>
+      'זמין בסיום ההורדה, או אחרי "חזרה לבית"';
+  @override
+  String get toolsBusyTooltip => 'זמין בסיום הפעולה';
+  @override
   String get windowMinimize => 'מזער';
   @override
   String get windowMaximize => 'הגדל';

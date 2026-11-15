@@ -41,6 +41,7 @@ class AppTitleBar extends StatefulWidget {
     this.onSettings,
     this.activeTool,
     this.toolsEnabled = true,
+    this.toolsDisabledHint,
     this.showTitle = true,
     this.showWindowButtons,
     this.isMacOS,
@@ -53,6 +54,9 @@ class AppTitleBar extends StatefulWidget {
 
   /// `false` בזמן שהיציאה ממתינה — הכלים נשארים במקומם אך אינם מגיבים.
   final bool toolsEnabled;
+
+  /// למה הכלים מושבתים — מחליף את ה-tooltip והתווית הנגישה בזמן ההשבתה.
+  final String? toolsDisabledHint;
 
   /// מסכי העצירה מציגים את הלוגו בלבד.
   final bool showTitle;
@@ -125,6 +129,7 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
     final onSettings = widget.onSettings;
     final toolsEnabled =
         widget.toolsEnabled && (ModalRoute.isCurrentOf(context) ?? true);
+    final hint = widget.toolsEnabled ? null : widget.toolsDisabledHint;
 
     return Container(
       // הקו לכל הרוחב, גם מתחת לכפתורי החלון — כמו במוקאפ.
@@ -175,14 +180,15 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
                   ),
                 ),
                 if (onHelp != null || onSettings != null) ...[
-                  _ToolsGate(
-                    enabled: toolsEnabled,
+                  ExcludeFocus(
+                    excluding: !toolsEnabled,
                     child: Row(
                       children: [
                         if (onHelp != null)
                           _ToolButton(
                             icon: FluentIcons.question_circle_20_regular,
                             tooltip: s.helpTooltip,
+                            disabledHint: hint,
                             active: widget.activeTool == TitleBarTool.help,
                             enabled: toolsEnabled,
                             onPressed: onHelp,
@@ -193,6 +199,7 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
                           _ToolButton(
                             icon: FluentIcons.settings_20_regular,
                             tooltip: s.settingsTooltip,
+                            disabledHint: hint,
                             active: widget.activeTool == TitleBarTool.settings,
                             enabled: toolsEnabled,
                             onPressed: onSettings,
@@ -225,24 +232,12 @@ class _DragGap extends StatelessWidget {
       );
 }
 
-class _ToolsGate extends StatelessWidget {
-  const _ToolsGate({required this.enabled, required this.child});
-
-  final bool enabled;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => AbsorbPointer(
-        absorbing: !enabled,
-        child: ExcludeFocus(excluding: !enabled, child: child),
-      );
-}
-
 /// כלי בשורת הכותרת: 36×28, רדיוס 6.
 class _ToolButton extends StatelessWidget {
   const _ToolButton({
     required this.icon,
     required this.tooltip,
+    required this.disabledHint,
     required this.active,
     required this.enabled,
     required this.onPressed,
@@ -250,6 +245,7 @@ class _ToolButton extends StatelessWidget {
 
   final IconData icon;
   final String tooltip;
+  final String? disabledHint;
   final bool active;
   final bool enabled;
   final VoidCallback onPressed;
@@ -259,14 +255,16 @@ class _ToolButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final hint = enabled ? null : disabledHint;
     return Tooltip(
-      message: tooltip,
+      message: hint ?? tooltip,
       excludeFromSemantics: true,
       child: Semantics(
         button: true,
         enabled: enabled,
         selected: active,
         label: tooltip,
+        hint: hint,
         onTap: enabled ? onPressed : null,
         excludeSemantics: true,
         child: FocusRing(
@@ -274,10 +272,10 @@ class _ToolButton extends StatelessWidget {
           child: Material(
             type: MaterialType.transparency,
             child: InkWell(
-              onTap: onPressed,
+              onTap: enabled ? onPressed : null,
               borderRadius: _radius,
-              // הכלי הפעיל נשאר שטוח גם בריחוף (`.tb-tool.on`).
-              overlayColor: active
+              // הכלי הפעיל נשאר שטוח גם בריחוף (`.tb-tool.on`); מושבת — בלי משוב.
+              overlayColor: active || !enabled
                   ? const WidgetStatePropertyAll(Colors.transparent)
                   : AppSurfaces.stateLayer(cs.primary),
               child: Ink(
@@ -290,7 +288,11 @@ class _ToolButton extends StatelessWidget {
                 child: Icon(
                   icon,
                   size: 18,
-                  color: active ? cs.onSecondaryContainer : cs.onSurfaceVariant,
+                  color: !enabled
+                      ? AppSurfaces.disabledForeground(context)
+                      : active
+                          ? cs.onSecondaryContainer
+                          : cs.onSurfaceVariant,
                 ),
               ),
             ),
