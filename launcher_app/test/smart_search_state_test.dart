@@ -454,6 +454,15 @@ void main() {
       }
     }
 
+    test('חיפוש חכם של גרסת ספרייה אחרת בכונן נאמר כגרסה, לא כדור מודל',
+        () async {
+      await check(_status(SmartSearchState.driveNotMatching,
+          reason: SmartSearchReason.driveOlderVersion));
+      expect(controller.semanticAllClear, isFalse);
+      expect(controller.semanticNote,
+          AppL10n.strings.libraryDomain.semanticStatusDriveOtherVersion);
+    });
+
     test('אותו דור בכונן אינו מסתיר חומר חסר לחיפוש החכם', () async {
       await check(
         const SmartSearchStatus(
