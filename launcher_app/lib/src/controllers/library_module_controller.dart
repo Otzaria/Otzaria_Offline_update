@@ -1043,6 +1043,12 @@ class LibraryModuleController extends ChangeNotifier
       check = await _manager.checkForUpdate();
       _incompleteMirrorDownload = check.mirrorDownloadIncomplete;
       _lastCheck = check;
+      if (check.semanticStatus case final s? when !check.semanticAllClear) {
+        AppLogger.maybeInstance?.info(
+          'חיפוש חכם בכונן: מצב=${s.state.name} סיבה=${s.reason.name} '
+          'drive=${s.driveGenerations} installed=${s.installedGeneration}',
+        );
+      }
       isFreshInstall = check.isFreshInstall;
       _awaitedOtzariaVersion = await _otzariaFirstVersion(check);
       awaitsOtzariaUpdate = _awaitedOtzariaVersion != null;
