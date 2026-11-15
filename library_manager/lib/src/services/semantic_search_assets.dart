@@ -158,6 +158,17 @@ class SemanticChainNotApplicableException implements Exception {
   String toString() => AppL10n.strings.libraryDomain.semanticFullDownloadNeeded;
 }
 
+/// No vectors release (or none with a manifest yet) for this library version.
+class SemanticNotPublishedException implements Exception {
+  const SemanticNotPublishedException(this.version);
+
+  final int version;
+
+  @override
+  String toString() =>
+      AppL10n.strings.libraryDomain.semanticNotPublishedYet(version);
+}
+
 /// Published vectors the bundled engine would refuse (`identity.text`);
 /// downloading again cannot help.
 class SemanticEngineIncompatibleException implements Exception {
@@ -304,6 +315,11 @@ typedef _Release = ({
 
 class _Unusable extends FormatException {
   const _Unusable(super.message);
+}
+
+/// A release that exists but carries no vectors manifest yet.
+class _NoManifest extends FormatException {
+  const _NoManifest(super.message);
 }
 
 class _Remote {
@@ -662,6 +678,11 @@ class SemanticSearchAssets {
         manifests.add(asset);
       }
     }
+    if (manifests.isEmpty) {
+      throw _NoManifest(
+        AppL10n.strings.libraryDomain.companionAssetMissingInRelease(_name),
+      );
+    }
     if (manifests.length != 1 ||
         (delta &&
             !_deltaManifest.hasMatch(manifests.single['name'] as String))) {
@@ -839,7 +860,8 @@ class SemanticSearchAssets {
     }
   }
 
-  /// What to mirror for [libraryTag]: `null` when no vectors were published.
+  /// What to mirror for [libraryTag]: `null` when only an invalid windows
+  /// release exists; nothing published at all throws.
   Future<({_Meta meta, List<_Remote> remotes})?> _plan(
     String mirrorDir,
     String libraryTag,
@@ -851,9 +873,14 @@ class SemanticSearchAssets {
     final generation = fleet.generation;
     String? rejectedWindows;
     Object? windowsFault;
+    var windowsInvalid = false;
     if (fleet.family == SemanticVectorsFamily.windows) {
       const family = SemanticVectorsFamily.windows;
-      final release = await _windowsRelease(libraryTag, generation);
+      final release = await _windowsRelease(
+        libraryTag,
+        generation,
+        onInvalid: () => windowsInvalid = true,
+      );
       _Remote? base;
       if (release != null) {
         try {
@@ -896,12 +923,19 @@ class SemanticSearchAssets {
       }
     }
     const family = SemanticVectorsFamily.legacy;
-    final release = await _fetchRelease(
-      '${family.releaseTagPrefixFor(generation)}$libraryTag',
-    );
+    final _Release? release;
+    try {
+      release = await _fetchRelease(
+        '${family.releaseTagPrefixFor(generation)}$libraryTag',
+      );
+    } on _NoManifest {
+      if (windowsFault != null || windowsInvalid) rethrow;
+      throw SemanticNotPublishedException(version);
+    }
     if (release == null) {
       if (windowsFault != null) throw windowsFault;
-      return null;
+      if (windowsInvalid) return null;
+      throw SemanticNotPublishedException(version);
     }
     final _Remote base;
     try {
@@ -938,15 +972,19 @@ class SemanticSearchAssets {
   /// The windows base release; an unusable one counts as unpublished.
   Future<_Release?> _windowsRelease(
     String libraryTag,
-    SemanticModelGeneration generation,
-  ) async {
+    SemanticModelGeneration generation, {
+    void Function()? onInvalid,
+  }) async {
     try {
       return await _fetchRelease(
         '${SemanticVectorsFamily.windows.releaseTagPrefixFor(generation)}$libraryTag',
       );
     } on _HttpFailure {
       rethrow;
+    } on _NoManifest {
+      return null;
     } on FormatException {
+      onInvalid?.call();
       return null;
     }
   }
@@ -993,6 +1031,12 @@ class SemanticSearchAssets {
   SemanticEngineIncompatibleException? get peekedIncompatibility =>
       _peekedIncompatibility;
   SemanticEngineIncompatibleException? _peekedIncompatibility;
+
+  /// Set by [peekPending] to the library version whose vectors are not
+  /// published at all (no release, or one without a manifest yet).
+  int? get peekedNotPublished => _peekedNotPublished;
+  int? _peekedNotPublished;
+  bool _groupNotPublished = false;
 
   /// The hint [sync] leaves beside `semantic.json`: a release found unreadable
   /// costs a manifest, and the light check must not offer it again.
@@ -1142,14 +1186,19 @@ class SemanticSearchAssets {
   }) async {
     _peekedPendingBytes = null;
     _peekedIncompatibility = null;
+    _peekedNotPublished = null;
     final groups = _provenGroups(fleet);
+    var allNotPublished = groups.isNotEmpty;
     for (final group in groups) {
+      _groupNotPublished = false;
       if (await _peekPending(mirrorDir, libraryTag, group)) {
         if (groups.length != 1) _peekedPendingBytes = null;
         _peekedIncompatibility = null;
         return true;
       }
+      allNotPublished &= _groupNotPublished;
     }
+    if (allNotPublished) _peekedNotPublished = _version(libraryTag);
     _peekedPendingBytes = 0;
     return false;
   }
@@ -1162,8 +1211,14 @@ class SemanticSearchAssets {
     final generation = fleet.generation;
     final version = _version(libraryTag);
     SemanticEngineIncompatibleException? windowsFault;
+    var windowsPresent = false;
     if (fleet.family == SemanticVectorsFamily.windows) {
-      final release = await _windowsRelease(libraryTag, generation);
+      final release = await _windowsRelease(
+        libraryTag,
+        generation,
+        onInvalid: () => windowsPresent = true,
+      );
+      windowsPresent |= release != null;
       final local = await _metadata(mirrorDir, generation: generation);
       final rejected =
           local != null &&
@@ -1213,11 +1268,19 @@ class SemanticSearchAssets {
         return false;
       }
     }
-    final fetched = await _fetchRelease(
-      '${SemanticVectorsFamily.legacy.releaseTagPrefixFor(generation)}$libraryTag',
-    );
+    final _Release? fetched;
+    try {
+      fetched = await _fetchRelease(
+        '${SemanticVectorsFamily.legacy.releaseTagPrefixFor(generation)}$libraryTag',
+      );
+    } on _NoManifest {
+      if (windowsPresent) rethrow;
+      _groupNotPublished = true;
+      return false;
+    }
     if (fetched == null) {
       _peekedIncompatibility = windowsFault;
+      _groupNotPublished = !windowsPresent;
       return false;
     }
     final remote = fetched.manifest;

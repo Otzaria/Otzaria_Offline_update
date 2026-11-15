@@ -48,6 +48,7 @@ typedef LibraryOnlineAnswers = ({
   bool semanticPending,
   String? semanticCheckError,
   bool semanticChecked,
+  int? semanticNotPublished,
   int? downloadBytesBound,
   int? semanticBytes,
   bool readableMirrorCurrent,
@@ -142,6 +143,7 @@ class LibraryModuleController extends ChangeNotifier
   bool get _semanticDownloadNeeded =>
       !awaitsOtzariaUpdate &&
       _semanticPreference != SemanticDownloadPreference.never &&
+      onlineSemanticNotPublished == null &&
       smartSearchNeedsDriveDownload(semanticStatus);
 
   /// What the last local check found for smart search; `null` = no check.
@@ -163,6 +165,10 @@ class LibraryModuleController extends ChangeNotifier
     if (check == null || check.semanticAllClear) return null;
     if (_otzariaFirstMessage case final message?) return message;
     final status = check.semanticStatus;
+    if (onlineSemanticNotPublished case final version?
+        when smartSearchNeedsDriveDownload(status)) {
+      return AppL10n.strings.libraryDomain.semanticNotPublishedYet(version);
+    }
     return status == null
         ? AppL10n.strings.libraryDomain.semanticStatusCheckFailed
         : smartSearchNote(status);
@@ -179,6 +185,7 @@ class LibraryModuleController extends ChangeNotifier
     onlineSemanticBytes = null;
     onlineSemanticCheckError = null;
     onlineSemanticIncompatibility = null;
+    onlineSemanticNotPublished = null;
     semanticDownloadFailed = false;
   }
 
@@ -539,6 +546,10 @@ class LibraryModuleController extends ChangeNotifier
   /// הבדיקה של החיפוש החכם רצה בפועל. בלעדיה — "לא נבדק", לעולם לא "מעודכן".
   bool semanticChecked = false;
 
+  /// גרסת הספרייה שהבדיקה המקוונת לא מצאה לה חיפוש חכם שפורסם: בדיקה שהצליחה,
+  /// לא כשל, ולכן אין הצעת הורדה ולא "ההורדה נכשלה".
+  int? onlineSemanticNotPublished;
+
   /// חסמים עליונים מהבדיקה הקלה — `LibraryManager.peekedDownloadBytesBound`
   /// ו-`peekedSemanticBytes`; `null` כשאין חסם מוגדר.
   int? onlineDownloadBytesBound;
@@ -642,6 +653,7 @@ class LibraryModuleController extends ChangeNotifier
         semanticPending: onlineSemanticPending,
         semanticCheckError: onlineSemanticCheckError,
         semanticChecked: semanticChecked,
+        semanticNotPublished: onlineSemanticNotPublished,
         downloadBytesBound: onlineDownloadBytesBound,
         semanticBytes: onlineSemanticBytes,
         readableMirrorCurrent: _readableMirrorCurrent,
@@ -657,6 +669,7 @@ class LibraryModuleController extends ChangeNotifier
     onlineSemanticPending = answers.semanticPending;
     onlineSemanticCheckError = answers.semanticCheckError;
     semanticChecked = answers.semanticChecked;
+    onlineSemanticNotPublished = answers.semanticNotPublished;
     _sizeRun++;
     onlineDownloadBytesBound = answers.downloadBytesBound;
     onlineSemanticBytes = answers.semanticBytes;
@@ -732,12 +745,14 @@ class LibraryModuleController extends ChangeNotifier
     var semanticPending = false;
     var checkedSemantic = false;
     int? semanticBytes;
+    int? semanticNotPublished;
     if (checkError == null &&
         _semanticPreference != SemanticDownloadPreference.never) {
       try {
         semanticPending = await _manager.peekPendingSemanticSearch();
         semanticBytes = _manager.peekedSemanticBytes;
         semanticIncompatible = _manager.peekedSemanticIncompatibility;
+        semanticNotPublished = _manager.peekedSemanticNotPublished;
         if (semanticIncompatible != null) {
           AppLogger.instance.info('$semanticIncompatible');
         }
@@ -775,6 +790,7 @@ class LibraryModuleController extends ChangeNotifier
     onlineCompanionsCheckError = companionsError;
     onlineSemanticPending = semanticPending;
     onlineSemanticIncompatibility = semanticIncompatible;
+    onlineSemanticNotPublished = semanticNotPublished;
     onlineSemanticCheckError = semanticError;
     semanticChecked = checkedSemantic;
     onlineSemanticBytes = semanticBytes;

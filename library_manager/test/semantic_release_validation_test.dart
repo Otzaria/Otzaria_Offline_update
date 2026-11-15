@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:library_manager/src/services/semantic_search_assets.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 import 'package:test/test.dart';
@@ -143,22 +144,79 @@ void main() {
     },
   );
 
-  test('sync reports an unpublished vectors release with its code', () async {
-    final client = MockClient((_) async => http.Response('', 404));
+  test(
+    'sync reports an unpublished vectors release as not published',
+    () async {
+      final client = MockClient((_) async => http.Response('', 404));
+      addTearDown(client.close);
+      final assets = SemanticSearchAssets(httpClient: client);
+      addTearDown(assets.dispose);
+      await expectLater(
+        assets.sync(mirrorDir: mirror, libraryTag: tag),
+        throwsA(
+          isA<SemanticNotPublishedException>()
+              .having((e) => e.version, 'version', 30)
+              .having(
+                (e) => '$e',
+                'message',
+                AppL10n.strings.libraryDomain.semanticNotPublishedYet(30),
+              ),
+        ),
+      );
+    },
+  );
+
+  test('a release without a vectors manifest is not published yet', () async {
+    final client = MockClient(
+      (_) async => http.Response(
+        jsonEncode({'tag_name': 'vectors-$tag', 'assets': []}),
+        200,
+      ),
+    );
     addTearDown(client.close);
     final assets = SemanticSearchAssets(httpClient: client);
     addTearDown(assets.dispose);
+    expect(
+      await assets.peekPending(mirrorDir: mirror, libraryTag: tag),
+      isFalse,
+    );
+    expect(assets.peekedNotPublished, 30);
     await expectLater(
       assets.sync(mirrorDir: mirror, libraryTag: tag),
-      throwsA(
-        isA<FormatException>().having(
-          (e) => e.message,
-          'message',
-          contains('HTTP 404'),
-        ),
-      ),
+      throwsA(isA<SemanticNotPublishedException>()),
     );
   });
+
+  test(
+    'two manifests or an HTTP 504 stay failures, not "not published"',
+    () async {
+      final twoManifests = {
+        ...release(),
+        'assets': [
+          asset(),
+          {...asset(), 'name': 'otzaria-vectors-other-v30-base.manifest.json'},
+        ],
+      };
+      for (final response in [
+        http.Response(jsonEncode(twoManifests), 200),
+        http.Response('', 504),
+      ]) {
+        final client = MockClient((_) async => response);
+        addTearDown(client.close);
+        final assets = SemanticSearchAssets(httpClient: client);
+        addTearDown(assets.dispose);
+        await expectLater(
+          assets.peekPending(mirrorDir: mirror, libraryTag: tag),
+          throwsFormatException,
+        );
+        expect(assets.peekedNotPublished, isNull);
+        await expectLater(
+          assets.sync(mirrorDir: mirror, libraryTag: tag),
+          throwsFormatException,
+        );
+      }
+    },
+  );
 
   for (final value in [null, [], 'text', 1, {}]) {
     test(
@@ -176,7 +234,7 @@ void main() {
     },
   );
 
-  for (final value in [null, {}, 'assets', []]) {
+  for (final value in [null, {}, 'assets']) {
     test('missing or invalid asset list $value fails closed', () async {
       await rejectMetadata({...release(), 'assets': value});
     });

@@ -40,6 +40,24 @@ class _StatusManager extends LibraryManager {
   bool failCheckAfterApply = false;
   Future<void> Function()? onPeek;
   SemanticEngineIncompatibleException? onlineIncompatibility;
+  int? onlineNotPublished;
+
+  @override
+  int? get peekedSemanticNotPublished => onlineNotPublished;
+
+  @override
+  Future<MirrorDownloadOutcome> downloadToMirror({
+    bool includeSemanticSearch = false,
+    int? readableDbSchema,
+    void Function(String stage)? onStage,
+    void Function(String? stage)? onCompanionStage,
+    void Function(int doneAssets, int totalAssets)? onAssetProgress,
+    void Function(int downloaded, int? total)? onBytesProgress,
+    void Function(String assetName, Object error)? onCompanionWarning,
+    void Function(String warning)? onWarning,
+    bool Function()? isCancelled,
+  }) async =>
+      const MirrorDownloadOutcome();
 
   @override
   Future<LibraryUpdateCheckResult> checkForUpdate() async {
@@ -610,6 +628,45 @@ void main() {
         await controller.checkOnline();
         expect(controller.hasOnlineUpdate, isTrue);
         expect(controller.onlinePendingCompanionNames, isNotEmpty);
+      });
+
+      test('חיפוש חכם שטרם פורסם: לא הצעה ולא כשל, וגם לא "מעודכן"', () async {
+        await check(
+            _status(SmartSearchState.needsDriveDownload,
+                reason: SmartSearchReason.driveEmpty),
+            preference: SemanticDownloadPreference.always);
+        manager.onlineNotPublished = 30;
+        await controller.checkOnline();
+        final note = AppL10n.strings.libraryDomain.semanticNotPublishedYet(30);
+
+        expect(controller.onlineSemanticNotPublished, 30);
+        expect(controller.onlineAnswerError, isNull);
+        expect(controller.hasOnlineUpdate, isFalse);
+        expect(controller.onlinePendingCompanionNames, isEmpty);
+        expect(controller.libraryDownloadPending, isFalse);
+        expect(controller.shouldOfferSemanticDownload, isFalse);
+        expect(controller.semanticAllClear, isFalse);
+        expect(controller.semanticOpen, isTrue);
+        expect(controller.semanticNote, note);
+
+        await controller.download(includeSemanticSearch: true);
+        expect(controller.semanticDownloadFailed, isFalse);
+        expect(controller.hasDownloadFailures, isFalse);
+        expect(controller.semanticNote, note);
+
+        controller.semanticPreference = SemanticDownloadPreference.ask;
+        expect(controller.onlineSemanticOffer, isFalse);
+
+        manager
+          ..onlineNotPublished = null
+          ..semanticPeek = true;
+        await controller.checkOnline();
+        expect(controller.onlineSemanticNotPublished, isNull);
+        expect(controller.onlineSemanticOffer, isTrue);
+        expect(controller.semanticNote,
+            AppL10n.strings.libraryDomain.semanticStatusNeedsDriveDownload);
+        controller.semanticPreference = SemanticDownloadPreference.always;
+        expect(controller.hasOnlineUpdate, isTrue);
       });
 
       test('"אף פעם": ההורדה אינה מוצעת, ההסבר נשאר', () async {

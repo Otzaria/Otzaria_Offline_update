@@ -50,6 +50,7 @@ void main() {
   late SemanticSearchAssets assets;
   var requests = 0;
   int? peekedBytes;
+  int? peekedNotPublished;
 
   setUp(() async {
     temp = await Directory.systemTemp.createTemp('semantic-assets-test-');
@@ -162,6 +163,7 @@ void main() {
       expect(apiCalls, 1);
       expect(manifestCalls, lessThanOrEqualTo(1));
       peekedBytes = online.peekedPendingBytes;
+      peekedNotPublished = online.peekedNotPublished;
       online.dispose();
       client.close();
     }
@@ -229,6 +231,20 @@ void main() {
 
   test('light check treats unpublished vectors as no new download', () async {
     expect(await peek(status: 404), isFalse);
+    expect(peekedNotPublished, 30);
+  });
+
+  test('light check names unpublished vectors only for a 404', () async {
+    expect(await peek(), isTrue);
+    expect(peekedNotPublished, isNull);
+
+    for (final status in [403, 418, 500, 504]) {
+      peekedNotPublished = 99;
+      await expectLater(peek(status: status), throwsA(anything));
+      expect(peekedNotPublished, isNull, reason: 'HTTP $status');
+    }
+    await expectLater(peek(publishDigest: false), throwsFormatException);
+    expect(peekedNotPublished, isNull);
   });
 
   test(
