@@ -325,6 +325,27 @@ void main() {
     );
   });
 
+  testWidgets(
+      '"עדכון Android" מוצג רק כשהוא מופעל, וכיבוי בזמן שהדף פתוח '
+      'מחזיר לבית', (tester) async {
+    await pumpShell(tester);
+    expect(find.byKey(ShellKeys.tile(ShellSection.android)), findsNothing);
+
+    await tester.runAsync(
+      () => settings.update(settings.settings.copyWith(showAndroid: true)),
+    );
+    await tester.pump();
+    await open(tester, ShellSection.android);
+    expect(navigatorOf(tester).section, ShellSection.android);
+
+    await tester.runAsync(
+      () => settings.update(settings.settings.copyWith(showAndroid: false)),
+    );
+    await tester.pump();
+    expect(navigatorOf(tester).section, ShellSection.home);
+    expect(find.byKey(ShellKeys.tile(ShellSection.android)), findsNothing);
+  });
+
   testWidgets('מסך שנכנסים אליו נבנה, ונשאר בעץ גם אחרי מעבר משם', (
     tester,
   ) async {
@@ -2282,7 +2303,7 @@ void main() {
       expect(nav.section, ShellSection.settings);
 
       final link = find.byKey(const ValueKey('settings.otzariaAdvanced'));
-      await tester.ensureVisible(link);
+      await tester.scrollUntilVisible(link, 200);
       await tester.tap(link);
       await tester.pump();
       // לא "בית ← הגדרות ← מתקדם": "חזרה" הייתה נוחתת בהגדרות בלי שער.

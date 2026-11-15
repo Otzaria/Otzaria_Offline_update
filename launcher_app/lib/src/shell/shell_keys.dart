@@ -106,6 +106,8 @@ abstract final class ShellKeys {
   static const personalAskMultiple = ValueKey('personal.ask.multiple');
   static const personalAskMine = ValueKey('personal.ask.mine');
   static const personalAskConfirm = ValueKey('personal.ask.confirm');
+  static const personalAskAndroid = ValueKey('personal.ask.android');
+  static const settingsShowAndroid = ValueKey('settings.showAndroid');
   static const personalPreparedHere = ValueKey('home.personal.preparedHere');
   static const personalDownloadNote = ValueKey('home.personal.downloadNote');
   static const settingsPersonalMultiple =

@@ -1,13 +1,14 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 
+import '../../shell/session_prompts.dart' show PersonalScopeAnswer;
 import '../../shell/shell_keys.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
 
-/// השאלה של ההפעלה הראשונה בכונן. `true` — רק המחשב שלי, `false` — מחשבים
-/// מרובים, `null` — נסגר בלי תשובה (Esc, מחוץ לחלון).
-Future<bool?> showPersonalScopeDialog(BuildContext context) => showDialog<bool>(
+/// השאלה של ההפעלה הראשונה בכונן. `null` — נסגר בלי תשובה (Esc, מחוץ לחלון).
+Future<PersonalScopeAnswer?> showPersonalScopeDialog(BuildContext context) =>
+    showDialog<PersonalScopeAnswer>(
       context: context,
       builder: (_) => const _PersonalScopeDialog(),
     );
@@ -22,6 +23,7 @@ class _PersonalScopeDialog extends StatefulWidget {
 class _PersonalScopeDialogState extends State<_PersonalScopeDialog> {
   /// בלי בחירה מראש: זו שאלה, לא ברירת מחדל שמאשרים ב-Enter.
   bool? _mine;
+  bool _android = false;
 
   @override
   Widget build(BuildContext context) {
@@ -55,6 +57,13 @@ class _PersonalScopeDialogState extends State<_PersonalScopeDialog> {
                 onSelected: () => setState(() => _mine = true),
               ),
               const SizedBox(height: AppTokens.spaceMD),
+              FormCheckRow(
+                key: ShellKeys.personalAskAndroid,
+                label: t.personalAskAndroid,
+                help: t.personalAskAndroidBody,
+                value: _android,
+                onChanged: (v) => setState(() => _android = v),
+              ),
               Text(
                 t.personalAskLater,
                 style: AppTextStyles.small.copyWith(
@@ -70,7 +79,9 @@ class _PersonalScopeDialogState extends State<_PersonalScopeDialog> {
           key: ShellKeys.personalAskConfirm,
           text: context.strings.common.continueAction,
           onPressed: switch (_mine) {
-            final mine? => () => Navigator.of(context).pop(mine),
+            final mine? => () => Navigator.of(context).pop(
+                  PersonalScopeAnswer(personal: mine, showAndroid: _android),
+                ),
             null => null,
           },
         ),

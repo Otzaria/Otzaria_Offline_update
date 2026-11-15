@@ -121,6 +121,7 @@ HomeViewModel _model(
     syncApp: f.syncApp,
     syncLibrary: f.syncLibrary,
     syncPlugins: f.syncPlugins,
+    showAndroid: _showAndroid,
     semanticOffer: semanticOffer,
     failedDownloads: failedDownloads,
     foundNothing: foundNothing,
@@ -162,7 +163,19 @@ const _driveUpdate = GuidanceFacts(
   online: false,
 );
 
-HomeViewModel homeScenario(String name) => switch (name) {
+/// "עדכון Android" בתרחיש הנוכחי; ברירת המחדל כבויה, כמו בהגדרות.
+bool _showAndroid = false;
+
+HomeViewModel homeScenario(String name, {bool showAndroid = false}) {
+  _showAndroid = showAndroid;
+  try {
+    return _scenario(name);
+  } finally {
+    _showAndroid = false;
+  }
+}
+
+HomeViewModel _scenario(String name) => switch (name) {
       'offline' => _model(
           _driveUpdate,
           pluginUpdates: 3,

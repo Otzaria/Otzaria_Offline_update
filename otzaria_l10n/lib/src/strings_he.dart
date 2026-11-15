@@ -1581,6 +1581,11 @@ class _LibraryScreen extends LibraryScreenStrings {
   @override
   String get personalAskLater => 'אפשר לשנות את הבחירה בכל עת בהגדרות.';
   @override
+  String get personalAskAndroid => 'עדכון גם מכשירי Android';
+  @override
+  String get personalAskAndroidBody =>
+      'בדף הבית יוצג עדכון Android, להתקנת אוצריא במכשיר Android מהכונן.';
+  @override
   String get personalPreparedHere => 'הכונן הוכן למחשב הזה';
   @override
   String get personalPendingNote =>
@@ -1685,6 +1690,11 @@ class _Settings extends SettingsScreenStrings {
   String get syncTargetsTitle => 'מה להוריד לכונן';
   @override
   String get syncTargetsSubtitle => 'מה שלא מסומן לא יירד, גם אם יש לו עדכון.';
+  @override
+  String get showAndroidTitle => 'עדכון Android';
+  @override
+  String get showAndroidSubtitle =>
+      'הצגת עדכון Android בדף הבית, להתקנת אוצריא במכשיר Android מהכונן.';
   @override
   String get syncTargetApp => 'תוכנת אוצריא';
   @override
