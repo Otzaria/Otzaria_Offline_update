@@ -3485,6 +3485,9 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get semanticStatusAppUnproven =>
       'לא ניתן להוכיח איזה מודל חיפוש חכם אוצריא המותקנת קוראת, ולכן דבר לא הותקן ולא הוכרז כמעודכן. יש לעדכן את הכלי או להפעיל את אוצריא פעם אחת ולבדוק שוב.';
   @override
+  String get semanticStatusDriveOtherVersion =>
+      'נתוני החיפוש החכם שבכונן שייכים לגרסה אחרת של ספריית אוצריא מזו שתהיה מותקנת במחשב הזה. הורדה לכונן במחשב מחובר תביא את הנתונים שמתאימים.';
+  @override
   String semanticNotPublishedYet(int version) =>
       'עדיין לא פורסם חיפוש חכם שמתאים לספריית אוצריא שבכונן (גרסה ${_ltr('$version')}). כשיתפרסם, הורדה לכונן תביא אותו.';
   @override

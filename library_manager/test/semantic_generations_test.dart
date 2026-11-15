@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:library_manager/src/services/semantic_search_assets.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:otzaria_search_engine/otzaria_search_engine.dart'
     show SemanticError, SemanticErrorKind;
@@ -160,6 +161,10 @@ void main() {
       expect(status.allClear, isFalse);
       expect(status.state, SmartSearchState.driveNotMatching);
       expect(status.reason, SmartSearchReason.driveOtherGeneration);
+      expect(
+        status.message,
+        AppL10n.strings.libraryDomain.semanticStatusDriveNotMatching,
+      );
       expect(status.driveGenerations, {_round2});
       expect(status.installedGeneration, _round2);
       expect(
@@ -649,6 +654,10 @@ void main() {
       final status = await assess(_app(_qa491), version: 30);
       expect(status.state, SmartSearchState.driveNotMatching);
       expect(status.reason, SmartSearchReason.driveOlderVersion);
+      expect(
+        status.message,
+        AppL10n.strings.libraryDomain.semanticStatusDriveOtherVersion,
+      );
     });
   });
 
