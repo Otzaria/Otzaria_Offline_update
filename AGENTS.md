@@ -162,8 +162,9 @@ it. `AppPaths` returns `readOnly: true`, `stateDir` moves to
 `%LOCALAPPDATA%\OtzariaOfflineUpdate`, and `dataDir` — the mirror — stays on the
 drive.
 
-It works because **no install writes to the drive** (one best-effort exception: a
-smart-search drive file that fails its sha256 is deleted, see §5.2):
+It works because **no install writes to the drive** (best-effort exception: a
+smart-search asset failing its sha256, or a library one failing a second full
+read, is deleted, §5.2):
 Inno writes to the machine, the library applier stages next to the existing DB,
 plugins go into Otzaria's own folder. What moves to `stateDir` is the log, `launcher_settings.json`,
 `faq_customization.json`, `library_state.json`, `otzaria_install_state.json`,
@@ -590,11 +591,13 @@ downloads — minutes of progress bars for nothing. A component is skipped when
 `AppSession._refreshStaleOnlineChecks` re-runs, in parallel, the check of every
 selected component that `onlineCheckNeedsRefresh` calls stale (never ran, failed,
 or older than `onlineCheckMaxAge`, 15 minutes): a morning check must not skip an
-app released at noon. A check that never ran
-or that failed proves nothing and never skips — "no network" is not "no update".
-The library is never skipped in personal-update mode, where the target comes from
-the recorded DB version. The skip is named on the "drive is ready" task screen; a
-silent one produced the "why did it not download the plugins" confusion.
+app released at noon. The library is never skipped in personal-update mode,
+where the target comes from the recorded DB version. The skip is named on the
+"drive is ready" task screen; a silent one produced the "why did it not
+download the plugins" confusion. The pre-click smart-search peek reads the OLD
+installers' generation: after the app succeeds, in "always" or a forced click,
+`refreshOnlineSemantic` re-peeks it, and smart search joins the run unless the
+library is then blocked (`host.isBlocked`, `blocksComponent`).
 
 **A download that finds nothing to run opens no result screen — and is never
 silent.** A stale "new online" used to end in a task screen saying "nothing was
@@ -647,10 +650,12 @@ suppressed: a failed DB download is finished by downloading again.
 **Smart search alone is not an update unless the user chose "always".** A declined
 one kept the home offering a download that brought nothing, on every launch.
 `AppSettings.semanticDownload` (Settings, or "don't show again" under the question —
-hidden while safer mode is locked) → `semanticPreference`. In "ask" it is only
-`onlineSemanticOffer`, whose click passes `forceSemantic` (no question); the
-question comes only beside a real download. "Never" skips the peek, and a skipped
-peek is `semanticChecked = false` — unchecked, never "up to date".
+hidden while safer mode is locked) → `semanticPreference`. In "ask" only
+`onlineSemanticOffer` shows (its click passes `forceSemantic`, no question; the
+question comes only beside a real download). "Never" skips the peek
+(`semanticChecked = false`, not "up to date"). Vectors not published yet
+(`onlineSemanticNotPublished`: a 404 on the release or no vectors manifest;
+other HTTP statuses stay failures) are no offer, no failure (#244).
 
 **The download runs as a task screen, and its wording must match the undo.**
 `ShellTasks` (`shell/shell_tasks.dart`) is the host's UI side: the smart-search
@@ -678,7 +683,8 @@ library download (#148). `AppSession.mirrorBeingWritten` (pending components;
 everything while preparing or sweeping) → `installsBlockedByDownload`,
 `appInstallBlocked`, `libraryApplyBlocked`, `plugin*BlockedElsewhere`,
 `reportsCollectBlocked`/`reportsUploadBlocked`, `downloadBlocked`; the flow asks
-`blocksComponent` once its plan is known. "Update here" re-reads them right before
+`blocksComponent` once its plan is known and again for a component that joins
+late (§5.2 `downloadAll`). "Update here" re-reads them right before
 it starts (`UpdateHereFlow.run(blocked:)`). Flags only gate buttons; the plugin
 mirror is also claimed in `PluginsModuleController` itself, both ways: `sync`
 refuses while a delivery, a delivery run (`deliverUpdates`, also between its
@@ -882,19 +888,19 @@ launcher download, "update here", an install here, a plugin sync, export or any
 delivery). That is
 what lets the two downloads run together.
 
-**A re-run does not re-hash an asset it already proved.** Skipping the download is
-not skipping the check: `downloadToFile` still verified `expectedSha256`, and on the
-`alreadyComplete` path there is no stream to hash along with, so it read ~1.5GB back
-off the flash drive — a minute per press of *download*, on a file nobody touched.
-The sidecar's third line carries `sha256|size|mtime`, written when a verification
-passes, and a complete asset whose mark still matches skips the hash. Do **not**
-turn this into "the file is there, trust it": the skip decision (`_isCompleteOnDisk`)
-is size-only on purpose, and the mark is what makes it safe — any write, a
-re-published asset, or a different resume token brings full verification back. That
-verification must keep happening on the **online** machine, the only place a corrupt
-asset can be fetched again. Smart search's online check is size-only, so the offline
-install deletes a drive file failing its sha256 and the next check re-downloads it
-(2026-11-03, `semantic_vectors_delta_test.dart`).
+**A re-run does not re-hash an asset it already proved.** Skipping the download
+is not skipping the check: on the `alreadyComplete` path `downloadToFile` read
+~1.5GB off the flash drive to verify `expectedSha256` — a minute per press of
+*download*. The sidecar's third line carries `sha256|size|mtime`, written when
+a verification passes; a complete asset whose mark still matches skips the
+hash. Do **not** make it "the file is there, trust it": the skip decision
+(`_isCompleteOnDisk`) is size-only on purpose; the mark makes it safe.
+Verification must stay on the **online** machine, the only place a corrupt
+asset can be re-fetched. The offline install deletes a drive file failing its
+sha256 — smart search at once (2026-11-03), `LibraryUpdateApplier` after a
+second full read (#249: one bad USB read must not cost 1.5GB) — since the
+online check (`_mirrorDownloadIncomplete`) is size-only and only a missing file
+starts the download; a read-only drive keeps it.
 
 **Downloads are parallel *across files*; *within* a file only where the server
 honours `Range`.** Issue #17 asked for a download accelerator, but GitHub's release
@@ -1068,14 +1074,16 @@ lacked the launcher's marker. Require the configured `model.json` SHA and
 only regular files with known model names; never extend this to vectors.
 `SemanticSearchAssets._ensureOwnedDirectory`, `semantic_vectors_delta_test.dart`.
 
-**Smart-search consent is a dialog on "update this computer", once per machine.**
-As a home notice it went unnoticed (maintainer, 2026-10). Unanswered smart
-search alone is a library "here" item (`semanticOnlyHere`), else it could never
-ask; `UpdateHereFlow.run` asks with Otzaria installed, "back" records nothing,
-an answer (or a server-blocked key) goes to `NoticesSeenStore` in
-`stateFilesDir`. Consent is written after `_ensureClosed`, then
-`checkForUpdate(fresh: true)`. Settings only enables: Otzaria's `revoke()` also
-purges its queue. Not behind safer mode: no launcher setting changes.
+**Smart-search consent is a dialog on "update this computer", once per
+machine.** As a home notice it went unnoticed (maintainer, 2026-10). Unanswered
+smart search alone is a library "here" item (`semanticOnlyHere`), else it never
+asks; `UpdateHereFlow.run` asks first with Otzaria installed; the after-app
+library stage asks (`_askConsent`) if smart search only became pending then,
+even a first install. "Back" records nothing; an answer (or a server-blocked
+key) goes to `NoticesSeenStore` in `stateFilesDir`, written after
+`_ensureClosed`, then `checkForUpdate(fresh: true)`. Settings only enables:
+Otzaria's `revoke()` also purges its queue. Not behind safer mode: no launcher
+setting changes.
 
 **The offline machine picks the fastest route it has, and that route can be the full
 database.** `OfflineLibraryUpdatePlanner` used to take the delta chain whenever it reached
@@ -1530,10 +1538,12 @@ launcher adopt itself the moment a scanned directory contained it (realistic for
 "the installed Otzaria", and re-run itself on `launch()`. **The same file travels
 under a second name:** GitHub strips non-ASCII from asset names, erasing an all-Hebrew
 name down to `default.exe` (what `V1` and `v0.1.1` published), so the `publish` job
-uploads it as `Otzaria-Updates.exe`. Both names are excluded
-(`OtzariaAppLocator._ourOwnExeNames`, plus a `Platform.resolvedExecutable` check) and
-both are tie-breakers in `LauncherInstallLayout`. This is the file-scan twin of the
-`pgrep -f` hazard.
+uploads it as `Otzaria-Updates.exe`. Names are excluded by prefix
+(`OtzariaAppLocator.isOurOwnExe`, plus a `Platform.resolvedExecutable` check)
+and are tie-breakers in `LauncherInstallLayout`: a copy named "… (1)" or
+"-0.29" was adopted as Otzaria and became the install target. A stored state
+pointing at one is dropped (`_verifyStoredState`). This is the file-scan twin
+of the `pgrep -f` hazard.
 
 **…and on macOS the same rule is about the bundle.** `PRODUCT_NAME` is
 `Otzaria Launcher`, so `Otzaria Launcher.app` contains "otzaria" and
@@ -1767,8 +1777,10 @@ deleted", because only the first is fixed by downloading again.
 baseline.** `KnownPluginsStore` (`plugins_known.json`, keyed by hostname like
 `AnnouncedAppsStore`) keeps two lists: what the store has marked "new" (a chip on
 the card, recorded as seen on entering the store) and what the home page has
-mentioned — one list would let the home banner swallow the store's mark. The home banner ("N new plugins on the drive") stays until the store is
-visited; entering it records them (`AppSession.markPluginsVisited`). The first
+mentioned — one list would let the home banner swallow the store's mark. The
+home banner ("N new plugins on the drive") stays until the store is visited;
+its click opens the store with the "new" filter selected (`showNewPlugins`),
+and entering records them (`AppSession.markPluginsVisited`). The first
 *non-empty* load only records the catalog as known; recording on an empty one would
 make the first sync announce the whole store. Updates are never a popup: a count on
 the plugins tile and a bar at the top of the store with "update all" (one delivery at a
@@ -2306,8 +2318,10 @@ a `Scaffold`.
 with "refresh" (only online and on a writable drive; progress is a card in the page,
 not an overlay), local search (final letters, niqqud and geresh ignored, matches
 highlighted — `services/store_search.dart`), an "all / installed / not installed"
-switch, category chips, a collapsed "more filters" (stability and tags), the updates
-bar, the grid, and "advanced" (store-app export on Windows, reload from the drive).
+switch (plus a "new (N)" segment while there are new plugins or it is
+selected), category chips, a collapsed "more filters" (stability and tags),
+the updates bar, the grid, and "advanced" (store-app export on Windows, reload
+from the drive).
 The site's curated home (featured row, per-category rows) is not ported.
 
 ### 5.10 Error reports (offline → online)
