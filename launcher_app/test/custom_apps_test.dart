@@ -225,7 +225,14 @@ void main() {
       final t = stringsOf().customApps;
       expect(find.text(t.infoStored), findsOneWidget);
       expect(find.text('1.4.2'), findsOneWidget);
-      expect(find.textContaining(t.infoStored), findsOneWidget);
+      // הטווח הוא לוח המידע: שבב "בכונן, לא מותקנת כאן" בראש הדף מכיל אותה מילה.
+      expect(
+        find.descendant(
+          of: find.byType(StoreInfoRows),
+          matching: find.textContaining(t.infoStored),
+        ),
+        findsOneWidget,
+      );
     });
 
     // ההבחנה החשובה: "לא חיפשנו" אינו "חיפשנו ולא מצאנו".
@@ -1950,8 +1957,8 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(check().onPressed, isNotNull);
-      // ברשת יש גרסה חדשה מזו שבכונן — עכשיו "הורדה לכונן" מוצעת.
-      expect(find.text(t.downloadButton), findsOneWidget);
+      // ברשת יש גרסה חדשה מזו שבכונן — עכשיו "הורדת העדכון" מוצעת.
+      expect(find.text(t.downloadUpdateButton), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     });
 

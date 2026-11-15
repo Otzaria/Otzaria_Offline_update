@@ -47,6 +47,7 @@ class CustomAppStoreCard extends StatelessWidget {
       title: app.descriptor.name,
       meta: StoreMetaLine(
         items: [
+          ...customAppStatusChips(context, controller, app),
           for (final item in customAppMeta(context, app)) StoreMetaItem(item),
         ],
       ),
@@ -120,6 +121,39 @@ class CustomAppAction extends StatelessWidget {
         busy ? null : onInstall,
       );
     }
+    final canFetch = app.descriptor.sourceKind == AppSourceKind.github &&
+        !readOnly &&
+        online;
+
+    Widget download(String text) {
+      final onPressed =
+          controller.downloadingId != null || controller.isDownloadingAll
+              ? null
+              : onDownload;
+      final loading = controller.downloadingId == app.descriptor.id;
+      return primary
+          ? ActionButton.recommended(
+              text: text,
+              icon: FluentIcons.arrow_download_20_regular,
+              isLoading: loading,
+              onPressed: onPressed,
+            )
+          : ActionButton.neutral(
+              text: text,
+              icon: FluentIcons.arrow_download_20_regular,
+              isLoading: loading,
+              onPressed: onPressed,
+            );
+    }
+
+    // בכרטיס אין מקום לשתי פעולות: עדכון שנמצא ברשת קודם ל"הפעלה", שנשארת
+    // בדף התוכנה. התקנה מהכונן נשארת ראשונה — זו מטרת העדכון הלא-מקוון.
+    if (!primary &&
+        canFetch &&
+        app.canLaunch &&
+        controller.hasOnlineUpdate(app)) {
+      return download(t.downloadUpdateButton);
+    }
     if (app.canLaunch) {
       return button(
         common.launch,
@@ -129,28 +163,7 @@ class CustomAppAction extends StatelessWidget {
     }
     if (app.canInstall) return button(common.install, busy ? null : onInstall);
     // אין מה להתקין, אבל יש מאיפה להביא — וזה בדיוק מה שחסר לתוכנה הזו.
-    if (app.descriptor.sourceKind == AppSourceKind.github &&
-        !readOnly &&
-        online) {
-      final downloading = controller.downloadingId == app.descriptor.id;
-      final onPressed =
-          controller.downloadingId != null || controller.isDownloadingAll
-              ? null
-              : onDownload;
-      return primary
-          ? ActionButton.recommended(
-              text: t.downloadButton,
-              icon: FluentIcons.arrow_download_20_regular,
-              isLoading: downloading,
-              onPressed: onPressed,
-            )
-          : ActionButton.neutral(
-              text: t.downloadButton,
-              icon: FluentIcons.arrow_download_20_regular,
-              isLoading: downloading,
-              onPressed: onPressed,
-            );
-    }
+    if (canFetch) return download(t.downloadButton);
     return const SizedBox.shrink();
   }
 }

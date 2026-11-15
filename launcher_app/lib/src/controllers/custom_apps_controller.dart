@@ -512,7 +512,8 @@ class CustomAppsController extends ChangeNotifier
           if (app.descriptor.sourceKind == AppSourceKind.github) app,
       ];
 
-  bool _hasNewerOnline(CustomAppView app) {
+  /// הבדיקה ברשת מצאה גרסה חדשה מזו ששמורה בכונן.
+  bool hasNewerOnline(CustomAppView app) {
     final id = app.descriptor.id;
     if (app.descriptor.sourceKind != AppSourceKind.github) return false;
     if (onlineUnavailable.contains(id)) return false;
@@ -521,11 +522,16 @@ class CustomAppsController extends ChangeNotifier
         customAppOnlineIsNewer(online, app.storedInstaller?.version);
   }
 
+  /// "עדכון": יש בכונן קובץ התקנה, ולברשת גרסה חדשה ממנו. בלי קובץ בכונן
+  /// זו הורדה ראשונה ולא עדכון.
+  bool hasOnlineUpdate(CustomAppView app) =>
+      app.storedInstaller != null && hasNewerOnline(app);
+
   /// התוכנות שיש להן ברשת גרסה חדשה מזו שעל הכונן — אלה ואלה בלבד שההורדה
   /// המרוכזת נוגעת בהן.
   List<CustomAppView> get outdatedApps => [
         for (final app in apps)
-          if (_hasNewerOnline(app)) app,
+          if (hasNewerOnline(app)) app,
       ];
 
   /// בודק ברשת את **כל** התוכנות שיש להן מקור מקוון, במקום ללחוץ על כל
@@ -547,7 +553,7 @@ class CustomAppsController extends ChangeNotifier
         failed++;
         continue;
       }
-      if (_hasNewerOnline(app)) updates++;
+      if (hasNewerOnline(app)) updates++;
     }
     return (checked: targets.length, updates: updates, failed: failed);
   }
