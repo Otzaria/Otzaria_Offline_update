@@ -221,6 +221,18 @@ class SettingsScreen extends StatelessWidget {
           onChanged: (v) => _confirmAutoInstall(context, enabled: v),
         ),
         _syncTargetsRow(context),
+        AppSwitchRow(
+          key: ShellKeys.settingsShowAndroid,
+          leading: const IconTile(
+            icon: FluentIcons.phone_24_regular,
+            size: _tile,
+            tone: _quiet,
+          ),
+          title: t.showAndroidTitle,
+          subtitle: t.showAndroidSubtitle,
+          value: _s.showAndroid,
+          onChanged: (v) => _set(_s.copyWith(showAndroid: v)),
+        ),
         _semanticDownloadRow(context),
       ],
     );

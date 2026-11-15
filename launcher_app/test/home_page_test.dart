@@ -245,6 +245,22 @@ void main() {
       });
     }
 
+    testWidgets('אריח Android מוצג רק כשההגדרה מופעלת', (tester) async {
+      await pumpScreen(tester, HomePage(model: homeScenario('online')));
+      expect(
+        find.byKey(ShellKeys.tile(ShellSection.android)),
+        findsNothing,
+      );
+      await pumpScreen(
+        tester,
+        HomePage(model: homeScenario('online', showAndroid: true)),
+      );
+      expect(
+        find.byKey(ShellKeys.tile(ShellSection.android)),
+        findsOneWidget,
+      );
+    });
+
     for (final name in ['first', 'firstOffline']) {
       testWidgets('$name: מסך הפתיחה במקום הבית', (tester) async {
         await pumpScreen(tester, HomePage(model: homeScenario(name)));
@@ -3103,12 +3119,14 @@ void main() {
     });
 
     for (final language in AppLanguage.values) {
-      testWidgets('Android נגיש בכונן ריק ב-${language.name}', (tester) async {
+      testWidgets('Android נגיש בכונן ריק ב-${language.name} כשהוא מופעל', (
+        tester,
+      ) async {
         final opened = <ShellSection>[];
         await pumpScreen(
           tester,
           HomePage(
-            model: homeScenario('first'),
+            model: homeScenario('first', showAndroid: true),
             actions: HomeActions(onOpenSection: opened.add),
           ),
           language: language,
@@ -3125,6 +3143,16 @@ void main() {
         expect(tester.takeException(), isNull);
       });
     }
+
+    testWidgets('Android כבוי כברירת מחדל — אין כפתור במסך הפתיחה', (
+      tester,
+    ) async {
+      await pumpScreen(tester, HomePage(model: homeScenario('first')));
+      expect(
+        find.widgetWithText(ActionButton, stringsOf().android.title),
+        findsNothing,
+      );
+    });
 
     testWidgets('כפתור השפה נשאר גם כשיש הודעת כונן, ומעליה', (tester) async {
       await pumpScreen(tester, HomePage(model: homeScenario('firstWithApps')));

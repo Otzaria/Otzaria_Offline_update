@@ -11,6 +11,7 @@ import 'package:launcher_app/src/controllers/launcher_update_controller.dart';
 import 'package:launcher_app/src/controllers/library_module_controller.dart';
 import 'package:launcher_app/src/controllers/otzaria_module_controller.dart';
 import 'package:launcher_app/src/controllers/plugins_module_controller.dart';
+import 'package:launcher_app/src/screens/home/personal_scope_dialog.dart';
 import 'package:launcher_app/src/screens/home/semantic_consent_dialog.dart';
 import 'package:launcher_app/src/screens/library_screen.dart';
 import 'package:launcher_app/src/screens/otzaria_advanced_page.dart';
@@ -27,6 +28,7 @@ import 'package:launcher_app/src/services/timestamps.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/settings/safer_mode.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
+import 'package:launcher_app/src/shell/session_prompts.dart';
 import 'package:launcher_app/src/shell/shell_keys.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
 import 'package:library_manager/library_manager.dart';
@@ -357,6 +359,78 @@ void main() {
     expect(settings.settings.syncLibrary, isTrue);
     expect(settings.settings.hasSyncSelection, isTrue);
   });
+
+  testWidgets('שורת "עדכון Android": כבויה כברירת מחדל, ומתג שומר', (
+    tester,
+  ) async {
+    final t = stringsOf().settings;
+    await pumpScreen(
+      tester,
+      SettingsScreen(
+        controller: settings,
+        onOpenLog: () {},
+        launcherVersion: launcherVersion,
+      ),
+    );
+    expect(find.text(t.showAndroidTitle), findsOneWidget);
+    expect(find.text(t.showAndroidSubtitle), findsOneWidget);
+    expect(settings.settings.showAndroid, isFalse);
+    await tester.tap(find.byKey(ShellKeys.settingsShowAndroid));
+    await tester.pumpAndSettle();
+    expect(settings.settings.showAndroid, isTrue);
+    await tester.tap(find.byKey(ShellKeys.settingsShowAndroid));
+    await tester.pumpAndSettle();
+    expect(settings.settings.showAndroid, isFalse);
+  });
+
+  for (final language in AppLanguage.values) {
+    testWidgets(
+        'השאלה הראשונה בגודל המינימלי ב-${language.name}: אין גלישה, '
+        'שורת Android כבויה, והסימון נמסר עם התשובה', (tester) async {
+      PersonalScopeAnswer? answer;
+      var opened = false;
+      await pumpScreen(
+        tester,
+        Builder(
+          builder: (context) {
+            if (!opened) {
+              opened = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) async {
+                answer = await showPersonalScopeDialog(context);
+              });
+            }
+            return const SizedBox.shrink();
+          },
+        ),
+        language: language,
+        size: const Size(760, 560),
+      );
+      await tester.pumpAndSettle();
+      final t = stringsOf(language).libraryScreen;
+      expect(find.text(t.personalAskAndroid), findsOneWidget);
+      expect(find.text(t.personalAskAndroidBody), findsOneWidget);
+      expect(
+        tester
+            .widget<Semantics>(find
+                .descendant(
+                  of: find.byKey(ShellKeys.personalAskAndroid),
+                  matching: find.byType(Semantics),
+                )
+                .first)
+            .properties
+            .checked,
+        isFalse,
+      );
+      await tester.tap(find.byKey(ShellKeys.personalAskMultiple));
+      await tester.tap(find.byKey(ShellKeys.personalAskAndroid));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ShellKeys.personalAskConfirm));
+      await tester.pumpAndSettle();
+      expect(answer?.personal, isFalse);
+      expect(answer?.showAndroid, isTrue);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('עדכון אישי נועל את "ספרייה" במצב דלוק', (tester) async {
     final t = stringsOf().settings;

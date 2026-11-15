@@ -854,6 +854,8 @@ abstract class LibraryScreenStrings {
   String get personalAskMine;
   String get personalAskMineBody;
   String get personalAskLater;
+  String get personalAskAndroid;
+  String get personalAskAndroidBody;
 
   /// הערה שקטה בבית אחרי שהמחשב הזה נרשם.
   String get personalPreparedHere;
@@ -927,6 +929,8 @@ abstract class SettingsScreenStrings {
   /// שבבי סימון, אחד לכל רכיב.
   String get syncTargetsTitle;
   String get syncTargetsSubtitle;
+  String get showAndroidTitle;
+  String get showAndroidSubtitle;
   String get syncTargetApp;
   String get syncTargetLibrary;
   String get syncTargetPlugins;

@@ -3,6 +3,16 @@ import 'package:error_reports_manager/error_reports_manager.dart';
 import '../controllers/app_reports_controller.dart';
 import '../controllers/launcher_update_flow.dart';
 
+/// תשובת השאלה הראשונה: הבחירה הראשית, ושורת ה-Android הנלווית אליה.
+class PersonalScopeAnswer {
+  const PersonalScopeAnswer(
+      {required this.personal, required this.showAndroid});
+
+  /// `true` — רק המחשב שלי.
+  final bool personal;
+  final bool showAndroid;
+}
+
 /// כל מה ש-[AppSession] צריך מהממשק: דיאלוגים, הודעות וזרימות שתלויות
 /// ב-`BuildContext`. המסגרת מממשת, והסשן עצמו אינו מחזיק `BuildContext`.
 abstract interface class SessionPrompts {
@@ -38,8 +48,8 @@ abstract interface class SessionPrompts {
 
   Future<bool> confirmLibraryReindex();
 
-  /// "מחשבים מרובים או רק המחשב שלי": `true` רק המחשב שלי, `null` בלי תשובה.
-  Future<bool?> askPersonalScope();
+  /// "מחשבים מרובים או רק המחשב שלי"; `null` — בלי תשובה.
+  Future<PersonalScopeAnswer?> askPersonalScope();
 
   /// האזהרה של "רק המחשב שלי" כשבכונן ספרייה מלאה — כמו בהגדרות.
   Future<bool> confirmPersonalMode();

@@ -704,7 +704,11 @@ class AppSession extends ChangeNotifier {
     if (!isActive || !shouldAskPersonalScope) return;
     final answer = await prompts.runDialog(prompts.askPersonalScope);
     if (answer == null || !isActive || !shouldAskPersonalScope) return;
-    await choosePersonalScope(personal: answer, fromQuestion: true);
+    await choosePersonalScope(
+      personal: answer.personal,
+      fromQuestion: true,
+      showAndroid: answer.showAndroid,
+    );
   }
 
   /// בדיקה ברשת רצה ונכשלה. בלי בדיקה (`null`) לא ידוע — ולא רושמים.
@@ -715,6 +719,7 @@ class AppSession extends ChangeNotifier {
   Future<void> choosePersonalScope({
     required bool personal,
     bool fromQuestion = false,
+    bool? showAndroid,
   }) async {
     // בהגדרות האזהרה כבר נשאלה לפני הבחירה.
     if (personal && fromQuestion && await _library.mirrorHoldsFullDb()) {
@@ -737,6 +742,7 @@ class AppSession extends ChangeNotifier {
       settings.settings.copyWith(
         personalUpdateMode: personal,
         personalModeAsked: true,
+        showAndroid: showAndroid,
         personalAutoRegisterPending: pending,
       ),
     );

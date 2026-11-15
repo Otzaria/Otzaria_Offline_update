@@ -1635,6 +1635,12 @@ class _LibraryScreen extends LibraryScreenStrings {
   String get personalAskLater =>
       'You can change this at any time in the settings.';
   @override
+  String get personalAskAndroid => 'Also update Android devices';
+  @override
+  String get personalAskAndroidBody =>
+      'The home page shows Android update, for installing Otzaria on an '
+      'Android device from the drive.';
+  @override
   String get personalPreparedHere => 'The drive is prepared for this computer';
   @override
   String get personalPendingNote =>
@@ -1751,6 +1757,12 @@ class _Settings extends SettingsScreenStrings {
   @override
   String get syncTargetsSubtitle =>
       'Anything not selected is not downloaded, even if it has an update.';
+  @override
+  String get showAndroidTitle => 'Android update';
+  @override
+  String get showAndroidSubtitle =>
+      'Show Android update on the home page, for installing Otzaria on an '
+      'Android device from the drive.';
   @override
   String get syncTargetApp => 'Otzaria';
   @override

@@ -226,6 +226,12 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
   }
 
   void _onSessionChangeInStore() {
+    // כיבוי ההצגה כשהדף פתוח: לא משאירים את החלון על מקטע שאין אליו כניסה.
+    if (_navigator.section == ShellSection.android &&
+        !_navigator.showsTask &&
+        !_session.settings.settings.showAndroid) {
+      unawaited(_navigator.select(ShellSection.home));
+    }
     // תוסף שנמחק בסנכרון בזמן שפרטיו מוצגים — חוזרים לרשימה, כדי שחזרה אחת תספיק.
     if (_navigator.current case PluginDetailRoute(:final id)
         when _session.plugins.status == PluginsModuleStatus.ready &&
@@ -364,7 +370,8 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
   }
 
   @override
-  Future<bool?> askPersonalScope() => showPersonalScopeDialog(context);
+  Future<PersonalScopeAnswer?> askPersonalScope() =>
+      showPersonalScopeDialog(context);
 
   @override
   Future<bool> confirmPersonalMode() => confirmPersonalModeDialog(context);
