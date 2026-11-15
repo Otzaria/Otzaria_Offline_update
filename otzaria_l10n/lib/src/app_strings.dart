@@ -1885,6 +1885,7 @@ abstract class LibraryDomainStrings {
   String get semanticFullDownloadNeeded;
   String get semanticStatusAppUnproven;
   String get semanticStatusDriveNotMatching;
+  String semanticNotPublishedYet(int version);
   String get semanticStatusVerificationFailed;
   String get semanticStatusDriveUnreadable;
   String get semanticStatusNeedsDriveDownload;

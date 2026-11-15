@@ -3692,6 +3692,9 @@ class _LibraryDomain extends LibraryDomainStrings {
   String get semanticStatusAppUnproven =>
       'It cannot be proven which smart search model the installed Otzaria reads, so nothing was installed or called up to date. Update this tool or start Otzaria once and check again.';
   @override
+  String semanticNotPublishedYet(int version) =>
+      'Smart search matching the Otzaria library on the drive (version $version) has not been published yet. Once it is, downloading to the drive will bring it.';
+  @override
   String get semanticStatusDriveNotMatching =>
       'The smart search data on the drive does not match the installed Otzaria (another model generation or vector shape). Download smart search again to the drive on an online computer.';
   @override

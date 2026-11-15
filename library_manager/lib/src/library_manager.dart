@@ -1272,9 +1272,14 @@ class LibraryManager {
       _peekedSemanticIncompatibility;
   SemanticEngineIncompatibleException? _peekedSemanticIncompatibility;
 
+  /// The library version the last light check found no vectors published for.
+  int? get peekedSemanticNotPublished => _peekedSemanticNotPublished;
+  int? _peekedSemanticNotPublished;
+
   Future<bool> peekPendingSemanticSearch() async {
     _peekedSemanticBytes = null;
     _peekedSemanticIncompatibility = null;
+    _peekedSemanticNotPublished = null;
     if (_onlineLibraryTag == null) await peekLatestOnlineVersion();
     final readable = await _readableOnlineTag();
     final tag = readable.limited ? readable.tag : _onlineLibraryTag;
@@ -1293,6 +1298,7 @@ class LibraryManager {
       );
       _peekedSemanticBytes = semantic.peekedPendingBytes;
       _peekedSemanticIncompatibility = semantic.peekedIncompatibility;
+      _peekedSemanticNotPublished = semantic.peekedNotPublished;
       return pending;
     } finally {
       semantic.dispose();
