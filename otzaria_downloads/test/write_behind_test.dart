@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:otzaria_downloads/otzaria_downloads.dart';
@@ -513,10 +514,16 @@ void main() {
     File('${dead.path}/.lock').writeAsStringSync('');
     File('${dead.path}/0.spill').writeAsStringSync('x');
 
-    WriteBehindPool.sweepStaleSpill(root: root);
+    await handle.writeFrom(bytes(100, 7));
+    await Isolate.run(() => WriteBehindPool.sweepStaleSpill(root: root));
     expect(live.existsSync(), isTrue);
     expect(dead.existsSync(), isFalse);
+    await handle.writeFrom(bytes(100, 9));
     await handle.close();
+    expect(
+      File('${dir.path}/a.bin').readAsBytesSync(),
+      [...bytes(100, 7), ...bytes(100, 9)],
+    );
     expect(root.listSync(), isEmpty);
   });
 

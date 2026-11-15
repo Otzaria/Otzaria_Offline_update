@@ -184,6 +184,10 @@ jobs:
         if: ${{ !cancelled() && steps.dart.outcome == 'success' }}
         working-directory: otzaria_manager
         run: dart pub get --enforce-lockfile && dart test
+      - name: otzaria_downloads
+        if: ${{ !cancelled() && steps.dart.outcome == 'success' }}
+        working-directory: otzaria_downloads
+        run: dart pub get --enforce-lockfile && dart test
       - name: error_reports_manager
         if: ${{ !cancelled() && steps.dart.outcome == 'success' }}
         working-directory: error_reports_manager

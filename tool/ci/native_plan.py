@@ -18,7 +18,7 @@ PACKAGES = frozenset({
     "launcher_app", "library_manager", "otzaria_manager", "otzaria_downloads",
     "otzaria_l10n", "plugins_manager", "custom_apps_manager", "error_reports_manager",
 })
-MAC_TEST_PACKAGES = PACKAGES - {"otzaria_downloads", "otzaria_l10n"}
+MAC_TEST_PACKAGES = PACKAGES - {"otzaria_l10n"}
 # Do not use '*.md': launcher_app/assets/יומן שינויים.md is shipped in the app.
 DOCUMENTATION = frozenset({
     "README.md", "AGENTS.md", "CLAUDE.md", "CHANGELOG.md", "LICENSE",

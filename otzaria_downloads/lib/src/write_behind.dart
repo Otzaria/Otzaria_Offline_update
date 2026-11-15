@@ -80,7 +80,7 @@ class WriteBehindPool {
   }
 
   /// מוחק תיקיות זמניות שתהליך אחר השאיר: כל תיקייה שהנעילה שלה פנויה, ובלי
-  /// קובץ נעילה רק ישנה מיממה.
+  /// קובץ נעילה רק ישנה מיממה. תיקייה של PID זהה תיבדק בהפעלה אחרת.
   static void sweepStaleSpill({Directory? root, DateTime? now}) {
     try {
       final cutoff = (now ?? DateTime.now()).subtract(const Duration(days: 1));
@@ -89,6 +89,8 @@ class WriteBehindPool {
       )) {
         final name = entry.uri.pathSegments.lastWhere((s) => s.isNotEmpty);
         if (entry is! Directory || !name.startsWith(spillPrefix)) continue;
+        // ב-POSIX נעילות שייכות לתהליך, גם בין isolates.
+        if (name.startsWith('$spillPrefix${pid}_')) continue;
         try {
           final lock = _plainFile(_join(entry.path, _lockName));
           if (lock.existsSync()) {
@@ -113,7 +115,7 @@ class WriteBehindPool {
       '$dir${Platform.pathSeparator}$name';
 
   String _newSpillPath() {
-    final dir = _spillDir ??= _spillRoot.createTempSync(spillPrefix);
+    final dir = _spillDir ??= _spillRoot.createTempSync('$spillPrefix${pid}_');
     if (!dir.existsSync()) dir.createSync(recursive: true);
     _lock ??= _plainFile(_join(dir.path, _lockName)).openSync(
       mode: FileMode.write,

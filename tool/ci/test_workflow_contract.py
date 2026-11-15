@@ -25,10 +25,10 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_darwin_suites_preserved_without_root_duplicate(self):
         mac = job("launcher_app_macos")
-        for package in ("otzaria_manager", "error_reports_manager", "plugins_manager", "custom_apps_manager",
+        for package in ("otzaria_manager", "otzaria_downloads", "error_reports_manager", "plugins_manager", "custom_apps_manager",
                         "launcher_app", "library_manager"):
             self.assertIn("working-directory: " + package + "\n", mac)
-        self.assertEqual(mac.count("&& dart test\n"), 4)
+        self.assertEqual(mac.count("&& dart test\n"), 5)
         self.assertEqual(mac.count("flutter test --no-pub"), 2)
         self.assertNotIn("otzaria_offline_update (root tools)", mac)
 
