@@ -1,3 +1,4 @@
+import '../services/app_logger.dart';
 import '../settings/app_settings.dart';
 import 'download_plan.dart';
 
@@ -14,6 +15,10 @@ abstract interface class AppMirrorModule {
 abstract interface class LibraryMirrorModule {
   bool get hasBlockedLibrary;
   bool get shouldOfferSemanticDownload;
+
+  /// Re-peeks smart search only, after the app download changed the drive;
+  /// `false` = no fresh answer (the old one stands).
+  Future<bool> refreshOnlineSemantic();
   bool get personalUpdateMode;
   OnlineProof get libraryOnlineProof;
   Future<void> download({
@@ -258,7 +263,7 @@ class MirrorDownloadFlow {
         }
     }
     if (!host.isActive || host.isBlocked || _abandonRequested) return;
-    final plan = planWith(semantic: includeSemanticSearch);
+    var plan = planWith(semantic: includeSemanticSearch);
     final components = _componentsOf(plan, s);
     if (components.isEmpty) {
       host.downloadFoundNothing(rechecked: rechecked);
@@ -330,6 +335,42 @@ class MirrorDownloadFlow {
           [() => app.download(isCancelled: cancelled)],
           () => app.storageFull,
         );
+      }
+      // המתקין החדש שבכונן קובע איזה חיפוש חכם הספרייה מביאה; ההחלטה שנלקחה
+      // לפני ההורדה ראתה את הישן. שואלים רק במקום שלא היה צריך לשאול.
+      final decidesWithoutAsking =
+          s.semanticDownload == SemanticDownloadPreference.always ||
+              (s.semanticDownload == SemanticDownloadPreference.ask &&
+                  forceSemantic);
+      if (plan.runsApp(s) &&
+          s.downloadsLibrary &&
+          !includeSemanticSearch &&
+          decidesWithoutAsking &&
+          go() &&
+          !app.downloadFailed) {
+        var fresh = false;
+        try {
+          fresh = await library.refreshOnlineSemantic();
+        } catch (e) {
+          AppLogger.instance.info('smart-search refresh failed: $e');
+        }
+        if (fresh &&
+            go() &&
+            host.isActive &&
+            library.shouldOfferSemanticDownload) {
+          final joined = planWith(semantic: true);
+          if (plan.runsLibrary(s) ||
+              (!host.isBlocked &&
+                  !host.blocksComponent(MirrorComponent.library))) {
+            includeSemanticSearch = true;
+            plan = joined;
+            _plan = joined;
+            _components = _componentsOf(joined, s);
+            host.stateChanged();
+          } else {
+            AppLogger.instance.info('smart search left out: library in use');
+          }
+        }
       }
       // כל אחד במראה משלו ובשורשי שחזור משלו — אין סיבה שיחכו זה לזה.
       await Future.wait([

@@ -679,6 +679,32 @@ class LibraryModuleController extends ChangeNotifier
     notifyListeners();
   }
 
+  /// Peeks smart search alone, against the drive as it is now (the app
+  /// download replaces the installers its fleet comes from). A failure keeps
+  /// the previous answer and returns `false`.
+  Future<bool> refreshOnlineSemantic() async {
+    if (_semanticPreference == SemanticDownloadPreference.never ||
+        onlineCheckedAt == null ||
+        onlineCheckError != null) {
+      return false;
+    }
+    try {
+      final pending = await _manager.peekPendingSemanticSearch();
+      onlineSemanticPending = pending;
+      onlineSemanticBytes = _manager.peekedSemanticBytes;
+      onlineSemanticIncompatibility = _manager.peekedSemanticIncompatibility;
+      onlineSemanticNotPublished = _manager.peekedSemanticNotPublished;
+      onlineSemanticCheckError = null;
+      semanticChecked = true;
+      _onlineSemanticProofKey = semanticStatus?.proofKey ?? '';
+      notifyListeners();
+      return true;
+    } catch (e) {
+      AppLogger.instance.info('smart-search refresh after the app failed: $e');
+      return false;
+    }
+  }
+
   bool get hasOnlineUpdate => hasOnlineLibraryUpdate || _semanticCountsAsUpdate;
 
   bool _readableMirrorCurrent = false;

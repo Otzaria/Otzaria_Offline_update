@@ -107,6 +107,9 @@ class LibraryModulePort
   bool get shouldOfferSemanticDownload => _library.shouldOfferSemanticDownload;
 
   @override
+  Future<bool> refreshOnlineSemantic() => _library.refreshOnlineSemantic();
+
+  @override
   bool get personalUpdateMode => _library.personalUpdateMode;
 
   @override
