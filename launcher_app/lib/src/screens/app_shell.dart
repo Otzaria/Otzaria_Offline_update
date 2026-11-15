@@ -829,6 +829,11 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
             // משימה רצה אינה נעזבת — גלגל השיניים והעזרה מושבתים גם למראה.
             toolsEnabled: !_session.exitPending &&
                 !(_navigator.showsTask && _session.tasks.isRunning),
+            toolsDisabledHint: _session.exitPending
+                ? null
+                : _session.tasks.current is DownloadTask
+                    ? context.strings.shell.toolsBusyDownloadTooltip
+                    : context.strings.shell.toolsBusyTooltip,
             showWindowButtons: widget.showWindowButtons,
           ),
           Expanded(
