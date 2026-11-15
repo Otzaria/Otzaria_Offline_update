@@ -1027,6 +1027,128 @@ void main() {
       expect(find.text(he.pages.chipUpToDate), findsOneWidget);
       expect(find.byKey(ShellKeys.librarySemanticNote), findsNothing);
     });
+
+    testWidgets('דף הספרייה: אוצריא קודמת נאמרת כמידע, לא כשגיאת חיפוש חכם',
+        (tester) async {
+      final temporary = (await tester.runAsync(
+        () => Directory.systemTemp.createTemp('smart-search-first-'),
+      ))!;
+      addTearDown(() {
+        try {
+          temporary.deleteSync(recursive: true);
+        } on FileSystemException {
+          // best effort
+        }
+      });
+      final library = LibraryModuleController(
+        dataDir: temporary.path,
+        manager: _StatusManager(
+          temporary.path,
+          const SmartSearchStatus(
+            state: SmartSearchState.driveNotMatching,
+            reason: SmartSearchReason.driveOtherGeneration,
+            required: (
+              generation: SemanticModelGeneration.round2,
+              family: SemanticVectorsFamily.legacy,
+            ),
+            driveGenerations: {SemanticModelGeneration.qa491},
+          ),
+        ),
+        mirroredOtzariaUpdate: () async => '0.9.98.3+809',
+      );
+      addTearDown(library.dispose);
+      await tester.runAsync(() async {
+        AppLogger.resetForTest();
+        await AppLogger.init(temporary.path);
+        await library.checkForUpdate();
+      });
+      addTearDown(AppLogger.resetForTest);
+      await pumpScreen(
+        tester,
+        LibraryScreen(
+          library: library,
+          otzariaIsRunning: false,
+          isDownloading: false,
+          onProcessStateChanged: () async => false,
+          onCloseOtzaria: () async => true,
+          onRequestReindex: () async {},
+          onGoToSettings: () {},
+          onGrantSemanticConsent: () async {},
+        ),
+      );
+      expect(library.awaitsOtzariaUpdate, isTrue);
+      final sentence =
+          he.libraryDomain.libraryNeedsOtzariaUpdateFromDrive('0.9.98.3+809');
+      expect(find.text(sentence), findsOneWidget);
+      expect(find.byKey(ShellKeys.libraryOtzariaFirstNote), findsOneWidget);
+      expect(find.byKey(ShellKeys.librarySemanticNote), findsNothing);
+      expect(find.text(he.pages.libSemanticSection), findsNothing);
+    });
+
+    testWidgets(
+        'דף הספרייה: אוצריא קודמת וגם אי תאימות — באנר אחד, והרגוע מנצח',
+        (tester) async {
+      final temporary = (await tester.runAsync(
+        () => Directory.systemTemp.createTemp('smart-search-first-'),
+      ))!;
+      addTearDown(() {
+        try {
+          temporary.deleteSync(recursive: true);
+        } on FileSystemException {
+          // best effort
+        }
+      });
+      final library = LibraryModuleController(
+        dataDir: temporary.path,
+        manager: _StatusManager(
+          temporary.path,
+          const SmartSearchStatus(
+            state: SmartSearchState.driveNotMatching,
+            reason: SmartSearchReason.driveOtherGeneration,
+            required: (
+              generation: SemanticModelGeneration.round2,
+              family: SemanticVectorsFamily.legacy,
+            ),
+            driveGenerations: {SemanticModelGeneration.qa491},
+          ),
+        ),
+        mirroredOtzariaUpdate: () async => '0.9.98.3+809',
+      );
+      addTearDown(library.dispose);
+      await tester.runAsync(() async {
+        AppLogger.resetForTest();
+        await AppLogger.init(temporary.path);
+        await library.checkForUpdate();
+      });
+      addTearDown(AppLogger.resetForTest);
+      library.onlineSemanticIncompatibility =
+          const SemanticEngineIncompatibleException(
+        lineTextVersion: 1,
+        keyVersion: 1,
+        reason: SemanticIncompatibilityReason.updateTool,
+      );
+      await pumpScreen(
+        tester,
+        LibraryScreen(
+          library: library,
+          otzariaIsRunning: false,
+          isDownloading: false,
+          onProcessStateChanged: () async => false,
+          onCloseOtzaria: () async => true,
+          onRequestReindex: () async {},
+          onGoToSettings: () {},
+          onGrantSemanticConsent: () async {},
+        ),
+      );
+      expect(library.semanticIncompatibility, isNotNull);
+      expect(library.awaitsOtzariaUpdate, isTrue);
+      final sentence =
+          he.libraryDomain.libraryNeedsOtzariaUpdateFromDrive('0.9.98.3+809');
+      expect(find.text(sentence), findsOneWidget);
+      expect(find.byKey(ShellKeys.libraryOtzariaFirstNote), findsOneWidget);
+      expect(find.byKey(ShellKeys.librarySemanticNote), findsNothing);
+      expect(find.text(he.pages.libSemanticSection), findsNothing);
+    });
   });
 }
 
