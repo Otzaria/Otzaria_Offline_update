@@ -4524,6 +4524,14 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get downloadButton => 'Download to drive';
   @override
+  String get downloadUpdateButton => 'Download update';
+  @override
+  String get chipUpdateOnline => 'Update online';
+  @override
+  String get chipNewerOnDrive => 'Newer version on the drive';
+  @override
+  String get chipOnDriveNotInstalled => 'On the drive, not installed here';
+  @override
   String get downloadingLabel => 'Downloading…';
   @override
   String get checkOnlineButton => 'Check online';

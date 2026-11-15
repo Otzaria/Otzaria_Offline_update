@@ -88,6 +88,7 @@ class CustomAppDetailView extends StatelessWidget {
           title: _descriptor.name,
           meta: StoreMetaLine(
             items: [
+              ...customAppStatusChips(context, controller, app),
               for (final item in customAppMeta(context, app))
                 StoreMetaItem(item),
             ],
@@ -110,7 +111,9 @@ class CustomAppDetailView extends StatelessWidget {
               ),
             if (_canFetch && !downloadIsPrimary && driveOutdated)
               ActionButton.neutral(
-                text: t.downloadButton,
+                text: controller.hasOnlineUpdate(app)
+                    ? t.downloadUpdateButton
+                    : t.downloadButton,
                 icon: FluentIcons.arrow_download_20_regular,
                 isLoading: _isDownloading,
                 onPressed: controller.downloadingId != null ||

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../controllers/custom_apps_controller.dart';
 import '../../services/byte_size.dart';
 import '../../widgets/widgets_exports.dart';
+import '../store_kit/store_kit.dart';
 
 /// התוויות שמתארות את מצב התוכנה — משותפות לכרטיס ולדף, כדי שהשניים לא
 /// יאמרו על אותה תוכנה שני דברים שונים.
@@ -59,10 +60,27 @@ List<String> customAppMeta(BuildContext context, CustomAppView app) {
   ];
 }
 
+/// השבבים של מצב התוכנה: עדכון שנמצא ברשת, וגרסה בכונן שאינה מותקנת כאן.
+/// שניהם יכולים לחול יחד.
+List<Widget> customAppStatusChips(
+  BuildContext context,
+  CustomAppsController controller,
+  CustomAppView app,
+) {
+  final t = context.strings.customApps;
+  return [
+    if (controller.hasOnlineUpdate(app))
+      StoreMetaChip(t.chipUpdateOnline, tonal: true),
+    switch (app.pending) {
+      CustomAppPending.newerOnDrive =>
+        StoreMetaChip(t.chipNewerOnDrive, tonal: true),
+      CustomAppPending.notInstalled => StoreMetaChip(t.chipOnDriveNotInstalled),
+      CustomAppPending.none => null,
+    },
+  ].nonNulls.toList();
+}
+
 String? customAppNoteOf(BuildContext context, CustomAppView app) {
-  if (app.pending == CustomAppPending.newerOnDrive) {
-    return context.strings.common.updateAvailable;
-  }
   return !app.canInstall && !app.canLaunch
       ? context.strings.customApps.noStoredInstaller
       : null;

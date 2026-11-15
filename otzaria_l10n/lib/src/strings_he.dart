@@ -4269,6 +4269,14 @@ class _CustomApps extends CustomAppsStrings {
   @override
   String get downloadButton => 'הורדה לכונן';
   @override
+  String get downloadUpdateButton => 'הורדת העדכון';
+  @override
+  String get chipUpdateOnline => 'עדכון ברשת';
+  @override
+  String get chipNewerOnDrive => 'גרסה חדשה בכונן';
+  @override
+  String get chipOnDriveNotInstalled => 'בכונן, לא מותקנת כאן';
+  @override
   String get downloadingLabel => 'מוריד…';
   @override
   String get checkOnlineButton => 'בדיקה ברשת';

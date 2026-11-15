@@ -2278,8 +2278,14 @@ abstract class CustomAppsStrings {
   String get noStoredInstaller;
 
   String get downloadButton;
+  String get downloadUpdateButton;
   String get downloadingLabel;
   String get checkOnlineButton;
+
+  // ── מצב התוכנה על הכרטיס ──
+  String get chipUpdateOnline;
+  String get chipNewerOnDrive;
+  String get chipOnDriveNotInstalled;
 
   // ── בדיקה ברשת לכל התוכנות בבת אחת, במקום כרטיס-כרטיס ──
   String get checkAllOnlineButton;
