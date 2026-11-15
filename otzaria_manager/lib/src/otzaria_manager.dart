@@ -445,6 +445,8 @@ class OtzariaManager {
   }
 
   OtzariaInstallState? _verifyStoredState(OtzariaInstallState stored) {
+    // העתק של הלאנצ'ר שנשמר כאוצריא אינו התקנה: מזהים מחדש.
+    if (OtzariaAppLocator.isOurOwnExe(stored.launchPath)) return null;
     if (FileSystemEntity.typeSync(stored.launchPath) ==
         FileSystemEntityType.notFound) {
       return null;
@@ -581,6 +583,7 @@ class OtzariaManager {
   }
 
   bool _verifyIsOtzaria(String candidatePath) {
+    if (OtzariaAppLocator.isOurOwnExe(candidatePath)) return false;
     if (OtzariaAppLocator.nameLooksLikeOtzaria(candidatePath)) return true;
 
     if (_platform == OtzariaTargetPlatform.macos) {

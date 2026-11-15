@@ -251,6 +251,22 @@ void main() {
       expect(check.currentState!.installedTagName, '0.9.90');
     });
 
+    test('state שנשמר על העתק של הלאנצ׳ר עצמו אינו נחשב התקנה', () async {
+      final dir = Directory(p.join(dataDir.path, 'קיימת'))
+        ..createSync(recursive: true);
+      final exe = p.join(dir.path, 'עדכוני אוצריא - מנוע חדש.exe');
+      File(exe).writeAsStringSync('exe מדומה');
+      await writeState(OtzariaInstallState(
+        installedTagName: '0.29',
+        installDir: dir.path,
+        launchPath: exe,
+      ));
+
+      final check = await managerFor().checkForUpdate();
+
+      expect(check.currentState, isNull);
+    });
+
     // ההתקנה קיימת, אבל הגרסה על הדיסק אינה מה שאנחנו "זוכרים" — למשל
     // משתמש שעדכן את אוצריא במתקין שלה עצמה.
     test(
