@@ -1979,6 +1979,10 @@ class _Plugins extends PluginsStrings {
   String get noResultsTitle => 'לא נמצאו תוספים לפי הסינון שבחרת';
   @override
   String get noResultsBody => 'נסה מילה אחרת, או חפש בכל הקטגוריות.';
+  @override
+  String get noNewPluginsTitle => 'אין תוספים חדשים';
+  @override
+  String get noNewPluginsBody => 'תוספים שיגיעו בסנכרון הבא יופיעו כאן.';
 
   @override
   String get filterStatusLabel => 'יציבות';
@@ -2156,6 +2160,8 @@ class _Plugins extends PluginsStrings {
   String get clearSearchTooltip => 'ניקוי';
   @override
   String get filterAll => 'הכול';
+  @override
+  String filterNew(int count) => 'חדשים ($count)';
   @override
   String get filterInstalled => 'מותקנים';
   @override

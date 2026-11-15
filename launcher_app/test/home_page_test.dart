@@ -605,11 +605,15 @@ void main() {
       tester,
     ) async {
       final opened = <ShellSection>[];
+      var newPluginsOpened = 0;
       await pumpScreen(
         tester,
         HomePage(
           model: homeScenario('offline'),
-          actions: HomeActions(onOpenSection: opened.add),
+          actions: HomeActions(
+            onOpenSection: opened.add,
+            onOpenNewPlugins: () => newPluginsOpened++,
+          ),
         ),
       );
 
@@ -629,8 +633,9 @@ void main() {
         ShellSection.plugins,
         ShellSection.customApps,
         ShellSection.reports,
-        ShellSection.plugins,
       ]);
+      // הפס עובר דרך הקורא שפותח את החנות על "חדשים", לא דרך המקטע הרגיל.
+      expect(newPluginsOpened, 1);
       // אין מה להראות — אין "מה חדש?".
       expect(find.byKey(ShellKeys.heroWhatsNew), findsNothing);
     });

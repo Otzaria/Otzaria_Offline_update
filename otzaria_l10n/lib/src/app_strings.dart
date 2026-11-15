@@ -1107,6 +1107,8 @@ abstract class PluginsStrings {
 
   String get noResultsTitle;
   String get noResultsBody;
+  String get noNewPluginsTitle;
+  String get noNewPluginsBody;
 
   // ── שורת הסינון ─────────────────────────────────────────────────────────
   String get filterStatusLabel;
@@ -1216,6 +1218,7 @@ abstract class PluginsStrings {
   String get searchHint;
   String get clearSearchTooltip;
   String get filterAll;
+  String filterNew(int count);
   String get filterInstalled;
   String get filterNotInstalled;
   String get moreFilters;

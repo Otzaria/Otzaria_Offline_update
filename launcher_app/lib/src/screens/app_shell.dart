@@ -384,6 +384,12 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
 
   Future<bool> _goTo(ShellSection section) => _navigator.select(section);
 
+  Future<void> _openNewPlugins() async {
+    if (await _goTo(ShellSection.plugins) && mounted) {
+      _session.plugins.showNewPlugins();
+    }
+  }
+
   /// שער הניווט: ההגדרות (וניהול התוכנות שתחתן) נעולות במצב הסייפר. השער
   /// בנווט ולא במסך, כי מסך שנבנה נשאר בעץ ושער בתוכו היה נשאר פתוח.
   FutureOr<bool> _canEnter(ShellSection section) {
@@ -500,6 +506,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
     onLaunch: () => unawaited(_session.launchOtzaria()),
     onRecheck: () => unawaited(_session.checkNow()),
     onOpenSection: (section) => unawaited(_goTo(section)),
+    onOpenNewPlugins: () => unawaited(_openNewPlugins()),
     onOpenSettings: () => unawaited(_goTo(ShellSection.settings)),
     onHelp: _openHelp,
     onToggleLanguage: _toggleLanguage,

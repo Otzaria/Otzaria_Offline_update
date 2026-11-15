@@ -2059,6 +2059,11 @@ class _Plugins extends PluginsStrings {
   String get noResultsTitle => 'No plugins match your filters';
   @override
   String get noResultsBody => 'Try another word, or search all categories.';
+  @override
+  String get noNewPluginsTitle => 'No new plugins';
+  @override
+  String get noNewPluginsBody =>
+      'Plugins that arrive in the next sync will show up here.';
 
   @override
   String get filterStatusLabel => 'Stability';
@@ -2242,6 +2247,8 @@ class _Plugins extends PluginsStrings {
   String get clearSearchTooltip => 'Clear';
   @override
   String get filterAll => 'All';
+  @override
+  String filterNew(int count) => 'New ($count)';
   @override
   String get filterInstalled => 'Installed';
   @override

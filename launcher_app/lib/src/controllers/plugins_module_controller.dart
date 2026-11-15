@@ -55,7 +55,7 @@ typedef PluginUpdateAllOutcome = ({
 });
 
 /// הבורר שליד החיפוש: הכול / מותקנים / לא מותקנים.
-enum PluginInstallFilter { all, installed, notInstalled }
+enum PluginInstallFilter { all, newOnes, installed, notInstalled }
 
 enum PluginSortMode { recommended, newest, updated }
 
@@ -1235,12 +1235,17 @@ class PluginsModuleController extends ChangeNotifier
       (tagFilter == null ? 0 : 1);
 
   /// "ניקוי החיפוש והסינון" — כל מה שמצמצם את הרשימה, בבת אחת.
-  void clearFilters() {
+  void clearFilters() => _resetFilters(PluginInstallFilter.all);
+
+  /// ההודעה שבבית: רק החדשים, בלי חיפוש או סינון שנשארו מביקור קודם.
+  void showNewPlugins() => _resetFilters(PluginInstallFilter.newOnes);
+
+  void _resetFilters(PluginInstallFilter install) {
     search = '';
     categoryFilter = null;
     statusFilter = PluginStatusFilter.all;
     tagFilter = null;
-    installFilter = PluginInstallFilter.all;
+    installFilter = install;
     _invalidateDerived();
     notifyListeners();
   }
@@ -1266,8 +1271,10 @@ class PluginsModuleController extends ChangeNotifier
     _shownCategories = null;
   }
 
-  bool _passesInstallFilter(StorePlugin plugin) => switch (installFilter) {
+  bool _passesInstallFilter(StorePlugin plugin, Set<String> newIds) =>
+      switch (installFilter) {
         PluginInstallFilter.all => true,
+        PluginInstallFilter.newOnes => newIds.contains(plugin.id),
         PluginInstallFilter.installed => installedVersionOf(plugin) != null,
         PluginInstallFilter.notInstalled => installedVersionOf(plugin) == null,
       };
@@ -1295,9 +1302,12 @@ class PluginsModuleController extends ChangeNotifier
         final category =
             categoryFilter == null ? null : categoryBySlug(categoryFilter!);
         final members = category?.pluginIds.toSet();
+        final newIds = installFilter == PluginInstallFilter.newOnes
+            ? _newForStoreIds
+            : const <String>{};
         return _sorted(plugins.where((plugin) {
           if (members != null && !members.contains(plugin.id)) return false;
-          if (!_passesInstallFilter(plugin)) return false;
+          if (!_passesInstallFilter(plugin, newIds)) return false;
           if (statusFilter == PluginStatusFilter.stable &&
               plugin.status != 'stable') {
             return false;
@@ -1420,6 +1430,15 @@ class PluginsModuleController extends ChangeNotifier
         .toList(growable: false);
   }
 
+  /// "חדשים" בחנות: מה שסומן בהרצה הזו ומה שעוד לא נרשם, כך שתוסף שהגיע
+  /// בסנכרון מופיע מיד, לפני שהמסך רשם אותו.
+  Set<String> get _newForStoreIds => {
+        ..._newThisRun,
+        for (final plugin in newPlugins) plugin.id,
+      }..retainAll({for (final plugin in plugins) plugin.id});
+
+  int get newForStoreCount => _newForStoreIds.length;
+
   /// מה שסומן "חדש" בהרצה הזו — השבב נשאר עד סוף ההרצה, גם אחרי הרישום.
   final Set<String> _newThisRun = {};
   bool isNewThisRun(StorePlugin plugin) => _newThisRun.contains(plugin.id);
@@ -1431,6 +1450,7 @@ class PluginsModuleController extends ChangeNotifier
     _newThisRun.addAll(ids);
     _seenIds = {...?_seenIds, ...ids};
     _newPlugins = null;
+    _filtered = null;
     await _known?.recordSeen(ids);
   }
 

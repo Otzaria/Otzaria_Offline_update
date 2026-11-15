@@ -28,6 +28,7 @@ class HomeActions {
     this.onLaunch = _noop,
     this.onRecheck = _noop,
     this.onOpenSection = _noopSection,
+    this.onOpenNewPlugins = _noop,
     this.onOpenSettings = _noop,
     this.onHelp = _noop,
     this.onToggleLanguage = _noop,
@@ -58,6 +59,9 @@ class HomeActions {
   final VoidCallback onLaunch;
   final VoidCallback onRecheck;
   final ValueChanged<ShellSection> onOpenSection;
+
+  /// מהפס שבבית: החנות נפתחת על "חדשים".
+  final VoidCallback onOpenNewPlugins;
   final VoidCallback onOpenSettings;
   final VoidCallback onHelp;
   final VoidCallback onToggleLanguage;
@@ -418,7 +422,7 @@ class HomePage extends StatelessWidget {
       actions: [
         ActionButton.ghost(
           text: g.toPluginsButton,
-          onPressed: () => actions.onOpenSection(ShellSection.plugins),
+          onPressed: actions.onOpenNewPlugins,
         ),
       ],
     );

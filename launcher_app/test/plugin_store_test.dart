@@ -2085,6 +2085,211 @@ void main() {
     expect(plugins.newPlugins, isEmpty);
   });
 
+  group('סינון "חדשים"', () {
+    Future<void> openWithNew(WidgetTester tester) async {
+      final state = Directory(p.join(tempDir.path, 'state'))..createSync();
+      plugins.dispose();
+      plugins = PluginsModuleController(
+        mirrorRootDir: tempDir.path,
+        stateDir: state.path,
+      );
+      await seed(tester, catalog: [storePlugin('a', name: 'ותיק')]);
+      await seed(tester, catalog: [
+        storePlugin('a', name: 'ותיק'),
+        storePlugin('b', name: 'אלפא חדש'),
+        storePlugin('c', name: 'בטא חדש'),
+      ]);
+      await pumpScreen(tester, PluginsScreen(controller: plugins));
+      await tester.pumpAndSettle();
+    }
+
+    Finder cardOf(String name) => find.widgetWithText(PluginStoreCard, name);
+
+    testWidgets('הבורר מציג "חדשים" עם מספר, ובחירה מציגה רק אותם',
+        (tester) async {
+      await openWithNew(tester);
+
+      expect(find.text(t.filterAll), findsWidgets);
+      expect(find.text(t.filterInstalled), findsOneWidget);
+      expect(find.text(t.filterNotInstalled), findsOneWidget);
+      expect(find.text(t.filterNew(2)), findsOneWidget);
+      expect(cardOf('ותיק'), findsOneWidget);
+
+      await tester.tap(find.text(t.filterNew(2)));
+      await tester.pumpAndSettle();
+
+      expect(cardOf('ותיק'), findsNothing);
+      expect(cardOf('אלפא חדש'), findsOneWidget);
+      expect(cardOf('בטא חדש'), findsOneWidget);
+      expect(plugins.filtered.length, plugins.newForStoreCount);
+    });
+
+    testWidgets('תוסף שהגיע בסנכרון מופיע בלי לצאת ולחזור', (tester) async {
+      await openWithNew(tester);
+      plugins.setInstallFilter(PluginInstallFilter.newOnes);
+      await tester.pumpAndSettle();
+      expect(cardOf('גמא מהסנכרון'), findsNothing);
+
+      await seed(tester, catalog: [
+        storePlugin('a', name: 'ותיק'),
+        storePlugin('b', name: 'אלפא חדש'),
+        storePlugin('c', name: 'בטא חדש'),
+        storePlugin('d', name: 'גמא מהסנכרון'),
+      ]);
+      await tester.pumpAndSettle();
+
+      expect(cardOf('גמא מהסנכרון'), findsOneWidget);
+      expect(cardOf('ותיק'), findsNothing);
+    });
+
+    testWidgets('משתלב עם החיפוש, ומצב ריק מנוסח לפי הסינון', (tester) async {
+      await openWithNew(tester);
+      plugins.setInstallFilter(PluginInstallFilter.newOnes);
+      plugins.setSearch('אלפא');
+      await tester.pumpAndSettle();
+      expect(cardOf('אלפא חדש'), findsOneWidget);
+      expect(cardOf('בטא חדש'), findsNothing);
+
+      plugins.setSearch('לא קיים');
+      await tester.pumpAndSettle();
+      expect(find.text(t.noResultsForQuery('לא קיים')), findsOneWidget);
+    });
+
+    testWidgets('showNewPlugins מנקה חיפוש וקטגוריה שנשארו מביקור קודם',
+        (tester) async {
+      await openWithNew(tester);
+      await seed(tester, catalog: [
+        storePlugin('a', name: 'ותיק'),
+        storePlugin('b', name: 'אלפא חדש'),
+        storePlugin('c', name: 'בטא חדש'),
+      ], categories: [
+        const PluginStoreCategory(
+          slug: 'study',
+          name: 'כלי לימוד',
+          pluginIds: ['a'],
+        ),
+      ]);
+      plugins.setSearch('ותיק');
+      plugins.setCategory('study');
+      plugins.setInstallFilter(PluginInstallFilter.newOnes);
+      await tester.pumpAndSettle();
+      expect(plugins.filtered, isEmpty);
+
+      plugins.showNewPlugins();
+      await tester.pumpAndSettle();
+
+      expect(plugins.search, isEmpty);
+      expect(plugins.categoryFilter, isNull);
+      expect(cardOf('אלפא חדש'), findsOneWidget);
+      expect(cardOf('בטא חדש'), findsOneWidget);
+    });
+
+    testWidgets('חדש שהוסר בסנכרון מאוחר יותר אינו נספר', (tester) async {
+      await openWithNew(tester);
+      expect(plugins.newForStoreCount, 2);
+
+      await seed(tester, catalog: [
+        storePlugin('a', name: 'ותיק'),
+        storePlugin('b', name: 'אלפא חדש'),
+      ]);
+      await tester.pumpAndSettle();
+
+      expect(plugins.newForStoreCount, 1);
+      plugins.setInstallFilter(PluginInstallFilter.newOnes);
+      expect(plugins.filtered.length, plugins.newForStoreCount);
+    });
+
+    testWidgets('בלי חדשים: אין אפשרות בבורר; נבחר — מצב ריק מתאים',
+        (tester) async {
+      await seed(tester, catalog: [storePlugin('a', name: 'ותיק')]);
+      await pumpScreen(tester, PluginsScreen(controller: plugins));
+      await tester.pumpAndSettle();
+      expect(find.text(t.filterNew(0)), findsNothing);
+
+      plugins.setInstallFilter(PluginInstallFilter.newOnes);
+      await tester.pumpAndSettle();
+      expect(find.text(t.noNewPluginsTitle), findsOneWidget);
+      expect(find.text(t.noNewPluginsBody), findsOneWidget);
+      expect(cardOf('ותיק'), findsNothing);
+    });
+  });
+
+  group('שורת הסינון בחלון המזערי (760x560)', () {
+    Future<void> openMinimum(
+      WidgetTester tester, {
+      required AppLanguage language,
+      required double scale,
+      required bool withNew,
+    }) async {
+      final state = Directory(p.join(tempDir.path, 'state'))..createSync();
+      plugins.dispose();
+      plugins = PluginsModuleController(
+        mirrorRootDir: tempDir.path,
+        stateDir: state.path,
+      );
+      await seed(tester, catalog: [storePlugin('a', name: 'ותיק')]);
+      if (withNew) {
+        await seed(tester, catalog: [
+          storePlugin('a', name: 'ותיק'),
+          storePlugin('b', name: 'חדש'),
+        ]);
+      }
+      await pumpScreen(
+        tester,
+        Builder(
+          builder: (context) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(scale)),
+            child: PluginsScreen(controller: plugins),
+          ),
+        ),
+        language: language,
+        size: const Size(760, 560),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    for (final language in [AppLanguage.hebrew, AppLanguage.english]) {
+      for (final scale in [1.0, 1.3]) {
+        testWidgets('עם "חדשים": ${language.name}, גודל טקסט $scale',
+            (tester) async {
+          await openMinimum(
+            tester,
+            language: language,
+            scale: scale,
+            withNew: true,
+          );
+
+          expect(tester.takeException(), isNull);
+          final newLabel = stringsOf(language).plugins.filterNew(1);
+          expect(find.text(newLabel), findsOneWidget);
+          final search = tester.getSize(find.byType(TextField).first);
+          final stacked = tester.getTopLeft(find.text(newLabel)).dy >
+              tester.getBottomLeft(find.byType(TextField).first).dy;
+          expect(stacked || search.width >= 200, isTrue,
+              reason: 'שדה החיפוש ${search.width}px');
+        });
+      }
+    }
+
+    testWidgets('בלי "חדשים": שלושה מקטעים, שדה החיפוש לצד הבורר',
+        (tester) async {
+      await openMinimum(
+        tester,
+        language: AppLanguage.hebrew,
+        scale: 1.0,
+        withNew: false,
+      );
+
+      expect(tester.takeException(), isNull);
+      final search = find.byType(TextField).first;
+      expect(
+        tester.getTopLeft(find.text(t.filterInstalled)).dy,
+        lessThan(tester.getBottomLeft(search).dy),
+      );
+    });
+  });
+
   testWidgets('בלי אינטרנט וקובץ שלא ירד: "הקובץ לא ירד לכונן" במקום התקנה',
       (tester) async {
     await seed(tester, catalog: [storePlugin('a', name: 'תוסף שטרם ירד')]);

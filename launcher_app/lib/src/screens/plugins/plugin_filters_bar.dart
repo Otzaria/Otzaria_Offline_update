@@ -28,6 +28,11 @@ class PluginFiltersBar extends StatefulWidget {
 /// מעל מספר התגיות הזה הרשימה מתקפלת — כמו `TagFilterChips` באתר.
 const int _collapsedTagCount = 14;
 
+/// ריפוד ומסגרת של סגמנט בבורר, והרוחב הקטן ביותר שמותר לשדה החיפוש לצד
+/// הבורר — מתחתיו הבורר יורד לשורה משלו.
+const double _segmentChrome = 16;
+const double _minSearchWidth = 150;
+
 class _PluginFiltersBarState extends State<PluginFiltersBar> {
   bool _moreOpen = false;
   bool _allTagsShown = false;
@@ -113,27 +118,50 @@ class _PluginFiltersBarState extends State<PluginFiltersBar> {
         ),
       ),
     );
+    final newCount = _c.newForStoreCount;
+    final options = [
+      SegmentOption(value: PluginInstallFilter.all, label: t.filterAll),
+      if (newCount > 0 || _c.installFilter == PluginInstallFilter.newOnes)
+        SegmentOption(
+          value: PluginInstallFilter.newOnes,
+          label: t.filterNew(newCount),
+        ),
+      SegmentOption(
+        value: PluginInstallFilter.installed,
+        label: t.filterInstalled,
+      ),
+      SegmentOption(
+        value: PluginInstallFilter.notInstalled,
+        label: t.filterNotInstalled,
+      ),
+    ];
     final filter = AppSegmentedControl<PluginInstallFilter>(
-      options: [
-        SegmentOption(value: PluginInstallFilter.all, label: t.filterAll),
-        SegmentOption(
-          value: PluginInstallFilter.installed,
-          label: t.filterInstalled,
-        ),
-        SegmentOption(
-          value: PluginInstallFilter.notInstalled,
-          label: t.filterNotInstalled,
-        ),
-      ],
+      options: options,
       currentValue: _c.installFilter,
       onChanged: _c.setInstallFilter,
       height: AppTokens.buttonHeight,
     );
     // הבורר גדל עם הטקסט, ולכן גם הרוחב שממנו הוא נכנס לצד החיפוש.
-    final scale = MediaQuery.textScalerOf(context).scale(1);
+    final scaler = MediaQuery.textScalerOf(context);
+    final scale = scaler.scale(1);
+    final direction = Directionality.of(context);
+    // כל הסגמנטים ברוחב של הרחב שבהם.
+    final widest = options.fold<double>(0, (widest, o) {
+      final label = TextPainter(
+        text: TextSpan(text: o.label, style: AppTextStyles.buttonSm),
+        textDirection: direction,
+        textScaler: scaler,
+      )..layout();
+      final width = label.width;
+      label.dispose();
+      return width > widest ? width : widest;
+    });
+    final filterWidth = options.length * (widest + _segmentChrome);
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth < 600 * scale) {
+        final searchWidth = constraints.maxWidth - 12 - filterWidth;
+        if (constraints.maxWidth < 600 * scale ||
+            searchWidth < _minSearchWidth) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [search, const SizedBox(height: 12), filter],
