@@ -4,10 +4,15 @@ import 'package:seforim_library_updater/seforim_library_updater.dart';
 void useLibraryUpdaterL10n() =>
     LibraryUpdaterMessages.current = const L10nLibraryUpdaterMessages();
 
-class L10nLibraryUpdaterMessages implements LibraryUpdaterMessages {
+class L10nLibraryUpdaterMessages
+    implements LibraryUpdaterMessages, LibraryMirrorPruningMessages {
   const L10nLibraryUpdaterMessages();
 
   LibraryDomainStrings get _s => AppL10n.strings.libraryDomain;
+
+  @override
+  String exportSkippingUnpickedPatches(int fileCount) =>
+      _s.exportSkippingUnpickedPatches(fileCount);
 
   @override
   String megabytes(String amount) => AppL10n.strings.units.megabytes(amount);

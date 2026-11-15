@@ -6,6 +6,7 @@ import 'package:error_reports_manager/error_reports_manager.dart'
     show CrashReportOutcome;
 import 'package:flutter/widgets.dart';
 import 'package:library_manager/library_manager.dart';
+import 'package:otzaria_downloads/otzaria_downloads.dart' show WriteBehindPool;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
@@ -52,6 +53,9 @@ import 'home_guidance.dart' show FoundNothing, GuidanceItem, deriveHomeGuidance;
 import 'home_guidance_session.dart' show guidanceFactsFromSession, onlineState;
 import 'session_prompts.dart';
 import 'shell_tasks.dart';
+
+/// קבצים זמניים שהורדה שנקטעה (קריסה, סגירה) השאירה במחשב הזה.
+void _sweepDriveWriteSpill() => WriteBehindPool.sweepStaleSpill();
 
 /// המצב והזרימות של הרצה אחת: המודולים, הבדיקות, ההורדה והדגלים שחוסמים
 /// יציאה. כל מה שדורש `BuildContext` עובר דרך [prompts].
@@ -356,7 +360,27 @@ class AppSession extends ChangeNotifier {
     library: _libraryPort,
     plugins: _pluginsPort,
     host: _SessionDownloadHost(this),
+    driveWrites: _driveWrites == null ? null : _throughDriveWrites,
+    dropDriveWrites: _driveWrites?.abandonPending,
   );
+
+  late final WriteBehindPool? _driveWrites = _newDriveWrites();
+
+  /// תור הכתיבה לכונן נשלף. הקובץ הזמני שלו בדיסק המקומי מקבל עד חצי מהמקום
+  /// הפנוי שם ולא יותר מ-4GiB; מעבר לזה ההורדה מחכה לכונן.
+  WriteBehindPool? _newDriveWrites() {
+    if (!isRemovableDrive(dataDir)) return null;
+    const cap = 4 * 1024 * 1024 * 1024;
+    final free = DiskSpaceProbe.freeBytesFor(Directory.systemTemp.path);
+    final half = free == null ? cap ~/ 4 : free ~/ 2;
+    return WriteBehindPool(maxPendingBytes: half < cap ? half : cap);
+  }
+
+  Future<void> _throughDriveWrites(Future<void> Function() step) =>
+      _driveWrites!.runZoned(
+        step,
+        shouldWrap: (path) => p.isWithin(dataDir, path),
+      );
 
   late final UpdateHereFlow _updateHere = UpdateHereFlow(
     app: _otzariaPort,
@@ -427,6 +451,7 @@ class AppSession extends ChangeNotifier {
   /// העבודה שבעלייה. נפרד מהבנאי כדי שבדיקות יוכלו לבנות סשן בלי להריץ אותה.
   void start() {
     LauncherCrashSession.closeGuard = confirmClose;
+    unawaited(Isolate.run(_sweepDriveWriteSpill).catchError((_) {}));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _firstFrame.complete();
       // The scene is submitted before post-frame callbacks finish.

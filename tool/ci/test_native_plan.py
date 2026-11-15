@@ -35,9 +35,12 @@ class ClassificationTests(unittest.TestCase):
     def test_macos_test_fixtures_still_run_tests(self):
         self.assertTrue(classify_paths(["library_manager/test/support/native_vector_set/model.json"]).macos)
 
-    def test_windows_covered_packages_do_not_add_a_new_macos_suite(self):
-        self.assertFalse(classify_paths(["otzaria_downloads/test/windows_elevation_test.dart",
-                                        "otzaria_l10n/test/button_quotes_test.dart"]).macos)
+    def test_downloads_test_runs_macos_without_rebuilding(self):
+        plan = classify_paths(["otzaria_downloads/test/write_behind_test.dart"])
+        self.assertEqual((plan.macos, plan.macos_build, plan.windows_build), (True, False, False))
+
+    def test_l10n_tests_do_not_add_a_new_macos_suite(self):
+        self.assertFalse(classify_paths(["otzaria_l10n/test/button_quotes_test.dart"]).macos)
 
     def test_windows_native_change(self):
         plan = classify_paths(["launcher_app/windows_stub/package.ps1"])

@@ -3,6 +3,7 @@ export 'src/models/library_update_check_result.dart';
 export 'src/services/companion_assets.dart';
 export 'src/services/companion_assets_installer.dart';
 export 'src/services/companion_assets_mirror.dart';
+export 'src/services/download_connections.dart' show isRemovableDrive;
 export 'src/services/external_update_notice.dart';
 export 'src/services/library_changes_notes.dart';
 export 'src/services/library_db_locator.dart';

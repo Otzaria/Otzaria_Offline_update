@@ -13,6 +13,7 @@ export 'src/atomic_file.dart'
 export 'src/github_api.dart';
 export 'src/network_errors.dart';
 export 'src/windows_elevation.dart';
+export 'src/write_behind.dart';
 
 class FileDownloadResult {
   const FileDownloadResult(this.size, this.headers, this.sha256);

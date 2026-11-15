@@ -1,7 +1,5 @@
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 
-import 'unpicked_patches.dart';
-
 /// קשת: הנכסים שלה וגודלם. [sure] — קבציה ידועים (manifest בכונן, או קובץ
 /// יחיד בשם הקשת); רק קשת כזו מוסרת, אחרת החסם עלול לרדת מתחת להורדה.
 typedef _Edge = ({
@@ -317,4 +315,13 @@ int? personalDownloadBytesBound({
     seconds: total.seconds + applyTime.chainStartExtraSeconds,
     bytes: total.bytes,
   );
+}
+
+bool isAppliableManifest(DeltaManifest manifest) {
+  final format = manifest.patchFormatVersion;
+  return !manifest.fullRebase &&
+      isSupportedSchemaVersion(manifest.fromSchemaVersion) &&
+      isSupportedSchemaVersion(manifest.toSchemaVersion) &&
+      (format == null || isSupportedPatchFormatVersion(format)) &&
+      manifest.hasSupportedCompression;
 }
