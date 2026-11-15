@@ -279,15 +279,12 @@ class UpdateHereFlow {
     if (stages.isEmpty) return false;
     var grantConsent = false;
     if (asks) {
-      final approve = await host.askSemanticConsent();
-      if (approve == null || !host.isActive || _tasks.updateInProgress) {
-        return true;
-      }
+      final approve = await _askConsent(() => _tasks.updateInProgress);
+      if (approve == null) return true;
       if (approve) {
         grantConsent = true;
         stages = stagesNow(semantic: true);
       } else {
-        await host.declineSemanticConsent();
         stages = stagesNow(semantic: false);
       }
       if (stages.isEmpty || !host.isActive) return true;
@@ -324,6 +321,11 @@ class UpdateHereFlow {
         fullLibrary: fullLibrary,
         grantConsent: grantConsent,
         recheckLibrary: recheckLibrary,
+        // בהתקנה ראשונה ובספרייה המלאה השלבים נקבעים מראש.
+        libraryMayJoin: app.isInstalled &&
+            !fullLibrary &&
+            items.contains(GuidanceItem.library),
+        blocked: blocked,
       );
     } catch (error, stackTrace) {
       AppLogger.maybeInstance
@@ -331,6 +333,14 @@ class UpdateHereFlow {
       _failIfRunning(id, error);
     }
     return true;
+  }
+
+  /// `null` — "חזרה", או שהזרימה כבר אינה שלה: דבר לא נרשם. "לא" נרשם כאן.
+  Future<bool?> _askConsent(bool Function() abandoned) async {
+    final approve = await host.askSemanticConsent();
+    if (approve == null || !host.isActive || abandoned()) return null;
+    if (!approve) await host.declineSemanticConsent();
+    return approve;
   }
 
   /// "נסה שוב" אחרי כשל או ביטול — אותה בקשה, לא מה שמוצג עכשיו בבית.
@@ -357,7 +367,10 @@ class UpdateHereFlow {
     required bool fullLibrary,
     required bool grantConsent,
     required bool recheckLibrary,
+    required bool libraryMayJoin,
+    Set<GuidanceItem> Function()? blocked,
   }) async {
+    stages = [...stages];
     if (stages.contains(GuidanceItem.app) && app.elevatedAsOtherUser) {
       final go = await _tasks.askOtherUser();
       if (!host.isActive) return;
@@ -365,7 +378,11 @@ class UpdateHereFlow {
     }
 
     var ranAny = false;
-    for (final stage in stages) {
+    var libraryRechecked = false;
+    // התוכנה החדשה עשויה לפתוח לספרייה מה להתקין גם כשלא תוכנן לה שלב.
+    final mayJoin = libraryMayJoin && !stages.contains(GuidanceItem.library);
+    for (var i = 0; i < stages.length; i++) {
+      final stage = stages[i];
       if (!host.isActive) return;
       final keepGoing = switch (stage) {
         GuidanceItem.library => await _library(
@@ -373,6 +390,7 @@ class UpdateHereFlow {
                 (stages.contains(GuidanceItem.app) &&
                     stages.indexOf(GuidanceItem.app) <
                         stages.indexOf(GuidanceItem.library)),
+            rechecked: libraryRechecked,
             ranAny: ranAny,
             full: fullLibrary,
             grantConsent: grantConsent,
@@ -381,6 +399,15 @@ class UpdateHereFlow {
             first: first,
             ranAny: ranAny,
             reinstall: reinstallApp,
+            libraryJoins: !mayJoin
+                ? null
+                : () async {
+                    if (blocked?.call().contains(GuidanceItem.library) ??
+                        false) {
+                      return false;
+                    }
+                    return libraryRechecked = await _libraryOpenedByApp();
+                  },
           ),
         GuidanceItem.plugins => await _plugins(id),
       };
@@ -388,8 +415,25 @@ class UpdateHereFlow {
       if (keepGoing == null) return _tasks.abandonUpdate();
       if (!keepGoing) return;
       ranAny = true;
+      if (stage == GuidanceItem.app && libraryRechecked) {
+        stages.insert(i + 1, GuidanceItem.library);
+      }
     }
     _tasks.updateDone();
+  }
+
+  /// בדיקה שנכשלה כאן אינה מפילה עדכון שהצליח; הבית יציג אותה.
+  Future<bool> _libraryOpenedByApp() async {
+    try {
+      if (!await library.recheck() || !host.isActive) return false;
+      return library.hasUpdateAvailable ||
+          (library.semanticAwaitsConsent &&
+              await host.semanticConsentUnanswered());
+    } catch (error, stackTrace) {
+      AppLogger.maybeInstance
+          ?.error('בדיקת הספרייה אחרי התקנת התוכנה נכשלה', error, stackTrace);
+      return false;
+    }
   }
 
   void _failIfRunning(int id, Object error) {
@@ -424,6 +468,7 @@ class UpdateHereFlow {
   Future<bool?> _library({
     required bool afterApp,
     required bool ranAny,
+    bool rechecked = false,
     bool full = false,
     bool grantConsent = false,
   }) async {
@@ -434,7 +479,7 @@ class UpdateHereFlow {
         _tasks.stageFinished(GuidanceItem.library, StageOutcome.skipped);
         return true;
       }
-      final checked = await library.recheck();
+      final checked = rechecked || await library.recheck();
       if (!host.isActive) return false;
       if (!checked) {
         _libraryRecheckFailed = true;
@@ -444,6 +489,14 @@ class UpdateHereFlow {
           needsElevation: library.needsElevation,
         ));
         return false;
+      }
+      // התוכנה החדשה עשויה לפתוח חיפוש חכם שהבדיקה שלפניה לא ראתה.
+      if (!grantConsent &&
+          library.semanticAwaitsConsent &&
+          await host.semanticConsentUnanswered()) {
+        final approve = await _askConsent(() => false);
+        if (!host.isActive) return false;
+        grantConsent = approve ?? false;
       }
       final updates = library.hasUpdateAvailable;
       if (!updates && !grantConsent && !full) {
@@ -519,6 +572,7 @@ class UpdateHereFlow {
     required bool first,
     required bool ranAny,
     bool reinstall = false,
+    Future<bool> Function()? libraryJoins,
   }) async {
     final closed = await _ensureClosed(ranAny: ranAny);
     if (closed != true) return closed;
@@ -535,6 +589,10 @@ class UpdateHereFlow {
     };
     switch (outcome) {
       case AppInstallOutcome.installed:
+        // נבדק כשהשלב עוד על התוכנה: המסך אינו עובר לשלב שעוד לא התחיל.
+        final joins = await libraryJoins?.call() ?? false;
+        if (!host.isActive) return false;
+        if (joins) _tasks.libraryJoinsAfterApp();
         _tasks.stageFinished(GuidanceItem.app, StageOutcome.done);
         return true;
       case AppInstallOutcome.stillOpen when stopped:
