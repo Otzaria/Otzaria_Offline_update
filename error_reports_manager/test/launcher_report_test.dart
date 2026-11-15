@@ -967,6 +967,43 @@ error: A RenderFlex overflowed by 4 pixels
       expect(candidate!.hasStartupStall, isTrue);
     });
 
+    String stallAt(int s) => line(previousStart.add(Duration(seconds: s)),
+        'WARN', '${LauncherLogFormat.startupStallTag} no frame');
+    String recoveredAt(int s) => line(previousStart.add(Duration(seconds: s)),
+        'INFO', '${LauncherLogFormat.startupStallRecoveredTag} after 19853ms');
+
+    test('תקיעה שהפריים הראשון הוצג אחריה אינה קריסה', () async {
+      writeLock();
+      writeLog(stallAt(15) + recoveredAt(20));
+      expect(await detector().detectPreviousCrash(), isNull);
+    });
+
+    test('תקיעה והתאוששות באותו חותם זמן: סדר הקובץ קובע', () async {
+      writeLock();
+      // המיון הלא-יציב של Dart מחליף כאן בין המקום הראשון למקום ה-41.
+      final filler = line(
+          previousStart.add(const Duration(seconds: 15)), 'INFO', 'filler');
+      writeLog(stallAt(15) + filler * 39 + recoveredAt(15) + filler * 81);
+      expect(await detector().detectPreviousCrash(), isNull);
+    });
+
+    test('התאוששות שלפני התקיעה אינה מבטלת אותה', () async {
+      writeLock();
+      writeLog(recoveredAt(10) + stallAt(15));
+      final candidate = await detector().detectPreviousCrash();
+      expect(candidate!.hasStartupStall, isTrue);
+    });
+
+    test('תקיעה שהתאוששה ושגיאה קטלנית אחריה: החתימה של השגיאה', () async {
+      writeLock();
+      writeLog(stallAt(15) +
+          recoveredAt(20) +
+          uncaught(previousStart.add(const Duration(minutes: 5))));
+      final candidate = await detector().detectPreviousCrash();
+      expect(candidate!.hasStartupStall, isFalse);
+      expect(candidate.signature!.exceptionType, 'StateError');
+    });
+
     test('נעילה פגומה מתעלמת', () async {
       File(p.join(logs.path, UncleanExitDetector.lockFileName))
           .writeAsStringSync('{not json');

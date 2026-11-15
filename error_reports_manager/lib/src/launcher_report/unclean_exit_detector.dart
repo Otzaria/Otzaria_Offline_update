@@ -173,14 +173,14 @@ class UncleanExitDetector {
     if (_isStillRunning(lock)) return null;
 
     final blocks = await _blocksSince(lock.startedAt);
-    final evidence = blocks.where((b) => b.isCrashEvidence).toList();
+    final evidence = blocks.crashEvidence;
     if (evidence.isEmpty) return null;
 
     return CrashCandidate(
       previousSession: lock,
       entries: blocks,
       signature: evidence.last.signature,
-      hasStartupStall: blocks.any((b) => b.isStartupStall),
+      hasStartupStall: blocks.unrecoveredStartupStalls.isNotEmpty,
     );
   }
 
@@ -214,8 +214,8 @@ class UncleanExitDetector {
     DateTime since,
     DateTime until,
   ) =>
-      Isolate.run(
-        () => parseLauncherLog(content)
+      Isolate.run(() {
+        final blocks = parseLauncherLog(content)
             .where(
               (b) =>
                   b.timestamp != null &&
@@ -223,9 +223,15 @@ class UncleanExitDetector {
                   // רשומות של התהליך הנוכחי אינן ראיה לקריסה של הקודם.
                   b.timestamp!.isBefore(until),
             )
-            .toList()
-          ..sort((a, b) => a.timestamp!.compareTo(b.timestamp!)),
-      );
+            .toList();
+        // `List.sort` אינו יציב: בזמן זהה סדר הקובץ קובע (stall → recovered).
+        final order = {for (var i = 0; i < blocks.length; i++) blocks[i]: i};
+        return blocks
+          ..sort((a, b) {
+            final byTime = a.timestamp!.compareTo(b.timestamp!);
+            return byTime != 0 ? byTime : order[a]!.compareTo(order[b]!);
+          });
+      });
 
   /// סוף הקובץ בלבד: היומן גדל עד 2MB לפני סבב, והבדיקה רצה בעלייה.
   static Future<String> readTail(File file, int maxBytes) async {
