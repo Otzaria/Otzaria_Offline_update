@@ -279,15 +279,12 @@ class UpdateHereFlow {
     if (stages.isEmpty) return false;
     var grantConsent = false;
     if (asks) {
-      final approve = await host.askSemanticConsent();
-      if (approve == null || !host.isActive || _tasks.updateInProgress) {
-        return true;
-      }
+      final approve = await _askConsent(() => _tasks.updateInProgress);
+      if (approve == null) return true;
       if (approve) {
         grantConsent = true;
         stages = stagesNow(semantic: true);
       } else {
-        await host.declineSemanticConsent();
         stages = stagesNow(semantic: false);
       }
       if (stages.isEmpty || !host.isActive) return true;
@@ -331,6 +328,14 @@ class UpdateHereFlow {
       _failIfRunning(id, error);
     }
     return true;
+  }
+
+  /// `null` — "חזרה", או שהזרימה כבר אינה שלה: דבר לא נרשם. "לא" נרשם כאן.
+  Future<bool?> _askConsent(bool Function() abandoned) async {
+    final approve = await host.askSemanticConsent();
+    if (approve == null || !host.isActive || abandoned()) return null;
+    if (!approve) await host.declineSemanticConsent();
+    return approve;
   }
 
   /// "נסה שוב" אחרי כשל או ביטול — אותה בקשה, לא מה שמוצג עכשיו בבית.
@@ -444,6 +449,14 @@ class UpdateHereFlow {
           needsElevation: library.needsElevation,
         ));
         return false;
+      }
+      // התוכנה החדשה עשויה לפתוח חיפוש חכם שהבדיקה שלפניה לא ראתה.
+      if (!grantConsent &&
+          library.semanticAwaitsConsent &&
+          await host.semanticConsentUnanswered()) {
+        final approve = await _askConsent(() => false);
+        if (!host.isActive) return false;
+        grantConsent = approve ?? false;
       }
       final updates = library.hasUpdateAvailable;
       if (!updates && !grantConsent && !full) {
