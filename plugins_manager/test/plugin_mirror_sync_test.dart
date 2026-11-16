@@ -1932,6 +1932,60 @@ void main() {
       expect(catalog.plugins.single.localFiles.keys, ['2.0.0']);
     });
 
+    /// #253: בלי גרסאות אוצריא נבחר רק הבילד החי, והקודם עדיין מפורסם.
+    List<Map<String, dynamic>> released(String live, List<String> all) => [
+          {
+            'id': 'a',
+            'name': 'אלף',
+            'version': live,
+            'downloadUrl': '/api/plugins/a/download',
+            'versions': [
+              for (final v in all)
+                {
+                  'version': v,
+                  'downloadUrl': v == live
+                      ? '/api/plugins/a/download'
+                      : '/api/plugins/a@$v/download',
+                  if (v == live) 'isLatest': true,
+                },
+            ],
+          },
+        ];
+
+    test('#253: בלי גרסאות אוצריא בילד שאיש לא ביקש זמן רב נמחק', () async {
+      await sync(_Site(plugins: released('1.0.0', ['1.0.0'])));
+      final store = PluginMirrorStore(temp.path);
+      final old = File(store.absolutePath('files/a/plugin-1.0.0.otzplugin'));
+      expect(old.existsSync(), isTrue);
+      await _ageTargets(
+        temp.path,
+        PluginMirrorSync.untargetedBuildRetention + const Duration(days: 1),
+      );
+
+      final catalog = await sync(
+        _Site(plugins: released('1.1.0', ['1.1.0', '1.0.0'])),
+      );
+
+      expect(catalog.plugins.single.localFiles.keys, ['1.1.0']);
+      expect(old.existsSync(), isFalse);
+    });
+
+    test('#253: בלי גרסאות אוצריא הבילד הקודם נשאר בתוך חלון השמירה', () async {
+      await sync(_Site(plugins: released('1.0.0', ['1.0.0'])));
+      final store = PluginMirrorStore(temp.path);
+      final old = File(store.absolutePath('files/a/plugin-1.0.0.otzplugin'));
+
+      final catalog = await sync(
+        _Site(plugins: released('1.1.0', ['1.1.0', '1.0.0'])),
+      );
+
+      expect(catalog.plugins.single.localFiles.keys.toSet(), {
+        '1.0.0',
+        '1.1.0',
+      });
+      expect(old.existsSync(), isTrue);
+    });
+
     test(
       'היסטוריית הגרסאות נשמרת בקטלוג, כדי שההכרעה תעבוד גם אופליין',
       () async {
