@@ -1851,6 +1851,29 @@ void main() {
       expect(fake.passedSources['old']?.repo, 'their-app');
     });
 
+    testWidgets('an absent release clears a previously available update', (
+      tester,
+    ) async {
+      await tester.runAsync(() async {
+        final built = await fakeController({'a': '2.0.0'}, ids: ['a']);
+        final c = built.controller;
+        addTearDown(c.dispose);
+        await c.load();
+        final app = c.apps.single;
+        await c.checkOnline(app.descriptor);
+        expect(c.hasOnlineUpdate(app), isTrue);
+
+        built.fake.online.clear();
+        await c.checkOnline(app.descriptor);
+        expect(c.onlineVersions['a'], isNull);
+        expect(c.outdatedApps, isEmpty);
+        expect(c.onlineUnavailable, isEmpty);
+        await c.downloadAllOutdated();
+        expect(built.fake.peeked, ['a', 'a']);
+        expect(built.fake.downloaded, isEmpty);
+      });
+    });
+
     testWidgets('בדיקה שחזרה אחרי שינוי המקור אינה שומרת את ה-release שלה', (
       tester,
     ) async {
@@ -1862,6 +1885,8 @@ void main() {
         c = built.controller;
         await c.load();
         final before = c.apps.single.descriptor;
+        await c.checkOnline(before);
+        expect(c.hasOnlineUpdate(c.apps.single), isTrue);
         final gate = Completer<void>();
         fake.peekGate = gate;
         final check = c.checkOnline(before);
@@ -1880,6 +1905,8 @@ void main() {
         );
         gate.complete();
         await check;
+        expect(c.onlineVersions['old'], isNull);
+        expect(c.hasOnlineUpdate(c.apps.single), isFalse);
         fake.peekGate = null;
         await c.download('old');
         c.dispose();

@@ -1420,28 +1420,48 @@ class SemanticSearchAssets {
     onStage?.call(AppL10n.strings.libraryDomain.semanticDownloading);
     final plans = <_Meta>[];
     final remotes = <String, _Remote>{};
+    final unpublished = <SemanticModelGeneration>{};
     for (final group in groups) {
-      final plan = await _plan(
-        mirrorDir,
-        libraryTag,
-        version,
-        group,
-        libraryTagFor ?? (_) => null,
-        isCancelled,
-      );
+      final ({_Meta meta, List<_Remote> remotes})? plan;
+      try {
+        plan = await _plan(
+          mirrorDir,
+          libraryTag,
+          version,
+          group,
+          libraryTagFor ?? (_) => null,
+          isCancelled,
+        );
+      } on SemanticNotPublishedException {
+        _cancel(isCancelled);
+        unpublished.add(group.generation);
+        continue;
+      }
       _cancel(isCancelled);
       if (plan == null) _httpFailure(HttpStatus.notFound);
+      final meta = plan.meta;
       plans.removeWhere(
-        (m) =>
-            m.generation == plan.meta.generation &&
-            m.family == plan.meta.family,
+        (m) => m.generation == meta.generation && m.family == meta.family,
       );
-      plans.add(plan.meta);
+      plans.add(meta);
       for (final remote in plan.remotes) {
         remotes[remote.releaseTag] = remote;
       }
     }
-    final metadata = _mirrorJson(plans);
+    if (plans.isEmpty) throw SemanticNotPublishedException(version);
+    final retained = unpublished.isEmpty
+        ? const <_Meta>[]
+        : (await _allMetadata(mirrorDir)).where(
+            (meta) =>
+                meta.libraryTag == libraryTag &&
+                unpublished.contains(meta.generation) &&
+                !plans.any(
+                  (plan) =>
+                      plan.generation == meta.generation &&
+                      plan.family == meta.family,
+                ),
+          );
+    final metadata = _mirrorJson([...plans, ...retained]);
     final generation = p.join(mirrorDir, libraryTag);
     // By destination path: the same file name lives in each generation's folder.
     final reused = <String, ({String source, int size})>{};
@@ -1637,12 +1657,15 @@ class SemanticSearchAssets {
         jsonEncode(metadata),
       );
       await pruneOldGenerations(mirrorDir, libraryTag);
-      await _pruneUnplanned(p.join(generation, 'vectors'), {
-        for (final remote in remotes.values) ...[
-          remote.manifestName,
-          for (final file in remote.files) file.name,
-        ],
-      });
+      // Partial publication may retain plans whose files were not downloaded.
+      if (unpublished.isEmpty) {
+        await _pruneUnplanned(p.join(generation, 'vectors'), {
+          for (final remote in remotes.values) ...[
+            remote.manifestName,
+            for (final file in remote.files) file.name,
+          ],
+        });
+      }
     } on FileSystemException catch (error, stack) {
       throwStorageAware(error, stack, mirrorDir);
     } finally {

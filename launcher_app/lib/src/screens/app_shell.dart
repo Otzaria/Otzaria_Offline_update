@@ -435,7 +435,8 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
   List<GuidanceItem> get _hereItems =>
       homeViewModelOf(_session).guidance.hereItems;
 
-  void _updateHere() => unawaited(_session.updateHere(_hereItems));
+  void _updateHere() =>
+      unawaited(_session.updateHere(_hereItems, recheckLibraryAfterApp: true));
 
   void _updateHereLauncherFirst() =>
       unawaited(_session.launcherFirst(AfterLauncherUpdate.updateHere));

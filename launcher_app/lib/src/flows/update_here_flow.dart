@@ -153,9 +153,10 @@ class UpdateHereFlow {
     final installsApp = !recheckLibrary &&
         items.contains(GuidanceItem.app) &&
         _canInstallApp(reinstallApp);
-    // תוכנית הספרייה נגזרת מהתוכנה שמותקנת: עד שהחדשה מותקנת אין מה להחיל,
-    // ולכן היא רצה אחריה ולא בלחיצה נוספת.
-    final afterApp = installsApp && library.awaitsAppUpdate;
+    // כשהספרייה אינה מוכנה להחלה, גרסת אוצריא החדשה עשויה לפתוח חיפוש חכם.
+    final afterApp = installsApp &&
+        (library.awaitsAppUpdate ||
+            (!fullLibrary && !library.hasUpdateAvailable && !semantic));
     final installsLibrary = items.contains(GuidanceItem.library) &&
         (fullLibrary
             ? library.canApplyFull
@@ -180,15 +181,21 @@ class UpdateHereFlow {
 
   /// `false` — אין מה להתקין, והמשימה לא נפתחה. חריג באמצע מעביר את
   /// המשימה לכשל: משימה רצה חוסמת את Esc ואת הסרגל, ובלי זה אין ממנה יציאה.
+  /// [recheckLibraryAfterApp] — בדף הבית הספרייה עשויה להצטרף אחרי האשף.
   /// [blocked] — שלבים שההורדה שרצה עוד כותבת את המראה שלהם; הם יחכו לפעם הבאה.
   Future<bool> run(
     List<GuidanceItem> items, {
     bool reinstallApp = false,
     bool fullLibrary = false,
+    bool recheckLibraryAfterApp = false,
     Set<GuidanceItem> Function()? blocked,
   }) =>
       _start(
-        items,
+        recheckLibraryAfterApp &&
+                items.contains(GuidanceItem.app) &&
+                !items.contains(GuidanceItem.library)
+            ? [...items, GuidanceItem.library]
+            : items,
         reinstallApp: reinstallApp,
         fullLibrary: fullLibrary,
         blocked: blocked,
@@ -321,6 +328,7 @@ class UpdateHereFlow {
         fullLibrary: fullLibrary,
         grantConsent: grantConsent,
         recheckLibrary: recheckLibrary,
+        blocked: blocked,
       );
     } catch (error, stackTrace) {
       AppLogger.maybeInstance
@@ -362,6 +370,7 @@ class UpdateHereFlow {
     required bool fullLibrary,
     required bool grantConsent,
     required bool recheckLibrary,
+    required Set<GuidanceItem> Function()? blocked,
   }) async {
     if (stages.contains(GuidanceItem.app) && app.elevatedAsOtherUser) {
       final go = await _tasks.askOtherUser();
@@ -372,6 +381,11 @@ class UpdateHereFlow {
     var ranAny = false;
     for (final stage in stages) {
       if (!host.isActive) return;
+      if (stage == GuidanceItem.library &&
+          (blocked?.call().contains(stage) ?? false)) {
+        _tasks.stageFinished(stage, StageOutcome.skipped);
+        continue;
+      }
       final keepGoing = switch (stage) {
         GuidanceItem.library => await _library(
             afterApp: recheckLibrary ||

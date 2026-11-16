@@ -330,6 +330,70 @@ void main() {
   });
 
   group('a drive that serves several computers', () {
+    test(
+      'a mixed fleet downloads a published generation and picks up the other later',
+      () async {
+        final fleet = SemanticFleet([
+          _machine(_round2),
+          _machine(_qa491, windows: true),
+        ]);
+        final subject = assets();
+        final tag = libraryTagOf(30);
+        Future<bool> pending() => subject.peekPending(
+          mirrorDir: mirror,
+          libraryTag: tag,
+          fleet: fleet,
+        );
+
+        github.legacyBase(30, identity: identityB);
+        expect(await pending(), isTrue);
+        await sync(fleet);
+        expect(
+          (await assess(_app(_round2))).state,
+          SmartSearchState.readyOnDrive,
+        );
+        expect(await pending(), isFalse);
+        expect(subject.peekedNotPublished, isNull);
+
+        github.qa491Base(30, windows: true);
+        expect(await pending(), isTrue);
+        await sync(fleet);
+        expect(
+          (await assess(_app(_round2))).state,
+          SmartSearchState.readyOnDrive,
+        );
+        expect(
+          (await assess(_app(_qa491, windows: true))).state,
+          SmartSearchState.readyOnDrive,
+        );
+        expect(await pending(), isFalse);
+      },
+    );
+
+    test(
+      'an unpublished group keeps its existing plan for the same tag',
+      () async {
+        github.qa491Base(30, windows: true);
+        await sync(SemanticFleet([_machine(_qa491, windows: true)]));
+        github.unpublish(
+          '${SemanticVectorsFamily.windows.releaseTagPrefixFor(_qa491)}${libraryTagOf(30)}',
+        );
+        github.legacyBase(30, identity: identityB);
+
+        await sync(
+          SemanticFleet([_machine(_round2), _machine(_qa491, windows: true)]),
+        );
+        expect(
+          (await assess(_app(_round2))).state,
+          SmartSearchState.readyOnDrive,
+        );
+        expect(
+          (await assess(_app(_qa491, windows: true))).state,
+          SmartSearchState.readyOnDrive,
+        );
+      },
+    );
+
     test('a mixed Round2 anchor and QA491 windows fleet gets both', () async {
       github
         ..legacyBase(30, identity: identityB)

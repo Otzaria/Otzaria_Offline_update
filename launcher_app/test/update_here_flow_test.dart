@@ -1060,6 +1060,45 @@ void main() {
         expect(task()!.phase, UpdateHereTaskPhase.done);
       });
 
+      test(
+        'checks after the app even without a pending library update',
+        () async {
+          library.awaitsAppUpdate = false;
+          host.consentAnswer = true;
+          await flow.run(both);
+          expect(log, ['app', 'recheck', 'grant', 'library']);
+        },
+      );
+
+      test(
+        'the home action rechecks when its only initial item is the app',
+        () async {
+          library.awaitsAppUpdate = false;
+          host.consentAnswer = true;
+          await flow.run(
+            const [GuidanceItem.app],
+            recheckLibraryAfterApp: true,
+          );
+          expect(log, ['app', 'recheck', 'grant', 'library']);
+        },
+      );
+
+      test(
+        'a library download that starts during the wizard blocks the recheck',
+        () async {
+          library.awaitsAppUpdate = false;
+          app.gate = Completer<void>();
+          final blocked = <GuidanceItem>{};
+          final run = flow.run(both, blocked: () => blocked);
+          await settle();
+          blocked.add(GuidanceItem.library);
+          app.gate!.complete();
+          await run;
+          expect(log, ['app']);
+          expect(task()!.outcomes[GuidanceItem.library], StageOutcome.skipped);
+        },
+      );
+
       test('"המשך בלי" — נרשם, לא מותקן, ולא נשאל שוב', () async {
         host.consentAnswer = false;
         await flow.run(both);

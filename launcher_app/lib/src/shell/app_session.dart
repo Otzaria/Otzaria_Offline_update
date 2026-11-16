@@ -1183,7 +1183,9 @@ class AppSession extends ChangeNotifier {
       case AfterLauncherUpdate.updateHere:
         final items =
             deriveHomeGuidance(guidanceFactsFromSession(this)).hereItems;
-        if (items.isNotEmpty) await updateHere(items);
+        if (items.isNotEmpty) {
+          await updateHere(items, recheckLibraryAfterApp: true);
+        }
     }
   }
 
@@ -1358,6 +1360,7 @@ class AppSession extends ChangeNotifier {
     List<GuidanceItem> items, {
     bool reinstallApp = false,
     bool fullLibrary = false,
+    bool recheckLibraryAfterApp = false,
   }) async {
     if (!_canStartUpdateHere) return;
     // נאמר לפני ההתחלה: השלב שנשמט לא יופיע במסך הסיום.
@@ -1366,6 +1369,7 @@ class AppSession extends ChangeNotifier {
       items,
       reinstallApp: reinstallApp,
       fullLibrary: fullLibrary,
+      recheckLibraryAfterApp: recheckLibraryAfterApp,
       blocked: () => installsBlockedByDownload,
     );
   }

@@ -88,6 +88,8 @@ class FakeVectorsGithub {
   final garbledTags = <String>{};
   final truncated = <String>{};
 
+  void unpublish(String releaseTag) => _releases.remove(releaseTag);
+
   void addAsset(String releaseTag, String name) {
     final release = _releases[releaseTag]!;
     (release['assets']! as List).add({

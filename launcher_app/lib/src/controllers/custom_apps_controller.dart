@@ -337,9 +337,27 @@ class CustomAppsController extends ChangeNotifier
       apps = views;
       _shownScreenshots = shownScreenshots;
       errorMessage = null;
+      if (onlineVersions.isNotEmpty ||
+          onlineUnavailable.isNotEmpty ||
+          _onlineReleases.isNotEmpty) {
+        final sources = {
+          for (final app in views)
+            if (app.descriptor.sourceKind == AppSourceKind.github)
+              app.descriptor.id: app.descriptor.github,
+        };
+        for (final before in previous.values) {
+          final descriptor = before.descriptor;
+          if (descriptor.github != sources[descriptor.id]) {
+            _clearOnlineCheck(descriptor.id);
+          }
+        }
+      }
     } catch (e) {
       AppLogger.maybeInstance?.warn('טעינת התוכנות המותאמות נכשלה: $e');
       if (gen != _loadGen) return;
+      onlineVersions.clear();
+      onlineUnavailable.clear();
+      _onlineReleases.clear();
       apps = const [];
       _shownScreenshots = const {};
     }
@@ -374,7 +392,7 @@ class CustomAppsController extends ChangeNotifier
   /// התוכנות שנבדקות ברשת ברגע זה — בדיקה שנייה לאותה תוכנה אינה יוצאת.
   final Set<String> checkingIds = {};
 
-  final Map<String, ({GithubSource source, GithubRelease release})>
+  final Map<String, ({GithubSource source, GithubRelease? release})>
       _onlineReleases = {};
 
   /// המזהה של התוכנה שמורידה כרגע, או `null`. הורדה אחת בכל רגע: כולן
@@ -400,7 +418,6 @@ class CustomAppsController extends ChangeNotifier
   }
 
   Future<bool> update(AppDescriptor descriptor) async {
-    _onlineReleases.remove(descriptor.id);
     final ok = await _guard(() async {
       await _manager.update(descriptor);
       return true;
@@ -410,7 +427,6 @@ class CustomAppsController extends ChangeNotifier
   }
 
   Future<bool> remove(String id) async {
-    _onlineReleases.remove(id);
     final ok = await _guard(() async {
       await _manager.remove(id);
       return true;
@@ -469,26 +485,35 @@ class CustomAppsController extends ChangeNotifier
   Future<void> checkOnline(AppDescriptor descriptor) async {
     final source = descriptor.github;
     if (descriptor.sourceKind != AppSourceKind.github || source == null) return;
-    if (!checkingIds.add(descriptor.id)) return;
+    if (!_isCurrentSource(descriptor.id, source) ||
+        !checkingIds.add(descriptor.id)) {
+      return;
+    }
     notifyListeners();
     try {
       final release = await _manager.peekLatestOnline(descriptor);
       if (!_isCurrentSource(descriptor.id, source)) return;
       onlineUnavailable.remove(descriptor.id);
-      if (release != null) {
-        onlineVersions[descriptor.id] = release.version;
-        _onlineReleases[descriptor.id] = (source: source, release: release);
+      _onlineReleases[descriptor.id] = (source: source, release: release);
+      if (release == null) {
+        onlineVersions.remove(descriptor.id);
       } else {
-        _onlineReleases.remove(descriptor.id);
+        onlineVersions[descriptor.id] = release.version;
       }
     } catch (_) {
       if (!_isCurrentSource(descriptor.id, source)) return;
+      _clearOnlineCheck(descriptor.id);
       onlineUnavailable.add(descriptor.id);
-      _onlineReleases.remove(descriptor.id);
     } finally {
       checkingIds.remove(descriptor.id);
       if (!isDisposed) notifyListeners();
     }
+  }
+
+  void _clearOnlineCheck(String id) {
+    onlineVersions.remove(id);
+    onlineUnavailable.remove(id);
+    _onlineReleases.remove(id);
   }
 
   bool _isCurrentSource(String id, GithubSource source) => apps.any(
@@ -602,7 +627,8 @@ class CustomAppsController extends ChangeNotifier
 
     final unchecked = [
       for (final app in online)
-        if (!onlineVersions.containsKey(app.descriptor.id) &&
+        if (!_onlineReleases.containsKey(app.descriptor.id) &&
+            !onlineVersions.containsKey(app.descriptor.id) &&
             !onlineUnavailable.contains(app.descriptor.id))
           app,
     ];
