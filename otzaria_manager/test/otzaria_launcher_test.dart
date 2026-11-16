@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:otzaria_downloads/otzaria_downloads.dart' show ElevatedProcess;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
@@ -86,6 +87,69 @@ void main() {
       },
       testOn: '!windows',
     );
+
+    group('when starting needs elevation (error 740)', () {
+      late File exe;
+      late List<List<Object?>> elevatedCalls;
+
+      setUp(() {
+        exe = File(p.join(tempDir.path, 'otzaria.exe'))..writeAsStringSync('x');
+        elevatedCalls = [];
+      });
+
+      OtzariaLauncher build(Object error, int exitCode) => OtzariaLauncher(
+            startProcess: (e, a, {workingDirectory}) async => throw error,
+            startElevated: (e, a, {workingDirectory}) async {
+              elevatedCalls.add([e, a, workingDirectory]);
+              return ProcessResult(0, exitCode, '', 'boom');
+            },
+          );
+
+      const needsElevation = ProcessException(
+        'otzaria.exe',
+        [],
+        'The requested operation requires elevation',
+        ElevatedProcess.elevationRequiredCode,
+      );
+      const uri = 'otzaria://plugin/install-local?path=C%3A%5Cx&a=b';
+
+      test('retries through ShellExecute with the same arguments', () async {
+        await build(needsElevation, 0).launch(exe.path, withUri: uri);
+
+        expect(elevatedCalls, [
+          [
+            exe.path,
+            [uri],
+            tempDir.path
+          ],
+        ]);
+      });
+
+      test('a declined prompt is a clear error', () {
+        expect(
+          build(needsElevation, ElevatedProcess.cancelledCode).launch(exe.path),
+          throwsA(isA<OtzariaUserError>().having((e) => e.message, 'message',
+              AppL10n.strings.customAppsDomain.launchElevationDeclined)),
+        );
+      });
+
+      test('a failed ShellExecute is an error, not silent success', () {
+        expect(
+          build(needsElevation, 2).launch(exe.path),
+          throwsA(isA<OtzariaUserError>()),
+        );
+      });
+
+      test('another ProcessException is rethrown without elevating', () async {
+        const other = ProcessException('otzaria.exe', [], 'nope', 2);
+
+        await expectLater(
+          build(other, 0).launch(exe.path),
+          throwsA(same(other)),
+        );
+        expect(elevatedCalls, isEmpty);
+      });
+    });
 
     test(
       'finds an existing .app bundle (a directory) and hands it to open',
