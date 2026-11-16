@@ -1067,6 +1067,15 @@ generation, `SemanticSearchAssets.assess` answers; only `allClear` is done.
 `AppSession` passes `mirroredOtzariaVersions` (`app_session_test.dart`).
 Rest: `library_manager/README.md`; `semantic_generations_test.dart`.
 
+**A drive downloads at most one full smart-search base per model generation.**
+A drive reached 5.2GB of a 1.8GB feature (#265): `SemanticFleet.groups` split a
+generation by capability, and every older installer in `mirror/app` added its own
+generation. Now anchor-only and windows-capable machines not on a windows set
+share one anchor base; only machines already on a windows set keep a windows
+group (delta chain). A generation with no anchor-only machine stays one windows
+group. Only the newest installer's generation is added. `_pick` gives a machine
+without a windows set the anchor plan, never a windows chain. `semantic_delta_scenarios_test.dart`.
+
 **A markerless model folder may be repaired only when its pinned identity
 and file names are recognized.**
 Issue #136 (2026-10-28) got stuck before repair because a known partial model

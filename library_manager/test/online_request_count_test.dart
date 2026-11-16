@@ -1446,10 +1446,10 @@ void main() {
       (<String>[], <SemanticModelGeneration>[]),
       (['v0.9.98.3'], [SemanticModelGeneration.qa491]),
       (['v0.9.98.3-rc1', 'latest'], <SemanticModelGeneration>[]),
-      (
-        ['v0.9.98.2', 'v0.9.98.3'],
-        [SemanticModelGeneration.round2, SemanticModelGeneration.qa491],
-      ),
+      // Only the newest installer's generation is planned for.
+      (['v0.9.98.2', 'v0.9.98.3'], [SemanticModelGeneration.qa491]),
+      (['v0.9.98.3', 'v0.9.98.2'], [SemanticModelGeneration.qa491]),
+      (['v0.9.98.2', 'latest'], [SemanticModelGeneration.round2]),
     ]) {
       test('a drive without machine records plans for its installers '
           '${scenario.$1}', () async {

@@ -1128,15 +1128,17 @@ class SemanticSearchAssets {
     final root =
         vectorsRootPath ??
         (dbPath == null ? null : p.dirname(p.dirname(dbPath)));
+    final live = root == null
+        ? null
+        : (await readInstalledSets(p.join(root, 'vectors'))).firstOrNull;
+    final onWindowsSet = live?.windows ?? false;
     if (supportsWindows && root != null) {
       final meta = await _metadata(
         mirrorDir,
         generation: generation,
         preferWindows: true,
+        onWindowsSet: onWindowsSet,
       );
-      final live = (await readInstalledSets(
-        p.join(root, 'vectors'),
-      )).firstOrNull;
       if (meta != null &&
           meta.libraryVersion == libraryVersion &&
           _keepsWindowsSet(meta, live, supportsWindows, generation)) {
@@ -1161,6 +1163,7 @@ class SemanticSearchAssets {
         libraryVersion,
         generation: generation,
         preferWindows: supportsWindows,
+        onWindowsSet: onWindowsSet,
         reportIncompatible: true,
       );
       return null;
@@ -2092,25 +2095,33 @@ class SemanticSearchAssets {
     return json;
   }
 
+  /// A windows chain continues an installed windows set: a machine on no
+  /// such set ([onWindowsSet] false) takes the anchor plan when the drive
+  /// holds one; with only the chain it still tries it, and records needsBase.
   _Meta? _pick(
     List<_Meta> metas,
     SemanticModelGeneration generation, {
     bool preferWindows = false,
+    bool onWindowsSet = true,
   }) {
     final own = metas.where((m) => m.generation == generation).toList();
     final windows = own.where((m) => m.windows).firstOrNull;
     final legacy = own.where((m) => !m.windows).firstOrNull;
-    return preferWindows ? (windows ?? legacy) : (legacy ?? windows);
+    final chainFits =
+        windows != null && (onWindowsSet || !windows.chain || legacy == null);
+    return preferWindows ? (chainFits ? windows : legacy) : (legacy ?? windows);
   }
 
   Future<_Meta?> _metadata(
     String mirrorDir, {
     required SemanticModelGeneration generation,
     bool preferWindows = false,
+    bool onWindowsSet = true,
   }) async => _pick(
     await _allMetadata(mirrorDir),
     generation,
     preferWindows: preferWindows,
+    onWindowsSet: onWindowsSet,
   );
 
   /// Every plan of `semantic.json`. A document without `plans` is the
@@ -2361,6 +2372,7 @@ class SemanticSearchAssets {
     int version, {
     required SemanticModelGeneration generation,
     bool preferWindows = false,
+    bool onWindowsSet = true,
     bool reportIncompatible = false,
   }) async {
     try {
@@ -2369,6 +2381,7 @@ class SemanticSearchAssets {
         version,
         generation: generation,
         preferWindows: preferWindows,
+        onWindowsSet: onWindowsSet,
         requireRead: false,
       );
     } on IOException {
@@ -2386,11 +2399,17 @@ class SemanticSearchAssets {
     int version, {
     required SemanticModelGeneration generation,
     bool preferWindows = false,
+    bool onWindowsSet = true,
     bool requireRead = true,
   }) async {
     try {
       final drive = await _readDrive(mirrorDir, requireRead: requireRead);
-      final meta = _pick(drive.metas, generation, preferWindows: preferWindows);
+      final meta = _pick(
+        drive.metas,
+        generation,
+        preferWindows: preferWindows,
+        onWindowsSet: onWindowsSet,
+      );
       if (meta == null || meta.libraryVersion != version) return null;
       final spec = _spec(generation);
       final dir = p.join(mirrorDir, meta.libraryTag);
@@ -2550,7 +2569,13 @@ class SemanticSearchAssets {
     }
     final spec = _spec(generation);
     final modelDir = p.join(p.dirname(dbPath), spec.folder);
-    final meta = _pick(metas, generation, preferWindows: support.windows);
+    final onWindowsSet = live?.windows ?? false;
+    final meta = _pick(
+      metas,
+      generation,
+      preferWindows: support.windows,
+      onWindowsSet: onWindowsSet,
+    );
     if (meta == null) {
       if (drive.fileExists && !drive.complete) {
         return status(
@@ -2601,6 +2626,7 @@ class SemanticSearchAssets {
         libraryVersion,
         generation: generation,
         preferWindows: support.windows,
+        onWindowsSet: onWindowsSet,
         reportIncompatible: true,
       );
     } on SemanticEngineIncompatibleException catch (fault) {
@@ -2984,11 +3010,15 @@ class SemanticSearchAssets {
       );
     }
     final spec = _spec(generation);
+    final root = vectorsRootPath ?? p.dirname(p.dirname(dbPath));
+    final vectorsDir = p.join(root, 'vectors');
+    final live = (await readInstalledSets(vectorsDir)).firstOrNull;
     final data = await _loadSource(
       mirrorDir,
       libraryVersion,
       generation: generation,
       preferWindows: supportsWindows,
+      onWindowsSet: live?.windows ?? false,
     );
     if (data == null || (data.meta.windows && !supportsWindows)) {
       throw FormatException(
@@ -2997,10 +3027,7 @@ class SemanticSearchAssets {
     }
     final meta = data.meta;
     onStage?.call(AppL10n.strings.libraryDomain.semanticInstalling);
-    final root = vectorsRootPath ?? p.dirname(p.dirname(dbPath));
-    final vectorsDir = p.join(root, 'vectors');
     final generationDir = p.join(mirrorDir, meta.libraryTag);
-    final live = (await readInstalledSets(vectorsDir)).firstOrNull;
     if (_keepsWindowsSet(meta, live, supportsWindows, generation)) {
       return false;
     }

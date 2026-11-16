@@ -471,13 +471,13 @@ void main() {
       });
     });
 
-    test('anchor and windows machines of two generations make four '
-        'targets, none deleted', () async {
+    test('anchor machines and machines on a windows set, of two '
+        'generations, make four targets, none deleted', () async {
       final fleet = SemanticFleet([
         _machine(_round2),
-        _machine(_round2, windows: true),
+        _machine(_round2, windows: true, version: 29),
         _machine(_qa491),
-        _machine(_qa491, windows: true),
+        _machine(_qa491, windows: true, version: 29),
       ]);
       expect(
         [for (final group in fleet.groups) (group.generation, group.family)],
@@ -488,6 +488,23 @@ void main() {
           (_qa491, SemanticVectorsFamily.windows),
         ],
       );
+    });
+
+    test('windows-capable machines without a windows set join the anchor '
+        'target of their generation', () async {
+      final fleet = SemanticFleet([
+        _machine(_qa491),
+        _machine(_qa491, windows: true),
+        _machine(_qa491, windows: true, version: 29),
+      ]);
+      expect(
+        [for (final group in fleet.groups) (group.generation, group.family)],
+        [
+          (_qa491, SemanticVectorsFamily.legacy),
+          (_qa491, SemanticVectorsFamily.windows),
+        ],
+      );
+      expect(fleet.groups.first.machines, hasLength(2));
     });
 
     test('an empty fleet follows the installer on the drive', () async {
