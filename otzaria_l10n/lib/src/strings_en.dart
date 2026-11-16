@@ -5004,6 +5004,14 @@ class _AppReports extends AppReportsStrings {
   @override
   String get imagesPrompt => 'Click to choose a screenshot';
   @override
+  String get imagesPromptWithPaste =>
+      'Click to choose a screenshot, or paste one from the clipboard (Ctrl+V)';
+  @override
+  String get imagePasteButton => 'Paste image from clipboard';
+  @override
+  String get clipboardHasNoImage =>
+      'The clipboard holds no image. Capture the screen (Win+Shift+S) or copy an image file, then paste again.';
+  @override
   String get attachmentLimitsHint =>
       'Up to 10 MiB per file and 20 MiB for all attachments together (1 MiB = 1,048,576 bytes).';
   @override

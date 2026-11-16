@@ -5,6 +5,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 
 import '../../controllers/app_reports_controller.dart';
+import '../../services/image_clipboard.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
 import 'app_report_form.dart';
@@ -17,11 +18,16 @@ Future<AppReportDeliveryResult?> showAppReportDialog(
   BuildContext context, {
   required AppReportsController reports,
   AppReportImageSource imageSource = const AppReportImageSource(),
+  ImageClipboard clipboard = const SystemImageClipboard(),
 }) {
   return showDialog<AppReportDeliveryResult>(
     context: context,
     barrierDismissible: false,
-    builder: (_) => AppReportDialog(reports: reports, imageSource: imageSource),
+    builder: (_) => AppReportDialog(
+      reports: reports,
+      imageSource: imageSource,
+      clipboard: clipboard,
+    ),
   );
 }
 
@@ -40,10 +46,12 @@ class AppReportDialog extends StatefulWidget {
     super.key,
     required this.reports,
     this.imageSource = const AppReportImageSource(),
+    this.clipboard = const SystemImageClipboard(),
   });
 
   final AppReportsController reports;
   final AppReportImageSource imageSource;
+  final ImageClipboard clipboard;
 
   @override
   State<AppReportDialog> createState() => _AppReportDialogState();
@@ -283,6 +291,7 @@ class _AppReportDialogState extends State<AppReportDialog> {
           otherAttachmentBytes: form.otherAttachmentBytes,
           enabled: enabled,
           source: widget.imageSource,
+          clipboard: widget.clipboard,
           onChanged: (images) => form.update(images: images),
         ),
         const SizedBox(height: AppTokens.spaceLG),

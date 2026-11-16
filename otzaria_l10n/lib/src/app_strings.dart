@@ -2600,6 +2600,9 @@ abstract class AppReportsStrings {
 
   // ── תמונות ──
   String get imagesPrompt;
+  String get imagesPromptWithPaste;
+  String get imagePasteButton;
+  String get clipboardHasNoImage;
   String get attachmentLimitsHint;
   String get attachmentsInvalidSnack;
   String get imagesPickDialogTitle;

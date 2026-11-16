@@ -2343,6 +2343,8 @@ queue, history, issue links) and "report a problem with this tool" (`AppReportDi
 Settings keeps only the crash mode, a link to the page and the report form. Paths, table
 layout and the transaction are tabulated in `error_reports_manager/README.md`.
 
+**The report dialog attaches images by file picker or Ctrl+V.** `ImageClipboard` (`image_clipboard.dart`) reads the Windows clipboard by FFI — registered "PNG", `CF_HDROP` image files, `CF_DIB`/`CF_DIBV5` encoded to PNG by `dibToPng` — and goes through the picker's limits. Ctrl+V attaches only when the clipboard holds an image and no text, so pasting text is untouched. macOS has no paste: no plugin, so no button.
+
 **The launcher's own reports are a port of Otzaria's app reports, told apart
 by `product`.** `AppReportService` stamps `"product": "offline-update"` on
 its bodies; the site routes on it, and a report without it is Otzaria's — so
