@@ -1,5 +1,10 @@
 import 'dart:io'
-    show Directory, FileSystemEntity, FileSystemEntityType, Platform;
+    show
+        Directory,
+        FileSystemEntity,
+        FileSystemEntityType,
+        FileSystemException,
+        Platform;
 
 import 'package:otzaria_downloads/otzaria_downloads.dart' show WindowsElevation;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -76,7 +81,9 @@ class OtzariaManager {
     OtzariaArch? machineArch,
     OtzariaArch? Function(String exePath)? exeArchOf,
     List<String>? legacyInstallDirs,
-  })  : _platform =
+    void Function(FileSystemException error)? onStateNotSaved,
+  })  : _onStateNotSaved = onStateNotSaved,
+        _platform =
             platform ?? OtzariaTargetPlatform.detect(Platform.operatingSystem),
         _environment = environment ?? defaultEnvironment(),
         _machineArchOverride = machineArch,
@@ -166,6 +173,18 @@ class OtzariaManager {
   }
 
   final OtzariaStateStore _stateStore;
+  final void Function(FileSystemException error)? _onStateNotSaved;
+
+  /// The state file is only a cache (see [OtzariaStateStore]); failing to
+  /// write it must not fail an install or a detection that already succeeded.
+  Future<void> _saveStateBestEffort(OtzariaInstallState state) async {
+    try {
+      await _stateStore.save(state);
+    } on FileSystemException catch (e) {
+      _onStateNotSaved?.call(e);
+    }
+  }
+
   late final OtzariaReleaseClient _releaseClient;
   late final OtzariaChangelogClient _changelogClient;
   late final OtzariaInstaller _installer;
@@ -348,14 +367,16 @@ class OtzariaManager {
     final running = await probe;
 
     var current = stored == null ? null : _verifyStoredState(stored);
-    if (current != null && current != stored) await _stateStore.save(current);
+    if (current != null && current != stored) {
+      await _saveStateBestEffort(current);
+    }
 
     if (current == null) {
       final runningState = _installStateAt(running.launchPath);
       if (runningState != null &&
           await _isDurableInstallDir(runningState.installDir)) {
         current = runningState;
-        await _stateStore.save(runningState);
+        await _saveStateBestEffort(runningState);
       }
     }
 
@@ -410,7 +431,7 @@ class OtzariaManager {
             installDir: installDir,
             locateInstalled: () => _detectInKnownDirs(fresh: true),
           );
-    await _stateStore.save(state);
+    await _saveStateBestEffort(state);
     return state;
   }
 

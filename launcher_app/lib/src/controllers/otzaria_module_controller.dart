@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -51,7 +52,12 @@ class OtzariaModuleController extends ChangeNotifier
               platform: platform,
               runningLocator: runningLocator,
               launcher: launcher,
+              onStateNotSaved: logStateNotSaved,
             );
+
+  @visibleForTesting
+  static void logStateNotSaved(FileSystemException error) =>
+      AppLogger.maybeInstance?.warn('שמירת מצב ההתקנה של אוצריא נכשלה: $error');
 
   final OtzariaManager _manager;
 
