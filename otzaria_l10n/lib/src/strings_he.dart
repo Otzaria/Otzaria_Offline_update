@@ -189,6 +189,11 @@ class _Shell extends ShellStrings {
   @override
   String get closeWaitingDeliveryBack => 'חזרה לכלי';
   @override
+  String get closingTitle => 'סוגר את הכלי';
+  @override
+  String get closingBody =>
+      'ההורדה נעצרת והכתיבה לכונן מופסקת. מה שכבר נכתב נשמר, וההורדה תמשיך ממנו בפעם הבאה.';
+  @override
   String get helpTooltip => 'עזרה ושאלות נפוצות';
   @override
   String get settingsTooltip => 'הגדרות';
@@ -4735,6 +4740,14 @@ class _AppReports extends AppReportsStrings {
 
   @override
   String get imagesPrompt => 'לחץ כאן לבחירת צילום מסך';
+  @override
+  String get imagesPromptWithPaste =>
+      'לחץ כאן לבחירת צילום מסך, או הדבק אותו מהלוח (Ctrl+V)';
+  @override
+  String get imagePasteButton => 'הדבקת תמונה מהלוח';
+  @override
+  String get clipboardHasNoImage =>
+      'בלוח אין תמונה. צלם את המסך (Win+Shift+S) או העתק קובץ תמונה, ואז הדבק שוב.';
   @override
   String get attachmentLimitsHint =>
       'עד 10 MiB לקובץ, ועד 20 MiB לכל הצרופות יחד (1 MiB = 1,048,576 בתים).';

@@ -1,7 +1,20 @@
 import 'dart:io';
 
+import 'package:otzaria_downloads/otzaria_downloads.dart' show ElevatedProcess;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
+
+typedef ProcessStarter = Future<Object?> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+});
+
+typedef ElevatedStarter = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+});
 
 /// תוצאת ניסיון פעולה מול מערכת ההפעלה — מוחזרת כערך ולא כחריג, בדיוק
 /// כמו ב-`FileReveal` בלאנצ'ר: ה-UI מציג הודעה, לא stack trace.
@@ -176,10 +189,17 @@ abstract final class PluginDirectInstaller {
   static Future<PluginInstallResult> openProtocolUrl(
     String url, {
     String? otzariaLaunchPath,
+    ProcessStarter startProcess = _startDetached,
+    ElevatedStarter startElevated = ElevatedProcess.start,
   }) async {
     final strings = AppL10n.strings.pluginsDomain;
     try {
-      final direct = await _openWithKnownInstall(url, otzariaLaunchPath);
+      final direct = await _openWithKnownInstall(
+        url,
+        otzariaLaunchPath,
+        startProcess,
+        startElevated,
+      );
       if (direct != null) return direct;
 
       if (Platform.isWindows) {
@@ -231,6 +251,8 @@ abstract final class PluginDirectInstaller {
   static Future<PluginInstallResult?> _openWithKnownInstall(
     String url,
     String? otzariaLaunchPath,
+    ProcessStarter startProcess,
+    ElevatedStarter startElevated,
   ) async {
     final launchPath = deliveryTargetFor(otzariaLaunchPath);
     if (launchPath == null) return null;
@@ -252,12 +274,43 @@ abstract final class PluginDirectInstaller {
       return const PluginInstallResult.ok();
     }
 
-    await Process.start(
-      launchPath,
-      [url],
-      workingDirectory: p.dirname(launchPath),
-      mode: ProcessStartMode.detached,
-    );
+    final workingDirectory = p.dirname(launchPath);
+    try {
+      await startProcess(launchPath, [url], workingDirectory: workingDirectory);
+    } on ProcessException catch (e) {
+      // קובץ מסומן "הרץ כמנהל": CreateProcess אינו מרים (740), ShellExecute כן.
+      if (!ElevatedProcess.isElevationRequired(e)) rethrow;
+      final result = await startElevated(
+        launchPath,
+        [url],
+        workingDirectory: workingDirectory,
+      );
+      if (result.exitCode == ElevatedProcess.cancelledCode) {
+        return PluginInstallResult.failure(
+          AppL10n.strings.customAppsDomain.launchElevationDeclined,
+        );
+      }
+      if (result.exitCode != 0) {
+        return PluginInstallResult.failure(
+          strings.otzariaOpenFailed(
+            AppL10n.strings.appDomain
+                .launchFailed(result.exitCode, '${result.stderr}'),
+          ),
+        );
+      }
+    }
     return const PluginInstallResult.ok();
   }
+
+  static Future<Object?> _startDetached(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+  }) =>
+      Process.start(
+        executable,
+        arguments,
+        workingDirectory: workingDirectory,
+        mode: ProcessStartMode.detached,
+      );
 }

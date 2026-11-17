@@ -989,8 +989,13 @@ awaits the other branch. The progress screen shows `runningComponents` together.
 `AppSession._throughDriveWrites`). HTTPS chunks average ~5KB and each switch
 between files costs a slow stick about a second: the same 417MiB took 182–187s
 direct and 124–140s through the pool. Do not preallocate the file or download
-one file at a time instead — both measured worse. Only `File.open` is wrapped;
-cancel calls `abandonPending`. Details: `otzaria_downloads/README.md`.
+one file at a time instead — both measured worse. Only `File.open` is wrapped.
+Cancel and close call `abandonPending`: sticky until the next run
+(`resumeWrites`), it drops every queued byte with no exemption for a handle
+already closing, fails later opens, and makes deletes of wrapped paths no-ops —
+the engine deletes a file whose close failed, losing the on-drive prefix.
+`confirmClose` shows a closing layer and logs dropped bytes and stage times.
+Details: `otzaria_downloads/README.md`.
 
 ### 5.3 State that travels on the drive
 
@@ -1066,6 +1071,15 @@ date" (2026-11-03). `OtzariaCapabilities.semanticSupport` proves the
 generation, `SemanticSearchAssets.assess` answers; only `allClear` is done.
 `AppSession` passes `mirroredOtzariaVersions` (`app_session_test.dart`).
 Rest: `library_manager/README.md`; `semantic_generations_test.dart`.
+
+**A drive downloads at most one full smart-search base per model generation.**
+A drive reached 5.2GB of a 1.8GB feature (#265): `SemanticFleet.groups` split a
+generation by capability, and every older installer in `mirror/app` added its own
+generation. Now anchor-only and windows-capable machines not on a windows set
+share one anchor base; only machines already on a windows set keep a windows
+group (delta chain). A generation with no anchor-only machine stays one windows
+group. Only the newest installer's generation is added. `_pick` gives a machine
+without a windows set the anchor plan, never a windows chain. `semantic_delta_scenarios_test.dart`.
 
 **A markerless model folder may be repaired only when its pinned identity
 and file names are recognized.**
@@ -2342,6 +2356,8 @@ reports are waiting. The same page hosts the launcher's own reports (`AppReports
 queue, history, issue links) and "report a problem with this tool" (`AppReportDialog`);
 Settings keeps only the crash mode, a link to the page and the report form. Paths, table
 layout and the transaction are tabulated in `error_reports_manager/README.md`.
+
+**The report dialog attaches images by file picker or Ctrl+V.** `ImageClipboard` (`image_clipboard.dart`) reads the Windows clipboard by FFI — registered "PNG", `CF_HDROP` image files, `CF_DIB`/`CF_DIBV5` encoded to PNG by `dibToPng` — and goes through the picker's limits. Ctrl+V attaches only when the clipboard holds an image and no text, so pasting text is untouched. macOS has no paste: no plugin, so no button.
 
 **The launcher's own reports are a port of Otzaria's app reports, told apart
 by `product`.** `AppReportService` stamps `"product": "offline-update"` on

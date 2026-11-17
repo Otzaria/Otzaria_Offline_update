@@ -88,9 +88,13 @@ void main() {
     OtzariaTargetPlatform platform = OtzariaTargetPlatform.windows,
     InstalledVersionReader? versionReader,
     List<String> legacyInstallDirs = const [],
+    String? stateDir,
+    void Function(FileSystemException error)? onStateNotSaved,
   }) {
     final manager = OtzariaManager(
       dataDir: dataDir.path,
+      stateDir: stateDir,
+      onStateNotSaved: onStateNotSaved,
       platform: platform,
       versionReader: versionReader,
       environment: environment,
@@ -1227,6 +1231,103 @@ ${build == null ? '' : '<key>CFBundleVersion</key><string>$build</string>'}
       expect(
         '$thrown',
         isNot(contains(AppL10n.strings.appDomain.macCloseOtzariaBeforeInstall)),
+      );
+    });
+  });
+
+  // Seen on a removable drive: every write of the state file was denied.
+  group('state file that cannot be written', () {
+    late String unwritableStateDir;
+
+    setUp(() async {
+      // A directory cannot be created under a regular file, on any platform.
+      final blocker = File(p.join(dataDir.path, 'blocker'));
+      await blocker.writeAsString('x');
+      unwritableStateDir = p.join(blocker.path, 'state');
+    });
+
+    test(
+        'update: the install that succeeded is reported, and the failure '
+        'is logged', () async {
+      final portableDir = p.join(dataDir.path, 'OtzariaPortable');
+      await Directory(portableDir).create(recursive: true);
+      final exe = p.join(portableDir, 'otzaria.exe');
+      await File(exe).writeAsString('exe');
+      await File(p.join(portableDir, OtzariaInstaller.portableMarkerFileName))
+          .writeAsString('');
+      const assetName = 'setup.bat';
+      final script = Platform.isWindows
+          ? '@echo off\r\nexit /b 0\r\n'
+          : '#!/bin/sh\nexit 0\n';
+      final release = OtzariaRelease(
+        tagName: '0.9.96',
+        name: 'Otzaria 0.9.96',
+        isPrerelease: false,
+        isDraft: false,
+        publishedAt: DateTime.utc(2026, 1, 1),
+        installerKind: OtzariaInstallerKind.windowsSetupExe,
+        installerAssetName: assetName,
+        installerDownloadUrl: 'https://example.invalid/0.9.96',
+        installerSizeBytes: utf8.encode(script).length,
+      );
+      await writeMirror(stable: release);
+      final installerPath =
+          p.join(mirrorDir(), 'installers', '0.9.96', assetName);
+      await File(installerPath).writeAsString(script);
+      if (!Platform.isWindows) {
+        await Process.run('chmod', ['+x', installerPath]);
+      }
+      final failures = <FileSystemException>[];
+
+      final state = await managerFor(
+        stateDir: unwritableStateDir,
+        onStateNotSaved: failures.add,
+      ).update(
+        OtzariaUpdateCheckResult(
+          currentState: OtzariaInstallState(
+            installedTagName: '0.9.90',
+            installDir: portableDir,
+            launchPath: exe,
+          ),
+        ),
+        useWizard: true,
+      );
+
+      expect(state.launchPath, exe);
+      expect(failures, hasLength(1));
+    });
+
+    test(
+        'checkForUpdate: the running install is still detected, and the '
+        'failure is logged', () async {
+      if (!File(_systemExe).existsSync()) {
+        markTestSkipped('אין $_systemExe במכונה הזאת');
+        return;
+      }
+      final failures = <FileSystemException>[];
+
+      final check = await managerFor(
+        runningOtzariaPath: _systemExe,
+        stateDir: unwritableStateDir,
+        onStateNotSaved: failures.add,
+      ).checkForUpdate();
+
+      expect(check.currentState?.launchPath, _systemExe);
+      expect(failures, hasLength(1));
+    }, testOn: 'windows');
+
+    test(
+        'adoptExistingInstall still fails: a picked folder is not '
+        're-detectable', () async {
+      final manager = managerFor(stateDir: unwritableStateDir);
+
+      await expectLater(
+        manager.adoptExistingInstall(OtzariaInstallState(
+          installedTagName: '0.9.96',
+          installDir: dataDir.path,
+          launchPath: p.join(dataDir.path, 'otzaria.exe'),
+        )),
+        throwsA(isA<FileSystemException>()),
       );
     });
   });

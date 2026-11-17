@@ -665,6 +665,27 @@ void main() {
       expect(wrapped, isNotEmpty);
     });
 
+    test('a cancel drops drive writes and the next run resumes them', () async {
+      final calls = <String>[];
+      flow = MirrorDownloadFlow(
+        app: app,
+        library: library,
+        plugins: plugins,
+        host: host,
+        dropDriveWrites: () => calls.add('drop'),
+        resumeDriveWrites: () => calls.add('resume'),
+      );
+      host.flow = flow;
+      library.onDownload = () async => flow.requestCancel();
+      await flow.downloadAll();
+      expect(calls, ['resume', 'drop']);
+
+      library.onDownload = null;
+      calls.clear();
+      await flow.downloadAll();
+      expect(calls, ['resume'], reason: 'a finished run drops nothing');
+    });
+
     test('runs every component in order and ends with one sweep', () async {
       await flow.downloadAll();
 

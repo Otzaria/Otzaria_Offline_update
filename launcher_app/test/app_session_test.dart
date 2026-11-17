@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:error_reports_manager/error_reports_manager.dart';
@@ -27,6 +28,7 @@ import 'package:launcher_app/src/self_update/launcher_update_mirror.dart'
 import 'package:launcher_app/src/services/after_launcher_update_store.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:launcher_app/src/services/app_paths.dart';
+import 'package:launcher_app/src/services/byte_size.dart';
 import 'package:launcher_app/src/services/notices_seen_store.dart';
 import 'package:launcher_app/src/services/sleep_inhibitor.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
@@ -44,6 +46,7 @@ import 'package:library_manager/library_manager.dart'
         LibraryStateStore,
         LibraryUpdateCheckResult,
         MirrorDownloadOutcome;
+import 'package:otzaria_downloads/otzaria_downloads.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
@@ -104,6 +107,7 @@ void main() {
     LauncherSelfUpdater? launcherUpdater,
     SearchFeedbackController? searchFeedback,
     Duration closeDeliveryPatience = const Duration(seconds: 10),
+    WriteBehindPool? driveWrites,
   }) {
     final s = AppSession(
       dataDir: tempDir.path,
@@ -122,6 +126,7 @@ void main() {
       launcherUpdater: launcherUpdater,
       searchFeedback: searchFeedback,
       closeDeliveryPatience: closeDeliveryPatience,
+      driveWrites: driveWrites,
     );
     sessions.add(s);
     return s;
@@ -1799,6 +1804,7 @@ void main() {
       Future<(AppSession, Future<void>)> downloading({
         bool plugins = true,
         LauncherSelfUpdater? launcher,
+        WriteBehindPool? driveWrites,
       }) async {
         await settings.update(settings.settings.copyWith(
           semanticDownload: SemanticDownloadPreference.never,
@@ -1810,6 +1816,7 @@ void main() {
           libraryManager: engines.library,
           pluginsManager: engines.plugins,
           launcherUpdater: launcher,
+          driveWrites: driveWrites,
           // ההתקנה העצמית ממתינה לעצירתו; בלי מקור הוא אינו פונה להתקנת
           // אוצריא האמיתית שבמחשב.
           searchFeedback: SearchFeedbackController(
@@ -2339,6 +2346,89 @@ void main() {
 
         engines.plugins.syncGate!.complete();
         await sync;
+      });
+
+      test(
+          'סגירה בזמן הורדה לכונן איטי: התור נזרק בלי לחכות לכונן, המסך '
+          'מראה סגירה, והלוג מתעד', () async {
+        final pool = WriteBehindPool(minBurstBytes: 1 << 20);
+        final (s, run) = await downloading(driveWrites: pool);
+        s.tasks.hideDownload();
+        final drive = Completer<void>();
+        final handle = await pool
+            .wrap(_SlowDriveFile(File(p.join(tempDir.path, 'a.bin')), drive))
+            .open(mode: FileMode.write);
+        await handle.writeFrom(Uint8List(50 << 20));
+        expect(pool.pendingBytes, 50 << 20);
+
+        var closed = false;
+        final close = s.confirmClose().then((ok) => closed = ok);
+        await waitFor(() => s.closingDownload);
+        expect(s.closingDownload, isTrue);
+        expect(s.isCancellingDownload, isTrue);
+        expect(pool.pendingBytes, 0, reason: 'נזרק, לא ממתינים לכונן');
+        expect(closed, isFalse);
+
+        drive.complete();
+        await expectLater(
+          handle.close().timeout(const Duration(seconds: 5)),
+          throwsA(isA<FileSystemException>()),
+        );
+        expect(
+          File(p.join(tempDir.path, 'a.bin')).lengthSync(),
+          lessThan(50 << 20),
+        );
+        await release(run);
+        await close;
+        expect(closed, isTrue);
+        expect(s.closingDownload, isTrue, reason: 'נשאר עד שהחלון נסגר');
+
+        await AppLogger.instance.flush();
+        final log = File(AppLogger.instance.filePath).readAsStringSync();
+        expect(
+          log,
+          contains('עצירת הכתיבה לכונן: נזרקו ${formatBytes(50 << 20)}'),
+        );
+        expect(log, contains('סגירה בזמן הורדה: שטיפת שאלות נפוצות'));
+        expect(log, contains('עצירת מסירות'));
+        expect(log, contains('עצירת ההורדה'));
+      });
+
+      test('סגירה שנייה בזמן שהראשונה ממתינה להורדה אינה שואלת שוב', () async {
+        final (s, run) = await downloading();
+        s.tasks.hideDownload();
+        var closed = false;
+        final close = s.confirmClose().then((ok) => closed = ok);
+        await waitFor(() => s.closingDownload);
+        expect(prompts.calls.where((c) => c == 'confirmClose'), hasLength(1));
+
+        expect(await s.confirmClose(), isFalse);
+        expect(prompts.calls.where((c) => c == 'confirmClose'), hasLength(1));
+        expect(s.closingDownload, isTrue);
+        expect(closed, isFalse);
+
+        await release(run);
+        await close;
+        expect(closed, isTrue);
+      });
+
+      test('עצירת ההורדה שנכשלת בסגירה מנקה את מסך הסגירה והשגיאה עולה',
+          () async {
+        final pool = _ThrowingDropPool();
+        final (s, run) = await downloading(driveWrites: pool);
+        s.tasks.hideDownload();
+        await expectLater(s.confirmClose(), throwsA(isA<StateError>()));
+        expect(s.closingDownload, isFalse);
+        await release(run);
+      });
+
+      test('"חזרה לכלי" בעת המתנה למסירה מנקה את מסך הסגירה', () async {
+        final (s, run) = await downloading(plugins: false);
+        s.tasks.hideDownload();
+        prompts.closeAnswer = false;
+        expect(await s.confirmClose(), isFalse);
+        expect(s.closingDownload, isFalse);
+        await release(run);
       });
 
       test('ביטול אחרי שהספרייה הסתיימה מחזיר רק את התוספים', () async {
@@ -3148,6 +3238,54 @@ class _CountingPlugins extends PluginsManager {
   }
 }
 
+/// קובץ שכל כתיבה אליו ממתינה ל-[drive] — כונן שנתקע.
+class _SlowDriveFile implements File {
+  _SlowDriveFile(this._real, this.drive);
+
+  final File _real;
+  final Completer<void> drive;
+
+  @override
+  String get path => _real.path;
+
+  @override
+  Future<RandomAccessFile> open({FileMode mode = FileMode.read}) async =>
+      _SlowDriveHandle(await _real.open(mode: mode), drive);
+
+  @override
+  Future<bool> exists() => _real.exists();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _SlowDriveHandle implements RandomAccessFile {
+  _SlowDriveHandle(this._real, this.drive);
+
+  final RandomAccessFile _real;
+  final Completer<void> drive;
+
+  @override
+  String get path => _real.path;
+
+  @override
+  Future<RandomAccessFile> writeFrom(
+    List<int> buffer, [
+    int start = 0,
+    int? end,
+  ]) async {
+    await drive.future;
+    await _real.writeFrom(buffer, start, end);
+    return this;
+  }
+
+  @override
+  Future<void> close() => _real.close();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 class _Engines {
   _Engines(String dir)
       : otzaria = _QuietOtzaria(dir),
@@ -3157,4 +3295,9 @@ class _Engines {
   final _QuietOtzaria otzaria;
   final _ScriptedLibrary library;
   final _CountingPlugins plugins;
+}
+
+class _ThrowingDropPool extends WriteBehindPool {
+  @override
+  int abandonPending() => throw StateError('drop failed');
 }

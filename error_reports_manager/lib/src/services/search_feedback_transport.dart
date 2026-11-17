@@ -62,6 +62,20 @@ class SearchFeedbackTransport {
     return _pendingSendable(sourceDirectory);
   }
 
+  /// למה [pendingForCollection] הוא 0, לשורת לוג בלבד (שם סיבה, בלי תוכן).
+  Future<String> noCollectionReason(String sourceDirectory) async {
+    final identity = await SearchFeedbackIdentityStore(
+      () async => Directory(sourceDirectory),
+    ).load();
+    if (identity == null) return 'no-key';
+    if (identity.blocked) return 'key-blocked';
+    final carried = await SearchFeedbackIdentityStore(
+      () async => Directory(p.join(directory, identity.keyId)),
+    ).load();
+    if (carried?.blocked == true) return 'drive-key-blocked';
+    return await pending(sourceDirectory) > 0 ? 'local-only' : 'no-events';
+  }
+
   Future<int> _pendingSendable(String sourceDirectory) async {
     if (!await Directory(sourceDirectory).exists()) return 0;
     final queue = _queue(sourceDirectory);

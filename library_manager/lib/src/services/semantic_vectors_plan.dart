@@ -195,7 +195,10 @@ class SemanticFleet {
       ? SemanticVectorsFamily.windows
       : SemanticVectorsFamily.legacy;
 
-  /// Each generation and shape serves its own machines.
+  /// One anchor base serves a generation's anchor-only machines and every
+  /// windows-capable machine not on a windows set; machines on a windows set
+  /// keep their own group (delta chain, never back to the anchor set). A
+  /// generation with no anchor-only machine stays one windows group.
   List<SemanticFleet> get groups {
     final known = _known;
     if (known.isEmpty) {
@@ -208,9 +211,16 @@ class SemanticFleet {
     for (final generation in SemanticModelGeneration.values) {
       final ofGeneration = known.where((m) => m.generation == generation);
       if (ofGeneration.isEmpty) continue;
-      final anchor = ofGeneration.where((m) => !m.supportsWindows).toList();
-      final windows = ofGeneration.where((m) => m.supportsWindows).toList();
-      if (anchor.isNotEmpty) groups.add(SemanticFleet(anchor));
+      if (ofGeneration.every((m) => m.supportsWindows)) {
+        groups.add(SemanticFleet(ofGeneration.toList()));
+        continue;
+      }
+      bool onWindowsSet(SemanticMachineState m) =>
+          m.supportsWindows && m.family == SemanticVectorsFamily.windows;
+      groups.add(
+        SemanticFleet(ofGeneration.where((m) => !onWindowsSet(m)).toList()),
+      );
+      final windows = ofGeneration.where(onWindowsSet).toList();
       if (windows.isNotEmpty) groups.add(SemanticFleet(windows));
     }
     return groups;

@@ -138,6 +138,56 @@ void main() {
     expect(await transport.count(), 1);
   });
 
+  group('noCollectionReason', () {
+    late SearchFeedbackTransport transport;
+    setUp(() {
+      transport = SearchFeedbackTransport(destination);
+      addTearDown(transport.close);
+    });
+
+    test('no key on this computer', () async {
+      await SearchFeedbackIdentityStore(() async => Directory(source)).delete();
+      expect(await transport.noCollectionReason(source), 'no-key');
+    });
+
+    test('key blocked here', () async {
+      identity.blocked = true;
+      await SearchFeedbackIdentityStore(() async => Directory(source))
+          .save(identity);
+      expect(await transport.noCollectionReason(source), 'key-blocked');
+    });
+
+    test('key blocked in the drive copy', () async {
+      identity.blocked = true;
+      await SearchFeedbackIdentityStore(
+              () async => Directory(p.join(destination, identity.keyId)))
+          .save(identity);
+      expect(await transport.noCollectionReason(source), 'drive-key-blocked');
+    });
+
+    test('only local-only events remain', () async {
+      await File(p.join(source, (await queue.sealAndList()).single)).delete();
+      await queue.append({'type': 'search', 'query': 'private'},
+          {'app': 'otzaria', 'localOnly': true});
+      await queue.sealAndList();
+      expect(await transport.pendingForCollection(source), 0);
+      expect(await transport.noCollectionReason(source), 'local-only');
+    });
+
+    test('nothing queued', () async {
+      await File(p.join(source, (await queue.sealAndList()).single)).delete();
+      expect(await transport.pendingForCollection(source), 0);
+      expect(await transport.noCollectionReason(source), 'no-events');
+    });
+
+    test('a source with a key but no segments has no events', () async {
+      final empty = p.join(temporary.path, 'empty');
+      await SearchFeedbackIdentityStore(() async => Directory(empty))
+          .save(identity);
+      expect(await transport.noCollectionReason(empty), 'no-events');
+    });
+  });
+
   test('only local data does not carry a signing identity', () async {
     await queue.purge();
     await queue.resume();

@@ -28,8 +28,10 @@ class SearchFeedbackController extends ChangeNotifier
     required this.resolveSource,
     Future<ConsentWrite> Function()? grantConsent,
     Future<SearchFeedbackConsent> Function()? consentState,
+    String? Function()? sourceSkipReason,
   })  : _grantConsent = grantConsent,
-        _consentState = consentState;
+        _consentState = consentState,
+        _sourceSkipReason = sourceSkipReason;
 
   factory SearchFeedbackController.forDrive({
     required String dataDir,
@@ -55,19 +57,31 @@ class SearchFeedbackController extends ChangeNotifier
       return running;
     }
 
+    String? skipReason;
+
     Future<({LibraryDbLocator locator, String root})?> locate({
       bool fresh = false,
     }) async {
-      if (await isRunning(fresh: fresh)) return null;
+      if (await isRunning(fresh: fresh)) {
+        skipReason = 'otzaria-running';
+        return null;
+      }
       final launch = await launchPath();
-      if (launch == null) return null;
+      if (launch == null) {
+        skipReason = 'no-launch-path';
+        return null;
+      }
       final locator = LibraryDbLocator.forLaunch(
         stateDir: stateFilesDir ?? stateDir,
         launchPath: launch,
         dataDir: dataDir,
       );
       final root = await locator.otzariaSettingsRoot(launch);
-      return root == null ? null : (locator: locator, root: root);
+      if (root == null) {
+        skipReason = 'no-settings-root';
+        return null;
+      }
+      return (locator: locator, root: root);
     }
 
     Future<SearchFeedbackConsent> consent() async {
@@ -91,13 +105,18 @@ class SearchFeedbackController extends ChangeNotifier
     return SearchFeedbackController(
       transport: transport,
       consentState: consent,
+      sourceSkipReason: () => skipReason,
       resolveSource: () async {
+        skipReason = null;
         final location = await locate(fresh: true);
         if (location == null) return null;
         final settings = await location.locator.settingsReader.read(
           location.root,
         );
-        if (settings?.searchFeedbackGranted != true) return null;
+        if (settings?.searchFeedbackGranted != true) {
+          skipReason = settings == null ? 'settings-unreadable' : 'no-consent';
+          return null;
+        }
         return p.join(location.root, 'search_feedback');
       },
       grantConsent: () async {
@@ -127,6 +146,8 @@ class SearchFeedbackController extends ChangeNotifier
   final Future<String?> Function() resolveSource;
   final Future<ConsentWrite> Function()? _grantConsent;
   final Future<SearchFeedbackConsent> Function()? _consentState;
+  final String? Function()? _sourceSkipReason;
+  String? _lastQuietLine;
   bool isCollecting = false;
   bool isUploading = false;
   int outboxCount = 0;
@@ -154,12 +175,19 @@ class SearchFeedbackController extends ChangeNotifier
     notifyListeners();
   }
 
-  Future<int> pendingToCollect() async {
+  Future<int> pendingToCollect({void Function(String reason)? onSkip}) async {
     if (isDisposed || isUploading || isCollecting) return 0;
     try {
       final source = await resolveSource();
-      if (source == null) return 0;
-      return await transport.pendingForCollection(source);
+      if (source == null) {
+        onSkip?.call(_sourceSkipReason?.call() ?? 'no-source');
+        return 0;
+      }
+      final pending = await transport.pendingForCollection(source);
+      if (pending == 0 && onSkip != null) {
+        onSkip(await transport.noCollectionReason(source));
+      }
+      return pending;
     } catch (error) {
       AppLogger.maybeInstance?.error('קריאת משוב החיפוש באוצריא נכשלה', error);
       return 0;
@@ -200,7 +228,11 @@ class SearchFeedbackController extends ChangeNotifier
   /// איסוף ואז העלאה ברקע; כשל נרשם בלוג בלבד. מחזיר מתי לנסות שוב,
   /// או null כשלא נשאר מה לשלוח.
   Future<Duration?> synchronize() async {
-    if (isDisposed || isCollecting || isUploading || _run != null) return null;
+    if (isDisposed) return null;
+    if (isCollecting || isUploading || _run != null) {
+      _logRun(_SyncOutcome()..skip = 'already-running');
+      return null;
+    }
     _stopRequested = false;
     final run = _run = _synchronize();
     try {
@@ -230,10 +262,49 @@ class SearchFeedbackController extends ChangeNotifier
   }
 
   Future<Duration?> _synchronize() async {
+    final outcome = _SyncOutcome();
+    final delay = await _synchronizeSteps(outcome);
+    if (!isDisposed && !outcome.failed) _logRun(outcome);
+    return delay;
+  }
+
+  /// שורה אחת לכל ריצה; ריצה שלא עשתה דבר נרשמת רק כשהשורה השתנתה.
+  void _logRun(_SyncOutcome outcome) {
+    final parts = <String>[];
+    if (outcome.collected > 0) {
+      parts.add('collected ${outcome.collected}');
+    } else if (outcome.skip != null) {
+      parts.add('not collected (${outcome.skip})');
+    }
+    if (outcome.uploadSkip != null) {
+      parts.add('not uploaded (${outcome.uploadSkip})');
+    } else if (outcome.uploadAttempted) {
+      parts.add('uploaded ${outcome.sent}, rejected ${outcome.rejected}, '
+          'remaining ${outcome.remaining}');
+    }
+    final line = 'search feedback: ${parts.join(', ')}';
+    final quiet =
+        outcome.collected == 0 && outcome.sent == 0 && outcome.rejected == 0;
+    if (quiet) {
+      if (line == _lastQuietLine) return;
+      _lastQuietLine = line;
+    } else {
+      _lastQuietLine = null;
+    }
+    AppLogger.maybeInstance?.info(line);
+  }
+
+  Future<Duration?> _synchronizeSteps(_SyncOutcome outcome) async {
     try {
-      final pending = await pendingToCollect();
-      if (pending > 0 && !_stopRequested) await collect();
+      final pending = await pendingToCollect(onSkip: (r) => outcome.skip = r);
+      if (pending > 0 && !_stopRequested) {
+        outcome.collected = await collect();
+        if (outcome.collected == 0) outcome.skip = 'nothing-collected';
+      } else if (pending > 0) {
+        outcome.skip = 'stopped';
+      }
     } catch (error) {
+      outcome.failed = true;
       AppLogger.maybeInstance?.error('איסוף משוב החיפוש נכשל', error);
     }
     try {
@@ -244,13 +315,22 @@ class SearchFeedbackController extends ChangeNotifier
       if (_stopRequested) return minRetry;
       final consent = await _consent();
       if (consent == SearchFeedbackConsent.revoked) {
-        AppLogger.maybeInstance?.info('משוב החיפוש: ההסכמה בוטלה, אין העלאה');
+        outcome.uploadSkip = 'consent-revoked';
         return null;
       }
       if (_stopRequested) return minRetry;
       final result = await upload();
       if (isDisposed) return null;
       if (_stopRequested) return minRetry;
+      if (result == null) {
+        outcome.uploadSkip = 'already-running';
+      } else {
+        outcome
+          ..uploadAttempted = true
+          ..sent = result.sent
+          ..rejected = result.rejected
+          ..remaining = result.remaining;
+      }
       if (result?.remaining == 0) return null;
       final retryAt = await transport.retryAt();
       final wait = retryAt?.difference(DateTime.now());
@@ -261,6 +341,7 @@ class SearchFeedbackController extends ChangeNotifier
       }
       return wait < minRetry ? minRetry : wait;
     } catch (error) {
+      outcome.failed = true;
       AppLogger.maybeInstance?.error('העלאת משוב החיפוש נכשלה', error);
       return isDisposed ? null : idleRetry;
     }
@@ -271,4 +352,16 @@ class SearchFeedbackController extends ChangeNotifier
     transport.close();
     super.dispose();
   }
+}
+
+/// מה ריצת סנכרון אחת עשתה, לשורת הלוג שלה: מספרים וסיבות בלבד.
+class _SyncOutcome {
+  int collected = 0;
+  String? skip;
+  bool uploadAttempted = false;
+  String? uploadSkip;
+  int sent = 0;
+  int rejected = 0;
+  int remaining = 0;
+  bool failed = false;
 }

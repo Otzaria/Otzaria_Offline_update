@@ -105,13 +105,16 @@ class MirrorDownloadFlow {
     required this.host,
     this.driveWrites,
     this.dropDriveWrites,
+    this.resumeDriveWrites,
   });
 
   /// עוטף כל שלב הורדה; בכונן נשלף זה תור הכתיבה היחיד (`WriteBehindPool`).
   final Future<void> Function(Future<void> Function() step)? driveWrites;
 
-  /// בביטול: זורק את מה שהתור עוד לא כתב לכונן, כדי שהביטול לא יחכה לו.
+  /// בביטול ובסגירה: זורק את מה שהתור עוד לא כתב לכונן, וכל כתיבה אחריו, כדי
+  /// שלא יחכו לכונן. ו[resumeDriveWrites] מחזיר את הכתיבה כשהורדה חדשה מתחילה.
   final void Function()? dropDriveWrites;
+  final void Function()? resumeDriveWrites;
 
   final AppMirrorModule app;
   final LibraryMirrorModule library;
@@ -281,6 +284,7 @@ class MirrorDownloadFlow {
     _isDownloading = true;
     _cancelRequested = false;
     _keepProgress = false;
+    resumeDriveWrites?.call();
     host.stateChanged();
 
     try {

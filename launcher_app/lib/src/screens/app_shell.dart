@@ -59,6 +59,7 @@ import 'reports_upload_flow.dart';
 import 'settings_screen.dart';
 import 'tasks/download_overall.dart';
 import 'tasks/download_task_view.dart';
+import 'tasks/task_parts.dart';
 import 'tasks/update_here_task_view.dart';
 
 /// כפתור השפה שבמסך הפתיחה: עברית ↔ אנגלית, ונשמר בהגדרות.
@@ -837,14 +838,44 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
             showWindowButtons: widget.showWindowButtons,
           ),
           Expanded(
-            child: AbsorbPointer(
-              absorbing: _session.exitPending,
-              child: ExcludeFocus(
-                excluding: _session.exitPending,
-                child: _body(context, section),
-              ),
+            child: Stack(
+              children: [
+                AbsorbPointer(
+                  absorbing: _session.exitPending || _session.closingDownload,
+                  child: ExcludeFocus(
+                    excluding: _session.exitPending || _session.closingDownload,
+                    child: _body(context, section),
+                  ),
+                ),
+                if (_session.closingDownload)
+                  Positioned.fill(
+                    child: ColoredBox(
+                      key: ShellKeys.closingLayer,
+                      color: AppSurfaces.panelBackground(context),
+                      child: _closingView(context),
+                    ),
+                  ),
+              ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _closingView(BuildContext context) {
+    final t = context.strings.shell;
+    return TaskFrame(
+      center: true,
+      child: Column(
+        children: [
+          const SizedBox(
+            width: 36,
+            height: 36,
+            child: CircularProgressIndicator(strokeWidth: 3),
+          ),
+          const SizedBox(height: 20),
+          TaskHeading(title: t.closingTitle, body: t.closingBody),
         ],
       ),
     );

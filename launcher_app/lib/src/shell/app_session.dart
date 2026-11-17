@@ -81,7 +81,9 @@ class AppSession extends ChangeNotifier {
     @visibleForTesting PluginsManager? pluginsManager,
     @visibleForTesting LauncherSelfUpdater? launcherUpdater,
     @visibleForTesting this.closeDeliveryPatience = const Duration(seconds: 10),
+    @visibleForTesting WriteBehindPool? driveWrites,
   })  : _noticesStore = noticesStore,
+        _injectedDriveWrites = driveWrites,
         _injectedSleepInhibitor = sleepInhibitor {
     _android = AndroidModuleController(
       dataDir: dataDir,
@@ -361,10 +363,22 @@ class AppSession extends ChangeNotifier {
     plugins: _pluginsPort,
     host: _SessionDownloadHost(this),
     driveWrites: _driveWrites == null ? null : _throughDriveWrites,
-    dropDriveWrites: _driveWrites?.abandonPending,
+    dropDriveWrites: _dropDriveWrites,
+    resumeDriveWrites: _driveWrites?.resumeWrites,
   );
 
-  late final WriteBehindPool? _driveWrites = _newDriveWrites();
+  final WriteBehindPool? _injectedDriveWrites;
+  late final WriteBehindPool? _driveWrites =
+      _injectedDriveWrites ?? _newDriveWrites();
+
+  /// הלוג מעיד כמה נזרק: בלי זה "הסגירה לקחה זמן" לא מסבירה דבר.
+  void _dropDriveWrites() {
+    final dropped = _driveWrites?.abandonPending();
+    if (dropped == null) return;
+    AppLogger.maybeInstance?.info(
+      'עצירת הכתיבה לכונן: נזרקו ${formatBytes(dropped)} שעוד לא נכתבו',
+    );
+  }
 
   /// תור הכתיבה לכונן נשלף. הקובץ הזמני שלו בדיסק המקומי מקבל עד חצי מהמקום
   /// הפנוי שם ולא יותר מ-4GiB; מעבר לזה ההורדה מחכה לכונן.
@@ -1260,8 +1274,16 @@ class AppSession extends ChangeNotifier {
   /// [LauncherCrashSession.closeGuard]: שואל רק בזמן פעולה ארוכה, ועוצר
   /// הורדה תוך שמירת ההתקדמות לפני שהחלון נסגר.
   Future<bool> confirmClose() async {
+    final watch = Stopwatch()..start();
+    int lapMs() {
+      final ms = watch.elapsedMilliseconds;
+      watch.reset();
+      return ms;
+    }
+
     // הסגירה מסתיימת ב-`exit`, ושום dispose לא ירוץ אחריה.
     await _faq.flush().timeout(const Duration(seconds: 1), onTimeout: () {});
+    final faqMs = lapMs();
     // גם במסירת התוספים, שאינה longTask; בשאלות (סגירת אוצריא, משתמש אחר) עוד לא רץ דבר.
     // וגם מסירות שממשיכות ברקע אחרי "סיום בלי לחכות".
     final updatingHere = _plugins.isDeliveryRunActive ||
@@ -1275,23 +1297,47 @@ class AppSession extends ChangeNotifier {
       // מסירה בודדת מהחנות: קצרה, בלי שאלה — רק לא לקטוע אותה באמצע.
       return _closeApproved(await _stopDeliveries());
     }
-    final approved = await prompts.confirmClose(
-      downloading: _downloads.isDownloading ||
-          launcherDownloading ||
-          _android.isDownloading,
-    );
+    final downloading = _downloads.isDownloading ||
+        launcherDownloading ||
+        _android.isDownloading;
+    if (_closingDownload) return false;
+    final approved = await prompts.confirmClose(downloading: downloading);
     if (!approved) return false;
     if (!isActive) return true;
+    lapMs();
+    if (downloading) _update(() => _closingDownload = true);
     // המסירות קודם: "חזרה לכלי" מהן משאירה את ההורדות רצות כרגיל.
-    if (!await _stopDeliveries()) return false;
-    await _closeApproved(true);
-    await Future.wait([
-      _downloads.cancelAndWait(keepProgress: true),
-      _launcherUpdate.cancelAndWait(),
-      _android.cancelAndWait(),
-    ]);
+    if (!await _stopDeliveries()) {
+      if (_closingDownload) _update(() => _closingDownload = false);
+      return false;
+    }
+    final deliveriesMs = lapMs();
+    try {
+      await _closeApproved(true);
+      await Future.wait([
+        _downloads.cancelAndWait(keepProgress: true),
+        _launcherUpdate.cancelAndWait(),
+        _android.cancelAndWait(),
+      ]);
+    } catch (_) {
+      // שומר הסגירה בולע את השגיאה וסוגר; השכבה לא תישאר אם הוא ישתנה.
+      if (_closingDownload) _update(() => _closingDownload = false);
+      rethrow;
+    }
+    if (downloading) {
+      AppLogger.maybeInstance?.info(
+        'סגירה בזמן הורדה: שטיפת שאלות נפוצות ${faqMs}ms, '
+        'עצירת מסירות ${deliveriesMs}ms, עצירת ההורדה ${lapMs()}ms',
+      );
+    }
     return true;
   }
+
+  /// נסגר באמצע הורדה: החלון מראה שהכתיבה נעצרת, ולא נראה תקוע.
+  bool get closingDownload => _closingDownload;
+  bool _closingDownload = false;
+  @visibleForTesting
+  void showClosingForTest() => _update(() => _closingDownload = true);
 
   /// החלון נסגר: [launcherFirst] אינו ממשיך לפעולה שתיקטע ב-`exit`, ואינו
   /// משאיר סימון שיתחיל אותה בפתיחה הבאה.

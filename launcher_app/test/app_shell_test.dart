@@ -1237,6 +1237,23 @@ void main() {
       expect(nav.showsTask, isTrue);
     });
 
+    testWidgets('סגירה באמצע הורדה מציגה מסך סגירה שחוסם את האפליקציה',
+        (tester) async {
+      await pumpShell(tester);
+      final s = sessionOf(tester);
+      s.tasks.downloadRunning(const [MirrorComponent.app]);
+      await tester.pump();
+      expect(find.byKey(ShellKeys.closingLayer), findsNothing);
+
+      s.showClosingForTest();
+      await tester.pump();
+      expect(find.byKey(ShellKeys.closingLayer), findsOneWidget);
+      expect(find.text(shell.closingTitle), findsOneWidget);
+      expect(find.text(shell.closingBody), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsWidgets);
+      expect(find.byKey(ShellKeys.taskCancel).hitTestable(), findsNothing);
+    });
+
     testWidgets('Esc וגלגל השיניים אינם יוצאים ממשימה רצה', (tester) async {
       await pumpShell(tester);
       final s = sessionOf(tester);

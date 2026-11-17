@@ -1,6 +1,7 @@
 import 'dart:io';
 
-import 'package:otzaria_downloads/otzaria_downloads.dart' show WindowsElevation;
+import 'package:otzaria_downloads/otzaria_downloads.dart'
+    show ElevatedProcess, WindowsElevation;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
@@ -11,7 +12,22 @@ import '../otzaria_user_error.dart';
 /// התקנה/עדכון בסשן הנוכחי (למשל בכל פתיחה של הלאנצ'ר, כשההתקנה כבר
 /// עדכנית).
 class OtzariaLauncher {
-  const OtzariaLauncher();
+  const OtzariaLauncher({
+    this.startProcess = _startDetached,
+    this.startElevated = ElevatedProcess.start,
+  });
+
+  final Future<Object?> Function(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+  }) startProcess;
+
+  final Future<ProcessResult> Function(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+  }) startElevated;
 
   /// נקרא לפני כל הפעלה. בבדיקות זורק, כדי שאף בדיקה לא תפעיל התקנה אמיתית.
   static void Function(String launchPath)? debugLaunchGuard;
@@ -68,11 +84,44 @@ class OtzariaLauncher {
         )) {
       return;
     }
-    await Process.start(
-      launchPath,
-      arguments,
-      workingDirectory: p.dirname(launchPath),
-      mode: ProcessStartMode.detached,
-    );
+    final workingDirectory = p.dirname(launchPath);
+    try {
+      await startProcess(
+        launchPath,
+        arguments,
+        workingDirectory: workingDirectory,
+      );
+    } on ProcessException catch (e) {
+      // קובץ מסומן "הרץ כמנהל": CreateProcess אינו מרים (740), ShellExecute כן.
+      if (!ElevatedProcess.isElevationRequired(e)) rethrow;
+      final result = await startElevated(
+        launchPath,
+        arguments,
+        workingDirectory: workingDirectory,
+      );
+      if (result.exitCode == ElevatedProcess.cancelledCode) {
+        throw OtzariaUserError(
+          AppL10n.strings.customAppsDomain.launchElevationDeclined,
+        );
+      }
+      if (result.exitCode != 0) {
+        throw OtzariaUserError(
+          AppL10n.strings.appDomain
+              .launchFailed(result.exitCode, '${result.stderr}'),
+        );
+      }
+    }
   }
+
+  static Future<Object?> _startDetached(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+  }) =>
+      Process.start(
+        executable,
+        arguments,
+        workingDirectory: workingDirectory,
+        mode: ProcessStartMode.detached,
+      );
 }

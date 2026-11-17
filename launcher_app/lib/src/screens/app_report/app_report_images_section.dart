@@ -1,17 +1,21 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
 import '../../services/app_logger.dart';
+import '../../services/image_clipboard.dart';
 import '../../services/native_file_dialogs.dart';
 import '../../theme/theme_exports.dart';
 import '../../widgets/widgets_exports.dart';
 
 /// מקור התמונות: בחירת קבצים. מוזרק בבדיקות — דיאלוג המערכת אינו רץ שם.
-/// הדבקה מהלוח וגרירה (באוצריא) לא פורטו: שתיהן דורשות תוסף נייטיב.
+/// הדבקה מהלוח: `ImageClipboard`. גרירה (באוצריא) לא פורטה.
 class AppReportImageSource {
   const AppReportImageSource();
 
@@ -105,7 +109,7 @@ class PickedImages {
 }
 
 /// אזור צירוף צילומי מסך: לחיצה לבחירת קובץ, ומתחתיו התמונות שצורפו.
-class AppReportImagesSection extends StatelessWidget {
+class AppReportImagesSection extends StatefulWidget {
   const AppReportImagesSection({
     super.key,
     required this.images,
@@ -113,6 +117,7 @@ class AppReportImagesSection extends StatelessWidget {
     this.enabled = true,
     this.otherAttachmentBytes = 0,
     this.source = const AppReportImageSource(),
+    this.clipboard = const SystemImageClipboard(),
   });
 
   final List<AppReportImage> images;
@@ -120,6 +125,113 @@ class AppReportImagesSection extends StatelessWidget {
   final bool enabled;
   final int otherAttachmentBytes;
   final AppReportImageSource source;
+  final ImageClipboard clipboard;
+
+  @override
+  State<AppReportImagesSection> createState() => _AppReportImagesSectionState();
+}
+
+class _AppReportImagesSectionState extends State<AppReportImagesSection> {
+  bool _pasting = false;
+
+  List<AppReportImage> get images => widget.images;
+  bool get enabled => widget.enabled;
+  AppReportImageSource get source => widget.source;
+
+  @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_onKey);
+  }
+
+  @override
+  void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
+    super.dispose();
+  }
+
+  /// Ctrl+V (Cmd+V ב-macOS) מצרף תמונה רק כשבלוח יש תמונה ואין טקסט; אחרת
+  /// האירוע עובר כמות שהוא, והדבקת טקסט בשדות לא משתנה.
+  bool _onKey(KeyEvent event) {
+    if (event is! KeyDownEvent || event.logicalKey != LogicalKeyboardKey.keyV) {
+      return false;
+    }
+    final keyboard = HardwareKeyboard.instance;
+    final modifier = defaultTargetPlatform == TargetPlatform.macOS
+        ? keyboard.isMetaPressed
+        : keyboard.isControlPressed;
+    if (!modifier || !enabled || _pasting) return false;
+    if (ModalRoute.of(context)?.isCurrent != true) return false;
+    if (!widget.clipboard.isSupported ||
+        !widget.clipboard.holdsImageWithoutText) {
+      return false;
+    }
+    unawaited(_paste());
+    return false;
+  }
+
+  Future<void> _paste() async {
+    if (_pasting) return;
+    _pasting = true;
+    final t = context.strings.appReports;
+    try {
+      final ClipboardImages? content;
+      try {
+        content = await widget.clipboard.read();
+      } catch (error, stack) {
+        AppLogger.maybeInstance
+            ?.error('הדבקת תמונה לדיווח נכשלה', error, stack);
+        if (mounted) UiSnack.showError(t.imageReadFailed);
+        return;
+      }
+      if (!mounted) return;
+      if (content == null) {
+        UiSnack.showError(t.clipboardHasNoImage);
+        return;
+      }
+      final PickedImages picked;
+      if (content.tooLarge) {
+        picked = const PickedImages([], tooLarge: true);
+      } else if (content.paths.isNotEmpty) {
+        picked = await AppReportImageSource.loadPaths(
+          content.paths,
+          existing: images,
+        );
+      } else {
+        final bytes = content.bytes;
+        final mime = bytes == null ? null : AppReportImage.sniffMimeType(bytes);
+        if (bytes == null || mime == null) {
+          picked = const PickedImages([], unreadable: 1);
+        } else if (bytes.length > AppReportImage.maxBytes) {
+          picked = const PickedImages([], tooLarge: true);
+        } else {
+          picked = PickedImages([
+            AppReportImage(
+              bytes: bytes,
+              fileName: _clipboardFileName(mime),
+              mimeType: mime,
+            ),
+          ]);
+        }
+      }
+      if (!mounted) return;
+      _apply(picked);
+    } finally {
+      _pasting = false;
+    }
+  }
+
+  static String _clipboardFileName(String mime) {
+    final n = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    final ext = switch (mime) {
+      'image/jpeg' => 'jpg',
+      'image/gif' => 'gif',
+      _ => 'png',
+    };
+    return 'clipboard-${n.year}${two(n.month)}${two(n.day)}-'
+        '${two(n.hour)}${two(n.minute)}${two(n.second)}.$ext';
+  }
 
   Future<void> _pick(BuildContext context) async {
     final t = context.strings.appReports;
@@ -131,6 +243,14 @@ class AppReportImagesSection extends StatelessWidget {
       UiSnack.showError(t.imageReadFailed);
       return;
     }
+    if (!mounted) return;
+    _apply(picked);
+  }
+
+  void _apply(PickedImages picked) {
+    final t = context.strings.appReports;
+    final onChanged = widget.onChanged;
+    final otherAttachmentBytes = widget.otherAttachmentBytes;
     if (!enabled) return;
     final merged = mergeAppReportImages(images, picked.images,
         otherAttachmentBytes: otherAttachmentBytes);
@@ -164,6 +284,7 @@ class AppReportImagesSection extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final t = context.strings.appReports;
+    final canPaste = widget.clipboard.isSupported;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -191,7 +312,7 @@ class AppReportImagesSection extends StatelessWidget {
                   ),
                   const SizedBox(height: AppTokens.spaceSM),
                   Text(
-                    t.imagesPrompt,
+                    canPaste ? t.imagesPromptWithPaste : t.imagesPrompt,
                     textAlign: TextAlign.center,
                     style: AppTextStyles.body,
                   ),
@@ -200,6 +321,19 @@ class AppReportImagesSection extends StatelessWidget {
             ),
           ),
         ),
+        if (canPaste) ...[
+          const SizedBox(height: AppTokens.spaceSM),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: ActionButton.neutral(
+              key: const ValueKey('app-report-image-paste'),
+              text: t.imagePasteButton,
+              icon: FluentIcons.clipboard_paste_24_regular,
+              size: ActionButtonSize.sm,
+              onPressed: enabled ? _paste : null,
+            ),
+          ),
+        ],
         const SizedBox(height: AppTokens.spaceSM),
         Text(t.attachmentLimitsHint, style: theme.textTheme.bodySmall),
         if (images.isNotEmpty) ...[
@@ -213,7 +347,7 @@ class AppReportImagesSection extends StatelessWidget {
                   key: ValueKey('app-report-image-$i'),
                   image: images[i],
                   onRemove: enabled
-                      ? () => onChanged([...images]..removeAt(i))
+                      ? () => widget.onChanged([...images]..removeAt(i))
                       : null,
                 ),
             ],

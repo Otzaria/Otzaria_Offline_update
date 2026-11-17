@@ -1867,10 +1867,17 @@ class LibraryManager {
         .where((machine) => machine.generation == null)
         .length;
     final versions = await _mirroredOtzariaVersions?.call();
-    final generations = <SemanticModelGeneration>{
-      for (final version in versions ?? const <String>[])
-        ?OtzariaCapabilities.semanticGenerationForAppVersion(version),
-    };
+    // Only the newest installer's generation: an older one is not what a
+    // fresh install from a drive carrying a newer one reads.
+    final newest =
+        [
+          for (final version in versions ?? const <String>[])
+            ?OtzariaCapabilities.semanticGenerationForAppVersion(version),
+        ].fold<SemanticModelGeneration?>(
+          null,
+          (a, b) => a == null || b.index > a.index ? b : a,
+        );
+    final generations = [?newest];
     return SemanticFleet(
       [
         ...machines,

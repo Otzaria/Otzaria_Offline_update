@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:otzaria_downloads/otzaria_downloads.dart' show ElevatedProcess;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:plugins_manager/plugins_manager.dart';
@@ -315,6 +316,97 @@ void main() {
       },
       testOn: '!windows',
     );
+
+    group('elevation (error 740)', () {
+      late String exe;
+      setUp(() {
+        exe = (File(p.join(temp.path, 'otzaria.exe'))..writeAsStringSync('x'))
+            .path;
+      });
+
+      Future<Object?> throwing(
+        String e,
+        List<String> a, {
+        String? workingDirectory,
+      }) =>
+          throw ProcessException(e, a, 'requires elevation', 740);
+
+      test('740 re-runs elevated with the same exe, url and folder', () async {
+        final calls = <List<Object?>>[];
+        final result = await PluginDirectInstaller.openProtocolUrl(
+          'otzaria://plugin/install-local?path=x',
+          otzariaLaunchPath: exe,
+          startProcess: throwing,
+          startElevated: (e, a, {workingDirectory}) async {
+            calls.add([e, a, workingDirectory]);
+            return ProcessResult(0, 0, '', '');
+          },
+        );
+
+        expect(result.success, isTrue);
+        expect(calls, [
+          [
+            exe,
+            ['otzaria://plugin/install-local?path=x'],
+            temp.path
+          ],
+        ]);
+      });
+
+      test('other ProcessException is reported as before, no elevation',
+          () async {
+        var elevated = false;
+        final result = await PluginDirectInstaller.openProtocolUrl(
+          'otzaria://x',
+          otzariaLaunchPath: exe,
+          startProcess: (e, a, {workingDirectory}) =>
+              throw ProcessException(e, a, 'boom', 2),
+          startElevated: (e, a, {workingDirectory}) async {
+            elevated = true;
+            return ProcessResult(0, 0, '', '');
+          },
+        );
+
+        expect(elevated, isFalse);
+        expect(result.success, isFalse);
+        expect(result.error, startsWith(strings.otzariaOpenFailed('')));
+        expect(result.error, contains('boom'));
+      });
+
+      test('declined prompt gives the existing declined message', () async {
+        final result = await PluginDirectInstaller.openProtocolUrl(
+          'otzaria://x',
+          otzariaLaunchPath: exe,
+          startProcess: throwing,
+          startElevated: (e, a, {workingDirectory}) async =>
+              ProcessResult(0, ElevatedProcess.cancelledCode, '', ''),
+        );
+
+        expect(result.success, isFalse);
+        expect(
+          result.error,
+          AppL10n.strings.customAppsDomain.launchElevationDeclined,
+        );
+      });
+
+      test('other elevated failure is reported with its exit code', () async {
+        final result = await PluginDirectInstaller.openProtocolUrl(
+          'otzaria://x',
+          otzariaLaunchPath: exe,
+          startProcess: throwing,
+          startElevated: (e, a, {workingDirectory}) async =>
+              ProcessResult(0, 2, '', 'nope'),
+        );
+
+        expect(result.success, isFalse);
+        expect(
+          result.error,
+          strings.otzariaOpenFailed(
+            AppL10n.strings.appDomain.launchFailed(2, 'nope'),
+          ),
+        );
+      });
+    });
   });
 
   group('PluginDirectInstaller.install', () {

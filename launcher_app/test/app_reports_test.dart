@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:error_reports_manager/error_reports_manager.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -21,6 +21,7 @@ import 'package:launcher_app/src/screens/app_report/app_reports_settings_card.da
 import 'package:launcher_app/src/screens/app_report/crash_prompt_dialog.dart';
 import 'package:launcher_app/src/screens/reports/reports_page.dart';
 import 'package:launcher_app/src/services/file_reveal.dart';
+import 'package:launcher_app/src/services/image_clipboard.dart';
 import 'package:launcher_app/src/settings/app_settings.dart';
 import 'package:launcher_app/src/settings/safer_mode.dart';
 import 'package:launcher_app/src/settings/settings_controller.dart';
@@ -1306,6 +1307,127 @@ void main() {
     });
   });
 
+  group('הדבקת תמונה מהלוח', () {
+    Future<void> openWith(WidgetTester tester, _FakeClipboard clipboard) =>
+        _open(
+          tester,
+          (_) => AppReportDialog(
+            reports: _controller(_MemoryService()),
+            imageSource: const _FakeImages(),
+            clipboard: clipboard,
+          ),
+        );
+
+    Future<void> ctrlV(WidgetTester tester) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('Ctrl+V עם תמונה בלוח מצרף אותה', (tester) async {
+      final clipboard = _FakeClipboard(_pngContent());
+      await openWith(tester, clipboard);
+      await ctrlV(tester);
+      expect(clipboard.reads, 1);
+      expect(find.byKey(const ValueKey('app-report-image-0')), findsOneWidget);
+    });
+
+    testWidgets('בלי תמונה בלוח: Ctrl+V לא קורא ולא מצרף', (tester) async {
+      final clipboard = _FakeClipboard(null, imageOnly: false);
+      await openWith(tester, clipboard);
+      await ctrlV(tester);
+      expect(clipboard.reads, 0);
+      expect(find.byKey(const ValueKey('app-report-image-0')), findsNothing);
+    });
+
+    testWidgets('כפתור ההדבקה בלי תמונה בלוח מציג הודעה', (tester) async {
+      final clipboard = _FakeClipboard(null, imageOnly: false);
+      await openWith(tester, clipboard);
+      await tester.tap(find.byKey(const ValueKey('app-report-image-paste')));
+      await tester.pumpAndSettle();
+      expect(find.text(t.clipboardHasNoImage), findsOneWidget);
+      expect(find.byKey(const ValueKey('app-report-image-0')), findsNothing);
+      await _drainSnack(tester);
+    });
+
+    testWidgets('כפתור ההדבקה מצרף תמונה', (tester) async {
+      await openWith(tester, _FakeClipboard(_pngContent()));
+      await tester.tap(find.byKey(const ValueKey('app-report-image-paste')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('app-report-image-0')), findsOneWidget);
+    });
+
+    testWidgets('התמונה השישית נדחית באותה הודעה כמו בחירת קובץ',
+        (tester) async {
+      await openWith(tester, _FakeClipboard(_pngContent()));
+      for (var i = 0; i < AppReportImage.maxCount; i++) {
+        await ctrlV(tester);
+      }
+      expect(find.byKey(const ValueKey('app-report-image-4')), findsOneWidget);
+      await ctrlV(tester);
+      expect(
+          find.text(t.tooManyImages(AppReportImage.maxCount)), findsOneWidget);
+      expect(find.byKey(const ValueKey('app-report-image-5')), findsNothing);
+      await _drainSnack(tester);
+    });
+
+    testWidgets('תמונה גדולה מדי נדחית', (tester) async {
+      final big = Uint8List(AppReportImage.maxBytes + 1)
+        ..setRange(0, 8, _pngMagic);
+      await openWith(tester, _FakeClipboard(ClipboardImages(bytes: big)));
+      await ctrlV(tester);
+      expect(
+        find.text(t
+            .imageTooLarge(AppReportImage.maxBytes ~/ AppReportImage.megabyte)),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('app-report-image-0')), findsNothing);
+      await _drainSnack(tester);
+    });
+
+    testWidgets('תוכן שאינו תמונה בפועל נדחה כלא קריא', (tester) async {
+      await openWith(
+        tester,
+        _FakeClipboard(ClipboardImages(bytes: Uint8List.fromList([1, 2, 3]))),
+      );
+      await ctrlV(tester);
+      expect(find.text(t.imageReadFailed), findsOneWidget);
+      expect(find.byKey(const ValueKey('app-report-image-0')), findsNothing);
+      await _drainSnack(tester);
+    });
+
+    testWidgets('Ctrl+V בשדה תיאור עם טקסט בלוח מדביק טקסט ולא מצרף',
+        (tester) async {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async => call.method == 'Clipboard.getData'
+            ? <String, dynamic>{'text': 'טקסט מודבק'}
+            : null,
+      );
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+      final clipboard = _FakeClipboard(_pngContent(), imageOnly: false);
+      await openWith(tester, clipboard);
+      await tester.tap(find.byKey(const ValueKey('app-report-description')));
+      await tester.pump();
+      await ctrlV(tester);
+      expect(find.text('טקסט מודבק'), findsOneWidget);
+      expect(clipboard.reads, 0);
+      expect(find.byKey(const ValueKey('app-report-image-0')), findsNothing);
+    });
+
+    testWidgets('בלי תמיכה בלוח: אין כפתור, והבקשה אינה נקראת', (tester) async {
+      final clipboard = _FakeClipboard(_pngContent(), supported: false);
+      await openWith(tester, clipboard);
+      expect(
+          find.byKey(const ValueKey('app-report-image-paste')), findsNothing);
+      expect(find.text(t.imagesPrompt), findsOneWidget);
+      await ctrlV(tester);
+      expect(clipboard.reads, 0);
+    });
+  });
+
   group('נעילת ההפעלה מוקדמת ועמידה בכשל', () {
     late Directory tmp;
     setUp(() => tmp = Directory.systemTemp.createTempSync('launcher_begin_'));
@@ -1406,4 +1528,31 @@ class _PanelDialog extends StatelessWidget {
           ),
         ),
       );
+}
+
+const _pngMagic = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+ClipboardImages _pngContent() => ClipboardImages(
+      bytes: Uint8List.fromList([..._pngMagic, 1, 2, 3, 4]),
+    );
+
+class _FakeClipboard extends ImageClipboard {
+  _FakeClipboard(this.content, {this.imageOnly = true, this.supported = true});
+
+  final ClipboardImages? content;
+  final bool imageOnly;
+  final bool supported;
+  int reads = 0;
+
+  @override
+  bool get isSupported => supported;
+
+  @override
+  bool get holdsImageWithoutText => imageOnly;
+
+  @override
+  Future<ClipboardImages?> read() async {
+    reads++;
+    return content;
+  }
 }

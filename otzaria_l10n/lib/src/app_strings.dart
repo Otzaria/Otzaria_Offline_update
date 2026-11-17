@@ -117,6 +117,10 @@ abstract class ShellStrings {
   String get closeWaitingDeliveryWait;
   String get closeWaitingDeliveryBack;
 
+  /// מסך הסגירה אחרי אישור, באמצע הורדה: הכתיבה לכונן נעצרת.
+  String get closingTitle;
+  String get closingBody;
+
   /// כלי שורת הכותרת וכפתורי החלון — תוויות נגישות ו-tooltip.
   String get helpTooltip;
   String get settingsTooltip;
@@ -2600,6 +2604,9 @@ abstract class AppReportsStrings {
 
   // ── תמונות ──
   String get imagesPrompt;
+  String get imagesPromptWithPaste;
+  String get imagePasteButton;
+  String get clipboardHasNoImage;
   String get attachmentLimitsHint;
   String get attachmentsInvalidSnack;
   String get imagesPickDialogTitle;

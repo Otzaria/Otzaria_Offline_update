@@ -6,6 +6,7 @@ import 'shell_navigator.dart';
 /// את הבדיקה בנוסח.
 abstract final class ShellKeys {
   static const hero = ValueKey('home.hero');
+  static const closingLayer = ValueKey('shell.closingLayer');
   static const heroPrimary = ValueKey('home.hero.primary');
   static const heroSecondary = ValueKey('home.hero.secondary');
   static const heroLaunch = ValueKey('home.hero.launch');

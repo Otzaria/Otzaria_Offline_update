@@ -349,9 +349,7 @@ class PluginMirrorSync {
         if (wanted.contains(entry.key) || !published.contains(entry.key)) {
           continue;
         }
-        if (appVersions.isNotEmpty && !_recentlyTargeted(entry.value, now)) {
-          continue;
-        }
+        if (!_recentlyTargeted(entry.value, now)) continue;
         if (await store.hasAsset(entry.value.relativePath)) {
           keep[entry.key] = entry.value;
         }
