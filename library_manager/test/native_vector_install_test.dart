@@ -46,12 +46,13 @@ void main() {
   Future<SemanticVectorsInstallReport> install(
     Map<String, dynamic> release, {
     String? vectorsDir,
+    String? segmentPath,
   }) {
     final bytes = utf8.encode(jsonEncode(release));
     return engine.installSemanticVectors(
       input: SemanticVectorsInstallInput(
         vectorsDir: vectorsDir ?? p.join(temp.path, 'vectors'),
-        segmentPath: '$fixture/segment.oxv',
+        segmentPath: segmentPath ?? '$fixture/segment.oxv',
         manifestJson: utf8.decode(bytes),
         publishedManifestSha256: Sha256Stream.ofBytes(bytes),
         modelIdentityJson: File('$fixture/model.json').readAsStringSync(),
@@ -105,6 +106,27 @@ void main() {
     },
     skip: skip,
   );
+
+  // SemanticSearchAssets leaves the segment's hash to the engine; this is the
+  // proof that a same-size damaged segment cannot install.
+  for (final at in ['first', 'last']) {
+    test('a segment damaged in its $at byte is refused and nothing is '
+        'installed', () async {
+      final bytes = File('$fixture/segment.oxv').readAsBytesSync();
+      bytes[at == 'first' ? 0 : bytes.length - 1] ^= 1;
+      final damaged = File(p.join(temp.path, 'segment.oxv'))
+        ..writeAsBytesSync(bytes);
+
+      await expectLater(
+        install(manifest(), segmentPath: damaged.path),
+        throwsA(isA<SemanticError>()),
+      );
+      expect(
+        File(p.join(temp.path, 'vectors', 'CURRENT')).existsSync(),
+        isFalse,
+      );
+    }, skip: skip);
+  }
 
   test(
     'an install the OS refuses is a visible failure, not a full drive',

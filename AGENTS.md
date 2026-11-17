@@ -1063,6 +1063,14 @@ which differs from the DB's parent when a library folder name is set.
 `SemanticSearchAssets`, `LibraryManager.resolveSemanticVectorsRoot`, and
 `OtzariaSettingsWriter.finishSemanticInstall` install and enable the data.
 
+**A single-file vector segment is hashed by the engine, not before it.**
+`installSemanticVectors` hashes the segment against the published manifest as
+it copies it, and checks every block's CRC; a Dart pass first read ~1.8GB off
+the drive twice (~80s at 22MB/s). The drive file is hashed in Dart only after
+the engine refuses it, so a damaged one is still deleted and named
+(`native_vector_install_test.dart` pins the refusal). Manifests, model files
+and split parts are still hashed here — the engine never sees the parts.
+
 **Smart search has two axes, model generation (Round2/QA491) and vector shape
 (anchor/windows); never fold one into the other or default an unproven
 generation to Round2.**

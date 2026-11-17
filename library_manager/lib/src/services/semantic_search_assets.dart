@@ -3077,6 +3077,12 @@ class SemanticSearchAssets {
         for (final unit in units)
           if (unit.files.length > 1) ...unit.files,
       ];
+      // The engine hashes a whole segment against its published manifest as
+      // it installs it, so the drive copy is read once.
+      final engineHashed = {
+        for (final unit in units)
+          if (unit.files.length == 1) unit.files.single,
+      };
       _ensureSpace(
         vectorsDir,
         units.fold(0, (size, unit) => size + unit.segmentSize),
@@ -3097,7 +3103,7 @@ class SemanticSearchAssets {
         ),
       ]) {
         for (final file in group.$2) {
-          if (parted.contains(file)) continue;
+          if (parted.contains(file) || engineHashed.contains(file)) continue;
           _cancel(isCancelled);
           final source = p.join(generationDir, group.$1, file.name);
           await _verify(source, file, isCancelled);
@@ -3174,6 +3180,13 @@ class SemanticSearchAssets {
           if (meta.windows && !unit.isDelta) {
             await _restoreMarker(marker, previousMarker);
           }
+          // A refusal or a read fault may be the drive's: checking its copy
+          // deletes a damaged one and names a failing drive, not the local disk.
+          if (error is! PatchDownloadCancelled &&
+              !_cannotBlameSource(error, vectorsDir) &&
+              engineHashed.contains(unit.files.first)) {
+            await _verify(segments[index], unit.files.single, isCancelled);
+          }
           if (error is SemanticError &&
               unit.isDelta &&
               _setRefusesDelta.contains(error.kind)) {
@@ -3207,6 +3220,12 @@ class SemanticSearchAssets {
       await disposeSemanticEngineWork(engine, work);
     }
   }
+
+  /// A full disk or a busy set says nothing about the drive file, and checking
+  /// it would cost a full read of the segment before the error is shown.
+  static bool _cannotBlameSource(Object error, String vectorsDir) =>
+      storageFullFromEngine(error, vectorsDir) != null ||
+      (error is SemanticError && error.kind == SemanticErrorKind.vectorsBusy);
 
   static Future<void> _restoreMarker(File marker, String? previous) async {
     try {

@@ -6,7 +6,7 @@ import 'package:http/testing.dart';
 import 'package:library_manager/src/services/semantic_search_assets.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_search_engine/otzaria_search_engine.dart'
-    show SemanticVectorsInstallInput;
+    show SemanticError, SemanticErrorKind, SemanticVectorsInstallInput;
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 import 'package:test/test.dart';
@@ -108,7 +108,8 @@ void main() {
     final before = await snapshot();
     await expectLater((action ?? install)(), throwsA(error));
     expect(await snapshot(), before);
-    expect(openedEngines, 0);
+    // The segment is hashed by the engine, so it may open; nothing installs.
+    expect(openedEngines, lessThanOrEqualTo(1));
     expect(engine.installs, isEmpty);
     expect(requests, 0);
   }
@@ -195,6 +196,7 @@ void main() {
     for (final operation in ['length', 'read']) {
       test('$kind source $operation failure preserves the I/O error', () async {
         final source = sources[kind]!;
+        if (kind == 'vectors') engine = _unreadingEngine();
         final failure = FileSystemException(
           'source read failed',
           source.path,
@@ -218,17 +220,16 @@ void main() {
 
   test('a damaged source drive keeps its storage classification', () async {
     final source = sources['vectors']!;
+    engine = _unreadingEngine();
     final failure = FileSystemException(
       'source read failed',
       source.path,
       OSError('damaged media', Platform.isWindows ? 1392 : 5),
     );
     await rejectsWithoutChanges(
-      isA<StorageCorruptException>().having(
-        (error) => error.cause,
-        'original failure',
-        same(failure),
-      ),
+      isA<StorageCorruptException>()
+          .having((error) => error.cause, 'original failure', same(failure))
+          .having((error) => error.dir, 'drive folder', p.dirname(source.path)),
       action: () => IOOverrides.runZoned(
         install,
         createFile: (path) {
@@ -419,6 +420,27 @@ void main() {
     expect(requests, 0);
   });
 
+  test('a sound install leaves the segment hash to the engine', () async {
+    final source = sources['vectors']!;
+    var reads = 0;
+    await IOOverrides.runZoned(
+      install,
+      createFile: (path) {
+        final real = Zone.root.run(() => File(path));
+        return path == source.path
+            ? _UnreadableFile(
+                real,
+                FileSystemException('unexpected vector hash', path),
+                'none',
+                onRead: () => reads++,
+              )
+            : real;
+      },
+    );
+    expect(engine.installs.single.segmentPath, source.path);
+    expect(reads, 0);
+  });
+
   test(
     'an unreadable installed model remains repairable from the drive',
     () async {
@@ -574,3 +596,13 @@ class _UnreadableFile implements File {
   dynamic noSuchMethod(Invocation invocation) =>
       throw UnsupportedError('${invocation.memberName} is not forwarded');
 }
+
+/// The real engine reads the segment in Rust, past any IOOverrides zone: on an
+/// unreadable drive it fails first, and the drive file is then checked here.
+FakeVectorsEngine _unreadingEngine() => FakeVectorsEngine(
+  version: 29,
+  error: const SemanticError(
+    kind: SemanticErrorKind.internal,
+    message: 'X does not expand as zstd: Data error. (os error 23)',
+  ),
+);
