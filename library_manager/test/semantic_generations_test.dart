@@ -469,6 +469,77 @@ void main() {
         await sync(shapes);
         expect(await mirrored(), ['round2', 'qa491']);
       });
+
+      for (final noManifest in [false, true]) {
+        test('a mixed fleet offers windows when its anchor '
+            '${noManifest ? 'has no manifest' : 'is unpublished'}', () async {
+          github.windowsBase(30);
+          final client = MockClient((request) async {
+            if (noManifest &&
+                request.url.path.endsWith('/vectors-${libraryTagOf(30)}')) {
+              return http.Response(
+                jsonEncode({
+                  'tag_name': 'vectors-${libraryTagOf(30)}',
+                  'assets': [],
+                }),
+                200,
+              );
+            }
+            return github.client.get(request.url);
+          });
+          addTearDown(client.close);
+          final subject = assets(client: client);
+          final shapes = SemanticFleet([
+            _machine(_round2),
+            _machine(_round2, windows: true),
+          ]);
+          Future<bool> peekShapes() => subject.peekPending(
+            mirrorDir: mirror,
+            libraryTag: libraryTagOf(30),
+            fleet: shapes,
+          );
+
+          expect(await peekShapes(), isTrue);
+          expect(subject.peekedNotPublished, isNull);
+          await subject.sync(
+            mirrorDir: mirror,
+            libraryTag: libraryTagOf(30),
+            fleet: shapes,
+          );
+          expect(await peekShapes(), isFalse);
+          expect(subject.peekedNotPublished, 30);
+          expect(
+            (await assess(_app(_round2, windows: true))).state,
+            SmartSearchState.readyOnDrive,
+          );
+        });
+      }
+
+      test('an unpublished anchor combines fresh and existing windows '
+          'machines into one usable base', () async {
+        github
+          ..windowsBase(30)
+          ..delta(29, 30);
+        await sync(
+          SemanticFleet([
+            _machine(_round2),
+            _machine(_round2, windows: true),
+            _machine(_round2, windows: true, version: 29, identity: identityA),
+          ]),
+        );
+
+        final plan = ((await mirrorJson())['plans'] as List).single as Map;
+        expect(plan['family'], 'windows');
+        expect(plan['kind'], 'base');
+        expect(github.downloads, contains(baseSegmentName(30)));
+        expect(github.downloads, isNot(contains(deltaSegmentName(29, 30))));
+        expect(
+          github.apiTags.where(
+            (tag) => tag == 'vectors-windows-${libraryTagOf(30)}',
+          ),
+          hasLength(1),
+        );
+      });
     });
 
     test('anchor machines and machines on a windows set, of two '

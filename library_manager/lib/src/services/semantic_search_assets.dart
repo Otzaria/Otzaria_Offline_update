@@ -1184,6 +1184,23 @@ class SemanticSearchAssets {
     return groups;
   }
 
+  void _addWindowsFallback(List<SemanticFleet> groups, SemanticFleet group) {
+    if (group.family != SemanticVectorsFamily.legacy) return;
+    final machines = groups
+        .where((g) => g.generation == group.generation)
+        .expand((g) => g.machines)
+        .where((m) => m.supportsWindows)
+        .toList();
+    if (machines.isEmpty) return;
+    // A fresh machine needs a base even when its peers can use a delta.
+    groups.removeWhere(
+      (g) =>
+          g.generation == group.generation &&
+          g.family == SemanticVectorsFamily.windows,
+    );
+    groups.insert(groups.indexOf(group) + 1, SemanticFleet(machines));
+  }
+
   Future<bool> peekPending({
     required String mirrorDir,
     required String libraryTag,
@@ -1194,13 +1211,15 @@ class SemanticSearchAssets {
     _peekedNotPublished = null;
     final groups = _provenGroups(fleet);
     var notPublished = false;
-    for (final group in groups) {
+    for (var i = 0; i < groups.length; i++) {
+      final group = groups[i];
       _groupNotPublished = false;
       if (await _peekPending(mirrorDir, libraryTag, group)) {
         if (groups.length != 1) _peekedPendingBytes = null;
         _peekedIncompatibility = null;
         return true;
       }
+      if (_groupNotPublished) _addWindowsFallback(groups, group);
       notPublished |= _groupNotPublished;
     }
     if (notPublished) _peekedNotPublished = _version(libraryTag);
@@ -1428,7 +1447,8 @@ class SemanticSearchAssets {
     // A generation with nothing to mirror yet does not stop the others.
     (Object, StackTrace)? unserved;
     final skipped = <SemanticModelGeneration>{};
-    for (final group in groups) {
+    for (var i = 0; i < groups.length; i++) {
+      final group = groups[i];
       ({_Meta meta, List<_Remote> remotes})? found;
       (Object, StackTrace)? fault;
       try {
@@ -1441,6 +1461,7 @@ class SemanticSearchAssets {
           isCancelled,
         );
       } on SemanticNotPublishedException catch (error, stack) {
+        _addWindowsFallback(groups, group);
         fault = (error, stack);
       } on SemanticEngineIncompatibleException catch (error, stack) {
         fault = (error, stack);
