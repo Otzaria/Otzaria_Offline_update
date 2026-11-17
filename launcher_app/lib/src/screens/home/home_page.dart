@@ -28,6 +28,7 @@ class HomeActions {
     this.onLaunch = _noop,
     this.onRecheck = _noop,
     this.onOpenSection = _noopSection,
+    this.onOpenNewPlugins = _noop,
     this.onOpenSettings = _noop,
     this.onHelp = _noop,
     this.onToggleLanguage = _noop,
@@ -58,6 +59,9 @@ class HomeActions {
   final VoidCallback onLaunch;
   final VoidCallback onRecheck;
   final ValueChanged<ShellSection> onOpenSection;
+
+  /// מהפס שבבית: החנות נפתחת על "חדשים".
+  final VoidCallback onOpenNewPlugins;
   final VoidCallback onOpenSettings;
   final VoidCallback onHelp;
   final VoidCallback onToggleLanguage;
@@ -143,7 +147,9 @@ class HomePage extends StatelessWidget {
             links: _welcomeLinks(context),
             onDownload: actions.onDownload,
             onHelp: actions.onHelp,
-            onAndroid: () => actions.onOpenSection(ShellSection.android),
+            onAndroid: model.showAndroid
+                ? () => actions.onOpenSection(ShellSection.android)
+                : null,
             onToggleLanguage: actions.onToggleLanguage,
           );
         }
@@ -418,7 +424,7 @@ class HomePage extends StatelessWidget {
       actions: [
         ActionButton.ghost(
           text: g.toPluginsButton,
-          onPressed: () => actions.onOpenSection(ShellSection.plugins),
+          onPressed: actions.onOpenNewPlugins,
         ),
       ],
     );
@@ -1898,13 +1904,14 @@ class _Tiles extends StatelessWidget {
         app,
         facts: _appFacts(context),
       ),
-      spec(
-        ShellSection.android,
-        const IconTile(icon: FluentIcons.phone_24_regular),
-        context.strings.android.title,
-        (StatusKind.unknown, context.strings.android.selectDevice, null),
-        facts: [context.strings.android.tileSubtitle],
-      ),
+      if (m.showAndroid)
+        spec(
+          ShellSection.android,
+          const IconTile(icon: FluentIcons.phone_24_regular),
+          context.strings.android.title,
+          (StatusKind.unknown, context.strings.android.selectDevice, null),
+          facts: [context.strings.android.tileSubtitle],
+        ),
       spec(
         ShellSection.library,
         const IconTile(icon: FluentIcons.library_24_regular),

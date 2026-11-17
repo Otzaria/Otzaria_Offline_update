@@ -51,6 +51,7 @@ class StartupDiagnostics {
     void onTimings(List<FrameTiming> timings) {
       if (_presented || timings.isEmpty) return;
       _presented = true;
+      final stalled = _timeout?.isActive == false;
       _timeout?.cancel();
       final callback = _onTimings;
       if (callback != null) binding.removeTimingsCallback(callback);
@@ -60,6 +61,12 @@ class StartupDiagnostics {
         '${first.buildDuration.inMilliseconds}ms, ציור '
         '${first.rasterDuration.inMilliseconds}ms)',
       );
+      // בלי השורה הזו סגירה לא נקייה אחרי עלייה איטית מדווחת כקריסה.
+      if (stalled) {
+        AppLogger.maybeInstance?.info(
+          '${LauncherLogFormat.startupStallRecoveredTag} after ${_elapsedMs()}ms',
+        );
+      }
     }
 
     _onTimings = onTimings;

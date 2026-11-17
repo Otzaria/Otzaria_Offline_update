@@ -193,6 +193,11 @@ class _Shell extends ShellStrings {
   @override
   String get settingsTooltip => 'הגדרות';
   @override
+  String get toolsBusyDownloadTooltip =>
+      'זמין בסיום ההורדה, או אחרי "חזרה לבית"';
+  @override
+  String get toolsBusyTooltip => 'זמין בסיום הפעולה';
+  @override
   String get windowMinimize => 'מזער';
   @override
   String get windowMaximize => 'הגדל';
@@ -1581,6 +1586,11 @@ class _LibraryScreen extends LibraryScreenStrings {
   @override
   String get personalAskLater => 'אפשר לשנות את הבחירה בכל עת בהגדרות.';
   @override
+  String get personalAskAndroid => 'עדכון גם מכשירי Android';
+  @override
+  String get personalAskAndroidBody =>
+      'בדף הבית יוצג עדכון Android, להתקנת אוצריא במכשיר Android מהכונן.';
+  @override
   String get personalPreparedHere => 'הכונן הוכן למחשב הזה';
   @override
   String get personalPendingNote =>
@@ -1685,6 +1695,11 @@ class _Settings extends SettingsScreenStrings {
   String get syncTargetsTitle => 'מה להוריד לכונן';
   @override
   String get syncTargetsSubtitle => 'מה שלא מסומן לא יירד, גם אם יש לו עדכון.';
+  @override
+  String get showAndroidTitle => 'עדכון Android';
+  @override
+  String get showAndroidSubtitle =>
+      'הצגת עדכון Android בדף הבית, להתקנת אוצריא במכשיר Android מהכונן.';
   @override
   String get syncTargetApp => 'תוכנת אוצריא';
   @override
@@ -1979,6 +1994,10 @@ class _Plugins extends PluginsStrings {
   String get noResultsTitle => 'לא נמצאו תוספים לפי הסינון שבחרת';
   @override
   String get noResultsBody => 'נסה מילה אחרת, או חפש בכל הקטגוריות.';
+  @override
+  String get noNewPluginsTitle => 'אין תוספים חדשים';
+  @override
+  String get noNewPluginsBody => 'תוספים שיגיעו בסנכרון הבא יופיעו כאן.';
 
   @override
   String get filterStatusLabel => 'יציבות';
@@ -2156,6 +2175,8 @@ class _Plugins extends PluginsStrings {
   String get clearSearchTooltip => 'ניקוי';
   @override
   String get filterAll => 'הכול';
+  @override
+  String filterNew(int count) => 'חדשים ($count)';
   @override
   String get filterInstalled => 'מותקנים';
   @override
@@ -3242,7 +3263,8 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String checksumMismatch(String label) => '$label אינו תואם';
   @override
-  String localFileNotFound(String path) => 'קובץ מקומי לא נמצא: ${_ltr(path)}';
+  String localFileNotFound(String path) =>
+      'קובץ חסר בכונן: ${_ltr(path)} — יש להוריד שוב במחשב עם חיבור לאינטרנט.';
   @override
   String localFileTooLarge(int maxBytes, String path) =>
       'הקובץ המקומי חורג מהגודל הצפוי ($maxBytes בייטים): ${_ltr(path)}';
@@ -3477,6 +3499,12 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get semanticStatusAppUnproven =>
       'לא ניתן להוכיח איזה מודל חיפוש חכם אוצריא המותקנת קוראת, ולכן דבר לא הותקן ולא הוכרז כמעודכן. יש לעדכן את הכלי או להפעיל את אוצריא פעם אחת ולבדוק שוב.';
+  @override
+  String get semanticStatusDriveOtherVersion =>
+      'נתוני החיפוש החכם שבכונן שייכים לגרסה אחרת של ספריית אוצריא מזו שתהיה מותקנת במחשב הזה. הורדה לכונן במחשב מחובר תביא את הנתונים שמתאימים.';
+  @override
+  String semanticNotPublishedYet(int version) =>
+      'עדיין לא פורסם חיפוש חכם שמתאים לספריית אוצריא שבכונן (גרסה ${_ltr('$version')}). כשיתפרסם, הורדה לכונן תביא אותו.';
   @override
   String get semanticStatusDriveNotMatching =>
       'נתוני החיפוש החכם שבכונן אינם מתאימים לאוצריא המותקנת (דור מודל או צורת וקטורים אחרים). יש להוריד שוב חיפוש חכם לכונן במחשב מחובר.';
@@ -4261,6 +4289,14 @@ class _CustomApps extends CustomAppsStrings {
 
   @override
   String get downloadButton => 'הורדה לכונן';
+  @override
+  String get downloadUpdateButton => 'הורדת העדכון';
+  @override
+  String get chipUpdateOnline => 'עדכון ברשת';
+  @override
+  String get chipNewerOnDrive => 'גרסה חדשה בכונן';
+  @override
+  String get chipOnDriveNotInstalled => 'בכונן, לא מותקנת כאן';
   @override
   String get downloadingLabel => 'מוריד…';
   @override

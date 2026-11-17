@@ -94,6 +94,7 @@ void main() {
         'ui',
         'language',
         'textScale',
+        'showAndroid',
         'protection',
         'enabled',
         'password',
@@ -134,7 +135,7 @@ void main() {
       expect(json['schemaVersion'], AppSettings.schemaVersion);
       expect(
         (json['ui'] as Map<String, dynamic>).keys,
-        unorderedEquals(['language', 'textScale']),
+        unorderedEquals(['language', 'textScale', 'showAndroid']),
       );
     });
 
@@ -457,6 +458,34 @@ void main() {
       expect(
         File(p.join(nested, 'launcher_settings.json')).existsSync(),
         isTrue,
+      );
+    });
+  });
+
+  group('הצגת "עדכון Android"', () {
+    test('כבויה כברירת מחדל, ונשמרת ונקראת', () {
+      expect(const AppSettings().showAndroid, isFalse);
+      final on = AppSettings.fromJson(
+        const AppSettings().copyWith(showAndroid: true).toJson(),
+      );
+      expect(on.showAndroid, isTrue);
+      expect(on.copyWith(autoInstall: true).showAndroid, isTrue);
+    });
+
+    test('קובץ מגרסה 0.29 בלי המפתח — מוסתרת, והשאר נשמר', () {
+      final old = AppSettings.fromJson({
+        'schemaVersion': 15,
+        'ui': {'language': 'he', 'textScale': 1.2},
+        'sync': {'app': false},
+      });
+      expect(old.showAndroid, isFalse);
+      expect(old.syncApp, isFalse);
+      expect(old.textScale, 1.2);
+      expect(
+        AppSettings.fromJson({
+          'ui': {'showAndroid': 'yes'},
+        }).showAndroid,
+        isFalse,
       );
     });
   });

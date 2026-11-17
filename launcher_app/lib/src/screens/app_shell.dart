@@ -226,6 +226,12 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
   }
 
   void _onSessionChangeInStore() {
+    // כיבוי ההצגה כשהדף פתוח: לא משאירים את החלון על מקטע שאין אליו כניסה.
+    if (_navigator.section == ShellSection.android &&
+        !_navigator.showsTask &&
+        !_session.settings.settings.showAndroid) {
+      unawaited(_navigator.select(ShellSection.home));
+    }
     // תוסף שנמחק בסנכרון בזמן שפרטיו מוצגים — חוזרים לרשימה, כדי שחזרה אחת תספיק.
     if (_navigator.current case PluginDetailRoute(:final id)
         when _session.plugins.status == PluginsModuleStatus.ready &&
@@ -364,7 +370,8 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
   }
 
   @override
-  Future<bool?> askPersonalScope() => showPersonalScopeDialog(context);
+  Future<PersonalScopeAnswer?> askPersonalScope() =>
+      showPersonalScopeDialog(context);
 
   @override
   Future<bool> confirmPersonalMode() => confirmPersonalModeDialog(context);
@@ -383,6 +390,12 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
       );
 
   Future<bool> _goTo(ShellSection section) => _navigator.select(section);
+
+  Future<void> _openNewPlugins() async {
+    if (await _goTo(ShellSection.plugins) && mounted) {
+      _session.plugins.showNewPlugins();
+    }
+  }
 
   /// שער הניווט: ההגדרות (וניהול התוכנות שתחתן) נעולות במצב הסייפר. השער
   /// בנווט ולא במסך, כי מסך שנבנה נשאר בעץ ושער בתוכו היה נשאר פתוח.
@@ -500,6 +513,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
     onLaunch: () => unawaited(_session.launchOtzaria()),
     onRecheck: () => unawaited(_session.checkNow()),
     onOpenSection: (section) => unawaited(_goTo(section)),
+    onOpenNewPlugins: () => unawaited(_openNewPlugins()),
     onOpenSettings: () => unawaited(_goTo(ShellSection.settings)),
     onHelp: _openHelp,
     onToggleLanguage: _toggleLanguage,
@@ -815,6 +829,11 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
             // משימה רצה אינה נעזבת — גלגל השיניים והעזרה מושבתים גם למראה.
             toolsEnabled: !_session.exitPending &&
                 !(_navigator.showsTask && _session.tasks.isRunning),
+            toolsDisabledHint: _session.exitPending
+                ? null
+                : _session.tasks.current is DownloadTask
+                    ? context.strings.shell.toolsBusyDownloadTooltip
+                    : context.strings.shell.toolsBusyTooltip,
             showWindowButtons: widget.showWindowButtons,
           ),
           Expanded(

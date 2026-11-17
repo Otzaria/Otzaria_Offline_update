@@ -93,11 +93,15 @@ class _Library implements UpdateHereLibrary {
   int fullApplies = 0;
   bool availableAfterRecheck = true;
   bool recheckSucceeds = true;
+
+  /// מה שהבדיקה אחרי התוכנה החדשה מוצאת; `null` — כמו לפניה.
+  bool? semanticAwaitsConsentAfterRecheck;
   int? targetAfterRecheck;
   ({int low, int high})? estimateAfterRecheck;
   int applies = 0;
   int rechecks = 0;
   void Function()? onApply;
+  void Function()? onRecheck;
 
   @override
   ({int low, int high})? applyEstimate({bool full = false}) => estimate;
@@ -134,11 +138,14 @@ class _Library implements UpdateHereLibrary {
   Future<bool> recheck() async {
     rechecks++;
     log.add('recheck');
+    onRecheck?.call();
     if (!recheckSucceeds) {
       hasUpdateAvailable = false;
       return false;
     }
     hasUpdateAvailable = availableAfterRecheck;
+    semanticAwaitsConsent =
+        semanticAwaitsConsentAfterRecheck ?? semanticAwaitsConsent;
     if (targetAfterRecheck != null) targetVersion = targetAfterRecheck;
     if (estimateAfterRecheck != null) estimate = estimateAfterRecheck;
     return true;
@@ -1035,6 +1042,231 @@ void main() {
       expect(log, ['grant', 'library']);
     });
 
+    group('חיפוש חכם שנפתח רק אחרי התקנת התוכנה', () {
+      setUp(() {
+        library
+          ..awaitsAppUpdate = true
+          ..hasUpdateAvailable = false
+          ..semanticAwaitsConsent = false
+          ..semanticAwaitsConsentAfterRecheck = true
+          ..availableAfterRecheck = false;
+        host.onGranted = () => library.hasUpdateAvailable = true;
+      });
+
+      test('הסכמה — נשאלת אחרי התוכנה ומותקנת באותה הרצה', () async {
+        host.consentAnswer = true;
+        await flow.run(both);
+        expect(host.asks, 1);
+        expect(log, ['app', 'recheck', 'grant', 'library']);
+        expect(task()!.librarySemanticOnly, isTrue);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+      });
+
+      test('"המשך בלי" — נרשם, לא מותקן, ולא נשאל שוב', () async {
+        host.consentAnswer = false;
+        await flow.run(both);
+        expect(log, ['app', 'recheck', 'decline']);
+        expect(library.applies, 0);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+        await flow.run(both);
+        expect(host.asks, 1);
+      });
+
+      test('"חזרה" אחרי התוכנה — לא נרשם, והעדכון אינו נכשל', () async {
+        host.consentAnswer = null;
+        await flow.run(both);
+        expect(log, ['app', 'recheck']);
+        expect(host.declines, 0);
+        expect(host.consentUnanswered, isTrue);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+      });
+
+      test('מחשב שכבר ענה — לא נשאל', () async {
+        host.consentUnanswered = false;
+        await flow.run(both);
+        expect(host.asks, 0);
+        expect(log, ['app', 'recheck']);
+      });
+
+      test('אחרי התוכנה אין מה לבקש — אין חלון', () async {
+        library.semanticAwaitsConsentAfterRecheck = false;
+        await flow.run(both);
+        expect(host.asks, 0);
+        expect(log, ['app', 'recheck']);
+      });
+
+      test('ההסכמה כבר ניתנה והחיפוש החכם ממתין — מותקן בלי חלון', () async {
+        library.availableAfterRecheck = true;
+        library.semanticAwaitsConsentAfterRecheck = false;
+        host.consentUnanswered = false;
+        await flow.run(both);
+        expect(host.asks, 0);
+        expect(log, ['app', 'recheck', 'library']);
+      });
+
+      test('התקנה ראשונה — ההסכמה נשאלת אחרי האשף', () async {
+        app
+          ..isInstalled = false
+          ..hasUpdateAvailable = true;
+        library
+          ..isFreshInstall = true
+          ..hasUpdateAvailable = true
+          ..awaitsAppUpdate = false
+          ..availableAfterRecheck = true;
+        host.consentAnswer = true;
+        await flow.run(both);
+        expect(host.asks, 1);
+        expect(log, ['app', 'recheck', 'grant', 'library']);
+      });
+    });
+
+    group('לספרייה לא תוכנן שלב, והתוכנה שהותקנה פתחה לה מה להתקין', () {
+      const all = [
+        GuidanceItem.app,
+        GuidanceItem.library,
+        GuidanceItem.plugins,
+      ];
+
+      setUp(() {
+        library
+          ..awaitsAppUpdate = false
+          ..hasUpdateAvailable = false
+          ..semanticAwaitsConsent = false
+          ..semanticAwaitsConsentAfterRecheck = true
+          ..availableAfterRecheck = false;
+        host.onGranted = () => library.hasUpdateAvailable = true;
+        plugins.deliverableUpdates = const ['לוח'];
+      });
+
+      test('הסכמה — השלב מצטרף אחרי התוכנה ומותקן באותה הרצה', () async {
+        host.consentAnswer = true;
+        await flow.run(all);
+        expect(host.asks, 1);
+        expect(library.rechecks, 1);
+        expect(log, ['app', 'recheck', 'grant', 'library', 'plugins']);
+        expect(task()!.stages, all);
+        expect(task()!.librarySemanticOnly, isTrue);
+        expect(task()!.outcomes[GuidanceItem.library], StageOutcome.done);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+      });
+
+      test('ההסכמה כבר ניתנה — מותקן בלי חלון', () async {
+        library
+          ..availableAfterRecheck = true
+          ..semanticAwaitsConsentAfterRecheck = false;
+        host.consentUnanswered = false;
+        await flow.run(all);
+        expect(host.asks, 0);
+        expect(log, ['app', 'recheck', 'library', 'plugins']);
+        expect(task()!.stages, all);
+      });
+
+      test('אין מה להתקין גם אחרי התוכנה — בלי שורת ספרייה', () async {
+        library.semanticAwaitsConsentAfterRecheck = false;
+        await flow.run(all);
+        expect(log, ['app', 'recheck', 'plugins']);
+        expect(task()!.stages, [GuidanceItem.app, GuidanceItem.plugins]);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+      });
+
+      test('מחשב שכבר ענה "לא" — בלי שורת ספרייה ובלי חלון', () async {
+        host.consentUnanswered = false;
+        await flow.run(all);
+        expect(host.asks, 0);
+        expect(task()!.stages, [GuidanceItem.app, GuidanceItem.plugins]);
+      });
+
+      test('הבדיקה נכשלה — העדכון שהצליח אינו נכשל בגללה', () async {
+        library.recheckSucceeds = false;
+        await flow.run(all);
+        expect(log, ['app', 'recheck', 'plugins']);
+        expect(task()!.stages, [GuidanceItem.app, GuidanceItem.plugins]);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+      });
+
+      test('הספרייה חסומה בהורדה, או אינה בבקשה — אינה נבדקת', () async {
+        await flow.run(all, blocked: () => {GuidanceItem.library});
+        expect(log, ['app', 'plugins']);
+        log.clear();
+        app.hasUpdateAvailable = true;
+        await flow.run(const [GuidanceItem.app, GuidanceItem.plugins]);
+        expect(log, ['app', 'plugins']);
+      });
+
+      test('בזמן הבדיקה המסך נשאר על התוכנה, גם בלי שלב תוספים', () async {
+        host.consentAnswer = true;
+        GuidanceItem? during;
+        library.onRecheck = () => during = task()!.currentStage;
+        await flow.run(both);
+        expect(during, GuidanceItem.app);
+        expect(log, ['app', 'recheck', 'grant', 'library']);
+        expect(task()!.stages, [GuidanceItem.app, GuidanceItem.library]);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+      });
+
+      test('הספרייה שהצטרפה נכשלה — כשל על הספרייה, ו"נסה שוב" מחיל אותה',
+          () async {
+        library
+          ..availableAfterRecheck = true
+          ..semanticAwaitsConsentAfterRecheck = false
+          ..succeeds = false;
+        host.consentUnanswered = false;
+        await flow.run(all);
+        expect(log, ['app', 'recheck', 'library']);
+        expect(task()!.phase, UpdateHereTaskPhase.failed);
+        expect(task()!.failure!.stage, GuidanceItem.library);
+
+        library.succeeds = true;
+        log.clear();
+        expect(await flow.retry(), isTrue);
+        expect(log, ['library', 'plugins']);
+        expect(app.installs, 1);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+      });
+
+      test('הבדיקה זרקה חריג — התוכנה שהותקנה אינה מדווחת ככשל', () async {
+        library.onRecheck = () => throw StateError('db');
+        await flow.run(all);
+        expect(log, ['app', 'recheck', 'plugins']);
+        expect(task()!.outcomes[GuidanceItem.app], StageOutcome.done);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+      });
+
+      test('"המשך בלי" בשלב שהצטרף — נרשם, השלב מדולג, והתוספים נשלחים',
+          () async {
+        host.consentAnswer = false;
+        await flow.run(all);
+        expect(log, ['app', 'recheck', 'decline', 'plugins']);
+        expect(task()!.outcomes[GuidanceItem.library], StageOutcome.skipped);
+        expect(task()!.phase, UpdateHereTaskPhase.done);
+      });
+
+      test('הסשן פורק בזמן הבדיקה — המשימה אינה נגעת', () async {
+        library.onRecheck = () => host.isActive = false;
+        await flow.run(all);
+        expect(log, ['app', 'recheck']);
+        expect(task()!.stages, [GuidanceItem.app, GuidanceItem.plugins]);
+        expect(task()!.phase, UpdateHereTaskPhase.running);
+      });
+
+      test('האשף בוטל או שהפסיקו להמתין לו — אינה נבדקת', () async {
+        app.outcome = AppInstallOutcome.cancelled;
+        await flow.run(all);
+        expect(log, ['app']);
+
+        log.clear();
+        app
+          ..gate = Completer<void>()
+          ..outcome = AppInstallOutcome.stillOpen;
+        final run = flow.run(all);
+        await settle();
+        flow.stopWaiting();
+        await run;
+        expect(log, ['app']);
+        expect(library.rechecks, 0);
+      });
+    });
+
     test('הסכמה — נכתבת לפני הספרייה, והעדכון ממשיך', () async {
       host.consentAnswer = true;
       await flow.run(both);
@@ -1117,7 +1349,7 @@ void main() {
       expect(host.asks, 2);
     });
 
-    test('בלי הספרייה בבקשה, או בלי אוצריא מותקנת — לא שואל', () async {
+    test('בלי הספרייה בבקשה, או לפני שאוצריא מותקנת — לא שואל', () async {
       await flow.run(const [GuidanceItem.app]);
       expect(host.asks, 0);
 
@@ -1125,8 +1357,12 @@ void main() {
         ..isInstalled = false
         ..hasUpdateAvailable = true;
       library.isFreshInstall = true;
+      var askedBeforeInstall = 0;
+      app.onInstall = () => askedBeforeInstall = host.asks;
       await flow.run(both);
-      expect(host.asks, 0);
+      expect(askedBeforeInstall, 0);
+      // אחרי האשף אוצריא מותקנת: החלון נשאל שם.
+      expect(host.asks, 1);
     });
 
     test('"נסה שוב" עובר באותו חלון', () async {

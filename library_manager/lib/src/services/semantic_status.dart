@@ -160,9 +160,10 @@ class SmartSearchStatus {
       SmartSearchReason.driveOtherGeneration ||
       SmartSearchReason.driveOtherShape ||
       SmartSearchReason.keepsWindowsSet ||
-      SmartSearchReason.driveOlderVersion ||
       SmartSearchReason.driveIncomplete ||
       SmartSearchReason.driveEmpty => strings.semanticStatusDriveNotMatching,
+      SmartSearchReason.driveOlderVersion =>
+        strings.semanticStatusDriveOtherVersion,
       SmartSearchReason.driveUnreadable =>
         strings.semanticStatusDriveUnreadable,
       SmartSearchReason.verificationFailed =>

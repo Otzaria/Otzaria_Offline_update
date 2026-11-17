@@ -390,6 +390,43 @@ void main() {
       });
     }
 
+    test('"עדכון גם מכשירי Android" נשמר יחד עם התשובה', () async {
+      expect(settings.settings.showAndroid, isFalse);
+      prompts
+        ..personalAnswer = false
+        ..personalAndroid = true;
+      final s = session()..start();
+      await settled(s);
+      await waitFor(() => settings.settings.personalModeAsked);
+      await settings.pending;
+      expect(settings.settings.showAndroid, isTrue);
+      expect(settings.settings.personalUpdateMode, isFalse);
+    });
+
+    test('בלי סימון ה-Android נשאר כבוי', () async {
+      prompts.personalAnswer = true;
+      final s = session()..start();
+      await settled(s);
+      await waitFor(() => settings.settings.personalModeAsked);
+      await settings.pending;
+      expect(settings.settings.showAndroid, isFalse);
+    });
+
+    test('כשהשאלה מדולגת ההגדרה נשארת כמות שהיא', () async {
+      await settings.update(
+        const AppSettings(autoCheckUpdates: false, showAndroid: true),
+      );
+      prompts
+        ..personalAnswer = true
+        ..personalAndroid = false;
+      final s = session(readOnly: true)..start();
+      frame();
+      await waitFor(() => s.plugins.status != PluginsModuleStatus.loading);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(prompts.personalAsks, 0);
+      expect(settings.settings.showAndroid, isTrue);
+    });
+
     test('בכונן מוגן מפני כתיבה אינה נשאלת', () async {
       final s = session(readOnly: true)..start();
       frame();
@@ -2863,6 +2900,7 @@ class _FakePrompts implements SessionPrompts {
   int personalAsks = 0;
   Completer<bool?>? personalGate;
   bool? personalAnswer;
+  bool personalAndroid = false;
   int personalModeConfirms = 0;
   bool personalModeConfirm = true;
 
@@ -2873,9 +2911,13 @@ class _FakePrompts implements SessionPrompts {
   }
 
   @override
-  Future<bool?> askPersonalScope() async {
+  Future<PersonalScopeAnswer?> askPersonalScope() async {
     personalAsks++;
-    return personalGate == null ? personalAnswer : await personalGate!.future;
+    final mine =
+        personalGate == null ? personalAnswer : await personalGate!.future;
+    return mine == null
+        ? null
+        : PersonalScopeAnswer(personal: mine, showAndroid: personalAndroid);
   }
 
   @override

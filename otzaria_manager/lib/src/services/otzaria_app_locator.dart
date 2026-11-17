@@ -68,11 +68,12 @@ class OtzariaAppLocator {
     'otzaria launcher',
   };
 
-  /// האם [fileName] הוא אחד מקובצי ההרצה/החבילות של הלאנצ'ר עצמו. חשוף כדי
-  /// שהלאנצ'ר יצמיד לרשימה הזו את השמות שהוא מפורסם ומותקן בהם — בין החבילות
-  /// אין תלות בזמן קומפילציה, בדיוק כמו ב-`processNamesFor`.
-  static bool isOurOwnExe(String fileName) => _ourOwnExeNames
-      .contains(p.basenameWithoutExtension(fileName).toLowerCase());
+  /// שם של הלאנצ'ר עצמו, או של העתק ששמו רק הוארך (" (1)", "-0.29").
+  /// חשוף כדי שהלאנצ'ר יוסיף לרשימה את שמות הפרסום שלו, כמו `processNamesFor`.
+  static bool isOurOwnExe(String fileName) {
+    final base = p.basenameWithoutExtension(fileName).toLowerCase();
+    return _ourOwnExeNames.any(base.startsWith);
+  }
 
   /// האם שם הקובץ/החבילה מזהה את אוצריא. משותף גם ל-`OtzariaManager`, שמסנן
   /// בו מועמדים בתיקייה משותפת — אותו זיהוי בדיוק בשני המקומות.
@@ -160,7 +161,7 @@ class OtzariaAppLocator {
           // unins*.exe הוא ה-uninstaller ש-Inno Setup עצמו יוצר בתיקייה.
           if (name.startsWith('unins')) continue;
           final base = p.basenameWithoutExtension(name);
-          if (_ourOwnExeNames.contains(base)) continue;
+          if (isOurOwnExe(name)) continue;
           if (p.equals(entity.path, Platform.resolvedExecutable)) continue;
           if (accept != null && !accept(entity.path)) continue;
 

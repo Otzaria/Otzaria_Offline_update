@@ -68,6 +68,23 @@ class _FakeLibrary implements LibraryMirrorModule, AutoInstallLibrary {
 
   @override
   bool shouldOfferSemanticDownload = false;
+
+  /// What the peek finds once the app download has replaced the installers.
+  bool offerAfterApp = false;
+  bool semanticRefreshWorks = true;
+  var semanticRefreshes = 0;
+  void Function()? onSemanticRefresh;
+
+  @override
+  Future<bool> refreshOnlineSemantic() async {
+    semanticRefreshes++;
+    onSemanticRefresh?.call();
+    log.add('refresh semantic');
+    if (!semanticRefreshWorks) return false;
+    shouldOfferSemanticDownload = offerAfterApp;
+    return true;
+  }
+
   @override
   bool personalUpdateMode = false;
   @override
@@ -1085,6 +1102,113 @@ void main() {
         await flow.downloadAll();
         expect(componentsRun(), isEmpty);
         expect(log, contains('found nothing'));
+      });
+
+      group('after the app download', () {
+        setUp(() {
+          app.onlineProof = _hasNew;
+          library.shouldOfferSemanticDownload = false;
+          library.offerAfterApp = true;
+        });
+
+        test('"always": the library joins the run with smart search', () async {
+          host.settings = mode(SemanticDownloadPreference.always);
+          await flow.downloadAll();
+          expect(componentsRun(), ['app', 'library']);
+          expect(library.includedSemanticSearch, isTrue);
+          expect(host.skipped, isNot(contains(MirrorComponent.library)));
+          expect(log, isNot(contains('ask semantic')));
+        });
+
+        test('the task lists the library once it joins', () async {
+          host.settings = mode(SemanticDownloadPreference.always);
+          List<MirrorComponent>? during;
+          library.onDownload = () async => during = flow.activeComponents;
+          await flow.downloadAll();
+          expect(during, [MirrorComponent.app, MirrorComponent.library]);
+        });
+
+        test('still nothing after the app: the library stays skipped',
+            () async {
+          host.settings = mode(SemanticDownloadPreference.always);
+          library.offerAfterApp = false;
+          await flow.downloadAll();
+          expect(componentsRun(), ['app']);
+          expect(library.semanticRefreshes, 1);
+          expect(host.skipped, contains(MirrorComponent.library));
+        });
+
+        test('a library in use by someone else does not join', () async {
+          host.settings = mode(SemanticDownloadPreference.always);
+          host.blocked = {MirrorComponent.library};
+          await flow.downloadAll();
+          expect(componentsRun(), ['app']);
+        });
+
+        test('an action that starts during the refresh keeps the library out',
+            () async {
+          host.settings = mode(SemanticDownloadPreference.always);
+          library.onSemanticRefresh = () => host.isBlocked = true;
+          await flow.downloadAll();
+          expect(componentsRun(), ['app']);
+          expect(library.includedSemanticSearch, isNull);
+        });
+
+        test('a cancel during the refresh keeps the library out', () async {
+          host.settings = mode(SemanticDownloadPreference.always);
+          library.onSemanticRefresh = flow.requestCancel;
+          await flow.downloadAll();
+          expect(componentsRun(), ['app']);
+          expect(library.includedSemanticSearch, isNull);
+        });
+
+        test('a failed refresh keeps the pre-click decision', () async {
+          host.settings = mode(SemanticDownloadPreference.always);
+          library.semanticRefreshWorks = false;
+          await flow.downloadAll();
+          expect(componentsRun(), ['app']);
+          expect(log, contains('ended'));
+        });
+
+        test('an app that failed does not re-evaluate', () async {
+          host.settings = mode(SemanticDownloadPreference.always);
+          app.onDownload = () async => app.downloadFailed = true;
+          await flow.downloadAll();
+          expect(library.semanticRefreshes, 0);
+          expect(componentsRun(), ['app']);
+        });
+
+        test('"never" does not re-evaluate', () async {
+          host.settings = mode(SemanticDownloadPreference.never);
+          await flow.downloadAll();
+          expect(library.semanticRefreshes, 0);
+          expect(componentsRun(), ['app']);
+        });
+
+        test('"ask" answered no is not asked again and not included', () async {
+          library.shouldOfferSemanticDownload = true;
+          await flow.downloadAll();
+          expect(log.where((e) => e == 'ask semantic'), hasLength(1));
+          expect(library.semanticRefreshes, 0);
+          expect(library.includedSemanticSearch, isNull);
+        });
+
+        test('"ask" with nothing pending before is left to the offer',
+            () async {
+          await flow.downloadAll();
+          expect(log, isNot(contains('ask semantic')));
+          expect(library.semanticRefreshes, 0);
+          expect(componentsRun(), ['app']);
+        });
+
+        test('cancel while the joined library runs reverts only it', () async {
+          host.settings = mode(SemanticDownloadPreference.always);
+          library.onDownload = () async => flow.requestCancel();
+          await flow.downloadAll();
+          expect(componentsRun(), ['app', 'library']);
+          expect(host.rollback.reverted, {MirrorComponent.library});
+          expect(host.kept, [MirrorComponent.app]);
+        });
       });
 
       test('"ask" + force: downloads it without asking', () async {

@@ -195,6 +195,11 @@ class _Shell extends ShellStrings {
   @override
   String get settingsTooltip => 'Settings';
   @override
+  String get toolsBusyDownloadTooltip =>
+      'Available when the download ends, or after "Back to home"';
+  @override
+  String get toolsBusyTooltip => 'Available when the operation ends';
+  @override
   String get windowMinimize => 'Minimize';
   @override
   String get windowMaximize => 'Maximize';
@@ -1635,6 +1640,12 @@ class _LibraryScreen extends LibraryScreenStrings {
   String get personalAskLater =>
       'You can change this at any time in the settings.';
   @override
+  String get personalAskAndroid => 'Also update Android devices';
+  @override
+  String get personalAskAndroidBody =>
+      'The home page shows Android update, for installing Otzaria on an '
+      'Android device from the drive.';
+  @override
   String get personalPreparedHere => 'The drive is prepared for this computer';
   @override
   String get personalPendingNote =>
@@ -1751,6 +1762,12 @@ class _Settings extends SettingsScreenStrings {
   @override
   String get syncTargetsSubtitle =>
       'Anything not selected is not downloaded, even if it has an update.';
+  @override
+  String get showAndroidTitle => 'Android update';
+  @override
+  String get showAndroidSubtitle =>
+      'Show Android update on the home page, for installing Otzaria on an '
+      'Android device from the drive.';
   @override
   String get syncTargetApp => 'Otzaria';
   @override
@@ -2059,6 +2076,11 @@ class _Plugins extends PluginsStrings {
   String get noResultsTitle => 'No plugins match your filters';
   @override
   String get noResultsBody => 'Try another word, or search all categories.';
+  @override
+  String get noNewPluginsTitle => 'No new plugins';
+  @override
+  String get noNewPluginsBody =>
+      'Plugins that arrive in the next sync will show up here.';
 
   @override
   String get filterStatusLabel => 'Stability';
@@ -2242,6 +2264,8 @@ class _Plugins extends PluginsStrings {
   String get clearSearchTooltip => 'Clear';
   @override
   String get filterAll => 'All';
+  @override
+  String filterNew(int count) => 'New ($count)';
   @override
   String get filterInstalled => 'Installed';
   @override
@@ -3426,7 +3450,9 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String checksumMismatch(String label) => '$label does not match';
   @override
-  String localFileNotFound(String path) => 'Local file not found: $path';
+  String localFileNotFound(String path) =>
+      'A file is missing from the drive: $path — download again on a computer '
+      'with internet.';
   @override
   String localFileTooLarge(int maxBytes, String path) =>
       'The local file is larger than expected ($maxBytes bytes): $path';
@@ -3682,6 +3708,12 @@ class _LibraryDomain extends LibraryDomainStrings {
   @override
   String get semanticStatusAppUnproven =>
       'It cannot be proven which smart search model the installed Otzaria reads, so nothing was installed or called up to date. Update this tool or start Otzaria once and check again.';
+  @override
+  String get semanticStatusDriveOtherVersion =>
+      'The smart search data on the drive belongs to a different version of the Otzaria library than the one this computer will have installed. Downloading to the drive on an online computer will bring the matching data.';
+  @override
+  String semanticNotPublishedYet(int version) =>
+      'Smart search matching the Otzaria library on the drive (version $version) has not been published yet. Once it is, downloading to the drive will bring it.';
   @override
   String get semanticStatusDriveNotMatching =>
       'The smart search data on the drive does not match the installed Otzaria (another model generation or vector shape). Download smart search again to the drive on an online computer.';
@@ -4514,6 +4546,14 @@ class _CustomApps extends CustomAppsStrings {
 
   @override
   String get downloadButton => 'Download to drive';
+  @override
+  String get downloadUpdateButton => 'Download update';
+  @override
+  String get chipUpdateOnline => 'Update online';
+  @override
+  String get chipNewerOnDrive => 'Newer version on the drive';
+  @override
+  String get chipOnDriveNotInstalled => 'On the drive, not installed here';
   @override
   String get downloadingLabel => 'Downloading…';
   @override

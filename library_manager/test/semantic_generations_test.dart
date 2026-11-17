@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:library_manager/src/services/semantic_search_assets.dart';
+import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:otzaria_search_engine/otzaria_search_engine.dart'
     show SemanticError, SemanticErrorKind;
@@ -160,6 +161,10 @@ void main() {
       expect(status.allClear, isFalse);
       expect(status.state, SmartSearchState.driveNotMatching);
       expect(status.reason, SmartSearchReason.driveOtherGeneration);
+      expect(
+        status.message,
+        AppL10n.strings.libraryDomain.semanticStatusDriveNotMatching,
+      );
       expect(status.driveGenerations, {_round2});
       expect(status.installedGeneration, _round2);
       expect(
@@ -351,6 +356,119 @@ void main() {
         SmartSearchState.driveNotMatching,
         reason: 'only the windows shape of QA491 is mirrored',
       );
+    });
+
+    group('one generation is not published yet', () {
+      final fleet = SemanticFleet([_machine(_round2), _machine(_qa491)]);
+
+      Future<bool> peek(SemanticSearchAssets subject) => subject.peekPending(
+        mirrorDir: mirror,
+        libraryTag: libraryTagOf(30),
+        fleet: fleet,
+      );
+
+      Future<List<Object?>> mirrored() async => [
+        for (final plan in (await mirrorJson())['plans'] as List)
+          plan['generation'],
+      ];
+
+      test('the published one is offered and downloaded on its own', () async {
+        github.legacyBase(30, identity: identityB);
+        final before = assets();
+        expect(await peek(before), isTrue);
+        expect(before.peekedNotPublished, isNull);
+
+        await sync(fleet);
+        expect(await mirrored(), ['round2']);
+        expect(
+          (await assess(_app(_round2))).state,
+          SmartSearchState.readyOnDrive,
+        );
+
+        // Nothing left to fetch: said as "not published", never offered again.
+        final after = assets();
+        expect(await peek(after), isFalse);
+        expect(after.peekedNotPublished, 30);
+      });
+
+      test('once it is published it joins the next download', () async {
+        github.legacyBase(30, identity: identityB);
+        await sync(fleet);
+        github.qa491Base(30);
+        final subject = assets();
+        expect(await peek(subject), isTrue);
+        expect(subject.peekedNotPublished, isNull);
+        await sync(fleet);
+        expect(await mirrored(), ['round2', 'qa491']);
+        expect(
+          (await assess(_app(_qa491))).state,
+          SmartSearchState.readyOnDrive,
+        );
+      });
+
+      test('none published stays "not published"', () async {
+        await expectLater(
+          sync(fleet),
+          throwsA(isA<SemanticNotPublishedException>()),
+        );
+        expect(
+          File(
+            p.join(mirror, SemanticSearchAssets.manifestFileName),
+          ).existsSync(),
+          isFalse,
+        );
+      });
+
+      test(
+        'an HTTP error of one generation still fails the download',
+        () async {
+          github
+            ..legacyBase(30, identity: identityB)
+            ..failingTags.add('vectors-qa491-${libraryTagOf(30)}');
+          await expectLater(sync(fleet), throwsFormatException);
+        },
+      );
+
+      test('what the mirror holds for it is not dropped when its release '
+          'disappears', () async {
+        github
+          ..legacyBase(30, identity: identityB)
+          ..qa491Base(30);
+        await sync(fleet);
+        final before = await mirrorJson();
+        final round2Only = FakeVectorsGithub()
+          ..legacyBase(30, identity: identityB);
+        addTearDown(round2Only.client.close);
+        await expectLater(
+          assets(client: round2Only.client).sync(
+            mirrorDir: mirror,
+            libraryTag: libraryTagOf(30),
+            fleet: fleet,
+            libraryTagFor: libraryTagOf,
+          ),
+          throwsA(isA<SemanticNotPublishedException>()),
+        );
+        expect(await mirrorJson(), before);
+        expect(
+          (await assess(_app(_qa491))).state,
+          SmartSearchState.readyOnDrive,
+        );
+      });
+
+      test('one shape of a generation missing does not block later '
+          'downloads of the same library', () async {
+        final shapes = SemanticFleet([
+          _machine(_round2),
+          _machine(_round2, windows: true),
+          _machine(_qa491),
+        ]);
+        github.windowsBase(30);
+        await sync(shapes);
+        expect(await mirrored(), ['round2']);
+        github.qa491Base(30);
+        await sync(shapes);
+        expect(await mirrored(), ['round2', 'qa491']);
+      });
     });
 
     test('anchor and windows machines of two generations make four '
@@ -649,6 +767,10 @@ void main() {
       final status = await assess(_app(_qa491), version: 30);
       expect(status.state, SmartSearchState.driveNotMatching);
       expect(status.reason, SmartSearchReason.driveOlderVersion);
+      expect(
+        status.message,
+        AppL10n.strings.libraryDomain.semanticStatusDriveOtherVersion,
+      );
     });
   });
 

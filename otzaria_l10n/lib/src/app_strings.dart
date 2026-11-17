@@ -120,6 +120,10 @@ abstract class ShellStrings {
   /// כלי שורת הכותרת וכפתורי החלון — תוויות נגישות ו-tooltip.
   String get helpTooltip;
   String get settingsTooltip;
+
+  /// tooltip של הכלים כשמשימה רצה בחזית; הראשון מצטט את "חזרה לבית".
+  String get toolsBusyDownloadTooltip;
+  String get toolsBusyTooltip;
   String get windowMinimize;
   String get windowMaximize;
   String get windowRestore;
@@ -854,6 +858,8 @@ abstract class LibraryScreenStrings {
   String get personalAskMine;
   String get personalAskMineBody;
   String get personalAskLater;
+  String get personalAskAndroid;
+  String get personalAskAndroidBody;
 
   /// הערה שקטה בבית אחרי שהמחשב הזה נרשם.
   String get personalPreparedHere;
@@ -927,6 +933,8 @@ abstract class SettingsScreenStrings {
   /// שבבי סימון, אחד לכל רכיב.
   String get syncTargetsTitle;
   String get syncTargetsSubtitle;
+  String get showAndroidTitle;
+  String get showAndroidSubtitle;
   String get syncTargetApp;
   String get syncTargetLibrary;
   String get syncTargetPlugins;
@@ -1107,6 +1115,8 @@ abstract class PluginsStrings {
 
   String get noResultsTitle;
   String get noResultsBody;
+  String get noNewPluginsTitle;
+  String get noNewPluginsBody;
 
   // ── שורת הסינון ─────────────────────────────────────────────────────────
   String get filterStatusLabel;
@@ -1216,6 +1226,7 @@ abstract class PluginsStrings {
   String get searchHint;
   String get clearSearchTooltip;
   String get filterAll;
+  String filterNew(int count);
   String get filterInstalled;
   String get filterNotInstalled;
   String get moreFilters;
@@ -1882,6 +1893,8 @@ abstract class LibraryDomainStrings {
   String get semanticFullDownloadNeeded;
   String get semanticStatusAppUnproven;
   String get semanticStatusDriveNotMatching;
+  String get semanticStatusDriveOtherVersion;
+  String semanticNotPublishedYet(int version);
   String get semanticStatusVerificationFailed;
   String get semanticStatusDriveUnreadable;
   String get semanticStatusNeedsDriveDownload;
@@ -2275,8 +2288,14 @@ abstract class CustomAppsStrings {
   String get noStoredInstaller;
 
   String get downloadButton;
+  String get downloadUpdateButton;
   String get downloadingLabel;
   String get checkOnlineButton;
+
+  // ── מצב התוכנה על הכרטיס ──
+  String get chipUpdateOnline;
+  String get chipNewerOnDrive;
+  String get chipOnDriveNotInstalled;
 
   // ── בדיקה ברשת לכל התוכנות בבת אחת, במקום כרטיס-כרטיס ──
   String get checkAllOnlineButton;

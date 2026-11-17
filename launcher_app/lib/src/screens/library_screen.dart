@@ -131,7 +131,9 @@ class LibraryScreen extends StatelessWidget {
           body: domain.companionsMissingFromMirror(c.unavailableCompanionNames),
         ),
       // לא הצעה ולא "מעודכן": החיפוש החכם שבכונן אינו מותקן כאן, והסיבה נאמרת.
-      if (c.semanticIncompatibility case final incompatible?)
+      // מחכה לאוצריא: העדכון שלה הוא הצעד, ואי התאימות תיבדק מחדש אחריו.
+      if (c.semanticIncompatibility case final incompatible?
+          when !(c.awaitsOtzariaUpdate && c.semanticNote != null))
         NoticeBanner(
           kind: NoticeKind.warning,
           leading: warning,
@@ -139,7 +141,18 @@ class LibraryScreen extends StatelessWidget {
           body: '$incompatible',
         ),
       // מעודכן רק כשהחיפוש החכם הוכח; כל מצב אחר נאמר במפורש.
-      if (c.semanticNote case final note?
+      // הסדר (אוצריא ואז הספרייה) אינו תקלה של החיפוש החכם: הודעה רגועה משלו.
+      if (c.semanticNote case final note? when c.awaitsOtzariaUpdate)
+        NoticeBanner(
+          key: ShellKeys.libraryOtzariaFirstNote,
+          leading: const IconTile(
+            icon: FluentIcons.info_24_regular,
+            tone: IconTileTone.quiet,
+          ),
+          title: context.strings.guide.tileLibrary,
+          body: note,
+        )
+      else if (c.semanticNote case final note?
           when c.semanticIncompatibility == null &&
               c.semanticState != SmartSearchState.readyOnDrive)
         NoticeBanner(

@@ -25,6 +25,9 @@ abstract final class LauncherLogFormat {
   /// קידומת האזהרה "אף פריים לא הוצג" — המקבילה ל-`Startup stall` של אוצריא.
   static const String startupStallTag = 'Startup stall:';
 
+  /// נרשמת כשהפריים הראשון הוצג אחרי האזהרה; תקיעה שאחריה אינה ראיה לקריסה.
+  static const String startupStallRecoveredTag = 'Startup stall recovered';
+
   /// השורה שנושאת את הטיפוס בזמן ריצה, ואחריה `error:` של `AppLogger.error`.
   static const String typePrefix = 'type: ';
   static const String errorPrefix = 'error: ';
@@ -71,6 +74,9 @@ class LauncherLogBlock {
 
   bool get isStartupStall =>
       message.startsWith(LauncherLogFormat.startupStallTag);
+
+  bool get isStartupStallRecovered =>
+      message.startsWith(LauncherLogFormat.startupStallRecoveredTag);
 
   /// שגיאה שלא נתפסה או תקיעה — ראיה לקריסה, בניגוד לשגיאה שטופלה.
   bool get isCrashEvidence => isFatalError || isStartupStall;
@@ -165,4 +171,22 @@ String recentLauncherLogExcerpt(
     bytes += size;
   }
   return kept.reversed.join('\n');
+}
+
+extension LauncherLogBlocks on List<LauncherLogBlock> {
+  /// תקיעות עלייה שלא נרשמה אחריהן התאוששות.
+  List<LauncherLogBlock> get unrecoveredStartupStalls {
+    final recoveredAt = lastIndexWhere((b) => b.isStartupStallRecovered);
+    return [
+      for (var i = 0; i < length; i++)
+        if (this[i].isStartupStall && i > recoveredAt) this[i],
+    ];
+  }
+
+  List<LauncherLogBlock> get crashEvidence {
+    final stalls = unrecoveredStartupStalls.toSet();
+    return where(
+      (b) => b.isStartupStall ? stalls.contains(b) : b.isCrashEvidence,
+    ).toList();
+  }
 }

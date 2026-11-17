@@ -76,6 +76,7 @@ class HomeViewModel {
     this.syncApp = true,
     this.syncLibrary = true,
     this.syncPlugins = true,
+    this.showAndroid = false,
     this.libraryDownloadFailed = false,
     this.libraryDownloadNotes = const [],
     this.semanticOffer = false,
@@ -183,6 +184,7 @@ class HomeViewModel {
   final bool syncApp;
   final bool syncLibrary;
   final bool syncPlugins;
+  final bool showAndroid;
   final bool libraryDownloadFailed;
   final List<String> libraryDownloadNotes;
 
@@ -394,6 +396,7 @@ HomeViewModel homeViewModelOf(AppSession s) {
     syncApp: settings.syncApp,
     syncLibrary: settings.downloadsLibrary,
     syncPlugins: settings.syncPlugins,
+    showAndroid: settings.showAndroid,
     libraryDownloadFailed: library.downloadNeedsRetry && !s.isDownloading,
     libraryDownloadNotes: library.downloadNotes,
     semanticOffer: s.onlineSemanticOffer,

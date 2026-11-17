@@ -651,6 +651,79 @@ void main() {
         manager.dispose();
       });
     });
+
+    // issue #249: אחרי שההחלה מוחקת patch פגום מהכונן, הבדיקה במחשב הלא-מקוון
+    // חייבת לא לקרוס ולסמן שההורדה חסרה.
+    test('patch שנמחק מהמראה: הבדיקה לא קורסת וההורדה מסומנת חסרה', () async {
+      await installExistingDb(32, appliedTag: 'v32');
+      final releases = <Map<String, dynamic>>[];
+      Map<String, dynamic> asset(String tag, String name, String content) {
+        final relative = p.join('assets', tag, name);
+        final file = File(p.join(mirrorDir, relative));
+        file.parent.createSync(recursive: true);
+        file.writeAsStringSync(content);
+        return {
+          'name': name,
+          'downloadUrl': relative,
+          'size': utf8.encode(content).length,
+          'id': relative.hashCode.abs(),
+        };
+      }
+
+      for (final (from, to) in [(31, 32), (32, 34), (34, 35), (35, 36)]) {
+        final patch = 'patch-v$from-v$to.db.zst';
+        final manifest = jsonEncode({
+          'fromVersion': from,
+          'toVersion': to,
+          'fromSchemaVersion': 2,
+          'toSchemaVersion': 2,
+          'patchFormatVersion': 4,
+          'fromContentHash': 'h$from',
+          'toContentHash': 'h$to',
+          'patchFiles': [
+            {
+              'file': patch,
+              'compression': 'zstd',
+              'sha256': 'a' * 64,
+              'size': 5,
+              'uncompressedSha256': 'b' * 64,
+              'uncompressedSize': 9,
+            },
+          ],
+        });
+        releases.add({
+          'tag': 'v$to',
+          'isPrerelease': false,
+          'isDraft': false,
+          'assets': [
+            asset('v$to', '$patch.manifest.json', manifest),
+            asset('v$to', patch, 'patch'),
+          ],
+        });
+      }
+      await File(p.join(mirrorDir, 'releases.json')).writeAsString(
+        jsonEncode({
+          'formatVersion': 1,
+          'exportedAt': DateTime.now().toIso8601String(),
+          'releases': releases,
+        }),
+      );
+
+      await _withoutNetwork((_) async {
+        final manager = hermeticManager();
+        expect(
+          (await manager.checkForUpdate()).mirrorDownloadIncomplete,
+          false,
+        );
+
+        File(
+          p.join(mirrorDir, 'assets', 'v34', 'patch-v32-v34.db.zst'),
+        ).deleteSync();
+        final check = await manager.checkForUpdate();
+        expect(check.mirrorDownloadIncomplete, isTrue);
+        manager.dispose();
+      });
+    });
   });
 
   group('checkForUpdate — התאוששות משאריות קריסה', () {

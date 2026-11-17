@@ -99,6 +99,40 @@ void main() {
       expect(await locator.findIn(tempDir.path), isNull);
     });
 
+    test('העתק או שם-משנה של הלאנצ׳ר אינו מזוהה כאוצריא', () async {
+      // `עדכוני אוצריא - מנוע חדש.exe` נראה ב-stub.log של כונן אמיתי.
+      for (final name in const [
+        'עדכוני אוצריא - מנוע חדש',
+        'עדכוני אוצריא (1)',
+        'עדכוני אוצריא - עותק',
+        'Otzaria-Updates (1)',
+        'Otzaria-Updates-0.29',
+        'otzaria-updates - copy',
+        'launcher_app (1)',
+      ]) {
+        final dir = await tempDir.createTemp('copy-');
+        File(p.join(dir.path, '$name.exe')).writeAsStringSync('fake');
+
+        expect(await locator.findIn(dir.path), isNull, reason: name);
+        expect(OtzariaAppLocator.isOurOwnExe('$name.exe'), isTrue);
+      }
+    });
+
+    test('אוצריא האמיתית ושמות המתקין שלה אינם נפסלים כלאנצ׳ר', () async {
+      for (final name in const [
+        'otzaria',
+        'אוצריא',
+        'otzaria-0.9.98',
+        'Otzaria-Setup',
+      ]) {
+        final dir = await tempDir.createTemp('real-');
+        File(p.join(dir.path, '$name.exe')).writeAsStringSync('fake');
+
+        expect(OtzariaAppLocator.isOurOwnExe('$name.exe'), isFalse);
+        expect(p.basename((await locator.findIn(dir.path))!), '$name.exe');
+      }
+    });
+
     test('אוצריא האמיתית מנצחת את ה-stub של הלאנצ׳ר באותה תיקייה', () async {
       File(p.join(tempDir.path, 'עדכוני אוצריא.exe')).writeAsStringSync('fake');
       File(p.join(tempDir.path, 'otzaria.exe')).writeAsStringSync('fake');

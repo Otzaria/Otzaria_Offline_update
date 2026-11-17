@@ -496,11 +496,16 @@ class _PluginsScreenState extends State<PluginsScreen> {
   Widget _noResults(BuildContext context) {
     final t = context.strings.plugins;
     final query = _c.search.trim();
+    final newOnly = _c.installFilter == PluginInstallFilter.newOnes;
     return EmptyState(
       icon: FluentIcons.search_24_regular,
       quiet: true,
-      title: query.isEmpty ? t.noResultsTitle : t.noResultsForQuery(query),
-      body: t.noResultsBody,
+      title: query.isNotEmpty
+          ? t.noResultsForQuery(query)
+          : newOnly
+              ? t.noNewPluginsTitle
+              : t.noResultsTitle,
+      body: query.isEmpty && newOnly ? t.noNewPluginsBody : t.noResultsBody,
       actions: [
         ActionButton.neutral(
             text: t.clearFiltersButton, onPressed: _clearFilters),

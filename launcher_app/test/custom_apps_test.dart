@@ -225,7 +225,14 @@ void main() {
       final t = stringsOf().customApps;
       expect(find.text(t.infoStored), findsOneWidget);
       expect(find.text('1.4.2'), findsOneWidget);
-      expect(find.textContaining(t.infoStored), findsOneWidget);
+      // הטווח הוא לוח המידע: שבב "בכונן, לא מותקנת כאן" בראש הדף מכיל אותה מילה.
+      expect(
+        find.descendant(
+          of: find.byType(StoreInfoRows),
+          matching: find.textContaining(t.infoStored),
+        ),
+        findsOneWidget,
+      );
     });
 
     // ההבחנה החשובה: "לא חיפשנו" אינו "חיפשנו ולא מצאנו".
@@ -1883,6 +1890,62 @@ void main() {
       expect(fake.passedSources['old'], isNull);
     });
 
+    testWidgets('בדיקה שלא מצאה release מוחקת את הגרסה מהבדיקה הקודמת', (
+      tester,
+    ) async {
+      late CustomAppsController c;
+      late bool offeredBefore;
+      await tester.runAsync(() async {
+        final built = await fakeController({'old': '2.0.0'}, ids: ['old']);
+        c = built.controller;
+        await c.load();
+        await c.checkOnline(c.apps.single.descriptor);
+        offeredBefore = c.hasNewerOnline(c.apps.single);
+        built.fake.online.remove('old');
+        await c.checkOnline(c.apps.single.descriptor);
+        c.dispose();
+      });
+
+      expect(offeredBefore, isTrue);
+      expect(c.onlineVersions, isNot(contains('old')));
+      expect(c.hasNewerOnline(c.apps.single), isFalse);
+    });
+
+    testWidgets('החלפת מקור GitHub מוחקת את הגרסה שנמצאה במקור הקודם', (
+      tester,
+    ) async {
+      late CustomAppsController c;
+      final kept = <bool>[];
+      await tester.runAsync(() async {
+        final built = await fakeController({'old': '2.0.0'}, ids: ['old']);
+        c = built.controller;
+        await c.load();
+        final before = c.apps.single.descriptor;
+        await c.checkOnline(before);
+        // עריכה שאינה נוגעת במקור משאירה את התשובה.
+        await c.update(before);
+        kept.add(c.onlineVersions.containsKey('old'));
+        await c.update(
+          AppDescriptor(
+            id: before.id,
+            name: before.name,
+            sourceKind: AppSourceKind.github,
+            detect: before.detect,
+            github: const GithubSource(
+              owner: 'fork',
+              repo: 'their-app',
+              assetPattern: r'^App\-\d+\.exe$',
+            ),
+          ),
+        );
+        kept.add(c.onlineVersions.containsKey('old'));
+        c.dispose();
+      });
+
+      expect(kept, [true, false]);
+      expect(c.hasNewerOnline(c.apps.single), isFalse);
+    });
+
     testWidgets('בלי אינטרנט: אין בדיקה ואין הורדה ברשת — לא בראש ולא בדף', (
       tester,
     ) async {
@@ -1950,8 +2013,8 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(check().onPressed, isNotNull);
-      // ברשת יש גרסה חדשה מזו שבכונן — עכשיו "הורדה לכונן" מוצעת.
-      expect(find.text(t.downloadButton), findsOneWidget);
+      // ברשת יש גרסה חדשה מזו שבכונן — עכשיו "הורדת העדכון" מוצעת.
+      expect(find.text(t.downloadUpdateButton), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     });
 

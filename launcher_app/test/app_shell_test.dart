@@ -45,6 +45,7 @@ import 'package:launcher_app/src/shell/session_prompts.dart';
 import 'package:launcher_app/src/shell/shell_keys.dart';
 import 'package:launcher_app/src/shell/shell_navigator.dart';
 import 'package:launcher_app/src/shell/shell_tasks.dart';
+import 'package:launcher_app/src/theme/theme_exports.dart';
 import 'package:launcher_app/src/widgets/widgets_exports.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
@@ -323,6 +324,27 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets(
+      '"עדכון Android" מוצג רק כשהוא מופעל, וכיבוי בזמן שהדף פתוח '
+      'מחזיר לבית', (tester) async {
+    await pumpShell(tester);
+    expect(find.byKey(ShellKeys.tile(ShellSection.android)), findsNothing);
+
+    await tester.runAsync(
+      () => settings.update(settings.settings.copyWith(showAndroid: true)),
+    );
+    await tester.pump();
+    await open(tester, ShellSection.android);
+    expect(navigatorOf(tester).section, ShellSection.android);
+
+    await tester.runAsync(
+      () => settings.update(settings.settings.copyWith(showAndroid: false)),
+    );
+    await tester.pump();
+    expect(navigatorOf(tester).section, ShellSection.home);
+    expect(find.byKey(ShellKeys.tile(ShellSection.android)), findsNothing);
   });
 
   testWidgets('מסך שנכנסים אליו נבנה, ונשאר בעץ גם אחרי מעבר משם', (
@@ -1225,7 +1247,7 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
       expect(nav.showsTask, isTrue);
-      await tester.tap(find.byTooltip(shell.settingsTooltip));
+      await tester.tap(find.byTooltip(shell.toolsBusyDownloadTooltip).last);
       await tester.pump();
       expect(nav.showsTask, isTrue);
       expect(nav.isBuilt(ShellSection.settings), isFalse);
@@ -1238,6 +1260,35 @@ void main() {
       expect(s.tasks.hasTask, isFalse);
       expect(nav.showsTask, isFalse);
       expect(nav.section, ShellSection.home);
+    });
+
+    testWidgets('בזמן הורדה רצה הכלים מושבתים למראה, מסבירים, ואינם מנווטים',
+        (tester) async {
+      await pumpShell(tester);
+      final s = sessionOf(tester);
+      final nav = navigatorOf(tester);
+      Iterable<Color?> iconColors() => tester
+          .widgetList<Icon>(find.descendant(
+              of: find.byType(AppTitleBar), matching: find.byType(Icon)))
+          .map((icon) => icon.color);
+      expect(find.byTooltip(shell.settingsTooltip), findsOneWidget);
+      expect(iconColors(), isNot(contains(AppPalette.light.disabledText)));
+
+      s.tasks.downloadRunning(const [MirrorComponent.app]);
+      await tester.pump();
+
+      expect(find.byTooltip(shell.settingsTooltip), findsNothing);
+      expect(find.byTooltip(shell.toolsBusyDownloadTooltip), findsNWidgets(2));
+      expect(iconColors(), everyElement(AppPalette.light.disabledText));
+      await tester.tap(find.byTooltip(shell.toolsBusyDownloadTooltip).last);
+      await tester.pump();
+      expect(nav.section, isNot(ShellSection.settings));
+      expect(nav.showsTask, isTrue);
+
+      s.tasks.downloadDone();
+      await tester.pump();
+      expect(find.byTooltip(shell.settingsTooltip), findsOneWidget);
+      expect(iconColors(), isNot(contains(AppPalette.light.disabledText)));
     });
 
     testWidgets('בזמן משימה רצה גלגל השיניים מושבת למראה, ובסיום חוזר',
@@ -1253,6 +1304,31 @@ void main() {
       s.tasks.downloadDone();
       await tester.pump();
       expect(toolsEnabled(), isTrue);
+    });
+
+    testWidgets('בזמן יציאה ממתינה הכלים מושבתים, בלי רמז משימה, ואינם מנווטים',
+        (tester) async {
+      await pumpShell(tester);
+      final s = sessionOf(tester);
+      final nav = navigatorOf(tester);
+      AppTitleBar bar() => tester.widget<AppTitleBar>(find.byType(AppTitleBar));
+
+      s.launcherUpdate.status = LauncherUpdateStatus.installing;
+      s.launcherUpdate.notifyListeners();
+      await tester.pump();
+
+      expect(s.exitPending, isTrue);
+      expect(bar().toolsEnabled, isFalse);
+      expect(bar().toolsDisabledHint, isNull);
+      expect(find.byTooltip(shell.toolsBusyTooltip), findsNothing);
+      expect(find.byTooltip(shell.toolsBusyDownloadTooltip), findsNothing);
+      expect(find.byTooltip(shell.settingsTooltip), findsOneWidget);
+      final before = nav.section;
+      await tester.tap(find.byTooltip(shell.settingsTooltip),
+          warnIfMissed: false);
+      await tester.pump();
+      expect(nav.section, before);
+      expect(nav.isBuilt(ShellSection.settings), isFalse);
     });
 
     testWidgets('באנר המנהל במסך הכשל נגזר מהמצב, לא מדגל הכשל',
@@ -2282,7 +2358,7 @@ void main() {
       expect(nav.section, ShellSection.settings);
 
       final link = find.byKey(const ValueKey('settings.otzariaAdvanced'));
-      await tester.ensureVisible(link);
+      await tester.scrollUntilVisible(link, 200);
       await tester.tap(link);
       await tester.pump();
       // לא "בית ← הגדרות ← מתקדם": "חזרה" הייתה נוחתת בהגדרות בלי שער.

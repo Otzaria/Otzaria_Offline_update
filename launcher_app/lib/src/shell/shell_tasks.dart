@@ -247,12 +247,13 @@ final class UpdateHereTask extends ShellTask {
     bool? closeAfterWizard,
     bool? stopWaitingRequested,
     UpdateFailure? failure,
+    List<GuidanceItem>? stages,
   }) =>
       UpdateHereTask(
         id: id,
         phase: phase ?? this.phase,
         request: request,
-        stages: stages,
+        stages: stages ?? this.stages,
         stageIndex: stageIndex ?? this.stageIndex,
         firstInstall: firstInstall,
         appVersion: appVersion,
@@ -549,6 +550,17 @@ class ShellTasks extends ChangeNotifier {
   void stageStopped(GuidanceItem stage, StageOutcome outcome) {
     final task = _updateTask();
     _setUpdate(task._copy(outcomes: {...task.outcomes, stage: outcome}));
+  }
+
+  /// התוכנה שהותקנה פתחה לספרייה מה להתקין: השלב שלה מצטרף מיד אחריה.
+  void libraryJoinsAfterApp() {
+    final task = _updateTask();
+    if (task.stages.contains(GuidanceItem.library)) return;
+    final at = task.stages.indexOf(GuidanceItem.app) + 1;
+    _setUpdate(task._copy(
+      stages:
+          List.unmodifiable([...task.stages]..insert(at, GuidanceItem.library)),
+    ));
   }
 
   /// הבדיקה החוזרת אחרי האשף שינתה את תוכנית הספרייה.

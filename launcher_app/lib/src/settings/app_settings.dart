@@ -98,6 +98,9 @@ class AppSettings {
   /// הכונן, ולכן היא נשאלת פעם אחת לכונן ולא לכל מחשב.
   final bool personalModeAsked;
 
+  /// הצגת "עדכון Android" בבית. תצוגה בלבד — לא קובע מה ההורדה מביאה.
+  final bool showAndroid;
+
   /// "רק המחשב שלי" נבחר במחשב שלא נרשם: המחשב הלא מחובר הראשון שבו אוצריא
   /// מותקנת יירשם. חד-פעמי — נמחק ברישום הזה או בהסרה ידנית.
   final bool personalAutoRegisterPending;
@@ -144,6 +147,7 @@ class AppSettings {
     this.syncPlugins = true,
     this.personalUpdateMode = false,
     this.personalModeAsked = false,
+    this.showAndroid = false,
     this.personalAutoRegisterPending = false,
     this.semanticDownload = SemanticDownloadPreference.ask,
     this.autoInstall = false,
@@ -183,6 +187,7 @@ class AppSettings {
     bool? syncPlugins,
     bool? personalUpdateMode,
     bool? personalModeAsked,
+    bool? showAndroid,
     bool? personalAutoRegisterPending,
     SemanticDownloadPreference? semanticDownload,
     bool? autoInstall,
@@ -200,6 +205,7 @@ class AppSettings {
       syncPlugins: syncPlugins ?? this.syncPlugins,
       personalUpdateMode: personalUpdateMode ?? this.personalUpdateMode,
       personalModeAsked: personalModeAsked ?? this.personalModeAsked,
+      showAndroid: showAndroid ?? this.showAndroid,
       personalAutoRegisterPending:
           personalAutoRegisterPending ?? this.personalAutoRegisterPending,
       semanticDownload: semanticDownload ?? this.semanticDownload,
@@ -231,6 +237,7 @@ class AppSettings {
         'ui': {
           'language': languagePreference.code,
           'textScale': textScale,
+          'showAndroid': showAndroid,
         },
         'protection': {
           'enabled': saferModeEnabled,
@@ -312,6 +319,7 @@ class AppSettings {
       personalUpdateMode: personalMode,
       // כונן שכבר הפעיל עדכון אישי ענה על השאלה, גם לפני שהיא הייתה.
       personalModeAsked: flag(sync, 'personalAsked', personalMode),
+      showAndroid: flag(ui, 'showAndroid', defaults.showAndroid),
       personalAutoRegisterPending: flag(sync, 'personalAutoRegister', false),
       semanticDownload: SemanticDownloadPreference.fromCode(sync['semantic']),
       autoInstall: merged(

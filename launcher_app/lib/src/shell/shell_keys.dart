@@ -11,6 +11,7 @@ abstract final class ShellKeys {
   static const heroLaunch = ValueKey('home.hero.launch');
   static const heroSemanticOffer = ValueKey('home.hero.semanticOffer');
   static const librarySemanticNote = ValueKey('library.semanticNote');
+  static const libraryOtzariaFirstNote = ValueKey('library.otzariaFirstNote');
   static const heroFailedDownloads = ValueKey('home.hero.failedDownloads');
   static const heroFoundNothing = ValueKey('home.hero.foundNothing');
   static const eyebrow = ValueKey('home.eyebrow');
@@ -106,6 +107,8 @@ abstract final class ShellKeys {
   static const personalAskMultiple = ValueKey('personal.ask.multiple');
   static const personalAskMine = ValueKey('personal.ask.mine');
   static const personalAskConfirm = ValueKey('personal.ask.confirm');
+  static const personalAskAndroid = ValueKey('personal.ask.android');
+  static const settingsShowAndroid = ValueKey('settings.showAndroid');
   static const personalPreparedHere = ValueKey('home.personal.preparedHere');
   static const personalDownloadNote = ValueKey('home.personal.downloadNote');
   static const settingsPersonalMultiple =
