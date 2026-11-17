@@ -975,7 +975,8 @@ void main() {
         ),
       );
       expect(await segment.exists(), isFalse);
-      expect(applied(), [(28, 29)]);
+      expect(applied(), isEmpty);
+      expect(engine.version, 28);
     });
 
     test('an installed set of another identity is not touched', () async {

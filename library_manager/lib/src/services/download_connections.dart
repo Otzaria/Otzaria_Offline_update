@@ -8,6 +8,8 @@ import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
+import 'package:win32/win32.dart'
+    show DRIVE_FIXED, GetDriveType, GetVolumePathName, MAX_PATH;
 
 /// החיבורים לקובץ גדול במשבצת של [scheduler] — אותה חלוקה של הייצוא, כדי
 /// שגם הנלווים שחולקים איתו את המשבצות לא יעברו את התקרה הכוללת.
@@ -59,6 +61,21 @@ bool isRemovableDrive(String path) {
     }
   } catch (_) {
     return false;
+  }
+}
+
+bool isFixedDrive(String path) {
+  if (!Platform.isWindows) return false;
+  final directory = path.toNativeUtf16();
+  final volume = calloc<Uint16>(MAX_PATH).cast<Utf16>();
+  try {
+    return GetVolumePathName(directory, volume, MAX_PATH) != 0 &&
+        GetDriveType(volume) == DRIVE_FIXED;
+  } catch (_) {
+    return false;
+  } finally {
+    malloc.free(directory);
+    calloc.free(volume);
   }
 }
 

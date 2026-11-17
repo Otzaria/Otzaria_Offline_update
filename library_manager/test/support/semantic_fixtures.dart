@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -479,20 +478,6 @@ class FakeVectorsEngine implements SemanticVectorsEngine {
     onInstall?.call(input);
     final failure = error;
     if (failure != null) throw failure;
-    // Like the real engine: a segment that is not the published one is refused.
-    final files = (jsonDecode(input.manifestJson) as Map)['files'];
-    // Read outside any IOOverrides zone: the real engine reads in Rust.
-    final segment = Zone.root.run(() => File(input.segmentPath));
-    if (files is List &&
-        files.length == 1 &&
-        segment.existsSync() &&
-        Sha256Stream.ofBytes(segment.readAsBytesSync()) !=
-            (files.single as Map)['sha256']) {
-      throw const SemanticError(
-        kind: SemanticErrorKind.artifactCorrupt,
-        message: 'the segment does not match its manifest',
-      );
-    }
     if (refuse) {
       throw const SemanticError(
         kind: SemanticErrorKind.artifactIncompatible,

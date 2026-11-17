@@ -2919,6 +2919,61 @@ class SemanticSearchAssets {
     );
   }
 
+  Future<bool> _canStageBase(
+    String mirrorDir,
+    Directory work,
+    int needed,
+  ) async {
+    if (!Platform.isWindows && _removableProbe == null) return false;
+    try {
+      final removable = _removableProbe ?? isRemovableDrive;
+      if (!removable(await Directory(mirrorDir).resolveSymbolicLinks())) {
+        return false;
+      }
+      if (Platform.isWindows &&
+          !isFixedDrive(await work.resolveSymbolicLinks())) {
+        return false;
+      }
+      final free = _freeBytesFor(work.path);
+      return free != null && !DiskSpaceProbe.lacksSpace(free, needed);
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  Future<String> _prepareSingleSegment({
+    required String vectorsSourceDir,
+    required SemanticAsset file,
+    required Directory work,
+    required bool stage,
+    required bool Function()? isCancelled,
+  }) async {
+    if (stage) {
+      Directory? scratch;
+      try {
+        scratch = await work.createTemp('segment-');
+        return await concatenateVectorParts(
+          vectorsDir: vectorsSourceDir,
+          parts: [file],
+          workDir: scratch.path,
+          isCancelled: isCancelled,
+        );
+      } on StorageFullException {
+        await scratch?.delete(recursive: true);
+      } on FileSystemException catch (error) {
+        final failedPath = error.path;
+        if (scratch != null &&
+            (failedPath == null || !p.isWithin(scratch.path, failedPath))) {
+          rethrow;
+        }
+        await scratch?.delete(recursive: true);
+      }
+    }
+    final source = p.join(vectorsSourceDir, file.name);
+    await _verify(source, file, isCancelled);
+    return source;
+  }
+
   // Only a base can repair these, so the chain ends as "needs a base".
   static const _setRefusesDelta = {
     SemanticErrorKind.artifactIncompatible,
@@ -3077,44 +3132,57 @@ class SemanticSearchAssets {
         for (final unit in units)
           if (unit.files.length > 1) ...unit.files,
       ];
-      // The engine hashes a whole segment against its published manifest as
-      // it installs it, so the drive copy is read once.
-      final engineHashed = {
-        for (final unit in units)
-          if (unit.files.length == 1) unit.files.single,
-      };
-      _ensureSpace(
-        vectorsDir,
-        units.fold(0, (size, unit) => size + unit.segmentSize),
+      final vectorsBytes = units.fold(
+        0,
+        (size, unit) => size + unit.segmentSize,
       );
+      _ensureSpace(vectorsDir, vectorsBytes);
       if (parted.isNotEmpty) {
         _ensureSpace(
           Directory.systemTemp.path,
           parted.fold(0, (size, file) => size + file.size),
         );
       }
-      for (final group in [
-        (spec.folder, spec.files),
-        (
-          'vectors',
-          [
-            for (final unit in units) ...[unit.step.manifest, ...unit.files],
-          ],
-        ),
-      ]) {
-        for (final file in group.$2) {
-          if (parted.contains(file) || engineHashed.contains(file)) continue;
-          _cancel(isCancelled);
-          final source = p.join(generationDir, group.$1, file.name);
-          await _verify(source, file, isCancelled);
-        }
+      for (final file in spec.files) {
+        await _verify(
+          p.join(generationDir, spec.folder, file.name),
+          file,
+          isCancelled,
+        );
       }
+      final vectorsSourceDir = p.join(generationDir, 'vectors');
+      for (final unit in units) {
+        final manifest = unit.step.manifest;
+        await _verify(
+          p.join(vectorsSourceDir, manifest.name),
+          manifest,
+          isCancelled,
+        );
+      }
+      final base = !meta.chain ? units.single.files.singleOrNull : null;
+      // Reserve space for the live files too: temp can share their volume.
+      final stageBase =
+          base != null &&
+          base.name.endsWith('.oxv.zst') &&
+          await _canStageBase(
+            mirrorDir,
+            work,
+            base.size +
+                vectorsBytes +
+                spec.files.fold(0, (size, f) => size + f.size),
+          );
       final segments = <String>[
         for (final unit in units)
           unit.files.length == 1
-              ? p.join(generationDir, 'vectors', unit.files.single.name)
+              ? await _prepareSingleSegment(
+                  vectorsSourceDir: vectorsSourceDir,
+                  file: unit.files.single,
+                  work: work,
+                  stage: stageBase,
+                  isCancelled: isCancelled,
+                )
               : await concatenateVectorParts(
-                  vectorsDir: p.join(generationDir, 'vectors'),
+                  vectorsDir: vectorsSourceDir,
                   parts: unit.files,
                   workDir: work.path,
                   isCancelled: isCancelled,
@@ -3180,13 +3248,6 @@ class SemanticSearchAssets {
           if (meta.windows && !unit.isDelta) {
             await _restoreMarker(marker, previousMarker);
           }
-          // A refusal or a read fault may be the drive's: checking its copy
-          // deletes a damaged one and names a failing drive, not the local disk.
-          if (error is! PatchDownloadCancelled &&
-              !_cannotBlameSource(error, vectorsDir) &&
-              engineHashed.contains(unit.files.first)) {
-            await _verify(segments[index], unit.files.single, isCancelled);
-          }
           if (error is SemanticError &&
               unit.isDelta &&
               _setRefusesDelta.contains(error.kind)) {
@@ -3220,12 +3281,6 @@ class SemanticSearchAssets {
       await disposeSemanticEngineWork(engine, work);
     }
   }
-
-  /// A full disk or a busy set says nothing about the drive file, and checking
-  /// it would cost a full read of the segment before the error is shown.
-  static bool _cannotBlameSource(Object error, String vectorsDir) =>
-      storageFullFromEngine(error, vectorsDir) != null ||
-      (error is SemanticError && error.kind == SemanticErrorKind.vectorsBusy);
 
   static Future<void> _restoreMarker(File marker, String? previous) async {
     try {

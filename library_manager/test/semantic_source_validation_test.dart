@@ -6,7 +6,7 @@ import 'package:http/testing.dart';
 import 'package:library_manager/src/services/semantic_search_assets.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_search_engine/otzaria_search_engine.dart'
-    show SemanticError, SemanticErrorKind, SemanticVectorsInstallInput;
+    show SemanticVectorsInstallInput;
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
 import 'package:test/test.dart';
@@ -24,6 +24,8 @@ void main() {
   late FakeVectorsEngine engine;
   var requests = 0;
   var openedEngines = 0;
+  var removable = false;
+  int? freeBytes;
 
   setUp(() async {
     temp = await Directory.systemTemp.createTemp('semantic-source-validation-');
@@ -68,10 +70,13 @@ void main() {
     await writeInstalledSet(vectors, version: 29, windows: false);
     requests = 0;
     openedEngines = 0;
+    removable = false;
+    freeBytes = null;
     engine = FakeVectorsEngine(version: 29);
     assets = SemanticSearchAssets(
       models: fakeModels,
-      freeBytesFor: (_) => null,
+      freeBytesFor: (path) => p.isWithin(machine, path) ? null : freeBytes,
+      removableProbe: (_) => removable,
       engineFactory: (_) async {
         openedEngines++;
         return engine;
@@ -108,11 +113,25 @@ void main() {
     final before = await snapshot();
     await expectLater((action ?? install)(), throwsA(error));
     expect(await snapshot(), before);
-    // The segment is hashed by the engine, so it may open; nothing installs.
-    expect(openedEngines, lessThanOrEqualTo(1));
+    expect(openedEngines, 0);
     expect(engine.installs, isEmpty);
     expect(requests, 0);
   }
+
+  test('a corrupt segment leaves a fresh installation untouched', () async {
+    removable = true;
+    freeBytes = 10 << 30;
+    await Directory(vectors).delete(recursive: true);
+    await Directory(
+      p.join(p.dirname(db), SemanticSearchAssets.modelFolder),
+    ).delete(recursive: true);
+    final source = sources['vectors']!;
+    await source.writeAsBytes([3, 2, 1]);
+
+    await rejectsWithoutChanges(isA<FormatException>());
+    expect(await source.exists(), isFalse);
+    expect(await Directory(vectors).exists(), isFalse);
+  });
 
   for (final kind in ['model', 'manifest', 'vectors']) {
     test('a missing $kind source names the local file', () async {
@@ -172,6 +191,10 @@ void main() {
 
     test('a damaged $kind source on a read-only drive still reports the '
         'hash failure', () async {
+      if (kind == 'vectors') {
+        removable = true;
+        freeBytes = 10 << 30;
+      }
       final source = sources[kind]!;
       final bytes = await source.readAsBytes();
       bytes[0] ^= 1;
@@ -196,7 +219,6 @@ void main() {
     for (final operation in ['length', 'read']) {
       test('$kind source $operation failure preserves the I/O error', () async {
         final source = sources[kind]!;
-        if (kind == 'vectors') engine = _unreadingEngine();
         final failure = FileSystemException(
           'source read failed',
           source.path,
@@ -220,7 +242,8 @@ void main() {
 
   test('a damaged source drive keeps its storage classification', () async {
     final source = sources['vectors']!;
-    engine = _unreadingEngine();
+    removable = true;
+    freeBytes = 10 << 30;
     final failure = FileSystemException(
       'source read failed',
       source.path,
@@ -420,26 +443,65 @@ void main() {
     expect(requests, 0);
   });
 
-  test('a sound install leaves the segment hash to the engine', () async {
-    final source = sources['vectors']!;
-    var reads = 0;
-    await IOOverrides.runZoned(
-      install,
-      createFile: (path) {
-        final real = Zone.root.run(() => File(path));
-        return path == source.path
-            ? _UnreadableFile(
-                real,
-                FileSystemException('unexpected vector hash', path),
-                'none',
-                onRead: () => reads++,
-              )
-            : real;
-      },
-    );
-    expect(engine.installs.single.segmentPath, source.path);
-    expect(reads, 0);
-  });
+  test(
+    'a removable base is read once and the engine uses the verified copy',
+    () async {
+      removable = true;
+      freeBytes = 10 << 30;
+      final source = sources['vectors']!;
+      var reads = 0;
+      engine = FakeVectorsEngine(
+        onInstall: (input) {
+          expect(input.segmentPath, isNot(source.path));
+          expect(p.basename(input.segmentPath), p.basename(source.path));
+          expect(File(input.segmentPath).readAsBytesSync(), [1, 2, 3]);
+        },
+      );
+      await IOOverrides.runZoned(
+        install,
+        createFile: (path) {
+          final real = Zone.root.run(() => File(path));
+          return path == source.path
+              ? _UnreadableFile(
+                  real,
+                  FileSystemException('unexpected vector error', path),
+                  'none',
+                  onRead: () => reads++,
+                )
+              : real;
+        },
+      );
+      expect(reads, 1);
+      expect(await File(engine.installs.single.segmentPath).exists(), isFalse);
+    },
+  );
+
+  for (final reason in ['unknown space', 'low space', 'unavailable scratch']) {
+    test('the removable base still installs directly with $reason', () async {
+      removable = true;
+      freeBytes = switch (reason) {
+        'low space' => 16 << 20,
+        'unavailable scratch' => 10 << 30,
+        _ => null,
+      };
+      final source = sources['vectors']!;
+      var refusedScratch = false;
+      await IOOverrides.runZoned(
+        install,
+        createFile: (path) {
+          if (reason == 'unavailable scratch' &&
+              path != source.path &&
+              p.basename(path) == p.basename(source.path)) {
+            refusedScratch = true;
+            throw FileSystemException('scratch write refused', path);
+          }
+          return Zone.root.run(() => File(path));
+        },
+      );
+      expect(refusedScratch, reason == 'unavailable scratch');
+      expect(engine.installs.single.segmentPath, source.path);
+    });
+  }
 
   test(
     'an unreadable installed model remains repairable from the drive',
@@ -583,8 +645,14 @@ class _UnreadableFile implements File {
   @override
   Stream<List<int>> openRead([int? start, int? end]) {
     onRead?.call();
-    return Stream.error(_failure);
+    return _operation == 'none'
+        ? _real.openRead(start, end)
+        : Stream.error(_failure);
   }
+
+  @override
+  Future<RandomAccessFile> open({FileMode mode = FileMode.read}) =>
+      _real.open(mode: mode);
 
   @override
   Future<String> readAsString({Encoding encoding = utf8}) =>
@@ -596,13 +664,3 @@ class _UnreadableFile implements File {
   dynamic noSuchMethod(Invocation invocation) =>
       throw UnsupportedError('${invocation.memberName} is not forwarded');
 }
-
-/// The real engine reads the segment in Rust, past any IOOverrides zone: on an
-/// unreadable drive it fails first, and the drive file is then checked here.
-FakeVectorsEngine _unreadingEngine() => FakeVectorsEngine(
-  version: 29,
-  error: const SemanticError(
-    kind: SemanticErrorKind.internal,
-    message: 'X does not expand as zstd: Data error. (os error 23)',
-  ),
-);

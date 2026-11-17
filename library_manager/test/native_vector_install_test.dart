@@ -107,8 +107,8 @@ void main() {
     skip: skip,
   );
 
-  // SemanticSearchAssets leaves the segment's hash to the engine; this is the
-  // proof that a same-size damaged segment cannot install.
+  // The engine checks the unpacked segment even when the drive file was
+  // already verified.
   for (final at in ['first', 'last']) {
     test('a segment damaged in its $at byte is refused and nothing is '
         'installed', () async {
