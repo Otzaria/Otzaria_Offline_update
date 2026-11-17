@@ -703,6 +703,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           active: _navigator.section == ShellSection.plugins &&
               !_navigator.showsTask,
           reports: s.errorReports,
+          appReports: widget.appReports,
           readOnly: widget.readOnly,
           online: onlineState(s),
           otzariaInstalled: s.otzaria.currentVersion != null,

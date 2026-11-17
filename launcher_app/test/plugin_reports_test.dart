@@ -218,4 +218,63 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('email is prefilled from the saved address and saved on send',
+      (tester) async {
+    final bodies = <Map<String, dynamic>>[];
+    final reports = controller((request) async {
+      bodies.add(jsonDecode(request.body) as Map<String, dynamic>);
+      return http.Response('{"success":true}', 200);
+    });
+    addTearDown(reports.dispose);
+    final saved = <String>[];
+    final t = stringsOf().plugins;
+    Future<void>? closed;
+    await pumpScreen(
+        tester,
+        Builder(
+            builder: (context) => ActionButton.neutral(
+                  text: t.reportButton,
+                  onPressed: () {
+                    closed = showPluginReportDialog(context,
+                        plugin: plugin,
+                        reports: reports,
+                        initialEmail: 'saved@example.com',
+                        saveEmail: (email) async => saved.add(email));
+                  },
+                )),
+        size: const Size(800, 900));
+    await tester.tap(find.text(t.reportButton));
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<RtlTextField>(find.byType(RtlTextField).last)
+            .controller!
+            .text,
+        'saved@example.com');
+    await tester.enterText(find.byType(RtlTextField).first, 'בעיה לבדיקה');
+    await tester.enterText(find.byType(RtlTextField).last, ' new@example.com ');
+    await tester.runAsync(() async {
+      final finished = Completer<void>();
+      void onChange() {
+        if (bodies.isNotEmpty &&
+            !reports.isUploading &&
+            !finished.isCompleted) {
+          finished.complete();
+        }
+      }
+
+      reports.addListener(onChange);
+      await tester.tap(find.text(t.reportSend));
+      await finished.future.timeout(const Duration(seconds: 10));
+      await Future<void>.delayed(Duration.zero);
+      reports.removeListener(onChange);
+    });
+    await tester.pumpAndSettle();
+    await closed;
+    expect(find.byType(PluginReportDialog), findsNothing);
+    expect(saved, ['new@example.com']);
+    expect(bodies.single['reporterEmail'], 'new@example.com');
+    expect(tester.takeException(), isNull);
+  });
 }

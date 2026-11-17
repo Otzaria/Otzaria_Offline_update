@@ -4,6 +4,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
+import '../../controllers/app_reports_controller.dart';
 import '../../controllers/error_reports_controller.dart';
 import '../../controllers/plugins_module_controller.dart';
 import '../../services/native_file_dialogs.dart';
@@ -36,10 +37,14 @@ class PluginsScreen extends StatefulWidget {
     this.onDetailChanged,
     this.onOpenHelp,
     this.reports,
+    this.appReports,
   });
 
   final PluginsModuleController controller;
   final ErrorReportsController? reports;
+
+  /// הכתובת השמורה לדיווחים, משותפת לדיווח על תוסף.
+  final AppReportsController? appReports;
 
   /// המקטע נשאר בנוי גם כשהבית או משימה מסתירים אותו.
   final bool active;
@@ -276,7 +281,10 @@ class _PluginsScreenState extends State<PluginsScreen> {
         onReport: widget.readOnly || widget.reports == null
             ? null
             : () => showPluginReportDialog(context,
-                plugin: selected, reports: widget.reports!),
+                plugin: selected,
+                reports: widget.reports!,
+                initialEmail: widget.appReports?.savedEmail ?? '',
+                saveEmail: widget.appReports?.saveEmail),
         onTagSelected: (tag) {
           _clearFilters();
           _c.setTagFilter(tag);
