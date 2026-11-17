@@ -318,6 +318,15 @@ void main() {
 
       expect(await c.pendingToOffer(), 2);
     });
+    test('ספירה שנכשלה (תור נעול) היא "לא ידוע", לא אפס', () async {
+      final c = ErrorReportsController(
+        outbox: outbox,
+        resolveQueue: () async => _QaQueue(1, onCount: () => throw 'locked'),
+      );
+      expect(await c.countWaiting(), isNull);
+      expect(await c.pendingToOffer(), 0);
+    });
+
     test('ספירה אחרי ספירה: הצעה שלא נענתה אינה נצרכת', () async {
       final c = controller(pending: 2);
       expect(await c.pendingToOffer(), 2);

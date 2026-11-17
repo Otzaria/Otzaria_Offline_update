@@ -2022,6 +2022,22 @@ void main() {
       await tester.pump();
       expect(transport.uploads, 1);
     });
+
+    testWidgets('ספירה שנכשלה (לא ידוע) משאירה את המספר הקודם', (tester) async {
+      final locator = _MutableLocator(isRunning: false);
+      final queue = _ShellReportQueue()..pending = 2;
+      final reports = ErrorReportsController(
+          outbox: queue.outbox, resolveQueue: () async => queue);
+      await pumpShell(tester, locator: locator, errorReports: reports);
+      await tester.runAsync(() => sessionOf(tester).recountReportsToCollect());
+      await tester.pump();
+      expect(sessionOf(tester).reportsToCollect, 2);
+
+      queue.failCount = true;
+      await tester.runAsync(() => sessionOf(tester).recountReportsToCollect());
+      await tester.pump();
+      expect(sessionOf(tester).reportsToCollect, 2);
+    });
   });
 
   group('פעולות שיציאה מהתהליך קוטעת', () {
@@ -2675,9 +2691,13 @@ class _ShellReportQueue implements OtzariaReportQueue {
   final outbox = _ShellOutbox();
   int pending = 0;
   int collects = 0;
+  bool failCount = false;
 
   @override
-  Future<int> countSendable() async => pending;
+  Future<int> countSendable() async {
+    if (failCount) throw StateError('locked');
+    return pending;
+  }
 
   @override
   Future<QueueCollectResult> collectTo(ReportOutbox outbox) async {

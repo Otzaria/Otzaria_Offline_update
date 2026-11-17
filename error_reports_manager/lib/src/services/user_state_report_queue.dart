@@ -152,7 +152,8 @@ typedef QueueCollectResult = ({int collected, String? error});
 
 /// תור הדיווחים של אוצריא. ממשק, כדי שבדיקות הלאנצ'ר ירוצו בלי מסד.
 abstract interface class OtzariaReportQueue {
-  /// כמה דיווחים ממתינים שאפשר לשלוח.
+  /// כמה דיווחים ממתינים שאפשר לשלוח. קריאה בלבד:
+  /// לא כותבת למסד ולא חוסמת את אוצריא, גם כשהיא פתוחה.
   Future<int> countSendable();
 
   /// מעביר כל דיווח ניתן לשליחה ל-[outbox] ומסמן אותו באוצריא כנשלח.
@@ -208,7 +209,7 @@ class UserStateReportQueue implements OtzariaReportQueue {
   Future<int> countSendable() {
     final path = dbPath;
     final format = reportsQueueFormat;
-    return _run(() => _readSendable(path, format).length);
+    return _run(() => _readSendable(path, format, readOnly: true).length);
   }
 
   @override
@@ -276,16 +277,23 @@ class UserStateReportQueue implements OtzariaReportQueue {
   // ── מכאן — רק בתוך ה-isolate ────────────────────────────────────────────
 
   /// `null` = אין מה לגעת בו: אין קובץ, פורמט תור לא מוכר, או בלי הטבלה.
-  static Database? _open(String dbPath, int? queueFormat) {
+  static Database? _open(
+    String dbPath,
+    int? queueFormat, {
+    bool readOnly = false,
+  }) {
     if (!File(dbPath).existsSync()) return null;
     if (queueFormat != null &&
         queueFormat != 1 &&
         queueFormat != knownQueueFormat) {
       return null;
     }
-    final db = sqlite3.open(dbPath, mode: OpenMode.readWrite);
+    final db = sqlite3.open(
+      dbPath,
+      mode: readOnly ? OpenMode.readOnly : OpenMode.readWrite,
+    );
     try {
-      db.execute('PRAGMA busy_timeout=5000');
+      db.execute('PRAGMA busy_timeout=${readOnly ? 1000 : 5000}');
       final version = db.select('PRAGMA user_version').first.values.first;
       final table = db.select(
         "SELECT 1 FROM sqlite_master WHERE type='table' "
@@ -303,8 +311,12 @@ class UserStateReportQueue implements OtzariaReportQueue {
     }
   }
 
-  static List<_MarkRow> _readSendable(String dbPath, int? queueFormat) {
-    final db = _open(dbPath, queueFormat);
+  static List<_MarkRow> _readSendable(
+    String dbPath,
+    int? queueFormat, {
+    bool readOnly = false,
+  }) {
+    final db = _open(dbPath, queueFormat, readOnly: readOnly);
     if (db == null) return const [];
     try {
       final out = <_MarkRow>[];

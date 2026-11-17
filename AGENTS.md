@@ -2445,8 +2445,10 @@ folder are never created. Unsendable reports (`isSendable`, Otzaria's own export
 plus the 256KB book limit), invalid app/plugin records and oversized app requests
 stay in the queue. App attachments travel in the outbox, not the sent history.
 
-**Check Otzaria is closed before counting and before collecting; recount on closure.**
-Writing under its open `user_state.db` can break its transactions (2026-10-13).
+**Count read-only, even with Otzaria open; collect only when it is closed.**
+Writing under its open `user_state.db` can break its transactions (2026-10-13). A locked or
+unreadable count is "unknown" and keeps the last number; home then asks to close Otzaria.
+Recount on start and closure.
 Offers also run with auto-check off, never on read-only drives, and
 wait for dialogs and tasks, including 3s after launcher-initiated closure.
 `ReportOfferCoordinator`, `AppSession._onChange`, `collectReportsToDrive`,

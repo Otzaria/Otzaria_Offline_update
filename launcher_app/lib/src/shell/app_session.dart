@@ -248,6 +248,7 @@ class AppSession extends ChangeNotifier {
   bool _reportsIntroPending = false;
   bool _autoInstallSkipped = false;
   int _errorReportsToCollect = 0;
+  bool _countedWhileRunning = false;
   DateTime? _checkedAt;
 
   /// "מה התחדש" כבר מוצג בדף הכלי, ולכן אישור ההתקנה לא חוזר עליו.
@@ -565,6 +566,10 @@ class AppSession extends ChangeNotifier {
     if (!isActive) return;
     _syncSleepInhibition();
     _offers.onRunningState(running: _otzariaIsRunning);
+    final running = _otzariaIsRunning;
+    final recount = running && !_countedWhileRunning;
+    _countedWhileRunning = running;
+    if (recount) unawaited(recountReportsToCollect());
     if (!readOnly) _feedbackSync.onRunningState(running: _otzariaIsRunning);
     _offers.resume();
     _applySettings(settings.settings);
@@ -629,16 +634,17 @@ class AppSession extends ChangeNotifier {
     await _notices.markSeen(NoticesSeenStore.errorReportsIntro);
   }
 
-  /// סופר מה ממתין באוצריא לאיסוף, בלי לאסוף. אוצריא פתוחה נועלת את התור.
+  /// סופר מה ממתין באוצריא לאיסוף, בלי לאסוף. הספירה קריאה בלבד ולכן גם
+  /// כשאוצריא פתוחה; ספירה שנכשלה משאירה את המספר הקודם.
   Future<void> recountReportsToCollect() async {
     if (readOnly || !isActive) return;
-    if (await refreshProcessState()) return;
-    final reports = await _errorReports.pendingToOffer();
+    await refreshProcessState();
+    final counted = await _errorReports.countWaiting();
     final legacy = _errorReports.unmigratedLegacy.isNotEmpty &&
         !await _notices.hasSeen(NoticesSeenStore.legacyReportsNotice);
     if (!isActive) return;
     _update(() {
-      _errorReportsToCollect = reports;
+      if (counted != null) _errorReportsToCollect = counted;
       _legacyReportsNotice = legacy;
     });
   }

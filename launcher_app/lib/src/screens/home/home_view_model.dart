@@ -106,6 +106,7 @@ class HomeViewModel {
     this.customAppUpdateNames = const [],
     this.reportsToSend = 0,
     this.reportsToCollect = 0,
+    this.otzariaRunning = false,
     this.toolReportsPending = 0,
     this.reportsSending = false,
     this.reportsIntro = false,
@@ -241,6 +242,9 @@ class HomeViewModel {
   final List<String> customAppUpdateNames;
   final int reportsToSend;
   final int reportsToCollect;
+
+  /// הספירה קריאה בלבד, אבל איסוף דורש אוצריא סגורה.
+  final bool otzariaRunning;
 
   /// דיווחים של הכלי עצמו שממתינים בתור — נשלחים מדף הדיווחים.
   final int toolReportsPending;
@@ -450,6 +454,7 @@ HomeViewModel homeViewModelOf(AppSession s) {
     ],
     reportsToSend: s.errorReports.outboxCount,
     reportsToCollect: s.reportsToCollect,
+    otzariaRunning: s.otzariaIsRunning,
     toolReportsPending: s.appReports?.pendingCount ?? 0,
     reportsSending: s.uploadingReports || s.errorReports.isUploading,
     reportsIntro: s.showsReportsIntro,

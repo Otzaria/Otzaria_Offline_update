@@ -710,6 +710,7 @@ abstract class GuidanceStrings {
   String chipAppsInstalled(int count);
   String chipReportsToSend(int count);
   String chipReportsToCollect(int count);
+  String chipReportsToCollectClose(int count);
   String get chipReportsSending;
   String get chipReportsLocked;
 
@@ -764,6 +765,7 @@ abstract class GuidanceStrings {
 
   /// הגילוי שמעל כפתור האיסוף: מה יועתק לכונן, איך נשמר ולמי נשלח.
   String get reportsCollectBody;
+  String get reportsCollectCloseOtzaria;
   String get reportsDisclosureReports;
   String get reportsDisclosureSearch;
   String get reportsDisclosureStorage;

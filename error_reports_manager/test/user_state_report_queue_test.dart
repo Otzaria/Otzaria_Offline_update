@@ -59,6 +59,8 @@ Map<String, dynamic> _stored(String id,
     };
 
 void main() {
+  group('ספירה כשאוצריא פתוחה', _countWhileOpenTests);
+
   late Directory temp;
   late String dbPath;
   const pending = UserStateReportQueue.pendingKind;
@@ -861,4 +863,62 @@ class _FailingOutbox extends MemoryOutbox {
     if (reportId == failFor) throw const FileSystemException('disk full');
     await super.write(reportId, fileBytes);
   }
+}
+
+void _countWhileOpenTests() {
+  late Directory temp;
+  late String dbPath;
+
+  setUp(() {
+    temp = Directory.systemTemp.createTempSync('user_state_count_test');
+    dbPath = p.join(temp.path, 'user_state.db');
+    final db = sqlite3.open(dbPath);
+    _createOtzariaSchema(db);
+    db.execute(
+      'INSERT INTO pending_reports (kind, payload_json, created_at) '
+      'VALUES (?, ?, 0)',
+      [
+        UserStateReportQueue.pendingKind,
+        jsonEncode(_stored('a')),
+      ],
+    );
+    db.close();
+  });
+  tearDown(() => temp.deleteSync(recursive: true));
+
+  test('ספירה קריאה בלבד: כותב WAL פתוח עם שורה שעוד לא נקלטה בקובץ הראשי',
+      () async {
+    final writer = sqlite3.open(dbPath)
+      ..execute('PRAGMA journal_mode=WAL')
+      ..execute('PRAGMA wal_autocheckpoint=0')
+      ..execute(
+        'INSERT INTO pending_reports (kind, payload_json, created_at) '
+        'VALUES (?, ?, 0)',
+        [UserStateReportQueue.pendingKind, jsonEncode(_stored('b'))],
+      );
+    addTearDown(writer.close);
+    final files = [dbPath, '$dbPath-wal', '$dbPath-shm'];
+    expect(File(files[1]).lengthSync(), greaterThan(0));
+    final before = files.map((f) => File(f).readAsBytesSync()).toList();
+
+    expect(await UserStateReportQueue(dbPath).countSendable(), 2);
+
+    // ה-shm הוא אינדקס משותף שקוראים מעדכנים בו סימוני קריאה; רק הגודל קבוע.
+    for (var i = 0; i < 2; i++) {
+      expect(File(files[i]).readAsBytesSync(), before[i], reason: files[i]);
+    }
+    expect(File(files[2]).lengthSync(), before[2].length);
+  });
+
+  test('מסד נעול לגמרי: הספירה נכשלת (לא 0), והקורא מחליט', () async {
+    final writer = sqlite3.open(dbPath)
+      ..execute('PRAGMA journal_mode=DELETE')
+      ..execute('BEGIN EXCLUSIVE');
+    await expectLater(
+      UserStateReportQueue(dbPath).countSendable(),
+      throwsA(isA<SqliteException>()),
+    );
+    writer.execute('ROLLBACK');
+    writer.close();
+  });
 }

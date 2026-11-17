@@ -721,6 +721,7 @@ class _AppShellState extends State<AppShell> implements SessionPrompts {
           busy: s.reportsCollectBlocked,
           uploadBusy: s.reportsUploadBlocked,
           reportsToCollect: s.errorReportsToCollect,
+          otzariaRunning: s.otzariaIsRunning,
           onCollect: () => unawaited(_collectReports()),
           onUpload: s.uploadReports,
           onStop: s.stopReports,

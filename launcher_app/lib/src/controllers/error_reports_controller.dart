@@ -176,8 +176,11 @@ class ErrorReportsController extends ChangeNotifier
     notifyListeners();
   }
 
-  Future<int> pendingToOffer() async {
-    if (isUploading || isCollecting) return 0;
+  Future<int> pendingToOffer() async => await countWaiting() ?? 0;
+
+  /// `null` = לא ידוע (תור נעול או לא נקרא, או שליחה/איסוף רצים): לא "אפס".
+  Future<int?> countWaiting() async {
+    if (isUploading || isCollecting) return null;
     try {
       unmigratedLegacy = await _findUnmigratedLegacy?.call() ?? const [];
     } catch (e) {
@@ -191,11 +194,10 @@ class ErrorReportsController extends ChangeNotifier
     try {
       final queue = await _resolveQueue();
       if (queue == null) return 0;
-      final count = await queue.countSendable();
-      return count;
+      return await queue.countSendable();
     } catch (e) {
       AppLogger.maybeInstance?.warn('קריאת תור הדיווחים של אוצריא נכשלה: $e');
-      return 0;
+      return null;
     }
   }
 

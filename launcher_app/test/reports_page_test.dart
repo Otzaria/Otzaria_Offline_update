@@ -17,8 +17,10 @@ void main() {
     bool legacy = false,
     VoidCallback? onDismissLegacy,
     bool busy = false,
+    bool otzariaRunning = false,
   }) =>
       ReportsPage(
+        otzariaRunning: otzariaRunning,
         errorReports: null,
         connection: null,
         isUploadingAll: false,
@@ -41,6 +43,32 @@ void main() {
     expect(find.text(p.repNothingTitle), findsOneWidget);
     expect(find.byKey(ShellKeys.reportsCollect), findsNothing);
     expect(find.byKey(ShellKeys.reportsSend), findsNothing);
+  });
+
+  testWidgets('אוצריא פתוחה — הערה לסגור אותה, והאיסוף מושבת', (tester) async {
+    var collected = 0;
+    await pumpScreen(
+      tester,
+      ReportsPage(
+        errorReports: null,
+        connection: null,
+        isUploadingAll: false,
+        busy: false,
+        reportsToCollect: 2,
+        otzariaRunning: true,
+        onCollect: () => collected++,
+        onUpload: null,
+      ),
+    );
+    expect(find.text(g.reportsCollectCloseOtzaria), findsOneWidget);
+    final button = find.byKey(ShellKeys.reportsCollect);
+    expect(button, findsOneWidget);
+    await tester.tap(button, warnIfMissed: false);
+    await tester.pump();
+    expect(collected, 0);
+
+    await pumpScreen(tester, page(reports: 2));
+    expect(find.text(g.reportsCollectCloseOtzaria), findsNothing);
   });
 
   testWidgets('כונן מוגן — אין איסוף, ונאמר למה פעם אחת', (tester) async {
