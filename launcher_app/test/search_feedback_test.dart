@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:launcher_app/src/controllers/search_feedback_controller.dart';
+import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:launcher_app/src/services/search_feedback_auto_sync.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
 import 'package:path/path.dart' as p;
@@ -31,10 +32,14 @@ class _MemoryFeedback extends SearchFeedbackTransport {
   Completer<void>? collectGate;
   bool stopped = false;
   int stops = 0;
+  String blocker = 'no-events';
 
   @override
   Future<int> pendingForCollection(String sourceDirectory) async =>
       sourceEvents;
+
+  @override
+  Future<String> noCollectionReason(String sourceDirectory) async => blocker;
 
   @override
   Future<int> count() async => carriedEvents;
@@ -114,6 +119,133 @@ void main() {
   tearDown(() {
     debugPrint = previousPrint!;
     controller.dispose();
+  });
+
+  group('synchronize — launcher.log line', () {
+    late Directory logDir;
+    var skipReason = 'no-consent';
+
+    setUp(() async {
+      logDir = Directory.systemTemp.createTempSync('feedback-log-');
+      await AppLogger.init(logDir.path);
+      skipReason = 'no-consent';
+    });
+
+    tearDown(() async {
+      await AppLogger.maybeInstance!.flush();
+      AppLogger.resetForTest();
+      await logDir.delete(recursive: true);
+    });
+
+    Future<List<String>> feedbackLines() async {
+      await AppLogger.maybeInstance!.flush();
+      return File(AppLogger.maybeInstance!.filePath)
+          .readAsLinesSync()
+          .where((l) => l.contains('search feedback:'))
+          .map((l) => l.substring(l.indexOf('search feedback:')))
+          .toList();
+    }
+
+    SearchFeedbackController withoutSource() => SearchFeedbackController(
+          transport: transport,
+          resolveSource: () async => null,
+          sourceSkipReason: () => skipReason,
+          consentState: () async => SearchFeedbackConsent.unknown,
+        );
+
+    test('a collection and upload logs counts only', () async {
+      await controller.synchronize();
+      expect(await feedbackLines(), [
+        'search feedback: collected 2, uploaded 2, rejected 0, remaining 0'
+      ]);
+    });
+
+    test('nothing to collect names the reason', () async {
+      transport.sourceEvents = 0;
+      await controller.synchronize();
+      expect(await feedbackLines(),
+          ['search feedback: not collected (no-events)']);
+    });
+
+    test('a blocked key is named, not hidden as nothing to collect', () async {
+      transport
+        ..sourceEvents = 0
+        ..blocker = 'key-blocked';
+      await controller.synchronize();
+      expect(await feedbackLines(),
+          ['search feedback: not collected (key-blocked)']);
+    });
+
+    test('a skipped source logs the reason the source gave', () async {
+      final c = withoutSource();
+      addTearDown(c.dispose);
+      await c.synchronize();
+      expect(await feedbackLines(),
+          ['search feedback: not collected (no-consent)']);
+    });
+
+    test('revoked consent logs the upload skip', () async {
+      transport.carriedEvents = 3;
+      final c = SearchFeedbackController(
+        transport: transport,
+        resolveSource: () async => null,
+        consentState: () async => SearchFeedbackConsent.revoked,
+      );
+      addTearDown(c.dispose);
+      await c.synchronize();
+      expect(await feedbackLines(), [
+        'search feedback: not collected (no-source), not uploaded (consent-revoked)',
+      ]);
+    });
+
+    test('an unchanged skip is logged once, a changed one again', () async {
+      final c = withoutSource();
+      addTearDown(c.dispose);
+      await c.synchronize();
+      await c.synchronize();
+      skipReason = 'otzaria-running';
+      await c.synchronize();
+      expect(await feedbackLines(), [
+        'search feedback: not collected (no-consent)',
+        'search feedback: not collected (otzaria-running)',
+      ]);
+    });
+
+    test('a run overlapping another logs already-running', () async {
+      transport.uploadGate = Completer<void>();
+      final first = controller.synchronize();
+      await pumpEventQueue();
+      expect(await controller.synchronize(), isNull);
+      transport.uploadGate!.complete();
+      await first;
+      expect(await feedbackLines(), [
+        'search feedback: not collected (already-running)',
+        'search feedback: collected 2, uploaded 2, rejected 0, remaining 0',
+      ]);
+    });
+
+    test('drive: Otzaria running and missing launch path are named', () async {
+      final running = SearchFeedbackController.forDrive(
+        dataDir: p.join(logDir.path, 'drive'),
+        stateDir: logDir.path,
+        runningLocator: const _RunningOtzaria(),
+        launchPath: () async => null,
+      );
+      addTearDown(running.dispose);
+      await running.synchronize();
+      final idle = SearchFeedbackController.forDrive(
+        dataDir: p.join(logDir.path, 'drive'),
+        stateDir: logDir.path,
+        runningLocator: _CountingOtzaria(),
+        launchPath: () async => null,
+      );
+      addTearDown(idle.dispose);
+      await idle.synchronize();
+      expect(await feedbackLines(), [
+        'search feedback: not collected (otzaria-running)',
+        'search feedback: not collected (no-launch-path)',
+      ]);
+    });
   });
 
   group('synchronize — background collection and upload', () {
