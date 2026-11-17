@@ -989,8 +989,13 @@ awaits the other branch. The progress screen shows `runningComponents` together.
 `AppSession._throughDriveWrites`). HTTPS chunks average ~5KB and each switch
 between files costs a slow stick about a second: the same 417MiB took 182–187s
 direct and 124–140s through the pool. Do not preallocate the file or download
-one file at a time instead — both measured worse. Only `File.open` is wrapped;
-cancel calls `abandonPending`. Details: `otzaria_downloads/README.md`.
+one file at a time instead — both measured worse. Only `File.open` is wrapped.
+Cancel and close call `abandonPending`: sticky until the next run
+(`resumeWrites`), it drops every queued byte with no exemption for a handle
+already closing, fails later opens, and makes deletes of wrapped paths no-ops —
+the engine deletes a file whose close failed, losing the on-drive prefix.
+`confirmClose` shows a closing layer and logs dropped bytes and stage times.
+Details: `otzaria_downloads/README.md`.
 
 ### 5.3 State that travels on the drive
 

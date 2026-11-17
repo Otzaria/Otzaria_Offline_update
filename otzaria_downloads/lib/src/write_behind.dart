@@ -45,6 +45,7 @@ class WriteBehindPool {
   int _spillBytes = 0;
   int _sinceSwitch = 0;
   bool _pumping = false;
+  bool _abandonRequested = false;
   Completer<void>? _wake;
   Completer<void>? _room;
 
@@ -70,14 +71,21 @@ class WriteBehindPool {
     );
   }
 
-  /// זורק את מה שעוד לא נכתב לכונן, לביטול: הקבצים נשארים תחילית תקינה,
-  /// וסגירת כל קובץ פתוח תיכשל כדי שלא ייחשב שלם.
-  void abandonPending() {
-    for (final handle in _open) {
+  /// זורק את מה שעוד לא נכתב לכונן, לביטול או לסגירה, ומחזיר כמה בייטים נזרקו.
+  /// הקבצים נשארים תחילית תקינה, וסגירת קובץ שנזרק ממנו תיכשל. ההחלטה דביקה
+  /// עד [resumeWrites]: גם קובץ שנפתח או נכתב אחר כך נזרק, ומחיקות נעצרות.
+  int abandonPending() {
+    final dropped = _pending;
+    _abandonRequested = true;
+    for (final handle in _open.toList()) {
       handle._abandon();
     }
     _wakeRoom();
+    return dropped;
   }
+
+  /// ריצת הורדה חדשה: כותבים שוב כרגיל אחרי [abandonPending].
+  void resumeWrites() => _abandonRequested = false;
 
   /// מוחק תיקיות זמניות שתהליך אחר השאיר: כל תיקייה שהנעילה שלה פנויה, ובלי
   /// קובץ נעילה רק ישנה מיממה. תיקייה של PID זהה תיבדק בהפעלה אחרת.
@@ -150,7 +158,7 @@ class WriteBehindPool {
 
   Future<void> _waitRoom(_WriteBehindHandle waiter) async {
     while (_spillBytes > maxPendingBytes &&
-        !waiter._abandoned &&
+        !waiter._lost &&
         waiter._error == null) {
       await Future.wait([
         for (final handle in _open.toList()) handle._recycle(force: true),
@@ -272,7 +280,6 @@ class _WriteBehindHandle implements RandomAccessFile {
   bool _writing = false;
   bool _direct = false;
   bool _abandoned = false;
-  bool _closing = false;
   Object? _error;
   StackTrace? _errorStack;
   Completer<void>? _idle;
@@ -323,10 +330,15 @@ class _WriteBehindHandle implements RandomAccessFile {
     _copied = _accepted;
   }
 
+  /// כתיבה שהגיעה אחרי הביטול נזרקת, והסגירה נכשלת כדי שהקובץ לא ייחשב שלם.
+  bool get _lost {
+    if (_pool._abandonRequested) _abandoned = true;
+    return _abandoned;
+  }
+
   void _abandon() {
-    if (_abandoned) return;
-    // קובץ שכבר נסגר ונשאר לו מעט מסיים: כשל בסגירה היה מוחק את כולו.
-    if (_closing && _queued <= _pool.yieldBytes) return;
+    // כשהכול כבר בכונן אין מה שנזרק, והסגירה יכולה להצליח.
+    if (_abandoned || _queued == 0) return;
     _abandoned = true;
     _dropQueued();
     if (_writing) return;
@@ -404,7 +416,7 @@ class _WriteBehindHandle implements RandomAccessFile {
   ]) async {
     _throwIfFailed();
     final stop = RangeError.checkValidRange(start, end, buffer.length);
-    if (stop == start || _abandoned) return this;
+    if (stop == start || _lost) return this;
     if (!_direct) {
       if (_queued == 0 && !_writing) await _recycle();
       final spilled = await _withSpill(() async {
@@ -414,7 +426,7 @@ class _WriteBehindHandle implements RandomAccessFile {
           return false;
         }
         // כשל של היעד בזמן הכתיבה הזמנית: הבייטים האלה לא נכנסים לתור.
-        if (_error != null || _abandoned) return true;
+        if (_error != null || _lost) return true;
         final count = stop - start;
         _accepted += count;
         _oldest ??= DateTime.now();
@@ -427,7 +439,7 @@ class _WriteBehindHandle implements RandomAccessFile {
     }
     if (_direct) {
       await _drain();
-      if (_abandoned) return this;
+      if (_lost) return this;
       await _real.writeFrom(buffer, start, stop);
       return this;
     }
@@ -440,7 +452,6 @@ class _WriteBehindHandle implements RandomAccessFile {
 
   @override
   Future<void> close() async {
-    _closing = true;
     try {
       await _drain();
     } finally {
@@ -615,6 +626,8 @@ class _WriteBehindFile implements File {
 
   @override
   Future<RandomAccessFile> open({FileMode mode = FileMode.read}) async {
+    // קובץ שנפתח אחרי הביטול לא ירוקן צבר לכונן, ופתיחה ב-write גם לא תקטום.
+    if (mode != FileMode.read && _pool._abandonRequested) throw _abandoned();
     if (mode != FileMode.read && _pool._poisoned.remove(path)) {
       final resumes =
           mode == FileMode.append || mode == FileMode.writeOnlyAppend;
@@ -625,6 +638,10 @@ class _WriteBehindFile implements File {
     }
     final handle = await _real.open(mode: mode);
     if (mode == FileMode.read) return handle;
+    if (_pool._abandonRequested) {
+      await handle.close();
+      throw _abandoned();
+    }
     _pool._opening++;
     try {
       final spillPath = _pool._newSpillPath();
@@ -637,6 +654,9 @@ class _WriteBehindFile implements File {
       _pool._opening--;
     }
   }
+
+  FileSystemException _abandoned() =>
+      FileSystemException('write-behind: pending writes dropped', path);
 
   @override
   String get path => _real.path;
@@ -663,13 +683,16 @@ class _WriteBehindFile implements File {
   @override
   File renameSync(String newPath) => _real.renameSync(newPath);
   @override
-  Future<FileSystemEntity> delete({bool recursive = false}) {
+  Future<FileSystemEntity> delete({bool recursive = false}) async {
+    // אחרי ביטול הקידומת נשארת להמשך — אלא אם כתיבה אמיתית נכשלה בקובץ.
+    if (_pool._abandonRequested && !_pool._poisoned.contains(path)) return this;
     _pool._poisoned.remove(path);
     return _real.delete(recursive: recursive);
   }
 
   @override
   void deleteSync({bool recursive = false}) {
+    if (_pool._abandonRequested && !_pool._poisoned.contains(path)) return;
     _pool._poisoned.remove(path);
     _real.deleteSync(recursive: recursive);
   }

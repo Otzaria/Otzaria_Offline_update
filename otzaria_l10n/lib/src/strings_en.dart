@@ -191,6 +191,11 @@ class _Shell extends ShellStrings {
   @override
   String get closeWaitingDeliveryBack => 'Back to the tool';
   @override
+  String get closingTitle => 'Closing the tool';
+  @override
+  String get closingBody =>
+      'The download is stopping and writing to the drive is being cut off. What was already written is kept, and the download will continue from it next time.';
+  @override
   String get helpTooltip => 'Help and FAQ';
   @override
   String get settingsTooltip => 'Settings';

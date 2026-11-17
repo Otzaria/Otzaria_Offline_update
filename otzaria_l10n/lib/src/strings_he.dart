@@ -189,6 +189,11 @@ class _Shell extends ShellStrings {
   @override
   String get closeWaitingDeliveryBack => 'חזרה לכלי';
   @override
+  String get closingTitle => 'סוגר את הכלי';
+  @override
+  String get closingBody =>
+      'ההורדה נעצרת והכתיבה לכונן מופסקת. מה שכבר נכתב נשמר, וההורדה תמשיך ממנו בפעם הבאה.';
+  @override
   String get helpTooltip => 'עזרה ושאלות נפוצות';
   @override
   String get settingsTooltip => 'הגדרות';

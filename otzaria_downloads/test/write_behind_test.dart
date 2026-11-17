@@ -381,6 +381,7 @@ void main() {
     expect(onDisk.length, inInclusiveRange(2 * mib, 3 * mib));
     expect(onDisk, pattern(0, onDisk.length));
 
+    pool.resumeWrites();
     final next = await open(pool, 'b.bin');
     await next.writeFrom(bytes(10, 1));
     await next.close();
@@ -428,26 +429,161 @@ void main() {
     await recreated.close();
   });
 
-  test('ביטול בזמן סגירה: קובץ שנשאר לו מעט מסיים שלם, ואחר נזרק', () async {
+  test('ביטול בזמן סגירה: כל צבר נזרק, קטן כגדול, והקבצים נשארים תחילית',
+      () async {
     final pool = WriteBehindPool(minBurstBytes: mib, yieldBytes: 4 * mib);
     log.gate = Completer<void>();
     final small = await open(pool, 'a.bin');
     final big = await open(pool, 'b.bin');
     await small.writeFrom(pattern(0, 2 * mib));
     await big.writeFrom(pattern(0, 6 * mib));
-    final smallClosed = small.close();
-    final bigClosed = expectLater(
-      big.close(),
-      throwsA(isA<FileSystemException>()),
-    );
+    final closes = [
+      expectLater(small.close(), throwsA(isA<FileSystemException>())),
+      expectLater(big.close(), throwsA(isA<FileSystemException>())),
+    ];
     await Future<void>.delayed(const Duration(milliseconds: 20));
     pool.abandonPending();
     log.gate!.complete();
-    await smallClosed;
-    await bigClosed;
-    expect(File('${dir.path}/a.bin').readAsBytesSync(), pattern(0, 2 * mib));
-    expect(File('${dir.path}/b.bin').lengthSync(), lessThan(6 * mib));
+    await Future.wait(closes).timeout(const Duration(seconds: 5));
+    for (final (name, length) in [('a.bin', 2 * mib), ('b.bin', 6 * mib)]) {
+      final onDisk = File('${dir.path}/$name').readAsBytesSync();
+      expect(onDisk.length, lessThan(length), reason: name);
+      expect(onDisk, pattern(0, onDisk.length), reason: name);
+    }
+    expect(pool.pendingBytes, 0);
     expect(pool.spillBytes, 0);
+  });
+
+  test('ברירת המחדל: סגירה עם צבר מתחת ל-64MiB ומעליו נזרקת מיד', () async {
+    final pool = WriteBehindPool();
+    log.gate = Completer<void>();
+    final under = await open(pool, 'under.bin');
+    final over = await open(pool, 'over.bin');
+    await under.writeFrom(bytes(10 * mib, 1));
+    await over.writeFrom(bytes(70 * mib, 2));
+    final closes = [
+      expectLater(under.close(), throwsA(isA<FileSystemException>())),
+      expectLater(over.close(), throwsA(isA<FileSystemException>())),
+    ];
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    pool.abandonPending();
+    log.gate!.complete();
+    await Future.wait(closes).timeout(const Duration(seconds: 5));
+    expect(
+      log.writes.fold<int>(0, (sum, w) => sum + w.$2),
+      lessThanOrEqualTo(2 * mib),
+      reason: 'רק גוש שכבר היה בדרך',
+    );
+  });
+
+  test('ידית שנפתחת אחרי abandonPending נכשלת בפתיחה, ואינה נוגעת בקובץ',
+      () async {
+    final pool = WriteBehindPool();
+    File('${dir.path}/a.bin').writeAsBytesSync(pattern(0, 1000));
+    pool.abandonPending();
+    await expectLater(
+      pool
+          .wrap(_SpyFile(File('${dir.path}/a.bin'), log))
+          .open(mode: FileMode.write),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(File('${dir.path}/a.bin').readAsBytesSync(), pattern(0, 1000));
+    final reader =
+        await pool.wrap(_SpyFile(File('${dir.path}/a.bin'), log)).open();
+    await reader.close();
+  });
+
+  test('ידית שהתרוקנה לפני הביטול: כתיבה אחריו נזרקת ואינה מרוקנת צבר',
+      () async {
+    final pool = WriteBehindPool(minBurstBytes: mib);
+    final handle = await open(pool, 'a.bin');
+    await handle.writeFrom(pattern(0, 2 * mib));
+    await handle.flush();
+    pool.abandonPending();
+    log.gate = Completer<void>();
+    await handle.writeFrom(pattern(2 * mib, 50 * mib));
+    expect(pool.pendingBytes, 0);
+    await expectLater(
+      handle.close().timeout(const Duration(seconds: 5)),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(File('${dir.path}/a.bin').readAsBytesSync(), pattern(0, 2 * mib));
+  });
+
+  test('ביטול כשהכול כבר בכונן: הסגירה מצליחה, אין מה שנזרק', () async {
+    final pool = WriteBehindPool(minBurstBytes: mib);
+    final handle = await open(pool, 'a.bin');
+    await handle.writeFrom(pattern(0, 3 * mib));
+    await handle.flush();
+    expect(pool.abandonPending(), 0);
+    await handle.close();
+    expect(File('${dir.path}/a.bin').readAsBytesSync(), pattern(0, 3 * mib));
+  });
+
+  test('אחרי ביטול מחיקה של קובץ בתור אינה מתבצעת, עד שמתחילה ריצה חדשה',
+      () async {
+    final pool = WriteBehindPool();
+    final file = File('${dir.path}/a.bin')..writeAsBytesSync(pattern(0, 100));
+    pool.abandonPending();
+    pool.wrap(file).deleteSync();
+    await pool.wrap(file).delete();
+    expect(file.existsSync(), isTrue);
+
+    pool.resumeWrites();
+    pool.wrap(file).deleteSync();
+    expect(file.existsSync(), isFalse);
+  });
+
+  test('אחרי ביטול מחיקה של תחילית תקינה שנכתבה דרך הבריכה אינה מתבצעת',
+      () async {
+    final pool = WriteBehindPool(minBurstBytes: mib);
+    final handle = await open(pool, 'a.bin');
+    await handle.writeFrom(pattern(0, 2 * mib));
+    await handle.flush();
+    pool.abandonPending();
+    await handle.close();
+    final file = File('${dir.path}/a.bin');
+    pool.wrap(file).deleteSync();
+    await pool.wrap(file).delete();
+    expect(file.readAsBytesSync(), pattern(0, 2 * mib));
+  });
+
+  for (final sync in [false, true]) {
+    test(
+        'אחרי ביטול מחיקה של קובץ שכתיבה אליו נכשלה כן מתבצעת '
+        '(${sync ? 'deleteSync' : 'delete'})', () async {
+      final pool = WriteBehindPool();
+      log.failure = const FileSystemException('disk gone');
+      final handle = await open(pool, 'a.bin');
+      await handle.writeFrom(bytes(10, 1));
+      await expectLater(handle.close(), throwsA(isA<FileSystemException>()));
+      log.failure = null;
+      pool.abandonPending();
+      final file = File('${dir.path}/a.bin');
+      expect(file.existsSync(), isTrue);
+
+      if (sync) {
+        pool.wrap(file).deleteSync();
+      } else {
+        await pool.wrap(file).delete();
+      }
+      expect(file.existsSync(), isFalse);
+    });
+  }
+
+  test('ריצה חדשה אחרי ביטול כותבת כרגיל', () async {
+    final pool = WriteBehindPool(minBurstBytes: mib);
+    final old = await open(pool, 'old.bin');
+    await old.writeFrom(bytes(3 * mib, 1));
+    pool.abandonPending();
+    await expectLater(old.close(), throwsA(isA<FileSystemException>()));
+
+    pool.resumeWrites();
+    final next = await open(pool, 'new.bin');
+    await next.writeFrom(pattern(0, 3 * mib));
+    await next.close();
+    expect(File('${dir.path}/new.bin').readAsBytesSync(), pattern(0, 3 * mib));
+    expect(pool.pendingBytes, 0);
   });
 
   test('ביטול כשהתקרה מלאה משחרר כותבים שמחכים למקום', () async {
