@@ -248,7 +248,8 @@ class AppSession extends ChangeNotifier {
   bool _reportsIntroPending = false;
   bool _autoInstallSkipped = false;
   int _errorReportsToCollect = 0;
-  bool _countedWhileRunning = false;
+  bool _reportsSawOtzariaRunning = false;
+  int _reportCountRevision = 0;
   DateTime? _checkedAt;
 
   /// "מה התחדש" כבר מוצג בדף הכלי, ולכן אישור ההתקנה לא חוזר עליו.
@@ -565,12 +566,15 @@ class AppSession extends ChangeNotifier {
   void _onChange() {
     if (!isActive) return;
     _syncSleepInhibition();
-    _offers.onRunningState(running: _otzariaIsRunning);
     final running = _otzariaIsRunning;
-    final recount = running && !_countedWhileRunning;
-    _countedWhileRunning = running;
-    if (recount) unawaited(recountReportsToCollect());
-    if (!readOnly) _feedbackSync.onRunningState(running: _otzariaIsRunning);
+    if (running != _reportsSawOtzariaRunning) {
+      _reportsSawOtzariaRunning = running;
+      _reportCountRevision++;
+      // The initial local check requests its own count.
+      if (running && _checkedAt != null) unawaited(_offers.request());
+    }
+    _offers.onRunningState(running: running);
+    if (!readOnly) _feedbackSync.onRunningState(running: running);
     _offers.resume();
     _applySettings(settings.settings);
     _syncRunningPoll();
@@ -634,15 +638,15 @@ class AppSession extends ChangeNotifier {
     await _notices.markSeen(NoticesSeenStore.errorReportsIntro);
   }
 
-  /// סופר מה ממתין באוצריא לאיסוף, בלי לאסוף. הספירה קריאה בלבד ולכן גם
-  /// כשאוצריא פתוחה; ספירה שנכשלה משאירה את המספר הקודם.
+  /// סופר מה ממתין באוצריא לאיסוף. אם הספירה אינה זמינה נשאר המספר הקודם.
   Future<void> recountReportsToCollect() async {
     if (readOnly || !isActive) return;
-    await refreshProcessState();
-    final counted = await _errorReports.countWaiting();
+    final revision = ++_reportCountRevision;
+    final counted =
+        await _errorReports.countWaiting(otzariaRunning: _otzariaIsRunning);
     final legacy = _errorReports.unmigratedLegacy.isNotEmpty &&
         !await _notices.hasSeen(NoticesSeenStore.legacyReportsNotice);
-    if (!isActive) return;
+    if (!isActive || revision != _reportCountRevision) return;
     _update(() {
       if (counted != null) _errorReportsToCollect = counted;
       _legacyReportsNotice = legacy;

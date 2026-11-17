@@ -2445,15 +2445,13 @@ folder are never created. Unsendable reports (`isSendable`, Otzaria's own export
 plus the 256KB book limit), invalid app/plugin records and oversized app requests
 stay in the queue. App attachments travel in the outbox, not the sent history.
 
-**Count read-only, even with Otzaria open; collect only when it is closed.**
-Writing under its open `user_state.db` can break its transactions (2026-10-13). A locked or
-unreadable count is "unknown" and keeps the last number; home then asks to close Otzaria.
-Recount on start and closure.
-Offers also run with auto-check off, never on read-only drives, and
-wait for dialogs and tasks, including 3s after launcher-initiated closure.
-`ReportOfferCoordinator`, `AppSession._onChange`, `collectReportsToDrive`,
-`SearchFeedbackController`; task-ending paths must call `resume()`.
-See `launcher_app/README.md` for the collection and upload flow.
+**Count a live queue only in WAL, and collect only with Otzaria closed.**
+In #287 a rollback-journal reader blocked writers, and a WAL reader held
+through attachment validation blocked checkpoints. `UserStateReportQueue`
+releases the read before validating each row. `AppSession.recountReportsToCollect`
+keeps the previous count when unknown and discards superseded results.
+`ReportOfferCoordinator` waits for dialogs and tasks (including 3s after
+launcher-initiated closure), even with auto-check off. See the launcher README.
 
 **Smart-search feedback syncs in the background; only successful collection
 shows a home notice, without buttons or a count.** Maintainer decisions

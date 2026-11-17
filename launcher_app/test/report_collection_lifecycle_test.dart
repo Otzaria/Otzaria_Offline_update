@@ -67,6 +67,7 @@ void main() {
     final dbPath = p.join(databases.path, 'user_state.db');
     final db = sqlite3.open(dbPath);
     try {
+      db.execute('PRAGMA journal_mode=WAL');
       db.execute('CREATE TABLE lists (box TEXT, key TEXT, payload_json TEXT, '
           'updated_at INTEGER, PRIMARY KEY (box, key))');
       db.execute('CREATE TABLE pending_reports (id INTEGER PRIMARY KEY, '

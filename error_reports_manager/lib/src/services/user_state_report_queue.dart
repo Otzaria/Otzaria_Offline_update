@@ -152,9 +152,11 @@ typedef QueueCollectResult = ({int collected, String? error});
 
 /// תור הדיווחים של אוצריא. ממשק, כדי שבדיקות הלאנצ'ר ירוצו בלי מסד.
 abstract interface class OtzariaReportQueue {
-  /// כמה דיווחים ממתינים שאפשר לשלוח. קריאה בלבד:
-  /// לא כותבת למסד ולא חוסמת את אוצריא, גם כשהיא פתוחה.
+  /// כמה דיווחים ממתינים שאפשר לשלוח, בקריאה בלבד.
   Future<int> countSendable();
+
+  /// ספירה בזמן שאוצריא פתוחה. במסד שאינו ב-WAL התוצאה אינה ידועה.
+  Future<int?> countSendableWhileOpen();
 
   /// מעביר כל דיווח ניתן לשליחה ל-[outbox] ומסמן אותו באוצריא כנשלח.
   Future<QueueCollectResult> collectTo(ReportOutbox outbox);
@@ -165,8 +167,8 @@ typedef IsolateRunner = Future<R> Function<R>(
   FutureOr<R> Function() computation,
 );
 
-/// הקריאה והכתיבה הישירה ל-`user_state.db`, **רק כשאוצריא סגורה**. כל עבודת
-/// ה-SQLite (FFI סינכרוני) רצה ב-[IsolateRunner] — ראו AGENTS §5.9.
+/// תור `user_state.db`. איסוף דורש אוצריא סגורה. כל עבודת ה-SQLite
+/// רצה ב-[IsolateRunner] — ראו AGENTS §5.9.
 class UserStateReportQueue implements OtzariaReportQueue {
   UserStateReportQueue(
     this.dbPath, {
@@ -193,6 +195,12 @@ class UserStateReportQueue implements OtzariaReportQueue {
   static const String appPendingKindV2 = 'app_reports_queue/pending_reports_v2';
   static const String pluginPendingKind =
       'plugin_reports_queue/pending_reports';
+  static const _pendingKinds = [
+    pendingKind,
+    appPendingKind,
+    appPendingKindV2,
+    pluginPendingKind,
+  ];
   static const String counterBox = 'error_reports_queue';
   static const String counterKey = 'sent_reports_total';
   static const int maxSentReportsToKeep = 100;
@@ -209,7 +217,14 @@ class UserStateReportQueue implements OtzariaReportQueue {
   Future<int> countSendable() {
     final path = dbPath;
     final format = reportsQueueFormat;
-    return _run(() => _readSendable(path, format, readOnly: true).length);
+    return _run(() => _countSendable(path, format, whileOpen: false) ?? 0);
+  }
+
+  @override
+  Future<int?> countSendableWhileOpen() {
+    final path = dbPath;
+    final format = reportsQueueFormat;
+    return _run(() => _countSendable(path, format, whileOpen: true));
   }
 
   @override
@@ -281,6 +296,7 @@ class UserStateReportQueue implements OtzariaReportQueue {
     String dbPath,
     int? queueFormat, {
     bool readOnly = false,
+    int busyTimeoutMs = 5000,
   }) {
     if (!File(dbPath).existsSync()) return null;
     if (queueFormat != null &&
@@ -293,7 +309,7 @@ class UserStateReportQueue implements OtzariaReportQueue {
       mode: readOnly ? OpenMode.readOnly : OpenMode.readWrite,
     );
     try {
-      db.execute('PRAGMA busy_timeout=${readOnly ? 1000 : 5000}');
+      db.execute('PRAGMA busy_timeout=$busyTimeoutMs');
       final version = db.select('PRAGMA user_version').first.values.first;
       final table = db.select(
         "SELECT 1 FROM sqlite_master WHERE type='table' "
@@ -311,12 +327,56 @@ class UserStateReportQueue implements OtzariaReportQueue {
     }
   }
 
-  static List<_MarkRow> _readSendable(
+  static int? _countSendable(
     String dbPath,
     int? queueFormat, {
-    bool readOnly = false,
+    required bool whileOpen,
   }) {
-    final db = _open(dbPath, queueFormat, readOnly: readOnly);
+    final db = _open(
+      dbPath,
+      queueFormat,
+      readOnly: true,
+      busyTimeoutMs: whileOpen ? 0 : 5000,
+    );
+    if (db == null) return 0;
+    try {
+      if (whileOpen &&
+          db.select('PRAGMA journal_mode').single['journal_mode'] != 'wal') {
+        return null;
+      }
+      final lastId = db
+          .select('SELECT max(id) AS last_id FROM pending_reports')
+          .single['last_id'] as int?;
+      if (lastId == null) return 0;
+      final statement = db.prepare(
+        'SELECT id, kind, payload_json FROM pending_reports NOT INDEXED '
+        'WHERE id > ? AND id <= ? AND kind IN (?, ?, ?, ?) ORDER BY id LIMIT 1',
+      );
+      try {
+        final seen = <String>{};
+        var id = 0;
+        while (id < lastId) {
+          // Finish the SQLite read before decoding attachments so a WAL
+          // checkpoint can run between rows.
+          final rows = statement.select([id, lastId, ..._pendingKinds]);
+          if (rows.isEmpty) break;
+          final row = rows.single;
+          id = row['id'] as int;
+          if (_parseSendable(row) case final report?) {
+            seen.add(report.kind.outboxId(report.id));
+          }
+        }
+        return seen.length;
+      } finally {
+        statement.close();
+      }
+    } finally {
+      db.close();
+    }
+  }
+
+  static List<_MarkRow> _readSendable(String dbPath, int? queueFormat) {
+    final db = _open(dbPath, queueFormat);
     if (db == null) return const [];
     try {
       final out = <_MarkRow>[];
@@ -326,9 +386,7 @@ class UserStateReportQueue implements OtzariaReportQueue {
         'WHERE kind IN (?, ?, ?, ?) ORDER BY id',
       );
       try {
-        final cursor = statement.selectCursor(
-          [pendingKind, appPendingKind, appPendingKindV2, pluginPendingKind],
-        );
+        final cursor = statement.selectCursor(_pendingKinds);
         while (cursor.moveNext()) {
           final built = _build(cursor.current);
           if (built == null || !seen.add(built.mark.outboxId)) continue;
@@ -364,9 +422,30 @@ class UserStateReportQueue implements OtzariaReportQueue {
   }
 
   static ({_MarkRow mark, Map<String, dynamic> fileJson})? _build(Row row) {
-    final json = row['payload_json'] as String;
+    final report = _parseSendable(row);
+    if (report == null) return null;
+    final mark = _MarkRow(
+      rowId: row['id'] as int,
+      payloadDigest: _digest(row['payload_json'] as String),
+      kind: report.kind,
+      pendingKind: row['kind'] as String,
+      reportId: report.id,
+    );
+    return (
+      mark: mark,
+      fileJson: OutboxReport.fileJson(
+        reportId: mark.outboxId,
+        bookTitle: report.title,
+        createdAt: report.createdAt,
+        body: report.body,
+        endpoint: report.kind.endpoint,
+      ),
+    );
+  }
+
+  static _SendableReport? _parseSendable(Row row) {
     try {
-      final decoded = jsonDecode(json);
+      final decoded = jsonDecode(row['payload_json'] as String);
       if (decoded is! Map<String, dynamic>) return null;
       final pendingKind = row['kind'] as String;
       final kind = pendingKind == appPendingKindV2
@@ -409,22 +488,12 @@ class UserStateReportQueue implements OtzariaReportQueue {
           createdAt = report.createdAt.toIso8601String();
           body = report.toApiPayload();
       }
-      final mark = _MarkRow(
-        rowId: row['id'] as int,
-        payloadDigest: _digest(json),
-        kind: kind,
-        pendingKind: pendingKind,
-        reportId: id,
-      );
       return (
-        mark: mark,
-        fileJson: OutboxReport.fileJson(
-          reportId: mark.outboxId,
-          bookTitle: title,
-          createdAt: createdAt,
-          body: body,
-          endpoint: kind.endpoint,
-        ),
+        id: id,
+        kind: kind,
+        title: title,
+        createdAt: createdAt,
+        body: body
       );
     } catch (_) {
       return null;
@@ -574,6 +643,14 @@ class UserStateReportQueue implements OtzariaReportQueue {
   }
 }
 
+typedef _SendableReport = ({
+  String id,
+  _ReportKind kind,
+  String title,
+  String createdAt,
+  Map<String, dynamic> body,
+});
+
 class _MarkRow {
   const _MarkRow({
     required this.rowId,
@@ -589,8 +666,7 @@ class _MarkRow {
   final String payloadDigest;
   final String reportId;
 
-  String get outboxId =>
-      kind == _ReportKind.book ? reportId : '${kind.name}-$reportId';
+  String get outboxId => kind.outboxId(reportId);
 
   String historyJson(String payloadJson, int now) {
     final json = jsonDecode(payloadJson) as Map<String, dynamic>;
@@ -620,4 +696,6 @@ enum _ReportKind {
   final String idField;
   final String endpoint;
   String get pendingKind => '$box/pending_reports';
+  String outboxId(String reportId) =>
+      this == book ? reportId : '$name-$reportId';
 }

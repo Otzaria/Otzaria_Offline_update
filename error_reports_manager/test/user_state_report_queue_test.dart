@@ -901,7 +901,7 @@ void _countWhileOpenTests() {
     expect(File(files[1]).lengthSync(), greaterThan(0));
     final before = files.map((f) => File(f).readAsBytesSync()).toList();
 
-    expect(await UserStateReportQueue(dbPath).countSendable(), 2);
+    expect(await UserStateReportQueue(dbPath).countSendableWhileOpen(), 2);
 
     // ה-shm הוא אינדקס משותף שקוראים מעדכנים בו סימוני קריאה; רק הגודל קבוע.
     for (var i = 0; i < 2; i++) {
@@ -910,12 +910,50 @@ void _countWhileOpenTests() {
     expect(File(files[2]).lengthSync(), before[2].length);
   });
 
+  test('live count skips malformed reports and counts duplicate ids once',
+      () async {
+    final writer = sqlite3.open(dbPath)..execute('PRAGMA journal_mode=WAL');
+    try {
+      for (final payload in [
+        '{malformed',
+        jsonEncode(_stored('a')),
+        jsonEncode(_stored('b', extra: {'schemaVersion': 99})),
+        jsonEncode(_stored('c')),
+      ]) {
+        writer.execute(
+          'INSERT INTO pending_reports (kind, payload_json, created_at) '
+          'VALUES (?, ?, 0)',
+          [UserStateReportQueue.pendingKind, payload],
+        );
+      }
+      final queue = UserStateReportQueue(dbPath);
+      expect(await queue.countSendableWhileOpen(), 2);
+      expect(await queue.countSendable(), 2);
+    } finally {
+      writer.close();
+    }
+  });
+
+  test('rollback-journal queues are counted only after Otzaria closes',
+      () async {
+    final writer = sqlite3.open(dbPath)..execute('PRAGMA journal_mode=DELETE');
+    final queue = UserStateReportQueue(dbPath);
+    try {
+      expect(await queue.countSendableWhileOpen(), isNull);
+      writer.execute(
+          'INSERT INTO lists VALUES (?, ?, ?, 0)', ['bookmark', 'book', '{}']);
+    } finally {
+      writer.close();
+    }
+    expect(await queue.countSendable(), 1);
+  });
+
   test('מסד נעול לגמרי: הספירה נכשלת (לא 0), והקורא מחליט', () async {
     final writer = sqlite3.open(dbPath)
       ..execute('PRAGMA journal_mode=DELETE')
       ..execute('BEGIN EXCLUSIVE');
     await expectLater(
-      UserStateReportQueue(dbPath).countSendable(),
+      UserStateReportQueue(dbPath).countSendableWhileOpen(),
       throwsA(isA<SqliteException>()),
     );
     writer.execute('ROLLBACK');
