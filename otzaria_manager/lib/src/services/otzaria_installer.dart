@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:crypto/crypto.dart' as crypto;
@@ -220,8 +221,14 @@ class OtzariaInstaller {
     return cachedInstallerPath;
   }
 
-  static Future<String> _sha256Of(File file) async =>
-      (await crypto.sha256.bind(file.openRead()).first).toString();
+  // SHA של Dart טהור על מאות MB מקפיא את הממשק; הקריאה והחישוב ב-isolate.
+  static Future<String> _sha256Of(File file) {
+    final path = file.path;
+    return Isolate.run(
+      () async =>
+          (await crypto.sha256.bind(File(path).openRead()).first).toString(),
+    );
+  }
 
   Future<void> _verifyInstallerDigest(
     OtzariaRelease release,

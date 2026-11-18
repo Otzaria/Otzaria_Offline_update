@@ -336,7 +336,7 @@ class LibraryUpdateApplier {
         _recovery.clearStaleArtifacts(dbPath);
         rethrow;
       } finally {
-        _deleteQuietly(patchPath);
+        await _deleteQuietly(patchPath);
       }
     }
 
@@ -507,7 +507,7 @@ class LibraryUpdateApplier {
     final partialPath = '$extractedPath.extracting';
     _assertDistinctSource(sourcePath, partialPath);
     _assertDistinctSource(sourcePath, extractedPath);
-    _deleteQuietly(partialPath);
+    await _deleteQuietly(partialPath);
     _throwIfCancelled(isCancelled);
     String? sourceDigest;
     String? outputDigest;
@@ -528,7 +528,7 @@ class LibraryUpdateApplier {
         maxOutputBytes: patchFile.uncompressedSize,
       );
       if (!streamed) {
-        _deleteQuietly(partialPath);
+        await _deleteQuietly(partialPath);
         return null;
       }
       _throwIfCancelled(isCancelled);
@@ -562,13 +562,13 @@ class LibraryUpdateApplier {
       await output.rename(extractedPath);
       return extractedPath;
     } on ZstdOutputLimitExceeded catch (e) {
-      _deleteQuietly(partialPath);
+      await _deleteQuietly(partialPath);
       _throwIfCancelled(isCancelled);
-      _forgetMirrorVerification(sourcePath);
+      await _forgetMirrorVerification(sourcePath);
       throw PatchDownloadException(e.message);
     } on ZstdStreamException catch (e) {
       // קובץ שנפגם בכונן נופל כאן, לפני השוואת ה-sha256.
-      _deleteQuietly(partialPath);
+      await _deleteQuietly(partialPath);
       _throwIfCancelled(isCancelled);
       if (!_isCorruptSource(e)) rethrow;
       await _discardCorruptMirrorAsset(
@@ -578,7 +578,7 @@ class LibraryUpdateApplier {
       );
       throw PatchDownloadException(strings.localFileHashMismatch(sourcePath));
     } catch (_) {
-      _deleteQuietly(partialPath);
+      await _deleteQuietly(partialPath);
       _throwIfCancelled(isCancelled);
       rethrow;
     }
@@ -720,10 +720,10 @@ class LibraryUpdateApplier {
     // הנתיב ש**אנחנו** יצרנו, ולכן מותר למחוק. המראה נמחקת רק אחרי שקריאה
     // שנייה הוכיחה שהיא פגומה ([_discardCorruptMirrorAsset]).
     String? staged;
-    void deleteStaged() {
+    Future<void> deleteStaged() async {
       if (staged case final path?) {
-        _deleteQuietly(path);
-        _deleteQuietly(PatchDownloader.resumeSidecarPath(path));
+        await _deleteQuietly(path);
+        await _deleteQuietly(PatchDownloader.resumeSidecarPath(path));
       }
     }
 
@@ -748,8 +748,8 @@ class LibraryUpdateApplier {
         );
       }
       // שארית מגרסה שעוד העתיקה את הנכס לכאן — אין לה שימוש יותר.
-      _deleteQuietly(stagedPath);
-      _deleteQuietly(PatchDownloader.resumeSidecarPath(stagedPath));
+      await _deleteQuietly(stagedPath);
+      await _deleteQuietly(PatchDownloader.resumeSidecarPath(stagedPath));
       PatchDownloader.deleteSegmentFiles(stagedPath);
     } else {
       compressedPath = stagedPath;
@@ -788,7 +788,7 @@ class LibraryUpdateApplier {
     // מחלצים לקובץ צדדי ורק בסוף מחליפים את ה-DB: כך ה-DB הקיים נשאר שלם
     // עד שהחדש מוכן במלואו, בדיוק כמו במסלול ה-staging של התקנת האפליקציה.
     final newFilePath = '$dbPath.new';
-    _deleteQuietly(newFilePath);
+    await _deleteQuietly(newFilePath);
     final extractedSize = ZstdFileDecompressor.contentSizeOf(compressedPath);
     if (extractedSize != null) {
       _ensureFileFitsVolume(dir.path, extractedSize);
@@ -831,9 +831,9 @@ class LibraryUpdateApplier {
         );
       }
     } catch (e) {
-      _deleteQuietly(newFilePath);
+      await _deleteQuietly(newFilePath);
       _throwIfCancelled(isCancelled);
-      if (_isCorruptSource(e)) deleteStaged();
+      if (_isCorruptSource(e)) await deleteStaged();
       if (_isFileTooLargeError(e)) {
         throw LibraryApplyException(
           AppL10n.strings.libraryDomain.fileTooLargeForVolume(dir.path),
@@ -862,7 +862,7 @@ class LibraryUpdateApplier {
     if (writtenSize == 0 ||
         writtenSize > _maxFullDbBytes ||
         (extractedSize != null && writtenSize < extractedSize)) {
-      _deleteQuietly(newFilePath);
+      await _deleteQuietly(newFilePath);
       throw LibraryApplyException(
         AppL10n.strings.libraryDomain.fullDbExtractionFailed,
       );
@@ -887,11 +887,11 @@ class LibraryUpdateApplier {
         ),
       );
     } catch (_) {
-      _deleteQuietly(newFilePath);
+      await _deleteQuietly(newFilePath);
       rethrow;
     }
     if (isCancelled?.call() ?? false) {
-      _deleteQuietly(newFilePath);
+      await _deleteQuietly(newFilePath);
     }
     _throwIfCancelled(isCancelled);
 
@@ -908,7 +908,7 @@ class LibraryUpdateApplier {
       } catch (_) {
         // כשל כאן (תיקייה שאינה ניתנת לכתיבה) קרה **אחרי** שהמסד המחולץ כבר
         // על הדיסק — בלי הניקוי הזה נשארים ~1.1GB תלויים על כונן שכבר צר.
-        _deleteQuietly(newFilePath);
+        await _deleteQuietly(newFilePath);
         rethrow;
       }
     }
@@ -928,14 +928,14 @@ class LibraryUpdateApplier {
       if (dbAlreadyExists && !markerPreexisted) {
         _recovery.clearStaleArtifacts(dbPath);
       }
-      _deleteQuietly(newFilePath);
+      await _deleteQuietly(newFilePath);
       rethrow;
     }
     // מפנים את השם בשני שלבים במקום למחוק ואז להחליף: rename הוא מיידי ואינו
     // עולה מקום, וכך אין רגע שבו אין מסד כלל. מחיקה-ואז-rename שנקטע באמצע
     // (נעילה של אנטי-וירוס, הפסקת חשמל) הותירה את המשתמש בלי ספרייה.
     final retiredPath = '$dbPath.old';
-    _deleteQuietly(retiredPath);
+    await _deleteQuietly(retiredPath);
     var retired = false;
     try {
       if (File(dbPath).existsSync()) {
@@ -951,7 +951,7 @@ class LibraryUpdateApplier {
         // נכשל. אם הוא באורך 0 הוא גם אינו מסד: כך נראה נתיב ש-sqlite פתחה
         // ולא כתבה, וזה בדיוק מה שנוצר כשאוצריא נפתחה בין שני ה-rename.
         // בלי הפינוי הזה `.old` היה נשאר בצד והמשתמש היה נשאר עם מסד ריק.
-        if (_isEmptyFile(dbPath)) _deleteQuietly(dbPath);
+        if (_isEmptyFile(dbPath)) await _deleteQuietly(dbPath);
         if (!File(dbPath).existsSync()) {
           try {
             File(retiredPath).renameSync(dbPath);
@@ -968,7 +968,7 @@ class LibraryUpdateApplier {
         // ונועלת אותו (וזה בדיוק מה שמכשיל את ה-rename השני), התנאי
         // `!existsSync()` נופל, והמחיקה השמידה את הספרייה של המשתמש. שני
         // ה-rename קיימים בדיוק כדי שזה לא יקרה.
-        if (rolledBack) _deleteQuietly(retiredPath);
+        if (rolledBack) await _deleteQuietly(retiredPath);
       }
       if (dbAlreadyExists && !markerPreexisted && (rolledBack || !retired)) {
         _recovery.clearStaleArtifacts(dbPath);
@@ -978,9 +978,9 @@ class LibraryUpdateApplier {
 
     // רק עכשיו, כשהמסד החדש במקומו: ה-WAL/SHM שייכים לישן ומחיקתם מוקדם
     // יותר הייתה מאבדת טרנזקציות שכבר בוצעו אם ההחלפה נכשלה.
-    _deleteQuietly('$dbPath-wal');
-    _deleteQuietly('$dbPath-shm');
-    _deleteQuietly(retiredPath);
+    await _deleteQuietly('$dbPath-wal');
+    await _deleteQuietly('$dbPath-shm');
+    await _deleteQuietly(retiredPath);
 
     if (dbAlreadyExists) _recovery.finishSuccess(dbPath);
     // המסד החדש אומת (`quick_check` + גרסה) והגיע מנכס שה-sha256 שלו נבדק,
@@ -988,7 +988,7 @@ class LibraryUpdateApplier {
     _recovery.clearUnverified(dbPath);
     // ה-sidecar הוא באחריות הצרכן (ראו PatchDownloader.downloadToFile);
     // בלי זה נשאר `seforim.db.download.zst.resume` בתיקיית הספרים לנצח.
-    deleteStaged();
+    await deleteStaged();
     onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.done));
   }
 
@@ -1176,7 +1176,7 @@ class LibraryUpdateApplier {
 
   /// נכס במראה שנכשל ב-sha256: בלי סימון האימות שלידו, ההורדה הבאה במחשב
   /// המקוון מאמתת אותו מחדש ומחליפה אותו — אחרת גודל ו-mtime זהים מדלגים עליו.
-  void _forgetMirrorVerification(String mirrorPath) =>
+  Future<void> _forgetMirrorVerification(String mirrorPath) =>
       _deleteQuietly(PatchDownloader.resumeSidecarPath(mirrorPath));
 
   /// קריאה אחת שגויה (גשר USB גבולי) לא מוחקת קובץ תקין של ~1.5GB: נמחק רק
@@ -1187,7 +1187,7 @@ class LibraryUpdateApplier {
     bool Function()? isCancelled,
   ) async {
     if (expectedSha256 == null) {
-      _forgetMirrorVerification(mirrorPath);
+      await _forgetMirrorVerification(mirrorPath);
       return;
     }
     final String digest;
@@ -1195,12 +1195,12 @@ class LibraryUpdateApplier {
       digest = await _sha256Of(mirrorPath, isCancelled);
     } on FileSystemException {
       // קריאה שנכשלה אינה הוכחה שהתוכן פגום: רק האימות נשכח.
-      _forgetMirrorVerification(mirrorPath);
+      await _forgetMirrorVerification(mirrorPath);
       return;
     }
     if (digest.toLowerCase() == expectedSha256.toLowerCase()) return;
-    _forgetMirrorVerification(mirrorPath);
-    _deleteQuietly(mirrorPath);
+    await _forgetMirrorVerification(mirrorPath);
+    await _deleteQuietly(mirrorPath);
   }
 
   Future<String> _sha256Of(String path, bool Function()? isCancelled) async {
@@ -1224,10 +1224,10 @@ class LibraryUpdateApplier {
       e is! ZstdResourceException &&
       e is! ZstdCancelledException;
 
-  void _deleteQuietly(String path) {
+  /// אסינכרוני: מחיקה של `seforim.db.old` (~5GB) על ה-isolate של הממשק מקפיאה אותו.
+  Future<void> _deleteQuietly(String path) async {
     try {
-      final file = File(path);
-      if (file.existsSync()) file.deleteSync();
+      await File(path).delete();
     } catch (_) {}
   }
 

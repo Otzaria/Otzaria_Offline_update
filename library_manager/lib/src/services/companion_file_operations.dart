@@ -323,18 +323,18 @@ FileSystemEntity _entity(String path) =>
     ? Directory(path)
     : File(path);
 
-void _removeEntity(String path) {
+Future<void> _removeEntity(String path) async {
   if (FileSystemEntity.typeSync(path, followLinks: false) !=
       FileSystemEntityType.notFound) {
-    _entity(path).deleteSync(recursive: true);
+    await _entity(path).delete(recursive: true);
   }
 }
 
-void recoverCompanionInstall(String target, List<String> paths) {
+Future<void> recoverCompanionInstall(String target, List<String> paths) async {
   final backup = Directory(companionBackupPath(target));
   if (!backup.existsSync()) return;
   if (File(p.join(backup.path, 'committed')).existsSync()) {
-    _cleanCommittedBackup(backup);
+    await _cleanCommittedBackup(backup);
     return;
   }
   final stateFile = File(p.join(backup.path, 'state.json'));
@@ -342,7 +342,7 @@ void recoverCompanionInstall(String target, List<String> paths) {
       backup.listSync().every(
         (entry) => p.basename(entry.path) == 'state.json.tmp',
       )) {
-    backup.deleteSync(recursive: true);
+    await backup.delete(recursive: true);
     return;
   }
   final state = jsonDecode(stateFile.readAsStringSync());
@@ -359,28 +359,31 @@ void recoverCompanionInstall(String target, List<String> paths) {
     final saved = p.join(backup.path, '$i');
     if (FileSystemEntity.typeSync(saved, followLinks: false) !=
         FileSystemEntityType.notFound) {
-      _removeEntity(paths[i]);
+      await _removeEntity(paths[i]);
       _entity(saved).renameSync(paths[i]);
     } else if (state[i] == false) {
-      _removeEntity(paths[i]);
+      await _removeEntity(paths[i]);
     }
   }
-  backup.deleteSync(recursive: true);
+  await backup.delete(recursive: true);
 }
 
-void _cleanCommittedBackup(Directory backup) {
+Future<void> _cleanCommittedBackup(Directory backup) async {
   for (final entry in backup.listSync(followLinks: false)) {
     if (p.basename(entry.path) != 'committed') {
-      entry.deleteSync(recursive: true);
+      await entry.delete(recursive: true);
     }
   }
   // Keep the commit decision until every old file and the journal are gone.
-  File(p.join(backup.path, 'committed')).deleteSync();
-  backup.deleteSync();
+  await File(p.join(backup.path, 'committed')).delete();
+  await backup.delete();
 }
 
 /// Files and their markers move together; the journal recovers an interrupted swap.
-void commitCompanionInstall(String target, Map<String, String?> replacements) {
+Future<void> commitCompanionInstall(
+  String target,
+  Map<String, String?> replacements,
+) async {
   final paths = replacements.keys.toList();
   final backup = Directory(companionBackupPath(target));
   final existed = [
@@ -405,10 +408,10 @@ void commitCompanionInstall(String target, Map<String, String?> replacements) {
   } catch (_) {
     try {
       if (prepared) {
-        _removeEntity(p.join(backup.path, 'committed'));
-        recoverCompanionInstall(target, paths);
+        await _removeEntity(p.join(backup.path, 'committed'));
+        await recoverCompanionInstall(target, paths);
       } else {
-        backup.deleteSync(recursive: true);
+        await backup.delete(recursive: true);
       }
     } catch (_) {
       // Leave the journal and old content for the next recovery attempt.
@@ -416,7 +419,7 @@ void commitCompanionInstall(String target, Map<String, String?> replacements) {
     rethrow;
   }
   try {
-    _cleanCommittedBackup(backup);
+    await _cleanCommittedBackup(backup);
   } on FileSystemException {
     // The committed marker makes a later cleanup safe.
   }
