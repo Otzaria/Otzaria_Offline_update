@@ -302,7 +302,9 @@ dart analyze                       # all pure-Dart packages, including otzaria_d
   change, pause release preparation until the conflict is resolved.
 - **`.githooks/pre-commit` runs the same checks locally** on staged packages and
   blocks the commit on failure. Each clone needs
-  `git config core.hooksPath .githooks` once.
+  `git config core.hooksPath .githooks` once. Format and analyze cover the whole
+  package; tests cover only test files that changed or name a changed `lib` file
+  (the whole package when none does, or `FULL_TESTS=1`). CI runs everything.
 - **Report honestly what you ran and what failed.** Do not call a change verified
   when only the analyzer passed.
 - **Prove a bug fix with a test that fails before it and passes after**, under the
