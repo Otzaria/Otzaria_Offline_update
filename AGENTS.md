@@ -518,6 +518,19 @@ it off for every step but the last. Each unverified step must write its marker
 **before** applying and fail if it cannot. A remaining marker requires
 `verifyFromHash: true` even after rollback or if its contents cannot be parsed.
 
+**The next patch is fetched and extracted while the current one is applied.**
+`_prefetchNext` starts it only when free space is *known* to hold both staged
+patches (`db + 2*current + next`, plus 2x the download when remote); unknown or
+short space means sequential. When its step starts, `db + next` is checked again
+(the sequential gate minus the bytes already staged); failure discards the file.
+Its progress is held back until its own step is reached, so the UI never shows
+step N+1 during step N; an error is held too and surfaces then. Any exit from
+the loop (failure, cancel) sets `abort`, **waits** for the fetch to settle and
+deletes the staged file. A crash leaves a `.db` in `.seforim-update-tmp`
+(`recoverIfNeeded` deletes it) and maybe a `*.extracting`, which
+`applyDelta` removes at its start. Nothing in `OfflineLibraryDbRecoveryService`
+touches that dir during a step; keep it so.
+
 **The last step verifies only the tables the chain changed (maintainer
 decision).** `_applyPatchInIsolate` passes `enablePartialTableVerification`
 and the core compares `toTableContentHashes` for the tables the last patch

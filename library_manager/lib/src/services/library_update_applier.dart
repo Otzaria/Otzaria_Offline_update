@@ -219,6 +219,7 @@ class LibraryUpdateApplier {
     await _guardOtzariaNotRunning();
 
     final tmpDir = Directory(_recovery.patchTmpDirFor(dbPath));
+    await _deleteStaleExtracting(tmpDir);
     final steps = plan.deltaSteps;
 
     final hintFile = File(p.join(tmpDir.path, _verifyHintFileName));
@@ -236,134 +237,254 @@ class LibraryUpdateApplier {
       for (final s in steps) s.manifest,
     ]);
 
-    for (var i = 0; i < steps.length; i++) {
-      _throwIfCancelled(isCancelled);
-      final edge = steps[i];
-      final manifest = edge.manifest;
-      final patchFile = manifest.patchFiles.first;
-      final url = edge.patchFileUrls[patchFile.file];
-      if (url == null) {
-        throw LibraryApplyException(
-          AppL10n.strings.libraryDomain.patchUrlMissing(patchFile.file),
-        );
-      }
-
-      if (i > 0) await _guardOtzariaNotRunning();
-
-      _ensureDeltaStepFits(dbPath, url, patchFile);
-
-      final patchPath = await _fetchPatch(
-        patchFile: patchFile,
-        url: url,
-        destDir: tmpDir,
-        onProgress: (downloaded, total) => onProgress?.call(
-          LibraryApplyProgress(
-            stage: LibraryApplyStage.downloadingPatch,
-            stepIndex: i + 1,
-            stepCount: steps.length,
-            bytesDone: downloaded,
-            bytesTotal: total,
-          ),
-        ),
-        onExtractionProgress: (written, total) => onProgress?.call(
-          LibraryApplyProgress(
-            stage: LibraryApplyStage.decompressingPatch,
-            stepIndex: i + 1,
-            stepCount: steps.length,
-            bytesDone: written,
-            bytesTotal: total,
-          ),
-        ),
-        isCancelled: isCancelled,
-      );
-
-      try {
+    _StagedPatch? pending;
+    try {
+      for (var i = 0; i < steps.length; i++) {
         _throwIfCancelled(isCancelled);
-        await _recovery.beginApply(
-          dbPath: dbPath,
-          fromVersion: manifest.fromVersion,
-          toVersion: manifest.toVersion,
-          timestamp: DateTime.now().toIso8601String(),
-        );
-        _throwIfCancelled(isCancelled);
-
-        onProgress?.call(
-          LibraryApplyProgress(
-            stage: LibraryApplyStage.applyingPatch,
-            stepIndex: i + 1,
-            stepCount: steps.length,
-          ),
-        );
-
-        _throwIfCancelled(isCancelled);
-        if (i < steps.length - 1) {
-          _recovery.markUnverified(dbPath, manifest.toVersion);
+        final edge = steps[i];
+        final manifest = edge.manifest;
+        final patchFile = manifest.patchFiles.first;
+        final url = edge.patchFileUrls[patchFile.file];
+        if (url == null) {
+          throw LibraryApplyException(
+            AppL10n.strings.libraryDomain.patchUrlMissing(patchFile.file),
+          );
         }
-        final isLast = i == steps.length - 1;
-        final partial = isLast && chainManifest != null;
-        final result = await _isolateApplyPatch(
-          dbPath: dbPath,
-          patchPath: patchPath,
-          manifest: isLast ? (chainManifest ?? manifest) : manifest,
-          language: AppL10n.language,
-          verifyFromHash: i == 0 && needsSourceVerification,
-          verifyToHash: isLast,
-          partialVerify: partial,
-          verifyTotalBytesHint: partial ? null : verifyTotalHint,
-          verifyTableBytesHint: partial ? verifyTableHint : null,
-          onStage: (patchStage) {
-            lastPatchStage = patchStage;
-            onProgress?.call(
-              LibraryApplyProgress(
-                stage: LibraryApplyStage.applyingPatch,
-                stepIndex: i + 1,
-                stepCount: steps.length,
-                patchStage: patchStage,
-              ),
+
+        if (i > 0) await _guardOtzariaNotRunning();
+
+        final _StagedPatch staged;
+        final prefetched = pending;
+        pending = null;
+        if (prefetched != null) {
+          final dbSize = File(dbPath).existsSync()
+              ? File(dbPath).lengthSync()
+              : 0;
+          try {
+            // The staged patch already holds its own bytes; the apply adds the
+            // journal on top, so the gate is checked again here.
+            _ensureSpaceFor(
+              p.dirname(dbPath),
+              dbSize + patchFile.uncompressedSize,
             );
-          },
-          onVerifyProgress: (done, total) {
-            lastVerifyDone = done;
-            onProgress?.call(
-              LibraryApplyProgress(
-                stage: LibraryApplyStage.applyingPatch,
-                stepIndex: i + 1,
-                stepCount: steps.length,
-                patchStage: lastPatchStage,
-                verifyProgress: total > 0
-                    ? (done / total).clamp(0.0, 1.0)
-                    : null,
-              ),
+            _ensureFileFitsVolume(
+              p.dirname(dbPath),
+              dbSize + patchFile.uncompressedSize,
             );
-          },
-        );
-        booksTouched.addAll(result.booksTouched);
-        onStepApplied?.call(result.booksTouched, manifest.toVersion);
-        if (isLast && result.resultHash != null) {
-          onLog?.call(_describeVerification(result));
+          } catch (_) {
+            await prefetched.discard(_deleteQuietly);
+            rethrow;
+          }
+          staged = prefetched..forward = true;
+          onLog?.call(
+            'prefetched patch ${i + 1}/${steps.length} while applying the previous',
+          );
+        } else {
+          _ensureDeltaStepFits(dbPath, url, patchFile);
+          staged = _stagePatch(
+            index: i,
+            stepCount: steps.length,
+            patchFile: patchFile,
+            url: url,
+            tmpDir: tmpDir,
+            onProgress: onProgress,
+            isCancelled: isCancelled,
+            forward: true,
+          );
         }
-        // A partial count is too low as a whole-DB hint; it feeds the table map.
-        if (result.verifiedTables.isNotEmpty) {
-          verifyTableHint = {...?verifyTableHint, ...result.verifyTableBytes};
-          _writeTableBytesQuietly(tableHintFile, verifyTableHint);
-        } else if (lastVerifyDone > 0) {
-          verifyTotalHint = lastVerifyDone;
-          _writeIntQuietly(hintFile, lastVerifyDone);
+        final patchPath = await staged.take();
+
+        try {
+          _throwIfCancelled(isCancelled);
+          await _recovery.beginApply(
+            dbPath: dbPath,
+            fromVersion: manifest.fromVersion,
+            toVersion: manifest.toVersion,
+            timestamp: DateTime.now().toIso8601String(),
+          );
+          _throwIfCancelled(isCancelled);
+
+          onProgress?.call(
+            LibraryApplyProgress(
+              stage: LibraryApplyStage.applyingPatch,
+              stepIndex: i + 1,
+              stepCount: steps.length,
+            ),
+          );
+
+          _throwIfCancelled(isCancelled);
+          if (i < steps.length - 1) {
+            _recovery.markUnverified(dbPath, manifest.toVersion);
+          }
+          final isLast = i == steps.length - 1;
+          final partial = isLast && chainManifest != null;
+          if (!isLast) {
+            pending = _prefetchNext(
+              dbPath: dbPath,
+              tmpDir: tmpDir,
+              steps: steps,
+              current: i,
+              onProgress: onProgress,
+              isCancelled: isCancelled,
+              onLog: onLog,
+            );
+          }
+          final result = await _isolateApplyPatch(
+            dbPath: dbPath,
+            patchPath: patchPath,
+            manifest: isLast ? (chainManifest ?? manifest) : manifest,
+            language: AppL10n.language,
+            verifyFromHash: i == 0 && needsSourceVerification,
+            verifyToHash: isLast,
+            partialVerify: partial,
+            verifyTotalBytesHint: partial ? null : verifyTotalHint,
+            verifyTableBytesHint: partial ? verifyTableHint : null,
+            onStage: (patchStage) {
+              lastPatchStage = patchStage;
+              onProgress?.call(
+                LibraryApplyProgress(
+                  stage: LibraryApplyStage.applyingPatch,
+                  stepIndex: i + 1,
+                  stepCount: steps.length,
+                  patchStage: patchStage,
+                ),
+              );
+            },
+            onVerifyProgress: (done, total) {
+              lastVerifyDone = done;
+              onProgress?.call(
+                LibraryApplyProgress(
+                  stage: LibraryApplyStage.applyingPatch,
+                  stepIndex: i + 1,
+                  stepCount: steps.length,
+                  patchStage: lastPatchStage,
+                  verifyProgress: total > 0
+                      ? (done / total).clamp(0.0, 1.0)
+                      : null,
+                ),
+              );
+            },
+          );
+          booksTouched.addAll(result.booksTouched);
+          onStepApplied?.call(result.booksTouched, manifest.toVersion);
+          if (isLast && result.resultHash != null) {
+            onLog?.call(_describeVerification(result));
+          }
+          // A partial count is too low as a whole-DB hint; it feeds the table map.
+          if (result.verifiedTables.isNotEmpty) {
+            verifyTableHint = {...?verifyTableHint, ...result.verifyTableBytes};
+            _writeTableBytesQuietly(tableHintFile, verifyTableHint);
+          } else if (lastVerifyDone > 0) {
+            verifyTotalHint = lastVerifyDone;
+            _writeIntQuietly(hintFile, lastVerifyDone);
+          }
+          if (result.resultHash != null) {
+            _recovery.clearUnverified(dbPath);
+          }
+          _recovery.finishSuccess(dbPath);
+        } catch (_) {
+          _recovery.clearStaleArtifacts(dbPath);
+          rethrow;
+        } finally {
+          await _deleteQuietly(patchPath);
         }
-        if (result.resultHash != null) {
-          _recovery.clearUnverified(dbPath);
-        }
-        _recovery.finishSuccess(dbPath);
-      } catch (_) {
-        _recovery.clearStaleArtifacts(dbPath);
-        rethrow;
-      } finally {
-        await _deleteQuietly(patchPath);
       }
+    } finally {
+      await pending?.discard(_deleteQuietly);
     }
 
     onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.done));
     return booksTouched;
+  }
+
+  /// Starts patch `current + 1` while `current` is applied; null (sequential)
+  /// unless free space for both staged patches is known.
+  _StagedPatch? _prefetchNext({
+    required String dbPath,
+    required Directory tmpDir,
+    required List<PatchEdge> steps,
+    required int current,
+    void Function(LibraryApplyProgress progress)? onProgress,
+    bool Function()? isCancelled,
+    void Function(String message)? onLog,
+  }) {
+    final next = steps[current + 1].manifest.patchFiles.first;
+    final nextUrl = steps[current + 1].patchFileUrls[next.file];
+    final now = steps[current].manifest.patchFiles.first;
+    if (nextUrl == null ||
+        extractedPatchFileName(next.file) == extractedPatchFileName(now.file)) {
+      return null;
+    }
+    final dir = p.dirname(dbPath);
+    final dbSize = File(dbPath).existsSync() ? File(dbPath).lengthSync() : 0;
+    final download = PatchDownloader.isRemoteUrl(nextUrl) ? 2 * next.size : 0;
+    final free = _freeBytesFor(dir);
+    final needed =
+        dbSize + 2 * now.uncompressedSize + download + next.uncompressedSize;
+    if (free == null || DiskSpaceProbe.lacksSpace(free, needed)) {
+      onLog?.call(
+        'prefetch of patch ${current + 2} skipped: space for two not proven',
+      );
+      return null;
+    }
+    return _stagePatch(
+      index: current + 1,
+      stepCount: steps.length,
+      patchFile: next,
+      url: nextUrl,
+      tmpDir: tmpDir,
+      onProgress: onProgress,
+      isCancelled: isCancelled,
+      forward: false,
+    );
+  }
+
+  /// Fetches one patch; progress is muted until `forward` is set and an error
+  /// is held until `take`.
+  _StagedPatch _stagePatch({
+    required int index,
+    required int stepCount,
+    required PatchFileEntry patchFile,
+    required String url,
+    required Directory tmpDir,
+    required bool forward,
+    void Function(LibraryApplyProgress progress)? onProgress,
+    bool Function()? isCancelled,
+  }) {
+    final staged = _StagedPatch(forward);
+    void emit(LibraryApplyProgress progress) {
+      if (staged.forward) onProgress?.call(progress);
+    }
+
+    staged._result =
+        _fetchPatch(
+          patchFile: patchFile,
+          url: url,
+          destDir: tmpDir,
+          onProgress: (downloaded, total) => emit(
+            LibraryApplyProgress(
+              stage: LibraryApplyStage.downloadingPatch,
+              stepIndex: index + 1,
+              stepCount: stepCount,
+              bytesDone: downloaded,
+              bytesTotal: total,
+            ),
+          ),
+          onExtractionProgress: (written, total) => emit(
+            LibraryApplyProgress(
+              stage: LibraryApplyStage.decompressingPatch,
+              stepIndex: index + 1,
+              stepCount: stepCount,
+              bytesDone: written,
+              bytesTotal: total,
+            ),
+          ),
+          isCancelled: () => staged.abort || (isCancelled?.call() ?? false),
+        ).then<_StagedResult>(
+          (path) => (path: path, error: null, stack: null),
+          onError: (Object e, StackTrace s) => (path: null, error: e, stack: s),
+        );
+    return staged;
   }
 
   /// המניפסט האחרון, כשטבלה ששונתה בצעד מוקדם מסומנת כשונה. null — צעד ללא
@@ -1306,6 +1427,18 @@ class LibraryUpdateApplier {
     } catch (_) {}
   }
 
+  /// A crash mid-prefetch leaves `<name>.extracting`, which recovery ignores.
+  Future<void> _deleteStaleExtracting(Directory dir) async {
+    try {
+      if (!dir.existsSync()) return;
+      await for (final e in dir.list(followLinks: false)) {
+        if (e is File && e.path.endsWith('.extracting')) {
+          await _deleteQuietly(e.path);
+        }
+      }
+    } catch (_) {}
+  }
+
   /// קובץ שקיים ואורכו 0 — הסימן היחיד שאפשר לסמוך עליו לזיהוי נתיב שנפתח
   /// ולא נכתב. קובץ לא-קיים אינו "ריק": שם אין מה לפנות.
   bool _isEmptyFile(String path) {
@@ -1356,6 +1489,30 @@ class LibraryUpdateApplier {
 
   /// סוגר את חיבור ה-HTTP הפנימי של המוריד.
   void dispose() => _downloader.dispose();
+}
+
+typedef _StagedResult = ({String? path, Object? error, StackTrace? stack});
+
+/// A patch being fetched ahead of its step; see `_stagePatch`.
+class _StagedPatch {
+  _StagedPatch(this.forward);
+
+  bool forward;
+  bool abort = false;
+  late final Future<_StagedResult> _result;
+
+  Future<String> take() async {
+    final r = await _result;
+    if (r.error != null) Error.throwWithStackTrace(r.error!, r.stack!);
+    return r.path!;
+  }
+
+  /// Stops the fetch, waits for it to settle and deletes what it staged.
+  Future<void> discard(Future<void> Function(String path) delete) async {
+    abort = true;
+    final path = (await _result).path;
+    if (path != null) await delete(path);
+  }
 }
 
 /// פונקציית top-level — לעולם לא יכולה לתפוס `this` בטעות. זה בדיוק ההבדל

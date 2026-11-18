@@ -125,7 +125,9 @@ void main() {
         ),
       ]),
       dbPath: dbPath,
-      onLog: log.add,
+      onLog: (m) {
+        if (m.startsWith('final verification')) log.add(m);
+      },
     );
 
     expect(log, hasLength(1));
@@ -230,7 +232,9 @@ void main() {
         edge(from: 2, to: 3, upsertRows: const [], before: r2, after: r3),
       ]),
       dbPath: dbPath,
-      onLog: log.add,
+      onLog: (m) {
+        if (m.startsWith('final verification')) log.add(m);
+      },
     );
 
     expect(log.single, contains('source='));
@@ -400,7 +404,13 @@ void main() {
     );
     final log = <String>[];
 
-    await applier.applyDelta(plan: plan([raw]), dbPath: dbPath, onLog: log.add);
+    await applier.applyDelta(
+      plan: plan([raw]),
+      dbPath: dbPath,
+      onLog: (m) {
+        if (m.startsWith('final verification')) log.add(m);
+      },
+    );
 
     expect(log.single, contains('whole database'));
   });
