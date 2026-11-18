@@ -1260,7 +1260,10 @@ Do not reintroduce a copy-before-apply step or a `backupsToKeep` setting.
 **The full-download route streams; it must never decompress in memory again.** It
 used to hold ~1.1GB as a `Uint8List`, plus a second copy when that was sent to an
 isolate to be written. It is now download → file, `ZstdFileDecompressor` →
-`<db>.new`, then rename.
+`<db>.new`, then rename. Its read and write buffers are 2MiB (libzstd's ~128KB
+defaults cost tens of thousands of awaited file round-trips on a multi-GB DB);
+the stream and both digests are independent of buffer size, and cancellation is
+checked once per buffer.
 
 **`PRAGMA quick_check` on that route stays, and it is not redundant.** It costs a
 measured 111s, and "the sha256 of the compressed asset already proves it" is

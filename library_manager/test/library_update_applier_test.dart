@@ -1842,8 +1842,9 @@ void main() {
         return;
       }
       final h = buildChainHashes();
+      // Compressed size must exceed the 2MiB read buffer to get several reads.
       final big = pseudoRandomBytes(
-        600 * 1024,
+        3 * 1024 * 1024,
       ).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
       final expected = buildDb(
         p.join(tempDir.path, 'expect-big.db'),
