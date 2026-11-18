@@ -6,6 +6,7 @@ import 'package:http/testing.dart';
 import 'package:library_manager/library_manager.dart';
 import 'package:library_manager/src/services/github_fetch.dart';
 import 'package:library_manager/src/services/semantic_search_assets.dart';
+import 'package:otzaria_downloads/otzaria_downloads.dart' as downloads;
 
 void main() {
   final api = Uri.parse('https://api.github.com/repos/o/r/releases/latest');
@@ -14,6 +15,8 @@ void main() {
   late GithubRateLimitGate gate;
 
   setUp(() {
+    GithubRateLimitGate.shared.reset();
+    downloads.GithubRateLimitGate.shared.reset();
     elapsed = Duration.zero;
     gate = GithubRateLimitGate(
       elapsed: () => elapsed,
@@ -21,7 +24,104 @@ void main() {
     );
   });
 
-  tearDown(GithubRateLimitGate.shared.reset);
+  tearDown(() {
+    GithubRateLimitGate.shared.reset();
+    downloads.GithubRateLimitGate.shared.reset();
+  });
+
+  group('shared transport', () {
+    test('a library rate limit blocks downloader API requests', () async {
+      var calls = 0;
+      final client = MockClient((_) async {
+        calls++;
+        return calls == 1
+            ? http.Response('', 429, headers: {'retry-after': '60'})
+            : http.Response('{}', 200);
+      });
+      addTearDown(client.close);
+
+      await expectLater(
+        githubGet(client, api, timeout: const Duration(seconds: 5)),
+        throwsA(isA<GithubRateLimitException>()),
+      );
+      final nextApi = api.replace(path: '/repos/o/another/releases/latest');
+      await expectLater(
+        downloads.githubGet(
+          client,
+          nextApi,
+          timeout: const Duration(seconds: 5),
+        ),
+        throwsA(
+          isA<downloads.GithubRateLimitException>()
+              .having((e) => e.uri, 'uri', nextApi)
+              .having((e) => e.statusCode, 'statusCode', isNull),
+        ),
+      );
+      expect(calls, 1);
+    });
+
+    test('a downloader rate limit blocks library API requests', () async {
+      var calls = 0;
+      final client = MockClient((_) async {
+        calls++;
+        return calls == 1
+            ? http.Response('', 429, headers: {'retry-after': '60'})
+            : http.Response('{}', 200);
+      });
+      addTearDown(client.close);
+
+      await expectLater(
+        downloads.githubGet(client, api, timeout: const Duration(seconds: 5)),
+        throwsA(isA<downloads.GithubRateLimitException>()),
+      );
+      final nextApi = api.replace(path: '/repos/o/another/releases/latest');
+      await expectLater(
+        githubGet(client, nextApi, timeout: const Duration(seconds: 5)),
+        throwsA(
+          isA<GithubRateLimitException>()
+              .having((e) => e.uri, 'uri', nextApi)
+              .having((e) => e.statusCode, 'statusCode', isNull),
+        ),
+      );
+      expect(calls, 1);
+    });
+
+    test('a filter response has the shared blocked-network type', () async {
+      final client = MockClient((_) async => http.Response('', 418));
+      addTearDown(client.close);
+
+      await expectLater(
+        githubGet(client, api, timeout: const Duration(seconds: 5)),
+        throwsA(
+          isA<downloads.NetworkBlockedException>()
+              .having((e) => e.uri, 'uri', api)
+              .having((e) => e.statusCode, 'statusCode', 418),
+        ),
+      );
+    });
+
+    for (final cause in [
+      const HandshakeException('CERTIFICATE_VERIFY_FAILED'),
+      const TlsException('certificate rejected'),
+    ]) {
+      test(
+        '${cause.runtimeType} has the shared certificate-error type',
+        () async {
+          final client = MockClient((_) async => throw cause);
+          addTearDown(client.close);
+
+          await expectLater(
+            githubGet(client, api, timeout: const Duration(seconds: 5)),
+            throwsA(
+              isA<downloads.NetworkCertificateException>()
+                  .having((e) => e.uri, 'uri', api)
+                  .having((e) => e.cause, 'cause', same(cause)),
+            ),
+          );
+        },
+      );
+    }
+  });
 
   test('sends the shared API headers', () async {
     late http.BaseRequest seen;

@@ -17,6 +17,8 @@ dependencies:
       url: https://github.com/Otzaria/otzaria_library_updater.git
       ref: 38ce5f01bb35bac106a9076addafc3e2cde685ff
   sqlite3_flutter_libs: ^0.5.24
+  otzaria_downloads:
+    path: ../otzaria_downloads
   otzaria_l10n:
     path: ../otzaria_l10n
   otzaria_manager:
