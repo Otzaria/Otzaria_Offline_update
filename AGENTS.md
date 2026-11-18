@@ -1361,6 +1361,7 @@ Flushing each of thousands of PDFs one after another dominated the stage, so
 `copyCompanionFiles` keeps 8 in flight. `commitCompanionInstall` still runs only
 after the call returns, i.e. with every staged file flushed and closed; the first
 failure stops new starts and the running ones clean up before it is rethrown.
+An old subdirectory file at a path the archive rewrites is not copied first.
 Each companion and smart-search sub-stage logs `שלב התקנה: … נמשך Ns` through
 `installTimingSink`, which the launcher points at `AppLogger`.
 

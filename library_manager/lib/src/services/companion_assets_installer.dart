@@ -636,10 +636,23 @@ class CompanionAssetsInstaller {
           0,
           (sum, file) => sum + file.size,
         );
-        final preserved = await _talmudSubdirectories(
-          Directory(target),
-          isCancelled,
-        );
+        final extracted = {
+          for (final file in expected)
+            companionPathKey(p.joinAll(p.posix.split(file.path).skip(1))),
+        };
+        // An old file the archive rewrites at the same path is overwritten
+        // anyway, so copying it into staging first only doubles the write.
+        final preserved = [
+          for (final old in await _talmudSubdirectories(
+            Directory(target),
+            isCancelled,
+          ))
+            if (old.size == null ||
+                !extracted.contains(
+                  companionPathKey(p.relative(old.path, from: target)),
+                ))
+              old,
+        ];
         final preservedBytes = preserved.fold<int>(
           0,
           (sum, file) => sum + (file.size ?? 0),
