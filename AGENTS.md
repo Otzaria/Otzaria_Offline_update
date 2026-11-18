@@ -518,6 +518,20 @@ it off for every step but the last. Each unverified step must write its marker
 **before** applying and fail if it cannot. A remaining marker requires
 `verifyFromHash: true` even after rollback or if its contents cannot be parsed.
 
+**Companions stage beside the DB's last patch but commit only after it.**
+The whole-DB step is one isolate call in the core, so `applyDelta` calls
+`onFinalStepStart` right before the last patch's isolate and
+`LibraryManager._applyUpdate` starts the install then. `ConcurrentCompanions`
+mutes its progress until `join` (the DB owns the stage label) and holds its
+error until after `_finishDbUpdate` (a companion failure never fails the DB).
+Its `beforeCommit` awaits the DB outcome and then checks that Otzaria is
+closed: on DB failure `abandon` makes it throw the cancellation, so the staged
+files are dropped, nothing is committed or recorded and no warning is emitted.
+New and old files therefore never mix. It runs only when `_companionOverlapFits`
+knows free space holds the last patch's work plus the largest companion's
+extracted size (Talmud 2x); unknown size means sequential. Full-download-only
+updates stay sequential. Do not move `saveDeliveredCompanions` before the join.
+
 **The next patch is fetched and extracted while the current one is applied.**
 `_prefetchNext` starts it only when free space is *known* to hold both staged
 patches (`db + 2*current + next`, plus 2x the download when remote); unknown or

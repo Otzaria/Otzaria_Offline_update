@@ -283,6 +283,50 @@ void main() {
     expect(leftovers(), isEmpty);
   });
 
+  test(
+    'onFinalStepStart נקרא פעם אחת, אחרי הצעד הראשון ולפני האחרון',
+    () async {
+      if (skip()) return;
+      final applier = LibraryUpdateApplier(
+        processGuard: const _NoOtzaria(),
+        freeBytesFor: (_) => 1 << 40,
+      );
+      addTearDown(applier.dispose);
+      final plan = chainPlan();
+
+      await applier.applyDelta(
+        plan: plan,
+        dbPath: dbPath,
+        onStepApplied: (_, v) => events.add('applied:$v'),
+        onFinalStepStart: () async => events.add('final'),
+      );
+
+      expect(events, ['applied:2', 'final', 'applied:3']);
+    },
+  );
+
+  test('onFinalStepStart אינו נקרא כשצעד מוקדם נכשל', () async {
+    if (skip()) return;
+    final applier = LibraryUpdateApplier(
+      processGuard: const _NoOtzaria(),
+      freeBytesFor: (_) => 1 << 40,
+    );
+    addTearDown(applier.dispose);
+    final plan = chainPlan();
+
+    await expectLater(
+      applier.applyDelta(
+        plan: plan,
+        dbPath: dbPath,
+        onStepApplied: (_, v) => throw StateError('stop'),
+        onFinalStepStart: () async => events.add('final'),
+      ),
+      throwsStateError,
+    );
+
+    expect(events, isEmpty);
+  });
+
   test('בלי מקום מוכח לשני patches ההבאה נעשית ברצף', () async {
     if (skip()) return;
     final logs = <String>[];

@@ -184,6 +184,7 @@ class LibraryUpdateApplier {
     void Function(Set<int> booksTouched, int toVersion)? onStepApplied,
     bool Function()? isCancelled,
     void Function(String message)? onLog,
+    Future<void> Function()? onFinalStepStart,
   }) async {
     for (final edge in plan.deltaSteps) {
       for (final source in edge.patchFileUrls.values) {
@@ -201,6 +202,7 @@ class LibraryUpdateApplier {
         onStepApplied: onStepApplied,
         isCancelled: isCancelled,
         onLog: onLog,
+        onFinalStepStart: onFinalStepStart,
       ),
     );
   }
@@ -212,6 +214,7 @@ class LibraryUpdateApplier {
     void Function(Set<int> booksTouched, int toVersion)? onStepApplied,
     bool Function()? isCancelled,
     void Function(String message)? onLog,
+    Future<void> Function()? onFinalStepStart,
   }) async {
     if (plan.kind != LibraryUpdatePlanKind.delta) {
       throw StateError('applyDelta נקרא על תוכנית שאינה delta');
@@ -329,6 +332,7 @@ class LibraryUpdateApplier {
               onLog: onLog,
             );
           }
+          if (isLast) await onFinalStepStart?.call();
           final result = await _isolateApplyPatch(
             dbPath: dbPath,
             patchPath: patchPath,
