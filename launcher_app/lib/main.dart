@@ -9,6 +9,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:library_manager/library_manager.dart' show installTimingSink;
 import 'package:otzaria_downloads/otzaria_downloads.dart' as downloads;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:otzaria_manager/otzaria_manager.dart' show OtzariaInstaller;
 import 'package:window_manager/window_manager.dart';
 
 import 'src/app_report/launcher_crash_session.dart';
@@ -67,6 +68,7 @@ void main() {
       // אם המשתמש בחר שפה מפורשת.
       AppL10n.use(systemLanguage());
       downloads.startSha256 = NativeSha256Sink.new;
+      OtzariaInstaller.sha256OfFile = nativeFileSha256;
 
       // תופס שגיאות שה-widgets framework עצמו זורק (למשל בתוך build/layout).
       FlutterError.onError = (details) {

@@ -198,9 +198,18 @@ class OtzariaInstaller {
         await cachedFile.exists() && await cachedFile.length() == sizeBytes;
     if (alreadyCached &&
         sha256 != null &&
-        await _sha256Of(cachedFile) != sha256.toLowerCase()) {
-      alreadyCached = false;
-      await cachedFile.delete();
+        !_hasVerifiedMark(cachedFile, sha256)) {
+      final markBefore = _verifiedMark(cachedFile, sha256);
+      if (await sha256OfFile(cachedFile.path) != sha256.toLowerCase()) {
+        alreadyCached = false;
+        await cachedFile.delete();
+        _clearVerifiedMark(cachedFile);
+      } else {
+        if (markBefore != null &&
+            _verifiedMark(cachedFile, sha256) == markBefore) {
+          _writeVerifiedMark(cachedFile, sha256);
+        }
+      }
     }
 
     if (!alreadyCached) {
@@ -221,13 +230,52 @@ class OtzariaInstaller {
     return cachedInstallerPath;
   }
 
-  // SHA של Dart טהור על מאות MB מקפיא את הממשק; הקריאה והחישוב ב-isolate.
-  static Future<String> _sha256Of(File file) {
-    final path = file.path;
-    return Isolate.run(
-      () async =>
-          (await crypto.sha256.bind(File(path).openRead()).first).toString(),
-    );
+  /// SHA-256 של קובץ מחוץ ל-isolate של הממשק. אפליקציה שיש לה מימוש נייטיבי
+  /// מציבה כאן אותו; ברירת המחדל היא Dart טהור.
+  static Future<String> Function(String path) sha256OfFile = _pureSha256OfFile;
+
+  static Future<String> _pureSha256OfFile(String path) => Isolate.run(
+        () async =>
+            (await crypto.sha256.bind(File(path).openRead()).first).toString(),
+      );
+
+  // `sha256|גודל|זמן-שינוי` ברגע האימות. עותק שלא השתנה אינו נקרא שוב בכל
+  // סנכרון מקוון; ההתקנה עצמה כן מחשבת hash מחדש.
+  static String _verifiedMarkPath(File file) => '${file.path}.verified';
+
+  static String? _verifiedMark(File file, String digest) {
+    try {
+      final stat = file.statSync();
+      return '${digest.toLowerCase()}|${stat.size}|'
+          '${stat.modified.microsecondsSinceEpoch}';
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static bool _hasVerifiedMark(File file, String digest) {
+    final expected = _verifiedMark(file, digest);
+    if (expected == null) return false;
+    try {
+      return File(_verifiedMarkPath(file)).readAsStringSync().trim() ==
+          expected;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static void _writeVerifiedMark(File file, String digest) {
+    final mark = _verifiedMark(file, digest);
+    if (mark == null) return;
+    try {
+      File(_verifiedMarkPath(file)).writeAsStringSync(mark);
+    } catch (_) {}
+  }
+
+  static void _clearVerifiedMark(File file) {
+    try {
+      File(_verifiedMarkPath(file)).deleteSync();
+    } catch (_) {}
   }
 
   Future<void> _verifyInstallerDigest(
@@ -236,7 +284,7 @@ class OtzariaInstaller {
   ) async {
     final expected = release.installerSha256;
     if (expected == null) return;
-    if (await _sha256Of(File(installerPath)) != expected.toLowerCase()) {
+    if (await sha256OfFile(installerPath) != expected.toLowerCase()) {
       throw OtzariaUserError(AppL10n.strings.appDomain.installerDigestMismatch);
     }
   }
@@ -336,7 +384,10 @@ class OtzariaInstaller {
     // מעבר בין "רק בשבילי" ל"לכל המשתמשים" משגר את האשף מחדש וסוגר את הנוכחי בקוד 2.
     if (result.exitCode == 2 &&
         await _waitForRelaunchedSetup(
-                installerPath, Duration.zero, () => true) !=
+              installerPath,
+              Duration.zero,
+              () => true,
+            ) !=
             null) {
       outcome = OtzariaWizardOutcome.relaunched;
     }
@@ -546,6 +597,9 @@ class OtzariaInstaller {
       await File(destinationPath).delete();
       throw OtzariaUserError(AppL10n.strings.appDomain.installerDigestMismatch);
     }
+    if (expectedSha256 != null) {
+      _writeVerifiedMark(File(destinationPath), expectedSha256);
+    }
   }
 
   // ---------------------------------------------------------------- Windows
@@ -698,7 +752,8 @@ class OtzariaInstaller {
       final stagedApp = await _appLocator.findIn(stagingDir);
       if (stagedApp == null) {
         throw OtzariaUserError(
-            AppL10n.strings.appDomain.macAppNotFoundInArchive);
+          AppL10n.strings.appDomain.macAppNotFoundInArchive,
+        );
       }
 
       // ה-app נכנס לתיקיית ההתקנה תחת אותו שם שיש לו בחבילה (למשל
@@ -901,8 +956,9 @@ class OtzariaInstaller {
       OtzariaUpdateCheckResult.compareBases(
         OtzariaUpdateCheckResult.versionFromDisk(installed),
         tagName,
-        leftCarriesHotfix:
-            OtzariaUpdateCheckResult.carriesVersionCode(installed),
+        leftCarriesHotfix: OtzariaUpdateCheckResult.carriesVersionCode(
+          installed,
+        ),
       ) <
       0;
 

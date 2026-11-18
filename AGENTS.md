@@ -946,6 +946,14 @@ second full read (#249: one bad USB read must not cost 1.5GB) — since the
 online check (`_mirrorDownloadIncomplete`) is size-only and only a missing file
 starts the download; a read-only drive keeps it.
 
+**The Otzaria installer cache keeps the same mark.** `ensureAssetCached` read the
+whole cached installer on every online sync; a `<asset>.verified` sidecar
+(`sha256|size|mtime`, written after a passing download or hash) now skips it, and
+a changed size or mtime re-hashes. The install-time check still reads the file:
+the offline machine has no other way to catch a corrupt drive.
+`OtzariaInstaller.sha256OfFile` is the hash hook (pure Dart in tests, native
+`Sha256Stream` in an isolate from the launcher's `main`).
+
 **Downloads are parallel *across files*; *within* a file only where the server
 honours `Range`.** Issue #17 asked for a download accelerator, but GitHub's release
 CDN (`release-assets.githubusercontent.com`, an Azure Blob SAS behind a proxy)

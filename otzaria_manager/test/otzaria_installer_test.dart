@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -126,6 +127,90 @@ void main() {
 
       expect(await installer.ensureCached(release: _release()), cachedPath());
       expect(requests, 0);
+    });
+
+    group('סימון אימות', () {
+      final digest = sha256.convert(utf8.encode(_installerBytes)).toString();
+      var hashed = 0;
+      late Future<String> Function(String) original;
+
+      setUp(() {
+        hashed = 0;
+        original = OtzariaInstaller.sha256OfFile;
+        OtzariaInstaller.sha256OfFile = (path) {
+          hashed++;
+          return original(path);
+        };
+      });
+
+      tearDown(() => OtzariaInstaller.sha256OfFile = original);
+
+      Future<String> ensure(OtzariaInstaller installer) =>
+          installer.ensureAssetCached(
+            tagName: _tag,
+            assetName: _assetName,
+            downloadUrl: 'https://example/$_assetName',
+            sizeBytes: _installerBytes.length,
+            sha256: digest,
+          );
+
+      test('עותק שכבר אומת אינו נקרא שוב בסנכרון הבא', () async {
+        final installer = installerWith(mockDownload(_installerBytes));
+        addTearDown(installer.dispose);
+        await ensure(installer);
+        expect(hashed, 0);
+        expect(File('${cachedPath()}.verified').existsSync(), isTrue);
+
+        await ensure(installer);
+        await ensure(installer);
+        expect(hashed, 0);
+        expect(requests, 1);
+      });
+
+      test('עותק בלי סימון נבדק פעם אחת ומסומן', () async {
+        await Directory(p.join(cacheDir, _tag)).create(recursive: true);
+        await File(cachedPath()).writeAsString(_installerBytes);
+        final installer = installerWith(mustNotBeUsed());
+        addTearDown(installer.dispose);
+
+        await ensure(installer);
+        await ensure(installer);
+        expect(hashed, 1);
+        expect(requests, 0);
+      });
+
+      test('קובץ שהשתנה בזמן ה-hash אינו מסומן כמאומת', () async {
+        await Directory(p.join(cacheDir, _tag)).create(recursive: true);
+        await File(cachedPath()).writeAsString(_installerBytes);
+        final installer = installerWith(mustNotBeUsed());
+        addTearDown(installer.dispose);
+        OtzariaInstaller.sha256OfFile = (path) async {
+          final result = await original(path);
+          File(path).setLastModifiedSync(
+            DateTime.now().add(const Duration(hours: 2)),
+          );
+          return result;
+        };
+
+        await ensure(installer);
+        expect(File('${cachedPath()}.verified').existsSync(), isFalse);
+      });
+
+      test('שינוי תוכן באותו גודל מבטל את הסימון וההורדה חוזרת', () async {
+        final installer = installerWith(mockDownload(_installerBytes));
+        addTearDown(installer.dispose);
+        await ensure(installer);
+
+        final file = File(cachedPath());
+        final corrupt = _installerBytes.replaceFirst('i', 'X');
+        file.writeAsStringSync(corrupt);
+        file.setLastModifiedSync(DateTime.now().add(const Duration(hours: 1)));
+
+        await ensure(installer);
+        expect(hashed, 1);
+        expect(requests, 2);
+        expect(file.readAsStringSync(), _installerBytes);
+      });
     });
 
     // הורדה שנקטעה משאירה קובץ בגודל שגוי — חייבים להוריד שוב.
