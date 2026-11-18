@@ -6,6 +6,7 @@ import 'package:error_reports_manager/error_reports_manager.dart'
     show LauncherLogFormat;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:library_manager/library_manager.dart' show installTimingSink;
 import 'package:otzaria_downloads/otzaria_downloads.dart' as downloads;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:window_manager/window_manager.dart';
@@ -147,6 +148,9 @@ void main() {
         trustNetfreeCertificates(),
       ]);
       logger = initialized.first as AppLogger;
+      installTimingSink = (stage, seconds) => AppLogger.instance.info(
+            'שלב התקנה: $stage נמשך ${seconds.toStringAsFixed(1)}s',
+          );
 
       // מיד אחרי שיש לוג: משם והלאה כל שלב בעלייה מותיר עקבות, כולל הפריים
       // הראשון שהוצג — בלעדיו "מסך שחור" ו"תקוע" נראים אותו דבר (issue #28).

@@ -10,6 +10,7 @@ import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 import 'companion_assets.dart';
 import 'companion_file_operations.dart';
+import 'install_timing.dart';
 import 'zstd_file_decompressor.dart';
 
 /// תוצאת התקנה של פריט נלווה אחד.
@@ -603,13 +604,17 @@ class CompanionAssetsInstaller {
         onStage?.call(stage);
         final tarPath = p.join(work.path, 'talmud.tar');
         String? digest;
-        if (!await ZstdFileDecompressor.decompressFileToFile(
-          source.path,
-          tarPath,
-          maxOutputBytes: maxOutputBytes,
-          isCancelled: isCancelled,
-          onOutputProgress: (written) => onProgress?.call(stage, written, null),
-          onSourceDigest: entry.sha256 == null ? null : (hex) => digest = hex,
+        if (!await timedInstallStage(
+          'talmud.zstd',
+          () => ZstdFileDecompressor.decompressFileToFile(
+            source.path,
+            tarPath,
+            maxOutputBytes: maxOutputBytes,
+            isCancelled: isCancelled,
+            onOutputProgress: (written) =>
+                onProgress?.call(stage, written, null),
+            onSourceDigest: entry.sha256 == null ? null : (hex) => digest = hex,
+          ),
         )) {
           throw StateError(
             strings.companionExtractionFailed(strings.companionTalmudName),
@@ -617,12 +622,15 @@ class CompanionAssetsInstaller {
         }
         _verifyDigest(entry, digest, strings.companionTalmudName);
         checkCompanionCancelled(isCancelled);
-        final expected = await readCompanionTar(
-          tarPath,
-          rootName: talmudFolderName,
-          ignoredNames: {talmudVersionFileName, talmudContentsFileName},
-          maxOutputBytes: maxOutputBytes,
-          isCancelled: isCancelled,
+        final expected = await timedInstallStage(
+          'talmud.readTar',
+          () => readCompanionTar(
+            tarPath,
+            rootName: talmudFolderName,
+            ignoredNames: {talmudVersionFileName, talmudContentsFileName},
+            maxOutputBytes: maxOutputBytes,
+            isCancelled: isCancelled,
+          ),
         );
         final expectedBytes = expected.fold<int>(
           0,
@@ -646,48 +654,47 @@ class CompanionAssetsInstaller {
         _ensureSpaceForTalmud(libraryDir, total);
         final staged = Directory(p.join(work.path, talmudFolderName));
         await staged.create();
-        var written = 0;
-        onProgress?.call(stage, 0, total);
         for (final file in preserved) {
+          if (file.size != null) continue;
           checkCompanionCancelled(isCancelled);
-          final destination = p.join(
-            staged.path,
-            p.relative(file.path, from: target),
-          );
-          if (file.size == null) {
-            await Directory(destination).create(recursive: true);
-          } else {
-            await File(destination).parent.create(recursive: true);
-            written += await copyCompanionFile(
-              source: File(file.path),
-              destination: destination,
-              expectedSize: file.size!,
-              maxOutputBytes: maxOutputBytes - written,
-              isCancelled: isCancelled,
-              onProgress: (bytes) =>
-                  onProgress?.call(stage, written + bytes, total),
-            );
-          }
+          await Directory(
+            p.join(staged.path, p.relative(file.path, from: target)),
+          ).create(recursive: true);
         }
-        for (final file in expected) {
-          checkCompanionCancelled(isCancelled);
-          final destination = p.joinAll([
-            work.path,
-            ...p.posix.split(file.path),
-          ]);
-          await File(destination).parent.create(recursive: true);
-          written += await copyCompanionFile(
-            source: File(tarPath),
-            destination: destination,
-            start: file.offset,
-            end: file.offset + file.size,
-            expectedSize: file.size,
-            maxOutputBytes: maxOutputBytes - written,
+        onProgress?.call(stage, 0, total);
+        await timedInstallStage(
+          'talmud.copy',
+          () => copyCompanionFiles(
+            [
+              for (final file in preserved)
+                if (file.size != null)
+                  (
+                    source: File(file.path),
+                    destination: p.join(
+                      staged.path,
+                      p.relative(file.path, from: target),
+                    ),
+                    expectedSize: file.size!,
+                    start: 0,
+                    end: null,
+                  ),
+              for (final file in expected)
+                (
+                  source: File(tarPath),
+                  destination: p.joinAll([
+                    work.path,
+                    ...p.posix.split(file.path),
+                  ]),
+                  expectedSize: file.size,
+                  start: file.offset,
+                  end: file.offset + file.size,
+                ),
+            ],
+            maxOutputBytes: maxOutputBytes,
             isCancelled: isCancelled,
-            onProgress: (bytes) =>
-                onProgress?.call(stage, written + bytes, total),
-          );
-        }
+            onProgress: (bytes) => onProgress?.call(stage, bytes, total),
+          ),
+        );
         final installed = entry.versionMarker ?? '';
         _writeTalmudContents(staged, installed, (
           files: expected.length,
@@ -699,7 +706,10 @@ class CompanionAssetsInstaller {
         checkCompanionCancelled(isCancelled);
         await beforeCommit?.call();
         checkCompanionCancelled(isCancelled);
-        await commitCompanionInstall(target, {target: staged.path});
+        await timedInstallStage(
+          'talmud.swap',
+          () => commitCompanionInstall(target, {target: staged.path}),
+        );
         return true;
       },
     );
@@ -797,14 +807,19 @@ class CompanionAssetsInstaller {
         final staged = p.join(work.path, catalogDatabaseFileName);
         if (entry.compressed) {
           String? digest;
-          if (!await ZstdFileDecompressor.decompressFileToFile(
-            source.path,
-            staged,
-            maxOutputBytes: maxOutputBytes,
-            isCancelled: isCancelled,
-            onOutputProgress: (written) =>
-                onProgress?.call(stage, written, null),
-            onSourceDigest: entry.sha256 == null ? null : (hex) => digest = hex,
+          if (!await timedInstallStage(
+            'catalog.zstd',
+            () => ZstdFileDecompressor.decompressFileToFile(
+              source.path,
+              staged,
+              maxOutputBytes: maxOutputBytes,
+              isCancelled: isCancelled,
+              onOutputProgress: (written) =>
+                  onProgress?.call(stage, written, null),
+              onSourceDigest: entry.sha256 == null
+                  ? null
+                  : (hex) => digest = hex,
+            ),
           )) {
             throw StateError(
               strings.companionExtractionFailed(strings.companionCatalogName),
@@ -812,13 +827,16 @@ class CompanionAssetsInstaller {
           }
           _verifyDigest(entry, digest, strings.companionCatalogName);
         } else {
-          await _copyVerified(
-            source,
-            staged,
-            entry,
-            stage,
-            onProgress,
-            isCancelled,
+          await timedInstallStage(
+            'catalog.copyHash',
+            () => _copyVerified(
+              source,
+              staged,
+              entry,
+              stage,
+              onProgress,
+              isCancelled,
+            ),
           );
         }
         checkCompanionCancelled(isCancelled);
@@ -827,10 +845,13 @@ class CompanionAssetsInstaller {
         // original SQLite header before version stamping can modify it.
         await _verifyCatalogHeader(staged);
         checkCompanionCancelled(isCancelled);
-        await _verifyAndStampCatalogOffUi(
-          staged,
-          entry.version,
-          AppL10n.language,
+        await timedInstallStage(
+          'catalog.verifyStamp',
+          () => _verifyAndStampCatalogOffUi(
+            staged,
+            entry.version,
+            AppL10n.language,
+          ),
         );
         for (final path in paths) {
           final type = FileSystemEntity.typeSync(path, followLinks: false);
@@ -845,10 +866,13 @@ class CompanionAssetsInstaller {
         checkCompanionCancelled(isCancelled);
         await beforeCommit?.call();
         checkCompanionCancelled(isCancelled);
-        await commitCompanionInstall(target, {
-          target: staged,
-          for (final path in paths.skip(1)) path: null,
-        });
+        await timedInstallStage(
+          'catalog.swap',
+          () => commitCompanionInstall(target, {
+            target: staged,
+            for (final path in paths.skip(1)) path: null,
+          }),
+        );
         return true;
       },
     );
@@ -929,13 +953,16 @@ class CompanionAssetsInstaller {
         );
         onStage?.call(stage);
         final staged = p.join(work.path, dictionaryFileName);
-        await _copyVerified(
-          source,
-          staged,
-          entry,
-          stage,
-          onProgress,
-          isCancelled,
+        await timedInstallStage(
+          'dictionary.copyHash',
+          () => _copyVerified(
+            source,
+            staged,
+            entry,
+            stage,
+            onProgress,
+            isCancelled,
+          ),
         );
         final marker = '$staged.version';
         await File(
@@ -956,12 +983,15 @@ class CompanionAssetsInstaller {
         checkCompanionCancelled(isCancelled);
         await beforeCommit?.call();
         checkCompanionCancelled(isCancelled);
-        await commitCompanionInstall(target, {
-          target: staged,
-          '$target.version': marker,
-          '$target.next': null,
-          '$target.next.version': null,
-        });
+        await timedInstallStage(
+          'dictionary.swap',
+          () => commitCompanionInstall(target, {
+            target: staged,
+            '$target.version': marker,
+            '$target.next': null,
+            '$target.next.version': null,
+          }),
+        );
         return true;
       },
     );

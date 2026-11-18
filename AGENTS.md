@@ -1356,6 +1356,14 @@ other way is worse than the bug it fixes: "incomplete" means offering a ~450MB
 re-extract on every launch. Both rules and their traps are in
 `library_manager/README.md`; `CompanionAssetsInstaller._talmudContentsComplete`.
 
+**The Talmud staging copy overlaps its flushes and commits after the last one.**
+Flushing each of thousands of PDFs one after another dominated the stage, so
+`copyCompanionFiles` keeps 8 in flight. `commitCompanionInstall` still runs only
+after the call returns, i.e. with every staged file flushed and closed; the first
+failure stops new starts and the running ones clean up before it is rethrown.
+Each companion and smart-search sub-stage logs `שלב התקנה: … נמשך Ns` through
+`installTimingSink`, which the launcher points at `AppLogger`.
+
 **A DB updated from outside leaves Otzaria's search index stale, and the fix is a
 deep link — not a file.** Otzaria re-indexes exactly the books `PatchApplier` reports
 in `booksTouched` (or runs `ReconcileIndex` after a full download); neither runs when

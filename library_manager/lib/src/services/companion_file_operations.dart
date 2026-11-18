@@ -155,6 +155,103 @@ Future<int> copyCompanionFile({
   }
 }
 
+typedef CompanionCopyJob = ({
+  File source,
+  String destination,
+  int expectedSize,
+  int start,
+  int? end,
+});
+
+const companionCopyConcurrency = 8;
+
+/// Dedupe key for a path on this platform's filesystem.
+String companionPathKey(String path) =>
+    Platform.isLinux ? path : path.toLowerCase();
+
+/// Copies [jobs] with up to [concurrency] files in flight, so the per-file
+/// flush of one overlaps the writes of the others. Returns only after every
+/// file is closed; the first failure stops new starts and is rethrown once
+/// the running ones have cleaned up.
+Future<int> copyCompanionFiles(
+  List<CompanionCopyJob> jobs, {
+  required int maxOutputBytes,
+  int concurrency = companionCopyConcurrency,
+  bool Function()? isCancelled,
+  void Function(int bytesWritten)? onProgress,
+}) async {
+  final destinations = <String>{};
+  for (final job in jobs) {
+    if (!destinations.add(companionPathKey(p.normalize(job.destination)))) {
+      throw ArgumentError.value(
+        job.destination,
+        'jobs',
+        'duplicate destination',
+      );
+    }
+  }
+  final progress = List<int>.filled(jobs.length, 0);
+  var reserved = 0;
+  var total = 0;
+  var next = 0;
+  Object? failure;
+  StackTrace? failureStack;
+  final clock = Stopwatch()..start();
+  var lastReport = -1000;
+  bool stopped() => failure != null || (isCancelled?.call() ?? false);
+
+  Future<void> worker() async {
+    while (failure == null) {
+      final index = next++;
+      if (index >= jobs.length) return;
+      final job = jobs[index];
+      try {
+        if (job.expectedSize < 0 ||
+            job.expectedSize > maxOutputBytes - reserved) {
+          throw FormatException(
+            AppL10n.strings.libraryDomain.localFileTooLarge(
+              maxOutputBytes,
+              job.destination,
+            ),
+          );
+        }
+        reserved += job.expectedSize;
+        await File(job.destination).parent.create(recursive: true);
+        await copyCompanionFile(
+          source: job.source,
+          destination: job.destination,
+          start: job.start,
+          end: job.end,
+          expectedSize: job.expectedSize,
+          maxOutputBytes: maxOutputBytes,
+          isCancelled: stopped,
+          onProgress: (bytes) {
+            total += bytes - progress[index];
+            progress[index] = bytes;
+            final now = clock.elapsedMilliseconds;
+            if (now - lastReport >= 100) {
+              lastReport = now;
+              onProgress?.call(total);
+            }
+          },
+        );
+      } catch (error, stack) {
+        failure ??= error;
+        failureStack ??= stack;
+        return;
+      }
+    }
+  }
+
+  await Future.wait([
+    for (var i = 0; i < concurrency && i < jobs.length; i++) worker(),
+  ]);
+  if (failure != null) Error.throwWithStackTrace(failure!, failureStack!);
+  checkCompanionCancelled(isCancelled);
+  onProgress?.call(total);
+  return total;
+}
+
 Future<List<CompanionTarEntry>> readCompanionTar(
   String tarPath, {
   required String rootName,
@@ -262,7 +359,7 @@ List<CompanionTarEntry> _readTar(
         final declared = decoder.files.last.fileSize;
         if (raw is! InputFileStream ||
             raw.length != declared ||
-            !names.add(Platform.isLinux ? name : name.toLowerCase()) ||
+            !names.add(companionPathKey(name)) ||
             declared > limit - size) {
           invalid();
         }
