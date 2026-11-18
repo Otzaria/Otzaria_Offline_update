@@ -11,18 +11,34 @@ Future<void> showPluginReportDialog(
   BuildContext context, {
   required StorePlugin plugin,
   required ErrorReportsController reports,
+  String initialEmail = '',
+  Future<void> Function(String email)? saveEmail,
 }) =>
     showDialog<void>(
       context: context,
-      builder: (_) => PluginReportDialog(plugin: plugin, reports: reports),
+      builder: (_) => PluginReportDialog(
+        plugin: plugin,
+        reports: reports,
+        initialEmail: initialEmail,
+        saveEmail: saveEmail,
+      ),
     );
 
 class PluginReportDialog extends StatefulWidget {
-  const PluginReportDialog(
-      {super.key, required this.plugin, required this.reports});
+  const PluginReportDialog({
+    super.key,
+    required this.plugin,
+    required this.reports,
+    this.initialEmail = '',
+    this.saveEmail,
+  });
 
   final StorePlugin plugin;
   final ErrorReportsController reports;
+
+  /// הכתובת השמורה למחשב הזה, משותפת לטופס הדיווח של הכלי.
+  final String initialEmail;
+  final Future<void> Function(String email)? saveEmail;
 
   @override
   State<PluginReportDialog> createState() => _PluginReportDialogState();
@@ -30,7 +46,7 @@ class PluginReportDialog extends StatefulWidget {
 
 class _PluginReportDialogState extends State<PluginReportDialog> {
   final _details = TextEditingController();
-  final _email = TextEditingController();
+  late final _email = TextEditingController(text: widget.initialEmail);
   String _type = 'bug';
   String? _error;
   bool _sending = false;
@@ -58,6 +74,8 @@ class _PluginReportDialogState extends State<PluginReportDialog> {
       _error = null;
     });
     try {
+      final email = _email.text.trim();
+      if (email.isNotEmpty) await widget.saveEmail?.call(email);
       final p = widget.plugin;
       final id = await widget.reports.queuePluginReport(
         pluginUid: p.pluginUid ?? p.id,

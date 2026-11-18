@@ -106,6 +106,9 @@ class _FakeQueue implements OtzariaReportQueue {
   Future<int> countSendable() async => pendingCount;
 
   @override
+  Future<int?> countSendableWhileOpen() => countSendable();
+
+  @override
   Future<QueueCollectResult> collectTo(ReportOutbox outbox) async {
     for (var i = 0; i < pendingCount; i++) {
       await outbox.write('new$i', OutboxReport.encodeFile(_report('new$i')));
@@ -318,6 +321,33 @@ void main() {
 
       expect(await c.pendingToOffer(), 2);
     });
+    test('ספירה שנכשלה (תור נעול) היא "לא ידוע", לא אפס', () async {
+      final c = ErrorReportsController(
+        outbox: outbox,
+        resolveQueue: () async => _QaQueue(1, onCount: () => throw 'locked'),
+      );
+      expect(await c.countWaiting(), isNull);
+      expect(await c.pendingToOffer(), 0);
+    });
+
+    test('live count does not inspect legacy Hive queues', () async {
+      var legacyScans = 0;
+      final c = ErrorReportsController(
+        outbox: outbox,
+        resolveQueue: () async => _QaQueue(2),
+        findUnmigratedLegacy: () async {
+          legacyScans++;
+          return ['app_reports_queue'];
+        },
+      );
+      expect(await c.countWaiting(otzariaRunning: true), 2);
+      expect(legacyScans, 0);
+
+      expect(await c.pendingToOffer(), 2);
+      expect(legacyScans, 1);
+      expect(c.unmigratedLegacy, ['app_reports_queue']);
+    });
+
     test('ספירה אחרי ספירה: הצעה שלא נענתה אינה נצרכת', () async {
       final c = controller(pending: 2);
       expect(await c.pendingToOffer(), 2);
@@ -1137,6 +1167,9 @@ class _QaQueue implements OtzariaReportQueue {
     onCount?.call();
     return pending;
   }
+
+  @override
+  Future<int?> countSendableWhileOpen() => countSendable();
 
   @override
   Future<QueueCollectResult> collectTo(ReportOutbox outbox) async {

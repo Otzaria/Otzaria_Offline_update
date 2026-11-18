@@ -248,6 +248,8 @@ class AppSession extends ChangeNotifier {
   bool _reportsIntroPending = false;
   bool _autoInstallSkipped = false;
   int _errorReportsToCollect = 0;
+  bool _reportsSawOtzariaRunning = false;
+  int _reportCountRevision = 0;
   DateTime? _checkedAt;
 
   /// "מה התחדש" כבר מוצג בדף הכלי, ולכן אישור ההתקנה לא חוזר עליו.
@@ -564,8 +566,15 @@ class AppSession extends ChangeNotifier {
   void _onChange() {
     if (!isActive) return;
     _syncSleepInhibition();
-    _offers.onRunningState(running: _otzariaIsRunning);
-    if (!readOnly) _feedbackSync.onRunningState(running: _otzariaIsRunning);
+    final running = _otzariaIsRunning;
+    if (running != _reportsSawOtzariaRunning) {
+      _reportsSawOtzariaRunning = running;
+      _reportCountRevision++;
+      // The initial local check requests its own count.
+      if (running && _checkedAt != null) unawaited(_offers.request());
+    }
+    _offers.onRunningState(running: running);
+    if (!readOnly) _feedbackSync.onRunningState(running: running);
     _offers.resume();
     _applySettings(settings.settings);
     _syncRunningPoll();
@@ -629,16 +638,17 @@ class AppSession extends ChangeNotifier {
     await _notices.markSeen(NoticesSeenStore.errorReportsIntro);
   }
 
-  /// סופר מה ממתין באוצריא לאיסוף, בלי לאסוף. אוצריא פתוחה נועלת את התור.
+  /// סופר מה ממתין באוצריא לאיסוף. אם הספירה אינה זמינה נשאר המספר הקודם.
   Future<void> recountReportsToCollect() async {
     if (readOnly || !isActive) return;
-    if (await refreshProcessState()) return;
-    final reports = await _errorReports.pendingToOffer();
+    final revision = ++_reportCountRevision;
+    final counted =
+        await _errorReports.countWaiting(otzariaRunning: _otzariaIsRunning);
     final legacy = _errorReports.unmigratedLegacy.isNotEmpty &&
         !await _notices.hasSeen(NoticesSeenStore.legacyReportsNotice);
-    if (!isActive) return;
+    if (!isActive || revision != _reportCountRevision) return;
     _update(() {
-      _errorReportsToCollect = reports;
+      if (counted != null) _errorReportsToCollect = counted;
       _legacyReportsNotice = legacy;
     });
   }

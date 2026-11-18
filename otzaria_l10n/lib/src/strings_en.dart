@@ -1357,6 +1357,9 @@ class _Guide extends GuidanceStrings {
   String chipReportsToCollect(int count) =>
       '$count new to collect from Otzaria';
   @override
+  String chipReportsToCollectClose(int count) =>
+      '$count to collect — close Otzaria';
+  @override
   String get chipReportsSending => 'Sending…';
   @override
   String get chipReportsLocked => 'Not available on this drive';
@@ -1451,6 +1454,9 @@ class _Guide extends GuidanceStrings {
           plural(searchRecords,
               one: '1 search record', many: '$searchRecords search records'),
       ].join(' and ')} waiting';
+  @override
+  String get reportsCollectCloseOtzaria =>
+      'Otzaria is open. Close it to collect the reports.';
   @override
   String get reportsCollectBody =>
       'Collecting copies them to the drive, so they can be sent from here or '

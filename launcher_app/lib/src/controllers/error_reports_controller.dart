@@ -176,26 +176,32 @@ class ErrorReportsController extends ChangeNotifier
     notifyListeners();
   }
 
-  Future<int> pendingToOffer() async {
-    if (isUploading || isCollecting) return 0;
-    try {
-      unmigratedLegacy = await _findUnmigratedLegacy?.call() ?? const [];
-    } catch (e) {
-      AppLogger.maybeInstance?.warn('בדיקת תורי Hive ישנים נכשלה: $e');
-    }
-    if (unmigratedLegacy.isNotEmpty) {
-      AppLogger.maybeInstance?.info(
-        'תורי דיווחים ישנים שלא הועברו: ${unmigratedLegacy.join(', ')}',
-      );
+  Future<int> pendingToOffer() async => await countWaiting() ?? 0;
+
+  /// `null` = הספירה אינה זמינה או שפעולת דיווחים כבר מתבצעת.
+  Future<int?> countWaiting({bool otzariaRunning = false}) async {
+    if (isUploading || isCollecting) return null;
+    if (!otzariaRunning) {
+      try {
+        unmigratedLegacy = await _findUnmigratedLegacy?.call() ?? const [];
+      } catch (e) {
+        AppLogger.maybeInstance?.warn('בדיקת תורי Hive ישנים נכשלה: $e');
+      }
+      if (unmigratedLegacy.isNotEmpty) {
+        AppLogger.maybeInstance?.info(
+          'תורי דיווחים ישנים שלא הועברו: ${unmigratedLegacy.join(', ')}',
+        );
+      }
     }
     try {
       final queue = await _resolveQueue();
       if (queue == null) return 0;
-      final count = await queue.countSendable();
-      return count;
+      return otzariaRunning
+          ? await queue.countSendableWhileOpen()
+          : await queue.countSendable();
     } catch (e) {
       AppLogger.maybeInstance?.warn('קריאת תור הדיווחים של אוצריא נכשלה: $e');
-      return 0;
+      return null;
     }
   }
 

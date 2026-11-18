@@ -21,6 +21,7 @@ class ReportsPage extends StatelessWidget {
     required this.busy,
     bool? uploadBusy,
     required this.reportsToCollect,
+    this.otzariaRunning = false,
     required this.onCollect,
     required this.onUpload,
     this.onStop,
@@ -44,6 +45,9 @@ class ReportsPage extends StatelessWidget {
 
   /// השליחה קוראת רק את תיבת היוצאים, ולכן הורדה אינה חוסמת אותה.
   final bool uploadBusy;
+
+  /// אוצריא פתוחה: הספירה מוצגת, והאיסוף מחכה לסגירתה.
+  final bool otzariaRunning;
 
   /// דיווחי תקלות שממתינים באוצריא, ורשומות החיפוש החכם שלצידם.
   final int reportsToCollect;
@@ -224,7 +228,9 @@ class ReportsPage extends StatelessWidget {
     );
     final busyNote = busy || uploadBusy
         ? Text(key: ShellKeys.pageBusyNote, t.pageBusyNote, style: sub)
-        : null;
+        : otzariaRunning && collecting > 0
+            ? Text(g.reportsCollectCloseOtzaria, style: sub)
+            : null;
 
     final checkButton = _checkConnectionButton(context);
     if (collecting > 0) {
@@ -260,7 +266,7 @@ class ReportsPage extends StatelessWidget {
             key: ShellKeys.reportsCollect,
             text: g.reportsCollectButton,
             icon: FluentIcons.arrow_upload_24_regular,
-            onPressed: busy ? null : onCollect,
+            onPressed: busy || otzariaRunning ? null : onCollect,
           ),
           // מה שכבר בכונן נשלח גם בלי לאסוף קודם.
           if (waiting > 0 && !canSend && checkButton != null) checkButton,

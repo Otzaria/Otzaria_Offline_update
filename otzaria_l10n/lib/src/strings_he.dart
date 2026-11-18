@@ -1316,6 +1316,10 @@ class _Guide extends GuidanceStrings {
   String chipReportsToCollect(int count) =>
       count == 1 ? '1 חדש לאיסוף מאוצריא' : '$count חדשים לאיסוף מאוצריא';
   @override
+  String chipReportsToCollectClose(int count) => count == 1
+      ? '1 לאיסוף — יש לסגור את אוצריא'
+      : '$count לאיסוף — יש לסגור את אוצריא';
+  @override
   String get chipReportsSending => 'שולח…';
   @override
   String get chipReportsLocked => 'לא זמין בכונן הזה';
@@ -1412,6 +1416,9 @@ class _Guide extends GuidanceStrings {
     return 'באוצריא ${single ? 'מחכה' : 'מחכים'} ${parts.join(' ו-')}';
   }
 
+  @override
+  String get reportsCollectCloseOtzaria =>
+      'אוצריא פתוחה. כדי לאסוף את הדיווחים יש לסגור אותה.';
   @override
   String get reportsCollectBody =>
       'האיסוף מעתיק אותם לכונן, כדי לשלוח אותם מכאן או ממחשב מחובר '

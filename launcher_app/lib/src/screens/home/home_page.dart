@@ -1963,7 +1963,9 @@ class _Tiles extends StatelessWidget {
                   : m.reportsToCollect > 0
                       ? (
                           StatusKind.updateAvailable,
-                          g.chipReportsToCollect(m.reportsToCollect),
+                          m.otzariaRunning
+                              ? g.chipReportsToCollectClose(m.reportsToCollect)
+                              : g.chipReportsToCollect(m.reportsToCollect),
                           FluentIcons.arrow_upload_16_regular,
                         )
                       : (

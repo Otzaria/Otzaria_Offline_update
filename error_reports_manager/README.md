@@ -96,7 +96,7 @@ Flutter), במקביל ל-`custom_apps_manager`.
 
 | | |
 | --- | --- |
-| קריאה | `pending_reports` בסוגי `error_reports_queue/pending_reports`, `app_reports_queue/pending_reports`, `app_reports_queue/pending_reports_v2`, `plugin_reports_queue/pending_reports`, עם `busy_timeout=5000` |
+| קריאה | `pending_reports` בסוגי `error_reports_queue/pending_reports`, `app_reports_queue/pending_reports`, `app_reports_queue/pending_reports_v2`, `plugin_reports_queue/pending_reports`. כשאוצריא פתוחה סופרים בקריאה בלבד במסד WAL, ללא המתנה לנעילה, ומשחררים את הקריאה לפני אימות כל דיווח. במסד אחר או בקריאה שנכשלה נשארת הספירה האחרונה. באיסוף כשאוצריא סגורה מוגדר `busy_timeout=5000` |
 | איפה זה רץ | כל עבודת ה-SQLite — פתיחה, בדיקת הסכמה, פענוח, ה-digest והסימון — ב-`Isolate.run` (מוזרק: `runIsolated`); רק כתיבת הקבצים לתיבה נשארת ב-isolate הראשי, אסינכרונית. FFI סינכרוני ב-isolate של הממשק מקפיא אותו בעלייה (AGENTS §5.9) |
 | שמירת סכמה | `reportsQueueFormat` מ-`otzaria_capabilities.json` (C1) שאינו 1 או 2, או בלי הטבלה — לא נוגעים, אין הצעה. בלי הקובץ (אוצריא ישנה): `PRAGMA user_version` גבוה מ-`knownSchemaVersion` (2) |
 | קריאה בזיכרון | המעבר הראשון שומר לכל שורה רק מזהה ו-SHA-256 של ה-payload; כל דיווח נקרא ומקודד שוב ב-isolate משלו רק לפני כתיבתו לתיבה |

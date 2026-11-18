@@ -2022,6 +2022,55 @@ void main() {
       await tester.pump();
       expect(transport.uploads, 1);
     });
+
+    testWidgets('a live count cannot overwrite a post-collection recount',
+        (tester) async {
+      final locator = _MutableLocator(isRunning: true);
+      final queue = _ShellReportQueue()..pending = 1;
+      final reports = ErrorReportsController(
+          outbox: queue.outbox, resolveQueue: () async => queue);
+      await pumpShell(tester, locator: locator, errorReports: reports);
+      final session = sessionOf(tester);
+      await tester.runAsync(session.refreshProcessState);
+
+      final delayed = Completer<int>();
+      final started = Completer<void>();
+      queue.countWhileOpen = () {
+        started.complete();
+        return delayed.future;
+      };
+      final probes = locator.probes;
+      final oldCount = session.recountReportsToCollect();
+      await started.future;
+      expect(locator.probes, probes,
+          reason: 'recount reuses the process state');
+
+      locator.isRunning = false;
+      await tester.runAsync(session.refreshProcessState);
+      expect((await reports.collect()).collected, 1);
+      await session.recountReportsToCollect();
+      expect(session.reportsToCollect, 0);
+
+      delayed.complete(1);
+      await oldCount;
+      expect(session.reportsToCollect, 0);
+    });
+
+    testWidgets('ספירה שנכשלה (לא ידוע) משאירה את המספר הקודם', (tester) async {
+      final locator = _MutableLocator(isRunning: false);
+      final queue = _ShellReportQueue()..pending = 2;
+      final reports = ErrorReportsController(
+          outbox: queue.outbox, resolveQueue: () async => queue);
+      await pumpShell(tester, locator: locator, errorReports: reports);
+      await tester.runAsync(() => sessionOf(tester).recountReportsToCollect());
+      await tester.pump();
+      expect(sessionOf(tester).reportsToCollect, 2);
+
+      queue.failCount = true;
+      await tester.runAsync(() => sessionOf(tester).recountReportsToCollect());
+      await tester.pump();
+      expect(sessionOf(tester).reportsToCollect, 2);
+    });
   });
 
   group('פעולות שיציאה מהתהליך קוטעת', () {
@@ -2675,9 +2724,18 @@ class _ShellReportQueue implements OtzariaReportQueue {
   final outbox = _ShellOutbox();
   int pending = 0;
   int collects = 0;
+  bool failCount = false;
+  Future<int> Function()? countWhileOpen;
 
   @override
-  Future<int> countSendable() async => pending;
+  Future<int> countSendable() async {
+    if (failCount) throw StateError('locked');
+    return pending;
+  }
+
+  @override
+  Future<int?> countSendableWhileOpen() =>
+      countWhileOpen?.call() ?? countSendable();
 
   @override
   Future<QueueCollectResult> collectTo(ReportOutbox outbox) async {

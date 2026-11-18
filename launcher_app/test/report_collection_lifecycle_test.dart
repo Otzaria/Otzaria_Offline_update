@@ -67,6 +67,7 @@ void main() {
     final dbPath = p.join(databases.path, 'user_state.db');
     final db = sqlite3.open(dbPath);
     try {
+      db.execute('PRAGMA journal_mode=WAL');
       db.execute('CREATE TABLE lists (box TEXT, key TEXT, payload_json TEXT, '
           'updated_at INTEGER, PRIMARY KEY (box, key))');
       db.execute('CREATE TABLE pending_reports (id INTEGER PRIMARY KEY, '
@@ -116,10 +117,17 @@ void main() {
     final reportsTile = find.byKey(ShellKeys.tile(ShellSection.reports));
     await finishIo(until: () => home.otzaria.launchPath != null);
     expect(home.otzaria.launchPath, launch.path);
-    expect(reportsTile, findsNothing);
+    // אוצריא פתוחה: הספירה (קריאה בלבד) מוצגת, עם בקשה לסגור אותה.
+    await finishIo(until: () => home.reportsToCollect > 0);
+    expect(home.reportsToCollect, 1);
+    expect(reportsTile, findsOneWidget);
+    expect(
+      find.text(stringsOf().guide.chipReportsToCollectClose(1)),
+      findsOneWidget,
+    );
     locator.isRunning = false;
     await tester.pump(const Duration(seconds: 4));
-    await finishIo(until: () => home.reportsToCollect > 0);
+    await finishIo();
     // אין דיאלוג בעלייה: רק מונה באריח הדיווחים.
     expect(home.reportsToCollect, 1);
     expect(find.byType(AppDialog), findsNothing);
