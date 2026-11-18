@@ -999,6 +999,13 @@ the engine deletes a file whose close failed, losing the on-drive prefix.
 `confirmClose` shows a closing layer and logs dropped bytes and stage times.
 Details: `otzaria_downloads/README.md`.
 
+**Heavy work runs at background priority.** Parallel downloads, hashing, zstd
+decompression and `quick_check` at normal priority made the whole computer
+sluggish (#281). While any long task runs, `AppSession._syncSleepInhibition`
+holds one `BackgroundPriority` lease (`services/background_priority.dart`:
+Windows `PROCESS_MODE_BACKGROUND_BEGIN/END`, ref-counted, no-op elsewhere).
+Do not add a second entry point; add the task to that condition instead.
+
 ### 5.3 State that travels on the drive
 
 State files live in `OtzariaData/`, i.e. on the drive, so anything recorded on one
