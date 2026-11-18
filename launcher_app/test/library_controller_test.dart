@@ -1845,6 +1845,7 @@ class _ApplyManager extends LibraryManager {
     void Function(String reason)? onLibraryLocationFailure,
     bool Function()? isCancelled,
     bool useFullDownloadFallback = false,
+    void Function(String message)? onLog,
   }) async {
     applies++;
     progressEvents.forEach(onProgress ?? (_) {});
@@ -2202,6 +2203,7 @@ class _ChangesNotesManager extends LibraryManager {
     void Function(String reason)? onLibraryLocationFailure,
     bool Function()? isCancelled,
     bool useFullDownloadFallback = false,
+    void Function(String message)? onLog,
   }) async {
     _version = 33;
     return const {};

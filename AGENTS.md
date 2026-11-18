@@ -518,6 +518,21 @@ it off for every step but the last. Each unverified step must write its marker
 **before** applying and fail if it cannot. A remaining marker requires
 `verifyFromHash: true` even after rollback or if its contents cannot be parsed.
 
+**The last step verifies only the tables the chain changed (maintainer
+decision).** `_applyPatchInIsolate` passes `enablePartialTableVerification`
+and the core compares `toTableContentHashes` for the tables the last patch
+touched; the rest are **not verified, now or later** (no `verifyTableHashes`
+afterwards). `_chainVerifyManifest` widens "changed" to the whole chain: a
+table changed in an unverified earlier step is marked changed in the last
+manifest's `fromTableContentHashes`, otherwise it would be skipped. A step
+without both table-hash maps (old manifest) falls back to the whole-DB hash.
+The skipped tables rest on the chain's start state being trusted (an earlier
+verified apply, or `verifyFromHash` when a marker is left). The apply logs one
+line (`אימות סופי חלקי`) with bytes per verified table and the skipped ones.
+`verify_total_bytes.txt` is written only after a full verification; a partial
+one feeds `verify_table_bytes.json` (the core's `verifyTableBytesHint`) and the
+full-DB hint is not passed then, so the bar is not scaled to the whole DB.
+
 **The hash verification is never removed, never optional and never a setting.**
 It is the only thing that stops a wrong database silently. A change that drops
 the check in one place must add it in another, or mark the DB as needing a full

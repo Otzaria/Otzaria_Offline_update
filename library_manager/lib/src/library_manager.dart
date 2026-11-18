@@ -2078,6 +2078,7 @@ class LibraryManager {
     void Function(String reason)? onLibraryLocationFailure,
     bool Function()? isCancelled,
     bool useFullDownloadFallback = false,
+    void Function(String message)? onLog,
   }) async {
     _appliesInFlight++;
     OtzariaInstanceLease? lease;
@@ -2098,6 +2099,7 @@ class LibraryManager {
         onLibraryLocationFailure: onLibraryLocationFailure,
         isCancelled: isCancelled,
         useFullDownloadFallback: useFullDownloadFallback,
+        onLog: onLog,
       );
     } finally {
       lease?.release();
@@ -2116,6 +2118,7 @@ class LibraryManager {
     void Function(String reason)? onLibraryLocationFailure,
     bool Function()? isCancelled,
     bool useFullDownloadFallback = false,
+    void Function(String message)? onLog,
   }) async {
     final plan = useFullDownloadFallback
         ? check.plan?.fullDownloadFallback
@@ -2144,6 +2147,7 @@ class LibraryManager {
                 dbPath: dbPath,
                 onProgress: onProgress,
                 isCancelled: isCancelled,
+                onLog: onLog,
                 onStepApplied: (books, _) => partial.addAll(books),
               ),
             );
@@ -2178,6 +2182,7 @@ class LibraryManager {
                   dbPath: dbPath,
                   onProgress: onProgress,
                   isCancelled: isCancelled,
+                  onLog: onLog,
                   onStepApplied: (_, version) {
                     appliedVersion = version;
                     appliedTag = _contentTagFor(check, plan, version);

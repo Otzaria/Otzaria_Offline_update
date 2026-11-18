@@ -40,6 +40,7 @@ class _SemanticUpdateManager extends LibraryManager {
     void Function(String reason)? onLibraryLocationFailure,
     bool Function()? isCancelled,
     bool useFullDownloadFallback = false,
+    void Function(String message)? onLog,
   }) async {
     // גם בדיקה שהתעדכנה בינתיים ל"מעודכן" אינה מבטלת כשל שדווח בהחלה.
     installed = true;

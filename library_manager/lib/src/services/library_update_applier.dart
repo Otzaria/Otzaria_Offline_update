@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
@@ -151,6 +153,7 @@ class LibraryUpdateApplier {
 
   /// שם קובץ ה-hint לסך-הבתים של אימות ה-hash — ראו [applyDelta].
   static const String _verifyHintFileName = 'verify_total_bytes.txt';
+  static const String _verifyTableHintFileName = 'verify_table_bytes.json';
 
   static Future<void> _defaultExtractedDbVerifier(
     String newDbPath,
@@ -180,6 +183,7 @@ class LibraryUpdateApplier {
     void Function(LibraryApplyProgress progress)? onProgress,
     void Function(Set<int> booksTouched, int toVersion)? onStepApplied,
     bool Function()? isCancelled,
+    void Function(String message)? onLog,
   }) async {
     for (final edge in plan.deltaSteps) {
       for (final source in edge.patchFileUrls.values) {
@@ -196,6 +200,7 @@ class LibraryUpdateApplier {
         onProgress: onProgress,
         onStepApplied: onStepApplied,
         isCancelled: isCancelled,
+        onLog: onLog,
       ),
     );
   }
@@ -206,6 +211,7 @@ class LibraryUpdateApplier {
     void Function(LibraryApplyProgress progress)? onProgress,
     void Function(Set<int> booksTouched, int toVersion)? onStepApplied,
     bool Function()? isCancelled,
+    void Function(String message)? onLog,
   }) async {
     if (plan.kind != LibraryUpdatePlanKind.delta) {
       throw StateError('applyDelta נקרא על תוכנית שאינה delta');
@@ -217,6 +223,8 @@ class LibraryUpdateApplier {
 
     final hintFile = File(p.join(tmpDir.path, _verifyHintFileName));
     var verifyTotalHint = _readIntQuietly(hintFile);
+    final tableHintFile = File(p.join(tmpDir.path, _verifyTableHintFileName));
+    var verifyTableHint = _readTableBytesQuietly(tableHintFile);
     var lastVerifyDone = 0;
     var lastPatchStage = 'verifyToHash';
     final booksTouched = <int>{};
@@ -224,6 +232,9 @@ class LibraryUpdateApplier {
     final needsSourceVerification = File(
       _recovery.unverifiedMarkerPathFor(dbPath),
     ).existsSync();
+    final chainManifest = chainVerifyManifest([
+      for (final s in steps) s.manifest,
+    ]);
 
     for (var i = 0; i < steps.length; i++) {
       _throwIfCancelled(isCancelled);
@@ -288,14 +299,18 @@ class LibraryUpdateApplier {
         if (i < steps.length - 1) {
           _recovery.markUnverified(dbPath, manifest.toVersion);
         }
+        final isLast = i == steps.length - 1;
+        final partial = isLast && chainManifest != null;
         final result = await _isolateApplyPatch(
           dbPath: dbPath,
           patchPath: patchPath,
-          manifest: manifest,
+          manifest: isLast ? (chainManifest ?? manifest) : manifest,
           language: AppL10n.language,
           verifyFromHash: i == 0 && needsSourceVerification,
-          verifyToHash: i == steps.length - 1,
-          verifyTotalBytesHint: verifyTotalHint,
+          verifyToHash: isLast,
+          partialVerify: partial,
+          verifyTotalBytesHint: partial ? null : verifyTotalHint,
+          verifyTableBytesHint: partial ? verifyTableHint : null,
           onStage: (patchStage) {
             lastPatchStage = patchStage;
             onProgress?.call(
@@ -324,7 +339,14 @@ class LibraryUpdateApplier {
         );
         booksTouched.addAll(result.booksTouched);
         onStepApplied?.call(result.booksTouched, manifest.toVersion);
-        if (lastVerifyDone > 0) {
+        if (isLast && result.resultHash != null) {
+          onLog?.call(_describeVerification(result));
+        }
+        // A partial count is too low as a whole-DB hint; it feeds the table map.
+        if (result.verifiedTables.isNotEmpty) {
+          verifyTableHint = {...?verifyTableHint, ...result.verifyTableBytes};
+          _writeTableBytesQuietly(tableHintFile, verifyTableHint);
+        } else if (lastVerifyDone > 0) {
           verifyTotalHint = lastVerifyDone;
           _writeIntQuietly(hintFile, lastVerifyDone);
         }
@@ -342,6 +364,51 @@ class LibraryUpdateApplier {
 
     onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.done));
     return booksTouched;
+  }
+
+  /// המניפסט האחרון, כשטבלה ששונתה בצעד מוקדם מסומנת כשונה. null — צעד ללא
+  /// hash לטבלאות, ואז מאמתים את כל המסד.
+  @visibleForTesting
+  static DeltaManifest? chainVerifyManifest(List<DeltaManifest> steps) {
+    if (steps.isEmpty) return null;
+    final last = steps.last;
+    final lastFrom = last.fromTableContentHashes;
+    if (lastFrom == null || last.toTableContentHashes == null) return null;
+    final from = {...lastFrom};
+    for (final m in steps.take(steps.length - 1)) {
+      final mFrom = m.fromTableContentHashes;
+      final mTo = m.toTableContentHashes;
+      if (mFrom == null || mTo == null) return null;
+      for (final e in mTo.entries) {
+        if (mFrom[e.key] != e.value && from.containsKey(e.key)) {
+          from[e.key] = 'changed-earlier-in-chain';
+        }
+      }
+    }
+    return DeltaManifest(
+      fromVersion: last.fromVersion,
+      toVersion: last.toVersion,
+      fromSchemaVersion: last.fromSchemaVersion,
+      toSchemaVersion: last.toSchemaVersion,
+      patchFormatVersion: last.patchFormatVersion,
+      fromContentHash: last.fromContentHash,
+      toContentHash: last.toContentHash,
+      fromTableContentHashes: from,
+      toTableContentHashes: last.toTableContentHashes,
+      patchFiles: last.patchFiles,
+      fullRebase: last.fullRebase,
+      booksTouched: last.booksTouched,
+      catalogBlobName: last.catalogBlobName,
+    );
+  }
+
+  static String _describeVerification(PatchApplyResult r) {
+    if (r.verifiedTables.isEmpty) return 'final verification: whole database';
+    String fmt(String t) => '$t=${r.verifyTableBytes[t] ?? 0}';
+    final bytes = r.verifyTableBytes.values.fold<int>(0, (a, b) => a + b);
+    return 'final verification (partial): ${r.verifiedTables.length} tables '
+        '($bytes bytes: ${r.verifiedTables.map(fmt).join(', ')}), '
+        'skipped ${r.deferredTables.length} (${r.deferredTables.join(', ')})';
   }
 
   Future<String> _fetchPatch({
@@ -1008,7 +1075,9 @@ class LibraryUpdateApplier {
     required AppLanguage language,
     required bool verifyFromHash,
     required bool verifyToHash,
+    bool partialVerify = false,
     int? verifyTotalBytesHint,
+    Map<String, int>? verifyTableBytesHint,
     void Function(String stage)? onStage,
     void Function(int done, int total)? onVerifyProgress,
   }) async {
@@ -1029,7 +1098,9 @@ class LibraryUpdateApplier {
         language: language,
         verifyFromHash: verifyFromHash,
         verifyToHash: verifyToHash,
+        partialVerify: partialVerify,
         verifyTotalBytesHint: verifyTotalBytesHint,
+        verifyTableBytesHint: verifyTableBytesHint,
         sendPort: port.sendPort,
       );
     } finally {
@@ -1050,8 +1121,10 @@ class LibraryUpdateApplier {
     required AppLanguage language,
     required bool verifyFromHash,
     required bool verifyToHash,
+    required bool partialVerify,
     required SendPort sendPort,
     int? verifyTotalBytesHint,
+    Map<String, int>? verifyTableBytesHint,
   }) {
     return Isolate.run(
       () => _applyPatchInIsolate((
@@ -1063,6 +1136,8 @@ class LibraryUpdateApplier {
         sendPort,
         verifyFromHash,
         verifyToHash,
+        partialVerify,
+        verifyTableBytesHint,
       )),
     );
   }
@@ -1252,6 +1327,26 @@ class LibraryUpdateApplier {
     }
   }
 
+  static Map<String, int>? _readTableBytesQuietly(File file) {
+    try {
+      if (!file.existsSync()) return null;
+      final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      return {
+        for (final e in json.entries)
+          if (e.value is int && (e.value as int) > 0) e.key: e.value as int,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static void _writeTableBytesQuietly(File file, Map<String, int> value) {
+    try {
+      file.parent.createSync(recursive: true);
+      file.writeAsStringSync(jsonEncode(value));
+    } catch (_) {}
+  }
+
   static void _writeIntQuietly(File file, int value) {
     try {
       file.parent.createSync(recursive: true);
@@ -1271,7 +1366,19 @@ class LibraryUpdateApplier {
 /// יתגלגל אחורה), והוא גם מכסה את כל הטבלאות וה-FK שביניהן. שני דגלי ה-hash
 /// נקבעים ע"י הקורא לפי מקום הצעד בשרשרת — ראו [LibraryUpdateApplier.applyDelta].
 PatchApplyResult _applyPatchInIsolate(
-  (String, String, DeltaManifest, AppLanguage, int?, SendPort, bool, bool) args,
+  (
+    String,
+    String,
+    DeltaManifest,
+    AppLanguage,
+    int?,
+    SendPort,
+    bool,
+    bool,
+    bool,
+    Map<String, int>?,
+  )
+  args,
 ) {
   AppL10n.use(args.$4);
   useLibraryUpdaterL10n();
@@ -1283,7 +1390,9 @@ PatchApplyResult _applyPatchInIsolate(
     verifyFromHash: args.$7,
     checkForeignKeys: false,
     verifyToHash: args.$8,
+    enablePartialTableVerification: args.$9,
     verifyTotalBytesHint: args.$5,
+    verifyTableBytesHint: args.$10,
     onStage: (stage) => args.$6.send(stage),
     onVerifyProgress: (done, total) => args.$6.send((done, total)),
   );
