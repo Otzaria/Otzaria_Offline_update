@@ -953,6 +953,32 @@ void main() {
       });
     }
 
+    test('a corrupt delta on the drive is a hash failure that deletes it, '
+        'not "full download needed"', () async {
+      await chainMirror();
+      await writeInstalledSet(vectors, version: 28);
+      engine = FakeVectorsEngine(version: 28);
+      final segment = File(
+        p.join(mirror, libraryTagOf(30), 'vectors', deltaSegmentName(29, 30)),
+      );
+      final bytes = await segment.readAsBytes();
+      bytes[0] ^= 1;
+      await segment.writeAsBytes(bytes);
+      await expectLater(
+        install(),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            AppL10n.strings.libraryDomain.localFileHashMismatch(segment.path),
+          ),
+        ),
+      );
+      expect(await segment.exists(), isFalse);
+      expect(applied(), isEmpty);
+      expect(engine.version, 28);
+    });
+
     test('an installed set of another identity is not touched', () async {
       await chainMirror();
       await writeInstalledSet(vectors, version: 28, identity: identityB);

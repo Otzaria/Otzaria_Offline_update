@@ -24,6 +24,8 @@ void main() {
   late FakeVectorsEngine engine;
   var requests = 0;
   var openedEngines = 0;
+  var removable = false;
+  int? freeBytes;
 
   setUp(() async {
     temp = await Directory.systemTemp.createTemp('semantic-source-validation-');
@@ -68,10 +70,13 @@ void main() {
     await writeInstalledSet(vectors, version: 29, windows: false);
     requests = 0;
     openedEngines = 0;
+    removable = false;
+    freeBytes = null;
     engine = FakeVectorsEngine(version: 29);
     assets = SemanticSearchAssets(
       models: fakeModels,
-      freeBytesFor: (_) => null,
+      freeBytesFor: (path) => p.isWithin(machine, path) ? null : freeBytes,
+      removableProbe: (_) => removable,
       engineFactory: (_) async {
         openedEngines++;
         return engine;
@@ -112,6 +117,21 @@ void main() {
     expect(engine.installs, isEmpty);
     expect(requests, 0);
   }
+
+  test('a corrupt segment leaves a fresh installation untouched', () async {
+    removable = true;
+    freeBytes = 10 << 30;
+    await Directory(vectors).delete(recursive: true);
+    await Directory(
+      p.join(p.dirname(db), SemanticSearchAssets.modelFolder),
+    ).delete(recursive: true);
+    final source = sources['vectors']!;
+    await source.writeAsBytes([3, 2, 1]);
+
+    await rejectsWithoutChanges(isA<FormatException>());
+    expect(await source.exists(), isFalse);
+    expect(await Directory(vectors).exists(), isFalse);
+  });
 
   for (final kind in ['model', 'manifest', 'vectors']) {
     test('a missing $kind source names the local file', () async {
@@ -171,6 +191,10 @@ void main() {
 
     test('a damaged $kind source on a read-only drive still reports the '
         'hash failure', () async {
+      if (kind == 'vectors') {
+        removable = true;
+        freeBytes = 10 << 30;
+      }
       final source = sources[kind]!;
       final bytes = await source.readAsBytes();
       bytes[0] ^= 1;
@@ -218,17 +242,17 @@ void main() {
 
   test('a damaged source drive keeps its storage classification', () async {
     final source = sources['vectors']!;
+    removable = true;
+    freeBytes = 10 << 30;
     final failure = FileSystemException(
       'source read failed',
       source.path,
       OSError('damaged media', Platform.isWindows ? 1392 : 5),
     );
     await rejectsWithoutChanges(
-      isA<StorageCorruptException>().having(
-        (error) => error.cause,
-        'original failure',
-        same(failure),
-      ),
+      isA<StorageCorruptException>()
+          .having((error) => error.cause, 'original failure', same(failure))
+          .having((error) => error.dir, 'drive folder', p.dirname(source.path)),
       action: () => IOOverrides.runZoned(
         install,
         createFile: (path) {
@@ -420,6 +444,66 @@ void main() {
   });
 
   test(
+    'a removable base is read once and the engine uses the verified copy',
+    () async {
+      removable = true;
+      freeBytes = 10 << 30;
+      final source = sources['vectors']!;
+      var reads = 0;
+      engine = FakeVectorsEngine(
+        onInstall: (input) {
+          expect(input.segmentPath, isNot(source.path));
+          expect(p.basename(input.segmentPath), p.basename(source.path));
+          expect(File(input.segmentPath).readAsBytesSync(), [1, 2, 3]);
+        },
+      );
+      await IOOverrides.runZoned(
+        install,
+        createFile: (path) {
+          final real = Zone.root.run(() => File(path));
+          return path == source.path
+              ? _UnreadableFile(
+                  real,
+                  FileSystemException('unexpected vector error', path),
+                  'none',
+                  onRead: () => reads++,
+                )
+              : real;
+        },
+      );
+      expect(reads, 1);
+      expect(await File(engine.installs.single.segmentPath).exists(), isFalse);
+    },
+  );
+
+  for (final reason in ['unknown space', 'low space', 'unavailable scratch']) {
+    test('the removable base still installs directly with $reason', () async {
+      removable = true;
+      freeBytes = switch (reason) {
+        'low space' => 16 << 20,
+        'unavailable scratch' => 10 << 30,
+        _ => null,
+      };
+      final source = sources['vectors']!;
+      var refusedScratch = false;
+      await IOOverrides.runZoned(
+        install,
+        createFile: (path) {
+          if (reason == 'unavailable scratch' &&
+              path != source.path &&
+              p.basename(path) == p.basename(source.path)) {
+            refusedScratch = true;
+            throw FileSystemException('scratch write refused', path);
+          }
+          return Zone.root.run(() => File(path));
+        },
+      );
+      expect(refusedScratch, reason == 'unavailable scratch');
+      expect(engine.installs.single.segmentPath, source.path);
+    });
+  }
+
+  test(
     'an unreadable installed model remains repairable from the drive',
     () async {
       final target = p.join(
@@ -561,8 +645,14 @@ class _UnreadableFile implements File {
   @override
   Stream<List<int>> openRead([int? start, int? end]) {
     onRead?.call();
-    return Stream.error(_failure);
+    return _operation == 'none'
+        ? _real.openRead(start, end)
+        : Stream.error(_failure);
   }
+
+  @override
+  Future<RandomAccessFile> open({FileMode mode = FileMode.read}) =>
+      _real.open(mode: mode);
 
   @override
   Future<String> readAsString({Encoding encoding = utf8}) =>

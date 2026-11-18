@@ -1063,6 +1063,13 @@ which differs from the DB's parent when a library folder name is set.
 `SemanticSearchAssets`, `LibraryManager.resolveSemanticVectorsRoot`, and
 `OtzariaSettingsWriter.finishSemanticInstall` install and enable the data.
 
+**Verify every source file before changing the live smart-search installation.**
+Deferring verification in #286 left model files after a corrupt base and
+applied the first delta before rejecting a later one. For a compressed base on
+a removable drive, `SemanticSearchAssets` can verify while copying to local
+scratch, so the ~1.8GB archive is read from the drive once. With insufficient
+scratch space it verifies and installs directly from the drive.
+
 **Smart search has two axes, model generation (Round2/QA491) and vector shape
 (anchor/windows); never fold one into the other or default an unproven
 generation to Round2.**
