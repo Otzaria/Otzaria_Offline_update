@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -11,7 +12,7 @@ import 'package:library_manager/src/services/readable_releases_client.dart';
 import 'package:library_manager/src/services/recent_library_releases_client.dart';
 import 'package:library_manager/src/services/semantic_search_assets.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart'
-    show StorageCorruptException, StorageFullException;
+    show AppL10n, StorageCorruptException, StorageFullException;
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart'
     show
@@ -308,6 +309,7 @@ void main() {
     int? readableDbSchema,
     bool personal = false,
     bool semantic = false,
+    void Function(String)? onStage,
   }) => online(() async {
     final manager = LibraryManager(
       dataDir: dataDir,
@@ -317,6 +319,7 @@ void main() {
     return manager.downloadToMirror(
       readableDbSchema: readableDbSchema,
       includeSemanticSearch: semantic,
+      onStage: onStage,
     );
   });
 
@@ -1782,12 +1785,27 @@ void main() {
   });
 
   group('a full drive in a companion under a readable schema', () {
-    Future<Object?> downloadWithFullDictionary({int? errno}) async {
+    Future<Object?> downloadWithDictionaryWriteFailure({
+      int? errno,
+      bool afterExport = false,
+    }) async {
+      final exportFinished = afterExport ? Completer<void>() : null;
+      if (exportFinished != null) {
+        github.beforeDictionary = () => exportFinished.future;
+      }
       Object? thrown;
       await runWithFailingRandomWrites(
         () async {
           try {
-            await download(readableDbSchema: 5);
+            await download(
+              readableDbSchema: 5,
+              onStage: (stage) {
+                if (exportFinished != null &&
+                    stage == AppL10n.strings.libraryDomain.exportDone) {
+                  exportFinished.complete();
+                }
+              },
+            );
           } catch (error) {
             thrown = error;
           }
@@ -1805,15 +1823,9 @@ void main() {
     setUp(() => dictionaryFailed = false);
 
     test('a finished export keeps its readable target', () async {
-      github.beforeDictionary = () async {
-        final deadline = DateTime.now().add(const Duration(seconds: 5));
-        while (!File(p.join(mirrorDir(), 'releases.json')).existsSync() &&
-            DateTime.now().isBefore(deadline)) {
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
-      };
-
-      final thrown = await downloadWithFullDictionary();
+      final thrown = await downloadWithDictionaryWriteFailure(
+        afterExport: true,
+      );
 
       expect(thrown, isA<StorageFullException>(), reason: '$thrown');
       expect(await mirroredAssets(), contains('v30-20261011/seforim.db.zst'));
@@ -1825,16 +1837,9 @@ void main() {
 
     test('a damaged drive in a companion keeps the finished export and its '
         'readable target', () async {
-      github.beforeDictionary = () async {
-        final deadline = DateTime.now().add(const Duration(seconds: 5));
-        while (!File(p.join(mirrorDir(), 'releases.json')).existsSync() &&
-            DateTime.now().isBefore(deadline)) {
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
-      };
-
-      final thrown = await downloadWithFullDictionary(
+      final thrown = await downloadWithDictionaryWriteFailure(
         errno: Platform.isWindows ? 1392 : 5,
+        afterExport: true,
       );
 
       expect(thrown, isA<StorageCorruptException>(), reason: '$thrown');
@@ -1885,7 +1890,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 100));
       };
 
-      final thrown = await downloadWithFullDictionary();
+      final thrown = await downloadWithDictionaryWriteFailure();
 
       expect(thrown, isA<StorageFullException>(), reason: '$thrown');
       expect(github.assetFetches(), 0);
