@@ -111,10 +111,20 @@ class PluginMirrorStore {
   }
 
   Future<bool> hasBuild(PluginLocalFile? file) async {
-    if (file == null || !await hasAsset(file.relativePath)) return false;
-    return file.size <= 0 ||
-        await File(absolutePath(file.relativePath)).length() == file.size;
+    if (file == null ||
+        file.relativePath.isEmpty ||
+        !isSafeRelative(file.relativePath)) {
+      return false;
+    }
+    final stat = await File(absolutePath(file.relativePath)).stat();
+    return stat.type == FileSystemEntityType.file &&
+        (file.size <= 0 || stat.size == file.size);
   }
+
+  Future<bool> hasInstallableBuild(PluginLocalFile? file) async =>
+      file != null &&
+      file.relativePath.toLowerCase().endsWith(pluginFileExt) &&
+      await hasBuild(file);
 
   /// שם הקובץ (בלי סיומת) של בילד מסוים בתוך תיקיית התוסף. הגרסה נכנסת
   /// לשם כדי ששני בילדים של אותו תוסף יוכלו לשכון זה לצד זה.

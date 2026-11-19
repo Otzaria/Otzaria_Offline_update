@@ -320,4 +320,61 @@ void main() {
       expect(await store.hasFileFor(entry, '1.0.0'), isTrue);
     });
   });
+
+  group('hasInstallableBuild', () {
+    PluginLocalFile local(String path, int size) => PluginLocalFile(
+          relativePath: path,
+          fileName: p.basename(path),
+          ext: p.extension(path),
+          size: size,
+        );
+
+    test('בילד חסר, נתיב לא בטוח ותיקייה אינם קובץ להתקנה', () async {
+      final directory = 'files/a/directory.otzplugin';
+      Directory(store.absolutePath(directory)).createSync(recursive: true);
+
+      for (final build in [
+        null,
+        local('', 0),
+        local('../outside.otzplugin', 0),
+        local(r'files\..\outside.otzplugin', 0),
+        local('files/a/missing.otzplugin', 0),
+        local(directory, 0),
+      ]) {
+        expect(await store.hasInstallableBuild(build), isFalse);
+        expect(await store.hasBuild(build), isFalse);
+      }
+    });
+
+    test('גודל ידוע חייב להתאים וגודל חסר מאפשר קובץ קיים', () async {
+      const path = 'files/a/plugin.OTZPLUGIN';
+      final file = File(store.absolutePath(path));
+      file.parent.createSync(recursive: true);
+      file.writeAsBytesSync([1, 2, 3]);
+
+      for (final (size, expected) in [
+        (3, true),
+        (2, false),
+        (0, true),
+        (-1, true)
+      ]) {
+        final build = local(path, size);
+        expect(await store.hasInstallableBuild(build), expected);
+        expect(await store.hasBuild(build), expected);
+      }
+      final entry = plugin('a').copyWith(localFiles: {'1.0.0': local(path, 2)});
+      expect(await store.hasFileFor(entry, '1.0.0'), isTrue);
+    });
+
+    test('hasBuild נשאר בלתי תלוי בסיומת אך התקנה דורשת otzplugin', () async {
+      const path = 'files/a/plugin.zip';
+      final file = File(store.absolutePath(path));
+      file.parent.createSync(recursive: true);
+      file.writeAsBytesSync([1, 2, 3]);
+
+      final build = local(path, 3);
+      expect(await store.hasBuild(build), isTrue);
+      expect(await store.hasInstallableBuild(build), isFalse);
+    });
+  });
 }
