@@ -102,10 +102,16 @@ void main() {
 
     for (final cause in [
       const HandshakeException('CERTIFICATE_VERIFY_FAILED'),
-      const TlsException('certificate rejected'),
+      const HandshakeException(
+        'Handshake error in client',
+        OSError(
+          'CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate',
+        ),
+      ),
+      const CertificateException('certificate rejected'),
     ]) {
       test(
-        '${cause.runtimeType} has the shared certificate-error type',
+        '${cause.runtimeType}: ${cause.message} has the shared certificate-error type',
         () async {
           final client = MockClient((_) async => throw cause);
           addTearDown(client.close);
@@ -220,6 +226,23 @@ void main() {
     expect(
       githubRateLimitOf(http.Response('', 429, headers: {'retry-after': 'x'})),
       isNull,
+    );
+  });
+
+  test('companion discovery preserves a temporary handshake failure', () async {
+    const failure = HandshakeException(
+      'Connection terminated during handshake',
+    );
+    final client = MockClient((_) async => throw failure);
+    addTearDown(client.close);
+    final temp = await Directory.systemTemp.createTemp('github-fetch-');
+    addTearDown(() => temp.delete(recursive: true));
+    final mirror = CompanionAssetsMirror(httpClient: client);
+    addTearDown(mirror.dispose);
+
+    await expectLater(
+      mirror.peekPending(destDir: temp.path),
+      throwsA(same(failure)),
     );
   });
 
