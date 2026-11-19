@@ -204,6 +204,12 @@ Future<http.Response> githubGet(
   try {
     response = await client.get(uri, headers: headers).timeout(timeout);
   } on TlsException catch (e) {
+    const verificationFailed = 'CERTIFICATE_VERIFY_FAILED';
+    if (e is! CertificateException &&
+        !e.message.contains(verificationFailed) &&
+        e.osError?.message.contains(verificationFailed) != true) {
+      rethrow;
+    }
     throw NetworkCertificateException(uri: uri, cause: e);
   }
   if (api) {
