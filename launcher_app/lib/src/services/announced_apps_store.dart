@@ -1,100 +1,45 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:path/path.dart' as p;
 
-import 'serial_queue.dart';
+import 'json_state_store.dart';
 
-/// זוכר על אילו תוכנות נוספות כבר קפצה הודעת "ממתינות על הכונן"
-/// **במחשב הזה**, כדי שהיא תיאמר פעם אחת בלבד ולא בכל הרצה.
-///
-/// המפתח הוא שם המחשב, בדיוק כמו ב-`KnownLocationsStore`: הקובץ נוסע על
-/// הכונן, ולכן "כבר הוצג" הוא תכונה של המחשב ולא של הכונן — כונן שעבר
-/// למחשב חדש מציג בו את ההודעה מחדש.
+/// הכונן נוסע בין מחשבים; הודעת "ממתינות על הכונן" נזכרת לפי שם המחשב.
 class AnnouncedAppsStore {
   AnnouncedAppsStore(String dir, {String? hostName})
-      : _file = File(p.join(dir, 'custom_apps_announced.json')),
-        _host = _resolveHost(hostName);
+      : _store = JsonStateStore(p.join(dir, 'custom_apps_announced.json')),
+        _host = stateHostName(hostName);
 
-  static const String _unknownHost = 'unknown';
-
-  final File _file;
+  final JsonStateStore _store;
   final String _host;
 
-  late final SerialQueue _queue = SerialQueue.forKey(_file.path);
-
-  /// המזהים שכבר הוצגו במחשב הזה. קובץ חסר או פגום = "עוד לא הוצג כלום",
-  /// וזו גם התשובה הנכונה: הודעה כפולה עדיפה על הודעה שלא נאמרה מעולם.
+  /// קובץ חסר או פגום = "עוד לא הוצג כלום".
   Future<Set<String>> load() async {
-    try {
-      if (!await _file.exists()) return {};
-      final json = jsonDecode(await _file.readAsString());
-      if (json is! Map) return {};
-      final byHost = json['announced'];
-      if (byHost is! Map) return {};
-      final ids = byHost[_host];
-      if (ids is! List) return {};
-      return {
-        for (final id in ids)
-          if (id is String) id
-      };
-    } catch (_) {
-      return {};
-    }
+    final byHost = (await _store.load())['announced'];
+    final ids = byHost is Map ? byHost[_host] : null;
+    return ids is List ? ids.whereType<String>().toSet() : {};
   }
 
-  /// מוסיף מזהים לרשימת המוצגים של המחשב הזה. כשל כתיבה אינו שגיאה שמוצגת
-  /// למשתמש — לכל היותר ההודעה תחזור בהרצה הבאה.
   Future<void> record(Iterable<String> ids) {
     if (ids.isEmpty) return Future<void>.value();
-    return _queue.run(() => _recordNow(ids));
-  }
-
-  Future<void> _recordNow(Iterable<String> ids) async {
-    try {
-      final all = await _loadAll();
+    return _store.update((json) {
+      final all = _parseAll(json);
       final existing = all[_host] ?? const <String>[];
       final merged = {...existing, ...ids}.toList()..sort();
-      if (merged.length == existing.length) return;
-
+      if (merged.length == existing.length) return null;
       all[_host] = merged;
-      await _file.parent.create(recursive: true);
-      final temp = File('${_file.path}.tmp');
-      await temp.writeAsString(jsonEncode({'announced': all}), flush: true);
-      await temp.rename(_file.path);
-    } catch (_) {
-      // ראו למעלה.
-    }
+      return {'announced': all};
+    });
   }
 
-  Future<Map<String, List<String>>> _loadAll() async {
-    try {
-      if (!await _file.exists()) return {};
-      final json = jsonDecode(await _file.readAsString());
-      if (json is! Map) return {};
-      final byHost = json['announced'];
-      if (byHost is! Map) return {};
-      return {
-        for (final entry in byHost.entries)
-          if (entry.key is String && entry.value is List)
-            entry.key as String: [
-              for (final id in entry.value as List)
-                if (id is String) id,
-            ],
-      };
-    } catch (_) {
-      return {};
-    }
-  }
-
-  /// שם המחשב, ובכל מצב שאין כזה — מפתח קבוע. עדיף מפתח משותף על פני
-  /// אי-רישום: בלעדיו ההודעה הייתה חוזרת בכל הרצה.
-  static String _resolveHost(String? given) {
-    try {
-      final host = given ?? Platform.localHostname;
-      return host.isEmpty ? _unknownHost : host;
-    } catch (_) {
-      return _unknownHost;
-    }
+  static Map<String, List<String>> _parseAll(Map<String, dynamic> json) {
+    final byHost = json['announced'];
+    if (byHost is! Map) return {};
+    return {
+      for (final entry in byHost.entries)
+        if (entry.key is String && entry.value is List)
+          entry.key as String: [
+            for (final id in entry.value as List)
+              if (id is String) id,
+          ],
+    };
   }
 }

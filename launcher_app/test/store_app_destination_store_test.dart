@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -25,6 +27,39 @@ void main() {
     );
   });
 
+  test('concurrent destination updates preserve every host', () async {
+    final target = File(p.join(dir.path, 'store_app_destination.json'));
+    await target.writeAsString(
+      '{"hosts":{"existing":{"dir":"old","tag":"v0"}}}',
+    );
+    final parent = Zone.current;
+    var reads = 0;
+    await IOOverrides.runZoned(
+      () async {
+        final a = StoreAppDestinationStore(dir.path, hostName: 'a');
+        final b = StoreAppDestinationStore(dir.path, hostName: 'b');
+        await Future.wait([
+          a.record(dir: 'one', tag: 'v1'),
+          b.record(dir: 'two', tag: 'v2'),
+        ]);
+      },
+      createFile: (path) {
+        final file = parent.run(() => File(path));
+        return p.equals(path, target.path)
+            ? _SnapshotReadFile(file, () => reads++)
+            : file;
+      },
+    );
+    expect(reads, 2);
+    expect(jsonDecode(await target.readAsString()), {
+      'hosts': {
+        'existing': {'dir': 'old', 'tag': 'v0'},
+        'a': {'dir': 'one', 'tag': 'v1'},
+        'b': {'dir': 'two', 'tag': 'v2'},
+      },
+    });
+  });
+
   test('רישום שני דורס את הראשון, וערך מסוג שגוי נקרא כריק', () async {
     final store = StoreAppDestinationStore(dir.path, hostName: 'a');
     await store.record(dir: 'x', tag: 'v1');
@@ -43,4 +78,34 @@ void main() {
       isNull,
     );
   });
+}
+
+class _SnapshotReadFile implements File {
+  _SnapshotReadFile(this.delegate, this.onRead);
+
+  final File delegate;
+  final void Function() onRead;
+
+  @override
+  String get path => delegate.path;
+
+  @override
+  File get absolute => delegate.absolute;
+
+  @override
+  Directory get parent => delegate.parent;
+
+  @override
+  Future<bool> exists() => Future.value(delegate.existsSync());
+
+  @override
+  Future<String> readAsString({Encoding encoding = utf8}) {
+    onRead();
+    // שתי קריאות שאינן בתור יקבלו אותה תמונת מצב לפני שכתיבה כלשהי מתחילה.
+    final snapshot = delegate.readAsStringSync(encoding: encoding);
+    return Future(() => snapshot);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
