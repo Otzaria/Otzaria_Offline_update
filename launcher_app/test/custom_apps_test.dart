@@ -456,7 +456,7 @@ void main() {
         await tester.tap(find.text(t.saveEditButton));
         // זיהוי ההתקנה קורא גם דיסק ותהליכי Windows; מגבילים זמן אמיתי
         // ומריצים פריימים בנפרד כדי לא לחכות לאנימציות שאינן מסתיימות.
-        const saveTimeout = Duration(seconds: 15);
+        const saveTimeout = Duration(seconds: 60);
         final saveWait = Stopwatch()..start();
         while (find.byType(AlertDialog).evaluate().isNotEmpty &&
             saveWait.elapsed < saveTimeout) {

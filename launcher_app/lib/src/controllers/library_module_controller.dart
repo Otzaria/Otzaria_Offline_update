@@ -1378,6 +1378,7 @@ class LibraryModuleController extends ChangeNotifier
             }
             AppLogger.instance.warn('התקנת הקובץ הנלווה "$name" נכשלה: $error');
           },
+          onLog: AppLogger.instance.info,
           onStateWarning: (error) => AppLogger.instance
               .warn('רישום שאחרי ההחלה נכשל (מצב או "מה חדש"): $error'),
           onLibraryLocationFailure: (reason) => AppLogger.instance

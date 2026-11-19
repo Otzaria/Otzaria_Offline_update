@@ -15,6 +15,7 @@ import 'package:seforim_library_updater/seforim_library_updater.dart';
 import 'atomic_file.dart' show writeStringAtomically;
 import 'download_connections.dart';
 import 'github_fetch.dart';
+import 'install_timing.dart';
 import 'semantic_status.dart';
 import 'semantic_vectors_plan.dart';
 import 'storage_guard.dart';
@@ -3144,10 +3145,13 @@ class SemanticSearchAssets {
         );
       }
       for (final file in spec.files) {
-        await _verify(
-          p.join(generationDir, spec.folder, file.name),
-          file,
-          isCancelled,
+        await timedInstallStage(
+          'semantic.verify ${file.name}',
+          () => _verify(
+            p.join(generationDir, spec.folder, file.name),
+            file,
+            isCancelled,
+          ),
         );
       }
       final vectorsSourceDir = p.join(generationDir, 'vectors');
@@ -3174,18 +3178,24 @@ class SemanticSearchAssets {
       final segments = <String>[
         for (final unit in units)
           unit.files.length == 1
-              ? await _prepareSingleSegment(
-                  vectorsSourceDir: vectorsSourceDir,
-                  file: unit.files.single,
-                  work: work,
-                  stage: stageBase,
-                  isCancelled: isCancelled,
+              ? await timedInstallStage(
+                  'semantic.prepare ${unit.files.single.name}',
+                  () => _prepareSingleSegment(
+                    vectorsSourceDir: vectorsSourceDir,
+                    file: unit.files.single,
+                    work: work,
+                    stage: stageBase,
+                    isCancelled: isCancelled,
+                  ),
                 )
-              : await concatenateVectorParts(
-                  vectorsDir: vectorsSourceDir,
-                  parts: unit.files,
-                  workDir: work.path,
-                  isCancelled: isCancelled,
+              : await timedInstallStage(
+                  'semantic.concat ${unit.step.manifest.name}',
+                  () => concatenateVectorParts(
+                    vectorsDir: vectorsSourceDir,
+                    parts: unit.files,
+                    workDir: work.path,
+                    isCancelled: isCancelled,
+                  ),
                 ),
       ];
       await beforeActivate?.call();
@@ -3200,9 +3210,15 @@ class SemanticSearchAssets {
         _ensureSpace(p.dirname(target), file.size);
         await Directory(p.dirname(target)).create(recursive: true);
         final temporary = '$target.tmp';
-        await File(source).copy(temporary);
+        await timedInstallStage(
+          'semantic.copy ${file.name}',
+          () => File(source).copy(temporary),
+        );
         _cancel(isCancelled);
-        await _verify(temporary, file, isCancelled);
+        await timedInstallStage(
+          'semantic.verify ${file.name}',
+          () => _verify(temporary, file, isCancelled),
+        );
         await File(temporary).rename(target);
       }
       _cancel(isCancelled);
@@ -3233,15 +3249,18 @@ class SemanticSearchAssets {
         }
         final ({int libraryVersion, bool alreadyApplied}) report;
         try {
-          report = await engine.install(
-            SemanticVectorsInstallInput(
-              vectorsDir: vectorsDir,
-              segmentPath: segments[index],
-              manifestJson: manifestJson,
-              publishedManifestSha256: unit.step.manifest.sha256,
-              modelIdentityJson: modelIdentity,
+          report = await timedInstallStage(
+            'semantic.engineInstall ${unit.step.manifest.name}',
+            () => engine!.install(
+              SemanticVectorsInstallInput(
+                vectorsDir: vectorsDir,
+                segmentPath: segments[index],
+                manifestJson: manifestJson,
+                publishedManifestSha256: unit.step.manifest.sha256,
+                modelIdentityJson: modelIdentity,
+              ),
+              isCancelled: isCancelled,
             ),
-            isCancelled: isCancelled,
           );
         } catch (error) {
           // A refused base leaves the old set live, so it keeps its own marker.
@@ -3267,7 +3286,10 @@ class SemanticSearchAssets {
         await beforeActivate?.call();
         _cancel(isCancelled);
         try {
-          await engine.compact(vectorsDir, isCancelled: isCancelled);
+          await timedInstallStage(
+            'semantic.compact',
+            () => engine!.compact(vectorsDir, isCancelled: isCancelled),
+          );
         } catch (error) {
           final failure = storageFailureFromEngine(error, vectorsDir);
           if (failure != null) throw failure;

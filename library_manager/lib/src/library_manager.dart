@@ -15,6 +15,7 @@ import 'models/library_update_check_result.dart';
 import 'services/companion_assets.dart';
 import 'services/companion_assets_installer.dart';
 import 'services/companion_assets_mirror.dart';
+import 'services/concurrent_companions.dart';
 import 'services/download_connections.dart';
 import 'services/external_update_notice.dart';
 import 'services/library_changes_notes.dart';
@@ -31,6 +32,7 @@ import 'services/readable_releases_client.dart';
 import 'services/readable_schema_limit.dart';
 import 'services/recent_library_releases_client.dart';
 import 'services/semantic_search_assets.dart';
+import 'services/zstd_file_decompressor.dart';
 
 export 'services/library_update_applier.dart'
     show
@@ -149,6 +151,7 @@ class LibraryManager {
     @visibleForTesting this.semanticAssetsFactory,
     @visibleForTesting bool Function(String)? removableProbe,
     @visibleForTesting WriteSpeedProbe? writeProbe,
+    @visibleForTesting int? Function(String path)? freeBytesFor,
     @visibleForTesting
     int segmentThresholdBytes = PatchDownloader.defaultSegmentThresholdBytes,
   }) : _stateStore = LibraryStateStore(
@@ -165,6 +168,7 @@ class LibraryManager {
        _instanceLock = instanceLock,
        _removableProbe = removableProbe,
        _writeProbe = writeProbe,
+       _freeBytesFor = freeBytesFor ?? DiskSpaceProbe.freeBytesFor,
        _segmentThresholdBytes = segmentThresholdBytes,
        _cloudClient = releaseClient ?? RecentLibraryReleasesClient(),
        _applier = applier ?? LibraryUpdateApplier(processGuard: processGuard) {
@@ -240,6 +244,7 @@ class LibraryManager {
   /// the export's connection count, for tests.
   final bool Function(String)? _removableProbe;
   final WriteSpeedProbe? _writeProbe;
+  final int? Function(String path) _freeBytesFor;
   final int _segmentThresholdBytes;
 
   /// הקבצים הנלווים לספרייה (תלמוד, קטלוג, מילון). אוצריא מרעננת אותם
@@ -279,6 +284,38 @@ class LibraryManager {
   Future<bool> _isOtzariaRunning() => _processGuard.isAnyRunning(
     OtzariaProcessGuard.processNamesFor(Platform.operatingSystem),
   );
+
+  /// Overlap only when free space is known to hold the last patch's work plus
+  /// the largest companion's extracted staging; unknown size means sequential.
+  Future<bool> _companionOverlapFits(
+    String dbPath,
+    LibraryUpdatePlan delta,
+  ) async {
+    final manifest = await CompanionMirrorManifest.load(companionsMirrorDir);
+    if (manifest == null || manifest.isEmpty || delta.deltaSteps.isEmpty) {
+      return false;
+    }
+    final free = _freeBytesFor(p.dirname(dbPath));
+    if (free == null) return false;
+    final last = delta.deltaSteps.last.manifest.patchFiles.first;
+    final dbSize = File(dbPath).existsSync() ? File(dbPath).lengthSync() : 0;
+    var companionPeak = 0;
+    for (final e in manifest.entries.entries) {
+      final entry = e.value;
+      final extracted = entry.compressed
+          ? ZstdFileDecompressor.contentSizeOf(
+              p.join(companionsMirrorDir, entry.fileName),
+            )
+          : entry.size;
+      // A first frame smaller than the file means a multi-frame archive.
+      if (extracted == null || extracted < entry.size) return false;
+      // The Talmud keeps its tar beside the staged tree; the rest stage once.
+      final need = e.key == CompanionAsset.talmud ? 2 * extracted : extracted;
+      if (need > companionPeak) companionPeak = need;
+    }
+    final needed = dbSize + 2 * last.uncompressedSize + companionPeak;
+    return !DiskSpaceProbe.lacksSpace(free, needed);
+  }
 
   Future<void> _throwIfOtzariaRunning() async {
     if (await _isOtzariaRunning()) throw const OtzariaIsRunningException();
@@ -2078,6 +2115,7 @@ class LibraryManager {
     void Function(String reason)? onLibraryLocationFailure,
     bool Function()? isCancelled,
     bool useFullDownloadFallback = false,
+    void Function(String message)? onLog,
   }) async {
     _appliesInFlight++;
     OtzariaInstanceLease? lease;
@@ -2098,6 +2136,7 @@ class LibraryManager {
         onLibraryLocationFailure: onLibraryLocationFailure,
         isCancelled: isCancelled,
         useFullDownloadFallback: useFullDownloadFallback,
+        onLog: onLog,
       );
     } finally {
       lease?.release();
@@ -2116,6 +2155,7 @@ class LibraryManager {
     void Function(String reason)? onLibraryLocationFailure,
     bool Function()? isCancelled,
     bool useFullDownloadFallback = false,
+    void Function(String message)? onLog,
   }) async {
     final plan = useFullDownloadFallback
         ? check.plan?.fullDownloadFallback
@@ -2133,112 +2173,26 @@ class LibraryManager {
     var booksTouched = const <int>{};
     var appliedVersion = plan?.targetVersion;
     var appliedTag = _contentTagFor(check, plan, appliedVersion);
-    if (plan != null && check.dbUpdateAvailable) {
-      switch (plan.kind) {
-        case LibraryUpdatePlanKind.delta:
-          final partial = <int>{};
-          try {
-            booksTouched = await _storageAware(
-              () => _applier.applyDelta(
-                plan: plan,
-                dbPath: dbPath,
-                onProgress: onProgress,
-                isCancelled: isCancelled,
-                onStepApplied: (books, _) => partial.addAll(books),
-              ),
-            );
-          } catch (_) {
-            if (partial.isNotEmpty) {
-              await const ExternalUpdateNotice().write(
-                dbPath: dbPath,
-                route: ExternalUpdateNotice.routeDelta,
-                booksTouched: partial,
-                onError: onStateWarning,
-              );
-            }
-            rethrow;
-          }
-          break;
-        case LibraryUpdatePlanKind.fullDownload:
-          await _storageAware(
-            () => _applier.applyFullDownload(
-              plan: plan,
-              dbPath: dbPath,
-              onProgress: onProgress,
-              isCancelled: isCancelled,
-            ),
-          );
-          appliedTag = plan.fullDbReleaseTag;
-          final followUp = plan.followUpDelta;
-          if (followUp != null) {
-            try {
-              booksTouched = await _storageAware(
-                () => _applier.applyDelta(
-                  plan: followUp,
-                  dbPath: dbPath,
-                  onProgress: onProgress,
-                  isCancelled: isCancelled,
-                  onStepApplied: (_, version) {
-                    appliedVersion = version;
-                    appliedTag = _contentTagFor(check, plan, version);
-                  },
-                ),
-              );
-              appliedVersion = followUp.targetVersion;
-              appliedTag = _contentTagFor(check, plan, appliedVersion);
-            } catch (_) {
-              await _finishDbUpdate(
-                check: check,
-                dbPath: dbPath,
-                route: ExternalUpdateNotice.routeFull,
-                booksTouched: const <int>{},
-                version: appliedVersion,
-                tag: appliedTag,
-                onStateWarning: onStateWarning,
-                onLibraryLocationNotSet: onLibraryLocationNotSet,
-                onLibraryLocationFailure: onLibraryLocationFailure,
-              );
-              rethrow;
-            }
-          }
-          break;
-        case LibraryUpdatePlanKind.none:
-          break;
-        case LibraryUpdatePlanKind.blocked:
-          throw LibraryApplyException(
-            plan.reason ??
-                AppL10n.strings.libraryDomain.blockedNeedsManualAction,
-          );
-      }
 
-      await _finishDbUpdate(
-        check: check,
-        dbPath: dbPath,
-        route: plan.kind == LibraryUpdatePlanKind.delta
-            ? ExternalUpdateNotice.routeDelta
-            : ExternalUpdateNotice.routeFull,
-        booksTouched: booksTouched,
-        version: appliedVersion,
-        tag: appliedTag,
-        onStateWarning: onStateWarning,
-        onLibraryLocationNotSet: onLibraryLocationNotSet,
-        onLibraryLocationFailure: onLibraryLocationFailure,
-      );
-    }
-
-    final companions = await _companionsInstaller.install(
+    ConcurrentCompanions<CompanionInstallReport>? overlap;
+    Future<CompanionInstallReport> installCompanions(
+      bool Function()? cancelled,
+      void Function(LibraryApplyProgress progress)? emit,
+      void Function(String assetName, Object error)? warn, [
+      Future<void> Function()? dbOutcome,
+    ]) async => _companionsInstaller.install(
       mirrorDir: companionsMirrorDir,
       dbPath: dbPath,
       delivered: _deliveredCompanions(
         await _stateStore.loadDeliveredCompanions(),
       ),
-      onStage: (stage) => onProgress?.call(
+      onStage: (stage) => emit?.call(
         LibraryApplyProgress(
           stage: LibraryApplyStage.installingCompanions,
           statusText: stage,
         ),
       ),
-      onProgress: (stage, done, total) => onProgress?.call(
+      onProgress: (stage, done, total) => emit?.call(
         LibraryApplyProgress(
           stage: LibraryApplyStage.installingCompanions,
           statusText: stage,
@@ -2246,10 +2200,140 @@ class LibraryManager {
           bytesTotal: total,
         ),
       ),
-      onWarning: onCompanionWarning,
-      isCancelled: isCancelled,
-      beforeCommit: _throwIfOtzariaRunning,
+      onWarning: warn,
+      isCancelled: cancelled,
+      beforeCommit: () async {
+        await dbOutcome?.call();
+        await _throwIfOtzariaRunning();
+      },
     );
+
+    Future<void> Function() overlapAtFinalStep(LibraryUpdatePlan delta) =>
+        () async {
+          if (overlap != null) return;
+          try {
+            if (!await _companionOverlapFits(dbPath, delta)) {
+              onLog?.call('companions: sequential, space for overlap unproven');
+              return;
+            }
+            overlap = ConcurrentCompanions<CompanionInstallReport>(
+              run: installCompanions,
+              onProgress: onProgress,
+              onWarning: onCompanionWarning,
+              isCancelled: isCancelled,
+            )..start();
+            onLog?.call('companions: staging beside the final DB step');
+          } catch (e) {
+            onLog?.call('companions: sequential, overlap check failed: $e');
+          }
+        };
+
+    try {
+      if (plan != null && check.dbUpdateAvailable) {
+        switch (plan.kind) {
+          case LibraryUpdatePlanKind.delta:
+            final partial = <int>{};
+            try {
+              booksTouched = await _storageAware(
+                () => _applier.applyDelta(
+                  plan: plan,
+                  dbPath: dbPath,
+                  onProgress: onProgress,
+                  isCancelled: isCancelled,
+                  onLog: onLog,
+                  onFinalStepStart: overlapAtFinalStep(plan),
+                  onStepApplied: (books, _) => partial.addAll(books),
+                ),
+              );
+            } catch (_) {
+              if (partial.isNotEmpty) {
+                await const ExternalUpdateNotice().write(
+                  dbPath: dbPath,
+                  route: ExternalUpdateNotice.routeDelta,
+                  booksTouched: partial,
+                  onError: onStateWarning,
+                );
+              }
+              rethrow;
+            }
+            break;
+          case LibraryUpdatePlanKind.fullDownload:
+            await _storageAware(
+              () => _applier.applyFullDownload(
+                plan: plan,
+                dbPath: dbPath,
+                onProgress: onProgress,
+                isCancelled: isCancelled,
+              ),
+            );
+            appliedTag = plan.fullDbReleaseTag;
+            final followUp = plan.followUpDelta;
+            if (followUp != null) {
+              try {
+                booksTouched = await _storageAware(
+                  () => _applier.applyDelta(
+                    plan: followUp,
+                    dbPath: dbPath,
+                    onProgress: onProgress,
+                    isCancelled: isCancelled,
+                    onLog: onLog,
+                    onFinalStepStart: overlapAtFinalStep(followUp),
+                    onStepApplied: (_, version) {
+                      appliedVersion = version;
+                      appliedTag = _contentTagFor(check, plan, version);
+                    },
+                  ),
+                );
+                appliedVersion = followUp.targetVersion;
+                appliedTag = _contentTagFor(check, plan, appliedVersion);
+              } catch (_) {
+                await _finishDbUpdate(
+                  check: check,
+                  dbPath: dbPath,
+                  route: ExternalUpdateNotice.routeFull,
+                  booksTouched: const <int>{},
+                  version: appliedVersion,
+                  tag: appliedTag,
+                  onStateWarning: onStateWarning,
+                  onLibraryLocationNotSet: onLibraryLocationNotSet,
+                  onLibraryLocationFailure: onLibraryLocationFailure,
+                );
+                rethrow;
+              }
+            }
+            break;
+          case LibraryUpdatePlanKind.none:
+            break;
+          case LibraryUpdatePlanKind.blocked:
+            throw LibraryApplyException(
+              plan.reason ??
+                  AppL10n.strings.libraryDomain.blockedNeedsManualAction,
+            );
+        }
+
+        await _finishDbUpdate(
+          check: check,
+          dbPath: dbPath,
+          route: plan.kind == LibraryUpdatePlanKind.delta
+              ? ExternalUpdateNotice.routeDelta
+              : ExternalUpdateNotice.routeFull,
+          booksTouched: booksTouched,
+          version: appliedVersion,
+          tag: appliedTag,
+          onStateWarning: onStateWarning,
+          onLibraryLocationNotSet: onLibraryLocationNotSet,
+          onLibraryLocationFailure: onLibraryLocationFailure,
+        );
+      }
+    } catch (_) {
+      await overlap?.abandon();
+      rethrow;
+    }
+
+    final running = overlap;
+    final companions = running != null
+        ? await running.join()
+        : await installCompanions(isCancelled, onProgress, onCompanionWarning);
     try {
       await _stateStore.saveDeliveredCompanions({
         for (final e in companions.delivered.entries) e.key.name: e.value,

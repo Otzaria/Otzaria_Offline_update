@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:custom_apps_manager/custom_apps_manager.dart';
 import 'package:error_reports_manager/error_reports_manager.dart';
@@ -28,6 +27,7 @@ import 'package:launcher_app/src/self_update/launcher_update_mirror.dart'
 import 'package:launcher_app/src/services/after_launcher_update_store.dart';
 import 'package:launcher_app/src/services/app_logger.dart';
 import 'package:launcher_app/src/services/app_paths.dart';
+import 'package:launcher_app/src/services/background_priority.dart';
 import 'package:launcher_app/src/services/byte_size.dart';
 import 'package:launcher_app/src/services/notices_seen_store.dart';
 import 'package:launcher_app/src/services/sleep_inhibitor.dart';
@@ -99,6 +99,7 @@ void main() {
   AppSession session({
     bool readOnly = false,
     SleepInhibitor? sleep,
+    BackgroundPriority? background,
     NoticesSeenStore? notices,
     OtzariaLauncher launcher = const _FailingLauncher(),
     OtzariaManager? otzariaManager,
@@ -119,6 +120,8 @@ void main() {
       noticesStore: notices ??
           MemoryNoticesStore(seen: {NoticesSeenStore.errorReportsIntro}),
       sleepInhibitor: sleep,
+      backgroundPriority:
+          background ?? BackgroundPriority(platformSwitch: (_) => true),
       otzariaLauncher: launcher,
       otzariaManager: otzariaManager,
       libraryManager: libraryManager,
@@ -2823,6 +2826,41 @@ void main() {
     s.dispose();
     expect(inhibitor.isActive, isFalse);
     expect((acquired, released), (3, 3));
+  });
+
+  test('עדיפות רקע רק בזמן עבודה כבדה', () {
+    final calls = <bool>[];
+    final bg = BackgroundPriority(
+      platformSwitch: (enter) {
+        calls.add(enter);
+        return true;
+      },
+    );
+    final s = session(background: bg);
+
+    s.otzaria.status = OtzariaModuleStatus.upToDate;
+    s.otzaria.notifyListeners();
+    expect(calls, isEmpty);
+
+    s.library.downloadStatus = MirrorDownloadStatus.downloading;
+    s.library.notifyListeners();
+    s.otzaria.status = OtzariaModuleStatus.installing;
+    s.otzaria.notifyListeners();
+    expect(calls, [true]);
+    expect(bg.leases, 1);
+
+    s.library.downloadStatus = MirrorDownloadStatus.done;
+    s.library.notifyListeners();
+    expect(bg.isActive, isTrue);
+    s.otzaria.status = OtzariaModuleStatus.upToDate;
+    s.otzaria.notifyListeners();
+    expect(calls, [true, false]);
+
+    s.library.downloadStatus = MirrorDownloadStatus.downloading;
+    s.library.notifyListeners();
+    sessions.remove(s);
+    s.dispose();
+    expect(calls, [true, false, true, false]);
   });
 }
 

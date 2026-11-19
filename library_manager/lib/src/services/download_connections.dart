@@ -87,10 +87,11 @@ const _probeChunkBytes = 256 * 1024;
 const _probeFlushEvery = 4;
 
 /// מוחק גשושיות יתומות של תהליך אחר שקרס; רק לפי תבנית השם ורק ישנות.
-void _sweepOrphanProbes(String dir) {
+Future<void> _sweepOrphanProbes(String dir) async {
   try {
     final cutoff = DateTime.now().subtract(const Duration(minutes: 1));
-    for (final entry in Directory(dir).listSync(followLinks: false)) {
+    final entries = await Directory(dir).list(followLinks: false).toList();
+    for (final entry in entries) {
       final name = p.basename(entry.path);
       if (entry is! File ||
           !RegExp(r'^\.write_probe_(\d+)_\d+$').hasMatch(name) ||
@@ -98,7 +99,7 @@ void _sweepOrphanProbes(String dir) {
         continue;
       }
       try {
-        if (entry.lastModifiedSync().isBefore(cutoff)) entry.deleteSync();
+        if ((await entry.lastModified()).isBefore(cutoff)) await entry.delete();
       } catch (_) {}
     }
   } catch (_) {}
@@ -150,7 +151,7 @@ Future<double?> measureWriteSpeed(
       if (stopped()) return null;
       await Directory(dir).create(recursive: true);
       if (stopped()) return null;
-      _sweepOrphanProbes(dir);
+      await _sweepOrphanProbes(dir);
       raf = await (open ?? (f) => f.open(mode: FileMode.write))(file);
       if (stopped()) return null;
       final chunk = Uint8List(_probeChunkBytes);
@@ -181,7 +182,7 @@ Future<double?> measureWriteSpeed(
         await raf?.close();
       } catch (_) {}
       try {
-        if (file.existsSync()) file.deleteSync();
+        if (await file.exists()) await file.delete();
       } catch (_) {}
     }
   }

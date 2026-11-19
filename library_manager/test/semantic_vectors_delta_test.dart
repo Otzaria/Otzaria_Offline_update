@@ -2,7 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/testing.dart';
-import 'package:library_manager/library_manager.dart' show LibraryManager;
+import 'package:library_manager/library_manager.dart'
+    show LibraryManager, installTimingSink;
 import 'package:library_manager/src/services/library_state_store.dart';
 import 'package:library_manager/src/services/semantic_search_assets.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -675,6 +676,20 @@ void main() {
         assets.dispose();
       }
     }
+
+    test('every install sub-stage is timed in the log', () async {
+      github.legacyBase(30);
+      await sync(const SemanticFleet());
+      await installModels(
+        p.join(p.dirname(db), SemanticSearchAssets.modelFolder),
+      );
+      engine = FakeVectorsEngine(present: false);
+      final lines = <String>[];
+      installTimingSink = (stage, _) => lines.add(stage);
+      addTearDown(() => installTimingSink = null);
+      await install(supportsWindows: false);
+      expect(lines, contains(startsWith('semantic.engineInstall ')));
+    });
 
     test('a same-size corrupt drive segment is fetched again by the next '
         'online check', () async {

@@ -302,7 +302,9 @@ dart analyze                       # all pure-Dart packages, including otzaria_d
   change, pause release preparation until the conflict is resolved.
 - **`.githooks/pre-commit` runs the same checks locally** on staged packages and
   blocks the commit on failure. Each clone needs
-  `git config core.hooksPath .githooks` once.
+  `git config core.hooksPath .githooks` once. Format and analyze cover the whole
+  package; tests cover only test files that changed or name a changed `lib` file
+  (the whole package when none does, or `FULL_TESTS=1`). CI runs everything.
 - **Report honestly what you ran and what failed.** Do not call a change verified
   when only the analyzer passed.
 - **Prove a bug fix with a test that fails before it and passes after**, under the
@@ -516,10 +518,36 @@ it off for every step but the last. Each unverified step must write its marker
 **before** applying and fail if it cannot. A remaining marker requires
 `verifyFromHash: true` even after rollback or if its contents cannot be parsed.
 
+**Companions stage beside the DB's last patch but commit only after it.**
+`applyDelta` calls `onFinalStepStart` before the last patch's isolate and
+`ConcurrentCompanions` starts the install there; its progress and warnings
+are held until `join`, and its `beforeCommit` awaits the DB outcome. On DB
+failure `abandon` drops the staged files and the held warnings, so new and old
+files never mix. Only when `_companionOverlapFits` proves the space; the
+decision is logged. Keep `saveDeliveredCompanions` after the join.
+
+**The next patch is fetched and extracted while the current one is applied.**
+`_prefetchNext` starts only when free space is proven for both staged patches,
+and its step re-checks `db + next`. Its progress and error wait for its own
+step; any exit from the loop aborts it, **waits** for it and deletes the file
+(a dropped error is logged). A crash leaves files only in
+`.seforim-update-tmp`, cleaned by `recoverIfNeeded` and at `applyDelta` start;
+keep `OfflineLibraryDbRecoveryService` out of that dir during a step.
+
+**The last step verifies only the tables the chain changed (maintainer
+decision); the rest are never verified.** It cut a third of the apply (#281).
+`chainVerifyManifest` marks every table not identical across all the chain's
+maps, or whose rows an earlier step changed; a chain broken by
+`toContentHash`/`fromContentHash` or a step without table maps verifies the
+whole DB. The skipped tables rest on a trusted start (`.unverified` →
+`verifyFromHash`). Logged as `final verification (partial)`;
+`verify_table_bytes.json` is its progress hint.
+
 **The hash verification is never removed, never optional and never a setting.**
 It is the only thing that stops a wrong database silently. A change that drops
 the check in one place must add it in another, or mark the DB as needing a full
-download. `PRAGMA synchronous` is untouched for the same reason.
+download; the partial final check above is the one sanctioned narrowing.
+`PRAGMA synchronous` is untouched for the same reason.
 
 **The verification pass is row reads through FFI — not SHA (2%) and not encoding
 (0%).** Measured on the real DB: `link` takes 45s for 184MB (4 MB/s), so the time
@@ -902,6 +930,15 @@ second full read (#249: one bad USB read must not cost 1.5GB) — since the
 online check (`_mirrorDownloadIncomplete`) is size-only and only a missing file
 starts the download; a read-only drive keeps it.
 
+**The Otzaria installer cache keeps the same mark.** `ensureAssetCached` read the
+whole cached installer on every online sync; a `<asset>.verified` sidecar
+(`sha256|size|mtime`, written after a passing download or hash) now skips it, and
+a changed size or mtime re-hashes, and `MirrorJunkSweeper` keeps it. The
+install-time check still reads the file: the offline machine has no other way
+to catch a corrupt drive.
+`OtzariaInstaller.sha256OfFile` is the hash hook (pure Dart in tests, native
+`Sha256Stream` in an isolate from the launcher's `main`).
+
 **Downloads are parallel *across files*; *within* a file only where the server
 honours `Range`.** Issue #17 asked for a download accelerator, but GitHub's release
 CDN (`release-assets.githubusercontent.com`, an Azure Blob SAS behind a proxy)
@@ -996,6 +1033,14 @@ already closing, fails later opens, and makes deletes of wrapped paths no-ops �
 the engine deletes a file whose close failed, losing the on-drive prefix.
 `confirmClose` shows a closing layer and logs dropped bytes and stage times.
 Details: `otzaria_downloads/README.md`.
+
+**Heavy work runs at below-normal CPU priority, never in background mode.**
+Downloads, hashing and zstd made the whole computer sluggish (#281).
+`PROCESS_MODE_BACKGROUND_BEGIN` trims the working set to ~32MB, which a
+multi-GB SQLite apply turns into constant page faults, so `BackgroundPriority`
+uses `BELOW_NORMAL_PRIORITY_CLASS`, one lease from `AppSession`. Windows passes
+that class to a child, so every launch of a program the user keeps goes through
+`aroundChildStart` (`otzaria_downloads`), which lifts it; route new launches too.
 
 ### 5.3 State that travels on the drive
 
@@ -1236,7 +1281,10 @@ Do not reintroduce a copy-before-apply step or a `backupsToKeep` setting.
 **The full-download route streams; it must never decompress in memory again.** It
 used to hold ~1.1GB as a `Uint8List`, plus a second copy when that was sent to an
 isolate to be written. It is now download → file, `ZstdFileDecompressor` →
-`<db>.new`, then rename.
+`<db>.new`, then rename. Its read and write buffers are 2MiB (libzstd's ~128KB
+defaults cost tens of thousands of awaited file round-trips on a multi-GB DB);
+the stream and both digests are independent of buffer size, and cancellation is
+checked once per buffer.
 
 **`PRAGMA quick_check` on that route stays, and it is not redundant.** It costs a
 measured 111s, and "the sha256 of the compressed asset already proves it" is
@@ -1301,6 +1349,15 @@ up to date forever (issue #33). It now also weighs the folder, against our
 other way is worse than the bug it fixes: "incomplete" means offering a ~450MB
 re-extract on every launch. Both rules and their traps are in
 `library_manager/README.md`; `CompanionAssetsInstaller._talmudContentsComplete`.
+
+**The Talmud staging copy overlaps its flushes and commits after the last one.**
+Flushing each of thousands of PDFs one after another dominated the stage, so
+`copyCompanionFiles` keeps 8 in flight. `commitCompanionInstall` still runs only
+after the call returns, i.e. with every staged file flushed and closed; the first
+failure stops new starts and the running ones clean up before it is rethrown.
+An old subdirectory file at a path the archive rewrites is not copied first.
+Each companion and smart-search sub-stage logs `שלב התקנה: … נמשך Ns` through
+`installTimingSink`, which the launcher points at `AppLogger`.
 
 **A DB updated from outside leaves Otzaria's search index stale, and the fix is a
 deep link — not a file.** Otzaria re-indexes exactly the books `PatchApplier` reports

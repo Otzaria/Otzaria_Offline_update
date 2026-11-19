@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:otzaria_downloads/otzaria_downloads.dart'
-    show ElevatedProcess, WindowsElevation;
+    show ElevatedProcess, WindowsElevation, aroundChildStart;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 
@@ -40,6 +40,10 @@ class OtzariaLauncher {
   /// מערכת ההפעלה, כדי שזה יעבוד גם בהתקנה ניידת שאינה רושמת את הסכימה.
   Future<void> launch(String launchPath, {String? withUri}) async {
     debugLaunchGuard?.call(launchPath);
+    await aroundChildStart(() => _launch(launchPath, withUri));
+  }
+
+  Future<void> _launch(String launchPath, String? withUri) async {
     final isAppBundle = p.basename(launchPath).toLowerCase().endsWith('.app');
 
     // חבילת .app היא **תיקייה**, לא קובץ — בדיקת File.exists עליה תחזיר

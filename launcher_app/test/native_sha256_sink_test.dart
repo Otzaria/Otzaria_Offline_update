@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -21,5 +22,28 @@ void main() {
     sink.close();
 
     expect(digest, sha256.convert(data));
+  });
+  test('hash קובץ ב-isolate שווה ל-package:crypto', () async {
+    final dir = await Directory.systemTemp.createTemp('native-sha-file-');
+    addTearDown(() => dir.delete(recursive: true));
+    final random = Random(11);
+    final data = Uint8List.fromList(
+        List.generate(2 * 1024 * 1024 + 5, (_) => random.nextInt(256)));
+    final file = File('${dir.path}/data.bin')..writeAsBytesSync(data);
+
+    expect(await nativeFileSha256(file.path), sha256.convert(data).toString());
+  });
+  test('נפילת הספרייה הנייטיבית חוזרת ל-Dart טהור', () async {
+    final dir = await Directory.systemTemp.createTemp('native-sha-fallback-');
+    addTearDown(() => dir.delete(recursive: true));
+    final file = File('${dir.path}/d.bin')..writeAsBytesSync([1, 2, 3, 4]);
+    final original = nativeSha256Impl;
+    addTearDown(() => nativeSha256Impl = original);
+    nativeSha256Impl = (_) => throw ArgumentError('no lib');
+
+    expect(
+      await nativeFileSha256(file.path),
+      sha256.convert([1, 2, 3, 4]).toString(),
+    );
   });
 }

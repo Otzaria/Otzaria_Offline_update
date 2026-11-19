@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
+import 'package:otzaria_downloads/otzaria_downloads.dart' show aroundChildStart;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:plugins_manager/plugins_manager.dart';
 
@@ -260,7 +261,9 @@ Future<void> _launch(String appPath) async {
   }
 
   try {
-    await Process.start(appPath, const [], mode: ProcessStartMode.detached);
+    await aroundChildStart(
+      () => Process.start(appPath, const [], mode: ProcessStartMode.detached),
+    );
   } catch (e) {
     AppLogger.instance.info('הפעלת חנות התוספים נכשלה: $e');
     UiSnack.show(AppL10n.strings.plugins.storeAppLaunchFailedSnack('$e'));

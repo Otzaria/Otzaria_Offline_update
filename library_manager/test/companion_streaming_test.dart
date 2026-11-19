@@ -316,7 +316,7 @@ void main() {
     File(marker).writeAsStringSync('old version');
     final staged = p.join(library, 'new-content');
     File(staged).writeAsStringSync('new');
-    expect(
+    await expectLater(
       () => commitCompanionInstall(target, {
         target: staged,
         marker: p.join(library, 'missing-marker'),
@@ -331,7 +331,7 @@ void main() {
   for (final committed in [false, true]) {
     test(
       'recovery ${committed ? 'keeps committed content' : 'restores an interrupted swap'}',
-      () {
+      () async {
         final target = p.join(library, 'lexical.db');
         final marker = '$target.version';
         final backup = Directory(companionBackupPath(target))..createSync();
@@ -345,7 +345,7 @@ void main() {
           File(marker).writeAsStringSync('new version');
           File(p.join(backup.path, 'committed')).writeAsStringSync('1');
         }
-        recoverCompanionInstall(target, [target, marker]);
+        await recoverCompanionInstall(target, [target, marker]);
         expect(File(target).readAsStringSync(), committed ? 'new' : 'old');
         expect(
           File(marker).readAsStringSync(),
@@ -426,13 +426,13 @@ void main() {
 
   test(
     'committed cleanup can resume after the journal was already removed',
-    () {
+    () async {
       final target = p.join(library, 'lexical.db');
       File(target).writeAsStringSync('new');
       final backup = Directory(companionBackupPath(target))..createSync();
       File(p.join(backup.path, '0')).writeAsStringSync('old');
       File(p.join(backup.path, 'committed')).writeAsStringSync('1');
-      recoverCompanionInstall(target, [target]);
+      await recoverCompanionInstall(target, [target]);
       expect(File(target).readAsStringSync(), 'new');
       expect(backup.existsSync(), isFalse);
     },

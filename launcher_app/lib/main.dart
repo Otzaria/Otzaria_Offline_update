@@ -6,8 +6,10 @@ import 'package:error_reports_manager/error_reports_manager.dart'
     show LauncherLogFormat;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:library_manager/library_manager.dart' show installTimingSink;
 import 'package:otzaria_downloads/otzaria_downloads.dart' as downloads;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
+import 'package:otzaria_manager/otzaria_manager.dart' show OtzariaInstaller;
 import 'package:window_manager/window_manager.dart';
 
 import 'src/app_report/launcher_crash_session.dart';
@@ -20,6 +22,7 @@ import 'src/self_update/launcher_version.dart';
 import 'src/self_update/payload_check.dart';
 import 'src/services/app_logger.dart';
 import 'src/services/app_paths.dart';
+import 'src/services/background_priority.dart';
 import 'src/services/instance_lock.dart';
 import 'src/services/native_sha256_sink.dart';
 import 'src/services/netfree_certificates.dart';
@@ -66,6 +69,8 @@ void main() {
       // אם המשתמש בחר שפה מפורשת.
       AppL10n.use(systemLanguage());
       downloads.startSha256 = NativeSha256Sink.new;
+      downloads.aroundChildStart = BackgroundPriority.instance.aroundChildStart;
+      OtzariaInstaller.sha256OfFile = nativeFileSha256;
 
       // תופס שגיאות שה-widgets framework עצמו זורק (למשל בתוך build/layout).
       FlutterError.onError = (details) {
@@ -147,6 +152,9 @@ void main() {
         trustNetfreeCertificates(),
       ]);
       logger = initialized.first as AppLogger;
+      installTimingSink = (stage, seconds) => AppLogger.instance.info(
+            'שלב התקנה: $stage נמשך ${seconds.toStringAsFixed(1)}s',
+          );
 
       // מיד אחרי שיש לוג: משם והלאה כל שלב בעלייה מותיר עקבות, כולל הפריים
       // הראשון שהוצג — בלעדיו "מסך שחור" ו"תקוע" נראים אותו דבר (issue #28).

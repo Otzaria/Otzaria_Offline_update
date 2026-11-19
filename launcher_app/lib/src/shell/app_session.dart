@@ -36,6 +36,7 @@ import '../self_update/launcher_self_updater.dart';
 import '../services/after_launcher_update_store.dart';
 import '../services/app_logger.dart';
 import '../services/app_paths.dart';
+import '../services/background_priority.dart';
 import '../services/byte_size.dart';
 import '../services/elevation.dart';
 import '../services/file_reveal.dart';
@@ -71,6 +72,7 @@ class AppSession extends ChangeNotifier {
     NoticesSeenStore? noticesStore,
     this.appReports,
     SleepInhibitor? sleepInhibitor,
+    @visibleForTesting BackgroundPriority? backgroundPriority,
     @visibleForTesting
     OtzariaLauncher otzariaLauncher = const OtzariaLauncher(),
     SearchFeedbackController? searchFeedback,
@@ -84,7 +86,9 @@ class AppSession extends ChangeNotifier {
     @visibleForTesting WriteBehindPool? driveWrites,
   })  : _noticesStore = noticesStore,
         _injectedDriveWrites = driveWrites,
-        _injectedSleepInhibitor = sleepInhibitor {
+        _injectedSleepInhibitor = sleepInhibitor,
+        _backgroundPriority =
+            backgroundPriority ?? BackgroundPriority.instance {
     _android = AndroidModuleController(
       dataDir: dataDir,
       stateDir: stateFilesDir,
@@ -205,6 +209,8 @@ class AppSession extends ChangeNotifier {
 
   late final SleepInhibitor _sleepInhibitor =
       _injectedSleepInhibitor ?? SleepInhibitor();
+  final BackgroundPriority _backgroundPriority;
+  void Function()? _releaseBackground;
   late final OtzariaModuleController _otzaria;
   late final AndroidModuleController _android;
   late final LibraryModuleController _library;
@@ -528,6 +534,7 @@ class AppSession extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _sleepInhibitor.dispose();
+    _setBackground(false);
     if (LauncherCrashSession.closeGuard == confirmClose) {
       LauncherCrashSession.closeGuard = null;
     }
@@ -1141,7 +1148,28 @@ class AppSession extends ChangeNotifier {
 
   bool get exitPending => _elevationPending || _launcherUpdate.isInstalling;
 
-  void _syncSleepInhibition() => _sleepInhibitor.setActive(
+  void _setBackground(bool heavy) {
+    if (heavy && _releaseBackground == null) {
+      _releaseBackground = _backgroundPriority.acquire();
+    } else if (!heavy && _releaseBackground != null) {
+      _releaseBackground!();
+      _releaseBackground = null;
+    }
+  }
+
+  void _syncSleepInhibition() {
+    // חיפוש חכם ודוחות קלים; רק עבודה כבדה מורידה עדיפות.
+    _setBackground(
+      longTaskRunning ||
+          _launcherUpdate.isDownloading ||
+          _library.downloadStatus == MirrorDownloadStatus.downloading ||
+          _otzaria.downloadStatus == OtzariaDownloadStatus.downloading ||
+          _plugins.isInInstallWindow,
+    );
+    _syncSleep();
+  }
+
+  void _syncSleep() => _sleepInhibitor.setActive(
         exitWouldInterrupt ||
             _searchFeedback.isCollecting ||
             _searchFeedback.isUploading ||

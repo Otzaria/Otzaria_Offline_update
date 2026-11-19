@@ -108,6 +108,7 @@ class _StatusManager extends LibraryManager {
     void Function(String reason)? onLibraryLocationFailure,
     bool Function()? isCancelled,
     bool useFullDownloadFallback = false,
+    void Function(String message)? onLog,
   }) async {
     if (afterApply case final next?) status = next;
     if (failCheckAfterApply) checkError = StateError('db is locked');

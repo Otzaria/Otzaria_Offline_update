@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:otzaria_downloads/otzaria_downloads.dart' as downloads;
 import 'package:otzaria_downloads/otzaria_downloads.dart' show ElevatedProcess;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:otzaria_manager/otzaria_manager.dart';
@@ -30,6 +31,27 @@ void main() {
         ),
       );
     });
+
+    test('the start runs inside aroundChildStart', () async {
+      final original = downloads.aroundChildStart;
+      addTearDown(() => downloads.aroundChildStart = original);
+      var inside = false;
+      downloads.aroundChildStart = <T>(Future<T> Function() start) async {
+        inside = true;
+        try {
+          return await start();
+        } finally {
+          inside = false;
+        }
+      };
+      final exe = File(p.join(tempDir.path, 'otzaria.exe'))
+        ..writeAsStringSync('x');
+      bool? seen;
+      await OtzariaLauncher(
+        startProcess: (e, a, {workingDirectory}) async => seen = inside,
+      ).launch(exe.path);
+      expect(seen, isTrue);
+    }, testOn: '!windows');
 
     test('throws when the .app bundle does not exist', () {
       expect(

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
@@ -155,8 +156,9 @@ class StoreAppMirror {
     }
   }
 
-  static Future<String> _sha256Of(String path) async =>
-      (await sha256.bind(File(path).openRead()).first).toString();
+  static Future<String> _sha256Of(String path) => Isolate.run(
+        () async => (await sha256.bind(File(path).openRead()).first).toString(),
+      );
 
   /// גרסאות קודמות של התוכנה אינן שוות מקום על הכונן — מייצאים תמיד את
   /// האחרונה.

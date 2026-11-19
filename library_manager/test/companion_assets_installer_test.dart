@@ -285,6 +285,14 @@ void main() {
       expect(second.delivered[CompanionAsset.dictionary], 'v2');
     });
 
+    test('כל תת-שלב של ההתקנה נרשם בלוג עם משך', () async {
+      final lines = <String>[];
+      installTimingSink = (stage, _) => lines.add(stage);
+      addTearDown(() => installTimingSink = null);
+      await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
+      expect(lines, containsAll(['dictionary.copyHash', 'dictionary.swap']));
+    });
+
     test('תג שונה במראה מחליף את הקובץ המותקן', () async {
       await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
       await File(p.join(mirrorDir, 'lexical.db')).writeAsString('NEWER');
@@ -456,6 +464,155 @@ void main() {
         path,
       ).writeAsBytesSync(compressWithZstd(bindings!, Uint8List.fromList(tar)));
     }
+
+    test('תת-שלבי התלמוד נרשמים בלוג עם משך', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      writeTalmudArchive(p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'), [
+        'ברכות.pdf',
+      ]);
+      await writeManifest({
+        'talmud': {
+          'fileName': 'talmud_bavli_latest.tar.zst',
+          'size': mirrorSize('talmud_bavli_latest.tar.zst'),
+          'tag': 'v1',
+          'compressed': true,
+        },
+      });
+      final lines = <String>[];
+      installTimingSink = (stage, _) => lines.add(stage);
+      addTearDown(() => installTimingSink = null);
+      await installer.install(mirrorDir: mirrorDir, dbPath: dbPath);
+      for (final stage in ['zstd', 'readTar', 'copy', 'swap']) {
+        expect(lines.where((l) => l == 'talmud.$stage'), hasLength(1));
+      }
+    });
+
+    test('לפני ההחלפה כל הקבצים כבר מלאים בתיקיית הביניים', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final names = [for (var i = 0; i < 25; i++) 'מסכת$i.pdf'];
+      writeTalmudArchive(
+        p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'),
+        names,
+      );
+      await writeManifest({
+        'talmud': {
+          'fileName': 'talmud_bavli_latest.tar.zst',
+          'size': mirrorSize('talmud_bavli_latest.tar.zst'),
+          'tag': 'v1',
+          'compressed': true,
+        },
+      });
+      final staged = p.join(
+        libraryDir,
+        'תלמוד בבלי.offline-staging',
+        'תלמוד בבלי',
+      );
+      var checked = 0;
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+        beforeCommit: () async {
+          if (!Directory(staged).existsSync()) return;
+          for (final name in names) {
+            expect(
+              File(p.join(staged, name)).lengthSync(),
+              utf8.encode('pdf:$name').length,
+            );
+            checked++;
+          }
+        },
+      );
+      expect(
+        report.outcomes[CompanionAsset.talmud],
+        CompanionInstallOutcome.installed,
+      );
+      expect(checked, greaterThanOrEqualTo(names.length));
+    });
+
+    test('קובץ ישן שנבדל מהארכיון באותיות בלבד אינו נכתב במקביל', () async {
+      if (bindings == null || Platform.isLinux) {
+        markTestSkipped('נדרשים zstd ומערכת קבצים שאינה רגישה לאותיות');
+        return;
+      }
+      writeTalmudArchive(p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'), [
+        'sub/foo.pdf',
+      ]);
+      await writeManifest({
+        'talmud': {
+          'fileName': 'talmud_bavli_latest.tar.zst',
+          'size': mirrorSize('talmud_bavli_latest.tar.zst'),
+          'tag': 'v1',
+          'compressed': true,
+        },
+      });
+      final talmudDir = p.join(libraryDir, 'תלמוד בבלי');
+      Directory(p.join(talmudDir, 'sub')).createSync(recursive: true);
+      File(p.join(talmudDir, 'sub', 'Foo.pdf')).writeAsStringSync('OLD' * 100);
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+      );
+      expect(
+        report.outcomes[CompanionAsset.talmud],
+        CompanionInstallOutcome.installed,
+      );
+      expect(
+        File(p.join(talmudDir, 'sub', 'foo.pdf')).readAsStringSync(),
+        'pdf:sub/foo.pdf',
+      );
+    });
+
+    test('קובץ ישן בתת-תיקייה שהארכיון כותב מחדש אינו מועתק פעמיים', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      writeTalmudArchive(p.join(mirrorDir, 'talmud_bavli_latest.tar.zst'), [
+        'sub/a.pdf',
+        'top.pdf',
+      ]);
+      await writeManifest({
+        'talmud': {
+          'fileName': 'talmud_bavli_latest.tar.zst',
+          'size': mirrorSize('talmud_bavli_latest.tar.zst'),
+          'tag': 'v1',
+          'compressed': true,
+        },
+      });
+      final talmudDir = p.join(libraryDir, 'תלמוד בבלי');
+      Directory(p.join(talmudDir, 'sub')).createSync(recursive: true);
+      File(p.join(talmudDir, 'sub', 'a.pdf')).writeAsStringSync('OLD' * 100);
+      File(p.join(talmudDir, 'sub', 'keep.pdf')).writeAsStringSync('KEEP');
+      int? total;
+      final report = await installer.install(
+        mirrorDir: mirrorDir,
+        dbPath: dbPath,
+        onProgress: (_, _, bytesTotal) => total ??= bytesTotal,
+      );
+      expect(
+        report.outcomes[CompanionAsset.talmud],
+        CompanionInstallOutcome.installed,
+      );
+      expect(
+        File(p.join(talmudDir, 'sub', 'a.pdf')).readAsStringSync(),
+        'pdf:sub/a.pdf',
+      );
+      expect(
+        File(p.join(talmudDir, 'sub', 'keep.pdf')).readAsStringSync(),
+        'KEEP',
+      );
+      expect(
+        File(p.join(talmudDir, 'top.pdf')).readAsStringSync(),
+        'pdf:top.pdf',
+      );
+      expect(total, 'pdf:sub/a.pdf'.length + 'pdf:top.pdf'.length + 4);
+    });
 
     test('מחולץ לתיקיית הספרייה, עם סימון הגרסה בסוף', () async {
       if (bindings == null) {

@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:otzaria_l10n/otzaria_l10n.dart';
 import 'package:path/path.dart' as p;
 import 'package:seforim_library_updater/seforim_library_updater.dart';
@@ -151,6 +153,7 @@ class LibraryUpdateApplier {
 
   /// שם קובץ ה-hint לסך-הבתים של אימות ה-hash — ראו [applyDelta].
   static const String _verifyHintFileName = 'verify_total_bytes.txt';
+  static const String _verifyTableHintFileName = 'verify_table_bytes.json';
 
   static Future<void> _defaultExtractedDbVerifier(
     String newDbPath,
@@ -180,6 +183,8 @@ class LibraryUpdateApplier {
     void Function(LibraryApplyProgress progress)? onProgress,
     void Function(Set<int> booksTouched, int toVersion)? onStepApplied,
     bool Function()? isCancelled,
+    void Function(String message)? onLog,
+    Future<void> Function()? onFinalStepStart,
   }) async {
     for (final edge in plan.deltaSteps) {
       for (final source in edge.patchFileUrls.values) {
@@ -196,6 +201,8 @@ class LibraryUpdateApplier {
         onProgress: onProgress,
         onStepApplied: onStepApplied,
         isCancelled: isCancelled,
+        onLog: onLog,
+        onFinalStepStart: onFinalStepStart,
       ),
     );
   }
@@ -206,6 +213,8 @@ class LibraryUpdateApplier {
     void Function(LibraryApplyProgress progress)? onProgress,
     void Function(Set<int> booksTouched, int toVersion)? onStepApplied,
     bool Function()? isCancelled,
+    void Function(String message)? onLog,
+    Future<void> Function()? onFinalStepStart,
   }) async {
     if (plan.kind != LibraryUpdatePlanKind.delta) {
       throw StateError('applyDelta נקרא על תוכנית שאינה delta');
@@ -213,10 +222,13 @@ class LibraryUpdateApplier {
     await _guardOtzariaNotRunning();
 
     final tmpDir = Directory(_recovery.patchTmpDirFor(dbPath));
+    await _deleteStaleExtracting(tmpDir);
     final steps = plan.deltaSteps;
 
     final hintFile = File(p.join(tmpDir.path, _verifyHintFileName));
     var verifyTotalHint = _readIntQuietly(hintFile);
+    final tableHintFile = File(p.join(tmpDir.path, _verifyTableHintFileName));
+    var verifyTableHint = _readTableBytesQuietly(tableHintFile);
     var lastVerifyDone = 0;
     var lastPatchStage = 'verifyToHash';
     final booksTouched = <int>{};
@@ -224,124 +236,331 @@ class LibraryUpdateApplier {
     final needsSourceVerification = File(
       _recovery.unverifiedMarkerPathFor(dbPath),
     ).existsSync();
+    final changedEarlier = <String>{};
 
-    for (var i = 0; i < steps.length; i++) {
-      _throwIfCancelled(isCancelled);
-      final edge = steps[i];
-      final manifest = edge.manifest;
-      final patchFile = manifest.patchFiles.first;
-      final url = edge.patchFileUrls[patchFile.file];
-      if (url == null) {
-        throw LibraryApplyException(
-          AppL10n.strings.libraryDomain.patchUrlMissing(patchFile.file),
-        );
+    _StagedPatch? pending;
+    try {
+      for (var i = 0; i < steps.length; i++) {
+        _throwIfCancelled(isCancelled);
+        final edge = steps[i];
+        final manifest = edge.manifest;
+        final patchFile = manifest.patchFiles.first;
+        final url = edge.patchFileUrls[patchFile.file];
+        if (url == null) {
+          throw LibraryApplyException(
+            AppL10n.strings.libraryDomain.patchUrlMissing(patchFile.file),
+          );
+        }
+
+        if (i > 0) await _guardOtzariaNotRunning();
+
+        final _StagedPatch staged;
+        final prefetched = pending;
+        pending = null;
+        if (prefetched != null) {
+          final dbSize = File(dbPath).existsSync()
+              ? File(dbPath).lengthSync()
+              : 0;
+          try {
+            // The staged patch already holds its own bytes; the apply adds the
+            // journal on top, so the gate is checked again here.
+            _ensureSpaceFor(
+              p.dirname(dbPath),
+              dbSize + patchFile.uncompressedSize,
+            );
+            _ensureFileFitsVolume(
+              p.dirname(dbPath),
+              dbSize + patchFile.uncompressedSize,
+            );
+          } catch (_) {
+            await prefetched.discard(_deleteQuietly);
+            rethrow;
+          }
+          staged = prefetched..forward = true;
+          onLog?.call(
+            'prefetched patch ${i + 1}/${steps.length} while applying the previous',
+          );
+        } else {
+          _ensureDeltaStepFits(dbPath, url, patchFile);
+          staged = _stagePatch(
+            index: i,
+            stepCount: steps.length,
+            patchFile: patchFile,
+            url: url,
+            tmpDir: tmpDir,
+            onProgress: onProgress,
+            isCancelled: isCancelled,
+            forward: true,
+          );
+        }
+        final patchPath = await staged.take();
+
+        try {
+          _throwIfCancelled(isCancelled);
+          await _recovery.beginApply(
+            dbPath: dbPath,
+            fromVersion: manifest.fromVersion,
+            toVersion: manifest.toVersion,
+            timestamp: DateTime.now().toIso8601String(),
+          );
+          _throwIfCancelled(isCancelled);
+
+          onProgress?.call(
+            LibraryApplyProgress(
+              stage: LibraryApplyStage.applyingPatch,
+              stepIndex: i + 1,
+              stepCount: steps.length,
+            ),
+          );
+
+          _throwIfCancelled(isCancelled);
+          if (i < steps.length - 1) {
+            _recovery.markUnverified(dbPath, manifest.toVersion);
+          }
+          final isLast = i == steps.length - 1;
+          final chainManifest = isLast
+              ? chainVerifyManifest([
+                  for (final s in steps) s.manifest,
+                ], changedEarlier: changedEarlier)
+              : null;
+          final partial = chainManifest != null;
+          if (!isLast) {
+            pending = _prefetchNext(
+              dbPath: dbPath,
+              tmpDir: tmpDir,
+              steps: steps,
+              current: i,
+              onProgress: onProgress,
+              isCancelled: isCancelled,
+              onLog: onLog,
+            );
+          }
+          if (isLast) await onFinalStepStart?.call();
+          final result = await _isolateApplyPatch(
+            dbPath: dbPath,
+            patchPath: patchPath,
+            manifest: isLast ? (chainManifest ?? manifest) : manifest,
+            language: AppL10n.language,
+            verifyFromHash: i == 0 && needsSourceVerification,
+            verifyToHash: isLast,
+            partialVerify: partial,
+            verifyTotalBytesHint: partial ? null : verifyTotalHint,
+            verifyTableBytesHint: partial ? verifyTableHint : null,
+            onStage: (patchStage) {
+              lastPatchStage = patchStage;
+              onProgress?.call(
+                LibraryApplyProgress(
+                  stage: LibraryApplyStage.applyingPatch,
+                  stepIndex: i + 1,
+                  stepCount: steps.length,
+                  patchStage: patchStage,
+                ),
+              );
+            },
+            onVerifyProgress: (done, total) {
+              lastVerifyDone = done;
+              onProgress?.call(
+                LibraryApplyProgress(
+                  stage: LibraryApplyStage.applyingPatch,
+                  stepIndex: i + 1,
+                  stepCount: steps.length,
+                  patchStage: lastPatchStage,
+                  verifyProgress: total > 0
+                      ? (done / total).clamp(0.0, 1.0)
+                      : null,
+                ),
+              );
+            },
+          );
+          booksTouched.addAll(result.booksTouched);
+          for (final counts in [result.upserts, result.deletes]) {
+            changedEarlier.addAll([
+              for (final e in counts.entries)
+                if (e.value > 0) e.key,
+            ]);
+          }
+          onStepApplied?.call(result.booksTouched, manifest.toVersion);
+          if (isLast && result.resultHash != null) {
+            onLog?.call(_describeVerification(result));
+          }
+          // A partial count is too low as a whole-DB hint; it feeds the table map.
+          if (result.verifiedTables.isNotEmpty) {
+            verifyTableHint = {...?verifyTableHint, ...result.verifyTableBytes};
+            _writeTableBytesQuietly(tableHintFile, verifyTableHint);
+          } else if (lastVerifyDone > 0) {
+            verifyTotalHint = lastVerifyDone;
+            _writeIntQuietly(hintFile, lastVerifyDone);
+          }
+          if (result.resultHash != null) {
+            _recovery.clearUnverified(dbPath);
+          }
+          _recovery.finishSuccess(dbPath);
+        } catch (_) {
+          _recovery.clearStaleArtifacts(dbPath);
+          rethrow;
+        } finally {
+          await _deleteQuietly(patchPath);
+        }
       }
-
-      if (i > 0) await _guardOtzariaNotRunning();
-
-      _ensureDeltaStepFits(dbPath, url, patchFile);
-
-      final patchPath = await _fetchPatch(
-        patchFile: patchFile,
-        url: url,
-        destDir: tmpDir,
-        onProgress: (downloaded, total) => onProgress?.call(
-          LibraryApplyProgress(
-            stage: LibraryApplyStage.downloadingPatch,
-            stepIndex: i + 1,
-            stepCount: steps.length,
-            bytesDone: downloaded,
-            bytesTotal: total,
-          ),
-        ),
-        onExtractionProgress: (written, total) => onProgress?.call(
-          LibraryApplyProgress(
-            stage: LibraryApplyStage.decompressingPatch,
-            stepIndex: i + 1,
-            stepCount: steps.length,
-            bytesDone: written,
-            bytesTotal: total,
-          ),
-        ),
-        isCancelled: isCancelled,
-      );
-
-      try {
-        _throwIfCancelled(isCancelled);
-        await _recovery.beginApply(
-          dbPath: dbPath,
-          fromVersion: manifest.fromVersion,
-          toVersion: manifest.toVersion,
-          timestamp: DateTime.now().toIso8601String(),
-        );
-        _throwIfCancelled(isCancelled);
-
-        onProgress?.call(
-          LibraryApplyProgress(
-            stage: LibraryApplyStage.applyingPatch,
-            stepIndex: i + 1,
-            stepCount: steps.length,
-          ),
-        );
-
-        _throwIfCancelled(isCancelled);
-        if (i < steps.length - 1) {
-          _recovery.markUnverified(dbPath, manifest.toVersion);
-        }
-        final result = await _isolateApplyPatch(
-          dbPath: dbPath,
-          patchPath: patchPath,
-          manifest: manifest,
-          language: AppL10n.language,
-          verifyFromHash: i == 0 && needsSourceVerification,
-          verifyToHash: i == steps.length - 1,
-          verifyTotalBytesHint: verifyTotalHint,
-          onStage: (patchStage) {
-            lastPatchStage = patchStage;
-            onProgress?.call(
-              LibraryApplyProgress(
-                stage: LibraryApplyStage.applyingPatch,
-                stepIndex: i + 1,
-                stepCount: steps.length,
-                patchStage: patchStage,
-              ),
-            );
-          },
-          onVerifyProgress: (done, total) {
-            lastVerifyDone = done;
-            onProgress?.call(
-              LibraryApplyProgress(
-                stage: LibraryApplyStage.applyingPatch,
-                stepIndex: i + 1,
-                stepCount: steps.length,
-                patchStage: lastPatchStage,
-                verifyProgress: total > 0
-                    ? (done / total).clamp(0.0, 1.0)
-                    : null,
-              ),
-            );
-          },
-        );
-        booksTouched.addAll(result.booksTouched);
-        onStepApplied?.call(result.booksTouched, manifest.toVersion);
-        if (lastVerifyDone > 0) {
-          verifyTotalHint = lastVerifyDone;
-          _writeIntQuietly(hintFile, lastVerifyDone);
-        }
-        if (result.resultHash != null) {
-          _recovery.clearUnverified(dbPath);
-        }
-        _recovery.finishSuccess(dbPath);
-      } catch (_) {
-        _recovery.clearStaleArtifacts(dbPath);
-        rethrow;
-      } finally {
-        _deleteQuietly(patchPath);
+    } finally {
+      final held = await pending?.discard(_deleteQuietly);
+      if (held != null &&
+          held is! PatchDownloadCancelled &&
+          held is! LibraryApplyCancelledException) {
+        onLog?.call('prefetched patch dropped with its error: $held');
       }
     }
 
     onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.done));
     return booksTouched;
+  }
+
+  /// Starts patch `current + 1` while `current` is applied; null (sequential)
+  /// unless free space for both staged patches is known.
+  _StagedPatch? _prefetchNext({
+    required String dbPath,
+    required Directory tmpDir,
+    required List<PatchEdge> steps,
+    required int current,
+    void Function(LibraryApplyProgress progress)? onProgress,
+    bool Function()? isCancelled,
+    void Function(String message)? onLog,
+  }) {
+    final next = steps[current + 1].manifest.patchFiles.first;
+    final nextUrl = steps[current + 1].patchFileUrls[next.file];
+    final now = steps[current].manifest.patchFiles.first;
+    if (nextUrl == null ||
+        extractedPatchFileName(next.file) == extractedPatchFileName(now.file)) {
+      return null;
+    }
+    final dir = p.dirname(dbPath);
+    final dbSize = File(dbPath).existsSync() ? File(dbPath).lengthSync() : 0;
+    final download = PatchDownloader.isRemoteUrl(nextUrl) ? 2 * next.size : 0;
+    final free = _freeBytesFor(dir);
+    final needed =
+        dbSize + 2 * now.uncompressedSize + download + next.uncompressedSize;
+    if (free == null || DiskSpaceProbe.lacksSpace(free, needed)) {
+      onLog?.call(
+        'prefetch of patch ${current + 2} skipped: space for two not proven',
+      );
+      return null;
+    }
+    return _stagePatch(
+      index: current + 1,
+      stepCount: steps.length,
+      patchFile: next,
+      url: nextUrl,
+      tmpDir: tmpDir,
+      onProgress: onProgress,
+      isCancelled: isCancelled,
+      forward: false,
+    );
+  }
+
+  /// Fetches one patch; progress is muted until `forward` is set and an error
+  /// is held until `take`.
+  _StagedPatch _stagePatch({
+    required int index,
+    required int stepCount,
+    required PatchFileEntry patchFile,
+    required String url,
+    required Directory tmpDir,
+    required bool forward,
+    void Function(LibraryApplyProgress progress)? onProgress,
+    bool Function()? isCancelled,
+  }) {
+    final staged = _StagedPatch(forward);
+    void emit(LibraryApplyProgress progress) {
+      if (staged.forward) onProgress?.call(progress);
+    }
+
+    staged._result =
+        _fetchPatch(
+          patchFile: patchFile,
+          url: url,
+          destDir: tmpDir,
+          onProgress: (downloaded, total) => emit(
+            LibraryApplyProgress(
+              stage: LibraryApplyStage.downloadingPatch,
+              stepIndex: index + 1,
+              stepCount: stepCount,
+              bytesDone: downloaded,
+              bytesTotal: total,
+            ),
+          ),
+          onExtractionProgress: (written, total) => emit(
+            LibraryApplyProgress(
+              stage: LibraryApplyStage.decompressingPatch,
+              stepIndex: index + 1,
+              stepCount: stepCount,
+              bytesDone: written,
+              bytesTotal: total,
+            ),
+          ),
+          isCancelled: () => staged.abort || (isCancelled?.call() ?? false),
+        ).then<_StagedResult>(
+          (path) => (path: path, error: null, stack: null),
+          onError: (Object e, StackTrace s) => (path: null, error: e, stack: s),
+        );
+    return staged;
+  }
+
+  /// המניפסט האחרון, כשכל טבלה שאינה זהה בכל מפות השרשרת, או שצעד מוקדם
+  /// שינה בה שורות ([changedEarlier]), מסומנת כשונה. null — אימות של כל המסד.
+  @visibleForTesting
+  static DeltaManifest? chainVerifyManifest(
+    List<DeltaManifest> steps, {
+    Set<String> changedEarlier = const {},
+  }) {
+    if (steps.isEmpty) return null;
+    final last = steps.last;
+    final lastFrom = last.fromTableContentHashes;
+    if (lastFrom == null || last.toTableContentHashes == null) return null;
+    for (var k = 0; k + 1 < steps.length; k++) {
+      final m = steps[k];
+      if (m.fromTableContentHashes == null || m.toTableContentHashes == null) {
+        return null;
+      }
+      // A republished release under the same version breaks the chain by hash.
+      if (m.toContentHash != steps[k + 1].fromContentHash) return null;
+    }
+    final from = {...lastFrom};
+    for (final t in lastFrom.keys) {
+      final same =
+          !changedEarlier.contains(t) &&
+          steps
+              .take(steps.length - 1)
+              .every(
+                (m) =>
+                    m.fromTableContentHashes![t] == lastFrom[t] &&
+                    m.toTableContentHashes![t] == lastFrom[t],
+              );
+      if (!same) from[t] = 'changed-earlier-in-chain';
+    }
+    return DeltaManifest(
+      fromVersion: last.fromVersion,
+      toVersion: last.toVersion,
+      fromSchemaVersion: last.fromSchemaVersion,
+      toSchemaVersion: last.toSchemaVersion,
+      patchFormatVersion: last.patchFormatVersion,
+      fromContentHash: last.fromContentHash,
+      toContentHash: last.toContentHash,
+      fromTableContentHashes: from,
+      toTableContentHashes: last.toTableContentHashes,
+      patchFiles: last.patchFiles,
+      fullRebase: last.fullRebase,
+      booksTouched: last.booksTouched,
+      catalogBlobName: last.catalogBlobName,
+    );
+  }
+
+  static String _describeVerification(PatchApplyResult r) {
+    if (r.verifiedTables.isEmpty) return 'final verification: whole database';
+    String fmt(String t) => '$t=${r.verifyTableBytes[t] ?? 0}';
+    final bytes = r.verifyTableBytes.values.fold<int>(0, (a, b) => a + b);
+    return 'final verification (partial): ${r.verifiedTables.length} tables '
+        '($bytes bytes: ${r.verifiedTables.map(fmt).join(', ')}), '
+        'skipped ${r.deferredTables.length} (${r.deferredTables.join(', ')})';
   }
 
   Future<String> _fetchPatch({
@@ -507,7 +726,7 @@ class LibraryUpdateApplier {
     final partialPath = '$extractedPath.extracting';
     _assertDistinctSource(sourcePath, partialPath);
     _assertDistinctSource(sourcePath, extractedPath);
-    _deleteQuietly(partialPath);
+    await _deleteQuietly(partialPath);
     _throwIfCancelled(isCancelled);
     String? sourceDigest;
     String? outputDigest;
@@ -528,7 +747,7 @@ class LibraryUpdateApplier {
         maxOutputBytes: patchFile.uncompressedSize,
       );
       if (!streamed) {
-        _deleteQuietly(partialPath);
+        await _deleteQuietly(partialPath);
         return null;
       }
       _throwIfCancelled(isCancelled);
@@ -562,13 +781,13 @@ class LibraryUpdateApplier {
       await output.rename(extractedPath);
       return extractedPath;
     } on ZstdOutputLimitExceeded catch (e) {
-      _deleteQuietly(partialPath);
+      await _deleteQuietly(partialPath);
       _throwIfCancelled(isCancelled);
-      _forgetMirrorVerification(sourcePath);
+      await _forgetMirrorVerification(sourcePath);
       throw PatchDownloadException(e.message);
     } on ZstdStreamException catch (e) {
       // קובץ שנפגם בכונן נופל כאן, לפני השוואת ה-sha256.
-      _deleteQuietly(partialPath);
+      await _deleteQuietly(partialPath);
       _throwIfCancelled(isCancelled);
       if (!_isCorruptSource(e)) rethrow;
       await _discardCorruptMirrorAsset(
@@ -578,7 +797,7 @@ class LibraryUpdateApplier {
       );
       throw PatchDownloadException(strings.localFileHashMismatch(sourcePath));
     } catch (_) {
-      _deleteQuietly(partialPath);
+      await _deleteQuietly(partialPath);
       _throwIfCancelled(isCancelled);
       rethrow;
     }
@@ -720,10 +939,10 @@ class LibraryUpdateApplier {
     // הנתיב ש**אנחנו** יצרנו, ולכן מותר למחוק. המראה נמחקת רק אחרי שקריאה
     // שנייה הוכיחה שהיא פגומה ([_discardCorruptMirrorAsset]).
     String? staged;
-    void deleteStaged() {
+    Future<void> deleteStaged() async {
       if (staged case final path?) {
-        _deleteQuietly(path);
-        _deleteQuietly(PatchDownloader.resumeSidecarPath(path));
+        await _deleteQuietly(path);
+        await _deleteQuietly(PatchDownloader.resumeSidecarPath(path));
       }
     }
 
@@ -748,8 +967,8 @@ class LibraryUpdateApplier {
         );
       }
       // שארית מגרסה שעוד העתיקה את הנכס לכאן — אין לה שימוש יותר.
-      _deleteQuietly(stagedPath);
-      _deleteQuietly(PatchDownloader.resumeSidecarPath(stagedPath));
+      await _deleteQuietly(stagedPath);
+      await _deleteQuietly(PatchDownloader.resumeSidecarPath(stagedPath));
       PatchDownloader.deleteSegmentFiles(stagedPath);
     } else {
       compressedPath = stagedPath;
@@ -788,7 +1007,7 @@ class LibraryUpdateApplier {
     // מחלצים לקובץ צדדי ורק בסוף מחליפים את ה-DB: כך ה-DB הקיים נשאר שלם
     // עד שהחדש מוכן במלואו, בדיוק כמו במסלול ה-staging של התקנת האפליקציה.
     final newFilePath = '$dbPath.new';
-    _deleteQuietly(newFilePath);
+    await _deleteQuietly(newFilePath);
     final extractedSize = ZstdFileDecompressor.contentSizeOf(compressedPath);
     if (extractedSize != null) {
       _ensureFileFitsVolume(dir.path, extractedSize);
@@ -831,9 +1050,9 @@ class LibraryUpdateApplier {
         );
       }
     } catch (e) {
-      _deleteQuietly(newFilePath);
+      await _deleteQuietly(newFilePath);
       _throwIfCancelled(isCancelled);
-      if (_isCorruptSource(e)) deleteStaged();
+      if (_isCorruptSource(e)) await deleteStaged();
       if (_isFileTooLargeError(e)) {
         throw LibraryApplyException(
           AppL10n.strings.libraryDomain.fileTooLargeForVolume(dir.path),
@@ -862,7 +1081,7 @@ class LibraryUpdateApplier {
     if (writtenSize == 0 ||
         writtenSize > _maxFullDbBytes ||
         (extractedSize != null && writtenSize < extractedSize)) {
-      _deleteQuietly(newFilePath);
+      await _deleteQuietly(newFilePath);
       throw LibraryApplyException(
         AppL10n.strings.libraryDomain.fullDbExtractionFailed,
       );
@@ -887,11 +1106,11 @@ class LibraryUpdateApplier {
         ),
       );
     } catch (_) {
-      _deleteQuietly(newFilePath);
+      await _deleteQuietly(newFilePath);
       rethrow;
     }
     if (isCancelled?.call() ?? false) {
-      _deleteQuietly(newFilePath);
+      await _deleteQuietly(newFilePath);
     }
     _throwIfCancelled(isCancelled);
 
@@ -908,7 +1127,7 @@ class LibraryUpdateApplier {
       } catch (_) {
         // כשל כאן (תיקייה שאינה ניתנת לכתיבה) קרה **אחרי** שהמסד המחולץ כבר
         // על הדיסק — בלי הניקוי הזה נשארים ~1.1GB תלויים על כונן שכבר צר.
-        _deleteQuietly(newFilePath);
+        await _deleteQuietly(newFilePath);
         rethrow;
       }
     }
@@ -928,14 +1147,14 @@ class LibraryUpdateApplier {
       if (dbAlreadyExists && !markerPreexisted) {
         _recovery.clearStaleArtifacts(dbPath);
       }
-      _deleteQuietly(newFilePath);
+      await _deleteQuietly(newFilePath);
       rethrow;
     }
     // מפנים את השם בשני שלבים במקום למחוק ואז להחליף: rename הוא מיידי ואינו
     // עולה מקום, וכך אין רגע שבו אין מסד כלל. מחיקה-ואז-rename שנקטע באמצע
     // (נעילה של אנטי-וירוס, הפסקת חשמל) הותירה את המשתמש בלי ספרייה.
     final retiredPath = '$dbPath.old';
-    _deleteQuietly(retiredPath);
+    await _deleteQuietly(retiredPath);
     var retired = false;
     try {
       if (File(dbPath).existsSync()) {
@@ -951,7 +1170,7 @@ class LibraryUpdateApplier {
         // נכשל. אם הוא באורך 0 הוא גם אינו מסד: כך נראה נתיב ש-sqlite פתחה
         // ולא כתבה, וזה בדיוק מה שנוצר כשאוצריא נפתחה בין שני ה-rename.
         // בלי הפינוי הזה `.old` היה נשאר בצד והמשתמש היה נשאר עם מסד ריק.
-        if (_isEmptyFile(dbPath)) _deleteQuietly(dbPath);
+        if (_isEmptyFile(dbPath)) await _deleteQuietly(dbPath);
         if (!File(dbPath).existsSync()) {
           try {
             File(retiredPath).renameSync(dbPath);
@@ -968,7 +1187,7 @@ class LibraryUpdateApplier {
         // ונועלת אותו (וזה בדיוק מה שמכשיל את ה-rename השני), התנאי
         // `!existsSync()` נופל, והמחיקה השמידה את הספרייה של המשתמש. שני
         // ה-rename קיימים בדיוק כדי שזה לא יקרה.
-        if (rolledBack) _deleteQuietly(retiredPath);
+        if (rolledBack) await _deleteQuietly(retiredPath);
       }
       if (dbAlreadyExists && !markerPreexisted && (rolledBack || !retired)) {
         _recovery.clearStaleArtifacts(dbPath);
@@ -978,9 +1197,9 @@ class LibraryUpdateApplier {
 
     // רק עכשיו, כשהמסד החדש במקומו: ה-WAL/SHM שייכים לישן ומחיקתם מוקדם
     // יותר הייתה מאבדת טרנזקציות שכבר בוצעו אם ההחלפה נכשלה.
-    _deleteQuietly('$dbPath-wal');
-    _deleteQuietly('$dbPath-shm');
-    _deleteQuietly(retiredPath);
+    await _deleteQuietly('$dbPath-wal');
+    await _deleteQuietly('$dbPath-shm');
+    await _deleteQuietly(retiredPath);
 
     if (dbAlreadyExists) _recovery.finishSuccess(dbPath);
     // המסד החדש אומת (`quick_check` + גרסה) והגיע מנכס שה-sha256 שלו נבדק,
@@ -988,7 +1207,7 @@ class LibraryUpdateApplier {
     _recovery.clearUnverified(dbPath);
     // ה-sidecar הוא באחריות הצרכן (ראו PatchDownloader.downloadToFile);
     // בלי זה נשאר `seforim.db.download.zst.resume` בתיקיית הספרים לנצח.
-    deleteStaged();
+    await deleteStaged();
     onProgress?.call(const LibraryApplyProgress(stage: LibraryApplyStage.done));
   }
 
@@ -1008,7 +1227,9 @@ class LibraryUpdateApplier {
     required AppLanguage language,
     required bool verifyFromHash,
     required bool verifyToHash,
+    bool partialVerify = false,
     int? verifyTotalBytesHint,
+    Map<String, int>? verifyTableBytesHint,
     void Function(String stage)? onStage,
     void Function(int done, int total)? onVerifyProgress,
   }) async {
@@ -1029,7 +1250,9 @@ class LibraryUpdateApplier {
         language: language,
         verifyFromHash: verifyFromHash,
         verifyToHash: verifyToHash,
+        partialVerify: partialVerify,
         verifyTotalBytesHint: verifyTotalBytesHint,
+        verifyTableBytesHint: verifyTableBytesHint,
         sendPort: port.sendPort,
       );
     } finally {
@@ -1050,8 +1273,10 @@ class LibraryUpdateApplier {
     required AppLanguage language,
     required bool verifyFromHash,
     required bool verifyToHash,
+    required bool partialVerify,
     required SendPort sendPort,
     int? verifyTotalBytesHint,
+    Map<String, int>? verifyTableBytesHint,
   }) {
     return Isolate.run(
       () => _applyPatchInIsolate((
@@ -1063,6 +1288,8 @@ class LibraryUpdateApplier {
         sendPort,
         verifyFromHash,
         verifyToHash,
+        partialVerify,
+        verifyTableBytesHint,
       )),
     );
   }
@@ -1176,7 +1403,7 @@ class LibraryUpdateApplier {
 
   /// נכס במראה שנכשל ב-sha256: בלי סימון האימות שלידו, ההורדה הבאה במחשב
   /// המקוון מאמתת אותו מחדש ומחליפה אותו — אחרת גודל ו-mtime זהים מדלגים עליו.
-  void _forgetMirrorVerification(String mirrorPath) =>
+  Future<void> _forgetMirrorVerification(String mirrorPath) =>
       _deleteQuietly(PatchDownloader.resumeSidecarPath(mirrorPath));
 
   /// קריאה אחת שגויה (גשר USB גבולי) לא מוחקת קובץ תקין של ~1.5GB: נמחק רק
@@ -1187,7 +1414,7 @@ class LibraryUpdateApplier {
     bool Function()? isCancelled,
   ) async {
     if (expectedSha256 == null) {
-      _forgetMirrorVerification(mirrorPath);
+      await _forgetMirrorVerification(mirrorPath);
       return;
     }
     final String digest;
@@ -1195,12 +1422,12 @@ class LibraryUpdateApplier {
       digest = await _sha256Of(mirrorPath, isCancelled);
     } on FileSystemException {
       // קריאה שנכשלה אינה הוכחה שהתוכן פגום: רק האימות נשכח.
-      _forgetMirrorVerification(mirrorPath);
+      await _forgetMirrorVerification(mirrorPath);
       return;
     }
     if (digest.toLowerCase() == expectedSha256.toLowerCase()) return;
-    _forgetMirrorVerification(mirrorPath);
-    _deleteQuietly(mirrorPath);
+    await _forgetMirrorVerification(mirrorPath);
+    await _deleteQuietly(mirrorPath);
   }
 
   Future<String> _sha256Of(String path, bool Function()? isCancelled) async {
@@ -1224,10 +1451,22 @@ class LibraryUpdateApplier {
       e is! ZstdResourceException &&
       e is! ZstdCancelledException;
 
-  void _deleteQuietly(String path) {
+  /// אסינכרוני: מחיקה של `seforim.db.old` (~5GB) על ה-isolate של הממשק מקפיאה אותו.
+  Future<void> _deleteQuietly(String path) async {
     try {
-      final file = File(path);
-      if (file.existsSync()) file.deleteSync();
+      await File(path).delete();
+    } catch (_) {}
+  }
+
+  /// A crash mid-prefetch leaves `<name>.extracting`, which recovery ignores.
+  Future<void> _deleteStaleExtracting(Directory dir) async {
+    try {
+      if (!dir.existsSync()) return;
+      await for (final e in dir.list(followLinks: false)) {
+        if (e is File && e.path.endsWith('.extracting')) {
+          await _deleteQuietly(e.path);
+        }
+      }
     } catch (_) {}
   }
 
@@ -1252,6 +1491,26 @@ class LibraryUpdateApplier {
     }
   }
 
+  static Map<String, int>? _readTableBytesQuietly(File file) {
+    try {
+      if (!file.existsSync()) return null;
+      final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      return {
+        for (final e in json.entries)
+          if (e.value is int && (e.value as int) > 0) e.key: e.value as int,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static void _writeTableBytesQuietly(File file, Map<String, int> value) {
+    try {
+      file.parent.createSync(recursive: true);
+      file.writeAsStringSync(jsonEncode(value));
+    } catch (_) {}
+  }
+
   static void _writeIntQuietly(File file, int value) {
     try {
       file.parent.createSync(recursive: true);
@@ -1263,6 +1522,32 @@ class LibraryUpdateApplier {
   void dispose() => _downloader.dispose();
 }
 
+typedef _StagedResult = ({String? path, Object? error, StackTrace? stack});
+
+/// A patch being fetched ahead of its step; see `_stagePatch`.
+class _StagedPatch {
+  _StagedPatch(this.forward);
+
+  bool forward;
+  bool abort = false;
+  late final Future<_StagedResult> _result;
+
+  Future<String> take() async {
+    final r = await _result;
+    if (r.error != null) Error.throwWithStackTrace(r.error!, r.stack!);
+    return r.path!;
+  }
+
+  /// Stops the fetch, waits for it to settle and deletes what it staged;
+  /// returns the error it held, if any.
+  Future<Object?> discard(Future<void> Function(String path) delete) async {
+    abort = true;
+    final r = await _result;
+    if (r.path != null) await delete(r.path!);
+    return r.error;
+  }
+}
+
 /// פונקציית top-level — לעולם לא יכולה לתפוס `this` בטעות. זה בדיוק ההבדל
 /// מהבאג המקורי (ראו doc-comment של [LibraryUpdateApplier]).
 ///
@@ -1271,7 +1556,19 @@ class LibraryUpdateApplier {
 /// יתגלגל אחורה), והוא גם מכסה את כל הטבלאות וה-FK שביניהן. שני דגלי ה-hash
 /// נקבעים ע"י הקורא לפי מקום הצעד בשרשרת — ראו [LibraryUpdateApplier.applyDelta].
 PatchApplyResult _applyPatchInIsolate(
-  (String, String, DeltaManifest, AppLanguage, int?, SendPort, bool, bool) args,
+  (
+    String,
+    String,
+    DeltaManifest,
+    AppLanguage,
+    int?,
+    SendPort,
+    bool,
+    bool,
+    bool,
+    Map<String, int>?,
+  )
+  args,
 ) {
   AppL10n.use(args.$4);
   useLibraryUpdaterL10n();
@@ -1283,7 +1580,9 @@ PatchApplyResult _applyPatchInIsolate(
     verifyFromHash: args.$7,
     checkForeignKeys: false,
     verifyToHash: args.$8,
+    enablePartialTableVerification: args.$9,
     verifyTotalBytesHint: args.$5,
+    verifyTableBytesHint: args.$10,
     onStage: (stage) => args.$6.send(stage),
     onVerifyProgress: (done, total) => args.$6.send((done, total)),
   );

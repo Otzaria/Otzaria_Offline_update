@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' as math;
 
 import 'package:ffi/ffi.dart';
 import 'package:otzaria_l10n/otzaria_l10n.dart';
@@ -264,6 +265,8 @@ DynamicLibrary? _tryOpen(String? name) {
   }
 }
 
+const int _ioBufferBytes = 2 * 1024 * 1024;
+
 // Preserve long-window archives. libzstd supports at most 30 on 32-bit
 // processes and 31 on 64-bit processes; the native window may use 1/2 GiB.
 int get _maxWindowLog => sizeOf<IntPtr>() == 4 ? 30 : 31;
@@ -317,8 +320,10 @@ Future<(bool, String?, String?, int)> _decompressInIsolate(
     hasher = args.$4 ? Sha256Stream() : null;
     outHasher = args.$5 ? Sha256Stream() : null;
 
-    final inCapacity = zstd.ZSTD_DStreamInSize();
-    final outCapacity = zstd.ZSTD_DStreamOutSize();
+    // The ~128KB defaults make a multi-GB DB cost tens of thousands of
+    // awaited read/write round-trips; the stream is identical at any size.
+    final inCapacity = math.max(zstd.ZSTD_DStreamInSize(), _ioBufferBytes);
+    final outCapacity = math.max(zstd.ZSTD_DStreamOutSize(), _ioBufferBytes);
 
     dctx = zstd.ZSTD_createDCtx();
     if (dctx == nullptr) {

@@ -155,6 +155,102 @@ Future<int> copyCompanionFile({
   }
 }
 
+typedef CompanionCopyJob = ({
+  File source,
+  String destination,
+  int expectedSize,
+  int start,
+  int? end,
+});
+
+const companionCopyConcurrency = 8;
+
+/// Dedupe key for a path on this platform's filesystem.
+String companionPathKey(String path) =>
+    Platform.isLinux ? path : path.toLowerCase();
+
+/// Copies [jobs], [concurrency] files at once; returns after every file is
+/// closed, rethrowing the first failure once the running ones cleaned up.
+Future<int> copyCompanionFiles(
+  List<CompanionCopyJob> jobs, {
+  required int maxOutputBytes,
+  int concurrency = companionCopyConcurrency,
+  bool Function()? isCancelled,
+  void Function(int bytesWritten)? onProgress,
+}) async {
+  RangeError.checkValueInInterval(concurrency, 1, 1 << 16, 'concurrency');
+  final destinations = <String>{};
+  for (final job in jobs) {
+    if (!destinations.add(companionPathKey(p.normalize(job.destination)))) {
+      throw ArgumentError.value(
+        job.destination,
+        'jobs',
+        'duplicate destination',
+      );
+    }
+  }
+  final progress = List<int>.filled(jobs.length, 0);
+  var reserved = 0;
+  var total = 0;
+  var next = 0;
+  Object? failure;
+  StackTrace? failureStack;
+  final clock = Stopwatch()..start();
+  var lastReport = -1000;
+  bool stopped() => failure != null || (isCancelled?.call() ?? false);
+
+  Future<void> worker() async {
+    while (failure == null) {
+      final index = next++;
+      if (index >= jobs.length) return;
+      final job = jobs[index];
+      try {
+        if (job.expectedSize < 0 ||
+            job.expectedSize > maxOutputBytes - reserved) {
+          throw FormatException(
+            AppL10n.strings.libraryDomain.localFileTooLarge(
+              maxOutputBytes,
+              job.destination,
+            ),
+          );
+        }
+        reserved += job.expectedSize;
+        await File(job.destination).parent.create(recursive: true);
+        await copyCompanionFile(
+          source: job.source,
+          destination: job.destination,
+          start: job.start,
+          end: job.end,
+          expectedSize: job.expectedSize,
+          maxOutputBytes: maxOutputBytes,
+          isCancelled: stopped,
+          onProgress: (bytes) {
+            total += bytes - progress[index];
+            progress[index] = bytes;
+            final now = clock.elapsedMilliseconds;
+            if (now - lastReport >= 100) {
+              lastReport = now;
+              onProgress?.call(total);
+            }
+          },
+        );
+      } catch (error, stack) {
+        failure ??= error;
+        failureStack ??= stack;
+        return;
+      }
+    }
+  }
+
+  await Future.wait([
+    for (var i = 0; i < concurrency && i < jobs.length; i++) worker(),
+  ]);
+  if (failure != null) Error.throwWithStackTrace(failure!, failureStack!);
+  checkCompanionCancelled(isCancelled);
+  onProgress?.call(total);
+  return total;
+}
+
 Future<List<CompanionTarEntry>> readCompanionTar(
   String tarPath, {
   required String rootName,
@@ -262,7 +358,7 @@ List<CompanionTarEntry> _readTar(
         final declared = decoder.files.last.fileSize;
         if (raw is! InputFileStream ||
             raw.length != declared ||
-            !names.add(Platform.isLinux ? name : name.toLowerCase()) ||
+            !names.add(companionPathKey(name)) ||
             declared > limit - size) {
           invalid();
         }
@@ -323,18 +419,18 @@ FileSystemEntity _entity(String path) =>
     ? Directory(path)
     : File(path);
 
-void _removeEntity(String path) {
+Future<void> _removeEntity(String path) async {
   if (FileSystemEntity.typeSync(path, followLinks: false) !=
       FileSystemEntityType.notFound) {
-    _entity(path).deleteSync(recursive: true);
+    await _entity(path).delete(recursive: true);
   }
 }
 
-void recoverCompanionInstall(String target, List<String> paths) {
+Future<void> recoverCompanionInstall(String target, List<String> paths) async {
   final backup = Directory(companionBackupPath(target));
   if (!backup.existsSync()) return;
   if (File(p.join(backup.path, 'committed')).existsSync()) {
-    _cleanCommittedBackup(backup);
+    await _cleanCommittedBackup(backup);
     return;
   }
   final stateFile = File(p.join(backup.path, 'state.json'));
@@ -342,7 +438,7 @@ void recoverCompanionInstall(String target, List<String> paths) {
       backup.listSync().every(
         (entry) => p.basename(entry.path) == 'state.json.tmp',
       )) {
-    backup.deleteSync(recursive: true);
+    await backup.delete(recursive: true);
     return;
   }
   final state = jsonDecode(stateFile.readAsStringSync());
@@ -359,28 +455,31 @@ void recoverCompanionInstall(String target, List<String> paths) {
     final saved = p.join(backup.path, '$i');
     if (FileSystemEntity.typeSync(saved, followLinks: false) !=
         FileSystemEntityType.notFound) {
-      _removeEntity(paths[i]);
+      await _removeEntity(paths[i]);
       _entity(saved).renameSync(paths[i]);
     } else if (state[i] == false) {
-      _removeEntity(paths[i]);
+      await _removeEntity(paths[i]);
     }
   }
-  backup.deleteSync(recursive: true);
+  await backup.delete(recursive: true);
 }
 
-void _cleanCommittedBackup(Directory backup) {
+Future<void> _cleanCommittedBackup(Directory backup) async {
   for (final entry in backup.listSync(followLinks: false)) {
     if (p.basename(entry.path) != 'committed') {
-      entry.deleteSync(recursive: true);
+      await entry.delete(recursive: true);
     }
   }
   // Keep the commit decision until every old file and the journal are gone.
-  File(p.join(backup.path, 'committed')).deleteSync();
-  backup.deleteSync();
+  await File(p.join(backup.path, 'committed')).delete();
+  await backup.delete();
 }
 
 /// Files and their markers move together; the journal recovers an interrupted swap.
-void commitCompanionInstall(String target, Map<String, String?> replacements) {
+Future<void> commitCompanionInstall(
+  String target,
+  Map<String, String?> replacements,
+) async {
   final paths = replacements.keys.toList();
   final backup = Directory(companionBackupPath(target));
   final existed = [
@@ -405,10 +504,10 @@ void commitCompanionInstall(String target, Map<String, String?> replacements) {
   } catch (_) {
     try {
       if (prepared) {
-        _removeEntity(p.join(backup.path, 'committed'));
-        recoverCompanionInstall(target, paths);
+        await _removeEntity(p.join(backup.path, 'committed'));
+        await recoverCompanionInstall(target, paths);
       } else {
-        backup.deleteSync(recursive: true);
+        await backup.delete(recursive: true);
       }
     } catch (_) {
       // Leave the journal and old content for the next recovery attempt.
@@ -416,7 +515,7 @@ void commitCompanionInstall(String target, Map<String, String?> replacements) {
     rethrow;
   }
   try {
-    _cleanCommittedBackup(backup);
+    await _cleanCommittedBackup(backup);
   } on FileSystemException {
     // The committed marker makes a later cleanup safe.
   }

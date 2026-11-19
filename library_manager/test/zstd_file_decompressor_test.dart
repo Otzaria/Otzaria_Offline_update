@@ -34,9 +34,8 @@ void main() {
         return;
       }
 
-      // 8MB — גדול בהרבה מ-ZSTD_DStreamOutSize (~128KB), ולכן מכריח את שתי
-      // הלולאות (קלט וגם פלט) לרוץ הרבה סבבים. זה בדיוק מה שהמסלול
-      // ה-one-shot לא בדק.
+      // 8MB — גדול ממאגרי הקלט/פלט, ולכן מכריח את שתי הלולאות (קלט וגם
+      // פלט) לרוץ כמה סבבים. זה בדיוק מה שהמסלול ה-one-shot לא בדק.
       final original = pseudoRandomBytes(8 * 1024 * 1024);
       final compressedPath = '${tmp.path}/data.zst';
       final destPath = '${tmp.path}/data.bin';
@@ -52,6 +51,37 @@ void main() {
         isTrue,
       );
       expect(File(destPath).readAsBytesSync(), original);
+    });
+
+    test('פלט של כמה מאגרים: ה-digests והבתים זהים לקובץ המקורי', () async {
+      if (bindings == null) {
+        markTestSkipped('אין ספריית zstd לטעינה בסביבה הזו');
+        return;
+      }
+      final original = pseudoRandomBytes(10 * 1024 * 1024 + 3);
+      final compressed = compressWithZstd(bindings, original);
+      final compressedPath = '${tmp.path}/data.zst';
+      File(compressedPath).writeAsBytesSync(compressed);
+
+      String? sourceDigest;
+      String? outputDigest;
+      int? written;
+      expect(
+        await ZstdFileDecompressor.decompressFileToFile(
+          compressedPath,
+          '${tmp.path}/data.bin',
+          onSourceDigest: (hex) => sourceDigest = hex,
+          onOutputDigest: (hex, bytes) {
+            outputDigest = hex;
+            written = bytes;
+          },
+        ),
+        isTrue,
+      );
+      expect(sourceDigest, sha256.convert(compressed).toString());
+      expect(outputDigest, sha256.convert(original).toString());
+      expect(written, original.length);
+      expect(File('${tmp.path}/data.bin').readAsBytesSync(), original);
     });
 
     test('מחשב sha256 ומספר בתים של הפלט על אותו מעבר', () async {
@@ -124,7 +154,10 @@ void main() {
       );
 
       expect(File(destPath).existsSync(), isFalse);
-      expect(reports.last, lessThan(File(compressedPath).lengthSync()));
+      expect(
+        reports.fold<int>(0, (a, b) => a > b ? a : b),
+        lessThan(File(compressedPath).lengthSync()),
+      );
     });
 
     test('פלט בגודל maxOutputBytes בדיוק מתקבל', () async {

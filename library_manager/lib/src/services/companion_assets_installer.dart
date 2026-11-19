@@ -10,6 +10,7 @@ import 'package:sqlite3/sqlite3.dart' as sqlite3;
 
 import 'companion_assets.dart';
 import 'companion_file_operations.dart';
+import 'install_timing.dart';
 import 'zstd_file_decompressor.dart';
 
 /// תוצאת התקנה של פריט נלווה אחד.
@@ -179,7 +180,7 @@ class CompanionAssetsInstaller {
           checkCompanionCancelled(isCancelled);
           await beforeCommit?.call();
           checkCompanionCancelled(isCancelled);
-          recoverCompanionInstall(target, _pathsForAsset(target, asset));
+          await recoverCompanionInstall(target, _pathsForAsset(target, asset));
         });
         outcomes[asset] = CompanionInstallOutcome.installed;
       } catch (error) {
@@ -208,7 +209,13 @@ class CompanionAssetsInstaller {
       try {
         final target = _targetForAsset(libraryDir, asset);
         if (!Directory(companionBackupPath(target)).existsSync() &&
-            _wasDelivered(asset, libraryDir, entry, delivered, talmudBefore)) {
+            await _wasDelivered(
+              asset,
+              libraryDir,
+              entry,
+              delivered,
+              talmudBefore,
+            )) {
           outcomes[asset] = CompanionInstallOutcome.alreadyUpToDate;
           return;
         }
@@ -216,7 +223,7 @@ class CompanionAssetsInstaller {
         // הפרדיקט הוא בדיוק מה שהבדיקה הבאה תשאל. התקנה שדיווחה הצלחה ולא
         // סיפקה אותו תציע את עצמה שוב בכל פתיחה בלי שדבר ישתנה — ולכן זה כשל
         // שחייב להישמע, ולא הצלחה שקטה.
-        if (installed && !_isUpToDate(asset, libraryDir, entry)) {
+        if (installed && !await _isUpToDate(asset, libraryDir, entry)) {
           throw StateError(strings.companionStillPendingAfterInstall(name));
         }
         outcomes[asset] = installed
@@ -310,11 +317,17 @@ class CompanionAssetsInstaller {
 
     for (final e in manifest.entries.entries) {
       if (pending.contains(e.key)) continue;
-      if (_isUpToDate(e.key, libraryDir, e.value, talmudStats)) continue;
+      if (await _isUpToDate(e.key, libraryDir, e.value, talmudStats)) continue;
       // המראה הזו כבר נמסרה כאן ומשהו אחר יושב במקומה — לא מציעים שוב.
       // התנאי השני הוא מה שמבדיל בין "הוחלף בגרסה אחרת" לבין "נמחק": פריט
       // שנעלם לגמרי כן צריך לחזור.
-      if (_wasDelivered(e.key, libraryDir, e.value, delivered, talmudStats)) {
+      if (await _wasDelivered(
+        e.key,
+        libraryDir,
+        e.value,
+        delivered,
+        talmudStats,
+      )) {
         continue;
       }
       // **קיום אינו שלמות.** רשומה שהקובץ שלה חסר או קטוע במראה אינה הצעה
@@ -371,13 +384,13 @@ class CompanionAssetsInstaller {
       AppL10n.strings.libraryDomain.companionDictionaryName,
   };
 
-  bool _wasDelivered(
+  Future<bool> _wasDelivered(
     CompanionAsset asset,
     String libraryDir,
     CompanionMirrorEntry entry,
     Map<CompanionAsset, String> delivered, [
     _TalmudStatsMemo? talmudStats,
-  ]) {
+  ]) async {
     final recorded = delivered[asset];
     if (recorded == null) return false;
     final matches =
@@ -386,7 +399,7 @@ class CompanionAssetsInstaller {
             entry.sha256 != null &&
             recorded.endsWith('|${entry.sha256}'));
     return matches &&
-        _isInstalledLocally(asset, libraryDir, entry, talmudStats);
+        await _isInstalledLocally(asset, libraryDir, entry, talmudStats);
   }
 
   static String mirrorMarkerOf(
@@ -414,12 +427,12 @@ class CompanionAssetsInstaller {
 
   /// האם הפריט קיים כאן בכלל, בלי לשאול באיזו גרסה. מבדיל בין "מישהו אחר
   /// החליף אותו" (לא מציעים שוב) לבין "נמחק" (כן מציעים).
-  bool _isInstalledLocally(
+  Future<bool> _isInstalledLocally(
     CompanionAsset asset,
     String libraryDir,
     CompanionMirrorEntry entry, [
     _TalmudStatsMemo? talmudStats,
-  ]) {
+  ]) async {
     switch (asset) {
       case CompanionAsset.talmud:
         final marker = File(
@@ -430,7 +443,7 @@ class CompanionAssetsInstaller {
         if (installed == talmudInstallingMarker) return false;
         // תיקייה שתוכנה נמחק היא "נמחק", לא "הוחלף" — בלי זה המשמר של
         // `delivered` בולע בדיוק את המקרה של issue #33.
-        return _talmudContentsComplete(
+        return await _talmudContentsComplete(
           libraryDir,
           entry,
           installed,
@@ -447,12 +460,12 @@ class CompanionAssetsInstaller {
   /// הפרדיקט של פריט בודד. **נקודה אחת בלבד**, כי [pendingWork] וההתקנה
   /// חייבים לשאול בדיוק את אותה שאלה: פרדיקט שנענה "לא מעודכן" אחרי התקנה
   /// שהצליחה הוא הצעת עדכון שחוזרת בכל פתיחה.
-  bool _isUpToDate(
+  Future<bool> _isUpToDate(
     CompanionAsset asset,
     String libraryDir,
     CompanionMirrorEntry entry, [
     _TalmudStatsMemo? talmudStats,
-  ]) {
+  ]) async {
     switch (asset) {
       case CompanionAsset.talmud:
         return _talmudUpToDate(libraryDir, entry, talmudStats);
@@ -469,11 +482,11 @@ class CompanionAssetsInstaller {
     () => _talmudFolderStats(Directory(p.join(libraryDir, talmudFolderName))),
   );
 
-  bool _talmudUpToDate(
+  Future<bool> _talmudUpToDate(
     String libraryDir,
     CompanionMirrorEntry entry, [
     _TalmudStatsMemo? talmudStats,
-  ]) {
+  ]) async {
     final dir = Directory(p.join(libraryDir, talmudFolderName));
     if (!dir.existsSync()) return false;
     final marker = File(p.join(dir.path, talmudVersionFileName));
@@ -495,14 +508,14 @@ class CompanionAssetsInstaller {
   /// כזו שחוזרת בכל פתיחה גרועה מהבאג עצמו. לכן שני מדרגים: מפרט מדויק
   /// שאנחנו כתבנו בהתקנה, ורק בהיעדרו רצפה גסה שהתקנה שלמה אינה יכולה
   /// ליפול מתחתיה.
-  bool _talmudContentsComplete(
+  Future<bool> _talmudContentsComplete(
     String libraryDir,
     CompanionMirrorEntry entry,
     String marker, [
     _TalmudStatsMemo? talmudStats,
-  ]) {
+  ]) async {
     final dir = Directory(p.join(libraryDir, talmudFolderName));
-    final stats = talmudStats?.value ?? _talmudFolderStats(dir);
+    final stats = await (talmudStats?.value ?? _talmudFolderStats(dir));
     final recorded = _readTalmudContents(dir, marker);
     // `>=` ולא `==`: קובץ שנוסף לתיקייה אינו חוסר.
     if (recorded != null) {
@@ -516,22 +529,10 @@ class CompanionAssetsInstaller {
   }
 
   /// כמה קבצים ובכמה בייטים יושבים בתיקייה, בלי שני קובצי הסימון.
-  ({int files, int bytes}) _talmudFolderStats(Directory dir) {
-    if (!dir.existsSync()) return (files: 0, bytes: 0);
-    var files = 0;
-    var bytes = 0;
-    for (final entity in dir.listSync(recursive: true, followLinks: false)) {
-      if (entity is! File) continue;
-      final name = p.basename(entity.path);
-      if (name == talmudVersionFileName || name == talmudContentsFileName) {
-        continue;
-      }
-      files++;
-      try {
-        bytes += entity.lengthSync();
-      } catch (_) {}
-    }
-    return (files: files, bytes: bytes);
+  Future<({int files, int bytes})> _talmudFolderStats(Directory dir) {
+    final path = dir.path;
+    final skip = {talmudVersionFileName, talmudContentsFileName};
+    return Isolate.run(() => _scanTalmudFolder(path, skip));
   }
 
   /// המפרט שנכתב כאן, ורק אם הוא נכתב עבור [marker] הנוכחי — מפרט שנשאר
@@ -589,7 +590,7 @@ class CompanionAssetsInstaller {
       beforeCommit,
       guardSources,
       (work) async {
-        if (_talmudUpToDate(libraryDir, entry)) return false;
+        if (await _talmudUpToDate(libraryDir, entry)) return false;
         _readyMirrorFile(mirrorDir, entry);
         final type = FileSystemEntity.typeSync(target, followLinks: false);
         if (type != FileSystemEntityType.notFound &&
@@ -603,13 +604,17 @@ class CompanionAssetsInstaller {
         onStage?.call(stage);
         final tarPath = p.join(work.path, 'talmud.tar');
         String? digest;
-        if (!await ZstdFileDecompressor.decompressFileToFile(
-          source.path,
-          tarPath,
-          maxOutputBytes: maxOutputBytes,
-          isCancelled: isCancelled,
-          onOutputProgress: (written) => onProgress?.call(stage, written, null),
-          onSourceDigest: entry.sha256 == null ? null : (hex) => digest = hex,
+        if (!await timedInstallStage(
+          'talmud.zstd',
+          () => ZstdFileDecompressor.decompressFileToFile(
+            source.path,
+            tarPath,
+            maxOutputBytes: maxOutputBytes,
+            isCancelled: isCancelled,
+            onOutputProgress: (written) =>
+                onProgress?.call(stage, written, null),
+            onSourceDigest: entry.sha256 == null ? null : (hex) => digest = hex,
+          ),
         )) {
           throw StateError(
             strings.companionExtractionFailed(strings.companionTalmudName),
@@ -617,21 +622,37 @@ class CompanionAssetsInstaller {
         }
         _verifyDigest(entry, digest, strings.companionTalmudName);
         checkCompanionCancelled(isCancelled);
-        final expected = await readCompanionTar(
-          tarPath,
-          rootName: talmudFolderName,
-          ignoredNames: {talmudVersionFileName, talmudContentsFileName},
-          maxOutputBytes: maxOutputBytes,
-          isCancelled: isCancelled,
+        final expected = await timedInstallStage(
+          'talmud.readTar',
+          () => readCompanionTar(
+            tarPath,
+            rootName: talmudFolderName,
+            ignoredNames: {talmudVersionFileName, talmudContentsFileName},
+            maxOutputBytes: maxOutputBytes,
+            isCancelled: isCancelled,
+          ),
         );
         final expectedBytes = expected.fold<int>(
           0,
           (sum, file) => sum + file.size,
         );
-        final preserved = await _talmudSubdirectories(
-          Directory(target),
-          isCancelled,
-        );
+        final extracted = {
+          for (final file in expected)
+            companionPathKey(p.joinAll(p.posix.split(file.path).skip(1))),
+        };
+        // An old file the archive rewrites at the same path is overwritten
+        // anyway, so copying it into staging first only doubles the write.
+        final preserved = [
+          for (final old in await _talmudSubdirectories(
+            Directory(target),
+            isCancelled,
+          ))
+            if (old.size == null ||
+                !extracted.contains(
+                  companionPathKey(p.relative(old.path, from: target)),
+                ))
+              old,
+        ];
         final preservedBytes = preserved.fold<int>(
           0,
           (sum, file) => sum + (file.size ?? 0),
@@ -646,48 +667,47 @@ class CompanionAssetsInstaller {
         _ensureSpaceForTalmud(libraryDir, total);
         final staged = Directory(p.join(work.path, talmudFolderName));
         await staged.create();
-        var written = 0;
-        onProgress?.call(stage, 0, total);
         for (final file in preserved) {
+          if (file.size != null) continue;
           checkCompanionCancelled(isCancelled);
-          final destination = p.join(
-            staged.path,
-            p.relative(file.path, from: target),
-          );
-          if (file.size == null) {
-            await Directory(destination).create(recursive: true);
-          } else {
-            await File(destination).parent.create(recursive: true);
-            written += await copyCompanionFile(
-              source: File(file.path),
-              destination: destination,
-              expectedSize: file.size!,
-              maxOutputBytes: maxOutputBytes - written,
-              isCancelled: isCancelled,
-              onProgress: (bytes) =>
-                  onProgress?.call(stage, written + bytes, total),
-            );
-          }
+          await Directory(
+            p.join(staged.path, p.relative(file.path, from: target)),
+          ).create(recursive: true);
         }
-        for (final file in expected) {
-          checkCompanionCancelled(isCancelled);
-          final destination = p.joinAll([
-            work.path,
-            ...p.posix.split(file.path),
-          ]);
-          await File(destination).parent.create(recursive: true);
-          written += await copyCompanionFile(
-            source: File(tarPath),
-            destination: destination,
-            start: file.offset,
-            end: file.offset + file.size,
-            expectedSize: file.size,
-            maxOutputBytes: maxOutputBytes - written,
+        onProgress?.call(stage, 0, total);
+        await timedInstallStage(
+          'talmud.copy',
+          () => copyCompanionFiles(
+            [
+              for (final file in preserved)
+                if (file.size != null)
+                  (
+                    source: File(file.path),
+                    destination: p.join(
+                      staged.path,
+                      p.relative(file.path, from: target),
+                    ),
+                    expectedSize: file.size!,
+                    start: 0,
+                    end: null,
+                  ),
+              for (final file in expected)
+                (
+                  source: File(tarPath),
+                  destination: p.joinAll([
+                    work.path,
+                    ...p.posix.split(file.path),
+                  ]),
+                  expectedSize: file.size,
+                  start: file.offset,
+                  end: file.offset + file.size,
+                ),
+            ],
+            maxOutputBytes: maxOutputBytes,
             isCancelled: isCancelled,
-            onProgress: (bytes) =>
-                onProgress?.call(stage, written + bytes, total),
-          );
-        }
+            onProgress: (bytes) => onProgress?.call(stage, bytes, total),
+          ),
+        );
         final installed = entry.versionMarker ?? '';
         _writeTalmudContents(staged, installed, (
           files: expected.length,
@@ -699,7 +719,10 @@ class CompanionAssetsInstaller {
         checkCompanionCancelled(isCancelled);
         await beforeCommit?.call();
         checkCompanionCancelled(isCancelled);
-        commitCompanionInstall(target, {target: staged.path});
+        await timedInstallStage(
+          'talmud.swap',
+          () => commitCompanionInstall(target, {target: staged.path}),
+        );
         return true;
       },
     );
@@ -711,7 +734,7 @@ class CompanionAssetsInstaller {
   ) async {
     final preserved = <({String path, int? size})>[];
     if (!await target.exists()) return preserved;
-    void add(FileSystemEntity entity) {
+    Future<void> add(FileSystemEntity entity) async {
       checkCompanionCancelled(isCancelled);
       if (preserved.length >= 10000 || entity is Link) {
         throw FormatException(
@@ -722,20 +745,20 @@ class CompanionAssetsInstaller {
       }
       preserved.add((
         path: entity.path,
-        size: entity is File ? entity.lengthSync() : null,
+        size: entity is File ? await entity.length() : null,
       ));
     }
 
     await for (final child in target.list(followLinks: false)) {
       checkCompanionCancelled(isCancelled);
-      if (child is Link) add(child);
+      if (child is Link) await add(child);
       if (child is! Directory) continue;
-      add(child);
+      await add(child);
       await for (final entity in child.list(
         recursive: true,
         followLinks: false,
       )) {
-        add(entity);
+        await add(entity);
       }
     }
     return preserved;
@@ -797,14 +820,19 @@ class CompanionAssetsInstaller {
         final staged = p.join(work.path, catalogDatabaseFileName);
         if (entry.compressed) {
           String? digest;
-          if (!await ZstdFileDecompressor.decompressFileToFile(
-            source.path,
-            staged,
-            maxOutputBytes: maxOutputBytes,
-            isCancelled: isCancelled,
-            onOutputProgress: (written) =>
-                onProgress?.call(stage, written, null),
-            onSourceDigest: entry.sha256 == null ? null : (hex) => digest = hex,
+          if (!await timedInstallStage(
+            'catalog.zstd',
+            () => ZstdFileDecompressor.decompressFileToFile(
+              source.path,
+              staged,
+              maxOutputBytes: maxOutputBytes,
+              isCancelled: isCancelled,
+              onOutputProgress: (written) =>
+                  onProgress?.call(stage, written, null),
+              onSourceDigest: entry.sha256 == null
+                  ? null
+                  : (hex) => digest = hex,
+            ),
           )) {
             throw StateError(
               strings.companionExtractionFailed(strings.companionCatalogName),
@@ -812,13 +840,16 @@ class CompanionAssetsInstaller {
           }
           _verifyDigest(entry, digest, strings.companionCatalogName);
         } else {
-          await _copyVerified(
-            source,
-            staged,
-            entry,
-            stage,
-            onProgress,
-            isCancelled,
+          await timedInstallStage(
+            'catalog.copyHash',
+            () => _copyVerified(
+              source,
+              staged,
+              entry,
+              stage,
+              onProgress,
+              isCancelled,
+            ),
           );
         }
         checkCompanionCancelled(isCancelled);
@@ -827,10 +858,13 @@ class CompanionAssetsInstaller {
         // original SQLite header before version stamping can modify it.
         await _verifyCatalogHeader(staged);
         checkCompanionCancelled(isCancelled);
-        await _verifyAndStampCatalogOffUi(
-          staged,
-          entry.version,
-          AppL10n.language,
+        await timedInstallStage(
+          'catalog.verifyStamp',
+          () => _verifyAndStampCatalogOffUi(
+            staged,
+            entry.version,
+            AppL10n.language,
+          ),
         );
         for (final path in paths) {
           final type = FileSystemEntity.typeSync(path, followLinks: false);
@@ -845,10 +879,13 @@ class CompanionAssetsInstaller {
         checkCompanionCancelled(isCancelled);
         await beforeCommit?.call();
         checkCompanionCancelled(isCancelled);
-        commitCompanionInstall(target, {
-          target: staged,
-          for (final path in paths.skip(1)) path: null,
-        });
+        await timedInstallStage(
+          'catalog.swap',
+          () => commitCompanionInstall(target, {
+            target: staged,
+            for (final path in paths.skip(1)) path: null,
+          }),
+        );
         return true;
       },
     );
@@ -929,13 +966,16 @@ class CompanionAssetsInstaller {
         );
         onStage?.call(stage);
         final staged = p.join(work.path, dictionaryFileName);
-        await _copyVerified(
-          source,
-          staged,
-          entry,
-          stage,
-          onProgress,
-          isCancelled,
+        await timedInstallStage(
+          'dictionary.copyHash',
+          () => _copyVerified(
+            source,
+            staged,
+            entry,
+            stage,
+            onProgress,
+            isCancelled,
+          ),
         );
         final marker = '$staged.version';
         await File(
@@ -956,12 +996,15 @@ class CompanionAssetsInstaller {
         checkCompanionCancelled(isCancelled);
         await beforeCommit?.call();
         checkCompanionCancelled(isCancelled);
-        commitCompanionInstall(target, {
-          target: staged,
-          '$target.version': marker,
-          '$target.next': null,
-          '$target.next.version': null,
-        });
+        await timedInstallStage(
+          'dictionary.swap',
+          () => commitCompanionInstall(target, {
+            target: staged,
+            '$target.version': marker,
+            '$target.next': null,
+            '$target.next.version': null,
+          }),
+        );
         return true;
       },
     );
@@ -992,7 +1035,7 @@ class CompanionAssetsInstaller {
       if (Directory(companionBackupPath(target)).existsSync()) {
         await beforeCommit?.call();
         checkCompanionCancelled(isCancelled);
-        recoverCompanionInstall(target, paths);
+        await recoverCompanionInstall(target, paths);
       }
       if (await work.exists()) await work.delete(recursive: true);
       await work.create();
@@ -1054,10 +1097,10 @@ class CompanionAssetsInstaller {
 class _TalmudStatsMemo {
   _TalmudStatsMemo(this._scan);
 
-  final ({int files, int bytes}) Function() _scan;
-  ({int files, int bytes})? _value;
+  final Future<({int files, int bytes})> Function() _scan;
+  Future<({int files, int bytes})>? _value;
 
-  ({int files, int bytes}) get value => _value ??= _scan();
+  Future<({int files, int bytes})> get value => _value ??= _scan();
 }
 
 Future<void> _verifyAndStampCatalogOffUi(
@@ -1097,4 +1140,20 @@ void _verifyAndStampCatalog(String path, int? version, AppLanguage language) {
   } finally {
     db.close();
   }
+}
+
+({int files, int bytes}) _scanTalmudFolder(String path, Set<String> skip) {
+  final dir = Directory(path);
+  if (!dir.existsSync()) return (files: 0, bytes: 0);
+  var files = 0;
+  var bytes = 0;
+  for (final entity in dir.listSync(recursive: true, followLinks: false)) {
+    if (entity is! File) continue;
+    if (skip.contains(p.basename(entity.path))) continue;
+    files++;
+    try {
+      bytes += entity.lengthSync();
+    } catch (_) {}
+  }
+  return (files: files, bytes: bytes);
 }

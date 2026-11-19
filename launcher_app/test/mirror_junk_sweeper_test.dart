@@ -155,6 +155,19 @@ void main() {
       expect(exists('mirror/app/installers/v0.9.90'), isFalse);
     });
 
+    test('סימון האימות של המתקין הנוכחי נשמר', () async {
+      appManifest();
+      file('mirror/app/installers/v0.9.97/OtzariaSetup.exe', bytes: 70);
+      file('mirror/app/installers/v0.9.97/OtzariaSetup.exe.verified', bytes: 9);
+      file('mirror/app/installers/v0.9.97/Old.exe.verified', bytes: 9);
+
+      expect(await sweep(), 9);
+      expect(
+        exists('mirror/app/installers/v0.9.97/OtzariaSetup.exe.verified'),
+        isTrue,
+      );
+    });
+
     test("another platform's installers are kept", () async {
       json('mirror/app/latest-release.json', {
         'schemaVersion': 3,

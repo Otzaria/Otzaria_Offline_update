@@ -31,6 +31,48 @@ if [ -z "$touched" ]; then
   exit 0
 fi
 
+# טסטים שנוגעים בקובץ שהשתנה; כל נתיב אחר (assets, עזרי טסט, pubspec) או
+# FULL_TESTS=1 מריצים את כל החבילה. CI מריץ הכול.
+related_tests() {
+  pkg=$1
+  if [ -n "$FULL_TESTS" ]; then echo ALL; return; fi
+  if [ "$pkg" = "." ]; then prefix=""; else prefix="$pkg/"; fi
+  out=""
+  for f in $staged_files; do
+    case "$f" in
+      analysis_options_shared.yaml) echo ALL; return ;;
+    esac
+    if [ -n "$prefix" ]; then
+      case "$f" in "$prefix"*) ;; *) continue ;; esac
+    else
+      case "$f" in
+        lib/*|test/*|bin/*|pubspec.yaml|pubspec.lock|analysis_options.yaml) ;;
+        *) continue ;;
+      esac
+    fi
+    rel=${f#"$prefix"}
+    case "$rel" in
+      test/*_test.dart)
+        [ -f "$pkg/$rel" ] && out="$out $rel" ;;
+      test/*|pubspec.yaml|pubspec.lock|analysis_options.yaml)
+        echo ALL; return ;;
+      lib/*.dart)
+        base=$(basename "$rel" .dart)
+        hits=$(
+          {
+            grep -rlF --include='*_test.dart' "$base.dart" "$pkg/test" 2>/dev/null
+            find "$pkg/test" -name "${base}*_test.dart" 2>/dev/null
+          } | sed "s#^$pkg/##" | sort -u
+        )
+        if [ -z "$hits" ]; then echo ALL; return; fi
+        out="$out $hits" ;;
+      *)
+        echo ALL; return ;;
+    esac
+  done
+  echo $out | tr ' ' '\n' | sed '/^$/d' | sort -u
+}
+
 fail=0
 for pkg in $touched; do
   echo "== $pkg =="
@@ -38,16 +80,22 @@ for pkg in $touched; do
     *" $pkg "*) is_flutter=1 ;;
     *) is_flutter=0 ;;
   esac
+  tests=$(related_tests "$pkg")
   (
     cd "$pkg" || exit 1
     dart format --set-exit-if-changed . || exit 1
     if [ "$is_flutter" = "1" ]; then
       flutter analyze --no-fatal-infos || exit 1
-      flutter test || exit 1
+      runner="flutter test"
     else
       dart analyze || exit 1
-      dart test || exit 1
+      runner="dart test"
     fi
+    case "$tests" in
+      ALL) echo "טסטים: כל החבילה"; $runner || exit 1 ;;
+      "") echo "טסטים: אין טסט קשור לשינוי" ;;
+      *) echo "טסטים: $(echo $tests)"; $runner $tests || exit 1 ;;
+    esac
   )
   [ $? -ne 0 ] && fail=1
 done
